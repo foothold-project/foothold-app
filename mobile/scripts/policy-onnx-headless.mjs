@@ -118,11 +118,13 @@ try {
       await p.close();
     }
     if (manualOnly) continue;
-    for (const failure of ['model', 'runtime', 'wasm', 'hash', 'first', 'run']) {
+    for (const failure of ['model', 'html', 'runtime', 'wasm', 'hash', 'first', 'run']) {
       console.log(`${id} fallback ${failure}`);
       const p = await open(id, 'wasm', async (p) => {
         const block = (path, status, body) => p.route('**/' + path, (r) => r.fulfill({ status, body }));
         if (failure === 'model') await block(model, 404, 'missing');
+        if (failure === 'html') await p.route('**/' + model, (r) => r.fulfill({ status: 200,
+          contentType: 'text/html; charset=utf-8', body: '<!doctype html><html><title>SPA fallback</title></html>' }));
         if (failure === 'runtime') await block('ort.wasm.min.mjs', 404, 'missing');
         if (failure === 'wasm') await block('ort-wasm-simd-threaded.wasm', 404, 'missing');
         if (failure === 'hash') await block(model, 200, 'bad model');
@@ -133,22 +135,23 @@ try {
       if (failure === 'run') await p.evaluate(async () => { const ort = await import('./ort/ort.wasm.min.mjs'); ort.InferenceSession.prototype.run = async () => { throw Error('injected run failure'); }; });
       await p.click('#go'); await p.waitForFunction(() => __sim.sim.t > .08);
       assert.match(await p.locator('#policyEngine').textContent(), /기본 계산 사용/);
+      if (failure === 'html') assert.match(await p.locator('#policyEngine').textContent(), /기본 계산 사용: ONNX 파일 없음 \(f32 JS\)/);
       assert.ok(await p.locator('#policyEngine').isVisible());
       if (failure === 'first') assert.match(await p.locator('#policyEngine').textContent(), /injected first inference failure/);
       assert.equal(await p.evaluate(() => __sim.sim.adapterId), id);
-      if (failure === 'model' && id === 'foothold-v2') {
+      if (['model', 'html'].includes(failure) && id === 'foothold-v2') {
         await p.keyboard.down('KeyW');
         const start = await p.evaluate(() => Array.from(__sim.sim.d.qpos.slice(0, 2)));
         const time = await p.evaluate(() => __sim.sim.t);
         await p.waitForFunction((t) => __sim.sim.t > t + 1, time);
         const end = await p.evaluate(() => Array.from(__sim.sim.d.qpos.slice(0, 2)));
         assert.ok(Math.hypot(end[0] - start[0], end[1] - start[1]) > .05, 'default f32 moves when ONNX absent');
-        await p.screenshot({ path: 'runs/policy-onnx/f32-missing-model.png' });
+        await p.screenshot({ path: `runs/policy-onnx/f32-missing-${failure}.png` });
       }
       await p.close();
     }
     const f32 = await open(id, 'f32'); assert.match(await f32.locator('#policyEngine').textContent(), /f32 JS/); await f32.close();
   }
   assert.deepEqual(pageErrors, []);
-  console.log(manualOnly ? 'Policy ONNX manual takeover PASS: both adapters, active goal cancelled without lock, hand input retained, late action discarded' : 'Policy ONNX headless PASS: both policies, WASM, one inference, STOP/blur/hidden/pagehide/reset/manual stale discard, file/runtime/wasm/SHA/first/run fallback, visible badge, same adapter and default f32 motion');
+  console.log(manualOnly ? 'Policy ONNX manual takeover PASS: both adapters, active goal cancelled without lock, hand input retained, late action discarded' : 'Policy ONNX headless PASS: both policies, WASM, one inference, STOP/blur/hidden/pagehide/reset/manual stale discard, file/200-HTML/runtime/wasm/SHA/first/run fallback, visible badge, same adapter and default f32 motion');
 } finally { await browser?.close(); await new Promise((r) => server.close(r)); }

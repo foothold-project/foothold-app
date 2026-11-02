@@ -364,6 +364,8 @@ WebGPU asyncify 자산은 `FH_AME2_WEBGPU=1`일 때만 추가한다. `.mjs`는 J
    `onnx: {file, sha256, inputs: [{name,dims}], outputs: [{name,dims,type?}], action}`을 선언한다.
    입력 순서는 `policy(observations, mapping)` 인자 순서이고 type 기본값은 float32다.
    예: foothold-v2 `observation[1,235]` → `action[1,12]`. AME-2의 별도 두 입력도 같은 실행기로 처리한다.
+   정책 메뉴에도 `index.html`의 option을 추가하고 `main.js`의 선택·가중치 가용성 처리에 연결한다.
+   현재 AME-2 처리는 `options[1]` 고정이므로 새 항목이 기존 비활성화/선택 처리를 잘못 받지 않는지 확인한다.
 2. **ONNX 내보내기**: 출처·원본 SHA를 먼저 확인하고 고정 B=1·FP32·샘플링 없는
    deterministic actor mean을 만든다. 검증된 숫자 자료만 읽고 checker로 검사한다.
    `policy_v2_onnx.py`는 기존 NPZ 판독기를 재사용하며 pickle/체크포인트를 실행하지 않는다.
@@ -389,7 +391,9 @@ foothold-v2와 후속 모델의 ONNX 위치는 `FH_POLICY_ONNX_SRC`(기본 `FH_S
 궤적 수치만 기록하며 보행 성공은 사용자 판단으로 남긴다.
 
 **dev merge는 서버 자동배포를 실행한다.** 서버에 ONNX 파일이 없으면 기본 foothold-v2도
-«기본 계산 사용: ONNX 파일 없음 (404) (f32 JS)»를 표시하고 기존 기본 시뮬을 실행한다.
+«기본 계산 사용: ONNX 파일 없음 (f32 JS)»를 표시하고 기존 기본 시뮬을 실행한다.
+서버의 SPA fallback은 없는 파일에 HTTP 200 `text/html`을 줄 수 있으며, 이를 모델 부재로 처리한다.
+HTTP 404로 응답하는 호스트에서는 같은 이유에 `(404)`를 덧붙인다.
 서버 자산 제공은 `deploy/prepare_sim.py`에 파일·SHA·ORT 복사를 연결하는 별도 후속 작업이다.
 검증 수치는 [foothold-v2 ONNX 출처](../POLICY-PROVENANCE.md#fp32-onnx-시뮬-추론-2026-11-02)와
 [AME-2 출처](../AME2-PROVENANCE.md)를 따른다. 이번 변경은 실기 입력/정책 배포에 적용하지 않는다.
@@ -406,3 +410,4 @@ foothold-v2와 후속 모델의 ONNX 위치는 `FH_POLICY_ONNX_SRC`(기본 `FH_S
 | 0.6 | 2026-10-29 | AME-2 시연 어댑터·순전파 대조·관측/모터/조종·관절 순서 가정·회귀 범위 기록 |
 | 0.7 | 2026-11-02 | AME-2 FP32 ONNX·WASM 기본/JS 되돌림·비동기 취소·시뮬 전용 검증 범위 (§9.5) |
 | 0.8 | 2026-11-02 | foothold-v2 FP32 ONNX, 어댑터 선언 기반 공통 실행기·기본 계산 배지, 새 모델 추가 절차 (§10) |
+| 0.9 | 2026-11-02 | PR #227 r1: 200 HTML SPA 응답을 ONNX 부재로 표시, 새 모델 메뉴 연결 절차 추가 |

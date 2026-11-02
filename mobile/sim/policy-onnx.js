@@ -58,6 +58,8 @@ export async function selectOnnxPolicy(adapter, f32, { backend = 'wasm', notify 
     // Fetch first so an unbundled model has a clear reason even without ORT.
     const response = await fetchModel(new URL(adapter.onnx.file, import.meta.url));
     if (!response.ok) throw new Error(`ONNX 파일 없음 (${response.status})`);
+    // SPA hosts may return index.html with HTTP 200 for an absent model.
+    if (/^text\/html(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '')) throw new Error('ONNX 파일 없음');
     const data = await response.arrayBuffer();
     if (await digest(data) !== adapter.onnx.sha256) throw new Error('ONNX SHA-256 불일치');
     let ort;

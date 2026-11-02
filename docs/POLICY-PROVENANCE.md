@@ -154,7 +154,9 @@ ONNX full checker를 통과했다. 관측 235·MLP 512/256/128·행동 12·scale
 
 ONNX 파일 없음·SHA 불일치·런타임/세션/첫 추론/실행 실패는 같은 어댑터의 f32로
 전환하고 화면 아래와 메뉴에 이유를 계속 표시한다. 예:
-**«foothold-v2 · 기본 계산 사용: ONNX 파일 없음 (404) (f32 JS) · 시뮬 전용»**.
+**«foothold-v2 · 기본 계산 사용: ONNX 파일 없음 (f32 JS) · 시뮬 전용»**.
+서버는 없는 ONNX 파일에도 SPA fallback으로 HTTP 200 `text/html`을 줄 수 있으므로,
+이 응답은 SHA 검사 전에 모델 부재로 처리한다. HTTP 404 호스트는 이유에 `(404)`도 표시한다.
 다른 정책으로 조용히 바꾸지 않는다. AME-2 f32 자체가 없을 때의 기존 선택 비활성화는 유지한다.
 STOP·blur·hidden·pagehide·reset과 손 조종은 generation을 바꿔 대기 중 결과를 버린다.
 동시 추론은 하나이며 대기 중 프레임 시간 빚은 버린다. foothold-v2는 잠금 뒤에도
@@ -272,3 +274,12 @@ Capacitor 의존성은 기존 설치를 재사용/로컬 복사했고 전체 mob
 if (cd mobile && node node_modules/@capacitor/cli/bin/capacitor sync android); then :; else exit 1; fi
 if (cd mobile/android && ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=-Xmx512m testDevUnitTest assembleDev); then :; else exit 1; fi
 ```
+
+### PR #227 검토 r1: SPA의 HTTP 200 HTML 응답
+
+없는 모델에 `text/html; charset=utf-8`·HTTP 200을 주는 응답은 SHA 검사 전에
+«ONNX 파일 없음»으로 처리한다. headless fixture로 두 정책의 이 응답·배지·동일 어댑터
+f32 전환을 확인하고, foothold-v2의 명령 반응/이동도 확인했다. `policy-onnx-headless.mjs --ui-only`
+전체(기존 수명주기·7종 실패 전환·명시적 f32 포함), `start-selftest.mjs`, 변경 JS 구문 검사를
+재실행해 통과했다. ONNX/가중치/수치 계산은 바꾸지 않았고 parity·APK 빌드는 이 수정에서
+반복하지 않았다. 실제 Caddy/원격 서버·운영 포트·실폰은 접촉하지 않았다.
