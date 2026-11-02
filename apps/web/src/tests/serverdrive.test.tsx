@@ -15,7 +15,7 @@ import { toRobot } from '../fake';
 
 let root: Root | null = null, box: HTMLDivElement, w: FakeWS, st: Record<string, ScreenState> = {};
 const PARK = { id: 'u-park', name: '박OO' };
-const ON = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true } : r));
+const ON = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true, approvalUntil: new Date(Date.now() + 30 * 60_000).toISOString() } : r));
 function mount(user: string, robots: Robot[] = ON) {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = '#/fleet';

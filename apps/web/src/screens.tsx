@@ -184,12 +184,16 @@ function Detail(c: Ctx) {
       c.refresh();
     });
   }, []);
+  // 조종 허용은 첫 GET(got)이 아니라 목록(c.robot — 승인·해제 뒤 refresh, 운영 10초 갱신) 값 + 현장 승인 만료(서버 robots.py: 허용 = 켜짐 && 승인 유효)
+  const [, wake] = useState(0), until = c.robot.approvalUntil ? Date.parse(c.robot.approvalUntil) : 0;
+  useEffect(() => { const ms = until - Date.now(); if (ms <= 0) return; const t = setTimeout(() => wake((n) => n + 1), ms + 50); return () => clearTimeout(t); }, [until]);
+  const drive = !!c.robot.serverDrive && until > Date.now();
   const r = got ? withLive(toRobot(got)) : c.robot, hidden = r.unknown === 'summary', own = !r.sim && c.user.role !== 'ORG_ADMIN' && c.robot.owner === c.user.id;
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
   return <section className="lv-card" style={{ flexBasis: 360 }} aria-label="로봇 상세">
     <div className="fh-row"><h2>{r.name}</h2><Chip {...robotStatus(r)} /></div>
     {/* 서버가 켠 실기 시험 로봇만, PC 웹·담당 운영자만(총괄·남의 로봇·앱은 보기만) */}
-    {r.serverDrive && !r.sim && !c.phone && !inApp() && !adminReal(c.user, r) && c.robot.owner === c.user.id && <ServerDrive c={c} r={r} />}
+    {drive && !r.sim && !c.phone && !inApp() && !adminReal(c.user, r) && c.robot.owner === c.user.id && <ServerDrive c={c} r={r} />}
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     <Line k="연결"><span>{linkText(r)}</span></Line>
     {!r.sim && <Line k="현장 승인"><Approval r={c.robot} /></Line>}
@@ -208,9 +212,10 @@ function Detail(c: Ctx) {
       : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
           <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} />{codeText(v)}</li>)}</ul>}</Line>
     {(c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />}
-    <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
+    {/* 총괄은 실기에 배정하지 않는다(로봇 탭 읽기 전용 — 시뮬은 유지) */}
+    {!adminReal(c.user, r) && <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
       onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } assignFor.robot = c.robot.id; c.go('mission'); }}>배정</button>
-      {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>
+      {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </section>;
 }

@@ -295,3 +295,54 @@ describe('PC 웹 운영 관리자', () => {
     expect($('[aria-label="로봇 목록"]')).not.toBeNull();
   });
 });
+
+describe('r1 — PC 서버 경유 조종 패널은 목록 최신 허용 값 + 현장 승인 만료를 따른다(첫 GET 고정 아님)', () => {
+  const ON = (until: string) => ({ ...RA, server_drive_allowed: true, field_approval_expires_at: until });
+  const panel = () => $('[data-server-drive]');
+  it('승인 전 진입 → 세 항목 승인 POST → 목록이 허용 true 를 주면 패널과 «조종 시작»이 생긴다', async () => {
+    const until = inMin(30);
+    serve(signedIn(LEE, [RA], { 'POST /robots/r-a/field-approval': { status: 200, body: { expires_at: until } } }));
+    await open('#/fleet', false);
+    online();
+    expect(panel()).toBeNull();
+    const g = card('현장 안전 확인');
+    act(() => g.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((b) => b.click()));
+    routes['GET /robots'] = { status: 200, body: { items: [ON(until)], next_cursor: null } };
+    await submit(g.querySelector('form')!);
+    expect(panel()).not.toBeNull();
+    expect(panel()!.textContent).toContain('조종 시작');
+  });
+
+  it('승인 상태 진입 → 해제 DELETE → 목록이 허용 false 를 주면 패널과 «조종 시작»이 닫힌다', async () => {
+    serve(signedIn(LEE, [ON(inMin(30))], { 'DELETE /robots/r-a/field-approval': { status: 204 } }));
+    await open('#/fleet', false);
+    online();
+    expect(panel()!.textContent).toContain('조종 시작');
+    routes['GET /robots'] = { status: 200, body: { items: [RA], next_cursor: null } };
+    await click(btn('해제', card('현장 안전 확인')));
+    expect(sent('DELETE', '/robots/r-a/field-approval')).toHaveLength(1);
+    expect(panel()).toBeNull();
+    expect(btn('조종 시작')).toBeUndefined();
+  });
+
+  it('목록을 다시 받기 전이라도 현장 승인이 만료되면 패널을 닫는다', async () => {
+    serve(signedIn(LEE, [ON(new Date(Date.now() + 400).toISOString())]));
+    await open('#/fleet', false);
+    online();
+    expect(panel()).not.toBeNull();
+    await act(async () => { await new Promise((r) => setTimeout(r, 600)); });
+    expect(panel()).toBeNull();
+    expect($('[aria-label="로봇 상세"] [data-approval]')!.textContent).toContain('현장 확인 다시 필요');
+  });
+});
+
+describe('r1 — 총괄 실기 상세에는 «배정» 없음(시뮬은 유지)', () => {
+  it('실기 상세 «배정» 숨김, 시뮬 상세는 그대로', async () => {
+    const SIM = robot('s-1', '창고 시뮬', LEE, { simulation: true });
+    serve(signedIn(KIM, [RA, SIM]));
+    await open('#/fleet', false);
+    expect($('[aria-label="로봇 상세"] [data-assign-robot]')).toBeNull();
+    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('창고 시뮬')));
+    expect($('[aria-label="로봇 상세"] [data-assign-robot]')).not.toBeNull();
+  });
+});
