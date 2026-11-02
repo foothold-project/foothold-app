@@ -653,6 +653,19 @@
           "title": "Devices",
           "type": "array"
         },
+        "field_approval_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Approval Expires At"
+        },
         "id": {
           "format": "uuid",
           "title": "Id",
@@ -719,6 +732,18 @@
             }
           ],
           "default": null
+        },
+        "robot_serial": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Robot Serial"
         },
         "server_drive_allowed": {
           "default": false,

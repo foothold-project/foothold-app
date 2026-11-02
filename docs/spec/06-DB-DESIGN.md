@@ -127,10 +127,12 @@ erDiagram
 | 열 | 형 | 설명 |
 |---|---|---|
 | id | uuid PK | |
-| name | text | `UNIQUE(org_id, name)` |
+| name | text | 활성 행만 `UNIQUE(org_id, name)` 부분 색인 |
 | model | text | `unitree_go2` 등 |
 | owner_user_id | uuid FK NULL | 담당 운영 관리자 1명 (PRD Q4) |
-| agent_token_hash | bytea NOT NULL | 에이전트 토큰 sha256. 총괄의 재발급([05 §3](05-API-SPEC.md#3-로봇))이 덮어쓰면 옛 토큰은 바로 무효 |
+| agent_token_hash | bytea NOT NULL | 에이전트 토큰 sha256. 실기는 담당 운영의 페어링으로 발급, 연결 끊기·삭제 시 폐기 |
+| serial | text NULL | DDS 기체번호. 활성 행의 null 아닌 serial에 전역 UNIQUE 부분 색인. 기존 로봇은 null 유지 |
+| field_approval_expires_at | timestamptz NULL | 담당 운영이 확인한30분 현장 승인. 만료·해제·담당 넘기기·연결 끊기는 해제 |
 | last_floor_id | uuid NULL | 마지막 확인 층. FK 는 `floors` 표를 만들 때 추가 |
 | last_floor_source | text | `HUMAN` / `AUTO` |
 | last_seen_at | timestamptz | |
@@ -146,6 +148,24 @@ erDiagram
 | state | text | `OK` / `MISSING` / `ERROR` |
 | info | jsonb | 모델명·펌웨어 등 |
 | updated_at | timestamptz | |
+
+**pairings** (이관0022, 단기 자격 전달)
+
+| 열 | 형 | 설명 |
+|---|---|---|
+| id, org_id | uuid PK / FK | 서버 조직에 바인딩 |
+| code_hash | bytea UNIQUE | 6자리 코드 SHA-256, 원문 저장 없음 |
+| poll_hash | bytea | 32바이트 무작위 poll_secret의 SHA-256, 상수 시간 비교 |
+| token_hash | bytea | confirm 때 활성화할 에이전트 자격 SHA-256 |
+| token_ciphertext | bytea NULL | nonce + AES-GCM 암호문. 암호 키는 poll_secret의 별도 도메인 해시이며 DB의 poll_hash와 다름. poll 후 삭제 |
+| robot_serial | text | confirm 전 기체번호 |
+| expires_at | timestamptz | start 이후10분, 다음 start 때 만료 행 삭제 |
+| claimed_by, robot_id | uuid NULL | 같은 조직 사용자·로봇의 복합 FK, 행 잠금으로 claim·confirm·poll 직렬화 |
+| consumed | bool | 자격을 한 번만 전달했는지 |
+
+**pairing_rates**: `(org_id,key_hash,window_start)` 복합 PK, `count integer`. 실제 연결 IP·사용자별 start/claim 시도를10분 창으로 집계한다. 원래 식별값은 저장하지 않고 실패 응답 전에도 카운터를 commit한다. 앱 DB 계정에 두 표의 SELECT/INSERT/UPDATE/DELETE, 읽기 계정에 SELECT만 부여한다. 로봇 승인 사건은 기존 append-only events를 쓴다.
+
+0022 downgrade는 단기 페어링·승인 정보만 없애고 기존 로봇·에이전트 토큰 해시는 보존한다. 이전 서버는 현장 승인 관문을 알지 못하므로 배포 담당은 되돌리기 전에 전체 실기 조종 스위치를 닫고 기존 목록 설정도 비워야 한다. Git revert만으로 운영 이관·설정이 바뀌지는 않는다.
 
 ### 3.3 장소·지도
 

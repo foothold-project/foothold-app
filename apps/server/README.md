@@ -1065,3 +1065,33 @@ PNG SHA·좌표·크기·월드/층을 대조하여 `map_proofs`를 준다. HUMA
 거부/복구 원본은 보존해야 한다. 거부 이력이 남은 `0019` downgrade는 의도적으로
 거부하며, 기존 `0018`도 실행이 남으면 downgrade를 거부한다. 복구는 권한 있는 운영자의
 감사 가능한 자료 대조/정리 후 명시적으로 진행한다. 자동 격리 해제 API/UI는 제공하지 않는다.
+
+## 실기 페어링과 현장 승인 (0022)
+
+실기 신규 등록은 운영자의 pairing start → claim → confirm → 프로그램 poll로 한다.
+총괄의 실기 등록·수정·삭제·토큰 발급은403이며, 시뮬 관리와 기존 폰 출입증은 유지한다.
+계약·필수 안전 확인 id·오류·속도 제한은 [API §3.1](../../docs/spec/05-API-SPEC.md#31-운영자의-실기-페어링현장-안전-확인-2026-11-02)을 따른다.
+
+서버 경유 실기 수동 조종에는 전체 스위치와 담당 운영자의30분 현장 승인이 모두 필요하다.
+`FH_SERVER_DRIVE_ENABLED=1`은 전체 스위치를 켠다. 이 env가 없을 때만 기존
+`FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 읽으며, 명시0은 목록보다 우선해 닫는다.
+wildcard는 거부한다. 승인 만료·해제·넘기기·연결 끊기는 STOP·잠금·조종권 회수로
+이어지고 재승인·재연결은 조종을 재개하지 않는다. 총괄의 `ADMIN_NO_REAL_CONTROL`은 유지한다.
+
+격리 PostgreSQL·가짜 WS 검증과 변이 시험:
+
+```sh
+python -m pytest -q apps/server/tests/test_pairing.py apps/server/tests/test_server_drive.py apps/server/tests/test_migrations.py
+if python -m pytest -q apps/server apps/contracts/tests; then
+  python apps/server/tools/check_pairing_mutations.py
+fi
+python sim/v2_link.py --selftest
+python apps/contracts/generate.py --check
+npm run typecheck --prefix apps/contracts
+```
+
+배포 담당이 할 일: 먼저 서버·연결 프로그램 호환을 확인하고0022를 정식 이관한다.
+기존 로봇·토큰은 이관으로 바뀌지 않는다. 필요한 전체 스위치 설정과 재시작은 승인된
+배포 절차에서 별도로 한다. 되돌릴 때는 먼저 새 스위치와 기존 UUID 목록을 모두 닫아
+이전 서버가 현장 승인 없이 조종을 열지 않게 하고, DB 되돌림과 서버 교체를 함께 검토한다.
+이 작업의 시험은 실기·Gazebo·운영 서버 접촉이나 배포를 포함하지 않는다.

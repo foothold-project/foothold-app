@@ -13,6 +13,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from apps.contracts import models as C
 from apps.server.fh_server.api import APIError
+from apps.server.fh_server.security import digest
 from apps.server.fh_server.leases import Actor
 from apps.server.fh_server.models import Robot, now
 from apps.server.fh_server.realtime import Peer, Policy
@@ -207,9 +208,11 @@ def test_robot_list_and_dashboard_queries_do_not_grow_with_fleet(client, seeded,
         return len(statements), sum('FROM robot_devices' in s for s in statements)
     try:
         before = {p:count(p) for p in ('/robots?scope=all','/dashboard')}
-        for n in range(10):
-            assert client.post(P+'/robots', headers=admin, json=dict(name=f'batch-{n}',
-                owner_user_id=str(seeded['users']['one']))).status_code==201
+        with Session(client.app.state.engine) as db:
+            for n in range(10):
+                db.add(Robot(org_id=seeded['org'], name=f'batch-{n}', model='unitree_go2',
+                    owner_user_id=seeded['users']['one'], agent_token_hash=digest(f'fake-batch-{n}')))
+            db.commit()
         after = {p:count(p) for p in before}
         assert before==after
         assert all(devices==1 for _, devices in after.values())
@@ -272,8 +275,8 @@ def test_hello_revalidates_token_and_pending_robot_change(client, seeded, rt, mo
         ag.send_json(hello())
         assert gate.wait(1)
         if change=='token':
-            admin=app_token(client,'admin')
-            assert client.post(P+'/robots/'+rid+'/agent-token',headers=admin).status_code==200
+            owner=app_token(client)
+            assert client.delete(P+'/robots/'+rid+'/connection',headers=owner).status_code==204
         elif change=='deleting':
             client.portal.call(rt.deleted_robots.add,rid)
         else:

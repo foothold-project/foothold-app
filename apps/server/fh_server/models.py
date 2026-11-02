@@ -82,6 +82,8 @@ class Robot(Tenant, Base):
         ForeignKeyConstraint(['org_id', 'owner_user_id'], ['users.org_id', 'users.id']),
         Index('robots_active_org_name', 'org_id', 'name', unique=True,
               postgresql_where=text('archived_at IS NULL')),
+        Index('robots_active_serial', 'serial', unique=True,
+              postgresql_where=text('archived_at IS NULL AND serial IS NOT NULL')),
         UniqueConstraint('org_id', 'id'),
         ForeignKeyConstraint(['org_id', 'last_floor_id'], ['floors.org_id', 'floors.id'], name='robots_last_floor_fk'),
         CheckConstraint("last_floor_source IN ('HUMAN','AUTO')", name='floor_source'),
@@ -89,6 +91,8 @@ class Robot(Tenant, Base):
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(Text)
+    serial: Mapped[str | None] = mapped_column(Text)
+    field_approval_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     owner_user_id: Mapped[UUID | None] = mapped_column(PGUUID)
     agent_token_hash: Mapped[bytes] = mapped_column(LargeBinary)
     # Floor FK is added in 0009; run/approval FKs follow their owned tables.
@@ -97,6 +101,35 @@ class Robot(Tenant, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Pairing(Tenant, Base):
+    __tablename__ = 'pairings'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'claimed_by'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        UniqueConstraint('code_hash'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    code_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    poll_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    token_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    robot_serial: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    claimed_by: Mapped[UUID | None] = mapped_column(PGUUID)
+    robot_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class PairingRate(Tenant, Base):
+    __tablename__ = 'pairing_rates'
+    __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']),)
+    key_hash: Mapped[bytes] = mapped_column(LargeBinary, primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer)
+    org_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
 
 
 class Event(Tenant, Base):

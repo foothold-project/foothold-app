@@ -249,7 +249,7 @@ class Realtime:
             authorize(user, permission, robot)
             if (robot is not None and permission in ('O_OWN', 'ROBOT_STOP')
                     and robot.simulation is not True
-                    and robot.id not in settings.server_drive_robots):
+                    and not settings.drive_enabled(robot.id)):
                 raise api_error(403, 'PHONE_DIRECT_REQUIRED', '실기 조종·STOP은 현장 폰에서 직접 하세요.')
         self.authorize, self.api_error, self.clock = relay_authorize, api_error, clock
         self.last_state_received = {}
@@ -258,6 +258,8 @@ class Realtime:
         self.agents: dict[str, Peer] = {}
         self.robot_changes = set()
         self.robot_changed_at = {}
+        self.field_approvals = {}
+        self.field_changed_at = {}
         self.deleted_robots = set()
         self.deleted_at = {}
         self.runs: dict[str, dict] = {}  # executor persistence is a later task
@@ -701,7 +703,8 @@ class Realtime:
                 Session.id.in_([UUID(a.session) for a in actors]), User.org_id == self.settings.org_id,
                 Session.org_id == self.settings.org_id)).all()
             robots = db.execute(select(Robot.id, Robot.org_id, Robot.archived_at,
-                Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation).where(Robot.org_id == self.settings.org_id,
+                Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation,
+                Robot.field_approval_expires_at).where(Robot.org_id == self.settings.org_id,
                                                      Robot.archived_at.is_(None))).all()
             rows = {str(row.session_id): row for row in rows}
             result = PolicyBatch()
@@ -847,6 +850,28 @@ class Realtime:
     def end_robot_change(self, rid):
         self.robot_changes.discard(rid)
 
+    def field_approved(self, rid):
+        expiry = self.field_approvals.get(rid)
+        return expiry is not None and expiry > now()
+
+    def set_field_approval(self, rid, expiry, *, observed=None):
+        # A SQL snapshot started before a local revoke cannot restore approval.
+        if observed is not None and observed < self.field_changed_at.get(rid, float('-inf')):
+            return
+        if observed is None:
+            self.field_changed_at[rid] = self.clock()
+        if expiry is not None and expiry <= now():
+            expiry = None
+        previous = self.field_approvals.get(rid)
+        self.field_approvals[rid] = expiry
+        if expiry is None:
+            record = self.arbiter.robots.get(rid)
+            if record and (previous is not None or record.holder or record.transfer or record.request):
+                self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+        agent = self.agents.get(rid)
+        if agent is not None and not agent.simulation and (previous != expiry or observed is None):
+            self.put(agent, C.AgentFieldApproval(expires_at=expiry).model_dump(mode='json'))
+
     def revoke_robot_control(self, peer, rid):
         # Losing motion authority does not imply losing ROBOT_READ.
         r = self.arbiter.robots.get(rid)
@@ -936,6 +961,11 @@ class Realtime:
                 raise self.api_error(404 if permission != 'O_OWN' else 403,
                                      'NOT_FOUND' if permission != 'O_OWN' else 'NOT_ROBOT_OWNER',
                                      '로봇 접근 권한이 없습니다.')
+            agent = self.agents.get(rid)
+            if (permission == 'O_OWN' and agent is not None and not agent.simulation
+                    and not self.field_approved(rid)):
+                self.set_field_approval(rid, None)
+                raise self.api_error(403, 'FIELD_APPROVAL_REQUIRED', '담당 운영자의 현장 안전 확인이 필요합니다.')
         return policy.settings
 
     def revoke_actor(self, actor):
@@ -1187,6 +1217,12 @@ class Realtime:
         self.apply(safety + records)
 
     def blocked_agent_control(self, peer, body):
+        rid = next((key for key, value in self.agents.items() if value is peer), None)
+        motion = (body.get('t') in ('cmd', 'unlock') or
+                  (body.get('t') == 'lease' and body.get('lease_id') is not None))
+        if (peer.actor is None and not peer.simulation and motion
+                and (rid in self.robot_changes or not self.field_approved(rid))):
+            return True
         # Trial authority is manual driving only; never unlock mission/map paths.
         return (peer.actor is None and not peer.simulation and body.get('t') in (
                 'lease', 'cmd', 'unlock', 'stop', 'run.start', 'run.control',
@@ -1195,9 +1231,13 @@ class Realtime:
                 (body.get('t') == 'lease' and body.get('holder_type') not in (None, 'USER'))))
 
     async def send_body(self, peer, body, delivery=None):
-        if self.blocked_agent_control(peer, body):
-            return False
         async with peer.send_lock:
+            if self.blocked_agent_control(peer, body):
+                return False
+            if body.get('t') == 'field_approval':
+                rid = next((key for key, value in self.agents.items() if value is peer), None)
+                body = C.AgentFieldApproval(expires_at=(self.field_approvals.get(rid)
+                    if self.field_approved(rid) else None)).model_dump(mode='json')
             if delivery is not None:
                 rid, epoch = delivery
                 if rid in peer.revoked_robots or epoch != peer.delivery_epochs.get(rid, 0):
@@ -1546,9 +1586,11 @@ class Realtime:
     def verify_agents(self, peers, robots):
         result = AgentBatch()
         result.simulations = {}
+        result.field_approvals = {}
         for rid, peer in peers:
             robot = robots.get(rid)
             result.simulations[rid] = (robot is not None and robot.simulation is True, peer)
+            result.field_approvals[rid] = (getattr(robot, 'field_approval_expires_at', None), peer)
             raw = peer.socket.headers.get('authorization', '')
             if robot and hmac.compare_digest(robot.agent_token_hash or b'\x00' * 32, digest(raw[7:])):
                 result[rid] = (rid, peer)
@@ -1560,7 +1602,8 @@ class Realtime:
         peers = list(self.agents.items())
         with self.agent_factory() as db:
             robots = {str(r.id): r for r in db.execute(select(Robot.id, Robot.org_id,
-                Robot.archived_at, Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation, Robot.sim_generation).where(
+                Robot.archived_at, Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation, Robot.sim_generation,
+                Robot.field_approval_expires_at).where(
                 Robot.id.in_([UUID(rid) for rid, _ in peers]), Robot.org_id == self.settings.org_id,
                 Robot.archived_at.is_(None)))}
             batch = self.verify_agents(peers, robots)
@@ -1629,6 +1672,9 @@ class Realtime:
                 if identity != rid:
                     raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
                 peer.auth_checked = max(peer.auth_checked, started)
+                approval = getattr(batch, 'field_approvals', {}).get(rid)
+                if approval is not None and approval[1] is peer and not peer.simulation:
+                    self.set_field_approval(rid, approval[0], observed=started)
                 if self.clock() - peer.auth_checked > .5:
                     raise asyncio.TimeoutError()
                 peer.stale_revoked = False
@@ -1854,7 +1900,7 @@ class Realtime:
             # token before publishing a connected peer or granting authority.
             auth_started = self.clock()
             _, peer.simulation = await self.read(self.agent_auth, ws.headers)
-            peer.server_drive = UUID(rid) in self.settings.server_drive_robots
+            peer.server_drive = self.settings.drive_enabled(rid)
             peer.auth_checked = auth_started
             if rid in self.deleted_robots:
                 await ws.close(code=4403)
@@ -1870,6 +1916,11 @@ class Realtime:
             # old socket's finally runs after this peer has replaced it.
             self.inventory.forget(rid)
             self.agents[rid] = peer
+            # An explicit initial null makes reconnect fail closed until the
+            # bounded agent-auth watcher loads the persisted field approval.
+            self.field_approvals.pop(rid, None)
+            if not peer.simulation:
+                self.put(peer, C.AgentFieldApproval(expires_at=None).model_dump(mode='json'))
             self.inventory.submit(rid, [d.model_dump(mode='json') for d in hello.devices],
                 hello.robot_model, digest(ws.headers.get('authorization', '')[7:]))
             r = self.arbiter.robot(rid)
@@ -2107,6 +2158,8 @@ class Realtime:
                     peer.last_ping = at
                     self.put(peer, C.ScreenServerPing(t_server=now()).model_dump(mode='json'))
             for rid, peer in list(self.agents.items()):
+                if self.field_approvals.get(rid) is not None and not self.field_approved(rid):
+                    self.set_field_approval(rid, None)
                 if at - peer.last_rx >= 3 and not peer.closing and not peer.audit_waiting:
                     peer.closing = True
                     self.apply(self.arbiter.revoke(rid, op='EXPIRE'))

@@ -1,0 +1,17 @@
+{
+  "$id": "fh-app/1/FieldApproval",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "expires_at"
+  ],
+  "title": "FieldApproval",
+  "type": "object"
+}

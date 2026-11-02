@@ -1,5 +1,6 @@
 """Robot-scoped opt-in reuses the existing arbiter and authenticated WS."""
 from uuid import UUID, uuid4
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as DBSession
 
 from apps.server.fh_server.api import Settings, create_app
-from apps.server.fh_server.models import Robot
+from apps.server.fh_server.models import Robot, now
 from apps.server.fh_server.security import digest
 from .test_realtime import app_token, hello, receive, reply, screen, send, state, take, agent, rt
 
@@ -19,6 +20,7 @@ def trial(seeded):
         for rid in seeded['robots'].values():
             row = db.get(Robot, rid)
             row.simulation = False
+            row.field_approval_expires_at = now() + timedelta(minutes=30)
             row.agent_token_hash = digest('fake-test-' + str(rid))
         db.commit()
     engine.dispose()
