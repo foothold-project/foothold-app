@@ -8,6 +8,7 @@ import { now, rt } from '../rt';
 import { Root } from '../session';
 import { ROBOT_BUSY, ROBOT_GONE } from '../screens/settings';
 import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
+import { fleetNames, fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -80,7 +81,7 @@ const kpi = () => Object.fromEntries([...card('요약').querySelectorAll('div')]
 const line = (k: string) => [...card('로봇 상세').querySelectorAll('.fh-row')].find((d) => d.firstElementChild?.textContent === k)!.lastElementChild!.textContent;
 /** 총괄 서랍 열기 — 고른 행을 다시 누름 */
 const drawer = () => click(card('로봇 목록').querySelector('button[aria-pressed="true"]'));
-const row = (name: string) => [...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes(name))!;
+const row = (name: string) => fleetRow(box, name);
 const subs = (w: FakeWS) => w.of('sub').map((m) => m.robots);
 const stopOk = () => { const s = $<HTMLButtonElement>('[data-stop]')!; expect(s).not.toBeNull(); expect(s.disabled).toBe(false); expect(s.hidden).toBe(false); };
 
@@ -124,10 +125,11 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
     expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
   });
-  it('운영 관리자: 서버가 센 담당 범위(내 로봇·내 요청), 운영 관리자 표 없음, 목록은 전체', async () => {
+  it('운영 관리자: 요약 수치·운영 관리자 표 없이 내 로봇 한 대 집중, 남의 로봇은 «다른 로봇» 접기(ROBOT-TAB 11-02)', async () => {
     serve(signedIn(LEE, [RA, RB_HIDDEN], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 1, robots_attention: 0, operators: [] } } }));
     await open('#/fleet');
-    expect(kpi()).toEqual({ '내 로봇': '1', 연결: '1', '임무 중': '0', '주의 필요': '0', '내 요청': '0' });
+    expect($('[aria-label="요약"]')).toBeNull();
+    expect(card('다른 로봇').querySelector('summary')!.textContent).toContain('다른 로봇 1대');
     expect($('[aria-label="운영 관리자"]')).toBeNull();
     expect(row('Go2-B').textContent).toContain('박운영 · 보는 중');
   });
@@ -152,7 +154,8 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     act(() => root!.unmount()); box.remove();
     serve(signedIn(LEE, [], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 0, robots_online: 0, robots_attention: 0, operators: [] } } }));
     await open('#/fleet');
-    expect(kpi()['내 로봇']).toBe('0');
+    expect($('[aria-label="요약"]')).toBeNull();
+    expect(card('로봇 없음').textContent).toContain('담당 로봇이 없습니다');
     expect($('[aria-label="운영 관리자"]')).toBeNull();
   });
   it('요약을 10 s 마다 다시 받는다(화면 WS 에 요약 없음)', async () => {
@@ -398,12 +401,13 @@ describe('sub 404(apps/server README «S0» — 등록·담당 변경 직후 서
     await flush();
     expect(subs(w)).toEqual([['r-a'], ['r-a', 'r-b'], ['r-a', 'r-b']]);   // 거절 → 목록 한 번 다시 받고 다시 sub → 또 거절이면 멈춤
     expect(lists()).toBe(n + 2);
-    expect(card('로봇 목록').textContent).not.toContain('로봇이 없습니다');
+    expect(card('로봇 상태').textContent).toContain('Go2-A');
+    expect($('[aria-label="로봇 없음"]')).toBeNull();
     expect($('[data-missed]')!.textContent).toContain('실시간 상태를 받을 수 없는 로봇이 있습니다');
     expect($('[data-missed]')!.textContent).toContain('다음 목록 갱신 때 다시 확인합니다.');
     expect($('header [data-link]')).toBeNull();            // 연결은 그대로
     act(() => w.recv(state('r-a', { battery: { soc: 33, updated_at: AT } })));
-    expect(row('Go2-A').textContent).toContain('33%');
+    expect(line('배터리')).toBe('33%');                     // 고른 내 로봇(Go2-A) 상세
     expect(row('Go2-B').textContent).toContain('확인 안 됨');
     w.auto = () => ({ ok: true });                         // 서버 정책이 따라잡음 → 다음 목록 갱신에 다시 구독
     act(() => { vi.advanceTimersByTime(10_000); });
