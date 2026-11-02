@@ -2,8 +2,8 @@
 
 Usage: python3 -m apps.simmgr.tools.import_house /path/to/terrain-v2
 Inputs stay outside Git. The CC0 building is flattened to derived OBJ geometry;
-MuJoCo receives loose convex rubble, clustered chip boxes, a dust/porch
-heightfield and conservative 10cm wall columns. No services are started.
+MuJoCo receives loose convex rubble, dust/porch and chip/exterior heightfields,
+low support slabs and 10cm wall columns. No services start.
 """
 import argparse
 import hashlib
@@ -76,13 +76,15 @@ def rectangles(mask):
     return result
 
 
-def export(source):
+def export(source, mobile_only=False):
     # Keep the command stable; the separate generator owns the loose-piece export.
     from .house_look import export_loose_house
-    return export_loose_house(source)
+    return export_loose_house(source, mobile_only=mobile_only)
 
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source',type=Path)
-    export(parser.parse_args().source)
+    parser.add_argument('--mobile-only', action='store_true', help='Leave server/Gazebo assets unchanged')
+    args = parser.parse_args()
+    export(args.source, mobile_only=args.mobile_only)

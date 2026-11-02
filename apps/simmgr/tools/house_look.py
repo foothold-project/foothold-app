@@ -2,14 +2,16 @@
 
 10-29 supplies the route, stair boxes, XY fragments and pile envelopes. The
 10-28 material palette and the CC0 house's UV albedo supply sampled colors.
-Small chips share visual batches and conservative contact boxes; larger pieces
-are individual convex meshes in both engines. Shared resized original albedos
+Small chips share visual batches; larger pieces are individual convex meshes.
+Chips and exterior rubble use a sampled contact surface.
+Shared resized original albedos
 and the 10-23 perimeter replace the former single-color approximation.
 """
 import base64
 from collections import defaultdict
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -74,13 +76,56 @@ def house_uv(source, building):
     return np.array(uv)[:,:,:2].reshape(-1,2)
 
 
-def export_loose_house(source):
+def house_supports(building, floor):
+    """Thin convex slabs under real low upward faces; never fill a roof volume.
+
+    Merge a coplanar patch only when its hull has the same projected area:
+    concave floor boundaries, holes and separate steps stay separate triangles.
+    The 4cm downward extrusion preserves the exact visible top and footprint.
+    """
+    mesh = mesh_from(building)
+    mesh.merge_vertices()
+    selected = (mesh.face_normals[:, 2] > .5) & (mesh.triangles[:, :, 2].max(1) <= floor+.05)
+    used = set()
+    result = []
+    facets = list(mesh.facets)
+    grouped = set(np.concatenate(facets)) if facets else set()
+    singles = [np.array([i]) for i in range(len(mesh.faces)) if i not in grouped]
+    for faces in [*facets, *singles]:
+        faces = [i for i in faces if selected[i]]
+        if not faces:
+            continue
+        top = mesh.triangles[faces].reshape(-1, 3)
+        vertices = np.concatenate([top, top-[0, 0, .04]])
+        hull = trimesh.convex.convex_hull(vertices)
+        expected = float(np.sum(mesh.area_faces[faces]*mesh.face_normals[faces, 2])*.04)
+        # Convex hull must not bridge an opening or a concave edge.
+        if abs(hull.volume-expected) < max(1e-8, expected*1e-5):
+            result.append(hull)
+        else:
+            for tri in mesh.triangles[faces]:
+                result.append(trimesh.convex.convex_hull(np.concatenate([tri, tri-[0, 0, .04]])))
+        used.update(faces)
+    assert used == set(np.flatnonzero(selected))
+    return result
+
+
+def export_loose_house(source, mobile_only=False):
+    if mobile_only:
+        # Generate companion SDF/metrics in a disposable directory. Do not touch
+        # the server catalogue or its deployed/checked-in world assets.
+        with TemporaryDirectory(prefix='house-mobile-') as temporary:
+            return _export_loose_house(source, Path(temporary))
+    return _export_loose_house(source)
+
+
+def _export_loose_house(source, server_out=None):
     source = Path(source)
     data = np.load(source/'previews/v2_geometry.npz')
     layout = json.loads((source/'layout.json').read_text())
     assert layout['revision'] == 'terrain-v2' and layout['reused_fragments'] == 1085
     floor, route = layout['floor_z'], data['route']
-    out = ROOT/'apps/simmgr/worlds'/WORLD_ID
+    out = server_out if server_out is not None else ROOT/'apps/simmgr/worlds'/WORLD_ID
     mobile = ROOT/'mobile/sim/assets'/MOBILE_ID
     for p in (out/'meshes',out/'maps',mobile):
         p.mkdir(parents=True,exist_ok=True)
@@ -228,6 +273,11 @@ def export_loose_house(source):
         visual(f'perimeter_{kind}',mesh_from(np.concatenate(ts)),palette[kind],texture=textures['wood' if kind=='wood' else 'stone'],tile=.5 if kind=='wood' else 1.)
     xml=ET.Element('mujoco',model=MOBILE_ID)
     asset=ET.SubElement(xml,'asset');wb=ET.SubElement(xml,'worldbody')
+    # The displayed dust is a coarse triangle mesh, whose boundary ramps differ
+    # from the source raster. Bake that displayed surface for contact as well.
+    # Do this after seating rubble so the visual scene remains byte-identical.
+    base=grid_top(dust_visual.triangles,hx,hy,np.full((len(hy),len(hx)),-.02))
+    base_at=RegularGridInterpolator((hy,hx),base,bounds_error=False,fill_value=-.02)
     hmin,hrange=-.02,float(base.max()+.02)
     image=np.round((base-hmin)/hrange*255).astype('uint8')[::-1]
     for folder in (out,mobile):Image.fromarray(image).save(folder/'height.png')
@@ -237,9 +287,24 @@ def export_loose_house(source):
     collision=ET.SubElement(model.find('link'),'collision',name='dust_contact')
     hm=ET.SubElement(ET.SubElement(collision,'geometry'),'heightmap')
     for tag,value in [('uri','height.png'),('size',f'17 17 {hrange}'),('pos','0 -.5 -.02'),('sampling','1')]:ET.SubElement(hm,tag).text=value
-    support_triangles=[dust.triangles,*small,*[t for t,k in exterior]]
-    contact_triangles=[dust.triangles]
+    support_triangles=[dust_visual.triangles,*small,*[t for t,k in exterior]]
+    contact_triangles=[dust_visual.triangles]
     physics_assets=['height.png']
+    house_slabs = house_supports(data['building'], floor)
+    for i, slab in enumerate(house_slabs):
+        center = slab.vertices.mean(0)
+        local = slab.vertices-center
+        name = f'house_support_{i}'
+        ET.SubElement(asset,'mesh',name=name,vertex=' '.join(f'{v:.5f}' for v in local.ravel()),face=' '.join(map(str,slab.faces.ravel())))
+        ET.SubElement(wb,'geom',name=name,type='mesh',mesh=name,group='1',pos=' '.join(map(str,center)),friction='.85 .005 .0001')
+        # Companion export also uses independent slabs, never the convex hull
+        # of the whole house (which would seal the entrance).
+        obj(out/f'meshes/{name}.obj',slab)
+        model=ET.SubElement(world,'model',name=name);ET.SubElement(model,'static').text='true'
+        col=ET.SubElement(ET.SubElement(model,'link',name='body'),'collision',name='support')
+        ET.SubElement(ET.SubElement(ET.SubElement(col,'geometry'),'mesh'),'uri').text=f'meshes/{name}.obj'
+        contact_triangles.append(slab.triangles)
+        support_triangles.append(slab.triangles)
     for i,(m,kind) in enumerate(pieces):
         # World-space vertices are re-centered for stable MuJoCo convex hulls.
         center=m.vertices.mean(0);local=m.copy();local.vertices-=center
@@ -252,32 +317,57 @@ def export_loose_house(source):
         col=ET.SubElement(ET.SubElement(model,'link',name='body'),'collision',name='piece')
         ET.SubElement(ET.SubElement(ET.SubElement(col,'geometry'),'mesh'),'uri').text=f'meshes/{filename}'
         support_triangles.append(m.triangles);contact_triangles.append(m.triangles)
-    # Small source stones keep all XY positions. Their contacts are tight
-    # cell-local boxes, explicitly conservative, instead of 1,235 phone geoms.
-    clusters=defaultdict(list)
-    for t in small:
-        center=t.mean((0,1));clusters[tuple(np.floor(center[:2]/1.25).astype(int))].append(t)
-    for i,ts in enumerate(clusters.values()):
-        vv=np.concatenate(ts).reshape(-1,3);lo,hi=vv.min(0),vv.max(0)
-        center=(lo+hi)/2;size=np.maximum((hi-lo)/2,.002)
-        ET.SubElement(wb,'geom',name=f'chip_cluster_{i}',type='box',group='1',pos=' '.join(map(str,center)),size=' '.join(map(str,size)))
-        m=trimesh.creation.box(size*2);m.vertices+=center;contact_triangles.append(m.triangles)
-        model=ET.SubElement(world,'model',name=f'chip_contact_{i}');ET.SubElement(model,'static').text='true'
-        ET.SubElement(model,'pose').text=' '.join(map(str,[*center,0,0,0]))
-        col=ET.SubElement(ET.SubElement(model,'link',name='body'),'collision',name='chips')
-        ET.SubElement(ET.SubElement(ET.SubElement(col,'geometry'),'box'),'size').text=' '.join(map(str,size*2))
-    perimeter_clusters=defaultdict(list)
-    for t,kind in exterior:
-        c=t.mean((0,1));perimeter_clusters[tuple(np.floor(c[:2]/1.75).astype(int))].append(t)
-    for i,ts in enumerate(perimeter_clusters.values()):
-        vv=np.concatenate(ts).reshape(-1,3);lo,hi=vv.min(0),vv.max(0)
-        center=(lo+hi)/2;size=np.maximum((hi-lo)/2,.002)
-        ET.SubElement(wb,'geom',name=f'perimeter_contact_{i}',type='box',group='1',pos=' '.join(map(str,center)),size=' '.join(map(str,size)))
-        m=trimesh.creation.box(size*2);m.vertices+=center;contact_triangles.append(m.triangles)
-        model=ET.SubElement(world,'model',name=f'perimeter_contact_{i}');ET.SubElement(model,'static').text='true'
-        ET.SubElement(model,'pose').text=' '.join(map(str,[*center,0,0,0]))
-        col=ET.SubElement(ET.SubElement(model,'link',name='body'),'collision',name='rubble')
-        ET.SubElement(ET.SubElement(ET.SubElement(col,'geometry'),'box'),'size').text=' '.join(map(str,size*2))
+    # A 1.75m cluster box bridged empty space and raised low chips to the
+    # tallest distant rock. Sample the actual top at 2.5cm instead; this is a
+    # real contact heightfield shared by physics and policy height rays.
+    # Include indoor chips: their old 1.25m boxes could extend past the porch
+    # and create metre-high invisible ledges above the outdoor ground.
+    # Match occupancy cell centers exactly: bilinear interpolation between
+    # samples does not equal MuJoCo's triangular heightfield interpolation.
+    px = np.linspace(-13,13,1041)
+    perimeter = grid_top(np.concatenate([*small,*[t for t,k in exterior]]),px,px,np.full((len(px),len(px)),-.02))
+    perimeter_range = float(perimeter.max()+.02)
+    # One 26m heightfield makes horizontal lidar rays prohibitively expensive.
+    # Nonempty 64-cell tiles have tight XY/Z bounds and share their edge nodes.
+    quantized=np.full_like(perimeter,-.02)
+    perimeter_tiles=0
+    perimeter_files=set()
+    for r in range(0,len(px)-1,64):
+        for c in range(0,len(px)-1,64):
+            r1,c1=min(r+64,len(px)-1),min(c+64,len(px)-1)
+            tile=perimeter[r:r1+1,c:c1+1]
+            elevation=float(tile.max()+.02)
+            if elevation<1e-6:
+                continue
+            name=f'perimeter_contact_{r//64}_{c//64}'
+            filename=f'{name}.png'
+            perimeter_files.add(filename)
+            image=np.round((tile+.02)/elevation*255).astype('uint8')
+            assert image.min()==0 and image.max()==255, 'MuJoCo image normalization must preserve tile elevations'
+            Image.fromarray(image[::-1]).save(out/filename)
+            quantized[r:r1+1,c:c1+1]=np.maximum(quantized[r:r1+1,c:c1+1],image.astype(float)/255*elevation-.02)
+            width,height=px[c1]-px[c],px[r1]-px[r]
+            x,y=(px[c1]+px[c])/2,(px[r1]+px[r])/2
+            # main.js accepts at most eight external terrain files. Inline the
+            # same normalized PNG samples, with PNG's north-to-south row order.
+            values=' '.join(f'{v/255:.7g}' for v in image[::-1].ravel())
+            ET.SubElement(asset,'hfield',name=name,nrow=str(len(image)),ncol=str(image.shape[1]),elevation=values,size=f'{width/2} {height/2} {elevation} .1')
+            # Horizontal lidar over these samples is too slow on mobile CPUs.
+            # Group 4 retains physical contact and policy height observations,
+            # but rubble no longer supplies lidar dots or the automatic stop.
+            ET.SubElement(wb,'geom',name=name,type='hfield',hfield=name,group='4',pos=f'{x} {y} -.02',friction='.85 .005 .0001')
+            model=ET.SubElement(world,'model',name=name);ET.SubElement(model,'static').text='true'
+            col=ET.SubElement(ET.SubElement(model,'link',name='body'),'collision',name='rubble')
+            hm=ET.SubElement(ET.SubElement(col,'geometry'),'heightmap')
+            for tag,value in [('uri',filename),('size',f'{width} {height} {elevation}'),('pos',f'{x} {y} -.02'),('sampling','1')]:ET.SubElement(hm,tag).text=value
+            perimeter_tiles+=1
+    # Use the quantized surface for the occupancy raster as well.
+    perimeter_at = RegularGridInterpolator((px,px),quantized,bounds_error=False,fill_value=-.02)
+    for folder in (out,mobile):
+        obsolete=folder/'perimeter-height.png'
+        if obsolete.exists():obsolete.unlink()
+        for obsolete in folder.glob('perimeter_contact_*.png'):
+            if folder==mobile or obsolete.name not in perimeter_files:obsolete.unlink()
     for model in world.findall('model'):
         box=model.findtext('link/visual/geometry/box/size')
         if box is None:continue
@@ -297,7 +387,9 @@ def export_loose_house(source):
     cols=rectangles(wall_pixels(data['building'],wx,wy,floor))
     for i,(r0,r1,c0,c1) in enumerate(cols):
         ET.SubElement(wb,'geom',name=f'house_wall_{i}',type='box',group='1',size=f'{(c1-c0)*.05} {(r1-r0)*.05} 1.2',pos=f'{-8.5+(c0+c1)*.05} {-6.5+(r0+r1)*.05} {floor+1.2}')
-    assert len(wb)<=3*(139+30),f'{len(wb)} > 507 contact budget'
+    # Separate low slabs add contacts without the solid whole-house hull that
+    # would block doorways. Keep an explicit bounded mobile contact budget.
+    assert len(wb)<=507,f'{len(wb)} > 507 contact budget'
     ET.indent(xml);ET.ElementTree(xml).write(mobile/f'{MOBILE_ID}.xml',encoding='utf-8',xml_declaration=True)
     ET.indent(worldtree);worldtree.write(out/f'{WORLD_ID}.sdf',encoding='utf-8',xml_declaration=True)
     write_json(mobile/'scene.json',scene)
@@ -307,6 +399,7 @@ def export_loose_house(source):
     contact=grid_top(np.concatenate(contact_triangles),xs,ys,blank)
     wall=wall_pixels(data['building'],xs,ys,floor)
     X,Y=np.meshgrid(xs,ys)
+    contact=np.maximum(contact,perimeter_at(np.c_[Y.ravel(),X.ravel()]).reshape(X.shape))
     support=base_at(np.c_[Y.ravel(),X.ravel()]).reshape(X.shape)
     entry=(abs(X-3.85)<.95)&(Y<-3.4)&(Y>-10)
     threshold=np.where(entry,floor+.15,support+.15)
@@ -315,7 +408,7 @@ def export_loose_house(source):
     Image.fromarray(pixels).save(out/'maps/f1.png')
     (out/'maps/f1.yaml').write_text('image: f1.png\nmode: trinary\nresolution: 0.05\norigin: [-13.0, -13.0, 0.0]\nnegate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n')
     image_sha=sha(out/'maps/f1.png');origin=[-13.,-13.,0.]
-    write_json(out/'maps/metadata.json',dict(generator_version='house-look-textured-perimeter/2',resolution=.05,origin=origin,size_pixels=[len(xs),len(ys)],body_band_above_floor_m=[.10,.65],occupancy='house body-band triangles; indoor pieces above floor +15cm; exterior conservative rubble boxes above outdoor ground +15cm; entry steps remain traversable candidates',support_samples='5cm vertical triangle intersections of exported pieces and dust/porch',pixel_to_world='x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution',variable_elevation=True,floors={'f1':dict(floor_z=floor,image='f1.png',yaml='f1.yaml',image_sha256=image_sha)}))
+    write_json(out/'maps/metadata.json',dict(generator_version='house-look-supports/4',resolution=.05,origin=origin,size_pixels=[len(xs),len(ys)],body_band_above_floor_m=[.10,.65],occupancy='house body-band triangles; low support slabs and physical pieces above support +15cm; quantized chip/exterior tiles above support +15cm; entry steps remain traversable candidates',support_samples='5cm vertical intersections of support slabs, pieces, displayed dust and quantized rubble tile nodes',pixel_to_world='x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution',variable_elevation=True,floors={'f1':dict(floor_z=floor,image='f1.png',yaml='f1.yaml',image_sha256=image_sha)}))
     write_json(mobile/'map.json',dict(res=.05,origin=origin,w=len(xs),h=len(ys),floor_z=-.02,spawn_xyyaw=[*route[0],np.pi/2],spawn_z=.38,physics_assets=physics_assets,px=base64.b64encode(pixels.tobytes()).decode()))
     X,Y=np.meshgrid(xs,ys)
     indoor=grid_top(data['indoor_floor'],xs,ys,np.full(blank.shape,-np.inf))>floor-.1
@@ -323,7 +416,7 @@ def export_loose_house(source):
     off=indoor&~corridor
     metrics=dict(corridor_p5_p50_p95_m=np.quantile((visible-floor)[corridor],[.05,.5,.95]).tolist(),corridor_min_max_m=[float((visible-floor)[corridor].min()),float((visible-floor)[corridor].max())],off_path_p5_p50_p95_m=np.quantile((visible-floor)[off],[.05,.5,.95]).tolist(),off_path_15_40cm_fraction=float(((visible[off]-floor>=.15)&(visible[off]-floor<=.4)).mean()),indoor_max_above_floor_m=float((visible-floor)[indoor].max()),chip_contact_visual_error_p95_m=float(np.quantile(np.abs(contact-visible)[corridor],.95)),chip_contact_visual_error_max_m=float(np.max(np.abs(contact-visible)[corridor])))
     write_json(out/'look-metrics.json',metrics)
-    metadata=dict(draft=True,source_layout_sha256=sha(source/'layout.json'),generator='house-look-textured-perimeter/2',source=f'{WORLD_ID}/f1',triangles=sum(len(scene['meshes'][m['mesh']]['i'])//3 for m in scene['models']),house_triangles=len(data['building']),physics='dust/porch heightfield only; individual indoor convex pieces; conservative indoor chip and exterior rubble boxes; 10cm house wall columns',collision_geometries=len(wb),ray_only_proxies=0,source_heightmap=sha(out/'height.png'),heightfield_quantization_m=hrange/255,reused_fragments=1085,added_fragments=150,loose_pile_pieces=len(pieces),chip_contact_clusters=len(clusters),perimeter_contact_clusters=len(perimeter_clusters),perimeter_fragments={k:sum(kind==k for _,kind in exterior) for k in ('rock','wood','concrete')},perimeter_max_above_ground_m=float(max(t[:,:,2].max()+.02 for t,k in exterior)),shared_rubble_textures=list(textures.values()),house_albedo_resolution=[512,512],metrics=metrics,limitations='small-chip and perimeter contact boxes fill sub-cell gaps, height scan sees these conservative supports; house walls are body-band columns, roof/furniture visual only; phone unverified')
+    metadata=dict(draft=True,source_layout_sha256=sha(source/'layout.json'),generator='house-look-supports/4',source=f'{WORLD_ID}/f1',triangles=sum(len(scene['meshes'][m['mesh']]['i'])//3 for m in scene['models']),house_triangles=len(data['building']),physics='dust/porch and tiled 2.5cm chip/exterior heightfields; exact low house support slabs; individual indoor convex pieces; 10cm house wall columns',collision_geometries=len(wb),house_support_slabs=len(house_slabs),house_support_max_z=floor+.05,house_support_thickness_m=.04,ray_only_proxies=0,source_heightmap=sha(out/'height.png'),heightfield_quantization_m=hrange/255,reused_fragments=1085,added_fragments=150,loose_pile_pieces=len(pieces),chip_contact_clusters=0,perimeter_contact_clusters=0,perimeter_heightfield_tiles=perimeter_tiles,perimeter_lidar_group=4,perimeter_heightfield_storage='inline normalized 8-bit samples',perimeter_heightfield_resolution_m=.025,perimeter_heightfield_quantization_m=perimeter_range/255,perimeter_fragments={k:sum(kind==k for _,kind in exterior) for k in ('rock','wood','concrete')},perimeter_max_above_ground_m=float(max(t[:,:,2].max()+.02 for t,k in exterior)),shared_rubble_textures=list(textures.values()),house_albedo_resolution=[512,512],metrics=metrics,limitations='rubble is excluded from lidar dots, forward-stop and lidar obstacle additions (group 4), while occupancy and policy height scans retain it; chip/exterior heightfield interpolates between 2.5cm samples and fills beneath boards; house walls remain body-band columns, overhead roof/furniture visual only; low support slabs preserve source triangle boundaries; phone unverified')
     write_json(mobile/'metadata.json',metadata)
     # Remove only named obsolete generated outputs, never local source files.
     for i in range(32):
@@ -337,13 +430,17 @@ def export_loose_house(source):
         if p.exists():p.unlink()
     p=out/'dust.png'
     if p.exists():p.unlink()
-    catalogue_path=out.parent/'worlds.json'
-    catalogue=json.loads(catalogue_path.read_text())
-    entry=catalogue['worlds'][f'{WORLD_ID}/f1']
-    entry['height_source']='dust_heightfield_and_loose_convex_pieces'
-    entry['sha256']=dict(world=sha(out/f'{WORLD_ID}.sdf'),map=sha(out/'maps/f1.yaml'),metadata=sha(out/'maps/metadata.json'))
-    catalogue_path.write_text(json.dumps(catalogue,ensure_ascii=False,indent=2)+'\n')
+    if server_out is None:
+        catalogue_path=out.parent/'worlds.json'
+        catalogue=json.loads(catalogue_path.read_text())
+        entry=catalogue['worlds'][f'{WORLD_ID}/f1']
+        entry['height_source']='dust_and_rubble_heightfields_house_supports_and_loose_convex_pieces'
+        entry['sha256']=dict(world=sha(out/f'{WORLD_ID}.sdf'),map=sha(out/'maps/f1.yaml'),metadata=sha(out/'maps/metadata.json'))
+        catalogue_path.write_text(json.dumps(catalogue,ensure_ascii=False,indent=2)+'\n')
     asset_bytes=sum(p.stat().st_size for folder in (out,mobile) for p in folder.rglob('*') if p.is_file())
-    assert asset_bytes<=15_000_000,asset_bytes
+    # Inline samples trade extra XML bytes for compatibility with the existing
+    # eight-file mobile loader. The combined server/mobile budget includes both
+    # the server PNGs and the mobile inline representation.
+    assert asset_bytes<=20_000_000,asset_bytes
     print(json.dumps(dict(image_sha256=image_sha,asset_bytes=asset_bytes,**metadata),indent=2))
     return image_sha
