@@ -380,7 +380,8 @@ WebGPU asyncify 자산은 `FH_AME2_WEBGPU=1`일 때만 추가한다. `.mjs`는 J
    STOP/blur/hidden/pagehide/reset/수동 입력으로 generation 취소, 늦은 결과 폐기를 유지한다.
    foothold-v2는 잠금 뒤 0 명령 계산을 계속하고 AME-2는 잠금 중 정책/물리를 쉰다.
 
-`sync-web.mjs`는 등록 어댑터의 ONNX 파일을 선택 복사하고 SHA를 확인한다.
+`sync-web.mjs`는 등록 어댑터의 `network.file`·선택 배치표와 ONNX 파일을 복사한다.
+ONNX는 선택 자산이며 SHA를 확인한다. 새 모델의 f32 파일 목록도 별도 분기 없이 선언에서 읽는다.
 foothold-v2와 후속 모델의 ONNX 위치는 `FH_POLICY_ONNX_SRC`(기본 `FH_SIM_SRC`), AME-2는
 기존 `FH_AME2_SRC`다. 공통 ORT 런타임은 한 번만 복사하며 WebGPU는 `FH_POLICY_WEBGPU=1`
 (기존 `FH_AME2_WEBGPU=1` 호환)일 때만 담는다. f32 경로를 삭제하지 않는다.

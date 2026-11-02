@@ -31,9 +31,14 @@ for (const [a, b] of copy) { mkdirSync(dirname(join(sim, b)), { recursive: true 
 
 // f32 remains available for every policy. Optional ONNX assets share one runtime.
 const ame2src = process.env.FH_AME2_SRC || src;
-const ame2files = ['ame2_actor.f32', 'ame2_actor.json'];
-if (ame2files.every((file) => existsSync(join(ame2src, file)))) {
-  for (const file of ame2files) copyFileSync(join(ame2src, file), join(sim, file));
+for (const adapter of Object.values(POLICY_ADAPTERS)) {
+  const weightsRoot = adapter.id === 'ame2-demo' ? ame2src : src;
+  const files = [adapter.network.file, ...(adapter.network.manifest ? [adapter.network.manifest] : [])];
+  if (!files.every((file) => existsSync(join(weightsRoot, file)))) continue;
+  for (const file of files) {
+    mkdirSync(dirname(join(sim, file)), { recursive: true });
+    copyFileSync(join(weightsRoot, file), join(sim, file));
+  }
 }
 let copiedOnnx = false;
 for (const adapter of Object.values(POLICY_ADAPTERS)) {
@@ -43,6 +48,7 @@ for (const adapter of Object.values(POLICY_ADAPTERS)) {
   if (!existsSync(model)) continue;
   const data = readFileSync(model);
   if (createHash('sha256').update(data).digest('hex') !== adapter.onnx.sha256) throw new Error(`${adapter.id} ONNX SHA-256 불일치`);
+  mkdirSync(dirname(join(sim, adapter.onnx.file)), { recursive: true });
   copyFileSync(model, join(sim, adapter.onnx.file));
   copiedOnnx = true;
 }
