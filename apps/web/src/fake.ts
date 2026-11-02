@@ -15,7 +15,9 @@ export type Robot = { id: string; name: string; owner: string; ownerName?: strin
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[]; sim?: boolean;
   phoneRelay?: PhoneRelayState | null; phoneRelayAt?: number;
   /** 서버가 이 실기 로봇의 웹 서버 경유 시험 조종을 켰음(10-30 SERVER-DRIVE — serverdrive.tsx). 서버가 true 로 줄 때만 */
-  serverDrive?: boolean };
+  serverDrive?: boolean;
+  /** 실기 현장 승인 만료 시각(서버 field_approval_expires_at, 없음·만료 = null) · 기체번호 · 서버 주의 코드(목록 값) */
+  approvalUntil?: string | null; serial?: string | null; attention?: string[] };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
 
 export const ROLE_NAME: Record<Role, string> = { ORG_ADMIN: '총괄', OPERATOR: '운영 관리자' };
@@ -86,7 +88,8 @@ export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
   phoneRelay: r.phone_relay ?? null, phoneRelayAt: performance.now(),
-  serverDrive: (r as { server_drive_allowed?: unknown }).server_drive_allowed === true,   // 계약 필드(PR #207, 기본 false) — 합치기 전 계약엔 아직 없어 캐스트
+  serverDrive: r.server_drive_allowed === true,
+  approvalUntil: r.field_approval_expires_at ?? null, serial: r.robot_serial ?? null, attention: r.attention,
 });
 export const toRobots = (l: RobotSummary[]) => { const sims = l.filter((r) => r.simulation).map((r) => r.id); return l.map((r) => toRobot(r, sims)); };
 

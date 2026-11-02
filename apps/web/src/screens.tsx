@@ -16,6 +16,7 @@ import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
 import { PhoneRelay } from './phoneRelay';
 import { ServerDrive } from './serverdrive';
+import { AddRobot, Approval, AssignOwner, FieldCheck, ManageRobot } from './pairing';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
@@ -71,9 +72,22 @@ export function useDash(cancel?: AbortSignal): Dash {
 }
 
 /** 로봇 0대의 관제: 요약·운영 관리자 표 + 빈 목록 안내(children) */
-export function EmptyFleet({ user, cancel, dash: { d, err }, children }: { user: User; cancel?: AbortSignal; dash: Dash; children: ReactNode }) {
-  return <><Kpi user={user} d={d} err={err} />{children}<MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
+export function EmptyFleet({ user, cancel, dash: { d, err }, refresh, children }: { user: User; cancel?: AbortSignal; dash: Dash; refresh: () => void; children: ReactNode }) {
+  return <><Kpi user={user} d={d} err={err} /><Pair user={user} mine={[]} refresh={refresh} cancel={cancel}>{children}</Pair><MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
+
+/** PC 웹 운영 관리자의 «새 로봇 추가»(폰과 같은 화면 — pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄은 실기를 연결하지 않아 없음 */
+function Pair({ user, mine, refresh, cancel, children }: { user: User; mine: string[]; refresh: () => void; cancel?: AbortSignal; children: ReactNode }) {
+  const [on, setOn] = useState(false);
+  if (user.role === 'ORG_ADMIN') return <>{children}</>;
+  return on ? <AddRobot mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />
+    : <>{children}<div className="fh-row" style={{ flexBasis: '100%' }}><button type="button" className="btn" onClick={() => setOn(true)} data-pair-start>+ 새 로봇 추가</button></div></>;
+}
+
+/** 서버 주의 코드(05 §4 attention, 목록 값) → 짧은 글 */
+const ATTN: Record<string, string> = { OFFLINE: '연결 끊김', STATE_STALE: '상태 늦음', BATTERY_LOW: '배터리 낮음', ERROR: '오류', STOP_LATCHED: '정지 잠금', DEVICE_ERROR: '장치 오류' };
+const attn = (x: Robot) => (x.attention ?? []).map((a) => ATTN[a] ?? a).join(' · ');
+const linkText = (x: Robot) => (x.unknown ? '연결 확인 중' : x.online ? '연결됨' : x.status ? '끊김' : '연결 전');
 
 /** 관제 지도 칸 — 로봇 수와 상관없이. 칸 안 렌더 예외는 Guard 가 가둔다(STOP 은 머리줄) */
 const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card fl-map" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
@@ -105,13 +119,16 @@ function Fleet(c: Ctx) {
   const admin = c.user.role === 'ORG_ADMIN', r = c.robot, { d, err } = c.dash, [drawer, setDrawer] = useState(false), open = !admin || drawer;
   return <>
     <Kpi user={c.user} d={d} err={err} />
-    <div className={`fh-fleet${admin ? ' admin' : ''}${open ? ' open' : ''}`}>
+    <Pair user={c.user} mine={c.robots.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}><div className={`fh-fleet${admin ? ' admin' : ''}${open ? ' open' : ''}`}>
       <section className="lv-card fl-list" aria-label="로봇 목록">
         <h2>로봇</h2>
-        <ul className="fh-list robots">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
+        <ul className="fh-list robots">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id, a = attn(x); return <li key={x.id}>
           <button type="button" aria-pressed={x.id === r.id} onClick={() => { c.pick(x.id); setDrawer(true); }}>
             <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
             <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보는 중' : ''}</span>
+            <span className="lbl" data-link-text>{linkText(x)}</span>
+            {!x.sim && <Approval r={x} />}
+            {a && <span className="lbl" data-attention>▲ {a}</span>}
             <Seen x={x} />
             <PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact />
           </button></li>; })}</ul>
@@ -119,7 +136,7 @@ function Fleet(c: Ctx) {
       {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
       {open && <Detail key={`${r.id}-${r.owner}`} {...c} close={admin ? () => setDrawer(false) : undefined} />}
       <MapCard cancel={c.cancel} />
-    </div>
+    </div></Pair>
     <Operators user={c.user} d={d} />
   </>;
 }
@@ -173,7 +190,11 @@ function Detail({ close, ...c }: Ctx & { close?: () => void }) {
       c.refresh();
     });
   }, []);
-  const r = got ? withLive(toRobot(got)) : c.robot, hidden = r.unknown === 'summary';
+  // 조종 허용은 첫 GET(got)이 아니라 목록(c.robot — 승인·해제 뒤 refresh, 운영 10초 갱신) 값 + 현장 승인 만료(서버 robots.py: 허용 = 켜짐 && 승인 유효)
+  const [, wake] = useState(0), until = c.robot.approvalUntil ? Date.parse(c.robot.approvalUntil) : 0;
+  useEffect(() => { const ms = until - Date.now(); if (ms <= 0) return; const t = setTimeout(() => wake((n) => n + 1), ms + 50); return () => clearTimeout(t); }, [until]);
+  const drive = !!c.robot.serverDrive && until > Date.now();
+  const r = got ? withLive(toRobot(got)) : c.robot, hidden = r.unknown === 'summary', own = !r.sim && c.user.role !== 'ORG_ADMIN' && c.robot.owner === c.user.id;
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
   const broken = hidden ? [] : devices.filter((v) => v.state !== 'OK');
   // 서버 연결·로봇 연결·잠금은 서로 다른 값 — 한 줄에 따로 보인다(합치지 않음)
@@ -187,14 +208,23 @@ function Detail({ close, ...c }: Ctx & { close?: () => void }) {
       <span className="lbl">서버</span><Chip {...server} /><span className="lbl">로봇</span><Chip {...robot} /><span className="lbl">잠금</span><Chip {...lock} /></div>
     {broken.length > 0 && <p className="fh-msg" role="status" data-detail-alert>▲ 장치 문제: {broken.map((v) => `${v.label} ${(DEVICE[v.state] ?? DEVICE.ERROR).text}`).join(', ')}</p>}
     {/* 서버가 켠 실기 시험 로봇만, PC 웹·담당 운영자만(총괄·남의 로봇·앱은 보기만) */}
-    {r.serverDrive && !r.sim && !c.phone && !inApp() && !adminReal(c.user, r) && c.robot.owner === c.user.id && <ServerDrive c={c} r={r} />}
+    {drive && !r.sim && !c.phone && !inApp() && !adminReal(c.user, r) && c.robot.owner === c.user.id && <ServerDrive c={c} r={r} />}
     <Line k="담당"><span>{ownerName(r)}</span></Line>
+    <Line k="연결"><span>{linkText(r)}</span></Line>
+    {!r.sim && <Line k="현장 승인"><Approval r={c.robot} /></Line>}
+    {!r.sim && r.serial && <Line k="기체번호"><span className="mono">{r.serial}</span></Line>}
+    {!hidden && attn(c.robot) && <Line k="주의"><span>{attn(c.robot)}</span></Line>}
+    {/* 총괄: 담당 없는 실기에만 담당 지정(그 밖 실기 쓰기 없음 — 서버 403). 담당 운영(PC 웹): 현장 안전 확인·내 로봇 관리 */}
+    {c.user.role === 'ORG_ADMIN' && !r.sim && !c.robot.owner && <AssignOwner r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
+    {own && <FieldCheck r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
+    {own && <ManageRobot r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
     <Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>
     {r.mission && <Line k="임무"><span>{r.mission}</span></Line>}
     <Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>
-    <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
+    {/* 총괄은 실기에 배정하지 않는다(로봇 탭 읽기 전용 — 시뮬은 유지, r1) */}
+    {!adminReal(c.user, r) && <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
       onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } assignFor.robot = c.robot.id; c.go('mission'); }}>배정</button>
-      {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>
+      {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>}
     {(c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />}
     <details className="fh-fold" data-detail-more><summary>장치·위치{hidden ? '' : ` — 장치 ${devices.length}개`}</summary>
       {!hidden && <PhoneRelay key={r.id} report={r.phoneRelay} receivedAt={r.phoneRelayAt} />}

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Assignment, AssignmentCreate, RobotSummary, Scenario, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
-import { IDLE_SLOT, OUT } from '../screens/assign';
+import { ADMIN_ASSIGN, IDLE_SLOT, OUT } from '../screens/assign';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 
@@ -20,6 +20,8 @@ const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, na
 const RA = robot('r-a', 'Go2-A', LEE), RB = robot('r-b', 'Go2-B', { ...LEE, id: 'o2', display_name: '박운영' });
 /** 끝낸(IDLE) 시뮬 슬롯 — 서버는 담당을 비운 채 /robots 에 남긴다. extra 에 넣은 시험에서만 목록에 */
 const IDLE: RobotSummary = { ...robot('r-s', '시뮬 슬롯', LEE), simulation: true, owner: null };
+/** 운영 중인 시뮬 로봇 — 총괄도 배정할 수 있다(실기는 못 함, r2) */
+const SIM: RobotSummary = { ...robot('r-m', '시뮬-1', LEE), simulation: true };
 let extra: RobotSummary[] = [];
 const scen = (id: string, name: string, p: Partial<Scenario> = {}): Scenario => ({ id, name, waypoints: [], finish: { mode: 'STAY', target: null }, notes: '', number: 1, latest_version: 1, version: 1,
   floor_ids: [], map_version_ids: [], required_devices: [], est_distance_m: 0, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', version_created_by: KIM.id, version_created_at: '2026-10-20T00:00:00Z', archived_at: null, ...p });
@@ -29,7 +31,7 @@ type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; key?: string };
 let calls: Call[] = [], asg: Assignment[] = [], scenarios: Scenario[] = [], n = 0, aps: Record<string, string> = {};
 const mk = (p: Partial<Assignment> & Pick<Assignment, 'robot_id' | 'status'>): Assignment => ({ id: `as${++n}`, scenario_id: 's1', scenario_version: 1, memo: '', scenario_name: '1층 순찰',
-  robot_name: p.robot_id === 'r-a' ? 'Go2-A' : 'Go2-B', approval_id: p.status === 'PENDING' ? `ap${n}` : null, created_by: KIM.id, created_at: '2026-10-20T01:00:00Z', removed_at: null, ...p });
+  robot_name: ({ 'r-a': 'Go2-A', 'r-m': '시뮬-1' } as Record<string, string>)[p.robot_id] ?? 'Go2-B', approval_id: p.status === 'PENDING' ? `ap${n}` : null, created_by: KIM.id, created_at: '2026-10-20T01:00:00Z', removed_at: null, ...p });
 
 /** 가짜 서버. over = 경로별 덮어쓰기(앞에서부터 하나씩 — 함수면 real() 로 진짜 처리를 부를 수 있고, 던지면 끊김) */
 function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Reply | Promise<Reply>) | Reply)[]> } = {}) {
@@ -138,17 +140,22 @@ describe('배정 창', () => {
     await setVal(name, '1층 순찰');
     expect($('[data-unsaved-assign]')).toBeNull();
   });
-  it('총괄: 로봇 고르기·메모 → POST /assignments(Idempotency-Key) → ACTIVE «배정됨», 바로 적용 안내', async () => {
-    scenarios = [scen('s1', '1층 순찰')];
+  it('총괄: 실기는 회색 + 이유(r2), 시뮬 고르기·메모 → POST /assignments(Idempotency-Key) → ACTIVE «배정됨», 바로 적용 안내', async () => {
+    scenarios = [scen('s1', '1층 순찰')]; extra = [SIM];
     await openAssign(KIM);
     expect(text()).toContain('바로 적용됩니다');
-    await pickRobot('r-a');
+    for (const id of ['r-a', 'r-b']) {
+      const real = $<HTMLButtonElement>(`[data-robot="${id}"]`, panel())!;
+      expect(real.disabled).toBe(true);
+      expect($(`#${real.getAttribute('aria-describedby')}`)!.textContent).toBe(ADMIN_ASSIGN);
+    }
+    await pickRobot('r-m');
     await setVal(memo(), ' 아침 순찰 ');
     await click(btn('배정', panel()));
     expect(posts()).toHaveLength(1);
-    expect(posts()[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r-a', memo: '아침 순찰' });
+    expect(posts()[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r-m', memo: '아침 순찰' });
     expect(posts()[0].key).toMatch(/^[A-Za-z0-9._:-]{1,128}$/);
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다. 바로 적용됩니다.');
+    expect(text()).toContain('시뮬-1에 «1층 순찰» 판 1을 배정했습니다. 바로 적용됩니다.');
     expect(rowOf(asg[0].id).textContent).toContain('배정됨');
     expect(rowOf(asg[0].id).textContent).toContain('아침 순찰');
     await stopOk();
@@ -175,16 +182,16 @@ describe('배정 창', () => {
   });
   it('서버 403·404 = 회색 단추와 같은 문구, 409 = 이미 배정 문구, 보관 422 = 보관 문구', async () => {
     scenarios = [scen('s1', '1층 순찰')];
-    await openAssign(KIM, { over: { 'POST /assignments': [err(403, 'FORBIDDEN', '담당 로봇만'), err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.'),
+    await openAssign(LEE, { over: { 'POST /assignments': [err(403, 'FORBIDDEN', '담당 로봇만'), err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.'),
       err(409, 'ASSIGNMENT_EXISTS', '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.'), err(422, 'SCENARIO_ARCHIVED', '보관된 시나리오는 배정할 수 없습니다.')] } });
-    await pickRobot('r-b');
+    await pickRobot('r-a');
     await click(btn('배정', panel()));
     expect(text()).toContain(OUT);
-    await click(btn('로봇에 배정', panel())); await pickRobot('r-b'); await click(btn('배정', panel()));
+    await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
     expect(text()).toContain(OUT);
-    await click(btn('로봇에 배정', panel())); await pickRobot('r-b'); await click(btn('배정', panel()));
+    await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
     expect(text()).toContain('이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다.');
-    await click(btn('로봇에 배정', panel())); await pickRobot('r-b'); await click(btn('배정', panel()));
+    await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
     expect(text()).toContain('보관된 시나리오는 배정할 수 없습니다. 보관되지 않은 시나리오를 고르세요.');
     expect(new Set(posts().map((p) => p.key)).size).toBe(4);   // 시도마다 새 키
     expect(asg).toHaveLength(0);
@@ -208,7 +215,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     scenarios = [scen('s1', '1층 순찰')];
     let release = () => {};
     const gate = new Promise<void>((r) => { release = r; });
-    await openAssign(KIM, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
+    await openAssign(LEE, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
       async (real) => { await gate; return real(); }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
@@ -239,7 +246,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
   it('끊김 뒤 처리됐는데 같은 키로 다시 보냄 → 서버 재생, 배정 하나', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     // 확인 목록 조회가 처리 전 상태를 보여 확정 못 함 → 같은 키 재전송 → 재생
-    await openAssign(KIM, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
+    await openAssign(LEE, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
       'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
@@ -267,7 +274,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
   });
   it('처리된 뒤 끊김 → 확인 전 다른 화면에서 해제 → 재전송 = 재생 ACTIVE 이어도 «해제됨»으로', async () => {
     scenarios = [scen('s1', '1층 순찰')];
-    await openAssign(KIM, lostThenEmpty());
+    await openAssign(LEE, lostThenEmpty());
     await pickRobot('r-a');
     await click(btn('배정', panel()));
     asg[0].status = 'REMOVED';
