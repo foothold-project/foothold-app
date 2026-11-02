@@ -33,6 +33,16 @@ def catalogue(tmp_path):
         "def arg_errors(target, env):\n"
         "    return [] if target == TARGET and env == REQUIRED_ENV else ['refused']\n")
     (source / 'live_map.py').write_text('synthetic runtime')
+    from apps.simmgr.mesh_resources import MODEL, PROFILE, MESHES
+    model = source / f'out/{PROFILE}/model/{MODEL}/model.sdf'
+    model.parent.mkdir(parents=True)
+    meshdir = root.parent / 'gz/model/out/meshes'
+    meshdir.mkdir(parents=True)
+    uris = []
+    for name in sorted(MESHES):
+        (meshdir / name).write_text('<COLLADA/>')
+        uris.append(f'<uri>file:///build/gz/model/out/meshes/{name}</uri>')
+    model.write_text('<sdf><model name="go2">' + ''.join(uris) + '</model></sdf>')
     entries, worlds = {}, {}
     for key, pose in [('v5_single/f1', [-12, -9, .4, 0, 0, 0]),
                       ('building/l1', [-12, -9, .4, 0, 0, 0]),

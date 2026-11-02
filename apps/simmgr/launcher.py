@@ -8,6 +8,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 from foothold_agent.ros_bridge.config import validate_isolation
 from foothold_agent.phone.tickets import load_keys
@@ -260,6 +261,13 @@ class NativeLauncher:
                 verify_bindings(native, world.map_bindings)
             except (ValueError, KeyError, TypeError, OSError) as error:
                 raise WorldValidationError('repository map bindings do not match cleared assets') from error
+            # Pure file closure precedes evidence, supervisor construction and
+            # any native unit. Rejection cannot create a cleanup obligation.
+            from .mesh_resources import preflight as mesh_preflight
+            try:
+                await asyncio.to_thread(mesh_preflight, Path(self.settings.source), native.world_file)
+            except (OSError, ValueError, ET.ParseError) as error:
+                raise WorldValidationError('repository robot/world mesh resources invalid') from error
         base = Path(self.settings.run_dir).resolve()
         if not base.is_relative_to(ROOT / 'runs') or base == ROOT / 'runs':
             raise ValueError('evidence must be a new directory under this worktree runs')
