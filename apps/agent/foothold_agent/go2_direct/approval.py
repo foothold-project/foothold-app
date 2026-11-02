@@ -52,6 +52,11 @@ def validate(env, *, now=None, uid=None):
         value = json.loads(os.read(fd, 4097))
     finally:
         os.close(fd)
+    return validate_value(value, nic, now=now)
+
+
+def validate_value(value, nic, *, now=None):
+    """Same bounded marker checks for an authenticated in-memory approval."""
     now = time.time() if now is None else now
     if not isinstance(value, dict):
         raise PermissionError('field approval must be an object')

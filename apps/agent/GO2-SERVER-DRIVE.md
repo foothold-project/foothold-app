@@ -2,31 +2,28 @@
 
 ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. 웹 담당 운영자 → 개발 서버의 기존 lease/arbiter → 이 PC가 밖으로 연 `fh-agent/2` WS → Go2Sink(`server`) → SDK/DDS 유선 NIC를 사용한다. 이 모드에는 폰 조종 리스너가 없으며, 총괄(ADMIN)은 실기 조종·STOP을 할 수 없다. 다른 운영자도 같은 조직의 STOP은 가능하다. `RobotSummary.server_drive_allowed`는 경로 표시용 bool이며 조종 권한을 대신하지 않는다.
 
-## 준비·현장 순서
+## 노트북 연결 프로그램으로 시작
 
-1. 두 모델의 안전 검토·통합 후 현장 담당자가 시험 공간과 비상 정지를 확보한다. USB-랜을 기체 전용으로 연결하고 네트워크 설정 화면에서 NIC와 중복 없는 유선 IPv4를 확인한다. Wi-Fi 인터넷은 유지한다. `ip -br link` / `ip -br -4 addr`는 조회만 한다. 기체 표기와 **실측 LowState DDS serial 두 정수의 `첫째-둘째` 형태**를 현장에서 대조한다. 추측한 serial이나 공유 NIC는 금지다. 다른 실기 조종 프로세스를 함께 켜지 않는다.
-2. 총괄이 기존 `POST /api/v1/robots`로 실기를 등록하고 담당 운영자를 배정한다(기본 simulation=false). 등록 응답의 agent_token 또는 `POST /api/v1/robots/{robot_id}/agent-token` 재발급 토큰을 비공개로 준비한다. 재발급은 이전 토큰을 폐기한다. 주소·토큰·UUID·serial 실값은 저장소/공유 로그에 쓰지 않는다.
-3. 이 PC 소유자의 비공개 파일(절대 경로, 소유자 일치, `chmod 600`, 단일 링크)에 승인 표식을 만든다. JSON 형식은 `{"v":1,"purpose":"go2-field-motion","nic":"<ROBOT_NIC>","robot_serial":"<DDS_SERIAL>","expires_at":<UNIX_SECONDS>}`이며 만료는 현재부터 최대 30분이다. 승인 표식만으로 실기 실행 허가가 생기지는 않는다.
-4. **배포 담당자**가 개발 서버의 `FH_SERVER_DRIVE_ROBOTS`에 이 시험 로봇 UUID만 넣고 기존 배포 절차를 따른다(여러 개면 쉼표 구분, 기본 빈 문자열). wildcard/잘못된 UUID는 허용하지 않는다. 목록 밖 실기는 기존 `PHONE_DIRECT_REQUIRED`, ADMIN은 `ADMIN_NO_REAL_CONTROL`로 거부된다. 작업자는 운영 env 변경·서버 재시작을 하지 않는다.
-5. 이 PC의 비공개 환경에 아래 이름을 설정한 뒤 에이전트를 시작한다. 값은 현장 담당자가 채우며 shell history·화면 공유에 토큰을 남기지 않는다.
+실기 연결은 **담당 운영자**가 폰에서 진행한다. 총괄은 실기 목록과 상태를 읽기만 한다. 배포 담당자는 먼저 pairing/현장 승인 서버와 폰 화면을 통합하고, 별도 배포 절차에서 서버 전체 스위치 `FH_SERVER_DRIVE_ENABLED=1`을 설정한다(기본 꺼짐). 이 env가 **없을 때만** 기존 `FH_SERVER_DRIVE_ROBOTS` 목록을 읽으며 wildcard는 계속 거부한다. 어느 설정이든 로봇별 유효한 현장 승인이 함께 필요하다. Git push·PR은 서버 설정 변경·재시작·실기 실행 승인이 아니다.
 
-   | 환경 이름 | 값/역할 |
-   |---|---|
-   | `FH_GO2_DIRECT_ENABLED` | `1`, 기본 꺼짐 |
-   | `FH_GO2_DIRECT_NIC` | 기체 전용 유선 NIC |
-   | `FH_GO2_DEDICATED_NIC` | 현장 독점 NIC 확인 후 `1` |
-   | `FH_GO2_FIELD_APPROVAL` | 승인 JSON의 절대 경로 |
-   | `FOOTHOLD_ROBOT_ID` | 서버 등록 UUID |
-   | `FOOTHOLD_AGENT_WS_URL` | 해당 개발 서버 `/api/v1/agent/ws` WSS 주소 |
-   | `FOOTHOLD_AGENT_TOKEN` | 해당 기체의 agent 토큰 |
+1. 두 모델의 안전 검토와 통합 후 현장 담당자가 시험 공간과 비상 정지를 확보한다. 기체 전용 유선 NIC를 연결하고 Wi-Fi 인터넷은 유지한다. 다른 실기 조종 프로그램은 종료한다. 설치 담당자가 검토된 CPython 3.10 x86 환경에 `./apps/agent[setup,go2-readonly]`를 설치한다(추가 화면 의존성 `qrcode==8.2`, 연결 `websockets==15.0.1`). SDK·DDS wheel 고정값은 아래 설치 기록을 따른다.
+2. 첫 실행에만 서버의 HTTPS 원점 주소를 지정한다. 토큰·UUID·승인 JSON·NIC 이름은 입력하지 않는다. 다음부터는 두 번째 명령만 실행한다.
 
    ```sh
-   PYTHONPATH=apps/agent runs/go2-x86-venv/bin/python -m foothold_agent.go2_direct.preflight
-   # 아래 명령부터 실제 DDS domain 0 참가와 SDK 출력이 시작됨: 현장 실행 승인 후에만
-   PYTHONPATH=apps/agent runs/go2-x86-venv/bin/python -m foothold_agent.go2_direct --server
+   PYTHONPATH=apps/agent python -m foothold_agent.setup --server https://control.example.invalid
+   # 이후 실행 (저장된 연결 사용)
+   PYTHONPATH=apps/agent python -m foothold_agent.setup
    ```
 
-6. 웹에서 **담당 운영자**로 로그인하고 해당 시험 로봇을 선택한다. **웹 STOP부터** 눌러 잠금과 신선한 실측 정지를 현장 담당자와 먼저 확인한다. 조종권 획득 → 실측 정지 → 명시적 잠금 해제 → 새로운 중립 입력 후에만 전진한다. 승인 만료·NIC/serial 충돌·센서 불건전은 종료/정지한다.
+   실제 실행은 DDS domain 0의 **읽기 구독**에 참가하므로 현장 실행 권한을 확인한 뒤 한다. 기본 화면은 `http://127.0.0.1:9611`에만 열린다. `--port`로 변경할 수 있으나 8453/8792/5190/5191/8870/9430은 거부한다. `--no-browser`는 자동 브라우저 열기만 생략한다. `--wheel-dir`는 기존 preflight wheel 보관 위치다.
+3. 프로그램은 커널 메타데이터만 조회해 물리 유선 NIC 중 UP·기체 전용 `192.168.123.0/24` 주소·기본 경로 없음인 후보를 고른다. 네트워크 설정 변경·ping·ARP 스캔은 하지 않는다. 후보가 여럿이면 발견된 후보 중 `--nic`로 하나를 고른다. 기체 주소와 같은 호스트 주소, Wi-Fi·가상 NIC·다른 IPv4 대역과 공유하는 NIC는 거부한다.
+4. 읽기 전용 DDS 두 구독자로 신선한 serial을 읽고, 노트북 화면의 기체번호·QR 또는 6자리 코드를 폰에서 확인한다. 로그인된 폰의 **+ 로봇 연결하기 → 새 로봇 추가 → 같은 기체번호 확인 → 이름 → 등록**을 진행한다. QR에는 `foothold-pair:<6자리>`만 있고 주소·비밀은 없다. 코드는 10분·1회용이다. 만료·이미 소비됨·신원 충돌은 재실행하여 새로 시작한다.
+5. 토큰은 프로그램이 한 번 받아 `~/.config/foothold/agent.json`에 자동 저장한다. 파일은 소유자 일치·0600·정규 파일·단일 링크, 전용 폴더는 0700을 요구하며 symlink는 거부한다. 임시 파일을 fsync한 뒤 원자적으로 교체한다. `~/.config/foothold/go2-agent.env`는 **읽지도 고치지도 않는다**. `--config`는 별도 비공개 절대 경로를 쓰는 시험/복구용이다. 토큰은 화면·로그·명령줄·환경변수에 출력하지 않는다. 기존 연결의 serial과 현재 실측 serial이 다르면 저장된 연결을 덮지 않고 거부한다.
+6. 기존 preflight가 자동 실행되고 노트북에 초록/빨강이 표시된다. 서버에는 기존 장치 상태의 **연결 프로그램 자동 점검** 항목(`go2-preflight`)으로 같은 판정을 보낸다. 점검 실패는 조종 SDK 생성을 막는다. 등록만 된 상태에서는 읽기 전용 구독만 있고 SportClient·Move·물리 STOP 객체가 없다. 읽기 전용의 논리 잠금은 물리 정지 확인이 아니다.
+7. 폰에서 **현장 안전 확인**의 `space_clear`, `emergency_stop_ready`, `robot_verified`를 모두 확인한다. 서버의 유효한 `field_approval`을 받은 뒤 프로그램이 현재 NIC·실측 serial·최대 30분 만료를 기존 승인 JSON과 같은 검사로 확인하고 내부 승인 표식을 만든다. 그 뒤에만 조종 SDK를 만들며 **잠긴 상태**로 시작한다. 웹 STOP → 조종권 → 신선한 실측 정지 → 명시적 잠금 해제 → 새 중립 입력을 거쳐야 움직인다.
+8. 만료·승인 해제·NIC/serial 충돌·WS 단절·서버 ping 끊김은 기존 STOP·잠금 후 읽기 전용으로 돌아간다. 같은 승인 재전송·재연결만으로 조종 모드가 복구되지 않는다. 사용한 승인 만료 시각을 비밀 없이 같은 0600 파일에 기록하므로 **프로그램을 다시 실행한 뒤에도 새 현장 안전 확인이 필요하다**. 새 승인이 와도 조종권·실측 정지·해제·중립 순서는 다시 필요하다.
+
+**자동 연결 제한:** DDS serial이 `0-0`이면 «기체번호를 읽을 수 없는 기체 — 수동 절차»로 안내하고 새 흐름을 거부한다. MAC을 추측하거나 자동 예외를 만들지 않는다. 기존에 승인된 수동 시험 경로는 아래 접기를 참고하며, 새 흐름의 `0-0` 기체 연결은 미지원이다. NIC 또는 실제 serial 충돌 뒤에는 원인을 해결하고 프로그램을 다시 실행한다.
 
 ## 유지되는 안전 경계
 
@@ -78,3 +75,38 @@ LowState 실측 serial이 **정확히 `0-0`**인 기체에서만 현장 담당�
 
 
 서버 경유 이동 표는 현장 사용자 선택으로 전후·좌우 **1.5 m/s**, 회전 **0.5 rad/s**다. 고정 SDK의 SportClient.Move는 vx/vy/vyaw를 JSON으로 직렬화해 _CallNoReply로 보내며 자체 범위 검사/클램프가 없다. 따라서 SDK Python 코드가 vy=1.5를 직접 거부하는 경로는 없지만, 반환0은 펌웨어의 실제 수용·속도·클램프를 보장하지 않는다. 펌웨어 수용 범위와 실기1.5 m/s는 미검증이다. 폰 경로의 기존 표/limits는 유지한다.
+
+## 문제 생겼을 때
+
+<details>
+<summary>옛 수동 시험 순서와 0-0/MAC 예외 복구 참고</summary>
+
+아래는 이전 시험 절차의 보관본이다. 새 서버에서는 총괄의 실기 등록·토큰 발급 경로가 닫히므로 **옛 2번을 새 등록에 사용하지 않는다**. 자동 프로그램의 0-0 연결은 미지원이며, 기존 등록·유효한 비공개 자격과 별도 현장 승인으로 허용된 옛 수동 시험만 기존 경로를 유지한다. 토큰 폐기·연결 끊기 이후 옛 토큰을 재사용하지 않는다. 운영의 pairing/현장 승인과 서버 전체 스위치를 생략하는 우회 절차가 아니다.
+
+## 준비·현장 순서
+
+1. 두 모델의 안전 검토·통합 후 현장 담당자가 시험 공간과 비상 정지를 확보한다. USB-랜을 기체 전용으로 연결하고 네트워크 설정 화면에서 NIC와 중복 없는 유선 IPv4를 확인한다. Wi-Fi 인터넷은 유지한다. `ip -br link` / `ip -br -4 addr`는 조회만 한다. 기체 표기와 **실측 LowState DDS serial 두 정수의 `첫째-둘째` 형태**를 현장에서 대조한다. 추측한 serial이나 공유 NIC는 금지다. 다른 실기 조종 프로세스를 함께 켜지 않는다.
+2. 총괄이 기존 `POST /api/v1/robots`로 실기를 등록하고 담당 운영자를 배정한다(기본 simulation=false). 등록 응답의 agent_token 또는 `POST /api/v1/robots/{robot_id}/agent-token` 재발급 토큰을 비공개로 준비한다. 재발급은 이전 토큰을 폐기한다. 주소·토큰·UUID·serial 실값은 저장소/공유 로그에 쓰지 않는다.
+3. 이 PC 소유자의 비공개 파일(절대 경로, 소유자 일치, `chmod 600`, 단일 링크)에 승인 표식을 만든다. JSON 형식은 `{"v":1,"purpose":"go2-field-motion","nic":"<ROBOT_NIC>","robot_serial":"<DDS_SERIAL>","expires_at":<UNIX_SECONDS>}`이며 만료는 현재부터 최대 30분이다. 승인 표식만으로 실기 실행 허가가 생기지는 않는다.
+4. **배포 담당자**가 개발 서버의 `FH_SERVER_DRIVE_ROBOTS`에 이 시험 로봇 UUID만 넣고 기존 배포 절차를 따른다(여러 개면 쉼표 구분, 기본 빈 문자열). wildcard/잘못된 UUID는 허용하지 않는다. 목록 밖 실기는 기존 `PHONE_DIRECT_REQUIRED`, ADMIN은 `ADMIN_NO_REAL_CONTROL`로 거부된다. 작업자는 운영 env 변경·서버 재시작을 하지 않는다.
+5. 이 PC의 비공개 환경에 아래 이름을 설정한 뒤 에이전트를 시작한다. 값은 현장 담당자가 채우며 shell history·화면 공유에 토큰을 남기지 않는다.
+
+   | 환경 이름 | 값/역할 |
+   |---|---|
+   | `FH_GO2_DIRECT_ENABLED` | `1`, 기본 꺼짐 |
+   | `FH_GO2_DIRECT_NIC` | 기체 전용 유선 NIC |
+   | `FH_GO2_DEDICATED_NIC` | 현장 독점 NIC 확인 후 `1` |
+   | `FH_GO2_FIELD_APPROVAL` | 승인 JSON의 절대 경로 |
+   | `FOOTHOLD_ROBOT_ID` | 서버 등록 UUID |
+   | `FOOTHOLD_AGENT_WS_URL` | 해당 개발 서버 `/api/v1/agent/ws` WSS 주소 |
+   | `FOOTHOLD_AGENT_TOKEN` | 해당 기체의 agent 토큰 |
+
+   ```sh
+   PYTHONPATH=apps/agent runs/go2-x86-venv/bin/python -m foothold_agent.go2_direct.preflight
+   # 아래 명령부터 실제 DDS domain 0 참가와 SDK 출력이 시작됨: 현장 실행 승인 후에만
+   PYTHONPATH=apps/agent runs/go2-x86-venv/bin/python -m foothold_agent.go2_direct --server
+   ```
+
+6. 웹에서 **담당 운영자**로 로그인하고 해당 시험 로봇을 선택한다. **웹 STOP부터** 눌러 잠금과 신선한 실측 정지를 현장 담당자와 먼저 확인한다. 조종권 획득 → 실측 정지 → 명시적 잠금 해제 → 새로운 중립 입력 후에만 전진한다. 승인 만료·NIC/serial 충돌·센서 불건전은 종료/정지한다.
+
+</details>
