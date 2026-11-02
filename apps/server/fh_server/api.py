@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, Request, Response, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy import create_engine, func, or_, select, text, tuple_, update
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.orm import Session as DBSession, sessionmaker
@@ -799,7 +800,11 @@ def create_app(settings: Settings | None = None):
         if any(value is None for value in values.values()):
             fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
         org = lock_organization(db, user.org_id)
-        result = C.OrgSettings.model_validate({**org.settings, **values})
+        try:
+            result = C.OrgSettings.model_validate({**org.settings, **values})
+        except ValidationError as exc:
+            # Validation messages contain only fixed field/constraint text, never input.
+            fail(422, 'VALIDATION', exc.errors(include_input=False)[0]['msg'].removeprefix('Value error, '))
         org.settings = result.model_dump()
         event(db, user.org_id, 'ORG_SETTINGS_UPDATED', user.id, values)
         return result

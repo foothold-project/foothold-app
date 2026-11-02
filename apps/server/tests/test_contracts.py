@@ -40,7 +40,9 @@ def test_r4_response_schema_has_required_serialized_defaults():
     import json
     files = generate.build()
     settings = json.loads(files['schema/OrgSettings.json'])
-    assert set(settings['required']) == set(settings['properties'])
+    # Additive settings stay optional for clients with an older response shape.
+    assert set(settings['required']) == {'battery_low_pct', 'run_min_battery_pct',
+        'deviation_m', 'lease_request_timeout_s', 'link_loss_wait_s'}
     response = json.loads(files['schema/LoginResponse.json'])
     assert {'csrf_token', 'access_token', 'refresh_token'} <= set(response['required'])
     body = json.loads(files['schema/ErrorBody.json'])

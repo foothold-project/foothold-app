@@ -24,6 +24,13 @@
       "title": "Lease Request Timeout S",
       "type": "integer"
     },
+    "lidar_view_m": {
+      "default": 12,
+      "maximum": 30,
+      "minimum": 1,
+      "title": "Lidar View M",
+      "type": "integer"
+    },
     "link_loss_wait_s": {
       "default": 30,
       "maximum": 30,
@@ -31,12 +38,73 @@
       "title": "Link Loss Wait S",
       "type": "integer"
     },
+    "real_no_fast_server_drive": {
+      "default": false,
+      "title": "Real No Fast Server Drive",
+      "type": "boolean"
+    },
     "run_min_battery_pct": {
       "default": 30,
       "maximum": 90,
       "minimum": 10,
       "title": "Run Min Battery Pct",
       "type": "integer"
+    },
+    "sim_key_vx": {
+      "default": 0.6,
+      "maximum": 1.0,
+      "minimum": 0.1,
+      "title": "Sim Key Vx",
+      "type": "number"
+    },
+    "sim_max_vx": {
+      "default": 1.0,
+      "maximum": 1.0,
+      "minimum": 0.2,
+      "title": "Sim Max Vx",
+      "type": "number"
+    },
+    "sim_max_vy": {
+      "default": 0.3,
+      "maximum": 0.3,
+      "minimum": 0.0,
+      "title": "Sim Max Vy",
+      "type": "number"
+    },
+    "sim_max_wz": {
+      "default": 0.5,
+      "maximum": 0.5,
+      "minimum": 0.0,
+      "title": "Sim Max Wz",
+      "type": "number"
+    },
+    "sim_min_vx": {
+      "default": 0.2,
+      "maximum": 0.5,
+      "minimum": 0.0,
+      "title": "Sim Min Vx",
+      "type": "number"
+    },
+    "sim_runner_vx": {
+      "default": 0.4,
+      "maximum": 1.0,
+      "minimum": 0.1,
+      "title": "Sim Runner Vx",
+      "type": "number"
+    },
+    "sim_runner_wz": {
+      "default": 0.6,
+      "maximum": 1.0,
+      "minimum": 0.1,
+      "title": "Sim Runner Wz",
+      "type": "number"
+    },
+    "stick_deadzone": {
+      "default": 0.1,
+      "maximum": 0.5,
+      "minimum": 0.0,
+      "title": "Stick Deadzone",
+      "type": "number"
     }
   },
   "required": [

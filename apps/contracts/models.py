@@ -375,11 +375,34 @@ class NotificationsRead(Contract):
 
 
 class OrgSettings(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields(
+        'sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx',
+        'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m',
+        'real_no_fast_server_drive'))
+
     battery_low_pct: int = Field(default=20, ge=5, le=50, strict=True)
     run_min_battery_pct: int = Field(default=30, ge=10, le=90, strict=True)
     deviation_m: float = Field(default=1.5, ge=0.5, le=5, strict=True)
     lease_request_timeout_s: int = Field(default=10, ge=5, le=30, strict=True)
     link_loss_wait_s: int = Field(default=30, ge=0, le=30, strict=True)
+    sim_max_vx: float = Field(default=1.0, ge=0.2, le=1.0, strict=True)
+    sim_min_vx: float = Field(default=0.2, ge=0.0, le=0.5, strict=True)
+    sim_max_vy: float = Field(default=0.3, ge=0.0, le=0.3, strict=True)
+    sim_max_wz: float = Field(default=0.5, ge=0.0, le=0.5, strict=True)
+    sim_key_vx: float = Field(default=0.6, ge=0.1, le=1.0, strict=True)
+    stick_deadzone: float = Field(default=0.1, ge=0.0, le=0.5, strict=True)
+    sim_runner_vx: float = Field(default=0.4, ge=0.1, le=1.0, strict=True)
+    sim_runner_wz: float = Field(default=0.6, ge=0.1, le=1.0, strict=True)
+    lidar_view_m: int = Field(default=12, ge=1, le=30, strict=True)
+    real_no_fast_server_drive: bool = Field(default=False, strict=True)
+
+    @model_validator(mode='after')
+    def simulation_speed_order(self):
+        if self.sim_min_vx > self.sim_max_vx:
+            raise ValueError('시뮬 최소 전진 속도는 최대 전진 속도 이하여야 합니다.')
+        if self.sim_key_vx > self.sim_max_vx:
+            raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+        return self
 
 
 class OrgSettingsPatch(Contract):
@@ -388,6 +411,16 @@ class OrgSettingsPatch(Contract):
     deviation_m: float = omitted(ge=0.5, le=5, strict=True)
     lease_request_timeout_s: int = omitted(ge=5, le=30, strict=True)
     link_loss_wait_s: int = omitted(ge=0, le=30, strict=True)
+    sim_max_vx: float = omitted(ge=0.2, le=1.0, strict=True)
+    sim_min_vx: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_max_vy: float = omitted(ge=0.0, le=0.3, strict=True)
+    sim_max_wz: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_key_vx: float = omitted(ge=0.1, le=1.0, strict=True)
+    stick_deadzone: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_runner_vx: float = omitted(ge=0.1, le=1.0, strict=True)
+    sim_runner_wz: float = omitted(ge=0.1, le=1.0, strict=True)
+    lidar_view_m: int = omitted(ge=1, le=30, strict=True)
+    real_no_fast_server_drive: bool = omitted(strict=True)
 
 
 class RobotList(Contract):
