@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import any_, or_, select, text
+from sqlalchemy.dialects.postgresql import distinct_on
 from apps.contracts import models as C
 from .models import (Approval, Assignment, Building, Event, FileDeletion, Floor, MapVersion,
                      Robot, Run, Scenario, ScenarioVersion, Site, User)
@@ -59,20 +60,31 @@ def install(app, DB, Identity, fail, authorize, event):
     def listing(auth: Identity, db: DB):
         user = auth[0]
         authorize(user, 'O')
-        sites = {r.id: r.name for r in db.scalars(select(Site).where(Site.org_id == user.org_id))}
-        buildings = {r.id: r.name for r in db.scalars(select(Building).where(Building.org_id == user.org_id))}
+        archived = [(kind, row) for kind, model in MODELS.items() for row in db.scalars(
+            select(model).where(model.org_id == user.org_id, model.archived_at.is_not(None)))]
+        if not archived:
+            return C.TrashList(items=[])
+        sites = dict(db.execute(select(Site.id, Site.name).where(Site.org_id == user.org_id,
+            Site.id.in_([row.site_id for kind, row in archived if kind == 'building']))).all())
+        buildings = dict(db.execute(select(Building.id, Building.name).where(Building.org_id == user.org_id,
+            Building.id.in_([row.building_id for kind, row in archived if kind == 'floor']))).all())
         # The archive event is the source of actor identity for old and new rows.
+        # Fetch only the latest event for each current trash item, rather than
+        # materializing the organization's entire archive/restore history.
+        resource_id = Event.data['id'].astext
         actors = {}
-        for ev, display in db.execute(select(Event, User.display_name).outerjoin(User,
+        for code, identifier, actor, display in db.execute(select(Event.code, resource_id,
+                Event.user_id, User.display_name).ext(distinct_on(Event.code, resource_id)).outerjoin(User,
                 (Event.user_id == User.id) & (Event.org_id == User.org_id)).where(
-                Event.org_id == user.org_id, Event.code.in_(ARCHIVE_CODES.values())).order_by(Event.at, Event.id)):
-            actors[(ev.code, ev.data.get('id'))] = C.Person(id=ev.user_id, display_name=display) if ev.user_id and display else None
+                Event.org_id == user.org_id, or_(*((Event.code == ARCHIVE_CODES[kind]) &
+                    resource_id.in_([str(row.id) for k, row in archived if k == kind])
+                    for kind in MODELS))).order_by(Event.code, resource_id, Event.at.desc(), Event.id.desc())):
+            actors[(code, identifier)] = C.Person(id=actor, display_name=display) if actor and display else None
         items = []
-        for kind, model in MODELS.items():
-            for row in db.scalars(select(model).where(model.org_id == user.org_id, model.archived_at.is_not(None))):
-                parent = sites.get(row.site_id) if kind == 'building' else buildings.get(row.building_id) if kind == 'floor' else None
-                items.append(C.TrashItem(kind=kind, id=row.id, name=row.name, archived_at=row.archived_at,
-                    deleted_by=actors.get((ARCHIVE_CODES[kind], str(row.id))), parent_name=parent))
+        for kind, row in archived:
+            parent = sites.get(row.site_id) if kind == 'building' else buildings.get(row.building_id) if kind == 'floor' else None
+            items.append(C.TrashItem(kind=kind, id=row.id, name=row.name, archived_at=row.archived_at,
+                deleted_by=actors.get((ARCHIVE_CODES[kind], str(row.id))), parent_name=parent))
         return C.TrashList(items=sorted(items, key=lambda i: (i.archived_at, i.kind, str(i.id)), reverse=True))
 
     @app.post('/api/v1/trash/{kind}/{identifier}/restore', status_code=204)

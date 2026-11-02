@@ -10,7 +10,8 @@ from .test_maps import P, auth, maps, tree, upload, save as save_map
 from .test_missions import setup_scenario
 from .test_runs import scenario, save, event, update
 from .test_photos import start, upload as upload_photo, JPEG
-from .test_simulation import simulation_context
+from .test_simulation import (simulation_context, clean_ros_environment,
+                              isolated_manager_startup)
 
 
 def delete(http, headers, path):

@@ -178,9 +178,11 @@ def test_warm_stop_bypasses_slots_only_inside_250ms(client, seeded, rt, monkeypa
     from apps.server.fh_server import realtime as module
     at = [0.]
     monkeypatch.setattr(rt, 'clock', lambda: at[0])
-    monkeypatch.setattr(module, 'DB_READ_TIMEOUT', .02)
     rid, headers = str(seeded['robots']['mine']), app_token(client)
+    # Seed the cache with the normal cold-read budget. The short timeout only
+    # bounds the deliberately occupied-slot probe, not this setup DB read.
     assert client.post(f'/api/v1/robots/{rid}/stop', headers=headers).status_code == 202
+    monkeypatch.setattr(module, 'DB_READ_TIMEOUT', .02)
     at[0] = age
     async def occupy():
         for _ in range(12):
