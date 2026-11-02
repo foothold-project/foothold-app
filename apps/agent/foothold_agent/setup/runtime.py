@@ -3,7 +3,7 @@ import asyncio
 import threading
 import time
 
-from foothold_agent.go2_direct.approval import validate_value
+from foothold_agent.go2_direct.approval import SERVER_CLOCK_SKEW_S, validate_value
 from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.readonly import Measurements
 from foothold_agent.go2_direct.reporting import devices
@@ -117,7 +117,7 @@ class Gate:
                 raise PermissionError('fresh approval on connected transport required')
             approval = validate_value(dict(v=1, purpose='go2-field-motion', nic=self.nic.name,
                                           robot_serial=self.serial, expires_at=expiry), self.nic.name,
-                                      now=self.wall())
+                                      now=self.wall(), clock_skew_s=SERVER_CLOCK_SKEW_S)
             if not self.ready or not self.nic_matches() or self.inputs.identity() != self.serial:
                 raise PermissionError('preflight and current identity required')
         except (ValueError, TypeError, PermissionError, OverflowError):

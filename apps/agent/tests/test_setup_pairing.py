@@ -265,7 +265,7 @@ def test_revocation_stops_locks_and_cannot_rearm_same_approval(reason):
     assert len(made) == 1 and gate.active is None
 
 
-@pytest.mark.parametrize('expiry', [None, True, 'garbage', float('nan'), float('inf'), 1000, 2801])
+@pytest.mark.parametrize('expiry', [None, True, 'garbage', float('nan'), float('inf'), 1000, 2831])
 def test_invalid_approval_never_constructs_motion(expiry):
     gate, session, client, inputs, wall, now, nic_ok, made, activate = rig()
     session.receive({'t':'field_approval', 'expires_at':expiry})
@@ -470,12 +470,13 @@ def test_serial_zero_and_conflict_are_refused_without_motion():
     with pytest.raises(PermissionError): inputs.identity()
 
 
-def test_production_sdk_factory_validates_before_import_and_only_initializes_two_clients(monkeypatch):
+@pytest.mark.parametrize('remaining', [60, 1801])
+def test_production_sdk_factory_validates_before_import_and_only_initializes_two_clients(monkeypatch, remaining):
     from foothold_agent.go2_direct.sdk import connect_approved
     from foothold_agent.go2_direct.approval import Approval
     from foothold_agent.go2_readonly.sdk import Subscriptions
     import socket
-    approvals = Approval(NIC_VALUE.name, SERIAL, time.time()+60)
+    approvals = Approval(NIC_VALUE.name, SERIAL, time.time()+remaining)
     subscriptions = Subscriptions(Inputs(), NIC_VALUE.name)
     subscriptions._started = True
     monkeypatch.setattr(socket, 'if_nameindex', lambda:[(7, NIC_VALUE.name)])
@@ -515,3 +516,182 @@ __main__.main(['--help'])
 '''
     result = subprocess.run([sys.executable,'-c',code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('skew,accepted', [(-1,True),(-.05,True),(0,True),(-30,True),(-30.001,False),(600,False),(601,False)])
+def test_server_pairing_expiry_clock_skew_only_relaxes_upper_bound(skew, accepted):
+    pairing = Pairing('https://pairing.invalid', wall=lambda:1000+skew,
+                      post=lambda *_:dict(pairing_id=PID, code='123456', poll_secret=SECRET, expires_at=1600))
+    if accepted:
+        try:
+            pairing.start(SERIAL)
+        except ValueError:
+            pytest.fail('valid server expiry was refused within the allowed clock offset')
+        assert pairing.expires_at == 1600  # expiry itself is never extended
+    else:
+        with pytest.raises(ValueError): pairing.start(SERIAL)
+        assert pairing._secret is None
+
+
+@pytest.mark.parametrize('skew,accepted', [(-1,True),(-.05,True),(0,True),(-30,True),(-30.001,False),(1800,False),(1801,False)])
+def test_server_field_approval_clock_skew_and_expired_boundary(skew, accepted):
+    gate, session, _, _, wall, _, _, made, activate = rig()
+    wall.value = 1000+skew
+    session.receive({'t':'field_approval', 'expires_at':2800})
+    activate()
+    try:
+        assert bool(made) is accepted
+        if accepted:
+            assert gate.last_expiry == 2800
+            wall.value = 2800
+            gate.apply(MotionCommand(velocity=(1.5,0,0)))
+            assert gate.active is None and made[0][1].calls[-1] == ('StopMove',())
+    finally:
+        gate.revoke()
+
+
+def test_local_manual_approval_stays_strict_and_server_expiry_cannot_use_past_grace():
+    from foothold_agent.go2_direct.approval import SERVER_CLOCK_SKEW_S, validate_value
+    value = dict(v=1, purpose='go2-field-motion', nic=NIC_VALUE.name, robot_serial=SERIAL, expires_at=2801)
+    with pytest.raises(PermissionError): validate_value(value, NIC_VALUE.name, now=1000)
+    approval = validate_value(value, NIC_VALUE.name, now=1000, clock_skew_s=SERVER_CLOCK_SKEW_S)
+    assert approval.expires_at == 2801
+    for expiry in (999, 1000):
+        with pytest.raises(PermissionError):
+            validate_value({**value, 'expires_at':expiry}, NIC_VALUE.name, now=1000, clock_skew_s=SERVER_CLOCK_SKEW_S)
+
+
+class RepairSubscriptions:
+    """Callback timer supplies fresh identity without initializing DDS."""
+    def __init__(self, inputs, nic):
+        self.inputs, self.sequence = inputs, 0
+    def start(self):
+        def pulse():
+            self.sequence += 1
+            self.inputs.lowstate(low(self.sequence))
+            self.inputs.sportmodestate(sport(self.sequence))
+            self.handle = asyncio.get_running_loop().call_later(.02, pulse)
+        pulse()
+    def close(self):
+        self.handle.cancel()
+
+
+def repair_args(path, *, repair=False):
+    return NS(config=path, server=None, nic=None, wheel_dir='fake-wheels', repair=repair)
+
+
+def setup_dependencies():
+    return dict(discover=lambda:[NIC_VALUE], subscriptions_factory=RepairSubscriptions,
+                preflight=lambda _:dict(installation_ready=True, issues=[]))
+
+
+@pytest.mark.parametrize('kind,code', [('ws',4403),('ws',4401),('http',401),('http',403)])
+def test_saved_connection_auth_rejection_shows_explicit_repair_without_pairing(tmp_path, monkeypatch, capsys, kind, code):
+    from foothold_agent.setup import __main__ as setup
+    from websockets.asyncio.server import serve
+    from websockets.http11 import Response
+    from websockets.datastructures import Headers
+
+    async def scenario():
+        status = Status()
+        stop = None
+        attempts = []
+        original_connect = setup.connect
+        def no_pairing(*_): raise AssertionError('must not automatically pair after auth rejection')
+        async def injected(args, status, event):
+            nonlocal stop
+            stop = event
+            await original_connect(args, status, event, **setup_dependencies(), pairing_factory=no_pairing)
+        monkeypatch.setattr(setup, 'connect', injected)
+        async def ws_handler(ws):
+            attempts.append(ws.request.headers['Authorization'])
+            await ws.recv()
+            await ws.close(code=code)
+        def reject(connection, request):
+            if kind == 'http':
+                attempts.append(request.headers['Authorization'])
+                return Response(code, 'Unauthorized', Headers(), b'')
+        async with serve(ws_handler, '127.0.0.1', 0, process_request=reject) as listener:
+            port = listener.sockets[0].getsockname()[1]
+            path = tmp_path/'private'/'agent.json'
+            old = credentials(f'ws://127.0.0.1:{port}/api/v1/agent/ws')
+            save(old, path)
+            task = asyncio.create_task(setup.serve(repair_args(path), status))
+            try:
+                async with asyncio.timeout(3):
+                    while not any(message in status.snapshot()['mode'] for message in ('이 노트북의 연결이 해제됨', '연결 거부')):
+                        await asyncio.sleep(.01)
+                assert '이 노트북의 연결이 해제됨' in status.snapshot()['mode']
+                assert '--repair' in status.snapshot()['mode'] and not status.snapshot()['connected']
+                assert status.snapshot().get('code') is None
+                assert load(path) == old and attempts == ['Bearer '+TOKEN]
+                assert TOKEN not in json.dumps(status.snapshot())
+                stop.set()
+                assert await task is False
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+    asyncio.run(scenario())
+    captured = capsys.readouterr()
+    assert TOKEN not in captured.out+captured.err
+
+
+def test_explicit_repair_pairs_again_and_atomically_replaces_saved_token(tmp_path):
+    from foothold_agent.setup.__main__ import connect
+
+    async def scenario():
+        path = tmp_path/'private'/'agent.json'
+        old = replace(credentials('wss://pairing.invalid/api/v1/agent/ws'), last_field_approval_expires_at=1100)
+        save(old, path)
+        calls, used_tokens = [], []
+        valid_tokens = {TOKEN}
+        new_token = 'replacement-private-agent-token'
+        def post(endpoint, body):
+            calls.append((endpoint, body))
+            assert load(path) == old  # no destructive reset before success
+            if endpoint.endswith('/start'):
+                return dict(pairing_id=PID, code='123456', poll_secret=SECRET, expires_at=time.time()+600)
+            # Fake server models confirm's existing token rotation contract.
+            valid_tokens.discard(TOKEN)
+            valid_tokens.add(new_token)
+            return dict(state='paired', robot_id=RID, agent_token=new_token,
+                        agent_ws_url='wss://pairing.invalid/api/v1/agent/ws')
+        async def runtime(value, *args, **kwargs):
+            used_tokens.append(value.agent_token)
+            assert value.agent_token == new_token and TOKEN not in valid_tokens
+            assert load(path) == value
+        status = Status()
+        await connect(repair_args(path, repair=True), status, asyncio.Event(), **setup_dependencies(),
+                      pairing_factory=lambda server:Pairing(server, post=post), runtime=runtime)
+        assert calls[0] == ('/api/v1/pairing/start', dict(model='unitree_go2', robot_serial=SERIAL))
+        assert calls[1] == (f'/api/v1/pairing/{PID}/poll', dict(poll_secret=SECRET))
+        assert used_tokens == [new_token] and load(path).agent_token == new_token
+        assert load(path).last_field_approval_expires_at == 1100
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600 and path.stat().st_nlink == 1
+        assert TOKEN not in path.read_text() and SECRET not in path.read_text()
+        assert new_token not in json.dumps(status.snapshot())
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('failure', ['pairing', 'storage'])
+def test_failed_explicit_repair_preserves_file_and_never_falls_back_to_old_token(tmp_path, monkeypatch, failure):
+    from foothold_agent.setup import __main__ as setup
+
+    async def scenario():
+        path = tmp_path/'private'/'agent.json'
+        old = credentials('wss://pairing.invalid/api/v1/agent/ws')
+        save(old, path)
+        def post(endpoint, body):
+            if endpoint.endswith('/start'):
+                return dict(pairing_id=PID, code='123456', poll_secret=SECRET, expires_at=time.time()+600)
+            if failure == 'pairing': return dict(state='consumed')
+            return dict(state='paired', robot_id=RID, agent_token='replacement-token',
+                        agent_ws_url='wss://pairing.invalid/api/v1/agent/ws')
+        def fail_save(*_): raise OSError('fake disk failure')
+        if failure == 'storage': monkeypatch.setattr(setup, 'save', fail_save)
+        async def no_runtime(*args, **kwargs): raise AssertionError('no fallback to old token on repair failure')
+        with pytest.raises((PermissionError, OSError)):
+            await setup.connect(repair_args(path, repair=True), Status(), asyncio.Event(), **setup_dependencies(),
+                                pairing_factory=lambda server:Pairing(server, post=post), runtime=no_runtime)
+        assert load(path) == old and stat.S_IMODE(path.stat().st_mode) == 0o600
+    asyncio.run(scenario())

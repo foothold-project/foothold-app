@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 import webbrowser
 
 from foothold_agent.go2_direct.preflight import inspect
+from foothold_agent.link.client import ReconnectForbidden
 from foothold_agent.go2_readonly.sdk import Subscriptions
 from .discovery import candidates, select
 from .pairing import Pairing, origin, ws_origin
@@ -28,7 +29,7 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
         raise PermissionError('DDS loader overrides require review')
     report = await asyncio.to_thread(preflight, args.wheel_dir)
     status.update(preflight={'installation_ready': report['installation_ready'], 'issues': report['issues']})
-    credentials = load(args.config)
+    saved_credentials = credentials = load(args.config)
     server = origin(args.server) if args.server else ws_origin(credentials.agent_ws_url) if credentials else None
     if server is None:
         raise ValueError('first connection requires --server HTTPS origin')
@@ -56,7 +57,7 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
         status.update(serial=serial)
         if credentials is not None and credentials.robot_serial != serial:
             raise PermissionError('saved serial differs from current DDS identity')
-        if credentials is None:
+        if credentials is None or getattr(args, 'repair', False):
             pairing = pairing_factory(server)
             await asyncio.to_thread(pairing.start, serial)
             status.update(code=pairing.code, expires_at=pairing.expires_at, qr=qr_svg(pairing.code),
@@ -74,6 +75,9 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                     await asyncio.sleep(2)
                     continue
                 if credentials is not None:
+                    if saved_credentials is not None and saved_credentials.robot_id == credentials.robot_id:
+                        credentials = replace(credentials, last_field_approval_expires_at=
+                                              saved_credentials.last_field_approval_expires_at)
                     save(credentials, args.config)
                     break
                 await asyncio.sleep(2)
@@ -108,6 +112,12 @@ async def serve(args, status):
         try:
             await connect(args, status, stop)
             return True
+        except ReconnectForbidden:
+            status.update(mode='이 노트북의 연결이 해제됨 → 다시 연결: 종료 후 --repair로 실행하고 폰에서 새 QR을 확인하세요',
+                          connected=False, code=None, qr=None, expires_at=None)
+            print('이 노트북의 연결이 해제됨 → 다시 연결: 종료 후 --repair로 실행하세요.', file=sys.stderr)
+            await stop.wait()
+            return False
         except SerialUnavailable:
             status.update(mode='기체번호를 읽을 수 없는 기체 — 수동 절차 (GO2-SERVER-DRIVE.md의 문제 생겼을 때 참고)',
                           connected=False, code=None, qr=None, expires_at=None)
@@ -127,6 +137,8 @@ async def serve(args, status):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='FOOTHOLD 노트북 연결 프로그램 (유선 DDS 읽기 → 폰 등록 → 현장 승인)')
     parser.add_argument('--server', help='first run: HTTPS server origin; later recovered from private saved connection')
+    parser.add_argument('--repair', action='store_true',
+                        help='explicitly pair again; replace the saved token only after phone confirmation succeeds')
     parser.add_argument('--nic', help='choose one detected dedicated wired NIC when there are multiple')
     parser.add_argument('--port', type=int, default=9611)
     parser.add_argument('--config', type=Path, default=default_path(),

@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
 from uuid import UUID
 
+from foothold_agent.go2_direct.approval import SERVER_CLOCK_SKEW_S
 from .storage import Credentials
 
 
@@ -67,9 +68,10 @@ class Pairing:
         pairing_id = str(UUID(value['pairing_id']))
         code, secret = value['code'], value['poll_secret']
         expires = timestamp(value['expires_at'])
+        now = self.wall()
         if (not isinstance(code, str) or len(code) != 6 or not code.isascii() or not code.isdigit()
                 or not isinstance(secret, str) or not 32 <= len(secret) <= 256
-                or not self.wall() < expires <= self.wall()+600):
+                or not now < expires <= now+600+SERVER_CLOCK_SKEW_S):
             raise ValueError('invalid pairing response')
         self._id, self._secret, self.code, self.expires_at = pairing_id, secret, code, expires
 

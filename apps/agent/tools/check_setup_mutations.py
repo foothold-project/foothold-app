@@ -23,8 +23,19 @@ MUTATIONS = [
      'test_revocation_stops_locks_and_cannot_rearm_same_approval[disconnect]'),
     ('persist before SDK', 'setup/runtime.py', 'self.remember(approval.expires_at)', 'None',
      'test_used_approval_is_saved_before_motion_and_rejected_after_restart'),
-    ('maximum 30 minutes', 'go2_direct/approval.py', 'not now < expiry <= now+1800', 'not now < expiry',
-     'test_invalid_approval_never_constructs_motion[2801]'),
+    ('maximum server approval upper bound', 'go2_direct/approval.py', 'not now < expiry <= now+1800+clock_skew_s', 'not now < expiry',
+     'test_invalid_approval_never_constructs_motion[2831]'),
+    ('pairing clock skew margin', 'setup/pairing.py', 'now+600+SERVER_CLOCK_SKEW_S', 'now+600',
+     'test_server_pairing_expiry_clock_skew_only_relaxes_upper_bound[-1-True]'),
+    ('approval clock skew margin', 'setup/runtime.py', 'clock_skew_s=SERVER_CLOCK_SKEW_S', 'clock_skew_s=0.',
+     'test_server_field_approval_clock_skew_and_expired_boundary[-1-True]'),
+    ('no past expiry grace', 'setup/pairing.py', 'not now < expires <= now+600+SERVER_CLOCK_SKEW_S',
+     'not expires <= now+600+SERVER_CLOCK_SKEW_S',
+     'test_server_pairing_expiry_clock_skew_only_relaxes_upper_bound[600-False]'),
+    ('explicit repair selection', 'setup/__main__.py', "credentials is None or getattr(args, 'repair', False)",
+     'credentials is None', 'test_explicit_repair_pairs_again_and_atomically_replaces_saved_token'),
+    ('auth rejection repair guidance', 'setup/__main__.py', 'except ReconnectForbidden:', 'except KeyError:',
+     'test_saved_connection_auth_rejection_shows_explicit_repair_without_pairing[ws-4403]'),
 ]
 
 
