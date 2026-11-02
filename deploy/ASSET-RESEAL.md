@@ -29,6 +29,12 @@ JSON at `INPUT.json` (0600). Verify every supplied byte and the INPUT.json SHA
 against the reviewed fingerprints. No a1/b2 substitute, symlink, hardlink,
 additional mesh or discovery by basename is accepted.
 
+The installed mesh preflight intentionally refuses ordinary activation while
+the old seal lacks the DAE files. The coordinator must accept the first-rollout
+ordering before merge: use merged, reviewed code for the offline reseal while
+the namespace stays inactive, then allow normal activation/deployment. Do not
+relax the guard, retry a failed activation or change a timer/marker to force it.
+
 Run from the reviewed release, with independently recorded exact hashes:
 
 ```sh
