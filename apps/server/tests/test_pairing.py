@@ -186,7 +186,7 @@ def test_both_motion_gates_required(seeded, enabled, approved, expected):
             with screen(client, own) as ws:
                 result = reply(ws, send(ws, 'lease.take', rid))
                 if expected:
-                    assert result.get('error', {}).get('code') == expected
+                    assert (result.get('error') or {}).get('code') == expected
                 else:
                     assert result['ok']
 
