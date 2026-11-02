@@ -221,19 +221,39 @@ describe('지도 탭 — 장소 나무', () => {
     expect(sent('DELETE', '/floors/f1')).toHaveLength(5);
     await stopSends();
   });
-  it('운영 관리자: 장소는 보기만 — «고치기»는 회색+이유(U6), 이름 바꾸기·지우기 없음, 올리기는 결재 없이 «올리기»(10-27)', async () => {
-    serve(signedIn(LEE));
+  it('운영 관리자도 장소 고치기(서버 \'O\' — PLACE-EDIT-OPEN 11-02): 만들기·이름 바꾸기·삭제(확인 뒤 휴지통)·되돌리기, 올리기는 결재 없이 «올리기»(10-27)', async () => {
+    serve(signedIn(LEE, { 'POST /sites/s1/buildings': { status: 201, body: { id: 'b2', site_id: 's1', name: '신동', floors: [] } },
+      'PATCH /floors/f2': { status: 200, body: floor('f2', '2층 동쪽', 2, null) }, 'DELETE /floors/f2': { status: 204 }, 'POST /trash/floor/f2/restore': { status: 204 } }));
     await open('#/map');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    const words = btns().map((b) => b.textContent);
-    for (const w of ['이름 바꾸기', '삭제', '+ 장소']) expect(words, w).not.toContain(w);
+    expect(btn('이름 바꾸기')).toBeUndefined();
     const fix = btn('장소 고치기')!;
-    expect(fix.disabled).toBe(true);
-    expect(document.getElementById(fix.getAttribute('aria-describedby')!)!.textContent).toBe('장소 고치기는 총괄만 할 수 있습니다.');
+    expect(fix.disabled).toBe(false); expect(fix.hasAttribute('aria-describedby')).toBe(false); expect($('#fix-why')).toBeNull();
+    await click(fix);
+    expect(fix.getAttribute('aria-pressed')).toBe('true'); expect(btn('+ 장소')).toBeTruthy();
+    expect($('[data-trash-link]')!.getAttribute('href')).toBe('#/trash');
+    await click(btn('+ 건물'));
+    await setVal(field('이름', card('본관 에 새 건물')), '신동');
+    await click(btn('저장', card('본관 에 새 건물')));
+    await click(btn('이름 바꾸기', floorBtn('2층').parentElement!));
+    await setVal(field('이름', card('층 이름 바꾸기 — 2층')), '2층 동쪽');
+    await click(btn('저장', card('층 이름 바꾸기 — 2층')));
+    await click(btn('삭제', floorBtn('2층').parentElement!));
+    expect(card('확인').textContent).toContain('«2층» 층을 휴지통으로 옮길까요?');
+    await click(btn('삭제', card('확인')));
+    await click(btn('되돌리기', card('장소')));
+    expect(writes()).toEqual(['POST /sites/s1/buildings', 'PATCH /floors/f2', 'DELETE /floors/f2', 'POST /trash/floor/f2/restore']);
+    expect(calls.filter((c) => c.method === 'POST' || c.method === 'PATCH').map((c) => c.body)).toEqual([{ name: '신동' }, { name: '2층 동쪽', level: 2 }, undefined]);
     expect(card('새 지도 올리기').textContent).not.toContain('결재');
     expect(btn('올리기', card('새 지도 올리기'))).toBeTruthy();
-    expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만
+    expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만(그대로)
     await stopSends();
+  });
+  it('장소가 없으면 운영 관리자에게도 «장소 고치기»로 만들라는 안내', async () => {
+    serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
+    await open('#/map');
+    expect(card('장소').textContent).toContain('등록된 장소가 없습니다. «장소 고치기»에서 장소·건물·층을 만드세요.');
+    expect(btn('장소 고치기')!.disabled).toBe(false);
   });
   it('장소 목록 실패(네트워크·어긋난 응답) — 칸 안 글 + 다시 시도, STOP 은 그대로', async () => {
     let n = 0;
