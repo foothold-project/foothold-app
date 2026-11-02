@@ -134,7 +134,7 @@ describe('배정 창', () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(KIM);
     expect($('[data-unsaved-assign]')).toBeNull();
-    const name = $<HTMLInputElement>('[aria-label="시나리오 편집 칸"] input')!;
+    const name = [...box.querySelectorAll('label')].find((l) => l.textContent === '이름')!.querySelector('input')!;   // 저장된 시나리오 이름은 «···» 안(MAPSCEN-FIX-R1)
     await setVal(name, '1층 순찰 고침');
     expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 저장된 판 1이 배정됩니다');
     await setVal(name, '1층 순찰');
@@ -200,7 +200,7 @@ describe('배정 창', () => {
     scenarios = [scen('s1', '1층 순찰', { archived_at: '2026-10-20T03:00:00Z' })];
     serve(KIM);
     await open('#/mission');
-    await click($('label input[type="checkbox"]'));   // 휴지통에 있는 것도 보기
+    await click([...box.querySelectorAll('label')].find((l) => l.textContent === '휴지통에 있는 것도 보기')!.querySelector('input'));
     await click($('[data-plan="s1"]'));
     const b = btn('로봇에 배정', panel())!;
     expect(b.disabled).toBe(true);

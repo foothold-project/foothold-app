@@ -46,11 +46,13 @@ export function Pop({ open, close, label, children }: { open: boolean; close: ()
     {children}</dialog>;
 }
 
-/** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N»). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목) */
+/** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N»), 안 내용은 숨김(unmount 아님). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목) */
 export function Pane({ open, setOpen, bar, head, label, children }: { open: boolean; setOpen: (o: boolean) => void; bar: string; head: ReactNode; label: string; children: ReactNode }) {
   return <aside className="mx-pane" aria-label={label} data-fold={open ? undefined : ''}>
-    {open ? <><div className="mx-head">{head}<button type="button" className="btn mx-fold" aria-expanded aria-label={`${bar} 창 접기`} title="창 접기" onClick={() => setOpen(false)}>▸</button></div>{children}</>
+    {open ? <div className="mx-head">{head}<button type="button" className="btn mx-fold" aria-expanded aria-label={`${bar} 창 접기`} title="창 접기" onClick={() => setOpen(false)}>▸</button></div>
       : <button type="button" className="btn mx-fold" aria-expanded={false} onClick={() => setOpen(true)}>◂ {bar}</button>}
+    {/* 접어도 안 내용은 숨기기만 한다 — 배정 창 입력·보내는 중 상태·늦은 응답 처리를 잃지 않게(#235 B2) */}
+    <div className="mx-pane-in" hidden={!open}>{children}</div>
   </aside>;
 }
 
