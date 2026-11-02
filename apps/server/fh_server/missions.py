@@ -146,7 +146,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
 
     def editable(row):
         if row.archived_at is not None:
-            fail(409, 'VERSION_CONFLICT', '보관된 항목은 변경할 수 없습니다.', {'version': row.version})
+            fail(409, 'VERSION_CONFLICT', '휴지통의 항목은 변경할 수 없습니다.', {'version': row.version})
 
     def check_match(row, match):
         if match is None:

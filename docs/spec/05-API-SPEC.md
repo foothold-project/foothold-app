@@ -187,7 +187,7 @@
 |---|---|---|---|
 | GET | `/sites` | 장소 → 건물 → 층 나무 (층마다 승인 판, 대기 요청 수) | 로그인 |
 | POST | `/sites` · `/sites/{id}/buildings` · `/buildings/{id}/floors` | 만들기 `{name}` / 층은 `{name, level}` | A |
-| PATCH/DELETE | `/sites/{id}` · `/buildings/{id}` · `/floors/{id}` | 이름 바꾸기·지우기(쓰는 시나리오가 있으면 409) | A |
+| PATCH/DELETE | `/sites/{id}` · `/buildings/{id}` · `/floors/{id}` | 이름 바꾸기·휴지통 이동(사용 중이면 409, 아래 §5.1) | A, O |
 | GET | `/floors/{id}/map-versions` | 판 목록 | 로그인 |
 | GET | `/map-versions/{id}` | 판 정보 + 지도 요소(구역·지점·연결점) | 로그인 |
 | GET | `/map-versions/{id}/image` | 지도 이미지(png) | 로그인 |
@@ -208,6 +208,69 @@
   "edits": [ { "op": "ERASE"|"WALL", "polyline": [[x,y], …], "width": 0.1 } ]
 }
 ```
+
+### 5.1 지도·시나리오 휴지통 (2026-11-02)
+
+기존 `DELETE /sites/{id}`, `/buildings/{id}`, `/floors/{id}`, `/scenarios/{id}`는
+`archived_at`을 설정하는 **휴지통 이동**이며 204를 돌려준다. 이미 휴지통에 있으면 204다.
+장소·건물은 휴지통 밖의 하위 항목이 있으면 이동할 수 없다. 기본 목록은 휴지통 항목을
+숨기며, 기존 `GET /sites?archived=true`, `/scenarios?archived=true`,
+`/floors/{id}/map-versions?archived=true`, `/assignments?archived=true`는 **정상+휴지통 포함**으로 유지한다.
+휴지통만 한 번에 읽을 때는 다음 API를 쓴다. 모든 경로의 접두사는 `/api/v1`이다.
+
+| 메서드 | 경로 | 응답·동작 | 권한 |
+|---|---|---|---|
+| GET | `/trash` | `TrashList {items: TrashItem[]}`. 삭제 시각 내림차순, 조직의 휴지통 항목 전체 | A, O |
+| POST | `/trash/{kind}/{id}/restore` | 204. 휴지통 해제, 시나리오는 `version` 증가. 이미 정상 항목이면 204 | A, O |
+| DELETE | `/trash/{kind}/{id}` | 204. 휴지통 항목만 DB에서 완전 삭제 | A, O |
+| GET | `/runs/{id}/history` | `RunHistory`. 끝난 기록의 NULL 참조와 삭제 당시 이름을 읽는다 | A, 현재 담당자, 실행자 |
+
+`kind`는 `site | building | floor | scenario`다. `TrashItem`은
+`{kind,id,name,archived_at,deleted_by:{id,display_name}|null,parent_name:string|null}`이다.
+지운 사람은 기존 감사 이벤트에서 찾으며 이벤트/계정 정보가 없으면 null,
+상위 이름은 건물→장소·층→건물, 장소·시나리오는 null이다. 존재하지 않거나 다른 조직의 ID는 동일 404다.
+권한은 기존 보관과 같은 O(총괄·운영 모두, [ADR-003 §11](10-ADR-003-OPERATOR-APP-TOWER-WEBSIM.md))다.
+
+되살리기는 상위 장소·건물이 휴지통이면 409 `PARENT_ARCHIVED`와
+«상위 건물을 먼저 되살리세요» 또는 «상위 장소를 먼저 되살리세요»로 막는다.
+장소→건물→층 순으로 되살린다. 기존 이름 중복 금지 제약은 없으므로 새 제약을 추가하지 않는다.
+층 되살리기는 연결점을 다시 계산한다. 시나리오 되살리기 뒤 참조 층이 아직 휴지통이면
+기존 선택 목록의 숨김 규칙이 계속 적용되므로 참조 층도 되살려야 한다.
+
+완전 삭제의 409 사유는 `NOT_IN_TRASH`(먼저 휴지통 이동),
+`RESOURCE_IN_USE`(실행·대기·일시정지 임무, ACTIVE/PENDING 배정, 층의 로봇·시뮬 세션,
+미처리 지도·배정 결재), `HAS_CHILDREN`(휴지통 포함 하위 건물/층),
+`HAS_REFERENCES`(층을 참조하는 시나리오 판)다.
+자동 연쇄 삭제 대신 참조 시나리오→층→건물→장소 순의 명시적 삭제를 사용한다.
+숨겨진 하위 자료를 실수로 지우지 않고 고정 시나리오가 없는 지도를 참조하지 않게 하기 위한 선택이다.
+잠금은 기존 보관과 같이 대상 행을 먼저 잠그고 사용 중 검사를 한 트랜잭션에서 수행한다.
+
+끝난 `Run`, `RunStep`, 사진, 해제/반려 배정, 끝난 결재와 감사 이벤트는 지우지 않는다.
+시나리오 삭제는 Run·Assignment의 `scenario_version_id`를 NULL로 하고
+그 고정 판의 `scenario_name_snapshot`에 이름을 남긴다. 층 삭제는 Run의
+`floor_id`·`map_version_id`를 NULL로 하고 `floor_name_snapshot`에 이름을 남긴다.
+지도 결재의 target ID·base 참조는 NULL이 될 수 있고 `floor_name_snapshot`으로 미리보기를 제공한다.
+복합 조직 FK는 유지하며 제한된 `fh_purge_resource` DB 함수만 참조 해제와 판 삭제를 한다.
+`RunHistory.scenario_name`과 배정/시나리오 결재의 `scenario_name`은
+«삭제된 시나리오: 이름», 층 기록/지도 결재의 `floor_name`은 «삭제된 층: 이름»으로 읽힌다.
+살아 있는 이름과 원본 스냅샷도 계약 필드로 구별할 수 있다. 배정 조회는 `archived=true`로
+삭제된 시나리오의 배정 이력까지 포함한다. `*_RESTORED`·`*_PURGED` 이벤트 data에는 id·이름만 남긴다.
+
+층의 지도 판·연결점과 더 이상 참조되지 않는 업로드를 같은 DB 트랜잭션에서 정리한다.
+이미지 PNG·지도 YAML 경로는 `file_deletions` 대기열에 넣고 **커밋 뒤** 파일을 지운다.
+공유 업로드/공유 이미지 경로는 마지막 참조가 없어질 때까지 보존한다.
+파일 실패는 경로 없이 경고 로그와 attempts 증가로 남겨 1초 주기 작업(최대 100건/회)에서 재시도한다.
+대기열은 재시작 뒤에도 남으며, 파일 실패 때문에 커밋한 기록 참조를 되돌리거나 삭제하지 않는다.
+허용된 파일 저장소 밖 경로는 삭제하지 않는다.
+
+이관 `0023`은 `0022` 다음이다. 기존 행·이름·FK 값을 바꾸지 않고 nullable 스냅샷 열,
+nullable 기록 참조와 파일 대기열/제한된 DB 함수를 추가한다. `dev` 자동배포의 Alembic upgrade
+대상이며 운영 자료 삭제는 완전 삭제 API를 호출한 경우에만 일어난다.
+코드 롤백은 DB를 내리지 않는다. 이미 purge했다면 과거 코드의 비NULL 이력 응답과 호환되지 않으므로,
+새 휴지통 API를 내리는 수정 커밋에서도 nullable 이력 리더·스냅샷 처리는 유지하거나 전진 수정한다.
+purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
+스키마 downgrade를 거부해 이력 손실을 막는다. purge 전에는 downgrade/upgrade 왕복 가능하다.
+완전 삭제 자체는 되살릴 수 없으며 DB/파일 백업 복구가 필요하다.
 
 ---
 
@@ -242,7 +305,7 @@
 | POST | `/scenarios` | 만들기 → 판 1 | A, O |
 | GET | `/scenarios/{id}` | 최신 판 (`?version=n`) | 로그인 |
 | PUT | `/scenarios/{id}` | 새 판 저장 (`If-Match`) | A, 만든 사람 |
-| DELETE | `/scenarios/{id}` | 보관 | A, 만든 사람 |
+| DELETE | `/scenarios/{id}` | 휴지통 이동(사용 중이면 409, §5.1) | A, O |
 | POST | `/scenarios/preview` | 저장 전 경로 미리보기(층 경유·거리·갈 수 없는 지점) | 로그인 |
 
 **시나리오 판 본문**

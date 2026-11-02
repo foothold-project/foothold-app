@@ -1,0 +1,126 @@
+{
+  "$id": "fh-app/1/RunHistory",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "ended_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Ended At"
+    },
+    "floor_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Floor Id"
+    },
+    "floor_name": {
+      "title": "Floor Name",
+      "type": "string"
+    },
+    "floor_name_snapshot": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Floor Name Snapshot"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "map_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Map Version Id"
+    },
+    "scenario_name": {
+      "title": "Scenario Name",
+      "type": "string"
+    },
+    "scenario_name_snapshot": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Scenario Name Snapshot"
+    },
+    "scenario_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Scenario Version Id"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "QUEUED",
+        "PREPARING",
+        "MOVING",
+        "AT_WAYPOINT",
+        "PERFORMING",
+        "WAIT_CONFIRM",
+        "PAUSED",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "scenario_version_id",
+    "floor_id",
+    "map_version_id",
+    "scenario_name",
+    "floor_name",
+    "scenario_name_snapshot",
+    "floor_name_snapshot",
+    "status",
+    "started_at",
+    "ended_at"
+  ],
+  "title": "RunHistory",
+  "type": "object"
+}

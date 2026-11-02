@@ -185,7 +185,7 @@ def test_scenario_calculation_versions_finish_archive_and_event(maps, seeded):
     assert http.get(P + '/scenarios?archived=1', headers=headers).json()['items'][0]['archived_at']
     assert http.get(path + '?version=1', headers=one).status_code == 200
     events = {e['code']: e for e in http.get(P + '/events', headers=headers).json()['items']}
-    for code, word in [('SCENARIO_CREATED', '만들었습니다'), ('SCENARIO_VERSION_CREATED', '저장했습니다'), ('SCENARIO_ARCHIVED', '보관했습니다')]:
+    for code, word in [('SCENARIO_CREATED', '만들었습니다'), ('SCENARIO_VERSION_CREATED', '저장했습니다'), ('SCENARIO_ARCHIVED', '휴지통으로 옮겼습니다')]:
         assert code in events and word in events[code]['message'] and '시나리오' in events[code]['message']
     engine = create_engine(seeded['urls']['app'])
     with Session(engine) as db:
