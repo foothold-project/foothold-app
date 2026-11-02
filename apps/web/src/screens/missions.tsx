@@ -614,14 +614,17 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
               {`${p.site.name} › ${p.building.name} › ${p.floor.name}${c ? ` (지점 ${c})` : ''}${p.floor.approved_version_id ? '' : ' — 승인된 지도 없음'}`}</option>; })}</select></label>}
   </Menu>, mapSlot);
   // «···» 안 실행 확인할 로봇(고르면 그 로봇이 못 하는 지점에 ⚠)
-  const robotPick = set && moreSlot && createPortal(<><label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" disabled={fence} value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
-    <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label><hr /></>, moreSlot);
+  // «···» 안: 저장된 시나리오의 이름(단계 창 줄 자리를 늘리게 — MAPSCEN-FIX-R1, 새 시나리오는 이름을 먼저 쓰게 창에 둠) + 실행 확인할 로봇(고르면 그 로봇이 못 하는 지점에 ⚠)
+  const nameUp = !!saved;
+  const morePick = moreSlot && (nameUp || set) && createPortal(<fieldset disabled={fence} style={{ display: 'contents' }}>{nameUp && nameField}
+    {set && <label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
+      <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>}<hr /></fieldset>, moreSlot);
   const where = (p: ScenarioPoint) => `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}${p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}`;
   const tabs = <span className="fh-grow"><span className="mx-seg" role="tablist" aria-label="단계·배정">
     <button type="button" role="tab" className="btn" aria-selected={tab === 'steps'} aria-pressed={tab === 'steps'} onClick={() => setTab('steps')}>단계 {pts.length}</button>
     {assign && <button type="button" role="tab" className="btn" aria-selected={tab === 'assign'} aria-pressed={tab === 'assign'} onClick={() => { setTab('assign'); setSel(null); }}>배정{assignN != null ? ` ${assignN}` : ''}</button>}</span></span>;
   return <>
-    {mapPick}{robotPick}
+    {mapPick}{morePick}
     <div className="mx-map">
       {/* 지도 위 알림 띠(생길 때만) */}
       <div className="mx-over">
@@ -656,7 +659,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       head={one != null && tab === 'steps' ? <><button type="button" className="btn" aria-label="단계 목록으로" title="목록으로" onClick={() => setSel(null)}>‹</button><span className="fh-grow">{one + 1}번 지점</span></> : tabs}>
       <div className="mx-tab" hidden={tab !== 'steps'}>
         <fieldset disabled={fence} style={{ display: 'contents' }}>
-        <div className="mx-in" hidden={one != null}>{nameField}
+        <div className="mx-in" hidden={one != null}>{!nameUp && nameField}
           {set && mErr && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {mErr}</p><button type="button" className="btn" onClick={() => setMN((x) => x + 1)}>다시 받기</button></div>}
           {set && cat.err && <div className="fh-row"><p className="fh-msg" role="alert">실행할 수 있는지 확인하지 못했습니다. {cat.err}</p><button type="button" className="btn" onClick={cat.again}>다시 받기</button></div>}
           {qMsg && <p className="fh-msg" role="alert">{qMsg}</p>}

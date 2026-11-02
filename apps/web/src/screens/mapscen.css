@@ -89,3 +89,4 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mx-foot .fh-field{flex-direction:row;align-items:center;gap:8px}
 .mx-foot .fh-field>span{flex:none}
 .mx-foot .fh-field>select{flex:1;min-width:0}
+.mx-in:empty{display:none}   /* 이름이 «···» 로 가 빈 안내 칸은 자리를 먹지 않게 */

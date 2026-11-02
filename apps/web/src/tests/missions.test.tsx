@@ -1169,7 +1169,7 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     expect((point(0).closest('.mx-tab') as HTMLElement).hidden).toBe(false);
     await stopSends();
   });
-  it('새 시나리오(저장 전)는 배정 탭 없음 · 저장은 단추 줄 «저장», 삭제는 «···» 안', async () => {
+  it('새 시나리오(저장 전)는 배정 탭 없음·이름은 창에 · 저장은 단추 줄, 삭제·저장된 시나리오 이름은 «···» 안', async () => {
     seed(); serve(KIM);
     await open();
     await click(btn('새 시나리오'));
@@ -1178,6 +1178,9 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     await click(row('s1'));
     expect(btn('삭제')!.closest('details.mx-menu')).toBeTruthy();
     expect(btn('새 판으로 저장')!.closest('.mx-bar')).toBeTruthy();
+    expect(name().closest('details.mx-menu')).toBeTruthy(); expect(card('단계 창').contains(name())).toBe(false);   // 저장된 시나리오 이름은 «···» 안 — 단계 줄 자리(MAPSCEN-FIX-R1)
+    await click(btn('새 시나리오'));
+    expect(card('단계 창').contains(name())).toBe(true);                                                              // 새 시나리오는 이름을 먼저 쓰게 창에
     await stopSends();
   });
 });
