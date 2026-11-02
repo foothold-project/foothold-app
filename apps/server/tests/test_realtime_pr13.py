@@ -196,27 +196,60 @@ def test_batched_reads_reserve_control_and_agent_capacity_under_viewer_load(clie
         sockets = [stack.enter_context(slow_screen(client, app_token(client, name))) for name in usernames]
         stack.callback(lambda: run(client, stop_heartbeat))
         ws = sockets[0]
-        time.sleep(.7)
+        async def warmed():
+            # Observe readiness under load instead of guessing which part of
+            # the 50ms fresh window a fixed 700ms sleep will land in.
+            async with asyncio.timeout(5):
+                while not (rt.policy_cache and all(rt.clock() - p.checked < .5
+                        for p in rt.policy_cache.values()) and all(
+                        rt.clock() - rt.agents[r].auth_checked < .5 for r, _ in agents)):
+                    await asyncio.sleep(.002)
+        run(client, warmed)
         errors, retakes = [], []
-        def acquire():
-            for attempt in range(25):
-                answer = reply(ws, send(ws, 'lease.take', rid))
-                if not answer['ok']:
-                    errors.append(answer['error']['code'])
-                    assert answer['error']['code'] in ('POLICY_STALE', 'ROBOT_AUTH_PENDING'), answer
-                    time.sleep(.02)
-                    continue
-                receive(ag, 'lease')
-                receive(ag, 'stop')
-                async def confirmed():
+        async def acquire_async():
+            async def feedback():
+                # ACK the STOP actually delivered to the fake agent. Its 100ms
+                # heartbeat and synchronous portal round trips can miss the
+                # remaining 50ms of a 450ms authorization snapshot.
+                while True:
+                    packet = await ag._send_rx.receive()
+                    ag._raise_on_close(packet)
+                    frame = json.loads(packet.get('text', '{}'))
+                    if frame.get('t') == 'stop':
+                        await ag._receive_tx.send({'type': 'websocket.receive', 'text':
+                            json.dumps(state(3, stop_ref=frame['stop_ref']))})
+            responder = asyncio.create_task(feedback())
+            try:
+                for attempt in range(25):
+                    ident = f'take-{len(errors)}-{attempt}'
+                    await ws._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps(
+                        {'t': 'lease.take', 'id': ident, 'robot': rid})})
+                    async with asyncio.timeout(2):
+                        while True:
+                            packet = await ws._send_rx.receive()
+                            ws._raise_on_close(packet)
+                            answer = json.loads(packet['text'])
+                            if answer.get('t') == 'reply' and answer.get('id') == ident:
+                                break
+                    if not answer['ok']:
+                        errors.append(answer['error']['code'])
+                        assert answer['error']['code'] in ('POLICY_STALE', 'ROBOT_AUTH_PENDING'), answer
+                        await asyncio.sleep(.02)
+                        continue
                     async with asyncio.timeout(1.5):
                         while rt.arbiter.robot(rid).holder is None and rt.arbiter.robot(rid).transfer:
-                            await asyncio.sleep(.01)  # heartbeat feeds actual causal reference
-                    return rt.arbiter.robot(rid).holder is not None
-                if run(client, confirmed):
-                    return receive(ws, 'lease', predicate=lambda m: bool(m.get('lease_id')))['lease_id']
-                errors.append('CONFIRM_CANCELED')
-            pytest.fail(f'No fresh take window: {errors}')
+                            await asyncio.sleep(.002)
+                    holder = rt.arbiter.robot(rid).holder
+                    if holder:
+                        return holder.lease_id
+                    errors.append('CONFIRM_CANCELED')
+                pytest.fail(f'No fresh take window: {errors}')
+            finally:
+                responder.cancel()
+                await asyncio.gather(responder, return_exceptions=True)
+        def acquire():
+            lease = run(client, acquire_async)
+            return receive(ws, 'lease', predicate=lambda m: m.get('lease_id') == lease)['lease_id']
         lease = acquire()
         answers, fresh = [], {r: 0 for r, _ in agents}
         for seq in range(20):
