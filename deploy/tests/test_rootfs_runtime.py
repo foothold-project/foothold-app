@@ -350,3 +350,8 @@ def test_probe_pins_runtime_dir_dependency_and_never_starts_user_manager(tmp_pat
     assert '--property=After=user-runtime-dir@23456.service' in command
     assert not any('user@23456.service' in arg for args in calls for arg in args)
     saved.assert_called_once()
+    # Candidate asset reseals need the same fresh probe without overwriting the
+    # existing global validation. Only the initial explicit probe persists it.
+    evidence=r.probe_evidence(value)
+    assert evidence['asset_manifest_sha256']==value['asset_manifest_sha256']
+    saved.assert_called_once()

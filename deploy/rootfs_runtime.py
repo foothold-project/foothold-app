@@ -226,13 +226,16 @@ def stop_pair(stop_manager,userctl,*,failure_fence=None):
         raise
 
 
-def validated(data):
-    value=build.private_json(VALIDATION,0o400)
+def checked_validation(data,value):
     if (value.get('recipe_sha256')!=data['recipe_sha256'] or value.get('manifest_sha256')!=data['manifest_sha256']
             or value.get('asset_manifest_sha256')!=data['asset_manifest_sha256']
             or any(value.get(k) is not True for k in ('llvmpipe','egl_render_readback','python_closure','native_abi','root_attested'))):
         raise ValueError('rootfs EGL/ABI validation absent or differs')
     return value
+
+
+def validated(data):
+    return checked_validation(data,build.private_json(VALIDATION,0o400))
 
 
 def attest(pid,data):
@@ -598,11 +601,11 @@ def repair_guard_mode(device,inode):
         return dict(changed=True,**details,audit=str(audit),cleanup_pending=[str(work)] if work.exists() else [])
 
 
-def probe():
-    data=load();uid,gid=identity(data);inactive_namespace(data)
+def probe_evidence(data,*,reload_units=False):
+    """Fresh proof for explicit sealed assets; never writes CONFIG/VALIDATION."""
+    uid,gid=identity(data);inactive_namespace(data)
     build.verify(rootfs(data),data['recipe_sha256']);assets(data);private_settings(data)
-    if VALIDATION.exists() or VALIDATION.is_symlink():raise ValueError('validation already exists; no automatic probe retry')
-    run(['systemctl','daemon-reload'])
+    if reload_units:run(['systemctl','daemon-reload'])
     props=properties(data,CURRENT.resolve(strict=True),proof=False)
     for key in ('Restart','Environment'):props.pop(key)
     props.update(User='foothold-sim',Group='foothold-sim',Slice='user-'+str(uid)+'.slice',
@@ -626,6 +629,13 @@ def probe():
     for key in ('llvmpipe','egl_render_readback','python_closure','native_abi','root_attested'):
         if value.get(key) is not True:raise ValueError('incomplete EGL/ABI result')
     value['asset_manifest_sha256']=data['asset_manifest_sha256']
+    return checked_validation(data,value)
+
+
+def probe():
+    data=load()
+    if VALIDATION.exists() or VALIDATION.is_symlink():raise ValueError('validation already exists; no automatic probe retry')
+    value=probe_evidence(data,reload_units=True)
     atomic(VALIDATION,json.dumps(value,sort_keys=True)+'\n',0o400)
     print('Rootfs CPU EGL render/readback and ABI passed; namespace/session not activated')
 
