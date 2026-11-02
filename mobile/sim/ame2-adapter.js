@@ -84,12 +84,38 @@ export function makeAme2Adapter(makeTerrainSampler) {
       sampleHeight(s.d.qpos, s.mapping);
     },
     makeHeightScanner(mj, m, d, world) {
-      const sample = makeTerrainSampler(mj, m, d, this.observations.height), heights = new Float64Array(377);
+      const heightCfg = { ...this.observations.height }, maxOffset = heightCfg.rayOffset;
+      const sample = makeTerrainSampler(mj, m, d, heightCfg), heights = new Float64Array(377);
+      const hit = new mj.IntBuffer(1), normal = new mj.DoubleBuffer(3);
+      const point = new Float64Array(3), up = [0, 0, 1], group = [1, 1, 0, 0, 1, 0];
+      const excluded = Array.from({ length: m.ngeom }, (_, g) => g)
+        .filter((g) => m.geom_bodyid[g] !== 0 || (!m.geom_contype[g] && !m.geom_conaffinity[g]));
+      const originalGroups = new Uint8Array(excluded.length);
       // Training virtual_floor.py:56-83: no virtual plane on dense/app terrain;
       // void = lowest valid world height - depth, all void = floor.z.
       // Deterministic demo midpoint of env.yaml:1793-1799, relative to floorZ.
       const depth = .7, floorZ = world?.floorZ ?? 0;
       const scan = (q, out) => {
+        // One body-up probe identifies the space the robot occupies. Per-cell
+        // upward probes would mistake the thin, elevated training stair plates
+        // ahead for roofs. Cap the common downward start below the nearest
+        // overhead underside, while uncovered scenes keep the full 20m scan.
+        const maxZ = q[2] + maxOffset, epsilon = .001, groups = m.geom_group;
+        point.set(q.slice(0, 3)); heightCfg.rayOffset = maxOffset;
+        for (const [i, g] of excluded.entries()) { originalGroups[i] = groups[g]; groups[g] = 5; }
+        try {
+          for (let crossings = 0; crossings <= m.ngeom && point[2] < maxZ; crossings++) {
+            const distance = mj.mj_ray(m, d, point, up, group, true, -1, hit, normal);
+            if (!Number.isFinite(distance) || distance < 0 || point[2] + distance > maxZ) break;
+            if (normal.GetView()[2] < 0) {
+              heightCfg.rayOffset = point[2] + distance - q[2] - epsilon;
+              break;
+            }
+            // An upward-facing exit means the body probe started inside a
+            // solid obstacle. Its exposed top is terrain, not a ceiling.
+            point[2] += distance + epsilon;
+          }
+        } finally { for (const [i, g] of excluded.entries()) groups[g] = originalGroups[i]; }
         sample(q, heights);
         let lowest = Infinity;
         for (const z of heights) if (Number.isFinite(z)) lowest = Math.min(lowest, z);
@@ -100,7 +126,7 @@ export function makeAme2Adapter(makeTerrainSampler) {
         }
         return out;
       };
-      scan.dispose = sample.dispose;
+      scan.dispose = () => { sample.dispose(); hit.delete(); normal.delete(); };
       return scan;
     },
     yawOf,

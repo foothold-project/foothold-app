@@ -54,6 +54,15 @@ const mj = await load(); mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
 for (const f of readdirSync(join(src,'assets/unitree_go2/assets'))) if (f.endsWith('.obj')) mj.FS.writeFile('/go2/assets/'+f,readFileSync(join(src,'assets/unitree_go2/assets',f)));
 mj.FS.writeFile('/go2/go2.xml',readFileSync(join(src,'assets/unitree_go2/go2.xml')));
 mj.FS.writeFile('/go2/flat.xml','<mujoco><include file="go2.xml"/><worldbody><geom type="plane" size="10 10 .01"/></worldbody></mujoco>');
+// Exercise the actual observe -> policy connection, not just the goal helper.
+let goalObs;
+const goalSim=createSim(mj,'/go2/flat.xml',ISAAC_LIKE,(obs)=>{goalObs=obs.slice();return new Float32Array(12);},{floorZ:0,spawn:[0,0,0]},adapter.id,{ame2DelaySteps:0});
+try {
+  Math.random=()=>.25; goalSim.cmd=[3,4,0,1]; goalSim.step();
+  assert.ok(Math.abs(goalObs[45]-1.2)<1e-6&&Math.abs(goalObs[46]-1.6)<1e-6,'policy receives 2m-clipped far goal');
+  assert.ok(Math.abs(goalObs[47]+1)<1e-6&&Math.abs(goalObs[48])<1e-6,'policy receives sampled far-goal yaw');
+  assert.deepEqual(goalSim.cmd,[3,4,0,1],'observation encoding preserves command');
+} finally {Math.random=originalRandom;goalSim.dispose();}
 // Verify actual actuator torques at all 4 substeps (not just queue helpers).
 for (const delay of [0,1,2,3,4]) {
   let tick=0, substep=0, previous;
