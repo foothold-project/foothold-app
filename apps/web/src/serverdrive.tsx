@@ -202,11 +202,13 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
     <button type="button" className="btn pri" data-sd-open onClick={open('rgb')}>조종 화면 열기 — 카메라·라이다·조작부</button>
     {notes}
     {full && <div role="dialog" aria-modal="true" aria-label={`${CH_NAME[full]} 전체화면`} data-sd-full ref={dlg} onKeyDown={trapTab}
-      style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)', overflowY: 'auto' }}>
-      <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)', overflow: 'hidden' }}>
+      {/* 머리줄(STOP)은 스크롤하지 않음 — 아래 본문만 스크롤해 어떤 스크롤 위치·상태(잠금 해제 미확인 포함)에서도 STOP 이 보이고 눌림(#216 B1) */}
+      <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center', flex: 'none' }} data-sd-full-head>
         <Chip tone="warn" text={TRIAL} /><Chip {...lock} />{status}<span className="fh-grow" style={{ flex: 1 }} />
         <button type="button" className="btn" data-sd-small onClick={closeFull}>작게 보기(Esc)</button>{stop(true)}
       </div>
+      <div data-sd-full-body style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {(stopNote || unlock) && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} data-sd-full-state>{stopNote}{unlock}</div>}
       <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar'] as const).map((ch) =>
         <button key={ch} type="button" className="btn" aria-pressed={full === ch} data-sd-ch={ch} onClick={() => setFull(ch)}>{CH_NAME[ch]}</button>)}</div>
@@ -215,6 +217,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
       {notes}
       {pad}
       {control}
+      </div>
     </div>}
   </section>;
 }

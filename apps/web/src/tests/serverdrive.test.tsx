@@ -320,6 +320,27 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     expect(document.activeElement).toBe(tile);
   });
 
+  it('#216 B1: 잠금 해제 미확인 뒤 본문을 끝까지 스크롤해도 STOP 은 스크롤 밖 머리줄 — 모달은 스크롤 안 하고, 눌리면 stop', () => {
+    ready(); view();
+    const auto = w.auto!;
+    w.auto = (m) => (m.t === 'unlock' ? { ok: true } : auto(m));   // 서버 전달만, 로봇 잠금 그대로
+    const full = $('[data-sd-full]')!, stop = () => full.querySelector<HTMLElement>('[data-sd-stop="full"]')!;
+    click(stop()); tick(100);
+    click(full.querySelector('[data-sd-lock] button')!); tick(UNLOCK_WAIT_MS);
+    expect(full.textContent).toContain('미확인 — 로봇이 정지 확인을 못 해');
+    const body = full.querySelector<HTMLElement>('[data-sd-full-body]')!;
+    expect(body.style.overflowY).toBe('auto');
+    expect(full.style.overflow).toBe('hidden');   // 모달 통째 스크롤 금지(800×600 에서 STOP 이 y<0 으로 나갔음)
+    act(() => { body.scrollTop = 10_000; body.dispatchEvent(new Event('scroll')); });
+    expect(body.contains(stop())).toBe(false);
+    expect(stop().closest<HTMLElement>('[data-sd-full-head]')!.style.flexShrink).toBe('0');
+    expect(stop().closest('[inert]')).toBeNull();
+    expect(body.contains(btn('조종 끝내기'))).toBe(true);   // 끝내기는 본문 스크롤로 닿음
+    const n = w.of('stop').length;
+    click(stop()); tick(10);
+    expect(w.of('stop').length).toBe(n + 1);
+  });
+
   it('#214 r1: 전체화면을 Esc·작게 보기·카메라 클릭 어느 길로 닫아도 눌린 이동 키를 버리고 바로 0 — 200 ms 뒤에도 0', () => {
     ready();
     const ways: [string, () => void][] = [
