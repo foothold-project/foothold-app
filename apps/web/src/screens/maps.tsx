@@ -164,7 +164,7 @@ export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' 
 /** 내용 비교용: null 칸을 빼고 열쇠 순서를 맞춘 JSON(서버는 None 칸을 저장하지 않는다) */
 export const canon = (x: unknown) => JSON.stringify(x, (_, v) => (v && typeof v === 'object' && !Array.isArray(v)
   ? Object.fromEntries(Object.entries(v).filter(([, y]) => y != null).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
-/** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 장소 고치기는 운영 관리자에게 회색+이유(U6). dash = 결재 대기로 받힌 뒤 배지 다시 받기 */
+/** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 장소 고치기는 총괄·운영 관리자 모두(서버 'O', PLACE-EDIT-OPEN 11-02). dash = 결재 대기로 받힌 뒤 배지 다시 받기 */
 export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
   const admin = c.user.role === 'ORG_ADMIN', t = useTree(c.cancel), places = floorsOf(t.tree);
   const [pick, setPick] = useState(() => kept.d?.floor ?? ''), cur = places.find((p) => p.floor.id === pick) ?? places[0];
@@ -198,7 +198,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
   // 휴지통으로(DELETE, §5.1) + 안내의 «되돌리기» = 복원
   const remove = ({ kind, id, name }: { kind: Kind; id: string; name: string }) => run(kind, () => api.deletePlace(kind, id, c.cancel), `«${name}» ${OBJ[kind]} 휴지통으로 옮겼습니다.`,
     { label: '되돌리기', run: () => run(kind, () => api.restore(TRASH[kind], id, c.cancel), `«${name}» ${OBJ[kind]} 되돌렸습니다.`) });
-  // 고치기 켠 총괄에게만: 이름 바꾸기·삭제(휴지통으로)
+  // 고치기를 켜면(총괄·운영 관리자): 이름 바꾸기·삭제(휴지통으로)
   const tools = (kind: Kind, x: { id: string; name: string; level?: number }) => fix && <span className="fh-row">
     <button type="button" className="btn" disabled={busy} onClick={() => open({ kind, id: x.id, title: `${WHAT[kind]} 이름 바꾸기 — ${x.name}`, name: x.name, level: x.level })}>이름 바꾸기</button>
     <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>삭제</button></span>;
@@ -223,11 +223,10 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
       </div>)}
       {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'buildings', parent: s.id, title: `${s.name} 에 새 건물` })}>+ 건물</button>}
     </div>)}
-    {t.tree && !t.tree.items.length && <p className="lv-note">{admin ? '등록된 장소가 없습니다. «장소 고치기»에서 장소·건물·층을 만드세요.' : '등록된 장소가 없습니다. 총괄 운영 관리자에게 문의하세요.'}</p>}
+    {t.tree && !t.tree.items.length && <p className="lv-note">등록된 장소가 없습니다. «장소 고치기»에서 장소·건물·층을 만드세요.</p>}
     <hr />
-    <div className="fh-row"><button type="button" className="btn fh-grow" aria-pressed={admin ? fix : undefined} disabled={!admin} aria-describedby={admin ? undefined : 'fix-why'}
+    <div className="fh-row"><button type="button" className="btn fh-grow" aria-pressed={fix}
       onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>장소 고치기</button><TrashLink /></div>
-    {!admin && <span id="fix-why" className="fh-why" data-why>장소 고치기는 총괄만 할 수 있습니다.</span>}
     {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button>}
     {form && <form className="fh-form" onSubmit={submit} noValidate aria-label={form.title}>
       <b>{form.title}</b>
