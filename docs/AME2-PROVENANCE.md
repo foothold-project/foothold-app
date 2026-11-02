@@ -358,3 +358,7 @@ foothold-v2 수치는 [정책 출처](POLICY-PROVENANCE.md#fp32-onnx-시뮬-추�
 Node 궤적도 다시 기록했으며 보행 판정은 하지 않았다. 기존 headless WASM UI와 공통
 실행기의 두 정책 수명주기·파일/런타임/wasm/SHA/첫 추론/실행 실패 시험도 통과했다.
 이번 공통화에서 WebGPU는 재실행하지 않았으며 위 WebGPU 수치는 최초 측정 기록이다.
+
+공통화 최종 코드 `126bdfd`의 dev APK는 기존 AME-2 ONNX+WASM을 유지한 기준
+33,809,882 bytes → foothold-v2 ONNX 추가 34,879,427 bytes(+1.020 MiB)였다.
+단위시험16개와 빌드만 통과했고 실폰/설치/배포는 하지 않았다. 상세 기준은 정책 출처의 APK 절을 따른다.

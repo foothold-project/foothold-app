@@ -243,3 +243,32 @@ STOP/blur/hidden/pagehide/reset/손 입력 때 늦은 결과 폐기와 동시 �
 모델/런타임/wasm 없음·SHA·첫 추론·실행 실패 시 같은 모델 f32 전환 및 배지 노출을 확인했다.
 원 로그는 로컬 `runs/policy-onnx/selftests/`와 `headless*.log`에 있다.
 실폰·에뮬레이터 실행·실제 GPU·장시간/전체 지도·실로봇은 미검증이며 보행 성공 판단은 하지 않는다.
+
+### APK: 빌드만 실행 (설치·배포 없음)
+
+최종 실행 코드/자산 복사 기준은 `126bdfd6b2e670c312a464f49cd74c96e16cfed8`이며
+아래 두 APK의 `SOURCE.json.mobile_rev`가 이 커밋, `dirty=false`임을 확인했다.
+같은 소스·dev variant에서 기존 AME-2 ONNX+공통 WASM 포함 번들을 기준으로,
+foothold-v2 ONNX를 추가했을 때의 차이다. 공통 ORT를 모델마다 중복해서 담지 않는다.
+
+| APK 내용 | bytes |
+|---|---:|
+| 기존 f32 둘 + AME-2 ONNX + 공통 WASM | 33,809,882 |
+| 위 내용 + foothold-v2 ONNX | 34,879,427 |
+| 증가 | **1,069,545 (+1.020 MiB)** |
+
+추가 ONNX 원본 1,146,973 bytes, APK 압축 1,069,356 bytes다. 나머지 차이는 SOURCE 메타데이터와
+ZIP 구조다. 두 APK의 f32/ONNX 파일 SHA를 `SOURCE.json` 및 선언과 대조했다.
+`testDevUnitTest assembleDev`는 둘 다 통과(각95 tasks, 마지막 빌드18초/16초),
+앱 단위시험 **16개·실패/오류/건너뜀 0**이다. Gradle `--no-daemon --max-workers=1`
+`-Dorg.gradle.jvmargs=-Xmx512m`으로 브라우저 종료 뒤 순차 실행했다.
+Capacitor 의존성은 기존 설치를 재사용/로컬 복사했고 전체 mobile node_modules를 설치하지 않았다.
+마지막 자산 복사 일반화는 어댑터의 f32/선택 manifest/ONNX를 실제 복사해 SHA와 SOURCE를 확인했고,
+이후 위 APK 두 개를 다시 빌드했다. 전체 selftest 이후 실행 코드 변경은 없고 패키징만 일반화했다.
+실폰·에뮬레이터에서 APK를 실행하지 않았으며 versionCode/설치본/배포물을 바꾸지 않았다.
+최종 PR head에는 이 기록의 문서 변경만 추가된다. APK/자산 상세는 로컬 `runs/policy-onnx/apk-size.json`이다.
+
+```sh
+if (cd mobile && node node_modules/@capacitor/cli/bin/capacitor sync android); then :; else exit 1; fi
+if (cd mobile/android && ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=-Xmx512m testDevUnitTest assembleDev); then :; else exit 1; fi
+```
