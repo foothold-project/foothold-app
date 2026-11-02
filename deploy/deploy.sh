@@ -14,14 +14,24 @@ previous=''
 if [[ -L /opt/foothold/current ]]; then previous=$(readlink -f /opt/foothold/current); fi
 switched=0
 sim_stopped=0
+caddy_prepared=0
 finish() {
-    local result=$? rollback=not-needed
+    local result=$? rollback=not-needed caddy_recovery=not-needed
     trap - EXIT
     if needs_rollback "$result" "$switched"; then
         if restore_release "$previous"; then rollback=restored; else rollback=FAILED; fi
     elif (( result != 0 && sim_stopped == 1 )); then
         if sim_manager_start; then rollback=restored-idle-manager; else rollback=FAILED; fi
     fi
+    if (( result != 0 && caddy_prepared == 1 )); then
+        if python3 "$FH_DEPLOY_TOOLS_DIR/caddy_sync.py" rollback; then
+            caddy_recovery=restored
+        else
+            caddy_recovery=FAILED
+            echo 'Caddy configuration recovery FAILED; root recovery required.' >&2
+        fi
+    fi
+    if [[ $caddy_recovery == FAILED ]]; then rollback=FAILED; fi
     printf '%s commit=%s previous=%s exit=%s rollback=%s mode=%s\n' "$(date -u +%FT%TZ)" "$sha" "${previous##*/}" "$result" "$rollback" "$mode" >> /var/lib/foothold/deploys.log
     exit "$result"
 }
@@ -51,6 +61,8 @@ set -a
 source /etc/foothold/site.env
 set +a
 valid_site "$FH_SITE" || exit 2
+python3 "$FH_DEPLOY_TOOLS_DIR/caddy_sync.py" prepare "$release/deploy/Caddyfile"
+caddy_prepared=1
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 sim_manager_stop
 sim_stopped=1
@@ -61,4 +73,5 @@ sim_manager_start
 # reload reads site.env again; on the first deployment Caddy may not be running.
 if systemctl is-active --quiet caddy; then systemctl reload caddy; else systemctl start caddy; fi
 "$release/.venv/bin/python" -m deploy.smoke
+python3 "$FH_DEPLOY_TOOLS_DIR/caddy_sync.py" commit
 printf 'Deployment checks passed for %s\n' "$sha"
