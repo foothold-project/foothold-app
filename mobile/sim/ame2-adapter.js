@@ -1,7 +1,7 @@
 import { loadAme2Policy } from './ame2-network.js';
 
-// ASSUMPTION: USD articulation order is unavailable. Change this single table
-// when the provider supplies robot.joint_names; never infer order from regexes.
+// Confirmed: model_14999.go2_env_state.critic_contract.joint_names.
+// go2_runner.py:431,554 saves the articulation order, not a regex expansion.
 export const AME2_JOINT_ORDER = Object.freeze([
   'FL_hip_joint', 'FR_hip_joint', 'RL_hip_joint', 'RR_hip_joint',
   'FL_thigh_joint', 'FR_thigh_joint', 'RL_thigh_joint', 'RR_thigh_joint',
@@ -21,6 +21,33 @@ export function ame2Torque(torque, velocity, index) {
   return clamp(torque, -limit, limit);
 }
 
+// observations.py:296-340: the 2 m threshold is strict; far-goal yaw is
+// redrawn once per policy observation. Nearby joystick goals retain their yaw.
+export function ame2GoalObservation(command) {
+  const distance = Math.hypot(command[0], command[1]);
+  if (distance <= 2) return command;
+  const yaw = Math.random() * 2 * Math.PI - Math.PI;
+  return [command[0] * 2 / distance, command[1] * 2 / distance, Math.sin(yaw), Math.cos(yaw)];
+}
+
+// actions.py:37-72: shift processed targets at EVERY physics substep.
+// A delay of 4 retains the old target for a complete 4-substep policy tick.
+export function makeAme2ActionDelay(defaultPose, fixedDelaySteps = null) {
+  if (fixedDelaySteps !== null && (!Number.isInteger(fixedDelaySteps) || fixedDelaySteps < 0 || fixedDelaySteps > 4)) throw new Error('AME-2 fixed delay must be an integer in [0,4]');
+  const history = Array.from({ length: 5 }, () => Float64Array.from(defaultPose));
+  let steps = 0;
+  return {
+    get steps() { return steps; },
+    reset() { steps = fixedDelaySteps ?? Math.floor(Math.random() * 5); this.clear(); },
+    clear() { for (const target of history) target.set(defaultPose); },
+    apply(target) {
+      for (let i = 4; i > 0; i--) history[i].set(history[i - 1]);
+      history[0].set(target);
+      return history[steps];
+    },
+  };
+}
+
 // A: fresh nearby body-frame target each tick; heading integrates the right stick.
 // Complete neutral attaches both target and heading to the current pose.
 // 시뮬 잠금 풀기(10-31): 뒤쪽 목표(후진)도 보낸다 — 앞쪽만이라고 가정한 범위 밖이라 inRange 가 테두리 색으로만 알린다(자르지 않음)
@@ -37,10 +64,12 @@ export function ame2Joystick(previousHeading, yaw, axes, dt = .02) {
 export function makeAme2Adapter(makeTerrainSampler) {
   return {
     id: 'ame2-demo', label: 'AME-2(시연)',
-    observations: { size: 49, bodySize: 49, mappingSize: 1131, height: { grid: ame2Grid, rayOffset: .501, noise: 0, clip: [-1.5, 1.5] } },
+    // go2_env_cfg.py:78-87: terrain scan starts 20 m above the body.
+    observations: { size: 49, bodySize: 49, mappingSize: 1131, height: { grid: ame2Grid, rayOffset: 20, noise: 0, clip: [-1.5, 1.5] } },
     network: { file: 'ame2_actor.f32', manifest: 'ame2_actor.json', sha256: '28edbc05169b817044c600d90cc081bb797ae56c5b8400b8ffebf648410d26a0' },
     action: { size: 12, joints: AME2_JOINT_ORDER, defaultPose: defaults, scale: .25, kp: 25, kd: .5, targetClip: 100, torque: ame2Torque },
-    timing: { physicsDt: .005, decimation: 4, policyDt: .02, delaySteps: 0 },
+    timing: { physicsDt: .005, decimation: 4, policyDt: .02, delayRange: [0, 4] },
+    makeActionDelay: makeAme2ActionDelay,
     command: { kind: 'nearby_goal', joystickScale: [1, 1, 1], inRange: (c) => c.length === 4 && c.every(Number.isFinite) && c[0] >= 0 && Math.hypot(c[0], c[1]) <= 2 },
     stop: { input: [0, 0, 0, 1], pause: true },
     loadPolicy: loadAme2Policy,
@@ -51,7 +80,7 @@ export function makeAme2Adapter(makeTerrainSampler) {
         obs[9 + i] = s.d.qpos[7 + j] - defaults[i]; obs[21 + i] = s.d.qvel[6 + j];
         obs[33 + i] = clamp(last[i], -50, 50);
       }
-      obs.set(s.cmd, 45);
+      obs.set(ame2GoalObservation(s.cmd), 45);
       sampleHeight(s.d.qpos, s.mapping);
     },
     makeHeightScanner(mj, m, d, world) {

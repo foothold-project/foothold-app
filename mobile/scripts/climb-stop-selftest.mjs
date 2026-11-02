@@ -33,7 +33,12 @@ for (const id of ['foothold-v2', 'ame2-demo']) {
     assert.equal(action.length, 12); assert.ok(action.every(Number.isFinite), `${id}: finite actions`);
     return action;
   };
-  const sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, id);
+  // Historical #220 trajectory fixture: preserve its observations and delay so
+  // this regression continues to isolate fall detection from policy changes.
+  // The current 20m scan and delays 0…4 are tested in ame2-*-selftest instead.
+  const rayOffset = adapter.observations.height.rayOffset;
+  if (id === 'ame2-demo') adapter.observations.height.rayOffset = .501;
+  const sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, id, { ame2DelaySteps: 0 });
   const scan = makeTerrainSampler(mj, sim.m, sim.d, { grid: [[0, 0], [-.1881, -.04675], [-.1881, .04675], [.1881, -.04675], [.1881, .04675]], rayOffset: 0 });
   const support = new Float64Array(5);
   let exception = null, minZ = Infinity, priorStop = null;
@@ -61,7 +66,7 @@ for (const id of ['foothold-v2', 'ame2-demo']) {
     // Report a later physical fall as a policy limitation; never assert that
     // this command succeeds in climbing the house or reaches a goal.
     if (sim.fell && !process.env.FH_SIM_MODULE) assert.ok(sim.z < .18 || sim.grav[2] > -.5, `${id}: actual low body or tilt must still stop`);
-  } finally { scan.dispose(); sim.dispose(); }
+  } finally { adapter.observations.height.rayOffset = rayOffset; scan.dispose(); sim.dispose(); }
 
   // Isolate support selection from gait quality, including a rotated step.
   for (const yaw of [0, Math.PI / 2]) {

@@ -20,7 +20,7 @@ function dcmotor(tau, dq, { effort: EFFORT, velocityLimit: VEL_LIM }) {
   return Math.min(Math.max(tau, lo), hi);
 }
 
-export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = 'foothold-v2') {
+export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = 'foothold-v2', { ame2DelaySteps = null } = {}) {
   const adapter = getPolicyAdapter(adapterId);
   const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = adapter.timing;
   const { joints: ISAAC_J, defaultPose: DEFAULT_I, scale: ACTION_SCALE, kp: KP, kd: KD } = adapter.action;
@@ -59,12 +59,14 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const support = new Float64Array(supportGrid.length);
   let supportZ = F;
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
+  const actionDelay = adapter.makeActionDelay?.(MJ_J.map((_, i) => DEFAULT_I[I2M[i]]), ame2DelaySteps);
   const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], z: 0, fell: false, policyMs: 0, physMs: 0, I2M, M2I };
 
   // AME-2 STOP discards the previous action and target; UI keeps its existing latch.
   s.clearPolicyState = () => {
     s.cmd = adapter.stop.input.slice(); last.fill(0);
     for (let i = 0; i < 12; i++) tgt[i] = DEFAULT_I[I2M[i]];
+    actionDelay?.clear();
   };
   s.mapping = adapter.observations.mappingSize ? new Float32Array(adapter.observations.mappingSize) : null;
   s.reset = () => {
@@ -73,6 +75,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     q[0] = SX; q[1] = SY; q[2] = F + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 바닥 위 0.4
     for (let i = 0; i < 12; i++) { q[7 + i] = DEFAULT_I[I2M[i]]; tgt[i] = DEFAULT_I[I2M[i]]; }
     if (adapter.stop.pause) s.clearPolicyState();
+    actionDelay?.reset();
     v.fill(0); last.fill(0); s.t = 0; s.fell = false; supportZ = F;
     mj.mj_forward(m, d);
     state();
@@ -127,8 +130,9 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   };
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;
+    const applied = actionDelay ? actionDelay.apply(tgt) : tgt;
     for (let i = 0; i < 12; i++) {
-      const torque = KP * (tgt[i] - q[7 + i]) - KD * v[6 + i];
+      const torque = KP * (applied[i] - q[7 + i]) - KD * v[6 + i];
       u[i] = adapter.action.torque ? adapter.action.torque(torque, v[6 + i], I2M[i]) : dcmotor(torque, v[6 + i], adapter.action);
     }
     mj.mj_step(m, d);

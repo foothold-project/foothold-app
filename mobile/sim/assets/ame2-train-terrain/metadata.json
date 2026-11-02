@@ -1,0 +1,233 @@
+{
+  "draft": true,
+  "seed": 11022026,
+  "source": "training source text; independent fixed samples",
+  "evidence": [
+    "terrains_go2.py:105,135-144,212-222",
+    "custom_terrains.py:296-390,847-888"
+  ],
+  "types": [
+    "stair_up",
+    "gap"
+  ],
+  "difficulty_samples": [
+    0,
+    0.5,
+    1
+  ],
+  "tiles": [
+    {
+      "id": "stairs-0",
+      "kind": "stair_up",
+      "difficulty": 0,
+      "center": [
+        0,
+        0
+      ],
+      "size": [
+        12,
+        12
+      ],
+      "step_height": 0.03,
+      "step_width": 0.22,
+      "num_steps": 15,
+      "spawn": [
+        0,
+        0,
+        0
+      ],
+      "floor_z": 0,
+      "goals": [
+        [
+          5,
+          0
+        ]
+      ],
+      "border_size": 2,
+      "platform_size": 2,
+      "passage_width_range": [
+        0.6,
+        1.4
+      ],
+      "wall_height_range": [
+        0.3,
+        1
+      ],
+      "holes": true
+    },
+    {
+      "id": "stairs-1",
+      "kind": "stair_up",
+      "difficulty": 0.5,
+      "center": [
+        14,
+        0
+      ],
+      "size": [
+        12,
+        12
+      ],
+      "step_height": 0.1,
+      "step_width": 0.26,
+      "num_steps": 13,
+      "spawn": [
+        14,
+        0,
+        0
+      ],
+      "floor_z": 0,
+      "goals": [
+        [
+          19,
+          0
+        ]
+      ],
+      "border_size": 2,
+      "platform_size": 2,
+      "passage_width_range": [
+        0.6,
+        1.4
+      ],
+      "wall_height_range": [
+        0.3,
+        1
+      ],
+      "holes": true
+    },
+    {
+      "id": "stairs-2",
+      "kind": "stair_up",
+      "difficulty": 1,
+      "center": [
+        28,
+        0
+      ],
+      "size": [
+        12,
+        12
+      ],
+      "step_height": 0.17,
+      "step_width": 0.3,
+      "num_steps": 12,
+      "spawn": [
+        28,
+        0,
+        0
+      ],
+      "floor_z": 0,
+      "goals": [
+        [
+          33,
+          0
+        ]
+      ],
+      "border_size": 2,
+      "platform_size": 2,
+      "passage_width_range": [
+        0.6,
+        1.4
+      ],
+      "wall_height_range": [
+        0.3,
+        1
+      ],
+      "holes": true
+    },
+    {
+      "id": "gap-0",
+      "kind": "gap",
+      "difficulty": 0,
+      "center": [
+        0,
+        14
+      ],
+      "size": [
+        12,
+        12
+      ],
+      "gap_width": 0.08,
+      "gap_start": 1,
+      "gap_end": 1.08,
+      "landing_height": -0.024,
+      "platform_height": 2,
+      "floor_z": 0,
+      "lower_floor_z": -0.4,
+      "spawn": [
+        0,
+        14,
+        0
+      ],
+      "goals": [
+        [
+          4,
+          14
+        ]
+      ]
+    },
+    {
+      "id": "gap-1",
+      "kind": "gap",
+      "difficulty": 0.5,
+      "center": [
+        14,
+        14
+      ],
+      "size": [
+        12,
+        12
+      ],
+      "gap_width": 0.39,
+      "gap_start": 15,
+      "gap_end": 15.39,
+      "landing_height": 0,
+      "platform_height": 2,
+      "floor_z": 0,
+      "lower_floor_z": null,
+      "spawn": [
+        14,
+        14,
+        0
+      ],
+      "goals": [
+        [
+          18,
+          14
+        ]
+      ]
+    },
+    {
+      "id": "gap-2",
+      "kind": "gap",
+      "difficulty": 1,
+      "center": [
+        28,
+        14
+      ],
+      "size": [
+        12,
+        12
+      ],
+      "gap_width": 0.7,
+      "gap_start": 29,
+      "gap_end": 29.7,
+      "landing_height": 0.21,
+      "platform_height": 2,
+      "floor_z": 0,
+      "lower_floor_z": -1,
+      "spawn": [
+        28,
+        14,
+        0
+      ],
+      "goals": [
+        [
+          32,
+          14
+        ]
+      ]
+    }
+  ],
+  "boxes": 189,
+  "triangles": 2268,
+  "limits": "Two of twelve terrain types; deterministic draws, not the original training seed/distribution. No slope/roughness or curriculum. Spawn at stairs-0; other tiles are reachable only by manual scene navigation or test reset. No walking verdict."
+}
