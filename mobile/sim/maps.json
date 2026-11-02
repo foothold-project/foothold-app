@@ -3,6 +3,7 @@
     "id": "warehouse",
     "name": "창고"
   },
+  { "id": "ame2-train-terrain", "name": "AME-2 학습 지형 · 초안" },
   {
     "id": "factory-inspection",
     "name": "큰 공장 · 초안"

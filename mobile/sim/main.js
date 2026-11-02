@@ -191,7 +191,7 @@ async function main() {
       : far ? `${floors[far.floor].name} 시나리오 — 실행하면 ${floors[far.floor].name} 출발점에 다시 세워 시작` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
     select.disabled = runner.active || !scenarios.length || adapter.stop.pause;
-    $('scenarioRun').disabled = !ready || stopped || sim.fell || runner.active || !scenarios.length || adapter.stop.pause;
+    $('scenarioRun').disabled = !ready || stopped || runner.active || !scenarios.length || adapter.stop.pause;
     $('scenarioHalt').disabled = !runner.active;
     $('scenarioHint').hidden = !stopped;
   };
@@ -327,7 +327,7 @@ async function main() {
     mj.mj_forward(m, d); sim.hold(0.5); acc = 0; pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
-    if (!ready || stopped || sim.fell || runner.active || adapter.stop.pause || busy) return;
+    if (!ready || stopped || runner.active || adapter.stop.pause || busy) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
     const far = away();
@@ -336,7 +336,7 @@ async function main() {
     const at = pos(), g0 = gen;
     busy = true; runner.status = '길 찾는 중'; scenarioUI();
     const pts = await planRoute(map, at, chosen.points).finally(() => { busy = false; });
-    const why = stale(at, g0) || (pts ? '' : '갈 수 있는 길이 없습니다');   // 찾는 동안(큰 지도는 쉬어 가며) STOP·넘어짐·움직임이면 시작하지 않는다
+    const why = stale(at, g0) || (pts ? '' : '갈 수 있는 길이 없습니다');   // 찾는 동안(큰 지도는 쉬어 가며) STOP·움직임이면 시작하지 않는다
     if (why) { runner.status = why; scenarioUI(); return; }
     sticks.forEach((s) => s.release());
     scan(); lastScan = performance.now();
@@ -347,10 +347,10 @@ async function main() {
 
   // ── 찍은 점 가기: 캔버스를 짧게 누를 때마다(끌기·두 손가락 아님) 그 바닥 점을 끝에 추가 → «출발»로 차례대로 간다. 가는 중에 찍어도 끝에 추가.
   // 점 사이는 층 지도 A*(astar.js) 경유점 — 길이 없으면 그 점을 받지 않는다. 막히면(앞 막힘·진전 없음) 지금 자리에서 앞 라이다 장애물을 더해 한 번만 다시 찾고, 또 막히면 멈춤.
-  // 안전 규칙은 시나리오와 같다(STOP·흐림·숨김·pagehide·reset = 취소+잠금, 넘어짐 = 멈춤). 막대·키 = 취소만(손 조종 우선). 끝나거나 끊기면 못 간 점은 남는다(«출발»로 이어 감)
+  // 안전 규칙은 시나리오와 같다(STOP·흐림·숨김·pagehide·reset = 취소+잠금). 막대·키 = 취소만(손 조종 우선). 끝나거나 끊기면 못 간 점은 남는다(«출발»로 이어 감)
   const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 0, 1), -map.floor_z), hit = new THREE.Vector3();
   let vp = [0, 0, 1, 1];   // 마지막으로 그린 칸(CSS px 왼쪽·위·폭·높이) — 누른 점을 그 칸의 카메라로 바닥에 비춘다
-  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 넘어짐: '넘어져서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
+  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
   let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
   let marks = [], plan = [], planFrom = null, retried = false;   // 찍은 점, 그리는(가는) 경유점(mark = 점 번호), 경유점 선의 출발 자리, 이번 출발에서 다시 찾았나
   // 길 찾기는 async(큰 지도는 쉬어 가며) — busy = 출발용 찾기 하나만, adding = 찍은 점 차례로, gen = 점 지움·층 바뀜마다 +1(찾던 결과 버림)
@@ -358,7 +358,7 @@ async function main() {
   const say = (text) => { note = { text, until: performance.now() + 4000 }; };
   const pos = () => ({ x: d.qpos[0], y: d.qpos[1] });
   // 찾는 동안 바뀐 것이 있으면 그 까닭(출발하지 않음), 없으면 ''
-  const stale = (at, g0) => g0 !== gen ? '점이 바뀌어 출발하지 않았습니다' : stopped ? '정지(잠금)로 출발하지 않았습니다' : sim.fell ? '넘어져서 출발하지 않았습니다'
+  const stale = (at, g0) => g0 !== gen ? '점이 바뀌어 출발하지 않았습니다' : stopped ? '정지(잠금)로 출발하지 않았습니다'
     : runner.active ? '다른 실행 중입니다' : Math.hypot(d.qpos[0] - at.x, d.qpos[1] - at.y) > 0.2 ? '길 찾는 동안 움직였습니다 — 다시 누르세요' : '';
   // 번호 표시(점) + 경유점 선 — 바뀔 때만 다시 만든다
   const marksG = new THREE.Group(), numTex = [];
@@ -425,7 +425,6 @@ async function main() {
     const [l, t, w, h] = vp;
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
     if (stopped) return say('정지 중에는 찍어도 움직이지 않습니다 — ▶ 로 시작하세요');
-    if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 찍으세요');
     if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
     if (busy) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
@@ -457,7 +456,6 @@ async function main() {
   $('wpGo').onclick = async () => {
     if (!ready || !marks.length || runner.active || busy) return;
     if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 «출발»을 누르세요');
-    if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 출발하세요');
     const at = pos(), g0 = gen;
     busy = true;
     await adding;   // 찍은 점 길 찾기가 남아 있으면 끝난 뒤
@@ -576,12 +574,10 @@ async function main() {
         // AME-2 는 찍은 곳 가기도 자체 목표 입력(ame2Joystick)으로 — 실행기 명령을 막대 값으로(앞 0 또는 끝까지, 회전 rad/s ≤ 0.6)
         if (runner.active) runner.tick(front, POLICY_DT);
         const axes = runner.active ? [sim.cmd[0] / MAX_VX, 0, sim.cmd[2]] : goalAxes;
-        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped || sim.fell ? [0, 0, 0] : axes, POLICY_DT);
+        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : axes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
-      } else sim.cmd = stopped || sim.fell ? neutral() : joy.slice();
-      if (!sim.fell && !(adapter.stop.pause && stopped)) sim.step();
-      if (sim.fell && runner.active) runner.cancel('넘어짐');
-      if (sim.fell) sim.cmd = neutral();
+      } else sim.cmd = stopped ? neutral() : joy.slice();
+      if (!(adapter.stop.pause && stopped)) sim.step();
       st.steps++;
     }
     if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }
@@ -620,7 +616,6 @@ async function main() {
     frames++;
     if (now - fpsT > 1000) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
     $('stickL').classList.toggle('out', !inRange(sim.cmd)); $('keys').classList.toggle('out', !inRange(sim.cmd));
-    $('reset').classList.toggle('fell', sim.fell);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

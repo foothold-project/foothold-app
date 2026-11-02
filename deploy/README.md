@@ -104,6 +104,16 @@ API systemd는 코드/venv를 root 소유 읽기 전용으로 두고 파일 저�
 이미 있는 SHA 디렉터리를 덮어쓰지 않는다. 실패한 준비를 재시도하려면 해당 폴더가 current/복구 대상이 아닌지 확인하고 관리자 판단으로 제거하거나 새 커밋을 쓴다. 이전 릴리스·백업을 자동 삭제하지 않으므로 디스크를 관리한다. `/var/lib/foothold/deploys.log`에 시각·SHA·이전 SHA·종료 코드·복구 결과 한 줄을 기록한다.
 점검은 `/etc/foothold/smoke.env`의 별도 계정으로 로그인하고, WS 101을 확인한 뒤 로그아웃한다. `/root/foothold-initial-admin.txt`는 그대로 보존하고 점검에서 읽지 않는다. 과거의 `/root/foothold-smoke.env` 쿠키 우회는 사용하지 않는다.
 
+### Caddyfile 배포 동기화
+
+`deploy.sh`는 릴리스의 `deploy/Caddyfile`을 `/etc/caddy/Caddyfile`과 바이트로 비교한다. bootstrap처럼 `{$FH_SITE}` 템플릿을 그대로 유지하며, candidate validate는 export된 site.env, systemd reload/start는 기존 EnvironmentFile을 사용한다. 파일이 같으면 추가 validate·교체·reload 없이 기존 배포 검사·reload·smoke만 실행한다.
+
+다를 때는 현재 파일의 SHA-256이 마지막 성공 배포 기록 `/var/lib/foothold/caddy-sync/applied.sha256`과 같아야 교체한다. 이 디렉터리는 root 소유 0700, 해시·원본 백업 `previous.Caddyfile`·진행 기록 `pending.json`은 root 소유 0600이다. 원본 백업 → private candidate validate → 같은 파일시스템의 rename으로 root:root 0644 교체 → 기존 서비스 전환·Caddy reload/start·smoke → 새 해시 확정 순서다. 검증·reload·smoke 등 배포 실패 시 기존 릴리스 복구와 함께 원래 Caddyfile의 바이트·UID/GID·권한과 이전 해시를 복구하고 Caddy를 다시 읽는다. 복구도 실패하면 pending/백업을 보존하고 다음 배포를 거절하므로 root가 원인을 확인해야 한다. 강제 종료 뒤 남은 pending도 자동으로 덮지 않는다.
+
+해시가 없거나 현재 파일이 기록과 다르면 **overwrite REFUSED** 경고와 함께 덮지 않고 기존 validate/reload/smoke 흐름을 유지한다. 첫 실행에서 현재 파일과 candidate가 같으면 성공한 smoke 뒤 해시만 등록한다. 수동 수정 파일을 자동으로 배포 소유로 등록하지 않으며, 운영자가 별도 검토 없이 해시를 조작해 이 관문을 우회하면 안 된다. 수동 `rollback.sh`는 기존대로 릴리스만 바꾸며 Caddyfile을 새로 동기화하지 않는다.
+
+`dev` 합침은 켜진 자동배포의 다음 실행을 유발한다. 다만 고정 `/opt/foothold/deploy-tools`는 스스로 갱신되지 않는다. 새 동작을 활성화할 때는 타이머 정지·실행 종료 확인 뒤 검토된 `caddy_sync.py`를 먼저 root 소유 읽기 전용으로 설치하고 `deploy.sh`를 선택 교체하는 별도 절차가 필요하다. 이 변경은 bootstrap을 수정하거나 실행하지 않는다. 서버 파일이 릴리스 candidate와 같은 상태라면 새 도구의 첫 성공 배포에서는 파일 교체 없이 해시만 남는다. 현재 도구가 그대로면 자동배포도 기존 동작을 유지한다.
+
 ## 선택: dev 자동 배포
 
 서버가 GitHub를 읽는 방식이다. 공개 저장소는 키 없이 HTTPS로 받는다. GitHub에 서버 접속 키를 주거나 서버 SSH를 추가 개방하지 않는다. `dev`에 합쳐진 코드와 의존성은 기존 수동 배포와 같이 root 실행을 신뢰하는 입력이다. 따라서 `dev` 검토·쓰기 권한이 배포 신뢰 경계이며 이 자동화가 GitHub 보호 규칙을 설정하지는 않는다.

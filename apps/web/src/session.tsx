@@ -11,8 +11,6 @@ import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
 
-/** 무엇이 서버 값이고 지금 어디까지 되는지(개발용 표시) */
-export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·설정·기록·알림·지도·임무·시나리오·배정·결재·시뮬 로봇과 로봇 연결·상태·조종권·잠금·STOP 은 서버 값입니다. 실기 서버 경유 시험 조종(PC)은 카메라·라이다를 보여 주고(자료가 없으면 «신호 없음»), 시나리오 실행은 시뮬 직결 화면에서만 됩니다.';
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
 export const LIST_MS = 10_000;
@@ -81,7 +79,7 @@ export function Root() {
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
   // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
   const refresh = () => { reload(st.user, `${st.user.id}-${st.n}`, st.cancel).catch(() => {}); };
-  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} dev={DEV_NOTE} />;
+  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} />;
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {

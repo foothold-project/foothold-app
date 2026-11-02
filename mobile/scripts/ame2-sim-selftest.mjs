@@ -32,7 +32,7 @@ const mj = await load();
 let maxHeightError = 0;
 function terrainTest(name, geoms, expected, q = [0, 0, .4, 1, 0, 0, 0]) {
   mj.FS.writeFile('/height.xml', `<mujoco><compiler angle="radian"/><worldbody>${geoms}
-    <geom type="box" group="1" size="3 3 .1" pos="0 0 10"/>
+    <geom type="box" group="1" size="3 3 .1" pos="0 0 30"/>
     <geom type="box" group="1" contype="0" conaffinity="0" size="3 3 .1" pos="0 0 .7"/>
     <body pos="0 0 1"><freejoint/><geom type="sphere" group="1" size=".5"/></body></worldbody></mujoco>`);
   const m = mj.MjModel.from_xml_path('/height.xml'), d = new mj.MjData(m);
@@ -62,6 +62,7 @@ terrainTest('yaw with roll/pitch', floor, () => 0, [0, 0, .4, .8, .2, .4, .4].ma
 terrainTest('all void', '', () => -.7);
 terrainTest('partial void', '<geom type="box" group="4" size=".3 3 .01" pos="-.3 0 -.01"/>', (x) => x <= 0 ? 0 : -.7);
 terrainTest('clip', floor, () => 0, [0, 0, 3, 1, 0, 0, 0]);
+terrainTest('high training wall', floor + '<geom type="box" group="1" size=".45 3 1" pos=".75 0 1"/>', (x) => x >= .3 && x <= 1.2 ? 2 : 0);
 console.log(`AME-2 height PASS: max error=${maxHeightError}m, flat/slope/step/yaw/roll-pitch/void/clip/geometry exclusion`);
 
 mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');

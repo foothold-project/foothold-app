@@ -1831,6 +1831,8 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     serve(KIM, 'r7', 's1');
     expect(row('Go2-7').getAttribute('aria-pressed')).toBe('true');
     expect(row('Go2-7').textContent).toContain('80%');   // 실시간 상태(배터리)는 그대로
+    expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
+    click(row('Go2-7'));
     expect($('[aria-label="로봇 상세"]').textContent).toContain('박OO');
     expect(box.querySelector('[data-stop]')).toBeNull();
     expect(btn('조종 시작')).toBeUndefined();

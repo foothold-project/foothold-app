@@ -1,6 +1,6 @@
 // 찍은 점 가기(MuJoCo 시뮬) headless 시험 — 위에서 보기·따라가기에서 바닥 찍기 = 점 추가 → «출발» → 도착 0.3 m·명령 0,
 // 점 3개(가는 중 추가 포함) A* 로 벽 돌아 도착(스크린샷 FH_SHOT), 막힘 = 한 번만 다시 찾고 또 막히면 멈춤·남은 점 유지, «점 지우기»,
-// STOP 중 무시·STOP/흐림/reset/넘어짐 = 취소(+잠금)·키 = 취소만(손 조종)·끌기는 찍기 아님·장애물 칸/지도 밖 거절·벽 뒤 목표 = 막혀서 멈춤·AME-2 목표 경로.
+// STOP 중 무시·STOP/흐림/reset = 취소(+잠금)·뒤집혀도 실행 계속·키 = 취소만(손 조종)·끌기는 찍기 아님·장애물 칸/지도 밖 거절·벽 뒤 목표 = 막혀서 멈춤·AME-2 목표 경로.
 // sim-keys-selftest 와 같은 틀: sync-web 먼저. FH_PLAYWRIGHT=<기존 playwright-core/index.mjs> node mobile/scripts/sim-goal-selftest.mjs
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -145,11 +145,16 @@ try {
     if (name === 'reset') await page.waitForTimeout(600);   // 다시 세우기 hold
   }
 
-  // 넘어짐 = 취소 + 명령 0
+  // 낮고 뒤집힌 자세여도 목표·정책·물리는 자동 취소/정지되지 않는다.
   await page.click('#go'); await goTo({ x: sx - 1, y: sy });
-  await ev(() => { __sim.sim.fell = true; });
-  await page.waitForFunction(() => !__sim.scenario.active);
-  g = await goal(); assert.equal(g.status, '넘어짐'); assert.deepEqual(g.cmd, [0, 0, 0]);
+  const tippedAt = await ev(() => {
+    const s=__sim.sim,q=s.d.qpos;q[2]=.12;q[3]=0;q[4]=1;q[5]=q[6]=0;s.d.qvel.fill(0);s.hold(0);
+    return s.t;
+  });
+  await page.waitForFunction((t) => __sim.sim.t > t+.1, tippedAt);
+  g=await goal();assert.equal(g.active,true);assert.equal(g.stopped,false);
+  assert.equal(await ev(() => Object.hasOwn(__sim.sim,'fell')),false);
+  assert.equal(await page.locator('#reset').evaluate((el)=>el.classList.contains('fell')),false);
   await page.click('#reset'); await page.waitForTimeout(600); await clearMarks();
 
   // 벽 너머 목표 = 곧게 가다 앞 막힘(0.6 m) 또는 5초 진전 없음 → «막혀서 멈췄습니다»
@@ -226,10 +231,10 @@ try {
   await fz.click('#floorBar [data-floor="0"]'); assert.equal((await fl()).view, 0, 'robot floor = back to auto');
   // 2층 시나리오 실행 = 2층 출발점(5.65, 4.65)에 다시 세워 시작(datum 0, 몸 높이 2 + 0.4) → 지금 층 2층·안내 사라짐
   await fz.evaluate(() => document.getElementById('scenarioRun').click()); await fz.evaluate(() => __sim.settled());
-  const f2 = await fz.evaluate(() => ({ q: Array.from(__sim.sim.d.qpos.slice(0, 3)), active: __sim.scenario.active, fell: __sim.sim.fell, here: __sim.floor().here }));
-  assert.ok(f2.active && !f2.fell && f2.here === 1 && Math.hypot(f2.q[0] - 5.65, f2.q[1] - 4.65) < 0.1 && f2.q[2] > 2.2 && f2.q[2] < 2.5, `f2 scenario start ${JSON.stringify(f2)}`);
+  const f2 = await fz.evaluate(() => ({ q: Array.from(__sim.sim.d.qpos.slice(0, 3)), active: __sim.scenario.active, here: __sim.floor().here }));
+  assert.ok(f2.active && f2.here === 1 && Math.hypot(f2.q[0] - 5.65, f2.q[1] - 4.65) < 0.1 && f2.q[2] > 2.2 && f2.q[2] < 2.5, `f2 scenario start ${JSON.stringify(f2)}`);
   await fz.waitForTimeout(1500);
-  assert.equal(await fz.evaluate(() => __sim.sim.fell || __sim.floor().here !== 1), false, 'stays up on 2층');
+  assert.equal(await fz.evaluate(() => __sim.floor().here !== 1), false, 'remains on 2층');
   assert.deepEqual(await bar(), ['전체', '1층', '2층 · 지금*']);
   assert.doesNotMatch(await fz.textContent('#scenarioStatus'), /출발점/);
   await fz.click('#stop');
@@ -249,7 +254,7 @@ try {
   } else console.log('AME-2 가중치 없음 — AME-2 찍기 생략');
   await ame.close();
   assert.deepEqual(errors, []);
-  console.log('sim goal headless PASS: tap = add mark + 출발, 3 marks (one appended while moving) A* detour arrive, blocked = one replan then stop keeping marks, clear marks, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, fall cancel, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, AME-2 goal path');
+  console.log('sim goal headless PASS: tap = add mark + 출발, 3 marks (one appended while moving) A* detour arrive, blocked = one replan then stop keeping marks, clear marks, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, inverted pose keeps goal/policy running, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

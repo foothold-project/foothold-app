@@ -254,10 +254,12 @@ describe('PC 총괄 — 로봇 탭 읽기 전용 대시보드', () => {
   it('목록: 담당·연결·현장 승인 남은 시간·주의. 상세: 기체번호·현장 승인 읽기만, 실기 쓰기·연결·현장 확인 화면 없음', async () => {
     serve(signedIn(KIM, [RAX, RB]));
     await open('#/fleet', false);
+    expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄 상세는 행을 눌러 여는 서랍(#216)
     const list = card('로봇 목록').textContent!;
     expect(list).toMatch(/Go2-A.*이운영.*현장 승인 (19|20)분/);
     expect(list).toContain('배터리 낮음');
     expect(list).toMatch(/Go2-B.*담당 없음.*현장 확인 필요.*▲ 연결 끊김/);
+    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
     const d = card('로봇 상세');
     expect(d.textContent).toContain(SERIAL);
     expect($('[data-field-check]')).toBeNull();
@@ -341,6 +343,8 @@ describe('r1 — 총괄 실기 상세에는 «배정» 없음(시뮬은 유지)'
     const SIM = robot('s-1', '창고 시뮬', LEE, { simulation: true });
     serve(signedIn(KIM, [RA, SIM]));
     await open('#/fleet', false);
+    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    expect(card('로봇 상세').textContent).toContain('Go2-A');
     expect($('[aria-label="로봇 상세"] [data-assign-robot]')).toBeNull();
     await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('창고 시뮬')));
     expect($('[aria-label="로봇 상세"] [data-assign-robot]')).not.toBeNull();

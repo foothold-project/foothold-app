@@ -89,9 +89,13 @@ z는 `hit_world_z-body_sensor_z+0.27m`를 ±1.5m로 자르고 학습 잡음을 �
 
 E:1583–1600의 원문 `scale: 0.25`, `use_default_offset: true`에 따라
 **관절 목표각 = 기본 관절각 + 0.25 × raw action**이다. 스크립트는 raw action까지만 출력한다.
-이름으로 정한 관절 순서는 받은 USD 자산이 없어 **미확인**이고 JSON의 `joint_names=null`이다.
-시간 입력은 **미확인으로 유지**한다. 위 49칸 설정에 독립 시간 항목이 없다는 정적 관찰을
-소유자가 의도한 시간 입력 계약 확정으로 대체하지 않는다.
+11-02 팀원 학습 코드(nogapst5_vmax12_to15000)와 `model_14999`를 대조했다.
+`go2_env_state.critic_contract.joint_names`는 FL/FR/RL/RR hip → thigh → calf로,
+기존 `AME2_JOINT_ORDER`와 같다(`go2/ame2_go2/algorithms/go2_runner.py:431,554`).
+새 export는 이 이름 목록을 기록하며, 목록이 없는 체크포인트만 미확인으로 남긴다. 기존 f32와 외부 배치표는 덮어쓰지 않았다.
+actor의 TeacherPropCfg는 49칸이고 시간 입력이 없다. `time_left`는 CriticCfg 전용이다
+(`go2/ame2_go2/tasks/go2_env_cfg.py:170–180,218–235`). 항목별 대조는
+[학습 계약 점검](../mobile/scripts/ame2-training-contract.md)을 본다.
 
 ## 실제 actor 키·shape·dtype·배치
 
@@ -188,7 +192,7 @@ safe globals 추가, 받은 코드 import, 데이터 폴더를 작업 디렉터�
 
 ## 남은 범위
 
-**실기 불가: 교사가 참 높이지도를 읽음**. 관절 이름 순서·시간 입력 계약·실행 당시 학습 도구판·
+**실기 불가: 교사가 참 높이지도를 읽음**. 실행 당시 학습 도구판·
 원래 actor 실행과의 일치·라이선스/재배포 범위·실기 센서 지도·폰 속도/발열·목표 도착/정지는 미확인이다.
 JS 순전파·앱 어댑터·ONNX·앱 빌드·실폰·실기·Gazebo·서버·배포·보행 성공 평가는 하지 않았다.
 이 PR은 변환 스크립트와 출처 문서만 제공한다. 통합 후 되돌림은 해당 커밋의 `git revert`이며
