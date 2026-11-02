@@ -1,0 +1,33 @@
+{
+  "files": {
+    "LICENSE-Unitree-BSD-3-Clause.txt": {
+      "sha256": "84aac59fd3246e3ddc49d1387644e8fcf43b0def4f0b9fe687f372e90446df2d",
+      "size": 1558
+    },
+    "LICENSE-quadruped-Apache-2.0.txt": {
+      "sha256": "5e5283dd0d78eefeaf215bd88d14d72f3385b4eefef48be010be8b49c9af7bdb",
+      "size": 11340
+    },
+    "calf.dae": {
+      "sha256": "29872fa1a435b92bc2b395fdfa7f0aee26101db3c494681896bd4ef24ee7883c",
+      "size": 1125517
+    },
+    "hip.dae": {
+      "sha256": "8735e10617afe252cef0844c1d139d15bc6d4c653660d742fea9fe05c2704d8f",
+      "size": 4666421
+    },
+    "thigh.dae": {
+      "sha256": "a622381ae308897ff143b8bbf02f075457c342b22984205040424a5a983246fa",
+      "size": 3884136
+    },
+    "thigh_mirror.dae": {
+      "sha256": "c7bae0b0565c2aa4b7cc15a538d795e9153e0f10c821cc18429e92693172bdc6",
+      "size": 3896575
+    },
+    "trunk.dae": {
+      "sha256": "e52bebbb5c7ff1f6aedee620c9b5b349f6e965360ecc63a9bb743eeff2d0be64",
+      "size": 10727399
+    }
+  },
+  "schema": 1
+}
