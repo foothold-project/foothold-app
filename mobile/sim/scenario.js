@@ -38,7 +38,7 @@ export function createScenarioRunner(sim, isStopped) {
     return sim.cmd;
   };
   runner.start = (points, goal = false) => {
-    if (isStopped() || sim.fell || !points?.length) return false;
+    if (isStopped() || !points?.length) return false;
     runner.points = points;
     runner.goal = goal;
     runner.index = 0;
@@ -52,7 +52,6 @@ export function createScenarioRunner(sim, isStopped) {
   runner.tick = (front = Infinity, dt = 0) => {
     if (!runner.active) return sim.cmd;
     if (isStopped()) return runner.cancel('중단');
-    if (sim.fell) return runner.cancel('넘어짐');
     const q = sim.d.qpos;
     while (runner.index < runner.points.length) {
       const p = runner.points[runner.index], dx = p.x - q[0], dy = p.y - q[1], dist = Math.hypot(dx, dy);

@@ -36,19 +36,19 @@ try {
   await page.mouse.move(600, 400); await page.mouse.wheel(0, 150);
   await page.evaluate(() => new Promise((ok) => { let n = 0; const frame = () => ++n >= 12 ? ok() : requestAnimationFrame(frame); requestAnimationFrame(frame); }));
   await page.screenshot({ path: resolve(out, 'f1-stair-to-f2.png') });
-  const firstFloor = await page.evaluate(() => ({ qpos: Array.from(__sim.sim.d.qpos.slice(0, 7)), camera: __sim.cam(), fell: __sim.sim.fell }));
+  const firstFloor = await page.evaluate(() => ({ qpos: Array.from(__sim.sim.d.qpos.slice(0, 7)), camera: __sim.cam() }));
   // Side view from ground level: slab, upper rail and walls in the same image.
-  await page.evaluate(() => { const s = __sim.sim, q = s.d.qpos; q[0] = 24.5; q[1] = 6.25; q[2] = .4; q[3] = 0; q[4] = q[5] = 0; q[6] = 1; s.d.qvel.fill(0); s.fell = false; s.hold(.5); });
+  await page.evaluate(() => { const s = __sim.sim, q = s.d.qpos; q[0] = 24.5; q[1] = 6.25; q[2] = .4; q[3] = 0; q[4] = q[5] = 0; q[6] = 1; s.d.qvel.fill(0); s.hold(.5); });
   await page.mouse.move(600, 400); await page.mouse.down(); await page.mouse.move(600, 339, { steps: 5 }); await page.mouse.up();
   await page.mouse.wheel(0, 480);
   await page.evaluate(() => new Promise((ok) => { let n = 0; const frame = () => ++n >= 12 ? ok() : requestAnimationFrame(frame); requestAnimationFrame(frame); }));
   await page.screenshot({ path: resolve(out, 'f1-deck-side.png') });
-  const groundSide = await page.evaluate(() => ({ qpos: Array.from(__sim.sim.d.qpos.slice(0, 7)), camera: __sim.cam(), fell: __sim.sim.fell }));
+  const groundSide = await page.evaluate(() => ({ qpos: Array.from(__sim.sim.d.qpos.slice(0, 7)), camera: __sim.cam() }));
 
-  await page.evaluate(() => { const s = __sim.sim, q = s.d.qpos; q[0] = 5.65; q[1] = 4.65; q[2] = 2.4; q[3] = 1; q[4] = q[5] = q[6] = 0; s.d.qvel.fill(0); s.fell = false; s.hold(.5); });
+  await page.evaluate(() => { const s = __sim.sim, q = s.d.qpos; q[0] = 5.65; q[1] = 4.65; q[2] = 2.4; q[3] = 1; q[4] = q[5] = q[6] = 0; s.d.qvel.fill(0); s.hold(.5); });
   await page.evaluate(() => new Promise((ok) => { let n = 0; const frame = () => ++n >= 12 ? ok() : requestAnimationFrame(frame); requestAnimationFrame(frame); }));
   await page.screenshot({ path: resolve(out, 'f2-deck.png') });
-  const secondFloor = await page.evaluate(() => ({ qpos: Array.from(__sim.sim.d.qpos.slice(0, 7)), camera: __sim.cam(), fell: __sim.sim.fell }));
+  const secondFloor = await page.evaluate(() => ({ qpos: Array.from(__sim.sim.d.qpos.slice(0, 7)), camera: __sim.cam() }));
   assert.deepEqual(errors, []);
   writeFileSync(resolve(out, 'capture.json'), JSON.stringify({ headless: true, network: 'all requests intercepted from local files; no listening port', firstFloor, groundSide, secondFloor, errors }, null, 2));
   console.log(`Headless captures: ${out}; page errors=0`);

@@ -47,6 +47,10 @@ try {
   await page.waitForFunction(() => __sim.cmd()[0] > .1);
   const cmd = await page.evaluate(() => __sim.cmd());
   assert.equal(cmd.length, 4); assert.ok(cmd[0] <= 1 && Math.hypot(cmd[0], cmd[1]) <= 1);
+  const tippedAt=await page.evaluate(()=>{const s=__sim.sim,q=s.d.qpos;q[2]=.12;q[3]=0;q[4]=1;q[5]=q[6]=0;s.d.qvel.fill(0);s.hold(0);return s.t;});
+  await page.waitForFunction((t)=>__sim.sim.t>t+.1,tippedAt);
+  assert.equal(await page.evaluate(()=>__sim.stopped()||Object.hasOwn(__sim.sim,'fell')),false,'inverted pose keeps AME-2 running');
+  assert.ok((await page.evaluate(()=>__sim.cmd()))[0]>.1,'inverted pose retains joystick goal');
   await page.dispatchEvent('#stop', 'pointerdown');
   const t = await page.evaluate(() => __sim.sim.t);
   await page.waitForTimeout(150);

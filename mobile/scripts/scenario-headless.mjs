@@ -47,12 +47,10 @@ for (const route of routes) {
     if (runner.index > last) { arrived.push({ point: runner.index, seconds: +sim.t.toFixed(2) }); last = runner.index; }
     if (!runner.active) break;
     sim.step(); steps++;
-    if (sim.fell) runner.cancel('넘어짐');
   }
-  assert.equal(sim.fell, false, `${route.id}: fall`);
   assert.equal(runner.status, '완료', `${route.id}: ${runner.status} at ${sim.t}s`);
   assert.equal(runner.index, route.points.length); assert.deepEqual(sim.cmd, [0, 0, 0]);
-  console.log(JSON.stringify({ id: route.id, status: runner.status, falls: 0, seconds: +(steps * POLICY_DT).toFixed(2), arrived,
+  console.log(JSON.stringify({ id: route.id, status: runner.status, seconds: +(steps * POLICY_DT).toFixed(2), arrived,
     wallMs: +(performance.now() - start).toFixed(1), followUsPerStep: +(followMs * 1000 / steps).toFixed(2), scanMs: +scanMs.toFixed(1) }));
   sim.dispose();
 }
