@@ -254,7 +254,7 @@ try {
   } else console.log('AME-2 가중치 없음 — AME-2 찍기 생략');
   await ame.close();
   assert.deepEqual(errors, []);
-  console.log('sim goal headless PASS: tap = add mark + 출발, 3 marks (one appended while moving) A* detour arrive, blocked = one replan then stop keeping marks, clear marks, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, fall cancel, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, AME-2 goal path');
+  console.log('sim goal headless PASS: tap = add mark + 출발, 3 marks (one appended while moving) A* detour arrive, blocked = one replan then stop keeping marks, clear marks, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, inverted pose keeps goal/policy running, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

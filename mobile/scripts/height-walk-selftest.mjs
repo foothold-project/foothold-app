@@ -1,5 +1,6 @@
 // Existing local dependencies only; no server, browser or robot.
-// FH_SIM_SRC=<dependencies> FH_SIM_BASE=<base commit's sim.js> node mobile/scripts/height-walk-selftest.mjs
+// FH_SIM_SRC=<dependencies> node mobile/scripts/height-walk-selftest.mjs
+// Optional FH_SIM_BASE=<base commit's sim.js>; defaults to b5cf2e5.
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
