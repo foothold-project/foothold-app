@@ -24,13 +24,13 @@ const inMin = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
 
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; body?: unknown };
-let calls: Call[] = [], routes: Record<string, Reply | (() => Reply)> = {};
+let calls: Call[] = [], routes: Record<string, Reply | (() => Reply | Promise<Reply>)> = {};
 function serve(r: typeof routes) {
   routes = r; calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '');
     calls.push({ method, path, body: init.body ? JSON.parse(String(init.body)) : undefined });
-    const hit = routes[`${method} ${path.split('?')[0]}`], rep = typeof hit === 'function' ? hit() : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
+    const hit = routes[`${method} ${path.split('?')[0]}`], rep = await (typeof hit === 'function' ? hit() : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.'));
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -418,6 +418,41 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     await click(btn('넘기기', card('담당 넘기기 확인')));
     expect(transfer().querySelector('[role="alert"]')!.textContent).toBe('조종 중인 로봇은 담당을 넘길 수 없습니다.');   // robotFail 의 지우기 문구로 바꾸지 않음
     expect(btn('넘기기', card('담당 넘기기 확인'))!.disabled).toBe(false);   // 다시 누를 수 있음
+  });
+
+  it('넘기기 응답 대기 중 내 로봇 A→B→A 로 다시 들어와도 «넘기는 중» 잠금 — 같은 로봇 두 번째 PATCH 0, 끝나면 풀림', async () => {
+    const RB = robot('r-b', 'Go2-B', LEE);
+    let answer = (_: Reply) => {};
+    serve(signedIn(LEE, [RA, RB], {
+      [CAND]: cands([{ user_id: 'o2', display_name: '박운영' }, { user_id: 'o4', display_name: '정운영' }]),
+      'PATCH /robots/r-a': () => new Promise<Reply>((res) => { answer = res; }),
+    }));
+    await open('#/fleet', false);
+    const pickRobot = (n: string) => click([...card('내 로봇 고르기').querySelectorAll('button')].find((b) => b.textContent!.includes(n)));
+    await pickRobot('Go2-A');
+    await click(btn('담당 넘기기', transfer()));
+    pick('박운영'); await flush();
+    await click(btn('넘기기…', transfer()));
+    await click(btn('넘기기', card('담당 넘기기 확인')));
+    expect(sent('PATCH', '/robots/r-a')).toHaveLength(1);
+    await pickRobot('Go2-B');
+    expect(card('로봇 상세').textContent).toContain('Go2-B');
+    expect($('[data-transferring]')).toBeNull();   // 다른 로봇은 잠그지 않음
+    expect(btn('담당 넘기기', transfer())!.disabled).toBe(false);
+    await pickRobot('Go2-A');
+    expect($('[data-transferring]')!.textContent).toBe('담당을 넘기는 중…');
+    expect(btn('담당 넘기기', transfer())!.disabled).toBe(true);
+    act(() => btn('담당 넘기기', transfer())!.click()); await flush();   // 꺼진 단추 — 아무 일 없음
+    expect(sent('PATCH', '/robots/r-a')).toHaveLength(1);
+    answer({ status: 409, body: { error: { code: 'VERSION_CONFLICT', message: '조종 중인 로봇은 담당을 넘길 수 없습니다.', detail: {} } } }); await flush();
+    expect($('[data-transferring]')).toBeNull();
+    expect(btn('담당 넘기기', transfer())!.disabled).toBe(false);
+    await click(btn('담당 넘기기', transfer()));
+    pick('정운영'); await flush();
+    await click(btn('넘기기…', transfer()));
+    await click(btn('넘기기', card('담당 넘기기 확인')));
+    expect(sent('PATCH', '/robots/r-a')).toHaveLength(2);   // 앞 요청이 끝난 뒤엔 다시 넘길 수 있음
+    answer({ status: 409, body: { error: { code: 'VERSION_CONFLICT', message: '-', detail: {} } } }); await flush();
   });
 
   it('시뮬 로봇·담당 아닌 실기·총괄에는 담당 넘기기 없음', async () => {

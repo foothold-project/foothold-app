@@ -179,11 +179,22 @@ export function FieldCheck({ r, refresh, cancel }: { r: Robot; refresh: () => vo
 
 /** 담당 넘기기(담당 운영, 실기): 펼치면 대상 목록 → 한 명 고르기 → 같은 화면 확인(브라우저 confirm 없음) → PATCH {owner_user_id}.
  *  넘기면 서버가 폰 출입증 회수·현장 승인 해제 — 성공하면 목록을 다시 받아 이 로봇은 «다른 로봇»으로 내려간다. 실패는 서버 문구 그대로 */
+/** 진행 중인 담당 넘기기: 로봇 id → 끝나면 풀리는 약속. 컴포넌트 밖에 두어 상세가 다시 그려져도(내 로봇 A→B→A) 같은 로봇의 두 번째 PATCH 를 막는다.
+ *  로그인 세션이 끝나면 cancel 로 요청이 끊겨 finally 에서 풀린다 */
+const transferring = new Map<string, Promise<void>>();
 function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
   const [open, setOpen] = useState(false), [list, setList] = useState<RobotOwnerCandidate[] | null>(null), [to, setTo] = useState('');
   const [ask, setAsk] = useState(false), [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
-  const seq = useRef(0), askBox = useRef<HTMLDivElement>(null), sending = useRef(false);   // sending = 같은 틱 두 번 누름도 막음(busy 는 다시 그린 뒤에야 보임)
+  const seq = useRef(0), askBox = useRef<HTMLDivElement>(null);
   useEffect(() => { if (ask) askBox.current?.focus(); }, [ask]);
+  // 다시 들어온 화면: 앞 화면이 보낸 넘기기가 끝날 때까지 잠금(끝나면 앞 화면이 목록을 다시 받는다)
+  useEffect(() => {
+    const p = transferring.get(r.id);
+    if (!p) return;
+    let live = true;
+    setBusy(true); p.then(() => { if (live) setBusy(false); });
+    return () => { live = false; };
+  }, [r.id]);
   const load = () => {
     const n = ++seq.current;
     setList(null); setTo(''); setAsk(false); setMsg(null);
@@ -193,11 +204,13 @@ function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void }
   const toggle = () => { if (!open) load(); else seq.current++; setOpen(!open); };
   const who = list?.find((u) => u.user_id === to)?.display_name ?? '';
   const send = async () => {
-    if (sending.current) return;
-    sending.current = true; setBusy(true); setMsg(null);
+    if (transferring.has(r.id)) return;   // 같은 틱 두 번 누름·다시 그린 화면 모두
+    let done = () => {};
+    transferring.set(r.id, new Promise<void>((res) => { done = res; }));
+    setBusy(true); setMsg(null);
     try { await api.saveRobot(r.id, { owner_user_id: to }, cancel); setAsk(false); setOpen(false); setMsg({ text: `담당을 ${who}(으)로 넘겼습니다.`, ok: true }); refresh(); }
     catch (e) { if ((e as ApiFail).code !== 'CANCELED') setMsg({ text: (e as ApiFail).message }); }
-    finally { sending.current = false; setBusy(false); }
+    finally { transferring.delete(r.id); done(); setBusy(false); }
   };
   return <div className="fh-form" data-transfer>
     <div className="fh-row"><button type="button" className="btn" aria-expanded={open} disabled={busy} onClick={toggle}>담당 넘기기</button></div>
@@ -212,6 +225,7 @@ function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void }
       <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{`${r.name} 담당을 ${who}(으)로 넘길까요? 넘기면 이 로봇의 폰 출입증과 현장 승인이 풀리고, 조종·배정은 새 담당만 할 수 있습니다.`}</span>
       <div className="fh-row"><button type="button" className="btn pri" disabled={busy} onClick={send}>넘기기</button>
         <button type="button" className="btn" disabled={busy} onClick={() => setAsk(false)}>취소</button></div></div>}
+    {busy && <p className="lbl" role="status" data-transferring>담당을 넘기는 중…</p>}
     {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p>}
   </div>;
 }
