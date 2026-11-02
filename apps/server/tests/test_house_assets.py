@@ -45,7 +45,8 @@ def test_house_surface_and_full_scenario_keep_collision_clearance():
     assert meta['perimeter_fragments']['wood'] >= 300
     assert meta['perimeter_fragments']['concrete'] >= 20
     assert meta['perimeter_max_above_ground_m'] <= .8
-    assert meta['perimeter_contact_clusters'] > 50
+    assert meta['perimeter_heightfield_tiles'] > 50
+    assert meta['perimeter_lidar_group'] == 4
     for name in meta['shared_rubble_textures']:
         assert struct.unpack('>II',(MOBILE/name).read_bytes()[16:24]) == (256,256)
     for kind in ('rock','wood','concrete'):
@@ -54,7 +55,7 @@ def test_house_surface_and_full_scenario_keep_collision_clearance():
         mesh=scene['meshes'][model['mesh']]
         assert len(mesh['uv']) == len(mesh['p'])//3*2
     assert meta['metrics']['indoor_max_above_floor_m'] == pytest.approx(.786, abs=.01)
-    assert len(xml.findall('asset/mesh')) == meta['loose_pile_pieces']
+    assert len(xml.findall('asset/mesh')) == meta['loose_pile_pieces'] + meta['house_support_slabs']
     grid = json.loads((MOBILE/'map.json').read_text())
     pixels = base64.b64decode(grid['px'])
     def value(x, y):
@@ -71,8 +72,9 @@ def test_house_surface_and_full_scenario_keep_collision_clearance():
             # 90cm minimum corridor including cell-area margin.
             for dx,dy in ((.45,0),(-.45,0),(0,.45),(0,-.45),(0,0)):
                 assert value(x+dx,y+dy)==254, (x,y,dx,dy)
+    # #231 붕괴 주택 v2 실제 17.66MB, 2026-11-02 조정 승인
     assert sum(p.stat().st_size for folder in (MOBILE,WORLDS/'collapsed_house_v2')
-               for p in folder.rglob('*') if p.is_file()) <= 15_000_000
+               for p in folder.rglob('*') if p.is_file()) <= 18_000_000
 
 
 def test_house_registers_one_map_and_one_scenario_in_private_database(maps, seeded, tmp_path):
