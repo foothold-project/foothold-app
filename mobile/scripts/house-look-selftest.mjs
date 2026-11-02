@@ -52,6 +52,7 @@ try {
   assert.ok(details.length>=5, `piece rays observed: ${details.length}`);
   const perimeter=Array.from({length:m.ngeom},(_,g)=>g).filter(g=>name(g)?.startsWith('perimeter_contact_'));
   assert.ok(perimeter.length>0&&perimeter.every(g=>m.geom_type[g]===1),'physical heightfield tiles, no boxes bridging fragments');
+  assert.ok(perimeter.every(g=>m.geom_group[g]===4),'rubble retains policy/contact support without horizontal lidar');
   let perimeterHits=0;
   for(const [x,y] of [[-9,-5],[-9,0],[-9,4],[9,-5],[9,0],[9,4],[0,7],[4,7],[-4,7]]) {
     const q=[x,y,1.2,1,0,0,0];

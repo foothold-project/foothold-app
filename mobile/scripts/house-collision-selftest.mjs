@@ -17,6 +17,7 @@ assert.ok(src, 'FH_SIM_SRC required');
 const dir = new URL('../sim/assets/collapsed-house-v2/', import.meta.url);
 const scene = JSON.parse(readFileSync(new URL('scene.json', dir)));
 const map = decodeMap(JSON.parse(readFileSync(new URL('map.json', dir))));
+if(!arg('baseline'))assert.ok(map.physics_assets.length<=8,'compatible with main.js terrain-file limit');
 const { default: load } = await import(pathToFileURL(resolve(src, 'node_modules/@mujoco/mujoco/mujoco.js')));
 const mj = await load();
 mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
@@ -84,11 +85,15 @@ assert.ok(path?.length,'entrance route remains open');
 const entrance=[];
 for(let i=0;i<16;i++) {const x=3.85,y=-9.35+i*.3; assert.equal(cell(map,x,y),254);assert.ok(await fits(map,{x,y}));entrance.push({x,y,raw:cell(map,x,y)});}
 const result={grid:{res,n,origin},summary:{missing:rows.filter(p=>p.gap>.1).length,maxGap:Math.max(...rows.map(p=>p.gap)),lowMissing:rows.filter(p=>p.lowGap>.1).length,lowMaxGap:Math.max(...rows.map(p=>p.lowGap)),excess:rows.filter(p=>p.gap<-.1).length},groups:groups('gap'),lowGroups:groups('lowGap'),excessGroups:groups('gap',-1),supports,path,entrance,rows};
+const dustId=mj.mj_name2id(m,mj.mjtObj.mjOBJ_GEOM.value,'dust_floor');
 result.mapComparison={checked:0,mismatches:[]};
 for(let r=0;r<map.h;r+=10)for(let c=0;c<map.w;c+=10) {
   const x=map.origin[0]+(c+.5)*map.res,y=map.origin[1]+(r+.5)*map.res;
   if(Math.abs(x)<=8.4&&Math.abs(y)<=6.8||Math.abs(x-3.85)<.95&&y<-3.4&&y>-10)continue;
-  const contact=ray(x,y).z,dust=ray(x,y,8,[0,0,0,0,1,0]).z??-.02,threshold=dust+.15;
+  // Group 4 also contains rubble. Sample the named dust heightfield directly
+  // so the occupancy threshold cannot move up with the obstacle being tested.
+  const distance=mj.mj_rayHfield(m,d,dustId,[x,y,8],[0,0,-1],null);
+  const contact=ray(x,y).z,dust=distance<0?-.02:8-distance,threshold=dust+.15;
   // Quantization and dust-triangle raster error can move threshold-edge cells.
   if(Math.abs(contact-threshold)<.01)continue;
   const expected=contact>threshold?0:254,actual=cell(map,x,y);
