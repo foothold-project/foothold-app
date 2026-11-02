@@ -5,15 +5,15 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select, event
 from sqlalchemy.orm import Session as DBSession
 
 from apps.server.fh_server.api import Settings, create_app
-from apps.server.fh_server.models import Robot, now
+from apps.server.fh_server.models import Event, Organization, Robot, now
 from apps.server.fh_server.security import digest
 from apps.contracts import models as C
 from apps.contracts.server_drive import ALLOWED
-from .test_realtime import app_token, hello, receive, reply, screen, send, state, take, agent, rt
+from .test_realtime import app_token, drain_audit, hello, receive, reply, screen, send, state, take, agent, rt
 
 
 @pytest.fixture
@@ -193,3 +193,77 @@ def test_real_fast_drive_setting_does_not_restrict_simulation(client, seeded, rt
         lease = take(ws, ag, rid)
         assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[1, 0, 0]))['ok']
         assert receive(ag, 'cmd')['axes'] == [1, 0, 0]
+
+
+@pytest.mark.parametrize('axes', ([1.5, 0, 0], [0, -1.5, 0], [0, 0, .5], [0, 0, 0]))
+def test_enable_stops_last_translation_once_after_commit(trial, seeded, monkeypatch, axes):
+    rid = seeded['robots']['mine']
+    owner, admin = app_token(trial), app_token(trial, 'admin')
+    realtime = trial.app.state.realtime
+    stops, original = [], realtime.arbiter.stop
+    def stop(robot, actor):
+        # This is the existing arbiter path on the ASGI loop, after durability.
+        asyncio.get_running_loop()
+        with DBSession(trial.app.state.engine) as db:
+            assert db.get(Organization, seeded['org']).settings['real_no_fast_server_drive'] is True
+        stops.append(robot)
+        return original(robot, actor)
+    monkeypatch.setattr(realtime.arbiter, 'stop', stop)
+    with trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello()); receive(ag, 'lease'); receive(ag, 'stop')
+        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
+            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        with screen(trial, owner) as ws:
+            lease = take(ws, ag, rid)
+            assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=axes))['ok']
+            receive(ag, 'cmd')  # No new cmd or moving-state report is needed.
+            for patch in ({'sim_runner_vx': .5}, {'real_no_fast_server_drive': False}):
+                assert trial.patch('/api/v1/org/settings', headers=admin, json=patch).status_code == 200
+            assert stops == []
+            # Invalid combined PATCH rolls back without sending STOP.
+            assert trial.patch('/api/v1/org/settings', headers=admin, json={
+                'real_no_fast_server_drive': True, 'sim_max_vx': .3}).status_code == 422
+            assert stops == []
+            result = trial.patch('/api/v1/org/settings', headers=admin,
+                json={'real_no_fast_server_drive': True})
+            assert result.status_code == 200
+            assert result.json()['sim_runner_vx'] == .5
+            assert result.json() == trial.get('/api/v1/org/settings', headers=admin).json()
+            expected = [str(rid)] if any(axes[:2]) else []
+            assert stops == expected
+            if expected:
+                assert receive(ag, 'stop')['by_user_id'] == str(seeded['users']['admin'])
+            for patch in ({'real_no_fast_server_drive': True}, {'sim_runner_wz': .7},
+                          {'real_no_fast_server_drive': False}, {'real_no_fast_server_drive': True}):
+                assert trial.patch('/api/v1/org/settings', headers=admin, json=patch).status_code == 200
+            assert stops == expected  # STOP cleared the retained translation.
+            drain_audit(trial, realtime)
+            with DBSession(trial.app.state.engine) as db:
+                records = list(db.scalars(select(Event).where(Event.robot_id == rid,
+                    Event.code == 'SERVER_DRIVE_COMMAND')))
+                assert len(records) == len(expected)
+                if records:
+                    assert records[0].category == 'SAFETY'
+                    assert records[0].data['reason'] == 'SERVER_DRIVE_COMMAND'
+
+
+def test_enable_commit_failure_never_stops_or_saves(trial, seeded, monkeypatch):
+    admin = app_token(trial, 'admin')
+    stops = []
+    monkeypatch.setattr(trial.app.state.realtime, 'stop_fast_server_drives',
+        lambda *args: stops.append(args))
+    def reject(db):
+        if any(isinstance(row, Event) and row.code == 'ORG_SETTINGS_UPDATED'
+               for row in db.new):
+            raise RuntimeError('fake settings commit failure')
+    event.listen(DBSession, 'before_commit', reject)
+    try:
+        with pytest.raises(RuntimeError, match='fake settings commit failure'):
+            trial.patch('/api/v1/org/settings', headers=admin,
+                json={'real_no_fast_server_drive': True})
+    finally:
+        event.remove(DBSession, 'before_commit', reject)
+    assert stops == []
+    assert trial.get('/api/v1/org/settings', headers=admin).json()['real_no_fast_server_drive'] is False

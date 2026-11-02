@@ -156,6 +156,7 @@ class Peer:
     closing: bool = False
     simulation: bool = False
     server_drive: bool = False
+    server_drive_axes: tuple = (0, 0, 0)
     policy: object = None
     budget: float = 100
     budget_at: float = 0
@@ -992,6 +993,8 @@ class Realtime:
 
     def disconnect_pending(self, actor):
         for rid, r in self.arbiter.robots.items():
+            if r.holder and r.holder.actor == actor and rid in self.agents:
+                self.agents[rid].server_drive_axes = (0, 0, 0)
             if r.request and r.request.actor == actor:
                 self.apply(self.arbiter.cancel_request(rid))
             if r.transfer and r.transfer.actor == actor:
@@ -1160,6 +1163,27 @@ class Realtime:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
 
+    def stop_fast_server_drives(self, org_id, actor):
+        # Agent admission is organization-scoped. Run only on the owning loop,
+        # after the settings transaction committed, without waiting on SQL.
+        if org_id != self.settings.org_id:
+            return
+        for rid, peer in list(self.agents.items()):
+            record = self.arbiter.robots.get(rid)
+            holder = record.holder if record else None
+            if (peer.closing or peer.simulation or not peer.server_drive
+                    or not holder or holder.holder_type != 'USER' or not holder.actor
+                    or not any(peer.server_drive_axes[:2])):
+                continue
+            effects = self.arbiter.stop(rid, actor)
+            # Keep the existing STOP audit category and command-policy reason,
+            # with one record per robot rather than an extra synthetic event.
+            effects = [replace(e, body={**e.body, 'code': 'SERVER_DRIVE_COMMAND',
+                'data': {'reason': 'SERVER_DRIVE_COMMAND',
+                         'real_no_fast_server_drive': True}})
+                if e.target == 'audit' else e for e in effects]
+            self.apply(effects)
+
     def apply(self, effects):
         """Synchronous effect enqueue. First two revoke effects cannot interleave."""
         self.effect_depth += 1
@@ -1181,6 +1205,9 @@ class Realtime:
                                 continue
                         if body['t'] == 'cmd':
                             body['t_server'] = now().isoformat().replace('+00:00', 'Z')
+                            peer.server_drive_axes = tuple(body['axes'])
+                        elif body['t'] in ('stop', 'lease'):
+                            peer.server_drive_axes = (0, 0, 0)
                         # Safety transitions discard any unsent movement inputs. They
                         # keep lease-null/stop order and bypass queued telemetry/ping.
                         if body['t'] in ('stop', 'lease', 'cmd'):
