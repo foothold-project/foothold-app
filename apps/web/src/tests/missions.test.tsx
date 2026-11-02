@@ -125,6 +125,11 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
     if (path === '/actions') return { status: 200, body: acts(q.get('robot_id')) };
     if (path === '/assignments') return { status: 200, body: { items: assigns, next_cursor: null } };
     if (method === 'POST' && path === '/scenarios/preview') return preview(body!);
+    if (method === 'POST' && (m = path.match(/^\/trash\/scenario\/([^/]+)\/restore$/))) {   // 휴지통에서 꺼내기(§5.1 — 본체 version 증가)
+      const r = rec('scenarios', m[1]); if (!r) return err(404, 'NOT_FOUND', '휴지통 항목을 찾을 수 없습니다.');
+      if (r.head.archived_at) r.head = { ...r.head, archived_at: null, version: r.head.version + 1 }; return { status: 204 };
+    }
+    if (method === 'DELETE' && path === '/scenarios/s9') return err(409, 'RESOURCE_IN_USE', '사용 중이거나 결재 대기 중인 로봇 배정이 있어 휴지통 이동 또는 완전 삭제를 할 수 없습니다. 배정을 먼저 해제하세요.');
     m = path.match(/^\/(missions|scenarios)(?:\/([^/]+))?$/);
     if (!m) return err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     const k = m[1] as Kind, id = m[2];
@@ -219,7 +224,7 @@ const stopSends = async () => {
 };
 
 describe('목록 [임무 | 시나리오]', () => {
-  it('시나리오 기본 — 이름·층·판·지점 수·배정된 로봇(없음)·마지막 실행(—), 보관 제외 → «보관된 것도 보기», 임무로 바꾸기', async () => {
+  it('시나리오 기본 — 이름·층·판·지점 수·배정된 로봇(없음)·마지막 실행(—), 휴지통 제외 → «휴지통에 있는 것도 보기», 임무로 바꾸기', async () => {
     seed(); serve(KIM);
     await open();
     expect($('h1')!.textContent).toBe('시나리오');
@@ -230,7 +235,8 @@ describe('목록 [임무 | 시나리오]', () => {
     expect(card('임무 목록').textContent).not.toContain('Go2-A');
     await click($('input[type="checkbox"]'));
     expect(last(sent('GET', '/scenarios'))!.q.get('archived')).toBe('true');
-    expect(rows()).toEqual(['s1', 's2']); expect(row('s2').textContent).toContain('보관됨');
+    expect(card('임무 목록').textContent).toContain('휴지통에 있는 것도 보기'); expect($('[data-trash-link]')!.getAttribute('href')).toBe('#/trash');
+    expect(rows()).toEqual(['s1', 's2']); expect(row('s2').textContent).toContain('휴지통');
     await kind('임무');
     expect(last(sent('GET', '/missions'))!.q.get('archived')).toBe('true');
     expect(rows()).toEqual(['m1', 'm2', 'm3']);
@@ -240,7 +246,7 @@ describe('목록 [임무 | 시나리오]', () => {
   });
   it('배정된 로봇 열: ACTIVE·결재 대기만(해제·반려 빼고, 같은 로봇 한 번), 마지막 실행은 서버 값이 없어 «—» / 배정 목록 실패 → «?» + 안내', async () => {
     seed();
-    const a = (id: string, robot: string, status: Assignment['status'], scenario_version = 1): Assignment => ({ id, scenario_id: 's1', scenario_version, robot_id: `r-${robot}`, memo: '', scenario_name: '1층 순찰',
+    const a = (id: string, robot: string, status: Assignment['status'], scenario_version = 1): Assignment => ({ id, scenario_id: 's1', scenario_version, robot_id: `r-${robot}`, memo: '', scenario_name: '1층 순찰', scenario_name_snapshot: null,
       robot_name: `Go2-${robot}`, status, approval_id: null, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', removed_at: null });
     assigns = [a('a1', 'A', 'ACTIVE'), a('a2', 'A', 'ACTIVE', 2), a('a3', 'B', 'PENDING'), a('a4', 'C', 'REMOVED'), a('a5', 'D', 'REJECTED')];
     serve(KIM);
@@ -435,13 +441,54 @@ describe('임무 편집', () => {
   });
 });
 
+describe('시나리오 휴지통(05 §5.1, 11-02)', () => {
+  it('삭제 = 화면 안 확인창 → DELETE(휴지통으로) → «휴지통으로 옮겼습니다 · 되돌리기» = 복원, 휴지통 보기에서 읽기 전용 + 복원', async () => {
+    seed(); serve(LEE);   // 운영 관리자도 같은 기능(10-25)
+    const confirm = vi.spyOn(window, 'confirm');
+    await open();
+    await click(row('s1'));
+    await click(btn('삭제'));
+    expect(writes()).toEqual([]);
+    expect(card('삭제 확인').textContent).toContain('휴지통으로 옮길까요?');
+    await click(btn('휴지통으로'));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(writes()).toEqual(['DELETE /scenarios/s1']);
+    expect(text()).toContain('휴지통으로 옮겼습니다.');
+    expect(rows()).toEqual([]);
+    expect($('[data-readonly]')!.textContent).toContain('휴지통에 있는 시나리오입니다.');
+    await click(btn('되돌리기'));
+    expect(writes()).toEqual(['DELETE /scenarios/s1', 'POST /trash/scenario/s1/restore']);
+    expect(text()).toContain('시나리오를 되돌렸습니다.');
+    expect(rows()).toEqual(['s1']); expect($('[data-readonly]')).toBeNull(); expect(btn('새 판으로 저장')).toBeTruthy();
+    // 휴지통 보기 → 고르면 읽기 전용 + «복원»
+    await click(btn('삭제')); await click(btn('휴지통으로'));
+    await click($('input[type="checkbox"]'));
+    await click(row('s2'));
+    expect($('[data-readonly]')!.textContent).toContain('휴지통에 있는 시나리오입니다.');
+    await click(btn('복원'));
+    expect(last(writes())).toBe('POST /trash/scenario/s2/restore');
+    expect($('[data-readonly]')).toBeNull();
+    await stopSends();
+  });
+  it('쓰는 중이면 409 RESOURCE_IN_USE = 쉬운 문구 + 서버가 알려 준 무엇', async () => {
+    seed(); serve(KIM);
+    await open();
+    db.scenarios.push({ ...db.scenarios[0], head: { ...db.scenarios[0].head, id: 's9', name: '배정된 순찰' } });
+    await kind('임무'); await kind('시나리오');
+    await click(row('s9'));
+    await click(btn('삭제')); await click(btn('휴지통으로'));
+    expect(text()).toContain('삭제하지 못했습니다. 실행 중이거나 배정된 곳에서 쓰는 중입니다. 사용 중이거나 결재 대기 중인 로봇 배정이 있어');
+    expect($('[data-readonly]')).toBeNull();
+  });
+});
+
 describe('권한(02 §10)', () => {
   it('운영 관리자도 남의 임무·시나리오를 편집(10-27 — 결재·소유 제한 없음), 저장은 바로 새 판', async () => {
     seed(); serve(LEE);
     await open();
     await click(row('s1'));
     expect($('[data-readonly]')).toBeNull(); expect(text()).not.toContain('보는 중');
-    expect(btn('새 판으로 저장')).toBeTruthy(); expect(btn('보관')).toBeTruthy(); expect(name().readOnly).toBe(false);
+    expect(btn('새 판으로 저장')).toBeTruthy(); expect(btn('삭제')).toBeTruthy(); expect(name().readOnly).toBe(false);
     expect(aria('1번 지점 지우기')).toBeTruthy(); expect(btn('결재 요청')).toBeUndefined();
     await setVal(name(), '1층 순찰 고침');
     await settle();

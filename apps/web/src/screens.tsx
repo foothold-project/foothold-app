@@ -11,6 +11,7 @@ import { FloorMap, Maps } from './screens/maps';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
 import { Missions, keptPlan } from './screens/missions';
+import { Trash } from './screens/trash';
 import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
@@ -240,4 +241,4 @@ function Detail({ close, ...c }: Ctx & { close?: () => void }) {
 /** 이 로봇에 배정된 시나리오(GET /assignments?robot_id=) — 폰 조종 화면의 시나리오 시트 */
 export const Scenario = (c: Ctx) => <AssignedCards robot={c.robot} cancel={c.cancel} />;
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Missions, approval: Approvals, history: History, map: Maps, sim: SimTab, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Missions, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, settings: Settings };

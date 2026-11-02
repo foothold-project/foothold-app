@@ -191,16 +191,17 @@ describe('지도 탭 — 장소 나무', () => {
     await click(floorBtn('1층'));                                                     // 다른 층을 고르면 지난 알림은 지움
     expect(card('장소').textContent).not.toContain('이름을 바꿨습니다.');
   });
-  it('지우기: 확인 뒤 DELETE, 409 RESOURCE_IN_USE·403·404·네트워크 실패를 쉬운 문구로', async () => {
+  it('삭제 = 확인 뒤 DELETE(휴지통으로) + «되돌리기» = 복원, 409 RESOURCE_IN_USE·403·404·네트워크 실패를 쉬운 문구로, 휴지통 입구', async () => {
     const replies: Route[] = [err(409, 'RESOURCE_IN_USE', '하위 자료나 사용 중인 지도가 있어 지울 수 없습니다.'), err(403, 'FORBIDDEN', '총괄 운영 관리자만 할 수 있습니다.'),
       err(404, 'NOT_FOUND', '장소·지도 자료를 찾을 수 없습니다.'), () => { throw new TypeError('Failed to fetch'); }, { status: 204 }];
     serve(signedIn(KIM, { 'DELETE /floors/f1': () => { const r = replies.shift()!; return typeof r === 'function' ? r(new URLSearchParams()) : r; },
-      'DELETE /sites/s1': err(409, 'RESOURCE_IN_USE', '하위 자료나 사용 중인 지도가 있어 지울 수 없습니다.') }));
+      'DELETE /sites/s1': err(409, 'RESOURCE_IN_USE', '휴지통 밖의 하위 장소·건물·층이 있어 옮길 수 없습니다.'), 'POST /trash/floor/f1/restore': { status: 204 } }));
     await open('#/map');
     await click(btn('고치기'));
-    const del = async () => { await click(btn('지우기', floorBtn('1층').parentElement!)); expect(card('확인').textContent).toContain('«1층» 층을 지울까요?'); await click(btn('지우기', card('확인'))); };
+    expect($('[data-trash-link]')!.getAttribute('href')).toBe('#/trash');
+    const del = async () => { await click(btn('삭제', floorBtn('1층').parentElement!)); expect(card('확인').textContent).toContain('«1층» 층을 휴지통으로 옮길까요?'); await click(btn('삭제', card('확인'))); };
     await del();
-    expect(alertText()).toContain('쓰는 지도 판이 있어 지울 수 없습니다');
+    expect(alertText()).toContain('실행 중이거나 배정된 곳에서 쓰는 중입니다. 하위 자료나 사용 중인 지도가 있어 지울 수 없습니다.');
     await del();
     expect(alertText()).toContain('총괄 운영 관리자만 할 수 있습니다.');
     const before = sent('GET', '/sites').length;
@@ -210,10 +211,13 @@ describe('지도 탭 — 장소 나무', () => {
     await del();
     expect(alertText()).toContain('서버에 연결하지 못했습니다');
     await del();
-    expect(card('장소').textContent).toContain('«1층» 층을 지웠습니다.');
-    await click(btn('지우기', card('장소 본관').querySelector('.fh-row')!));
-    await click(btn('지우기', card('확인')));
-    expect(alertText()).toContain('건물이 있는 장소는 지울 수 없습니다. 안의 건물을 먼저 지우세요.');
+    expect(card('장소').textContent).toContain('«1층» 층을 휴지통으로 옮겼습니다.');
+    await click(btn('되돌리기', card('장소')));
+    expect(sent('POST', '/trash/floor/f1/restore')).toHaveLength(1);
+    expect(card('장소').textContent).toContain('«1층» 층을 되돌렸습니다.');
+    await click(btn('삭제', card('장소 본관').querySelector('.fh-row')!));
+    await click(btn('삭제', card('확인')));
+    expect(alertText()).toContain('안에 건물이 남은 장소는 삭제할 수 없습니다. 안의 건물을 먼저 삭제하세요.');
     expect(sent('DELETE', '/floors/f1')).toHaveLength(5);
     await stopSends();
   });
@@ -222,7 +226,7 @@ describe('지도 탭 — 장소 나무', () => {
     await open('#/map');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     const words = btns().map((b) => b.textContent);
-    for (const w of ['이름 바꾸기', '지우기', '+ 장소']) expect(words, w).not.toContain(w);
+    for (const w of ['이름 바꾸기', '삭제', '+ 장소']) expect(words, w).not.toContain(w);
     const fix = btn('고치기')!;
     expect(fix.disabled).toBe(true);
     expect(document.getElementById(fix.getAttribute('aria-describedby')!)!.textContent).toBe('장소 고치기는 총괄만 할 수 있습니다.');

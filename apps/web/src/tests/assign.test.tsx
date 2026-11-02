@@ -30,7 +30,7 @@ const err = (status: number, code: string, message: string) => ({ status, body: 
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; key?: string };
 let calls: Call[] = [], asg: Assignment[] = [], scenarios: Scenario[] = [], n = 0, aps: Record<string, string> = {};
-const mk = (p: Partial<Assignment> & Pick<Assignment, 'robot_id' | 'status'>): Assignment => ({ id: `as${++n}`, scenario_id: 's1', scenario_version: 1, memo: '', scenario_name: '1층 순찰',
+const mk = (p: Partial<Assignment> & Pick<Assignment, 'robot_id' | 'status'>): Assignment => ({ id: `as${++n}`, scenario_id: 's1', scenario_version: 1, memo: '', scenario_name: '1층 순찰', scenario_name_snapshot: null,
   robot_name: ({ 'r-a': 'Go2-A', 'r-m': '시뮬-1' } as Record<string, string>)[p.robot_id] ?? 'Go2-B', approval_id: p.status === 'PENDING' ? `ap${n}` : null, created_by: KIM.id, created_at: '2026-10-20T01:00:00Z', removed_at: null, ...p });
 
 /** 가짜 서버. over = 경로별 덮어쓰기(앞에서부터 하나씩 — 함수면 real() 로 진짜 처리를 부를 수 있고, 던지면 끊김) */
@@ -58,7 +58,7 @@ function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Rep
     if (path === '/scenarios') return { status: 200, body: { items: scenarios.filter((s) => q.get('archived') === 'true' || !s.archived_at), next_cursor: null } };
     let m = path.match(/^\/scenarios\/([^/]+)$/);
     if (m) { const s = scenarios.find((x) => x.id === m![1]); return s ? { status: 200, body: s } : err(404, 'NOT_FOUND', '없음'); }
-    if (path === '/assignments' && method === 'GET') return { status: 200, body: { items: asg.filter((a) => !q.get('robot_id') || a.robot_id === q.get('robot_id')), next_cursor: null } };
+    if (path === '/assignments' && method === 'GET') return { status: 200, body: { items: asg.filter((a) => (!q.get('robot_id') || a.robot_id === q.get('robot_id')) && (a.scenario_id || q.get('archived') === 'true')), next_cursor: null } };   // 지워진 시나리오 배정은 archived=true 일 때만(§5.1)
     if (path === '/assignments' && method === 'POST') {
       if (key && receipts.has(key)) return receipts.get(key)!;   // 같은 키 = 첫 성공 결과 재생
       const s = scenarios.find((x) => x.id === body!.scenario_id)!;
@@ -192,19 +192,19 @@ describe('배정 창', () => {
     await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
     expect(text()).toContain('이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다.');
     await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
-    expect(text()).toContain('보관된 시나리오는 배정할 수 없습니다. 보관되지 않은 시나리오를 고르세요.');
+    expect(text()).toContain('휴지통에 있는 시나리오는 배정할 수 없습니다. 휴지통 밖의 시나리오를 고르세요.');
     expect(new Set(posts().map((p) => p.key)).size).toBe(4);   // 시도마다 새 키
     expect(asg).toHaveLength(0);
   });
-  it('보관된 시나리오: «로봇에 배정» 회색 + 이유', async () => {
+  it('휴지통의 시나리오: «로봇에 배정» 회색 + 이유', async () => {
     scenarios = [scen('s1', '1층 순찰', { archived_at: '2026-10-20T03:00:00Z' })];
     serve(KIM);
     await open('#/mission');
-    await click($('label input[type="checkbox"]'));   // 보관된 것도 보기
+    await click($('label input[type="checkbox"]'));   // 휴지통에 있는 것도 보기
     await click($('[data-plan="s1"]'));
     const b = btn('로봇에 배정', panel())!;
     expect(b.disabled).toBe(true);
-    expect($(`#${b.getAttribute('aria-describedby')}`)!.textContent).toBe('보관된 시나리오는 배정할 수 없습니다.');
+    expect($(`#${b.getAttribute('aria-describedby')}`)!.textContent).toBe('휴지통에 있는 시나리오는 배정할 수 없습니다.');
   });
 });
 
@@ -407,6 +407,20 @@ describe('배정 목록·해제', () => {
     expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('robot_id')).toBe('r-a');
     expect(text()).toContain('2층 점검 · 판 1');
     expect($('[data-assignment="as3"]')).toBeNull();
+  });
+  it('완전 삭제된 시나리오의 끝난 배정(scenario_id·판 null): «해제·반려된 것도 보기» = archived=true, 목록이 깨지지 않고 «(삭제됨) 이름»', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    asg = [mk({ robot_id: 'r-a', status: 'ACTIVE' }),
+      mk({ robot_id: 'r-a', status: 'REMOVED', scenario_id: null, scenario_version: null, scenario_name: '삭제된 시나리오: 옛 순찰', scenario_name_snapshot: '옛 순찰', removed_at: '2026-10-21T00:00:00Z' })];
+    serve(KIM);
+    await open('#/mission'); await click($('[data-plan="s1"]'));
+    await setVal($<HTMLSelectElement>('[aria-label="배정 보기"]')!, 'r-a');
+    expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('archived')).toBeNull();
+    await click([...panel().querySelectorAll('input[type="checkbox"]')][0]);
+    expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('archived')).toBe('true');
+    expect(text()).not.toContain('형식이 맞지 않습니다');
+    expect(rowOf('as2').textContent).toContain('(삭제됨) 옛 순찰'); expect(rowOf('as2').textContent).not.toContain('판 null');
+    expect(rowOf('as1').textContent).toContain('1층 순찰 · 판 1');
   });
 });
 

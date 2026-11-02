@@ -11,6 +11,7 @@ import { leaving } from '../menu';
 import { Chip, Line, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
 import { Editor, kept } from './mapedit';
+import { TrashLink, trashFail, type TrashKind } from './trash';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
 /** 시뮬 층 이름이 ROS 층 ID 그대로(서버가 floor_name 없이 넣은 창고 «f1» 등)면 사람이 읽는 이름으로 */
@@ -132,18 +133,21 @@ const asked = (x: MapVersion): Msg => ({ text: `판 ${x.number}을 저장했지�
 type Kind = 'sites' | 'buildings' | 'floors';
 const WHAT: Record<Kind, string> = { sites: '장소', buildings: '건물', floors: '층' };
 const OBJ: Record<Kind, string> = { sites: '장소를', buildings: '건물을', floors: '층을' };
-const IN_USE: Record<Kind, string> = {
-  sites: '건물이 있는 장소는 지울 수 없습니다. 안의 건물을 먼저 지우세요.',
-  buildings: '층이 있는 건물은 지울 수 없습니다. 안의 층을 먼저 지우세요.',
-  floors: '쓰는 지도 판이 있어 지울 수 없습니다(로봇·층 연결점이 쓰는 층 포함).',
+const TRASH: Record<Kind, TrashKind> = { sites: 'site', buildings: 'building', floors: 'floor' };
+/** 휴지통으로 옮기기 409(§5.1) — 장소·건물은 휴지통 밖 하위가 남음, 층은 로봇·시뮬·실행·배정이 씀(서버 문구로 무엇인지) */
+const IN_USE: Partial<Record<Kind, string>> = {
+  sites: '안에 건물이 남은 장소는 삭제할 수 없습니다. 안의 건물을 먼저 삭제하세요.',
+  buildings: '안에 층이 남은 건물은 삭제할 수 없습니다. 안의 층을 먼저 삭제하세요.',
 };
 /** 장소 바꾸기 실패 = 무엇이 + 어떻게(U8). 403 은 서버 문구 그대로 */
-const placeFail = (e: ApiFail, k: Kind) => (e.code === 'RESOURCE_IN_USE' ? IN_USE[k] : e.status === 404 ? `이 ${OBJ[k]} 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.` : e.message);
+const placeFail = (e: ApiFail, k: Kind) => (e.code === 'RESOURCE_IN_USE' && IN_USE[k] ? IN_USE[k] : e.status === 404 ? `이 ${OBJ[k]} 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.` : trashFail(e));
 
 /** 고치기 칸: 새로 만들기(parent) 또는 이름 바꾸기(id). 층은 층 번호(지하 1층 = -1)도 */
 type Form = { kind: Kind; id?: string; parent?: string; title: string; name: string; level: string };
-export type Msg = { text: string; ok?: boolean } | null;
-export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' ok' : ''}`} role={m.ok ? 'status' : 'alert'}>{m.text}</p> : null);
+/** act = 안내 옆 단추 하나(휴지통으로 옮긴 뒤 «되돌리기») */
+export type Msg = { text: string; ok?: boolean; act?: { label: string; run: () => void } } | null;
+export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' ok' : ''}`} role={m.ok ? 'status' : 'alert'}>{m.text}
+  {m.act && <> <button type="button" className="btn" onClick={m.act.run}>{m.act.label}</button></>}</p> : null);
 
 /** 내용 비교용: null 칸을 빼고 열쇠 순서를 맞춘 JSON(서버는 None 칸을 저장하지 않는다) */
 export const canon = (x: unknown) => JSON.stringify(x, (_, v) => (v && typeof v === 'object' && !Array.isArray(v)
@@ -156,9 +160,9 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
   const [fix, setFix] = useState(false), [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
   const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
   const names = useNames(c.user, admin, c.cancel), nums = useNumbers(places, c.cancel);
-  const run = async (k: Kind, f: () => Promise<unknown>, ok: string) => {
+  const run = async (k: Kind, f: () => Promise<unknown>, ok: string, act?: NonNullable<Msg>['act']) => {
     setBusy(true); setMsg(null);
-    try { await f(); setForm(null); setAsk(null); setMsg({ text: ok, ok: true }); t.again(); }
+    try { await f(); setForm(null); setAsk(null); setMsg({ text: ok, ok: true, act }); t.again(); }
     catch (e) { const x = e as ApiFail; if (x.code === 'CANCELED') return; setMsg({ text: placeFail(x, k) }); if (x.status === 404) t.again(); }
     finally { setBusy(false); }
   };
@@ -179,10 +183,13 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
     }, form.id ? '이름을 바꿨습니다.' : `${OBJ[k]} 만들었습니다.`);
   };
   const open = (f: Omit<Form, 'name' | 'level'> & { name?: string; level?: number }) => { setForm({ ...f, name: f.name ?? '', level: String(f.level ?? 1) }); setAsk(null); setMsg(null); };
-  // 고치기 켠 총괄에게만: 이름 바꾸기·지우기
+  // 휴지통으로(DELETE, §5.1) + 안내의 «되돌리기» = 복원
+  const remove = ({ kind, id, name }: { kind: Kind; id: string; name: string }) => run(kind, () => api.deletePlace(kind, id, c.cancel), `«${name}» ${OBJ[kind]} 휴지통으로 옮겼습니다.`,
+    { label: '되돌리기', run: () => run(kind, () => api.restore(TRASH[kind], id, c.cancel), `«${name}» ${OBJ[kind]} 되돌렸습니다.`) });
+  // 고치기 켠 총괄에게만: 이름 바꾸기·삭제(휴지통으로)
   const tools = (kind: Kind, x: { id: string; name: string; level?: number }) => fix && <span className="fh-row">
     <button type="button" className="btn" disabled={busy} onClick={() => open({ kind, id: x.id, title: `${WHAT[kind]} 이름 바꾸기 — ${x.name}`, name: x.name, level: x.level })}>이름 바꾸기</button>
-    <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>지우기</button></span>;
+    <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>삭제</button></span>;
 
   // 층 레이어(10-30): 2층 이상 건물만 «전체 · 1층 · 2층…». 층을 바꾸면 저장 안 한 편집 확인(leaving.ask)부터 — 전체에는 편집이 없다
   const layers = cur && multi && <div className="fh-row" role="group" aria-label="층 레이어" data-layers>
@@ -194,7 +201,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
   return <>
     <section className="lv-card" style={{ flex: '0 1 260px' }} aria-label="장소">
       <div className="fh-row"><h2 className="fh-grow">장소</h2><button type="button" className="btn" aria-pressed={admin ? fix : undefined} disabled={!admin} aria-describedby={admin ? undefined : 'fix-why'}
-        onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>고치기</button></div>
+        onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>고치기</button><TrashLink /></div>
       {!admin && <span id="fix-why" className="fh-why" data-why>장소 고치기는 총괄만 할 수 있습니다.</span>}
       {t.tree?.items.map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div className="fh-row"><b className="fh-grow">{s.name}</b>{tools('sites', s)}</div>
@@ -216,8 +223,8 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
         <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button><button type="button" className="btn" onClick={() => setForm(null)}>취소</button></div>
       </form>}
       {ask && <div className="fh-row" role="group" aria-label="확인">
-        <span>«{ask.name}» {OBJ[ask.kind]} 지울까요?</span>
-        <button type="button" className="btn pri" disabled={busy} onClick={() => run(ask.kind, () => api.deletePlace(ask.kind, ask.id, c.cancel), `«${ask.name}» ${OBJ[ask.kind]} 지웠습니다.`)}>지우기</button>
+        <span>«{ask.name}» {OBJ[ask.kind]} 휴지통으로 옮길까요? 휴지통에서 복원하거나 완전 삭제할 수 있습니다.</span>
+        <button type="button" className="btn pri" disabled={busy} onClick={() => remove(ask)}>삭제</button>
         <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
       </div>}
       <Note m={msg} />

@@ -11,6 +11,7 @@ import { MapFrame, MapImage } from '../mapframe';
 import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place } from './maps';
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
+import { TrashLink, trashFail } from './trash';
 import './missions.css';
 
 type P = [number, number];
@@ -79,11 +80,12 @@ function useAssigned(on: boolean, busy: boolean, cancel?: AbortSignal) {
     if (!on || busy) return;
     let live = true;
     api.assignments(null, cancel).then((l: Assignment[]) => {
-      if (!arr(l) || !l.every((a) => !!a && str(a.scenario_id) && str(a.robot_name) && str(a.status))) throw new ApiFail(0, 'BAD_SHAPE', '');
+      if (!arr(l) || !l.every((a) => !!a && (a.scenario_id === null || str(a.scenario_id)) && str(a.robot_name) && str(a.status))) throw new ApiFail(0, 'BAD_SHAPE', '');   // 지워진 시나리오 배정은 null(§5.1)
       const m: Record<string, string[]> = {};
-      for (const a of l) if (a.status === 'ACTIVE' || a.status === 'PENDING') {
+      for (const a of l) if (a.scenario_id && (a.status === 'ACTIVE' || a.status === 'PENDING')) {
         const name = a.status === 'PENDING' ? `${a.robot_name}(결재 대기)` : a.robot_name;
-        if (!(m[a.scenario_id] ??= []).includes(name)) m[a.scenario_id].push(name);
+        const k = a.scenario_id;
+        if (!(m[k] ??= []).includes(name)) m[k].push(name);
       }
       if (live) setBy(m);
     }).catch((e: ApiFail) => { if (live && e.code !== 'CANCELED') setBy(null); });
@@ -106,8 +108,9 @@ export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
         <span className="fh-row" role="group" aria-label="종류">{(['missions', 'scenarios'] as Plan[]).map((k) => <button key={k} type="button" className="btn" aria-pressed={kind === k} onClick={() => show(k)}>{WHAT[k]}</button>)}</span>
         <span className="fh-grow" />
         <button type="button" className="btn pri" onClick={() => { setSel(''); setMsg(null); setN((x) => x + 1); }}>새 {WHAT[kind]}</button>
+        {scen && <TrashLink />}
       </div>
-      <label className="fh-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /><span>보관된 것도 보기</span></label>
+      <label className="fh-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /><span>{scen ? '휴지통에 있는 것도 보기' : '보관된 것도 보기'}</span></label>
       {/* 시나리오 거르기(F-MS-04) — 서버 mine·floor_id 로 */}
       {scen && <div className="fh-row" role="group" aria-label="거르기">
         <label className="fh-row"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /><span>내 것만</span></label>
@@ -122,7 +125,7 @@ export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
           <span className="lbl">{'steps' in x ? `작업 ${x.steps.length}` : `지점 ${x.waypoints.length}`}</span>
           {/* 마지막 실행은 실행 API(S7) 전이라 서버 값이 없다 — 지어내지 않고 «—». fh-wide = 좁으면 둘째 줄로 */}
           {'waypoints' in x && <span className="fh-wide fh-row"><span className="lbl" data-col="robots">로봇 {assigned === undefined ? '…' : assigned ? assigned[x.id]?.join(', ') || '없음' : '?'}</span><span className="lbl" data-col="last-run">마지막 실행 —</span></span>}
-          {x.archived_at && <span className="lbl">보관됨</span>}
+          {x.archived_at && <span className="lbl">{scen ? '휴지통' : '보관됨'}</span>}
           {keptPlan.drafts[`${kind}:${x.id}`] && <span className="lbl">저장 안 한 편집</span>}
         </button></li>)}</ul>
       {scen && assigned === null && <p className="lv-note">배정된 로봇을 받지 못했습니다(«?»). 목록을 다시 받으면 다시 시도합니다.</p>}
@@ -247,11 +250,19 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
     if (block) return setMsg({ text: block });
     send(body);
   };
-  // 보관 — 되돌리는(보관 해제) API 가 없어 확인창을 거친다(U10, 조정 결정). 옛 판은 계속 읽힌다
+  // 임무 = 보관(되돌리는 API 없음), 시나리오 = 휴지통으로(§5.1 — 안내의 «되돌리기»·휴지통에서 복원). 둘 다 확인창을 거친다(U10). 옛 판은 계속 읽힌다
+  const scen = kind === 'scenarios', drop = scen ? '삭제' : '보관';
   const archive = () => {
     setBusy(true); setMsg(null);
-    api.archivePlan(kind, id, cancel).then(() => load('all').then(() => { if (!live.current) return; setBusy(false); snap.current = null; delete keptPlan.drafts[key]; done(null, { text: `보관했습니다. «보관된 것도 보기»에서 옛 판을 계속 볼 수 있습니다.`, ok: true }); }),
-      (e: ApiFail) => { if (!live.current || e.code === 'CANCELED') return; setBusy(false); setMsg({ text: e.status === 0 ? '보관 응답을 받지 못했습니다. 목록을 다시 받아 확인하세요.' : `보관하지 못했습니다. ${e.message}` }); if (e.status === 0) done(null, null); });
+    api.archivePlan(kind, id, cancel).then(() => load('all').then(() => { if (!live.current) return; setBusy(false); snap.current = null; delete keptPlan.drafts[key];
+      done(null, scen ? { text: '휴지통으로 옮겼습니다.', ok: true, act: { label: '되돌리기', run: restore } } : { text: `보관했습니다. «보관된 것도 보기»에서 옛 판을 계속 볼 수 있습니다.`, ok: true }); }),
+      (e: ApiFail) => { if (!live.current || e.code === 'CANCELED') return; setBusy(false); setMsg({ text: e.status === 0 ? `${drop} 응답을 받지 못했습니다. 목록을 다시 받아 확인하세요.` : `${drop}하지 못했습니다. ${scen ? trashFail(e) : e.message}` }); if (e.status === 0) done(null, null); });
+  };
+  /** 휴지통에서 꺼내기(시나리오) — 서버가 본체 version 을 올리므로 최신 판을 다시 받는다 */
+  const restore = () => {
+    setBusy(true); setMsg(null);
+    api.restore('scenario', id, cancel).then(() => load('all').then(() => { if (!live.current) return; setBusy(false); done(null, { text: '시나리오를 되돌렸습니다.', ok: true }); }),
+      (e: ApiFail) => { if (!live.current || e.code === 'CANCELED') return; setBusy(false); setMsg({ text: `되돌리지 못했습니다. ${trashFail(e)}` }); });
   };
   const pickVersion = (n: number) => {
     if (!latest || n === latest.latest_version) return setView(null);
@@ -269,7 +280,9 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
       {latest && <label className="fh-row"><span>판</span><select className="inp" aria-label="판" value={view?.number ?? latest.latest_version} onChange={(e) => pickVersion(Number(e.target.value))}>
         {Array.from({ length: latest.latest_version }, (_, i) => latest.latest_version - i).map((n) => <option key={n} value={n}>{`판 ${n}${n === latest.latest_version ? ' (최신)' : ''}`}</option>)}</select></label>}</div>
     {view && <p className="lv-note" role="status" data-old>옛 판(판 {view.number})을 보는 중입니다(읽기 전용, {day(view.version_created_at)} 저장). 고치려면 «판»에서 최신 판을 고르세요.</p>}
-    {!view && archived && <p className="lv-note" data-readonly>보관된 {what}입니다. 고칠 수 없고 옛 판은 볼 수 있습니다.</p>}
+    {!view && archived && (scen ? <div className="fh-row"><p className="lv-note fh-grow" data-readonly>휴지통에 있는 시나리오입니다. 고칠 수 없고 옛 판은 볼 수 있습니다 — 복원하면 다시 고칩니다.</p>
+        <button type="button" className="btn" disabled={busy} onClick={restore}>복원</button></div>
+      : <p className="lv-note" data-readonly>보관된 {what}입니다. 고칠 수 없고 옛 판은 볼 수 있습니다.</p>)}
     {/* 저장 중·저장 확인 전에는 입력을 모두 막는다(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로 */}
     <fieldset disabled={lock && !ro} style={{ display: 'contents' }}>
       <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} onChange={(e) => put({ ...body, name: e.target.value })} /></label>
@@ -281,9 +294,10 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
     {!ro && <form className="fh-form" onSubmit={save} noValidate aria-label="저장">
       <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || (kind === 'scenarios' && !!block)} aria-describedby={kind === 'scenarios' && block ? 'plan-block' : undefined}>{id ? '새 판으로 저장' : '저장'}</button>
         {conflict && <button type="button" className="btn" disabled={lock} onClick={() => load('base')}>최신 판 받기</button>}
-        {id && <button type="button" className="btn" disabled={lock || ask} onClick={() => setAsk(true)}>보관</button>}</div>
-      {ask && <div className="fh-row" role="group" aria-label="보관 확인"><span>이 {what}를 보관할까요? 보관하면 되돌릴 수 없습니다 — 목록에서 빠지고 더는 고칠 수 없습니다. 옛 판은 «보관된 것도 보기»에서 볼 수 있습니다.</span>
-        <button type="button" className="btn pri" disabled={lock} onClick={() => { setAsk(false); archive(); }}>보관하기</button>
+        {id && <button type="button" className="btn" disabled={lock || ask} onClick={() => setAsk(true)}>{drop}</button>}</div>
+      {ask && <div className="fh-row" role="group" aria-label={`${drop} 확인`}><span>{scen ? '이 시나리오를 휴지통으로 옮길까요? 목록에서 빠지고, 휴지통에서 복원하거나 완전 삭제할 수 있습니다.'
+          : `이 ${what}를 보관할까요? 보관하면 되돌릴 수 없습니다 — 목록에서 빠지고 더는 고칠 수 없습니다. 옛 판은 «보관된 것도 보기»에서 볼 수 있습니다.`}</span>
+        <button type="button" className="btn pri" disabled={lock} onClick={() => { setAsk(false); archive(); }}>{scen ? '휴지통으로' : '보관하기'}</button>
         <button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>}
       {kind === 'scenarios' && block && !lock && <span id="plan-block" className="fh-why" data-block>{block}</span>}
       {busy && <p className="lv-note" role="status">저장하는 중…</p>}

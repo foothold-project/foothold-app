@@ -10,6 +10,7 @@ import { Chip, Line, type Ctx } from '../screens';
 import { when } from './history';
 import { Compare } from './mapdiff';
 import { Note, isVersion, reasonBad, shape, type Msg } from './maps';
+import { deleted } from './trash';
 
 const KIND: Record<string, string> = { MAP_REVISION: '지도 수정', MAP_ROLLBACK: '지도 되돌리기', SCENARIO_ASSIGNMENT: '시나리오 배정' };
 const known = (k: string) => k in KIND;
@@ -18,20 +19,25 @@ const STATUS: Record<string, { tone: Tone; text: string }> = {
   CANCELED: { tone: 'off', text: '취소' }, STALE: { tone: 'bad', text: '적용 불가(지도가 바뀜)' } };
 const status = (s: string, kind?: string) => (s === 'STALE' && kind === 'SCENARIO_ASSIGNMENT' ? { tone: 'bad' as Tone, text: '적용 불가(배정 대상이 바뀜)' } : STATUS[s] ?? { tone: 'off' as Tone, text: '알 수 없는 상태' });
 
-// 받은 값 모양 검사 — 어긋난 응답이 화면(머리줄·STOP 포함)을 깨뜨리지 않게 오류 한 줄로만
-const str = (v: unknown) => typeof v === 'string';
+// 받은 값 모양 검사 — 어긋난 응답이 화면(머리줄·STOP 포함)을 깨뜨리지 않게 오류 한 줄로만.
+// 층·시나리오를 완전 삭제하면 끝난 결재의 target.id·판 번호·scenario_id·floor_id 가 null(§5.1) — 이름은 «삭제된 …: 이름»으로 온다
+const str = (v: unknown) => typeof v === 'string', orNull = (v: unknown, ok: (x: unknown) => boolean) => v === null || ok(v), int = (v: unknown) => Number.isInteger(v);
 const isApproval = (a: Approval) => !!a && str(a.id) && str(a.kind) && str(a.status) && !!a.requester && str(a.requester.id) && str(a.requester.display_name)
-  && str(a.reason) && str(a.created_at) && !!a.target && str(a.target.id);
+  && str(a.reason) && str(a.created_at) && !!a.target && orNull(a.target.id, str);
 const isList = (l: ApprovalList) => !!l && Array.isArray(l.items) && l.items.every(isApproval) && (l.next_cursor === null || str(l.next_cursor));
 const isMapPreview = (p: ApprovalDetail['preview']): p is ApprovalMapPreview => !!p && typeof p === 'object' && 'floor_name' in p;
 const isAssignPreview = (p: ApprovalDetail['preview']): p is ApprovalAssignmentPreview => !!p && typeof p === 'object' && 'scenario_name' in p;
 const isDetail = (d: ApprovalDetail) => isApproval(d) && (!known(d.kind) || (d.kind === 'SCENARIO_ASSIGNMENT'
-  ? isAssignPreview(d.preview) && str(d.preview.scenario_name) && str(d.preview.robot_name) && Number.isInteger(d.preview.scenario_version)
-  : isMapPreview(d.preview) && str(d.preview.floor_name) && Number.isInteger(d.preview.target_version_number)));
+  ? isAssignPreview(d.preview) && str(d.preview.scenario_name) && str(d.preview.robot_name) && orNull(d.preview.scenario_version, int)
+  : isMapPreview(d.preview) && str(d.preview.floor_name) && orNull(d.preview.target_version_number, int)));
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
+/** 지워진 시나리오·층은 «(삭제됨) 이름», 지워진 판 번호는 «판 ?» */
+const scenName = (p: ApprovalAssignmentPreview) => (p.scenario_id === null ? deleted(p.scenario_name) : p.scenario_name);
+const floorOf = (p: ApprovalMapPreview) => (p.floor_id === null ? deleted(p.floor_name) : p.floor_name);
+const pan = (n: number | null) => `판 ${n ?? '?'}`;
 /** 층 · 기준 판 → 대상 판 */
-const what = (p: ApprovalDetail['preview']) => (isAssignPreview(p) ? `«${p.scenario_name}» 판 ${p.scenario_version} → ${p.robot_name}`
-  : isMapPreview(p) ? `${p.floor_name} · ${p.base_version_number != null ? `판 ${p.base_version_number}` : '빈 지도'} → 판 ${p.target_version_number}` : '');
+const what = (p: ApprovalDetail['preview']) => (isAssignPreview(p) ? `«${scenName(p)}» ${pan(p.scenario_version)} → ${p.robot_name}`
+  : isMapPreview(p) ? `${floorOf(p)} · ${p.base_version_number != null ? `판 ${p.base_version_number}` : '빈 지도'} → ${pan(p.target_version_number)}` : '');
 
 type View = 'PENDING' | 'ALL';
 /** 목록(오래된 것 먼저) + cursor 로 더 받기. 보기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다. again = 처음 쪽 다시(처리 뒤) */
@@ -139,7 +145,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
     return () => { live = false; };
   }, [n]);
   // 전후 비교 = 지도 탭 비교 그대로: 대상 판(target)을 그 기준 판(base_ref = 대상 판의 기준 판)과
-  const target = d && known(d.kind) && d.kind !== 'SCENARIO_ASSIGNMENT' ? d.target.id : '';
+  const target = d && known(d.kind) && d.kind !== 'SCENARIO_ASSIGNMENT' ? d.target.id ?? '' : '';   // 판이 지워졌으면(null) 비교 없이
   useEffect(() => {
     if (!target) return;
     let live = true;
@@ -189,10 +195,11 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
     <div className="fh-row"><h2 className="fh-grow">{KIND[d.kind] ?? '지원 전 종류'} · {d.requester.display_name} · {when(d.created_at)}</h2><Chip {...status(d.status, d.kind)} /></div>
     {p || ap ? <b>{what(d.preview)}{open ? ' (요청)' : ''}</b> : <p className="lv-note">이 화면에서 아직 처리할 수 없는 종류의 결재입니다.</p>}
     {ap && <div className="fh-form" aria-label="배정 미리보기" data-assign-preview>
-      <Line k="시나리오"><span>{ap.scenario_name}</span></Line><Line k="판"><span>판 {ap.scenario_version}</span></Line>
+      <Line k="시나리오"><span>{scenName(ap)}</span></Line><Line k="판"><span>{pan(ap.scenario_version)}</span></Line>
       <Line k="로봇"><span>{ap.robot_name}</span></Line><Line k="요청자"><span>{d.requester.display_name}</span></Line></div>}
     {d.status === 'STALE' && <p className="fh-msg" role="alert">{ap ? `${STALE_ASSIGN} ${mine ? '' : '요청자가 다시 요청해야 합니다.'}` : `요청 이후 지도가 바뀌어 이 요청은 더 이상 적용할 수 없습니다. ${mine ? '새 승인 판에서 다시 요청하세요.' : '요청자가 새 승인 판에서 다시 요청해야 합니다.'}`}</p>}
-    {p && (v ? <Compare v={v} list={p.base_version_number != null && d.base_ref ? [{ id: d.base_ref.id, number: p.base_version_number }] : []} cancel={cancel}
+    {p && !target && <p className="lv-note" data-gone>요청한 지도 판이 층과 함께 완전 삭제되어 비교할 수 없습니다.</p>}
+    {p && target && (v ? <Compare v={v} list={p.base_version_number != null && d.base_ref?.id ? [{ id: d.base_ref.id, number: p.base_version_number }] : []} cancel={cancel}
         gone={() => { setV(null); setVErr('비교할 판을 찾을 수 없습니다.'); }} />
       : vErr ? <div className="fh-row"><p className="fh-msg" role="alert">{vErr}</p><button type="button" className="btn" onClick={() => setVn(vn + 1)}>다시 시도</button></div>
       : <p className="lv-note" role="status">요청한 지도 판을 불러오는 중…</p>)}
