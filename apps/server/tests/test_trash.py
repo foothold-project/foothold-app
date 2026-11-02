@@ -149,14 +149,14 @@ def test_terminal_history_assignment_approval_photos_and_file_retry(scenario, ma
         m.setattr(Path, 'unlink', fail_unlink)
         response = trash(http, headers, 'floor', fid)
         assert response.status_code == 204, response.text
-    with Session(http.app.state.engine) as db:
-        run = db.get(Run, UUID(s['started']['run_id']))
-        assert (run.scenario_version_id, run.floor_id, run.map_version_id) == (None, None, None)
-        assert run.scenario_name_snapshot == scenario_name and run.floor_name_snapshot == floor_name
-        assert db.get(Assignment, UUID(aid)) is not None
-        assert list(db.scalars(select(FileDeletion)))
-        assert db.get(Floor, UUID(fid)) is None
-        assert db.get(MapVersion, UUID(s['started']['map_version_id'])) is None
+        with Session(http.app.state.engine) as db:
+            run = db.get(Run, UUID(s['started']['run_id']))
+            assert (run.scenario_version_id, run.floor_id, run.map_version_id) == (None, None, None)
+            assert run.scenario_name_snapshot == scenario_name and run.floor_name_snapshot == floor_name
+            assert db.get(Assignment, UUID(aid)) is not None
+            assert list(db.scalars(select(FileDeletion)))
+            assert db.get(Floor, UUID(fid)) is None
+            assert db.get(MapVersion, UUID(s['started']['map_version_id'])) is None
     delete_files(s['factory'], maps[2], s['seeded']['org'])
     with Session(http.app.state.engine) as db:
         assert list(db.scalars(select(FileDeletion))) == []
