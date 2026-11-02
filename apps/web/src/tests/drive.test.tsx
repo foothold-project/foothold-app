@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import type { ScreenState } from '../../../contracts/ts';
 import { App, PHONE_Q } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
+import { fleetNames, fleetRow } from './fleetRow';
 import { tabFromHash } from '../menu';
 import { api, onAuthLost as setAuthLost } from '../api';
 import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, rt } from '../rt';
@@ -45,7 +46,7 @@ const text = () => box.textContent!;
 const band = () => $('[data-band]').textContent!;
 /** 폰 로봇 연결의 로봇 카드, PC 로봇 탭 목록의 행 */
 const card = (name: string) => [...box.querySelectorAll('.dv-card')].find((li) => li.textContent!.includes(name))!;
-const row = (name: string) => [...box.querySelectorAll('[aria-label="로봇 목록"] button')].find((b) => b.textContent!.includes(name))!;
+const row = (name: string) => fleetRow(box, name);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const tick = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 const key = (type: 'keydown' | 'keyup', code: string, at: EventTarget = window, ctrlKey = false) =>
@@ -458,12 +459,12 @@ describe('조종 화면', () => {
   });
 });
 
-// [B3] PC 로봇 목록 «마지막 수신» = 상태를 받은 시각(다시 그린 시각 아님)
+// [B3] PC 로봇 목록(총괄 표) «마지막 수신» = 상태를 받은 시각(다시 그린 시각 아님)
 describe('마지막 수신 시각', () => {
   const seen = (name: string) => row(name).querySelector('[data-seen]')!.textContent;
   it('누르기·시간 흐름만으로는 안 바뀌고 새 상태가 와야 바뀜, 상태 없는 로봇은 목록 받은 시각', () => {
     vi.setSystemTime(new Date(2026, 9, 21, 13, 40, 5));
-    mount(false, 'u-kim', '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));   // 서버 목록을 받은 시각(toRobot 이 붙임)
+    mount(false, ADMIN, '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));   // 서버 목록을 받은 시각(toRobot 이 붙임)
     tick(2000);                                            // 2 s 뒤 연결
     serve(KIM, 'r7');
     expect(seen('Go2-7')).toBe('마지막 수신 13:40:07');
@@ -479,7 +480,7 @@ describe('마지막 수신 시각', () => {
   });
   it('[r2 Y2] 같은 값의 상태가 다시 와도(rt 가 다시 그리지 않음) 받은 시각 표시는 1 s 안에 바뀜', () => {
     vi.setSystemTime(new Date(2026, 9, 21, 13, 40, 5));
-    mount(false, 'u-kim', '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));
+    mount(false, ADMIN, '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));
     serve(KIM, 'r7');
     expect(seen('Go2-7')).toBe('마지막 수신 13:40:05');
     tick(2000);
@@ -1090,8 +1091,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     expect(w.of('sub').map((m) => m.robots).pop()).toEqual(['r3', 'r7', 'r1']);
     answer(3, fail('NOT_FOUND', '로봇을 찾을 수 없습니다.'));
     act(() => { push('r3'); push('r7'); });
-    const rows = $('[aria-label="로봇 목록"]');
-    const rowOf = (name: string) => [...rows.querySelectorAll('li')].find((li) => li.textContent!.includes(name))!.textContent!;
+    const rowOf = (name: string) => row(name).textContent!;   // 운영 관리자 «내 로봇 고르기» 단추(상태 칩)
     expect(rowOf('Go2-7')).not.toContain('확인 안 됨');     // 서버가 받아들인 [r3,r7] 은 그대로
     expect(rowOf('Go2-1')).toContain('확인 안 됨');
     stopOn();

@@ -11,6 +11,7 @@ import { NOTE_MS } from '../api';
 import { BELL_MS, stamp } from '../screens/history';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
+import { fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -662,7 +663,7 @@ describe('서랍 «최근 사건»', () => {
   it('운영 관리자가 남의 로봇을 고르면 요청하지 않음(요약만 보는 범위)', async () => {
     serve(signedIn(PARK));
     await open('#/fleet');
-    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    await click(fleetRow(box, 'Go2-A'));
     expect(sent('GET', '/events').filter((c) => c.q.get('robot_id') === 'r-a')).toEqual([]);
     expect(sent('GET', '/events').filter((c) => c.q.get('robot_id') === 'r-b')).toHaveLength(1);   // 내 로봇은 요청함
   });

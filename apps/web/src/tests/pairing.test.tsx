@@ -294,7 +294,7 @@ describe('PC 웹 운영 관리자', () => {
     await click(btn('+ 새 로봇 추가'));
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
     await click(btn('닫기', card('새 로봇 추가')));
-    expect($('[aria-label="로봇 목록"]')).not.toBeNull();
+    expect($('[aria-label="로봇 상태"]')).not.toBeNull();
   });
 });
 

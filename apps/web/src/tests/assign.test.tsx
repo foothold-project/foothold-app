@@ -10,6 +10,7 @@ import { clearPlans } from '../screens/missions';
 import { ADMIN_ASSIGN, IDLE_SLOT, OUT } from '../screens/assign';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
+import { fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -429,11 +430,11 @@ describe('관제 서랍 [배정]', () => {
     scenarios = [scen('s1', '1층 순찰')];
     serve(LEE);
     await open('#/fleet');
-    await click([...$('[aria-label="로봇 목록"]')!.querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-B')));
+    await click(fleetRow(box, 'Go2-B'));
     const other = $<HTMLButtonElement>('[data-assign-robot]')!;
     expect(other.disabled).toBe(true);
     expect($(`#${other.getAttribute('aria-describedby')}`)!.textContent).toBe(OUT);
-    await click([...$('[aria-label="로봇 목록"]')!.querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    await click(fleetRow(box, 'Go2-A'));
     await click($('[data-assign-robot]'));
     expect(location.hash).toBe('#/mission');
     expect(box.textContent).toContain('Go2-A에 배정할 시나리오를 고르세요');

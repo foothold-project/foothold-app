@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScreenState } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
+import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { NO_SIGNAL, RETRY_MS } from '../drivemedia';
@@ -31,7 +32,7 @@ afterEach(() => {
 
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t)!;
-const row = (name: string) => [...box.querySelectorAll('[aria-label="로봇 목록"] button')].find((b) => b.textContent!.includes(name))!;
+const row = (name: string) => fleetRow(box, name);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const tick = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 const key = (type: 'keydown' | 'keyup', code: string) => act(() => { window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true })); });

@@ -7,8 +7,8 @@ import { api } from '../api';
 import { ROBOTS as MEM_ROBOTS, USERS as MEM_USERS } from '../fake';
 import { rt } from '../rt';
 import { LIST_MS, Root } from '../session';
-import { NO_ROBOT } from '../drive';
 import { FakeWS, lease, state } from './fakeWs';
+import { fleetNames, fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -164,7 +164,7 @@ describe('로그인·세션', () => {
     await login('lee', 'pw');
     watch.disconnect();
     expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
-    expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-L']);
+    expect(fleetNames(box)).toEqual(['Go2-L']);
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.filter((t) => /김총괄|Go2-K/.test(t))).toEqual([]);
     expect(MEM_ROBOTS.map((r) => r.name)).toEqual(['Go2-L']);
@@ -185,14 +185,15 @@ describe('로그인·세션', () => {
 describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 관리자 mine, 총괄 all)', () => {
   const ROBOTS = [robot('r-b', 'Go2-B', 'o2', '박운영'), robot('r-a', 'Go2-A', 'o1', '이운영')];
   const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
-  const row = (name: string) => [...box.querySelectorAll('[aria-label="로봇 목록"] button')].find((b) => b.textContent!.includes(name))!;
+  const row = (name: string) => fleetRow(box, name);
   it('운영 관리자는 scope=mine: 내게 배정된 로봇만, 보는 중 없음, STOP 은 됨', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')], { 'GET /dashboard': { status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } } }));
     await open();
     expect(calls.find((c) => c.path.startsWith('/robots?'))!.path).toBe('/robots?scope=mine&limit=100');
-    expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-A']);
-    expect($('[aria-label="로봇 목록"]')!.textContent).not.toContain('보는 중');
-    expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '내 로봇')!.querySelector('b')!.textContent).toBe('1');
+    expect(fleetNames(box)).toEqual(['Go2-A']);
+    expect($('main')!.textContent).not.toContain('보는 중');
+    expect($('[aria-label="다른 로봇"]')).toBeNull();
+    expect($('[aria-label="요약"]')).toBeNull();   // 운영 관리자 PC 는 한 대 집중 — 요약 숫자 칸 없음(ROBOT-TAB 11-02)
 
     click(row('Go2-A'));
     expect([...box.querySelectorAll('[aria-label="로봇 상세"] .btn.pri')].filter((b) => !b.closest('[data-field-check]'))).toEqual([]);   // PC 에는 조종 단추가 없다(ADR-002 §4 — 조종은 폰). 현장 승인 단추만
@@ -214,7 +215,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
         'POST /auth/login': () => { const next = calls[calls.length - 1].body as { username: string }; me = next.username === 'kim' ? KIM : LEE; return { status: 200, body: { ...me, csrf_token: 'csrf-2', access_token: null, refresh_token: null } }; },
       }));
       const scopes = () => calls.filter((c) => c.path.startsWith('/robots?')).map((c) => new URLSearchParams(c.path.split('?')[1]).get('scope'));
-      const names = () => [...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent);
+      const names = () => fleetNames(box);
       await open();
       expect(names()).toEqual(['Go2-A']);
       act(() => { vi.advanceTimersByTime(LIST_MS); });   // 주기 갱신
@@ -264,7 +265,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
         'GET /robots/r-b': () => ({ status: 200, body: (routes['GET /robots'] as { body: { items: RobotSummary[] } }).body.items.find((x) => x.id === 'r-b') }),
       }));
       await open('#/fleet');
-      const detail = () => $('[aria-label="로봇 상세"]')!.textContent;
+      const detail = () => $('[aria-label="로봇 상태"]')!.textContent;   // 조종권자는 집중 화면 상태 한 줄(ROBOT-TAB 11-02)
       const lists = () => calls.filter((c) => c.path.split('?')[0] === '/robots').length;
       act(() => (row('Go2-B') as HTMLElement).click());
       await flush();
@@ -316,10 +317,10 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       await flush();
       expect(signal?.aborted).toBe(true);
       await login('park', 'pw');
-      expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-박운영']);
+      expect(fleetNames(box)).toEqual(['Go2-박운영']);
       hold!(new Response(JSON.stringify({ items: [robot('r-o1', 'Go2-이운영', 'o1', '이운영')], next_cursor: null }), { status: 200 }));
       await flush();
-      expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-박운영']);
+      expect(fleetNames(box)).toEqual(['Go2-박운영']);
       expect(MEM_ROBOTS.map((r) => r.name)).toEqual(['Go2-박운영']);
       expect($('.fh-me')!.textContent).toBe('박운영(운영 관리자)');
     } finally { vi.useRealTimers(); }
@@ -346,10 +347,10 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
   it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시 없음', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
     await open();
-    expect($('[aria-label="로봇 목록"]')!.textContent).toContain('상태 확인 중');   // 첫 state 전
+    expect($('[aria-label="로봇 상태"]')!.textContent).toContain('상태 확인 중');   // 첫 state 전(한 대 — 고르기 없이 상태 한 줄)
     // 서버는 에이전트가 없는 로봇도 OFFLINE·상태 없음 state 를 보낸다
     act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
-    expect($('[aria-label="로봇 목록"]')!.textContent).toContain('연결 전');
+    expect($('[aria-label="로봇 상태"]')!.textContent).toContain('연결 전');
     expect($('[data-band]')!.textContent).toBe('');
     expect($('[aria-label="로봇 상세"] [data-why]')).toBeNull();   // 조종 단추·이유는 폰 로봇 연결 화면에(아래 시험)
     expect($('[data-dev]')).toBeNull();   // 오래된 개발용 표시 줄 없음(ROBOT-TAB-TIDY)
@@ -366,8 +367,10 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     serve(signedIn(LEE, []));
     await open();
     expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=mine');
-    expect($('[aria-label="로봇 없음"]')!.textContent).toBe(`로봇이 없습니다${NO_ROBOT}`);
-    expect($('[aria-label="요약"]')).not.toBeNull();   // 관제 요약은 그대로
+    expect($('[aria-label="로봇 없음"]')!.textContent).toContain('담당 로봇이 없습니다');   // PC: 연결 코드 등록·총괄에게 담당 요청·시뮬 입구(ROBOT-TAB 11-02)
+    expect($('[aria-label="로봇 없음"]')!.textContent).toContain('총괄에게 담당 지정을 요청');
+    expect($('[aria-label="로봇 없음"] a[href="#/sim"]')).not.toBeNull();
+    expect($('[data-pair-start]')).not.toBeNull();
     expect($('[data-stop]')).not.toBeNull();
     act(() => { location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await flush();

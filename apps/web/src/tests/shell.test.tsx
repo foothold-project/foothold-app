@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
+import { fleetNames, fleetRow } from './fleetRow';
 import { PC_BOTTOM, PC_TABS, PHONE_SHEETS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 import { FakeWS, state } from './fakeWs';
 import SIM_MAPS from '../../../../mobile/sim/maps.json';
@@ -36,7 +37,7 @@ const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const shown = () => tabsFor(false).filter((t) => !t.hidden);
 const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.childNodes[1].textContent);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
-const robotRow = (name: string) => $$('[aria-label="로봇 목록"] button').find((b) => b.textContent!.includes(name))!;
+const robotRow = (name: string) => fleetRow(box, name);
 /** 다른 사람으로 로그인한 것처럼 같은 틀을 다시 그림(가짜 역할 전환 고르개는 없앰 — 역할은 서버 /me) */
 const pickUser = (id: string) => act(() => { root!.render(<App user={USERS.find((u) => u.id === id)} robots={ROBOTS} />); });
 const remount = (phone: boolean, user: string, hash: string) => { act(() => root?.unmount()); box.remove(); mount(phone, user, hash); };
@@ -160,7 +161,8 @@ describe('역할 전환', () => {
     pickUser('u-lee');
     expect(navLabels()).not.toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
-    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 담당이 바뀌는 사이 목록에 남은 남의 로봇: 내 로봇 뒤 + 보는 중
+    expect(fleetNames(box)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 담당이 바뀌는 사이 목록에 남은 남의 로봇: 내 로봇 고르기 뒤 접힌 «다른 로봇» + 보는 중
+    expect($('[aria-label="다른 로봇"] summary').textContent).toContain('다른 로봇 1대');
     expect(robotRow('Go2-7').textContent).toContain('보는 중');
     resize(true);
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);
@@ -255,7 +257,7 @@ describe('B1 폭 전환', () => {
     expect($('h1').textContent).toBe('로봇');
     expect(location.hash).toBe('#/fleet');
     expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/fleet');
-    expect($('main').textContent).toContain('주의 필요');
+    expect($('[aria-label="로봇 상태"]')).not.toBeNull();   // 운영 관리자 로봇 탭 = 한 대 집중(상태 한 줄)
   });
 });
 
