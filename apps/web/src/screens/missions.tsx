@@ -2,7 +2,8 @@
 // 목록 [임무 | 시나리오](보관 제외 기본·보관 보기·더 보기) + 편집 칸. 저장할 때마다 새 판(PUT If-Match = 받은 본체 version), 옛 판은 읽기 전용(덮어쓰기 단추 없음).
 // 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정 창·목록은 저장된 시나리오 칸 아래(screens/assign.tsx, S5b), 실행은 S7 뒤.
 // STOP 은 App 머리줄 — 이 화면은 창 키·포인터를 잡지 않는다(지도 svg 포인터만).
-import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { Action, Assignment, MapVersion, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
@@ -12,7 +13,7 @@ import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, us
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
-import './missions.css';
+import { Hint, Menu, Pane, ScreenTabs, shut } from './mapscen';
 
 type P = [number, number];
 type AnyPlan = Mission | Scenario;
@@ -94,53 +95,60 @@ function useAssigned(on: boolean, busy: boolean, cancel?: AbortSignal) {
   return by;
 }
 
-/** 임무 탭(03 §5.3): 왼쪽 [임무 | 시나리오] 목록, 오른쪽 편집. 누구나 남의 것도 고친다(10-27 — 서버가 허용) */
+/** 임무 탭(03 §5.3) — MAPSCEN-UI 11-02 틀: 단추 줄 «시나리오 이름 ▾»(목록·거르기·＋새·«임무 관리…»·휴지통) + 편집(지도 | 오른쪽 [단계 | 배정] 창). 누구나 남의 것도 고친다(10-27 — 서버가 허용) */
 export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
   const [kind, setKind] = useState<Plan>(keptPlan.kind), [archived, setArchived] = useState(false), [mine, setMine] = useState(false), [floor, setFloor] = useState('');
   const scen = kind === 'scenarios', l = useList(kind, archived, scen ? { mine, floor } : undefined, c.cancel), assigned = useAssigned(scen, l.busy, c.cancel);
   const [sel, setSel] = useState<string | null>(keptPlan.sel), [msg, setMsg] = useState<Msg>(() => (assignFor.robot && !keptPlan.sel ? { text: `${c.robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 고르면 배정 창이 열립니다.`, ok: true } : null)), [n, setN] = useState(0), tree = useTree(c.cancel);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => { keptPlan.kind = kind; keptPlan.sel = sel; }, [kind, sel]);
   const places = useMemo(() => floorsOf(tree.tree), [tree.tree]), floorText = (ids: string[]) => ids.map((id) => places.find((p) => p.floor.id === id)?.floor.name).filter(Boolean).join(' · ');
   const show = (k: Plan) => { if (k !== kind) { setKind(k); setSel(null); setMsg(null); } };
-  return <>
-    <section className="lv-card" style={{ flex: '0 1 380px' }} aria-label="임무 목록">
-      <div className="fh-row">
-        <span className="fh-row" role="group" aria-label="종류">{(['missions', 'scenarios'] as Plan[]).map((k) => <button key={k} type="button" className="btn" aria-pressed={kind === k} onClick={() => show(k)}>{WHAT[k]}</button>)}</span>
-        <span className="fh-grow" />
-        <button type="button" className="btn pri" onClick={() => { setSel(''); setMsg(null); setN((x) => x + 1); }}>새 {WHAT[kind]}</button>
-        {scen && <TrashLink />}
-      </div>
-      <label className="fh-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /><span>{scen ? '휴지통에 있는 것도 보기' : '보관된 것도 보기'}</span></label>
-      {/* 시나리오 거르기(F-MS-04) — 서버 mine·floor_id 로 */}
-      {scen && <div className="fh-row" role="group" aria-label="거르기">
-        <label className="fh-row"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /><span>내 것만</span></label>
-        <label className="fh-row"><span className="lbl">지도</span><select className="fh-user" aria-label="지도별" value={floor} onChange={(e) => setFloor(e.target.value)}>
-          <option value="">전체</option>{places.map((p) => <option key={p.floor.id} value={p.floor.id}>{`${p.site.name} ${p.building.name} ${p.floor.name}`}</option>)}</select></label>
-      </div>}
-      <ul className="fh-list" aria-label={`${WHAT[kind]} 목록`}>{l.items.map((x) => <li key={x.id}>
-        <button type="button" aria-pressed={x.id === sel} data-plan={x.id} onClick={() => { setSel(x.id); setMsg(null); }}>
-          <b>{x.name}</b>
-          {'waypoints' in x && <span className="lbl">{floorText(x.floor_ids)}</span>}
-          <span className="fh-grow" /><span className="mono">판 {x.latest_version}</span>
-          <span className="lbl">{'steps' in x ? `작업 ${x.steps.length}` : `지점 ${x.waypoints.length}`}</span>
-          {/* 마지막 실행은 실행 API(S7) 전이라 서버 값이 없다 — 지어내지 않고 «—». fh-wide = 좁으면 둘째 줄로 */}
-          {'waypoints' in x && <span className="fh-wide fh-row"><span className="lbl" data-col="robots">로봇 {assigned === undefined ? '…' : assigned ? assigned[x.id]?.join(', ') || '없음' : '?'}</span><span className="lbl" data-col="last-run">마지막 실행 —</span></span>}
-          {x.archived_at && <span className="lbl">{scen ? '휴지통' : '보관됨'}</span>}
-          {keptPlan.drafts[`${kind}:${x.id}`] && <span className="lbl">저장 안 한 편집</span>}
-        </button></li>)}</ul>
-      {scen && assigned === null && <p className="lv-note">배정된 로봇을 받지 못했습니다(«?»). 목록을 다시 받으면 다시 시도합니다.</p>}
-      {!l.busy && !l.err && !l.items.length && <p className="lv-note">{scen && (mine || floor) ? '조건에 맞는 시나리오가 없습니다. 거르기를 바꿔 보세요.' : kind === 'missions' ? '임무가 없습니다. «새 임무»로 사진·대기 같은 작업을 묶으세요.' : '시나리오가 없습니다. «새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
-      {l.err && <p className="fh-msg" role="alert">{WHAT[kind]} 목록을 받지 못했습니다. {l.err}</p>}
-      {l.busy && <p className="lv-note" role="status">목록을 불러오는 중…</p>}
-      {!l.busy && (l.next || l.err) && <div className="fh-row"><button type="button" className="btn" onClick={l.err && !l.items.length ? l.again : l.more}>{l.err ? '다시 시도' : '더 보기'}</button></div>}
-    </section>
-    <section className="lv-card" aria-label={`${WHAT[kind]} 편집`}>
-      <Note m={msg} />
-      {sel == null ? <p className="lv-note">목록에서 {WHAT[kind]}를 고르거나 «새 {WHAT[kind]}»를 누르세요.</p>
-        : <Edit key={`${kind}-${sel}-${sel ? '' : n}`} kind={kind} id={sel} user={c.user} robots={c.robots} cancel={c.cancel} places={places} treeAgain={tree.again}
-            done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} newMission={() => { setKind('missions'); setSel(''); setMsg(null); setN((x) => x + 1); }} />}
-    </section>
-  </>;
+  const open1 = sel ? l.items.find((x) => x.id === sel) : undefined;
+  const name = sel == null ? `${WHAT[kind]} 고르기` : sel ? open1?.name || WHAT[kind] : `새 ${WHAT[kind]}`, label = scen ? name : `임무 관리 › ${name}`;
+  // 단추 줄 드롭다운 하나 = 옛 왼쪽 목록 칸(종류 단추 대신 «임무 관리…» ↔ «‹ 시나리오»)
+  const menu = <Menu label={label} title={`${WHAT[kind]}: ${label}`}><section className="fh-form" aria-label="임무 목록" style={{ gap: 8 }}>
+    <div className="fh-row">
+      <button type="button" className="btn pri" onClick={(e) => { shut(e); setSel(''); setMsg(null); setN((x) => x + 1); }}>새 {WHAT[kind]}</button>
+      <span className="fh-grow" />
+      {scen ? <button type="button" className="btn" onClick={() => show('missions')}>임무 관리…</button> : <button type="button" className="btn" onClick={() => show('scenarios')}>‹ 시나리오</button>}
+    </div>
+    {/* 시나리오 거르기(F-MS-04) — 서버 mine·floor_id 로 */}
+    {scen && <div className="fh-row" role="group" aria-label="거르기">
+      <label className="fh-row"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /><span>내 것만</span></label>
+      <select className="inp fh-grow" aria-label="지도별" value={floor} onChange={(e) => setFloor(e.target.value)}>
+        <option value="">모든 지도</option>{places.map((p) => <option key={p.floor.id} value={p.floor.id}>{`${p.site.name} ${p.building.name} ${p.floor.name}`}</option>)}</select>
+    </div>}
+    <ul className="fh-list" aria-label={`${WHAT[kind]} 목록`}>{l.items.map((x) => <li key={x.id}>
+      <button type="button" aria-pressed={x.id === sel} data-plan={x.id} onClick={(e) => { shut(e); setSel(x.id); setMsg(null); }}>
+        <b>{x.name}</b>
+        {'waypoints' in x && <span className="lbl">{floorText(x.floor_ids)}</span>}
+        <span className="fh-grow" /><span className="mono">판 {x.latest_version}</span>
+        <span className="lbl">{'steps' in x ? `작업 ${x.steps.length}` : `지점 ${x.waypoints.length}`}</span>
+        {/* 배정된 로봇이 있을 때만(빈 «없음»·«마지막 실행 —» 줄은 뺐다 — MAPSCEN-UI) */}
+        {'waypoints' in x && assigned !== null && assigned?.[x.id]?.length ? <span className="lbl" data-col="robots">로봇 {assigned[x.id].join(', ')}</span> : null}
+        {'waypoints' in x && assigned === null && <span className="lbl" data-col="robots">로봇 ?</span>}
+        {x.archived_at && <span className="lbl">{scen ? '휴지통' : '보관됨'}</span>}
+        {keptPlan.drafts[`${kind}:${x.id}`] && <span className="lbl">저장 안 한 편집</span>}
+      </button></li>)}</ul>
+    {scen && assigned === null && <p className="lv-note">배정된 로봇을 받지 못했습니다(«?»). 목록을 다시 받으면 다시 시도합니다.</p>}
+    {!l.busy && !l.err && !l.items.length && <p className="lv-note">{scen && (mine || floor) ? '조건에 맞는 시나리오가 없습니다. 거르기를 바꿔 보세요.' : kind === 'missions' ? '임무가 없습니다. «새 임무»로 사진·대기 같은 작업을 묶으세요.' : '시나리오가 없습니다. «새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
+    {l.err && <p className="fh-msg" role="alert">{WHAT[kind]} 목록을 받지 못했습니다. {l.err}</p>}
+    {l.busy && <p className="lv-note" role="status">목록을 불러오는 중…</p>}
+    {!l.busy && (l.next || l.err) && <div className="fh-row"><button type="button" className="btn" onClick={l.err && !l.items.length ? l.again : l.more}>{l.err ? '다시 시도' : '더 보기'}</button></div>}
+    <hr />
+    <label className="fh-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /><span>{scen ? '휴지통에 있는 것도 보기' : '보관된 것도 보기'}</span></label>
+    {scen && <TrashLink />}
+  </section></Menu>;
+  return <section className="mx" aria-label={`${WHAT[kind]} 편집`}>
+    <div className="mx-bar"><ScreenTabs cur="mission" />{menu}<span ref={setSlot} style={{ display: 'contents' }} /></div>
+    {sel == null ? <div className="mx-body"><div className="mx-map">
+        <div className="mx-over">{msg && <Note m={msg} />}</div>
+        <div className="mx-center"><p className="lv-note">위 «{label}»에서 {WHAT[kind]}를 고르거나 «새 {WHAT[kind]}»를 누르세요.</p></div></div></div>
+      : <Edit key={`${kind}-${sel}-${sel ? '' : n}`} kind={kind} id={sel} user={c.user} robots={c.robots} cancel={c.cancel} places={places} treeAgain={tree.again} slot={slot} top={msg && <Note m={msg} />}
+          assignN={assigned && sel ? assigned[sel]?.length ?? 0 : undefined}
+          done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} newMission={() => { setKind('missions'); setSel(''); setMsg(null); setN((x) => x + 1); }} />}
+  </section>;
 }
 
 const NOT_YET = '저장이 아직 확인되지 않았습니다. 서버가 처리하는 중일 수 있습니다. 잠시 뒤 «저장 확인»을 다시 누르세요.';
@@ -153,7 +161,8 @@ const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'm
 
 /** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
  *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
-function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMission }: { kind: Plan; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void; newMission?: () => void }) {
+function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMission, slot, top, assignN }: { kind: Plan; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void; newMission?: () => void;
+  slot?: HTMLElement | null; top?: ReactNode; assignN?: number }) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null);
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
   const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
@@ -242,8 +251,8 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
           failed(e, b);
         });
   };
-  const save = (e: FormEvent) => {
-    e.preventDefault();
+  const save = (e?: { preventDefault(): void }) => {
+    e?.preventDefault();
     if (!body || lock || !editable) return;
     const b = kind === 'missions' ? missionBad(body as MissionWrite) : scenarioBad(body as ScenarioWrite);
     if (b.length) { setBad(b); setMsg({ text: b[0].text }); return; }
@@ -270,50 +279,61 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
   };
 
   const retry = err && <div className="fh-row"><p className="fh-msg" role="alert">{err.text}</p><button type="button" className="btn" onClick={() => { setErr(null); load(err.adopt); }}>다시 받기</button></div>;
-  if (!body) return retry || <p className="lv-note" role="status">불러오는 중…</p>;
+  const [mapSlot, setMapSlot] = useState<HTMLElement | null>(null), [moreSlot, setMoreSlot] = useState<HTMLElement | null>(null);
+  if (!body) return <div className="mx-body"><div className="mx-map"><div className="mx-over">{top}{retry}</div>{!retry && <div className="mx-center"><p className="lv-note" role="status">불러오는 중…</p></div>}</div></div>;
   const shown = view ? bodyOf(view) : body, ro = !!view || !editable;
   const put = (b: AnyWrite) => { if (lock || ro) return; setBody(b); setBad([]); setMsg(null); };
   const nameBadNow = bad.find((b) => b.at === 'name');
-  return <div className="fh-form" aria-label={`${what} 편집 칸`}>
-    {retry}
-    <div className="fh-row"><h2 className="fh-grow">{id ? shown.name || what : `새 ${what}`}</h2>
-      {latest && <label className="fh-row"><span>판</span><select className="inp" aria-label="판" value={view?.number ?? latest.latest_version} onChange={(e) => pickVersion(Number(e.target.value))}>
-        {Array.from({ length: latest.latest_version }, (_, i) => latest.latest_version - i).map((n) => <option key={n} value={n}>{`판 ${n}${n === latest.latest_version ? ' (최신)' : ''}`}</option>)}</select></label>}</div>
+  const verLabel = latest ? (view ? `판 ${view.number} · 보기만` : `판 ${latest.latest_version}`) : '';
+  // 단추 줄(Missions 가 준 자리): [지도 ▾(시나리오)] · «판 N ▾»(옛 판은 읽기 전용) · «···»(실행 확인 로봇·삭제/보관) · 오른쪽 끝 «새 판으로 저장»
+  const bar = slot && createPortal(<>
+    {kind === 'scenarios' && <span ref={setMapSlot} style={{ display: 'contents' }} />}
+    {latest && <Menu label={verLabel} title={`판: ${verLabel}`}><label className="fh-field"><span>판(옛 판은 읽기 전용)</span><select className="inp" aria-label="판" value={view?.number ?? latest.latest_version} onChange={(e) => { pickVersion(Number(e.target.value)); shut(e); }}>
+      {Array.from({ length: latest.latest_version }, (_, i) => latest.latest_version - i).map((n) => <option key={n} value={n}>{`판 ${n}${n === latest.latest_version ? ' (최신)' : ''}`}</option>)}</select></label></Menu>}
+    <span className="fh-grow" />
+    {(kind === 'scenarios' || (!ro && id)) && <Menu label="···" title="더 보기" end className="more">
+      {kind === 'scenarios' && <div ref={setMoreSlot} style={{ display: 'contents' }} />}
+      {!ro && id && <button type="button" className="btn" disabled={lock || ask} onClick={(e) => { shut(e); setAsk(true); }}>{drop}</button>}
+    </Menu>}
+    {!ro && <button type="button" className="btn pri" disabled={lock || (kind === 'scenarios' && !!block)} aria-describedby={kind === 'scenarios' && block ? 'plan-block' : undefined} title={kind === 'scenarios' && block ? block : undefined} onClick={save}>{id ? '새 판으로 저장' : '저장'}</button>}
+  </>, slot);
+  // 알림 띠(생길 때만) — 시나리오는 지도 위 왼쪽 위, 임무는 칸 맨 위
+  const notices = <>
+    {top}{retry}
     {view && <p className="lv-note" role="status" data-old>옛 판(판 {view.number})을 보는 중입니다(읽기 전용, {day(view.version_created_at)} 저장). 고치려면 «판»에서 최신 판을 고르세요.</p>}
     {!view && archived && (scen ? <div className="fh-row"><p className="lv-note fh-grow" data-readonly>휴지통에 있는 시나리오입니다. 고칠 수 없고 옛 판은 볼 수 있습니다 — 복원하면 다시 고칩니다.</p>
         <button type="button" className="btn" disabled={busy} onClick={restore}>복원</button></div>
       : <p className="lv-note" data-readonly>보관된 {what}입니다. 고칠 수 없고 옛 판은 볼 수 있습니다.</p>)}
-    {/* 저장 중·저장 확인 전에는 입력을 모두 막는다(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로 */}
-    <fieldset disabled={lock && !ro} style={{ display: 'contents' }}>
-      <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} onChange={(e) => put({ ...body, name: e.target.value })} /></label>
-      {kind === 'missions'
-        ? <MissionForm value={shown as MissionWrite} set={ro ? undefined : (b) => put(b)} bad={view ? [] : bad} robots={robots} user={user} cancel={cancel} />
-        : <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
-            cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} newMission={newMission} robots={robots} user={user} />}
-    </fieldset>
-    {!ro && <form className="fh-form" onSubmit={save} noValidate aria-label="저장">
-      <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || (kind === 'scenarios' && !!block)} aria-describedby={kind === 'scenarios' && block ? 'plan-block' : undefined}>{id ? '새 판으로 저장' : '저장'}</button>
-        {conflict && <button type="button" className="btn" disabled={lock} onClick={() => load('base')}>최신 판 받기</button>}
-        {id && <button type="button" className="btn" disabled={lock || ask} onClick={() => setAsk(true)}>{drop}</button>}</div>
-      {ask && <div className="fh-row" role="group" aria-label={`${drop} 확인`}><span>{scen ? '이 시나리오를 휴지통으로 옮길까요? 목록에서 빠지고, 휴지통에서 복원하거나 완전 삭제할 수 있습니다.'
-          : `이 ${what}를 보관할까요? 보관하면 되돌릴 수 없습니다 — 목록에서 빠지고 더는 고칠 수 없습니다. 옛 판은 «보관된 것도 보기»에서 볼 수 있습니다.`}</span>
-        <button type="button" className="btn pri" disabled={lock} onClick={() => { setAsk(false); archive(); }}>{scen ? '휴지통으로' : '보관하기'}</button>
-        <button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>}
-      {kind === 'scenarios' && block && !lock && <span id="plan-block" className="fh-why" data-block>{block}</span>}
-      {busy && <p className="lv-note" role="status">저장하는 중…</p>}
-    </form>}
-    <Note m={msg} />
-    {unsure && <>
-      <div className="fh-row"><button type="button" className="btn" disabled={checking} onClick={() => check(unsure)}>저장 확인</button>
-        <button type="button" className="btn" disabled={checking || again} onClick={() => setAgain(true)}>다시 저장</button>
-        {checking && <span className="lv-note" role="status">저장됐는지 확인하는 중…</span>}</div>
-      {again && <div className="fh-row" role="group" aria-label="다시 저장 확인"><span>이미 저장됐을 수 있습니다. 다시 보내면 같은 {what}가 두 번 생길 수 있어요 — 목록에서 먼저 확인하세요.</span>
-        <button type="button" className="btn pri" onClick={() => { const u = unsure; setUnsure(null); setAgain(false); send(u.body); }}>그래도 다시 저장</button>
-        <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
-    </>}
-    {/* 배정은 저장된 판만 간다 — 저장 안 한 편집이 있으면 어느 판이 가는지 바로 위에 알린다 */}
-    {kind === 'scenarios' && id && latest && !view && dirty && <p className="fh-why" role="status" data-unsaved-assign>저장하지 않은 편집이 있습니다 — 배정하면 저장된 판 {latest.latest_version}이 배정됩니다. 고친 내용을 배정하려면 먼저 «새 판으로 저장»을 누르세요.</p>}
-    {kind === 'scenarios' && id && latest && <AssignPanel scenario={id} name={latest.name} version={view?.number ?? latest.latest_version} archived={archived} user={user} robots={robots} cancel={cancel} />}
+    {!ro && ask && <div className="fh-row" role="group" aria-label={`${drop} 확인`}><span>{scen ? '이 시나리오를 휴지통으로 옮길까요? 목록에서 빠지고, 휴지통에서 복원하거나 완전 삭제할 수 있습니다.'
+        : `이 ${what}를 보관할까요? 보관하면 되돌릴 수 없습니다 — 목록에서 빠지고 더는 고칠 수 없습니다. 옛 판은 «보관된 것도 보기»에서 볼 수 있습니다.`}</span>
+      <button type="button" className="btn pri" disabled={lock} onClick={() => { setAsk(false); archive(); }}>{scen ? '휴지통으로' : '보관하기'}</button>
+      <button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>}
+    {busy && <p className="lv-note" role="status">저장하는 중…</p>}
+    {msg && <Note m={msg} />}
+    {!ro && conflict && <div className="fh-row" data-conflict><button type="button" className="btn" disabled={lock} onClick={() => load('base')}>최신 판 받기</button></div>}
+    {unsure && <div className="fh-row"><button type="button" className="btn" disabled={checking} onClick={() => check(unsure)}>저장 확인</button>
+      <button type="button" className="btn" disabled={checking || again} onClick={() => setAgain(true)}>다시 저장</button>
+      {checking && <span className="lv-note" role="status">저장됐는지 확인하는 중…</span>}</div>}
+    {unsure && again && <div className="fh-row" role="group" aria-label="다시 저장 확인"><span>이미 저장됐을 수 있습니다. 다시 보내면 같은 {what}가 두 번 생길 수 있어요 — 목록에서 먼저 확인하세요.</span>
+      <button type="button" className="btn pri" onClick={() => { const u = unsure; setUnsure(null); setAgain(false); send(u.body); }}>그래도 다시 저장</button>
+      <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
+  </>;
+  const h2 = <h2 className="mx-sr">{id ? shown.name || what : `새 ${what}`}</h2>;
+  const nameField = <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} onChange={(e) => put({ ...body, name: e.target.value })} /></label>;
+  if (kind === 'missions') return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}
+    <div className="mx-scroll"><div className="fh-form" style={{ maxWidth: 760, width: '100%', margin: '0 auto' }}>{h2}{notices}
+      {/* 저장 중·저장 확인 전에는 입력을 모두 막는다(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로 */}
+      <fieldset disabled={lock && !ro} style={{ display: 'contents' }}>{nameField}
+        <MissionForm value={shown as MissionWrite} set={ro ? undefined : (b) => put(b)} bad={view ? [] : bad} robots={robots} user={user} cancel={cancel} /></fieldset>
+    </div></div></div>;
+  // 배정은 저장된 판만 간다 — 저장 안 한 편집이 있으면 어느 판이 가는지 바로 위에 알린다
+  const assign = id && latest ? <>{!view && dirty && <p className="fh-why" role="status" data-unsaved-assign>저장하지 않은 편집이 있습니다 — 배정하면 저장된 판 {latest.latest_version}이 배정됩니다. 고친 내용을 배정하려면 먼저 «새 판으로 저장»을 누르세요.</p>}
+    <AssignPanel scenario={id} name={latest.name} version={view?.number ?? latest.latest_version} archived={archived} user={user} robots={robots} cancel={cancel} /></> : null;
+  return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}{h2}
+    <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
+      cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} newMission={newMission} robots={robots} user={user}
+      mapSlot={mapSlot} moreSlot={moreSlot} over={notices} nameField={nameField} assign={assign} assignN={assignN}
+      blockNote={!ro && block && !lock ? <span id="plan-block" className="fh-why" data-block>{block}</span> : null} />
   </div>;
 }
 
@@ -437,8 +457,9 @@ const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoint
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·고른 지점 오른쪽 위 X 로 지우기, 오른쪽 단계 창에서 순서·임무·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
  *  set 없음 = 읽기 전용(옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
  *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과), newMission = 임무 목록으로 가서 새 임무 열기 */
-function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission, robots, user }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
-  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; newMission?: () => void; robots: Robot[]; user: User }) {
+function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission, robots, user, mapSlot, moreSlot, over, nameField, assign, assignN, blockNote }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
+  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; newMission?: () => void; robots: Robot[]; user: User;
+  mapSlot: HTMLElement | null; moreSlot: HTMLElement | null; over: ReactNode; nameField: ReactNode; assign: ReactNode; assignN?: number; blockNote: ReactNode }) {
   const pts = value.waypoints, finish = value.finish ?? { mode: 'STAY', target: null }, target = finish.target ?? null;
   const [cur, setCur] = useState(() => pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? '');
   useEffect(() => { if (!cur) setCur(pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? ''); }, [places.length]);
@@ -566,9 +587,9 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         if (e.status === 0) { setUnsure('checking'); setMN((x) => x + 1); setQMsg('임무를 만들었는지 확인하지 못했습니다. 임무 목록을 다시 받습니다 — 다시 고르면 같은 내용의 임무가 있으면 그것을 씁니다.'); }
         else setQMsg(`사진·대기 임무를 만들지 못했습니다. ${e.message}`); });
   };
-  /** 지금 실행할 수 없는 이유(카탈로그 그대로, 로봇 미선택도 이유). null = 막는 것 없음 또는 확인 중 */
+  /** 지금 실행할 수 없는 이유(카탈로그 그대로). null = 로봇 안 고름·막는 것 없음·확인 중 */
   const cannot = (m: Mission) => {
-    if (!robot) return '실행 확인할 로봇을 고르지 않았습니다.';
+    if (!robot) return null;   // 로봇을 고르지 않았으면 표시하지 않는다(MAPSCEN-UI — 고른 로봇이 있을 때만 ⚠)
     if (!cat.acts) return null;
     const l = m.steps.map((s) => { const a = cat.acts!.find((x) => x.key === s.action), o = a?.options.find((x) => x.value === s.params?.[x.param]);
       return !a ? '지원 전 작업입니다.' : (o ? o.available : a.available) ? null : plain(o ? o.why_unavailable : a.why_unavailable) || '이유를 받지 못했습니다.'; });
@@ -580,22 +601,40 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const approved = places.filter((p) => p.floor.approved_version_id);
   const rr = v ? Math.max(v.width, v.height) / 60 : 1;
   const on = pts.map((p, i) => [p, i] as const).filter(([p]) => p.floor_id === cur);
-  return <>
-    {set && missions && !active.length && <div className="fh-row" role="status" data-no-mission><span className="lv-note fh-grow">임무가 아직 없습니다. 지점마다 임무를 골라야 저장할 수 있으니 먼저 임무를 만드세요. 지금 편집은 남겨 둡니다.</span>
-      {newMission && <button type="button" className="btn" onClick={newMission}>새 임무</button>}</div>}
-    <h3>① 지도</h3>
-    {/* 장소 › 건물 › 층 하나 고르기(앱 공용 .fh-user .fh-sel 모양). 승인 판 없는 층은 편집 때 고를 수 없다 — 읽기 전용은 지점이 있으면 그 판으로 */}
+  const fence = lock && !!set, one = typeof sel === 'number' ? sel : null;
+  const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null);
+  /** 끌어서 순서 바꾸기(손잡이) — 키보드는 «더 보기»의 ↑↓ */
+  const moveTo = (from: number, to: number) => { const s2 = [...pts], [x] = s2.splice(from, 1); s2.splice(to, 0, x); put(s2); };
+  // 단추 줄 «1층 ▾»(지도 고르기) — 승인 판 없는 층은 편집 때 고를 수 없다(읽기 전용은 지점이 있으면 그 판으로)
+  const mapPick = mapSlot && createPortal(<Menu label={place?.floor.name ?? '지도 고르기'} title={`지도: ${place ? `${place.site.name} › ${place.building.name} › ${place.floor.name}` : '없음'}`}>
     {!approved.length && (set || !pts.length) ? <p className="lv-note">승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.</p>
-      : <label className="fh-row"><span className="lbl">지도</span><select className="fh-user fh-sel" aria-label="지도" value={cur} onChange={(e) => setCur(e.target.value)}>
+      : <label className="fh-field"><span>지도</span><select className="fh-user fh-sel" aria-label="지도" disabled={fence} value={cur} onChange={(e) => { setCur(e.target.value); shut(e); }}>
           {places.map((p) => { const c = pts.filter((w) => w.floor_id === p.floor.id).length;
             return <option key={p.floor.id} value={p.floor.id} disabled={!p.floor.approved_version_id && (!!set || !c)}>
               {`${p.site.name} › ${p.building.name} › ${p.floor.name}${c ? ` (지점 ${c})` : ''}${p.floor.approved_version_id ? '' : ' — 승인된 지도 없음'}`}</option>; })}</select></label>}
-    {/* ② 지도 + 오른쪽 단계 창(파워포인트 애니메이션 창처럼 접고 펼침). 좁은 칸이면 지도 아래 접는 막대 — 지도를 가리지 않는다(missions.css) */}
-    <div className="ms-box"><div className="ms-edit" data-open={open ? '' : undefined}>
-      <div className="ms-map">
+  </Menu>, mapSlot);
+  // «···» 안 실행 확인할 로봇(고르면 그 로봇이 못 하는 지점에 ⚠)
+  const robotPick = set && moreSlot && createPortal(<><label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" disabled={fence} value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
+    <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label><hr /></>, moreSlot);
+  const where = (p: ScenarioPoint) => `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}${p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}`;
+  const tabs = <span className="fh-grow"><span className="mx-seg" role="tablist" aria-label="단계·배정">
+    <button type="button" role="tab" className="btn" aria-selected={tab === 'steps'} aria-pressed={tab === 'steps'} onClick={() => setTab('steps')}>단계 {pts.length}</button>
+    {assign && <button type="button" role="tab" className="btn" aria-selected={tab === 'assign'} aria-pressed={tab === 'assign'} onClick={() => { setTab('assign'); setSel(null); }}>배정{assignN != null ? ` ${assignN}` : ''}</button>}</span></span>;
+  return <>
+    {mapPick}{robotPick}
+    <div className="mx-map">
+      {/* 지도 위 알림 띠(생길 때만) */}
+      <div className="mx-over">
+        {set && missions && !active.length && <div className="fh-row" role="status" data-no-mission><span className="lv-note fh-grow">임무가 아직 없습니다. 지점마다 임무를 골라야 저장할 수 있으니 먼저 임무를 만드세요. 지금 편집은 남겨 둡니다.</span>
+          {newMission && <button type="button" className="btn" onClick={newMission}>새 임무</button>}</div>}
         {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
-        {v && <MapFrame ref={svg} {...look} photo={v} edit={!!set} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-          style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, ...(set && { cursor: 'crosshair' }) }}>
+        {over}
+        {back && <div className="fh-row" role="status" data-undo><span>{back.text}</span>
+          <button type="button" className="btn" onClick={() => { put(back.w, back.f); setUndo(null); }}>되돌리기</button></div>}
+        {msg && <p className="fh-msg" role="alert">{msg}</p>}
+      </div>
+      {v ? <MapFrame ref={svg} {...look} photo={v} edit={!!set} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+          style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', ...(set && { cursor: 'crosshair' }) }}>
           <MapImage key={mapN} id={v.id} width={v.width} height={v.height} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
           <Shapes v={v} f={v.features} />
           {on.length > 1 && <polyline points={on.map(([p]) => toPixel(v, p.x, p.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
@@ -607,76 +646,96 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
               <text x={x} y={y + rr * 0.45} fontSize={rr * 1.1} textAnchor="middle" style={{ fill: '#FFFFFF', pointerEvents: 'none' }}>끝</text></g>; })()}
           {set && sel != null && (() => { const p = ptAt(sel); if (!p || p.floor_id !== cur) return null; const [x, y] = toPixel(v, p.x, p.y);
             return <DelX at={[x + rr, y - rr]} r={rr * 0.7} k={String(sel)} label={sel === 'T' ? '끝 지점 지우기' : `${sel + 1}번 지점 지우기`} />; })()}
-        </MapFrame>}
-        {set && v && <p className="lv-note" role="status">{placing === 'target' ? '지도를 누르면 끝나고 갈 지점을 놓습니다(이름 붙은 지도 지점을 누르면 그 지점).'
-          : '지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 찍힌 지점을 누르면 고르고, 끌면 옮깁니다. 고른 지점 오른쪽 위 X 로 지웁니다. 빨간 구역은 진입 금지입니다.'}</p>}
-        {back && <div className="fh-row" role="status" data-undo><span>{back.text}</span>
-          <button type="button" className="btn" onClick={() => { put(back.w, back.f); setUndo(null); }}>되돌리기</button></div>}
-        {msg && <p className="fh-msg" role="alert">{msg}</p>}
-      </div>
-      <aside className="ms-steps" aria-label="단계 창">
-        <button type="button" className="btn ms-fold" aria-expanded={open} aria-controls="ms-steps" onClick={() => { pane.open = !open; setOpen(!open); }}>{open ? `단계 ${pts.length} ▸` : `◂ 단계 ${pts.length}`}</button>
-        {open && <div id="ms-steps" className="fh-form">
+        </MapFrame>
+        : <div className="mx-center"><p className="lv-note">{!approved.length && (set || !pts.length) ? '승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.' : mapErr ? '지도를 받지 못했습니다.' : '지도를 불러오는 중…'}</p></div>}
+      {set && v && (placing === 'target' ? <Hint text="지도를 누르면 끝나고 갈 지점을 놓습니다" more="이름 붙은 지도 지점을 누르면 그 지점을 씁니다." />
+        : <Hint text="지도를 눌러 지점 추가 · 끌어 옮기기" more="지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 찍힌 지점을 누르면 고르고, 끌면 옮깁니다. 고른 지점 오른쪽 위 X 로 지웁니다. 빨간 구역은 진입 금지입니다." />)}
+    </div>
+    {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
+    <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창"
+      head={one != null && tab === 'steps' ? <><button type="button" className="btn" aria-label="단계 목록으로" title="목록으로" onClick={() => setSel(null)}>‹</button><span className="fh-grow">{one + 1}번 지점</span></> : tabs}>
+      <div className="mx-tab" hidden={tab !== 'steps'}>
+        <fieldset disabled={fence} style={{ display: 'contents' }}>
+        <div className="mx-in" hidden={one != null}>{nameField}
           {set && mErr && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {mErr}</p><button type="button" className="btn" onClick={() => setMN((x) => x + 1)}>다시 받기</button></div>}
-          {set && <label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
-            <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>}
           {set && cat.err && <div className="fh-row"><p className="fh-msg" role="alert">실행할 수 있는지 확인하지 못했습니다. {cat.err}</p><button type="button" className="btn" onClick={cat.again}>다시 받기</button></div>}
           {qMsg && <p className="fh-msg" role="alert">{qMsg}</p>}
           {making && <p className="lv-note" role="status">임무를 만드는 중…</p>}
           {set && unsure && <div className="fh-row" role="status" data-unsure><span className="lv-note fh-grow">{unsure === 'failed' ? '임무를 만들었는지 아직 확인하지 못했습니다' : '임무를 만들었는지 확인하는 중…'} — 확인될 때까지 사진·대기 임무를 새로 만들지 않습니다.</span>
             {unsure === 'failed' && <button type="button" className="btn" onClick={() => { setUnsure('checking'); setMN((x) => x + 1); }}>다시 확인</button>}</div>}
           {!pts.length && <p className="lv-note">아직 단계가 없습니다. 지도를 눌러 지점을 찍으세요.</p>}
-          <fieldset disabled={making} style={{ display: 'contents' }}>
-          <ol className="fh-form" style={LIST} aria-label="지점 순서">{pts.map((p, i) => {
-            const e = `waypoints.${i}`, pr = res[e], b = marks.has(e), m = missions?.find((x) => x.id === p.mission_id), val = p.mission_id ? `${p.mission_id}:${p.mission_version}` : '';
-            const listed = active.some((x) => `${x.id}:${x.latest_version}` === val), fresh = m && m.latest_version === p.mission_version ? m : undefined;   // 고른 판 = 최신 판일 때만 내용을 안다
-            const sec = set ? waitOf(fresh) : null, no = set && fresh ? cannot(fresh) : null;
-            return <li key={i} data-wp={i} data-bad={b ? '' : undefined} className="ms-step" style={b ? { outline: '2px solid var(--bad)' } : undefined}>
-              <div className="fh-row">
-                <button type="button" className="btn fh-grow ms-name" aria-pressed={sel === i} onClick={() => go(i)}>{i + 1}. {p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}{p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}</button>
-                {set && <><button type="button" className="btn" aria-label={`${i + 1}번 지점 위로`} disabled={!i} onClick={() => shift(i, -1)}>↑</button>
-                  <button type="button" className="btn" aria-label={`${i + 1}번 지점 아래로`} disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>↓</button>
-                  <button type="button" className="btn" aria-label={`${i + 1}번 지점 지우기`} onClick={() => drop(i)}>✕</button></>}
-              </div>
+        </div>
+        <fieldset disabled={making} style={{ display: 'contents' }}>
+        <ol className="mx-list" aria-label="지점 순서">{pts.map((p, i) => {
+          const e = `waypoints.${i}`, pr = res[e], b = marks.has(e), m = missions?.find((x) => x.id === p.mission_id), val = p.mission_id ? `${p.mission_id}:${p.mission_version}` : '';
+          const listed = active.some((x) => `${x.id}:${x.latest_version}` === val), fresh = m && m.latest_version === p.mission_version ? m : undefined;   // 고른 판 = 최신 판일 때만 내용을 안다
+          const sec = set ? waitOf(fresh) : null, no = set && fresh ? cannot(fresh) : null, warn = no || (pr && !pr.reachable) || b;
+          return <li key={i} data-wp={i} data-bad={b ? '' : undefined} hidden={one != null && one !== i}
+            onDragOver={(ev) => { if (grab.current != null) ev.preventDefault(); }} onDrop={(ev) => { ev.preventDefault(); const f = grab.current; grab.current = null; if (f != null && f !== i) moveTo(f, i); }}>
+            <div className="mx-row">
+              {set && one == null && <span className="mx-grip" draggable title="끌어서 순서 바꾸기" aria-hidden="true"
+                onDragStart={(ev) => { grab.current = i; ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(i)); }} onDragEnd={() => { grab.current = null; }}>⋮⋮</span>}
+              <button type="button" className="mx-name" aria-pressed={sel === i} onClick={() => go(i)}><span className="mx-num">{i + 1}</span><b>{where(p)}</b>
+                <small>{m ? m.name : p.mission_id ? `임무 판 ${p.mission_version}` : '임무 없음'}</small>{warn && <span className="mx-warn" title={no ? `실행 불가 — ${no}` : '확인할 것이 있습니다'}>⚠</span>}</button>
+              {set && <button type="button" className="mx-x" aria-label={`${i + 1}번 지점 지우기`} title="지우기" onClick={() => drop(i)}>✕</button>}
+            </div>
+            <div className="mx-in" hidden={sel !== i}>
               {/* 이 지점에서 할 일 = 임무 판. 사진·대기는 여기서 바로 고르면 한 단계 임무를 찾거나 만들어 잇는다(임무 목록을 받기 전에는 못 고름 — 같은 임무를 또 만들지 않게) */}
-              {set ? <select className="inp" aria-label={`${i + 1}번 지점 임무`} value={val} onChange={(ev) => choose(i, ev.target.value)}>
+              {set ? <label className="fh-field"><span>임무</span><select className="inp" aria-label={`${i + 1}번 지점 임무`} value={val} onChange={(ev) => choose(i, ev.target.value)}>
                   <option value="">임무 고르기</option>
                   <optgroup label="바로 고르기"><option value="do:PHOTO" disabled={!missions || !!unsure}>사진 찍기(RGB)</option><option value="do:WAIT" disabled={!missions || !!unsure}>대기 30초 — 초는 고른 뒤 바꿈</option></optgroup>
                   <optgroup label="임무">{val && !listed && <option value={val}>{`${m?.name ?? '알 수 없는 임무'} · 판 ${p.mission_version}${m?.archived_at ? ' (보관됨)' : ' (옛 판)'}`}</option>}
-                  {active.map((x) => <option key={x.id} value={`${x.id}:${x.latest_version}`}>{`${x.name} · 판 ${x.latest_version}`}</option>)}</optgroup></select>
+                  {active.map((x) => <option key={x.id} value={`${x.id}:${x.latest_version}`}>{`${x.name} · 판 ${x.latest_version}`}</option>)}</optgroup></select></label>
                 : <span className="lbl">{m ? `${m.name} · 판 ${p.mission_version}` : `임무 판 ${p.mission_version}`}</span>}
               {fresh && <span className="lbl" data-do>할 일: {doText(fresh)}</span>}
               {sec != null && <WaitSecs i={i} sec={sec} apply={(n) => quick(i, quickSteps('WAIT', n))} />}
               {no && <p className="fh-why" data-cannot>저장은 되지만 지금은 실행 불가 — {no}</p>}
               {pr && !pr.reachable && <p className="fh-msg" role="alert">갈 수 없음: {pr.reasons.join(' ')}</p>}
               {bad.filter((x) => x.at === e).map((x, j) => <p key={j} className="fh-msg" role="alert">{x.text}</p>)}
-            </li>; })}</ol>
-          </fieldset>
+              <details className="fh-fold"><summary>더 보기</summary>
+                <p className="lbl">자리: {floorName(p.floor_id)} · {p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}</p>
+                {set && <div className="fh-row" style={{ flexWrap: 'wrap' }}><button type="button" className="btn" aria-label={`${i + 1}번 지점 위로`} disabled={!i} onClick={() => shift(i, -1)}>↑</button>
+                  <button type="button" className="btn" aria-label={`${i + 1}번 지점 아래로`} disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>↓</button>
+                  <button type="button" className="btn" onClick={() => drop(i)}>이 지점 지우기</button></div>}
+              </details>
+            </div>
+          </li>; })}</ol>
+        </fieldset>
+        </fieldset>
+        <div className="mx-foot">
+          <fieldset disabled={fence} style={{ display: 'contents' }}>
           <label className="fh-field"><span>끝나면</span><select className="inp" value={finish.mode ?? 'STAY'} disabled={!set} onChange={(ev) => { const mode = ev.target.value as keyof typeof FINISH; put(pts, { mode, target: mode === 'GO_TO' ? target : null }); if (mode === 'GO_TO' && !target) setPlacing('target'); else setPlacing('point'); }}>
             {(Object.keys(FINISH) as (keyof typeof FINISH)[]).map((m) => <option key={m} value={m}>{FINISH[m]}</option>)}</select></label>
-          {finish.mode === 'GO_TO' && <div className="fh-row" data-finish data-bad={marks.has('finish.target') ? '' : undefined}>
+          {finish.mode === 'GO_TO' && <div className="fh-row" style={{ flexWrap: 'wrap' }} data-finish data-bad={marks.has('finish.target') ? '' : undefined}>
             {target ? <button type="button" className="btn" aria-pressed={sel === 'T'} onClick={() => go('T')}>끝 지점: {floorName(target.floor_id)} · {target.waypoint_ref ? `«${refName(target)}»` : `(${target.x.toFixed(1)}, ${target.y.toFixed(1)}) m`}</button>
               : <span className="lv-note">끝나고 갈 지점을 아직 찍지 않았습니다.</span>}
             {set && <button type="button" className="btn" aria-pressed={placing === 'target'} onClick={() => setPlacing(placing === 'target' ? 'point' : 'target')}>{placing === 'target' ? '지점 찍기로 돌아가기' : '끝 지점 찍기'}</button>}
             {res['finish.target'] && !res['finish.target'].reachable && <p className="fh-msg" role="alert">끝 지점에 갈 수 없음: {res['finish.target'].reasons.join(' ')}</p>}
           </div>}
-        </div>}
-      </aside>
-    </div></div>
-    <h3>③ 확인</h3>
-    {!set ? (saved ? <p className="lv-note">예상 거리 약 {Math.round(saved.est_distance_m)} m · 필요 장치: {devices(saved.required_devices)}</p> : null) : <div className="fh-form" aria-label="경로 확인" data-preview>
-      {missing && <p className="lv-note">{missing}</p>}
-      {!missing && checking && <p className="lv-note" role="status">경로를 확인하는 중…</p>}
-      {r && <>
-        <p className={r.reachable ? 'fh-msg ok' : 'fh-msg'} role={r.reachable ? 'status' : 'alert'}>{r.reachable ? '모든 지점에 갈 수 있습니다.' : '갈 수 없는 지점이 있습니다. 빨간 지점을 옮기거나 지우세요.'}</p>
-        <p>예상 거리 약 {Math.round(r.est_distance_m)} m <span className="lbl">— 지점 사이 직선과 층 연결점까지 거리로 잰 대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.</span></p>
-        <p>필요 장치: {devices(r.required_devices)}</p>
-        {r.segments.some((s) => !s.reachable || s.via.length) && <ul className="fh-list" aria-label="구간">{r.segments.filter((s) => !s.reachable || s.via.length).map((s, j) =>
-          <li key={j} className="fh-row"><span>{elName(s.start)} → {elName(s.end)}</span><span className={s.reachable ? 'lbl' : 'fh-why'}>{s.reachable ? `${floorName(s.via[0]?.floor_id ?? '')} → ${floorName(s.via[1]?.floor_id ?? '')} 층 연결점을 거칩니다` : s.reason}</span></li>)}</ul>}
-      </>}
-      {pe && <div className="fh-row"><p className="fh-msg" role="alert">{pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무 판을 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`}</p>
-        {pe.code === 'STALE' ? <button type="button" className="btn" disabled={lock} onClick={() => { setRemap(true); treeAgain(); }}>새 지도로 다시 확인</button>
-          : pe.status !== 422 && <button type="button" className="btn" disabled={lock} onClick={() => setN((x) => x + 1)}>다시 확인</button>}</div>}
-    </div>}
+          </fieldset>
+          {/* 경로 확인 한 줄(«✓ 모두 갈 수 있음 · 약 N m ⓘ», 문제면 같은 자리에 경고) + «경로 더 보기» */}
+          {!set ? (saved ? <p className="lv-note">예상 거리 약 {Math.round(saved.est_distance_m)} m · 필요 장치: {devices(saved.required_devices)}</p> : null) : <div className="fh-form" style={{ gap: 6 }} aria-label="경로 확인" data-preview>
+            {missing && <p className="lv-note">{missing}</p>}
+            {!missing && checking && <p className="lv-note" role="status">경로를 확인하는 중…</p>}
+            {r && <>
+              <p className={r.reachable ? 'fh-msg ok' : 'fh-msg'} role={r.reachable ? 'status' : 'alert'} title="지점 사이 직선과 층 연결점까지 거리로 잰 대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.">
+                {r.reachable ? '✓ 모두 갈 수 있음' : '⚠ 갈 수 없는 지점이 있음'} · 약 {Math.round(r.est_distance_m)} m<span aria-hidden="true"> ⓘ</span></p>
+              <details className="fh-fold"><summary>경로 더 보기</summary>
+                <p>{r.reachable ? '모든 지점에 갈 수 있습니다.' : '갈 수 없는 지점이 있습니다. 빨간 지점을 옮기거나 지우세요.'}</p>
+                <p>예상 거리 약 {Math.round(r.est_distance_m)} m <span className="lbl">— 지점 사이 직선과 층 연결점까지 거리로 잰 대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.</span></p>
+                <p>필요 장치: {devices(r.required_devices)}</p>
+                {r.segments.some((s) => !s.reachable || s.via.length) && <ul className="fh-list" aria-label="구간">{r.segments.filter((s) => !s.reachable || s.via.length).map((s, j) =>
+                  <li key={j} className="fh-row"><span>{elName(s.start)} → {elName(s.end)}</span><span className={s.reachable ? 'lbl' : 'fh-why'}>{s.reachable ? `${floorName(s.via[0]?.floor_id ?? '')} → ${floorName(s.via[1]?.floor_id ?? '')} 층 연결점을 거칩니다` : s.reason}</span></li>)}</ul>}
+              </details>
+            </>}
+            {pe && <div className="fh-row" style={{ flexWrap: 'wrap' }}><p className="fh-msg" role="alert">{pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무 판을 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`}</p>
+              {pe.code === 'STALE' ? <button type="button" className="btn" disabled={lock} onClick={() => { setRemap(true); treeAgain(); }}>새 지도로 다시 확인</button>
+                : pe.status !== 422 && <button type="button" className="btn" disabled={lock} onClick={() => setN((x) => x + 1)}>다시 확인</button>}</div>}
+            {blockNote}
+          </div>}
+        </div>
+      </div>
+      {assign && <div className="mx-in" hidden={tab !== 'assign'}>{assign}</div>}
+    </Pane>
   </>;
 }

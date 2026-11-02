@@ -200,7 +200,7 @@ describe('배정 창', () => {
     scenarios = [scen('s1', '1층 순찰', { archived_at: '2026-10-20T03:00:00Z' })];
     serve(KIM);
     await open('#/mission');
-    await click($('label input[type="checkbox"]'));   // 휴지통에 있는 것도 보기
+    await click([...box.querySelectorAll('label')].find((l) => l.textContent === '휴지통에 있는 것도 보기')!.querySelector('input'));
     await click($('[data-plan="s1"]'));
     const b = btn('로봇에 배정', panel())!;
     expect(b.disabled).toBe(true);

@@ -201,7 +201,8 @@ const name = () => field('이름');
 const step = (i: number) => $(`[data-step="${i}"]`)!;
 const point = (i: number) => $(`[data-wp="${i}"]`)!;
 const saveBtn = () => (btn('저장') ?? btn('새 판으로 저장'))!;
-const kind = (k: '임무' | '시나리오') => click(btn(k, card('종류')));
+/** 종류 바꾸기 = 단추 줄 드롭다운의 «임무 관리…» ↔ «‹ 시나리오»(MAPSCEN-UI). 이미 그 종류면 그대로 */
+const kind = async (k: '임무' | '시나리오') => { const b = btn(k === '임무' ? '임무 관리…' : '‹ 시나리오'); if (b || btn(k === '임무' ? '‹ 시나리오' : '임무 관리…') === undefined) await click(b); };
 /** 시나리오 지도 — 100×80 칸을 400×320 으로 그린다고 치고 지도 좌표(m)로 누른다: 화면 x = (x + 1)·80, y = (2 - y)·80 */
 const map = () => $<SVGSVGElement>('svg[data-scenario-map]')!;
 const sized = () => { map().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect; };
@@ -224,16 +225,16 @@ const stopSends = async () => {
 };
 
 describe('목록 [임무 | 시나리오]', () => {
-  it('시나리오 기본 — 이름·층·판·지점 수·배정된 로봇(없음)·마지막 실행(—), 휴지통 제외 → «휴지통에 있는 것도 보기», 임무로 바꾸기', async () => {
+  it('시나리오 기본 — 이름·층·판·지점 수(빈 «로봇 없음»·«마지막 실행 —» 줄은 없음 — MAPSCEN-UI), 휴지통 제외 → «휴지통에 있는 것도 보기», 임무로 바꾸기', async () => {
     seed(); serve(KIM);
     await open();
     expect($('h1')!.textContent).toBe('시나리오');
     const q = sent('GET', '/scenarios');
     expect(q).toHaveLength(1); expect(q[0].q.get('limit')).toBe('50'); expect(q[0].q.get('archived')).toBeNull();
     expect(rows()).toEqual(['s1']);
-    expect(row('s1').textContent).toBe('1층 순찰1층판 1지점 2로봇 없음마지막 실행 —');
+    expect(row('s1').textContent).toBe('1층 순찰1층판 1지점 2');
     expect(card('임무 목록').textContent).not.toContain('Go2-A');
-    await click($('input[type="checkbox"]'));
+    await click(field('휴지통에 있는 것도 보기'));
     expect(last(sent('GET', '/scenarios'))!.q.get('archived')).toBe('true');
     expect(card('임무 목록').textContent).toContain('휴지통에 있는 것도 보기'); expect($('[data-trash-link]')!.getAttribute('href')).toBe('#/trash');
     expect(rows()).toEqual(['s1', 's2']); expect(row('s2').textContent).toContain('휴지통');
@@ -244,7 +245,7 @@ describe('목록 [임무 | 시나리오]', () => {
     expect(btn('새 임무')).toBeTruthy();
     await stopSends();
   });
-  it('배정된 로봇 열: ACTIVE·결재 대기만(해제·반려 빼고, 같은 로봇 한 번), 마지막 실행은 서버 값이 없어 «—» / 배정 목록 실패 → «?» + 안내', async () => {
+  it('배정된 로봇 열: ACTIVE·결재 대기만(해제·반려 빼고, 같은 로봇 한 번), 서버 값이 없는 마지막 실행 줄은 없음 / 배정 목록 실패 → «?» + 안내', async () => {
     seed();
     const a = (id: string, robot: string, status: Assignment['status'], scenario_version = 1): Assignment => ({ id, scenario_id: 's1', scenario_version, robot_id: `r-${robot}`, memo: '', scenario_name: '1층 순찰', scenario_name_snapshot: null,
       robot_name: `Go2-${robot}`, status, approval_id: null, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', removed_at: null });
@@ -252,7 +253,7 @@ describe('목록 [임무 | 시나리오]', () => {
     serve(KIM);
     await open();
     expect(row('s1').querySelector('[data-col="robots"]')!.textContent).toBe('로봇 Go2-A, Go2-B(결재 대기)');
-    expect(row('s1').querySelector('[data-col="last-run"]')!.textContent).toBe('마지막 실행 —');
+    expect(row('s1').querySelector('[data-col="last-run"]')).toBeNull();
     expect(sent('GET', '/assignments')[0].q.get('robot_id')).toBeNull();                 // 조직 전체
     act(() => root?.unmount()); box.remove(); clearPlans();
     serve(KIM, { over: { 'GET /assignments': [err(500, 'INTERNAL_ERROR', '서버 오류입니다.')] } });
@@ -274,7 +275,7 @@ describe('목록 [임무 | 시나리오]', () => {
     expect(last(sent('GET', '/scenarios'))!.q.get('mine')).toBe('true');
     expect(rows()).toEqual(['s3']);
     const pick = $<HTMLSelectElement>('select[aria-label="지도별"]')!;
-    expect([...pick.options].map((o) => o.textContent)).toEqual(['전체', '본관 본동 1층', '본관 본동 2층', '본관 본동 3층']);
+    expect([...pick.options].map((o) => o.textContent)).toEqual(['모든 지도', '본관 본동 1층', '본관 본동 2층', '본관 본동 3층']);
     await setVal(pick, 'f1');
     expect(last(sent('GET', '/scenarios'))!.q.get('floor_id')).toBe('f1');
     expect(rows()).toEqual([]);
@@ -462,7 +463,7 @@ describe('시나리오 휴지통(05 §5.1, 11-02)', () => {
     expect(rows()).toEqual(['s1']); expect($('[data-readonly]')).toBeNull(); expect(btn('새 판으로 저장')).toBeTruthy();
     // 휴지통 보기 → 고르면 읽기 전용 + «복원»
     await click(btn('삭제')); await click(btn('휴지통으로'));
-    await click($('input[type="checkbox"]'));
+    await click(field('휴지통에 있는 것도 보기'));
     await click(row('s2'));
     expect($('[data-readonly]')!.textContent).toContain('휴지통에 있는 시나리오입니다.');
     await click(btn('복원'));
@@ -521,7 +522,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(note.textContent).toContain('임무가 아직 없습니다.');
     expect(note.compareDocumentPosition(map()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // 지도·지점보다 먼저 보인다
     await click(btn('새 임무', note));
-    expect(btn('임무', card('종류'))!.getAttribute('aria-pressed')).toBe('true');
+    expect(btn('‹ 시나리오')).toBeTruthy();
     expect(card('임무 편집')).toBeTruthy();
     expect(name().value).toBe('');
     act(() => root?.unmount()); root = null; box.remove(); clearPlans();
@@ -552,7 +553,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(2, 0);
     await setVal($<HTMLSelectElement>('select[aria-label="3번 지점 임무"]')!, 'm2:1');
     expect(floorOpt('1층').textContent).toBe('본관 › 본동 › 1층 (지점 2)');
-    expect(point(0).textContent).toContain('본동 1층 · «입구»'); expect(point(2).textContent).not.toContain('본동');   // 층 이름은 지금 보는 지도와 다른 층 지점에만
+    expect(point(0).textContent).toContain('본동 1층 · «입구»'); expect(point(2).querySelector('.mx-name')!.textContent).not.toContain('본동');   // 층 이름은 지금 보는 지도와 다른 층 지점에만
     await settle();
     const pre = sent('POST', '/scenarios/preview');
     expect(pre.length).toBeGreaterThan(0);
@@ -693,7 +694,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(1, 1); await tap(2, 0); await tap(0, 1);
     expect([0, 1, 2].map((i) => point(i).textContent)).toEqual([expect.stringContaining('(1.0, 1.0) m'), expect.stringContaining('(2.0, 0.0) m'), expect.stringContaining('(0.0, 1.0) m')]);
     const confirm = vi.spyOn(window, 'confirm'), seen = vi.fn(); Element.prototype.scrollIntoView = seen;   // jsdom 에는 없음
-    const pressed = () => [0, 1, 2].map((i) => point(i).querySelector('.ms-name')!.getAttribute('aria-pressed'));
+    const pressed = () => [0, 1, 2].map((i) => point(i).querySelector('.mx-name')!.getAttribute('aria-pressed'));
     sized(); await ptr('pointerdown', 2, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 2.05, 0); await ptr('pointerup', 2.05, 0);   // 4px 흔들림 = 누름
     expect(point(2)).toBeTruthy(); expect($('[data-undo]')).toBeNull();                 // 다시 눌러도 지우지 않음
     expect(pressed()).toEqual(['false', 'true', 'false']); expect(seen.mock.contexts).toContain(point(1));
@@ -762,14 +763,14 @@ describe('시나리오 편집(03 §5.3)', () => {
     seed(); serve(KIM);
     await open();
     await click(row('s1'));
-    const pane = card('단계 창'), fold = () => $<HTMLButtonElement>('.ms-fold')!;
+    const pane = card('단계 창'), fold = () => $<HTMLButtonElement>('.mx-fold')!;
     expect(pane.tagName).toBe('ASIDE');
     expect(map().compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(fold().getAttribute('aria-expanded')).toBe('true'); expect(fold().textContent).toBe('단계 2 ▸');
+    expect(fold().getAttribute('aria-expanded')).toBe('true'); expect(fold().getAttribute('aria-label')).toBe('단계 2 창 접기');
     expect(point(1)).toBeTruthy();
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2');
-    expect($('[data-wp="0"]')).toBeNull(); expect($('.ms-edit')!.hasAttribute('data-open')).toBe(false);
+    expect($('[data-wp="0"]')).toBeNull(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);
     await click(btn('새 시나리오'));
     expect(fold().textContent).toBe('◂ 단계 0');
     await click(fold());
@@ -1048,19 +1049,20 @@ describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
     expect(text()).toContain('저장했습니다(판 1).');
     await stopSends();
   });
-  it('실행 불가 정직 표시: 로봇 미선택·장치 없음(카탈로그 why_unavailable) = «저장은 되지만 지금은 실행 불가 — 이유», 할 수 있는 대기는 문구 없음, 저장은 막지 않음', async () => {
+  it('실행 불가 정직 표시: 로봇을 고르지 않으면 표시 없음(MAPSCEN-UI), 고른 로봇이 장치 없음(카탈로그 why_unavailable) = 그 단계 줄 ⚠ + «저장은 되지만 지금은 실행 불가 — 이유», 할 수 있는 대기는 문구 없음, 저장은 막지 않음', async () => {
     seed(); serve(KIM);
     await open();
     await click(btn('새 시나리오'));
     await setVal(name(), '정직');
     await tap(1, 1); await tap(1, 0);
     await setVal(pick(1), 'do:PHOTO'); await setVal(pick(2), 'do:WAIT');
-    expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 실행 확인할 로봇을 고르지 않았습니다.');
-    expect(point(1).querySelector('[data-cannot]')).toBeTruthy();       // 로봇을 모르면 대기도 실행 가능이라 하지 않음
+    expect(point(0).querySelector('[data-cannot]')).toBeNull(); expect(point(1).querySelector('[data-cannot]')).toBeNull();   // 로봇을 안 고르면 «실행 불가» 문구·⚠ 없음
+    expect(point(0).querySelector('.mx-warn')).toBeNull();
     await setVal(field('실행 확인할 로봇'), 'r-a');                     // r-a = 카메라 없음
     expect(last(sent('GET', '/actions'))!.q.get('robot_id')).toBe('r-a');
     expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 필요한 장치가 없거나 정상 상태가 아닙니다: 카메라');
     expect(point(1).querySelector('[data-cannot]')).toBeNull();
+    expect(point(0).querySelector('.mx-warn')!.getAttribute('title')).toBe('실행 불가 — 필요한 장치가 없거나 정상 상태가 아닙니다: 카메라'); expect(point(1).querySelector('.mx-warn')).toBeNull();   // 목록 줄에서도 보이게
     await settle();
     expect(saveBtn().disabled).toBe(false);
   });
@@ -1076,7 +1078,7 @@ describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
     await setVal(field('실행 확인할 로봇'), '');
     await setVal(field('실행 확인할 로봇'), 'r-a');
     expect(alertText()).toContain('실행할 수 있는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.');
-    await click(btn('다시 받기', $('#ms-steps')!));
+    await click(btn('다시 받기', card('단계 창')));
     expect(alertText()).not.toContain('실행할 수 있는지 확인하지 못했습니다');
   });
   it('임무 만들기 응답이 끊기면 목록을 다시 받고, 다시 고르면 만들어진 같은 임무를 쓴다(두 번 만들지 않음) · 만드는 중엔 저장 막힘', async () => {
@@ -1110,7 +1112,7 @@ describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
     expect($('[data-unsure]')!.textContent).toContain('아직 확인하지 못했습니다');
     await setVal(pick(1), 'do:PHOTO');
     expect(sent('POST', '/missions')).toHaveLength(1);                   // 실패해도 잠금 유지
-    await click(btn('다시 확인', $('#ms-steps')!));                      // 다시 받는 중(멈춰 둠)
+    await click(btn('다시 확인', card('단계 창')));                      // 다시 받는 중(멈춰 둠)
     expect($('[data-unsure]')!.textContent).toContain('확인하는 중…');
     await setVal(pick(1), 'do:PHOTO');
     expect(sent('POST', '/missions')).toHaveLength(1);
@@ -1120,5 +1122,62 @@ describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
     expect(sent('POST', '/missions')).toHaveLength(1);
     expect(pick(1).value).toBe('m4:1');
     expect(db.missions.filter((m) => m.head.name === '사진 찍기(RGB)')).toHaveLength(1);
+  });
+});
+
+describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-02)', () => {
+  /** jsdom 에는 DataTransfer 가 없어 끌기 사건에 흉내를 붙인다 */
+  const drag = (type: string, el: Element) => act(() => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'dataTransfer', { value: { setData() {}, effectAllowed: '', dropEffect: '' } }); el.dispatchEvent(e);
+  });
+  it('단계 줄 손잡이를 끌어 다른 줄에 놓으면 순서가 바뀐다(키보드는 «더 보기» ↑↓) · 줄 누름 = 그 단계만 보이고 «‹» 로 목록', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    await tap(1, 1); await tap(2, 0); await tap(0, 1);
+    if (aria('단계 목록으로')) await click(aria('단계 목록으로'));
+    expect([0, 1, 2].every((i) => !point(i).hidden)).toBe(true);
+    drag('dragstart', point(2).querySelector('.mx-grip')!); drag('dragover', point(0)); drag('drop', point(0)); await flush();
+    expect([0, 1, 2].map((i) => point(i).querySelector('.mx-name')!.textContent)).toEqual([expect.stringContaining('(0.0, 1.0) m'), expect.stringContaining('(1.0, 1.0) m'), expect.stringContaining('(2.0, 0.0) m')]);
+    expect($('[data-undo]')).toBeNull();                                  // 순서 바꾸기는 지우기가 아님
+    await click(point(1).querySelector('.mx-name'));
+    expect(point(0).hidden).toBe(true); expect(point(2).hidden).toBe(true); expect(point(1).hidden).toBe(false);
+    expect(card('단계 창').textContent).toContain('2번 지점');
+    expect(point(1).querySelector('.mx-grip')).toBeNull();                // 고른 단계 보기에선 손잡이 없음(↑↓ 는 «더 보기»)
+    await click(aria('2번 지점 아래로'));
+    expect(point(2).querySelector('.mx-name')!.textContent).toContain('(1.0, 1.0) m');
+    await click(aria('단계 목록으로'));
+    expect([0, 1, 2].every((i) => !point(i).hidden)).toBe(true);
+  });
+  it('[단계 N | 배정 N] 탭: 저장된 시나리오에서 «배정»을 누르면 배정 창, 단계 목록은 숨김 · 경로는 한 줄(✓ 모두 갈 수 있음 · 약 N m) + «경로 더 보기»', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(row('s1'));
+    const tabs = [...card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    expect(tabs.map((t) => t.textContent)).toEqual(['단계 2', '배정 0']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    await settle();
+    const p = card('경로 확인');
+    expect(p.querySelector('[role="status"]')!.textContent).toBe('✓ 모두 갈 수 있음 · 약 12 m ⓘ');
+    expect(p.querySelector('details')!.hasAttribute('open')).toBe(false); expect(p.querySelector('summary')!.textContent).toBe('경로 더 보기');
+    await click(tabs[1]);
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+    expect((point(0).closest('.mx-tab') as HTMLElement).hidden).toBe(true);
+    expect($('[data-assign]')!.closest('[hidden]')).toBeNull();
+    await click(tabs[0]);
+    expect((point(0).closest('.mx-tab') as HTMLElement).hidden).toBe(false);
+    await stopSends();
+  });
+  it('새 시나리오(저장 전)는 배정 탭 없음 · 저장은 단추 줄 «저장», 삭제는 «···» 안', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    expect([...card('단계 창').querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['단계 0']);
+    expect(saveBtn().closest('.mx-bar')).toBeTruthy();
+    await click(row('s1'));
+    expect(btn('삭제')!.closest('details.mx-menu')).toBeTruthy();
+    expect(btn('새 판으로 저장')!.closest('.mx-bar')).toBeTruthy();
+    await stopSends();
   });
 });

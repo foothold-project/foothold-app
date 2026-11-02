@@ -74,3 +74,18 @@
 .mx-dlg-head{display:flex;align-items:center;gap:8px}
 .mx-dlg-head .btn{padding:0 12px}
 .mx-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* 시나리오 탭(PR 2): 숨긴 칸은 틀의 display 규칙보다 먼저 숨김, 단계 줄 손잡이·번호·⚠, [단계|배정] 탭 */
+.mx [hidden]{display:none!important}
+.mx-tab{flex:1;display:flex;flex-direction:column;min-height:0}
+.mx-grip{flex:none;width:20px;min-height:44px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:grab;user-select:none;letter-spacing:-3px}
+.mx-num{flex:none;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:var(--accent);color:#FFFFFF;font-size:12px;font-weight:600}
+li[data-bad] .mx-num{background:var(--bad)}
+.mx-warn{flex:none;color:var(--bad)}
+.mx-head .mx-seg>.btn{padding:0 12px}
+.mx-pop .fh-list{max-height:40vh;overflow:auto}
+/* 창 아래 «끝나면»은 한 줄(낮은 화면에서 단계 줄 자리를 덜 먹게) */
+.mx-foot{gap:6px;padding:8px 12px}
+.mx-foot .fh-field{flex-direction:row;align-items:center;gap:8px}
+.mx-foot .fh-field>span{flex:none}
+.mx-foot .fh-field>select{flex:1;min-width:0}
