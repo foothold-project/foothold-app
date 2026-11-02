@@ -21,7 +21,7 @@
 
 Python **3.12.3**, torch **2.15.0+cpu**(`torch.version.cuda=null`), NumPy **2.5.4**,
 CPU 단일 torch 스레드, `OPENBLAS_NUM_THREADS=1`, `python -I`, 최적화 `-O` 금지.
-CPU wheel 인덱스로 venv에 torch를 설치했고 NumPy만 추가했다. ONNX는 선택 범위로 생략했다.
+최초 변환에서는 CPU wheel 인덱스로 venv에 torch를 설치하고 NumPy만 추가했다. 11-02 ONNX 후속 작업은 아래 별도 기록을 따른다.
 설치 전 `/` 여유 **6.9GB**, 설치 후/대조 후 **5.9GB**로 중단선 1.5GB 이상이었다.
 
 원본 checkpoint의 키는 `actor_state_dict`, `critic_state_dict`, `optimizer_state_dict`,
@@ -197,3 +197,145 @@ safe globals 추가, 받은 코드 import, 데이터 폴더를 작업 디렉터�
 JS 순전파·앱 어댑터·ONNX·앱 빌드·실폰·실기·Gazebo·서버·배포·보행 성공 평가는 하지 않았다.
 이 PR은 변환 스크립트와 출처 문서만 제공한다. 통합 후 되돌림은 해당 커밋의 `git revert`이며
 앱 가중치나 운영 배포물을 교체하는 작업은 포함하지 않는다.
+
+## ONNX 추론 (2026-11-02)
+
+기준은 `origin/dev` 91c20b3이며 시뮬 전용이다. 같은 체크포인트의 actor만 우리
+`ame2_export.py`에서 재구성해 FP32 deterministic mean으로 내보냈다.
+기존 CPU venv의 Python 3.12·PyTorch 2.15.0+cpu·NumPy 2.5.4에 공식 PyPI의
+`onnx==1.20.1`(protobuf 7.36.2, ml_dtypes 0.6.0)을 추가했다.
+실행은 `runs/ame2-export/venv/bin/python -I`였고, 체크포인트는
+`torch.load(weights_only=True, map_location='cpu')`로만 읽었다.
+받은 학습 코드는 텍스트 hash/검토만 했으며 import·실행·복사하지 않았다.
+
+| 항목 | 값 |
+|---|---|
+| actor ONNX | 5,028,942 bytes, opset 17, 고정 B=1, FP32 |
+| SHA-256 | `398acb0c73369e84946a34c0109bca1edd0560cc14ee286fd36b9caf7e2da69b` |
+| 체크포인트 SHA-256 | `8c3be365eeddd136edda31988df7fed96ad6f9f92713490b2d993037bf978d4d` |
+| 입력 | `prop[1,49]`, `mapping[1,29,13,3]`, 각각 float32 |
+| 출력 | `action[1,12]` 평균, `offsets[1,2]` int64, `gaze_logits[1,2]` float32 |
+| 검사 | ONNX full checker 통과, 외부 tensor 파일 없음, 학습 파라미터 FP32 |
+| 계약 | 관측 49·관절 순서·행동 지연·높이 ray·목표 clip 변경 없음 |
+
+`log_std`·critic·샘플링은 그래프에 없다. 208개 crop 경계/ties-to-even fixture는
+별도 `ame2_actor_crop_test.onnx`로 검사하고 앱에 복사하지 않는다.
+`--onnx --check`는 기존 f32 export와 ONNX를 함께 만들고,
+`--onnx-only`는 f32를 덮어쓰지 않고 ONNX만 만든다. 모든 export는
+`runs/ame2-export/out/`에만 새 파일로 쓰며 기존 파일은 교체하지 않는다.
+기록 관측의 PyTorch 출력은 `--references-only --observations <기록 JSON>`으로 생성한다.
+
+동일 입력 대조 기준은 **모든 출력 유한값, crop offset 일치, 최대 절대오차 ≤1e-4**다.
+최대 상대오차는 `abs(a-ref)/max(abs(ref),1e-6)`로 별도 보고하며 독립 합격 기준으로 쓰지 않는다.
+고정 274건은 zero/neutral/random64/crop 경계 208건이고, 실제 관측 72건은
+아래 여섯 지도 f32 궤적에서 25틱마다 얻었다. Node는 `onnxruntime-node@1.31.1` CPU 1 thread,
+브라우저는 `onnxruntime-web@1.31.1` WASM 1 thread다.
+
+| 환경·입력 | PyTorch↔JS 최대 abs / rel | PyTorch↔ONNX 최대 abs / rel | JS↔ONNX 최대 abs / rel |
+|---|---|---|---|
+| Node 고정 274 | 6.199e-6 / 1.323e-4 | 5.722e-6 / 3.297e-4 | 4.768e-6 / 4.621e-4 |
+| Node 실제 72 | 2.384e-6 / 2.862e-4 | 5.245e-6 / 3.339e-4 | 4.768e-6 / 6.198e-4 |
+| Chrome WASM 고정 274 | 6.199e-6 / 1.323e-4 | 7.153e-6 / 8.789e-4 | 5.960e-6 / 8.972e-4 |
+| Chrome WASM 실제 72 | 2.384e-6 / 2.862e-4 | 6.199e-6 / 3.339e-4 | 4.053e-6 / 6.198e-4 |
+
+브라우저 궤적 대조는 PC headless Chrome 154.0.8037.97·MuJoCo에서
+지도 기본 spawn·기본자세 hold .5초 후, 두 엔진에 같은 가까운 목표를 2초마다
+`[1,0,0,1]` → `[.5,.3,sin(.2),cos(.2)]` → 중립으로 주었다.
+각 엔진·지도·지연마다 300틱(6초), 지연 0과 4를 고정해 reset 난수 차이를 제거했다.
+학습 지형은 기본 spawn인 가장 쉬운 stair 타일 하나이며 다른 타일·seed·장시간은 미검증이다.
+아래는 WASM 대비 f32의 시간별 최대 차이다. quaternion은 부호 동치를 보정한 성분 차,
+gravity는 몸 기준 아래 방향 성분 차다. 보행 «성공» 기준이나 합격 판정은 두지 않았다.
+
+| 지도 | delay | 위치 최대 m | 관절 최대 rad | quaternion 최대 | gravity 최대 |
+|---|---:|---:|---:|---:|---:|
+| factory-inspection | 0 / 4 | 1.59185 / .53056 | 2.77152 / 2.65538 | 1.19510 / .97336 | 1.10485 / 1.99986 |
+| factory-inspection-alt1 | 0 / 4 | .09814 / .08171 | 1.21077 / 1.88005 | .24520 / .09899 | .42438 / .19900 |
+| factory-zone | 0 / 4 | 1.617e-7 / 2.501e-6 | 2.170e-6 / 5.899e-6 | 1.469e-7 / 1.087e-6 | 3.423e-7 / 1.211e-6 |
+| warehouse | 0 / 4 | 1.166e-6 / 6.216e-7 | 2.128e-6 / 2.541e-6 | 4.398e-7 / 2.683e-7 | 2.981e-7 / 5.195e-7 |
+| element-course | 0 / 4 | 8.954e-8 / 7.154e-7 | 7.346e-7 / 1.881e-6 | 1.060e-7 / 2.191e-7 | 1.216e-7 / 3.960e-7 |
+| ame2-train-terrain | 0 / 4 | .00693 / .01698 | .05728 / 1.96146 | .00879 / .21042 | .01450 / .53664 |
+
+같은 입력의 작은 추론 차이가 여러 틱 뒤 일부 공장 궤적에서 크게 누적됐다.
+원인별 분해나 보행 동등성은 미검증이다. Node CPU 비교에서도 공장 위치 차가 최대 1.25133m였고,
+원 궤적·자세·72건 관측과 전체 비교값은 로컬 `runs/ame2-onnx/walk-node.json`과
+`browser-wasm-walk.json`에 보존한다. 모델·가중치·원 궤적·WASM·APK는 커밋하지 않는다.
+
+
+실측 추론·메모리와 기본 엔진 선택:
+
+| PC headless Chrome | WASM 1 thread | WebGPU (SwiftShader) |
+|---|---:|---:|
+| 첫 import·모델 fetch·session·첫 추론 합계 ms | 822.2 | 25,344.3 |
+| 첫 추론 ms | 25.5 | 22,175.1 |
+| warm 100회 p50 / p95 ms | 2.4 / 4.1 | 314.5 / 447.6 |
+| 같은 회차 f32 JS p50 / p95 ms | 8.9 / 15.3 | 15.6 / 30.0 |
+| 빈 페이지 → 대조 종료 JS heap MiB | .97 → 14.38 | .97 → 5.14 |
+| 빈 페이지 → 대조 종료 backing storage MiB | .00 → 28.38 | .00 → 19.88 |
+| 빈 페이지 → 대조 종료 Chrome 전체 RSS 합 MiB | 691.79 → 848.59 | 618.80 → 803.25 |
+
+WASM warm benchmark 직후 JS heap 3.65 MiB·backing storage 15.05 MiB·Chrome RSS 합
+896.53 MiB도 표본으로 남겼다. 메모리는 CDP `Runtime.getHeapUsage`와 브라우저가 보고한
+프로세스들의 `/proc` RSS 합으로 측정했다. 종료 값에는 fixture·JS 비교·추가 session 메모리가
+포함되며, RSS는 공유 페이지 중복 가능성이 있고 GPU 할당만을 분리하거나 peak를 측정한 값은 아니다.
+WASM·WebGPU 표본은 같은 시점이 아니고 호스트는 다른 작업과 메모리 압박을 공유했다.
+CPU는 i7-10750H, Chrome은 154.0.8037.97, ANGLE SwiftShader와 비교용 unsafe WebGPU 옵션이다.
+실제 GPU·실폰 속도/메모리를 뜻하지 않는다. WebGPU 결과는 보존된 첫 실행 기록이며,
+이후 잘못된 자산 복사 목록으로 발생한 asyncify 모듈 누락도 기록하고 목록을 고쳤다.
+
+그래프는 Conv·MatMul·Gemm·Softmax·GatherElements·Round·Mod·Slice 등 ONNX 표준 연산
+31종이다. 두 EP 설정 모두 전체 그래프 생성과 고정/실제 관측의 action 대조를 실행했다.
+WebGPU 고정 입력 PyTorch↔ONNX 최대 abs/rel은 9.537e-6 / 3.906e-4,
+실제 관측은 4.292e-6 / 9.300e-4였고, JS↔ONNX는 각각 6.676e-6 / 4.089e-4,
+3.815e-6 / 1.216e-3였다. EP 내부의 CPU fallback별 연산 배치는 측정하지 않아
+전 연산 GPU 실행으로 주장하지 않는다. 이 환경의 지연과 load 시간으로 **WASM을 기본**으로 골랐다.
+WebGPU는 실제 GPU에서 재측정하기 위한 opt-in이며, `FH_AME2_WEBGPU=1`일 때
+ORT 1.31.1이 요청하는 `ort.webgpu.min.mjs`와 `ort-wasm-simd-threaded.asyncify.{mjs,wasm}`만 추가한다.
+
+
+검증 실행 범위와 명령:
+
+- **PC 실행**: 기존 selftest 18개(start, scenario, astar, height-scan, height-walk,
+  factory-one, factory-outside, house-look, top-fit, sim-goal, sim-keys, sim-no-fall,
+  ame2-network, ame2-sim, ame2-ui, ame2-overhead, ame2-train-match, ame2-train-terrain) 통과.
+  로컬 로그는 `runs/ame2-onnx/selftests/`에 보존했다.
+- **PC 실행**: Node 고정/기록 입력 대조, 여섯 지도×delay 0/4×300틱 궤적,
+  비동기 겹침 차단·clear/reset/dispose 늦은 결과 폐기 통과.
+- **PC headless Chrome 실행**: WASM 시뮬·동시 추론 1개, STOP/blur/hidden/pagehide/reset
+  즉시 잠금·늦은 결과 폐기, ONNX 파일/ORT 모듈/**wasm** 누락·hash 불일치·run 실패 시
+  화면 밖으로 접히지 않는 f32 되돌림 표시와 물리 진행, 명시적 f32 선택 통과.
+- WebGPU opt-in 복사 후 세 런타임 파일과 설치 패키지의 byte 일치도 확인했다.
+- **APK 빌드만**: `testDevUnitTest assembleDev` 성공(95 tasks, 24초).
+  f32만 포함한 APK 24,603,120 bytes → 기본 WASM APK 33,805,116 bytes,
+  **+9,201,996 bytes (+8.78 MiB)**. 같은 로컬 dev variant이며 설치/배포하지 않았다.
+  추가 ONNX 원본 5,028,942 bytes(APK 압축 4,660,674), ORT wasm 원본
+  14,848,852 bytes(압축 4,504,736), 나머지는 mjs·메타데이터·ZIP 구조다.
+  WebGPU/asyncify 자산은 기본 APK에 없다. 파일별 크기·SHA는 로컬 `apk-size.json`에 보존했다.
+- **미검증**: 실폰 APK·에뮬레이터 실행, 실제 GPU, 장시간/전체 학습 타일/다른 seed,
+  실로봇·Gazebo·실기 정책·운영 배포. 보행 성공 판단은 사용자에게 남긴다.
+
+내보내기와 최초 검증은 `91c20b3`의 모바일 소스에 본 변경을 얹어 실행했다.
+이후 `origin/dev`의 `3cd1f66`까지 fast-forward했다(그 사이 차이는 deploy 경로뿐).
+검증은 미커밋 소스에서 실행했으며 최종 소스 commit은 PR head로 추적한다.
+
+```sh
+# 환경: Node >=22; AME2_EXPORT=runs/ame2-export/out;
+# AME2_ORT_NODE=로컬 onnxruntime-node@1.31.1 entry;
+# FH_SIM_SRC=기존 외부 시뮬 자산; FH_PLAYWRIGHT=playwright-core entry.
+# 모델·외부 자산이 있는 작업 폴더에서만 실행. 전체 시험 결과를 if로 검사한다.
+if node mobile/scripts/ame2-onnx-parity.mjs; then :; else exit 1; fi
+if node mobile/scripts/ame2-onnx-sim-selftest.mjs; then :; else exit 1; fi
+if FH_AME2_SRC="$AME2_EXPORT" node mobile/scripts/sync-web.mjs; then :; else exit 1; fi
+# --walk: 궤적 포함. --ui-only: 무거운 대조를 재실행하지 않고 실패/수명주기 시험만.
+# WebGPU 전체 대조는 AME2_TEST_RUNTIME=1로 설치된 모든 런타임 파일을 시험 서버에 제공.
+if AME2_TEST_RUNTIME=1 node mobile/scripts/ame2-onnx-headless.mjs --walk; then :; else exit 1; fi
+if node mobile/scripts/ame2-onnx-headless.mjs --ui-only; then :; else exit 1; fi
+# 위 Chrome 프로세스가 종료된 뒤 Gradle만 단독 실행한다.
+if (cd mobile && npx cap sync android); then :; else exit 1; fi
+if (cd mobile/android && ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=-Xmx512m testDevUnitTest assembleDev); then :; else exit 1; fi
+```
+
+`dev`에 합치면 서버 자동배포가 실행된다. 서버에 ONNX/ORT 자산이 없고 f32가 있으면
+AME-2 선택 시 **f32 되돌림 + 실패 이유**를 지속 표시하고 기존 f32로 실행한다.
+f32도 없으면 기존처럼 AME-2 선택을 비활성화한다. 모델/WASM은 커밋하지 않으므로
+Git merge만으로 ONNX 자산이 서버에 생기지 않는다. 되돌림 선택은 `ame2Backend=f32`,
+코드 되돌림은 본 PR merge의 `git revert`이며 APK/서버 교체는 별도 승인·절차다.

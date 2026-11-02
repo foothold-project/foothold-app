@@ -34,6 +34,17 @@ const ame2src = process.env.FH_AME2_SRC || src;
 const ame2files = ['ame2_actor.f32', 'ame2_actor.json'];
 if (ame2files.every((file) => existsSync(join(ame2src, file)))) {
   for (const file of ame2files) copyFileSync(join(ame2src, file), join(sim, file));
+  if (existsSync(join(ame2src, 'ame2_actor.onnx'))) {
+    copyFileSync(join(ame2src, 'ame2_actor.onnx'), join(sim, 'ame2_actor.onnx'));
+    const ort = join(here, 'node_modules', 'onnxruntime-web');
+    mkdirSync(join(sim, 'ort'), { recursive: true });
+    const runtimeFiles = ['ort.wasm.min.mjs', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm'];
+    // WebGPU is an explicit comparison option; WASM is the measured default.
+    if (process.env.FH_AME2_WEBGPU === '1') runtimeFiles.push('ort.webgpu.min.mjs', 'ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm');
+    for (const file of runtimeFiles) copyFileSync(join(ort, 'dist', file), join(sim, 'ort', file));
+    for (const file of ['README.md', 'LICENSE', 'ThirdPartyNotices.txt']) if (existsSync(join(ort, file))) copyFileSync(join(ort, file), join(sim, 'ort', file));
+    copyFileSync(join(ort, 'package.json'), join(sim, 'ort', 'package.json'));
+  }
 }
 
 const files = {};

@@ -53,9 +53,14 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
   const actionDelay = adapter.makeActionDelay?.(MJ_J.map((_, i) => DEFAULT_I[I2M[i]]), ame2DelaySteps);
   const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], policyMs: 0, physMs: 0, I2M, M2I };
+  // Only AME2 ONNX may await inference. Invalidate its result synchronously on
+  // STOP/reset/dispose, and never queue a second inference or physics tick.
+  const asyncAme2 = adapterId === 'ame2-demo' && policy.async === true;
+  let generation = 0, pending = false;
 
   // AME-2 STOP discards the previous action and target; UI keeps its existing latch.
   s.clearPolicyState = () => {
+    if (asyncAme2) generation++;
     s.cmd = adapter.stop.input.slice(); last.fill(0);
     for (let i = 0; i < 12; i++) tgt[i] = DEFAULT_I[I2M[i]];
     actionDelay?.clear();
@@ -88,9 +93,22 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
 
   // 정책 1스텝(50 Hz): 관측 → 추론 → 물리 4스텝(스텝마다 PD·DCMotor)
   s.step = () => {
+    if (asyncAme2 && pending) return false;
     const t0 = performance.now();
     adapter.observe(obs, s, last, sampleHeight);
+    if (asyncAme2) {
+      const gen = generation;
+      pending = true;
+      return Promise.resolve().then(() => policy(obs, s.mapping)).then((a) => {
+        if (gen !== generation) return false;
+        applyAction(a, t0);
+        return true;
+      }).finally(() => { pending = false; });
+    }
     const a = policy(obs, s.mapping);
+    applyAction(a, t0);
+  };
+  function applyAction(a, t0) {
     if (adapter.action.targetClip && (a.length !== 12 || !a.every(Number.isFinite))) throw new Error('AME-2 행동 크기/유한값 오류');
     last.set(a);
     for (let i = 0; i < 12; i++) tgt[i] = adapter.action.targetClip ? Math.max(-adapter.action.targetClip, Math.min(adapter.action.targetClip, a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]])) : a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]];
@@ -99,7 +117,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     s.policyMs = t1 - t0; s.physMs = performance.now() - t1;
     s.t += POLICY_DT;
     state();
-  };
+  }
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;
     const applied = actionDelay ? actionDelay.apply(tgt) : tgt;
@@ -110,7 +128,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { if (asyncAme2) generation++; sampleHeight.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }

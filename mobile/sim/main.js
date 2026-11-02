@@ -170,7 +170,28 @@ async function main() {
     ...MESHES.map(async (f) => mj.FS.writeFile(`/go2/assets/${f}.obj`, await bytes(`assets/unitree_go2/assets/${f}.obj`))),
   ]);
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, adapter.loadPolicy(polBuf, policyManifest), { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
+  let policy = adapter.loadPolicy(polBuf, policyManifest);
+  if (adapter.id === 'ame2-demo') {
+    const { selectAme2Policy } = await import('./ame2-onnx.js');
+    policy = await selectAme2Policy(policy, {
+      backend: new URLSearchParams(location.search).get('ame2Backend') ?? 'wasm',
+      notify: (text) => {
+        st.ame2Engine = text;
+        $('policyReason').textContent = `${text} · 시뮬 전용`;
+        // The existing reason lives in a collapsed menu. Also show a persistent
+        // engine badge so absent server assets cannot hide a fallback.
+        let badge = $('ame2Engine');
+        if (!badge) {
+          badge = document.createElement('output'); badge.id = 'ame2Engine';
+          badge.setAttribute('role', 'status');
+          badge.style.cssText = 'position:fixed;bottom:4px;left:8px;z-index:20;max-width:90vw;background:#182028;color:#fff;padding:3px 7px;font:12px sans-serif;pointer-events:none';
+          document.body.append(badge);
+        }
+        badge.textContent = `${text} · 시뮬 전용`;
+      },
+    });
+  }
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360);
   const runner = createScenarioRunner(sim, () => stopped);
@@ -562,9 +583,11 @@ async function main() {
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
+  let pendingAme2Step = false;
   function frame(now) {
     acc += Math.min((now - lastT) / 1000, 0.25);
     lastT = now;
+    if (pendingAme2Step) acc = 0; // drop wall-clock debt while ONNX is pending
     if (now - lastScan >= 100) { scan(); lastScan = now; }
     let n = 0;
     while (acc >= POLICY_DT && n < 5) {
@@ -577,7 +600,16 @@ async function main() {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : axes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();
-      if (!(adapter.stop.pause && stopped)) sim.step();
+      if (!(adapter.stop.pause && stopped)) {
+        const result = sim.step();
+        if (adapter.id === 'ame2-demo' && result?.then) {
+          pendingAme2Step = true; acc = 0;
+          result.then((applied) => { if (applied) st.steps++; }, (e) => {
+            lock(); st.err = String(e); $('ame2Engine').textContent = 'AME-2 추론 오류 · 정지';
+          }).finally(() => { pendingAme2Step = false; });
+          break;
+        }
+      }
       st.steps++;
     }
     if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }

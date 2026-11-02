@@ -327,7 +327,13 @@ def main():
     parser.add_argument("--params", type=Path, required=True, help="directory containing agent.yaml/env.yaml")
     parser.add_argument("--out", type=Path, required=True, help="runs/ame2-export/out directory")
     parser.add_argument("--check", action="store_true", help="assert torch vs NumPy and saved-byte parity")
+    parser.add_argument("--onnx", action="store_true", help="also export fixed-B=1 FP32 deterministic actor, opset 17")
+    parser.add_argument("--onnx-only", action="store_true", help="export ONNX without replacing existing f32 artifacts")
+    parser.add_argument("--observations", type=Path, help="recorded simulator inputs; write PyTorch reference in out/")
+    parser.add_argument("--references-only", action="store_true", help="only write reference outputs for --observations")
     args = parser.parse_args()
+    if args.references_only and (not args.observations or args.onnx or args.onnx_only):
+        parser.error("--references-only requires --observations and excludes ONNX export flags")
     if not sys.flags.isolated:
         parser.error("run with python -I")
     if torch.version.cuda is not None or "+cpu" not in torch.__version__:
@@ -342,6 +348,20 @@ def main():
     actor = Actor().cpu().float().eval()
     incompatible = actor.load_state_dict(state, strict=True)
     assert not incompatible.missing_keys and not incompatible.unexpected_keys
+    if args.onnx or args.onnx_only:
+        export_onnx(actor, args.out, sha(args.checkpoint.read_bytes()))
+    if args.observations:
+        samples = json.loads(args.observations.read_text())
+        for sample in samples:
+            prop = torch.tensor(sample["prop"], dtype=torch.float32).reshape(1, 49)
+            mapping = torch.tensor(sample["mapping"], dtype=torch.float32).reshape(1, 29, 13, 3)
+            assert torch.isfinite(prop).all() and torch.isfinite(mapping).all()
+            with torch.inference_mode():
+                sample["torch_outputs"] = actor(prop, mapping)[0][0].tolist()
+        with (args.out / "onnx-observations.json").open("x") as stream:
+            json.dump(samples, stream, allow_nan=False)
+    if args.onnx_only or args.references_only:
+        return
     data, table = encode(state)
     weights = decode(data, table)
     for name, value in state.items():
@@ -381,6 +401,41 @@ def main():
                       "bytes": len(data), "sha256": sha(data),
                       "check": None if report is None else {name: {"n": r["n"], "max_abs": r["max_abs"]}
                                                              for name, r in report["cases"].items()}}, indent=2))
+
+
+def export_onnx(actor, out, checkpoint_sha256):
+    """Only our reconstructed actor is traced; downloaded code stays text-only."""
+    import onnx
+    import io
+
+    out.mkdir(parents=True, exist_ok=True)
+    paths = [out / n for n in ("ame2_actor.onnx", "ame2_actor_crop_test.onnx", "ame2_actor.onnx.json")]
+    if any(p.exists() for p in paths):
+        raise FileExistsError("ONNX export already exists; never replace an existing artifact")
+    inputs = (torch.zeros(1, 49), torch.zeros(1, 29, 13, 3))
+    graphs = []
+    for forced in (False, True):
+        data = io.BytesIO()
+        torch.onnx.export(actor, inputs + ((torch.tensor([[6., 5.]]),) if forced else ()), data,
+                          input_names=["prop", "mapping"] + (["centers"] if forced else []),
+                          output_names=["action", "offsets", "gaze_logits"], opset_version=17,
+                          dynamo=False, external_data=False)
+        payload = data.getvalue()
+        model = onnx.load_model_from_string(payload)
+        onnx.checker.check_model(model, full_check=True)
+        assert not any(t.data_location == onnx.TensorProto.EXTERNAL for t in model.graph.initializer)
+        assert all(t.data_type == onnx.TensorProto.FLOAT for t in model.graph.initializer)
+        graphs.append((payload, sorted({n.op_type for n in model.graph.node})))
+    meta = {"schema": "ame2-onnx-v1", "checkpoint_sha256": checkpoint_sha256,
+            "sha256": sha(graphs[0][0]), "bytes": len(graphs[0][0]), "opset": 17,
+            "dtype": "float32", "deterministic": True, "batch": 1,
+            "inputs": {"prop": [1, 49], "mapping": [1, 29, 13, 3]},
+            "outputs": {"action": [1, 12], "offsets": [1, 2], "gaze_logits": [1, 2]},
+            "operators": graphs[0][1], "torch": torch.__version__, "onnx": onnx.__version__}
+    for path, payload in zip(paths, [graphs[0][0], graphs[1][0], (json.dumps(meta, indent=2) + "\n").encode()]):
+        with path.open("xb") as stream:
+            stream.write(payload)
+    print(json.dumps(meta))
 
 
 if __name__ == "__main__":
