@@ -1454,6 +1454,16 @@ export interface RobotList {
   next_cursor: string | null;
 }
 
+export interface RobotOwnerCandidate {
+  user_id: string;
+  display_name: string;
+}
+
+export interface RobotOwnerCandidateList {
+  items: RobotOwnerCandidate[];
+  next_cursor: string | null;
+}
+
 export interface RobotPatch {
   name?: string;
   /** 실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다. */

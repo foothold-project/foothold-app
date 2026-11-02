@@ -1,0 +1,22 @@
+{
+  "$id": "fh-app/1/RobotOwnerCandidate",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "display_name"
+  ],
+  "title": "RobotOwnerCandidate",
+  "type": "object"
+}

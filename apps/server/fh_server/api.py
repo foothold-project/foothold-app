@@ -120,13 +120,19 @@ def user_object(db, user):
 
 
 
-def cursor_value(cursor):
+def cursor_value(cursor, *, sort_field='created_at'):
     if not cursor:
         return None
     try:
-        if len(cursor) > 512:
+        if len(cursor) > (2048 if sort_field == 'display_name' else 512):
             raise ValueError('cursor too long')
         stamp, identifier = json.loads(base64.b64decode(cursor.encode(), altchars=b'-_', validate=True))
+        if sort_field == 'display_name':
+            if (not isinstance(stamp, str) or not 1 <= len(stamp) <= 128 or '\x00' in stamp
+                    or not isinstance(identifier, str)):
+                raise ValueError('invalid display name')
+            stamp.encode('utf-8')
+            return stamp, UUID(identifier)
         at = datetime.fromisoformat(stamp)
         if at.tzinfo is None or at.utcoffset() is None:
             raise ValueError('timezone required')
@@ -135,18 +141,20 @@ def cursor_value(cursor):
         fail(400, 'VALIDATION', '목록 위치가 올바르지 않습니다.')
 
 
-def page(db, query, model, limit, cursor, serialize, serialize_many=None):
-    after = cursor_value(cursor)
+def page(db, query, model, limit, cursor, serialize, serialize_many=None, *, sort_field='created_at'):
+    order = getattr(model, sort_field)
+    after = cursor_value(cursor, sort_field=sort_field)
     if after:
-        query = query.where(tuple_(model.created_at, model.id) > after)
-    rows = list(db.scalars(query.order_by(model.created_at, model.id).limit(limit + 1)))
+        query = query.where(tuple_(order, model.id) > after)
+    rows = list(db.scalars(query.order_by(order, model.id).limit(limit + 1)))
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_cursor = None
     if has_more:
         row = rows[-1]
-        value = [row.created_at.astimezone(timezone.utc).isoformat(), str(row.id)]
-        next_cursor = base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
+        key = getattr(row, sort_field)
+        value = [key if sort_field == 'display_name' else key.astimezone(timezone.utc).isoformat(), str(row.id)]
+        next_cursor = base64.urlsafe_b64encode(json.dumps(value, ensure_ascii=False).encode()).decode()
     return {'items': serialize_many(db, rows) if serialize_many else [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
 
 
@@ -649,6 +657,19 @@ def create_app(settings: Settings | None = None):
         if row is None:
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
         return row
+
+    @app.get(prefix + '/robots/{robot_id}/owner-candidates', response_model=C.RobotOwnerCandidateList)
+    def owner_candidates(robot_id: UUID, auth: Identity, db: DB, limit: Limit = 50, cursor: str | None = None):
+        user = auth[0]
+        row = find_robot(db, user, robot_id)
+        authorize(user, 'ROBOT_WRITE', row)
+        if row.simulation:
+            fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
+        query = select(User).where(User.org_id == user.org_id, User.archived_at.is_(None),
+            User.locked.is_(False), User.role == 'OPERATOR', User.id != user.id)
+        return page(db, query, User, limit, cursor,
+            lambda db, row: C.RobotOwnerCandidate(user_id=row.id, display_name=row.display_name),
+            sort_field='display_name')
 
     @app.post(prefix + '/robots/{robot_id}/phone-pass', response_model=C.PhonePassResponse)
     def issue_phone_pass(robot_id: UUID, body: C.PhonePassRequest, response: Response, auth: Identity, db: DB):
