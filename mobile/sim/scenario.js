@@ -1,7 +1,8 @@
 // Offline waypoint overlay; commands stay inside the existing joystick limits.
 import { cell } from './lidar.js';
+import { boundedNumber, DEFAULT_VX, DEFAULT_WZ } from './settings.js';
 
-export const REACH_RADIUS = 0.3, MAX_VX = 0.4, MAX_WZ = 0.6, BLOCK_RANGE = 0.6;
+export const REACH_RADIUS = 0.3, MAX_VX = DEFAULT_VX, MAX_WZ = DEFAULT_WZ, BLOCK_RANGE = 0.6;
 // 이 시간 넘게 지점에 0.1 m 도 못 다가가고 방향 오차도 0.1 rad 넘게 못 줄이면 «막힘»(돌다 걸린 것도 멈춤)
 export const STALL_S = 5, STALL_GAIN = 0.1, STALL_TURN = 0.1, BEHIND = 2.6;
 
@@ -28,7 +29,8 @@ export function frontDistance(rays) {
   return min;
 }
 
-export function createScenarioRunner(sim, isStopped) {
+export function createScenarioRunner(sim, isStopped, limits = {}) {
+  let maxVx = MAX_VX, maxWz = MAX_WZ;
   // goal = 찍은 곳 하나로 가기(손 조종이 끊으면 잠그지 않고 취소만). best(거리)·turn(방향 오차)·stall = 진전 없음 재기
   const runner = { active: false, index: 0, points: [], status: '대기', goal: false, best: Infinity, turn: Infinity, stall: 0 };
   runner.cancel = (reason = '중단') => {
@@ -39,6 +41,10 @@ export function createScenarioRunner(sim, isStopped) {
   };
   runner.start = (points, goal = false) => {
     if (isStopped() || !points?.length) return false;
+    // Snapshot each run: a settings response can only affect the next start.
+    // A valid organization/adapter cap can reduce an axis below the input range, even to zero.
+    maxVx = Math.min(boundedNumber(limits?.vx, 0.1, 1, MAX_VX), boundedNumber(limits?.caps?.vx, 0, 1, Infinity));
+    maxWz = Math.min(boundedNumber(limits?.wz, 0.1, 1, MAX_WZ), boundedNumber(limits?.caps?.wz, 0, 1, Infinity));
     runner.points = points;
     runner.goal = goal;
     runner.index = 0;
@@ -62,14 +68,14 @@ export function createScenarioRunner(sim, isStopped) {
       // 거의 바로 뒤(|오차| > BEHIND)면 처음 고른 회전 방향을 지킨다 — ±π 근처에서 몸 흔들림으로 부호가 뒤집혀 제자리에 멈춰 «막힘»이 되지 않게
       if (runner.spin && Math.abs(error) > BEHIND && Math.sign(error) !== runner.spin) error = runner.spin * (2 * Math.PI - Math.abs(error));
       runner.spin = Math.abs(error) > BEHIND ? Math.sign(error) : 0;
-      const vx = Math.abs(error) < 0.4 ? MAX_VX : 0;
+      const vx = Math.abs(error) < 0.4 ? maxVx : 0;
       // 앞 막힘은 앞으로 갈 때만 — 벽을 보고 선 채 뒤쪽 지점으로 돌아서는 것은 막지 않는다
       if (vx && !(front > BLOCK_RANGE)) return runner.cancel('막힘');
       let gained = false;
       if (dist < runner.best - STALL_GAIN) { runner.best = dist; gained = true; }
       if (Math.abs(error) < runner.turn - STALL_TURN) { runner.turn = Math.abs(error); gained = true; }
       if (gained) runner.stall = 0; else if ((runner.stall += dt) >= STALL_S) return runner.cancel('막힘');
-      sim.cmd = [vx, 0, Math.max(-MAX_WZ, Math.min(MAX_WZ, 1.5 * error))];
+      sim.cmd = [vx, 0, Math.max(-maxWz, Math.min(maxWz, 1.5 * error))];
       return sim.cmd;
     }
     return runner.cancel('완료');
