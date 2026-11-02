@@ -20,6 +20,7 @@ import { Maps } from './screens/maps';
 import { Missions } from './screens/missions';
 import { Settings } from './screens/settings';
 import { SimTab } from './screens/sim';
+import { Trash } from './screens/trash';
 import { ThemePick, useTheme } from './theme';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
@@ -259,7 +260,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.filter((t) => !t.hidden).map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
       <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? <SimDrive />
         : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
-        : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' || tab === 'mission' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재·임무는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
+        : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' || tab === 'mission' || tab === 'trash' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재·임무는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} refresh={refresh}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
@@ -267,6 +268,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
         : tab === 'mission' ? <Missions key={`mission-${user.id}`} user={user} cancel={cancel} robots={withSlots} />   // 로봇 0대여도 임무·시나리오
         : tab === 'sim' ? <SimTab user={user} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
+        : tab === 'trash' ? <Trash key={`trash-${user.id}`} cancel={cancel} />   // 로봇 0대여도 휴지통
         : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>
     </div>

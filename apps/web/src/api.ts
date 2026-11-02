@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FieldApproval, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FieldApproval, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, TrashItem, TrashList, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -143,7 +143,7 @@ export const api = {
   createBuilding: (site: string, name: string, cancel?: AbortSignal) => call<MapBuilding>('POST', `/sites/${encodeURIComponent(site)}/buildings`, { name }, { cancel }),
   createFloor: (building: string, p: FloorCreate, cancel?: AbortSignal) => call<MapFloor>('POST', `/buildings/${encodeURIComponent(building)}/floors`, p, { cancel }),
   savePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, p: FloorPatch, cancel?: AbortSignal) => call<unknown>('PATCH', `/${kind}/${encodeURIComponent(id)}`, p, { cancel }),
-  /** 안에 건물·층·지도 판이 있거나 로봇·연결점이 쓰는 층이면 409 RESOURCE_IN_USE */
+  /** 휴지통으로 옮기기(204, §5.1 — 이미 휴지통이어도 204). 휴지통 밖 하위 건물·층이 있거나 로봇·시뮬·실행·배정이 쓰는 층이면 409 RESOURCE_IN_USE */
   deletePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, cancel?: AbortSignal) => call<void>('DELETE', `/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
   /** 찍은 사진 주소(PHOTO_STORED 사건의 photo_id) — <img> 가 사용자 세션 쿠키로 받는다(서버가 매번 로봇 읽기 권한 검사, 공개 주소 없음). thumb = 작은 보기용 */
   photoUrl: (id: string, thumb = false) => `${BASE}/photos/${encodeURIComponent(id)}${thumb ? '/thumbnail' : ''}`,
@@ -185,13 +185,20 @@ export const api = {
   createPlan: <K extends Plan>(kind: K, p: WriteOf[K], cancel?: AbortSignal) => call<PlanOf[K]>('POST', `/${kind}`, p, { cancel }),
   /** 새 판. match = 받은 본체 version — 없으면 428, 다르면 409 VERSION_CONFLICT. 시나리오는 지도가 바뀌면 409 STALE, 갈 수 없는 지점이면 422 */
   savePlan: <K extends Plan>(kind: K, id: string, match: number, p: WriteOf[K], cancel?: AbortSignal) => call<PlanOf[K]>('PUT', `/${kind}/${encodeURIComponent(id)}`, p, { cancel, match }),
-  /** 보관(204, 되돌리는 API 없음 — 옛 판은 계속 읽힌다) */
+  /** 임무 = 보관(204, 되돌리는 API 없음), 시나리오 = 휴지통으로 옮기기(204, §5.1 — 실행·배정이 쓰면 409 RESOURCE_IN_USE). 옛 판은 계속 읽힌다 */
   archivePlan: (kind: Plan, id: string, cancel?: AbortSignal) => call<void>('DELETE', `/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
+  // 휴지통(05 §5.1, 11-02). 총괄·운영 같은 권한. 복원 = 장소→건물→층 순(상위가 휴지통이면 409 PARENT_ARCHIVED),
+  // 완전 삭제 = 시나리오→층→건물→장소 순(409 NOT_IN_TRASH·RESOURCE_IN_USE·HAS_CHILDREN·HAS_REFERENCES), 끝난 실행·배정·결재 기록은 이름만 남는다
+  trash: (cancel?: AbortSignal) => call<TrashList>('GET', '/trash', undefined, { cancel }),
+  restore: (kind: TrashItem['kind'], id: string, cancel?: AbortSignal) => call<void>('POST', `/trash/${kind}/${encodeURIComponent(id)}/restore`, undefined, { cancel }),
+  purge: (kind: TrashItem['kind'], id: string, cancel?: AbortSignal) => call<void>('DELETE', `/trash/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
+  /** 끝난 실행 한 건(지워진 시나리오·층은 id null + «삭제된 …: 이름»). 웹에 실행 상세 화면이 생기면 쓴다 */
+  runHistory: (id: string, cancel?: AbortSignal) => call<RunHistory>('GET', `/runs/${encodeURIComponent(id)}/history`, undefined, { cancel }),
   /** 저장 없이 경로 미리보기(지점별 갈 수 있음·이유, 층 연결점, 직선 거리) */
   preview: (p: ScenarioWrite, cancel?: AbortSignal) => call<ScenarioPreview>('POST', '/scenarios/preview', p, { cancel }),
   // 배정(05 §6.4, S5b). 총괄 = 바로 ACTIVE, 운영 관리자 = PENDING + 시나리오 배정 결재. 남의 로봇 403, 없음 404, 같은 로봇·판이 ACTIVE·PENDING 이면 409 ASSIGNMENT_EXISTS, 보관 시나리오 422
-  /** robot 없음 = 조직 전체(서버에 시나리오 거르기가 없어 부른 쪽이 scenario_id 로 거른다) */
-  assignments: (robot: string | null, cancel?: AbortSignal) => pages<Assignment>(`/assignments${robot ? `?robot_id=${encodeURIComponent(robot)}` : ''}`, cancel),
+  /** robot 없음 = 조직 전체(서버에 시나리오 거르기가 없어 부른 쪽이 scenario_id 로 거른다). archived = 휴지통·삭제된 시나리오의 배정 이력까지(§5.1 — scenario_id·판 null) */
+  assignments: (robot: string | null, cancel?: AbortSignal, archived = false) => pages<Assignment>(`/assignments?${robot ? `robot_id=${encodeURIComponent(robot)}&` : ''}${archived ? 'archived=true' : ''}`.replace(/[?&]$/, ''), cancel),
   /** key = 이 시도의 Idempotency-Key — 답을 못 받아 다시 보낼 때 같은 키면 서버가 첫 결과를 돌려준다(두 번 배정 안 됨) */
   assign: (p: AssignmentCreate, key: string, cancel?: AbortSignal) => call<Assignment>('POST', '/assignments', p, { cancel, key }),
   /** 204(이미 해제여도 204). PENDING 이면 서버가 결재도 취소한다 */

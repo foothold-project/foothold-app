@@ -7,6 +7,7 @@ import { ApiFail, api } from '../api';
 import { adminReal, idleSim, type Robot, type Tone, type User } from '../fake';
 import { Chip, soon, type Ctx } from '../screens';
 import { Note, type Msg } from './maps';
+import { deleted } from './trash';
 
 const STATUS: Record<Assignment['status'], { tone: Tone; text: string }> = {
   ACTIVE: { tone: 'ok', text: '배정됨' }, PENDING: { tone: 'warn', text: '결재 대기' }, REJECTED: { tone: 'bad', text: '반려됨' }, REMOVED: { tone: 'off', text: '해제됨' } };
@@ -18,7 +19,7 @@ export const OUT = '담당 로봇만 배정하거나 해제할 수 있습니다(
 export const ADMIN_ASSIGN = '총괄 계정은 실기 로봇에 배정하지 않습니다 — 담당 운영 관리자가 배정합니다. 시뮬 로봇은 배정할 수 있습니다.';
 export const IDLE_SLOT = '끝낸 시뮬 슬롯에 남은 배정이라 총괄만 해제할 수 있습니다.';
 const EXISTS = '이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다. 아래 목록에서 확인하세요.';
-const ARCHIVED = '보관된 시나리오는 배정할 수 없습니다.';
+const ARCHIVED = '휴지통에 있는 시나리오는 배정할 수 없습니다.';
 const live = (a: Assignment) => a.status === 'ACTIVE' || a.status === 'PENDING';
 /** 서버가 답했는지 모름(끊김·마감·깨진 본문·5xx) — 처리됐을 수 있다 */
 const unsure = (e: ApiFail) => (e.status === 0 && e.code !== 'CANCELED') || e.status >= 500;
@@ -27,25 +28,33 @@ export const mineOf = (u: User, r: Robot) => u.role === 'ORG_ADMIN' || r.owner =
 export const assignFor: { robot: string | null } = { robot: null };
 
 const str = (v: unknown) => typeof v === 'string';
-const isAssignment = (a: Assignment) => !!a && str(a.id) && str(a.scenario_id) && Number.isInteger(a.scenario_version) && str(a.robot_id) && str(a.status) && str(a.scenario_name) && str(a.robot_name) && str(a.created_by);
+// 시나리오를 완전 삭제하면 끝난 배정만 scenario_id·scenario_version 이 함께 null(§5.1) — 이름은 스냅샷으로.
+// 현재 배정(ACTIVE·PENDING)과 쓰기 성공 응답은 참조·판이 꼭 있어야 한다
+const refs = (a: Assignment) => str(a.scenario_id) && Number.isInteger(a.scenario_version);
+const gone = (a: Assignment) => !live(a) && a.scenario_id === null && a.scenario_version === null;
+const isAssignment = (a: Assignment) => !!a && str(a.id) && str(a.status) && (refs(a) || gone(a)) && str(a.robot_id) && str(a.scenario_name) && str(a.robot_name) && str(a.created_by);
+const isCurrent = (a: Assignment) => isAssignment(a) && refs(a);
+/** 배정 줄의 시나리오 이름 · 판 — 지워진 시나리오는 «(삭제됨) 이름», 판 없음 */
+const scen = (a: Assignment) => (a.scenario_id ? a.scenario_name : deleted(a.scenario_name_snapshot ?? a.scenario_name));
+const ver = (a: Assignment) => (a.scenario_version == null ? '' : ` · 판 ${a.scenario_version}`);
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 배정 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 const isList = (l: Assignment[]) => Array.isArray(l) && l.every(isAssignment);
 const newKey = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 /** 배정 목록 — robot 없음 = 조직 전체(scenario 로 거름). load() 는 받은 목록을 돌려준다(확인 중 판정) — 늦게 온 앞 요청의 답은 버린다 */
-function useAssignments(robot: string | null, scenario: string | null, cancel?: AbortSignal) {
-  const [items, setItems] = useState<Assignment[] | null>(null), [err, setErr] = useState(''), [busy, setBusy] = useState(true), seq = useRef(0), cur = useRef({ robot, scenario });
-  cur.current = { robot, scenario };   // 앞 렌더에서 잡힌 load(처리 뒤 다시 받기)도 지금 보기로
+function useAssignments(robot: string | null, scenario: string | null, cancel?: AbortSignal, archived = false) {
+  const [items, setItems] = useState<Assignment[] | null>(null), [err, setErr] = useState(''), [busy, setBusy] = useState(true), seq = useRef(0), cur = useRef({ robot, scenario, archived });
+  cur.current = { robot, scenario, archived };   // 앞 렌더에서 잡힌 load(처리 뒤 다시 받기)도 지금 보기로
   const load = () => {
-    const k = ++seq.current, { robot, scenario } = cur.current;
+    const k = ++seq.current, { robot, scenario, archived } = cur.current;
     setBusy(true); setErr('');
-    return api.assignments(robot, cancel).then(fit(isList)).then((l) => {
+    return api.assignments(robot, cancel, archived).then(fit(isList)).then((l) => {
       const got = l.filter((a) => !scenario || a.scenario_id === scenario);
       if (k === seq.current) { setItems(got); setBusy(false); }
       return got;
     }, (e: ApiFail) => { if (k === seq.current && e.code !== 'CANCELED') { setErr(e.message); setBusy(false); } throw e; });
   };
-  useEffect(() => { setItems(null); load().catch(() => {}); }, [robot, scenario]);
+  useEffect(() => { setItems(null); load().catch(() => {}); }, [robot, scenario, archived]);
   return { items, err, busy, load };
 }
 
@@ -54,7 +63,7 @@ type Try = { body: AssignmentCreate; key: string; known: string[] };
 
 /** 배정 창 + 목록(시나리오 편집 칸 아래). version = 지금 보는 판(옛 판을 보면 그 판), archived = 보관된 시나리오 */
 export function AssignPanel({ scenario, name, version, archived, user, robots, cancel }: { scenario: string; name: string; version: number; archived: boolean; user: User; robots: Robot[]; cancel?: AbortSignal }) {
-  const [by, setBy] = useState(''), l = useAssignments(by || null, by ? null : scenario, cancel), [all, setAll] = useState(false);
+  const [by, setBy] = useState(''), [all, setAll] = useState(false), l = useAssignments(by || null, by ? null : scenario, cancel, all);   // 해제·반려도 보기 = 삭제된 시나리오 이력까지
   const [open, setOpen] = useState(!!assignFor.robot && !archived), [robot, setRobot] = useState(archived ? '' : assignFor.robot ?? ''), [memo, setMemo] = useState(''), [msg, setMsg] = useState<Msg>(null);
   const [phase, setPhase] = useState<'idle' | 'sending' | 'checking' | 'unsure'>('idle'), attempt = useRef<Try | null>(null);
   const [removing, setRemoving] = useState<Record<string, 'sending' | 'checking'>>({}), [canceled, setCanceled] = useState<Set<string>>(new Set());
@@ -91,12 +100,12 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
   /** again = «같은 요청 다시 보내기»(같은 키) — 답이 와도 첫 결과의 재생일 수 있어 목록으로 확인한다 */
   const send = (t: Try, again = false) => {
     setPhase('sending'); setMsg(null);
-    api.assign(t.body, t.key, cancel).then(fit(isAssignment)).then((a) => { if (alive.current) { if (again) check(t, a.id); else done(a); } }, (e: ApiFail) => {
+    api.assign(t.body, t.key, cancel).then(fit(isCurrent)).then((a) => { if (alive.current) { if (again) check(t, a.id); else done(a); } }, (e: ApiFail) => {
       if (!alive.current || e.code === 'CANCELED') return;
       if (unsure(e)) { setMsg({ text: '배정 응답을 받지 못했습니다. 처리됐을 수 있어 목록으로 확인하는 중입니다(확인 중).' }); check(t); return; }
       attempt.current = null; setPhase('idle');
       if (e.code === 'ASSIGNMENT_EXISTS') setMsg({ text: EXISTS });
-      else if (e.code === 'SCENARIO_ARCHIVED') setMsg({ text: `${ARCHIVED} 보관되지 않은 시나리오를 고르세요.` });
+      else if (e.code === 'SCENARIO_ARCHIVED') setMsg({ text: `${ARCHIVED} 휴지통 밖의 시나리오를 고르세요.` });
       else if (e.status === 403 || e.status === 404) setMsg({ text: OUT });
       else { setMsg({ text: `배정하지 못했습니다. ${e.message}` }); return; }
       l.load().catch(() => {});
@@ -186,7 +195,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
     <ul className="fh-list" aria-label="배정 목록">{shown.map((a) => { const r = robots.find((x) => x.id === a.robot_id), w = r ? (mineOf(user, r) ? null : idleSim(r) ? IDLE_SLOT : OUT) : OUT, busy = removing[a.id];
       return <li key={a.id} className="fh-row" data-assignment={a.id}>
         <Chip {...(busy === 'checking' ? { tone: 'warn' as Tone, text: '확인 중' } : status(a.status))} />
-        <b>{by ? `${a.scenario_name} · 판 ${a.scenario_version}` : `${a.robot_name} · 판 ${a.scenario_version}`}</b>
+        <b>{by ? `${scen(a)}${ver(a)}` : `${a.robot_name}${ver(a)}`}</b>
         {canceled.has(a.id) && <span className="lbl" data-canceled>결재 취소됨</span>}
         <span className="lbl fh-grow" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{a.memo}</span>
         {live(a) && <><button type="button" className="btn" disabled={!!w || !!busy} aria-describedby={w ? `unassign-${a.id}` : undefined} onClick={() => remove(a)}>{busy === 'sending' ? '해제하는 중…' : '해제'}</button>
