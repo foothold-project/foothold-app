@@ -10,7 +10,7 @@ import { ADMIN_REAL, ROBOTS, ROLE_NAME, USERS, adminReal, idleSim, lost, lostTex
 import { PC_BOTTOM, PC_TABS, labelOf, leaving, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
-import { Connect, endDrive } from './drive';
+import { Connect, NO_ROBOT, endDrive } from './drive';
 import { sim, useSim } from './phone';
 import { SimDrive } from './simdrive';
 import { Approvals } from './screens/approvals';
@@ -195,7 +195,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const problems = pool.filter(lost);
   const ctx: Ctx | null = robot ? { user, robot, robots: tab === 'history' || tab === 'mission' ? withSlots : pool, pick: setRid, go, open, phone, setMe, refresh, cancel, focus, dash } : null;
   const Body = BODY[tab];
-  const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p></section>;
+  const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다.' : NO_ROBOT}</p></section>;
 
   const link = (t: Tab, cls: string) => {
     const badge = t.id === 'approval' ? dash.d?.approvals_pending ?? 0 : 0;   // 서버 수 그대로: 총괄 = 조직 전체 대기, 운영 관리자 = 내 대기 요청
@@ -263,8 +263,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? <SimDrive />
         : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' || tab === 'mission' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재·임무는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
-        : tab === 'drive' ? <Connect user={user} robots={pool} go={go} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
-        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
+        : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
+        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} refresh={refresh}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
         : tab === 'map' ? <Maps key={`map-${user.id}`} user={user} cancel={cancel} dash={dash} />   // 로봇 0대여도 장소·지도
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재

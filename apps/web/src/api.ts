@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, AgentTokenResponse, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, PhonePassRequest, PhonePassResponse, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FieldApproval, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -102,11 +102,17 @@ export const api = {
   robot: (id: string, cancel?: AbortSignal) => call<RobotSummary>('GET', `/robots/${encodeURIComponent(id)}`, undefined, { cancel }),
   /** 관제 요약(05 §4) — 총괄 조직 전체, 운영 관리자는 담당 범위 */
   dashboard: (cancel?: AbortSignal) => call<Dashboard>('GET', '/dashboard', undefined, { cancel }),
-  // 로봇 등록·바꾸기(총괄, 05 §3). agent_token 은 응답에서 한 번만 온다 — 부른 쪽이 보여 주고 버린다
-  createRobot: (p: RobotCreate, cancel?: AbortSignal) => call<RobotCreated>('POST', '/robots', p, { cancel }),
+  // 로봇 바꾸기·지우기(05 §3): 실기는 담당 운영(총괄은 담당 없는 실기의 owner_user_id 지정만), 시뮬 이름은 총괄. 실기 직접 등록·토큰 발급은 서버가 막았다(PAIRING_REQUIRED)
   saveRobot: (id: string, p: RobotPatch, cancel?: AbortSignal) => call<RobotSummary>('PATCH', `/robots/${encodeURIComponent(id)}`, p, { cancel }),
   deleteRobot: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/robots/${encodeURIComponent(id)}`, undefined, { cancel }),
-  robotToken: (id: string, cancel?: AbortSignal) => call<AgentTokenResponse>('POST', `/robots/${encodeURIComponent(id)}/agent-token`, undefined, { cancel }),
+  // 실기 연결(05 §3.1, 운영만). claim = 노트북 화면의 6자리 코드 → 기체번호, confirm = 이름 → 로봇(연결 키는 노트북 연결 프로그램만 받는다)
+  claimPairing: (code: string, cancel?: AbortSignal) => call<PairingClaimed>('POST', '/pairing/claim', { code }, { cancel }),
+  confirmPairing: (id: string, name: string, cancel?: AbortSignal) => call<RobotSummary>('POST', `/pairing/${encodeURIComponent(id)}/confirm`, { name }, { cancel }),
+  /** 현장 안전 확인(필수 세 항목) → 30분 승인. 해제 = DELETE(204) */
+  approveField: (id: string, checks: string[], cancel?: AbortSignal) => call<FieldApproval>('POST', `/robots/${encodeURIComponent(id)}/field-approval`, { checks }, { cancel }),
+  revokeField: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/robots/${encodeURIComponent(id)}/field-approval`, undefined, { cancel }),
+  /** 연결 끊기: 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금(204) */
+  disconnectRobot: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/robots/${encodeURIComponent(id)}/connection`, undefined, { cancel }),
   // 설정 탭 요청은 cancel(로그인 세션의 취소 신호)을 받는다 — 세션이 끝난 뒤 온 답은 CANCELED 로 버려 다음 세션의 인증을 건드리지 않음
   /** 내 이름(05 §2 PATCH /me) */
   saveMe: (p: MePatch, cancel?: AbortSignal) => call<User>('PATCH', '/me', p, { cancel }),

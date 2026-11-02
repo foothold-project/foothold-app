@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Dashboard, RobotSummary, User } from '../../../contracts/ts';
 import { now, rt } from '../rt';
 import { Root } from '../session';
-import { ROBOT_BUSY, ROBOT_GONE, ROBOT_IN_USE } from '../screens/settings';
+import { ROBOT_BUSY, ROBOT_GONE } from '../screens/settings';
 import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -259,159 +259,47 @@ describe('상세 서랍 = GET /robots/{id}', () => {
   });
 });
 
-describe('설정 › 로봇(총괄, 05 §3)', () => {
+describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 등록·토큰 없음)', () => {
+  const SIM = robot('s-1', '시뮬 실험', KIM, { simulation: true });
   const pickRobot = (name: string) => click([...card('로봇').querySelectorAll('li button')].find((b) => b.textContent!.includes(name)));
   it('운영 관리자에게는 없음(권한 없는 기능 숨김)', async () => {
     serve(signedIn(LEE, [RA]));
     await open('#/settings');
     expect($('[aria-label="로봇"]')).toBeNull();
+  });
+  it('총괄: 시뮬 로봇만 목록, 실기 등록·토큰·지우기·담당 단추 없음 + 실기는 운영 관리자가 연결한다는 안내', async () => {
+    serve(signedIn(KIM, [RA, SIM]));
+    await open('#/settings');
+    expect(card('로봇').textContent).toContain('시뮬 로봇 (1)');
+    expect(card('로봇').textContent).not.toContain('Go2-A');
+    expect($('[data-real-note]')!.textContent).toContain('새 로봇 추가');
     expect(btn('로봇 등록')).toBeUndefined();
+    await pickRobot('시뮬 실험');
+    const edit = card('로봇 설정');
+    expect(['토큰 다시 받기', '로봇 지우기'].map((t) => btn(t, edit))).toEqual([undefined, undefined]);
+    expect(edit.querySelector('select')).toBeNull();
+    expect(calls.some((c) => c.method === 'POST' && (c.path === '/robots' || c.path.endsWith('/agent-token')))).toBe(false);
   });
-  it('등록: 이름·담당(잠기지 않은 운영 관리자) → 토큰은 응답 화면에서 한 번만, 닫으면 어디에도 없음', async () => {
-    const TOKEN = 'fh_agent_secret_123';
-    serve(signedIn(KIM, [RA], { 'POST /robots': { status: 201, body: { robot: robot('r-n', 'Go2-N', LEE), agent_token: TOKEN } } }));
+  it('시뮬 이름 바꾸기: PATCH {name} 만, 바뀐 값 없음은 안 보냄, 503 은 다시, 404 는 이미 지워짐', async () => {
+    let rep: Reply = err(503, 'SERVER_BUSY', 'busy');
+    serve(signedIn(KIM, [SIM], { 'PATCH /robots/s-1': () => rep }));
     await open('#/settings');
-    expect(card('로봇').textContent).toContain('Go2-A이운영');
-    await click(btn('로봇 등록'));
-    const form = $('form[aria-label="로봇 등록"]')!;
-    expect([...form.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['담당 없음', '이운영', '박운영']);   // 잠긴 최운영·총괄 제외
+    await pickRobot('시뮬 실험');
+    const edit = card('로봇 설정'), form = edit.querySelector('form')!;
     await submit(form);
-    expect(form.querySelector('[role="alert"]')!.textContent).toBe('로봇 이름을 입력하세요.');
-    expect(sent('POST', '/robots')).toHaveLength(0);
-    setVal(form.querySelector('input[name="name"]')!, ' Go2-N ');
-    setVal(form.querySelector('select')!, 'o1');
-    const before = lists();
+    expect(edit.querySelector('[role="status"]')!.textContent).toBe('바뀐 값이 없습니다.');
+    setVal(form.querySelector('input[name="name"]')!, ' 시뮬 둘 ');
     await submit(form);
-    expect(sent('POST', '/robots')[0].body).toEqual({ name: 'Go2-N', owner_user_id: 'o1' });
-    expect($<HTMLInputElement>('input[aria-label="로봇 토큰"]')!.value).toBe(TOKEN);
-    expect(card('로봇 토큰').textContent).toContain('닫으면 다시 볼 수 없습니다.');
-    expect(lists()).toBeGreaterThanOrEqual(before + 2);   // 설정 목록 + 관제·조종 목록(App)
-    const write = vi.fn(async () => {});
-    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: write } });
-    await click(btn('복사', card('로봇 토큰')));
-    expect(write).toHaveBeenCalledWith(TOKEN);
-    await click(btn('닫기', card('로봇 토큰')));
-    expect($('[aria-label="로봇 토큰"]')).toBeNull();
-    expect(box.innerHTML).not.toContain(TOKEN);
-    expect(JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage })).not.toContain(TOKEN);
-  });
-  it('로봇 0대에서 첫 등록: 목록이 바뀌어도 토큰 칸이 그대로 남는다', async () => {
-    serve(signedIn(KIM, [], { 'POST /robots': { status: 201, body: { robot: RA, agent_token: 'fh_first_789' } } }));
-    await open('#/settings');
-    routes['GET /robots'] = { status: 200, body: { items: [RA], next_cursor: null } };
-    await click(btn('로봇 등록'));
-    setVal($<HTMLInputElement>('form[aria-label="로봇 등록"] input[name="name"]')!, 'Go2-A');
-    await submit($('form[aria-label="로봇 등록"]')!);
-    await flush();
-    expect($<HTMLInputElement>('input[aria-label="로봇 토큰"]')!.value).toBe('fh_first_789');
-    expect(card('로봇').textContent).toContain('로봇 (1)');
-  });
-  it('등록 실패: 400 은 서버 문장, 403 은 서버 문장, 네트워크는 연결 문구 — 토큰 칸 없음', async () => {
-    for (const [rep, says] of [[err(400, 'VALIDATION', '담당 운영 관리자를 확인하세요.'), '담당 운영 관리자를 확인하세요.'],
-      [err(403, 'FORBIDDEN', '권한이 없습니다.'), '권한이 없습니다.'], [() => { throw new TypeError('Failed to fetch'); }, '서버에 연결하지 못했습니다']] as const) {
-      serve(signedIn(KIM, [RA], { 'POST /robots': rep as Reply }));
-      await open('#/settings');
-      await click(btn('로봇 등록'));
-      setVal($<HTMLInputElement>('form[aria-label="로봇 등록"] input[name="name"]')!, 'Go2-N');
-      await submit($('form[aria-label="로봇 등록"]')!);
-      expect($('form[aria-label="로봇 등록"] [role="alert"]')!.textContent).toContain(says);
-      expect($('[aria-label="로봇 토큰"]')).toBeNull();
-      act(() => root!.unmount()); box.remove();
-    }
-  });
-  it('등록 401 → 로그인 화면', async () => {
-    serve(signedIn(KIM, [RA], { 'POST /robots': err(401, 'AUTH_REQUIRED', '로그인이 필요합니다.') }));
-    await open('#/settings');
-    await click(btn('로봇 등록'));
-    setVal($<HTMLInputElement>('form[aria-label="로봇 등록"] input[name="name"]')!, 'Go2-N');
-    await submit($('form[aria-label="로봇 등록"]')!);
-    expect($('[aria-label="로그인"]')).not.toBeNull();
-  });
-  it('바꾸기: 바뀐 칸만 PATCH, 담당 없애기 = owner_user_id null, 담당 바꾸면 조종이 끝난다는 안내', async () => {
-    serve(signedIn(KIM, [RA], { 'PATCH /robots/r-a': { status: 200, body: { ...RA, owner: null } } }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    const box2 = card('로봇 설정');
-    expect(box2.textContent).toContain('예전 담당자의 조종이 끝나고 로봇이 정지합니다');
-    await submit(box2.querySelector('form')!);
-    expect(box2.querySelector('[role="status"],[role="alert"]')!.textContent).toBe('바뀐 값이 없습니다.');
-    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);
-    setVal(box2.querySelector('select')!, '');
-    await submit(box2.querySelector('form')!);
-    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);   // 담당이 바뀌면 확인 먼저 — 로봇 이름과 조종 끝·정지
-    expect(card('확인').textContent).toMatch(/Go2-A.*담당을 .+ → 담당 없음\(으\)로 바꿀까요\? .+의 조종이 끝나고 로봇이 정지합니다/);
-    await click(btn('취소', card('확인')));
-    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);
-    await submit(box2.querySelector('form')!);
-    await click(btn('바꾸기(조종 끝·정지)', card('확인')));
-    expect(sent('PATCH', '/robots/r-a')[0].body).toEqual({ owner_user_id: null });
-    setVal(box2.querySelector('input[name="name"]')!, 'Go2-AA');
-    setVal(box2.querySelector('select')!, 'o1');
-    await submit(box2.querySelector('form')!);
-    expect(sent('PATCH', '/robots/r-a')[1].body).toEqual({ name: 'Go2-AA' });
-  });
-  it('바꾸기 503(다른 변경 처리 중) → 잠시 뒤 다시', async () => {
-    serve(signedIn(KIM, [RA], { 'PATCH /robots/r-a': err(503, 'SERVER_BUSY', 'busy') }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    setVal(card('로봇 설정').querySelector('select')!, 'o2');
-    await submit(card('로봇 설정').querySelector('form')!);
-    await click(btn('바꾸기(조종 끝·정지)', card('확인')));
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe(ROBOT_BUSY);
-  });
-  it('지우기: 확인 뒤 DELETE. 409 = 조종·실행 중 문구, 503 = 다시, 404 = 이미 지워짐 + 목록 다시, 204 = 목록에서 빠짐', async () => {
-    let rep: Reply = err(409, 'VERSION_CONFLICT', '실행·조종을 끝낸 뒤 해제하세요.');
-    serve(signedIn(KIM, [RA, RB], { 'DELETE /robots/r-a': () => rep }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    const del = async () => { await click(btn('로봇 지우기', card('로봇 설정'))); await click(btn('지우기', card('확인'))); };
-    await click(btn('로봇 지우기', card('로봇 설정')));
-    expect(card('확인').textContent).toContain('되돌릴 수 없습니다');
-    await click(btn('취소', card('확인')));
-    expect(sent('DELETE', '/robots/r-a')).toHaveLength(0);
-    await del();
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe(ROBOT_IN_USE);
-    rep = err(503, 'SERVER_BUSY', 'busy');
-    await del();
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe(ROBOT_BUSY);
+    expect(sent('PATCH', '/robots/s-1')[0].body).toEqual({ name: '시뮬 둘' });
+    expect(edit.querySelector('[role="alert"]')!.textContent).toBe(ROBOT_BUSY);
+    rep = { status: 200, body: { ...SIM, name: '시뮬 둘' } };
+    await submit(form);
+    expect(edit.querySelector('[role="status"]')!.textContent).toBe('저장했습니다.');
     rep = err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.');
-    routes['GET /robots'] = { status: 200, body: { items: [RB], next_cursor: null } };
-    let n = lists();
-    await del();
+    setVal(form.querySelector('input[name="name"]')!, '시뮬 셋');
+    await submit(form);
     expect($('[aria-label="로봇 설정"]')).toBeNull();
     expect(card('로봇').textContent).toContain(ROBOT_GONE);
-    expect(card('로봇').textContent).not.toContain('Go2-A');
-    expect(lists()).toBeGreaterThanOrEqual(n + 2);
-    // 다시 생긴 것처럼 꾸며 204 경로
-    routes['GET /robots'] = { status: 200, body: { items: [RA, RB], next_cursor: null } };
-    await click(btn('닫기') ?? btn('로봇 등록')); await click(btn('취소'));
-    serve({ ...routes, 'DELETE /robots/r-a': { status: 204 } });
-    act(() => root!.unmount()); box.remove();
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    routes['GET /robots'] = { status: 200, body: { items: [RB], next_cursor: null } };
-    n = lists();
-    await del();
-    expect(card('로봇').textContent).toContain('Go2-A 로봇을 지웠습니다.');
-    expect([...card('로봇').querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Go2-B박운영']);
-    expect(lists()).toBeGreaterThanOrEqual(n + 2);
-  });
-  it('토큰 다시 받기: 확인 뒤 POST agent-token → 새 토큰 한 번, 실패는 이유', async () => {
-    let rep: Reply = err(403, 'FORBIDDEN', '권한이 없습니다.');
-    serve(signedIn(KIM, [RA], { 'POST /robots/r-a/agent-token': () => rep }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    await click(btn('토큰 다시 받기', card('로봇 설정')));
-    expect(card('확인').textContent).toContain('예전 토큰은 바로 못 쓰게');
-    await click(btn('토큰 다시 받기', card('확인')));
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe('권한이 없습니다.');
-    rep = { status: 200, body: { agent_token: 'fh_new_456' } };
-    await click(btn('토큰 다시 받기', card('로봇 설정')));
-    await click(btn('토큰 다시 받기', card('확인')));
-    expect(sent('POST', '/robots/r-a/agent-token')).toHaveLength(2);
-    expect($<HTMLInputElement>('input[aria-label="로봇 토큰"]')!.value).toBe('fh_new_456');
-    await click(btn('닫기', card('로봇 토큰')));
-    expect(box.innerHTML).not.toContain('fh_new_456');
   });
 });
 
