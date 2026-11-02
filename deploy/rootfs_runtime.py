@@ -207,7 +207,7 @@ def inactive_namespace(data):
     no_dds_or_native()
 
 
-def stop_pair(stop_manager,userctl):
+def stop_pair(stop_manager,userctl,*,failure_fence=None):
     data=load();uid,_=identity(data)
     try:
         state=unit_state('user@'+str(uid)+'.service')
@@ -219,7 +219,10 @@ def stop_pair(stop_manager,userctl):
         run(['systemctl','stop','user@'+str(uid)+'.service'])
         inactive_namespace(data)
     except BaseException:
-        if not (GUARD/'setup-unproven').exists():create_install_latch(GUARD/'setup-unproven')
+        if failure_fence is None:
+            if not (GUARD/'setup-unproven').exists():create_install_latch(GUARD/'setup-unproven')
+        else:
+            failure_fence()
         raise
 
 
