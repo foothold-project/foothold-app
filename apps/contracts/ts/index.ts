@@ -224,9 +224,9 @@ export interface ApprovalApprove {
 }
 
 export interface ApprovalAssignmentPreview {
-  scenario_id: string;
+  scenario_id: string | null;
   scenario_name: string;
-  scenario_version: number;
+  scenario_version: number | null;
   robot_id: string;
   robot_name: string;
 }
@@ -253,15 +253,15 @@ export interface ApprovalList {
 }
 
 export interface ApprovalMapPreview {
-  floor_id: string;
+  floor_id: string | null;
   floor_name: string;
-  target_version_number: number;
+  target_version_number: number | null;
   base_version_number: number | null;
 }
 
 export interface ApprovalRef {
   type: "map_version" | "assignment";
-  id: string;
+  id: string | null;
 }
 
 export interface ApprovalReject {
@@ -269,10 +269,11 @@ export interface ApprovalReject {
 }
 
 export interface Assignment {
-  scenario_id: string;
-  scenario_version: number;
+  scenario_id: string | null;
+  scenario_version: number | null;
   robot_id: string;
   memo: string;
+  scenario_name_snapshot: string | null;
   id: string;
   scenario_name: string;
   robot_name: string;
@@ -1496,6 +1497,20 @@ export interface RunGoal {
   mission_name: string;
 }
 
+export interface RunHistory {
+  id: string;
+  scenario_version_id: string | null;
+  floor_id: string | null;
+  map_version_id: string | null;
+  scenario_name: string;
+  floor_name: string;
+  scenario_name_snapshot: string | null;
+  floor_name_snapshot: string | null;
+  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
+  started_at: string;
+  ended_at: string | null;
+}
+
 export interface RunMapProof {
   floor_id: string;
   map_version_id: string;
@@ -1986,6 +2001,19 @@ export interface StopRequestStatus {
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
+}
+
+export interface TrashItem {
+  kind: "site" | "building" | "floor" | "scenario";
+  id: string;
+  name: string;
+  archived_at: string;
+  deleted_by: Person | null;
+  parent_name: string | null;
+}
+
+export interface TrashList {
+  items: TrashItem[];
 }
 
 export interface UnlockAxis {

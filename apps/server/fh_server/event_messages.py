@@ -24,8 +24,6 @@ TEMPLATES = {
     'FLOOR_PURGED': '{person}님이 층 {place}을(를) 완전 삭제했습니다.',
     'SCENARIO_RESTORED': '{person}님이 시나리오 {place}을(를) 되살렸습니다.',
     'SCENARIO_PURGED': '{person}님이 시나리오 {place}을(를) 완전 삭제했습니다.',
-
-
     'FIELD_APPROVAL_GRANTED': '{robot} 현장 안전 확인을 등록했습니다.',
     'FIELD_APPROVAL_REVOKED': '{robot} 현장 안전 확인을 해제했습니다.',
     'FIELD_APPROVAL_EXPIRED': '{robot} 현장 안전 확인 시간이 끝났습니다.',
@@ -51,7 +49,7 @@ TEMPLATES = {
     'PHONE_PASS_DENIED': '폰 출입증 발급을 거절했습니다.',
     'MISSION_CREATED': '{person}님이 임무 {place} {number}판을 만들었습니다.',
     'MISSION_VERSION_CREATED': '{person}님이 임무 {place} {number}판을 저장했습니다.',
-    'MISSION_ARCHIVED': '{person}님이 임무 {place}을(를) 휴지통으로 옮겼습니다.',
+    'MISSION_ARCHIVED': '{person}님이 임무 {place}을(를) 보관했습니다.',
     'SCENARIO_CREATED': '{person}님이 시나리오 {place} {number}판을 만들었습니다.',
     'SCENARIO_VERSION_CREATED': '{person}님이 시나리오 {place} {number}판을 저장했습니다.',
     'SCENARIO_ARCHIVED': '{person}님이 시나리오 {place}을(를) 휴지통으로 옮겼습니다.',

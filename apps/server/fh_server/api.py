@@ -255,20 +255,29 @@ def create_app(settings: Settings | None = None):
                 await asyncio.sleep(1)
                 try:
                     await asyncio.to_thread(issuer.flush_denials,factory,settings.org_id)
-                    await asyncio.to_thread(trash.delete_files, factory, settings.files_root, settings.org_id)
                     await asyncio.to_thread(expire_user_sessions, factory, settings.org_id, clock=issuer.clock)
                     await asyncio.to_thread(pairing.expire, factory, settings.org_id)
                 except Exception:
                     # Counters stay durable and retry; never drop a denial silently.
                     continue
+        async def trash_collector():
+            while True:
+                await asyncio.sleep(1)
+                try:
+                    await asyncio.to_thread(trash.delete_files, factory, settings.files_root, settings.org_id)
+                except Exception:
+                    trash.log.warning('Map file cleanup deferred; durable outbox retained')
+        # Slow storage cleanup must not delay session/pass expiry auditing.
+        trash_task = asyncio.create_task(trash_collector())
         denial_task = asyncio.create_task(denial_auditor())
         simulation_task = asyncio.create_task(simulation.watch(app))
         try:
             yield
         finally:
+            trash_task.cancel()
             denial_task.cancel()
             simulation_task.cancel()
-            await asyncio.gather(denial_task, simulation_task, return_exceptions=True)
+            await asyncio.gather(denial_task, simulation_task, trash_task, return_exceptions=True)
             await app.state.realtime.close()
             engine.dispose()
 
@@ -336,7 +345,11 @@ def create_app(settings: Settings | None = None):
             yield db
             db.commit()
             if db.info.pop('trash_files_pending', None):
-                trash.delete_files(factory, settings.files_root, settings.org_id)
+                try:
+                    trash.delete_files(factory, settings.files_root, settings.org_id)
+                except Exception:
+                    # The purge already committed; its durable outbox retries.
+                    trash.log.warning('Map file cleanup deferred after committed purge')
 
     DB = Annotated[DBSession, Depends(database, scope='function')]
 
@@ -810,7 +823,7 @@ def create_app(settings: Settings | None = None):
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
-    trash.install(app, DB, Identity, fail, authorize, event, settings, factory)
+    trash.install(app, DB, Identity, fail, authorize, event)
     runs.install(app, DB, fail)
     photos.install(app, DB, Identity, fail, authorize)
     external_camera.install(app, UploadIdentity, upload_write, fail, authorize)

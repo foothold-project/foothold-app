@@ -29,11 +29,12 @@ def assignment_objects(db, rows):
 
 
 def record(db, user, row, code):
-    version = db.get(ScenarioVersion, row.scenario_version_id)
+    version = db.get(ScenarioVersion, row.scenario_version_id) if row.scenario_version_id else None
     db.add(render(db, Event(org_id=user.org_id, category='ACCOUNT', code=code,
         user_id=user.id, robot_id=row.robot_id, data={'assignment_id': str(row.id),
-            'scenario_id': str(version.scenario_id), 'scenario_version': version.number,
-            'scenario_name': version.name, 'number': version.number, 'status': row.status})))
+            'scenario_id': str(version.scenario_id) if version else None, 'scenario_version': version.number if version else None,
+            'scenario_name': version.name if version else '삭제된 시나리오: ' + (row.scenario_name_snapshot or ''),
+            'number': version.number if version else None, 'status': row.status})))
 
 
 def robot_for_write(db, user, robot_id, fail, *, creating):

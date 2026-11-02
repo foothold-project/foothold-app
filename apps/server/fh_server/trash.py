@@ -3,9 +3,9 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import any_, delete, or_, select, text
+from sqlalchemy import any_, or_, select, text
 from apps.contracts import models as C
-from .models import (Approval, Building, Event, FileDeletion, Floor, MapVersion,
+from .models import (Approval, Assignment, Building, Event, FileDeletion, Floor, MapVersion,
                      Robot, Run, Scenario, ScenarioVersion, Site, User)
 from .resource_archive import require_unused
 
@@ -24,7 +24,7 @@ def delete_files(factory, root, org_id):
     root = Path(root).resolve()
     with factory.begin() as db:
         rows = list(db.scalars(select(FileDeletion).where(FileDeletion.org_id == org_id)
-            .order_by(FileDeletion.id).limit(100).with_for_update(skip_locked=True)))
+            .order_by(FileDeletion.attempts, FileDeletion.created_at, FileDeletion.id).limit(100).with_for_update(skip_locked=True)))
         for row in rows:
             try:
                 path = (root / row.path).resolve()
@@ -32,9 +32,12 @@ def delete_files(factory, root, org_id):
                     raise ValueError('invalid storage path')
                 source = row.path[:-5] + '.png' if row.path.endswith('.yaml') else row.path
                 if db.scalar(select(MapVersion.id).where(MapVersion.image_path == source).limit(1)):
+                    # The final owner's purge enqueues this path again.
+                    db.delete(row)
                     continue
                 from .models import Upload
                 if db.scalar(select(Upload.id).where(Upload.image_path == source).limit(1)):
+                    db.delete(row)
                     continue
                 path.unlink(missing_ok=True)
                 db.delete(row)
@@ -44,7 +47,7 @@ def delete_files(factory, root, org_id):
                 log.warning('Map file deletion deferred: entry=%s attempt=%s', row.id, row.attempts)
 
 
-def install(app, DB, Identity, fail, authorize, event, settings, factory):
+def install(app, DB, Identity, fail, authorize, event):
     def own(db, user, kind, identifier):
         model = MODELS[kind]
         row = db.scalar(select(model).where(model.org_id == user.org_id, model.id == identifier).with_for_update())
@@ -111,6 +114,13 @@ def install(app, DB, Identity, fail, authorize, event, settings, factory):
                 fail(409, 'HAS_CHILDREN', '하위 항목을 먼저 완전 삭제하세요. 휴지통의 하위 항목도 포함합니다.')
         elif kind == 'scenario':
             require_unused(db, user.org_id, fail, scenario=row)
+            if db.scalar(select(Approval.id).join(Assignment,
+                    (Approval.target_type == 'assignment') & (Approval.target_id == Assignment.id) &
+                    (Approval.org_id == Assignment.org_id)).join(ScenarioVersion,
+                    (ScenarioVersion.id == Assignment.scenario_version_id) &
+                    (ScenarioVersion.org_id == Assignment.org_id)).where(Approval.org_id == user.org_id,
+                    Approval.status == 'PENDING', ScenarioVersion.scenario_id == row.id).limit(1)):
+                fail(409, 'RESOURCE_IN_USE', '시나리오 배정 결재 요청을 먼저 처리하거나 취소하세요.')
         else:
             require_unused(db, user.org_id, fail, floor=row)
             # Immutable scenario geometry must never become selectable with a

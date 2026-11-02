@@ -113,9 +113,16 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "format": "uuid",
-          "title": "Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Id"
         },
         "type": {
           "default": "map_version",

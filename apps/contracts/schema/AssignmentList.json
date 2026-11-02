@@ -58,19 +58,43 @@
           "type": "string"
         },
         "scenario_id": {
-          "format": "uuid",
-          "title": "Scenario Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scenario Id"
         },
         "scenario_name": {
           "title": "Scenario Name",
           "type": "string"
         },
+        "scenario_name_snapshot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Name Snapshot"
+        },
         "scenario_version": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "title": "Scenario Version",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scenario Version"
         },
         "status": {
           "enum": [
@@ -88,6 +112,7 @@
         "scenario_version",
         "robot_id",
         "memo",
+        "scenario_name_snapshot",
         "id",
         "scenario_name",
         "robot_name",
