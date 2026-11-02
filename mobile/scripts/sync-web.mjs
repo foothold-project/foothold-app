@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { POLICY_ADAPTERS } from '../sim/policy-adapters.js';
 
 const here = dirname(dirname(fileURLToPath(import.meta.url)));
 const out = join(here, 'www'), brand = join(here, '..', 'apps', 'web', 'public', 'brand');
@@ -28,23 +29,31 @@ const copy = [['policy_v2.f32', 'policy_v2.f32'], ['vendor/three.module.js', 've
   ...[...go2xml.matchAll(/<mesh file="([\w.]+)"/g)].map(([, f]) => [`assets/unitree_go2/assets/${f}`, `assets/unitree_go2/assets/${f}`])];
 for (const [a, b] of copy) { mkdirSync(dirname(join(sim, b)), { recursive: true }); copyFileSync(need(a), join(sim, b)); }
 
-// Optional teacher assets follow the same external-copy path as foothold-v2.
-// Never make an absent optional model break the default offline simulator.
+// f32 remains available for every policy. Optional ONNX assets share one runtime.
 const ame2src = process.env.FH_AME2_SRC || src;
 const ame2files = ['ame2_actor.f32', 'ame2_actor.json'];
 if (ame2files.every((file) => existsSync(join(ame2src, file)))) {
   for (const file of ame2files) copyFileSync(join(ame2src, file), join(sim, file));
-  if (existsSync(join(ame2src, 'ame2_actor.onnx'))) {
-    copyFileSync(join(ame2src, 'ame2_actor.onnx'), join(sim, 'ame2_actor.onnx'));
-    const ort = join(here, 'node_modules', 'onnxruntime-web');
-    mkdirSync(join(sim, 'ort'), { recursive: true });
-    const runtimeFiles = ['ort.wasm.min.mjs', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm'];
-    // WebGPU is an explicit comparison option; WASM is the measured default.
-    if (process.env.FH_AME2_WEBGPU === '1') runtimeFiles.push('ort.webgpu.min.mjs', 'ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm');
-    for (const file of runtimeFiles) copyFileSync(join(ort, 'dist', file), join(sim, 'ort', file));
-    for (const file of ['README.md', 'LICENSE', 'ThirdPartyNotices.txt']) if (existsSync(join(ort, file))) copyFileSync(join(ort, file), join(sim, 'ort', file));
-    copyFileSync(join(ort, 'package.json'), join(sim, 'ort', 'package.json'));
-  }
+}
+let copiedOnnx = false;
+for (const adapter of Object.values(POLICY_ADAPTERS)) {
+  if (!adapter.onnx || !existsSync(join(sim, adapter.network.file))) continue;
+  const modelRoot = adapter.id === 'ame2-demo' ? ame2src : process.env.FH_POLICY_ONNX_SRC || src;
+  const model = join(modelRoot, adapter.onnx.file);
+  if (!existsSync(model)) continue;
+  const data = readFileSync(model);
+  if (createHash('sha256').update(data).digest('hex') !== adapter.onnx.sha256) throw new Error(`${adapter.id} ONNX SHA-256 불일치`);
+  copyFileSync(model, join(sim, adapter.onnx.file));
+  copiedOnnx = true;
+}
+if (copiedOnnx) {
+  const ort = join(here, 'node_modules', 'onnxruntime-web');
+  mkdirSync(join(sim, 'ort'), { recursive: true });
+  const runtimeFiles = ['ort.wasm.min.mjs', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm'];
+  if (process.env.FH_POLICY_WEBGPU === '1' || process.env.FH_AME2_WEBGPU === '1') runtimeFiles.push('ort.webgpu.min.mjs', 'ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm');
+  for (const file of runtimeFiles) copyFileSync(join(ort, 'dist', file), join(sim, 'ort', file));
+  for (const file of ['README.md', 'LICENSE', 'ThirdPartyNotices.txt']) if (existsSync(join(ort, file))) copyFileSync(join(ort, file), join(sim, 'ort', file));
+  copyFileSync(join(ort, 'package.json'), join(sim, 'ort', 'package.json'));
 }
 
 const files = {};
