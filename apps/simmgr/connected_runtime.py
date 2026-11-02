@@ -51,7 +51,7 @@ def decorate_status(status, selection):
     return status
 
 
-def compile_static_runtime(source, filename, *, warehouse=False):
+def compile_static_runtime(source, filename, *, warehouse=False, record_targets=False):
     """Fail closed when the source no longer offers the known adapter points."""
     tree = ast.parse(source, filename=filename)
     main = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main'), None)
@@ -102,6 +102,9 @@ def compile_static_runtime(source, filename, *, warehouse=False):
     if status.count != 1:
         raise ValueError('connected static runtime status hook changed')
     status_timer(tree)
+    if record_targets:
+        from apps.agent.tools.sim.target_recording import instrument
+        tree = instrument(tree)
     ast.fix_missing_locations(tree)
     return compile(tree, filename, 'exec')
 
@@ -110,9 +113,11 @@ def run_static_runtime(path, argv):
     # Source/assets were rehashed by native_entrypoint before any external import.
     if '--map-mode' not in argv or argv[argv.index('--map-mode') + 1] != 'static':
         raise ValueError('connected adapter supports static GT only')
-    code = compile_static_runtime(path.read_text(), str(path))
+    code = compile_static_runtime(path.read_text(), str(path), record_targets=True)
     sys.modules['connected'] = connected
     sys.argv = [str(path), *argv]
     scope = dict(__name__='__main__', __file__=str(path), _fh_floor_status=decorate_status,
                  _fh_run_identity=write_run_identity)
+    from apps.agent.tools.sim.target_recording import scope as target_scope
+    scope.update(target_scope())
     exec(code, scope)
