@@ -1,9 +1,10 @@
 """Trash contract on a private PG and synthetic local files only."""
 from pathlib import Path
-from uuid import UUID
+from datetime import timedelta
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, event as sql_event, select, text
 from sqlalchemy.orm import Session
 
 from apps.server.fh_server.models import (Approval, Assignment, Event, FileDeletion,
@@ -80,6 +81,42 @@ def test_scenario_restore_purge_and_permissions(maps, seeded):
     response = trash(http, operator, 'scenario', sid)
     assert response.status_code == 204, response.text
     assert http.get(P + '/scenarios/' + sid, headers=headers).status_code == 404
+
+
+def test_listing_reads_only_latest_archive_actor_for_current_trash(maps, seeded):
+    http, headers, _ = maps
+    _, _, floor = tree(http, headers)
+    assert http.delete(P + '/floors/' + floor, headers=headers).status_code == 204
+    from apps.server.fh_server.models import now
+    at = now()
+    with Session(http.app.state.engine) as db:
+        # Old cycles and absent resources must not cross the DB boundary as
+        # history grows; ties still select the highest event id, as before.
+        for n in range(100):
+            db.add(Event(org_id=seeded['org'], code='FLOOR_DELETED', category='ACCOUNT',
+                severity='INFO', message='synthetic archive', user_id=seeded['users']['admin'],
+                data={'id': floor if n % 2 else str(uuid4())}, at=at - timedelta(days=1)))
+        for user in ('admin', 'two'):
+            db.add(Event(org_id=seeded['org'], code='FLOOR_DELETED', category='ACCOUNT',
+                severity='INFO', message='synthetic archive', user_id=seeded['users'][user], data={'id': floor}, at=at))
+            db.flush()
+        db.commit()
+    event_rows = []
+    def counted(conn, cursor, statement, parameters, context, many):
+        if 'FROM events' in statement:
+            event_rows.append(cursor.rowcount)
+    sql_event.listen(http.app.state.engine, 'after_cursor_execute', counted)
+    try:
+        items = http.get(P + '/trash', headers=headers).json()['items']
+        assert len(items) == 1 and items[0]['id'] == floor
+        assert items[0]['deleted_by'] == {'id': str(seeded['users']['two']), 'display_name': 'two'}
+        assert event_rows == [1]
+        event_rows.clear()
+        assert trash(http, headers, 'floor', floor, 'restore').status_code == 204
+        assert http.get(P + '/trash', headers=headers).json() == {'items': []}
+        assert event_rows == []
+    finally:
+        sql_event.remove(http.app.state.engine, 'after_cursor_execute', counted)
 
 
 @pytest.mark.parametrize('kind,usage', [('scenario', u) for u in ('run', 'ACTIVE', 'PENDING')] +

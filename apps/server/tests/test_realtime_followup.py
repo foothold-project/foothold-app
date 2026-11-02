@@ -46,42 +46,66 @@ def test_slow_reads_keep_20hz_commands_and_take_available(client, seeded, rt, mo
             event.listen(engine, 'before_cursor_execute', delay_connection)
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, slow_screen(client, app_token(client)) as ws:
-        time.sleep(.7)  # fill the overlapping read pipeline, no policy age relaxation
+        async def warmed():
+            # Wait for observed readiness rather than assuming the thread/pool
+            # pipeline finishes warming during a fixed wall-clock sleep.
+            async with asyncio.timeout(5):
+                while not (rt.policy_cache and all(rt.clock() - p.checked < .5
+                        for p in rt.policy_cache.values()) and rt.clock() - rt.agents[rid].auth_checked < .5):
+                    await asyncio.sleep(.002)
+        run(client, warmed)
         # 450ms leaves only a 50ms freshness window. Sample explicit take
         # attempts across it; a stale attempt must remain rejected, never gain
         # a post-read TTL. Even after warming, scheduling can consume that window.
         take_errors, retakes = [], []
-        def acquire():
+        async def acquire_async():
+            async def feedback():
+                # ACK each STOP as soon as it reaches the fake agent. Two
+                # synchronous portal receives plus a 50ms polling interval can
+                # consume the entire freshness window of a 450ms read.
+                while True:
+                    packet = await ag._send_rx.receive()
+                    ag._raise_on_close(packet)
+                    frame = json.loads(packet.get('text', '{}'))
+                    if frame.get('t') == 'stop':
+                        await ag._receive_tx.send({'type': 'websocket.receive', 'text':
+                            json.dumps(state(3, stop_ref=frame['stop_ref']))})
+            responder = asyncio.create_task(feedback())
+            try:
+                return await attempt_take()
+            finally:
+                responder.cancel()
+                await asyncio.gather(responder, return_exceptions=True)
+
+        async def attempt_take():
             for attempt in range(25):
-                result = reply(ws, send(ws, 'lease.take', rid))
+                ident = f'take-{len(take_errors)}-{attempt}'
+                await ws._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps(
+                    {'t': 'lease.take', 'id': ident, 'robot': rid})})
+                async with asyncio.timeout(2):
+                    while True:
+                        packet = await ws._send_rx.receive()
+                        ws._raise_on_close(packet)
+                        result = json.loads(packet['text'])
+                        if result.get('t') == 'reply' and result.get('id') == ident:
+                            break
                 if not result['ok']:
                     take_errors.append(result['error']['code'])
                     assert result['error']['code'] in ('POLICY_STALE', 'ROBOT_AUTH_PENDING'), result
-                    time.sleep(.02)
+                    await asyncio.sleep(.02)
                     continue
-                receive(ag, 'lease')
-                stop = receive(ag, 'stop')
-                async def feedback():
-                    reference = stop['stop_ref']
-                    async with asyncio.timeout(1.8):
-                        while rt.arbiter.robot(rid).holder is None and rt.arbiter.robot(rid).transfer:
-                            while True:
-                                try:
-                                    packet = ag._send_rx.receive_nowait()
-                                except WouldBlock:
-                                    break
-                                frame = json.loads(packet.get('text', '{}'))
-                                if frame.get('t') == 'stop':
-                                    reference = frame['stop_ref']
-                            await ag._receive_tx.send({'type': 'websocket.receive', 'text':
-                                json.dumps(state(3, stop_ref=reference))})
-                            await asyncio.sleep(.05)
-                    return rt.arbiter.robot(rid).holder
-                holder = run(client, feedback)
+                async with asyncio.timeout(1.8):
+                    while rt.arbiter.robot(rid).holder is None and rt.arbiter.robot(rid).transfer:
+                        await asyncio.sleep(.002)
+                holder = rt.arbiter.robot(rid).holder
                 if holder:
-                    return receive(ws, 'lease', predicate=lambda m: m.get('lease_id') == holder.lease_id)['lease_id']
+                    return holder.lease_id
                 take_errors.append('CONFIRM_CANCELED')
             pytest.fail(f'No fresh take window: {take_errors}')
+
+        def acquire():
+            lease = run(client, acquire_async)
+            return receive(ws, 'lease', predicate=lambda m: m.get('lease_id') == lease)['lease_id']
         lease = acquire()
         accepted, errors = 0, []
         for seq in range(40):

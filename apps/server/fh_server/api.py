@@ -271,7 +271,9 @@ def create_app(settings: Settings | None = None):
                     continue
         async def trash_collector():
             while True:
-                await asyncio.sleep(1)
+                # Purge tries immediately after commit; this is only recovery
+                # of durable failures/restarts, so avoid polling an empty DB at 1Hz.
+                await asyncio.sleep(30)
                 try:
                     await asyncio.to_thread(trash.delete_files, factory, settings.files_root, settings.org_id)
                 except Exception:
