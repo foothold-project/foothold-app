@@ -7,6 +7,9 @@ import stat
 import time
 from dataclasses import dataclass, field
 
+# Only server-issued expiry upper bounds tolerate laptop/server clock offset.
+SERVER_CLOCK_SKEW_S = 30.
+
 
 @dataclass(frozen=True)
 class Approval:
@@ -52,6 +55,11 @@ def validate(env, *, now=None, uid=None):
         value = json.loads(os.read(fd, 4097))
     finally:
         os.close(fd)
+    return validate_value(value, nic, now=now)
+
+
+def validate_value(value, nic, *, now=None, clock_skew_s=0.):
+    """Same marker checks; local files stay strict, server upper bounds allow skew."""
     now = time.time() if now is None else now
     if not isinstance(value, dict):
         raise PermissionError('field approval must be an object')
@@ -71,6 +79,6 @@ def validate(env, *, now=None, uid=None):
     if (type(value.get('v')) is not int or value.get('v') != 1 or
             value.get('purpose') != 'go2-field-motion' or
             value.get('nic') != nic or not (fallback or regular) or
-            type(expiry) not in (int, float) or not now < expiry <= now+1800):
+            type(expiry) not in (int, float) or not now < expiry <= now+1800+clock_skew_s):
         raise PermissionError('field approval is invalid or expired')
     return Approval(nic, serial, float(expiry), bool(fallback), mac, frozenset(codes))

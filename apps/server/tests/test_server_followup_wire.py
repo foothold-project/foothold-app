@@ -69,9 +69,9 @@ def test_s0_real_client_ping_cancel_first_unlock_and_twenty_cold_stops(seeded, t
                     # Unsubscribed screens must receive unsolicited UTC pings.
                     ping = await receive(requester, 'ping')
                     assert ping['t_server'].endswith('Z')
-                    created = await http.post('/api/v1/robots', headers=auth(admin), json={'name': 's0-immediate-sub'})
-                    assert created.status_code == 201
-                    ident = await send(requester, 'sub', proto='fh-rt/1', robots=[created.json()['robot']['id']], streams=['state'])
+                    from .pairing_helpers import paired_async
+                    created = await paired_async(http, auth(tokens[0]), name='s0-immediate-sub')
+                    ident = await send(requester, 'sub', proto='fh-rt/1', robots=[created['robot']['id']], streams=['state'])
                     assert (await receive(requester, 'reply', lambda m: m['id'] == ident))['ok']
                     ident = await send(holder, 'sub', proto='fh-rt/1', robots=[rid], streams=['state'])
                     assert (await receive(holder, 'reply', lambda m: m['id'] == ident))['ok']

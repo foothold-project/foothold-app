@@ -3,7 +3,7 @@ import asyncio
 import json
 import time
 from dataclasses import replace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -20,39 +20,32 @@ DEVICE = dict(key='rgb', kind='CAMERA_RGB', label='시험 카메라', state='OK'
 
 
 def test_robot_crud_roles_owner_validation_one_time_token_and_audit(client, seeded):
+    from .test_pairing import paired
     operator, admin = app_token(client), app_token(client, 'admin')
-    rid = str(seeded['robots']['mine'])
-    for method, path, body in [('post', '/robots', {'name': 'denied'}),
-            ('patch', '/robots/' + rid, {'name': 'denied'}), ('delete', '/robots/' + rid, None)]:
-        result = client.request(method, P + path, headers=operator, **({'json': body} if body else {}))
-        assert result.status_code == 403
+    for headers in (operator, admin):
+        assert client.post(P + '/robots', headers=headers, json={'name': 'denied'}).status_code == 403
+    created, credential, _ = paired(client, operator, name='새 로봇')
+    path = P + '/robots/' + created['id']
+    raw = credential['agent_token']
     for owner in ['admin', 'foreign', 'locked']:
-        assert client.post(P + '/robots', headers=admin, json={'name': 'bad',
+        assert client.patch(path, headers=operator, json={
             'owner_user_id': str(seeded['users'][owner])}).status_code == 400
-    result = client.post(P + '/robots', headers=admin,
-        json={'name': '새 로봇', 'owner_user_id': str(seeded['users']['one'])})
-    assert result.status_code == 201, result.text
-    assert result.headers['cache-control'] == 'no-store'
-    created = C.RobotCreated.model_validate(result.json())
-    path = P + '/robots/' + str(created.robot.id)
-    raw = created.agent_token
     for response in [client.get(path, headers=admin), client.get(P + '/robots?scope=all', headers=admin),
-                     client.patch(path, headers=admin, json={'name': '바꾼 이름', 'owner_user_id': None})]:
+                     client.patch(path, headers=operator, json={'name': '바꾼 이름'})]:
         assert response.status_code == 200
         assert raw not in response.text and 'agent_token' not in response.text
-    assert client.get(path, headers=admin).json()['owner'] is None
     with DBSession(client.app.state.engine) as db:
-        assert db.get(Robot, created.robot.id).agent_token_hash == digest(raw)
-        changes = list(db.scalars(select(Event).where(Event.robot_id == created.robot.id)))
+        assert db.get(Robot, UUID(created['id'])).agent_token_hash == digest(raw)
+        changes = list(db.scalars(select(Event).where(Event.robot_id == UUID(created['id']))))
         assert {e.code for e in changes} == {'ROBOT_CREATED', 'ROBOT_UPDATED'}
         assert raw not in repr([e.data for e in changes])
-    assert client.patch(path, headers=admin, json={'name': None}).status_code == 400
-    assert client.patch(path, headers=admin,
-        json={'owner_user_id': str(seeded['users']['foreign'])}).status_code == 400
-    assert client.delete(path, headers=admin).status_code == 204
+    assert client.patch(path, headers=operator, json={'name': None}).status_code == 400
+    assert client.patch(path, headers=operator, json={'owner_user_id': None}).status_code == 400
+    assert client.delete(path, headers=admin).status_code == 403
+    assert client.delete(path, headers=operator).status_code == 204
     assert client.get(path, headers=admin).status_code == 404
     with DBSession(client.app.state.engine) as db:
-        row = db.get(Robot, created.robot.id)
+        row = db.get(Robot, UUID(created['id']))
         assert row.archived_at and row.agent_token_hash != digest(raw)
         assert db.scalar(select(Event).where(Event.robot_id == row.id, Event.code == 'ROBOT_ARCHIVED'))
     with pytest.raises(WebSocketDisconnect) as error:
@@ -113,7 +106,7 @@ def test_rest_summaries_reflect_state_and_mask_other_owner(client, seeded, rt, m
         assert detail['devices'][0]['state'] == 'MISSING'
 
 
-@pytest.mark.parametrize('owner', ['two', None])
+@pytest.mark.parametrize('owner', ['two'])
 def test_assignment_recalls_phone_access_and_keeps_other_subscription(client, seeded, rt, owner):
     admin, own = app_token(client, 'admin'), app_token(client)
     rid = seeded['robots']['mine']
@@ -127,7 +120,7 @@ def test_assignment_recalls_phone_access_and_keeps_other_subscription(client, se
         db.commit()
     with agent(client, seeded, direct=True) as ag, screen(client, own) as ws:
         assert reply(ws, send(ws, 'sub', robots=[str(rid), second], streams=['state']))['ok']
-        result = client.patch(P + '/robots/' + str(rid), headers=admin,
+        result = client.patch(P + '/robots/' + str(rid), headers=own,
             json={'owner_user_id': str(seeded['users'][owner]) if owner else None})
         assert result.status_code == 200, result.text
         packet = receive(ag, 'phone.revoke')
@@ -148,27 +141,27 @@ def test_assignment_recalls_phone_access_and_keeps_other_subscription(client, se
 
 
 def test_delete_running_conflict_then_closes_agent_and_preserves_history(client, seeded, rt):
-    admin = app_token(client, 'admin')
+    owner = app_token(client)
     rid = str(seeded['robots']['mine'])
     with DBSession(client.app.state.engine) as db:
         db.get(Robot, seeded['robots']['mine']).simulation = False
         db.commit()
-    with agent(client, seeded, direct=True) as ag, screen(client, admin) as ws:
+    with agent(client, seeded, direct=True) as ag, screen(client, owner) as ws:
         assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
         rt.runs[rid] = {'status': 'PAUSED'}
-        assert client.delete(P + '/robots/' + rid, headers=admin).status_code == 409
+        assert client.delete(P + '/robots/' + rid, headers=owner).status_code == 409
         rt.runs[rid] = {'status': 'COMPLETED'}
-        assert client.delete(P + '/robots/' + rid, headers=admin).status_code == 204
+        assert client.delete(P + '/robots/' + rid, headers=owner).status_code == 204
         assert receive(ws, 'subscription.revoked')['reason'] == 'ROBOT_DELETED'
         assert reply(ws, send(ws, 'ping'))['ok']
         with pytest.raises(WebSocketDisconnect) as closed:
             receive(ag, 'never-after-deletion')
         assert closed.value.code == 4403
-        assert client.get(P + '/dashboard', headers=admin).json()['robots_total'] == 1
+        assert client.get(P + '/dashboard', headers=app_token(client, 'admin')).json()['robots_total'] == 1
 
 
 def test_assignment_recalls_disconnected_phone_without_server_lease(client, seeded, rt):
-    admin = app_token(client, 'admin')
+    own = app_token(client)
     rid, jti = seeded['robots']['mine'], uuid4()
     with DBSession(client.app.state.engine) as db:
         db.get(Robot, rid).simulation = False
@@ -176,7 +169,7 @@ def test_assignment_recalls_disconnected_phone_without_server_lease(client, seed
             device=uuid4(), purpose='control', jti=jti, iat=int(time.time()), exp=int(time.time())+600))
         db.commit()
     with agent(client, seeded, direct=True) as ag:
-        result = client.patch(P + '/robots/' + str(rid), headers=admin, json={'owner_user_id': None})
+        result = client.patch(P + '/robots/' + str(rid), headers=own, json={'owner_user_id': str(seeded['users']['two'])})
         assert result.status_code == 200
         assert rt.arbiter.robot(str(rid)).holder is None
         packet = receive(ag, 'phone.revoke')
@@ -193,7 +186,7 @@ def test_assignment_change_preserves_admin_subscription_but_denies_real_control(
         assert reply(ws, send(ws, 'sub', robots=[str(rid)], streams=['state']))['ok']
         denied = reply(ws, send(ws, 'lease.take', rid))
         assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
-        assert client.patch(P + '/robots/' + str(rid), headers=admin,
+        assert client.patch(P + '/robots/' + str(rid), headers=app_token(client),
             json={'owner_user_id': str(seeded['users']['two'])}).status_code == 200
         # Let both policy and delivery watchers pass the changed row boundary.
         assert receive(ws, 'state')['robot'] == str(rid)

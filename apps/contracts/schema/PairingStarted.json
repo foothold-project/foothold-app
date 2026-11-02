@@ -1,0 +1,36 @@
+{
+  "$id": "fh-app/1/PairingStarted",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "pattern": "^[0-9]{6}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "pairing_id": {
+      "format": "uuid",
+      "title": "Pairing Id",
+      "type": "string"
+    },
+    "poll_secret": {
+      "maxLength": 43,
+      "minLength": 43,
+      "title": "Poll Secret",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pairing_id",
+    "code",
+    "expires_at",
+    "poll_secret"
+  ],
+  "title": "PairingStarted",
+  "type": "object"
+}

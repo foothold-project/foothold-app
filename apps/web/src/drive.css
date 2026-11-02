@@ -24,6 +24,7 @@
 .dv-cards{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .dv-card{display:flex;flex-direction:column;gap:8px;padding:14px}
 .dv-card .lbl{font-size:14px}
+.dv-fold>summary{list-style:none;cursor:pointer}.dv-fold>summary::-webkit-details-marker{display:none}.dv-fold[open]>summary{margin-bottom:8px}
 
 /* 폰: 조종 화면은 화면 높이에 맞춤(띠·진행 막대가 있어도 조이스틱이 잘리지 않게). 영상이 남는 칸을 채우고(시안 A)
    상태 줄·단추는 영상 위 왼쪽 위 판에, STOP 은 머리줄 오른쪽 끝, 두 엄지 조이스틱은 아래 양쪽, 시트 단추 줄은 그 사이,

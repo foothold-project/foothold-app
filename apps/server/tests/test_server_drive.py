@@ -1,5 +1,6 @@
 """Robot-scoped opt-in reuses the existing arbiter and authenticated WS."""
 from uuid import UUID, uuid4
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,8 +8,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as DBSession
 
 from apps.server.fh_server.api import Settings, create_app
-from apps.server.fh_server.models import Robot
+from apps.server.fh_server.models import Robot, now
 from apps.server.fh_server.security import digest
+from apps.contracts import models as C
 from .test_realtime import app_token, hello, receive, reply, screen, send, state, take, agent, rt
 
 
@@ -19,6 +21,7 @@ def trial(seeded):
         for rid in seeded['robots'].values():
             row = db.get(Robot, rid)
             row.simulation = False
+            row.field_approval_expires_at = now() + timedelta(minutes=30)
             row.agent_token_hash = digest('fake-test-' + str(rid))
         db.commit()
     engine.dispose()
@@ -53,6 +56,9 @@ def test_trial_relay_lease_cmd_stop_admin_and_two_connections(trial, seeded):
         ag.send_json(hello())
         receive(ag, 'lease')
         receive(ag, 'stop')
+        assert client.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
+            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(client, owner) as ws, screen(client, owner) as second, screen(client, admin) as tower:
             lease = take(ws, ag, rid)
             assert client.get(f'/api/v1/robots/{rid}', headers=owner).json()['lease']['holder_type'] == 'USER'
@@ -109,6 +115,9 @@ def test_outside_exact_table_is_stopped_and_rejected(trial,seeded,bad):
     with trial.websocket_connect('/api/v1/agent/ws',headers={
             'authorization':'Bearer fake-test-'+str(rid)}) as ag:
         ag.send_json(hello()); receive(ag,'lease'); receive(ag,'stop')
+        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=app_token(trial),
+            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial,app_token(trial)) as ws:
             lease=take(ws,ag,rid)
             result=reply(ws,send(ws,'cmd',rid,lease_id=lease,seq=1,axes=bad))

@@ -1,0 +1,20 @@
+{
+  "$id": "fh-app/1/PairingWaiting",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "enum": [
+        "waiting",
+        "consumed"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "title": "PairingWaiting",
+  "type": "object"
+}

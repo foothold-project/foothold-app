@@ -24,6 +24,14 @@ TEMPLATES = {
     'FLOOR_PURGED': '{person}님이 층 {place}을(를) 완전 삭제했습니다.',
     'SCENARIO_RESTORED': '{person}님이 시나리오 {place}을(를) 되살렸습니다.',
     'SCENARIO_PURGED': '{person}님이 시나리오 {place}을(를) 완전 삭제했습니다.',
+
+
+    'FIELD_APPROVAL_GRANTED': '{robot} 현장 안전 확인을 등록했습니다.',
+    'FIELD_APPROVAL_REVOKED': '{robot} 현장 안전 확인을 해제했습니다.',
+    'FIELD_APPROVAL_EXPIRED': '{robot} 현장 안전 확인 시간이 끝났습니다.',
+    'ROBOT_DISCONNECTED': '{robot} 연결 키를 폐기하고 연결을 끊었습니다.',
+    'ROBOT_REPAIRED': '{robot} 연결 프로그램을 다시 연결하고 이전 연결 키를 폐기했습니다.',
+    'FIELD_APPROVAL_REQUIRED': '{robot} 현장 안전 확인이 필요합니다.',
     'STOP_REQUEST_RECEIVED': '{robot} 정지 요청을 폰에서 받았습니다. 실제 정지 확인 아님.',
     'STOP_REQUEST_ACKNOWLEDGED': '{person}님이 {robot} 정지 요청을 확인했습니다. 실제 정지 확인 아님.',
     'STOP_REQUESTED': '{person}님이 {robot} 정지를 요청했습니다. 요청 전달됨 — 실제 정지 확인 아님.',

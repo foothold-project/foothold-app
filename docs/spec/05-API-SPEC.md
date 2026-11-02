@@ -27,7 +27,7 @@
 | 웹 | `POST /auth/login` → 쿠키 `fh_s` (HttpOnly, Secure, SameSite=Strict, `Path=/api/v1`, 기본 24시간) + 응답 본문 `csrf_token`. 상태를 바꾸는 요청은 `X-FH-CSRF` 헤더 필요(틀리면 403 `FORBIDDEN`). 새로고침 뒤에는 `GET /auth/session` 으로 CSRF 값을 다시 받는다 |
 | 설치형 앱 | `POST /auth/login` (`client: "app"`) → `access_token`(15분) + `refresh_token`(30일). `Authorization: Bearer`. 갱신할 때마다 두 토큰을 새로 주고, 이미 쓴 `refresh_token` 을 다시 쓰면 그 기기 세션을 끝낸다 |
 | 화면 WS | 웹: `fh_s` 쿠키 + `Origin` 검사(설정한 출처, 없으면 같은 출처와 정확히 일치. 와일드카드·전달 헤더 안 믿음). 앱: `Authorization: Bearer`(Origin 검사 안 함). 1회용 티켓은 쓰지 않는다 |
-| 로봇 에이전트 | `Authorization: Bearer <agent_token>`. 서버는 sha256 만 `robots.agent_token_hash` 에 저장한다. 발급·재발급은 총괄의 `POST /robots/{id}/agent-token`(§3): 옛 토큰은 즉시 무효(새 연결 거부, 이미 열린 연결은 주기 인증 확인에서 4403), 원문은 그 응답에서 한 번만 보인다 |
+| 로봇 에이전트 | `Authorization: Bearer <agent_token>`. 서버는 sha256 만 `robots.agent_token_hash` 에 저장한다. 실기 발급은 담당 운영자의 페어링 확정(§3.1), 원문은 연결 프로그램의 poll 한 번에만 전달한다. 연결 끊기·삭제는 옛 토큰을 무효화한다 |
 
 - 비밀번호 길이: 지금 구현은 1~1024자만 검사한다. 최소 길이·복잡도 정책은 **미정(결정 필요)**.
 
@@ -102,11 +102,11 @@
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
 | GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본 `mine`). `all` = 조직의 전체 로봇 | 로그인 |
-| POST | `/robots` | 등록 → `{robot, agent_token}` (토큰은 이때 한 번만 보임) | A |
+| POST | `/robots` | 실기 직접 등록 폐지 →403 `PAIRING_REQUIRED`; §3.1 사용 | 없음 |
 | GET | `/robots/{id}` | 상세(장치 목록·담당자·현재 실행·현재 층). 담당 밖 운영 관리자에게는 로봇 요약 객체만 200 | 로그인 |
-| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}` | A |
-| DELETE | `/robots/{id}` | 해제(실행 중이면 409) | A |
-| POST | `/robots/{id}/agent-token` | 에이전트 토큰 발급·재발급 → `{agent_token}`. 옛 토큰 즉시 무효, 원문은 이 응답에서 한 번만(`Cache-Control: no-store`) | A |
+| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}`. 실기 넘기기 대상은 같은 조직의 활성 운영, null 거부, 넘기면 현장 승인 해제 | 실기 O(내), 담당 없는 실기 지정만 A, 시뮬 기존 A |
+| DELETE | `/robots/{id}` | 해제(실행·조종 중이면 409), 연결 키 폐기 | 실기 O(내), 시뮬 전용 관리 API |
+| POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
 | POST | `/robots/{id}/floor` | 현재 층 사람 입력 `{floor_id}` | A, O(내) |
 | POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true}`. 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
@@ -135,6 +135,35 @@
 ```
 - 값을 받을 수 없으면 `null`. 화면은 `null` 줄을 숨긴다. `owner`·`status` 도 모르면 `null`.
 - `location`: 에이전트 `state.pose`(§10.1)에 `map_version_id` 가 없어서 지금 서버는 지도 판을 추측하지 않고 `null` 로 둔다. pose 에 지도 판을 실을지는 **미정(결정 필요)**.
+
+---
+
+### 3.1 운영자의 실기 페어링·현장 안전 확인 (2026-11-02)
+
+아래 경로는 `/api/v1` 기준이다. QR 내용은 `foothold-pair:<6자리 code>`이며 주소나 비밀을 넣지 않는다.
+
+| 메서드·경로 | 입력 → 응답 | 권한 |
+|---|---|---|
+| POST `/pairing/start` | `{model:"unitree_go2",robot_serial}` → `{pairing_id,code,expires_at,poll_secret}` | 로그인 없음 |
+| POST `/pairing/claim` | `{code}` → `{pairing_id,robot_serial,expires_at}` | 운영만 |
+| POST `/pairing/{id}/confirm` | `{name}` → `RobotSummary`; 새 등록은 담당=claim한 운영·simulation=false, 같은 담당 기체는 기존 id 재연결 | 같은 운영만 |
+| POST `/pairing/{id}/poll` | `{poll_secret}` → `{state:"waiting"}` / `{state:"paired",robot_id,agent_token,agent_ws_url}` / `{state:"consumed"}` | 시작 프로그램의 비밀 필요 |
+| POST `/robots/{id}/field-approval` | `{checks:["space_clear","emergency_stop_ready","robot_verified"]}` → `{expires_at}` | 실기 담당 운영만 |
+| DELETE `/robots/{id}/field-approval` | 즉시 해제 →204 | 실기 담당 운영만 |
+| DELETE `/robots/{id}/connection` | 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금·조종권 회수, 연결 종료 →204 | 실기 담당 운영만 |
+
+- serial은 DDS uint32 두 개를 정규화한 `앞숫자-뒷숫자`다. 같은 serial의 활성 실기가 있고 담당이 confirm한 운영 본인이면 기존 robot_id로 재연결한다. 이름을 바꾸고 새 토큰을 발급하며 옛 토큰·폰 출입증·현장 승인을 폐기하고 진행 중 조종은 연결 끊기와 같은 STOP·잠금·조종권 회수 뒤 옛 연결을 닫는다. 토큰이 살아 있는 노트북 재설치도 같은 처리다. 다른 담당의 기체는409와 «담당 운영에게 넘겨받기 또는 삭제 요청» 안내를 준다. 기존 serial 없는 로봇·토큰은 그대로 둔다.
+- 코드는 10분·1회용, poll_secret은 32바이트 무작위이며 start 응답에서만 전달한다. claim한 다른 운영의 claim/confirm, 없는 코드·사용한 코드·만료 코드는 같은404 `PAIRING_NOT_FOUND`다. 같은 운영의 대기 claim 재요청은 허용한다.
+- start는 실제 연결 IP당 10분 고정 창 10회, claim은 사용자당 10회·IP당 20회다(429). 프록시의 임의 전달 헤더는 신뢰하지 않는다. DB에 카운터를 저장해 실패·재시작으로 초기화되지 않는다. 조직당 확인 전 대기 상한100건이다.
+- 모든 pairing 응답은 `Cache-Control: no-store`. poll_secret은 해시만, 전달 전 토큰은 poll_secret에서 별도로 유도한 키로 AES-GCM 암호화해 저장한다. 한 번 poll하면 암호문을 지운다. 코드·비밀·토큰·serial 원문은 사건에 기록하지 않는다.
+- 담당 없는 실기만 총괄이 PATCH에 `{owner_user_id}` 한 필드만 보내 같은 조직의 활성 운영에게 담당을 지정할 수 있다. null·이름 동시 변경·기존 담당 교체는 허용하지 않는다. 지정은 현장 승인을 해제하고 사건으로 남기며 연결 키를 발급하거나 조종·승인 권한을 주지 않는다.
+- 현장 확인은 정확히 세 필수 id가 각각 한 번 필요하다. 누락·중복·모르는 id는400. 승인 수명은 서버가 정하는30분이며, 생성·해제·만료는 사건으로 기록한다. 담당 넘기기·연결 끊기는 승인을 해제한다. 실기 agent WS가 새로 연결되면 순단·프로그램/서버 재시작을 포함해 DB 승인도 먼저 해제하고 `RobotSummary.field_approval_expires_at=null`로 표시한다. 연결 후 담당 운영자가 현장 안전 확인을 다시 해야 한다.
+- `RobotSummary.robot_serial`, `field_approval_expires_at`은 총괄도 읽는다. 만료된 승인은 null이다. `server_drive_allowed`는 아래 두 관문이 모두 유효할 때만 true다.
+- 서버 경유 실기 수동 조종 = 전체 스위치 AND 해당 로봇의 유효한 현장 승인. 새 `FH_SERVER_DRIVE_ENABLED=1`은 모든 실기의 전체 스위치다. 이 env가 **없을 때만** 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 계속 거부한다.
+- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 열렸지만 현장 승인이 없으면 `FIELD_APPROVAL_REQUIRED`. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬 조종·폰 출입증 경로·수동 명령표·0.30초 감시는 유지한다.
+- agent WS는 승인 상태가 바뀌거나 연결될 때 `{t:"field_approval",expires_at:UTC|null}`을 받는다. 비밀이나 serial을 싣지 않는다. 서버는 만료 시각을 매 입력과 최종 발신에서 확인하고25ms 안전 tick에서도 만료를 처리한다. DB 만료 기록은 별도 주기로 남긴다.
+- 만료·해제·담당 변경은 기존 lease-null·STOP·잠금·조종권 회수로 진행 중 조종을 끝낸다. 이미 대기한 cmd/unlock/유효 lease도 마지막 발신 관문에서 차단한다. 재연결·재승인은 조종권을 복원하지 않으며 다시 취득·STOP 확인·명시 잠금 해제가 필요하다. 승인 없는 STOP·lease-null은 전체 스위치가 열린 실기에 계속 전달할 수 있다.
+- 배포 담당이 할 일: 0022 DB 이관, 서버·새 연결 프로그램의 호환 및 비밀 전달 경로 확인, 필요한 경우 전체 스위치 설정, 별도 승인된 절차로 재시작·통합 검증. 이 구현 작업은 운영 env·서버·실기·시뮬을 건드리지 않는다.
 
 ---
 
@@ -448,7 +477,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 | 지금 (v2_gate / v2_link) | 새 API |
 |---|---|
 | `/api/login`, `/api/whoami`, `/api/logout` | `/auth/login`, `/me`, `/auth/logout` |
-| `/api/robots?scope=mine|all`, `/api/robots/claim` (미커밋 작업 사본 관측, [04 §1](04-ARCHITECTURE.md)) | `/robots?scope=`, `POST /robots` (등록은 총괄) |
+| `/api/robots?scope=mine|all`, `/api/robots/claim` (미커밋 작업 사본 관측, [04 §1](04-ARCHITECTURE.md)) | `/robots?scope=`, `POST /pairing/claim`·`confirm` (실기 등록은 담당 운영) |
 | `/api/r/{rid}/ws`, `/api/r/{rid}/watch/ws` (미커밋 작업 사본 관측) | `/api/v1/ws` 하나 + `sub` (로봇별 권한은 서버가 판단) |
 | WS op `take/release/cmd/stop/resume/hidden/photo` | `lease.take/lease.release/cmd/stop/unlock/hidden/photo` |
 | WS op `map_list/map_get/map_start/map_save` | REST `/floors/…/map-versions`, `/robots/{id}/slam/*` |
@@ -1489,10 +1518,10 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 
 ### 13.11 총괄 정지 요청과 상태 요약 (ADR-002, FIX-1029)
 
-실기(`simulation != true`)의 옛 서버 WS 조종권·명령·잠금 해제·STOP 및 REST
-`POST /robots/{id}/stop` 중계는 거부한다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
+전체 스위치가 꺼진 실기(`simulation != true`)의 서버 WS 조종권·명령·잠금 해제·STOP 및 REST
+`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·현장 승인을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
 기존 `ADMIN_NO_REAL_CONTROL`을 받는다. 서버의 시작·끊김·기록 장애에 따른 내부 제어
-발신도 실기로 보내지 않는다. 시뮬의 기존 중계 경로와 에이전트의 구형 수신 STOP 방어는 유지한다.
+발신도 전체 스위치가 꺼진 실기로 보내지 않는다. 시뮬의 기존 중계 경로와 에이전트의 구형 수신 STOP 방어는 유지한다.
 
 총괄은 `POST /api/v1/robots/{robot_id}/stop-requests`에 `{request_id: UUID}`를 보낸다.
 같은 조직·같은 요청 번호는 한 번만 기록하고 다른 로봇에 재사용하면 409다. 응답 202는

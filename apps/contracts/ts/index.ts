@@ -52,6 +52,11 @@ export interface AgentEvent {
   monotonic_s?: number;
 }
 
+export interface AgentFieldApproval {
+  t: "field_approval";
+  expires_at: string | null;
+}
+
 export interface AgentHello {
   execution_capabilities?: ExecutionCapabilities;
   t: "hello";
@@ -497,6 +502,14 @@ export interface ExternalCameraViewRequest {
   radius: number;
 }
 
+export interface FieldApproval {
+  expires_at: string;
+}
+
+export interface FieldApprovalRequest {
+  checks: string[];
+}
+
 export interface FloorConnector {
   id: string;
   building_id: string;
@@ -896,6 +909,47 @@ export interface OrgSettingsPatch {
   deviation_m?: number;
   lease_request_timeout_s?: number;
   link_loss_wait_s?: number;
+}
+
+export interface PairingClaim {
+  code: string;
+}
+
+export interface PairingClaimed {
+  pairing_id: string;
+  robot_serial: string;
+  expires_at: string;
+}
+
+export interface PairingConfirm {
+  name: string;
+}
+
+export interface PairingPaired {
+  state: "paired";
+  robot_id: string;
+  agent_token: string;
+  agent_ws_url: string;
+}
+
+export interface PairingPoll {
+  poll_secret: string;
+}
+
+export interface PairingStart {
+  model: "unitree_go2";
+  robot_serial: string;
+}
+
+export interface PairingStarted {
+  pairing_id: string;
+  code: string;
+  expires_at: string;
+  poll_secret: string;
+}
+
+export interface PairingWaiting {
+  state: "waiting" | "consumed";
 }
 
 export interface PasswordChange {
@@ -1381,6 +1435,7 @@ export interface RobotList {
 
 export interface RobotPatch {
   name?: string;
+  /** 실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다. */
   owner_user_id?: string | null;
 }
 
@@ -1393,6 +1448,9 @@ export interface RobotSummary {
   controller_connected?: boolean | null;
   simulation: boolean;
   server_drive_allowed: boolean;
+  robot_serial?: string | null;
+  /** 실기 agent WS가 새로 연결되면 해제된다. 다시 현장 안전 확인이 필요하다. */
+  field_approval_expires_at?: string | null;
   id: string;
   name: string;
   model: string;
@@ -1986,8 +2044,9 @@ export type RunReportPermanentCode = "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RU
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
-export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected;
+export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval;
 export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
 export type MediaChannel = "rgb" | "external" | "lidar";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
+export type PairingPollResult = PairingWaiting | PairingPaired;
