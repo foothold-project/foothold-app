@@ -78,6 +78,8 @@ const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => act(() =
 const submit = async (form: Element) => { act(() => { (form as HTMLFormElement).requestSubmit(); }); await flush(); };
 const kpi = () => Object.fromEntries([...card('요약').querySelectorAll('div')].map((d) => [d.firstElementChild!.textContent, d.querySelector('b')!.textContent]));
 const line = (k: string) => [...card('로봇 상세').querySelectorAll('.fh-row')].find((d) => d.firstElementChild?.textContent === k)!.lastElementChild!.textContent;
+/** 총괄 서랍 열기 — 고른 행을 다시 누름 */
+const drawer = () => click(card('로봇 목록').querySelector('button[aria-pressed="true"]'));
 const row = (name: string) => [...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes(name))!;
 const subs = (w: FakeWS) => w.of('sub').map((m) => m.robots);
 const stopOk = () => { const s = $<HTMLButtonElement>('[data-stop]')!; expect(s).not.toBeNull(); expect(s.disabled).toBe(false); expect(s.hidden).toBe(false); };
@@ -170,17 +172,24 @@ describe('상세 서랍 = GET /robots/{id}', () => {
   it('총괄: 담당·배터리·위치·장치(이름·종류·상태), 층·임무는 지어내지 않음', async () => {
     serve(signedIn(KIM, [RA, RB]));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(sent('GET', '/robots/r-a')).toHaveLength(1);
     expect(line('담당')).toBe('이운영');
     expect(line('배터리')).toBe('64%');
     expect(line('위치')).toMatch(/^x 1\.3 m · y -3\.0 m \(\d\d:\d\d:\d\d\)$/);
     expect([...card('장치').querySelectorAll('li')].map((li) => li.textContent)).toEqual(['앞 카메라카메라●정상', '라이다라이다▲연결 끊겨 확인 안 됨']);
     expect(card('로봇 상세').textContent).not.toMatch(/임무|층/);
+    // 장치·위치는 접혀 있어도 장치 문제는 접힌 밖에 늘 보인다(ROBOT-TAB-TIDY)
+    expect($('[data-detail-more]')!.hasAttribute('open')).toBe(false);
+    expect($('[data-detail-alert]')!.closest('details')).toBeNull();
+    expect($('[data-detail-alert]')!.textContent).toBe('▲ 장치 문제: 라이다 연결 끊겨 확인 안 됨');
+    expect($('[data-detail-links]')!.textContent).toMatch(/^서버.+로봇.+잠금/);   // 서버·로봇 연결·잠금을 한 줄에 따로
   });
   it('null 은 null 대로: 배터리 «측정 안 됨», 위치 «위치 없음», 장치 «장치 정보 없음», 담당 없음', async () => {
     const bare = robot('r-n', 'Go2-N', null, { connection: 'ONLINE' });
     serve(signedIn(KIM, [bare]));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     live(KIM);
     act(() => FakeWS.last.recv(state('r-n', { battery: null, location: null, devices: [] })));
     expect([line('담당'), line('배터리'), line('위치'), line('장치')]).toEqual(['담당 없음', '측정 안 됨', '위치 없음', '장치 정보 없음']);
@@ -249,11 +258,13 @@ describe('상세 서랍 = GET /robots/{id}', () => {
   it('상세 404 → «찾을 수 없음» + 목록 다시 받기, 그 밖 실패는 이유', async () => {
     serve(signedIn(KIM, [RA], { 'GET /robots/r-a': err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.') }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세').querySelector('[role="alert"]')!.textContent).toContain('찾을 수 없습니다');
     expect(lists()).toBe(2);
     act(() => root!.unmount()); box.remove();
     serve(signedIn(KIM, [RA], { 'GET /robots/r-a': () => { throw new TypeError('Failed to fetch'); } }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세').querySelector('[role="alert"]')!.textContent).toContain('상세를 받지 못했습니다. 서버에 연결하지 못했습니다');
     expect(lists()).toBe(1);
   });

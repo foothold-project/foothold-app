@@ -1,4 +1,4 @@
-// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 폰 시나리오 카드는 서버 배정(screens/assign.tsx). 빈 칸(.fh-slot)은 다음 작업 자리.
+// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 폰 시나리오 카드는 서버 배정(screens/assign.tsx).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { adminReal, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
@@ -76,7 +76,7 @@ export function EmptyFleet({ user, cancel, dash: { d, err }, children }: { user:
 }
 
 /** 관제 지도 칸 — 로봇 수와 상관없이. 칸 안 렌더 예외는 Guard 가 가둔다(STOP 은 머리줄) */
-const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
+const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card fl-map" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
 
 /** 마지막 수신 = 그 로봇의 ONLINE 상태를 받은 시각(다시 그린 시각이 아님). OFFLINE 이면 마지막 ONLINE 을 받은 시각(seenAt),
  *  받은 상태가 없으면 목록을 받은 시각. rt 는 받은 시각을 단조 시계로 두므로 벽시계로 한 번 바꿔 받은 시각마다 기억한다(다시 그려도 초가 흔들리지 않게) */
@@ -99,23 +99,27 @@ function Seen({ x }: { x: Robot }) {
   return <span className="lbl mono" data-seen>마지막 수신 {received(x)}</span>;
 }
 
+/** 로봇 탭(03 §5.1): 운영 관리자 = 왼쪽 목록(+지도) · 오른쪽 고른 로봇 요약. 총괄 = 목록 + 큰 지도, 상세는 행을 누르면 여는 서랍(실기 조종·STOP 도구 없음).
+ *  서랍을 닫아도 고른 행(머리줄 STOP 대상)은 목록에 표시된 그대로 — 표시만 접는다 */
 function Fleet(c: Ctx) {
-  const admin = c.user.role === 'ORG_ADMIN', r = c.robot, { d, err } = c.dash;
+  const admin = c.user.role === 'ORG_ADMIN', r = c.robot, { d, err } = c.dash, [drawer, setDrawer] = useState(false), open = !admin || drawer;
   return <>
     <Kpi user={c.user} d={d} err={err} />
-    <section className="lv-card" aria-label="로봇 목록">
-      <h2>로봇</h2>
-      <ul className="fh-list robots">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
-        <button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
-          <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
-          <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보는 중' : ''}</span>
-          <Seen x={x} />
-          <PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact />
-        </button></li>; })}</ul>
-    </section>
-    <MapCard cancel={c.cancel} />
-    {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
-    <Detail key={`${r.id}-${r.owner}`} {...c} />
+    <div className={`fh-fleet${admin ? ' admin' : ''}${open ? ' open' : ''}`}>
+      <section className="lv-card fl-list" aria-label="로봇 목록">
+        <h2>로봇</h2>
+        <ul className="fh-list robots">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
+          <button type="button" aria-pressed={x.id === r.id} onClick={() => { c.pick(x.id); setDrawer(true); }}>
+            <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
+            <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보는 중' : ''}</span>
+            <Seen x={x} />
+            <PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact />
+          </button></li>; })}</ul>
+      </section>
+      {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
+      {open && <Detail key={`${r.id}-${r.owner}`} {...c} close={admin ? () => setDrawer(false) : undefined} />}
+      <MapCard cancel={c.cancel} />
+    </div>
     <Operators user={c.user} d={d} />
   </>;
 }
@@ -154,9 +158,11 @@ const m = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} m`);
 const hms = (at: string) => new Date(at).toTimeString().slice(0, 8);
 export const Line = ({ k, children }: { k: string; children: ReactNode }) => <div className="fh-row"><span className="lbl" style={{ minWidth: 48 }}>{k}</span>{children}</div>;
 
+const LINK: Record<string, { tone: Tone; text: string }> = { open: { tone: 'ok', text: '연결' }, lost: { tone: 'bad', text: '끊김' }, denied: { tone: 'bad', text: '거부' } };
 /** 상세 서랍(02 F-FL-04) — 고를 때 GET /robots/{id}. 구독 로봇의 상태·위치·장치는 실시간 state 가 덮는다.
- *  남의 로봇(운영 관리자)은 서버가 값을 감춰 «확인 안 됨», 값이 없으면 없다고 쓴다(지어내지 않음). 최근 사건은 /events(남의 로봇이면 요청 안 함). 층·그래프는 아직 서버에 없다 */
-function Detail(c: Ctx) {
+ *  요약 먼저(이름·실기/시뮬·서버/로봇 연결·잠금·조종권자·배터리·장치 문제·최근 문제), 장치·위치·사건 전체는 접는다 — 장치 문제·최근 문제·정지 단계는 접힌 밖에 늘 보인다.
+ *  남의 로봇(운영 관리자)은 서버가 값을 감춰 «확인 안 됨», 값이 없으면 없다고 쓴다(지어내지 않음). 최근 사건은 /events(남의 로봇이면 요청 안 함). close = 총괄 서랍 닫기 */
+function Detail({ close, ...c }: Ctx & { close?: () => void }) {
   useRt();
   const [got, setGot] = useState<RobotSummary | null>(null), [err, setErr] = useState('');
   useEffect(() => {
@@ -169,23 +175,34 @@ function Detail(c: Ctx) {
   }, []);
   const r = got ? withLive(toRobot(got)) : c.robot, hidden = r.unknown === 'summary';
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
-  return <section className="lv-card" style={{ flexBasis: 360 }} aria-label="로봇 상세">
-    <div className="fh-row"><h2>{r.name}</h2><Chip {...robotStatus(r)} /></div>
+  const broken = hidden ? [] : devices.filter((v) => v.state !== 'OK');
+  // 서버 연결·로봇 연결·잠금은 서로 다른 값 — 한 줄에 따로 보인다(합치지 않음)
+  const server = LINK[rt.link().at] ?? { tone: 'off' as const, text: '연결 중' };
+  const robot = hidden ? { tone: 'off' as const, text: '확인 안 됨' } : !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
+  const lock = s?.latched == null ? { tone: 'off' as const, text: '모름' } : s.latched ? { tone: 'bad' as const, text: '잠김' } : { tone: 'ok' as const, text: '풀림' };
+  return <section className="lv-card fl-detail" aria-label="로봇 상세">
+    <div className="fh-row"><h2>{r.name}</h2><Chip {...robotStatus(r)} /><span className="lbl">{r.sim ? '시뮬' : '실기'}</span>
+      {close && <><span className="fh-grow" /><button type="button" className="btn" data-detail-close onClick={close}>닫기</button></>}</div>
+    <div className="fh-row" aria-label="연결·잠금" data-detail-links>
+      <span className="lbl">서버</span><Chip {...server} /><span className="lbl">로봇</span><Chip {...robot} /><span className="lbl">잠금</span><Chip {...lock} /></div>
+    {broken.length > 0 && <p className="fh-msg" role="status" data-detail-alert>▲ 장치 문제: {broken.map((v) => `${v.label} ${(DEVICE[v.state] ?? DEVICE.ERROR).text}`).join(', ')}</p>}
     {/* 서버가 켠 실기 시험 로봇만, PC 웹·담당 운영자만(총괄·남의 로봇·앱은 보기만) */}
     {r.serverDrive && !r.sim && !c.phone && !inApp() && !adminReal(c.user, r) && c.robot.owner === c.user.id && <ServerDrive c={c} r={r} />}
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     <Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>
     {r.mission && <Line k="임무"><span>{r.mission}</span></Line>}
     <Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>
-    {!hidden && <PhoneRelay key={r.id} report={r.phoneRelay} receivedAt={r.phoneRelayAt} />}
-    <Line k="위치"><span>{hidden ? '확인 안 됨' : loc ? <><span className="mono">x {m(loc.x)} · y {m(loc.y)}</span> <span className="lbl">({hms(loc.updated_at)})</span></> : '위치 없음'}</span></Line>
-    <Line k="장치">{hidden ? <span>확인 안 됨</span> : !devices.length ? <span>장치 정보 없음</span>
-      : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
-          <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} />{codeText(v)}</li>)}</ul>}</Line>
-    {(c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />}
     <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
       onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } assignFor.robot = c.robot.id; c.go('mission'); }}>배정</button>
       {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>
+    {(c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />}
+    <details className="fh-fold" data-detail-more><summary>장치·위치{hidden ? '' : ` — 장치 ${devices.length}개`}</summary>
+      {!hidden && <PhoneRelay key={r.id} report={r.phoneRelay} receivedAt={r.phoneRelayAt} />}
+      <Line k="위치"><span>{hidden ? '확인 안 됨' : loc ? <><span className="mono">x {m(loc.x)} · y {m(loc.y)}</span> <span className="lbl">({hms(loc.updated_at)})</span></> : '위치 없음'}</span></Line>
+      <Line k="장치">{hidden ? <span>확인 안 됨</span> : !devices.length ? <span>장치 정보 없음</span>
+        : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
+            <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} />{codeText(v)}</li>)}</ul>}</Line>
+    </details>
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </section>;
 }

@@ -342,7 +342,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       expect(btn('조종 시작')!.disabled).toBe(false);
     } finally { vi.useRealTimers(); }
   });
-  it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시', async () => {
+  it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시 없음', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
     await open();
     expect($('[aria-label="로봇 목록"]')!.textContent).toContain('상태 확인 중');   // 첫 state 전
@@ -351,8 +351,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     expect($('[aria-label="로봇 목록"]')!.textContent).toContain('연결 전');
     expect($('[data-band]')!.textContent).toBe('');
     expect($('[aria-label="로봇 상세"] [data-why]')).toBeNull();   // 조종 단추·이유는 폰 로봇 연결 화면에(아래 시험)
-    expect($('[data-dev]')!.textContent).toContain('임무·시나리오·배정·결재');   // 지금 서버 값(QA R5)
-    expect($('[data-dev]')!.textContent).not.toContain('가짜');
+    expect($('[data-dev]')).toBeNull();   // 오래된 개발용 표시 줄 없음(ROBOT-TAB-TIDY)
   });
   it('폰 로봇 연결: 상태를 받은 적 없는 로봇은 «보기만» + 조종 불가 이유', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));

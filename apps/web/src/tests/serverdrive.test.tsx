@@ -1,5 +1,5 @@
 // 실기 서버 경유 시험 조종(serverdrive.tsx·drivemedia.ts, 10-30 SERVER-DRIVE-WEB·ADD1): 서버가 켠 로봇만 패널, 누르는 동안만·떼면 0,
-// 초점 잃음·가려짐·끊김 → 0, STOP 우선, SI 값 9개 밖 없음, 카메라·라이다 칸·전체화면. 가짜 WebSocket 이 서버 중재기(drive.test 와 같은 흉내).
+// 초점 잃음·가려짐·끊김 → 0, STOP 우선, SI 값 9개 밖 없음, «조종 화면 열기»(전체화면: 카메라·라이다·조작부). 가짜 WebSocket 이 서버 중재기(drive.test 와 같은 흉내).
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -65,6 +65,9 @@ function ready() {
   tick(100);
   expect($('[data-server-drive]')!.textContent).toContain('움직일 수 있음');
 }
+/** «조종 화면 열기»(상세 서랍의 작은 패널 → 전체화면 조종 화면) · 그 안에서 카메라/라이다 고르기 */
+const view = () => click($('[data-sd-open]')!);
+const ch = (c: 'rgb' | 'lidar') => click($(`[data-sd-full] [data-sd-ch="${c}"]`)!);
 const hold = (keys: string[]) => { keys.forEach((k) => key('keydown', k)); tick(60); const a = lastAxes(); [...keys].reverse().forEach((k) => key('keyup', k)); return a; };
 
 describe('서버 경유 시험 조종 패널', () => {
@@ -100,8 +103,10 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
   });
 
-  it('화면 단추 8개도 같은 표 — 누르는 동안만, 떼면 그 자리에서 0', () => {
+  it('화면 단추 8개도 같은 표(조종 화면 안) — 누르는 동안만, 떼면 그 자리에서 0', () => {
     ready();
+    expect(box.querySelectorAll('[data-sd-move]').length).toBe(0);   // 상세 서랍의 작은 패널에는 조작부를 펼치지 않는다
+    view();
     const want: Record<string, string> = { up: '1.5,0,0', down: '-1.5,0,0', left: '0,1.5,0', right: '0,-1.5,0', rotl: '0,0,0.5', rotr: '0,0,-0.5', 'rotl+up': '1.5,0,0.5', 'rotr+up': '1.5,0,-0.5' };
     expect(box.querySelectorAll('[data-sd-move]').length).toBe(8);
     for (const [k, v] of Object.entries(want)) {
@@ -145,9 +150,10 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(btn('조종 시작')).toBeTruthy();
   });
 
-  it('STOP 은 패널에서 가장 크고, 누르면 입력 0 을 먼저 보내고 정지 — 그 뒤 키를 누르고 있어도 0', () => {
+  it('STOP 은 조종 화면에서 가장 크고, 누르면 입력 0 을 먼저 보내고 정지 — 그 뒤 키를 누르고 있어도 0', () => {
     ready();
-    const stop = $('[data-sd-stop]')!, fwd = $('[data-sd-move="up"]')!;
+    view();
+    const stop = $('[data-sd-full] [data-sd-stop="full"]')!, fwd = $('[data-sd-move="up"]')!;
     expect(parseInt(stop.style.minHeight)).toBeGreaterThan(parseInt(fwd.style.minHeight));
     key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     click(stop);
@@ -175,15 +181,17 @@ describe('서버 경유 시험 조종 패널', () => {
 
 describe('서버 경유 카메라·라이다', () => {
   const video = (p: object = {}) => ({ t: 'media.video', version: 'media/1', channel: 'rgb', robot: 'r7', epoch: 1, episode_id: null, seq: 1, mime: 'image/jpeg', jpeg: 'AAAA', ...p });
-  const cam = () => $('[data-sd-tile="rgb"] [data-sd-cam]')!;
+  const cam = () => $('[data-sd-full] [data-sd-cam]')!;
 
   it('같은 서버의 drive-media 경로로 받기만(보내는 것 0), 자료 없으면 «신호 없음»', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
     const rgb = mediaSock('rgb'), lid = mediaSock('lidar');
     expect(rgb.url).toBe(`ws://${location.host}/api/v1/robots/r7/drive-media/rgb`);
     expect(lid).toBeTruthy();
+    view(); ch('lidar');
+    expect($('[data-sd-full]')!.textContent).toContain(NO_SIGNAL.lidar);
+    ch('rgb');
     expect(cam().textContent).toBe(NO_SIGNAL.rgb);
-    expect($('[data-sd-tile="lidar"]')!.textContent).toContain(NO_SIGNAL.lidar);
     act(() => { rgb.open(); rgb.recv(video()); });
     expect(cam().getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
     tick(2100);   // 2 s 넘게 새 프레임 없음 → 지난 그림을 보이지 않는다
@@ -196,7 +204,7 @@ describe('서버 경유 카메라·라이다', () => {
   });
 
   it('epoch 가 바뀌면 그림을 비우고 순번을 새로 센다, 약속 위반(남의 로봇)은 닫고 2 s 뒤 다시', () => {
-    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view();
     const rgb = mediaSock('rgb');
     act(() => { rgb.open(); rgb.recv(video({ seq: 9 })); });
     expect(cam().tagName).toBe('IMG');
@@ -212,17 +220,17 @@ describe('서버 경유 카메라·라이다', () => {
   });
 
   it('라이다: media.points 머리 + 바로 뒤 binary 만 그린다', () => {
-    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
     const lid = mediaSock('lidar'), xyz = new Float32Array([1, 2, 0.5, -1, 0, 0]);
     act(() => { lid.open(); lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq: 1, source: 'l1', encoding: 'xyz_f32le', frame: 'lidar_link', count: 2, byte_length: 24, truncated: false });
       lid.onmessage?.({ data: xyz.buffer } as never); });
-    expect($('[data-sd-tile="lidar"] [data-cloud]')!.getAttribute('data-cloud')).toBe('2');
-    expect($('[data-sd-tile="lidar"]')!.textContent).not.toContain(NO_SIGNAL.lidar);
+    expect($('[data-sd-full] [data-cloud]')!.getAttribute('data-cloud')).toBe('2');
+    expect($('[data-sd-full]')!.textContent).not.toContain(NO_SIGNAL.lidar);
   });
 
-  it('칸을 누르면 전체화면 — STOP 이 가장 크게 보이고 키 조종 그대로, 다시 누르거나 Esc 로 복귀', () => {
+  it('«조종 화면 열기» = 전체화면 — STOP 이 가장 크게 보이고 키 조종 그대로, 카메라를 다시 누르거나 Esc 로 복귀', () => {
     ready();
-    click($('[data-sd-tile="rgb"]')!);
+    view();
     const full = $('[data-sd-full]')!, stop = full.querySelector<HTMLElement>('[data-sd-stop="full"]')!;
     expect(stop).toBeTruthy();
     const sizes = [...full.querySelectorAll<HTMLElement>('button')].filter((b) => b !== stop).map((b) => parseInt(b.style.minHeight) || 0);
@@ -231,11 +239,11 @@ describe('서버 경유 카메라·라이다', () => {
     key('keyup', 'ArrowUp'); expect(lastAxes()).toBe('0,0,0');
     click(full.querySelector('[aria-label="카메라 작게 보기"]')!);
     expect($('[data-sd-full]')).toBeNull();
-    click($('[data-sd-tile="lidar"]')!);
+    view(); ch('lidar');
     expect($('[data-sd-full]')!.getAttribute('aria-label')).toBe('라이다 전체화면');
     key('keydown', 'Escape');
     expect($('[data-sd-full]')).toBeNull();
-    click($('[data-sd-tile="lidar"]')!);
+    view();
     click($('[data-sd-full] [data-sd-stop="full"]')!);   // 전체화면 안 STOP
     expect(w.of('stop').length).toBe(1);
   });
@@ -252,7 +260,7 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     click($('[data-sd-stop]')!); tick(100);
     expect(phase()).toContain('정지 요청 실패 — 현장 확인');
     expect(box.textContent).not.toContain('멈췄습니다');
-    click($('[data-sd-tile="rgb"]')!);
+    view();
     const st = $('[data-sd-full] [data-sd-full-state]')!;
     expect(st.textContent).toContain('정지 요청 실패 — 현장 확인');
     expect(box.textContent).not.toContain('멈췄습니다');
@@ -277,7 +285,8 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     const auto = w.auto!;
     w.auto = (m) => (m.t === 'unlock' ? { ok: true } : auto(m));   // 서버 전달은 성공, 로봇 잠금 그대로
     click(row('Go2-7')); click(btn('조종 시작'));
-    expect($('[data-sd-status]')!.textContent).toContain('수평 속도');
+    expect($('[data-sd-status]')).toBeNull();   // 상태줄(배터리·속도·지연)은 조종 화면에만 — 상세와 겹치지 않게
+    view(); expect($('[data-sd-full] [data-sd-status]')!.textContent).toContain('수평 속도'); key('keydown', 'Escape');
     click(btn('② 잠금 해제')); tick(10);
     expect($('[data-sd-unlock]')!.getAttribute('data-sd-unlock')).toBe('wait');
     expect($('[data-sd-unlock]')!.textContent).toContain('해제 대기');
@@ -292,12 +301,13 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
   it('전체화면은 모달: 열면 «작게 보기»에 초점, 배경 inert, Tab·Shift+Tab 은 안에서 돌고, 닫으면 연 칸으로 초점 복귀 · 잠금 해제도 안에서', () => {
     ready();
     click($('[data-sd-stop]')!); tick(100);   // 잠김
-    const tile = $('[data-sd-tile="rgb"]')!; tile.focus(); click(tile);
+    const tile = $('[data-sd-open]')!; tile.focus(); click(tile);
     const full = $('[data-sd-full]')!;
     expect(full.getAttribute('aria-modal')).toBe('true');
     expect(document.activeElement).toBe(full.querySelector('[data-sd-small]'));
-    expect($('[data-sd-stop="panel"]')!.closest('[inert]')).not.toBeNull();   // 배경(패널 STOP·조종 끝내기)
-    expect(btn('조종 끝내기').closest('[inert]')).not.toBeNull();
+    expect($('[data-sd-stop="panel"]')!.closest('[inert]')).not.toBeNull();   // 배경(패널 STOP·조종 화면 열기)
+    expect(tile.closest('[inert]')).not.toBeNull();
+    expect(btn('조종 끝내기').closest('[data-sd-full]')).not.toBeNull();   // 조종 끝내기는 보이는 쪽(조종 화면) 하나에만
     expect(full.closest('[inert]')).toBeNull();
     expect(full.querySelector('[data-sd-lock] button')!.textContent).toBe('② 잠금 해제');   // 작게 보기 없이 해제
     const f = [...full.querySelectorAll<HTMLElement>('button:not([disabled])')];
@@ -318,7 +328,7 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
       ['카메라 클릭', () => click($('[data-sd-full] [aria-label="카메라 작게 보기"]')!)],
     ];
     for (const [way, close] of ways) {
-      click($('[data-sd-tile="rgb"]')!);
+      view();
       key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
       close();
       expect($('[data-sd-full]'), way).toBeNull();
@@ -327,7 +337,7 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
       key('keyup', 'ArrowUp');
     }
     // 전체화면이 열린 채 창 초점 잃음·가려짐도 0(닫기와 별개 경로 — zero)
-    click($('[data-sd-tile="rgb"]')!);
+    view();
     key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     act(() => { window.dispatchEvent(new Event('blur')); });
     expect(lastAxes()).toBe('0,0,0'); tick(200); expect(lastAxes()).toBe('0,0,0');

@@ -234,12 +234,20 @@ function Focus({ id, cancel, who, close }: { id: string; cancel?: AbortSignal; w
   </div>;
 }
 
-/** 서랍 «최근 사건»(03 §5.1) — 그 로봇의 최근 5개. 없거나 범위 밖(404)이면 칸을 숨긴다(U9 — 지어내지 않음) */
+/** 문제 사건: 오류·주의, 또는 INFO 로 저장된 실패류 코드(Sev 와 같은 기준) */
+const trouble = (e: Ev) => e.severity === 'ERROR' || e.severity === 'WARN' || FAILED.test(e.code ?? '');
+/** 서랍 «최근 사건»(03 §5.1) — 그 로봇의 최근 5개. 문제 사건(오류·주의·실패)은 늘 보이고, 5개 전체는 접는다.
+ *  없거나 범위 밖(404)이면 칸을 숨긴다(U9 — 지어내지 않음), 못 받으면 접지 않고 보인다 */
 export function RecentEvents({ robot, cancel }: { robot: string; cancel?: AbortSignal }) {
   const ev = useEvents({ ...NONE, robot }, cancel, 5);
   if (ev.err && ev.err.status !== 404) return <Line k="최근 사건"><span className="fh-msg" role="alert">최근 사건을 받지 못했습니다. {ev.err.message}</span></Line>;
   if (!ev.items.length) return null;
-  return <Line k="최근 사건"><ul className="fh-list" style={{ flex: 1 }} aria-label="최근 사건">{ev.items.map((e) => <Row key={e.id} e={e} />)}</ul></Line>;
+  const hot = ev.items.filter(trouble);
+  return <>
+    {hot.length > 0 && <Line k="최근 문제"><ul className="fh-list" style={{ flex: 1 }} aria-label="최근 문제" data-recent-trouble>{hot.map((e) => <Row key={e.id} e={e} />)}</ul></Line>}
+    <details className="fh-fold" data-events-more><summary>최근 사건 {ev.items.length}건</summary>
+      <Line k="최근 사건"><ul className="fh-list" style={{ flex: 1 }} aria-label="최근 사건">{ev.items.map((e) => <Row key={e.id} e={e} />)}</ul></Line></details>
+  </>;
 }
 
 /** 알림을 다시 받는 간격 — 푸시·실시간 알림 배송은 아직 없다(S2 범위 밖) */

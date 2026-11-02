@@ -1,7 +1,8 @@
 // 실기 Go2 서버 경유 시험 조종(10-30 SERVER-DRIVE-WEB·ADD1 — ADR-002 예외: 서버가 켠 시험 로봇만, PC 웹만). 로봇 탭 상세 서랍에 붙는다.
 // 허용 여부는 서버 목록의 server_drive_allowed 만 본다(웹은 추측하지 않음). 조종권·잠금 해제·STOP·명령은 rt.ts(화면 WS) 그대로 — 새 경로 없음.
 // 명령은 서버·에이전트 표의 SI 값 9개만(그 밖 조합은 0), 누르는 동안만. 뗌·초점 잃음·가려짐·연결 끊김·STOP = 바로 0 + 안내, 다시 누를 때까지 재개 없음.
-// 카메라·라이다 작은 칸 둘(drivemedia.ts) — 누르면 화면 전체(다시 누르거나 Esc 로 복귀), 그 안에도 STOP 이 가장 크게. 키 조종은 그대로
+// 로봇 상세 서랍에는 작게(STOP·정지 단계·잠금 해제·조종 시작/끝내기), «조종 화면 열기» = 전체화면 모달(카메라·라이다 drivemedia.ts·조작부·상태줄, 다시 누르거나 Esc 로 복귀).
+// 그 안에도 STOP 이 가장 크게. 키 조종은 패널이 열린 동안 그대로
 import { useEffect, useRef, useState, type KeyboardEvent as KeyEv, type PointerEvent, type ReactNode } from 'react';
 import { CMD_MS, rt, useLive, type Live } from './rt';
 import { typing } from './App';
@@ -133,7 +134,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   }, [!!full]);
 
   const stop = (big: boolean) => <button type="button" className="fh-stop" aria-label="비상 정지 — 이 로봇" data-sd-stop={big ? 'full' : 'panel'}
-    style={big ? { minHeight: 120, minWidth: 320 } : { minHeight: 88, width: '100%' }} onClick={() => { zero(SD_NOTE.stop); rt.stop(r.id); }}>
+    style={big ? { minHeight: 120, minWidth: 320 } : { minHeight: 56, width: '100%' }} onClick={() => { zero(SD_NOTE.stop); rt.stop(r.id); }}>
     <svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
     <span className="fh-stop-t"><span>STOP</span><small>정지 요청</small></span>
   </button>;
@@ -181,34 +182,39 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
     : l.cooldown > rt.now() ? '잠시 뒤 다시 요청할 수 있습니다.'
     : l.holder?.type === 'RUN' ? '시나리오 실행 중에는 이 시험 화면에서 조종을 시작하지 않습니다.' : '';
 
-  return <section className="card" aria-label="서버 경유 시험 조종" data-server-drive style={{ display: 'flex', flexDirection: 'column', gap: 8, borderColor: 'var(--warn)' }}>
+  const open = (ch: DriveCh) => (e: { currentTarget: HTMLElement }) => { opener.current = e.currentTarget; setFull(ch); };
+  // 조종 시작/끝내기 한 줄 — 작은 패널과 조종 화면 중 보이는 쪽 하나에만(같은 id 두 번 없게). 권한·기다릴 이유는 DriveButton 이 글로
+  const control = <>
+    {mine ? <div className="fh-row"><span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0</span>
+        <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button></div>
+      : <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />}
+    {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
+      <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>}
+  </>;
+
+  // 상세 서랍 안은 작게: 상태·STOP·정지 단계·잠금 해제·조종 시작/끝내기 + «조종 화면 열기». 영상·라이다·조작부·상태줄은 조종 화면(전체화면 모달, #214)에서
+  return <section className="card" aria-label="서버 경유 시험 조종" data-server-drive style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10, borderColor: 'var(--warn)' }}>
     <div className="fh-row" style={{ flexWrap: 'wrap' }}><Chip tone="warn" text={TRIAL} /><Chip {...lock} /></div>
     {stop(false)}
     {stopNote}
-    {status}
-    <div className="fh-row" style={{ gap: 6 }} aria-label="카메라·라이다">{(['rgb', 'lidar'] as const).map((ch) =>
-      <button key={ch} type="button" aria-label={`${CH_NAME[ch]} 크게 보기`} data-sd-tile={ch} onClick={(e) => { opener.current = e.currentTarget; setFull(ch); }}
-        style={{ flex: 1, padding: 0, border: 0, background: 'none', display: 'flex', cursor: 'zoom-in' }}>{box(view(ch, false), 110)}</button>)}</div>
     {unlock}
-    {mine ? <>
-      {pad}
-      <div className="fh-row"><span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0</span>
-        <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button></div>
-    </> : <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />}
-    {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
-      <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>}
+    {!full && control}
+    <button type="button" className="btn pri" data-sd-open onClick={open('rgb')}>조종 화면 열기 — 카메라·라이다·조작부</button>
     {notes}
     {full && <div role="dialog" aria-modal="true" aria-label={`${CH_NAME[full]} 전체화면`} data-sd-full ref={dlg} onKeyDown={trapTab}
-      style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)' }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)', overflowY: 'auto' }}>
       <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <Chip tone="warn" text={TRIAL} /><Chip {...lock} />{status}<span className="fh-grow" style={{ flex: 1 }} />
         <button type="button" className="btn" data-sd-small onClick={closeFull}>작게 보기(Esc)</button>{stop(true)}
       </div>
       {(stopNote || unlock) && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} data-sd-full-state>{stopNote}{unlock}</div>}
-      {full === 'rgb' ? <button type="button" aria-label="카메라 작게 보기" onClick={closeFull} style={{ flex: 1, display: 'flex', padding: 0, border: 0, background: 'none', cursor: 'zoom-out' }}>{box(view('rgb', true))}</button>
-        : box(view('lidar', true))}{/* 라이다 큰 칸은 끌어 돌려 보므로 누름 대신 «작게 보기»·Esc */}
+      <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar'] as const).map((ch) =>
+        <button key={ch} type="button" className="btn" aria-pressed={full === ch} data-sd-ch={ch} onClick={() => setFull(ch)}>{CH_NAME[ch]}</button>)}</div>
+      {full === 'rgb' ? <button type="button" aria-label="카메라 작게 보기" onClick={closeFull} style={{ flex: 1, display: 'flex', padding: 0, border: 0, background: 'none', cursor: 'zoom-out' }}>{box(view('rgb', true), 200)}</button>
+        : box(view('lidar', true), 200)}{/* 라이다 큰 칸은 끌어 돌려 보므로 누름 대신 «작게 보기»·Esc */}
       {notes}
       {pad}
+      {control}
     </div>}
   </section>;
 }
