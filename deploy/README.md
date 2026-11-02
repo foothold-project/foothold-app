@@ -51,11 +51,13 @@ rsync -av "$ARTIFACT_DIR/$COMMIT.tar.gz" "$ARTIFACT_DIR/$COMMIT.tar.gz.sha256" \
 |---|---|
 | `policy_v2.f32` | 기본 정책, `docs/POLICY-PROVENANCE.md` SHA-256 대조 |
 | `ame2_actor.f32`, `ame2_actor.json` | 둘 다 있을 때만 포함, `docs/AME2-PROVENANCE.md` SHA-256 대조 |
+| `ame2_actor.onnx`, `policy_v2.onnx` | 선택적 ONNX, 위 두 출처 문서의 SHA-256 대조 |
+| `ort/ort.wasm.min.mjs`, `ort/ort-wasm-simd-threaded.mjs`, `ort/ort-wasm-simd-threaded.wasm` | 공유 onnxruntime-web 1.31.1, `docs/POLICY-PROVENANCE.md` 파일별 SHA 대조 |
 | `vendor/three.module.js`, `vendor/three.core.js`, `vendor/LICENSE` | 모바일과 동일한 three 자산 |
 | `mujoco/mujoco.js`, `mujoco/mujoco.wasm`, `mujoco/package.json` | 기존 `@mujoco/mujoco` 3.17.0 자산 그대로, npm/lock 갱신 없음 |
 | `assets/unitree_go2/go2.xml`, `LICENSE`, `assets/<mesh>` | 모바일 복사 목록과 같은 XML·라이선스·참조 메시 |
 
-정책 SHA·런타임 버전이 틀리거나 필수 자산이 누락되면 경고 후 `/sim/` 전체를 제외하고 웹만 준비하며, 경로 탈출·링크·FIFO·특수파일·자산 폴더 소유권 위반은 실패한다. AME-2 쌍이 없거나 불완전하면 둘 다 생략하며 기존 페이지가 선택지를 끈다. 빌드 산출물과 복사 뒤 최종 웹 묶음 모두 링크·특수파일을 검사하며 위반 시 중단한다.
+필수 f32 정책 SHA·MuJoCo 버전이 틀리거나 필수 자산이 누락되면 경고 후 `/sim/` 전체를 제외하고 웹만 준비하며, 경로 탈출·링크·FIFO·특수파일·자산 폴더 소유권 위반은 실패한다. 선택적 ONNX가 없거나 SHA가 다르면 해당 모델만, ORT가 불완전하거나 SHA가 다르면 `ort/` 전체를 경고 후 생략하며 기존 f32 시뮬은 유지한다. ONNX 실행기는 같은 정책의 f32 전환 이유를 표시한다. crop/test ONNX와 WebGPU/asyncify는 포함하지 않는다. AME-2 f32 쌍이 없거나 불완전하면 둘 다 생략하며 기존 페이지가 선택지를 끈다. 빌드 산출물과 복사 뒤 최종 웹 묶음 모두 링크·특수파일을 검사하며 위반 시 중단한다.
 
 시뮬 페이지의 meta CSP는 `wasm-unsafe-eval`·`unsafe-eval`을 허용한다. 현재 저장소 Caddyfile에는 추가 CSP가 없으며 정적 파일 서버가 `.wasm`을 `application/wasm`으로 제공한다. 실제 서버 헤더·MIME·페이지 로드는 합침 후 별도로 확인한다. Caddy 설정 변경이 필요하면 중단하고 조정에 보고한다. 설치된 deploy-tools는 자동 갱신되지 않으므로 검토한 준비 스크립트와 helper의 선택 갱신이 필요하다. bootstrap 재실행은 이 작업에 포함하지 않는다. 되돌림은 변경 커밋을 revert하고 기존 배포 절차로 이전 검증 묶음을 선택한다. 비공개 자산은 유지할 수 있다.
 

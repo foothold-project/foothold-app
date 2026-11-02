@@ -283,3 +283,23 @@ f32 전환을 확인하고, foothold-v2의 명령 반응/이동도 확인했다.
 전체(기존 수명주기·7종 실패 전환·명시적 f32 포함), `start-selftest.mjs`, 변경 JS 구문 검사를
 재실행해 통과했다. ONNX/가중치/수치 계산은 바꾸지 않았고 parity·APK 빌드는 이 수정에서
 반복하지 않았다. 실제 Caddy/원격 서버·운영 포트·실폰은 접촉하지 않았다.
+
+### 서버 웹 ONNX 패키징 (2026-11-02)
+
+`deploy/prepare_sim.py`는 위 두 정책의 ONNX를 출처 SHA로 확인하여 선택적으로
+`dist/sim/`에 복사한다. 공유 런타임은 `mobile/package-lock.json`에 고정된
+`onnxruntime-web@1.31.1`이며 기존 WASM APK에서 추출한 동일 파일을 사용한다.
+`mobile/scripts/sync-web.mjs`의 기본 WASM 파일 목록과 같다. 버전 갱신·다운로드·
+WebGPU/asyncify 추가는 하지 않는다.
+
+| `ort/` 안 파일 | bytes | SHA-256 |
+|---|---:|---|
+| `ort.wasm.min.mjs` | 53,725 | `c21d9c326d453a4a61398270c804d5979e118540597cb0c07f7b3d64e6098234` |
+| `ort-wasm-simd-threaded.mjs` | 24,738 | `30ed0b5cd1182ede931fea448afb567d4dc705ec957af09f108a2be5f770dac3` |
+| `ort-wasm-simd-threaded.wasm` | 14,848,852 | `4b884c203b0fa48d057be3332c65513ff85aa3c5bddd6946acc0fab7ecda001d` |
+
+모델 누락·SHA 불일치는 해당 ONNX만 생략한다. 런타임 누락·SHA 불일치는
+`ort/` 전체를 생략한다. 두 경우 모두 경고하며 기존 f32 시뮬은 유지하고,
+브라우저의 같은 정책 f32 전환과 이유 배지를 사용한다. 링크·특수파일·경로/소유권
+위반은 기존처럼 준비를 중단한다. 자산 원물은 Git에 넣지 않는다.
+이 패키징 변경의 원격 배포·서비스 전환 및 배포 후 브라우저 확인은 별도 관문이다.
