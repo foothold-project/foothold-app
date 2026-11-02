@@ -1,6 +1,6 @@
 """Remove each motion boundary independently; only assertion failures kill mutants.
 
-Run after the full server pytest succeeds. Source mutations live only in child
+Run after the relevant server pytest succeeds. Source mutations live only in child
 process memory; no repository file is changed.
 """
 import importlib
@@ -28,6 +28,12 @@ CASES = {
     'expiry comparison removed': ('apps.server.fh_server.realtime',
         'return expiry is not None and expiry > now()',
         'return expiry is not None', TEST + 'test_final_send_gate_cannot_leak_queued_command'),
+    'reconnect approval reset removed': ('apps.server.fh_server.realtime',
+        "await self.reset_agent_field_approval(rid, digest(ws.headers['authorization'][7:]))",
+        'pass', 'apps/server/tests/test_pairing_r1.py::test_agent_connect_clears_persisted_field_approval'),
+    'orphan assignment fields guard removed': ('apps.server.fh_server.api',
+        "if body.model_fields_set != {'owner_user_id'} or body.owner_user_id is None:",
+        'if False:', 'apps/server/tests/test_pairing_r1.py::test_admin_can_only_assign_unowned_real_robot'),
 }
 
 

@@ -1435,6 +1435,7 @@ export interface RobotList {
 
 export interface RobotPatch {
   name?: string;
+  /** 실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다. */
   owner_user_id?: string | null;
 }
 
@@ -1448,6 +1449,7 @@ export interface RobotSummary {
   simulation: boolean;
   server_drive_allowed: boolean;
   robot_serial?: string | null;
+  /** 실기 agent WS가 새로 연결되면 해제된다. 다시 현장 안전 확인이 필요하다. */
   field_approval_expires_at?: string | null;
   id: string;
   name: string;

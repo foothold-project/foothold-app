@@ -104,7 +104,7 @@
 | GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본 `mine`). `all` = 조직의 전체 로봇 | 로그인 |
 | POST | `/robots` | 실기 직접 등록 폐지 →403 `PAIRING_REQUIRED`; §3.1 사용 | 없음 |
 | GET | `/robots/{id}` | 상세(장치 목록·담당자·현재 실행·현재 층). 담당 밖 운영 관리자에게는 로봇 요약 객체만 200 | 로그인 |
-| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}`. 실기 넘기기 대상은 같은 조직의 활성 운영, null 거부, 넘기면 현장 승인 해제 | 실기 O(내), 시뮬 기존 A |
+| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}`. 실기 넘기기 대상은 같은 조직의 활성 운영, null 거부, 넘기면 현장 승인 해제 | 실기 O(내), 담당 없는 실기 지정만 A, 시뮬 기존 A |
 | DELETE | `/robots/{id}` | 해제(실행·조종 중이면 409), 연결 키 폐기 | 실기 O(내), 시뮬 전용 관리 API |
 | POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
@@ -156,7 +156,8 @@
 - 코드는 10분·1회용, poll_secret은 32바이트 무작위이며 start 응답에서만 전달한다. claim한 다른 운영의 claim/confirm, 없는 코드·사용한 코드·만료 코드는 같은404 `PAIRING_NOT_FOUND`다. 같은 운영의 대기 claim 재요청은 허용한다.
 - start는 실제 연결 IP당 10분 고정 창 10회, claim은 사용자당 10회·IP당 20회다(429). 프록시의 임의 전달 헤더는 신뢰하지 않는다. DB에 카운터를 저장해 실패·재시작으로 초기화되지 않는다. 조직당 확인 전 대기 상한100건이다.
 - 모든 pairing 응답은 `Cache-Control: no-store`. poll_secret은 해시만, 전달 전 토큰은 poll_secret에서 별도로 유도한 키로 AES-GCM 암호화해 저장한다. 한 번 poll하면 암호문을 지운다. 코드·비밀·토큰·serial 원문은 사건에 기록하지 않는다.
-- 현장 확인은 정확히 세 필수 id가 각각 한 번 필요하다. 누락·중복·모르는 id는400. 승인 수명은 서버가 정하는30분이며, 생성·해제·만료는 사건으로 기록한다. 담당 넘기기·연결 끊기는 승인을 해제한다.
+- 담당 없는 실기만 총괄이 PATCH에 `{owner_user_id}` 한 필드만 보내 같은 조직의 활성 운영에게 담당을 지정할 수 있다. null·이름 동시 변경·기존 담당 교체는 허용하지 않는다. 지정은 현장 승인을 해제하고 사건으로 남기며 연결 키를 발급하거나 조종·승인 권한을 주지 않는다.
+- 현장 확인은 정확히 세 필수 id가 각각 한 번 필요하다. 누락·중복·모르는 id는400. 승인 수명은 서버가 정하는30분이며, 생성·해제·만료는 사건으로 기록한다. 담당 넘기기·연결 끊기는 승인을 해제한다. 실기 agent WS가 새로 연결되면 순단·프로그램/서버 재시작을 포함해 DB 승인도 먼저 해제하고 `RobotSummary.field_approval_expires_at=null`로 표시한다. 연결 후 담당 운영자가 현장 안전 확인을 다시 해야 한다.
 - `RobotSummary.robot_serial`, `field_approval_expires_at`은 총괄도 읽는다. 만료된 승인은 null이다. `server_drive_allowed`는 아래 두 관문이 모두 유효할 때만 true다.
 - 서버 경유 실기 수동 조종 = 전체 스위치 AND 해당 로봇의 유효한 현장 승인. 새 `FH_SERVER_DRIVE_ENABLED=1`은 모든 실기의 전체 스위치다. 이 env가 **없을 때만** 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 계속 거부한다.
 - 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 열렸지만 현장 승인이 없으면 `FIELD_APPROVAL_REQUIRED`. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬 조종·폰 출입증 경로·수동 명령표·0.30초 감시는 유지한다.

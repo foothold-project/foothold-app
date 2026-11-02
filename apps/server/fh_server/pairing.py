@@ -49,6 +49,22 @@ def expire(factory, org_id):
                 code='FIELD_APPROVAL_EXPIRED', severity='INFO', data={'expires_at': expired.isoformat()})))
 
 
+def revoke_on_agent_connect(factory, org_id, rid, token_hash):
+    """Persist before publishing a new authenticated real-agent connection."""
+    from .api import lock_organization
+    with factory.begin() as db:
+        lock_organization(db, org_id)
+        robot = db.scalar(select(Robot).where(Robot.org_id == org_id,
+            Robot.id == UUID(rid), Robot.archived_at.is_(None)).with_for_update())
+        if robot is None or not hmac.compare_digest(robot.agent_token_hash, token_hash):
+            return False
+        if not robot.simulation and robot.field_approval_expires_at is not None:
+            robot.field_approval_expires_at = None
+            db.add(render(db, Event(org_id=org_id, robot_id=robot.id, category='SAFETY',
+                code='FIELD_APPROVAL_REVOKED', severity='INFO', data={'reason': 'AGENT_RECONNECTED'})))
+    return True
+
+
 async def close_connection(rt, rid):
     peer = rt.agents.get(rid)
     if peer is None:

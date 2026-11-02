@@ -182,6 +182,8 @@ def test_both_motion_gates_required(seeded, enabled, approved, expected):
             ag.send_json(hello())
             receive(ag, 'field_approval')
             if approved:
+                assert client.post(P + '/robots/' + str(rid) + '/field-approval',
+                    headers=own, json={'checks': CHECKS}).status_code == 200
                 receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
             with screen(client, own) as ws:
                 result = reply(ws, send(ws, 'lease.take', rid))

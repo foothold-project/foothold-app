@@ -854,6 +854,21 @@ class Realtime:
         expiry = self.field_approvals.get(rid)
         return expiry is not None and expiry > now()
 
+    async def reset_agent_field_approval(self, rid, token_hash):
+        from .pairing import revoke_on_agent_connect
+        self.begin_robot_change(rid)
+        try:
+            # Revoke motion before waiting on bounded metadata SQL. A second
+            # marker after commit excludes every pre-commit auth snapshot.
+            self.set_field_approval(rid, None)
+            valid = await asyncio.to_thread(revoke_on_agent_connect, self.inventory.factory,
+                                           self.settings.org_id, rid, token_hash)
+            self.set_field_approval(rid, None)
+            if not valid:
+                raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
+        finally:
+            self.end_robot_change(rid)
+
     def set_field_approval(self, rid, expiry, *, observed=None):
         # A SQL snapshot started before a local revoke cannot restore approval.
         if observed is not None and observed < self.field_changed_at.get(rid, float('-inf')):
@@ -1908,6 +1923,8 @@ class Realtime:
             if rid in self.robot_changes:
                 await ws.close(code=1013, reason='ROBOT_CHANGE_PENDING')
                 return
+            if not peer.simulation:
+                await self.reset_agent_field_approval(rid, digest(ws.headers['authorization'][7:]))
             old = self.agents.get(rid)
             if old:
                 old.closing = True
@@ -1916,8 +1933,8 @@ class Realtime:
             # old socket's finally runs after this peer has replaced it.
             self.inventory.forget(rid)
             self.agents[rid] = peer
-            # An explicit initial null makes reconnect fail closed until the
-            # bounded agent-auth watcher loads the persisted field approval.
+            # Every real-agent connection needs a new field confirmation;
+            # persisted approval was cleared before publishing this peer.
             self.field_approvals.pop(rid, None)
             if not peer.simulation:
                 self.put(peer, C.AgentFieldApproval(expires_at=None).model_dump(mode='json'))

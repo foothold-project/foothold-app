@@ -306,7 +306,8 @@ class RobotSummary(Contract):
     simulation: bool = False
     server_drive_allowed: bool = False
     robot_serial: str | None = None
-    field_approval_expires_at: UTCDateTime | None = None
+    field_approval_expires_at: UTCDateTime | None = Field(default=None,
+        description='실기 agent WS가 새로 연결되면 해제된다. 다시 현장 안전 확인이 필요하다.')
     id: UUID
     name: str
     model: str
@@ -871,7 +872,9 @@ class RobotCreate(Contract):
 
 class RobotPatch(Contract):
     name: str = omitted(min_length=1, max_length=128)
-    owner_user_id: UUID | None = omitted()
+    owner_user_id: UUID | None = omitted(description=(
+        '실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 '
+        '같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다.'))
 
 
 class RobotCreated(Contract):

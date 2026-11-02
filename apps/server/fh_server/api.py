@@ -93,6 +93,9 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         'O': valid_role,
         'ROBOT_WRITE': (user.role == 'ORG_ADMIN' if robot is not None and getattr(robot, 'simulation', False) is True
                         else user.role == 'OPERATOR' and robot is not None and robot.owner_user_id == user.id),
+        'ROBOT_ASSIGN_UNOWNED': (user.role == 'ORG_ADMIN' and robot is not None
+                                and getattr(robot, 'simulation', False) is not True
+                                and robot.owner_user_id is None),
         'ROBOT_SUMMARY': valid_role and robot is not None,
         'ROBOT_READ': valid_role and robot is not None and owns,
         'O_OWN': valid_role and robot is not None and owns,
@@ -667,7 +670,12 @@ def create_app(settings: Settings | None = None):
         user = auth[0]
         rt, rid = app.state.realtime, str(robot_id)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
-        authorize(user, 'ROBOT_WRITE', row)
+        if user.role == 'ORG_ADMIN' and not row.simulation and row.owner_user_id is None:
+            authorize(user, 'ROBOT_ASSIGN_UNOWNED', row)
+            if body.model_fields_set != {'owner_user_id'} or body.owner_user_id is None:
+                fail(403, 'FORBIDDEN', '담당 없는 실기는 운영 담당 지정만 할 수 있습니다.')
+        else:
+            authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set

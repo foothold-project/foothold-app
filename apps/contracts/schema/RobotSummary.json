@@ -666,6 +666,7 @@
         }
       ],
       "default": null,
+      "description": "실기 agent WS가 새로 연결되면 해제된다. 다시 현장 안전 확인이 필요하다.",
       "title": "Field Approval Expires At"
     },
     "id": {
