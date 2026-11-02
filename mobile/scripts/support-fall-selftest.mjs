@@ -21,11 +21,21 @@ const box = (x, y, z, sx, sy, sz) => `<geom group="1" type="box" pos="${x} ${y} 
 const gap = plane(-1) + box(-1.075, 0, -.1, .925, 3, .1) + box(1.075, 0, -.1, .925, 3, .1);
 const gapYaw = plane(-1) + box(0, -1.075, -.1, 3, .925, .1) + box(0, 1.075, -.1, 3, .925, .1);
 const ledge = plane(-2) + box(-1, 0, -.1, 1, 3, .1);
+const shallowGap = (depth) => plane(-depth) + box(-1.075, 0, -.1, .925, 3, .1) + box(1.075, 0, -.1, .925, 3, .1);
+const shallowGapYaw = (depth) => plane(-depth) + box(0, -1.075, -.1, 3, .925, .1) + box(0, 1.075, -.1, 3, .925, .1);
+const shallowLedge = plane(-.4) + box(-1, 0, -.1, 1, 3, .1);
 const results = [];
 for (const id of ['foothold-v2', 'ame2-demo']) {
   for (const [name, geoms, x, y, yaw, hold] of [
     ['slumped-over-0.3m-gap', gap, 0, 0, 0, 0],
     ['slumped-over-gap-yaw90', gapYaw, 0, 0, Math.PI / 2, 0],
+    ['slumped-over-gap-depth-0.18m', shallowGap(.18), 0, 0, 0, 0],
+    ['slumped-over-gap-depth-0.3m', shallowGap(.3), 0, 0, 0, 0],
+    ['slumped-over-gap-depth-0.45m', shallowGap(.45), 0, 0, 0, 0],
+    ['slumped-over-gap-depth-0.5m', shallowGap(.5), 0, 0, 0, 0],
+    ['slumped-over-shallow-gap-yaw90', shallowGapYaw(.3), 0, 0, Math.PI / 2, 0],
+    ['slumped-just-outside-0.4m-ledge', shallowLedge, .05, 0, 0, 0],
+    ['slumped-just-outside-0.4m-ledge-yaw180', shallowLedge, .05, 0, Math.PI, 0],
     ['slumped-just-outside-2m-ledge', ledge, .05, 0, 0, 0],
     ['slumped-beyond-footprint-2m-ledge', ledge, .5, 0, 0, 0],
     ['freefall-to-5m-lower-floor', plane(-5), 0, 0, 0, .3],
@@ -45,6 +55,26 @@ for (const id of ['foothold-v2', 'ame2-demo']) {
       }
     } finally { sim.dispose(); }
   }
+  // Retaining the edge datum must neither stop an upright bridging pose nor
+  // prevent a real descent once the entire trunk footprint clears the edge.
+  mj.FS.writeFile('/go2/world.xml', `<mujoco><worldbody>${shallowLedge}</worldbody></mujoco>`);
+  const descent = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, () => new Float32Array(12), { floorZ: 0, spawn: [.05, 0, 0] }, id);
+  try {
+    assert.equal(descent.fell, false, `${id}: upright over shallow ledge`);
+    assert.ok(Math.abs(descent.z - .4) < 1e-9, `${id}: upper edge remains support`);
+    descent.d.qpos[0] = .5; descent.d.qpos[2] = 0;
+    mj.mj_forward(descent.m, descent.d); descent.hold(0);
+    assert.equal(descent.fell, false, `${id}: entire footprint on lower floor`);
+    assert.ok(Math.abs(descent.z - .4) < 1e-9, `${id}: adopts lower floor after clearing edge`);
+    descent.d.qpos[2] = -.3; mj.mj_forward(descent.m, descent.d); descent.hold(0);
+    assert.equal(descent.fell, true, `${id}: slump on lower floor still stops`);
+  } finally { descent.dispose(); }
+  mj.FS.writeFile('/go2/world.xml', `<mujoco><worldbody>${shallowGap(.3)}</worldbody></mujoco>`);
+  const bridge = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, () => new Float32Array(12), { floorZ: 0, spawn: [0, 0, 0] }, id);
+  try {
+    assert.equal(bridge.fell, false, `${id}: upright over shallow gap`);
+    assert.ok(Math.abs(bridge.z - .4) < 1e-9, `${id}: both gap edges provide support`);
+  } finally { bridge.dispose(); }
   // A valid lower floor must remain the fallback after stepping into a void;
   // reset must discard a previous raised support, and restore the reset datum.
   mj.FS.writeFile('/go2/world.xml', `<mujoco><worldbody>${box(0, 0, -.7, 1, 1, .1)}</worldbody></mujoco>`);
@@ -64,4 +94,4 @@ for (const id of ['foothold-v2', 'ame2-demo']) {
   } finally { raised.dispose(); }
 }
 assert.ok(results.every((r) => r.fell), 'gap/ledge/freefall must all latch a fall for both adapters');
-console.log('support fall PASS: footprint gap/ledge, retained datum beyond ledge, 5m freefall, yaw, latch and reset; both adapters');
+console.log('support fall PASS: shallow/deep gaps and ledges, upright bridge/descent, retained datum beyond ledge, 5m freefall, yaw, latch and reset; both adapters');
