@@ -12,6 +12,7 @@ import { topFrame } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts, MAX_VX } from './scenario.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
+import { loadSimSettings, simSettings } from './settings.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
@@ -145,6 +146,10 @@ async function preparePolicies() {
 }
 
 async function main() {
+  const settings = {}; // Runner snapshots this at start; lidar reads only the display field.
+  void loadSimSettings(new URL(location.href)).then((org) => Object.assign(settings, simSettings(org, {
+    vx: adapter.command.joystickScale[0], wz: adapter.command.joystickScale[2],
+  })));
   const q = new URLSearchParams(location.search).get('map') ?? '', maps = await json('maps.json');
   const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
   const [mj, sceneJ, mapJ, polBuf, policyManifest] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
@@ -186,8 +191,8 @@ async function main() {
   });
   sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
   const { m, d } = sim;
-  const lidar = makeLidar(mj, m, d, 360);
-  const runner = createScenarioRunner(sim, () => stopped);
+  const lidar = makeLidar(mj, m, d, 360, settings);
+  const runner = createScenarioRunner(sim, () => stopped, settings);
   let scenarios = [];
   // 층 시나리오는 floor_id 가 그 층이고 지점이 그 층 지도의 빈 칸이어야 한다(floor = 층 번호)
   try { scenarios = floors.length ? (await Promise.all(floors.map(async (f, i) => validateScenarios(await json(`${dir}/${f.scn}`), f.map)
@@ -319,7 +324,7 @@ async function main() {
     }
   };
 
-  // 라이다 점: 몸통 위 0.1 m, 몸통 yaw 기준 수평 360줄. 안 맞은 줄(12 m 밖)은 바닥 아래로 숨긴다
+  // 라이다 점: 표시 거리 밖은 숨긴다. front·다시 찾기는 기존 12 m 안전 스캔만 쓴다.
   const LN = 360, lidarPos = new Float32Array(LN * 3);
   const lidarPts = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(lidarPos, 3)),
     new THREE.PointsMaterial({ color: 0x39ff88, size: 4, sizeAttenuation: false }));
@@ -331,7 +336,7 @@ async function main() {
     const x = d.qpos[0], y = d.qpos[1], z = d.qpos[2] + 0.1, yaw = yawOf(), r = lidar(x, y, z, yaw);
     front = frontDistance(r); rays = r;
     for (let i = 0; i < LN; i++) {
-      const a = yaw + (i * 2 * Math.PI) / LN, k = Number.isFinite(r[i]) ? r[i] : 0;
+      const a = yaw + (i * 2 * Math.PI) / LN, k = Number.isFinite(lidar.viewRays[i]) ? lidar.viewRays[i] : 0;
       lidarPos.set(k ? [x + Math.cos(a) * k, y + Math.sin(a) * k, z] : [x, y, -100], i * 3);
     }
     lidarPts.geometry.attributes.position.needsUpdate = true;
