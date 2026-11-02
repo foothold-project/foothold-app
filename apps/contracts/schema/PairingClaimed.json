@@ -1,0 +1,28 @@
+{
+  "$id": "fh-app/1/PairingClaimed",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "pairing_id": {
+      "format": "uuid",
+      "title": "Pairing Id",
+      "type": "string"
+    },
+    "robot_serial": {
+      "title": "Robot Serial",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pairing_id",
+    "robot_serial",
+    "expires_at"
+  ],
+  "title": "PairingClaimed",
+  "type": "object"
+}

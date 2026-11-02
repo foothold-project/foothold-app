@@ -1,0 +1,23 @@
+{
+  "$id": "fh-app/1/PairingStart",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "model": {
+      "const": "unitree_go2",
+      "title": "Model",
+      "type": "string"
+    },
+    "robot_serial": {
+      "pattern": "^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$",
+      "title": "Robot Serial",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model",
+    "robot_serial"
+  ],
+  "title": "PairingStart",
+  "type": "object"
+}

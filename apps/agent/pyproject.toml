@@ -11,6 +11,7 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+setup = ["websockets==15.0.1", "qrcode==8.2"]
 link = ["websockets==15.0.1"]
 discovery = ["zeroconf==0.148.0"]
 go2-readonly = [

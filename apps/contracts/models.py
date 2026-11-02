@@ -295,7 +295,8 @@ class PhoneRelayState(Contract):
 
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
-        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay'))
+        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay',
+        'robot_serial', 'field_approval_expires_at'))
     phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
     state_stale: bool | None = True
@@ -304,6 +305,9 @@ class RobotSummary(Contract):
     controller_connected: bool | None = None
     simulation: bool = False
     server_drive_allowed: bool = False
+    robot_serial: str | None = None
+    field_approval_expires_at: UTCDateTime | None = Field(default=None,
+        description='실기 agent WS가 새로 연결되면 해제된다. 다시 현장 안전 확인이 필요하다.')
     id: UUID
     name: str
     model: str
@@ -790,9 +794,14 @@ class AgentStreams(Contract):
     map: bool
 
 
+class AgentFieldApproval(Contract):
+    t: Literal['field_approval'] = 'field_approval'
+    expires_at: UTCDateTime | None
+
+
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -863,7 +872,9 @@ class RobotCreate(Contract):
 
 class RobotPatch(Contract):
     name: str = omitted(min_length=1, max_length=128)
-    owner_user_id: UUID | None = omitted()
+    owner_user_id: UUID | None = omitted(description=(
+        '실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 '
+        '같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다.'))
 
 
 class RobotCreated(Contract):
@@ -2330,6 +2341,64 @@ class SimRobotList(Contract):
     manager_error: Literal['SIM_DISABLED', 'SIM_UNAVAILABLE'] | None = None
 
 
+class PairingStart(Contract):
+    model: Literal['unitree_go2']
+    robot_serial: str = Field(pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$')
+
+    @model_validator(mode='after')
+    def valid_serial(self):
+        if any(int(part) > 0xFFFFFFFF for part in self.robot_serial.split('-')):
+            raise ValueError('serial components must be uint32')
+        return self
+
+
+class PairingStarted(Contract):
+    pairing_id: UUID
+    code: str = Field(pattern=r'^[0-9]{6}$')
+    expires_at: UTCDateTime
+    poll_secret: str = Field(min_length=43, max_length=43)
+
+
+class PairingClaim(Contract):
+    code: str = Field(pattern=r'^[0-9]{6}$')
+
+
+class PairingClaimed(Contract):
+    pairing_id: UUID
+    robot_serial: str
+    expires_at: UTCDateTime
+
+
+class PairingConfirm(Contract):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class PairingPoll(Contract):
+    poll_secret: str = Field(min_length=1, max_length=256)
+
+
+class PairingWaiting(Contract):
+    state: Literal['waiting', 'consumed']
+
+
+class PairingPaired(Contract):
+    state: Literal['paired'] = 'paired'
+    robot_id: UUID
+    agent_token: str
+    agent_ws_url: str
+
+
+FIELD_APPROVAL_CHECKS = frozenset({'space_clear', 'emergency_stop_ready', 'robot_verified'})
+
+
+class FieldApprovalRequest(Contract):
+    checks: list[str] = Field(max_length=10)
+
+
+class FieldApproval(Contract):
+    expires_at: UTCDateTime
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
@@ -2364,3 +2433,5 @@ REQUEST_MODELS.update({StopRequest, PhoneStop})
 
 REQUEST_MODELS.add(StopRequestAck)
 REQUEST_MODELS.add(PhoneStateUpload)
+REQUEST_MODELS.update({PairingStart, PairingClaim, PairingConfirm, PairingPoll, FieldApprovalRequest})
+TOP['PairingPollResult'] = PairingWaiting | PairingPaired

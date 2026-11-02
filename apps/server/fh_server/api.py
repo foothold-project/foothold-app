@@ -39,6 +39,11 @@ class Settings:
     simmgr_auth_file: str | None = None
     tunnel_origin: str | None = None
     server_drive_robots: frozenset[UUID] = frozenset()
+    server_drive_enabled: bool | None = None
+
+    def drive_enabled(self, robot_id):
+        return (self.server_drive_enabled if self.server_drive_enabled is not None
+                else UUID(str(robot_id)) in self.server_drive_robots)
 
     @classmethod
     def from_env(cls):
@@ -48,6 +53,8 @@ class Settings:
                    phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
                    simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
                    tunnel_origin=tunnel_origin(os.environ),
+                   server_drive_enabled=(os.environ['FH_SERVER_DRIVE_ENABLED'] == '1'
+                       if 'FH_SERVER_DRIVE_ENABLED' in os.environ else None),
                    server_drive_robots=frozenset(UUID(value.strip()) for value in
                        os.environ.get('FH_SERVER_DRIVE_ROBOTS', '').split(',') if value.strip()))
 
@@ -84,6 +91,11 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         'LOGIN': valid_role,
         'A': user.role == 'ORG_ADMIN',
         'O': valid_role,
+        'ROBOT_WRITE': (user.role == 'ORG_ADMIN' if robot is not None and getattr(robot, 'simulation', False) is True
+                        else user.role == 'OPERATOR' and robot is not None and robot.owner_user_id == user.id),
+        'ROBOT_ASSIGN_UNOWNED': (user.role == 'ORG_ADMIN' and robot is not None
+                                and getattr(robot, 'simulation', False) is not True
+                                and robot.owner_user_id is None),
         'ROBOT_SUMMARY': valid_role and robot is not None,
         'ROBOT_READ': valid_role and robot is not None and owns,
         'O_OWN': valid_role and robot is not None and owns,
@@ -244,6 +256,7 @@ def create_app(settings: Settings | None = None):
                 try:
                     await asyncio.to_thread(issuer.flush_denials,factory,settings.org_id)
                     await asyncio.to_thread(expire_user_sessions, factory, settings.org_id, clock=issuer.clock)
+                    await asyncio.to_thread(pairing.expire, factory, settings.org_id)
                 except Exception:
                     # Counters stay durable and retry; never drop a denial silently.
                     continue
@@ -650,24 +663,19 @@ def create_app(settings: Settings | None = None):
 
     @app.post(prefix + '/robots', response_model=C.RobotCreated, status_code=201)
     def create_robot(body: C.RobotCreate, auth: Identity, db: DB, response: Response):
-        user = auth[0]
-        authorize(user, 'A')
-        check_owner(db, user, body.owner_user_id)
-        raw = token()
-        row = Robot(org_id=user.org_id, name=body.name, model='unitree_go2',
-            owner_user_id=body.owner_user_id, agent_token_hash=digest(raw))
-        db.add(row)
-        db.flush()
-        robot_event(db, user, row, 'ROBOT_CREATED', {'name': row.name, 'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
-        response.headers['Cache-Control'] = 'no-store'
-        return C.RobotCreated(robot=robot_object(db, row, user, app.state.realtime), agent_token=raw)
+        fail(403, 'PAIRING_REQUIRED', '실기 로봇은 담당 운영자가 연결 코드로 등록하세요.')
 
     @app.patch(prefix + '/robots/{robot_id}', response_model=C.RobotSummary)
     async def patch_robot(robot_id: UUID, body: C.RobotPatch, auth: Identity, db: DB):
         user = auth[0]
-        authorize(user, 'A')
         rt, rid = app.state.realtime, str(robot_id)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        if user.role == 'ORG_ADMIN' and not row.simulation and row.owner_user_id is None:
+            authorize(user, 'ROBOT_ASSIGN_UNOWNED', row)
+            if body.model_fields_set != {'owner_user_id'} or body.owner_user_id is None:
+                fail(403, 'FORBIDDEN', '담당 없는 실기는 운영 담당 지정만 할 수 있습니다.')
+        else:
+            authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set
@@ -680,18 +688,25 @@ def create_app(settings: Settings | None = None):
                 if 'name' in values and values['name'] is None:
                     fail(400, 'VALIDATION', '이름을 입력하세요.')
                 if 'owner_user_id' in values:
+                    if not row.simulation and values['owner_user_id'] is None:
+                        fail(400, 'VALIDATION', '담당 운영자를 선택하세요.')
                     check_owner(db, user, values['owner_user_id'])
                 old_owner = row.owner_user_id
                 if changing_owner and old_owner is not None:
                     phone_pass.revoke(db, user.org_id, user_id=old_owner, robot_id=row.id,clock=issuer.clock)
                 for key, value in values.items():
                     setattr(row, key, value)
+                if changing_owner:
+                    if row.field_approval_expires_at is not None:
+                        robot_event(db, user, row, 'FIELD_APPROVAL_REVOKED', {'reason': 'OWNER_CHANGED'})
+                    row.field_approval_expires_at = None
                 robot_event(db, user, row, 'ROBOT_UPDATED', {'name': row.name, 'old_owner_user_id': str(old_owner) if old_owner else None,
                      'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
                 db.commit()
                 return row, old_owner
             row, old_owner = await asyncio.to_thread(write)
             if old_owner != row.owner_user_id:
+                rt.set_field_approval(rid, None)
                 rt.robot_changed(rid, old_owner=str(old_owner) if old_owner else None)
             return await asyncio.to_thread(robot_object, db, row, user, rt)
         finally:
@@ -701,7 +716,8 @@ def create_app(settings: Settings | None = None):
     @app.delete(prefix + '/robots/{robot_id}', status_code=204)
     async def delete_robot(robot_id: UUID, auth: Identity, db: DB):
         user = auth[0]
-        authorize(user, 'A')
+        row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        authorize(user, 'ROBOT_WRITE', row)
         rt, rid = app.state.realtime, str(robot_id)
         rt.begin_robot_change(rid)
         try:
@@ -775,18 +791,11 @@ def create_app(settings: Settings | None = None):
     @app.post(prefix + '/robots/{robot_id}/agent-token', response_model=C.AgentTokenResponse)
     def agent_token(robot_id: UUID, auth: Identity, db: DB, response: Response):
         user = auth[0]
-        authorize(user, 'A')
-        row = db.scalar(select(Robot).where(Robot.id == robot_id, Robot.org_id == user.org_id,
-                                           Robot.archived_at.is_(None)).with_for_update())
-        if not row:
-            fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+        row = find_robot(db, user, robot_id)
         if row.simulation:
+            authorize(user, 'A')
             fail(409, 'SIM_TOKEN_MANAGED', '시뮬 관리자에서만 연결 키를 관리합니다.')
-        raw = token()
-        row.agent_token_hash = digest(raw)
-        event(db, user.org_id, 'AGENT_TOKEN_ROTATED', user.id, {'robot_id': str(robot_id)})
-        response.headers['Cache-Control'] = 'no-store'
-        return C.AgentTokenResponse(agent_token=raw)
+        fail(403, 'PAIRING_REQUIRED', '연결 키는 연결 프로그램에만 전달합니다.')
 
     from . import events_api, notifications, maps, missions, simulation, runs, photos, external_camera
     simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization)
@@ -805,4 +814,6 @@ def create_app(settings: Settings | None = None):
     app.state.realtime.phone_pass_clock = lambda: issuer.clock()
     from . import phone_telemetry
     phone_telemetry.install(app, DB, Identity, fail, authorize, issuer, find_robot)
+    from . import pairing
+    pairing.install(app, DB, Identity, fail, authorize, settings, find_robot, robot_event, issuer)
     return app

@@ -7,6 +7,7 @@ import { api } from '../api';
 import { ROBOTS as MEM_ROBOTS, USERS as MEM_USERS } from '../fake';
 import { rt } from '../rt';
 import { LIST_MS, Root } from '../session';
+import { NO_ROBOT } from '../drive';
 import { FakeWS, lease, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -194,7 +195,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '내 로봇')!.querySelector('b')!.textContent).toBe('1');
 
     click(row('Go2-A'));
-    expect($('[aria-label="로봇 상세"] .btn.pri')).toBeNull();   // PC 에는 조종 단추가 없다(ADR-002 §4 — 조종은 폰)
+    expect([...box.querySelectorAll('[aria-label="로봇 상세"] .btn.pri')].filter((b) => !b.closest('[data-field-check]'))).toEqual([]);   // PC 에는 조종 단추가 없다(ADR-002 §4 — 조종은 폰). 현장 승인 단추만
     act(() => FakeWS.last.open());
     expect(FakeWS.last.of('sub')).toMatchObject([{ robots: ['r-a'] }]);
     click($('[data-stop]')!);
@@ -365,7 +366,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     serve(signedIn(LEE, []));
     await open();
     expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=mine');
-    expect($('[aria-label="로봇 없음"]')!.textContent).toBe('로봇이 없습니다담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.');
+    expect($('[aria-label="로봇 없음"]')!.textContent).toBe(`로봇이 없습니다${NO_ROBOT}`);
     expect($('[aria-label="요약"]')).not.toBeNull();   // 관제 요약은 그대로
     expect($('[data-stop]')).not.toBeNull();
     act(() => { location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });

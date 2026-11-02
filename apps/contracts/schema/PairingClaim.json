@@ -1,0 +1,17 @@
+{
+  "$id": "fh-app/1/PairingClaim",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "pattern": "^[0-9]{6}$",
+      "title": "Code",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code"
+  ],
+  "title": "PairingClaim",
+  "type": "object"
+}

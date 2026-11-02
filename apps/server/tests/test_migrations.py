@@ -11,6 +11,32 @@ from .conftest import CONFIG
 from .postgres import temporary_postgres
 
 
+def test_pairing_upgrade_preserves_legacy_robot_token_and_downgrade(monkeypatch):
+    with temporary_postgres() as urls:
+        monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', urls['migrate'])
+        config = Config(str(CONFIG))
+        engine = create_engine(urls['migrate'])
+        try:
+            command.upgrade(config, '0021')
+            with engine.begin() as conn:
+                org = conn.scalar(text("INSERT INTO organizations(name) VALUES ('synthetic pairing migration') RETURNING id"))
+                rid = conn.scalar(text("""INSERT INTO robots(org_id,name,model,agent_token_hash)
+                    VALUES (:org,'legacy','unitree_go2',decode('001122','hex')) RETURNING id"""), {'org': org})
+            command.upgrade(config, 'head')
+            with engine.connect() as conn:
+                legacy = conn.execute(text('SELECT name,agent_token_hash,serial,field_approval_expires_at FROM robots WHERE id=:id'), {'id': rid}).one()
+                assert tuple(legacy) == ('legacy', bytes.fromhex('001122'), None, None)
+                assert compare_metadata(MigrationContext.configure(conn), Base.metadata) == []
+            command.downgrade(config, '0021')
+            with engine.connect() as conn:
+                assert conn.scalar(text('SELECT agent_token_hash FROM robots WHERE id=:id'), {'id': rid}) == bytes.fromhex('001122')
+            command.upgrade(config, 'head')
+            with engine.connect() as conn:
+                assert compare_metadata(MigrationContext.configure(conn), Base.metadata) == []
+        finally:
+            engine.dispose()
+
+
 def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
     with temporary_postgres() as urls:
         monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', urls['migrate'])
@@ -47,7 +73,7 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
             with engine.connect() as conn:
                 assert conn.scalar(text('SELECT count(*) FROM sessions')) == 1
             command.upgrade(config, 'head')
-            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'assignments', 'idempotency_receipts', 'phone_passes', 'phone_revocations', 'phone_revocation_batches', 'phone_pass_denials', 'alembic_version', 'runs', 'run_steps', 'run_reports', 'run_report_rejections', 'agent_plan_maps', 'photos'}
+            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'assignments', 'idempotency_receipts', 'phone_passes', 'phone_revocations', 'phone_revocation_batches', 'phone_pass_denials', 'alembic_version', 'runs', 'run_steps', 'run_reports', 'run_report_rejections', 'agent_plan_maps', 'photos', 'pairings', 'pairing_rates'}
             assert set(inspect(engine).get_table_names()) == expected
             command.downgrade(config, 'base')
             assert set(inspect(engine).get_table_names()) == {'alembic_version'}
@@ -79,7 +105,7 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with pytest.raises(IntegrityError):
                 command.downgrade(config, '0006')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0022'
                 assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
                 assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
                 assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0
@@ -179,7 +205,7 @@ def test_resource_archive_upgrade_preserves_rows_and_guarded_downgrade(monkeypat
             with pytest.raises(DBAPIError, match='Reconcile archived map resources'):
                 command.downgrade(config, '0020')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0022'
                 assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor AND archived_at IS NOT NULL'), {'floor': floor}) == 1
             with engine.begin() as conn:
                 conn.execute(text('UPDATE floors SET archived_at=NULL WHERE id=:floor'), {'floor': floor})

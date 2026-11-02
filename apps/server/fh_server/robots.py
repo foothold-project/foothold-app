@@ -127,7 +127,10 @@ def robot_objects(db, robots, user, realtime):
                 {'done': min(run.step, len(version.waypoints)), 'total': len(version.waypoints)})
     result = []
     for robot in robots:
-        server_drive = robot.simulation is not True and robot.id in realtime.settings.server_drive_robots
+        approval = robot.field_approval_expires_at
+        approval = approval if approval is not None and approval > now() else None
+        server_drive = (robot.simulation is not True and realtime.settings.drive_enabled(robot.id)
+                        and approval is not None)
         owner = owners.get(robot.owner_user_id)
         full = user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id
         online, state = snapshots[str(robot.id)] if full else (False, {})
@@ -166,6 +169,7 @@ def robot_objects(db, robots, user, realtime):
                 if reported_run['status'] not in TERMINAL_RUNS else None)
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
             server_drive_allowed=server_drive,
+            robot_serial=robot.serial, field_approval_expires_at=approval,
             phone_relay=phone_relay(realtime, str(robot.id)) if full else None,
             owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
             connection=('ONLINE' if online else 'OFFLINE') if full else 'UNKNOWN', status=state.get('status'),
