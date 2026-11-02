@@ -1,0 +1,20 @@
+{
+  "$id": "fh-app/1/FieldApprovalRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Checks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "checks"
+  ],
+  "title": "FieldApprovalRequest",
+  "type": "object"
+}

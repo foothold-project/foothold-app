@@ -1,0 +1,34 @@
+{
+  "$id": "fh-app/1/PairingPaired",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent_token": {
+      "title": "Agent Token",
+      "type": "string"
+    },
+    "agent_ws_url": {
+      "title": "Agent Ws Url",
+      "type": "string"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "state": {
+      "const": "paired",
+      "default": "paired",
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state",
+    "robot_id",
+    "agent_token",
+    "agent_ws_url"
+  ],
+  "title": "PairingPaired",
+  "type": "object"
+}

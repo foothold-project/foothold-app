@@ -160,6 +160,7 @@ def test_account_and_assignment_writes_create_durable_revocations(pc, seeded, ac
         pc.pass_headers = csrf(pc, 'admin')
         denied = issue(pc, seeded, purpose='view')
         assert denied.status_code == 403 and denied.json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        pc.pass_headers = csrf(pc, 'one')
         result = pc.patch('/api/v1/robots/' + str(seeded['robots']['mine']), headers=pc.pass_headers,
                           json={'owner_user_id': str(seeded['users']['two'])})
         assert result.status_code == 200
@@ -167,7 +168,7 @@ def test_account_and_assignment_writes_create_durable_revocations(pc, seeded, ac
         assert rows(seeded, PhoneRevocation)
         pc.pass_headers = csrf(pc, 'two')
         assert issue(pc, seeded).status_code == 200
-        pc.pass_headers = csrf(pc, 'admin')
+        pc.pass_headers = csrf(pc, 'two')
         result = pc.patch('/api/v1/robots/' + str(seeded['robots']['mine']), headers=pc.pass_headers,
                           json={'owner_user_id': str(seeded['users']['one'])})
     elif action == 'forced':
@@ -372,7 +373,7 @@ def test_delete_and_logout_revoke_all_issued_metadata(pc,seeded,action):
             response=pc.delete('/api/v1/users/'+str(seeded['users']['one']),headers=pc.pass_headers)
         elif action=='archive-robot':
             assert issue(pc,seeded).status_code==200
-            pc.pass_headers=csrf(pc, 'admin')
+            pc.pass_headers=csrf(pc, 'one')
             response=pc.delete('/api/v1/robots/'+str(seeded['robots']['mine']),headers=pc.pass_headers)
         else:
             assert issue(pc,seeded).status_code==200

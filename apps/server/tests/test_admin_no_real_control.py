@@ -142,7 +142,7 @@ def test_live_control_revocation_preserves_only_authorized_subscriptions(client,
                 headers=admin_headers, json={'role': 'ORG_ADMIN'})
             assert result.status_code == 200, result.text
         else:
-            result = client.patch(f'/api/v1/robots/{rid}', headers=admin_headers,
+            result = client.patch(f'/api/v1/robots/{rid}', headers=headers,
                 json={'owner_user_id': str(seeded['users']['two'])})
             assert result.status_code == 200, result.text
 
@@ -180,7 +180,7 @@ def test_live_control_revocation_preserves_only_authorized_subscriptions(client,
         assert not denied['ok']
 
 
-def test_real_admin_assignments_and_robot_settings_unchanged(maps, seeded):
+def test_real_admin_assignments_retained_robot_settings_readonly(maps, seeded):
     http, headers, _ = maps
     value, _, _, _ = scenario(http, headers)
     result = assignment(http, headers, value, seeded['robots']['mine'])
@@ -189,7 +189,7 @@ def test_real_admin_assignments_and_robot_settings_unchanged(maps, seeded):
     rid = seeded['robots']['mine']
     result = http.patch(f'/api/v1/robots/{rid}', headers=headers,
         json={'name': '관리 유지'})
-    assert result.status_code == 200, result.text
+    assert result.status_code == 403, result.text
 
 
 def test_restart_retains_legacy_pass_metadata_and_denies_new_admin_control(seeded):

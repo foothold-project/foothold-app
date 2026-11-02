@@ -323,8 +323,16 @@ def test_token_rotation_hash_only_old_agent_invalid_and_event_no_secret(client, 
     headers = app_token(client, 'admin')
     with DBSession(client.app.state.engine) as db:
         db.get(Robot, rid).simulation = False
+        db.get(Robot, rid).serial = '3456-7890'
         db.commit()
-    response = client.post(f'/api/v1/robots/{rid}/agent-token', headers=headers)
+    assert client.post(f'/api/v1/robots/{rid}/agent-token', headers=headers).status_code == 403
+    operator = app_token(client)
+    from .test_pairing import start
+    pending = start(client, serial='3456-7890')
+    assert client.post('/api/v1/pairing/claim', headers=operator, json={'code': pending['code']}).status_code == 200
+    path = '/api/v1/pairing/' + pending['pairing_id']
+    assert client.post(path + '/confirm', headers=operator, json={'name': 'mine'}).status_code == 200
+    response = client.post(path + '/poll', json={'poll_secret': pending['poll_secret']})
     assert response.status_code == 200
     assert response.headers['cache-control'] == 'no-store'
     raw = response.json()['agent_token']
