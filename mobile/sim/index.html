@@ -28,7 +28,7 @@
   #go svg { width: 34px; height: 34px; fill: currentColor; stroke: none; }
   #btns { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--edge) + var(--stick) + 20px + env(safe-area-inset-bottom)); display: flex; gap: 10px; }
   @media (orientation: landscape) { #btns { bottom: calc(var(--edge) + env(safe-area-inset-bottom)); } }
-  #scenarioMenu, #wpGo, #wpClear { width: auto; min-width: 72px; padding: 0 8px; font: inherit; font-size: 13px; }
+  #scenarioMenu, #wpClear { width: auto; min-width: 72px; padding: 0 8px; font: inherit; font-size: 13px; }
   #scenarioPanel { position: fixed; z-index: 90; top: calc(var(--t) + 82px); left: 50%; transform: translateX(-50%); width: min(280px, calc(100vw - 32px)); box-sizing: border-box;
     border: 1px solid rgb(255 255 255 / .28); border-radius: 12px; padding: 12px; background: rgb(20 23 28 / .94); font: 14px system-ui; }
   #scenarioPanel select { width: 100%; background: #14171c; color: #e6e8eb; border: 1px solid rgb(255 255 255 / .28); border-radius: 8px; padding: 10px; font: inherit; }
@@ -71,13 +71,12 @@
 <button id="go" type="button" aria-label="다시 시작" hidden><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z"/></svg></button>
 <div id="stickL" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><b></b></div>
 <div id="stickR" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 9a8 8 0 0 1 14 0M19 9V4.5M19 9h-4.5M5 9V4.5M5 9h4.5"/></svg><b></b></div>
-<p id="keys">↑↓·WS 앞·뒤 · ←→ 옆걸음 · AD 제자리 회전 · Esc·Space 정지 · ▶ 로 시작 · 바닥 클릭 = 점 추가</p>
+<p id="keys">↑↓·WS 앞·뒤 · ←→ 옆걸음 · AD 제자리 회전 · Esc·Space 정지 · ▶ 로 시작 · 바닥 클릭 = 그곳으로 이동</p>
 <output id="goalNote" role="status" hidden></output>
 <div id="floorBar" role="group" aria-label="층" hidden></div>
 <div id="btns">
   <button id="cam" type="button" aria-label="위에서 보기" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M12 3 3 7.5 12 12l9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></svg></button>
   <button id="reset" type="button" aria-label="다시 세우기" disabled><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/></svg></button>
-  <button id="wpGo" type="button" hidden>출발</button>
   <button id="wpClear" type="button" hidden>점 지우기</button>
   <button id="scenarioMenu" type="button" aria-expanded="false" aria-controls="scenarioPanel">시나리오</button>
 </div>
@@ -89,7 +88,7 @@
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>
   <output id="scenarioStatus" role="status">대기</output>
   <p id="scenarioHint">다시 시작 버튼으로 잠금을 푼 뒤 실행하세요.</p>
-  <p id="goalHint">화면 바닥을 짧게 누를 때마다 점이 추가되고 «출발»로 차례대로 갑니다(장애물은 A* 로 돌아감 · 막히면 한 번 다시 찾고 또 막히면 멈춤 · 가는 중에 찍으면 끝에 추가 · 막대·키를 쓰면 취소).</p>
+  <p id="goalHint">화면 바닥을 짧게 누르면 바로 그곳으로 갑니다(장애물은 A* 로 돌아감 · 가는 중에 누르면 끝에 줄 세워 도착하면 바로 다음으로 · 막히면 한 번 다시 찾고 또 막히면 멈춤 · 막대·키·정지로 끊기면 남은 목적지는 지움).</p>
 </section>
 <div id="busy"></div>
 <svg id="fail" viewBox="0 0 24 24" hidden><circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>
