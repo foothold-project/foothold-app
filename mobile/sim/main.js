@@ -31,10 +31,10 @@ const st = (window.__sim = { ready: false, err: null });   // 시험용(headless
 // ── STOP 잠금: 명령 0. «다시 시작»(#go)만 푼다. 잡고 있던 막대 손가락도 놓게 해서 풀린 뒤엔 새로 누른 손가락만 명령이 된다
 let heading = null;
 const goalAxes = [0, 0, 0];
-let joy = neutral(), stopped = true, sim = null, ready = false;
+let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
 const sticks = [];
 function lock() {
-  stopped = true; joy = neutral();
+  stopped = true; joy = neutral(); onLock?.();
   if (sim) sim.cmd = neutral();
   if (adapter.stop.pause) { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
@@ -380,7 +380,7 @@ async function main() {
   const say = (text) => { note = { text, until: performance.now() + 4000 }; };
   const pos = () => ({ x: d.qpos[0], y: d.qpos[1] });
   // 찾는 동안 바뀐 것이 있으면 그 까닭(출발하지 않음), 없으면 ''
-  const stale = (at, g0) => g0 !== gen ? '점이 바뀌어 출발하지 않았습니다' : stopped ? '정지(잠금)로 출발하지 않았습니다'
+  const stale = (at, g0) => stopped ? '정지(잠금)로 출발하지 않았습니다' : g0 !== gen ? '점이 바뀌어 출발하지 않았습니다'
     : runner.active ? '다른 실행 중입니다' : Math.hypot(d.qpos[0] - at.x, d.qpos[1] - at.y) > 0.2 ? '길 찾는 동안 움직였습니다 — 다시 누르세요' : '';
   // 예전(#211 앞) 노란 고리: 지금 가는 목적지만 진하게, 줄 선 다음 목적지는 흐리게. 지난 목적지는 안 그림
   const marksG = new THREE.Group(), ringGeo = new THREE.RingGeometry(0.12, 0.24, 32);
@@ -450,16 +450,21 @@ async function main() {
     if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
     if (cell(map, hit.x, hit.y) !== 254) return say('장애물·모르는 칸이라 갈 수 없습니다');
     const p = { x: hit.x, y: hit.y };
-    adding = adding.then(() => addMark(p));   // 누른 차례대로(앞 점 길 찾기가 끝난 뒤 그 점에서 잇는다)
+    const g0 = gen, f = map;   // 누른 순간의 세대·층 — 그 뒤 지움·끊김·층 바뀜이면 차례가 와도 버림
+    adding = adding.then(() => addMark(p, g0, f));   // 누른 차례대로(앞 점 길 찾기가 끝난 뒤 그 점에서 잇는다)
   };
+  // 끊김(STOP·흐림·숨김·pagehide·reset = lock, 막대·조종 키 = 손 조종) 순간 찾던 길·줄 선 누름을 모두 버린다 — 늦은 결과가 출발하거나 손 조종을 덮지 않게
+  onLock = () => { gen++; };
+  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { gen++; });
+  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) gen++; });
   const going = () => runner.active && runner.goal && marks.length > 0;
-  const addMark = async (p) => {
-    const g0 = gen, f = map;
+  const addMark = async (p, g0, f) => {
+    if (g0 !== gen || f !== map) return;
     if (!(await fits(f, p))) return g0 === gen && say(`벽·물건에서 ${CLEARANCE} m 안이라 갈 수 없습니다 — 조금 떨어진 곳을 찍으세요`);
     // 가는 중이면 마지막 목적지에서 잇고(끝에 줄 세움), 아니면 로봇 자리에서 바로 출발
     const was = going(), from = was ? marks.at(-1) : pos(), leg = await findPath(f, from, p);
     if (g0 !== gen || f !== map) return;   // 찾는 동안 지움·끊김·층 바뀜
-    if (was && !going()) return runner.status === '완료' ? addMark(p) : undefined;   // 찾는 동안 다 도착 = 지금 자리에서 새로, 끊김(손 조종·막힘)은 버림
+    if (was && !going()) return runner.status === '완료' ? addMark(p, g0, f) : undefined;   // 찾는 동안 다 도착 = 지금 자리에서 새로, 끊김(손 조종·막힘)은 버림
     if (!leg) return say('갈 수 있는 길이 없습니다');
     if (was) {
       marks.push(p);

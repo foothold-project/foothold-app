@@ -220,6 +220,36 @@ try {
   await page.click('#stop');
   await page.close();
 
+  // 취소 경합(REVIEW-228): 길 찾기 하나를 시험용으로 멈춰 두고(astar.js 를 이 페이지에만 바꿔 줌) 그 사이 끊으면 늦은 결과는 버린다
+  {
+    const astarSrc = readFileSync(resolve(root, 'sim/astar.js'), 'utf8'), needle = 'export async function findPath(map, from, to, extra) {';
+    assert.ok(astarSrc.includes(needle));
+    const rp = await browser.newPage({ viewport: { width: 1280, height: 800 } }); rp.on('pageerror', (e) => errors.push(e.message));
+    await rp.route('**/sim/astar.js', (r) => r.fulfill({ contentType: 'text/javascript', body: astarSrc.replace(needle, needle + ' if (window.__pauseNextPath) { window.__pauseNextPath = false; await new Promise((r) => (window.__releasePath = r)); }') }));
+    const rf = () => rp.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const ropen = async () => { await rp.goto(url); await rp.waitForFunction(() => window.__sim?.ready); await rp.click('#cam'); await rf(); await rp.click('#go'); };
+    const rtap = async (x, y) => { const [cx, cy] = await rp.evaluate(([x, y]) => __sim.toScreen(x, y), [x, y]); await rp.mouse.click(cx, cy); };
+    const hold = async () => { await rp.evaluate(() => { window.__pauseNextPath = true; window.__releasePath = null; }); };
+    const pending = () => rp.waitForFunction(() => typeof window.__releasePath === 'function');
+    const release = async () => { await rp.evaluate(() => window.__releasePath()); await rp.evaluate(() => __sim.settled()); await rf(); };
+    const rs = () => rp.evaluate(() => ({ active: __sim.scenario.active, marks: __sim.marks().length, rings: __sim.rings(), cmd: __sim.cmd(), joy: __sim.joy() }));
+    // ① 첫 길 찾기 중 STOP → ▶ → 결과 = 다시 누르지 않으면 출발 안 함
+    await ropen(); await hold(); await rtap(free.x, free.y); await pending();
+    await rp.click('#stop'); await rf(); await rp.click('#go'); await release();
+    let r = await rs(); assert.equal(r.active, false, `stale path after STOP: ${JSON.stringify(r)}`); assert.equal(r.marks, 0); assert.deepEqual(r.rings, []);
+    // ② 첫 길 찾기 중 조종 키 = 손 조종 우선, 늦은 결과가 덮지 않음
+    await ropen(); await hold(); await rtap(free.x, free.y); await pending();
+    await rp.keyboard.down('KeyA'); await release();
+    r = await rs(); assert.equal(r.active, false, `stale path after key: ${JSON.stringify(r)}`); assert.deepEqual(r.joy, [0, 0, 1]); assert.deepEqual(r.rings, []);
+    await rp.keyboard.up('KeyA');
+    // ③ 가는 중 둘째 찾는 동안 셋째 예약 → «점 지우기» → 결과 = 둘 다 버림(지우기 이전 누름이 살아나지 않음)
+    await ropen(); await rtap(free.x, free.y); await rp.evaluate(() => __sim.settled()); await rf();
+    await hold(); await rtap(sx - 1, sy); await pending(); await rtap(sx, sy - 1);
+    await rp.click('#wpClear'); await release();
+    r = await rs(); assert.equal(r.active, false, `queued tap survived clear: ${JSON.stringify(r)}`); assert.equal(r.marks, 0); assert.deepEqual(r.rings, []);
+    await rp.close();
+  }
+
   // 여러 층(2층 공장, top.json floors): 몸 높이로 지금 층 자동, «전체 · 1층 · 2층», 다른 층 보기에서 찍기 거절, 다른 층 시나리오는 그 층 출발점에서
   const fz = await browser.newPage({ viewport: { width: 1280, height: 800 } }); fz.on('pageerror', (e) => errors.push(e.message));
   await fz.goto(url.replace('map=warehouse', 'map=factory-zone')); await fz.waitForFunction(() => window.__sim?.ready); await fz.waitForTimeout(300);
@@ -263,7 +293,7 @@ try {
   } else console.log('AME-2 가중치 없음 — AME-2 찍기 생략');
   await ame.close();
   assert.deepEqual(errors, []);
-  console.log('sim goal headless PASS: tap = go now (one strong ring), taps while moving queue at end (faint rings) + arrival moves on without stopping, 3 marks A* detour arrive, blocked = one replan then stop clearing rings, clear marks, key/STOP/blur/pagehide/hidden/reset clear rings, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, inverted pose keeps goal/policy running, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, AME-2 goal path');
+  console.log('sim goal headless PASS: tap = go now (one strong ring), taps while moving queue at end (faint rings) + arrival moves on without stopping, 3 marks A* detour arrive, blocked = one replan then stop clearing rings, clear marks, key/STOP/blur/pagehide/hidden/reset clear rings, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, inverted pose keeps goal/policy running, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, pending path dropped on STOP/key/clear (REVIEW-228 races), AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));
