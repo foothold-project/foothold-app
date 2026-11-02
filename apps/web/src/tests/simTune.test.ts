@@ -45,6 +45,39 @@ describe('시뮬 연결: 조직 값으로 좁힘', () => {
   });
 });
 
+describe('이상한 조직 값은 그 필드만 기본으로(에이전트 limits·DEAD·KEY_VX)', () => {
+  const BAD: [string, Record<string, unknown>][] = [
+    ['음수 데드존', { stick_deadzone: -0.2 }], ['데드존 1 이상', { stick_deadzone: 1 }], ['문자열', { sim_max_vx: 'broken', stick_deadzone: '0.3' }],
+    ['NaN·Infinity', { sim_max_vx: NaN, sim_max_wz: Infinity, sim_key_vx: -Infinity }], ['범위 밖', { sim_min_vx: -1, sim_max_vy: 2, sim_max_wz: -0.5, sim_key_vx: 5 }],
+    ['null·객체', { sim_max_vx: null, sim_min_vx: {}, sim_max_vy: [0.1] }],
+  ];
+  it.each(BAD)('%s → 기본과 같음: 중립 0, 출력 유한, 방향 보존', (_, o) => {
+    const w = hello(true, SIM), base = GRID.map((a) => velocity(a, w)), key = forward(w);
+    simTune(o as Partial<OrgSettings>);
+    expect(tuned(w)).toEqual({ L: SIM, dead: DEAD, key: undefined });
+    expect(velocity([0, 0, 0], w)).toEqual({ vx: 0, vy: 0, wz: 0 });
+    expect(GRID.map((a) => velocity(a, w))).toEqual(base);
+    expect(forward(w)).toBe(key);
+  });
+  it('섞여 있으면 정상 필드만 적용, 출력은 유한하고 입력 방향을 따름', () => {
+    simTune({ sim_max_vx: 0.5, sim_min_vx: -1, stick_deadzone: -0.2, sim_max_wz: 'x', sim_key_vx: NaN } as unknown as Partial<OrgSettings>);
+    const w = hello(true, SIM);
+    expect(tuned(w)).toEqual({ L: { ...SIM, vx_max: 0.5 }, dead: DEAD, key: undefined });
+    expect(velocity([0, 0, 0], w)).toEqual({ vx: 0, vy: 0, wz: 0 });
+    for (const a of GRID) {
+      const v = velocity(a, w), [f, , y = 0] = a;
+      for (const x of [v.vx, v.vy, v.wz]) expect(Number.isFinite(x)).toBe(true);
+      if (v.vx) expect(Math.sign(v.vx)).toBe(Math.sign(f));
+      if (v.vy) expect(Math.sign(v.vy)).toBe(Math.sign(y));
+    }
+    expect(velocity([0.2, 0, 0], w).vx).toBeGreaterThan(0);
+  });
+  it('교차 조건: 최소 > 최대·키보드 > 최대면 그 필드만 버림', () => {
+    simTune({ sim_max_vx: 0.3, sim_min_vx: 0.4, sim_key_vx: 0.5, stick_deadzone: 0.2 });
+    expect(tuned(hello(true, SIM))).toEqual({ L: { ...SIM, vx_max: 0.3 }, dead: 0.2, key: undefined });
+  });
+});
+
 describe('실기 연결(simulation false): 조직 값이 있어도 그대로', () => {
   it('velocity·forward·tuned 가 조직 값 없을 때와 같다', () => {
     const w = hello(false, REAL), cont = hello(false, { ...SIM, experimental: [] });

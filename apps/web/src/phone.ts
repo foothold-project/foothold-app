@@ -121,9 +121,23 @@ export const AXIS_LOCK = 0.5;
 export const TURN_ON = 0.5;
 /** 시뮬 눌린 데드존 wz: 에이전트 회전 문턱(±0.5 rad/s) 훨씬 아래라 돌지 않고, 정확한 0 이 아니라 손 뗌으로 보지 않음 */
 export const NUDGE = 0.001;
-/** 조직 시뮬 조작값(05 §8 OrgSettings sim_*·stick_deadzone, 설정 › 시뮬). 연결할 때 받고 설정에서 저장하면 바로 바뀐다 */
-let tune: Partial<OrgSettings> = {};
-export const simTune = (o: Partial<OrgSettings> | null) => { tune = o ?? {}; };
+/** 조직 시뮬 조작값(05 §8 OrgSettings sim_*·stick_deadzone, 설정 › 시뮬)의 계약 범위(apps/contracts/models.py OrgSettings) */
+const TUNE = { sim_max_vx: [0.2, 1], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.3], sim_max_wz: [0, 0.5], sim_key_vx: [0.1, 1], stick_deadzone: [0, 0.5] } as const;
+let tune: Partial<Record<keyof typeof TUNE, number>> = {};
+/** 연결할 때 받고 설정에서 저장하면 바로 바뀐다. 숫자가 아니거나·유한하지 않거나·범위 밖·교차 조건(최소·키보드 ≤ 최대)을 어긴 필드는
+ *  버린다 — 그 필드만 에이전트 limits·DEAD·KEY_VX 로 돌아감 */
+export function simTune(o: Partial<OrgSettings> | null) {
+  const t: typeof tune = {};
+  for (const k of Object.keys(TUNE) as (keyof typeof TUNE)[]) {
+    const v: unknown = o?.[k], [lo, hi] = TUNE[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi) t[k] = v;
+  }
+  if (t.sim_max_vx != null) {
+    if (t.sim_min_vx != null && t.sim_min_vx > t.sim_max_vx) delete t.sim_min_vx;
+    if (t.sim_key_vx != null && t.sim_key_vx > t.sim_max_vx) delete t.sim_key_vx;
+  }
+  tune = t;
+}
 /** 시뮬 연결(welcome.simulation)만 에이전트 limits 를 조직 값으로 좁힌다(넓히지 않음 — 최종 자르기는 에이전트). 데드존·키보드 전진(key)도 조직 값.
  *  실기 welcome 은 limits·DEAD 그대로, key 없음(부른 쪽 기본값) */
 export function tuned(w: PhoneWelcome) {
@@ -360,7 +374,9 @@ export const sim = {
     const g = gen, url = phoneUrl(r.agent_address, location);
     set({ step: S.step === 'drive' ? 'drive' : 'linking', link: { at: 'connecting', welcome: null, st: null, stAt: 0, lease: null, why: '', code: 0, notice: '', busy: '', clipped: false, rtt: null, cam: 'wait', img: '', ask: null, exp: 0, run: null, arrived: '', navOff: false } });
     if (!url) return setLink({ at: 'closed', why: '로봇 연결 주소가 올바르지 않습니다.' });
-    const org = api.settings().catch(() => null);   // 조직 시뮬 조작값 — 못 받으면 에이전트 limits·기본값만
+    // 조직 시뮬 조작값은 연결의 선행 조건이 아니다 — 받기 전·못 받으면 에이전트 limits·기본값(앞 로그인 값도 비움), 받으면 같은 연결 세대일 때만 적용
+    simTune(null);
+    api.settings().then((o) => { if (g === gen) simTune(o); }, () => {});
     let pass;
     try { pass = await api.phonePass(r.robot_id, { device: deviceId(), purpose: 'control', ...(surface && { surface }) }); } catch (e) {
       if (g !== gen) return;
@@ -371,9 +387,7 @@ export const sim = {
       setLink({ at: 'closed', why: `출입증을 받지 못했습니다. ${message(e)}` });
       return;
     }
-    const o = await org;
     if (g !== gen) return;
-    simTune(o);   // 못 받으면 앞 로그인 값을 쓰지 않게 비운다
     setLink({ exp: pass.exp });
     const w = new WebSocket(url), ticket = pass.token;
     ws = w; seq = 0; tick = 0;
