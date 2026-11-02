@@ -161,7 +161,7 @@ describe('지도 탭 — 장소 나무', () => {
       'PATCH /floors/f2': { status: 200, body: floor('f2', '2층 동쪽', 2, null) } }));
     await open('#/map');
     expect(btn('이름 바꾸기')).toBeUndefined();
-    await click(btn('고치기'));
+    await click(btn('장소 고치기'));
     await click(btn('+ 장소'));
     await setVal(field('이름', card('새 장소')), '별관​');                          // 보이지 않는 글자(서버 422) — 보내지 않음
     await click(btn('저장', card('새 장소')));
@@ -197,7 +197,7 @@ describe('지도 탭 — 장소 나무', () => {
     serve(signedIn(KIM, { 'DELETE /floors/f1': () => { const r = replies.shift()!; return typeof r === 'function' ? r(new URLSearchParams()) : r; },
       'DELETE /sites/s1': err(409, 'RESOURCE_IN_USE', '휴지통 밖의 하위 장소·건물·층이 있어 옮길 수 없습니다.'), 'POST /trash/floor/f1/restore': { status: 204 } }));
     await open('#/map');
-    await click(btn('고치기'));
+    await click(btn('장소 고치기'));
     expect($('[data-trash-link]')!.getAttribute('href')).toBe('#/trash');
     const del = async () => { await click(btn('삭제', floorBtn('1층').parentElement!)); expect(card('확인').textContent).toContain('«1층» 층을 휴지통으로 옮길까요?'); await click(btn('삭제', card('확인'))); };
     await del();
@@ -227,7 +227,7 @@ describe('지도 탭 — 장소 나무', () => {
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     const words = btns().map((b) => b.textContent);
     for (const w of ['이름 바꾸기', '삭제', '+ 장소']) expect(words, w).not.toContain(w);
-    const fix = btn('고치기')!;
+    const fix = btn('장소 고치기')!;
     expect(fix.disabled).toBe(true);
     expect(document.getElementById(fix.getAttribute('aria-describedby')!)!.textContent).toBe('장소 고치기는 총괄만 할 수 있습니다.');
     expect(card('새 지도 올리기').textContent).not.toContain('결재');
@@ -250,7 +250,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 안내(총괄은 고치기로 만들기)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('장소').textContent).toContain('등록된 장소가 없습니다. «고치기»에서 장소·건물·층을 만드세요.');
+    expect(card('장소').textContent).toContain('등록된 장소가 없습니다. «장소 고치기»에서 장소·건물·층을 만드세요.');
   });
 });
 
@@ -289,7 +289,7 @@ describe('지도 탭 — 보기', () => {
     serve(signedIn(LEE));
     await open('#/map');
     await click(floorBtn('2층'));
-    expect(card('지도 보기').textContent).toContain('아직 지도가 없습니다. 아래에서 지도 파일을 올리세요.');
+    expect(card('지도 보기').textContent).toContain('아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 첫 판이 됩니다.');
     expect(img()).toBeNull();
   });
   it('그림을 못 받으면 칸 안 글 + 다시 불러오기(새 요청), STOP 은 그대로', async () => {
@@ -914,40 +914,38 @@ describe('지도 편집 — 도구', () => {
 
 describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () => {
   const rows = () => [...card('요소 창').querySelectorAll('[data-el]')];
-  const pressed = () => rows().map((li) => li.querySelector('.ms-name')!.getAttribute('aria-pressed'));
+  const pressed = () => rows().map((li) => li.querySelector('.mx-name')!.getAttribute('aria-pressed'));
   const zone = () => canvas().querySelector('[data-zone]')!;
-  it('요소 창: 구역·지점·연결점·지우개/벽 순 한 줄씩(번호·아이콘·이름), 줄 누름 = 지도에서 강조 / 지도에서 구역 누름 = 그 줄 강조·굴림', async () => {
+  const picked = () => field('이름', card('고른 요소')).value;
+  it('요소 창: 구역·지점·연결점·지우개/벽 순 한 줄씩(아이콘·이름·짧은 부가), 줄 누름 = 창이 그 요소 속성 + 지도에서 강조 / 지도에서 구역 누름 = 그 구역 속성, «‹» = 목록(MAPSCEN-UI)', async () => {
     serve(editSrv());
     await startEdit();
     const pane = card('요소 창');
     expect(pane.tagName).toBe('ASIDE');
     expect(canvas().compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // 지도 오른쪽(뒤)
     expect(rows().map((li) => li.getAttribute('data-el'))).toEqual(['zones.0', 'waypoints.0', 'connectors.0', 'edits.0']);
-    expect(rows().map((li) => li.querySelector('.ms-name')!.textContent!.trim().slice(0, 2))).toEqual(['1.', '2.', '3.', '4.']);
     expect(rows()[0].textContent).toContain('공사'); expect(rows()[1].textContent).toContain('계기판 A');
-    expect(rows().every((li) => li.querySelector('.ms-name svg'))).toBe(true);
-    expect($('.ms-fold')!.textContent).toBe('요소 4 ▸');
+    expect(rows().every((li) => li.querySelector('.mx-name svg'))).toBe(true);
+    expect(pane.querySelector('.mx-head')!.textContent).toBe('요소 4▸');
     expect(pressed()).toEqual(['false', 'false', 'false', 'false']);
-    await click(rows()[1].querySelector('.ms-name')!);
-    expect(pressed()).toEqual(['false', 'true', 'false', 'false']);
-    expect(field('이름', card('고른 요소')).value).toBe('계기판 A');
+    expect($('[aria-label="고른 요소"]')).toBeNull();
+    await click(rows()[1].querySelector('.mx-name')!);
+    expect(rows()).toHaveLength(0);                                                    // 목록 자리에 속성
+    expect(picked()).toBe('계기판 A');
     expect(canvas().querySelector('[data-key="waypoints.0"] circle')!.getAttribute('style')).toContain('stroke: var(--accent)');
-    const seen = vi.fn(); Element.prototype.scrollIntoView = seen;   // jsdom 에는 없음
     await tap(-0.8, -1.9, zone());
-    expect(pressed()).toEqual(['true', 'false', 'false', 'false']); expect(seen.mock.contexts).toContain(rows()[0]);
+    expect(picked()).toBe('공사');
     expect(zone().getAttribute('style')).toContain('stroke: var(--accent)');
-    delete (Element.prototype as Partial<Element>).scrollIntoView;
-    await click($('.ms-fold')!);
-    expect($('.ms-fold')!.textContent).toBe('◂ 요소 4'); expect($('[data-el]')).toBeNull();
+    await click($('button[aria-label="요소 목록으로"]')!);
+    expect($('[aria-label="고른 요소"]')).toBeNull(); expect(rows()).toHaveLength(4); expect(pressed()).toEqual(['false', 'false', 'false', 'false']);
   });
-  it('칸이 좁으면(≤440 px, PC 좁은 창·확대 — 10-29) 요소 창은 접힌 채 시작해 지도 옆 세로 막대, 눌러 펼친다', async () => {
+  it('요소 창 접기 → 지도 옆 세로 막대 «◂ 요소 4», 눌러 펼친다(옛 ≤440 px 자동 접기 대신 — 창 폭 320 고정)', async () => {
     serve(editSrv());
-    const cw = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('ms-box') ? 400 : 0; });
     await startEdit();
-    cw.mockRestore();
-    expect($('.ms-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.ms-fold')!.textContent).toBe('◂ 요소 4');
-    expect($('.ms-edit')!.hasAttribute('data-open')).toBe(false);
-    await click($('.ms-fold')!);
+    await click($('button[aria-label="요소 4 창 접기"]')!);
+    expect($('.mx-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.mx-fold')!.textContent).toBe('◂ 요소 4');
+    expect(card('요소 창').hasAttribute('data-fold')).toBe(true); expect($('[data-el]')).toBeNull();
+    await click($('.mx-fold')!);
     expect(rows()).toHaveLength(4);
   });
   it('구역 안을 끌면 통째로(모든 꼭짓점 같은 만큼) — 구역 그리기 도구에서도 새 사각형 대신 옮김, 고르기에서도', async () => {
@@ -956,7 +954,7 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
     await tool('진입 금지');
     await ptr('pointerdown', -0.8, -1.9, zone()); await ptr('pointermove', 0.2, -0.9); await ptr('pointerup', 0.2, -0.9);
     expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(1);                  // 새 사각형을 만들지 않음
-    expect(pressed()[0]).toBe('true');
+    expect(picked()).toBe('공사');
     await tool('고르기');
     await ptr('pointerdown', 0.2, -0.9, zone()); await ptr('pointermove', 0.7, -0.4); await ptr('pointerup', 0.7, -0.4);
     await save('구역 옮김');
@@ -1220,7 +1218,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
       'GET /sites': () => ({ status: 200, body: made ? T3 : TREE }), 'GET /floors/f3/map-versions': { status: 200, body: { items: [], next_cursor: null } } }));
     await startEdit();
     await tool('지점'); await tap(1, 1);
-    await click(btn('고치기')); await click(btn('+ 층'));
+    await click(btn('장소 고치기')); await click(btn('+ 층'));
     const f = card('본관 본동 에 새 층');
     await setVal(field('이름', f), '3층'); await setVal(field('층 번호', f), '3');
     await click(btn('저장', f));
@@ -1764,11 +1762,11 @@ describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
   it('2층 이상 건물: «전체 · 1층 · 2층» — 전체는 층마다 색 겹침 + 범례, 보기만(편집·올리기 없음), 층을 고르면 편집 가능', async () => {
     serve(two());
     await open('#/map');
-    expect(btns(layers()).map((b) => b.textContent)).toEqual(['전체', '1층', '2층']);
-    expect(btn('1층', layers())!.getAttribute('aria-pressed')).toBe('true');
-    await click(btn('전체', layers()));
+    expect(btns(layers()).map((b) => b.textContent)).toEqual(['전체 층 겹쳐 보기']);   // 층은 같은 드롭다운의 나무에서(MAPSCEN-UI)
+    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    await click(btn('전체 층 겹쳐 보기', layers()));
     const all = $('[data-all-floors]')!;
-    expect(btn('전체', layers())!.getAttribute('aria-pressed')).toBe('true');
+    expect(btn('전체 층 겹쳐 보기', layers())!.getAttribute('aria-pressed')).toBe('true');
     expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('false');
     const imgs = [...all.querySelectorAll('svg image')];
     expect(imgs.map((i) => i.getAttribute('href'))).toEqual(['/api/v1/map-versions/v2/image', '/api/v1/map-versions/w1/image']);
@@ -1777,7 +1775,7 @@ describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
     expect([...all.querySelectorAll('[data-legend] li')].map((l) => l.textContent)).toEqual(['1층', '2층']);
     expect(btn('편집', all)).toBeUndefined(); expect($('[aria-label="보기·편집"]')).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeNull();
     expect(all.textContent).toContain('보기만 합니다');
-    await click(btn('2층', layers()));
+    await click(floorBtn('2층'));
     expect($('[data-all-floors]')).toBeNull();
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층 · 승인 판 1');
     expect(btn('편집', card('보기·편집'))).toBeTruthy();
@@ -1786,7 +1784,7 @@ describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
   it('지도 없는 층은 범례에 «지도 없음», 한 층 건물은 토글 없음', async () => {
     serve(signedIn(KIM));
     await open('#/map');
-    await click(btn('전체', layers()));
+    await click(btn('전체 층 겹쳐 보기', layers()));
     expect([...$('[data-all-floors]')!.querySelectorAll('[data-legend] li')].map((l) => l.textContent)).toEqual(['1층', '2층지도 없음']);
     act(() => root?.unmount()); box.remove();
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [floor('f1', '1층', 1, 'v2')] }] }] } } }));
@@ -1797,13 +1795,93 @@ describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
     serve(editSrv());   // 본동 = 1층·2층(2층 지도 없음)
     await startEdit();
     await tool('지점'); await tap(1, 1);
-    await click(btn('전체', layers()));
+    await click(btn('전체 층 겹쳐 보기', layers()));
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
     await click(btn('계속 편집', card('확인')));
     expect($('[data-all-floors]')).toBeNull(); expect(canvas()).toBeTruthy();
-    await click(btn('전체', layers()));
+    await click(btn('전체 층 겹쳐 보기', layers()));
     await click(btn('나가기', card('확인')));
     expect($('[data-all-floors]')).toBeTruthy();
     expect(writes()).toEqual([]);
+  });
+});
+
+describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () => {
+  const dlg = (name: string) => [...box.querySelectorAll('dialog')].find((d) => d.querySelector('b')?.textContent === name)!;
+  it('단추 줄 «새 판으로 저장…» = 바꾼 이유 창을 연다(모달 아님 — STOP 그대로), 검사 실패면 창을 닫고 그 요소를 오른쪽 창에', async () => {
+    serve(editSrv());
+    await startEdit();
+    const d = dlg('새 판으로 저장');
+    expect(d.hasAttribute('open')).toBe(false);
+    await click(btn('새 판으로 저장…', $('.mx-bar')!));
+    expect(d.hasAttribute('open')).toBe(true); expect(d.contains(card('새 판으로 저장'))).toBe(true);
+    expect(document.activeElement).toBe(field('바꾼 이유', d));                         // 열면 이유 칸에
+    await click($('button[aria-label="새 판으로 저장 닫기"]')!);
+    expect(d.hasAttribute('open')).toBe(false);
+    await ptr('pointerdown', -0.8, -1.9, canvas().querySelector('[data-zone]')!);
+    await setVal(field('이름', card('고른 요소')), '공사\u0007');                         // 보이지 않는 글자 → 화면 검사 실패
+    await click($('button[aria-label="요소 목록으로"]')!);
+    await click(btn('새 판으로 저장…', $('.mx-bar')!));
+    await save('지점 추가');
+    expect(d.hasAttribute('open')).toBe(false);
+    expect(card('요소 창').querySelector('[data-bad]')).toBeTruthy(); expect(card('고른 요소')).toBeTruthy();
+    expect(writes()).toEqual([]);
+  });
+  it('«새 지도 올리기…»(판 메뉴·«···»·지도 없음) = 올리기 창, ✕ 로 닫음 / 편집 중엔 «···» 대신 «판 N 편집 중»', async () => {
+    serve(editSrv());
+    await open('#/map');
+    const d = dlg('새 지도 올리기');
+    expect(d.hasAttribute('open')).toBe(false); expect(d.contains(card('새 지도 올리기'))).toBe(true);
+    await click(btn('새 지도 올리기…', $('.mx-menu.more')!));
+    expect(d.hasAttribute('open')).toBe(true);
+    await click($('button[aria-label="새 지도 올리기 닫기"]')!);
+    expect(d.hasAttribute('open')).toBe(false);
+    await click(btn('편집', card('보기·편집')));
+    expect($('.mx-menu.more')).toBeNull(); expect($('.mx-bar')!.textContent).toContain('판 2 편집 중');
+  });
+  it('서버 422 INVALID_FEATURES 도 화면 검사 실패처럼 — 저장 창을 닫고 접힌 오른쪽 창을 펼쳐 그 요소·오류, 그 요소 첫 칸으로 포커스(#234 B1)', async () => {
+    serve(editSrv({ 'POST /floors/f1/map-versions': { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '다각형 변이 서로 교차합니다.', detail: { element: 'features.zones.0.polygon' } } } } }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await click($('.mx-fold')!);
+    expect(card('요소 창').hasAttribute('data-fold')).toBe(true);
+    const d = dlg('새 판으로 저장');
+    await click(btn('새 판으로 저장…', $('.mx-bar')!));
+    await save();
+    expect(writes()).toEqual(['POST /floors/f1/map-versions']);                       // API·인자는 그대로(한 번 보냄)
+    expect(d.hasAttribute('open')).toBe(false);
+    expect(card('요소 창').hasAttribute('data-fold')).toBe(false);
+    expect($('[data-bad]')!.textContent).toBe('진입 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
+    expect(document.activeElement).toBe(field('이름', card('고른 요소')));
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);           // 편집 내용 그대로
+  });
+  it('Esc: 메뉴는 닫고 그 메뉴 단추로, 작은 창(Esc·✕)은 닫고 연 단추로 포커스를 돌려준다 — 숨은 칸에 남지 않음(#234 B2)', async () => {
+    serve(editSrv());
+    await startEdit();
+    const m = $('.mx-bar details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button, .mx-pop select, .mx-pop input')!;
+    act(() => { m.setAttribute('open', ''); item.focus(); });
+    act(() => { item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(m.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(m.querySelector('summary'));
+    const d = dlg('새 판으로 저장'), b = btn('새 판으로 저장…', $('.mx-bar')!)!;
+    act(() => b.focus()); await click(b);
+    expect(document.activeElement).toBe(field('바꾼 이유', d));
+    act(() => { field('바꾼 이유', d).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await flush();
+    expect(d.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(b);
+    await click(b);
+    expect(document.activeElement).toBe(field('바꾼 이유', d));
+    await click($('button[aria-label="새 판으로 저장 닫기"]')!);
+    expect(d.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(b);
+    expect(d.matches(':modal')).toBe(false);                                           // 비모달(showModal 아님) — 머리줄 STOP 을 막지 않음
+  });
+  it('장소가 많으면(층 5개 넘게) 드롭다운 위 거르기 칸 — 이름으로 줄이고, 지우면 다시 모두', async () => {
+    const many: SiteTree = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [1, 2, 3, 4, 5, 6].map((n) => floor(`f${n}`, `${n}층`, n, n === 1 ? 'v2' : null)) }] }] };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: many } }));
+    await open('#/map');
+    const q = card('장소 거르기') as HTMLInputElement;
+    expect(floorBtn('6층')).toBeTruthy();
+    await setVal(q, '3층');
+    expect(btns(card('장소')).filter((b) => /^\d층/.test(b.textContent!)).map((b) => b.textContent!.slice(0, 2))).toEqual(['3층']);
+    await setVal(q, '');
+    expect(btns(card('장소')).filter((b) => /^\d층/.test(b.textContent!))).toHaveLength(6);
   });
 });

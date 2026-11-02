@@ -10,7 +10,8 @@ import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
 import { leaving } from '../menu';
 import { Chip, Line, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
-import { Editor, kept } from './mapedit';
+import { Editor, Glyph, featKeys, featName, featSub, kept } from './mapedit';
+import { Hint, Menu, Pane, Pop, ScreenTabs, shut } from './mapscen';
 import { TrashLink, trashFail, type TrashKind } from './trash';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
@@ -97,8 +98,19 @@ export function useFit(v?: MapVersion) {
 }
 
 /** 판 그림 + 저장된 요소(구역·지점·연결점·지우개·벽 선). 그림을 못 받으면 칸 안 글 + 다시 불러오기 */
-export function MapView({ v }: { v: MapVersion }) {
+export function MapView({ v, fill }: { v: MapVersion; fill?: boolean }) {
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
+  // fill = 지도·시나리오 틀(.mx-map)을 꽉 채움 — 확대 단추는 지도 오른쪽 아래 겹침, 불러오기·실패 글은 지도 아래쪽 띠
+  if (fill) return <>
+    <MapFrame {...useFit(v)} photo={v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`판 ${v.number} 지도`} data-map style={{ display: 'block', width: '100%', height: '100%' }}>
+      <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
+      <Shapes v={v} f={v.features} />
+    </MapFrame>
+    {at !== 'ok' && <div className="mx-over" style={{ top: 'auto', bottom: 48 }}>
+      {at === 'wait' && <p className="lv-note" role="status">지도 그림을 불러오는 중…</p>}
+      {at === 'bad' && <div className="fh-row"><p className="fh-msg" role="alert">지도 그림을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 불러오세요.</p>
+        <button type="button" className="btn" onClick={() => { setAt('wait'); setN(n + 1); }}>다시 불러오기</button></div>}</div>}
+  </>;
   return <div>
       <MapFrame {...useFit(v)} photo={v} role="img" aria-label={`판 ${v.number} 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
         <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
@@ -191,50 +203,53 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
     <button type="button" className="btn" disabled={busy} onClick={() => open({ kind, id: x.id, title: `${WHAT[kind]} 이름 바꾸기 — ${x.name}`, name: x.name, level: x.level })}>이름 바꾸기</button>
     <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>삭제</button></span>;
 
-  // 층 레이어(10-30): 2층 이상 건물만 «전체 · 1층 · 2층…». 층을 바꾸면 저장 안 한 편집 확인(leaving.ask)부터 — 전체에는 편집이 없다
-  const layers = cur && multi && <div className="fh-row" role="group" aria-label="층 레이어" data-layers>
-    <button type="button" className="btn" aria-pressed={whole} onClick={() => { const go = () => { setAll(true); setMsg(null); }; if (whole) return; if (leaving.ask) leaving.ask(go); else go(); }}>전체</button>
-    {cur.building.floors.map((f) => <button key={f.id} type="button" className="btn" aria-pressed={!whole && f.id === cur.floor.id}
-      onClick={() => { const go = () => { setPick(f.id); setAll(false); setMsg(null); }; if (leaving.ask && f.id !== cur.floor.id) leaving.ask(go); else go(); }}>{f.name}</button>)}
-  </div>;
-
-  return <>
-    <section className="lv-card" style={{ flex: '0 1 260px' }} aria-label="장소">
-      <div className="fh-row"><h2 className="fh-grow">장소</h2><button type="button" className="btn" aria-pressed={admin ? fix : undefined} disabled={!admin} aria-describedby={admin ? undefined : 'fix-why'}
-        onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>고치기</button><TrashLink /></div>
-      {!admin && <span id="fix-why" className="fh-why" data-why>장소 고치기는 총괄만 할 수 있습니다.</span>}
-      {t.tree?.items.map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div className="fh-row"><b className="fh-grow">{s.name}</b>{tools('sites', s)}</div>
-        {s.buildings.map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
-          <div className="fh-row"><span className="fh-grow">{b.name}</span>{tools('buildings', b)}</div>
-          <ul className="fh-list" aria-label={`${b.name} 층`}>{b.floors.map((f) => <li key={f.id} className="fh-row">
-            <button type="button" aria-pressed={!whole && f.id === cur?.floor.id} style={{ flex: 1 }} onClick={() => { const go = () => { setPick(f.id); setAll(false); setMsg(null); }; if (leaving.ask && f.id !== cur?.floor.id) leaving.ask(go); else go(); }}><span className="fh-grow">{f.name}</span>
-              <span className="lbl">{!f.approved_version_id ? '지도 없음' : nums[f.approved_version_id] ? `판 ${nums[f.approved_version_id]}` : ''}</span></button>{tools('floors', f)}</li>)}</ul>
-          {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'floors', parent: b.id, title: `${s.name} ${b.name} 에 새 층` })}>+ 층</button>}
-        </div>)}
-        {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'buildings', parent: s.id, title: `${s.name} 에 새 건물` })}>+ 건물</button>}
+  // 층 고르기 = 단추 줄 «본관 › 본동 › 1층 ▾» 하나(MAPSCEN-UI 11-02 — 나무·층 레이어를 합침). 층을 바꾸면 저장 안 한 편집 확인(leaving.ask)부터 — 전체에는 편집이 없다
+  const choose = (id: string | null) => { const go = () => { if (id) setPick(id); setAll(!id); setMsg(null); }; if (!id && whole) return; if (leaving.ask && (!id || id !== cur?.floor.id)) leaving.ask(go); else go(); };
+  const [q, setQ] = useState(''), hit = (...s: string[]) => s.join(' ').toLowerCase().includes(q.trim().toLowerCase());
+  const label = whole && cur ? `${cur.site.name} › ${cur.building.name} › 전체 층` : cur ? `${cur.site.name} › ${cur.building.name} › ${cur.floor.name}` : t.err ? '장소 목록 오류' : t.tree ? '장소 없음' : '불러오는 중…';
+  const menu = <Menu label={label} title={`장소·층: ${label}`}><div role="group" aria-label="장소" className="fh-form" style={{ gap: 8 }}>
+    {places.length > 4 && <input className="inp" type="search" aria-label="장소 거르기" placeholder="장소·건물·층 이름으로 거르기" value={q} onChange={(e) => setQ(e.target.value)} />}
+    {t.tree?.items.filter((s) => !q.trim() || s.buildings.some((b) => hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))) || hit(s.name)).map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className="fh-row"><b className="fh-grow">{s.name}</b>{tools('sites', s)}</div>
+      {s.buildings.filter((b) => !q.trim() || hit(s.name) || hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))).map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
+        <div className="fh-row"><span className="fh-grow">{b.name}</span>{tools('buildings', b)}</div>
+        <ul className="fh-list" aria-label={`${b.name} 층`}>{b.floors.filter((f) => !q.trim() || hit(s.name, b.name, f.name)).map((f) => <li key={f.id} className="fh-row">
+          <button type="button" aria-pressed={!whole && f.id === cur?.floor.id} style={{ flex: 1 }} onClick={(e) => { if (!fix) shut(e); choose(f.id); }}><span className="fh-grow">{f.name}</span>
+            <span className="lbl">{!f.approved_version_id ? '지도 없음' : nums[f.approved_version_id] ? `판 ${nums[f.approved_version_id]}` : ''}</span></button>{tools('floors', f)}</li>)}</ul>
+        {/* 층 레이어(10-30): 2층 이상 건물만 «전체 층 겹쳐 보기»(보기만) */}
+        {b.floors.length >= 2 && b.id === cur?.building.id && <div className="fh-row" role="group" aria-label="층 레이어" data-layers>
+          <button type="button" className="btn" style={{ flex: 1 }} aria-pressed={whole} onClick={(e) => { shut(e); if (!whole) choose(null); }}>전체 층 겹쳐 보기</button></div>}
+        {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'floors', parent: b.id, title: `${s.name} ${b.name} 에 새 층` })}>+ 층</button>}
       </div>)}
-      {t.tree && !t.tree.items.length && <p className="lv-note">{admin ? '등록된 장소가 없습니다. «고치기»에서 장소·건물·층을 만드세요.' : '등록된 장소가 없습니다. 총괄 운영 관리자에게 문의하세요.'}</p>}
-      {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button>}
-      {form && <form className="fh-form" onSubmit={submit} noValidate aria-label={form.title}>
-        <b>{form.title}</b>
-        <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={form.name} autoFocus onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-        {form.kind === 'floors' && <label className="fh-field"><span>층 번호(지하 1층 = -1)</span><input className="inp" inputMode="numeric" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>}
-        <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button><button type="button" className="btn" onClick={() => setForm(null)}>취소</button></div>
-      </form>}
-      {ask && <div className="fh-row" role="group" aria-label="확인">
-        <span>«{ask.name}» {OBJ[ask.kind]} 휴지통으로 옮길까요? 휴지통에서 복원하거나 완전 삭제할 수 있습니다.</span>
-        <button type="button" className="btn pri" disabled={busy} onClick={() => remove(ask)}>삭제</button>
-        <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
-      </div>}
-      <Note m={msg} />
-      {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
-      {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
-    </section>
-    {whole && cur ? <AllFloors key={cur.building.id} b={cur.building} top={layers} cancel={c.cancel} />
-      : cur ? <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} asked={() => c.dash?.again()} top={layers} />
-      : <section className="lv-card" aria-label="지도 보기"><p className="lv-note">{t.tree ? '층을 만들면 여기에서 지도를 봅니다.' : ''}</p></section>}
-  </>;
+      {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'buildings', parent: s.id, title: `${s.name} 에 새 건물` })}>+ 건물</button>}
+    </div>)}
+    {t.tree && !t.tree.items.length && <p className="lv-note">{admin ? '등록된 장소가 없습니다. «장소 고치기»에서 장소·건물·층을 만드세요.' : '등록된 장소가 없습니다. 총괄 운영 관리자에게 문의하세요.'}</p>}
+    <hr />
+    <div className="fh-row"><button type="button" className="btn fh-grow" aria-pressed={admin ? fix : undefined} disabled={!admin} aria-describedby={admin ? undefined : 'fix-why'}
+      onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>장소 고치기</button><TrashLink /></div>
+    {!admin && <span id="fix-why" className="fh-why" data-why>장소 고치기는 총괄만 할 수 있습니다.</span>}
+    {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button>}
+    {form && <form className="fh-form" onSubmit={submit} noValidate aria-label={form.title}>
+      <b>{form.title}</b>
+      <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={form.name} autoFocus onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+      {form.kind === 'floors' && <label className="fh-field"><span>층 번호(지하 1층 = -1)</span><input className="inp" inputMode="numeric" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>}
+      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button><button type="button" className="btn" onClick={() => setForm(null)}>취소</button></div>
+    </form>}
+    {ask && <div className="fh-row" role="group" aria-label="확인">
+      <span>«{ask.name}» {OBJ[ask.kind]} 휴지통으로 옮길까요? 휴지통에서 복원하거나 완전 삭제할 수 있습니다.</span>
+      <button type="button" className="btn pri" disabled={busy} onClick={() => remove(ask)}>삭제</button>
+      <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
+    </div>}
+    <Note m={msg} />
+    {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
+    {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
+  </div></Menu>;
+  const bar = <><ScreenTabs cur="map" />{menu}</>;
+
+  return whole && cur ? <AllFloors key={cur.building.id} b={cur.building} top={bar} cancel={c.cancel} />
+    : cur ? <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} asked={() => c.dash?.again()} top={bar} />
+    : <section className="mx" aria-label="지도 보기"><div className="mx-bar">{bar}</div>
+      <div className="mx-center"><p className="lv-note">{t.err ? '장소 목록을 받지 못했습니다. 위 장소 메뉴에서 다시 시도하세요.' : t.tree ? '층을 만들면 여기에서 지도를 봅니다. 위 장소 메뉴의 «장소 고치기»에서 만듭니다.' : '장소 목록을 불러오는 중…'}</p></div></section>;
 }
 
 /** 층마다 승인 판 번호 — /sites 층에는 판 id 만 있어 판 정보(GET /map-versions/{id})를 한 번씩 받는다. 못 받으면 번호 없이 */
@@ -279,42 +294,78 @@ function FloorView({ p, admin, names, cancel, again, asked: told, top }: { p: Pl
   const title = `${p.site.name} ${p.building.name} ${p.floor.name}`;
   const reload = () => { setN(n + 1); again(); };
   const pending = num(p.floor.pending_count) ? p.floor.pending_count : 0;
-  return <section className="lv-card" aria-label="지도 보기">
-    {top}
-    <div className="fh-row">{now && <span className="fh-row" role="group" aria-label="보기·편집">
+  const [up, setUp] = useState(false), [pane, setPane] = useState(true), [slot, setSlot] = useState<HTMLElement | null>(null);   // 올리기 창·오른쪽 창·편집 저장 단추 자리
+  const canUp = !!list && (!approved || !!now);   // 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다)
+  const upBtn = (e?: { currentTarget: Element }) => { if (e) shut(e as never); setUp(true); };
+  const keys = v ? featKeys(v.features) : [];
+  return <section className="mx" aria-label="지도 보기">
+    <h2 className="mx-sr">{title}{editing ? ` · 판 ${editing.number} 편집 중` : now ? ` · 승인 판 ${now.number}` : ''}</h2>
+    <div className="mx-bar">
+      {top}
+      {now && <span className="mx-seg" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
-        <button type="button" className="btn" aria-pressed={!!editing} onClick={() => { if (!editing) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); } }}>편집</button></span>}
-      <h2 className="fh-grow">{title}{editing ? ` · 판 ${editing.number} 편집 중` : now ? ` · 승인 판 ${now.number}` : ''}</h2>
+        <button type="button" className="btn" aria-pressed={!!editing} onClick={() => { if (!editing) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); setUp(false); } }}>편집</button></span>}
+      {editing ? <span className="mx-tag">판 {editing.number} 편집 중</span>
+        : !!list?.length && <Menu label={!v ? '판 고르기' : v.id === approved ? verName(v, approved) : `${verName(v, approved)} · 보기만`} title={v ? `판: ${verName(v, approved)}` : '판 고르기'}>
+          <label className="fh-field"><span className="lbl">판 고르기</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => { setSel(e.target.value); setUndo(null); }}>
+            {!v && <option value="">판 고르기</option>}{list.map((x) => <option key={x.id} value={x.id}>{verName(x, approved)}</option>)}</select></label>
+          {v && <><div className="fh-row" role="group" aria-label="판 관리">
+            <button type="button" className="btn" aria-pressed={cmp} onClick={(e) => { shut(e); setCmp(!cmp); }}>비교</button>
+            {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
+            {now && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={(e) => { shut(e); const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 판으로 되돌리기</button>}
+          </div>
+          <hr />
+          <div aria-label="판 정보" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Line k="판"><span>판 {v.number}</span><Chip {...stateOf(v, approved)} /></Line>
+            <Line k="이유"><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{v.reason}</span></Line>
+            {who && <Line k="만든 사람"><span>{who}</span></Line>}
+            <Line k="만든 때"><span>{day(v.created_at)}</span></Line>
+            <Line k="요소"><span>구역 {v.features.zones.length} · 지점 {v.features.waypoints.length} · 연결점 {v.features.connectors.length}</span></Line>
+          </div>
+          <hr /></>}
+          <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>
+        </Menu>}
       {pending > 0 && <Chip tone="warn" text={`결재 대기 ${pending}`} />}
-      {!editing && !!list?.length && <label className="fh-row"><span className="lbl">판</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => { setSel(e.target.value); setUndo(null); }}>
-        {!v && <option value="">판 고르기</option>}{list.map((x) => <option key={x.id} value={x.id}>{verName(x, approved)}</option>)}</select></label>}
+      <span className="fh-grow" />
+      {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
+        <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>
+        <TrashLink />
+      </Menu>}
+      <span ref={setSlot} style={{ display: 'contents' }} />
     </div>
-    {undo && !editing && <Rollback key={undo.v.id} v={undo.v} now={undo.now} cancel={cancel} close={() => setUndo(null)} reload={reload}
-      done={(x) => { setUndo(null); setCmp(false); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
-        else { setSel(x.id); setDone({ text: `판 ${undo.v.number}의 지도로 새 승인 판(판 ${x.number})을 만들었습니다. 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />}
-    {editing ? <Editor v={editing} p={p} cancel={cancel} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
+    {editing ? <Editor v={editing} p={p} cancel={cancel} slot={slot} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
         saved={(x) => { setEditing(null); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
           else { setSel(x.id); setDone({ text: `새 판을 저장했습니다(판 ${x.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />
-    : v ? <>
-      <Note m={done} />
-      {v.id !== approved && <p className="lv-note" role="status">{v.status === 'PENDING' ? '결재 대기 중인 판을 보는 중입니다. 승인되기 전에는 이 판을 쓰지 않습니다.' : '지난 판을 보는 중입니다.'}{now ? ` 지금 승인 판은 판 ${now.number}입니다.` : ''}</p>}
-      <div className="fh-row" role="group" aria-label="판 관리">
-        <button type="button" className="btn" aria-pressed={cmp} onClick={() => setCmp(!cmp)}>비교</button>
-        {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
-        {now && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 판으로 되돌리기</button>}
+    : <div className="mx-body">
+      <div className="mx-map">
+        {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 판을 찾을 수 없습니다. 지워졌을 수 있어 판 목록을 다시 받았습니다.' }); reload(); }} />
+            <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
+          : v ? <MapView key={v.id} v={v} fill />
+          : list && !err && <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 첫 판이 됩니다.</p>
+            <button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button></div>}
+        <div className="mx-over">
+          {done && <Note m={done} />}
+          {v && v.id !== approved && <p className="lv-note" role="status">{v.status === 'PENDING' ? '결재 대기 중인 판을 보는 중입니다. 승인되기 전에는 이 판을 쓰지 않습니다.' : '지난 판을 보는 중입니다.'}{now ? ` 지금 승인 판은 판 ${now.number}입니다.` : ''}</p>}
+          {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
+          {!list && !err && <p className="lv-note" role="status">판 목록을 불러오는 중…</p>}
+        </div>
+        {v && !cmp && <Hint text={now ? '보기만 — «편집»을 누르면 도구가 나옵니다' : '보기만'} more="휠·두 손가락으로 확대, 끌어서 옮깁니다. 구역·지점은 «편집»에서 고칩니다." />}
       </div>
-      {cmp ? <Compare key={v.id} v={v} list={list!} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 판을 찾을 수 없습니다. 지워졌을 수 있어 판 목록을 다시 받았습니다.' }); reload(); }} /> : <MapView key={v.id} v={v} />}
-      <Line k="판"><span>판 {v.number}</span><Chip {...stateOf(v, approved)} /></Line>
-      <Line k="이유"><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{v.reason}</span></Line>
-      {who && <Line k="만든 사람"><span>{who}</span></Line>}
-      <Line k="만든 때"><span>{day(v.created_at)}</span></Line>
-      <Line k="요소"><span>구역 {v.features.zones.length} · 지점 {v.features.waypoints.length} · 연결점 {v.features.connectors.length}</span></Line>
-    </> : list && <p className="lv-note">아직 지도가 없습니다. 아래에서 지도 파일을 올리세요.</p>}
-    {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
-    {!list && !err && <p className="lv-note" role="status">판 목록을 불러오는 중…</p>}
-    {/* 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다) */}
-    {!editing && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list && (!approved || !!now)} cancel={cancel}
-      saved={(x) => { if (x.status === 'PENDING') told(); else setSel(x.id); setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
+      {v && !cmp && <Pane open={pane} setOpen={setPane} bar={`요소 ${keys.length}`} label="요소 창" head={<span className="fh-grow">요소 {keys.length}</span>}>
+        {keys.length ? <ul className="mx-list" aria-label="요소 목록">{keys.map((k) => <li key={k} className="mx-row" data-el={k}><span className="mx-name"><Glyph f={v.features} k={k} /><b>{featName(v.features, k)}</b><small>{featSub(v.features, k, p.building.floors)}</small></span></li>)}</ul>
+          : <p className="lv-note mx-in">이 판에는 구역·지점이 없습니다.</p>}
+        {now && <p className="lv-note mx-in">구역·지점은 «편집»에서 고칩니다.</p>}
+      </Pane>}
+    </div>}
+    {!editing && <Pop open={up} close={() => setUp(false)} label="새 지도 올리기">
+      <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={canUp} cancel={cancel}
+        saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked(x)); told(); } else { setSel(x.id); setDone({ text: `새 판을 저장했습니다(판 ${x.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />
+    </Pop>}
+    {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 판으로 되돌리기">
+      {undo && <Rollback key={undo.v.id} v={undo.v} now={undo.now} cancel={cancel} close={() => setUndo(null)} reload={reload}
+        done={(x) => { setUndo(null); setCmp(false); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
+          else { setSel(x.id); setDone({ text: `판 ${undo.v.number}의 지도로 새 승인 판(판 ${x.number})을 만들었습니다. 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />}
+    </Pop>}
   </section>;
 }
 
@@ -372,7 +423,6 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
     } finally { setStep(''); }
   };
   return <form className="fh-form" onSubmit={go} noValidate aria-label="새 지도 올리기" key={fresh}>
-    <h2>새 지도 올리기</h2>
     <label className="fh-field"><span>지도 그림(pgm·png)</span><input type="file" className="inp" accept=".pgm,.png" onChange={(e) => setImg(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>지도 설정(yaml)</span><input type="file" className="inp" accept=".yaml,.yml" onChange={(e) => setYml(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
@@ -402,16 +452,18 @@ function AllFloors({ b, top, cancel }: { b: MapBuilding; top: ReactNode; cancel?
     const full: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
     return { full, res: base.resolution };
   }, [shown.map((r) => r.v.id).join()]);
-  return <section className="lv-card" aria-label="지도 보기" data-all-floors>
-    {top}
-    <h2>{b.name} · 전체 층 겹쳐 보기</h2>
-    <p className="lv-note">보기만 합니다. 편집은 위에서 한 층을 고르세요.</p>
-    {look && base ? <MapFrame {...look} role="img" aria-label={`${b.name} 전체 층 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
-      {shown.map(({ v, i }) => <MapImage key={v.id} id={v.id} width={v.width} height={v.height} tint={fillOf(i)} transform={`matrix(${pixelTo(v, base).join(' ')})`} data-layer={i} />)}
-    </MapFrame> : <p className="lv-note" role="status">{rows.some((r) => ids[r.i] && !r.v) ? '지도를 불러오는 중…' : '겹쳐 볼 승인 지도가 없습니다.'}</p>}
-    <ul className="fh-row" aria-label="범례" data-legend style={{ listStyle: 'none', margin: 0, padding: 0, flexWrap: 'wrap' }}>{rows.map(({ f, i, v }) => <li key={f.id} className="fh-row">
-      <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 3, background: fillOf(i) }} /><span>{f.name}</span>
-      {!ids[i] ? <span className="lbl">지도 없음</span> : v === 'bad' ? <span className="fh-why">받지 못함</span> : null}</li>)}</ul>
+  return <section className="mx" aria-label="지도 보기" data-all-floors>
+    <h2 className="mx-sr">{b.name} · 전체 층 겹쳐 보기</h2>
+    <div className="mx-bar">{top}<span className="mx-tag">보기만</span></div>
+    <div className="mx-body"><div className="mx-map">
+      {look && base ? <MapFrame {...look} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`${b.name} 전체 층 지도`} data-map style={{ display: 'block', width: '100%', height: '100%' }}>
+        {shown.map(({ v, i }) => <MapImage key={v.id} id={v.id} width={v.width} height={v.height} tint={fillOf(i)} transform={`matrix(${pixelTo(v, base).join(' ')})`} data-layer={i} />)}
+      </MapFrame> : <div className="mx-center"><p className="lv-note" role="status">{rows.some((r) => ids[r.i] && !r.v) ? '지도를 불러오는 중…' : '겹쳐 볼 승인 지도가 없습니다.'}</p></div>}
+      <ul className="mx-legend" aria-label="범례" data-legend>{rows.map(({ f, i, v }) => <li key={f.id} className="fh-row">
+        <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 3, background: fillOf(i) }} /><span>{f.name}</span>
+        {!ids[i] ? <span className="lbl">지도 없음</span> : v === 'bad' ? <span className="fh-why">받지 못함</span> : null}</li>)}</ul>
+      <Hint text="보기만 합니다. 편집은 위에서 한 층을 고르세요." more="건물 각 층 승인 판의 벽만 층 색으로 겹칩니다." />
+    </div></div>
   </section>;
 }
 
