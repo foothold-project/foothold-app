@@ -92,8 +92,8 @@ export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, {
 
 /** user·robots = 서버 /me·/robots?scope=<listScope> 값(시험은 가짜 자료) — 운영 관리자는 내게 배정된 로봇만. 남은 남의 로봇은 보는 중(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
  *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
- *  note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
-export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, stale = false, logout, setMe = () => {}, cancel, note, dev }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; stale?: boolean; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string; dev?: string }) {
+ *  note = 띠에 올릴 한 줄(로그아웃 실패 등). */
+export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, stale = false, logout, setMe = () => {}, cancel, note }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; stale?: boolean; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string }) {
   const phone = usePhone(), full = useFull();
   useRt();
   const robots = listed.map(withLive), net = rt.link();
@@ -245,9 +245,6 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <span>▲ 이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요.</span>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
     </div>)}
-    {dev && (open || simOpen   // 폰 조종 화면은 접어 둔다(영상·조이스틱 자리). 내용은 그대로
-      ? <details className="fh-dev" data-dev><summary>개발용 표시</summary>{dev.replace(/^개발용 표시:\s*/, '')}</details>
-      : <p className="fh-dev" data-dev>{dev}</p>)}
     <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
       gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
