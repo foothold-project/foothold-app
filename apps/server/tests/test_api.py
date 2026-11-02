@@ -171,7 +171,7 @@ def test_setting_ranges(client, field, bad):
     {'battery_low_pct': 5, 'run_min_battery_pct': 10, 'deviation_m': .5, 'lease_request_timeout_s': 5, 'link_loss_wait_s': 0},
     {'battery_low_pct': 50, 'run_min_battery_pct': 90, 'deviation_m': 5, 'lease_request_timeout_s': 30, 'link_loss_wait_s': 30}])
 def test_settings_boundary_values(client, values):
-    assert client.patch(P + '/org/settings', json=values, headers=csrf(client)).json() == values
+    assert client.patch(P + '/org/settings', json=values, headers=csrf(client)).json() == C.OrgSettings(**values).model_dump()
 
 
 def test_app_refresh_rotation_and_expiry(client, seeded):

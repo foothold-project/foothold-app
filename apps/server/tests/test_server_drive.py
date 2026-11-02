@@ -1,4 +1,5 @@
 """Robot-scoped opt-in reuses the existing arbiter and authenticated WS."""
+import asyncio
 from uuid import UUID, uuid4
 from datetime import timedelta
 
@@ -11,6 +12,7 @@ from apps.server.fh_server.api import Settings, create_app
 from apps.server.fh_server.models import Robot, now
 from apps.server.fh_server.security import digest
 from apps.contracts import models as C
+from apps.contracts.server_drive import ALLOWED
 from .test_realtime import app_token, hello, receive, reply, screen, send, state, take, agent, rt
 
 
@@ -133,3 +135,61 @@ def test_simulation_keeps_normalized_axis_bounds(client, seeded, rt):
         assert rejected['error']['code']=='VALIDATION'
         assert reply(ws,send(ws,'cmd',rid,lease_id=lease,seq=2,axes=[1,0,0]))['ok']
         assert receive(ag,'cmd')['axes']==[1,0,0]
+
+
+@pytest.mark.parametrize('no_fast', [False, True])
+def test_org_fast_drive_restriction_only_narrows_existing_table(trial, seeded, no_fast):
+    rid = seeded['robots']['mine']
+    admin = app_token(trial, 'admin')
+    if no_fast:
+        assert trial.patch('/api/v1/org/settings', headers=admin,
+            json={'real_no_fast_server_drive': True}).status_code == 200
+    else:
+        assert trial.get('/api/v1/org/settings', headers=admin).json()['real_no_fast_server_drive'] is False
+    owner = app_token(trial)
+    with trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello()); receive(ag, 'lease'); receive(ag, 'stop')
+        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
+            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        with screen(trial, owner) as ws, screen(trial, owner) as second:
+            lease = take(ws, ag, rid)
+            for seq, axes in enumerate(sorted(ALLOWED)):
+                trial.portal.call(asyncio.sleep, 0.05)  # Respect the existing intent rate limit.
+                result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=seq, axes=axes))
+                if no_fast and any(axes[:2]):
+                    assert result['ok'] is False
+                    assert result['error']['code'] == 'SERVER_DRIVE_COMMAND'
+                    receive(ag, 'stop')
+                else:
+                    assert result['ok'] is True, (axes, result)
+                    assert receive(ag, 'cmd')['axes'] == list(axes)
+            # A second connection cannot use this policy to stop the holder.
+            denied = reply(second, send(second, 'cmd', rid,
+                lease_id=lease, seq=100, axes=[1.5, 0, 0]))
+            assert denied['error']['code'] == 'LEASE_MISMATCH'
+            # An already-open control connection picks up the organization policy.
+            assert trial.patch('/api/v1/org/settings', headers=admin,
+                json={'real_no_fast_server_drive': not no_fast}).status_code == 200
+            async def refreshed():
+                async with asyncio.timeout(2):
+                    while any(p.policy.settings.real_no_fast_server_drive == no_fast
+                              for p in trial.app.state.realtime.screens.values()):
+                        await asyncio.sleep(0.01)
+            trial.portal.call(refreshed)
+            result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=101, axes=[1.5, 0, 0]))
+            assert result['ok'] == no_fast
+            receive(ag, 'cmd' if no_fast else 'stop')
+            assert reply(ws, send(ws, 'stop', rid))['ok']
+            receive(ag, 'stop')
+
+
+def test_real_fast_drive_setting_does_not_restrict_simulation(client, seeded, rt):
+    assert client.patch('/api/v1/org/settings', headers=app_token(client, 'admin'),
+        json={'real_no_fast_server_drive': True}).status_code == 200
+    rid = seeded['robots']['mine']
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        lease = take(ws, ag, rid)
+        assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[1, 0, 0]))['ok']
+        assert receive(ag, 'cmd')['axes'] == [1, 0, 0]

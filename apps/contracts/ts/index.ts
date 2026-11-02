@@ -902,6 +902,16 @@ export interface OrgSettings {
   deviation_m: number;
   lease_request_timeout_s: number;
   link_loss_wait_s: number;
+  sim_max_vx?: number;
+  sim_min_vx?: number;
+  sim_max_vy?: number;
+  sim_max_wz?: number;
+  sim_key_vx?: number;
+  stick_deadzone?: number;
+  sim_runner_vx?: number;
+  sim_runner_wz?: number;
+  lidar_view_m?: number;
+  real_no_fast_server_drive?: boolean;
 }
 
 export interface OrgSettingsPatch {
@@ -910,6 +920,16 @@ export interface OrgSettingsPatch {
   deviation_m?: number;
   lease_request_timeout_s?: number;
   link_loss_wait_s?: number;
+  sim_max_vx?: number;
+  sim_min_vx?: number;
+  sim_max_vy?: number;
+  sim_max_wz?: number;
+  sim_key_vx?: number;
+  stick_deadzone?: number;
+  sim_runner_vx?: number;
+  sim_runner_wz?: number;
+  lidar_view_m?: number;
+  real_no_fast_server_drive?: boolean;
 }
 
 export interface PairingClaim {

@@ -1476,7 +1476,8 @@ class Realtime:
                             if self.agents[rid].server_drive and not self.agents[rid].simulation:
                                 from apps.contracts.server_drive import ALLOWED
                                 self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
-                                if tuple(msg.axes) not in ALLOWED:
+                                if (tuple(msg.axes) not in ALLOWED or
+                                        (settings.real_no_fast_server_drive and any(msg.axes[:2]))):
                                     self.apply(self.arbiter.stop(rid, actor))
                                     raise LeaseError('SERVER_DRIVE_COMMAND', '허용된 시험 명령표 밖 입력입니다.', 400)
                             elif any(abs(axis)>1 for axis in msg.axes):
