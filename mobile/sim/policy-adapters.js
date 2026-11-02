@@ -11,6 +11,9 @@ const grid = Array.from({ length: 187 }, (_, i) => [(i % 17 - 8) * 0.1, (Math.fl
 
 const footholdV2 = {
   id: 'foothold-v2',
+  onnx: { file: 'policy_v2.onnx', sha256: 'c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2',
+    inputs: [{ name: 'observation', dims: [1, 235] }],
+    outputs: [{ name: 'action', dims: [1, 12] }], action: 'action' },
   observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
     dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
     units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
@@ -161,7 +164,12 @@ export function makeTerrainSampler(mj, m, d, cfg) {
   return scan;
 }
 
-export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2, 'ame2-demo': makeAme2Adapter(makeTerrainSampler) });
+const ame2 = makeAme2Adapter(makeTerrainSampler);
+ame2.onnx = { file: 'ame2_actor.onnx', sha256: '398acb0c73369e84946a34c0109bca1edd0560cc14ee286fd36b9caf7e2da69b',
+  inputs: [{ name: 'prop', dims: [1, 49] }, { name: 'mapping', dims: [1, 29, 13, 3] }],
+  outputs: [{ name: 'action', dims: [1, 12] }, { name: 'offsets', dims: [1, 2], type: 'int64' },
+    { name: 'gaze_logits', dims: [1, 2] }], action: 'action' };
+export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2, 'ame2-demo': ame2 });
 export function getPolicyAdapter(id = 'foothold-v2') {
   const adapter = Object.hasOwn(POLICY_ADAPTERS, id) && POLICY_ADAPTERS[id];
   if (!adapter) throw new Error(`알 수 없는 정책 어댑터: ${id}`);

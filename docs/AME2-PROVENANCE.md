@@ -339,3 +339,26 @@ AME-2 선택 시 **f32 되돌림 + 실패 이유**를 지속 표시하고 기존
 f32도 없으면 기존처럼 AME-2 선택을 비활성화한다. 모델/WASM은 커밋하지 않으므로
 Git merge만으로 ONNX 자산이 서버에 생기지 않는다. 되돌림 선택은 `ame2Backend=f32`,
 코드 되돌림은 본 PR merge의 `git revert`이며 APK/서버 교체는 별도 승인·절차다.
+
+
+### 공통 실행기 전환 (2026-11-02)
+
+foothold-v2 ONNX 추가와 함께 기존 실행기를 `policy-onnx.js`로 일반화했다.
+AME-2 모델 SHA·입력 `prop[1,49]`/`mapping[1,29,13,3]`·출력 이름/차원은
+`policy-adapters.js`에서 선언하며 위 그래프와 f32·관측·action/지연 계약은 그대로다.
+`ame2-onnx.js`는 기존 내보내기/대조 스크립트의 호환 export를 제공한다.
+기본 WASM과 `ame2Backend` 옵션은 유지하고 모든 모델 공통 `policyBackend` 옵션을 추가했다.
+되돌림 배지는 **«AME-2 · 기본 계산 사용: 이유 (f32 JS) · 시뮬 전용»**으로 표시한다.
+이전 표의 «f32 되돌림»은 당시 문구이며 현재 문구는 위와 같다.
+새 모델 절차와 취소/패키징은 [정책 어댑터 §10](spec/11-POLICY-ADAPTER.md#10-새-모델-추가-절차-시뮬-전용),
+foothold-v2 수치는 [정책 출처](POLICY-PROVENANCE.md#fp32-onnx-시뮬-추론-2026-11-02)에 있다.
+
+공통 실행기 전환 뒤 기존 모바일 selftest 19개와 AME-2 ONNX Node 고정274/기록72를
+재실행했다. 최대 절대오차는 이전 표와 같고 기준 1e-4 이내다. 6지도×delay 0/4×300틱
+Node 궤적도 다시 기록했으며 보행 판정은 하지 않았다. 기존 headless WASM UI와 공통
+실행기의 두 정책 수명주기·파일/런타임/wasm/SHA/첫 추론/실행 실패 시험도 통과했다.
+이번 공통화에서 WebGPU는 재실행하지 않았으며 위 WebGPU 수치는 최초 측정 기록이다.
+
+공통화 최종 코드 `126bdfd`의 dev APK는 기존 AME-2 ONNX+WASM을 유지한 기준
+33,809,882 bytes → foothold-v2 ONNX 추가 34,879,427 bytes(+1.020 MiB)였다.
+단위시험16개와 빌드만 통과했고 실폰/설치/배포는 하지 않았다. 상세 기준은 정책 출처의 APK 절을 따른다.

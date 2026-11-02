@@ -53,20 +53,23 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
   const actionDelay = adapter.makeActionDelay?.(MJ_J.map((_, i) => DEFAULT_I[I2M[i]]), ame2DelaySteps);
   const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], policyMs: 0, physMs: 0, I2M, M2I };
-  // Only AME2 ONNX may await inference. Invalidate its result synchronously on
+  // Any ONNX policy may await inference. Invalidate its result synchronously on
   // STOP/reset/dispose, and never queue a second inference or physics tick.
-  const asyncAme2 = adapterId === 'ame2-demo' && policy.async === true;
+  const asyncPolicy = policy.async === true;
   let generation = 0, pending = false;
+
+  s.cancelPolicyStep = () => { if (asyncPolicy) generation++; };
 
   // AME-2 STOP discards the previous action and target; UI keeps its existing latch.
   s.clearPolicyState = () => {
-    if (asyncAme2) generation++;
+    if (asyncPolicy) generation++;
     s.cmd = adapter.stop.input.slice(); last.fill(0);
     for (let i = 0; i < 12; i++) tgt[i] = DEFAULT_I[I2M[i]];
     actionDelay?.clear();
   };
   s.mapping = adapter.observations.mappingSize ? new Float32Array(adapter.observations.mappingSize) : null;
   s.reset = () => {
+    s.cancelPolicyStep();
     mj.mj_resetData(m, d);
     const q = d.qpos, v = d.qvel;
     q[0] = SX; q[1] = SY; q[2] = F + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 바닥 위 0.4
@@ -93,10 +96,10 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
 
   // 정책 1스텝(50 Hz): 관측 → 추론 → 물리 4스텝(스텝마다 PD·DCMotor)
   s.step = () => {
-    if (asyncAme2 && pending) return false;
+    if (asyncPolicy && pending) return false;
     const t0 = performance.now();
     adapter.observe(obs, s, last, sampleHeight);
-    if (asyncAme2) {
+    if (asyncPolicy) {
       const gen = generation;
       pending = true;
       return Promise.resolve().then(() => policy(obs, s.mapping)).then((a) => {
@@ -128,7 +131,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { if (asyncAme2) generation++; sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { if (asyncPolicy) generation++; sampleHeight.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }

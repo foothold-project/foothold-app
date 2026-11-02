@@ -336,10 +336,10 @@ AME-2 actor를 FP32·opset 17·고정 배치 1로 내보낸다. 입력은 `prop[
 관측 순서, hip×4→thigh×4→calf×4, 목표 clip, 높이 광선, 행동 지연 0…4 계약은 §9.1 그대로다.
 이름과 모델 SHA-256을 검사한다. `log_std`와 critic은 ONNX actor 계산에 포함하지 않는다.
 
-`?policy=ame2-demo`의 기본 추론은 ORT Web WASM이다. 같은 URL의 `&ame2Backend=f32`는
+`?policy=ame2-demo`와 기본 `foothold-v2`의 기본 추론은 공통 ORT Web WASM이다. 같은 URL의 `&ame2Backend=f32`는
 기존 동기 JS 계산, `&ame2Backend=webgpu`는 비교용 선택이다. 명령원 선택과 추론 엔진 선택은 별개다.
 ONNX 모델·ORT 모듈·WASM이 없거나 SHA/초기 추론/실행이 실패하면 검증된 f32로 되돌리고,
-접힌 메뉴 밖의 상태 표시와 정책 메뉴에 **f32 되돌림 + 이유**를 남긴다.
+접힌 메뉴 밖의 상태 표시와 정책 메뉴에 **기본 계산 사용 + 이유 (f32 JS)**를 남긴다.
 foothold-v2 기본 선택은 유지한다. f32 자체가 없을 때의 비활성화는 §9.4와 같다.
 
 ONNX만 비동기다. 동시 추론은 하나이며 대기 중 화면 시간의 누적 빚은 버린다.
@@ -358,7 +358,47 @@ WebGPU asyncify 자산은 `FH_AME2_WEBGPU=1`일 때만 추가한다. `.mjs`는 J
 
 검증 수치·명령·PC/빌드/실폰 구분은 [ONNX 출처 기록](../AME2-PROVENANCE.md#onnx-추론-2026-11-02)을 따른다.
 
-## 10. 변경 이력
+## 10. 새 모델 추가 절차 (시뮬 전용)
+
+1. **계약 선언**: `policy-adapters.js`에 관측·f32 비교 경로·행동/주기/명령/정지와
+   `onnx: {file, sha256, inputs: [{name,dims}], outputs: [{name,dims,type?}], action}`을 선언한다.
+   입력 순서는 `policy(observations, mapping)` 인자 순서이고 type 기본값은 float32다.
+   예: foothold-v2 `observation[1,235]` → `action[1,12]`. AME-2의 별도 두 입력도 같은 실행기로 처리한다.
+   정책 메뉴에도 `index.html`의 option을 추가하고 `main.js`의 선택·가중치 가용성 처리에 연결한다.
+   현재 AME-2 처리는 `options[1]` 고정이므로 새 항목이 기존 비활성화/선택 처리를 잘못 받지 않는지 확인한다.
+2. **ONNX 내보내기**: 출처·원본 SHA를 먼저 확인하고 고정 B=1·FP32·샘플링 없는
+   deterministic actor mean을 만든다. 검증된 숫자 자료만 읽고 checker로 검사한다.
+   `policy_v2_onnx.py`는 기존 NPZ 판독기를 재사용하며 pickle/체크포인트를 실행하지 않는다.
+3. **Parity ≤1e-4**: 고정 입력과 실제 시뮬 관측을 같은 값으로 NumPy(또는 원 actor) ↔
+   기존 JS f32 ↔ Node ONNX ↔ headless 브라우저 ORT Web에 주고 최대 절대오차·유한값을 검사한다.
+   초과하면 원인을 보고하며 기준을 조용히 느슨하게 바꾸지 않는다.
+4. **지연 측정**: f32와 ONNX 첫 load/첫 추론, 준비 후 p50/p95를 같은 환경에서 기록한다.
+   WASM 1 thread를 기본으로 쓰며 실제 GPU를 측정하기 전 WebGPU를 기본으로 바꾸지 않는다.
+5. **f32 전환 확인**: 파일/런타임 없음·SHA 불일치·로드/첫 추론/실행 실패마다 같은 모델의
+   f32로 전환하고 **«기본 계산 사용: 이유 (f32 JS)»**를 화면 밖으로 접히지 않는 배지에 남긴다.
+   `policyBackend=f32`는 모든 모델 공통 비교/복구 선택이다. 다른 모델로 조용히 바꾸지 않는다.
+6. **Selftest**: 기존 모바일 검사와 ONNX 비동기/수명주기·손 조종 우선권을 검사한다.
+   모델별 복붙 실행기를 만들지 않고 `policy-onnx.js`를 사용한다. 동시 추론 하나,
+   STOP/blur/hidden/pagehide/reset/수동 입력으로 generation 취소, 늦은 결과 폐기를 유지한다.
+   foothold-v2는 잠금 뒤 0 명령 계산을 계속하고 AME-2는 잠금 중 정책/물리를 쉰다.
+
+`sync-web.mjs`는 등록 어댑터의 `network.file`·선택 배치표와 ONNX 파일을 복사한다.
+ONNX는 선택 자산이며 SHA를 확인한다. 새 모델의 f32 파일 목록도 별도 분기 없이 선언에서 읽는다.
+foothold-v2와 후속 모델의 ONNX 위치는 `FH_POLICY_ONNX_SRC`(기본 `FH_SIM_SRC`), AME-2는
+기존 `FH_AME2_SRC`다. 공통 ORT 런타임은 한 번만 복사하며 WebGPU는 `FH_POLICY_WEBGPU=1`
+(기존 `FH_AME2_WEBGPU=1` 호환)일 때만 담는다. f32 경로를 삭제하지 않는다.
+모델·WASM·가중치·빌드 산출물은 커밋하지 않는다. PC 실행/APK 빌드/실폰을 구분하고
+궤적 수치만 기록하며 보행 성공은 사용자 판단으로 남긴다.
+
+**dev merge는 서버 자동배포를 실행한다.** 서버에 ONNX 파일이 없으면 기본 foothold-v2도
+«기본 계산 사용: ONNX 파일 없음 (f32 JS)»를 표시하고 기존 기본 시뮬을 실행한다.
+서버의 SPA fallback은 없는 파일에 HTTP 200 `text/html`을 줄 수 있으며, 이를 모델 부재로 처리한다.
+HTTP 404로 응답하는 호스트에서는 같은 이유에 `(404)`를 덧붙인다.
+서버 자산 제공은 `deploy/prepare_sim.py`에 파일·SHA·ORT 복사를 연결하는 별도 후속 작업이다.
+검증 수치는 [foothold-v2 ONNX 출처](../POLICY-PROVENANCE.md#fp32-onnx-시뮬-추론-2026-11-02)와
+[AME-2 출처](../AME2-PROVENANCE.md)를 따른다. 이번 변경은 실기 입력/정책 배포에 적용하지 않는다.
+
+## 11. 변경 이력
 
 | 판 | 날짜 | 내용 |
 |---|---|---|
@@ -369,3 +409,5 @@ WebGPU asyncify 자산은 `FH_AME2_WEBGPU=1`일 때만 추가한다. `.mjs`는 J
 | 0.5 | 2026-10-29 | PR #178 B1: 이름 제외를 광선 시작 높이 기하 필터로 대체, 학습과 차이·한계·5개 지도 평지 회귀 및 주택 재시험 기록 |
 | 0.6 | 2026-10-29 | AME-2 시연 어댑터·순전파 대조·관측/모터/조종·관절 순서 가정·회귀 범위 기록 |
 | 0.7 | 2026-11-02 | AME-2 FP32 ONNX·WASM 기본/JS 되돌림·비동기 취소·시뮬 전용 검증 범위 (§9.5) |
+| 0.8 | 2026-11-02 | foothold-v2 FP32 ONNX, 어댑터 선언 기반 공통 실행기·기본 계산 배지, 새 모델 추가 절차 (§10) |
+| 0.9 | 2026-11-02 | PR #227 r1: 200 HTML SPA 응답을 ONNX 부재로 표시, 새 모델 메뉴 연결 절차 추가 |

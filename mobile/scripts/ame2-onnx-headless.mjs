@@ -95,7 +95,7 @@ try {
   const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(url+'index.html?policy=ame2-demo&ame2Backend=wasm');
   await page.waitForFunction(()=>window.__sim?.ready,null,{timeout:60000});
-  assert.match(await page.locator('#ame2Engine').textContent(),/ONNX WASM/);
+  assert.match(await page.locator('#policyEngine').textContent(),/ONNX WASM/);
   await page.screenshot({path:'runs/ame2-onnx/wasm-sim.png'});
   await page.click('#go');await page.waitForFunction(()=>__sim.sim.t>.04);
   await page.dispatchEvent('#stop','pointerdown');
@@ -139,12 +139,12 @@ try {
     await p.waitForFunction(()=>window.__sim?.ready,null,{timeout:60000});
     if(failure==='run')await p.evaluate(async()=>{const ort=await import('./ort/ort.wasm.min.mjs');ort.InferenceSession.prototype.run=async()=>{throw Error('injected run failure');};});
     await p.click('#go');await p.waitForFunction(()=>__sim.sim.t>.04);
-    assert.match(await p.locator('#ame2Engine').textContent(),/f32 되돌림/);
-    assert.equal(await p.locator('#ame2Engine').isVisible(),true);
+    assert.match(await p.locator('#policyEngine').textContent(),/기본 계산 사용/);
+    assert.equal(await p.locator('#policyEngine').isVisible(),true);
     await p.close();
   }
   const f32=await browser.newPage();await f32.goto(url+'index.html?policy=ame2-demo&ame2Backend=f32');await f32.waitForFunction(()=>window.__sim?.ready);
-  assert.match(await f32.locator('#ame2Engine').textContent(),/f32 JS/);await f32.close();
+  assert.match(await f32.locator('#policyEngine').textContent(),/f32 JS/);await f32.close();
   assert.deepEqual(errors,[]);
   console.log('AME2 ONNX headless PASS: WASM sim execution, one pending run, STOP/blur/hidden/pagehide/reset discard, missing model/runtime/wasm/hash/run failure visible f32 fallback, explicit f32');
 } finally {await browser?.close();await new Promise(r=>server.close(r));}

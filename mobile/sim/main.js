@@ -35,7 +35,7 @@ let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null;  
 const sticks = [];
 function lock() {
   stopped = true; joy = neutral(); onLock?.();
-  if (sim) sim.cmd = neutral();
+  if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
   if (adapter.stop.pause) { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
   ui();
@@ -137,6 +137,7 @@ async function preparePolicies() {
     choice.options[1].disabled = true;
     reason.textContent = 'AME-2 사용 불가: 가중치 파일 또는 배치표 없음';
     if (adapter.id === 'ame2-demo') {
+      st.policyUnavailable = reason.textContent;
       adapter = getPolicyAdapter(); joy = neutral();
       choice.value = adapter.id;
     }
@@ -171,26 +172,18 @@ async function main() {
   ]);
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
   let policy = adapter.loadPolicy(polBuf, policyManifest);
-  if (adapter.id === 'ame2-demo') {
-    const { selectAme2Policy } = await import('./ame2-onnx.js');
-    policy = await selectAme2Policy(policy, {
-      backend: new URLSearchParams(location.search).get('ame2Backend') ?? 'wasm',
-      notify: (text) => {
-        st.ame2Engine = text;
-        $('policyReason').textContent = `${text} · 시뮬 전용`;
-        // The existing reason lives in a collapsed menu. Also show a persistent
-        // engine badge so absent server assets cannot hide a fallback.
-        let badge = $('ame2Engine');
-        if (!badge) {
-          badge = document.createElement('output'); badge.id = 'ame2Engine';
-          badge.setAttribute('role', 'status');
-          badge.style.cssText = 'position:fixed;bottom:4px;left:8px;z-index:20;max-width:90vw;background:#182028;color:#fff;padding:3px 7px;font:12px sans-serif;pointer-events:none';
-          document.body.append(badge);
-        }
-        badge.textContent = `${text} · 시뮬 전용`;
-      },
-    });
-  }
+  const { selectOnnxPolicy } = await import('./policy-onnx.js');
+  const params = new URLSearchParams(location.search);
+  policy = await selectOnnxPolicy(adapter, policy, {
+    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'wasm',
+    notify: (text) => {
+      st.policyEngine = text;
+      st.ame2Engine = text; // existing diagnostics compatibility
+      // Preserve a missing AME-2 f32 reason when preparePolicies chose default.
+      $('policyReason').textContent = `${text} · 시뮬 전용${st.policyUnavailable ? ' · ' + st.policyUnavailable : ''}`;
+      $('policyEngine').textContent = `${text} · 시뮬 전용`;
+    },
+  });
   sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360);
@@ -217,6 +210,8 @@ async function main() {
     $('scenarioHint').hidden = !stopped;
   };
   const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
+  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => sim.cancelPolicyStep(), true);
+  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) sim.cancelPolicyStep(); }, true);
   // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)
   addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
 
@@ -575,11 +570,11 @@ async function main() {
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
-  let pendingAme2Step = false;
+  let pendingPolicyStep = false;
   function frame(now) {
     acc += Math.min((now - lastT) / 1000, 0.25);
     lastT = now;
-    if (pendingAme2Step) acc = 0; // drop wall-clock debt while ONNX is pending
+    if (pendingPolicyStep) acc = 0; // drop wall-clock debt while ONNX is pending
     if (now - lastScan >= 100) { scan(); lastScan = now; }
     let n = 0;
     while (acc >= POLICY_DT && n < 5) {
@@ -594,11 +589,11 @@ async function main() {
       } else sim.cmd = stopped ? neutral() : joy.slice();
       if (!(adapter.stop.pause && stopped)) {
         const result = sim.step();
-        if (adapter.id === 'ame2-demo' && result?.then) {
-          pendingAme2Step = true; acc = 0;
+        if (result?.then) {
+          pendingPolicyStep = true; acc = 0;
           result.then((applied) => { if (applied) st.steps++; }, (e) => {
-            lock(); st.err = String(e); $('ame2Engine').textContent = 'AME-2 추론 오류 · 정지';
-          }).finally(() => { pendingAme2Step = false; });
+            lock(); st.err = String(e); $('policyEngine').textContent = '정책 계산 중단 · 다시 시작 필요';
+          }).finally(() => { pendingPolicyStep = false; });
           break;
         }
       }
