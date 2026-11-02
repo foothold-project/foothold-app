@@ -2,7 +2,7 @@
 // 목록 [임무 | 시나리오](보관 제외 기본·보관 보기·더 보기) + 편집 칸. 저장할 때마다 새 판(PUT If-Match = 받은 본체 version), 옛 판은 읽기 전용(덮어쓰기 단추 없음).
 // 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정 창·목록은 저장된 시나리오 칸 아래(screens/assign.tsx, S5b), 실행은 S7 뒤.
 // STOP 은 App 머리줄 — 이 화면은 창 키·포인터를 잡지 않는다(지도 svg 포인터만).
-import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Action, Assignment, MapVersion, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type Plan } from '../api';
@@ -576,12 +576,17 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   /** 사진·대기 바로 고르기: 같은 내용의 보관 안 된 임무(최신 판)가 있으면 그것을, 없으면 한 단계 임무를 만들어(POST /missions) 이 지점에 잇는다.
    *  만드는 동안 단계 창·지도 편집·저장을 막는다(지점 번호가 바뀌지 않게). 응답이 끊기면 임무 목록을 다시 받는다 — 다시 고르면 만들어진 것을 찾아 쓴다 */
   const quick = (i: number, steps: MissionStep[]) => {
-    const link = (m: Mission) => { const { value: b, set: s, lock: l } = cur$.current; if (s && !l) s({ ...b, waypoints: b.waypoints.map((o, j) => (j === i ? { ...o, mission_id: m.id, mission_version: m.latest_version } : o)) }); };
+    // 이을 지점은 순번이 아니라 그 지점 값 자체로 기억한다 — 응답을 기다리는 동안 순서가 바뀌어도 고른 지점에 잇는다(#235 B1). 없어졌으면 잇지 않는다
+    const at = pts[i];
+    const link = (m: Mission) => { const { value: b, set: s, lock: l } = cur$.current, j = b.waypoints.indexOf(at);
+      if (!s || l) return;
+      if (j < 0) return setQMsg('임무를 만들었지만 그 지점이 바뀌어 잇지 않았습니다. 지점에서 임무를 다시 고르세요.');
+      s({ ...b, waypoints: b.waypoints.map((o, k) => (k === j ? { ...o, mission_id: m.id, mission_version: m.latest_version } : o)) }); };
     if (unsure) return;
     const hit = active.find((m) => canon(m.steps) === canon(steps));
     setQMsg('');
     if (hit) return link(hit);
-    setMaking(true);
+    setMaking(true); grab.current = null;   // 만드는 동안 끌기 막음 — 잡은 줄도 비운다
     api.createPlan('missions', { name: quickName(steps[0]), steps }, cancel).then(fit(isPlan)).then((m) => { setMissions((l) => [...(l ?? []), m as Mission]); setMaking(false); link(m as Mission); },
       (e: ApiFail) => { if (e.code === 'CANCELED') return; setMaking(false);
         if (e.status === 0) { setUnsure('checking'); setMN((x) => x + 1); setQMsg('임무를 만들었는지 확인하지 못했습니다. 임무 목록을 다시 받습니다 — 다시 고르면 같은 내용의 임무가 있으면 그것을 씁니다.'); }
@@ -602,9 +607,10 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const rr = v ? Math.max(v.width, v.height) / 60 : 1;
   const on = pts.map((p, i) => [p, i] as const).filter(([p]) => p.floor_id === cur);
   const fence = lock && !!set, one = typeof sel === 'number' ? sel : null;
-  const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null);
+  const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null), tid = useId();
   /** 끌어서 순서 바꾸기(손잡이) — 키보드는 «더 보기»의 ↑↓ */
-  const moveTo = (from: number, to: number) => { const s2 = [...pts], [x] = s2.splice(from, 1); s2.splice(to, 0, x); put(s2); };
+  const moveTo = (from: number, to: number) => { if (making || lock) return; const s2 = [...pts], [x] = s2.splice(from, 1); s2.splice(to, 0, x); put(s2); };
+  const still = making || lock;   // fieldset 은 끌기 손잡이(span)를 잠그지 못해 직접 막는다
   // 단추 줄 «1층 ▾»(지도 고르기) — 승인 판 없는 층은 편집 때 고를 수 없다(읽기 전용은 지점이 있으면 그 판으로)
   const mapPick = mapSlot && createPortal(<Menu label={place?.floor.name ?? '지도 고르기'} title={`지도: ${place ? `${place.site.name} › ${place.building.name} › ${place.floor.name}` : '없음'}`}>
     {!approved.length && (set || !pts.length) ? <p className="lv-note">승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.</p>
@@ -620,9 +626,17 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     {set && <label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
       <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>}<hr /></fieldset>, moreSlot);
   const where = (p: ScenarioPoint) => `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}${p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}`;
-  const tabs = <span className="fh-grow"><span className="mx-seg" role="tablist" aria-label="단계·배정">
-    <button type="button" role="tab" className="btn" aria-selected={tab === 'steps'} aria-pressed={tab === 'steps'} onClick={() => setTab('steps')}>단계 {pts.length}</button>
-    {assign && <button type="button" role="tab" className="btn" aria-selected={tab === 'assign'} aria-pressed={tab === 'assign'} onClick={() => { setTab('assign'); setSel(null); }}>배정{assignN != null ? ` ${assignN}` : ''}</button>}</span></span>;
+  const pick = (t: 'steps' | 'assign') => { setTab(t); if (t === 'assign') setSel(null); };
+  const order = assign ? (['steps', 'assign'] as const) : (['steps'] as const);
+  /** 탭 방향키(←→·Home·End) = 옆 탭을 고르고 포커스(roving tabIndex) */
+  const arrow = (e: KeyboardEvent<HTMLElement>) => {
+    const n = order.length, at = order.indexOf(tab as never), to = e.key === 'ArrowRight' ? (at + 1) % n : e.key === 'ArrowLeft' ? (at - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
+    if (to < 0) return;
+    e.preventDefault(); pick(order[to]); document.getElementById(`${tid}-${order[to]}`)?.focus();
+  };
+  const tabBtn = (t: 'steps' | 'assign', text: string) => <button type="button" role="tab" className="btn" id={`${tid}-${t}`} aria-controls={`${tid}-${t}-panel`} aria-selected={tab === t} tabIndex={tab === t ? 0 : -1} onClick={() => pick(t)}>{text}</button>;
+  const tabs = <span className="fh-grow"><span className="mx-seg" role="tablist" aria-label="단계·배정" onKeyDown={arrow}>
+    {tabBtn('steps', `단계 ${pts.length}`)}{assign && tabBtn('assign', `배정${assignN != null ? ` ${assignN}` : ''}`)}</span></span>;
   return <>
     {mapPick}{morePick}
     <div className="mx-map">
@@ -657,7 +671,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
     <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창"
       head={one != null && tab === 'steps' ? <><button type="button" className="btn" aria-label="단계 목록으로" title="목록으로" onClick={() => setSel(null)}>‹</button><span className="fh-grow">{one + 1}번 지점</span></> : tabs}>
-      <div className="mx-tab" hidden={tab !== 'steps'}>
+      <div className="mx-tab" role="tabpanel" id={`${tid}-steps-panel`} aria-labelledby={`${tid}-steps`} hidden={tab !== 'steps'}>
         <fieldset disabled={fence} style={{ display: 'contents' }}>
         <div className="mx-in" hidden={one != null}>{!nameUp && nameField}
           {set && mErr && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {mErr}</p><button type="button" className="btn" onClick={() => setMN((x) => x + 1)}>다시 받기</button></div>}
@@ -674,10 +688,11 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           const listed = active.some((x) => `${x.id}:${x.latest_version}` === val), fresh = m && m.latest_version === p.mission_version ? m : undefined;   // 고른 판 = 최신 판일 때만 내용을 안다
           const sec = set ? waitOf(fresh) : null, no = set && fresh ? cannot(fresh) : null, warn = no || (pr && !pr.reachable) || b;
           return <li key={i} data-wp={i} data-bad={b ? '' : undefined} hidden={one != null && one !== i}
-            onDragOver={(ev) => { if (grab.current != null) ev.preventDefault(); }} onDrop={(ev) => { ev.preventDefault(); const f = grab.current; grab.current = null; if (f != null && f !== i) moveTo(f, i); }}>
+            onDragOver={(ev) => { if (grab.current != null && !still) ev.preventDefault(); }} onDrop={(ev) => { ev.preventDefault(); const f = grab.current; grab.current = null; if (f != null && f !== i && !still) moveTo(f, i); }}>
             <div className="mx-row">
-              {set && one == null && <span className="mx-grip" draggable title="끌어서 순서 바꾸기" aria-hidden="true"
-                onDragStart={(ev) => { grab.current = i; ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(i)); }} onDragEnd={() => { grab.current = null; }}>⋮⋮</span>}
+              {set && one == null && <span className="mx-grip" role="img" draggable={!still} aria-label={`${i + 1}번 단계 끌어 옮기기`} aria-disabled={still || undefined}
+                title="끌어서 순서 바꾸기 — 키보드는 단계를 눌러 «더 보기»의 ↑↓"
+                onDragStart={(ev) => { if (still) { ev.preventDefault(); grab.current = null; return; } grab.current = i; ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(i)); }} onDragEnd={() => { grab.current = null; }}><span aria-hidden="true">⋮⋮</span></span>}
               <button type="button" className="mx-name" aria-pressed={sel === i} onClick={() => go(i)}><span className="mx-num">{i + 1}</span><b>{where(p)}</b>
                 <small>{m ? m.name : p.mission_id ? `임무 판 ${p.mission_version}` : '임무 없음'}</small>{warn && <span className="mx-warn" title={no ? `실행 불가 — ${no}` : '확인할 것이 있습니다'}>⚠</span>}</button>
               {set && <button type="button" className="mx-x" aria-label={`${i + 1}번 지점 지우기`} title="지우기" onClick={() => drop(i)}>✕</button>}
@@ -738,7 +753,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           </div>}
         </div>
       </div>
-      {assign && <div className="mx-in" hidden={tab !== 'assign'}>{assign}</div>}
+      {assign && <div className="mx-in" role="tabpanel" id={`${tid}-assign-panel`} aria-labelledby={`${tid}-assign`} hidden={tab !== 'assign'}>{assign}</div>}
     </Pane>
   </>;
 }

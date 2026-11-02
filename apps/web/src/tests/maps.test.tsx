@@ -944,7 +944,7 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
     await startEdit();
     await click($('button[aria-label="요소 4 창 접기"]')!);
     expect($('.mx-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.mx-fold')!.textContent).toBe('◂ 요소 4');
-    expect(card('요소 창').hasAttribute('data-fold')).toBe(true); expect($('[data-el]')).toBeNull();
+    expect(card('요소 창').hasAttribute('data-fold')).toBe(true); expect($('[data-el]')!.closest('[hidden]')).toBeTruthy();   // 접기 = 숨김(unmount 아님)
     await click($('.mx-fold')!);
     expect(rows()).toHaveLength(4);
   });

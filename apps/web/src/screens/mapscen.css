@@ -13,7 +13,7 @@
 .mx-seg>.btn{border-radius:0;margin-left:-1px}
 .mx-seg>.btn:first-child{border-radius:8px 0 0 8px;margin-left:0}
 .mx-seg>.btn:last-child{border-radius:0 8px 8px 0}
-.mx-seg>[aria-pressed="true"],.mx-seg>[aria-current]{border-color:var(--accent);background:var(--acc-bg);position:relative;z-index:1}
+.mx-seg>[aria-pressed="true"],.mx-seg>[aria-selected="true"],.mx-seg>[aria-current]{border-color:var(--accent);background:var(--acc-bg);position:relative;z-index:1}
 .mx-tag{font-size:12px;color:var(--muted);white-space:nowrap}
 
 /* 드롭다운(details) */
@@ -90,3 +90,4 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mx-foot .fh-field>span{flex:none}
 .mx-foot .fh-field>select{flex:1;min-width:0}
 .mx-in:empty{display:none}   /* 이름이 «···» 로 가 빈 안내 칸은 자리를 먹지 않게 */
+.mx-pane-in{display:contents}   /* 창 안 내용 묶음 — 틀(세로 flex)은 그대로, 접으면 [hidden] 으로 숨김 */

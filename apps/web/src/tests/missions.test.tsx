@@ -770,7 +770,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(point(1)).toBeTruthy();
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2');
-    expect($('[data-wp="0"]')).toBeNull(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);
+    expect(point(0).closest('[hidden]')).toBeTruthy(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);   // 접기 = 숨김(unmount 아님, #235 B2)
     await click(btn('새 시나리오'));
     expect(fold().textContent).toBe('◂ 단계 0');
     await click(fold());
@@ -1168,6 +1168,60 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     await click(tabs[0]);
     expect((point(0).closest('.mx-tab') as HTMLElement).hidden).toBe(false);
     await stopSends();
+  });
+  it('#235 B1 임무 만드는 중엔 손잡이 끌기·놓기를 막고, 늦게 온 새 임무는 처음 고른 지점에 잇는다(순번 아닌 그 지점)', async () => {
+    seed(); let release!: () => void;
+    serve(KIM, { over: { 'POST /missions': [async (real) => { await new Promise<void>((r) => { release = r; }); return real(); }] } });
+    await open(); await click(row('s1')); await click(point(0).querySelector('.mx-name'));
+    await setVal($<HTMLSelectElement>('select[aria-label="1번 지점 임무"]')!, 'do:PHOTO');
+    expect(release).toBeTypeOf('function');
+    await click(aria('단계 목록으로'));
+    const grip = point(1).querySelector<HTMLElement>('.mx-grip')!;
+    expect(grip.getAttribute('draggable')).toBe('false'); expect(grip.getAttribute('aria-disabled')).toBe('true');
+    drag('dragstart', grip); drag('dragover', point(0)); drag('drop', point(0)); await flush();
+    release(); await flush(); await settle();
+    await click(saveBtn());
+    const w = (last(sent('PUT', '/scenarios/s1'))!.body as ScenarioWrite).waypoints;
+    expect(w.map((p) => ({ x: p.x, y: p.y, m: p.mission_id }))).toEqual([{ x: 1, y: 1, m: 'm4' }, { x: 0, y: 0, m: 'm1' }]);
+  });
+  it('#235 B2 창을 접었다 펴도 배정 창 입력(메모)이 남는다 — 접기는 숨김, 배정 창은 unmount 되지 않음', async () => {
+    seed(); serve(KIM);
+    await open(); await click(row('s1'));
+    await click(card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')[1]);
+    const sec = $('[data-assign]')!;
+    await click(btn('로봇에 배정', sec));
+    await setVal(field('메모', sec), '야간 순찰');
+    await click($<HTMLButtonElement>('.mx-fold')!);
+    expect(sec.isConnected).toBe(true); expect(sec.closest('[hidden]')).toBeTruthy();
+    await click($<HTMLButtonElement>('.mx-fold')!);
+    expect($('[data-assign]')).toBe(sec); expect(sec.closest('[hidden]')).toBeNull();
+    expect(field('메모', sec).value).toBe('야간 순찰');
+    await stopSends();
+  });
+  it('#235 B3 [단계|배정] 탭: ←→·Home·End 로 옮기며 고름(roving tabIndex) · aria-controls ↔ tabpanel aria-labelledby', async () => {
+    seed(); serve(KIM);
+    await open(); await click(row('s1'));
+    const tabs = [...card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const key = (k: string) => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1]);
+    for (const t of tabs) { const pnl = document.getElementById(t.getAttribute('aria-controls')!)!;
+      expect(pnl.getAttribute('role')).toBe('tabpanel'); expect(pnl.getAttribute('aria-labelledby')).toBe(t.id); }
+    tabs[0].focus(); key('ArrowRight');
+    expect(document.activeElement).toBe(tabs[1]); expect(tabs[1].getAttribute('aria-selected')).toBe('true'); expect(tabs.map((t) => t.tabIndex)).toEqual([-1, 0]);
+    expect(document.getElementById(tabs[1].getAttribute('aria-controls')!)!.hidden).toBe(false);
+    key('ArrowRight'); expect(document.activeElement).toBe(tabs[0]); expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    key('End'); expect(document.activeElement).toBe(tabs[1]);
+    key('Home'); expect(document.activeElement).toBe(tabs[0]);
+    key('ArrowLeft'); expect(document.activeElement).toBe(tabs[1]);
+  });
+  it('#235 B4 끌기 손잡이는 화면 읽기에 «N번 단계 끌어 옮기기»로 보이고, 키보드 대체는 «더 보기»의 ↑↓', async () => {
+    seed(); serve(KIM);
+    await open(); await click(row('s1'));
+    const grip = point(0).querySelector('.mx-grip')!;
+    expect(grip.hasAttribute('aria-hidden')).toBe(false); expect(grip.getAttribute('aria-label')).toBe('1번 단계 끌어 옮기기');
+    expect(point(1).querySelector('.mx-grip')!.getAttribute('aria-label')).toBe('2번 단계 끌어 옮기기');
+    await click(point(0).querySelector('.mx-name'));
+    expect(aria('1번 지점 아래로')).toBeTruthy();
   });
   it('새 시나리오(저장 전)는 배정 탭 없음·이름은 창에 · 저장은 단추 줄, 삭제·저장된 시나리오 이름은 «···» 안', async () => {
     seed(); serve(KIM);
