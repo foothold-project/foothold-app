@@ -1,0 +1,39 @@
+{
+  "$id": "fh-app/1/Go2Position",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "age_s": {
+      "minimum": 0,
+      "title": "Age S",
+      "type": "number"
+    },
+    "origin": {
+      "const": "BOOT_ORIGIN_UNVERIFIED",
+      "title": "Origin",
+      "type": "string"
+    },
+    "received_at": {
+      "format": "date-time",
+      "title": "Received At",
+      "type": "string"
+    },
+    "xyz": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Xyz",
+      "type": "array"
+    }
+  },
+  "required": [
+    "received_at",
+    "age_s",
+    "xyz",
+    "origin"
+  ],
+  "title": "Go2Position",
+  "type": "object"
+}

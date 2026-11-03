@@ -81,7 +81,10 @@ class Observer(Session):
         return super().receive(frame) if isinstance(frame,dict) and frame.get('t')=='ping' else self.tick()
 
     def _state(self):
-        state = {**super()._state(), **project(self.measurements.telemetry(), self.now())}
+        snapshot = self.measurements.telemetry()
+        state = {**super()._state(), **project(snapshot, self.now())}
+        # Server observation path only: phone/direct reporting is unchanged.
+        state['robot_info'].update({k: snapshot[k] for k in ('joints', 'quaternion', 'position') if k in snapshot})
         state['stop_ref'] = 0
         return state
 

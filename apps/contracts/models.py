@@ -294,6 +294,44 @@ class Go2Attitude(Contract):
         return value if type(value) in (int, float) and -math.pi <= value <= math.pi else None
 
 
+Go2JointName = Literal['FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint',
+                       'FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint',
+                       'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint',
+                       'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint']
+
+
+class Go2Joints(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    names: list[Go2JointName] = Field(min_length=12, max_length=12)
+    positions: list[float] = Field(min_length=12, max_length=12)
+
+    @model_validator(mode='after')
+    def unique_names(self):
+        if len(set(self.names)) != 12:
+            raise ValueError('twelve unique joint names required')
+        return self
+
+
+class Go2Quaternion(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    wxyz: list[float] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode='after')
+    def unit_quaternion(self):
+        if not .9 <= math.hypot(*self.wxyz) <= 1.1:
+            raise ValueError('invalid quaternion norm')
+        return self
+
+
+class Go2Position(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    xyz: list[float] = Field(min_length=3, max_length=3)
+    origin: Literal['BOOT_ORIGIN_UNVERIFIED']
+
+
 class Go2RobotInfo(Contract):
     """Readout only; never an input to STOP, lease, readiness or accepted codes."""
     source: Literal['GO2_DDS']
@@ -302,6 +340,27 @@ class Go2RobotInfo(Contract):
         description='SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2).')
     fallen: bool | None = Field(strict=True)
     fallen_source: Literal['imu_tilt_estimate']
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('joints', 'quaternion', 'position'))
+    joints: Go2Joints | None = Field(default=None, exclude_if=lambda v: v is None)
+    quaternion: Go2Quaternion | None = Field(default=None, exclude_if=lambda v: v is None)
+    position: Go2Position | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @field_validator('joints', 'quaternion', 'position', mode='before')
+    @classmethod
+    def display_sample(cls, value, info):
+        if value is None:
+            return None
+        model, field = {'joints': (Go2Joints, 'positions'), 'quaternion': (Go2Quaternion, 'wxyz'),
+                        'position': (Go2Position, 'xyz')}[info.field_name]
+        if isinstance(value, model):
+            return value
+        # Bad display data must not discard an otherwise valid legacy state.
+        try:
+            if not all(type(v) in (int, float) and math.isfinite(v) for v in value[field]):
+                return None
+            return model.model_validate(value)
+        except (ValueError, TypeError, KeyError):
+            return None
 
     @field_validator('error_code', mode='before')
     @classmethod

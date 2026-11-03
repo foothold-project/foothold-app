@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { getPolicyAdapter, POLICY_ADAPTERS } from '../sim/policy-adapters.js';
 
 const adapter = getPolicyAdapter('nvidia-demo'), grid = adapter.observations.height.grid;
-assert.deepEqual(Object.keys(POLICY_ADAPTERS), ['nvidia-demo', 'start-demo', 'ame2-demo']);
+assert.deepEqual(Object.keys(POLICY_ADAPTERS), ['nvidia-demo', 'start-demo', 'ame2-demo', 'go2-demo']);
 assert.equal(getPolicyAdapter().id, 'nvidia-demo');
 assert.throws(() => getPolicyAdapter('START'));
 assert.throws(() => getPolicyAdapter('AME-2'));

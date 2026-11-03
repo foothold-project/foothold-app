@@ -1,0 +1,57 @@
+{
+  "$id": "fh-app/1/Go2Joints",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "age_s": {
+      "minimum": 0,
+      "title": "Age S",
+      "type": "number"
+    },
+    "names": {
+      "items": {
+        "enum": [
+          "FR_hip_joint",
+          "FR_thigh_joint",
+          "FR_calf_joint",
+          "FL_hip_joint",
+          "FL_thigh_joint",
+          "FL_calf_joint",
+          "RR_hip_joint",
+          "RR_thigh_joint",
+          "RR_calf_joint",
+          "RL_hip_joint",
+          "RL_thigh_joint",
+          "RL_calf_joint"
+        ],
+        "type": "string"
+      },
+      "maxItems": 12,
+      "minItems": 12,
+      "title": "Names",
+      "type": "array"
+    },
+    "positions": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 12,
+      "minItems": 12,
+      "title": "Positions",
+      "type": "array"
+    },
+    "received_at": {
+      "format": "date-time",
+      "title": "Received At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "received_at",
+    "age_s",
+    "names",
+    "positions"
+  ],
+  "title": "Go2Joints",
+  "type": "object"
+}
