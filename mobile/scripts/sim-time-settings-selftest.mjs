@@ -59,7 +59,7 @@ try {
       }
       const seconds = sim.t - t;
       return { policy, engine, fps, wall: 2, seconds, physics: sim.d.time - physics, ratio: seconds / 2,
-        physical, decisions: Math.round(seconds / contract.policyDt), decimation: contract.decimation, calls, overlap, timing: __sim.timing(), badge: __sim.policyEngine };
+        pose: Array.from(sim.d.qpos), physical, decisions: Math.round(seconds / contract.policyDt), decimation: contract.decimation, calls, overlap, timing: __sim.timing(), badge: __sim.policyEngine };
     }, { fps, policy, engine });
     assert.ok(row.ratio >= .95 || (row.timing.dropped > 0 && row.timing.slow), JSON.stringify(row));
     assert.ok(Math.abs(row.physics - row.seconds) < 1e-9, JSON.stringify(row));
@@ -67,6 +67,19 @@ try {
     if (row.timing.dropped > 0) assert.equal(await page.locator('#simSlow').isVisible(), true, 'discarded debt is visible');
     rows.push(row); writeFileSync(resolve(out, 'timing-progress.json'), JSON.stringify(rows, null, 2));
     console.log(JSON.stringify(row)); await page.close();
+  }
+  // Same command/physics sequence across FPS; main and Worker transfer exactly
+  // the same inputs. Compare closed-loop poses at equal physics time only.
+  for (const policy of ['foothold-v2', 'ame2-demo']) {
+    const equalTime = rows.filter((r) => r.policy === policy && r.decisions === 100);
+    for (const engine of ['f32', 'main', 'worker']) {
+      const group = equalTime.filter((r) => r.engine === engine);
+      for (const row of group.slice(1)) assert.ok(row.pose.every((v, i) => Math.abs(v - group[0].pose[i]) < 1e-10), `FPS trajectory ${policy}/${engine}`);
+    }
+    const f32 = equalTime.find((r) => r.engine === 'f32');
+    for (const row of equalTime.filter((r) => r.engine !== 'f32')) {
+      assert.ok(row.pose.every((v, i) => Math.abs(v - f32.pose[i]) < 1e-4), `f32/ONNX warehouse trajectory ${policy}/${row.engine}/${row.fps}`);
+    }
   }
   const p = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   p.on('pageerror', (e) => errors.push(e.message));
