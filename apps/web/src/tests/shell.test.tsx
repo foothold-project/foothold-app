@@ -128,29 +128,29 @@ describe('탭 전환', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
     localStorage.setItem('fh.simMap', old);
     mount(true, 'u-lee');
-    expect($<HTMLSelectElement>('[data-sim-map]').value).toBe('factory-zone');
-    expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toContain('map=factory-zone');
-    expect($<HTMLImageElement>('[data-sim-top]').getAttribute('src')).toContain('/factory-zone/top.png');
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('factory-zone');
+    expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=factory-zone&floor=f1');   // 옛 f2 값이어도 첫 층
+    expect($('[data-sim-top] image').getAttribute('href')).toContain('/factory-zone/top-f1.png');
   });
-  it('폰 앱 시뮬 지도(10-28): 드롭다운 = mobile/sim/maps.json, 고른 지도의 위에서 본 사진, 열기 주소에 ?map=, 기억(없는 값·저장 실패면 첫 지도)', () => {
+  it('폰 앱 시뮬 지도(11-03 카드): 카드 = mobile/sim/maps.json, 고른 지도의 위에서 본 사진, 열기 주소에 ?map=, 기억(없는 값·저장 실패면 첫 지도)', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
     localStorage.setItem('fh.simMap', 'nope');
     mount(true, 'u-lee');
-    const sel = $<HTMLSelectElement>('[data-sim-map]');
-    expect(sel.className).toBe('fh-user fh-sel');   // 앱 공용 고르기 모양
-    expect([...sel.options].map((o) => [o.value, o.textContent])).toEqual(SIM_MAPS.map((m) => [m.id, m.name]));
-    expect(sel.value).toBe('warehouse');
-    expect($<HTMLImageElement>('[data-sim-top]').getAttribute('src')).toMatch(/mobile\/sim\/assets\/warehouse\/top\.png/);
-    expect($<HTMLImageElement>('[data-sim-top]').alt).toBe('창고 위에서 본 모습');
-    act(() => { sel.value = 'warehouse'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    const cards = $$('[data-sim-card]');
+    expect(cards.map((c) => [c.dataset.simCard, c.textContent])).toEqual(SIM_MAPS.map((m) => [m.id, m.name]));
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('warehouse');
+    expect($('[data-sim-top] image').getAttribute('href')).toMatch(/mobile\/sim\/assets\/warehouse\/top\.png/);
+    expect($('[data-sim-top]').getAttribute('aria-label')).toBe('창고 위에서 본 모습 — 눌러 시작 위치 고르기');
+    click(cards[0]);
     expect(localStorage.getItem('fh.simMap')).toBe('warehouse');
     expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=warehouse');
     act(() => root?.unmount()); root = null; box.remove();
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('막힘'); });
     mount(true, 'u-lee');
-    expect($<HTMLSelectElement>('[data-sim-map]').value).toBe('warehouse');
-    act(() => { $<HTMLSelectElement>('[data-sim-map]').dispatchEvent(new Event('change', { bubbles: true })); });
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('warehouse');
+    click($('[data-sim-card="element-course"]'));
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('element-course');
     expect($('[data-sim-app]')).not.toBeNull();
   });
 });

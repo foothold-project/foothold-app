@@ -10,12 +10,7 @@ import { Chip, inApp } from './screens';
 import { typing } from './App';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
-import SIM_MAPS from '../../../mobile/sim/maps.json';
-
-/** 앱 안 시뮬 지도 목록(mobile/sim/maps.json 하나) · 위에서 본 사진(mobile/scripts/make-top.mjs 가 구운 top.png — 웹 빌드에 담긴다) · 고른 지도 기억(저장 실패해도 동작) */
-const TOPS = import.meta.glob<string>('../../../mobile/sim/assets/*/top.png', { eager: true, query: '?url', import: 'default' });
-const MAP_KEY = 'fh.simMap';
-const savedMap = () => { try { return (localStorage.getItem(MAP_KEY) ?? '').replace(/^factory-zone-f[12]$/, 'factory-zone'); } catch { return ''; } };
+import { SimPick } from './simstart';
 
 /** 키 → [축(0 전후·1 회전·2 옆), 방향]. 실기 서버 경유(serverdrive.tsx)·mobile/sim 과 같은 배치(UIUX-1101): W/↑ 전진, S/↓ 후진, ←/→ 옆걸음, A/D 제자리 회전.
  *  Q/E 는 뺐다(옛 시뮬 옆걸음 — 실기에 없는 키). e.code(자판 자리)라 한글 입력 상태에서도 같다 */
@@ -105,8 +100,6 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
   const [engine, setEngine] = useState(savedEngine);
   const pickEngine = (e: Engine) => { try { localStorage.setItem(ENGINE_KEY, e); setEngine(e); } catch { setEngine('mujoco'); } };   // 저장 실패 = MuJoCo
   const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
-  const [want, setWant] = useState(savedMap), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0], top = TOPS[`../../../mobile/sim/assets/${map.id}/top.png`];
-  const pickMap = (id: string) => { setWant(id); try { localStorage.setItem(MAP_KEY, id); } catch { /* 기억만 못 함 */ } };
   useDeadline(!!s.robot?.expires_at);
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
@@ -148,10 +141,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
         <li key={id}><label className="fh-row">
           <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}
-    {app ? <><label className="fh-row"><span className="lbl">지도</span><select className="fh-user fh-sel" aria-label="지도" value={map.id} onChange={(e) => pickMap(e.target.value)} data-sim-map>
-        {SIM_MAPS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-      {top && <img src={top} alt={`${map.name} 위에서 본 모습`} data-sim-top style={{ display: 'block', alignSelf: 'center', width: '100%', maxHeight: 'min(55vh, 640px)', objectFit: 'contain', borderRadius: 8 }} />}
-      <a className="btn pri" href={simUrl(map.id)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
+    {app ? <><SimPick />
       {only && <p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p>}</> : <>
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">
