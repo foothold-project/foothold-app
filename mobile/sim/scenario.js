@@ -1,4 +1,5 @@
 // Offline waypoint overlay; commands stay inside the existing joystick limits.
+import { ame2Joystick } from './ame2-adapter.js';
 import { cell } from './lidar.js';
 import { boundedNumber, DEFAULT_VX, DEFAULT_WZ } from './settings.js';
 
@@ -30,13 +31,17 @@ export function frontDistance(rays) {
 }
 
 export function createScenarioRunner(sim, isStopped, limits = {}) {
-  let maxVx = MAX_VX, maxWz = MAX_WZ;
+  let maxVx = MAX_VX, maxWz = MAX_WZ, heading = null;
+  const nearbyGoal = sim.adapterId === 'ame2-demo';
+  const neutral = () => nearbyGoal ? [0, 0, 0, 1] : [0, 0, 0];
   // goal = 찍은 곳 하나로 가기(손 조종이 끊으면 잠그지 않고 취소만). best(거리)·turn(방향 오차)·stall = 진전 없음 재기
   const runner = { active: false, index: 0, points: [], status: '대기', goal: false, best: Infinity, turn: Infinity, stall: 0 };
   runner.cancel = (reason = '중단') => {
     runner.active = false;
+    if (nearbyGoal) sim.cancelPolicyStep?.();
     runner.status = reason;
-    sim.cmd = [0, 0, 0];
+    sim.cmd = neutral();
+    heading = null;
     return sim.cmd;
   };
   runner.start = (points, goal = false) => {
@@ -51,7 +56,8 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
     runner.best = runner.turn = Infinity; runner.stall = runner.spin = 0;
     runner.status = '실행 중';
     runner.active = true;
-    sim.cmd = [0, 0, 0];
+    sim.cmd = neutral();
+    heading = null;
     return true;
   };
   // dt = 이번 틱 시간(s). 0 이면 진전 없음은 재지 않는다
@@ -75,7 +81,18 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
       if (dist < runner.best - STALL_GAIN) { runner.best = dist; gained = true; }
       if (Math.abs(error) < runner.turn - STALL_TURN) { runner.turn = Math.abs(error); gained = true; }
       if (gained) runner.stall = 0; else if ((runner.stall += dt) >= STALL_S) return runner.cancel('막힘');
-      sim.cmd = [vx, 0, Math.max(-maxWz, Math.min(maxWz, 1.5 * error))];
+      const wz = Math.max(-maxWz, Math.min(maxWz, 1.5 * error));
+      if (nearbyGoal) {
+        // Follow the NEXT A* point, never a later stage across a corner.
+        // Same <=1 m horizon as manual input, below the strict >2 m random-yaw
+        // observation threshold. Close targets shrink rather than moving away.
+        const goal = ame2Joystick(heading, yaw, [0, 0, wz], dt || .02);
+        heading = goal.heading;
+        const scale = vx ? Math.min(1, dist) / dist * Math.min(1, vx / MAX_VX) : 0;
+        goal.command[0] = (Math.cos(yaw) * dx + Math.sin(yaw) * dy) * scale || 0;
+        goal.command[1] = (-Math.sin(yaw) * dx + Math.cos(yaw) * dy) * scale || 0;
+        sim.cmd = goal.command;
+      } else sim.cmd = [vx, 0, wz];
       return sim.cmd;
     }
     return runner.cancel('완료');

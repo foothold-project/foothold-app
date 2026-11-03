@@ -10,7 +10,7 @@ import { getPolicyAdapter } from './policy-adapters.js';
 import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
-import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts, MAX_VX } from './scenario.js';
+import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { loadSimSettings, simSettings } from './settings.js';
 
@@ -202,16 +202,15 @@ async function main() {
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
-  if (adapter.stop.pause) $('scenarioStatus').textContent = 'AME-2는 두 막대로 조종하세요';
   let scenarioText = '', here = 0, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
   const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
   const scenarioUI = () => {
     const far = away();
-    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${(runner.points[runner.index]?.mark ?? 0) + 1}/${runner.points.at(-1).mark + 1}`
+    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : runner.active ? `지점 ${(runner.points[runner.index]?.mark ?? 0) + 1}/${runner.points.at(-1).mark + 1}`
       : far ? `${floors[far.floor].name} 시나리오 — 실행하면 ${floors[far.floor].name} 출발점에 다시 세워 시작` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
-    select.disabled = runner.active || !scenarios.length || adapter.stop.pause;
-    $('scenarioRun').disabled = !ready || stopped || runner.active || !scenarios.length || adapter.stop.pause;
+    select.disabled = runner.active || !scenarios.length;
+    $('scenarioRun').disabled = !ready || stopped || runner.active || !scenarios.length;
     $('scenarioHalt').disabled = !runner.active;
     $('scenarioHint').hidden = !stopped;
   };
@@ -325,22 +324,12 @@ async function main() {
     }
   };
 
-  // 라이다 점: 표시 거리 밖은 숨긴다. front·다시 찾기는 기존 12 m 안전 스캔만 쓴다.
-  const LN = 360, lidarPos = new Float32Array(LN * 3);
-  const lidarPts = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(lidarPos, 3)),
-    new THREE.PointsMaterial({ color: 0x39ff88, size: 4, sizeAttenuation: false }));
-  lidarPts.frustumCulled = false;
-  scene.add(lidarPts);
+  // 라이다는 안전 판정·다시 찾기에만 사용한다. 화면 점·광선·범위 그림은 만들지 않는다.
   let lastScan = 0, front = Infinity, rays = null;   // rays = 마지막 라이다 줄(다시 찾기에 앞 장애물로)
   const yawOf = () => 2 * Math.atan2(d.qpos[6], d.qpos[3]); // 기울기 무시한 근사(서 있을 때 충분)
   const scan = () => {
     const x = d.qpos[0], y = d.qpos[1], z = d.qpos[2] + 0.1, yaw = yawOf(), r = lidar(x, y, z, yaw);
     front = frontDistance(r); rays = r;
-    for (let i = 0; i < LN; i++) {
-      const a = yaw + (i * 2 * Math.PI) / LN, k = Number.isFinite(lidar.viewRays[i]) ? lidar.viewRays[i] : 0;
-      lidarPos.set(k ? [x + Math.cos(a) * k, y + Math.sin(a) * k, z] : [x, y, -100], i * 3);
-    }
-    lidarPts.geometry.attributes.position.needsUpdate = true;
   };
   // 다른 층 시나리오 = 그 층 출발점(spawn_xyyaw)에 다시 세워 시작 — 월드 기준(datum 0)은 그대로, 몸 높이만 그 층 바닥 + 0.4(sim.reset 과 같음)
   const spawnOn = (i) => {
@@ -349,7 +338,7 @@ async function main() {
     mj.mj_forward(m, d); sim.hold(0.5); acc = 0; pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
-    if (!ready || stopped || runner.active || adapter.stop.pause || busy) return;
+    if (!ready || stopped || runner.active || busy) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
     const far = away();
@@ -585,12 +574,11 @@ async function main() {
     let n = 0;
     while (acc >= POLICY_DT && n < 5) {
       acc -= POLICY_DT; n++;
-      if (runner.active && !adapter.stop.pause) runner.tick(front, POLICY_DT);
-      else if (adapter.stop.pause) {
-        // AME-2 는 찍은 곳 가기도 자체 목표 입력(ame2Joystick)으로 — 실행기 명령을 막대 값으로(앞 0 또는 끝까지, 회전 rad/s ≤ 0.6)
-        if (runner.active) runner.tick(front, POLICY_DT);
-        const axes = runner.active ? [sim.cmd[0] / MAX_VX, 0, sim.cmd[2]] : goalAxes;
-        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : axes, POLICY_DT);
+      if (runner.active) {
+        runner.tick(front, POLICY_DT); // 속도/가까운 목표 모두 같은 A* 도달·막힘·취소 규칙
+        if (adapter.stop.pause) { heading = null; joy = sim.cmd.slice(); }
+      } else if (adapter.stop.pause) {
+        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();
       if (!(adapter.stop.pause && stopped)) {
