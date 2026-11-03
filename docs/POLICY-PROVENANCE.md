@@ -342,3 +342,11 @@ node mobile/scripts/policy-vector-selftest.mjs
 엔진 기본은 `main.js`의 `DEFAULT_POLICY_BACKEND` 상수 하나로 관리하며 ONNX 전환은 별도 커밋이다.
 되돌림 시 항상 **«<모드> · JS f32 되돌림 중 · 사유»**를 표시한다.
 서버의 새 자산 배치는 승인 후 별도 작업이며, 새 ONNX가 없어도 `prepare_sim`은 실패하지 않는다.
+
+새 실행기의 foothold-v2 Node ONNX↔f32 물리 비교는 기존 5지도 각 300틱(6초)에서
+위치 최대 차 `1.32469082e-7 m`, 관절 최대 차 `1.88950233e-6 rad`였다.
+`policy-state-selftest.mjs`는 실제 MuJoCo `applyAction`을 통해 feedback/history 확정,
+시간 초과·취소·STOP·리셋 뒤 후보 폐기와 hidden state 0을 확인했다.
+AME-2 train-match/sim, height-scan, frame-clock, scenario, sim-no-fall 회귀와
+양 어댑터 비동기 취소·리셋·dispose 시험도 통과했다. AME-2의 연속 궤적 차이는
+[AME-2 출처 기록](AME2-PROVENANCE.md)의 별도 수치를 따른다.
