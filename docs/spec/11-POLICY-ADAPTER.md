@@ -169,6 +169,8 @@ PR #178 B1 수정 후 평지 회귀(Node, 기준 `3bbcbb4`의 `sim.js`, 같은 f
 | 3 | 위에서 본 그림 | `top.png` + `top.json`(`bounds [xmin,ymin,xmax,ymax]`·`px [w,h]`·`map{origin,res,w,h}`) | m. 그림 칸 ↔ 세계 m 는 bounds 로 | 화면 표시용 `mobile/sim/top-fit.js` |
 | 4 | 3D 장면 | MJCF(`<world>.xml`, 충돌 메시) + `scene.json`(보이는 메시·모델), Gazebo 는 SDF | m, 세계 좌표 | 시뮬 물리·화면 |
 
+시뮬 주소는 `&floor=<층 id>`(여러 층 지도만, 없거나 모르는 id는 첫 층)·`&start=<x>,<y>[,<yaw>]`(월드 m·rad, yaw 생략은 그 층 기본값)를 받으며, 지도 밖·빈 칸 아님·inflate 막힘·유한하지 않은 값은 상태 줄에 이유를 알리고 그 층 기본 위치를 쓴다; 리셋도 같은 시작점으로 돌아가고 `window.__sim.start()`에서 실제 적용한 xy·yaw·층을 확인한다.
+
 ### 6.1 2D 비용 지도의 «벽» = 높이 기준
 
 - **현재(시뮬 생성 지도):** 바닥 높이 위 **0.05~0.60 m 몸 높이 띠** 안에 충돌 형상이 걸치는 칸을 막힘(0)으로 한다. 바닥 지지면이 네 모서리·가운데 모두 있어야 빈 곳(254), 없으면 모름(205) (`collision_map.py:160,210`).
