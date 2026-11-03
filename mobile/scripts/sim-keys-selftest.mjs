@@ -151,6 +151,7 @@ try {
 
   // 시나리오 실행 중 조종 키 = 실행 중단 + 잠금(막대 누름과 같음)
   await page.click('#go');
+  await page.click('#scenarioMenu');   // 앞의 Esc 가 창도 닫았으므로 실행 준비로 다시 연다
   await page.click('#scenarioRun'); await page.evaluate(() => __sim.settled());   // 시나리오 길 찾기는 async
   assert.equal(await page.evaluate(() => __sim.scenario.active), true);
   await k.down('ArrowLeft');
