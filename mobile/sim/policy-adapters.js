@@ -26,7 +26,7 @@ const footholdV2 = {
   action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
   timing: { physicsDt: 0.005, decimation: 4, policyDt: 0.02 },
   command: { kind: 'body_velocity', axes: ['vx', 'vy', 'wz'], trainingRanges: [[0.4, 1.5], [0, 0], [-1, 1]],
-    joystickScale: [1, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
+    joystickScale: [1.5, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
   stop: { input: [0, 0, 0], commandZero: 'continue policy with zero velocity input', lock: 'existing UI STOP latch; human resume required' },
   loadPolicy(buf) {
     const f = new Float32Array(buf), layers = [];

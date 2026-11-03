@@ -88,15 +88,15 @@ const LEASE = [
 ];
 const REAL = [num('real_no_fast_server_drive', '서버 경유 빠른 이동 끄기', '', 0, 1, 1, { kind: 'switch', hint: '켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP 합니다. 회전·정지는 그대로.' })];
 const SIM_CAP = [
-  num('sim_max_vx', '최대 전진 속도', 'm/s', 0.2, 1, 0.05, { kind: 'range', hint: '기본 1.0' }),
+  num('sim_max_vx', '최대 전진 속도', 'm/s', 0.2, 1.5, 0.05, { kind: 'range', hint: '기본 1.0. AME-2는 위치 목표 정책으로 이 설정이 1.5 m/s 주행을 보장하지 않습니다.' }),
   num('sim_min_vx', '최소 이동 속도', 'm/s', 0, 0.5, 0.05, { kind: 'range', hint: '기본 0.2' }),
   num('sim_max_vy', '최대 옆걸음', 'm/s', 0, 0.3, 0.05, { kind: 'range' }),
   num('sim_max_wz', '최대 회전', '라디안/초', 0, 0.5, 0.05, { kind: 'range' }),
 ];
 const SIM_INPUT = [
-  num('sim_key_vx', '키보드 전진 속도', 'm/s', 0.1, 1, 0.05, { cap: true }),
+  num('sim_key_vx', '키보드 전진 속도', 'm/s', 0.1, 1.5, 0.05, { cap: true }),
   num('stick_deadzone', '막대 데드존', '', 0, 0.5, 0.01),
-  num('sim_runner_vx', '시뮬 임무 실행기 최대 전진', 'm/s', 0.1, 1, 0.05, { cap: true }),
+  num('sim_runner_vx', '시뮬 임무 실행기 최대 전진', 'm/s', 0.1, 1.5, 0.05, { cap: true }),
   num('sim_runner_wz', '시뮬 임무 실행기 최대 회전', '라디안/초', 0.1, 1, 0.05),
 ];
 const SIM_VIEW = [num('lidar_view_m', '라이다 표시 거리', 'm', 1, 30, 1)];

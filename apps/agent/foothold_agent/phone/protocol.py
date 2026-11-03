@@ -97,12 +97,12 @@ def simulation_velocity(vx, vy, wz):
 
 
 def project_velocity(vx, vy, wz, *, simulation=False):
-    """SI input -> Core axes; physical/default mode keeps the tested alphabet."""
+    """SI input -> Core axes; physical mode uses the explicit 1.5 m/s phone alphabet."""
     if simulation is True:
         limited, _ = simulation_velocity(vx, vy, wz)
         # Keep rejected SI intent for Core's reason and fresh-neutral gate.
         return (vx, vy, wz), limited != (vx, vy, wz)
-    x = .6 if vx >= .6 else 0.0
+    x = 1.5 if vx >= 1.5 else 0.0
     turn = (.5 if wz >= .5 else -.5 if wz <= -.5 else 0.0) if x else 0.0
     limited = (x, 0.0, turn)
     axes = (1.0 if x else 0.0, 0.0, turn / .5)
@@ -115,14 +115,14 @@ def project_velocity(vx, vy, wz, *, simulation=False):
     return axes, limited != (vx, vy, wz)
 
 
-LIMITS = {'vx_min': 0.0, 'vx_max': .6, 'vy_min': 0.0, 'vy_max': 0.0,
+LIMITS = {'vx_min': 0.0, 'vx_max': 1.5, 'vy_min': 0.0, 'vy_max': 0.0,
           'wz_min': -.5, 'wz_max': .5,
-          'commands': [[0.0, 0.0, 0.0], [.6, 0.0, 0.0], [.6, 0.0, -.5], [.6, 0.0, .5]]}
+          'commands': [[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [1.5, 0.0, -.5], [1.5, 0.0, .5]]}
 
 # Explicit simulation input envelope; the learned policy ranges remain unchanged.
 # These experimental commands are accepted, not validated walking capabilities.
 SIMULATION_LIMITS = {**LIMITS, 'vx_mode': 'continuous', 'vx_min_moving': .2,
-                     'vx_min': -.3, 'vx_max': 1.0, 'vy_min': -.3, 'vy_max': .3,
+                     'vx_min': -.3, 'vx_max': 1.5, 'vy_min': -.3, 'vy_max': .3,
                      'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
                      'policy_adapter_id': 'simulation-experimental-si/1',
                      'requires_forward_motion': False}

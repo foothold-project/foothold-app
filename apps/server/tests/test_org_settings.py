@@ -13,9 +13,9 @@ DEFAULTS = dict(sim_max_vx=1.0, sim_min_vx=0.2, sim_max_vy=0.3,
     sim_max_wz=0.5, sim_key_vx=0.6, stick_deadzone=0.1,
     sim_runner_vx=0.4, sim_runner_wz=0.6, lidar_view_m=12,
     real_no_fast_server_drive=False)
-BOUNDS = dict(sim_max_vx=(0.2, 1.0), sim_min_vx=(0.0, 0.5),
-    sim_max_vy=(0.0, 0.3), sim_max_wz=(0.0, 0.5), sim_key_vx=(0.1, 1.0),
-    stick_deadzone=(0.0, 0.5), sim_runner_vx=(0.1, 1.0),
+BOUNDS = dict(sim_max_vx=(0.2, 1.5), sim_min_vx=(0.0, 0.5),
+    sim_max_vy=(0.0, 0.3), sim_max_wz=(0.0, 0.5), sim_key_vx=(0.1, 1.5),
+    stick_deadzone=(0.0, 0.5), sim_runner_vx=(0.1, 1.5),
     sim_runner_wz=(0.1, 1.0), lidar_view_m=(1, 30))
 
 
@@ -39,7 +39,7 @@ def test_new_numeric_ranges_strict_types_and_optional_patch(field):
     for value in (low, high):
         assert C.OrgSettingsPatch(**{field: value}).model_dump(exclude_unset=True) == {field: value}
         # Full model boundaries with compatible cross-field values.
-        C.OrgSettings(**{'sim_min_vx': 0, 'sim_key_vx': 0.1, field: value})
+        C.OrgSettings(**{'sim_max_vx': 1.5, 'sim_min_vx': 0, 'sim_key_vx': 0.1, field: value})
     for value in (low - 1, high + 1, True, None, '0.2', float('inf'), float('nan')):
         for model in (C.OrgSettingsPatch, C.OrgSettings):
             with pytest.raises(ValidationError):
@@ -81,3 +81,20 @@ def test_simulation_si_caps_match_agent_final_envelope(monkeypatch):
     for setting, axis in (('sim_max_vx', 'vx_max'), ('sim_max_vy', 'vy_max'),
                           ('sim_max_wz', 'wz_max'), ('sim_key_vx', 'vx_max')):
         assert schema[setting]['maximum'] == limits[axis]
+
+
+@pytest.mark.parametrize('field', ['sim_max_vx', 'sim_key_vx', 'sim_runner_vx'])
+def test_forward_ceiling_boundary_persists_and_rejects_overflow(client, field):
+    headers = csrf(client)
+    patch = {'sim_max_vx': 1.5, field: 1.5}
+    response = client.patch(P, headers=headers, json=patch)
+    assert response.status_code == 200 and response.json()[field] == 1.5
+    assert client.get(P).json()[field] == 1.5
+    for model in (C.OrgSettings, C.OrgSettingsPatch):
+        with pytest.raises(ValidationError):
+            model(**{field: 1.51})
+    before = client.get(P).json()
+    rejected = client.patch(P, headers=headers, json={field: 1.51})
+    assert rejected.status_code == 400
+    assert rejected.json()['error']['code'] == 'VALIDATION'
+    assert client.get(P).json() == before

@@ -1,9 +1,13 @@
 // Offline unit/fake-HTTP tests. No service, credentials, model, or robot needed.
 import assert from 'node:assert/strict';
+import { POLICY_ADAPTERS } from '../sim/policy-adapters.js';
 import { loadSimSettings, simSettings } from '../sim/settings.js';
 import { createScenarioRunner, frontDistance, BLOCK_RANGE, MAX_VX, MAX_WZ } from '../sim/scenario.js';
 import { makeLidar, mapRay, MAX_RANGE } from '../sim/lidar.js';
 
+assert.equal(POLICY_ADAPTERS['foothold-v2'].command.joystickScale[0], 1.5);
+assert.equal(POLICY_ADAPTERS['foothold-v2'].command.inRange([1.5, 0, 0]), true);
+assert.equal(POLICY_ADAPTERS['foothold-v2'].command.inRange([1.51, 0, 0]), false);
 const caps = { vx: 1, wz: 1 };
 const robot = () => ({ cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } });
 const forward = [{ x: 10, y: 0 }], turn = [{ x: 0, y: 10 }];
@@ -23,7 +27,7 @@ assert.deepEqual(commands(simSettings({ sim_runner_vx: 0.4, sim_runner_wz: 0.6, 
 assert.deepEqual(commands(simSettings({ sim_runner_vx: 1, sim_runner_wz: 1, sim_max_vx: 0.8, sim_max_wz: 0.5 }, { vx: 0.25, wz: 0.2 })), [0.25, 0.2]);
 assert.deepEqual(commands(simSettings({ sim_runner_wz: 0.1, sim_max_wz: 0.05 }, caps)), [0.4, 0.05]);
 assert.deepEqual(commands(simSettings({ sim_max_wz: 0 }, caps)), [0.4, 0]);
-for (const bad of [undefined, null, '0.3', true, NaN, Infinity, -Infinity, -1, 0, 0.09, 1.01]) {
+for (const bad of [undefined, null, '0.3', true, NaN, Infinity, -Infinity, -1, 0, 0.09, 1.51]) {
   assert.deepEqual(commands({ vx: bad, wz: 0.2 }), [0.4, 0.2], `bad runner vx ${bad}`);
   assert.deepEqual(commands({ vx: 0.2, wz: bad }), [0.2, 0.6], `bad runner wz ${bad}`);
   assert.deepEqual(commands(simSettings({ sim_runner_vx: bad, sim_runner_wz: 0.2 }, caps)), [0.4, 0.2]);
@@ -35,10 +39,20 @@ for (const bad of [undefined, null, '12', true, NaN, Infinity, -Infinity, 0, 0.9
 }
 assert.equal(simSettings({ lidar_view_m: 1 }, caps).viewRange, 1);
 assert.equal(simSettings({ lidar_view_m: 30 }, caps).viewRange, 30);
-for (const bad of [undefined, null, '0.3', true, NaN, Infinity, -1, 1.1]) {
+for (const bad of [undefined, null, '0.3', true, NaN, Infinity, -1, 1.51]) {
   assert.deepEqual(commands(simSettings({ sim_max_vx: bad, sim_max_wz: bad }, caps)), [0.4, 0.6]);
 }
 for (const malformed of [null, undefined, 'text', [], 7]) assert.deepEqual(commands(simSettings(malformed, caps)), [0.4, 0.6]);
+
+// Forward boundary extends independently of unchanged angular limits/defaults.
+const fastCaps = { vx: 1.5, wz: 1 };
+assert.deepEqual(commands(simSettings({ sim_runner_vx: 1.5, sim_max_vx: 1.5 }, fastCaps)), [1.5, 0.6]);
+assert.deepEqual(commands(simSettings({ sim_max_vx: 1.5 }, fastCaps)), [0.4, 0.6]);
+assert.deepEqual(commands(simSettings({ sim_runner_vx: 1.51, sim_max_vx: 1.5 }, fastCaps)), [0.4, 0.6]);
+assert.deepEqual(commands({ vx: 1.51, caps: fastCaps }), [0.4, 0.6]);
+assert.deepEqual(commands(simSettings({ sim_runner_vx: 1.5, sim_max_vx: 1.51 }, fastCaps)), [1.5, 0.6]);
+assert.deepEqual(commands(simSettings({ sim_runner_vx: 1.5, sim_max_vx: 1.2 }, fastCaps)), [1.2, 0.6]);
+assert.deepEqual(commands({ vx: 1.5, caps: { vx: 1.2 } }), [1.2, 0.6]);
 
 const web = new URL('https://example.invalid/sim/index.html?from=web');
 let calls = 0, request;
