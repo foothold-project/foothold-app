@@ -51,7 +51,8 @@ try {
         if (result?.then) { busy = true; return result.finally(() => { busy = false; }); }
         return result;
       };
-      const start = performance.now(), t = sim.t, physics = sim.d.time;
+      const start = performance.now(); __frame(start);
+      const t = sim.t, physics = sim.d.time;
       for (let i = 1; i <= fps * 2; i++) {
         __frame(start + i * 1000 / fps);
         while (__sim.timing().pending) await new Promise((r) => setTimeout(r, 0));
@@ -138,11 +139,34 @@ try {
   await p.close();
   // Visible cap indicator with a real frame timestamp stall.
   const slow = await open('policyBackend=f32');
-  await slow.evaluate(() => { __frame(performance.now() + 2000); });
+  await slow.evaluate(() => { window.clockOrigin = performance.now(); __frame(clockOrigin); __frame(clockOrigin + 2000); });
   assert.equal(await slow.locator('#simSlow').isVisible(), true);
   assert.match(await slow.locator('#simSlow').textContent(), /한도 초과/);
   const capped = await slow.evaluate(() => __sim.timing()); assert.ok(capped.dropped > 1.4);
-  await slow.close(); assert.deepEqual(errors, []);
-  writeFileSync(resolve(out, process.argv.includes('--settings-only') ? 'settings-only.json' : 'time-settings.json'), JSON.stringify({ rows, settings, capped, port: server.address().port, errors }, null, 2));
+  await slow.evaluate(() => { for (let i = 1; i <= 600; i++) __frame(clockOrigin + 2000 + i * 1000 / 60); });
+  assert.equal(await slow.evaluate(() => __sim.timing().slow), false, '10s normal clears a past cap');
+  assert.equal(await slow.locator('#simSlow').isVisible(), false);
+  await slow.evaluate(() => { __frame(clockOrigin + 14000); });
+  assert.ok(await slow.evaluate(() => __sim.timing().dropped > 0));
+  await slow.evaluate(async () => { await document.getElementById('go').onclick(); __frame(performance.now()); });
+  assert.deepEqual(await slow.evaluate(() => [__sim.timing().dropped, __sim.timing().drops, __sim.timing().slow]), [0, 0, false], 'new run clears drop counters');
+  await slow.close();
+  const hidden = await open('policyBackend=f32');
+  const resumed = await hidden.evaluate(() => {
+    const start = performance.now(); __frame(start);
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    __frame(start + 1000); // a throttled hidden RAF must not seed the clock
+    const before = __sim.steps;
+    delete document.hidden; document.dispatchEvent(new Event('visibilitychange'));
+    __frame(start + 30000); __frame(start + 30016);
+    const burst = __sim.steps - before;
+    for (let i = 2; i <= 627; i++) __frame(start + 30000 + i * 16);
+    return { burst, timing: __sim.timing(), stopped: __sim.stopped(), slowVisible: !document.getElementById('simSlow').hidden };
+  });
+  assert.ok(resumed.burst <= 1, JSON.stringify(resumed)); assert.equal(resumed.stopped, true);
+  assert.equal(resumed.timing.slow, false); assert.equal(resumed.timing.dropped, 0); assert.equal(resumed.slowVisible, false);
+  await hidden.close(); assert.deepEqual(errors, []);
+  writeFileSync(resolve(out, process.argv.includes('--settings-only') ? 'settings-only.json' : 'time-settings.json'), JSON.stringify({ rows, settings, capped, resumed, port: server.address().port, errors }, null, 2));
   console.log('sim time/settings PASS: both policies × all engines × 60/30/5 FPS, decimation, live next-start settings, key speed, STOP race, visible cap');
 } finally { await browser.close(); await new Promise((r) => server.close(r)); }

@@ -39,7 +39,7 @@ const sticks = [];
 let inputSettings = manualSettings({}, adapter.command.joystickScale), refreshSettings = async () => {}, startEpoch = 0, clock;
 let applySettings = () => {};
 function lock() {
-  startEpoch++; clock?.reset(performance.now());
+  startEpoch++; clock?.reset();
   stopped = true; joy = neutral(); onLock?.();
   if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
   if (adapter.stop.pause) { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
@@ -58,7 +58,7 @@ $('go').onclick = async () => {
   if (!ready || !stopped) return;
   const epoch = ++startEpoch, org = await refreshSettings();
   if (epoch !== startEpoch || !stopped) return;
-  applySettings(org); clock?.reset(performance.now());
+  applySettings(org); clock?.reset();
   sticks.forEach((s) => s.release()); stopped = false; ui();
 };
 document.addEventListener('visibilitychange', () => { if (document.hidden) lock(); });   // 앱 숨김·화면 꺼짐
@@ -238,8 +238,8 @@ async function main() {
     $('scenarioHint').hidden = !stopped;
   };
   const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
-  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { sim.cancelPolicyStep(); clock?.reset(performance.now()); }, true);
-  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) { sim.cancelPolicyStep(); clock?.reset(performance.now()); } }, true);
+  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { sim.cancelPolicyStep(); clock?.reset(); }, true);
+  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) { sim.cancelPolicyStep(); clock?.reset(); } }, true);
   // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)
   addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
 
@@ -368,7 +368,7 @@ async function main() {
   const spawnOn = (i) => {
     const { spawn_xyyaw: [x, y, yaw], floor_z: z } = floors[i].map, q = d.qpos;
     sim.reset(); q[0] = x; q[1] = y; q[2] = z + 0.4; q[3] = Math.cos(yaw / 2); q[6] = Math.sin(yaw / 2);
-    mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(performance.now()); pin = null; floorTick(q[2]);
+    mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(); pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
     if (!ready || stopped || runner.active || adapter.stop.pause || busy) return;
@@ -385,7 +385,7 @@ async function main() {
     sticks.forEach((s) => s.release());
     scan(); lastScan = performance.now();
     applySettings(org);
-    sim.cancelPolicyStep(); clock?.reset(performance.now());
+    sim.cancelPolicyStep(); clock?.reset();
     runner.start(pts);
     runner.tick(front); // 가까운 장애물은 실행 순간부터 0
     scenarioUI();
@@ -501,7 +501,7 @@ async function main() {
     const why = stale(from, g0);
     if (why) return say(why);
     applySettings(org);
-    sim.cancelPolicyStep(); clock?.reset(performance.now());
+    sim.cancelPolicyStep(); clock?.reset();
     retried = false; note = { text: '', until: 0 };
     marks = [p];
     begin(leg.map((q) => ({ ...q, mark: 0 })));
@@ -557,7 +557,7 @@ async function main() {
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) cv.addEventListener(ev, (e) => { ptrs.delete(e.pointerId); pinch = 0; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001)); }, { passive: false });
 
-  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(performance.now()); };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
+  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(); };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     $('cam').setAttribute('aria-pressed', String(top));
@@ -625,10 +625,10 @@ async function main() {
     onStep: () => { st.steps++; timingUI(); },
     onError: (e) => { lock(); st.err = String(e); $('policyEngine').textContent = '정책 계산 중단 · 다시 시작 필요'; },
   });
-  clock.reset(performance.now());
+  clock.reset();
   function frame(now) {
     if (now - lastScan >= 100) { scan(); lastScan = now; }
-    clock.frame(now, adapter.stop.pause && stopped);
+    clock.frame(now, document.hidden || (adapter.stop.pause && stopped));
     timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();
