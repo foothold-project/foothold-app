@@ -18,6 +18,7 @@ export function Menu({ label, title, end, children, className }: { label: ReactN
 const fit = (d: Element) => {
   const p = d.querySelector<HTMLElement>(':scope>.mx-pop'), s = d.querySelector('summary');
   if (!d.hasAttribute('open') || !p || !s) return;
+  if (s.checkVisibility?.() === false) { d.removeAttribute('open'); return; }   // 접힌 창 안(숨김) — 단추 bottom 0 을 저장하지 않고 닫는다, 펼친 뒤 다시 열면 새로 잼(#252 B2)
   const b = s.getBoundingClientRect().bottom;
   if (getComputedStyle(p).position === 'fixed') p.style.top = `${b}px`;
   p.style.maxHeight = `min(72vh, 600px, ${Math.max(0, innerHeight - b - 14)}px)`;
