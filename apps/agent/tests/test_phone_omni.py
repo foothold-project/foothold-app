@@ -9,10 +9,10 @@ from test_phone import h, physical_h
 from apps.contracts.models import PhoneLimits, PhoneWelcome
 from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_velocity, simulation_velocity
 from foothold_agent.ros_bridge.sink import RosSink, twist_message
-from foothold_agent.safety.core import Z, quantize
+from foothold_agent.safety.core import Z, quantize_phone
 
 
-@pytest.mark.parametrize('axis,value', [(0, math.nextafter(-.3, -1)), (0, math.nextafter(1, 2)),
+@pytest.mark.parametrize('axis,value', [(0, math.nextafter(-.3, -1)), (0, math.nextafter(1.5, 2)),
     (1, math.nextafter(-.3, -1)), (1, math.nextafter(.3, 1)),
     (2, math.nextafter(-.5, -1)), (2, math.nextafter(.5, 1))])
 def test_outside_adapter_range_rejects_entire_command(axis, value):
@@ -57,7 +57,7 @@ def test_physical_hub_keeps_experiments_closed(physical_h, velocity):
     ack = physical_h.cmd(owner, *velocity)
     assert ack['applied'] == list(Z) and ack['clipped']
     assert physical_h.outputs[-1].velocity == Z
-    assert physical_h.hub.session.core.velocity_projection is quantize
+    assert physical_h.hub.session.core.velocity_projection is quantize_phone
     assert physical_h.connect()[2]['limits'] == LIMITS
     assert 'experimental' not in LIMITS
 
@@ -67,7 +67,7 @@ def test_experimental_limits_are_optional_and_welcome_is_deep_copied(h):
     welcome = h.connect()[2]
     assert welcome['limits'] == SIMULATION_LIMITS
     parsed = PhoneWelcome.model_validate(welcome)
-    assert (parsed.limits.vx_min, parsed.limits.vx_max) == (-.3, 1)
+    assert (parsed.limits.vx_min, parsed.limits.vx_max) == (-.3, 1.5)
     assert (parsed.limits.vy_min, parsed.limits.vy_max) == (-.3, .3)
     assert (parsed.limits.wz_min, parsed.limits.wz_max) == (-.5, .5)
     assert parsed.limits.experimental == ['reverse', 'lateral', 'turn_in_place']

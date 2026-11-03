@@ -385,7 +385,7 @@ def test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it(phy
     for vx in (.2, .4):
         reply = h.cmd(owner, vx)
         assert reply['applied'] == list(Z) and reply['clipped'] and reply['reason']
-    assert h.cmd(owner, .6)['applied'] == [.6, 0, 0]
+    assert h.cmd(owner, 1.5)['applied'] == [1.5, 0, 0]
 
 
 def test_observer_server_stop_reference_never_uses_phone_counter(h):

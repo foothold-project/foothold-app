@@ -7,7 +7,7 @@ import time
 from uuid import uuid4
 
 from foothold_agent.link.session import Session, MotionCommand, Effects, MAX_BUFFER
-from foothold_agent.safety.core import Z, STATE_STALE, quantize
+from foothold_agent.safety.core import Z, STATE_STALE, quantize, quantize_phone
 from foothold_agent.policy_ranges import velocity_input
 from .protocol import (PROTO, LIMITS, SIMULATION_LIMITS, MAX_SEQ, frame,
                        project_velocity, simulation_velocity)
@@ -51,7 +51,8 @@ class Hub:
         self.policy = {'name': policy_name, 'version': policy_version}
         self.simulation = simulation
         self.session = Session(now=now, server_link=False,
-                               velocity_projection=simulation_velocity if simulation is True else quantize,
+                               velocity_projection=(simulation_velocity if simulation is True else
+                                                    quantize_phone if simulation is False else quantize),
                                **({"axes_validator": velocity_input} if simulation is True else {}))
         self.session.output_safety = getattr(sink, 'output_safety', None)
         self.peers = {}
@@ -82,10 +83,11 @@ class Hub:
                 adapter = self.runs.nav.adapter
                 if isinstance(adapter, SimulationPolicyAdapter):
                     return adapter.project(vx, vy, wz)
-                # Legacy Nav2 .6 SI -> axis 1 must stay .6 SI even in a sim Hub.
+                # Legacy Nav2 .6 SI -> axis 1 stays .6 SI in every Hub;
+                # the higher ceiling applies only to physical phone input.
                 return quantize(vx, vy, wz)
             return phone_projection(vx, vy, wz)
-        if simulation is True:
+        if simulation is True or nav is not None:
             self.session.core.velocity_projection = projection
         self._emit(self.session.connect())
 

@@ -103,6 +103,17 @@ def quantize(fx, fy, fw):
     return (0.6, 0.0, wz), ''
 
 
+def quantize_phone(fx, fy, fw):
+    """Physical phone's 1.5 m/s alphabet; retain original axis/stop gates.
+
+    Core's default projection stays at the original 0.6 m/s for legacy links.
+    Only the physical phone Hub explicitly selects this projection.
+    """
+    velocity, reason = quantize(fx, fy, fw)
+    return ((1.5, velocity[1], velocity[2]) if velocity[0] else velocity,
+            reason.replace('0.6 m/s', '1.5 m/s'))
+
+
 class Core:
     """조종권·래치·재개·리셋·시뮬 관문. ROS·웹과 무관해 --selftest 로 시험한다. 호출자가 lock 을 잡는다.
     비영 명령 조건: 신선한 형식 맞는 state · policy_running · 리셋 중 아님 · 조종권 · 래치 없음 · 재개/리셋 대기 없음

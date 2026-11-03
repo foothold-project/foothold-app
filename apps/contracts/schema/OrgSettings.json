@@ -52,14 +52,14 @@
     },
     "sim_key_vx": {
       "default": 0.6,
-      "maximum": 1.0,
+      "maximum": 1.5,
       "minimum": 0.1,
       "title": "Sim Key Vx",
       "type": "number"
     },
     "sim_max_vx": {
       "default": 1.0,
-      "maximum": 1.0,
+      "maximum": 1.5,
       "minimum": 0.2,
       "title": "Sim Max Vx",
       "type": "number"
@@ -87,7 +87,7 @@
     },
     "sim_runner_vx": {
       "default": 0.4,
-      "maximum": 1.0,
+      "maximum": 1.5,
       "minimum": 0.1,
       "title": "Sim Runner Vx",
       "type": "number"

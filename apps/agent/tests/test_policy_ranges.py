@@ -7,7 +7,7 @@ from test_phone import h, physical_h
 from test_nav2_simulation import physical
 from foothold_agent.policy_ranges import FOOTHOLD_V2, velocity_input
 from foothold_agent.phone.protocol import LIMITS, project_velocity, simulation_velocity
-from foothold_agent.safety.core import Z, quantize
+from foothold_agent.safety.core import Z, quantize_phone
 
 
 @pytest.mark.parametrize('velocity,experimental_allowed', [((.4, 0, -1), False),
@@ -32,7 +32,7 @@ def test_outside_training_range_stays_unsupported_by_trained_policy(velocity):
     assert FOOTHOLD_V2.validate(velocity) == (Z, 'UNSUPPORTED_VELOCITY')
 
 
-@pytest.mark.parametrize('velocity', [(-.300001, 0, 0), (1.000001, 0, 0),
+@pytest.mark.parametrize('velocity', [(-.300001, 0, 0), (1.500001, 0, 0),
     (.6, .300001, 0), (.6, -.300001, 0), (0, 0, .500001), (0, 0, -.500001)])
 def test_outside_simulation_envelope_is_rejected_without_confirming_neutral(h, velocity):
     owner, _, _ = h.connect()
@@ -67,12 +67,12 @@ def test_only_exact_true_selects_simulation_projection(simulation):
 
 
 @pytest.mark.parametrize('velocity,expected', [((.3, 0, 0), Z),
-    ((.6, .2, 0), (.6, 0, 0)), ((.55, 0, 0), Z), ((0, 0, .5), Z)])
-def test_physical_hub_existing_projection_is_unchanged(physical_h, velocity, expected):
+    ((1.5, .2, 0), (1.5, 0, 0)), ((.55, 0, 0), Z), ((0, 0, .5), Z)])
+def test_physical_hub_forward_ceiling_keeps_other_modes_closed(physical_h, velocity, expected):
     owner, _ = physical_h.moving()
     ack = physical_h.cmd(owner, *velocity)
     assert ack['applied'] == list(expected) and ack['clipped']
-    assert physical_h.hub.session.core.velocity_projection is quantize
+    assert physical_h.hub.session.core.velocity_projection is quantize_phone
     if expected == Z:
         assert ack['reason']
     assert physical_h.connect()[2]['limits'] == LIMITS

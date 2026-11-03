@@ -42,6 +42,9 @@ def signed(key, claims, **header):
     return a + '.' + b + '.' + encode(hmac.digest(key, (a+'.'+b).encode(), hashlib.sha256))
 
 
+_DEFAULT_VX = object()
+
+
 class Harness:
     def __init__(self, *, replay_path=':memory:', clock=None, simulation=True):
         self.clock = clock or Clock()
@@ -79,7 +82,9 @@ class Harness:
             'stop_requested': stop, 'reset_in_progress': False, 'policy_running': True,
             'fallen': False, 'body_still': not self.hub.session.core.out[0], **extra})
 
-    def cmd(self, peer, vx=.6, vy=0, wz=0, **extra):
+    def cmd(self, peer, vx=_DEFAULT_VX, vy=0, wz=0, **extra):
+        if vx is _DEFAULT_VX:
+            vx = .6 if self.hub.simulation else 1.5
         self.sequence += 1
         return self.send(peer, 'cmd', lease_id=self.hub.session.lease_id,
                          seq=self.sequence, vx=vx, vy=vy, wz=wz, **extra)
@@ -98,7 +103,7 @@ class Harness:
         assert self.take(peer)['ok']
         self.unlock(peer)
         self.cmd(peer, 0)
-        assert self.cmd(peer)['applied'] == [.6, 0, 0]
+        assert self.cmd(peer)['applied'] == ([.6, 0, 0] if self.hub.simulation else [1.5, 0, 0])
         return peer, payload
 
     def advance(self, target, *, ping=True):
@@ -321,15 +326,15 @@ def test_phone_stop_unlock_requires_feedback_and_new_neutral(h):
 
 
 @pytest.mark.parametrize('velocity,expected,clipped', [
-    ((9, 8, 7), (.6, 0, .5), True), ((-2, 0, 1), Z, True),
-    ((.2, 0, .2), Z, True), ((.6, 0, -.5), (.6, 0, -.5), False),
-    ((0, 0, 0), Z, False), ((.6, 0, .1), (.6, 0, 0), True)])
+    ((9, 8, 7), (1.5, 0, .5), True), ((-2, 0, 1), Z, True),
+    ((.2, 0, .2), Z, True), ((1.5, 0, -.5), (1.5, 0, -.5), False),
+    ((0, 0, 0), Z, False), ((1.5, 0, .1), (1.5, 0, 0), True)])
 def test_phone_limits_never_expand_core_alphabet(physical_h, velocity, expected, clipped):
     h = physical_h
     a, _ = h.moving()
     reply = h.cmd(a, *velocity)
     assert reply['applied'] == list(expected) and reply['clipped'] is clipped
-    assert LIMITS['commands'] == [[0, 0, 0], [.6, 0, 0], [.6, 0, -.5], [.6, 0, .5]]
+    assert LIMITS['commands'] == [[0, 0, 0], [1.5, 0, 0], [1.5, 0, -.5], [1.5, 0, .5]]
 
 
 @pytest.mark.parametrize('raw', ['[]', '{}', '{', '{"t":"stop","t":"cmd"}', b'binary',

@@ -131,11 +131,11 @@ def test_periodic_core_outputs_do_not_refresh_original_phone_input_deadline():
     sink.apply(command('unlock'), source='phone')
     original_input = now()
     sink.apply(command(), source='phone', input_received_at=original_input)
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone', input_received_at=original_input)
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone', input_received_at=original_input)
     sink.drain()
     for _ in range(7):
         now.value += .05
-        sink.apply(command(velocity=(.6, 0., 0.)), source='phone', input_received_at=original_input)
+        sink.apply(command(velocity=(1.5, 0., 0.)), source='phone', input_received_at=original_input)
         sink.drain()
         sink.check_watchdog()
     assert sink.latched and sink.pending == (0., 0., 0.)
@@ -150,7 +150,7 @@ def test_phone_watchdog_requires_original_input_time_for_nonzero():
     sink.apply(command('unlock'), source='phone')
     sink.apply(command(), source='phone')
     with pytest.raises(ValueError):
-        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+        sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     assert sink.latched and sink.pending == (0., 0., 0.)
 
 
@@ -162,7 +162,7 @@ def test_input_deadline_boundary_holds_without_failing_service():
     assert sink.confirm_stopped(generation=sink.generation, sequence=1, received_at=now(), stationary=True)
     sink.apply(command('unlock'), source='phone')
     sink.apply(command(), source='phone')
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone', input_received_at=0.)
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone', input_received_at=0.)
     assert sink.latched and sink.error is None and sink.pending == (0., 0., 0.)
     assert sink._stop_requested.is_set()
 

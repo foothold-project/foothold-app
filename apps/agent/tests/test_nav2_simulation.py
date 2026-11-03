@@ -41,7 +41,7 @@ def test_simulation_output_preserves_si(r, velocity):
 
 
 @pytest.mark.parametrize('velocity', [(-.300001, 0, 0), (0, 0, .51), (.6, .300001, 0), (0, -.300001, 0),
-    (1.000001, 0, 0), (.6, 0, .6), (float('nan'), 0, 0), (float('inf'), 0, 0),
+    (1.500001, 0, 0), (.6, 0, .6), (float('nan'), 0, 0), (float('inf'), 0, 0),
     (True, 0, 0), None, (.6,), 'bad'])
 def test_first_invalid_input_fails_latched_with_one_original_diagnostic(r, velocity, caplog):
     binding = enable(r)
@@ -119,8 +119,8 @@ def test_ten_seconds_of_fresh_stationary_rotation_does_not_trigger_executor_stal
 
 def test_first_rejection_cannot_be_hidden_by_action_success_or_poll_delay(r):
     binding = enable(r)
-    r.runs.nav.intent(binding, (1.000001, 0, 0))
-    assert r.runs.nav.rejected and r.runs.nav.first_rejection['input_si'] == [1.000001, 0, 0]
+    r.runs.nav.intent(binding, (1.500001, 0, 0))
+    assert r.runs.nav.rejected and r.runs.nav.first_rejection['input_si'] == [1.500001, 0, 0]
     assert not r.runs.nav.feedback(binding, 'SUCCEEDED')
     r.clock.t = .300001
     r.hub.tick()
