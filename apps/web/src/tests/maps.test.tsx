@@ -8,6 +8,7 @@ import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../.
 import { Root } from '../session';
 import { floorName, pixelTo, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
+import { clearPlans, keptPlan } from '../screens/missions';
 import raw from './mapcases.json?raw';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
@@ -79,8 +80,14 @@ async function open(hash: string) {
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
+  await pickFloor();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; kept.job = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); });   // 내려가며 남긴 편집은 시험마다 버림
+/** 지도 고르기 화면(MAP-TAB-MERGE ①)이면 그 층(기본 첫 층)을 고른다 */
+async function pickFloor(floor?: string) {
+  const b = box.querySelector<HTMLButtonElement>(floor ? `[data-floor="${floor}"]` : '[data-floor]');
+  if (b) { act(() => b.click()); await flush(); }
+}
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; kept.job = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });   // 내려가며 남긴 편집은 시험마다 버림
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btns = (from: ParentNode = box) => [...from.querySelectorAll('button')];
@@ -946,7 +953,7 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
     expect(rows().map((li) => li.getAttribute('data-el'))).toEqual(['zones.0', 'waypoints.0', 'connectors.0', 'edits.0']);
     expect(rows()[0].textContent).toContain('공사'); expect(rows()[1].textContent).toContain('계기판 A');
     expect(rows().every((li) => li.querySelector('.mx-name svg'))).toBe(true);
-    expect(pane.querySelector('.mx-head')!.textContent).toBe('요소 4▸');
+    expect(pane.querySelector('.mx-head')!.textContent).toBe('요소 4');   // 접기 ▸ 는 창 맨 위 [지도 요소 | 시나리오] 줄 끝(MAP-TAB-MERGE)
     expect(pressed()).toEqual(['false', 'false', 'false', 'false']);
     expect($('[aria-label="고른 요소"]')).toBeNull();
     await click(rows()[1].querySelector('.mx-name')!);
@@ -962,9 +969,9 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
   it('요소 창 접기 → 지도 옆 세로 막대 «◂ 요소 4», 눌러 펼친다(옛 ≤440 px 자동 접기 대신 — 창 폭 320 고정)', async () => {
     serve(editSrv());
     await startEdit();
-    // 장소·층 고르기는 요소 창 맨 위(SCENARIO-TAB-PICKER 11-03), 위 단추 줄엔 [지도|시나리오] 전환
-    expect(card('요소 창').querySelector('.mx-pick summary')!.textContent).toBe('본관 › 본동 › 1층');
-    expect($('.mx-bar [aria-label="장소"]')).toBeNull(); expect($('.mx-bar [aria-label="지도·시나리오"]')).toBeTruthy();
+    // 장소·층 고르기는 위 단추 줄 맨 앞, 창 맨 위는 [지도 요소 | 시나리오] 탭(MAP-TAB-MERGE 11-03)
+    expect($('.mx-bar details.mx-menu>summary')!.textContent).toBe('본관 › 본동 › 1층');
+    expect(card('요소 창').querySelector('.mx-pick [aria-label="오른쪽 창"]')).toBeTruthy();
     await click($('button[aria-label="요소 4 창 접기"]')!);
     expect($('.mx-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.mx-fold')!.textContent).toBe('◂ 요소 4 · 본관 › 본동 › 1층');
     expect(card('요소 창').hasAttribute('data-fold')).toBe(true); expect($('[data-el]')!.closest('[hidden]')).toBeTruthy();   // 접기 = 숨김(unmount 아님)
@@ -1177,6 +1184,38 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     await click(btn('나가기', card('확인'))); await hashed();
     expect($('main')!.getAttribute('aria-label')).toBe('기록');
     expect(unload()).toBe(false);
+  });
+  it('REVIEW-260 B1: 편집 중 옛 #/mission/<다른 층 시나리오> → 확인, 계속 편집이면 A 편집·선택 그대로, 나가기면 그 시나리오로', async () => {
+    serve(editSrv());
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    act(() => { location.hash = '#/mission/s9'; }); await hashed();
+    expect(location.hash).toBe('#/map');
+    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
+    expect(keptPlan.sel).not.toBe('s9'); expect(sent('GET', '/scenarios/s9')).toHaveLength(0);   // 확인 전에는 그 시나리오를 찾지 않음
+    await click(btn('계속 편집', card('확인')));
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    act(() => { location.hash = '#/mission/s9'; }); await hashed();
+    await click(btn('나가기', card('확인'))); await hashed();
+    expect(canvas()).toBeNull();
+    expect(kept.d).toBeNull();                                           // 나가기로 버린 편집은 남기지 않음
+    expect(sent('GET', '/scenarios/s9').length).toBeGreaterThan(0);   // 나가기 뒤에야 그 시나리오의 층을 찾는다
+  });
+  it('REVIEW-260 B1: 다른 층에 남은 저장 안 한 편집이 있으면 새 편집 전에 묻는다(취소 = 남김, 버리고 편집 = 비움)', async () => {
+    serve(editSrv());
+    await open('#/map');
+    const other = { floor: 'f9', base: V1, f: FEAT, dirty: true, pts: [], tool: 'pick', dots: false, width: 0.1, reason: '' } as unknown as typeof kept.d;
+    kept.d = other;
+    await click(btn('편집', card('보기·편집')));
+    expect($('[data-drop]')!.textContent).toContain('다른 층에 저장하지 않은 지도 편집이 남아 있습니다.');
+    expect(canvas()).toBeNull();
+    await click(btn('취소', $('[data-drop]')!));
+    expect(kept.d).toBe(other);
+    await click(btn('편집', card('보기·편집')));
+    await click(btn('버리고 편집', $('[data-drop]')!));
+    expect(canvas()).toBeTruthy();
+    expect(kept.d).toBeNull();
   });
   it('그리던 점만 있어도 묻는다, 층 바꾸기 확인에서 나가기 → 그 층으로', async () => {
     serve(editSrv());
@@ -1881,7 +1920,7 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
   it('Esc: 메뉴는 닫고 그 메뉴 단추로, 작은 창(Esc·✕)은 닫고 연 단추로 포커스를 돌려준다 — 숨은 칸에 남지 않음(#234 B2)', async () => {
     serve(editSrv());
     await startEdit();
-    const m = $('.mx-pick details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button, .mx-pop select, .mx-pop input')!;
+    const m = $('.mx-bar details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button, .mx-pop select, .mx-pop input')!;
     act(() => { m.setAttribute('open', ''); item.focus(); });
     await flush();   // 펼침은 여는 단추 아래 ~ 화면 아래끝 안(#252 B1 — jsdom 은 단추 bottom 0)
     expect(m.querySelector<HTMLElement>('.mx-pop')!.style.maxHeight).toBe(`min(72vh, 600px, ${innerHeight - 14}px)`);

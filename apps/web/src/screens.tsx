@@ -10,7 +10,7 @@ import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
-import { Missions, keptPlan } from './screens/missions';
+import { keptPlan } from './screens/missions';
 import { Trash } from './screens/trash';
 import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
@@ -197,7 +197,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
   const battery = <><Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>{info && <RobotInfo {...info} />}</>;
   /* 총괄은 실기에 배정하지 않는다(로봇 탭 읽기 전용 — 시뮬은 유지, r1) */
   const assign = !adminReal(c.user, r) && <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
-    onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } assignFor.robot = c.robot.id; c.go('mission'); }}>배정</button>
+    onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } keptPlan.side = 'scen'; assignFor.robot = c.robot.id; c.go('map'); }}>배정</button>
     {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>;
   const events = (c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />;
   const more = <details className="fh-fold" data-detail-more open={solo || undefined}><summary>장치·위치{hidden ? '' : ` — 장치 ${devices.length}개`}</summary>
@@ -226,4 +226,4 @@ const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 �
 /** 이 로봇에 배정된 시나리오(GET /assignments?robot_id=) — 폰 조종 화면의 시나리오 시트 */
 export const Scenario = (c: Ctx) => <AssignedCards robot={c.robot} cancel={c.cancel} />;
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Missions, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, settings: Settings };

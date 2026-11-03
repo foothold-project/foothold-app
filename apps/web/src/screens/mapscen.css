@@ -99,3 +99,49 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mx-foot .fh-field>select{flex:1;min-width:0}
 .mx-in:empty{display:none}   /* 이름이 «···» 로 가 빈 안내 칸은 자리를 먹지 않게 */
 .mx-pane-in{display:contents}   /* 창 안 내용 묶음 — 틀(세로 flex)은 그대로, 접으면 [hidden] 으로 숨김 */
+
+/* MAP-TAB-MERGE 11-03 — 시나리오 탭을 지도 탭에 합침(사진 ①~⑤). 색·선은 기존 토큰만 */
+.mx-side{flex:0 1 auto;min-width:0}
+.mx-side>.btn{padding:0 12px;gap:6px}
+.mx-side>[aria-disabled="true"]{color:var(--muted);cursor:not-allowed}
+.mx-n{font-size:12px;color:var(--muted);font-weight:400}
+.mx-lock{gap:6px;color:var(--muted);cursor:default;max-width:340px;min-width:0}
+.mx-why{white-space:normal;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mx-edit{color:var(--warn);font-weight:600}
+.mx-head .mx-pop{position:fixed;top:auto;left:auto;right:12px;margin-top:6px}   /* 창(overflow) 머리 «···» — 창 밖으로 */
+.mx-name2{flex-wrap:wrap;row-gap:2px;padding:6px 8px}
+.mx-name2>b{flex:1 1 100%}
+.mx-name2>small{max-width:none;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mx-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mx-sum>span{display:flex;flex-direction:column;align-items:center;padding:8px 4px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);font-size:12px;color:var(--muted)}
+.mx-sum>span>b{font-size:18px;color:var(--text)}
+.mx-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;border:1px dashed var(--line2);border-radius:8px;text-align:center}
+.mx-foot>.btn{justify-content:space-between}
+/* ① 지도 고르기 */
+.mx-choose{width:100%;max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding:12px 0 24px}
+.mx-choose>h2{margin:8px 0 0}
+.mx-last{display:flex;align-items:center;gap:12px;padding:12px 14px;border-color:var(--accent);background:var(--acc-bg)}
+.mx-last>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.mx-last small{color:var(--muted)}
+.mx-site{display:flex;flex-direction:column;gap:6px}
+.mx-site>h3{margin:4px 0 0}
+.mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.mx-bld{display:flex;flex-direction:column;gap:4px;padding:10px 12px}
+.mx-bld>.mx-list{padding:0}
+.mx-bld .mx-name>small{max-width:none;display:flex;gap:6px;align-items:center}
+/* 좁은 폭(작은 PC 창·태블릿): 한 열 — 도구줄은 위 가로, 지도, 오른쪽 창은 아래 */
+@media (max-width:1023.98px){
+  .mx-bar{flex-wrap:wrap}
+  .mx-why{display:none}
+  .mx-body{flex-direction:column}
+  .mx-tools{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden}
+  .mx-tools hr{width:auto;height:auto;margin:0 2px;border-top:0;border-left:1px solid var(--line)}
+  .mx-map{flex:1 1 55%;min-height:240px}
+  .mx-pane{flex:0 1 45%;border-left:0;border-top:1px solid var(--line)}
+  .mx-pane[data-fold]{flex:none}
+  .mx-pane[data-fold]>.mx-fold{writing-mode:horizontal-tb;width:100%;padding:0 12px;min-height:44px}
+  .mx-fold-txt{text-orientation:mixed}
+  .mx-hint{max-width:calc(100% - 140px)}
+  .mx-choose{padding:12px 0}
+  .mx-last{flex-wrap:wrap}
+}
