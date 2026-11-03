@@ -9,10 +9,19 @@ export const ScreenTabs = ({ cur }: { cur: 'map' | 'mission' }) => <nav classNam
 
 /** 단추 줄 드롭다운(details) — 안 내용은 닫혀도 문서에 있다(시험·화면 읽기). end = 오른쪽 끝에 붙여 펼침 */
 export function Menu({ label, title, end, children, className }: { label: ReactNode; title?: string; end?: boolean; children: ReactNode; className?: string }) {
-  return <details className={`mx-menu${end ? ' end' : ''}${className ? ` ${className}` : ''}`}>
+  return <details className={`mx-menu${end ? ' end' : ''}${className ? ` ${className}` : ''}`} onToggle={(e) => fit(e.currentTarget)}>
     <summary className="btn" title={title} aria-label={title}><span className="mx-cut">{label}</span></summary>
     <div className="card mx-pop">{children}</div></details>;
 }
+/** 열 때 펼침을 여는 단추 바로 아래 ~ 화면 아래끝(8px 남김) 안에 가둔다 — 오른쪽 창 안 메뉴(fixed)가 낮은 화면에서 잘리지 않게(#252 B1).
+ *  펼침 위끝 = 단추 아래끝 + 6px(absolute 는 top:calc(100% + 6px), fixed 는 margin-top:6px) */
+const fit = (d: Element) => {
+  const p = d.querySelector<HTMLElement>(':scope>.mx-pop'), s = d.querySelector('summary');
+  if (!d.hasAttribute('open') || !p || !s) return;
+  const b = s.getBoundingClientRect().bottom;
+  if (getComputedStyle(p).position === 'fixed') p.style.top = `${b}px`;
+  p.style.maxHeight = `min(72vh, 600px, ${Math.max(0, innerHeight - b - 14)}px)`;
+};
 /** 메뉴를 닫고 포커스가 그 안에 있었으면 열기 단추(summary)로 — 닫힌 메뉴 안에 포커스가 남지 않게 */
 const fold = (d: Element) => { const back = d.contains(document.activeElement); d.removeAttribute('open'); if (back) d.querySelector<HTMLElement>('summary')?.focus(); };
 /** 메뉴 항목을 누른 뒤 그 메뉴를 닫는다 */
@@ -21,6 +30,7 @@ export const shut = (e: SyntheticEvent) => { const d = (e.currentTarget as Eleme
 if (typeof window !== 'undefined') {
   addEventListener('pointerdown', (e) => { for (const d of document.querySelectorAll('details.mx-menu[open]')) if (!(e.target instanceof Node && d.contains(e.target))) d.removeAttribute('open'); }, true);
   addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const d of document.querySelectorAll('details.mx-menu[open]')) fold(d); });
+  addEventListener('resize', () => { for (const d of document.querySelectorAll('details.mx-menu[open]')) fit(d); });   // 열린 채 창 크기가 바뀌어도
 }
 
 /** 작은 창(띄움, 모달 아님 — 머리줄 STOP 이 막히지 않게). 안 내용은 닫혀도 문서에 있다(안 양식의 aria-label 은 그대로 쓰게 창 이름은 제목 글로). Esc = 닫기.
