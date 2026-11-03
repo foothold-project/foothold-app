@@ -1,5 +1,7 @@
 // Stable mode keys survive model id changes. Unsupported capabilities are null.
 import { createPolicyModeAdapters } from './policy-adapters.js';
+import { makeTerrainSampler } from './policy-adapters.js';
+import { makeStartDemoMode } from './start-demo-adapter.js';
 export { makeTerrainSampler } from './policy-adapters.js';
 
 const required = ['id', 'label', 'onnx', 'observe', 'map', 'depth', 'command', 'act', 'torque', 'timing', 'delay', 'stop', 'reset', 'fallback'];
@@ -68,6 +70,7 @@ const { nvidia: nvidiaDemoMode, ame2: ame2DemoMode } = createPolicyModeAdapters(
 ame2DemoMode.command.caps = { forward: 1, reverse: 1, lateral: 1, turnInPlace: 1, turnWalking: 1, goalDistance: 2, policySpeed: 1.2 };
 export const POLICY_MODES = registerPolicyModes({
   nvidia: completeMode(nvidiaDemoMode),
+  start: makeStartDemoMode(makeTerrainSampler),
   ame2: completeMode(ame2DemoMode),
 });
 export const POLICY_ADAPTERS = Object.freeze(Object.fromEntries(Object.values(POLICY_MODES).map((mode) => [mode.id, mode])));

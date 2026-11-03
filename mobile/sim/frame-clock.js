@@ -2,7 +2,7 @@
 // its fixed decimation. Drain after async completion too (not one tick per RAF).
 // 15 ticks = .3s at 50Hz: covers 5FPS (.2s) plus recovery headroom. Keep
 // at most .5s queued debt; longer stalls report exactly how much was discarded.
-export function createFrameClock({ dt, step, prepare = () => {}, onStep = () => {}, onError = () => {}, maxSteps = 15, maxDebt = 0.5 }) {
+export function createFrameClock({ dt, step, prepare = () => {}, onStep = () => {}, onError = () => {}, maxSteps = 15, maxDebt = 0.5, yieldOnRejected = false }) {
   let debt = 0, last = null, budget = 0, pending = false, epoch = 0, dropped = 0, drops = 0, prepared = false;
   function drain() {
     while (!pending && budget > 0 && debt + 1e-10 >= dt) {
@@ -12,7 +12,13 @@ export function createFrameClock({ dt, step, prepare = () => {}, onStep = () => 
       try { if (!prepared) { prepare(); prepared = true; } result = step(); } catch (e) { reset(); onError(e); return; }
       const complete = (applied) => {
         if (generation !== epoch) return;
-        if (applied === false) debt += dt; // cancelled/expired inference advanced no physics
+        if (applied === false) {
+          debt += dt; // cancelled/expired inference advanced no physics
+          // The Worker can still be draining its expired request. For start,
+          // retain this prepared decision until the next RAF instead of
+          // spending the whole frame budget on immediate busy-slot retries.
+          if (yieldOnRejected) budget = 0;
+        }
         else { prepared = false; clearRecovered(); onStep(); }
       };
       if (result?.then) {

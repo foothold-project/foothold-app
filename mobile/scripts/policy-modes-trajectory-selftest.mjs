@@ -6,7 +6,7 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as after from '../sim/sim.js';
 import { POLICY_MODES } from '../sim/policy-modes.js';
-import { loadOnnxPolicy } from '../sim/policy-onnx.js';
+import { loadOnnxPolicy, withPolicyState } from '../sim/policy-onnx.js';
 import { loadAme2Policy } from '../sim/ame2-network.js';
 assert.ok(process.env.POLICY_MODES_BASE, 'POLICY_MODES_BASE required');
 const before = await import(pathToFileURL(resolve(process.env.POLICY_MODES_BASE, 'sim.js')));
@@ -19,16 +19,22 @@ for (const file of readdirSync(join(src, 'assets/unitree_go2/assets'))) if (file
 mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.xml')));
 const ort = await import(pathToFileURL(resolve(process.env.POLICY_ORT_NODE)));
 const records = [];
-for (const [key, mode] of Object.entries(POLICY_MODES)) for (const backend of ['f32', 'onnx']) {
+for (const [key, mode] of Object.entries(POLICY_MODES)) for (const backend of mode.fallback ? ['f32', 'onnx'] : ['onnx']) {
   const root = key === 'ame2' ? process.env.FH_AME2_F32_SRC : src;
-  const bytes = readFileSync(join(root, mode.fallback.file));
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  const fallback = key === 'ame2' ? loadAme2Policy(buffer, JSON.parse(readFileSync(join(root, mode.fallback.manifest)))) : mode.loadPolicy(buffer);
   const oldMode = beforeModes.getPolicyAdapter(key === 'nvidia' ? 'foothold-v2' : mode.id);
-  const oldFallback = oldMode.loadPolicy(buffer, mode.fallback.manifest ? JSON.parse(readFileSync(join(root, mode.fallback.manifest))) : undefined);
-  const modelRoot = key === 'ame2' ? process.env.FH_AME2_SRC : process.env.FH_POLICY_ONNX_SRC;
-  const policy = backend === 'f32' ? fallback : await loadOnnxPolicy(ort, readFileSync(join(modelRoot, mode.onnx.file)), mode.onnx, 'cpu');
-  const oldPolicy = backend === 'f32' ? oldFallback : await beforeOnnx.loadOnnxPolicy(ort, readFileSync(join(modelRoot, mode.onnx.file)), oldMode.onnx, 'cpu');
+  let policy, oldPolicy;
+  if (backend === 'f32') {
+    const bytes = readFileSync(join(root, mode.fallback.file)), buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const manifest = mode.fallback.manifest ? JSON.parse(readFileSync(join(root, mode.fallback.manifest))) : undefined;
+    policy = key === 'ame2' ? loadAme2Policy(buffer, manifest) : mode.loadPolicy(buffer);
+    oldPolicy = oldMode.loadPolicy(buffer, manifest);
+  } else {
+    const modelRoot = key === 'start' ? process.env.FH_START_SRC : key === 'ame2' ? process.env.FH_AME2_SRC : process.env.FH_POLICY_ONNX_SRC;
+    const bytes = readFileSync(join(modelRoot, mode.onnx.file));
+    policy = await loadOnnxPolicy(ort, bytes, mode.onnx, 'cpu');
+    oldPolicy = await beforeOnnx.loadOnnxPolicy(ort, bytes, oldMode.onnx, 'cpu');
+    if (key === 'start') { policy = withPolicyState(policy, mode.onnx); oldPolicy = beforeOnnx.withPolicyState(oldPolicy, oldMode.onnx); }
+  }
   try {
     for (const mapId of ['warehouse', 'factory-inspection', 'element-course']) {
       const dir = new URL('../sim/assets/' + mapId + '/', import.meta.url);
@@ -42,7 +48,8 @@ for (const [key, mode] of Object.entries(POLICY_MODES)) for (const backend of ['
       for (const [version, module] of [['before', before], ['after', after]]) {
         const run = version === 'before' ? oldPolicy : policy;
         const maps = [];
-        const wrapped = (...args) => { if (key === 'ame2') maps.push(Array.from(args[1])); return run(...args); }; wrapped.async = backend === 'onnx';
+        const wrapped = (...args) => { if (key === 'ame2' || key === 'start') maps.push(Array.from(args[key === 'start' ? 8 : 1])); return run(...args); };
+        Object.assign(wrapped, run); wrapped.async = backend === 'onnx';
         const id = version === 'before' && key === 'nvidia' ? 'foothold-v2' : mode.id;
         const sim = module.createSim(mj, '/go2/scene.xml', module.ISAAC_LIKE, wrapped, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, id, { ame2DelaySteps: 0 });
         const trajectory = [];
@@ -68,12 +75,12 @@ for (const [key, mode] of Object.entries(POLICY_MODES)) for (const backend of ['
         assert.ok(Number.isFinite(delta)); maxAbs = Math.max(maxAbs, delta);
       }
       let mappingMaxAbs = 0;
-      if (key === 'ame2') for (let k = 0; k < mappings[0].length; k++) for (let i = 0; i < mappings[0][k].length; i++) {
+      if (key === 'ame2' || key === 'start') for (let k = 0; k < mappings[0].length; k++) for (let i = 0; i < mappings[0][k].length; i++) {
         mappingMaxAbs = Math.max(mappingMaxAbs, Math.abs(mappings[0][k][i] - mappings[1][k][i]));
       }
-      // Per-cell cover removal changes AME-2's inputs in these covered maps.
-      // nvidia and uncovered AME-2 maps must still match every state exactly.
-      const coverCorrection = key === 'ame2' && ['warehouse', 'factory-inspection'].includes(mapId);
+      // Per-cell cover removal changes AME-2/start inputs in covered maps.
+      // nvidia and uncovered maps must still match every state exactly.
+      const coverCorrection = ['ame2', 'start'].includes(key) && ['warehouse', 'factory-inspection'].includes(mapId);
       if (coverCorrection && maxAbs > 0) assert.ok(mappingMaxAbs > 0, `${key}/${mapId}: trajectory change requires changed map inputs`);
       else assert.equal(maxAbs, 0, `${key}/${backend}/${mapId}: before/after`);
       records.push({ mode: mode.id, backend, map: mapId, ticks: 300, seconds: 6, maxAbs, mappingMaxAbs, coverCorrection });
@@ -82,4 +89,4 @@ for (const [key, mode] of Object.entries(POLICY_MODES)) for (const backend of ['
   } finally { await policy.dispose?.(); await oldPolicy.dispose?.(); }
 }
 if (process.env.POLICY_MODES_TRAJECTORY_REPORT) writeFileSync(process.env.POLICY_MODES_TRAJECTORY_REPORT, JSON.stringify(records, null, 2));
-console.log('Policy modes trajectories PASS: f32/ONNX × 3 maps × 6 s, STOP clear/reset; nvidia/uncovered AME-2 exact, covered AME-2 input/trajectory differences reported');
+console.log('Policy modes trajectories PASS: nvidia/AME-2 f32+ONNX, start stateful ONNX × 3 maps × 6 s, STOP clear/reset; nvidia/uncovered exact, covered input/trajectory differences reported');
