@@ -8,23 +8,28 @@ export function relayFresh(r: PhoneRelayState | null | undefined, at: number | u
   return Number.isFinite(age) && e >= 0 && age < 3 && e < r.valid_for_s;
 }
 
-/** Display provenance only. Nothing here updates Robot.online, direct values or actions. */
-export function PhoneRelay({ report, receivedAt, compact = false }: {
-  report?: PhoneRelayState | null; receivedAt?: number; compact?: boolean;
-}) {
+/** 폰 경유 값이 relayFresh 로 낡는 순간 다시 그린다(새 state 없이 유효 시간만 지나도). seconds = 그때까지 1초마다도(나이 표시용) */
+export function useRelayExpiry(report: PhoneRelayState | null | undefined, receivedAt: number | undefined, seconds = false) {
   const [, tick] = useState(0);
-  const last = useRef<{ report: PhoneRelayState; at: number } | null>(null);
-  const current = report?.source === 'PHONE' ? { report, at: receivedAt ?? performance.now() } : null;
-  if (current) last.current = current;
   useEffect(() => {
     if (!report || receivedAt === undefined) return;
     const elapsed = (performance.now() - receivedAt) / 1000;
     const remaining = Math.min(3 - report.age_s, report.valid_for_s) - elapsed;
     if (!(remaining > 0)) return;
-    const interval = setInterval(() => tick((n) => n + 1), 1000);
+    const interval = seconds ? setInterval(() => tick((n) => n + 1), 1000) : undefined;
     const expiry = setTimeout(() => { clearInterval(interval); tick((n) => n + 1); }, remaining * 1000);
     return () => { clearInterval(interval); clearTimeout(expiry); };
-  }, [report, receivedAt]);
+  }, [report, receivedAt, seconds]);
+}
+
+/** Display provenance only. Nothing here updates Robot.online, direct values or actions. */
+export function PhoneRelay({ report, receivedAt, compact = false }: {
+  report?: PhoneRelayState | null; receivedAt?: number; compact?: boolean;
+}) {
+  const last = useRef<{ report: PhoneRelayState; at: number } | null>(null);
+  const current = report?.source === 'PHONE' ? { report, at: receivedAt ?? performance.now() } : null;
+  if (current) last.current = current;
+  useRelayExpiry(report, receivedAt, true);
   if (!last.current) return null;
   const sample = last.current, elapsed = (performance.now() - sample.at) / 1000;
   const age = sample.report.age_s + elapsed;

@@ -6,7 +6,7 @@ import type { Go2RobotInfo } from '../../contracts/ts';
 import type { Robot, Tone } from './fake';
 import { Chip, Line } from './screens';
 import { PROBLEM } from './nearby';
-import { relayFresh } from './phoneRelay';
+import { relayFresh, useRelayExpiry } from './phoneRelay';
 
 export type Conn = 'ONLINE' | 'STALE' | 'OFFLINE';
 /** 노트북 에이전트가 받는 Go2 토픽(state.py sources) — fresh = 그 토픽이 노트북에 새로 오고 있음, age = 마지막으로 받은 뒤 초(없으면 null) */
@@ -80,7 +80,10 @@ export function pickInfo(r: Pick<Robot, 'sim' | 'unknown' | 'online' | 'status' 
   return { v: null, why: r.unknown === 'link' || (!r.unknown && !r.online && r.status != null) ? '모름(끊김)' : '모름' };
 }
 /** 목록 줄: 넘어짐 의심일 때만 작은 경고 하나 */
-export const FallChip = ({ x }: { x: Robot }) => (pickInfo(x)?.v?.fallen ? <span data-fall-chip><Chip tone="warn" text="넘어짐 의심" /></span> : null);
+export function FallChip({ x }: { x: Robot }) {
+  useRelayExpiry(x.phoneRelay, x.phoneRelayAt);
+  return pickInfo(x)?.v?.fallen ? <span data-fall-chip><Chip tone="warn" text="넘어짐 의심" /></span> : null;
+}
 
 /** 사설 IPv4(10/8·172.16/12·192.168/16) → 상태 주소, 아니면 null (앱 Go2Status.target 과 같은 거름) */
 export function manualUrl(ip: string): string | null {

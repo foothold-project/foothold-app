@@ -1,15 +1,18 @@
 // 실기 Go2 자세·상태 번호·넘어짐 추정(go2status.tsx pickInfo·RobotInfo·FallChip) — 표시만. 값 있음/없음/NaN→null/폰 경유/시뮬 숨김/끊김
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { Go2RobotInfo, PhoneRelayState } from '../../../contracts/ts';
 import type { Robot } from '../fake';
 import { FallChip, RobotInfo, pickInfo } from '../go2status';
+import { rt, withLive } from '../rt';
+import { Detail, type Ctx } from '../screens';
+import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | undefined, box: HTMLDivElement;
-afterEach(() => { act(() => root?.unmount()); box?.remove(); root = undefined; });
+afterEach(() => { act(() => root?.unmount()); box?.remove(); root = undefined; rt.disconnect(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const show = (el: JSX.Element) => { box = document.createElement('div'); document.body.append(box); root = createRoot(box); act(() => root!.render(el)); return box; };
 
 const info = (p: Partial<Go2RobotInfo> = {}): Go2RobotInfo => ({ source: 'GO2_DDS', attitude: { roll: 0.1, pitch: -0.05 }, error_code: 0, fallen: false, fallen_source: 'imu_tilt_estimate', ...p });
@@ -60,4 +63,23 @@ it('시뮬은 숨김, 끊김·실시간 끊김은 «모름(끊김)», 첫 state 
   expect(pickInfo(R({ online: false, status: null }))).toEqual({ v: null, why: '모름' });
   expect(pickInfo(R({ online: false, unknown: 'summary' }))).toEqual({ v: null, why: '확인 안 됨' });
   expect(text(R({ online: false, robotInfo: info() }))).toBe('자세모름(끊김)상태 번호모름(끊김)넘어짐 추정모름(끊김)');
+});
+
+it('폰 경유 값은 새 state 없이 유효 시간만 지나도 상세 묶음·목록 Chip 에서 내려간다(R1)', () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+  vi.stubGlobal('fetch', () => new Promise(() => {}));
+  rt.connect(['r']);
+  const w = FakeWS.last; w.open();
+  w.recv(state('r', { connection: 'OFFLINE', robot_info: null, phone_relay: { ...relay(info({ fallen: true })), valid_for_s: 0.5 } }));
+  const r = withLive(R({ online: false }));
+  const c = { user: { id: 'o', name: '운영', role: 'OPERATOR' }, robot: r, robots: [r], go() {}, pick() {}, refresh() {}, setMe() {}, open: false, phone: false,
+    dash: { d: null, err: '', again() {} } } as unknown as Ctx;
+  const el = show(<><Detail {...c} solo /><FallChip x={r} /></>);
+  expect(el.querySelector('[data-robot-info]')!.getAttribute('data-robot-info')).toBe('phone');
+  expect(el.querySelector('[data-fall-chip]')).not.toBeNull();
+  act(() => { vi.advanceTimersByTime(600); });
+  expect(el.querySelector('[data-phone-relay]')!.textContent).toBe('폰 경유 · 모름');
+  expect(el.querySelector('[data-robot-info]')!.getAttribute('data-robot-info')).toBe('none');
+  expect(el.querySelector('[data-robot-code]')!.textContent).toBe('모름(끊김)');
+  expect(el.querySelector('[data-fall-chip]')).toBeNull();
 });
