@@ -1,6 +1,6 @@
 // Same per-field and cross-field validation as web phone.simTune (#241).
 // These are MuJoCo command axes, not real robot limits or AME-2 body speed.
-const TUNE = { sim_max_vx: [0.2, 1], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.3], sim_max_wz: [0, 0.5], sim_key_vx: [0.1, 1], stick_deadzone: [0, 0.5] };
+const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.3], sim_max_wz: [0, 0.5], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] };
 export function manualSettings(org, scale) {
   const tune = {};
   for (const [key, [lo, hi]] of Object.entries(TUNE)) {
