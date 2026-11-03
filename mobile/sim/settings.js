@@ -21,8 +21,8 @@ export function simSettings(org, caps = {}) {
 
 // Reuse the web session at this origin; no cookie access, token, or cross-origin request.
 // The timeout covers JSON too, even if a fetch implementation ignores abort.
-export async function loadSimSettings(url, fetchSettings = globalThis.fetch, timeoutMs = SETTINGS_TIMEOUT_MS) {
-  if (url.searchParams.get('from') !== 'web' || !['http:', 'https:'].includes(url.protocol)) return {};
+export async function loadSimSettings(url, fetchSettings = globalThis.fetch, timeoutMs = SETTINGS_TIMEOUT_MS, fallback = {}) {
+  if (url.searchParams.get('from') !== 'web' || !['http:', 'https:'].includes(url.protocol)) return fallback;
   const controller = new AbortController();
   let timer;
   try {
@@ -31,9 +31,9 @@ export async function loadSimSettings(url, fetchSettings = globalThis.fetch, tim
         const response = await fetchSettings('/api/v1/org/settings', {
           credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
         });
-        return response.ok ? await response.json() : {};
-      }).catch(() => ({})),
-      new Promise((resolve) => { timer = setTimeout(() => { controller.abort(); resolve({}); }, timeoutMs); }),
+        return response.ok ? await response.json() : fallback;
+      }).catch(() => fallback),
+      new Promise((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(fallback); }, timeoutMs); }),
     ]);
   } finally { clearTimeout(timer); }
 }
