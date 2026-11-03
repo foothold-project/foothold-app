@@ -29,7 +29,8 @@ try {
   assert.equal(await page.evaluate(() => __sim.err), null);
   await page.click('#scenarioMenu');
   assert.equal(await page.locator('#scenarioSelect').isEnabled(), true);
-  await page.click('#go'); await page.click('#scenarioRun');
+  await page.click('#scenarioMenu');   // 바깥 누름은 닫기만 하므로 시작 전에 창을 닫는다
+  await page.click('#go'); await page.click('#scenarioMenu'); await page.click('#scenarioRun');
   await page.waitForFunction(() => __sim.scenario.active && __sim.cmd().length === 4);
   assert.match(await page.locator('#scenarioStatus').textContent(), /지점 [1-4]\/4/);
   await page.dispatchEvent('#stop', 'pointerdown');
@@ -39,18 +40,20 @@ try {
   assert.equal(await page.evaluate(() => __lidarDraws), 0);
   assert.ok(await page.evaluate(() => __scanCount > 1), '10 Hz scan continues without drawings');
   // Controlled pose changes verify stage/completion UI; gait is measured separately.
-  await page.click('#reset'); await page.click('#go'); await page.click('#scenarioRun');
+  await page.click('#reset'); await page.click('#go'); await page.click('#scenarioMenu'); await page.click('#scenarioRun');
   await page.waitForFunction(() => __sim.scenario.active);
   await page.evaluate(() => {
     const { sim, scenario: r } = __sim;
     while (r.active) { const p = r.points[r.index]; sim.d.qpos[0] = p.x; sim.d.qpos[1] = p.y; r.tick(Infinity, .02); }
   });
   await page.waitForFunction(() => document.querySelector('#scenarioStatus').textContent === '완료');
-  await page.click('#reset'); await page.click('#go'); await page.click('#scenarioRun');
+  await page.click('#scenarioMenu');   // 실행 준비의 reset·시작 누름은 창이 닫힌 상태에서
+  await page.click('#reset'); await page.click('#go'); await page.click('#scenarioMenu'); await page.click('#scenarioRun');
   await page.waitForFunction(() => __sim.scenario.active);
   await page.keyboard.press('ArrowUp');
   assert.equal(await page.evaluate(() => __sim.stopped() && !__sim.scenario.active), true);
-  await page.click('#reset'); await page.click('#go'); await page.click('#scenarioRun');
+  await page.click('#scenarioMenu');
+  await page.click('#reset'); await page.click('#go'); await page.click('#scenarioMenu'); await page.click('#scenarioRun');
   await page.waitForFunction(() => __sim.scenario.active);
   await page.click('#scenarioHalt');
   assert.equal(await page.evaluate(() => __sim.stopped() && !__sim.scenario.active), true);

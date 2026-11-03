@@ -52,7 +52,34 @@ function ui() {
   $('go').hidden = !stopped || !ready;
 }
 $('stop').addEventListener('pointerdown', lock);   // 누르는 순간(click 은 손을 뗄 때라 늦다)
-$('scenarioMenu').onclick = () => { $('scenarioPanel').hidden = !$('scenarioPanel').hidden; $('scenarioMenu').setAttribute('aria-expanded', String(!$('scenarioPanel').hidden)); };
+const scenarioPanel = $('scenarioPanel'), scenarioMenu = $('scenarioMenu');
+const showScenarioPanel = (open) => {
+  scenarioPanel.hidden = !open;
+  scenarioMenu.setAttribute('aria-expanded', String(open));
+};
+scenarioMenu.onclick = () => showScenarioPanel(scenarioPanel.hidden);
+// 바깥 누름은 닫기만: 손을 뗄 때의 목표 찍기·click 단추와 끌기까지 capture 단계에서 막는다.
+// STOP·조종 입력은 자식 SVG 를 눌러도 전달한다. 시나리오 중 막대는 기존 hand 중단·잠금을 먼저 거친다.
+const scenarioDismissPointers = new Set();
+const swallowScenarioPress = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+document.addEventListener('pointerdown', (e) => {
+  scenarioDismissPointers.delete(e.pointerId);   // 같은 포인터의 다음 누름은 정상 입력
+  if (scenarioPanel.hidden || scenarioPanel.contains(e.target) || scenarioMenu.contains(e.target)) return;
+  showScenarioPanel(false);
+  if (['stop', 'stickL', 'stickR', 'keys'].some((id) => $(id).contains(e.target))) return;
+  scenarioDismissPointers.add(e.pointerId);
+  swallowScenarioPress(e);
+}, { capture: true, passive: false });
+for (const type of ['pointermove', 'pointerup', 'pointercancel', 'click']) {
+  document.addEventListener(type, (e) => {
+    // 일부 WebView 의 click 은 PointerEvent 대신 MouseEvent 다. 키보드 click(detail=0)은 통과.
+    if (!scenarioDismissPointers.has(e.pointerId) && !(type === 'click' && e.pointerId === undefined && e.detail > 0 && scenarioDismissPointers.size)) return;
+    swallowScenarioPress(e);
+    if (type === 'click' && e.pointerId === undefined) scenarioDismissPointers.clear();
+    else if (type === 'click' || type === 'pointercancel') scenarioDismissPointers.delete(e.pointerId);
+  }, { capture: true, passive: false });
+}
+document.addEventListener('keydown', (e) => { if (e.code === 'Escape') showScenarioPanel(false); });
 $('stop').onclick = lock;                            // 키보드·읽어 주기
 $('go').onclick = async () => {
   if (!ready || !stopped) return;
