@@ -29,10 +29,11 @@ const copy = [['policy_v2.f32', 'policy_v2.f32'], ['vendor/three.module.js', 've
   ...[...go2xml.matchAll(/<mesh file="([\w.]+)"/g)].map(([, f]) => [`assets/unitree_go2/assets/${f}`, `assets/unitree_go2/assets/${f}`])];
 for (const [a, b] of copy) { mkdirSync(dirname(join(sim, b)), { recursive: true }); copyFileSync(need(a), join(sim, b)); }
 
-// f32 remains available for every policy. Optional ONNX assets share one runtime.
+// Optional JS fallbacks and ONNX assets are independent; ONNX shares one runtime.
 const ame2src = process.env.FH_AME2_SRC || src;
 for (const adapter of Object.values(POLICY_ADAPTERS)) {
-  const weightsRoot = adapter.id === 'ame2-demo' ? ame2src : src;
+  const weightsRoot = adapter.command.kind === 'nearby_goal' ? process.env.FH_AME2_F32_SRC || ame2src : src;
+  if (!adapter.network) continue;
   const files = [adapter.network.file, ...(adapter.network.manifest ? [adapter.network.manifest] : [])];
   if (!files.every((file) => existsSync(join(weightsRoot, file)))) continue;
   for (const file of files) {
@@ -42,8 +43,8 @@ for (const adapter of Object.values(POLICY_ADAPTERS)) {
 }
 let copiedOnnx = false;
 for (const adapter of Object.values(POLICY_ADAPTERS)) {
-  if (!adapter.onnx || !existsSync(join(sim, adapter.network.file))) continue;
-  const modelRoot = adapter.id === 'ame2-demo' ? ame2src : process.env.FH_POLICY_ONNX_SRC || src;
+  if (!adapter.onnx) continue;
+  const modelRoot = adapter.command.kind === 'nearby_goal' ? ame2src : process.env.FH_POLICY_ONNX_SRC || src;
   const model = join(modelRoot, adapter.onnx.file);
   if (!existsSync(model)) continue;
   const data = readFileSync(model);

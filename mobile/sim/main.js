@@ -19,6 +19,7 @@ import { createFrameClock } from './frame-clock.js';
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
 catch (e) { selectionError = e; }
+const DEFAULT_POLICY_BACKEND = 'f32';
 const POLICY_DT = adapter.timing.policyDt;
 const FLOOR_RGB = [[255, 60, 60], [255, 193, 7], [66, 165, 245], [171, 71, 188]];   // 층 지도 색(1층 = 예전 한 층 지도 빨강)
 const neutral = () => adapter.stop.input.slice();
@@ -166,21 +167,13 @@ async function preparePolicies() {
     const url = new URL(location.href); url.searchParams.set('policy', choice.value);
     location.href = url.href;
   };
-  try {
-    const manifest = await json('ame2_actor.json');
-    const response = await fetch('ame2_actor.f32', { method: 'HEAD' });
-    if (!response.ok || manifest.schema !== 'ame2-f32-v1') throw new Error('가중치 파일 또는 배치표 없음');
-    choice.options[1].disabled = false;
-    reason.textContent = 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정';
-  } catch {
-    choice.options[1].disabled = true;
-    reason.textContent = 'AME-2 사용 불가: 가중치 파일 또는 배치표 없음';
-    if (adapter.id === 'ame2-demo') {
-      st.policyUnavailable = reason.textContent;
-      adapter = getPolicyAdapter(); joy = neutral();
-      choice.value = adapter.id;
-    }
-  }
+  const ame2 = getPolicyAdapter('ame2-demo');
+  const option = Array.from(choice.options).find((x) => x.value === ame2.id);
+  const response = await fetch(ame2.onnx.file, { method: 'HEAD' }).catch(() => null);
+  const available = response?.ok && !/^text\/html(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '');
+  if (option) option.disabled = !available;
+  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정' : 'AME-2 · ONNX 파일 없음';
+  // A URL selecting AME-2 stays on that mode: its own optional f32 can recover.
 }
 
 async function main() {
@@ -202,12 +195,18 @@ async function main() {
   const params = new URLSearchParams(location.search);
   const q = params.get('map') ?? '', maps = await json('maps.json');
   const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
-  const [mj, sceneJ, mapJ, polBuf, policyManifest] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
-    get(adapter.network.file).then((r) => r.arrayBuffer()), adapter.network.manifest ? json(adapter.network.manifest) : null]);
-  if (adapter.network.manifest) {
-    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', polBuf)), (x) => x.toString(16).padStart(2, '0')).join('');
-    if (digest !== adapter.network.sha256) throw new Error('AME-2 가중치 SHA-256 불일치');
-  }
+  const [mj, sceneJ, mapJ] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`)]);
+  let fallbackPolicy = null;
+  try {
+    if (adapter.network) {
+      const [polBuf, manifest] = await Promise.all([get(adapter.network.file).then((r) => r.arrayBuffer()), adapter.network.manifest ? json(adapter.network.manifest) : null]);
+      if (adapter.network.sha256) {
+        const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', polBuf)), (x) => x.toString(16).padStart(2, '0')).join('');
+        if (digest !== adapter.network.sha256) throw new Error('가중치 SHA-256 불일치');
+      }
+      fallbackPolicy = adapter.loadPolicy(polBuf, manifest);
+    }
+  } catch (error) { st.fallbackUnavailable = error.message; }
   let map = decodeMap(mapJ);   // 로봇이 지금 선 층의 지도(찍기·시나리오 검사) — 여러 층이면 몸 높이로 바뀐다
   // 여러 층(top.json floors, z = 로봇 몸 높이 반열린 띠 [아래, 위)): 층마다 지도·시나리오 파일. 한 층이면 지금처럼 map.json·scenarios.json 하나
   const floors = await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
@@ -239,20 +238,20 @@ async function main() {
     ...MESHES.map(async (f) => mj.FS.writeFile(`/go2/assets/${f}.obj`, await bytes(`assets/unitree_go2/assets/${f}.obj`))),
   ]);
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
-  let policy = adapter.loadPolicy(polBuf, policyManifest);
+  let policy = fallbackPolicy;
   const { selectOnnxPolicy } = await import('./policy-onnx.js');
   policy = await selectOnnxPolicy(adapter, policy, {
     worker: params.get('policyThread') !== 'main', // explicit comparison/recovery path
-    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'f32',
+    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? DEFAULT_POLICY_BACKEND,
     notify: (text) => {
       st.policyEngine = text;
       st.ame2Engine = text; // existing diagnostics compatibility
-      // Preserve a missing AME-2 f32 reason when preparePolicies chose default.
+      // Keep the engine/fallback reason visible during simulation.
       $('policyReason').textContent = `${text} · 시뮬 전용${st.policyUnavailable ? ' · ' + st.policyUnavailable : ''}`;
       $('policyEngine').textContent = `${text} · 시뮬 전용`;
     },
   });
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start }, adapter.id);
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start }, adapter.id, { ame2DelaySteps: 0 });
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360, settings);
   const runner = createScenarioRunner(sim, () => stopped, settings);
@@ -684,7 +683,7 @@ async function main() {
     },
     step: () => sim.step(),
     onStep: () => { st.steps++; timingUI(); },
-    onError: (e) => { lock(); st.err = String(e); $('policyEngine').textContent = '정책 계산 중단 · 다시 시작 필요'; },
+    onError: (e) => { lock(); st.err = String(e); $('policyEngine').textContent = st.policyEngine?.includes('정책 잠금') ? st.policyEngine : `정책 계산 중단 · ${e.message}`; },
   });
   clock.reset();
   function frame(now) {

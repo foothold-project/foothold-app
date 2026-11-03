@@ -79,7 +79,7 @@ try {
     return p;
   };
   for (const id of ['foothold-v2', 'ame2-demo']) {
-    const model = id === 'foothold-v2' ? 'policy_v2.onnx' : 'ame2_actor.onnx';
+    const model = id === 'foothold-v2' ? 'policy_v2.onnx' : 'ame2-demo.onnx';
     // Hold real session.run; prove synchronous cancellation before releasing it.
     for (const event of (manualOnly ? ['manual'] : ['stop', 'blur', 'visibilitychange', 'pagehide', 'reset', 'manual'])) {
       console.log(`${id} lifecycle ${event}`);
@@ -136,8 +136,8 @@ try {
       });
       if (failure === 'run') await p.evaluate(async () => { const ort = await import('./ort/ort.wasm.min.mjs'); ort.InferenceSession.prototype.run = async () => { throw Error('injected run failure'); }; });
       await p.click('#go'); await p.waitForFunction(() => __sim.sim.t > .08);
-      assert.match(await p.locator('#policyEngine').textContent(), /기본 계산 사용/);
-      if (failure === 'html') assert.match(await p.locator('#policyEngine').textContent(), /기본 계산 사용: ONNX 파일 없음 \(f32 JS\)/);
+      assert.match(await p.locator('#policyEngine').textContent(), /JS f32 되돌림 중/);
+      if (failure === 'html') assert.match(await p.locator('#policyEngine').textContent(), /JS f32 되돌림 중 · ONNX 파일 없음/);
       assert.ok(await p.locator('#policyEngine').isVisible());
       if (failure === 'first') assert.match(await p.locator('#policyEngine').textContent(), /injected first inference failure/);
       assert.equal(await p.evaluate(() => __sim.sim.adapterId), id);
@@ -152,7 +152,7 @@ try {
       }
       await p.close();
     }
-    const f32 = await open(id, 'f32'); assert.match(await f32.locator('#policyEngine').textContent(), /f32 JS/); await f32.close();
+    const f32 = await open(id, 'f32'); assert.match(await f32.locator('#policyEngine').textContent(), /JS f32 되돌림 중/); await f32.close();
   }
   assert.deepEqual(pageErrors, []);
   console.log(manualOnly ? 'Policy ONNX manual takeover PASS: both adapters, active goal cancelled without lock, hand input retained, late action discarded' : 'Policy ONNX headless PASS: both policies, WASM, one inference, STOP/blur/hidden/pagehide/reset/manual stale discard, file/200-HTML/runtime/wasm/SHA/first/run fallback, visible badge, same adapter and default f32 motion');

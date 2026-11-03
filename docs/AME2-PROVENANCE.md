@@ -362,3 +362,29 @@ Node 궤적도 다시 기록했으며 보행 판정은 하지 않았다. 기존 
 공통화 최종 코드 `126bdfd`의 dev APK는 기존 AME-2 ONNX+WASM을 유지한 기준
 33,809,882 bytes → foothold-v2 ONNX 추가 34,879,427 bytes(+1.020 MiB)였다.
 단위시험16개와 빌드만 통과했고 실폰/설치/배포는 하지 않았다. 상세 기준은 정책 출처의 APK 절을 따른다.
+
+## 팀 인계 v0.3: AME-2 새 ONNX (2026-11-03)
+
+정본은 lab main `c34759b6`의 `inbox/jay/20261103-policy-handoff/HANDOFF-APP-DEVELOPER.md`
+v0.3이다. `ame2-demo-app/ame2-demo.onnx`는 5,038,171 bytes,
+SHA-256 `830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6`이다.
+이 절은 앞의 `ame2_actor.onnx` 계약을 대체한다. 입력은 `prop [1,49]`,
+`mapping [1,29,13,3]`, 출력은 `action [1,12]`, `gaze_r [1,2]`, 모두 float32다.
+상태 되먹임은 없다. 진단 crop은 `gaze_r`에서
+`ox = clamp(round(r0 * 17), 0, 17)`, `oy = clamp(round(r1 * 3), 0, 3)`으로 계산한다.
+기본 행동 지연은 리셋마다 0이며 난수로 뽑지 않는다. 명시적 지연 인자는 기존 측정 도구용이다.
+
+f32 가중치 SHA `28edbc05…`와 배치표 SHA `92ddf3db…`는 그대로이며 되돌림 준비 여부만 나타낸다.
+선택 메뉴는 새 ONNX 존재로 판정하고, 선택된 AME-2의 ONNX가 없으면 같은 정책 f32를 쓰며
+화면 아래에 **«AME-2 · JS f32 되돌림 중 · ONNX 파일 없음 …»**을 계속 표시한다.
+f32도 없으면 정책을 잠그고 사유를 표시한다. 다른 정책으로 자동 전환하지 않는다.
+`FH_AME2_SRC`는 새 묶음, 선택적인 `FH_AME2_F32_SRC`는 기존 f32/배치표 폴더를 가리킨다.
+ONNX와 시험 벡터는 Git에 넣지 않는다.
+
+`policy-vector-selftest.mjs`의 20스텝 행동 최대 차는 Node CPU `1.59442425e-6`,
+Chrome WASM main/Worker 각각 `1.51991844e-6`이다(허용차 `1e-4`).
+같은 벡터와 기존 f32의 최대 차는 Node/Chrome 각각 `1.19209290e-6`이며 측정값만 기록한다.
+서버 복사·배포·실폰·실로봇 시험은 하지 않았다. 서버 승인 후 배포 자산 입력 루트에
+`ame2-demo.onnx`와 기존 `ort/` 검증 파일 셋을 준비해야 한다. 서버 기본 입력 루트는
+`/var/lib/foothold/sim-policy/`이며 원격 복사는 이번 작업에서 하지 않는다.
+`deploy/prepare_sim.py`는 새 ONNX 부재·SHA 불일치 시 경고하고 기존 시뮬 패키징을 계속한다.

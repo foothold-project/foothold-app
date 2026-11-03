@@ -13,7 +13,7 @@ const server=createServer((req,res)=>{
   let file=resolve(root,'.'+path);
   if(['/check.json','/ame2_actor_crop_test.onnx','/onnx-observations.json'].some(p=>path==='/sim'+p))file=join(exported,path.split('/').at(-1));
   else if(process.env.AME2_TEST_RUNTIME === '1' && path.startsWith('/sim/ort/'))file=resolve('mobile/node_modules/onnxruntime-web/dist',path.split('/').at(-1));
-  else if(process.env.AME2_TEST_RUNTIME === '1' && path==='/sim/ame2_actor.onnx')file=join(exported,'ame2_actor.onnx');
+  else if(process.env.AME2_TEST_RUNTIME === '1' && path==='/sim/ame2-demo.onnx')file=join(process.env.FH_AME2_SRC || exported,'ame2-demo.onnx');
   else if(!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
   if(path==='/sim/onnx-test.html'){res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>AME2 offline test</title>');return;}
   try {res.setHeader('Content-Type',({'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.wasm':'application/wasm','.png':'image/png','.css':'text/css'})[extname(file)]??'application/octet-stream');res.end(readFileSync(file));}
@@ -53,7 +53,7 @@ try {
         const ort=await import('./ort/ort.'+(backend==='webgpu'?'webgpu':'wasm')+'.min.mjs');
         ort.env.wasm.numThreads=1;ort.env.wasm.proxy=false;ort.env.wasm.wasmPaths=new URL('./ort/',location.href).href;
         const [{loadAme2Policy},{loadAme2OnnxPolicy},{fixedAme2Cases,compareAme2Cases},model,manifest,f32buf]=await Promise.all([
-          import('./ame2-network.js'),import('./ame2-onnx.js'),import('./ame2-onnx-check.js'),buffer('ame2_actor.onnx'),json('ame2_actor.json'),buffer('ame2_actor.f32')]);
+          import('./ame2-network.js'),import('./ame2-onnx.js'),import('./ame2-onnx-check.js'),buffer('ame2-demo.onnx'),json('ame2_actor.json'),buffer('ame2_actor.f32')]);
         const f32=loadAme2Policy(f32buf,manifest),onnx=await loadAme2OnnxPolicy(ort,model,backend);
         const p=new Float32Array(49),m=new Float32Array(1131);p[8]=-1;p[48]=1;
         const first=performance.now();await onnx(p,m);
@@ -132,20 +132,20 @@ try {
   // Initialization missing file/runtime + hash mismatch + runtime-run failure.
   for(const failure of ['model','runtime','wasm','hash','run']) {
     const p=await browser.newPage();p.on('pageerror',e=>errors.push(e.message));
-    if(failure==='model')await p.route('**/ame2_actor.onnx',r=>r.fulfill({status:404,body:'missing'}));
+    if(failure==='model')await p.route('**/ame2-demo.onnx',r=>r.fulfill({status:404,body:'missing'}));
     if(failure==='runtime')await p.route('**/ort.wasm.min.mjs',r=>r.fulfill({status:404,body:'missing'}));
     if(failure==='wasm')await p.route('**/ort-wasm-simd-threaded.wasm',r=>r.fulfill({status:404,body:'missing'}));
-    if(failure==='hash')await p.route('**/ame2_actor.onnx',r=>r.fulfill({status:200,body:Buffer.from('bad model')}));
+    if(failure==='hash')await p.route('**/ame2-demo.onnx',r=>r.fulfill({status:200,body:Buffer.from('bad model')}));
     await p.goto(url+'index.html?policy=ame2-demo&ame2Backend=wasm&policyThread=main');
     await p.waitForFunction(()=>window.__sim?.ready,null,{timeout:60000});
     if(failure==='run')await p.evaluate(async()=>{const ort=await import('./ort/ort.wasm.min.mjs');ort.InferenceSession.prototype.run=async()=>{throw Error('injected run failure');};});
     await p.click('#go');await p.waitForFunction(()=>__sim.sim.t>.04);
-    assert.match(await p.locator('#policyEngine').textContent(),/기본 계산 사용/);
+    assert.match(await p.locator('#policyEngine').textContent(),/JS f32 되돌림 중/);
     assert.equal(await p.locator('#policyEngine').isVisible(),true);
     await p.close();
   }
   const f32=await browser.newPage();await f32.goto(url+'index.html?policy=ame2-demo&ame2Backend=f32');await f32.waitForFunction(()=>window.__sim?.ready);
-  assert.match(await f32.locator('#policyEngine').textContent(),/f32 JS/);await f32.close();
+  assert.match(await f32.locator('#policyEngine').textContent(),/JS f32 되돌림 중/);await f32.close();
   assert.deepEqual(errors,[]);
   console.log('AME2 ONNX headless PASS: WASM sim execution, one pending run, STOP/blur/hidden/pagehide/reset discard, missing model/runtime/wasm/hash/run failure visible f32 fallback, explicit f32');
 } finally {await browser?.close();await new Promise(r=>server.close(r));}

@@ -32,13 +32,13 @@ export function ame2GoalObservation(command) {
 
 // actions.py:37-72: shift processed targets at EVERY physics substep.
 // A delay of 4 retains the old target for a complete 4-substep policy tick.
-export function makeAme2ActionDelay(defaultPose, fixedDelaySteps = null) {
+export function makeAme2ActionDelay(defaultPose, fixedDelaySteps = 0) {
   if (fixedDelaySteps !== null && (!Number.isInteger(fixedDelaySteps) || fixedDelaySteps < 0 || fixedDelaySteps > 4)) throw new Error('AME-2 fixed delay must be an integer in [0,4]');
   const history = Array.from({ length: 5 }, () => Float64Array.from(defaultPose));
   let steps = 0;
   return {
     get steps() { return steps; },
-    reset() { steps = fixedDelaySteps ?? Math.floor(Math.random() * 5); this.clear(); },
+    reset() { steps = fixedDelaySteps ?? 0; this.clear(); },
     clear() { for (const target of history) target.set(defaultPose); },
     apply(target) {
       for (let i = 4; i > 0; i--) history[i].set(history[i - 1]);
@@ -85,7 +85,7 @@ export function makeAme2Adapter(makeTerrainSampler) {
     observations: { size: 49, bodySize: 49, mappingSize: 1131, height: { grid: ame2Grid, rayOffset: 20, noise: 0, clip: [-1.5, 1.5] } },
     network: { file: 'ame2_actor.f32', manifest: 'ame2_actor.json', sha256: '28edbc05169b817044c600d90cc081bb797ae56c5b8400b8ffebf648410d26a0' },
     action: { size: 12, joints: AME2_JOINT_ORDER, defaultPose: defaults, scale: .25, kp: 25, kd: .5, targetClip: 100, torque: ame2Torque },
-    timing: { physicsDt: .005, decimation: 4, policyDt: .02, delayRange: [0, 4] },
+    timing: { physicsDt: .005, decimation: 4, policyDt: .02, delayRange: [0, 0] },
     makeActionDelay: makeAme2ActionDelay,
     command: { kind: 'nearby_goal', joystickScale: [1, 1, 1], inRange: (c) => c.length === 4 && c.every(Number.isFinite) && c[0] >= 0 && Math.hypot(c[0], c[1]) <= 2 },
     stop: { input: [0, 0, 0, 1], pause: true },

@@ -165,10 +165,12 @@ export function makeTerrainSampler(mj, m, d, cfg) {
 }
 
 const ame2 = makeAme2Adapter(makeTerrainSampler);
-ame2.onnx = { file: 'ame2_actor.onnx', sha256: '398acb0c73369e84946a34c0109bca1edd0560cc14ee286fd36b9caf7e2da69b',
-  inputs: [{ name: 'prop', dims: [1, 49] }, { name: 'mapping', dims: [1, 29, 13, 3] }],
-  outputs: [{ name: 'action', dims: [1, 12] }, { name: 'offsets', dims: [1, 2], type: 'int64' },
-    { name: 'gaze_logits', dims: [1, 2] }], action: 'action' };
+ame2.onnx = {
+  file: 'ame2-demo.onnx', sha256: '830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6',
+  inputs: [{ name: 'prop', dims: [1, 49], type: 'float32' }, { name: 'mapping', dims: [1, 29, 13, 3], type: 'float32' }],
+  outputs: [{ name: 'action', dims: [1, 12], type: 'float32' }, { name: 'gaze_r', dims: [1, 2], type: 'float32' }],
+  action: 'action', state: [],
+};
 export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2, 'ame2-demo': ame2 });
 export function getPolicyAdapter(id = 'foothold-v2') {
   const adapter = Object.hasOwn(POLICY_ADAPTERS, id) && POLICY_ADAPTERS[id];

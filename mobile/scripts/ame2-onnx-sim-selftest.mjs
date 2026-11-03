@@ -15,7 +15,7 @@ mj.FS.writeFile('/go2/go2.xml',readFileSync(join(src,'assets/unitree_go2/go2.xml
 const data=readFileSync(join(dir,'ame2_actor.f32'));
 const f32=loadAme2Policy(data.buffer.slice(data.byteOffset,data.byteOffset+data.byteLength),JSON.parse(readFileSync(join(dir,'ame2_actor.json'))));
 const ort=await import(pathToFileURL(resolve(process.env.AME2_ORT_NODE)));
-const onnx=await loadAme2OnnxPolicy(ort,readFileSync(join(dir,'ame2_actor.onnx')),'cpu');
+const onnx=await loadAme2OnnxPolicy(ort,readFileSync(join(process.env.FH_AME2_SRC || dir,'ame2-demo.onnx')),'cpu');
 try {
   const result=await compareAme2Walk(mj,createSim,ISAAC_LIKE,f32,onnx,async(path)=>readFileSync(new URL('../sim/'+path,import.meta.url)));
   writeFileSync('runs/ame2-onnx/walk-node.json',JSON.stringify(result));

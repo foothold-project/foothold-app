@@ -20,7 +20,7 @@ function dcmotor(tau, dq, { effort: EFFORT, velocityLimit: VEL_LIM }) {
   return Math.min(Math.max(tau, lo), hi);
 }
 
-export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = 'foothold-v2', { ame2DelaySteps = null } = {}) {
+export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = 'foothold-v2', { ame2DelaySteps = 0 } = {}) {
   const adapter = getPolicyAdapter(adapterId);
   const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = adapter.timing;
   const { joints: ISAAC_J, defaultPose: DEFAULT_I, scale: ACTION_SCALE, kp: KP, kd: KD } = adapter.action;
@@ -57,6 +57,8 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   // STOP/reset/dispose, and never queue a second inference or physics tick.
   const asyncPolicy = policy.async === true;
   let generation = 0, pending = false;
+  let memory = {};
+  const resetPolicyMemory = () => { policy.reset?.(); memory = {}; adapter.reset?.(memory); s.outputs = null; s.gaze = null; };
 
   s.cancelPolicyStep = () => { if (asyncPolicy) { generation++; policy.cancel?.(); } };
 
@@ -66,6 +68,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     s.cmd = adapter.stop.input.slice(); last.fill(0);
     for (let i = 0; i < 12; i++) tgt[i] = DEFAULT_I[I2M[i]];
     actionDelay?.clear();
+    resetPolicyMemory();
   };
   s.mapping = adapter.observations.mappingSize ? new Float32Array(adapter.observations.mappingSize) : null;
   s.reset = () => {
@@ -74,8 +77,9 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     const q = d.qpos, v = d.qvel;
     q[0] = SX; q[1] = SY; q[2] = F + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 바닥 위 0.4
     for (let i = 0; i < 12; i++) { q[7 + i] = DEFAULT_I[I2M[i]]; tgt[i] = DEFAULT_I[I2M[i]]; }
-    if (adapter.stop.pause) s.clearPolicyState();
+    if (adapter.stop.pause) s.cmd = adapter.stop.input.slice();
     actionDelay?.reset();
+    resetPolicyMemory();
     v.fill(0); last.fill(0); s.t = 0;
     mj.mj_forward(m, d);
     state();
@@ -98,21 +102,28 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   s.step = () => {
     if (asyncPolicy && pending) return false;
     const t0 = performance.now();
-    adapter.observe(obs, s, last, sampleHeight);
+    const candidate = structuredClone(memory);
+    adapter.observe(obs, s, last, sampleHeight, candidate);
+    const inputs = adapter.inputs ? adapter.inputs(s, candidate, obs) : [obs, s.mapping];
     if (asyncPolicy) {
       const gen = generation;
       pending = true;
-      return Promise.resolve().then(() => policy(obs, s.mapping)).then((a) => {
+      return Promise.resolve().then(() => policy(...inputs)).then((a) => {
         if (gen !== generation || !a) return false;
-        applyAction(a, t0);
-        return true;
+        return applyAction(a, t0, candidate);
       }).finally(() => { pending = false; });
     }
-    const a = policy(obs, s.mapping);
-    applyAction(a, t0);
+    const a = policy(...inputs);
+    applyAction(a, t0, candidate);
   };
-  function applyAction(a, t0) {
-    if (adapter.action.targetClip && (a.length !== 12 || !a.every(Number.isFinite))) throw new Error('AME-2 행동 크기/유한값 오류');
+  function applyAction(result, t0, candidate) {
+    const a = result[adapter.onnx?.action ?? 'action'] ?? result;
+    if (a.length !== 12 || !a.every(Number.isFinite)) throw new Error('정책 행동 크기/유한값 오류');
+    if (policy.commit && !policy.commit(result)) return false;
+    memory = candidate;
+    adapter.commit?.(memory, s, result);
+    s.outputs = result.action ? result : { action: a };
+    if (s.outputs.gaze_r) s.gaze = { ox: Math.max(0, Math.min(17, Math.round(s.outputs.gaze_r[0] * 17))), oy: Math.max(0, Math.min(3, Math.round(s.outputs.gaze_r[1] * 3))) };
     last.set(a);
     for (let i = 0; i < 12; i++) tgt[i] = adapter.action.targetClip ? Math.max(-adapter.action.targetClip, Math.min(adapter.action.targetClip, a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]])) : a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]];
     const t1 = performance.now();
@@ -120,6 +131,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     s.policyMs = t1 - t0; s.physMs = performance.now() - t1;
     s.t += POLICY_DT;
     state();
+    return true;
   }
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;

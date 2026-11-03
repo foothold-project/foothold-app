@@ -28,13 +28,14 @@ const originalRandom = Math.random;
 try {
   for (const delay of [0,1,2,3,4]) {
     Math.random = () => (delay + .1) / 5;
-    const queue = makeAme2ActionDelay([10,20]); queue.reset();
+    const queue = makeAme2ActionDelay([10,20], delay); queue.reset();
     assert.equal(queue.steps, delay);
     for (let i = 0; i < 12; i++) assert.deepEqual(Array.from(queue.apply([i,i+100])), i < delay ? [10,20] : [i-delay,i-delay+100]);
     queue.clear(); assert.equal(queue.steps, delay);
     assert.deepEqual(Array.from(queue.apply([90,91])), delay ? [10,20] : [90,91]);
     Math.random = () => .999;
-    queue.reset(); assert.equal(queue.steps, 4, 'resample at reset');
+    queue.reset(); assert.equal(queue.steps, delay, 'fixed delay on reset');
+    const defaultQueue = makeAme2ActionDelay([0]); defaultQueue.reset(); assert.equal(defaultQueue.steps, 0, 'demo default has no randomized delay');
     const fixed = makeAme2ActionDelay([0],delay); fixed.reset(); assert.equal(fixed.steps,delay);
   }
   for (const invalid of [-1,5,1.5,NaN,'1']) assert.throws(() => makeAme2ActionDelay([0],invalid));
