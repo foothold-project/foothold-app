@@ -285,7 +285,7 @@ def test_phone_stall_requires_new_stop_feedback_unlock_and_neutral(simulation):
         h.clock.t += .06
         h.cmd(peer)
         sink.flush()
-        assert outputs[-1] == (.6, 0, 0)
+        assert outputs[-1] == ((.6 if simulation else 1.5), 0, 0)
         lease, old_gen = h.hub.session.lease_id, h.hub.session.core.stop_gen
         outputs.clear()
         trip(sink, h.clock)
@@ -313,9 +313,9 @@ def test_phone_stall_requires_new_stop_feedback_unlock_and_neutral(simulation):
         assert h.cmd(peer)['applied'] == list(Z)  # unlock does not replay old intent
         h.cmd(peer, 0)
         h.clock.t += .06
-        assert h.cmd(peer)['applied'] == [.6, 0, 0]
+        assert h.cmd(peer)['applied'] == [(.6 if simulation else 1.5), 0, 0]
         sink.flush()
-        assert outputs[-1] == (.6, 0, 0)
+        assert outputs[-1] == ((.6 if simulation else 1.5), 0, 0)
     finally:
         h.hub.close()
         sink.close()

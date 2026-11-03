@@ -4,16 +4,16 @@ import math
 import pytest
 
 from foothold_agent.phone.protocol import LIMITS, project_velocity
-from foothold_agent.safety.core import Z, quantize
+from foothold_agent.safety.core import Z, quantize_phone
 
 
-@pytest.mark.parametrize('vx', [-.2, -.000001, 0, .2, .4, math.nextafter(.6, 0), .6, 8])
+@pytest.mark.parametrize('vx', [-.2, -.000001, 0, .2, .4, math.nextafter(1.5, 0), 1.5, 1.51, 8])
 @pytest.mark.parametrize('wz', [-8, -.5, math.nextafter(-.5, 0), 0,
                                 math.nextafter(.5, 0), .5, 8])
 def test_projection_only_emits_existing_verified_commands(vx, wz):
     axes, clipped = project_velocity(vx, 0, wz)
-    applied, reason = quantize(*axes)
-    expected = (.6, 0, .5 if wz >= .5 else -.5 if wz <= -.5 else 0) if vx >= .6 else Z
+    applied, reason = quantize_phone(*axes)
+    expected = (1.5, 0, .5 if wz >= .5 else -.5 if wz <= -.5 else 0) if vx >= 1.5 else Z
     assert applied == expected
     assert list(applied) in LIMITS['commands']
     assert clipped == (expected != (vx, 0, wz))
@@ -27,5 +27,5 @@ def test_projection_only_emits_existing_verified_commands(vx, wz):
 @pytest.mark.parametrize('vy', [-1, 1])
 def test_lateral_projection_is_rejected_without_confirming_neutral(vy):
     axes, clipped = project_velocity(0, vy, 0)
-    applied, reason = quantize(*axes)
+    applied, reason = quantize_phone(*axes)
     assert applied == Z and reason and clipped

@@ -39,17 +39,17 @@ def phone_transform():
 def test_actual_phone_transform_uses_validated_sim_tuning(h, phone_transform):
     welcome = h.connect()[2]
     axes = [1, 1, 0]
-    assert phone_transform(welcome, axes) == dict(vx=1, vy=0, wz=.5)
+    assert phone_transform(welcome, axes) == dict(vx=1.5, vy=0, wz=.5)
     assert phone_transform(welcome, axes, dict(sim_max_vx=.4, sim_max_wz=.2)) == dict(vx=.4, vy=0, wz=.2)
     # Invalid settings fall back to the agent limits, as in the shipped simTune.
-    assert phone_transform(welcome, axes, dict(sim_max_vx=-1, sim_max_wz=1)) == dict(vx=1, vy=0, wz=.5)
-    assert phone_transform(welcome, axes) == dict(vx=1, vy=0, wz=.5)
+    assert phone_transform(welcome, axes, dict(sim_max_vx=-1, sim_max_wz=1)) == dict(vx=1.5, vy=0, wz=.5)
+    assert phone_transform(welcome, axes) == dict(vx=1.5, vy=0, wz=.5)
 
 
 @pytest.mark.parametrize('axes,expected', [([0, 0, 0], dict(vx=0, vy=0, wz=0)),
-    ([1, 1, 1], dict(vx=.6, vy=0, wz=.5)),
+    ([1, 1, 1], dict(vx=1.5, vy=0, wz=.5)),
     ([-1, -1, -1], dict(vx=0, vy=0, wz=0)),
-    ([.5, -1, 1], dict(vx=.3, vy=0, wz=-.5))])
+    ([.5, -1, 1], dict(vx=.75, vy=0, wz=-.5))])
 def test_actual_phone_physical_velocity_ignores_sim_tuning(physical_h, phone_transform, axes, expected):
     welcome = physical_h.connect()[2]
     settings = dict(sim_max_vx=.2, sim_min_vx=.1, sim_max_vy=0, sim_max_wz=0,
@@ -90,7 +90,7 @@ def test_legacy_input_envelope_and_additive_policy_range(h):
     legacy = dict(vx_mode='continuous', vx_min_moving=.2, vx_min=-.3, vx_max=1.,
                   vy_min=-.3, vy_max=.3, wz_min=-.5, wz_max=.5, commands=[],
                   experimental=['reverse', 'lateral', 'turn_in_place'])
-    assert {key: limits[key] for key in legacy} == legacy
+    assert {key: limits[key] for key in legacy} == {**legacy, 'vx_max': 1.5}
     parsed = PhoneLimits.model_validate(limits)
     assert parsed.policy_velocity_range is None  # no claim that experiments were trained
     assert parsed.requires_forward_motion is False

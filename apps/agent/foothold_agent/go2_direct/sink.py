@@ -12,8 +12,9 @@ from dataclasses import dataclass
 ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
-# Preserve current real-robot alphabet. Do not widen it from a config file.
-ALLOWED = frozenset((ZERO, (.6, 0., 0.), (.6, 0., -.5), (.6, 0., .5)))
+# Physical phone forward ceiling is 1.5 m/s; lateral/turn gates are unchanged.
+# Config may only narrow this explicit alphabet.
+ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (1.5, 0., -.5), (1.5, 0., .5)))
 SERVER_ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (-1.5, 0., 0.),
     (0., 1.5, 0.), (0., -1.5, 0.), (0., 0., .5), (0., 0., -.5),
     (1.5, 0., .5), (1.5, 0., -.5)))
@@ -33,12 +34,12 @@ class OutputError(RuntimeError):
 
 @dataclass(frozen=True)
 class Limits:
-    vx: tuple = (0., .6)
+    vx: tuple = (0., 1.5)
     vy: tuple = (0., 0.)
     wz: tuple = (-.5, .5)
 
     def __post_init__(self):
-        for bounds, maximum in zip((self.vx, self.vy, self.wz), ((0., .6), (0., 0.), (-.5, .5))):
+        for bounds, maximum in zip((self.vx, self.vy, self.wz), ((0., 1.5), (0., 0.), (-.5, .5))):
             if (not isinstance(bounds, tuple) or len(bounds) != 2 or
                     not all(type(x) in (int, float) and math.isfinite(x) for x in bounds) or
                     not maximum[0] <= bounds[0] <= 0 <= bounds[1] <= maximum[1]):

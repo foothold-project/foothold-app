@@ -77,7 +77,7 @@ class FakeDDS:
             await asyncio.sleep(.01)
 
     def moved(self):
-        return any(kind == 'Move' and velocity == (.6, 0., 0.)
+        return any(kind == 'Move' and velocity == (1.5, 0., 0.)
                    for client in self.clients for kind, velocity in client.calls)
 
 
@@ -159,12 +159,12 @@ def test_authenticated_ws_move_stop_feedback_resume_and_outages(env, monkeypatch
                     seq += 1
                     return await request('cmd', lease_id=lease, seq=seq, vx=vx, vy=0, wz=0)
                 await unlock()
-                assert (await cmd(.6))['applied'] == [0., 0., 0.]  # new neutral required
+                assert (await cmd(1.5))['applied'] == [0., 0., 0.]  # new neutral required
                 await cmd(0)
-                assert (await cmd(.6))['applied'] == [.6, 0., 0.]
+                assert (await cmd(1.5))['applied'] == [1.5, 0., 0.]
                 await until(dds.moved, task)
                 # SDK STOP success cannot confirm physically still sensor feedback.
-                dds.velocity = (.6, 0., 0.)
+                dds.velocity = (1.5, 0., 0.)
                 await asyncio.sleep(.04)
                 assert (await request('stop'))['ok']
                 await until(lambda: any(k == 'StopMove' for k, _ in dds.clients[1].calls), task)
@@ -174,8 +174,8 @@ def test_authenticated_ws_move_stop_feedback_resume_and_outages(env, monkeypatch
                 dds.velocity = (0., 0., 0.)
                 await unlock()
                 await cmd(0)
-                await cmd(.6)
-                await until(lambda: sink.pending == (.6, 0., 0.), task)
+                await cmd(1.5)
+                await until(lambda: sink.pending == (1.5, 0., 0.), task)
                 if outage == 'disconnect':
                     await ws.close()
                 elif outage == 'sensor':
