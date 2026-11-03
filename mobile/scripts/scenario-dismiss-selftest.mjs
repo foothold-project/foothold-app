@@ -85,6 +85,12 @@ try {
     await open();
     const options = await page.locator('#scenarioSelect option').evaluateAll(nodes => nodes.map(n => n.value));
     assert.ok(options.length > 1);
+    const runWithPanel = async () => {
+      await page.click('#reset'); await page.click('#go'); await open();
+      await page.click('#scenarioRun'); await page.evaluate(() => __sim.settled());
+      await page.waitForFunction(() => __sim.scenario.active && __sim.cmd().some(v => v !== 0));
+      await panel(true);
+    };
     await page.click('#scenarioSelect'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
     assert.equal(await page.locator('#scenarioSelect').inputValue(), options[1]); await panel(true);
     await page.click('#scenarioRun'); await page.evaluate(() => __sim.settled()); await panel(true);
@@ -122,13 +128,42 @@ try {
       for (const id of ['stickL', 'stickR']) {
         await open();
         const box = await page.locator('#' + id).boundingBox();
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height * .15); await page.mouse.down();
+        await page.mouse.move(box.x + box.width * .8, box.y + box.height * .15); await page.mouse.down();
         await panel(false);
-        assert.deepEqual(await page.evaluate(() => __sim.joy()), [0, 0, 0], 'dismiss cannot start joystick');
+        assert.equal(await page.evaluate(() => __sim.joy().some(v => v !== 0)), true, 'manual input still works while closing');
         await page.mouse.move(box.x + box.width * .8, box.y + box.height * .1); await page.mouse.up();
         assert.deepEqual(await page.evaluate(() => __sim.joy()), [0, 0, 0]);
       }
+      // REVIEW-257 B1: the first touch must reach hand(), before the stick can send a command.
+      for (const id of ['stickL', 'stickR']) {
+        await runWithPanel();
+        const box = await page.locator('#' + id).boundingBox(), x = box.x + box.width * .8, y = box.y + box.height * .15;
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 7, x, y }] });
+        await panel(false);
+        assert.deepEqual(await page.evaluate(() => [__sim.scenario.active, __sim.stopped(), __sim.cmd(), __sim.joy()]),
+          [false, true, [0, 0, 0], [0, 0, 0]], `${id}: first touch cancels scenario and locks immediately`);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ id: 7, x: x + 10, y: y - 5 }] });
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await frame();
+        assert.deepEqual(await page.evaluate(() => [__sim.scenario.active, __sim.stopped(), __sim.cmd()]),
+          [false, true, [0, 0, 0]], `${id}: moving/releasing cannot resume`);
+        // Goal handoff keeps its existing exception: cancel the goal and allow manual input without locking.
+        await page.click('#go');
+        assert.equal(await page.evaluate(() => __sim.scenario.start([{ x: __sim.sim.d.qpos[0] + 1.5, y: __sim.sim.d.qpos[1] }], true)), true);
+        await open();
+        assert.equal(await page.evaluate(() => __sim.scenario.active && __sim.scenario.goal), true);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 8, x, y }] });
+        await panel(false);
+        assert.deepEqual(await page.evaluate(() => [__sim.scenario.active, __sim.stopped(), __sim.joy().some(v => v !== 0)]),
+          [false, false, true], `${id}: goal is cancelled and hands take over without a lock`);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await frame();
+        assert.deepEqual(await page.evaluate(() => __sim.joy()), [0, 0, 0]);
+      }
     }
+    await runWithPanel();
+    await page.keyboard.press('ArrowUp');
+    assert.deepEqual(await page.evaluate(() => [__sim.scenario.active, __sim.stopped(), __sim.cmd()]),
+      [false, true, [0, 0, 0]], 'keyboard hand interruption still locks with the panel open');
+    await panel(true); await page.click('#scenarioMenu'); await page.click('#go');
     await open();
     await page.keyboard.down('KeyW'); await page.waitForFunction(() => __sim.cmd()[0] > 0);
     // Hit the nested SVG, verify STOP already worked before pointerup/click.
@@ -142,7 +177,7 @@ try {
     await page.keyboard.press('Escape'); await panel(false);
     assert.equal(await page.evaluate(() => __sim.stopped()), true, 'existing Escape STOP retained');
     assert.deepEqual(errors, []);
-    console.log(`scenario dismiss PASS (${hasTouch ? 'app/touch' : 'web/mouse'}): outside tap/no goal, next tap, select/buttons/menu, drag/no pan/orbit, click/no toggle, joystick guard, immediate STOP, Escape`);
+    console.log(`scenario dismiss PASS (${hasTouch ? 'app/touch' : 'web/mouse'}): outside tap/no goal, next tap, select/buttons/menu, drag/no pan/orbit, click/no toggle, manual input passes, active scenario hand interruption/lock, immediate STOP, Escape`);
     await page.close();
   }
 } finally { await browser?.close(); await new Promise(r => server.close(r)); }
