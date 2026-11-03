@@ -12,13 +12,17 @@ const source=execFileSync('git',['show','2c0fc2f:mobile/sim/ame2-adapter.js'],{e
   .replace("'./ame2-network.js'",JSON.stringify(new URL('../sim/ame2-network.js',import.meta.url).href));
 const {makeAme2Adapter}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const before=makeAme2Adapter(makeTerrainSampler);
-let cells=0, rooflessScans=0;
+let cells=0, rooflessScans=0, upRays=0;
+const traced = new Proxy(mj,{get(target,key) {
+  if(key !== 'mju_rayGeom') return target[key];
+  return (...args) => { if(args[4][2]>0) upRays++; return target[key](...args); };
+}});
 function checkScene(name,geometry,expected,{same=false,q=[0,0,.4,1,0,0,0]}={}) {
   mj.FS.writeFile('/overhead.xml',`<mujoco><compiler angle="radian"/><worldbody>${geometry}
     <geom group="1" type="box" contype="0" conaffinity="0" pos="0 0 .8" size="3 3 .1"/>
     <body pos="0 0 1"><freejoint/><geom group="1" type="box" size=".2 .2 .1"/></body></worldbody></mujoco>`);
   const m=mj.MjModel.from_xml_path('/overhead.xml'),d=new mj.MjData(m);mj.mj_forward(m,d);
-  const groups=Array.from(m.geom_group), scan=adapter.makeHeightScanner(mj,m,d,{floorZ:0}), old=before.makeHeightScanner(mj,m,d,{floorZ:0});
+  const groups=Array.from(m.geom_group), scan=adapter.makeHeightScanner(traced,m,d,{floorZ:0}), old=before.makeHeightScanner(mj,m,d,{floorZ:0});
   const actual=new Float64Array(1131), prior=new Float64Array(1131);
   try {
     scan(q,actual);old(q,prior);
@@ -35,12 +39,18 @@ function checkScene(name,geometry,expected,{same=false,q=[0,0,.4,1,0,0,0]}={}) {
 const floor='<geom group="4" type="plane" size="4 4 .01"/>';
 const roof='<geom group="1" type="box" pos="0 0 2" size="3 3 .1"/>';
 checkScene('enclosed floor',floor+roof,()=>0);
-checkScene('low overhead beam',floor+'<geom group="1" type="box" pos="0 0 .65" size="3 3 .05"/>',()=>0);
+assert.equal(upRays,1,'one native probe suffices for a horizontal box covering all 377 cells');
+checkScene('offset narrow beam',floor+'<geom group="1" type="box" pos="0 .2 2" size="3 .05 .1"/>',()=>0);
+checkScene('body under beam gap',floor+'<geom group="1" type="box" pos="0 .2 2" size="3 .15 .1"/><geom group="1" type="box" pos="0 -.2 2" size="3 .15 .1"/>',()=>0);
+// Below the clearance threshold, a low plate is terrain even under the body.
+checkScene('low plate retained',floor+'<geom group="1" type="box" pos="0 0 .65" size="3 3 .05"/>',()=>.7,{same:true});
 const step='<geom group="1" type="box" pos=".75 0 .1" size=".45 3 .1"/>';
 checkScene('roof above step',floor+step+roof,x=>x>=.3&&x<=1.2?.2:0);
 checkScene('roofless high wall',floor+'<geom group="1" type="box" pos=".75 0 1" size=".45 3 1"/>',x=>x>=.3&&x<=1.2?2:0,{same:true});
 // A per-cell upward probe would erase this thin training-style step ahead.
 checkScene('roofless elevated stair plate',floor+'<geom group="1" type="box" pos="1.1 0 .99" size=".15 .4 .01"/>',x=>x>=.95&&x<=1.25?1:0,{same:true});
+checkScene('plate at clearance threshold',floor+'<geom group="1" type="box" pos="1.1 0 1.01" size=".15 .4 .01"/>',x=>x>=.95&&x<=1.25?1.02:0,{same:true});
+checkScene('plate above clearance threshold',floor+'<geom group="1" type="box" pos="1.1 0 1.011" size=".15 .4 .01"/>',()=>0);
 checkScene('body inside solid obstacle',floor+'<geom group="1" type="box" pos="0 0 .3" size="3 3 .5"/>',()=>.8,{same:true});
 checkScene('yawed roof above step',floor+step+roof,x=>x>=.3&&x<=1.2?.2:0,{q:[0,0,.4,Math.SQRT1_2,0,0,Math.SQRT1_2]});
 // Original training terrain remains bit-identical at supported positions and yaw.

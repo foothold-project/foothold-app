@@ -11,6 +11,9 @@ const defaults = Float64Array.from(AME2_JOINT_ORDER, (n) => n.includes('_hip') ?
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const yawOf = (q) => Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
 export const ame2Grid = Array.from({ length: 377 }, (_, i) => [-.42 + .06 * Math.floor(i / 13), -.36 + .06 * (i % 13)]);
+// 0.6m preserves the existing training-style tread regression (underside
+// .98m, body .4m: .58m clearance); only higher undersides are covers.
+export const AME2_OVERHEAD_CLEARANCE = .6;
 // env.yaml:166-203; go2_curve.py:8-20 (text only). Extra calf reduction.
 export const AME2_MOTORS = AME2_JOINT_ORDER.map((n) => n.includes('_calf')
   ? { x1: 7.041528239202657, x2: 15.64784053156146, y1: 38.72738853503185, y2: 44.86242038216561 }
@@ -101,38 +104,13 @@ export function makeAme2Adapter(makeTerrainSampler) {
       sampleHeight(s.d.qpos, s.mapping);
     },
     makeHeightScanner(mj, m, d, world) {
-      const heightCfg = { ...this.observations.height }, maxOffset = heightCfg.rayOffset;
+      const heightCfg = { ...this.observations.height, overheadClearance: AME2_OVERHEAD_CLEARANCE };
       const sample = makeTerrainSampler(mj, m, d, heightCfg), heights = new Float64Array(377);
-      const hit = new mj.IntBuffer(1), normal = new mj.DoubleBuffer(3);
-      const point = new Float64Array(3), up = [0, 0, 1], group = [1, 1, 0, 0, 1, 0];
-      const excluded = Array.from({ length: m.ngeom }, (_, g) => g)
-        .filter((g) => m.geom_bodyid[g] !== 0 || (!m.geom_contype[g] && !m.geom_conaffinity[g]));
-      const originalGroups = new Uint8Array(excluded.length);
       // Training virtual_floor.py:56-83: no virtual plane on dense/app terrain;
       // void = lowest valid world height - depth, all void = floor.z.
       // Deterministic demo midpoint of env.yaml:1793-1799, relative to floorZ.
       const depth = .7, floorZ = world?.floorZ ?? 0;
       const scan = (q, out) => {
-        // One body-up probe identifies the space the robot occupies. Per-cell
-        // upward probes would mistake the thin, elevated training stair plates
-        // ahead for roofs. Cap the common downward start below the nearest
-        // overhead underside, while uncovered scenes keep the full 20m scan.
-        const maxZ = q[2] + maxOffset, epsilon = .001, groups = m.geom_group;
-        point.set(q.slice(0, 3)); heightCfg.rayOffset = maxOffset;
-        for (const [i, g] of excluded.entries()) { originalGroups[i] = groups[g]; groups[g] = 5; }
-        try {
-          for (let crossings = 0; crossings <= m.ngeom && point[2] < maxZ; crossings++) {
-            const distance = mj.mj_ray(m, d, point, up, group, true, -1, hit, normal);
-            if (!Number.isFinite(distance) || distance < 0 || point[2] + distance > maxZ) break;
-            if (normal.GetView()[2] < 0) {
-              heightCfg.rayOffset = point[2] + distance - q[2] - epsilon;
-              break;
-            }
-            // An upward-facing exit means the body probe started inside a
-            // solid obstacle. Its exposed top is terrain, not a ceiling.
-            point[2] += distance + epsilon;
-          }
-        } finally { for (const [i, g] of excluded.entries()) groups[g] = originalGroups[i]; }
         sample(q, heights);
         let lowest = Infinity;
         for (const z of heights) if (Number.isFinite(z)) lowest = Math.min(lowest, z);
@@ -143,7 +121,7 @@ export function makeAme2Adapter(makeTerrainSampler) {
         }
         return out;
       };
-      scan.dispose = () => { sample.dispose(); hit.delete(); normal.delete(); };
+      scan.dispose = sample.dispose;
       return scan;
     },
     yawOf,
