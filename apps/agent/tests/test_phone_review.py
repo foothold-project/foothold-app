@@ -382,9 +382,10 @@ def test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it(phy
     assert h.cmd(owner, velocity[0], vy=velocity[1], wz=velocity[2])['applied'] == list(Z)
     assert h.cmd(owner)['applied'] == list(Z)
     h.cmd(owner, 0)
-    for vx in (.2, .4):
+    for vx in (.2, .2999):
         reply = h.cmd(owner, vx)
         assert reply['applied'] == list(Z) and reply['clipped'] and reply['reason']
+    assert h.cmd(owner, .4)['applied'] == [.4, 0, 0]
     assert h.cmd(owner, 1.5)['applied'] == [1.5, 0, 0]
 
 

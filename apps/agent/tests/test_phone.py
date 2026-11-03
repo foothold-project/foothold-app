@@ -334,7 +334,8 @@ def test_phone_limits_never_expand_core_alphabet(physical_h, velocity, expected,
     a, _ = h.moving()
     reply = h.cmd(a, *velocity)
     assert reply['applied'] == list(expected) and reply['clipped'] is clipped
-    assert LIMITS['commands'] == [[0, 0, 0], [1.5, 0, 0], [1.5, 0, -.5], [1.5, 0, .5]]
+    assert LIMITS['commands'] == [[0, 0, 0]] + [[step / 10, 0, turn]
+        for step in range(3, 16) for turn in (0, -.5, .5)]
 
 
 @pytest.mark.parametrize('raw', ['[]', '{}', '{', '{"t":"stop","t":"cmd"}', b'binary',
