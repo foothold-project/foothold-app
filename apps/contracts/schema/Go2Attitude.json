@@ -1,0 +1,40 @@
+{
+  "$id": "fh-app/1/Go2Attitude",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Display-only LowState IMU rpy, radians; invalid axes become unknown.",
+  "properties": {
+    "pitch": {
+      "anyOf": [
+        {
+          "maximum": 3.141592653589793,
+          "minimum": -3.141592653589793,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Pitch"
+    },
+    "roll": {
+      "anyOf": [
+        {
+          "maximum": 3.141592653589793,
+          "minimum": -3.141592653589793,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Roll"
+    }
+  },
+  "required": [
+    "roll",
+    "pitch"
+  ],
+  "title": "Go2Attitude",
+  "type": "object"
+}

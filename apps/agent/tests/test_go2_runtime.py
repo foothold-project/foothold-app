@@ -145,6 +145,8 @@ def test_authenticated_ws_move_stop_feedback_resume_and_outages(env, monkeypatch
                 PhoneState.model_validate(display)
                 assert display['battery']['soc'] == 75 and display['robot_serial'] == '1234-5678'
                 assert display['sensor_age_ms'] <= 200
+                assert display['robot_info'] == dict(source='GO2_DDS', attitude=dict(roll=0., pitch=0.),
+                    error_code=0, fallen=False, fallen_source='imu_tilt_estimate')
                 lease = hub.session.lease_id
                 async def unlock():
                     await until(lambda: hub.session.core.st is not None and
