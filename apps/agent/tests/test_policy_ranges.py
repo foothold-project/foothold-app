@@ -66,12 +66,13 @@ def test_only_exact_true_selects_simulation_projection(simulation):
         assert project_velocity(*velocity, simulation=simulation) == project_velocity(*velocity)
 
 
-@pytest.mark.parametrize('velocity,expected', [((.3, 0, 0), Z),
-    ((1.5, .2, 0), (1.5, 0, 0)), ((.55, 0, 0), Z), ((0, 0, .5), Z)])
+@pytest.mark.parametrize('velocity,expected', [((.3, 0, 0), (.3, 0, 0)),
+    ((1.5, .2, 0), (1.5, 0, 0)), ((.55, 0, 0), (.5, 0, 0)), ((0, 0, .5), Z)])
 def test_physical_hub_forward_ceiling_keeps_other_modes_closed(physical_h, velocity, expected):
     owner, _ = physical_h.moving()
     ack = physical_h.cmd(owner, *velocity)
-    assert ack['applied'] == list(expected) and ack['clipped']
+    assert ack['applied'] == list(expected)
+    assert ack['clipped'] is (velocity != expected)
     assert physical_h.hub.session.core.velocity_projection is quantize_phone
     if expected == Z:
         assert ack['reason']

@@ -50,8 +50,16 @@
 /* 오른쪽 작업 창 */
 .mx-pane{flex:0 0 320px;min-width:0;min-height:0;box-sizing:border-box;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);overflow-y:auto}
 .mx-pane[data-fold]{flex-basis:auto;padding:6px}
-.mx-pane[data-fold]>.mx-fold{writing-mode:vertical-rl;padding:12px 0;min-width:44px}
-.mx-head{flex:none;position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:6px;min-height:52px;box-sizing:border-box;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);background:var(--panel);font-weight:600}
+.mx-pane[data-fold]>.mx-fold{writing-mode:vertical-rl;white-space:nowrap;padding:12px 0;min-width:44px;max-height:100%;overflow:hidden;justify-content:flex-start;gap:6px}
+.mx-fold-txt{text-orientation:sideways;min-height:0;overflow:hidden;text-overflow:ellipsis}   /* «단계 0 · 이름» 한 줄로 눕힘(글자마다 줄바뀌어 보이지 않게), 넘치면 말줄임 — ◂ 는 그대로 */
+.mx-fold-name{font-weight:400;color:var(--muted)}
+.mx-top{flex:none;position:sticky;top:0;z-index:2;background:var(--panel)}   /* 고르기 줄 + 머리 — 창을 굴려도 위에 */
+.mx-pick{display:flex;align-items:center;gap:6px;padding:8px 6px 0 12px;min-width:0}
+.mx-pick .btn{white-space:nowrap}
+.mx-pick>.mx-menu{flex:0 1 auto;min-width:0}
+.mx-pick>.mx-menu>summary{max-width:100%}
+.mx-pick .mx-pop{position:fixed;top:auto;left:auto;right:12px;margin-top:6px}   /* 창(overflow) 밖으로 — 메뉴 바로 아래, 화면 오른쪽에 맞춤. 열 때 top·max-height 는 mapscen.tsx fit 이 단추 위치·남은 화면 높이로 정함 */
+.mx-head{flex:none;display:flex;align-items:center;gap:6px;min-height:52px;box-sizing:border-box;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);background:var(--panel);font-weight:600}
 .mx-head>.fh-grow{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mx-head .btn{padding:0 12px}
 .mx-in{display:flex;flex-direction:column;gap:12px;padding:12px}

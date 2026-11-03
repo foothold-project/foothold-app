@@ -14,7 +14,8 @@ DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 # Physical phone forward ceiling is 1.5 m/s; lateral/turn gates are unchanged.
 # Config may only narrow this explicit alphabet.
-ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (1.5, 0., -.5), (1.5, 0., .5)))
+ALLOWED = frozenset({ZERO} | {(step / 10, 0., wz)
+                            for step in range(3, 16) for wz in (0., -.5, .5)})
 SERVER_ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (-1.5, 0., 0.),
     (0., 1.5, 0.), (0., -1.5, 0.), (0., 0., .5), (0., 0., -.5),
     (1.5, 0., .5), (1.5, 0., -.5)))
