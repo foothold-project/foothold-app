@@ -55,7 +55,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const asyncPolicy = policy.async === true;
   let generation = 0, pending = false;
   let memory = {};
-  const resetPolicyMemory = () => { policy.reset?.(); memory = {}; adapter.reset?.(memory); s.outputs = null; s.gaze = null; };
+  const resetPolicyMemory = () => { policy.reset?.(); memory = {}; adapter.reset?.(memory,s); s.outputs = null; s.gaze = null; };
 
   s.cancelPolicyStep = () => { if (asyncPolicy) { generation++; policy.cancel?.(); } };
 

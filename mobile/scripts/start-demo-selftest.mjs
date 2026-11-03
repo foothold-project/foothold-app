@@ -44,19 +44,25 @@ try {
   for(const [name,values] of Object.entries(times)){values.sort((a,b)=>a-b);report.sensors[name+'Ms']={median:values[20],max:values.at(-1)};}
 }finally{flat.dispose();roof.dispose();wall.dispose();voidScene.dispose();step.dispose();}
 // Counter-valued frames expose the one-frame delay at ticks 0/5/10/15.
-const state={observation:new Float32Array(45),lastAction:new Float32Array(12),M2I:Array.from({length:12},(_,i)=>(i%4)*3+Math.floor(i/4)),d:{qpos:new Float64Array(19),qvel:new Float64Array(18)},angB:[0,0,0],grav:[0,0,-1],startMapMode:'gt',mapping:new Float32Array(512),heightScanner:(_q,out)=>out.fill(-.3),depthScanner:()=>new Float32Array(3600).fill(frame)};
+let captures=0,maps=0;
+const state={t:0,observation:new Float32Array(45),lastAction:new Float32Array(12),M2I:Array.from({length:12},(_,i)=>(i%4)*3+Math.floor(i/4)),d:{qpos:new Float64Array(19),qvel:new Float64Array(18)},angB:[0,0,0],grav:[0,0,-1],startMapMode:'gt',mapping:new Float32Array(512),heightScanner:(_q,out)=>{maps++;return out.fill(-.3);},depthScanner:()=>{captures++;return new Float32Array(3600).fill(frame);}};
 for(let i=0;i<12;i++)state.d.qpos[7+state.M2I[i]]=mode.action.defaultPose[i];
 let memory={},frame=0;mode.reset(memory);
 for(let k=0;k<16;k++){
   frame=Math.floor(k/5);
+  state.t=k*.02;
+  const before=captures;
   const candidate=structuredClone(memory),inputs=mode.observe(state,[k/20,0,0],candidate);
   const retry=mode.observe(state,[k/20,0,0],structuredClone(memory));assert.deepEqual(retry,inputs,'discarded retry does not shift buffers');
-  near(inputs[2][0],Math.max(0,frame-2));near(inputs[2][3600],Math.max(0,frame-1));
+  assert.equal(captures,before+(k===0?1:0),'later captures wait until accepted applyAction; initial capture reused on retry');
+  near(inputs[2][0],Math.max(0,frame-1));near(inputs[2][3600],Math.max(0,frame-2));
   assert.equal(inputs[5][0],k%5===0);assert.equal(inputs[6][0],k===0);
   near(inputs[1][6],k/20);near(inputs[1][51],Math.max(0,(k-1)/20));
   if(k===0)report.jointOrderMax=Math.max(...inputs[0].slice(9,21).map(Math.abs));
   mode.commit(candidate,state);memory=candidate;
 }
+assert.equal(captures,4);assert.equal(maps,16,'retry reuses the exact same physical sensor snapshot');
+mode.reset({},state);assert.equal(state.startSensorCache,null,'reset/STOP invalidates raw samples');
 assert.deepEqual([...mode.act(new Float32Array(12))],[...mode.action.defaultPose]);
 near(mode.act(new Float32Array(12).fill(100))[8],-1.5+.25*17);
 near(mode.torque(100,0,8),45.43);near(mode.torque(100,0,0),23.5);near(mode.torque(100,15.7,8),0);

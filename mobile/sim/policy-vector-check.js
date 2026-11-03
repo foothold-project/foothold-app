@@ -32,13 +32,13 @@ export async function checkPolicyVectors(raw, contract, tv) {
       if (!policy.commit(out) || policy.commit(out)) throw new Error('상태 확정은 행동당 한 번이어야 함');
     }
     policy.reset();
-    const first = contract.inputs.map((spec) => tv.inputs[0][spec.name]);
+    const first = contract.inputs.map((spec) => inputs[0][spec.name]);
     const out = await policy(...first);
     if (maxAbs(out.action, tv.expected[0].action) > tv.tolerance) throw new Error('리셋 상태 오류');
     policy.cancel();
     if (policy.commit(out)) throw new Error('취소 뒤 결과 확정됨');
     times.sort((a,b) => a-b);
-    return { ...error, ...(built ? { observation: { obs45: built.maxObs, hist: built.maxHist } } : {}),
+    return { ...error, ...(built ? { observation: { obs45: built.maxObs, hist: built.maxHist, depth2: built.maxDepth, gt_map: built.maxMap, unusedRecordedMapDiff: built.unusedRecordedMapDiff } } : {}),
       timingMs: { median: times[times.length>>1], max: times.at(-1), deadline: 20, overDeadline: times.filter((x) => x > 20).length } };
   } finally { await policy.dispose(); }
 }

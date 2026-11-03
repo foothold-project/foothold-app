@@ -35,6 +35,15 @@ export function startDemoHistory(previous, obs) {
   hist.set(obs);
   return hist;
 }
+function sensorSample(s, name, sample) {
+  // A rejected Worker result retries the same physical state. Raw sensor
+  // samples may be reused; observation/history/GRU candidates still commit
+  // only in applyAction. Recordings without a simulation clock never cache.
+  if (!Number.isFinite(s.t)) return sample();
+  const key = [s.t,...s.d.qpos.slice(0,7)], previous = s.startSensorCache;
+  if (!previous || !key.every((x,i) => x === previous.key[i])) s.startSensorCache = { key };
+  return s.startSensorCache[name] ??= sample().slice();
+}
 export function makeStartDemoMode(makeTerrainSampler) {
   return {
     id: 'start-demo', label: 'start(시연)', statusLabel: 'start', onnx: START_DEMO_ONNX,
@@ -48,11 +57,11 @@ export function makeStartDemoMode(makeTerrainSampler) {
       return out;
     },
     torque: startDemoTorque,
-    reset(mem) { Object.assign(mem, { step: 0, hist: null, depth2: null, captured: null }); },
+    reset(mem, s) { Object.assign(mem, { step: 0, hist: null, depth2: null, captured: null, capturePending: false }); if (s) s.startSensorCache = null; },
     makeHeightScanner(mj, m, d) { return makeStartDemoMap(mj, m, d, makeTerrainSampler); },
     makeDepthScanner: makeStartDemoDepth,
-    map(s) { return s.heightScanner(s.d.qpos, s.mapping); },
-    depth(s) { return s.depthScanner(s.d.qpos); },
+    map(s) { s.mapping.set(sensorSample(s,'map',() => s.heightScanner(s.d.qpos,s.mapping))); return s.mapping; },
+    depth(s) { return sensorSample(s,'depth',() => s.depthScanner(s.d.qpos)); },
     observe(s, cmd, mem) {
       const obs = s.observation;
       obs.set(s.angB, 0); obs.set(s.grav, 3); obs.set(cmd, 6);
@@ -63,15 +72,24 @@ export function makeStartDemoMode(makeTerrainSampler) {
       mem.hist = startDemoHistory(mem.hist, obs);
       const tick = mem.step % 5 === 0;
       if (tick) {
-        const frame = this.depth(s).slice();
-        if (!mem.depth2) { mem.depth2 = new Float32Array(7200); mem.depth2.set(frame); mem.depth2.set(frame, 3600); }
-        else { mem.depth2.copyWithin(0, 3600); mem.depth2.set(mem.captured, 3600); }
-        mem.captured = frame;
+        if (!mem.depth2) {
+          const frame = this.depth(s).slice();
+          mem.depth2 = new Float32Array(7200); mem.depth2.set(frame); mem.depth2.set(frame, 3600); mem.captured = frame;
+        }
+        // Like hist, the recorded depth pair is newest first: tick 15 = [f10,f5].
+        else { mem.depth2.copyWithin(3600, 0, 3600); mem.depth2.set(mem.captured, 0); }
+        // f(k) is not consumed until tick k+5. Capture after the Worker result
+        // is accepted, still at this observation pose and before any physics.
+        // A rejected result therefore neither captures nor advances a frame.
+        mem.capturePending = mem.step !== 0;
       }
       const useGt = s.startMapMode === 'gt';
       const map = useGt ? this.map(s) : new Float32Array(512);
       return [obs, mem.hist, mem.depth2, new Float32Array(128), new Float32Array(128), [tick], [mem.step === 0], [useGt], map];
     },
-    commit(mem) { mem.step++; },
+    commit(mem,s) {
+      if (mem.capturePending) mem.captured = this.depth(s).slice();
+      mem.capturePending = false; mem.step++;
+    },
   };
 }

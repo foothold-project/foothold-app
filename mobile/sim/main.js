@@ -719,6 +719,7 @@ async function main() {
     $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
   };
   clock = createFrameClock({ dt: POLICY_DT,
+    yieldOnRejected: !!adapter.depth,
     prepare: () => {
       if (runner.active) {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
@@ -738,8 +739,16 @@ async function main() {
   });
   clock.reset();
   function frame(now) {
+    // Account wall time on every RAF, including while inference is pending.
+    // For start, finish due decisions before submitting a new GPU redraw:
+    // SwiftShader work otherwise competes with the 20 ms Worker delivery.
+    // Idle RAFs still refresh lidar and draw; STOP/input events remain live.
+    if (adapter.depth) {
+      clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
+      if (clock.stats.pending) { timingUI(); requestAnimationFrame(frame); return; }
+    }
     if (now - lastScan >= 100) { scan(); lastScan = now; }
-    clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
+    if (!adapter.depth) clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
     timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();
