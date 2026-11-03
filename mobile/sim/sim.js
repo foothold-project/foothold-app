@@ -1,7 +1,9 @@
-// RS-4 공통 핵심(브라우저·Node 같이 씀): MuJoCo Go2 + foothold-v2 순수 JS 추론.
+// RS-4 공통 핵심(브라우저·Node 같이 씀): MuJoCo Go2 + nvidia-demo 순수 JS 추론.
 // Policy contracts live in policy-adapters.js; height observations raycast actual world geometry.
 // 관측·행동 계약은 exp33 src/v2_obs.py 그대로(관측 235, 행동 Isaac 순서, q* = 0.25·a + 기본자세).
-import { getPolicyAdapter } from './policy-adapters.js';
+import { DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
+import { startDemoMapMode } from './start-demo-adapter.js';
+import { createReplaySim } from './go2-replay.js';
 const defaultAdapter = getPolicyAdapter();
 const LEGS = ['FL', 'FR', 'RL', 'RR'], PARTS = ['hip', 'thigh', 'calf'];
 // Legacy exports stay available to the existing measurement scripts.
@@ -11,19 +13,13 @@ export const DEFAULT_I = defaultAdapter.action.defaultPose;
 export const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = defaultAdapter.timing;
 export const MENAGERIE = { damping: 2, frictionloss: 0.2, armature: 0.01, footFriction: 0.8, footSpin: true };
 export const ISAAC_LIKE = { ...MENAGERIE, damping: 0, frictionloss: 0, footSpin: false };
-export const loadPolicy = (buf, adapterId = 'foothold-v2', manifest) => getPolicyAdapter(adapterId).loadPolicy(buf, manifest);
+export const loadPolicy = (buf, adapterId = DEFAULT_POLICY_ID, manifest) => getPolicyAdapter(adapterId).loadPolicy(buf, manifest);
 
-// DCMotor(IsaacLab): 속도에 따라 줄어드는 토크 한도, 그 위 effort_limit 로 자름
-function dcmotor(tau, dq, { effort: EFFORT, velocityLimit: VEL_LIM }) {
-  const hi = Math.min(Math.max(EFFORT * (1 - dq / VEL_LIM), 0), EFFORT);
-  const lo = Math.max(Math.min(EFFORT * (-1 - dq / VEL_LIM), 0), -EFFORT);
-  return Math.min(Math.max(tau, lo), hi);
-}
-
-export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = 'foothold-v2', { ame2DelaySteps = null } = {}) {
+export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = DEFAULT_POLICY_ID, { ame2DelaySteps = 0, startMapMode = 'gt' } = {}) {
   const adapter = getPolicyAdapter(adapterId);
+  if (adapter.command.kind === 'none') return createReplaySim(mj, xmlPath, world);
   const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = adapter.timing;
-  const { joints: ISAAC_J, defaultPose: DEFAULT_I, scale: ACTION_SCALE, kp: KP, kd: KD } = adapter.action;
+  const { joints: ISAAC_J, defaultPose: DEFAULT_I, kp: KP, kd: KD } = adapter.action;
   const F = world.floorZ, [SX, SY, SYAW] = world.spawn;
   const m = mj.MjModel.from_xml_path(xmlPath), d = new mj.MjData(m);
   m.opt.timestep = PHYS_DT;
@@ -43,7 +39,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     for (let i = 0; i < 12; i++) {
       // All twelve XML motors have gear=1 and the same ordering as MJ_J.
       const j = m.actuator_trnid[i * 2];
-      if (j !== jid(MJ_J[i]) || m.actuator_gear[i * 6] !== 1) throw new Error('AME-2 모터 배치/기어 불일치');
+      if (j !== jid(MJ_J[i]) || m.actuator_gear[i * 6] !== 1) throw new Error('정책 모터 배치/기어 불일치');
       m.actuator_ctrllimited[i] = 0; m.actuator_forcelimited[i] = 0;
       m.jnt_actfrclimited[j] = 0;
     }
@@ -52,11 +48,16 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const sampleHeight = adapter.makeHeightScanner(mj, m, d, world);
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
   const actionDelay = adapter.makeActionDelay?.(MJ_J.map((_, i) => DEFAULT_I[I2M[i]]), ame2DelaySteps);
-  const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], policyMs: 0, physMs: 0, I2M, M2I };
+  const s = { m, d, adapterId: adapter.id, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], policyMs: 0, physMs: 0, I2M, M2I };
+  s.heightScanner = sampleHeight; s.observation = obs; s.lastAction = last;
+  if (adapter.depth) { s.startMapMode = startDemoMapMode(startMapMode); s.depthScanner = adapter.makeDepthScanner(mj,m,d); }
+  const actionTargets = new Float64Array(adapter.action.size);
   // Any ONNX policy may await inference. Invalidate its result synchronously on
   // STOP/reset/dispose, and never queue a second inference or physics tick.
   const asyncPolicy = policy.async === true;
   let generation = 0, pending = false;
+  let memory = {};
+  const resetPolicyMemory = () => { policy.reset?.(); memory = {}; adapter.reset?.(memory,s); s.outputs = null; s.gaze = null; };
 
   s.cancelPolicyStep = () => { if (asyncPolicy) { generation++; policy.cancel?.(); } };
 
@@ -66,6 +67,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     s.cmd = adapter.stop.input.slice(); last.fill(0);
     for (let i = 0; i < 12; i++) tgt[i] = DEFAULT_I[I2M[i]];
     actionDelay?.clear();
+    resetPolicyMemory();
   };
   s.mapping = adapter.observations.mappingSize ? new Float32Array(adapter.observations.mappingSize) : null;
   s.reset = () => {
@@ -74,8 +76,9 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     const q = d.qpos, v = d.qvel;
     q[0] = SX; q[1] = SY; q[2] = F + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 바닥 위 0.4
     for (let i = 0; i < 12; i++) { q[7 + i] = DEFAULT_I[I2M[i]]; tgt[i] = DEFAULT_I[I2M[i]]; }
-    if (adapter.stop.pause) s.clearPolicyState();
+    if (adapter.command.kind === 'nearby_goal') s.cmd = adapter.stop.input.slice();
     actionDelay?.reset();
+    resetPolicyMemory();
     v.fill(0); last.fill(0); s.t = 0;
     mj.mj_forward(m, d);
     state();
@@ -98,40 +101,48 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   s.step = () => {
     if (asyncPolicy && pending) return false;
     const t0 = performance.now();
-    adapter.observe(obs, s, last, sampleHeight);
+    const candidate = structuredClone(memory);
+    const inputs = adapter.observe(s, s.cmd, candidate);
     if (asyncPolicy) {
       const gen = generation;
       pending = true;
-      return Promise.resolve().then(() => policy(obs, s.mapping)).then((a) => {
+      return Promise.resolve().then(() => policy(...inputs)).then((a) => {
         if (gen !== generation || !a) return false;
-        applyAction(a, t0);
-        return true;
+        return applyAction(a, t0, candidate);
       }).finally(() => { pending = false; });
     }
-    const a = policy(obs, s.mapping);
-    applyAction(a, t0);
+    const a = policy(...inputs);
+    applyAction(a, t0, candidate);
   };
-  function applyAction(a, t0) {
-    if (adapter.action.targetClip && (a.length !== 12 || !a.every(Number.isFinite))) throw new Error('AME-2 행동 크기/유한값 오류');
+  function applyAction(result, t0, candidate) {
+    const a = result[adapter.onnx?.action ?? 'action'] ?? result;
+    if (a.length !== 12 || !a.every(Number.isFinite)) throw new Error('정책 행동 크기/유한값 오류');
+    if (policy.commit && !policy.commit(result)) return false;
+    memory = candidate;
+    adapter.commit?.(memory, s, result);
+    s.outputs = result.action ? result : { action: a };
+    if (s.outputs.gaze_r) s.gaze = { ox: Math.max(0, Math.min(17, Math.round(s.outputs.gaze_r[0] * 17))), oy: Math.max(0, Math.min(3, Math.round(s.outputs.gaze_r[1] * 3))) };
     last.set(a);
-    for (let i = 0; i < 12; i++) tgt[i] = adapter.action.targetClip ? Math.max(-adapter.action.targetClip, Math.min(adapter.action.targetClip, a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]])) : a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]];
+    adapter.act(a, actionTargets);
+    for (let i = 0; i < 12; i++) tgt[i] = actionTargets[I2M[i]];
     const t1 = performance.now();
     for (let k = 0; k < DECIM; k++) s.physStep();
     s.policyMs = t1 - t0; s.physMs = performance.now() - t1;
     s.t += POLICY_DT;
     state();
+    return true;
   }
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;
     const applied = actionDelay ? actionDelay.apply(tgt) : tgt;
     for (let i = 0; i < 12; i++) {
       const torque = KP * (applied[i] - q[7 + i]) - KD * v[6 + i];
-      u[i] = adapter.action.torque ? adapter.action.torque(torque, v[6 + i], I2M[i]) : dcmotor(torque, v[6 + i], adapter.action);
+      u[i] = adapter.torque(torque, v[6 + i], I2M[i]);
     }
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { s.cancelPolicyStep(); sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { s.cancelPolicyStep(); s.depthScanner?.dispose(); sampleHeight.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }

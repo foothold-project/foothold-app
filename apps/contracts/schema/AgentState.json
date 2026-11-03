@@ -428,6 +428,129 @@
       "title": "Go2Attitude",
       "type": "object"
     },
+    "Go2Joints": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "names": {
+          "items": {
+            "enum": [
+              "FR_hip_joint",
+              "FR_thigh_joint",
+              "FR_calf_joint",
+              "FL_hip_joint",
+              "FL_thigh_joint",
+              "FL_calf_joint",
+              "RR_hip_joint",
+              "RR_thigh_joint",
+              "RR_calf_joint",
+              "RL_hip_joint",
+              "RL_thigh_joint",
+              "RL_calf_joint"
+            ],
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Names",
+          "type": "array"
+        },
+        "positions": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Positions",
+          "type": "array"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "received_at",
+        "age_s",
+        "names",
+        "positions"
+      ],
+      "title": "Go2Joints",
+      "type": "object"
+    },
+    "Go2Position": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "origin": {
+          "const": "BOOT_ORIGIN_UNVERIFIED",
+          "title": "Origin",
+          "type": "string"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "xyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Xyz",
+          "type": "array"
+        }
+      },
+      "required": [
+        "received_at",
+        "age_s",
+        "xyz",
+        "origin"
+      ],
+      "title": "Go2Position",
+      "type": "object"
+    },
+    "Go2Quaternion": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "wxyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Wxyz",
+          "type": "array"
+        }
+      },
+      "required": [
+        "received_at",
+        "age_s",
+        "wxyz"
+      ],
+      "title": "Go2Quaternion",
+      "type": "object"
+    },
     "Go2RobotInfo": {
       "additionalProperties": false,
       "description": "Readout only; never an input to STOP, lease, readiness or accepted codes.",
@@ -464,6 +587,39 @@
           "const": "imu_tilt_estimate",
           "title": "Fallen Source",
           "type": "string"
+        },
+        "joints": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2Joints"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2Position"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "quaternion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2Quaternion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "source": {
           "const": "GO2_DDS",

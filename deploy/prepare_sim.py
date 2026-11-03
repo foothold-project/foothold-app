@@ -11,13 +11,16 @@ import sys
 
 # Public provenance records identify the approved exports, not local filenames.
 POLICY_SHA = "da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c"
+# Optional JS fallback remains the same m14999 export; the new ONNX is independent.
 AME2_SHA = {
     "ame2_actor.f32": "28edbc05169b817044c600d90cc081bb797ae56c5b8400b8ffebf648410d26a0",
     "ame2_actor.json": "92ddf3db0b36582b72d9e136e2749a2edf21dbc4156875ecf603c36dc3711fe7",
 }
 # docs/AME2-PROVENANCE.md and docs/POLICY-PROVENANCE.md, FP32 ONNX exports.
 ONNX_SHA = {
-    "ame2_actor.onnx": "398acb0c73369e84946a34c0109bca1edd0560cc14ee286fd36b9caf7e2da69b",
+    "start-demo_map_on.onnx": "81c7e079516058ee6243f6edd11efa8f0da239c6cc86fbca791bda5bcd82f110",
+    "start-demo_map_off.onnx": "5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037",
+    "ame2-demo.onnx": "830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6",
     "policy_v2.onnx": "c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2",
 }
 # onnxruntime-web 1.31.1, the same WASM-only files as mobile/scripts/sync-web.mjs.
@@ -136,7 +139,8 @@ def copy_simulator(source, private, target):
             destination.chmod(0o644)
         except (FileNotFoundError, SimulatorUnavailable):
             destination.unlink(missing_ok=True)
-            print(f"WARNING: {name} absent or SHA-256 differs from provenance; retaining f32 fallback.", file=sys.stderr)
+            detail = "start mode unavailable (no f32 fallback)" if name.startswith("start-demo_") else "retaining f32 fallback"
+            print(f"WARNING: {name} absent or SHA-256 differs from provenance; {detail}.", file=sys.stderr)
     ort = target / "ort"
     if ort.exists():
         shutil.rmtree(ort)
@@ -153,7 +157,7 @@ def copy_simulator(source, private, target):
             shutil.rmtree(ort)
         print("WARNING: ONNX runtime absent/incomplete or SHA-256 differs from provenance; retaining f32 fallback.", file=sys.stderr)
     if not ame2_present:
-        print("WARNING: AME-2 assets absent/incomplete; its existing selector stays disabled.", file=sys.stderr)
+        print("WARNING: AME-2 assets absent/incomplete; ONNX availability controls selection; f32 fallback not prepared.", file=sys.stderr)
     print("Prepared /sim/index.html?from=web (existing MuJoCo runtime and verified policies).")
     return True
 

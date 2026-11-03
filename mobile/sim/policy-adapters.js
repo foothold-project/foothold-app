@@ -1,75 +1,92 @@
-// Policy contract: observations, network, action conversion, timing and neutral input.
-// START remains undefined; AME-2 is an opt-in simulation demonstration.
+// Policy observation/network contracts and low-level terrain sampling.
+// Selection is owned by policy-modes.js; the factory avoids eager cyclic reads.
 import { makeAme2Adapter } from './ame2-adapter.js';
-const legs = ['FL', 'FR', 'RL', 'RR'], parts = ['hip', 'thigh', 'calf'];
-const isaacJoints = parts.flatMap((p) => legs.map((l) => `${l}_${p}_joint`));
-const defaultPose = Float64Array.from(isaacJoints, (n) =>
-  n.includes('_hip') ? (n[1] === 'L' ? 0.1 : -0.1) : n.includes('_thigh') ? (n[0] === 'F' ? 0.8 : 1.0) : -1.5);
-const clip = (v) => Math.min(Math.max(v, -1), 1);
-// Isaac Lab grid_pattern(ordering='xy'): meshgrid(x,y,indexing='xy').flatten(), x fastest.
-const grid = Array.from({ length: 187 }, (_, i) => [(i % 17 - 8) * 0.1, (Math.floor(i / 17) - 5) * 0.1]);
+import { MODE_COMMAND_CAPS } from './manual-settings.js';
+export { getPolicyMode as getPolicyAdapter, POLICY_ADAPTERS } from './policy-modes.js';
 
-const footholdV2 = {
-  id: 'foothold-v2',
-  onnx: { file: 'policy_v2.onnx', sha256: 'c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2',
-    inputs: [{ name: 'observation', dims: [1, 235] }],
-    outputs: [{ name: 'action', dims: [1, 12] }], action: 'action' },
-  observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
-    dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
-    units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
-    // Training scans only ground from +20 m. Here world geometry includes ceilings:
-    // clip(base_z - hit_z - 0.5, +/-1) reaches -1 at base_z + 0.5;
-    // start 1 mm above that boundary to avoid rounding away boundary hits.
-    height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 0.501, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0 } },
-  network: { file: 'policy_v2.f32', sha256: 'da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c',
-    format: 'float32 LE, row-major weight then bias per layer', shapes: [[512, 235], [256, 512], [128, 256], [12, 128]], activation: 'ELU(1), linear output' },
-  action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
-  timing: { physicsDt: 0.005, decimation: 4, policyDt: 0.02 },
-  command: { kind: 'body_velocity', axes: ['vx', 'vy', 'wz'], trainingRanges: [[0.4, 1.5], [0, 0], [-1, 1]],
-    joystickScale: [1.5, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
-  stop: { input: [0, 0, 0], commandZero: 'continue policy with zero velocity input', lock: 'existing UI STOP latch; human resume required' },
-  loadPolicy(buf) {
-    const f = new Float32Array(buf), layers = [];
-    let o = 0;
-    for (const [r, c] of this.network.shapes) { layers.push([f.subarray(o, o + r * c), f.subarray(o + r * c, o + r * c + r), r, c]); o += r * c + r; }
-    if (o !== f.length) throw new Error(`가중치 길이 ${f.length} ≠ ${o}`);
-    const outputs = this.network.shapes.map(([r]) => new Float32Array(r));
-    return (x) => {
-      let h = x;
-      layers.forEach(([w, b, r, c], k) => {
-        const y = outputs[k];
-        for (let i = 0; i < r; i++) {
-          let s = b[i];
-          for (let j = 0; j < c; j++) s += w[i * c + j] * h[j];
-          y[i] = k < layers.length - 1 ? (s > 0 ? s : Math.expm1(s)) : s;
+export function createPolicyModeAdapters() {
+  const legs = ['FL', 'FR', 'RL', 'RR'], parts = ['hip', 'thigh', 'calf'];
+  const isaacJoints = parts.flatMap((p) => legs.map((l) => `${l}_${p}_joint`));
+  const defaultPose = Float64Array.from(isaacJoints, (n) =>
+    n.includes('_hip') ? (n[1] === 'L' ? 0.1 : -0.1) : n.includes('_thigh') ? (n[0] === 'F' ? 0.8 : 1.0) : -1.5);
+  const clip = (v) => Math.min(Math.max(v, -1), 1);
+  // Isaac Lab grid_pattern(ordering='xy'): meshgrid(x,y,indexing='xy').flatten(), x fastest.
+  const grid = Array.from({ length: 187 }, (_, i) => [(i % 17 - 8) * 0.1, (Math.floor(i / 17) - 5) * 0.1]);
+
+  const nvidiaDemoMode = {
+    id: 'nvidia-demo', label: 'nvidia-demo',
+    onnx: { file: 'policy_v2.onnx', sha256: 'c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2',
+      inputs: [{ name: 'observation', dims: [1, 235] }],
+      outputs: [{ name: 'action', dims: [1, 12] }], action: 'action' },
+    observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
+      dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
+      units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
+      // Training scans only ground from +20 m. Here world geometry includes ceilings:
+      // clip(base_z - hit_z - 0.5, +/-1) reaches -1 at base_z + 0.5;
+      // start 1 mm above that boundary to avoid rounding away boundary hits.
+      height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 0.501, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0 } },
+    network: { file: 'policy_v2.f32', sha256: 'da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c',
+      format: 'float32 LE, row-major weight then bias per layer', shapes: [[512, 235], [256, 512], [128, 256], [12, 128]], activation: 'ELU(1), linear output' },
+    action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
+    timing: { physicsDt: 0.005, decimation: 4, policyDt: 0.02 },
+    command: { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.nvidia, axes: ['vx', 'vy', 'wz'], trainingRanges: [[0.4, 1.5], [0, 0], [-1, 1]],
+      joystickScale: [1.5, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
+    stop: { input: [0, 0, 0], commandZero: 'continue policy with zero velocity input', lock: 'existing UI STOP latch; human resume required' },
+    loadPolicy(buf) {
+      const f = new Float32Array(buf), layers = [];
+      let o = 0;
+      for (const [r, c] of this.network.shapes) { layers.push([f.subarray(o, o + r * c), f.subarray(o + r * c, o + r * c + r), r, c]); o += r * c + r; }
+      if (o !== f.length) throw new Error(`가중치 길이 ${f.length} ≠ ${o}`);
+      const outputs = this.network.shapes.map(([r]) => new Float32Array(r));
+      return (x) => {
+        let h = x;
+        layers.forEach(([w, b, r, c], k) => {
+          const y = outputs[k];
+          for (let i = 0; i < r; i++) {
+            let s = b[i];
+            for (let j = 0; j < c; j++) s += w[i * c + j] * h[j];
+            y[i] = k < layers.length - 1 ? (s > 0 ? s : Math.expm1(s)) : s;
+          }
+          h = y;
+        });
+        return h;
+      };
+    },
+    observeInto(obs, s, last, sampleHeight) {
+      const { qpos: q, qvel: v } = s.d;
+      obs.set(s.linB, 0); obs.set(s.angB, 3); obs.set(s.grav, 6); obs.set(s.cmd, 9);
+      for (let i = 0; i < this.action.size; i++) { const j = s.M2I[i]; obs[12 + i] = q[7 + j] - defaultPose[i]; obs[24 + i] = v[6 + j]; }
+      obs.set(last, 36);
+      this.map(s, obs, sampleHeight);
+    },
+    makeHeightScanner(mj, m, d) {
+      const cfg = this.observations.height, sample = makeTerrainSampler(mj, m, d, cfg);
+      const heights = new Float64Array(cfg.grid.length);
+      const scan = (q, out, offset = 0) => {
+        sample(q, heights);
+        for (let i = 0; i < heights.length; i++) {
+          const height = q[2] - heights[i] - cfg.offset;
+          out[offset + i] = Number.isFinite(height) ? clip(height) : cfg.missValue;
         }
-        h = y;
-      });
-      return h;
-    };
-  },
-  observe(obs, s, last, sampleHeight) {
-    const { qpos: q, qvel: v } = s.d;
-    obs.set(s.linB, 0); obs.set(s.angB, 3); obs.set(s.grav, 6); obs.set(s.cmd, 9);
-    for (let i = 0; i < this.action.size; i++) { const j = s.M2I[i]; obs[12 + i] = q[7 + j] - defaultPose[i]; obs[24 + i] = v[6 + j]; }
-    obs.set(last, 36);
-    sampleHeight(q, obs, this.observations.bodySize);
-  },
-  makeHeightScanner(mj, m, d) {
-    const cfg = this.observations.height, sample = makeTerrainSampler(mj, m, d, cfg);
-    const heights = new Float64Array(cfg.grid.length);
-    const scan = (q, out, offset = 0) => {
-      sample(q, heights);
-      for (let i = 0; i < heights.length; i++) {
-        const height = q[2] - heights[i] - cfg.offset;
-        out[offset + i] = Number.isFinite(height) ? clip(height) : cfg.missValue;
-      }
-      return out;
-    };
-    scan.dispose = sample.dispose;
-    return scan;
-  },
-};
+        return out;
+      };
+      scan.dispose = sample.dispose;
+      return scan;
+    },
+    map(s, obs = s.observation, sampleHeight = s.heightScanner) {
+      sampleHeight(s.d.qpos, obs, this.observations.bodySize);
+      return obs.subarray(this.observations.bodySize);
+    },
+  };
+  const ame2DemoMode = makeAme2Adapter(makeTerrainSampler);
+  ame2DemoMode.onnx = {
+    file: 'ame2-demo.onnx', sha256: '830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6',
+    inputs: [{ name: 'prop', dims: [1, 49], type: 'float32' }, { name: 'mapping', dims: [1, 29, 13, 3], type: 'float32' }],
+    outputs: [{ name: 'action', dims: [1, 12], type: 'float32' }, { name: 'gaze_r', dims: [1, 2], type: 'float32' }],
+    action: 'action', state: [],
+  };
+  return { nvidia: nvidiaDemoMode, ame2: ame2DemoMode };
+}
 
 export function makeTerrainSampler(mj, m, d, cfg) {
   const hit = new mj.IntBuffer(1), group = [1, 1, 0, 0, 1, 0], down = [0, 0, -1];
@@ -94,6 +111,27 @@ export function makeTerrainSampler(mj, m, d, cfg) {
   const terrain = batched ? Array.from({ length: m.ngeom }, (_, g) => g)
     .filter((g) => body[g] === 0 && (contype[g] || affinity[g]))
     .map((g) => ({ g, pos: new Float64Array(3), mat: new Float64Array(9), size: new Float64Array(3) })) : [];
+  const meshTriangles = (geom) => {
+    const transform = [...geom.pos,...geom.mat];
+    if (geom.transform?.every((x,i) => x === transform[i])) return geom.triangles;
+    geom.transform = transform;
+    const id = m.geom_dataid[geom.g], va = m.mesh_vertadr[id], fa = m.mesh_faceadr[id], vn = m.mesh_vertnum[id], fn = m.mesh_facenum[id];
+    const vertices = m.mesh_vert, faces = m.mesh_face, world = new Float64Array(vn*3), R = geom.mat, p = geom.pos;
+    for (let i=0;i<vn;i++) for (let axis=0;axis<3;axis++) {
+      const t=axis*3, v=(va+i)*3;
+      world[i*3+axis]=p[axis]+R[t]*vertices[v]+R[t+1]*vertices[v+1]+R[t+2]*vertices[v+2];
+    }
+    const triangles=[];
+    for (let i=0;i<fn;i++) {
+      const a=faces[(fa+i)*3]*3,b=faces[(fa+i)*3+1]*3,c=faces[(fa+i)*3+2]*3;
+      const ax=world[a]-world[c],ay=world[a+1]-world[c+1],bx=world[b]-world[c],by=world[b+1]-world[c+1],det=ax*by-ay*bx;
+      // Vertical faces cannot meet a vertical ray except at an edge; edge
+      // queries below retain native evaluation. No height approximation.
+      if (Math.abs(det)<1e-15) continue;
+      triangles.push({cx:world[c],cy:world[c+1],cz:world[c+2],az:world[a+2]-world[c+2],bz:world[b+2]-world[c+2],ax,ay,bx,by,det});
+    }
+    return geom.triangles=triangles;
+  };
   const scan = (q, out) => {
     const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
     const c = Math.cos(yaw), s = Math.sin(yaw), z = q[2] + cfg.rayOffset;
@@ -141,9 +179,10 @@ export function makeTerrainSampler(mj, m, d, cfg) {
           // Bounds only reject; all accepted rays use native geometry.
           // Planes can be infinite, so they always reach the native intersection.
           if (type !== 0 && (gx + rx < minX || gx - rx > maxX || gy + ry < minY || gy - ry > maxY || bottom > z || (upward && top <= q[2] + cfg.overheadClearance))) continue;
-          if ((type > 1 && type < 7) || type === 0) {
+          if ((type > 1 && type < 7) || type === 0 || (cfg.fastVertical && type === 7)) {
             geom.pos.set(pos.subarray(3 * g, 3 * g + 3)); geom.mat.set(mat.subarray(9 * g, 9 * g + 9)); geom.size.set(size.subarray(3 * g, 3 * g + 3));
           }
+          const triangles = cfg.fastVertical && type === 7 ? meshTriangles(geom) : null;
           // A horizontal box underside has the same intersection height at all
           // interior cells. Confirm it with one native upward ray, then reuse
           // that hit only inside this box; edges still use the native ray.
@@ -162,7 +201,35 @@ export function makeTerrainSampler(mj, m, d, cfg) {
               if (lx > geom.size[0] + 1e-10 || ly > geom.size[1] + 1e-10) continue;
               cached = flatDistance !== undefined && lx < geom.size[0] - 1e-10 && ly < geom.size[1] - 1e-10;
             }
-            let distance = cached ? flatDistance : type === 7 ? mj.mj_rayMesh(m, d, g, point, direction, surfaceNormal)
+            let distance;
+            const t = geom.mat, p = geom.pos, sz = geom.size;
+            if (triangles) {
+              distance = -1;
+              const skipped = upward ? [] : null;
+              for (const f of triangles) {
+                const dx = point[0]-f.cx, dy = point[1]-f.cy, u = (dx*f.by-dy*f.bx)/f.det, v = (f.ax*dy-f.ay*dx)/f.det;
+                if (u < -1e-10 || v < -1e-10 || u+v > 1+1e-10) continue;
+                if (Math.min(Math.abs(u),Math.abs(v),Math.abs(1-u-v)) < 1e-10) { distance = mj.mj_rayMesh(m,d,g,point,direction,surfaceNormal); break; }
+                const height = f.cz+u*f.az+v*f.bz, rayDistance = upward ? height-point[2] : point[2]-height;
+                // The same cached triangle heights accelerate upward rays.
+                // Skip low treads and exits; retain native stepping for faces
+                // closer than its 1mm traversal epsilon or at triangle edges.
+                if (upward && (f.det >= 0 || rayDistance <= cfg.overheadClearance)) { if (rayDistance >= 0) skipped.push(rayDistance); continue; }
+                if (rayDistance >= 0 && (distance < 0 || rayDistance < distance)) {
+                  distance = rayDistance;
+                  if (surfaceNormal) surfaceNormal.GetView()[2] = Math.sign(f.det);
+                }
+              }
+              if (upward && distance >= 0 && skipped.some((x) => x < distance && distance-x <= .001)) distance = mj.mj_rayMesh(m,d,g,point,direction,surfaceNormal);
+            } else if (!upward && cfg.fastVertical && (type === 0 || type === 6) && t[2] === 0 && t[5] === 0 && t[6] === 0 && t[7] === 0 && t[8] === 1) {
+              // Keep #270's exact start-only fast intersections, using each
+              // cell's capped origin and preserving the exit sign for B1.
+              const dx = point[0]-p[0], dy = point[1]-p[1], dz = point[2]-p[2];
+              const x = t[0]*dx+t[3]*dy, y = t[1]*dx+t[4]*dy;
+              if (type === 0) distance = dz >= 0 && (sz[0] <= 0 || Math.abs(x) <= sz[0]) && (sz[1] <= 0 || Math.abs(y) <= sz[1]) ? dz : -1;
+              else distance = Math.abs(x) <= sz[0] && Math.abs(y) <= sz[1] && dz >= -sz[2] ? (dz >= sz[2] ? dz-sz[2] : dz+sz[2]) : -1;
+              if (surfaceNormal && distance >= 0) surfaceNormal.GetView()[2] = type === 0 || dz >= sz[2] ? 1 : -1;
+            } else distance = cached ? flatDistance : type === 7 ? mj.mj_rayMesh(m, d, g, point, direction, surfaceNormal)
               : type === 1 ? mj.mj_rayHfield(m, d, g, point, direction, surfaceNormal)
                 : mj.mju_rayGeom(geom.pos, geom.mat, geom.size, point, direction, type, surfaceNormal);
             // A mesh can contain several disconnected plates. Continue past a
@@ -253,16 +320,4 @@ export function makeTerrainSampler(mj, m, d, cfg) {
   };
   scan.dispose = () => { hit.delete(); normal?.delete(); };
   return scan;
-}
-
-const ame2 = makeAme2Adapter(makeTerrainSampler);
-ame2.onnx = { file: 'ame2_actor.onnx', sha256: '398acb0c73369e84946a34c0109bca1edd0560cc14ee286fd36b9caf7e2da69b',
-  inputs: [{ name: 'prop', dims: [1, 49] }, { name: 'mapping', dims: [1, 29, 13, 3] }],
-  outputs: [{ name: 'action', dims: [1, 12] }, { name: 'offsets', dims: [1, 2], type: 'int64' },
-    { name: 'gaze_logits', dims: [1, 2] }], action: 'action' };
-export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2, 'ame2-demo': ame2 });
-export function getPolicyAdapter(id = 'foothold-v2') {
-  const adapter = Object.hasOwn(POLICY_ADAPTERS, id) && POLICY_ADAPTERS[id];
-  if (!adapter) throw new Error(`알 수 없는 정책 어댑터: ${id}`);
-  return adapter;
 }

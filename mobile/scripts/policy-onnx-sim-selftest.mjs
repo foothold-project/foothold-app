@@ -22,7 +22,7 @@ try {
   console.log(JSON.stringify(result.records.map(({ trajectories, ...summary }) => summary)));
 } finally { await onnx.dispose(); }
 mj.FS.writeFile('/go2/flat.xml', '<mujoco><include file="go2.xml"/><worldbody><geom type="plane" size="10 10 .01"/></worldbody></mujoco>');
-for (const id of ['foothold-v2', 'ame2-demo']) {
+for (const id of ['nvidia-demo', 'ame2-demo']) {
   let complete, calls = 0;
   const delayed = () => { calls++; return new Promise((r) => { complete = r; }); }; delayed.async = true;
   const sim = createSim(mj, '/go2/flat.xml', ISAAC_LIKE, delayed, undefined, id, { ame2DelaySteps: 4 });

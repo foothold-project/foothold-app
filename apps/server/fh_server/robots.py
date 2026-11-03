@@ -46,6 +46,15 @@ def live_state(realtime, rid):
     online = peer is not None and not peer.closing
     fresh = online and realtime.clock() - peer.state_received_at <= 3
     state = dict(peer.state) if fresh else {}
+    # Display-only sample age: add time in our memory without comparing the
+    # robot host's wall clock with the browser clock or refreshing its stamp.
+    info = state.get('robot_info')
+    if info is not None:
+        info = dict(info)
+        for key in ('joints', 'quaternion', 'position'):
+            if info.get(key) is not None:
+                info[key] = {**info[key], 'age_s': info[key]['age_s'] + max(0, realtime.clock() - peer.state_received_at)}
+        state['robot_info'] = info
     location = state.get('location')
     if location and location.get('floor_context'):
         from datetime import datetime

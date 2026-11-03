@@ -12,7 +12,7 @@ const server = createServer((req, res) => {
   if (!file.startsWith(root + sep)) { res.writeHead(403); res.end(); return; }
   try {
     const body = readFileSync(file);
-    res.setHeader('Content-Type', ({ '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.html': 'text/html', '.css': 'text/css', '.png': 'image/png' })[extname(file)] ?? 'application/octet-stream');
+    res.setHeader('Content-Type', ({ '.mjs': 'text/javascript', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.html': 'text/html', '.css': 'text/css', '.png': 'image/png' })[extname(file)] ?? 'application/octet-stream');
     res.end(body);
   } catch { res.writeHead(404); res.end(); }
 });
@@ -22,17 +22,31 @@ try {
   browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader'] });
   const page = await browser.newPage({ hasTouch: true });   // 터치 기기 = 조이스틱(컴퓨터는 키 — sim-keys-selftest)
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
-  const url = `http://127.0.0.1:${server.address().port}/sim/index.html?map=warehouse`;
+  const url = `http://127.0.0.1:${server.address().port}/sim/index.html?map=warehouse&policyBackend=wasm`;
+  await page.route('**/ame2-demo.onnx', (route) => route.fulfill({ status: 404, body: 'missing' }));
+  await page.goto(url + '&policy=ame2-demo');
+  await page.waitForFunction(() => window.__sim?.ready);
+  assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'ame2-demo');
+  assert.equal(await page.locator('#policySelect option[value="ame2-demo"]').isDisabled(), false);
+  assert.match(await page.locator('#policyEngine').textContent(), /AME-2 · JS f32 되돌림 중 · ONNX 파일 없음/);
+  assert.ok(await page.locator('#policyEngine').isVisible());
+  await page.unroute('**/ame2-demo.onnx');
   await page.route('**/ame2_actor*', (route) => route.fulfill({ status: 404, body: 'missing' }));
   await page.goto(url + '&policy=ame2-demo');
   await page.waitForFunction(() => window.__sim?.ready);
-  assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'foothold-v2');
-  assert.equal(await page.locator('#policySelect option[value="ame2-demo"]').isDisabled(), true);
-  assert.match(await page.locator('#policyReason').textContent(), /가중치 파일 또는 배치표 없음/);
+  assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'ame2-demo');
+  assert.match(await page.locator('#policyEngine').textContent(), /ONNX WASM/);
+  assert.equal(await page.locator('#policySelect option[value="ame2-demo"]').isDisabled(), false);
+  await page.route('**/ame2-demo.onnx', (route) => route.fulfill({ contentType: 'text/html', body: '<html>SPA</html>' }));
+  await page.goto(url + '&policy=ame2-demo');
+  await page.waitForFunction(() => window.__sim?.err);
+  assert.match(await page.locator('#policyEngine').textContent(), /AME-2 · 정책 잠금 · ONNX 파일 없음/);
+  assert.equal(await page.evaluate(() => __sim.ready), false);
+  await page.unroute('**/ame2-demo.onnx');
   await page.unroute('**/ame2_actor*');
   await page.goto(url);
   await page.waitForFunction(() => window.__sim?.ready);
-  assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'foothold-v2');
+  assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'nvidia-demo');
   await page.click('#scenarioMenu');
   await page.selectOption('#policySelect', 'ame2-demo');
   await page.waitForURL('**policy=ame2-demo');
@@ -89,7 +103,14 @@ try {
   await page.dispatchEvent('#stop', 'pointerdown');
   assert.equal(await page.evaluate(() => __sim.sim.mapping.every(Number.isFinite)), true);
   assert.deepEqual(errors, []);
-  console.log('AME-2 headless UI PASS: absent model disabled/fallback, default unchanged, select/reload locked, joystick goal, STOP clears/pauses, lifecycle locks/no auto-resume, no page errors');
+  if (process.argv.includes('--default')) {
+    for (const id of ['nvidia-demo', 'ame2-demo']) {
+      await page.goto(url.replace('&policyBackend=wasm', '') + '&policy=' + id);
+      await page.waitForFunction(() => window.__sim?.ready);
+      assert.match(await page.locator('#policyEngine').textContent(), /ONNX WASM/);
+    }
+  }
+  console.log('AME-2 headless UI PASS: ONNX absence/f32 fallback reason, ONNX without f32, both absent locked, optional ONNX default, select/reload locked, joystick goal, STOP clears/pauses, lifecycle locks/no auto-resume, no page errors');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

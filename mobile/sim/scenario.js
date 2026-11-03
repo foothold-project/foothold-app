@@ -1,5 +1,6 @@
 // Offline waypoint overlay: velocity tracking or direct AME-2 world goals.
 import { ame2WorldGoal } from './ame2-adapter.js';
+import { getPolicyMode } from './policy-modes.js';
 import { cell } from './lidar.js';
 import { boundedNumber, DEFAULT_VX, DEFAULT_WZ } from './settings.js';
 
@@ -32,8 +33,9 @@ export function frontDistance(rays) {
 
 export function createScenarioRunner(sim, isStopped, limits = {}) {
   let maxVx = MAX_VX, maxWz = MAX_WZ, origin;
-  const directGoal = sim.adapterId === 'ame2-demo';
-  const neutral = () => directGoal ? [0, 0, 0, 1] : [0, 0, 0];
+  const mode = getPolicyMode(sim.adapterId);
+  const directGoal = mode.command.kind === 'nearby_goal';
+  const neutral = () => mode.stop.input.slice();
   // goal = 찍은 곳 하나로 가기(손 조종이 끊으면 잠그지 않고 취소만). best(거리)·turn(방향 오차)·stall = 진전 없음 재기
   const runner = { active: false, index: 0, points: [], status: '대기', goal: false, best: Infinity, turn: Infinity, stall: 0 };
   runner.cancel = (reason = '중단') => {
@@ -44,11 +46,12 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
     return sim.cmd;
   };
   runner.start = (points, goal = false) => {
-    if (isStopped() || !points?.length) return false;
+    if (mode.command.kind === 'none' || isStopped() || !points?.length) return false;
     // Snapshot each run: a settings response can only affect the next start.
     // A valid organization/adapter cap can reduce an axis below the input range, even to zero.
     maxVx = Math.min(boundedNumber(limits?.vx, 0.1, 1.5, MAX_VX), boundedNumber(limits?.caps?.vx, 0, 1.5, Infinity));
-    maxWz = Math.min(boundedNumber(limits?.wz, 0.1, 1, MAX_WZ), boundedNumber(limits?.caps?.wz, 0, 1, Infinity));
+    const turnCap = mode.command.caps.turnInPlace;
+    maxWz = Math.min(boundedNumber(limits?.wz, 0.1, turnCap, MAX_WZ), boundedNumber(limits?.caps?.wz, 0, turnCap, Infinity));
     runner.points = points;
     runner.goal = goal;
     runner.index = 0;
@@ -90,7 +93,15 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
         const previous = runner.points[runner.index - 1] ?? origin;
         const pathYaw = next ? Math.atan2(next.y - p.y, next.x - p.x) : Math.atan2(p.y - previous.y, p.x - previous.x);
         sim.cmd = ame2WorldGoal(q, p, Number.isFinite(p.yaw) ? p.yaw : pathYaw);
-      } else sim.cmd = [vx, 0, Math.max(-maxWz, Math.min(maxWz, 1.5 * error))];
+      } else {
+        let wz = Math.max(-maxWz, Math.min(maxWz, 1.5 * error)), speed = vx;
+        if (mode.id === 'start-demo' && speed) {
+          wz = Math.max(-mode.command.caps.turnWalking, Math.min(mode.command.caps.turnWalking, wz));
+          // Keep reduced organization caps, including zero; never raise a cap.
+          speed = Math.abs(wz) < .2 ? speed : Math.min(maxVx, Math.max(.3, Math.min(.8, speed)));
+        }
+        sim.cmd = [speed, 0, wz];
+      }
       return sim.cmd;
     }
     return runner.cancel('완료');

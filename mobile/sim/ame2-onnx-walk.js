@@ -1,9 +1,11 @@
+import { getPolicyMode } from './policy-modes.js';
 // Same browser/Node trajectory experiment. No gait verdict; numerical records only.
 export const AME2_WALK_MAPS = ['factory-inspection','factory-inspection-alt1','factory-zone','warehouse','element-course','ame2-train-terrain'];
 export const compareAme2Walk = (...args) => comparePolicyWalk(...args);
 export async function comparePolicyWalk(mj, createSim, phys, f32, onnx, readBytes,
   { ticks = 300, adapterId = 'ame2-demo', maps = AME2_WALK_MAPS } = {}) {
   const records = [], observations = [];
+  const nearbyGoal = getPolicyMode(adapterId).command.kind === 'nearby_goal';
   for (const id of maps) {
     const root = `assets/${id}/`, map = JSON.parse(new TextDecoder().decode(await readBytes(root + 'map.json')));
     for (const file of map.physics_assets ?? []) {
@@ -12,12 +14,12 @@ export async function comparePolicyWalk(mj, createSim, phys, f32, onnx, readByte
     mj.FS.writeFile('/go2/world.xml', await readBytes(root + id + '.xml'));
     mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
     // Fixed delay 0 and 4 exercise both endpoints without reset RNG confounds.
-    for (const delay of (adapterId === 'ame2-demo' ? [0,4] : [null])) {
+    for (const delay of (nearbyGoal ? [0,4] : [null])) {
       const trajectories = [];
       for (const [name, policy] of [['f32',f32], ['onnx',onnx]]) {
         let tick = 0;
         const wrapped = (prop, mapping) => {
-          if (name === 'f32' && (delay === 0 || delay === null) && tick % 25 === 0) observations.push(adapterId === 'ame2-demo'
+          if (name === 'f32' && (delay === 0 || delay === null) && tick % 25 === 0) observations.push(nearbyGoal
             ? {name:`${id}/${tick}`,prop:Array.from(prop),mapping:Array.from(mapping)}
             : {name:`${id}/${tick}`,observation:Array.from(prop)});
           tick++;
@@ -30,7 +32,7 @@ export async function comparePolicyWalk(mj, createSim, phys, f32, onnx, readByte
           sim.hold(.5);
           for (let k=0;k<ticks;k++) {
             // Three fixed nearby commands: no far-goal random heading.
-            sim.cmd = adapterId === 'ame2-demo'
+            sim.cmd = nearbyGoal
               ? (k < ticks/3 ? [1,0,0,1] : k < 2*ticks/3 ? [.5,.3,Math.sin(.2),Math.cos(.2)] : [0,0,0,1])
               : (k < ticks/3 ? [.6,0,0] : k < 2*ticks/3 ? [.6,0,.5] : [0,0,0]);
             await sim.step();

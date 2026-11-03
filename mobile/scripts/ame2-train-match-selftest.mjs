@@ -28,13 +28,14 @@ const originalRandom = Math.random;
 try {
   for (const delay of [0,1,2,3,4]) {
     Math.random = () => (delay + .1) / 5;
-    const queue = makeAme2ActionDelay([10,20]); queue.reset();
+    const queue = makeAme2ActionDelay([10,20], delay); queue.reset();
     assert.equal(queue.steps, delay);
     for (let i = 0; i < 12; i++) assert.deepEqual(Array.from(queue.apply([i,i+100])), i < delay ? [10,20] : [i-delay,i-delay+100]);
     queue.clear(); assert.equal(queue.steps, delay);
     assert.deepEqual(Array.from(queue.apply([90,91])), delay ? [10,20] : [90,91]);
     Math.random = () => .999;
-    queue.reset(); assert.equal(queue.steps, 4, 'resample at reset');
+    queue.reset(); assert.equal(queue.steps, delay, 'fixed delay on reset');
+    const defaultQueue = makeAme2ActionDelay([0]); defaultQueue.reset(); assert.equal(defaultQueue.steps, 0, 'demo default has no randomized delay');
     const fixed = makeAme2ActionDelay([0],delay); fixed.reset(); assert.equal(fixed.steps,delay);
   }
   for (const invalid of [-1,5,1.5,NaN,'1']) assert.throws(() => makeAme2ActionDelay([0],invalid));
@@ -97,4 +98,4 @@ try {
   for(let k=0;k<30;k++) {a.cmd=[.6,0,.2];b.cmd=[.6,0,.2];a.step();b.step();assert.deepEqual(a.d.qpos,b.d.qpos);assert.deepEqual(a.d.qvel,b.d.qvel);assert.deepEqual(a.d.ctrl,b.d.ctrl);}
   assert.deepEqual(observations[0],observations[1]);
 } finally {a.dispose();b.dispose();}
-console.log('AME-2 train-match PASS: confirmed joint/default/export contract; 49 inputs/no time; goal threshold/yaw; Go2HV signed envelope; delay 0…4 per-substep torques/reset/STOP; foothold-v2 bit-identical 30 ticks');
+console.log('AME-2 train-match PASS: confirmed joint/default/export contract; 49 inputs/no time; goal threshold/yaw; Go2HV signed envelope; delay 0…4 per-substep torques/reset/STOP; nvidia-demo bit-identical 30 ticks');

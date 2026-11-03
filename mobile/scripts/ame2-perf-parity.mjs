@@ -39,10 +39,11 @@ mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.x
 let rays = 0, scans = 0, voids = 0;
 const compare = (m, d, q) => {
   const originalGroups = Array.from(m.geom_group);
-  for (const id of ['foothold-v2', 'ame2-demo']) {
+  for (const id of ['nvidia-demo', 'ame2-demo']) {
     const adapter = getPolicyAdapter(id), cfg = adapter.observations.height;
     const oldSample = beforeAdapters.makeTerrainSampler(mj, m, d, cfg), newSample = makeTerrainSampler(mj, m, d, cfg);
-    const oldScan = beforeAdapters.getPolicyAdapter(id).makeHeightScanner(mj, m, d, { floorZ: 0 });
+    const oldId = id === 'nvidia-demo' ? 'foothold-v2' : id; // Historical snapshot's model id.
+    const oldScan = beforeAdapters.getPolicyAdapter(oldId).makeHeightScanner(mj, m, d, { floorZ: 0 });
     const newScan = adapter.makeHeightScanner(mj, m, d, { floorZ: 0 });
     try {
       const a = new Float64Array(cfg.grid.length), b = a.slice();

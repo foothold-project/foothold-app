@@ -294,6 +294,44 @@ class Go2Attitude(Contract):
         return value if type(value) in (int, float) and -math.pi <= value <= math.pi else None
 
 
+Go2JointName = Literal['FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint',
+                       'FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint',
+                       'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint',
+                       'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint']
+
+
+class Go2Joints(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    names: list[Go2JointName] = Field(min_length=12, max_length=12)
+    positions: list[float] = Field(min_length=12, max_length=12)
+
+    @model_validator(mode='after')
+    def unique_names(self):
+        if len(set(self.names)) != 12:
+            raise ValueError('twelve unique joint names required')
+        return self
+
+
+class Go2Quaternion(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    wxyz: list[float] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode='after')
+    def unit_quaternion(self):
+        if not .9 <= math.hypot(*self.wxyz) <= 1.1:
+            raise ValueError('invalid quaternion norm')
+        return self
+
+
+class Go2Position(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    xyz: list[float] = Field(min_length=3, max_length=3)
+    origin: Literal['BOOT_ORIGIN_UNVERIFIED']
+
+
 class Go2RobotInfo(Contract):
     """Readout only; never an input to STOP, lease, readiness or accepted codes."""
     source: Literal['GO2_DDS']
@@ -302,6 +340,27 @@ class Go2RobotInfo(Contract):
         description='SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2).')
     fallen: bool | None = Field(strict=True)
     fallen_source: Literal['imu_tilt_estimate']
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('joints', 'quaternion', 'position'))
+    joints: Go2Joints | None = Field(default=None, exclude_if=lambda v: v is None)
+    quaternion: Go2Quaternion | None = Field(default=None, exclude_if=lambda v: v is None)
+    position: Go2Position | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @field_validator('joints', 'quaternion', 'position', mode='before')
+    @classmethod
+    def display_sample(cls, value, info):
+        if value is None:
+            return None
+        model, field = {'joints': (Go2Joints, 'positions'), 'quaternion': (Go2Quaternion, 'wxyz'),
+                        'position': (Go2Position, 'xyz')}[info.field_name]
+        if isinstance(value, model):
+            return value
+        # Bad display data must not discard an otherwise valid legacy state.
+        try:
+            if not all(type(v) in (int, float) and math.isfinite(v) for v in value[field]):
+                return None
+            return model.model_validate(value)
+        except (ValueError, TypeError, KeyError):
+            return None
 
     @field_validator('error_code', mode='before')
     @classmethod
@@ -419,11 +478,11 @@ class OrgSettings(Contract):
     deviation_m: float = Field(default=1.5, ge=0.5, le=5, strict=True)
     lease_request_timeout_s: int = Field(default=10, ge=5, le=30, strict=True)
     link_loss_wait_s: int = Field(default=30, ge=0, le=30, strict=True)
-    sim_max_vx: float = Field(default=1.0, ge=0.2, le=1.5, strict=True)
+    sim_max_vx: float = Field(default=1.5, ge=0.2, le=1.5, strict=True)
     sim_min_vx: float = Field(default=0.2, ge=0.0, le=0.5, strict=True)
-    sim_max_vy: float = Field(default=0.3, ge=0.0, le=0.3, strict=True)
-    sim_max_wz: float = Field(default=0.5, ge=0.0, le=0.5, strict=True)
-    sim_key_vx: float = Field(default=0.6, ge=0.1, le=1.5, strict=True)
+    sim_max_vy: float = Field(default=0.5, ge=0.0, le=0.5, strict=True, description="시뮬 옆 상한 0~0.5 m/s, 기본 0.5. 실기 한도와 별개.")
+    sim_max_wz: float = Field(default=1.2, ge=0.0, le=1.2, strict=True, description="시뮬 회전 상한 0~1.2 rad/s, 기본 1.2. 모드 상한 안에서만 적용.")
+    sim_key_vx: float = Field(default=1.5, ge=0.1, le=1.5, strict=True)
     stick_deadzone: float = Field(default=0.1, ge=0.0, le=0.5, strict=True)
     sim_runner_vx: float = Field(default=0.4, ge=0.1, le=1.5, strict=True)
     sim_runner_wz: float = Field(default=0.6, ge=0.1, le=1.0, strict=True)
@@ -435,7 +494,11 @@ class OrgSettings(Contract):
         if self.sim_min_vx > self.sim_max_vx:
             raise ValueError('시뮬 최소 전진 속도는 최대 전진 속도 이하여야 합니다.')
         if self.sim_key_vx > self.sim_max_vx:
-            raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+            if 'sim_key_vx' in self.model_fields_set:
+                raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+            # A retained explicit forward cap can be below the new inherited
+            # key default after cleanup of old materialized defaults.
+            self.sim_key_vx = self.sim_max_vx
         return self
 
 
@@ -447,8 +510,8 @@ class OrgSettingsPatch(Contract):
     link_loss_wait_s: int = omitted(ge=0, le=30, strict=True)
     sim_max_vx: float = omitted(ge=0.2, le=1.5, strict=True)
     sim_min_vx: float = omitted(ge=0.0, le=0.5, strict=True)
-    sim_max_vy: float = omitted(ge=0.0, le=0.3, strict=True)
-    sim_max_wz: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_max_vy: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_max_wz: float = omitted(ge=0.0, le=1.2, strict=True)
     sim_key_vx: float = omitted(ge=0.1, le=1.5, strict=True)
     stick_deadzone: float = omitted(ge=0.0, le=0.5, strict=True)
     sim_runner_vx: float = omitted(ge=0.1, le=1.5, strict=True)

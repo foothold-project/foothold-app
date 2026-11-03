@@ -37,6 +37,7 @@
   #scenarioStatus { display: block; margin-top: 10px; }
   #scenarioHint, #goalHint { margin: 8px 0 0; color: #b9c0ca; font-size: 12px; }
   /* 찍은 곳 가기 진행·거절 한 줄: 위 가운데(STOP·시작 단추 자리 비움), 누름은 아래 화면으로 */
+  #modeCaps { position: fixed; z-index: 80; top: calc(var(--t) + 110px); left: 8px; right: 8px; margin: 0; padding: 4px 6px; background: rgb(20 23 28 / .82); color: #e6e8eb; font: clamp(8px, 2.5vw, 10px) system-ui; white-space: nowrap; pointer-events: none; }
   #goalNote { position: fixed; z-index: 80; top: calc(var(--t) + 60px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 180px); box-sizing: border-box; margin: 0;
     padding: 6px 10px; border-radius: 8px; background: rgb(20 23 28 / .82); border: 1px solid #ffd54f; color: #e6e8eb; font: 13px system-ui; text-align: center; pointer-events: none; }
   /* 여러 층 지도: 위에서 보기 왼쪽 «전체 · 1층 · 2층» (main.js 가 만듦, 왼쪽 띠 = 층 색 범례) */
@@ -74,6 +75,7 @@
 <div id="stickL" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><b></b></div>
 <div id="stickR" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 9a8 8 0 0 1 14 0M19 9V4.5M19 9h-4.5M5 9V4.5M5 9h4.5"/></svg><b></b></div>
 <p id="keys">↑↓·WS 앞·뒤 · ←→ 옆걸음 · AD 제자리 회전 · Esc·Space 정지 · ▶ 로 시작 · 바닥 클릭 = 그곳으로 이동</p>
+<output id="modeCaps" role="status"></output>
 <output id="goalNote" role="status" hidden></output>
 <div id="floorBar" role="group" aria-label="층" hidden></div>
 <div id="btns">
@@ -85,7 +87,9 @@
 </div>
 <section id="scenarioPanel" aria-label="시나리오" hidden>
   <label for="policySelect">시뮬 정책</label>
-  <select id="policySelect" aria-label="시뮬 정책"><option value="foothold-v2">foothold-v2</option><option value="ame2-demo" disabled>AME-2(시연)</option></select>
+  <select id="policySelect" aria-label="시뮬 정책"></select>
+  <label id="startMapLabel" for="startMapSelect" hidden>start 지도</label>
+  <select id="startMapSelect" aria-label="start 지도" hidden><option value="gt">정답</option><option value="reconstruction">복원</option><option value="off">끔</option></select>
   <p id="policyReason" role="status"></p>
   <select id="scenarioSelect" aria-label="시나리오 선택"></select>
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>

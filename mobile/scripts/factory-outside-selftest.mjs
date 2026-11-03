@@ -21,8 +21,8 @@ for (const f of readdirSync(join(src, 'assets/unitree_go2/assets'))) if (f.endsW
 mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.xml')));
 mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
 const policies = new Map();
-for (const id of ['foothold-v2', 'ame2-demo']) {
-  const adapter = getPolicyAdapter(id), root = id === 'foothold-v2' ? src : ame;
+for (const id of ['nvidia-demo', 'ame2-demo']) {
+  const adapter = getPolicyAdapter(id), root = id === 'nvidia-demo' ? src : ame;
   const b = readFileSync(join(root, adapter.network.file));
   policies.set(id, adapter.loadPolicy(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), adapter.network.manifest ? JSON.parse(readFileSync(join(root, adapter.network.manifest))) : undefined));
 }
@@ -40,7 +40,7 @@ world('factory-zone');
 for (const id of policies.keys()) {
   const sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, policies.get(id), { floorZ: 0, spawn: [19, -1.3, -Math.PI / 2] }, id);
   const adapter = getPolicyAdapter(id), scan = adapter.makeHeightScanner(mj, sim.m, sim.d, { floorZ: 0 });
-  const obs = new Float32Array(id === 'foothold-v2' ? 235 : 1131), lidar = makeLidar(mj, sim.m, sim.d, 360);
+  const obs = new Float32Array(id === 'nvidia-demo' ? 235 : 1131), lidar = makeLidar(mj, sim.m, sim.d, 360);
   let heading = null, target = 0, worstGravity = -1, minBase = Infinity;
   const arrivals = [], targets = [[19, -8], [19, -1.3]];
   try {
@@ -54,7 +54,7 @@ for (const id of policies.keys()) {
       assert.ok(sim.d.qpos.every(Number.isFinite) && sim.d.qvel.every(Number.isFinite));
       minBase = Math.min(minBase, q[2]); worstGravity = Math.max(worstGravity, sim.grav[2]);
       if (i % 25 === 0) {
-        scan(q, obs, id === 'foothold-v2' ? 48 : 0);
+        scan(q, obs, id === 'nvidia-demo' ? 48 : 0);
         assert.ok(obs.every(Number.isFinite), `${id}: finite height observations`);
         assert.ok(Array.from(lidar(q[0], q[1], q[2] + .1, yaw(q))).every((v) => v === Infinity || Number.isFinite(v) && v >= 0), `${id}: valid lidar`);
       }
@@ -72,7 +72,7 @@ console.log('factory outside PASS: both joystick contracts, actual ramp roundtri
 
 // Survey finite state at map edges; reaching a void does not stop policy/physics.
 for (const [id, spawn] of [['warehouse', [8, 0, 0]], ['element-course', [35, 0, 0]], ['collapsed-house-v2', [0, 14, 0]]]) {
-  const map = world(id), sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, policies.get('foothold-v2'), { floorZ: map.floor_z, spawn });
+  const map = world(id), sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, policies.get('nvidia-demo'), { floorZ: map.floor_z, spawn });
   const sample = makeTerrainSampler(mj, sim.m, sim.d, { grid: [[0, 0]], rayOffset: 0 }), support = new Float64Array(1);
   try {
     sample(sim.d.qpos, support);

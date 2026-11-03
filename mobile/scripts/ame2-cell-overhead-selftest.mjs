@@ -1,5 +1,5 @@
 // Local native MuJoCo + f32/ONNX WASM, eight maps, no browser/server or gait verdict.
-// FH_SIM_SRC, AME2_EXPORT (dev f32 + ONNX), FH_ORT_WEB are local assets.
+// FH_SIM_SRC, AME2_EXPORT, FH_ORT_WEB, FH_AME2_SRC are required local assets.
 // AME2_OVERHEAD_REPORT optionally saves measurements outside the source tree.
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -11,16 +11,11 @@ import { getPolicyAdapter, makeTerrainSampler } from '../sim/policy-adapters.js'
 import { ame2Joystick, makeAme2Adapter, AME2_OVERHEAD_CLEARANCE } from '../sim/ame2-adapter.js';
 import { loadAme2OnnxPolicy } from '../sim/ame2-onnx.js';
 
-for (const key of ['FH_SIM_SRC', 'AME2_EXPORT', 'FH_ORT_WEB']) assert.ok(process.env[key], `${key} required; no downloads`);
-// Freeze dev's original body-wide cap; unrelated integration modes stay out.
-const source = execFileSync('git', ['show', '1fd19f1:mobile/sim/ame2-adapter.js'], { encoding: 'utf8' })
+for (const key of ['FH_SIM_SRC', 'AME2_EXPORT', 'FH_ORT_WEB', 'FH_AME2_SRC']) assert.ok(process.env[key], `${key} required; no downloads`);
+const source = execFileSync('git', ['show', 'd1b1ae8:mobile/sim/ame2-adapter.js'], { encoding: 'utf8' })
   .replace("'./ame2-network.js'", JSON.stringify(new URL('../sim/ame2-network.js', import.meta.url).href));
 const { makeAme2Adapter: makeBefore } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-const baselineSamplerSource = execFileSync('git', ['show', '1fd19f1:mobile/sim/policy-adapters.js'], { encoding: 'utf8' })
-  .match(/export function makeTerrainSampler[\s\S]*?\n}/)?.[0];
-assert.ok(baselineSamplerSource, 'dev baseline sampler source');
-const { makeTerrainSampler: baselineSampler } = await import('data:text/javascript;base64,' + Buffer.from(baselineSamplerSource).toString('base64'));
-const adapter = getPolicyAdapter('ame2-demo'), before = makeBefore(baselineSampler);
+const adapter = getPolicyAdapter('ame2-demo'), before = makeBefore(makeTerrainSampler);
 // Exercise the scalar fallback too, independently of the optimized broad phase.
 const scalar = makeAme2Adapter((mj, ...args) => makeTerrainSampler(new Proxy(mj, {
   get: (target, key) => key === 'mju_rayGeom' ? undefined : target[key],
@@ -32,9 +27,7 @@ mj.FS.writeFile('/go2/go2.xml', readFileSync(join(process.env.FH_SIM_SRC, 'asset
 const bytes = readFileSync(join(process.env.AME2_EXPORT, 'ame2_actor.f32'));
 const f32 = adapter.loadPolicy(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), JSON.parse(readFileSync(join(process.env.AME2_EXPORT, 'ame2_actor.json'))));
 const ort = await import(pathToFileURL(resolve(process.env.FH_ORT_WEB, 'dist/ort.wasm.min.mjs'))); ort.env.wasm.numThreads = 1;
-// dev's existing actor has action/offsets/gaze_logits outputs. The integration
-// demo model has a different contract and is deliberately not substituted.
-const onnx = await loadAme2OnnxPolicy(ort, readFileSync(join(process.env.AME2_EXPORT, 'ame2_actor.onnx')), 'wasm');
+const onnx = await loadAme2OnnxPolicy(ort, readFileSync(join(process.env.FH_AME2_SRC, 'ame2-demo.onnx')), 'wasm');
 const maps = ['flat', ...JSON.parse(readFileSync(new URL('../sim/maps.json', import.meta.url))).map((m) => m.id)]
   .filter((id) => !process.env.ONLY_MAPS || process.env.ONLY_MAPS.split(',').includes(id));
 const records = [];
@@ -68,11 +61,11 @@ const maxDiff = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 try {
   for (const id of maps) for (const [engine, drive] of [['f32', f32], ['onnx', onnx]].filter(([engine]) => !process.env.ENGINES || process.env.ENGINES.split(',').includes(engine))) {
     const map = scene(id), prior = new Float32Array(1131), reference = new Float32Array(1131), exact = new Float32Array(1131);
-    let sim, oldScan, newScan, scalarScan, hidden, groups0, tick = 0, beforeMs = 0, afterMs = 0;
+    let sim, oldScan, scalarScan, hidden, groups0, tick = 0, beforeMs = 0, afterMs = 0;
     let changedMax = 0, oldCoverMax = 0, newCoverMax = 0, unchangedMax = 0, scalarMax = 0, first, wallClip15Max = 0, beforeClip15Max = 0, afterClip15Max = 0;
     const policy = async (prop, mapping) => {
       const q = sim.d.qpos, t = performance.now(); oldScan(q, prior); beforeMs += performance.now() - t;
-      const u = performance.now(); newScan(q, exact); afterMs += performance.now() - u;
+      const u = performance.now(); sim.heightScanner(q, exact); afterMs += performance.now() - u;
       assert.deepEqual(exact, mapping, `${id}/${engine}/${tick}: policy receives the cell scan`);
       let changed = 0, oldCover = 0, newCover = 0;
       if (!['ame2-train-terrain', 'collapsed-house-v2'].includes(id)) {
@@ -117,9 +110,6 @@ try {
     policy.async = true;
     sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, 'ame2-demo', { ame2DelaySteps: 0 });
     oldScan = before.makeHeightScanner(mj, sim.m, sim.d, { floorZ: map.floor_z });
-    // dev keeps its observation scanner private; create a matching scanner
-    // against the same live state instead of importing the integration API.
-    newScan = adapter.makeHeightScanner(mj, sim.m, sim.d, { floorZ: map.floor_z });
     scalarScan = scalar.makeHeightScanner(mj, sim.m, sim.d, { floorZ: map.floor_z });
     hidden = covers(sim.m, sim.d, map.floor_z); groups0 = Array.from(sim.m.geom_group);
     let heading = null, maxLat = 0, x2 = 0, fell = null;
@@ -145,7 +135,7 @@ try {
       assert.equal(unchangedMax, 0, `${id}: original terrain values preserved`);
       if (!changedMaps.has(id)) assert.equal(changedMax, 0, `${id}: uncovered terrain unchanged`);
       if (id.startsWith('factory-')) assert.equal(first.afterClip15, 0, `${id}: initial +1.5 cells`);
-    } finally { oldScan.dispose(); newScan.dispose(); scalarScan.dispose(); sim.dispose(); }
+    } finally { oldScan.dispose(); scalarScan.dispose(); sim.dispose(); }
   }
 } finally { await onnx.dispose(); }
 console.log(`AME-2 cell overhead PASS: ${records.length} runs / ${maps.length} maps × 300 ticks, terrain/scalar regression and scan timings; no gait verdict`);

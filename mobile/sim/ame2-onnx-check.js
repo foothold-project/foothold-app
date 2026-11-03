@@ -29,7 +29,8 @@ export async function compareAme2Cases(ort, model, cropModel, f32, cases, backen
       const result = await (sample.centers ? forced : normal).run(feeds);
       try {
         const js = f32(prop, mapping, sample.centers), onnx = result.action.data;
-        if (sample.offsets && JSON.stringify(sample.offsets) !== JSON.stringify(Array.from(result.offsets.data, Number))) throw new Error(`crop mismatch: ${sample.name}`);
+        const offsets = result.gaze_r ? Array.from(result.gaze_r.data, (r, i) => Math.max(0, Math.min(i ? 3 : 17, Math.round(r * (i ? 3 : 17))))) : Array.from(result.offsets.data, Number);
+        if (sample.offsets && JSON.stringify(sample.offsets) !== JSON.stringify(offsets)) throw new Error(`crop mismatch: ${sample.name}`);
         for (const [name, a, b] of [['torchJs',sample.torch_outputs,js], ['torchOnnx',sample.torch_outputs,onnx], ['jsOnnx',js,onnx]]) {
           const errors = errorMetrics(a, b);
           for (const key of ['maxAbs','maxRel']) pairs[name][key] = Math.max(pairs[name][key], errors[key]);

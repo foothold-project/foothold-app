@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { POLICY_ADAPTERS } from '../sim/policy-adapters.js';
+import { POLICY_MODES } from '../sim/policy-modes.js';
 
 const here = dirname(dirname(fileURLToPath(import.meta.url)));
 const out = join(here, 'www'), brand = join(here, '..', 'apps', 'web', 'public', 'brand');
@@ -29,10 +29,11 @@ const copy = [['policy_v2.f32', 'policy_v2.f32'], ['vendor/three.module.js', 've
   ...[...go2xml.matchAll(/<mesh file="([\w.]+)"/g)].map(([, f]) => [`assets/unitree_go2/assets/${f}`, `assets/unitree_go2/assets/${f}`])];
 for (const [a, b] of copy) { mkdirSync(dirname(join(sim, b)), { recursive: true }); copyFileSync(need(a), join(sim, b)); }
 
-// f32 remains available for every policy. Optional ONNX assets share one runtime.
+// Optional JS fallbacks and ONNX assets are independent; ONNX shares one runtime.
 const ame2src = process.env.FH_AME2_SRC || src;
-for (const adapter of Object.values(POLICY_ADAPTERS)) {
-  const weightsRoot = adapter.id === 'ame2-demo' ? ame2src : src;
+for (const adapter of Object.values(POLICY_MODES)) {
+  const weightsRoot = adapter.command.kind === 'nearby_goal' ? process.env.FH_AME2_F32_SRC || ame2src : src;
+  if (!adapter.network) continue;
   const files = [adapter.network.file, ...(adapter.network.manifest ? [adapter.network.manifest] : [])];
   if (!files.every((file) => existsSync(join(weightsRoot, file)))) continue;
   for (const file of files) {
@@ -41,16 +42,18 @@ for (const adapter of Object.values(POLICY_ADAPTERS)) {
   }
 }
 let copiedOnnx = false;
-for (const adapter of Object.values(POLICY_ADAPTERS)) {
-  if (!adapter.onnx || !existsSync(join(sim, adapter.network.file))) continue;
-  const modelRoot = adapter.id === 'ame2-demo' ? ame2src : process.env.FH_POLICY_ONNX_SRC || src;
-  const model = join(modelRoot, adapter.onnx.file);
-  if (!existsSync(model)) continue;
-  const data = readFileSync(model);
-  if (createHash('sha256').update(data).digest('hex') !== adapter.onnx.sha256) throw new Error(`${adapter.id} ONNX SHA-256 불일치`);
-  mkdirSync(dirname(join(sim, adapter.onnx.file)), { recursive: true });
-  copyFileSync(model, join(sim, adapter.onnx.file));
-  copiedOnnx = true;
+for (const adapter of Object.values(POLICY_MODES)) {
+  if (!adapter.onnx) continue;
+  const modelRoot = adapter.command.kind === 'nearby_goal' ? ame2src : adapter.depth ? process.env.FH_START_SRC || process.env.FH_POLICY_ONNX_SRC || src : process.env.FH_POLICY_ONNX_SRC || src;
+  for (const file of new Set(Object.values(adapter.onnx.files))) {
+    const model = join(modelRoot, file);
+    if (!existsSync(model)) continue;
+    const data = readFileSync(model);
+    if (createHash('sha256').update(data).digest('hex') !== adapter.onnx.sha256[file]) throw new Error(`${adapter.id} ONNX SHA-256 불일치`);
+    mkdirSync(dirname(join(sim, file)), { recursive: true });
+    copyFileSync(model, join(sim, file));
+    copiedOnnx = true;
+  }
 }
 if (copiedOnnx) {
   const ort = join(here, 'node_modules', 'onnxruntime-web');
