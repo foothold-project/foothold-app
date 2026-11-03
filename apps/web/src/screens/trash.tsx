@@ -49,7 +49,7 @@ export function Trash(c: Pick<Ctx, 'cancel'>) {
       .finally(() => { setBusy(false); setN((k) => k + 1); });   // 성공·실패 모두 목록을 다시(답을 못 받았어도 처리됐을 수 있다)
   };
   return <section className="lv-card" aria-label="휴지통" data-trash>
-    <div className="fh-row"><h2 className="fh-grow">휴지통</h2><a className="btn" style={LINK} href="#/map">지도</a><a className="btn" style={LINK} href="#/mission">시나리오</a></div>
+    <div className="fh-row"><h2 className="fh-grow">휴지통</h2><a className="btn" style={LINK} href="#/map">지도·시나리오</a></div>
     <p className="lv-note">지도·시나리오에서 «삭제»한 것이 여기 남습니다. 복원은 장소 → 건물 → 층 순서, 완전 삭제는 시나리오 → 층 → 건물 → 장소 순서로 하세요.</p>
     {ask && <div className="lv-card fh-form" role="alertdialog" aria-label="완전 삭제 확인" aria-describedby="purge-why" data-purge-ask>
       <b>«{ask.name}» {OBJ[ask.kind]} 완전히 지울까요?</b>

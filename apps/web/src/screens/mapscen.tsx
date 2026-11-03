@@ -3,9 +3,18 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import './mapscen.css';
 
-/** [지도 | 시나리오] — 주소 링크라 App 의 나가기 확인(leaving.ask)을 그대로 탄다 */
-export const ScreenTabs = ({ cur }: { cur: 'map' | 'mission' }) => <nav className="mx-seg" aria-label="지도·시나리오">
-  {([['map', '지도'], ['mission', '시나리오']] as const).map(([id, t]) => <a key={id} className="btn" href={`#/${id}`} aria-current={cur === id ? 'true' : undefined}>{t}</a>)}</nav>;
+/** 자물쇠(잠긴 지도·잠긴 시나리오 탭) */
+export const Lock = () => <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style={{ flex: 'none', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 }}><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>;
+export type Side = 'map' | 'scen';
+/** 오른쪽 창 맨 위 [지도 요소 N | 시나리오 N](MAP-TAB-MERGE 11-03 — 옛 [지도 | 시나리오] 탭 전환을 대신함). lock = 지도 편집 중(시나리오 탭 잠김) */
+export const SideTabs = ({ side, set, map, scen, lock }: { side: Side; set: (s: Side) => void; map: ReactNode; scen: ReactNode; lock?: boolean }) =>
+  <span className="mx-seg mx-side" role="group" aria-label="오른쪽 창">
+    <button type="button" className="btn" aria-pressed={side === 'map'} data-side="map" onClick={() => set('map')}>지도 요소 <span className="mx-n">{map}</span></button>
+    <button type="button" className="btn" aria-pressed={side === 'scen'} data-side="scen" aria-disabled={lock || undefined} title={lock ? '지도 편집 중에는 시나리오 탭이 잠깁니다' : undefined}
+      onClick={() => { if (!lock) set('scen'); }}>{lock ? <><Lock /> 시나리오</> : <>시나리오 <span className="mx-n">{scen}</span></>}</button>
+  </span>;
+/** 잠긴 장소 › 건물 › 층(시나리오가 열렸거나 지도 편집 중 — 바꾸지 못함) */
+export const Locked = ({ text, why }: { text: string; why: string }) => <span className="btn mx-lock" title={why} aria-label={`지도: ${text} (잠김 — ${why})`} data-locked><Lock /><span className="mx-cut">{text}</span></span>;
 
 /** 단추 줄 드롭다운(details) — 안 내용은 닫혀도 문서에 있다(시험·화면 읽기). end = 오른쪽 끝에 붙여 펼침 */
 export function Menu({ label, title, end, children, className }: { label: ReactNode; title?: string; end?: boolean; children: ReactNode; className?: string }) {
@@ -57,13 +66,14 @@ export function Pop({ open, close, label, children }: { open: boolean; close: ()
     {children}</dialog>;
 }
 
-/** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N» + name 한 줄, 넘치면 말줄임), 안 내용은 숨김(unmount 아님). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목).
- *  pick = 창 맨 위 고르기 줄(시나리오·층 / 장소·층 메뉴 — SCENARIO-TAB-PICKER 11-03, 위 단추 줄에서 옮김) */
-export function Pane({ open, setOpen, bar, head, label, children, pick, name }: { open: boolean; setOpen: (o: boolean) => void; bar: string; head: ReactNode; label: string; children: ReactNode; pick?: ReactNode; name?: string }) {
+/** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N» + name 한 줄, 넘치면 말줄임), 안 내용은 숨김(unmount 아님). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목, 없으면 줄 없음).
+ *  pick = 창 맨 위 줄([지도 요소 | 시나리오] 탭 — MAP-TAB-MERGE 11-03). 접기 단추는 pick 줄 오른쪽 끝(없으면 head 줄) */
+export function Pane({ open, setOpen, bar, head, label, children, pick, name }: { open: boolean; setOpen: (o: boolean) => void; bar: string; head?: ReactNode; label: string; children: ReactNode; pick?: ReactNode; name?: string }) {
+  const fold = <button type="button" className="btn mx-fold" aria-expanded aria-label={`${bar} 창 접기`} title="창 접기" onClick={() => setOpen(false)}>▸</button>;
   return <aside className="mx-pane" aria-label={label} data-fold={open ? undefined : ''}>
-    {/* 고르기 줄은 접어도 숨기기만(메뉴가 위 단추 줄로 돌아가지 않게 — 펼치면 보임) */}
-    <div className="mx-top" hidden={!open}>{pick && <div className="mx-pick">{pick}</div>}
-      {open && <div className="mx-head">{head}<button type="button" className="btn mx-fold" aria-expanded aria-label={`${bar} 창 접기`} title="창 접기" onClick={() => setOpen(false)}>▸</button></div>}</div>
+    {/* 맨 위 줄은 접어도 숨기기만 */}
+    <div className="mx-top" hidden={!open}>{pick && <div className="mx-pick">{pick}<span className="fh-grow" />{open && fold}</div>}
+      {open && head && <div className="mx-head">{head}{!pick && fold}</div>}</div>
     {!open && <button type="button" className="btn mx-fold" aria-expanded={false} title={name} onClick={() => setOpen(true)}><span>◂ </span><span className="mx-fold-txt">{bar}{name && <span className="mx-fold-name"> · {name}</span>}</span></button>}
     {/* 접어도 안 내용은 숨기기만 한다 — 배정 창 입력·보내는 중 상태·늦은 응답 처리를 잃지 않게(#235 B2) */}
     <div className="mx-pane-in" hidden={!open}>{children}</div>

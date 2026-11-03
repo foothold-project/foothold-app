@@ -55,8 +55,8 @@ function eachPhoneScreen(user: string, f: (where: string) => void) {
 const cardNames = () => $$('.dv-card b').map((b) => b.textContent);
 
 describe('메뉴 정의(한 곳)', () => {
-  it('PC 메뉴 6개(실기 조종 탭 없음, 시뮬 탭, 결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
-    expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '시나리오', '지도', '시뮬', '기록', '설정']);
+  it('PC 메뉴 5개(시나리오는 지도 탭 안)(실기 조종 탭 없음, 시뮬 탭, 결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
+    expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '지도', '시뮬', '기록', '설정']);
     expect(tabFromHash('#/approval', false)).toBe('approval');   // 옛 결재·알림 링크는 주소로 그대로
     expect(PHONE_TABS.map((t) => labelOf(t, 'OPERATOR'))).toEqual(['조종', '기록']);
     expect(PHONE_SHEETS.map((t) => t.label)).toEqual(['자세', '시나리오', '지도·목표', '정책']);
@@ -76,7 +76,7 @@ describe('메뉴 정의(한 곳)', () => {
 describe('탭 전환', () => {
   it('PC: 메뉴를 누르면 제목·본문·현재 표시가 그 탭으로', () => {
     mount(false);
-    expect(navLabels()).toEqual(['로봇', '시나리오', '지도', '시뮬', '기록', '설정']);
+    expect(navLabels()).toEqual(['로봇', '지도', '시뮬', '기록', '설정']);
     expect($('nav a[href="#/drive"]')).toBeNull();
     expect($('nav a[href="#/approval"]')).toBeNull();
     for (const t of shown()) {
@@ -309,7 +309,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '장소 목록', settings: '조직 기준값' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '어느 지도에서 일할까요?', settings: '조직 기준값' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로

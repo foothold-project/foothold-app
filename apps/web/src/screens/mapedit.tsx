@@ -2,13 +2,13 @@
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
 // 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx.
 // 틀(mapscen.tsx): 왼쪽 아이콘 도구줄 | 지도 | 오른쪽 요소 창(목록 ↔ 고른 요소 속성). 저장은 단추 줄 «새 판으로 저장…» → 바꾼 이유 창.
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { MapFrame, MapImage, toView } from '../mapframe';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, canon, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
 import { Hint, Pane, Pop } from './mapscen';
 
 type P = [number, number];
@@ -95,6 +95,7 @@ export function check(f: MapFeatures, v: Geo, pairs?: string[]): Bad | null {
 /** path → 고를 요소 키(«무리.번호»), 없으면 '' */
 const keyOf = (path: string) => /^features\.(zones|waypoints|connectors|edits)\.(\d+)/.exec(path)?.slice(1).join('.') ?? '';
 const split = (k: string) => { const [g, i] = k.split('.'); return [g as Group, Number(i)] as const; };
+const itemOf = (f: MapFeatures, k: string) => { const [g, i] = split(k); return f[g]?.[i] as Item | undefined; };
 /** 사람이 알아볼 요소 이름 — 오류 문구 앞에 */
 function label(f: MapFeatures, k: string) {
   if (!k) return '';
@@ -138,7 +139,8 @@ const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편
 
 /** 편집. v = 편집 시작 때 승인 판(저장 기준·그림), p = 그 층. saved = 새 판, quit = 보기로, recheck = 판 목록·나무 다시 받기
  *  moved = 남겨 둔 편집을 이어 쓰는데 그 사이 승인 판이 바뀜 → STALE 과 같은 안내 */
-export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: picker, name }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean; slot?: HTMLElement | null; pick?: ReactNode; name?: string }) {
+export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: picker, name, foot }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean; slot?: HTMLElement | null;
+  pick?: (n: number) => ReactNode; name?: string; foot?: ReactNode }) {
   const [k] = useState(() => (kept.d?.floor === p.floor.id && kept.d.base.id === v.id ? kept.d : null));
   const [f, setF] = useState<MapFeatures>(() => k?.f ?? JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
   const [dirty, setDirty] = useState(k?.dirty ?? false), [tool, setTool] = useState<Tool>(k?.tool ?? 'pick'), [pts, setPts] = useState<P[]>(k?.pts ?? []), [sel, setSel] = useState(''), [width, setWidth] = useState(k?.width ?? 0.1);
@@ -330,14 +332,21 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
   const color = zone ? fillOf(f.zones.length) : line ? EDIT[tool as 'WALL'].color : 'var(--accent)';
   const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
   const keys = featKeys(f), badKey = bad ? keyOf(bad.path) : '';
+  // 편집 시작 판과 다른 요소(«새로» 표시) + 지운 요소 = 단추 줄 «바뀐 요소 N»(MAP-TAB-MERGE ⑤ — 화면 계산, 저장 안 함)
+  const was = useMemo(() => new Set(featKeys(v.features).map((k) => canon(itemOf(v.features, k)))), [v]);
+  const now = new Set(keys.map((k) => canon(itemOf(f, k)))), fresh = (k: string) => !was.has(canon(itemOf(f, k)));
+  const changed = keys.filter(fresh).length + [...was].filter((x) => !now.has(x)).length;
+  const out = () => (unsaved ? setAsk({ text: '편집한 내용을 버리고 보기로 나갈까요?', yes: '버리고 나가기', go: () => { leaving.ask = null; left.current = true; quit(); } }) : quit());
   const back = undo && undo.after === f && !lock ? undo : null;
   const zx = sg === 'zones' && cur && !lock ? (cur as MapZone).polygon.map(([x, y]) => toPixel(v, x, y)) : null;   // 고른 구역의 X 자리 = 그림 오른쪽 위 모서리
   const note = <Note m={msg} />;
 
   return <>
     {/* 주 동작 = 단추 줄 오른쪽 끝(FloorView 가 준 자리) → 바꾼 이유 칸이 있는 작은 창 */}
-    {slot && createPortal(<button type="button" className="btn pri" disabled={lock || !v.upload_id} title={v.upload_id ? undefined : '이 판은 아직 편집 저장을 지원하지 않습니다'}
-      aria-expanded={saving} onClick={() => setSaving(true)}>새 판으로 저장…</button>, slot)}
+    {slot && createPortal(<><span className="mx-tag" data-changed>바뀐 요소 {changed}</span>
+      <button type="button" className="btn" disabled={lock} onClick={out}>버리고 나가기</button>
+      <button type="button" className="btn pri" disabled={lock || !v.upload_id} title={v.upload_id ? undefined : '이 판은 아직 편집 저장을 지원하지 않습니다'}
+      aria-expanded={saving} onClick={() => setSaving(true)}>새 판으로 저장…</button></>, slot)}
     {/* 저장 중엔 편집 입력을 모두 막는다(요청 뒤 바꾼 것이 201 뒤 사라지지 않게) — STOP 은 App 머리줄이라 그대로 */}
     <fieldset disabled={lock} style={{ display: 'contents' }}>
     <div className="mx-body" aria-label="지도 편집">
@@ -379,7 +388,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
         <Hint text={short} more={hint} />
       </div>
       {/* 오른쪽 작업 창: 아무것도 안 고르면 요소 목록, 고르면 그 요소 속성(필수 몇 개 + «더 보기») — «‹» 로 목록 */}
-      <Pane open={open} setOpen={setOpen} bar={`요소 ${keys.length}`} label="요소 창" pick={picker} name={name}
+      <Pane open={open} setOpen={setOpen} bar={`요소 ${keys.length}`} label="요소 창" pick={picker?.(keys.length)} name={name}
         head={cur ? <><button type="button" className="btn" aria-label="요소 목록으로" title="목록으로" onClick={() => setSel('')}>‹</button>
           <span className="fh-grow"><Glyph f={f} k={sel} /><span className="mx-cut">{featName(f, sel)}</span><span className="mx-tag">{featSub(f, sel, p.building.floors)}</span></span></>
           : <span className="fh-grow">요소 {keys.length}</span>}>
@@ -418,10 +427,11 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
           {!keys.length && <p className="lv-note mx-in">아직 요소가 없습니다. 왼쪽 도구로 구역·지점을 그리세요.</p>}
           <ol className="mx-list" aria-label="요소 순서">{keys.map((key, n) =>
             <li key={key} data-el={key} data-bad={key === badKey ? '' : undefined} className="mx-row">
-              <button type="button" className="mx-name" aria-pressed={sel === key} onClick={() => { setSel(key); setMsg(null); }}><Glyph f={f} k={key} /><b>{featName(f, key)}</b><small>{featSub(f, key, p.building.floors)}</small></button>
+              <button type="button" className="mx-name" aria-pressed={sel === key} onClick={() => { setSel(key); setMsg(null); }}><Glyph f={f} k={key} /><b>{featName(f, key)}</b>{fresh(key) && <span className="lv-chip ok" data-new>새로</span>}<small>{featSub(f, key, p.building.floors)}</small></button>
               <button type="button" className="mx-x" aria-label={`${n + 1}번 요소 지우기`} title="지우기" disabled={lock} onClick={() => drop(key)}>✕</button>
             </li>)}</ol>
         </>}
+        {foot && <div className="mx-foot">{foot}</div>}
       </Pane>
     </div>
     <Pop open={saving} close={() => setSaving(false)} label="새 판으로 저장">

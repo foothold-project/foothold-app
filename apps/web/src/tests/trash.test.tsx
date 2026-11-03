@@ -98,7 +98,7 @@ describe('휴지통(05 §5.1)', () => {
     expect(row('f2').textContent).toContain('층'); expect(row('f2').textContent).toContain('본동 안');
     expect(row('f2').textContent).toContain(`김총괄 · ${when('2026-11-02T03:00:00Z')}`);
     expect(row('b2').textContent).toContain('지운 사람 모름');
-    expect([...box.querySelectorAll('[data-trash] a')].map((a) => a.getAttribute('href'))).toEqual(['#/map', '#/mission']);
+    expect([...box.querySelectorAll('[data-trash] a')].map((a) => a.getAttribute('href'))).toEqual(['#/map']);
   });
   it('복원 = POST …/restore → 목록 다시, 완전 삭제 = 앱 안 확인 창(이름·되돌릴 수 없음 안내, 취소면 안 보냄) → DELETE, 0개면 빈 상태', async () => {
     db = [item('scenario', 'sc1', '옛 순찰'), item('floor', 'f2', '2층', { parent_name: '본동' })];
