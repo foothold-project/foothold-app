@@ -26,7 +26,7 @@ try {
     args: ['--no-sandbox', '--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader'] });
   const profiles = [{ name: 'offline', web: false, org: defaults }, { name: 'web-default', web: true, org: defaults },
     { name: 'web-explicit', web: true, org: { ...defaults, sim_max_vx: 1, sim_max_vy: .3, sim_max_wz: .5, sim_key_vx: .6 } }];
-  for (const profile of profiles) for (const id of ['foothold-v2', 'ame2-demo']) {
+  for (const profile of profiles) for (const id of ['nvidia-demo', 'ame2-demo']) {
     const { web, org } = profile;
     organization = org;
     const page = await browser.newPage({ hasTouch: true, viewport: { width: 520, height: 900 } }), errors = [];
@@ -45,7 +45,7 @@ try {
     await page.evaluate(async (id) => {
       const { getPolicyAdapter } = await import('./policy-adapters.js');
       const a = getPolicyAdapter(id), original = a.observe;
-      a.observe = function (...args) { original.apply(this, args); window.__policyInput = Array.from(args[0].slice(id === 'ame2-demo' ? 45 : 9, id === 'ame2-demo' ? 49 : 12)); };
+      a.observe = function (...args) { const inputs = original.apply(this, args); window.__policyInput = Array.from(args[0].observation.slice(a.command.kind === 'nearby_goal' ? 45 : 9, a.command.kind === 'nearby_goal' ? 49 : 12)); return inputs; };
     }, id);
     await page.click('#go');
     await page.waitForFunction(() => !window.__sim.stopped());
@@ -65,7 +65,7 @@ try {
     await page.click('#stop');
     assert.equal(await page.evaluate(() => window.__sim.stopped()), true);
     assert.equal(fetches > before, web);
-    if (profile.name === 'web-explicit' && id === 'foothold-v2') {
+    if (profile.name === 'web-explicit' && id === 'nvidia-demo') {
       organization = { ...org, sim_max_vx: .8, sim_key_vx: .5, sim_max_vy: .2, sim_max_wz: .4 };
       await page.click('#go'); await page.waitForFunction(() => !window.__sim.stopped());
       const updated = await page.locator('#modeCaps').textContent();

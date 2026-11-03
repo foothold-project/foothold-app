@@ -9,8 +9,8 @@ import { pathToFileURL } from 'node:url';
 const { chromium } = await import(pathToFileURL(process.env.FH_PLAYWRIGHT));
 const repo = resolve(new URL('../..', import.meta.url).pathname), assets = resolve(process.env.FH_SIM_SRC), ame = resolve(process.env.AME2_EXPORT);
 const out = resolve(process.env.FH_CAPTURE_DIR);
-const policies = process.env.FH_POLICY ? [process.env.FH_POLICY] : ['foothold-v2', 'ame2-demo'];
-assert.ok(policies.every((id) => ['foothold-v2', 'ame2-demo'].includes(id)), 'known FH_POLICY required');
+const policies = process.env.FH_POLICY ? [process.env.FH_POLICY] : ['nvidia-demo', 'ame2-demo'];
+assert.ok(policies.every((id) => ['nvidia-demo', 'ame2-demo'].includes(id)), 'known FH_POLICY required');
 assert.ok(out !== repo && !out.startsWith(repo + sep), 'Capture directory must be outside repository');
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true,

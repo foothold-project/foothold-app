@@ -23,14 +23,14 @@ const cases = ['reconstruction', 'gt', 'off'].map((mode) => ({ name: `start/${mo
   tv: json(join(process.env.FH_START_SRC, `test_vectors_flat20_${mode}.json`)), contract: start }));
 cases.push({ name: 'ame2/gt', root: process.env.FH_AME2_SRC, tv: json(join(process.env.FH_AME2_SRC, 'test_vectors_flat20.json')), contract: ame2 });
 const approved = { 'start-demo_map_on.onnx': '81c7e079516058ee6243f6edd11efa8f0da239c6cc86fbca791bda5bcd82f110',
-  'start-demo_map_off.onnx': '5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037', [ame2.file]: ame2.sha256 };
+  'start-demo_map_off.onnx': '5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037', [ame2.file]: ame2.sha256[ame2.file] };
 for (const c of cases) {
   assert.equal(c.tv.steps, 20); assert.ok(c.tv.tolerance <= 1e-4);
   const [file, sha] = Object.entries(c.tv.onnx)[0];
   assert.equal(sha, approved[file], `${c.name} unapproved model SHA`);
   c.file = file; c.model = read(join(c.root, file));
   assert.equal(hash(c.model), sha, `${c.name} vector/model SHA mismatch`);
-  if (c.contract.sha256) assert.equal(sha, c.contract.sha256);
+  if (c.contract.sha256) assert.equal(sha, typeof c.contract.sha256 === 'string' ? c.contract.sha256 : c.contract.sha256[file]);
   for (const spec of c.contract.inputs) {
     assert.deepEqual(spec.dims, c.tv.input_shapes[spec.name]);
     assert.equal(spec.type ?? 'float32', c.tv.input_types[spec.name] === 'tensor(bool)' ? 'bool' : 'float32');

@@ -1,75 +1,92 @@
-// Policy contract: observations, network, action conversion, timing and neutral input.
-// START remains undefined; AME-2 is an opt-in simulation demonstration.
+// Policy observation/network contracts and low-level terrain sampling.
+// Selection is owned by policy-modes.js; the factory avoids eager cyclic reads.
 import { makeAme2Adapter } from './ame2-adapter.js';
-const legs = ['FL', 'FR', 'RL', 'RR'], parts = ['hip', 'thigh', 'calf'];
-const isaacJoints = parts.flatMap((p) => legs.map((l) => `${l}_${p}_joint`));
-const defaultPose = Float64Array.from(isaacJoints, (n) =>
-  n.includes('_hip') ? (n[1] === 'L' ? 0.1 : -0.1) : n.includes('_thigh') ? (n[0] === 'F' ? 0.8 : 1.0) : -1.5);
-const clip = (v) => Math.min(Math.max(v, -1), 1);
-// Isaac Lab grid_pattern(ordering='xy'): meshgrid(x,y,indexing='xy').flatten(), x fastest.
-const grid = Array.from({ length: 187 }, (_, i) => [(i % 17 - 8) * 0.1, (Math.floor(i / 17) - 5) * 0.1]);
+import { MODE_COMMAND_CAPS } from './manual-settings.js';
+export { getPolicyMode as getPolicyAdapter, POLICY_ADAPTERS } from './policy-modes.js';
 
-const footholdV2 = {
-  id: 'foothold-v2',
-  onnx: { file: 'policy_v2.onnx', sha256: 'c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2',
-    inputs: [{ name: 'observation', dims: [1, 235] }],
-    outputs: [{ name: 'action', dims: [1, 12] }], action: 'action' },
-  observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
-    dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
-    units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
-    // Training scans only ground from +20 m. Here world geometry includes ceilings:
-    // clip(base_z - hit_z - 0.5, +/-1) reaches -1 at base_z + 0.5;
-    // start 1 mm above that boundary to avoid rounding away boundary hits.
-    height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 0.501, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0 } },
-  network: { file: 'policy_v2.f32', sha256: 'da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c',
-    format: 'float32 LE, row-major weight then bias per layer', shapes: [[512, 235], [256, 512], [128, 256], [12, 128]], activation: 'ELU(1), linear output' },
-  action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
-  timing: { physicsDt: 0.005, decimation: 4, policyDt: 0.02 },
-  command: { kind: 'body_velocity', axes: ['vx', 'vy', 'wz'], trainingRanges: [[0.4, 1.5], [0, 0], [-1, 1]],
-    joystickScale: [1.5, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
-  stop: { input: [0, 0, 0], commandZero: 'continue policy with zero velocity input', lock: 'existing UI STOP latch; human resume required' },
-  loadPolicy(buf) {
-    const f = new Float32Array(buf), layers = [];
-    let o = 0;
-    for (const [r, c] of this.network.shapes) { layers.push([f.subarray(o, o + r * c), f.subarray(o + r * c, o + r * c + r), r, c]); o += r * c + r; }
-    if (o !== f.length) throw new Error(`가중치 길이 ${f.length} ≠ ${o}`);
-    const outputs = this.network.shapes.map(([r]) => new Float32Array(r));
-    return (x) => {
-      let h = x;
-      layers.forEach(([w, b, r, c], k) => {
-        const y = outputs[k];
-        for (let i = 0; i < r; i++) {
-          let s = b[i];
-          for (let j = 0; j < c; j++) s += w[i * c + j] * h[j];
-          y[i] = k < layers.length - 1 ? (s > 0 ? s : Math.expm1(s)) : s;
+export function createPolicyModeAdapters() {
+  const legs = ['FL', 'FR', 'RL', 'RR'], parts = ['hip', 'thigh', 'calf'];
+  const isaacJoints = parts.flatMap((p) => legs.map((l) => `${l}_${p}_joint`));
+  const defaultPose = Float64Array.from(isaacJoints, (n) =>
+    n.includes('_hip') ? (n[1] === 'L' ? 0.1 : -0.1) : n.includes('_thigh') ? (n[0] === 'F' ? 0.8 : 1.0) : -1.5);
+  const clip = (v) => Math.min(Math.max(v, -1), 1);
+  // Isaac Lab grid_pattern(ordering='xy'): meshgrid(x,y,indexing='xy').flatten(), x fastest.
+  const grid = Array.from({ length: 187 }, (_, i) => [(i % 17 - 8) * 0.1, (Math.floor(i / 17) - 5) * 0.1]);
+
+  const nvidiaDemoMode = {
+    id: 'nvidia-demo', label: 'nvidia-demo',
+    onnx: { file: 'policy_v2.onnx', sha256: 'c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2',
+      inputs: [{ name: 'observation', dims: [1, 235] }],
+      outputs: [{ name: 'action', dims: [1, 12] }], action: 'action' },
+    observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
+      dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
+      units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
+      // Training scans only ground from +20 m. Here world geometry includes ceilings:
+      // clip(base_z - hit_z - 0.5, +/-1) reaches -1 at base_z + 0.5;
+      // start 1 mm above that boundary to avoid rounding away boundary hits.
+      height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 0.501, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0 } },
+    network: { file: 'policy_v2.f32', sha256: 'da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c',
+      format: 'float32 LE, row-major weight then bias per layer', shapes: [[512, 235], [256, 512], [128, 256], [12, 128]], activation: 'ELU(1), linear output' },
+    action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
+    timing: { physicsDt: 0.005, decimation: 4, policyDt: 0.02 },
+    command: { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.nvidia, axes: ['vx', 'vy', 'wz'], trainingRanges: [[0.4, 1.5], [0, 0], [-1, 1]],
+      joystickScale: [1.5, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
+    stop: { input: [0, 0, 0], commandZero: 'continue policy with zero velocity input', lock: 'existing UI STOP latch; human resume required' },
+    loadPolicy(buf) {
+      const f = new Float32Array(buf), layers = [];
+      let o = 0;
+      for (const [r, c] of this.network.shapes) { layers.push([f.subarray(o, o + r * c), f.subarray(o + r * c, o + r * c + r), r, c]); o += r * c + r; }
+      if (o !== f.length) throw new Error(`가중치 길이 ${f.length} ≠ ${o}`);
+      const outputs = this.network.shapes.map(([r]) => new Float32Array(r));
+      return (x) => {
+        let h = x;
+        layers.forEach(([w, b, r, c], k) => {
+          const y = outputs[k];
+          for (let i = 0; i < r; i++) {
+            let s = b[i];
+            for (let j = 0; j < c; j++) s += w[i * c + j] * h[j];
+            y[i] = k < layers.length - 1 ? (s > 0 ? s : Math.expm1(s)) : s;
+          }
+          h = y;
+        });
+        return h;
+      };
+    },
+    observeInto(obs, s, last, sampleHeight) {
+      const { qpos: q, qvel: v } = s.d;
+      obs.set(s.linB, 0); obs.set(s.angB, 3); obs.set(s.grav, 6); obs.set(s.cmd, 9);
+      for (let i = 0; i < this.action.size; i++) { const j = s.M2I[i]; obs[12 + i] = q[7 + j] - defaultPose[i]; obs[24 + i] = v[6 + j]; }
+      obs.set(last, 36);
+      this.map(s, obs, sampleHeight);
+    },
+    makeHeightScanner(mj, m, d) {
+      const cfg = this.observations.height, sample = makeTerrainSampler(mj, m, d, cfg);
+      const heights = new Float64Array(cfg.grid.length);
+      const scan = (q, out, offset = 0) => {
+        sample(q, heights);
+        for (let i = 0; i < heights.length; i++) {
+          const height = q[2] - heights[i] - cfg.offset;
+          out[offset + i] = Number.isFinite(height) ? clip(height) : cfg.missValue;
         }
-        h = y;
-      });
-      return h;
-    };
-  },
-  observe(obs, s, last, sampleHeight) {
-    const { qpos: q, qvel: v } = s.d;
-    obs.set(s.linB, 0); obs.set(s.angB, 3); obs.set(s.grav, 6); obs.set(s.cmd, 9);
-    for (let i = 0; i < this.action.size; i++) { const j = s.M2I[i]; obs[12 + i] = q[7 + j] - defaultPose[i]; obs[24 + i] = v[6 + j]; }
-    obs.set(last, 36);
-    sampleHeight(q, obs, this.observations.bodySize);
-  },
-  makeHeightScanner(mj, m, d) {
-    const cfg = this.observations.height, sample = makeTerrainSampler(mj, m, d, cfg);
-    const heights = new Float64Array(cfg.grid.length);
-    const scan = (q, out, offset = 0) => {
-      sample(q, heights);
-      for (let i = 0; i < heights.length; i++) {
-        const height = q[2] - heights[i] - cfg.offset;
-        out[offset + i] = Number.isFinite(height) ? clip(height) : cfg.missValue;
-      }
-      return out;
-    };
-    scan.dispose = sample.dispose;
-    return scan;
-  },
-};
+        return out;
+      };
+      scan.dispose = sample.dispose;
+      return scan;
+    },
+    map(s, obs = s.observation, sampleHeight = s.heightScanner) {
+      sampleHeight(s.d.qpos, obs, this.observations.bodySize);
+      return obs.subarray(this.observations.bodySize);
+    },
+  };
+  const ame2DemoMode = makeAme2Adapter(makeTerrainSampler);
+  ame2DemoMode.onnx = {
+    file: 'ame2-demo.onnx', sha256: '830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6',
+    inputs: [{ name: 'prop', dims: [1, 49], type: 'float32' }, { name: 'mapping', dims: [1, 29, 13, 3], type: 'float32' }],
+    outputs: [{ name: 'action', dims: [1, 12], type: 'float32' }, { name: 'gaze_r', dims: [1, 2], type: 'float32' }],
+    action: 'action', state: [],
+  };
+  return { nvidia: nvidiaDemoMode, ame2: ame2DemoMode };
+}
 
 export function makeTerrainSampler(mj, m, d, cfg) {
   const hit = new mj.IntBuffer(1), group = [1, 1, 0, 0, 1, 0], down = [0, 0, -1];
@@ -162,18 +179,4 @@ export function makeTerrainSampler(mj, m, d, cfg) {
   };
   scan.dispose = () => hit.delete();
   return scan;
-}
-
-const ame2 = makeAme2Adapter(makeTerrainSampler);
-ame2.onnx = {
-  file: 'ame2-demo.onnx', sha256: '830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6',
-  inputs: [{ name: 'prop', dims: [1, 49], type: 'float32' }, { name: 'mapping', dims: [1, 29, 13, 3], type: 'float32' }],
-  outputs: [{ name: 'action', dims: [1, 12], type: 'float32' }, { name: 'gaze_r', dims: [1, 2], type: 'float32' }],
-  action: 'action', state: [],
-};
-export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2, 'ame2-demo': ame2 });
-export function getPolicyAdapter(id = 'foothold-v2') {
-  const adapter = Object.hasOwn(POLICY_ADAPTERS, id) && POLICY_ADAPTERS[id];
-  if (!adapter) throw new Error(`알 수 없는 정책 어댑터: ${id}`);
-  return adapter;
 }

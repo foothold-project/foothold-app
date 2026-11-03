@@ -13,7 +13,7 @@ const mj=await load();mj.FS.mkdir('/go2');mj.FS.mkdir('/go2/assets');
 for(const f of readdirSync(join(src,'assets/unitree_go2/assets')))if(f.endsWith('.obj'))mj.FS.writeFile('/go2/assets/'+f,readFileSync(join(src,'assets/unitree_go2/assets',f)));
 mj.FS.writeFile('/go2/go2.xml',readFileSync(join(src,'assets/unitree_go2/go2.xml')));
 let ticks=0;
-for(const id of ['foothold-v2','ame2-demo']) for(const [name,z,roll,ground] of [
+for(const id of ['nvidia-demo','ame2-demo']) for(const [name,z,roll,ground] of [
   ['low-body',.12,0,true],['sideways',.4,Math.PI/2,true],['inverted',.4,Math.PI,true],['void',.4,0,false],
 ]) {
   mj.FS.writeFile('/go2/test.xml',`<mujoco><include file="go2.xml"/><worldbody>${ground?'<geom type="plane" group="1" size="10 10 .01"/>':''}</worldbody></mujoco>`);

@@ -65,7 +65,7 @@ try {
   assert.deepEqual(await joy(), [0, 0, 0]);
   await k.up('ArrowUp');
   assert.deepEqual(await joy(), [-1.5, 0, 0]);
-  // 후진·옆걸음은 foothold-v2 학습 범위 밖 — 자르지 않고(명령 그대로) 키 안내 테두리 색만, 제자리 회전은 범위 안
+  // 후진·옆걸음은 nvidia-demo 학습 범위 밖 — 자르지 않고(명령 그대로) 키 안내 테두리 색만, 제자리 회전은 범위 안
   await page.waitForFunction(() => __sim.cmd()[0] === -1.5 && document.getElementById('keys').classList.contains('out'));
   await k.up('KeyS'); await k.down('ArrowRight');
   await page.waitForFunction(() => __sim.cmd()[1] === -0.5 && document.getElementById('keys').classList.contains('out'));

@@ -1,5 +1,6 @@
 // Offline waypoint overlay: velocity tracking or direct AME-2 world goals.
 import { ame2WorldGoal } from './ame2-adapter.js';
+import { getPolicyMode } from './policy-modes.js';
 import { cell } from './lidar.js';
 import { boundedNumber, DEFAULT_VX, DEFAULT_WZ } from './settings.js';
 
@@ -32,8 +33,9 @@ export function frontDistance(rays) {
 
 export function createScenarioRunner(sim, isStopped, limits = {}) {
   let maxVx = MAX_VX, maxWz = MAX_WZ, origin;
-  const directGoal = sim.adapterId === 'ame2-demo';
-  const neutral = () => directGoal ? [0, 0, 0, 1] : [0, 0, 0];
+  const mode = getPolicyMode(sim.adapterId);
+  const directGoal = mode.command.kind === 'nearby_goal';
+  const neutral = () => mode.stop.input.slice();
   // goal = 찍은 곳 하나로 가기(손 조종이 끊으면 잠그지 않고 취소만). best(거리)·turn(방향 오차)·stall = 진전 없음 재기
   const runner = { active: false, index: 0, points: [], status: '대기', goal: false, best: Infinity, turn: Infinity, stall: 0 };
   runner.cancel = (reason = '중단') => {

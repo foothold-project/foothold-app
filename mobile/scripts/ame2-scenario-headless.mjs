@@ -81,8 +81,8 @@ try {
         r.tick(f, .02); trace.push([r.index, r.status, robot.cmd.slice(), Array.from(robot.d.qpos), Array.from(robot.d.qvel)]);
         if (!r.active) break; robot.step(); n++;
       }
-      if (label === 'before') prior = trace; else assert.deepEqual(trace, prior, `${id}: foothold-v2 scenario unchanged`);
-      console.log(JSON.stringify({ policy: 'foothold-v2', map: id, label, ticks: trace.length, status: r.status, reached: r.index, seconds: +robot.t.toFixed(2), traceDifferences: label === 'after' ? 0 : undefined }));
+      if (label === 'before') prior = trace; else assert.deepEqual(trace, prior, `${id}: nvidia-demo scenario unchanged`);
+      console.log(JSON.stringify({ policy: 'nvidia-demo', map: id, label, ticks: trace.length, status: r.status, reached: r.index, seconds: +robot.t.toFixed(2), traceDifferences: label === 'after' ? 0 : undefined }));
       robot.dispose();
     }
   }

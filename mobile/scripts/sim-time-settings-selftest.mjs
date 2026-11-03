@@ -35,8 +35,8 @@ async function open(query) {
 }
 try {
   // No backend parameter: both adapters use JS for the presentation path.
-  for (const policy of ['foothold-v2', 'ame2-demo']) {
-    const page = await open(policy === 'foothold-v2' ? '' : `policy=${policy}`);
+  for (const policy of ['nvidia-demo', 'ame2-demo']) {
+    const page = await open(policy === 'nvidia-demo' ? '' : `policy=${policy}`);
     const badge = await page.locator('#policyEngine').textContent();
     assert.match(badge, /기본 계산 사용 \(f32 JS\)/);
     assert.equal(page.workers().length, 0);
@@ -56,7 +56,7 @@ try {
     console.log('Default f32 JS motion PASS', JSON.stringify({ policy, badge, ...motion }));
     await page.close();
   }
-  if (!process.argv.includes('--settings-only')) for (const policy of ['foothold-v2', 'ame2-demo']) for (const engine of ['f32', 'main', 'worker']) for (const fps of [60, 30, 5]) {
+  if (!process.argv.includes('--settings-only')) for (const policy of ['nvidia-demo', 'ame2-demo']) for (const engine of ['f32', 'main', 'worker']) for (const fps of [60, 30, 5]) {
     const page = await open(`policy=${policy}&policyBackend=${engine === 'f32' ? 'f32' : 'wasm'}&policyThread=${engine === 'main' ? 'main' : 'worker'}`);
     assert.match(await page.locator('#policyEngine').textContent(), engine === 'f32' ? /f32 JS/ : engine === 'main' ? /화면 계산/ : /Worker/);
     const row = await page.evaluate(async ({ fps, policy, engine }) => {
@@ -93,7 +93,7 @@ try {
   }
   // Same command/physics sequence across FPS; main and Worker transfer exactly
   // the same inputs. Compare closed-loop poses at equal physics time only.
-  for (const policy of ['foothold-v2', 'ame2-demo']) {
+  for (const policy of ['nvidia-demo', 'ame2-demo']) {
     const equalTime = rows.filter((r) => r.policy === policy && r.decisions === 100);
     for (const engine of ['f32', 'main', 'worker']) {
       const group = equalTime.filter((r) => r.engine === engine);

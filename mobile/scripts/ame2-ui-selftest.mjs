@@ -46,7 +46,7 @@ try {
   await page.unroute('**/ame2_actor*');
   await page.goto(url);
   await page.waitForFunction(() => window.__sim?.ready);
-  assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'foothold-v2');
+  assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'nvidia-demo');
   await page.click('#scenarioMenu');
   await page.selectOption('#policySelect', 'ame2-demo');
   await page.waitForURL('**policy=ame2-demo');
@@ -104,7 +104,7 @@ try {
   assert.equal(await page.evaluate(() => __sim.sim.mapping.every(Number.isFinite)), true);
   assert.deepEqual(errors, []);
   if (process.argv.includes('--default')) {
-    for (const id of ['foothold-v2', 'ame2-demo']) {
+    for (const id of ['nvidia-demo', 'ame2-demo']) {
       await page.goto(url.replace('&policyBackend=wasm', '') + '&policy=' + id);
       await page.waitForFunction(() => window.__sim?.ready);
       assert.match(await page.locator('#policyEngine').textContent(), /ONNX WASM/);

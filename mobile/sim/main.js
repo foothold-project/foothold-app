@@ -1,12 +1,12 @@
 // 앱 안 오프라인 시뮬(RS-6 창고 브라우저 시뮬을 옮김): 창고 f1 안에서 Go2 를 두 막대로 걷게 한다. 서버·인터넷 없이 앱 번들(www/sim)만 읽는다.
 // 지도 = ?map=<이름>(maps.json 목록 안, [a-z0-9-] 만 — 없거나 틀리면 warehouse) → assets/<이름>/ 의 scene.json·map.json·<이름>.xml.
-// 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = foothold-v2 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
+// 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = nvidia-demo 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
 // RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 앱 숨김·화면 꺼짐 = STOP
 // · 막대 밖 한 손가락 끌기 = 따라가기 돌리기/탑뷰 이동, 두 손가락 = 확대·축소. 정책 계약은 policy-adapters.js 에서 id 로 고른다.
 import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
 import { createSim, ISAAC_LIKE } from './sim.js';
-import { getPolicyAdapter } from './policy-adapters.js';
+import { POLICY_MODES, DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
 import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame, topPoint } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
@@ -17,7 +17,7 @@ import { manualSettings, manualCommand, commandCaps, modeCapText } from './manua
 import { createFrameClock } from './frame-clock.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
-try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
+try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
 catch (e) { selectionError = e; }
 const DEFAULT_POLICY_BACKEND = 'wasm';
 const POLICY_DT = adapter.timing.policyDt;
@@ -32,7 +32,7 @@ const bytes = async (u) => new Uint8Array(await (await get(u)).arrayBuffer());
 const json = async (u) => (await get(u)).json();
 const backendFor = (mode) => {
   const params = new URLSearchParams(location.search);
-  return params.get('policyBackend') ?? (mode.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? DEFAULT_POLICY_BACKEND;
+  return params.get('policyBackend') ?? (mode.command.kind === 'nearby_goal' ? params.get('ame2Backend') : null) ?? DEFAULT_POLICY_BACKEND;
 };
 const st = (window.__sim = { ready: false, err: null });   // 시험용(headless) — 화면에는 안 보임
 
@@ -47,7 +47,7 @@ function lock() {
   startEpoch++; clock?.reset();
   stopped = true; joy = neutral(); onLock?.();
   if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
-  if (adapter.stop.pause) { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
+  if (adapter.command.kind === 'nearby_goal') { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
   ui();
 }
@@ -122,7 +122,7 @@ function stick(el, set) {
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
 const stickAxes = [0, 0, 0];
 const updateStickAxes = () => {
-  const axes = adapter.stop.pause ? goalAxes : joy;
+  const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
   axes.splice(0, 3, ...manualCommand(stickAxes, inputSettings).map(r2));
 };
 stick($('stickL'), (x, y) => { stickAxes[0] = -y; stickAxes[1] = -x; updateStickAxes(); });
@@ -135,7 +135,7 @@ const inRange = (c) => adapter.command.inRange(c);
 const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [1, 1], ArrowRight: [1, -1], KeyA: [2, 1], KeyD: [2, -1] };
 const held = new Set();
 const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 끝 값 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
-  const axes = adapter.stop.pause ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
+  const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
   axes.splice(0, 3, ...manualCommand([0, 1, 2].map((i) => on(i, 1) - on(i, -1)), inputSettings, true).map(r2));
 };
 const dropKeys = () => { held.clear(); keyAxes(); };
@@ -163,19 +163,25 @@ try {
 } catch (e) {
   st.err = String(e?.stack || e);
   console.error(e);
-  $('busy').hidden = true; $('fail').hidden = false;
-  if (adapter.stop.pause) { $('policySelect').options[1].disabled = true; $('policyReason').textContent = `AME-2 사용 불가: ${e.message}`; }
+  $('busy').hidden = true; $('fail').removeAttribute('hidden');
+  const option = Array.from($('policySelect').options).find((x) => x.value === adapter.id);
+  if (option) option.disabled = true;
+  $('policyReason').textContent = e.message;
+  if (selectionError || !$('policyEngine').textContent) $('policyEngine').textContent = e.message;
+  $('policyEngine').hidden = false;
 }
 
 async function preparePolicies() {
   const choice = $('policySelect'), reason = $('policyReason');
+  choice.replaceChildren(...Object.values(POLICY_MODES).map((mode) => new Option(mode.label, mode.id)));
   choice.value = adapter.id;
   choice.onchange = () => {
     lock();
-    const url = new URL(location.href); url.searchParams.set('policy', choice.value);
+    const mode = getPolicyAdapter(choice.value);
+    const url = new URL(location.href); url.searchParams.set('policy', mode.id);
     location.href = url.href;
   };
-  const ame2 = getPolicyAdapter('ame2-demo');
+  const ame2 = POLICY_MODES.ame2;
   const option = Array.from(choice.options).find((x) => x.value === ame2.id);
   const exists = async (file) => {
     const response = await fetch(file, { method: 'HEAD' }).catch(() => null);
@@ -695,8 +701,8 @@ async function main() {
     prepare: () => {
       if (runner.active) {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
-        if (adapter.stop.pause) { heading = null; joy = sim.cmd.slice(); }
-      } else if (adapter.stop.pause) {
+        if (adapter.command.kind === 'nearby_goal') { heading = null; joy = sim.cmd.slice(); }
+      } else if (adapter.command.kind === 'nearby_goal') {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();

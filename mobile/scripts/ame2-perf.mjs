@@ -72,7 +72,7 @@ const stats = (a) => {
 try {
   browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true,
     args: ['--no-sandbox', '--enable-webgl', '--enable-gpu', '--ignore-gpu-blocklist', '--use-gl=angle', `--use-angle=${angle}`] });
-  for (const rate of [1, 4]) for (const policy of ['ame2-demo', 'foothold-v2']) for (const version of args.compare ? ['before', 'after'] : [useBaseline ? 'before' : 'after']) {
+  for (const rate of [1, 4]) for (const policy of ['ame2-demo', 'nvidia-demo']) for (const version of args.compare ? ['before', 'after'] : [useBaseline ? 'before' : 'after']) {
     useBaseline = version === 'before';
     const hostLoadBefore = loadavg();
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
