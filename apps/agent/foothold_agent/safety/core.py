@@ -104,14 +104,19 @@ def quantize(fx, fy, fw):
 
 
 def quantize_phone(fx, fy, fw):
-    """Physical phone's 1.5 m/s alphabet; retain original axis/stop gates.
+    """Physical phone: 0.3..1.5 m/s in downward 0.1 m/s steps.
 
     Core's default projection stays at the original 0.6 m/s for legacy links.
     Only the physical phone Hub explicitly selects this projection.
     """
     velocity, reason = quantize(fx, fy, fw)
-    return ((1.5, velocity[1], velocity[2]) if velocity[0] else velocity,
-            reason.replace('0.6 m/s', '1.5 m/s'))
+    if fx < 0.2 or abs(fy) >= 0.5:
+        return velocity, reason.replace('앞으로 끝까지 밀면 0.6 m/s', '미는 만큼 0.3~1.5 m/s')
+    # 0.3 + (fx - 0.2) * (1.5 - 0.3) / (1 - 0.2) == 1.5 * fx.
+    # Integer tenths keep every result in the sink's exact finite alphabet.
+    vx = min(15, math.floor(fx * 15)) / 10
+    # quantize retains the original fx >= 0.5 and fw thresholds for turns.
+    return (vx, 0.0, velocity[2]), ''
 
 
 class Core:
