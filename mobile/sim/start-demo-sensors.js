@@ -28,8 +28,8 @@ function terrainOnly(m, d, run, origin = null, cutoff = Infinity, planes = []) {
   }
   try { return run(); } finally { for (const [g, group] of excluded) groups[g] = group; }
 }
-export function makeStartDemoMap(mj, m, d, makeTerrainSampler) {
-  const cfg = { grid: startDemoGrid, rayOffset: 20 }, sample = makeTerrainSampler(mj,m,d,cfg);
+export function makeStartDemoMap(mj, m, d, makeTerrainSampler, { fastVertical = true } = {}) {
+  const cfg = { grid: startDemoGrid, rayOffset: 20, fastVertical }, sample = makeTerrainSampler(mj,m,d,cfg);
   const heights = new Float64Array(512), hit = new mj.IntBuffer(1), normal = new mj.DoubleBuffer(3);
   const scan = (q, out = new Float32Array(512)) => {
     const t = performance.now(), point = Float64Array.from(q.slice(0,3)); cfg.rayOffset = 20;

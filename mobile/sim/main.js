@@ -21,6 +21,7 @@ let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
 catch (e) { selectionError = e; }
 const DEFAULT_POLICY_BACKEND = 'wasm';
+const START_DRAW_MAX_GAP_MS = 100;
 let startMapMode = 'gt';
 try {
   if (adapter.depth) {
@@ -738,14 +739,16 @@ async function main() {
     },
   });
   clock.reset();
+  let lastDrawAt = -Infinity;
   function frame(now) {
     // Account wall time on every RAF, including while inference is pending.
     // For start, finish due decisions before submitting a new GPU redraw:
     // SwiftShader work otherwise competes with the 20 ms Worker delivery.
-    // Idle RAFs still refresh lidar and draw; STOP/input events remain live.
+    // Bound deferral even under continuous inference, so drawing, lidar and
+    // scenario/goal/floor UI continue on slow CPUs as well as idle RAFs.
     if (adapter.depth) {
       clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
-      if (clock.stats.pending) { timingUI(); requestAnimationFrame(frame); return; }
+      if (clock.stats.pending && performance.now() - lastDrawAt < START_DRAW_MAX_GAP_MS) { timingUI(); requestAnimationFrame(frame); return; }
     }
     if (now - lastScan >= 100) { scan(); lastScan = now; }
     if (!adapter.depth) clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
@@ -780,6 +783,7 @@ async function main() {
     camera.position.lerp(camPos, top || !camera.position.lengthSq() ? 1 : 0.25);   // 첫 프레임(원점)은 바로 제자리
     camera.lookAt(look);
     renderer.render(scene, camera);
+    lastDrawAt = performance.now();
     frames++;
     if (now - fpsT > 1000) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
     $('stickL').classList.toggle('out', !inRange(sim.cmd)); $('keys').classList.toggle('out', !inRange(sim.cmd));

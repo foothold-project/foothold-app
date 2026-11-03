@@ -108,6 +108,27 @@ export function makeTerrainSampler(mj, m, d, cfg) {
   const terrain = batched ? Array.from({ length: m.ngeom }, (_, g) => g)
     .filter((g) => body[g] === 0 && (contype[g] || affinity[g]))
     .map((g) => ({ g, pos: new Float64Array(3), mat: new Float64Array(9), size: new Float64Array(3) })) : [];
+  const meshTriangles = (geom) => {
+    const transform = [...geom.pos,...geom.mat];
+    if (geom.transform?.every((x,i) => x === transform[i])) return geom.triangles;
+    geom.transform = transform;
+    const id = m.geom_dataid[geom.g], va = m.mesh_vertadr[id], fa = m.mesh_faceadr[id], vn = m.mesh_vertnum[id], fn = m.mesh_facenum[id];
+    const vertices = m.mesh_vert, faces = m.mesh_face, world = new Float64Array(vn*3), R = geom.mat, p = geom.pos;
+    for (let i=0;i<vn;i++) for (let axis=0;axis<3;axis++) {
+      const t=axis*3, v=(va+i)*3;
+      world[i*3+axis]=p[axis]+R[t]*vertices[v]+R[t+1]*vertices[v+1]+R[t+2]*vertices[v+2];
+    }
+    const triangles=[];
+    for (let i=0;i<fn;i++) {
+      const a=faces[(fa+i)*3]*3,b=faces[(fa+i)*3+1]*3,c=faces[(fa+i)*3+2]*3;
+      const ax=world[a]-world[c],ay=world[a+1]-world[c+1],bx=world[b]-world[c],by=world[b+1]-world[c+1],det=ax*by-ay*bx;
+      // Vertical faces cannot meet a vertical ray except at an edge; edge
+      // queries below retain native evaluation. No height approximation.
+      if (Math.abs(det)<1e-15) continue;
+      triangles.push({cx:world[c],cy:world[c+1],cz:world[c+2],az:world[a+2]-world[c+2],bz:world[b+2]-world[c+2],ax,ay,bx,by,det});
+    }
+    return geom.triangles=triangles;
+  };
   const scan = (q, out) => {
     const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
     const c = Math.cos(yaw), s = Math.sin(yaw), z = q[2] + cfg.rayOffset;
@@ -144,13 +165,32 @@ export function makeTerrainSampler(mj, m, d, cfg) {
         // Bounds only reject; all accepted rays use native geometry.
         // Planes can be infinite, so they always reach the native intersection.
         if (type !== 0 && (gx + rx < minX || gx - rx > maxX || gy + ry < minY || gy - ry > maxY || bottom > z)) continue;
-        if ((type > 1 && type < 7) || type === 0) {
+        if ((type > 1 && type < 7) || type === 0 || (cfg.fastVertical && type === 7)) {
           geom.pos.set(pos.subarray(3 * g, 3 * g + 3)); geom.mat.set(mat.subarray(9 * g, 9 * g + 9)); geom.size.set(size.subarray(3 * g, 3 * g + 3));
         }
+        const triangles = cfg.fastVertical && type === 7 ? meshTriangles(geom) : null;
         for (let i = 0; i < distances.length; i++) {
           point[0] = origins[2 * i]; point[1] = origins[2 * i + 1];
           if (type !== 0 && (Math.abs(point[0] - gx) > rx || Math.abs(point[1] - gy) > ry || z - top > distances[i])) continue;
-          const distance = type === 7 ? mj.mj_rayMesh(m, d, g, point, down, null)
+          let distance;
+          const t = geom.mat, p = geom.pos, sz = geom.size;
+          if (triangles) {
+            distance=-1;
+            for (const f of triangles) {
+              const dx=point[0]-f.cx,dy=point[1]-f.cy,u=(dx*f.by-dy*f.bx)/f.det,v=(f.ax*dy-f.ay*dx)/f.det;
+              if (u < -1e-10 || v < -1e-10 || u+v > 1+1e-10) continue;
+              if (Math.min(Math.abs(u),Math.abs(v),Math.abs(1-u-v))<1e-10) {distance=mj.mj_rayMesh(m,d,g,point,down,null);break;}
+              const hit=z-(f.cz+u*f.az+v*f.bz);
+              if (hit>=0 && (distance<0 || hit<distance)) distance=hit;
+            }
+          } else if (cfg.fastVertical && (type === 0 || type === 6) && t[2] === 0 && t[5] === 0 && t[6] === 0 && t[7] === 0 && t[8] === 1) {
+            // Start-only exact vertical intersections for horizontal planes
+            // and upright boxes. Tilted/other geometry retains native rays.
+            const dx = point[0]-p[0], dy = point[1]-p[1], dz = z-p[2];
+            const x = t[0]*dx+t[3]*dy, y = t[1]*dx+t[4]*dy;
+            if (type === 0) distance = dz >= 0 && (sz[0] <= 0 || Math.abs(x) <= sz[0]) && (sz[1] <= 0 || Math.abs(y) <= sz[1]) ? dz : -1;
+            else distance = Math.abs(x) <= sz[0] && Math.abs(y) <= sz[1] && dz >= -sz[2] ? (dz >= sz[2] ? dz-sz[2] : dz+sz[2]) : -1;
+          } else distance = type === 7 ? mj.mj_rayMesh(m, d, g, point, down, null)
             : type === 1 ? mj.mj_rayHfield(m, d, g, point, down, null)
               : mj.mju_rayGeom(geom.pos, geom.mat, geom.size, point, down, type, null);
           if (distance >= 0 && distance < distances[i]) distances[i] = distance;
