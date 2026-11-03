@@ -56,13 +56,13 @@
       "type": "number"
     },
     "sim_max_vy": {
-      "maximum": 0.3,
+      "maximum": 0.5,
       "minimum": 0.0,
       "title": "Sim Max Vy",
       "type": "number"
     },
     "sim_max_wz": {
-      "maximum": 0.5,
+      "maximum": 1.2,
       "minimum": 0.0,
       "title": "Sim Max Wz",
       "type": "number"

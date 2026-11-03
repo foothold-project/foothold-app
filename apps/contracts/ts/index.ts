@@ -919,7 +919,9 @@ export interface OrgSettings {
   link_loss_wait_s: number;
   sim_max_vx?: number;
   sim_min_vx?: number;
+  /** 시뮬 옆 상한 0~0.5 m/s, 기본 0.5. 실기 한도와 별개. */
   sim_max_vy?: number;
+  /** 시뮬 회전 상한 0~1.2 rad/s, 기본 1.2. 모드 상한 안에서만 적용. */
   sim_max_wz?: number;
   sim_key_vx?: number;
   stick_deadzone?: number;

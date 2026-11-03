@@ -33,7 +33,7 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     <div className="st-tabs" role="tablist" aria-label="설정 묶음" ref={list} onKeyDown={key}>
       {TABS.map(([id, name]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}>{name}</button>)}
     </div>
-    <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 에이전트 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
+    <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
     {org.err && <p className="fh-msg" role="alert">{org.err}</p>}
     {panel('common', card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON }))}
     {panel('real', <>
@@ -49,7 +49,7 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
       </section>
     </>)}
     {panel('sim', <>
-      {card({ id: 'simcap', label: '시뮬 속도 상한', cap: true, note: '시뮬 에이전트가 정한 상한보다 위로는 못 올림.', fields: SIM_CAP })}
+      {card({ id: 'simcap', label: '시뮬 속도 상한', cap: true, note: '모드·연결별 상한 안에서 적용합니다. 조직 설정으로 상한을 넓히지는 않습니다.', fields: SIM_CAP })}
       {card({ id: 'siminput', label: '조종 입력·임무 실행기', fields: SIM_INPUT })}
       {card({ id: 'simview', label: '표시', fields: SIM_VIEW })}
       {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
@@ -74,7 +74,7 @@ const RealTable = () => <table className="st-table">
 </table>;
 
 /** 조직 값(05 API §8 GET·PATCH /org/settings). 범위는 계약(apps/contracts/models.py OrgSettingsPatch)과 같게 — 검사는 서버가 한다.
- *  kind: 기본 숫자 칸, range = 미끄럼 막대, switch = 켜고 끄기. int = 정수만. cap = 시뮬 에이전트 상한 안에서만 */
+ *  kind: 기본 숫자 칸, range = 미끄럼 막대, switch = 켜고 끄기. int = 정수만. cap = 시뮬 모드·연결 상한 안에서만 */
 type Field = { key: keyof OrgSettings; label: string; unit: string; min: number; max: number; step: number; kind?: 'range' | 'switch'; cap?: boolean; hint?: string };
 const num = (key: keyof OrgSettings, label: string, unit: string, min: number, max: number, step: number, more: Partial<Field> = {}): Field => ({ key, label, unit, min, max, step, ...more });
 const COMMON = [
@@ -88,13 +88,13 @@ const LEASE = [
 ];
 const REAL = [num('real_no_fast_server_drive', '서버 경유 빠른 이동 끄기', '', 0, 1, 1, { kind: 'switch', hint: '켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP 합니다. 회전·정지는 그대로.' })];
 const SIM_CAP = [
-  num('sim_max_vx', '최대 전진 속도', 'm/s', 0.2, 1.5, 0.05, { kind: 'range', hint: '기본 1.0. AME-2는 위치 목표 정책으로 이 설정이 1.5 m/s 주행을 보장하지 않습니다.' }),
+  num('sim_max_vx', '최대 전진 속도', 'm/s', 0.2, 1.5, 0.05, { kind: 'range', hint: '기본 1.5. 모드 상한 안에서 적용합니다. AME-2는 위치 목표 정책으로 손 조종 목표에 속도 상한을 적용하지 않습니다.' }),
   num('sim_min_vx', '최소 이동 속도', 'm/s', 0, 0.5, 0.05, { kind: 'range', hint: '기본 0.2' }),
-  num('sim_max_vy', '최대 옆걸음', 'm/s', 0, 0.3, 0.05, { kind: 'range' }),
-  num('sim_max_wz', '최대 회전', '라디안/초', 0, 0.5, 0.05, { kind: 'range' }),
+  num('sim_max_vy', '최대 옆걸음', 'm/s', 0, 0.5, 0.05, { kind: 'range', hint: '기본 0.5. 실기 옆걸음 한도와 별개입니다.' }),
+  num('sim_max_wz', '최대 회전', '라디안/초', 0, 1.2, 0.05, { kind: 'range', hint: '기본 1.2. 모드별 제자리·이동 중 회전 상한 안에서 적용합니다.' }),
 ];
 const SIM_INPUT = [
-  num('sim_key_vx', '키보드 전진 속도', 'm/s', 0.1, 1.5, 0.05, { cap: true }),
+  num('sim_key_vx', '키보드 전진 속도', 'm/s', 0.1, 1.5, 0.05, { cap: true, hint: '기본 1.5' }),
   num('stick_deadzone', '막대 데드존', '', 0, 0.5, 0.01),
   num('sim_runner_vx', '시뮬 임무 실행기 최대 전진', 'm/s', 0.1, 1.5, 0.05, { cap: true }),
   num('sim_runner_wz', '시뮬 임무 실행기 최대 회전', '라디안/초', 0.1, 1, 0.05),
@@ -145,7 +145,7 @@ function OrgCard({ org, admin, id, label, note, bad, cap, fields, top, cancel }:
   };
   const row = (f: Field) => {
     const v = shown(f), er = errs[f.key], eid = `st-e-${f.key}`, desc = [er && eid, why].filter(Boolean).join(' ') || undefined;
-    const tags = <>{f.cap && <span className="st-tag cap">시뮬 에이전트 상한 안에서만</span>}</>;
+    const tags = <>{f.cap && <span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span>}</>;
     const tail = er && <span id={eid} className="fh-msg" role="alert">{er}</span>;
     if (f.kind === 'switch') return <div key={f.key} className="st-sw-wrap">
       <label className="st-sw"><span>{f.label} {tags}</span>
@@ -161,7 +161,7 @@ function OrgCard({ org, admin, id, label, note, bad, cap, fields, top, cancel }:
   };
   return <section className="lv-card" aria-label={label}>
     <h2>{label}{bad && <> <span className="st-tag bad">{bad}</span></>}</h2>
-    <p className="st-note">{note}{cap && <> <span className="st-tag cap">시뮬 에이전트 상한 안에서만</span></>} <span className="st-tag adm">총괄만 고침</span></p>
+    <p className="st-note">{note}{cap && <> <span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span></>} <span className="st-tag adm">총괄만 고침</span></p>
     {top}
     {saved && <form className="fh-form" onSubmit={save} noValidate>
       {fields.map(row)}

@@ -314,6 +314,20 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     await submit($('form', cap)!);
     expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vx: 1.5 });
   });
+  it('시뮬 옆 0.5·회전 1.2까지 저장하고 기존 저장값을 그대로 표시', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG },
+      'PATCH /org/settings': { status: 200, body: { ...ORG, sim_max_vy: .5, sim_max_wz: 1.2 } } }));
+    await open();
+    const cap = card('시뮬 속도 상한');
+    for (const [name, old, max] of [['sim_max_vy', '0.3', '0.5'], ['sim_max_wz', '0.5', '1.2']]) {
+      const input = $<HTMLInputElement>(`input[name="${name}"]`, cap)!;
+      expect(input.value).toBe(old); expect(input.max).toBe(max);
+      setVal(input, max); expect(input.validity.valid).toBe(true);
+    }
+    expect(cap.textContent).toContain('기본 0.5'); expect(cap.textContent).toContain('기본 1.2');
+    await submit($('form', cap)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vy: .5, sim_max_wz: 1.2 });
+  });
   it('실기 «서버 경유 빠른 이동 끄기»: 바꾼 칸만 PATCH(true)', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, real_no_fast_server_drive: true } } }));
     await open();

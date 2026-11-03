@@ -51,29 +51,31 @@
       "type": "integer"
     },
     "sim_key_vx": {
-      "default": 0.6,
+      "default": 1.5,
       "maximum": 1.5,
       "minimum": 0.1,
       "title": "Sim Key Vx",
       "type": "number"
     },
     "sim_max_vx": {
-      "default": 1.0,
+      "default": 1.5,
       "maximum": 1.5,
       "minimum": 0.2,
       "title": "Sim Max Vx",
       "type": "number"
     },
     "sim_max_vy": {
-      "default": 0.3,
-      "maximum": 0.3,
+      "default": 0.5,
+      "description": "시뮬 옆 상한 0~0.5 m/s, 기본 0.5. 실기 한도와 별개.",
+      "maximum": 0.5,
       "minimum": 0.0,
       "title": "Sim Max Vy",
       "type": "number"
     },
     "sim_max_wz": {
-      "default": 0.5,
-      "maximum": 0.5,
+      "default": 1.2,
+      "description": "시뮬 회전 상한 0~1.2 rad/s, 기본 1.2. 모드 상한 안에서만 적용.",
+      "maximum": 1.2,
       "minimum": 0.0,
       "title": "Sim Max Wz",
       "type": "number"

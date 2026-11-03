@@ -97,3 +97,20 @@ def test_legacy_input_envelope_and_additive_policy_range(h):
     assert parsed.policy_adapter_id == 'simulation-experimental-si/1'
     # Older payloads still parse; new facts are optional.
     assert PhoneLimits.model_validate(legacy).policy_velocity_range is None
+
+
+@pytest.mark.parametrize('settings', [dict(sim_max_vx=1.5, sim_key_vx=1.5, sim_max_vy=.5, sim_max_wz=1.2),
+    dict(sim_max_vx=.2, sim_key_vx=.1, sim_max_vy=0, sim_max_wz=0, stick_deadzone=.5)])
+def test_browser_caps_leave_physical_phone_hub_and_limits_unchanged(physical_h, phone_transform, settings):
+    owner, _, welcome = physical_h.connect()
+    limits = welcome['limits']
+    assert (limits['vx_min'], limits['vx_max'], limits['vy_min'], limits['vy_max'],
+            limits['wz_min'], limits['wz_max']) == (0, 1.5, 0, 0, -.5, .5)
+    assert physical_h.take(owner)['ok']
+    physical_h.unlock(owner)
+    assert physical_h.cmd(owner, 0)['applied'] == [0, 0, 0]
+    for axes, expected in [([1, 1, 1], [1.5, 0, .5]), ([1, -1, -1], [1.5, 0, -.5]),
+                            ([-1, 1, 1], [0, 0, 0])]:
+        command = phone_transform(welcome, axes, settings)
+        assert list(command.values()) == expected
+        assert physical_h.cmd(owner, **command)['applied'] == expected
