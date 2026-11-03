@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { topFrame } from '../sim/top-fit.js';
+import { topFrame, topPoint } from '../sim/top-fit.js';
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url)));
 let cases = 0;
 for (const { id } of read('../sim/maps.json')) {
@@ -13,6 +13,11 @@ for (const { id } of read('../sim/maps.json')) {
       assert.ok(Math.abs(dx * Math.cos(angle) + dy * Math.sin(angle)) < f.width / 2);
       assert.ok(Math.abs(-dx * Math.sin(angle) + dy * Math.cos(angle)) < f.height / 2);
     }
+    const z = topFrame(map, aspect, angle, .2, [1e6, -1e6]);
+    assert.ok(z.cx >= map.origin[0] && z.cx <= map.origin[0] + map.w * map.res);
+    assert.ok(z.cy >= map.origin[1] && z.cy <= map.origin[1] + map.h * map.res);
+    assert.deepEqual(topPoint(z, angle, .5, .5), [z.cx, z.cy]);
+    assert.deepEqual(topFrame(map, aspect, angle, 3, [1e6, -1e6]), topFrame(map, aspect, angle, 3), 'zoom out clamps to whole-map center');
     cases++;
   }
 }
