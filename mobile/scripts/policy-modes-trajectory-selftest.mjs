@@ -19,7 +19,8 @@ for (const file of readdirSync(join(src, 'assets/unitree_go2/assets'))) if (file
 mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.xml')));
 const ort = await import(pathToFileURL(resolve(process.env.POLICY_ORT_NODE)));
 const records = [];
-for (const [key, mode] of Object.entries(POLICY_MODES)) for (const backend of mode.fallback ? ['f32', 'onnx'] : ['onnx']) {
+// Go2 replays robot state without a policy, so it has no policy trajectory to compare.
+for (const [key, mode] of Object.entries(POLICY_MODES).filter(([, mode]) => mode.onnx || mode.fallback)) for (const backend of mode.fallback ? ['f32', 'onnx'] : ['onnx']) {
   const root = key === 'ame2' ? process.env.FH_AME2_F32_SRC : src;
   const oldMode = beforeModes.getPolicyAdapter(key === 'nvidia' ? 'foothold-v2' : mode.id);
   let policy, oldPolicy;
