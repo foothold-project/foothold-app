@@ -402,6 +402,8 @@ async function main() {
     scan(); lastScan = performance.now();
     applySettings(org);
     sim.cancelPolicyStep(); clock?.reset();
+    // A* keeps XY/mark only; retain an explicit arrival yaw at each destination.
+    for (let i = 0; i < pts.length; i++) if (pts[i + 1]?.mark !== pts[i].mark && Number.isFinite(chosen.points[pts[i].mark]?.yaw)) pts[i].yaw = chosen.points[pts[i].mark].yaw;
     runner.start(pts);
     runner.tick(front); // 가까운 장애물은 실행 순간부터 0
     scenarioUI();

@@ -61,6 +61,23 @@ export function ame2Joystick(previousHeading, yaw, axes, dt = .02) {
   return { heading, command: [forward / n, lateral / n, Math.sin(error), Math.cos(error)] };
 }
 
+// Autonomy: keep the waypoint and heading in world coordinates. Reproject at
+// every policy tick; only the trained 2 m distance limit applies. Pre-clipping
+// also avoids the observation's far-goal random yaw replacing the path heading.
+export function ame2WorldGoal(q, point, heading) {
+  const yaw = yawOf(q), dx = point.x - q[0], dy = point.y - q[1];
+  let x = Math.cos(yaw) * dx + Math.sin(yaw) * dy;
+  let y = -Math.sin(yaw) * dx + Math.cos(yaw) * dy;
+  const distance = Math.hypot(x, y);
+  if (distance > 2) {
+    // Leave one rounding margin below the strict >2 observation threshold.
+    const scale = (2 - Number.EPSILON * 2) / distance;
+    x *= scale; y *= scale;
+  }
+  const error = heading - yaw;
+  return [x, y, Math.sin(error), Math.cos(error)];
+}
+
 export function makeAme2Adapter(makeTerrainSampler) {
   return {
     id: 'ame2-demo', label: 'AME-2(시연)',

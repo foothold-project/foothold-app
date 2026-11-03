@@ -18,7 +18,8 @@ for (const f of readdirSync(join(src, 'assets/unitree_go2/assets'))) if (f.endsW
 mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.xml')));
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url)));
 const ort = await import(pathToFileURL(resolve(process.env.AME2_ORT_NODE)));
-const onnx = await loadAme2OnnxPolicy(ort, readFileSync(join(dir, 'ame2_actor.onnx')), 'cpu');
+if (ort.env?.wasm) ort.env.wasm.numThreads = 1;
+const onnx = await loadAme2OnnxPolicy(ort, readFileSync(join(dir, 'ame2_actor.onnx')), process.env.AME2_ORT_BACKEND ?? 'cpu');
 const baseline = execFileSync('git', ['show', `${process.env.FH_SCENARIO_BASE || 'd9b6f38'}:mobile/sim/scenario.js`], { encoding: 'utf8' })
   .replaceAll("'./lidar.js'", JSON.stringify(new URL('../sim/lidar.js', import.meta.url).href))
   .replaceAll("'./settings.js'", JSON.stringify(new URL('../sim/settings.js', import.meta.url).href));
@@ -47,7 +48,7 @@ try {
         last = runner.index;
       }
       assert.equal(sim.cmd.length, 4); horizon = Math.max(horizon, Math.hypot(sim.cmd[0], sim.cmd[1]));
-      assert.ok(horizon <= 1 + 1e-12);
+      assert.ok(horizon <= 2 + 1e-12);
       assert.ok(arrived.every((p) => p.distance <= REACH_RADIUS));
       if (!runner.active) break;
       await sim.step(); steps++;
@@ -85,5 +86,5 @@ try {
       robot.dispose();
     }
   }
-  console.log('Contract checks: goal <=1m, ordered reach <=0.3m, STOP pending physics delta 0, default traces identical');
+  console.log('Contract checks: direct goal <=2m (replaces joystick <=1m horizon), ordered reach <=0.3m, STOP pending physics delta 0, default traces identical');
 } finally { await onnx.dispose(); }
