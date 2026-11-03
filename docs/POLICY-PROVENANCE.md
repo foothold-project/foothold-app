@@ -303,3 +303,51 @@ WebGPU/asyncify 추가는 하지 않는다.
 브라우저의 같은 정책 f32 전환과 이유 배지를 사용한다. 링크·특수파일·경로/소유권
 위반은 기존처럼 준비를 중단한다. 자산 원물은 Git에 넣지 않는다.
 이 패키징 변경의 원격 배포·서비스 전환 및 배포 후 브라우저 확인은 별도 관문이다.
+
+## 팀 인계 v0.3: 다중 출력·상태·bool 실행기 (2026-11-03)
+
+`loadOnnxPolicy`는 계약의 모든 출력을 `{출력 이름: 소유한 TypedArray}`로 반환한다.
+Worker도 같은 묶음과 모든 고유 출력 버퍼를 전송한다. 입력과 예열은 계약 자료형을 따르며
+bool `[1]`은 Uint8Array/ORT bool tensor다. `withPolicyState`가 계약 `state` 쌍의
+리셋 0과 되먹임을 담당하고, `sim.js`의 `applyAction`에서만 `policy.commit(outputs)`를 호출한다.
+추론 재호출은 확정 상태를 바꾸지 않는다. 취소·리셋·세대 변경·중복 확정 결과는 버린다.
+모드 관측은 복제한 memory 후보를 받고 `inputs(s, candidate, obs)`로 입력 묶음을 만들 수 있다.
+행동 적용 전까지 history/depth 후보를 확정하지 않으며 `reset(memory)`/`commit(memory,s,outputs)`
+고리를 제공한다. start 모드 등록·관측/깊이 구현은 후속 범위다.
+
+Node 22.23.2 / onnxruntime-node 1.31.1 CPU 1 thread,
+Chrome 154.0.8037.97 / onnxruntime-web 1.31.1 WASM 1 thread에서
+받은 벡터 각각 20스텝을 앱 실행기 그대로 실행했다. start는 기록된 hidden state를 쓰지 않고
+앱의 확정 출력만 되먹였고, 모든 출력 크기·유한값과 bool·리셋·동일 스텝 재호출을 확인했다.
+
+| 벡터 | Node 행동 최대 차 | Chrome main | Chrome Worker |
+|---|---:|---:|---:|
+| start reconstruction | 1.90734863e-6 | 4.05311584e-6 | 4.05311584e-6 |
+| start gt | 1.66893005e-6 | 2.26497650e-6 | 2.26497650e-6 |
+| start off | 1.90734863e-6 | 1.43051147e-6 | 1.43051147e-6 |
+| ame2 gt | 1.59442425e-6 | 1.51991844e-6 | 1.51991844e-6 |
+
+모든 행동 최대 차가 `1e-4` 이하다. ame2 f32 최대 차는 양 환경 `1.19209290e-6`(판정 없음).
+시험은 벡터의 모델 SHA와 실제 파일 SHA를 먼저 대조하며 필수 경로가 없으면 오류로 멈춘다.
+
+```sh
+# Node >=22로 실행한다(브라우저 시험의 Playwright는 Node >=20 필요).
+# 각 변수는 보유한 외부 묶음/의존성을 가리킨다. FH_ORT_WEB는 ORT Web dist 폴더.
+# FH_START_SRC, FH_AME2_SRC, FH_AME2_F32_SRC, POLICY_ORT_NODE, FH_ORT_WEB,
+# FH_PLAYWRIGHT 필수; POLICY_VECTOR_REPORT는 선택적 로컬 JSON 출력 경로.
+node mobile/scripts/policy-vector-selftest.mjs
+```
+
+기존 foothold-v2 f32의 5지도·각 300틱(6초) 관절/위치/속도/토크 궤적은
+`height-walk-selftest.mjs`의 기준 소스와 비트 동일했다. 이는 수치 회귀 기록이며 보행 판정은 아니다.
+엔진 기본은 `main.js`의 `DEFAULT_POLICY_BACKEND` 상수 하나로 관리하며 ONNX 전환은 별도 커밋이다.
+되돌림 시 항상 **«<모드> · JS f32 되돌림 중 · 사유»**를 표시한다.
+서버의 새 자산 배치는 승인 후 별도 작업이며, 새 ONNX가 없어도 `prepare_sim`은 실패하지 않는다.
+
+새 실행기의 foothold-v2 Node ONNX↔f32 물리 비교는 기존 5지도 각 300틱(6초)에서
+위치 최대 차 `1.32469082e-7 m`, 관절 최대 차 `1.88950233e-6 rad`였다.
+`policy-state-selftest.mjs`는 실제 MuJoCo `applyAction`을 통해 feedback/history 확정,
+시간 초과·취소·STOP·리셋 뒤 후보 폐기와 hidden state 0을 확인했다.
+AME-2 train-match/sim, height-scan, frame-clock, scenario, sim-no-fall 회귀와
+양 어댑터 비동기 취소·리셋·dispose 시험도 통과했다. AME-2의 연속 궤적 차이는
+[AME-2 출처 기록](AME2-PROVENANCE.md)의 별도 수치를 따른다.

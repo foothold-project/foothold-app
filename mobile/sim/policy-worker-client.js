@@ -1,3 +1,4 @@
+import { inputData } from './policy-onnx.js';
 // One in-flight request; a timeout/cancel settles the caller but keeps the slot
 // occupied until the Worker replies. Never build an inference queue.
 export const WORKER_TIMEOUT_LIMIT = 5;
@@ -42,7 +43,7 @@ export async function loadWorkerPolicy(model, contract, backend, {
     if (request.cancelled || request.expired) { settle(request, null); return; }
     if (late) { expire(request); return; }
     lateCount = 0;
-    settle(request, data.action);
+    settle(request, data.outputs);
   };
   const request = (message, reply, budget, transfer = []) => new Promise((resolve, reject) => {
     const current = active = { seq: ++seq, resolve, reject, reply, budget, started: 0 };
@@ -64,7 +65,7 @@ export async function loadWorkerPolicy(model, contract, backend, {
   const policy = (...args) => {
     if (failure) return Promise.reject(failure);
     if (disposed || active) return Promise.resolve(null);
-    const inputs = contract.inputs.map((_, i) => Float32Array.from(args[i]));
+    const inputs = contract.inputs.map((spec, i) => inputData(args[i], spec));
     return request({ type: 'infer', inputs }, 'result', deadlineMs, inputs.map((v) => v.buffer));
   };
   policy.async = true;

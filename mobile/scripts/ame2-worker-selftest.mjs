@@ -21,19 +21,19 @@ const fake = () => (transport = {
 const contract = { inputs: [{ dims: [1] }] };
 const client = await loadWorkerPolicy(new ArrayBuffer(1), contract, 'wasm', { deadlineMs: 10, createWorker: fake });
 let pending = client([1]);
-transport.reply({ type: 'result', seq: 999, action: [99] });
+transport.reply({ type: 'result', seq: 999, outputs: { action: [99] } });
 assert.equal(await pending, null);
 assert.equal(await client([2]), null);
 assert.equal(transport.sent.length, 2);
-transport.reply({ type: 'result', seq: 2, action: [99] });
+transport.reply({ type: 'result', seq: 2, outputs: { action: [99] } });
 pending = client([3]); client.cancel(); assert.equal(await pending, null);
 assert.equal(await client([4]), null);
-transport.reply({ type: 'result', seq: 3, action: [99] });
-pending = client([5]); transport.reply({ type: 'result', seq: 4, action: [5] });
-assert.deepEqual(await pending, [5]);
+transport.reply({ type: 'result', seq: 3, outputs: { action: [99] } });
+pending = client([5]); transport.reply({ type: 'result', seq: 4, outputs: { action: [5] } });
+assert.deepEqual(await pending, { action: [5] });
 pending = client([6]);
 const blockedAt = performance.now(); while (performance.now() - blockedAt < 15) {} // timer cannot run during this task
-transport.reply({ type: 'result', seq: 5, action: [6] });
+transport.reply({ type: 'result', seq: 5, outputs: { action: [6] } });
 assert.equal(await pending, null, 'late reply rejected even before overdue timer callback');
 await client.dispose(); assert.equal(transport.terminated, true);
 let failureSeen = '';
@@ -51,7 +51,7 @@ for (let i = 1; i <= WORKER_TIMEOUT_LIMIT; i++) {
   else {
     assert.equal(await result, null);
     assert.equal(await slowClient([99]), null, 'no queue between timeout and drain');
-    transport.reply({ type: 'result', seq: i + 1, action: [99] });
+    transport.reply({ type: 'result', seq: i + 1, outputs: { action: [99] } });
   }
 }
 assert.equal(transport.terminated, true); await slowClient.dispose();
@@ -120,7 +120,7 @@ try {
       try {
         for (const samples of groups) for (const sample of samples) {
           const args = id === 'ame2-demo' ? [sample.prop, sample.mapping] : [sample.observation];
-          const a = await main(...args), b = await worker(...args);
+          const a = (await main(...args)).action, b = (await worker(...args))?.action;
           if (!b) throw Error('parity result missing');
           for (let i = 0; i < a.length; i++) { if (!Number.isFinite(b[i])) throw Error('nonfinite'); maxAbs = Math.max(maxAbs, Math.abs(a[i] - b[i])); }
           n++;
@@ -195,7 +195,7 @@ try {
         if (failure !== 'worker-runtime' || inWorker) return r.fulfill({ status: 404, body: 'missing' });
         return r.continue();
       });
-      if (failure === 'hash') await p.route('**/' + (id === 'ame2-demo' ? 'ame2_actor.onnx' : 'policy_v2.onnx'), (r) => r.fulfill({ body: 'bad model' }));
+      if (failure === 'hash') await p.route('**/' + (id === 'ame2-demo' ? 'ame2-demo.onnx' : 'policy_v2.onnx'), (r) => r.fulfill({ body: 'bad model' }));
       await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
       if (failure === 'run') {
         await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; }); await p.waitForTimeout(75);
@@ -204,7 +204,7 @@ try {
         await p.evaluate(() => originalStep());
       }
       const badge = await p.locator('#policyEngine').textContent();
-      assert.match(badge, ['runtime', 'hash'].includes(failure) ? /기본 계산 사용/ : /화면 계산.*Worker 사용 불가/);
+      assert.match(badge, ['runtime', 'hash'].includes(failure) ? /JS f32 되돌림 중/ : /화면 계산.*Worker 사용 불가/);
       assert.ok(await p.locator('#policyEngine').isVisible());
       assert.equal(await p.evaluate(() => __sim.sim.adapterId), id);
       await p.close(); console.log(`${id} Worker fallback ${failure} PASS`);
@@ -277,7 +277,7 @@ try {
       ort.InferenceSession.prototype.run = async () => { await new Promise((r) => setTimeout(r, 35)); throw Error('delayed main failure'); };
     });
     assert.equal(await p.evaluate(() => originalStep()), true, 'late main failure: f32 recovery applies');
-    assert.match(await p.locator('#policyEngine').textContent(), /기본 계산 사용.*f32 JS/);
+    assert.match(await p.locator('#policyEngine').textContent(), /JS f32 되돌림 중/);
     await p.close(); console.log(`${id} delayed main/f32 fallback PASS`);
   }
   writeFileSync(join(out, 'slow-recovery.json'), JSON.stringify(slowResults, null, 2));

@@ -362,3 +362,48 @@ Node 궤적도 다시 기록했으며 보행 판정은 하지 않았다. 기존 
 공통화 최종 코드 `126bdfd`의 dev APK는 기존 AME-2 ONNX+WASM을 유지한 기준
 33,809,882 bytes → foothold-v2 ONNX 추가 34,879,427 bytes(+1.020 MiB)였다.
 단위시험16개와 빌드만 통과했고 실폰/설치/배포는 하지 않았다. 상세 기준은 정책 출처의 APK 절을 따른다.
+
+## 팀 인계 v0.3: AME-2 새 ONNX (2026-11-03)
+
+정본은 lab main `c34759b6`의 `inbox/jay/20261103-policy-handoff/HANDOFF-APP-DEVELOPER.md`
+v0.3이다. `ame2-demo-app/ame2-demo.onnx`는 5,038,171 bytes,
+SHA-256 `830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6`이다.
+이 절은 앞의 `ame2_actor.onnx` 계약을 대체한다. 입력은 `prop [1,49]`,
+`mapping [1,29,13,3]`, 출력은 `action [1,12]`, `gaze_r [1,2]`, 모두 float32다.
+상태 되먹임은 없다. 진단 crop은 `gaze_r`에서
+`ox = clamp(round(r0 * 17), 0, 17)`, `oy = clamp(round(r1 * 3), 0, 3)`으로 계산한다.
+기본 행동 지연은 리셋마다 0이며 난수로 뽑지 않는다. 명시적 지연 인자는 기존 측정 도구용이다.
+
+f32 가중치 SHA `28edbc05…`와 배치표 SHA `92ddf3db…`는 그대로이며 되돌림 준비 여부만 나타낸다.
+선택 메뉴는 실제 backend에 맞춰 판정한다. f32 선택은 f32 파일과 유효한 배치표가 있어야 하며,
+ONNX 선택은 새 ONNX 또는 되돌림 f32/배치표 중 하나가 있으면 가능하다.
+URL의 `policyBackend`/`ame2Backend`도 실제 계산과 같은 우선순위로 반영한다.
+선택된 AME-2의 ONNX가 없으면 같은 정책 f32를 쓰며
+화면 아래에 **«AME-2 · JS f32 되돌림 중 · ONNX 파일 없음 …»**을 계속 표시한다.
+f32도 없으면 정책을 잠그고 사유를 표시한다. 다른 정책으로 자동 전환하지 않는다.
+`FH_AME2_SRC`는 새 묶음, 선택적인 `FH_AME2_F32_SRC`는 기존 f32/배치표 폴더를 가리킨다.
+ONNX와 시험 벡터는 Git에 넣지 않는다.
+
+`policy-vector-selftest.mjs`의 20스텝 행동 최대 차는 Node CPU `1.59442425e-6`,
+Chrome WASM main/Worker 각각 `1.51991844e-6`이다(허용차 `1e-4`).
+같은 벡터와 기존 f32의 최대 차는 Node/Chrome 각각 `1.19209290e-6`이며 측정값만 기록한다.
+서버 복사·배포·실폰·실로봇 시험은 하지 않았다. 서버 승인 후 배포 자산 입력 루트에
+`ame2-demo.onnx`와 기존 `ort/` 검증 파일 셋을 준비해야 한다. 서버 기본 입력 루트는
+`/var/lib/foothold/sim-policy/`이며 원격 복사는 이번 작업에서 하지 않는다.
+`deploy/prepare_sim.py`는 새 ONNX 부재·SHA 불일치 시 경고하고 기존 시뮬 패키징을 계속한다.
+
+추가 Node 물리 비교는 6지도 각 300틱(6초), 명시적 지연 0/4의 12쌍을 기록했다.
+기본 지연 0인 factory-inspection에서 f32↔새 ONNX 위치 최대 차 `1.25133012 m`,
+관절 최대 차 `2.51822137 rad`였으며 전체 12쌍의 최대도 이 값이다.
+같은 지연 0의 warehouse는 `5.14280933e-7 m`/`1.02974686e-6 rad`,
+ame2-train-terrain은 `0.00744128 m`/`0.05754055 rad`였다.
+모든 상태는 유한했지만 연속 궤적의 수치 동일성은 확인되지 않았다.
+벡터 허용차 통과와 이 궤적 측정은 별개이며 f32 보행 동등성이나 보행 성공을 판정하지 않는다.
+
+REVIEW-267 B1은 선택 판정과 실행이 같은 backend 해석을 쓰도록 고쳤다.
+`policy-availability-selftest.mjs`는 `ab997e0`의 상수 한 줄만 역적용한 f32 기본값 fixture와
+ONNX 기본값을 각각 headless로 실행했다. ONNX만/f32만/둘 다/둘 다 없음의 8조합과
+명시적 backend override 2건이 통과했다. f32 기본은 f32/배치표가 있어야 선택 가능하며,
+ONNX 기본은 ONNX 또는 되돌림 f32/배치표가 있으면 선택 후 물리가 진행됐다.
+ONNX 부재로 f32 되돌림을 쓰는 경우 화면의 지속적인 사유 표시도 확인했다.
+기본값 전환 커밋은 여전히 상수 한 줄이며 역적용 검사도 통과했다.

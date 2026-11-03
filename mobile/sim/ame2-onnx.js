@@ -1,4 +1,4 @@
-// Compatibility exports for existing AME-2 parity/trajectory tools.
+// ame2-demo.onnx compatibility entry: named action/gaze_r outputs, no recurrent state.
 import { getPolicyAdapter } from './policy-adapters.js';
 import { loadOnnxPolicy, selectOnnxPolicy } from './policy-onnx.js';
 export const AME2_ONNX_SHA256 = getPolicyAdapter('ame2-demo').onnx.sha256;

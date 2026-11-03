@@ -5,7 +5,7 @@ export async function comparePolicyCases(f32, onnx, cases) {
   const exceeded = [];
   for (const sample of cases) {
     const input = Float32Array.from(sample.observation);
-    const js = f32(input), actual = await onnx(input);
+    const js = f32(input), actual = (await onnx(input)).action;
     for (const [key, a, b] of [['numpyJs', sample.numpy_outputs, js], ['numpyOnnx', sample.numpy_outputs, actual], ['jsOnnx', js, actual]]) {
       if (a.length !== 12 || b.length !== 12 || !Array.from(a).every(Number.isFinite)) throw Error('invalid action');
       const errors = errorMetrics(a, b);
