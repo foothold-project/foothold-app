@@ -35,7 +35,7 @@ assert.equal(capped.stats.dropped, 0); assert.equal(capped.stats.drops, 0); asse
 capped.frame(15016); assert.ok(capped.stats.dropped > 0);
 capped.reset();
 assert.equal(capped.stats.dropped, 0); assert.equal(capped.stats.drops, 0); assert.equal(capped.stats.slow, false);
-// REVIEW-255 B1: foothold-v2 runs neutral decisions while STOP-locked. Hide for
+// REVIEW-255 B1: nvidia-demo runs neutral decisions while STOP-locked. Hide for
 // 30s after reset, then return: do not turn that gap into a .5s burst.
 let resumed = 0;
 const hidden = createFrameClock({ dt: .02, step: () => { resumed++; } });

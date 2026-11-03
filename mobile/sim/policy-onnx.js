@@ -98,7 +98,7 @@ export async function selectOnnxPolicy(adapter, f32, { backend = 'wasm', notify 
   importRuntime = (url) => import(url), fetchModel = (url) => fetch(url),
   digest = async (buffer) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)), (v) => v.toString(16).padStart(2, '0')).join(''),
 } = {}) {
-  const label = adapter.id === 'ame2-demo' ? 'AME-2' : adapter.id;
+  const label = adapter.statusLabel ?? adapter.label ?? adapter.id;
   const fallback = (reason) => {
     notify(`${label} · ${f32 ? 'JS f32 되돌림 중' : '정책 잠금'} · ${reason}`);
     if (!f32) throw new Error(`${label} ONNX 사용 불가: ${reason}`);
@@ -127,7 +127,7 @@ export async function selectOnnxPolicy(adapter, f32, { backend = 'wasm', notify 
     // SPA hosts may return index.html with HTTP 200 for an absent model.
     if (/^text\/html(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '')) throw new Error('ONNX 파일 없음');
     data = await response.arrayBuffer();
-    if (await digest(data) !== adapter.onnx.sha256) throw new Error('ONNX SHA-256 불일치');
+    if (await digest(data) !== (typeof adapter.onnx.sha256 === 'string' ? adapter.onnx.sha256 : adapter.onnx.sha256[adapter.onnx.file])) throw new Error('ONNX SHA-256 불일치');
     if (worker) {
       try {
         const { loadWorkerPolicy } = await import('./policy-worker-client.js');

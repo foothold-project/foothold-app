@@ -109,7 +109,7 @@ try {
     const ort = await import('./ort/ort.wasm.min.mjs');
     ort.env.wasm.numThreads = 1; ort.env.wasm.proxy = false; ort.env.wasm.wasmPaths = new URL('./ort/', location.href).href;
     const json = async (p) => (await fetch(p)).json(), results = [];
-    for (const id of ['foothold-v2', 'ame2-demo']) {
+    for (const id of ['nvidia-demo', 'ame2-demo']) {
       const adapter = getPolicyAdapter(id), model = await (await fetch(adapter.onnx.file)).arrayBuffer();
       const main = await loadOnnxPolicy(ort, model, adapter.onnx);
       // Parity is deliberately independent of the 20ms simulation budget.
@@ -134,12 +134,12 @@ try {
   writeFileSync(join(out, 'parity.json'), JSON.stringify(parity)); console.log('Worker parity', JSON.stringify(parity));
   await page.close();
 
-  for (const id of ['foothold-v2', 'ame2-demo']) {
+  for (const id of ['nvidia-demo', 'ame2-demo']) {
     for (const event of ['stop', 'blur', 'visibilitychange', 'pagehide', 'freeze', 'reset', 'manual', 'policy', 'timeout']) {
       const p = await browser.newPage();
       await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
       assert.match(await p.locator('#policyEngine').textContent(), /ONNX WASM · Worker/); // actual page CSP
-      // foothold-v2 also evaluates neutral commands while locked. Drain that
+      // nvidia-demo also evaluates neutral commands while locked. Drain that
       // frame request before holding exactly one explicit simulation step.
       await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; });
       await p.waitForTimeout(75);
@@ -162,7 +162,7 @@ try {
       else if (event === 'reset') await p.click('#reset');
       else if (event === 'manual') await p.keyboard.down('KeyW');
       else if (event === 'policy') {
-        const next = id === 'ame2-demo' ? 'foothold-v2' : 'ame2-demo';
+        const next = id === 'ame2-demo' ? 'nvidia-demo' : 'ame2-demo';
         await p.evaluate((next) => { const choice = document.querySelector('#policySelect'); choice.value = next; choice.dispatchEvent(new Event('change')); }, next);
         await p.waitForFunction((next) => window.__sim?.ready && __sim.sim.adapterId === next, next);
         assert.equal(await p.evaluate(() => __sim.stopped()), true);
@@ -212,7 +212,7 @@ try {
   }
   }
   const slowResults = [];
-  for (const id of ['foothold-v2', 'ame2-demo']) {
+  for (const id of ['nvidia-demo', 'ame2-demo']) {
     for (const scenario of [{ cpu: 1, delay: 35 }, { cpu: 4, delay: 0 }, { cpu: 6, delay: 0 }]) {
       const p = await browser.newPage();
       await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
@@ -284,7 +284,7 @@ try {
   }
   if (measure) {
     const metrics = [];
-    for (const id of ['foothold-v2', 'ame2-demo']) for (const version of ['before', 'after']) {
+    for (const id of ['nvidia-demo', 'ame2-demo']) for (const version of ['before', 'after']) {
       const p = await browser.newPage({ viewport: { width: 960, height: 720 } });
       await p.goto(base + `${version === 'before' ? '/before' : ''}/sim/index.html?map=warehouse&policy=${id}&policyBackend=wasm`);
       await p.waitForFunction(() => window.__sim?.ready);

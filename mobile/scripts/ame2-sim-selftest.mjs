@@ -91,7 +91,7 @@ try {
 
 // Observation contract with distinct values catches ordering and history clipping.
 const obs = new Float32Array(49), state = { d: { qpos: Float64Array.from([0, 0, 0, 1, 0, 0, 0, ...MJ_J.map((n) => adapter.action.defaultPose[adapter.action.joints.indexOf(n)] + .125)]), qvel: Float64Array.from([...Array(6).fill(0), ...MJ_J.map((_, i) => i + 1)]) }, M2I: adapter.action.joints.map((n) => MJ_J.indexOf(n)), linB: [1, 2, 3], angB: [4, 5, 6], grav: [0, 0, -1], cmd: [1, 0, 0, 1], mapping: new Float32Array(1131) };
-adapter.observe(obs, state, Float32Array.from([-100, 100, ...Array(10).fill(2)]), () => {});
+adapter.observe({ ...state, observation: obs, lastAction: Float32Array.from([-100, 100, ...Array(10).fill(2)]), heightScanner: () => {} }, state.cmd, {});
 assert.deepEqual(Array.from(obs.slice(0, 9)), [1, 2, 3, 4, 5, 6, 0, 0, -1]);
 assert.ok(obs.slice(9, 21).every((v) => v === .125));
 assert.deepEqual(Array.from(obs.slice(21, 33)), state.M2I.map((i) => i + 1));

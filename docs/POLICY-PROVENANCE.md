@@ -1,5 +1,7 @@
 # MVP foothold-v2 → policy_v2.f32 출처 기록
 
+앱 시뮬 모드 id·메뉴 이름은 `nvidia-demo`이며, 옛 URL 값 `foothold-v2`는 별칭으로 받는다. 원본 모델·파일 이름과 해시는 유지한다.
+
 2026-10-29, 기준 `origin/dev` = `468715b2f78d39d38fc9124bd8cbc05fa12d36bf`.
 MVP `foothold-v2`의 LFS oid·모델 카드와 10월 12일 내보내기의 원본 SHA-256이 같다.
 이번에는 **npz → f32를 재현했고, 발견한 f32 사본 7개 모두 재생성물과 바이트가 같다**.

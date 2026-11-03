@@ -98,4 +98,4 @@ try {
   for(let k=0;k<30;k++) {a.cmd=[.6,0,.2];b.cmd=[.6,0,.2];a.step();b.step();assert.deepEqual(a.d.qpos,b.d.qpos);assert.deepEqual(a.d.qvel,b.d.qvel);assert.deepEqual(a.d.ctrl,b.d.ctrl);}
   assert.deepEqual(observations[0],observations[1]);
 } finally {a.dispose();b.dispose();}
-console.log('AME-2 train-match PASS: confirmed joint/default/export contract; 49 inputs/no time; goal threshold/yaw; Go2HV signed envelope; delay 0…4 per-substep torques/reset/STOP; foothold-v2 bit-identical 30 ticks');
+console.log('AME-2 train-match PASS: confirmed joint/default/export contract; 49 inputs/no time; goal threshold/yaw; Go2HV signed envelope; delay 0…4 per-substep torques/reset/STOP; nvidia-demo bit-identical 30 ticks');

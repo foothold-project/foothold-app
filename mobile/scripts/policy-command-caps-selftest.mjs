@@ -10,12 +10,12 @@ const defaults = Object.fromEntries(Object.entries(properties).filter(([, s]) =>
 assert.equal(defaults.sim_max_vx, 1.5); assert.equal(defaults.sim_key_vx, 1.5);
 assert.equal(defaults.sim_max_vy, .5); assert.equal(defaults.sim_max_wz, 1.2);
 const web = await loadSimSettings(new URL('https://example.invalid/sim/?from=web'), async () => ({ ok: true, json: async () => defaults }));
-const nvidia = POLICY_ADAPTERS['foothold-v2'], ame2 = POLICY_ADAPTERS['ame2-demo'];
+const nvidia = POLICY_ADAPTERS['nvidia-demo'], ame2 = POLICY_ADAPTERS['ame2-demo'];
 const start = { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.start }; // Not registered in this task.
 function observe(adapter, cmd) {
   const obs = new Float32Array(adapter.observations.size);
-  adapter.observe(obs, { cmd, linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1],
-    d: { qpos: new Float64Array(19), qvel: new Float64Array(18) }, M2I: Array.from({ length: 12 }, (_, i) => i), mapping: new Float32Array(1131) }, new Float32Array(12), () => {});
+  adapter.observe({ cmd, observation: obs, lastAction: new Float32Array(12), heightScanner: () => {}, linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1],
+    d: { qpos: new Float64Array(19), qvel: new Float64Array(18) }, M2I: Array.from({ length: 12 }, (_, i) => i), mapping: new Float32Array(1131) }, cmd, {});
   return obs;
 }
 for (const org of [{}, web]) for (const keyboard of [false, true]) {

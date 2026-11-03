@@ -78,8 +78,8 @@ try {
     await p.waitForFunction(() => window.__sim?.ready, null, { timeout: 60000 });
     return p;
   };
-  for (const id of ['foothold-v2', 'ame2-demo']) {
-    const model = id === 'foothold-v2' ? 'policy_v2.onnx' : 'ame2-demo.onnx';
+  for (const id of ['nvidia-demo', 'ame2-demo']) {
+    const model = id === 'nvidia-demo' ? 'policy_v2.onnx' : 'ame2-demo.onnx';
     // Hold real session.run; prove synchronous cancellation before releasing it.
     for (const event of (manualOnly ? ['manual'] : ['stop', 'blur', 'visibilitychange', 'pagehide', 'reset', 'manual'])) {
       console.log(`${id} lifecycle ${event}`);
@@ -110,13 +110,13 @@ try {
       }, event);
       if (event !== 'manual') {
         assert.equal(await p.evaluate(() => __sim.stopped()), true);
-        assert.deepEqual(await p.evaluate(() => __sim.cmd()), id === 'foothold-v2' ? [0, 0, 0] : [0, 0, 0, 1]);
+        assert.deepEqual(await p.evaluate(() => __sim.cmd()), id === 'nvidia-demo' ? [0, 0, 0] : [0, 0, 0, 1]);
       }
       await p.evaluate(() => __runs.release()); await p.waitForFunction(() => __runs.results.length > 0);
       assert.equal(await p.evaluate(() => __runs.results[0]), false, id + '/' + event);
       assert.equal(await p.evaluate(() => __sim.sim.t), event === 'reset' ? 0 : before);
       assert.equal(await p.evaluate(() => __runs.max), 1);
-      if (event === 'manual' && id === 'foothold-v2') assert.ok((await p.evaluate(() => __sim.joy()))[0] > 0);
+      if (event === 'manual' && id === 'nvidia-demo') assert.ok((await p.evaluate(() => __sim.joy()))[0] > 0);
       await p.close();
     }
     if (manualOnly) continue;
@@ -141,7 +141,7 @@ try {
       assert.ok(await p.locator('#policyEngine').isVisible());
       if (failure === 'first') assert.match(await p.locator('#policyEngine').textContent(), /injected first inference failure/);
       assert.equal(await p.evaluate(() => __sim.sim.adapterId), id);
-      if (['model', 'html'].includes(failure) && id === 'foothold-v2') {
+      if (['model', 'html'].includes(failure) && id === 'nvidia-demo') {
         await p.keyboard.down('KeyW');
         const start = await p.evaluate(() => Array.from(__sim.sim.d.qpos.slice(0, 2)));
         const time = await p.evaluate(() => __sim.sim.t);

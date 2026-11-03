@@ -5,9 +5,9 @@ import { loadSimSettings, simSettings } from '../sim/settings.js';
 import { createScenarioRunner, frontDistance, BLOCK_RANGE, MAX_VX, MAX_WZ } from '../sim/scenario.js';
 import { makeLidar, mapRay, MAX_RANGE } from '../sim/lidar.js';
 
-assert.equal(POLICY_ADAPTERS['foothold-v2'].command.joystickScale[0], 1.5);
-assert.equal(POLICY_ADAPTERS['foothold-v2'].command.inRange([1.5, 0, 0]), true);
-assert.equal(POLICY_ADAPTERS['foothold-v2'].command.inRange([1.51, 0, 0]), false);
+assert.equal(POLICY_ADAPTERS['nvidia-demo'].command.joystickScale[0], 1.5);
+assert.equal(POLICY_ADAPTERS['nvidia-demo'].command.inRange([1.5, 0, 0]), true);
+assert.equal(POLICY_ADAPTERS['nvidia-demo'].command.inRange([1.51, 0, 0]), false);
 const caps = { vx: 1, wz: 1 };
 const robot = () => ({ cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } });
 const forward = [{ x: 10, y: 0 }], turn = [{ x: 0, y: 10 }];

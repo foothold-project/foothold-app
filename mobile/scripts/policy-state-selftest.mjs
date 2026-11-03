@@ -23,7 +23,7 @@ const policy = withPolicyState((obs, h, historyTick) => {
 let sim;
 try {
   adapter.reset = (mem) => { mem.ticks = 0; };
-  adapter.observe = (obs, s, last, scan, mem) => { original.observe.call(adapter, obs, s, last, scan); mem.ticks++; };
+  adapter.observe = (s, cmd, mem) => { mem.ticks++; return original.observe(s, cmd, mem); };
   adapter.inputs = (s, mem, obs) => [obs, [999], [mem.ticks]];
   adapter.commit = () => { commits++; };
   sim = createSim(mj, '/go2/flat.xml', ISAAC_LIKE, policy);

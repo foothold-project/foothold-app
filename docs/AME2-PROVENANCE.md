@@ -343,7 +343,7 @@ Git merge만으로 ONNX 자산이 서버에 생기지 않는다. 되돌림 선�
 
 ### 공통 실행기 전환 (2026-11-02)
 
-foothold-v2 ONNX 추가와 함께 기존 실행기를 `policy-onnx.js`로 일반화했다.
+nvidia-demo(이전 앱 id foothold-v2) ONNX 추가와 함께 기존 실행기를 `policy-onnx.js`로 일반화했다.
 AME-2 모델 SHA·입력 `prop[1,49]`/`mapping[1,29,13,3]`·출력 이름/차원은
 `policy-adapters.js`에서 선언하며 위 그래프와 f32·관측·action/지연 계약은 그대로다.
 `ame2-onnx.js`는 기존 내보내기/대조 스크립트의 호환 export를 제공한다.
