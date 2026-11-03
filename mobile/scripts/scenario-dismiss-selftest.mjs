@@ -41,6 +41,7 @@ try {
       assert.equal(await page.getAttribute('#scenarioMenu', 'aria-expanded'), String(open));
     };
     const open = async () => { await page.click('#scenarioMenu'); await panel(true); };
+    const start = async () => { await page.click('#go'); await page.waitForFunction(() => !__sim.stopped()); };
     const cdp = await page.context().newCDPSession(page);
     // Short input burst avoids turning a tap into a long press under software rendering.
     const tap = async (x, y) => {
@@ -61,7 +62,7 @@ try {
     await page.mouse.move(650, 600); await page.mouse.down();
     await page.mouse.move(1050, 600, { steps: 3 }); await page.mouse.up(); await frame();
     const floor = await page.evaluate(() => __sim.toScreen(-1, 0));
-    await page.click('#go'); await open();
+    await start(); await open();
     if (process.env.FH_SHOT) await page.screenshot({ path: process.env.FH_SHOT.replace(/\.png$/, '-open.png') });
     assert.equal(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.tagName, floor), 'CANVAS', `free floor point is outside the panel: ${JSON.stringify({ floor, panel: await page.locator('#scenarioPanel').boundingBox() })}`);
     await tap(...floor);
@@ -80,13 +81,13 @@ try {
     // The following intentional tap is accepted again.
     await tap(...floor);
     assert.equal(await page.evaluate(() => __sim.marks().length), 1, 'next tap places a goal');
-    await page.click('#stop'); await page.click('#go');
+    await page.click('#stop'); await start();
 
     await open();
     const options = await page.locator('#scenarioSelect option').evaluateAll(nodes => nodes.map(n => n.value));
     assert.ok(options.length > 1);
     const runWithPanel = async () => {
-      await page.click('#reset'); await page.click('#go'); await open();
+      await page.click('#reset'); await start(); await open();
       await page.click('#scenarioRun'); await page.evaluate(() => __sim.settled());
       await page.waitForFunction(() => __sim.scenario.active && __sim.cmd().some(v => v !== 0));
       await panel(true);
@@ -97,7 +98,7 @@ try {
     assert.equal(await page.evaluate(() => __sim.scenario.active), true, 'inside button runs scenario');
     await page.click('#scenarioHalt'); await panel(true);
     await page.click('#scenarioMenu'); await panel(false); // menu itself still toggles
-    await page.click('#go');
+    await start();
 
     await open();
     const before = await page.evaluate(() => __sim.view());
@@ -147,7 +148,7 @@ try {
         assert.deepEqual(await page.evaluate(() => [__sim.scenario.active, __sim.stopped(), __sim.cmd()]),
           [false, true, [0, 0, 0]], `${id}: moving/releasing cannot resume`);
         // Goal handoff keeps its existing exception: cancel the goal and allow manual input without locking.
-        await page.click('#go');
+        await start();
         assert.equal(await page.evaluate(() => __sim.scenario.start([{ x: __sim.sim.d.qpos[0] + 1.5, y: __sim.sim.d.qpos[1] }], true)), true);
         await open();
         assert.equal(await page.evaluate(() => __sim.scenario.active && __sim.scenario.goal), true);
@@ -163,7 +164,7 @@ try {
     await page.keyboard.press('ArrowUp');
     assert.deepEqual(await page.evaluate(() => [__sim.scenario.active, __sim.stopped(), __sim.cmd()]),
       [false, true, [0, 0, 0]], 'keyboard hand interruption still locks with the panel open');
-    await panel(true); await page.click('#scenarioMenu'); await page.click('#go');
+    await panel(true); await page.click('#scenarioMenu'); await start();
     await open();
     await page.keyboard.down('KeyW'); await page.waitForFunction(() => __sim.cmd()[0] > 0);
     // Hit the nested SVG, verify STOP already worked before pointerup/click.
@@ -173,7 +174,7 @@ try {
     assert.equal(await page.evaluate(() => __sim.stopped()), true);
     assert.deepEqual(await page.evaluate(() => __sim.cmd()), [0, 0, 0], 'STOP command immediately neutral');
     await page.mouse.up(); await page.keyboard.up('KeyW');
-    await page.click('#go'); await open(); await page.focus('#scenarioSelect');
+    await start(); await open(); await page.focus('#scenarioSelect');
     await page.keyboard.press('Escape'); await panel(false);
     assert.equal(await page.evaluate(() => __sim.stopped()), true, 'existing Escape STOP retained');
     assert.deepEqual(errors, []);
