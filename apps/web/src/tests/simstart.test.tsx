@@ -3,7 +3,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SimPick, blocked, toWorld } from '../simstart';
-import WH from '../../../../mobile/sim/assets/warehouse/map.json';
+// map.json 은 배포 빌드 묶음(prepare-release.sh)에 없음 → 정적 import 면 tsc TS2307. glob 은 없으면 빈 객체라 타입 검사 통과, 시험 때만 읽음
+const WH = Object.values(import.meta.glob<{ origin: number[]; res: number; w: number; h: number; spawn_xyyaw: number[]; px: string }>(
+  '../../../../mobile/sim/assets/warehouse/map.json', { eager: true, import: 'default' }))[0];
 import TOP from '../../../../mobile/sim/assets/warehouse/top.json';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
