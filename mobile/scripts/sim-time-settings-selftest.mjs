@@ -129,9 +129,9 @@ try {
   await tap(2); assert.equal(requests, beforeAppend); assert.equal(await p.evaluate(() => __sim.scenario.tick(Infinity)[0]), .3);
   // STOP during settings fetch must prevent a delayed start.
   await stop(); hold = true;
-  await p.evaluate(() => { document.getElementById('go').click(); });
+  await p.evaluate(() => { window.pendingGo = document.getElementById('go').onclick(); });
   while (!held) await new Promise((r) => setTimeout(r, 5));
-  await stop(); held(); await p.waitForTimeout(50);
+  await stop(); held(); await p.evaluate(() => window.pendingGo);
   assert.equal(await p.evaluate(() => __sim.stopped()), true);
   const settings = { requests, scenarioBefore: 1, nextScenario: .2, keyboard: .1, stickAtDeadzone: 0, stickAtHalfRange: .1, stickAtMax: .2, retainedOnFailure: .2, defaults: .4, clickedGoal: .3, appendedGoal: .3, lateStartDiscarded: true };
   console.log('settings', JSON.stringify(settings));
