@@ -89,3 +89,18 @@ describe('실기 연결(simulation false): 조직 값이 있어도 그대로', (
     expect(velocity([1, 1], w)).toEqual({ vx: 0.6, vy: 0, wz: 0.5 });
   });
 });
+
+
+it('전진 1.5 허용·1.51 무시, 기존 에이전트 상한과 실기 경계 유지', () => {
+  const w = hello(true, { ...SIM, vx_max: 1.5 });
+  simTune({ sim_max_vx: 1.5, sim_key_vx: 1.5 });
+  expect(velocity([1, 0, 0], w).vx).toBe(1.5);
+  expect(velocity([forward(w), 0, 0], w).vx).toBe(1.5);
+  expect(velocity([1, 0, 0], hello(true, SIM)).vx).toBe(1);
+  simTune({ sim_max_vx: 1.51, sim_key_vx: 1.51 });
+  expect(tuned(w).L.vx_max).toBe(1.5);
+  expect(tuned(w).key).toBeUndefined();
+  const real = hello(false, { ...REAL, vx_max: 1.5 });
+  expect(velocity([1, 1, 1], real)).toEqual({ vx: 1.5, vy: 0, wz: 0.5 });
+  expect(velocity([-1, 0, 1], real)).toEqual({ vx: 0, vy: 0, wz: 0 });
+});

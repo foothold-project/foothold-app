@@ -205,7 +205,11 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallb
                     await asyncio.sleep(.001)
             assert captured['client'].session.core.latch
             async with asyncio.timeout(.25):
-                while len(emergency.calls) < stop_count+2 or emergency.calls[-1] != ('StopMove',()):
+                # Both independent lanes must stop before shutting workers down.
+                # Keep the original .25 s deadline and emergency assertion.
+                while (len(emergency.calls) < stop_count+2
+                       or emergency.calls[-1] != ('StopMove',())
+                       or normal.calls[-2:] != [('Move',(0,0,0)), ('StopMove',())]):
                     await asyncio.sleep(.001)
             stop.set()
         async with serve(server, '127.0.0.1', 0) as listener:
@@ -245,11 +249,11 @@ def test_feedback_loss_reports_lock_and_requires_explicit_recovery():
     assert normal.calls[-1] == ('Move',(1.5,0,0))
 
 
-def test_new_si_table_is_exact_and_does_not_change_phone_table():
+def test_server_si_table_is_exact_and_phone_forward_ceiling_matches():
     from foothold_agent.go2_direct.sink import ALLOWED, SERVER_ALLOWED
     from apps.contracts.server_drive import ALLOWED as CONTRACT
     assert SERVER_ALLOWED == CONTRACT and len(SERVER_ALLOWED) == 9
-    assert ALLOWED == frozenset(((0.,0.,0.),(.6,0.,0.),(.6,0.,.5),(.6,0.,-.5)))
+    assert ALLOWED == frozenset(((0.,0.,0.),(1.5,0.,0.),(1.5,0.,.5),(1.5,0.,-.5)))
 
 
 @pytest.mark.parametrize('bad', [[.4,0,0],[1,0,0],[.6,0,0],[1.5000000001,0,0],[-1.5,0,.5],

@@ -53,7 +53,7 @@ def unlock(sink, clock, sequence=1):
 
 
 @pytest.mark.parametrize('kind,velocity', [('unlock', (0., 0., 0.)),
-    ('apply', (0., 0., 0.)), ('apply', (.6, 0., 0.))])
+    ('apply', (0., 0., 0.)), ('apply', (1.5, 0., 0.))])
 def test_default_live_input_requires_workers_before_unlock_or_apply(kind, velocity):
     clock, normal, emergency = Clock(), FakeSport(), FakeSport()
     sink = Go2Sink(normal, emergency, now=clock)
@@ -90,9 +90,9 @@ def test_live_input_requires_both_workers_alive(alive):
 def test_explicit_offline_mode_allows_manual_fakes_but_not_live_workers():
     sink, normal, _, clock = make_sink(offline_test_mode=True)
     unlock(sink, clock)
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
-    assert normal.calls[-1] == ('Move', (.6, 0., 0.))
+    assert normal.calls[-1] == ('Move', (1.5, 0., 0.))
     with pytest.raises(RuntimeError):
         sink.start_threads()
     with pytest.raises(ValueError):
@@ -194,42 +194,42 @@ def test_explicit_factory_uses_only_fake_sdk_and_no_motion(marker, monkeypatch):
     assert all(c.initialized and c.timeout == .1 and not c.calls for c in instances)
     clock.value = 1100.
     with pytest.raises(PermissionError):
-        clients[0].Move(.6, 0., 0.)
+        clients[0].Move(1.5, 0., 0.)
     assert clients[0].Move(0., 0., 0.) == 0
     assert clients[1].StopMove() == 0
 
 
 @pytest.mark.parametrize('velocity', [(True, 0, 0), (float('inf'), 0, 0),
-    (float('nan'), 0, 0), (.2, 0, 0), (.6, 0, .1), (0, 0)])
+    (float('nan'), 0, 0), (.2, 0, 0), (1.5, 0, .1), (0, 0)])
 def test_limits_reject_nonfinite_and_unreviewed_alphabet(velocity):
     with pytest.raises(ValueError):
         Limits().project(velocity)
 
 
 def test_limits_clamp_only_and_cannot_expand():
-    assert Limits().project((1, 1, 1)) == (.6, 0., .5)
+    assert Limits().project((1.51, 1, 1)) == (1.5, 0., .5)
     assert Limits().project((-1, 0, 0)) == (0., 0., 0.)
     with pytest.raises(ValueError):
-        Limits(vx=(-.6, .6))
+        Limits(vx=(-1.5, 1.5))
     with pytest.raises(ValueError):
         Limits(vy=(0., .2))
     with pytest.raises(ValueError):
-        Limits(vx=(0., .3)).project((.6, 0., 0.))
+        Limits(vx=(0., .3)).project((1.5, 0., 0.))
 
 
 def test_latched_neutral_and_source_rules():
     sink, normal, _, clock = make_sink()
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     assert sink.pending == (0., 0., 0.) and sink.latched
     assert sink.confirm_stopped(generation=sink.generation, sequence=1,
                                 received_at=clock(), stationary=True)
     sink.apply(command('unlock'), source='phone')
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     assert sink.pending == (0., 0., 0.)
     sink.apply(command(), source='phone')
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
-    assert normal.calls[-1] == ('Move', (.6, 0., 0.))
+    assert normal.calls[-1] == ('Move', (1.5, 0., 0.))
     sink.apply(command(), source='phone')
     sink.drain()
     assert not sink.latched and normal.calls[-1] == ('Move', (0., 0., 0.))
@@ -238,7 +238,7 @@ def test_latched_neutral_and_source_rules():
     assert sink.latched and normal.calls[-1][0] == 'StopMove'
     sink.select_source('nav2')
     with pytest.raises(ValueError):
-        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+        sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     assert sink.latched
 
 
@@ -263,15 +263,15 @@ def test_no_stale_or_replayed_feedback_unlock():
 def test_watchdog_stops_and_never_auto_unlocks(stalled):
     sink, _, emergency, clock = make_sink()
     unlock(sink, clock)
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
     clock.value += .31
     if stalled == 'output':
-        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+        sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     assert sink.check_watchdog()
     assert emergency.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
     assert sink.latched
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     assert sink.pending == (0., 0., 0.) and sink.latched
     assert not sink.check_watchdog()
 
@@ -279,7 +279,7 @@ def test_watchdog_stops_and_never_auto_unlocks(stalled):
 def test_output_itself_rejects_expired_input_before_watcher():
     sink, normal, _, clock = make_sink()
     unlock(sink, clock)
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     clock.value += .31
     sink.drain()
     assert sink.latched
@@ -289,11 +289,11 @@ def test_output_itself_rejects_expired_input_before_watcher():
 def test_drain_first_cannot_erase_expired_output_deadline():
     sink, normal, emergency, clock = make_sink()
     unlock(sink, clock)
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
     generation = sink.generation
     clock.value += .20
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     clock.value += .11
     before = len(normal.calls)
     # No late apply and no watchdog first: output must check its OLD clock.
@@ -303,9 +303,9 @@ def test_drain_first_cannot_erase_expired_output_deadline():
     assert normal.calls[before:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
     assert sink.check_watchdog()
     assert emergency.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
-    assert sink.latched and ('Move', (.6, 0., 0.)) not in normal.calls[before:]
+    assert sink.latched and ('Move', (1.5, 0., 0.)) not in normal.calls[before:]
 
 
 def test_late_sdk_return_cannot_refresh_expired_output_before_watcher():
@@ -321,7 +321,7 @@ def test_late_sdk_return_cannot_refresh_expired_output_before_watcher():
         return original(*velocity)
 
     normal.Move = delayed_return
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
     assert sink.latched and sink.pending == (0., 0., 0.)
     assert sink._stop_requested.is_set()
@@ -333,41 +333,41 @@ def test_late_sdk_return_cannot_refresh_expired_output_before_watcher():
 def test_late_nonzero_apply_cannot_erase_expired_deadline(expired):
     sink, normal, _, clock = make_sink()
     unlock(sink, clock)
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
     generation = sink.generation
     clock.value += .20
     if expired == 'input':
         sink.drain()  # Output stays fresh while input is absent.
     else:
-        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+        sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     clock.value += .11
     before = len(normal.calls)
     # Reviewer reproduction order: late input -> output -> watchdog.
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
     sink.check_watchdog()
     assert sink.latched and sink.pending == (0., 0., 0.)
     assert sink.generation > generation
-    assert ('Move', (.6, 0., 0.)) not in normal.calls[before:]
+    assert ('Move', (1.5, 0., 0.)) not in normal.calls[before:]
     # Continuing fresh input cannot resume without a new stop/unlock/neutral.
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
-    assert sink.latched and ('Move', (.6, 0., 0.)) not in normal.calls[before:]
+    assert sink.latched and ('Move', (1.5, 0., 0.)) not in normal.calls[before:]
 
 
 def test_switch_source_while_moving_latches_and_discards_pending_command():
     sink, normal, _, clock = make_sink()
     unlock(sink, clock)
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     sink.drain()
-    assert normal.calls[-1] == ('Move', (.6, 0., 0.))
+    assert normal.calls[-1] == ('Move', (1.5, 0., 0.))
     generation = sink.generation
     sink.select_source('nav2')
     assert sink.source == 'nav2'
     assert sink.latched and sink.pending == (0., 0., 0.)
     assert sink.generation > generation
-    sink.apply(command(velocity=(.6, 0., 0.)), source='nav2')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='nav2')
     sink.drain()
     assert sink.latched and normal.calls[-1][0] == 'StopMove'
 
@@ -400,7 +400,7 @@ def test_explicit_stop_wakes_emergency_worker_while_normal_move_is_blocked():
     sink.start_threads()
     try:
         unlock(sink, clock)
-        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+        sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
         assert entered.wait(1)
         generation = sink.generation
         sink.apply(command('stop'), source='anything')
@@ -443,7 +443,7 @@ def test_dead_emergency_worker_still_attempts_normal_stop(trigger, fallback_fail
     sink.start_threads()
     try:
         unlock(sink, clock)
-        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+        sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
         assert moving.wait(1) and between_outputs.wait(1)
         before = len(normal.calls)
         emergency.result = 1
@@ -464,7 +464,7 @@ def test_dead_emergency_worker_still_attempts_normal_stop(trigger, fallback_fail
         assert sink.latched and sink.pending == (0., 0., 0.)
         assert sink.error is first_error
         with pytest.raises(OutputError):
-            sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+            sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     finally:
         release.set()
         # Cleanup is after the assertions, so close() cannot supply the stop
@@ -513,7 +513,7 @@ def test_blocked_move_does_not_own_emergency_lane_and_late_move_is_compensated()
         return original(*velocity)
 
     normal.Move = blocking
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.apply(command(velocity=(1.5, 0., 0.)), source='phone')
     worker = threading.Thread(target=sink.drain)
     worker.start()
     try:
@@ -525,7 +525,7 @@ def test_blocked_move_does_not_own_emergency_lane_and_late_move_is_compensated()
         release.set()
         worker.join(2)
     assert not worker.is_alive()
-    assert normal.calls[-3:] == [('Move', (.6, 0., 0.)),
+    assert normal.calls[-3:] == [('Move', (1.5, 0., 0.)),
                                 ('Move', (0., 0., 0.)), ('StopMove', ())]
 
 

@@ -296,6 +296,24 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     expect(panel('시뮬').hidden).toBe(false);
     expect(location.hash).toBe('#/settings');   // 고른 탭은 주소가 아니라 화면 상태
   });
+  it('최대·키보드·임무 실행기 전진 상한은 1.5, AME-2 속도 보장 아님을 안내', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, sim_max_vx: 1.5 } } }));
+    await open();
+    for (const name of ['sim_max_vx', 'sim_key_vx', 'sim_runner_vx']) {
+      const input = $<HTMLInputElement>(`input[name="${name}"]`)!;
+      expect(input.max).toBe('1.5');
+      setVal(input, '1.5');
+      expect(input.validity.rangeOverflow).toBe(false);
+      if (input.type === 'number') {
+        setVal(input, '1.51');
+        expect(input.validity.rangeOverflow).toBe(true);
+      }
+    }
+    const cap = card('시뮬 속도 상한');
+    expect(cap.textContent).toContain('AME-2는 위치 목표 정책');
+    await submit($('form', cap)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vx: 1.5 });
+  });
   it('실기 «서버 경유 빠른 이동 끄기»: 바꾼 칸만 PATCH(true)', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, real_no_fast_server_drive: true } } }));
     await open();

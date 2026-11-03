@@ -47,26 +47,26 @@ try {
   await k.down('ArrowUp');   // 같은 키 다시 down = repeat
   assert.deepEqual(await joy(), [0, 0, 0]);
   await k.up('ArrowUp'); await k.down('ArrowUp');
-  assert.deepEqual(await joy(), [1, 0, 0]);
-  await page.waitForFunction(() => __sim.cmd()[0] === 1);
+  assert.deepEqual(await joy(), [1.5, 0, 0]);
+  await page.waitForFunction(() => __sim.cmd()[0] === 1.5);
   await k.down('ArrowLeft');   // ← = 옆걸음 왼쪽(왼 막대 좌우 끝 = vy 0.5)
-  assert.deepEqual(await joy(), [1, 0.5, 0]);
+  assert.deepEqual(await joy(), [1.5, 0.5, 0]);
   await k.down('ArrowRight');   // ← + → = 0
-  assert.deepEqual(await joy(), [1, 0, 0]);
+  assert.deepEqual(await joy(), [1.5, 0, 0]);
   await k.up('ArrowLeft');
-  assert.deepEqual(await joy(), [1, -0.5, 0]);
+  assert.deepEqual(await joy(), [1.5, -0.5, 0]);
   await k.up('ArrowRight'); await k.down('KeyA');   // A = 회전 왼쪽
-  assert.deepEqual(await joy(), [1, 0, 1]);
+  assert.deepEqual(await joy(), [1.5, 0, 1]);
   await k.down('KeyD');   // A + D = 0
-  assert.deepEqual(await joy(), [1, 0, 0]);
+  assert.deepEqual(await joy(), [1.5, 0, 0]);
   await k.up('KeyA');
-  assert.deepEqual(await joy(), [1, 0, -1]);
+  assert.deepEqual(await joy(), [1.5, 0, -1]);
   await k.up('KeyD'); await k.down('KeyS');   // ↑ + S = 0
   assert.deepEqual(await joy(), [0, 0, 0]);
   await k.up('ArrowUp');
-  assert.deepEqual(await joy(), [-1, 0, 0]);
+  assert.deepEqual(await joy(), [-1.5, 0, 0]);
   // 후진·옆걸음은 foothold-v2 학습 범위 밖 — 자르지 않고(명령 그대로) 키 안내 테두리 색만, 제자리 회전은 범위 안
-  await page.waitForFunction(() => __sim.cmd()[0] === -1 && document.getElementById('keys').classList.contains('out'));
+  await page.waitForFunction(() => __sim.cmd()[0] === -1.5 && document.getElementById('keys').classList.contains('out'));
   await k.up('KeyS'); await k.down('ArrowRight');
   await page.waitForFunction(() => __sim.cmd()[1] === -0.5 && document.getElementById('keys').classList.contains('out'));
   await k.up('ArrowRight'); await k.down('KeyD');
@@ -75,7 +75,7 @@ try {
   assert.deepEqual(await joy(), [0, 0, 0]);
   // 같은 방향 두 키(↑+W·←+A)도 막대 끝 값 1 — 범위를 넘지 않음, 반대 방향이 같이 눌리면 0
   await k.down('ArrowUp'); await k.down('KeyW'); await k.down('ArrowLeft'); await k.down('KeyA');
-  assert.deepEqual(await joy(), [1, 0.5, 1]);
+  assert.deepEqual(await joy(), [1.5, 0.5, 1]);
   await k.down('ArrowDown');
   assert.deepEqual(await joy(), [0, 0.5, 1]);
   for (const c of ['ArrowDown', 'KeyA', 'ArrowLeft', 'KeyW', 'ArrowUp']) await k.up(c);
@@ -85,7 +85,7 @@ try {
   // 수정키(단축키 시작)를 누르면 쥔 키를 버린다 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있어 ↑ keyup 없이도 0, 계속 쥔 ↑(반복)로 재개 없음
   for (const mod of ['Meta', 'Control', 'Alt']) {
     await k.down('ArrowUp');
-    assert.deepEqual(await joy(), [1, 0, 0]);
+    assert.deepEqual(await joy(), [1.5, 0, 0]);
     await k.down(mod); await k.up(mod);
     assert.deepEqual(await joy(), [0, 0, 0]);
     await k.down('ArrowUp');
@@ -116,7 +116,7 @@ try {
   for (const fire of [() => window.dispatchEvent(new Event('blur')), () => window.dispatchEvent(new Event('pagehide')), () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); delete document.hidden; }]) {
     await page.click('#go'); await k.down('KeyW');
-    assert.deepEqual(await joy(), [1, 0, 0]);
+    assert.deepEqual(await joy(), [1.5, 0, 0]);
     await page.evaluate(fire);
     assert.equal(await page.evaluate(() => __sim.stopped()), true);
     assert.deepEqual(await joy(), [0, 0, 0]);
@@ -129,7 +129,7 @@ try {
 
   // reset = STOP 잠금 + 키 0(기본 정책도) — «시작» 전에는 새로 누른 키도 무시
   await page.click('#go'); await k.down('KeyW');
-  assert.deepEqual(await joy(), [1, 0, 0]);
+  assert.deepEqual(await joy(), [1.5, 0, 0]);
   await page.click('#reset');
   assert.equal(await page.evaluate(() => __sim.stopped()), true);
   assert.deepEqual(await joy(), [0, 0, 0]);
