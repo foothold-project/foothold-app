@@ -161,7 +161,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   useEffect(() => {
     const f = () => {
       const h = location.hash, ask = leaving.ask;
-      if (ask && tabFromHash(h, false) !== 'map') { history.replaceState(null, '', '#/map'); ask(() => { location.hash = h; }); return; }
+      // 옛 시나리오 주소도 지도 탭을 다시 그리고 층을 옮기므로 같은 확인을 거친다(REVIEW-260 B1) — 취소하면 지금 편집·선택 그대로
+      if (ask && (tabFromHash(h, false) !== 'map' || oldScenario(h) != null)) { history.replaceState(null, '', '#/map'); ask(() => { location.hash = h; }); return; }
       if (toMap(h)) setMapN((x) => x + 1);   // 옛 시나리오 주소 — 지도 탭을 다시 그려 그 시나리오를 연다
       setWant(h);
     };

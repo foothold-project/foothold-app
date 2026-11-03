@@ -406,7 +406,10 @@ function FloorView({ p, names, cancel, again, told, top, name, side, setSide, ta
   const canUp = !!list && (!approved || !!now);   // 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다)
   const upBtn = (e?: { currentTarget: Element }) => { if (e) shut(e as never); setUp(true); };
   const keys = v ? featKeys(v.features) : [];
-  const start = () => { if (!editing && now) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); setUp(false); } };
+  // 다른 층에 남겨 둔 저장 안 한 편집(kept.d)이 있으면 새 편집이 그것을 비우기 전에 묻는다 — 취소하면 그 층을 열어 이어 쓸 수 있다
+  const [drop, setDrop] = useState(false);
+  const begin = () => { if (now) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); setUp(false); } };
+  const start = () => { if (editing || !now) return; if (kept.d && kept.d.floor !== p.floor.id) setDrop(true); else begin(); };
   const fz = v?.features;
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ` · 판 ${editing.number} 편집 중` : now ? ` · 승인 판 ${now.number}` : ''}</h2>
@@ -415,6 +418,9 @@ function FloorView({ p, names, cancel, again, told, top, name, side, setSide, ta
       {now && <span className="mx-seg" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
         <button type="button" className="btn" aria-pressed={!!editing} onClick={start}>편집</button></span>}
+      {drop && !editing && <div className="fh-row" role="group" aria-label="확인" data-drop><span>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).</span>
+        <button type="button" className="btn pri" onClick={() => { kept.d = null; setDrop(false); begin(); }}>버리고 편집</button>
+        <button type="button" className="btn" onClick={() => setDrop(false)}>취소</button></div>}
       {editing ? <span className="mx-tag mx-edit" data-editing>▲ 판 {editing.number} 편집 중</span>
         : !!list?.length && <Menu label={!v ? '판 고르기' : v.id === approved ? verName(v, approved) : `${verName(v, approved)} · 보기만`} title={v ? `판: ${verName(v, approved)}` : '판 고르기'}>
           <label className="fh-field"><span className="lbl">판 고르기</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => { setSel(e.target.value); setUndo(null); }}>
