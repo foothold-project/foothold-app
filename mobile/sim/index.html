@@ -88,6 +88,8 @@
 <section id="scenarioPanel" aria-label="시나리오" hidden>
   <label for="policySelect">시뮬 정책</label>
   <select id="policySelect" aria-label="시뮬 정책"></select>
+  <label id="startMapLabel" for="startMapSelect" hidden>start 지도</label>
+  <select id="startMapSelect" aria-label="start 지도" hidden><option value="gt">정답</option><option value="reconstruction">복원</option><option value="off">끔</option></select>
   <p id="policyReason" role="status"></p>
   <select id="scenarioSelect" aria-label="시나리오 선택"></select>
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>

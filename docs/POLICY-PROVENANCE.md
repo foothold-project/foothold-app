@@ -1,5 +1,20 @@
 # MVP foothold-v2 → policy_v2.f32 출처 기록
 
+## start-demo (m6000)
+
+`start-demo-app/contract.json`의 m6000 ONNX 두 파일을 그대로 사용한다. 원본 checkpoint SHA-256은 `d5e9ec400f33d74d97e7c69d4ab2092d4980195141bb8b30e683730eecd6b6f5`이며, checkpoint 재내보내기는 수행하지 않았다.
+
+| 파일 | bytes | SHA-256 |
+|---|---:|---|
+| `start-demo_map_on.onnx` | 5808798 | `81c7e079516058ee6243f6edd11efa8f0da239c6cc86fbca791bda5bcd82f110` |
+| `start-demo_map_off.onnx` | 5818629 | `5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037` |
+
+정답/복원은 map_on + use_gt true/false, 끔은 map_off이다. ONNX 전용이며 f32 되돌림이 없다. `FH_START_SRC`(또는 `FH_POLICY_ONNX_SRC`)에서 복사하고 SHA를 확인한다. 모델·가중치·시험 벡터는 커밋하지 않는다. 배포 준비의 private-assets 루트에 두 파일을 놓으면 `/sim/`으로 복사하며, 없거나 SHA가 다르면 start 메뉴만 비활성화한다. 실제 서버 복사·배포는 별도 승인 작업이다.
+
+시험 벡터 실측 및 조정 결정(2026-11-04)에 따라 이력은 **현재 포함 최신 관측부터 10개**, 리셋 뒤 첫 관측을 10칸에 채운다. 인계 v0.3의 «오래된 것이 앞» 설명과 다르다. 관측 이력·깊이 버퍼·GRU 출력은 실제 행동 적용 때만 확정한다. `policy-vector-selftest.mjs`는 등록된 모드의 obs45/hist 생성 경로를 세 벡터와 대조하고 같은 값으로 Node/브라우저/Worker ONNX를 검증한다. 센서 값은 별도의 실제 MuJoCo 평지/벽/천장 시험으로 확인하며, 보행 성공 판정은 포함하지 않는다.
+
+## nvidia-demo
+
 앱 시뮬 모드 id·메뉴 이름은 `nvidia-demo`이며, 옛 URL 값 `foothold-v2`는 별칭으로 받는다. 원본 모델·파일 이름과 해시는 유지한다.
 
 2026-10-29, 기준 `origin/dev` = `468715b2f78d39d38fc9124bd8cbc05fa12d36bf`.

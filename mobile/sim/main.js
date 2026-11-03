@@ -15,11 +15,19 @@ import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { loadSimSettings, simSettings } from './settings.js';
 import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
 import { createFrameClock } from './frame-clock.js';
+import { startDemoMapMode } from './start-demo-adapter.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
 catch (e) { selectionError = e; }
 const DEFAULT_POLICY_BACKEND = 'wasm';
+let startMapMode = 'gt';
+try {
+  if (adapter.depth) {
+    startMapMode = startDemoMapMode(new URLSearchParams(location.search).get('startMap') ?? 'gt');
+    adapter = { ...adapter, onnx: { ...adapter.onnx, file: adapter.onnx.files[startMapMode] } };
+  }
+} catch (e) { selectionError = e; }
 const POLICY_DT = adapter.timing.policyDt;
 const FLOOR_RGB = [[255, 60, 60], [255, 193, 7], [66, 165, 245], [171, 71, 188]];   // 층 지도 색(1층 = 예전 한 층 지도 빨강)
 const neutral = () => adapter.stop.input.slice();
@@ -32,7 +40,7 @@ const bytes = async (u) => new Uint8Array(await (await get(u)).arrayBuffer());
 const json = async (u) => (await get(u)).json();
 const backendFor = (mode) => {
   const params = new URLSearchParams(location.search);
-  return params.get('policyBackend') ?? (mode.command.kind === 'nearby_goal' ? params.get('ame2Backend') : null) ?? DEFAULT_POLICY_BACKEND;
+  return params.get('policyBackend') ?? (mode.command.kind === 'nearby_goal' ? params.get('ame2Backend') : null) ?? (mode.fallback === null ? 'wasm' : DEFAULT_POLICY_BACKEND);
 };
 const st = (window.__sim = { ready: false, err: null });   // 시험용(headless) — 화면에는 안 보임
 
@@ -181,12 +189,25 @@ async function preparePolicies() {
     const url = new URL(location.href); url.searchParams.set('policy', mode.id);
     location.href = url.href;
   };
+  const mapChoice = $('startMapSelect');
+  $('startMapLabel').hidden = !adapter.depth; mapChoice.hidden = !adapter.depth;
+  mapChoice.value = startMapMode;
+  mapChoice.onchange = () => {
+    lock();
+    const url = new URL(location.href); url.searchParams.set('startMap', mapChoice.value);
+    location.href = url.href;
+  };
   const ame2 = POLICY_MODES.ame2;
   const option = Array.from(choice.options).find((x) => x.value === ame2.id);
   const exists = async (file) => {
     const response = await fetch(file, { method: 'HEAD' }).catch(() => null);
     return response?.ok && !/^text\/html(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '');
   };
+  const start = POLICY_MODES.start;
+  const startAvailable = (await Promise.all([...new Set(Object.values(start.onnx.files))].map(exists))).every(Boolean);
+  const startOption = Array.from(choice.options).find((x) => x.value === start.id);
+  startOption.disabled = !startAvailable;
+  if (!startAvailable) startOption.textContent = `${start.label} · ONNX 파일 없음`;
   const [onnxAvailable, weightsAvailable, manifest] = await Promise.all([
     exists(ame2.onnx.file), exists(ame2.network.file), json(ame2.network.manifest).catch(() => null),
   ]);
@@ -277,7 +298,7 @@ async function main() {
       $('policyEngine').textContent = `${text} · 시뮬 전용`;
     },
   });
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start }, adapter.id, { ame2DelaySteps: 0 });
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start }, adapter.id, { ame2DelaySteps: 0, startMapMode });
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360, settings);
   const runner = createScenarioRunner(sim, () => stopped, settings);
@@ -709,12 +730,16 @@ async function main() {
     },
     step: () => sim.step(),
     onStep: () => { st.steps++; timingUI(); },
-    onError: (e) => { lock(); st.err = String(e); $('policyEngine').textContent = st.policyEngine?.includes('정책 잠금') ? st.policyEngine : `정책 계산 중단 · ${e.message}`; },
+    onError: (e) => {
+      lock(); st.err = String(e);
+      if (adapter.fallback === null) { ready = st.ready = false; ui(); }
+      $('policyEngine').textContent = st.policyEngine?.includes('정책 잠금') ? st.policyEngine : `정책 계산 중단 · ${e.message}`;
+    },
   });
   clock.reset();
   function frame(now) {
     if (now - lastScan >= 100) { scan(); lastScan = now; }
-    clock.frame(now, document.hidden || (adapter.stop.pause && stopped));
+    clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
     timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();

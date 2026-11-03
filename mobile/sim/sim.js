@@ -2,6 +2,7 @@
 // Policy contracts live in policy-adapters.js; height observations raycast actual world geometry.
 // 관측·행동 계약은 exp33 src/v2_obs.py 그대로(관측 235, 행동 Isaac 순서, q* = 0.25·a + 기본자세).
 import { DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
+import { startDemoMapMode } from './start-demo-adapter.js';
 const defaultAdapter = getPolicyAdapter();
 const LEGS = ['FL', 'FR', 'RL', 'RR'], PARTS = ['hip', 'thigh', 'calf'];
 // Legacy exports stay available to the existing measurement scripts.
@@ -13,7 +14,7 @@ export const MENAGERIE = { damping: 2, frictionloss: 0.2, armature: 0.01, footFr
 export const ISAAC_LIKE = { ...MENAGERIE, damping: 0, frictionloss: 0, footSpin: false };
 export const loadPolicy = (buf, adapterId = DEFAULT_POLICY_ID, manifest) => getPolicyAdapter(adapterId).loadPolicy(buf, manifest);
 
-export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = DEFAULT_POLICY_ID, { ame2DelaySteps = 0 } = {}) {
+export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = DEFAULT_POLICY_ID, { ame2DelaySteps = 0, startMapMode = 'gt' } = {}) {
   const adapter = getPolicyAdapter(adapterId);
   const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = adapter.timing;
   const { joints: ISAAC_J, defaultPose: DEFAULT_I, kp: KP, kd: KD } = adapter.action;
@@ -36,7 +37,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     for (let i = 0; i < 12; i++) {
       // All twelve XML motors have gear=1 and the same ordering as MJ_J.
       const j = m.actuator_trnid[i * 2];
-      if (j !== jid(MJ_J[i]) || m.actuator_gear[i * 6] !== 1) throw new Error('AME-2 모터 배치/기어 불일치');
+      if (j !== jid(MJ_J[i]) || m.actuator_gear[i * 6] !== 1) throw new Error('정책 모터 배치/기어 불일치');
       m.actuator_ctrllimited[i] = 0; m.actuator_forcelimited[i] = 0;
       m.jnt_actfrclimited[j] = 0;
     }
@@ -47,6 +48,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const actionDelay = adapter.makeActionDelay?.(MJ_J.map((_, i) => DEFAULT_I[I2M[i]]), ame2DelaySteps);
   const s = { m, d, adapterId: adapter.id, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], policyMs: 0, physMs: 0, I2M, M2I };
   s.heightScanner = sampleHeight; s.observation = obs; s.lastAction = last;
+  if (adapter.depth) { s.startMapMode = startDemoMapMode(startMapMode); s.depthScanner = adapter.makeDepthScanner(mj,m,d); }
   const actionTargets = new Float64Array(adapter.action.size);
   // Any ONNX policy may await inference. Invalidate its result synchronously on
   // STOP/reset/dispose, and never queue a second inference or physics tick.
@@ -138,7 +140,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { s.cancelPolicyStep(); sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { s.cancelPolicyStep(); s.depthScanner?.dispose(); sampleHeight.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }

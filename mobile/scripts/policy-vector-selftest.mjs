@@ -17,7 +17,8 @@ for (const name of required) assert.ok(process.env[name], `${name} is required: 
 const read = (p) => readFileSync(p), json = (p) => JSON.parse(read(p));
 const hash = (b) => createHash('sha256').update(b).digest('hex');
 const arrayBuffer = (b) => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
-const start = json(join(process.env.FH_START_SRC, 'contract.json')).app_onnx;
+const start = getPolicyAdapter('start-demo').onnx;
+assert.deepEqual(start.inputs, json(join(process.env.FH_START_SRC, 'contract.json')).app_onnx.inputs);
 const ame2 = getPolicyAdapter('ame2-demo').onnx;
 const cases = ['reconstruction', 'gt', 'off'].map((mode) => ({ name: `start/${mode}`, root: process.env.FH_START_SRC,
   tv: json(join(process.env.FH_START_SRC, `test_vectors_flat20_${mode}.json`)), contract: start }));
