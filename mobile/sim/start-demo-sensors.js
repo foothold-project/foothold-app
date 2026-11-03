@@ -1,3 +1,4 @@
+import { AME2_OVERHEAD_CLEARANCE } from './ame2-adapter.js';
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 // RayCaster ordering='yx': y varies fastest; ONNX shape [32,16].
 export const startDemoGrid = Array.from({ length: 512 }, (_, i) => [-.475 + .05*Math.floor(i/16), -.375 + .05*(i%16)]);
@@ -29,24 +30,16 @@ function terrainOnly(m, d, run, origin = null, cutoff = Infinity, planes = []) {
   try { return run(); } finally { for (const [g, group] of excluded) groups[g] = group; }
 }
 export function makeStartDemoMap(mj, m, d, makeTerrainSampler, { fastVertical = true } = {}) {
-  const cfg = { grid: startDemoGrid, rayOffset: 20, fastVertical }, sample = makeTerrainSampler(mj,m,d,cfg);
-  const heights = new Float64Array(512), hit = new mj.IntBuffer(1), normal = new mj.DoubleBuffer(3);
+  const cfg = { grid: startDemoGrid, rayOffset: 20, fastVertical, overheadClearance: AME2_OVERHEAD_CLEARANCE }, sample = makeTerrainSampler(mj,m,d,cfg);
+  const heights = new Float64Array(512);
   const scan = (q, out = new Float32Array(512)) => {
-    const t = performance.now(), point = Float64Array.from(q.slice(0,3)); cfg.rayOffset = 20;
-    terrainOnly(m, d, () => {
-      for (let i = 0; i <= m.ngeom && point[2] < q[2]+20; i++) {
-        const distance = mj.mj_ray(m,d,point,[0,0,1],[1,1,0,0,1,0],true,-1,hit,normal);
-        if (!Number.isFinite(distance) || distance < 0 || point[2]+distance > q[2]+20) break;
-        if (normal.GetView()[2] < 0) { cfg.rayOffset = point[2]+distance-q[2]-.001; break; }
-        point[2] += distance+.001;
-      }
-    });
+    const t = performance.now();
     sample(q,heights);
     for (let i = 0; i < 512; i++) out[i] = Number.isFinite(heights[i]) ? clamp(heights[i]-q[2],-1,1) : -1;
     scan.ms = performance.now()-t;
     return out;
   };
-  scan.dispose = () => { sample.dispose(); hit.delete(); normal.delete(); };
+  scan.dispose = sample.dispose;
   return scan;
 }
 export function makeStartDemoDepth(mj,m,d,{ cull = true } = {}) {
