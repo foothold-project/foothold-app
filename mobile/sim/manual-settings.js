@@ -12,10 +12,11 @@ export function commandCaps(command) {
   const [forward, lateral, turn] = command.joystickScale;
   return { forward, reverse: forward, lateral, turnInPlace: turn, turnWalking: turn };
 }
-export function modeCapText(command) {
-  if (command.kind === 'nearby_goal') return '이 모드 상한 · 목표 2 m · 정책 속도 ≤1.2 m/s';
-  const c = commandCaps(command);
-  return `이 모드 상한 · 앞${c.forward} 뒤${c.reverse} 옆${c.lateral} m/s · 회전${c.turnInPlace}/이동${c.turnWalking} rad/s`;
+export function modeCapText(command, settings = manualSettings({}, command)) {
+  if (command.kind === 'nearby_goal') return '적용 상한 · 목표 2 m · 정책 속도 ≤1.2 m/s';
+  const c = settings.directions;
+  const key = settings.key < c.forward ? ` · 키${settings.key} m/s` : '';
+  return `적용 상한 · 앞${c.forward} 뒤${c.reverse} 옆${c.lateral} m/s · 회전${c.turnInPlace}/이동${c.turnWalking} rad/s${key}`;
 }
 export function manualSettings(org, command) {
   // Retain array callers while modes migrate to command.caps (five directions).

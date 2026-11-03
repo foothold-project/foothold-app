@@ -102,16 +102,51 @@ def test_forward_ceiling_boundary_persists_and_rejects_overflow(client, field):
     assert client.get(P).json() == before
 
 
-def test_saved_legacy_sim_caps_are_not_rewritten_by_new_defaults(client, seeded):
+def test_explicit_sim_choice_survives_other_patches_without_storing_defaults(client, seeded):
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Event, Organization
+    from sqlalchemy import select
+    headers = csrf(client)
+    assert client.patch(P, headers=headers, json={'sim_max_vy': .3}).status_code == 200
+    assert client.patch(P, headers=headers, json={'lidar_view_m': 15}).status_code == 200
+    response = client.get(P).json()
+    assert response['sim_max_vy'] == .3
+    assert response['sim_max_vx'] == 1.5 and response['sim_max_wz'] == 1.2
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'sim_max_vy': .3, 'lidar_view_m': 15}
+        assert list(db.scalars(select(Event.data).where(Event.code == 'ORG_SETTINGS_UPDATED')
+                               .order_by(Event.id))) == [{'sim_max_vy': .3}, {'lidar_view_m': 15}]
+
+
+def test_unrelated_patch_keeps_sim_defaults_inherited(client, seeded):
     from sqlalchemy.orm import Session
     from apps.server.fh_server.models import Organization
-    legacy = dict(sim_max_vx=1.0, sim_key_vx=.6, sim_max_vy=.3, sim_max_wz=.5)
+    headers = csrf(client)
+    result = client.patch(P, headers=headers, json={'battery_low_pct': 25})
+    assert result.status_code == 200
+    assert {k: result.json()[k] for k in DEFAULTS} == DEFAULTS
     with Session(client.app.state.engine) as db:
-        db.get(Organization, seeded['org']).settings = legacy.copy()
+        assert db.get(Organization, seeded['org']).settings == {'battery_low_pct': 25}
+
+
+def test_inherited_key_follows_retained_forward_cap_but_explicit_conflict_rejected(client, seeded):
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Organization
+    # This sparse row results when migration retains an explicit forward cap
+    # but removes the old, never-chosen key default.
+    with Session(client.app.state.engine) as db:
+        db.get(Organization, seeded['org']).settings = {'sim_max_vx': 1.0}
         db.commit()
     headers = csrf(client)
-    assert {k: client.get(P).json()[k] for k in legacy} == legacy
+    assert client.get(P).json()['sim_key_vx'] == 1.0
     assert client.patch(P, headers=headers, json={'lidar_view_m': 15}).status_code == 200
-    assert {k: client.get(P).json()[k] for k in legacy} == legacy
     with Session(client.app.state.engine) as db:
-        assert {k: db.get(Organization, seeded['org']).settings[k] for k in legacy} == legacy
+        assert db.get(Organization, seeded['org']).settings == {'sim_max_vx': 1.0, 'lidar_view_m': 15}
+    assert client.patch(P, headers=headers, json={'sim_key_vx': 1.1}).status_code == 422
+    # Reducing only forward speed still validates against the current key cap.
+    assert client.patch(P, headers=headers, json={'sim_max_vx': .8}).status_code == 422
+    raised = client.patch(P, headers=headers, json={'sim_max_vx': 1.2})
+    assert raised.status_code == 200 and raised.json()['sim_key_vx'] == 1.2
+    assert raised.json() == client.get(P).json()
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'sim_max_vx': 1.2, 'lidar_view_m': 15}

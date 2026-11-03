@@ -201,8 +201,8 @@ async function main() {
   applySettings = (org) => {
     const caps = commandCaps(adapter.command);
     Object.assign(settings, simSettings(org, { vx: caps.forward, wz: caps.turnInPlace }));
-    $('modeCaps').textContent = modeCapText(adapter.command);
     inputSettings = manualSettings(org, adapter.command);
+    $('modeCaps').textContent = modeCapText(adapter.command, inputSettings);
   };
   applySettings(await refreshSettings());
   const params = new URLSearchParams(location.search);

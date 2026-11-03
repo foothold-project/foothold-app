@@ -435,7 +435,11 @@ class OrgSettings(Contract):
         if self.sim_min_vx > self.sim_max_vx:
             raise ValueError('시뮬 최소 전진 속도는 최대 전진 속도 이하여야 합니다.')
         if self.sim_key_vx > self.sim_max_vx:
-            raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+            if 'sim_key_vx' in self.model_fields_set:
+                raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+            # A retained explicit forward cap can be below the new inherited
+            # key default after cleanup of old materialized defaults.
+            self.sim_key_vx = self.sim_max_vx
         return self
 
 

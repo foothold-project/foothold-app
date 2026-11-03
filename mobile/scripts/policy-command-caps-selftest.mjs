@@ -47,4 +47,9 @@ assert.equal(simSettings(web, { vx: 1.5, wz: 1.2 }).caps.wz, 1.2, '1.2 mode cap 
 assert.equal(simSettings({ sim_max_wz: .7 }, { vx: 1.5, wz: 1.2 }).caps.wz, .7);
 assert.match(modeCapText(start), /뒤1 .*회전1.2\/이동1/);
 assert.match(modeCapText(ame2.command), /목표 2 m.*1.2 m\/s/);
+const chosen = { sim_max_vx: 1, sim_max_vy: .3, sim_max_wz: .5, sim_key_vx: .6 };
+assert.match(modeCapText(nvidia.command, manualSettings(chosen, nvidia.command)),
+  /적용 상한.*앞1 뒤1 옆0.3.*회전0.5\/이동0.5.*키0.6/);
+assert.match(modeCapText(start, manualSettings(reduced, start)), /앞0.3 뒤0.3 옆0.*회전0\/이동0.*키0.2/);
+assert.equal(modeCapText(ame2.command, manualSettings(chosen, ame2.command)), modeCapText(ame2.command), 'goal HUD ignores body speed caps too');
 console.log('PASS nvidia obs[9:12]: +1.5 / -1.5 / ±0.5 / ±1; ame2 prop[46]: ±1; offline+web defaults, stick+keys; prepared start: +1.5 / -1 / ±0.5 / ±1.2 (walking ±1)');
