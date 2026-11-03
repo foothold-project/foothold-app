@@ -2,6 +2,7 @@
 
 10-29 supplies the route, stair boxes, XY fragments and pile envelopes. The
 10-28 material palette and the CC0 house's UV albedo supply sampled colors.
+Large pieces are spread across clear indoor/outdoor floor with a fixed seed.
 Small chips share visual batches; larger pieces are individual convex meshes.
 Chips and exterior rubble use a sampled contact surface.
 Shared resized original albedos
@@ -17,6 +18,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from PIL import Image
 from scipy.interpolate import RegularGridInterpolator
+from scipy.ndimage import distance_transform_edt
 from scipy.spatial.transform import Rotation
 import trimesh
 
@@ -110,6 +112,80 @@ def house_supports(building, floor):
     return result
 
 
+def spread_loose_pieces(pieces, building, indoor_floor, route, floor, base_at, stairs):
+    """Seeded farthest-point placement on flat indoor/outdoor floor.
+
+    Check the *whole bounding footprint*, not just the center/vertices: a long
+    board must not bridge a wall, stair or the 1.5m protected route strip.
+    Retain the generated convex shapes and material counts, but seat each piece
+    independently instead of preserving the old wall-following pile envelopes.
+    """
+    step = .05
+    axis = np.arange(-12.975, 13, step)
+    X, Y = np.meshgrid(axis, axis)
+    wall = wall_pixels(building, axis, axis, floor)
+    wall_distance = np.maximum(0, distance_transform_edt(~wall)*step-step*np.sqrt(2))
+    inside = grid_top(indoor_floor, axis, axis, np.full(X.shape, -np.inf)) > floor-.1
+    support = base_at(np.c_[Y.ravel(), X.ravel()]).reshape(X.shape)
+    blocked = (wall_distance < .25) | (distance(X, Y, route) < .75)
+    for lo, hi in stairs:
+        blocked |= ((X >= lo[0]-.25)&(X <= hi[0]+.25)&
+                    (Y >= lo[1]-.25)&(Y <= hi[1]+.25))
+    # Stay clear of the map edge; candidates cover the full outdoor floor.
+    candidates = np.array([(x, y) for y in np.arange(-11.75, 12, .25)
+                           for x in np.arange(-11.75, 12, .25)])
+    rng = np.random.default_rng(20261103)
+    candidates = candidates[rng.permutation(len(candidates))]
+    nearest = np.full(len(candidates), np.inf)
+    selected = []
+    records = []
+    # More clearance-sensitive large pieces go first. Keep original piece IDs.
+    order = sorted(range(len(pieces)), key=lambda i: -np.prod(np.ptp(pieces[i][0].vertices, axis=0)[:2]))
+    tallest = max(range(len(pieces)), key=lambda i: pieces[i][0].bounds[1, 2])
+    order.remove(tallest); order.insert(0, tallest)
+    indoor_count = 0
+    for rank, i in enumerate(order):
+        mesh, kind = pieces[i]
+        center = mesh.bounds.mean(0)
+        lo, hi = mesh.bounds[:, :2]-center[:2]
+        choices = []
+        # Roughly one quarter indoors, proportional to usable floor after route
+        # exclusions. Interleave regions so farthest-point spacing covers both.
+        want_inside = indoor_count < round((rank+1)*.25) or rank == 0
+        for j, (x, y) in enumerate(candidates):
+            if nearest[j] < 1.15:
+                continue
+            c0, r0 = np.floor((np.array([x, y])+lo-axis[0])/step).astype(int)
+            c1, r1 = np.ceil((np.array([x, y])+hi-axis[0])/step).astype(int)
+            region = np.s_[r0:r1+1, c0:c1+1]
+            if blocked[region].any():
+                continue
+            indoor = inside[region]
+            if not (indoor.all() if want_inside else not indoor.any()):
+                continue
+            heights = support[region]
+            if np.ptp(heights) > .03:
+                continue  # No straddling raised floor/porch boundaries.
+            choices.append((nearest[j], j, float(heights.max()), float(wall_distance[region].min())))
+        assert choices, f'No clear {"indoor" if want_inside else "outdoor"} placement for piece {i}, rank={rank}, indoors={indoor_count}'
+        _, j, ground, clearance = max(choices, key=lambda c: c[0])
+        xy = candidates[j]
+        mesh.vertices[:, :2] += xy-center[:2]
+        mesh.vertices[:, 2] += ground+.009-mesh.bounds[0, 2]
+        if i == tallest:
+            bottom = mesh.bounds[0, 2]
+            mesh.vertices[:, 2] = bottom+(mesh.vertices[:, 2]-bottom)*(floor+.786-bottom)/(mesh.bounds[1, 2]-bottom)
+        nearest = np.minimum(nearest, np.linalg.norm(candidates-xy, axis=1))
+        selected.append(xy)
+        indoor_count += int(want_inside)
+        records.append(dict(piece=i, kind=kind, indoor=want_inside, wall_footprint_clearance_m=clearance))
+    return dict(seed=20261103, method='farthest point on 25cm grid; full footprint exclusions',
+                indoor_pieces=indoor_count, outdoor_pieces=len(pieces)-indoor_count,
+                min_wall_footprint_clearance_m=min(r['wall_footprint_clearance_m'] for r in records),
+                protected_route_half_width_m=.75, stair_margin_m=.25,
+                min_center_spacing_m=float(min(np.linalg.norm(a-b) for k,a in enumerate(selected) for b in selected[k+1:])))
+
+
 def export_loose_house(source, mobile_only=False):
     if mobile_only:
         # Generate companion SDF/metrics in a disposable directory. Do not touch
@@ -163,8 +239,8 @@ def _export_loose_house(source, server_out=None):
         batches[k].append(t)
     assert offset == len(data['stones'])
     pieces = []
-    # Restore freestanding, layered piles around the original high-relief areas.
-    # Coarse cells control contact count; a second offset layer visibly overlaps.
+    # Preserve the legacy shape/material inventory and approximate size ratios.
+    # Floor-wide placement below replaces these original pile coordinates.
     for cy in np.arange(-5.35,5.8,1.05):
         for cx in np.arange(-7.05,7.2,1.05):
             target = float(old_at([[cy,cx]])[0])-floor
@@ -194,17 +270,26 @@ def _export_loose_house(source, server_out=None):
                 if m.bounds[1,2]>floor+.795:
                     m.vertices[:,2] = bottom+(m.vertices[:,2]-bottom)*(floor+.795-bottom)/(m.bounds[1,2]-bottom)
                 pieces.append((m,kind))
-    # Ensure the tallest original corner still reads as an approximately .8m pile.
-    # Raise its uppermost loose piece, never add a heightfield mound.
+    # Retain the approximately .8m tallest template before floor-wide placement.
+    # Only a real convex piece is raised, never a heightfield mound.
     highest = max(pieces,key=lambda item:item[0].bounds[1,2])[0]
     lo = highest.bounds[0,2]
     highest.vertices[:,2] = lo+(highest.vertices[:,2]-lo)*(floor+.786-lo)/(highest.bounds[1,2]-lo)
+    source_world = ET.parse(source/'house_debris_world.sdf')
+    stairs = []
+    for model in source_world.findall('world/model'):
+        size = model.findtext('link/visual/geometry/box/size')
+        if size is not None and model.get('name') != 'outdoor_ground':
+            size = np.fromstring(size, sep=' ')
+            pos = np.fromstring(model.findtext('pose'), sep=' ')[:3]
+            stairs.append((pos-size/2, pos+size/2))
+    distribution = spread_loose_pieces(pieces, data['building'], data['indoor_floor'], route, floor, base_at, stairs)
     for i,(m,kind) in enumerate(pieces):batches[(kind,(i+1)%4)].append(m.triangles)
     palette = {'rock':np.array([.62,.58,.52]),'concrete':np.array([.9,.88,.83]),'wood':np.array([.6,.5,.4])}
     exterior=exterior_fragments(reference,data['indoor_floor'],route,distance,grid_top)
     uv = house_uv(source,data['building'])
     scene = dict(meshes={},models=[])
-    worldtree = ET.parse(source/'house_debris_world.sdf')
+    worldtree = source_world
     world = worldtree.getroot().find('world')
     for inc in list(world.findall('include')):world.remove(inc)
     for m in list(world.findall('model')):
@@ -408,7 +493,7 @@ def _export_loose_house(source, server_out=None):
     Image.fromarray(pixels).save(out/'maps/f1.png')
     (out/'maps/f1.yaml').write_text('image: f1.png\nmode: trinary\nresolution: 0.05\norigin: [-13.0, -13.0, 0.0]\nnegate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n')
     image_sha=sha(out/'maps/f1.png');origin=[-13.,-13.,0.]
-    write_json(out/'maps/metadata.json',dict(generator_version='house-look-supports/4',resolution=.05,origin=origin,size_pixels=[len(xs),len(ys)],body_band_above_floor_m=[.10,.65],occupancy='house body-band triangles; low support slabs and physical pieces above support +15cm; quantized chip/exterior tiles above support +15cm; entry steps remain traversable candidates',support_samples='5cm vertical intersections of support slabs, pieces, displayed dust and quantized rubble tile nodes',pixel_to_world='x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution',variable_elevation=True,floors={'f1':dict(floor_z=floor,image='f1.png',yaml='f1.yaml',image_sha256=image_sha)}))
+    write_json(out/'maps/metadata.json',dict(generator_version='house-look-spread/5',resolution=.05,origin=origin,size_pixels=[len(xs),len(ys)],body_band_above_floor_m=[.10,.65],occupancy='house body-band triangles; low support slabs and physical pieces above support +15cm; quantized chip/exterior tiles above support +15cm; entry steps remain traversable candidates',support_samples='5cm vertical intersections of support slabs, pieces, displayed dust and quantized rubble tile nodes',pixel_to_world='x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution',variable_elevation=True,floors={'f1':dict(floor_z=floor,image='f1.png',yaml='f1.yaml',image_sha256=image_sha)}))
     write_json(mobile/'map.json',dict(res=.05,origin=origin,w=len(xs),h=len(ys),floor_z=-.02,spawn_xyyaw=[*route[0],np.pi/2],spawn_z=.38,physics_assets=physics_assets,px=base64.b64encode(pixels.tobytes()).decode()))
     X,Y=np.meshgrid(xs,ys)
     indoor=grid_top(data['indoor_floor'],xs,ys,np.full(blank.shape,-np.inf))>floor-.1
@@ -417,6 +502,8 @@ def _export_loose_house(source, server_out=None):
     metrics=dict(corridor_p5_p50_p95_m=np.quantile((visible-floor)[corridor],[.05,.5,.95]).tolist(),corridor_min_max_m=[float((visible-floor)[corridor].min()),float((visible-floor)[corridor].max())],off_path_p5_p50_p95_m=np.quantile((visible-floor)[off],[.05,.5,.95]).tolist(),off_path_15_40cm_fraction=float(((visible[off]-floor>=.15)&(visible[off]-floor<=.4)).mean()),indoor_max_above_floor_m=float((visible-floor)[indoor].max()),chip_contact_visual_error_p95_m=float(np.quantile(np.abs(contact-visible)[corridor],.95)),chip_contact_visual_error_max_m=float(np.max(np.abs(contact-visible)[corridor])))
     write_json(out/'look-metrics.json',metrics)
     metadata=dict(draft=True,source_layout_sha256=sha(source/'layout.json'),generator='house-look-supports/4',source=f'{WORLD_ID}/f1',triangles=sum(len(scene['meshes'][m['mesh']]['i'])//3 for m in scene['models']),house_triangles=len(data['building']),physics='dust/porch and tiled 2.5cm chip/exterior heightfields; exact low house support slabs; individual indoor convex pieces; 10cm house wall columns',collision_geometries=len(wb),house_support_slabs=len(house_slabs),house_support_max_z=floor+.05,house_support_thickness_m=.04,ray_only_proxies=0,source_heightmap=sha(out/'height.png'),heightfield_quantization_m=hrange/255,reused_fragments=1085,added_fragments=150,loose_pile_pieces=len(pieces),chip_contact_clusters=0,perimeter_contact_clusters=0,perimeter_heightfield_tiles=perimeter_tiles,perimeter_lidar_group=4,perimeter_heightfield_storage='inline normalized 8-bit samples',perimeter_heightfield_resolution_m=.025,perimeter_heightfield_quantization_m=perimeter_range/255,perimeter_fragments={k:sum(kind==k for _,kind in exterior) for k in ('rock','wood','concrete')},perimeter_max_above_ground_m=float(max(t[:,:,2].max()+.02 for t,k in exterior)),shared_rubble_textures=list(textures.values()),house_albedo_resolution=[512,512],metrics=metrics,limitations='rubble is excluded from lidar dots, forward-stop and lidar obstacle additions (group 4), while occupancy and policy height scans retain it; chip/exterior heightfield interpolates between 2.5cm samples and fills beneath boards; house walls remain body-band columns, overhead roof/furniture visual only; low support slabs preserve source triangle boundaries; phone unverified')
+    metadata.update(generator='house-look-spread/5', loose_distribution=distribution,
+                    physics=metadata['physics'].replace('individual indoor convex pieces', 'individual indoor/outdoor convex pieces'))
     write_json(mobile/'metadata.json',metadata)
     # Remove only named obsolete generated outputs, never local source files.
     for i in range(32):
