@@ -419,11 +419,11 @@ class OrgSettings(Contract):
     deviation_m: float = Field(default=1.5, ge=0.5, le=5, strict=True)
     lease_request_timeout_s: int = Field(default=10, ge=5, le=30, strict=True)
     link_loss_wait_s: int = Field(default=30, ge=0, le=30, strict=True)
-    sim_max_vx: float = Field(default=1.0, ge=0.2, le=1.5, strict=True)
+    sim_max_vx: float = Field(default=1.5, ge=0.2, le=1.5, strict=True)
     sim_min_vx: float = Field(default=0.2, ge=0.0, le=0.5, strict=True)
-    sim_max_vy: float = Field(default=0.3, ge=0.0, le=0.3, strict=True)
-    sim_max_wz: float = Field(default=0.5, ge=0.0, le=0.5, strict=True)
-    sim_key_vx: float = Field(default=0.6, ge=0.1, le=1.5, strict=True)
+    sim_max_vy: float = Field(default=0.5, ge=0.0, le=0.5, strict=True, description="시뮬 옆 상한 0~0.5 m/s, 기본 0.5. 실기 한도와 별개.")
+    sim_max_wz: float = Field(default=1.2, ge=0.0, le=1.2, strict=True, description="시뮬 회전 상한 0~1.2 rad/s, 기본 1.2. 모드 상한 안에서만 적용.")
+    sim_key_vx: float = Field(default=1.5, ge=0.1, le=1.5, strict=True)
     stick_deadzone: float = Field(default=0.1, ge=0.0, le=0.5, strict=True)
     sim_runner_vx: float = Field(default=0.4, ge=0.1, le=1.5, strict=True)
     sim_runner_wz: float = Field(default=0.6, ge=0.1, le=1.0, strict=True)
@@ -435,7 +435,11 @@ class OrgSettings(Contract):
         if self.sim_min_vx > self.sim_max_vx:
             raise ValueError('시뮬 최소 전진 속도는 최대 전진 속도 이하여야 합니다.')
         if self.sim_key_vx > self.sim_max_vx:
-            raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+            if 'sim_key_vx' in self.model_fields_set:
+                raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+            # A retained explicit forward cap can be below the new inherited
+            # key default after cleanup of old materialized defaults.
+            self.sim_key_vx = self.sim_max_vx
         return self
 
 
@@ -447,8 +451,8 @@ class OrgSettingsPatch(Contract):
     link_loss_wait_s: int = omitted(ge=0, le=30, strict=True)
     sim_max_vx: float = omitted(ge=0.2, le=1.5, strict=True)
     sim_min_vx: float = omitted(ge=0.0, le=0.5, strict=True)
-    sim_max_vy: float = omitted(ge=0.0, le=0.3, strict=True)
-    sim_max_wz: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_max_vy: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_max_wz: float = omitted(ge=0.0, le=1.2, strict=True)
     sim_key_vx: float = omitted(ge=0.1, le=1.5, strict=True)
     stick_deadzone: float = omitted(ge=0.0, le=0.5, strict=True)
     sim_runner_vx: float = omitted(ge=0.1, le=1.5, strict=True)

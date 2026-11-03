@@ -13,7 +13,7 @@ import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { loadSimSettings, simSettings } from './settings.js';
-import { manualSettings, manualAxis } from './manual-settings.js';
+import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
 import { createFrameClock } from './frame-clock.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
@@ -41,7 +41,7 @@ let heading = null;
 const goalAxes = [0, 0, 0];
 let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
 const sticks = [];
-let inputSettings = manualSettings({}, adapter.command.joystickScale), refreshSettings = async () => {}, startEpoch = 0, clock;
+let inputSettings = manualSettings({}, adapter.command), refreshSettings = async () => {}, startEpoch = 0, clock;
 let applySettings = () => {};
 function lock() {
   startEpoch++; clock?.reset();
@@ -120,9 +120,13 @@ function stick(el, set) {
   sticks.push({ release });
 }
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
-stick($('stickL'), (x, y) => { const axes = adapter.stop.pause ? goalAxes : joy;
-  axes[0] = r2(manualAxis(-y, 0, inputSettings)); axes[1] = r2(manualAxis(-x, 1, inputSettings)); });
-stick($('stickR'), (x) => { (adapter.stop.pause ? goalAxes : joy)[2] = r2(manualAxis(-x, 2, inputSettings)); });
+const stickAxes = [0, 0, 0];
+const updateStickAxes = () => {
+  const axes = adapter.stop.pause ? goalAxes : joy;
+  axes.splice(0, 3, ...manualCommand(stickAxes, inputSettings).map(r2));
+};
+stick($('stickL'), (x, y) => { stickAxes[0] = -y; stickAxes[1] = -x; updateStickAxes(); });
+stick($('stickR'), (x) => { stickAxes[2] = -x; updateStickAxes(); });
 const inRange = (c) => adapter.command.inRange(c);
 
 // ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): 실기 웹 조종칸(serverdrive)과 같게 ↑·W / ↓·S = 앞·뒤,
@@ -132,7 +136,7 @@ const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1],
 const held = new Set();
 const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 끝 값 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
   const axes = adapter.stop.pause ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
-  for (const i of [0, 1, 2]) axes[i] = r2(manualAxis(on(i, 1) - on(i, -1), i, inputSettings, true));
+  axes.splice(0, 3, ...manualCommand([0, 1, 2].map((i) => on(i, 1) - on(i, -1)), inputSettings, true).map(r2));
 };
 const dropKeys = () => { held.clear(); keyAxes(); };
 sticks.push({ release: dropKeys });   // lock()·#go·시나리오 실행이 막대와 함께 놓는다
@@ -202,8 +206,10 @@ async function main() {
     return lastOrg;
   };
   applySettings = (org) => {
-    Object.assign(settings, simSettings(org, { vx: adapter.command.joystickScale[0], wz: adapter.command.joystickScale[2] }));
-    inputSettings = manualSettings(org, adapter.command.joystickScale);
+    const caps = commandCaps(adapter.command);
+    Object.assign(settings, simSettings(org, { vx: caps.forward, wz: caps.turnInPlace }));
+    inputSettings = manualSettings(org, adapter.command);
+    $('modeCaps').textContent = modeCapText(adapter.command, inputSettings);
   };
   applySettings(await refreshSettings());
   const params = new URLSearchParams(location.search);

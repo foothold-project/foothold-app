@@ -122,7 +122,7 @@ export const TURN_ON = 0.5;
 /** 시뮬 눌린 데드존 wz: 에이전트 회전 문턱(±0.5 rad/s) 훨씬 아래라 돌지 않고, 정확한 0 이 아니라 손 뗌으로 보지 않음 */
 export const NUDGE = 0.001;
 /** 조직 시뮬 조작값(05 §8 OrgSettings sim_*·stick_deadzone, 설정 › 시뮬)의 계약 범위(apps/contracts/models.py OrgSettings) */
-const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.3], sim_max_wz: [0, 0.5], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] } as const;
+const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.5], sim_max_wz: [0, 1.2], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] } as const;
 let tune: Partial<Record<keyof typeof TUNE, number>> = {};
 /** 연결할 때 받고 설정에서 저장하면 바로 바뀐다. 숫자가 아니거나·유한하지 않거나·범위 밖·교차 조건(최소·키보드 ≤ 최대)을 어긴 필드는
  *  버린다 — 그 필드만 에이전트 limits·DEAD·KEY_VX 로 돌아감 */

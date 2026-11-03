@@ -13,7 +13,7 @@ export function simSettings(org, caps = {}) {
     wz: boundedNumber(o.sim_runner_wz, 0.1, 1, DEFAULT_WZ),
     caps: {
       vx: Math.min(boundedNumber(o.sim_max_vx, 0.2, 1.5, Infinity), boundedNumber(caps.vx, 0, 1.5, DEFAULT_VX)),
-      wz: Math.min(boundedNumber(o.sim_max_wz, 0, 0.5, Infinity), boundedNumber(caps.wz, 0, 1, DEFAULT_WZ)),
+      wz: Math.min(boundedNumber(o.sim_max_wz, 0, 1.2, Infinity), boundedNumber(caps.wz, 0, 1.2, DEFAULT_WZ)),
     },
     viewRange: boundedNumber(o.lidar_view_m, 1, 30, DEFAULT_VIEW_M),
   };

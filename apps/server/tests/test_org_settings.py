@@ -9,12 +9,12 @@ from apps.contracts import models as C
 from .test_api import csrf
 
 P = '/api/v1/org/settings'
-DEFAULTS = dict(sim_max_vx=1.0, sim_min_vx=0.2, sim_max_vy=0.3,
-    sim_max_wz=0.5, sim_key_vx=0.6, stick_deadzone=0.1,
+DEFAULTS = dict(sim_max_vx=1.5, sim_min_vx=0.2, sim_max_vy=0.5,
+    sim_max_wz=1.2, sim_key_vx=1.5, stick_deadzone=0.1,
     sim_runner_vx=0.4, sim_runner_wz=0.6, lidar_view_m=12,
     real_no_fast_server_drive=False)
 BOUNDS = dict(sim_max_vx=(0.2, 1.5), sim_min_vx=(0.0, 0.5),
-    sim_max_vy=(0.0, 0.3), sim_max_wz=(0.0, 0.5), sim_key_vx=(0.1, 1.5),
+    sim_max_vy=(0.0, 0.5), sim_max_wz=(0.0, 1.2), sim_key_vx=(0.1, 1.5),
     stick_deadzone=(0.0, 0.5), sim_runner_vx=(0.1, 1.5),
     sim_runner_wz=(0.1, 1.0), lidar_view_m=(1, 30))
 
@@ -57,7 +57,7 @@ def test_fast_drive_flag_is_strict_boolean(value):
 @pytest.mark.parametrize('initial,patch,message', [
     ({'sim_key_vx': 0.2}, {'sim_min_vx': 0.5, 'sim_max_vx': 0.3}, '최소 전진 속도'),
     ({}, {'sim_max_vx': 0.4}, '키보드 전진 속도'),
-    ({'sim_max_vx': 0.6}, {'sim_key_vx': 0.7}, '키보드 전진 속도'),
+    ({'sim_max_vx': 0.6, 'sim_key_vx': 0.6}, {'sim_key_vx': 0.7}, '키보드 전진 속도'),
     ({'sim_min_vx': 0.5}, {'sim_max_vx': 0.3, 'sim_key_vx': 0.2}, '최소 전진 속도'),
 ])
 def test_cross_validation_uses_stored_and_patch_values_and_rolls_back(client, initial, patch, message):
@@ -73,14 +73,16 @@ def test_cross_validation_uses_stored_and_patch_values_and_rolls_back(client, in
         json={'sim_max_vx': 0.5, 'sim_min_vx': 0.5, 'sim_key_vx': 0.5}).status_code == 200
 
 
-def test_simulation_si_caps_match_agent_final_envelope(monkeypatch):
+def test_browser_settings_cover_but_do_not_change_agent_final_envelope(monkeypatch):
     # Read the real agent constants without changing the agent's final clamp.
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / 'agent'))
     limits = importlib.import_module('foothold_agent.phone.protocol').SIMULATION_LIMITS
     schema = C.OrgSettings.model_json_schema()['properties']
-    for setting, axis in (('sim_max_vx', 'vx_max'), ('sim_max_vy', 'vy_max'),
-                          ('sim_max_wz', 'wz_max'), ('sim_key_vx', 'vx_max')):
-        assert schema[setting]['maximum'] == limits[axis]
+    for setting, axis, maximum in (('sim_max_vx', 'vx_max', 1.5), ('sim_max_vy', 'vy_max', .5),
+                                   ('sim_max_wz', 'wz_max', 1.2), ('sim_key_vx', 'vx_max', 1.5)):
+        assert schema[setting]['maximum'] == maximum
+        assert min(maximum, limits[axis]) == limits[axis]
+    assert limits['vy_max'] == .3 and limits['wz_max'] == .5
 
 
 @pytest.mark.parametrize('field', ['sim_max_vx', 'sim_key_vx', 'sim_runner_vx'])
@@ -98,3 +100,53 @@ def test_forward_ceiling_boundary_persists_and_rejects_overflow(client, field):
     assert rejected.status_code == 400
     assert rejected.json()['error']['code'] == 'VALIDATION'
     assert client.get(P).json() == before
+
+
+def test_explicit_sim_choice_survives_other_patches_without_storing_defaults(client, seeded):
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Event, Organization
+    from sqlalchemy import select
+    headers = csrf(client)
+    assert client.patch(P, headers=headers, json={'sim_max_vy': .3}).status_code == 200
+    assert client.patch(P, headers=headers, json={'lidar_view_m': 15}).status_code == 200
+    response = client.get(P).json()
+    assert response['sim_max_vy'] == .3
+    assert response['sim_max_vx'] == 1.5 and response['sim_max_wz'] == 1.2
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'sim_max_vy': .3, 'lidar_view_m': 15}
+        assert list(db.scalars(select(Event.data).where(Event.code == 'ORG_SETTINGS_UPDATED')
+                               .order_by(Event.id))) == [{'sim_max_vy': .3}, {'lidar_view_m': 15}]
+
+
+def test_unrelated_patch_keeps_sim_defaults_inherited(client, seeded):
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Organization
+    headers = csrf(client)
+    result = client.patch(P, headers=headers, json={'battery_low_pct': 25})
+    assert result.status_code == 200
+    assert {k: result.json()[k] for k in DEFAULTS} == DEFAULTS
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'battery_low_pct': 25}
+
+
+def test_inherited_key_follows_retained_forward_cap_but_explicit_conflict_rejected(client, seeded):
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Organization
+    # This sparse row results when migration retains an explicit forward cap
+    # but removes the old, never-chosen key default.
+    with Session(client.app.state.engine) as db:
+        db.get(Organization, seeded['org']).settings = {'sim_max_vx': 1.0}
+        db.commit()
+    headers = csrf(client)
+    assert client.get(P).json()['sim_key_vx'] == 1.0
+    assert client.patch(P, headers=headers, json={'lidar_view_m': 15}).status_code == 200
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'sim_max_vx': 1.0, 'lidar_view_m': 15}
+    assert client.patch(P, headers=headers, json={'sim_key_vx': 1.1}).status_code == 422
+    # Reducing only forward speed still validates against the current key cap.
+    assert client.patch(P, headers=headers, json={'sim_max_vx': .8}).status_code == 422
+    raised = client.patch(P, headers=headers, json={'sim_max_vx': 1.2})
+    assert raised.status_code == 200 and raised.json()['sim_key_vx'] == 1.2
+    assert raised.json() == client.get(P).json()
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'sim_max_vx': 1.2, 'lidar_view_m': 15}
