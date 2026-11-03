@@ -2,7 +2,7 @@
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
 // 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx.
 // 틀(mapscen.tsx): 왼쪽 아이콘 도구줄 | 지도 | 오른쪽 요소 창(목록 ↔ 고른 요소 속성). 저장은 단추 줄 «새 판으로 저장…» → 바꾼 이유 창.
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
@@ -138,7 +138,7 @@ const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편
 
 /** 편집. v = 편집 시작 때 승인 판(저장 기준·그림), p = 그 층. saved = 새 판, quit = 보기로, recheck = 판 목록·나무 다시 받기
  *  moved = 남겨 둔 편집을 이어 쓰는데 그 사이 승인 판이 바뀜 → STALE 과 같은 안내 */
-export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean; slot?: HTMLElement | null }) {
+export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: picker, name }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean; slot?: HTMLElement | null; pick?: ReactNode; name?: string }) {
   const [k] = useState(() => (kept.d?.floor === p.floor.id && kept.d.base.id === v.id ? kept.d : null));
   const [f, setF] = useState<MapFeatures>(() => k?.f ?? JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
   const [dirty, setDirty] = useState(k?.dirty ?? false), [tool, setTool] = useState<Tool>(k?.tool ?? 'pick'), [pts, setPts] = useState<P[]>(k?.pts ?? []), [sel, setSel] = useState(''), [width, setWidth] = useState(k?.width ?? 0.1);
@@ -379,7 +379,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot }: { v:
         <Hint text={short} more={hint} />
       </div>
       {/* 오른쪽 작업 창: 아무것도 안 고르면 요소 목록, 고르면 그 요소 속성(필수 몇 개 + «더 보기») — «‹» 로 목록 */}
-      <Pane open={open} setOpen={setOpen} bar={`요소 ${keys.length}`} label="요소 창"
+      <Pane open={open} setOpen={setOpen} bar={`요소 ${keys.length}`} label="요소 창" pick={picker} name={name}
         head={cur ? <><button type="button" className="btn" aria-label="요소 목록으로" title="목록으로" onClick={() => setSel('')}>‹</button>
           <span className="fh-grow"><Glyph f={f} k={sel} /><span className="mx-cut">{featName(f, sel)}</span><span className="mx-tag">{featSub(f, sel, p.building.floors)}</span></span></>
           : <span className="fh-grow">요소 {keys.length}</span>}>

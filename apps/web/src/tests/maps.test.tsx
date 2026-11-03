@@ -962,8 +962,11 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
   it('요소 창 접기 → 지도 옆 세로 막대 «◂ 요소 4», 눌러 펼친다(옛 ≤440 px 자동 접기 대신 — 창 폭 320 고정)', async () => {
     serve(editSrv());
     await startEdit();
+    // 장소·층 고르기는 요소 창 맨 위(SCENARIO-TAB-PICKER 11-03), 위 단추 줄엔 [지도|시나리오] 전환
+    expect(card('요소 창').querySelector('.mx-pick summary')!.textContent).toBe('본관 › 본동 › 1층');
+    expect($('.mx-bar [aria-label="장소"]')).toBeNull(); expect($('.mx-bar [aria-label="지도·시나리오"]')).toBeTruthy();
     await click($('button[aria-label="요소 4 창 접기"]')!);
-    expect($('.mx-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.mx-fold')!.textContent).toBe('◂ 요소 4');
+    expect($('.mx-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.mx-fold')!.textContent).toBe('◂ 요소 4 · 본관 › 본동 › 1층');
     expect(card('요소 창').hasAttribute('data-fold')).toBe(true); expect($('[data-el]')!.closest('[hidden]')).toBeTruthy();   // 접기 = 숨김(unmount 아님)
     await click($('.mx-fold')!);
     expect(rows()).toHaveLength(4);
@@ -1878,7 +1881,7 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
   it('Esc: 메뉴는 닫고 그 메뉴 단추로, 작은 창(Esc·✕)은 닫고 연 단추로 포커스를 돌려준다 — 숨은 칸에 남지 않음(#234 B2)', async () => {
     serve(editSrv());
     await startEdit();
-    const m = $('.mx-bar details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button, .mx-pop select, .mx-pop input')!;
+    const m = $('.mx-pick details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button, .mx-pop select, .mx-pop input')!;
     act(() => { m.setAttribute('open', ''); item.focus(); });
     act(() => { item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(m.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(m.querySelector('summary'));

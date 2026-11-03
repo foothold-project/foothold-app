@@ -46,11 +46,14 @@ export function Pop({ open, close, label, children }: { open: boolean; close: ()
     {children}</dialog>;
 }
 
-/** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N»), 안 내용은 숨김(unmount 아님). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목) */
-export function Pane({ open, setOpen, bar, head, label, children }: { open: boolean; setOpen: (o: boolean) => void; bar: string; head: ReactNode; label: string; children: ReactNode }) {
+/** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N» + name 한 줄, 넘치면 말줄임), 안 내용은 숨김(unmount 아님). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목).
+ *  pick = 창 맨 위 고르기 줄(시나리오·층 / 장소·층 메뉴 — SCENARIO-TAB-PICKER 11-03, 위 단추 줄에서 옮김) */
+export function Pane({ open, setOpen, bar, head, label, children, pick, name }: { open: boolean; setOpen: (o: boolean) => void; bar: string; head: ReactNode; label: string; children: ReactNode; pick?: ReactNode; name?: string }) {
   return <aside className="mx-pane" aria-label={label} data-fold={open ? undefined : ''}>
-    {open ? <div className="mx-head">{head}<button type="button" className="btn mx-fold" aria-expanded aria-label={`${bar} 창 접기`} title="창 접기" onClick={() => setOpen(false)}>▸</button></div>
-      : <button type="button" className="btn mx-fold" aria-expanded={false} onClick={() => setOpen(true)}>◂ {bar}</button>}
+    {/* 고르기 줄은 접어도 숨기기만(메뉴가 위 단추 줄로 돌아가지 않게 — 펼치면 보임) */}
+    <div className="mx-top" hidden={!open}>{pick && <div className="mx-pick">{pick}</div>}
+      {open && <div className="mx-head">{head}<button type="button" className="btn mx-fold" aria-expanded aria-label={`${bar} 창 접기`} title="창 접기" onClick={() => setOpen(false)}>▸</button></div>}</div>
+    {!open && <button type="button" className="btn mx-fold" aria-expanded={false} title={name} onClick={() => setOpen(true)}><span>◂ </span><span className="mx-fold-txt">{bar}{name && <span className="mx-fold-name"> · {name}</span>}</span></button>}
     {/* 접어도 안 내용은 숨기기만 한다 — 배정 창 입력·보내는 중 상태·늦은 응답 처리를 잃지 않게(#235 B2) */}
     <div className="mx-pane-in" hidden={!open}>{children}</div>
   </aside>;
