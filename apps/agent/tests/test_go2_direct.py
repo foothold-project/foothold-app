@@ -213,8 +213,9 @@ def test_limits_clamp_only_and_cannot_expand():
         Limits(vx=(-1.5, 1.5))
     with pytest.raises(ValueError):
         Limits(vy=(0., .2))
+    assert Limits(vx=(0., .3)).project((1.5, 0., 0.)) == (.3, 0., 0.)
     with pytest.raises(ValueError):
-        Limits(vx=(0., .3)).project((1.5, 0., 0.))
+        Limits(vx=(0., .35)).project((1.5, 0., 0.))
 
 
 def test_latched_neutral_and_source_rules():

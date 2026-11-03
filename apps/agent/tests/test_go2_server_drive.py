@@ -253,7 +253,8 @@ def test_server_si_table_is_exact_and_phone_forward_ceiling_matches():
     from foothold_agent.go2_direct.sink import ALLOWED, SERVER_ALLOWED
     from apps.contracts.server_drive import ALLOWED as CONTRACT
     assert SERVER_ALLOWED == CONTRACT and len(SERVER_ALLOWED) == 9
-    assert ALLOWED == frozenset(((0.,0.,0.),(1.5,0.,0.),(1.5,0.,.5),(1.5,0.,-.5)))
+    assert ALLOWED == {(0., 0., 0.)} | {(step / 10, 0., wz)
+        for step in range(3, 16) for wz in (0., -.5, .5)}
 
 
 @pytest.mark.parametrize('bad', [[.4,0,0],[1,0,0],[.6,0,0],[1.5000000001,0,0],[-1.5,0,.5],

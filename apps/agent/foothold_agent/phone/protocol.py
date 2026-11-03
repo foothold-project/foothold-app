@@ -5,8 +5,9 @@ nonfinite numbers, duplicate JSON keys and noncanonical UUIDs are rejected.
 """
 
 import math
+from decimal import Decimal
 
-from foothold_agent.safety.core import Z
+from foothold_agent.safety.core import Z, quantize_phone
 from foothold_agent.policy_ranges import velocity_input
 from .tickets import json_object, uuid
 
@@ -102,22 +103,25 @@ def project_velocity(vx, vy, wz, *, simulation=False):
         limited, _ = simulation_velocity(vx, vy, wz)
         # Keep rejected SI intent for Core's reason and fresh-neutral gate.
         return (vx, vy, wz), limited != (vx, vy, wz)
-    x = 1.5 if vx >= 1.5 else 0.0
-    turn = (.5 if wz >= .5 else -.5 if wz <= -.5 else 0.0) if x else 0.0
-    limited = (x, 0.0, turn)
-    axes = (1.0 if x else 0.0, 0.0, turn / .5)
+    # The shipped phone sends vx = 1.5 * stick. Decimal avoids converting
+    # exact SI boundaries such as 0.3 / 1.5 to an axis just below 0.2.
+    x = float(max(Decimal('-1'), min(Decimal('1'), Decimal(str(vx)) / Decimal('1.5'))))
+    turn = .5 if wz >= .5 else -.5 if wz <= -.5 else 0.0
+    axes = (x, 0.0, turn / .5)
+    limited, _ = quantize_phone(*axes)
     if not any(limited) and any((vx, vy, wz)):
         # Valid, nonneutral Core inputs that quantize to ZERO with a reason.
         # They neither create a neutral nor erase a previously confirmed one.
         axes = ((-1.0, 0.0, 0.0) if vx < 0 else
                 (0.0, 1.0 if vy > 0 else -1.0, 0.0) if vy else
-                (.3, 0.0, 0.0) if vx else (0.0, 0.0, 1.0 if wz > 0 else -1.0))
+                (.1, 0.0, .2) if vx else (0.0, 0.0, 1.0 if wz > 0 else -1.0))
     return axes, limited != (vx, vy, wz)
 
 
 LIMITS = {'vx_min': 0.0, 'vx_max': 1.5, 'vy_min': 0.0, 'vy_max': 0.0,
           'wz_min': -.5, 'wz_max': .5,
-          'commands': [[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [1.5, 0.0, -.5], [1.5, 0.0, .5]]}
+          'commands': [[0.0, 0.0, 0.0]] + [[step / 10, 0.0, wz]
+              for step in range(3, 16) for wz in (0.0, -.5, .5)]}
 
 # Explicit simulation input envelope; the learned policy ranges remain unchanged.
 # These experimental commands are accepted, not validated walking capabilities.

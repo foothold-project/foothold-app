@@ -24,13 +24,14 @@ def test_simulation_projection_boundaries(vx, vy, wz):
     assert bool(reason) is (expected == Z and requested != Z)
 
 
-@pytest.mark.parametrize('vx', [0, .1999, .2, .55, .6, 1.0, 1.0001, 1.5, 1.51, -.2])
+@pytest.mark.parametrize('vx,forward', [(0, 0), (.1999, 0), (.2, 0), (.55, .5),
+    (.6, .6), (1.0, 1.), (1.0001, 1.), (1.5, 1.5), (1.51, 1.5), (-.2, 0)])
 @pytest.mark.parametrize('wz', [-.5, 0, .5])
-def test_physical_projection_is_identical_to_default(vx, wz):
+def test_physical_projection_is_identical_to_default(vx, forward, wz):
     axes, clipped = project_velocity(vx, .3, wz, simulation=False)
     assert (axes, clipped) == project_velocity(vx, .3, wz)
     applied, _ = quantize_phone(*axes)
-    expected = (1.5, 0, wz) if vx >= 1.5 else Z
+    expected = (forward, 0, wz if vx >= .75 else 0)
     assert applied == expected and list(applied) in LIMITS['commands']
 
 
@@ -48,23 +49,24 @@ def test_welcome_limits_contract_and_mode(request, fixture, limits):
         assert parsed.limits.policy_adapter_id == 'simulation-experimental-si/1'
         assert parsed.limits.requires_forward_motion is False
     else:
-        assert parsed.limits.commands == [[0, 0, 0], [1.5, 0, 0], [1.5, 0, -.5], [1.5, 0, .5]]
+        assert parsed.limits.commands == [[0, 0, 0]] + [[step / 10, 0, turn]
+            for step in range(3, 16) for turn in (0, -.5, .5)]
     welcome['limits']['vx_max'] = 99
     assert harness.connect()[2]['limits'] == limits  # welcome is a copy
 
 
 @pytest.mark.parametrize('fixture', ['h', 'physical_h'])
-@pytest.mark.parametrize('vx', [0, .1999, .2, .55, .6, 1.0, 1.0001, 1.5, 1.51, -.2])
+@pytest.mark.parametrize('vx,forward', [(0, 0), (.1999, 0), (.2, 0), (.55, .5),
+    (.6, .6), (1.0, 1.), (1.0001, 1.), (1.5, 1.5), (1.51, 1.5), (-.2, 0)])
 @pytest.mark.parametrize('wz', [-.5, 0, .5])
-def test_mode_reaches_actual_session_output(request, fixture, vx, wz):
+def test_mode_reaches_actual_session_output(request, fixture, vx, forward, wz):
     harness = request.getfixturevalue(fixture)
     owner, _ = harness.moving()
     ack = harness.cmd(owner, vx, vy=.8, wz=wz)
     if fixture == 'h':
         expected = Z  # vy=.8 is outside this adapter; reject the whole triple
     else:
-        x = 1.5 if vx >= 1.5 else 0
-        expected = (x, 0, wz if x else 0)
+        expected = (forward, 0, wz if vx >= .75 else 0)
     assert ack['applied'] == list(expected)
     assert harness.outputs[-1].velocity == expected
     assert ack['clipped'] is (expected != (vx, .8, wz))
