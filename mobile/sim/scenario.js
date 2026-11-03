@@ -1,5 +1,5 @@
-// Offline waypoint overlay; commands stay inside the existing joystick limits.
-import { ame2Joystick } from './ame2-adapter.js';
+// Offline waypoint overlay: velocity tracking or direct AME-2 world goals.
+import { ame2WorldGoal } from './ame2-adapter.js';
 import { cell } from './lidar.js';
 import { boundedNumber, DEFAULT_VX, DEFAULT_WZ } from './settings.js';
 
@@ -31,17 +31,16 @@ export function frontDistance(rays) {
 }
 
 export function createScenarioRunner(sim, isStopped, limits = {}) {
-  let maxVx = MAX_VX, maxWz = MAX_WZ, heading = null;
-  const nearbyGoal = sim.adapterId === 'ame2-demo';
-  const neutral = () => nearbyGoal ? [0, 0, 0, 1] : [0, 0, 0];
+  let maxVx = MAX_VX, maxWz = MAX_WZ, origin;
+  const directGoal = sim.adapterId === 'ame2-demo';
+  const neutral = () => directGoal ? [0, 0, 0, 1] : [0, 0, 0];
   // goal = 찍은 곳 하나로 가기(손 조종이 끊으면 잠그지 않고 취소만). best(거리)·turn(방향 오차)·stall = 진전 없음 재기
   const runner = { active: false, index: 0, points: [], status: '대기', goal: false, best: Infinity, turn: Infinity, stall: 0 };
   runner.cancel = (reason = '중단') => {
     runner.active = false;
-    if (nearbyGoal) sim.cancelPolicyStep?.();
+    if (directGoal) sim.cancelPolicyStep?.();
     runner.status = reason;
     sim.cmd = neutral();
-    heading = null;
     return sim.cmd;
   };
   runner.start = (points, goal = false) => {
@@ -57,7 +56,7 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
     runner.status = '실행 중';
     runner.active = true;
     sim.cmd = neutral();
-    heading = null;
+    origin = { x: sim.d.qpos[0], y: sim.d.qpos[1] };
     return true;
   };
   // dt = 이번 틱 시간(s). 0 이면 진전 없음은 재지 않는다
@@ -74,25 +73,24 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
       // 거의 바로 뒤(|오차| > BEHIND)면 처음 고른 회전 방향을 지킨다 — ±π 근처에서 몸 흔들림으로 부호가 뒤집혀 제자리에 멈춰 «막힘»이 되지 않게
       if (runner.spin && Math.abs(error) > BEHIND && Math.sign(error) !== runner.spin) error = runner.spin * (2 * Math.PI - Math.abs(error));
       runner.spin = Math.abs(error) > BEHIND ? Math.sign(error) : 0;
-      const vx = Math.abs(error) < 0.4 ? maxVx : 0;
+      const forward = Math.abs(error) < 0.4;
+      const vx = forward ? maxVx : 0;
       // 앞 막힘은 앞으로 갈 때만 — 벽을 보고 선 채 뒤쪽 지점으로 돌아서는 것은 막지 않는다
-      if (vx && !(front > BLOCK_RANGE)) return runner.cancel('막힘');
+      // Direct goals have no speed scale; a zero velocity setting must not
+      // disable this obstacle guard while AME-2 still receives a position.
+      if ((directGoal ? forward : vx) && !(front > BLOCK_RANGE)) return runner.cancel('막힘');
       let gained = false;
       if (dist < runner.best - STALL_GAIN) { runner.best = dist; gained = true; }
       if (Math.abs(error) < runner.turn - STALL_TURN) { runner.turn = Math.abs(error); gained = true; }
       if (gained) runner.stall = 0; else if ((runner.stall += dt) >= STALL_S) return runner.cancel('막힘');
-      const wz = Math.max(-maxWz, Math.min(maxWz, 1.5 * error));
-      if (nearbyGoal) {
-        // Follow the NEXT A* point, never a later stage across a corner.
-        // Same <=1 m horizon as manual input, below the strict >2 m random-yaw
-        // observation threshold. Close targets shrink rather than moving away.
-        const goal = ame2Joystick(heading, yaw, [0, 0, wz], dt || .02);
-        heading = goal.heading;
-        const scale = vx ? Math.min(1, dist) / dist * Math.min(1, vx / MAX_VX) : 0;
-        goal.command[0] = (Math.cos(yaw) * dx + Math.sin(yaw) * dy) * scale || 0;
-        goal.command[1] = (-Math.sin(yaw) * dx + Math.cos(yaw) * dy) * scale || 0;
-        sim.cmd = goal.command;
-      } else sim.cmd = [vx, 0, wz];
+      if (directGoal) {
+        // Explicit world yaw wins; otherwise use outgoing path direction,
+        // or the incoming segment at the last point (start -> point for one).
+        const next = runner.points[runner.index + 1];
+        const previous = runner.points[runner.index - 1] ?? origin;
+        const pathYaw = next ? Math.atan2(next.y - p.y, next.x - p.x) : Math.atan2(p.y - previous.y, p.x - previous.x);
+        sim.cmd = ame2WorldGoal(q, p, Number.isFinite(p.yaw) ? p.yaw : pathYaw);
+      } else sim.cmd = [vx, 0, Math.max(-maxWz, Math.min(maxWz, 1.5 * error))];
       return sim.cmd;
     }
     return runner.cancel('완료');

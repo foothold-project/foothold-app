@@ -199,7 +199,8 @@ async function main() {
     inputSettings = manualSettings(org, adapter.command.joystickScale);
   };
   applySettings(await refreshSettings());
-  const q = new URLSearchParams(location.search).get('map') ?? '', maps = await json('maps.json');
+  const params = new URLSearchParams(location.search);
+  const q = params.get('map') ?? '', maps = await json('maps.json');
   const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
   const [mj, sceneJ, mapJ, polBuf, policyManifest] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
     get(adapter.network.file).then((r) => r.arrayBuffer()), adapter.network.manifest ? json(adapter.network.manifest) : null]);
@@ -208,11 +209,24 @@ async function main() {
     if (digest !== adapter.network.sha256) throw new Error('AME-2 가중치 SHA-256 불일치');
   }
   let map = decodeMap(mapJ);   // 로봇이 지금 선 층의 지도(찍기·시나리오 검사) — 여러 층이면 몸 높이로 바뀐다
-  inflate(map);   // 길 찾기 막힘 격자를 미리(쉬어 가며) 만들어 둔다
   // 여러 층(top.json floors, z = 로봇 몸 높이 반열린 띠 [아래, 위)): 층마다 지도·시나리오 파일. 한 층이면 지금처럼 map.json·scenarios.json 하나
   const floors = await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
     map: decodeMap(await json(`${dir}/${f.map_file}`)) }))) : []), () => []);
   const layers = floors.length ? floors : [{ name: '', map }];
+  const startFloor = Math.max(0, floors.findIndex((f) => f.id === params.get('floor')));
+  if (floors.length) map = floors[startFloor].map;
+  inflate(map);   // 선택한 층의 길 찾기 막힘 격자를 미리(쉬어 가며) 만들어 둔다
+  let start = map.spawn_xyyaw.slice(), startReason = '';
+  if (params.has('start')) {
+    const fields = params.get('start').split(',').map((v) => v.trim());
+    const values = fields.map(Number), [x, y] = values;
+    if (![2, 3].includes(fields.length) || fields.some((v) => !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(v)) || !values.every(Number.isFinite)) startReason = '좌표·방향은 유한한 숫자여야 합니다';
+    else if (x < map.origin[0] || y < map.origin[1] || x >= map.origin[0] + map.w * map.res || y >= map.origin[1] + map.h * map.res) startReason = '지도 밖';
+    else if (cell(map, x, y) !== 254) startReason = '장애물·모르는 칸';
+    else if (!(await fits(map, { x, y }))) startReason = `벽·물건에서 ${CLEARANCE} m 안`;
+    else start = [x, y, values[2] ?? start[2]];
+  }
+  const startNote = startReason ? `고른 시작 위치를 쓸 수 없어 기본 위치에서 시작(${startReason})` : '';
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
   const physicsAssets = mapJ.physics_assets ?? [];
   if (!Array.isArray(physicsAssets) || physicsAssets.length > 8 || physicsAssets.some((f) => typeof f !== 'string' || !/^[a-z0-9_-]+\.png$/.test(f))) throw new Error('지형 파일 목록 형식');
@@ -227,7 +241,6 @@ async function main() {
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
   let policy = adapter.loadPolicy(polBuf, policyManifest);
   const { selectOnnxPolicy } = await import('./policy-onnx.js');
-  const params = new URLSearchParams(location.search);
   policy = await selectOnnxPolicy(adapter, policy, {
     worker: params.get('policyThread') !== 'main', // explicit comparison/recovery path
     backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'f32',
@@ -239,7 +252,7 @@ async function main() {
       $('policyEngine').textContent = `${text} · 시뮬 전용`;
     },
   });
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start }, adapter.id);
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360, settings);
   const runner = createScenarioRunner(sim, () => stopped, settings);
@@ -251,7 +264,9 @@ async function main() {
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
-  let scenarioText = '', here = 0, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
+  const initialScenario = scenarios.find((s) => s.floor === startFloor);
+  if (initialScenario) select.value = initialScenario.id;
+  let scenarioText = '', here = startFloor, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
   const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
   const scenarioUI = () => {
     const far = away();
@@ -402,6 +417,8 @@ async function main() {
     scan(); lastScan = performance.now();
     applySettings(org);
     sim.cancelPolicyStep(); clock?.reset();
+    // A* keeps XY/mark only; retain an explicit arrival yaw at each destination.
+    for (let i = 0; i < pts.length; i++) if (pts[i + 1]?.mark !== pts[i].mark && Number.isFinite(chosen.points[pts[i].mark]?.yaw)) pts[i].yaw = chosen.points[pts[i].mark].yaw;
     runner.start(pts);
     runner.tick(front); // 가까운 장애물은 실행 순간부터 0
     scenarioUI();
@@ -535,7 +552,7 @@ async function main() {
     if (on && curMark() !== shown) drawMarks();   // 목적지에 닿음 = 그 고리 지우고 다음을 진하게
     const m = on && marks[curMark()];
     // 안내(추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
-    const text = now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : '';
+    const text = now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 
@@ -599,7 +616,7 @@ async function main() {
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001), e.clientX, e.clientY); }, { passive: false });
   $('topCenter').onclick = () => { view.topH = 1; view.topRot = 0; view.topX = view.topY = null; };
 
-  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(); };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
+  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     $('cam').setAttribute('aria-pressed', String(top));
@@ -640,6 +657,8 @@ async function main() {
   let frames = 0, fps = 0, fpsT = performance.now();
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
     timing: () => clock.stats,
+    start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
+      floorZ: layers[startFloor].map.floor_z, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
