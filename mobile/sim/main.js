@@ -604,6 +604,12 @@ async function main() {
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
+  const timingUI = () => {
+    const timing = clock.stats;
+    st.stepsBehind = timing.drops;
+    $('simSlow').hidden = !timing.slow;
+    $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
+  };
   clock = createFrameClock({ dt: POLICY_DT,
     prepare: () => {
       if (runner.active && !adapter.stop.pause) runner.tick(front, POLICY_DT);
@@ -616,17 +622,14 @@ async function main() {
       } else sim.cmd = stopped ? neutral() : joy.slice();
     },
     step: () => sim.step(),
-    onStep: () => { st.steps++; },
+    onStep: () => { st.steps++; timingUI(); },
     onError: (e) => { lock(); st.err = String(e); $('policyEngine').textContent = '정책 계산 중단 · 다시 시작 필요'; },
   });
   clock.reset(performance.now());
   function frame(now) {
     if (now - lastScan >= 100) { scan(); lastScan = now; }
     clock.frame(now, adapter.stop.pause && stopped);
-    const timing = clock.stats;
-    st.stepsBehind = timing.drops;
-    $('simSlow').hidden = !timing.slow;
-    $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
+    timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();
     goalUI(now);
