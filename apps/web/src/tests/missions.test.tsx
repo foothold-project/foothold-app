@@ -769,10 +769,10 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(fold().getAttribute('aria-expanded')).toBe('true'); expect(fold().getAttribute('aria-label')).toBe('단계 2 창 접기');
     expect(point(1)).toBeTruthy();
     await click(fold());
-    expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2');
+    expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2 · 1층 순찰 · 1층');   // 접혀도 무엇을 보는지 — 이름·층 한 줄(SCENARIO-TAB-PICKER)
     expect(point(0).closest('[hidden]')).toBeTruthy(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);   // 접기 = 숨김(unmount 아님, #235 B2)
     await click(btn('새 시나리오'));
-    expect(fold().textContent).toBe('◂ 단계 0');
+    expect(fold().textContent).toBe('◂ 단계 0 · 새 시나리오 · 1층');
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('true');
   });
@@ -1229,12 +1229,19 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     await click(btn('새 시나리오'));
     expect([...card('단계 창').querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['단계 0']);
     expect(saveBtn().closest('.mx-bar')).toBeTruthy();
+    // 시나리오·층 고르기는 오른쪽 창 맨 위(SCENARIO-TAB-PICKER 11-03) — 위 단추 줄엔 [지도|시나리오] 전환만
+    const picks = () => [...card('단계 창').querySelectorAll('.mx-pick details.mx-menu>summary')].map((x) => x.textContent);
+    expect(picks()).toEqual(['새 시나리오', '1층']);
+    expect($('.mx-bar details.mx-menu [aria-label="시나리오 목록"]')).toBeNull(); expect($('.mx-bar [aria-label="지도·시나리오"]')).toBeTruthy();
     await click(row('s1'));
+    expect(picks()).toEqual(['1층 순찰', '1층']);
     expect(btn('삭제')!.closest('details.mx-menu')).toBeTruthy();
     expect(btn('새 판으로 저장')!.closest('.mx-bar')).toBeTruthy();
     expect(name().closest('details.mx-menu')).toBeTruthy(); expect(card('단계 창').contains(name())).toBe(false);   // 저장된 시나리오 이름은 «···» 안 — 단계 줄 자리(MAPSCEN-FIX-R1)
     await click(btn('새 시나리오'));
     expect(card('단계 창').contains(name())).toBe(true);                                                              // 새 시나리오는 이름을 먼저 쓰게 창에
+    await click(btn('임무 관리…'));                                                                                    // 창이 없는 임무 관리는 메뉴가 위 단추 줄
+    expect($('.mx-bar [aria-label="임무 목록"]')).toBeTruthy(); expect($('.mx-pick')).toBeNull();
     await stopSends();
   });
 });

@@ -3,6 +3,7 @@
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 결재 대기(PENDING) 판은 판 목록·기록에 그대로 보인다.
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Tone, User } from '../fake';
@@ -243,10 +244,12 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
     {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
     {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
   </div></Menu>;
-  const bar = <><ScreenTabs cur="map" />{menu}</>;
+  // 장소·층 메뉴는 오른쪽 창 맨 위 자리(at)로 — 창이 없을 때(전체 층·비교·장소 없음)만 위 단추 줄(SCENARIO-TAB-PICKER 11-03)
+  const [slot, setSlot] = useState<HTMLElement | null>(null), at = <span ref={setSlot} style={{ display: 'contents' }} />;
+  const bar = <><ScreenTabs cur="map" />{slot ? createPortal(menu, slot) : menu}</>;
 
   return whole && cur ? <AllFloors key={cur.building.id} b={cur.building} top={bar} cancel={c.cancel} />
-    : cur ? <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} asked={() => c.dash?.again()} top={bar} />
+    : cur ? <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} asked={() => c.dash?.again()} top={bar} pick={at} name={label} />
     : <section className="mx" aria-label="지도 보기"><div className="mx-bar">{bar}</div>
       <div className="mx-center"><p className="lv-note">{t.err ? '장소 목록을 받지 못했습니다. 위 장소 메뉴에서 다시 시도하세요.' : t.tree ? '층을 만들면 여기에서 지도를 봅니다. 위 장소 메뉴의 «장소 고치기»에서 만듭니다.' : '장소 목록을 불러오는 중…'}</p></div></section>;
 }
@@ -269,7 +272,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림·정보·비교, 보기/편집 토글(승인 판이 있을 때)·한때 승인된 판 되돌리기, 총괄은 새 지도 올리기.
  *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. asked = 그때 배지 다시 받기 */
-function FloorView({ p, admin, names, cancel, again, asked: told, top }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; asked: () => void; top?: ReactNode }) {
+function FloorView({ p, admin, names, cancel, again, asked: told, top, pick, name }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; asked: () => void; top?: ReactNode; pick?: ReactNode; name?: string }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
   const [back] = useState(() => (kept.d?.floor === p.floor.id ? kept.d.base : null));   // 폰 틀에서 돌아와 이어 쓰는 편집의 기준 판
@@ -332,7 +335,7 @@ function FloorView({ p, admin, names, cancel, again, asked: told, top }: { p: Pl
       </Menu>}
       <span ref={setSlot} style={{ display: 'contents' }} />
     </div>
-    {editing ? <Editor v={editing} p={p} cancel={cancel} slot={slot} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
+    {editing ? <Editor v={editing} p={p} cancel={cancel} slot={slot} pick={pick} name={name} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
         saved={(x) => { setEditing(null); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
           else { setSel(x.id); setDone({ text: `새 판을 저장했습니다(판 ${x.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />
     : <div className="mx-body">
@@ -350,8 +353,8 @@ function FloorView({ p, admin, names, cancel, again, asked: told, top }: { p: Pl
         </div>
         {v && !cmp && <Hint text={now ? '보기만 — «편집»을 누르면 도구가 나옵니다' : '보기만'} more="휠·두 손가락으로 확대, 끌어서 옮깁니다. 구역·지점은 «편집»에서 고칩니다." />}
       </div>
-      {v && !cmp && <Pane open={pane} setOpen={setPane} bar={`요소 ${keys.length}`} label="요소 창" head={<span className="fh-grow">요소 {keys.length}</span>}>
-        {keys.length ? <ul className="mx-list" aria-label="요소 목록">{keys.map((k) => <li key={k} className="mx-row" data-el={k}><span className="mx-name"><Glyph f={v.features} k={k} /><b>{featName(v.features, k)}</b><small>{featSub(v.features, k, p.building.floors)}</small></span></li>)}</ul>
+      {!cmp && <Pane open={pane} setOpen={setPane} bar={`요소 ${keys.length}`} label="요소 창" pick={pick} name={name} head={<span className="fh-grow">요소 {keys.length}</span>}>
+        {!v ? <p className="lv-note mx-in">{list ? '이 층에는 아직 지도가 없습니다.' : '판 목록을 불러오는 중…'}</p> : keys.length ? <ul className="mx-list" aria-label="요소 목록">{keys.map((k) => <li key={k} className="mx-row" data-el={k}><span className="mx-name"><Glyph f={v.features} k={k} /><b>{featName(v.features, k)}</b><small>{featSub(v.features, k, p.building.floors)}</small></span></li>)}</ul>
           : <p className="lv-note mx-in">이 판에는 구역·지점이 없습니다.</p>}
         {now && <p className="lv-note mx-in">구역·지점은 «편집»에서 고칩니다.</p>}
       </Pane>}

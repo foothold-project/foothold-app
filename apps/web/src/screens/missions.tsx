@@ -100,7 +100,9 @@ export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
   const [kind, setKind] = useState<Plan>(keptPlan.kind), [archived, setArchived] = useState(false), [mine, setMine] = useState(false), [floor, setFloor] = useState('');
   const scen = kind === 'scenarios', l = useList(kind, archived, scen ? { mine, floor } : undefined, c.cancel), assigned = useAssigned(scen, l.busy, c.cancel);
   const [sel, setSel] = useState<string | null>(keptPlan.sel), [msg, setMsg] = useState<Msg>(() => (assignFor.robot && !keptPlan.sel ? { text: `${c.robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 고르면 배정 창이 열립니다.`, ok: true } : null)), [n, setN] = useState(0), tree = useTree(c.cancel);
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [slot, setSlot] = useState<HTMLElement | null>(null), [pickSlot, setPickSlot] = useState<HTMLElement | null>(null), [, bump] = useState(0);
+  // 시나리오 고르기 메뉴는 오른쪽 창 맨 위 자리(pick)로 — 창이 없을 때(임무 관리·불러오는 중)만 위 단추 줄(SCENARIO-TAB-PICKER 11-03)
+  const pick = <span ref={setPickSlot} style={{ display: 'contents' }} />;
   useEffect(() => { keptPlan.kind = kind; keptPlan.sel = sel; }, [kind, sel]);
   const places = useMemo(() => floorsOf(tree.tree), [tree.tree]), floorText = (ids: string[]) => ids.map((id) => places.find((p) => p.floor.id === id)?.floor.name).filter(Boolean).join(' · ');
   const show = (k: Plan) => { if (k !== kind) { setKind(k); setSel(null); setMsg(null); } };
@@ -141,11 +143,13 @@ export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
     {scen && <TrashLink />}
   </section></Menu>;
   return <section className="mx" aria-label={`${WHAT[kind]} 편집`}>
-    <div className="mx-bar"><ScreenTabs cur="mission" />{menu}<span ref={setSlot} style={{ display: 'contents' }} /></div>
+    <div className="mx-bar"><ScreenTabs cur="mission" />{pickSlot ? createPortal(menu, pickSlot) : menu}<span ref={setSlot} style={{ display: 'contents' }} /></div>
     {sel == null ? <div className="mx-body"><div className="mx-map">
         <div className="mx-over">{msg && <Note m={msg} />}</div>
-        <div className="mx-center"><p className="lv-note">위 «{label}»에서 {WHAT[kind]}를 고르거나 «새 {WHAT[kind]}»를 누르세요.</p></div></div></div>
-      : <Edit key={`${kind}-${sel}-${sel ? '' : n}`} kind={kind} id={sel} user={c.user} robots={c.robots} cancel={c.cancel} places={places} treeAgain={tree.again} slot={slot} top={msg && <Note m={msg} />}
+        <div className="mx-center"><p className="lv-note">{scen ? '오른쪽 창' : '위'} «{label}»에서 {WHAT[kind]}를 고르거나 «새 {WHAT[kind]}»를 누르세요.</p></div></div>
+        {scen && <Pane open={pane.open} setOpen={(o) => { pane.open = o; bump((x) => x + 1); }} bar={WHAT[kind]} name={label} label="단계 창" pick={pick} head={<span className="fh-grow">{WHAT[kind]}</span>}>
+          <p className="lv-note mx-in">위 메뉴에서 시나리오를 고르거나 «새 시나리오»를 누르세요.</p></Pane>}</div>
+      : <Edit key={`${kind}-${sel}-${sel ? '' : n}`} kind={kind} id={sel} user={c.user} robots={c.robots} cancel={c.cancel} places={places} treeAgain={tree.again} slot={slot} pick={pick} top={msg && <Note m={msg} />}
           assignN={assigned && sel ? assigned[sel]?.length ?? 0 : undefined}
           done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} newMission={() => { setKind('missions'); setSel(''); setMsg(null); setN((x) => x + 1); }} />}
   </section>;
@@ -161,8 +165,8 @@ const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'm
 
 /** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
  *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
-function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMission, slot, top, assignN }: { kind: Plan; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void; newMission?: () => void;
-  slot?: HTMLElement | null; top?: ReactNode; assignN?: number }) {
+function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMission, slot, pick, top, assignN }: { kind: Plan; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void; newMission?: () => void;
+  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; assignN?: number }) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null);
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
   const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
@@ -279,15 +283,14 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
   };
 
   const retry = err && <div className="fh-row"><p className="fh-msg" role="alert">{err.text}</p><button type="button" className="btn" onClick={() => { setErr(null); load(err.adopt); }}>다시 받기</button></div>;
-  const [mapSlot, setMapSlot] = useState<HTMLElement | null>(null), [moreSlot, setMoreSlot] = useState<HTMLElement | null>(null);
+  const [moreSlot, setMoreSlot] = useState<HTMLElement | null>(null);
   if (!body) return <div className="mx-body"><div className="mx-map"><div className="mx-over">{top}{retry}</div>{!retry && <div className="mx-center"><p className="lv-note" role="status">불러오는 중…</p></div>}</div></div>;
   const shown = view ? bodyOf(view) : body, ro = !!view || !editable;
   const put = (b: AnyWrite) => { if (lock || ro) return; setBody(b); setBad([]); setMsg(null); };
   const nameBadNow = bad.find((b) => b.at === 'name');
   const verLabel = latest ? (view ? `판 ${view.number} · 보기만` : `판 ${latest.latest_version}`) : '';
-  // 단추 줄(Missions 가 준 자리): [지도 ▾(시나리오)] · «판 N ▾»(옛 판은 읽기 전용) · «···»(실행 확인 로봇·삭제/보관) · 오른쪽 끝 «새 판으로 저장»
+  // 단추 줄(Missions 가 준 자리): «판 N ▾»(옛 판은 읽기 전용) · «···»(실행 확인 로봇·삭제/보관) · 오른쪽 끝 «새 판으로 저장»
   const bar = slot && createPortal(<>
-    {kind === 'scenarios' && <span ref={setMapSlot} style={{ display: 'contents' }} />}
     {latest && <Menu label={verLabel} title={`판: ${verLabel}`}><label className="fh-field"><span>판(옛 판은 읽기 전용)</span><select className="inp" aria-label="판" value={view?.number ?? latest.latest_version} onChange={(e) => { pickVersion(Number(e.target.value)); shut(e); }}>
       {Array.from({ length: latest.latest_version }, (_, i) => latest.latest_version - i).map((n) => <option key={n} value={n}>{`판 ${n}${n === latest.latest_version ? ' (최신)' : ''}`}</option>)}</select></label></Menu>}
     <span className="fh-grow" />
@@ -332,7 +335,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
   return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}{h2}
     <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
       cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} newMission={newMission} robots={robots} user={user}
-      mapSlot={mapSlot} moreSlot={moreSlot} over={notices} nameField={nameField} assign={assign} assignN={assignN}
+      picker={pick} moreSlot={moreSlot} over={notices} nameField={nameField} assign={assign} assignN={assignN}
       blockNote={!ro && block && !lock ? <span id="plan-block" className="fh-why" data-block>{block}</span> : null} />
   </div>;
 }
@@ -457,9 +460,9 @@ const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoint
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·고른 지점 오른쪽 위 X 로 지우기, 오른쪽 단계 창에서 순서·임무·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
  *  set 없음 = 읽기 전용(옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
  *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과), newMission = 임무 목록으로 가서 새 임무 열기 */
-function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission, robots, user, mapSlot, moreSlot, over, nameField, assign, assignN, blockNote }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
+function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission, robots, user, picker, moreSlot, over, nameField, assign, assignN, blockNote }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
   cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; newMission?: () => void; robots: Robot[]; user: User;
-  mapSlot: HTMLElement | null; moreSlot: HTMLElement | null; over: ReactNode; nameField: ReactNode; assign: ReactNode; assignN?: number; blockNote: ReactNode }) {
+  picker?: ReactNode; moreSlot: HTMLElement | null; over: ReactNode; nameField: ReactNode; assign: ReactNode; assignN?: number; blockNote: ReactNode }) {
   const pts = value.waypoints, finish = value.finish ?? { mode: 'STAY', target: null }, target = finish.target ?? null;
   const [cur, setCur] = useState(() => pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? '');
   useEffect(() => { if (!cur) setCur(pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? ''); }, [places.length]);
@@ -611,14 +614,14 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   /** 끌어서 순서 바꾸기(손잡이) — 키보드는 «더 보기»의 ↑↓ */
   const moveTo = (from: number, to: number) => { if (making || lock) return; const s2 = [...pts], [x] = s2.splice(from, 1); s2.splice(to, 0, x); put(s2); };
   const still = making || lock;   // fieldset 은 끌기 손잡이(span)를 잠그지 못해 직접 막는다
-  // 단추 줄 «1층 ▾»(지도 고르기) — 승인 판 없는 층은 편집 때 고를 수 없다(읽기 전용은 지점이 있으면 그 판으로)
-  const mapPick = mapSlot && createPortal(<Menu label={place?.floor.name ?? '지도 고르기'} title={`지도: ${place ? `${place.site.name} › ${place.building.name} › ${place.floor.name}` : '없음'}`}>
+  // 창 맨 위 «1층 ▾»(지도 고르기, 시나리오 메뉴 옆) — 승인 판 없는 층은 편집 때 고를 수 없다(읽기 전용은 지점이 있으면 그 판으로)
+  const mapPick = <Menu label={place?.floor.name ?? '지도 고르기'} title={`지도: ${place ? `${place.site.name} › ${place.building.name} › ${place.floor.name}` : '없음'}`}>
     {!approved.length && (set || !pts.length) ? <p className="lv-note">승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.</p>
       : <label className="fh-field"><span>지도</span><select className="fh-user fh-sel" aria-label="지도" disabled={fence} value={cur} onChange={(e) => { setCur(e.target.value); shut(e); }}>
           {places.map((p) => { const c = pts.filter((w) => w.floor_id === p.floor.id).length;
             return <option key={p.floor.id} value={p.floor.id} disabled={!p.floor.approved_version_id && (!!set || !c)}>
               {`${p.site.name} › ${p.building.name} › ${p.floor.name}${c ? ` (지점 ${c})` : ''}${p.floor.approved_version_id ? '' : ' — 승인된 지도 없음'}`}</option>; })}</select></label>}
-  </Menu>, mapSlot);
+  </Menu>;
   // «···» 안 실행 확인할 로봇(고르면 그 로봇이 못 하는 지점에 ⚠)
   // «···» 안: 저장된 시나리오의 이름(단계 창 줄 자리를 늘리게 — MAPSCEN-FIX-R1, 새 시나리오는 이름을 먼저 쓰게 창에 둠) + 실행 확인할 로봇(고르면 그 로봇이 못 하는 지점에 ⚠)
   const nameUp = !!saved;
@@ -638,7 +641,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const tabs = <span className="fh-grow"><span className="mx-seg" role="tablist" aria-label="단계·배정" onKeyDown={arrow}>
     {tabBtn('steps', `단계 ${pts.length}`)}{assign && tabBtn('assign', `배정${assignN != null ? ` ${assignN}` : ''}`)}</span></span>;
   return <>
-    {mapPick}{morePick}
+    {morePick}
     <div className="mx-map">
       {/* 지도 위 알림 띠(생길 때만) */}
       <div className="mx-over">
@@ -669,7 +672,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         : <Hint text="지도를 눌러 지점 추가 · 끌어 옮기기" more="지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 찍힌 지점을 누르면 고르고, 끌면 옮깁니다. 고른 지점 오른쪽 위 X 로 지웁니다. 빨간 구역은 진입 금지입니다." />)}
     </div>
     {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
-    <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창"
+    <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창" pick={<>{picker}{mapPick}</>} name={[value.name || (saved ? WHAT.scenarios : `새 ${WHAT.scenarios}`), place?.floor.name].filter(Boolean).join(' · ')}
       head={one != null && tab === 'steps' ? <><button type="button" className="btn" aria-label="단계 목록으로" title="목록으로" onClick={() => setSel(null)}>‹</button><span className="fh-grow">{one + 1}번 지점</span></> : tabs}>
       <div className="mx-tab" role="tabpanel" id={`${tid}-steps-panel`} aria-labelledby={`${tid}-steps`} hidden={tab !== 'steps'}>
         <fieldset disabled={fence} style={{ display: 'contents' }}>
