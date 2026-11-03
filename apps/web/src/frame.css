@@ -48,7 +48,8 @@ button.nav{border:0;background:none;font-family:inherit;white-space:nowrap;curso
 .fh-band{display:flex;flex-direction:column;gap:4px;padding:10px 16px;border-bottom:1px solid var(--bad);background:var(--bad-bg);font-size:14px}
 .fh-band:empty{display:none}
 .fh-body{flex:1;display:flex;min-height:0}
-.fh-nav{flex:0 0 76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;box-sizing:border-box;border-right:1px solid var(--line);background:var(--panel)}
+.fh-nav{flex:0 0 76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;box-sizing:border-box;border-right:1px solid var(--line);background:var(--panel)}
+.fh-nav>.nav{max-width:100%}   /* 76 폭에서 선 1·항목 64 는 가운데 정렬로 좌우 여백이 남음(옆 패딩을 두면 77 로 넘쳐 가로 스크롤). 낮은 창의 세로 막대만큼은 항목이 줄어듦 */
 .fh .nav{min-height:44px;font-size:14px;position:relative}
 .fh-badge{position:absolute;top:4px;right:6px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:700;line-height:18px;text-align:center}
 .fh-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-content:flex-start;box-sizing:border-box}
