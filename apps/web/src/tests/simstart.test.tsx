@@ -81,6 +81,8 @@ describe('MuJoCo 시뮬 띄우기 칸', { timeout: 30_000 }, () => {
     const m = href()!.match(/^\/sim\/index\.html\?from=web&map=warehouse&start=(-?\d+\.\d\d),(-?\d+\.\d\d)$/)!;
     expect(Math.abs(+m[1] - x)).toBeLessThan(0.011);
     expect(Math.abs(+m[2] - y)).toBeLessThan(0.011);
+    expect(blocked(grid, +m[1], +m[2])).toBe('');   // 주소에 실린 점 그대로가 통과한 점
+    expect($('[data-sim-start]')!.textContent).toContain(`x ${m[1]} m, y ${m[2]} m`);
     click('[data-sim-home]');
     expect(href()).toBe('/sim/index.html?from=web&map=warehouse');
     expect($('[data-sim-mark="pick"]')).toBeNull();
@@ -95,6 +97,12 @@ describe('MuJoCo 시뮬 띄우기 칸', { timeout: 30_000 }, () => {
     expect($('[data-sim-why]')!.textContent).toBe('벽·장애물 자리라 시작할 수 없습니다.');
     expect(href()).toBe(ok);
     press(...nearWall());
+    expect($('[data-sim-why]')!.textContent).toBe('벽·물건에서 0.45 m 안이라 시작할 수 없습니다 — 조금 떨어진 곳을 눌러 주세요.');
+    expect(href()).toBe(ok);
+    // REVIEW-265 B1 실제 창고 사례: 반올림 전 (2.0134, 9.4509) 는 통과지만 주소 값 (2.01, 9.45) 는 시뮬이 «0.45 m 안»으로 거절 → 웹도 막음
+    expect(blocked(grid, 2.0134, 9.4509)).toBe('');
+    expect(blocked(grid, 2.01, 9.45)).toMatch(/^벽·물건에서 0\.45 m 안/);
+    press(2.0134, 9.4509);
     expect($('[data-sim-why]')!.textContent).toBe('벽·물건에서 0.45 m 안이라 시작할 수 없습니다 — 조금 떨어진 곳을 눌러 주세요.');
     expect(href()).toBe(ok);
     press(x0 + 0.1, y1 - 0.1);   // 사진 둘레(지도 판 밖 0.3 m)

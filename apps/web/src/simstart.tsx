@@ -74,7 +74,8 @@ export function SimPick() {
   const pickMap = (id: string) => { setWant(id); setFid(''); reset(); try { localStorage.setItem(MAP_KEY, id); } catch { /* 기억만 못 함 */ } };
   const press = (e: MouseEvent<SVGSVGElement>) => {
     if (!meta) return;
-    const p = toWorld(e.currentTarget.getBoundingClientRect(), meta.bounds, e.clientX, e.clientY);
+    // 주소에 실리는 값(소수 2자리)으로 먼저 확정 — 검사·표시·주소가 모두 시뮬이 받는 그 점(REVIEW-265 B1: 반올림 전 통과·후 벽 0.45 m 안)
+    const p = toWorld(e.currentTarget.getBoundingClientRect(), meta.bounds, e.clientX, e.clientY).map((v) => +v.toFixed(2)) as [number, number];
     const no = grid ? blocked(grid, ...p) : '지도를 읽는 중입니다 — 잠시 뒤 다시 눌러 주세요.';
     setWhy(no);
     if (!no) setStart(p);
