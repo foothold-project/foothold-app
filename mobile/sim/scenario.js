@@ -46,7 +46,7 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
     return sim.cmd;
   };
   runner.start = (points, goal = false) => {
-    if (isStopped() || !points?.length) return false;
+    if (mode.command.kind === 'none' || isStopped() || !points?.length) return false;
     // Snapshot each run: a settings response can only affect the next start.
     // A valid organization/adapter cap can reduce an axis below the input range, even to zero.
     maxVx = Math.min(boundedNumber(limits?.vx, 0.1, 1.5, MAX_VX), boundedNumber(limits?.caps?.vx, 0, 1.5, Infinity));

@@ -9,18 +9,31 @@ import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
-import { Chip } from '../screens';
+import { Chip, inApp } from '../screens';
 import type { SimRobot } from '../../../contracts/ts';
-import type { Tone, User } from '../fake';
+import type { Robot, Tone, User } from '../fake';
 
-export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
+export function Go2ReplayLink({ robots }: { robots: Robot[] }) {
+  const [selected, select] = useState('');
+  const real = robots.filter((r) => r.sim === false);
+  if (inApp() || !real.length) return null;
+  const robot = real.find((r) => r.id === selected);
+  return <section className="lv-card" aria-label="Go2 실기 보기" data-go2-replay>
+    <h2>Go2 실기 보기</h2><p className="lv-note">실기 보기 전용 · 위치 원점: 기동 시점 기준·미확인</p>
+    <label>로봇 <select aria-label="실기 보기 로봇" value={robot?.id ?? ''} onChange={(e) => select(e.target.value)}>
+      <option value="">로봇 고르기</option>{real.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+    </select></label>{robot && <a className="btn" data-go2-open href={`/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(robot.id)}`}>Go2 실기 보기 열기</a>}
+  </section>;
+}
+
+export function SimTab({ user, robots = [], refresh }: { user: User; robots?: Robot[]; refresh: () => void }) {
   const s = useSim(), ids = s.mine.map((r) => r.robot_id).join();
   // 띄우기·끝내기로 내 시뮬 목록이 바뀌거나 다시 확정되면(끝내기는 blank() 로 listed=false → load() 로 true) 로봇 목록도 다시 받는다(머리줄 STOP 후보·로봇 탭에 바로 보이게)
   useEffect(() => { if (s.listed) refresh(); }, [ids, s.listed]);
   useEffect(() => { sim.pc(true); return () => sim.pc(false); }, []);   // 이 탭에서 받는 출입증은 surface: 'pc'
   // «시뮬 정지»는 띄우는 중·연결 중·끝내는 중·정리 확인 중에도(sim.live()) 늘 하나 — 조종 화면에서는 머리 카드 안, 그 밖에는 진행 칸 위
   return s.step === 'drive' && s.link && s.robot ? <SimView admin={user.role === 'ORG_ADMIN'} />
-    : <>{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view /></>;
+    : <><Go2ReplayLink robots={robots} />{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view /></>;
 }
 
 /** «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */

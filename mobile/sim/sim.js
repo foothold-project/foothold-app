@@ -3,6 +3,7 @@
 // 관측·행동 계약은 exp33 src/v2_obs.py 그대로(관측 235, 행동 Isaac 순서, q* = 0.25·a + 기본자세).
 import { DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
+import { createReplaySim } from './go2-replay.js';
 const defaultAdapter = getPolicyAdapter();
 const LEGS = ['FL', 'FR', 'RL', 'RR'], PARTS = ['hip', 'thigh', 'calf'];
 // Legacy exports stay available to the existing measurement scripts.
@@ -16,6 +17,7 @@ export const loadPolicy = (buf, adapterId = DEFAULT_POLICY_ID, manifest) => getP
 
 export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = DEFAULT_POLICY_ID, { ame2DelaySteps = 0, startMapMode = 'gt' } = {}) {
   const adapter = getPolicyAdapter(adapterId);
+  if (adapter.command.kind === 'none') return createReplaySim(mj, xmlPath, world);
   const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = adapter.timing;
   const { joints: ISAAC_J, defaultPose: DEFAULT_I, kp: KP, kd: KD } = adapter.action;
   const F = world.floorZ, [SX, SY, SYAW] = world.spawn;

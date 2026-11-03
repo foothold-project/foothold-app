@@ -2,6 +2,7 @@
 import { createPolicyModeAdapters } from './policy-adapters.js';
 import { makeTerrainSampler } from './policy-adapters.js';
 import { makeStartDemoMode } from './start-demo-adapter.js';
+import { go2ReplayMode } from './go2-replay.js';
 export { makeTerrainSampler } from './policy-adapters.js';
 
 const required = ['id', 'label', 'onnx', 'observe', 'map', 'depth', 'command', 'act', 'torque', 'timing', 'delay', 'stop', 'reset', 'fallback'];
@@ -17,7 +18,8 @@ export function registerPolicyModes(modes) {
       if (typeof mode[field] !== 'function') throw new Error(`정책 모드 ${key}: ${field} 함수 필요`);
     }
     if (mode.depth !== null && typeof mode.depth !== 'function') throw new Error(`정책 모드 ${key}: depth 오류`);
-    if (!['body_velocity', 'nearby_goal'].includes(mode.command?.kind) || !mode.command.caps || typeof mode.command.inRange !== 'function') throw new Error(`정책 모드 ${key}: command 오류`);
+    if (!['body_velocity', 'nearby_goal', 'none'].includes(mode.command?.kind) || !mode.command.caps || typeof mode.command.inRange !== 'function') throw new Error(`정책 모드 ${key}: command 오류`);
+    if (mode.command.kind === 'none' && (mode.onnx !== null || mode.fallback !== null || mode.depth !== null || Object.values(mode.command.caps).some((n) => n !== 0))) throw new Error(`정책 모드 ${key}: 보기 전용 계약 오류`);
     for (const axis of ['forward', 'reverse', 'lateral', 'turnInPlace', 'turnWalking']) {
       if (!Number.isFinite(mode.command.caps[axis]) || mode.command.caps[axis] < 0) throw new Error(`정책 모드 ${key}: command.caps.${axis} 없음`);
     }
@@ -72,6 +74,7 @@ export const POLICY_MODES = registerPolicyModes({
   nvidia: completeMode(nvidiaDemoMode),
   start: makeStartDemoMode(makeTerrainSampler),
   ame2: completeMode(ame2DemoMode),
+  go2: go2ReplayMode,
 });
 export const POLICY_ADAPTERS = Object.freeze(Object.fromEntries(Object.values(POLICY_MODES).map((mode) => [mode.id, mode])));
 export const DEFAULT_POLICY_ID = POLICY_MODES.nvidia.id;

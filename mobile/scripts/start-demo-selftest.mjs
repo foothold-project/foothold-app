@@ -80,7 +80,7 @@ for(const name of readdirSync(join(src,'assets/unitree_go2/assets')))if(name.end
 mj.FS.writeFile('/go2/go2.xml',readFileSync(join(src,'assets/unitree_go2/go2.xml')));
 mj.FS.writeFile('/go2/flat.xml','<mujoco><include file="go2.xml"/><worldbody><geom type="plane" size="100 100 .01"/></worldbody></mujoco>');
 const ort=await import(pathToFileURL(resolve(process.env.POLICY_ORT_NODE)));
-for(const [key,adapter] of Object.entries(POLICY_MODES)){
+for(const [key,adapter] of Object.entries(POLICY_MODES).filter(([,mode])=>mode.onnx)){
   const root=key==='start'?process.env.FH_START_SRC:key==='ame2'?process.env.FH_AME2_SRC:process.env.FH_POLICY_ONNX_SRC;
   const policy=withPolicyState(await loadOnnxPolicy(ort,readFileSync(join(root,adapter.onnx.file)),adapter.onnx,'cpu'),adapter.onnx);
   const sim=createSim(mj,'/go2/flat.xml',ISAAC_LIKE,policy,undefined,adapter.id);

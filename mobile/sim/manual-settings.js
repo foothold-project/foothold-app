@@ -13,6 +13,7 @@ export function commandCaps(command) {
   return { forward, reverse: forward, lateral, turnInPlace: turn, turnWalking: turn };
 }
 export function modeCapText(command, settings = manualSettings({}, command)) {
+  if (command.kind === 'none') return '실기 보기 전용';
   if (command.kind === 'nearby_goal') return '적용 상한 · 목표 2 m · 정책 속도 ≤1.2 m/s';
   const c = settings.directions;
   const key = settings.key < c.forward ? ` · 키${settings.key} m/s` : '';

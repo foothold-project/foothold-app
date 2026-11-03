@@ -565,6 +565,26 @@ export interface Go2Attitude {
   pitch: number | null;
 }
 
+export interface Go2Joints {
+  received_at: string;
+  age_s: number;
+  names: ("FR_hip_joint" | "FR_thigh_joint" | "FR_calf_joint" | "FL_hip_joint" | "FL_thigh_joint" | "FL_calf_joint" | "RR_hip_joint" | "RR_thigh_joint" | "RR_calf_joint" | "RL_hip_joint" | "RL_thigh_joint" | "RL_calf_joint")[];
+  positions: number[];
+}
+
+export interface Go2Position {
+  received_at: string;
+  age_s: number;
+  xyz: number[];
+  origin: "BOOT_ORIGIN_UNVERIFIED";
+}
+
+export interface Go2Quaternion {
+  received_at: string;
+  age_s: number;
+  wxyz: number[];
+}
+
 export interface Go2RobotInfo {
   source: "GO2_DDS";
   attitude: Go2Attitude;
@@ -572,6 +592,9 @@ export interface Go2RobotInfo {
   error_code: number | null;
   fallen: boolean | null;
   fallen_source: "imu_tilt_estimate";
+  joints?: Go2Joints | null;
+  quaternion?: Go2Quaternion | null;
+  position?: Go2Position | null;
 }
 
 export interface IdempotencyHeaders {

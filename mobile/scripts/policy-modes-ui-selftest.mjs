@@ -26,7 +26,9 @@ try {
       await page.waitForFunction(() => window.__sim?.ready);
       assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'nvidia-demo');
       assert.equal(await page.locator('#policySelect').inputValue(), 'nvidia-demo');
-      assert.deepEqual(await page.locator('#policySelect option').evaluateAll((options) => options.map((o) => o.value)), ['nvidia-demo', 'start-demo', 'ame2-demo']);
+      assert.deepEqual(await page.locator('#policySelect option').evaluateAll((options) => options.map((o) => o.value)), ['nvidia-demo', 'start-demo', 'ame2-demo', 'go2-demo']);
+      assert.equal(await page.locator('#policySelect option[value="go2-demo"]').isDisabled(), true);
+      assert.match(await page.locator('#policySelect option[value="go2-demo"]').textContent(), /웹에서 로봇을 골라 열어야 함/);
       assert.equal(await page.locator('#policySelect option[value="nvidia-demo"]').textContent(), 'nvidia-demo');
       await page.click('#scenarioMenu'); await page.selectOption('#policySelect', 'ame2-demo');
       await page.waitForFunction(() => window.__sim?.ready && __sim.sim.adapterId === 'ame2-demo');
