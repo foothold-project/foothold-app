@@ -11,6 +11,10 @@ const server = createServer((req, res) => {
   if (!file.startsWith(root + sep)) return res.writeHead(403).end();
   try {
     let body = readFileSync(file);
+    if (file.endsWith('/warehouse/scenarios.json')) {
+      const routes = JSON.parse(body); routes[0].points[0].yaw = .7;
+      body = JSON.stringify(routes);
+    }
     if (file.endsWith('/main.js')) body = String(body)
       .replace('front = frontDistance(r); rays = r;', 'front = frontDistance(r); rays = r; window.__scanCount = (window.__scanCount || 0) + 1;')
       .replace('renderer.render(scene, camera);', "window.__lidarDraws = scene.children.filter(c => c.material?.color?.getHex() === 0x39ff88).length; renderer.render(scene, camera);");
@@ -32,6 +36,10 @@ try {
   await page.click('#scenarioMenu');   // 바깥 누름은 닫기만 하므로 시작 전에 창을 닫는다
   await page.click('#go'); await page.click('#scenarioMenu'); await page.click('#scenarioRun');
   await page.waitForFunction(() => __sim.scenario.active && __sim.cmd().length === 4);
+  assert.equal(await page.evaluate(() => {
+    const points = __sim.scenario.points;
+    return points.find((p, i) => p.mark === 0 && points[i + 1]?.mark !== 0)?.yaw;
+  }), .7, 'A* retains the original destination arrival yaw at its endpoint');
   assert.match(await page.locator('#scenarioStatus').textContent(), /지점 [1-4]\/4/);
   await page.dispatchEvent('#stop', 'pointerdown');
   const snap = await page.evaluate(() => ({ t: __sim.sim.d.time, active: __sim.scenario.active, stopped: __sim.stopped(), cmd: __sim.cmd() }));
