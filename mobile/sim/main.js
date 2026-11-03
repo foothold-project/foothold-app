@@ -30,6 +30,10 @@ const MESHES = ['base_0', 'base_1', 'base_2', 'base_3', 'base_4', 'hip_0', 'hip_
 const get = async (u) => { const r = await fetch(u); if (!r.ok) throw new Error(`${u} ${r.status}`); return r; };
 const bytes = async (u) => new Uint8Array(await (await get(u)).arrayBuffer());
 const json = async (u) => (await get(u)).json();
+const backendFor = (mode) => {
+  const params = new URLSearchParams(location.search);
+  return params.get('policyBackend') ?? (mode.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? DEFAULT_POLICY_BACKEND;
+};
 const st = (window.__sim = { ready: false, err: null });   // 시험용(headless) — 화면에는 안 보임
 
 // ── STOP 잠금: 명령 0. «다시 시작»(#go)만 푼다. 잡고 있던 막대 손가락도 놓게 해서 풀린 뒤엔 새로 누른 손가락만 명령이 된다
@@ -169,10 +173,20 @@ async function preparePolicies() {
   };
   const ame2 = getPolicyAdapter('ame2-demo');
   const option = Array.from(choice.options).find((x) => x.value === ame2.id);
-  const response = await fetch(ame2.onnx.file, { method: 'HEAD' }).catch(() => null);
-  const available = response?.ok && !/^text\/html(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '');
+  const exists = async (file) => {
+    const response = await fetch(file, { method: 'HEAD' }).catch(() => null);
+    return response?.ok && !/^text\/html(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '');
+  };
+  const [onnxAvailable, weightsAvailable, manifest] = await Promise.all([
+    exists(ame2.onnx.file), exists(ame2.network.file), json(ame2.network.manifest).catch(() => null),
+  ]);
+  const f32Available = weightsAvailable && manifest?.schema === 'ame2-f32-v1';
+  const backend = backendFor(ame2);
+  const available = backend === 'f32' ? f32Available
+    : ['wasm', 'webgpu'].includes(backend) && (onnxAvailable || f32Available);
   if (option) option.disabled = !available;
-  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정' : 'AME-2 · ONNX 파일 없음';
+  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정'
+    : backend === 'f32' ? 'AME-2 · JS f32 파일 또는 배치표 없음' : 'AME-2 · ONNX와 JS f32 파일 없음';
   // A URL selecting AME-2 stays on that mode: its own optional f32 can recover.
 }
 
@@ -242,7 +256,7 @@ async function main() {
   const { selectOnnxPolicy } = await import('./policy-onnx.js');
   policy = await selectOnnxPolicy(adapter, policy, {
     worker: params.get('policyThread') !== 'main', // explicit comparison/recovery path
-    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? DEFAULT_POLICY_BACKEND,
+    backend: backendFor(adapter),
     notify: (text) => {
       st.policyEngine = text;
       st.ame2Engine = text; // existing diagnostics compatibility

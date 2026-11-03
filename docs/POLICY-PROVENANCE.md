@@ -331,6 +331,7 @@ Chrome 154.0.8037.97 / onnxruntime-web 1.31.1 WASM 1 thread에서
 시험은 벡터의 모델 SHA와 실제 파일 SHA를 먼저 대조하며 필수 경로가 없으면 오류로 멈춘다.
 
 ```sh
+# Node >=22로 실행한다(브라우저 시험의 Playwright는 Node >=20 필요).
 # 각 변수는 보유한 외부 묶음/의존성을 가리킨다. FH_ORT_WEB는 ORT Web dist 폴더.
 # FH_START_SRC, FH_AME2_SRC, FH_AME2_F32_SRC, POLICY_ORT_NODE, FH_ORT_WEB,
 # FH_PLAYWRIGHT 필수; POLICY_VECTOR_REPORT는 선택적 로컬 JSON 출력 경로.

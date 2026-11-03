@@ -27,7 +27,7 @@ try {
   await page.goto(url + '&policy=ame2-demo');
   await page.waitForFunction(() => window.__sim?.ready);
   assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'ame2-demo');
-  assert.equal(await page.locator('#policySelect option[value="ame2-demo"]').isDisabled(), true);
+  assert.equal(await page.locator('#policySelect option[value="ame2-demo"]').isDisabled(), false);
   assert.match(await page.locator('#policyEngine').textContent(), /AME-2 · JS f32 되돌림 중 · ONNX 파일 없음/);
   assert.ok(await page.locator('#policyEngine').isVisible());
   await page.unroute('**/ame2-demo.onnx');
