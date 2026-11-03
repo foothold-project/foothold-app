@@ -13,6 +13,8 @@ import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { loadSimSettings, simSettings } from './settings.js';
+import { manualSettings, manualAxis } from './manual-settings.js';
+import { createFrameClock } from './frame-clock.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
@@ -34,7 +36,10 @@ let heading = null;
 const goalAxes = [0, 0, 0];
 let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
 const sticks = [];
+let inputSettings = manualSettings({}, adapter.command.joystickScale), refreshSettings = async () => {}, startEpoch = 0, clock;
+let applySettings = () => {};
 function lock() {
+  startEpoch++; clock?.reset();
   stopped = true; joy = neutral(); onLock?.();
   if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
   if (adapter.stop.pause) { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
@@ -47,9 +52,42 @@ function ui() {
   $('go').hidden = !stopped || !ready;
 }
 $('stop').addEventListener('pointerdown', lock);   // 누르는 순간(click 은 손을 뗄 때라 늦다)
-$('scenarioMenu').onclick = () => { $('scenarioPanel').hidden = !$('scenarioPanel').hidden; $('scenarioMenu').setAttribute('aria-expanded', String(!$('scenarioPanel').hidden)); };
+const scenarioPanel = $('scenarioPanel'), scenarioMenu = $('scenarioMenu');
+const showScenarioPanel = (open) => {
+  scenarioPanel.hidden = !open;
+  scenarioMenu.setAttribute('aria-expanded', String(open));
+};
+scenarioMenu.onclick = () => showScenarioPanel(scenarioPanel.hidden);
+// 바깥 누름은 닫기만: 손을 뗄 때의 목표 찍기·click 단추와 끌기까지 capture 단계에서 막는다.
+// STOP·조종 입력은 자식 SVG 를 눌러도 전달한다. 시나리오 중 막대는 기존 hand 중단·잠금을 먼저 거친다.
+const scenarioDismissPointers = new Set();
+const swallowScenarioPress = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+document.addEventListener('pointerdown', (e) => {
+  scenarioDismissPointers.delete(e.pointerId);   // 같은 포인터의 다음 누름은 정상 입력
+  if (scenarioPanel.hidden || scenarioPanel.contains(e.target) || scenarioMenu.contains(e.target)) return;
+  showScenarioPanel(false);
+  if (['stop', 'stickL', 'stickR', 'keys'].some((id) => $(id).contains(e.target))) return;
+  scenarioDismissPointers.add(e.pointerId);
+  swallowScenarioPress(e);
+}, { capture: true, passive: false });
+for (const type of ['pointermove', 'pointerup', 'pointercancel', 'click']) {
+  document.addEventListener(type, (e) => {
+    // 일부 WebView 의 click 은 PointerEvent 대신 MouseEvent 다. 키보드 click(detail=0)은 통과.
+    if (!scenarioDismissPointers.has(e.pointerId) && !(type === 'click' && e.pointerId === undefined && e.detail > 0 && scenarioDismissPointers.size)) return;
+    swallowScenarioPress(e);
+    if (type === 'click' && e.pointerId === undefined) scenarioDismissPointers.clear();
+    else if (type === 'click' || type === 'pointercancel') scenarioDismissPointers.delete(e.pointerId);
+  }, { capture: true, passive: false });
+}
+document.addEventListener('keydown', (e) => { if (e.code === 'Escape') showScenarioPanel(false); });
 $('stop').onclick = lock;                            // 키보드·읽어 주기
-$('go').onclick = () => { if (!ready) return; sticks.forEach((s) => s.release()); stopped = false; ui(); };
+$('go').onclick = async () => {
+  if (!ready || !stopped) return;
+  const epoch = ++startEpoch, org = await refreshSettings();
+  if (epoch !== startEpoch || !stopped) return;
+  applySettings(org); clock?.reset();
+  sticks.forEach((s) => s.release()); stopped = false; ui();
+};
 document.addEventListener('visibilitychange', () => { if (document.hidden) lock(); });   // 앱 숨김·화면 꺼짐
 for (const ev of ['pagehide', 'freeze', 'blur']) addEventListener(ev, lock);
 // 집: 서버 화면(«시뮬 열기», ?from=server)에서 왔으면 뒤로 = 그 서버 화면(RemoteClient 가 /sim/ 에서는 고른 서버를 잊지 않음),
@@ -78,8 +116,8 @@ function stick(el, set) {
 }
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
 stick($('stickL'), (x, y) => { const axes = adapter.stop.pause ? goalAxes : joy;
-  axes[0] = r2(-y * adapter.command.joystickScale[0]); axes[1] = r2(-x * adapter.command.joystickScale[1]); });
-stick($('stickR'), (x) => { (adapter.stop.pause ? goalAxes : joy)[2] = r2(-x * adapter.command.joystickScale[2]); });
+  axes[0] = r2(manualAxis(-y, 0, inputSettings)); axes[1] = r2(manualAxis(-x, 1, inputSettings)); });
+stick($('stickR'), (x) => { (adapter.stop.pause ? goalAxes : joy)[2] = r2(manualAxis(-x, 2, inputSettings)); });
 const inRange = (c) => adapter.command.inRange(c);
 
 // ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): 실기 웹 조종칸(serverdrive)과 같게 ↑·W / ↓·S = 앞·뒤,
@@ -89,7 +127,7 @@ const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1],
 const held = new Set();
 const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 끝 값 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
   const axes = adapter.stop.pause ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
-  for (const i of [0, 1, 2]) axes[i] = r2((on(i, 1) - on(i, -1)) * adapter.command.joystickScale[i]);
+  for (const i of [0, 1, 2]) axes[i] = r2(manualAxis(on(i, 1) - on(i, -1), i, inputSettings, true));
 };
 const dropKeys = () => { held.clear(); keyAxes(); };
 sticks.push({ release: dropKeys });   // lock()·#go·시나리오 실행이 막대와 함께 놓는다
@@ -146,10 +184,21 @@ async function preparePolicies() {
 }
 
 async function main() {
-  const settings = {}; // Runner snapshots this at start; lidar reads only the display field.
-  void loadSimSettings(new URL(location.href)).then((org) => Object.assign(settings, simSettings(org, {
-    vx: adapter.command.joystickScale[0], wz: adapter.command.joystickScale[2],
-  })));
+  const settings = {}; // Runner snapshots this at start; never mutate during a run.
+  const failedSettings = Symbol('settings unavailable');
+  let lastOrg = {};
+  refreshSettings = async () => {
+    const org = await loadSimSettings(new URL(location.href), globalThis.fetch, undefined, failedSettings);
+    // Failed fetch keeps the last successful response; invalid/missing fields
+    // in a successful response still fall back individually to defaults.
+    if (org !== failedSettings) lastOrg = org;
+    return lastOrg;
+  };
+  applySettings = (org) => {
+    Object.assign(settings, simSettings(org, { vx: adapter.command.joystickScale[0], wz: adapter.command.joystickScale[2] }));
+    inputSettings = manualSettings(org, adapter.command.joystickScale);
+  };
+  applySettings(await refreshSettings());
   const q = new URLSearchParams(location.search).get('map') ?? '', maps = await json('maps.json');
   const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
   const [mj, sceneJ, mapJ, polBuf, policyManifest] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
@@ -181,7 +230,7 @@ async function main() {
   const params = new URLSearchParams(location.search);
   policy = await selectOnnxPolicy(adapter, policy, {
     worker: params.get('policyThread') !== 'main', // explicit comparison/recovery path
-    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'wasm',
+    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'f32',
     notify: (text) => {
       st.policyEngine = text;
       st.ame2Engine = text; // existing diagnostics compatibility
@@ -215,8 +264,8 @@ async function main() {
     $('scenarioHint').hidden = !stopped;
   };
   const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
-  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => sim.cancelPolicyStep(), true);
-  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) sim.cancelPolicyStep(); }, true);
+  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { sim.cancelPolicyStep(); clock?.reset(); }, true);
+  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) { sim.cancelPolicyStep(); clock?.reset(); } }, true);
   // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)
   addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
 
@@ -335,7 +384,7 @@ async function main() {
   const spawnOn = (i) => {
     const { spawn_xyyaw: [x, y, yaw], floor_z: z } = floors[i].map, q = d.qpos;
     sim.reset(); q[0] = x; q[1] = y; q[2] = z + 0.4; q[3] = Math.cos(yaw / 2); q[6] = Math.sin(yaw / 2);
-    mj.mj_forward(m, d); sim.hold(0.5); acc = 0; pin = null; floorTick(q[2]);
+    mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(); pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
     if (!ready || stopped || runner.active || busy) return;
@@ -346,11 +395,13 @@ async function main() {
     // 지점 사이도 찍은 점과 같은 A* 경유점으로 잇는다(안전 규칙은 실행기 그대로 — 막히면 멈춤, 다시 찾기는 찍은 점만)
     const at = pos(), g0 = gen;
     busy = true; runner.status = '길 찾는 중'; scenarioUI();
-    const pts = await planRoute(map, at, chosen.points).finally(() => { busy = false; });
+    const [pts, org] = await Promise.all([planRoute(map, at, chosen.points), refreshSettings()]).finally(() => { busy = false; });
     const why = stale(at, g0) || (pts ? '' : '갈 수 있는 길이 없습니다');   // 찾는 동안(큰 지도는 쉬어 가며) STOP·움직임이면 시작하지 않는다
     if (why) { runner.status = why; scenarioUI(); return; }
     sticks.forEach((s) => s.release());
     scan(); lastScan = performance.now();
+    applySettings(org);
+    sim.cancelPolicyStep(); clock?.reset();
     runner.start(pts);
     runner.tick(front); // 가까운 장애물은 실행 순간부터 0
     scenarioUI();
@@ -462,8 +513,11 @@ async function main() {
       drawMarks();
       return say(`목적지 추가 — 남은 ${marks.length - curMark()}곳을 차례로 갑니다`);
     }
+    const org = await refreshSettings();
     const why = stale(from, g0);
     if (why) return say(why);
+    applySettings(org);
+    sim.cancelPolicyStep(); clock?.reset();
     retried = false; note = { text: '', until: 0 };
     marks = [p];
     begin(leg.map((q) => ({ ...q, mark: 0 })));
@@ -545,7 +599,7 @@ async function main() {
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001), e.clientX, e.clientY); }, { passive: false });
   $('topCenter').onclick = () => { view.topH = 1; view.topRot = 0; view.topX = view.topY = null; };
 
-  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); acc = 0; };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
+  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(); };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     $('cam').setAttribute('aria-pressed', String(top));
@@ -582,9 +636,10 @@ async function main() {
     scenarioUI();
   };
 
-  // ── 실행: 화면 시간에 맞춰 정책 스텝(한 프레임 최대 5스텝, 밀리면 늦게 감)
-  let acc = 0, lastT = performance.now(), frames = 0, fps = 0, fpsT = lastT;
+  // Fixed policy dt/decimation; keep debt through inference, bounded catch-up.
+  let frames = 0, fps = 0, fpsT = performance.now();
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
+    timing: () => clock.stats,
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
@@ -592,35 +647,31 @@ async function main() {
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
-  let pendingPolicyStep = false;
-  function frame(now) {
-    acc += Math.min((now - lastT) / 1000, 0.25);
-    lastT = now;
-    if (pendingPolicyStep) acc = 0; // drop wall-clock debt while ONNX is pending
-    if (now - lastScan >= 100) { scan(); lastScan = now; }
-    let n = 0;
-    while (acc >= POLICY_DT && n < 5) {
-      acc -= POLICY_DT; n++;
+  const timingUI = () => {
+    const timing = clock.stats;
+    st.stepsBehind = timing.drops;
+    $('simSlow').hidden = !timing.slow;
+    $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
+  };
+  clock = createFrameClock({ dt: POLICY_DT,
+    prepare: () => {
       if (runner.active) {
-        runner.tick(front, POLICY_DT); // 속도/가까운 목표 모두 같은 A* 도달·막힘·취소 규칙
+        runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
         if (adapter.stop.pause) { heading = null; joy = sim.cmd.slice(); }
       } else if (adapter.stop.pause) {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();
-      if (!(adapter.stop.pause && stopped)) {
-        const result = sim.step();
-        if (result?.then) {
-          pendingPolicyStep = true; acc = 0;
-          result.then((applied) => { if (applied) st.steps++; }, (e) => {
-            lock(); st.err = String(e); $('policyEngine').textContent = '정책 계산 중단 · 다시 시작 필요';
-          }).finally(() => { pendingPolicyStep = false; });
-          break;
-        }
-      }
-      st.steps++;
-    }
-    if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }
+    },
+    step: () => sim.step(),
+    onStep: () => { st.steps++; timingUI(); },
+    onError: (e) => { lock(); st.err = String(e); $('policyEngine').textContent = '정책 계산 중단 · 다시 시작 필요'; },
+  });
+  clock.reset();
+  function frame(now) {
+    if (now - lastScan >= 100) { scan(); lastScan = now; }
+    clock.frame(now, document.hidden || (adapter.stop.pause && stopped));
+    timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();
     goalUI(now);

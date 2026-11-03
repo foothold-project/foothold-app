@@ -137,7 +137,7 @@ try {
   for (const id of ['foothold-v2', 'ame2-demo']) {
     for (const event of ['stop', 'blur', 'visibilitychange', 'pagehide', 'freeze', 'reset', 'manual', 'policy', 'timeout']) {
       const p = await browser.newPage();
-      await p.goto(base + `/sim/index.html?policy=${id}`); await p.waitForFunction(() => window.__sim?.ready);
+      await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
       assert.match(await p.locator('#policyEngine').textContent(), /ONNX WASM · Worker/); // actual page CSP
       // foothold-v2 also evaluates neutral commands while locked. Drain that
       // frame request before holding exactly one explicit simulation step.
@@ -196,7 +196,7 @@ try {
         return r.continue();
       });
       if (failure === 'hash') await p.route('**/' + (id === 'ame2-demo' ? 'ame2_actor.onnx' : 'policy_v2.onnx'), (r) => r.fulfill({ body: 'bad model' }));
-      await p.goto(base + `/sim/index.html?policy=${id}`); await p.waitForFunction(() => window.__sim?.ready);
+      await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
       if (failure === 'run') {
         await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; }); await p.waitForTimeout(75);
         const worker = p.workers().find((w) => w.url().endsWith('/policy-worker.js'));
@@ -215,7 +215,7 @@ try {
   for (const id of ['foothold-v2', 'ame2-demo']) {
     for (const scenario of [{ cpu: 1, delay: 35 }, { cpu: 4, delay: 0 }, { cpu: 6, delay: 0 }]) {
       const p = await browser.newPage();
-      await p.goto(base + `/sim/index.html?policy=${id}`); await p.waitForFunction(() => window.__sim?.ready);
+      await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
       await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; }); await p.waitForTimeout(75);
       await p.evaluate(() => __sim.sim.cancelPolicyStep()); // start a fresh consecutive-timeout window
       const w = p.workers().find((w) => w.url().endsWith('/policy-worker.js')); assert.ok(w);
@@ -265,7 +265,7 @@ try {
     }
     const p = await browser.newPage();
     await p.addInitScript(() => { window.Worker = class { constructor() { throw Error('Worker blocked'); } }; });
-    await p.goto(base + `/sim/index.html?policy=${id}`); await p.waitForFunction(() => window.__sim?.ready);
+    await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
     await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; }); await p.waitForTimeout(75);
     await p.evaluate(async () => {
       const ort = await import('./ort/ort.wasm.min.mjs'), run = ort.InferenceSession.prototype.run;
@@ -286,7 +286,7 @@ try {
     const metrics = [];
     for (const id of ['foothold-v2', 'ame2-demo']) for (const version of ['before', 'after']) {
       const p = await browser.newPage({ viewport: { width: 960, height: 720 } });
-      await p.goto(base + `${version === 'before' ? '/before' : ''}/sim/index.html?map=warehouse&policy=${id}`);
+      await p.goto(base + `${version === 'before' ? '/before' : ''}/sim/index.html?map=warehouse&policy=${id}&policyBackend=wasm`);
       await p.waitForFunction(() => window.__sim?.ready);
       assert.match(await p.locator('#policyEngine').textContent(), version === 'after' ? /Worker/ : /ONNX WASM/);
       await p.click('#go'); await p.keyboard.down('KeyW'); await p.waitForTimeout(2000);

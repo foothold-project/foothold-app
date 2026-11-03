@@ -32,6 +32,8 @@ try {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
   const state = () => page.evaluate(() => ({ v: __sim.view(), cam: __sim.cam(), marks: __sim.marks(), stopped: __sim.stopped(), cmd: __sim.cmd() }));
+  // A web start waits for its settings GET after the click event returns.
+  const unlock = async () => { await page.click('#go'); await page.waitForFunction(() => !__sim.stopped()); };
   const drag = async (x, y, dx, dy) => { await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + dx, y + dy, { steps: 3 }); await page.mouse.up(); await frame(); };
   const url = `http://127.0.0.1:${server.address().port}/sim/index.html?map=warehouse&from=web`;
   await page.goto(url); await page.waitForFunction(() => __sim.ready || __sim.err, null, { timeout: 90000 });
@@ -90,7 +92,7 @@ try {
     assert.equal(await page.evaluate(() => __sim.goalNote()), '', 'pinch never attempts a goal, even while stopped');
     console.log('top input: pinch pass');
     // Short tap still sends a goal; jitter, drag, pinch, cancellation and long press do not.
-    await center(); await page.click('#go');
+    await center(); await unlock();
     const floor = await page.evaluate(async () => { const m = await (await fetch('assets/warehouse/map.json')).json(); return __sim.toScreen(m.spawn_xyyaw[0] - 1, m.spawn_xyyaw[1]); });
     await drag(...floor, 30, 15); assert.equal((await state()).marks.length, 0);
     await touch('touchStart', [[1, ...floor]]); await touch('touchCancel', []); await frame(); assert.equal((await state()).marks.length, 0);
@@ -118,7 +120,7 @@ try {
     await page.click('#cam'); await frame(); assert.equal(await page.isVisible('#topCenter'), false);
     await drag(550, 390, 35, 20); const orbit = await state(); assert.notEqual(orbit.v.yaw, follow.v.yaw); assert.notEqual(orbit.v.pitch, follow.v.pitch);
     await page.mouse.wheel(0, -200); await frame(); assert.ok((await state()).v.dist < orbit.v.dist);
-    await page.click('#go'); await page.keyboard.down('KeyW'); assert.ok((await page.evaluate(() => __sim.joy()))[0] > 0); await page.keyboard.up('KeyW'); await page.click('#stop');
+    await unlock(); await page.keyboard.down('KeyW'); assert.ok((await page.evaluate(() => __sim.joy()))[0] > 0); await page.keyboard.up('KeyW'); await page.click('#stop');
     assert.deepEqual(errors, []);
     console.log('top-pan headless PASS: persistent mouse/touch pan, bounds/resize, wheel/pinch anchor and limits, center, drag/pinch/cancel/long-press vs jitter tap, STOP, 3D orbit/zoom and keys');
   }

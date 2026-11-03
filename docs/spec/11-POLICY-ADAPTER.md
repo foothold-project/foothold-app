@@ -336,8 +336,8 @@ AME-2 actor를 FP32·opset 17·고정 배치 1로 내보낸다. 입력은 `prop[
 관측 순서, hip×4→thigh×4→calf×4, 목표 clip, 높이 광선, 행동 지연 0…4 계약은 §9.1 그대로다.
 이름과 모델 SHA-256을 검사한다. `log_std`와 critic은 ONNX actor 계산에 포함하지 않는다.
 
-`?policy=ame2-demo`와 기본 `foothold-v2`의 기본 추론은 공통 ORT Web WASM이다. 같은 URL의 `&ame2Backend=f32`는
-기존 동기 JS 계산, `&ame2Backend=webgpu`는 비교용 선택이다. 명령원 선택과 추론 엔진 선택은 별개다.
+11-03 발표용으로 기본 계산을 f32 JS 로 되돌림. ONNX 는 `?policyBackend=wasm`.
+`?policy=ame2-demo`와 기본 `foothold-v2` 모두 적용하며, AME-2의 `&ame2Backend=wasm`·`&ame2Backend=webgpu`도 기존처럼 선택할 수 있다. 명령원 선택과 추론 엔진 선택은 별개다.
 ONNX 모델·ORT 모듈·WASM이 없거나 SHA/초기 추론/실행이 실패하면 검증된 f32로 되돌리고,
 접힌 메뉴 밖의 상태 표시와 정책 메뉴에 **기본 계산 사용 + 이유 (f32 JS)**를 남긴다.
 foothold-v2 기본 선택은 유지한다. f32 자체가 없을 때의 비활성화는 §9.4와 같다.
