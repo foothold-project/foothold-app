@@ -69,6 +69,11 @@ await new Promise((resolve) => setImmediate(resolve));
 assert.deepEqual(timeoutResult, {}, 'late timed-out response is discarded');
 assert.deepEqual(await loadSimSettings(web, async () => ({ ok: true, json: () => new Promise(() => {}) }), 10), {}, 'JSON timeout');
 
+const failed = Symbol('failed settings');
+assert.equal(await loadSimSettings(web, async () => { throw Error('offline'); }, 10, failed), failed);
+assert.deepEqual(await loadSimSettings(web, async () => ({ ok: true, json: async () => ({}) }), 10, failed), {});
+assert.equal(await loadSimSettings(web, async () => ({ ok: true, json: () => new Promise(() => {}) }), 10, failed), failed);
+
 // An HTTP response during a run is used at the next start, for both speed axes.
 for (const [points, axis, before, after] of [[forward, 0, 0.4, 0.2], [turn, 2, 0.6, 0.3]]) {
   const settings = {}, sim = robot(), runner = createScenarioRunner(sim, () => false, settings);
