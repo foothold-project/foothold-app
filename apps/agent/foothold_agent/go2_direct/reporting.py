@@ -1,5 +1,6 @@
 """Optional registered-server telemetry; no second Core or cloud motion port."""
 from copy import deepcopy
+import math
 
 from foothold_agent.link.client import Client
 from foothold_agent.link.telemetry import STALE_S, number
@@ -14,8 +15,19 @@ def fresh(snapshot, topic):
 
 
 def project(snapshot, now):
-    """Existing AgentState fields only; no invented pose or simulation clock."""
+    """Display fields only; no invented pose, clock or safety feedback."""
+    low, sport = fresh(snapshot, 'lowstate'), fresh(snapshot, 'sportmodestate')
+    pose = snapshot.get('attitude', {})
+    angles = {k: (pose.get(k) if low and number(pose.get(k))
+                  and -math.pi <= pose[k] <= math.pi else None) for k in ('roll', 'pitch')}
+    error = snapshot.get('error_code')
+    fallen = snapshot.get('fallen')
+    info = dict(source='GO2_DDS', attitude=angles,
+                error_code=error if sport and type(error) is int and 0 <= error <= 0xFFFFFFFF else None,
+                fallen=fallen if low and all(v is not None for v in angles.values()) and type(fallen) is bool else None,
+                fallen_source='imu_tilt_estimate')
     result = dict(speed=None, battery={'soc': None},
+                  robot_info=info,
                   pose=dict.fromkeys(('floor_id', 'map_version_id', 'x', 'y', 'yaw', 'confidence')))
     if fresh(snapshot, 'lowstate'):
         battery = snapshot.get('battery', {})

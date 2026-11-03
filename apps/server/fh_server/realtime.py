@@ -1562,6 +1562,7 @@ class Realtime:
     def screen_state(self, rid):
         online, state = live_state(self, rid)
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
+            robot_info=state.get('robot_info'),
             phone_relay=phone_relay(self, rid),
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
@@ -2124,6 +2125,7 @@ class Realtime:
             return False
         data = msg.model_dump(mode='json')
         peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'unlock_refused', 'stop_gen', 'applied')})
+        peer.state['robot_info'] = data.get('robot_info')
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']
         context = pose.get('floor_context')

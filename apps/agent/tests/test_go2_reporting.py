@@ -4,6 +4,7 @@ import json
 import time
 import threading
 from types import SimpleNamespace as NS
+import pytest
 
 from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.reporting import ReadOnlyObserver, Reporting, project, devices
@@ -19,6 +20,33 @@ def populated(now, wall):
     feedback.lowstate(low())
     feedback.sportmodestate(sport(velocity=(.3, .4, 0.)))
     return feedback
+
+
+@pytest.mark.parametrize('roll,pitch,error,expected', [
+    (.1, -.2, 100, (.1, -.2, 100, False)),
+    (1.2, 0., 0xFFFFFFFF, (1.2, 0., 0xFFFFFFFF, True)),
+    (float('nan'), .2, float('nan'), (None, .2, None, None)),
+    (4., -4., 0x100000000, (None, None, None, None)),
+])
+def test_fake_dds_display_fields_and_per_topic_expiry(roll, pitch, error, expected):
+    from test_go2_direct import Clock
+    clock = Clock()
+    feedback = Feedback('1234-5678', now=clock)
+    message = low()
+    message.imu_state.rpy = [roll, pitch, 0.]
+    feedback.lowstate(message)
+    feedback.sportmodestate(sport(error_code=error))
+    values = project(feedback.telemetry(), clock())['robot_info']
+    assert (values['attitude']['roll'], values['attitude']['pitch'], values['error_code'], values['fallen']) == expected
+    assert values['source'] == 'GO2_DDS' and values['fallen_source'] == 'imu_tilt_estimate'
+    clock.value += .1  # existing sport identity gate needs a fresh LowState
+    feedback.sportmodestate(sport(2, error_code=100))
+    clock.value += .901
+    values = project(feedback.telemetry(), clock())['robot_info']
+    assert values['attitude'] == dict(roll=None, pitch=None) and values['fallen'] is None
+    assert values['error_code'] == 100  # sport refresh cannot revive old IMU
+    clock.value += 1.001
+    assert project(feedback.telemetry(), clock())['robot_info']['error_code'] is None
 
 
 def test_existing_agent_state_schema_accepts_physical_measurements_and_unknown_pose():

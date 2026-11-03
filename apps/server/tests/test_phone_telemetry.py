@@ -1,5 +1,6 @@
 """App login + issued pass possession -> display only, no agent/lease side effect."""
 from copy import deepcopy
+import json
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
@@ -33,6 +34,9 @@ def post(pc, body, *, robot=None, headers=None):
 @pytest.mark.parametrize('purpose', ['control', 'view'])
 def test_valid_phone_pass_relay_reaches_rest_and_web_without_agent_or_arbiter(pc, seeded, purpose):
     body = upload(pc, seeded, purpose=purpose)
+    info = dict(source='GO2_DDS', attitude=dict(roll=.1, pitch=-.2), error_code=100,
+                fallen=False, fallen_source='imu_tilt_estimate')
+    body['state']['robot_info'] = info
     pc.upload_headers = app_token(pc)
     rid = body['robot']
     body['state']['devices_changed'].append(dict(key='lidar', kind='LIDAR', label='relay lidar', state='OK'))
@@ -46,6 +50,7 @@ def test_valid_phone_pass_relay_reaches_rest_and_web_without_agent_or_arbiter(pc
     assert detail['battery'] is None and detail['devices'] == []
     assert detail['phone_relay']['battery']['soc'] == 75. and detail['phone_relay']['source'] == 'PHONE'
     assert detail['phone_relay']['devices'][-1]['kind'] == 'LIDAR'
+    assert detail['phone_relay']['robot_info'] == info and detail['robot_info'] is None
     assert detail['connection'] == 'OFFLINE' and detail['location'] is None
     assert detail['lease'] is None
     assert detail['last_state_received_at'] is None
@@ -56,8 +61,31 @@ def test_valid_phone_pass_relay_reaches_rest_and_web_without_agent_or_arbiter(pc
         frame = receive(ws, 'state')
         assert frame['connection'] == 'OFFLINE' and frame['speed'] is None and frame['devices'] == []
         assert frame['phone_relay']['source'] == 'PHONE' and frame['phone_relay']['speed'] == .5
+        assert frame['phone_relay']['robot_info'] == info and frame['robot_info'] is None
         assert 0 <= frame['phone_relay']['age_s'] < 3
     assert rid not in rt.agents
+
+
+@pytest.mark.parametrize('kind', ['absent', 'nan', 'out_of_range'])
+def test_relay_optional_robot_info_normalizes_invalid_values(pc, seeded, kind):
+    body = upload(pc, seeded)
+    pc.upload_headers = app_token(pc)
+    if kind != 'absent':
+        bad = float('nan') if kind == 'nan' else 4.
+        body['state']['robot_info'] = dict(source='GO2_DDS', attitude=dict(roll=bad, pitch=-.2),
+            error_code=bad if kind == 'nan' else -1, fallen=None, fallen_source='imu_tilt_estimate')
+    response = pc.post(f'/api/v1/robots/{body["robot"]}/phone-state', content=json.dumps(body),
+                       headers={**pc.upload_headers, 'content-type': 'application/json'})
+    assert response.status_code == 204
+    detail = pc.get(f'/api/v1/robots/{body["robot"]}', headers=pc.upload_headers).json()
+    info = detail['phone_relay']['robot_info']
+    assert detail['robot_info'] is None
+    if kind == 'absent':
+        assert info is None
+    else:
+        assert info['attitude'] == dict(roll=None, pitch=-.2) and info['error_code'] is None
+    rt = pc.app.state.realtime
+    assert body['robot'] not in rt.agents and body['robot'] not in rt.arbiter.robots
 
 
 def test_pass_signature_login_user_robot_scope_simulation_and_revocation(pc, seeded, caplog):

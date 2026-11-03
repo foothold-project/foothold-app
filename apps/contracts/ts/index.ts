@@ -157,6 +157,7 @@ export interface AgentServerPing {
 }
 
 export interface AgentState {
+  robot_info?: Go2RobotInfo | null;
   controller?: string | null;
   controller_device?: string | null;
   controller_connected?: boolean;
@@ -557,6 +558,20 @@ export interface FloorCreate {
 export interface FloorPatch {
   name?: string;
   level?: number;
+}
+
+export interface Go2Attitude {
+  roll: number | null;
+  pitch: number | null;
+}
+
+export interface Go2RobotInfo {
+  source: "GO2_DDS";
+  attitude: Go2Attitude;
+  /** SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2). */
+  error_code: number | null;
+  fallen: boolean | null;
+  fallen_source: "imu_tilt_estimate";
 }
 
 export interface IdempotencyHeaders {
@@ -1145,6 +1160,7 @@ export interface PhonePosture {
 }
 
 export interface PhoneRelayState {
+  robot_info?: Go2RobotInfo | null;
   source: "PHONE";
   battery: Battery | null;
   speed: number | null;
@@ -1258,6 +1274,7 @@ export interface PhoneRunUpdate {
 }
 
 export interface PhoneState {
+  robot_info?: Go2RobotInfo | null;
   controller: string | null;
   controller_device: string | null;
   controller_connected: boolean;
@@ -1471,6 +1488,7 @@ export interface RobotPatch {
 }
 
 export interface RobotSummary {
+  robot_info?: Go2RobotInfo | null;
   phone_relay?: PhoneRelayState | null;
   last_state_received_at?: string | null;
   state_stale?: boolean | null;
@@ -1815,6 +1833,7 @@ export interface ScreenServerPing {
 }
 
 export interface ScreenState {
+  robot_info?: Go2RobotInfo | null;
   phone_relay?: PhoneRelayState | null;
   t: "state";
   robot: string;

@@ -170,6 +170,7 @@ def robot_objects(db, robots, user, realtime):
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
             server_drive_allowed=server_drive,
             robot_serial=robot.serial, field_approval_expires_at=approval,
+            robot_info=state.get('robot_info'),
             phone_relay=phone_relay(realtime, str(robot.id)) if full else None,
             owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
             connection=('ONLINE' if online else 'OFFLINE') if full else 'UNKNOWN', status=state.get('status'),

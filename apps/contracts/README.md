@@ -370,3 +370,19 @@ accepted state episode다(서버 sim DB ID와 혼용 금지). launch 바인딩�
 없어 unavailable이며, C와 합의한 후속 compressed 토픽은
 `/v2_live/external_cam/compressed`다. 실제 연결·한계는
 [agent media README](../agent/foothold_agent/media/README.md)를 본다.
+
+## Go2 표시용 로봇 정보
+
+`AgentState.robot_info`와 이를 상속한 `PhoneState.robot_info`는 선택 필드다.
+서버는 직접 agent 값을 `RobotSummary.robot_info`와 `ScreenState.robot_info`로 전달하고,
+`PhoneStateUpload.state.robot_info`는 별도 `phone_relay.robot_info`로만 전달한다.
+기존 agent·시뮬은 필드를 생략한다. 다음 필드의 표시용 값은 안전 판단에 연결하지 않는다.
+
+- `source: "GO2_DDS"`: Go2 lowstate/sportmodestate 측정 캐시 출처(폰 전달 시 외부 출처는 `PHONE`).
+- `attitude.roll`, `attitude.pitch`: LowState `imu_state.rpy`의 rad 값, -π..π 유한값 또는 null.
+- `error_code`: SportModeState의 원시 uint32 정수 또는 null. 펌웨어별 의미는 미확인이고 V2에서는 운동 상태 번호일 수 있다.
+- `fallen`: 기울기 추정 bool|null, `fallen_source: "imu_tilt_estimate"`. 정지·전도 안전 보장이 아니다.
+
+수치 범위 밖·NaN·잘못된 숫자 타입은 해당 값만 null로 정규화한다. 원천 토픽이 1초를
+넘으면 agent가 해당 토픽 수치를 null로 보낸다. 기존 서버 직접 상태 만료(3초)와 폰 relay
+유효시간은 그대로 적용하며, 원시 `error_code` 전달은 허용 운동 상태 목록을 바꾸지 않는다.

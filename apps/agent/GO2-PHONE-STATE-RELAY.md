@@ -13,8 +13,12 @@ Orin에 상태 이력/재송신 큐를 만들지 않는다.
 | 새 PhoneStateUpload | POST 표시 메시지 `t:"phone.state"` 1개. 중첩 `state`는 기존 AgentState | 기존 AgentState/폰 명령 메시지 변경 없음 |
 | RobotSummary, ScreenState | 선택 `phone_relay` 표시 객체 | 직접 agent의 연결·배터리·장치·기능 판단 필드는 그대로 |
 
-기존 계약의 배터리·속도·장치 OK/MISSING/ERROR를 쓴다. 자세 수치·오류 코드·토픽별
-신선도는 **다음 작업: 선택 필드 추가 확장**이다. label에 숫자를 넣지 않는다.
+기존 계약의 배터리·속도·장치 OK/MISSING/ERROR를 쓴다. 선택 `robot_info`는
+`attitude.roll/pitch`(lowstate IMU rpy, rad, -π..π), `error_code`(SportModeState 원시
+uint32), `fallen`(bool|null), `source:"GO2_DDS"`, `fallen_source:"imu_tilt_estimate"`다.
+V2 펌웨어의 error_code는 운동 상태 번호일 수 있으므로 오류로 단정하지 않는다.
+각 토픽의 기존 1초 신선도에 따라 낡거나 잘못된 값은 null이다. 표시 전용이며 STOP·lease·
+readiness·accept_error_codes 판단에는 사용하지 않는다. label에 숫자를 넣지 않는다.
 지도 위치·시뮬·임무 상태는 이 relay로 받지 않는다.
 
 ## Orin → 폰
@@ -64,7 +68,7 @@ Go2 소켓과 구분한다. 토큰은 URL·로그·분석 도구·에러 메시�
 전달한다. 아래 AgentState 필드만 골라 담고 PhoneState 전체를 그대로 넣지 않는다.
 
 `t, pose, speed, battery, latched, safety_reason, stop_gen, stop_ref, applied, mode,
-devices_changed, controller, controller_device, controller_connected, controller_since`
+devices_changed, controller, controller_device, controller_connected, controller_since, robot_info`
 
 선택 필드는 없으면 생략한다. `reported_run`은 생략/null만 허용하고, mode는 FREE/USER,
 pose는 전부 null이어야 한다. 장치는 최대 16개, key 64자·label 128자 이내다.
@@ -93,7 +97,8 @@ pose는 전부 null이어야 한다. 장치는 최대 16개, key 64자·label 12
 
 서버는 최신 표시 값 하나만 메모리에 보관하고 원래 관측 나이까지 포함해 최대 3초 뒤
 버린다(출입증 만료가 먼저면 그때 버림). 표시 값은 `phone_relay`에만 담는다:
-`{source:"PHONE", battery, speed, devices, age_s, valid_for_s}`. `age_s`는 원래 관측
+`{source:"PHONE", battery, speed, devices, robot_info, age_s, valid_for_s}`. 웹은
+직접 agent의 `robot_info`, 폰 전달값의 `phone_relay.robot_info`를 읽는다. `age_s`는 원래 관측
 나이이며 `valid_for_s`는 서버가 남긴 표시 유효 시간이다. 만료 시 null로 보낸다.
 직접 agent의 `connection`, 배터리/장치, ONLINE 집계와 `/actions` 기능 판단은 바꾸지 않는다.
 폰 경유 캐시는 `live_state`, `reported_devices`, `realtime.agents`, arbiter, 조종권,

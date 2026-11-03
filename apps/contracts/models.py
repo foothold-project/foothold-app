@@ -8,7 +8,7 @@ import unicodedata
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
@@ -283,8 +283,41 @@ class StopRequestStatus(Contract):
     message: str
 
 
+class Go2Attitude(Contract):
+    """Display-only LowState IMU rpy, radians; invalid axes become unknown."""
+    roll: Annotated[float, Field(ge=-math.pi, le=math.pi)] | None
+    pitch: Annotated[float, Field(ge=-math.pi, le=math.pi)] | None
+
+    @field_validator('roll', 'pitch', mode='before')
+    @classmethod
+    def finite_radians(cls, value):
+        return value if type(value) in (int, float) and -math.pi <= value <= math.pi else None
+
+
+class Go2RobotInfo(Contract):
+    """Readout only; never an input to STOP, lease, readiness or accepted codes."""
+    source: Literal['GO2_DDS']
+    attitude: Go2Attitude
+    error_code: Annotated[int, Field(ge=0, le=0xFFFFFFFF, strict=True)] | None = Field(
+        description='SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2).')
+    fallen: bool | None = Field(strict=True)
+    fallen_source: Literal['imu_tilt_estimate']
+
+    @field_validator('error_code', mode='before')
+    @classmethod
+    def raw_uint32(cls, value):
+        return value if type(value) is int and 0 <= value <= 0xFFFFFFFF else None
+
+    @field_validator('fallen', mode='before')
+    @classmethod
+    def measured_bool(cls, value):
+        return value if type(value) is bool else None
+
+
 class PhoneRelayState(Contract):
     """Display only: never a direct connection, device inventory or capability."""
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('robot_info'))
+    robot_info: Go2RobotInfo | None = None
     source: Literal['PHONE'] = 'PHONE'
     battery: Battery | None
     speed: float | None
@@ -296,7 +329,8 @@ class PhoneRelayState(Contract):
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay',
-        'robot_serial', 'field_approval_expires_at'))
+        'robot_serial', 'field_approval_expires_at', 'robot_info'))
+    robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
     state_stale: bool | None = True
@@ -609,6 +643,7 @@ class AgentBattery(AgentInput):
 
 
 class AgentState(AgentInput):
+    robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     controller: UUID | None = None
     controller_device: UUID | None = None
     controller_connected: bool = False
@@ -890,7 +925,8 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info'))
+    robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'
     robot: UUID
@@ -1959,7 +1995,7 @@ class PhoneRunUpdate(RunSnapshot):
 
 class PhoneState(AgentState):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
-        'run', 'controller_since', 'reported_run', 'robot_serial', 'sensor_age_ms'))
+        'run', 'controller_since', 'reported_run', 'robot_serial', 'sensor_age_ms', 'robot_info'))
     robot_serial: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$',
                                     exclude_if=lambda value: value is None)
     sensor_age_ms: int | None = Field(default=None, ge=0, strict=True,
