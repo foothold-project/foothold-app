@@ -16,6 +16,7 @@ import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
 import { PhoneRelay } from './phoneRelay';
+import { RobotInfo, pickInfo } from './go2status';
 import { AdminFleet, OperatorRobot } from './screens/fleet';
 import { AddRobot, Approval, AssignOwner, FieldCheck, ManageRobot } from './pairing';
 
@@ -191,7 +192,8 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
   </>;
   const mission = solo ? <Line k="임무"><span data-mission>{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무 없음'}</span></Line>
     : r.mission && <Line k="임무"><span>{r.mission}</span></Line>;
-  const battery = <Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>;
+  const info = pickInfo(r);   // 실기 Go2 자세·상태 번호·넘어짐 추정(표시만) — 배터리 옆, 시뮬은 숨김
+  const battery = <><Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>{info && <RobotInfo {...info} />}</>;
   /* 총괄은 실기에 배정하지 않는다(로봇 탭 읽기 전용 — 시뮬은 유지, r1) */
   const assign = !adminReal(c.user, r) && <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
     onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } assignFor.robot = c.robot.id; c.go('mission'); }}>배정</button>

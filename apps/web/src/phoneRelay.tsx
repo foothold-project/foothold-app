@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PhoneRelayState } from '../../contracts/ts';
 
+/** 폰 경유 값이 지금 쓸 만한가: 폰 나이 3초 미만 + 서버가 준 유효 시간 안 */
+export function relayFresh(r: PhoneRelayState | null | undefined, at: number | undefined, now = performance.now()) {
+  if (r?.source !== 'PHONE' || at === undefined || !Number.isFinite(at)) return false;
+  const e = (now - at) / 1000, age = r.age_s + e;
+  return Number.isFinite(age) && e >= 0 && age < 3 && e < r.valid_for_s;
+}
+
 /** Display provenance only. Nothing here updates Robot.online, direct values or actions. */
 export function PhoneRelay({ report, receivedAt, compact = false }: {
   report?: PhoneRelayState | null; receivedAt?: number; compact?: boolean;
@@ -21,8 +28,7 @@ export function PhoneRelay({ report, receivedAt, compact = false }: {
   if (!last.current) return null;
   const sample = last.current, elapsed = (performance.now() - sample.at) / 1000;
   const age = sample.report.age_s + elapsed;
-  const fresh = current !== null && receivedAt !== undefined && Number.isFinite(receivedAt)
-    && Number.isFinite(age) && elapsed >= 0 && age < 3 && elapsed < sample.report.valid_for_s;
+  const fresh = relayFresh(report, receivedAt);
   const label = `폰 경유 · ${fresh ? `${Math.floor(age)}초 전` : '모름'}`;
   if (compact) return <span className="lbl" data-phone-relay>{label}</span>;
   return <div aria-label="폰 경유 상태" data-phone-relay>

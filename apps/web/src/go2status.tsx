@@ -2,9 +2,11 @@
 // 폰 앱(mobile/ Go2Status.java)이 1 s 마다 GET(3 s 제한, Wi-Fi 망에 묶음)해 'fh-go2' 이벤트로 넣는다. 이 화면은 window.fhGo2Status={seq,url,code} 를 둘 뿐(JS → 네이티브 호출 0).
 // 읽기만: 조종 화면·서버 등록·조종권으로 넘어가지 않고 STOP 도 없다. 현장 코드는 메모리에만(URL·로그·저장 0), 401 이면 버리고 다시 받는다.
 import { useEffect, useState } from 'react';
-import type { Tone } from './fake';
+import type { Go2RobotInfo } from '../../contracts/ts';
+import type { Robot, Tone } from './fake';
 import { Chip, Line } from './screens';
 import { PROBLEM } from './nearby';
+import { relayFresh } from './phoneRelay';
 
 export type Conn = 'ONLINE' | 'STALE' | 'OFFLINE';
 /** 노트북 에이전트가 받는 Go2 토픽(state.py sources) — fresh = 그 토픽이 노트북에 새로 오고 있음, age = 마지막으로 받은 뒤 초(없으면 null) */
@@ -53,6 +55,33 @@ export function cut(server: Conn | undefined, ageMs: number | null): [Conn, Cut]
 const dash = (v: number | null, f: (x: number) => string) => (v == null ? '—' : f(v));
 export const deg = (rad: number | null) => dash(rad, (x) => `${((x * 180) / Math.PI).toFixed(1)}°`);
 
+/** 부호 붙인 도(«+1.2°»·«-0.4°»), 없으면 null */
+const sdeg = (rad: number | null) => { if (rad == null) return null; const t = ((rad * 180) / Math.PI).toFixed(1); return t === '-0.0' ? '+0.0°' : `${t.startsWith('-') ? '' : '+'}${t}°`; };
+/** 자세·상태 번호·넘어짐 추정 — 표시만(안전 판단 0). 상태 번호는 펌웨어마다 뜻이 달라 원값 그대로(0 만 «정상 범위») */
+export type Info = { roll: number | null; pitch: number | null; code: number | null; fallen: boolean | null };
+const flat = (x: Go2RobotInfo): Info => ({ roll: x.attitude?.roll ?? null, pitch: x.attitude?.pitch ?? null, code: x.error_code ?? null, fallen: x.fallen ?? null });
+/** v 없음 = why(«모름»·«모름(끊김)»·«확인 안 됨»), via = 출처(«폰 경유») */
+export type Shown = { v: Info | null; why?: string; via?: string };
+export function RobotInfo({ v, why = '모름', via }: Shown) {
+  const or = (x: string | null) => x ?? '모름';
+  return <div data-robot-info={via ? 'phone' : v ? 'direct' : 'none'}>
+    <Line k="자세"><span className="mono">{v ? `roll ${or(sdeg(v.roll))} · pitch ${or(sdeg(v.pitch))}` : why}</span>{via && <span className="lbl">{via}</span>}</Line>
+    <Line k="상태 번호"><span className="mono" data-robot-code>{!v ? why : v.code == null ? '모름' : v.code === 0 ? '0(정상 범위)' : String(v.code)}</span></Line>
+    <Line k="넘어짐 추정"><span data-robot-fallen>{v?.fallen ? <Chip tone="warn" text="의심(기울기 추정)" /> : v?.fallen === false ? '아님' : v ? '모름' : why}</span></Line>
+  </div>;
+}
+/** 로봇 → 보일 묶음. 시뮬 = null(숨김). 직접 값(연결 중일 때만)이 폰 경유보다 먼저, 폰 경유는 신선할 때만 */
+export function pickInfo(r: Pick<Robot, 'sim' | 'unknown' | 'online' | 'status' | 'robotInfo' | 'phoneRelay' | 'phoneRelayAt'>, now = performance.now()): Shown | null {
+  if (r.sim) return null;
+  if (r.unknown === 'summary') return { v: null, why: '확인 안 됨' };
+  if (r.online && r.robotInfo) return { v: flat(r.robotInfo) };
+  const relay = r.phoneRelay?.robot_info;
+  if (relay && relayFresh(r.phoneRelay, r.phoneRelayAt, now)) return { v: flat(relay), via: '폰 경유' };
+  return { v: null, why: r.unknown === 'link' || (!r.unknown && !r.online && r.status != null) ? '모름(끊김)' : '모름' };
+}
+/** 목록 줄: 넘어짐 의심일 때만 작은 경고 하나 */
+export const FallChip = ({ x }: { x: Robot }) => (pickInfo(x)?.v?.fallen ? <span data-fall-chip><Chip tone="warn" text="넘어짐 의심" /></span> : null);
+
 /** 사설 IPv4(10/8·172.16/12·192.168/16) → 상태 주소, 아니면 null (앱 Go2Status.target 과 같은 거름) */
 export function manualUrl(ip: string): string | null {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip.trim());
@@ -100,12 +129,11 @@ export function Go2View({ name, url, close }: { name: string; url: string; close
       <div className="fh-row" data-go2-cut={where ?? undefined}><Chip tone={TONE[c]} text={CHIP[c][where ?? 'phone']} />{last && c !== 'ONLINE' && where && <span className="lbl">{CUT_NOTE[where][c]}</span>}</div>
       {!heard && old ? <p className="fh-why" data-go2-old>이 앱 판은 상태 전용을 지원하지 않습니다 — FOOTHOLD 앱을 1.2.3-dev 이상으로 업데이트하세요.</p> : !last && !why && <p className="lv-note" role="status">읽는 중…</p>}
       <Line k="배터리"><span className="mono">{dash(g?.soc ?? null, (x) => `${Math.round(x)}%`)} · {dash(g?.voltage ?? null, (x) => `${x.toFixed(1)} V`)}</span></Line>
-      <Line k="자세"><span className="mono">롤 {deg(g?.roll ?? null)} · 피치 {deg(g?.pitch ?? null)}</span></Line>
-      <Line k="넘어짐"><span>{g?.fallen == null ? '—' : g.fallen ? '넘어짐 추정' : '아님(추정)'}</span><span className="lbl">IMU 기울기 추정 — 넘어짐 감지 보장 아님</span></Line>
+      <RobotInfo v={g ? { roll: g.roll, pitch: g.pitch, code: g.error, fallen: g.fallen } : null} why={last ? '모름(끊김)' : '모름'} />
       {last && <Line k="로봇 자료"><span data-go2-src>{where === 'phone' ? '모름(폰↔노트북 끊김)' : (Object.keys(TOPICS) as (keyof Src)[]).map((k) => { const t = last.go2.sources[k];
         return `${TOPICS[k]} ${t.fresh ? '받는 중' : t.fresh === false ? `끊김${t.age == null ? '(받은 적 없음)' : `(${t.age.toFixed(1)}초 전)`}` : '모름'}`; }).join(' · ')}</span>
         <span className="lbl">노트북↔Go2 토픽(lowstate · sportmodestate)</span></Line>}
-      <Line k="모드"><span className="mono">{dash(g?.mode ?? null, String)}</span><span className="lbl">오류 코드</span><span className="mono">{dash(g?.error ?? null, String)}</span></Line>
+      <Line k="모드"><span className="mono">{dash(g?.mode ?? null, String)}</span></Line>
       <button type="button" className="btn" onClick={() => { setCode(null); setLast(null); setWhy(null); }}>멈추고 코드 다시 넣기</button>
     </>}
     {why && <p className="fh-why" role="alert" data-go2-why>{why}</p>}

@@ -14,6 +14,7 @@ import { Approval } from '../pairing';
 import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
+import { FallChip } from '../go2status';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
 
 /** 화면이 아는 위치: 구독 로봇은 실시간 state, 아니면 목록 요약(남의 로봇은 서버가 감춤 — 그리지 않음) */
@@ -132,7 +133,7 @@ function Marked({ id, robots, sel, cancel }: { id: string; robots: Robot[]; sel?
 function SummaryRow({ c, x }: { c: Ctx; x: Robot }) {
   const a = attn(x);
   return <li><button type="button" aria-pressed={x.id === c.robot.id} onClick={() => c.pick(x.id)}>
-    <Chip {...robotStatus(x)} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
+    <Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} />{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
     <span className="lbl">{ownerName(x)} · 보는 중</span>
     <span className="lbl" data-link-text>{linkText(x)}</span>
     {!x.sim && <Approval r={x} />}
@@ -152,7 +153,7 @@ export function OperatorRobot(c: Ctx) {
   const bad = isLost(r);
   const group = (sim: boolean) => { const l = mine.filter((x) => !!x.sim === sim); return l.length > 0 && <div className="fh-row" role="group" aria-label={sim ? '시뮬' : '실기'}>
     <span className="lbl" style={{ minWidth: 32 }}>{sim ? '시뮬' : '실기'}</span>
-    {l.map((x) => <button key={x.id} type="button" className="btn" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}><Chip {...robotStatus(x)} /><b>{x.name}</b></button>)}</div>; };
+    {l.map((x) => <button key={x.id} type="button" className="btn" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></button>)}</div>; };
   return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
     <div className="fh-focus" data-lost={bad || undefined} data-summary={!own || undefined}>
       {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><h2>내 로봇 {mine.length}대</h2>{group(false)}{group(true)}</section>}
@@ -205,7 +206,7 @@ export function AdminFleet(c: Ctx) {
         {!rows.length && <p className="lv-note">거른 조건에 맞는 로봇이 없습니다.</p>}
         <ul className="fh-list robots fl-table">{rows.map((x) => { const a = attn(x); return <li key={x.id}>
           <button type="button" className="fl-row" aria-pressed={x.id === r.id} onClick={() => open(x.id)}>
-            <span><Chip {...robotStatus(x)} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}</span>
+            <span><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} />{x.sim && <span className="lbl">시뮬</span>}</span>
             <span className="lbl">{ownerName(x)}</span>
             <span><span className="lbl" data-link-text>{linkText(x)}</span>{!x.sim && <Approval r={x} />}</span>
             <span className="mono">{pct(x.battery)}</span>

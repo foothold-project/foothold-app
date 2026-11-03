@@ -116,6 +116,30 @@ it('keeps relay battery and devices separate from direct status in list and deta
   expect(rt.get('r-a').state?.devices).toEqual([]);
 });
 
+it('실기 robot_info: 상세 배터리 옆 자세·상태 번호·넘어짐 추정, 목록은 의심일 때만 Chip, 끊기면 폰 경유 → 모름(끊김)', async () => {
+  const ri = { source: 'GO2_DDS' as const, attitude: { roll: 0.0175, pitch: -0.5236 }, error_code: 100, fallen: true, fallen_source: 'imu_tilt_estimate' as const };
+  serve(signedIn(LEE, [RA, { ...RB, robot_info: ri }]));
+  await open('#/fleet');
+  const w = FakeWS.last;
+  act(() => { w.open(); w.recv(state('r-a', { robot_info: { ...ri, fallen: false } })); });
+  expect(line('자세')).toBe('roll +1.0° · pitch -30.0°');
+  expect(line('상태 번호')).toBe('100');
+  expect(line('넘어짐 추정')).toBe('아님');
+  expect(row('Go2-A').querySelector('[data-fall-chip]')).toBeNull();
+  // 남의 로봇(요약만)은 서버 값이 있어도 «확인 안 됨» — 목록 Chip 도 없음
+  expect($('[aria-label="다른 로봇"] [data-fall-chip]')).toBeNull();
+  act(() => w.recv(state('r-a', { robot_info: ri })));
+  expect(card('로봇 상세').querySelector('[data-robot-fallen] [data-tone="warn"]')!.textContent).toBe('▲의심(기울기 추정)');
+  // 끊김 + 폰 경유 robot_info → 폰 경유 라벨
+  const relay = { source: 'PHONE' as const, age_s: .1, valid_for_s: 2.9, battery: null, speed: null, devices: [], robot_info: { ...ri, error_code: 0, fallen: false } };
+  act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, devices: [], latched: null, stop_gen: null, applied: null, robot_info: null, phone_relay: relay })));
+  expect(line('자세')).toBe('폰 경유');
+  expect(card('로봇 상세').querySelector('[data-robot-info]')!.getAttribute('data-robot-info')).toBe('phone');
+  expect(line('상태 번호')).toBe('0(정상 범위)');
+  act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, devices: [], latched: null, stop_gen: null, applied: null, robot_info: null, phone_relay: null })));
+  expect(line('상태 번호')).toBe('모름(끊김)');
+});
+
 describe('관제 요약 = GET /dashboard(05 §4)', () => {
   it('총괄: 서버 수치 그대로, 주의 필요는 강조, 운영 관리자 표', async () => {
     serve(signedIn(KIM, [RA, RB]));
