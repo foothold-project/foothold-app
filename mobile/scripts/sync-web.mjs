@@ -44,14 +44,16 @@ for (const adapter of Object.values(POLICY_MODES)) {
 let copiedOnnx = false;
 for (const adapter of Object.values(POLICY_MODES)) {
   if (!adapter.onnx) continue;
-  const modelRoot = adapter.command.kind === 'nearby_goal' ? ame2src : process.env.FH_POLICY_ONNX_SRC || src;
-  const model = join(modelRoot, adapter.onnx.file);
-  if (!existsSync(model)) continue;
-  const data = readFileSync(model);
-  if (createHash('sha256').update(data).digest('hex') !== adapter.onnx.sha256[adapter.onnx.file]) throw new Error(`${adapter.id} ONNX SHA-256 불일치`);
-  mkdirSync(dirname(join(sim, adapter.onnx.file)), { recursive: true });
-  copyFileSync(model, join(sim, adapter.onnx.file));
-  copiedOnnx = true;
+  const modelRoot = adapter.command.kind === 'nearby_goal' ? ame2src : adapter.depth ? process.env.FH_START_SRC || process.env.FH_POLICY_ONNX_SRC || src : process.env.FH_POLICY_ONNX_SRC || src;
+  for (const file of new Set(Object.values(adapter.onnx.files))) {
+    const model = join(modelRoot, file);
+    if (!existsSync(model)) continue;
+    const data = readFileSync(model);
+    if (createHash('sha256').update(data).digest('hex') !== adapter.onnx.sha256[file]) throw new Error(`${adapter.id} ONNX SHA-256 불일치`);
+    mkdirSync(dirname(join(sim, file)), { recursive: true });
+    copyFileSync(model, join(sim, file));
+    copiedOnnx = true;
+  }
 }
 if (copiedOnnx) {
   const ort = join(here, 'node_modules', 'onnxruntime-web');

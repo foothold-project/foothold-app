@@ -24,6 +24,17 @@ clock.reset(); clock.frame(0); clock.frame(100); clock.frame(200);
 assert.equal(decisions, 1); assert.equal(ticks, 0);
 release(false); await flush();
 assert.equal(ticks, 10); assert.equal(decisions, 10, 'expired inference retries the same decision, including heading/stall timers');
+// Start does not spin through busy-slot rejections while an expired Worker
+// request drains. Keep both debt and the prepared command until a later RAF.
+let startAttempts=0,startPrepared=0,startApplied=0;
+const startClock=createFrameClock({dt:.02,yieldOnRejected:true,prepare:()=>startPrepared++,step:()=>{
+  startAttempts++;if(startAttempts===1)return Promise.resolve(false);startApplied++;
+}});
+startClock.frame(0);startClock.frame(100);await flush();
+assert.equal(startAttempts,1);assert.equal(startPrepared,1);assert.equal(startApplied,0);
+assert.ok(Math.abs(startClock.stats.debt-.1)<1e-9);
+startClock.frame(116);await flush();
+assert.equal(startApplied,5);assert.equal(startPrepared,5,'retry keeps the original prepared observation/command');
 // Cap long stalls explicitly; retain debt after per-frame work budget exhaustion.
 const capped = createFrameClock({ dt: .02, maxSteps: 2, step: () => {} });
 capped.reset(); capped.frame(0); capped.frame(2000);

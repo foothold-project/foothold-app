@@ -8,9 +8,10 @@ export function boundedNumber(value, min, max, fallback) {
 
 export function simSettings(org, caps = {}) {
   const o = org && typeof org === 'object' ? org : {};
+  const turnCap = boundedNumber(caps.wz, 0, 1.2, 1);
   return {
     vx: boundedNumber(o.sim_runner_vx, 0.1, 1.5, DEFAULT_VX),
-    wz: boundedNumber(o.sim_runner_wz, 0.1, 1, DEFAULT_WZ),
+    wz: boundedNumber(o.sim_runner_wz, 0.1, turnCap, DEFAULT_WZ),
     caps: {
       vx: Math.min(boundedNumber(o.sim_max_vx, 0.2, 1.5, Infinity), boundedNumber(caps.vx, 0, 1.5, DEFAULT_VX)),
       wz: Math.min(boundedNumber(o.sim_max_wz, 0, 1.2, Infinity), boundedNumber(caps.wz, 0, 1.2, DEFAULT_WZ)),

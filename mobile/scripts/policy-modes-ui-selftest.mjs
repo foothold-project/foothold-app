@@ -26,7 +26,7 @@ try {
       await page.waitForFunction(() => window.__sim?.ready);
       assert.equal(await page.evaluate(() => __sim.sim.adapterId), 'nvidia-demo');
       assert.equal(await page.locator('#policySelect').inputValue(), 'nvidia-demo');
-      assert.deepEqual(await page.locator('#policySelect option').evaluateAll((options) => options.map((o) => o.value)), ['nvidia-demo', 'ame2-demo']);
+      assert.deepEqual(await page.locator('#policySelect option').evaluateAll((options) => options.map((o) => o.value)), ['nvidia-demo', 'start-demo', 'ame2-demo']);
       assert.equal(await page.locator('#policySelect option[value="nvidia-demo"]').textContent(), 'nvidia-demo');
       await page.click('#scenarioMenu'); await page.selectOption('#policySelect', 'ame2-demo');
       await page.waitForFunction(() => window.__sim?.ready && __sim.sim.adapterId === 'ame2-demo');
@@ -35,7 +35,7 @@ try {
       assert.match(page.url(), /policy=nvidia-demo/);
     } finally { await page.close(); }
   }
-  for (const id of ['', 'unknown', 'nvidia', 'start-demo', '__proto__']) {
+  for (const id of ['', 'unknown', 'nvidia', '__proto__']) {
     const page = await browser.newPage();
     try {
       await page.goto(base + '&policy=' + encodeURIComponent(id));

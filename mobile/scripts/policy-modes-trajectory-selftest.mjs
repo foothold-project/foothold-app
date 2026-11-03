@@ -19,7 +19,7 @@ for (const file of readdirSync(join(src, 'assets/unitree_go2/assets'))) if (file
 mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.xml')));
 const ort = await import(pathToFileURL(resolve(process.env.POLICY_ORT_NODE)));
 const records = [];
-for (const [key, mode] of Object.entries(POLICY_MODES)) for (const backend of ['f32', 'onnx']) {
+for (const [key, mode] of Object.entries(POLICY_MODES).filter(([, mode]) => mode.fallback)) for (const backend of ['f32', 'onnx']) {
   const root = key === 'ame2' ? process.env.FH_AME2_F32_SRC : src;
   const bytes = readFileSync(join(root, mode.fallback.file));
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);

@@ -50,7 +50,8 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
     // Snapshot each run: a settings response can only affect the next start.
     // A valid organization/adapter cap can reduce an axis below the input range, even to zero.
     maxVx = Math.min(boundedNumber(limits?.vx, 0.1, 1.5, MAX_VX), boundedNumber(limits?.caps?.vx, 0, 1.5, Infinity));
-    maxWz = Math.min(boundedNumber(limits?.wz, 0.1, 1, MAX_WZ), boundedNumber(limits?.caps?.wz, 0, 1, Infinity));
+    const turnCap = mode.command.caps.turnInPlace;
+    maxWz = Math.min(boundedNumber(limits?.wz, 0.1, turnCap, MAX_WZ), boundedNumber(limits?.caps?.wz, 0, turnCap, Infinity));
     runner.points = points;
     runner.goal = goal;
     runner.index = 0;
@@ -92,7 +93,15 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
         const previous = runner.points[runner.index - 1] ?? origin;
         const pathYaw = next ? Math.atan2(next.y - p.y, next.x - p.x) : Math.atan2(p.y - previous.y, p.x - previous.x);
         sim.cmd = ame2WorldGoal(q, p, Number.isFinite(p.yaw) ? p.yaw : pathYaw);
-      } else sim.cmd = [vx, 0, Math.max(-maxWz, Math.min(maxWz, 1.5 * error))];
+      } else {
+        let wz = Math.max(-maxWz, Math.min(maxWz, 1.5 * error)), speed = vx;
+        if (mode.id === 'start-demo' && speed) {
+          wz = Math.max(-mode.command.caps.turnWalking, Math.min(mode.command.caps.turnWalking, wz));
+          // Keep reduced organization caps, including zero; never raise a cap.
+          speed = Math.abs(wz) < .2 ? speed : Math.min(maxVx, Math.max(.3, Math.min(.8, speed)));
+        }
+        sim.cmd = [speed, 0, wz];
+      }
       return sim.cmd;
     }
     return runner.cancel('완료');
