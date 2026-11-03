@@ -94,6 +94,7 @@ export function makeTerrainSampler(mj, m, d, cfg) {
   const point = new Float64Array(3), xy = Float64Array.from(cfg.grid.flat());
   const origins = new Float64Array(xy.length), distances = new Float64Array(cfg.grid.length);
   const starts = new Float64Array(cfg.grid.length), passes = normal ? [true, false] : [false];
+  const blocked = normal ? new Uint8Array(cfg.grid.length) : null;
   // World collision geometry only, including group-4 heightfields. Do not read
   // robot meshes or conservative lidar-only boxes (both contact masks zero).
   const excluded = [];
@@ -126,6 +127,7 @@ export function makeTerrainSampler(mj, m, d, cfg) {
       const pos = d.geom_xpos, mat = d.geom_xmat, size = m.geom_size, radius = m.geom_rbound, types = m.geom_type, aabb = m.geom_aabb;
       const groups = m.geom_group, rgba = m.geom_rgba, material = m.geom_matid, matRgba = m.mat_rgba;
       starts.fill(z);
+      blocked?.fill(0);
       // The optional upward pass uses the same native intersections and XY
       // broad phase as the downward scan, avoiding a full-world ray per cell.
       for (const upward of passes) {
@@ -169,7 +171,7 @@ export function makeTerrainSampler(mj, m, d, cfg) {
             point[0] = origins[2 * i]; point[1] = origins[2 * i + 1];
             point[2] = upward ? q[2] : starts[i];
             if (type !== 0 && (Math.abs(point[0] - gx) > rx || Math.abs(point[1] - gy) > ry || (upward ? bottom - point[2] > distances[i] : bottom > point[2] || point[2] - top > distances[i]))) continue;
-            const direction = upward ? up : down, surfaceNormal = upward ? normal : null;
+            const direction = upward ? up : down, surfaceNormal = upward || (normal && starts[i] < z) ? normal : null;
             let cached = false;
             if (flatBox) {
               const dx = point[0] - geom.pos[0], dy = point[1] - geom.pos[1];
@@ -194,12 +196,28 @@ export function makeTerrainSampler(mj, m, d, cfg) {
             // Low underside hits are stair plates, not overhead covers.
             if (upward && (distance <= cfg.overheadClearance || distance > cfg.rayOffset || (!cached && normal.GetView()[2] >= 0))) continue;
             if (flatBox) flatDistance = distance;
+            // A capped origin can be inside a wall/column intersecting the
+            // cover. A downward-facing exit is not a ground hit: reject that
+            // cap and restore the original 20m ray for this cell instead.
+            if (!upward && surfaceNormal && type !== 0 && distance >= 0 && normal.GetView()[2] < 0) {
+              blocked[i] = 1; distance = 0;
+            }
             if (distance >= 0 && distance < distances[i]) distances[i] = distance;
           }
         }
         if (upward) for (let i = 0; i < starts.length; i++) starts[i] = Number.isFinite(distances[i]) ? q[2] + distances[i] - .001 : z;
       }
       for (let i = 0; i < distances.length; i++) out[i] = Number.isFinite(distances[i]) ? starts[i] - distances[i] : NaN;
+      if (blocked?.some(Boolean)) {
+        for (const [g] of excluded) groups[g] = 5;
+        try {
+          for (let i = 0; i < blocked.length; i++) if (blocked[i]) {
+            point[0] = origins[2 * i]; point[1] = origins[2 * i + 1]; point[2] = z;
+            const distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, null);
+            out[i] = distance >= 0 && Number.isFinite(distance) ? z - distance : NaN;
+          }
+        } finally { for (const [g, original] of excluded) groups[g] = original; }
+      }
       return out;
     }
     // Restore groups before any lidar/physics call; this scan is synchronous.
@@ -225,7 +243,26 @@ export function makeTerrainSampler(mj, m, d, cfg) {
           }
         }
         point[2] = start;
-        const distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, null);
+        let distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, start < z ? normal : null);
+        if (start < z) {
+          // The nearest entry (e.g. a floor sharing a wall's bottom) can hide
+          // another geom's exit. Test every intersected geom from the SAME
+          // origin, temporarily excluding earlier entries, as the batch does.
+          const firstDistance = distance, suppressed = [];
+          let inside = false;
+          try {
+            for (let crossings = 0; distance >= 0 && crossings < m.ngeom; crossings++) {
+              const g = hit.GetView()[0];
+              if (m.geom_type[g] !== 0 && normal.GetView()[2] < 0) { inside = true; break; }
+              suppressed.push([g, groups[g]]); groups[g] = 5;
+              distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, normal);
+            }
+          } finally { for (const [g, original] of suppressed) groups[g] = original; }
+          if (inside) {
+            start = z; point[2] = z;
+            distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, null);
+          } else distance = firstDistance;
+        }
         out[i] = distance >= 0 && Number.isFinite(distance) ? start - distance : NaN;
       }
     } finally { for (const [g, original] of excluded) groups[g] = original; }
