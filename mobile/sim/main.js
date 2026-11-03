@@ -19,7 +19,7 @@ import { createFrameClock } from './frame-clock.js';
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
 catch (e) { selectionError = e; }
-const DEFAULT_POLICY_BACKEND = 'f32';
+const DEFAULT_POLICY_BACKEND = 'wasm';
 const POLICY_DT = adapter.timing.policyDt;
 const FLOOR_RGB = [[255, 60, 60], [255, 193, 7], [66, 165, 245], [171, 71, 188]];   // 층 지도 색(1층 = 예전 한 층 지도 빨강)
 const neutral = () => adapter.stop.input.slice();
