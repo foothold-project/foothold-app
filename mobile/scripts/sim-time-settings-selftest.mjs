@@ -34,6 +34,28 @@ async function open(query) {
   return page;
 }
 try {
+  // No backend parameter: both adapters use JS for the presentation path.
+  for (const policy of ['foothold-v2', 'ame2-demo']) {
+    const page = await open(policy === 'foothold-v2' ? '' : `policy=${policy}`);
+    const badge = await page.locator('#policyEngine').textContent();
+    assert.match(badge, /기본 계산 사용 \(f32 JS\)/);
+    assert.equal(page.workers().length, 0);
+    const motion = await page.evaluate(async (policy) => {
+      await document.getElementById('go').onclick();
+      if (policy === 'ame2-demo') await document.getElementById('scenarioRun').onclick();
+      else window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w' }));
+      const start = Array.from(__sim.sim.d.qpos.slice(0, 2)), t = performance.now();
+      const scenario = __sim.scenario.active;
+      __frame(t);
+      for (let i = 1; i <= 120; i++) __frame(t + i * 1000 / 60);
+      const end = Array.from(__sim.sim.d.qpos.slice(0, 2));
+      return { scenario, seconds: __sim.sim.t, distance: Math.hypot(end[0] - start[0], end[1] - start[1]) };
+    }, policy);
+    if (policy === 'ame2-demo') assert.equal(motion.scenario, true);
+    assert.ok(motion.seconds > 1.9 && motion.distance > .05, JSON.stringify({ policy, ...motion }));
+    console.log('Default f32 JS motion PASS', JSON.stringify({ policy, badge, ...motion }));
+    await page.close();
+  }
   if (!process.argv.includes('--settings-only')) for (const policy of ['foothold-v2', 'ame2-demo']) for (const engine of ['f32', 'main', 'worker']) for (const fps of [60, 30, 5]) {
     const page = await open(`policy=${policy}&policyBackend=${engine === 'f32' ? 'f32' : 'wasm'}&policyThread=${engine === 'main' ? 'main' : 'worker'}`);
     assert.match(await page.locator('#policyEngine').textContent(), engine === 'f32' ? /f32 JS/ : engine === 'main' ? /화면 계산/ : /Worker/);

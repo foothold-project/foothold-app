@@ -203,7 +203,7 @@ async function main() {
   const params = new URLSearchParams(location.search);
   policy = await selectOnnxPolicy(adapter, policy, {
     worker: params.get('policyThread') !== 'main', // explicit comparison/recovery path
-    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'wasm',
+    backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'f32',
     notify: (text) => {
       st.policyEngine = text;
       st.ame2Engine = text; // existing diagnostics compatibility
