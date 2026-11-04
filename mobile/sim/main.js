@@ -13,6 +13,7 @@ import { topFrame, topPoint } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
+import { MIN_UP } from './walk-surface.js';
 import { loadSimSettings, simSettings } from './settings.js';
 import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
 import { createFrameClock } from './frame-clock.js';
@@ -324,9 +325,11 @@ async function main() {
       },
     });
   }
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start }, adapter.id, { ame2DelaySteps: 0, startMapMode });
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start,
+    resolveSpawnFloor: params.has('start') && !startReason, floorCeiling: floors[startFloor] ? floors[startFloor].z[1] - .4 : Infinity }, adapter.id, { ame2DelaySteps: 0, startMapMode });
   if (sim.depthScanner?.ready) await sim.depthScanner.ready;
   const { m, d } = sim;
+  layers.forEach((layer, i) => sim.walkSurface?.attach(layer.map, floors[i] ? floors[i].z[1] - .4 : Infinity));
   const replay = readonly ? createReplayReader(sim, new URL(location.href)) : null;
   if (replay) {
     const timer = setInterval(() => { if (!document.hidden) void replay.poll(); }, 200);
@@ -395,7 +398,7 @@ async function main() {
   resize();
 
   // 창고: scene.json 의 메시를 모델 자세에 놓는다. quat 은 w,x,y,z
-  const geoCache = {}, textureCache = {}, solids = [];   // solids = 찍기에서 바닥보다 먼저 맞으면 거절하는 장면 메시(창고·공장·로봇)
+  const geoCache = {}, textureCache = {}, solids = [];   // rendered environment only (robot excluded from picking)
   for (const md of sceneJ.models) {
     let geo = geoCache[md.mesh];
     if (!geo) {
@@ -466,7 +469,7 @@ async function main() {
     const mat = m.geom_matid[g], c = mat >= 0 ? m.mat_rgba.slice(mat * 4, mat * 4 + 3) : m.geom_rgba.slice(g * 4, g * 4 + 3);
     const mesh = new THREE.Mesh(meshGeo.get(id), new THREE.MeshLambertMaterial({ color: new THREE.Color(c[0], c[1], c[2]).multiplyScalar(0.85).addScalar(0.08) }));
     mesh.matrixAutoUpdate = false;
-    scene.add(mesh); solids.push(mesh);
+    scene.add(mesh);
     geoms.push([g, mesh]);
   }
   const draw = () => {
@@ -491,7 +494,7 @@ async function main() {
     mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(); pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
-    if (!ready || stopped || runner.active || busy) return;
+    if (!ready || stopped || runner.active || busy || picking) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
     const far = away();
@@ -517,13 +520,14 @@ async function main() {
   // 한 목적지에 닿으면 그 고리는 사라지고 멈추지 않고 다음으로 — 마지막에 닿으면 멈춤. 목적지 사이는 층 지도 A*(astar.js) 경유점(선은 안 그림) — 길이 없으면 받지 않는다.
   // 막히면(앞 막힘·진전 없음) 지금 자리에서 앞 라이다 장애물을 더해 한 번만 다시 찾고, 또 막히면 멈춤. 안전 규칙은 시나리오와 같다(STOP·pagehide·reset = 취소+잠금, 숨김은 복귀 후 계속).
   // 막대·키 = 취소만(손 조종 우선). 끝나거나 끊기면 남은 고리는 모두 지운다
-  const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 0, 1), -map.floor_z), hit = new THREE.Vector3();
+  const ray = new THREE.Raycaster();
   let vp = [0, 0, 1, 1];   // 마지막으로 그린 칸(CSS px 왼쪽·위·폭·높이) — 누른 점을 그 칸의 카메라로 바닥에 비춘다
   const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
   let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
   let marks = [], plan = [], retried = false;   // 목적지들(가는 중 차례), 가는 경유점(= runner.points, mark = 목적지 번호), 이번 출발에서 다시 찾았나
-  // 길 찾기는 async(큰 지도는 쉬어 가며) — busy = 시나리오·다시 찾기 하나만, adding = 누른 점 차례로, gen = 지움·끊김·층 바뀜마다 +1(찾던 결과 버림)
-  let busy = false, adding = Promise.resolve(), gen = 0;
+  // busy = 시나리오·다시 찾기, picking = 찍은 점 탐색 중 중복 입력 금지.
+  // adding 은 다시 찾기와 순서를 보존; gen = 지움·끊김·층 바뀜마다 +1(찾던 결과 버림).
+  let busy = false, picking = false, adding = Promise.resolve(), gen = 0, planningSince = Infinity;
   const say = (text) => { note = { text, until: performance.now() + 4000 }; };
   const pos = () => ({ x: d.qpos[0], y: d.qpos[1] });
   // 찾는 동안 바뀐 것이 있으면 그 까닭(출발하지 않음), 없으면 ''
@@ -540,7 +544,7 @@ async function main() {
     marks.forEach((p, i) => {
       if (i < shown) return;
       const r = new THREE.Mesh(ringGeo, ringMat[i === shown ? 0 : 1]);
-      r.position.set(p.x, p.y, map.floor_z + 0.03); r.renderOrder = 2; marksG.add(r);
+      r.position.set(p.x, p.y, p.z + 0.03); r.renderOrder = 2; marksG.add(r);
     });
     $('wpClear').hidden = !marks.length;
   };
@@ -587,19 +591,46 @@ async function main() {
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
     if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 다시 누르세요');
     if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
-    if (busy) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
+    if (busy || picking) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
     ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
-    if (!ray.ray.intersectPlane(floor, hit)) return say('바닥을 찍으세요');
-    // 처음 맞은 표면이 이 층 바닥(높이 ±5 cm)보다 앞이면 — 로봇 몸통·벽·난간·물건·가린 바닥 — 목표로 받지 않는다
-    const first = ray.intersectObjects(solids, false)[0];
-    if (first && first.distance < ray.ray.origin.distanceTo(hit) - 0.02 && Math.abs(first.point.z - map.floor_z) > 0.05) return say('바닥만 찍을 수 있습니다(로봇·벽·물건 위는 안 됨)');
+    const origin = ray.ray.origin.clone(), direction = ray.ray.direction;
+    // Top view starts above the building. Enter the selected layer below its
+    // ceiling, so upstairs floors/roof cannot steal a downstairs click.
+    const ceiling = floors[here] ? floors[here].z[1] - .4 : Infinity;
+    if (origin.z > ceiling && direction.z < 0) origin.addScaledVector(direction, (ceiling - origin.z) / direction.z);
+    // The follow camera can sit just behind/inside a wall. Ignore contact
+    // faces within 30 cm; rendered occlusion is still checked below.
+    let hit = sim.walkSurface.pick(origin.toArray(), direction.toArray(), map, ceiling, top ? 0 : .3);
+    if (!hit) return say('걸을 수 있는 바닥을 찍으세요');
+    if (!top) {
+      scene.updateMatrixWorld(true);
+      const front = ray.intersectObjects(solids, false)[0];
+      // Contact meshes can be convex hulls around open shelving. When their
+      // invisible sides intercept a visibly exposed floor, resolve support
+      // vertically at that visible floor instead of picking the hull's side.
+      // A visible wall/roof never qualifies for this fallback.
+      if (hit.up < MIN_UP && front && Math.abs(front.face.normal.clone().transformDirection(front.object.matrixWorld).z) >= MIN_UP) {
+        const support = sim.walkSurface.floorAt(front.point.x, front.point.y, ceiling, MIN_UP, map.floor_z);
+        if (Number.isFinite(support) && Math.abs(front.point.z - support) <= .05) {
+          hit = sim.walkSurface.pick([front.point.x, front.point.y, support + .05], [0, 0, -1], map, ceiling) ?? hit;
+        }
+      }
+      // Rendered floor skins sit a few mm above contact floors. Compare
+      // vertical separation: grazing rays amplify that tiny gap in distance.
+      if (front && (ray.ray.origin.distanceTo(new THREE.Vector3(hit.x, hit.y, hit.z)) - front.distance) * Math.abs(direction.z) > .05) return say('걸을 수 있는 바닥을 찍으세요');
+    }
+    if (hit.up < MIN_UP) return say('벽·천장·가파른 면으로는 갈 수 없습니다');
     const ox = map.origin[0], oy = map.origin[1];
     if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
     if (cell(map, hit.x, hit.y) !== 254) return say('장애물·모르는 칸이라 갈 수 없습니다');
-    const p = { x: hit.x, y: hit.y };
+    const support = map.heightAt(hit.x, hit.y);
+    if (hit.z >= ceiling || !Number.isFinite(support) || Math.abs(hit.z - support) > .05) return say('지금 층의 걸을 수 있는 바닥을 찍으세요');
+    const p = { x: hit.x, y: hit.y, z: hit.z };
     const g0 = gen, f = map;   // 누른 순간의 세대·층 — 그 뒤 지움·끊김·층 바뀜이면 차례가 와도 버림
-    adding = adding.then(() => addMark(p, g0, f));   // 누른 차례대로(앞 점 길 찾기가 끝난 뒤 그 점에서 잇는다)
+    picking = true; // set before the promise microtask so a second tap cannot queue work
+    planningSince = performance.now();
+    adding = adding.then(() => addMark(p, g0, f)).finally(() => { picking = false; planningSince = Infinity; });
   };
   // 끊김(STOP·pagehide·reset = lock, 막대·조종 키 = 손 조종) 순간 찾던 길·줄 선 누름을 모두 버린다 — 늦은 결과가 출발하거나 손 조종을 덮지 않게
   onLock = () => { gen++; };
@@ -642,7 +673,7 @@ async function main() {
     if (on && curMark() !== shown) drawMarks();   // 목적지에 닿음 = 그 고리 지우고 다음을 진하게
     const m = on && marks[curMark()];
     // 안내(추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
-    const text = now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
+    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 
@@ -733,7 +764,7 @@ async function main() {
   let floorKey = '';
   const floorTick = (z) => {
     const i = floors.findIndex((f) => z >= f.z[0] && z < f.z[1]);
-    if (i >= 0 && i !== here) { here = i; map = floors[i].map; floor.constant = -map.floor_z; gen++; marks = []; plan = []; drawMarks(); inflate(map); }   // 다른 층 점은 받지 않는다
+    if (i >= 0 && i !== here) { here = i; map = floors[i].map; gen++; marks = []; plan = []; drawMarks(); inflate(map); }   // 다른 층 점은 받지 않는다
     const v = pin ?? here;
     planes.forEach((p, j) => { p.visible = top && (v === 'all' || v === j); p.material.depthTest = v !== 'all'; });
     const key = `${top}|${here}|${pin}`;
@@ -748,10 +779,10 @@ async function main() {
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
     timing: () => clock.stats,
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
-      floorZ: layers[startFloor].map.floor_z, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
+      floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
-    toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
+    toScreen: (x, y, z = map.heightAt?.(x, y) ?? map.floor_z) => { const v = new THREE.Vector3(x, y, Number.isFinite(z) ? z : map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
     marks: () => marks.map((p) => ({ ...p })), plan: () => plan.map((p) => ({ ...p })), rings: () => marksG.children.map((c) => c.material.opacity),
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });

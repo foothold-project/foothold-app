@@ -24,7 +24,7 @@ const server = createServer((req, res) => {
   } catch { res.writeHead(404); res.end(); }
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
-assert.ok(![8453, 8792, 5190, 5191, 8870, 9430, 9761].includes(server.address().port));
+assert.ok(![8453, 8792, 5190, 5191, 5195, 8870, 9430, 9761].includes(server.address().port));
 let browser;
 try {
   browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true,
@@ -80,7 +80,7 @@ try {
     if (process.env.FH_SHOT && !hasTouch) await page.screenshot({ path: process.env.FH_SHOT });
     // The following intentional tap is accepted again.
     await tap(...floor);
-    assert.equal(await page.evaluate(() => __sim.marks().length), 1, 'next tap places a goal');
+    assert.equal(await page.evaluate(() => __sim.marks().length), 1, `next tap places a goal: ${await page.evaluate(() => __sim.goalNote())}`);
     await page.click('#stop'); await start();
 
     await open();

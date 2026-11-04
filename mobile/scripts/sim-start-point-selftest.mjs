@@ -34,7 +34,7 @@ assert.ok(wp.wall && wp.inflated && wp.unknown);
 assert.equal(cell(warehouse, ...wp.inflated), 254, 'inflate-only fixture is a raw free cell');
 
 const { chromium } = await import(pathToFileURL(process.env.FH_PLAYWRIGHT));
-const root = resolve('mobile/www'), forbidden = [8453, 8792, 5190, 5191, 8870, 9430, 9761];
+const root = resolve('mobile/www'), forbidden = [8453, 8792, 5190, 5191, 5195, 8870, 9430, 9761];
 const server = createServer((req, res) => {
   const file = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
   if (!file.startsWith(root + sep)) return res.writeHead(403).end();
@@ -82,7 +82,12 @@ try {
       assert.equal(state.floor.here, floor === 'f2' ? 1 : 0);
       // reset is exact; the existing 0.5 s PD hold can shift the settled pose.
       xy.forEach((v, i) => { closeTo(state.q[i], v); closeTo(state.initial[i], v, .15); });
-      closeTo(state.q[2], map.floor_z + .4); closeTo(state.initial[2], map.floor_z + .3, .12);
+      // Custom starts now use the native supporting surface (even warehouse
+      // meshes differ from rounded map.floor_z by sub-micrometres). Defaults
+      // retain the exact previous datum; reset retains the measured floor.
+      const support = custom ? state.start.spawnFloorZ : map.floor_z;
+      if (!custom) closeTo(state.start.spawnFloorZ, map.floor_z);
+      closeTo(state.q[2], support + .4); closeTo(state.initial[2], support + .3, .12);
       closeTo(state.q[3], Math.cos(yaw / 2)); closeTo(state.q[6], Math.sin(yaw / 2));
       if (reason) {
         assert.match(state.start.reason, new RegExp(reason));

@@ -4,6 +4,7 @@
 import { DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplaySim } from './go2-replay.js';
+import { makeWalkSurface } from './walk-surface.js';
 const defaultAdapter = getPolicyAdapter();
 const LEGS = ['FL', 'FR', 'RL', 'RR'], PARTS = ['hip', 'thigh', 'calf'];
 // Legacy exports stay available to the existing measurement scripts.
@@ -22,6 +23,10 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const { joints: ISAAC_J, defaultPose: DEFAULT_I, kp: KP, kd: KD } = adapter.action;
   const F = world.floorZ, [SX, SY, SYAW] = world.spawn;
   const m = mj.MjModel.from_xml_path(xmlPath), d = new mj.MjData(m);
+  mj.mj_forward(m, d);
+  const walkSurface = makeWalkSurface(mj, m, d);
+  const sampledFloor = world.resolveSpawnFloor ? walkSurface.floorAt(SX, SY, world.floorCeiling, 1e-9, F) : F;
+  const spawnFloor = Number.isFinite(sampledFloor) ? sampledFloor : F;
   m.opt.timestep = PHYS_DT;
   const jid = (n) => mj.mj_name2id(m, mj.mjtObj.mjOBJ_JOINT.value, n);
   const qa = MJ_J.map((n) => m.jnt_qposadr[jid(n)]), va = MJ_J.map((n) => m.jnt_dofadr[jid(n)]);
@@ -49,6 +54,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
   const actionDelay = adapter.makeActionDelay?.(MJ_J.map((_, i) => DEFAULT_I[I2M[i]]), ame2DelaySteps);
   const s = { m, d, adapterId: adapter.id, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], policyMs: 0, physMs: 0, I2M, M2I };
+  s.walkSurface = walkSurface; s.spawnFloorZ = spawnFloor;
   s.heightScanner = sampleHeight; s.observation = obs; s.lastAction = last;
   if (adapter.depth) { s.startMapMode = startDemoMapMode(startMapMode); s.depthScanner = adapter.makeDepthScanner(mj,m,d,depthWorkerOptions); }
   const actionTargets = new Float64Array(adapter.action.size);
@@ -74,7 +80,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     s.cancelPolicyStep();
     mj.mj_resetData(m, d);
     const q = d.qpos, v = d.qvel;
-    q[0] = SX; q[1] = SY; q[2] = F + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 바닥 위 0.4
+    q[0] = SX; q[1] = SY; q[2] = spawnFloor + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 실제 바닥 위 0.4
     for (let i = 0; i < 12; i++) { q[7 + i] = DEFAULT_I[I2M[i]]; tgt[i] = DEFAULT_I[I2M[i]]; }
     if (adapter.command.kind === 'nearby_goal') s.cmd = adapter.stop.input.slice();
     actionDelay?.reset();
@@ -161,7 +167,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { s.cancelPolicyStep(); s.depthScanner?.dispose(); sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { s.cancelPolicyStep(); s.depthScanner?.dispose(); sampleHeight.dispose(); walkSurface.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }
