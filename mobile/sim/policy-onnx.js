@@ -49,6 +49,12 @@ export function withPolicyState(run, contract) {
     state = next; revision++; candidates.delete(outputs);
     return true;
   };
+  // Depth capture may yield between accepting an inference and advancing
+  // physics. Check its token without publishing recurrent state yet.
+  policy.canCommit = (outputs) => {
+    const token = candidates.get(outputs);
+    return !!token && token.epoch === epoch && token.revision === revision;
+  };
   policy.reset = () => { reset(); run.cancel?.(); };
   policy.cancel = () => { epoch++; run.cancel?.(); };
   policy.dispose = () => { epoch++; return run.dispose?.(); };

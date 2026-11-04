@@ -199,12 +199,12 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
       else window.dispatchEvent(new Event('blur'));
     });
     await sleep(100);
-    // 끊긴 뒤 처음 나간 cmd 부터 0(숨김은 phone.ts 가 0 + 반납 — 반납 뒤 cmd 없음)
+    // 시뮬은 연결·조종권을 유지하되 처음 나간 cmd 부터 0(실기 반납은 phone-hidden 회귀에서 별도로 고정)
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
     expect(performance.now() - t0).toBeLessThan(400);
     await key('keydown', 'KeyW', { repeat: true });
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0)).toBe(true);
-    if (how === '탭 숨김') expect(a.of('lease.release')).toHaveLength(1);
+    if (how === '탭 숨김') expect(a.of('lease.release')).toHaveLength(0);
   });
 
   it('연결 끊김 → cmd 멈춤(로봇 deadman), 키 무시, «다시 연결»', async () => {

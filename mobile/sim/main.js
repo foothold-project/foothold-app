@@ -2,7 +2,7 @@
 // go2-demo는 예외: 웹 세션의 로봇 상태 GET만 읽어 실기 자세를 그리며 정책·물리·명령은 실행하지 않는다.
 // 지도 = ?map=<이름>(maps.json 목록 안, [a-z0-9-] 만 — 없거나 틀리면 warehouse) → assets/<이름>/ 의 scene.json·map.json·<이름>.xml.
 // 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = nvidia-demo 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
-// RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 앱 숨김·화면 꺼짐 = STOP
+// RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 숨김 = 손 조종 STOP, 시뮬 임무는 복귀 후 계속
 // · 막대 밖 한 손가락 끌기 = 따라가기 돌리기/탑뷰 이동, 두 손가락 = 확대·축소. 정책 계약은 policy-adapters.js 에서 id 로 고른다.
 import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
@@ -17,6 +17,7 @@ import { MIN_UP } from './walk-surface.js';
 import { loadSimSettings, simSettings } from './settings.js';
 import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
 import { createFrameClock } from './frame-clock.js';
+import { createKeyboardRamp } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, replayRequirement } from './go2-replay.js';
 
@@ -52,7 +53,7 @@ const st = (window.__sim = { ready: false, err: null });   // 시험용(headless
 // ── STOP 잠금: 명령 0. «다시 시작»(#go)만 푼다. 잡고 있던 막대 손가락도 놓게 해서 풀린 뒤엔 새로 누른 손가락만 명령이 된다
 let heading = null;
 const goalAxes = [0, 0, 0];
-let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
+let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null, runningScenario = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
 const sticks = [];
 let inputSettings = manualSettings({}, adapter.command), refreshSettings = async () => {}, startEpoch = 0, clock;
 let applySettings = () => {};
@@ -106,8 +107,14 @@ $('go').onclick = async () => {
   applySettings(org); clock?.reset();
   sticks.forEach((s) => s.release()); stopped = false; ui();
 };
-document.addEventListener('visibilitychange', () => { if (document.hidden) lock(); });   // 앱 숨김·화면 꺼짐
-for (const ev of ['pagehide', 'freeze', 'blur']) addEventListener(ev, lock);
+function background() {
+  if (readonly || !runningScenario?.active) return lock();   // 실기 보기·수동 조종은 기존 정지
+  clock?.reset(); sim?.cancelPolicyStep();   // 숨긴 시간은 물리·막힘 판정에 더하지 않음(미완료 추론도 버림)
+  sticks.forEach((s) => s.release());   // 실행기의 지점·진행·정책 상태는 그대로, 손 조종 입력만 놓음
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) background(); });
+for (const ev of ['freeze', 'blur']) addEventListener(ev, background);
+addEventListener('pagehide', lock);   // 실제 나가기·새로고침은 기존 취소·잠금
 // 집: 서버 화면(«시뮬 열기», ?from=server)에서 왔으면 뒤로 = 그 서버 화면(RemoteClient 가 /sim/ 에서는 고른 서버를 잊지 않음),
 // 웹(같은 출처 /sim/, ?from=web)이면 웹 «시뮬» 화면(폰 틀은 로봇 연결로 바뀜), 아니면 앱 시작 화면
 const from = new URLSearchParams(location.search).get('from'), fromServer = from === 'server' && history.length > 1;
@@ -134,7 +141,10 @@ function stick(el, set) {
 }
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
 const stickAxes = [0, 0, 0];
+const keyboardRamp = createKeyboardRamp(adapter.command.keyboardRamp);
+let keyboardActive = false;
 const updateStickAxes = () => {
+  keyboardActive = false; keyboardRamp.reset();
   const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
   axes.splice(0, 3, ...manualCommand(stickAxes, inputSettings).map(r2));
 };
@@ -143,15 +153,17 @@ stick($('stickR'), (x) => { stickAxes[2] = -x; updateStickAxes(); });
 const inRange = (c) => adapter.command.inRange(c);
 
 // ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): 실기 웹 조종칸(serverdrive)과 같게 ↑·W / ↓·S = 앞·뒤,
-// ← / → = 옆걸음(왼 막대 좌우), A / D = 제자리 회전(오른 막대), 막대를 끝까지 민 값과 같다. 떼면 0. 학습 범위 밖은 자르지 않고 테두리 색만
+// ← / → = 옆걸음(왼 막대 좌우), A / D = 제자리 회전(오른 막대), 막대를 끝까지 민 값과 같다. start 키만 점진 가감속. 학습 범위 밖은 자르지 않고 테두리 색만
 // STOP 중에 누른 키와 잠글 때 쥐고 있던 키는 버린다(반복 keydown 무시) — «다시 시작» 뒤 새로 눌러야 움직인다. Esc·Space = STOP. 입력칸·고르기 칸에서는 조종 안 함
 const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [1, 1], ArrowRight: [1, -1], KeyA: [2, 1], KeyD: [2, -1] };
 const held = new Set();
 const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 끝 값 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
   const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
-  axes.splice(0, 3, ...manualCommand([0, 1, 2].map((i) => on(i, 1) - on(i, -1)), inputSettings, true).map(r2));
+  const target = keyboardRamp.target([0, 1, 2].map((i) => on(i, 1) - on(i, -1)));
+  keyboardActive = keyboardRamp.enabled;
+  axes.splice(0, 3, ...manualCommand(target, inputSettings, true).map(r2));
 };
-const dropKeys = () => { held.clear(); keyAxes(); };
+const dropKeys = () => { held.clear(); keyboardRamp.reset(); keyAxes(); keyboardActive = false; };
 sticks.push({ release: dropKeys });   // lock()·#go·시나리오 실행이 막대와 함께 놓는다
 const field = (t) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || !!t?.isContentEditable;
 addEventListener('keydown', (e) => {
@@ -315,6 +327,7 @@ async function main() {
   }
   sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start,
     resolveSpawnFloor: params.has('start') && !startReason, floorCeiling: floors[startFloor] ? floors[startFloor].z[1] - .4 : Infinity }, adapter.id, { ame2DelaySteps: 0, startMapMode });
+  if (sim.depthScanner?.ready) await sim.depthScanner.ready;
   const { m, d } = sim;
   layers.forEach((layer, i) => sim.walkSurface?.attach(layer.map, floors[i] ? floors[i].z[1] - .4 : Infinity));
   const replay = readonly ? createReplayReader(sim, new URL(location.href)) : null;
@@ -329,6 +342,7 @@ async function main() {
   }
   const lidar = makeLidar(mj, m, d, 360, settings);
   const runner = createScenarioRunner(sim, () => stopped, settings);
+  runningScenario = runner;
   let scenarios = [];
   // 층 시나리오는 floor_id 가 그 층이고 지점이 그 층 지도의 빈 칸이어야 한다(floor = 층 번호)
   try { scenarios = floors.length ? (await Promise.all(floors.map(async (f, i) => validateScenarios(await json(`${dir}/${f.scn}`), f.map)
@@ -356,7 +370,7 @@ async function main() {
     $('scenarioHalt').disabled = !runner.active;
     $('scenarioHint').hidden = !stopped;
   };
-  const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
+  const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset'), preserveOnHide: !readonly });
   for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { sim.cancelPolicyStep(); clock?.reset(); }, true);
   addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) { sim.cancelPolicyStep(); clock?.reset(); } }, true);
   // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)
@@ -504,7 +518,7 @@ async function main() {
 
   // ── 찍은 점 가기: 캔버스를 짧게 누르면(끌기·두 손가락 아님) 그 바닥 점으로 바로 간다. 가는 중에 누르면 그 자리를 끝에 줄 세우고(지금 목적지 그대로),
   // 한 목적지에 닿으면 그 고리는 사라지고 멈추지 않고 다음으로 — 마지막에 닿으면 멈춤. 목적지 사이는 층 지도 A*(astar.js) 경유점(선은 안 그림) — 길이 없으면 받지 않는다.
-  // 막히면(앞 막힘·진전 없음) 지금 자리에서 앞 라이다 장애물을 더해 한 번만 다시 찾고, 또 막히면 멈춤. 안전 규칙은 시나리오와 같다(STOP·흐림·숨김·pagehide·reset = 취소+잠금).
+  // 막히면(앞 막힘·진전 없음) 지금 자리에서 앞 라이다 장애물을 더해 한 번만 다시 찾고, 또 막히면 멈춤. 안전 규칙은 시나리오와 같다(STOP·pagehide·reset = 취소+잠금, 숨김은 복귀 후 계속).
   // 막대·키 = 취소만(손 조종 우선). 끝나거나 끊기면 남은 고리는 모두 지운다
   const ray = new THREE.Raycaster();
   let vp = [0, 0, 1, 1];   // 마지막으로 그린 칸(CSS px 왼쪽·위·폭·높이) — 누른 점을 그 칸의 카메라로 바닥에 비춘다
@@ -596,7 +610,7 @@ async function main() {
     const g0 = gen, f = map;   // 누른 순간의 세대·층 — 그 뒤 지움·끊김·층 바뀜이면 차례가 와도 버림
     adding = adding.then(() => addMark(p, g0, f));   // 누른 차례대로(앞 점 길 찾기가 끝난 뒤 그 점에서 잇는다)
   };
-  // 끊김(STOP·흐림·숨김·pagehide·reset = lock, 막대·조종 키 = 손 조종) 순간 찾던 길·줄 선 누름을 모두 버린다 — 늦은 결과가 출발하거나 손 조종을 덮지 않게
+  // 끊김(STOP·pagehide·reset = lock, 막대·조종 키 = 손 조종) 순간 찾던 길·줄 선 누름을 모두 버린다 — 늦은 결과가 출발하거나 손 조종을 덮지 않게
   onLock = () => { gen++; };
   for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { gen++; });
   addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) gen++; });
@@ -760,6 +774,10 @@ async function main() {
   clock = createFrameClock({ dt: POLICY_DT,
     yieldOnRejected: !!adapter.depth,
     prepare: () => {
+      if (keyboardActive && !stopped && !runner.active) {
+        const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
+        axes.splice(0, 3, ...manualCommand(keyboardRamp.advance(POLICY_DT), inputSettings, true).map(r2));
+      }
       if (runner.active) {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
         if (adapter.command.kind === 'nearby_goal') { heading = null; joy = sim.cmd.slice(); }

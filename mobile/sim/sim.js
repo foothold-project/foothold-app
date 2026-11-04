@@ -16,7 +16,7 @@ export const MENAGERIE = { damping: 2, frictionloss: 0.2, armature: 0.01, footFr
 export const ISAAC_LIKE = { ...MENAGERIE, damping: 0, frictionloss: 0, footSpin: false };
 export const loadPolicy = (buf, adapterId = DEFAULT_POLICY_ID, manifest) => getPolicyAdapter(adapterId).loadPolicy(buf, manifest);
 
-export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = DEFAULT_POLICY_ID, { ame2DelaySteps = 0, startMapMode = 'gt' } = {}) {
+export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = DEFAULT_POLICY_ID, { ame2DelaySteps = 0, startMapMode = 'gt', depthWorkerOptions } = {}) {
   const adapter = getPolicyAdapter(adapterId);
   if (adapter.command.kind === 'none') return createReplaySim(mj, xmlPath, world);
   const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = adapter.timing;
@@ -56,11 +56,11 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const s = { m, d, adapterId: adapter.id, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], policyMs: 0, physMs: 0, I2M, M2I };
   s.walkSurface = walkSurface; s.spawnFloorZ = spawnFloor;
   s.heightScanner = sampleHeight; s.observation = obs; s.lastAction = last;
-  if (adapter.depth) { s.startMapMode = startDemoMapMode(startMapMode); s.depthScanner = adapter.makeDepthScanner(mj,m,d); }
+  if (adapter.depth) { s.startMapMode = startDemoMapMode(startMapMode); s.depthScanner = adapter.makeDepthScanner(mj,m,d,depthWorkerOptions); }
   const actionTargets = new Float64Array(adapter.action.size);
   // Any ONNX policy may await inference. Invalidate its result synchronously on
   // STOP/reset/dispose, and never queue a second inference or physics tick.
-  const asyncPolicy = policy.async === true;
+  const asyncPolicy = policy.async === true || s.depthScanner?.async === true;
   let generation = 0, pending = false;
   let memory = {};
   const resetPolicyMemory = () => { policy.reset?.(); memory = {}; adapter.reset?.(memory,s); s.outputs = null; s.gaze = null; };
@@ -108,35 +108,54 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     if (asyncPolicy && pending) return false;
     const t0 = performance.now();
     const candidate = structuredClone(memory);
-    const inputs = adapter.observe(s, s.cmd, candidate);
+    const command = s.depthScanner?.async ? s.cmd.slice() : s.cmd;
+    let inputs = s.depthScanner?.async ? null : adapter.observe(s, s.cmd, candidate);
     if (asyncPolicy) {
       const gen = generation;
       pending = true;
-      return Promise.resolve().then(() => policy(...inputs)).then((a) => {
+      const infer = () => {
+        if (gen !== generation) return null;
+        inputs ??= adapter.observe(s, command, candidate);
+        return policy(...inputs);
+      };
+      // Initial depth is required before observation. Later captures happen in
+      // commit, after inference acceptance. Neither changes the 20 ms budget.
+      const prepared = s.depthScanner?.async ? Promise.resolve().then(() => gen === generation ? adapter.prepare?.(s, candidate) : undefined) : null;
+      return (prepared ? prepared.then(infer) : Promise.resolve().then(infer)).then((a) => {
         if (gen !== generation || !a) return false;
-        return applyAction(a, t0, candidate);
-      }).finally(() => { pending = false; });
+        return applyAction(a, t0, candidate, gen);
+      }).catch((error) => { if (gen !== generation) return false; throw error; }).finally(() => { pending = false; });
     }
     const a = policy(...inputs);
     applyAction(a, t0, candidate);
   };
-  function applyAction(result, t0, candidate) {
+  function applyAction(result, t0, candidate, gen = generation) {
     const a = result[adapter.onnx?.action ?? 'action'] ?? result;
     if (a.length !== 12 || !a.every(Number.isFinite)) throw new Error('정책 행동 크기/유한값 오류');
-    if (policy.commit && !policy.commit(result)) return false;
-    memory = candidate;
-    adapter.commit?.(memory, s, result);
-    s.outputs = result.action ? result : { action: a };
-    if (s.outputs.gaze_r) s.gaze = { ox: Math.max(0, Math.min(17, Math.round(s.outputs.gaze_r[0] * 17))), oy: Math.max(0, Math.min(3, Math.round(s.outputs.gaze_r[1] * 3))) };
-    last.set(a);
-    adapter.act(a, actionTargets);
-    for (let i = 0; i < 12; i++) tgt[i] = actionTargets[I2M[i]];
-    const t1 = performance.now();
-    for (let k = 0; k < DECIM; k++) s.physStep();
-    s.policyMs = t1 - t0; s.physMs = performance.now() - t1;
-    s.t += POLICY_DT;
-    state();
-    return true;
+    const captureAsync = s.depthScanner?.async && candidate.capturePending;
+    if (captureAsync) {
+      // Acceptance reserves this result; publish GRU/history only after depth
+      // returns, so cancellation during capture cannot partially commit a tick.
+      if (policy.canCommit && !policy.canCommit(result)) return false;
+    } else if (policy.commit && !policy.commit(result)) return false;
+    const committed = adapter.commit?.(candidate, s, result);
+    const advance = () => {
+      if (gen !== generation) return false;
+      if (captureAsync && policy.commit && !policy.commit(result)) return false;
+      memory = candidate;
+      s.outputs = result.action ? result : { action: a };
+      if (s.outputs.gaze_r) s.gaze = { ox: Math.max(0, Math.min(17, Math.round(s.outputs.gaze_r[0] * 17))), oy: Math.max(0, Math.min(3, Math.round(s.outputs.gaze_r[1] * 3))) };
+      last.set(a);
+      adapter.act(a, actionTargets);
+      for (let i = 0; i < 12; i++) tgt[i] = actionTargets[I2M[i]];
+      const t1 = performance.now();
+      for (let k = 0; k < DECIM; k++) s.physStep();
+      s.policyMs = t1 - t0; s.physMs = performance.now() - t1;
+      s.t += POLICY_DT;
+      state();
+      return true;
+    };
+    return committed?.then ? committed.then(advance) : advance();
   }
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;
