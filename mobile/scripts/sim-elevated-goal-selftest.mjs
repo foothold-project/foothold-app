@@ -26,11 +26,11 @@ try {
   browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true,
     args: ['--no-sandbox', '--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const open = async (params) => {
-    const p = await browser.newPage({ viewport: { width: 1280, height: 800 }, hasTouch: true });
+    const p = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: .5, hasTouch: true });
     p.on('pageerror', (e) => errors.push(e.message));
     // Freeze only RAF: tests can measure exact simulated seconds without
     // depending on policy speed or rendering speed.
-    await p.addInitScript(() => { requestAnimationFrame = (f) => { window.__frame = f; return 1; }; Math.random = () => 0; });
+    await p.addInitScript(() => { window.__realRAF = requestAnimationFrame.bind(window); requestAnimationFrame = (f) => { window.__frame = f; return 1; }; Math.random = () => 0; });
     await p.goto(`http://127.0.0.1:${server.address().port}/sim/index.html?${new URLSearchParams(params)}`);
     await p.waitForFunction(() => __sim?.ready || __sim?.err, null, { timeout: 120000, polling: 100 });
     assert.equal(await p.evaluate(() => __sim.err), null);
@@ -143,8 +143,15 @@ try {
     // RAF for this portion, keeping policy inference and lidar in main.js.
     await p.evaluate(() => {
       window.__pump = true;
-      const tick = () => { if (__pump) { __frame(performance.now()); setTimeout(tick, 16); } };
-      tick();
+      let drawn = -Infinity;
+      const tick = (now) => {
+        if (!__pump) return;
+        // Preview at 10 Hz; the app's fixed policy clock still runs at 50 Hz.
+        // Software WebGL must not flood the GPU while async depth is pending.
+        if (now - drawn >= 100) { __frame(now); drawn = now; }
+        __realRAF(tick);
+      };
+      __realRAF(tick);
     });
     const startTime = await p.evaluate(() => __sim.sim.t);
     await p.waitForFunction((t) => (!__sim.scenario.active && !__sim.marks().length) || __sim.sim.t > t + 35, startTime, { timeout: 240000, polling: 100 });
