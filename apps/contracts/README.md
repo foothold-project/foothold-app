@@ -17,6 +17,11 @@ npm run --prefix apps/contracts typecheck
 `ts/` 안의 여분 `.ts`도 검사하며 재생성 때 오래된 생성 파일을 제거한다.
 응답 모델은 serialization 모드로 생성하므로 항상 출력되는 기본값 필드도 필수다.
 입력 모델은 validation 모드이며 PATCH 필드는 생략 가능하지만 null은 거부한다.
+`OrgSettings.model_overrides`는 정식 정책 ID별 희소 설정이다. `OrgSettingsPatch.model_overrides`만
+중첩 칸의 null을 허용하며, 해당 칸을 지워 공통 값으로 되돌린다. 빈 객체는 기존 칸을 보존한다.
+시뮬 정책은 시뮬 9개 칸만 받는다. 실기 정책은 등록부에 등록된 경우에만
+`real_no_fast_server_drive`를 받으며, 현재 등록된 실기 정책은 없다. 보기 전용 `go2-demo`는 모델별 칸을 받지 않는다.
+모델별 실효값은 공통 값과 덮어쓴 칸을 합친 값이며, 공통 변경도 모든 모델의 범위·속도 순서를 검사한다.
 오류 본문 타입은 TS 전역 Error와 충돌하지 않는 `ErrorBody`다.
 TS는 타입 선언이며 런타임 검증기가 아니다. bigint 사건 ID는 십진 문자열이다.
 모든 시각은 시간대가 있어야 하며 응답은 UTC `Z`로 정규화한다. UUID는 TS에서 string이다.
