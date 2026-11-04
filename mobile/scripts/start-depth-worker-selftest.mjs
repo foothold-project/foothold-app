@@ -69,14 +69,24 @@ try {
         check(packets.filter((p) => p.type === 'scan').length === 36, 'all captures dispatched');
         check(packets.slice(1).every((p) => p.pose === 7 && p.transfer === 1 && p.keys.sort().join() === 'pose,seq,type'), 'only pose transferred per capture');
         const q = [map.spawn_xyyaw[0], map.spawn_xyyaw[1], map.floor_z + .3, 1, 0, 0, 0];
+        let silent;
         for (const options of [
           { createWorker: null },
           { createWorker() { throw Error('unsupported'); } },
           { initTimeoutMs: 5, createWorker: () => ({ postMessage() {}, terminate() {} }) },
+          { scanTimeoutMs: 5, createWorker: () => (silent = { scans: 0, terminated: 0, postMessage(p) { if (p.type === 'init') queueMicrotask(() => this.onmessage({ data: { type: 'ready', seq: p.seq } })); else this.scans++; }, terminate() { this.terminated++; } }) },
           { createWorker: () => ({ postMessage(p) { queueMicrotask(() => this.onmessage({ data: p.type === 'init' ? { type: 'ready', seq: p.seq } : { type: 'error', seq: p.seq, error: 'scan failure' } })); }, terminate() {} }) },
         ]) {
           const fallback = makeStartDepthWorker(mj, m, d, options);
-          try { bytesEqual(native(q), await fallback(q)); } finally { fallback.dispose(); }
+          try {
+            bytesEqual(native(q), await fallback(q));
+            const next = q.slice(); next[0] += .5;
+            bytesEqual(native(next), await fallback(next));
+            if (options.scanTimeoutMs) {
+              check(fallback.workerError === 'Depth Worker scan timeout', 'silent scan times out');
+              check(silent.scans === 1 && silent.terminated === 1, 'timeout terminates Worker and subsequent scans stay native');
+            }
+          } finally { fallback.dispose(); }
         }
         rows.push({ map: id, poses: 36, rays: 129600, byteDifference: 0, calc, roundtrip });
       } finally { worker.dispose(); native.dispose(); d.delete(); m.delete(); }
@@ -126,7 +136,7 @@ try {
         }
       } finally { if (cancel !== 'dispose') sim.dispose(); }
     }
-    return { rows, lifecycle: '8 initial/commit cancellation cases PASS', fallback: 'no Worker/create/init timeout/scan error PASS' };
+    return { rows, lifecycle: '8 initial/commit cancellation cases PASS', fallback: 'no Worker/create/init timeout/scan timeout/scan error; continued native scans PASS' };
   });
   assert.equal(result.rows.length, 3);
   if (process.env.START_DEPTH_WORKER_REPORT) writeFileSync(process.env.START_DEPTH_WORKER_REPORT, JSON.stringify(result, null, 2));

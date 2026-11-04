@@ -5,6 +5,7 @@ import { makeStartDemoDepth } from './start-demo-sensors.js';
 export function makeStartDepthWorker(mj, m, d, {
   createWorker = typeof Worker === 'function' ? (url) => new Worker(url, { type: 'module' }) : null,
   initTimeoutMs = 15000,
+  scanTimeoutMs = 15000,
 } = {}) {
   const native = makeStartDemoDepth(mj, m, d);
   if (!createWorker) return native;
@@ -45,6 +46,7 @@ export function makeStartDepthWorker(mj, m, d, {
     if (disposed) throw new Error('Depth scanner disposed');
     if (failed) { const out = native(captured); scan.ms = native.ms; scan.roundtripMs = 0; return out; }
     const started = performance.now();
+    const timer = setTimeout(() => fail(new Error('Depth Worker scan timeout')), scanTimeoutMs);
     try {
       const result = await request({ type: 'scan', pose }, [pose.buffer]);
       scan.ms = result.ms; scan.roundtripMs = performance.now() - started;
@@ -53,7 +55,7 @@ export function makeStartDepthWorker(mj, m, d, {
       if (disposed) throw error;
       // The failed capture uses exactly its original pose, never an old frame.
       const out = native(captured); scan.ms = native.ms; scan.roundtripMs = performance.now() - started; return out;
-    }
+    } finally { clearTimeout(timer); }
   };
   scan.async = true;
   Object.defineProperty(scan, 'workerError', { get: () => failure?.message ?? null });
