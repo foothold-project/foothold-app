@@ -16,6 +16,7 @@ import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { loadSimSettings, simSettings } from './settings.js';
 import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
 import { createFrameClock } from './frame-clock.js';
+import { createKeyboardRamp } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, replayRequirement } from './go2-replay.js';
 
@@ -133,7 +134,10 @@ function stick(el, set) {
 }
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
 const stickAxes = [0, 0, 0];
+const keyboardRamp = createKeyboardRamp(adapter.command.keyboardRamp);
+let keyboardActive = false;
 const updateStickAxes = () => {
+  keyboardActive = false; keyboardRamp.reset();
   const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
   axes.splice(0, 3, ...manualCommand(stickAxes, inputSettings).map(r2));
 };
@@ -142,15 +146,17 @@ stick($('stickR'), (x) => { stickAxes[2] = -x; updateStickAxes(); });
 const inRange = (c) => adapter.command.inRange(c);
 
 // ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): 실기 웹 조종칸(serverdrive)과 같게 ↑·W / ↓·S = 앞·뒤,
-// ← / → = 옆걸음(왼 막대 좌우), A / D = 제자리 회전(오른 막대), 막대를 끝까지 민 값과 같다. 떼면 0. 학습 범위 밖은 자르지 않고 테두리 색만
+// ← / → = 옆걸음(왼 막대 좌우), A / D = 제자리 회전(오른 막대), 막대를 끝까지 민 값과 같다. start 키만 점진 가감속. 학습 범위 밖은 자르지 않고 테두리 색만
 // STOP 중에 누른 키와 잠글 때 쥐고 있던 키는 버린다(반복 keydown 무시) — «다시 시작» 뒤 새로 눌러야 움직인다. Esc·Space = STOP. 입력칸·고르기 칸에서는 조종 안 함
 const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [1, 1], ArrowRight: [1, -1], KeyA: [2, 1], KeyD: [2, -1] };
 const held = new Set();
 const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 끝 값 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
   const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
-  axes.splice(0, 3, ...manualCommand([0, 1, 2].map((i) => on(i, 1) - on(i, -1)), inputSettings, true).map(r2));
+  const target = keyboardRamp.target([0, 1, 2].map((i) => on(i, 1) - on(i, -1)));
+  keyboardActive = keyboardRamp.enabled;
+  axes.splice(0, 3, ...manualCommand(target, inputSettings, true).map(r2));
 };
-const dropKeys = () => { held.clear(); keyAxes(); };
+const dropKeys = () => { held.clear(); keyboardRamp.reset(); keyAxes(); keyboardActive = false; };
 sticks.push({ release: dropKeys });   // lock()·#go·시나리오 실행이 막대와 함께 놓는다
 const field = (t) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || !!t?.isContentEditable;
 addEventListener('keydown', (e) => {
@@ -752,6 +758,10 @@ async function main() {
   clock = createFrameClock({ dt: POLICY_DT,
     yieldOnRejected: !!adapter.depth,
     prepare: () => {
+      if (keyboardActive && !stopped && !runner.active) {
+        const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
+        axes.splice(0, 3, ...manualCommand(keyboardRamp.advance(POLICY_DT), inputSettings, true).map(r2));
+      }
       if (runner.active) {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
         if (adapter.command.kind === 'nearby_goal') { heading = null; joy = sim.cmd.slice(); }
