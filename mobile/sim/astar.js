@@ -9,6 +9,7 @@ export const SNAP = 0.6;       // m — 로봇이 띠 안(벽 옆)에 서 있으
 export const SLICE_MS = 8;
 
 const bases = new WeakMap(), raws = new WeakMap(), bufs = new WeakMap();   // bufs = 지도마다 A* 배열 다시 씀(큰 지도 할당·GC 멈춤 줄이기)
+const navigation = new WeakMap();
 const rest = () => new Promise((r) => setTimeout(r, 0));
 const idx = (map, x, y) => {
   const c = Math.floor((x - map.origin[0]) / map.res), r = map.h - 1 - Math.floor((y - map.origin[1]) / map.res);
@@ -16,6 +17,7 @@ const idx = (map, x, y) => {
 };
 const center = (map, i) => ({ x: map.origin[0] + (i % map.w + 0.5) * map.res, y: map.origin[1] + (map.h - 1 - Math.floor(i / map.w) + 0.5) * map.res });
 const stepOK = (map, a, b) => !map.heightAt || Math.abs(map.heightAt(a.x, a.y) - map.heightAt(b.x, b.y)) <= MAX_STEP + 1e-6;
+const stepCells = (map, i, j) => map.cellHeight ? Math.abs(map.cellHeight(i) - map.cellHeight(j)) <= MAX_STEP + 1e-6 : stepOK(map, center(map, i), center(map, j));
 const disk = (map) => {
   const k = Math.ceil(CLEARANCE / map.res), out = [];
   for (let dr = -k; dr <= k; dr++) for (let dc = -k; dc <= k; dc++) if (Math.hypot(dr, dc) * map.res <= CLEARANCE + 1e-9) out.push([dr, dc]);
@@ -110,7 +112,7 @@ async function snap(map, grid, i0) {
     const i = q[k], r = Math.floor(i / w), c = i % w;
     for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const rr = r + dr, cc = c + dc, j = rr * w + cc;
-      if (rr < 0 || cc < 0 || rr >= h || cc >= w || seen.has(j) || px[j] !== 254 || Math.hypot(rr - r0, cc - c0) > limit || (map.heightAt && !stepOK(map, center(map, i), center(map, j)))) continue;
+      if (rr < 0 || cc < 0 || rr >= h || cc >= w || seen.has(j) || px[j] !== 254 || Math.hypot(rr - r0, cc - c0) > limit || (map.heightAt && !stepCells(map, i, j))) continue;
       if (!grid[j]) return j;
       seen.add(j); q.push(j);
     }
@@ -158,9 +160,9 @@ async function search(map, grid, s, g) {
         const rr = r + dr, cc = c + dc, j = rr * w + cc;
         if ((!dr && !dc) || rr < 0 || cc < 0 || rr >= h || cc >= w || grid[j] || done[j]) continue;
         if (dr && dc && (grid[r * w + cc] || grid[rr * w + c])) continue;   // 모서리 자르기 금지
-        if (map.heightAt && !stepOK(map, center(map, i), center(map, j))) continue;
-        if (map.heightAt && dr && dc && (!stepOK(map, center(map, i), center(map, r * w + cc)) || !stepOK(map, center(map, i), center(map, rr * w + c))
-          || !stepOK(map, center(map, j), center(map, r * w + cc)) || !stepOK(map, center(map, j), center(map, rr * w + c)))) continue;
+        if (map.heightAt && !stepCells(map, i, j)) continue;
+        if (map.heightAt && dr && dc && (!stepCells(map, i, r * w + cc) || !stepCells(map, i, rr * w + c)
+          || !stepCells(map, j, r * w + cc) || !stepCells(map, j, rr * w + c))) continue;
         const nc = cost[i] + (dr && dc ? Math.SQRT2 : 1);
         if (nc < cost[j]) { cost[j] = nc; parent[j] = i; push(nc + octile(j), j); }
       }
@@ -176,6 +178,13 @@ async function search(map, grid, s, g) {
 export async function findPath(map, from, to, extra) {
   const grid = await inflate(map, extra), si = idx(map, from.x, from.y), g = idx(map, to.x, to.y);
   if (si < 0 || g < 0 || map.px[g] !== 254 || grid[g]) return null;
+  if (map.prepareNavigation) {
+    if (!navigation.has(map)) navigation.set(map, map.prepareNavigation(await inflate(map)) ? { ...map, heightAt: undefined } : null);
+    // A start in the inflated margin may need a height-aware SNAP over cells
+    // outside the proven free area. Keep that existing check unchanged.
+    const flat = navigation.get(map);
+    if (flat && !grid[si]) map = flat;
+  }
   if (map.heightAt && (!stepOK(map, from, from) || !stepOK(map, to, to))) return null;
   if (await sight(map, grid, from, to)) return [{ x: to.x, y: to.y }];
   const s = await snap(map, grid, si);

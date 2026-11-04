@@ -398,7 +398,7 @@ async function main() {
   resize();
 
   // 창고: scene.json 의 메시를 모델 자세에 놓는다. quat 은 w,x,y,z
-  const geoCache = {}, textureCache = {}, solids = [];   // rendered scene + robot meshes
+  const geoCache = {}, textureCache = {}, solids = [];   // rendered environment only (robot excluded from picking)
   for (const md of sceneJ.models) {
     let geo = geoCache[md.mesh];
     if (!geo) {
@@ -469,7 +469,7 @@ async function main() {
     const mat = m.geom_matid[g], c = mat >= 0 ? m.mat_rgba.slice(mat * 4, mat * 4 + 3) : m.geom_rgba.slice(g * 4, g * 4 + 3);
     const mesh = new THREE.Mesh(meshGeo.get(id), new THREE.MeshLambertMaterial({ color: new THREE.Color(c[0], c[1], c[2]).multiplyScalar(0.85).addScalar(0.08) }));
     mesh.matrixAutoUpdate = false;
-    scene.add(mesh); solids.push(mesh);
+    scene.add(mesh);
     geoms.push([g, mesh]);
   }
   const draw = () => {
@@ -494,7 +494,7 @@ async function main() {
     mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(); pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
-    if (!ready || stopped || runner.active || busy) return;
+    if (!ready || stopped || runner.active || busy || picking) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
     const far = away();
@@ -525,8 +525,9 @@ async function main() {
   const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
   let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
   let marks = [], plan = [], retried = false;   // 목적지들(가는 중 차례), 가는 경유점(= runner.points, mark = 목적지 번호), 이번 출발에서 다시 찾았나
-  // 길 찾기는 async(큰 지도는 쉬어 가며) — busy = 시나리오·다시 찾기 하나만, adding = 누른 점 차례로, gen = 지움·끊김·층 바뀜마다 +1(찾던 결과 버림)
-  let busy = false, adding = Promise.resolve(), gen = 0;
+  // busy = 시나리오·다시 찾기, picking = 찍은 점 탐색 중 중복 입력 금지.
+  // adding 은 다시 찾기와 순서를 보존; gen = 지움·끊김·층 바뀜마다 +1(찾던 결과 버림).
+  let busy = false, picking = false, adding = Promise.resolve(), gen = 0, planningSince = Infinity;
   const say = (text) => { note = { text, until: performance.now() + 4000 }; };
   const pos = () => ({ x: d.qpos[0], y: d.qpos[1] });
   // 찾는 동안 바뀐 것이 있으면 그 까닭(출발하지 않음), 없으면 ''
@@ -590,7 +591,7 @@ async function main() {
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
     if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 다시 누르세요');
     if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
-    if (busy) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
+    if (busy || picking) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
     ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
     const origin = ray.ray.origin.clone(), direction = ray.ray.direction;
@@ -600,6 +601,11 @@ async function main() {
     if (origin.z > ceiling && direction.z < 0) origin.addScaledVector(direction, (ceiling - origin.z) / direction.z);
     const hit = sim.walkSurface.pick(origin.toArray(), direction.toArray(), map, ceiling);
     if (!hit) return say('걸을 수 있는 바닥을 찍으세요');
+    if (!top) {
+      scene.updateMatrixWorld(true);
+      const front = ray.intersectObjects(solids, false)[0];
+      if (front && front.distance + .05 < ray.ray.origin.distanceTo(new THREE.Vector3(hit.x, hit.y, hit.z))) return say('걸을 수 있는 바닥을 찍으세요');
+    }
     if (hit.up < MIN_UP) return say('벽·천장·가파른 면으로는 갈 수 없습니다');
     const ox = map.origin[0], oy = map.origin[1];
     if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
@@ -608,7 +614,9 @@ async function main() {
     if (hit.z >= ceiling || !Number.isFinite(support) || Math.abs(hit.z - support) > .05) return say('지금 층의 걸을 수 있는 바닥을 찍으세요');
     const p = { x: hit.x, y: hit.y, z: hit.z };
     const g0 = gen, f = map;   // 누른 순간의 세대·층 — 그 뒤 지움·끊김·층 바뀜이면 차례가 와도 버림
-    adding = adding.then(() => addMark(p, g0, f));   // 누른 차례대로(앞 점 길 찾기가 끝난 뒤 그 점에서 잇는다)
+    picking = true; // set before the promise microtask so a second tap cannot queue work
+    planningSince = performance.now();
+    adding = adding.then(() => addMark(p, g0, f)).finally(() => { picking = false; planningSince = Infinity; });
   };
   // 끊김(STOP·pagehide·reset = lock, 막대·조종 키 = 손 조종) 순간 찾던 길·줄 선 누름을 모두 버린다 — 늦은 결과가 출발하거나 손 조종을 덮지 않게
   onLock = () => { gen++; };
@@ -651,7 +659,7 @@ async function main() {
     if (on && curMark() !== shown) drawMarks();   // 목적지에 닿음 = 그 고리 지우고 다음을 진하게
     const m = on && marks[curMark()];
     // 안내(추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
-    const text = now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
+    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 

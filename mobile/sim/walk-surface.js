@@ -8,12 +8,32 @@ export const CLEARANCE = 0.45; // same obstacle margin as the existing A* and we
 export function makeWalkSurface(mj, m, d) {
   const hit = new mj.IntBuffer(1), normal = new mj.DoubleBuffer(3);
   const group = [1, 1, 1, 1, 1, 0], down = [0, 0, -1], up = [0, 0, 1];
-  const excluded = [], fields = [];
+  const excluded = [], fields = [], columns = new Map(), planes = [];
+  const key = (x, y) => `${Math.floor(x / 2)},${Math.floor(y / 2)}`;
+  const bounds = [];
   let top = 1;
   for (let g = 0; g < m.ngeom; g++) {
     if (m.geom_bodyid[g] !== 0 || !(m.geom_contype[g] || m.geom_conaffinity[g])) excluded.push([g, m.geom_group[g]]);
     else {
       top = Math.max(top, d.geom_xpos[3 * g + 2] + m.geom_rbound[g] + 1);
+      // Static contact geometry only. Index its world AABB once; vertical
+      // support rays then call MuJoCo's exact per-geom intersection instead
+      // of scanning every geom (and rewriting excluded groups) for every cell.
+      const pos = Array.from(d.geom_xpos.slice(3 * g, 3 * g + 3)), R = Array.from(d.geom_xmat.slice(9 * g, 9 * g + 9));
+      const a = m.geom_aabb.slice(6 * g, 6 * g + 6), lo = [], hi = [];
+      for (let j = 0; j < 3; j++) {
+        const mid = pos[j] + R[3 * j] * a[0] + R[3 * j + 1] * a[1] + R[3 * j + 2] * a[2];
+        const half = Math.abs(R[3 * j]) * a[3] + Math.abs(R[3 * j + 1]) * a[4] + Math.abs(R[3 * j + 2]) * a[5];
+        lo[j] = mid - half; hi[j] = mid + half;
+      }
+      const geom = { g, pos, R, size: Array.from(m.geom_size.slice(3 * g, 3 * g + 3)), type: m.geom_type[g], lo, hi };
+      bounds.push(geom);
+      if (geom.type === 0) planes.push(geom);
+      else for (let x = Math.floor(lo[0] / 2); x <= Math.floor(hi[0] / 2); x++) for (let y = Math.floor(lo[1] / 2); y <= Math.floor(hi[1] / 2); y++) {
+        const k = `${x},${y}`;
+        if (!columns.has(k)) columns.set(k, []);
+        columns.get(k).push(geom);
+      }
       // Upright heightfields are solid terrain, never overhead ceilings.
       // Native rays beginning inside them can meet a thin support's underside
       // first, so establish the local terrain datum with per-field rays.
@@ -24,6 +44,31 @@ export function makeWalkSurface(mj, m, d) {
       }
     }
   }
+  const verticalRay = (origin, direction) => {
+    let nearest = null;
+    for (const geom of [...planes, ...(columns.get(key(origin[0], origin[1])) ?? [])]) {
+      const { g, type, lo, hi } = geom;
+      if (m.geom_group[g] === 5 || (type !== 0 && (origin[0] < lo[0] || origin[0] > hi[0] || origin[1] < lo[1] || origin[1] > hi[1]))) continue;
+      // Upright boxes have just two vertical intersections. Resolve those
+      // from the same compiled pose/size without crossing the WASM boundary
+      // twice for every floor/ceiling query. Other shapes use native rays.
+      if (type === 6 && Math.abs(geom.R[8]) === 1) {
+        const dx = origin[0] - geom.pos[0], dy = origin[1] - geom.pos[1];
+        if (Math.abs(geom.R[0] * dx + geom.R[3] * dy) > geom.size[0] || Math.abs(geom.R[1] * dx + geom.R[4] * dy) > geom.size[1]) continue;
+        const lower = (lo[2] - origin[2]) * direction[2], upper = (hi[2] - origin[2]) * direction[2];
+        const distance = Math.min(lower >= 0 ? lower : Infinity, upper >= 0 ? upper : Infinity);
+        if (Number.isFinite(distance) && (!nearest || distance < nearest.distance)) nearest = { x: origin[0], y: origin[1], z: origin[2] + direction[2] * distance,
+          up: distance === lower ? -1 : 1, distance, geom: g };
+        continue;
+      }
+      const distance = type === 1 ? mj.mj_rayHfield(m, d, g, origin, direction, normal)
+        : type === 7 ? mj.mj_rayMesh(m, d, g, origin, direction, normal)
+          : mj.mju_rayGeom(geom.pos, geom.R, geom.size, origin, direction, type, normal);
+      if (distance >= 0 && (!nearest || distance < nearest.distance)) nearest = { x: origin[0], y: origin[1], z: origin[2] + direction[2] * distance,
+        up: normal.GetView()[2], distance, geom: g };
+    }
+    return nearest;
+  };
   const raycast = (origin, direction) => {
     // Restore groups synchronously before policy/lidar can run.
     try {
@@ -40,7 +85,7 @@ export function makeWalkSurface(mj, m, d) {
       // A nearer floor ENTRY can hide another solid's EXIT (including a
       // coplanar plane at a support box's bottom). Inspect each hit geom.
       for (let k = 0; k < m.ngeom; k++) {
-        const p = raycast([x, y, z], down);
+        const p = verticalRay([x, y, z], down);
         if (!p) return false;
         if (p.up < 0) return true;
         suppressed.push([p.geom, m.geom_group[p.geom]]); m.geom_group[p.geom] = 5;
@@ -69,7 +114,7 @@ export function makeWalkSurface(mj, m, d) {
     let datum = fieldHeight(x, y, floorZ);
     let z = datum + .4, roof = ceiling;
     for (let k = 0; z < ceiling && k < m.ngeom; k++) {
-      const p = raycast([x, y, z], up);
+      const p = verticalRay([x, y, z], up);
       if (!p || p.z >= ceiling) break;
       if (p.up < 0) {
         // A support slab may overlap the terrain beneath it. Its underside
@@ -85,7 +130,7 @@ export function makeWalkSurface(mj, m, d) {
       }
       z = p.z + .4;
     }
-    const p = raycast([x, y, Math.min(top, roof)], down);
+    const p = verticalRay([x, y, Math.min(top, roof)], down);
     return p && p.up >= minUp ? p.z : NaN;
   };
   const pick = (origin, direction, map, ceiling = Infinity) => {
@@ -107,13 +152,39 @@ export function makeWalkSurface(mj, m, d) {
   };
   const attach = (map, ceiling = Infinity) => {
     // Heights are lazy: don't scan a million factory cells at page startup.
-    const heights = new Map();
+    const heights = new Float64Array(map.w * map.h), known = new Uint8Array(map.w * map.h);
+    map.cellHeight = (i) => {
+      if (!known[i]) {
+        heights[i] = floorAt(map.origin[0] + (i % map.w + .5) * map.res, map.origin[1] + (map.h - Math.floor(i / map.w) - .5) * map.res, ceiling, MIN_UP, map.floor_z);
+        known[i] = 1;
+      }
+      return heights[i];
+    };
     map.heightAt = (x, y) => {
       const c = Math.floor((x - map.origin[0]) / map.res), r = Math.floor((y - map.origin[1]) / map.res);
       if (c < 0 || r < 0 || c >= map.w || r >= map.h) return NaN;
-      const i = r * map.w + c;
-      if (!heights.has(i)) heights.set(i, floorAt(map.origin[0] + (c + .5) * map.res, map.origin[1] + (r + .5) * map.res, ceiling, MIN_UP, map.floor_z));
-      return heights.get(i);
+      return map.cellHeight((map.h - 1 - r) * map.w + c);
+    };
+    // Prove a flat navigation layer from contact boxes and the inflated grid.
+    // A floor slab must cover every traversable cell; any possible raised
+    // support keeps the height-aware path. Overhead boxes cannot be floors.
+    map.prepareNavigation = (grid) => {
+      if (planes.length) return false; // infinite/tilted plane bounds cannot prove coverage
+      const floors = bounds.filter((b) => b.type === 6 && Math.abs(b.hi[2] - map.floor_z) < 1e-6 && Math.abs(b.R[8]) === 1);
+      const covers = (b, x, y) => {
+        if (x < b.lo[0] || x > b.hi[0] || y < b.lo[1] || y > b.hi[1]) return false;
+        if (b.type !== 6 || Math.abs(b.R[8]) !== 1) return true; // conservative for tilted boxes/meshes/heightfields
+        const dx = x - b.pos[0], dy = y - b.pos[1];
+        return Math.abs(b.R[0] * dx + b.R[3] * dy) <= b.size[0] && Math.abs(b.R[1] * dx + b.R[4] * dy) <= b.size[1];
+      };
+      if (!floors.length) return false;
+      const raised = new Set(bounds.filter((b) => b.hi[2] > map.floor_z + 1e-6 && b.lo[2] < map.floor_z + .4 && b.lo[2] < ceiling));
+      for (let r = 0; r < map.h; r++) for (let c = 0; c < map.w; c++) {
+        if (grid[r * map.w + c]) continue;
+        const x = map.origin[0] + (c + .5) * map.res, y = map.origin[1] + (map.h - r - .5) * map.res;
+        if (!floors.some((b) => covers(b, x, y)) || [...planes, ...(columns.get(key(x, y)) ?? [])].some((b) => raised.has(b) && covers(b, x, y))) return false;
+      }
+      return true;
     };
   };
   return { raycast, pick, floorAt, attach, dispose: () => { hit.delete(); normal.delete(); } };
