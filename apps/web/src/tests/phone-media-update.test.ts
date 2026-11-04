@@ -11,18 +11,36 @@ const offer = (epoch = 1): PhoneMediaWelcome => ({ version: 'media/1', path: '/p
   external: { available: true, reason: 'Ready', token: 'e'.repeat(43) },
   lidar: { available: true, reason: 'Ready', token: 'l'.repeat(43) } });
 
-async function connect() {
+async function connect(simulation: boolean | undefined = true) {
   vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ token: 'test-pass', exp: 2000000000, kid: 'k' }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }));
   await sim.attach({ robot_id: R, agent_address: 'ws://127.0.0.1:9433/phone/ws', state: 'RUNNING',
     simulation: true, generation: 1, owner_id: 'u', world_id: 'warehouse', expires_at: null, remaining_s: null } as SimRobot);
   const parent = FakeWS.last;
   parent.auto = null; parent.open();
-  parent.recv({ t: 'hello', id: '1', robot: R, proto: 'fh-phone/1', simulation: true, camera_token: 'c'.repeat(43) });
+  parent.recv({ t: 'hello', id: '1', robot: R, proto: 'fh-phone/1', simulation, camera_token: 'c'.repeat(43) });
   return parent;
 }
 
-afterEach(() => { sim.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { sim.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it.each([true, false])('시뮬(%s)만 숨겨도 관측 소켓 유지 — 복귀에 부모 재연결·임무 중단이 필요 없음', async (simulation) => {
+  const parent = await connect(simulation);
+  media.want('external', 1);
+  try {
+    parent.recv({ t: 'media.update', robot: R, media: offer() });
+    const child = FakeWS.last; child.auto = null; child.open();
+    expect(child.url).toContain('/phone/media/ws');
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(child.readyState).toBe(simulation ? 1 : 3);
+    expect(parent.readyState).toBe(1);
+    vi.restoreAllMocks(); document.dispatchEvent(new Event('visibilitychange'));
+    expect(FakeWS.all.filter(w => w.url.endsWith('/phone/ws'))).toHaveLength(1);
+    if (simulation) expect(media.get().external.state).not.toBe('expired');
+    else expect(media.get().external.state).toBe('expired');
+  } finally { media.want('external', -1); }
+});
 
 it('hello 없이 media 가 늦게 준비돼도 같은 부모에서 영상 연결·세대 갱신·해지, 전후 STOP 즉시', async () => {
   const parent = await connect();

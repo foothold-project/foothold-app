@@ -111,14 +111,15 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
 
 // Human input cancels autonomy and enters the existing STOP lock. A new Run is required.
 // 찍은 곳 가기(goal)만 예외: 막대·키(손 조종)는 목표를 취소하고 잠그지 않는다 — 손 조종이 바로 이어진다.
-export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, win, home, reset }) {
+export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, win, home, reset, preserveOnHide = false }) {
   const interrupt = () => { if (runner.active) { runner.cancel('중단'); lock(); } };
   const hand = () => { if (runner.active && runner.goal) runner.cancel('손 조종'); else interrupt(); };
   for (const el of [left, right]) el.addEventListener('pointerdown', hand, { capture: true });
   stop.addEventListener('pointerdown', interrupt, { capture: true });
   stop.addEventListener('click', interrupt, { capture: true });
-  doc.addEventListener('visibilitychange', () => { if (doc.hidden) interrupt(); });
-  for (const ev of ['pagehide', 'freeze', 'blur']) win.addEventListener(ev, interrupt);
+  doc.addEventListener('visibilitychange', () => { if (doc.hidden && !preserveOnHide) interrupt(); });
+  for (const ev of ['freeze', 'blur']) win.addEventListener(ev, () => { if (!preserveOnHide) interrupt(); });
+  win.addEventListener('pagehide', interrupt);   // 실제로 페이지를 떠나면 기존 취소·잠금
   for (const el of [home, reset]) el.addEventListener('click', interrupt, { capture: true });
   return { hand };
 }
