@@ -19,6 +19,7 @@ import { createFrameClock } from './frame-clock.js';
 import { createKeyboardRamp } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, replayRequirement } from './go2-replay.js';
+import { loadCustomTerrain } from './terrain/index.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
@@ -264,9 +265,12 @@ async function main() {
   };
   applySettings(readonly ? {} : await refreshSettings());
   const params = new URLSearchParams(location.search);
-  const q = params.get('map') ?? '', maps = await json('maps.json');
-  const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
-  const [mj, sceneJ, mapJ] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`)]);
+  const q = params.get('map') ?? '', maps = q === 'custom' ? [] : await json('maps.json');
+  // Custom terrain errors reach the existing visible failure panel; never fall
+  // through to warehouse or fetch assets/custom from the server.
+  const customTerrain = q === 'custom' ? loadCustomTerrain(localStorage, params.get('terrain')) : null;
+  const id = customTerrain ? 'custom' : /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
+  const [mj, sceneJ, mapJ] = await Promise.all([load(), customTerrain?.scene ?? json(`${dir}/scene.json`), customTerrain?.map ?? json(`${dir}/map.json`)]);
   let fallbackPolicy = null;
   try {
     if (adapter.network) {
@@ -280,7 +284,7 @@ async function main() {
   } catch (error) { st.fallbackUnavailable = error.message; }
   let map = decodeMap(mapJ);   // 로봇이 지금 선 층의 지도(찍기·시나리오 검사) — 여러 층이면 몸 높이로 바뀐다
   // 여러 층(top.json floors, z = 로봇 몸 높이 반열린 띠 [아래, 위)): 층마다 지도·시나리오 파일. 한 층이면 지금처럼 map.json·scenarios.json 하나
-  const floors = await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
+  const floors = customTerrain ? [] : await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
     map: decodeMap(await json(`${dir}/${f.map_file}`)) }))) : []), () => []);
   const layers = floors.length ? floors : [{ name: '', map }];
   const startFloor = Math.max(0, floors.findIndex((f) => f.id === params.get('floor')));
@@ -302,7 +306,7 @@ async function main() {
   if (!Array.isArray(physicsAssets) || physicsAssets.length > 8 || physicsAssets.some((f) => typeof f !== 'string' || !/^[a-z0-9_-]+\.png$/.test(f))) throw new Error('지형 파일 목록 형식');
   await Promise.all([
     bytes('assets/unitree_go2/go2.xml').then((b) => mj.FS.writeFile('/go2/go2.xml', b)),
-    bytes(`${dir}/${id}.xml`).then((b) => mj.FS.writeFile('/go2/world.xml', b)),
+    customTerrain ? mj.FS.writeFile('/go2/world.xml', customTerrain.xml) : bytes(`${dir}/${id}.xml`).then((b) => mj.FS.writeFile('/go2/world.xml', b)),
     // MuJoCo include resources and the Go2 compiler use these two asset roots.
     ...physicsAssets.map(async (f) => { const b = await bytes(`${dir}/${f}`);
       mj.FS.writeFile(`/go2/${f}`, b); mj.FS.writeFile(`/go2/assets/${f}`, b); }),
@@ -344,7 +348,7 @@ async function main() {
   // 층 시나리오는 floor_id 가 그 층이고 지점이 그 층 지도의 빈 칸이어야 한다(floor = 층 번호)
   try { scenarios = floors.length ? (await Promise.all(floors.map(async (f, i) => validateScenarios(await json(`${dir}/${f.scn}`), f.map)
     .map((x) => { if (x.floor_id !== f.id) throw new Error('시나리오 층이 파일 층과 다름'); return { ...x, floor: i }; })))).flat()
-    : validateScenarios(await json(`${dir}/scenarios.json`), map); }
+    : customTerrain ? [] : validateScenarios(await json(`${dir}/scenarios.json`), map); }
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
