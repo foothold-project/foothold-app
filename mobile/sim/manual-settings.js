@@ -1,4 +1,5 @@
 // MuJoCo command limits only; real robot limits remain with the agent.
+import { effectiveSettings } from './settings.js';
 const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.5], sim_max_wz: [0, 1.2], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] };
 // Handoff §1.5. start is prepared data only, registered in the mode task.
 // NVIDIA reverse deliberately preserves the old symmetric joystick envelope;
@@ -19,7 +20,8 @@ export function modeCapText(command, settings = manualSettings({}, command)) {
   const key = settings.key < c.forward ? ` · 키${settings.key} m/s` : '';
   return `적용 상한 · 앞${c.forward} 뒤${c.reverse} 옆${c.lateral} m/s · 회전${c.turnInPlace}/이동${c.turnWalking} rad/s${key}`;
 }
-export function manualSettings(org, command) {
+export function manualSettings(org, command, modeId) {
+  org = effectiveSettings(org, modeId);
   // Retain array callers while modes migrate to command.caps (five directions).
   const legacy = Array.isArray(command), spec = legacy ? { joystickScale: command } : command;
   const goal = spec.kind === 'nearby_goal', tune = {};

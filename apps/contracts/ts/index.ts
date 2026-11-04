@@ -952,6 +952,7 @@ export interface OrgSettings {
   sim_runner_wz?: number;
   lidar_view_m?: number;
   real_no_fast_server_drive?: boolean;
+  model_overrides?: Record<string, Record<string, number | boolean>>;
 }
 
 export interface OrgSettingsPatch {
@@ -970,6 +971,7 @@ export interface OrgSettingsPatch {
   sim_runner_wz?: number;
   lidar_view_m?: number;
   real_no_fast_server_drive?: boolean;
+  model_overrides?: Record<string, Record<string, number | boolean | null>>;
 }
 
 export interface PairingClaim {

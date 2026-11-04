@@ -6,8 +6,14 @@ export function boundedNumber(value, min, max, fallback) {
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 }
 
-export function simSettings(org, caps = {}) {
+export function effectiveSettings(org, modeId) {
   const o = org && typeof org === 'object' ? org : {};
+  const id = modeId === 'foothold-v2' ? 'nvidia-demo' : modeId;
+  return { ...o, ...(id && o.model_overrides?.[id]) };
+}
+
+export function simSettings(org, caps = {}, modeId) {
+  const o = effectiveSettings(org, modeId);
   const turnCap = boundedNumber(caps.wz, 0, 1.2, 1);
   return {
     vx: boundedNumber(o.sim_runner_vx, 0.1, 1.5, DEFAULT_VX),

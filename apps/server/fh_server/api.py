@@ -304,6 +304,10 @@ def create_app(settings: Settings | None = None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
+        if request.url.path == '/api/v1/org/settings' and any('model_overrides' in e['loc'] for e in exc.errors()):
+            return JSONResponse(status_code=422, content={'error': {
+                'code': 'VALIDATION', 'message': exc.errors()[0]['msg'].removeprefix('Value error, '),
+                'detail': {'elements': ['model_overrides']}}})
         if any(e['loc'][0] == 'header' and str(e['loc'][1]).lower() == 'idempotency-key' for e in exc.errors()):
             return JSONResponse(status_code=422, content={'error': {'code': 'VALIDATION', 'message': '멱등 키 형식을 확인하세요.', 'detail': {}}})
         if (request.url.path.startswith(('/api/v1/missions', '/api/v1/scenarios', '/api/v1/assignments'))
@@ -835,8 +839,24 @@ def create_app(settings: Settings | None = None):
         previous = C.OrgSettings.model_validate(org.settings)
         was_enabled = previous.real_no_fast_server_drive
         stored = {**org.settings, **values}
+        if 'model_overrides' in values:
+            overrides = {model: dict(fields) for model, fields in previous.model_overrides.items()}
+            for model, patch in values['model_overrides'].items():
+                fields = overrides.setdefault(model, {})
+                for key, value in patch.items():
+                    if value is None:
+                        fields.pop(key, None)
+                    else:
+                        fields[key] = value
+                if not fields:
+                    overrides.pop(model, None)
+            if overrides:
+                stored['model_overrides'] = overrides
+            else:
+                stored.pop('model_overrides', None)
         try:
-            C.OrgSettings.model_validate({**previous.model_dump(), **values})
+            C.OrgSettings.model_validate({**previous.model_dump(), **values,
+                'model_overrides': stored.get('model_overrides', {})})
             # Return the defaults inherited by the new sparse row as GET does,
             # including a key default bounded by a retained forward cap.
             result = C.OrgSettings.model_validate(stored)
