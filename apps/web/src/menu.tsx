@@ -2,7 +2,7 @@
 // 아이콘 선은 원본 화면(ui/src/screens/PcSettings.view.tsx 주 메뉴)에서 옮겼다. 결재 아이콘만 새로 그림.
 import type { Role } from './fake';
 
-export type TabId = 'fleet' | 'drive' | 'sim' | 'approval' | 'history' | 'map' | 'trash' | 'settings';
+export type TabId = 'fleet' | 'drive' | 'sim' | 'terrain' | 'approval' | 'history' | 'map' | 'trash' | 'settings';
 export type Tab = { id: TabId; label: string | Record<Role, string>; icon: JSX.Element; hidden?: boolean };   // hidden = 메뉴에 안 보임(주소·알림 링크로는 열림)
 
 const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
@@ -26,6 +26,7 @@ export const PC_TABS: Tab[] = [
   { id: 'approval', label: { ORG_ADMIN: '결재', OPERATOR: '내 요청' }, icon: ICON.approval, hidden: true },
   { id: 'map', label: '지도', icon: ICON.map },
   { id: 'sim', label: '시뮬', icon: ICON.sim },
+  { id: 'terrain', label: '지형 만들기', icon: ICON.sim, hidden: true },   // 입구 = 시뮬 시작 화면 «지형 만들기»(TERRAIN-EDITOR 11-04)
   { id: 'history', label: '기록', icon: ICON.history },
   { id: 'trash', label: '휴지통', icon: ICON.trash, hidden: true },   // 입구 = 지도·시나리오 화면의 «휴지통»(11-02)
 ];

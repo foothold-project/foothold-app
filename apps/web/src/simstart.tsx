@@ -65,7 +65,8 @@ function Mark({ x, y, yaw, k, pick }: { x: number; y: number; yaw: number; k: nu
   </g>;
 }
 
-export function SimPick() {
+/** make = PC «시뮬» 탭: «지형 만들기» 입구를 보인다(폰 틀·앱 안은 숨김 — 저장본을 시뮬과 나눌 수 있는 곳만) */
+export function SimPick({ make }: { make?: boolean }) {
   const [want, setWant] = useState(savedMap), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0];
   const meta = META[dir(map.id, 'top.json')], floors = floorsOf(map.id), [fid, setFid] = useState(''), floor = floors.find((f) => f.id === fid) ?? floors[0];
   const [start, setStart] = useState<[number, number] | null>(null), [why, setWhy] = useState('');
@@ -98,6 +99,7 @@ export function SimPick() {
     {why && <p className="fh-why" role="status" data-sim-why>{why}</p>}
     <div className="fh-row">
       <button type="button" className="btn" disabled={!start} onClick={reset} data-sim-home>기본 위치로</button>
+      {make && <a className="btn" href="#/terrain" style={{ textDecoration: 'none', color: 'var(--text)' }} data-terrain-enter>지형 만들기</a>}
       <a className="btn pri dv-grow" href={openUrl(map.id, floors.length > 1 ? floor.id : '', start)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
     </div>
   </>;

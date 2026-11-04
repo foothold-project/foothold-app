@@ -1,0 +1,41 @@
+/* 지형 만들기(terrain.tsx). 틀·단추·목록은 mapscen.css 의 .mx-* 그대로, 여기는 판 그림과 칸 크기만. 색은 기존 토큰만 */
+.tr-bar{flex-wrap:wrap}
+.tr-inline{flex-direction:row;align-items:center;gap:6px;white-space:nowrap}
+.tr-bar .inp{height:44px;width:72px;padding:0 8px}
+.tr-bar .inp.tr-name{width:180px}
+.tr-tools .btn{width:56px;height:auto;min-height:52px;flex-direction:column;gap:2px;font-size:12px;font-weight:500}
+.tr-saved{padding:0;min-width:280px}
+.tr-wipe{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:4px 8px;font-size:13px}
+.tr-pad{padding:12px 12px 0}
+.tr-general{list-style:none;margin:0;padding:12px 12px 0;display:flex;flex-direction:column;gap:4px}
+.tr-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tr-fields .inp{height:44px;padding:0 8px}
+.tr-msg{flex:1 1 100%;font-size:12px;line-height:1.4;color:var(--warn);white-space:normal}
+.tr-msg[data-bad]{color:var(--bad)}
+
+.tr-board{display:block;background:var(--bg);touch-action:none;user-select:none;cursor:default;outline-offset:-2px}
+.tr-board[data-tool]:not([data-tool="select"]){cursor:crosshair}
+.tr-board:focus-visible{outline:2px solid var(--accent)}
+.tr-floor{fill:var(--panel);stroke:var(--line2);stroke-width:2;vector-effect:non-scaling-stroke}
+.tr-grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.tr-item{cursor:move}
+.tr-board:not([data-tool="select"]) .tr-item,.tr-board:not([data-tool="select"]) .tr-spawn{cursor:crosshair}
+.tr-step{stroke:var(--panel);stroke-width:1;vector-effect:non-scaling-stroke}
+.tr-edge{fill:none;stroke:var(--line2);stroke-width:1;vector-effect:non-scaling-stroke}
+.tr-edge[data-sel]{stroke:var(--accent);stroke-width:3}
+.tr-item[data-state="warn"] .tr-edge{stroke:var(--warn);stroke-width:2}
+.tr-item[data-state="bad"] .tr-edge{stroke:var(--bad);stroke-width:2}
+.tr-item[data-state] .tr-edge[data-sel]{stroke-width:3.5}
+.tr-arrow{fill:none;stroke:var(--text);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;pointer-events:none}
+.tr-num,.tr-issue{paint-order:stroke;stroke:var(--panel);stroke-linejoin:round}   /* 굵기는 화면 px 기준으로 tsx 가 준다(글자엔 non-scaling-stroke 가 안 먹음) */
+.tr-num{fill:var(--text);font-weight:700}
+.tr-issue{fill:var(--warn);font-weight:600}
+.tr-issue[data-bad]{fill:var(--bad)}
+.tr-spawn{cursor:move}
+.tr-spawn circle:last-child{fill:var(--accent);stroke:var(--on-accent);stroke-width:2;vector-effect:non-scaling-stroke}
+.tr-spawn line{stroke:var(--accent);stroke-width:3;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.tr-spawn .tr-keep{fill:color-mix(in srgb,var(--accent) 12%,transparent);stroke:var(--accent);stroke-width:1;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.tr-spawn[data-sel] circle:last-child{stroke:var(--text)}
+.tr-hline{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:3 3;vector-effect:non-scaling-stroke;pointer-events:none}
+.tr-handle{fill:var(--panel);stroke:var(--accent);stroke-width:2.5;vector-effect:non-scaling-stroke;pointer-events:none}
+.tr-hint{max-width:calc(100% - 16px)}
