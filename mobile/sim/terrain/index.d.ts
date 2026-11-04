@@ -14,7 +14,7 @@ export interface TerrainMap {
 }
 export interface BuiltTerrain {
   xml:string;
-  scene:{meshes:Record<string,{p:number[];i:number[]}>;models:{name:string;mesh:string;pos:number[];quat:number[];color:number[]}[]};
+  scene:{meshes:Record<string,{p:number[];i:number[]}>;models:{name:string;mesh:string;pos:number[];quat:number[];color:number[];flat_shading:boolean}[]};
   map:TerrainMap;
   top:{bounds:number[];px:number[];map:{origin:number[];res:number;w:number;h:number};svg:string};
 }

@@ -191,8 +191,9 @@ try {
   $('busy').hidden = true; $('fail').removeAttribute('hidden');
   const option = Array.from($('policySelect').options).find((x) => x.value === adapter.id);
   if (option) option.disabled = true;
-  $('policyReason').textContent = e.message;
-  if (selectionError || !$('policyEngine').textContent) $('policyEngine').textContent = e.message;
+  const reason = e?.message || String(e);
+  $('policyReason').textContent = reason;
+  $('policyEngine').textContent = `시뮬을 열지 못했습니다: ${reason}`;
   $('policyEngine').hidden = false;
 }
 

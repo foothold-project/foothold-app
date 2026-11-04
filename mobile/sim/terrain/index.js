@@ -77,7 +77,16 @@ const area = poly => Math.abs(poly.reduce((sum, a, i) => {
   const b = poly[(i + 1) % poly.length];
   return sum + a[0] * b[1] - a[1] * b[0];
 }, 0)) / 2;
-function subtract(poly, hole) {
+const polygonBounds = poly => [Math.min(...poly.map(p => p[0])), Math.min(...poly.map(p => p[1])),
+  Math.max(...poly.map(p => p[0])), Math.max(...poly.map(p => p[1]))];
+function subtract(poly, hole, holeBounds) {
+  const b = polygonBounds(poly);
+  if (b[2] <= holeBounds[0] || b[0] >= holeBounds[2] || b[3] <= holeBounds[1] || b[1] >= holeBounds[3]) return [poly];
+  // AABB overlap can still be a miss for rotated rectangles. Avoid cutting a
+  // disjoint polygon by the gap's infinite edge lines in that case too.
+  let overlap = poly;
+  for (let i = 0; i < 4 && overlap.length >= 3; i++) overlap = clip(overlap, hole[i], hole[(i + 1) % 4], 1);
+  if (overlap.length < 3 || area(overlap) <= 1e-10) return [poly];
   const pieces = [];
   let remaining = poly;
   for (let i = 0; i < 4 && remaining.length >= 3; i++) {
@@ -116,7 +125,7 @@ export function buildTerrain(spec) {
   const add = (mesh, color, pos = [0, 0, 0], yaw = 0, boxSize = null) => {
     const name = `terrain-${models.length}`, quat = [Math.cos(yaw/2), 0, 0, Math.sin(yaw/2)];
     meshes[name] = mesh;
-    models.push({name, mesh: name, pos, quat, color});
+    models.push({name, mesh: name, pos, quat, color, flat_shading: true});
     if (!boxSize) assets.push(`<mesh name="${name}" vertex="${mesh.p.join(' ')}" face="${mesh.i.join(' ')}"/>`);
     const shape = boxSize ? `type="box" size="${boxSize.map(v => v/2).join(' ')}"` : `type="mesh" mesh="${name}"`;
     geoms.push(`<geom name="${name}" group="1" ${shape} pos="${pos.join(' ')}" quat="${quat.join(' ')}" rgba="${color.join(' ')} 1"/>`);
@@ -126,9 +135,19 @@ export function buildTerrain(spec) {
     color, [x, y, h/2], yaw, [a, b, h]);
   const gaps = spec.items.filter(o => o.kind === 'gap');
   let support = [boundary];
-  for (const o of gaps) support = support.flatMap(p => subtract(p, corners(o)));
+  for (const o of gaps) {
+    const hole = corners(o), holeBounds = polygonBounds(hole);
+    support = support.flatMap(p => subtract(p, hole, holeBounds));
+  }
   add(prism(boundary, -.6, -.5), [.15, .17, .20]);
   for (const p of support) add(prism(p, -.5, 0), [.32, .36, .40]);
+  // A visible 20 cm curb occupies the outer 5 cm, matching the unknown map
+  // border below. Keep navigation clearance away from this physical edge.
+  const edge = .05, curb = [.48, .51, .54];
+  box(0, -sy/2 + edge/2, 0, sx, edge, .2, curb);
+  box(0, sy/2 - edge/2, 0, sx, edge, .2, curb);
+  box(-sx/2 + edge/2, 0, 0, edge, sy - 2*edge, .2, curb);
+  box(sx/2 - edge/2, 0, 0, edge, sy - 2*edge, .2, curb);
   spec.items.forEach(o => {
     const color = o.kind === 'ramp' ? [.58, .65, .72] : [.65, .55, .38];
     if (o.kind === 'box') box(o.x, o.y, o.yaw, o.sx, o.sy, o.h, color);
@@ -164,7 +183,8 @@ export function buildTerrain(spec) {
       const v = Math.max(0, Math.abs(-o.s * dx + o.c * dy) - o.hy);
       return u*u + v*v <= pad*pad;
     });
-    px[r*w+c] = (x + res/2 > sx/2 + 1e-9 || y + res/2 > sy/2 + 1e-9) ? 205 : blocked ? 0 : 254;
+    px[r*w+c] = (r === 0 || c === 0 || r === h - 1 || c === w - 1 ||
+      x + res/2 > sx/2 + 1e-9 || y + res/2 > sy/2 + 1e-9) ? 205 : blocked ? 0 : 254;
   }
   const map = {res, origin, w, h, floor_z: 0, spawn_xyyaw: spec.spawn.slice(), spawn_z: .4, px: encode(px)};
   const bounds = [-sx/2 - .3, -sy/2 - .3, sx/2 + .3, sy/2 + .3];
