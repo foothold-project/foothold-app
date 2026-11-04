@@ -7,7 +7,13 @@
 .st-legend{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .st-grid{display:flex;flex-wrap:wrap;gap:16px;align-content:flex-start}
 .st-grid[hidden]{display:none}
-.st-grid>section{flex:1 1 340px;min-width:0}
+.st-grid>section,.st-scope>section{flex:1 1 340px;min-width:0}
+.st-scope{display:contents}.st-scope[hidden]{display:none}
+.st-modelbar{flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:8px}
+.st-tabs button[aria-pressed="true"]{background:var(--acc-bg);color:var(--accent)}
+.st-ov-wrap{display:flex;flex-direction:column;gap:6px}
+.st-ov{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.st-tag.own{color:var(--accent);border-color:var(--accent);background:var(--acc-bg)}
 .st-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
 .st-lab{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .st-unit{display:flex;align-items:center;gap:8px}.st-unit .inp{max-width:140px}
@@ -30,5 +36,5 @@
 .st-row b{color:var(--text);font-weight:600;white-space:nowrap}
 @media (max-width:640px){
   .st-tabs{align-self:stretch}.st-tabs button{flex:1;padding:8px 0}
-  .st-grid>section{flex-basis:100%}
+  .st-grid>section,.st-scope>section{flex-basis:100%}
 }
