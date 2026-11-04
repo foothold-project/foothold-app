@@ -141,7 +141,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
         <li key={id}><label className="fh-row">
           <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}
-    {app ? <><SimPick />
+    {app ? <><SimPick make={!only} />
       {only && <p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p>}</> : <>
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">

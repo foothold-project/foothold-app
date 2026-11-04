@@ -15,6 +15,7 @@ import { Trash } from './screens/trash';
 import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
+import { Terrain } from './screens/terrain';
 import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
 import { AdminFleet, OperatorRobot } from './screens/fleet';
@@ -226,4 +227,4 @@ const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 �
 /** 이 로봇에 배정된 시나리오(GET /assignments?robot_id=) — 폰 조종 화면의 시나리오 시트 */
 export const Scenario = (c: Ctx) => <AssignedCards robot={c.robot} cancel={c.cancel} />;
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
