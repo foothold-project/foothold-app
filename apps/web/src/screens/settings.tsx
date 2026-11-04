@@ -16,6 +16,10 @@ const Note = ({ msg }: { msg: Msg }) => (msg ? <p style={WRAP} className={`fh-ms
 const TABS = [['common', '공통'], ['real', '실기'], ['sim', '시뮬'], ['acct', '계정']] as const;
 type Tab = (typeof TABS)[number][0];
 
+/** 시뮬 탭에서 고를 모델: 등록부(mobile/sim/policy-modes.js) 정식 id·이름. go2-demo 는 명령·물리 없는 보기 전용이라 고칠 값이 없어 뺀다.
+ *  등록부에 실기로 도는 모델이 없어 실기 탭은 «공통»만 보인다 */
+export const SIM_MODELS = [['nvidia-demo', 'nvidia'], ['ame2-demo', 'AME-2'], ['start-demo', 'start']] as const;
+
 /** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다. 고른 탭은 화면 상태(주소 #해시 아님).
  *  네 묶음은 늘 그려 두고 hidden 으로만 숨긴다 — 탭을 바꿔도 쓰던 칸·한 번만 보이는 임시 비밀번호가 사라지지 않게 */
 export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) {
@@ -29,6 +33,15 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
   };
   const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>;
   const card = (p: Omit<CardProps, 'org' | 'admin' | 'cancel'>) => <OrgCard org={org} admin={admin} cancel={c.cancel} {...p} />;
+  // 고른 모델의 카드는 처음 고를 때 그려 두고 hidden 으로만 숨긴다 — 모델을 오가도 쓰던 칸이 사라지지 않게(탭과 같은 방식). '' = 공통
+  const [model, setModel] = useState(''), [opened, setOpened] = useState<string[]>([]);
+  const pickModel = (m: string) => { setModel(m); if (m && !opened.includes(m)) setOpened([...opened, m]); };
+  const simCards = (m: string) => <div key={m} className="st-scope" data-model={m || undefined} hidden={model !== m}>
+    {card({ id: 'simcap', model: m, label: '시뮬 속도 상한', cap: true, note: '모드·연결별 상한 안에서 적용합니다. 조직 설정으로 상한을 넓히지는 않습니다.', fields: SIM_CAP })}
+    {card({ id: 'siminput', model: m, label: '조종 입력·임무 실행기', fields: SIM_INPUT })}
+    {card({ id: 'simview', model: m, label: '표시', fields: SIM_VIEW })}
+  </div>;
+  const modelName = SIM_MODELS.find(([id]) => id === model)?.[1];
   return <div className="st">
     <div className="st-tabs" role="tablist" aria-label="설정 묶음" ref={list} onKeyDown={key}>
       {TABS.map(([id, name]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}>{name}</button>)}
@@ -37,6 +50,10 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     {org.err && <p className="fh-msg" role="alert">{org.err}</p>}
     {panel('common', card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON }))}
     {panel('real', <>
+      <div className="st-modelbar">
+        <div className="st-tabs" role="group" aria-label="실기 값을 고칠 모델"><button type="button" aria-pressed="true">공통</button></div>
+        <p className="st-note">실기에서 도는 모델이 하나뿐이라 모델별 값 없음</p>
+      </div>
       {card({ id: 'lease', label: '조종권·연결', fields: LEASE })}
       {card({ id: 'speed', label: '속도 제한', bad: '실기 미검증', note: '지금 실기 명령 표(읽기 전용). 값 자체는 여기서 못 올림 — 아래 스위치로 더 느리게만 할 수 있음.', fields: REAL, top: <RealTable /> })}
       <section className="lv-card st-fixed" aria-label="고정 안전값">
@@ -49,9 +66,14 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
       </section>
     </>)}
     {panel('sim', <>
-      {card({ id: 'simcap', label: '시뮬 속도 상한', cap: true, note: '모드·연결별 상한 안에서 적용합니다. 조직 설정으로 상한을 넓히지는 않습니다.', fields: SIM_CAP })}
-      {card({ id: 'siminput', label: '조종 입력·임무 실행기', fields: SIM_INPUT })}
-      {card({ id: 'simview', label: '표시', fields: SIM_VIEW })}
+      <div className="st-modelbar">
+        <div className="st-tabs" role="group" aria-label="값을 고칠 모델">
+          {[['', '공통'] as const, ...SIM_MODELS].map(([id, name]) => <button key={id} type="button" aria-pressed={model === id} onClick={() => pickModel(id)}>{name}</button>)}
+        </div>
+        <p className="st-note">{modelName ? `${modelName} 모델이 돌 때만 공통 값 대신 씁니다. 안 바꾼 칸은 공통 값을 따릅니다.` : '모든 모델의 기본값입니다. 모델을 고르면 그 모델에서만 쓸 값을 정할 수 있습니다.'}</p>
+      </div>
+      {simCards('')}
+      {SIM_MODELS.filter(([id]) => opened.includes(id)).map(([id]) => simCards(id))}
       {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
     </>)}
     {panel('acct', <>
@@ -106,6 +128,13 @@ const range = (f: Field) => `${f.min}~${f.max}${f.unit ? ` ${f.unit}` : ''}`;
 const NO_EDIT = '조직 기준값은 총괄 운영 관리자만 바꿀 수 있습니다.';
 /** 서버 교차 검사(models.py OrgSettings.simulation_speed_order) 문구 → 걸린 칸들. 칸 옆에 그 문구를 보인다 */
 const CROSS: [string, (keyof OrgSettings)[]][] = [['최소 전진', ['sim_min_vx', 'sim_max_vx']], ['키보드 전진', ['sim_key_vx', 'sim_max_vx']]];
+/** 서버 모델 오류 문구는 «모델 id: 문장» — 고치는 모델 자신이면 id 를 떼고, 다른 모델(공통 값을 바꿔 그 모델 실효값이 깨진 422)이면 화면 이름으로 안내한다 */
+const modelMessage = (text: string, mine?: string) => {
+  const hit = SIM_MODELS.find(([id]) => text.startsWith(`${id}: `));
+  if (!hit) return text;
+  const rest = text.slice(hit[0].length + 2);
+  return hit[0] === mine ? rest : `${hit[1]} 모델 값과 맞지 않아 저장하지 못했습니다. ${rest}`;
+};
 
 type Org = ReturnType<typeof useOrg>;
 /** 조직 값 한 벌(GET 한 번) — 카드마다 자기 칸만 저장하고, 저장된 값은 시뮬 조종에도 바로 알린다(phone.ts simTune) */
@@ -115,25 +144,40 @@ function useOrg(cancel?: AbortSignal) {
   return { saved, err, put: (s: OrgSettings) => { setSaved(s); simTune(s); } };
 }
 
-type CardProps = { org: Org; admin: boolean; id: string; label: string; note?: string; bad?: string; cap?: boolean; fields: Field[]; top?: ReactNode } & Cancel;
-function OrgCard({ org, admin, id, label, note, bad, cap, fields, top, cancel }: CardProps) {
-  const { saved } = org, [draft, setDraft] = useState<Record<string, string | boolean>>({});
+/** model: 고치는 모델 id(없으면 공통 값). 초안의 null = 저장하면 그 칸을 공통으로 되돌림(모델 칸만) */
+type CardProps = { org: Org; admin: boolean; id: string; model?: string; label: string; note?: string; bad?: string; cap?: boolean; fields: Field[]; top?: ReactNode } & Cancel;
+function OrgCard({ org, admin, id, model, label, note, bad, cap, fields, top, cancel }: CardProps) {
+  const { saved } = org, [draft, setDraft] = useState<Record<string, string | boolean | null>>({});
   const [msg, setMsg] = useState<Msg>(null), [errs, setErrs] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false);
-  const shown = (f: Field) => draft[f.key] ?? (f.kind === 'switch' ? !!saved?.[f.key] : String(saved?.[f.key] ?? ''));
+  const over: Record<string, number | boolean> = (model && saved?.model_overrides?.[model]) || {};
+  const current = (f: Field) => over[f.key] ?? saved?.[f.key];   // 저장된 실효값(공통 화면이면 공통 값)
+  const shown = (f: Field) => {
+    const d = draft[f.key];
+    if (d != null) return d;
+    const v = d === null ? saved?.[f.key] : current(f);
+    return f.kind === 'switch' ? !!v : String(v ?? '');
+  };
+  const value = (f: Field) => { const v = shown(f); return typeof v === 'boolean' ? v : v.trim() === '' ? NaN : Number(v); };
+  const pending = (f: Field) => f.key in draft && (draft[f.key] === null ? f.key in over : value(f) !== current(f));
+  const own = (f: Field) => draft[f.key] !== null && (f.key in over || (f.key in draft && value(f) !== saved?.[f.key]));
   const edit = (f: Field, v: string | boolean) => { setDraft({ ...draft, [f.key]: v }); setErrs({ ...errs, [f.key]: '' }); };
-  const why = admin ? undefined : `why-${id}`;
+  // 되돌리기도 저장 때 한꺼번에 보낸다 — 최대·최소를 함께 되돌릴 때 중간 상태가 교차 검사에 걸리지 않게
+  const back = (f: Field) => { const rest = { ...draft }; delete rest[f.key]; setDraft(f.key in over ? { ...rest, [f.key]: null } : rest); setErrs({ ...errs, [f.key]: '' }); };
+  const pre = model ? `${model}-` : '', why = admin ? undefined : `why-${pre}${id}`;
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (!saved || busy) return;
-    const value = (f: Field) => { const v = shown(f); return typeof v === 'boolean' ? v : v.trim() === '' ? NaN : Number(v); };
-    const patch = Object.fromEntries(fields.filter((f) => f.key in draft && value(f) !== saved[f.key]).map((f) => [f.key, value(f)])) as Record<string, number | boolean>;
+    const patch = Object.fromEntries(fields.filter(pending).map((f) => [f.key, draft[f.key] === null ? null : value(f)])) as Record<string, number | boolean | null>;
     setErrs({});
     if (!Object.keys(patch).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
+    // 모델 칸의 null 은 «되돌리기»라, 빈 칸(NaN → JSON null)을 보내면 값이 조용히 지워진다 — 보내기 전에 막는다
+    const empty = model ? fields.filter((f) => Number.isNaN(patch[f.key])) : [];
+    if (empty.length) return setErrs(Object.fromEntries(empty.map((f) => [f.key, `값을 입력하세요. 허용 범위: ${f.label} ${range(f)}`])));
     setBusy(true); setMsg(null);
-    try { org.put(await api.saveSettings(patch as OrgSettingsPatch, cancel)); setDraft({}); setMsg({ text: '저장했습니다. 다음 실행부터 적용됩니다.', ok: true }); }
+    try { org.put(await api.saveSettings((model ? { model_overrides: { [model]: patch } } : patch) as OrgSettingsPatch, cancel)); setDraft({}); setMsg({ text: '저장했습니다. 다음 실행부터 적용됩니다.', ok: true }); }
     catch (err) {
       // 서버 검사(400·422 VALIDATION)는 어느 칸인지 알려 주지 않는다 — 교차 검사 문구는 걸린 칸 옆, 범위를 벗어난 칸은 그 칸 옆에 허용 범위와 함께
-      const text = (err as Error).message, mine = fields.map((f) => f.key);
+      const text = modelMessage((err as Error).message, model), mine = fields.map((f) => f.key);
       const cross = CROSS.find(([w]) => text.includes(w))?.[1].filter((k) => mine.includes(k)) ?? [];
       const hit = cross.filter((k) => k in patch).length ? cross.filter((k) => k in patch) : cross;
       const bad = fields.filter((f) => typeof patch[f.key] === 'number' && !(patch[f.key] as number >= f.min && patch[f.key] as number <= f.max && (f.step < 1 || Number.isInteger(patch[f.key]))));
@@ -144,7 +188,7 @@ function OrgCard({ org, admin, id, label, note, bad, cap, fields, top, cancel }:
     } finally { setBusy(false); }
   };
   const row = (f: Field) => {
-    const v = shown(f), er = errs[f.key], eid = `st-e-${f.key}`, desc = [er && eid, why].filter(Boolean).join(' ') || undefined;
+    const v = shown(f), er = errs[f.key], eid = `st-e-${pre}${f.key}`, desc = [er && eid, why, model && `st-o-${pre}${f.key}`].filter(Boolean).join(' ') || undefined;
     const tags = <>{f.cap && <span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span>}</>;
     const tail = er && <span id={eid} className="fh-msg" role="alert">{er}</span>;
     if (f.kind === 'switch') return <div key={f.key} className="st-sw-wrap">
@@ -159,12 +203,18 @@ function OrgCard({ org, admin, id, label, note, bad, cap, fields, top, cancel }:
       <span className="st-unit"><input className="inp" name={f.key} type="number" inputMode="decimal" min={f.min} max={f.max} step={f.step} readOnly={!admin} aria-describedby={desc}
         aria-invalid={er ? true : undefined} value={String(v)} onChange={(e) => edit(f, e.target.value)} />{f.unit && <span className="lbl">{f.unit}</span>}</span>{tail}</label>;
   };
+  // 모델 칸: 이 칸 값이 어디서 오는지 + 되돌리기
+  const modelRow = (f: Field) => <div key={f.key} className="st-ov-wrap">{row(f)}
+    <div className="st-ov">
+      <span id={`st-o-${pre}${f.key}`} className={`st-tag${own(f) ? ' own' : ''}`}>{own(f) ? '이 모델 값' : `공통 값 사용(${saved?.[f.key] ?? '기본값'}${f.unit ? ` ${f.unit}` : ''})`}{pending(f) && ' · 저장 전'}</span>
+      {admin && own(f) && <button type="button" className="btn" onClick={() => back(f)}>공통으로 되돌리기</button>}
+    </div></div>;
   return <section className="lv-card" aria-label={label}>
     <h2>{label}{bad && <> <span className="st-tag bad">{bad}</span></>}</h2>
     <p className="st-note">{note}{cap && <> <span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span></>} <span className="st-tag adm">총괄만 고침</span></p>
     {top}
     {saved && <form className="fh-form" onSubmit={save} noValidate>
-      {fields.map(row)}
+      {fields.map(model ? modelRow : row)}
       <div className="fh-row">
         <button type="submit" className="btn pri" disabled={!admin || busy} aria-describedby={why}>저장</button>
         {!admin && <span id={why} className="fh-why" data-why>{NO_EDIT}</span>}
