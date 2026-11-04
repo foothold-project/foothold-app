@@ -9,7 +9,7 @@ export const SNAP = 0.6;       // m — 로봇이 띠 안(벽 옆)에 서 있으
 export const SLICE_MS = 8;
 
 const bases = new WeakMap(), raws = new WeakMap(), bufs = new WeakMap();   // bufs = 지도마다 A* 배열 다시 씀(큰 지도 할당·GC 멈춤 줄이기)
-const navigation = new WeakMap();
+const navigation = new WeakMap(), candidates = new WeakMap();
 const rest = () => new Promise((r) => setTimeout(r, 0));
 const idx = (map, x, y) => {
   const c = Math.floor((x - map.origin[0]) / map.res), r = map.h - 1 - Math.floor((y - map.origin[1]) / map.res);
@@ -121,7 +121,8 @@ async function snap(map, grid, i0) {
 }
 
 // A*(s → g 칸) — 칸 가운데 목록, 없으면 null. 배열(cost·parent·done·힙)은 지도마다 다시 쓴다(큰 지도 할당·GC 멈춤 줄이기), 쓰는 중이면 새로 만든다
-async function search(map, grid, s, g) {
+// all = height-free Dijkstra flood, returning distances for the terrain heuristic.
+async function search(map, grid, s, g, { potential, all = false } = {}) {
   const { w, h } = map, N = w * h;
   let b = bufs.get(map);
   if (!b || b.busy) {
@@ -133,7 +134,7 @@ async function search(map, grid, s, g) {
     const { cost, parent, done } = b;
     cost.fill(Infinity); parent.fill(-1); done.fill(0);
     const gr = Math.floor(g / w), gc = g % w;
-    const octile = (i) => { const dr = Math.abs(Math.floor(i / w) - gr), dc = Math.abs(i % w - gc); return Math.max(dr, dc) + (Math.SQRT2 - 1) * Math.min(dr, dc); };
+    const estimate = potential ? (i) => potential[i] : all ? () => 0 : (i) => { const dr = Math.abs(Math.floor(i / w) - gr), dc = Math.abs(i % w - gc); return Math.max(dr, dc) + (Math.SQRT2 - 1) * Math.min(dr, dc); };
     // 이진 힙(우선값 f, 칸 번호) — 꽉 차면 두 배로
     let hf = b.hf, hi = b.hi, n = 0;
     const push = (f, i) => {
@@ -147,13 +148,13 @@ async function search(map, grid, s, g) {
       if (n) { let k = 0; for (;;) { let m = 2 * k + 1; if (m >= n) break; if (m + 1 < n && hf[m + 1] < hf[m]) m++; if (hf[m] >= f) break; hf[k] = hf[m]; hi[k] = hi[m]; k = m; } hf[k] = f; hi[k] = i; }
       return top;
     };
-    cost[s] = 0; push(octile(s), s);
+    cost[s] = 0; push(estimate(s), s);
     let t = performance.now(), k = 0;
     while (n) {
       if (!(++k & (map.heightAt ? 7 : 127)) && performance.now() - t > SLICE_MS) { await rest(); t = performance.now(); }
       const i = pop();
       if (done[i]) continue;
-      if (i === g) break;
+      if (i === g && !all) break;
       done[i] = 1;
       const r = Math.floor(i / w), c = i % w;
       for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
@@ -164,9 +165,10 @@ async function search(map, grid, s, g) {
         if (map.heightAt && dr && dc && (!stepCells(map, i, r * w + cc) || !stepCells(map, i, rr * w + c)
           || !stepCells(map, j, r * w + cc) || !stepCells(map, j, rr * w + c))) continue;
         const nc = cost[i] + (dr && dc ? Math.SQRT2 : 1);
-        if (nc < cost[j]) { cost[j] = nc; parent[j] = i; push(nc + octile(j), j); }
+        if (nc < cost[j]) { cost[j] = nc; parent[j] = i; push(nc + estimate(j), j); }
       }
     }
+    if (all) return cost.slice();
     if (!Number.isFinite(cost[g])) return null;
     const cells = [];
     for (let i = g; i >= 0; i = parent[i]) cells.push(center(map, i));
@@ -178,18 +180,43 @@ async function search(map, grid, s, g) {
 export async function findPath(map, from, to, extra) {
   const grid = await inflate(map, extra), si = idx(map, from.x, from.y), g = idx(map, to.x, to.y);
   if (si < 0 || g < 0 || map.px[g] !== 254 || grid[g]) return null;
+  const terrain = map;
   if (map.prepareNavigation) {
     if (!navigation.has(map)) navigation.set(map, map.prepareNavigation(await inflate(map)) ? { ...map, heightAt: undefined } : null);
-    // A start in the inflated margin may need a height-aware SNAP over cells
-    // outside the proven free area. Keep that existing check unchanged.
     const flat = navigation.get(map);
-    if (flat && !grid[si]) map = flat;
+    if (flat) map = flat;
   }
+  // Most terrain routes also follow the ordinary XY route. Validate only
+  // that route's crossed cells before paying for a height-aware A* over the
+  // whole map. If any segment fails, retain the original search for detours.
+  if (map.heightAt && (!stepOK(map, from, from) || !stepOK(map, to, to))) return null;
+  let potential;
+  if (map.heightAt && !grid[si]) {
+    if (!candidates.has(map)) candidates.set(map, { ...map, heightAt: undefined });
+    const path = await pathOnGrid(candidates.get(map), grid, from, to, si, g);
+    if (!path) return null; // removing edges for height cannot open an XY route
+    let a = from, valid = true;
+    for (const b of path) {
+      if (!await sight(map, grid, a, b) || !stepOK(map, b, b)) { valid = false; break; }
+      a = b;
+    }
+    if (valid) return path;
+    // Exact XY distance to the goal is an admissible lower bound for the
+    // height-aware detour. Computing it needs no terrain rays and prevents
+    // a raised start from exploring most of the map before finding an exit.
+    potential = await search(candidates.get(map), grid, g, g, { all: true });
+  }
+  return pathOnGrid(map, grid, from, to, si, g, terrain, potential);
+}
+
+async function pathOnGrid(map, grid, from, to, si, g, terrain = map, potential) {
   if (map.heightAt && (!stepOK(map, from, from) || !stepOK(map, to, to))) return null;
   if (await sight(map, grid, from, to)) return [{ x: to.x, y: to.y }];
-  const s = await snap(map, grid, si);
-  if (s < 0 || (s !== si && !await sight(map, raw(map), from, center(map, s)))) return null;
-  const cells = await search(map, grid, s, g);
+  // Flatness was proved only outside the inflated margin: SNAP and its
+  // connector still inspect heights there, then search uses the flat layer.
+  const s = await snap(terrain, grid, si);
+  if (s < 0 || (s !== si && !await sight(terrain, raw(terrain), from, center(map, s)))) return null;
+  const cells = await search(map, grid, s, g, { potential });
   if (!cells) return null;
   // 이웃 칸 가운데끼리는 늘 보인다(모서리 금지) — from·to 는 첫·끝 칸 안이라 그 칸 가운데와 보인다. 띠 안 출발은 첫 칸 가운데(위에서 원래 지도로 검사)부터
   if (s === si) cells.unshift({ x: from.x, y: from.y });

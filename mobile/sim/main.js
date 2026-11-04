@@ -599,12 +599,26 @@ async function main() {
     // ceiling, so upstairs floors/roof cannot steal a downstairs click.
     const ceiling = floors[here] ? floors[here].z[1] - .4 : Infinity;
     if (origin.z > ceiling && direction.z < 0) origin.addScaledVector(direction, (ceiling - origin.z) / direction.z);
-    const hit = sim.walkSurface.pick(origin.toArray(), direction.toArray(), map, ceiling);
+    // The follow camera can sit just behind/inside a wall. Ignore contact
+    // faces within 30 cm; rendered occlusion is still checked below.
+    let hit = sim.walkSurface.pick(origin.toArray(), direction.toArray(), map, ceiling, top ? 0 : .3);
     if (!hit) return say('걸을 수 있는 바닥을 찍으세요');
     if (!top) {
       scene.updateMatrixWorld(true);
       const front = ray.intersectObjects(solids, false)[0];
-      if (front && front.distance + .05 < ray.ray.origin.distanceTo(new THREE.Vector3(hit.x, hit.y, hit.z))) return say('걸을 수 있는 바닥을 찍으세요');
+      // Contact meshes can be convex hulls around open shelving. When their
+      // invisible sides intercept a visibly exposed floor, resolve support
+      // vertically at that visible floor instead of picking the hull's side.
+      // A visible wall/roof never qualifies for this fallback.
+      if (hit.up < MIN_UP && front && Math.abs(front.face.normal.clone().transformDirection(front.object.matrixWorld).z) >= MIN_UP) {
+        const support = sim.walkSurface.floorAt(front.point.x, front.point.y, ceiling, MIN_UP, map.floor_z);
+        if (Number.isFinite(support) && Math.abs(front.point.z - support) <= .05) {
+          hit = sim.walkSurface.pick([front.point.x, front.point.y, support + .05], [0, 0, -1], map, ceiling) ?? hit;
+        }
+      }
+      // Rendered floor skins sit a few mm above contact floors. Compare
+      // vertical separation: grazing rays amplify that tiny gap in distance.
+      if (front && (ray.ray.origin.distanceTo(new THREE.Vector3(hit.x, hit.y, hit.z)) - front.distance) * Math.abs(direction.z) > .05) return say('걸을 수 있는 바닥을 찍으세요');
     }
     if (hit.up < MIN_UP) return say('벽·천장·가파른 면으로는 갈 수 없습니다');
     const ox = map.origin[0], oy = map.origin[1];

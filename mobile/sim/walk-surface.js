@@ -44,11 +44,21 @@ export function makeWalkSurface(mj, m, d) {
       }
     }
   }
-  const verticalRay = (origin, direction) => {
+  const verticalRay = (origin, direction, supports) => {
     let nearest = null;
     for (const geom of [...planes, ...(columns.get(key(origin[0], origin[1])) ?? [])]) {
       const { g, type, lo, hi } = geom;
       if (m.geom_group[g] === 5 || (type !== 0 && (origin[0] < lo[0] || origin[0] > hi[0] || origin[1] < lo[1] || origin[1] > hi[1]))) continue;
+      // floorAt already cast down through each upright terrain field at
+      // this XY to establish its datum. Reuse that exact native hit above
+      // the surface; origins inside/below terrain still use native rays.
+      const support = supports?.get(g);
+      if (support && origin[2] > support.z) {
+        if (direction[2] > 0) continue;
+        const distance = origin[2] - support.z;
+        if (!nearest || distance < nearest.distance) nearest = { ...support, distance };
+        continue;
+      }
       // Upright boxes have just two vertical intersections. Resolve those
       // from the same compiled pose/size without crossing the WASM boundary
       // twice for every floor/ceiling query. Other shapes use native rays.
@@ -79,13 +89,13 @@ export function makeWalkSurface(mj, m, d) {
         z: origin[2] + direction[2] * distance, up: normal.GetView()[2], distance, geom: hit.GetView()[0] };
     } finally { for (const [g, original] of excluded) m.geom_group[g] = original; }
   };
-  const inside = (x, y, z) => {
+  const inside = (x, y, z, supports) => {
     const suppressed = [];
     try {
       // A nearer floor ENTRY can hide another solid's EXIT (including a
       // coplanar plane at a support box's bottom). Inspect each hit geom.
       for (let k = 0; k < m.ngeom; k++) {
-        const p = verticalRay([x, y, z], down);
+        const p = verticalRay([x, y, z], down, supports);
         if (!p) return false;
         if (p.up < 0) return true;
         suppressed.push([p.geom, m.geom_group[p.geom]]); m.geom_group[p.geom] = 5;
@@ -93,13 +103,17 @@ export function makeWalkSurface(mj, m, d) {
       return false;
     } finally { for (const [g, original] of suppressed) m.geom_group[g] = original; }
   };
-  const fieldHeight = (x, y, floorZ) => {
+  const fieldHeight = (x, y, floorZ, supports) => {
     let datum = floorZ;
     for (const field of fields) {
       const dx = x - field.x, dy = y - field.y;
       if (Math.abs(field.r00 * dx + field.r10 * dy) > field.hx || Math.abs(field.r01 * dx + field.r11 * dy) > field.hy) continue;
-      const distance = mj.mj_rayHfield(m, d, field.g, [x, y, field.top], down, null);
-      if (distance >= 0) datum = Math.max(datum, field.top - distance);
+      const distance = mj.mj_rayHfield(m, d, field.g, [x, y, field.top], down, supports ? normal : null);
+      if (distance >= 0) {
+        const z = field.top - distance;
+        datum = Math.max(datum, z);
+        supports?.set(field.g, { x, y, z, up: normal.GetView()[2], geom: field.g });
+      }
     }
     return datum;
   };
@@ -111,15 +125,16 @@ export function makeWalkSurface(mj, m, d) {
     // is buried in raised solid terrain (house/steps): climb above that floor.
     // An upward ENTRY is an overhead underside (lamp/beam/ceiling): scan down
     // below it. This keeps overhead tops out of the 2.5D navigation surface.
-    let datum = fieldHeight(x, y, floorZ);
+    const supports = new Map();
+    let datum = fieldHeight(x, y, floorZ, supports);
     let z = datum + .4, roof = ceiling;
     for (let k = 0; z < ceiling && k < m.ngeom; k++) {
-      const p = verticalRay([x, y, z], up);
+      const p = verticalRay([x, y, z], up, supports);
       if (!p || p.z >= ceiling) break;
       if (p.up < 0) {
         // A support slab may overlap the terrain beneath it. Its underside
         // is not overhead when the ray origin just below it is still solid.
-        if (!inside(x, y, p.z - .001)) {
+        if (!inside(x, y, p.z - .001, supports)) {
           // At a porch edge the thin floor can overhang the heightfield.
           // Nearby terrain inside the existing clearance footprint identifies
           // that connected support, rather than treating it as a ceiling.
@@ -130,15 +145,19 @@ export function makeWalkSurface(mj, m, d) {
       }
       z = p.z + .4;
     }
-    const p = verticalRay([x, y, Math.min(top, roof)], down);
+    const p = verticalRay([x, y, Math.min(top, roof)], down, supports);
     return p && p.up >= minUp ? p.z : NaN;
   };
-  const pick = (origin, direction, map, ceiling = Infinity) => {
+  const pick = (origin, direction, map, ceiling = Infinity, near = 0) => {
     const suppressed = [];
     try {
       for (let k = 0; k < m.ngeom; k++) {
         const p = raycast(origin, direction);
         if (!p) return null;
+        if (p.distance < near && Math.abs(p.up) < MIN_UP) {
+          suppressed.push([p.geom, m.geom_group[p.geom]]); m.geom_group[p.geom] = 5;
+          continue;
+        }
         if (Math.abs(p.up) < MIN_UP) return p; // wall/steep face: explain, don't see through walls
         const floor = floorAt(p.x, p.y, ceiling, MIN_UP, map.floor_z);
         if (p.up >= MIN_UP && Number.isFinite(floor) && Math.abs(p.z - floor) <= .05) return p;
