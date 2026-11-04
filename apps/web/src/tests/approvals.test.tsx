@@ -188,8 +188,8 @@ describe('상세·전후 비교', () => {
     expect(sent('GET', '/map-versions/t3')).toHaveLength(1);
     const d = sent('GET', '/map-versions/t3/diff');
     expect(d).toHaveLength(1); expect(d[0].q.has('against')).toBe(false);
-    expect(card('판 비교').textContent).toContain('판 2 → 판 3');
-    expect($<HTMLSelectElement>('select[aria-label="비교할 판"]')!.options[0].textContent).toBe('판 2 (기준 판)');
+    expect(card('기록 비교').textContent).toContain('판 2 → 판 3');                       // 결재 화면은 판 번호 그대로(소유 밖)
+    expect($<HTMLSelectElement>('select[aria-label="비교할 기록"]')!.options[0].textContent).toBe('판 2 (바로 앞 기록)');
     expect(detail().textContent).toContain('1층 · 판 2 → 판 3 (요청)');
     expect(detail().textContent).toContain('요청 이유a1 요청 이유');
   });
@@ -210,7 +210,7 @@ describe('상세·전후 비교', () => {
     serve(KIM, [ap('a1', 3)], { over: { 'GET /map-versions/t3/diff': [() => new Promise<Reply>(() => {})] } });
     await open('#/approval');
     await pick('a1');
-    expect(card('판 비교').textContent).toContain('두 판을 비교하는 중…');
+    expect(card('기록 비교').textContent).toContain('두 기록을 비교하는 중…');
     await stopSends();
   });
   it('알림 링크 #/approvals?approval_id=… → 그 결재를 연다(대기 목록에 없는 끝난 것도)', async () => {

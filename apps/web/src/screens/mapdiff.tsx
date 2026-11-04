@@ -85,8 +85,8 @@ function frame(b: Geo, a: Geo | null): Box {
 
 /** 비교 실패 = 무엇이 + 어떻게. 그 밖(네트워크·시간 초과 등)은 원인 문구 + 다시 시도 */
 function diffFail(e: ApiFail) {
-  if (e.code === 'DIFF_TOO_LARGE') return '두 판의 차이가 너무 커서 비교할 수 없습니다. 더 가까운 판을 골라 비교하세요.';
-  if (e.code === 'INVALID_FEATURES') return '지도 요소가 너무 많은 판이 있어 비교할 수 없습니다. 다른 판을 골라 비교하세요.';
+  if (e.code === 'DIFF_TOO_LARGE') return '두 기록의 차이가 너무 커서 비교할 수 없습니다. 더 가까운 기록을 골라 비교하세요.';
+  if (e.code === 'INVALID_FEATURES') return '지도 요소가 너무 많은 기록이 있어 비교할 수 없습니다. 다른 기록을 골라 비교하세요.';
   return `비교하지 못했습니다. ${e.message}`;
 }
 
@@ -94,8 +94,9 @@ const PAGE = 200;   // 차이 목록은 이만큼씩 그린다(큰 차이에서 
 type Img = 'both' | 'before' | 'after';
 
 /** 두 판 비교(모두 볼 수 있음). v = 고른 판(뒤), list = 같은 층 판 목록(번호만 쓴다 — 결재 칸은 기준 판 하나만 넘긴다). 기본 비교 대상 = v 의 기준 판(첫 판이면 빈 지도).
- *  gone = 판·층을 찾을 수 없음(부른 쪽이 비교를 닫고 알린 뒤 목록·나무 다시 받기 — 다시 받는 동안 이 칸은 내려간다) */
-export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: Pick<MapVersion, 'id' | 'number'>[]; cancel?: AbortSignal; gone: () => void }) {
+ *  gone = 판·층을 찾을 수 없음(부른 쪽이 비교를 닫고 알린 뒤 목록·나무 다시 받기 — 다시 받는 동안 이 칸은 내려간다).
+ *  name = 기록을 부르는 이름 — 지도 탭은 저장 시각·만든 사람, 옛 결재 화면은 기본값(판 번호) */
+export function Compare({ v, list, cancel, gone, name = (x) => `판 ${x.number}` }: { v: MapVersion; list: Pick<MapVersion, 'id' | 'number'>[]; cancel?: AbortSignal; gone: () => void; name?: (x: Pick<MapVersion, 'id' | 'number'>) => string }) {
   const [against, setAgainst] = useState(''), [n, setN] = useState(0), [d, setD] = useState<MapDiff | null>(null), [err, setErr] = useState('');
   const [hi, setHi] = useState(-1), [show, setShow] = useState(PAGE), [img, setImg] = useState<Img>('both'), [bad, setBad] = useState(false), [k, setK] = useState(0);
   useEffect(() => {
@@ -124,18 +125,18 @@ export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: Pick<M
   }, [d, wa, wb]);
   // 차이 표시는 응답이 올 때 한 번만 만든다 — 강조·더 보기·그림 전환 때 수천 개를 다시 맞추지 않게(강조는 위에 한 벌 더, 나머지는 묶음째 흐리게)
   const layer = useMemo(() => d && d.changes.map((c, i) => <One key={i} g={d.version} c={c} />), [d]);
-  return <div className="fh-form" aria-label="판 비교">
-    <label className="fh-row"><span className="lbl">비교할 판</span><select className="fh-user" aria-label="비교할 판" value={against} onChange={(e) => setAgainst(e.target.value)}>
-      <option value="">{v.base_version_id ? `판 ${base?.number ?? ''} (기준 판)` : '빈 지도 (첫 판)'}</option>
-      {list.filter((x) => x.id !== v.id && x.id !== v.base_version_id).map((x) => <option key={x.id} value={x.id}>판 {x.number}</option>)}</select></label>
+  return <div className="fh-form" aria-label="기록 비교">
+    <label className="fh-row"><span className="lbl">비교할 기록</span><select className="fh-user" aria-label="비교할 기록" value={against} onChange={(e) => setAgainst(e.target.value)}>
+      <option value="">{!v.base_version_id ? '빈 지도 (첫 저장)' : base ? `${name(base)} (바로 앞 기록)` : '바로 앞 기록'}</option>
+      {list.filter((x) => x.id !== v.id && x.id !== v.base_version_id).map((x) => <option key={x.id} value={x.id}>{name(x)}</option>)}</select></label>
     {d && b && <>
-      <b>{a ? `판 ${a.number} → 판 ${b.number}` : `빈 지도 → 판 ${b.number}`}</b>
-      {!a ? <p className="lv-note">첫 판이라 빈 지도와 비교합니다. 모든 요소가 추가로 보입니다.</p>
+      <b>{a ? `${name(a)} → ${name(b)}` : `빈 지도 → ${name(b)}`}</b>
+      {!a ? <p className="lv-note">첫 저장이라 빈 지도와 비교합니다. 모든 요소가 추가로 보입니다.</p>
         : two ? <div className="fh-row" role="group" aria-label="지도 그림"><span className="fh-grow">{!d.image_changed ? '같은 지도 그림인데 좌표 설정(원점·해상도)이 바뀌었습니다.' : shift ? '지도 그림과 좌표 설정(원점·해상도)이 바뀌었습니다.' : '지도 그림이 바뀌었습니다.'}</span>
-          {([['both', '겹쳐 보기'], ['before', `판 ${a.number}`], ['after', `판 ${b.number}`]] as [Img, string][]).map(([m, t]) =>
+          {([['both', '겹쳐 보기'], ['before', name(a)], ['after', name(b)]] as [Img, string][]).map(([m, t]) =>
             <button key={m} type="button" className="btn" aria-pressed={img === m} onClick={() => setImg(m)}>{t}</button>)}</div>
         : <p className="lv-note">지도 그림은 같습니다.</p>}
-      <MapFrame {...look!} photo={b} role="img" aria-label={`${a ? `판 ${a.number}` : '빈 지도'}와 판 ${b.number} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+      <MapFrame {...look!} photo={b} role="img" aria-label={`${a ? name(a) : '빈 지도'}와 ${name(b)} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
         {two && img !== 'after' && <MapImage key={`a${k}`} data-image="before" id={a!.id} width={a!.width} height={a!.height} transform={onto(a!, b)} onError={onErr} />}
         {/* 겹쳐 보기 반투명은 묶음(g)에 — 그림 자체 투명도(사진 모드 --fh-map-a, MapImage)에 곱해진다. 그림 style 로 덮으면 «실제 모습» 사진이 가려진다 */}
         {(!two || img !== 'before') && <g opacity={two && img === 'both' ? 0.5 : undefined}><MapImage key={`b${k}`} data-image="after" id={b.id} width={b.width} height={b.height} onError={onErr} /></g>}
@@ -153,26 +154,26 @@ export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: Pick<M
       {d.changes.length > show && <button type="button" className="btn" onClick={() => setShow(show + PAGE)}>더 보기 (남은 {d.changes.length - show}개)</button>}
     </>}
     {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
-    {!d && !err && <p className="lv-note" role="status">두 판을 비교하는 중…</p>}
+    {!d && !err && <p className="lv-note" role="status">두 기록을 비교하는 중…</p>}
   </div>;
 }
 
 /** 되돌리기 실패 = 무엇이 + 어떻게. 403·503 등은 서버 문구 그대로 */
 function backFail(e: ApiFail) {
   if (e.code === 'STALE') return '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 새로 불러온 뒤 다시 되돌리세요.';
-  if (e.code === 'ALREADY_APPROVED') return '이 판은 이미 지금 승인 판입니다. 새로 불러와 판 목록을 확인하세요.';
-  if (e.code === 'ROLLBACK_NOT_APPROVED') return '승인된 적이 있는 판만 되돌릴 수 있습니다. 새로 불러와 판 목록을 확인하세요.';
-  if (e.code === 'INVALID_FEATURES') return /\.pair_floor_id$/.test(String(e.detail?.element ?? '')) ? '이 판에는 지금 없는 층과의 연결점이 있어 되돌릴 수 없습니다. 지금 판을 편집해 필요한 요소를 다시 그리세요.'
-    : '이 판의 지도 요소를 지금 그대로 쓸 수 없어 되돌릴 수 없습니다. 지금 판을 편집해 필요한 요소를 다시 그리세요.';
-  if (e.status === 404) return '이 판을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
+  if (e.code === 'ALREADY_APPROVED') return '이 기록은 이미 지금 지도입니다. 새로 불러와 저장 기록을 확인하세요.';
+  if (e.code === 'ROLLBACK_NOT_APPROVED') return '실제로 쓰인 적이 있는 기록만 되돌릴 수 있습니다. 새로 불러와 저장 기록을 확인하세요.';
+  if (e.code === 'INVALID_FEATURES') return /\.pair_floor_id$/.test(String(e.detail?.element ?? '')) ? '이 기록에는 지금 없는 층과의 연결점이 있어 되돌릴 수 없습니다. 지금 지도를 편집해 필요한 요소를 다시 그리세요.'
+    : '이 기록의 지도 요소를 지금 그대로 쓸 수 없어 되돌릴 수 없습니다. 지금 지도를 편집해 필요한 요소를 다시 그리세요.';
+  if (e.status === 404) return '이 기록을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
   return e.message;
 }
 const AGAIN = ['STALE', 'ALREADY_APPROVED', 'ROLLBACK_NOT_APPROVED'];
 
-/** 이 판으로 되돌리기(U10 확인 = 이유 칸). v = 한때 승인된 옛 판, now = 지금 승인 판.
+/** 이 기록으로 되돌리기(U10 확인 = 이유 칸). v = 한때 승인된 옛 판, now = 지금 승인 판, name = v 를 부르는 이름(저장 시각·만든 사람).
  *  now 는 칸을 연 때의 승인 판(부른 쪽이 고정) — 답이 끊겨 목록을 다시 받은 뒤 또 눌러도 승인 판이 바뀌어 서버가 STALE 로 막는다.
  *  done = 새 승인 판, reload = 판 목록·나무 다시 받기, close = 닫기 */
-export function Rollback({ v, now, cancel, done, reload, close }: { v: MapVersion; now: MapVersion; cancel?: AbortSignal; done: (x: MapVersion) => void; reload: () => void; close: () => void }) {
+export function Rollback({ v, now, name, cancel, done, reload, close }: { v: MapVersion; now: MapVersion; name: string; cancel?: AbortSignal; done: (x: MapVersion) => void; reload: () => void; close: () => void }) {
   const base = now, [reason, setReason] = useState(''), [busy, setBusy] = useState(false), [msg, setMsg] = useState<Msg>(null), [again, setAgain] = useState(false), sending = useRef(false);
   const go = (e: FormEvent) => {
     e.preventDefault();
@@ -190,13 +191,13 @@ export function Rollback({ v, now, cancel, done, reload, close }: { v: MapVersio
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
       // 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 되돌려졌을 수도 있다 — 목록을 다시 받아 보여 준다
-      if (f.status === 0) { setMsg({ text: '되돌리기 응답을 받지 못했습니다. 되돌려졌을 수 있어 판 목록을 다시 받습니다. 새 승인 판이 보이면 다시 되돌리지 마세요.' }); reload(); return; }
+      if (f.status === 0) { setMsg({ text: '되돌리기 응답을 받지 못했습니다. 되돌려졌을 수 있어 저장 기록을 다시 받습니다. 새 기록이 보이면 다시 되돌리지 마세요.' }); reload(); return; }
       setMsg({ text: `되돌리지 못했습니다. ${backFail(f)}` }); setAgain(AGAIN.includes(f.code) || f.status === 404);
     } finally { sending.current = false; setBusy(false); }
   };
-  return <form className="fh-form" onSubmit={go} noValidate aria-label="이 판으로 되돌리기">
-    <b>판 {v.number}의 지도로 되돌리기</b>
-    <p className="lv-note">{`판 ${v.number}의 지도 그림과 구역·지점·연결점으로 새 승인 판을 만듭니다. 지금 승인 판(판 ${base.number})은 지난 판으로 남고, 다음 실행부터 새 판을 씁니다.`}</p>
+  return <form className="fh-form" onSubmit={go} noValidate aria-label="이 기록으로 되돌리기">
+    <b>{name} 기록으로 되돌리기</b>
+    <p className="lv-note">이 기록의 지도 그림과 구역·지점·연결점으로 새로 저장합니다. 지금 지도는 저장 기록에 남고, 다음 실행부터 되돌린 지도를 씁니다.</p>
     <label className="fh-field"><span>되돌리는 이유</span><input className="inp" maxLength={2000} value={reason} autoFocus onChange={(e) => busy || setReason(e.target.value)} /></label>
     <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>되돌리기</button><button type="button" className="btn" disabled={busy} onClick={close}>취소</button>
       {again && <button type="button" className="btn" onClick={() => { close(); reload(); }}>새로 불러오기</button>}</div>

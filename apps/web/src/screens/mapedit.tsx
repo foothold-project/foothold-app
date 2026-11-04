@@ -110,20 +110,21 @@ function label(f: MapFeatures, k: string) {
 export function serverBad(e: ApiFail): Bad {
   const d = e.detail, list = Array.isArray(d?.elements) ? d.elements : [], path = typeof d?.element === 'string' ? d.element : typeof list[0] === 'string' ? list[0] as string : 'features';
   const text = /\.id$/.test(path) ? DUP : /\.pair_floor_id$/.test(path) ? '짝 층을 같은 건물의 다른 층으로 다시 고르세요.'
-    : path === 'image' ? '이 판의 지도 정보를 확인할 수 없습니다. 새로 불러온 뒤 다시 편집하세요.'
+    : path === 'image' ? '이 지도의 정보를 확인할 수 없습니다. 새로 불러온 뒤 다시 편집하세요.'
     : list.length ? '저장할 수 있는 모양이 아닙니다. 이름·점 개수·굵기를 확인하세요.' : `${e.message} 고친 뒤 다시 저장하세요.`;
   return { path, text };
 }
 /** 저장 실패(422 밖) = 무엇이 + 어떻게. 403 등은 서버 문구 그대로 */
 function saveFail(e: ApiFail) {
-  if (e.status === 404) return '이 층이나 판을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
+  if (e.status === 404) return '이 층이나 지도를 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
   if (e.code === 'SERVER_BUSY') return '서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.';
   if (e.code === 'TIMEOUT') return '서버가 제시간에 답하지 않았습니다. 네트워크를 확인한 뒤 다시 저장하세요.';
   return e.message;
 }
 
-type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'waypoint' | 'connector' | 'ERASE' | 'WALL';
-const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['waypoint', '지점'], ['connector', '연결점'], ['ERASE', '지우개'], ['WALL', '벽']];
+// 지우개·지점 도구는 뺐다(11-04) — 이미 저장된 지우개 선·지점은 고르기 도구로 그대로 고치고 저장에도 남는다
+type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'connector' | 'WALL';
+const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['connector', '연결점'], ['WALL', '벽']];
 const EMPTY: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
 const MIN_BOX = 8;   // 화면 px — 이보다 작은 끌기(그냥 누름 포함)는 구역을 만들지 않는다
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;   // 같은 무리 안에서만 달라야 함(서버 검사)
@@ -156,7 +157,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
   const [saving, setSaving] = useState(false);   // 바꾼 이유 창(단추 줄 «새 판으로 저장…»)
   useEffect(() => { if (lock) { drag.current = null; rect.current = null; setBox(null); } }, [lock]);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
-  const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
+  const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'WALL';
   const fit = useFit(v);   // 처음 화면은 편집 시작 때 판 요소 기준(그리는 동안 다시 맞추지 않음)
 
   // 저장하지 않은 편집(그리던 점 포함): 탭 이동·층 바꾸기·보기 전환은 이 칸의 확인으로, 새로고침·창 닫기는 브라우저 확인으로
@@ -179,7 +180,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     const x = d.fail;
     if (x.code === 'CANCELED') return;
     // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 편집 내용은 그대로 둔다. 목록을 다시 받아 보인다(다시 저장하면 승인 판이 바뀌어 STALE 로 막힘)
-    if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
+    if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 저장 기록을 다시 받습니다. 새 기록이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
     if (x.code === 'STALE') { setStale(true); setMsg({ text: STALE }); return; }
     if (x.code === 'INVALID_FEATURES') return toBad(serverBad(x));   // 화면 검사 실패와 같이: 저장 창 닫고 오른쪽 창에 그 요소·오류
     setMsg({ text: `저장하지 못했습니다. ${saveFail(x)}` });
@@ -220,10 +221,10 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     const [g, i] = split(k), n = { ...f, [g]: (f[g] as Item[]).filter((_, j) => j !== i) };
     put(n); setSel(''); setUndo({ text: `${label(f, k).replace(/: $/, '')} 지움`, f, after: n });
   };
-  // 같은 도구는 그대로, 같은 갈래(구역↔구역·선↔선)는 그리던 점을 이어 쓰고, 그 밖은 점을 지울지 묻는다
+  // 같은 도구는 그대로, 같은 갈래(구역↔구역)는 그리던 점을 이어 쓰고, 그 밖은 점을 지울지 묻는다
   const pick = (t: Tool) => {
     if (lock) return;
-    const same = (zone && (t === 'NO_GO' || t === 'SLOW')) || (line && (t === 'ERASE' || t === 'WALL')), go = () => { setTool(t); if (!same) setPts([]); setMsg(null); rect.current = null; setBox(null); };
+    const same = t === tool || (zone && (t === 'NO_GO' || t === 'SLOW')), go =() => { setTool(t); if (!same) setPts([]); setMsg(null); rect.current = null; setBox(null); };
     if (pts.length && !same) setAsk({ text: `그리던 점 ${pts.length}개를 지우고 도구를 바꿀까요?`, yes: '바꾸기', go }); else go();
   };
   const dotMode = (d: boolean) => {
@@ -247,8 +248,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     if (!inside(v, q[0], q[1])) return setMsg({ text: '지도 범위 밖은 찍을 수 없습니다. 지도 그림 안을 누르세요.' });
     setMsg(null);
     if (zone && !dots) { rect.current = [e.clientX, e.clientY]; setBox([rect.current, rect.current]); svg.current!.setPointerCapture?.(e.pointerId); return; }
-    if (tool === 'waypoint') add('waypoints', { id: newId(), name: `지점 ${f.waypoints.length + 1}`, x: q[0], y: q[1], yaw: 0 });
-    else if (tool === 'connector') {
+    if (tool === 'connector') {
       if (!others.length) return setMsg({ text: '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. «장소 고치기»에서 층을 먼저 만드세요.' });
       add('connectors', { id: newId(), kind: 'STAIRS', pair_floor_id: others[0].id, x: q[0], y: q[1], yaw: 0 });
     } else setPts([...pts, q]);
@@ -323,12 +323,11 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
   const hint = zone && !dots ? '지도에서 누른 채 끌면 사각형 구역이 생깁니다. 연달아 여러 개 그릴 수 있고, 그린 구역을 누르고 끌면 옮깁니다. 다른 모양은 «점으로 그리기»를 누르세요.'
     : zone ? `점 ${pts.length}개 — 지도를 눌러 구역 둘레를 차례로 찍고, 3개 이상이면 «닫기»를 누르세요.`
     : line ? `점 ${pts.length}개 — 지도를 눌러 선을 찍고, 2개 이상이면 «끝내기»를 누르세요.`
-    : tool === 'waypoint' ? '지도를 누르면 지점을 놓습니다. 놓은 뒤 이름과 방향을 고치세요.'
     : tool === 'connector' ? (others.length ? '지도를 누르면 계단·엘리베이터 연결점을 놓습니다. 놓은 뒤 짝 층을 고르세요.' : '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. «장소 고치기»에서 층을 먼저 만드세요.')
     : '요소를 눌러 고르고, 끌어서 옮기세요(구역은 통째로). 고른 구역은 오른쪽 위 X 로 지웁니다.';
   // 지도 왼쪽 아래 한 줄(긴 설명은 ⓘ 툴팁 — Hint)
   const short = zone && !dots ? '끌어서 사각형 구역 그리기' : zone ? `점 ${pts.length}개 — 3개 이상이면 «닫기»` : line ? `점 ${pts.length}개 — 2개 이상이면 «끝내기»`
-    : tool === 'waypoint' ? '지도를 누르면 지점을 놓습니다' : tool === 'connector' ? (others.length ? '지도를 누르면 연결점을 놓습니다' : '다른 층이 없어 연결점을 놓을 수 없습니다') : '끌어서 옮기기 · 빨간 X 로 지우기';
+    : tool === 'connector' ? (others.length ? '지도를 누르면 연결점을 놓습니다' : '다른 층이 없어 연결점을 놓을 수 없습니다') : '끌어서 옮기기 · 빨간 X 로 지우기';
   const color = zone ? fillOf(f.zones.length) : line ? EDIT[tool as 'WALL'].color : 'var(--accent)';
   const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
   const keys = featKeys(f), badKey = bad ? keyOf(bad.path) : '';
@@ -345,17 +344,17 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     {/* 주 동작 = 단추 줄 오른쪽 끝(FloorView 가 준 자리) → 바꾼 이유 칸이 있는 작은 창 */}
     {slot && createPortal(<><span className="mx-tag" data-changed>바뀐 요소 {changed}</span>
       <button type="button" className="btn" disabled={lock} onClick={out}>버리고 나가기</button>
-      <button type="button" className="btn pri" disabled={lock || !v.upload_id} title={v.upload_id ? undefined : '이 판은 아직 편집 저장을 지원하지 않습니다'}
-      aria-expanded={saving} onClick={() => setSaving(true)}>새 판으로 저장…</button></>, slot)}
+      <button type="button" className="btn pri" disabled={lock || !v.upload_id} title={v.upload_id ? undefined : '이 지도는 아직 편집 저장을 지원하지 않습니다'}
+      aria-expanded={saving} onClick={() => setSaving(true)}>저장…</button></>, slot)}
     {/* 저장 중엔 편집 입력을 모두 막는다(요청 뒤 바꾼 것이 201 뒤 사라지지 않게) — STOP 은 App 머리줄이라 그대로 */}
     <fieldset disabled={lock} style={{ display: 'contents' }}>
     <div className="mx-body" aria-label="지도 편집">
       <div className="mx-tools" role="toolbar" aria-label="편집 도구" aria-orientation="vertical">
-        {TOOLS.map(([t, text], i) => <span key={t} style={{ display: 'contents' }}>{(i === 1 || i === 5) && <hr />}
+        {TOOLS.map(([t, text], i) => <span key={t} style={{ display: 'contents' }}>{(i === 1 || i === 4) && <hr />}
           <button type="button" className="btn" aria-pressed={tool === t} title={text} disabled={lock} onClick={() => pick(t)}>{ICON[t]}<span className="mx-sr">{text}</span></button></span>)}
       </div>
       <div className="mx-map">
-        <MapFrame ref={svg} {...fit} photo={v} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        <MapFrame ref={svg} {...fit} photo={v} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
           <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
           <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
@@ -371,7 +370,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
           {ask && <div className="fh-row" role="group" aria-label="확인" ref={(e) => e?.scrollIntoView?.({ block: 'nearest' })}><span>{ask.text}</span>
             <button type="button" className="btn pri" onClick={() => { const a = ask; setAsk(null); a.go(); }}>{ask.yes}</button>
             <button type="button" className="btn" onClick={() => setAsk(null)}>계속 편집</button></div>}
-          {!v.upload_id && <p className="fh-msg" role="alert">이 판은 아직 편집 저장을 지원하지 않습니다. 도구는 써 볼 수 있지만 새 판으로 저장할 수는 없습니다.</p>}
+          {!v.upload_id && <p className="fh-msg" role="alert">이 지도는 아직 편집 저장을 지원하지 않습니다. 도구는 써 볼 수 있지만 저장할 수는 없습니다.</p>}
           {!saving && msg && note}
           {(zone || line) && <div className="fh-row" role="group" aria-label="그리기">
             {zone && <button type="button" className="btn" aria-pressed={dots} disabled={lock} onClick={() => dotMode(!dots)}>점으로 그리기</button>}
@@ -424,7 +423,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
           </details>
         </div>
         : <>
-          {!keys.length && <p className="lv-note mx-in">아직 요소가 없습니다. 왼쪽 도구로 구역·지점을 그리세요.</p>}
+          {!keys.length && <p className="lv-note mx-in">아직 요소가 없습니다. 왼쪽 도구로 구역·벽을 그리세요.</p>}
           <ol className="mx-list" aria-label="요소 순서">{keys.map((key, n) =>
             <li key={key} data-el={key} data-bad={key === badKey ? '' : undefined} className="mx-row">
               <button type="button" className="mx-name" aria-pressed={sel === key} onClick={() => { setSel(key); setMsg(null); }}><Glyph f={f} k={key} /><b>{featName(f, key)}</b>{fresh(key) && <span className="lv-chip ok" data-new>새로</span>}<small>{featSub(f, key, p.building.floors)}</small></button>
@@ -434,12 +433,12 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
         {foot && <div className="mx-foot">{foot}</div>}
       </Pane>
     </div>
-    <Pop open={saving} close={() => setSaving(false)} label="새 판으로 저장">
-      <form className="fh-form" onSubmit={save} noValidate aria-label="새 판으로 저장">
+    <Pop open={saving} close={() => setSaving(false)} label="지도 저장">
+      <form className="fh-form" onSubmit={save} noValidate aria-label="지도 저장">
         <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => lock || setReason(e.target.value)} /></label>
-        <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>새 판으로 저장</button>
+        <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>저장</button>
           {stale && <button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button>}</div>
-        {busy && <p className="lv-note" role="status">새 판으로 저장하는 중…</p>}
+        {busy && <p className="lv-note" role="status">저장하는 중…</p>}
         {saving && note}
       </form>
     </Pop>
@@ -470,9 +469,7 @@ const ICON: Record<Tool, JSX.Element> = {
   pick: ic(<path d="M5 3l11 6.5-5 1.3-2.4 4.7z" style={{ fill: 'currentColor' }} />),
   NO_GO: ic(<><rect x="3" y="3" width="14" height="14" rx="1.5" /><path d="M4 16L16 4" /></>),
   SLOW: ic(<rect x="3" y="3" width="14" height="14" rx="1.5" strokeDasharray="1.5 2.6" />),
-  waypoint: ic(<><circle cx="7" cy="13" r="3" style={{ fill: 'currentColor' }} /><path d="M7 13h9" /></>),
   connector: ic(<path d="M3 17h4v-4h4V9h4V5h2" />),
-  ERASE: ic(<><path d="M4 12.5l7-7 5 5-6.5 6.5H7z" /><path d="M10 17h7" /></>),
   WALL: ic(<path d="M4 16L16 4" style={{ strokeWidth: 3.5 }} />),
 };
 
