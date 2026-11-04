@@ -1,7 +1,7 @@
 // 설정 › 시뮬 조작값(11-02 SETTINGS-WEB) — 시뮬 연결만 조직 값으로 좁히고, 실기 limits(simulation false)는 값·동작 변화 0.
 import { afterEach, describe, expect, it } from 'vitest';
 import type { OrgSettings } from '../../../contracts/ts';
-import { DEAD, simTune, tuned, velocity, type Axes } from '../phone';
+import { DEAD, effectiveSettings, simTune, tuned, velocity, type Axes } from '../phone';
 import { KEY_VX, forward } from '../simdrive';
 
 type W = Parameters<typeof velocity>[1];
@@ -14,6 +14,43 @@ const GRID: Axes[] = [];
 for (let f = -1; f <= 1.001; f += 0.1) for (const t of [-1, -0.6, -0.2, 0, 0.3, 0.7, 1]) for (const y of [-1, -0.2, 0, 0.4, 1]) GRID.push([f, t, y]);
 
 afterEach(() => simTune(null));
+
+describe('현재 정책별 실효값', () => {
+  const org: Partial<OrgSettings> = { ...ORG, model_overrides: {
+    'nvidia-demo': { sim_max_vx: .3, sim_key_vx: .2, stick_deadzone: .2 },
+    'start-demo': { sim_max_vx: .4, sim_key_vx: .3 },
+    'go2-demo': { real_no_fast_server_drive: true },
+  } };
+  const mode = (name: string, simulation = true) => ({ ...hello(simulation, simulation ? SIM : REAL), policy: { name, version: 'v1' } });
+  it('덮어쓴 칸만 선택하고 없는 모델·칸은 공통 값을 쓴다', () => {
+    expect(effectiveSettings(org, 'nvidia-demo')).toMatchObject({ sim_max_vx: .3, sim_max_wz: .25 });
+    expect(effectiveSettings(org, 'foothold-v2')).toEqual(effectiveSettings(org, 'nvidia-demo'));
+    expect(effectiveSettings(org, 'ame2-demo')).toEqual(org);
+    expect(effectiveSettings(org, 'go2-flat')).toEqual(org);
+    expect(effectiveSettings(null, 'start-demo')).toEqual({});
+  });
+  it('설정을 다시 받지 않아도 welcome 정책이 바뀌면 조종·키보드를 다시 고른다', () => {
+    simTune(org);
+    for (const [id, cap, key] of [['nvidia-demo', .3, .2], ['start-demo', .4, .3], ['ame2-demo', .5, .4], ['foothold-v2', .3, .2]] as const) {
+      const w = mode(id);
+      expect(velocity([1, 0, 0], w).vx).toBe(cap);
+      expect(velocity([forward(w), 0, 0], w).vx).toBeCloseTo(key, 9);
+      expect(tuned(w).L.vy_max).toBe(.1);
+    }
+    simTune({ ...org, model_overrides: {} });
+    expect(tuned(mode('nvidia-demo')).L.vx_max).toBe(.5);
+  });
+  it('실효값도 에이전트 상한을 넓히지 않으며 실기 출력은 그대로다', () => {
+    simTune({ sim_max_vx: 1.5, model_overrides: { 'nvidia-demo': { sim_max_vx: 1.5, sim_max_wz: 1.2 } } });
+    expect(tuned(mode('nvidia-demo')).L.vx_max).toBe(1);
+    expect(tuned(mode('nvidia-demo')).L.wz_max).toBe(.5);
+    simTune(null);
+    const real = mode('go2-demo', false), before = GRID.map((a) => velocity(a, real));
+    simTune(org);
+    expect(GRID.map((a) => velocity(a, real))).toEqual(before);
+    expect(tuned(real)).toEqual({ L: REAL, dead: DEAD, key: undefined });
+  });
+});
 
 describe('시뮬 연결: 조직 값으로 좁힘', () => {
   it('상한 = min(에이전트, 조직), 최소 이동 = sim_min_vx, 데드존 = stick_deadzone', () => {

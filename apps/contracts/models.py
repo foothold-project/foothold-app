@@ -8,7 +8,7 @@ import unicodedata
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
 from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
@@ -467,11 +467,44 @@ class NotificationsRead(Contract):
         return self
 
 
+# Canonical IDs in mobile/sim/policy-modes.js. go2-demo is display-only;
+# no running real policy is registered, so real policies inherit common values.
+SIM_SETTING_FIELDS = frozenset(('sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz',
+    'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m'))
+MODEL_SETTING_FIELDS = {key: SIM_SETTING_FIELDS for key in ('nvidia-demo', 'ame2-demo', 'start-demo')}
+REAL_SETTING_FIELDS = frozenset(('real_no_fast_server_drive',))
+REAL_SETTING_MODELS: frozenset[str] = frozenset()
+MODEL_SETTING_FIELDS.update({key: REAL_SETTING_FIELDS for key in REAL_SETTING_MODELS})
+MODEL_SETTING_FIELDS['go2-demo'] = frozenset()
+SettingValue = StrictFloat | StrictInt | StrictBool
+
+
+def validate_model_settings(value, *, patch=False):
+    if not isinstance(value, dict):
+        raise ValueError('모델별 설정은 객체여야 합니다.')
+    for model, fields in value.items():
+        if model not in MODEL_SETTING_FIELDS:
+            raise ValueError('등록된 정식 모델 ID를 선택하세요.')
+        if not isinstance(fields, dict):
+            raise ValueError(f'{model}: 모델별 설정은 객체여야 합니다.')
+        for key, item in fields.items():
+            if key not in MODEL_SETTING_FIELDS[model]:
+                raise ValueError(f'{model}: 허용되지 않는 모델 설정 칸입니다.')
+            if item is None and patch:
+                continue
+            field = OrgSettings.model_fields[key]
+            try:
+                TypeAdapter(Annotated[field.annotation, *field.metadata]).validate_python(item)
+            except ValidationError:
+                raise ValueError(f'{model}: {key} 값의 형식과 범위를 확인하세요.') from None
+    return value
+
+
 class OrgSettings(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx',
         'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m',
-        'real_no_fast_server_drive'))
+        'real_no_fast_server_drive', 'model_overrides'))
 
     battery_low_pct: int = Field(default=20, ge=5, le=50, strict=True)
     run_min_battery_pct: int = Field(default=30, ge=10, le=90, strict=True)
@@ -488,6 +521,12 @@ class OrgSettings(Contract):
     sim_runner_wz: float = Field(default=0.6, ge=0.1, le=1.0, strict=True)
     lidar_view_m: int = Field(default=12, ge=1, le=30, strict=True)
     real_no_fast_server_drive: bool = Field(default=False, strict=True)
+    model_overrides: dict[str, dict[str, SettingValue]] = Field(default_factory=dict)
+
+    @field_validator('model_overrides', mode='before')
+    @classmethod
+    def valid_model_settings(cls, value):
+        return validate_model_settings(value)
 
     @model_validator(mode='after')
     def simulation_speed_order(self):
@@ -499,6 +538,16 @@ class OrgSettings(Contract):
             # A retained explicit forward cap can be below the new inherited
             # key default after cleanup of old materialized defaults.
             self.sim_key_vx = self.sim_max_vx
+        for model, overrides in self.model_overrides.items():
+            if model not in ('nvidia-demo', 'ame2-demo', 'start-demo'):
+                continue
+            # All inherited values participate, including the common key cap.
+            effective = {**self.model_dump(exclude={'model_overrides'}), **overrides}
+            try:
+                OrgSettings.model_validate(effective)
+            except ValidationError as exc:
+                message = exc.errors(include_input=False)[0]['msg'].removeprefix('Value error, ')
+                raise ValueError(f'{model}: {message}') from None
         return self
 
 
@@ -518,6 +567,12 @@ class OrgSettingsPatch(Contract):
     sim_runner_wz: float = omitted(ge=0.1, le=1.0, strict=True)
     lidar_view_m: int = omitted(ge=1, le=30, strict=True)
     real_no_fast_server_drive: bool = omitted(strict=True)
+    model_overrides: dict[str, dict[str, SettingValue | None]] = omitted()
+
+    @field_validator('model_overrides', mode='before')
+    @classmethod
+    def valid_model_settings(cls, value):
+        return validate_model_settings(value, patch=True)
 
 
 class RobotList(Contract):
@@ -1343,7 +1398,8 @@ class Action(Contract):
 
 
 class MissionWrite(MapName):
-    steps: list[MissionStep] = Field(min_length=1, max_length=100)
+    # Empty steps mean move to the waypoint with no action to perform there.
+    steps: list[MissionStep] = Field(min_length=0, max_length=100)
 
 
 class Mission(MissionWrite):

@@ -18,7 +18,7 @@ export const OUT = '담당 로봇만 배정하거나 해제할 수 있습니다(
 /** 총괄은 실기 로봇에 배정하지 않는다(로봇 탭 읽기 전용 — 상세 «배정» 숨김과 같은 규칙, 시뮬은 배정) */
 export const ADMIN_ASSIGN = '총괄 계정은 실기 로봇에 배정하지 않습니다 — 담당 운영 관리자가 배정합니다. 시뮬 로봇은 배정할 수 있습니다.';
 export const IDLE_SLOT = '끝낸 시뮬 슬롯에 남은 배정이라 총괄만 해제할 수 있습니다.';
-const EXISTS = '이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다. 아래 목록에서 확인하세요.';
+const EXISTS = '이 로봇에는 이미 이 시나리오의 같은 저장 기록이 배정되어 있거나 결재를 기다리고 있습니다. 아래 목록에서 확인하세요.';
 const ARCHIVED = '휴지통에 있는 시나리오는 배정할 수 없습니다.';
 const live = (a: Assignment) => a.status === 'ACTIVE' || a.status === 'PENDING';
 /** 서버가 답했는지 모름(끊김·마감·깨진 본문·5xx) — 처리됐을 수 있다 */
@@ -36,7 +36,7 @@ const isAssignment = (a: Assignment) => !!a && str(a.id) && str(a.status) && (re
 const isCurrent = (a: Assignment) => isAssignment(a) && refs(a);
 /** 배정 줄의 시나리오 이름 · 판 — 지워진 시나리오는 «(삭제됨) 이름», 판 없음 */
 const scen = (a: Assignment) => (a.scenario_id ? a.scenario_name : deleted(a.scenario_name_snapshot ?? a.scenario_name));
-const ver = (a: Assignment) => (a.scenario_version == null ? '' : ` · 판 ${a.scenario_version}`);
+const ver = (a: Assignment) => (a.scenario_version == null ? '' : ` · ${a.scenario_version}번째 저장`);
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 배정 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 const isList = (l: Assignment[]) => Array.isArray(l) && l.every(isAssignment);
 const newKey = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -71,13 +71,13 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
   useEffect(() => { assignFor.robot = null; return () => { alive.current = false; }; }, []);
   // 이 판이 이미 ACTIVE·PENDING 인 로봇(이 시나리오 목록을 볼 때만 안다 — 로봇별 보기면 서버 409 가 막는다)
   const taken = new Map((by ? [] : l.items ?? []).filter((a) => live(a) && a.scenario_version === version).map((a) => [a.robot_id, a.status]));
-  const why = (r: Robot) => (adminReal(user, r) ? ADMIN_ASSIGN : !mineOf(user, r) ? OUT : taken.has(r.id) ? (taken.get(r.id) === 'PENDING' ? '이 판은 이미 결재를 기다리고 있습니다.' : '이 판이 이미 배정되어 있습니다.') : null);
+  const why = (r: Robot) => (adminReal(user, r) ? ADMIN_ASSIGN : !mineOf(user, r) ? OUT : taken.has(r.id) ? (taken.get(r.id) === 'PENDING' ? '이 저장 기록은 이미 결재를 기다리고 있습니다.' : '이 저장 기록이 이미 배정되어 있습니다.') : null);
   const lock = phase !== 'idle';
   const nameOf = (id: string) => robots.find((r) => r.id === id)?.name ?? '로봇';
 
   const done = (a: Assignment) => {
     attempt.current = null; setPhase('idle'); setOpen(false); setRobot(''); setMemo('');
-    const what = `${a.robot_name}에 «${a.scenario_name}» 판 ${a.scenario_version}`;
+    const what = `${a.robot_name}에 «${a.scenario_name}» ${a.scenario_version}번째 저장`;
     if (!live(a)) setAll(true);   // 반려·해제된 결과 줄도 목록에 보이게
     setMsg(a.status === 'PENDING' ? { text: `${what} 배정을 보냈지만 서버가 결재 대기로 받았습니다. 승인되면 적용됩니다.`, ok: true }
       : a.status === 'ACTIVE' ? { text: `${what}을 배정했습니다. 바로 적용됩니다.`, ok: true }
@@ -134,7 +134,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
     const was = a.status, mark = (s?: 'sending' | 'checking') => setRemoving((o) => { const n = { ...o }; if (s) n[a.id] = s; else delete n[a.id]; return n; });
     /** 해제 확인 뒤. PENDING 이었으면 «결재 취소됨»은 결재를 다시 받아 CANCELED 일 때만(그새 승인·반려됐을 수 있다) */
     const ok = () => {
-      const gone = `${a.robot_name}에서 «${a.scenario_name}» 판 ${a.scenario_version} 배정을 해제했습니다.`;
+      const gone = `${a.robot_name}에서 «${a.scenario_name}» ${a.scenario_version}번째 저장 배정을 해제했습니다.`;
       if (was !== 'PENDING' || !a.approval_id) return setMsg({ text: gone, ok: true });
       setMsg({ text: `${gone} 결재 요청이 취소됐는지 확인하는 중…`, ok: true });
       api.approval(a.approval_id, cancel).then((p) => {
@@ -167,7 +167,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
       <button type="button" className="btn pri" disabled={!!blocked || open} aria-describedby={blocked ? 'assign-why' : undefined} onClick={() => { setOpen(true); setMsg(null); }}>로봇에 배정</button>
       {blocked && <span id="assign-why" className="fh-why" data-why>{blocked}</span>}</div>
     {open && <form className="fh-form" onSubmit={submit} noValidate aria-label="배정 창">
-      <p className="lv-note">«{name}» 판 {version}을 배정합니다. 바로 적용됩니다.</p>
+      <p className="lv-note">«{name}» {version}번째 저장을 배정합니다. 바로 적용됩니다.</p>
       <fieldset disabled={lock} style={{ display: 'contents' }}>
         <div className="fh-form" role="group" aria-label="로봇 고르기">{robots.filter((r) => !idleSim(r)).map((r) => { const w = why(r); return <div key={r.id} className="fh-row">
           <button type="button" className="btn" aria-pressed={robot === r.id} disabled={!!w} aria-describedby={w ? `assign-${r.id}` : undefined} data-robot={r.id} onClick={() => setRobot(r.id)}>{r.name}</button>
@@ -214,7 +214,7 @@ export function AssignedCards(c: Pick<Ctx, 'robot' | 'cancel'>) {
     <h2>배정된 시나리오</h2>
     {cards.map((a) => <section key={a.id} className="lv-card" data-card={a.id}>
       <div className="fh-row"><h2 className="fh-grow">{a.scenario_name}</h2><Chip {...status(a.status)} /></div>
-      <p className="lv-note">판 {a.scenario_version}{a.memo ? ` · ${a.memo}` : ''}</p>
+      <p className="lv-note">{a.scenario_version}번째 저장{a.memo ? ` · ${a.memo}` : ''}</p>
       <div className="fh-row"><button type="button" className="btn pri" aria-label={`${a.scenario_name} 실행(준비 중)`} {...soon}>▶ 실행(준비 중)</button></div>
     </section>)}
     {l.items && !cards.length && !l.err && <p className="lv-note">이 로봇에 배정된 시나리오가 없습니다.</p>}

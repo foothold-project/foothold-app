@@ -54,6 +54,62 @@ def waypoint(s, code, seq, results=None, idx=0):
     return event(s, code=code, seq=seq, data=data)
 
 
+def test_move_only_scenario_preview_assignment_plan_and_completion(scenario):
+    s = scenario
+    client, headers = s['client'], auth(s['client'])
+    mission = client.post(P + '/missions', headers=headers, json={'name': '이동', 'steps': []})
+    assert mission.status_code == 201, mission.text
+    for point in s['body']['waypoints']:
+        point.update(mission_id=mission.json()['id'], mission_version=1)
+    preview = client.post(P + '/scenarios/preview', headers=headers, json=s['body'])
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['reachable'] and preview.json()['required_devices'] == []
+    created = client.post(P + '/scenarios', headers=headers, json=s['body'])
+    assert created.status_code == 201, created.text
+    assert created.json()['required_devices'] == []
+    s['started']['scenario_id'] = created.json()['id']
+    path = P + '/scenarios/' + s['started']['scenario_id']
+    saved = client.put(path, headers={**headers, 'If-Match': '"1"'}, json=s['body'])
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['required_devices'] == []
+    assert client.get(path + '?version=2', headers=headers).json()['waypoints'] == s['body']['waypoints']
+    rid = str(s['seeded']['robots']['mine'])
+    assigned = client.post(P + '/assignments', headers=headers, json=dict(
+        scenario_id=s['started']['scenario_id'], scenario_version=2, robot_id=rid))
+    assert assigned.status_code == 201 and assigned.json()['status'] == 'ACTIVE', assigned.text
+
+    # No camera/device or supported action is needed for a move-only mission.
+    caps = C.ExecutionCapabilities(contract='scenario/2', revision=7, actions=[
+        C.ExecutionCapability(key=key, state='UNAVAILABLE', reason='No action support')
+        for key in ('wait', 'photo.rgb')])
+    client.app.state.realtime.agents[rid] = SimpleNamespace(closing=False,
+        state=dict(devices=[], execution_capabilities=caps.model_dump(mode='json')))
+    try:
+        plan = client.get(P + '/agent/scenarios/' + s['started']['scenario_id'],
+            params=dict(version=2, run_contract='scenario/2', execution_capability_revision=7),
+            headers={'authorization': 'Bearer fake-test-' + rid})
+    finally:
+        client.app.state.realtime.agents.pop(rid)
+    assert plan.status_code == 200, plan.text
+    fixed = C.ExecutableAgentScenario.model_validate(plan.json())
+    assert len(fixed.waypoints) == 2
+    assert all(p.mission_steps == p.required_capabilities == [] for p in fixed.waypoints)
+    s['started'].update(scenario_version=2, run_contract='scenario/2', execution_capability_revision=7)
+    assert photos_record(s, event(s), caps)['t'] == 'run.recorded'
+    assert all(g['mission_steps'] == g['required_capabilities'] == []
+        for g in stored(s)[0].plan['segments'][0]['goals'])
+    results = dict(mode='EXECUTED', run_contract='scenario/2', execution_capability_revision=7, steps=[])
+    for idx in range(2):
+        assert save(s, waypoint(s, 'RUN_WAYPOINT_ARRIVED', 2 + idx * 2, idx=idx))['t'] == 'run.recorded'
+        assert save(s, waypoint(s, 'RUN_WAYPOINT_RECORDED', 3 + idx * 2,
+            results=results, idx=idx))['t'] == 'run.recorded'
+    completed = update(s, seq=6, status='COMPLETED').model_dump(mode='json')
+    completed.update(step=2, progress={'done': 2, 'total': 2})
+    assert save(s, completed)['t'] == 'run.recorded'
+    assert stored(s)[0].status == 'COMPLETED'
+    assert all(step.status == 'DONE' and step.results['steps'] == [] for step in stored(s, RunStep))
+
+
 def metadata(s, payload=JPEG, **changes):
     return C.PhotoUploadMetadata(org_id=s['seeded']['org'], robot_id=s['seeded']['robots']['mine'],
         run_id=UUID(s['started']['run_id']), waypoint_idx=0, step_idx=0, source='rgb', captured_at=now(),

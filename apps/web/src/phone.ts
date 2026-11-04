@@ -123,11 +123,20 @@ export const TURN_ON = 0.5;
 export const NUDGE = 0.001;
 /** 조직 시뮬 조작값(05 §8 OrgSettings sim_*·stick_deadzone, 설정 › 시뮬)의 계약 범위(apps/contracts/models.py OrgSettings) */
 const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.5], sim_max_wz: [0, 1.2], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] } as const;
-let tune: Partial<Record<keyof typeof TUNE, number>> = {};
+let tuneSettings: Partial<OrgSettings> | null = null;
+/** Old names are resolved only when selecting; override keys stay canonical. */
+export function effectiveSettings(o: Partial<OrgSettings> | null, modeId = '') {
+  const id = modeId === 'foothold-v2' ? 'nvidia-demo' : modeId;
+  return { ...o, ...(id && o?.model_overrides?.[id]) };
+}
 /** 연결할 때 받고 설정에서 저장하면 바로 바뀐다. 숫자가 아니거나·유한하지 않거나·범위 밖·교차 조건(최소·키보드 ≤ 최대)을 어긴 필드는
  *  버린다 — 그 필드만 에이전트 limits·DEAD·KEY_VX 로 돌아감 */
 export function simTune(o: Partial<OrgSettings> | null) {
-  const t: typeof tune = {};
+  tuneSettings = o;
+}
+function simulationTune(modeId = '') {
+  const o = effectiveSettings(tuneSettings, modeId);
+  const t: Partial<Record<keyof typeof TUNE, number>> = {};
   for (const k of Object.keys(TUNE) as (keyof typeof TUNE)[]) {
     const v: unknown = o?.[k], [lo, hi] = TUNE[k];
     if (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi) t[k] = v;
@@ -136,12 +145,13 @@ export function simTune(o: Partial<OrgSettings> | null) {
     if (t.sim_min_vx != null && t.sim_min_vx > t.sim_max_vx) delete t.sim_min_vx;
     if (t.sim_key_vx != null && t.sim_key_vx > t.sim_max_vx) delete t.sim_key_vx;
   }
-  tune = t;
+  return t;
 }
 /** 시뮬 연결(welcome.simulation)만 에이전트 limits 를 조직 값으로 좁힌다(넓히지 않음 — 최종 자르기는 에이전트). 데드존·키보드 전진(key)도 조직 값.
  *  실기 welcome 은 limits·DEAD 그대로, key 없음(부른 쪽 기본값) */
 export function tuned(w: PhoneWelcome) {
   if (w.simulation !== true) return { L: w.limits, dead: DEAD, key: undefined };
+  const tune = simulationTune(w.policy?.name);
   const L = w.limits, { sim_max_vx: vx, sim_min_vx: lo, sim_max_vy: vy, sim_max_wz: wz } = tune;
   const vx_max = vx == null ? L.vx_max : Math.min(L.vx_max, vx);
   return { L: { ...L, vx_max, ...(lo != null && { vx_min_moving: Math.min(lo, vx_max) }),

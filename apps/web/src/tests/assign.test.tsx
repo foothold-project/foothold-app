@@ -96,8 +96,8 @@ async function open(hash: string, phone = false) {
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
-  // 옛 #/mission 주소 → 지도 탭 «시나리오» 창(MAP-TAB-MERGE) — 지도 고르기 화면이면 첫 층
-  const ch = box.querySelector<HTMLButtonElement>('[data-floor]');
+  // 옛 #/mission 주소 → 지도 탭 «시나리오» 창(MAP-TAB-MERGE) — 지도 고르기 화면이면 첫 건물 1층
+  const ch = box.querySelector<HTMLButtonElement>('[data-building]');
   if (ch) { act(() => ch.click()); await flush(); }
 }
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); localStorage.clear(); asg = []; n = 0; aps = {}; extra = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -140,7 +140,7 @@ describe('배정 창', () => {
     expect($('[data-unsaved-assign]')).toBeNull();
     const name = [...box.querySelectorAll('label')].find((l) => l.textContent === '이름')!.querySelector('input')!;   // 저장된 시나리오 이름은 «···» 안(MAPSCEN-FIX-R1)
     await setVal(name, '1층 순찰 고침');
-    expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 저장된 판 1이 배정됩니다');
+    expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 마지막으로 저장한 내용(1번째 저장)이 배정됩니다');
     await setVal(name, '1층 순찰');
     expect($('[data-unsaved-assign]')).toBeNull();
   });
@@ -159,7 +159,7 @@ describe('배정 창', () => {
     expect(posts()).toHaveLength(1);
     expect(posts()[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r-m', memo: '아침 순찰' });
     expect(posts()[0].key).toMatch(/^[A-Za-z0-9._:-]{1,128}$/);
-    expect(text()).toContain('시뮬-1에 «1층 순찰» 판 1을 배정했습니다. 바로 적용됩니다.');
+    expect(text()).toContain('시뮬-1에 «1층 순찰» 1번째 저장을 배정했습니다. 바로 적용됩니다.');
     expect(rowOf(asg[0].id).textContent).toContain('배정됨');
     expect(rowOf(asg[0].id).textContent).toContain('아침 순찰');
     await stopOk();
@@ -176,13 +176,13 @@ describe('배정 창', () => {
     await pickRobot('r-a');
     await click(btn('배정', panel()));
     expect(asg[0].status).toBe('ACTIVE');
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다. 바로 적용됩니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다. 바로 적용됩니다.');
     expect(btn('내 요청 보기', panel())).toBeUndefined();
     expect(rowOf(asg[0].id).textContent).toContain('배정됨');
     // 이미 배정된 판 → 그 로봇도 회색 + 이유
     await click(btn('로봇에 배정', panel()));
     expect($<HTMLButtonElement>('[data-robot="r-a"]', panel())!.disabled).toBe(true);
-    expect(text()).toContain('이 판이 이미 배정되어 있습니다.');
+    expect(text()).toContain('이 저장 기록이 이미 배정되어 있습니다.');
   });
   it('서버 403·404 = 회색 단추와 같은 문구, 409 = 이미 배정 문구, 보관 422 = 보관 문구', async () => {
     scenarios = [scen('s1', '1층 순찰')];
@@ -194,7 +194,7 @@ describe('배정 창', () => {
     await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
     expect(text()).toContain(OUT);
     await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
-    expect(text()).toContain('이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다.');
+    expect(text()).toContain('이 로봇에는 이미 이 시나리오의 같은 저장 기록이 배정되어 있거나 결재를 기다리고 있습니다.');
     await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
     expect(text()).toContain('휴지통에 있는 시나리오는 배정할 수 없습니다. 휴지통 밖의 시나리오를 고르세요.');
     expect(new Set(posts().map((p) => p.key)).size).toBe(4);   // 시도마다 새 키
@@ -226,7 +226,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     expect(text()).not.toContain('배정했습니다');   // 추측하지 않음
     await stopOk();   // 확인 중에도 STOP
     release(); await flush();
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다.');
     expect(posts()).toHaveLength(1);
   });
   it('처리 안 된 채 끊김(5xx): 목록에 없음 → 확정 안 함 → «같은 요청 다시 보내기» = 같은 키', async () => {
@@ -241,7 +241,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     expect(posts()).toHaveLength(2);
     expect(posts()[1].key).toBe(posts()[0].key);
     expect(posts()[1].body).toEqual(posts()[0].body);
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다.');
     // 같은 키를 또 보내도 서버는 첫 결과를 돌려준다(두 번 배정 안 됨)
     expect(asg).toHaveLength(1);
   });
@@ -388,7 +388,7 @@ describe('배정 목록·해제', () => {
     asg = [mk({ robot_id: 'r-a', status: 'ACTIVE' })];
     await (async () => { serve(KIM, { over: { 'DELETE /assignments/as1': [(real) => { real(); throw new TypeError('lost'); }] } }); await open('#/mission'); await click($('[data-plan="s1"]')); })();
     await click(btn('해제', rowOf('as1')));
-    expect(text()).toContain('Go2-A에서 «1층 순찰» 판 1 배정을 해제했습니다.');
+    expect(text()).toContain('Go2-A에서 «1층 순찰» 1번째 저장 배정을 해제했습니다.');
   });
   it('해제 응답 끊김인데 목록이 아직 ACTIVE → 확정 안 함 + 다시 누르라는 안내', async () => {
     scenarios = [scen('s1', '1층 순찰')];
@@ -407,7 +407,7 @@ describe('배정 목록·해제', () => {
     expect([...panel().querySelectorAll('[data-assignment]')].map((x) => x.getAttribute('data-assignment'))).toEqual(['as1', 'as3']);
     await setVal($<HTMLSelectElement>('[aria-label="배정 보기"]')!, 'r-a');
     expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('robot_id')).toBe('r-a');
-    expect(text()).toContain('2층 점검 · 판 1');
+    expect(text()).toContain('2층 점검 · 1번째 저장');
     expect($('[data-assignment="as3"]')).toBeNull();
   });
   it('완전 삭제된 시나리오의 끝난 배정(scenario_id·판 null): «해제·반려된 것도 보기» = archived=true, 목록이 깨지지 않고 «(삭제됨) 이름»', async () => {
@@ -421,8 +421,8 @@ describe('배정 목록·해제', () => {
     await click([...panel().querySelectorAll('input[type="checkbox"]')][0]);
     expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('archived')).toBe('true');
     expect(text()).not.toContain('형식이 맞지 않습니다');
-    expect(rowOf('as2').textContent).toContain('(삭제됨) 옛 순찰'); expect(rowOf('as2').textContent).not.toContain('판 null');
-    expect(rowOf('as1').textContent).toContain('1층 순찰 · 판 1');
+    expect(rowOf('as2').textContent).toContain('(삭제됨) 옛 순찰'); expect(rowOf('as2').textContent).not.toContain('null');
+    expect(rowOf('as1').textContent).toContain('1층 순찰 · 1번째 저장');
   });
 });
 
@@ -439,14 +439,14 @@ describe('관제 서랍 [배정]', () => {
     await click($('[data-assign-robot]'));
     expect(location.hash).toBe('#/map');
     expect(box.textContent).toContain('Go2-A에 배정할 시나리오를 고르세요 — 먼저');   // 지도 고르기 화면에도 안내
-    await click($('[data-floor]'));
+    await click($('[data-building]'));
     expect(box.textContent).toContain('Go2-A에 배정할 시나리오를 고르세요 — 고르면');
     await click($('[data-plan="s1"]'));
     expect($('[aria-label="배정 창"]', panel())).toBeTruthy();
     expect($('[data-robot="r-a"]', panel())!.getAttribute('aria-pressed')).toBe('true');
     await click(btn('배정', panel()));
     expect(posts()[0].body).toMatchObject({ scenario_id: 's1', robot_id: 'r-a' });
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다.');
   });
 });
 
@@ -463,7 +463,7 @@ describe('폰 시나리오 카드', () => {
     const cards = [...sheet.querySelectorAll('[data-card]')];
     expect(cards.map((c) => c.querySelector('h2')!.textContent)).toEqual(['1층 순찰', '2층 점검']);
     expect(cards[1].textContent).toContain('결재 대기');
-    expect(cards[1].textContent).toContain('판 3');
+    expect(cards[1].textContent).toContain('3번째 저장');
     for (const c of cards) { const b = c.querySelector('button')!; expect(b.disabled).toBe(true); expect(b.textContent).toContain('준비 중'); }
     expect(sheet.textContent).not.toContain('옛 순찰');
     await stopOk();

@@ -150,3 +150,123 @@ def test_inherited_key_follows_retained_forward_cap_but_explicit_conflict_reject
     assert raised.json() == client.get(P).json()
     with Session(client.app.state.engine) as db:
         assert db.get(Organization, seeded['org']).settings == {'sim_max_vx': 1.2, 'lidar_view_m': 15}
+
+
+def test_model_merge_reset_sparse_persistence_and_audit(client, seeded):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Event, Organization
+    headers = csrf(client)
+    assert client.get(P).json()['model_overrides'] == {}
+    patches = [
+        {'model_overrides': {'nvidia-demo': {'sim_key_vx': .4, 'lidar_view_m': 20},
+                             'start-demo': {'stick_deadzone': .2}}},
+        {'model_overrides': {'nvidia-demo': {'sim_runner_vx': .6}}},
+        {'model_overrides': {'nvidia-demo': {'sim_key_vx': None}}},
+    ]
+    for patch in patches:
+        assert client.patch(P, headers=headers, json=patch).status_code == 200
+    expected = {'nvidia-demo': {'lidar_view_m': 20, 'sim_runner_vx': .6},
+                'start-demo': {'stick_deadzone': .2}}
+    assert client.get(P).json()['model_overrides'] == expected
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'model_overrides': expected}
+        assert list(db.scalars(select(Event.data).where(Event.code == 'ORG_SETTINGS_UPDATED')
+                               .order_by(Event.id))) == patches
+    # Empty objects are no-ops, never erase a model's existing choices.
+    assert client.patch(P, headers=headers, json={'model_overrides': {'nvidia-demo': {}}}).json()['model_overrides'] == expected
+    result = client.patch(P, headers=headers, json={'model_overrides': {
+        'nvidia-demo': {'lidar_view_m': None, 'sim_runner_vx': None},
+        'start-demo': {'stick_deadzone': None}, 'ame2-demo': {'sim_key_vx': None}}})
+    assert result.status_code == 200 and result.json()['model_overrides'] == {}
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {}
+
+
+@pytest.mark.parametrize('overrides', [
+    {'unknown': {'sim_key_vx': .5}}, {'foothold-v2': {'sim_key_vx': .5}},
+    {'nvidia-demo': {'battery_low_pct': 30}}, {'nvidia-demo': {'unknown': None}},
+    {'nvidia-demo': {'real_no_fast_server_drive': True}}, {'go2-demo': {'sim_max_vx': 1}},
+    {'go2-demo': {'real_no_fast_server_drive': True}}, {'nvidia-demo': None},
+    {'nvidia-demo': {'sim_key_vx': '0.5'}}, {'nvidia-demo': {'lidar_view_m': 2.5}},
+])
+def test_unknown_model_field_and_strict_override_validation_422(client, overrides):
+    headers = csrf(client)
+    before = client.get(P).json()
+    result = client.patch(P, headers=headers, json={'model_overrides': overrides})
+    assert result.status_code == 422
+    assert result.json()['error']['code'] == 'VALIDATION'
+    assert client.get(P).json() == before
+
+
+@pytest.mark.parametrize('field', BOUNDS)
+def test_model_ranges_match_common_ranges(client, field):
+    headers = csrf(client)
+    low, high = BOUNDS[field]
+    for value in (low, high):
+        fields = {'sim_min_vx': 0, 'sim_key_vx': .1, field: value}
+        patch = {'model_overrides': {'nvidia-demo': fields}}
+        result = client.patch(P, headers=headers, json=patch)
+        assert result.status_code == 200, result.json()
+        assert result.json()['model_overrides']['nvidia-demo'][field] == value
+    before = client.get(P).json()
+    for value in (low - 1, high + 1, True, '0.2'):
+        result = client.patch(P, headers=headers, json={'model_overrides': {'nvidia-demo': {field: value}}})
+        assert result.status_code == 422
+        assert client.get(P).json() == before
+
+
+def test_model_cross_validation_common_changes_and_reset_are_atomic(client):
+    headers = csrf(client)
+    initial = {'model_overrides': {'nvidia-demo': {'sim_key_vx': .6, 'sim_max_vx': .7},
+                                  'start-demo': {'sim_min_vx': .5}}}
+    assert client.patch(P, headers=headers, json=initial).status_code == 200
+    before = client.get(P).json()
+    for patch, model in [
+        ({'model_overrides': {'nvidia-demo': {'sim_min_vx': .5, 'sim_max_vx': .4}}}, 'nvidia-demo'),
+        ({'model_overrides': {'nvidia-demo': {'sim_key_vx': None}}}, 'nvidia-demo'),
+        ({'sim_key_vx': .3, 'sim_max_vx': .4}, 'start-demo'),
+        ({'sim_key_vx': .8, 'model_overrides': {'nvidia-demo': {'sim_key_vx': None}}}, 'nvidia-demo'),
+    ]:
+        result = client.patch(P, headers=headers, json=patch)
+        assert result.status_code == 422, result.json()
+        assert model in result.json()['error']['message']
+        assert client.get(P).json() == before
+    # One model's settings cannot satisfy another model's cross-field order.
+    result = client.patch(P, headers=headers, json={'model_overrides': {
+        'ame2-demo': {'sim_max_vx': .4}, 'start-demo': {'sim_key_vx': .3}}})
+    assert result.status_code == 422 and 'ame2-demo' in result.json()['error']['message']
+    assert client.get(P).json() == before
+    # Simultaneously restoring both related fields can return to common values.
+    assert client.patch(P, headers=headers, json={'model_overrides': {
+        'nvidia-demo': {'sim_key_vx': None, 'sim_max_vx': None}}}).status_code == 200
+
+
+def test_only_admin_updates_model_overrides_and_orgs_remain_isolated(client, seeded):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Organization
+    patch = {'model_overrides': {'start-demo': {'sim_runner_vx': .5}}}
+    for role in ('one', 'two'):
+        assert client.patch(P, headers=csrf(client, role), json=patch).status_code == 403
+    assert client.patch(P, headers=csrf(client), json=patch).status_code == 200
+    assert client.get(P).json()['real_no_fast_server_drive'] is False
+    # This server admits only its configured organization at login.
+    with Session(client.app.state.engine) as db:
+        others = list(db.scalars(select(Organization).where(Organization.id != seeded['org'])))
+        assert others and all(org.settings == {} for org in others)
+
+
+def test_contract_model_ids_and_kinds_match_policy_registry():
+    import json
+    import subprocess
+    root = Path(__file__).resolve().parents[3]
+    result = subprocess.run(['node', '--input-type=module', '-e',
+        "import { POLICY_MODES } from './mobile/sim/policy-modes.js'; "
+        "console.log(JSON.stringify(Object.values(POLICY_MODES).map(m => [m.id, m.command.kind])));"],
+        cwd=root, check=True, capture_output=True, text=True)
+    registry = dict(json.loads(result.stdout))
+    assert set(registry) == set(C.MODEL_SETTING_FIELDS)
+    for model, kind in registry.items():
+        assert C.MODEL_SETTING_FIELDS[model] == (frozenset()
+            if kind == 'none' else C.SIM_SETTING_FIELDS)
