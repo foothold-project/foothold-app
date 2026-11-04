@@ -1343,7 +1343,8 @@ class Action(Contract):
 
 
 class MissionWrite(MapName):
-    steps: list[MissionStep] = Field(min_length=1, max_length=100)
+    # Empty steps mean move to the waypoint with no action to perform there.
+    steps: list[MissionStep] = Field(min_length=0, max_length=100)
 
 
 class Mission(MissionWrite):
