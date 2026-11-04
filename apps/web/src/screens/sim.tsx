@@ -20,9 +20,9 @@ export function Go2ReplayLink({ robots }: { robots: Robot[] }) {
   const robot = real.find((r) => r.id === selected);
   return <section className="lv-card" aria-label="Go2 실기 보기" data-go2-replay>
     <h2>Go2 실기 보기</h2><p className="lv-note">실기 보기 전용 · 위치 원점: 기동 시점 기준·미확인</p>
-    <label>로봇 <select aria-label="실기 보기 로봇" value={robot?.id ?? ''} onChange={(e) => select(e.target.value)}>
+    <div className="fh-row"><label className="fh-row"><span>로봇</span><select className="fh-user fh-sel" aria-label="실기 보기 로봇" value={robot?.id ?? ''} onChange={(e) => select(e.target.value)}>
       <option value="">로봇 고르기</option>{real.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-    </select></label>{robot && <a className="btn" data-go2-open href={`/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(robot.id)}`}>Go2 실기 보기 열기</a>}
+    </select></label>{robot && <a className="btn" style={{ textDecoration: 'none', color: 'var(--text)', boxSizing: 'border-box' }} data-go2-open href={`/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(robot.id)}`}>Go2 실기 보기 열기</a>}</div>
   </section>;
 }
 
