@@ -38,6 +38,26 @@
       "title": "Link Loss Wait S",
       "type": "integer"
     },
+    "model_overrides": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "title": "Model Overrides",
+      "type": "object"
+    },
     "real_no_fast_server_drive": {
       "default": false,
       "title": "Real No Fast Server Drive",
