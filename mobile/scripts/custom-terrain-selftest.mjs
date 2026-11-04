@@ -5,7 +5,7 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SCHEMA, validateTerrain, buildTerrain, loadCustomTerrain } from '../sim/terrain/index.js';
 import { decodeMap, cell } from '../sim/lidar.js';
-import { findPath } from '../sim/astar.js';
+import { findPath, fits } from '../sim/astar.js';
 import { createSim, ISAAC_LIKE } from '../sim/sim.js';
 import { POLICY_MODES, getPolicyMode } from '../sim/policy-modes.js';
 import { makeTerrainSampler } from '../sim/policy-adapters.js';
@@ -68,6 +68,10 @@ for(const spec of examples){
   assert.deepEqual(validateTerrain(spec),{errors:[],warnings:[]});
   const built=buildTerrain(spec);assert.deepEqual(built,buildTerrain(spec),'deterministic build');
   const map=decodeMap(built.map),path=await findPath(map,{x:spec.spawn[0],y:spec.spawn[1]},{x:4,y:3});
+  for(let c=0;c<map.w;c++){assert.equal(map.px[c],205);assert.equal(map.px[(map.h-1)*map.w+c],205);}
+  for(let r=0;r<map.h;r++){assert.equal(map.px[r*map.w],205);assert.equal(map.px[r*map.w+map.w-1],205);}
+  assert.equal(await fits(map,{x:spec.size[0]/2-.03,y:0}),false,'outer cell cannot be a goal');
+  assert.equal(await fits(map,{x:spec.size[0]/2-.3,y:0}),false,'border clearance is inflated');
   assert.ok(path?.length,'A* route to distant point');
   for(const o of spec.items)assert.equal(cell(map,o.x,o.y),0,'raised/gap footprint occupied');
   const sim=open(built,spec.spawn);
@@ -76,6 +80,8 @@ for(const spec of examples){
   const close=(a,b)=>assert.ok(Math.abs(a-b)<2e-6,`${spec.id}: height ${a} != ${b}`);
   try{
     close(height(-4,-3),0);
+    close(height(spec.size[0]/2-.025,0),.2);
+    close(height(0,-spec.size[1]/2+.025),.2);
     for(const o of spec.items){
       if(o.kind==='box')close(height(o.x,o.y),o.h);
       if(o.kind==='stairs')for(let k=0;k<o.steps;k++)close(height(o.x-(o.steps*o.run+1)/2+(k+.5)*o.run,o.y),(k+1)*o.rise);
@@ -92,10 +98,20 @@ for(const spec of examples){
     records.push({id:spec.id,seconds:3,fallen,minZ,maxTiltDeg:maxTilt*180/Math.PI,pathPoints:path.length,geoms:sim.m.ngeom});
   }finally{sampler.dispose();sim.dispose();}
 }
+// Drive toward the boundary with an active policy: the visible curb must
+// physically stop the original 8-second fall-off reproduction.
+const edgeSpec={...base(),spawn:[4,0,0]},edgeSim=open(buildTerrain(edgeSpec),edgeSpec.spawn);
+let edgeMinZ=Infinity,edgeMaxX=-Infinity;
+try{edgeSim.hold(.5);for(let k=0;k<400;k++){edgeSim.cmd=[.6,0,0];await edgeSim.step();edgeMinZ=Math.min(edgeMinZ,edgeSim.d.qpos[2]);edgeMaxX=Math.max(edgeMaxX,edgeSim.d.qpos[0]);}
+  assert.ok(edgeMinZ>.18&&edgeMaxX<6,JSON.stringify({edgeMinZ,edgeMaxX}));
+}finally{edgeSim.dispose();}
 // Rotated and overlapping gaps must preserve union subtraction, including near
 // boundaries; cast at their centres and exact unaffected support points.
+const gapRecords=[];
 for(const items of [[{...gap(),x:0,y:0,yaw:Math.PI/4},{...gap(),x:.1,y:0,yaw:-.3}],Array.from({length:60},(_,i)=>({...gap(),x:(i%10)-4.5,y:Math.floor(i/10)-2.5,length:.2,width:.2,yaw:i*.1}))]){
-  const spec={...base(),spawn:[-5,-4,0],items},built=buildTerrain(spec),sim=open(built,spec.spawn);
+  const spec={...base(),spawn:[-5,-4,0],items},started=performance.now(),built=buildTerrain(spec),buildMs=performance.now()-started;
+  const openStart=performance.now(),sim=open(built,spec.spawn),openMs=performance.now()-openStart;
+  gapRecords.push({gaps:items.length,supportPieces:built.scene.models.length-5,buildMs,openMs});
   const sampler=makeTerrainSampler(mj,sim.m,sim.d,{grid:[[0,0]],rayOffset:20}),out=new Float64Array(1);
   try{for(const o of items){sampler([o.x,o.y,.4,1,0,0,0],out);assert.ok(Math.abs(out[0]+.5)<2e-6);}}finally{sampler.dispose();sim.dispose();}
 }
@@ -103,7 +119,7 @@ const sixty={...base(),size:[20,20],spawn:[-8,-8,0],items:Array.from({length:60}
 let t=performance.now();const built=buildTerrain(sixty),buildMs=performance.now()-t,sim=open(built,sixty.spawn),times=[];
 try{sim.hold(.5);for(let k=0;k<50;k++){t=performance.now();await sim.step();times.push(performance.now()-t);}}finally{sim.dispose();}
 times.sort((a,b)=>a-b);
-const result={validations,examples:records,sixtyItems:{buildMs,policyStepMsMedian:times[25],policyStepMsP95:times[47],samples:50,policyDtMs:20}};
+const result={validations,examples:records,edgeBoundary:{seconds:8,minZ:edgeMinZ,maxX:edgeMaxX},gapRecords,sixtyItems:{buildMs,policyStepMsMedian:times[25],policyStepMsP95:times[47],samples:50,policyDtMs:20}};
 if(process.env.TERRAIN_REPORT)writeFileSync(process.env.TERRAIN_REPORT,JSON.stringify(result,null,2)+'\n');
 console.log(JSON.stringify(result,null,2));
 console.log('custom terrain PASS: validation/storage, shared geometry heights, gaps, 3 examples × 3 s nvidia, A*, 60-item timing');

@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decodeMap, cell } from '../sim/lidar.js';
-import { findPath, inflate, visible } from '../sim/astar.js';
+import { findPath, fits, inflate, visible } from '../sim/astar.js';
 const { chromium } = await import(pathToFileURL(process.env.FH_PLAYWRIGHT));
 const root = resolve('mobile/www');
 const server = createServer((req, res) => {
@@ -33,7 +33,8 @@ for (let k = 0; k < 72 && !(free && behind); k++) {
     let t = 0; while (t < 6 && cell(map, sx + c * t, sy + s * t) === 254) t += 0.05;
     if (t >= 1 && cell(map, sx + c * t, sy + s * t) === 0) {
       const w = t; while (t < w + 0.3 && cell(map, sx + c * t, sy + s * t) !== 254) t += 0.05;
-      if (t < w + 0.3 && clear(sx + c * (t + 0.5), sy + s * (t + 0.5))) { wall = { x: sx + c * (w + 0.02), y: sy + s * (w + 0.02) }; behind = { x: sx + c * (t + 0.5), y: sy + s * (t + 0.5) }; }
+      const target = { x: sx + c * (t + 0.5), y: sy + s * (t + 0.5) };
+      if (t < w + 0.3 && clear(target.x, target.y) && await fits(map, target) && await findPath(map, { x: sx, y: sy }, target)) { wall = { x: sx + c * (w + 0.02), y: sy + s * (w + 0.02) }; behind = target; }
     }
   }
 }
@@ -105,7 +106,9 @@ try {
   await tapAt(wall);
   g = await goal(); assert.equal(g.marks, 0); assert.match(g.note, /장애물|바닥만/);
   await tapAt({ x: map.origin[0] - 0.4, y: map.origin[1] + 2 });
-  g = await goal(); assert.equal(g.marks, 0); assert.match(g.note, /지도 밖/);
+  // Beyond the terrain mesh there is no native hit (the old infinite plane
+  // still produced coordinates there). Both cases must refuse the goal.
+  g = await goal(); assert.equal(g.marks, 0); assert.match(g.note, /지도 밖|걸을 수 있는 바닥/);
 
   // «점 지우기» = 가는 중·줄 선 목적지 모두 지우고 이동 취소(잠금 없음)
   await goTo({ x: sx - 1, y: sy }); await tapAt({ x: sx, y: sy - 1 });   // 출발점 자리는 장면 물체가 먼저 맞아 «바닥만»
@@ -176,9 +179,12 @@ try {
   await page.click('#reset'); await page.waitForTimeout(600); await clearMarks();
 
   // 벽 너머 목표 = 곧게 가다 앞 막힘(0.6 m) 또는 5초 진전 없음 → «막혀서 멈췄습니다»
-  // 그 점은 선반 아래라 위에서 찍으면 «바닥만»으로 거절된다(가린 바닥) — 막힘 동작은 실행기에 직접 목표를 넣어 본다
+  // 선반 아래 바닥도 실제 지지면으로 찍힌다. A* 목표는 지운 뒤,
+  // 벽을 향한 직선 목표를 실행기에 직접 넣어 기존 막힘 동작을 검사한다.
   await page.click('#go'); await tapAt(behind);
-  g = await goal(); assert.equal(g.marks, 0); assert.match(g.note, /바닥만/);
+  g = await goal(); assert.equal(g.marks, 1, `covered floor accepted: ${g.note}`);
+  assert.ok(await ev((floor) => __sim.marks().every((p) => Math.abs(p.z - floor) < .05), map.floor_z), 'covered goal lies on ground, not shelf top');
+  await clearMarks();
   await ev((b) => __sim.scenario.start([b], true), behind);
   assert.equal((await goal()).active, true);
   await page.waitForFunction(() => !__sim.scenario.active, null, { timeout: 90000 });
@@ -224,10 +230,16 @@ try {
 
   // 따라가기(3D) 화면에서도 바닥 찍기 — 로봇 앞 바닥
   await page.click('#cam'); await page.waitForTimeout(300); await page.click('#go');
-  // 따라가기는 몸통을 화면 가운데에 둔다 — 몸통 가운데 누르기는 그 뒤 바닥이 아니라 몸통이 먼저 맞음 = 거절·명령 0
+  // 로봇 메시를 목표면에서 제외하므로 몸통을 누르면 뒤의 실제 바닥을 고른다.
   await page.mouse.click(640, 400); await frame();
-  g = await goal(); assert.equal(g.active, false, 'body click is not a goal'); assert.match(g.note, /바닥만/); assert.deepEqual(g.cmd, [0, 0, 0]);
-  const [tx, ty] = await ev(() => __sim.toScreen(__sim.sim.d.qpos[0] + 2, __sim.sim.d.qpos[1]));   // 로봇 앞 2 m 바닥(1 m 는 이 카메라에서 몸통에 가림)
+  await settled(); await frame(); g = await goal();
+  assert.ok(g.active || g.status === '완료', `body is ignored by terrain picking: ${g.note}`);
+  assert.ok(await ev((floor) => __sim.marks().every((p) => Math.abs(p.z - floor) < .05), map.floor_z), 'body never becomes the target surface');
+  await clearMarks(); assert.deepEqual((await goal()).cmd, [0, 0, 0]);
+  // The body click can move the robot now. Reset before the independent
+  // ground-click check and reuse the already verified clear fixture.
+  await page.click('#reset'); await page.waitForTimeout(600); await page.click('#go'); await frame();
+  const [tx, ty] = await ev((p) => __sim.toScreen(p.x, p.y), free);
   await page.mouse.click(tx, ty); await settled(); await frame();
   g = await goal(); assert.equal(g.marks, 1, `3D floor tap: ${g.note}`); assert.equal(g.active, true, '3D 바로 출발');
   await page.click('#stop');
@@ -306,7 +318,7 @@ try {
   } else console.log('AME-2 가중치 없음 — AME-2 찍기 생략');
   await ame.close();
   assert.deepEqual(errors, []);
-  console.log('sim goal headless PASS: tap = go now (one strong ring), taps while moving queue at end (faint rings) + arrival moves on without stopping, 3 marks A* detour arrive, blocked = one replan then stop clearing rings, clear marks, key/STOP/pagehide/reset clear rings, blur/hidden retain active goal and rings without locking, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/pagehide/reset cancel+lock no resume, inverted pose keeps goal/policy running, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, pending path dropped on STOP/key/clear (REVIEW-228 races), AME-2 goal path');
+  console.log('sim goal headless PASS: direct/queued/three-mark detour arrival, one retry and clearing, input/lifecycle/race guards, hidden goal preservation, floor switching, obstacle/no-terrain rejection, covered ground accepted, robot excluded from 3D target surfaces, AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));
