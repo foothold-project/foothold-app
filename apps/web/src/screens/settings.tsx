@@ -16,8 +16,6 @@ const Note = ({ msg }: { msg: Msg }) => (msg ? <p style={WRAP} className={`fh-ms
 const TABS = [['common', '공통'], ['real', '실기'], ['sim', '시뮬'], ['acct', '계정']] as const;
 type Tab = (typeof TABS)[number][0];
 
-/** 모델별 값(11-04 조직 값 model_overrides) — 계약 생성물이 들어오면 이 임시 타입은 지운다 */
-type OrgWithModels = OrgSettings & { model_overrides?: Record<string, Record<string, number | boolean>> };
 /** 시뮬 탭에서 고를 모델: 등록부(mobile/sim/policy-modes.js) 정식 id·이름. go2-demo 는 명령·물리 없는 보기 전용이라 고칠 값이 없어 뺀다.
  *  등록부에 실기로 도는 모델이 없어 실기 탭은 «공통»만 보인다 */
 export const SIM_MODELS = [['nvidia-demo', 'nvidia'], ['ame2-demo', 'AME-2'], ['start-demo', 'start']] as const;
@@ -141,9 +139,9 @@ const modelMessage = (text: string, mine?: string) => {
 type Org = ReturnType<typeof useOrg>;
 /** 조직 값 한 벌(GET 한 번) — 카드마다 자기 칸만 저장하고, 저장된 값은 시뮬 조종에도 바로 알린다(phone.ts simTune) */
 function useOrg(cancel?: AbortSignal) {
-  const [saved, setSaved] = useState<OrgWithModels | null>(null), [err, setErr] = useState('');
+  const [saved, setSaved] = useState<OrgSettings | null>(null), [err, setErr] = useState('');
   useEffect(() => { api.settings(cancel).then(setSaved, (e: Error) => setErr(e.message)); }, []);
-  return { saved, err, put: (s: OrgWithModels) => { setSaved(s); simTune(s); } };
+  return { saved, err, put: (s: OrgSettings) => { setSaved(s); simTune(s); } };
 }
 
 /** model: 고치는 모델 id(없으면 공통 값). 초안의 null = 저장하면 그 칸을 공통으로 되돌림(모델 칸만) */
