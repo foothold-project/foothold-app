@@ -128,8 +128,28 @@ def test_mission_two_concurrent_puts_only_one(client, seeded):
     engine.dispose()
 
 
+def test_empty_mission_create_read_and_update(client):
+    headers = auth(client)
+    move = {'name': '이동', 'steps': []}
+    created = make_mission(client, headers, move)
+    path = P + '/missions/' + created['id']
+    assert created['steps'] == created['required_devices'] == []
+    assert client.get(path, headers=headers).json() == created
+    assert client.get(P + '/missions', headers=headers).json()['items'] == [created]
+
+    photo = client.put(path, headers={**headers, 'If-Match': '"1"'}, json=MISSION)
+    assert photo.status_code == 200, photo.text
+    assert photo.json()['required_devices'] == ['CAMERA_RGB']
+    emptied = client.put(path, headers={**headers, 'If-Match': '"2"'}, json=move)
+    assert emptied.status_code == 200, emptied.text
+    assert emptied.json()['steps'] == emptied.json()['required_devices'] == []
+    assert emptied.json()['number'] == emptied.json()['version'] == 3
+    assert client.get(path + '?version=1', headers=headers).json()['steps'] == []
+    assert client.get(path + '?version=2', headers=headers).json()['steps'] == photo.json()['steps']
+
+
 @pytest.mark.parametrize('body', [
-    {'name': 'x', 'steps': []}, {'name': 'x', 'steps': [{'action': 'WAIT'}] * 101},
+    {'name': 'x'}, {'name': 'x', 'steps': None}, {'name': 'x', 'steps': [{'action': 'WAIT'}] * 101},
     {'name': 'x\u200b', 'steps': [{'action': 'WAIT'}]}, {'name': 'x\n', 'steps': [{'action': 'WAIT'}]},
     {'name': 'x', 'steps': [{'action': 'UNKNOWN'}]},
     *[{'name': 'x', 'steps': [{'action': action, 'params': params}]} for action, params in [

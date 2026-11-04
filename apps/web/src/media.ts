@@ -1,5 +1,5 @@
 // 관측 media/1(apps/agent/foothold_agent/media/README.md): 폰 hello 의 welcome.media 로 채널(rgb·external·lidar)마다 /phone/media/ws 하나 — 받기만, 보내는 것은 media.hello 한 번.
-// 토큰은 10초·1회·채널별: 그 채널을 보여 주는 칸이 있을 때만 쓴다. 칸이 모두 내려감·화면 숨김·부모 연결 끊김·robot/epoch 바뀜이면 닫고 지난 자료를 비운다.
+// 토큰은 10초·1회·채널별: 그 채널을 보여 주는 칸이 있을 때만 쓴다. 칸이 모두 내려감·화면 숨김(시뮬 제외)·부모 연결 끊김·robot/epoch 바뀜이면 닫고 지난 자료를 비운다.
 // 다시 받으려면 부모 연결을 새로 열어야 한다(토큰 갱신 경로 없음, 자동 재연결 없음). 조종·STOP·조종권과 무관 — 명령·축 입력을 만들지 않는다.
 import { useEffect, useSyncExternalStore } from 'react';
 import type { MediaChannel, MediaPointCloudHeader, PhoneMediaWelcome } from '../../contracts/ts';
@@ -38,7 +38,7 @@ const HIDDEN = '화면을 숨겨 영상 연결을 닫았습니다 — «영상 �
 
 const blank = (state: FeedState = 'off', why = ''): Feed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0 });
 let feeds: Record<MediaChannel, Feed> = { rgb: blank(), external: blank(), lidar: blank() };
-let offer: { w: PhoneMediaWelcome; address: string; at: number; used: Set<MediaChannel> } | null = null;
+let offer: { w: PhoneMediaWelcome; address: string; at: number; used: Set<MediaChannel>; simulation: boolean } | null = null;
 const socks = new Map<MediaChannel, WebSocket>(), want = new Map<MediaChannel, number>();
 let pending: MediaPointCloudHeader | null = null, mapVer: string | null = null;
 /** 채널별 지금까지 받은 가장 큰 seq — 화면 비움·구독·결속이 바뀌어도 유지(README «across subscriptions and binding changes»). 부모 연결이 끝날 때(reset)만 지움 */
@@ -144,9 +144,9 @@ function open(ch: MediaChannel) {
   w.onclose = () => { clearTimeout(t); if (socks.get(ch) === w) { socks.delete(ch); clear(ch, 'lost', LOST); } };
 }
 
-/** 보는 칸이 있고 화면이 보이면 열고, 아니면 닫는다 */
+/** 보는 칸이 있고 화면이 보이면 열고, 아니면 닫는다. 시뮬은 숨겨도 유지(1회 토큰 재발급을 위한 부모 재연결로 임무가 끊기지 않게). */
 function sync() {
-  const shown = document.visibilityState !== 'hidden';
+  const shown = document.visibilityState !== 'hidden' || offer?.simulation === true;
   for (const ch of CHANNELS) {
     const on = shown && (want.get(ch) ?? 0) > 0, w = socks.get(ch);
     if (!on && w) shut(ch, 'expired', shown ? EXPIRED : HIDDEN);
@@ -163,10 +163,10 @@ export const media = {
   get: () => feeds,
   subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },
   /** 부모 hello 를 받았을 때(phone.ts). 없으면 이 로봇은 media/1 을 알리지 않음, 형상이 틀리면 받지 않음(옛 카메라 경로는 그대로) */
-  offer(raw: unknown, address: string) {
+  offer(raw: unknown, address: string, simulation = false) {
     for (const ch of CHANNELS) shut(ch, 'off');
     const w = mediaWelcome(raw), none = raw === undefined ? NO_MEDIA : BAD_WELCOME;
-    offer = w ? { w, address, at: now(), used: new Set() } : null;
+    offer = w ? { w, address, at: now(), used: new Set(), simulation } : null;
     for (const ch of CHANNELS) clear(ch, !w ? 'none' : w[ch].available ? 'wait' : 'none', !w ? none : w[ch].available ? '' : reasonText(w[ch].reason));
     document.removeEventListener('visibilitychange', onVis); document.addEventListener('visibilitychange', onVis);
     sync();

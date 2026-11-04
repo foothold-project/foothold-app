@@ -1,6 +1,6 @@
 // 찍은 점 가기(MuJoCo 시뮬) headless 시험 — 위에서 보기·따라가기에서 바닥 누름 = 바로 출발 → 도착 0.3 m·명령 0, 노란 고리(지금 목적지 1개만 진하게),
 // 가는 중 누름 = 끝에 줄 세움 → 닿으면 멈추지 않고 다음으로, 점 3개 A* 로 벽 돌아 도착(스크린샷 FH_SHOT), 막힘 = 한 번만 다시 찾고 또 막히면 멈춤·고리 0, «점 지우기»,
-// STOP 중 누름 = 출발 안 함·STOP/흐림/숨김/pagehide/reset = 취소(+잠금)·고리 0·뒤집혀도 실행 계속·키 = 취소만(손 조종)·고리 0·끌기는 찍기 아님·장애물 칸/지도 밖 거절·벽 뒤 목표 = 막혀서 멈춤·AME-2 목표 경로.
+// STOP 중 누름 = 출발 안 함·실행 중 흐림/숨김 = 목표·고리 유지·STOP/pagehide/reset = 취소(+잠금)·고리 0·뒤집혀도 실행 계속·키 = 취소만(손 조종)·고리 0·끌기는 찍기 아님·장애물 칸/지도 밖 거절·벽 뒤 목표 = 막혀서 멈춤·AME-2 목표 경로.
 // sim-keys-selftest 와 같은 틀: sync-web 먼저. FH_PLAYWRIGHT=<기존 playwright-core/index.mjs> node mobile/scripts/sim-goal-selftest.mjs
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -127,12 +127,25 @@ try {
   await page.waitForFunction(() => __sim.cmd().every((v) => v === 0));
   await page.click('#stop');   // 손 조종 취소는 잠그지 않았으므로 아래 반복의 «시작» 앞에 잠근다
 
-  // STOP·흐림·숨김·pagehide·reset = 취소 + 잠금 + 남은 고리 0, 자동 재개 없음
+  // 시뮬 목표 실행 중 흐림·숨김 = 실행·잠금 해제·남은 고리 유지
+  const preserves = {
+    blur: () => ev(() => window.dispatchEvent(new Event('blur'))),
+    hidden: () => ev(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); delete document.hidden; }),
+  };
+  for (const [name, fire] of Object.entries(preserves)) {
+    await page.click('#go'); await goTo({ x: sx - 1, y: sy }); await tapAt({ x: sx, y: sy - 1 });
+    g = await goal(); assert.equal(g.active, true, name); assert.equal(g.marks, 2, name); assert.deepEqual(g.rings, [1, 0.3], name);
+    await fire(); await frame();
+    g = await goal();
+    assert.equal(g.active, true, name); assert.equal(g.goal, true, name); assert.equal(g.stopped, false, name);
+    assert.equal(g.marks, 2, `${name}: marks retained`); assert.deepEqual(g.rings, [1, 0.3], `${name}: rings retained`);
+    await page.click('#stop'); await frame();   // STOP 이 다음 프레임에 고리·지우기 단추를 없앤다
+  }
+
+  // STOP·pagehide·reset = 취소 + 잠금 + 남은 고리 0, 자동 재개 없음
   const fires = {
     stop: () => page.click('#stop'),
-    blur: () => ev(() => window.dispatchEvent(new Event('blur'))),
     pagehide: () => ev(() => window.dispatchEvent(new Event('pagehide'))),
-    hidden: () => ev(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); delete document.hidden; }),
     reset: () => page.click('#reset'),
   };
   for (const [name, fire] of Object.entries(fires)) {
@@ -293,7 +306,7 @@ try {
   } else console.log('AME-2 가중치 없음 — AME-2 찍기 생략');
   await ame.close();
   assert.deepEqual(errors, []);
-  console.log('sim goal headless PASS: tap = go now (one strong ring), taps while moving queue at end (faint rings) + arrival moves on without stopping, 3 marks A* detour arrive, blocked = one replan then stop clearing rings, clear marks, key/STOP/blur/pagehide/hidden/reset clear rings, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, inverted pose keeps goal/policy running, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, pending path dropped on STOP/key/clear (REVIEW-228 races), AME-2 goal path');
+  console.log('sim goal headless PASS: tap = go now (one strong ring), taps while moving queue at end (faint rings) + arrival moves on without stopping, 3 marks A* detour arrive, blocked = one replan then stop clearing rings, clear marks, key/STOP/pagehide/reset clear rings, blur/hidden retain active goal and rings without locking, first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/pagehide/reset cancel+lock no resume, inverted pose keeps goal/policy running, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, pending path dropped on STOP/key/clear (REVIEW-228 races), AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

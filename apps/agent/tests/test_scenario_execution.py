@@ -107,6 +107,36 @@ def test_wait_server_ack_then_deadline_and_record_ack(r):
     assert r.outputs[-1].velocity == Z
 
 
+def test_move_only_mission_records_no_actions_and_advances_to_next_goal(r):
+    configure(r, [])
+    r.runs.support = ExecutionSupport(now=r.clock)
+    caps = r.runs.support.hello()
+    r.data['execution_capability_revision'] = caps['revision']
+    r.data['waypoints'].append({**deepcopy(r.data['waypoints'][0]), 'waypoint_ref': 'p1'})
+    arrive(r)
+    ack(r)
+    r.hub.tick()
+    assert r.runs.performer.done and r.runs.performer.results == []
+    assert recorded(r)[0]['data']['results']['steps'] == []
+    assert len(r.actions.goals) == 1
+    ack(r)
+    r.hub.tick()
+    assert r.runs.current['status'] == 'MOVING'
+    assert r.runs.current['progress'] == {'done': 1, 'total': 2}
+    assert len(r.actions.goals) == 2
+    assert r.runs.nav.feedback(r.runs.binding, 'SUCCEEDED')
+    r.hub.tick()
+    ack(r)
+    r.hub.tick()
+    assert recorded(r)[0]['data']['results']['steps'] == []
+    ack(r)
+    r.hub.tick()
+    assert r.runs.current['status'] == 'COMPLETED'
+    assert r.runs.current['progress'] == {'done': 2, 'total': 2}
+    assert r.outputs[-1].velocity == Z
+    assert not r.uploads.calls
+
+
 def test_wait_pause_freezes_remaining_and_resume_does_not_move(r):
     configure(r, [wait(10)])
     arrive(r)
