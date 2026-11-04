@@ -7,7 +7,8 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import './fakeWs';
 import { tabFromHash, tabsFor } from '../menu';
 import { SimPick } from '../simstart';
-import { Terrain, keyOf, terrainUrl, validateTerrain, type Item, type Spec } from '../screens/terrain';
+import { Terrain, keyOf, terrainUrl } from '../screens/terrain';
+import { buildTerrain, validateTerrain, type TerrainItem as Item, type TerrainSpec as Spec } from '../../../../mobile/sim/terrain/index.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null, box: HTMLDivElement;
@@ -81,6 +82,17 @@ describe('지형 만들기 화면', () => {
     expect($('[data-terrain-item="0"]').dataset.kind).toBe('box');
     put('stairs', 2, 3); put('ramp', 2, -3); put('gap', -1, 3);
     expect(stored().items.map((i) => i.kind)).toEqual(['box', 'stairs', 'ramp', 'gap']);
+  });
+
+  it('화면에서 만든 저장본을 공통 모듈이 그대로 변환한다', () => {
+    render(<Terrain />);
+    put('box', 1, 3); put('stairs', 1, -2); put('ramp', 2, 0.5); put('gap', -2, 3);
+    const s = stored();
+    expect(validateTerrain(s).errors).toEqual([]);
+    const built = buildTerrain(s);
+    expect(built.xml).toContain('<mujoco');
+    expect(built.map.spawn_xyyaw).toEqual(s.spawn);
+    expect(built.scene.models.length).toBeGreaterThan(0);
   });
 
   it('시작 위치 놓기, 저장본 형식은 약속 그대로', () => {

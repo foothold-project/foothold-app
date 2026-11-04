@@ -2,6 +2,7 @@
 // 위에서 본 판에 상자·계단·경사·틈을 놓고 고치면 이 브라우저에 바로 저장되고, «시뮬로 열기»는 같은 출처 시뮬(map=custom)이 그 저장본을 읽어 연다.
 // 지형 설명 = 약속 fh_custom_terrain/1: 원점 = 바닥 가운데, x·y = 물체 차지 면적 가운데, yaw = 라디안·반시계, 몸 기준 +x = 길이·오르는 방향. 서버 저장 없음(4단계).
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { CLEARANCE, validateTerrain, type TerrainItem, type TerrainSpec } from '../../../../mobile/sim/terrain/index.js';
 import { simUrl } from '../simdrive';
 import { toWorld } from '../simstart';
 import { Menu, shut } from './mapscen';
@@ -9,16 +10,11 @@ import './mapscen.css';
 import './terrain.css';
 
 type At = { x: number; y: number; yaw: number };
-export type Item = At & (
-  | { kind: 'box'; sx: number; sy: number; h: number }
-  | { kind: 'stairs'; width: number; steps: number; rise: number; run: number }
-  | { kind: 'ramp'; length: number; width: number; h: number }
-  | { kind: 'gap'; length: number; width: number });
+type Item = TerrainItem;
+type Spec = TerrainSpec;
 type Kind = Item['kind'];
-export type Spec = { schema: 'fh_custom_terrain/1'; id: string; name: string; size: [number, number]; spawn: [number, number, number]; items: Item[] };
-export type Issue = { item?: number; msg: string };
 
-const MAX_ITEMS = 60, LANDING = 1, CLEARANCE = 0.45;   // CLEARANCE = 시뮬 시작 검사와 같은 값(simstart.tsx)
+const MAX_ITEMS = 60, LANDING = 1;
 const deg = (rad: number) => (rad * 180) / Math.PI;
 /** 물체가 차지하는 면적 [몸 기준 x 길이, y 길이] */
 const foot = (it: Item): [number, number] =>
@@ -28,52 +24,6 @@ function reach(it: Item) {
   const [L, W] = foot(it), c = Math.abs(Math.cos(it.yaw)), s = Math.abs(Math.sin(it.yaw));
   return [c * L / 2 + s * W / 2, s * L / 2 + c * W / 2];
 }
-/** 점에서 물체 면적까지 거리(안이면 0) */
-function dist(it: Item, px: number, py: number) {
-  const [L, W] = foot(it), c = Math.cos(it.yaw), s = Math.sin(it.yaw), dx = px - it.x, dy = py - it.y;
-  return Math.hypot(Math.max(Math.abs(c * dx + s * dy) - L / 2, 0), Math.max(Math.abs(-s * dx + c * dy) - W / 2, 0));
-}
-
-/** ponytail: 임시 — 약속의 공통 모듈(mobile/sim/terrain/index.js, A 소유)이 들어오면 이 함수를 지우고 import 로 바꾼다. 판정·문구의 정본은 그쪽(같은 문구로 맞춰 둠) */
-export function validateTerrain(s: Spec): { errors: Issue[]; warnings: Issue[] } {
-  const errors: Issue[] = [], warnings: Issue[] = [], [W, H] = s.size;
-  const err = (msg: string, item?: number) => { errors.push(item == null ? { msg } : { item, msg }); };
-  const warn = (msg: string, item: number) => { warnings.push({ item, msg }); };
-  const positive = (i: number, ...v: number[]) => { if (!v.every((x) => x > 0)) err('크기·높이는 양의 유한한 숫자여야 합니다', i); };
-  if (!/^[a-z0-9-]{1,32}$/.test(s.id)) err('id는 영문 소문자·숫자·- 1~32자여야 합니다');
-  if (!s.name.trim()) err('지형 이름이 필요합니다');
-  const sizeOK = W >= 4 && W <= 30 && H >= 4 && H <= 30;
-  if (!sizeOK) err('바닥 가로·세로는 각각 4~30 m여야 합니다');
-  else if (Math.abs(s.spawn[0]) > W / 2 - CLEARANCE || Math.abs(s.spawn[1]) > H / 2 - CLEARANCE) err('시작 위치는 바닥 안쪽 가장자리에서 0.45 m 떨어져야 합니다');
-  if (s.items.length > MAX_ITEMS) err('물체 목록은 60개 이하여야 합니다');
-  s.items.slice(0, MAX_ITEMS).forEach((it, i) => {
-    if (it.kind === 'box') {
-      positive(i, it.sx, it.sy, it.h);
-      if (it.h > 1) err('높이는 1.0 m 이하여야 합니다', i);
-    } else if (it.kind === 'stairs') {
-      positive(i, it.width);
-      if (!(Number.isInteger(it.steps) && it.steps >= 1)) err('계단 수는 1 이상의 정수여야 합니다', i);
-      if (!(it.rise >= 0.02 && it.rise <= 0.25)) err('계단 단 높이는 0.02~0.25 m여야 합니다', i);
-      if (!(it.run >= 0.15)) err('계단 단 깊이는 0.15 m 이상이어야 합니다', i);
-      if (it.steps * it.rise > 1) err('계단 전체 높이는 1.0 m 이하여야 합니다', i);
-      if (it.rise > 0.17) warn('단 높이가 0.17 m를 넘습니다 (AME-2 학습 최대 근처)', i);
-    } else if (it.kind === 'ramp') {
-      positive(i, it.length, it.width, it.h);
-      if (it.h > 1) err('높이는 1.0 m 이하여야 합니다', i);
-      const a = deg(Math.atan2(it.h, it.length));
-      if (a > 30 + 1e-9) err('경사는 30° 이하여야 합니다', i);
-      if (a > 20 + 1e-9) warn('경사가 20°를 넘습니다', i);
-    } else {
-      positive(i, it.length, it.width);
-      if (it.length > 0.6) warn('틈 길이가 0.6 m를 넘습니다', i);
-    }
-    const [ex, ey] = reach(it);
-    if (sizeOK && (Math.abs(it.x) + ex > W / 2 + 1e-9 || Math.abs(it.y) + ey > H / 2 + 1e-9)) err('물체 전체가 바닥 안에 있어야 합니다', i);
-    if (dist(it, s.spawn[0], s.spawn[1]) < CLEARANCE - 1e-9) err('시작 위치는 물체·틈에서 0.45 m 떨어져야 합니다', i);
-  });
-  return { errors, warnings };
-}
-
 const PREFIX = 'fh.customTerrain.', LAST = 'fh.customTerrainLast';
 export const keyOf = (id: string) => PREFIX + id;
 /** 약속의 열기 주소(정책은 시뮬 화면 안 모드 고르기) */
