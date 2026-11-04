@@ -139,7 +139,7 @@ try {
     g = await goal();
     assert.equal(g.active, true, name); assert.equal(g.goal, true, name); assert.equal(g.stopped, false, name);
     assert.equal(g.marks, 2, `${name}: marks retained`); assert.deepEqual(g.rings, [1, 0.3], `${name}: rings retained`);
-    await page.click('#stop'); await clearMarks();
+    await page.click('#stop'); await frame();   // STOP 이 다음 프레임에 고리·지우기 단추를 없앤다
   }
 
   // STOP·pagehide·reset = 취소 + 잠금 + 남은 고리 0, 자동 재개 없음
