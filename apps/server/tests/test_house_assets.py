@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import pytest
 from sqlalchemy.orm import Session
 
-from apps.server.fh_server.models import Building, Scenario
+from apps.server.fh_server.models import Building, Mission, MissionVersion, Scenario, ScenarioVersion
 from apps.server.fh_server.sim_maps import load_worlds, sync_worlds
 from sqlalchemy import select
 from .test_maps import maps  # isolated PostgreSQL/files fixture
@@ -18,6 +18,15 @@ from .test_maps import maps  # isolated PostgreSQL/files fixture
 ROOT = Path(__file__).resolve().parents[3]
 WORLDS = ROOT/'apps/simmgr/worlds'
 MOBILE = ROOT/'mobile/sim/assets/collapsed-house-v2'
+
+
+def test_house_server_and_simulator_share_route_and_display_only_mission():
+    server, = json.loads((WORLDS/'collapsed_house_v2/scenarios.json').read_text())
+    mobile, = json.loads((MOBILE/'scenarios.json').read_text())
+    assert (server['id'], server['name'], server['finish']) == \
+           (mobile['id'], mobile['name'], mobile['finish'])
+    assert [{k: p[k] for k in ('x', 'y')} for p in server['waypoints']] == mobile['points']
+    assert {p['mission_name'] for p in server['waypoints']} == {'이동'}
 
 
 def test_large_house_rubble_spreads_across_floor_without_closing_routes():
@@ -176,3 +185,11 @@ def test_house_registers_one_map_and_one_scenario_in_private_database(maps, seed
         house=db.scalar(select(Building).where(Building.sim_world_id=='collapsed_house_v2'))
         assert house.name=='붕괴 주택 · 초안'
         assert len(list(db.scalars(select(Scenario).where(Scenario.name=='입구 → 시계 방향 세 방'))))==1
+        scenario = db.scalar(select(Scenario).where(Scenario.name=='입구 → 시계 방향 세 방'))
+        version = db.scalar(select(ScenarioVersion).where(ScenarioVersion.scenario_id==scenario.id))
+        preset, = json.loads((MOBILE/'scenarios.json').read_text())
+        assert [{k: p[k] for k in ('x', 'y')} for p in version.waypoints] == preset['points']
+        mission = db.scalar(select(Mission).where(Mission.name=='이동'))
+        assert {p['mission_id'] for p in version.waypoints} == {str(mission.id)}
+        mission_version = db.scalar(select(MissionVersion).where(MissionVersion.mission_id==mission.id))
+        assert mission_version.steps == [] and mission_version.required_devices == []
