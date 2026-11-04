@@ -1,6 +1,7 @@
 // m6000 export contract. External models/vectors are never part of the bundle source.
 import { MODE_COMMAND_CAPS } from './manual-settings.js';
-import { makeStartDemoDepth, makeStartDemoMap } from './start-demo-sensors.js';
+import { makeStartDemoMap } from './start-demo-sensors.js';
+import { makeStartDepthWorker } from './start-depth-worker-client.js';
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const joints = ['hip', 'thigh', 'calf'].flatMap((p) => ['FL', 'FR', 'RL', 'RR'].map((l) => `${l}_${p}_joint`));
 const defaults = Float64Array.of(.1, -.1, .1, -.1, .8, .8, 1, 1, -1.5, -1.5, -1.5, -1.5);
@@ -42,7 +43,10 @@ function sensorSample(s, name, sample) {
   if (!Number.isFinite(s.t)) return sample();
   const key = [s.t,...s.d.qpos.slice(0,7)], previous = s.startSensorCache;
   if (!previous || !key.every((x,i) => x === previous.key[i])) s.startSensorCache = { key };
-  return s.startSensorCache[name] ??= sample().slice();
+  const cache = s.startSensorCache;
+  if (cache[name]) return cache[name];
+  const value = sample();
+  return cache[name] = value?.then ? value.then((frame) => (cache[name] = frame.slice())) : value.slice();
 }
 export function makeStartDemoMode(makeTerrainSampler) {
   return {
@@ -59,9 +63,10 @@ export function makeStartDemoMode(makeTerrainSampler) {
     torque: startDemoTorque,
     reset(mem, s) { Object.assign(mem, { step: 0, hist: null, depth2: null, captured: null, capturePending: false }); if (s) s.startSensorCache = null; },
     makeHeightScanner(mj, m, d) { return makeStartDemoMap(mj, m, d, makeTerrainSampler); },
-    makeDepthScanner: makeStartDemoDepth,
+    makeDepthScanner: makeStartDepthWorker,
     map(s) { s.mapping.set(sensorSample(s,'map',() => s.heightScanner(s.d.qpos,s.mapping))); return s.mapping; },
     depth(s) { return sensorSample(s,'depth',() => s.depthScanner(s.d.qpos)); },
+    prepare(s, mem) { if (!mem.depth2) return this.depth(s); },
     observe(s, cmd, mem) {
       const obs = s.observation;
       obs.set(s.angB, 0); obs.set(s.grav, 3); obs.set(cmd, 6);
@@ -88,8 +93,15 @@ export function makeStartDemoMode(makeTerrainSampler) {
       return [obs, mem.hist, mem.depth2, new Float32Array(128), new Float32Array(128), [tick], [mem.step === 0], [useGt], map];
     },
     commit(mem,s) {
-      if (mem.capturePending) mem.captured = this.depth(s).slice();
-      mem.capturePending = false; mem.step++;
+      const finish = (frame) => {
+        if (frame) mem.captured = frame.slice();
+        mem.capturePending = false; mem.step++;
+      };
+      if (mem.capturePending) {
+        const frame = this.depth(s);
+        if (frame?.then) return frame.then(finish);
+        finish(frame);
+      } else finish();
     },
   };
 }

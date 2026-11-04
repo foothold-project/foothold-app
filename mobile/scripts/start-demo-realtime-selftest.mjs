@@ -27,6 +27,7 @@ const server = createServer((req,res) => {
     return samples;
   };`);
     }
+    if(file.endsWith(sep+'sim'+sep+'policy-worker-client.js')) body=body.toString().replace('const late = performance.now() - request.started', "if(request.reply==='result')globalThis.__policyRoundtripMs?.push(performance.now()-request.started);\n    const late = performance.now() - request.started");
     res.end(body);
   } catch { res.writeHead(404).end(); }
 });
@@ -39,11 +40,11 @@ const summary = (a) => {
 };
 try {
   browser = await chromium.launch({executablePath:process.env.FH_CHROME??'/usr/bin/google-chrome',headless:true,args:['--no-sandbox','--enable-webgl','--use-gl=angle','--use-angle=swiftshader']});
-  for (const cpu of (process.env.START_DEMO_CPU_RATES??'1,3').split(',').map(Number)) for (let run=0;run<Number(process.env.START_DEMO_BENCH_RUNS??2);run++) for (const policy of ['nvidia-demo','start-demo']) {
+  for (const cpu of (process.env.START_DEMO_CPU_RATES??'1,3').split(',').map(Number)) for (let run=0;run<Number(process.env.START_DEMO_BENCH_RUNS??2);run++) for (const policy of (process.env.START_DEMO_BENCH_POLICIES??'nvidia-demo,start-demo').split(',')) {
     const page = await browser.newPage({viewport:{width:520,height:900}});
     try {
       await page.addInitScript(() => {
-        window.__renderFrameId=0;window.__renderedFrames=new Set();window.__renderSubmitMs=[];
+        window.__renderFrameId=0;window.__renderedFrames=new Set();window.__renderSubmitMs=[];window.__policyRoundtripMs=[];
         for(const C of [WebGLRenderingContext,WebGL2RenderingContext])for(const key of ['drawElements','drawArrays','drawElementsInstanced','drawArraysInstanced']){
           const original=C.prototype[key];if(original)C.prototype[key]=function(...args){__renderedFrames.add(__renderFrameId);return original.apply(this,args);};
         }
@@ -55,11 +56,17 @@ try {
       await page.click('#go');await page.waitForTimeout(1500);await page.keyboard.down('ArrowUp');
       const engineAtStart=await page.locator('#policyEngine').textContent();
       const result = await page.evaluate(async () => {
-        const sim=__sim.sim,stepSync=[],roundtrip=[],depth=[],map=[],long=[],frames=[];
+        const sim=__sim.sim,stepSync=[],roundtrip=[],depth=[],depthMain=[],depthRoundtrip=[],map=[],long=[],frames=[];
         let accepted=0,discarded=0;
         for (const [key,times] of [['heightScanner',map],['depthScanner',depth]]) {
           const original=sim[key]; if(!original)continue;
-          const wrapped=(...args) => {const t=performance.now(),out=original(...args);times.push(performance.now()-t);return out;};
+          const wrapped=(...args) => {
+            const t=performance.now(),out=original(...args),ms=performance.now()-t;
+            if(key==='depthScanner')depthMain.push(ms);
+            if(out?.then)out.then(()=>{times.push(original.ms);depthRoundtrip.push(original.roundtripMs);});
+            else times.push(ms);
+            return out;
+          };
           Object.assign(wrapped,original);sim[key]=wrapped;
         }
         const original=sim.step;
@@ -70,19 +77,20 @@ try {
         };
         const observer=new PerformanceObserver((list)=>{for(const entry of list.getEntries())long.push(entry.duration);});
         observer.observe({type:'longtask'});
-        const t0=performance.now(),sim0=sim.t;let last=t0;__renderedFrames.clear();__renderSubmitMs.length=0;
+        const t0=performance.now(),sim0=sim.t;let last=t0;__renderedFrames.clear();__renderSubmitMs.length=0;__policyRoundtripMs.length=0;
         await new Promise((done)=>{
           const frame=(now)=>{__renderFrameId++;frames.push(now-last);last=now;if(now-t0<6000)requestAnimationFrame(frame);else done();};requestAnimationFrame(frame);
         });
         observer.disconnect();
-        return {wallSeconds:(performance.now()-t0)/1000,drawFrames:__renderedFrames.size,renderSubmitMs:__renderSubmitMs.slice(),simSeconds:sim.t-sim0,accepted,discarded,stepSync,roundtrip,depth,map,long,frames,error:__sim.err};
+        return {wallSeconds:(performance.now()-t0)/1000,drawFrames:__renderedFrames.size,renderSubmitMs:__renderSubmitMs.slice(),policyRoundtrip:__policyRoundtripMs.slice(),depthAsync:sim.depthScanner?.async,simSeconds:sim.t-sim0,accepted,discarded,stepSync,roundtrip,depth,depthMain,depthRoundtrip,map,long,frames,error:__sim.err};
       });
       assert.equal(result.error,null);
+      if(result.depthAsync)assert.ok(result.depthRoundtrip.length>0&&result.depthRoundtrip.every((ms)=>ms>0),'depth Worker stays active');
       const engine=await page.locator('#policyEngine').textContent();
       await page.keyboard.up('ArrowUp');
       const fixedDraw=await page.evaluate(()=>__sim.measureFixedDraw());
       const row={cpu,run:run+1,policy,engineAtStart,engine,workerStayed:engineAtStart.includes(' · Worker · ')&&engine.includes(' · Worker · '),renderFps:result.drawFrames/result.wallSeconds,drawFrames:result.drawFrames,wallSeconds:result.wallSeconds,simSeconds:result.simSeconds,speed:result.simSeconds/result.wallSeconds,
-        accepted:result.accepted,discarded:result.discarded,stepSyncMs:summary(result.stepSync),roundtripMs:summary(result.roundtrip),depthMs:summary(result.depth),mapMs:summary(result.map),longtaskMs:summary(result.long),frameMs:summary(result.frames),renderSubmitMs:summary(result.renderSubmitMs),fixedDrawFinishedMs:summary(fixedDraw)};
+        accepted:result.accepted,discarded:result.discarded,stepSyncMs:summary(result.stepSync),roundtripMs:summary(result.roundtrip),policyRoundtripMs:summary(result.policyRoundtrip),depthMs:summary(result.depth),depthMainMs:summary(result.depthMain),depthRoundtripMs:summary(result.depthRoundtrip),mapMs:summary(result.map),longtaskMs:summary(result.long),frameMs:summary(result.frames),renderSubmitMs:summary(result.renderSubmitMs),fixedDrawFinishedMs:summary(fixedDraw)};
       rows.push(row);console.log(JSON.stringify(row));await page.keyboard.up('ArrowUp');
     } finally { await page.close(); }
   }

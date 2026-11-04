@@ -313,6 +313,7 @@ async function main() {
     });
   }
   sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start }, adapter.id, { ame2DelaySteps: 0, startMapMode });
+  if (sim.depthScanner?.ready) await sim.depthScanner.ready;
   const { m, d } = sim;
   const replay = readonly ? createReplayReader(sim, new URL(location.href)) : null;
   if (replay) {

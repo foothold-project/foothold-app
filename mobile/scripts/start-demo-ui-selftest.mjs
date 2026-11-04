@@ -29,7 +29,7 @@ try{
     window.__startFirst=null;window.__startLast=null;
     const send=Worker.prototype.postMessage;
     Worker.prototype.postMessage=function(packet,...rest){
-      if(packet.type==='init')this.__isStart=packet.contract.inputs[0]?.name==='obs45';
+      if(packet.type==='init')this.__isStart=packet.contract?.inputs[0]?.name==='obs45';
       if(this.__isStart&&packet.type==='infer'){
         const p=packet.inputs,call={cmd:Array.from(p[0].slice(6,9)),zeroState:p[3].every((x)=>x===0)&&p[4].every((x)=>x===0),first:!!p[6][0],useGt:!!p[7][0],tick:!!p[5][0]};
         window.__startFirst??=call;window.__startLast=call;window.__startWorker=this;
@@ -64,6 +64,10 @@ try{
       const timing=await page.evaluate(()=>{
         const sim=__sim.sim,values={map:[],depth:[]};
         for(let k=0;k<20;k++)for(const [name,scan]of [['map',sim.heightScanner],['depth',sim.depthScanner]]){
+          // Worker depth has one in-flight capture owned by sim.step. Its
+          // timings are measured by start-demo-realtime-selftest, not by
+          // issuing concurrent captures from this synchronous UI probe.
+          if(scan.async)continue;
           scan(sim.d.qpos,name==='map'?sim.mapping:undefined);values[name].push(scan.ms);
         }
         return Object.fromEntries(Object.entries(values).map(([name,times])=>{times.sort((a,b)=>a-b);return[name,{median:times[10],max:times.at(-1)}];}));
