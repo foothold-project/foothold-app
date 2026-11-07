@@ -29,13 +29,26 @@
   #btns { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--edge) + var(--stick) + 20px + env(safe-area-inset-bottom)); display: flex; gap: 10px; }
   @media (orientation: landscape) { #btns { bottom: calc(var(--edge) + env(safe-area-inset-bottom)); } }
   #scenarioMenu, #wpClear { width: auto; min-width: 72px; padding: 0 8px; font: inherit; font-size: 13px; }
-  #scenarioPanel { position: fixed; z-index: 90; top: calc(var(--t) + 82px); left: 50%; transform: translateX(-50%); width: min(280px, calc(100vw - 32px)); box-sizing: border-box;
+  #scenarioPanel { position: fixed; z-index: 90; top: calc(var(--t) + 82px); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - var(--t) - 82px - var(--stick) - 80px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; box-sizing: border-box;
     border: 1px solid rgb(255 255 255 / .28); border-radius: 12px; padding: 12px; background: rgb(20 23 28 / .94); font: 14px system-ui; }
   #scenarioPanel select { width: 100%; background: #14171c; color: #e6e8eb; border: 1px solid rgb(255 255 255 / .28); border-radius: 8px; padding: 10px; font: inherit; }
+  @media (orientation: landscape) {
+    #scenarioPanel { max-height: calc(100dvh - var(--t) - 82px - 80px - env(safe-area-inset-bottom)); }
+    #scenarioPanel select { padding: 6px 10px; }
+    #scenarioPanel #policyReason { margin: 4px 0; font-size: 12px; line-height: 1.2; }
+  }
   #scenarioActions { display: flex; gap: 8px; margin-top: 10px; }
   #scenarioActions button { flex: 1; font: inherit; }
   #scenarioStatus { display: block; margin-top: 10px; }
   #scenarioHint, #goalHint { margin: 8px 0 0; color: #b9c0ca; font-size: 12px; }
+  #btNodes { list-style: none; padding: 0; font-size: 12px; }
+  #btNodes li { padding-top: 3px; padding-bottom: 3px; overflow-wrap: anywhere; }
+  #btNodes .btActive { background: #235c3a; border-left: 3px solid #81c784; }
+  #btMocks, #btReview { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+  #btMocks button, #btReview button { width: auto; height: auto; min-height: 36px; padding: 6px; font: 12px system-ui; }
+  #btMocks button[aria-pressed="true"] { background: #80451a; }
+  #btEvents { max-height: 140px; overflow: auto; white-space: pre-wrap; font: 11px system-ui; }
+  #btReport, #btPoints, #btDisclaimer { font-size: 12px; overflow-wrap: anywhere; }
   /* 찍은 곳 가기 진행·거절 한 줄: 위 가운데(STOP·시작 단추 자리 비움), 누름은 아래 화면으로 */
   #modeCaps { position: fixed; z-index: 80; top: calc(var(--t) + 110px); left: 8px; right: 8px; margin: 0; padding: 4px 6px; background: rgb(20 23 28 / .82); color: #e6e8eb; font: clamp(8px, 2.5vw, 10px) system-ui; white-space: nowrap; pointer-events: none; }
   #goalNote { position: fixed; z-index: 80; top: calc(var(--t) + 60px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 180px); box-sizing: border-box; margin: 0;
@@ -95,6 +108,13 @@
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>
   <output id="scenarioStatus" role="status">대기</output>
   <p id="scenarioHint">다시 시작 버튼으로 잠금을 푼 뒤 실행하세요.</p>
+  <div id="btPanel" hidden>
+    <p id="btDisclaimer">브라우저 모의 순찰: 사진은 1초 정지와 기록(저장 없음), 알림은 패널 기록(서버 전송 없음), 지도 표시는 이 화면에만, 보고서는 패널 요약입니다. 배터리는 모의 단추만 사용합니다. 다음 이동 실패는 한 지점의 재시도까지 실패시킵니다. 시간은 시뮬 시간입니다.</p>
+    <div id="btMocks" aria-label="모의 입력"><button id="btFall" aria-pressed="false">모의 넘어짐</button><button id="btBattery" aria-pressed="false">모의 배터리 부족</button><button id="btPhotoFail" aria-pressed="false">모의 다음 사진 실패</button><button id="btMoveFail" aria-pressed="false">모의 다음 이동 실패</button></div>
+    <div id="btReview" aria-label="운영자 판단"><button id="btReview-clear" disabled>이상 없음</button><button id="btReview-minor" disabled>사소함</button><button id="btReview-danger" disabled>위험</button></div>
+    <p id="btPoints"></p><ul id="btNodes" aria-label="읽기 전용 행동 나무"></ul>
+    <pre id="btEvents" aria-label="사건 기록"></pre><output id="btReport" aria-label="모의 보고서"></output>
+  </div>
   <p id="goalHint">화면 바닥을 짧게 누르면 바로 그곳으로 갑니다(장애물은 A* 로 돌아감 · 가는 중에 누르면 끝에 줄 세워 도착하면 바로 다음으로 · 막히면 한 번 다시 찾고 또 막히면 멈춤 · 막대·키·정지로 끊기면 남은 목적지는 지움).</p>
 </section>
 <div id="busy"></div>

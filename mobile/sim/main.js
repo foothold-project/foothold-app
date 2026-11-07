@@ -11,7 +11,8 @@ import { POLICY_MODES, DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } fr
 import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame, topPoint } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
-import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
+import { validateScenarios, createScenarioRunner, createPatrolRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
+import { treeFromScenario, treeRows } from './bt.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { MIN_UP } from './walk-surface.js';
 import { loadSimSettings, simSettings } from './settings.js';
@@ -54,13 +55,13 @@ const st = (window.__sim = { ready: false, err: null });   // 시험용(headless
 // ── STOP 잠금: 명령 0. «다시 시작»(#go)만 푼다. 잡고 있던 막대 손가락도 놓게 해서 풀린 뒤엔 새로 누른 손가락만 명령이 된다
 let heading = null;
 const goalAxes = [0, 0, 0];
-let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null, runningScenario = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
+let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null, runningScenario = null, runningTree = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
 const sticks = [];
 let inputSettings = manualSettings({}, adapter.command), refreshSettings = async () => {}, startEpoch = 0, clock;
 let applySettings = () => {};
 function lock() {
   startEpoch++; clock?.reset();
-  stopped = true; joy = neutral(); onLock?.();
+  stopped = true; joy = neutral(); if (runningTree?.active) runningTree.cancel('중단'); onLock?.();
   if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
   if (adapter.command.kind === 'nearby_goal') { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
@@ -109,7 +110,7 @@ $('go').onclick = async () => {
   sticks.forEach((s) => s.release()); stopped = false; ui();
 };
 function background() {
-  if (readonly || !runningScenario?.active) return lock();   // 실기 보기·수동 조종은 기존 정지
+  if (readonly || runningTree?.active || !runningScenario?.active) return lock();   // 실기 보기·수동 조종은 기존 정지
   clock?.reset(); sim?.cancelPolicyStep();   // 숨긴 시간은 물리·막힘 판정에 더하지 않음(미완료 추론도 버림)
   sticks.forEach((s) => s.release());   // 실행기의 지점·진행·정책 상태는 그대로, 손 조종 입력만 놓음
 }
@@ -348,6 +349,51 @@ async function main() {
   const lidar = makeLidar(mj, m, d, 360, settings);
   const runner = createScenarioRunner(sim, () => stopped, settings);
   runningScenario = runner;
+  const patrol = createPatrolRunner({ sim, runner, isStopped: () => stopped, lock, planRoute, getMap: () => map,
+    getFront: () => front, home: () => ({ x: start[0], y: start[1], yaw: start[2] }),
+    onMark: (p) => {
+      const marker = new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), new THREE.MeshBasicMaterial({ color: p.level === 'danger' ? 0xff5252 : 0xffd54f, depthTest: false }));
+      marker.position.set(p.x, p.y, map.floor_z + .15); patrolMarks.add(marker);
+    },
+    onClearMarks: () => {
+      for (const marker of [...patrolMarks.children]) { patrolMarks.remove(marker); marker.geometry.dispose(); marker.material.dispose(); }
+    } });
+  runningTree = patrol;
+  for (const [id, key] of [['btFall', 'fallen'], ['btBattery', 'battery'], ['btPhotoFail', 'photo'], ['btMoveFail', 'move']]) $(id).onclick = () => {
+    patrol.mock[key] = !patrol.mock[key]; $(id).setAttribute('aria-pressed', String(patrol.mock[key]));
+  };
+  for (const level of ['clear', 'minor', 'danger']) $('btReview-' + level).onclick = () => patrol.review(level);
+  let nodeSignature = '';
+  const treeUI = () => {
+    const chosen = scenarios.find((s) => s.id === select.value);
+    $('btPanel').hidden = !chosen;
+    if (!chosen) return;
+    $('btDisclaimer').hidden = !chosen.tree;
+    const tree = chosen.tree ?? treeFromScenario(chosen), rows = treeRows(tree);
+    const states = chosen.tree && patrol.execution?.tree === chosen.tree ? patrol.execution.states : null;
+    const activePoint = patrol.active ? patrol.context?.index : runner.active ? runner.points[runner.index]?.mark : null;
+    const signature = JSON.stringify([select.value, activePoint, [...(states ?? [])].map(([p, s]) => [p, s.result]), patrol.reviewPending, patrol.events.length, patrol.summary]);
+    for (const [id, key] of [['btFall', 'fallen'], ['btBattery', 'battery'], ['btPhotoFail', 'photo'], ['btMoveFail', 'move']]) $(id).setAttribute('aria-pressed', String(patrol.mock[key]));
+    if (signature === nodeSignature) return;
+    nodeSignature = signature;
+    $('btNodes').replaceChildren(...rows.map(({ node, path, depth }, i) => {
+      const li = document.createElement('li'), result = states?.get(path)?.result;
+      li.style.paddingLeft = `${depth * 12}px`; li.dataset.path = path;
+      const active = result === 'running' || (!chosen.tree && runner.active && i === activePoint + 1);
+      li.classList.toggle('btActive', active);
+      const translated = { running: '진행 중', success: '성공', failure: '실패', abort: '중단' }[result] ?? '';
+      const label = { sequence: '차례대로', fallback: '실패 시 다음 대안', reactive_fallback: '매 틱 우선순위 확인', retry: '재시도', for_each_point: '지점마다', fallen: '넘어짐?', battery_low: '배터리 부족?', review_is: '판단 확인', goto: '이동', photo: '모의 촬영', wait: '대기', operator_review: '운영자 판단 (최대 120초)', sensor_log: '기록', map_mark: '이 화면 지도 표시', alert: '모의 위치 알림', skip_log: '건너뜀 기록', return_home: '출발점 복귀', hold: '정지·잠금', report: '모의 보고서' }[node.type];
+      li.textContent = `${label}${node.level ? ' · ' + node.level : ''}${node.type === 'retry' ? ' · 최대 ' + node.times + '회' : ''}${node.message ? ' · ' + node.message : ''} ${translated}`;
+      return li;
+    }));
+    $('btPoints').textContent = chosen.points.map((_, i) => `${activePoint === i ? '▶' : ''}${i + 1}: ${patrol.execution?.tree === chosen.tree && patrol.skipped.has(i) ? '건너뜀' : patrol.execution?.tree === chosen.tree && patrol.visited.has(i) ? '방문 성공' : '대기'}`).join(' · ');
+    $('btEvents').textContent = patrol.events.map((e) => `${e.seconds}s (${e.x}, ${e.y}) ${e.message}`).join('\n');
+    $('btReport').textContent = patrol.summary ? `방문 ${patrol.summary.visited} · 건너뜀 ${patrol.summary.skipped} · 사소 ${patrol.summary.minor} · 위험 ${patrol.summary.danger} · ${patrol.summary.reason} · ${patrol.summary.seconds}초` : '';
+    for (const level of ['clear', 'minor', 'danger']) $('btReview-' + level).disabled = !patrol.reviewPending;
+    $('btReview').hidden = !chosen.tree;
+    $('btMocks').hidden = !chosen.tree;
+  };
+
   let scenarios = [];
   // 층 시나리오는 floor_id 가 그 층이고 지점이 그 층 지도의 빈 칸이어야 한다(floor = 층 번호)
   try { scenarios = floors.length ? (await Promise.all(floors.map(async (f, i) => validateScenarios(await json(`${dir}/${f.scn}`), f.map)
@@ -366,20 +412,21 @@ async function main() {
       $('scenarioStatus').textContent = '실기 보기 전용'; $('scenarioHint').hidden = true;
       return;
     }
+    treeUI();
     const far = away();
-    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : runner.active ? `지점 ${(runner.points[runner.index]?.mark ?? 0) + 1}/${runner.points.at(-1).mark + 1}`
+    const text = patrol.active ? `BT 지점 ${(patrol.context?.index ?? 0) + 1}` : patrol.execution?.tree === scenarios.find((s) => s.id === select.value)?.tree && patrol.summary ? `${patrol.status} · ${patrol.summary.reason}` : runner.active && runner.goal ? '찍은 곳으로 가는 중' : runner.active ? `지점 ${(runner.points[runner.index]?.mark ?? 0) + 1}/${runner.points.at(-1).mark + 1}`
       : far ? `${floors[far.floor].name} 시나리오 — 실행하면 ${floors[far.floor].name} 출발점에 다시 세워 시작` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
-    select.disabled = runner.active || !scenarios.length;
-    $('scenarioRun').disabled = !ready || stopped || runner.active || !scenarios.length;
-    $('scenarioHalt').disabled = !runner.active;
+    select.disabled = patrol.active || runner.active || !scenarios.length;
+    $('scenarioRun').disabled = !ready || stopped || patrol.active || runner.active || !scenarios.length || (!!scenarios.find((s) => s.id === select.value)?.tree && from === 'server');
+    $('scenarioHalt').disabled = !runner.active && !patrol.active;
     $('scenarioHint').hidden = !stopped;
   };
-  const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset'), preserveOnHide: !readonly });
+  const { hand } = bindScenarioInterrupts({ runner, mission: patrol, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset'), preserveOnHide: !readonly });
   for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { sim.cancelPolicyStep(); clock?.reset(); }, true);
   addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) { sim.cancelPolicyStep(); clock?.reset(); } }, true);
   // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)
-  addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
+  addEventListener('keydown', (e) => { if ((runner.active || patrol.active) && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
 
   $('scenarioHalt').onclick = () => { runner.cancel('중단'); lock(); scenarioUI(); };
 
@@ -389,6 +436,7 @@ async function main() {
   const cv = renderer.domElement;
   document.body.prepend(cv);
   const scene = new THREE.Scene();
+  const patrolMarks = new THREE.Group(); scene.add(patrolMarks);
   scene.background = new THREE.Color(0x14171c);
   const followCamera = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
   const topCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -499,9 +547,17 @@ async function main() {
     mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(); pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
-    if (!ready || stopped || runner.active || busy || picking) return;
+    if (!ready || stopped || patrol.active || runner.active || busy || picking) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
+    if (chosen.tree) {
+      if (readonly || from === 'server') return;
+      const epoch = startEpoch, g0 = gen, at = pos(), org = await refreshSettings();
+      if (epoch !== startEpoch || stale(at, g0) || stopped || runner.active || patrol.active || busy || picking) return;
+      applySettings(org); sticks.forEach((s) => s.release());
+      sim.cancelPolicyStep(); clock?.reset(); scan();
+      patrol.start(chosen); scenarioUI(); return;
+    }
     const far = away();
     if (far) spawnOn(far.floor);
     // 지점 사이도 찍은 점과 같은 A* 경유점으로 잇는다(안전 규칙은 실행기 그대로 — 막히면 멈춤, 다시 찾기는 찍은 점만)
@@ -595,7 +651,7 @@ async function main() {
     const [l, t, w, h] = vp;
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
     if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 다시 누르세요');
-    if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
+    if (patrol.active || (runner.active && !runner.goal)) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
     if (busy || picking) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
     ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
@@ -785,7 +841,7 @@ async function main() {
     timing: () => clock.stats,
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
       floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
-    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
+    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner, patrol, patrolMarks: () => patrolMarks.children.length,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y, z = map.heightAt?.(x, y) ?? map.floor_z) => { const v = new THREE.Vector3(x, y, Number.isFinite(z) ? z : map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
     marks: () => marks.map((p) => ({ ...p })), plan: () => plan.map((p) => ({ ...p })), rings: () => marksG.children.map((c) => c.material.opacity),
@@ -798,22 +854,31 @@ async function main() {
     $('simSlow').hidden = !timing.slow;
     $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
   };
+  let skipLockedDecision = false;
   clock = createFrameClock({ dt: POLICY_DT,
     yieldOnRejected: !!adapter.depth,
     prepare: () => {
-      if (keyboardActive && !stopped && !runner.active) {
+      skipLockedDecision = false;
+      const epoch = startEpoch;
+      if (keyboardActive && !stopped && !runner.active && !patrol.active) {
         const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
         axes.splice(0, 3, ...manualCommand(keyboardRamp.advance(POLICY_DT), inputSettings, true).map(r2));
       }
-      if (runner.active) {
+      if (patrol.active) {
+        patrol.tick(POLICY_DT);
+        joy = neutral(); heading = null;
+      } else if (runner.active) {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
         if (adapter.command.kind === 'nearby_goal') { heading = null; joy = sim.cmd.slice(); }
       } else if (adapter.command.kind === 'nearby_goal') {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();
+      skipLockedDecision = epoch !== startEpoch;
     },
-    step: () => sim.step(),
+    // Only skip the decision whose prepare locked/reset the clock. Subsequent
+    // STOP ticks retain the mode's existing zero-input policy/physics behavior.
+    step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return sim.step(); },
     onStep: () => { st.steps++; timingUI(); },
     onError: (e) => {
       lock(); st.err = String(e);
