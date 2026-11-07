@@ -1,4 +1,5 @@
 // Offline waypoint overlay: velocity tracking or direct AME-2 world goals.
+import { validateTree, createTreeRunner } from './bt.js';
 import { ame2WorldGoal } from './ame2-adapter.js';
 import { getPolicyMode } from './policy-modes.js';
 import { cell } from './lidar.js';
@@ -19,7 +20,10 @@ export function validateScenarios(list, map) {
       if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || cell(map, p.x, p.y) !== 254) throw new Error('지점이 빈 칸 밖에 있음');
     }
   }
-  return list;
+  return list.filter((s) => {
+    if (!Object.hasOwn(s, 'tree')) return true;
+    try { validateTree(s.tree); return true; } catch (e) { console.warn(`나무 제외: ${s.id}: ${e.message}`); return false; }
+  });
 }
 
 // Ray 0 points forward. Reuse the existing 10 Hz scan, with no extra raycasts.
@@ -111,15 +115,98 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
 
 // Human input cancels autonomy and enters the existing STOP lock. A new Run is required.
 // 찍은 곳 가기(goal)만 예외: 막대·키(손 조종)는 목표를 취소하고 잠그지 않는다 — 손 조종이 바로 이어진다.
-export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, win, home, reset, preserveOnHide = false }) {
-  const interrupt = () => { if (runner.active) { runner.cancel('중단'); lock(); } };
-  const hand = () => { if (runner.active && runner.goal) runner.cancel('손 조종'); else interrupt(); };
+export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, win, home, reset, preserveOnHide = false, mission = null }) {
+  const interrupt = () => { if (runner.active || mission?.active) { mission?.cancel('중단'); runner.cancel('중단'); lock(); } };
+  const hand = () => { if (!mission?.active && runner.active && runner.goal) runner.cancel('손 조종'); else interrupt(); };
   for (const el of [left, right]) el.addEventListener('pointerdown', hand, { capture: true });
   stop.addEventListener('pointerdown', interrupt, { capture: true });
   stop.addEventListener('click', interrupt, { capture: true });
-  doc.addEventListener('visibilitychange', () => { if (doc.hidden && !preserveOnHide) interrupt(); });
-  for (const ev of ['freeze', 'blur']) win.addEventListener(ev, () => { if (!preserveOnHide) interrupt(); });
+  doc.addEventListener('visibilitychange', () => { if (doc.hidden && (!preserveOnHide || mission?.active)) interrupt(); });
+  doc.addEventListener('freeze', () => { if (!preserveOnHide || mission?.active) interrupt(); });
+  for (const ev of ['freeze', 'blur']) win.addEventListener(ev, () => { if (!preserveOnHide || mission?.active) interrupt(); });
   win.addEventListener('pagehide', interrupt);   // 실제로 페이지를 떠나면 기존 취소·잠금
   for (const el of [home, reset]) el.addEventListener('click', interrupt, { capture: true });
   return { hand };
+}
+
+// Browser-sim effects only. Navigation reuses the original runner, A* and caps.
+// Quaternion body-up dot world-up below this cosine means a fall (60 degrees).
+export const FALLEN_UP_COS = 0.5;
+export function bodyFallen(qpos) { return 1 - 2 * (qpos[4] ** 2 + qpos[5] ** 2) < FALLEN_UP_COS; }
+export function createPatrolRunner({ sim, runner, isStopped, lock, planRoute, getMap, getFront, home, onMark = () => {} }) {
+  let execution = null, runId = 0, scenario, pendingReview = null, failedPoint = null;
+  const mock = { fallen: false, battery: false, photo: false, move: false };
+  const patrol = { mock, events: [], summary: null, reviewPending: false, visited: new Set(), skipped: new Set(), minor: new Set(), danger: new Set(), marks: [],
+    get active() { return !!execution?.active; }, get execution() { return execution; },
+    get status() { return execution?.status ?? '대기'; }, get context() { return execution?.context; } };
+  const neutral = () => { sim.cmd = getPolicyMode(sim.adapterId).stop.input.slice(); sim.cancelPolicyStep?.(); };
+  const event = (message) => {
+    const q = sim.d.qpos;
+    patrol.events.push({ seconds: +(execution?.elapsed ?? 0).toFixed(2), message, x: +q[0].toFixed(2), y: +q[1].toFixed(2) });
+  };
+  const summary = (reason) => ({ visited: patrol.visited.size, skipped: patrol.skipped.size, minor: patrol.minor.size, danger: patrol.danger.size,
+    reason, seconds: +(execution?.elapsed ?? 0).toFixed(2) });
+  patrol.cancel = (reason = '중단') => { runId++; execution?.cancel(reason); runner.cancel('중단'); neutral(); patrol.reviewPending = false; };
+  patrol.review = (level) => { if (patrol.active && patrol.reviewPending && ['clear', 'minor', 'danger'].includes(level)) pendingReview = level; };
+  const instant = (effect) => { let done = false; return { tick: () => { if (!done) { neutral(); effect(); done = true; } return 'success'; }, halt: neutral }; };
+  const navigate = (node, ctx, returning = false) => {
+    const token = runId, point = returning ? home() : node.point === 'current' ? ctx.point : node.point;
+    let alive = true, planned = false, failure = false, launched = false;
+    neutral();
+    if (!returning && mock.move) { mock.move = false; failedPoint = ctx.index; }
+    if (!returning && failedPoint === ctx.index) { failure = true; planned = true; }
+    else Promise.resolve(planRoute(getMap(), { x: sim.d.qpos[0], y: sim.d.qpos[1] }, [point])).then((points) => {
+      if (!alive || token !== runId || !patrol.active || isStopped()) return;
+      planned = true;
+      if (!points?.length) failure = true;
+      else { if (Number.isFinite(point.yaw)) points.at(-1).yaw = point.yaw; launched = runner.start(points); failure = !launched; }
+    }, () => { if (alive) { planned = true; failure = true; } });
+    return {
+      tick(dt) {
+        if (isStopped() || token !== runId) return 'abort';
+        if (!planned) return 'running';
+        if (failure) { event(returning ? '복귀 길 없음' : '이동 실패'); return 'failure'; }
+        if (runner.active) runner.tick(getFront(), dt);
+        if (runner.active) return 'running';
+        if (['중단', '손 조종'].includes(runner.status)) return 'abort';
+        if (runner.status !== '완료') { event(`${returning ? '복귀' : '이동'} ${runner.status}`); return 'failure'; }
+        if (!returning) patrol.visited.add(ctx.index);
+        event(returning ? '복귀 완료' : `지점 ${ctx.index + 1} 방문`); return 'success';
+      },
+      halt(reason) { alive = false; if (launched) runner.cancel(reason === '우선 갈래' ? '중단' : reason); neutral(); },
+    };
+  };
+  patrol.start = (chosen) => {
+    if (patrol.active || runner.active || isStopped() || !chosen?.tree) return false;
+    validateTree(chosen.tree); runId++; scenario = chosen; pendingReview = failedPoint = null;
+    patrol.events = []; patrol.summary = null; patrol.reviewPending = false; patrol.marks = [];
+    for (const key of ['visited', 'skipped', 'minor', 'danger']) patrol[key].clear();
+    execution = createTreeRunner(chosen.tree, {
+      isStopped,
+      conditions: { fallen: () => mock.fallen || bodyFallen(sim.d.qpos), battery_low: () => mock.battery, review_is: (n, c) => c.review === n.level },
+      onFinish: ({ result, reason }) => { neutral(); if (result === 'abort') lock(); patrol.reviewPending = false; patrol.summary = summary(reason); event(`끝: ${reason}`); },
+      actions: {
+        goto: (n, c) => navigate(n, c), return_home: (n, c) => navigate(n, c, true),
+        photo: () => { let seconds = 0; neutral(); const fail = mock.photo; mock.photo = false;
+          return { tick: (dt) => { neutral(); if ((seconds += dt) < 1) return 'running'; event(fail ? '모의 촬영 실패' : '모의 촬영 (저장 없음)'); return fail ? 'failure' : 'success'; }, halt: neutral }; },
+        wait: (n) => { let seconds = 0; neutral(); return { tick: (dt) => { neutral(); return (seconds += dt) >= n.seconds ? 'success' : 'running'; }, halt: neutral }; },
+        operator_review: (_n, c) => { pendingReview = null; patrol.reviewPending = true; neutral();
+          return { tick: () => { neutral(); if (!pendingReview) return 'running'; c.review = pendingReview; event(`운영자 판단: ${pendingReview}`); patrol.reviewPending = false; return 'success'; },
+            halt: (reason) => { neutral(); patrol.reviewPending = false; if (reason === '행동 시간 초과') { c.review = 'timeout'; event('운영자 120초 무응답 — 복귀'); } } }; },
+        sensor_log: (n) => instant(() => event(n.message)),
+        alert: (n) => instant(() => event(`모의 알림 (서버 전송 없음): ${n.message}`)),
+        map_mark: (n, c) => instant(() => { patrol[n.level].add(c.index); const mark = { x: sim.d.qpos[0], y: sim.d.qpos[1], level: n.level }; patrol.marks.push(mark); onMark(mark); event(`이 화면 지도 표시: ${n.level}`); }),
+        skip_log: (n, c) => instant(() => {
+          if (n.remaining) for (let i = 0; i < scenario.points.length; i++) { if (!patrol.visited.has(i)) patrol.skipped.add(i); }
+          else { patrol.skipped.add(c.index); c.skipPoint = true; failedPoint = null; }
+          event(`${n.message} (${patrol.skipped.size})`);
+        }),
+        report: (n, c) => instant(() => { c.reason = n.message; c.finish = !!n.finish; patrol.summary = summary(c.reason); event(`모의 보고서: ${n.message}`); }),
+        hold: (n, c) => ({ tick: () => { neutral(); c.reason = n.message; patrol.cancel(n.message); lock(); return 'abort'; }, halt: neutral }),
+      },
+    });
+    return execution.start();
+  };
+  patrol.tick = (dt) => execution?.tick(dt);
+  return patrol;
 }

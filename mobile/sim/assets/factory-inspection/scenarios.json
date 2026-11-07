@@ -20,5 +20,291 @@
         "y": 21.5
       }
     ]
+  },
+  {
+    "id": "bt-patrol",
+    "name": "모의 BT 공장 순찰 · 운영자 판단",
+    "points": [
+      {
+        "x": 24.8,
+        "y": 21.5
+      },
+      {
+        "x": 24.8,
+        "y": 22.3
+      },
+      {
+        "x": 24.0,
+        "y": 22.3
+      },
+      {
+        "x": 24.0,
+        "y": 21.5
+      }
+    ],
+    "tree": {
+      "format": "fh_mission_tree/1",
+      "max_seconds": 1200,
+      "root": {
+        "type": "reactive_fallback",
+        "children": [
+          {
+            "type": "sequence",
+            "children": [
+              {
+                "type": "fallen"
+              },
+              {
+                "type": "alert",
+                "message": "넘어짐 — 사람 회수 필요"
+              },
+              {
+                "type": "report",
+                "message": "사람 회수 필요"
+              },
+              {
+                "type": "hold",
+                "message": "사람 회수 필요"
+              }
+            ]
+          },
+          {
+            "type": "sequence",
+            "children": [
+              {
+                "type": "battery_low"
+              },
+              {
+                "type": "skip_log",
+                "remaining": true,
+                "message": "배터리 부족 — 남은 지점 기록"
+              },
+              {
+                "type": "fallback",
+                "children": [
+                  {
+                    "type": "sequence",
+                    "children": [
+                      {
+                        "type": "return_home"
+                      },
+                      {
+                        "type": "report",
+                        "message": "배터리 부족 복귀",
+                        "finish": true
+                      }
+                    ]
+                  },
+                  {
+                    "type": "sequence",
+                    "children": [
+                      {
+                        "type": "report",
+                        "message": "복귀 실패 — 정지·사람 확인 필요"
+                      },
+                      {
+                        "type": "hold",
+                        "message": "복귀 실패 — 정지·사람 확인 필요"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "sequence",
+            "children": [
+              {
+                "type": "for_each_point",
+                "points": [
+                  {
+                    "x": 24.8,
+                    "y": 21.5
+                  },
+                  {
+                    "x": 24.8,
+                    "y": 22.3
+                  },
+                  {
+                    "x": 24.0,
+                    "y": 22.3
+                  },
+                  {
+                    "x": 24.0,
+                    "y": 21.5
+                  }
+                ],
+                "child": {
+                  "type": "sequence",
+                  "children": [
+                    {
+                      "type": "fallback",
+                      "children": [
+                        {
+                          "type": "retry",
+                          "times": 2,
+                          "child": {
+                            "type": "goto",
+                            "point": "current"
+                          }
+                        },
+                        {
+                          "type": "skip_log",
+                          "message": "이동 재시도 실패 — 건너뜀"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "fallback",
+                      "children": [
+                        {
+                          "type": "retry",
+                          "times": 2,
+                          "child": {
+                            "type": "photo"
+                          }
+                        },
+                        {
+                          "type": "sensor_log",
+                          "message": "재촬영 실패 — 운영자 확인 필요"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "fallback",
+                      "children": [
+                        {
+                          "type": "sequence",
+                          "children": [
+                            {
+                              "type": "operator_review"
+                            },
+                            {
+                              "type": "fallback",
+                              "children": [
+                                {
+                                  "type": "sequence",
+                                  "children": [
+                                    {
+                                      "type": "review_is",
+                                      "level": "clear"
+                                    },
+                                    {
+                                      "type": "sensor_log",
+                                      "message": "이상 없음"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "sequence",
+                                  "children": [
+                                    {
+                                      "type": "review_is",
+                                      "level": "minor"
+                                    },
+                                    {
+                                      "type": "map_mark",
+                                      "level": "minor"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "sequence",
+                                  "children": [
+                                    {
+                                      "type": "review_is",
+                                      "level": "danger"
+                                    },
+                                    {
+                                      "type": "alert",
+                                      "message": "위험 — 현재 위치 확인"
+                                    },
+                                    {
+                                      "type": "map_mark",
+                                      "level": "danger"
+                                    },
+                                    {
+                                      "type": "fallback",
+                                      "children": [
+                                        {
+                                          "type": "sequence",
+                                          "children": [
+                                            {
+                                              "type": "return_home"
+                                            },
+                                            {
+                                              "type": "report",
+                                              "message": "위험 대피 완료",
+                                              "finish": true
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "sequence",
+                                          "children": [
+                                            {
+                                              "type": "report",
+                                              "message": "복귀 실패 — 정지·사람 확인 필요"
+                                            },
+                                            {
+                                              "type": "hold",
+                                              "message": "복귀 실패 — 정지·사람 확인 필요"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "fallback",
+                          "children": [
+                            {
+                              "type": "sequence",
+                              "children": [
+                                {
+                                  "type": "return_home"
+                                },
+                                {
+                                  "type": "report",
+                                  "message": "운영자 무응답 복귀",
+                                  "finish": true
+                                }
+                              ]
+                            },
+                            {
+                              "type": "sequence",
+                              "children": [
+                                {
+                                  "type": "report",
+                                  "message": "복귀 실패 — 정지·사람 확인 필요"
+                                },
+                                {
+                                  "type": "hold",
+                                  "message": "복귀 실패 — 정지·사람 확인 필요"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "report",
+                "message": "순찰 완료"
+              }
+            ]
+          }
+        ]
+      }
+    }
   }
 ]
