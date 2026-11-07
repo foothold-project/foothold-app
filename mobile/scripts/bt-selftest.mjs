@@ -105,11 +105,11 @@ for (const mode of ['normal', 'minor', 'danger', 'battery', 'move', 'photo', 'fa
   eq(f.patrol.active, false, mode); assert.ok(f.patrol.summary); checks++;
   if (mode === 'normal' || mode === 'photo') eq([f.patrol.status, f.patrol.summary.visited], ['success', 4]);
   if (mode === 'minor') eq(f.patrol.summary.minor, 4);
-  if (mode === 'danger') { eq(f.patrol.summary.danger, 1); assert.match(f.patrol.summary.reason, /위험 대피/); }
+  if (mode === 'danger') { eq(f.patrol.summary.danger, 1); eq(f.patrol.summary.skipped, 3); assert.match(f.patrol.summary.reason, /위험 대피/); }
   if (mode === 'battery') { eq(f.patrol.summary.skipped, 4); assert.match(f.patrol.summary.reason, /배터리/); }
   if (mode === 'move') eq([f.patrol.summary.visited, f.patrol.summary.skipped], [3, 1]);
   if (mode === 'fallen') eq([f.patrol.status, f.stopped(), f.sim.cmd], ['abort', true, [0, 0, 0]]);
-  if (mode === 'timeout') { assert.match(f.patrol.summary.reason, /무응답 복귀/); eq(f.patrol.events.some((e) => e.message === '이상 없음'), false); }
+  if (mode === 'timeout') { eq(f.patrol.summary.skipped, 3); assert.match(f.patrol.summary.reason, /무응답 복귀/); eq(f.patrol.events.some((e) => e.message === '이상 없음'), false); }
 }
 {
   const f = fixture({ ...route, tree: tree({ type: 'photo' }, .2) });

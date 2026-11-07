@@ -32,6 +32,11 @@
   #scenarioPanel { position: fixed; z-index: 90; top: calc(var(--t) + 82px); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - var(--t) - 82px - var(--stick) - 80px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; box-sizing: border-box;
     border: 1px solid rgb(255 255 255 / .28); border-radius: 12px; padding: 12px; background: rgb(20 23 28 / .94); font: 14px system-ui; }
   #scenarioPanel select { width: 100%; background: #14171c; color: #e6e8eb; border: 1px solid rgb(255 255 255 / .28); border-radius: 8px; padding: 10px; font: inherit; }
+  @media (orientation: landscape) {
+    #scenarioPanel { max-height: calc(100dvh - var(--t) - 82px - 80px - env(safe-area-inset-bottom)); }
+    #scenarioPanel select { padding: 6px 10px; }
+    #scenarioPanel #policyReason { margin: 4px 0; font-size: 12px; line-height: 1.2; }
+  }
   #scenarioActions { display: flex; gap: 8px; margin-top: 10px; }
   #scenarioActions button { flex: 1; font: inherit; }
   #scenarioStatus { display: block; margin-top: 10px; }

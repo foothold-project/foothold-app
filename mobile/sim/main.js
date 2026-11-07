@@ -353,7 +353,10 @@ async function main() {
     getFront: () => front, home: () => ({ x: start[0], y: start[1], yaw: start[2] }),
     onMark: (p) => {
       const marker = new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), new THREE.MeshBasicMaterial({ color: p.level === 'danger' ? 0xff5252 : 0xffd54f, depthTest: false }));
-      marker.position.set(p.x, p.y, map.floor_z + .15); scene.add(marker);
+      marker.position.set(p.x, p.y, map.floor_z + .15); patrolMarks.add(marker);
+    },
+    onClearMarks: () => {
+      for (const marker of [...patrolMarks.children]) { patrolMarks.remove(marker); marker.geometry.dispose(); marker.material.dispose(); }
     } });
   runningTree = patrol;
   for (const [id, key] of [['btFall', 'fallen'], ['btBattery', 'battery'], ['btPhotoFail', 'photo'], ['btMoveFail', 'move']]) $(id).onclick = () => {
@@ -365,6 +368,7 @@ async function main() {
     const chosen = scenarios.find((s) => s.id === select.value);
     $('btPanel').hidden = !chosen;
     if (!chosen) return;
+    $('btDisclaimer').hidden = !chosen.tree;
     const tree = chosen.tree ?? treeFromScenario(chosen), rows = treeRows(tree);
     const states = chosen.tree && patrol.execution?.tree === chosen.tree ? patrol.execution.states : null;
     const activePoint = patrol.active ? patrol.context?.index : runner.active ? runner.points[runner.index]?.mark : null;
@@ -432,6 +436,7 @@ async function main() {
   const cv = renderer.domElement;
   document.body.prepend(cv);
   const scene = new THREE.Scene();
+  const patrolMarks = new THREE.Group(); scene.add(patrolMarks);
   scene.background = new THREE.Color(0x14171c);
   const followCamera = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
   const topCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -836,7 +841,7 @@ async function main() {
     timing: () => clock.stats,
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
       floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
-    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner, patrol,
+    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner, patrol, patrolMarks: () => patrolMarks.children.length,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y, z = map.heightAt?.(x, y) ?? map.floor_z) => { const v = new THREE.Vector3(x, y, Number.isFinite(z) ? z : map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
     marks: () => marks.map((p) => ({ ...p })), plan: () => plan.map((p) => ({ ...p })), rings: () => marksG.children.map((c) => c.material.opacity),
@@ -849,9 +854,12 @@ async function main() {
     $('simSlow').hidden = !timing.slow;
     $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
   };
+  let skipLockedDecision = false;
   clock = createFrameClock({ dt: POLICY_DT,
     yieldOnRejected: !!adapter.depth,
     prepare: () => {
+      skipLockedDecision = false;
+      const epoch = startEpoch;
       if (keyboardActive && !stopped && !runner.active && !patrol.active) {
         const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
         axes.splice(0, 3, ...manualCommand(keyboardRamp.advance(POLICY_DT), inputSettings, true).map(r2));
@@ -866,9 +874,11 @@ async function main() {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();
+      skipLockedDecision = epoch !== startEpoch;
     },
-    // A fall/deadline can lock during prepare; do not start another physics decision.
-    step: () => stopped && patrol.status === 'abort' ? false : sim.step(),
+    // Only skip the decision whose prepare locked/reset the clock. Subsequent
+    // STOP ticks retain the mode's existing zero-input policy/physics behavior.
+    step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return sim.step(); },
     onStep: () => { st.steps++; timingUI(); },
     onError: (e) => {
       lock(); st.err = String(e);

@@ -25,11 +25,24 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 assert.ok(!forbidden.includes(server.address().port));
 const browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true,
   args: ['--no-sandbox', '--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader'] });
-const results = [], errors = [];
+const results = [], errors = [], stopChecks = [];
+const overlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 async function capture(page, name) {
   if (name.startsWith('progress')) await page.locator('#btNodes .btActive').last().scrollIntoViewIfNeeded();
   await page.evaluate(() => { window.__btDraw = true; __frame(window.__btNow); window.__btDraw = false; });
   await page.screenshot({ path: resolve(out, name + '.png') });
+}
+async function checkStoppedPhysics(page, label) {
+  const check = await page.evaluate(async (label) => {
+    const before = __sim.steps, time = __sim.sim.d.time, events = __sim.patrol.events.length;
+    for (let i = 0; i < 30; i++) { __btNow += 100; __frame(__btNow); await new Promise((r) => setTimeout(r, 0)); }
+    return { label, steps: __sim.steps - before, seconds: __sim.sim.d.time - time, slow: !document.getElementById('simSlow').hidden,
+      active: __sim.patrol.active, stopped: __sim.stopped(), cmd: __sim.cmd(), followingEvents: __sim.patrol.events.length - events };
+  }, label);
+  assert.ok(check.steps > 0 && check.seconds > 0, `${label}: STOP retains zero-input policy physics`);
+  assert.deepEqual([check.active, check.stopped, check.cmd, check.slow, check.followingEvents], [false, true, [0, 0, 0], false, 0], label);
+  stopChecks.push(check); writeFileSync(resolve(out, 'stop-regression.json'), JSON.stringify(stopChecks, null, 2));
+  console.log('BT STOP physics PASS', JSON.stringify(check));
 }
 try {
   for (const mode of ['normal', 'minor', 'danger', 'battery', 'move', 'fallen', 'photo-stop']) {
@@ -46,9 +59,29 @@ try {
       await document.getElementById('go').onclick();
       if (mode === 'move') document.getElementById('btMoveFail').click();
       window.__btOrigin = Array.from(__sim.sim.d.qpos.slice(0, 2));
-      await document.getElementById('scenarioRun').onclick();
       window.__btNow = performance.now(); __frame(__btNow);
     }, mode);
+    if (mode === 'normal') {
+      const layouts = [];
+      for (const [width, height] of [[1280, 800], [390, 844], [844, 390]]) {
+        await page.setViewportSize({ width, height }); await page.waitForTimeout(100);
+        await page.locator('#scenarioPanel').evaluate((el) => { el.scrollTop = 0; });
+        const layout = await page.evaluate(() => {
+          const rect = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
+          const button = document.getElementById('scenarioRun'), r = button.getBoundingClientRect();
+          return { panel: rect('scenarioPanel'), stop: rect('stop'), left: rect('stickL'), right: rect('stickR'), run: rect('scenarioRun'),
+            runHit: document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === button, scroll: document.getElementById('scenarioPanel').scrollTop };
+        });
+        assert.equal(layout.scroll, 0);
+        for (const id of ['stop', 'left', 'right']) assert.equal(overlap(layout.panel, layout[id]), false, `${width}: panel clears ${id}`);
+        assert.ok(layout.run.top >= layout.panel.top && layout.run.bottom <= layout.panel.bottom && layout.runHit, `${width}: Run visible without scrolling`);
+        layouts.push({ width, height, ...layout });
+        if (width === 844) await capture(page, 'landscape-844');
+      }
+      writeFileSync(resolve(out, 'layouts.json'), JSON.stringify(layouts, null, 2));
+      await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(100);
+    }
+    await page.evaluate(async () => { await document.getElementById('scenarioRun').onclick(); __btNow = performance.now(); __frame(__btNow); });
     let progressCaptured = false;
     for (let round = 0; round < 900; round++) {
       const snap = await page.evaluate(async (mode) => {
@@ -107,7 +140,7 @@ try {
     assert.deepEqual(result.cmd, [0, 0, 0]);
     if (mode === 'normal') { assert.equal(result.status, 'success'); assert.equal(result.summary.visited, 4); assert.equal(result.summary.skipped, 0); }
     if (mode === 'minor') { assert.equal(result.summary.minor, 4); assert.equal(result.summary.visited, 4); }
-    if (mode === 'danger') { assert.equal(result.summary.danger, 1); assert.match(result.summary.reason, /위험 대피 완료/); }
+    if (mode === 'danger') { assert.equal(result.summary.danger, 1); assert.equal(result.summary.skipped, 3); assert.match(result.summary.reason, /위험 대피 완료/); }
     if (mode === 'battery') { assert.match(result.summary.reason, /배터리 부족 복귀/); assert.equal(result.summary.skipped, 3); }
     if (mode === 'move') { assert.equal(result.summary.skipped, 1); assert.equal(result.summary.visited, 3); }
     if (mode === 'fallen' || mode === 'photo-stop') { assert.equal(result.status, 'abort'); assert.equal(result.stopped, true); }
@@ -117,10 +150,37 @@ try {
       await page.evaluate(() => { for (let i = 0; i < 10; i++) { __btNow += 100; __frame(__btNow); } });
       assert.equal(await page.evaluate(() => __sim.patrol.events.length), events, 'STOP has no following action');
     }
+    if (mode === 'fallen' || mode === 'photo-stop') await checkStoppedPhysics(page, 'after-' + mode);
     assert.ok(result.steps > 0, 'real policy physics stepped');
     await page.evaluate(() => { const el = document.getElementById('scenarioPanel'); el.scrollTop = el.scrollHeight; });
     await capture(page, 'end-' + mode);
     console.log('BT browser PASS', JSON.stringify({ mode, status: result.status, stopped: result.stopped, summary: result.summary, steps: result.steps, end: result.end }));
+    if (mode === 'minor') {
+      assert.equal(await page.evaluate(() => __sim.patrolMarks()), 4, 'minor map markers rendered');
+      await page.evaluate(async () => { await document.getElementById('scenarioRun').onclick(); });
+      assert.deepEqual(await page.evaluate(() => [__sim.patrol.marks.length, __sim.patrolMarks()]), [0, 0], 'rerun clears model and rendered map markers');
+      await page.evaluate(() => document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    }
+    if (mode === 'photo-stop') {
+      await page.evaluate(async () => {
+        await document.getElementById('go').onclick();
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w' }));
+        for (let i = 0; i < 10; i++) { __btNow += 100; __frame(__btNow); await new Promise((r) => setTimeout(r, 0)); }
+        document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      });
+      await checkStoppedPhysics(page, 'later-manual-STOP');
+      await page.evaluate(async () => {
+        document.getElementById('scenarioSelect').value = 'short-loop'; document.getElementById('scenarioSelect').onchange();
+        await document.getElementById('go').onclick(); await document.getElementById('scenarioRun').onclick();
+        __btNow += 100; __frame(__btNow);
+      });
+      assert.equal(await page.locator('#btDisclaimer').isVisible(), false, 'legacy scenario hides mock patrol disclaimer');
+      assert.equal(await page.evaluate(() => __sim.scenario.active && !__sim.scenario.goal), true, 'legacy route running');
+      await page.evaluate(() => document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      await checkStoppedPhysics(page, 'later-legacy-STOP');
+      await page.evaluate(() => document.getElementById('reset').onclick());
+      await checkStoppedPhysics(page, 'later-reset');
+    }
     if (mode === 'normal') {
       const guards = await page.evaluate(async () => {
         const r = __sim.scenario;
@@ -155,5 +215,5 @@ try {
     await context.close();
   }
   assert.deepEqual(errors, []);
-  console.log('BT browser 7/7 PASS: actual gait, no pose changes, UI actions, neutral ends, phone layout, screenshots');
+  console.log('BT browser 7/7 PASS: actual gait, no pose changes, UI actions, neutral ends, phone/landscape layout, STOP physics regression, marker cleanup, screenshots');
 } finally { await browser.close(); await new Promise((r) => server.close(r)); }

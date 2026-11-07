@@ -231,6 +231,11 @@
                                           "type": "sequence",
                                           "children": [
                                             {
+                                              "type": "skip_log",
+                                              "remaining": true,
+                                              "message": "복귀 — 남은 지점 기록"
+                                            },
+                                            {
                                               "type": "return_home"
                                             },
                                             {
@@ -267,6 +272,11 @@
                             {
                               "type": "sequence",
                               "children": [
+                                {
+                                  "type": "skip_log",
+                                  "remaining": true,
+                                  "message": "복귀 — 남은 지점 기록"
+                                },
                                 {
                                   "type": "return_home"
                                 },

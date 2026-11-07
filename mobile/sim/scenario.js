@@ -133,7 +133,7 @@ export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, w
 // Quaternion body-up dot world-up below this cosine means a fall (60 degrees).
 export const FALLEN_UP_COS = 0.5;
 export function bodyFallen(qpos) { return 1 - 2 * (qpos[4] ** 2 + qpos[5] ** 2) < FALLEN_UP_COS; }
-export function createPatrolRunner({ sim, runner, isStopped, lock, planRoute, getMap, getFront, home, onMark = () => {} }) {
+export function createPatrolRunner({ sim, runner, isStopped, lock, planRoute, getMap, getFront, home, onMark = () => {}, onClearMarks = () => {} }) {
   let execution = null, runId = 0, scenario, pendingReview = null, failedPoint = null;
   const mock = { fallen: false, battery: false, photo: false, move: false };
   const patrol = { mock, events: [], summary: null, reviewPending: false, visited: new Set(), skipped: new Set(), minor: new Set(), danger: new Set(), marks: [],
@@ -179,7 +179,7 @@ export function createPatrolRunner({ sim, runner, isStopped, lock, planRoute, ge
   patrol.start = (chosen) => {
     if (patrol.active || runner.active || isStopped() || !chosen?.tree) return false;
     validateTree(chosen.tree); runId++; scenario = chosen; pendingReview = failedPoint = null;
-    patrol.events = []; patrol.summary = null; patrol.reviewPending = false; patrol.marks = [];
+    patrol.events = []; patrol.summary = null; patrol.reviewPending = false; patrol.marks = []; onClearMarks();
     for (const key of ['visited', 'skipped', 'minor', 'danger']) patrol[key].clear();
     execution = createTreeRunner(chosen.tree, {
       isStopped,
