@@ -41,14 +41,23 @@
   #scenarioActions button { flex: 1; font: inherit; }
   #scenarioStatus { display: block; margin-top: 10px; }
   #scenarioHint, #goalHint { margin: 8px 0 0; color: #b9c0ca; font-size: 12px; }
-  #btNodes { list-style: none; padding: 0; font-size: 12px; }
+  /* BT 패널: 지금 상태·판단 단추는 위에 붙여 두고, 나무는 진행 중 갈래만 펼침. 세로 폰은 화면 절반 이하 */
+  @media (orientation: portrait) { #scenarioPanel:has(> #btPanel:not([hidden])) { max-height: min(50dvh, calc(100dvh - var(--t) - 82px - var(--stick) - 80px - env(safe-area-inset-bottom))); } }
+  #btHead { position: sticky; top: -12px; z-index: 1; margin: 0 -12px; padding: 6px 12px; background: rgb(20 23 28 / .94); border-bottom: 1px solid rgb(255 255 255 / .28); }
+  #btNow { display: block; font: 600 16px system-ui; overflow-wrap: anywhere; }
+  #btNodes { list-style: none; padding: 0; margin: 6px 0; font-size: 12px; }
   #btNodes li { padding-top: 3px; padding-bottom: 3px; overflow-wrap: anywhere; }
   #btNodes .btActive { background: #235c3a; border-left: 3px solid #81c784; }
+  #btNodes button { display: inline; width: auto; height: auto; padding: 0; border: 0; background: none; font: inherit; text-align: left; }
+  #btNodes small, #btLog summary { color: #b9c0ca; }
   #btMocks, #btReview { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
   #btMocks button, #btReview button { width: auto; height: auto; min-height: 36px; padding: 6px; font: 12px system-ui; }
+  #btReview { margin-bottom: 0; }
   #btMocks button[aria-pressed="true"] { background: #80451a; }
-  #btEvents { max-height: 140px; overflow: auto; white-space: pre-wrap; font: 11px system-ui; }
-  #btReport, #btPoints, #btDisclaimer { font-size: 12px; overflow-wrap: anywhere; }
+  #btEvents, #btEventsAll { margin: 4px 0; white-space: pre-wrap; font: 11px system-ui; }
+  #btEventsAll { max-height: 140px; overflow: auto; }
+  #btLog summary { font-size: 12px; }
+  #btReport, #btPoints, #btDisclaimer { display: block; font-size: 12px; overflow-wrap: anywhere; }
   /* 찍은 곳 가기 진행·거절 한 줄: 위 가운데(STOP·시작 단추 자리 비움), 누름은 아래 화면으로 */
   #modeCaps { position: fixed; z-index: 80; top: calc(var(--t) + 110px); left: 8px; right: 8px; margin: 0; padding: 4px 6px; background: rgb(20 23 28 / .82); color: #e6e8eb; font: clamp(8px, 2.5vw, 10px) system-ui; white-space: nowrap; pointer-events: none; }
   #goalNote { position: fixed; z-index: 80; top: calc(var(--t) + 60px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 180px); box-sizing: border-box; margin: 0;
@@ -109,11 +118,13 @@
   <output id="scenarioStatus" role="status">대기</output>
   <p id="scenarioHint">다시 시작 버튼으로 잠금을 푼 뒤 실행하세요.</p>
   <div id="btPanel" hidden>
+    <div id="btHead"><output id="btNow" role="status" aria-label="지금 상태"></output><output id="btReport" aria-label="모의 보고서"></output>
+      <div id="btReview" aria-label="운영자 판단" hidden><button id="btReview-clear" disabled>이상 없음</button><button id="btReview-minor" disabled>사소함</button><button id="btReview-danger" disabled>위험</button></div></div>
     <p id="btDisclaimer">브라우저 모의 순찰: 사진은 1초 정지와 기록(저장 없음), 알림은 패널 기록(서버 전송 없음), 지도 표시는 이 화면에만, 보고서는 패널 요약입니다. 배터리는 모의 단추만 사용합니다. 다음 이동 실패는 한 지점의 재시도까지 실패시킵니다. 시간은 시뮬 시간입니다.</p>
     <div id="btMocks" aria-label="모의 입력"><button id="btFall" aria-pressed="false">모의 넘어짐</button><button id="btBattery" aria-pressed="false">모의 배터리 부족</button><button id="btPhotoFail" aria-pressed="false">모의 다음 사진 실패</button><button id="btMoveFail" aria-pressed="false">모의 다음 이동 실패</button></div>
-    <div id="btReview" aria-label="운영자 판단"><button id="btReview-clear" disabled>이상 없음</button><button id="btReview-minor" disabled>사소함</button><button id="btReview-danger" disabled>위험</button></div>
     <p id="btPoints"></p><ul id="btNodes" aria-label="읽기 전용 행동 나무"></ul>
-    <pre id="btEvents" aria-label="사건 기록"></pre><output id="btReport" aria-label="모의 보고서"></output>
+    <pre id="btEvents" aria-label="최근 사건 3줄"></pre>
+    <details id="btLog"><summary>기록 전체</summary><pre id="btEventsAll" aria-label="사건 기록"></pre></details>
   </div>
   <p id="goalHint">화면 바닥을 짧게 누르면 바로 그곳으로 갑니다(장애물은 A* 로 돌아감 · 가는 중에 누르면 끝에 줄 세워 도착하면 바로 다음으로 · 막히면 한 번 다시 찾고 또 막히면 멈춤 · 막대·키·정지로 끊기면 남은 목적지는 지움).</p>
 </section>

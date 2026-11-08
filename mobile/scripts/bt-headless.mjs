@@ -116,8 +116,10 @@ try {
         await page.waitForTimeout(150);
         const cdp = await context.newCDPSession(page);
         // Explicit touch moves also work with this harness's deterministic RAF.
-        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 330, y: 550 }] });
-        for (let y = 530; y >= 200; y -= 30) {
+        // Drag inside the (now half-height) panel: bottom edge up to its top edge.
+        const touchTop = Math.round(bounds.panel.top + 20), touchBottom = Math.round(bounds.panel.bottom - 20);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 330, y: touchBottom }] });
+        for (let y = touchBottom - 20; y >= touchTop; y -= 30) {
           await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 330, y }] });
           await page.waitForTimeout(20);
         }
