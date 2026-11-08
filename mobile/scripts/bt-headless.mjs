@@ -215,10 +215,31 @@ try {
       });
       assert.equal(await page.locator('#btDisclaimer').isVisible(), false, 'legacy scenario hides mock patrol disclaimer');
       assert.equal(await page.evaluate(() => __sim.scenario.active && !__sim.scenario.goal), true, 'legacy route running');
+      // Tree-less scenario keeps its own status line visible (the BT head is hidden), while running and when done.
+      const legacyStatus = async (label, pattern) => {
+        const s = await page.evaluate(() => {
+          if (document.getElementById('scenarioPanel').hidden) document.getElementById('scenarioMenu').click();
+          __frame(__btNow);   // UI frame at the same sim time
+          return { text: document.getElementById('scenarioStatus').textContent, head: document.getElementById('btHead').hidden };
+        });
+        const visible = await page.locator('#scenarioStatus').isVisible();
+        console.log('BT legacy status', label, JSON.stringify({ ...s, visible }));
+        assert.deepEqual([visible, s.head], [true, true], `${label}: legacy status visible, BT head hidden`);
+        assert.match(s.text, pattern, `${label}: legacy status text`);
+      };
+      await legacyStatus('legacy-running', /^지점 \d\/4$/);
       await page.evaluate(() => document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
       await checkStoppedPhysics(page, 'later-legacy-STOP');
       await page.evaluate(() => document.getElementById('reset').onclick());
       await checkStoppedPhysics(page, 'later-reset');
+      await page.evaluate(async () => { await document.getElementById('go').onclick(); await document.getElementById('scenarioRun').onclick(); });
+      for (let round = 0; round < 120 && await page.evaluate(() => __sim.scenario.active); round++) await page.evaluate(async () => {
+        for (let i = 0; i < 10 && __sim.scenario.active; i++) { __btNow += 100; __frame(__btNow); await new Promise((r) => setTimeout(r, 0)); }
+      });
+      assert.equal(await page.evaluate(() => __sim.scenario.active), false, 'legacy route finished');
+      await legacyStatus('legacy-done', /^완료$/);
+      await capture(page, 'legacy-done');
+      await page.evaluate(() => document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
     }
     if (mode === 'normal') {
       const guards = await page.evaluate(async () => {

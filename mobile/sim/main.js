@@ -410,7 +410,9 @@ async function main() {
   const treeUI = () => {
     const chosen = scenarios.find((s) => s.id === select.value);
     $('btPanel').hidden = !chosen;
-    $('scenarioStatus').hidden = $('btHead').hidden = !chosen?.tree;   // 나무 시나리오는 맨 위 고정 상태 줄(btNow)이 대신함
+    // 나무 시나리오는 맨 위 고정 상태 줄(btHead)이 기존 상태 줄을 대신하고, 나무 없으면 기존 상태 줄만
+    $('scenarioStatus').hidden = !!chosen?.tree;
+    $('btHead').hidden = !chosen?.tree;
     // 판단 대기 중에는 패널을 닫아 둘 수 없다: 대기 표시·세 단추가 늘 보이고 눌리게
     if (patrol.reviewPending && scenarioPanel.hidden) showScenarioPanel(true);
     if (!chosen) return;
