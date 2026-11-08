@@ -26,7 +26,9 @@ else
 fi
 # Only web and its imported data enter the build sandbox; never server/deploy.
 git --git-dir="$repo" archive "$sha" apps/contracts apps/web \
-  mobile/sim/maps.json mobile/sim/terrain 'mobile/sim/assets/*/top.png' 'mobile/sim/assets/*/top.json' 'mobile/sim/assets/*/map*.json' | tar -x -C "$build"
+  mobile/sim/maps.json mobile/sim/terrain mobile/sim/bt.js mobile/sim/bt.d.ts \
+  'mobile/sim/assets/*/top*.png' 'mobile/sim/assets/*/top.json' \
+  'mobile/sim/assets/*/map*.json' 'mobile/sim/assets/*/scenarios*.json' | tar -x -C "$build"
 # Validate the actual archived input, including empty globs and orphan metadata.
 shopt -s nullglob
 top_images=("$build"/mobile/sim/assets/*/top.png)
