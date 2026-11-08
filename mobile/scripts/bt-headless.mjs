@@ -82,13 +82,14 @@ try {
       await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(100);
     }
     await page.evaluate(async () => { await document.getElementById('scenarioRun').onclick(); __btNow = performance.now(); __frame(__btNow); });
-    let progressCaptured = false;
+    let progressCaptured = false, reviewChecked = false;
     for (let round = 0; round < 900; round++) {
       const snap = await page.evaluate(async (mode) => {
         for (let i = 0; i < 5 && __sim.patrol.active; i++) {
           const p = __sim.patrol;
           const photo = [...p.execution.states].some(([path, s]) => s.result === 'running' && p.execution.tree && path && s.handle && path === '0.2.0.0.1.0.0');
           if (mode === 'photo-stop' && photo) document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+          if (p.reviewPending && mode === 'normal' && !window.__btReviewHit) return { active: p.active, pending: true, elapsed: p.execution.elapsed, err: __sim.err };
           if (p.reviewPending) {
             if (mode === 'battery' && !p.mock.battery) document.getElementById('btBattery').click();
             else if (mode === 'fallen' && !p.mock.fallen) document.getElementById('btFall').click();
@@ -100,6 +101,42 @@ try {
         return { active: __sim.patrol.active, pending: __sim.patrol.reviewPending, elapsed: __sim.patrol.execution.elapsed, err: __sim.err };
       }, mode);
       assert.equal(snap.err, null);
+      if (mode === 'normal' && snap.pending && !reviewChecked) {
+        reviewChecked = true;
+        // Operator review must be visible and pressable whatever the panel state: closed, phone, landscape top/end scroll.
+        const reviewHit = async (label, setup) => {
+          const hit = await page.evaluate((setup) => {
+            const panel = document.getElementById('scenarioPanel');
+            if (setup === 'close' && !panel.hidden) document.getElementById('scenarioMenu').click();
+            const closed = panel.hidden;
+            __frame(__btNow);   // one UI frame at the same sim time (no runner progress)
+            if (setup === 'top') panel.scrollTop = 0;
+            if (setup === 'end') panel.scrollTop = panel.scrollHeight;
+            const hits = ['clear', 'minor', 'danger', 'stop'].map((id) => {
+              const el = document.getElementById(id === 'stop' ? id : 'btReview-' + id), r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && !el.disabled && document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button') === el;
+            });
+            return { closed, open: !panel.hidden, pending: __sim.patrol.reviewPending, scrollTop: panel.scrollTop, now: document.getElementById('btNow').textContent, hits };
+          }, setup);
+          await capture(page, 'review-' + label);
+          console.log('BT review hit-test', label, JSON.stringify(hit));
+          assert.deepEqual([hit.pending, hit.open, hit.hits], [true, true, [true, true, true, true]], `${label}: review buttons and STOP hit-test`);
+          assert.match(hit.now, /운영자 판단 기다림 \(남은 \d+초\)/, `${label}: waiting line`);
+          return hit;
+        };
+        await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
+        assert.equal((await reviewHit('390-closed', 'close')).closed, true, 'panel was closed before review UI frame');
+        await reviewHit('390-end', 'end');
+        await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(100);
+        await reviewHit('844-top', 'top');
+        await reviewHit('844-end', 'end');
+        assert.equal((await reviewHit('844-closed', 'close')).closed, true, 'landscape panel was closed before review UI frame');
+        // Real tap on the visible button resolves the review on the next tick.
+        await page.locator('#btReview-clear').tap();
+        await page.evaluate(() => { window.__btReviewHit = true; __btNow += 100; __frame(__btNow); });
+        assert.equal(await page.evaluate(() => __sim.patrol.events.some((e) => e.message === '운영자 판단: clear')), true, 'tapped review button reaches runner');
+        await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(100);
+      }
       if (mode === 'normal' && snap.active && snap.elapsed > .5 && !progressCaptured) {
         await capture(page, 'progress-1280');
         await page.setViewportSize({ width: 390, height: 844 });
@@ -116,8 +153,10 @@ try {
         await page.waitForTimeout(150);
         const cdp = await context.newCDPSession(page);
         // Explicit touch moves also work with this harness's deterministic RAF.
-        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 330, y: 550 }] });
-        for (let y = 530; y >= 200; y -= 30) {
+        // Drag inside the (now half-height) panel: bottom edge up to its top edge.
+        const touchTop = Math.round(bounds.panel.top + 20), touchBottom = Math.round(bounds.panel.bottom - 20);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 330, y: touchBottom }] });
+        for (let y = touchBottom - 20; y >= touchTop; y -= 30) {
           await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 330, y }] });
           await page.waitForTimeout(20);
         }
@@ -176,10 +215,31 @@ try {
       });
       assert.equal(await page.locator('#btDisclaimer').isVisible(), false, 'legacy scenario hides mock patrol disclaimer');
       assert.equal(await page.evaluate(() => __sim.scenario.active && !__sim.scenario.goal), true, 'legacy route running');
+      // Tree-less scenario keeps its own status line visible (the BT head is hidden), while running and when done.
+      const legacyStatus = async (label, pattern) => {
+        const s = await page.evaluate(() => {
+          if (document.getElementById('scenarioPanel').hidden) document.getElementById('scenarioMenu').click();
+          __frame(__btNow);   // UI frame at the same sim time
+          return { text: document.getElementById('scenarioStatus').textContent, head: document.getElementById('btHead').hidden };
+        });
+        const visible = await page.locator('#scenarioStatus').isVisible();
+        console.log('BT legacy status', label, JSON.stringify({ ...s, visible }));
+        assert.deepEqual([visible, s.head], [true, true], `${label}: legacy status visible, BT head hidden`);
+        assert.match(s.text, pattern, `${label}: legacy status text`);
+      };
+      await legacyStatus('legacy-running', /^지점 \d\/4$/);
       await page.evaluate(() => document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
       await checkStoppedPhysics(page, 'later-legacy-STOP');
       await page.evaluate(() => document.getElementById('reset').onclick());
       await checkStoppedPhysics(page, 'later-reset');
+      await page.evaluate(async () => { await document.getElementById('go').onclick(); await document.getElementById('scenarioRun').onclick(); });
+      for (let round = 0; round < 120 && await page.evaluate(() => __sim.scenario.active); round++) await page.evaluate(async () => {
+        for (let i = 0; i < 10 && __sim.scenario.active; i++) { __btNow += 100; __frame(__btNow); await new Promise((r) => setTimeout(r, 0)); }
+      });
+      assert.equal(await page.evaluate(() => __sim.scenario.active), false, 'legacy route finished');
+      await legacyStatus('legacy-done', /^완료$/);
+      await capture(page, 'legacy-done');
+      await page.evaluate(() => document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
     }
     if (mode === 'normal') {
       const guards = await page.evaluate(async () => {
