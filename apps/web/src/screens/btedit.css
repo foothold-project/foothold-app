@@ -1,0 +1,20 @@
+/* 임무 편집(btedit.tsx): 색은 frame.css 토큰만(새 색 0). 좁으면 한 줄, 넓으면 나무 | 고른 노드·사진 두 칸 */
+.be{flex-basis:100%}
+.be-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px;align-items:start}
+.be-col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.be-grow{flex:1;min-width:0}
+.be-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.be-field input{width:100%;box-sizing:border-box;min-width:0}
+.be-tree{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;max-height:min(52vh,560px);overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
+.be-tree li{box-sizing:border-box;min-width:0}
+.be-tree button{width:100%;min-height:36px;padding:6px 8px;border:1px solid transparent;border-radius:6px;background:none;color:var(--text);text-align:left;font-size:13px;line-height:1.35;overflow-wrap:anywhere}
+.be-tree button[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);font-weight:600}
+.be-tools .btn{padding:0 12px}
+.be-points{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.be-points li{flex-wrap:nowrap;align-items:end}
+.be-points li>.be-field{flex:1}
+.be-points li>b{min-width:1.5em;align-self:center}
+.be-map{max-height:min(48vh,520px)}
+.be-dot{fill:var(--muted)}
+.be-pick{fill:var(--accent);stroke:var(--on-accent);stroke-width:2px;vector-effect:non-scaling-stroke}
+.be-num{fill:var(--on-accent);font-weight:700}

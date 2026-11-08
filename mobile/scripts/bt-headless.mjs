@@ -274,6 +274,49 @@ try {
     }
     await context.close();
   }
+  // 내 임무(?bt=): 웹 «임무 편집» 저장 형식(fh.btMission.<id>)을 localStorage 에 두고 열면 목록 맨 위 «내 임무 · 이름» → 실제 걸음으로 끝까지.
+  // 틀린 저장본(validateTree 거절)은 넣지 않고 이유만 안내 줄에, 기존 시나리오는 그대로
+  const MINE = { id: 'hdl-mine', name: '두 지점', map: 'factory-inspection', floor: '', tree: { format: 'fh_mission_tree/1', max_seconds: 600, root: { type: 'sequence', children: [
+    { type: 'for_each_point', points: [{ x: 24.8, y: 21.5 }, { x: 24.8, y: 22.3 }], child: { type: 'sequence', children: [{ type: 'goto', point: 'current' }, { type: 'photo' }] } },
+    { type: 'report', message: '내 임무 끝' }] } } };
+  for (const stored of [MINE, { ...MINE, id: 'hdl-bad', tree: { ...MINE.tree, max_seconds: 0 } }]) {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.addInitScript(([k, v]) => { window.requestAnimationFrame = (cb) => { window.__frame = cb; return 1; }; Math.random = () => 0; localStorage.setItem(k, v); },
+      [`fh.btMission.${stored.id}`, JSON.stringify(stored)]);
+    await page.goto(`http://127.0.0.1:${server.address().port}/sim/index.html?map=factory-inspection&policy=nvidia-demo&policyBackend=f32&bt=${stored.id}`);
+    await page.waitForFunction(() => __sim?.ready || __sim?.err, null, { polling: 100, timeout: 60000 });
+    assert.equal(await page.evaluate(() => __sim.err), null);
+    const head = await page.evaluate(() => { __frame(performance.now()); const sel = document.getElementById('scenarioSelect');
+      return { mission: __sim.mission(), options: [...sel.options].map((o) => [o.value, o.textContent]), value: sel.value, note: document.getElementById('goalNote').textContent }; });
+    console.log('BT mine head', stored.id, JSON.stringify(head));
+    if (stored.id === 'hdl-bad') {
+      assert.match(head.mission.note, /^내 임무를 넣지 못함 — 나무 형식/); assert.equal(head.note, head.mission.note, 'reason visible');
+      assert.deepEqual(head.options.map(([v]) => v), ['short-loop', 'bt-patrol'], 'existing scenarios unchanged');
+      results.push({ mode: 'mine-reject', note: head.mission.note }); await context.close(); continue;
+    }
+    assert.deepEqual([head.options[0], head.value, head.mission.note], [['bt-hdl-mine', '내 임무 · 두 지점'], 'bt-hdl-mine', '']);
+    assert.deepEqual(head.options.slice(1).map(([v]) => v), ['short-loop', 'bt-patrol']);
+    await page.evaluate(async () => {
+      document.getElementById('scenarioMenu').click();
+      await document.getElementById('go').onclick(); await document.getElementById('scenarioRun').onclick();
+      window.__btNow = performance.now(); __frame(__btNow);
+    });
+    assert.equal(await page.evaluate(() => __sim.patrol.active), true, 'mine started');
+    for (let round = 0; round < 900 && await page.evaluate(() => __sim.patrol.active); round++) await page.evaluate(async () => {
+      for (let i = 0; i < 5 && __sim.patrol.active; i++) { __btNow += 100; __frame(__btNow); await new Promise((r) => setTimeout(r, 0)); }
+    });
+    const result = await page.evaluate(() => ({ mode: 'mine', status: __sim.patrol.status, active: __sim.patrol.active, cmd: __sim.cmd(), summary: __sim.patrol.summary,
+      events: __sim.patrol.events, steps: __sim.steps, end: Array.from(__sim.sim.d.qpos.slice(0, 2)) }));
+    results.push(result); writeFileSync(resolve(out, 'results.json'), JSON.stringify(results, null, 2));
+    assert.deepEqual([result.active, result.status, result.summary.visited, result.summary.skipped, result.cmd], [false, 'success', 2, 0, [0, 0, 0]], 'mine runs to the end');
+    assert.ok(result.steps > 0 && result.events.some((e) => e.message.includes('내 임무 끝')), 'real physics + own report');
+    await capture(page, 'end-mine');
+    console.log('BT mine PASS', JSON.stringify({ status: result.status, summary: result.summary, steps: result.steps, end: result.end }));
+    await context.close();
+  }
   assert.deepEqual(errors, []);
+  console.log('BT mine 2/2 PASS: ?bt= mission listed first and finished with real gait; invalid stored mission rejected with visible reason');
   console.log('BT browser 7/7 PASS: actual gait, no pose changes, UI actions, neutral ends, phone/landscape layout, STOP physics regression, marker cleanup, screenshots');
 } finally { await browser.close(); await new Promise((r) => server.close(r)); }
