@@ -36,4 +36,5 @@ git -C "$repo" archive HEAD "${paths[@]}" | tar -x -C "$work"
     npm run build
 )
 grep -Fq 'fh.btMission.' "$work"/apps/web/dist/assets/*.js
-printf 'PASS: HEAD web archive builds with the BT mission editor in its bundle\n'
+for asset in top-f{1,2}.png scenarios-f{1,2}.json; do grep -Fq "factory-zone/$asset" "$work"/apps/web/dist/assets/*.js; done
+printf 'PASS: HEAD web archive builds with the BT mission editor and per-floor assets in its bundle\n'
