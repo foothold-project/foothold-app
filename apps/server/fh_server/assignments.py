@@ -20,18 +20,21 @@ def assignment_objects(db, rows):
         ScenarioVersion.org_id == org_id, ScenarioVersion.id.in_({r.scenario_version_id for r in rows})))}
     robots = dict(db.execute(select(Robot.id, Robot.name).where(Robot.org_id == org_id,
         Robot.id.in_({r.robot_id for r in rows}))).all())
-    return [C.Assignment(scenario_id=versions[r.scenario_version_id].scenario_id,
-        scenario_version=versions[r.scenario_version_id].number, scenario_name=versions[r.scenario_version_id].name,
+    return [C.Assignment(scenario_id=versions[r.scenario_version_id].scenario_id if r.scenario_version_id else None,
+        scenario_version=versions[r.scenario_version_id].number if r.scenario_version_id else None,
+        scenario_name=versions[r.scenario_version_id].name if r.scenario_version_id else '삭제된 시나리오: ' + (r.scenario_name_snapshot or ''),
+        scenario_name_snapshot=r.scenario_name_snapshot,
         robot_name=robots[r.robot_id], **{k: getattr(r, k) for k in (
             'id', 'robot_id', 'status', 'approval_id', 'memo', 'created_by', 'created_at', 'removed_at')}) for r in rows]
 
 
 def record(db, user, row, code):
-    version = db.get(ScenarioVersion, row.scenario_version_id)
+    version = db.get(ScenarioVersion, row.scenario_version_id) if row.scenario_version_id else None
     db.add(render(db, Event(org_id=user.org_id, category='ACCOUNT', code=code,
         user_id=user.id, robot_id=row.robot_id, data={'assignment_id': str(row.id),
-            'scenario_id': str(version.scenario_id), 'scenario_version': version.number,
-            'scenario_name': version.name, 'number': version.number, 'status': row.status})))
+            'scenario_id': str(version.scenario_id) if version else None, 'scenario_version': version.number if version else None,
+            'scenario_name': version.name if version else '삭제된 시나리오: ' + (row.scenario_name_snapshot or ''),
+            'number': version.number if version else None, 'status': row.status})))
 
 
 def robot_for_write(db, user, robot_id, fail, *, creating):

@@ -33,3 +33,10 @@ export const readAllInbox: NotificationsRead = {"all": true};
 // @ts-expect-error Notification identifiers must never be represented as JS numbers.
 const numericNotice: NotificationsRead = {ids: [9007199254740993]};
 void [emptyEvents, inbox, readInbox, readAllInbox, numericNotice];
+
+import type { Device, UnlockRefused } from '../ts/index';
+export const refusedUnlock: UnlockRefused = {reason:'STILL_MOVING', at:'2026-11-01T01:00:00Z',
+  axes:[{axis:'vz',value:0.03,limit:0.02,unit:'m/s'}]};
+export const acceptedSport: Device = {key:'go2-sport',kind:'OTHER',label:'기체 기본 보행 상태',state:'OK',
+  status_code:{raw:100,level:'ACCEPTED',reason:'EXPLICIT_SERVER_ALLOWLIST'}};
+void [refusedUnlock, acceptedSport];

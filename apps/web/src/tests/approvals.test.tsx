@@ -16,7 +16,7 @@ import { adminNoStop } from './adminStop';
 const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
 const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name },
-  simulation: false,
+  simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
 const EMPTY = { zones: [], waypoints: [], connectors: [], edits: [] };
 const ver = (id: string, number: number, p: Partial<MapVersion> = {}): MapVersion => ({ upload_id: `up-${id}`, id, floor_id: 'f1', number, base_version_id: 'v2', copied_from_id: null, status: 'PENDING', image_sha256: 'ab'.repeat(32),
@@ -71,7 +71,7 @@ function serve(me: User, db: ApprovalDetail[], o: { page?: number; pending?: num
         Object.assign(a, { status: 'STALE', decider: who(me), decided_at: '2026-10-20T09:00:00Z' });
         return err(409, 'APPROVAL_STALE', '요청 이후 지도가 바뀌었습니다. 새 승인 판에서 다시 요청하세요.', { approved_version_id: approved.f1 });
       }
-      if (m[2] === 'approve') approved.f1 = a.target.id;
+      if (m[2] === 'approve') approved.f1 = a.target.id!;
       Object.assign(a, { status: m[2] === 'approve' ? 'APPROVED' : 'REJECTED', decider: who(me), decided_at: '2026-10-20T09:00:00Z', decision_comment: (m[2] === 'approve' ? body?.comment : body?.reason) ?? null });
       return { status: 200, body: plain(a) };
     }
@@ -188,8 +188,8 @@ describe('상세·전후 비교', () => {
     expect(sent('GET', '/map-versions/t3')).toHaveLength(1);
     const d = sent('GET', '/map-versions/t3/diff');
     expect(d).toHaveLength(1); expect(d[0].q.has('against')).toBe(false);
-    expect(card('판 비교').textContent).toContain('판 2 → 판 3');
-    expect($<HTMLSelectElement>('select[aria-label="비교할 판"]')!.options[0].textContent).toBe('판 2 (기준 판)');
+    expect(card('기록 비교').textContent).toContain('판 2 → 판 3');                       // 결재 화면은 판 번호 그대로(소유 밖)
+    expect($<HTMLSelectElement>('select[aria-label="비교할 기록"]')!.options[0].textContent).toBe('판 2 (바로 앞 기록)');
     expect(detail().textContent).toContain('1층 · 판 2 → 판 3 (요청)');
     expect(detail().textContent).toContain('요청 이유a1 요청 이유');
   });
@@ -210,7 +210,7 @@ describe('상세·전후 비교', () => {
     serve(KIM, [ap('a1', 3)], { over: { 'GET /map-versions/t3/diff': [() => new Promise<Reply>(() => {})] } });
     await open('#/approval');
     await pick('a1');
-    expect(card('판 비교').textContent).toContain('두 판을 비교하는 중…');
+    expect(card('기록 비교').textContent).toContain('두 기록을 비교하는 중…');
     await stopSends();
   });
   it('알림 링크 #/approvals?approval_id=… → 그 결재를 연다(대기 목록에 없는 끝난 것도)', async () => {
@@ -563,5 +563,58 @@ describe('PR #36 검토 — 다시 받는 동안 잠금·늦은 응답·목록 �
     expect($('nav a[href="#/approval"] .fh-badge')).toBeNull();               // 처리 뒤 답: 대기 0
     late({ status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 5, operators: [] } }); await flush();
     expect($('nav a[href="#/approval"] .fh-badge')).toBeNull();
+  });
+});
+
+describe('지워진 시나리오·층의 끝난 결재(05 §5.1 — 휴지통 완전 삭제 뒤 기록 보존)', () => {
+  it('scenario_id·판·target.id·floor_id 가 null 이어도 목록·상세가 깨지지 않고 «(삭제됨) 이름», 지워진 판은 비교 요청 없이 안내', async () => {
+    const gone = ap('d1', 3, { kind: 'SCENARIO_ASSIGNMENT', status: 'APPROVED', target: { type: 'assignment', id: 'as-d1' }, base_ref: null,
+      preview: { scenario_id: null, scenario_name: '삭제된 시나리오: 옛 순찰', scenario_version: null, robot_id: 'r-a', robot_name: 'Go2-A' } });
+    const map = ap('d2', 4, { status: 'APPROVED', target: { type: 'map_version', id: null }, base_ref: { type: 'map_version', id: null },
+      preview: { floor_id: null, floor_name: '삭제된 층: 지하 1층', target_version_number: null, base_version_number: null } });
+    serve(KIM, [gone, map]);
+    await open('#/approval');
+    await click(btn('전체', card('보기')));
+    expect(alertText()).not.toContain('형식이 맞지 않습니다');
+    expect(rows().map((r) => r.textContent).join(' ')).toContain('«(삭제됨) 옛 순찰» 판 ? → Go2-A');
+    await pick('d1');
+    const pv = $('[data-assign-preview]', detail())!;
+    expect(pv.textContent).toContain('시나리오(삭제됨) 옛 순찰'); expect(pv.textContent).toContain('판판 ?');
+    await pick('d2');
+    expect(detail().textContent).toContain('(삭제됨) 지하 1층 · 빈 지도 → 판 ?');
+    expect($('[data-gone]', detail())!.textContent).toContain('층과 함께 완전 삭제되어');
+    expect(calls.filter((c) => c.path.startsWith('/map-versions'))).toHaveLength(0);
+    await stopSends();
+  });
+});
+
+describe('null 참조는 끝난 결재에만(PR #230 검토)', () => {
+  it('대기 결재의 target.id 가 null 이면 형식 오류 — 목록에 줄도 [승인]도 없다', async () => {
+    serve(KIM, [ap('bad', 3, { target: { type: 'map_version', id: null }, preview: { floor_id: null, floor_name: '1층', target_version_number: null, base_version_number: null } })]);
+    await open('#/approval');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(rows()).toHaveLength(0);
+    expect(btn('승인', document.body)).toBeFalsy();
+    await stopSends();
+  });
+  it('대기 결재 상세의 대상 판이 null 이면 형식 오류 — «완전 삭제» 안내·[승인] 없음', async () => {
+    serve(KIM, [ap('bad2', 3, { preview: { floor_id: null, floor_name: '1층', target_version_number: null, base_version_number: null } })]);
+    await open('#/approval'); await pick('bad2');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(document.body.textContent).not.toContain('층과 함께 완전 삭제되어');
+    expect(btn('승인', document.body)).toBeFalsy();
+    await stopSends();
+  });
+  it('대기·끝난 지도 결재에서 floor_id 만 null(대상·판은 있음)이면 형식 오류 — «(삭제됨)»·[승인] 없음', async () => {
+    const half = { target: { type: 'map_version' as const, id: 't3' }, preview: { floor_id: null, floor_name: '1층', target_version_number: 3, base_version_number: 2 } };
+    serve(KIM, [ap('half', 3, half), ap('half2', 4, { ...half, status: 'APPROVED' })]);
+    await open('#/approval'); await pick('half');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(document.body.textContent).not.toContain('(삭제됨) 1층');
+    expect(btn('승인', document.body)).toBeFalsy();
+    await click(btn('전체', card('보기'))); await pick('half2');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(document.body.textContent).not.toContain('(삭제됨) 1층');
+    await stopSends();
   });
 });

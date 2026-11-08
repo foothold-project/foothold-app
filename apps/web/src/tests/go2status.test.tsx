@@ -91,7 +91,7 @@ describe('상태 보기 화면', () => {
     expect($('[data-go2-src]')?.textContent).toContain('모드·오류 끊김(받은 적 없음)');
     send({ seq: '1', status: 200, body: ok });
     expect(box.textContent).toContain('87% · 28.4 V');
-    expect(box.textContent).toContain('피치 —');
+    expect(box.textContent).toContain('pitch 모름');
     act(() => { vi.advanceTimersByTime(2500); });
     expect($('[data-go2-view]')?.dataset.go2View).toBe('STALE');
     expect($('[data-go2-cut]')?.dataset.go2Cut).toBe('phone');

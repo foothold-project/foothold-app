@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SimCatalog, SimRobot } from '../../../contracts/ts';
 import { App } from '../App';
-import { sim } from '../phone';
+import { allowed, sim, tuned, velocity } from '../phone';
+import { KEYS, blockNote } from '../simdrive';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
 import frameCss from '../frame.css?raw';
@@ -27,7 +28,7 @@ const phoneState = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: S1
 const agentAuto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 
 type Reply = { status: number; body?: unknown };
-let calls: { method: string; path: string; body?: unknown }[] = [], routes: Record<string, Reply | (() => Reply)> = {};
+let calls: { method: string; path: string; body?: unknown }[] = [], routes: Record<string, Reply | (() => Reply | Promise<Reply>)> = {};
 function serve(more: typeof routes = {}) {
   calls = [];
   let mine: SimRobot[] = [];
@@ -42,7 +43,7 @@ function serve(more: typeof routes = {}) {
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '');
     calls.push({ method, path, body: init.body ? JSON.parse(String(init.body)) : undefined });
-    const hit = routes[`${method} ${path.split('?')[0]}`], rep = (typeof hit === 'function' ? hit() : hit) ?? { status: 404, body: { error: { code: 'NOT_FOUND', message: '없음', detail: {} } } };
+    const hit = routes[`${method} ${path.split('?')[0]}`], rep = (typeof hit === 'function' ? await hit() : hit) ?? { status: 404, body: { error: { code: 'NOT_FOUND', message: '없음', detail: {} } } };
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -76,8 +77,8 @@ const key = async (type: 'keydown' | 'keyup', code: string, o: KeyboardEventInit
 const lastCmd = async () => { await sleep(60); const c = agent().of('cmd'); return c[c.length - 1]; };
 
 /** 띄우기 → 직결 → 조종 시작 → 잠금 해제 → 움직일 수 있음 */
-async function ready(w = welcome()) {
-  serve(); await mount();
+async function ready(w = welcome(), more: typeof routes = {}) {
+  serve(more); await mount();
   await click(btn('띄우기'));
   const a = FakeWS.all.find((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')!; a.auto = agentAuto;
   act(() => a.open()); await flush();
@@ -93,6 +94,56 @@ async function ready(w = welcome()) {
 }
 
 describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
+  it('UIUX-1101 키 통일: ←/→ = 옆걸음, A/D = 제자리 회전(실기 서버 경유와 같은 배치)', async () => {
+    await ready(welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }));
+    await key('keydown', 'ArrowLeft');
+    let c = await lastCmd(); expect(c.vy).toBeGreaterThan(0); expect(c.wz).toBe(0);
+    await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
+    c = await lastCmd(); expect(c.vy).toBeLessThan(0); expect(c.wz).toBe(0);
+    await key('keyup', 'ArrowRight'); await key('keydown', 'KeyD');
+    c = await lastCmd(); expect(c.vy).toBe(0); expect(c.wz).toBeLessThan(0);
+    await key('keyup', 'KeyD');
+    expect(Object.keys(KEYS)).not.toContain('KeyQ'); expect(Object.keys(KEYS)).not.toContain('KeyE');   // Q/E 는 뺐다(실기에 없는 키)
+  });
+  it('에이전트 시뮬 limits(protocol.py SIMULATION_LIMITS)면 후진·옆걸음·제자리 회전 모두 열림 — 막힘 안내 없음, 명령 0 아님', () => {
+    const w = welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }) as unknown as Parameters<typeof velocity>[1];
+    const can = allowed(w);
+    expect(can).toMatchObject({ back: true, left: true, right: true, spin: true });
+    for (const [a, want] of [[[-1, 0, 0], { vx: -0.3 }], [[0, 0, 1], { vy: 0.3 }], [[0, 0, -1], { vy: -0.3 }], [[0, 1, 0], { vx: 0, vy: 0, wz: 0.5 }]] as const) {
+      const out = velocity([...a], w);
+      expect(out).toMatchObject(want);
+      expect(blockNote([...a], can, out)).toBe('');
+    }
+  });
+  it('설정 › 시뮬 조직 값: 연결할 때 받아 키보드 전진 = sim_key_vx, 상한 = min(에이전트, 조직)', async () => {
+    const ORG = { sim_max_vx: 0.5, sim_min_vx: 0.1, sim_max_vy: 0.3, sim_max_wz: 0.25, sim_key_vx: 0.4, stick_deadzone: 0.1 };
+    await ready(welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }), { 'GET /org/settings': { status: 200, body: ORG } });
+    expect(calls.some((c) => c.path === '/org/settings')).toBe(true);
+    await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.4, 9);   // 기본 0.6 대신 조직 키 속도
+    await key('keydown', 'KeyA');
+    expect((await lastCmd()).wz).toBe(0.25);   // 회전 상한 0.5 → 조직 0.25
+    await key('keyup', 'KeyW'); await key('keyup', 'KeyA');
+  });
+  it('조직 값 GET 이 영구 대기·실패여도 기본값으로 바로 연결(WebSocket 1개), 키보드 전진 = 기본 0.6', async () => {
+    for (const org of [() => new Promise<Reply>(() => {}), () => ({ status: 500, body: { error: { code: 'INTERNAL_ERROR', message: '오류', detail: {} } } })]) {
+      FakeWS.all.length = 0;
+      await ready(welcome(), { 'GET /org/settings': org });
+      expect(FakeWS.all.filter((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')).toHaveLength(1);
+      await key('keydown', 'KeyW');
+      expect((await lastCmd()).vx).toBeCloseTo(0.6, 9);
+      await key('keyup', 'KeyW');
+      act(() => root?.unmount()); root = null; box.remove(); sim.clear();
+    }
+  });
+  it('연결을 거둔 뒤 늦게 온 조직 값은 적용하지 않음(같은 연결 세대만)', async () => {
+    let answer: (r: Reply) => void = () => {};
+    await ready(welcome(), { 'GET /org/settings': () => new Promise<Reply>((f) => { answer = f; }) });
+    expect(FakeWS.all.filter((x) => x.url === 'ws://127.0.0.1:9481/phone/ws' && x.readyState === 1)).toHaveLength(1);
+    act(() => sim.close());
+    answer({ status: 200, body: { sim_max_vx: 0.5, sim_key_vx: 0.4 } }); await flush();
+    expect(tuned(welcome() as unknown as Parameters<typeof tuned>[0]).L.vx_max).toBe(1);
+  });
   it('출입증 요청에 surface: "pc"', async () => {
     serve(); await mount();
     await click(btn('띄우기'));
@@ -110,7 +161,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect(FakeWS.all.some((w) => w.url.includes(':9481'))).toBe(false);
   });
 
-  it('키를 누르는 동안만: W = 전진 0.6 m/s, 떼면 바로 0 · A 회전 · S 후진 · 막힌 Q(옆걸음) 안내', async () => {
+  it('키를 누르는 동안만: W = 전진 0.6 m/s, 떼면 바로 0 · A 회전 · S 후진 · 막힌 ←(옆걸음) 안내', async () => {
     const a = await ready();
     expect($('[data-sim-keys]')!.textContent).toContain('키를 누르는 동안만 움직입니다');
     expect((await lastCmd())).toMatchObject({ vx: 0, vy: 0, wz: 0 });
@@ -126,11 +177,12 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await key('keydown', 'ArrowDown');
     expect((await lastCmd()).vx).toBeCloseTo(-0.3, 5);
     await key('keyup', 'ArrowDown');
-    await key('keydown', 'KeyQ');
-    expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0 });
+    // 실기 서버 경유와 같은 배치(UIUX-1101): ← = 옆걸음(여기선 막힘 — 회전 아님), Q/E 는 키 아님
+    await key('keydown', 'ArrowLeft');
+    const side = await lastCmd(); expect(side).toMatchObject({ vx: 0, vy: 0 }); expect(Math.abs(side.wz as number)).toBeLessThan(0.01);   // NUDGE(문턱 아래) — 돌지 않음
     expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
-    expect($('[data-key-off]')!.textContent).toContain('옆걸음');
-    await key('keyup', 'KeyQ');
+    expect($('[data-key-off]')!.textContent).toContain('←/→ 옆걸음');
+    await key('keyup', 'ArrowLeft');
     // Ctrl 같이 누름(브라우저 단축키)은 조종 아님
     await key('keydown', 'KeyW', { ctrlKey: true });
     expect(await lastCmd()).toMatchObject({ vx: 0 });
@@ -147,12 +199,12 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
       else window.dispatchEvent(new Event('blur'));
     });
     await sleep(100);
-    // 끊긴 뒤 처음 나간 cmd 부터 0(숨김은 phone.ts 가 0 + 반납 — 반납 뒤 cmd 없음)
+    // 시뮬은 연결·조종권을 유지하되 처음 나간 cmd 부터 0(실기 반납은 phone-hidden 회귀에서 별도로 고정)
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
     expect(performance.now() - t0).toBeLessThan(400);
     await key('keydown', 'KeyW', { repeat: true });
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0)).toBe(true);
-    if (how === '탭 숨김') expect(a.of('lease.release')).toHaveLength(1);
+    if (how === '탭 숨김') expect(a.of('lease.release')).toHaveLength(0);
   });
 
   it('연결 끊김 → cmd 멈춤(로봇 deadman), 키 무시, «다시 연결»', async () => {
@@ -208,7 +260,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
   it('«시뮬 정지»는 끝내기 반납 대기(ending) 중에도 하나 — 누르면 stop 1회', async () => {
     const a = await ready();
     a.auto = null;   // 반납 응답 보류
-    await click(btn('끝내기'));
+    await click(btn('시뮬 종료·정리')); await click(btn('종료·정리'));
     expect(sim.get().step).toBe('ending');
     expect(box.querySelectorAll('[data-sim-stop-btn]')).toHaveLength(1);
     await click($('[data-sim-stop-btn]'));

@@ -13,17 +13,31 @@
           "type": "string"
         },
         "scenario_id": {
-          "format": "uuid",
-          "title": "Scenario Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scenario Id"
         },
         "scenario_name": {
           "title": "Scenario Name",
           "type": "string"
         },
         "scenario_version": {
-          "title": "Scenario Version",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scenario Version"
         }
       },
       "required": [
@@ -51,17 +65,31 @@
           "title": "Base Version Number"
         },
         "floor_id": {
-          "format": "uuid",
-          "title": "Floor Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Floor Id"
         },
         "floor_name": {
           "title": "Floor Name",
           "type": "string"
         },
         "target_version_number": {
-          "title": "Target Version Number",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Version Number"
         }
       },
       "required": [
@@ -77,9 +105,16 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "format": "uuid",
-          "title": "Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Id"
         },
         "type": {
           "default": "map_version",

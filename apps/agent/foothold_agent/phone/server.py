@@ -4,6 +4,7 @@ import asyncio
 from collections import Counter
 from dataclasses import dataclass
 import json
+import logging
 import os
 import socket
 from urllib.parse import urlsplit
@@ -105,6 +106,17 @@ class Server:
 
     async def _send(self, ws, value):
         await asyncio.wait_for(ws.send(json.dumps(value, allow_nan=False, separators=(',', ':'))), .2)
+
+    def _origin_request(self, connection, request):
+        from http import HTTPStatus
+        origins = request.headers.get_all('Origin')
+        if origins and (len(origins) != 1 or origins[0] not in self.settings.origins):
+            # Fixed reason only: do not echo an untrusted Origin/address to logs.
+            logging.getLogger(__name__).warning(
+                'PHONE_ORIGIN_NOT_ALLOWED: configure FOOTHOLD_PHONE_ORIGINS with the app server origin')
+            return connection.respond(HTTPStatus.FORBIDDEN,
+                'PHONE_ORIGIN_NOT_ALLOWED: check FOOTHOLD_PHONE_ORIGINS\n')
+        return None
 
     async def _states(self, ws, peer):
         while peer in self.hub.peers:
@@ -281,6 +293,7 @@ class Server:
                 'host': self.settings.host, 'port': self.settings.port}
             async with serve(self._handler, **kwargs, max_size=4096, max_queue=4,
                              origins=[None, *self.settings.origins],
+                             process_request=self._origin_request,
                              write_limit=4096, compression=None, ping_interval=None,
                              open_timeout=3, close_timeout=.2) as listener:
                 try:

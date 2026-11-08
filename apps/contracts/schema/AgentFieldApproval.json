@@ -1,0 +1,31 @@
+{
+  "$id": "fh-app/1/AgentFieldApproval",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expires At"
+    },
+    "t": {
+      "const": "field_approval",
+      "default": "field_approval",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "expires_at"
+  ],
+  "title": "AgentFieldApproval",
+  "type": "object"
+}

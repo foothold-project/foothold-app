@@ -19,6 +19,7 @@ button{cursor:pointer}
 .nav:hover{color:var(--text);background:var(--panel2)}
 .nav.cur{color:var(--text);background:var(--acc-bg)}
 .nav.cur svg{color:var(--accent)}
+button.nav{border:0;background:none;font-family:inherit;white-space:nowrap;cursor:pointer}   /* PC 메뉴 «화면 밝기» 단추(11-02)를 링크와 같은 모양으로 */
 .tabb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;font-size:11px;color:var(--muted);text-decoration:none}
 .tabb.cur{color:var(--accent);font-weight:600}
 .lv-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
@@ -47,7 +48,8 @@ button{cursor:pointer}
 .fh-band{display:flex;flex-direction:column;gap:4px;padding:10px 16px;border-bottom:1px solid var(--bad);background:var(--bad-bg);font-size:14px}
 .fh-band:empty{display:none}
 .fh-body{flex:1;display:flex;min-height:0}
-.fh-nav{flex:0 0 76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;box-sizing:border-box;border-right:1px solid var(--line);background:var(--panel)}
+.fh-nav{flex:0 0 76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;box-sizing:border-box;border-right:1px solid var(--line);background:var(--panel)}
+.fh-nav>.nav{max-width:100%}   /* 76 폭에서 선 1·항목 64 는 가운데 정렬로 좌우 여백이 남음(옆 패딩을 두면 77 로 넘쳐 가로 스크롤). 낮은 창의 세로 막대만큼은 항목이 줄어듦 */
 .fh .nav{min-height:44px;font-size:14px;position:relative}
 .fh-badge{position:absolute;top:4px;right:6px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:700;line-height:18px;text-align:center}
 .fh-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-content:flex-start;box-sizing:border-box}
@@ -63,7 +65,6 @@ button{cursor:pointer}
 .fh-kpi b{font-size:24px;font-variant-numeric:tabular-nums}
 .fh-kpi .bad b{color:var(--bad)}
 .fh-why{font-size:14px;color:var(--muted)}
-.fh-slot{min-height:160px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:8px;color:var(--muted);font-size:14px}
 /* 위쪽 safe-area(노치·상태 막대 — 전체화면·홈 화면 앱에서 생김, PR #114 r1)는 머리줄이 받는다: 머리줄 바탕은 노치 자리까지, STOP·단추는 그 아래.
    틀(.fh)이 아니라 sticky 머리줄에 둬야 긴 화면을 내려도 머리줄이 노치 밑으로 들어가지 않는다 */
 .fh.phone .fh-head{padding:calc(6px + env(safe-area-inset-top,0px)) 8px 6px;gap:8px}
@@ -77,8 +78,6 @@ button{cursor:pointer}
    viewport-fit=cover 라 노치·홈 막대 자리(safe-area)만큼 틀 안쪽을 비운다 — STOP·조이스틱이 그 아래로 가지 않게 */
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh.phone{box-sizing:border-box;padding:0 env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);overflow-x:clip;touch-action:manipulation}
-.fh-dev>summary{min-height:44px;display:flex;align-items:center;cursor:pointer}
-details.fh-dev{padding-block:0}
 .fh button[disabled]{cursor:not-allowed}
 .fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}
 .fh-main:not(:has([aria-describedby="fh-soon"])) #fh-soon{display:none}   /* 준비 중 단추가 없는 탭에서는 숨김 */
@@ -98,7 +97,6 @@ details.fh-dev{padding-block:0}
 .inp:focus{outline:2px solid var(--accent);outline-offset:1px}
 .inp[readonly]{color:var(--muted)}
 .fh-me{font-size:14px;white-space:nowrap}
-.fh-dev{margin:0;padding:6px 16px;border-bottom:1px dashed var(--line2);background:var(--panel2);color:var(--muted);font-size:12px;line-height:1.45}
 .fh-form{display:flex;flex-direction:column;gap:12px}
 .fh-field{display:flex;flex-direction:column;gap:6px;font-size:14px}
 .fh-msg{margin:0;font-size:14px;line-height:1.5;color:var(--bad)}
@@ -128,3 +126,39 @@ details.fh-dev{padding-block:0}
 .fh-sel option:checked{background:var(--acc-bg);font-weight:600}
 .fh-sel option::checkmark{color:var(--accent)}
 .fh-sel option:disabled{color:var(--muted);cursor:default}
+
+/* 4부 — 로봇 탭 배치(ROBOT-TAB 11-02 역할별, 03 §5.1). 카드는 줄 높이로 늘리지 않는다(지도 자료 없으면 작은 안내만).
+   운영 관리자(.fh-focus): 고르기 → 상태 한 줄 → 왼쪽 영상·라이다·지도 | 오른쪽 상세 → 다른 로봇. 끊기면 상태 줄이 빨강으로 맨 앞, 나머지는 회색(마지막 값).
+   총괄(.fh-fleet.admin): 지도 | 경보 → 표 목록, 서랍을 열면 오른쪽 칸(좁으면 위)에 상세 */
+.fh-main>.fh-focus{flex:1 1 100%;min-width:0;display:grid;gap:16px;align-items:start;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);
+  grid-template-areas:"pick pick" "state state" "media detail" "map detail" "others others"}
+/* 상세가 영상·지도 두 줄을 걸치니 남는 높이는 지도 줄이 갖는다(영상 아래 빈칸 없음) */
+@media (min-width:900px){.fh-main>.fh-focus:not([data-summary]){grid-template-rows:auto auto auto 1fr auto}}
+.fh-focus[data-lost]{grid-template-areas:"state state" "pick pick" "media detail" "map detail" "others others"}
+.fh-focus>.fl-pick{grid-area:pick}.fh-focus>.fl-state{grid-area:state}.fh-focus>.fl-media{grid-area:media}.fh-focus>.fl-map{grid-area:map}.fh-focus>.fl-detail{grid-area:detail}.fh-focus>.fl-others{grid-area:others}
+.fh-main>.fh-focus[data-summary]{grid-template-areas:"pick pick" "state state" "detail detail" "others others"}
+.fl-state.bad{border-color:var(--bad);background:var(--bad-bg)}
+.fh-focus[data-lost]>:is(.fl-media,.fl-map,.fl-detail){filter:grayscale(1);opacity:.72}
+.fl-screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
+.fl-screen{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden}
+.fl-pick .btn{gap:6px}
+.fh-main>.fh-fleet{flex:1 1 100%;min-width:0;display:grid;gap:16px;align-items:start;grid-template-columns:minmax(0,1fr) minmax(260px,340px);grid-template-areas:"map alerts" "list list"}
+.fh-fleet>.fl-list{grid-area:list}.fh-fleet>.fl-detail{grid-area:detail}.fh-fleet>.fl-map{grid-area:map}.fh-fleet>.fl-alerts{grid-area:alerts}
+.fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr) minmax(340px,400px);grid-template-areas:"map detail" "alerts detail" "list detail"}
+.fh-fleet.open>.fl-detail{position:sticky;top:0;max-height:calc(100vh - 120px);overflow-y:auto}
+.fh-list.robots button.fl-row,.fl-head{display:grid;grid-template-columns:minmax(150px,1.4fr) minmax(80px,1fr) minmax(90px,1fr) 56px minmax(110px,1.4fr) minmax(130px,1fr);gap:10px;align-items:center}
+.fh-list.robots .fl-row>span{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;white-space:normal}
+.fl-head{padding:0 11px;font-size:12px;color:var(--muted)}
+@media (max-width:899.98px){
+  .fh-main>.fh-focus,.fh-focus[data-lost]{grid-template-columns:minmax(0,1fr);grid-template-areas:"state" "pick" "media" "map" "detail" "others"}
+  .fh-main>.fh-focus[data-summary]{grid-template-areas:"pick" "state" "detail" "others"}
+  .fh-main>.fh-fleet,.fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr);grid-template-areas:"detail" "map" "alerts" "list"}
+  .fh-fleet.open>.fl-detail{position:static;max-height:none}
+  .fh-list.robots button.fl-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.fh-fleet .fl-head{display:none}
+}
+/* 서랍을 연 좁은 PC(1280@125% 등): 표 칸을 세 칸 두 줄로 — 가로로 넘치지 않게 */
+@media (max-width:1399.98px){.fh-fleet.open .fh-list.robots button.fl-row{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)}.fh-fleet.open .fl-head{display:none}}
+.fh-fold>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:14px;color:var(--muted)}
+.fh-fold>summary::-webkit-details-marker{display:none}.fh-fold>summary::before{content:'▸';width:1em}.fh-fold[open]>summary::before{content:'▾'}
+.fh-fold[open]>summary{color:var(--text)}
+.fh-fold{display:flex;flex-direction:column;gap:8px}

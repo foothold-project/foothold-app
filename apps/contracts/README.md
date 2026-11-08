@@ -17,6 +17,11 @@ npm run --prefix apps/contracts typecheck
 `ts/` 안의 여분 `.ts`도 검사하며 재생성 때 오래된 생성 파일을 제거한다.
 응답 모델은 serialization 모드로 생성하므로 항상 출력되는 기본값 필드도 필수다.
 입력 모델은 validation 모드이며 PATCH 필드는 생략 가능하지만 null은 거부한다.
+`OrgSettings.model_overrides`는 정식 정책 ID별 희소 설정이다. `OrgSettingsPatch.model_overrides`만
+중첩 칸의 null을 허용하며, 해당 칸을 지워 공통 값으로 되돌린다. 빈 객체는 기존 칸을 보존한다.
+시뮬 정책은 시뮬 9개 칸만 받는다. 실기 정책은 등록부에 등록된 경우에만
+`real_no_fast_server_drive`를 받으며, 현재 등록된 실기 정책은 없다. 보기 전용 `go2-demo`는 모델별 칸을 받지 않는다.
+모델별 실효값은 공통 값과 덮어쓴 칸을 합친 값이며, 공통 변경도 모든 모델의 범위·속도 순서를 검사한다.
 오류 본문 타입은 TS 전역 Error와 충돌하지 않는 `ErrorBody`다.
 TS는 타입 선언이며 런타임 검증기가 아니다. bigint 사건 ID는 십진 문자열이다.
 모든 시각은 시간대가 있어야 하며 응답은 UTC `Z`로 정규화한다. UUID는 TS에서 string이다.
@@ -36,6 +41,24 @@ AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 물리 정지 확인은 기존 `stop_requested` 피드백이며 이 사유 필드로 대신하지 않는다.
 서버는 검증된 값을 로봇별 `ScreenState.safety_reason`으로 전달한다. 필드를 생략하는
 옛 에이전트, 아직 상태가 없거나 오래된 상태, 오프라인 로봇은 null이다.
+
+`AgentState`·`PhoneState`·`ScreenState`의 선택 `unlock_refused`는
+`{reason, at, axes}` 또는 null이다. `at`은 UTC 시각, `reason`은 `UnlockRefused`의
+고정 코드이며 lease 확인/불일치·세대 형식/불일치·출력 hold와 Core의 기존 거절 관문을
+구분한다. `STILL_MOVING`이면 `axes`에 기준을 초과한 `axis,value,limit,unit`만 담는다.
+Go2의 vx/vy/vz는 0.02 m/s, wz는 0.03 rad/s, gyro_x/y/z는 0.05 rad/s,
+joint_0~11은 0.10 rad/s다. 축이 없으면 정지 확인 미완료를 움직임으로 추정하지 않는다.
+마지막 거절은 다음 unlock이 승인될 때 null이 되며 과거 거절 시각을 유지한다.
+서버는 신선한 해당 로봇 상태에만 전달하고 구 보고의 생략/null은 이전 값을 지운다.
+이 필드는 해제 승인·물리 정지 확인·조종 권한의 근거로 쓰지 않는다.
+
+`Device.status_code`는 선택 `{raw,level,reason}`이다. 명시 승인 목록과 서버 source가
+readiness와 동일하게 맞는 nonzero만 `level=ACCEPTED`,
+`reason=EXPLICIT_SERVER_ALLOWLIST`와 기존 `state=OK`로 표시한다. 0은 `OK`,
+목록 밖 nonzero는 `ERROR`이며 raw 정수는 보존한다. 허용 코드는 장치 오류 KPI를
+추가하지 않지만 STOP 잠금·다른 장치 오류·배터리 등 독립 주의 사유는 그대로다.
+관측이 만료되면 `state=MISSING`으로 바꾸고 `status_code`를 생략한다.
+서버는 기존 장치 info JSON에 코드를 보관하므로 DB 마이그레이션이 필요 없다.
 
 사건/event와 run.update는 발생 FIFO를 유지한다. hello·최신 state/ACK는 이력을 앞설 수
 있다. 포화는 일반 사건 우선 생략과 누락 수 사건으로 알리며 안전 사건 초과분은
@@ -352,3 +375,19 @@ accepted state episode다(서버 sim DB ID와 혼용 금지). launch 바인딩�
 없어 unavailable이며, C와 합의한 후속 compressed 토픽은
 `/v2_live/external_cam/compressed`다. 실제 연결·한계는
 [agent media README](../agent/foothold_agent/media/README.md)를 본다.
+
+## Go2 표시용 로봇 정보
+
+`AgentState.robot_info`와 이를 상속한 `PhoneState.robot_info`는 선택 필드다.
+서버는 직접 agent 값을 `RobotSummary.robot_info`와 `ScreenState.robot_info`로 전달하고,
+`PhoneStateUpload.state.robot_info`는 별도 `phone_relay.robot_info`로만 전달한다.
+기존 agent·시뮬은 필드를 생략한다. 다음 필드의 표시용 값은 안전 판단에 연결하지 않는다.
+
+- `source: "GO2_DDS"`: Go2 lowstate/sportmodestate 측정 캐시 출처(폰 전달 시 외부 출처는 `PHONE`).
+- `attitude.roll`, `attitude.pitch`: LowState `imu_state.rpy`의 rad 값, -π..π 유한값 또는 null.
+- `error_code`: SportModeState의 원시 uint32 정수 또는 null. 펌웨어별 의미는 미확인이고 V2에서는 운동 상태 번호일 수 있다.
+- `fallen`: 기울기 추정 bool|null, `fallen_source: "imu_tilt_estimate"`. 정지·전도 안전 보장이 아니다.
+
+수치 범위 밖·NaN·잘못된 숫자 타입은 해당 값만 null로 정규화한다. 원천 토픽이 1초를
+넘으면 agent가 해당 토픽 수치를 null로 보낸다. 기존 서버 직접 상태 만료(3초)와 폰 relay
+유효시간은 그대로 적용하며, 원시 `error_code` 전달은 허용 운동 상태 목록을 바꾸지 않는다.

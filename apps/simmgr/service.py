@@ -12,7 +12,7 @@ from apps.contracts.models import SimWorldStart
 from .launcher import FakeLauncher, NativeLauncher
 from .environment import validate_control_environment
 from .native_catalogue import WorldValidationError
-from .deploy_guard import DeploymentLease
+from .deploy_guard import DeploymentLease, DeploymentGuardError
 from .preflight import ResourceGateError
 
 
@@ -48,6 +48,7 @@ class Manager:
         # Process-local cancellation receipts; the server DB owns lifetime generations.
         self.removed_generation = {}
         self.closing = self.failed = False
+        self.retained_shutdown = False
         self.expires_at = None
         self.deadline = None
         self.starting = None  # read-only listing target while world creation awaits
@@ -56,6 +57,8 @@ class Manager:
         self.expired = {}  # one completed generation per provisioned slot
 
     async def healthy(self):
+        if self.retained_shutdown:
+            raise SimError('SIM_RECOVERY_REFUSED')
         if self.launcher.real and await self.launcher.check_health():
             self.failed = True
         if self.closing or self.failed:
@@ -112,10 +115,14 @@ class Manager:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.settings.runtime_seconds)
         try:
             self.deployment_lease.acquire()
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError) as error:
+            stage = error.stage if isinstance(error, DeploymentGuardError) else 'lease_acquire'
+            number = error.errno if isinstance(error, (OSError, DeploymentGuardError)) else None
+            reason = error.reason if isinstance(error, DeploymentGuardError) else 'unknown'
+            logging.getLogger(__name__).warning('simulation admission refused stage=%s errno=%s', stage, number)
             # The exclusive deployment lock rejects before creation; not a
             # failed episode and never a reason to restart the simulator.
-            raise SimError('SIM_UNAVAILABLE', 503, {'reason': 'unknown', 'start_not_created': True}) from None
+            raise SimError('SIM_UNAVAILABLE', 503, {'reason': reason, 'start_not_created': True}) from None
         try:
             await self.launcher.start_world(world)
         except WorldValidationError as error:
@@ -214,6 +221,8 @@ class Manager:
             return await self._remove(robot_id, generation)
 
     async def _remove(self, robot_id, generation):
+        if self.retained_shutdown:
+            raise SimError('SIM_RECOVERY_REFUSED')
         self.removed_generation[robot_id] = max(generation, self.removed_generation.get(robot_id, 0))
         row = self.robots.get(robot_id)
         if row is None:
@@ -244,7 +253,35 @@ class Manager:
         clean = not self.failed and not getattr(self.launcher, 'failure', False)
         self.deployment_lease.release(clean)
 
+    async def prepare_retained_shutdown(self):
+        from .recovery import local_absence
+        async with self.lock:
+            directory = self.deployment_lease.directory
+            if (directory is None or not (directory / 'state/unproven').is_file()
+                    or (self.closing and not self.retained_shutdown)
+                    or self.starting is not None or self.expiring
+                    or any(row.state != 'ERROR' for row in self.robots.values())):
+                raise SimError('SIM_RECOVERY_REFUSED')
+            # The watcher also owns cleanup independently of HTTP. Drain any
+            # in-flight lifecycle operation, then freeze it before the proof.
+            async with getattr(self.launcher, 'lifecycle_lock', asyncio.Lock()):
+                proof = local_absence()
+                # No await between proof and admission closure.
+                self.closing = self.retained_shutdown = True
+                self.failed = True
+                self.launcher._watching = False
+                if self.expiry_task:
+                    self.expiry_task.cancel()
+                return dict(prepared=True, slots='error-or-empty', absence=proof)
+
     async def close(self):
+        if self.retained_shutdown:
+            if self.expiry_task:
+                await asyncio.gather(self.expiry_task, return_exceptions=True)
+            # Root independently rechecks absence before stopping the normal pair.
+            # Keep all episode objects/evidence; never claim clean release.
+            self.deployment_lease.release(False)
+            return
         self.closing = True
         if self.expiry_task:
             if not self.expiring:
@@ -268,7 +305,7 @@ class Manager:
         # event-loop snapshot below has no awaits, so transitions cannot split it.
         # Health polling stays serialized when idle; polling an intentional exit
         # during cleanup would incorrectly latch a failed episode.
-        if not self.lock.locked():
+        if not self.retained_shutdown and not self.lock.locked():
             async with self.lock:
                 if self.launcher.real:
                     await self.launcher.check_health()

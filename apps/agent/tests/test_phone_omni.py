@@ -9,11 +9,12 @@ from test_phone import h, physical_h
 from apps.contracts.models import PhoneLimits, PhoneWelcome
 from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_velocity, simulation_velocity
 from foothold_agent.ros_bridge.sink import RosSink, twist_message
-from foothold_agent.safety.core import Z, quantize
+from foothold_agent.safety.core import Z, quantize_phone
 
 
-@pytest.mark.parametrize('axis,value', [(0, -.3), (0, .2), (0, .3999), (0, 1.5001),
-    (1, -.0001), (1, .0001), (2, -1.0001), (2, 1.0001)])
+@pytest.mark.parametrize('axis,value', [(0, math.nextafter(-.3, -1)), (0, math.nextafter(1.5, 2)),
+    (1, math.nextafter(-.3, -1)), (1, math.nextafter(.3, 1)),
+    (2, math.nextafter(-.5, -1)), (2, math.nextafter(.5, 1))])
 def test_outside_adapter_range_rejects_entire_command(axis, value):
     requested = [.6, 0, 0]
     requested[axis] = value
@@ -27,7 +28,7 @@ EXPERIMENTS = [(-.3, 0, 0), (0, -.3, 0), (0, .3, 0), (0, 0, -.5),
                (0, 0, .5), (.2, .3, .5), (-.3, -.3, -.5)]
 
 
-@pytest.mark.parametrize('velocity', [(.4, 0, -.123), (1.5, 0, 1), (.8, 0, -.8)])
+@pytest.mark.parametrize('velocity', EXPERIMENTS + [(.4, 0, -.123), (1, 0, .5), (.8, 0, -.5)])
 def test_omni_session_zero_stop_and_deadman(h, velocity):
     owner, _ = h.moving()
     assert h.cmd(owner, *velocity)['applied'] == list(velocity)
@@ -56,7 +57,7 @@ def test_physical_hub_keeps_experiments_closed(physical_h, velocity):
     ack = physical_h.cmd(owner, *velocity)
     assert ack['applied'] == list(Z) and ack['clipped']
     assert physical_h.outputs[-1].velocity == Z
-    assert physical_h.hub.session.core.velocity_projection is quantize
+    assert physical_h.hub.session.core.velocity_projection is quantize_phone
     assert physical_h.connect()[2]['limits'] == LIMITS
     assert 'experimental' not in LIMITS
 
@@ -66,7 +67,7 @@ def test_experimental_limits_are_optional_and_welcome_is_deep_copied(h):
     welcome = h.connect()[2]
     assert welcome['limits'] == SIMULATION_LIMITS
     parsed = PhoneWelcome.model_validate(welcome)
-    assert (parsed.limits.vx_min, parsed.limits.vx_max) == (-.3, 1)
+    assert (parsed.limits.vx_min, parsed.limits.vx_max) == (-.3, 1.5)
     assert (parsed.limits.vy_min, parsed.limits.vy_max) == (-.3, .3)
     assert (parsed.limits.wz_min, parsed.limits.wz_max) == (-.5, .5)
     assert parsed.limits.experimental == ['reverse', 'lateral', 'turn_in_place']
@@ -76,7 +77,7 @@ def test_experimental_limits_are_optional_and_welcome_is_deep_copied(h):
         PhoneLimits.model_validate({**SIMULATION_LIMITS, 'experimental': ['unknown']})
 
 
-@pytest.mark.parametrize('velocity', [(.4, 0, -.123), (1.5, 0, 1), (.8, 0, -.8)])
+@pytest.mark.parametrize('velocity', EXPERIMENTS + [(.4, 0, -.123), (1, 0, .5), (.8, 0, -.5)])
 def test_omni_core_to_ros_sink_to_twist_without_ros(h, velocity):
     messages = []
     def factory():

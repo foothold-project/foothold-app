@@ -1,0 +1,222 @@
+// 로봇 탭 역할별 배치(ROBOT-TAB 11-02 — runs/robot-tab-review-1102/claude.md Q3 순서). 화면만: API 호출·인자·서버 권한·STOP 범위는 그대로.
+// 운영 관리자 = 내 로봇 고르기 + 한 대 집중(상태 한 줄 → 영상·라이다 → 지도 위 현재 위치 → 상세: 임무·배터리·장치·최근 사건), 남의 로봇은 아래 접힌 «다른 로봇 N대»(요약 그대로).
+// 총괄 = 요약 → 큰 지도(전 로봇 위치) + 경보(주의 먼저) → 표 목록 + 거르기 → 행을 누르면 서랍 상세(읽기 전용). STOP 은 머리줄 하나(화면 안에 새로 두지 않음)
+import { useEffect, useState } from 'react';
+import type { Location, MapVersion } from '../../../contracts/ts';
+import { api, type ApiFail } from '../api';
+import { adminReal, lost, ownerName, robotStatus, type Robot, type Tone } from '../fake';
+import { rt, useRt } from '../rt';
+import { REAL_RGB, holderText } from '../drive';
+import { NO_SIGNAL } from '../drivemedia';
+import { PhoneRelay } from '../phoneRelay';
+import { ServerDrive, stopLine } from '../serverdrive';
+import { Approval } from '../pairing';
+import { MapFrame, MapImage } from '../mapframe';
+import { Guard } from '../App';
+import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
+import { FallChip } from '../go2status';
+import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
+
+/** 화면이 아는 위치: 구독 로봇은 실시간 state, 아니면 목록 요약(남의 로봇은 서버가 감춤 — 그리지 않음) */
+const where = (x: Robot): Location | null => (x.unknown === 'summary' ? null : rt.get(x.id).state?.location ?? x.location ?? null);
+const TONE_COLOR: Record<Tone, string> = { ok: 'var(--accent)', warn: 'var(--warn)', bad: 'var(--bad)', off: 'var(--muted)' };
+
+/** 마지막 보고 n초 전: 연결 중이면 마지막 state 를 받은 때(단조 시계), 끊김이면 마지막 확인 시각(오늘 HH:MM:SS). 모르면 null */
+export function agoS(x: Robot, now = Date.now()) {
+  const l = rt.get(x.id);
+  if (x.unknown === 'summary' || x.unknown === 'wait' || !l.state) return null;
+  if (!x.unknown && l.state.connection === 'ONLINE') return Math.max(0, Math.round((rt.now() - l.stateAt) / 1000));
+  const m = /^(\d\d):(\d\d):(\d\d)$/.exec(x.seenAt);
+  if (!m) return null;
+  const d = new Date(now); d.setHours(+m[1], +m[2], +m[3], 0);
+  const s = Math.round((now - d.getTime()) / 1000);
+  return s < 0 ? s + 86400 : s;   // 자정을 넘긴 마지막 확인
+}
+const agoText = (s: number | null) => (s == null ? '마지막 보고 없음' : s < 120 ? `마지막 보고 ${s}초 전` : `마지막 보고 ${Math.floor(s / 60)}분 전`);
+function Ago({ x }: { x: Robot }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(i); }, []);
+  return <span className="lbl mono" data-ago>{agoText(agoS(x))}</span>;
+}
+
+/** 끊김(서버 실시간 끊김 또는 한 번 받은 로봇의 연결 끊김) — 상태 줄이 빨강으로 맨 앞, 나머지 값은 회색(마지막 값) */
+const isLost = (x: Robot) => x.unknown === 'link' || lost(x);
+
+/** 상태 한 줄: 서버·로봇 연결 · 폰↔노트북 · 조종권 · STOP/잠금 · 마지막 보고 */
+function StateLine({ c, r }: { c: Ctx; r: Robot }) {
+  const l = rt.get(r.id), s = r.unknown ? null : l.state, hidden = r.unknown === 'summary', bad = isLost(r);
+  const server = LINK[rt.link().at] ?? { tone: 'off' as const, text: '연결 중' };
+  const robot = hidden ? { tone: 'off' as const, text: '확인 안 됨' } : !s ? { tone: 'off' as const, text: r.unknown === 'link' ? '모름(서버 끊김)' : '모름' }
+    : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
+  const stop = stopLine(l) ?? (hidden ? { tone: 'off' as const, text: '확인 안 됨' } : s?.latched == null ? { tone: 'off' as const, text: '잠금 모름' }
+    : s.latched ? { tone: 'bad' as const, text: '정지 잠금' } : { tone: 'ok' as const, text: '잠금 풀림' });
+  return <section className={`lv-card fl-state${bad ? ' bad' : ''}`} aria-label="로봇 상태" data-lost={bad || undefined}>
+    <div className="fh-row"><h2>{r.name}</h2><span className="lbl">{r.sim ? '시뮬' : '실기'}</span><Chip {...robotStatus(r)} />
+      {r.owner !== c.user.id && <span className="lbl" data-not-mine>{ownerName(r)} · 보는 중(요약만)</span>}</div>
+    {bad && <p className="fh-msg" role="alert" data-lost-note>▲ {r.unknown === 'link' ? '서버 연결이 끊겼습니다' : '로봇 연결이 끊겼습니다'} — 아래 값은 마지막으로 받은 값이고 지금 상태는 알 수 없습니다.
+      {r.mission ? ' 임무 «이어서»는 실행을 건 같은 화면에서만 할 수 있습니다.' : ''}</p>}
+    <div className="fh-row" data-state-line>
+      <span className="lbl">서버</span><Chip {...server} /><span className="lbl">로봇</span><Chip {...robot} />
+      <span className="lbl">폰↔노트북</span>{hidden ? <span>확인 안 됨</span> : r.phoneRelay ? <PhoneRelay key={r.id} report={r.phoneRelay} receivedAt={r.phoneRelayAt} compact /> : <span className="lbl">폰 경유 없음</span>}
+      <span className="lbl">조종권</span><span data-holder>{holderText(l, c.user.id, r)}</span>
+      <span className="lbl">STOP·잠금</span><span data-stop-state><Chip {...stop} /></span>
+      <Ago x={r} />
+    </div>
+  </section>;
+}
+
+/** 영상·라이다 칸. 실기 시험 조종이 켜진 담당 실기만 서버 경유 패널(기존 serverdrive.tsx — 카메라·라이다는 «조종 화면 열기»), 그 밖은 신호 없음 + 까닭(가짜 그림 0) */
+function Media({ c, r }: { c: Ctx; r: Robot }) {
+  // 조종 허용 = 목록 값(서버 server_drive_allowed) + 현장 승인 만료 전(서버 robots.py 와 같은 판정) — 만료 때 OperatorRobot 이 다시 그림
+  const until = r.approvalUntil ? Date.parse(r.approvalUntil) : 0;
+  const drive = !!r.serverDrive && until > Date.now() && !r.sim && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
+  const why = r.unknown === 'summary' ? '남의 로봇이라 받지 않습니다' : isLost(r) ? '연결이 끊겼습니다' : r.sim ? '시뮬 영상·라이다는 «시뮬» 탭에서 봅니다' : REAL_RGB;
+  return <section className="lv-card fl-media" aria-label="영상·라이다">
+    <h2>영상·라이다</h2>
+    {drive ? <ServerDrive c={c} r={r} />
+      : <div className="fl-screens">{(['rgb', 'lidar'] as const).map((ch) => <div key={ch} className="fl-screen">
+        <div className="dv-video" role="img" aria-label={ch === 'rgb' ? '카메라' : '라이다'} data-no-signal={ch}><span>{NO_SIGNAL[ch]} — {why}</span></div></div>)}</div>}
+    {r.sim && !drive && <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div>}
+  </section>;
+}
+
+/** 관제 지도(기존 지도 칸과 같은 GET /sites · /map-versions/{id}) + 로봇 위치 점. 판이 같은 위치만 그린다(지어내지 않음), 끊긴 로봇은 회색 점.
+ *  prefer = 처음 보일 층(집중 로봇이 있는 층) */
+function FleetMap({ robots, sel, cancel }: { robots: Robot[]; sel?: string; cancel?: AbortSignal }) {
+  useRt();
+  const t = useTree(cancel), places = floorsOf(t.tree), [pick, setPick] = useState('');
+  const prefer = robots.map(where).find((l) => l?.floor_id)?.floor_id;
+  const cur = places.find((p) => p.floor.id === pick) ?? places.find((p) => p.floor.id === prefer && p.floor.approved_version_id) ?? places.find((p) => p.floor.approved_version_id) ?? places[0];
+  const many = new Set(places.map((p) => p.building.id)).size > 1;
+  return <>
+    {places.length > 1 && <div className="fh-row" role="group" aria-label="층">{places.map((p) => <button key={p.floor.id} type="button" className="btn" aria-pressed={p === cur} onClick={() => setPick(p.floor.id)}>
+      {many ? `${p.building.name} ${p.floor.name}` : p.floor.name}</button>)}</div>}
+    {cur?.floor.approved_version_id ? <Marked key={cur.floor.approved_version_id} id={cur.floor.approved_version_id} robots={robots} sel={sel} cancel={cancel} />
+      : cur ? <p className="lv-note">아직 지도가 없습니다.</p>
+      : t.tree && <p className="lv-note">등록된 층이 없습니다. 지도 탭에서 장소·층을 만들면 여기에 보입니다.</p>}
+    {t.err && <div className="fh-row"><p className="fh-msg" role="alert">층 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
+    {!t.tree && !t.err && <p className="lv-note" role="status">층 목록을 불러오는 중…</p>}
+  </>;
+}
+
+function Marked({ id, robots, sel, cancel }: { id: string; robots: Robot[]; sel?: string; cancel?: AbortSignal }) {
+  const [v, setV] = useState<MapVersion | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    api.version(id, cancel).then(shape(isVersion)).then((x) => { if (alive) { setV(x); setErr(''); } }, (e: ApiFail) => { if (alive && e.code !== 'CANCELED') setErr(e.message); });
+    return () => { alive = false; };
+  }, [n]);
+  const fit = useFit(v ?? undefined);
+  if (!v) return err ? <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>
+    : <p className="lv-note" role="status">지도를 불러오는 중…</p>;
+  const on = robots.flatMap((x) => { const l = where(x); return l && l.map_version_id === v.id && l.x != null && l.y != null ? [{ x, l: l as Location & { x: number; y: number } }] : []; });
+  const off = robots.length - on.length, r = Math.max(v.width, v.height) / 70;
+  return <div>
+    <MapFrame {...fit} photo={v} role="img" aria-label={`판 ${v.number} 지도 — 로봇 ${on.length}대 표시`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+      <MapImage id={v.id} width={v.width} height={v.height} />
+      <Shapes v={v} f={v.features} />
+      {on.map(({ x, l }) => {
+        const [px, py] = toPixel(v, l.x, l.y), stale = !x.online, c = stale ? TONE_COLOR.off : TONE_COLOR[robotStatus(x).tone];
+        const yaw = l.yaw ?? null, [hx, hy] = yaw == null ? [px, py] : toPixel(v, l.x + Math.cos(yaw) * r * 2.2 * v.resolution, l.y + Math.sin(yaw) * r * 2.2 * v.resolution);
+        return <g key={x.id} data-robot-dot={x.id} data-stale={stale || undefined}>
+          {yaw != null && <line x1={px} y1={py} x2={hx} y2={hy} style={{ stroke: c }} strokeWidth={r * 0.6} strokeLinecap="round" />}
+          <circle cx={px} cy={py} r={r} style={{ fill: c, stroke: x.id === sel ? 'var(--text)' : 'var(--bg)' }} strokeWidth={r * (x.id === sel ? 0.5 : 0.3)} />
+          <text x={px} y={py - r * 1.6} fontSize={r * 2.2} textAnchor="middle" style={{ fill: 'var(--text)', stroke: 'var(--bg)', strokeWidth: r * 0.5, paintOrder: 'stroke' }}>{x.name}{stale ? ' (마지막)' : ''}</text>
+        </g>;
+      })}
+    </MapFrame>
+    {off > 0 && <p className="lv-note" data-map-off>{robots.length === 1 ? '이 판 위 현재 위치 없음 — 위치를 아직 받지 못했거나 다른 층·판에 있습니다.' : `이 판에 없는 로봇 ${off}대(위치 없음·다른 층).`}</p>}
+  </div>;
+}
+
+/** 목록 요약 행(지금 PC 목록과 같은 칸) — 운영 관리자의 «다른 로봇» 접기 안 */
+function SummaryRow({ c, x }: { c: Ctx; x: Robot }) {
+  const a = attn(x);
+  return <li><button type="button" aria-pressed={x.id === c.robot.id} onClick={() => c.pick(x.id)}>
+    <Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} />{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
+    <span className="lbl">{ownerName(x)} · 보는 중</span>
+    <span className="lbl" data-link-text>{linkText(x)}</span>
+    {!x.sim && <Approval r={x} />}
+    {a && <span className="lbl" data-attention>▲ {a}</span>}
+    <Seen x={x} />
+    <PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact />
+  </button></li>;
+}
+
+/** 운영 관리자(PC): 고르기(2대 이상만, 실기·시뮬 따로) → 상태 한 줄 → 영상·라이다 · 지도 | 상세(임무·배터리·장치·최근 사건·관리) → 다른 로봇 */
+export function OperatorRobot(c: Ctx) {
+  useRt();
+  // 현장 승인 만료 때 영상(조종 패널 닫기)·상세(승인 칩)를 함께 다시 그림
+  const [, wake] = useState(0), until = c.robot.approvalUntil ? Date.parse(c.robot.approvalUntil) : 0;
+  useEffect(() => { const ms = until - Date.now(); if (ms <= 0) return; const t = setTimeout(() => wake((n) => n + 1), ms + 50); return () => clearTimeout(t); }, [until]);
+  const me = c.user.id, mine = c.robots.filter((x) => x.owner === me), others = c.robots.filter((x) => x.owner !== me), r = c.robot, own = r.owner === me;
+  const bad = isLost(r);
+  const group = (sim: boolean) => { const l = mine.filter((x) => !!x.sim === sim); return l.length > 0 && <div className="fh-row" role="group" aria-label={sim ? '시뮬' : '실기'}>
+    <span className="lbl" style={{ minWidth: 32 }}>{sim ? '시뮬' : '실기'}</span>
+    {l.map((x) => <button key={x.id} type="button" className="btn" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></button>)}</div>; };
+  return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
+    <div className="fh-focus" data-lost={bad || undefined} data-summary={!own || undefined}>
+      {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><h2>내 로봇 {mine.length}대</h2>{group(false)}{group(true)}</section>}
+      {!mine.length && <section className="lv-card fl-pick" aria-label="로봇 없음"><h2>담당 로봇이 없습니다</h2>
+        <p className="lv-note">«+ 새 로봇 추가»에서 연결 코드로 실기를 등록하거나, 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.</p>
+        <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>}
+      <StateLine c={c} r={r} />
+      {/* 남의 로봇은 서버가 실시간 값을 감춘다 — 영상·지도 칸 없이 요약 상세만 */}
+      {own && <Media key={r.id} c={c} r={r} />}
+      {own && <section className="lv-card fl-map" aria-label="지도"><h2>지도 — 현재 위치</h2><Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard></section>}
+      <Detail key={`${r.id}-${r.owner}`} {...c} solo />
+      {others.length > 0 && <details className="lv-card fh-fold fl-others" aria-label="다른 로봇" open={!own || undefined}>
+        <summary>다른 로봇 {others.length}대 — 남의 로봇은 요약만</summary>
+        <ul className="fh-list robots">{others.map((x) => <SummaryRow key={x.id} c={c} x={x} />)}</ul></details>}
+    </div>
+  </Pair>;
+}
+
+type Filter = { kind: '' | 'real' | 'sim'; owner: string; state: '' | 'attn' | 'online' | 'off' };
+const RANK: Record<Tone, number> = { bad: 0, warn: 1, ok: 2, off: 3 };
+const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || !!x.attention?.length; };
+
+/** 총괄(PC): 요약 → 큰 지도 + 경보 → 표 목록(+거르기) → 서랍 상세(읽기 전용 — 실기 조종·STOP 없음, 담당 없는 실기에 담당 지정만 지금처럼). 운영 관리자 표 유지.
+ *  서랍을 닫아도 고른 행(머리줄 STOP 대상 — 총괄은 시뮬만)은 그대로 — 표시만 접는다 */
+export function AdminFleet(c: Ctx) {
+  useRt();
+  const r = c.robot, { d, err } = c.dash, [drawer, setDrawer] = useState(false), [f, setF] = useState<Filter>({ kind: '', owner: '', state: '' });
+  const open = (id: string) => { c.pick(id); setDrawer(true); };
+  const owners = [...new Map(c.robots.map((x) => [x.owner, ownerName(x)])).entries()];
+  const rows = c.robots.filter((x) => (!f.kind || (f.kind === 'sim') === !!x.sim) && (!f.owner || x.owner === (f.owner === '-' ? '' : f.owner))
+    && (!f.state || (f.state === 'attn' ? needs(x) : f.state === 'online' ? x.online : !x.online)));
+  const alerts = c.robots.filter(needs).sort((a, b) => RANK[robotStatus(a).tone] - RANK[robotStatus(b).tone]);
+  const sel = (k: keyof Filter, label: string, opts: [string, string][]) => <label className="fh-row lbl">{label}
+    <select className="fh-user fh-sel" value={f[k]} data-filter={k} onChange={(e) => setF({ ...f, [k]: e.target.value })}>{opts.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>;
+  return <>
+    <Kpi user={c.user} d={d} err={err} />
+    <div className={`fh-fleet admin${drawer ? ' open' : ''}`}>
+      <section className="lv-card fl-map" aria-label="지도"><h2>지도 — 전 로봇 위치</h2><Guard><FleetMap robots={c.robots} sel={drawer ? r.id : undefined} cancel={c.cancel} /></Guard></section>
+      <section className="lv-card fl-alerts" aria-label="경보"><h2>경보{alerts.length ? ` ${alerts.length}` : ''}</h2>
+        {!alerts.length ? <p className="lv-note">주의가 필요한 로봇이 없습니다.</p>
+          : <ul className="fh-list">{alerts.map((x) => <li key={x.id}><button type="button" aria-pressed={drawer && x.id === r.id} onClick={() => open(x.id)}>
+            <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="lbl fh-wide">{attn(x) || robotStatus(x).text} · {ownerName(x)}</span></button></li>)}</ul>}
+      </section>
+      <section className="lv-card fl-list" aria-label="로봇 목록">
+        <div className="fh-row"><h2>로봇 {rows.length === c.robots.length ? c.robots.length : `${rows.length}/${c.robots.length}`}대</h2><span className="fh-grow" />
+          {sel('kind', '종류', [['', '전체'], ['real', '실기'], ['sim', '시뮬']])}
+          {sel('owner', '담당', [['', '전체'], ...owners.map(([id, name]): [string, string] => [id || '-', name])])}
+          {sel('state', '상태', [['', '전체'], ['attn', '주의 필요'], ['online', '연결됨'], ['off', '끊김·연결 전']])}</div>
+        <div className="fl-row fl-head" aria-hidden="true"><span>로봇</span><span>담당</span><span>연결</span><span>배터리</span><span>임무</span><span>마지막 보고</span></div>
+        {!rows.length && <p className="lv-note">거른 조건에 맞는 로봇이 없습니다.</p>}
+        <ul className="fh-list robots fl-table">{rows.map((x) => { const a = attn(x); return <li key={x.id}>
+          <button type="button" className="fl-row" aria-pressed={x.id === r.id} onClick={() => open(x.id)}>
+            <span><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} />{x.sim && <span className="lbl">시뮬</span>}</span>
+            <span className="lbl">{ownerName(x)}</span>
+            <span><span className="lbl" data-link-text>{linkText(x)}</span>{!x.sim && <Approval r={x} />}</span>
+            <span className="mono">{pct(x.battery)}</span>
+            <span>{x.mission ?? '—'}{a && <span className="lbl" data-attention> ▲ {a}</span>}</span>
+            <span><Seen x={x} /><PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact /></span>
+          </button></li>; })}</ul>
+      </section>
+      {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
+      {drawer && <Detail key={`${r.id}-${r.owner}`} {...c} close={() => setDrawer(false)} />}
+    </div>
+    <Operators user={c.user} d={d} />
+  </>;
+}

@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "Person": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "display_name"
+      ],
+      "title": "Person",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/TrashItem",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "archived_at": {
+      "format": "date-time",
+      "title": "Archived At",
+      "type": "string"
+    },
+    "deleted_by": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Person"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "site",
+        "building",
+        "floor",
+        "scenario"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "parent_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Parent Name"
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "name",
+    "archived_at",
+    "deleted_by",
+    "parent_name"
+  ],
+  "title": "TrashItem",
+  "type": "object"
+}

@@ -15,6 +15,14 @@ runpy.run_module('foothold_agent.ros_bridge', run_name='__main__',
 '''
 
 
+def recorded_bootstrap(folder):
+    # Preserve the existing standalone bootstrap/proof argv contract. The owned
+    # launcher adds recording in code, never in an environment-supplied toggle.
+    return BOOTSTRAP.replace("runpy.run_module(",
+        "from apps.simmgr.startup_evidence import run_module as _fh_recorded_run\n"
+        + "_fh_recorded_run(" + repr(str(folder)) + ", ")
+
+
 def main():
     private = Path(sys.argv[1])
     config = json.loads(private.read_text())
@@ -22,7 +30,7 @@ def main():
     script = ('set -e; source "$1"; export FH_AGENT_ROS_PATH="${PYTHONPATH:-}"; '
               'unset PYTHONPATH; exec "$2" -c "$3" "$4" "$5"')
     os.execve('/bin/bash', ['/bin/bash', '-c', script, 'simmgr-agent',
-              config['setup'], config['python'], BOOTSTRAP, config['root'],
+              config['setup'], config['python'], recorded_bootstrap(private.parent), config['root'],
               json.dumps(config.get('simulation_binding'))], config['env'])
 
 

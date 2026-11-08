@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/PairingPoll",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "poll_secret": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Poll Secret",
+      "type": "string"
+    }
+  },
+  "required": [
+    "poll_secret"
+  ],
+  "title": "PairingPoll",
+  "type": "object"
+}

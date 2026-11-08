@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import type { ScreenState } from '../../../contracts/ts';
 import { App, PHONE_Q } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
+import { fleetNames, fleetRow } from './fleetRow';
 import { tabFromHash } from '../menu';
 import { api, onAuthLost as setAuthLost } from '../api';
 import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, rt } from '../rt';
@@ -45,7 +46,7 @@ const text = () => box.textContent!;
 const band = () => $('[data-band]').textContent!;
 /** 폰 로봇 연결의 로봇 카드, PC 로봇 탭 목록의 행 */
 const card = (name: string) => [...box.querySelectorAll('.dv-card')].find((li) => li.textContent!.includes(name))!;
-const row = (name: string) => [...box.querySelectorAll('[aria-label="로봇 목록"] button')].find((b) => b.textContent!.includes(name))!;
+const row = (name: string) => fleetRow(box, name);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const tick = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 const key = (type: 'keydown' | 'keyup', code: string, at: EventTarget = window, ctrlKey = false) =>
@@ -212,6 +213,19 @@ describe('조종 화면', () => {
     const n = cmds().length;
     key('keydown', 'KeyW'); tick(200);
     expect(cmds().slice(n).every((m) => String(m.axes) === '0,0,0')).toBe(true);   // 잠긴 뒤 입력은 0
+  });
+
+  it('relay-only status cannot claim direct robot STOP confirmation in the App banner', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7'); ready();
+    w.auto = () => ({ ok: true });
+    key('keydown', 'Space'); tick(100);
+    act(() => push('r7', { connection: 'OFFLINE', latched: null, applied: null, stop_gen: null,
+      phone_relay: { source: 'PHONE', battery: null, speed: 0, devices: [], age_s: .1, valid_for_s: 2.9 } }));
+    expect(band()).toContain('폰 경유 자료는 받았지만 직접 로봇 보고로 정지를 확인하지 못했습니다');
+    expect(band()).not.toContain('로봇이 잠금과 멈춤 출력을 알렸습니다');
+    act(() => push('r7', { connection: 'ONLINE', latched: true, stop_gen: 2, applied: [0, 0, 0] }));
+    expect(band()).toContain('로봇이 잠금과 멈춤 출력을 알렸습니다');
   });
 
   it('STOP 뒤 잠금 보고 전에는 «아직 잠금 안 됨» 유지, 잠금 → 해제되면 STOP 띠를 지움', () => {
@@ -445,12 +459,12 @@ describe('조종 화면', () => {
   });
 });
 
-// [B3] PC 로봇 목록 «마지막 수신» = 상태를 받은 시각(다시 그린 시각 아님)
+// [B3] PC 로봇 목록(총괄 표) «마지막 수신» = 상태를 받은 시각(다시 그린 시각 아님)
 describe('마지막 수신 시각', () => {
   const seen = (name: string) => row(name).querySelector('[data-seen]')!.textContent;
   it('누르기·시간 흐름만으로는 안 바뀌고 새 상태가 와야 바뀜, 상태 없는 로봇은 목록 받은 시각', () => {
     vi.setSystemTime(new Date(2026, 9, 21, 13, 40, 5));
-    mount(false, 'u-kim', '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));   // 서버 목록을 받은 시각(toRobot 이 붙임)
+    mount(false, ADMIN, '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));   // 서버 목록을 받은 시각(toRobot 이 붙임)
     tick(2000);                                            // 2 s 뒤 연결
     serve(KIM, 'r7');
     expect(seen('Go2-7')).toBe('마지막 수신 13:40:07');
@@ -466,7 +480,7 @@ describe('마지막 수신 시각', () => {
   });
   it('[r2 Y2] 같은 값의 상태가 다시 와도(rt 가 다시 그리지 않음) 받은 시각 표시는 1 s 안에 바뀜', () => {
     vi.setSystemTime(new Date(2026, 9, 21, 13, 40, 5));
-    mount(false, 'u-kim', '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));
+    mount(false, ADMIN, '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));
     serve(KIM, 'r7');
     expect(seen('Go2-7')).toBe('마지막 수신 13:40:05');
     tick(2000);
@@ -1077,8 +1091,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     expect(w.of('sub').map((m) => m.robots).pop()).toEqual(['r3', 'r7', 'r1']);
     answer(3, fail('NOT_FOUND', '로봇을 찾을 수 없습니다.'));
     act(() => { push('r3'); push('r7'); });
-    const rows = $('[aria-label="로봇 목록"]');
-    const rowOf = (name: string) => [...rows.querySelectorAll('li')].find((li) => li.textContent!.includes(name))!.textContent!;
+    const rowOf = (name: string) => row(name).textContent!;   // 운영 관리자 «내 로봇 고르기» 단추(상태 칩)
     expect(rowOf('Go2-7')).not.toContain('확인 안 됨');     // 서버가 받아들인 [r3,r7] 은 그대로
     expect(rowOf('Go2-1')).toContain('확인 안 됨');
     stopOn();
@@ -1818,6 +1831,8 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     serve(KIM, 'r7', 's1');
     expect(row('Go2-7').getAttribute('aria-pressed')).toBe('true');
     expect(row('Go2-7').textContent).toContain('80%');   // 실시간 상태(배터리)는 그대로
+    expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
+    click(row('Go2-7'));
     expect($('[aria-label="로봇 상세"]').textContent).toContain('박OO');
     expect(box.querySelector('[data-stop]')).toBeNull();
     expect(btn('조종 시작')).toBeUndefined();

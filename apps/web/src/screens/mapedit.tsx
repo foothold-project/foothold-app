@@ -1,14 +1,15 @@
 // 지도 편집(01 MP-03·05·06·AP-01, 02 F-MP-03, 03 §5.6, 05 §5 — S3a features·S4a). 편집 시작 때 승인 판 위에서 고쳐 새 판으로 저장한다 — 누구나 바로 승인 판(10-27 결재 없음).
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
 // 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx.
-// 오른쪽 요소 창(시나리오 단계 창과 같은 missions.css 틀): 구역·지점·연결점·선을 차례로 한 줄씩 — 줄을 누르면 지도에서 고르고, 지도에서 고르면 그 줄을 강조·굴림.
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
+// 틀(mapscen.tsx): 왼쪽 아이콘 도구줄 | 지도 | 오른쪽 요소 창(목록 ↔ 고른 요소 속성). 저장은 단추 줄 «새 판으로 저장…» → 바꾼 이유 창.
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { MapFrame, MapImage, toView } from '../mapframe';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
-import './missions.css';
+import { EDIT, KIND, Note, Shapes, ZONE, canon, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
+import { Hint, Pane, Pop } from './mapscen';
 
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
@@ -94,6 +95,7 @@ export function check(f: MapFeatures, v: Geo, pairs?: string[]): Bad | null {
 /** path → 고를 요소 키(«무리.번호»), 없으면 '' */
 const keyOf = (path: string) => /^features\.(zones|waypoints|connectors|edits)\.(\d+)/.exec(path)?.slice(1).join('.') ?? '';
 const split = (k: string) => { const [g, i] = k.split('.'); return [g as Group, Number(i)] as const; };
+const itemOf = (f: MapFeatures, k: string) => { const [g, i] = split(k); return f[g]?.[i] as Item | undefined; };
 /** 사람이 알아볼 요소 이름 — 오류 문구 앞에 */
 function label(f: MapFeatures, k: string) {
   if (!k) return '';
@@ -108,22 +110,22 @@ function label(f: MapFeatures, k: string) {
 export function serverBad(e: ApiFail): Bad {
   const d = e.detail, list = Array.isArray(d?.elements) ? d.elements : [], path = typeof d?.element === 'string' ? d.element : typeof list[0] === 'string' ? list[0] as string : 'features';
   const text = /\.id$/.test(path) ? DUP : /\.pair_floor_id$/.test(path) ? '짝 층을 같은 건물의 다른 층으로 다시 고르세요.'
-    : path === 'image' ? '이 판의 지도 정보를 확인할 수 없습니다. 새로 불러온 뒤 다시 편집하세요.'
+    : path === 'image' ? '이 지도의 정보를 확인할 수 없습니다. 새로 불러온 뒤 다시 편집하세요.'
     : list.length ? '저장할 수 있는 모양이 아닙니다. 이름·점 개수·굵기를 확인하세요.' : `${e.message} 고친 뒤 다시 저장하세요.`;
   return { path, text };
 }
 /** 저장 실패(422 밖) = 무엇이 + 어떻게. 403 등은 서버 문구 그대로 */
 function saveFail(e: ApiFail) {
-  if (e.status === 404) return '이 층이나 판을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
+  if (e.status === 404) return '이 층이나 지도를 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
   if (e.code === 'SERVER_BUSY') return '서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.';
   if (e.code === 'TIMEOUT') return '서버가 제시간에 답하지 않았습니다. 네트워크를 확인한 뒤 다시 저장하세요.';
   return e.message;
 }
 
-type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'waypoint' | 'connector' | 'ERASE' | 'WALL';
-const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['waypoint', '지점'], ['connector', '연결점'], ['ERASE', '지우개'], ['WALL', '벽']];
+// 지우개·지점 도구는 뺐다(11-04) — 이미 저장된 지우개 선·지점은 고르기 도구로 그대로 고치고 저장에도 남는다
+type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'connector' | 'WALL';
+const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['connector', '연결점'], ['WALL', '벽']];
 const EMPTY: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
-const NARROW = 440;   // 요소 창 칸 폭(px) — missions.css @container 와 같은 값
 const MIN_BOX = 8;   // 화면 px — 이보다 작은 끌기(그냥 누름 포함)는 구역을 만들지 않는다
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;   // 같은 무리 안에서만 달라야 함(서버 검사)
 const deg = (r: number) => Math.round((r * 180) / Math.PI), rad = (d: number) => (d * Math.PI) / 180;
@@ -138,7 +140,8 @@ const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편
 
 /** 편집. v = 편집 시작 때 승인 판(저장 기준·그림), p = 그 층. saved = 새 판, quit = 보기로, recheck = 판 목록·나무 다시 받기
  *  moved = 남겨 둔 편집을 이어 쓰는데 그 사이 승인 판이 바뀜 → STALE 과 같은 안내 */
-export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean }) {
+export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: picker, name, foot }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean; slot?: HTMLElement | null;
+  pick?: (n: number) => ReactNode; name?: string; foot?: ReactNode }) {
   const [k] = useState(() => (kept.d?.floor === p.floor.id && kept.d.base.id === v.id ? kept.d : null));
   const [f, setF] = useState<MapFeatures>(() => k?.f ?? JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
   const [dirty, setDirty] = useState(k?.dirty ?? false), [tool, setTool] = useState<Tool>(k?.tool ?? 'pick'), [pts, setPts] = useState<P[]>(k?.pts ?? []), [sel, setSel] = useState(''), [width, setWidth] = useState(k?.width ?? 0.1);
@@ -151,12 +154,10 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
   const [undo, setUndo] = useState<{ text: string; f: MapFeatures; after: MapFeatures } | null>(null), [open, setOpen] = useState(true);
   // 저장 중에는 편집을 모두 막는다 — 캔버스 누름·끌기·그리기와 모든 고치기(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로
   const lock = busy;
-  // 칸이 좁으면(missions.css 440 — PC 좁은 창·확대) 요소 창을 접은 채 시작해 지도를 넓게. 폭을 모르면(0) 펼친 채
-  const wrap = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { const w = wrap.current?.clientWidth; if (w && w <= NARROW) setOpen(false); }, []);
+  const [saving, setSaving] = useState(false);   // 바꾼 이유 창(단추 줄 «새 판으로 저장…»)
   useEffect(() => { if (lock) { drag.current = null; rect.current = null; setBox(null); } }, [lock]);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
-  const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
+  const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'WALL';
   const fit = useFit(v);   // 처음 화면은 편집 시작 때 판 요소 기준(그리는 동안 다시 맞추지 않음)
 
   // 저장하지 않은 편집(그리던 점 포함): 탭 이동·층 바꾸기·보기 전환은 이 칸의 확인으로, 새로고침·창 닫기는 브라우저 확인으로
@@ -179,11 +180,20 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     const x = d.fail;
     if (x.code === 'CANCELED') return;
     // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 편집 내용은 그대로 둔다. 목록을 다시 받아 보인다(다시 저장하면 승인 판이 바뀌어 STALE 로 막힘)
-    if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
+    if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 저장 기록을 다시 받습니다. 새 기록이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
     if (x.code === 'STALE') { setStale(true); setMsg({ text: STALE }); return; }
-    if (x.code === 'INVALID_FEATURES') { const b = serverBad(x); setBad(b); setSel(keyOf(b.path)); return; }
+    if (x.code === 'INVALID_FEATURES') return toBad(serverBad(x));   // 화면 검사 실패와 같이: 저장 창 닫고 오른쪽 창에 그 요소·오류
     setMsg({ text: `저장하지 못했습니다. ${saveFail(x)}` });
   };
+  /** 검사 실패(화면·서버 422) — 저장 창을 닫고 오른쪽 창을 펼쳐 그 요소를 고르고, 그 요소 첫 칸(없으면 오류 줄)으로 포커스 */
+  const jump = useRef(false);
+  const toBad = (b: Bad) => { setBad(b); setSel(keyOf(b.path)); setMsg(null); setSaving(false); setOpen(true); jump.current = true; };
+  useEffect(() => {
+    if (!bad || !jump.current) return;
+    jump.current = false;
+    const q = '[aria-label="요소 창"] [aria-label="고른 요소"]';
+    (document.querySelector<HTMLElement>(`${q} input, ${q} select`) ?? document.querySelector<HTMLElement>('[aria-label="요소 창"] [data-bad]'))?.focus();
+  }, [bad]);
   useEffect(() => {
     if (!unsaved) return;
     leaving.ask = (go) => setAsk({ text: '저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.', yes: '나가기', go: () => { leaving.ask = null; left.current = true; go(); } });
@@ -211,10 +221,10 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     const [g, i] = split(k), n = { ...f, [g]: (f[g] as Item[]).filter((_, j) => j !== i) };
     put(n); setSel(''); setUndo({ text: `${label(f, k).replace(/: $/, '')} 지움`, f, after: n });
   };
-  // 같은 도구는 그대로, 같은 갈래(구역↔구역·선↔선)는 그리던 점을 이어 쓰고, 그 밖은 점을 지울지 묻는다
+  // 같은 도구는 그대로, 같은 갈래(구역↔구역)는 그리던 점을 이어 쓰고, 그 밖은 점을 지울지 묻는다
   const pick = (t: Tool) => {
     if (lock) return;
-    const same = (zone && (t === 'NO_GO' || t === 'SLOW')) || (line && (t === 'ERASE' || t === 'WALL')), go = () => { setTool(t); if (!same) setPts([]); setMsg(null); rect.current = null; setBox(null); };
+    const same = t === tool || (zone && (t === 'NO_GO' || t === 'SLOW')), go =() => { setTool(t); if (!same) setPts([]); setMsg(null); rect.current = null; setBox(null); };
     if (pts.length && !same) setAsk({ text: `그리던 점 ${pts.length}개를 지우고 도구를 바꿀까요?`, yes: '바꾸기', go }); else go();
   };
   const dotMode = (d: boolean) => {
@@ -238,9 +248,8 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     if (!inside(v, q[0], q[1])) return setMsg({ text: '지도 범위 밖은 찍을 수 없습니다. 지도 그림 안을 누르세요.' });
     setMsg(null);
     if (zone && !dots) { rect.current = [e.clientX, e.clientY]; setBox([rect.current, rect.current]); svg.current!.setPointerCapture?.(e.pointerId); return; }
-    if (tool === 'waypoint') add('waypoints', { id: newId(), name: `지점 ${f.waypoints.length + 1}`, x: q[0], y: q[1], yaw: 0 });
-    else if (tool === 'connector') {
-      if (!others.length) return setMsg({ text: '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. 장소 «고치기»에서 층을 먼저 만드세요.' });
+    if (tool === 'connector') {
+      if (!others.length) return setMsg({ text: '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. «장소 고치기»에서 층을 먼저 만드세요.' });
       add('connectors', { id: newId(), kind: 'STAIRS', pair_floor_id: others[0].id, x: q[0], y: q[1], yaw: 0 });
     } else setPts([...pts, q]);
   };
@@ -296,7 +305,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     if (pts.length) return setMsg({ text: '그리던 구역·선을 먼저 닫거나 지우세요.' });
     if (!dirty) return setMsg({ text: '바꾼 것이 없습니다. 도구로 지도를 고친 뒤 저장하세요.' });
     const b = check(f, v, others.map((x) => x.id));
-    if (b) { setBad(b); setSel(keyOf(b.path)); setMsg(null); return; }
+    if (b) return toBad(b);
     const why = reasonBad(reason, '바꾼 이유');
     if (why) return setMsg({ text: why });
     send();
@@ -314,109 +323,160 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
   const hint = zone && !dots ? '지도에서 누른 채 끌면 사각형 구역이 생깁니다. 연달아 여러 개 그릴 수 있고, 그린 구역을 누르고 끌면 옮깁니다. 다른 모양은 «점으로 그리기»를 누르세요.'
     : zone ? `점 ${pts.length}개 — 지도를 눌러 구역 둘레를 차례로 찍고, 3개 이상이면 «닫기»를 누르세요.`
     : line ? `점 ${pts.length}개 — 지도를 눌러 선을 찍고, 2개 이상이면 «끝내기»를 누르세요.`
-    : tool === 'waypoint' ? '지도를 누르면 지점을 놓습니다. 놓은 뒤 이름과 방향을 고치세요.'
-    : tool === 'connector' ? (others.length ? '지도를 누르면 계단·엘리베이터 연결점을 놓습니다. 놓은 뒤 짝 층을 고르세요.' : '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. 장소 «고치기»에서 층을 먼저 만드세요.')
+    : tool === 'connector' ? (others.length ? '지도를 누르면 계단·엘리베이터 연결점을 놓습니다. 놓은 뒤 짝 층을 고르세요.' : '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. «장소 고치기»에서 층을 먼저 만드세요.')
     : '요소를 눌러 고르고, 끌어서 옮기세요(구역은 통째로). 고른 구역은 오른쪽 위 X 로 지웁니다.';
+  // 지도 왼쪽 아래 한 줄(긴 설명은 ⓘ 툴팁 — Hint)
+  const short = zone && !dots ? '끌어서 사각형 구역 그리기' : zone ? `점 ${pts.length}개 — 3개 이상이면 «닫기»` : line ? `점 ${pts.length}개 — 2개 이상이면 «끝내기»`
+    : tool === 'connector' ? (others.length ? '지도를 누르면 연결점을 놓습니다' : '다른 층이 없어 연결점을 놓을 수 없습니다') : '끌어서 옮기기 · 빨간 X 로 지우기';
   const color = zone ? fillOf(f.zones.length) : line ? EDIT[tool as 'WALL'].color : 'var(--accent)';
   const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
-  const keys = (['zones', 'waypoints', 'connectors', 'edits'] as Group[]).flatMap((g) => f[g].map((_, i) => `${g}.${i}`)), badKey = bad ? keyOf(bad.path) : '';
+  const keys = featKeys(f), badKey = bad ? keyOf(bad.path) : '';
+  // 편집 시작 판과 다른 요소(«새로» 표시) + 지운 요소 = 단추 줄 «바뀐 요소 N»(MAP-TAB-MERGE ⑤ — 화면 계산, 저장 안 함)
+  const was = useMemo(() => new Set(featKeys(v.features).map((k) => canon(itemOf(v.features, k)))), [v]);
+  const now = new Set(keys.map((k) => canon(itemOf(f, k)))), fresh = (k: string) => !was.has(canon(itemOf(f, k)));
+  const changed = keys.filter(fresh).length + [...was].filter((x) => !now.has(x)).length;
+  const out = () => (unsaved ? setAsk({ text: '편집한 내용을 버리고 보기로 나갈까요?', yes: '버리고 나가기', go: () => { leaving.ask = null; left.current = true; quit(); } }) : quit());
   const back = undo && undo.after === f && !lock ? undo : null;
-  // 지도에서 고른 요소 = 요소 창의 그 줄(강조는 aria-pressed) — 보이게 굴린다
-  useEffect(() => { if (sel) document.querySelector(`[data-el="${sel}"]`)?.scrollIntoView?.({ block: 'nearest' }); }, [sel]);
   const zx = sg === 'zones' && cur && !lock ? (cur as MapZone).polygon.map(([x, y]) => toPixel(v, x, y)) : null;   // 고른 구역의 X 자리 = 그림 오른쪽 위 모서리
+  const note = <Note m={msg} />;
 
-  return <div className="fh-form" aria-label="지도 편집">
-    {ask && <div className="fh-row" role="group" aria-label="확인" ref={(e) => e?.scrollIntoView?.({ block: 'nearest' })}><span>{ask.text}</span>
-      <button type="button" className="btn pri" onClick={() => { const a = ask; setAsk(null); a.go(); }}>{ask.yes}</button>
-      <button type="button" className="btn" onClick={() => setAsk(null)}>계속 편집</button></div>}
-    {!v.upload_id && <p className="fh-msg" role="alert">이 판은 아직 편집 저장을 지원하지 않습니다. 도구는 써 볼 수 있지만 새 판으로 저장할 수는 없습니다.</p>}
+  return <>
+    {/* 주 동작 = 단추 줄 오른쪽 끝(FloorView 가 준 자리) → 바꾼 이유 칸이 있는 작은 창 */}
+    {slot && createPortal(<><span className="mx-tag" data-changed>바뀐 요소 {changed}</span>
+      <button type="button" className="btn" disabled={lock} onClick={out}>버리고 나가기</button>
+      <button type="button" className="btn pri" disabled={lock || !v.upload_id} title={v.upload_id ? undefined : '이 지도는 아직 편집 저장을 지원하지 않습니다'}
+      aria-expanded={saving} onClick={() => setSaving(true)}>저장…</button></>, slot)}
     {/* 저장 중엔 편집 입력을 모두 막는다(요청 뒤 바꾼 것이 201 뒤 사라지지 않게) — STOP 은 App 머리줄이라 그대로 */}
     <fieldset disabled={lock} style={{ display: 'contents' }}>
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-      <div role="toolbar" aria-label="편집 도구" aria-orientation="vertical" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {TOOLS.map(([t, text]) => <button key={t} type="button" className="btn" aria-pressed={tool === t} disabled={lock} onClick={() => pick(t)}>{text}</button>)}
+    <div className="mx-body" aria-label="지도 편집">
+      <div className="mx-tools" role="toolbar" aria-label="편집 도구" aria-orientation="vertical">
+        {TOOLS.map(([t, text], i) => <span key={t} style={{ display: 'contents' }}>{(i === 1 || i === 4) && <hr />}
+          <button type="button" className="btn" aria-pressed={tool === t} title={text} disabled={lock} onClick={() => pick(t)}>{ICON[t]}<span className="mx-sr">{text}</span></button></span>)}
       </div>
-      <div className="ms-box" ref={wrap} style={{ flex: 1, minWidth: 0 }}><div className="ms-edit" data-open={open ? '' : undefined}>
-      <div className="ms-map">
-      <MapFrame ref={svg} {...fit} photo={v} edit role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-        style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
-        <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
-        <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
-        {pts.length > 0 && <g data-drawing>
-          <polyline points={pts.map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: 'none', stroke: color, strokeWidth: 2, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke" />
-          {pts.map(([x, y], k) => { const [a, b] = toPixel(v, x, y); return <circle key={k} cx={a} cy={b} r={r * 0.6} style={{ fill: color }} />; })}
-        </g>}
-        {zx && <DelX at={[Math.max(...zx.map((q) => q[0])), Math.min(...zx.map((q) => q[1]))]} r={r * 1.2} k={sel} label={`${label(f, sel).replace(/: $/, '')} 지우기`} />}
-        {box && <polygon data-box points={corners(box).map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: color, fillOpacity: 0.2, stroke: color, strokeWidth: 2, strokeDasharray: '4 3', pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />}
-      </MapFrame>
-      {back && <div className="fh-row" role="status" data-undo><span>{back.text}</span>
-        <button type="button" className="btn" onClick={() => { put(back.f); setUndo(null); }}>되돌리기</button></div>}
+      <div className="mx-map">
+        <MapFrame ref={svg} {...fit} photo={v} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+          style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
+          <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
+          <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
+          {pts.length > 0 && <g data-drawing>
+            <polyline points={pts.map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: 'none', stroke: color, strokeWidth: 2, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke" />
+            {pts.map(([x, y], k) => { const [a, b] = toPixel(v, x, y); return <circle key={k} cx={a} cy={b} r={r * 0.6} style={{ fill: color }} />; })}
+          </g>}
+          {zx && <DelX at={[Math.max(...zx.map((q) => q[0])), Math.min(...zx.map((q) => q[1]))]} r={r * 1.2} k={sel} label={`${label(f, sel).replace(/: $/, '')} 지우기`} />}
+          {box && <polygon data-box points={corners(box).map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: color, fillOpacity: 0.2, stroke: color, strokeWidth: 2, strokeDasharray: '4 3', pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />}
+        </MapFrame>
+        {/* 지도 위 알림 띠(생길 때만): 확인 · 저장 못 함 · 안내 · 그리기 띠(구역·선 도구일 때만) · 지운 뒤 되돌리기 */}
+        <div className="mx-over">
+          {ask && <div className="fh-row" role="group" aria-label="확인" ref={(e) => e?.scrollIntoView?.({ block: 'nearest' })}><span>{ask.text}</span>
+            <button type="button" className="btn pri" onClick={() => { const a = ask; setAsk(null); a.go(); }}>{ask.yes}</button>
+            <button type="button" className="btn" onClick={() => setAsk(null)}>계속 편집</button></div>}
+          {!v.upload_id && <p className="fh-msg" role="alert">이 지도는 아직 편집 저장을 지원하지 않습니다. 도구는 써 볼 수 있지만 저장할 수는 없습니다.</p>}
+          {!saving && msg && note}
+          {(zone || line) && <div className="fh-row" role="group" aria-label="그리기">
+            {zone && <button type="button" className="btn" aria-pressed={dots} disabled={lock} onClick={() => dotMode(!dots)}>점으로 그리기</button>}
+            {(line || dots) && <>
+              <button type="button" className="btn" disabled={lock || !pts.length} onClick={finish}>{zone ? '닫기' : '끝내기'}</button>
+              <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts(pts.slice(0, -1))}>되돌리기</button>
+              <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts([])}>지우기</button>
+            </>}
+            {line && <label className="fh-row"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} style={{ width: 96 }} value={Number.isFinite(width) ? width : ''} onChange={(e) => lock || setWidth(num(e.target.value))} /></label>}
+          </div>}
+          {back && <div className="fh-row" role="status" data-undo><span>{back.text}</span>
+            <button type="button" className="btn" onClick={() => { put(back.f); setUndo(null); }}>되돌리기</button></div>}
+        </div>
+        <Hint text={short} more={hint} />
       </div>
-      <aside className="ms-steps" aria-label="요소 창">
-        <button type="button" className="btn ms-fold" aria-expanded={open} aria-controls="me-list" onClick={() => setOpen(!open)}>{open ? `요소 ${keys.length} ▸` : `◂ 요소 ${keys.length}`}</button>
-        {open && !keys.length && <p className="lv-note">아직 요소가 없습니다. 왼쪽 도구로 구역·지점을 그리세요.</p>}
-        {open && <ol id="me-list" className="fh-form" style={LIST} aria-label="요소 순서">{keys.map((key, n) =>
-          <li key={key} data-el={key} data-el-bad={key === badKey ? '' : undefined} className="ms-step" style={key === badKey ? { outline: '2px solid var(--bad)' } : undefined}>
-            <div className="fh-row">
-              <button type="button" className="btn fh-grow ms-name" aria-pressed={sel === key} onClick={() => { setSel(key); setMsg(null); }}><Glyph f={f} k={key} /> {n + 1}. {label(f, key).replace(/: $/, '')}</button>
-              <button type="button" className="btn" aria-label={`${n + 1}번 요소 지우기`} disabled={lock} onClick={() => drop(key)}>✕</button>
-            </div></li>)}</ol>}
-      </aside>
-      </div></div>
+      {/* 오른쪽 작업 창: 아무것도 안 고르면 요소 목록, 고르면 그 요소 속성(필수 몇 개 + «더 보기») — «‹» 로 목록 */}
+      <Pane open={open} setOpen={setOpen} bar={`요소 ${keys.length}`} label="요소 창" pick={picker?.(keys.length)} name={name}
+        head={cur ? <><button type="button" className="btn" aria-label="요소 목록으로" title="목록으로" onClick={() => setSel('')}>‹</button>
+          <span className="fh-grow"><Glyph f={f} k={sel} /><span className="mx-cut">{featName(f, sel)}</span><span className="mx-tag">{featSub(f, sel, p.building.floors)}</span></span></>
+          : <span className="fh-grow">요소 {keys.length}</span>}>
+        {bad && <p className="fh-msg mx-in" role="alert" tabIndex={-1} data-bad>{label(f, keyOf(bad.path))}{bad.text}</p>}
+        {cur ? <div className="fh-form mx-in" role="group" aria-label="고른 요소">
+          <b className="mx-sr">{label(f, sel).replace(/: $/, '')}</b>
+          {sg === 'zones' && <>
+            <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={(cur as MapZone).name} onChange={(e) => swap('zones', si, { ...(cur as MapZone), name: e.target.value })} /></label>
+            <label className="fh-field"><span>종류</span><select className="inp" value={(cur as MapZone).type} onChange={(e) => swap('zones', si, { ...(cur as MapZone), type: e.target.value as MapZone['type'] })}>
+              <option value="NO_GO">진입 금지</option><option value="SLOW">감속</option></select></label>
+          </>}
+          {sg === 'waypoints' && <>
+            <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={(cur as MapWaypoint).name} onChange={(e) => swap('waypoints', si, { ...(cur as MapWaypoint), name: e.target.value })} /></label>
+            <label className="fh-field"><span>방향(도, 오른쪽 = 0, 반시계 +)</span><input className="inp" type="number" step={15} value={Number.isFinite((cur as MapWaypoint).yaw) ? deg((cur as MapWaypoint).yaw) : ''}
+              onChange={(e) => swap('waypoints', si, { ...(cur as MapWaypoint), yaw: rad(num(e.target.value)) })} /></label>
+          </>}
+          {sg === 'connectors' && (() => { const c = cur as MapConnector;
+            return <>
+              <label className="fh-field"><span>종류</span><select className="inp" value={c.kind} onChange={(e) => swap('connectors', si, { ...c, kind: e.target.value as MapConnector['kind'] })}>
+                <option value="STAIRS">계단</option><option value="ELEVATOR">엘리베이터</option></select></label>
+              <label className="fh-field"><span>짝 층(같은 건물)</span><select className="inp" value={c.pair_floor_id} onChange={(e) => swap('connectors', si, { ...c, pair_floor_id: e.target.value, id: newId() })}>
+                {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
+            </>; })()}
+          {sg === 'edits' && <label className="fh-field"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} value={Number.isFinite((cur as MapEdit).width) ? (cur as MapEdit).width : ''}
+            onChange={(e) => swap('edits', si, { ...(cur as MapEdit), width: num(e.target.value) })} /></label>}
+          <details className="fh-fold"><summary>더 보기</summary>
+            {sg === 'connectors' && (() => { const c = cur as MapConnector, cands = (pairs[c.pair_floor_id] ?? []).filter((k) => k.id === c.id || !f.connectors.some((o) => o.id === k.id));
+              return <label className="fh-field"><span>짝 연결점</span><select className="inp" value={cands.some((k) => k.id === c.id) ? c.id : ''}
+                onChange={(e) => { const k = cands.find((x) => x.id === e.target.value); swap('connectors', si, k ? { ...c, id: k.id, kind: k.kind } : { ...c, id: newId() }); }}>
+                <option value="">새 연결점(짝 층에도 같은 짝을 놓아야 이어짐)</option>
+                {cands.map((k) => <option key={k.id} value={k.id}>{`짝 층의 ${KIND[k.kind] ?? ''} 연결점 (${k.x.toFixed(1)}, ${k.y.toFixed(1)})`}</option>)}</select></label>; })()}
+            <div className="fh-row"><button type="button" className="btn" disabled={lock} onClick={() => drop(sel)}>이 요소 지우기</button></div>
+          </details>
+        </div>
+        : <>
+          {!keys.length && <p className="lv-note mx-in">아직 요소가 없습니다. 왼쪽 도구로 구역·벽을 그리세요.</p>}
+          <ol className="mx-list" aria-label="요소 순서">{keys.map((key, n) =>
+            <li key={key} data-el={key} data-bad={key === badKey ? '' : undefined} className="mx-row">
+              <button type="button" className="mx-name" aria-pressed={sel === key} onClick={() => { setSel(key); setMsg(null); }}><Glyph f={f} k={key} /><b>{featName(f, key)}</b>{fresh(key) && <span className="lv-chip ok" data-new>새로</span>}<small>{featSub(f, key, p.building.floors)}</small></button>
+              <button type="button" className="mx-x" aria-label={`${n + 1}번 요소 지우기`} title="지우기" disabled={lock} onClick={() => drop(key)}>✕</button>
+            </li>)}</ol>
+        </>}
+        {foot && <div className="mx-foot">{foot}</div>}
+      </Pane>
     </div>
-    <p className="lv-note" role="status">{hint}</p>
-    {(zone || line) && <div className="fh-row" role="group" aria-label="그리기">
-      {zone && <button type="button" className="btn" aria-pressed={dots} disabled={lock} onClick={() => dotMode(!dots)}>점으로 그리기</button>}
-      {(line || dots) && <>
-        <button type="button" className="btn" disabled={lock || !pts.length} onClick={finish}>{zone ? '닫기' : '끝내기'}</button>
-        <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts(pts.slice(0, -1))}>되돌리기</button>
-        <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts([])}>지우기</button>
-      </>}
-      {line && <label className="fh-row"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} style={{ width: 96 }} value={Number.isFinite(width) ? width : ''} onChange={(e) => lock || setWidth(num(e.target.value))} /></label>}
-    </div>}
-    {cur && <div className="fh-form" role="group" aria-label="고른 요소">
-      <b>{label(f, sel).replace(/: $/, '')}</b>
-      {sg === 'zones' && <>
-        <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={(cur as MapZone).name} onChange={(e) => swap('zones', si, { ...(cur as MapZone), name: e.target.value })} /></label>
-        <label className="fh-field"><span>종류</span><select className="inp" value={(cur as MapZone).type} onChange={(e) => swap('zones', si, { ...(cur as MapZone), type: e.target.value as MapZone['type'] })}>
-          <option value="NO_GO">진입 금지</option><option value="SLOW">감속</option></select></label>
-      </>}
-      {sg === 'waypoints' && <>
-        <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={(cur as MapWaypoint).name} onChange={(e) => swap('waypoints', si, { ...(cur as MapWaypoint), name: e.target.value })} /></label>
-        <label className="fh-field"><span>방향(도, 오른쪽 = 0, 반시계 +)</span><input className="inp" type="number" step={15} value={Number.isFinite((cur as MapWaypoint).yaw) ? deg((cur as MapWaypoint).yaw) : ''}
-          onChange={(e) => swap('waypoints', si, { ...(cur as MapWaypoint), yaw: rad(num(e.target.value)) })} /></label>
-      </>}
-      {sg === 'connectors' && (() => { const c = cur as MapConnector, cands = (pairs[c.pair_floor_id] ?? []).filter((k) => k.id === c.id || !f.connectors.some((o) => o.id === k.id));
-        return <>
-          <label className="fh-field"><span>종류</span><select className="inp" value={c.kind} onChange={(e) => swap('connectors', si, { ...c, kind: e.target.value as MapConnector['kind'] })}>
-            <option value="STAIRS">계단</option><option value="ELEVATOR">엘리베이터</option></select></label>
-          <label className="fh-field"><span>짝 층(같은 건물)</span><select className="inp" value={c.pair_floor_id} onChange={(e) => swap('connectors', si, { ...c, pair_floor_id: e.target.value, id: newId() })}>
-            {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
-          <label className="fh-field"><span>짝 연결점</span><select className="inp" value={cands.some((k) => k.id === c.id) ? c.id : ''}
-            onChange={(e) => { const k = cands.find((x) => x.id === e.target.value); swap('connectors', si, k ? { ...c, id: k.id, kind: k.kind } : { ...c, id: newId() }); }}>
-            <option value="">새 연결점(짝 층에도 같은 짝을 놓아야 이어짐)</option>
-            {cands.map((k) => <option key={k.id} value={k.id}>{`짝 층의 ${KIND[k.kind] ?? ''} 연결점 (${k.x.toFixed(1)}, ${k.y.toFixed(1)})`}</option>)}</select></label>
-        </>; })()}
-      {sg === 'edits' && <label className="fh-field"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} value={Number.isFinite((cur as MapEdit).width) ? (cur as MapEdit).width : ''}
-        onChange={(e) => swap('edits', si, { ...(cur as MapEdit), width: num(e.target.value) })} /></label>}
-      <div className="fh-row"><button type="button" className="btn" disabled={lock} onClick={() => drop(sel)}>이 요소 지우기</button></div>
-    </div>}
-    {bad && <p className="fh-msg" role="alert" data-bad>{label(f, keyOf(bad.path))}{bad.text}</p>}
-    <form className="fh-form" onSubmit={save} noValidate aria-label="새 판으로 저장">
-      <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => lock || setReason(e.target.value)} /></label>
-      <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>새 판으로 저장</button>
-        {stale && <button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button>}</div>
-      {busy && <p className="lv-note" role="status">새 판으로 저장하는 중…</p>}
-      <Note m={msg} />
-    </form>
+    <Pop open={saving} close={() => setSaving(false)} label="지도 저장">
+      <form className="fh-form" onSubmit={save} noValidate aria-label="지도 저장">
+        <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => lock || setReason(e.target.value)} /></label>
+        <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>저장</button>
+          {stale && <button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button>}</div>
+        {busy && <p className="lv-note" role="status">저장하는 중…</p>}
+        {saving && note}
+      </form>
+    </Pop>
     </fieldset>
-  </div>;
+  </>;
 }
 
-const LIST = { listStyle: 'none', margin: 0, padding: 0 } as const;
+/** 요소 목록 순서(구역·지점·연결점·지우개/벽 선) — 키 «무리.번호» */
+export const featKeys = (f: MapFeatures) => (['zones', 'waypoints', 'connectors', 'edits'] as Group[]).flatMap((g) => f[g].map((_, i) => `${g}.${i}`));
+/** 목록 줄 이름(구역·지점 = 이름, 연결점 = 종류, 선 = 지우개·벽 선) */
+export function featName(f: MapFeatures, k: string) {
+  const [g, i] = split(k), x = f[g]?.[i] as Item | undefined;
+  if (!x) return '';
+  return g === 'zones' ? (x as MapZone).name : g === 'waypoints' ? (x as MapWaypoint).name : g === 'connectors' ? `${KIND[(x as MapConnector).kind] ?? ''}` : `${EDIT[(x as MapEdit).op]?.text ?? ''} 선`;
+}
+/** 목록 줄 짧은 부가(종류·방향·짝 층·굵기) */
+export function featSub(f: MapFeatures, k: string, floors: { id: string; name: string }[] = []) {
+  const [g, i] = split(k), x = f[g]?.[i] as Item | undefined;
+  if (!x) return '';
+  if (g === 'zones') return ZONE[(x as MapZone).type]?.text ?? '';
+  if (g === 'waypoints') return Number.isFinite((x as MapWaypoint).yaw) ? `지점 · ${deg((x as MapWaypoint).yaw)}°` : '지점';
+  if (g === 'connectors') return `연결점 → ${floors.find((o) => o.id === (x as MapConnector).pair_floor_id)?.name ?? '?'}`;
+  return Number.isFinite((x as MapEdit).width) ? `${(x as MapEdit).width} m` : '';
+}
+/** 편집 도구 아이콘(이름은 툴팁·화면 읽기 글) — 지도 위 모양과 같은 생김새 */
+const ic = (d: JSX.Element) => <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" style={{ fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }}>{d}</svg>;
+const ICON: Record<Tool, JSX.Element> = {
+  pick: ic(<path d="M5 3l11 6.5-5 1.3-2.4 4.7z" style={{ fill: 'currentColor' }} />),
+  NO_GO: ic(<><rect x="3" y="3" width="14" height="14" rx="1.5" /><path d="M4 16L16 4" /></>),
+  SLOW: ic(<rect x="3" y="3" width="14" height="14" rx="1.5" strokeDasharray="1.5 2.6" />),
+  connector: ic(<path d="M3 17h4v-4h4V9h4V5h2" />),
+  WALL: ic(<path d="M4 16L16 4" style={{ strokeWidth: 3.5 }} />),
+};
+
 /** 요소 창 줄의 종류 표시(지도 위 모양과 같은 색·모양) */
-function Glyph({ f, k }: { f: MapFeatures; k: string }) {
-  const [g, i] = split(k), x = f[g][i] as Item;
+export function Glyph({ f, k }: { f: MapFeatures; k: string }) {
+  const [g, i] = split(k), x = f[g]?.[i] as Item | undefined;
+  if (!x) return null;
   return <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style={{ flex: 'none' }}>
     {g === 'zones' ? <rect x="1.5" y="1.5" width="11" height="11" style={{ fill: fillOf(i), fillOpacity: 0.3, stroke: fillOf(i), strokeWidth: 2, ...((x as MapZone).type === 'SLOW' && { strokeDasharray: '1 2.5' }) }} />
       : g === 'waypoints' ? <circle cx="7" cy="7" r="5" style={{ fill: 'var(--accent)' }} />

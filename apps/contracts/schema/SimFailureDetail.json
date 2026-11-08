@@ -61,7 +61,8 @@
         "resources_low",
         "manager_unreachable",
         "slot_busy",
-        "unknown"
+        "unknown",
+        "guard_access"
       ],
       "title": "Reason",
       "type": "string"

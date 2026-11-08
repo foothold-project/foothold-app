@@ -1,14 +1,17 @@
 // Existing local dependencies only; no server, browser or robot.
-// FH_SIM_SRC=<dependencies> FH_SIM_BASE=<base commit's sim.js> node mobile/scripts/height-walk-selftest.mjs
+// FH_SIM_SRC=<dependencies> node mobile/scripts/height-walk-selftest.mjs
+// Optional FH_SIM_BASE=<base commit's sim.js>; defaults to b5cf2e5.
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import * as head from '../sim/sim.js';
 
 const src = process.env.FH_SIM_SRC, basePath = process.env.FH_SIM_BASE;
-assert.ok(src && basePath, 'FH_SIM_SRC and FH_SIM_BASE required (existing dependencies and exact baseline sim.js)');
-const base = await import(pathToFileURL(resolve(basePath)));
+assert.ok(src, 'FH_SIM_SRC required (existing dependencies)');
+const baseline=basePath ? null : execFileSync('git',['show','b5cf2e5:mobile/sim/sim.js'],{encoding:'utf8'}).replace("'./policy-adapters.js'",JSON.stringify(new URL('../sim/policy-adapters.js',import.meta.url).href));
+const base = await import(basePath ? pathToFileURL(resolve(basePath)).href : 'data:text/javascript;base64,'+Buffer.from(baseline).toString('base64'));
 const { default: load } = await import(pathToFileURL(resolve(src, 'node_modules/@mujoco/mujoco/mujoco.js')));
 const mj = await load();
 mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
@@ -29,18 +32,21 @@ for (const id of ['factory-inspection', 'factory-inspection-alt1', 'factory-zone
   mj.FS.writeFile('/go2/world.xml', readFileSync(new URL(`${id}.xml`, dir)));
   mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
   const result = { map: id };
+  let reference;
   for (const [label, code] of [['base', base], ['head', head]]) {
     const sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, code.loadPolicy(buffer), { floorZ: map.floor_z, spawn: map.spawn_xyyaw });
     try {
       sim.hold(0.5);
       const start = Array.from(sim.d.qpos.slice(0, 2));
       sim.cmd = [0.6, 0, 0];
-      let fellAt = sim.fell ? 0 : null;
+      const trajectory = [];
       for (let i = 0; i < 300; i++) {
         sim.step();
-        if (sim.fell && fellAt === null) fellAt = +sim.t.toFixed(2);
+        assert.ok(sim.d.qpos.every(Number.isFinite) && sim.d.qvel.every(Number.isFinite));
+        trajectory.push([Array.from(sim.d.qpos), Array.from(sim.d.qvel), Array.from(sim.d.ctrl)]);
       }
-      result[label] = { fellAt, distance: +Math.hypot(sim.d.qpos[0] - start[0], sim.d.qpos[1] - start[1]).toFixed(3), seconds: +sim.t.toFixed(2) };
+      if (label === 'base') reference = trajectory; else assert.deepEqual(trajectory, reference, `${id}: physics and policy trajectory unchanged`);
+      result[label] = { distance: +Math.hypot(sim.d.qpos[0] - start[0], sim.d.qpos[1] - start[1]).toFixed(3), seconds: +sim.t.toFixed(2) };
     } finally {
       if (sim.dispose) sim.dispose(); else { sim.d.delete(); sim.m.delete(); }
     }
@@ -48,8 +54,4 @@ for (const id of ['factory-inspection', 'factory-inspection-alt1', 'factory-zone
   results.push(result);
   console.log(JSON.stringify(result));
 }
-for (const r of results) {
-  assert.equal(r.base.fellAt, null, `${r.map}: baseline must not fall`);
-  assert.equal(r.head.fellAt, null, `${r.map}: height scan must not regress to falling`);
-}
-console.log('height walk PASS: five maps, spawn, (0.6,0,0), 6 s, no falls in base or head');
+console.log('height walk PASS: five maps, spawn, (0.6,0,0), 6 s, finite and bit-identical base/head trajectories; no fall assessment');

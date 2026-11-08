@@ -52,6 +52,17 @@
           ],
           "title": "State",
           "type": "string"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceStatusCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -61,6 +72,45 @@
         "state"
       ],
       "title": "Device",
+      "type": "object"
+    },
+    "DeviceStatusCode": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": [
+            "OK",
+            "ACCEPTED",
+            "ERROR"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "raw": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "title": "Raw",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "const": "EXPLICIT_SERVER_ALLOWLIST",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "raw",
+        "level",
+        "reason"
+      ],
+      "title": "DeviceStatusCode",
       "type": "object"
     },
     "FloorContext": {
@@ -233,6 +283,253 @@
       "title": "FloorContext",
       "type": "object"
     },
+    "Go2Attitude": {
+      "additionalProperties": false,
+      "description": "Display-only LowState IMU rpy, radians; invalid axes become unknown.",
+      "properties": {
+        "pitch": {
+          "anyOf": [
+            {
+              "maximum": 3.141592653589793,
+              "minimum": -3.141592653589793,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pitch"
+        },
+        "roll": {
+          "anyOf": [
+            {
+              "maximum": 3.141592653589793,
+              "minimum": -3.141592653589793,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Roll"
+        }
+      },
+      "required": [
+        "roll",
+        "pitch"
+      ],
+      "title": "Go2Attitude",
+      "type": "object"
+    },
+    "Go2Joints": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "names": {
+          "items": {
+            "enum": [
+              "FR_hip_joint",
+              "FR_thigh_joint",
+              "FR_calf_joint",
+              "FL_hip_joint",
+              "FL_thigh_joint",
+              "FL_calf_joint",
+              "RR_hip_joint",
+              "RR_thigh_joint",
+              "RR_calf_joint",
+              "RL_hip_joint",
+              "RL_thigh_joint",
+              "RL_calf_joint"
+            ],
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Names",
+          "type": "array"
+        },
+        "positions": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Positions",
+          "type": "array"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "received_at",
+        "age_s",
+        "names",
+        "positions"
+      ],
+      "title": "Go2Joints",
+      "type": "object"
+    },
+    "Go2Position": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "origin": {
+          "const": "BOOT_ORIGIN_UNVERIFIED",
+          "title": "Origin",
+          "type": "string"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "xyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Xyz",
+          "type": "array"
+        }
+      },
+      "required": [
+        "received_at",
+        "age_s",
+        "xyz",
+        "origin"
+      ],
+      "title": "Go2Position",
+      "type": "object"
+    },
+    "Go2Quaternion": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "wxyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Wxyz",
+          "type": "array"
+        }
+      },
+      "required": [
+        "received_at",
+        "age_s",
+        "wxyz"
+      ],
+      "title": "Go2Quaternion",
+      "type": "object"
+    },
+    "Go2RobotInfo": {
+      "additionalProperties": false,
+      "description": "Readout only; never an input to STOP, lease, readiness or accepted codes.",
+      "properties": {
+        "attitude": {
+          "$ref": "#/$defs/Go2Attitude"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2).",
+          "title": "Error Code"
+        },
+        "fallen": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fallen"
+        },
+        "fallen_source": {
+          "const": "imu_tilt_estimate",
+          "title": "Fallen Source",
+          "type": "string"
+        },
+        "joints": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2Joints"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2Position"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "quaternion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2Quaternion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "const": "GO2_DDS",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "attitude",
+        "error_code",
+        "fallen",
+        "fallen_source"
+      ],
+      "title": "Go2RobotInfo",
+      "type": "object"
+    },
     "Location": {
       "additionalProperties": false,
       "properties": {
@@ -334,6 +631,180 @@
       ],
       "title": "Location",
       "type": "object"
+    },
+    "PhoneRelayState": {
+      "additionalProperties": false,
+      "description": "Display only: never a direct connection, device inventory or capability.",
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "battery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Battery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/Device"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "robot_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2RobotInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "const": "PHONE",
+          "default": "PHONE",
+          "title": "Source",
+          "type": "string"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Speed"
+        },
+        "valid_for_s": {
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Valid For S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "source",
+        "battery",
+        "speed",
+        "devices",
+        "age_s",
+        "valid_for_s"
+      ],
+      "title": "PhoneRelayState",
+      "type": "object"
+    },
+    "UnlockAxis": {
+      "additionalProperties": false,
+      "properties": {
+        "axis": {
+          "enum": [
+            "vx",
+            "vy",
+            "vz",
+            "wz",
+            "gyro_x",
+            "gyro_y",
+            "gyro_z",
+            "joint_0",
+            "joint_1",
+            "joint_2",
+            "joint_3",
+            "joint_4",
+            "joint_5",
+            "joint_6",
+            "joint_7",
+            "joint_8",
+            "joint_9",
+            "joint_10",
+            "joint_11"
+          ],
+          "title": "Axis",
+          "type": "string"
+        },
+        "limit": {
+          "exclusiveMinimum": 0,
+          "title": "Limit",
+          "type": "number"
+        },
+        "unit": {
+          "enum": [
+            "m/s",
+            "rad/s"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "axis",
+        "value",
+        "limit",
+        "unit"
+      ],
+      "title": "UnlockAxis",
+      "type": "object"
+    },
+    "UnlockRefused": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "axes": {
+          "items": {
+            "$ref": "#/$defs/UnlockAxis"
+          },
+          "maxItems": 19,
+          "title": "Axes",
+          "type": "array"
+        },
+        "reason": {
+          "enum": [
+            "LEASE_UNCONFIRMED",
+            "LEASE_MISMATCH",
+            "INVALID_GENERATION",
+            "OUTPUT_HELD",
+            "NO_CONTROLLER",
+            "NOT_LATCHED",
+            "GENERATION_MISMATCH",
+            "RESET_PENDING",
+            "RESUME_PENDING",
+            "STOP_UNCONFIRMED",
+            "STATE_UNSEEN",
+            "STATE_STALE",
+            "STATE_RESETTING",
+            "POLICY_NOT_RUNNING",
+            "SIM_BUSY",
+            "STILL_MOVING"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "at",
+        "axes"
+      ],
+      "title": "UnlockRefused",
+      "type": "object"
     }
   },
   "$id": "fh-app/1/ScreenState",
@@ -413,10 +884,32 @@
         }
       ]
     },
+    "phone_relay": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PhoneRelayState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "robot": {
       "format": "uuid",
       "title": "Robot",
       "type": "string"
+    },
+    "robot_info": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Go2RobotInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "safety_reason": {
       "anyOf": [
@@ -479,6 +972,17 @@
       "default": "state",
       "title": "T",
       "type": "string"
+    },
+    "unlock_refused": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UnlockRefused"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

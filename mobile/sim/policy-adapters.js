@@ -1,77 +1,100 @@
-// Policy contract: observations, network, action conversion, timing and neutral input.
-// START remains undefined; AME-2 is an opt-in simulation demonstration.
+// Policy observation/network contracts and low-level terrain sampling.
+// Selection is owned by policy-modes.js; the factory avoids eager cyclic reads.
 import { makeAme2Adapter } from './ame2-adapter.js';
-const legs = ['FL', 'FR', 'RL', 'RR'], parts = ['hip', 'thigh', 'calf'];
-const isaacJoints = parts.flatMap((p) => legs.map((l) => `${l}_${p}_joint`));
-const defaultPose = Float64Array.from(isaacJoints, (n) =>
-  n.includes('_hip') ? (n[1] === 'L' ? 0.1 : -0.1) : n.includes('_thigh') ? (n[0] === 'F' ? 0.8 : 1.0) : -1.5);
-const clip = (v) => Math.min(Math.max(v, -1), 1);
-// Isaac Lab grid_pattern(ordering='xy'): meshgrid(x,y,indexing='xy').flatten(), x fastest.
-const grid = Array.from({ length: 187 }, (_, i) => [(i % 17 - 8) * 0.1, (Math.floor(i / 17) - 5) * 0.1]);
+import { MODE_COMMAND_CAPS } from './manual-settings.js';
+export { getPolicyMode as getPolicyAdapter, POLICY_ADAPTERS } from './policy-modes.js';
 
-const footholdV2 = {
-  id: 'foothold-v2',
-  observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
-    dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
-    units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
-    // Training scans only ground from +20 m. Here world geometry includes ceilings:
-    // clip(base_z - hit_z - 0.5, +/-1) reaches -1 at base_z + 0.5;
-    // start 1 mm above that boundary to avoid rounding away boundary hits.
-    height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 0.501, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0 } },
-  network: { file: 'policy_v2.f32', sha256: 'da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c',
-    format: 'float32 LE, row-major weight then bias per layer', shapes: [[512, 235], [256, 512], [128, 256], [12, 128]], activation: 'ELU(1), linear output' },
-  action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
-  timing: { physicsDt: 0.005, decimation: 4, policyDt: 0.02 },
-  command: { kind: 'body_velocity', axes: ['vx', 'vy', 'wz'], trainingRanges: [[0.4, 1.5], [0, 0], [-1, 1]],
-    joystickScale: [1, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
-  stop: { input: [0, 0, 0], commandZero: 'continue policy with zero velocity input', lock: 'existing UI STOP latch; human resume required' },
-  loadPolicy(buf) {
-    const f = new Float32Array(buf), layers = [];
-    let o = 0;
-    for (const [r, c] of this.network.shapes) { layers.push([f.subarray(o, o + r * c), f.subarray(o + r * c, o + r * c + r), r, c]); o += r * c + r; }
-    if (o !== f.length) throw new Error(`가중치 길이 ${f.length} ≠ ${o}`);
-    const outputs = this.network.shapes.map(([r]) => new Float32Array(r));
-    return (x) => {
-      let h = x;
-      layers.forEach(([w, b, r, c], k) => {
-        const y = outputs[k];
-        for (let i = 0; i < r; i++) {
-          let s = b[i];
-          for (let j = 0; j < c; j++) s += w[i * c + j] * h[j];
-          y[i] = k < layers.length - 1 ? (s > 0 ? s : Math.expm1(s)) : s;
+export function createPolicyModeAdapters() {
+  const legs = ['FL', 'FR', 'RL', 'RR'], parts = ['hip', 'thigh', 'calf'];
+  const isaacJoints = parts.flatMap((p) => legs.map((l) => `${l}_${p}_joint`));
+  const defaultPose = Float64Array.from(isaacJoints, (n) =>
+    n.includes('_hip') ? (n[1] === 'L' ? 0.1 : -0.1) : n.includes('_thigh') ? (n[0] === 'F' ? 0.8 : 1.0) : -1.5);
+  const clip = (v) => Math.min(Math.max(v, -1), 1);
+  // Isaac Lab grid_pattern(ordering='xy'): meshgrid(x,y,indexing='xy').flatten(), x fastest.
+  const grid = Array.from({ length: 187 }, (_, i) => [(i % 17 - 8) * 0.1, (Math.floor(i / 17) - 5) * 0.1]);
+
+  const nvidiaDemoMode = {
+    id: 'nvidia-demo', label: 'nvidia-demo',
+    onnx: { file: 'policy_v2.onnx', sha256: 'c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2',
+      inputs: [{ name: 'observation', dims: [1, 235] }],
+      outputs: [{ name: 'action', dims: [1, 12] }], action: 'action' },
+    observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
+      dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
+      units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
+      // Training scans only ground from +20 m. Here world geometry includes ceilings:
+      // clip(base_z - hit_z - 0.5, +/-1) reaches -1 at base_z + 0.5;
+      // start 1 mm above that boundary to avoid rounding away boundary hits.
+      height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 0.501, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0 } },
+    network: { file: 'policy_v2.f32', sha256: 'da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c',
+      format: 'float32 LE, row-major weight then bias per layer', shapes: [[512, 235], [256, 512], [128, 256], [12, 128]], activation: 'ELU(1), linear output' },
+    action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
+    timing: { physicsDt: 0.005, decimation: 4, policyDt: 0.02 },
+    command: { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.nvidia, axes: ['vx', 'vy', 'wz'], trainingRanges: [[0.4, 1.5], [0, 0], [-1, 1]],
+      joystickScale: [1.5, 0.5, 1], inRange: (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1 },
+    stop: { input: [0, 0, 0], commandZero: 'continue policy with zero velocity input', lock: 'existing UI STOP latch; human resume required' },
+    loadPolicy(buf) {
+      const f = new Float32Array(buf), layers = [];
+      let o = 0;
+      for (const [r, c] of this.network.shapes) { layers.push([f.subarray(o, o + r * c), f.subarray(o + r * c, o + r * c + r), r, c]); o += r * c + r; }
+      if (o !== f.length) throw new Error(`가중치 길이 ${f.length} ≠ ${o}`);
+      const outputs = this.network.shapes.map(([r]) => new Float32Array(r));
+      return (x) => {
+        let h = x;
+        layers.forEach(([w, b, r, c], k) => {
+          const y = outputs[k];
+          for (let i = 0; i < r; i++) {
+            let s = b[i];
+            for (let j = 0; j < c; j++) s += w[i * c + j] * h[j];
+            y[i] = k < layers.length - 1 ? (s > 0 ? s : Math.expm1(s)) : s;
+          }
+          h = y;
+        });
+        return h;
+      };
+    },
+    observeInto(obs, s, last, sampleHeight) {
+      const { qpos: q, qvel: v } = s.d;
+      obs.set(s.linB, 0); obs.set(s.angB, 3); obs.set(s.grav, 6); obs.set(s.cmd, 9);
+      for (let i = 0; i < this.action.size; i++) { const j = s.M2I[i]; obs[12 + i] = q[7 + j] - defaultPose[i]; obs[24 + i] = v[6 + j]; }
+      obs.set(last, 36);
+      this.map(s, obs, sampleHeight);
+    },
+    makeHeightScanner(mj, m, d) {
+      const cfg = this.observations.height, sample = makeTerrainSampler(mj, m, d, cfg);
+      const heights = new Float64Array(cfg.grid.length);
+      const scan = (q, out, offset = 0) => {
+        sample(q, heights);
+        for (let i = 0; i < heights.length; i++) {
+          const height = q[2] - heights[i] - cfg.offset;
+          out[offset + i] = Number.isFinite(height) ? clip(height) : cfg.missValue;
         }
-        h = y;
-      });
-      return h;
-    };
-  },
-  observe(obs, s, last, sampleHeight) {
-    const { qpos: q, qvel: v } = s.d;
-    obs.set(s.linB, 0); obs.set(s.angB, 3); obs.set(s.grav, 6); obs.set(s.cmd, 9);
-    for (let i = 0; i < this.action.size; i++) { const j = s.M2I[i]; obs[12 + i] = q[7 + j] - defaultPose[i]; obs[24 + i] = v[6 + j]; }
-    obs.set(last, 36);
-    sampleHeight(q, obs, this.observations.bodySize);
-  },
-  makeHeightScanner(mj, m, d) {
-    const cfg = this.observations.height, sample = makeTerrainSampler(mj, m, d, cfg);
-    const heights = new Float64Array(cfg.grid.length);
-    const scan = (q, out, offset = 0) => {
-      sample(q, heights);
-      for (let i = 0; i < heights.length; i++) {
-        const height = q[2] - heights[i] - cfg.offset;
-        out[offset + i] = Number.isFinite(height) ? clip(height) : cfg.missValue;
-      }
-      return out;
-    };
-    scan.dispose = sample.dispose;
-    return scan;
-  },
-};
+        return out;
+      };
+      scan.dispose = sample.dispose;
+      return scan;
+    },
+    map(s, obs = s.observation, sampleHeight = s.heightScanner) {
+      sampleHeight(s.d.qpos, obs, this.observations.bodySize);
+      return obs.subarray(this.observations.bodySize);
+    },
+  };
+  const ame2DemoMode = makeAme2Adapter(makeTerrainSampler);
+  ame2DemoMode.onnx = {
+    file: 'ame2-demo.onnx', sha256: '830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6',
+    inputs: [{ name: 'prop', dims: [1, 49], type: 'float32' }, { name: 'mapping', dims: [1, 29, 13, 3], type: 'float32' }],
+    outputs: [{ name: 'action', dims: [1, 12], type: 'float32' }, { name: 'gaze_r', dims: [1, 2], type: 'float32' }],
+    action: 'action', state: [],
+  };
+  return { nvidia: nvidiaDemoMode, ame2: ame2DemoMode };
+}
 
 export function makeTerrainSampler(mj, m, d, cfg) {
   const hit = new mj.IntBuffer(1), group = [1, 1, 0, 0, 1, 0], down = [0, 0, -1];
+  const normal = cfg.overheadClearance === undefined ? null : new mj.DoubleBuffer(3), up = [0, 0, 1];
   const point = new Float64Array(3), xy = Float64Array.from(cfg.grid.flat());
   const origins = new Float64Array(xy.length), distances = new Float64Array(cfg.grid.length);
+  const starts = new Float64Array(cfg.grid.length), passes = normal ? [true, false] : [false];
+  const blocked = normal ? new Uint8Array(cfg.grid.length) : null;
   // World collision geometry only, including group-4 heightfields. Do not read
   // robot meshes or conservative lidar-only boxes (both contact masks zero).
   const excluded = [];
@@ -88,6 +111,27 @@ export function makeTerrainSampler(mj, m, d, cfg) {
   const terrain = batched ? Array.from({ length: m.ngeom }, (_, g) => g)
     .filter((g) => body[g] === 0 && (contype[g] || affinity[g]))
     .map((g) => ({ g, pos: new Float64Array(3), mat: new Float64Array(9), size: new Float64Array(3) })) : [];
+  const meshTriangles = (geom) => {
+    const transform = [...geom.pos,...geom.mat];
+    if (geom.transform?.every((x,i) => x === transform[i])) return geom.triangles;
+    geom.transform = transform;
+    const id = m.geom_dataid[geom.g], va = m.mesh_vertadr[id], fa = m.mesh_faceadr[id], vn = m.mesh_vertnum[id], fn = m.mesh_facenum[id];
+    const vertices = m.mesh_vert, faces = m.mesh_face, world = new Float64Array(vn*3), R = geom.mat, p = geom.pos;
+    for (let i=0;i<vn;i++) for (let axis=0;axis<3;axis++) {
+      const t=axis*3, v=(va+i)*3;
+      world[i*3+axis]=p[axis]+R[t]*vertices[v]+R[t+1]*vertices[v+1]+R[t+2]*vertices[v+2];
+    }
+    const triangles=[];
+    for (let i=0;i<fn;i++) {
+      const a=faces[(fa+i)*3]*3,b=faces[(fa+i)*3+1]*3,c=faces[(fa+i)*3+2]*3;
+      const ax=world[a]-world[c],ay=world[a+1]-world[c+1],bx=world[b]-world[c],by=world[b+1]-world[c+1],det=ax*by-ay*bx;
+      // Vertical faces cannot meet a vertical ray except at an edge; edge
+      // queries below retain native evaluation. No height approximation.
+      if (Math.abs(det)<1e-15) continue;
+      triangles.push({cx:world[c],cy:world[c+1],cz:world[c+2],az:world[a+2]-world[c+2],bz:world[b+2]-world[c+2],ax,ay,bx,by,det});
+    }
+    return geom.triangles=triangles;
+  };
   const scan = (q, out) => {
     const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
     const c = Math.cos(yaw), s = Math.sin(yaw), z = q[2] + cfg.rayOffset;
@@ -103,40 +147,127 @@ export function makeTerrainSampler(mj, m, d, cfg) {
       // Views are acquired afresh on each scan (wasm memory may grow).
       const pos = d.geom_xpos, mat = d.geom_xmat, size = m.geom_size, radius = m.geom_rbound, types = m.geom_type, aabb = m.geom_aabb;
       const groups = m.geom_group, rgba = m.geom_rgba, material = m.geom_matid, matRgba = m.mat_rgba;
-      distances.fill(Infinity); point[2] = z;
-      for (const geom of terrain) {
-        const g = geom.g, type = types[g], r = radius[g] + 1e-9;
-        if (!group[Math.max(0, Math.min(5, groups[g]))] || (material[g] < 0 ? rgba[4 * g + 3] : matRgba[4 * material[g] + 3]) === 0) continue;
-        let gx = pos[3 * g], gy = pos[3 * g + 1], rx = r, ry = r, bottom = -Infinity, top = Infinity;
-        // Transform the local bounding box once for the entire grid. Long,
-        // thin shelves have very loose bounding spheres. Heightfields retain
-        // the conservative radius (their elevation samples can be updated).
-        if (type !== 0 && type !== 1 && aabb) {
-          const a = 6 * g, t = 9 * g, ax = aabb[a], ay = aabb[a + 1], az = aabb[a + 2];
-          gx += mat[t] * ax + mat[t + 1] * ay + mat[t + 2] * az;
-          gy += mat[t + 3] * ax + mat[t + 4] * ay + mat[t + 5] * az;
-          rx = Math.abs(mat[t]) * aabb[a + 3] + Math.abs(mat[t + 1]) * aabb[a + 4] + Math.abs(mat[t + 2]) * aabb[a + 5] + 1e-9;
-          ry = Math.abs(mat[t + 3]) * aabb[a + 3] + Math.abs(mat[t + 4]) * aabb[a + 4] + Math.abs(mat[t + 5]) * aabb[a + 5] + 1e-9;
-          const gz = pos[3 * g + 2] + mat[t + 6] * ax + mat[t + 7] * ay + mat[t + 8] * az;
-          const rz = Math.abs(mat[t + 6]) * aabb[a + 3] + Math.abs(mat[t + 7]) * aabb[a + 4] + Math.abs(mat[t + 8]) * aabb[a + 5] + 1e-9;
-          bottom = gz - rz; top = gz + rz;
+      starts.fill(z);
+      blocked?.fill(0);
+      // The optional upward pass uses the same native intersections and XY
+      // broad phase as the downward scan, avoiding a full-world ray per cell.
+      for (const upward of passes) {
+        distances.fill(Infinity); point[2] = upward ? q[2] : z;
+        for (const geom of terrain) {
+          const g = geom.g, type = types[g], r = radius[g] + 1e-9;
+          if (!group[Math.max(0, Math.min(5, groups[g]))] || (material[g] < 0 ? rgba[4 * g + 3] : matRgba[4 * material[g] + 3]) === 0) continue;
+          if (upward && type === 0 && mat[9 * g + 8] >= 0) continue;
+          // An upright heightfield is a solid below a single-valued surface:
+          // above its flat base, upward rays can only exit terrain, never hit
+          // an overhead underside. Elevation edits do not change that base.
+          if (upward && type === 1 && mat[9 * g + 6] === 0 && mat[9 * g + 7] === 0 && mat[9 * g + 8] === 1
+            && pos[3 * g + 2] - m.hfield_size[4 * m.geom_dataid[g] + 3] <= q[2] + cfg.overheadClearance) continue;
+          let gx = pos[3 * g], gy = pos[3 * g + 1], rx = r, ry = r, bottom = -Infinity, top = Infinity;
+          // Transform the local bounding box once for the entire grid. Long,
+          // thin shelves have very loose bounding spheres. Heightfields retain
+          // the conservative radius (their elevation samples can be updated).
+          if (type !== 0 && type !== 1 && aabb) {
+            const a = 6 * g, t = 9 * g, ax = aabb[a], ay = aabb[a + 1], az = aabb[a + 2];
+            gx += mat[t] * ax + mat[t + 1] * ay + mat[t + 2] * az;
+            gy += mat[t + 3] * ax + mat[t + 4] * ay + mat[t + 5] * az;
+            rx = Math.abs(mat[t]) * aabb[a + 3] + Math.abs(mat[t + 1]) * aabb[a + 4] + Math.abs(mat[t + 2]) * aabb[a + 5] + 1e-9;
+            ry = Math.abs(mat[t + 3]) * aabb[a + 3] + Math.abs(mat[t + 4]) * aabb[a + 4] + Math.abs(mat[t + 5]) * aabb[a + 5] + 1e-9;
+            const gz = pos[3 * g + 2] + mat[t + 6] * ax + mat[t + 7] * ay + mat[t + 8] * az;
+            const rz = Math.abs(mat[t + 6]) * aabb[a + 3] + Math.abs(mat[t + 7]) * aabb[a + 4] + Math.abs(mat[t + 8]) * aabb[a + 5] + 1e-9;
+            bottom = gz - rz; top = gz + rz;
+          }
+          // Bounds only reject; all accepted rays use native geometry.
+          // Planes can be infinite, so they always reach the native intersection.
+          if (type !== 0 && (gx + rx < minX || gx - rx > maxX || gy + ry < minY || gy - ry > maxY || bottom > z || (upward && top <= q[2] + cfg.overheadClearance))) continue;
+          if ((type > 1 && type < 7) || type === 0 || (cfg.fastVertical && type === 7)) {
+            geom.pos.set(pos.subarray(3 * g, 3 * g + 3)); geom.mat.set(mat.subarray(9 * g, 9 * g + 9)); geom.size.set(size.subarray(3 * g, 3 * g + 3));
+          }
+          const triangles = cfg.fastVertical && type === 7 ? meshTriangles(geom) : null;
+          // A horizontal box underside has the same intersection height at all
+          // interior cells. Confirm it with one native upward ray, then reuse
+          // that hit only inside this box; edges still use the native ray.
+          const flatBox = upward && type === 6 && mat[9 * g + 6] === 0 && mat[9 * g + 7] === 0;
+          if (flatBox && bottom <= q[2] + cfg.overheadClearance) continue;
+          let flatDistance;
+          for (let i = 0; i < distances.length; i++) {
+            point[0] = origins[2 * i]; point[1] = origins[2 * i + 1];
+            point[2] = upward ? q[2] : starts[i];
+            if (type !== 0 && (Math.abs(point[0] - gx) > rx || Math.abs(point[1] - gy) > ry || (upward ? bottom - point[2] > distances[i] : bottom > point[2] || point[2] - top > distances[i]))) continue;
+            const direction = upward ? up : down, surfaceNormal = upward || (normal && starts[i] < z) ? normal : null;
+            let cached = false;
+            if (flatBox) {
+              const dx = point[0] - geom.pos[0], dy = point[1] - geom.pos[1];
+              const lx = Math.abs(geom.mat[0] * dx + geom.mat[3] * dy), ly = Math.abs(geom.mat[1] * dx + geom.mat[4] * dy);
+              if (lx > geom.size[0] + 1e-10 || ly > geom.size[1] + 1e-10) continue;
+              cached = flatDistance !== undefined && lx < geom.size[0] - 1e-10 && ly < geom.size[1] - 1e-10;
+            }
+            let distance;
+            const t = geom.mat, p = geom.pos, sz = geom.size;
+            if (triangles) {
+              distance = -1;
+              const skipped = upward ? [] : null;
+              for (const f of triangles) {
+                const dx = point[0]-f.cx, dy = point[1]-f.cy, u = (dx*f.by-dy*f.bx)/f.det, v = (f.ax*dy-f.ay*dx)/f.det;
+                if (u < -1e-10 || v < -1e-10 || u+v > 1+1e-10) continue;
+                if (Math.min(Math.abs(u),Math.abs(v),Math.abs(1-u-v)) < 1e-10) { distance = mj.mj_rayMesh(m,d,g,point,direction,surfaceNormal); break; }
+                const height = f.cz+u*f.az+v*f.bz, rayDistance = upward ? height-point[2] : point[2]-height;
+                // The same cached triangle heights accelerate upward rays.
+                // Skip low treads and exits; retain native stepping for faces
+                // closer than its 1mm traversal epsilon or at triangle edges.
+                if (upward && (f.det >= 0 || rayDistance <= cfg.overheadClearance)) { if (rayDistance >= 0) skipped.push(rayDistance); continue; }
+                if (rayDistance >= 0 && (distance < 0 || rayDistance < distance)) {
+                  distance = rayDistance;
+                  if (surfaceNormal) surfaceNormal.GetView()[2] = Math.sign(f.det);
+                }
+              }
+              if (upward && distance >= 0 && skipped.some((x) => x < distance && distance-x <= .001)) distance = mj.mj_rayMesh(m,d,g,point,direction,surfaceNormal);
+            } else if (!upward && cfg.fastVertical && (type === 0 || type === 6) && t[2] === 0 && t[5] === 0 && t[6] === 0 && t[7] === 0 && t[8] === 1) {
+              // Keep #270's exact start-only fast intersections, using each
+              // cell's capped origin and preserving the exit sign for B1.
+              const dx = point[0]-p[0], dy = point[1]-p[1], dz = point[2]-p[2];
+              const x = t[0]*dx+t[3]*dy, y = t[1]*dx+t[4]*dy;
+              if (type === 0) distance = dz >= 0 && (sz[0] <= 0 || Math.abs(x) <= sz[0]) && (sz[1] <= 0 || Math.abs(y) <= sz[1]) ? dz : -1;
+              else distance = Math.abs(x) <= sz[0] && Math.abs(y) <= sz[1] && dz >= -sz[2] ? (dz >= sz[2] ? dz-sz[2] : dz+sz[2]) : -1;
+              if (surfaceNormal && distance >= 0) surfaceNormal.GetView()[2] = type === 0 || dz >= sz[2] ? 1 : -1;
+            } else distance = cached ? flatDistance : type === 7 ? mj.mj_rayMesh(m, d, g, point, direction, surfaceNormal)
+              : type === 1 ? mj.mj_rayHfield(m, d, g, point, direction, surfaceNormal)
+                : mj.mju_rayGeom(geom.pos, geom.mat, geom.size, point, direction, type, surfaceNormal);
+            // A mesh can contain several disconnected plates. Continue past a
+            // low tread or an upward-facing exit to find its higher underside.
+            if (upward && type === 7) {
+              for (let crossings = 0; crossings <= m.ngeom && distance >= 0 && point[2] + distance <= z; crossings++) {
+                if (point[2] + distance > q[2] + cfg.overheadClearance && normal.GetView()[2] < 0) break;
+                point[2] += distance + .001;
+                distance = mj.mj_rayMesh(m, d, g, point, up, normal);
+              }
+              if (distance >= 0) distance += point[2] - q[2];
+            }
+            // An exit from a solid wall is upward-facing and remains terrain.
+            // Low underside hits are stair plates, not overhead covers.
+            if (upward && (distance <= cfg.overheadClearance || distance > cfg.rayOffset || (!cached && normal.GetView()[2] >= 0))) continue;
+            if (flatBox) flatDistance = distance;
+            // A capped origin can be inside a wall/column intersecting the
+            // cover. A downward-facing exit is not a ground hit: reject that
+            // cap and restore the original 20m ray for this cell instead.
+            if (!upward && surfaceNormal && type !== 0 && distance >= 0 && normal.GetView()[2] < 0) {
+              blocked[i] = 1; distance = 0;
+            }
+            if (distance >= 0 && distance < distances[i]) distances[i] = distance;
+          }
         }
-        // Bounds only reject; all accepted rays use native geometry.
-        // Planes can be infinite, so they always reach the native intersection.
-        if (type !== 0 && (gx + rx < minX || gx - rx > maxX || gy + ry < minY || gy - ry > maxY || bottom > z)) continue;
-        if ((type > 1 && type < 7) || type === 0) {
-          geom.pos.set(pos.subarray(3 * g, 3 * g + 3)); geom.mat.set(mat.subarray(9 * g, 9 * g + 9)); geom.size.set(size.subarray(3 * g, 3 * g + 3));
-        }
-        for (let i = 0; i < distances.length; i++) {
-          point[0] = origins[2 * i]; point[1] = origins[2 * i + 1];
-          if (type !== 0 && (Math.abs(point[0] - gx) > rx || Math.abs(point[1] - gy) > ry || z - top > distances[i])) continue;
-          const distance = type === 7 ? mj.mj_rayMesh(m, d, g, point, down, null)
-            : type === 1 ? mj.mj_rayHfield(m, d, g, point, down, null)
-              : mj.mju_rayGeom(geom.pos, geom.mat, geom.size, point, down, type, null);
-          if (distance >= 0 && distance < distances[i]) distances[i] = distance;
-        }
+        if (upward) for (let i = 0; i < starts.length; i++) starts[i] = Number.isFinite(distances[i]) ? q[2] + distances[i] - .001 : z;
       }
-      for (let i = 0; i < distances.length; i++) out[i] = Number.isFinite(distances[i]) ? z - distances[i] : NaN;
+      for (let i = 0; i < distances.length; i++) out[i] = Number.isFinite(distances[i]) ? starts[i] - distances[i] : NaN;
+      if (blocked?.some(Boolean)) {
+        for (const [g] of excluded) groups[g] = 5;
+        try {
+          for (let i = 0; i < blocked.length; i++) if (blocked[i]) {
+            point[0] = origins[2 * i]; point[1] = origins[2 * i + 1]; point[2] = z;
+            const distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, null);
+            out[i] = distance >= 0 && Number.isFinite(distance) ? z - distance : NaN;
+          }
+        } finally { for (const [g, original] of excluded) groups[g] = original; }
+      }
       return out;
     }
     // Restore groups before any lidar/physics call; this scan is synchronous.
@@ -147,23 +278,46 @@ export function makeTerrainSampler(mj, m, d, cfg) {
     try {
       // mj_multiRay accepts ONE shared origin. This grid has distinct origins;
       // keep exact vertical rays, batching setup and reusing their input buffer.
-      point[2] = z;
       for (let i = 0; i < xy.length / 2; i++) {
         const x = xy[2 * i], y = xy[2 * i + 1];
         point[0] = q[0] + c * x - s * y; point[1] = q[1] + s * x + c * y;
-        const distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, null);
-        out[i] = distance >= 0 && Number.isFinite(distance) ? z - distance : NaN;
+        let start = z;
+        if (normal) {
+          point[2] = q[2];
+          for (let crossings = 0; crossings <= m.ngeom && point[2] < z; crossings++) {
+            const distance = mj.mj_ray(m, d, point, up, group, true, -1, hit, normal);
+            const underside = point[2] + distance;
+            if (!Number.isFinite(distance) || distance < 0 || underside > z) break;
+            if (normal.GetView()[2] < 0 && underside > q[2] + cfg.overheadClearance) { start = underside - .001; break; }
+            point[2] = underside + .001;
+          }
+        }
+        point[2] = start;
+        let distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, start < z ? normal : null);
+        if (start < z) {
+          // The nearest entry (e.g. a floor sharing a wall's bottom) can hide
+          // another geom's exit. Test every intersected geom from the SAME
+          // origin, temporarily excluding earlier entries, as the batch does.
+          const firstDistance = distance, suppressed = [];
+          let inside = false;
+          try {
+            for (let crossings = 0; distance >= 0 && crossings < m.ngeom; crossings++) {
+              const g = hit.GetView()[0];
+              if (m.geom_type[g] !== 0 && normal.GetView()[2] < 0) { inside = true; break; }
+              suppressed.push([g, groups[g]]); groups[g] = 5;
+              distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, normal);
+            }
+          } finally { for (const [g, original] of suppressed) groups[g] = original; }
+          if (inside) {
+            start = z; point[2] = z;
+            distance = mj.mj_ray(m, d, point, down, group, true, -1, hit, null);
+          } else distance = firstDistance;
+        }
+        out[i] = distance >= 0 && Number.isFinite(distance) ? start - distance : NaN;
       }
     } finally { for (const [g, original] of excluded) groups[g] = original; }
     return out;
   };
-  scan.dispose = () => hit.delete();
+  scan.dispose = () => { hit.delete(); normal?.delete(); };
   return scan;
-}
-
-export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2, 'ame2-demo': makeAme2Adapter(makeTerrainSampler) });
-export function getPolicyAdapter(id = 'foothold-v2') {
-  const adapter = Object.hasOwn(POLICY_ADAPTERS, id) && POLICY_ADAPTERS[id];
-  if (!adapter) throw new Error(`알 수 없는 정책 어댑터: ${id}`);
-  return adapter;
 }

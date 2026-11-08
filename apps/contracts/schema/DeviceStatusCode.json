@@ -1,0 +1,41 @@
+{
+  "$id": "fh-app/1/DeviceStatusCode",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "level": {
+      "enum": [
+        "OK",
+        "ACCEPTED",
+        "ERROR"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "raw": {
+      "maximum": 4294967295,
+      "minimum": 0,
+      "title": "Raw",
+      "type": "integer"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "const": "EXPLICIT_SERVER_ALLOWLIST",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    }
+  },
+  "required": [
+    "raw",
+    "level",
+    "reason"
+  ],
+  "title": "DeviceStatusCode",
+  "type": "object"
+}

@@ -33,6 +33,16 @@ def catalogue(tmp_path):
         "def arg_errors(target, env):\n"
         "    return [] if target == TARGET and env == REQUIRED_ENV else ['refused']\n")
     (source / 'live_map.py').write_text('synthetic runtime')
+    from apps.simmgr.mesh_resources import MODEL, PROFILE, MESHES
+    model = source / f'out/{PROFILE}/model/{MODEL}/model.sdf'
+    model.parent.mkdir(parents=True)
+    meshdir = root.parent / 'gz/model/out/meshes'
+    meshdir.mkdir(parents=True)
+    uris = []
+    for name in sorted(MESHES):
+        (meshdir / name).write_text('<COLLADA/>')
+        uris.append(f'<uri>file:///build/gz/model/out/meshes/{name}</uri>')
+    model.write_text('<sdf><model name="go2">' + ''.join(uris) + '</model></sdf>')
     entries, worlds = {}, {}
     for key, pose in [('v5_single/f1', [-12, -9, .4, 0, 0, 0]),
                       ('building/l1', [-12, -9, .4, 0, 0, 0]),
@@ -82,6 +92,7 @@ def test_native_catalogue_also_required(catalogue, key):
 def test_registered_l2_launcher_passes_the_selected_native_pair(catalogue, tmp_path, monkeypatch):
     root, source, worlds = catalogue
     monkeypatch.setenv('FH_SIM_RUN', '1')
+    monkeypatch.setenv('HOME', '/sealed/read-only-home')
     monkeypatch.setattr(launcher, 'ROOT', tmp_path)
     monkeypatch.setattr(launcher, 'startup_preflight', lambda *_: {})
     cfg = replace(settings(), source=str(source), ros_setup='unused', run_dir=str(tmp_path/'runs/l2'), worlds=worlds)
@@ -90,8 +101,16 @@ def test_registered_l2_launcher_passes_the_selected_native_pair(catalogue, tmp_p
         reason = None
         started = False
         def __init__(self, folder, source, setup, *, native, configured_world, **kwargs):
-            captured.update(native=native, configured_world=configured_world)
+            captured.update(native=native, configured_world=configured_world,
+                            folder=folder, env=kwargs['launch_env'])
         def start(self):
+            home = Path(captured['env']['HOME'])
+            assert home == captured['folder'] / 'native-home'
+            assert home.stat().st_mode & 0o777 == 0o700
+            assert (home / '.gz').is_dir()
+            assert (home / '.gz').stat().st_mode & 0o777 == 0o700
+            # Stand in for gz-common's first write, without loading Gazebo/ROS.
+            (home / '.gz' / 'auto_default.log').write_text('synthetic')
             self.started = True
         def live_identity(self):
             return {'partition': 'synthetic'}

@@ -210,7 +210,7 @@ class Simulation:
         script = ('set -e; source "$1"; export ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST '
                   'ROS_LOCALHOST_ONLY=1 GZ_IP=127.0.0.1 PYTHONDONTWRITEBYTECODE=1 ROS_LOG_DIR="$4"; '
                   'PYTHONPATH="$5:${PYTHONPATH:-}" /usr/bin/python3 -c "from foothold_agent.ros_bridge.config import validate_isolation; validate_isolation()"; '
-                  'exec /usr/bin/python3 "$2/live_map.py" --isolated-verify --sensor-profile l1-d435i-c2-min '
+                  'exec /usr/bin/python3 "$6" "$2/live_map.py" --isolated-verify --sensor-profile l1-d435i-c2-min '
                   f'--purpose session --world-id {WORLD_ID} --floor-id {FLOOR_ID} --map-mode static --map-version {GT_VERSION} --out "$3"')
         args = ['systemd-run', '--user', '--unit=' + self.unit, '--collect', '--property=Slice=foothold-sim.slice', '--property=MemoryMax=1500M',
                 '--property=MemorySwapMax=0', '--property=CPUQuota=200%', '--property=TasksMax=256',
@@ -218,7 +218,7 @@ class Simulation:
                 '--property=TimeoutStopSec=45', '--property=RuntimeMaxSec=' + str(self.seconds),
                 '--working-directory=' + str(self.source.parent.parent.parent / MAP_DIRECTORY),
                 '/bin/bash', '-c', script, 'rb-sim', str(self.setup), str(self.source), str(self.out), str(self.folder / 'ros'),
-                str(Path(__file__).resolve().parents[2])]
+                str(Path(__file__).resolve().parents[2]), str(Path(__file__).with_name('target_recording.py'))]
         if self.launch_env is not None:
             # Clear user-manager inheritance inside the unit, before ROS setup.
             index = args.index('/bin/bash')

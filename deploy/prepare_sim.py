@@ -11,9 +11,23 @@ import sys
 
 # Public provenance records identify the approved exports, not local filenames.
 POLICY_SHA = "da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c"
+# Optional JS fallback remains the same m14999 export; the new ONNX is independent.
 AME2_SHA = {
     "ame2_actor.f32": "28edbc05169b817044c600d90cc081bb797ae56c5b8400b8ffebf648410d26a0",
     "ame2_actor.json": "92ddf3db0b36582b72d9e136e2749a2edf21dbc4156875ecf603c36dc3711fe7",
+}
+# docs/AME2-PROVENANCE.md and docs/POLICY-PROVENANCE.md, FP32 ONNX exports.
+ONNX_SHA = {
+    "start-demo_map_on.onnx": "81c7e079516058ee6243f6edd11efa8f0da239c6cc86fbca791bda5bcd82f110",
+    "start-demo_map_off.onnx": "5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037",
+    "ame2-demo.onnx": "830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6",
+    "policy_v2.onnx": "c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2",
+}
+# onnxruntime-web 1.31.1, the same WASM-only files as mobile/scripts/sync-web.mjs.
+ORT_SHA = {
+    "ort.wasm.min.mjs": "c21d9c326d453a4a61398270c804d5979e118540597cb0c07f7b3d64e6098234",
+    "ort-wasm-simd-threaded.mjs": "30ed0b5cd1182ede931fea448afb567d4dc705ec957af09f108a2be5f770dac3",
+    "ort-wasm-simd-threaded.wasm": "4b884c203b0fa48d057be3332c65513ff85aa3c5bddd6946acc0fab7ecda001d",
 }
 MUJOCO_VERSION = "3.17.0"
 
@@ -113,8 +127,37 @@ def copy_simulator(source, private, target):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(origin, destination)
         destination.chmod(0o644)
+    # Optional exports must never remove the existing f32 simulator on absence
+    # or bad SHA. Use an explicit allowlist; crop/test models are not published.
+    for name, digest in ONNX_SHA.items():
+        destination = target / name
+        destination.unlink(missing_ok=True)
+        try:
+            origin = private / name
+            verify(origin, digest)
+            shutil.copyfile(origin, destination)
+            destination.chmod(0o644)
+        except (FileNotFoundError, SimulatorUnavailable):
+            destination.unlink(missing_ok=True)
+            detail = "start mode unavailable (no f32 fallback)" if name.startswith("start-demo_") else "retaining f32 fallback"
+            print(f"WARNING: {name} absent or SHA-256 differs from provenance; {detail}.", file=sys.stderr)
+    ort = target / "ort"
+    if ort.exists():
+        shutil.rmtree(ort)
+    try:
+        # Publish the shared runtime only as a complete, verified set.
+        for name, digest in ORT_SHA.items():
+            verify(private / "ort" / name, digest)
+        ort.mkdir()
+        for name in ORT_SHA:
+            shutil.copyfile(private / "ort" / name, ort / name)
+            (ort / name).chmod(0o644)
+    except (FileNotFoundError, SimulatorUnavailable):
+        if ort.exists():
+            shutil.rmtree(ort)
+        print("WARNING: ONNX runtime absent/incomplete or SHA-256 differs from provenance; retaining f32 fallback.", file=sys.stderr)
     if not ame2_present:
-        print("WARNING: AME-2 assets absent/incomplete; its existing selector stays disabled.", file=sys.stderr)
+        print("WARNING: AME-2 assets absent/incomplete; ONNX availability controls selection; f32 fallback not prepared.", file=sys.stderr)
     print("Prepared /sim/index.html?from=web (existing MuJoCo runtime and verified policies).")
     return True
 

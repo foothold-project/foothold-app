@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session, User } from '../../../contracts/ts';
-import { HAS_ROBOTS, LAST_ADMIN, PW_DONE, TAKEN, tempPassword } from '../screens/settings';
+import { HAS_ROBOTS, LAST_ADMIN, PW_DONE, SIM_MODELS, TAKEN, tempPassword } from '../screens/settings';
 import { Root } from '../session';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -263,6 +263,267 @@ describe('총괄 — 계정 관리', () => {
     await submit($('form', card('계정 상세'))!);
     expect($('[role="alert"]', card('계정 상세'))!.textContent).toContain('서버에 연결하지 못했습니다');
     expect(card('계정').textContent).toContain('이운영 lee');
+  });
+});
+
+describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
+  const ORG = { ...LIMITS, sim_max_vx: 0.5, sim_min_vx: 0.2, sim_max_vy: 0.3, sim_max_wz: 0.5, sim_key_vx: 0.4, stick_deadzone: 0.1, sim_runner_vx: 0.4, sim_runner_wz: 0.6, lidar_view_m: 12, real_no_fast_server_drive: false };
+  const tabs = () => [...box.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]')];
+  const panel = (name: string) => document.getElementById(tabs().find((t) => t.textContent === name)!.getAttribute('aria-controls')!)!;
+  const key = (el: Element, k: string) => act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+  it('탭 4개(tablist), 처음 공통, 칸 자리: 공통=조직 기준값, 실기=조종권·서버 경유 스위치, 시뮬=시뮬 값·시뮬 로봇, 계정=내 정보·계정 — 알림 없음', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
+    await open();
+    expect(tabs().map((t) => [t.textContent, t.getAttribute('aria-selected'), t.tabIndex])).toEqual([['공통', 'true', 0], ['실기', 'false', -1], ['시뮬', 'false', -1], ['계정', 'false', -1]]);
+    expect(['공통', '실기', '시뮬', '계정'].map((n) => panel(n).hidden)).toEqual([false, true, true, true]);
+    const names = (n: string) => [...panel(n).querySelectorAll('input[name]')].map((i) => i.getAttribute('name'));
+    expect(names('공통')).toEqual(['battery_low_pct', 'run_min_battery_pct', 'deviation_m']);
+    expect(names('실기')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s', 'real_no_fast_server_drive']);
+    expect(names('시뮬')).toEqual(['sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
+    expect(panel('시뮬').querySelector('[aria-label="로봇"]')).not.toBeNull();
+    expect(panel('계정').querySelector('[aria-label="내 정보"]')).not.toBeNull();
+    expect(panel('계정').querySelector('[aria-label="계정"]')).not.toBeNull();
+    expect($('main')!.textContent).not.toContain('알림');   // 머리줄 종은 설정 화면 밖
+    expect(panel('실기').textContent).toContain('켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP');
+    // 키: → 다음(초점도), End 끝, ← 끝에서 앞, Home 처음
+    key(tabs()[0], 'ArrowRight');
+    expect(tabs()[1].getAttribute('aria-selected')).toBe('true'); expect(document.activeElement).toBe(tabs()[1]); expect(panel('실기').hidden).toBe(false); expect(panel('공통').hidden).toBe(true);
+    key(tabs()[1], 'End'); expect(tabs()[3].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[3], 'ArrowRight'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[0], 'ArrowLeft'); expect(tabs()[3].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[3], 'Home'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
+    await click(tabs()[2]);
+    expect(panel('시뮬').hidden).toBe(false);
+    expect(location.hash).toBe('#/settings');   // 고른 탭은 주소가 아니라 화면 상태
+  });
+  it('최대·키보드·임무 실행기 전진 상한은 1.5, AME-2 속도 보장 아님을 안내', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, sim_max_vx: 1.5 } } }));
+    await open();
+    for (const name of ['sim_max_vx', 'sim_key_vx', 'sim_runner_vx']) {
+      const input = $<HTMLInputElement>(`input[name="${name}"]`)!;
+      expect(input.max).toBe('1.5');
+      setVal(input, '1.5');
+      expect(input.validity.rangeOverflow).toBe(false);
+      if (input.type === 'number') {
+        setVal(input, '1.51');
+        expect(input.validity.rangeOverflow).toBe(true);
+      }
+    }
+    const cap = card('시뮬 속도 상한');
+    expect(cap.textContent).toContain('AME-2는 위치 목표 정책');
+    await submit($('form', cap)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vx: 1.5 });
+  });
+  it('시뮬 옆 0.5·회전 1.2까지 저장하고 기존 저장값을 그대로 표시', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG },
+      'PATCH /org/settings': { status: 200, body: { ...ORG, sim_max_vy: .5, sim_max_wz: 1.2 } } }));
+    await open();
+    const cap = card('시뮬 속도 상한');
+    for (const [name, old, max] of [['sim_max_vy', '0.3', '0.5'], ['sim_max_wz', '0.5', '1.2']]) {
+      const input = $<HTMLInputElement>(`input[name="${name}"]`, cap)!;
+      expect(input.value).toBe(old); expect(input.max).toBe(max);
+      setVal(input, max); expect(input.validity.valid).toBe(true);
+    }
+    expect(cap.textContent).toContain('기본 0.5'); expect(cap.textContent).toContain('기본 1.2');
+    await submit($('form', cap)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vy: .5, sim_max_wz: 1.2 });
+  });
+  it('실기 «서버 경유 빠른 이동 끄기»: 바꾼 칸만 PATCH(true)', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, real_no_fast_server_drive: true } } }));
+    await open();
+    const c = card('속도 제한'), sw = $<HTMLInputElement>('input[name="real_no_fast_server_drive"]', c)!;
+    expect([sw.checked, sw.disabled, sw.getAttribute('role')]).toEqual([false, false, 'switch']);
+    act(() => sw.click());
+    await submit($('form', c)!);
+    expect(sent('PATCH', '/org/settings').map((x) => x.body)).toEqual([{ real_no_fast_server_drive: true }]);
+    expect(sw.checked).toBe(true);
+    expect($('[role="status"]', c)!.textContent).toContain('저장했습니다');
+  });
+  it('시뮬 값 교차 검사 422 → 서버 문구를 그 칸 옆에(aria-describedby), 다른 칸 값은 그대로', async () => {
+    const MSG = '시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.';
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': err(422, 'VALIDATION', MSG) }));
+    await open();
+    const c = card('조종 입력·임무 실행기'), inp = $<HTMLInputElement>('input[name="sim_key_vx"]', c)!;
+    setVal(inp, '0.9');
+    await submit($('form', c)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_key_vx: 0.9 });
+    const why = document.getElementById(inp.getAttribute('aria-describedby')!)!;
+    expect([why.textContent, why.getAttribute('role'), inp.getAttribute('aria-invalid')]).toEqual([MSG, 'alert', 'true']);
+    expect(inp.closest('label')!.contains(why)).toBe(true);
+    // 최대 전진을 낮춰 걸린 경우는 «시뮬 속도 상한» 카드의 최대 전진 칸 옆
+    const cap = card('시뮬 속도 상한'), max = $<HTMLInputElement>('input[name="sim_max_vx"]', cap)!;
+    expect(max.type).toBe('range');
+    setVal(max, '0.3');
+    await submit($('form', cap)!);
+    expect(document.getElementById(max.getAttribute('aria-describedby')!)!.textContent).toBe(MSG);
+    expect(inp.value).toBe('0.9');
+  });
+  it('운영 관리자: 네 탭 모두 보기만(숫자 readOnly·막대·스위치 비활성·저장 비활성 + 같은 이유), PATCH 0, 계정·시뮬 로봇 숨김', async () => {
+    serve(signedIn(LEE, { 'GET /org/settings': { status: 200, body: ORG } }));
+    await open();
+    expect(tabs().map((t) => t.textContent)).toEqual(['공통', '실기', '시뮬', '계정']);
+    const inputs = [...box.querySelectorAll<HTMLInputElement>('[role="tabpanel"] form input[name]')].filter((i) => !['display_name', 'current', 'next', 'again'].includes(i.name));
+    expect(inputs).toHaveLength(15);
+    for (const i of inputs) expect(i.type === 'number' ? i.readOnly : i.disabled, i.name).toBe(true);
+    const saves = [...box.querySelectorAll<HTMLButtonElement>('[role="tabpanel"] button')].filter((b) => b.textContent === '저장');
+    expect(saves).toHaveLength(6);
+    for (const b of saves) { expect(b.disabled).toBe(true); expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toBe('조직 기준값은 총괄 운영 관리자만 바꿀 수 있습니다.'); }
+    expect($('[aria-label="계정"]')).toBeNull();
+    expect($('[aria-label="로봇"]')).toBeNull();
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+});
+
+describe('모델별 시뮬 값(11-04 model_overrides)', () => {
+  const ORG = { ...LIMITS, sim_max_vx: 0.5, sim_min_vx: 0.2, sim_max_vy: 0.3, sim_max_wz: 0.5, sim_key_vx: 0.4, stick_deadzone: 0.1, sim_runner_vx: 0.4, sim_runner_wz: 0.6, lidar_view_m: 12, real_no_fast_server_drive: false, model_overrides: {} };
+  const AME = { sim_max_vx: 0.3, sim_min_vx: 0.1 };
+  const withAme = { ...ORG, model_overrides: { 'ame2-demo': AME } };
+  const PATCH = 'PATCH /org/settings';
+  const panel = (name: string) => document.getElementById([...box.querySelectorAll('[role="tab"]')].find((t) => t.textContent === name)!.getAttribute('aria-controls')!)!;
+  const chips = () => [...box.querySelectorAll<HTMLButtonElement>('[aria-label="값을 고칠 모델"] button')];
+  const chip = (name: string) => click(chips().find((b) => b.textContent === name));
+  const scope = (id: string) => $<HTMLElement>(`[data-model="${id}"]`)!;
+  const field = (id: string, name: string) => $<HTMLInputElement>(`input[name="${name}"]`, scope(id))!;
+  const tag = (id: string, name: string) => document.getElementById(`st-o-${id}-${name}`)!.textContent;
+  const form = (id: string, label: string) => $('form', $(`[aria-label="${label}"]`, scope(id))!)!;
+
+  it('고르는 모델은 등록부(mobile/sim)의 조종 가능한 정식 id 와 같음, 보기 전용 go2-demo 는 없음', () => {
+    const src = Object.values(import.meta.glob('../../../../mobile/sim/{policy-adapters,ame2-adapter,start-demo-adapter}.js', { query: '?raw', eager: true, import: 'default' })).join();
+    for (const [id] of SIM_MODELS) expect(src).toContain(`id: '${id}'`);
+    expect(SIM_MODELS.map(([id]) => id)).not.toContain('go2-demo');
+  });
+  it('시뮬 탭: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 실기 탭: «공통»만 + «모델별 값 없음»', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
+    await open();
+    expect(chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['공통', 'true'], ['nvidia', 'false'], ['AME-2', 'false'], ['start', 'false']]);
+    expect($('[data-model]')).toBeNull();
+    expect(panel('실기').textContent).toContain('실기에서 도는 모델이 하나뿐이라 모델별 값 없음');
+    expect([...panel('실기').querySelectorAll('[aria-label="실기 값을 고칠 모델"] button')].map((b) => b.textContent)).toEqual(['공통']);
+    expect(panel('시뮬').textContent).not.toContain('공통 값 사용');
+  });
+  it('모델 고르기: 같은 9칸, 안 바꾼 칸은 «공통 값 사용(값)», 덮어쓴 칸은 그 모델 값 + 되돌리기, 모델 선택과 무관한 공통 값은 숨김', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: withAme } }));
+    await open();
+    await chip('AME-2');
+    expect(chips()[2].getAttribute('aria-pressed')).toBe('true');
+    expect([...scope('ame2-demo').querySelectorAll('input[name]')].map((i) => i.getAttribute('name'))).toEqual(['sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
+    expect(field('ame2-demo', 'sim_max_vx').value).toBe('0.3');
+    expect(tag('ame2-demo', 'sim_max_vx')).toBe('이 모델 값');
+    expect(field('ame2-demo', 'sim_max_vy').value).toBe('0.3');
+    expect(tag('ame2-demo', 'sim_max_vy')).toBe('공통 값 사용(0.3 m/s)');
+    expect(tag('ame2-demo', 'lidar_view_m')).toBe('공통 값 사용(12 m)');
+    expect(btn('공통으로 되돌리기', $('[aria-label="시뮬 속도 상한"]', scope('ame2-demo'))!)).toBeDefined();
+    expect(btn('공통으로 되돌리기', $('[aria-label="표시"]', scope('ame2-demo'))!)).toBeUndefined();
+    expect(($('.st-scope:not([data-model])') as HTMLElement).hidden).toBe(true);
+    await chip('공통');
+    expect(scope('ame2-demo').hidden).toBe(true);
+    expect(($('input[name="sim_max_vx"]', panel('시뮬')) as HTMLInputElement).value).toBe('0.5');
+  });
+  it('덮어쓰기: 그 모델의 바뀐 칸만 PATCH(공통 칸 없음), 다른 모델로 갔다 와도 쓰던 칸 유지', async () => {
+    const next = { ...ORG, model_overrides: { 'nvidia-demo': { sim_key_vx: 0.45 } } };
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: { status: 200, body: next } }));
+    await open();
+    await chip('nvidia');
+    setVal(field('nvidia-demo', 'sim_key_vx'), '0.45');
+    expect(tag('nvidia-demo', 'sim_key_vx')).toBe('이 모델 값 · 저장 전');
+    await chip('start');
+    expect(field('start-demo', 'sim_key_vx').value).toBe('0.4');
+    await chip('nvidia');
+    expect(field('nvidia-demo', 'sim_key_vx').value).toBe('0.45');
+    await submit(form('nvidia-demo', '조종 입력·임무 실행기'));
+    expect(sent('PATCH', '/org/settings').map((c) => c.body)).toEqual([{ model_overrides: { 'nvidia-demo': { sim_key_vx: 0.45 } } }]);
+    expect(tag('nvidia-demo', 'sim_key_vx')).toBe('이 모델 값');
+    expect(tag('start-demo', 'sim_key_vx')).toBe('공통 값 사용(0.4 m/s)');
+  });
+  it('공통 값과 같은 값을 쳐 넣으면 공통 값 사용 그대로, 보내지 않음', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
+    await open();
+    await chip('start');
+    setVal(field('start-demo', 'sim_key_vx'), '0.4');
+    expect(tag('start-demo', 'sim_key_vx')).toBe('공통 값 사용(0.4 m/s)');
+    await submit(form('start-demo', '조종 입력·임무 실행기'));
+    expect(sent('PATCH', '/org/settings')).toHaveLength(0);
+  });
+  it('되돌리기: 저장 전엔 공통 값이 보이고, 저장하면 null PATCH — 두 칸을 한 번에 보냄, 공통 값 사용으로 돌아감', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: withAme }, [PATCH]: { status: 200, body: ORG } }));
+    await open();
+    await chip('AME-2');
+    const c = $('[aria-label="시뮬 속도 상한"]', scope('ame2-demo'))!;
+    await click(btn('공통으로 되돌리기', c));
+    await click(btn('공통으로 되돌리기', c));
+    expect(btn('공통으로 되돌리기', c)).toBeUndefined();
+    expect(field('ame2-demo', 'sim_max_vx').value).toBe('0.5');
+    expect(tag('ame2-demo', 'sim_max_vx')).toBe('공통 값 사용(0.5 m/s) · 저장 전');
+    expect(sent('PATCH', '/org/settings')).toHaveLength(0);
+    await submit(form('ame2-demo', '시뮬 속도 상한'));
+    expect(sent('PATCH', '/org/settings').map((x) => x.body)).toEqual([{ model_overrides: { 'ame2-demo': { sim_max_vx: null, sim_min_vx: null } } }]);
+    expect(tag('ame2-demo', 'sim_max_vx')).toBe('공통 값 사용(0.5 m/s)');
+  });
+  it('저장 안 한 새 값 되돌리기: 초안만 지우고 null 을 보내지 않음', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
+    await open();
+    await chip('start');
+    setVal(field('start-demo', 'sim_key_vx'), '0.45');
+    await click(btn('공통으로 되돌리기', scope('start-demo')));
+    expect(field('start-demo', 'sim_key_vx').value).toBe('0.4');
+    await submit(form('start-demo', '조종 입력·임무 실행기'));
+    expect(sent('PATCH', '/org/settings')).toHaveLength(0);
+  });
+  it('모델 교차 오류: id 뗀 서버 문구를 칸 옆에 / 범위 오류: 그 칸 옆에 허용 범위 / 빈 칸: 보내지 않음(null=되돌리기로 오인 금지)', async () => {
+    const MSG = '시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.';
+    let rep = err(422, 'VALIDATION', `start-demo: ${MSG}`);
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: () => rep }));
+    await open();
+    await chip('start');
+    const key = field('start-demo', 'sim_key_vx');
+    setVal(key, '0.9');
+    await submit(form('start-demo', '조종 입력·임무 실행기'));
+    const why = key.getAttribute('aria-describedby')!.split(' ').map((i) => document.getElementById(i)!);
+    expect(why[0].textContent).toBe(MSG);
+    expect(key.closest('label')!.contains(why[0])).toBe(true);
+    rep = err(422, 'VALIDATION', 'start-demo: sim_key_vx 값의 형식과 범위를 확인하세요.');
+    setVal(key, '9');
+    await submit(form('start-demo', '조종 입력·임무 실행기'));
+    expect(key.closest('label')!.textContent).toContain('허용 범위: 키보드 전진 속도 0.1~1.5 m/s');
+    const n = sent('PATCH', '/org/settings').length;
+    setVal(key, '');
+    await submit(form('start-demo', '조종 입력·임무 실행기'));
+    expect(sent('PATCH', '/org/settings')).toHaveLength(n);
+    expect(key.closest('label')!.textContent).toContain('값을 입력하세요.');
+  });
+  it('공통 값 저장이 어떤 모델 때문에 422: 모델 이름과 함께 그 칸 옆에, 교차 문구가 아니면 카드 아래에', async () => {
+    let rep = err(422, 'VALIDATION', 'ame2-demo: 시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.');
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: () => rep }));
+    await open();
+    const cap = $('[aria-label="시뮬 속도 상한"]', panel('시뮬'))!, max = $<HTMLInputElement>('input[name="sim_max_vx"]', cap)!;
+    setVal(max, '0.3');
+    await submit($('form', cap)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vx: 0.3 });
+    expect(document.getElementById(max.getAttribute('aria-describedby')!)!.textContent).toBe('AME-2 모델 값과 맞지 않아 저장하지 못했습니다. 시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.');
+    rep = err(422, 'VALIDATION', 'start-demo: 시뮬 에이전트 상한을 넘습니다.');
+    await submit($('form', cap)!);
+    expect($('[role="alert"].fh-msg:not([id])', cap)!.textContent).toBe('start 모델 값과 맞지 않아 저장하지 못했습니다. 시뮬 에이전트 상한을 넘습니다.');
+  });
+  it('공통 값을 저장하면 모델 화면의 «공통 값 사용(값)» 도 바뀜', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: { status: 200, body: { ...ORG, lidar_view_m: 20 } } }));
+    await open();
+    await chip('nvidia');
+    await chip('공통');
+    const c = $('[aria-label="표시"]', panel('시뮬'))!;
+    setVal($<HTMLInputElement>('input[name="lidar_view_m"]', c)!, '20');
+    await submit($('form', c)!);
+    expect(tag('nvidia-demo', 'lidar_view_m')).toBe('공통 값 사용(20 m)');
+    expect(field('nvidia-demo', 'lidar_view_m').value).toBe('20');
+  });
+  it('운영 관리자: 모델 값을 볼 수 있지만 고치지 못함(되돌리기 없음·저장 비활성)', async () => {
+    serve(signedIn(LEE, { 'GET /org/settings': { status: 200, body: withAme } }));
+    await open();
+    await chip('AME-2');
+    expect(field('ame2-demo', 'sim_max_vx').value).toBe('0.3');
+    expect(field('ame2-demo', 'sim_max_vx').disabled).toBe(true);
+    expect(field('ame2-demo', 'sim_key_vx').readOnly).toBe(true);
+    expect(btn('공통으로 되돌리기', scope('ame2-demo'))).toBeUndefined();
+    expect(btn('저장', scope('ame2-demo'))!.disabled).toBe(true);
   });
 });
 

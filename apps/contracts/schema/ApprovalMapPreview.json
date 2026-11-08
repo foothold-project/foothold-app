@@ -15,17 +15,31 @@
       "title": "Base Version Number"
     },
     "floor_id": {
-      "format": "uuid",
-      "title": "Floor Id",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Floor Id"
     },
     "floor_name": {
       "title": "Floor Name",
       "type": "string"
     },
     "target_version_number": {
-      "title": "Target Version Number",
-      "type": "integer"
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Target Version Number"
     }
   },
   "required": [

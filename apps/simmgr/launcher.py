@@ -8,6 +8,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 from foothold_agent.ros_bridge.config import validate_isolation
 from foothold_agent.phone.tickets import load_keys
@@ -260,6 +261,13 @@ class NativeLauncher:
                 verify_bindings(native, world.map_bindings)
             except (ValueError, KeyError, TypeError, OSError) as error:
                 raise WorldValidationError('repository map bindings do not match cleared assets') from error
+            # Pure file closure precedes evidence, supervisor construction and
+            # any native unit. Rejection cannot create a cleanup obligation.
+            from .mesh_resources import preflight as mesh_preflight
+            try:
+                await asyncio.to_thread(mesh_preflight, Path(self.settings.source), native.world_file)
+            except (OSError, ValueError, ET.ParseError) as error:
+                raise WorldValidationError('repository robot/world mesh resources invalid') from error
         base = Path(self.settings.run_dir).resolve()
         if not base.is_relative_to(ROOT / 'runs') or base == ROOT / 'runs':
             raise ValueError('evidence must be a new directory under this worktree runs')
@@ -284,8 +292,16 @@ class NativeLauncher:
             from .native_simulation import CataloguedSimulation
             Simulation = CataloguedSimulation
             extra = dict(native=native, configured_world=world)
+        # The sealed rootfs HOME is read-only. gz-common initializes ~/.gz even
+        # for headless runs; failed directory creation can recurse in its logger.
+        # Keep native logs/cache in this episode's already writable evidence bind.
+        native_home = folder / 'native-home'
+        (native_home / '.gz').mkdir(parents=True, mode=0o700)
+        native_home.chmod(0o700)
+        native_env = child_environment(self.settings.domain)
+        native_env['HOME'] = str(native_home)
         sim = Simulation(folder, Path(self.settings.source), Path(self.settings.ros_setup),
-                         launch_env=child_environment(self.settings.domain),
+                         launch_env=native_env,
                          seconds=self.settings.unit_runtime_seconds, **extra)
         self.sim = sim
         resource_not_created = False

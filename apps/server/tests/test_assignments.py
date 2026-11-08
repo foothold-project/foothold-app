@@ -152,7 +152,7 @@ def test_stale_four_causes_commits_terminal_decision(maps, seeded, change):
             conn.execute(text('UPDATE scenarios SET archived_at=now() WHERE id=:id'), {'id': value['id']})
         engine.dispose()
     elif change == 'owner':
-        http.patch(P + '/robots/' + str(seeded['robots']['mine']), headers=admin,
+        http.patch(P + '/robots/' + str(seeded['robots']['mine']), headers=one,
             json={'owner_user_id': str(seeded['users']['two'])})
     elif change == 'map':
         assert save(http, admin, floor, image, base=old['id']).status_code == 201
@@ -361,7 +361,7 @@ def test_populated_assignment_approval_downgrade_refuses_without_losing_history(
     engine = create_engine(seeded['urls']['migrate'])
     try:
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0024'
             assert conn.scalar(text('SELECT status FROM assignments WHERE id=:id'), {'id': row['id']}) == 'PENDING'
             assert conn.scalar(text('SELECT status FROM approvals WHERE id=:id'), {'id': row['approval_id']}) == 'PENDING'
     finally:
@@ -383,7 +383,7 @@ def test_remove_assignment_after_robot_archived(maps, seeded, creator, remover):
         assert created.status_code == 201, created.text
         row = created.json()
     assert row['status'] == ('PENDING' if creator == 'legacy' else 'ACTIVE')
-    assert http.delete(P + '/robots/' + robot, headers=admin).status_code == 204
+    assert http.delete(P + '/robots/' + robot, headers=one).status_code == 204
     path = P + '/assignments/' + row['id']
     assert http.delete(path, headers=other).status_code == 403
     for _ in range(2):
@@ -416,7 +416,7 @@ def test_direct_active_assignment_downgrade_refuses_without_losing_history(maps,
         with pytest.raises(DBAPIError, match='assignment approval history requires backup'):
             command.downgrade(Config(str(CONFIG)), '0014')
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0024'
             assert conn.execute(text('SELECT status, approval_id, removed_at FROM assignments WHERE id=:id'),
                 {'id': row['id']}).one() == ('ACTIVE', None, None)
             assert conn.scalar(text("SELECT count(*) FROM approvals WHERE kind='SCENARIO_ASSIGNMENT'")) == 0

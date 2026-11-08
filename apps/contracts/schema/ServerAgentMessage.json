@@ -47,6 +47,35 @@
       "title": "AgentCommand",
       "type": "object"
     },
+    "AgentFieldApproval": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "t": {
+          "const": "field_approval",
+          "default": "field_approval",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "expires_at"
+      ],
+      "title": "AgentFieldApproval",
+      "type": "object"
+    },
     "AgentLease": {
       "additionalProperties": false,
       "properties": {
@@ -434,6 +463,7 @@
   "discriminator": {
     "mapping": {
       "cmd": "#/$defs/AgentCommand",
+      "field_approval": "#/$defs/AgentFieldApproval",
       "lease": "#/$defs/AgentLease",
       "phone.revoke": "#/$defs/AgentPhoneRevoke",
       "ping": "#/$defs/AgentServerPing",
@@ -472,6 +502,9 @@
     },
     {
       "$ref": "#/$defs/RunReportRejected"
+    },
+    {
+      "$ref": "#/$defs/AgentFieldApproval"
     }
   ]
 }

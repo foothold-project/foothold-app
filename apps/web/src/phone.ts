@@ -2,7 +2,7 @@
 // 띄우기·정리·출입증은 관제 서버 REST(api.ts), 조종·STOP·영상은 그 로봇 에이전트 폰 포트에 직접 WS — 서버 실시간(rt.ts) 조종 경로를 쓰지 않는다.
 // 조종권·잠금·deadman 판정은 에이전트. 폰은 요청만 보내고 state 로 확인한다: 자동 취득·자동 해제·자동 재연결 없음.
 import { useSyncExternalStore } from 'react';
-import type { PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Scenario, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot, SimRobotList, SimWorldFloor } from '../../contracts/ts';
+import type { OrgSettings, PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Scenario, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot, SimRobotList, SimWorldFloor } from '../../contracts/ts';
 import { ApiFail, api, authMark } from './api';
 import { media } from './media';
 import { phoneUrl } from './phoneTransport';
@@ -54,7 +54,7 @@ const runtimeUntil = (r: SimRobot) => typeof r.remaining_s === 'number' && Numbe
 const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400 SIM_CREDENTIAL_INVALID', '404 SIM_WORLD_NOT_FOUND', '404 SIM_SLOT_NOT_FOUND',
   '409 SIM_WORLD_BUSY', '409 SIM_OWNER_LIMIT', '409 SIM_NATIVE_SINGLE_ONLY', '409 SIM_ROBOT_LIMIT']);
 // gen = 연결 세대(close 마다), epoch = 화면 세션(clear 마다), cancel = 띄우는 중 STOP(POST 답이 오면 바로 정리), me = 내 사용자 id(총괄 목록은 조직 전체라 owner 로 내 것 판정)
-let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '';
+let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, lastSimPing = -Infinity, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '';
 let axes: Axes = [0, 0];   // [전후, 회전, 옆] -1..1, 조종 화면이 넣는다
 let surface: 'pc' | undefined;   // PC «시뮬» 탭이 열려 있으면 'pc' — 출입증 요청에 싣는다(ADR-003 §6.2, 폰은 보내지 않음)
 const replies = new Map<string, (ok: boolean, r?: PhoneReply) => void>();
@@ -187,6 +187,44 @@ export const AXIS_LOCK = 0.5;
 export const TURN_ON = 0.5;
 /** 시뮬 눌린 데드존 wz: 에이전트 회전 문턱(±0.5 rad/s) 훨씬 아래라 돌지 않고, 정확한 0 이 아니라 손 뗌으로 보지 않음 */
 export const NUDGE = 0.001;
+/** 조직 시뮬 조작값(05 §8 OrgSettings sim_*·stick_deadzone, 설정 › 시뮬)의 계약 범위(apps/contracts/models.py OrgSettings) */
+const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.5], sim_max_wz: [0, 1.2], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] } as const;
+let tuneSettings: Partial<OrgSettings> | null = null;
+/** Old names are resolved only when selecting; override keys stay canonical. */
+export function effectiveSettings(o: Partial<OrgSettings> | null, modeId = '') {
+  const id = modeId === 'foothold-v2' ? 'nvidia-demo' : modeId;
+  return { ...o, ...(id && o?.model_overrides?.[id]) };
+}
+/** 연결할 때 받고 설정에서 저장하면 바로 바뀐다. 숫자가 아니거나·유한하지 않거나·범위 밖·교차 조건(최소·키보드 ≤ 최대)을 어긴 필드는
+ *  버린다 — 그 필드만 에이전트 limits·DEAD·KEY_VX 로 돌아감 */
+export function simTune(o: Partial<OrgSettings> | null) {
+  tuneSettings = o;
+}
+function simulationTune(modeId = '') {
+  const o = effectiveSettings(tuneSettings, modeId);
+  const t: Partial<Record<keyof typeof TUNE, number>> = {};
+  for (const k of Object.keys(TUNE) as (keyof typeof TUNE)[]) {
+    const v: unknown = o?.[k], [lo, hi] = TUNE[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi) t[k] = v;
+  }
+  if (t.sim_max_vx != null) {
+    if (t.sim_min_vx != null && t.sim_min_vx > t.sim_max_vx) delete t.sim_min_vx;
+    if (t.sim_key_vx != null && t.sim_key_vx > t.sim_max_vx) delete t.sim_key_vx;
+  }
+  return t;
+}
+/** 시뮬 연결(welcome.simulation)만 에이전트 limits 를 조직 값으로 좁힌다(넓히지 않음 — 최종 자르기는 에이전트). 데드존·키보드 전진(key)도 조직 값.
+ *  실기 welcome 은 limits·DEAD 그대로, key 없음(부른 쪽 기본값) */
+export function tuned(w: PhoneWelcome) {
+  if (w.simulation !== true) return { L: w.limits, dead: DEAD, key: undefined };
+  const tune = simulationTune(w.policy?.name);
+  const L = w.limits, { sim_max_vx: vx, sim_min_vx: lo, sim_max_vy: vy, sim_max_wz: wz } = tune;
+  const vx_max = vx == null ? L.vx_max : Math.min(L.vx_max, vx);
+  return { L: { ...L, vx_max, ...(lo != null && { vx_min_moving: Math.min(lo, vx_max) }),
+    ...(vy != null && { vy_max: Math.min(L.vy_max, vy), vy_min: Math.max(L.vy_min, -vy) }),
+    ...(wz != null && { wz_max: Math.min(L.wz_max, wz), wz_min: Math.max(L.wz_min, -wz) }) },
+    dead: tune.stick_deadzone ?? DEAD, key: tune.sim_key_vx };
+}
 /** [전후, 회전, 옆(왼쪽 +)] -1..1. 옆은 없으면 0 */
 export type Axes = [number, number, number?];
 /** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이면 0(실기).
@@ -195,14 +233,14 @@ export type Axes = [number, number, number?];
  *  옆 범위가 있을 때만 축 고정(AXIS_LOCK), 연속 모드 회전은 TURN_ON 넘으면 ±wz_max — 실기 limits 는 식 그대로 */
 export function velocity([f0, t, y0 = 0]: Axes, w: PhoneWelcome) {
   const s = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-  const L = w.limits, lo = L.vx_min_moving ?? L.vx_min, side = L.vy_max > 0 || L.vy_min < 0;
+  const { L, dead } = tuned(w), lo = L.vx_min_moving ?? L.vx_min, side = L.vy_max > 0 || L.vy_min < 0;
   const f = side && Math.abs(f0) < AXIS_LOCK * Math.abs(y0) ? 0 : f0, y = side && Math.abs(y0) < AXIS_LOCK * Math.abs(f0) ? 0 : y0;
   const turn = L.vx_mode !== 'continuous' ? s(t, L.wz_min, L.wz_max) : t >= TURN_ON ? L.wz_max : t <= -TURN_ON ? L.wz_min : 0;
-  const past = (v: number) => (Math.abs(v) - DEAD) / (1 - DEAD);   // 데드존 밖 비율(데드존 밖에서만 부름)
+  const past = (v: number) => (Math.abs(v) - dead) / (1 - dead);   // 데드존 밖 비율(데드존 밖에서만 부름)
   const ramp = (v: number, hi: number) => { const m = Math.min(lo, hi); return m + (hi - m) * past(v); };
   const vx = L.vx_mode !== 'continuous' ? s(f, L.vx_min, L.vx_max)
-    : f > DEAD ? ramp(f, L.vx_max) : f < -DEAD && L.vx_min < 0 ? -ramp(f, -L.vx_min) : 0;
-  const vy = y > DEAD ? L.vy_max * past(y) : y < -DEAD ? L.vy_min * past(y) : 0;
+    : f > dead ? ramp(f, L.vx_max) : f < -dead && L.vx_min < 0 ? -ramp(f, -L.vx_min) : 0;
+  const vy = y > dead ? L.vy_max * past(y) : y < -dead ? L.vy_min * past(y) : 0;
   // 제자리 회전(전후·옆 0)은 turn_in_place 허가가 있을 때만 — 없으면 wz 0 을 보낸다(안내는 화면)
   const spin = allowed(w).spin, wz = vx === 0 && vy === 0 && !spin ? 0 : turn;
   // 시뮬(제자리 회전 허가)은 스틱이 눌려 있으면 정확한 0 을 보내지 않는다 — 에이전트는 정확한 0 만 새 중립으로 받아(simulation_velocity) deadman 뒤 손 뗌 관문이 풀린다.
@@ -220,10 +258,22 @@ function beat() {
   const l = S.link;
   if (!l || l.at !== 'open' || !l.welcome) return;
   if (l.lease && !runMoving(l.run)) send({ t: 'cmd', lease_id: l.lease, seq: ++seq, ...velocity(l.st?.latched === false ? axes : [0, 0], l.welcome) });
-  if (tick++ % (PING_MS / CMD_MS) === 0) send({ t: 'ping', client_time_ms: Date.now() });
+  if (l.welcome.simulation === true) simPing();
+  else if (tick++ % (PING_MS / CMD_MS) === 0) send({ t: 'ping', client_time_ms: Date.now() });
   if (l.ask && l.ask.until < now()) setLink({ ask: null });
 }
-function onHide() { if (document.visibilityState === 'hidden') sim.release(); }   // 숨기면 0 + 반납(F-TO-03, 보기 연결은 남김)
+/** 시뮬은 10 Hz state 수신에서도 ping — 숨긴 탭의 50 ms 타이머가 1 s/1 min 로 느려져도 연결을 유지한다.
+ *  타이머·수신이 함께 와도 단조 시계로 1 s 에 한 번만. 실기의 ping·3 s 안전 판정은 그대로. */
+function simPing() {
+  if (S.link?.welcome?.simulation !== true || now() - lastSimPing < PING_MS) return;
+  if (send({ t: 'ping', client_time_ms: Date.now() })) lastSimPing = now();
+}
+function onHide() {
+  if (document.visibilityState !== 'hidden') return;
+  if (S.link?.welcome?.simulation !== true) { sim.release(); return; }   // 실기·미확인 = 기존 반납(F-TO-03)
+  axes = [0, 0];   // 손 조종 입력은 버리되 에이전트가 실행하는 시뮬 임무·연결은 유지
+  simPing();
+}
 
 function drop(code: number) {
   clearInterval(timer); timer = 0; document.removeEventListener('visibilitychange', onHide);
@@ -247,12 +297,12 @@ function onMsg(raw: string) {
     if (S.stop?.via === 'none') S.stop = null;   // 연결 전 실기 STOP 안내 — 새 연결은 잠금으로 시작한다
     setLink({ at: 'open', welcome: m as unknown as PhoneWelcome });
     set({ step: 'drive' });
-    media.offer((m as { media?: unknown }).media, S.robot!.agent_address);   // 형상 검사는 media.ts — 틀리면 받지 않음
+    media.offer((m as { media?: unknown }).media, S.robot!.agent_address, m.simulation === true);   // 형상 검사는 media.ts — 틀리면 받지 않음
     openCamera(media.has('rgb') ? null : m.camera_token as string | null);   // RGB 를 media/1 로 받으면 옛 카메라 경로는 열지 않는다(같은 영상 두 번 0)
   } else if (m.t === 'media.update' && l.at === 'open' && m.robot === l.welcome?.robot) {
     const info = m.media as { robot?: unknown } | null;
     if (info !== null && (!info || info.robot !== m.robot)) return;
-    media.offer(info ?? undefined, S.robot!.agent_address);
+    media.offer(info ?? undefined, S.robot!.agent_address, l.welcome?.simulation === true);
     if (media.has('rgb')) {
       const c = cam; cam = null; c?.close();
       setLink({ cam: 'off', img: '' });
@@ -265,6 +315,7 @@ function onMsg(raw: string) {
   } else if (m.t === 'cmd.ack') {
     if (!!m.clipped !== l.clipped) setLink({ clipped: !!m.clipped });
   } else if (m.t === 'state') {
+    simPing();
     const st = m as unknown as PhoneState, echo = st.echo, fresh = echo && echo.id !== lastEcho;   // 같은 echo 는 10 Hz 로 되풀이 — 새 짝일 때만 왕복 시간
     if (fresh) lastEcho = echo.id;
     // 반납 답 전의 옛 state 로 lease 를 되살리지 않음
@@ -423,6 +474,9 @@ export const sim = {
     set({ step: S.step === 'drive' ? 'drive' : 'linking', link: fresh() });
     if (S.real && !url) return arm(S.real);   // 중계가 아직(또는 Wi-Fi 문제로 못 염) — 다시 열고 포트가 오면 onRelay 가 잇는다
     if (!url) return setLink({ at: 'closed', why: '로봇 연결 주소가 올바르지 않습니다.' });
+    // 조직 시뮬 조작값은 연결의 선행 조건이 아니다 — 받기 전·못 받으면 에이전트 limits·기본값(앞 로그인 값도 비움), 받으면 같은 연결 세대일 때만 적용
+    simTune(null);
+    api.settings().then((o) => { if (g === gen) simTune(o); }, () => {});
     let pass;
     try { pass = await api.phonePass(r.robot_id, { device: deviceId(), purpose: 'control', ...(surface && { surface }) }); } catch (e) {
       if (g !== gen) return;
@@ -437,7 +491,7 @@ export const sim = {
     if (g !== gen) return;
     setLink({ exp: pass.exp });
     const w = new WebSocket(url), ticket = pass.token;
-    ws = w; seq = 0; tick = 0;
+    ws = w; seq = 0; tick = 0; lastSimPing = -Infinity;
     w.onopen = () => {
       if (ws !== w) return;
       w.send(JSON.stringify({ t: 'hello', id: `p${++ids}`, robot: r.robot_id, proto: 'fh-phone/1', device: deviceId(), ticket }));

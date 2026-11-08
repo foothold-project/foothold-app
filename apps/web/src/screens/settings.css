@@ -1,0 +1,40 @@
+/* 설정 탭(11-02 개편) — 미리보기 runs/settings-preview 의 탭·카드 배치를 옮김. 색은 토큰(frame.css·brand tokens)만 쓴다 */
+.fh-main>.st{flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:16px}
+.st-tabs{display:flex;gap:4px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--panel);align-self:flex-start;max-width:100%}
+.st-tabs button{border:0;background:none;padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer}
+.st-tabs button[aria-selected="true"]{background:var(--acc-bg);color:var(--accent)}
+.st-tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.st-legend{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.st-grid{display:flex;flex-wrap:wrap;gap:16px;align-content:flex-start}
+.st-grid[hidden]{display:none}
+.st-grid>section,.st-scope>section{flex:1 1 340px;min-width:0}
+.st-scope{display:contents}.st-scope[hidden]{display:none}
+.st-modelbar{flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:8px}
+.st-tabs button[aria-pressed="true"]{background:var(--acc-bg);color:var(--accent)}
+.st-ov-wrap{display:flex;flex-direction:column;gap:6px}
+.st-ov{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.st-tag.own{color:var(--accent);border-color:var(--accent);background:var(--acc-bg)}
+.st-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
+.st-lab{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.st-unit{display:flex;align-items:center;gap:8px}.st-unit .inp{max-width:140px}
+.st-rng{display:flex;align-items:center;gap:10px}.st-rng input{flex:1;min-width:0;accent-color:var(--accent)}
+.st-rng output{min-width:76px;text-align:right;font-variant-numeric:tabular-nums}
+.st-tag{display:inline-flex;align-items:center;min-height:20px;padding:0 7px;border-radius:10px;border:1px solid var(--line2);font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
+.st-tag.adm{color:var(--accent);border-color:var(--accent)}
+.st-tag.cap{color:var(--note-ink);border-color:var(--note-ink)}
+.st-tag.lock{color:var(--ink-3)}
+.st-tag.bad{color:var(--stop);border-color:var(--stop)}
+.st-sw-wrap{display:flex;flex-direction:column;gap:4px}
+.st-sw{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;font-size:14px}
+.st-sw input{width:42px;height:24px;flex:none;accent-color:var(--accent)}
+.st-table{width:100%;border-collapse:collapse;font-size:13px}
+.st-table th,.st-table td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+.st-table th{font-weight:600;color:var(--muted);font-size:12px}
+.st-table td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.st-fixed{background:var(--panel2)}
+.st-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;color:var(--muted)}
+.st-row b{color:var(--text);font-weight:600;white-space:nowrap}
+@media (max-width:640px){
+  .st-tabs{align-self:stretch}.st-tabs button{flex:1;padding:8px 0}
+  .st-grid>section,.st-scope>section{flex-basis:100%}
+}

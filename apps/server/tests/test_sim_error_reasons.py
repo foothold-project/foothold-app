@@ -26,6 +26,8 @@ def failing_transport(error):
 @pytest.mark.parametrize('detail,expected', [
     ({'reason': 'resources_low', 'start_not_created': True, 'secret': 'private'},
      {'reason': 'resources_low', 'start_not_created': True}),
+    ({'reason': 'guard_access', 'start_not_created': True, 'path': '/private', 'errno': 13},
+     {'reason': 'guard_access', 'start_not_created': True}),
     ({'reason': 'slot_busy'}, {'reason': 'slot_busy', 'start_not_created': False}),
     ({'reason': 'future', 'secret': 'private'}, {'reason': 'unknown'}),
     ({'reason': 'resources_low', 'start_not_created': 'true'}, {'reason': 'unknown'}),
@@ -126,3 +128,10 @@ def test_manager_resource_diagnostic_crosses_real_relay_and_server(simulation_co
     result, headers = start_slot(simulation_context)
     assert result.status_code == 201 and result.json()['generation'] == 2
     assert client.delete('/api/v1/simulation/robots/' + rid, headers=headers).status_code == 204
+
+
+def test_guard_access_diagnostic_does_not_release_reserved_slot():
+    from apps.server.fh_server.simulation import start_not_created
+    error = RelayError(detail={'reason': 'guard_access', 'start_not_created': True})
+    assert error.detail == {'reason': 'guard_access', 'start_not_created': True}
+    assert not start_not_created(error)

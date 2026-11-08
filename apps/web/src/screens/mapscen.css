@@ -1,0 +1,152 @@
+/* 지도·시나리오 탭 틀(MAPSCEN-UI 11-02 — 방향 runs/mapscen-diag/preview): 위 단추 줄 하나 + 몸통(왼쪽 아이콘 도구줄 | 가운데 지도 = 남은 높이 전부 | 오른쪽 작업 창 320px, 접기).
+   문서 스크롤 없음 — 본문(.fh-main)을 이 틀이 꽉 채운다. 색·선·그림자는 frame.css·brand.css 토큰만. 폰 틀에는 이 두 탭이 없다(menu.tsx PHONE_TABS) */
+.fh-main:has(>.mx){padding:0;gap:0;overflow:hidden;align-content:stretch}
+.mx{flex:1 1 100%;align-self:stretch;min-width:0;min-height:0;height:100%;display:flex;flex-direction:column;position:relative;background:var(--bg)}
+.mx a.btn{color:var(--text);text-decoration:none}
+
+/* 단추 줄 — 한 줄(넘치면 드롭다운 글자가 줄어든다) */
+.mx-bar{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);min-width:0}
+.mx-bar>*{flex:none}
+.mx-bar>.mx-menu{flex:0 1 auto;min-width:0}
+.mx-bar .btn{white-space:nowrap}
+.mx-seg{display:flex}
+.mx-seg>.btn{border-radius:0;margin-left:-1px}
+.mx-seg>.btn:first-child{border-radius:8px 0 0 8px;margin-left:0}
+.mx-seg>.btn:last-child{border-radius:0 8px 8px 0}
+.mx-seg>[aria-pressed="true"],.mx-seg>[aria-selected="true"],.mx-seg>[aria-current]{border-color:var(--accent);background:var(--acc-bg);position:relative;z-index:1}
+.mx-tag{font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* 드롭다운(details) */
+.mx-menu{position:relative}
+.mx-menu>summary{list-style:none;cursor:pointer;min-width:0;max-width:340px}
+.mx-menu>summary::-webkit-details-marker{display:none}
+.mx-menu>summary::after{content:'▾';font-size:11px;color:var(--muted)}
+.mx-menu.more>summary::after{content:none}
+.mx-menu[open]>summary{border-color:var(--accent)}
+.mx-cut{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mx-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:30;box-sizing:border-box;min-width:260px;width:max-content;max-width:min(380px,calc(100vw - 32px));max-height:min(72vh,600px);overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow)}
+.mx-menu.end>.mx-pop{left:auto;right:0}
+.mx-pop hr{width:100%;margin:2px 0;border:0;border-top:1px solid var(--line)}
+.mx-pop>.btn,.mx-pop>a.btn{justify-content:flex-start}
+
+/* 몸통 */
+.mx-body{flex:1;min-height:0;display:flex}
+.mx-tools{flex:none;display:flex;flex-direction:column;gap:6px;padding:8px;border-right:1px solid var(--line);background:var(--panel);overflow-y:auto}
+.mx-tools .btn{width:44px;padding:0}
+.mx-tools .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
+.mx-tools hr{width:100%;margin:2px 0;border:0;border-top:1px solid var(--line)}
+.mx-map{flex:1;min-width:0;min-height:0;position:relative;display:flex;flex-direction:column;overflow:hidden}
+.mx-map>svg{flex:1;min-height:0;width:100%;height:100%}
+.mx-scroll{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}   /* 판 비교처럼 지도 + 목록이 함께 오는 보기 */
+.mx-center{margin:auto;padding:24px;max-width:420px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+/* 지도 위 알림 띠(생길 때만) — 위 왼쪽부터 쌓임 */
+.mx-over{position:absolute;top:8px;left:8px;right:8px;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:6px;pointer-events:none}
+.mx-over>*{pointer-events:auto;max-width:100%;box-sizing:border-box;margin:0;padding:6px 10px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);box-shadow:var(--shadow)}
+.mx-over>.fh-row{padding:4px 6px 4px 10px}
+/* 지도 왼쪽 아래 한 줄 안내 */
+.mx-hint{position:absolute;left:8px;bottom:8px;z-index:1;box-sizing:border-box;max-width:calc(100% - 220px);margin:0;padding:4px 10px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--muted);font-size:12px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help}
+.mx-legend{position:absolute;left:8px;bottom:44px;z-index:1;margin:0;padding:6px 10px;list-style:none;display:flex;flex-wrap:wrap;gap:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:13px}
+
+/* 오른쪽 작업 창 */
+.mx-pane{flex:0 0 320px;min-width:0;min-height:0;box-sizing:border-box;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);overflow-y:auto}
+.mx-pane[data-fold]{flex-basis:auto;padding:6px}
+.mx-pane[data-fold]>.mx-fold{writing-mode:vertical-rl;white-space:nowrap;padding:12px 0;min-width:44px;max-height:100%;overflow:hidden;justify-content:flex-start;gap:6px}
+.mx-fold-txt{text-orientation:sideways;min-height:0;overflow:hidden;text-overflow:ellipsis}   /* «단계 0 · 이름» 한 줄로 눕힘(글자마다 줄바뀌어 보이지 않게), 넘치면 말줄임 — ◂ 는 그대로 */
+.mx-fold-name{font-weight:400;color:var(--muted)}
+.mx-top{flex:none;position:sticky;top:0;z-index:2;background:var(--panel)}   /* 고르기 줄 + 머리 — 창을 굴려도 위에 */
+.mx-pick{display:flex;align-items:center;gap:6px;padding:8px 6px 0 12px;min-width:0}
+.mx-pick .btn{white-space:nowrap}
+.mx-pick>.mx-menu{flex:0 1 auto;min-width:0}
+.mx-pick>.mx-menu>summary{max-width:100%}
+.mx-pick .mx-pop{position:fixed;top:auto;left:auto;right:12px;margin-top:6px}   /* 창(overflow) 밖으로 — 메뉴 바로 아래, 화면 오른쪽에 맞춤. 열 때 top·max-height 는 mapscen.tsx fit 이 단추 위치·남은 화면 높이로 정함 */
+.mx-head{flex:none;display:flex;align-items:center;gap:6px;min-height:52px;box-sizing:border-box;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);background:var(--panel);font-weight:600}
+.mx-head>.fh-grow{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-head .btn{padding:0 12px}
+.mx-in{display:flex;flex-direction:column;gap:12px;padding:12px}
+.mx-list{list-style:none;margin:0;padding:6px;display:flex;flex-direction:column;gap:2px}
+.mx-row{display:flex;align-items:center;gap:2px;border-radius:8px}
+.mx-row:hover,.mx-row:focus-within{background:var(--panel2)}
+.mx-row[data-bad]{outline:2px solid var(--bad)}
+.mx-name{flex:1;min-width:0;min-height:44px;display:flex;align-items:center;gap:8px;padding:0 8px;border:1px solid transparent;border-radius:8px;background:none;text-align:left;font-size:14px}
+.mx-name[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
+.mx-name>b{flex:1;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-name>small{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:12px}
+.mx-x{flex:none;width:36px;min-height:44px;border:0;border-radius:8px;background:none;color:var(--muted)}
+.mx-x:hover{color:var(--bad)}
+.mx-row:not(:hover):not(:focus-within)>.mx-x{opacity:0}
+.mx-foot{margin-top:auto;position:sticky;bottom:0;display:flex;flex-direction:column;gap:8px;padding:12px;border-top:1px solid var(--line);background:var(--panel)}
+
+/* 작은 창(모달 아님) — 단추 줄 아래 오른쪽 */
+.mx-dlg{position:absolute;inset:64px 12px auto auto;margin:0;z-index:40;box-sizing:border-box;width:min(400px,calc(100% - 24px));max-height:calc(100% - 76px);overflow:auto;padding:12px 14px 14px;color:var(--text);box-shadow:var(--shadow)}
+.mx-dlg[open]{display:flex;flex-direction:column;gap:12px}
+.mx-dlg-head{display:flex;align-items:center;gap:8px}
+.mx-dlg-head .btn{padding:0 12px}
+.mx-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* 시나리오 탭(PR 2): 숨긴 칸은 틀의 display 규칙보다 먼저 숨김, 단계 줄 손잡이·번호·⚠, [단계|배정] 탭 */
+.mx [hidden]{display:none!important}
+.mx-tab{flex:1;display:flex;flex-direction:column;min-height:0}
+.mx-grip{flex:none;width:20px;min-height:44px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:grab;user-select:none;letter-spacing:-3px}
+.mx-num{flex:none;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:var(--accent);color:#FFFFFF;font-size:12px;font-weight:600}
+li[data-bad] .mx-num{background:var(--bad)}
+.mx-warn{flex:none;color:var(--bad)}
+.mx-head .mx-seg>.btn{padding:0 12px}
+.mx-pop .fh-list{max-height:40vh;overflow:auto}
+/* 창 아래 «끝나면»은 한 줄(낮은 화면에서 단계 줄 자리를 덜 먹게) */
+.mx-foot{gap:6px;padding:8px 12px}
+.mx-foot .fh-field{flex-direction:row;align-items:center;gap:8px}
+.mx-foot .fh-field>span{flex:none}
+.mx-foot .fh-field>select{flex:1;min-width:0}
+.mx-in:empty{display:none}   /* 이름이 «···» 로 가 빈 안내 칸은 자리를 먹지 않게 */
+.mx-pane-in{display:contents}   /* 창 안 내용 묶음 — 틀(세로 flex)은 그대로, 접으면 [hidden] 으로 숨김 */
+
+/* MAP-TAB-MERGE 11-03 — 시나리오 탭을 지도 탭에 합침(사진 ①~⑤). 색·선은 기존 토큰만 */
+.mx-side{flex:0 1 auto;min-width:0}
+.mx-side>.btn{padding:0 12px;gap:6px}
+.mx-side>[aria-disabled="true"]{color:var(--muted);cursor:not-allowed}
+.mx-n{font-size:12px;color:var(--muted);font-weight:400}
+.mx-lock{gap:6px;color:var(--muted);cursor:default;max-width:340px;min-width:0}
+.mx-why{white-space:normal;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mx-edit{color:var(--warn);font-weight:600}
+.mx-head .mx-pop{position:fixed;top:auto;left:auto;right:12px;margin-top:6px}   /* 창(overflow) 머리 «···» — 창 밖으로 */
+.mx-name2{flex-wrap:wrap;row-gap:2px;padding:6px 8px}
+.mx-name2>b{flex:1 1 100%}
+.mx-name2>small{max-width:none;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mx-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mx-sum>span{display:flex;flex-direction:column;align-items:center;padding:8px 4px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);font-size:12px;color:var(--muted)}
+.mx-sum>span>b{font-size:18px;color:var(--text)}
+.mx-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;border:1px dashed var(--line2);border-radius:8px;text-align:center}
+.mx-foot>.btn{justify-content:space-between}
+/* ① 지도 고르기 */
+.mx-choose{width:100%;max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding:12px 0 24px}
+.mx-choose>h2{margin:8px 0 0}
+.mx-last,.mx-bld{width:100%;box-sizing:border-box;min-height:44px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;color:inherit;font:inherit;cursor:pointer}
+.mx-last:hover,.mx-bld:hover{border-color:var(--accent)}
+.mx-last:focus-visible,.mx-bld:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mx-last{padding:12px 14px;border-color:var(--accent);background:var(--acc-bg)}
+.mx-last small,.mx-bld small{gap:6px;color:var(--muted)}
+.mx-site{display:flex;flex-direction:column;gap:6px}
+.mx-site>h3{margin:4px 0 0}
+.mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.mx-bld{padding:10px 12px}
+/* 저장 기록(지도 세부 아래, 기본 닫힘) — 펼쳐도 지도를 다 밀어내지 않게 */
+.mx-hist{flex:none;margin:0;padding:6px 12px;border-top:1px solid var(--line);background:var(--panel)}
+.mx-hist>.mx-list{max-height:30vh;overflow-y:auto;padding:6px 0}
+.mx-hist .mx-name{flex-wrap:wrap;row-gap:2px;padding:6px 8px}
+.mx-hist .mx-name>small{flex:1 1 auto}
+/* 좁은 폭(작은 PC 창·태블릿): 한 열 — 도구줄은 위 가로, 지도, 오른쪽 창은 아래 */
+@media (max-width:1023.98px){
+  .mx-bar{flex-wrap:wrap}
+  .mx-why{display:none}
+  .mx-body{flex-direction:column}
+  .mx-tools{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden}
+  .mx-tools hr{width:auto;height:auto;margin:0 2px;border-top:0;border-left:1px solid var(--line)}
+  .mx-map{flex:1 1 55%;min-height:240px}
+  .mx-pane{flex:0 1 45%;border-left:0;border-top:1px solid var(--line)}
+  .mx-pane[data-fold]{flex:none}
+  .mx-pane[data-fold]>.mx-fold{writing-mode:horizontal-tb;width:100%;padding:0 12px;min-height:44px}
+  .mx-fold-txt{text-orientation:mixed}
+  .mx-hint{max-width:calc(100% - 140px)}
+  .mx-choose{padding:12px 0}
+  .mx-last{flex-wrap:wrap}
+}

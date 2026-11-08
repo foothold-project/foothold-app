@@ -62,7 +62,7 @@ class NativeWorld:
         if self.repository:
             files['sensor_runtime'] = source / 'live_map.py'
             files['map_codec'] = Path(__file__).resolve().parents[1] / 'server/fh_server/map_files.py'
-            for name in ('repo_runtime.py', 'connected_runtime.py', 'connected_static.py', 'native_entrypoint.py'):
+            for name in ('repo_runtime.py', 'mesh_resources.py', 'connected_runtime.py', 'connected_static.py', 'native_entrypoint.py'):
                 files['adapter_' + name] = Path(__file__).with_name(name)
         return {name: sha256(path) for name, path in files.items()}
 

@@ -31,7 +31,7 @@ from sqlalchemy.exc import DBAPIError, DataError, IntegrityError, StatementError
 from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
 from .inventory import InventoryWriter
-from .robots import live_state
+from .robots import live_state, phone_relay
 from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
@@ -155,6 +155,8 @@ class Peer:
     run: dict | None = None
     closing: bool = False
     simulation: bool = False
+    server_drive: bool = False
+    server_drive_axes: tuple = (0, 0, 0)
     policy: object = None
     budget: float = 100
     budget_at: float = 0
@@ -247,7 +249,8 @@ class Realtime:
         def relay_authorize(user, permission, robot=None):
             authorize(user, permission, robot)
             if (robot is not None and permission in ('O_OWN', 'ROBOT_STOP')
-                    and robot.simulation is not True):
+                    and robot.simulation is not True
+                    and not settings.drive_enabled(robot.id)):
                 raise api_error(403, 'PHONE_DIRECT_REQUIRED', '실기 조종·STOP은 현장 폰에서 직접 하세요.')
         self.authorize, self.api_error, self.clock = relay_authorize, api_error, clock
         self.last_state_received = {}
@@ -256,6 +259,8 @@ class Realtime:
         self.agents: dict[str, Peer] = {}
         self.robot_changes = set()
         self.robot_changed_at = {}
+        self.field_approvals = {}
+        self.field_changed_at = {}
         self.deleted_robots = set()
         self.deleted_at = {}
         self.runs: dict[str, dict] = {}  # executor persistence is a later task
@@ -440,6 +445,8 @@ class Realtime:
         self.starts -= 1
         if self.starts:
             return
+        if hasattr(self, 'drive_media'):
+            await self.drive_media.close()
         await self.inventory.close()
         for task in self.tasks + list(self.archive_closers):
             task.cancel()
@@ -697,7 +704,8 @@ class Realtime:
                 Session.id.in_([UUID(a.session) for a in actors]), User.org_id == self.settings.org_id,
                 Session.org_id == self.settings.org_id)).all()
             robots = db.execute(select(Robot.id, Robot.org_id, Robot.archived_at,
-                Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation).where(Robot.org_id == self.settings.org_id,
+                Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation,
+                Robot.field_approval_expires_at).where(Robot.org_id == self.settings.org_id,
                                                      Robot.archived_at.is_(None))).all()
             rows = {str(row.session_id): row for row in rows}
             result = PolicyBatch()
@@ -843,6 +851,43 @@ class Realtime:
     def end_robot_change(self, rid):
         self.robot_changes.discard(rid)
 
+    def field_approved(self, rid):
+        expiry = self.field_approvals.get(rid)
+        return expiry is not None and expiry > now()
+
+    async def reset_agent_field_approval(self, rid, token_hash):
+        from .pairing import revoke_on_agent_connect
+        self.begin_robot_change(rid)
+        try:
+            # Revoke motion before waiting on bounded metadata SQL. A second
+            # marker after commit excludes every pre-commit auth snapshot.
+            self.set_field_approval(rid, None)
+            valid = await asyncio.to_thread(revoke_on_agent_connect, self.inventory.factory,
+                                           self.settings.org_id, rid, token_hash)
+            self.set_field_approval(rid, None)
+            if not valid:
+                raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
+        finally:
+            self.end_robot_change(rid)
+
+    def set_field_approval(self, rid, expiry, *, observed=None):
+        # A SQL snapshot started before a local revoke cannot restore approval.
+        if observed is not None and observed < self.field_changed_at.get(rid, float('-inf')):
+            return
+        if observed is None:
+            self.field_changed_at[rid] = self.clock()
+        if expiry is not None and expiry <= now():
+            expiry = None
+        previous = self.field_approvals.get(rid)
+        self.field_approvals[rid] = expiry
+        if expiry is None:
+            record = self.arbiter.robots.get(rid)
+            if record and (previous is not None or record.holder or record.transfer or record.request):
+                self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+        agent = self.agents.get(rid)
+        if agent is not None and not agent.simulation and (previous != expiry or observed is None):
+            self.put(agent, C.AgentFieldApproval(expires_at=expiry).model_dump(mode='json'))
+
     def revoke_robot_control(self, peer, rid):
         # Losing motion authority does not imply losing ROBOT_READ.
         r = self.arbiter.robots.get(rid)
@@ -932,6 +977,11 @@ class Realtime:
                 raise self.api_error(404 if permission != 'O_OWN' else 403,
                                      'NOT_FOUND' if permission != 'O_OWN' else 'NOT_ROBOT_OWNER',
                                      '로봇 접근 권한이 없습니다.')
+            agent = self.agents.get(rid)
+            if (permission == 'O_OWN' and agent is not None and not agent.simulation
+                    and not self.field_approved(rid)):
+                self.set_field_approval(rid, None)
+                raise self.api_error(403, 'FIELD_APPROVAL_REQUIRED', '담당 운영자의 현장 안전 확인이 필요합니다.')
         return policy.settings
 
     def revoke_actor(self, actor):
@@ -943,6 +993,8 @@ class Realtime:
 
     def disconnect_pending(self, actor):
         for rid, r in self.arbiter.robots.items():
+            if r.holder and r.holder.actor == actor and rid in self.agents:
+                self.agents[rid].server_drive_axes = (0, 0, 0)
             if r.request and r.request.actor == actor:
                 self.apply(self.arbiter.cancel_request(rid))
             if r.transfer and r.transfer.actor == actor:
@@ -1111,6 +1163,27 @@ class Realtime:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
 
+    def stop_fast_server_drives(self, org_id, actor):
+        # Agent admission is organization-scoped. Run only on the owning loop,
+        # after the settings transaction committed, without waiting on SQL.
+        if org_id != self.settings.org_id:
+            return
+        for rid, peer in list(self.agents.items()):
+            record = self.arbiter.robots.get(rid)
+            holder = record.holder if record else None
+            if (peer.closing or peer.simulation or not peer.server_drive
+                    or not holder or holder.holder_type != 'USER' or not holder.actor
+                    or not any(peer.server_drive_axes[:2])):
+                continue
+            effects = self.arbiter.stop(rid, actor)
+            # Keep the existing STOP audit category and command-policy reason,
+            # with one record per robot rather than an extra synthetic event.
+            effects = [replace(e, body={**e.body, 'code': 'SERVER_DRIVE_COMMAND',
+                'data': {'reason': 'SERVER_DRIVE_COMMAND',
+                         'real_no_fast_server_drive': True}})
+                if e.target == 'audit' else e for e in effects]
+            self.apply(effects)
+
     def apply(self, effects):
         """Synchronous effect enqueue. First two revoke effects cannot interleave."""
         self.effect_depth += 1
@@ -1121,11 +1194,8 @@ class Realtime:
                 if target == 'agent':
                     peer = self.agents.get(rid)
                     if peer:
-                        # DB provenance only. Unknown/real peers never receive control,
-                        # including startup/disconnect/overload-generated STOP effects.
-                        if not peer.simulation and body.get('t') in (
-                                'lease', 'cmd', 'unlock', 'stop', 'run.start', 'run.control',
-                                'run.confirm', 'floor.set', 'slam'):
+                        # DB provenance plus explicit per-robot manual trial only.
+                        if self.blocked_agent_control(peer, body):
                             continue
                         if body['t'] == 'lease' and body['holder_type'] == 'RUN':
                             self.runs[rid]['lease_id'] = body['lease_id']
@@ -1135,6 +1205,9 @@ class Realtime:
                                 continue
                         if body['t'] == 'cmd':
                             body['t_server'] = now().isoformat().replace('+00:00', 'Z')
+                            peer.server_drive_axes = tuple(body['axes'])
+                        elif body['t'] in ('stop', 'lease'):
+                            peer.server_drive_axes = (0, 0, 0)
                         # Safety transitions discard any unsent movement inputs. They
                         # keep lease-null/stop order and bypass queued telemetry/ping.
                         if body['t'] in ('stop', 'lease', 'cmd'):
@@ -1185,12 +1258,28 @@ class Realtime:
                 (records if effect.target == 'audit' else safety).append(effect)
         self.apply(safety + records)
 
-    async def send_body(self, peer, body, delivery=None):
-        if peer.actor is None and not peer.simulation and body.get('t') in (
+    def blocked_agent_control(self, peer, body):
+        rid = next((key for key, value in self.agents.items() if value is peer), None)
+        motion = (body.get('t') in ('cmd', 'unlock') or
+                  (body.get('t') == 'lease' and body.get('lease_id') is not None))
+        if (peer.actor is None and not peer.simulation and motion
+                and (rid in self.robot_changes or not self.field_approved(rid))):
+            return True
+        # Trial authority is manual driving only; never unlock mission/map paths.
+        return (peer.actor is None and not peer.simulation and body.get('t') in (
                 'lease', 'cmd', 'unlock', 'stop', 'run.start', 'run.control',
-                'run.confirm', 'floor.set', 'slam'):
-            return False
+                'run.confirm', 'floor.set', 'slam') and (not peer.server_drive or
+                body.get('t') not in ('lease', 'cmd', 'unlock', 'stop') or
+                (body.get('t') == 'lease' and body.get('holder_type') not in (None, 'USER'))))
+
+    async def send_body(self, peer, body, delivery=None):
         async with peer.send_lock:
+            if self.blocked_agent_control(peer, body):
+                return False
+            if body.get('t') == 'field_approval':
+                rid = next((key for key, value in self.agents.items() if value is peer), None)
+                body = C.AgentFieldApproval(expires_at=(self.field_approvals.get(rid)
+                    if self.field_approved(rid) else None)).model_dump(mode='json')
             if delivery is not None:
                 rid, epoch = delivery
                 if rid in peer.revoked_robots or epoch != peer.delivery_epochs.get(rid, 0):
@@ -1411,11 +1500,30 @@ class Realtime:
                                 self.apply(self.arbiter.tick())
                             self.apply(self.arbiter.respond(rid, actor, str(msg.request_id), msg.accept))
                         elif msg.t == 'cmd':
+                            if self.agents[rid].server_drive and not self.agents[rid].simulation:
+                                from apps.contracts.server_drive import ALLOWED
+                                self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
+                                if (tuple(msg.axes) not in ALLOWED or
+                                        (settings.real_no_fast_server_drive and any(msg.axes[:2]))):
+                                    self.apply(self.arbiter.stop(rid, actor))
+                                    raise LeaseError('SERVER_DRIVE_COMMAND', '허용된 시험 명령표 밖 입력입니다.', 400)
+                            elif any(abs(axis)>1 for axis in msg.axes):
+                                raise self.api_error(400, 'VALIDATION', '입력 형식을 확인하세요.')
                             self.apply(self.arbiter.cmd(rid, actor, str(msg.lease_id), msg.seq, msg.axes))
                         elif msg.t == 'unlock':
                             self.apply(self.arbiter.unlock(rid, actor, str(msg.lease_id), msg.stop_gen))
                     self.put(peer, C.ScreenReply(id=msg.id, ok=True).model_dump(mode='json'))
                 except ValidationError:
+                    if raw.get('t') == 'cmd':
+                        # Malformed axes also stop an authenticated trial holder;
+                        # never let schema rejection retain its previous movement.
+                        with suppress(ValueError, TypeError, self.api_error, LeaseError):
+                            rejected_rid = str(UUID(raw.get('robot')))
+                            agent = self.agents.get(rejected_rid)
+                            if agent is not None and agent.server_drive and not agent.simulation:
+                                self.cached_access(peer, [rejected_rid], 'O_OWN')
+                                self.arbiter.owned(self.arbiter.robot(rejected_rid), actor, str(UUID(raw.get('lease_id'))))
+                                self.apply(self.arbiter.stop(rejected_rid, actor))
                     self.put(peer, {'t': 'reply', 'id': str(raw.get('id', ''))[:128], 'ok': False,
                                     'error': {'code': 'VALIDATION', 'message': '입력 형식을 확인하세요.', 'detail': {}}})
                 except (self.api_error, LeaseError) as exc:
@@ -1454,9 +1562,12 @@ class Realtime:
     def screen_state(self, rid):
         online, state = live_state(self, rid)
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
+            robot_info=state.get('robot_info'),
+            phone_relay=phone_relay(self, rid),
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
-            latched=state.get('latched'), safety_reason=state.get('safety_reason'), stop_gen=state.get('stop_gen'),
+            latched=state.get('latched'), safety_reason=state.get('safety_reason'),
+            unlock_refused=state.get('unlock_refused'), stop_gen=state.get('stop_gen'),
             applied=state.get('applied')).model_dump(mode='json')
 
     async def screen_watch(self, peer):
@@ -1519,9 +1630,11 @@ class Realtime:
     def verify_agents(self, peers, robots):
         result = AgentBatch()
         result.simulations = {}
+        result.field_approvals = {}
         for rid, peer in peers:
             robot = robots.get(rid)
             result.simulations[rid] = (robot is not None and robot.simulation is True, peer)
+            result.field_approvals[rid] = (getattr(robot, 'field_approval_expires_at', None), peer)
             raw = peer.socket.headers.get('authorization', '')
             if robot and hmac.compare_digest(robot.agent_token_hash or b'\x00' * 32, digest(raw[7:])):
                 result[rid] = (rid, peer)
@@ -1533,7 +1646,8 @@ class Realtime:
         peers = list(self.agents.items())
         with self.agent_factory() as db:
             robots = {str(r.id): r for r in db.execute(select(Robot.id, Robot.org_id,
-                Robot.archived_at, Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation, Robot.sim_generation).where(
+                Robot.archived_at, Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation, Robot.sim_generation,
+                Robot.field_approval_expires_at).where(
                 Robot.id.in_([UUID(rid) for rid, _ in peers]), Robot.org_id == self.settings.org_id,
                 Robot.archived_at.is_(None)))}
             batch = self.verify_agents(peers, robots)
@@ -1602,6 +1716,9 @@ class Realtime:
                 if identity != rid:
                     raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
                 peer.auth_checked = max(peer.auth_checked, started)
+                approval = getattr(batch, 'field_approvals', {}).get(rid)
+                if approval is not None and approval[1] is peer and not peer.simulation:
+                    self.set_field_approval(rid, approval[0], observed=started)
                 if self.clock() - peer.auth_checked > .5:
                     raise asyncio.TimeoutError()
                 peer.stale_revoked = False
@@ -1827,6 +1944,7 @@ class Realtime:
             # token before publishing a connected peer or granting authority.
             auth_started = self.clock()
             _, peer.simulation = await self.read(self.agent_auth, ws.headers)
+            peer.server_drive = self.settings.drive_enabled(rid)
             peer.auth_checked = auth_started
             if rid in self.deleted_robots:
                 await ws.close(code=4403)
@@ -1834,6 +1952,8 @@ class Realtime:
             if rid in self.robot_changes:
                 await ws.close(code=1013, reason='ROBOT_CHANGE_PENDING')
                 return
+            if not peer.simulation:
+                await self.reset_agent_field_approval(rid, digest(ws.headers['authorization'][7:]))
             old = self.agents.get(rid)
             if old:
                 old.closing = True
@@ -1842,6 +1962,11 @@ class Realtime:
             # old socket's finally runs after this peer has replaced it.
             self.inventory.forget(rid)
             self.agents[rid] = peer
+            # Every real-agent connection needs a new field confirmation;
+            # persisted approval was cleared before publishing this peer.
+            self.field_approvals.pop(rid, None)
+            if not peer.simulation:
+                self.put(peer, C.AgentFieldApproval(expires_at=None).model_dump(mode='json'))
             self.inventory.submit(rid, [d.model_dump(mode='json') for d in hello.devices],
                 hello.robot_model, digest(ws.headers.get('authorization', '')[7:]))
             r = self.arbiter.robot(rid)
@@ -1999,7 +2124,8 @@ class Realtime:
         if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
             return False
         data = msg.model_dump(mode='json')
-        peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'stop_gen', 'applied')})
+        peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'unlock_refused', 'stop_gen', 'applied')})
+        peer.state['robot_info'] = data.get('robot_info')
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']
         context = pose.get('floor_context')
@@ -2079,6 +2205,8 @@ class Realtime:
                     peer.last_ping = at
                     self.put(peer, C.ScreenServerPing(t_server=now()).model_dump(mode='json'))
             for rid, peer in list(self.agents.items()):
+                if self.field_approvals.get(rid) is not None and not self.field_approved(rid):
+                    self.set_field_approval(rid, None)
                 if at - peer.last_rx >= 3 and not peer.closing and not peer.audit_waiting:
                     peer.closing = True
                     self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
@@ -2214,6 +2342,8 @@ def install(app, settings, factory, authorize, api_error):
     app.state.realtime = realtime
     app.add_api_websocket_route('/api/v1/ws', realtime.screen_ws)
     app.add_api_websocket_route('/api/v1/agent/ws', realtime.agent_ws)
+    from .drive_media import install as install_drive_media
+    install_drive_media(app, realtime)
 
     class StopResponse(JSONResponse):
         def __init__(self, records, reservations):

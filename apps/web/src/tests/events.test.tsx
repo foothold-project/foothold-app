@@ -11,6 +11,7 @@ import { NOTE_MS } from '../api';
 import { BELL_MS, stamp } from '../screens/history';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
+import { fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -18,7 +19,7 @@ const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
 const PARK: User = { ...KIM, id: 'o2', username: 'park', display_name: '박운영', role: 'OPERATOR', robot_ids: ['r-b'] };
 const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner.id, display_name: owner.display_name },
-  simulation: false,
+  simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] });
 const RA = robot('r-a', 'Go2-A', LEE), RB = robot('r-b', 'Go2-B', PARK);
 const NOW = new Date().toISOString();
@@ -82,6 +83,8 @@ const setVal = async (el: HTMLInputElement | HTMLSelectElement, v: string) => {
   });
   await flush();
 };
+/** 총괄 서랍 열기 — 고른 행을 다시 누름 */
+const drawer = () => click(card('로봇 목록').querySelector('button[aria-pressed="true"]'));
 const rows = () => [...card('사건').querySelectorAll('tbody tr')].map((l) => l.textContent);
 const alertText = () => [...box.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ');
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 */
@@ -311,6 +314,7 @@ describe('시각 접두', () => {
       'GET /events': list([ev('1', { at: AT, message: '08:47 Go2-7이 연결되었습니다.' })]),
     }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     const notes = [...card('알림 목록').querySelectorAll('li')].map((l) => l.textContent);
     expect(notes[0]).toBe(`●새 알림연결 끊김 Go2-7과 연결이 끊겼습니다.${local}`);
     expect(notes[1]).toBe(`●새 알림연결 끊김 Go2-7 배터리가 낮습니다.${local}`);
@@ -413,6 +417,7 @@ describe('화면 일부가 깨져도 STOP 은 남음(검토 P1)', () => {
     boom.mockRestore();
     await click($('nav a[href="#/fleet"]'));
     expect($('[aria-label="화면 오류"]')).toBeNull();
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세')).toBeTruthy();
   });
 });
@@ -620,6 +625,7 @@ describe('서랍 «최근 사건»', () => {
   it('그 로봇의 최근 5개(robot_id·limit=5)', async () => {
     serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([ev('2', { message: 'Go2-A 최근 사건' })]) : list([])) }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     const call = sent('GET', '/events').find((c) => c.q.get('robot_id') === 'r-a')!;
     expect(Object.fromEntries(call.q)).toEqual({ robot_id: 'r-a', limit: '5' });
     expect(card('로봇 상세').textContent).toContain('Go2-A 최근 사건');
@@ -628,29 +634,36 @@ describe('서랍 «최근 사건»', () => {
   it('정지 확인 실패(서버 INFO)는 서랍에서도 «정상»이 아닌 ▲주의', async () => {
     serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([ev('2', { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인 실패' })]) : list([])) }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     const li = $('[aria-label="최근 사건"] li')!;
     expect(li.textContent).toContain('▲주의');
     expect(li.textContent).not.toContain('정상');
+    expect(li.closest('details')).not.toBeNull();   // 사건 5개 전체는 접고
+    expect($('[data-recent-trouble]')!.closest('details')).toBeNull();   // 문제 사건은 접힌 밖에 늘
+    expect($('[data-recent-trouble]')!.textContent).toContain('Go2-A 정지 확인 실패');
   });
   it('없으면·범위 밖(404)이면 칸을 숨김(가짜 없음), 다른 실패는 한 줄', async () => {
     serve(signedIn(KIM));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect($('[aria-label="최근 사건"]')).toBeNull();
     expect(card('로봇 상세').textContent).not.toContain('최근 사건');
     act(() => root?.unmount()); root = null; box.remove();
     serve(signedIn(KIM, { 'GET /events': err(404, 'NOT_FOUND', '기록을 찾을 수 없습니다.') }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세').textContent).not.toContain('최근 사건');
     act(() => root?.unmount()); root = null; box.remove();
     serve(signedIn(KIM, { 'GET /events': () => { throw new TypeError('x'); } }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세').textContent).toContain('최근 사건을 받지 못했습니다. 서버에 연결하지 못했습니다');
     stopOk();
   });
   it('운영 관리자가 남의 로봇을 고르면 요청하지 않음(요약만 보는 범위)', async () => {
     serve(signedIn(PARK));
     await open('#/fleet');
-    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    await click(fleetRow(box, 'Go2-A'));
     expect(sent('GET', '/events').filter((c) => c.q.get('robot_id') === 'r-a')).toEqual([]);
     expect(sent('GET', '/events').filter((c) => c.q.get('robot_id') === 'r-b')).toHaveLength(1);   // 내 로봇은 요청함
   });

@@ -100,6 +100,18 @@ Ctrl-C는 구독/HTTP/광고를 정리하고 종료하며 기체에 정지 명�
 | `fallen_source` | `imu_tilt_estimate`; 공식 낙상 플래그나 안전 Core 입력 아님 |
 | `sources.*` | 각 토픽의 fresh, age_s, received_at(UTC 호스트 수신 시각) |
 | `last_received_at` | 마지막으로 수용한 샘플의 호스트 시각; 기체 시각·서버 동기화 보장 아님 |
+| `joints` (선택) | lowstate motor_state 앞 12개 q(rad), `names`/`positions`는 SDK FR FL RR RL의 hip thigh calf 순서, `received_at`은 호스트 UTC 수신 시각 |
+| `quaternion` (선택) | lowstate imu_state.quaternion, `wxyz`와 해당 lowstate `received_at` |
+| `position` (선택) | sportmodestate position의 `xyz`(m), `received_at`, `origin=BOOT_ORIGIN_UNVERIFIED`(기동 시점 기준·미확인), 지도 정합 없음 |
+
+위 세 선택 칸은 표시만 하며 값 없음·비정상·토픽 만료 시 생략한다. 서버 상태 전용
+Observer가 기존 상태 주기 그대로 `robot_info`에 싣는다(폰 직결 보고는 확장하지 않음).
+각 칸의 `age_s`는 agent monotonic 경과이며 서버 조회 때 메모리 체류 시간을 더한다.
+브라우저는 요청 왕복 시간도 더해 1초를 검사하므로 기기 간 시계 동기화를 요구하지 않는다.
+웹 세션 권한을 쓰는 기존 `GET /api/v1/robots/{id}`가 메모리 최신값을 전달한다.
+`/sim/index.html?from=web&policy=go2-demo&robot=<id>`는 이를 읽고 관절 이름으로 배치해
+`mj_forward`만 한다. 세 칸 중 하나라도 없거나 새 센서 값이 1초 넘게 없으면 마지막 자세로 멈춘다.
+시뮬 화면의 실기 명령·STOP 송신은 없으며 «명령은 Sport 모드로»는 담당자 결정까지 보류다.
 
 신선도는 호스트 monotonic으로 계산한다. lowstate tick의 동일/역행 샘플은 갱신하지 않는다
 (uint32 wrap만 허용). sport stamp가 미설정·0·고정인 firmware는 별개로 수신한 메시지의

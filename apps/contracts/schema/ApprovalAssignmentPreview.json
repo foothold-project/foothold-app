@@ -13,17 +13,31 @@
       "type": "string"
     },
     "scenario_id": {
-      "format": "uuid",
-      "title": "Scenario Id",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Scenario Id"
     },
     "scenario_name": {
       "title": "Scenario Name",
       "type": "string"
     },
     "scenario_version": {
-      "title": "Scenario Version",
-      "type": "integer"
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Scenario Version"
     }
   },
   "required": [

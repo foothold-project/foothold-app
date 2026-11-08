@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/PairingConfirm",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "PairingConfirm",
+  "type": "object"
+}

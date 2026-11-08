@@ -57,18 +57,21 @@ def main(argv=None):
     sys.modules['sensor_isolation'] = helper
     runtime = source / 'live_map.py'
     sys.argv = [str(runtime), *runtime_args]
+    from apps.agent.tools.sim.target_recording import scope as target_scope, compile_runtime
     if helper.FH_NATIVE_WORLD.repository:
         from apps.simmgr.repo_runtime import install, single_floor_status
         from apps.simmgr.connected_runtime import compile_static_runtime, write_run_identity
         scope = dict(__name__='fh_catalogued_runtime', __file__=str(runtime),
             _fh_single_floor_status=functools.partial(single_floor_status, world_id=helper.FH_NATIVE_WORLD.entry['world_id']), _fh_run_identity=write_run_identity)
-        exec(compile_static_runtime(runtime.read_text(), str(runtime), warehouse=True), scope)
+        scope.update(target_scope())
+        exec(compile_static_runtime(runtime.read_text(), str(runtime), warehouse=True, record_targets=True), scope)
         install(scope, helper.FH_NATIVE_WORLD, Path(manifest_arg).parent)
         raise SystemExit(scope['main']())
     if helper.FH_NATIVE_WORLD.key.startswith('v5_building/'):
         from apps.simmgr.connected_runtime import run_static_runtime
         return run_static_runtime(runtime, runtime_args)
-    runpy.run_path(str(runtime), run_name='__main__')
+    scope = dict(__name__='__main__', __file__=str(runtime), **target_scope())
+    exec(compile_runtime(runtime.read_text(), str(runtime)), scope)
 
 
 if __name__ == '__main__':

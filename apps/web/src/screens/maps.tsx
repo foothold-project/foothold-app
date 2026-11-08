@@ -1,16 +1,21 @@
 // 지도 탭(01 MP-01·02·04·06, 02 F-MP-01·02·04, 03 §5.6, 05 §5 — S3a /sites·/map-versions·/uploads)과 관제 지도 칸의 층 고르기(FL-03).
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
-// 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 결재 대기(PENDING) 판은 판 목록·기록에 그대로 보인다.
+// 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 PENDING 판은 «저장 기록»에 «적용 안 됨»으로 보인다. 화면 글에는 «판»을 쓰지 않는다(11-04 — 저장 시각·만든 사람으로 부름).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
+import { createPortal } from 'react-dom';
+import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, Scenario, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import type { Tone, User } from '../fake';
+import type { Robot, Tone, User } from '../fake';
 import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
 import { leaving } from '../menu';
-import { Chip, Line, type Ctx, type Dash } from '../screens';
+import { Chip, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
-import { Editor, kept } from './mapedit';
+import { Editor, Glyph, featKeys, featName, featSub, kept } from './mapedit';
+import { Hint, Lock, Locked, Menu, Pane, Pop, SideTabs, shut, type Side } from './mapscen';
+import { MissionAdmin, ScenList, ScenarioEdit, keptPlan, useScenarios } from './missions';
+import { TrashLink, trashFail, type TrashKind } from './trash';
+import { assignFor } from './assign';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
 /** 시뮬 층 이름이 ROS 층 ID 그대로(서버가 floor_name 없이 넣은 창고 «f1» 등)면 사람이 읽는 이름으로 */
@@ -96,10 +101,21 @@ export function useFit(v?: MapVersion) {
 }
 
 /** 판 그림 + 저장된 요소(구역·지점·연결점·지우개·벽 선). 그림을 못 받으면 칸 안 글 + 다시 불러오기 */
-export function MapView({ v }: { v: MapVersion }) {
+export function MapView({ v, fill, children }: { v: MapVersion; fill?: boolean; children?: ReactNode }) {
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
+  // fill = 지도·시나리오 틀(.mx-map)을 꽉 채움 — 확대 단추는 지도 오른쪽 아래 겹침, 불러오기·실패 글은 지도 아래쪽 띠
+  if (fill) return <>
+    <MapFrame {...useFit(v)} photo={v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
+      <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
+      <Shapes v={v} f={v.features} />{children}
+    </MapFrame>
+    {at !== 'ok' && <div className="mx-over" style={{ top: 'auto', bottom: 48 }}>
+      {at === 'wait' && <p className="lv-note" role="status">지도 그림을 불러오는 중…</p>}
+      {at === 'bad' && <div className="fh-row"><p className="fh-msg" role="alert">지도 그림을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 불러오세요.</p>
+        <button type="button" className="btn" onClick={() => { setAt('wait'); setN(n + 1); }}>다시 불러오기</button></div>}</div>}
+  </>;
   return <div>
-      <MapFrame {...useFit(v)} photo={v} role="img" aria-label={`판 ${v.number} 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+      <MapFrame {...useFit(v)} photo={v} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
         <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
         <Shapes v={v} f={v.features} />
       </MapFrame>
@@ -121,46 +137,75 @@ export function useTree(cancel?: AbortSignal) {
 }
 
 const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
-/** 판 상태 이름. 결재 대기 판이 기준 판 이후 승인 판이 바뀌었으면 승인할 수 없다(서버 판정과 같은 규칙 — DB 에는 PENDING 으로 남음) */
-const stateOf = (v: MapVersion, approved: string | null): { tone: Tone; text: string } => v.id === approved ? { tone: 'ok', text: '승인' }
-  : v.status === 'PENDING' ? (v.base_version_id === approved ? { tone: 'warn', text: '결재 대기' } : { tone: 'bad', text: '적용 불가(지도가 바뀜)' })
-  : v.status === 'REJECTED' ? { tone: 'bad', text: '반려됨' } : v.status === 'CANCELED' ? { tone: 'off', text: '취소됨' } : { tone: 'off', text: '지난 판' };
-const verName = (v: MapVersion, approved: string | null) => `판 ${v.number}${v.id === approved || v.status !== 'SUPERSEDED' && v.status !== 'APPROVED' ? ` · ${stateOf(v, approved).text}` : ''}`;
-/** 서버가 아직 결재 대기(201 PENDING)로 받은 경우(결재 없는 서버 전) — 승인 판을 그대로 보인다 */
-const asked = (x: MapVersion): Msg => ({ text: `판 ${x.number}을 저장했지만 서버가 결재 대기로 받았습니다. 승인되기 전에는 지금 승인 판을 그대로 씁니다.`, ok: true });
+/** 저장 기록 상태 이름. 옛 PENDING 판이 기준 판 이후 승인 판이 바뀌었으면 적용할 수 없다(서버 판정과 같은 규칙 — DB 에는 PENDING 으로 남음) */
+const stateOf = (v: MapVersion, approved: string | null): { tone: Tone; text: string } => v.id === approved ? { tone: 'ok', text: '지금 지도' }
+  : v.status === 'PENDING' ? (v.base_version_id === approved ? { tone: 'warn', text: '적용 안 됨' } : { tone: 'bad', text: '적용 불가(지도가 바뀜)' })
+  : v.status === 'REJECTED' ? { tone: 'bad', text: '반려됨' } : v.status === 'CANCELED' ? { tone: 'off', text: '취소됨' } : { tone: 'off', text: '지난 저장' };
+/** 서버가 아직 PENDING(201)으로 받은 경우(결재 없는 서버 전) — 승인 판을 그대로 보인다 */
+const asked: Msg = { text: '저장했지만 서버가 아직 적용하지 않았습니다. 적용되기 전에는 지금 지도를 그대로 씁니다.', ok: true };
+const SAVED: Msg = { text: '저장했습니다. 다음 실행부터 이 지도를 씁니다.', ok: true };
+/** 건물을 열 때 층: 층 번호 1, 없으면 가장 낮은 층 */
+const byLevel = (l: MapFloor[]) => [...l].sort((a, b) => a.level - b.level);
+const firstFloor = (b: MapBuilding) => b.floors.find((f) => f.level === 1) ?? byLevel(b.floors)[0];
 
 type Kind = 'sites' | 'buildings' | 'floors';
 const WHAT: Record<Kind, string> = { sites: '장소', buildings: '건물', floors: '층' };
 const OBJ: Record<Kind, string> = { sites: '장소를', buildings: '건물을', floors: '층을' };
-const IN_USE: Record<Kind, string> = {
-  sites: '건물이 있는 장소는 지울 수 없습니다. 안의 건물을 먼저 지우세요.',
-  buildings: '층이 있는 건물은 지울 수 없습니다. 안의 층을 먼저 지우세요.',
-  floors: '쓰는 지도 판이 있어 지울 수 없습니다(로봇·층 연결점이 쓰는 층 포함).',
+const TRASH: Record<Kind, TrashKind> = { sites: 'site', buildings: 'building', floors: 'floor' };
+/** 휴지통으로 옮기기 409(§5.1) — 장소·건물은 휴지통 밖 하위가 남음, 층은 로봇·시뮬·실행·배정이 씀(서버 문구로 무엇인지) */
+const IN_USE: Partial<Record<Kind, string>> = {
+  sites: '안에 건물이 남은 장소는 삭제할 수 없습니다. 안의 건물을 먼저 삭제하세요.',
+  buildings: '안에 층이 남은 건물은 삭제할 수 없습니다. 안의 층을 먼저 삭제하세요.',
 };
 /** 장소 바꾸기 실패 = 무엇이 + 어떻게(U8). 403 은 서버 문구 그대로 */
-const placeFail = (e: ApiFail, k: Kind) => (e.code === 'RESOURCE_IN_USE' ? IN_USE[k] : e.status === 404 ? `이 ${OBJ[k]} 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.` : e.message);
+const placeFail = (e: ApiFail, k: Kind) => (e.code === 'RESOURCE_IN_USE' && IN_USE[k] ? IN_USE[k] : e.status === 404 ? `이 ${OBJ[k]} 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.` : trashFail(e));
 
 /** 고치기 칸: 새로 만들기(parent) 또는 이름 바꾸기(id). 층은 층 번호(지하 1층 = -1)도 */
 type Form = { kind: Kind; id?: string; parent?: string; title: string; name: string; level: string };
-export type Msg = { text: string; ok?: boolean } | null;
-export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' ok' : ''}`} role={m.ok ? 'status' : 'alert'}>{m.text}</p> : null);
+/** act = 안내 옆 단추 하나(휴지통으로 옮긴 뒤 «되돌리기») */
+export type Msg = { text: string; ok?: boolean; act?: { label: string; run: () => void } } | null;
+export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' ok' : ''}`} role={m.ok ? 'status' : 'alert'}>{m.text}
+  {m.act && <> <button type="button" className="btn" onClick={m.act.run}>{m.act.label}</button></>}</p> : null);
 
 /** 내용 비교용: null 칸을 빼고 열쇠 순서를 맞춘 JSON(서버는 None 칸을 저장하지 않는다) */
 export const canon = (x: unknown) => JSON.stringify(x, (_, v) => (v && typeof v === 'object' && !Array.isArray(v)
   ? Object.fromEntries(Object.entries(v).filter(([, y]) => y != null).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
-/** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 장소 고치기는 운영 관리자에게 회색+이유(U6). dash = 결재 대기로 받힌 뒤 배지 다시 받기 */
-export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
-  const admin = c.user.role === 'ORG_ADMIN', t = useTree(c.cancel), places = floorsOf(t.tree);
-  const [pick, setPick] = useState(() => kept.d?.floor ?? ''), cur = places.find((p) => p.floor.id === pick) ?? places[0];
+/** 마지막에 본 지도(층 id) — 이 브라우저에만(지도 고르기 화면 «마지막에 본 지도» 카드). 저장소가 막혀도 화면은 그대로 */
+const LAST = 'fh.map.last';
+const lastGet = () => { try { return localStorage.getItem(LAST) ?? ''; } catch { return ''; } };
+const lastSet = (id: string) => { try { localStorage.setItem(LAST, id); } catch { /* 막힌 저장소 — 카드만 못 보임 */ } };
+
+/** 지도 탭(03 §5.6 + MAP-TAB-MERGE 11-03 — 옛 시나리오 탭을 합침): ① 지도 고르기(건물 카드) → ② 그 건물 1층(가운데 지도 + 오른쪽 [지도 요소 | 시나리오], 위 줄 층 단추) → ③ 시나리오 목록 → ④ 시나리오 열림 → ⑤ 지도 편집.
+ *  장소 고치기는 총괄·운영 관리자 모두(서버 'O', PLACE-EDIT-OPEN 11-02) — ① 화면의 창에서. dash = PENDING 으로 받힌 뒤 배지 다시 받기 */
+export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?: Dash }) {
+  const admin = c.user.role === 'ORG_ADMIN', t = useTree(c.cancel), places = useMemo(() => floorsOf(t.tree), [t.tree]), robots = c.robots ?? [];
+  const [finding, setFinding] = useState(() => keptPlan.find && !!keptPlan.sel);   // 옛 #/mission/<id> — 그 시나리오의 층을 찾는 중
+  const [pick, setPick] = useState(() => kept.d?.floor ?? (finding ? '' : keptPlan.floor)), cur = places.find((p) => p.floor.id === pick);
+  const [side, setSide0] = useState<Side>(() => (kept.d ? 'map' : keptPlan.side)), setSide = (x: Side) => { keptPlan.side = x; setSide0(x); };
+  const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };
+  const [madmin, setMadmin] = useState(() => keptPlan.kind === 'missions');
   const [all, setAll] = useState(false), multi = !!cur && cur.building.floors.length >= 2, whole = all && multi;   // 전체 = 건물 층 겹쳐 보기(보기만)
-  const [fix, setFix] = useState(false), [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
-  const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
-  const names = useNames(c.user, admin, c.cancel), nums = useNumbers(places, c.cancel);
-  const run = async (k: Kind, f: () => Promise<unknown>, ok: string) => {
+  const [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
+  const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false), [make, setMake] = useState(''), [found, setFound] = useState<Msg>(null);   // make = 열린 장소 창 제목(''= 닫힘)
+  const names = useNames(c.user, admin, c.cancel), feats = useFeats(places, c.cancel);
+  useEffect(() => {
+    if (!finding || !keptPlan.sel) return;
+    keptPlan.find = false;
+    api.plan('scenarios', keptPlan.sel, null, c.cancel).then((x) => { const sc = x as Scenario; const f = sc.floor_ids?.[0] ?? sc.waypoints?.[0]?.floor_id ?? lastGet(); setPick(f); keptPlan.floor = f; setFinding(false); },
+      (e: ApiFail) => { if (e.code === 'CANCELED') return; setSel(null); setFinding(false); setPick(keptPlan.floor || lastGet());
+        setFound({ text: e.status === 404 ? '주소의 시나리오를 찾을 수 없습니다. 지워졌을 수 있습니다 — 지도를 고른 뒤 «시나리오» 탭에서 찾으세요.' : `주소의 시나리오를 받지 못했습니다. ${e.message}` }); });
+  }, []);
+  const run = async (k: Kind, f: () => Promise<unknown>, ok: string, act?: NonNullable<Msg>['act']) => {
     setBusy(true); setMsg(null);
-    try { await f(); setForm(null); setAsk(null); setMsg({ text: ok, ok: true }); t.again(); }
+    try { await f(); setForm(null); setAsk(null); setMsg({ text: ok, ok: true, act }); t.again(); }
     catch (e) { const x = e as ApiFail; if (x.code === 'CANCELED') return; setMsg({ text: placeFail(x, k) }); if (x.status === 404) t.again(); }
     finally { setBusy(false); }
+  };
+  /** 층 고르기 — 시나리오가 열려 있으면 위 줄이 잠겨 여기로 오지 않는다. 저장 안 한 지도 편집은 leaving.ask 가 먼저 묻는다. '' = 지도 고르기 화면, null = 전체 층 */
+  const choose = (id: string | null) => {
+    const go = () => { if (id !== null) { setPick(id); keptPlan.floor = id; if (id) lastSet(id); setSel(null); } setAll(id === null); setMsg(null); setFound(null); setMake(''); };
+    if (id === null && whole) return;
+    if (leaving.ask && id !== cur?.floor.id) leaving.ask(go); else go();
   };
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -174,69 +219,150 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
       if (form.id) return api.savePlace(k, form.id, p, c.cancel);
       if (k === 'sites') return api.createSite(name, c.cancel);
       if (k === 'buildings') return api.createBuilding(form.parent!, name, c.cancel);
-      const id = (await api.createFloor(form.parent!, { name, level }, c.cancel)).id;
-      if (!leaving.ask) setPick(id);   // 저장 안 한 편집 중이면 지금 층에 머문다(새 층은 목록에 보임)
-    }, form.id ? '이름을 바꿨습니다.' : `${OBJ[k]} 만들었습니다.`);
+      choose((await api.createFloor(form.parent!, { name, level }, c.cancel)).id);
+    },form.id ? '이름을 바꿨습니다.' : `${OBJ[k]} 만들었습니다.`);
   };
   const open = (f: Omit<Form, 'name' | 'level'> & { name?: string; level?: number }) => { setForm({ ...f, name: f.name ?? '', level: String(f.level ?? 1) }); setAsk(null); setMsg(null); };
-  // 고치기 켠 총괄에게만: 이름 바꾸기·지우기
-  const tools = (kind: Kind, x: { id: string; name: string; level?: number }) => fix && <span className="fh-row">
+  // 휴지통으로(DELETE, §5.1) + 안내의 «되돌리기» = 복원
+  const remove = ({ kind, id, name }: { kind: Kind; id: string; name: string }) => run(kind, () => api.deletePlace(kind, id, c.cancel), `«${name}» ${OBJ[kind]} 휴지통으로 옮겼습니다.`,
+    { label: '되돌리기', run: () => run(kind, () => api.restore(TRASH[kind], id, c.cancel), `«${name}» ${OBJ[kind]} 되돌렸습니다.`) });
+  // 장소 창(총괄·운영 관리자): 이름 바꾸기·삭제(휴지통으로)
+  const tools = (kind: Kind, x: { id: string; name: string; level?: number }) => <span className="fh-row">
     <button type="button" className="btn" disabled={busy} onClick={() => open({ kind, id: x.id, title: `${WHAT[kind]} 이름 바꾸기 — ${x.name}`, name: x.name, level: x.level })}>이름 바꾸기</button>
-    <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>지우기</button></span>;
+    <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>삭제</button></span>;
 
-  // 층 레이어(10-30): 2층 이상 건물만 «전체 · 1층 · 2층…». 층을 바꾸면 저장 안 한 편집 확인(leaving.ask)부터 — 전체에는 편집이 없다
-  const layers = cur && multi && <div className="fh-row" role="group" aria-label="층 레이어" data-layers>
-    <button type="button" className="btn" aria-pressed={whole} onClick={() => { const go = () => { setAll(true); setMsg(null); }; if (whole) return; if (leaving.ask) leaving.ask(go); else go(); }}>전체</button>
-    {cur.building.floors.map((f) => <button key={f.id} type="button" className="btn" aria-pressed={!whole && f.id === cur.floor.id}
-      onClick={() => { const go = () => { setPick(f.id); setAll(false); setMsg(null); }; if (leaving.ask && f.id !== cur.floor.id) leaving.ask(go); else go(); }}>{f.name}</button>)}
-  </div>;
-
-  return <>
-    <section className="lv-card" style={{ flex: '0 1 260px' }} aria-label="장소">
-      <div className="fh-row"><h2 className="fh-grow">장소</h2><button type="button" className="btn" aria-pressed={admin ? fix : undefined} disabled={!admin} aria-describedby={admin ? undefined : 'fix-why'}
-        onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>고치기</button></div>
-      {!admin && <span id="fix-why" className="fh-why" data-why>장소 고치기는 총괄만 할 수 있습니다.</span>}
-      {t.tree?.items.map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div className="fh-row"><b className="fh-grow">{s.name}</b>{tools('sites', s)}</div>
-        {s.buildings.map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
-          <div className="fh-row"><span className="fh-grow">{b.name}</span>{tools('buildings', b)}</div>
-          <ul className="fh-list" aria-label={`${b.name} 층`}>{b.floors.map((f) => <li key={f.id} className="fh-row">
-            <button type="button" aria-pressed={!whole && f.id === cur?.floor.id} style={{ flex: 1 }} onClick={() => { const go = () => { setPick(f.id); setAll(false); setMsg(null); }; if (leaving.ask && f.id !== cur?.floor.id) leaving.ask(go); else go(); }}><span className="fh-grow">{f.name}</span>
-              <span className="lbl">{!f.approved_version_id ? '지도 없음' : nums[f.approved_version_id] ? `판 ${nums[f.approved_version_id]}` : ''}</span></button>{tools('floors', f)}</li>)}</ul>
-          {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'floors', parent: b.id, title: `${s.name} ${b.name} 에 새 층` })}>+ 층</button>}
-        </div>)}
-        {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'buildings', parent: s.id, title: `${s.name} 에 새 건물` })}>+ 건물</button>}
+  const [q, setQ] = useState(''), hit = (...s: string[]) => s.join(' ').toLowerCase().includes(q.trim().toLowerCase());
+  const label = cur ? `${cur.site.name} › ${cur.building.name} › ${cur.floor.name}` : '';
+  // 장소 고치기 묶음 — 지도 고르기 화면 «+ 지도 만들기»·«장소 고치기» 창
+  const placeBody = <div role="group" aria-label="장소" className="fh-form" style={{ gap: 8 }}>
+    {places.length > 4 && <input className="inp" type="search" aria-label="장소 거르기" placeholder="장소·건물·층 이름으로 거르기" value={q} onChange={(e) => setQ(e.target.value)} />}
+    {t.tree?.items.filter((s) => !q.trim() || s.buildings.some((b) => hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))) || hit(s.name)).map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className="fh-row"><b className="fh-grow">{s.name}</b>{tools('sites', s)}</div>
+      {s.buildings.filter((b) => !q.trim() || hit(s.name) || hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))).map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
+        <div className="fh-row"><span className="fh-grow">{b.name}</span>{tools('buildings', b)}</div>
+        <ul className="fh-list" aria-label={`${b.name} 층`}>{b.floors.filter((f) => !q.trim() || hit(s.name, b.name, f.name)).map((f) => <li key={f.id} className="fh-row">
+          <button type="button" style={{ flex: 1 }} onClick={() => choose(f.id)}><span className="fh-grow">{f.name}</span>
+            <span className="lbl">{!f.approved_version_id && '지도 없음'}</span></button>{tools('floors', f)}</li>)}</ul>
+        <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'floors', parent: b.id, title: `${s.name} ${b.name} 에 새 층` })}>+ 층</button>
       </div>)}
-      {t.tree && !t.tree.items.length && <p className="lv-note">{admin ? '등록된 장소가 없습니다. «고치기»에서 장소·건물·층을 만드세요.' : '등록된 장소가 없습니다. 총괄 운영 관리자에게 문의하세요.'}</p>}
-      {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button>}
-      {form && <form className="fh-form" onSubmit={submit} noValidate aria-label={form.title}>
-        <b>{form.title}</b>
-        <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={form.name} autoFocus onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-        {form.kind === 'floors' && <label className="fh-field"><span>층 번호(지하 1층 = -1)</span><input className="inp" inputMode="numeric" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>}
-        <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button><button type="button" className="btn" onClick={() => setForm(null)}>취소</button></div>
-      </form>}
-      {ask && <div className="fh-row" role="group" aria-label="확인">
-        <span>«{ask.name}» {OBJ[ask.kind]} 지울까요?</span>
-        <button type="button" className="btn pri" disabled={busy} onClick={() => run(ask.kind, () => api.deletePlace(ask.kind, ask.id, c.cancel), `«${ask.name}» ${OBJ[ask.kind]} 지웠습니다.`)}>지우기</button>
-        <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
-      </div>}
-      <Note m={msg} />
-      {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
-      {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
-    </section>
-    {whole && cur ? <AllFloors key={cur.building.id} b={cur.building} top={layers} cancel={c.cancel} />
-      : cur ? <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} asked={() => c.dash?.again()} top={layers} />
-      : <section className="lv-card" aria-label="지도 보기"><p className="lv-note">{t.tree ? '층을 만들면 여기에서 지도를 봅니다.' : ''}</p></section>}
+      <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'buildings', parent: s.id, title: `${s.name} 에 새 건물` })}>+ 건물</button>
+    </div>)}
+    {t.tree && !t.tree.items.length && <p className="lv-note">등록된 장소가 없습니다. «+ 장소»로 만드세요.</p>}
+    <hr />
+    <div className="fh-row"><button type="button" className="btn fh-grow" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button><TrashLink /></div>
+    {form && <form className="fh-form" onSubmit={submit} noValidate aria-label={form.title}>
+      <b>{form.title}</b>
+      <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={form.name} autoFocus onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+      {form.kind === 'floors' && <label className="fh-field"><span>층 번호(지하 1층 = -1)</span><input className="inp" inputMode="numeric" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>}
+      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button><button type="button" className="btn" onClick={() => setForm(null)}>취소</button></div>
+    </form>}
+    {ask && <div className="fh-row" role="group" aria-label="확인">
+      <span>«{ask.name}» {OBJ[ask.kind]} 휴지통으로 옮길까요? 휴지통에서 복원하거나 완전 삭제할 수 있습니다.</span>
+      <button type="button" className="btn pri" disabled={busy} onClick={() => remove(ask)}>삭제</button>
+      <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
+    </div>}
+    <Note m={msg} />
+    {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
+    {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
+  </div>;
+  // 왼쪽 위 = «‹ 모든 지도 보기» + 2층 이상 건물은 층 단추·«전체 층 겹쳐 보기»(보기만, 층 레이어 10-30)
+  const top = cur && <>
+    <button type="button" className="btn" data-to-chooser onClick={() => choose('')}>‹ 모든 지도 보기</button>
+    {multi && <><span className="mx-seg" role="group" aria-label="층" data-floors>{byLevel(cur.building.floors).map((f) =>
+      <button key={f.id} type="button" className="btn" aria-pressed={!whole && f.id === cur.floor.id} data-floor={f.id} onClick={() => choose(f.id)}>{f.name}</button>)}</span>
+      <button type="button" className="btn" aria-pressed={whole} data-layers onClick={() => choose(null)}>전체 층 겹쳐 보기</button></>}
   </>;
+
+  if (madmin) return <MissionAdmin user={c.user} robots={robots} cancel={c.cancel} back={() => setMadmin(false)} />;
+  if (finding) return <section className="mx" aria-label="지도 보기"><div className="mx-center"><p className="lv-note" role="status">주소의 시나리오를 찾는 중…</p></div></section>;
+  if (whole && cur) return <AllFloors key={cur.building.id} b={cur.building} top={top} cancel={c.cancel} />;
+  if (cur) return <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots}
+    places={places} sel={sel} setSel={setSel} side={side} setSide={setSide} toAdmin={() => setMadmin(true)} feats={cur.floor.approved_version_id ? feats[cur.floor.approved_version_id] : 0} />;
+  return <Chooser t={t} places={places} choose={choose} make={(title) => { setForm(null); setAsk(null); setMsg(null); setMake(title); }} note={found} cancel={c.cancel} robots={c.robots ?? []}>
+    <Pop open={!!make} close={() => { setMake(''); setForm(null); }} label={make || '지도 만들기'}><p className="lv-note">장소 › 건물 › 층을 만들고, 층을 고른 뒤 «새 지도 올리기»로 지도 파일을 올립니다.</p>{make && placeBody}</Pop>
+  </Chooser>;
 }
 
-/** 층마다 승인 판 번호 — /sites 층에는 판 id 만 있어 판 정보(GET /map-versions/{id})를 한 번씩 받는다. 못 받으면 번호 없이 */
-function useNumbers(places: Place[], cancel?: AbortSignal) {
-  const [nums, setNums] = useState<Record<string, number>>({}), ids = places.map((p) => p.floor.approved_version_id).filter((x): x is string => !!x);
+/** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 마지막에 본 지도 카드 + 장소별 건물 카드(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지도 만들기»·«장소 고치기»·휴지통 */
+function Chooser({ t, places, choose, make, note, cancel, robots, children }: { t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal; children: ReactNode }) {
+  const [q, setQ] = useState(''), counts = useCounts(cancel), last = places.find((p) => p.floor.id === lastGet());
+  const hit = (p: Place) => `${p.site.name} ${p.building.name} ${p.floor.name}`.toLowerCase().includes(q.trim().toLowerCase());
+  /** 카드 아래 줄: 층 수(2층 이상만)·시나리오 수(여러 층 시나리오는 한 번만)·지도 없음 */
+  const facts = (b: MapBuilding) => <small className="fh-row">{b.floors.length >= 2 && <span>층 {b.floors.length}</span>}
+    <span>{counts ? `시나리오 ${new Set(b.floors.flatMap((f) => counts[f.id] ?? [])).size}` : counts === null ? '시나리오 ?' : ''}</span>
+    {!b.floors.some((f) => f.approved_version_id) && <span className="lv-chip off">지도 없음</span>}</small>;
+  const shown = places.filter(hit), sites = t.tree?.items.filter((s) => shown.some((p) => p.site.id === s.id)) ?? [];
+  return <section className="mx" aria-label="지도 고르기">
+    <div className="mx-scroll"><div className="mx-choose">
+      <h2>어느 지도에서 일할까요?</h2>
+      <p className="lv-note">지도를 고르면 그 지도의 요소와 시나리오를 함께 보고 고칩니다.</p>
+      <Note m={note} />
+      {assignFor.robot && <p className="fh-msg ok" role="status">{robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 먼저 그 시나리오의 지도를 고릅니다.</p>}
+      <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="button" className="btn" onClick={() => make('장소 고치기')}>장소 고치기</button>
+        <button type="button" className="btn pri" onClick={() => make('지도 만들기')}>+ 지도 만들기</button></div>
+      {last && !q.trim() && <button type="button" className="card mx-last" data-last onClick={() => choose(firstFloor(last.building).id)}>
+        <span className="lbl">마지막에 본 지도</span><b>{last.site.name} › {last.building.name}</b>{facts(last.building)}</button>}
+      {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
+        <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
+          <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}><b>{b.name}</b>{facts(b)}</button>)}</div></section>)}
+      {t.tree && !places.length && <p className="lv-note">등록된 층이 없습니다. «+ 지도 만들기»에서 장소·건물·층을 만드세요.</p>}
+      {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
+      {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
+      {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
+      <div className="fh-row"><TrashLink /><span className="lv-note">지운 장소·층·시나리오는 휴지통에서 되돌립니다.</span></div>
+    </div></div>
+    {children}
+  </section>;
+}
+
+/** 층마다 시나리오 id(휴지통 제외) — 지도 고르기 카드의 시나리오 수. 받는 중 undefined, 못 받으면 null */
+function useCounts(cancel?: AbortSignal) {
+  const [m, setM] = useState<Record<string, string[]> | null>();
   useEffect(() => {
-    for (const id of ids) if (!nums[id]) api.version(id, cancel).then(shape(isVersion)).then((v) => setNums((o) => ({ ...o, [id]: v.number })), () => {});
+    let live = true;
+    api.allPlans('scenarios', cancel).then((l) => { const o: Record<string, string[]> = {};
+      for (const x of l as Scenario[]) if (x && !x.archived_at && Array.isArray(x.floor_ids)) for (const f of x.floor_ids) (o[f] ??= []).push(x.id);
+      if (live) setM(o); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setM(null); });
+    return () => { live = false; };
+  }, []);
+  return m;
+}
+
+/** 고른 층 하나: 이 층 시나리오 목록·마우스 올린 시나리오(지도에 경로)를 들고 ② 지도 보기·⑤ 편집(FloorView) ↔ ④ 시나리오 열림을 가른다 */
+function Floor({ p, sel, setSel, side, setSide, toAdmin, feats, user, robots, places, cancel, top, name, ...v }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void;
+  top: ReactNode; name: string; user: User; robots: Robot[]; places: Place[]; sel: string | null; setSel: (x: string | null) => void; side: Side; setSide: (s: Side) => void; toAdmin: () => void; feats?: number }) {
+  const [mine, setMine] = useState(false), l = useScenarios(p.floor.id, mine, cancel), [hov, setHov] = useState<Scenario | null>(null), [n, setN] = useState(0), [msg, setMsg] = useState<Msg>(null), [slot, setSlot] = useState<HTMLElement | null>(null);
+  const scenN = l.busy && !l.items.length ? '…' : `${l.items.length}${l.next ? '+' : ''}`;
+  /** 창 맨 위 탭 — «지도 요소»를 누르면 열린 시나리오는 닫는다(저장 안 한 편집은 남아 다시 열면 이어 씀) */
+  const tabs = (m: ReactNode, lock?: boolean) => <SideTabs side={sel != null ? 'scen' : side} map={m} scen={scenN} lock={lock} set={(x) => { if (x === 'map' && sel != null) setSel(null); setSide(x); }} />;
+  const openScen = (id: string) => { setMsg(null); if (!id) setN((x) => x + 1); setSide('scen'); setSel(id); };
+  if (sel != null) return <section className="mx" aria-label="시나리오 편집">
+    <div className="mx-bar"><Locked text={name} why="시나리오를 닫으면 지도를 바꿀 수 있습니다" /><span className="mx-tag mx-why">시나리오를 닫으면 지도를 바꿀 수 있습니다</span><span ref={setSlot} style={{ display: 'contents' }} /></div>
+    <ScenarioEdit id={sel} n={n} user={user} robots={robots} cancel={cancel} places={places} treeAgain={v.again} floor={p.floor.id} slot={slot} side={tabs(feats ?? '–')} busy={l.busy}
+      close={() => setSel(null)} top={msg && <Note m={msg} />} done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} />
+  </section>;
+  return <FloorView {...v} p={p} cancel={cancel} top={top} name={name} side={side} setSide={setSide} tabs={tabs} scenN={l.items.length} hov={hov}
+    scenList={<ScenList l={l} mine={mine} setMine={setMine} floor={p.floor.id} approved={p.floor.approved_version_id} open={openScen} hover={setHov} admin={toAdmin} robots={robots} cancel={cancel} top={msg && <Note m={msg} />} />} />;
+}
+
+/** 지도 위 시나리오 경로 미리보기(목록에서 마우스를 올린 시나리오 — 이 층 지점만, 번호 + 점선) */
+function Route({ v, x, floor }: { v: Pick<MapVersion, 'origin' | 'resolution' | 'height' | 'width'>; x: Scenario; floor: string }) {
+  const on = x.waypoints.filter((w) => w.floor_id === floor), rr = Math.max(v.width, v.height) / 60;
+  return <g data-route={x.id} style={{ pointerEvents: 'none' }}>
+    {on.length > 1 && <polyline points={on.map((w) => toPixel(v, w.x, w.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 3, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
+    {on.map((w, i) => { const [a, b] = toPixel(v, w.x, w.y); return <g key={i}><circle cx={a} cy={b} r={rr} style={{ fill: 'var(--accent)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
+      <text x={a} y={b + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: '#FFFFFF' }}>{i + 1}</text></g>; })}
+  </g>;
+}
+
+/** 층마다 승인 판 요소 수 — /sites 층에는 판 id 만 있어 판 정보(GET /map-versions/{id})를 한 번씩 받는다. 못 받으면 수 없이 */
+function useFeats(places: Place[], cancel?: AbortSignal) {
+  const [feats, setFeats] = useState<Record<string, number>>({}), ids = places.map((p) => p.floor.approved_version_id).filter((x): x is string => !!x);
+  useEffect(() => {
+    for (const id of ids) if (feats[id] == null) api.version(id, cancel).then(shape(isVersion)).then((v) => setFeats((o) => ({ ...o, [id]: featKeys(v.features).length })), () => {});
   }, [ids.join()]);
-  return nums;
+  return feats;
 }
 
 /** 만든 사람: 나는 내 이름, 총괄은 계정 목록(GET /users)에서. 모르면 줄을 숨긴다(U9) — 판 응답에는 사람 id 만 있다 */
@@ -246,9 +372,10 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
   return (id: string) => all[id] ?? (id === me.id ? me.name : undefined);
 }
 
-/** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림·정보·비교, 보기/편집 토글(승인 판이 있을 때)·한때 승인된 판 되돌리기, 총괄은 새 지도 올리기.
- *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. asked = 그때 배지 다시 받기 */
-function FloorView({ p, admin, names, cancel, again, asked: told, top }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; asked: () => void; top?: ReactNode }) {
+/** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림, 보기/편집 토글(승인 판이 있을 때), 아래 접힌 «저장 기록»(옛 판 보기·비교·한때 승인된 판 되돌리기), 새 지도 올리기.
+ *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. told = 그때 배지 다시 받기 */
+function FloorView({ p, names, cancel, again, told, top, name, side, setSide, tabs, scenN, hov, scenList }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
+  side: Side; setSide: (s: Side) => void; tabs: (m: ReactNode, lock?: boolean) => ReactNode; scenN: number; hov: Scenario | null; scenList: ReactNode }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
   const [back] = useState(() => (kept.d?.floor === p.floor.id ? kept.d.base : null));   // 폰 틀에서 돌아와 이어 쓰는 편집의 기준 판
@@ -262,52 +389,95 @@ function FloorView({ p, admin, names, cancel, again, asked: told, top }: { p: Pl
     setErr('');
     api.versions(p.floor.id, cancel).then(shape((l: MapVersion[]) => l.every(isVersion))).then((l) => { if (live) setGot({ key, list: l }); }, (e: ApiFail) => {
       if (!live || e.code === 'CANCELED') return;
-      setErr(e.status === 404 ? '이 층을 찾을 수 없습니다. 지워졌을 수 있어 장소 목록을 다시 받습니다.' : `판 목록을 받지 못했습니다. ${e.message}`);
+      setErr(e.status === 404 ? '이 층을 찾을 수 없습니다. 지워졌을 수 있어 장소 목록을 다시 받습니다.' : `저장 기록을 받지 못했습니다. ${e.message}`);
       if (e.status === 404) again();
     });
     return () => { live = false; };
   }, [key]);
   const list = got?.key === key ? got.list : null;
-  const now = list?.find((v) => v.id === approved) ?? null, v = list?.find((x) => x.id === sel) ?? now, who = v && names(v.created_by);
+  const now = list?.find((v) => v.id === approved) ?? null, v = list?.find((x) => x.id === sel) ?? now;
   const title = `${p.site.name} ${p.building.name} ${p.floor.name}`;
   const reload = () => { setN(n + 1); again(); };
-  const pending = num(p.floor.pending_count) ? p.floor.pending_count : 0;
-  return <section className="lv-card" aria-label="지도 보기">
-    {top}
-    <div className="fh-row">{now && <span className="fh-row" role="group" aria-label="보기·편집">
+  /** 판 번호 대신 부르는 이름: 저장 시각 · 만든 사람(모르면 시각만, U9) */
+  const savedAs = ({ id }: { id: string }) => { const x = list?.find((y) => y.id === id), who = x && names(x.created_by); return x ? `${day(x.created_at)}${who ? ` · ${who}` : ''}` : '이전 저장'; };
+  const [up, setUp] = useState(false), [pane, setPane] = useState(true), [slot, setSlot] = useState<HTMLElement | null>(null);   // 올리기 창·오른쪽 창·편집 저장 단추 자리
+  const canUp = !!list && (!approved || !!now);   // 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다)
+  const upBtn = (e?: { currentTarget: Element }) => { if (e) shut(e as never); setUp(true); };
+  const keys = v ? featKeys(v.features) : [];
+  // 다른 층에 남겨 둔 저장 안 한 편집(kept.d)이 있으면 새 편집이 그것을 비우기 전에 묻는다 — 취소하면 그 층을 열어 이어 쓸 수 있다
+  const [drop, setDrop] = useState(false);
+  const begin = () => { if (now) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); setUp(false); } };
+  const start = () => { if (editing || !now) return; if (kept.d && kept.d.floor !== p.floor.id) setDrop(true); else begin(); };
+  const fz = v?.features;
+  return <section className="mx" aria-label="지도 보기">
+    <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
+    <div className="mx-bar">
+      {top}{/* 편집 중 층 바꾸기·나가기는 기존 «저장 안 한 편집» 확인으로(잠그지 않음) */}
+      {now && <span className="mx-seg" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
-        <button type="button" className="btn" aria-pressed={!!editing} onClick={() => { if (!editing) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); } }}>편집</button></span>}
-      <h2 className="fh-grow">{title}{editing ? ` · 판 ${editing.number} 편집 중` : now ? ` · 승인 판 ${now.number}` : ''}</h2>
-      {pending > 0 && <Chip tone="warn" text={`결재 대기 ${pending}`} />}
-      {!editing && !!list?.length && <label className="fh-row"><span className="lbl">판</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => { setSel(e.target.value); setUndo(null); }}>
-        {!v && <option value="">판 고르기</option>}{list.map((x) => <option key={x.id} value={x.id}>{verName(x, approved)}</option>)}</select></label>}
+        <button type="button" className="btn" aria-pressed={!!editing} onClick={start}>편집</button></span>}
+      {drop && !editing && <div className="fh-row" role="group" aria-label="확인" data-drop><span>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).</span>
+        <button type="button" className="btn pri" onClick={() => { kept.d = null; setDrop(false); begin(); }}>버리고 편집</button>
+        <button type="button" className="btn" onClick={() => setDrop(false)}>취소</button></div>}
+      {editing && <span className="mx-tag mx-edit" data-editing>▲ 편집 중</span>}
+      <span className="fh-grow" />
+      {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
+        <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>
+        <TrashLink />
+      </Menu>}
+      <span ref={setSlot} style={{ display: 'contents' }} />
     </div>
-    {undo && !editing && <Rollback key={undo.v.id} v={undo.v} now={undo.now} cancel={cancel} close={() => setUndo(null)} reload={reload}
-      done={(x) => { setUndo(null); setCmp(false); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
-        else { setSel(x.id); setDone({ text: `판 ${undo.v.number}의 지도로 새 승인 판(판 ${x.number})을 만들었습니다. 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />}
-    {editing ? <Editor v={editing} p={p} cancel={cancel} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
-        saved={(x) => { setEditing(null); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
-          else { setSel(x.id); setDone({ text: `새 판을 저장했습니다(판 ${x.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />
-    : v ? <>
-      <Note m={done} />
-      {v.id !== approved && <p className="lv-note" role="status">{v.status === 'PENDING' ? '결재 대기 중인 판을 보는 중입니다. 승인되기 전에는 이 판을 쓰지 않습니다.' : '지난 판을 보는 중입니다.'}{now ? ` 지금 승인 판은 판 ${now.number}입니다.` : ''}</p>}
-      <div className="fh-row" role="group" aria-label="판 관리">
+    {editing ? <Editor v={editing} p={p} cancel={cancel} slot={slot} pick={(m) => tabs(m, true)} name={name} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
+        saved={(x) => { setEditing(null); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
+          else { setSel(x.id); setDone(SAVED); } reload(); }}
+        foot={<p className="lv-note" data-scen-locked><Lock /> 지도 편집 중에는 시나리오 탭이 잠깁니다. 저장하면 이 지도를 쓰는 시나리오 {scenN}개에 «지도 바뀜»이 표시됩니다.</p>} />
+    : <div className="mx-body">
+      <div className="mx-map">
+        {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
+            <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
+          : v ? <MapView key={v.id} v={v} fill>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
+          : list && !err && <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.</p>
+            <button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button></div>}
+        <div className="mx-over">
+          {done && <Note m={done} />}
+          {v && v.id !== approved && <div className="fh-row" data-old-save><p className="lv-note fh-grow" role="status">{v.status === 'PENDING' ? '적용되지 않은 저장 기록을 보는 중입니다. 실행에는 이 기록을 쓰지 않습니다.' : '지난 저장 기록을 보는 중입니다.'}</p>
+            {now && <button type="button" className="btn" onClick={() => { setSel(''); setUndo(null); }}>지금 지도 보기</button>}</div>}
+          {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
+          {!list && !err && <p className="lv-note" role="status">지도를 불러오는 중…</p>}
+        </div>
+        {v && !cmp && <Hint text={now ? '보기만 — «편집»을 누르면 도구가 나옵니다' : '보기만'} more="휠·두 손가락으로 확대, 끌어서 옮깁니다. 구역·벽은 «편집»에서 고칩니다." />}
+      </div>
+      {/* 오른쪽 창 [지도 요소 N | 시나리오 N](MAP-TAB-MERGE ②③) */}
+      {!cmp && <Pane open={pane} setOpen={setPane} bar={side === 'scen' ? `시나리오 ${scenN}` : `요소 ${keys.length}`} label={side === 'scen' ? '시나리오 창' : '요소 창'} pick={tabs(keys.length)} name={name}>
+        {side === 'scen' ? scenList : <>
+          {!v ? <p className="lv-note mx-in">{list ? '이 층에는 아직 지도가 없습니다.' : '지도를 불러오는 중…'}</p> : <>
+            <div className="mx-in" aria-label="지도 요약" data-summary><b>지도 요약</b>
+              <div className="mx-sum"><span><b>{fz!.zones.length}</b>구역</span><span><b>{fz!.waypoints.length}</b>지점</span><span><b>{fz!.connectors.length}</b>연결점</span><span><b>{fz!.edits.length}</b>고친 선</span></div></div>
+            {keys.length ? <ul className="mx-list" aria-label="요소 목록">{keys.map((k) => <li key={k} className="mx-row" data-el={k}><span className="mx-name"><Glyph f={v.features} k={k} /><b>{featName(v.features, k)}</b><small>{featSub(v.features, k, p.building.floors)}</small></span></li>)}</ul>
+              : <div className="mx-in"><div className="mx-empty"><p className="lv-note">이 지도에는 구역·벽이 없습니다.</p>{now && v.id === now.id && <button type="button" className="btn pri" onClick={start}>편집 시작</button>}</div></div>}
+            {now && !!keys.length && <p className="lv-note mx-in">구역·벽은 «편집»에서 고칩니다.</p>}</>}
+          <div className="mx-foot"><button type="button" className="btn" data-to-scen onClick={() => setSide('scen')}>이 지도를 쓰는 시나리오 {scenN} — 시나리오 탭 ›</button></div></>}
+      </Pane>}
+    </div>}
+    {/* 저장 기록(11-04, 기본 닫힘): 줄을 누르면 그 기록을 지도에 — 판 번호 대신 저장 시각·만든 사람 */}
+    {!editing && !!list?.length && <details className="fh-fold mx-hist" data-history><summary>저장 기록 {list.length}</summary>
+      <ul className="mx-list" aria-label="저장 기록 목록">{list.map((x) => <li key={x.id} className="mx-row" data-save={x.id}>
+        <button type="button" className="mx-name" aria-pressed={x.id === v?.id} onClick={() => { setSel(x.id); setUndo(null); }}><b>{savedAs(x)}</b><small>{x.reason}</small><Chip {...stateOf(x, approved)} /></button></li>)}</ul>
+      {v && <div className="fh-row" role="group" aria-label="저장 기록 관리">
         <button type="button" className="btn" aria-pressed={cmp} onClick={() => setCmp(!cmp)}>비교</button>
         {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
-        {now && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 판으로 되돌리기</button>}
-      </div>
-      {cmp ? <Compare key={v.id} v={v} list={list!} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 판을 찾을 수 없습니다. 지워졌을 수 있어 판 목록을 다시 받았습니다.' }); reload(); }} /> : <MapView key={v.id} v={v} />}
-      <Line k="판"><span>판 {v.number}</span><Chip {...stateOf(v, approved)} /></Line>
-      <Line k="이유"><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{v.reason}</span></Line>
-      {who && <Line k="만든 사람"><span>{who}</span></Line>}
-      <Line k="만든 때"><span>{day(v.created_at)}</span></Line>
-      <Line k="요소"><span>구역 {v.features.zones.length} · 지점 {v.features.waypoints.length} · 연결점 {v.features.connectors.length}</span></Line>
-    </> : list && <p className="lv-note">아직 지도가 없습니다. 아래에서 지도 파일을 올리세요.</p>}
-    {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
-    {!list && !err && <p className="lv-note" role="status">판 목록을 불러오는 중…</p>}
-    {/* 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다) */}
-    {!editing && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list && (!approved || !!now)} cancel={cancel}
-      saved={(x) => { if (x.status === 'PENDING') told(); else setSel(x.id); setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
+        {now && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 기록으로 되돌리기</button>}
+      </div>}
+    </details>}
+    {!editing && <Pop open={up} close={() => setUp(false)} label="새 지도 올리기">
+      <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={canUp} cancel={cancel}
+        saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked); told(); } else { setSel(x.id); setDone(SAVED); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />
+    </Pop>}
+    {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
+      {undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}
+        done={(x) => { setUndo(null); setCmp(false); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
+          else { setSel(x.id); setDone({ text: `${savedAs(undo.v)} 기록으로 되돌렸습니다. 다음 실행부터 이 지도를 씁니다.`, ok: true }); } reload(); }} />}
+    </Pop>}
   </section>;
 }
 
@@ -319,7 +489,7 @@ const imageType = (f: File) => (/\.pgm$/i.test(f.name) ? 'image/x-portable-graym
 function upFail(e: ApiFail, step: number) {
   if (e.code === 'UPLOAD_TOO_LARGE') return TOO_BIG;
   if (e.code === 'STALE') return STALE;
-  if (e.code === 'INVALID_FEATURES') return '지금 판의 구역·지점·연결점 중 새 지도 범위 밖에 있는 것이 있습니다. «지금 판의 구역·지점·연결점 그대로 두기»를 끄고 다시 올리세요.';
+  if (e.code === 'INVALID_FEATURES') return '지금 지도의 구역·지점·연결점 중 새 지도 범위 밖에 있는 것이 있습니다. «지금 지도의 구역·지점·연결점 그대로 두기»를 끄고 다시 올리세요.';
   if (e.code === 'INVALID_UPLOAD') return step === 0 ? '지도 그림 파일을 읽을 수 없습니다. 지도를 만들 때 저장한 pgm·png 파일인지, 가로·세로 4096 픽셀 이하인지 확인하세요.'
     : step === 1 ? '지도 설정 파일을 읽을 수 없습니다. 그림과 함께 저장된 yaml 파일인지 확인하세요.' : '올린 파일을 지도로 쓸 수 없습니다. 두 파일을 다시 골라 올리세요.';
   if (e.status === 404) return '이 층을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
@@ -351,27 +521,26 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
       const a = await api.upload(img, type, undefined, cancel).then(shape(isUpload));
       at = 1; setStep('지도 설정을 올리는 중…');
       const b = await api.upload(yml, 'text/yaml', a.upload_id, cancel).then(shape(isUpload));
-      at = 2; setStep('새 판으로 저장하는 중…');
+      at = 2; setStep('저장하는 중…');
       const features: MapFeatures = hold && keep ? { zones: keep.zones, waypoints: keep.waypoints, connectors: keep.connectors, edits: [] } : { zones: [], waypoints: [], connectors: [], edits: [] };
       const v = await api.saveVersion(floor, { base_version_id: base, image: b.upload_id, features, reason: reason.trim() }, cancel).then(shape(isVersion));   // 빈·어긋난 201 = 저장 불확실(status 0)
-      setMsg(v.status === 'PENDING' ? asked(v) : { text: `새 판을 저장했습니다(판 ${v.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); setImg(null); setYml(null); setReason(''); setFresh(fresh + 1);
+      setMsg(v.status === 'PENDING' ? asked : SAVED); setImg(null); setYml(null); setReason(''); setFresh(fresh + 1);
       saved(v);
     } catch (x) {
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
       // 저장 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 저장됐을 수도 있다 — 목록을 다시 받아 보여 주고 같은 파일을 두 번 올리지 않게 알린다
-      if (at === 2 && f.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 올리지 마세요.' }); again(); return; }
+      if (at === 2 && f.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 저장 기록을 다시 받습니다. 새 기록이 보이면 다시 올리지 마세요.' }); again(); return; }
       setMsg({ text: `올리지 못했습니다. ${upFail(f, at)}` }); setStale(f.code === 'STALE' || f.status === 404);
     } finally { setStep(''); }
   };
   return <form className="fh-form" onSubmit={go} noValidate aria-label="새 지도 올리기" key={fresh}>
-    <h2>새 지도 올리기</h2>
     <label className="fh-field"><span>지도 그림(pgm·png)</span><input type="file" className="inp" accept=".pgm,.png" onChange={(e) => setImg(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>지도 설정(yaml)</span><input type="file" className="inp" accept=".yaml,.yml" onChange={(e) => setYml(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
-    {keep && <label className="fh-row"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /><span>지금 판의 구역·지점·연결점 그대로 두기</span></label>}
-    {keep && !hold && <p className="fh-msg" role="alert">끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 판이 됩니다.</p>}
-    {!ready && !step && <p className="lv-note" role="status">지금 승인 판의 구역·지점·연결점을 받은 뒤에 올릴 수 있습니다.</p>}
+    {keep && <label className="fh-row"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /><span>지금 지도의 구역·지점·연결점 그대로 두기</span></label>}
+    {keep && !hold && <p className="fh-msg" role="alert">끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 지도가 됩니다.</p>}
+    {!ready && !step && <p className="lv-note" role="status">지금 지도의 구역·지점·연결점을 받은 뒤에 올릴 수 있습니다.</p>}
     <div className="fh-row"><button type="submit" className="btn pri" disabled={!!step || !ready}>올리기</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(null); again(); }}>새로 불러오기</button>}</div>
     {step && <p className="lv-note" role="status">{step}</p>}
     <Note m={msg} />
@@ -395,16 +564,18 @@ function AllFloors({ b, top, cancel }: { b: MapBuilding; top: ReactNode; cancel?
     const full: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
     return { full, res: base.resolution };
   }, [shown.map((r) => r.v.id).join()]);
-  return <section className="lv-card" aria-label="지도 보기" data-all-floors>
-    {top}
-    <h2>{b.name} · 전체 층 겹쳐 보기</h2>
-    <p className="lv-note">보기만 합니다. 편집은 위에서 한 층을 고르세요.</p>
-    {look && base ? <MapFrame {...look} role="img" aria-label={`${b.name} 전체 층 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
-      {shown.map(({ v, i }) => <MapImage key={v.id} id={v.id} width={v.width} height={v.height} tint={fillOf(i)} transform={`matrix(${pixelTo(v, base).join(' ')})`} data-layer={i} />)}
-    </MapFrame> : <p className="lv-note" role="status">{rows.some((r) => ids[r.i] && !r.v) ? '지도를 불러오는 중…' : '겹쳐 볼 승인 지도가 없습니다.'}</p>}
-    <ul className="fh-row" aria-label="범례" data-legend style={{ listStyle: 'none', margin: 0, padding: 0, flexWrap: 'wrap' }}>{rows.map(({ f, i, v }) => <li key={f.id} className="fh-row">
-      <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 3, background: fillOf(i) }} /><span>{f.name}</span>
-      {!ids[i] ? <span className="lbl">지도 없음</span> : v === 'bad' ? <span className="fh-why">받지 못함</span> : null}</li>)}</ul>
+  return <section className="mx" aria-label="지도 보기" data-all-floors>
+    <h2 className="mx-sr">{b.name} · 전체 층 겹쳐 보기</h2>
+    <div className="mx-bar">{top}<span className="mx-tag">보기만</span></div>
+    <div className="mx-body"><div className="mx-map">
+      {look && base ? <MapFrame {...look} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`${b.name} 전체 층 지도`} data-map style={{ display: 'block', width: '100%', height: '100%' }}>
+        {shown.map(({ v, i }) => <MapImage key={v.id} id={v.id} width={v.width} height={v.height} tint={fillOf(i)} transform={`matrix(${pixelTo(v, base).join(' ')})`} data-layer={i} />)}
+      </MapFrame> : <div className="mx-center"><p className="lv-note" role="status">{rows.some((r) => ids[r.i] && !r.v) ? '지도를 불러오는 중…' : '겹쳐 볼 승인 지도가 없습니다.'}</p></div>}
+      <ul className="mx-legend" aria-label="범례" data-legend>{rows.map(({ f, i, v }) => <li key={f.id} className="fh-row">
+        <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 3, background: fillOf(i) }} /><span>{f.name}</span>
+        {!ids[i] ? <span className="lbl">지도 없음</span> : v === 'bad' ? <span className="fh-why">받지 못함</span> : null}</li>)}</ul>
+      <Hint text="보기만 합니다. 편집은 위에서 한 층을 고르세요." more="건물 각 층 지도의 벽만 층 색으로 겹칩니다." />
+    </div></div>
   </section>;
 }
 

@@ -15,6 +15,12 @@ const goal = ame2Joystick(null, 1.5, [1, 1, 1]);
 assert.ok(Math.abs(Math.hypot(...goal.command.slice(0, 2)) - 1) < 1e-12);
 assert.ok(Math.abs(Math.atan2(goal.command[2], goal.command[3]) - .02) < 1e-12);
 assert.ok(Math.abs(Math.atan2(...ame2Joystick(99, 0, [1, 0, 0]).command.slice(2))) <= Math.PI / 3);
+// 시뮬 잠금 풀기(10-31): 후진 목표도 자르지 않고 보낸다 — 앞쪽 가정 밖이라 inRange false(테두리 색 알림만), 옆·제자리 회전은 범위 안
+const back = ame2Joystick(null, 0, [-1, 0, 0]);
+assert.deepEqual(back.command, [-1, 0, 0, 1]); assert.equal(adapter.command.inRange(back.command), false);
+assert.equal(adapter.command.inRange(goal.command), true);
+assert.equal(adapter.command.inRange(ame2Joystick(null, 0, [0, -1, 0]).command), true);
+assert.ok(ame2Joystick(null, 0, [0, 0, 1]).heading > 0, 'turn in place = heading target');
 assert.equal(ame2Torque(100, 1, 0), 20.2);
 assert.equal(ame2Torque(-100, 1, 0), -23.4);
 assert.equal(ame2Torque(100, 30, 0), 0);
@@ -26,7 +32,7 @@ const mj = await load();
 let maxHeightError = 0;
 function terrainTest(name, geoms, expected, q = [0, 0, .4, 1, 0, 0, 0]) {
   mj.FS.writeFile('/height.xml', `<mujoco><compiler angle="radian"/><worldbody>${geoms}
-    <geom type="box" group="1" size="3 3 .1" pos="0 0 10"/>
+    <geom type="box" group="1" size="3 3 .1" pos="0 0 30"/>
     <geom type="box" group="1" contype="0" conaffinity="0" size="3 3 .1" pos="0 0 .7"/>
     <body pos="0 0 1"><freejoint/><geom type="sphere" group="1" size=".5"/></body></worldbody></mujoco>`);
   const m = mj.MjModel.from_xml_path('/height.xml'), d = new mj.MjData(m);
@@ -56,6 +62,7 @@ terrainTest('yaw with roll/pitch', floor, () => 0, [0, 0, .4, .8, .2, .4, .4].ma
 terrainTest('all void', '', () => -.7);
 terrainTest('partial void', '<geom type="box" group="4" size=".3 3 .01" pos="-.3 0 -.01"/>', (x) => x <= 0 ? 0 : -.7);
 terrainTest('clip', floor, () => 0, [0, 0, 3, 1, 0, 0, 0]);
+terrainTest('high training wall', floor + '<geom type="box" group="1" size=".45 3 1" pos=".75 0 1"/>', (x) => x >= .3 && x <= 1.2 ? 2 : 0);
 console.log(`AME-2 height PASS: max error=${maxHeightError}m, flat/slope/step/yaw/roll-pitch/void/clip/geometry exclusion`);
 
 mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
@@ -84,7 +91,7 @@ try {
 
 // Observation contract with distinct values catches ordering and history clipping.
 const obs = new Float32Array(49), state = { d: { qpos: Float64Array.from([0, 0, 0, 1, 0, 0, 0, ...MJ_J.map((n) => adapter.action.defaultPose[adapter.action.joints.indexOf(n)] + .125)]), qvel: Float64Array.from([...Array(6).fill(0), ...MJ_J.map((_, i) => i + 1)]) }, M2I: adapter.action.joints.map((n) => MJ_J.indexOf(n)), linB: [1, 2, 3], angB: [4, 5, 6], grav: [0, 0, -1], cmd: [1, 0, 0, 1], mapping: new Float32Array(1131) };
-adapter.observe(obs, state, Float32Array.from([-100, 100, ...Array(10).fill(2)]), () => {});
+adapter.observe({ ...state, observation: obs, lastAction: Float32Array.from([-100, 100, ...Array(10).fill(2)]), heightScanner: () => {} }, state.cmd, {});
 assert.deepEqual(Array.from(obs.slice(0, 9)), [1, 2, 3, 4, 5, 6, 0, 0, -1]);
 assert.ok(obs.slice(9, 21).every((v) => v === .125));
 assert.deepEqual(Array.from(obs.slice(21, 33)), state.M2I.map((i) => i + 1));

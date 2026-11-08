@@ -5,6 +5,8 @@ Ubuntu 24.04 전용 **dev 배포**다. 정식 서버와 `main`은 대상이 아�
 아래 서버 명령은 SSH 키 등록 후 별도 첫 배포 작업에서 root가 실행한다.
 수동 배포는 검토된 `dev`의 **정확한 40자리 커밋**을 지정한다. 선택 설치하는 자동 배포는 `dev`에서 관측한 정확한 SHA를 고정해 준비한다.
 
+서버는 `/opt/foothold/deploy-tools/`의 고정 사본으로 준비·배포한다. `deploy/prepare-release.sh`·`deploy.sh` 등을 바꾸면 합친 뒤 서버 사본도 따로 갱신해야 새 동작이 켜진다(2026-11-04 #287 prepare 실패 사례).
+
 ```mermaid
 flowchart LR
     Client[웹 / 폰 앱] -->|HTTPS 443 · FH_SITE| Caddy
@@ -51,11 +53,13 @@ rsync -av "$ARTIFACT_DIR/$COMMIT.tar.gz" "$ARTIFACT_DIR/$COMMIT.tar.gz.sha256" \
 |---|---|
 | `policy_v2.f32` | 기본 정책, `docs/POLICY-PROVENANCE.md` SHA-256 대조 |
 | `ame2_actor.f32`, `ame2_actor.json` | 둘 다 있을 때만 포함, `docs/AME2-PROVENANCE.md` SHA-256 대조 |
+| `ame2_actor.onnx`, `policy_v2.onnx` | 선택적 ONNX, 위 두 출처 문서의 SHA-256 대조 |
+| `ort/ort.wasm.min.mjs`, `ort/ort-wasm-simd-threaded.mjs`, `ort/ort-wasm-simd-threaded.wasm` | 공유 onnxruntime-web 1.31.1, `docs/POLICY-PROVENANCE.md` 파일별 SHA 대조 |
 | `vendor/three.module.js`, `vendor/three.core.js`, `vendor/LICENSE` | 모바일과 동일한 three 자산 |
 | `mujoco/mujoco.js`, `mujoco/mujoco.wasm`, `mujoco/package.json` | 기존 `@mujoco/mujoco` 3.17.0 자산 그대로, npm/lock 갱신 없음 |
 | `assets/unitree_go2/go2.xml`, `LICENSE`, `assets/<mesh>` | 모바일 복사 목록과 같은 XML·라이선스·참조 메시 |
 
-정책 SHA·런타임 버전이 틀리거나 필수 자산이 누락되면 경고 후 `/sim/` 전체를 제외하고 웹만 준비하며, 경로 탈출·링크·FIFO·특수파일·자산 폴더 소유권 위반은 실패한다. AME-2 쌍이 없거나 불완전하면 둘 다 생략하며 기존 페이지가 선택지를 끈다. 빌드 산출물과 복사 뒤 최종 웹 묶음 모두 링크·특수파일을 검사하며 위반 시 중단한다.
+필수 f32 정책 SHA·MuJoCo 버전이 틀리거나 필수 자산이 누락되면 경고 후 `/sim/` 전체를 제외하고 웹만 준비하며, 경로 탈출·링크·FIFO·특수파일·자산 폴더 소유권 위반은 실패한다. 선택적 ONNX가 없거나 SHA가 다르면 해당 모델만, ORT가 불완전하거나 SHA가 다르면 `ort/` 전체를 경고 후 생략하며 기존 f32 시뮬은 유지한다. ONNX 실행기는 같은 정책의 f32 전환 이유를 표시한다. crop/test ONNX와 WebGPU/asyncify는 포함하지 않는다. AME-2 f32 쌍이 없거나 불완전하면 둘 다 생략하며 기존 페이지가 선택지를 끈다. 빌드 산출물과 복사 뒤 최종 웹 묶음 모두 링크·특수파일을 검사하며 위반 시 중단한다.
 
 시뮬 페이지의 meta CSP는 `wasm-unsafe-eval`·`unsafe-eval`을 허용한다. 현재 저장소 Caddyfile에는 추가 CSP가 없으며 정적 파일 서버가 `.wasm`을 `application/wasm`으로 제공한다. 실제 서버 헤더·MIME·페이지 로드는 합침 후 별도로 확인한다. Caddy 설정 변경이 필요하면 중단하고 조정에 보고한다. 설치된 deploy-tools는 자동 갱신되지 않으므로 검토한 준비 스크립트와 helper의 선택 갱신이 필요하다. bootstrap 재실행은 이 작업에 포함하지 않는다. 되돌림은 변경 커밋을 revert하고 기존 배포 절차로 이전 검증 묶음을 선택한다. 비공개 자산은 유지할 수 있다.
 
@@ -103,6 +107,16 @@ API systemd는 코드/venv를 root 소유 읽기 전용으로 두고 파일 저�
 **DB는 자동 downgrade하지 않는다.** 새 스키마와 옛 코드가 호환되지 않으면 코드 복구로 해결되지 않으므로 서비스를 정지하고 승인된 DB 복구 절차를 따른다. 새 릴리스 활성화 전 백업을 확보한다. 시뮬 이력 등 기존 마이그레이션의 downgrade 제한은 서버 README를 따른다.
 이미 있는 SHA 디렉터리를 덮어쓰지 않는다. 실패한 준비를 재시도하려면 해당 폴더가 current/복구 대상이 아닌지 확인하고 관리자 판단으로 제거하거나 새 커밋을 쓴다. 이전 릴리스·백업을 자동 삭제하지 않으므로 디스크를 관리한다. `/var/lib/foothold/deploys.log`에 시각·SHA·이전 SHA·종료 코드·복구 결과 한 줄을 기록한다.
 점검은 `/etc/foothold/smoke.env`의 별도 계정으로 로그인하고, WS 101을 확인한 뒤 로그아웃한다. `/root/foothold-initial-admin.txt`는 그대로 보존하고 점검에서 읽지 않는다. 과거의 `/root/foothold-smoke.env` 쿠키 우회는 사용하지 않는다.
+
+### Caddyfile 배포 동기화
+
+`deploy.sh`는 릴리스의 `deploy/Caddyfile`을 `/etc/caddy/Caddyfile`과 바이트로 비교한다. bootstrap처럼 `{$FH_SITE}` 템플릿을 그대로 유지하며, candidate validate는 export된 site.env, systemd reload/start는 기존 EnvironmentFile을 사용한다. 파일이 같으면 추가 validate·교체·reload 없이 기존 배포 검사·reload·smoke만 실행한다.
+
+다를 때는 현재 파일의 SHA-256이 마지막 성공 배포 기록 `/var/lib/foothold/caddy-sync/applied.sha256`과 같아야 교체한다. 이 디렉터리는 root 소유 0700, 해시·원본 백업 `previous.Caddyfile`·진행 기록 `pending.json`은 root 소유 0600이다. 원본 백업 → private candidate validate → 같은 파일시스템의 rename으로 root:root 0644 교체 → 기존 서비스 전환·Caddy reload/start·smoke → 새 해시 확정 순서다. 검증·reload·smoke 등 배포 실패 시 기존 릴리스 복구와 함께 원래 Caddyfile의 바이트·UID/GID·권한과 이전 해시를 복구하고 Caddy를 다시 읽는다. 복구도 실패하면 pending/백업을 보존하고 다음 배포를 거절하므로 root가 원인을 확인해야 한다. 강제 종료 뒤 남은 pending도 자동으로 덮지 않는다.
+
+해시가 없거나 현재 파일이 기록과 다르면 **overwrite REFUSED** 경고와 함께 덮지 않고 기존 validate/reload/smoke 흐름을 유지한다. 첫 실행에서 현재 파일과 candidate가 같으면 성공한 smoke 뒤 해시만 등록한다. 수동 수정 파일을 자동으로 배포 소유로 등록하지 않으며, 운영자가 별도 검토 없이 해시를 조작해 이 관문을 우회하면 안 된다. 수동 `rollback.sh`는 기존대로 릴리스만 바꾸며 Caddyfile을 새로 동기화하지 않는다.
+
+`dev` 합침은 켜진 자동배포의 다음 실행을 유발한다. 다만 고정 `/opt/foothold/deploy-tools`는 스스로 갱신되지 않는다. 새 동작을 활성화할 때는 타이머 정지·실행 종료 확인 뒤 검토된 `caddy_sync.py`를 먼저 root 소유 읽기 전용으로 설치하고 `deploy.sh`를 선택 교체하는 별도 절차가 필요하다. 이 변경은 bootstrap을 수정하거나 실행하지 않는다. 서버 파일이 릴리스 candidate와 같은 상태라면 새 도구의 첫 성공 배포에서는 파일 교체 없이 해시만 남는다. 현재 도구가 그대로면 자동배포도 기존 동작을 유지한다.
 
 ## 선택: dev 자동 배포
 

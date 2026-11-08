@@ -225,9 +225,13 @@ function receive(m: { t?: unknown }) {
 }
 
 /** 상세 서랍에 보이는 위치(0.1 m·초)·장치 — 이것만 바뀌어도 다시 그린다 */
+const d1 = (rad?: number | null) => (rad == null ? null : ((rad * 180) / Math.PI).toFixed(1));
+const info = (x?: ScreenState['robot_info']) => x && [d1(x.attitude?.roll), d1(x.attitude?.pitch), x.error_code, x.fallen];
 const shown = (s: ScreenState) => {
   const l = s.location;
-  return JSON.stringify([l && [l.x?.toFixed(1), l.y?.toFixed(1), l.updated_at.slice(0, 19)], s.devices]);
+  const relay = s.phone_relay;
+  return JSON.stringify([l && [l.x?.toFixed(1), l.y?.toFixed(1), l.updated_at.slice(0, 19)], s.devices, info(s.robot_info),
+    relay && [relay.source, relay.battery, relay.speed, relay.devices, Math.floor(relay.age_s), Math.floor(relay.valid_for_s), info(relay.robot_info)]]);
 };
 function onState(s: ScreenState) {
   const l = get(s.robot);
@@ -237,6 +241,7 @@ function onState(s: ScreenState) {
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
     && (p.safety_reason ?? null) === (s.safety_reason ?? null)
     && shown(p) === shown(s)
+    && JSON.stringify(p.unlock_refused ?? null) === JSON.stringify(s.unlock_refused ?? null)   // 잠금 해제 거절 사유(contracts UnlockRefused)
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }
@@ -412,14 +417,14 @@ export const rt = {
     send({ t: 'unlock', robot: id, lease_id: l.lease, stop_gen: gen }, (r) => set(id, { neutral: false, notice: r.ok ? undefined : say(r.error) }));
   },
   /** 50 ms 마다(0 포함, 조종권 심장 박동 겸). 넘기는 중·잠금 중(또는 상태 모름)은 0, 새 lease·잠금 해제 뒤에는 중립을 본 다음부터 보낸다.
-   *  [전후, 회전] → 계약 axes [fx, fy, fw](옆걸음 0) */
-  cmd(id: string, [fx, fw]: [number, number]) {
+   *  [전후, 회전] + 옆걸음 fy(서버 경유 실기 시험만 — serverdrive.tsx, 그 밖 0) → 계약 axes [fx, fy, fw] */
+  cmd(id: string, [fx, fw]: [number, number], fy = 0) {
     const l = get(id);
     if (!l.lease) return;
     if (hiddenPage()) return leave(id);
-    let axes = [fx, 0, fw];
+    let axes = [fx, fy, fw];
     if (l.busy === 'give' || l.state?.latched !== false) axes = [0, 0, 0];
-    else if (!l.neutral) { if (!fx && !fw) set(id, { neutral: true }); axes = [0, 0, 0]; }
+    else if (!l.neutral) { if (!fx && !fw && !fy) set(id, { neutral: true }); axes = [0, 0, 0]; }
     send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes });
   },
   /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼거나 STOP_WS_MS 안에 답이 없으면 HTTP 대체 경로(같은 STOP 을 한 번 더 — 정지는 겹쳐도 안전),
@@ -457,8 +462,10 @@ export const useLive = (id: string) => { useRt(); return get(id); };
  *  summary = 구독하지 않는 로봇(운영 관리자에게 남의 로봇) — 목록 요약 값뿐이고 서버의 목록 연결값은 아직 실제가 아니라 확인 안 됨.
  *  끊긴 로봇은 마지막 ONLINE 상태 + 그 시각 */
 export function withLive(r: Robot): Robot {
-  if (!robots.includes(r.id)) return { ...r, online: false, unknown: 'summary' };
-  if (link.at === 'lost' || link.at === 'denied') return { ...r, online: false, unknown: 'link' };
+  const entry = live.get(r.id);
+  if (entry?.state) r = { ...r, phoneRelay: entry.state.phone_relay ?? null, phoneRelayAt: entry.stateAt, robotInfo: entry.state.robot_info ?? null };
+  if (!robots.includes(r.id)) return { ...r, online: false, unknown: 'summary', phoneRelay: null, robotInfo: null };
+  if (link.at === 'lost' || link.at === 'denied') return { ...r, online: false, unknown: 'link', phoneRelay: null, robotInfo: null };
   const s = live.get(r.id)?.state;
   if (!s) return { ...r, online: false, unknown: 'wait' };
   if (s.connection === 'ONLINE') return { ...r, online: true, status: s.status, battery: s.battery?.soc ?? null, seenAt: clock() };

@@ -85,6 +85,10 @@ def create_app(settings, launcher=None):
     async def cleanup_unconfirmed(request, exc):
         return JSONResponse(status_code=409, content={'error': {'code': exc.code, 'detail': {'reason': 'unknown'}}})
 
+    @app.post('/v1/recovery/retain-stop', dependencies=[Depends(authenticate)])
+    async def retain_stop():
+        return await manager.prepare_retained_shutdown()
+
     @app.get('/v1/worlds', dependencies=[Depends(authenticate)], response_model=C.SimCatalog)
     def worlds(org_id: str):
         items = []

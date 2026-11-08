@@ -266,6 +266,34 @@ MUTATIONS += [
 ]
 
 
+EXIT = 'apps/simmgr/tests/test_agent_retained_exit.py::'
+NATIVE_HOME_TEST = 'apps/simmgr/tests/test_native_catalogue.py::test_registered_l2_launcher_passes_the_selected_native_pair'
+MUTATIONS += [
+    ('retained exit treated as running', 'apps/simmgr/agent_unit.py',
+     "state.get('ActiveState') == 'active' and state.get('SubState') == 'exited'",
+     "False and state.get('SubState') == 'exited'",
+     EXIT + 'test_retained_nonzero_returns_failure_without_wait_or_signal'),
+    ('retained exit ignores live main PID', 'apps/simmgr/agent_unit.py',
+     "                and state.get('MainPID') == '0'\n                and state.get('ExecMainCode')",
+     "                and state.get('ExecMainCode')",
+     EXIT + 'test_incomplete_or_live_exit_evidence_stays_pending'),
+    ('retained exit ignores substate', 'apps/simmgr/agent_unit.py',
+     " and state.get('SubState') == 'exited'", '',
+     EXIT + 'test_incomplete_or_live_exit_evidence_stays_pending'),
+    ('retained exit ignores main code', 'apps/simmgr/agent_unit.py',
+     "                and state.get('ExecMainCode') in ('1', '2', '3')\n", '',
+     EXIT + 'test_incomplete_or_live_exit_evidence_stays_pending'),
+    ('agent show omits substate', 'apps/simmgr/agent_unit.py',
+     'LoadState,ActiveState,SubState,Result', 'LoadState,ActiveState,Result',
+     EXIT + 'test_show_requests_substate'),
+    ('native inherits sealed home', 'apps/simmgr/launcher.py',
+     "        native_env['HOME'] = str(native_home)", '        pass', NATIVE_HOME_TEST),
+    ('native logger directory absent', 'apps/simmgr/launcher.py',
+     "        (native_home / '.gz').mkdir(parents=True, mode=0o700)",
+     '        native_home.mkdir(mode=0o700)', NATIVE_HOME_TEST),
+]
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()

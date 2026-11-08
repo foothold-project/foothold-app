@@ -2,31 +2,33 @@
 // 아이콘 선은 원본 화면(ui/src/screens/PcSettings.view.tsx 주 메뉴)에서 옮겼다. 결재 아이콘만 새로 그림.
 import type { Role } from './fake';
 
-export type TabId = 'fleet' | 'drive' | 'sim' | 'mission' | 'approval' | 'history' | 'map' | 'settings';
+export type TabId = 'fleet' | 'drive' | 'sim' | 'terrain' | 'approval' | 'history' | 'map' | 'trash' | 'settings';
 export type Tab = { id: TabId; label: string | Record<Role, string>; icon: JSX.Element; hidden?: boolean };   // hidden = 메뉴에 안 보임(주소·알림 링크로는 열림)
 
 const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
 const ICON = {
   fleet: I(<><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>),
   drive: I(<><circle cx="12" cy="12" r="8" /><path d="M12 7l-1.5 1.5M12 7l1.5 1.5M12 17l-1.5-1.5M12 17l1.5-1.5M7 12l1.5-1.5M7 12l1.5 1.5M17 12l-1.5-1.5M17 12l-1.5 1.5" /></>),
-  mission: I(<><path d="M4 19l5-14 5 9 3-4 3 9" /><circle cx="9" cy="5" r="1.5" /></>),
   approval: I(<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 12l3 3 5-6" /></>),
   history: I(<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>),
   map: I(<><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></>),
   sim: I(<><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>),
-  settings: I(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
+  trash: I(<><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></>),
+  settings: I(<><path strokeLinejoin="round" d="M10.3 5.2L10.7 2.5L13.3 2.5L13.7 5.2A7 7 0 0 1 15.6 6L17.8 4.3L19.7 6.2L18 8.4A7 7 0 0 1 18.8 10.3L21.5 10.7L21.5 13.3L18.8 13.7A7 7 0 0 1 18 15.6L19.7 17.8L17.8 19.7L15.6 18A7 7 0 0 1 13.7 18.8L13.3 21.5L10.7 21.5L10.3 18.8A7 7 0 0 1 8.4 18L6.2 19.7L4.3 17.8L6 15.6A7 7 0 0 1 5.2 13.7L2.5 13.3L2.5 10.7L5.2 10.3A7 7 0 0 1 6 8.4L4.3 6.2L6.2 4.3L8.4 6A7 7 0 0 1 10.3 5.2Z" /><circle cx="12" cy="12" r="3" /></>),   // 톱니 8개 톱니바퀴(11-02 — 바로 위 «밝음» 해 아이콘과 헷갈리지 않게)
 };
 
-/** 총괄 웹(PC) 왼쪽 세로 메뉴. 설정은 PC_BOTTOM 으로 맨 아래 따로 — 로봇 · 시나리오 · 지도 · 시뮬 · 기록 · 설정.
+/** 총괄 웹(PC) 왼쪽 세로 메뉴. 설정은 PC_BOTTOM 으로 맨 아래 따로 — 로봇 · 지도 · 시뮬 · 기록 · 설정.
+ *  시나리오는 지도 탭 오른쪽 창 «시나리오» 탭(MAP-TAB-MERGE 11-03) — 옛 주소 #/mission(·/<id>·?scenario_id=)은 지도 탭으로(tabFromHash, App 이 그 시나리오를 연다).
  *  결재 탭은 숨김(10-27 결재 없이 바로 반영 — 새 결재가 안 생김). 옛 결재·알림 링크 #/approvals 는 주소로 그대로 열린다.
  *  실기 조종은 폰만, 시뮬은 PC «시뮬» 탭(10 ADR-003 §1 결정 3). 옛 주소 #/drive 는 첫 탭(로봇)으로 */
 export const PC_TABS: Tab[] = [
   { id: 'fleet', label: '로봇', icon: ICON.fleet },
   { id: 'approval', label: { ORG_ADMIN: '결재', OPERATOR: '내 요청' }, icon: ICON.approval, hidden: true },
-  { id: 'mission', label: '시나리오', icon: ICON.mission },
   { id: 'map', label: '지도', icon: ICON.map },
   { id: 'sim', label: '시뮬', icon: ICON.sim },
+  { id: 'terrain', label: '지형 만들기', icon: ICON.sim, hidden: true },   // 입구 = 시뮬 시작 화면 «지형 만들기»(TERRAIN-EDITOR 11-04)
   { id: 'history', label: '기록', icon: ICON.history },
+  { id: 'trash', label: '휴지통', icon: ICON.trash, hidden: true },   // 입구 = 지도·시나리오 화면의 «휴지통»(11-02)
 ];
 export const PC_BOTTOM: Tab = { id: 'settings', label: '설정', icon: ICON.settings };
 
@@ -46,7 +48,12 @@ export const labelOf = (t: Tab, role: Role) => (typeof t.label === 'string' ? t.
 /** 주소(#/<id>[/<로봇 id>][?…])에서 탭 고르기 — 이 틀에 없는 탭이면 첫 탭(PC 의 옛 #/drive → 로봇, 폰의 #/map → 조종) */
 export function tabFromHash(hash: string, phone: boolean): TabId {
   const id = hash.replace(/^#\/?/, '').split(/[/?]/)[0], all = tabsFor(phone);   // 폰 #/drive/<로봇 id> 도 조종, #/history?event_id=… 도 기록 탭
-  return (all.find((t) => t.id === (id === 'approvals' ? 'approval' : id)) ?? all[0]).id;   // 서버 알림 링크는 #/approvals?approval_id=…
+  return (all.find((t) => t.id === (id === 'approvals' ? 'approval' : id === 'mission' ? 'map' : id)) ?? all[0]).id;   // 서버 알림 링크는 #/approvals?approval_id=…, 옛 시나리오 탭 #/mission 은 지도 탭
+}
+/** 옛 시나리오 탭 주소면 열 시나리오 id(없으면 ''), 아니면 null — #/mission, #/mission/<id>, #/mission?scenario_id=<id> */
+export function oldScenario(hash: string): string | null {
+  const m = /^#\/?mission(?:\/([^/?]+))?(?:\?(.*))?$/.exec(hash);
+  return m ? decodeURIComponent(m[1] ?? new URLSearchParams(m[2] ?? '').get('scenario_id') ?? '') : null;
 }
 
 /** 떠나기 전에 물어볼 화면(저장하지 않은 지도 편집). ask(go) = 그 화면이 확인을 띄우고, 나가기를 고르면 go().

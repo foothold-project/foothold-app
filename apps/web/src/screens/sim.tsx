@@ -9,18 +9,31 @@ import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
-import { Chip } from '../screens';
+import { Chip, inApp } from '../screens';
 import type { SimRobot } from '../../../contracts/ts';
-import type { Tone, User } from '../fake';
+import type { Robot, Tone, User } from '../fake';
 
-export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
+export function Go2ReplayLink({ robots }: { robots: Robot[] }) {
+  const [selected, select] = useState('');
+  const real = robots.filter((r) => r.sim === false);
+  if (inApp() || !real.length) return null;
+  const robot = real.find((r) => r.id === selected);
+  return <section className="lv-card" aria-label="Go2 실기 보기" data-go2-replay>
+    <h2>Go2 실기 보기</h2><p className="lv-note">실기 보기 전용 · 위치 원점: 기동 시점 기준·미확인</p>
+    <div className="fh-row"><label className="fh-row"><span>로봇</span><select className="fh-user fh-sel" aria-label="실기 보기 로봇" value={robot?.id ?? ''} onChange={(e) => select(e.target.value)}>
+      <option value="">로봇 고르기</option>{real.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+    </select></label>{robot && <a className="btn" style={{ textDecoration: 'none', color: 'var(--text)', boxSizing: 'border-box' }} data-go2-open href={`/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(robot.id)}`}>Go2 실기 보기 열기</a>}</div>
+  </section>;
+}
+
+export function SimTab({ user, robots = [], refresh }: { user: User; robots?: Robot[]; refresh: () => void }) {
   const s = useSim(), ids = s.mine.map((r) => r.robot_id).join();
   // 띄우기·끝내기로 내 시뮬 목록이 바뀌거나 다시 확정되면(끝내기는 blank() 로 listed=false → load() 로 true) 로봇 목록도 다시 받는다(머리줄 STOP 후보·로봇 탭에 바로 보이게)
   useEffect(() => { if (s.listed) refresh(); }, [ids, s.listed]);
   useEffect(() => { sim.pc(true); return () => sim.pc(false); }, []);   // 이 탭에서 받는 출입증은 surface: 'pc'
   // «시뮬 정지»는 띄우는 중·연결 중·끝내는 중·정리 확인 중에도(sim.live()) 늘 하나 — 조종 화면에서는 머리 카드 안, 그 밖에는 진행 칸 위
   return s.step === 'drive' && s.link && s.robot ? <SimView admin={user.role === 'ORG_ADMIN'} />
-    : <>{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view /></>;
+    : <><Go2ReplayLink robots={robots} />{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view /></>;
 }
 
 /** «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */
@@ -36,7 +49,7 @@ function SimView({ admin }: { admin: boolean }) {
   const keys = w?.simulation === true, live = canDrive(), can = allowed(w);
   useDeadline(!!r.expires_at);
   useTick(true);
-  const held = useRef(new Set<string>()), [out, setOut] = useState({ vx: 0, note: '' });
+  const held = useRef(new Set<string>()), [out, setOut] = useState({ vx: 0, note: '' }), [ending, setEnding] = useState(false);   // ending = «시뮬 종료·정리» 화면 안 확인 단계
   useEffect(() => {
     const apply = () => {
       if (!canDrive()) held.current.clear();
@@ -96,15 +109,21 @@ function SimView({ admin }: { admin: boolean }) {
         {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>}
         {open && mine && <button type="button" className="btn" disabled={l.busy === 'release'} onClick={() => sim.release()}>조종권 반납</button>}
         {l.at === 'closed' && l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}
-        <button type="button" className="btn" onClick={() => sim.end()}>끝내기</button>
         <button type="button" className="btn" onClick={close}>보기 닫기</button>
         <span className="lbl">보기 닫기는 조종권을 반납하고 시뮬을 켠 채 둡니다.</span>
+        <span className="fh-grow" style={{ flex: 1 }} />
+        {!ending && <button type="button" className="btn" data-simtab-end onClick={() => setEnding(true)}>시뮬 종료·정리</button>}
       </div>
+      {ending && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} role="group" aria-label="시뮬 종료·정리 확인" data-simtab-end-ask>
+        <span className="fh-why">이 시뮬을 끝내고 정리합니다 — 조종권 반납·연결 종료·시뮬 삭제. 다시 쓰려면 새로 띄워야 합니다.</span>
+        <button type="button" className="btn" data-simtab-end-cancel onClick={() => setEnding(false)}>취소</button>
+        <button type="button" className="btn pri" data-simtab-end-ok onClick={() => { setEnding(false); sim.end(); }}>종료·정리</button>
+      </div>}
       {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
         <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}
       {keys && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="키보드 조종" data-sim-keys>
         <span>{running ? '실행 중 — 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
-        {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('A/←·D/→', '회전', !running)}{key('Q/E', '옆걸음', (can.left || can.right) && !running)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
+        {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('←/→', '옆걸음', (can.left || can.right) && !running)}{key('A/D', '제자리 회전', !running)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
         <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만 — 이 시뮬은 키·시나리오로</span>

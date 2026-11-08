@@ -12,8 +12,21 @@ from dataclasses import dataclass
 ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
-# Preserve current real-robot alphabet. Do not widen it from a config file.
-ALLOWED = frozenset((ZERO, (.6, 0., 0.), (.6, 0., -.5), (.6, 0., .5)))
+# Physical phone forward ceiling is 1.5 m/s; lateral/turn gates are unchanged.
+# Config may only narrow this explicit alphabet.
+ALLOWED = frozenset({ZERO} | {(step / 10, 0., wz)
+                            for step in range(3, 16) for wz in (0., -.5, .5)})
+SERVER_ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (-1.5, 0., 0.),
+    (0., 1.5, 0.), (0., -1.5, 0.), (0., 0., .5), (0., 0., -.5),
+    (1.5, 0., .5), (1.5, 0., -.5)))
+
+
+def server_velocity(value):
+    if (not isinstance(value, (list, tuple)) or len(value) != 3 or
+            not all(type(x) in (int, float) and math.isfinite(x) for x in value) or
+            tuple(value) not in SERVER_ALLOWED):
+        raise ValueError('outside exact server-drive SI alphabet')
+    return tuple(value)
 
 
 class OutputError(RuntimeError):
@@ -22,12 +35,12 @@ class OutputError(RuntimeError):
 
 @dataclass(frozen=True)
 class Limits:
-    vx: tuple = (0., .6)
+    vx: tuple = (0., 1.5)
     vy: tuple = (0., 0.)
     wz: tuple = (-.5, .5)
 
     def __post_init__(self):
-        for bounds, maximum in zip((self.vx, self.vy, self.wz), ((0., .6), (0., 0.), (-.5, .5))):
+        for bounds, maximum in zip((self.vx, self.vy, self.wz), ((0., 1.5), (0., 0.), (-.5, .5))):
             if (not isinstance(bounds, tuple) or len(bounds) != 2 or
                     not all(type(x) in (int, float) and math.isfinite(x) for x in bounds) or
                     not maximum[0] <= bounds[0] <= 0 <= bounds[1] <= maximum[1]):
@@ -56,13 +69,17 @@ class Go2Sink:
     neutral are required before nonzero; periodic apply alone cannot unlock.
     """
     def __init__(self, client, emergency_client, *, limits=None, now=time.monotonic,
-                 offline_test_mode=False):
+                 offline_test_mode=False, phone_watchdog=False):
         if type(offline_test_mode) is not bool:
             raise ValueError('offline_test_mode must be an explicit boolean')
         if client is emergency_client:
             raise ValueError('separate normal/emergency SDK objects required')
         self.client, self.emergency_client = client, emergency_client
         self._offline_test_mode = offline_test_mode
+        if type(phone_watchdog) is not bool:
+            raise ValueError('phone_watchdog must be a boolean')
+        self._phone_watchdog = phone_watchdog
+        self._source_received = None
         self.limits, self.now = limits or Limits(), now
         self._lock = threading.RLock()
         self._output = threading.RLock()
@@ -83,9 +100,27 @@ class Go2Sink:
         self._tripped = False
         self._feedback_seq = -1
         self._feedback_received = float("-inf")
+        self._stall_sequence = 0
+
+    def output_safety(self):
+        """Atomic observation for the ONE phone Session; never mutate its Core."""
+        with self._lock:
+            held = (self.latched and not (
+                self._confirmed_generation == self.generation and
+                0 <= self.now()-self._feedback_received <= FEEDBACK_MAX_AGE_S))
+            return self._stall_sequence, held
+
+    def feedback_context(self):
+        with self._lock:
+            return self.generation, self.latched
+
+    def _stall(self):
+        if not self.latched:
+            self._stall_sequence += 1
+        self._hold()
 
     def select_source(self, source):
-        if source not in ('phone', 'nav2'):
+        if source not in ('phone', 'nav2', 'server'):
             raise ValueError('known source required')
         with self._lock:
             if self.source != source:
@@ -99,6 +134,13 @@ class Go2Sink:
         self._confirmed_generation = None
         self._neutral_required = True
         self._urgent = True
+        self._source_received = None
+
+    def _expired(self, stamp):
+        return (stamp-self._last_apply >= DEADLINE_S or
+                stamp-self._last_drain >= DEADLINE_S or
+                (self._phone_watchdog and self._source_received is not None and
+                 stamp-self._source_received >= DEADLINE_S))
 
     def _require_workers(self):
         # Call under the memory lock. start_threads starts BOTH workers while
@@ -109,7 +151,7 @@ class Go2Sink:
             self._stop_requested.set()
             raise OutputError('both live workers must be ready before input/output')
 
-    def apply(self, command, *, source):
+    def apply(self, command, *, source, input_received_at=None):
         with self._lock:
             if self._closed.is_set() or self.error is not None:
                 raise OutputError('adapter closed or failed')
@@ -122,9 +164,8 @@ class Go2Sink:
             # Check OLD clocks before any input can refresh them. Otherwise a
             # delayed apply -> drain -> watchdog sequence erases the outage.
             stamp = self.now()
-            if not self.latched and (stamp-self._last_apply >= DEADLINE_S or
-                                     stamp-self._last_drain >= DEADLINE_S):
-                self._hold()
+            if not self.latched and self._expired(stamp):
+                self._stall()
                 self._stop_requested.set()
             if source != self.source or self.source is None:
                 self._hold()
@@ -139,11 +180,26 @@ class Go2Sink:
                 self._hold()
                 raise ValueError('unsupported motion kind')
             try:
-                velocity = self.limits.project(command.velocity)
+                velocity = (server_velocity(command.velocity) if source == 'server'
+                            else self.limits.project(command.velocity))
             except ValueError:
                 self._hold()
+                self._stop_requested.set()
                 raise
             self._last_apply = stamp
+            if self._phone_watchdog and not self.latched:
+                fresh_input = (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
+                               and 0 <= stamp-input_received_at < DEADLINE_S)
+                if velocity != ZERO and not fresh_input:
+                    self._stall()
+                    self._stop_requested.set()
+                    if (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
+                            and input_received_at <= stamp):
+                        return  # ordinary input deadline: hold/STOP, keep the service alive
+                    raise ValueError('nonzero requires original fresh phone input time')
+                if (fresh_input
+                        and (self._source_received is None or input_received_at > self._source_received)):
+                    self._source_received = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
             self.pending = ZERO if self.latched or self._neutral_required else velocity
             if not self.latched and self._neutral_required and velocity == ZERO:
@@ -183,6 +239,8 @@ class Go2Sink:
 
     def _fail(self, error):
         with self._lock:
+            if self.error is None:
+                self._stall_sequence += 1
             self.error = self.error or error
             self._hold()
 
@@ -194,9 +252,8 @@ class Go2Sink:
                     return
                 self._require_workers()
                 stamp = self.now()
-                if not self.latched and (stamp-self._last_apply >= DEADLINE_S or
-                                         stamp-self._last_drain >= DEADLINE_S):
-                    self._hold()
+                if not self.latched and self._expired(stamp):
+                    self._stall()
                     self._stop_requested.set()
                 generation, urgent = self.generation, self._urgent
                 velocity = ZERO if self.latched else self.pending
@@ -212,9 +269,8 @@ class Go2Sink:
                     stamp = self.now()
                     # A stalled SDK return can also beat the watcher. Do not
                     # erase the outage by stamping its late completion as fresh.
-                    if not self.latched and (stamp-self._last_apply >= DEADLINE_S or
-                                             stamp-self._last_drain >= DEADLINE_S):
-                        self._hold()
+                    if not self.latched and self._expired(stamp):
+                        self._stall()
                         self._stop_requested.set()
                     self._last_drain = stamp
                     changed = generation != self.generation or self._closed.is_set()
@@ -246,15 +302,17 @@ class Go2Sink:
         with self._lock:
             requested = self._stop_requested.is_set()
             self._stop_requested.clear()
-            expired = (self.now()-self._last_apply >= DEADLINE_S or
-                       self.now()-self._last_drain >= DEADLINE_S)
+            expired = self._expired(self.now())
             if not requested and not expired:
                 self._tripped = False
                 return False
             if not requested and self._tripped:
                 return False
             self._tripped = expired
-            self._hold()
+            if expired and not requested:
+                self._stall()
+            else:
+                self._hold()
         self.emergency_stop()
         return True
 

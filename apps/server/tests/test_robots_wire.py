@@ -52,11 +52,9 @@ def test_registration_real_client_dashboard_reassignment_stop_and_delete(seeded,
                     password='fake-test-password', client='app'))
                 assert response.status_code == 200
                 return {'authorization': 'Bearer ' + response.json()['access_token']}
-            admin, operator = await login('admin'), await login('one')
-            response = await http.post('/robots', headers=admin, json=dict(name='wire-robot',
-                owner_user_id=str(seeded['users']['one'])))
-            assert response.status_code == 201
-            created = response.json()
+            admin, operator, next_owner = await login('admin'), await login('one'), await login('two')
+            from .pairing_helpers import paired_async
+            created = await paired_async(http, operator, prefix='', name='wire-robot')
             rid = created['robot']['id']
             # This synthetic Session exercises the supported legacy sim relay.
             engine = create_engine(seeded['urls']['migrate'])
@@ -115,7 +113,7 @@ def test_registration_real_client_dashboard_reassignment_stop_and_delete(seeded,
                         db.get(Robot, UUID(rid)).simulation = False
                         db.commit()
                     engine.dispose()
-                    response = await http.patch('/robots/' + rid, headers=admin,
+                    response = await http.patch('/robots/' + rid, headers=operator,
                         json={'owner_user_id': str(seeded['users']['two'])})
                     assert response.status_code == 200
                     assert (await receive('subscription.revoked'))['reason'] == 'ACCESS_REVOKED'
@@ -126,7 +124,7 @@ def test_registration_real_client_dashboard_reassignment_stop_and_delete(seeded,
                     assert sink.outputs[-1].velocity == (0, 0, 0)
                     ident = await send('lease.take', robot=rid)
                     assert not (await receive('reply', lambda m: m['id'] == ident))['ok']
-                    assert (await http.delete('/robots/' + rid, headers=admin)).status_code == 204
+                    assert (await http.delete('/robots/' + rid, headers=next_owner)).status_code == 204
                     async with asyncio.timeout(5):
                         result = (await asyncio.gather(task, return_exceptions=True))[0]
                     assert isinstance(result, ReconnectForbidden) and result.close_code == 4403

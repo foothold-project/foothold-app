@@ -28,26 +28,39 @@
   #go svg { width: 34px; height: 34px; fill: currentColor; stroke: none; }
   #btns { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--edge) + var(--stick) + 20px + env(safe-area-inset-bottom)); display: flex; gap: 10px; }
   @media (orientation: landscape) { #btns { bottom: calc(var(--edge) + env(safe-area-inset-bottom)); } }
-  #scenarioMenu { width: auto; min-width: 72px; padding: 0 8px; font: inherit; font-size: 13px; }
-  #scenarioPanel { position: fixed; z-index: 90; top: calc(var(--t) + 82px); left: 50%; transform: translateX(-50%); width: min(280px, calc(100vw - 32px)); box-sizing: border-box;
+  #scenarioMenu, #wpClear { width: auto; min-width: 72px; padding: 0 8px; font: inherit; font-size: 13px; }
+  #scenarioPanel { position: fixed; z-index: 90; top: calc(var(--t) + 82px); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - var(--t) - 82px - var(--stick) - 80px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; box-sizing: border-box;
     border: 1px solid rgb(255 255 255 / .28); border-radius: 12px; padding: 12px; background: rgb(20 23 28 / .94); font: 14px system-ui; }
   #scenarioPanel select { width: 100%; background: #14171c; color: #e6e8eb; border: 1px solid rgb(255 255 255 / .28); border-radius: 8px; padding: 10px; font: inherit; }
+  @media (orientation: landscape) {
+    #scenarioPanel { max-height: calc(100dvh - var(--t) - 82px - 80px - env(safe-area-inset-bottom)); }
+    #scenarioPanel select { padding: 6px 10px; }
+    #scenarioPanel #policyReason { margin: 4px 0; font-size: 12px; line-height: 1.2; }
+  }
   #scenarioActions { display: flex; gap: 8px; margin-top: 10px; }
   #scenarioActions button { flex: 1; font: inherit; }
   #scenarioStatus { display: block; margin-top: 10px; }
   #scenarioHint, #goalHint { margin: 8px 0 0; color: #b9c0ca; font-size: 12px; }
+  #btNodes { list-style: none; padding: 0; font-size: 12px; }
+  #btNodes li { padding-top: 3px; padding-bottom: 3px; overflow-wrap: anywhere; }
+  #btNodes .btActive { background: #235c3a; border-left: 3px solid #81c784; }
+  #btMocks, #btReview { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+  #btMocks button, #btReview button { width: auto; height: auto; min-height: 36px; padding: 6px; font: 12px system-ui; }
+  #btMocks button[aria-pressed="true"] { background: #80451a; }
+  #btEvents { max-height: 140px; overflow: auto; white-space: pre-wrap; font: 11px system-ui; }
+  #btReport, #btPoints, #btDisclaimer { font-size: 12px; overflow-wrap: anywhere; }
   /* 찍은 곳 가기 진행·거절 한 줄: 위 가운데(STOP·시작 단추 자리 비움), 누름은 아래 화면으로 */
+  #modeCaps { position: fixed; z-index: 80; top: calc(var(--t) + 110px); left: 8px; right: 8px; margin: 0; padding: 4px 6px; background: rgb(20 23 28 / .82); color: #e6e8eb; font: clamp(8px, 2.5vw, 10px) system-ui; white-space: nowrap; pointer-events: none; }
   #goalNote { position: fixed; z-index: 80; top: calc(var(--t) + 60px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 180px); box-sizing: border-box; margin: 0;
     padding: 6px 10px; border-radius: 8px; background: rgb(20 23 28 / .82); border: 1px solid #ffd54f; color: #e6e8eb; font: 13px system-ui; text-align: center; pointer-events: none; }
   /* 여러 층 지도: 위에서 보기 왼쪽 «전체 · 1층 · 2층» (main.js 가 만듦, 왼쪽 띠 = 층 색 범례) */
   #floorBar { position: fixed; z-index: 85; top: calc(var(--t) + 64px); left: calc(8px + env(safe-area-inset-left)); display: flex; flex-wrap: wrap; gap: 6px; }
   #floorBar button { width: auto; min-width: 52px; height: 40px; padding: 0 10px; font: 13px system-ui; }
   #floorBar button[aria-pressed="true"] { border-color: #ffd54f; background: rgb(60 52 20 / .9); }
-  #reset.fell { background: var(--stopc); border-color: #fff; animation: blink 1s steps(2) infinite; }
-  @keyframes blink { 50% { opacity: .45; } }
   .stick { position: fixed; bottom: calc(var(--edge) + env(safe-area-inset-bottom)); width: var(--stick); height: var(--stick); border-radius: 50%;
     background: rgb(255 255 255 / .08); border: 2px solid rgb(255 255 255 / .25); touch-action: none; }
   .stick.out { border-color: #ffb74d; }   /* 학습 범위 밖 명령(뒤·옆 걸음 등) */
+  #keys.out { box-shadow: inset 0 0 0 2px #ffb74d; }   /* 컴퓨터(막대 숨김)도 같은 알림 */
   .stick svg { position: absolute; inset: 18%; width: 64%; height: 64%; fill: none; stroke: rgb(255 255 255 / .22); stroke-width: 2; pointer-events: none; }
   #stickL { left: calc(var(--edge) + env(safe-area-inset-left)); } #stickR { right: calc(var(--edge) + env(safe-area-inset-right)); }
   .stick b { position: absolute; left: 32%; top: 32%; width: 36%; height: 36%; border-radius: 50%; background: rgb(255 255 255 / .45); pointer-events: none; }
@@ -67,28 +80,42 @@
 </style>
 </head>
 <body class="stopped">
+<output id="policyEngine" role="status" style="position:fixed;bottom:4px;left:8px;z-index:20;max-width:90vw;background:#182028;color:#fff;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
+<output id="simSlow" role="status" hidden style="position:fixed;bottom:28px;left:8px;z-index:20;background:#182028;color:#ffd54f;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
 <button id="home" type="button" aria-label="시작 화면"><svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8M5.5 9.5V21h13V9.5"/></svg></button>
 <button id="stop" type="button" aria-label="정지" aria-pressed="true"><svg viewBox="0 0 72 72"><path class="oct" d="M23 3h26l20 20v26L49 69H23L3 49V23z"/><rect class="bar" x="17" y="31" width="38" height="10" rx="2"/></svg></button>
 <button id="go" type="button" aria-label="다시 시작" hidden><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z"/></svg></button>
 <div id="stickL" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><b></b></div>
 <div id="stickR" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 9a8 8 0 0 1 14 0M19 9V4.5M19 9h-4.5M5 9V4.5M5 9h4.5"/></svg><b></b></div>
-<p id="keys">↑↓ 앞·뒤 · ←→ 회전(WASD) · Esc·Space 정지 · ▶ 로 시작 · 바닥 클릭 = 그곳으로</p>
+<p id="keys">↑↓·WS 앞·뒤 · ←→ 옆걸음 · AD 제자리 회전 · Esc·Space 정지 · ▶ 로 시작 · 바닥 클릭 = 그곳으로 이동</p>
+<output id="modeCaps" role="status"></output>
 <output id="goalNote" role="status" hidden></output>
 <div id="floorBar" role="group" aria-label="층" hidden></div>
 <div id="btns">
   <button id="cam" type="button" aria-label="위에서 보기" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M12 3 3 7.5 12 12l9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></svg></button>
+  <button id="topCenter" type="button" aria-label="지도 가운데로" title="지도 가운데로" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M12 2v5m0 10v5M2 12h5m10 0h5"/></svg></button>
   <button id="reset" type="button" aria-label="다시 세우기" disabled><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/></svg></button>
+  <button id="wpClear" type="button" hidden>점 지우기</button>
   <button id="scenarioMenu" type="button" aria-expanded="false" aria-controls="scenarioPanel">시나리오</button>
 </div>
 <section id="scenarioPanel" aria-label="시나리오" hidden>
   <label for="policySelect">시뮬 정책</label>
-  <select id="policySelect" aria-label="시뮬 정책"><option value="foothold-v2">foothold-v2</option><option value="ame2-demo" disabled>AME-2(시연)</option></select>
+  <select id="policySelect" aria-label="시뮬 정책"></select>
+  <label id="startMapLabel" for="startMapSelect" hidden>start 지도</label>
+  <select id="startMapSelect" aria-label="start 지도" hidden><option value="gt">정답</option><option value="reconstruction">복원</option><option value="off">끔</option></select>
   <p id="policyReason" role="status"></p>
   <select id="scenarioSelect" aria-label="시나리오 선택"></select>
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>
   <output id="scenarioStatus" role="status">대기</output>
   <p id="scenarioHint">다시 시작 버튼으로 잠금을 푼 뒤 실행하세요.</p>
-  <p id="goalHint">화면 바닥을 짧게 누르면 그 자리로 곧게 갑니다(길 찾기 없음 · 막히면 멈춤 · 막대·키를 쓰면 취소).</p>
+  <div id="btPanel" hidden>
+    <p id="btDisclaimer">브라우저 모의 순찰: 사진은 1초 정지와 기록(저장 없음), 알림은 패널 기록(서버 전송 없음), 지도 표시는 이 화면에만, 보고서는 패널 요약입니다. 배터리는 모의 단추만 사용합니다. 다음 이동 실패는 한 지점의 재시도까지 실패시킵니다. 시간은 시뮬 시간입니다.</p>
+    <div id="btMocks" aria-label="모의 입력"><button id="btFall" aria-pressed="false">모의 넘어짐</button><button id="btBattery" aria-pressed="false">모의 배터리 부족</button><button id="btPhotoFail" aria-pressed="false">모의 다음 사진 실패</button><button id="btMoveFail" aria-pressed="false">모의 다음 이동 실패</button></div>
+    <div id="btReview" aria-label="운영자 판단"><button id="btReview-clear" disabled>이상 없음</button><button id="btReview-minor" disabled>사소함</button><button id="btReview-danger" disabled>위험</button></div>
+    <p id="btPoints"></p><ul id="btNodes" aria-label="읽기 전용 행동 나무"></ul>
+    <pre id="btEvents" aria-label="사건 기록"></pre><output id="btReport" aria-label="모의 보고서"></output>
+  </div>
+  <p id="goalHint">화면 바닥을 짧게 누르면 바로 그곳으로 갑니다(장애물은 A* 로 돌아감 · 가는 중에 누르면 끝에 줄 세워 도착하면 바로 다음으로 · 막히면 한 번 다시 찾고 또 막히면 멈춤 · 막대·키·정지로 끊기면 남은 목적지는 지움).</p>
 </section>
 <div id="busy"></div>
 <svg id="fail" viewBox="0 0 24 24" hidden><circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>

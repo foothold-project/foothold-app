@@ -201,3 +201,38 @@ def test_setup_release_barrier_blocks_without_original_name(tmp_path):
     (tmp_path/'setup-unproven.release-pending').touch()
     with pytest.raises(RuntimeError):DeploymentLease(tmp_path).acquire()
     assert not (tmp_path/'state/unproven').exists()
+
+
+@pytest.mark.parametrize('stage',['lock_open','lock_acquire','state_create'])
+def test_access_error_preserves_stage_errno_without_private_logs_or_launch(tmp_path,monkeypatch,caplog,stage):
+    import asyncio
+    import errno
+    from pathlib import Path
+    from apps.simmgr import deploy_guard
+    from apps.simmgr.service import Manager, SimError
+    from test_manager import settings
+    provision(tmp_path,monkeypatch)
+    opened=os.open;flock=fcntl.flock
+    def denied_open(path,*a,**kw):
+        target=tmp_path/('deploy.lock' if stage=='lock_open' else 'state/unproven')
+        if stage!='lock_acquire' and Path(path)==target:
+            raise PermissionError(errno.EACCES,'private-token-and-detail','/secret/path')
+        return opened(path,*a,**kw)
+    def denied_lock(*_):raise PermissionError(errno.EACCES,'private-token-and-detail','/secret/path')
+    async def run():
+        manager=Manager(settings())
+        with monkeypatch.context() as scoped:
+            scoped.setattr(os,'open',denied_open)
+            if stage=='lock_acquire':scoped.setattr(deploy_guard.fcntl,'flock',denied_lock)
+            with pytest.raises(SimError) as caught:await manager.start_world('a')
+        assert caught.value.status==503
+        assert caught.value.detail=={'reason':'guard_access','start_not_created':True}
+        assert manager.deployment_lease.fd is None
+        assert manager.world is None and not manager.failed and not manager.launcher.events
+        assert not (tmp_path/'state/unproven').exists()
+        assert contender(tmp_path)==0
+        await manager.close()
+    asyncio.run(run())
+    assert f'stage={stage} errno=13' in caplog.text
+    assert 'private-token' not in caplog.text and '/secret/path' not in caplog.text
+    assert str(tmp_path) not in caplog.text

@@ -1,20 +1,27 @@
 // RS-6 가상 라이다(브라우저·Node 같이 씀): mj_multiRay 로 수평 360° 한 줄, 창고 geom(group 1)만 맞힌다(로봇 몸 제외).
 // 지도 쪽 거리: map.json(f1.png 원값, 0 = 점유) 위를 res/4 걸음으로 걸어 첫 점유 칸까지.
-export const MAX_RANGE = 12;
+import { boundedNumber, DEFAULT_VIEW_M } from './settings.js';
+export const MAX_RANGE = DEFAULT_VIEW_M;
 
-export function makeLidar(mj, m, d, n = 360) {
+export function makeLidar(mj, m, d, n = 360, display = {}) {
   const vec = new Float64Array(n * 3), dist = new mj.DoubleBuffer(n);
   const gid = new mj.IntBuffer(n);
   const group = [0, 1, 0, 0, 0, 0];
-  const out = new Float64Array(n);
-  return (x, y, z, yaw) => {
+  const out = new Float64Array(n), viewRays = new Float64Array(n);
+  const scan = (x, y, z, yaw) => {
+    const viewRange = boundedNumber(display?.viewRange, 1, 30, MAX_RANGE);
     const v = vec;
     for (let i = 0; i < n; i++) { const a = yaw + (i * 2 * Math.PI) / n; v[i * 3] = Math.cos(a); v[i * 3 + 1] = Math.sin(a); v[i * 3 + 2] = 0; }
-    mj.mj_multiRay(m, d, [x, y, z], vec, group, true, -1, gid, dist, null, n, MAX_RANGE);
+    mj.mj_multiRay(m, d, [x, y, z], vec, group, true, -1, gid, dist, null, n, Math.max(MAX_RANGE, viewRange));
     const r = dist.GetView();
-    for (let i = 0; i < n; i++) out[i] = r[i] < 0 || r[i] > MAX_RANGE ? Infinity : r[i]; // −1 = 안 맞음
+    for (let i = 0; i < n; i++) {
+      out[i] = r[i] < 0 || r[i] > MAX_RANGE ? Infinity : r[i]; // Safety scan retains the original 12 m cutoff.
+      viewRays[i] = r[i] < 0 || r[i] > viewRange ? Infinity : r[i];
+    }
     return out;
   };
+  scan.viewRays = viewRays;
+  return scan;
 }
 
 export function decodeMap(j) {
@@ -27,6 +34,7 @@ export function cell(map, x, y) {
   return c < 0 || r < 0 || c >= map.w || r >= map.h ? 205 : map.px[r * map.w + c];
 }
 export function mapRay(map, x, y, a, max = MAX_RANGE) {
+  max = boundedNumber(max, 1, 30, MAX_RANGE);
   const s = map.res / 4, dx = Math.cos(a) * s, dy = Math.sin(a) * s;
   for (let t = 0; t <= max; t += s, x += dx, y += dy) if (cell(map, x, y) === 0) return t;
   return Infinity;

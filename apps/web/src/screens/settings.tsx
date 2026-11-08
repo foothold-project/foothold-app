@@ -1,74 +1,226 @@
-// 설정 탭(02 F-ST-01·02, 03 UX §5) — 개인 설정·내 정보·조직 기준값(서버 값). 계정 관리(05 §2 /users)·로봇 등록(05 §3)은 총괄에게만 보인다(01 AU-04: 권한 없는 기능은 숨김).
-import { useEffect, useState, type FormEvent } from 'react';
-import type { OrgSettings, RobotSummary, Session, User as ApiUser } from '../../../contracts/ts';
+// 설정 탭(02 F-ST-01·02, 03 UX §5) — [공통 | 실기 | 시뮬 | 계정] 탭(11-02 설정 개편, 미리보기 runs/settings-preview). 조직 값은 서버(05 §8)가 범위·교차 검사,
+// 고치기는 총괄만(운영 관리자는 보기만). 계정 관리(05 §2 /users)·시뮬 로봇 이름(05 §3)은 총괄에게만 보인다(01 AU-04: 권한 없는 기능은 숨김).
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import type { OrgSettings, OrgSettingsPatch, RobotSummary, Session, User as ApiUser } from '../../../contracts/ts';
 import { api, expireAuth, type ApiFail } from '../api';
 import { ROLE_NAME, robotName, type Role, type User } from '../fake';
+import { simTune } from '../phone';
 import { Chip, type Ctx } from '../screens';
-import { ThemePick } from '../theme';
+import './settings.css';
 
 type Msg = { text: string; ok?: boolean } | null;
 /** 긴 이름·아이디(128자)는 칸 안에서 줄을 바꾼다 */
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
 const Note = ({ msg }: { msg: Msg }) => (msg ? <p style={WRAP} className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p> : null);
 
-/** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다 */
+const TABS = [['common', '공통'], ['real', '실기'], ['sim', '시뮬'], ['acct', '계정']] as const;
+type Tab = (typeof TABS)[number][0];
+
+/** 시뮬 탭에서 고를 모델: 등록부(mobile/sim/policy-modes.js) 정식 id·이름. go2-demo 는 명령·물리 없는 보기 전용이라 고칠 값이 없어 뺀다.
+ *  등록부에 실기로 도는 모델이 없어 실기 탭은 «공통»만 보인다 */
+export const SIM_MODELS = [['nvidia-demo', 'nvidia'], ['ame2-demo', 'AME-2'], ['start-demo', 'start']] as const;
+
+/** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다. 고른 탭은 화면 상태(주소 #해시 아님).
+ *  네 묶음은 늘 그려 두고 hidden 으로만 숨긴다 — 탭을 바꿔도 쓰던 칸·한 번만 보이는 임시 비밀번호가 사라지지 않게 */
 export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) {
-  const admin = c.user.role === 'ORG_ADMIN';
-  return <>
-    <section className="lv-card" aria-label="개인 설정">
-      <h2>개인 설정</h2>
-      <div className="fh-row"><span>화면 밝기</span><ThemePick /></div>
-    </section>
-    <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />
-    <OrgLimits admin={admin} cancel={c.cancel} />
-    {admin && <Accounts me={c.user} cancel={c.cancel} />}
-    {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
-  </>;
+  const admin = c.user.role === 'ORG_ADMIN', [tab, setTab] = useState<Tab>('common'), org = useOrg(c.cancel), list = useRef<HTMLDivElement>(null);
+  // 탭 목록 키(WAI-ARIA tabs): ←/→ 앞뒤(끝에서 돌아감), Home/End 처음·끝 — 고르면서 초점도 옮긴다
+  const key = (e: KeyboardEvent) => {
+    const i = TABS.findIndex(([id]) => id === tab), n = TABS.length;
+    const j = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i + n - 1) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
+    if (j < 0) return;
+    e.preventDefault(); setTab(TABS[j][0]); list.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[j]?.focus();
+  };
+  const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>;
+  const card = (p: Omit<CardProps, 'org' | 'admin' | 'cancel'>) => <OrgCard org={org} admin={admin} cancel={c.cancel} {...p} />;
+  // 고른 모델의 카드는 처음 고를 때 그려 두고 hidden 으로만 숨긴다 — 모델을 오가도 쓰던 칸이 사라지지 않게(탭과 같은 방식). '' = 공통
+  const [model, setModel] = useState(''), [opened, setOpened] = useState<string[]>([]);
+  const pickModel = (m: string) => { setModel(m); if (m && !opened.includes(m)) setOpened([...opened, m]); };
+  const simCards = (m: string) => <div key={m} className="st-scope" data-model={m || undefined} hidden={model !== m}>
+    {card({ id: 'simcap', model: m, label: '시뮬 속도 상한', cap: true, note: '모드·연결별 상한 안에서 적용합니다. 조직 설정으로 상한을 넓히지는 않습니다.', fields: SIM_CAP })}
+    {card({ id: 'siminput', model: m, label: '조종 입력·임무 실행기', fields: SIM_INPUT })}
+    {card({ id: 'simview', model: m, label: '표시', fields: SIM_VIEW })}
+  </div>;
+  const modelName = SIM_MODELS.find(([id]) => id === model)?.[1];
+  return <div className="st">
+    <div className="st-tabs" role="tablist" aria-label="설정 묶음" ref={list} onKeyDown={key}>
+      {TABS.map(([id, name]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}>{name}</button>)}
+    </div>
+    <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
+    {org.err && <p className="fh-msg" role="alert">{org.err}</p>}
+    {panel('common', card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON }))}
+    {panel('real', <>
+      <div className="st-modelbar">
+        <div className="st-tabs" role="group" aria-label="실기 값을 고칠 모델"><button type="button" aria-pressed="true">공통</button></div>
+        <p className="st-note">실기에서 도는 모델이 하나뿐이라 모델별 값 없음</p>
+      </div>
+      {card({ id: 'lease', label: '조종권·연결', fields: LEASE })}
+      {card({ id: 'speed', label: '속도 제한', bad: '실기 미검증', note: '지금 실기 명령 표(읽기 전용). 값 자체는 여기서 못 올림 — 아래 스위치로 더 느리게만 할 수 있음.', fields: REAL, top: <RealTable /> })}
+      <section className="lv-card st-fixed" aria-label="고정 안전값">
+        <h2>고정 안전값</h2>
+        <p className="st-note">로봇·서버 코드에 묶인 값. 화면에서는 보기만 합니다.</p>
+        <div className="st-row"><span>입력이 끊기면 정지</span><b>0.3초 뒤</b></div>
+        <div className="st-row"><span>로봇 출력 마감</span><b>0.30초</b></div>
+        <div className="st-row"><span>실기 조종 시작 전 현장 승인</span><b>필요</b></div>
+        <span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></span>
+      </section>
+    </>)}
+    {panel('sim', <>
+      <div className="st-modelbar">
+        <div className="st-tabs" role="group" aria-label="값을 고칠 모델">
+          {[['', '공통'] as const, ...SIM_MODELS].map(([id, name]) => <button key={id} type="button" aria-pressed={model === id} onClick={() => pickModel(id)}>{name}</button>)}
+        </div>
+        <p className="st-note">{modelName ? `${modelName} 모델이 돌 때만 공통 값 대신 씁니다. 안 바꾼 칸은 공통 값을 따릅니다.` : '모든 모델의 기본값입니다. 모델을 고르면 그 모델에서만 쓸 값을 정할 수 있습니다.'}</p>
+      </div>
+      {simCards('')}
+      {SIM_MODELS.filter(([id]) => opened.includes(id)).map(([id]) => simCards(id))}
+      {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
+    </>)}
+    {panel('acct', <>
+      <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />
+      {admin && <Accounts me={c.user} cancel={c.cancel} />}
+    </>)}
+  </div>;
 }
 
-/** 조직 기준값(05 API §8 GET·PATCH /org/settings). 범위는 계약(apps/contracts/models.py OrgSettingsPatch)과 같게 — 검사는 서버가 한다 */
-const LIMITS: { key: keyof OrgSettings; label: string; unit: string; min: number; max: number; step: number }[] = [
-  { key: 'battery_low_pct', label: '배터리 부족 기준', unit: '%', min: 5, max: 50, step: 1 },
-  { key: 'run_min_battery_pct', label: '실행 시작 최소 배터리', unit: '%', min: 10, max: 90, step: 1 },
-  { key: 'deviation_m', label: '경로 이탈 거리', unit: 'm', min: 0.5, max: 5, step: 0.1 },
-  { key: 'lease_request_timeout_s', label: '조종권 요청 응답 시간', unit: '초', min: 5, max: 30, step: 1 },
-  { key: 'link_loss_wait_s', label: '연결 끊김 대기 시간', unit: '초', min: 0, max: 30, step: 1 },
+/** 실기 명령 표(읽기 전용 — 값은 contracts·에이전트 고정. 여기서 바꾸지 않는다) */
+const RealTable = () => <table className="st-table">
+  <thead><tr><th>경로</th><th>동작</th><th>상한</th></tr></thead>
+  <tbody>
+    <tr><td rowSpan={3}>폰 조종</td><td>정지</td><td className="n">0</td></tr>
+    <tr><td>전진</td><td className="n">0.6 m/s</td></tr>
+    <tr><td>좌우 회전</td><td className="n">0.5 라디안/초</td></tr>
+    <tr><td rowSpan={2}>서버 경유</td><td>전후·좌우</td><td className="n">1.5 m/s</td></tr>
+    <tr><td>회전</td><td className="n">0.5 라디안/초</td></tr>
+  </tbody>
+</table>;
+
+/** 조직 값(05 API §8 GET·PATCH /org/settings). 범위는 계약(apps/contracts/models.py OrgSettingsPatch)과 같게 — 검사는 서버가 한다.
+ *  kind: 기본 숫자 칸, range = 미끄럼 막대, switch = 켜고 끄기. int = 정수만. cap = 시뮬 모드·연결 상한 안에서만 */
+type Field = { key: keyof OrgSettings; label: string; unit: string; min: number; max: number; step: number; kind?: 'range' | 'switch'; cap?: boolean; hint?: string };
+const num = (key: keyof OrgSettings, label: string, unit: string, min: number, max: number, step: number, more: Partial<Field> = {}): Field => ({ key, label, unit, min, max, step, ...more });
+const COMMON = [
+  num('battery_low_pct', '배터리 부족 기준', '%', 5, 50, 1),
+  num('run_min_battery_pct', '실행 시작 최소 배터리', '%', 10, 90, 1),
+  num('deviation_m', '경로 이탈 거리', 'm', 0.5, 5, 0.1),
 ];
+const LEASE = [
+  num('lease_request_timeout_s', '조종권 요청 응답 시간', '초', 5, 30, 1),
+  num('link_loss_wait_s', '연결 끊김 대기 시간', '초', 0, 30, 1),
+];
+const REAL = [num('real_no_fast_server_drive', '서버 경유 빠른 이동 끄기', '', 0, 1, 1, { kind: 'switch', hint: '켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP 합니다. 회전·정지는 그대로.' })];
+const SIM_CAP = [
+  num('sim_max_vx', '최대 전진 속도', 'm/s', 0.2, 1.5, 0.05, { kind: 'range', hint: '기본 1.5. 모드 상한 안에서 적용합니다. AME-2는 위치 목표 정책으로 손 조종 목표에 속도 상한을 적용하지 않습니다.' }),
+  num('sim_min_vx', '최소 이동 속도', 'm/s', 0, 0.5, 0.05, { kind: 'range', hint: '기본 0.2' }),
+  num('sim_max_vy', '최대 옆걸음', 'm/s', 0, 0.5, 0.05, { kind: 'range', hint: '기본 0.5. 실기 옆걸음 한도와 별개입니다.' }),
+  num('sim_max_wz', '최대 회전', '라디안/초', 0, 1.2, 0.05, { kind: 'range', hint: '기본 1.2. 모드별 제자리·이동 중 회전 상한 안에서 적용합니다.' }),
+];
+const SIM_INPUT = [
+  num('sim_key_vx', '키보드 전진 속도', 'm/s', 0.1, 1.5, 0.05, { cap: true, hint: '기본 1.5' }),
+  num('stick_deadzone', '막대 데드존', '', 0, 0.5, 0.01),
+  num('sim_runner_vx', '시뮬 임무 실행기 최대 전진', 'm/s', 0.1, 1.5, 0.05, { cap: true }),
+  num('sim_runner_wz', '시뮬 임무 실행기 최대 회전', '라디안/초', 0.1, 1, 0.05),
+];
+const SIM_VIEW = [num('lidar_view_m', '라이다 표시 거리', 'm', 1, 30, 1)];
 /** 화면 요청은 모두 로그인 세션의 취소 신호(cancel)를 넘긴다 — 세션이 끝난 뒤 온 답(401 포함)은 api 가 버린다 */
 type Cancel = { cancel?: AbortSignal };
-const range = (f: (typeof LIMITS)[number]) => `${f.min}~${f.max} ${f.unit}`;
+const range = (f: Field) => `${f.min}~${f.max}${f.unit ? ` ${f.unit}` : ''}`;
 const NO_EDIT = '조직 기준값은 총괄 운영 관리자만 바꿀 수 있습니다.';
+/** 서버 교차 검사(models.py OrgSettings.simulation_speed_order) 문구 → 걸린 칸들. 칸 옆에 그 문구를 보인다 */
+const CROSS: [string, (keyof OrgSettings)[]][] = [['최소 전진', ['sim_min_vx', 'sim_max_vx']], ['키보드 전진', ['sim_key_vx', 'sim_max_vx']]];
+/** 서버 모델 오류 문구는 «모델 id: 문장» — 고치는 모델 자신이면 id 를 떼고, 다른 모델(공통 값을 바꿔 그 모델 실효값이 깨진 422)이면 화면 이름으로 안내한다 */
+const modelMessage = (text: string, mine?: string) => {
+  const hit = SIM_MODELS.find(([id]) => text.startsWith(`${id}: `));
+  if (!hit) return text;
+  const rest = text.slice(hit[0].length + 2);
+  return hit[0] === mine ? rest : `${hit[1]} 모델 값과 맞지 않아 저장하지 못했습니다. ${rest}`;
+};
 
-function OrgLimits({ admin, cancel }: { admin: boolean } & Cancel) {
-  const [saved, setSaved] = useState<OrgSettings | null>(null), [draft, setDraft] = useState<Record<string, string>>({});
-  const [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
-  const show = (s: OrgSettings) => { setSaved(s); setDraft(Object.fromEntries(LIMITS.map((f) => [f.key, String(s[f.key])]))); };
-  useEffect(() => { api.settings(cancel).then(show, (e: Error) => setMsg({ text: e.message })); }, []);
+type Org = ReturnType<typeof useOrg>;
+/** 조직 값 한 벌(GET 한 번) — 카드마다 자기 칸만 저장하고, 저장된 값은 시뮬 조종에도 바로 알린다(phone.ts simTune) */
+function useOrg(cancel?: AbortSignal) {
+  const [saved, setSaved] = useState<OrgSettings | null>(null), [err, setErr] = useState('');
+  useEffect(() => { api.settings(cancel).then(setSaved, (e: Error) => setErr(e.message)); }, []);
+  return { saved, err, put: (s: OrgSettings) => { setSaved(s); simTune(s); } };
+}
+
+/** model: 고치는 모델 id(없으면 공통 값). 초안의 null = 저장하면 그 칸을 공통으로 되돌림(모델 칸만) */
+type CardProps = { org: Org; admin: boolean; id: string; model?: string; label: string; note?: string; bad?: string; cap?: boolean; fields: Field[]; top?: ReactNode } & Cancel;
+function OrgCard({ org, admin, id, model, label, note, bad, cap, fields, top, cancel }: CardProps) {
+  const { saved } = org, [draft, setDraft] = useState<Record<string, string | boolean | null>>({});
+  const [msg, setMsg] = useState<Msg>(null), [errs, setErrs] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false);
+  const over: Record<string, number | boolean> = (model && saved?.model_overrides?.[model]) || {};
+  const current = (f: Field) => over[f.key] ?? saved?.[f.key];   // 저장된 실효값(공통 화면이면 공통 값)
+  const shown = (f: Field) => {
+    const d = draft[f.key];
+    if (d != null) return d;
+    const v = d === null ? saved?.[f.key] : current(f);
+    return f.kind === 'switch' ? !!v : String(v ?? '');
+  };
+  const value = (f: Field) => { const v = shown(f); return typeof v === 'boolean' ? v : v.trim() === '' ? NaN : Number(v); };
+  const pending = (f: Field) => f.key in draft && (draft[f.key] === null ? f.key in over : value(f) !== current(f));
+  const own = (f: Field) => draft[f.key] !== null && (f.key in over || (f.key in draft && value(f) !== saved?.[f.key]));
+  const edit = (f: Field, v: string | boolean) => { setDraft({ ...draft, [f.key]: v }); setErrs({ ...errs, [f.key]: '' }); };
+  // 되돌리기도 저장 때 한꺼번에 보낸다 — 최대·최소를 함께 되돌릴 때 중간 상태가 교차 검사에 걸리지 않게
+  const back = (f: Field) => { const rest = { ...draft }; delete rest[f.key]; setDraft(f.key in over ? { ...rest, [f.key]: null } : rest); setErrs({ ...errs, [f.key]: '' }); };
+  const pre = model ? `${model}-` : '', why = admin ? undefined : `why-${pre}${id}`;
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (!saved || busy) return;
-    const patch = Object.fromEntries(LIMITS.filter((f) => draft[f.key] !== String(saved[f.key])).map((f) => [f.key, draft[f.key].trim() === '' ? NaN : Number(draft[f.key])]));
+    const patch = Object.fromEntries(fields.filter(pending).map((f) => [f.key, draft[f.key] === null ? null : value(f)])) as Record<string, number | boolean | null>;
+    setErrs({});
     if (!Object.keys(patch).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
-    setBusy(true);
-    try { show(await api.saveSettings(patch, cancel)); setMsg({ text: '저장했습니다. 다음 실행부터 적용됩니다.', ok: true }); }
+    // 모델 칸의 null 은 «되돌리기»라, 빈 칸(NaN → JSON null)을 보내면 값이 조용히 지워진다 — 보내기 전에 막는다
+    const empty = model ? fields.filter((f) => Number.isNaN(patch[f.key])) : [];
+    if (empty.length) return setErrs(Object.fromEntries(empty.map((f) => [f.key, `값을 입력하세요. 허용 범위: ${f.label} ${range(f)}`])));
+    setBusy(true); setMsg(null);
+    try { org.put(await api.saveSettings((model ? { model_overrides: { [model]: patch } } : patch) as OrgSettingsPatch, cancel)); setDraft({}); setMsg({ text: '저장했습니다. 다음 실행부터 적용됩니다.', ok: true }); }
     catch (err) {
-      // 서버 범위 검사(400 VALIDATION)는 어느 칸인지 알려 주지 않으므로 범위를 벗어난 칸을 함께 적는다
-      const bad = LIMITS.filter((f) => f.key in patch && !(patch[f.key] >= f.min && patch[f.key] <= f.max && (f.step < 1 || Number.isInteger(patch[f.key]))));
-      setMsg({ text: `${(err as Error).message}${bad.length ? ` 허용 범위: ${bad.map((f) => `${f.label} ${range(f)}${f.step < 1 ? '' : '(정수)'}`).join(', ')}` : ''}` });
+      // 서버 검사(400·422 VALIDATION)는 어느 칸인지 알려 주지 않는다 — 교차 검사 문구는 걸린 칸 옆, 범위를 벗어난 칸은 그 칸 옆에 허용 범위와 함께
+      const text = modelMessage((err as Error).message, model), mine = fields.map((f) => f.key);
+      const cross = CROSS.find(([w]) => text.includes(w))?.[1].filter((k) => mine.includes(k)) ?? [];
+      const hit = cross.filter((k) => k in patch).length ? cross.filter((k) => k in patch) : cross;
+      const bad = fields.filter((f) => typeof patch[f.key] === 'number' && !(patch[f.key] as number >= f.min && patch[f.key] as number <= f.max && (f.step < 1 || Number.isInteger(patch[f.key]))));
+      const at: Record<string, string> = hit.length ? Object.fromEntries(hit.map((k) => [k, text]))
+        : Object.fromEntries(bad.map((f) => [f.key, `${text} 허용 범위: ${f.label} ${range(f)}${f.step < 1 ? '' : '(정수)'}`]));
+      setErrs(at);
+      if (!Object.keys(at).length) setMsg({ text });
     } finally { setBusy(false); }
   };
-  return <section className="lv-card" aria-label="조직 기준값">
-    <h2>조직 기준값</h2>
+  const row = (f: Field) => {
+    const v = shown(f), er = errs[f.key], eid = `st-e-${pre}${f.key}`, desc = [er && eid, why, model && `st-o-${pre}${f.key}`].filter(Boolean).join(' ') || undefined;
+    const tags = <>{f.cap && <span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span>}</>;
+    const tail = er && <span id={eid} className="fh-msg" role="alert">{er}</span>;
+    if (f.kind === 'switch') return <div key={f.key} className="st-sw-wrap">
+      <label className="st-sw"><span>{f.label} {tags}</span>
+        <input type="checkbox" role="switch" name={f.key} checked={v === true} disabled={!admin} aria-describedby={[`st-h-${f.key}`, desc].filter(Boolean).join(' ')} onChange={(e) => edit(f, e.target.checked)} /></label>
+      <span id={`st-h-${f.key}`} className="st-note">{f.hint}</span>{tail}</div>;
+    const head = <span className="st-lab">{f.label} <span className="lbl">({range(f)}{f.hint ? `, ${f.hint}` : ''})</span>{tags}</span>;
+    if (f.kind === 'range') return <label key={f.key} className="fh-field">{head}
+      <span className="st-rng"><input type="range" name={f.key} min={f.min} max={f.max} step={f.step} value={String(v)} disabled={!admin} aria-describedby={desc} onChange={(e) => edit(f, e.target.value)} />
+        <output>{Number(v).toFixed(2)} {f.unit}</output></span>{tail}</label>;
+    return <label key={f.key} className="fh-field">{head}
+      <span className="st-unit"><input className="inp" name={f.key} type="number" inputMode="decimal" min={f.min} max={f.max} step={f.step} readOnly={!admin} aria-describedby={desc}
+        aria-invalid={er ? true : undefined} value={String(v)} onChange={(e) => edit(f, e.target.value)} />{f.unit && <span className="lbl">{f.unit}</span>}</span>{tail}</label>;
+  };
+  // 모델 칸: 이 칸 값이 어디서 오는지 + 되돌리기
+  const modelRow = (f: Field) => <div key={f.key} className="st-ov-wrap">{row(f)}
+    <div className="st-ov">
+      <span id={`st-o-${pre}${f.key}`} className={`st-tag${own(f) ? ' own' : ''}`}>{own(f) ? '이 모델 값' : `공통 값 사용(${saved?.[f.key] ?? '기본값'}${f.unit ? ` ${f.unit}` : ''})`}{pending(f) && ' · 저장 전'}</span>
+      {admin && own(f) && <button type="button" className="btn" onClick={() => back(f)}>공통으로 되돌리기</button>}
+    </div></div>;
+  return <section className="lv-card" aria-label={label}>
+    <h2>{label}{bad && <> <span className="st-tag bad">{bad}</span></>}</h2>
+    <p className="st-note">{note}{cap && <> <span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span></>} <span className="st-tag adm">총괄만 고침</span></p>
+    {top}
     {saved && <form className="fh-form" onSubmit={save} noValidate>
-      {LIMITS.map((f) => <label key={f.key} className="fh-field"><span>{f.label} <span className="lbl">({range(f)})</span></span>
-        <input className="inp" name={f.key} type="number" inputMode="decimal" min={f.min} max={f.max} step={f.step} readOnly={!admin} aria-describedby={admin ? undefined : 'why-org'}
-          value={draft[f.key]} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} /></label>)}
+      {fields.map(model ? modelRow : row)}
       <div className="fh-row">
-        <button type="submit" className="btn pri" disabled={!admin || busy} aria-describedby={admin ? undefined : 'why-org'}>저장</button>
-        {!admin && <span id="why-org" className="fh-why" data-why>{NO_EDIT}</span>}
+        <button type="submit" className="btn pri" disabled={!admin || busy} aria-describedby={why}>저장</button>
+        {!admin && <span id={why} className="fh-why" data-why>{NO_EDIT}</span>}
       </div>
     </form>}
-    {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p>}
+    <Note msg={msg} />
   </section>;
 }
 
@@ -267,20 +419,19 @@ function Devices({ u, cancel }: { u: ApiUser } & Cancel) {
   </div>;
 }
 
-// ── 로봇(총괄, 05 §3 POST·PATCH·DELETE /robots · agent-token) ──
+// ── 로봇(05 §3). 실기 로봇 등록·토큰은 총괄 화면에 없다(ROBOT-PAIRING — 운영 관리자가 연결 프로그램 코드로 연결, 상태는 «로봇» 탭).
+// 여기는 총괄의 시뮬 로봇 이름만(시뮬 담당·지우기·연결 키는 시뮬 관리자 — 서버 409 SIM_ROBOT_MANAGED·SIM_TOKEN_MANAGED) ──
 /** 409 는 code 로 이 화면에 맞는 문구(05 §1.4). 지울 때 조종권·넘김·진행 중 실행이 있으면 VERSION_CONFLICT(apps/server) */
 export const ROBOT_IN_USE = '누군가 조종 중이거나 조종권을 넘기는 중, 또는 실행 중이라 지울 수 없습니다. 조종을 끝내거나 실행을 멈춘 뒤 다시 누르세요.';
 export const ROBOT_GONE = '이 로봇은 이미 지워졌습니다. 목록을 다시 받았습니다.';
 export const ROBOT_BUSY = '서버가 이 로봇의 다른 변경을 처리하는 중입니다. 잠시 뒤 다시 누르세요.';
-const LOST_TOKEN = '잃어버리면 [토큰 다시 받기]로 새로 받으세요.';
-const robotFail = (e: unknown) => {
+export const robotFail = (e: unknown) => {
   const f = e as ApiFail;
   return f.code === 'VERSION_CONFLICT' ? ROBOT_IN_USE : f.status === 404 ? ROBOT_GONE : f.code === 'SERVER_BUSY' ? ROBOT_BUSY : f.message;
 };
-type Token = { text: string; value: string };
 
 /** 담당 고르기: 잠기지 않은 운영 관리자 + «담당 없음». 지금 담당이 목록에 없으면(잠김 등) 그 이름도 둔다 */
-function OwnerSelect({ ops, value, onChange, current }: { ops: ApiUser[]; value: string; onChange?: (v: string) => void; current?: RobotSummary['owner'] }) {
+export function OwnerSelect({ ops, value, onChange, current }: { ops: ApiUser[]; value: string; onChange?: (v: string) => void; current?: RobotSummary['owner'] }) {
   const extra = current && !ops.some((u) => u.id === current.id) ? [current] : [];
   return <label className="fh-field"><span>담당 운영 관리자</span><select className="inp" name="owner" value={value} onChange={(e) => onChange?.(e.target.value)}>
     <option value="">담당 없음</option>
@@ -289,101 +440,45 @@ function OwnerSelect({ ops, value, onChange, current }: { ops: ApiUser[]; value:
 }
 
 function Robots({ refresh, cancel }: { refresh: () => void } & Cancel) {
-  const [list, setList] = useState<RobotSummary[] | null>(null), [ops, setOps] = useState<ApiUser[]>([]), [sel, setSel] = useState('');
-  const [msg, setMsg] = useState<Msg>(null), [adding, setAdding] = useState(false), [token, setToken] = useState<Token | null>(null);
-  const load = () => api.robots('all', cancel).then(setList, (e: ApiFail) => setMsg({ text: e.message }));
-  useEffect(() => {
-    load();
-    api.users(cancel).then((us) => setOps(us.filter((u) => u.role === 'OPERATOR' && !u.locked)), (e: ApiFail) => setMsg({ text: `담당자 목록을 받지 못했습니다. ${e.message}` }));
-  }, []);
+  const [list, setList] = useState<RobotSummary[] | null>(null), [sel, setSel] = useState(''), [msg, setMsg] = useState<Msg>(null);
+  const load = () => api.robots('all', cancel).then((l) => setList(l.filter((r) => r.simulation)), (e: ApiFail) => setMsg({ text: e.message }));
+  useEffect(() => { load(); }, []);
   // 바꾼 뒤에는 이 목록과 관제·조종 목록(App)을 함께 다시 받는다
   const changed = () => { load(); refresh(); };
   const cur = list?.find((r) => r.id === sel);
   return <>
     <section className="lv-card" aria-label="로봇">
-      <div className="fh-row"><h2 className="fh-grow">로봇{list ? ` (${list.length})` : ''}</h2>
-        {!adding && <button type="button" className="btn pri" onClick={() => { setAdding(true); setToken(null); setMsg(null); }}>로봇 등록</button>}</div>
-      {adding && <NewRobot ops={ops} cancel={cancel} close={() => setAdding(false)} done={(r, value) => {
-        setAdding(false); setSel(r.id); changed();
-        setToken({ value, text: `${r.name} 로봇을 등록했습니다. 아래 토큰을 로봇 에이전트 설정에 넣으면 연결됩니다.` });
-      }} />}
-      {token && <Once label="로봇 토큰" value={token.value} text={token.text} more={LOST_TOKEN} close={() => setToken(null)} />}
-      {list && !list.length && <p className="lv-note">등록된 로봇이 없습니다.</p>}
+      <h2>시뮬 로봇{list ? ` (${list.length})` : ''}</h2>
+      <p className="lv-note" data-real-note>실기 로봇은 운영 관리자가 폰의 «+ 로봇 연결하기 › 새 로봇 추가»로 연결합니다. 실기 상태·담당·현장 승인은 «로봇» 탭에서 봅니다.</p>
+      {list && !list.length && <p className="lv-note">시뮬 로봇이 없습니다. «시뮬» 탭에서 띄우면 여기에 보입니다.</p>}
       {list && !!list.length && <ul className="fh-list">{list.map((r) => <li key={r.id}>
         <button type="button" aria-pressed={r.id === sel} style={{ flexWrap: 'wrap' }} onClick={() => { setSel(r.id); setMsg(null); }}>
           <b style={WRAP}>{robotName(r)}</b><span className="fh-grow">{r.owner?.display_name ?? '담당 없음'}</span></button></li>)}</ul>}
       <Note msg={msg} />
     </section>
-    {cur && <RobotEdit key={cur.id} r={cur} ops={ops} cancel={cancel} changed={changed} showToken={(value) => setToken({ value, text: `${robotName(cur)} 로봇의 새 토큰입니다. 예전 토큰은 더 이상 쓸 수 없습니다. 로봇 에이전트 설정을 이 토큰으로 바꾸세요.` })}
-      gone={(text) => { setSel(''); setToken(null); setMsg({ text, ok: true }); changed(); }} />}
+    {cur && <RobotEdit key={cur.id} r={cur} cancel={cancel} changed={changed} gone={(text) => { setSel(''); setMsg({ text, ok: true }); changed(); }} />}
   </>;
 }
 
-function NewRobot({ ops, close, done, cancel }: { ops: ApiUser[]; close: () => void; done: (r: RobotSummary, token: string) => void } & Cancel) {
-  const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false), [owner, setOwner] = useState('');
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
+function RobotEdit({ r, changed, gone, cancel }: { r: RobotSummary; changed: () => void; gone: (text: string) => void } & Cancel) {
+  const [name, setName] = useState(r.name), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
+  const save = async (e: FormEvent) => {
     e.preventDefault();
+    const v = name.trim();
+    if (!v) return setMsg({ text: '로봇 이름을 입력하세요.' });
+    if (v === r.name) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
     if (busy) return;
-    const name = String(new FormData(e.currentTarget).get('name')).trim();
-    if (!name) return setMsg({ text: '로봇 이름을 입력하세요.' });
-    setBusy(true);
-    // 토큰은 이 함수 안에서 바로 넘기고 다른 곳에 두지 않는다(05 §3 — 응답에서 한 번만)
-    try { const r = await api.createRobot({ name, owner_user_id: owner || null }, cancel); done(r.robot, r.agent_token); }
-    catch (err) { setMsg({ text: robotFail(err) }); setBusy(false); }
+    setBusy(true); setMsg(null);
+    try { await api.saveRobot(r.id, { name: v }, cancel); changed(); setMsg({ text: '저장했습니다.', ok: true }); }
+    catch (err) { if ((err as ApiFail).status === 404) return gone(ROBOT_GONE); setMsg({ text: robotFail(err) }); }
+    finally { setBusy(false); }
   };
-  return <form className="fh-form" onSubmit={submit} noValidate aria-label="로봇 등록">
-    <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" autoComplete="off" maxLength={128} autoFocus /></label>
-    <OwnerSelect ops={ops} value={owner} onChange={setOwner} />
-    <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>등록</button><button type="button" className="btn" onClick={close}>취소</button>
-      <span className="lbl">로봇 토큰은 등록할 때 한 번만 보입니다.</span></div>
-    <Note msg={msg} />
-  </form>;
-}
-
-function RobotEdit({ r, ops, changed, gone, showToken, cancel }: { r: RobotSummary; ops: ApiUser[]; changed: () => void; gone: (text: string) => void; showToken: (t: string) => void } & Cancel) {
-  const [name, setName] = useState(r.name), [owner, setOwner] = useState(r.owner?.id ?? '');
-  const [ask, setAsk] = useState<'token' | 'delete' | 'owner' | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
-  const was = r.owner?.id ?? '', who = (id: string) => (id ? ops.find((u) => u.id === id)?.display_name ?? (r.owner?.id === id ? r.owner.display_name : '?') : '담당 없음');
-  const run = async (f: () => Promise<string | void>) => {
-    if (busy) return;
-    setBusy(true); setAsk(null); setMsg(null);
-    try { const t = await f(); if (t) setMsg({ text: t, ok: true }); }
-    catch (err) {
-      if ((err as ApiFail).status === 404) return gone(ROBOT_GONE);
-      setMsg({ text: robotFail(err) });
-    } finally { setBusy(false); }
-  };
-  const patch = () => { const v = name.trim(); return { ...(v !== r.name && { name: v }), ...(owner !== was && { owner_user_id: owner || null }) }; };
-  const write = () => run(async () => { await api.saveRobot(r.id, patch(), cancel); changed(); return '저장했습니다.'; });
-  // 담당이 바뀌면 예전 담당자의 조종이 끝나고 로봇이 정지한다 — 로봇 이름과 함께 한 번 더 묻는다
-  const save = (e: FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return setMsg({ text: '로봇 이름을 입력하세요.' });
-    if (!Object.keys(patch()).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
-    if (owner !== was) return setAsk('owner');
-    write();
-  };
-  const reissue = () => run(async () => showToken((await api.robotToken(r.id, cancel)).agent_token));
-  const del = () => run(async () => { await api.deleteRobot(r.id, cancel); gone(`${robotName(r)} 로봇을 지웠습니다.`); });
   return <section className="lv-card" aria-label="로봇 설정">
     <div className="fh-row"><h2 className="fh-grow" style={WRAP}>{robotName(r)}</h2><span className="lbl">{r.model}</span></div>
     <form className="fh-form" onSubmit={save} noValidate>
       <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
-      <OwnerSelect ops={ops} value={owner} onChange={setOwner} current={r.owner} />
-      <span className="lbl">담당을 바꾸거나 없애면 예전 담당자의 조종이 끝나고 로봇이 정지합니다.</span>
-      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button></div>
+      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button><span className="lbl">담당·끝내기는 «시뮬» 탭(시뮬 관리자)에서 합니다.</span></div>
     </form>
-    <div className="fh-row">
-      <button type="button" className="btn" disabled={busy} onClick={() => setAsk('token')}>토큰 다시 받기</button>
-      <button type="button" className="btn" disabled={busy} onClick={() => setAsk('delete')}>로봇 지우기</button>
-    </div>
-    {ask && <div className="fh-row" role="group" aria-label="확인">
-      <span style={WRAP}>{ask === 'token' ? `${robotName(r)} 토큰을 새로 받을까요? 예전 토큰은 바로 못 쓰게 되어 새 토큰을 넣을 때까지 로봇이 연결되지 않습니다.`
-        : ask === 'owner' ? `${robotName(r)} 담당을 ${who(was)} → ${who(owner)}(으)로 바꿀까요? ${was ? `${who(was)}의 조종이 끝나고` : '조종 중이면 조종이 끝나고'} 로봇이 정지합니다.`
-        : `${robotName(r)} 로봇을 지울까요? 로봇이 더 이상 연결되지 않고 되돌릴 수 없습니다. 기록은 남습니다.`}</span>
-      <button type="button" className="btn pri" onClick={ask === 'token' ? reissue : ask === 'owner' ? write : del}>{ask === 'token' ? '토큰 다시 받기' : ask === 'owner' ? '바꾸기(조종 끝·정지)' : '지우기'}</button>
-      <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
-    </div>}
     <Note msg={msg} />
   </section>;
 }

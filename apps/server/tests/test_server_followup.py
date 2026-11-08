@@ -178,9 +178,11 @@ def test_warm_stop_bypasses_slots_only_inside_250ms(client, seeded, rt, monkeypa
     from apps.server.fh_server import realtime as module
     at = [0.]
     monkeypatch.setattr(rt, 'clock', lambda: at[0])
-    monkeypatch.setattr(module, 'DB_READ_TIMEOUT', .02)
     rid, headers = str(seeded['robots']['mine']), app_token(client)
+    # Seed the cache with the normal cold-read budget. The short timeout only
+    # bounds the deliberately occupied-slot probe, not this setup DB read.
     assert client.post(f'/api/v1/robots/{rid}/stop', headers=headers).status_code == 202
+    monkeypatch.setattr(module, 'DB_READ_TIMEOUT', .02)
     at[0] = age
     async def occupy():
         for _ in range(12):
@@ -229,13 +231,18 @@ def test_stop_invalidation_journal_overflow_fails_closed(client, seeded, rt):
 def test_archived_robot_name_reuse_preserves_ids_history_and_active_uniqueness(client, seeded, rt):
     headers = app_token(client, 'admin')
     path = '/api/v1/robots'
-    old = client.post(path, headers=headers, json={'name': 'reusable'}).json()['robot']['id']
-    assert client.delete(f'{path}/{old}', headers=headers).status_code == 204
-    new = client.post(path, headers=headers, json={'name': 'reusable'})
-    assert new.status_code == 201
-    new_id = new.json()['robot']['id']
+    from .test_pairing import paired
+    owner = app_token(client)
+    old = paired(client, owner, name='reusable', serial='1-100')[0]['id']
+    assert client.delete(f'{path}/{old}', headers=owner).status_code == 204
+    new = paired(client, owner, name='reusable', serial='1-101')[0]
+    new_id = new['id']
     assert new_id != old
-    assert client.post(path, headers=headers, json={'name': 'reusable'}).status_code == 409
+    pending = client.post('/api/v1/pairing/start', json={
+        'model': 'unitree_go2', 'robot_serial': '1-102'}).json()
+    assert client.post('/api/v1/pairing/claim', headers=owner, json={'code': pending['code']}).status_code == 200
+    assert client.post('/api/v1/pairing/' + pending['pairing_id'] + '/confirm',
+        headers=owner, json={'name': 'reusable'}).status_code == 409
     assert client.patch(f"{path}/{seeded['robots']['mine']}", headers=headers, json={'name': 'reusable'}).status_code == 409
     with DBSession(client.app.state.engine) as db:
         assert db.get(Robot, UUID(old)).archived_at
@@ -470,19 +477,18 @@ def test_sub_refreshes_snapshot_after_robot_write_and_missing_keeps_connection(c
                 await original(peer, after=after)
         monkeypatch.setattr(rt, 'refresh_policy', hold_old_until_requested)
         if change == 'register':
-            response = client.post('/api/v1/robots', headers=admin, json={'name': 'immediate-sub'})
-            assert response.status_code == 201
-            rid = response.json()['robot']['id']
+            from .test_pairing import paired
+            rid = paired(client, app_token(client), name='immediate-sub')[0]['id']
             assert rid not in next(iter(rt.screens.values())).policy.rights
         elif change == 'assign':
             rid = other
             assert 'ROBOT_READ' not in next(iter(rt.screens.values())).policy.rights[rid]
-            assert client.patch('/api/v1/robots/' + rid, headers=admin,
+            assert client.patch('/api/v1/robots/' + rid, headers=app_token(client, 'two'),
                 json={'owner_user_id': str(seeded['users']['one'])}).status_code == 200
         else:
             rid = other
             assert rid in next(iter(rt.screens.values())).policy.rights
-            assert client.delete('/api/v1/robots/' + rid, headers=admin).status_code == 204
+            assert client.delete('/api/v1/robots/' + rid, headers=app_token(client, 'two')).status_code == 204
         result = reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))
         assert len(forced) == 1
         peer = next(iter(rt.screens.values()))

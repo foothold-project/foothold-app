@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, Request, Response, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy import create_engine, func, or_, select, text, tuple_, update
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.orm import Session as DBSession, sessionmaker
@@ -23,7 +24,7 @@ from .security import digest, hash_password, token, verify_password, web_csrf
 from .robots import attention, device_error, is_running, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 from .event_messages import render
-from . import approvals, assignments, phone_pass
+from . import approvals, assignments, phone_pass, trash
 from .tunnel import tunnel_origin
 
 
@@ -38,6 +39,12 @@ class Settings:
     simmgr_url: str | None = None
     simmgr_auth_file: str | None = None
     tunnel_origin: str | None = None
+    server_drive_robots: frozenset[UUID] = frozenset()
+    server_drive_enabled: bool | None = None
+
+    def drive_enabled(self, robot_id):
+        return (self.server_drive_enabled if self.server_drive_enabled is not None
+                else UUID(str(robot_id)) in self.server_drive_robots)
 
     @classmethod
     def from_env(cls):
@@ -46,7 +53,11 @@ class Settings:
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
                    phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
                    simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
-                   tunnel_origin=tunnel_origin(os.environ))
+                   tunnel_origin=tunnel_origin(os.environ),
+                   server_drive_enabled=(os.environ['FH_SERVER_DRIVE_ENABLED'] == '1'
+                       if 'FH_SERVER_DRIVE_ENABLED' in os.environ else None),
+                   server_drive_robots=frozenset(UUID(value.strip()) for value in
+                       os.environ.get('FH_SERVER_DRIVE_ROBOTS', '').split(',') if value.strip()))
 
 
 class APIError(Exception):
@@ -81,6 +92,11 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         'LOGIN': valid_role,
         'A': user.role == 'ORG_ADMIN',
         'O': valid_role,
+        'ROBOT_WRITE': (user.role == 'ORG_ADMIN' if robot is not None and getattr(robot, 'simulation', False) is True
+                        else user.role == 'OPERATOR' and robot is not None and robot.owner_user_id == user.id),
+        'ROBOT_ASSIGN_UNOWNED': (user.role == 'ORG_ADMIN' and robot is not None
+                                and getattr(robot, 'simulation', False) is not True
+                                and robot.owner_user_id is None),
         'ROBOT_SUMMARY': valid_role and robot is not None,
         'ROBOT_READ': valid_role and robot is not None and owns,
         'O_OWN': valid_role and robot is not None and owns,
@@ -104,13 +120,19 @@ def user_object(db, user):
 
 
 
-def cursor_value(cursor):
+def cursor_value(cursor, *, sort_field='created_at'):
     if not cursor:
         return None
     try:
-        if len(cursor) > 512:
+        if len(cursor) > (2048 if sort_field == 'display_name' else 512):
             raise ValueError('cursor too long')
         stamp, identifier = json.loads(base64.b64decode(cursor.encode(), altchars=b'-_', validate=True))
+        if sort_field == 'display_name':
+            if (not isinstance(stamp, str) or not 1 <= len(stamp) <= 128 or '\x00' in stamp
+                    or not isinstance(identifier, str)):
+                raise ValueError('invalid display name')
+            stamp.encode('utf-8')
+            return stamp, UUID(identifier)
         at = datetime.fromisoformat(stamp)
         if at.tzinfo is None or at.utcoffset() is None:
             raise ValueError('timezone required')
@@ -119,18 +141,20 @@ def cursor_value(cursor):
         fail(400, 'VALIDATION', '목록 위치가 올바르지 않습니다.')
 
 
-def page(db, query, model, limit, cursor, serialize, serialize_many=None):
-    after = cursor_value(cursor)
+def page(db, query, model, limit, cursor, serialize, serialize_many=None, *, sort_field='created_at'):
+    order = getattr(model, sort_field)
+    after = cursor_value(cursor, sort_field=sort_field)
     if after:
-        query = query.where(tuple_(model.created_at, model.id) > after)
-    rows = list(db.scalars(query.order_by(model.created_at, model.id).limit(limit + 1)))
+        query = query.where(tuple_(order, model.id) > after)
+    rows = list(db.scalars(query.order_by(order, model.id).limit(limit + 1)))
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_cursor = None
     if has_more:
         row = rows[-1]
-        value = [row.created_at.astimezone(timezone.utc).isoformat(), str(row.id)]
-        next_cursor = base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
+        key = getattr(row, sort_field)
+        value = [key if sort_field == 'display_name' else key.astimezone(timezone.utc).isoformat(), str(row.id)]
+        next_cursor = base64.urlsafe_b64encode(json.dumps(value, ensure_ascii=False).encode()).decode()
     return {'items': serialize_many(db, rows) if serialize_many else [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
 
 
@@ -241,17 +265,30 @@ def create_app(settings: Settings | None = None):
                 try:
                     await asyncio.to_thread(issuer.flush_denials,factory,settings.org_id)
                     await asyncio.to_thread(expire_user_sessions, factory, settings.org_id, clock=issuer.clock)
+                    await asyncio.to_thread(pairing.expire, factory, settings.org_id)
                 except Exception:
                     # Counters stay durable and retry; never drop a denial silently.
                     continue
+        async def trash_collector():
+            while True:
+                # Purge tries immediately after commit; this is only recovery
+                # of durable failures/restarts, so avoid polling an empty DB at 1Hz.
+                await asyncio.sleep(30)
+                try:
+                    await asyncio.to_thread(trash.delete_files, factory, settings.files_root, settings.org_id)
+                except Exception:
+                    trash.log.warning('Map file cleanup deferred; durable outbox retained')
+        # Slow storage cleanup must not delay session/pass expiry auditing.
+        trash_task = asyncio.create_task(trash_collector())
         denial_task = asyncio.create_task(denial_auditor())
         simulation_task = asyncio.create_task(simulation.watch(app))
         try:
             yield
         finally:
+            trash_task.cancel()
             denial_task.cancel()
             simulation_task.cancel()
-            await asyncio.gather(denial_task, simulation_task, return_exceptions=True)
+            await asyncio.gather(denial_task, simulation_task, trash_task, return_exceptions=True)
             await app.state.realtime.close()
             engine.dispose()
 
@@ -267,6 +304,10 @@ def create_app(settings: Settings | None = None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
+        if request.url.path == '/api/v1/org/settings' and any('model_overrides' in e['loc'] for e in exc.errors()):
+            return JSONResponse(status_code=422, content={'error': {
+                'code': 'VALIDATION', 'message': exc.errors()[0]['msg'].removeprefix('Value error, '),
+                'detail': {'elements': ['model_overrides']}}})
         if any(e['loc'][0] == 'header' and str(e['loc'][1]).lower() == 'idempotency-key' for e in exc.errors()):
             return JSONResponse(status_code=422, content={'error': {'code': 'VALIDATION', 'message': '멱등 키 형식을 확인하세요.', 'detail': {}}})
         if (request.url.path.startswith(('/api/v1/missions', '/api/v1/scenarios', '/api/v1/assignments'))
@@ -318,6 +359,12 @@ def create_app(settings: Settings | None = None):
         with factory() as db:
             yield db
             db.commit()
+            if db.info.pop('trash_files_pending', None):
+                try:
+                    trash.delete_files(factory, settings.files_root, settings.org_id)
+                except Exception:
+                    # The purge already committed; its durable outbox retries.
+                    trash.log.warning('Map file cleanup deferred after committed purge')
 
     DB = Annotated[DBSession, Depends(database, scope='function')]
 
@@ -617,6 +664,19 @@ def create_app(settings: Settings | None = None):
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
         return row
 
+    @app.get(prefix + '/robots/{robot_id}/owner-candidates', response_model=C.RobotOwnerCandidateList)
+    def owner_candidates(robot_id: UUID, auth: Identity, db: DB, limit: Limit = 50, cursor: str | None = None):
+        user = auth[0]
+        row = find_robot(db, user, robot_id)
+        authorize(user, 'ROBOT_WRITE', row)
+        if row.simulation:
+            fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
+        query = select(User).where(User.org_id == user.org_id, User.archived_at.is_(None),
+            User.locked.is_(False), User.role == 'OPERATOR', User.id != user.id)
+        return page(db, query, User, limit, cursor,
+            lambda db, row: C.RobotOwnerCandidate(user_id=row.id, display_name=row.display_name),
+            sort_field='display_name')
+
     @app.post(prefix + '/robots/{robot_id}/phone-pass', response_model=C.PhonePassResponse)
     def issue_phone_pass(robot_id: UUID, body: C.PhonePassRequest, response: Response, auth: Identity, db: DB):
         user = auth[0]
@@ -647,24 +707,19 @@ def create_app(settings: Settings | None = None):
 
     @app.post(prefix + '/robots', response_model=C.RobotCreated, status_code=201)
     def create_robot(body: C.RobotCreate, auth: Identity, db: DB, response: Response):
-        user = auth[0]
-        authorize(user, 'A')
-        check_owner(db, user, body.owner_user_id)
-        raw = token()
-        row = Robot(org_id=user.org_id, name=body.name, model='unitree_go2',
-            owner_user_id=body.owner_user_id, agent_token_hash=digest(raw))
-        db.add(row)
-        db.flush()
-        robot_event(db, user, row, 'ROBOT_CREATED', {'name': row.name, 'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
-        response.headers['Cache-Control'] = 'no-store'
-        return C.RobotCreated(robot=robot_object(db, row, user, app.state.realtime), agent_token=raw)
+        fail(403, 'PAIRING_REQUIRED', '실기 로봇은 담당 운영자가 연결 코드로 등록하세요.')
 
     @app.patch(prefix + '/robots/{robot_id}', response_model=C.RobotSummary)
     async def patch_robot(robot_id: UUID, body: C.RobotPatch, auth: Identity, db: DB):
         user = auth[0]
-        authorize(user, 'A')
         rt, rid = app.state.realtime, str(robot_id)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        if user.role == 'ORG_ADMIN' and not row.simulation and row.owner_user_id is None:
+            authorize(user, 'ROBOT_ASSIGN_UNOWNED', row)
+            if body.model_fields_set != {'owner_user_id'} or body.owner_user_id is None:
+                fail(403, 'FORBIDDEN', '담당 없는 실기는 운영 담당 지정만 할 수 있습니다.')
+        else:
+            authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set
@@ -677,18 +732,25 @@ def create_app(settings: Settings | None = None):
                 if 'name' in values and values['name'] is None:
                     fail(400, 'VALIDATION', '이름을 입력하세요.')
                 if 'owner_user_id' in values:
+                    if not row.simulation and values['owner_user_id'] is None:
+                        fail(400, 'VALIDATION', '담당 운영자를 선택하세요.')
                     check_owner(db, user, values['owner_user_id'])
                 old_owner = row.owner_user_id
                 if changing_owner and old_owner is not None:
                     phone_pass.revoke(db, user.org_id, user_id=old_owner, robot_id=row.id,clock=issuer.clock)
                 for key, value in values.items():
                     setattr(row, key, value)
+                if changing_owner:
+                    if row.field_approval_expires_at is not None:
+                        robot_event(db, user, row, 'FIELD_APPROVAL_REVOKED', {'reason': 'OWNER_CHANGED'})
+                    row.field_approval_expires_at = None
                 robot_event(db, user, row, 'ROBOT_UPDATED', {'name': row.name, 'old_owner_user_id': str(old_owner) if old_owner else None,
                      'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
                 db.commit()
                 return row, old_owner
             row, old_owner = await asyncio.to_thread(write)
             if old_owner != row.owner_user_id:
+                rt.set_field_approval(rid, None)
                 rt.robot_changed(rid, old_owner=str(old_owner) if old_owner else None)
             return await asyncio.to_thread(robot_object, db, row, user, rt)
         finally:
@@ -698,7 +760,8 @@ def create_app(settings: Settings | None = None):
     @app.delete(prefix + '/robots/{robot_id}', status_code=204)
     async def delete_robot(robot_id: UUID, auth: Identity, db: DB):
         user = auth[0]
-        authorize(user, 'A')
+        row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        authorize(user, 'ROBOT_WRITE', row)
         rt, rid = app.state.realtime, str(robot_id)
         rt.begin_robot_change(rid)
         try:
@@ -757,33 +820,65 @@ def create_app(settings: Settings | None = None):
         return C.OrgSettings.model_validate(db.get(Organization, auth[0].org_id).settings)
 
     @app.patch(prefix + '/org/settings', response_model=C.OrgSettings)
-    def patch_settings(body: C.OrgSettingsPatch, auth: Identity, db: DB):
+    async def patch_settings(body: C.OrgSettingsPatch, auth: Identity, db: DB):
+        result, enabled = await asyncio.to_thread(save_settings, body, auth, db)
+        if enabled:
+            from .leases import Actor
+            user, session = auth
+            app.state.realtime.stop_fast_server_drives(user.org_id,
+                Actor(str(user.id), str(session.id), '', user.display_name, user.role))
+        return result
+
+    def save_settings(body, auth, db):
         user = auth[0]
         authorize(user, 'A')
         values = body.model_dump(exclude_unset=True)
         if any(value is None for value in values.values()):
             fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
         org = lock_organization(db, user.org_id)
-        result = C.OrgSettings.model_validate({**org.settings, **values})
-        org.settings = result.model_dump()
+        previous = C.OrgSettings.model_validate(org.settings)
+        was_enabled = previous.real_no_fast_server_drive
+        stored = {**org.settings, **values}
+        if 'model_overrides' in values:
+            overrides = {model: dict(fields) for model, fields in previous.model_overrides.items()}
+            for model, patch in values['model_overrides'].items():
+                fields = overrides.setdefault(model, {})
+                for key, value in patch.items():
+                    if value is None:
+                        fields.pop(key, None)
+                    else:
+                        fields[key] = value
+                if not fields:
+                    overrides.pop(model, None)
+            if overrides:
+                stored['model_overrides'] = overrides
+            else:
+                stored.pop('model_overrides', None)
+        try:
+            C.OrgSettings.model_validate({**previous.model_dump(), **values,
+                'model_overrides': stored.get('model_overrides', {})})
+            # Return the defaults inherited by the new sparse row as GET does,
+            # including a key default bounded by a retained forward cap.
+            result = C.OrgSettings.model_validate(stored)
+        except ValidationError as exc:
+            # Validation messages contain only fixed field/constraint text, never input.
+            fail(422, 'VALIDATION', exc.errors(include_input=False)[0]['msg'].removeprefix('Value error, '))
+        # Defaults belong to the response, not to durable user choices. Keep
+        # full-model/cross-field validation without materializing absent fields.
+        org.settings = stored
         event(db, user.org_id, 'ORG_SETTINGS_UPDATED', user.id, values)
-        return result
+        # Only a successful commit may trigger the realtime safety effect.
+        db.commit()
+        return result, not was_enabled and result.real_no_fast_server_drive
 
     @app.post(prefix + '/robots/{robot_id}/agent-token', response_model=C.AgentTokenResponse)
     def agent_token(robot_id: UUID, auth: Identity, db: DB, response: Response):
         user = auth[0]
-        authorize(user, 'A')
-        row = db.scalar(select(Robot).where(Robot.id == robot_id, Robot.org_id == user.org_id,
-                                           Robot.archived_at.is_(None)).with_for_update())
-        if not row:
-            fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+        row = find_robot(db, user, robot_id)
         if row.simulation:
+            authorize(user, 'A')
             fail(409, 'SIM_TOKEN_MANAGED', '시뮬 관리자에서만 연결 키를 관리합니다.')
-        raw = token()
-        row.agent_token_hash = digest(raw)
-        event(db, user.org_id, 'AGENT_TOKEN_ROTATED', user.id, {'robot_id': str(robot_id)})
-        response.headers['Cache-Control'] = 'no-store'
-        return C.AgentTokenResponse(agent_token=raw)
+        fail(403, 'PAIRING_REQUIRED', '연결 키는 연결 프로그램에만 전달합니다.')
 
     from . import events_api, notifications, maps, missions, simulation, runs, photos, external_camera
     simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization)
@@ -795,9 +890,14 @@ def create_app(settings: Settings | None = None):
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
+    trash.install(app, DB, Identity, fail, authorize, event)
     runs.install(app, DB, fail)
     photos.install(app, DB, Identity, fail, authorize)
     external_camera.install(app, UploadIdentity, upload_write, fail, authorize)
     app.state.phone_pass_issuer = issuer
     app.state.realtime.phone_pass_clock = lambda: issuer.clock()
+    from . import phone_telemetry
+    phone_telemetry.install(app, DB, Identity, fail, authorize, issuer, find_robot)
+    from . import pairing
+    pairing.install(app, DB, Identity, fail, authorize, settings, find_robot, robot_event, issuer)
     return app

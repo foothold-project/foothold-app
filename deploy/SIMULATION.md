@@ -238,3 +238,111 @@ For rollback, stop the proven-clean idle manager, explicitly link the retained
 prior lock SHA and restore its matching private profile/setup before restarting
 the paired API/manager release. Unknown ownership or failed link proof retains
 the package marker and requires audit. /usr, /etc and dpkg remain unchanged.
+
+### Retained idle shutdown (REVIEW-212)
+
+The root deployment tool now provides `sim_control.py stop-retained`. This is an
+explicit **shutdown**, not a cleanup acknowledgement or a session retry. Use only
+a reviewed matching manager/tool release with the retained-stop endpoint; an old,
+unreachable or unattested manager is refused. This code change does not install
+that release or authorize contact with an existing runtime.
+
+The command requires the existing runtime `guard/state/unproven` marker (regular,
+private, owned by the simulation UID); package/setup or pending-release markers
+require their separate recovery procedure and are refused. It holds the ordinary
+deployment EX lock and simulation SH lock, verifies the running manager release,
+and independently checks fresh host process metadata, every native/agent/Nav2/
+observer unit and cgroup, partitions, domain 93, DDS ports and TCP/UDP port 9433.
+Unknown/inaccessible state is refused. Unit metadata may remain `active/exited`,
+`failed/failed` or `inactive/dead` only with MainPID 0 and an empty/removed cgroup.
+There are no child stop/reset/kill commands or name-based signals.
+
+The authenticated manager endpoint serializes with lifecycle operations and the
+child watcher, requires ERROR/empty slots, proves absence again and closes
+admission before replying. Removal, expiry, health cleanup and new startup stay
+fenced. The tool repeats the proof immediately before the existing normal manager
+and dedicated-user pair shutdown; that path still verifies manager/cgroup exit
+and namespace/UID absence. It finally proves the host has no episode processes
+or sockets and can acquire the simulation EX lock. Latch inode/content and all
+old episode manifests/evidence remain unchanged; release is explicitly unclean.
+A unique root-owned `sim-retained-*.json` result is created with mode 0600 before
+any transition, fsynced at checkpoints, and records success or incomplete exit.
+A new setup marker is added on transition failure only when dedicated-UID
+processes are positively observed to remain; unavailable proof retains the
+original marker without inventing another. Ordinary `start`/`stop` retain their
+existing strict latch policy and ordinary pair failures retain their setup marker.
+
+This resolves REVIEW-212's SIGINT retained-exit lock cycle when the manager is
+idle and all absence proofs succeed: normal pair shutdown releases its SH lease
+without claiming STOP/zero and leaves the latch for the separate manual audit.
+It does **not** make the failed episode clean. After this command, the operator
+can take the simulation EX lock for the manual recovery procedure above. Only
+coordinator acceptance of the complete audit can authorize a specific latch
+removal and one retry; this command never removes a marker or starts anything.
+
+### Read-only pre-start-abort audit
+
+`sim_control.py audit MANIFEST AGENT_STARTUP COMMAND_OBSERVATIONS` reads existing
+private JSON evidence and prints a classification; `audit EVIDENCE_DIRECTORY`
+accepts the same files named `manifest.json`, `agent-startup.json` and
+`command-observations.json`. It performs no service/socket access or writes.
+Preserve originals and provenance when collecting an offline evidence bundle.
+Missing/unreadable files refuse the audit. Require all three records to bind to
+the same native `fh-srv-` partition and simulation domain 93; do not mix episodes.
+Command observation evidence must cover the entire episode with `complete: true`,
+integer `cmd: 0` and `resume: 0`, plus `partition` and `domain`. An empty log,
+a late-started observer or an operator's inference from no log is insufficient;
+the tool does not manufacture this coverage evidence.
+
+`pre-start-abort` requires native manifest `counts.ticks == 0` and
+`counts.policy_calls == 0`, complete agent startup evidence with
+`rosnode_created: false`, and the complete zero command/resume observations.
+New agent bootstraps record constructor entry conservatively as creation; an
+interrupt during import can prove no constructor entry, whereas a missing or
+incomplete startup record proves nothing. Evidence does not change STOP policy.
+
+This classification can substitute **only** for the STOP/zero leg of the manual
+recovery audit when `stop_zero_substitute` is true. That additionally requires
+complete native `native_target_publications` evidence: integer `attempts == 0`,
+`count == 0`, and null `first_monotonic_ns`/`last_monotonic_ns`. All existing fresh
+absence, cleanup manifest, ownership and source/operating-ledger checks remain
+required independently; acceptance never follows from classification alone.
+
+The previously interrupted episode has no native target counter and cannot
+receive this substitute proof, even if ticks/policy/cmd/resume were all zero.
+Sim.start can publish default joint targets before the first policy tick. Domain
+93 isolation alone is not used to waive that missing proof or assert physical
+safety. Future D1 and catalogue runtimes instrument the actual target publish call,
+including startup/default targets, recording attempts before transport, completed
+calls after return and first/last monotonic attempt timestamps in the manifest.
+A failed/in-flight publish remains incomplete; an interrupted runtime without a
+final manifest remains unproven. No retrospective counters are fabricated.
+
+## Go2 mesh URI 검사와 갱신
+
+Go2의 고정 생성 모델은 과거 빌드 머신의 `file://` URI를 포함한다.
+원본·생성 manifest·SHA 검증은 유지하고, warehouse 에피소드에서만 모델과
+메시를 복사하여 `meshes/<name>.dae`로 바꾼다. 생성 world는 이 모델의
+실제 파일을 include하므로 `GZ_SIM_RESOURCE_PATH`나 Fuel 검색에 의존하지 않는다.
+알려진 `gz/model/out/meshes` 접미사와 다섯 파일만 대응하며, 임의 basename
+검색이나 과거 개인 경로의 호스트 바인드를 추가하지 않는다.
+
+자산 빌드·갱신 시 검토한 release에서 오프라인 검사를 먼저 실행한다.
+
+```sh
+python3 -m apps.simmgr.mesh_resources \
+  --source /opt/foothold-sim/assets/source/sensor-spec-20261016/stage/sensor-runtime-r1 \
+  --world apps/simmgr/worlds/warehouse/warehouse.sdf
+```
+
+검사는 모델 URI 전체와 world URI 전체를 읽어 누락·빈 파일·경로 탈출·개인
+빌드 경로 잔존을 거절한다. rootfs 활성화의 `start_pair`는 sealed 자산과
+검토한 release를 대상으로 namespace/setup marker 생성 전에 이 검사를 실행한다.
+manager는 요청마다 supervisor·증거 폴더 생성 전에 반복하고, native child는
+최종 에피소드 world와 include 모델의 URI를 재귀 검사한 뒤 Gazebo에 넘긴다.
+
+기존 설치는 검토된 `rootfs_runtime.py`를 기존 `refresh-tools` 절차로 갱신하고
+앱 release를 반영해야 한다. rootfs 생성기·profile은 바뀌지 않아 rootfs 재빌드는
+필요하지 않지만, sealed 자산에 `gz/model/out/meshes`의 다섯 DAE가 없으면
+자산을 별도 검토·재봉인해야 한다. 이 변경은 과거 cleanup marker를 해제하지
+않으며, 남은 실패 슬롯/fence 복구와 실서버 재검증은 별도 승인 작업이다.

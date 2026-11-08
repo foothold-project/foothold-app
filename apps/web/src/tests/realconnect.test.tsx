@@ -13,7 +13,7 @@ import { realTarget, type Found } from '../nearby';
 
 const RID = 'r1', HOST = '192.168.123.18', LEASE = '33333333-3333-4333-8333-333333333333';
 const found: Found = { key: 'mdns:go2', via: 'mdns', name: 'GO2-friday', host: HOST, port: 8765, rid: RID, agent: `ws://${HOST}:8765/phone/ws` };
-const REAL_LIMITS = { vx_min: 0, vx_max: 0.6, vy_min: 0, vy_max: 0, wz_min: -0.5, wz_max: 0.5, commands: [[0, 0, 0], [0.6, 0, 0], [0.6, 0, -0.5], [0.6, 0, 0.5]] };
+const REAL_LIMITS = { vx_min: 0, vx_max: 1.5, vy_min: 0, vy_max: 0, wz_min: -0.5, wz_max: 0.5, commands: [[0, 0, 0], ...Array.from({ length: 13 }, (_, i) => [0, -0.5, 0.5].map((wz) => [(i + 3) / 10, 0, wz])).flat()] };
 const welcome = { t: 'hello', id: 'p1', robot: RID, proto: 'fh-phone/1', simulation: false, camera_token: null, limits: REAL_LIMITS,
   policy: { name: 'go2-sport', version: 'v1' }, ping_interval_ms: 1000, link_timeout_ms: 3000, lease_timeout_ms: 15000 };
 const st = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: RID, robot_id: RID, pose: null, speed: 0, battery: { soc: 70 }, latched: true, stop_gen: 1, stop_ref: 0,
@@ -60,6 +60,7 @@ async function pick() {
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />); });
   await flush();
   await click(btn('+ 로봇 연결하기'));
+  await click(btn('주변 로봇 찾기'));
   const seq = $('[data-nearby-scan]')!.getAttribute('data-nearby-scan');
   act(() => { window.dispatchEvent(new CustomEvent('fh-nearby', { detail: { seq, scanning: false, items: [found], problems: [] } })); });
   await flush();
@@ -113,11 +114,11 @@ describe('실기 연결 흐름', () => {
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }))); await flush();
     await click(btn('잠금 해제'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }))); await flush();
-    // 회전만(제자리) = wz 0, 앞 끝까지 = 0.6
+    // 회전만(제자리) = wz 0, 앞 끝까지 = 1.5
     sim.axes([0, 1]); await wait(120);
     expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     sim.axes([1, 0]); await wait(120);
-    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0.6, vy: 0, wz: 0, lease_id: LEASE });
+    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 1.5, vy: 0, wz: 0, lease_id: LEASE });
     await click($('[data-stop]'));
     expect(a.of('stop')).toHaveLength(1);
     expect(sim.get().stop?.via).toBe('agent');

@@ -8,7 +8,8 @@ import unicodedata
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
+from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -234,11 +235,37 @@ class CurrentRun(Contract):
     progress: Progress
 
 
+class DeviceStatusCode(Contract):
+    raw: int = Field(strict=True, ge=0, le=0xFFFFFFFF)
+    level: Literal['OK', 'ACCEPTED', 'ERROR']
+    reason: Literal['EXPLICIT_SERVER_ALLOWLIST'] | None
+
+
+class UnlockAxis(Contract):
+    axis: Literal['vx', 'vy', 'vz', 'wz', 'gyro_x', 'gyro_y', 'gyro_z',
+                  'joint_0', 'joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5',
+                  'joint_6', 'joint_7', 'joint_8', 'joint_9', 'joint_10', 'joint_11']
+    value: float
+    limit: float = Field(gt=0)
+    unit: Literal['m/s', 'rad/s']
+
+
+class UnlockRefused(Contract):
+    reason: Literal['LEASE_UNCONFIRMED', 'LEASE_MISMATCH', 'INVALID_GENERATION',
+                    'OUTPUT_HELD', 'NO_CONTROLLER', 'NOT_LATCHED', 'GENERATION_MISMATCH',
+                    'RESET_PENDING', 'RESUME_PENDING', 'STOP_UNCONFIRMED', 'STATE_UNSEEN',
+                    'STATE_STALE', 'STATE_RESETTING', 'POLICY_NOT_RUNNING', 'SIM_BUSY', 'STILL_MOVING']
+    at: UTCDateTime
+    axes: list[UnlockAxis] = Field(max_length=19)
+
+
 class Device(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('status_code'))
     key: str
     kind: Literal['CAMERA_RGB', 'CAMERA_DEPTH', 'LIDAR', 'BATTERY', 'OTHER']
     label: str
     state: Literal['OK', 'MISSING', 'ERROR']
+    status_code: DeviceStatusCode | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class StopRequest(Contract):
@@ -256,15 +283,124 @@ class StopRequestStatus(Contract):
     message: str
 
 
+class Go2Attitude(Contract):
+    """Display-only LowState IMU rpy, radians; invalid axes become unknown."""
+    roll: Annotated[float, Field(ge=-math.pi, le=math.pi)] | None
+    pitch: Annotated[float, Field(ge=-math.pi, le=math.pi)] | None
+
+    @field_validator('roll', 'pitch', mode='before')
+    @classmethod
+    def finite_radians(cls, value):
+        return value if type(value) in (int, float) and -math.pi <= value <= math.pi else None
+
+
+Go2JointName = Literal['FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint',
+                       'FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint',
+                       'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint',
+                       'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint']
+
+
+class Go2Joints(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    names: list[Go2JointName] = Field(min_length=12, max_length=12)
+    positions: list[float] = Field(min_length=12, max_length=12)
+
+    @model_validator(mode='after')
+    def unique_names(self):
+        if len(set(self.names)) != 12:
+            raise ValueError('twelve unique joint names required')
+        return self
+
+
+class Go2Quaternion(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    wxyz: list[float] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode='after')
+    def unit_quaternion(self):
+        if not .9 <= math.hypot(*self.wxyz) <= 1.1:
+            raise ValueError('invalid quaternion norm')
+        return self
+
+
+class Go2Position(Contract):
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    xyz: list[float] = Field(min_length=3, max_length=3)
+    origin: Literal['BOOT_ORIGIN_UNVERIFIED']
+
+
+class Go2RobotInfo(Contract):
+    """Readout only; never an input to STOP, lease, readiness or accepted codes."""
+    source: Literal['GO2_DDS']
+    attitude: Go2Attitude
+    error_code: Annotated[int, Field(ge=0, le=0xFFFFFFFF, strict=True)] | None = Field(
+        description='SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2).')
+    fallen: bool | None = Field(strict=True)
+    fallen_source: Literal['imu_tilt_estimate']
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('joints', 'quaternion', 'position'))
+    joints: Go2Joints | None = Field(default=None, exclude_if=lambda v: v is None)
+    quaternion: Go2Quaternion | None = Field(default=None, exclude_if=lambda v: v is None)
+    position: Go2Position | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @field_validator('joints', 'quaternion', 'position', mode='before')
+    @classmethod
+    def display_sample(cls, value, info):
+        if value is None:
+            return None
+        model, field = {'joints': (Go2Joints, 'positions'), 'quaternion': (Go2Quaternion, 'wxyz'),
+                        'position': (Go2Position, 'xyz')}[info.field_name]
+        if isinstance(value, model):
+            return value
+        # Bad display data must not discard an otherwise valid legacy state.
+        try:
+            if not all(type(v) in (int, float) and math.isfinite(v) for v in value[field]):
+                return None
+            return model.model_validate(value)
+        except (ValueError, TypeError, KeyError):
+            return None
+
+    @field_validator('error_code', mode='before')
+    @classmethod
+    def raw_uint32(cls, value):
+        return value if type(value) is int and 0 <= value <= 0xFFFFFFFF else None
+
+    @field_validator('fallen', mode='before')
+    @classmethod
+    def measured_bool(cls, value):
+        return value if type(value) is bool else None
+
+
+class PhoneRelayState(Contract):
+    """Display only: never a direct connection, device inventory or capability."""
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('robot_info'))
+    robot_info: Go2RobotInfo | None = None
+    source: Literal['PHONE'] = 'PHONE'
+    battery: Battery | None
+    speed: float | None
+    devices: list[Device]
+    age_s: float = Field(ge=0)
+    valid_for_s: float = Field(ge=0, le=3)
+
+
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
-        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected'))
+        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay',
+        'robot_serial', 'field_approval_expires_at', 'robot_info'))
+    robot_info: Go2RobotInfo | None = None
+    phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
     state_stale: bool | None = True
     controller: Person | None = None
     controller_device: UUID | None = None
     controller_connected: bool | None = None
     simulation: bool = False
+    server_drive_allowed: bool = False
+    robot_serial: str | None = None
+    field_approval_expires_at: UTCDateTime | None = Field(default=None,
+        description='실기 agent WS가 새로 연결되면 해제된다. 다시 현장 안전 확인이 필요하다.')
     id: UUID
     name: str
     model: str
@@ -331,12 +467,88 @@ class NotificationsRead(Contract):
         return self
 
 
+# Canonical IDs in mobile/sim/policy-modes.js. go2-demo is display-only;
+# no running real policy is registered, so real policies inherit common values.
+SIM_SETTING_FIELDS = frozenset(('sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz',
+    'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m'))
+MODEL_SETTING_FIELDS = {key: SIM_SETTING_FIELDS for key in ('nvidia-demo', 'ame2-demo', 'start-demo')}
+REAL_SETTING_FIELDS = frozenset(('real_no_fast_server_drive',))
+REAL_SETTING_MODELS: frozenset[str] = frozenset()
+MODEL_SETTING_FIELDS.update({key: REAL_SETTING_FIELDS for key in REAL_SETTING_MODELS})
+MODEL_SETTING_FIELDS['go2-demo'] = frozenset()
+SettingValue = StrictFloat | StrictInt | StrictBool
+
+
+def validate_model_settings(value, *, patch=False):
+    if not isinstance(value, dict):
+        raise ValueError('모델별 설정은 객체여야 합니다.')
+    for model, fields in value.items():
+        if model not in MODEL_SETTING_FIELDS:
+            raise ValueError('등록된 정식 모델 ID를 선택하세요.')
+        if not isinstance(fields, dict):
+            raise ValueError(f'{model}: 모델별 설정은 객체여야 합니다.')
+        for key, item in fields.items():
+            if key not in MODEL_SETTING_FIELDS[model]:
+                raise ValueError(f'{model}: 허용되지 않는 모델 설정 칸입니다.')
+            if item is None and patch:
+                continue
+            field = OrgSettings.model_fields[key]
+            try:
+                TypeAdapter(Annotated[field.annotation, *field.metadata]).validate_python(item)
+            except ValidationError:
+                raise ValueError(f'{model}: {key} 값의 형식과 범위를 확인하세요.') from None
+    return value
+
+
 class OrgSettings(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields(
+        'sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx',
+        'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m',
+        'real_no_fast_server_drive', 'model_overrides'))
+
     battery_low_pct: int = Field(default=20, ge=5, le=50, strict=True)
     run_min_battery_pct: int = Field(default=30, ge=10, le=90, strict=True)
     deviation_m: float = Field(default=1.5, ge=0.5, le=5, strict=True)
     lease_request_timeout_s: int = Field(default=10, ge=5, le=30, strict=True)
     link_loss_wait_s: int = Field(default=30, ge=0, le=30, strict=True)
+    sim_max_vx: float = Field(default=1.5, ge=0.2, le=1.5, strict=True)
+    sim_min_vx: float = Field(default=0.2, ge=0.0, le=0.5, strict=True)
+    sim_max_vy: float = Field(default=0.5, ge=0.0, le=0.5, strict=True, description="시뮬 옆 상한 0~0.5 m/s, 기본 0.5. 실기 한도와 별개.")
+    sim_max_wz: float = Field(default=1.2, ge=0.0, le=1.2, strict=True, description="시뮬 회전 상한 0~1.2 rad/s, 기본 1.2. 모드 상한 안에서만 적용.")
+    sim_key_vx: float = Field(default=1.5, ge=0.1, le=1.5, strict=True)
+    stick_deadzone: float = Field(default=0.1, ge=0.0, le=0.5, strict=True)
+    sim_runner_vx: float = Field(default=0.4, ge=0.1, le=1.5, strict=True)
+    sim_runner_wz: float = Field(default=0.6, ge=0.1, le=1.0, strict=True)
+    lidar_view_m: int = Field(default=12, ge=1, le=30, strict=True)
+    real_no_fast_server_drive: bool = Field(default=False, strict=True)
+    model_overrides: dict[str, dict[str, SettingValue]] = Field(default_factory=dict)
+
+    @field_validator('model_overrides', mode='before')
+    @classmethod
+    def valid_model_settings(cls, value):
+        return validate_model_settings(value)
+
+    @model_validator(mode='after')
+    def simulation_speed_order(self):
+        if self.sim_min_vx > self.sim_max_vx:
+            raise ValueError('시뮬 최소 전진 속도는 최대 전진 속도 이하여야 합니다.')
+        if self.sim_key_vx > self.sim_max_vx:
+            if 'sim_key_vx' in self.model_fields_set:
+                raise ValueError('시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.')
+            # A retained explicit forward cap can be below the new inherited
+            # key default after cleanup of old materialized defaults.
+            self.sim_key_vx = self.sim_max_vx
+        for model, overrides in self.model_overrides.items():
+            if model not in ('nvidia-demo', 'ame2-demo', 'start-demo'):
+                continue
+            # All inherited values participate, including the common key cap.
+            effective = {**self.model_dump(exclude={'model_overrides'}), **overrides}
+            try:
+                OrgSettings.model_validate(effective)
+            except ValidationError as exc:
+                message = exc.errors(include_input=False)[0]['msg'].removeprefix('Value error, ')
+                raise ValueError(f'{model}: {message}') from None
+        return self
 
 
 class OrgSettingsPatch(Contract):
@@ -345,6 +557,22 @@ class OrgSettingsPatch(Contract):
     deviation_m: float = omitted(ge=0.5, le=5, strict=True)
     lease_request_timeout_s: int = omitted(ge=5, le=30, strict=True)
     link_loss_wait_s: int = omitted(ge=0, le=30, strict=True)
+    sim_max_vx: float = omitted(ge=0.2, le=1.5, strict=True)
+    sim_min_vx: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_max_vy: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_max_wz: float = omitted(ge=0.0, le=1.2, strict=True)
+    sim_key_vx: float = omitted(ge=0.1, le=1.5, strict=True)
+    stick_deadzone: float = omitted(ge=0.0, le=0.5, strict=True)
+    sim_runner_vx: float = omitted(ge=0.1, le=1.5, strict=True)
+    sim_runner_wz: float = omitted(ge=0.1, le=1.0, strict=True)
+    lidar_view_m: int = omitted(ge=1, le=30, strict=True)
+    real_no_fast_server_drive: bool = omitted(strict=True)
+    model_overrides: dict[str, dict[str, SettingValue | None]] = omitted()
+
+    @field_validator('model_overrides', mode='before')
+    @classmethod
+    def valid_model_settings(cls, value):
+        return validate_model_settings(value, patch=True)
 
 
 class RobotList(Contract):
@@ -357,6 +585,16 @@ class UserList(Contract):
     next_cursor: str | None
 
 
+class RobotOwnerCandidate(Contract):
+    user_id: UUID
+    display_name: str
+
+
+class RobotOwnerCandidateList(Contract):
+    items: list[RobotOwnerCandidate]
+    next_cursor: str | None
+
+
 class SessionList(Contract):
     items: list[Session]
     next_cursor: str | None
@@ -365,6 +603,11 @@ class SessionList(Contract):
 # FH-SPEC-05 §§9–10: flat envelopes, no WebSocket subprotocol header.
 Axis = Annotated[float, Field(ge=-1, le=1, strict=True)]
 Axes = Annotated[list[Axis], Field(min_length=3, max_length=3)]
+ScreenCommandAxes = Annotated[list[Annotated[float, Field(ge=-1.5, le=1.5, strict=True)]],
+    Field(min_length=3, max_length=3, json_schema_extra={'anyOf': [
+        {'type':'array','minItems':3,'maxItems':3,'items':{'type':'number','minimum':-1,'maximum':1}},
+        {'type':'array','enum':[list(value) for value in sorted(SERVER_DRIVE_ALLOWED)
+                              if any(abs(axis)>1 for axis in value)]}]})]
 Vector3 = Annotated[list[float], Field(min_length=3, max_length=3)]
 MAX_SAFE_INTEGER = 2**53 - 1
 Sequence = Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER, strict=True)]
@@ -400,7 +643,13 @@ class ScreenCmd(ScreenRobot):
     t: Literal['cmd']
     lease_id: UUID
     seq: Sequence
-    axes: Axes
+    axes: ScreenCommandAxes
+
+    @model_validator(mode='after')
+    def normalized_or_exact_trial_axes(self):
+        if any(abs(axis)>1 for axis in self.axes) and tuple(self.axes) not in SERVER_DRIVE_ALLOWED:
+            raise ValueError('normalized axes or exact server trial command required')
+        return self
 
 
 class ScreenUnlock(ScreenRobot):
@@ -512,6 +761,7 @@ class AgentBattery(AgentInput):
 
 
 class AgentState(AgentInput):
+    robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     controller: UUID | None = None
     controller_device: UUID | None = None
     controller_connected: bool = False
@@ -523,6 +773,7 @@ class AgentState(AgentInput):
     battery: AgentBattery
     latched: bool = Field(strict=True)
     safety_reason: SafetyReason | None = None
+    unlock_refused: UnlockRefused | None = None
     stop_gen: Sequence
     stop_ref: Sequence
     applied: Vector3
@@ -739,9 +990,14 @@ class AgentStreams(Contract):
     map: bool
 
 
+class AgentFieldApproval(Contract):
+    t: Literal['field_approval'] = 'field_approval'
+    expires_at: UTCDateTime | None
+
+
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -787,7 +1043,9 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info'))
+    robot_info: Go2RobotInfo | None = None
+    phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'
     robot: UUID
     connection: Literal['ONLINE', 'OFFLINE']
@@ -799,6 +1057,7 @@ class ScreenState(Contract):
     latency_ms: float | None
     latched: bool | None
     safety_reason: SafetyReason | None = None
+    unlock_refused: UnlockRefused | None = None
     stop_gen: Sequence | None
     applied: Vector3 | None
 
@@ -810,7 +1069,9 @@ class RobotCreate(Contract):
 
 class RobotPatch(Contract):
     name: str = omitted(min_length=1, max_length=128)
-    owner_user_id: UUID | None = omitted()
+    owner_user_id: UUID | None = omitted(description=(
+        '실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 '
+        '같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다.'))
 
 
 class RobotCreated(Contract):
@@ -1035,7 +1296,7 @@ ApprovalStatus = Literal['PENDING', 'APPROVED', 'REJECTED', 'CANCELED', 'STALE']
 
 class ApprovalRef(Contract):
     type: Literal['map_version', 'assignment'] = 'map_version'
-    id: UUID
+    id: UUID | None
 
 
 class Approval(Contract):
@@ -1054,16 +1315,16 @@ class Approval(Contract):
 
 
 class ApprovalMapPreview(Contract):
-    floor_id: UUID
+    floor_id: UUID | None
     floor_name: str
-    target_version_number: int
+    target_version_number: int | None
     base_version_number: int | None
 
 
 class ApprovalAssignmentPreview(Contract):
-    scenario_id: UUID
+    scenario_id: UUID | None
     scenario_name: str
-    scenario_version: int
+    scenario_version: int | None
     robot_id: UUID
     robot_name: str
 
@@ -1137,7 +1398,8 @@ class Action(Contract):
 
 
 class MissionWrite(MapName):
-    steps: list[MissionStep] = Field(min_length=1, max_length=100)
+    # Empty steps mean move to the waypoint with no action to perform there.
+    steps: list[MissionStep] = Field(min_length=0, max_length=100)
 
 
 class Mission(MissionWrite):
@@ -1544,6 +1806,9 @@ class AssignmentCreate(Contract):
 
 
 class Assignment(AssignmentCreate):
+    scenario_id: UUID | None
+    scenario_version: int | None
+    scenario_name_snapshot: str | None = None
     id: UUID
     scenario_name: str
     robot_name: str
@@ -1848,7 +2113,12 @@ class PhoneRunUpdate(RunSnapshot):
 
 
 class PhoneState(AgentState):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('run', 'controller_since', 'reported_run'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields(
+        'run', 'controller_since', 'reported_run', 'robot_serial', 'sensor_age_ms', 'robot_info'))
+    robot_serial: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$',
+                                    exclude_if=lambda value: value is None)
+    sensor_age_ms: int | None = Field(default=None, ge=0, strict=True,
+                                     exclude_if=lambda value: value is None)
     run: RunSnapshot | None = None
     robot: PhoneRobotID
     controller: UUID | None
@@ -1863,6 +2133,34 @@ class PhoneState(AgentState):
     sim_time_s: float | None
     sim_wall_delta_s: float | None
     simulation: bool
+
+
+class PhoneStateUpload(Contract):
+    """Display-only relay. Possession of an issued pass is checked with app auth."""
+    t: Literal['phone.state']
+    robot: UUID
+    pass_token: str = Field(min_length=1, max_length=4096, repr=False)
+    sequence: Sequence
+    observed_at: UTCDateTime
+    robot_serial: str = Field(pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$')
+    sensor_age_ms: int = Field(ge=0, le=1000, strict=True)
+    state: AgentState
+
+    @model_validator(mode='after')
+    def physical_display_only(self):
+        if any(int(part) > 0xFFFFFFFF for part in self.robot_serial.split('-')):
+            raise ValueError('DDS serial must contain uint32 values')
+        if self.state.mode not in ('FREE', 'USER') or self.state.reported_run is not None:
+            raise ValueError('physical manual display only')
+        if self.state.speed is not None and self.state.speed < 0:
+            raise ValueError('nonnegative measured speed required')
+        if self.state.devices_changed is not None and len(self.state.devices_changed) > 16:
+            raise ValueError('at most sixteen physical devices')
+        if any(len(d.key) > 64 or len(d.label) > 128 for d in self.state.devices_changed or []):
+            raise ValueError('bounded physical device descriptors required')
+        if any(value is not None for value in self.state.pose.model_dump().values()):
+            raise ValueError('physical relay does not accept map poses')
+        return self
 
 
 class PhoneTicketClaims(Contract):
@@ -2100,7 +2398,7 @@ class PhotoUploadReceipt(PhotoUploadMetadata):
 class SimFailureDetail(Contract):
     """Allowlisted diagnostics; only exact resource pre-creation proof releases a slot."""
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
-    reason: Literal['resources_low', 'manager_unreachable', 'slot_busy', 'unknown']
+    reason: Literal['resources_low', 'manager_unreachable', 'slot_busy', 'unknown', 'guard_access']
     start_not_created: bool = Field(default=False, strict=True)
     mem_available_mib: float | None = Field(default=None, ge=0, strict=True)
     load1: float | None = Field(default=None, ge=0, strict=True)
@@ -2244,6 +2542,95 @@ class SimRobotList(Contract):
     manager_error: Literal['SIM_DISABLED', 'SIM_UNAVAILABLE'] | None = None
 
 
+# Unified trash; archived=true on older lists still includes live resources.
+TrashKind = Literal['site', 'building', 'floor', 'scenario']
+
+
+class TrashItem(Contract):
+    kind: TrashKind
+    id: UUID
+    name: str
+    archived_at: UTCDateTime
+    deleted_by: Person | None
+    parent_name: str | None
+
+
+class TrashList(Contract):
+    items: list[TrashItem]
+
+
+class RunHistory(Contract):
+    id: UUID
+    scenario_version_id: UUID | None
+    floor_id: UUID | None
+    map_version_id: UUID | None
+    scenario_name: str
+    floor_name: str
+    scenario_name_snapshot: str | None
+    floor_name_snapshot: str | None
+    status: RunStatus
+    started_at: UTCDateTime
+    ended_at: UTCDateTime | None
+
+
+class PairingStart(Contract):
+    model: Literal['unitree_go2']
+    robot_serial: str = Field(pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$')
+
+    @model_validator(mode='after')
+    def valid_serial(self):
+        if any(int(part) > 0xFFFFFFFF for part in self.robot_serial.split('-')):
+            raise ValueError('serial components must be uint32')
+        return self
+
+
+class PairingStarted(Contract):
+    pairing_id: UUID
+    code: str = Field(pattern=r'^[0-9]{6}$')
+    expires_at: UTCDateTime
+    poll_secret: str = Field(min_length=43, max_length=43)
+
+
+class PairingClaim(Contract):
+    code: str = Field(pattern=r'^[0-9]{6}$')
+
+
+class PairingClaimed(Contract):
+    pairing_id: UUID
+    robot_serial: str
+    expires_at: UTCDateTime
+
+
+class PairingConfirm(Contract):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class PairingPoll(Contract):
+    poll_secret: str = Field(min_length=1, max_length=256)
+
+
+class PairingWaiting(Contract):
+    state: Literal['waiting', 'consumed']
+
+
+class PairingPaired(Contract):
+    state: Literal['paired'] = 'paired'
+    robot_id: UUID
+    agent_token: str
+    agent_ws_url: str
+
+
+FIELD_APPROVAL_CHECKS = frozenset({'space_clear', 'emergency_stop_ready', 'robot_verified'})
+
+
+class FieldApprovalRequest(Contract):
+    checks: list[str] = Field(max_length=10)
+
+
+class FieldApproval(Contract):
+    expires_at: UTCDateTime
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
@@ -2277,3 +2664,6 @@ TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
 REQUEST_MODELS.update({StopRequest, PhoneStop})
 
 REQUEST_MODELS.add(StopRequestAck)
+REQUEST_MODELS.add(PhoneStateUpload)
+REQUEST_MODELS.update({PairingStart, PairingClaim, PairingConfirm, PairingPoll, FieldApprovalRequest})
+TOP['PairingPollResult'] = PairingWaiting | PairingPaired

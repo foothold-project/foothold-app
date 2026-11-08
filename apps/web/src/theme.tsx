@@ -39,9 +39,23 @@ function subscribe(f: () => void) {
 /** [고른 값, 지금 밝음인지] — .fh 틀에 `light` 를 붙이는 곳(App·로그인)과 고르는 칸이 쓴다 */
 export const useTheme = () => [useSyncExternalStore(subscribe, themePref), useSyncExternalStore(subscribe, () => isLight())] as const;
 
-/** 고르는 칸 — 폰 «⋯ 더 보기»와 PC 설정 탭 «개인 설정» */
+/** 고르는 칸 — 폰 «⋯ 더 보기» */
 export function ThemePick() {
   const [p] = useTheme();
   return <select className="fh-user fh-sel" aria-label="화면 밝기" data-theme-pick value={p} onChange={(e) => setThemePref(e.target.value as ThemePref)}>
     {THEMES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>;
+}
+
+const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
+const LOOK: Record<ThemePref, [JSX.Element, string]> = {
+  dark: [I(<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />), '어두움'],
+  light: [I(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>), '밝음'],
+  system: [I(<><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" /></>), '기기 설정'],
+};
+/** PC 왼쪽 메뉴 «설정» 위(11-02) — 누를 때마다 어두움 → 밝음 → 기기 설정 따름. 보이는 글은 지금 값, 화면 읽기는 «화면 밝기 …» */
+export function ThemeNav() {
+  const [p] = useTheme(), i = THEMES.findIndex(([v]) => v === p), [next, nextName] = THEMES[(i + 1) % THEMES.length];
+  const name = THEMES[i][1];
+  return <button type="button" className="nav" data-theme-pick={p} aria-label={`화면 밝기 ${name}`} title={`화면 밝기: ${name} — 누르면 ${nextName}`}
+    onClick={() => setThemePref(next)}>{LOOK[p][0]}{LOOK[p][1]}</button>;
 }

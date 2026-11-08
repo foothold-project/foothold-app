@@ -128,8 +128,28 @@ def test_mission_two_concurrent_puts_only_one(client, seeded):
     engine.dispose()
 
 
+def test_empty_mission_create_read_and_update(client):
+    headers = auth(client)
+    move = {'name': '이동', 'steps': []}
+    created = make_mission(client, headers, move)
+    path = P + '/missions/' + created['id']
+    assert created['steps'] == created['required_devices'] == []
+    assert client.get(path, headers=headers).json() == created
+    assert client.get(P + '/missions', headers=headers).json()['items'] == [created]
+
+    photo = client.put(path, headers={**headers, 'If-Match': '"1"'}, json=MISSION)
+    assert photo.status_code == 200, photo.text
+    assert photo.json()['required_devices'] == ['CAMERA_RGB']
+    emptied = client.put(path, headers={**headers, 'If-Match': '"2"'}, json=move)
+    assert emptied.status_code == 200, emptied.text
+    assert emptied.json()['steps'] == emptied.json()['required_devices'] == []
+    assert emptied.json()['number'] == emptied.json()['version'] == 3
+    assert client.get(path + '?version=1', headers=headers).json()['steps'] == []
+    assert client.get(path + '?version=2', headers=headers).json()['steps'] == photo.json()['steps']
+
+
 @pytest.mark.parametrize('body', [
-    {'name': 'x', 'steps': []}, {'name': 'x', 'steps': [{'action': 'WAIT'}] * 101},
+    {'name': 'x'}, {'name': 'x', 'steps': None}, {'name': 'x', 'steps': [{'action': 'WAIT'}] * 101},
     {'name': 'x\u200b', 'steps': [{'action': 'WAIT'}]}, {'name': 'x\n', 'steps': [{'action': 'WAIT'}]},
     {'name': 'x', 'steps': [{'action': 'UNKNOWN'}]},
     *[{'name': 'x', 'steps': [{'action': action, 'params': params}]} for action, params in [
@@ -185,7 +205,7 @@ def test_scenario_calculation_versions_finish_archive_and_event(maps, seeded):
     assert http.get(P + '/scenarios?archived=1', headers=headers).json()['items'][0]['archived_at']
     assert http.get(path + '?version=1', headers=one).status_code == 200
     events = {e['code']: e for e in http.get(P + '/events', headers=headers).json()['items']}
-    for code, word in [('SCENARIO_CREATED', '만들었습니다'), ('SCENARIO_VERSION_CREATED', '저장했습니다'), ('SCENARIO_ARCHIVED', '보관했습니다')]:
+    for code, word in [('SCENARIO_CREATED', '만들었습니다'), ('SCENARIO_VERSION_CREATED', '저장했습니다'), ('SCENARIO_ARCHIVED', '휴지통으로 옮겼습니다')]:
         assert code in events and word in events[code]['message'] and '시나리오' in events[code]['message']
     engine = create_engine(seeded['urls']['app'])
     with Session(engine) as db:

@@ -21,17 +21,98 @@
       "title": "Lease Request Timeout S",
       "type": "integer"
     },
+    "lidar_view_m": {
+      "maximum": 30,
+      "minimum": 1,
+      "title": "Lidar View M",
+      "type": "integer"
+    },
     "link_loss_wait_s": {
       "maximum": 30,
       "minimum": 0,
       "title": "Link Loss Wait S",
       "type": "integer"
     },
+    "model_overrides": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "title": "Model Overrides",
+      "type": "object"
+    },
+    "real_no_fast_server_drive": {
+      "title": "Real No Fast Server Drive",
+      "type": "boolean"
+    },
     "run_min_battery_pct": {
       "maximum": 90,
       "minimum": 10,
       "title": "Run Min Battery Pct",
       "type": "integer"
+    },
+    "sim_key_vx": {
+      "maximum": 1.5,
+      "minimum": 0.1,
+      "title": "Sim Key Vx",
+      "type": "number"
+    },
+    "sim_max_vx": {
+      "maximum": 1.5,
+      "minimum": 0.2,
+      "title": "Sim Max Vx",
+      "type": "number"
+    },
+    "sim_max_vy": {
+      "maximum": 0.5,
+      "minimum": 0.0,
+      "title": "Sim Max Vy",
+      "type": "number"
+    },
+    "sim_max_wz": {
+      "maximum": 1.2,
+      "minimum": 0.0,
+      "title": "Sim Max Wz",
+      "type": "number"
+    },
+    "sim_min_vx": {
+      "maximum": 0.5,
+      "minimum": 0.0,
+      "title": "Sim Min Vx",
+      "type": "number"
+    },
+    "sim_runner_vx": {
+      "maximum": 1.5,
+      "minimum": 0.1,
+      "title": "Sim Runner Vx",
+      "type": "number"
+    },
+    "sim_runner_wz": {
+      "maximum": 1.0,
+      "minimum": 0.1,
+      "title": "Sim Runner Wz",
+      "type": "number"
+    },
+    "stick_deadzone": {
+      "maximum": 0.5,
+      "minimum": 0.0,
+      "title": "Stick Deadzone",
+      "type": "number"
     }
   },
   "title": "OrgSettingsPatch",

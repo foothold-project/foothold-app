@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
+import { fleetNames, fleetRow } from './fleetRow';
 import { PC_BOTTOM, PC_TABS, PHONE_SHEETS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 import { FakeWS, state } from './fakeWs';
 import SIM_MAPS from '../../../../mobile/sim/maps.json';
@@ -36,7 +37,7 @@ const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const shown = () => tabsFor(false).filter((t) => !t.hidden);
 const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.childNodes[1].textContent);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
-const robotRow = (name: string) => $$('[aria-label="로봇 목록"] button').find((b) => b.textContent!.includes(name))!;
+const robotRow = (name: string) => fleetRow(box, name);
 /** 다른 사람으로 로그인한 것처럼 같은 틀을 다시 그림(가짜 역할 전환 고르개는 없앰 — 역할은 서버 /me) */
 const pickUser = (id: string) => act(() => { root!.render(<App user={USERS.find((u) => u.id === id)} robots={ROBOTS} />); });
 const remount = (phone: boolean, user: string, hash: string) => { act(() => root?.unmount()); box.remove(); mount(phone, user, hash); };
@@ -54,8 +55,8 @@ function eachPhoneScreen(user: string, f: (where: string) => void) {
 const cardNames = () => $$('.dv-card b').map((b) => b.textContent);
 
 describe('메뉴 정의(한 곳)', () => {
-  it('PC 메뉴 6개(실기 조종 탭 없음, 시뮬 탭, 결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
-    expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '시나리오', '지도', '시뮬', '기록', '설정']);
+  it('PC 메뉴 5개(시나리오는 지도 탭 안)(실기 조종 탭 없음, 시뮬 탭, 결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
+    expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '지도', '시뮬', '기록', '설정']);
     expect(tabFromHash('#/approval', false)).toBe('approval');   // 옛 결재·알림 링크는 주소로 그대로
     expect(PHONE_TABS.map((t) => labelOf(t, 'OPERATOR'))).toEqual(['조종', '기록']);
     expect(PHONE_SHEETS.map((t) => t.label)).toEqual(['자세', '시나리오', '지도·목표', '정책']);
@@ -75,7 +76,7 @@ describe('메뉴 정의(한 곳)', () => {
 describe('탭 전환', () => {
   it('PC: 메뉴를 누르면 제목·본문·현재 표시가 그 탭으로', () => {
     mount(false);
-    expect(navLabels()).toEqual(['로봇', '시나리오', '지도', '시뮬', '기록', '설정']);
+    expect(navLabels()).toEqual(['로봇', '지도', '시뮬', '기록', '설정']);
     expect($('nav a[href="#/drive"]')).toBeNull();
     expect($('nav a[href="#/approval"]')).toBeNull();
     for (const t of shown()) {
@@ -127,29 +128,29 @@ describe('탭 전환', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
     localStorage.setItem('fh.simMap', old);
     mount(true, 'u-lee');
-    expect($<HTMLSelectElement>('[data-sim-map]').value).toBe('factory-zone');
-    expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toContain('map=factory-zone');
-    expect($<HTMLImageElement>('[data-sim-top]').getAttribute('src')).toContain('/factory-zone/top.png');
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('factory-zone');
+    expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=factory-zone&floor=f1');   // 옛 f2 값이어도 첫 층
+    expect($('[data-sim-top] image').getAttribute('href')).toContain('/factory-zone/top-f1.png');
   });
-  it('폰 앱 시뮬 지도(10-28): 드롭다운 = mobile/sim/maps.json, 고른 지도의 위에서 본 사진, 열기 주소에 ?map=, 기억(없는 값·저장 실패면 첫 지도)', () => {
+  it('폰 앱 시뮬 지도(11-03 카드): 카드 = mobile/sim/maps.json, 고른 지도의 위에서 본 사진, 열기 주소에 ?map=, 기억(없는 값·저장 실패면 첫 지도)', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
     localStorage.setItem('fh.simMap', 'nope');
     mount(true, 'u-lee');
-    const sel = $<HTMLSelectElement>('[data-sim-map]');
-    expect(sel.className).toBe('fh-user fh-sel');   // 앱 공용 고르기 모양
-    expect([...sel.options].map((o) => [o.value, o.textContent])).toEqual(SIM_MAPS.map((m) => [m.id, m.name]));
-    expect(sel.value).toBe('warehouse');
-    expect($<HTMLImageElement>('[data-sim-top]').getAttribute('src')).toMatch(/mobile\/sim\/assets\/warehouse\/top\.png/);
-    expect($<HTMLImageElement>('[data-sim-top]').alt).toBe('창고 위에서 본 모습');
-    act(() => { sel.value = 'warehouse'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    const cards = $$('[data-sim-card]');
+    expect(cards.map((c) => [c.dataset.simCard, c.textContent])).toEqual(SIM_MAPS.map((m) => [m.id, m.name]));
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('warehouse');
+    expect($('[data-sim-top] image').getAttribute('href')).toMatch(/mobile\/sim\/assets\/warehouse\/top\.png/);
+    expect($('[data-sim-top]').getAttribute('aria-label')).toBe('창고 위에서 본 모습 — 눌러 시작 위치 고르기');
+    click(cards[0]);
     expect(localStorage.getItem('fh.simMap')).toBe('warehouse');
     expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=warehouse');
     act(() => root?.unmount()); root = null; box.remove();
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('막힘'); });
     mount(true, 'u-lee');
-    expect($<HTMLSelectElement>('[data-sim-map]').value).toBe('warehouse');
-    act(() => { $<HTMLSelectElement>('[data-sim-map]').dispatchEvent(new Event('change', { bubbles: true })); });
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('warehouse');
+    click($('[data-sim-card="element-course"]'));
+    expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('element-course');
     expect($('[data-sim-app]')).not.toBeNull();
   });
 });
@@ -160,7 +161,8 @@ describe('역할 전환', () => {
     pickUser('u-lee');
     expect(navLabels()).not.toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
-    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 담당이 바뀌는 사이 목록에 남은 남의 로봇: 내 로봇 뒤 + 보는 중
+    expect(fleetNames(box)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 담당이 바뀌는 사이 목록에 남은 남의 로봇: 내 로봇 고르기 뒤 접힌 «다른 로봇» + 보는 중
+    expect($('[aria-label="다른 로봇"] summary').textContent).toContain('다른 로봇 1대');
     expect(robotRow('Go2-7').textContent).toContain('보는 중');
     resize(true);
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);
@@ -255,7 +257,7 @@ describe('B1 폭 전환', () => {
     expect($('h1').textContent).toBe('로봇');
     expect(location.hash).toBe('#/fleet');
     expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/fleet');
-    expect($('main').textContent).toContain('주의 필요');
+    expect($('[aria-label="로봇 상태"]')).not.toBeNull();   // 운영 관리자 로봇 탭 = 한 대 집중(상태 한 줄)
   });
 });
 
@@ -307,7 +309,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '장소 목록', settings: '화면 밝기' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '어느 지도에서 일할까요?', settings: '조직 기준값' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로
@@ -315,6 +317,20 @@ describe('R2·R3 보강', () => {
       expect(text, id).toContain(m);
       for (const [o, om] of Object.entries(MARK)) if (o !== id) expect(text, `${id} 에 ${o} 내용`).not.toContain(om);
     }
+  });
+  it('화면 밝기(11-02): PC 는 왼쪽 메뉴 «설정» 바로 위 단추(누를 때마다 바뀜·설정 탭엔 없음), 폰은 ⋯ 안 고르는 칸', () => {
+    mount(false, 'u-kim', '#/settings');
+    const b = $('nav[aria-label="주 메뉴"] [data-theme-pick]');
+    expect(b.nextElementSibling!.getAttribute('href')).toBe('#/settings');
+    expect($('main [data-theme-pick]')).toBeNull();
+    const seen = [b.getAttribute('aria-label')];
+    for (let i = 0; i < 3; i++) { click(b); seen.push(b.getAttribute('aria-label')); }
+    expect(seen).toEqual(['화면 밝기 어두움', '화면 밝기 밝음', '화면 밝기 기기 설정 따름', '화면 밝기 어두움']);
+    click(b);
+    expect([$('.fh').classList.contains('light'), localStorage.getItem('fh.theme')]).toEqual([true, 'light']);
+    resize(true);
+    expect($('nav[aria-label="주 메뉴"]')).toBeNull();
+    expect($('.fh-more select[data-theme-pick]')).not.toBeNull();
   });
   it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {
     mount(true, 'u-lee', '#/drive/r3');   // 폰 «시뮬 로봇 띄우기»·PC 임무 탭은 이제 서버 값 — 자세 시트 «서기»는 아직 준비 중

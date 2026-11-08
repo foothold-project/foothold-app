@@ -7,29 +7,32 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Assignment, AssignmentCreate, RobotSummary, Scenario, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
-import { IDLE_SLOT, OUT } from '../screens/assign';
+import { ADMIN_ASSIGN, IDLE_SLOT, OUT } from '../screens/assign';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
+import { fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
-const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner.id, display_name: owner.display_name }, simulation: false,
+const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner.id, display_name: owner.display_name }, simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] });
 const RA = robot('r-a', 'Go2-A', LEE), RB = robot('r-b', 'Go2-B', { ...LEE, id: 'o2', display_name: '박운영' });
 /** 끝낸(IDLE) 시뮬 슬롯 — 서버는 담당을 비운 채 /robots 에 남긴다. extra 에 넣은 시험에서만 목록에 */
 const IDLE: RobotSummary = { ...robot('r-s', '시뮬 슬롯', LEE), simulation: true, owner: null };
+/** 운영 중인 시뮬 로봇 — 총괄도 배정할 수 있다(실기는 못 함, r2) */
+const SIM: RobotSummary = { ...robot('r-m', '시뮬-1', LEE), simulation: true };
 let extra: RobotSummary[] = [];
 const scen = (id: string, name: string, p: Partial<Scenario> = {}): Scenario => ({ id, name, waypoints: [], finish: { mode: 'STAY', target: null }, notes: '', number: 1, latest_version: 1, version: 1,
-  floor_ids: [], map_version_ids: [], required_devices: [], est_distance_m: 0, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', version_created_by: KIM.id, version_created_at: '2026-10-20T00:00:00Z', archived_at: null, ...p });
+  floor_ids: ['f1'], map_version_ids: [], required_devices: [], est_distance_m: 0, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', version_created_by: KIM.id, version_created_at: '2026-10-20T00:00:00Z', archived_at: null, ...p });
 const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
 
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; key?: string };
 let calls: Call[] = [], asg: Assignment[] = [], scenarios: Scenario[] = [], n = 0, aps: Record<string, string> = {};
-const mk = (p: Partial<Assignment> & Pick<Assignment, 'robot_id' | 'status'>): Assignment => ({ id: `as${++n}`, scenario_id: 's1', scenario_version: 1, memo: '', scenario_name: '1층 순찰',
-  robot_name: p.robot_id === 'r-a' ? 'Go2-A' : 'Go2-B', approval_id: p.status === 'PENDING' ? `ap${n}` : null, created_by: KIM.id, created_at: '2026-10-20T01:00:00Z', removed_at: null, ...p });
+const mk = (p: Partial<Assignment> & Pick<Assignment, 'robot_id' | 'status'>): Assignment => ({ id: `as${++n}`, scenario_id: 's1', scenario_version: 1, memo: '', scenario_name: '1층 순찰', scenario_name_snapshot: null,
+  robot_name: ({ 'r-a': 'Go2-A', 'r-m': '시뮬-1' } as Record<string, string>)[p.robot_id] ?? 'Go2-B', approval_id: p.status === 'PENDING' ? `ap${n}` : null, created_by: KIM.id, created_at: '2026-10-20T01:00:00Z', removed_at: null, ...p });
 
 /** 가짜 서버. over = 경로별 덮어쓰기(앞에서부터 하나씩 — 함수면 real() 로 진짜 처리를 부를 수 있고, 던지면 끊김) */
 function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Reply | Promise<Reply>) | Reply)[]> } = {}) {
@@ -51,12 +54,12 @@ function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Rep
     if (path.startsWith('/robots/')) return { status: 200, body: path.endsWith('r-a') ? RA : RB };
     if (path === '/dashboard') return { status: 200, body: { robots_total: 2, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } };
     if (path === '/notifications') return { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } };
-    if (path === '/sites') return { status: 200, body: { items: [], next_cursor: null } };
+    if (path === '/sites') return { status: 200, body: { items: [{ id: 'st1', name: '본관', buildings: [{ id: 'b1', site_id: 'st1', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: null, pending_count: 0 }] }] }], next_cursor: null } };   // 시나리오는 지도 탭의 층에서 고른다(MAP-TAB-MERGE)
     if (path === '/missions') return { status: 200, body: { items: [], next_cursor: null } };
     if (path === '/scenarios') return { status: 200, body: { items: scenarios.filter((s) => q.get('archived') === 'true' || !s.archived_at), next_cursor: null } };
     let m = path.match(/^\/scenarios\/([^/]+)$/);
     if (m) { const s = scenarios.find((x) => x.id === m![1]); return s ? { status: 200, body: s } : err(404, 'NOT_FOUND', '없음'); }
-    if (path === '/assignments' && method === 'GET') return { status: 200, body: { items: asg.filter((a) => !q.get('robot_id') || a.robot_id === q.get('robot_id')), next_cursor: null } };
+    if (path === '/assignments' && method === 'GET') return { status: 200, body: { items: asg.filter((a) => (!q.get('robot_id') || a.robot_id === q.get('robot_id')) && (a.scenario_id || q.get('archived') === 'true')), next_cursor: null } };   // 지워진 시나리오 배정은 archived=true 일 때만(§5.1)
     if (path === '/assignments' && method === 'POST') {
       if (key && receipts.has(key)) return receipts.get(key)!;   // 같은 키 = 첫 성공 결과 재생
       const s = scenarios.find((x) => x.id === body!.scenario_id)!;
@@ -93,8 +96,11 @@ async function open(hash: string, phone = false) {
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
+  // 옛 #/mission 주소 → 지도 탭 «시나리오» 창(MAP-TAB-MERGE) — 지도 고르기 화면이면 첫 건물 1층
+  const ch = box.querySelector<HTMLButtonElement>('[data-building]');
+  if (ch) { act(() => ch.click()); await flush(); }
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); asg = []; n = 0; aps = {}; extra = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); localStorage.clear(); asg = []; n = 0; aps = {}; extra = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -132,23 +138,28 @@ describe('배정 창', () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(KIM);
     expect($('[data-unsaved-assign]')).toBeNull();
-    const name = $<HTMLInputElement>('[aria-label="시나리오 편집 칸"] input')!;
+    const name = [...box.querySelectorAll('label')].find((l) => l.textContent === '이름')!.querySelector('input')!;   // 저장된 시나리오 이름은 «···» 안(MAPSCEN-FIX-R1)
     await setVal(name, '1층 순찰 고침');
-    expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 저장된 판 1이 배정됩니다');
+    expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 마지막으로 저장한 내용(1번째 저장)이 배정됩니다');
     await setVal(name, '1층 순찰');
     expect($('[data-unsaved-assign]')).toBeNull();
   });
-  it('총괄: 로봇 고르기·메모 → POST /assignments(Idempotency-Key) → ACTIVE «배정됨», 바로 적용 안내', async () => {
-    scenarios = [scen('s1', '1층 순찰')];
+  it('총괄: 실기는 회색 + 이유(r2), 시뮬 고르기·메모 → POST /assignments(Idempotency-Key) → ACTIVE «배정됨», 바로 적용 안내', async () => {
+    scenarios = [scen('s1', '1층 순찰')]; extra = [SIM];
     await openAssign(KIM);
     expect(text()).toContain('바로 적용됩니다');
-    await pickRobot('r-a');
+    for (const id of ['r-a', 'r-b']) {
+      const real = $<HTMLButtonElement>(`[data-robot="${id}"]`, panel())!;
+      expect(real.disabled).toBe(true);
+      expect($(`#${real.getAttribute('aria-describedby')}`)!.textContent).toBe(ADMIN_ASSIGN);
+    }
+    await pickRobot('r-m');
     await setVal(memo(), ' 아침 순찰 ');
     await click(btn('배정', panel()));
     expect(posts()).toHaveLength(1);
-    expect(posts()[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r-a', memo: '아침 순찰' });
+    expect(posts()[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r-m', memo: '아침 순찰' });
     expect(posts()[0].key).toMatch(/^[A-Za-z0-9._:-]{1,128}$/);
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다. 바로 적용됩니다.');
+    expect(text()).toContain('시뮬-1에 «1층 순찰» 1번째 저장을 배정했습니다. 바로 적용됩니다.');
     expect(rowOf(asg[0].id).textContent).toContain('배정됨');
     expect(rowOf(asg[0].id).textContent).toContain('아침 순찰');
     await stopOk();
@@ -165,50 +176,48 @@ describe('배정 창', () => {
     await pickRobot('r-a');
     await click(btn('배정', panel()));
     expect(asg[0].status).toBe('ACTIVE');
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다. 바로 적용됩니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다. 바로 적용됩니다.');
     expect(btn('내 요청 보기', panel())).toBeUndefined();
     expect(rowOf(asg[0].id).textContent).toContain('배정됨');
     // 이미 배정된 판 → 그 로봇도 회색 + 이유
     await click(btn('로봇에 배정', panel()));
     expect($<HTMLButtonElement>('[data-robot="r-a"]', panel())!.disabled).toBe(true);
-    expect(text()).toContain('이 판이 이미 배정되어 있습니다.');
+    expect(text()).toContain('이 저장 기록이 이미 배정되어 있습니다.');
   });
   it('서버 403·404 = 회색 단추와 같은 문구, 409 = 이미 배정 문구, 보관 422 = 보관 문구', async () => {
     scenarios = [scen('s1', '1층 순찰')];
-    await openAssign(KIM, { over: { 'POST /assignments': [err(403, 'FORBIDDEN', '담당 로봇만'), err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.'),
+    await openAssign(LEE, { over: { 'POST /assignments': [err(403, 'FORBIDDEN', '담당 로봇만'), err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.'),
       err(409, 'ASSIGNMENT_EXISTS', '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.'), err(422, 'SCENARIO_ARCHIVED', '보관된 시나리오는 배정할 수 없습니다.')] } });
-    await pickRobot('r-b');
+    await pickRobot('r-a');
     await click(btn('배정', panel()));
     expect(text()).toContain(OUT);
-    await click(btn('로봇에 배정', panel())); await pickRobot('r-b'); await click(btn('배정', panel()));
+    await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
     expect(text()).toContain(OUT);
-    await click(btn('로봇에 배정', panel())); await pickRobot('r-b'); await click(btn('배정', panel()));
-    expect(text()).toContain('이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다.');
-    await click(btn('로봇에 배정', panel())); await pickRobot('r-b'); await click(btn('배정', panel()));
-    expect(text()).toContain('보관된 시나리오는 배정할 수 없습니다. 보관되지 않은 시나리오를 고르세요.');
+    await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
+    expect(text()).toContain('이 로봇에는 이미 이 시나리오의 같은 저장 기록이 배정되어 있거나 결재를 기다리고 있습니다.');
+    await click(btn('로봇에 배정', panel())); await pickRobot('r-a'); await click(btn('배정', panel()));
+    expect(text()).toContain('휴지통에 있는 시나리오는 배정할 수 없습니다. 휴지통 밖의 시나리오를 고르세요.');
     expect(new Set(posts().map((p) => p.key)).size).toBe(4);   // 시도마다 새 키
     expect(asg).toHaveLength(0);
   });
-  it('보관된 시나리오: «로봇에 배정» 회색 + 이유', async () => {
+  it('휴지통의 시나리오: «로봇에 배정» 회색 + 이유', async () => {
     scenarios = [scen('s1', '1층 순찰', { archived_at: '2026-10-20T03:00:00Z' })];
     serve(KIM);
-    await open('#/mission');
-    await click($('label input[type="checkbox"]'));   // 보관된 것도 보기
-    await click($('[data-plan="s1"]'));
+    await open('#/mission/s1');   // 휴지통 것은 목록에 없고(MAP-TAB-MERGE) 옛 주소·알림 링크로만 연다
     const b = btn('로봇에 배정', panel())!;
     expect(b.disabled).toBe(true);
-    expect($(`#${b.getAttribute('aria-describedby')}`)!.textContent).toBe('보관된 시나리오는 배정할 수 없습니다.');
+    expect($(`#${b.getAttribute('aria-describedby')}`)!.textContent).toBe('휴지통에 있는 시나리오는 배정할 수 없습니다.');
   });
 });
 
 describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () => {
-  /** 시나리오 목록의 «배정된 로봇» 열이 먼저 받는 조직 전체 배정 목록(진짜 처리) — 아래 순서는 배정 창 것부터 */
+  /** 시나리오 창 목록·열린 시나리오의 «배정 N» 이 먼저 받는 조직 전체 배정 목록 두 번(진짜 처리) — 아래 순서는 배정 창 것부터 (MAP-TAB-MERGE) */
   const LIST = (real: () => Reply) => real();
   it('처리된 뒤 답이 끊김: «확인 중» → 목록에 새 내 배정 → 성공으로(다시 보내지 않음)', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     let release = () => {};
     const gate = new Promise<void>((r) => { release = r; });
-    await openAssign(KIM, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
+    await openAssign(LEE, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [LIST, LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
       async (real) => { await gate; return real(); }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
@@ -217,7 +226,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     expect(text()).not.toContain('배정했습니다');   // 추측하지 않음
     await stopOk();   // 확인 중에도 STOP
     release(); await flush();
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다.');
     expect(posts()).toHaveLength(1);
   });
   it('처리 안 된 채 끊김(5xx): 목록에 없음 → 확정 안 함 → «같은 요청 다시 보내기» = 같은 키', async () => {
@@ -232,15 +241,15 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     expect(posts()).toHaveLength(2);
     expect(posts()[1].key).toBe(posts()[0].key);
     expect(posts()[1].body).toEqual(posts()[0].body);
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다.');
     // 같은 키를 또 보내도 서버는 첫 결과를 돌려준다(두 번 배정 안 됨)
     expect(asg).toHaveLength(1);
   });
   it('끊김 뒤 처리됐는데 같은 키로 다시 보냄 → 서버 재생, 배정 하나', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     // 확인 목록 조회가 처리 전 상태를 보여 확정 못 함 → 같은 키 재전송 → 재생
-    await openAssign(KIM, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
-      'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }] } });
+    await openAssign(LEE, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
+      'GET /assignments': [LIST, LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
     expect(text()).toContain('배정이 아직 목록에 없습니다.');
@@ -251,7 +260,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
   });
   // PR #50 검토: 멱등 재전송 응답은 «최초» 결과의 재생 — 그새 반려·STALE·해제됐으면 목록의 지금 상태로 안내(PENDING/ACTIVE 단정 0)
   const lostThenEmpty = (): Parameters<typeof serve>[1] => ({ over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
-    'GET /assignments': [LIST, (real) => real(), (real) => real(), { status: 200, body: { items: [], next_cursor: null } }] } });
+    'GET /assignments': [LIST, LIST, (real) => real(), (real) => real(), { status: 200, body: { items: [], next_cursor: null } }] } });
   it('처리된 뒤 끊김 → 확인 전 반려(STALE 도 REJECTED) → 같은 키 재전송 = 재생 PENDING 이어도 «반려됨»으로', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(LEE, lostThenEmpty());
@@ -267,7 +276,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
   });
   it('처리된 뒤 끊김 → 확인 전 다른 화면에서 해제 → 재전송 = 재생 ACTIVE 이어도 «해제됨»으로', async () => {
     scenarios = [scen('s1', '1층 순찰')];
-    await openAssign(KIM, lostThenEmpty());
+    await openAssign(LEE, lostThenEmpty());
     await pickRobot('r-a');
     await click(btn('배정', panel()));
     asg[0].status = 'REMOVED';
@@ -379,7 +388,7 @@ describe('배정 목록·해제', () => {
     asg = [mk({ robot_id: 'r-a', status: 'ACTIVE' })];
     await (async () => { serve(KIM, { over: { 'DELETE /assignments/as1': [(real) => { real(); throw new TypeError('lost'); }] } }); await open('#/mission'); await click($('[data-plan="s1"]')); })();
     await click(btn('해제', rowOf('as1')));
-    expect(text()).toContain('Go2-A에서 «1층 순찰» 판 1 배정을 해제했습니다.');
+    expect(text()).toContain('Go2-A에서 «1층 순찰» 1번째 저장 배정을 해제했습니다.');
   });
   it('해제 응답 끊김인데 목록이 아직 ACTIVE → 확정 안 함 + 다시 누르라는 안내', async () => {
     scenarios = [scen('s1', '1층 순찰')];
@@ -398,8 +407,22 @@ describe('배정 목록·해제', () => {
     expect([...panel().querySelectorAll('[data-assignment]')].map((x) => x.getAttribute('data-assignment'))).toEqual(['as1', 'as3']);
     await setVal($<HTMLSelectElement>('[aria-label="배정 보기"]')!, 'r-a');
     expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('robot_id')).toBe('r-a');
-    expect(text()).toContain('2층 점검 · 판 1');
+    expect(text()).toContain('2층 점검 · 1번째 저장');
     expect($('[data-assignment="as3"]')).toBeNull();
+  });
+  it('완전 삭제된 시나리오의 끝난 배정(scenario_id·판 null): «해제·반려된 것도 보기» = archived=true, 목록이 깨지지 않고 «(삭제됨) 이름»', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    asg = [mk({ robot_id: 'r-a', status: 'ACTIVE' }),
+      mk({ robot_id: 'r-a', status: 'REMOVED', scenario_id: null, scenario_version: null, scenario_name: '삭제된 시나리오: 옛 순찰', scenario_name_snapshot: '옛 순찰', removed_at: '2026-10-21T00:00:00Z' })];
+    serve(KIM);
+    await open('#/mission'); await click($('[data-plan="s1"]'));
+    await setVal($<HTMLSelectElement>('[aria-label="배정 보기"]')!, 'r-a');
+    expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('archived')).toBeNull();
+    await click([...panel().querySelectorAll('input[type="checkbox"]')][0]);
+    expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('archived')).toBe('true');
+    expect(text()).not.toContain('형식이 맞지 않습니다');
+    expect(rowOf('as2').textContent).toContain('(삭제됨) 옛 순찰'); expect(rowOf('as2').textContent).not.toContain('null');
+    expect(rowOf('as1').textContent).toContain('1층 순찰 · 1번째 저장');
   });
 });
 
@@ -408,20 +431,22 @@ describe('관제 서랍 [배정]', () => {
     scenarios = [scen('s1', '1층 순찰')];
     serve(LEE);
     await open('#/fleet');
-    await click([...$('[aria-label="로봇 목록"]')!.querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-B')));
+    await click(fleetRow(box, 'Go2-B'));
     const other = $<HTMLButtonElement>('[data-assign-robot]')!;
     expect(other.disabled).toBe(true);
     expect($(`#${other.getAttribute('aria-describedby')}`)!.textContent).toBe(OUT);
-    await click([...$('[aria-label="로봇 목록"]')!.querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    await click(fleetRow(box, 'Go2-A'));
     await click($('[data-assign-robot]'));
-    expect(location.hash).toBe('#/mission');
-    expect(box.textContent).toContain('Go2-A에 배정할 시나리오를 고르세요');
+    expect(location.hash).toBe('#/map');
+    expect(box.textContent).toContain('Go2-A에 배정할 시나리오를 고르세요 — 먼저');   // 지도 고르기 화면에도 안내
+    await click($('[data-building]'));
+    expect(box.textContent).toContain('Go2-A에 배정할 시나리오를 고르세요 — 고르면');
     await click($('[data-plan="s1"]'));
     expect($('[aria-label="배정 창"]', panel())).toBeTruthy();
     expect($('[data-robot="r-a"]', panel())!.getAttribute('aria-pressed')).toBe('true');
     await click(btn('배정', panel()));
     expect(posts()[0].body).toMatchObject({ scenario_id: 's1', robot_id: 'r-a' });
-    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다.');
   });
 });
 
@@ -438,7 +463,7 @@ describe('폰 시나리오 카드', () => {
     const cards = [...sheet.querySelectorAll('[data-card]')];
     expect(cards.map((c) => c.querySelector('h2')!.textContent)).toEqual(['1층 순찰', '2층 점검']);
     expect(cards[1].textContent).toContain('결재 대기');
-    expect(cards[1].textContent).toContain('판 3');
+    expect(cards[1].textContent).toContain('3번째 저장');
     for (const c of cards) { const b = c.querySelector('button')!; expect(b.disabled).toBe(true); expect(b.textContent).toContain('준비 중'); }
     expect(sheet.textContent).not.toContain('옛 순찰');
     await stopOk();
@@ -448,5 +473,15 @@ describe('폰 시나리오 카드', () => {
     await open('#/drive/r-a', true);
     await click([...$('[aria-label="조종 메뉴"]')!.querySelectorAll('button')].find((b) => b.textContent === '시나리오'));
     expect($('[data-sheet]')!.textContent).toContain('이 로봇에 배정된 시나리오가 없습니다.');
+  });
+});
+
+describe('null 참조는 끝난 배정에만(PR #230 검토)', () => {
+  it('POST 성공 응답이 ACTIVE 인데 scenario_id·판이 null 이면 성공으로 보이지 않는다', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    await openAssign(LEE, { over: { 'POST /assignments': [{ status: 201, body: mk({ robot_id: 'r-a', status: 'ACTIVE', scenario_id: null, scenario_version: null }) }] } });
+    await pickRobot('r-a'); await click(btn('배정', panel()));
+    expect(text()).not.toContain('배정했습니다');
+    expect(text()).not.toContain('null');
   });
 });

@@ -48,7 +48,7 @@ const server = createServer((req, res) => {
       let s = body.toString();
       s = replace(s, 'const st = (window.__sim', `${metrics}\nconst st = (window.__sim`);
       // Replay identical initial pose every tick: both policies remain active even
-      // if the demo teacher falls. Reset work is outside step, inside frame time.
+      // as the demo teacher changes posture. Reset work is outside step, inside frame time.
       s = replace(s, '  sim.hold(0.5);\n  ready = true;', `sim.hold(0.5);
         const originalStep = sim.step;
         sim.step = () => { sim.reset(); const t = performance.now(); originalStep(); window.__perf.step.push(performance.now() - t); };
@@ -72,7 +72,7 @@ const stats = (a) => {
 try {
   browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true,
     args: ['--no-sandbox', '--enable-webgl', '--enable-gpu', '--ignore-gpu-blocklist', '--use-gl=angle', `--use-angle=${angle}`] });
-  for (const rate of [1, 4]) for (const policy of ['ame2-demo', 'foothold-v2']) for (const version of args.compare ? ['before', 'after'] : [useBaseline ? 'before' : 'after']) {
+  for (const rate of [1, 4]) for (const policy of ['ame2-demo', 'nvidia-demo']) for (const version of args.compare ? ['before', 'after'] : [useBaseline ? 'before' : 'after']) {
     useBaseline = version === 'before';
     const hostLoadBefore = loadavg();
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -94,7 +94,7 @@ try {
       return { t: performance.now(), behind: __sim.stepsBehind, steps: __sim.steps };
     });
     await page.waitForTimeout(seconds * 1000);
-    const result = await page.evaluate(() => ({ ...__perf, elapsed: performance.now(), behind: __sim.stepsBehind, steps: __sim.steps, fell: __sim.sim.fell }));
+    const result = await page.evaluate(() => ({ ...__perf, elapsed: performance.now(), behind: __sim.stepsBehind, steps: __sim.steps }));
     assert.deepEqual(errors, []);
     const elapsed = (result.elapsed - start.t) / 1000;
     console.log(JSON.stringify({ version, policy, cpuRate: rate, browser: browser.version(), cpu: cpus()[0].model, hostLoadBefore, hostLoadAfter: loadavg(),

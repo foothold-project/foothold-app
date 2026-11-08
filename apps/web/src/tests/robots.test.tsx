@@ -6,8 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Dashboard, RobotSummary, User } from '../../../contracts/ts';
 import { now, rt } from '../rt';
 import { Root } from '../session';
-import { ROBOT_BUSY, ROBOT_GONE, ROBOT_IN_USE } from '../screens/settings';
+import { ROBOT_BUSY, ROBOT_GONE } from '../screens/settings';
 import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
+import { fleetNames, fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -18,7 +19,7 @@ const CHOI: User = { ...KIM, id: 'o3', username: 'choi', display_name: '최운�
 const LIMITS = { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30 };
 const AT = '2026-10-20T05:06:07Z';
 const robot = (id: string, name: string, owner: User | null, p: Partial<RobotSummary> = {}): RobotSummary => ({ id, name, model: 'unitree_go2',
-  simulation: false,
+  simulation: false, server_drive_allowed: false,
   owner: owner && { id: owner.id, display_name: owner.display_name }, connection: 'OFFLINE', status: null, battery: null, location: null, lease: null,
   current_run: null, devices: [], attention: [], ...p });
 const RA = robot('r-a', 'Go2-A', LEE, { connection: 'ONLINE', status: 'IDLE', battery: { soc: 64, updated_at: AT },
@@ -78,7 +79,9 @@ const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => act(() =
 const submit = async (form: Element) => { act(() => { (form as HTMLFormElement).requestSubmit(); }); await flush(); };
 const kpi = () => Object.fromEntries([...card('요약').querySelectorAll('div')].map((d) => [d.firstElementChild!.textContent, d.querySelector('b')!.textContent]));
 const line = (k: string) => [...card('로봇 상세').querySelectorAll('.fh-row')].find((d) => d.firstElementChild?.textContent === k)!.lastElementChild!.textContent;
-const row = (name: string) => [...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes(name))!;
+/** 총괄 서랍 열기 — 고른 행을 다시 누름 */
+const drawer = () => click(card('로봇 목록').querySelector('button[aria-pressed="true"]'));
+const row = (name: string) => fleetRow(box, name);
 const subs = (w: FakeWS) => w.of('sub').map((m) => m.robots);
 const stopOk = () => { const s = $<HTMLButtonElement>('[data-stop]')!; expect(s).not.toBeNull(); expect(s.disabled).toBe(false); expect(s.hidden).toBe(false); };
 
@@ -94,6 +97,49 @@ function live(me: User) {
   return w;
 }
 
+it('keeps relay battery and devices separate from direct status in list and detail', async () => {
+  const relay = { source: 'PHONE' as const, age_s: .1, valid_for_s: 2.9,
+    battery: { soc: 75, updated_at: AT }, speed: .5,
+    devices: [{ key: 'relay-lidar', kind: 'LIDAR' as const, label: '폰이 전한 라이다', state: 'OK' as const }] };
+  serve(signedIn(LEE, [{ ...RA, phone_relay: relay }]));
+  await open('#/fleet');
+  const w = FakeWS.last;
+  act(() => { w.open(); w.recv(state('r-a', { battery: { soc: 64, updated_at: AT }, phone_relay: relay })); });
+  expect(line('배터리')).toBe('64%');
+  expect(card('로봇 상세').querySelector('[aria-label="폰 경유 상태"]')!.textContent).toContain('75%');
+  expect(row('Go2-A').textContent).toContain('폰 경유 · 0초 전');
+  act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null,
+    devices: [], latched: null, stop_gen: null, applied: null, phone_relay: relay })));
+  expect(row('Go2-A').textContent).toContain('끊김');
+  expect(line('배터리')).toBe('64%');
+  expect(card('로봇 상세').querySelector('[aria-label="폰 경유 상태"]')!.textContent).toContain('폰이 전한 라이다');
+  expect(rt.get('r-a').state?.devices).toEqual([]);
+});
+
+it('실기 robot_info: 상세 배터리 옆 자세·상태 번호·넘어짐 추정, 목록은 의심일 때만 Chip, 끊기면 폰 경유 → 모름(끊김)', async () => {
+  const ri = { source: 'GO2_DDS' as const, attitude: { roll: 0.0175, pitch: -0.5236 }, error_code: 100, fallen: true, fallen_source: 'imu_tilt_estimate' as const };
+  serve(signedIn(LEE, [RA, { ...RB, robot_info: ri }]));
+  await open('#/fleet');
+  const w = FakeWS.last;
+  act(() => { w.open(); w.recv(state('r-a', { robot_info: { ...ri, fallen: false } })); });
+  expect(line('자세')).toBe('roll +1.0° · pitch -30.0°');
+  expect(line('상태 번호')).toBe('100');
+  expect(line('넘어짐 추정')).toBe('아님');
+  expect(row('Go2-A').querySelector('[data-fall-chip]')).toBeNull();
+  // 남의 로봇(요약만)은 서버 값이 있어도 «확인 안 됨» — 목록 Chip 도 없음
+  expect($('[aria-label="다른 로봇"] [data-fall-chip]')).toBeNull();
+  act(() => w.recv(state('r-a', { robot_info: ri })));
+  expect(card('로봇 상세').querySelector('[data-robot-fallen] [data-tone="warn"]')!.textContent).toBe('▲의심(기울기 추정)');
+  // 끊김 + 폰 경유 robot_info → 폰 경유 라벨
+  const relay = { source: 'PHONE' as const, age_s: .1, valid_for_s: 2.9, battery: null, speed: null, devices: [], robot_info: { ...ri, error_code: 0, fallen: false } };
+  act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, devices: [], latched: null, stop_gen: null, applied: null, robot_info: null, phone_relay: relay })));
+  expect(line('자세')).toBe('폰 경유');
+  expect(card('로봇 상세').querySelector('[data-robot-info]')!.getAttribute('data-robot-info')).toBe('phone');
+  expect(line('상태 번호')).toBe('0(정상 범위)');
+  act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, devices: [], latched: null, stop_gen: null, applied: null, robot_info: null, phone_relay: null })));
+  expect(line('상태 번호')).toBe('모름(끊김)');
+});
+
 describe('관제 요약 = GET /dashboard(05 §4)', () => {
   it('총괄: 서버 수치 그대로, 주의 필요는 강조, 운영 관리자 표', async () => {
     serve(signedIn(KIM, [RA, RB]));
@@ -103,10 +149,11 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
     expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
   });
-  it('운영 관리자: 서버가 센 담당 범위(내 로봇·내 요청), 운영 관리자 표 없음, 목록은 전체', async () => {
+  it('운영 관리자: 요약 수치·운영 관리자 표 없이 내 로봇 한 대 집중, 남의 로봇은 «다른 로봇» 접기(ROBOT-TAB 11-02)', async () => {
     serve(signedIn(LEE, [RA, RB_HIDDEN], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 1, robots_attention: 0, operators: [] } } }));
     await open('#/fleet');
-    expect(kpi()).toEqual({ '내 로봇': '1', 연결: '1', '임무 중': '0', '주의 필요': '0', '내 요청': '0' });
+    expect($('[aria-label="요약"]')).toBeNull();
+    expect(card('다른 로봇').querySelector('summary')!.textContent).toContain('다른 로봇 1대');
     expect($('[aria-label="운영 관리자"]')).toBeNull();
     expect(row('Go2-B').textContent).toContain('박운영 · 보는 중');
   });
@@ -131,7 +178,8 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     act(() => root!.unmount()); box.remove();
     serve(signedIn(LEE, [], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 0, robots_online: 0, robots_attention: 0, operators: [] } } }));
     await open('#/fleet');
-    expect(kpi()['내 로봇']).toBe('0');
+    expect($('[aria-label="요약"]')).toBeNull();
+    expect(card('로봇 없음').textContent).toContain('담당 로봇이 없습니다');
     expect($('[aria-label="운영 관리자"]')).toBeNull();
   });
   it('요약을 10 s 마다 다시 받는다(화면 WS 에 요약 없음)', async () => {
@@ -151,17 +199,24 @@ describe('상세 서랍 = GET /robots/{id}', () => {
   it('총괄: 담당·배터리·위치·장치(이름·종류·상태), 층·임무는 지어내지 않음', async () => {
     serve(signedIn(KIM, [RA, RB]));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(sent('GET', '/robots/r-a')).toHaveLength(1);
     expect(line('담당')).toBe('이운영');
     expect(line('배터리')).toBe('64%');
     expect(line('위치')).toMatch(/^x 1\.3 m · y -3\.0 m \(\d\d:\d\d:\d\d\)$/);
     expect([...card('장치').querySelectorAll('li')].map((li) => li.textContent)).toEqual(['앞 카메라카메라●정상', '라이다라이다▲연결 끊겨 확인 안 됨']);
     expect(card('로봇 상세').textContent).not.toMatch(/임무|층/);
+    // 장치·위치는 접혀 있어도 장치 문제는 접힌 밖에 늘 보인다(ROBOT-TAB-TIDY)
+    expect($('[data-detail-more]')!.hasAttribute('open')).toBe(false);
+    expect($('[data-detail-alert]')!.closest('details')).toBeNull();
+    expect($('[data-detail-alert]')!.textContent).toBe('▲ 장치 문제: 라이다 연결 끊겨 확인 안 됨');
+    expect($('[data-detail-links]')!.textContent).toMatch(/^서버.+로봇.+잠금/);   // 서버·로봇 연결·잠금을 한 줄에 따로
   });
   it('null 은 null 대로: 배터리 «측정 안 됨», 위치 «위치 없음», 장치 «장치 정보 없음», 담당 없음', async () => {
     const bare = robot('r-n', 'Go2-N', null, { connection: 'ONLINE' });
     serve(signedIn(KIM, [bare]));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     live(KIM);
     act(() => FakeWS.last.recv(state('r-n', { battery: null, location: null, devices: [] })));
     expect([line('담당'), line('배터리'), line('위치'), line('장치')]).toEqual(['담당 없음', '측정 안 됨', '위치 없음', '장치 정보 없음']);
@@ -186,6 +241,20 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     act(() => w.recv(state('r-a', { location: { ...RA.location!, x: 9 }, devices: [{ ...RA.devices[0], state: 'ERROR' }] })));
     expect(line('위치')).toContain('x 9.0 m');
     expect(line('장치')).toContain('오류');
+  });
+  it('장치 상태 코드(contracts DeviceStatusCode): ACCEPTED 는 허용 표시, ERROR·모르는 level 은 오류로 원시 코드, OK 는 숨김', async () => {
+    serve(signedIn(KIM, [RA]));
+    await open('#/fleet');
+    const w = live(KIM);
+    await click(row('Go2-A'));
+    act(() => w.recv(state('r-a', { devices: [
+      { key: 'body', kind: 'OTHER', label: '기체', state: 'OK', status_code: { raw: 100, level: 'ACCEPTED', reason: 'EXPLICIT_SERVER_ALLOWLIST' } },
+      { key: 'cam', kind: 'CAMERA_RGB', label: '앞 카메라', state: 'ERROR', status_code: { raw: 7, level: 'ERROR', reason: null } },
+      { key: 'x', kind: 'OTHER', label: '새 장치', state: 'ERROR', status_code: { raw: 9, level: 'WEIRD' as never, reason: null } },
+      { key: 'lidar', kind: 'LIDAR', label: '라이다', state: 'OK', status_code: { raw: 0, level: 'OK', reason: null } },
+    ] })));
+    const codes = [...card('로봇 상세').querySelectorAll('[data-status-code]')].map((e) => `${e.getAttribute('data-status-code')}:${e.textContent}`);
+    expect(codes).toEqual(['ACCEPTED:허용된 상태 코드 100(서버 명시 허용)', 'ERROR:상태 코드 7', 'ERROR:상태 코드 9']);
   });
   it('열린 상세의 담당이 바뀌면 다시 받아 갱신, 옛 요청의 늦은 답은 버린다', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
@@ -216,169 +285,59 @@ describe('상세 서랍 = GET /robots/{id}', () => {
   it('상세 404 → «찾을 수 없음» + 목록 다시 받기, 그 밖 실패는 이유', async () => {
     serve(signedIn(KIM, [RA], { 'GET /robots/r-a': err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.') }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세').querySelector('[role="alert"]')!.textContent).toContain('찾을 수 없습니다');
     expect(lists()).toBe(2);
     act(() => root!.unmount()); box.remove();
     serve(signedIn(KIM, [RA], { 'GET /robots/r-a': () => { throw new TypeError('Failed to fetch'); } }));
     await open('#/fleet');
+    await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세').querySelector('[role="alert"]')!.textContent).toContain('상세를 받지 못했습니다. 서버에 연결하지 못했습니다');
     expect(lists()).toBe(1);
   });
 });
 
-describe('설정 › 로봇(총괄, 05 §3)', () => {
+describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 등록·토큰 없음)', () => {
+  const SIM = robot('s-1', '시뮬 실험', KIM, { simulation: true });
   const pickRobot = (name: string) => click([...card('로봇').querySelectorAll('li button')].find((b) => b.textContent!.includes(name)));
   it('운영 관리자에게는 없음(권한 없는 기능 숨김)', async () => {
     serve(signedIn(LEE, [RA]));
     await open('#/settings');
     expect($('[aria-label="로봇"]')).toBeNull();
+  });
+  it('총괄: 시뮬 로봇만 목록, 실기 등록·토큰·지우기·담당 단추 없음 + 실기는 운영 관리자가 연결한다는 안내', async () => {
+    serve(signedIn(KIM, [RA, SIM]));
+    await open('#/settings');
+    expect(card('로봇').textContent).toContain('시뮬 로봇 (1)');
+    expect(card('로봇').textContent).not.toContain('Go2-A');
+    expect($('[data-real-note]')!.textContent).toContain('새 로봇 추가');
     expect(btn('로봇 등록')).toBeUndefined();
+    await pickRobot('시뮬 실험');
+    const edit = card('로봇 설정');
+    expect(['토큰 다시 받기', '로봇 지우기'].map((t) => btn(t, edit))).toEqual([undefined, undefined]);
+    expect(edit.querySelector('select')).toBeNull();
+    expect(calls.some((c) => c.method === 'POST' && (c.path === '/robots' || c.path.endsWith('/agent-token')))).toBe(false);
   });
-  it('등록: 이름·담당(잠기지 않은 운영 관리자) → 토큰은 응답 화면에서 한 번만, 닫으면 어디에도 없음', async () => {
-    const TOKEN = 'fh_agent_secret_123';
-    serve(signedIn(KIM, [RA], { 'POST /robots': { status: 201, body: { robot: robot('r-n', 'Go2-N', LEE), agent_token: TOKEN } } }));
+  it('시뮬 이름 바꾸기: PATCH {name} 만, 바뀐 값 없음은 안 보냄, 503 은 다시, 404 는 이미 지워짐', async () => {
+    let rep: Reply = err(503, 'SERVER_BUSY', 'busy');
+    serve(signedIn(KIM, [SIM], { 'PATCH /robots/s-1': () => rep }));
     await open('#/settings');
-    expect(card('로봇').textContent).toContain('Go2-A이운영');
-    await click(btn('로봇 등록'));
-    const form = $('form[aria-label="로봇 등록"]')!;
-    expect([...form.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['담당 없음', '이운영', '박운영']);   // 잠긴 최운영·총괄 제외
+    await pickRobot('시뮬 실험');
+    const edit = card('로봇 설정'), form = edit.querySelector('form')!;
     await submit(form);
-    expect(form.querySelector('[role="alert"]')!.textContent).toBe('로봇 이름을 입력하세요.');
-    expect(sent('POST', '/robots')).toHaveLength(0);
-    setVal(form.querySelector('input[name="name"]')!, ' Go2-N ');
-    setVal(form.querySelector('select')!, 'o1');
-    const before = lists();
+    expect(edit.querySelector('[role="status"]')!.textContent).toBe('바뀐 값이 없습니다.');
+    setVal(form.querySelector('input[name="name"]')!, ' 시뮬 둘 ');
     await submit(form);
-    expect(sent('POST', '/robots')[0].body).toEqual({ name: 'Go2-N', owner_user_id: 'o1' });
-    expect($<HTMLInputElement>('input[aria-label="로봇 토큰"]')!.value).toBe(TOKEN);
-    expect(card('로봇 토큰').textContent).toContain('닫으면 다시 볼 수 없습니다.');
-    expect(lists()).toBeGreaterThanOrEqual(before + 2);   // 설정 목록 + 관제·조종 목록(App)
-    const write = vi.fn(async () => {});
-    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: write } });
-    await click(btn('복사', card('로봇 토큰')));
-    expect(write).toHaveBeenCalledWith(TOKEN);
-    await click(btn('닫기', card('로봇 토큰')));
-    expect($('[aria-label="로봇 토큰"]')).toBeNull();
-    expect(box.innerHTML).not.toContain(TOKEN);
-    expect(JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage })).not.toContain(TOKEN);
-  });
-  it('로봇 0대에서 첫 등록: 목록이 바뀌어도 토큰 칸이 그대로 남는다', async () => {
-    serve(signedIn(KIM, [], { 'POST /robots': { status: 201, body: { robot: RA, agent_token: 'fh_first_789' } } }));
-    await open('#/settings');
-    routes['GET /robots'] = { status: 200, body: { items: [RA], next_cursor: null } };
-    await click(btn('로봇 등록'));
-    setVal($<HTMLInputElement>('form[aria-label="로봇 등록"] input[name="name"]')!, 'Go2-A');
-    await submit($('form[aria-label="로봇 등록"]')!);
-    await flush();
-    expect($<HTMLInputElement>('input[aria-label="로봇 토큰"]')!.value).toBe('fh_first_789');
-    expect(card('로봇').textContent).toContain('로봇 (1)');
-  });
-  it('등록 실패: 400 은 서버 문장, 403 은 서버 문장, 네트워크는 연결 문구 — 토큰 칸 없음', async () => {
-    for (const [rep, says] of [[err(400, 'VALIDATION', '담당 운영 관리자를 확인하세요.'), '담당 운영 관리자를 확인하세요.'],
-      [err(403, 'FORBIDDEN', '권한이 없습니다.'), '권한이 없습니다.'], [() => { throw new TypeError('Failed to fetch'); }, '서버에 연결하지 못했습니다']] as const) {
-      serve(signedIn(KIM, [RA], { 'POST /robots': rep as Reply }));
-      await open('#/settings');
-      await click(btn('로봇 등록'));
-      setVal($<HTMLInputElement>('form[aria-label="로봇 등록"] input[name="name"]')!, 'Go2-N');
-      await submit($('form[aria-label="로봇 등록"]')!);
-      expect($('form[aria-label="로봇 등록"] [role="alert"]')!.textContent).toContain(says);
-      expect($('[aria-label="로봇 토큰"]')).toBeNull();
-      act(() => root!.unmount()); box.remove();
-    }
-  });
-  it('등록 401 → 로그인 화면', async () => {
-    serve(signedIn(KIM, [RA], { 'POST /robots': err(401, 'AUTH_REQUIRED', '로그인이 필요합니다.') }));
-    await open('#/settings');
-    await click(btn('로봇 등록'));
-    setVal($<HTMLInputElement>('form[aria-label="로봇 등록"] input[name="name"]')!, 'Go2-N');
-    await submit($('form[aria-label="로봇 등록"]')!);
-    expect($('[aria-label="로그인"]')).not.toBeNull();
-  });
-  it('바꾸기: 바뀐 칸만 PATCH, 담당 없애기 = owner_user_id null, 담당 바꾸면 조종이 끝난다는 안내', async () => {
-    serve(signedIn(KIM, [RA], { 'PATCH /robots/r-a': { status: 200, body: { ...RA, owner: null } } }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    const box2 = card('로봇 설정');
-    expect(box2.textContent).toContain('예전 담당자의 조종이 끝나고 로봇이 정지합니다');
-    await submit(box2.querySelector('form')!);
-    expect(box2.querySelector('[role="status"],[role="alert"]')!.textContent).toBe('바뀐 값이 없습니다.');
-    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);
-    setVal(box2.querySelector('select')!, '');
-    await submit(box2.querySelector('form')!);
-    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);   // 담당이 바뀌면 확인 먼저 — 로봇 이름과 조종 끝·정지
-    expect(card('확인').textContent).toMatch(/Go2-A.*담당을 .+ → 담당 없음\(으\)로 바꿀까요\? .+의 조종이 끝나고 로봇이 정지합니다/);
-    await click(btn('취소', card('확인')));
-    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);
-    await submit(box2.querySelector('form')!);
-    await click(btn('바꾸기(조종 끝·정지)', card('확인')));
-    expect(sent('PATCH', '/robots/r-a')[0].body).toEqual({ owner_user_id: null });
-    setVal(box2.querySelector('input[name="name"]')!, 'Go2-AA');
-    setVal(box2.querySelector('select')!, 'o1');
-    await submit(box2.querySelector('form')!);
-    expect(sent('PATCH', '/robots/r-a')[1].body).toEqual({ name: 'Go2-AA' });
-  });
-  it('바꾸기 503(다른 변경 처리 중) → 잠시 뒤 다시', async () => {
-    serve(signedIn(KIM, [RA], { 'PATCH /robots/r-a': err(503, 'SERVER_BUSY', 'busy') }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    setVal(card('로봇 설정').querySelector('select')!, 'o2');
-    await submit(card('로봇 설정').querySelector('form')!);
-    await click(btn('바꾸기(조종 끝·정지)', card('확인')));
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe(ROBOT_BUSY);
-  });
-  it('지우기: 확인 뒤 DELETE. 409 = 조종·실행 중 문구, 503 = 다시, 404 = 이미 지워짐 + 목록 다시, 204 = 목록에서 빠짐', async () => {
-    let rep: Reply = err(409, 'VERSION_CONFLICT', '실행·조종을 끝낸 뒤 해제하세요.');
-    serve(signedIn(KIM, [RA, RB], { 'DELETE /robots/r-a': () => rep }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    const del = async () => { await click(btn('로봇 지우기', card('로봇 설정'))); await click(btn('지우기', card('확인'))); };
-    await click(btn('로봇 지우기', card('로봇 설정')));
-    expect(card('확인').textContent).toContain('되돌릴 수 없습니다');
-    await click(btn('취소', card('확인')));
-    expect(sent('DELETE', '/robots/r-a')).toHaveLength(0);
-    await del();
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe(ROBOT_IN_USE);
-    rep = err(503, 'SERVER_BUSY', 'busy');
-    await del();
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe(ROBOT_BUSY);
+    expect(sent('PATCH', '/robots/s-1')[0].body).toEqual({ name: '시뮬 둘' });
+    expect(edit.querySelector('[role="alert"]')!.textContent).toBe(ROBOT_BUSY);
+    rep = { status: 200, body: { ...SIM, name: '시뮬 둘' } };
+    await submit(form);
+    expect(edit.querySelector('[role="status"]')!.textContent).toBe('저장했습니다.');
     rep = err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.');
-    routes['GET /robots'] = { status: 200, body: { items: [RB], next_cursor: null } };
-    let n = lists();
-    await del();
+    setVal(form.querySelector('input[name="name"]')!, '시뮬 셋');
+    await submit(form);
     expect($('[aria-label="로봇 설정"]')).toBeNull();
     expect(card('로봇').textContent).toContain(ROBOT_GONE);
-    expect(card('로봇').textContent).not.toContain('Go2-A');
-    expect(lists()).toBeGreaterThanOrEqual(n + 2);
-    // 다시 생긴 것처럼 꾸며 204 경로
-    routes['GET /robots'] = { status: 200, body: { items: [RA, RB], next_cursor: null } };
-    await click(btn('닫기') ?? btn('로봇 등록')); await click(btn('취소'));
-    serve({ ...routes, 'DELETE /robots/r-a': { status: 204 } });
-    act(() => root!.unmount()); box.remove();
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    routes['GET /robots'] = { status: 200, body: { items: [RB], next_cursor: null } };
-    n = lists();
-    await del();
-    expect(card('로봇').textContent).toContain('Go2-A 로봇을 지웠습니다.');
-    expect([...card('로봇').querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Go2-B박운영']);
-    expect(lists()).toBeGreaterThanOrEqual(n + 2);
-  });
-  it('토큰 다시 받기: 확인 뒤 POST agent-token → 새 토큰 한 번, 실패는 이유', async () => {
-    let rep: Reply = err(403, 'FORBIDDEN', '권한이 없습니다.');
-    serve(signedIn(KIM, [RA], { 'POST /robots/r-a/agent-token': () => rep }));
-    await open('#/settings');
-    await pickRobot('Go2-A');
-    await click(btn('토큰 다시 받기', card('로봇 설정')));
-    expect(card('확인').textContent).toContain('예전 토큰은 바로 못 쓰게');
-    await click(btn('토큰 다시 받기', card('확인')));
-    expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe('권한이 없습니다.');
-    rep = { status: 200, body: { agent_token: 'fh_new_456' } };
-    await click(btn('토큰 다시 받기', card('로봇 설정')));
-    await click(btn('토큰 다시 받기', card('확인')));
-    expect(sent('POST', '/robots/r-a/agent-token')).toHaveLength(2);
-    expect($<HTMLInputElement>('input[aria-label="로봇 토큰"]')!.value).toBe('fh_new_456');
-    await click(btn('닫기', card('로봇 토큰')));
-    expect(box.innerHTML).not.toContain('fh_new_456');
   });
 });
 
@@ -466,12 +425,13 @@ describe('sub 404(apps/server README «S0» — 등록·담당 변경 직후 서
     await flush();
     expect(subs(w)).toEqual([['r-a'], ['r-a', 'r-b'], ['r-a', 'r-b']]);   // 거절 → 목록 한 번 다시 받고 다시 sub → 또 거절이면 멈춤
     expect(lists()).toBe(n + 2);
-    expect(card('로봇 목록').textContent).not.toContain('로봇이 없습니다');
+    expect(card('로봇 상태').textContent).toContain('Go2-A');
+    expect($('[aria-label="로봇 없음"]')).toBeNull();
     expect($('[data-missed]')!.textContent).toContain('실시간 상태를 받을 수 없는 로봇이 있습니다');
     expect($('[data-missed]')!.textContent).toContain('다음 목록 갱신 때 다시 확인합니다.');
     expect($('header [data-link]')).toBeNull();            // 연결은 그대로
     act(() => w.recv(state('r-a', { battery: { soc: 33, updated_at: AT } })));
-    expect(row('Go2-A').textContent).toContain('33%');
+    expect(line('배터리')).toBe('33%');                     // 고른 내 로봇(Go2-A) 상세
     expect(row('Go2-B').textContent).toContain('확인 안 됨');
     w.auto = () => ({ ok: true });                         // 서버 정책이 따라잡음 → 다음 목록 갱신에 다시 구독
     act(() => { vi.advanceTimersByTime(10_000); });

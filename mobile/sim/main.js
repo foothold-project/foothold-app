@@ -1,21 +1,42 @@
 // 앱 안 오프라인 시뮬(RS-6 창고 브라우저 시뮬을 옮김): 창고 f1 안에서 Go2 를 두 막대로 걷게 한다. 서버·인터넷 없이 앱 번들(www/sim)만 읽는다.
+// go2-demo는 예외: 웹 세션의 로봇 상태 GET만 읽어 실기 자세를 그리며 정책·물리·명령은 실행하지 않는다.
 // 지도 = ?map=<이름>(maps.json 목록 안, [a-z0-9-] 만 — 없거나 틀리면 warehouse) → assets/<이름>/ 의 scene.json·map.json·<이름>.xml.
-// 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = foothold-v2 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
-// RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 앱 숨김·화면 꺼짐 = STOP
-// · 막대 밖 한 손가락 끌기 = 카메라 돌리기, 두 손가락 = 확대·축소. 정책 계약은 policy-adapters.js 에서 id 로 고른다.
+// 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = nvidia-demo 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
+// RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 숨김 = 손 조종 STOP, 시뮬 임무는 복귀 후 계속
+// · 막대 밖 한 손가락 끌기 = 따라가기 돌리기/탑뷰 이동, 두 손가락 = 확대·축소. 정책 계약은 policy-adapters.js 에서 id 로 고른다.
 import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
 import { createSim, ISAAC_LIKE } from './sim.js';
-import { getPolicyAdapter } from './policy-adapters.js';
+import { POLICY_MODES, DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
 import { ame2Joystick } from './ame2-adapter.js';
-import { topFrame } from './top-fit.js';
+import { topFrame, topPoint } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
-import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts, MAX_VX } from './scenario.js';
+import { validateScenarios, createScenarioRunner, createPatrolRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
+import { treeFromScenario, treeRows } from './bt.js';
+import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
+import { MIN_UP } from './walk-surface.js';
+import { loadSimSettings, simSettings } from './settings.js';
+import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
+import { createFrameClock } from './frame-clock.js';
+import { createKeyboardRamp } from './keyboard-ramp.js';
+import { startDemoMapMode } from './start-demo-adapter.js';
+import { createReplayReader, replayRequirement } from './go2-replay.js';
+import { loadCustomTerrain } from './terrain/index.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
-try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
+try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
 catch (e) { selectionError = e; }
+const DEFAULT_POLICY_BACKEND = 'wasm';
+const START_DRAW_MAX_GAP_MS = 100;
+let startMapMode = 'gt';
+try {
+  if (adapter.depth) {
+    startMapMode = startDemoMapMode(new URLSearchParams(location.search).get('startMap') ?? 'gt');
+    adapter = { ...adapter, onnx: { ...adapter.onnx, file: adapter.onnx.files[startMapMode] } };
+  }
+} catch (e) { selectionError = e; }
 const POLICY_DT = adapter.timing.policyDt;
+const readonly = adapter.command.kind === 'none';
 const FLOOR_RGB = [[255, 60, 60], [255, 193, 7], [66, 165, 245], [171, 71, 188]];   // 층 지도 색(1층 = 예전 한 층 지도 빨강)
 const neutral = () => adapter.stop.input.slice();
 
@@ -25,31 +46,77 @@ const MESHES = ['base_0', 'base_1', 'base_2', 'base_3', 'base_4', 'hip_0', 'hip_
 const get = async (u) => { const r = await fetch(u); if (!r.ok) throw new Error(`${u} ${r.status}`); return r; };
 const bytes = async (u) => new Uint8Array(await (await get(u)).arrayBuffer());
 const json = async (u) => (await get(u)).json();
+const backendFor = (mode) => {
+  const params = new URLSearchParams(location.search);
+  return params.get('policyBackend') ?? (mode.command.kind === 'nearby_goal' ? params.get('ame2Backend') : null) ?? (mode.fallback === null ? 'wasm' : DEFAULT_POLICY_BACKEND);
+};
 const st = (window.__sim = { ready: false, err: null });   // 시험용(headless) — 화면에는 안 보임
 
 // ── STOP 잠금: 명령 0. «다시 시작»(#go)만 푼다. 잡고 있던 막대 손가락도 놓게 해서 풀린 뒤엔 새로 누른 손가락만 명령이 된다
 let heading = null;
 const goalAxes = [0, 0, 0];
-let joy = neutral(), stopped = true, sim = null, ready = false;
+let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null, runningScenario = null, runningTree = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
 const sticks = [];
+let inputSettings = manualSettings({}, adapter.command), refreshSettings = async () => {}, startEpoch = 0, clock;
+let applySettings = () => {};
 function lock() {
-  stopped = true; joy = neutral();
-  if (sim) sim.cmd = neutral();
-  if (adapter.stop.pause) { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
+  startEpoch++; clock?.reset();
+  stopped = true; joy = neutral(); if (runningTree?.active) runningTree.cancel('중단'); onLock?.();
+  if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
+  if (adapter.command.kind === 'nearby_goal') { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
   ui();
 }
 function ui() {
   document.body.classList.toggle('stopped', stopped);
   $('stop').setAttribute('aria-pressed', String(stopped));
-  $('go').hidden = !stopped || !ready;
+  $('go').hidden = readonly || !stopped || !ready;
 }
 $('stop').addEventListener('pointerdown', lock);   // 누르는 순간(click 은 손을 뗄 때라 늦다)
-$('scenarioMenu').onclick = () => { $('scenarioPanel').hidden = !$('scenarioPanel').hidden; $('scenarioMenu').setAttribute('aria-expanded', String(!$('scenarioPanel').hidden)); };
+const scenarioPanel = $('scenarioPanel'), scenarioMenu = $('scenarioMenu');
+const showScenarioPanel = (open) => {
+  scenarioPanel.hidden = !open;
+  scenarioMenu.setAttribute('aria-expanded', String(open));
+};
+scenarioMenu.onclick = () => showScenarioPanel(scenarioPanel.hidden);
+// 바깥 누름은 닫기만: 손을 뗄 때의 목표 찍기·click 단추와 끌기까지 capture 단계에서 막는다.
+// STOP·조종 입력은 자식 SVG 를 눌러도 전달한다. 시나리오 중 막대는 기존 hand 중단·잠금을 먼저 거친다.
+const scenarioDismissPointers = new Set();
+const swallowScenarioPress = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+document.addEventListener('pointerdown', (e) => {
+  scenarioDismissPointers.delete(e.pointerId);   // 같은 포인터의 다음 누름은 정상 입력
+  if (scenarioPanel.hidden || scenarioPanel.contains(e.target) || scenarioMenu.contains(e.target)) return;
+  showScenarioPanel(false);
+  if (['stop', 'stickL', 'stickR', 'keys'].some((id) => $(id).contains(e.target))) return;
+  scenarioDismissPointers.add(e.pointerId);
+  swallowScenarioPress(e);
+}, { capture: true, passive: false });
+for (const type of ['pointermove', 'pointerup', 'pointercancel', 'click']) {
+  document.addEventListener(type, (e) => {
+    // 일부 WebView 의 click 은 PointerEvent 대신 MouseEvent 다. 키보드 click(detail=0)은 통과.
+    if (!scenarioDismissPointers.has(e.pointerId) && !(type === 'click' && e.pointerId === undefined && e.detail > 0 && scenarioDismissPointers.size)) return;
+    swallowScenarioPress(e);
+    if (type === 'click' && e.pointerId === undefined) scenarioDismissPointers.clear();
+    else if (type === 'click' || type === 'pointercancel') scenarioDismissPointers.delete(e.pointerId);
+  }, { capture: true, passive: false });
+}
+document.addEventListener('keydown', (e) => { if (e.code === 'Escape') showScenarioPanel(false); });
 $('stop').onclick = lock;                            // 키보드·읽어 주기
-$('go').onclick = () => { if (!ready) return; sticks.forEach((s) => s.release()); stopped = false; ui(); };
-document.addEventListener('visibilitychange', () => { if (document.hidden) lock(); });   // 앱 숨김·화면 꺼짐
-for (const ev of ['pagehide', 'freeze', 'blur']) addEventListener(ev, lock);
+$('go').onclick = async () => {
+  if (readonly || !ready || !stopped) return;
+  const epoch = ++startEpoch, org = await refreshSettings();
+  if (epoch !== startEpoch || !stopped) return;
+  applySettings(org); clock?.reset();
+  sticks.forEach((s) => s.release()); stopped = false; ui();
+};
+function background() {
+  if (readonly || runningTree?.active || !runningScenario?.active) return lock();   // 실기 보기·수동 조종은 기존 정지
+  clock?.reset(); sim?.cancelPolicyStep();   // 숨긴 시간은 물리·막힘 판정에 더하지 않음(미완료 추론도 버림)
+  sticks.forEach((s) => s.release());   // 실행기의 지점·진행·정책 상태는 그대로, 손 조종 입력만 놓음
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) background(); });
+for (const ev of ['freeze', 'blur']) addEventListener(ev, background);
+addEventListener('pagehide', lock);   // 실제 나가기·새로고침은 기존 취소·잠금
 // 집: 서버 화면(«시뮬 열기», ?from=server)에서 왔으면 뒤로 = 그 서버 화면(RemoteClient 가 /sim/ 에서는 고른 서버를 잊지 않음),
 // 웹(같은 출처 /sim/, ?from=web)이면 웹 «시뮬» 화면(폰 틀은 로봇 연결로 바뀜), 아니면 앱 시작 화면
 const from = new URLSearchParams(location.search).get('from'), fromServer = from === 'server' && history.length > 1;
@@ -75,20 +142,30 @@ function stick(el, set) {
   sticks.push({ release });
 }
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
-stick($('stickL'), (x, y) => { const axes = adapter.stop.pause ? goalAxes : joy;
-  axes[0] = r2(-y * adapter.command.joystickScale[0]); axes[1] = r2(-x * adapter.command.joystickScale[1]); });
-stick($('stickR'), (x) => { (adapter.stop.pause ? goalAxes : joy)[2] = r2(-x * adapter.command.joystickScale[2]); });
+const stickAxes = [0, 0, 0];
+const keyboardRamp = createKeyboardRamp(adapter.command.keyboardRamp);
+let keyboardActive = false;
+const updateStickAxes = () => {
+  keyboardActive = false; keyboardRamp.reset();
+  const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
+  axes.splice(0, 3, ...manualCommand(stickAxes, inputSettings).map(r2));
+};
+stick($('stickL'), (x, y) => { stickAxes[0] = -y; stickAxes[1] = -x; updateStickAxes(); });
+stick($('stickR'), (x) => { stickAxes[2] = -x; updateStickAxes(); });
 const inRange = (c) => adapter.command.inRange(c);
 
-// ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): ↑·W / ↓·S = 앞·뒤, ←·A / →·D = 회전, 막대를 끝까지 민 값과 같다. 떼면 0.
+// ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): 실기 웹 조종칸(serverdrive)과 같게 ↑·W / ↓·S = 앞·뒤,
+// ← / → = 옆걸음(왼 막대 좌우), A / D = 제자리 회전(오른 막대), 막대를 끝까지 민 값과 같다. start 키만 점진 가감속. 학습 범위 밖은 자르지 않고 테두리 색만
 // STOP 중에 누른 키와 잠글 때 쥐고 있던 키는 버린다(반복 keydown 무시) — «다시 시작» 뒤 새로 눌러야 움직인다. Esc·Space = STOP. 입력칸·고르기 칸에서는 조종 안 함
-const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [2, 1], KeyA: [2, 1], ArrowRight: [2, -1], KeyD: [2, -1] };
+const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [1, 1], ArrowRight: [1, -1], KeyA: [2, 1], KeyD: [2, -1] };
 const held = new Set();
-const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 1 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
-  const axes = adapter.stop.pause ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
-  for (const i of [0, 2]) axes[i] = r2((on(i, 1) - on(i, -1)) * adapter.command.joystickScale[i]);
+const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 끝 값 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
+  const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
+  const target = keyboardRamp.target([0, 1, 2].map((i) => on(i, 1) - on(i, -1)));
+  keyboardActive = keyboardRamp.enabled;
+  axes.splice(0, 3, ...manualCommand(target, inputSettings, true).map(r2));
 };
-const dropKeys = () => { held.clear(); keyAxes(); };
+const dropKeys = () => { held.clear(); keyboardRamp.reset(); keyAxes(); keyboardActive = false; };
 sticks.push({ release: dropKeys });   // lock()·#go·시나리오 실행이 막대와 함께 놓는다
 const field = (t) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || !!t?.isContentEditable;
 addEventListener('keydown', (e) => {
@@ -113,88 +190,243 @@ try {
 } catch (e) {
   st.err = String(e?.stack || e);
   console.error(e);
-  $('busy').hidden = true; $('fail').hidden = false;
-  if (adapter.stop.pause) { $('policySelect').options[1].disabled = true; $('policyReason').textContent = `AME-2 사용 불가: ${e.message}`; }
+  $('busy').hidden = true; $('fail').removeAttribute('hidden');
+  const option = Array.from($('policySelect').options).find((x) => x.value === adapter.id);
+  if (option) option.disabled = true;
+  const reason = e?.message || String(e);
+  $('policyReason').textContent = reason;
+  $('policyEngine').textContent = `시뮬을 열지 못했습니다: ${reason}`;
+  $('policyEngine').hidden = false;
 }
 
 async function preparePolicies() {
   const choice = $('policySelect'), reason = $('policyReason');
+  choice.replaceChildren(...Object.values(POLICY_MODES).map((mode) => new Option(mode.label, mode.id)));
   choice.value = adapter.id;
+  const replayOption = Array.from(choice.options).find((x) => x.value === POLICY_MODES.go2.id);
+  const replayReason = replayRequirement(new URL(location.href));
+  replayOption.disabled = !!replayReason;
+  if (replayReason) replayOption.textContent += ` · ${replayReason}`;
   choice.onchange = () => {
     lock();
-    const url = new URL(location.href); url.searchParams.set('policy', choice.value);
+    const mode = getPolicyAdapter(choice.value);
+    const url = new URL(location.href); url.searchParams.set('policy', mode.id);
     location.href = url.href;
   };
-  try {
-    const manifest = await json('ame2_actor.json');
-    const response = await fetch('ame2_actor.f32', { method: 'HEAD' });
-    if (!response.ok || manifest.schema !== 'ame2-f32-v1') throw new Error('가중치 파일 또는 배치표 없음');
-    choice.options[1].disabled = false;
-    reason.textContent = 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정';
-  } catch {
-    choice.options[1].disabled = true;
-    reason.textContent = 'AME-2 사용 불가: 가중치 파일 또는 배치표 없음';
-    if (adapter.id === 'ame2-demo') {
-      adapter = getPolicyAdapter(); joy = neutral();
-      choice.value = adapter.id;
-    }
+  const mapChoice = $('startMapSelect');
+  $('startMapLabel').hidden = !adapter.depth; mapChoice.hidden = !adapter.depth;
+  mapChoice.value = startMapMode;
+  mapChoice.onchange = () => {
+    lock();
+    const url = new URL(location.href); url.searchParams.set('startMap', mapChoice.value);
+    location.href = url.href;
+  };
+  const ame2 = POLICY_MODES.ame2;
+  const option = Array.from(choice.options).find((x) => x.value === ame2.id);
+  const exists = async (file) => {
+    const response = await fetch(file, { method: 'HEAD' }).catch(() => null);
+    return response?.ok && !/^text\/html(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '');
+  };
+  const start = POLICY_MODES.start;
+  const startAvailable = (await Promise.all([...new Set(Object.values(start.onnx.files))].map(exists))).every(Boolean);
+  const startOption = Array.from(choice.options).find((x) => x.value === start.id);
+  startOption.disabled = !startAvailable;
+  if (!startAvailable) startOption.textContent = `${start.label} · ONNX 파일 없음`;
+  const [onnxAvailable, weightsAvailable, manifest] = await Promise.all([
+    exists(ame2.onnx.file), exists(ame2.network.file), json(ame2.network.manifest).catch(() => null),
+  ]);
+  const f32Available = weightsAvailable && manifest?.schema === 'ame2-f32-v1';
+  const backend = backendFor(ame2);
+  const available = backend === 'f32' ? f32Available
+    : ['wasm', 'webgpu'].includes(backend) && (onnxAvailable || f32Available);
+  if (option) option.disabled = !available;
+  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정'
+    : backend === 'f32' ? 'AME-2 · JS f32 파일 또는 배치표 없음' : 'AME-2 · ONNX와 JS f32 파일 없음';
+  // A URL selecting AME-2 stays on that mode: its own optional f32 can recover.
+  if (readonly) {
+    reason.textContent = replayReason || '실기 보기 전용';
+    if (replayReason) throw new Error(replayReason);
   }
 }
 
 async function main() {
-  const q = new URLSearchParams(location.search).get('map') ?? '', maps = await json('maps.json');
-  const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
-  const [mj, sceneJ, mapJ, polBuf, policyManifest] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
-    get(adapter.network.file).then((r) => r.arrayBuffer()), adapter.network.manifest ? json(adapter.network.manifest) : null]);
-  if (adapter.network.manifest) {
-    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', polBuf)), (x) => x.toString(16).padStart(2, '0')).join('');
-    if (digest !== adapter.network.sha256) throw new Error('AME-2 가중치 SHA-256 불일치');
-  }
+  const settings = {}; // Runner snapshots this at start; never mutate during a run.
+  const failedSettings = Symbol('settings unavailable');
+  let lastOrg = {};
+  refreshSettings = async () => {
+    const org = await loadSimSettings(new URL(location.href), globalThis.fetch, undefined, failedSettings);
+    // Failed fetch keeps the last successful response; invalid/missing fields
+    // in a successful response still fall back individually to defaults.
+    if (org !== failedSettings) lastOrg = org;
+    return lastOrg;
+  };
+  applySettings = (org) => {
+    const caps = commandCaps(adapter.command);
+    Object.assign(settings, simSettings(org, { vx: caps.forward, wz: caps.turnInPlace }, adapter.id));
+    inputSettings = manualSettings(org, adapter.command, adapter.id);
+    $('modeCaps').textContent = modeCapText(adapter.command, inputSettings);
+  };
+  applySettings(readonly ? {} : await refreshSettings());
+  const params = new URLSearchParams(location.search);
+  const q = params.get('map') ?? '', maps = q === 'custom' ? [] : await json('maps.json');
+  // Custom terrain errors reach the existing visible failure panel; never fall
+  // through to warehouse or fetch assets/custom from the server.
+  const customTerrain = q === 'custom' ? loadCustomTerrain(localStorage, params.get('terrain')) : null;
+  const id = customTerrain ? 'custom' : /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
+  const [mj, sceneJ, mapJ] = await Promise.all([load(), customTerrain?.scene ?? json(`${dir}/scene.json`), customTerrain?.map ?? json(`${dir}/map.json`)]);
+  let fallbackPolicy = null;
+  try {
+    if (adapter.network) {
+      const [polBuf, manifest] = await Promise.all([get(adapter.network.file).then((r) => r.arrayBuffer()), adapter.network.manifest ? json(adapter.network.manifest) : null]);
+      if (adapter.network.sha256) {
+        const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', polBuf)), (x) => x.toString(16).padStart(2, '0')).join('');
+        if (digest !== adapter.network.sha256) throw new Error('가중치 SHA-256 불일치');
+      }
+      fallbackPolicy = adapter.loadPolicy(polBuf, manifest);
+    }
+  } catch (error) { st.fallbackUnavailable = error.message; }
   let map = decodeMap(mapJ);   // 로봇이 지금 선 층의 지도(찍기·시나리오 검사) — 여러 층이면 몸 높이로 바뀐다
   // 여러 층(top.json floors, z = 로봇 몸 높이 반열린 띠 [아래, 위)): 층마다 지도·시나리오 파일. 한 층이면 지금처럼 map.json·scenarios.json 하나
-  const floors = await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
+  const floors = customTerrain ? [] : await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
     map: decodeMap(await json(`${dir}/${f.map_file}`)) }))) : []), () => []);
   const layers = floors.length ? floors : [{ name: '', map }];
+  const startFloor = Math.max(0, floors.findIndex((f) => f.id === params.get('floor')));
+  if (floors.length) map = floors[startFloor].map;
+  inflate(map);   // 선택한 층의 길 찾기 막힘 격자를 미리(쉬어 가며) 만들어 둔다
+  let start = map.spawn_xyyaw.slice(), startReason = '';
+  if (params.has('start')) {
+    const fields = params.get('start').split(',').map((v) => v.trim());
+    const values = fields.map(Number), [x, y] = values;
+    if (![2, 3].includes(fields.length) || fields.some((v) => !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(v)) || !values.every(Number.isFinite)) startReason = '좌표·방향은 유한한 숫자여야 합니다';
+    else if (x < map.origin[0] || y < map.origin[1] || x >= map.origin[0] + map.w * map.res || y >= map.origin[1] + map.h * map.res) startReason = '지도 밖';
+    else if (cell(map, x, y) !== 254) startReason = '장애물·모르는 칸';
+    else if (!(await fits(map, { x, y }))) startReason = `벽·물건에서 ${CLEARANCE} m 안`;
+    else start = [x, y, values[2] ?? start[2]];
+  }
+  const startNote = startReason ? `고른 시작 위치를 쓸 수 없어 기본 위치에서 시작(${startReason})` : '';
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
   const physicsAssets = mapJ.physics_assets ?? [];
   if (!Array.isArray(physicsAssets) || physicsAssets.length > 8 || physicsAssets.some((f) => typeof f !== 'string' || !/^[a-z0-9_-]+\.png$/.test(f))) throw new Error('지형 파일 목록 형식');
   await Promise.all([
     bytes('assets/unitree_go2/go2.xml').then((b) => mj.FS.writeFile('/go2/go2.xml', b)),
-    bytes(`${dir}/${id}.xml`).then((b) => mj.FS.writeFile('/go2/world.xml', b)),
+    customTerrain ? mj.FS.writeFile('/go2/world.xml', customTerrain.xml) : bytes(`${dir}/${id}.xml`).then((b) => mj.FS.writeFile('/go2/world.xml', b)),
     // MuJoCo include resources and the Go2 compiler use these two asset roots.
     ...physicsAssets.map(async (f) => { const b = await bytes(`${dir}/${f}`);
       mj.FS.writeFile(`/go2/${f}`, b); mj.FS.writeFile(`/go2/assets/${f}`, b); }),
     ...MESHES.map(async (f) => mj.FS.writeFile(`/go2/assets/${f}.obj`, await bytes(`assets/unitree_go2/assets/${f}.obj`))),
   ]);
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, adapter.loadPolicy(polBuf, policyManifest), { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
+  let policy = fallbackPolicy;
+  if (!readonly) {
+    const { selectOnnxPolicy } = await import('./policy-onnx.js');
+    policy = await selectOnnxPolicy(adapter, policy, {
+      worker: params.get('policyThread') !== 'main', // explicit comparison/recovery path
+      backend: backendFor(adapter),
+      notify: (text) => {
+        st.policyEngine = text;
+        st.ame2Engine = text; // existing diagnostics compatibility
+        // Keep the engine/fallback reason visible during simulation.
+        $('policyReason').textContent = `${text} · 시뮬 전용${st.policyUnavailable ? ' · ' + st.policyUnavailable : ''}`;
+        $('policyEngine').textContent = `${text} · 시뮬 전용`;
+      },
+    });
+  }
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: start,
+    resolveSpawnFloor: params.has('start') && !startReason, floorCeiling: floors[startFloor] ? floors[startFloor].z[1] - .4 : Infinity }, adapter.id, { ame2DelaySteps: 0, startMapMode });
+  if (sim.depthScanner?.ready) await sim.depthScanner.ready;
   const { m, d } = sim;
-  const lidar = makeLidar(mj, m, d, 360);
-  const runner = createScenarioRunner(sim, () => stopped);
+  layers.forEach((layer, i) => sim.walkSurface?.attach(layer.map, floors[i] ? floors[i].z[1] - .4 : Infinity));
+  const replay = readonly ? createReplayReader(sim, new URL(location.href)) : null;
+  if (replay) {
+    const timer = setInterval(() => { if (!document.hidden) void replay.poll(); }, 200);
+    addEventListener('pagehide', () => clearInterval(timer), { once: true });
+    void replay.poll();
+    $('policyEngine').hidden = false;
+    for (const id of ['stop', 'go', 'reset', 'stickL', 'stickR', 'keys']) {
+      $(id).hidden = true; $(id).setAttribute('aria-disabled', 'true');
+    }
+  }
+  const lidar = makeLidar(mj, m, d, 360, settings);
+  const runner = createScenarioRunner(sim, () => stopped, settings);
+  runningScenario = runner;
+  const patrol = createPatrolRunner({ sim, runner, isStopped: () => stopped, lock, planRoute, getMap: () => map,
+    getFront: () => front, home: () => ({ x: start[0], y: start[1], yaw: start[2] }),
+    onMark: (p) => {
+      const marker = new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), new THREE.MeshBasicMaterial({ color: p.level === 'danger' ? 0xff5252 : 0xffd54f, depthTest: false }));
+      marker.position.set(p.x, p.y, map.floor_z + .15); patrolMarks.add(marker);
+    },
+    onClearMarks: () => {
+      for (const marker of [...patrolMarks.children]) { patrolMarks.remove(marker); marker.geometry.dispose(); marker.material.dispose(); }
+    } });
+  runningTree = patrol;
+  for (const [id, key] of [['btFall', 'fallen'], ['btBattery', 'battery'], ['btPhotoFail', 'photo'], ['btMoveFail', 'move']]) $(id).onclick = () => {
+    patrol.mock[key] = !patrol.mock[key]; $(id).setAttribute('aria-pressed', String(patrol.mock[key]));
+  };
+  for (const level of ['clear', 'minor', 'danger']) $('btReview-' + level).onclick = () => patrol.review(level);
+  let nodeSignature = '';
+  const treeUI = () => {
+    const chosen = scenarios.find((s) => s.id === select.value);
+    $('btPanel').hidden = !chosen;
+    if (!chosen) return;
+    $('btDisclaimer').hidden = !chosen.tree;
+    const tree = chosen.tree ?? treeFromScenario(chosen), rows = treeRows(tree);
+    const states = chosen.tree && patrol.execution?.tree === chosen.tree ? patrol.execution.states : null;
+    const activePoint = patrol.active ? patrol.context?.index : runner.active ? runner.points[runner.index]?.mark : null;
+    const signature = JSON.stringify([select.value, activePoint, [...(states ?? [])].map(([p, s]) => [p, s.result]), patrol.reviewPending, patrol.events.length, patrol.summary]);
+    for (const [id, key] of [['btFall', 'fallen'], ['btBattery', 'battery'], ['btPhotoFail', 'photo'], ['btMoveFail', 'move']]) $(id).setAttribute('aria-pressed', String(patrol.mock[key]));
+    if (signature === nodeSignature) return;
+    nodeSignature = signature;
+    $('btNodes').replaceChildren(...rows.map(({ node, path, depth }, i) => {
+      const li = document.createElement('li'), result = states?.get(path)?.result;
+      li.style.paddingLeft = `${depth * 12}px`; li.dataset.path = path;
+      const active = result === 'running' || (!chosen.tree && runner.active && i === activePoint + 1);
+      li.classList.toggle('btActive', active);
+      const translated = { running: '진행 중', success: '성공', failure: '실패', abort: '중단' }[result] ?? '';
+      const label = { sequence: '차례대로', fallback: '실패 시 다음 대안', reactive_fallback: '매 틱 우선순위 확인', retry: '재시도', for_each_point: '지점마다', fallen: '넘어짐?', battery_low: '배터리 부족?', review_is: '판단 확인', goto: '이동', photo: '모의 촬영', wait: '대기', operator_review: '운영자 판단 (최대 120초)', sensor_log: '기록', map_mark: '이 화면 지도 표시', alert: '모의 위치 알림', skip_log: '건너뜀 기록', return_home: '출발점 복귀', hold: '정지·잠금', report: '모의 보고서' }[node.type];
+      li.textContent = `${label}${node.level ? ' · ' + node.level : ''}${node.type === 'retry' ? ' · 최대 ' + node.times + '회' : ''}${node.message ? ' · ' + node.message : ''} ${translated}`;
+      return li;
+    }));
+    $('btPoints').textContent = chosen.points.map((_, i) => `${activePoint === i ? '▶' : ''}${i + 1}: ${patrol.execution?.tree === chosen.tree && patrol.skipped.has(i) ? '건너뜀' : patrol.execution?.tree === chosen.tree && patrol.visited.has(i) ? '방문 성공' : '대기'}`).join(' · ');
+    $('btEvents').textContent = patrol.events.map((e) => `${e.seconds}s (${e.x}, ${e.y}) ${e.message}`).join('\n');
+    $('btReport').textContent = patrol.summary ? `방문 ${patrol.summary.visited} · 건너뜀 ${patrol.summary.skipped} · 사소 ${patrol.summary.minor} · 위험 ${patrol.summary.danger} · ${patrol.summary.reason} · ${patrol.summary.seconds}초` : '';
+    for (const level of ['clear', 'minor', 'danger']) $('btReview-' + level).disabled = !patrol.reviewPending;
+    $('btReview').hidden = !chosen.tree;
+    $('btMocks').hidden = !chosen.tree;
+  };
+
   let scenarios = [];
   // 층 시나리오는 floor_id 가 그 층이고 지점이 그 층 지도의 빈 칸이어야 한다(floor = 층 번호)
   try { scenarios = floors.length ? (await Promise.all(floors.map(async (f, i) => validateScenarios(await json(`${dir}/${f.scn}`), f.map)
     .map((x) => { if (x.floor_id !== f.id) throw new Error('시나리오 층이 파일 층과 다름'); return { ...x, floor: i }; })))).flat()
-    : validateScenarios(await json(`${dir}/scenarios.json`), map); }
+    : customTerrain ? [] : validateScenarios(await json(`${dir}/scenarios.json`), map); }
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
-  if (adapter.stop.pause) $('scenarioStatus').textContent = 'AME-2는 두 막대로 조종하세요';
-  let scenarioText = '', here = 0, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
+  const initialScenario = scenarios.find((s) => s.floor === startFloor);
+  if (initialScenario) select.value = initialScenario.id;
+  let scenarioText = '', here = startFloor, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
   const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
   const scenarioUI = () => {
+    if (readonly) {
+      select.disabled = $('scenarioRun').disabled = $('scenarioHalt').disabled = true;
+      $('scenarioStatus').textContent = '실기 보기 전용'; $('scenarioHint').hidden = true;
+      return;
+    }
+    treeUI();
     const far = away();
-    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${runner.index + 1}/${runner.points.length}`
+    const text = patrol.active ? `BT 지점 ${(patrol.context?.index ?? 0) + 1}` : patrol.execution?.tree === scenarios.find((s) => s.id === select.value)?.tree && patrol.summary ? `${patrol.status} · ${patrol.summary.reason}` : runner.active && runner.goal ? '찍은 곳으로 가는 중' : runner.active ? `지점 ${(runner.points[runner.index]?.mark ?? 0) + 1}/${runner.points.at(-1).mark + 1}`
       : far ? `${floors[far.floor].name} 시나리오 — 실행하면 ${floors[far.floor].name} 출발점에 다시 세워 시작` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
-    select.disabled = runner.active || !scenarios.length || adapter.stop.pause;
-    $('scenarioRun').disabled = !ready || stopped || sim.fell || runner.active || !scenarios.length || adapter.stop.pause;
-    $('scenarioHalt').disabled = !runner.active;
+    select.disabled = patrol.active || runner.active || !scenarios.length;
+    $('scenarioRun').disabled = !ready || stopped || patrol.active || runner.active || !scenarios.length || (!!scenarios.find((s) => s.id === select.value)?.tree && from === 'server');
+    $('scenarioHalt').disabled = !runner.active && !patrol.active;
     $('scenarioHint').hidden = !stopped;
   };
-  const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
+  const { hand } = bindScenarioInterrupts({ runner, mission: patrol, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset'), preserveOnHide: !readonly });
+  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { sim.cancelPolicyStep(); clock?.reset(); }, true);
+  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) { sim.cancelPolicyStep(); clock?.reset(); } }, true);
   // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)
-  addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
+  addEventListener('keydown', (e) => { if ((runner.active || patrol.active) && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
 
   $('scenarioHalt').onclick = () => { runner.cancel('중단'); lock(); scenarioUI(); };
 
@@ -204,6 +436,7 @@ async function main() {
   const cv = renderer.domElement;
   document.body.prepend(cv);
   const scene = new THREE.Scene();
+  const patrolMarks = new THREE.Group(); scene.add(patrolMarks);
   scene.background = new THREE.Color(0x14171c);
   const followCamera = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
   const topCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -218,7 +451,7 @@ async function main() {
   resize();
 
   // 창고: scene.json 의 메시를 모델 자세에 놓는다. quat 은 w,x,y,z
-  const geoCache = {}, textureCache = {}, solids = [];   // solids = 찍기에서 바닥보다 먼저 맞으면 거절하는 장면 메시(창고·공장·로봇)
+  const geoCache = {}, textureCache = {}, solids = [];   // rendered environment only (robot excluded from picking)
   for (const md of sceneJ.models) {
     let geo = geoCache[md.mesh];
     if (!geo) {
@@ -289,7 +522,7 @@ async function main() {
     const mat = m.geom_matid[g], c = mat >= 0 ? m.mat_rgba.slice(mat * 4, mat * 4 + 3) : m.geom_rgba.slice(g * 4, g * 4 + 3);
     const mesh = new THREE.Mesh(meshGeo.get(id), new THREE.MeshLambertMaterial({ color: new THREE.Color(c[0], c[1], c[2]).multiplyScalar(0.85).addScalar(0.08) }));
     mesh.matrixAutoUpdate = false;
-    scene.add(mesh); solids.push(mesh);
+    scene.add(mesh);
     geoms.push([g, mesh]);
   }
   const draw = () => {
@@ -300,124 +533,280 @@ async function main() {
     }
   };
 
-  // 라이다 점: 몸통 위 0.1 m, 몸통 yaw 기준 수평 360줄. 안 맞은 줄(12 m 밖)은 바닥 아래로 숨긴다
-  const LN = 360, lidarPos = new Float32Array(LN * 3);
-  const lidarPts = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(lidarPos, 3)),
-    new THREE.PointsMaterial({ color: 0x39ff88, size: 4, sizeAttenuation: false }));
-  lidarPts.frustumCulled = false;
-  scene.add(lidarPts);
-  let lastScan = 0, front = Infinity;
+  // 라이다는 안전 판정·다시 찾기에만 사용한다. 화면 점·광선·범위 그림은 만들지 않는다.
+  let lastScan = 0, front = Infinity, rays = null;   // rays = 마지막 라이다 줄(다시 찾기에 앞 장애물로)
   const yawOf = () => 2 * Math.atan2(d.qpos[6], d.qpos[3]); // 기울기 무시한 근사(서 있을 때 충분)
   const scan = () => {
     const x = d.qpos[0], y = d.qpos[1], z = d.qpos[2] + 0.1, yaw = yawOf(), r = lidar(x, y, z, yaw);
-    front = frontDistance(r);
-    for (let i = 0; i < LN; i++) {
-      const a = yaw + (i * 2 * Math.PI) / LN, k = Number.isFinite(r[i]) ? r[i] : 0;
-      lidarPos.set(k ? [x + Math.cos(a) * k, y + Math.sin(a) * k, z] : [x, y, -100], i * 3);
-    }
-    lidarPts.geometry.attributes.position.needsUpdate = true;
+    front = frontDistance(r); rays = r;
   };
   // 다른 층 시나리오 = 그 층 출발점(spawn_xyyaw)에 다시 세워 시작 — 월드 기준(datum 0)은 그대로, 몸 높이만 그 층 바닥 + 0.4(sim.reset 과 같음)
   const spawnOn = (i) => {
     const { spawn_xyyaw: [x, y, yaw], floor_z: z } = floors[i].map, q = d.qpos;
     sim.reset(); q[0] = x; q[1] = y; q[2] = z + 0.4; q[3] = Math.cos(yaw / 2); q[6] = Math.sin(yaw / 2);
-    mj.mj_forward(m, d); sim.hold(0.5); acc = 0; pin = null; floorTick(q[2]);
+    mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(); pin = null; floorTick(q[2]);
   };
-  $('scenarioRun').onclick = () => {
-    if (!ready || stopped || sim.fell || runner.active || adapter.stop.pause) return;
+  $('scenarioRun').onclick = async () => {
+    if (!ready || stopped || patrol.active || runner.active || busy || picking) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
+    if (chosen.tree) {
+      if (readonly || from === 'server') return;
+      const epoch = startEpoch, g0 = gen, at = pos(), org = await refreshSettings();
+      if (epoch !== startEpoch || stale(at, g0) || stopped || runner.active || patrol.active || busy || picking) return;
+      applySettings(org); sticks.forEach((s) => s.release());
+      sim.cancelPolicyStep(); clock?.reset(); scan();
+      patrol.start(chosen); scenarioUI(); return;
+    }
     const far = away();
     if (far) spawnOn(far.floor);
+    // 지점 사이도 찍은 점과 같은 A* 경유점으로 잇는다(안전 규칙은 실행기 그대로 — 막히면 멈춤, 다시 찾기는 찍은 점만)
+    const at = pos(), g0 = gen;
+    busy = true; runner.status = '길 찾는 중'; scenarioUI();
+    const [pts, org] = await Promise.all([planRoute(map, at, chosen.points), refreshSettings()]).finally(() => { busy = false; });
+    const why = stale(at, g0) || (pts ? '' : '갈 수 있는 길이 없습니다');   // 찾는 동안(큰 지도는 쉬어 가며) STOP·움직임이면 시작하지 않는다
+    if (why) { runner.status = why; scenarioUI(); return; }
     sticks.forEach((s) => s.release());
     scan(); lastScan = performance.now();
-    runner.start(chosen.points);
+    applySettings(org);
+    sim.cancelPolicyStep(); clock?.reset();
+    // A* keeps XY/mark only; retain an explicit arrival yaw at each destination.
+    for (let i = 0; i < pts.length; i++) if (pts[i + 1]?.mark !== pts[i].mark && Number.isFinite(chosen.points[pts[i].mark]?.yaw)) pts[i].yaw = chosen.points[pts[i].mark].yaw;
+    runner.start(pts);
     runner.tick(front); // 가까운 장애물은 실행 순간부터 0
     scenarioUI();
   };
 
-  // ── 찍은 곳으로 가기: 캔버스를 짧게 누르면(끌기·두 손가락 아님) 그 바닥 점까지 위 실행기로 곧게 간다(길 찾기 없음 — 막히면 멈춤).
-  // 안전 규칙은 시나리오와 같다(STOP·흐림·숨김·pagehide·reset = 취소+잠금, 넘어짐·앞 막힘·5초 진전 없음 = 멈춤). 막대·키 = 취소만(손 조종 우선)
-  const goalMark = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.24, 32), new THREE.MeshBasicMaterial({ color: 0xffd54f, depthTest: false, transparent: true }));
-  goalMark.renderOrder = 2; goalMark.visible = false; scene.add(goalMark);
-  const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 0, 1), -map.floor_z), hit = new THREE.Vector3();
+  // ── 찍은 점 가기: 캔버스를 짧게 누르면(끌기·두 손가락 아님) 그 바닥 점으로 바로 간다. 가는 중에 누르면 그 자리를 끝에 줄 세우고(지금 목적지 그대로),
+  // 한 목적지에 닿으면 그 고리는 사라지고 멈추지 않고 다음으로 — 마지막에 닿으면 멈춤. 목적지 사이는 층 지도 A*(astar.js) 경유점(선은 안 그림) — 길이 없으면 받지 않는다.
+  // 막히면(앞 막힘·진전 없음) 지금 자리에서 앞 라이다 장애물을 더해 한 번만 다시 찾고, 또 막히면 멈춤. 안전 규칙은 시나리오와 같다(STOP·pagehide·reset = 취소+잠금, 숨김은 복귀 후 계속).
+  // 막대·키 = 취소만(손 조종 우선). 끝나거나 끊기면 남은 고리는 모두 지운다
+  const ray = new THREE.Raycaster();
   let vp = [0, 0, 1, 1];   // 마지막으로 그린 칸(CSS px 왼쪽·위·폭·높이) — 누른 점을 그 칸의 카메라로 바닥에 비춘다
-  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 넘어짐: '넘어져서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다' };
+  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
   let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
+  let marks = [], plan = [], retried = false;   // 목적지들(가는 중 차례), 가는 경유점(= runner.points, mark = 목적지 번호), 이번 출발에서 다시 찾았나
+  // busy = 시나리오·다시 찾기, picking = 찍은 점 탐색 중 중복 입력 금지.
+  // adding 은 다시 찾기와 순서를 보존; gen = 지움·끊김·층 바뀜마다 +1(찾던 결과 버림).
+  let busy = false, picking = false, adding = Promise.resolve(), gen = 0, planningSince = Infinity;
   const say = (text) => { note = { text, until: performance.now() + 4000 }; };
+  const pos = () => ({ x: d.qpos[0], y: d.qpos[1] });
+  // 찾는 동안 바뀐 것이 있으면 그 까닭(출발하지 않음), 없으면 ''
+  const stale = (at, g0) => stopped ? '정지(잠금)로 출발하지 않았습니다' : g0 !== gen ? '점이 바뀌어 출발하지 않았습니다'
+    : runner.active ? '다른 실행 중입니다' : Math.hypot(d.qpos[0] - at.x, d.qpos[1] - at.y) > 0.2 ? '길 찾는 동안 움직였습니다 — 다시 누르세요' : '';
+  // 예전(#211 앞) 노란 고리: 지금 가는 목적지만 진하게, 줄 선 다음 목적지는 흐리게. 지난 목적지는 안 그림
+  const marksG = new THREE.Group(), ringGeo = new THREE.RingGeometry(0.12, 0.24, 32);
+  const ringMat = [1, 0.3].map((opacity) => new THREE.MeshBasicMaterial({ color: 0xffd54f, depthTest: false, transparent: true, opacity }));
+  scene.add(marksG);
+  const curMark = () => (runner.active && runner.goal ? runner.points[runner.index]?.mark ?? 0 : 0);
+  let shown = -1;   // 그린 고리의 지금 목적지 번호 — 바뀌면(닿으면) 다시 그린다
+  const drawMarks = () => {
+    marksG.clear(); shown = curMark();
+    marks.forEach((p, i) => {
+      if (i < shown) return;
+      const r = new THREE.Mesh(ringGeo, ringMat[i === shown ? 0 : 1]);
+      r.position.set(p.x, p.y, p.z + 0.03); r.renderOrder = 2; marksG.add(r);
+    });
+    $('wpClear').hidden = !marks.length;
+  };
+  // 앞 ±30° 1 m 안 라이다 점 = 지도에 없을 수 있는 장애물(다시 찾기에만 더함)
+  const seen = () => {
+    const out = [], yaw = yawOf(), n = rays?.length ?? 0;
+    for (let i = 0; i < n; i++) {
+      if (Math.min(i, n - i) * 2 * Math.PI / n > Math.PI / 6 || !(rays[i] <= 1)) continue;
+      const a = yaw + (i * 2 * Math.PI) / n; out.push({ x: d.qpos[0] + Math.cos(a) * rays[i], y: d.qpos[1] + Math.sin(a) * rays[i] });
+    }
+    return out;
+  };
+  const begin = (p) => {
+    plan = p;
+    sticks.forEach((s) => s.release());
+    scan(); lastScan = performance.now();
+    runner.start(plan, true);
+    drawMarks();
+    runner.tick(front);   // 이미 닿았거나 막혔으면 바로 0
+  };
+  // 찍은 점 가기가 끝남(완료·막힘·취소) — 고리를 모두 지운다. 막힘이면 이번 출발에 한 번만 지금 자리에서 남은 목적지로 다시 찾는다
+  const finish = () => {
+    const left = marks.slice(runner.points[runner.index]?.mark ?? marks.length);
+    const end = (why = GOAL_END[runner.status] ?? runner.status) => {
+      if (runner.status !== '완료') gen++;   // 끊김 = 찾던 목적지도 버림(도착 뒤 찾던 점은 거기서 새로 출발)
+      marks = []; plan = []; drawMarks();
+      say(why + (runner.status !== '완료' && left.length ? ` — 남은 목적지 ${left.length}개 지움` : ''));
+    };
+    if (runner.status !== '막힘' || retried || !left.length || busy) return end();
+    retried = true; busy = true; say('막혀서 지금 자리에서 길을 다시 찾는 중');
+    marks = left;
+    const at = pos(), g0 = gen, near = seen();
+    adding.then(() => planRoute(map, at, marks.slice(), near)).finally(() => { busy = false; }).then((p) => {
+      const why = stale(at, g0);
+      if (why || !p) return end(why || '막혀서 멈췄습니다');
+      begin(p);
+      if (runner.active) return say('막혀서 지금 자리에서 길을 다시 찾았습니다');
+      finish();
+    });
+  };
   const goTo = (cx, cy) => {
+    if (readonly) return say('실기 보기 전용');
     const [l, t, w, h] = vp;
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
-    if (stopped) return say('정지 중에는 찍어도 움직이지 않습니다 — ▶ 로 시작하세요');
-    if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 찍으세요');
-    if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
+    if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 다시 누르세요');
+    if (patrol.active || (runner.active && !runner.goal)) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
+    if (busy || picking) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
     ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
-    if (!ray.ray.intersectPlane(floor, hit)) return say('바닥을 찍으세요');
-    // 처음 맞은 표면이 이 층 바닥(높이 ±5 cm)보다 앞이면 — 로봇 몸통·벽·난간·물건·가린 바닥 — 목표로 받지 않는다
-    const first = ray.intersectObjects(solids, false)[0];
-    if (first && first.distance < ray.ray.origin.distanceTo(hit) - 0.02 && Math.abs(first.point.z - map.floor_z) > 0.05) return say('바닥만 찍을 수 있습니다(로봇·벽·물건 위는 안 됨)');
+    const origin = ray.ray.origin.clone(), direction = ray.ray.direction;
+    // Top view starts above the building. Enter the selected layer below its
+    // ceiling, so upstairs floors/roof cannot steal a downstairs click.
+    const ceiling = floors[here] ? floors[here].z[1] - .4 : Infinity;
+    if (origin.z > ceiling && direction.z < 0) origin.addScaledVector(direction, (ceiling - origin.z) / direction.z);
+    // The follow camera can sit just behind/inside a wall. Ignore contact
+    // faces within 30 cm; rendered occlusion is still checked below.
+    let hit = sim.walkSurface.pick(origin.toArray(), direction.toArray(), map, ceiling, top ? 0 : .3);
+    if (!hit) return say('걸을 수 있는 바닥을 찍으세요');
+    if (!top) {
+      scene.updateMatrixWorld(true);
+      const front = ray.intersectObjects(solids, false)[0];
+      // Contact meshes can be convex hulls around open shelving. When their
+      // invisible sides intercept a visibly exposed floor, resolve support
+      // vertically at that visible floor instead of picking the hull's side.
+      // A visible wall/roof never qualifies for this fallback.
+      if (hit.up < MIN_UP && front && Math.abs(front.face.normal.clone().transformDirection(front.object.matrixWorld).z) >= MIN_UP) {
+        const support = sim.walkSurface.floorAt(front.point.x, front.point.y, ceiling, MIN_UP, map.floor_z);
+        if (Number.isFinite(support) && Math.abs(front.point.z - support) <= .05) {
+          hit = sim.walkSurface.pick([front.point.x, front.point.y, support + .05], [0, 0, -1], map, ceiling) ?? hit;
+        }
+      }
+      // Rendered floor skins sit a few mm above contact floors. Compare
+      // vertical separation: grazing rays amplify that tiny gap in distance.
+      if (front && (ray.ray.origin.distanceTo(new THREE.Vector3(hit.x, hit.y, hit.z)) - front.distance) * Math.abs(direction.z) > .05) return say('걸을 수 있는 바닥을 찍으세요');
+    }
+    if (hit.up < MIN_UP) return say('벽·천장·가파른 면으로는 갈 수 없습니다');
     const ox = map.origin[0], oy = map.origin[1];
     if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
     if (cell(map, hit.x, hit.y) !== 254) return say('장애물·모르는 칸이라 갈 수 없습니다');
-    sticks.forEach((s) => s.release());
-    scan(); lastScan = performance.now();
-    runner.start([{ x: hit.x, y: hit.y }], true);
-    goalMark.position.set(hit.x, hit.y, map.floor_z + 0.03);
-    note = { text: '', until: 0 };
-    runner.tick(front);   // 이미 닿았거나 막혔으면 바로 0 — 그 결과도 안내(다음 프레임 goalUI 는 진행 중이던 목표만 본다)
-    if (!runner.active) say(GOAL_END[runner.status] ?? runner.status);
+    const support = map.heightAt(hit.x, hit.y);
+    if (hit.z >= ceiling || !Number.isFinite(support) || Math.abs(hit.z - support) > .05) return say('지금 층의 걸을 수 있는 바닥을 찍으세요');
+    const p = { x: hit.x, y: hit.y, z: hit.z };
+    const g0 = gen, f = map;   // 누른 순간의 세대·층 — 그 뒤 지움·끊김·층 바뀜이면 차례가 와도 버림
+    picking = true; // set before the promise microtask so a second tap cannot queue work
+    planningSince = performance.now();
+    adding = adding.then(() => addMark(p, g0, f)).finally(() => { picking = false; planningSince = Infinity; });
+  };
+  // 끊김(STOP·pagehide·reset = lock, 막대·조종 키 = 손 조종) 순간 찾던 길·줄 선 누름을 모두 버린다 — 늦은 결과가 출발하거나 손 조종을 덮지 않게
+  onLock = () => { gen++; };
+  for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { gen++; });
+  addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) gen++; });
+  const going = () => runner.active && runner.goal && marks.length > 0;
+  const addMark = async (p, g0, f) => {
+    if (g0 !== gen || f !== map) return;
+    if (!(await fits(f, p))) return g0 === gen && say(`벽·물건에서 ${CLEARANCE} m 안이라 갈 수 없습니다 — 조금 떨어진 곳을 찍으세요`);
+    // 가는 중이면 마지막 목적지에서 잇고(끝에 줄 세움), 아니면 로봇 자리에서 바로 출발
+    const was = going(), from = was ? marks.at(-1) : pos(), leg = await findPath(f, from, p);
+    if (g0 !== gen || f !== map) return;   // 찾는 동안 지움·끊김·층 바뀜
+    if (was && !going()) return runner.status === '완료' ? addMark(p, g0, f) : undefined;   // 찾는 동안 다 도착 = 지금 자리에서 새로, 끊김(손 조종·막힘)은 버림
+    if (!leg) return say('갈 수 있는 길이 없습니다');
+    if (was) {
+      marks.push(p);
+      plan.push(...leg.map((q) => ({ ...q, mark: marks.length - 1 })));   // plan = runner.points — 실행기가 끝에 이어 간다
+      drawMarks();
+      return say(`목적지 추가 — 남은 ${marks.length - curMark()}곳을 차례로 갑니다`);
+    }
+    const org = await refreshSettings();
+    const why = stale(from, g0);
+    if (why) return say(why);
+    applySettings(org);
+    sim.cancelPolicyStep(); clock?.reset();
+    retried = false; note = { text: '', until: 0 };
+    marks = [p];
+    begin(leg.map((q) => ({ ...q, mark: 0 })));
+    if (!runner.active) finish();
+  };
+  $('wpClear').onclick = () => {
+    if (runner.active && runner.goal) runner.cancel('지움');
+    gen++; marks = []; plan = []; drawMarks();
+    if (!runner.active) { wasGoal = false; say(GOAL_END.지움); }
   };
   const goalUI = (now) => {
     const on = runner.active && runner.goal;
-    if (wasGoal && !on && runner.goal) say(GOAL_END[runner.status] ?? runner.status);
-    wasGoal = on; goalMark.visible = on;
-    const g = runner.points[0], text = on ? `찍은 곳으로 가는 중 · ${Math.hypot(g.x - d.qpos[0], g.y - d.qpos[1]).toFixed(1)} m` : now < note.until ? note.text : '';
+    if (wasGoal && !on && runner.goal) finish();
+    wasGoal = runner.active && runner.goal;
+    if (on && curMark() !== shown) drawMarks();   // 목적지에 닿음 = 그 고리 지우고 다음을 진하게
+    const m = on && marks[curMark()];
+    // 안내(추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
+    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 
-  // ── 카메라: 따라가기(로봇 뒤에서 돌기) ↔ 위에서 보기(지도판). 막대 밖(캔버스) 한 손가락 끌기 = 돌리기, 두 손가락·휠 = 확대·축소
-  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0 };
+  // ── 따라가기: 기존 돌리기. 탑뷰: 끌어 이동·가리킨 곳 확대, 중심은 프레임 사이 보존.
+  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0, topX: null, topY: null };
   let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
   const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
-  const zoom = (k) => { if (top) view.topH = clamp(view.topH * k, 0.08, 3); else view.dist = clamp(view.dist * k, 0.8, 8); };
+  const topFit = () => topFrame(map, vp[2] / vp[3], view.topRot, view.topH, [view.topX, view.topY]);
+  const centerTop = (x, y) => {
+    const f = topFrame(map, vp[2] / vp[3], view.topRot, view.topH, [x, y]);
+    view.topX = f.cx; view.topY = f.cy;
+  };
+  const pointAt = (x, y) => topPoint(topFit(), view.topRot, (x - vp[0]) / vp[2], (y - vp[1]) / vp[3]);
+  const zoom = (k, x, y, toX = x, toY = y) => {
+    if (!top) { view.dist = clamp(view.dist * k, 0.8, 8); return; }
+    const before = pointAt(x, y);
+    view.topH = clamp(view.topH * k, 0.08, 3);
+    const after = pointAt(toX, toY), f = topFit();
+    centerTop(f.cx + before[0] - after[0], f.cy + before[1] - after[1]);
+  };
+  const pan = (x, y, dx, dy) => {
+    const a = pointAt(x, y), b = pointAt(x + dx, y + dy), f = topFit();
+    centerTop(f.cx + a[0] - b[0], f.cy + a[1] - b[1]);
+  };
   const ptrs = new Map();
-  let pinch = 0, tap = null;   // tap = 찍기 후보(한 손가락·왼쪽 단추, 8 px 안·0.5 s 안에 뗌)
+  const pair = () => {
+    const [a, b] = [...ptrs.values()];
+    return { d: Math.hypot(a[0] - b[0], a[1] - b[1]), x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 };
+  };
+  let pinch = null, tap = null;   // 8 px·0.5 s 안 짧은 누름만 목표; 다중 터치·취소는 목표 없음
   cv.addEventListener('pointerdown', (e) => {
-    cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0;
-    tap = ptrs.size === 1 && e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() } : null;
+    if (top && e.button !== 0) return;
+    cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    pinch = ptrs.size === 2 ? pair() : null;
+    tap = ptrs.size === 1 && e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
   });
   cv.addEventListener('pointerup', (e) => {
-    if (tap?.id === e.pointerId && performance.now() - tap.t < 500) goTo(e.clientX, e.clientY);
+    // Event timestamps measure the press, even if rendering delays its handlers.
+    if (tap?.id === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) <= 8 && e.timeStamp - tap.t < 500) goTo(e.clientX, e.clientY);
     tap = null;
   });
   cv.addEventListener('pointermove', (e) => {
     const p = ptrs.get(e.pointerId);
     if (!p) return;
+    const start = tap;
     if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap = null;
     if (ptrs.size === 1) {
       const dx = e.clientX - p[0], dy = e.clientY - p[1];
-      if (top) view.topRot -= dx * 0.006;
+      if (top) { if (!tap) pan(p[0], p[1], start ? e.clientX - start.x : dx, start ? e.clientY - start.y : dy); }
       else { view.yaw -= dx * 0.006; view.pitch = clamp(view.pitch + dy * 0.006, 0.05, 1.45); }
     }
     p[0] = e.clientX; p[1] = e.clientY;
     if (ptrs.size === 2) {
-      const [a, b] = [...ptrs.values()], dd = Math.hypot(a[0] - b[0], a[1] - b[1]);
-      if (pinch && dd) zoom(pinch / dd);
-      pinch = dd;
+      const next = pair();
+      if (pinch?.d && next.d) zoom(pinch.d / next.d, pinch.x, pinch.y, next.x, next.y);
+      pinch = next;
     }
   });
-  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) cv.addEventListener(ev, (e) => { ptrs.delete(e.pointerId); pinch = 0; });
-  cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001)); }, { passive: false });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) cv.addEventListener(ev, (e) => { ptrs.delete(e.pointerId); pinch = null; tap = null; });
+  for (const ev of ['blur', 'pagehide']) addEventListener(ev, () => { ptrs.clear(); pinch = null; tap = null; });
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001), e.clientX, e.clientY); }, { passive: false });
+  $('topCenter').onclick = () => { view.topH = 1; view.topRot = 0; view.topX = view.topY = null; };
 
-  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); acc = 0; };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
+  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     $('cam').setAttribute('aria-pressed', String(top));
     $('cam').setAttribute('aria-label', top ? '따라가기' : '위에서 보기');
+    $('topCenter').hidden = !top;
     camera.updateProjectionMatrix();
   };
-  for (const b of ['reset', 'cam']) $(b).disabled = false;
+  for (const b of ['reset', 'cam']) $(b).disabled = readonly && b === 'reset';
   sim.hold(0.5);
   ready = true;
   $('busy').hidden = true;
@@ -436,7 +825,7 @@ async function main() {
   let floorKey = '';
   const floorTick = (z) => {
     const i = floors.findIndex((f) => z >= f.z[0] && z < f.z[1]);
-    if (i >= 0 && i !== here) { here = i; map = floors[i].map; floor.constant = -map.floor_z; }
+    if (i >= 0 && i !== here) { here = i; map = floors[i].map; gen++; marks = []; plan = []; drawMarks(); inflate(map); }   // 다른 층 점은 받지 않는다
     const v = pin ?? here;
     planes.forEach((p, j) => { p.visible = top && (v === 'all' || v === j); p.material.depthTest = v !== 'all'; });
     const key = `${top}|${here}|${pin}`;
@@ -446,35 +835,73 @@ async function main() {
     scenarioUI();
   };
 
-  // ── 실행: 화면 시간에 맞춰 정책 스텝(한 프레임 최대 5스텝, 밀리면 늦게 감)
-  let acc = 0, lastT = performance.now(), frames = 0, fps = 0, fpsT = lastT;
+  // Fixed policy dt/decimation; keep debt through inference, bounded catch-up.
+  let frames = 0, fps = 0, fpsT = performance.now();
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
-    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
+    timing: () => clock.stats,
+    start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
+      floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
+    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner, patrol, patrolMarks: () => patrolMarks.children.length,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
-    toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
+    toScreen: (x, y, z = map.heightAt?.(x, y) ?? map.floor_z) => { const v = new THREE.Vector3(x, y, Number.isFinite(z) ? z : map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
+    marks: () => marks.map((p) => ({ ...p })), plan: () => plan.map((p) => ({ ...p })), rings: () => marksG.children.map((c) => c.material.opacity),
+    settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
-  function frame(now) {
-    acc += Math.min((now - lastT) / 1000, 0.25);
-    lastT = now;
-    if (now - lastScan >= 100) { scan(); lastScan = now; }
-    let n = 0;
-    while (acc >= POLICY_DT && n < 5) {
-      acc -= POLICY_DT; n++;
-      if (runner.active && !adapter.stop.pause) runner.tick(front, POLICY_DT);
-      else if (adapter.stop.pause) {
-        // AME-2 는 찍은 곳 가기도 자체 목표 입력(ame2Joystick)으로 — 실행기 명령을 막대 값으로(앞 0 또는 끝까지, 회전 rad/s ≤ 0.6)
-        if (runner.active) runner.tick(front, POLICY_DT);
-        const axes = runner.active ? [sim.cmd[0] / MAX_VX, 0, sim.cmd[2]] : goalAxes;
-        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped || sim.fell ? [0, 0, 0] : axes, POLICY_DT);
+  const timingUI = () => {
+    const timing = clock.stats;
+    st.stepsBehind = timing.drops;
+    $('simSlow').hidden = !timing.slow;
+    $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
+  };
+  let skipLockedDecision = false;
+  clock = createFrameClock({ dt: POLICY_DT,
+    yieldOnRejected: !!adapter.depth,
+    prepare: () => {
+      skipLockedDecision = false;
+      const epoch = startEpoch;
+      if (keyboardActive && !stopped && !runner.active && !patrol.active) {
+        const axes = adapter.command.kind === 'nearby_goal' ? goalAxes : joy;
+        axes.splice(0, 3, ...manualCommand(keyboardRamp.advance(POLICY_DT), inputSettings, true).map(r2));
+      }
+      if (patrol.active) {
+        patrol.tick(POLICY_DT);
+        joy = neutral(); heading = null;
+      } else if (runner.active) {
+        runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
+        if (adapter.command.kind === 'nearby_goal') { heading = null; joy = sim.cmd.slice(); }
+      } else if (adapter.command.kind === 'nearby_goal') {
+        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
-      } else sim.cmd = stopped || sim.fell ? neutral() : joy.slice();
-      if (!sim.fell && !(adapter.stop.pause && stopped)) sim.step();
-      if (sim.fell && runner.active) runner.cancel('넘어짐');
-      if (sim.fell) sim.cmd = neutral();
-      st.steps++;
+      } else sim.cmd = stopped ? neutral() : joy.slice();
+      skipLockedDecision = epoch !== startEpoch;
+    },
+    // Only skip the decision whose prepare locked/reset the clock. Subsequent
+    // STOP ticks retain the mode's existing zero-input policy/physics behavior.
+    step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return sim.step(); },
+    onStep: () => { st.steps++; timingUI(); },
+    onError: (e) => {
+      lock(); st.err = String(e);
+      if (adapter.fallback === null) { ready = st.ready = false; ui(); }
+      $('policyEngine').textContent = st.policyEngine?.includes('정책 잠금') ? st.policyEngine : `정책 계산 중단 · ${e.message}`;
+    },
+  });
+  clock.reset();
+  let lastDrawAt = -Infinity;
+  function frame(now) {
+    // Account wall time on every RAF, including while inference is pending.
+    // For start, finish due decisions before submitting a new GPU redraw:
+    // SwiftShader work otherwise competes with the 20 ms Worker delivery.
+    // Bound deferral even under continuous inference, so drawing, lidar and
+    // scenario/goal/floor UI continue on slow CPUs as well as idle RAFs.
+    if (adapter.depth) {
+      clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
+      if (clock.stats.pending && performance.now() - lastDrawAt < START_DRAW_MAX_GAP_MS) { timingUI(); requestAnimationFrame(frame); return; }
     }
-    if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }
+    if (now - lastScan >= 100) { scan(); lastScan = now; }
+    if (!adapter.depth && !readonly) clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
+    if (replay) $('policyEngine').textContent = replay.status();
+    timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();
     goalUI(now);
@@ -486,7 +913,8 @@ async function main() {
       const lower = $('btns').getBoundingClientRect().top - 12;
       const width = innerWidth - 24, height = Math.max(1, lower - upper);
       renderer.setViewport(12, innerHeight - lower, width, height); vp = [12, upper, width, height];
-      const fit = topFrame(map, width / height, view.topRot, view.topH);
+      const fit = topFit();
+      view.topX = fit.cx; view.topY = fit.cy;
       topCamera.left = -fit.width / 2; topCamera.right = fit.width / 2;
       topCamera.top = fit.height / 2; topCamera.bottom = -fit.height / 2;
       // 한 층을 볼 때는 그 위층 바닥 조금 아래(천장)에서 — 카메라 뒤(위층)는 그리지 않는다. 전체·맨 위층은 높이 100 m
@@ -504,10 +932,10 @@ async function main() {
     camera.position.lerp(camPos, top || !camera.position.lengthSq() ? 1 : 0.25);   // 첫 프레임(원점)은 바로 제자리
     camera.lookAt(look);
     renderer.render(scene, camera);
+    lastDrawAt = performance.now();
     frames++;
     if (now - fpsT > 1000) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
-    $('stickL').classList.toggle('out', !inRange(sim.cmd));
-    $('reset').classList.toggle('fell', sim.fell);
+    $('stickL').classList.toggle('out', !inRange(sim.cmd)); $('keys').classList.toggle('out', !inRange(sim.cmd));
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

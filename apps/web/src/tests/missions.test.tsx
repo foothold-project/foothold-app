@@ -17,7 +17,7 @@ const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
 const PARK: User = { ...LEE, id: 'o2', username: 'park', display_name: '박운영', robot_ids: [] };
 const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name },
-  simulation: false,
+  simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
 // 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 1층: 진입 금지 x 3~4, 이름 붙은 지점 «입구»(0, 0), 2층 계단 연결점
 const ver = (id: string, floor_id: string, features: MapVersion['features']): MapVersion => ({ upload_id: `up-${id}`, id, floor_id, number: 1, base_version_id: null, copied_from_id: null, status: 'APPROVED',
@@ -122,9 +122,15 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
     }
     let m = path.match(/^\/map-versions\/(v\d)$/);
     if (m) return { status: 200, body: MAPS[m[1]] };
+    if ((m = path.match(/^\/floors\/(f\d)\/map-versions$/))) { const v = approved[m[1]]; return { status: 200, body: { items: v && MAPS[v] ? [MAPS[v]] : [], next_cursor: null } }; }   // 지도 탭 판 목록(MAP-TAB-MERGE)
     if (path === '/actions') return { status: 200, body: acts(q.get('robot_id')) };
     if (path === '/assignments') return { status: 200, body: { items: assigns, next_cursor: null } };
     if (method === 'POST' && path === '/scenarios/preview') return preview(body!);
+    if (method === 'POST' && (m = path.match(/^\/trash\/scenario\/([^/]+)\/restore$/))) {   // 휴지통에서 꺼내기(§5.1 — 본체 version 증가)
+      const r = rec('scenarios', m[1]); if (!r) return err(404, 'NOT_FOUND', '휴지통 항목을 찾을 수 없습니다.');
+      if (r.head.archived_at) r.head = { ...r.head, archived_at: null, version: r.head.version + 1 }; return { status: 204 };
+    }
+    if (method === 'DELETE' && path === '/scenarios/s9') return err(409, 'RESOURCE_IN_USE', '사용 중이거나 결재 대기 중인 로봇 배정이 있어 휴지통 이동 또는 완전 삭제를 할 수 없습니다. 배정을 먼저 해제하세요.');
     m = path.match(/^\/(missions|scenarios)(?:\/([^/]+))?$/);
     if (!m) return err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     const k = m[1] as Kind, id = m[2];
@@ -174,8 +180,11 @@ async function open(hash = '#/mission') {
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
+  // 옛 #/mission 주소 → 지도 탭 «시나리오» 창(MAP-TAB-MERGE) — 지도 고르기 화면이면 첫 건물 1층
+  const ch = box.querySelector<HTMLButtonElement>('[data-building]');
+  if (ch) { act(() => ch.click()); await flush(); }
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btns = (from: ParentNode = box) => [...from.querySelectorAll('button')];
@@ -195,8 +204,14 @@ const rows = () => [...box.querySelectorAll<HTMLButtonElement>('[data-plan]')].m
 const name = () => field('이름');
 const step = (i: number) => $(`[data-step="${i}"]`)!;
 const point = (i: number) => $(`[data-wp="${i}"]`)!;
-const saveBtn = () => (btn('저장') ?? btn('새 판으로 저장'))!;
-const kind = (k: '임무' | '시나리오') => click(btn(k, card('종류')));
+const saveBtn = () => btn('저장')!;
+/** 종류 바꾸기 = 시나리오 창 «임무 관리…» ↔ 임무 관리 단추 줄 «‹ 지도·시나리오»(MAP-TAB-MERGE). 이미 그 종류면 그대로 */
+const kind = async (k: '임무' | '시나리오') => {
+  if (k === '시나리오') { const b = btn('‹ 지도·시나리오'); if (b) await click(b); return; }
+  if (btn('‹ 지도·시나리오')) return;
+  if (!btn('임무 관리…')) await click($('[data-back]') ?? $('[data-side="scen"]'));   // 열린 시나리오는 닫고(편집은 남음) 시나리오 창으로
+  await click(btn('임무 관리…'));
+};
 /** 시나리오 지도 — 100×80 칸을 400×320 으로 그린다고 치고 지도 좌표(m)로 누른다: 화면 x = (x + 1)·80, y = (2 - y)·80 */
 const map = () => $<SVGSVGElement>('svg[data-scenario-map]')!;
 const sized = () => { map().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect; };
@@ -219,65 +234,60 @@ const stopSends = async () => {
 };
 
 describe('목록 [임무 | 시나리오]', () => {
-  it('시나리오 기본 — 이름·층·판·지점 수·배정된 로봇(없음)·마지막 실행(—), 보관 제외 → «보관된 것도 보기», 임무로 바꾸기', async () => {
+  it('시나리오 창 기본(MAP-TAB-MERGE) — 고른 층 것만(floor_id)·휴지통 제외, 이름·판·지점 수, 휴지통 링크·«다른 지도는 지도를 바꿔서», «임무 관리…»', async () => {
     seed(); serve(KIM);
     await open();
-    expect($('h1')!.textContent).toBe('시나리오');
     const q = sent('GET', '/scenarios');
-    expect(q).toHaveLength(1); expect(q[0].q.get('limit')).toBe('50'); expect(q[0].q.get('archived')).toBeNull();
+    expect(last(q)!.q.get('limit')).toBe('50'); expect(last(q)!.q.get('archived')).toBeNull(); expect(last(q)!.q.get('floor_id')).toBe('f1');
     expect(rows()).toEqual(['s1']);
-    expect(row('s1').textContent).toBe('1층 순찰1층판 1지점 2로봇 없음마지막 실행 —');
-    expect(card('임무 목록').textContent).not.toContain('Go2-A');
-    await click($('input[type="checkbox"]'));
-    expect(last(sent('GET', '/scenarios'))!.q.get('archived')).toBe('true');
-    expect(rows()).toEqual(['s1', 's2']); expect(row('s2').textContent).toContain('보관됨');
+    expect(row('s1').textContent).toBe('1층 순찰지점 2 · 약 12 m');
+    expect(card('시나리오 목록 창').textContent).not.toContain('Go2-A');
+    expect(card('시나리오 목록 창').textContent).toContain('다른 지도의 시나리오는 지도를 바꿔서 봅니다.'); expect($('[data-trash-link]')!.getAttribute('href')).toBe('#/trash');
     await kind('임무');
+    expect(card('임무 편집')).toBeTruthy();
+    expect(rows()).toEqual(['m1', 'm2']);
+    expect(row('m1').textContent).toBe('사진 순찰작업 2');
+    expect(btn('새 임무')).toBeTruthy();
+    await click(field('보관된 것도 보기'));
     expect(last(sent('GET', '/missions'))!.q.get('archived')).toBe('true');
     expect(rows()).toEqual(['m1', 'm2', 'm3']);
-    expect(row('m1').textContent).toBe('사진 순찰판 1작업 2');
-    expect(btn('새 임무')).toBeTruthy();
     await stopSends();
   });
-  it('배정된 로봇 열: ACTIVE·결재 대기만(해제·반려 빼고, 같은 로봇 한 번), 마지막 실행은 서버 값이 없어 «—» / 배정 목록 실패 → «?» + 안내', async () => {
+  it('배정된 로봇 열: ACTIVE·결재 대기만(해제·반려 빼고, 같은 로봇 한 번), 서버 값이 없는 마지막 실행 줄은 없음 / 배정 목록 실패 → «?» + 안내', async () => {
     seed();
-    const a = (id: string, robot: string, status: Assignment['status'], scenario_version = 1): Assignment => ({ id, scenario_id: 's1', scenario_version, robot_id: `r-${robot}`, memo: '', scenario_name: '1층 순찰',
+    const a = (id: string, robot: string, status: Assignment['status'], scenario_version = 1): Assignment => ({ id, scenario_id: 's1', scenario_version, robot_id: `r-${robot}`, memo: '', scenario_name: '1층 순찰', scenario_name_snapshot: null,
       robot_name: `Go2-${robot}`, status, approval_id: null, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', removed_at: null });
     assigns = [a('a1', 'A', 'ACTIVE'), a('a2', 'A', 'ACTIVE', 2), a('a3', 'B', 'PENDING'), a('a4', 'C', 'REMOVED'), a('a5', 'D', 'REJECTED')];
     serve(KIM);
     await open();
     expect(row('s1').querySelector('[data-col="robots"]')!.textContent).toBe('로봇 Go2-A, Go2-B(결재 대기)');
-    expect(row('s1').querySelector('[data-col="last-run"]')!.textContent).toBe('마지막 실행 —');
+    expect(row('s1').querySelector('[data-col="last-run"]')).toBeNull();
     expect(sent('GET', '/assignments')[0].q.get('robot_id')).toBeNull();                 // 조직 전체
     act(() => root?.unmount()); box.remove(); clearPlans();
     serve(KIM, { over: { 'GET /assignments': [err(500, 'INTERNAL_ERROR', '서버 오류입니다.')] } });
     await open();
     expect(row('s1').querySelector('[data-col="robots"]')!.textContent).toBe('로봇 ?');
-    expect(card('임무 목록').textContent).toContain('배정된 로봇을 받지 못했습니다');
+    expect(card('시나리오 목록 창').textContent).toContain('배정된 로봇을 받지 못했습니다');
     await kind('임무');
     expect(row('m1').querySelector('[data-col]')).toBeNull();                            // 임무에는 배정·실행 열 없음
     await stopSends();
   });
-  it('거르기 «내 것만»·«지도별» = 서버 mine·floor_id, 맞는 것이 없으면 안내, 임무에는 거르기 없음', async () => {
+  it('거르기 «내 것만» = 서버 mine, 층은 지도 탭에서 고른 층(floor_id) — 맞는 것이 없으면 안내, 임무에는 거르기 없음', async () => {
     seed();
     make('scenarios', { name: '2층 점검', waypoints: [wp('f2', 1, 1)] }, LEE);
     serve(LEE);
     await open();
-    expect(rows()).toEqual(['s1', 's3']);
-    const group = card('거르기');
-    await click(field('내 것만', group));
-    expect(last(sent('GET', '/scenarios'))!.q.get('mine')).toBe('true');
-    expect(rows()).toEqual(['s3']);
-    const pick = $<HTMLSelectElement>('select[aria-label="지도별"]')!;
-    expect([...pick.options].map((o) => o.textContent)).toEqual(['전체', '본관 본동 1층', '본관 본동 2층', '본관 본동 3층']);
-    await setVal(pick, 'f1');
-    expect(last(sent('GET', '/scenarios'))!.q.get('floor_id')).toBe('f1');
+    expect(rows()).toEqual(['s1']);
+    const pane = card('시나리오 목록 창');
+    await click(field('내 것만', pane));
+    expect(last(sent('GET', '/scenarios'))!.q.get('mine')).toBe('true'); expect(last(sent('GET', '/scenarios'))!.q.get('floor_id')).toBe('f1');
     expect(rows()).toEqual([]);
-    expect(card('임무 목록').textContent).toContain('조건에 맞는 시나리오가 없습니다.');
-    await click(field('내 것만', group));
+    expect(card('시나리오 목록 창').textContent).toContain('이 지도에 내 시나리오가 없습니다.');
+    await click(field('내 것만', card('시나리오 목록 창')));
     expect(last(sent('GET', '/scenarios'))!.q.get('mine')).toBeNull();
     expect(rows()).toEqual(['s1']);
     await kind('임무');
-    expect($('[aria-label="거르기"]')).toBeNull();
+    expect([...box.querySelectorAll('label')].some((l) => l.textContent === '내 것만')).toBe(false);
     expect(last(sent('GET', '/missions'))!.q.get('mine')).toBeNull(); expect(last(sent('GET', '/missions'))!.q.get('floor_id')).toBeNull();
     await stopSends();
   });
@@ -292,7 +302,7 @@ describe('목록 [임무 | 시나리오]', () => {
     expect(btn('더 보기')).toBeUndefined();
   });
   it('목록을 못 받으면 오류 + 다시 시도', async () => {
-    seed(); serve(KIM, { over: { 'GET /scenarios': [err(500, 'INTERNAL_ERROR', '서버 오류입니다.')] } });
+    seed(); serve(KIM, { over: { 'GET /scenarios': [err(500, 'INTERNAL_ERROR', '서버 오류입니다.'), err(500, 'INTERNAL_ERROR', '서버 오류입니다.')] } });   // 지도 고르기의 시나리오 수·시나리오 창 목록
     await open();
     expect(alertText()).toContain('시나리오 목록을 받지 못했습니다. 서버 오류입니다.');
     await click(btn('다시 시도'));
@@ -324,14 +334,14 @@ describe('임무 편집', () => {
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions']);
     expect(sent('POST', '/missions')[0].body).toEqual({ name: '창고 점검', steps: [{ action: 'WAIT', params: { seconds: 30 } }, { action: 'OPERATOR_CONFIRM', params: { prompt: '문 닫혔나요?' } }] });
-    expect(text()).toContain('저장했습니다(판 1).');
+    expect(text()).toContain('저장했습니다.');
     expect(rows()).toContain('m4');
     await setVal(name(), '창고 점검 2');
-    await click(btn('새 판으로 저장'));
+    await click(btn('저장'));
     const put = sent('PUT', '/missions/m4');
     expect(put).toHaveLength(1); expect(put[0].match).toBe('"1"');
-    expect(text()).toContain('저장했습니다(판 2).');
-    expect(($('select[aria-label="판"]') as HTMLSelectElement).selectedOptions[0].textContent).toBe('판 2 (최신)');
+    expect(text()).toContain('저장했습니다.');
+    expect(($('select[aria-label="저장 기록"]') as HTMLSelectElement).selectedOptions[0].textContent).toBe('2번째 저장 (최신)');
   });
   it('작업 순서 바꾸기·지우기, 작업이 없으면 저장 안 됨', async () => {
     seed(); serve(KIM);
@@ -368,14 +378,14 @@ describe('임무 편집', () => {
     bump('missions', 'm1', { ...M1, name: '남이 고친 이름' }, PARK);
     await click(saveBtn());
     expect(sent('PUT', '/missions/m1')[0].match).toBe('"1"');
-    expect(text()).toContain('다른 사람이 먼저 새 판을 저장했습니다. 입력은 그대로 있습니다.');
+    expect(text()).toContain('다른 사람이 먼저 저장했습니다. 입력은 그대로 있습니다.');
     expect(name().value).toBe('내가 고친 이름');
-    await click(btn('최신 판 받기'));
+    await click(btn('최신 내용 받기'));
     expect(name().value).toBe('내가 고친 이름');
-    expect(text()).toContain('최신 판(판 2)을 받았습니다.');
+    expect(text()).toContain('최신 내용을 받았습니다.');
     await click(saveBtn());
     expect(sent('PUT', '/missions/m1')[1].match).toBe('"2"');
-    expect(text()).toContain('저장했습니다(판 3).');
+    expect(text()).toContain('저장했습니다.');
     expect(rec('missions', 'm1')!.head.name).toBe('내가 고친 이름');
   });
   it('428(판 확인 없음)도 충돌과 같이 — 입력 유지, 덮어쓰지 않음', async () => {
@@ -384,8 +394,8 @@ describe('임무 편집', () => {
     await click(row('m1'));
     await setVal(name(), '고친 이름');
     await click(saveBtn());
-    expect(text()).toContain('다른 사람이 먼저 새 판을 저장했습니다.'); expect(text()).not.toContain('If-Match');
-    expect(name().value).toBe('고친 이름'); expect(btn('최신 판 받기')).toBeTruthy();
+    expect(text()).toContain('다른 사람이 먼저 저장했습니다.'); expect(text()).not.toContain('If-Match');
+    expect(name().value).toBe('고친 이름'); expect(btn('최신 내용 받기')).toBeTruthy();
     expect(rec('missions', 'm1')!.head.latest_version).toBe(1);
   });
   it('422 elements = 걸린 작업 줄 표시', async () => {
@@ -403,15 +413,15 @@ describe('임무 편집', () => {
     await open(); await kind('임무');
     await click(row('m1'));
     expect(name().value).toBe('사진 순찰 v2');
-    await setVal($<HTMLSelectElement>('select[aria-label="판"]')!, '1');
+    await setVal($<HTMLSelectElement>('select[aria-label="저장 기록"]')!, '1');
     expect(last(sent('GET', '/missions/m1'))!.q.get('version')).toBe('1');
-    expect($('[data-old]')!.textContent).toContain('옛 판(판 1)을 보는 중입니다(읽기 전용');
+    expect($('[data-old]')!.textContent).toContain('옛 기록(1번째 저장)을 보는 중입니다(읽기 전용');
     expect(name().value).toBe('사진 순찰'); expect(name().readOnly).toBe(true);
-    expect(btn('새 판으로 저장')).toBeUndefined(); expect(btn('보관')).toBeUndefined();
-    expect(btns().some((b) => /덮어|되돌리|이 판으로/.test(b.textContent!))).toBe(false);
+    expect(btn('저장')).toBeUndefined(); expect(btn('보관')).toBeUndefined();
+    expect(btns().some((b) => /덮어|되돌리|이 기록으로/.test(b.textContent!))).toBe(false);
     expect(step(0).textContent).toContain('카메라');
-    await setVal($<HTMLSelectElement>('select[aria-label="판"]')!, '2');
-    expect(name().value).toBe('사진 순찰 v2'); expect(btn('새 판으로 저장')).toBeTruthy();
+    await setVal($<HTMLSelectElement>('select[aria-label="저장 기록"]')!, '2');
+    expect(name().value).toBe('사진 순찰 v2'); expect(btn('저장')).toBeTruthy();
   });
   it('보관 = 화면 안 확인창(되돌릴 수 없음)을 거쳐 DELETE — 취소면 안 보냄, 목록에서 빠지고 «보관된 것도 보기»에서 읽기 전용', async () => {
     seed(); serve(KIM);
@@ -431,7 +441,49 @@ describe('임무 편집', () => {
     expect(text()).toContain('보관했습니다.');
     expect(rows()).toEqual(['m2']);
     expect($('[data-readonly]')!.textContent).toContain('보관된 임무입니다.');
-    expect(btn('새 판으로 저장')).toBeUndefined();
+    expect(btn('저장')).toBeUndefined();
+  });
+});
+
+describe('시나리오 휴지통(05 §5.1, 11-02)', () => {
+  it('삭제 = 화면 안 확인창 → DELETE(휴지통으로) → «휴지통으로 옮겼습니다 · 되돌리기» = 복원, 휴지통 보기에서 읽기 전용 + 복원', async () => {
+    seed(); serve(LEE);   // 운영 관리자도 같은 기능(10-25)
+    const confirm = vi.spyOn(window, 'confirm');
+    await open();
+    await click(row('s1'));
+    await click(btn('삭제'));
+    expect(writes()).toEqual([]);
+    expect(card('삭제 확인').textContent).toContain('휴지통으로 옮길까요?');
+    await click(btn('휴지통으로'));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(writes()).toEqual(['DELETE /scenarios/s1']);
+    expect(text()).toContain('휴지통으로 옮겼습니다.');
+    expect($('[data-readonly]')!.textContent).toContain('휴지통에 있는 시나리오입니다.');
+    await click(btn('되돌리기'));
+    expect(writes()).toEqual(['DELETE /scenarios/s1', 'POST /trash/scenario/s1/restore']);
+    expect(text()).toContain('시나리오를 되돌렸습니다.');
+    expect($('[data-readonly]')).toBeNull(); expect(btn('저장')).toBeTruthy();
+    await click(btn('삭제')); await click(btn('휴지통으로'));
+    await click($('[data-back]'));
+    expect(rows()).toEqual([]);                                      // 시나리오 창 목록엔 휴지통 것 없음(MAP-TAB-MERGE)
+    // 휴지통 것은 옛 주소·알림 링크(#/mission/<id>)로 열면 읽기 전용 + «복원»
+    act(() => root?.unmount()); box.remove(); clearPlans();
+    await open('#/mission/s2');
+    expect($('[data-readonly]')!.textContent).toContain('휴지통에 있는 시나리오입니다.');
+    await click(btn('복원'));
+    expect(last(writes())).toBe('POST /trash/scenario/s2/restore');
+    expect($('[data-readonly]')).toBeNull();
+    await stopSends();
+  });
+  it('쓰는 중이면 409 RESOURCE_IN_USE = 쉬운 문구 + 서버가 알려 준 무엇', async () => {
+    seed(); serve(KIM);
+    await open();
+    db.scenarios.push({ ...db.scenarios[0], head: { ...db.scenarios[0].head, id: 's9', name: '배정된 순찰' } });
+    await kind('임무'); await kind('시나리오');
+    await click(row('s9'));
+    await click(btn('삭제')); await click(btn('휴지통으로'));
+    expect(text()).toContain('삭제하지 못했습니다. 실행 중이거나 배정된 곳에서 쓰는 중입니다. 사용 중이거나 결재 대기 중인 로봇 배정이 있어');
+    expect($('[data-readonly]')).toBeNull();
   });
 });
 
@@ -441,13 +493,13 @@ describe('권한(02 §10)', () => {
     await open();
     await click(row('s1'));
     expect($('[data-readonly]')).toBeNull(); expect(text()).not.toContain('보는 중');
-    expect(btn('새 판으로 저장')).toBeTruthy(); expect(btn('보관')).toBeTruthy(); expect(name().readOnly).toBe(false);
+    expect(btn('저장')).toBeTruthy(); expect(btn('삭제')).toBeTruthy(); expect(name().readOnly).toBe(false);
     expect(aria('1번 지점 지우기')).toBeTruthy(); expect(btn('결재 요청')).toBeUndefined();
     await setVal(name(), '1층 순찰 고침');
     await settle();
     await click(saveBtn());
     expect(sent('PUT', '/scenarios/s1')).toHaveLength(1);
-    expect(text()).toContain('저장했습니다(판 2).');
+    expect(text()).toContain('저장했습니다.');
     await kind('임무');
     await click(row('m1'));
     expect($('[data-readonly]')).toBeNull(); expect(btn('＋ 대기')).toBeTruthy(); expect(aria('1번 작업 지우기')).toBeTruthy();
@@ -457,7 +509,7 @@ describe('권한(02 §10)', () => {
     seed(); serve(KIM);
     await open(); await kind('임무');
     await click(row('m2'));
-    expect($('[data-readonly]')).toBeNull(); expect(btn('새 판으로 저장')).toBeTruthy();
+    expect($('[data-readonly]')).toBeNull(); expect(btn('저장')).toBeTruthy();
   });
 });
 
@@ -466,27 +518,23 @@ const floorSel = () => $<HTMLSelectElement>('select[aria-label="지도"]')!;
 const floorOpt = (n: string) => [...floorSel().options].find((o) => o.textContent!.startsWith(`본관 › 본동 › ${n}`))!;
 const pickFloor = (n: string) => setVal(floorSel(), floorOpt(n).value);
 describe('시나리오 편집(03 §5.3)', () => {
-  it('임무가 0개면 새 시나리오 시작 때 안내 + «새 임무» 바로가기(10-22 QA R7), 임무가 있으면 안내 없음', async () => {
+  it('임무가 0개여도 안내 없이 지점을 찍을 수 있다 — 기본 «이동» 임무(steps 없음)를 만들어 잇는다(11-04)', async () => {
     seed(); db.missions = []; serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
-    const note = $('[data-no-mission]')!;
-    expect(note.textContent).toContain('임무가 아직 없습니다.');
-    expect(note.compareDocumentPosition(map()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // 지도·지점보다 먼저 보인다
-    await click(btn('새 임무', note));
-    expect(btn('임무', card('종류'))!.getAttribute('aria-pressed')).toBe('true');
-    expect(card('임무 편집')).toBeTruthy();
-    expect(name().value).toBe('');
-    act(() => root?.unmount()); root = null; box.remove(); clearPlans();
-    seed(); serve(KIM);
-    await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     expect($('[data-no-mission]')).toBeNull();
+    expect(sent('POST', '/missions')).toHaveLength(0);                 // 지점을 찍기 전엔 만들지 않음
+    await tap(1, 1);
+    expect(sent('POST', '/missions').map((c) => c.body)).toEqual([{ name: '이동', steps: [] }]);
+    expect($<HTMLSelectElement>('select[aria-label="1번 지점 할 일"]')!.value).toBe('MOVE');
+    expect(point(0).querySelector('[data-do]')!.textContent).toBe('할 일: 이동 — 멈추지 않고 지나감');
+    await tap(1, 0);
+    expect(sent('POST', '/missions')).toHaveLength(1);                 // 둘째 지점은 같은 이동 임무를 다시 쓴다
   });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     expect(floorSel().className).toBe('fh-user fh-sel');               // 앱 공용 고르기 모양(PR #114)
     expect([...floorSel().options].map((o) => o.textContent)).toEqual(['본관 › 본동 › 1층', '본관 › 본동 › 2층', '본관 › 본동 › 3층 — 승인된 지도 없음']);
     expect(floorOpt('3층').disabled).toBe(true);                       // 승인 판 없는 층
@@ -496,38 +544,39 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(1, 1);
     await tap(0, 0, map().querySelector('[data-key="waypoints.0"]')!);
     expect(point(0).textContent).toContain('(1.0, 1.0) m'); expect(point(1).textContent).toContain('«입구»');
-    expect($<HTMLSelectElement>('select[aria-label="1번 지점 임무"]')!.value).toBe('m1:1');   // 보관 안 된 첫 임무의 최신 판
+    expect($<HTMLSelectElement>('select[aria-label="1번 지점 할 일"]')!.value).toBe('MOVE');   // 기본 = 이동(11-04)
     await click(aria('2번 지점 위로'));
     expect(point(0).textContent).toContain('«입구»');
     sized(); await ptr('pointerdown', 1, 1, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 1.5, 0.5); await ptr('pointerup', 1.5, 0.5);
     expect(point(1).textContent).toContain('(1.5, 0.5) m');
     await pickFloor('2층');
     await tap(2, 0);
-    await setVal($<HTMLSelectElement>('select[aria-label="3번 지점 임무"]')!, 'm2:1');
+    await setVal($<HTMLSelectElement>('select[aria-label="3번 지점 할 일"]')!, 'PHOTO');
     expect(floorOpt('1층').textContent).toBe('본관 › 본동 › 1층 (지점 2)');
-    expect(point(0).textContent).toContain('본동 1층 · «입구»'); expect(point(2).textContent).not.toContain('본동');   // 층 이름은 지금 보는 지도와 다른 층 지점에만
+    expect(point(0).textContent).toContain('본동 1층 · «입구»'); expect(point(2).querySelector('.mx-name')!.textContent).not.toContain('본동');   // 층 이름은 지금 보는 지도와 다른 층 지점에만
     await settle();
     const pre = sent('POST', '/scenarios/preview');
     expect(pre.length).toBeGreaterThan(0);
     expect(last(pre)!.body).toEqual({ name: '새 순찰', notes: '', finish: { mode: 'STAY', target: null }, waypoints: [
-      wp('f1', 0, 0, 'm1', 1, { yaw: 1.5, waypoint_ref: 'wp1' }), wp('f1', 1.5, 0.5), wp('f2', 2, 0, 'm2', 1)] });
+      wp('f1', 0, 0, 'm4', 1, { yaw: 1.5, waypoint_ref: 'wp1' }), wp('f1', 1.5, 0.5, 'm4'), wp('f2', 2, 0, 'm5', 1)] });
     const p = card('경로 확인');
     expect(p.textContent).toContain('모든 지점에 갈 수 있습니다.');
     expect(p.textContent).toContain('예상 거리 약 12 m');
     expect(p.textContent).toContain('대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.');
-    expect(p.textContent).toContain('필요 장치: 카메라, 배터리');
+    expect(p.textContent).toContain('필요 장치: 카메라');
     expect(p.textContent).toContain('2번 지점 → 3번 지점본동 1층 → 본동 2층 층 연결점을 거칩니다');
     expect(text()).not.toContain('Nav2');
     expect(saveBtn().disabled).toBe(false);
     await click(saveBtn());
-    expect(writes()).toEqual(['POST /scenarios']);
-    expect(text()).toContain('저장했습니다(판 1).');
+    expect(writes()).toEqual(['POST /missions', 'POST /missions', 'POST /scenarios']);   // 이동·사진 임무 → 시나리오
+    expect(text()).toContain('저장했습니다.');
+    await click($('[data-back]'));                                   // 저장해도 열린 채 — «‹ 목록»으로 이 지도 목록
     expect(rows()).toEqual(['s1', 's3']);
   });
   it('두 손가락 집기(확대)만 하면 지점이 생기지 않고, 뒤의 한 손가락 누름은 뗄 때 하나(PR #119 r1)', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     sized();
     const touch = async (type: string, x: number, y: number, id: number) => {
       act(() => {
@@ -547,7 +596,7 @@ describe('시나리오 편집(03 §5.3)', () => {
   it('진입 금지 구역 안 지점 = 갈 수 없음 + 이유 + 저장 막힘(이유 보임), 지도 밖은 찍지 않음', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await setVal(name(), '금지 시험');
     await tap(4.5, 0);
     expect(alertText()).toContain('지도 범위 밖은 찍을 수 없습니다.'); expect($('[data-wp="0"]')).toBeNull();
@@ -561,13 +610,13 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(saveBtn().disabled).toBe(true);
     expect($('[data-block]')!.textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
     await click(saveBtn());
-    expect(writes()).toEqual([]);
+    expect(writes()).toEqual(['POST /missions']);                    // 기본 이동 임무만 — 시나리오는 저장 안 됨
     await stopSends();                                               // 미리보기·막힘 중에도 STOP
   });
   it('층 연결점 짝이 없으면 구간·끝 지점에 이유, 저장 막힘', async () => {
     seed(); link = false; serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await setVal(name(), '두 층');
     await tap(1, 1);
     await pickFloor('2층'); await tap(1, 1);
@@ -579,7 +628,7 @@ describe('시나리오 편집(03 §5.3)', () => {
   it('끝나면 «지정 지점으로 이동» = 끝 지점을 찍어야 미리보기·저장, 끝 지점은 finish.target', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await setVal(name(), '돌아가기');
     await tap(1, 1);
     await setVal(field('끝나면'), 'GO_TO');
@@ -612,7 +661,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(card('경로 확인').textContent).toContain('모든 지점에 갈 수 있습니다.');
     await click(saveBtn());
     expect(sent('PUT', '/scenarios/s1')).toHaveLength(2);
-    expect(text()).toContain('저장했습니다(판 2).');
+    expect(text()).toContain('저장했습니다.');
     expect(rec('scenarios', 's1')!.head).toMatchObject({ name: '1층 순찰 고침', map_version_ids: ['v3'] });
   });
   it('422 elements = 걸린 지점 표시', async () => {
@@ -642,11 +691,11 @@ describe('시나리오 편집(03 §5.3)', () => {
   it('지점 누름 = 고르기만(단계 창 그 줄 강조·굴림), 지우기는 고른 지점 오른쪽 위 X — 확인창 없이 «되돌리기» 한 번, 끌면 옮김 — 단계 창 «지우기»도 같음', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await tap(1, 1); await tap(2, 0); await tap(0, 1);
     expect([0, 1, 2].map((i) => point(i).textContent)).toEqual([expect.stringContaining('(1.0, 1.0) m'), expect.stringContaining('(2.0, 0.0) m'), expect.stringContaining('(0.0, 1.0) m')]);
     const confirm = vi.spyOn(window, 'confirm'), seen = vi.fn(); Element.prototype.scrollIntoView = seen;   // jsdom 에는 없음
-    const pressed = () => [0, 1, 2].map((i) => point(i).querySelector('.ms-name')!.getAttribute('aria-pressed'));
+    const pressed = () => [0, 1, 2].map((i) => point(i).querySelector('.mx-name')!.getAttribute('aria-pressed'));
     sized(); await ptr('pointerdown', 2, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 2.05, 0); await ptr('pointerup', 2.05, 0);   // 4px 흔들림 = 누름
     expect(point(2)).toBeTruthy(); expect($('[data-undo]')).toBeNull();                 // 다시 눌러도 지우지 않음
     expect(pressed()).toEqual(['false', 'true', 'false']); expect(seen.mock.contexts).toContain(point(1));
@@ -672,7 +721,7 @@ describe('시나리오 편집(03 §5.3)', () => {
   it('터치: 지점 한 손가락 누름 = 고르기만, X 한 손가락 누름 = 지움, 지점 위에서 시작한 두 손가락 집기는 지우지 않음', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await tap(1, 1); await tap(2, 0);
     sized();
     const touch = async (type: string, x: number, y: number, id: number, on: Element = map()) => {
@@ -695,7 +744,7 @@ describe('시나리오 편집(03 §5.3)', () => {
   it('끝 지점도 X 로 지움 — 누름은 고르기만(끝나면 «지정 지점으로 이동»은 그대로, 다시 찍어야 저장) + 되돌리기', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await tap(1, 1);
     await setVal(field('끝나면'), 'GO_TO');
     await tap(-0.5, -1);
@@ -715,16 +764,16 @@ describe('시나리오 편집(03 §5.3)', () => {
     seed(); serve(KIM);
     await open();
     await click(row('s1'));
-    const pane = card('단계 창'), fold = () => $<HTMLButtonElement>('.ms-fold')!;
+    const pane = card('단계 창'), fold = () => $<HTMLButtonElement>('.mx-fold')!;
     expect(pane.tagName).toBe('ASIDE');
     expect(map().compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(fold().getAttribute('aria-expanded')).toBe('true'); expect(fold().textContent).toBe('단계 2 ▸');
+    expect(fold().getAttribute('aria-expanded')).toBe('true'); expect(fold().getAttribute('aria-label')).toBe('단계 2 창 접기');
     expect(point(1)).toBeTruthy();
     await click(fold());
-    expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2');
-    expect($('[data-wp="0"]')).toBeNull(); expect($('.ms-edit')!.hasAttribute('data-open')).toBe(false);
-    await click(btn('새 시나리오'));
-    expect(fold().textContent).toBe('◂ 단계 0');
+    expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2 · 1층 순찰 · 1층');   // 접혀도 무엇을 보는지 — 이름·층 한 줄(SCENARIO-TAB-PICKER)
+    expect(point(0).closest('[hidden]')).toBeTruthy(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);   // 접기 = 숨김(unmount 아님, #235 B2)
+    await click($('nav a[href="#/fleet"]')); await click($('nav a[href="#/map"]'));   // 다른 탭에 갔다 와도(같은 시나리오가 다시 열림) 접은 그대로
+    expect(fold().getAttribute('aria-expanded')).toBe('false');
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('true');
   });
@@ -739,7 +788,7 @@ describe('저장 응답 끊김(불확실)', () => {
     await setVal(name(), '끊김 임무'); await click(btn('＋ 대기'));
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions']);
-    expect(text()).toContain('저장된 것을 확인했습니다(판 1).');
+    expect(text()).toContain('저장된 것을 확인했습니다.');
     expect(db.missions.filter((r) => r.head.name === '끊김 임무')).toHaveLength(1);
   });
   it('아무것도 안 생겼으면 확정하지 않고 초안 유지(입력 잠김) — «다시 저장»은 확인창에서 고른 뒤에만 보낸다', async () => {
@@ -758,7 +807,7 @@ describe('저장 응답 끊김(불확실)', () => {
     await stopSends();                                               // 확인창이 떠 있어도 STOP
     await click(btn('그래도 다시 저장'));
     expect(writes()).toEqual(['POST /missions', 'POST /missions']);
-    expect(text()).toContain('저장했습니다(판 1).');
+    expect(text()).toContain('저장했습니다.');
   });
   it('POST 전에 목록(대조 기준)을 못 받으면 보내지 않는다 — 나중에 대조할 수 없는 저장은 하지 않음', async () => {
     seed();
@@ -791,7 +840,7 @@ describe('저장 응답 끊김(불확실)', () => {
     await setVal(name(), '내 판');
     await click(saveBtn());
     expect(sent('GET', '/missions/m1').some((c) => c.q.get('version') === '2')).toBe(true);
-    expect(text()).toContain('저장된 것을 확인했습니다(판 2).');
+    expect(text()).toContain('저장된 것을 확인했습니다.');
     await setVal(name(), '내 판 다시');
     await click(saveBtn());
     expect(text()).toContain('저장이 아직 확인되지 않았습니다.');
@@ -809,8 +858,8 @@ describe('검토 반영(PR #38 B1~B6)', () => {
     await setVal(name(), '느린 새 임무'); await click(btn('＋ 대기'));
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions']);
+    await click($('nav a[href="#/fleet"]'));
     await click($('nav a[href="#/map"]'));
-    await click($('nav a[href="#/mission"]'));
     expect(name().value).toBe('느린 새 임무');
     expect(saveBtn().disabled).toBe(true); expect(name().closest('fieldset')!.disabled).toBe(true);
     await click(saveBtn());
@@ -818,7 +867,7 @@ describe('검토 반영(PR #38 B1~B6)', () => {
     expect(text()).toContain('저장이 아직 확인되지 않았습니다.');
     await act(async () => { release(); }); await flush();
     await click(btn('저장 확인'));
-    expect(text()).toContain('저장된 것을 확인했습니다(판 1).');
+    expect(text()).toContain('저장된 것을 확인했습니다.');
     expect(writes()).toEqual(['POST /missions']);
     expect(db.missions.filter((r) => r.head.name === '느린 새 임무')).toHaveLength(1);
   });
@@ -831,14 +880,14 @@ describe('검토 반영(PR #38 B1~B6)', () => {
     await setVal(name(), '내 입력');
     bump('missions', 'm1', { ...M1, name: '남이 고친 이름' }, PARK);
     await click(saveBtn());
-    expect(text()).toContain('다른 사람이 먼저 새 판을 저장했습니다.');
+    expect(text()).toContain('다른 사람이 먼저 저장했습니다.');
     over['GET /missions/m1'].push(err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.'));
-    await click(btn('최신 판 받기'));
+    await click(btn('최신 내용 받기'));
     expect(alertText()).toContain('임무를 받지 못했습니다.');
     expect(name().value).toBe('내 입력');
     await click(btn('다시 받기'));
     expect(name().value).toBe('내 입력');
-    expect(text()).toContain('최신 판(판 2)을 받았습니다.');
+    expect(text()).toContain('최신 내용을 받았습니다.');
     await click(saveBtn());
     expect(last(sent('PUT', '/missions/m1'))!.match).toBe('"2"');
     expect(rec('missions', 'm1')!.head.name).toBe('내 입력');
@@ -897,16 +946,17 @@ describe('검토 반영(PR #38 B1~B6)', () => {
     await open();
     await click(row('s1'));
     expect(map().querySelector('image')!.getAttribute('href')).toContain('/map-versions/v3/image');
-    await setVal($<HTMLSelectElement>('select[aria-label="판"]')!, '1');
+    await setVal($<HTMLSelectElement>('select[aria-label="저장 기록"]')!, '1');
     expect($('[data-old]')).toBeTruthy();
     expect(sent('GET', '/map-versions/v1')).toHaveLength(1);
     expect(map().querySelector('image')!.getAttribute('href')).toContain('/map-versions/v1/image');
     expect(point(1).textContent).toContain('«입구»');
   });
   it('B6 지도를 못 받았을 때 «다시 받기»는 실제로 다시 요청한다', async () => {
-    seed(); serve(KIM, { over: { 'GET /map-versions/v1': [err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.')] } });
+    seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    serve(KIM, { over: { 'GET /map-versions/v1': [err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.')] } });   // 지도 탭이 먼저 받은 판 다음 — 시나리오 지도부터 실패
+    await click(btn('+ 이 지도에 새 시나리오'));
     expect(alertText()).toContain('지도를 받지 못했습니다.');
     expect($('svg[data-scenario-map]')).toBeNull();
     await click(btn('다시 받기'));
@@ -941,7 +991,7 @@ describe('STOP·Space', () => {
     expect(text()).toContain('저장하는 중…');
     await stopSends();
     await act(async () => { release(); }); await flush();
-    expect(text()).toContain('저장했습니다(판 2).');
+    expect(text()).toContain('저장했습니다.');
   });
 });
 
@@ -951,8 +1001,8 @@ describe('저장 안 한 편집', () => {
     await open(); await kind('임무');
     await click(row('m1'));
     await setVal(name(), '쓰던 이름');
+    await click($('nav a[href="#/fleet"]'));
     await click($('nav a[href="#/map"]'));
-    await click($('nav a[href="#/mission"]'));
     expect(row('m1').textContent).toContain('저장 안 한 편집');
     expect(name().value).toBe('쓰던 이름');
     expect(text()).toContain('저장하지 않은 편집을 이어서 씁니다.');
@@ -960,60 +1010,119 @@ describe('저장 안 한 편집', () => {
 });
 
 describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
-  const pick = (i: number) => $<HTMLSelectElement>(`select[aria-label="${i}번 지점 임무"]`)!;
+  const pick = (i: number) => $<HTMLSelectElement>(`select[aria-label="${i}번 지점 할 일"]`)!;
   const missionPosts = () => sent('POST', '/missions').map((c) => c.body);
-  it('«사진 찍기(RGB)» = 한 단계 임무를 만들어 잇고, 다른 지점에서 다시 고르면 같은 임무를 다시 쓴다 · 대기 30초 → 초 바꾸기(적용) · 저장 본문', async () => {
+  /** 기본 이동 임무가 이미 있는 서버(id m4) — POST /missions 를 사진·대기 시험만 세게 */
+  const seedMove = () => { seed(); make('missions', { name: '이동', steps: [] }, KIM); };
+  it('할 일은 이동·사진 찍기·대기 셋, 기본 이동 — 고르면 한 단계 임무를 만들어 잇고, 다른 지점에서 다시 고르면 같은 임무를 다시 쓴다 · 대기 30초 → 초 바꾸기(적용) · 저장 본문', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await setVal(name(), '사진 순회');
     await tap(1, 1); await tap(1, 0); await tap(0, 1);
-    expect([...pick(1).options].map((o) => o.value)).not.toContain('do:DEPTH');
-    expect([...pick(1).options].map((o) => o.textContent)).toEqual(expect.arrayContaining(['사진 찍기(RGB)', '대기 30초 — 초는 고른 뒤 바꿈']));
-    expect([...pick(1).options].some((o) => /뎁스|depth/.test(o.textContent!))).toBe(false);   // 깊이 사진은 고를 수 없다
-    await setVal(pick(1), 'do:PHOTO');
-    expect(missionPosts()).toEqual([{ name: '사진 찍기(RGB)', steps: [{ action: 'PHOTO', params: { camera: 'rgb' } }] }]);
-    expect(pick(1).value).toBe('m4:1');
+    expect([...pick(1).options].map((o) => o.value)).toEqual(['MOVE', 'PHOTO', 'WAIT']);
+    expect([...pick(1).options].map((o) => o.textContent)).toEqual(['이동', '사진 찍기', '대기']);
+    expect([pick(1).value, pick(2).value, pick(3).value]).toEqual(['MOVE', 'MOVE', 'MOVE']);
+    expect(missionPosts()).toEqual([{ name: '이동', steps: [] }]);     // 세 지점에 이동 임무 하나
+    await setVal(pick(1), 'PHOTO');
+    expect(last(missionPosts())).toEqual({ name: '사진 찍기(RGB)', steps: [{ action: 'PHOTO', params: { camera: 'rgb' } }] });
+    expect(pick(1).value).toBe('PHOTO');
     expect(point(0).querySelector('[data-do]')!.textContent).toBe('할 일: 사진');
-    await setVal(pick(2), 'do:PHOTO');                                 // 같은 내용 = 다시 쓰기(새로 만들지 않음)
-    expect(missionPosts()).toHaveLength(1);
-    expect(pick(2).value).toBe('m4:1');
-    await setVal(pick(3), 'do:WAIT');
+    await setVal(pick(2), 'PHOTO');                                    // 같은 내용 = 다시 쓰기(새로 만들지 않음)
+    expect(missionPosts()).toHaveLength(2);
+    expect(pick(2).value).toBe('PHOTO');
+    await setVal(pick(3), 'WAIT');
     expect(last(missionPosts())).toEqual({ name: '대기 30초', steps: [{ action: 'WAIT', params: { seconds: 30 } }] });
-    expect(pick(3).value).toBe('m5:1');
+    expect(pick(3).value).toBe('WAIT');
     expect(point(2).querySelector('[data-do]')!.textContent).toBe('할 일: 대기 30초');
     const secs = $<HTMLInputElement>('input[aria-label="3번 지점 대기 초"]')!;
     await setVal(secs, '0');
     expect(btn('적용', point(2))!.disabled).toBe(true);                // 1~3600 밖은 적용 안 됨
     await setVal(secs, '60');
-    expect(missionPosts()).toHaveLength(2);                             // 글자마다 만들지 않음
+    expect(missionPosts()).toHaveLength(3);                             // 글자마다 만들지 않음
     await click(btn('적용', point(2)));
     expect(last(missionPosts())).toEqual({ name: '대기 60초', steps: [{ action: 'WAIT', params: { seconds: 60 } }] });
     expect(point(2).querySelector('[data-do]')!.textContent).toBe('할 일: 대기 60초');
     await setVal($<HTMLInputElement>('input[aria-label="3번 지점 대기 초"]')!, '30');
     await click(btn('적용', point(2)));
-    expect(missionPosts()).toHaveLength(3);                             // 30초는 이미 있음 → 다시 씀
-    expect(pick(3).value).toBe('m5:1');
+    expect(missionPosts()).toHaveLength(4);                             // 30초는 이미 있음 → 다시 씀
+    expect(pick(3).value).toBe('WAIT');
+    expect(point(2).querySelector('[data-do]')!.textContent).toBe('할 일: 대기 30초');
     await settle();
     expect(saveBtn().disabled).toBe(false);
     await click(saveBtn());
-    expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ waypoints: [{ mission_id: 'm4', mission_version: 1 }, { mission_id: 'm4', mission_version: 1 }, { mission_id: 'm5', mission_version: 1 }] });
-    expect(text()).toContain('저장했습니다(판 1).');
+    expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ waypoints: [{ mission_id: 'm5', mission_version: 1 }, { mission_id: 'm5', mission_version: 1 }, { mission_id: 'm6', mission_version: 1 }] });
+    expect(text()).toContain('저장했습니다.');
     await stopSends();
   });
-  it('실행 불가 정직 표시: 로봇 미선택·장치 없음(카탈로그 why_unavailable) = «저장은 되지만 지금은 실행 불가 — 이유», 할 수 있는 대기는 문구 없음, 저장은 막지 않음', async () => {
+  it('이동 임무가 이미 있으면 새로 만들지 않고 그것을 쓴다(보관된 이동 임무는 쓰지 않음)', async () => {
+    seedMove(); serve(KIM);
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    await tap(1, 1);
+    expect(missionPosts()).toEqual([]);
+    expect(pick(1).value).toBe('MOVE');
+    act(() => root?.unmount()); root = null; box.remove(); clearPlans();
+    seed(); make('missions', { name: '이동', steps: [] }, KIM, true); serve(KIM);
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    await tap(1, 1);
+    expect(missionPosts()).toEqual([{ name: '이동', steps: [] }]);
+  });
+  it('서버가 이동 임무를 거절(422) = «이동 임무를 만들지 못했습니다» 한 줄, 또 보내지 않음 · «다시 시도»로 다시 만들어 잇는다', async () => {
+    seed(); serve(KIM, { over: { 'POST /missions': [err(422, 'VALIDATION_ERROR', 'steps 는 한 개 이상')] } });
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    await setVal(name(), '거절');
+    await tap(1, 1);
+    expect(alertText()).toContain('이동 임무를 만들지 못했습니다');
+    expect(alertText()).not.toContain('steps');
+    expect(missionPosts()).toHaveLength(1);
+    await tap(1, 0);
+    expect(missionPosts()).toHaveLength(1);                             // 실패 뒤 저절로 다시 보내지 않음
+    await settle();
+    expect(saveBtn().disabled).toBe(true);                              // 할 일이 빈 지점이 있으면 저장 막힘
+    expect($('[data-block]')!.textContent).toBe('모든 지점에 할 일을 고르세요.');
+    await click(btn('다시 시도'));
+    expect(missionPosts()).toHaveLength(2);
+    expect([pick(1).value, pick(2).value]).toEqual(['MOVE', 'MOVE']);
+    expect(alertText()).not.toContain('이동 임무를 만들지 못했습니다');
+    await settle();
+    expect(saveBtn().disabled).toBe(false);
+  });
+  it('다른 임무가 묶인 옛 지점 = 지우지 않고 이름을 읽기 전용 한 줄로, 그대로 저장하면 그 임무 유지 · 셋 중 하나로 바꿀 수 있다', async () => {
+    seedMove(); serve(KIM);
+    await open();
+    await click(row('s1'));
+    await click(point(0).querySelector('.mx-name'));
+    expect(pick(1).value).toBe('');
+    expect(pick(1).selectedOptions[0].textContent).toBe('다른 임무');
+    expect(pick(1).selectedOptions[0].hidden).toBe(true);               // 목록엔 셋만 보인다
+    expect($('[data-other]', point(0))!.textContent).toBe('지금 임무: 사진 순찰');
+    expect(missionPosts()).toEqual([]);                                 // 열기만 해서는 안 바뀐다
+    await setVal(name(), '이름만 고침');
+    await settle();
+    await click(saveBtn());
+    expect((last(sent('PUT', '/scenarios/s1'))!.body as ScenarioWrite).waypoints[0].mission_id).toBe('m1');
+    await setVal(pick(1), 'MOVE');
+    expect(pick(1).value).toBe('MOVE');
+    expect($('[data-other]', point(0))).toBeNull();
+    expect(missionPosts()).toEqual([]);                                 // 이미 있는 이동 임무를 잇는다
+  });
+  it('실행 불가 정직 표시: 로봇을 고르지 않으면 표시 없음(MAPSCEN-UI), 고른 로봇이 장치 없음(카탈로그 why_unavailable) = 그 단계 줄 ⚠ + «저장은 되지만 지금은 실행 불가 — 이유», 할 수 있는 대기는 문구 없음, 저장은 막지 않음', async () => {
     seed(); serve(KIM);
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await setVal(name(), '정직');
     await tap(1, 1); await tap(1, 0);
-    await setVal(pick(1), 'do:PHOTO'); await setVal(pick(2), 'do:WAIT');
-    expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 실행 확인할 로봇을 고르지 않았습니다.');
-    expect(point(1).querySelector('[data-cannot]')).toBeTruthy();       // 로봇을 모르면 대기도 실행 가능이라 하지 않음
+    await setVal(pick(1), 'PHOTO'); await setVal(pick(2), 'WAIT');
+    expect(point(0).querySelector('[data-cannot]')).toBeNull(); expect(point(1).querySelector('[data-cannot]')).toBeNull();   // 로봇을 안 고르면 «실행 불가» 문구·⚠ 없음
+    expect(point(0).querySelector('.mx-warn')).toBeNull();
     await setVal(field('실행 확인할 로봇'), 'r-a');                     // r-a = 카메라 없음
     expect(last(sent('GET', '/actions'))!.q.get('robot_id')).toBe('r-a');
     expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 필요한 장치가 없거나 정상 상태가 아닙니다: 카메라');
     expect(point(1).querySelector('[data-cannot]')).toBeNull();
+    expect(point(0).querySelector('.mx-warn')!.getAttribute('title')).toBe('실행 불가 — 필요한 장치가 없거나 정상 상태가 아닙니다: 카메라'); expect(point(1).querySelector('.mx-warn')).toBeNull();   // 목록 줄에서도 보이게
     await settle();
     expect(saveBtn().disabled).toBe(false);
   });
@@ -1021,57 +1130,176 @@ describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
     seed();
     serve(KIM, { over: { 'GET /actions': [{ status: 200, body: acts('r-a').map((a) => a.key === 'WAIT' ? { ...a, available: false, why_unavailable: '실행기가 해당 기능을 아직 광고하지 않았습니다' } : a) }, err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.')] } });
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await tap(1, 1);
-    await setVal(pick(1), 'do:WAIT');
+    await setVal(pick(1), 'WAIT');
     await setVal(field('실행 확인할 로봇'), 'r-a');
     expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 실행기가 해당 기능을 아직 광고하지 않았습니다');
     await setVal(field('실행 확인할 로봇'), '');
     await setVal(field('실행 확인할 로봇'), 'r-a');
     expect(alertText()).toContain('실행할 수 있는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.');
-    await click(btn('다시 받기', $('#ms-steps')!));
+    await click(btn('다시 받기', card('단계 창')));
     expect(alertText()).not.toContain('실행할 수 있는지 확인하지 못했습니다');
   });
   it('임무 만들기 응답이 끊기면 목록을 다시 받고, 다시 고르면 만들어진 같은 임무를 쓴다(두 번 만들지 않음) · 만드는 중엔 저장 막힘', async () => {
-    seed();
+    seedMove();
     let hold: (() => void) | null = null;
     serve(KIM, { over: { 'POST /missions': [(real) => new Promise((ok) => { hold = () => { real(); ok({ status: 0 } as Reply); }; })] } });
     vi.stubGlobal('fetch', ((f: typeof fetch) => async (u: string, i?: RequestInit) => { const r = await f(u, i); if (r.status === 0) throw new TypeError('끊김'); return r; })(fetch));
     await open();
-    await click(btn('새 시나리오'));
+    await click(btn('+ 이 지도에 새 시나리오'));
     await setVal(name(), '끊김');
     await tap(1, 1);
-    await setVal(pick(1), 'do:PHOTO');
+    await setVal(pick(1), 'PHOTO');
     expect(text()).toContain('임무를 만드는 중…');
     expect(pick(1).matches(':disabled')).toBe(true);                   // 단계 창 전체가 잠김(지점 번호가 바뀌지 않게)
     expect($('[data-block]')!.textContent).toBe('지점 임무를 만드는 중입니다.');
     await act(async () => { hold!(); }); await flush();
     expect(alertText()).toContain('임무를 만들었는지 확인하지 못했습니다.');
-    expect(pick(1).value).toBe('m1:1');                                  // 확정 전엔 잇지 않음
-    await setVal(pick(1), 'do:PHOTO');
+    expect(pick(1).value).toBe('MOVE');                                  // 확정 전엔 잇지 않음
+    await setVal(pick(1), 'PHOTO');
     expect(sent('POST', '/missions')).toHaveLength(1);
-    expect(pick(1).value).toBe('m4:1');
+    expect(pick(1).value).toBe('PHOTO');
   });
   it('생성 응답이 끊긴 뒤 목록 확인이 끝나기 전(실패·재시도 중)엔 다시 골라도 만들지 않고, 확인되면 만들어진 임무를 다시 쓴다(PR #128 검토)', async () => {
-    seed();
+    seedMove();
     const over: Record<string, ((real: () => Reply) => Reply | Promise<Reply>)[]> = { 'POST /missions': [(real) => { real(); throw new TypeError('끊김'); }], 'GET /missions': [] };
     serve(KIM, { over });
-    await open(); await click(btn('새 시나리오')); await setVal(name(), '불확실'); await tap(1, 1);
+    await open(); await click(btn('+ 이 지도에 새 시나리오')); await setVal(name(), '불확실'); await tap(1, 1);
     let release: (() => void) | null = null;
     over['GET /missions'].push(() => { throw new TypeError('끊김'); }, (real) => new Promise<Reply>((ok) => { release = () => ok(real()); }));
-    await setVal(pick(1), 'do:PHOTO');                                   // 서버엔 생김 · 응답 끊김 → 다시 받기도 실패
+    await setVal(pick(1), 'PHOTO');                                      // 서버엔 생김 · 응답 끊김 → 다시 받기도 실패
     expect($('[data-unsure]')!.textContent).toContain('아직 확인하지 못했습니다');
-    await setVal(pick(1), 'do:PHOTO');
+    await setVal(pick(1), 'PHOTO');
     expect(sent('POST', '/missions')).toHaveLength(1);                   // 실패해도 잠금 유지
-    await click(btn('다시 확인', $('#ms-steps')!));                      // 다시 받는 중(멈춰 둠)
+    await click(btn('다시 확인'));                                       // 다시 받는 중(멈춰 둠)
     expect($('[data-unsure]')!.textContent).toContain('확인하는 중…');
-    await setVal(pick(1), 'do:PHOTO');
+    await setVal(pick(1), 'PHOTO');
     expect(sent('POST', '/missions')).toHaveLength(1);
     await act(async () => { release!(); }); await flush();
     expect($('[data-unsure]')).toBeNull();
-    await setVal(pick(1), 'do:PHOTO');
+    await setVal(pick(1), 'PHOTO');
     expect(sent('POST', '/missions')).toHaveLength(1);
-    expect(pick(1).value).toBe('m4:1');
+    expect(pick(1).value).toBe('PHOTO');
     expect(db.missions.filter((m) => m.head.name === '사진 찍기(RGB)')).toHaveLength(1);
+  });
+});
+
+describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-02)', () => {
+  /** jsdom 에는 DataTransfer 가 없어 끌기 사건에 흉내를 붙인다 */
+  const drag = (type: string, el: Element) => act(() => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'dataTransfer', { value: { setData() {}, effectAllowed: '', dropEffect: '' } }); el.dispatchEvent(e);
+  });
+  it('단계 줄 손잡이를 끌어 다른 줄에 놓으면 순서가 바뀐다(키보드는 «더 보기» ↑↓) · 줄 누름 = 그 단계만 보이고 «‹» 로 목록', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    await tap(1, 1); await tap(2, 0); await tap(0, 1);
+    if (aria('단계 목록으로')) await click(aria('단계 목록으로'));
+    expect([0, 1, 2].every((i) => !point(i).hidden)).toBe(true);
+    drag('dragstart', point(2).querySelector('.mx-grip')!); drag('dragover', point(0)); drag('drop', point(0)); await flush();
+    expect([0, 1, 2].map((i) => point(i).querySelector('.mx-name')!.textContent)).toEqual([expect.stringContaining('(0.0, 1.0) m'), expect.stringContaining('(1.0, 1.0) m'), expect.stringContaining('(2.0, 0.0) m')]);
+    expect($('[data-undo]')).toBeNull();                                  // 순서 바꾸기는 지우기가 아님
+    await click(point(1).querySelector('.mx-name'));
+    expect(point(0).hidden).toBe(true); expect(point(2).hidden).toBe(true); expect(point(1).hidden).toBe(false);
+    expect(card('단계 창').textContent).toContain('2번 지점');
+    expect(point(1).querySelector('.mx-grip')).toBeNull();                // 고른 단계 보기에선 손잡이 없음(↑↓ 는 «더 보기»)
+    await click(aria('2번 지점 아래로'));
+    expect(point(2).querySelector('.mx-name')!.textContent).toContain('(1.0, 1.0) m');
+    await click(aria('단계 목록으로'));
+    expect([0, 1, 2].every((i) => !point(i).hidden)).toBe(true);
+  });
+  it('[단계 N | 배정 N] 탭: 저장된 시나리오에서 «배정»을 누르면 배정 창, 단계 목록은 숨김 · 경로는 한 줄(✓ 모두 갈 수 있음 · 약 N m) + «경로 더 보기»', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(row('s1'));
+    const tabs = [...card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    expect(tabs.map((t) => t.textContent)).toEqual(['단계 2', '배정 0']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    await settle();
+    const p = card('경로 확인');
+    expect(p.querySelector('[role="status"]')!.textContent).toBe('✓ 모두 갈 수 있음 · 약 12 m ⓘ');
+    expect(p.querySelector('details')!.hasAttribute('open')).toBe(false); expect(p.querySelector('summary')!.textContent).toBe('경로 더 보기');
+    await click(tabs[1]);
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+    expect((point(0).closest('.mx-tab') as HTMLElement).hidden).toBe(true);
+    expect($('[data-assign]')!.closest('[hidden]')).toBeNull();
+    await click(tabs[0]);
+    expect((point(0).closest('.mx-tab') as HTMLElement).hidden).toBe(false);
+    await stopSends();
+  });
+  it('#235 B1 임무 만드는 중엔 손잡이 끌기·놓기를 막고, 늦게 온 새 임무는 처음 고른 지점에 잇는다(순번 아닌 그 지점)', async () => {
+    seed(); let release!: () => void;
+    serve(KIM, { over: { 'POST /missions': [async (real) => { await new Promise<void>((r) => { release = r; }); return real(); }] } });
+    await open(); await click(row('s1')); await click(point(0).querySelector('.mx-name'));
+    await setVal($<HTMLSelectElement>('select[aria-label="1번 지점 할 일"]')!, 'PHOTO');
+    expect(release).toBeTypeOf('function');
+    await click(aria('단계 목록으로'));
+    const grip = point(1).querySelector<HTMLElement>('.mx-grip')!;
+    expect(grip.getAttribute('draggable')).toBe('false'); expect(grip.getAttribute('aria-disabled')).toBe('true');
+    drag('dragstart', grip); drag('dragover', point(0)); drag('drop', point(0)); await flush();
+    release(); await flush(); await settle();
+    await click(saveBtn());
+    const w = (last(sent('PUT', '/scenarios/s1'))!.body as ScenarioWrite).waypoints;
+    expect(w.map((p) => ({ x: p.x, y: p.y, m: p.mission_id }))).toEqual([{ x: 1, y: 1, m: 'm4' }, { x: 0, y: 0, m: 'm1' }]);
+  });
+  it('#235 B2 창을 접었다 펴도 배정 창 입력(메모)이 남는다 — 접기는 숨김, 배정 창은 unmount 되지 않음', async () => {
+    seed(); serve(KIM);
+    await open(); await click(row('s1'));
+    await click(card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')[1]);
+    const sec = $('[data-assign]')!;
+    await click(btn('로봇에 배정', sec));
+    await setVal(field('메모', sec), '야간 순찰');
+    await click($<HTMLButtonElement>('.mx-fold')!);
+    expect(sec.isConnected).toBe(true); expect(sec.closest('[hidden]')).toBeTruthy();
+    await click($<HTMLButtonElement>('.mx-fold')!);
+    expect($('[data-assign]')).toBe(sec); expect(sec.closest('[hidden]')).toBeNull();
+    expect(field('메모', sec).value).toBe('야간 순찰');
+    await stopSends();
+  });
+  it('#235 B3 [단계|배정] 탭: ←→·Home·End 로 옮기며 고름(roving tabIndex) · aria-controls ↔ tabpanel aria-labelledby', async () => {
+    seed(); serve(KIM);
+    await open(); await click(row('s1'));
+    const tabs = [...card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const key = (k: string) => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1]);
+    for (const t of tabs) { const pnl = document.getElementById(t.getAttribute('aria-controls')!)!;
+      expect(pnl.getAttribute('role')).toBe('tabpanel'); expect(pnl.getAttribute('aria-labelledby')).toBe(t.id); }
+    tabs[0].focus(); key('ArrowRight');
+    expect(document.activeElement).toBe(tabs[1]); expect(tabs[1].getAttribute('aria-selected')).toBe('true'); expect(tabs.map((t) => t.tabIndex)).toEqual([-1, 0]);
+    expect(document.getElementById(tabs[1].getAttribute('aria-controls')!)!.hidden).toBe(false);
+    key('ArrowRight'); expect(document.activeElement).toBe(tabs[0]); expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    key('End'); expect(document.activeElement).toBe(tabs[1]);
+    key('Home'); expect(document.activeElement).toBe(tabs[0]);
+    key('ArrowLeft'); expect(document.activeElement).toBe(tabs[1]);
+  });
+  it('#235 B4 끌기 손잡이는 화면 읽기에 «N번 단계 끌어 옮기기»로 보이고, 키보드 대체는 «더 보기»의 ↑↓', async () => {
+    seed(); serve(KIM);
+    await open(); await click(row('s1'));
+    const grip = point(0).querySelector('.mx-grip')!;
+    expect(grip.hasAttribute('aria-hidden')).toBe(false); expect(grip.getAttribute('aria-label')).toBe('1번 단계 끌어 옮기기');
+    expect(point(1).querySelector('.mx-grip')!.getAttribute('aria-label')).toBe('2번 단계 끌어 옮기기');
+    await click(point(0).querySelector('.mx-name'));
+    expect(aria('1번 지점 아래로')).toBeTruthy();
+  });
+  it('새 시나리오(저장 전)는 배정 탭 없음 · 저장은 단추 줄, 이름은 창 맨 위(사진 ④ — MAP-TAB-MERGE), 삭제는 «···» 안, 위 줄 지도는 잠김', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    expect([...card('단계 창').querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['단계 0']);
+    expect(saveBtn().closest('.mx-bar')).toBeTruthy();
+    expect(card('단계 창').querySelector('.mx-pick [aria-label="오른쪽 창"]')).toBeTruthy();                       // 창 맨 위 [지도 요소 | 시나리오] 탭
+    expect($('.mx-bar [data-locked]')!.getAttribute('aria-label')).toBe('지도: 본관 › 본동 › 1층 (잠김 — 시나리오를 닫으면 지도를 바꿀 수 있습니다)');
+    expect(card('단계 창').contains(name())).toBe(true);
+    await click($('[data-back]'));
+    await click(row('s1'));
+    expect(name().value).toBe('1층 순찰'); expect(card('단계 창').contains(name())).toBe(true);
+    expect(btn('삭제')!.closest('details.mx-menu')).toBeTruthy();
+    expect(btn('저장')!.closest('.mx-bar')).toBeTruthy();
+    await click($('[data-back]'));
+    await click(btn('임무 관리…'));                                                                                    // 창이 없는 임무 관리는 메뉴가 위 단추 줄
+    expect($('.mx-bar [aria-label="임무 목록"]')).toBeTruthy(); expect($('.mx-pick')).toBeNull();
+    await stopSends();
   });
 });

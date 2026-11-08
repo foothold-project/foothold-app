@@ -20,7 +20,15 @@ def save_inventory(factory, org_id, rid, devices, model=None, token_hash=None):
         existing = {d.key: d for d in db.scalars(select(RobotDevice).where(
             RobotDevice.org_id == org_id, RobotDevice.robot_id == robot.id))}
         for device in devices:
+            device = dict(device)
+            code = device.pop('status_code', None)
             row = existing.pop(device['key'], None)
+            info = dict(row.info or {}) if row is not None else {}
+            if code is None:
+                info.pop('status_code', None)
+            else:
+                info['status_code'] = code
+            device['info'] = info
             if row is None:
                 row = RobotDevice(org_id=org_id, robot_id=robot.id, **device)
                 db.add(row)
@@ -38,6 +46,15 @@ def live_state(realtime, rid):
     online = peer is not None and not peer.closing
     fresh = online and realtime.clock() - peer.state_received_at <= 3
     state = dict(peer.state) if fresh else {}
+    # Display-only sample age: add time in our memory without comparing the
+    # robot host's wall clock with the browser clock or refreshing its stamp.
+    info = state.get('robot_info')
+    if info is not None:
+        info = dict(info)
+        for key in ('joints', 'quaternion', 'position'):
+            if info.get(key) is not None:
+                info[key] = {**info[key], 'age_s': info[key]['age_s'] + max(0, realtime.clock() - peer.state_received_at)}
+        state['robot_info'] = info
     location = state.get('location')
     if location and location.get('floor_context'):
         from datetime import datetime
@@ -53,10 +70,18 @@ def reported_devices(realtime, rid):
     return peer.state.get('devices', []) if peer and not peer.closing else None
 
 
+def phone_relay(realtime, rid):
+    """Separate display projection. Never used by online or capability checks."""
+    cache = getattr(realtime, 'phone_telemetry', None)
+    return cache.get(rid) if cache is not None else None
+
+
 def device_error(realtime, rid, stored_error):
     # A connected agent's complete inventory supersedes persisted states;
     # omitted stored devices become MISSING, including any old ERROR.
     reported = reported_devices(realtime, rid)
+    # ACCEPTED is diagnostic context on legacy OK, so it never adds DEVICE_ERROR.
+    # Other real device errors (including posture) remain independent warnings.
     return any(d['state'] == 'ERROR' for d in reported) if reported is not None else stored_error
 
 
@@ -97,7 +122,8 @@ def robot_objects(db, robots, user, realtime):
         for device in db.scalars(select(RobotDevice).where(RobotDevice.org_id == user.org_id,
                 RobotDevice.robot_id.in_(full_ids)).order_by(RobotDevice.key)):
             devices.setdefault(device.robot_id, {})[device.key] = C.Device(key=device.key,
-                kind=device.kind, label=device.label, state=device.state)
+                kind=device.kind, label=device.label, state=device.state,
+                status_code=(device.info or {}).get('status_code'))
     settings = C.OrgSettings.model_validate(db.get(Organization, user.org_id).settings)
     current_runs = {}
     if full_ids:
@@ -110,6 +136,10 @@ def robot_objects(db, robots, user, realtime):
                 {'done': min(run.step, len(version.waypoints)), 'total': len(version.waypoints)})
     result = []
     for robot in robots:
+        approval = robot.field_approval_expires_at
+        approval = approval if approval is not None and approval > now() else None
+        server_drive = (robot.simulation is not True and realtime.settings.drive_enabled(robot.id)
+                        and approval is not None)
         owner = owners.get(robot.owner_user_id)
         full = user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id
         online, state = snapshots[str(robot.id)] if full else (False, {})
@@ -117,17 +147,17 @@ def robot_objects(db, robots, user, realtime):
         live_devices = reported_devices(realtime, str(robot.id)) if full else None
         if live_devices is not None:
             reported = {d['key']: C.Device(**d) for d in live_devices}
-            inventory = {key: value.model_copy(update={'state': 'MISSING'})
+            inventory = {key: value.model_copy(update={'state': 'MISSING', 'status_code': None})
                          for key, value in inventory.items() if key not in reported} | reported
         if not online:
             # Persisted inventory is history, not evidence that a disconnected
             # device is currently available. Keep rows unchanged for reconnect.
-            inventory = {key: value.model_copy(update={'state': 'MISSING'})
+            inventory = {key: value.model_copy(update={'state': 'MISSING', 'status_code': None})
                          for key, value in inventory.items()}
         lease = None
         record = realtime.arbiter.robots.get(str(robot.id)) if full else None
         holder = record.holder if record else None
-        if holder and robot.simulation is True and not state.get('phone_reported'):
+        if holder and (robot.simulation is True or server_drive) and not state.get('phone_reported'):
             lease = C.Lease(holder_type=holder.holder_type,
                 user=C.Person(id=holder.actor.user, display_name=holder.actor.display_name) if holder.actor else None,
                 since=now() - timedelta(seconds=max(0, realtime.clock() - holder.since)))
@@ -147,6 +177,10 @@ def robot_objects(db, robots, user, realtime):
                     else '시나리오 이름 수신 대기', progress=reported_run['progress'])
                 if reported_run['status'] not in TERMINAL_RUNS else None)
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
+            server_drive_allowed=server_drive,
+            robot_serial=robot.serial, field_approval_expires_at=approval,
+            robot_info=state.get('robot_info'),
+            phone_relay=phone_relay(realtime, str(robot.id)) if full else None,
             owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
             connection=('ONLINE' if online else 'OFFLINE') if full else 'UNKNOWN', status=state.get('status'),
             battery=state.get('battery'), location=state.get('location'), lease=lease,

@@ -1,0 +1,33 @@
+{
+  "$id": "fh-app/1/Go2Quaternion",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "age_s": {
+      "minimum": 0,
+      "title": "Age S",
+      "type": "number"
+    },
+    "received_at": {
+      "format": "date-time",
+      "title": "Received At",
+      "type": "string"
+    },
+    "wxyz": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Wxyz",
+      "type": "array"
+    }
+  },
+  "required": [
+    "received_at",
+    "age_s",
+    "wxyz"
+  ],
+  "title": "Go2Quaternion",
+  "type": "object"
+}

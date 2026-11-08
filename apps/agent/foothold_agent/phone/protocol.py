@@ -5,9 +5,10 @@ nonfinite numbers, duplicate JSON keys and noncanonical UUIDs are rejected.
 """
 
 import math
+from decimal import Decimal
 
-from foothold_agent.safety.core import Z
-from foothold_agent.policy_ranges import FOOTHOLD_V2
+from foothold_agent.safety.core import Z, quantize_phone
+from foothold_agent.policy_ranges import velocity_input
 from .tickets import json_object, uuid
 
 PROTO = 'fh-phone/1'
@@ -87,35 +88,45 @@ def simulation_velocity(vx, vy, wz):
 
     Only exact ZERO confirms neutral. Rejected commands retain a reason.
     """
-    return FOOTHOLD_V2.project(vx, vy, wz)
+    value = velocity_input((vx, vy, wz), local=True)
+    if value is None:
+        return Z, 'INVALID_VELOCITY'
+    if not all(SIMULATION_LIMITS[axis + '_min'] <= v <= SIMULATION_LIMITS[axis + '_max']
+               for axis, v in zip(('vx', 'vy', 'wz'), value)):
+        return Z, 'UNSUPPORTED_VELOCITY'
+    return value, ''
 
 
 def project_velocity(vx, vy, wz, *, simulation=False):
-    """SI input -> Core axes; physical/default mode keeps the tested alphabet."""
+    """SI input -> Core axes; physical mode uses the explicit 1.5 m/s phone alphabet."""
     if simulation is True:
         limited, _ = simulation_velocity(vx, vy, wz)
         # Keep rejected SI intent for Core's reason and fresh-neutral gate.
         return (vx, vy, wz), limited != (vx, vy, wz)
-    x = .6 if vx >= .6 else 0.0
-    turn = (.5 if wz >= .5 else -.5 if wz <= -.5 else 0.0) if x else 0.0
-    limited = (x, 0.0, turn)
-    axes = (1.0 if x else 0.0, 0.0, turn / .5)
+    # The shipped phone sends vx = 1.5 * stick. Decimal avoids converting
+    # exact SI boundaries such as 0.3 / 1.5 to an axis just below 0.2.
+    x = float(max(Decimal('-1'), min(Decimal('1'), Decimal(str(vx)) / Decimal('1.5'))))
+    turn = .5 if wz >= .5 else -.5 if wz <= -.5 else 0.0
+    axes = (x, 0.0, turn / .5)
+    limited, _ = quantize_phone(*axes)
     if not any(limited) and any((vx, vy, wz)):
         # Valid, nonneutral Core inputs that quantize to ZERO with a reason.
         # They neither create a neutral nor erase a previously confirmed one.
         axes = ((-1.0, 0.0, 0.0) if vx < 0 else
                 (0.0, 1.0 if vy > 0 else -1.0, 0.0) if vy else
-                (.3, 0.0, 0.0) if vx else (0.0, 0.0, 1.0 if wz > 0 else -1.0))
+                (.1, 0.0, .2) if vx else (0.0, 0.0, 1.0 if wz > 0 else -1.0))
     return axes, limited != (vx, vy, wz)
 
 
-LIMITS = {'vx_min': 0.0, 'vx_max': .6, 'vy_min': 0.0, 'vy_max': 0.0,
+LIMITS = {'vx_min': 0.0, 'vx_max': 1.5, 'vy_min': 0.0, 'vy_max': 0.0,
           'wz_min': -.5, 'wz_max': .5,
-          'commands': [[0.0, 0.0, 0.0], [.6, 0.0, 0.0], [.6, 0.0, -.5], [.6, 0.0, .5]]}
+          'commands': [[0.0, 0.0, 0.0]] + [[step / 10, 0.0, wz]
+              for step in range(3, 16) for wz in (0.0, -.5, .5)]}
 
-# Keep the existing phone input envelope, including pressed-deadzone signaling.
-# Accepted policy commands are advertised separately and enforced by the agent.
+# Explicit simulation input envelope; the learned policy ranges remain unchanged.
+# These experimental commands are accepted, not validated walking capabilities.
 SIMULATION_LIMITS = {**LIMITS, 'vx_mode': 'continuous', 'vx_min_moving': .2,
-                     'vx_min': -.3, 'vx_max': 1.0, 'vy_min': -.3, 'vy_max': .3,
+                     'vx_min': -.3, 'vx_max': 1.5, 'vy_min': -.3, 'vy_max': .3,
                      'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
-                     **FOOTHOLD_V2.metadata()}
+                     'policy_adapter_id': 'simulation-experimental-si/1',
+                     'requires_forward_motion': False}

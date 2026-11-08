@@ -27,7 +27,7 @@ for (const { id } of read('../sim/maps.json')) {
       }
       prev = p;
     }
-    const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [map.spawn_xyyaw[0], map.spawn_xyyaw[1], 0.4, 1, 0, 0, 0] } };
+    const sim = { cmd: [0, 0, 0], d: { qpos: [map.spawn_xyyaw[0], map.spawn_xyyaw[1], 0.4, 1, 0, 0, 0] } };
     const runner = createScenarioRunner(sim, () => false);
     runner.start(s.points);
     let yaw = 0, last = 0;
@@ -50,7 +50,7 @@ rays[180] = 0.1; assert.equal(frontDistance(rays), Infinity);
 rays[359] = 0.4; assert.equal(frontDistance(rays), 0.4);
 for (const ev of ['left', 'right', 'stop', 'stopClick', 'hidden', 'pagehide', 'freeze', 'blur', 'home', 'reset']) {
   let stopped = false;
-  const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
+  const sim = { cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
   const runner = createScenarioRunner(sim, () => stopped);
   const els = Object.fromEntries(['left', 'right', 'stop', 'doc', 'win', 'home', 'reset'].map((k) => [k, new EventTarget()]));
   bindScenarioInterrupts({ runner, lock: () => { stopped = true; sim.cmd = [0, 0, 0]; }, ...els });
@@ -62,12 +62,11 @@ for (const ev of ['left', 'right', 'stop', 'stopClick', 'hidden', 'pagehide', 'f
   assert.equal(runner.active, false, ev); assert.equal(stopped, true, ev); assert.deepEqual(sim.cmd, [0, 0, 0], ev);
   stopped = false; runner.tick(); assert.deepEqual(sim.cmd, [0, 0, 0], `${ev}: no automatic resume`);
 }
-for (const reason of ['막힘', '넘어짐', '중단']) {
+for (const reason of ['막힘', '중단']) {
   let stopped = false;
-  const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
+  const sim = { cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
   const r = createScenarioRunner(sim, () => stopped);
   r.start([{ x: 2, y: 0 }]); r.tick();
-  if (reason === '넘어짐') sim.fell = true;
   if (reason === '중단') stopped = true;
   r.tick(reason === '막힘' ? 0.6 : Infinity);
   assert.equal(r.status, reason); assert.deepEqual(sim.cmd, [0, 0, 0]); assert.equal(r.active, false);
@@ -76,7 +75,7 @@ for (const reason of ['막힘', '넘어짐', '중단']) {
 // 찍은 곳 가기(goal): 막대 누름 = 취소만(잠금 없음 — 손 조종 우선), STOP·흐림 등은 시나리오와 같이 잠금
 for (const ev of ['left', 'right', 'stop', 'blur']) {
   let stopped = false;
-  const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
+  const sim = { cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
   const runner = createScenarioRunner(sim, () => stopped);
   const els = Object.fromEntries(['left', 'right', 'stop', 'doc', 'win', 'home', 'reset'].map((k) => [k, new EventTarget()]));
   bindScenarioInterrupts({ runner, lock: () => { stopped = true; sim.cmd = [0, 0, 0]; }, ...els });
@@ -87,7 +86,7 @@ for (const ev of ['left', 'right', 'stop', 'blur']) {
   assert.equal(runner.status, ev === 'left' || ev === 'right' ? '손 조종' : '중단');
 }
 { // 5초 진전 없음(거리 0.1 m·방향 0.1 rad 둘 다) = 막힘, 앞 막힘은 앞으로 갈 때만 — 벽을 보고 뒤쪽 목표로 도는 것은 허용
-  const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
+  const sim = { cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
   const r = createScenarioRunner(sim, () => false);
   r.start([{ x: 2, y: 0 }], true);
   for (let k = 0; k < Math.round(STALL_S / 0.02) - 2; k++) r.tick(Infinity, 0.02);
@@ -104,7 +103,20 @@ for (const ev of ['left', 'right', 'stop', 'blur']) {
   q[3] = 1; q[6] = 0; r.start([{ x: 0, y: 1 }], true);
   for (let k = 0; k < 400; k++) r.tick(Infinity, 0.02);
   assert.equal(r.active, false, 'stuck turn stalls'); assert.equal(r.status, '막힘'); assert.deepEqual(sim.cmd, [0, 0, 0]);
+  // 바로 뒤 목표 + 몸 흔들림(yaw ±0.03 이 ±π 를 오감): 처음 고른 회전 방향을 지키고 끝까지 돈다(부호가 뒤집혀 제자리 → 5 s 막힘 아님)
+  {
+    q[0] = 0; q[1] = 0; q[3] = 1; q[6] = 0; r.start([{ x: -2, y: 0 }], true);
+    const signs = new Set();
+    for (let k = 0, yaw = 0; k < 400 && !sim.cmd[0]; k++) {
+      const wob = (k % 2 ? 0.03 : -0.03);
+      q[3] = Math.cos((yaw + wob) / 2); q[6] = Math.sin((yaw + wob) / 2);
+      r.tick(Infinity, 0.02); if (Math.abs(yaw) < 2.4) signs.add(Math.sign(sim.cmd[2]));
+      yaw += (k < 5 ? 0 : sim.cmd[2]) * 0.02;   // 처음 0.1 s 는 아직 못 돎(흔들림만)
+    }
+    assert.equal(signs.size, 1, `one turn direction behind (${[...signs]})`);
+    assert.equal(r.active, true, 'behind goal with wobble: no stall'); assert.ok(sim.cmd[0] > 0, 'turned around then forward');
+  }
   r.start([{ x: 0.2, y: 0 }], true); r.tick();   // 이미 0.3 m 안 = 바로 도착·명령 0
   assert.equal(r.status, '완료'); assert.deepEqual(sim.cmd, [0, 0, 0]);
 }
-console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/fall/STOP guards, goal hand-cancel/no-lock, 5 s stall, turn-not-blocked, stuck-turn stall`);
+console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/STOP guards, goal hand-cancel/no-lock, 5 s stall, turn-not-blocked, stuck-turn stall, behind goal keeps one turn direction under wobble`);

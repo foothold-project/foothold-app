@@ -103,6 +103,22 @@ def quantize(fx, fy, fw):
     return (0.6, 0.0, wz), ''
 
 
+def quantize_phone(fx, fy, fw):
+    """Physical phone: 0.3..1.5 m/s in downward 0.1 m/s steps.
+
+    Core's default projection stays at the original 0.6 m/s for legacy links.
+    Only the physical phone Hub explicitly selects this projection.
+    """
+    velocity, reason = quantize(fx, fy, fw)
+    if fx < 0.2 or abs(fy) >= 0.5:
+        return velocity, reason.replace('앞으로 끝까지 밀면 0.6 m/s', '미는 만큼 0.3~1.5 m/s')
+    # 0.3 + (fx - 0.2) * (1.5 - 0.3) / (1 - 0.2) == 1.5 * fx.
+    # Integer tenths keep every result in the sink's exact finite alphabet.
+    vx = min(15, math.floor(fx * 15)) / 10
+    # quantize retains the original fx >= 0.5 and fw thresholds for turns.
+    return (vx, 0.0, velocity[2]), ''
+
+
 class Core:
     """조종권·래치·재개·리셋·시뮬 관문. ROS·웹과 무관해 --selftest 로 시험한다. 호출자가 lock 을 잡는다.
     비영 명령 조건: 신선한 형식 맞는 state · policy_running · 리셋 중 아님 · 조종권 · 래치 없음 · 재개/리셋 대기 없음
@@ -123,6 +139,7 @@ class Core:
         self.sink = None            # 사건 영구 기록(파일) — 실패해도 조종은 계속
         self.st = None; self.state_t = None; self.state_seq = 0; self.episode = None
         self.resume_pending = None  # (요청 시각, 그때 state_seq) — 시뮬이 stop_requested=false 를 보낼 때까지 0
+        self.resume_refused = None  # Diagnostic code only; never used by motion gates.
         self.reset_pending = None   # 요청 시각
         self.ep_change_t = None     # 마지막 episode 변경 시각
         self.sim_was_ok = False; self.bad_input = False; self.bad_state = False
@@ -243,8 +260,10 @@ class Core:
                 '시뮬 상태 미수신': 'sim_unseen', '시뮬 상태 끊김': 'sim_stale',
                 '시뮬 리셋 중': 'sim_resetting', '정책 미실행': 'policy_not_running',
             }.get(why, 'sim_busy')
+            self.resume_refused = diagnostic_reason
             self._safety_log.emit('resume_rejected', diagnostic_reason, _log_source(), stop_gen=self.stop_gen)
             self.ev('warn', f'STOP 해제 거부 · {why}'); return False
+        self.resume_refused = None
         self.resume_pending = (self.now(), self.state_seq); self._void()
         self._safety_log.emit('resume', 'requested', _log_source(), stop_gen=self.stop_gen)
         self.ev('ok', 'STOP 해제 요청 · 시뮬 확인 대기(0 유지)')
