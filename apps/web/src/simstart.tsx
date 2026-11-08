@@ -3,8 +3,9 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 import SIM_MAPS from '../../../mobile/sim/maps.json';
 import { simUrl } from './simdrive';
+import { BtEditor } from './screens/btedit';
 
-type Floor = { id: string; name: string; top: string; map_file: string };
+type Floor = { id: string; name: string; top: string; map_file: string; scenarios_file?: string };
 /** top.json(mobile/scripts/make-top.mjs): 사진이 덮는 지도 좌표 [x0, y0, x1, y1] m — 층마다 사진만 다르고 범위는 같다 */
 type TopMeta = { bounds: [number, number, number, number]; floors?: Floor[] };
 type Grid = { origin: number[]; res: number; w: number; h: number; spawn_xyyaw: number[]; px: Uint8Array };
@@ -12,6 +13,8 @@ const dir = (id: string, f: string) => `../../../mobile/sim/assets/${id}/${f}`;
 const PNG = import.meta.glob<string>('../../../mobile/sim/assets/*/top*.png', { eager: true, query: '?url', import: 'default' });
 const META = import.meta.glob<TopMeta>('../../../mobile/sim/assets/*/top.json', { eager: true, import: 'default' });
 /** 장애물 지도(ROS 3값 0 벽·205 모름·254 빈 곳, px = base64) — 커서(최대 1.3 MB) 고른 층 것만 그때 읽는다 */
+/** 시나리오(임무 편집의 기본 임무) — 지도마다 수 KB 라 바로 싣는다 */
+const SCN = import.meta.glob<Parameters<typeof BtEditor>[0]['scenarios']>('../../../mobile/sim/assets/*/scenarios*.json', { eager: true, import: 'default' });
 const GRID = import.meta.glob<Omit<Grid, 'px'> & { px: string }>('../../../mobile/sim/assets/*/map*.json', { import: 'default' });
 const ONE: Floor = { id: '', name: '', top: 'top.png', map_file: 'map.json' };   // 한 층 지도 = top.png·map.json, 주소에 floor 없음
 const floorsOf = (id: string) => META[dir(id, 'top.json')]?.floors ?? [ONE];
@@ -65,8 +68,8 @@ function Mark({ x, y, yaw, k, pick }: { x: number; y: number; yaw: number; k: nu
   </g>;
 }
 
-/** make = PC «시뮬» 탭: «지형 만들기» 입구를 보인다(폰 틀·앱 안은 숨김 — 저장본을 시뮬과 나눌 수 있는 곳만) */
-export function SimPick({ make }: { make?: boolean }) {
+/** make = PC «시뮬» 탭: «지형 만들기» 입구·«임무 편집»을 보인다(폰 틀·앱 안은 숨김 — 저장본을 시뮬과 나눌 수 있는 곳만). admin = 총괄(임무 편집·저장), 아니면 보기만 */
+export function SimPick({ make, admin }: { make?: boolean; admin?: boolean }) {
   const [want, setWant] = useState(savedMap), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0];
   const meta = META[dir(map.id, 'top.json')], floors = floorsOf(map.id), [fid, setFid] = useState(''), floor = floors.find((f) => f.id === fid) ?? floors[0];
   const [start, setStart] = useState<[number, number] | null>(null), [why, setWhy] = useState('');
@@ -102,5 +105,8 @@ export function SimPick({ make }: { make?: boolean }) {
       {make && <a className="btn" href="#/terrain" style={{ textDecoration: 'none', color: 'var(--text)' }} data-terrain-enter>지형 만들기</a>}
       <a className="btn pri dv-grow" href={openUrl(map.id, floors.length > 1 ? floor.id : '', start)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
     </div>
+    {make && <BtEditor map={map.id} floor={floors.length > 1 ? floor.id : ''} scenarios={SCN[dir(map.id, floor.scenarios_file ?? 'scenarios.json')]} admin={!!admin}
+      openUrl={openUrl(map.id, floors.length > 1 ? floor.id : '', start)}
+      top={meta && top ? { href: top, bounds: meta.bounds, at: (r, cx, cy) => toWorld(r, meta.bounds, cx, cy), blocked: (x, y) => (grid ? blocked(grid, x, y) : '지도를 읽는 중입니다 — 잠시 뒤 다시 눌러 주세요.') } : undefined} />}
   </>;
 }

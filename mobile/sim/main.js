@@ -12,7 +12,7 @@ import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame, topPoint } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, createPatrolRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
-import { treeFromScenario, treeRows, ACTION_SECONDS } from './bt.js';
+import { treeFromScenario, treeRows, ACTION_SECONDS, validateTree } from './bt.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { MIN_UP } from './walk-surface.js';
 import { loadSimSettings, simSettings } from './settings.js';
@@ -461,9 +461,29 @@ async function main() {
     .map((x) => { if (x.floor_id !== f.id) throw new Error('시나리오 층이 파일 층과 다름'); return { ...x, floor: i }; })))).flat()
     : customTerrain ? [] : validateScenarios(await json(`${dir}/scenarios.json`), map); }
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
+  // 내 임무(?bt=<id>): 웹 시뮬 탭 «임무 편집»이 이 브라우저 localStorage fh.btMission.<id> 에 둔 나무. validateTree·지점 검사를 거쳐 목록 맨 위에,
+  // 못 읽거나 검사 실패면 넣지 않고 이유만 안내 줄에(기존 시나리오는 그대로). 실행·STOP·잠금은 다른 나무 시나리오와 같은 길
+  let btNote = '';
+  if (params.has('bt')) try {
+    const bid = params.get('bt');
+    if (!/^[a-z0-9-]{1,32}$/.test(bid)) throw new Error('임무 id 형식');
+    let raw, m;
+    try { raw = localStorage.getItem(`fh.btMission.${bid}`); } catch { throw new Error('이 브라우저 저장소를 읽을 수 없음'); }
+    if (!raw) throw new Error('이 브라우저에 저장된 임무가 없음');
+    try { m = JSON.parse(raw); } catch { throw new Error('저장된 임무 JSON을 읽을 수 없음'); }
+    if (m?.id !== bid || m.map !== id || typeof m.name !== 'string') throw new Error('다른 지도의 임무');
+    validateTree(m.tree);
+    const fi = floors.length ? floors.findIndex((f) => f.id === m.floor) : -1;
+    if (floors.length && fi < 0) throw new Error('임무 층이 이 지도에 없음');
+    // 시나리오 지점 = 지점마다의 points, 그다음 좌표 있는 이동(웹 treePoints 와 같은 순서) — 빈 칸 검사는 기존 validateScenarios
+    const points = treeRows(m.tree).flatMap(({ node: n }) => [...(n.points ?? []), ...(n.point && n.point !== 'current' ? [n.point] : [])]);
+    const [s] = validateScenarios([{ id: `bt-${bid}`, name: `내 임무 · ${m.name}`, points, tree: m.tree }], layers[Math.max(fi, 0)].map);
+    scenarios = scenarios.filter((x) => x.id !== s.id);
+    scenarios.unshift(fi >= 0 ? { ...s, floor: fi } : s);
+  } catch (e) { btNote = `내 임무를 넣지 못함 — ${e.message}`; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
-  const initialScenario = scenarios.find((s) => s.floor === startFloor);
+  const initialScenario = params.has('bt') && !btNote ? scenarios[0] : scenarios.find((s) => s.floor === startFloor);
   if (initialScenario) select.value = initialScenario.id;
   let scenarioText = '', here = startFloor, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
   const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
@@ -795,7 +815,7 @@ async function main() {
     if (on && curMark() !== shown) drawMarks();   // 목적지에 닿음 = 그 고리 지우고 다음을 진하게
     const m = on && marks[curMark()];
     // 안내(추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
-    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
+    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote || btNote;
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 
@@ -901,7 +921,7 @@ async function main() {
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
     timing: () => clock.stats,
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
-      floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
+      floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }), mission: () => ({ note: btNote, id: scenarios[0]?.id ?? null }),
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner, patrol, patrolMarks: () => patrolMarks.children.length,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y, z = map.heightAt?.(x, y) ?? map.floor_z) => { const v = new THREE.Vector3(x, y, Number.isFinite(z) ? z : map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
