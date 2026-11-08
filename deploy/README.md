@@ -6,6 +6,7 @@ Ubuntu 24.04 전용 **dev 배포**다. 정식 서버와 `main`은 대상이 아�
 수동 배포는 검토된 `dev`의 **정확한 40자리 커밋**을 지정한다. 선택 설치하는 자동 배포는 `dev`에서 관측한 정확한 SHA를 고정해 준비한다.
 
 서버는 `/opt/foothold/deploy-tools/`의 고정 사본으로 준비·배포한다. `deploy/prepare-release.sh`·`deploy.sh` 등을 바꾸면 합친 뒤 서버 사본도 따로 갱신해야 새 동작이 켜진다(2026-11-04 #287 prepare 실패 사례).
+웹이 import 하는 저장소 파일은 prepare-release 웹 archive 목록에 있어야 한다. `deploy/tests/test_web_archive_build.sh` 로 확인한다(11-09 #294 TS2307 사례).
 
 ```mermaid
 flowchart LR
