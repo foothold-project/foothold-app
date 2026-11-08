@@ -83,7 +83,7 @@ const PREFIX = 'fh.btMission.';
 export function listMissions(map: string, floor: string): Mission[] {
   try {
     return Object.keys(localStorage).filter((k) => k.startsWith(PREFIX)).flatMap((k) => {
-      try { const m = JSON.parse(localStorage.getItem(k) ?? '') as Mission; return m?.id === k.slice(PREFIX.length) && m.map === map && (m.floor ?? '') === floor && m.tree ? [m] : []; } catch { return []; }
+      try { const m = JSON.parse(localStorage.getItem(k) ?? '') as Mission; return m?.id === k.slice(PREFIX.length) && typeof m.name === 'string' && m.map === map && (m.floor ?? '') === floor && m.tree ? [m] : []; } catch { return []; }
     }).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   } catch { return []; }
 }
@@ -140,10 +140,13 @@ export function BtEditor({ map, floor, scenarios, top, openUrl, admin }: { map: 
   const run = (op: Op) => { const r = edit(tree, sel, op, kind); if (typeof r === 'string') setWhy(r); else { setWhy(''); change(r.tree); setSel(r.path); } };
   const field = (k: keyof BtNode, v: unknown) => change(setField(tree, sel, k, v));
   const open = (id: string) => {
-    const m = saved.find((x) => x.id === id);
+    const m = saved.find((x) => x.id === id), bad = m ? check(m.tree) : '';
+    // 옛 저장본·손댄 localStorage: 검사를 못 넘으면 편집 상태로 넣지 않는다(잘못된 값이 그리기에서 터져 화면째 사라지지 않게)
+    if (bad) { setNote(`이 저장본은 검사를 통과하지 못해 열지 않았습니다 — ${bad}`); return; }
     setCur(m ? id : ''); setTree(structuredClone(m?.tree ?? base.tree)); setName(m?.name ?? ''); setSel([]); setWhy(''); setDirty(false); setNote('');
   };
   const store = (copy: boolean) => {
+    if (err) return;   // 검사 실패 상태는 저장하지 않는다(단추도 막힘) — 불러올 때 다시 검사
     const m: Mission = { id: copy || !mine ? newId() : mine.id, name: name.trim() || `내 임무 ${saved.length + 1}`, map, floor, tree };
     if (!saveMission(m)) { setNote('이 브라우저에 저장하지 못했습니다(사생활 창·저장 공간) — 저장되기 전에는 이 임무로 시뮬을 열 수 없습니다.'); return; }
     setSaved(listMissions(map, floor)); setCur(m.id); setName(m.name); setDirty(false); setNote(`저장했습니다 — ${m.name}`);
@@ -185,8 +188,8 @@ export function BtEditor({ map, floor, scenarios, top, openUrl, admin }: { map: 
         <input className="fh-user be-grow" value={name} placeholder={mine?.name ?? '새 임무 이름'} maxLength={40} onChange={(e) => { setName(e.target.value); if (mine) setDirty(true); }} data-bt-name /></label>}
     </div>
     {!ro && <div className="fh-row" role="group" aria-label="저장">
-      <button type="button" className="btn" disabled={!mine || !dirty} onClick={() => store(false)} data-bt-save>저장</button>
-      <button type="button" className="btn" onClick={() => store(true)} data-bt-save-new>{mine ? '새 임무로 저장' : '내 임무로 저장'}</button>
+      <button type="button" className="btn" disabled={!mine || !dirty || !!err} onClick={() => store(false)} data-bt-save>저장</button>
+      <button type="button" className="btn" disabled={!!err} onClick={() => store(true)} data-bt-save-new>{mine ? '새 임무로 저장' : '내 임무로 저장'}</button>
       <button type="button" className="btn" onClick={() => { change(structuredClone(base.tree)); setSel([]); }} data-bt-reset>기본 임무로 되돌리기</button>
       {mine && <button type="button" className="btn" onClick={remove} data-bt-delete>이 임무 지우기</button>}
     </div>}

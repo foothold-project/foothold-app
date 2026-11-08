@@ -114,6 +114,29 @@ describe('임무 편집 화면', { timeout: 30_000 }, () => {
     expect($('[data-bt-row="2.1"]')!.textContent).toContain('여전히 고쳐짐');
   });
 
+  it('검사 실패면 저장 막힘, 검사 못 넘는 옛 저장본은 열지 않고 안내만(REVIEW-294 B1)', () => {
+    // 손댄·옛 저장본: 이동 x 가 null(NaN 이 JSON 에서 null 이 된 꼴)
+    const broken = setField(patrol(), [2, 0, 0, 0, 0, 0], 'point', { x: null, y: 21.5 });
+    localStorage.setItem('fh.btMission.old1', JSON.stringify({ id: 'old1', name: '옛 임무', map: 'factory-inspection', floor: '', tree: broken }));
+    mount(true);
+    // 리뷰 재현 순서: 이동 노드 → «지금 순찰 지점» 해제 → x 비우기 → 검사 실패 → «내 임무로 저장» 막힘
+    click('[data-bt-row="2.0.0.0.0.0"]');
+    click('[data-bt-current]');
+    type('.be-points input', '');
+    expect($('[data-bt-err]')!.textContent).toBe('검사 실패: goto.point 필요');
+    expect(($('[data-bt-save-new]') as HTMLButtonElement).disabled).toBe(true);
+    click('[data-bt-save-new]');
+    expect(listMissions('factory-inspection', '').map((m) => m.id)).toEqual(['old1']);   // 새로 저장된 것 없음
+    // 깨진 저장본 고르기 → 열지 않고 안내, 편집·시뮬 열기 화면은 그대로
+    type('[data-bt-pick]', 'old1');
+    expect($('[data-bt-note]')!.textContent).toBe('이 저장본은 검사를 통과하지 못해 열지 않았습니다 — goto.point 필요');
+    expect(($('[data-bt-pick]') as HTMLSelectElement).value).toBe('');
+    expect($('[data-bt-editor]')).toBeTruthy(); expect($('[data-sim-app]')).toBeTruthy();
+    click('[data-bt-reset]');
+    expect($('[data-bt-ok]')).toBeTruthy();
+    expect(($('[data-bt-save-new]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('운영자: 보기만(도구·저장 없음, 칸 읽기 전용), 열기는 됨', () => {
     mount(false);
     expect($('[data-bt-editor]')!.textContent).toContain('보기 전용');
