@@ -31,11 +31,15 @@ printf '{}' > "$work/source/mobile/sim/maps.json"
 printf placeholder > "$work/source/mobile/sim/assets/test/top.png"
 printf '{"width":100}' > "$work/source/mobile/sim/assets/test/top.json"
 printf 'export const terrain = true;\n' > "$work/source/mobile/sim/terrain/fixture.js"
+printf 'export const validateTree = () => [];\n' > "$work/source/mobile/sim/bt.js"
+printf 'export declare function validateTree(): never[];\n' > "$work/source/mobile/sim/bt.d.ts"
+printf '{"scenarios":[]}' > "$work/source/mobile/sim/assets/test/scenarios.json"
 printf '{"grid":"single"}' > "$work/source/mobile/sim/assets/test/map.json"
 printf '{"grid":"floor"}' > "$work/source/mobile/sim/assets/test/map-f1.json"
 git init -q "$work/source"
 git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker deploy/prepare_sim.py mobile/sim/index.html mobile/sim/maps.json mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json
 git -C "$work/source" add mobile/sim/terrain/fixture.js mobile/sim/assets/test/map.json mobile/sim/assets/test/map-f1.json
+git -C "$work/source" add mobile/sim/bt.js mobile/sim/bt.d.ts mobile/sim/assets/test/scenarios.json
 git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm fixture
 sha=$(git -C "$work/source" rev-parse HEAD)
 git clone -q --bare "$work/source" "$work/repo.git"
@@ -49,6 +53,8 @@ if [[ $1 == ci ]]; then [[ $2 == --ignore-scripts ]]; exit; fi
 [[ -s ../../mobile/sim/assets/test/top.png ]]
 [[ $(cat ../../mobile/sim/assets/test/top.json) == '{"width":100}' ]]
 [[ -s ../../mobile/sim/terrain/fixture.js ]]
+[[ -s ../../mobile/sim/bt.js && -s ../../mobile/sim/bt.d.ts ]]
+[[ $(cat ../../mobile/sim/assets/test/scenarios.json) == '{"scenarios":[]}' ]]
 # Both single-map and per-floor grids must reach the isolated web build.
 [[ $(cat ../../mobile/sim/assets/test/map.json) == '{"grid":"single"}' ]]
 [[ $(cat ../../mobile/sim/assets/test/map-f1.json) == '{"grid":"floor"}' ]]
