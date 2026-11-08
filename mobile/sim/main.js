@@ -410,13 +410,15 @@ async function main() {
   const treeUI = () => {
     const chosen = scenarios.find((s) => s.id === select.value);
     $('btPanel').hidden = !chosen;
-    $('scenarioStatus').hidden = !!chosen?.tree;   // 나무 시나리오는 아래 큰 상태 줄(btNow)이 대신함
+    $('scenarioStatus').hidden = $('btHead').hidden = !chosen?.tree;   // 나무 시나리오는 맨 위 고정 상태 줄(btNow)이 대신함
+    // 판단 대기 중에는 패널을 닫아 둘 수 없다: 대기 표시·세 단추가 늘 보이고 눌리게
+    if (patrol.reviewPending && scenarioPanel.hidden) showScenarioPanel(true);
     if (!chosen) return;
-    $('btDisclaimer').hidden = $('btNow').hidden = !chosen.tree;
+    $('btDisclaimer').hidden = !chosen.tree;
     const tree = chosen.tree ?? treeFromScenario(chosen), rows = treeRows(tree);
     const states = chosen.tree && patrol.execution?.tree === chosen.tree ? patrol.execution.states : null;
     const activePoint = patrol.active ? patrol.context?.index : runner.active ? runner.points[runner.index]?.mark : null;
-    const now = chosen.tree ? btNowText(chosen, rows, states) : '';
+    const now = chosen.tree ? btNowText(chosen, rows, states) : '';  // 나무 없으면 btHead 째 숨김
     if ($('btNow').textContent !== now) $('btNow').textContent = now;
     const signature = JSON.stringify([select.value, activePoint, [...(states ?? [])].map(([p, s]) => [p, s.result, s.attempts]), patrol.reviewPending, patrol.events.length, patrol.summary]);
     for (const [id, key] of [['btFall', 'fallen'], ['btBattery', 'battery'], ['btPhotoFail', 'photo'], ['btMoveFail', 'move']]) $(id).setAttribute('aria-pressed', String(patrol.mock[key]));

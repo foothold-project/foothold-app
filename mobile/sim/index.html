@@ -43,8 +43,9 @@
   #scenarioHint, #goalHint { margin: 8px 0 0; color: #b9c0ca; font-size: 12px; }
   /* BT 패널: 지금 상태·판단 단추는 위에 붙여 두고, 나무는 진행 중 갈래만 펼침. 세로 폰은 화면 절반 이하 */
   @media (orientation: portrait) { #scenarioPanel:has(> #btPanel:not([hidden])) { max-height: min(50dvh, calc(100dvh - var(--t) - 82px - var(--stick) - 80px - env(safe-area-inset-bottom))); } }
-  #btHead { position: sticky; top: -12px; z-index: 1; margin: 0 -12px; padding: 6px 12px; background: rgb(20 23 28 / .94); border-bottom: 1px solid rgb(255 255 255 / .28); }
+  #btHead { position: sticky; top: -12px; z-index: 1; margin: -12px -12px 4px; padding: 6px 12px; background: #14171c; border-bottom: 1px solid rgb(255 255 255 / .28); }
   #btNow { display: block; font: 600 16px system-ui; overflow-wrap: anywhere; }
+  @media (orientation: landscape) { #btNow { font-size: 14px; } }
   #btNodes { list-style: none; padding: 0; margin: 6px 0; font-size: 12px; }
   #btNodes li { padding-top: 3px; padding-bottom: 3px; overflow-wrap: anywhere; }
   #btNodes .btActive { background: #235c3a; border-left: 3px solid #81c784; }
@@ -108,6 +109,9 @@
   <button id="scenarioMenu" type="button" aria-expanded="false" aria-controls="scenarioPanel">시나리오</button>
 </div>
 <section id="scenarioPanel" aria-label="시나리오" hidden>
+  <!-- BT 상태·판단 단추: 패널 맨 위 고정(스크롤 위치와 무관하게 보임) -->
+  <div id="btHead" hidden><output id="btNow" role="status" aria-label="지금 상태"></output><output id="btReport" aria-label="모의 보고서"></output>
+    <div id="btReview" aria-label="운영자 판단" hidden><button id="btReview-clear" disabled>이상 없음</button><button id="btReview-minor" disabled>사소함</button><button id="btReview-danger" disabled>위험</button></div></div>
   <label for="policySelect">시뮬 정책</label>
   <select id="policySelect" aria-label="시뮬 정책"></select>
   <label id="startMapLabel" for="startMapSelect" hidden>start 지도</label>
@@ -118,8 +122,6 @@
   <output id="scenarioStatus" role="status">대기</output>
   <p id="scenarioHint">다시 시작 버튼으로 잠금을 푼 뒤 실행하세요.</p>
   <div id="btPanel" hidden>
-    <div id="btHead"><output id="btNow" role="status" aria-label="지금 상태"></output><output id="btReport" aria-label="모의 보고서"></output>
-      <div id="btReview" aria-label="운영자 판단" hidden><button id="btReview-clear" disabled>이상 없음</button><button id="btReview-minor" disabled>사소함</button><button id="btReview-danger" disabled>위험</button></div></div>
     <p id="btDisclaimer">브라우저 모의 순찰: 사진은 1초 정지와 기록(저장 없음), 알림은 패널 기록(서버 전송 없음), 지도 표시는 이 화면에만, 보고서는 패널 요약입니다. 배터리는 모의 단추만 사용합니다. 다음 이동 실패는 한 지점의 재시도까지 실패시킵니다. 시간은 시뮬 시간입니다.</p>
     <div id="btMocks" aria-label="모의 입력"><button id="btFall" aria-pressed="false">모의 넘어짐</button><button id="btBattery" aria-pressed="false">모의 배터리 부족</button><button id="btPhotoFail" aria-pressed="false">모의 다음 사진 실패</button><button id="btMoveFail" aria-pressed="false">모의 다음 이동 실패</button></div>
     <p id="btPoints"></p><ul id="btNodes" aria-label="읽기 전용 행동 나무"></ul>

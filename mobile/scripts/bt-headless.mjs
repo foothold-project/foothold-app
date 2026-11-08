@@ -82,13 +82,14 @@ try {
       await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(100);
     }
     await page.evaluate(async () => { await document.getElementById('scenarioRun').onclick(); __btNow = performance.now(); __frame(__btNow); });
-    let progressCaptured = false;
+    let progressCaptured = false, reviewChecked = false;
     for (let round = 0; round < 900; round++) {
       const snap = await page.evaluate(async (mode) => {
         for (let i = 0; i < 5 && __sim.patrol.active; i++) {
           const p = __sim.patrol;
           const photo = [...p.execution.states].some(([path, s]) => s.result === 'running' && p.execution.tree && path && s.handle && path === '0.2.0.0.1.0.0');
           if (mode === 'photo-stop' && photo) document.getElementById('stop').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+          if (p.reviewPending && mode === 'normal' && !window.__btReviewHit) return { active: p.active, pending: true, elapsed: p.execution.elapsed, err: __sim.err };
           if (p.reviewPending) {
             if (mode === 'battery' && !p.mock.battery) document.getElementById('btBattery').click();
             else if (mode === 'fallen' && !p.mock.fallen) document.getElementById('btFall').click();
@@ -100,6 +101,42 @@ try {
         return { active: __sim.patrol.active, pending: __sim.patrol.reviewPending, elapsed: __sim.patrol.execution.elapsed, err: __sim.err };
       }, mode);
       assert.equal(snap.err, null);
+      if (mode === 'normal' && snap.pending && !reviewChecked) {
+        reviewChecked = true;
+        // Operator review must be visible and pressable whatever the panel state: closed, phone, landscape top/end scroll.
+        const reviewHit = async (label, setup) => {
+          const hit = await page.evaluate((setup) => {
+            const panel = document.getElementById('scenarioPanel');
+            if (setup === 'close' && !panel.hidden) document.getElementById('scenarioMenu').click();
+            const closed = panel.hidden;
+            __frame(__btNow);   // one UI frame at the same sim time (no runner progress)
+            if (setup === 'top') panel.scrollTop = 0;
+            if (setup === 'end') panel.scrollTop = panel.scrollHeight;
+            const hits = ['clear', 'minor', 'danger', 'stop'].map((id) => {
+              const el = document.getElementById(id === 'stop' ? id : 'btReview-' + id), r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && !el.disabled && document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button') === el;
+            });
+            return { closed, open: !panel.hidden, pending: __sim.patrol.reviewPending, scrollTop: panel.scrollTop, now: document.getElementById('btNow').textContent, hits };
+          }, setup);
+          await capture(page, 'review-' + label);
+          console.log('BT review hit-test', label, JSON.stringify(hit));
+          assert.deepEqual([hit.pending, hit.open, hit.hits], [true, true, [true, true, true, true]], `${label}: review buttons and STOP hit-test`);
+          assert.match(hit.now, /운영자 판단 기다림 \(남은 \d+초\)/, `${label}: waiting line`);
+          return hit;
+        };
+        await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
+        assert.equal((await reviewHit('390-closed', 'close')).closed, true, 'panel was closed before review UI frame');
+        await reviewHit('390-end', 'end');
+        await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(100);
+        await reviewHit('844-top', 'top');
+        await reviewHit('844-end', 'end');
+        assert.equal((await reviewHit('844-closed', 'close')).closed, true, 'landscape panel was closed before review UI frame');
+        // Real tap on the visible button resolves the review on the next tick.
+        await page.locator('#btReview-clear').tap();
+        await page.evaluate(() => { window.__btReviewHit = true; __btNow += 100; __frame(__btNow); });
+        assert.equal(await page.evaluate(() => __sim.patrol.events.some((e) => e.message === '운영자 판단: clear')), true, 'tapped review button reaches runner');
+        await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(100);
+      }
       if (mode === 'normal' && snap.active && snap.elapsed > .5 && !progressCaptured) {
         await capture(page, 'progress-1280');
         await page.setViewportSize({ width: 390, height: 844 });
