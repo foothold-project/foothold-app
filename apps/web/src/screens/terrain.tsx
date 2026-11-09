@@ -1,13 +1,15 @@
 // 시뮬 지형 직접 만들기(TERRAIN-EDITOR 1단계, PC 틀 숨은 탭 #/terrain — 입구 = 시뮬 시작 화면 «지형 만들기»).
 // 위에서 본 판에 상자·계단·경사·틈을 놓고 고치면 이 브라우저에 바로 저장되고, «시뮬로 열기»는 같은 출처 시뮬(map=custom)이 그 저장본을 읽어 연다.
 // 지형 설명 = 약속 fh_custom_terrain/1: 원점 = 바닥 가운데, x·y = 물체 차지 면적 가운데, yaw = 라디안·반시계, 몸 기준 +x = 길이·오르는 방향. 서버 저장 없음(4단계).
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { CLEARANCE, validateTerrain, type TerrainItem, type TerrainSpec } from '../../../../mobile/sim/terrain/index.js';
 import { simUrl } from '../simdrive';
 import { toWorld } from '../simstart';
 import { Menu, shut } from './mapscen';
 import './mapscen.css';
 import './terrain.css';
+
+const Terrain3D = lazy(() => import('./terrain3d'));   // three 는 3D 를 열 때만 받는다(첫 로딩 묶음 밖)
 
 type At = { x: number; y: number; yaw: number };
 type Item = TerrainItem;
@@ -67,6 +69,7 @@ const KIND: Record<Kind, { name: string; make: () => Item; icon: ReactNode; hint
     icon: <path d="M3 8h6v8H3M21 8h-6v8h6M11 4v2M11 10v2M11 16v2M13 4v2M13 10v2M13 16v2" /> },
 };
 type Tool = 'select' | Kind | 'spawn';
+const HINT3 = '물체를 끌어 바닥 위로 옮기고 둥근 손잡이로 돌립니다(R 15°) · 화살로 높이 · 빈 곳 끌기 = 카메라 돌리기, 오른쪽 끌기 = 이동, 휠 = 확대';
 const HINT: Record<'select' | 'spawn', string> = { select: '물체를 끌어 옮기고 둥근 손잡이로 돌립니다 · 방향키 5 cm(Shift 50 cm) · Delete 지우기', spawn: '판을 눌러 로봇 시작 위치를 정합니다' };
 const IconTool = ({ d }: { d: ReactNode }) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">{d}</svg>;
 
@@ -101,7 +104,7 @@ function Shape({ it }: { it: Item }) {
 export function Terrain() {
   const [spec, setSpec] = useState<Spec>(() => loadLast() ?? blank());
   const [sel, setSel] = useState<number | 'spawn' | null>(null), [tool, setTool] = useState<Tool>('select');
-  const [failed, setFailed] = useState(false), [wipe, setWipe] = useState(''), [, again] = useState(0);
+  const [failed, setFailed] = useState(false), [wipe, setWipe] = useState(''), [, again] = useState(0), [view, setView] = useState<'top' | '3d'>('top');
   const update = (next: Spec) => { setSpec(next); setFailed(!save(next)); };
   const open = (next: Spec) => { setSpec(next); setSel(null); setTool('select'); setWipe(''); setFailed(false); };
   const [W, H] = spec.size, m = Math.max(W, H) * 0.06;
@@ -114,7 +117,7 @@ export function Terrain() {
     const o = new ResizeObserver(([e]) => { if (e.contentRect.width) setBox({ w: e.contentRect.width, h: e.contentRect.height }); });
     o.observe(svg.current);
     return () => o.disconnect();
-  }, []);
+  }, [view]);   // 3D 에서 돌아오면 새 판을 잰다
   const px = 1 / Math.min(box.w / (bounds[2] - bounds[0]), box.h / (bounds[3] - bounds[1]));   // 화면 1 px = 몇 m
 
   const { errors, warnings } = validateTerrain(spec);
@@ -138,8 +141,10 @@ export function Terrain() {
     const o = poseOf(what), [wx, wy] = at(e);
     drag.current = { what, turn, dx: o.x - wx, dy: o.y - wy, cx: e.clientX, cy: e.clientY, live: false };
   };
-  const down = (e: RPointerEvent) => {
-    const [wx, wy] = at(e), x = snap(clamp(wx, W / 2)), y = snap(clamp(wy, H / 2));
+  const down = (e: RPointerEvent) => place(...at(e));
+  /** 판 누름(2D·3D 공통): 놓기 도구면 놓고, 고르기면 고른 것 풀기 */
+  const place = (wx: number, wy: number) => {
+    const x = snap(clamp(wx, W / 2)), y = snap(clamp(wy, H / 2));
     if (tool === 'spawn') { update({ ...spec, spawn: [x, y, spec.spawn[2]] }); setSel('spawn'); setTool('select'); }
     else if (tool !== 'select') { update({ ...spec, items: [...spec.items, { ...KIND[tool].make(), x, y }] }); setSel(spec.items.length); setTool('select'); }
     else setSel(null);
@@ -194,6 +199,8 @@ export function Terrain() {
       <label className="tr-inline"><span className="lbl">이름</span><input className="inp tr-name" value={spec.name} maxLength={40} aria-label="지형 이름" data-terrain-name onChange={(e) => update({ ...spec, name: e.target.value })} /></label>
       <Num className="tr-inline" label="가로 m" step={1} value={W} onSet={(v) => update({ ...spec, size: [v, H] })} />
       <Num className="tr-inline" label="세로 m" step={1} value={H} onSet={(v) => update({ ...spec, size: [W, v] })} />
+      <span className="mx-seg" role="group" aria-label="보기">{([['top', '위에서'], ['3d', '3D']] as const).map(([v, t]) =>
+        <button key={v} type="button" className="btn" aria-pressed={view === v} data-terrain-view={v} onClick={() => setView(v)}>{t}</button>)}</span>
       <span className="fh-grow" />
       <span className="mx-tag" data-terrain-count>{errors.length ? `오류 ${errors.length}` : '오류 없음'}{warnings.length ? ` · 경고 ${warnings.length}` : ''}</span>
       {errors.length
@@ -212,7 +219,11 @@ export function Terrain() {
           <IconTool d={<><circle cx="12" cy="12" r="5" /><path d="M12 12h9" /></>} />시작</button>
       </div>
       <div className="mx-map">
-        <svg ref={svg} className="tr-board" data-tool={tool} viewBox={`${bounds[0]} ${-bounds[3]} ${bounds[2] - bounds[0]} ${bounds[3] - bounds[1]}`} tabIndex={0} role="application"
+        {view === '3d' && <Suspense fallback={<p className="lv-note tr-pad">3D 화면을 불러오는 중…</p>}>
+          <Terrain3D spec={spec} sel={sel} tool={tool} onSel={setSel} onFloor={place} onKeyDown={key}
+            onPose={(w, p) => (w === 'spawn' ? setPose(w, p) : setItem(w, p))} state={spec.items.map((_, i) => { const iss = issuesOf(i); return iss.some((x) => x.bad) ? 'bad' : iss.length ? 'warn' : undefined; })} />
+        </Suspense>}
+        {view === 'top' && <svg ref={svg} className="tr-board" data-tool={tool} viewBox={`${bounds[0]} ${-bounds[3]} ${bounds[2] - bounds[0]} ${bounds[3] - bounds[1]}`} tabIndex={0} role="application"
           aria-label={`${spec.name} 위에서 본 판 — ${W}×${H} m`} data-terrain-board onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}>
           <defs>
             <linearGradient id="tr-ramp"><stop offset="0" stopColor="var(--panel2)" /><stop offset="1" stopColor="color-mix(in srgb, var(--accent) 80%, var(--panel2))" /></linearGradient>
@@ -245,8 +256,8 @@ export function Terrain() {
             <circle cx={spec.spawn[0]} cy={-spec.spawn[1]} r={8 * px} />
           </g>
           {sel != null && (sel !== 'spawn' ? chosen && handle(sel, foot(chosen)[0] / 2 + 26 * px) : handle('spawn', 44 * px))}
-        </svg>
-        <p className="mx-hint tr-hint" data-terrain-hint>{tool === 'select' || tool === 'spawn' ? HINT[tool] : KIND[tool].hint}</p>
+        </svg>}
+        <p className="mx-hint tr-hint" data-terrain-hint>{tool === 'select' || tool === 'spawn' ? (view === '3d' && tool === 'select' ? HINT3 : HINT[tool]) : KIND[tool].hint}</p>
       </div>
       <aside className="mx-pane tr-pane" aria-label="지형 내용">
         {failed && <p className="fh-msg tr-pad" role="alert" data-terrain-failed>이 브라우저에 저장하지 못했습니다 — 저장 공간을 확인해 주세요. 저장되기 전에는 시뮬로 열 수 없습니다.</p>}
