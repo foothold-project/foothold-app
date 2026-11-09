@@ -1,0 +1,51 @@
+{
+  "$id": "fh-app/1/TerrainRamp",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "h": {
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "title": "H",
+      "type": "number"
+    },
+    "kind": {
+      "const": "ramp",
+      "title": "Kind",
+      "type": "string"
+    },
+    "length": {
+      "exclusiveMinimum": 0,
+      "title": "Length",
+      "type": "number"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "title": "Width",
+      "type": "number"
+    },
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "title": "Yaw",
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "yaw",
+    "kind",
+    "length",
+    "width",
+    "h"
+  ],
+  "title": "TerrainRamp",
+  "type": "object"
+}

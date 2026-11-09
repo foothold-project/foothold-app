@@ -233,7 +233,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
 
   const [q, setQ] = useState(''), hit = (...s: string[]) => s.join(' ').toLowerCase().includes(q.trim().toLowerCase());
   const label = cur ? `${cur.site.name} › ${cur.building.name} › ${cur.floor.name}` : '';
-  // 장소 고치기 묶음 — 지도 고르기 화면 «+ 지도 만들기»·«장소 고치기» 창
+  // 장소 고치기 창 — 장소·건물·층 만들기는 여기에 남긴다
   const placeBody = <div role="group" aria-label="장소" className="fh-form" style={{ gap: 8 }}>
     {places.length > 4 && <input className="inp" type="search" aria-label="장소 거르기" placeholder="장소·건물·층 이름으로 거르기" value={q} onChange={(e) => setQ(e.target.value)} />}
     {t.tree?.items.filter((s) => !q.trim() || s.buildings.some((b) => hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))) || hit(s.name)).map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -279,11 +279,11 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   if (cur) return <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots}
     places={places} sel={sel} setSel={setSel} side={side} setSide={setSide} toAdmin={() => setMadmin(true)} feats={cur.floor.approved_version_id ? feats[cur.floor.approved_version_id] : 0} />;
   return <Chooser t={t} places={places} choose={choose} make={(title) => { setForm(null); setAsk(null); setMsg(null); setMake(title); }} note={found} cancel={c.cancel} robots={c.robots ?? []}>
-    <Pop open={!!make} close={() => { setMake(''); setForm(null); }} label={make || '지도 만들기'}><p className="lv-note">장소 › 건물 › 층을 만들고, 층을 고른 뒤 «새 지도 올리기»로 지도 파일을 올립니다.</p>{make && placeBody}</Pop>
+    <Pop open={!!make} close={() => { setMake(''); setForm(null); }} label={make || '장소 고치기'}><p className="lv-note">장소 › 건물 › 층을 만들고, 층을 고른 뒤 «새 지도 올리기»로 지도 파일을 올립니다.</p>{make && placeBody}</Pop>
   </Chooser>;
 }
 
-/** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 마지막에 본 지도 카드 + 장소별 건물 카드(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지도 만들기»·«장소 고치기»·휴지통 */
+/** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 마지막에 본 지도 카드 + 장소별 건물 카드(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지형 만들기»·«장소 고치기»·휴지통 */
 function Chooser({ t, places, choose, make, note, cancel, robots, children }: { t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal; children: ReactNode }) {
   const [q, setQ] = useState(''), counts = useCounts(cancel), last = places.find((p) => p.floor.id === lastGet());
   const hit = (p: Place) => `${p.site.name} ${p.building.name} ${p.floor.name}`.toLowerCase().includes(q.trim().toLowerCase());
@@ -300,13 +300,13 @@ function Chooser({ t, places, choose, make, note, cancel, robots, children }: { 
       {assignFor.robot && <p className="fh-msg ok" role="status">{robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 먼저 그 시나리오의 지도를 고릅니다.</p>}
       <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="button" className="btn" onClick={() => make('장소 고치기')}>장소 고치기</button>
-        <button type="button" className="btn pri" onClick={() => make('지도 만들기')}>+ 지도 만들기</button></div>
+        <a className="btn pri" href="#/terrain" data-terrain-enter>+ 지형 만들기</a></div>
       {last && !q.trim() && <button type="button" className="card mx-last" data-last onClick={() => choose(firstFloor(last.building).id)}>
         <span className="lbl">마지막에 본 지도</span><b>{last.site.name} › {last.building.name}</b>{facts(last.building)}</button>}
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}><b>{b.name}</b>{facts(b)}</button>)}</div></section>)}
-      {t.tree && !places.length && <p className="lv-note">등록된 층이 없습니다. «+ 지도 만들기»에서 장소·건물·층을 만드세요.</p>}
+      {t.tree && !places.length && <p className="lv-note">등록된 층이 없습니다. «+ 지형 만들기»에서 지형과 지도를 만들거나 «장소 고치기»에서 장소·건물·층을 만드세요.</p>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
       {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}

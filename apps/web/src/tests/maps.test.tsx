@@ -310,10 +310,20 @@ describe('지도 탭 — 장소 나무', () => {
     expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만(그대로)
     await stopSends();
   });
+  it('지도 고르기의 지형 만들기는 지형 편집기로 이어지고 장소 만들기는 남는다', async () => {
+    serve(signedIn(KIM));
+    await open('#/map');
+    if ($('[data-to-chooser]')) await click($('[data-to-chooser]'));
+    expect($('[data-terrain-enter]')?.textContent).toBe('+ 지형 만들기');
+    expect($('[data-terrain-enter]')?.getAttribute('href')).toBe('#/terrain');
+    await click(btn('장소 고치기'));
+    expect(btn('+ 장소')).toBeTruthy();
+  });
+
   it('장소가 없으면 운영 관리자에게도 «장소 고치기»로 만들라는 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('등록된 층이 없습니다. «+ 지도 만들기»에서 장소·건물·층을 만드세요.');
+    expect(card('지도 고르기').textContent).toContain('등록된 층이 없습니다. «+ 지형 만들기»에서 지형과 지도를 만들거나 «장소 고치기»에서 장소·건물·층을 만드세요.');
     expect(btn('장소 고치기')!.disabled).toBe(false);
     await click(btn('장소 고치기'));
     expect(card('장소').textContent).toContain('등록된 장소가 없습니다. «+ 장소»로 만드세요.');
@@ -334,7 +344,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 안내(총괄은 고치기로 만들기)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('등록된 층이 없습니다. «+ 지도 만들기»에서 장소·건물·층을 만드세요.');
+    expect(card('지도 고르기').textContent).toContain('등록된 층이 없습니다. «+ 지형 만들기»에서 지형과 지도를 만들거나 «장소 고치기»에서 장소·건물·층을 만드세요.');
   });
 });
 

@@ -391,3 +391,27 @@ accepted state episode다(서버 sim DB ID와 혼용 금지). launch 바인딩�
 수치 범위 밖·NaN·잘못된 숫자 타입은 해당 값만 null로 정규화한다. 원천 토픽이 1초를
 넘으면 agent가 해당 토픽 수치를 null로 보낸다. 기존 서버 직접 상태 만료(3초)와 폰 relay
 유효시간은 그대로 적용하며, 원시 `error_code` 전달은 허용 운동 상태 목록을 바꾸지 않는다.
+
+
+### 조직 지형 저장소 (11-09)
+
+`TerrainSpec`은 브라우저 `fh_custom_terrain/1`과 같은 JSON이다. 숫자는 유한한 실제 숫자,
+바닥은 4~30 m, 물체는 60개 이하이며 크기·바닥 포함·시작 위치 간격을 서버에서도 검사한다.
+
+| API | 권한·결과 |
+|---|---|
+| `GET /api/v1/terrains?archived=true&limit=100&cursor=…` | 같은 조직의 지형 목록 (id 순, 휴지통 포함 옵션) |
+| `GET /api/v1/terrains/{id}` | 같은 조직의 저장본·수정 번호·지도 연결 읽기 |
+| `PUT /api/v1/terrains/{id}` | 총괄만, `{spec, base_version}`; 신규 0, 수정은 읽은 번호. 충돌 409 |
+| `DELETE /api/v1/terrains/{id}` | 총괄만, 휴지통 이동 (204, 반복 가능) |
+| `POST /api/v1/terrains/{id}/restore` | 총괄만, 지형 복원 |
+
+운영자는 읽기만 한다. 지형 휴지통은 생성된 지도·브라우저 사본을 지우지 않는다.
+저장은 원자적으로 지형 번호와 새 승인 지도 판을 만든다: «시뮬 지형» › 지형 이름 › 1층.
+동일 지형은 이름이 바뀌어도 같은 층을 쓰며 지도 파일은 기존 `maps/<floor>/*.png` + ROS YAML,
+Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·중앙 바닥의 왼쪽 아래 원점·
+위에서 아래 이미지 행·보수적 물체 격자는 `buildTerrain`과 바이트 단위 대조한다.
+`MapFloor.terrain_id` 및 불변 Upload 메타데이터의 `terrain_id/terrain_version/terrain_spec`이 출처다.
+지도 휴지통의 상위 장소·건물·층이 있으면 자동 복원하지 않고 409로 막는다.
+시뮬 열기는 웹이 서버 사본을 같은 출처 localStorage에 써 기존 custom 주소로 연다.
+지도 층에서 지형 시뮬을 직접 여는 연결은 이번 범위에 포함하지 않는다.
