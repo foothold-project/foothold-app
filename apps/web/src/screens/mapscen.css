@@ -118,8 +118,10 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mx-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;border:1px dashed var(--line2);border-radius:8px;text-align:center}
 .mx-foot>.btn{justify-content:space-between}
 /* ① 지도 고르기 */
-.mx-choose{width:100%;max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding:12px 0 24px}
+.mx-choose{width:100%;max-width:1600px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding:12px 0 24px}
 .mx-choose>h2{margin:8px 0 0}
+.mx-choose>.fh-row{flex-wrap:wrap}
+.mx-choose>.fh-row>.inp{min-width:min(100%,240px)}   /* 좁은 폭: 찾기 칸이 찌그러지지 않고 단추가 다음 줄로 */
 .mx-last,.mx-bld{width:100%;box-sizing:border-box;min-height:44px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;color:inherit;font:inherit;cursor:pointer}
 .mx-last:hover,.mx-bld:hover{border-color:var(--accent)}
 .mx-last:focus-visible,.mx-bld:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -127,7 +129,12 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mx-last small,.mx-bld small{gap:6px;color:var(--muted)}
 .mx-site{display:flex;flex-direction:column;gap:6px}
 .mx-site>h3{margin:4px 0 0}
-.mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:10px}
+/* SIM-CARDS-WIDE 11-09 — 카드 위 작은 지도(그림 없음·실패도 같은 높이) */
+.mx-thumb{flex:none;align-self:stretch;height:110px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--line);border-radius:6px;background:var(--panel2)}
+.mx-thumb>svg{display:block;width:100%;height:100%}
+.mx-thumb>small{color:var(--muted);font-size:12px}
+.mx-last>.mx-thumb{align-self:flex-start;width:min(100%,320px)}
 .mx-bld{padding:10px 12px}
 /* 저장 기록(지도 세부 아래, 기본 닫힘) — 펼쳐도 지도를 다 밀어내지 않게 */
 .mx-hist{flex:none;margin:0;padding:6px 12px;border-top:1px solid var(--line);background:var(--panel)}
