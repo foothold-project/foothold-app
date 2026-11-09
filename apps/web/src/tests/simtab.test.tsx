@@ -69,14 +69,13 @@ describe('PC «시뮬» 고르기(10-29 — MuJoCo / Gazebo)', () => {
   const engines = () => [...box.querySelectorAll<HTMLInputElement>('input[name="sim-engine"]')].map((i) => [i.value, i.checked, i.disabled]);
   const remount = async (engine: string | null) => { act(() => root?.unmount()); root = null; box.remove(); sim.clear(); await mount('u-lee', ROBOTS, '#/sim', engine); };
 
-  it('두 칸 이름·설명, 기억 없으면 MuJoCo → «시뮬 열기» = 같은 출처 /sim/ ?from=web + 고른 지도, 띄우기·월드 목록 없음', async () => {
+  it('두 칸 이름·설명, 기억 없으면 MuJoCo, 띄우기·월드 목록·내장 지도 카드 없음', async () => {
     serve(); await mount('u-lee', ROBOTS, '#/sim', null);
     expect([...$('[data-sim-engine]')!.querySelectorAll('label')].map((l) => l.textContent)).toEqual(['MuJoCo이 기기에서 계산', 'Gazebo서버에서 계산']);
     expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, false]]);
     expect(btn('띄우기')).toBeUndefined();
     expect($('[aria-label="월드 목록"]')).toBeNull();
-    await click($('[data-sim-card="element-course"]'));
-    expect($('[data-sim-app]')!.getAttribute('href')).toBe('/sim/index.html?from=web&map=element-course');
+    expect($('[data-sim-card]')).toBeNull();   // BUILTIN-DROP(11-09): PC 는 서버 SIM 장소에서만 «시뮬 열기»
     expect(box.textContent).not.toMatch(/브라우저 시뮬|three\.js|폰 안에서/i);
   });
 
@@ -156,17 +155,20 @@ describe('PC «시뮬» 고르기(10-29 — MuJoCo / Gazebo)', () => {
     });
 });
 
-// SIM-TAB-CHOOSER(11-09): 첫 화면 = 지도 고르기(SIM 장소 + 서버에 없는 내장 시뮬 지도 + «+ 지형 만들기»), 서버 시뮬·실기 보기는 아래 접힌 묶음
+// SIM-TAB-CHOOSER(11-09): 첫 화면 = 지도 고르기(서버 SIM 장소 + «+ 지형 만들기»), 서버 시뮬·실기 보기는 아래 접힌 묶음.
+// BUILTIN-DROP(11-09 «그냥 삭제해줘»): PC 에는 «내장 시뮬 지도» 묶음이 없다 — 폰 앱 안 SimPick 은 그대로(simstart.test)
 describe('PC «시뮬» 탭 첫 화면', () => {
-  const SITES = { items: [{ id: 's9', name: '시뮬 월드', purpose: 'SIM', buildings: [{ id: 'b9', site_id: 's9', name: '창고', sim_world_id: 'warehouse', floors: [] }] }], next_cursor: null };
-  it('지도 고르기 + «+ 지형 만들기», 서버 장소에 있는 내장 지도는 카드 숨김, 서버 시뮬 묶음은 접힘', async () => {
+  const SITES = { items: [{ id: 's9', name: '시뮬 월드', purpose: 'SIM', buildings: [{ id: 'b9', site_id: 's9', name: '창고', sim_world_id: 'warehouse',
+    floors: [{ id: 'f9', building_id: 'b9', name: '1층', level: 1, approved_version_id: null, pending_count: 0 }] }] }], next_cursor: null };
+  it('지도 고르기 + «+ 지형 만들기», 서버 SIM 장소 카드만(내장 시뮬 지도 없음), 서버 시뮬 묶음은 접힘', async () => {
     serve({ 'GET /sites': { status: 200, body: SITES } }); await mount('u-lee', ROBOTS, '#/sim', null);
     const chooser = $('[aria-label="지도 고르기"]')!;
     expect(chooser.querySelector('h2')!.textContent).toBe('어느 지도로 시뮬할까요?');
     expect(chooser.querySelector('[data-terrain-enter]')!.getAttribute('href')).toBe('#/terrain');
-    const cards = [...chooser.querySelectorAll('[data-builtins] [data-sim-card]')].map((c) => c.getAttribute('data-sim-card'));
-    expect(cards).not.toContain('warehouse');   // 서버 «창고»(sim_world_id warehouse)가 있음
-    expect(cards).toContain('element-course');
+    expect(chooser.querySelector('[data-building="b9"]')!.textContent).toContain('창고');
+    expect(chooser.querySelector('[data-builtins]')).toBeNull();
+    expect(chooser.querySelector('[data-sim-card]')).toBeNull();
+    expect(chooser.textContent).not.toContain('내장 시뮬 지도');
     expect($('[data-sim-places] [data-sim-start]')).toBeNull();   // 첫 화면에 SimPick 그림·시작 위치 없음
     const more = $('details[data-sim-more]') as HTMLDetailsElement;
     expect(more.open).toBe(false);
@@ -174,16 +176,12 @@ describe('PC «시뮬» 탭 첫 화면', () => {
     expect(more.querySelector('[data-sim-mujoco]')).toBeTruthy();
     expect(more.querySelector('[data-sim-card]')).toBeNull();
   });
-  it('내장 지도 카드 안: 위쪽 «시뮬 열기»(+ 찍은 시작 위치는 SimPick 그대로), 시나리오 없음 한 줄, ‹ 모든 지도 보기', async () => {
+  it('서버 SIM 장소가 없으면 «+ 지형 만들기» 안내만, 내장 지도 카드 없음', async () => {
     serve({ 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }); await mount('u-lee', ROBOTS, '#/sim', null);
-    await click($('[data-builtins] [data-sim-card="element-course"]'));
-    const view = $('[data-builtin="element-course"]')!;
-    expect(view.querySelector('.mx-bar [data-sim-app]')!.getAttribute('href')).toBe('/sim/index.html?from=web&map=element-course');
-    expect(view.querySelector('[data-sim-top]')).toBeTruthy();
-    expect(view.querySelector('[data-sim-noscen]')!.textContent).toContain('시나리오는 만들 수 없습니다');
-    expect(view.querySelector('ul[aria-label="시뮬 지도"]')).toBeNull();
-    await click(view.querySelector('[data-to-chooser]'));
-    expect($('[aria-label="지도 고르기"]')).toBeTruthy();
+    const chooser = $('[aria-label="지도 고르기"]')!;
+    expect(chooser.querySelector('[data-empty]')!.textContent).toContain('«+ 지형 만들기»');
+    expect(chooser.querySelector('[data-sim-card]')).toBeNull();
+    expect($('[data-builtin]')).toBeNull();
   });
 });
 

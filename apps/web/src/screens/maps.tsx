@@ -14,7 +14,7 @@ import { Compare, Rollback } from './mapdiff';
 import { Editor, Glyph, featKeys, featName, featSub, kept } from './mapedit';
 import { Hint, Lock, Locked, Menu, Pane, Pop, SideTabs, shut, type Side } from './mapscen';
 import { MissionAdmin, ScenList, ScenarioEdit, SimOpen, keptPlan, useScenarios } from './missions';
-import { BuiltinCards, SimPick, simAt } from '../simstart';
+import { simAt } from '../simstart';
 import { TrashLink, trashFail, type TrashKind } from './trash';
 import { assignFor } from './assign';
 
@@ -201,7 +201,6 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const [all, setAll] = useState(false), multi = !!cur && cur.building.floors.length >= 2, whole = all && multi;   // 전체 = 건물 층 겹쳐 보기(보기만)
   const [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
   const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false), [make, setMake] = useState(''), [found, setFound] = useState<Msg>(null);   // make = 열린 장소 창 제목(''= 닫힘)
-  const [bi, setBi] = useState('');   // 시뮬 탭: 연 내장 시뮬 지도(SIM_MAPS id, '' = 닫힘)
   const names = useNames(c.user, admin, c.cancel), vers = useVers(places, c.cancel);
   // 옛 주소가 연 시나리오가 시뮬 장소에 있으면 시뮬 탭으로(고른 층·시나리오는 keptPlan 에 남아 거기서 열린다)
   useEffect(() => { if (!sim && addr && pick && !cur && floorsOf(t0.tree).some((p) => p.floor.id === pick && purposeOf(p.site) === 'SIM')) location.hash = '#/sim'; }, [pick, t0.tree]);
@@ -290,14 +289,12 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
       <button type="button" className="btn" aria-pressed={whole} data-layers onClick={() => choose(null)}>전체 층 겹쳐 보기</button></>}
   </>;
 
-  if (sim && bi) return <section className="mx" aria-label="내장 시뮬 지도" data-builtin={bi}><div className="mx-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-    <SimPick key={bi} only={bi} back={<button type="button" className="btn" data-to-chooser onClick={() => setBi('')}>‹ 모든 지도 보기</button>} /></div></section>;
   if (madmin) return <MissionAdmin user={c.user} robots={robots} cancel={c.cancel} back={() => setMadmin(false)} />;
   if (finding) return <section className="mx" aria-label="지도 보기"><div className="mx-center"><p className="lv-note" role="status">주소의 시나리오를 찾는 중…</p></div></section>;
   if (whole && cur) return <AllFloors key={cur.building.id} b={cur.building} top={top} cancel={c.cancel} />;
   if (cur) return <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots}
     places={places} sim={sim} sel={sel} setSel={setSel} side={side} setSide={setSide} toAdmin={() => setMadmin(true)} feats={cur.floor.approved_version_id ? vers[cur.floor.approved_version_id] && featKeys(vers[cur.floor.approved_version_id].features).length : 0} />;
-  return <Chooser sim={sim} t={t} places={places} vers={vers} choose={choose} make={(title) => { setForm(null); setAsk(null); setMsg(null); setMake(title); }} note={found} cancel={c.cancel} robots={c.robots ?? []} builtin={setBi}>
+  return <Chooser sim={sim} t={t} places={places} vers={vers} choose={choose} make={(title) => { setForm(null); setAsk(null); setMsg(null); setMake(title); }} note={found} cancel={c.cancel} robots={c.robots ?? []}>
     <Pop open={!!make} close={() => { setMake(''); setForm(null); }} label={make || '지도 만들기'}><p className="lv-note">{sim ? '시뮬 장소의 이름을 바꾸거나 지웁니다. 새 시뮬 지도는 «+ 지형 만들기»로 만듭니다.' : '장소 › 건물 › 층을 만들고, 층을 고른 뒤 «새 지도 올리기»로 지도 파일을 올립니다.'}</p>{make && placeBody}</Pop>
   </Chooser>;
 }
@@ -310,8 +307,8 @@ export function SimPlaces({ user, robots }: { user: User; robots: Robot[] }) {
 }
 
 /** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 마지막에 본 지도 카드 + 장소별 건물 카드(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지도 만들기»·«장소 고치기»·휴지통 */
-function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, builtin, children }: { sim: boolean; t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; vers: Record<string, MapVersion>; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal;
-  builtin: (id: string) => void; children: ReactNode }) {
+function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, children }: { sim: boolean; t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; vers: Record<string, MapVersion>; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal;
+  children: ReactNode }) {
   const [q, setQ] = useState(''), counts = useCounts(cancel), last = places.find((p) => p.floor.id === lastGet());
   const hit = (p: Place) => `${p.site.name} ${p.building.name} ${p.floor.name}`.toLowerCase().includes(q.trim().toLowerCase());
   /** 카드 아래 줄: 층 수(2층 이상만)·시나리오 수(여러 층 시나리오는 한 번만)·지도 없음(시뮬 탭은 모든 층이 짝 없으면 «지형 없음» — 서버 정리 전 옛 층) */
@@ -338,10 +335,6 @@ function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, bui
       {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
         : '실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다. «+ 지도 만들기»에서 장소·건물·층을 만들고 지도 파일을 올릴 수도 있습니다.'}</p>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
-      {/* 서버 장소에 없는 내장 시뮬 지도(같은 sim_world_id 건물 없음) — 들어가면 위에서 본 그림·시작 위치·«시뮬 열기», 시나리오 없음.
-          ponytail: 월드 id(밑줄) ↔ 자산 id(빼기) 를 글자로 맞춘다 — 서버가 건물에 자산 id 를 주면 그걸로 */}
-      {sim && !q.trim() && <section className="mx-site" aria-label="내장 시뮬 지도" data-builtins><h3 className="lbl">내장 시뮬 지도</h3>
-        <BuiltinCards open={builtin} hide={(id) => !!t.tree?.items.some((s) => s.buildings.some((b) => b.sim_world_id?.replace(/_/g, '-') === id))} /></section>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
       {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
       <div className="fh-row"><TrashLink /><span className="lv-note">지운 장소·층·시나리오는 휴지통에서 되돌립니다.</span></div>
