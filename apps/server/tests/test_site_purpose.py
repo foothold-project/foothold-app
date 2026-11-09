@@ -12,6 +12,7 @@ from apps.server.fh_server import approvals
 from apps.server.fh_server.api import APIError, fail
 from apps.server.fh_server.models import Assignment, ScenarioVersion, User
 from .conftest import CONFIG
+from .legacy_approvals import pending_assignment
 from .test_assignments import assignment, scenario
 from .test_maps import P, auth, maps, save, upload  # noqa: F401
 
@@ -104,6 +105,34 @@ def test_sim_scenario_no_assignment_or_approval_real_unchanged(maps, seeded, rob
         assert http.get(P + '/approvals', headers=headers).json()['items'] == []
         allowed = assignment(http, auth(http, 'one'), real, seeded['robots']['mine'])
         assert allowed.status_code == 201 and allowed.json()['status'] == 'ACTIVE', allowed.text
+    finally:
+        engine.dispose()
+
+
+def test_legacy_pending_assignment_cannot_approve_after_place_becomes_sim(maps, seeded):
+    http, headers, _ = maps
+    value, _, _, version = scenario(http, headers)
+    assert version['provenance'] == 'HUMAN'
+    pending = pending_assignment(http, auth(http, 'one'), value, seeded['robots']['mine'])
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with engine.begin() as conn:
+            assert conn.scalar(text('SELECT simulation FROM robots WHERE id=:id'),
+                               {'id': seeded['robots']['mine']}) is False
+            assert set(conn.scalars(text('SELECT purpose FROM sites WHERE org_id=:org'),
+                                    {'org': seeded['org']})) == {'REAL'}
+            # Reproduce 0026 reclassifying an existing HUMAN map's place.
+            conn.execute(text("UPDATE sites SET purpose='SIM' WHERE org_id=:org"), {'org': seeded['org']})
+        path = P + '/approvals/' + pending['approval_id']
+        denied = http.post(path + '/approve', headers=headers)
+        assert denied.status_code == 409, denied.text
+        assert denied.json()['error']['code'] == 'APPROVAL_STALE'
+        assert http.get(path, headers=headers).json()['status'] == 'STALE'
+        assignments = http.get(P + '/assignments', headers=headers).json()['items']
+        assert len(assignments) == 1 and assignments[0]['id'] == pending['id']
+        assert assignments[0]['status'] == 'REJECTED'
+        assert assignments[0]['approval_id'] == pending['approval_id']
+        assert http.post(path + '/approve', headers=headers).json()['error']['code'] == 'ALREADY_DECIDED'
     finally:
         engine.dispose()
 
