@@ -17,6 +17,7 @@ export function simSettings(org, caps = {}, modeId) {
   const turnCap = boundedNumber(caps.wz, 0, 1.2, 1);
   return {
     vx: boundedNumber(o.sim_runner_vx, 0.1, 1.5, DEFAULT_VX),
+    goalVx: boundedNumber(o.sim_runner_vx, 0.1, 1.5, caps.runnerVx ?? DEFAULT_VX),
     wz: boundedNumber(o.sim_runner_wz, 0.1, turnCap, DEFAULT_WZ),
     caps: {
       vx: Math.min(boundedNumber(o.sim_max_vx, 0.2, 1.5, Infinity), boundedNumber(caps.vx, 0, 1.5, DEFAULT_VX)),

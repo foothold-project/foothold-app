@@ -1,6 +1,6 @@
-// m6000 export contract. External models/vectors are never part of the bundle source.
+// m13000 export contract. External models/vectors are never part of the bundle source.
 import { MODE_COMMAND_CAPS } from './manual-settings.js';
-import { START_KEYBOARD_RAMP } from './keyboard-ramp.js';
+import { START_KEYBOARD_RAMP, START_COMMAND_SLEW } from './keyboard-ramp.js';
 import { makeStartDemoMap } from './start-demo-sensors.js';
 import { makeStartDepthWorker } from './start-depth-worker-client.js';
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -8,11 +8,11 @@ const joints = ['hip', 'thigh', 'calf'].flatMap((p) => ['FL', 'FR', 'RL', 'RR'].
 const defaults = Float64Array.of(.1, -.1, .1, -.1, .8, .8, 1, 1, -1.5, -1.5, -1.5, -1.5);
 const tensor = (name, dims, type = 'float32') => ({ name, dims, type });
 export const START_DEMO_ONNX = {
-  file: 'start-demo_map_on.onnx',
-  files: { gt: 'start-demo_map_on.onnx', reconstruction: 'start-demo_map_on.onnx', off: 'start-demo_map_off.onnx' },
+  file: 'start-m13000_map_on.onnx',
+  files: { gt: 'start-m13000_map_on.onnx', reconstruction: 'start-m13000_map_on.onnx', off: 'start-m13000_map_off.onnx' },
   sha256: {
-    'start-demo_map_on.onnx': '81c7e079516058ee6243f6edd11efa8f0da239c6cc86fbca791bda5bcd82f110',
-    'start-demo_map_off.onnx': '5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037',
+    'start-m13000_map_on.onnx': '4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93',
+    'start-m13000_map_off.onnx': '8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f',
   },
   inputs: [tensor('obs45', [1,45]), tensor('hist', [1,10,45]), tensor('depth2', [1,2,60,60]),
     tensor('h_prop', [1,128]), tensor('h_terr', [1,128]), tensor('depth_tick', [1], 'bool'),
@@ -55,7 +55,7 @@ export function makeStartDemoMode(makeTerrainSampler) {
     observations: { size: 45, bodySize: 45, mappingSize: 512 },
     action: { size: 12, joints, defaultPose: defaults, scale: .25, kp: 25, kd: .5, torque: startDemoTorque },
     timing: { physicsDt: .005, decimation: 4, policyDt: .02 }, delay: 0,
-    command: { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.start, keyboardRamp: START_KEYBOARD_RAMP, inRange: (c) => c.length === 3 && c.every(Number.isFinite) && c[0] >= -1 && c[0] <= 1.5 && Math.abs(c[1]) <= .5 && Math.abs(c[2]) <= (c[0] || c[1] ? 1 : 1.2) },
+    command: { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.start, keyboardRamp: START_KEYBOARD_RAMP, slew: START_COMMAND_SLEW, runnerVx: 1.2, inRange: (c) => c.length === 3 && c.every(Number.isFinite) && c[0] >= -1.3 && c[0] <= 1.5 && Math.abs(c[1]) <= .5 && Math.abs(c[2]) <= (c[0] || c[1] ? 1 : 1.2) },
     stop: { input: [0,0,0], pause: false }, fallback: null,
     act(a, out = new Float64Array(12)) {
       for (let i = 0; i < 12; i++) out[i] = defaults[i] + .25 * clamp(a[i], -17, 17);

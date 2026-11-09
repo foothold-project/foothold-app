@@ -53,7 +53,8 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
     if (mode.command.kind === 'none' || isStopped() || !points?.length) return false;
     // Snapshot each run: a settings response can only affect the next start.
     // A valid organization/adapter cap can reduce an axis below the input range, even to zero.
-    maxVx = Math.min(boundedNumber(limits?.vx, 0.1, 1.5, MAX_VX), boundedNumber(limits?.caps?.vx, 0, 1.5, Infinity));
+    const runVx = goal ? limits?.goalVx ?? limits?.vx : limits?.vx;
+    maxVx = Math.min(boundedNumber(runVx, 0.1, 1.5, MAX_VX), boundedNumber(limits?.caps?.vx, 0, 1.5, Infinity));
     const turnCap = mode.command.caps.turnInPlace;
     maxWz = Math.min(boundedNumber(limits?.wz, 0.1, turnCap, MAX_WZ), boundedNumber(limits?.caps?.wz, 0, turnCap, Infinity));
     runner.points = points;
@@ -133,7 +134,7 @@ export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, w
 // Quaternion body-up dot world-up below this cosine means a fall (60 degrees).
 export const FALLEN_UP_COS = 0.5;
 export function bodyFallen(qpos) { return 1 - 2 * (qpos[4] ** 2 + qpos[5] ** 2) < FALLEN_UP_COS; }
-export function createPatrolRunner({ sim, runner, isStopped, lock, planRoute, getMap, getFront, home, onMark = () => {}, onClearMarks = () => {} }) {
+export function createPatrolRunner({ sim, runner, isStopped, lock, planRoute, getMap, getFront, home, onStart = () => {}, onMark = () => {}, onClearMarks = () => {} }) {
   let execution = null, runId = 0, scenario, pendingReview = null, failedPoint = null;
   const mock = { fallen: false, battery: false, photo: false, move: false };
   const patrol = { mock, events: [], summary: null, reviewPending: false, visited: new Set(), skipped: new Set(), minor: new Set(), danger: new Set(), marks: [],
@@ -205,7 +206,9 @@ export function createPatrolRunner({ sim, runner, isStopped, lock, planRoute, ge
         hold: (n, c) => ({ tick: () => { neutral(); c.reason = n.message; patrol.cancel(n.message); lock(); return 'abort'; }, halt: neutral }),
       },
     });
-    return execution.start();
+    const started = execution.start();
+    if (started) onStart();
+    return started;
   };
   patrol.tick = (dt) => execution?.tick(dt);
   return patrol;

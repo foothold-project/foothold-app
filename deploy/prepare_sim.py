@@ -18,8 +18,8 @@ AME2_SHA = {
 }
 # docs/AME2-PROVENANCE.md and docs/POLICY-PROVENANCE.md, FP32 ONNX exports.
 ONNX_SHA = {
-    "start-demo_map_on.onnx": "81c7e079516058ee6243f6edd11efa8f0da239c6cc86fbca791bda5bcd82f110",
-    "start-demo_map_off.onnx": "5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037",
+    "start-m13000_map_on.onnx": "4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93",
+    "start-m13000_map_off.onnx": "8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f",
     "ame2-demo.onnx": "830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6",
     "policy_v2.onnx": "c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2",
 }
@@ -139,7 +139,7 @@ def copy_simulator(source, private, target):
             destination.chmod(0o644)
         except (FileNotFoundError, SimulatorUnavailable):
             destination.unlink(missing_ok=True)
-            detail = "start mode unavailable (no f32 fallback)" if name.startswith("start-demo_") else "retaining f32 fallback"
+            detail = "start mode unavailable (no f32 fallback)" if name.startswith("start-m13000_") else "retaining f32 fallback"
             print(f"WARNING: {name} absent or SHA-256 differs from provenance; {detail}.", file=sys.stderr)
     ort = target / "ort"
     if ort.exists():

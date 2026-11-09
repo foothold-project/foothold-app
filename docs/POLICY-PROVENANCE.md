@@ -1,21 +1,31 @@
 # MVP foothold-v2 → policy_v2.f32 출처 기록
 
-## start-demo (m6000)
+## start-demo (m13000)
 
-`start-demo-app/contract.json`의 m6000 ONNX 두 파일을 그대로 사용한다. 원본 checkpoint SHA-256은 `d5e9ec400f33d74d97e7c69d4ab2092d4980195141bb8b30e683730eecd6b6f5`이며, checkpoint 재내보내기는 수행하지 않았다.
+`start-m13000-app/CONTRACT.md` 및 `contract.json`의 m13000 ONNX 두 파일을 그대로 사용한다. 원본 checkpoint SHA-256은 `20365a2c6d70f94f65f1114471f7df198e56d86db6d02d89cea43c666b95e768`이며, checkpoint 재내보내기는 수행하지 않았다.
 
 | 파일 | bytes | SHA-256 |
 |---|---:|---|
-| `start-demo_map_on.onnx` | 5808798 | `81c7e079516058ee6243f6edd11efa8f0da239c6cc86fbca791bda5bcd82f110` |
-| `start-demo_map_off.onnx` | 5818629 | `5d1b7bf39aa0d9fb8ae33bf33dad82902165d53679ccd7ec5df727a0b70fe037` |
+| `start-m13000_map_on.onnx` | 5813202 | `4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93` |
+| `start-m13000_map_off.onnx` | 5823033 | `8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f` |
 
 정답/복원은 map_on + use_gt true/false, 끔은 map_off이다. ONNX 전용이며 f32 되돌림이 없다. `FH_START_SRC`(또는 `FH_POLICY_ONNX_SRC`)에서 복사하고 SHA를 확인한다. 모델·가중치·시험 벡터는 커밋하지 않는다. 배포 준비의 private-assets 루트에 두 파일을 놓으면 `/sim/`으로 복사하며, 없거나 SHA가 다르면 start 메뉴만 비활성화한다. 실제 서버 복사·배포는 별도 승인 작업이다.
+
+2026-11-09 m13000 벡터 20스텝을 Node 22.23.2 / ORT 1.31.1 CPU 및 Chrome 154.0.8037.97 / ORT Web 1.31.1 WASM main·Worker에서 대조했다. 입력 9개·출력 4개의 이름·순서·모양·bool 플래그는 전달 계약과 같으며 실행기·상태 되먹임은 유지했다.
+
+| m13000 벡터 | Node 행동 최대 차 | Chrome main | Chrome Worker |
+|---|---:|---:|---:|
+| reconstruction | 2.05636024e-6 | 2.62260437e-6 | 2.62260437e-6 |
+| gt | 2.14576721e-6 | 1.90734863e-6 | 1.90734863e-6 |
+| off | 1.90734863e-6 | 2.02655792e-6 | 2.02655792e-6 |
+
+모든 출력의 최대 차는 2.62260437e-6으로 허용 오차 1e-4 이하다. 후진 모드 상한은 학습 범위에 맞춰 1.3 m/s다.
 
 시험 벡터 실측 및 조정 결정(2026-11-04)에 따라 이력은 **현재 포함 최신 관측부터 10개**, 리셋 뒤 첫 관측을 10칸에 채운다. 인계 v0.3의 «오래된 것이 앞» 설명과 다르다. 깊이 두 장도 최신부터이며, tick 15 입력은 `[f10, f5]`다. 관측 이력·깊이 버퍼·GRU 출력은 실제 행동 적용 때만 확정한다. `policy-vector-selftest.mjs`는 원시 프레임 f0/f5/f10을 기록에서 꺼내 등록된 모드의 obs45/hist/depth2/gt_map을 만들고 대조한 뒤 그대로 Node/브라우저/Worker ONNX에 넣는다. 비정답 모드의 기록에는 사용하지 않는 진단 gt_map이 남아 있어, 앱의 0 지도와의 차이는 별도 수치로 보고하고 유효 입력은 0인지 확인한다.
 
 깊이의 새 프레임은 첫 호출에서 초기화한 뒤, 이후 tick에서는 ONNX 결과를 수용한 `applyAction` 안에서 물리 진행 전에 캡처한다(소비는 다음 tick). 같은 물리 상태 재시도는 원시 센서 표본을 재사용하며 이력/상태를 확정하지 않는다. 카메라 거리·시야 밖 지형은 보수적인 경계 상자로 제외하고, 남은 3600 광선은 그대로 `mj_multiRay`로 계산한다. start 높이 지도만 `fastVertical`을 켜 수직 광선과 삼각형·수평면·수직 박스의 교차를 직접 계산한다(삼각형 경계·그 외 도형은 native 계산). nvidia/ame2는 기존 native 경로를 유지한다. `start-demo-sensor-parity-selftest.mjs`는 3지도·몸 전체 자세 450개에서 native 대비 깊이 1620000개 광선·높이 230400칸의 최대 차 0을 확인했다.
 
-start는 추론 중 그리기를 미루되 마지막 그리기 이후 최대 100ms가 지나면 pending이어도 그리기·라이다·시나리오/목표/층 UI를 진행한다. 매 RAF의 벽시계 시간과 Worker 기한 20ms는 유지하며, 기본 계산을 화면 ONNX로 바꾸거나 새 자동 전환을 추가하지 않는다. `start-demo-realtime-selftest.mjs`는 창고에서 nvidia와 같은 6초 전진 키 조건을 CPU 1배·3배 감속으로 실행해 실제 WebGL 그리기 횟수·배속·확정/버림·동기 구간·longtask를 기록한다. 별도 고정 카메라의 `gl.finish` 포함 그리기 비용도 측정하며 이 시험용 계측은 앱 번들에 넣지 않는다. 센서 값은 실제 MuJoCo 평지/벽/천장 시험으로 확인하며, 보행 성공 판정은 포함하지 않는다.
+start는 추론 중이고 `stats.slow`로 시뮬 지연이 확인될 때만 그리기를 미루되 마지막 그리기 이후 최대 100ms가 지나면 pending이어도 그리기·라이다·시나리오/목표/층 UI를 진행한다. 매 RAF의 벽시계 시간과 Worker 기한 20ms는 유지하며, 기본 계산을 화면 ONNX로 바꾸거나 새 자동 전환을 추가하지 않는다. `start-demo-realtime-selftest.mjs`는 창고에서 nvidia와 같은 6초 전진 키 조건을 CPU 1배·3배 감속으로 실행해 실제 WebGL 그리기 횟수·배속·확정/버림·동기 구간·longtask를 기록한다. 별도 고정 카메라의 `gl.finish` 포함 그리기 비용도 측정하며 이 시험용 계측은 앱 번들에 넣지 않는다. 센서 값은 실제 MuJoCo 평지/벽/천장 시험으로 확인하며, 보행 성공 판정은 포함하지 않는다.
 
 ## nvidia-demo
 

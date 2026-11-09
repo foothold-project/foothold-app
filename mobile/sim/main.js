@@ -18,7 +18,7 @@ import { MIN_UP } from './walk-surface.js';
 import { loadSimSettings, simSettings } from './settings.js';
 import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
 import { createFrameClock } from './frame-clock.js';
-import { createKeyboardRamp } from './keyboard-ramp.js';
+import { createKeyboardRamp, slewCommand } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, replayRequirement } from './go2-replay.js';
 import { loadCustomTerrain } from './terrain/index.js';
@@ -56,12 +56,13 @@ const st = (window.__sim = { ready: false, err: null });   // 시험용(headless
 let heading = null;
 const goalAxes = [0, 0, 0];
 let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null, runningScenario = null, runningTree = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
+let lastCmd = neutral();
 const sticks = [];
 let inputSettings = manualSettings({}, adapter.command), refreshSettings = async () => {}, startEpoch = 0, clock;
 let applySettings = () => {};
 function lock() {
   startEpoch++; clock?.reset();
-  stopped = true; joy = neutral(); if (runningTree?.active) runningTree.cancel('중단'); onLock?.();
+  stopped = true; joy = neutral(); lastCmd = neutral(); if (runningTree?.active) runningTree.cancel('중단'); onLock?.();
   if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
   if (adapter.command.kind === 'nearby_goal') { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
@@ -195,7 +196,7 @@ try {
   if (option) option.disabled = true;
   const reason = e?.message || String(e);
   $('policyReason').textContent = reason;
-  $('policyEngine').textContent = `시뮬을 열지 못했습니다: ${reason}`;
+  $('policyEngine').textContent = st.policyEngine?.includes('정책 잠금') ? st.policyEngine : `시뮬을 열지 못했습니다: ${reason}`;
   $('policyEngine').hidden = false;
 }
 
@@ -262,7 +263,7 @@ async function main() {
   };
   applySettings = (org) => {
     const caps = commandCaps(adapter.command);
-    Object.assign(settings, simSettings(org, { vx: caps.forward, wz: caps.turnInPlace }, adapter.id));
+    Object.assign(settings, simSettings(org, { vx: caps.forward, wz: caps.turnInPlace, runnerVx: adapter.command.runnerVx }, adapter.id));
     inputSettings = manualSettings(org, adapter.command, adapter.id);
     $('modeCaps').textContent = modeCapText(adapter.command, inputSettings);
   };
@@ -351,6 +352,7 @@ async function main() {
   runningScenario = runner;
   const patrol = createPatrolRunner({ sim, runner, isStopped: () => stopped, lock, planRoute, getMap: () => map,
     getFront: () => front, home: () => ({ x: start[0], y: start[1], yaw: start[2] }),
+    onStart: () => { lastCmd = neutral(); },
     onMark: (p) => {
       const marker = new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), new THREE.MeshBasicMaterial({ color: p.level === 'danger' ? 0xff5252 : 0xffd54f, depthTest: false }));
       marker.position.set(p.x, p.y, map.floor_z + .15); patrolMarks.add(marker);
@@ -879,7 +881,7 @@ async function main() {
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001), e.clientX, e.clientY); }, { passive: false });
   $('topCenter').onclick = () => { view.topH = 1; view.topRot = 0; view.topX = view.topY = null; };
 
-  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
+  $('reset').onclick = () => { lock(); lastCmd = neutral(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     $('cam').setAttribute('aria-pressed', String(top));
@@ -947,6 +949,7 @@ async function main() {
       }
       if (patrol.active) {
         patrol.tick(POLICY_DT);
+        lastCmd = sim.cmd.slice(); // Include the terminal success/failure tick.
         joy = neutral(); heading = null;
       } else if (runner.active) {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
@@ -955,6 +958,11 @@ async function main() {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();
+      // All start hand/goal commands share one ramp. STOP remains immediate.
+      if (adapter.command.slew && adapter.command.kind === 'body_velocity' && !patrol.active) {
+        sim.cmd = stopped ? neutral() : slewCommand(lastCmd, sim.cmd, POLICY_DT, adapter.command.slew);
+        lastCmd = sim.cmd.slice();
+      }
       skipLockedDecision = epoch !== startEpoch;
     },
     // Only skip the decision whose prepare locked/reset the clock. Subsequent
@@ -971,13 +979,12 @@ async function main() {
   let lastDrawAt = -Infinity;
   function frame(now) {
     // Account wall time on every RAF, including while inference is pending.
-    // For start, finish due decisions before submitting a new GPU redraw:
-    // SwiftShader work otherwise competes with the 20 ms Worker delivery.
-    // Bound deferral even under continuous inference, so drawing, lidar and
-    // scenario/goal/floor UI continue on slow CPUs as well as idle RAFs.
+    // Defer start drawing only while simulation debt reports a slowdown.
+    // Bound deferral to keep drawing, lidar and scenario/goal/floor UI alive.
     if (adapter.depth) {
       clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
-      if (clock.stats.pending && performance.now() - lastDrawAt < START_DRAW_MAX_GAP_MS) { timingUI(); requestAnimationFrame(frame); return; }
+      const stats = clock.stats;
+      if (stats.pending && stats.slow && performance.now() - lastDrawAt < START_DRAW_MAX_GAP_MS) { timingUI(); requestAnimationFrame(frame); return; }
     }
     if (now - lastScan >= 100) { scan(); lastScan = now; }
     if (!adapter.depth && !readonly) clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
