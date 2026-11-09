@@ -150,3 +150,6 @@ li[data-bad] .mx-num{background:var(--bad)}
   .mx-choose{padding:12px 0}
   .mx-last{flex-wrap:wrap}
 }
+/* SCEN-NODE-PREVIEW 11-09 — 시나리오 편집 «노드» 보기일 때만 오른쪽 창을 지도와 반반(목록·지도 요소 창은 320px 그대로). 좁은 폭(한 열)은 위아래 반반 */
+.mx-pane[data-wide]:not([data-fold]){flex:0 0 50%;overflow:hidden}
+@media (max-width:1023.98px){.mx-pane[data-wide]:not([data-fold]){flex:1 1 50%;overflow-y:auto}}   /* 낮은 창에서는 캔버스(최소 180px)까지 굴려 본다 */

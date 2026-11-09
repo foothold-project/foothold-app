@@ -14,6 +14,7 @@ import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
 import { Hint, Menu, Pane, shut, type Side } from './mapscen';
+import { ScenNodes, type StepKind } from './scennode';
 
 type P = [number, number];
 type AnyPlan = Mission | Scenario;
@@ -656,6 +657,11 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const on = pts.map((p, i) => [p, i] as const).filter(([p]) => p.floor_id === cur);
   const fence = lock && !!set, one = typeof sel === 'number' ? sel : null;
   const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null), tid = useId();
+  // SCEN-NODE-PREVIEW 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, 저장 안 되는 미리보기). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
+  const [paneLook, setPaneLook] = useState<'node' | 'list'>('node');
+  const lookSeg = <span className="mx-seg" role="group" aria-label="노드·목록 보기">
+    <button type="button" className="btn" aria-pressed={paneLook === 'node'} data-look="node" onClick={() => setPaneLook('node')}>노드</button>
+    <button type="button" className="btn" aria-pressed={paneLook === 'list'} data-look="list" onClick={() => setPaneLook('list')}>목록</button></span>;
   /** 끌어서 순서 바꾸기(손잡이) — 키보드는 «더 보기»의 ↑↓ */
   const moveTo = (from: number, to: number) => { if (making || lock) return; const s2 = [...pts], [x] = s2.splice(from, 1); s2.splice(to, 0, x); put(s2); };
   const still = making || lock;   // fieldset 은 끌기 손잡이(span)를 잠그지 못해 직접 막는다
@@ -670,6 +676,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const robotField = set && <label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
     <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>;
   const where = (p: ScenarioPoint) => `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}${p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}`;
+  const nodeItems = pts.map((p) => { const m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
+    return { title: where(p), sub: m ? m.name : p.mission_id ? (missions ? '알 수 없는 임무' : '임무 확인 중') : '이동', kind: (p.mission_id ? kindOf(fresh) : 'MOVE') as StepKind }; });
   const pick = (t: 'steps' | 'assign') => { setTab(t); if (t === 'assign') setSel(null); };
   const order = assign ? (['steps', 'assign'] as const) : (['steps'] as const);
   /** 탭 방향키(←→·Home·End) = 옆 탭을 고르고 포커스(roving tabIndex) */
@@ -719,7 +727,10 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     </div>
     {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
     <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창" pick={picker} name={[value.name || (saved ? WHAT.scenarios : `새 ${WHAT.scenarios}`), place?.floor.name].filter(Boolean).join(' · ')}
-      head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}<span className="fh-grow" />{more}</>}>
+      wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}<span className="fh-grow" />{more}</>}>
+      {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
+      {paneLook === 'node' && <ScenNodes key={`${k}|${missions ? 1 : 0}`} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} />}
+      <div className="mx-pane-in" hidden={paneLook === 'node'}>
       {/* 이름·판·실행 확인 로봇 → [단계 N | 배정 N] (지점을 고르면 «‹ N번 지점») */}
       <fieldset disabled={fence} style={{ display: 'contents' }}><div className="mx-in" hidden={one != null && tab === 'steps'}>{nameField}{verField}{robotField}</div></fieldset>
       {one != null && tab === 'steps' ? <div className="mx-head"><button type="button" className="btn" aria-label="단계 목록으로" title="목록으로" onClick={() => setSel(null)}>‹</button><span className="fh-grow">{one + 1}번 지점</span></div>
@@ -802,6 +813,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         </div>
       </div>
       {assign && <div className="mx-in" role="tabpanel" id={`${tid}-assign-panel`} aria-labelledby={`${tid}-assign`} hidden={tab !== 'assign'}>{assign}</div>}
+      </div>
     </Pane>
   </>;
 }

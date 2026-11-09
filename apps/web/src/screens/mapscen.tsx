@@ -67,10 +67,10 @@ export function Pop({ open, close, label, children }: { open: boolean; close: ()
 }
 
 /** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N» + name 한 줄, 넘치면 말줄임), 안 내용은 숨김(unmount 아님). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목, 없으면 줄 없음).
- *  pick = 창 맨 위 줄([지도 요소 | 시나리오] 탭 — MAP-TAB-MERGE 11-03). 접기 단추는 pick 줄 오른쪽 끝(없으면 head 줄) */
-export function Pane({ open, setOpen, bar, head, label, children, pick, name }: { open: boolean; setOpen: (o: boolean) => void; bar: string; head?: ReactNode; label: string; children: ReactNode; pick?: ReactNode; name?: string }) {
+ *  pick = 창 맨 위 줄([지도 요소 | 시나리오] 탭 — MAP-TAB-MERGE 11-03). 접기 단추는 pick 줄 오른쪽 끝(없으면 head 줄). wide = 지도와 반반(시나리오 노드 보기) */
+export function Pane({ open, setOpen, bar, head, label, children, pick, name, wide }: { open: boolean; setOpen: (o: boolean) => void; bar: string; head?: ReactNode; label: string; children: ReactNode; pick?: ReactNode; name?: string; wide?: boolean }) {
   const fold = <button type="button" className="btn mx-fold" aria-expanded aria-label={`${bar} 창 접기`} title="창 접기" onClick={() => setOpen(false)}>▸</button>;
-  return <aside className="mx-pane" aria-label={label} data-fold={open ? undefined : ''}>
+  return <aside className="mx-pane" aria-label={label} data-fold={open ? undefined : ''} data-wide={wide ? '' : undefined}>
     {/* 맨 위 줄은 접어도 숨기기만 */}
     <div className="mx-top" hidden={!open}>{pick && <div className="mx-pick">{pick}<span className="fh-grow" />{open && fold}</div>}
       {open && head && <div className="mx-head">{head}{!pick && fold}</div>}</div>
