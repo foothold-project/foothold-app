@@ -14,9 +14,99 @@ from apps.contracts import models as C
 from .map_files import MAX_IMAGE, gray_pixels, map_yaml, png_image, pgm_png, sha256, yaml_bytes
 from .maps import refresh_connectors
 from .models import (Building, Event, Floor, MapVersion, Mission, MissionVersion,
-                     Organization, Scenario, ScenarioVersion, Site, Upload, User)
+                     Organization, Scenario, ScenarioVersion, Site, Terrain, Upload, User, now)
+from .resource_archive import require_unused
 
 NAMESPACE = UUID('7cf30f97-697d-4f02-a196-635970db0246')
+WORLD_FOLDER = Path(__file__).resolve().parents[2] / 'simmgr/worlds'
+
+
+def supported_world_ids(prepared=None):
+    """Packaged worlds plus the separately imported connected v5 building.
+
+    This is world identity, not launcher readiness or a map-image allowlist.
+    Invalid/missing catalogues raise before any archive operation.
+    """
+    if prepared is None:
+        prepared = load_worlds(WORLD_FOLDER)
+    return {entry['world_id'] for entry, *_ in prepared} | {'v5_building'}
+
+
+def archive_removed_worlds(db, world_ids, *, org_id=None, migration=None):
+    """Archive unused orphan world floors; retain maps, scenarios and terrain pairs."""
+    from .terrains import identifier as terrain_identifier
+
+    organizations = select(Organization).where(Organization.id.in_(
+        select(Site.org_id).where(Site.purpose == 'SIM')))
+    if org_id is not None:
+        organizations = organizations.where(Organization.id == org_id)
+    list(db.scalars(organizations.order_by(Organization.id).with_for_update()))
+    candidates = select(Building).join(Site, Site.id == Building.site_id).where(
+        Site.purpose == 'SIM', Building.sim_world_id.is_not(None),
+        Building.sim_world_id.not_in(world_ids))
+    if org_id is not None:
+        candidates = candidates.where(Building.org_id == org_id)
+    buildings = list(db.scalars(candidates.order_by(Building.id)))
+    logs = []
+    context = {'migration': migration} if migration else {'origin': 'sync_worlds'}
+
+    class InUse(Exception):
+        pass
+
+    def reject(*args):
+        raise InUse()
+
+    def archive(row, reason):
+        if row.archived_at is not None:
+            return
+        row.archived_at = now()
+        data = dict(kind=row.__tablename__, id=str(row.id), org_id=str(row.org_id),
+            reason=reason, before={'archived_at': None},
+            after={'archived_at': row.archived_at.isoformat()})
+        data.update(context)
+        db.add(Event(org_id=row.org_id, category='ACCOUNT', code='SIM_PAIR_REPAIRED',
+            severity='INFO', message='시뮬 지형·지도 짝 정리', data=data))
+        logs.append(data)
+
+    for building in buildings:
+        floors = list(db.scalars(select(Floor).where(Floor.org_id == building.org_id,
+            Floor.building_id == building.id, Floor.archived_at.is_(None))
+            .order_by(Floor.id).with_for_update()))
+        for floor in floors:
+            if floor.provenance != 'SIMULATION':
+                continue
+            terrain = db.get(Terrain, (floor.terrain_id, floor.org_id)) if floor.terrain_id else None
+            if terrain is not None and terrain.archived_at is None:
+                maps = db.execute(select(Upload.metadata_json).join(MapVersion,
+                    (MapVersion.org_id == Upload.org_id) & (MapVersion.upload_id == Upload.id)).where(
+                    MapVersion.org_id == floor.org_id, MapVersion.floor_id == floor.id,
+                    MapVersion.source == 'IMPORT', MapVersion.provenance == 'SIMULATION',
+                    MapVersion.status == 'APPROVED'))
+                if any(meta.get('terrain_id') == terrain.id and meta.get('terrain_version') == terrain.version
+                        and meta.get('terrain_spec') == terrain.spec for meta in maps.scalars()):
+                    continue
+            try:
+                require_unused(db, floor.org_id, reject, floor=floor)
+            except InUse:
+                logs.append(dict(context, kind='floors', id=str(floor.id), org_id=str(floor.org_id),
+                    reason='in_use_preserved'))
+                continue
+            archive(floor, 'removed_world_no_live_pair')
+            db.flush()
+            refresh_connectors(db, floor)
+        if db.scalar(select(Floor.id).where(Floor.building_id == building.id,
+                Floor.archived_at.is_(None)).limit(1)) is None:
+            archive(building, 'no_live_floors')
+    db.flush()
+    for site_id in {building.site_id for building in buildings}:
+        site = db.get(Site, site_id)
+        if site.id == terrain_identifier(site.org_id, 'site'):
+            continue
+        if db.scalar(select(Floor.id).join(Building, Building.id == Floor.building_id).where(
+                Building.site_id == site.id, Floor.archived_at.is_(None)).limit(1)) is None:
+            archive(site, 'no_live_floors')
+    db.flush()
+    return logs
 
 
 def identifier(org_id, key):
@@ -140,6 +230,9 @@ def load_connected_worlds(root, catalog):
 
 def sync_worlds(db, org_id, actor_id, folder, files_root):
     prepared = load_worlds(folder)  # All files/waypoints checked before DB writes.
+    # Imports can be partial or a separate connected-v2 catalogue. They
+    # supplement packaged world identity rather than retire its other worlds.
+    world_ids = supported_world_ids() | supported_world_ids(prepared)
     db.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
     actor = db.scalar(select(User).where(User.id == actor_id, User.org_id == org_id,
         User.role == 'ORG_ADMIN', User.locked.is_(False), User.archived_at.is_(None)))
@@ -207,6 +300,7 @@ def sync_worlds(db, org_id, actor_id, folder, files_root):
         # Existing historical images must not silently roll back a newer approval.
         if floor.approved_version_id == version.id:
             sync_presets(db, actor, world_id, floor, version, presets)
+    archive_removed_worlds(db, world_ids, org_id=org_id)
     db.flush()
     return changed
 
