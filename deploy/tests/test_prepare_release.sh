@@ -7,7 +7,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/source/apps/server" "$work/source/apps/contracts" "$work/source/apps/web" \
     "$work/source/apps/simmgr" "$work/source/apps/agent/tools/sim" "$work/source/apps/agent/tools/nav2" \
-    "$work/source/deploy" "$work/source/mobile/sim/assets/test" "$work/bin" "$work/out" "$work/check"
+    "$work/source/deploy" "$work/source/mobile/sim/assets/test" "$work/source/mobile/sim/terrain" "$work/bin" "$work/out" "$work/check"
 printf trusted-server > "$work/source/apps/server/marker"
 printf trusted-simmgr > "$work/source/apps/simmgr/marker"
 printf trusted-agent > "$work/source/apps/agent/tools/sim/marker"
@@ -29,9 +29,20 @@ printf '{}' > "$work/source/apps/web/package.json"
 printf '<html>sim</html>' > "$work/source/mobile/sim/index.html"
 printf '{}' > "$work/source/mobile/sim/maps.json"
 printf placeholder > "$work/source/mobile/sim/assets/test/top.png"
+printf floor-placeholder > "$work/source/mobile/sim/assets/test/top-f1.png"
 printf '{"width":100}' > "$work/source/mobile/sim/assets/test/top.json"
+printf 'export const terrain = true;\n' > "$work/source/mobile/sim/terrain/fixture.js"
+printf 'export const validateTree = () => [];\n' > "$work/source/mobile/sim/bt.js"
+printf 'export declare function validateTree(): never[];\n' > "$work/source/mobile/sim/bt.d.ts"
+printf '{"scenarios":[]}' > "$work/source/mobile/sim/assets/test/scenarios.json"
+printf '{"floor":"f1"}' > "$work/source/mobile/sim/assets/test/scenarios-f1.json"
+printf '{"grid":"single"}' > "$work/source/mobile/sim/assets/test/map.json"
+printf '{"grid":"floor"}' > "$work/source/mobile/sim/assets/test/map-f1.json"
 git init -q "$work/source"
 git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker deploy/prepare_sim.py mobile/sim/index.html mobile/sim/maps.json mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json
+git -C "$work/source" add mobile/sim/terrain/fixture.js mobile/sim/assets/test/map.json mobile/sim/assets/test/map-f1.json
+git -C "$work/source" add mobile/sim/bt.js mobile/sim/bt.d.ts mobile/sim/assets/test/scenarios.json
+git -C "$work/source" add mobile/sim/assets/test/top-f1.png mobile/sim/assets/test/scenarios-f1.json
 git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm fixture
 sha=$(git -C "$work/source" rev-parse HEAD)
 git clone -q --bare "$work/source" "$work/repo.git"
@@ -44,6 +55,15 @@ if [[ $1 == ci ]]; then [[ $2 == --ignore-scripts ]]; exit; fi
 [[ ! -e ../server && ! -e ../../deploy ]]
 [[ -s ../../mobile/sim/assets/test/top.png ]]
 [[ $(cat ../../mobile/sim/assets/test/top.json) == '{"width":100}' ]]
+[[ -s ../../mobile/sim/terrain/fixture.js ]]
+[[ -s ../../mobile/sim/bt.js && -s ../../mobile/sim/bt.d.ts ]]
+[[ $(cat ../../mobile/sim/assets/test/scenarios.json) == '{"scenarios":[]}' ]]
+# Floor images use the shared top.json metadata, without a top-f1.json pair.
+[[ $(cat ../../mobile/sim/assets/test/top-f1.png) == floor-placeholder ]]
+[[ $(cat ../../mobile/sim/assets/test/scenarios-f1.json) == '{"floor":"f1"}' ]]
+# Both single-map and per-floor grids must reach the isolated web build.
+[[ $(cat ../../mobile/sim/assets/test/map.json) == '{"grid":"single"}' ]]
+[[ $(cat ../../mobile/sim/assets/test/map-f1.json) == '{"grid":"floor"}' ]]
 # A malicious build tries to create/modify root-executed code and contracts.
 mkdir -p ../server ../../deploy dist/sim
 printf tainted-server > ../server/marker
@@ -116,7 +136,7 @@ fi
 [[ ! -e $work/out/$bad_sha.tar.gz ]]
 grep -q 'Top-view input requires matching nonempty PNG/JSON pairs' "$work/rejected"
 # With no PNG or JSON matches git archive itself must reject the empty glob.
-git -C "$work/source" rm -q mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json mobile/sim/assets/unpaired/top.png
+git -C "$work/source" rm -q mobile/sim/assets/test/top.png mobile/sim/assets/test/top-f1.png mobile/sim/assets/test/top.json mobile/sim/assets/unpaired/top.png
 git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm empty-topviews
 git -C "$work/repo.git" fetch -q "$work/source" HEAD
 bad_sha=$(git -C "$work/source" rev-parse HEAD)
@@ -124,4 +144,4 @@ if (cd "$work/repo.git" && PATH="$work/bin:$PATH" bash "$prepare" "$bad_sha" "$w
     echo 'Expected empty top-view input rejection' >&2; exit 1
 fi
 [[ ! -e $work/out/$bad_sha.tar.gz ]]
-printf 'PASS: bare archive, paired top-view input, pristine trusted code, dist symlink rejection, wrong-policy/missing-runtime web-only releases\n'
+printf 'PASS: bare archive, paired top-view input, single/per-floor grids, pristine trusted code, dist symlink rejection, wrong-policy/missing-runtime web-only releases\n'

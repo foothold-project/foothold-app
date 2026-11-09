@@ -12,7 +12,7 @@ import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame, topPoint } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, createPatrolRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
-import { treeFromScenario, treeRows } from './bt.js';
+import { treeFromScenario, treeRows, ACTION_SECONDS, validateTree } from './bt.js';
 import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 import { MIN_UP } from './walk-surface.js';
 import { loadSimSettings, simSettings } from './settings.js';
@@ -363,34 +363,95 @@ async function main() {
     patrol.mock[key] = !patrol.mock[key]; $(id).setAttribute('aria-pressed', String(patrol.mock[key]));
   };
   for (const level of ['clear', 'minor', 'danger']) $('btReview-' + level).onclick = () => patrol.review(level);
+  // BT 패널 표시(데이터·실행기는 그대로): 구조 노드는 줄을 먹지 않고, 조건 갈래·지점마다·대안만 접히는 제목 줄
+  const BT_LABEL = { goto: '이동', photo: '모의 촬영', wait: '대기', operator_review: '운영자 판단 (최대 120초)', sensor_log: '기록', map_mark: '이 화면 지도 표시', alert: '모의 위치 알림', skip_log: '건너뜀 기록', return_home: '출발점 복귀', hold: '정지·잠금', report: '모의 보고서' };
+  const BT_IF = { fallen: '넘어짐', battery_low: '배터리 부족', review_is: '판단' }, BT_LEVEL = { clear: '이상 없음', minor: '사소함', danger: '위험' };
+  const BT_RESULT = { running: '진행 중', success: '성공', failure: '실패', abort: '중단' };
+  const kidsOf = (n) => n.children ?? (n.child ? [n.child] : []);
+  const has = (n, type) => n.type === type || kidsOf(n).some((c) => has(c, type));
+  const firstReport = (n) => n.type === 'report' ? n.message : kidsOf(n).map(firstReport).find(Boolean);
+  const btOpen = new Map();   // 누른 갈래: path → 펼침 여부(안 누르면 진행 중 갈래만 펼침)
+  const btLines = (tree, states, activePath) => {
+    const lines = [], result = (p) => states?.get(p)?.result;
+    const holdsActive = (p) => activePath === p || activePath?.startsWith(p + '.') || (states && [...states].some(([q, s]) => s.result === 'running' && (q === p || q.startsWith(p + '.'))));
+    const walk = (n, path, depth, tag = '', tail = '', alternative = false) => {
+      const kids = kidsOf(n), guard = n.type === 'sequence' && BT_IF[kids[0]?.type];
+      if (guard || n.type === 'for_each_point' || (alternative && kids.length)) {
+        const c = kids[0], open = btOpen.get(path) ?? holdsActive(path);
+        const title = guard ? `${BT_IF[c.type]}${c.level ? ' ' + BT_LEVEL[c.level] : ''} 시${has(n, 'return_home') ? ' 복귀' : has(n, 'hold') ? ' 정지' : has(n, 'map_mark') ? ' 지도 표시' : has(n, 'sensor_log') ? ' 기록' : ''}`
+          : n.type === 'for_each_point' ? `지점마다 (${n.points.length}곳)` : `실패 시 대안${firstReport(n) ? ' — ' + firstReport(n) : ''}`;
+        lines.push({ path, depth, group: true, open, text: `${open ? '▾' : '▸'} ${title}`, state: guard && result(`${path}.0`) === 'failure' ? '해당 없음' : BT_RESULT[result(path)] ?? '', active: result(path) === 'running' });
+        if (open) kids.forEach((k, i) => { if (!guard || i) walk(k, `${path}.${i}`, depth + 1); });
+        return;
+      }
+      if (n.type === 'retry') return walk(kids[0], `${path}.0`, depth, tag, `${tail} · 재시도 최대 ${n.times}회${states?.get(path)?.attempts ? ` (${states.get(path).attempts}회 실패)` : ''}`);
+      if (kids.length) return kids.forEach((k, i) => walk(k, `${path}.${i}`, depth, i ? (n.type === 'fallback' && !BT_IF[kidsOf(k)[0]?.type] && !kidsOf(k).length ? '실패 시 · ' : '') : tag, i ? '' : tail, n.type === 'fallback' && i > 0));
+      lines.push({ path, depth, tag, state: BT_RESULT[result(path)] ?? '', active: result(path) === 'running' || activePath === path,
+        text: `${BT_LABEL[n.type]}${n.level ? ' · ' + BT_LEVEL[n.level] : ''}${n.message ? ' · ' + n.message : ''}${tail}` });
+    };
+    walk(tree.root, '0', 0); return lines;
+  };
+  const btNowText = (chosen, rows, states) => {
+    const count = chosen.points.length;
+    if (!states) return `실행 전 · 지점 ${count}곳`;
+    if (!patrol.active) return patrol.summary ? `${{ success: '끝', failure: '실패' }[patrol.status] ?? '중단'}${patrol.summary.reason !== '중단' ? ' · ' + patrol.summary.reason : ''}` : patrol.status;
+    let path = null;
+    for (const [p, s] of states) if (s.result === 'running' && s.handle && (!path || p.length > path.length)) path = p;
+    const node = rows.find((r) => r.path === path)?.node, at = `지점 ${(patrol.context?.index ?? 0) + 1}/${count}`;
+    if (node?.type === 'operator_review') return `운영자 판단 기다림 (남은 ${Math.max(0, Math.ceil((node.max_seconds ?? ACTION_SECONDS.operator_review) - states.get(path).elapsed))}초)`;
+    if (node?.type === 'return_home') {
+      const why = rows.find((r) => r.path === path.slice(0, path.lastIndexOf('.')))?.node.children?.find((c) => c.type === 'report')?.message.replace(/ (완료|복귀)$/, '');
+      return `복귀 중${why ? ' — ' + why : ''}`;
+    }
+    if (node?.type === 'hold') return `정지·잠금 — ${node.message}`;
+    return node ? `${at} · ${{ goto: '이동 중', photo: '촬영 중' }[node.type] ?? BT_LABEL[node.type]}` : at;
+  };
   let nodeSignature = '';
   const treeUI = () => {
     const chosen = scenarios.find((s) => s.id === select.value);
     $('btPanel').hidden = !chosen;
+    // 나무 시나리오는 맨 위 고정 상태 줄(btHead)이 기존 상태 줄을 대신하고, 나무 없으면 기존 상태 줄만
+    $('scenarioStatus').hidden = !!chosen?.tree;
+    $('btHead').hidden = !chosen?.tree;
+    // 판단 대기 중에는 패널을 닫아 둘 수 없다: 대기 표시·세 단추가 늘 보이고 눌리게
+    if (patrol.reviewPending && scenarioPanel.hidden) showScenarioPanel(true);
     if (!chosen) return;
     $('btDisclaimer').hidden = !chosen.tree;
     const tree = chosen.tree ?? treeFromScenario(chosen), rows = treeRows(tree);
     const states = chosen.tree && patrol.execution?.tree === chosen.tree ? patrol.execution.states : null;
     const activePoint = patrol.active ? patrol.context?.index : runner.active ? runner.points[runner.index]?.mark : null;
-    const signature = JSON.stringify([select.value, activePoint, [...(states ?? [])].map(([p, s]) => [p, s.result]), patrol.reviewPending, patrol.events.length, patrol.summary]);
+    const now = chosen.tree ? btNowText(chosen, rows, states) : '';  // 나무 없으면 btHead 째 숨김
+    if ($('btNow').textContent !== now) $('btNow').textContent = now;
+    const signature = JSON.stringify([select.value, activePoint, [...(states ?? [])].map(([p, s]) => [p, s.result, s.attempts]), patrol.reviewPending, patrol.events.length, patrol.summary]);
     for (const [id, key] of [['btFall', 'fallen'], ['btBattery', 'battery'], ['btPhotoFail', 'photo'], ['btMoveFail', 'move']]) $(id).setAttribute('aria-pressed', String(patrol.mock[key]));
     if (signature === nodeSignature) return;
     nodeSignature = signature;
-    $('btNodes').replaceChildren(...rows.map(({ node, path, depth }, i) => {
-      const li = document.createElement('li'), result = states?.get(path)?.result;
-      li.style.paddingLeft = `${depth * 12}px`; li.dataset.path = path;
-      const active = result === 'running' || (!chosen.tree && runner.active && i === activePoint + 1);
-      li.classList.toggle('btActive', active);
-      const translated = { running: '진행 중', success: '성공', failure: '실패', abort: '중단' }[result] ?? '';
-      const label = { sequence: '차례대로', fallback: '실패 시 다음 대안', reactive_fallback: '매 틱 우선순위 확인', retry: '재시도', for_each_point: '지점마다', fallen: '넘어짐?', battery_low: '배터리 부족?', review_is: '판단 확인', goto: '이동', photo: '모의 촬영', wait: '대기', operator_review: '운영자 판단 (최대 120초)', sensor_log: '기록', map_mark: '이 화면 지도 표시', alert: '모의 위치 알림', skip_log: '건너뜀 기록', return_home: '출발점 복귀', hold: '정지·잠금', report: '모의 보고서' }[node.type];
-      li.textContent = `${label}${node.level ? ' · ' + node.level : ''}${node.type === 'retry' ? ' · 최대 ' + node.times + '회' : ''}${node.message ? ' · ' + node.message : ''} ${translated}`;
+    const legacyActive = !chosen.tree && runner.active && !runner.goal ? `0.${activePoint}` : null;
+    $('btNodes').replaceChildren(...btLines(tree, states, legacyActive).map((line) => {
+      const li = document.createElement('li');
+      li.style.paddingLeft = `${line.depth * 12}px`; li.dataset.path = line.path;
+      li.classList.toggle('btActive', line.active);
+      const text = `${line.text}${line.state ? ' ' + line.state : ''}`;
+      if (line.group) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.textContent = text; button.setAttribute('aria-expanded', String(line.open));
+        button.onclick = () => { btOpen.set(line.path, !line.open); nodeSignature = ''; treeUI(); };
+        li.append(button);
+      } else {
+        if (line.tag) { const small = document.createElement('small'); small.textContent = line.tag; li.append(small); }
+        li.append(text);
+      }
       return li;
     }));
     $('btPoints').textContent = chosen.points.map((_, i) => `${activePoint === i ? '▶' : ''}${i + 1}: ${patrol.execution?.tree === chosen.tree && patrol.skipped.has(i) ? '건너뜀' : patrol.execution?.tree === chosen.tree && patrol.visited.has(i) ? '방문 성공' : '대기'}`).join(' · ');
-    $('btEvents').textContent = patrol.events.map((e) => `${e.seconds}s (${e.x}, ${e.y}) ${e.message}`).join('\n');
+    const events = patrol.events.map((e) => `${e.seconds}s (${e.x}, ${e.y}) ${e.message}`);
+    $('btEvents').textContent = events.slice(-3).join('\n');
+    $('btEventsAll').textContent = events.join('\n');
+    $('btLog').hidden = events.length <= 3;
+    $('btLog').firstElementChild.textContent = `기록 전체 (${events.length}줄)`;
     $('btReport').textContent = patrol.summary ? `방문 ${patrol.summary.visited} · 건너뜀 ${patrol.summary.skipped} · 사소 ${patrol.summary.minor} · 위험 ${patrol.summary.danger} · ${patrol.summary.reason} · ${patrol.summary.seconds}초` : '';
     for (const level of ['clear', 'minor', 'danger']) $('btReview-' + level).disabled = !patrol.reviewPending;
-    $('btReview').hidden = !chosen.tree;
+    $('btReview').hidden = !chosen.tree || !patrol.reviewPending;
     $('btMocks').hidden = !chosen.tree;
   };
 
@@ -400,9 +461,29 @@ async function main() {
     .map((x) => { if (x.floor_id !== f.id) throw new Error('시나리오 층이 파일 층과 다름'); return { ...x, floor: i }; })))).flat()
     : customTerrain ? [] : validateScenarios(await json(`${dir}/scenarios.json`), map); }
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
+  // 내 임무(?bt=<id>): 웹 시뮬 탭 «임무 편집»이 이 브라우저 localStorage fh.btMission.<id> 에 둔 나무. validateTree·지점 검사를 거쳐 목록 맨 위에,
+  // 못 읽거나 검사 실패면 넣지 않고 이유만 안내 줄에(기존 시나리오는 그대로). 실행·STOP·잠금은 다른 나무 시나리오와 같은 길
+  let btNote = '';
+  if (params.has('bt')) try {
+    const bid = params.get('bt');
+    if (!/^[a-z0-9-]{1,32}$/.test(bid)) throw new Error('임무 id 형식');
+    let raw, m;
+    try { raw = localStorage.getItem(`fh.btMission.${bid}`); } catch { throw new Error('이 브라우저 저장소를 읽을 수 없음'); }
+    if (!raw) throw new Error('이 브라우저에 저장된 임무가 없음');
+    try { m = JSON.parse(raw); } catch { throw new Error('저장된 임무 JSON을 읽을 수 없음'); }
+    if (m?.id !== bid || m.map !== id || typeof m.name !== 'string') throw new Error('다른 지도의 임무');
+    validateTree(m.tree);
+    const fi = floors.length ? floors.findIndex((f) => f.id === m.floor) : -1;
+    if (floors.length && fi < 0) throw new Error('임무 층이 이 지도에 없음');
+    // 시나리오 지점 = 지점마다의 points, 그다음 좌표 있는 이동(웹 treePoints 와 같은 순서) — 빈 칸 검사는 기존 validateScenarios
+    const points = treeRows(m.tree).flatMap(({ node: n }) => [...(n.points ?? []), ...(n.point && n.point !== 'current' ? [n.point] : [])]);
+    const [s] = validateScenarios([{ id: `bt-${bid}`, name: `내 임무 · ${m.name}`, points, tree: m.tree }], layers[Math.max(fi, 0)].map);
+    scenarios = scenarios.filter((x) => x.id !== s.id);
+    scenarios.unshift(fi >= 0 ? { ...s, floor: fi } : s);
+  } catch (e) { btNote = `내 임무를 넣지 못함 — ${e.message}`; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
-  const initialScenario = scenarios.find((s) => s.floor === startFloor);
+  const initialScenario = params.has('bt') && !btNote ? scenarios[0] : scenarios.find((s) => s.floor === startFloor);
   if (initialScenario) select.value = initialScenario.id;
   let scenarioText = '', here = startFloor, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
   const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
@@ -734,7 +815,7 @@ async function main() {
     if (on && curMark() !== shown) drawMarks();   // 목적지에 닿음 = 그 고리 지우고 다음을 진하게
     const m = on && marks[curMark()];
     // 안내(추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
-    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote;
+    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote || btNote;
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 
@@ -840,7 +921,7 @@ async function main() {
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
     timing: () => clock.stats,
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
-      floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }),
+      floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }), mission: () => ({ note: btNote, id: scenarios[0]?.id ?? null }),
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner, patrol, patrolMarks: () => patrolMarks.children.length,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y, z = map.heightAt?.(x, y) ?? map.floor_z) => { const v = new THREE.Vector3(x, y, Number.isFinite(z) ? z : map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
