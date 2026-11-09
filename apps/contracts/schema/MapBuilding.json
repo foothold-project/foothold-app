@@ -71,6 +71,18 @@
           ],
           "title": "Provenance",
           "type": "string"
+        },
+        "terrain_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Terrain Id"
         }
       },
       "required": [

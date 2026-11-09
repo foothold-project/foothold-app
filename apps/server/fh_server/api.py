@@ -304,6 +304,9 @@ def create_app(settings: Settings | None = None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
+        if request.url.path.startswith('/api/v1/terrains'):
+            return JSONResponse(status_code=422, content={'error': {
+                'code': 'INVALID_TERRAIN', 'message': '지형 형식·물체 수·크기·시작 위치를 확인하세요.', 'detail': {}}})
         if request.url.path == '/api/v1/org/settings' and any('model_overrides' in e['loc'] for e in exc.errors()):
             return JSONResponse(status_code=422, content={'error': {
                 'code': 'VALIDATION', 'message': exc.errors()[0]['msg'].removeprefix('Value error, '),
@@ -890,6 +893,8 @@ def create_app(settings: Settings | None = None):
     events_api.install(app, DB, Identity, fail)
     notifications.install(app, DB, Identity, fail)
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
+    from . import terrains
+    terrains.install(app, DB, Identity, fail, authorize, event, settings)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
     trash.install(app, DB, Identity, fail, authorize, event)

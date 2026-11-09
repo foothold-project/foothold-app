@@ -691,6 +691,7 @@ export interface MapFeatures {
 }
 
 export interface MapFloor {
+  terrain_id?: string | null;
   archived_at?: string | null;
   provenance?: "HUMAN" | "SIMULATION";
   floor_z?: number | null;
@@ -2080,6 +2081,80 @@ export interface StopRequestStatus {
   robot_id: string;
   status: "REQUESTED" | "PHONE_RECEIVED" | "HUMAN_CONFIRMED" | "STOP_CONFIRMED";
   message: string;
+}
+
+export interface Terrain {
+  spec: TerrainSpec;
+  version: number;
+  floor_id: string | null;
+  map_version_id: string | null;
+  archived_at: string | null;
+  updated_at: string;
+}
+
+export interface TerrainBox {
+  x: number;
+  y: number;
+  yaw: number;
+  kind: "box";
+  sx: number;
+  sy: number;
+  h: number;
+}
+
+export interface TerrainGap {
+  x: number;
+  y: number;
+  yaw: number;
+  kind: "gap";
+  length: number;
+  width: number;
+}
+
+export interface TerrainList {
+  items: Terrain[];
+  next_cursor: string | null;
+}
+
+export interface TerrainPose {
+  x: number;
+  y: number;
+  yaw: number;
+}
+
+export interface TerrainRamp {
+  x: number;
+  y: number;
+  yaw: number;
+  kind: "ramp";
+  length: number;
+  width: number;
+  h: number;
+}
+
+export interface TerrainSpec {
+  schema: "fh_custom_terrain/1";
+  id: string;
+  name: string;
+  size: [number, number];
+  spawn: [number, number, number];
+  items: (TerrainBox | TerrainStairs | TerrainRamp | TerrainGap)[];
+}
+
+export interface TerrainStairs {
+  x: number;
+  y: number;
+  yaw: number;
+  kind: "stairs";
+  width: number;
+  steps: number;
+  rise: number;
+  run: number;
+}
+
+export interface TerrainWrite {
+  spec: TerrainSpec;
+  base_version: number;
 }
 
 export interface TokenResponse {

@@ -1,0 +1,26 @@
+{
+  "$id": "fh-app/1/TerrainPose",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "title": "Yaw",
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "yaw"
+  ],
+  "title": "TerrainPose",
+  "type": "object"
+}

@@ -1,0 +1,44 @@
+{
+  "$id": "fh-app/1/TerrainGap",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "gap",
+      "title": "Kind",
+      "type": "string"
+    },
+    "length": {
+      "exclusiveMinimum": 0,
+      "title": "Length",
+      "type": "number"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "title": "Width",
+      "type": "number"
+    },
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "title": "Yaw",
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "yaw",
+    "kind",
+    "length",
+    "width"
+  ],
+  "title": "TerrainGap",
+  "type": "object"
+}
