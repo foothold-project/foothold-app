@@ -971,13 +971,12 @@ async function main() {
   let lastDrawAt = -Infinity;
   function frame(now) {
     // Account wall time on every RAF, including while inference is pending.
-    // For start, finish due decisions before submitting a new GPU redraw:
-    // SwiftShader work otherwise competes with the 20 ms Worker delivery.
-    // Bound deferral even under continuous inference, so drawing, lidar and
-    // scenario/goal/floor UI continue on slow CPUs as well as idle RAFs.
+    // Defer start drawing only while simulation debt reports a slowdown.
+    // Bound deferral to keep drawing, lidar and scenario/goal/floor UI alive.
     if (adapter.depth) {
       clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
-      if (clock.stats.pending && performance.now() - lastDrawAt < START_DRAW_MAX_GAP_MS) { timingUI(); requestAnimationFrame(frame); return; }
+      const stats = clock.stats;
+      if (stats.pending && stats.slow && performance.now() - lastDrawAt < START_DRAW_MAX_GAP_MS) { timingUI(); requestAnimationFrame(frame); return; }
     }
     if (now - lastScan >= 100) { scan(); lastScan = now; }
     if (!adapter.depth && !readonly) clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
