@@ -101,11 +101,14 @@ export function useFit(v?: MapVersion) {
 }
 
 /** 판 그림 + 저장된 요소(구역·지점·연결점·지우개·벽 선). 그림을 못 받으면 칸 안 글 + 다시 불러오기 */
-export function MapView({ v, fill, children }: { v: MapVersion; fill?: boolean; children?: ReactNode }) {
+export function MapView({ v, fill, terrain, children }: { v: MapVersion; fill?: boolean; terrain?: boolean; children?: ReactNode }) {
+  const framing = useFit(v);
+  // 지형은 바닥 전체가 작업 공간이다. 물체 하나의 벽 범위로 잘라 시작하지 않는다.
+  if (terrain) framing.fit = framing.full;
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
   // fill = 지도·시나리오 틀(.mx-map)을 꽉 채움 — 확대 단추는 지도 오른쪽 아래 겹침, 불러오기·실패 글은 지도 아래쪽 띠
   if (fill) return <>
-    <MapFrame {...useFit(v)} photo={v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
+    <MapFrame {...framing} photo={v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
       <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
       <Shapes v={v} f={v.features} />{children}
     </MapFrame>
@@ -115,7 +118,7 @@ export function MapView({ v, fill, children }: { v: MapVersion; fill?: boolean; 
         <button type="button" className="btn" onClick={() => { setAt('wait'); setN(n + 1); }}>다시 불러오기</button></div>}</div>}
   </>;
   return <div>
-      <MapFrame {...useFit(v)} photo={v} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+      <MapFrame {...framing} photo={v} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
         <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
         <Shapes v={v} f={v.features} />
       </MapFrame>
@@ -435,7 +438,7 @@ function FloorView({ p, names, cancel, again, told, top, name, side, setSide, ta
       <div className="mx-map">
         {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
-          : v ? <MapView key={v.id} v={v} fill>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
+          : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
           : list && !err && <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.</p>
             <button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button></div>}
         <div className="mx-over">
