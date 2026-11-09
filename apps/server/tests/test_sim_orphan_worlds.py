@@ -1,16 +1,17 @@
 """Orphan-world repair against private PostgreSQL and synthetic registrations."""
+import json
 from uuid import UUID, uuid4
 
 from alembic import command
 from alembic.config import Config
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 from apps.contracts.tests.test_terrain import SPEC
 from apps.server.fh_server.models import (Building, Event, Floor, MapVersion,
     Robot, Run, Scenario, ScenarioVersion, Site, Terrain)
-from apps.server.fh_server.sim_maps import supported_world_ids
+from apps.server.fh_server.sim_maps import supported_world_ids, sync_worlds
 from apps.server.fh_server.terrains import identifier
 from .conftest import CONFIG
 from .legacy_approvals import pending_assignment
@@ -135,6 +136,59 @@ def test_world_identity_includes_packaged_and_connected_gazebo_only_worlds():
     worlds = supported_world_ids()
     assert {'warehouse', 'factory_zone', 'collapsed_house_v2', 'v5_building'} <= worlds
     assert 'rubble' not in worlds
+
+
+def test_empty_world_identity_rejects_connected_world_fallback():
+    with pytest.raises(ValueError, match='Static world catalogue must not be empty'):
+        supported_world_ids([])
+
+
+@pytest.mark.parametrize('repair', ['migration', 'sync_empty', 'sync_partial', 'sync_connected'])
+def test_empty_packaged_catalogue_stops_before_archives_or_events(
+        seeded, world_folder, connected_folder, tmp_path, monkeypatch, repair):
+    monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', seeded['urls']['migrate'])
+    config = Config(str(CONFIG))
+    command.downgrade(config, '0027')
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with Session(engine) as db, db.begin():
+            for world in ('warehouse', 'factory_zone', 'collapsed_house_v2', 'v5_building', 'removed'):
+                site = Site(org_id=seeded['org'], name=world, purpose='SIM')
+                db.add(site); db.flush()
+                building = Building(org_id=seeded['org'], site_id=site.id, name=world,
+                    sim_world_id=world)
+                db.add(building); db.flush()
+                db.add(Floor(org_id=seeded['org'], building_id=building.id, name=world,
+                    level=1, provenance='SIMULATION'))
+        with Session(engine) as db:
+            before = {model: list(db.execute(select(model.id, model.archived_at).order_by(model.id)))
+                for model in (Site, Building, Floor)}
+            event_ids = set(db.scalars(select(Event.id)))
+            assert not list(db.scalars(select(Event.id).where(Event.code == 'SIM_PAIR_REPAIRED')))
+        empty = tmp_path / 'empty-worlds'
+        empty.mkdir()
+        (empty / 'worlds.json').write_text(json.dumps({'schema': 'simmgr_static_worlds/1', 'worlds': {}}))
+        with monkeypatch.context() as patch:
+            patch.setattr('apps.server.fh_server.sim_maps.WORLD_FOLDER', empty)
+            if repair == 'migration':
+                with pytest.raises(ValueError, match='Static world catalogue must not be empty'):
+                    command.upgrade(config, 'head')
+            else:
+                folder = {'sync_empty': empty, 'sync_partial': world_folder,
+                    'sync_connected': connected_folder}[repair]
+                with Session(engine) as db, db.begin():
+                    # Catch inside the transaction: a rollback must not hide any writes.
+                    with pytest.raises(ValueError, match='Static world catalogue must not be empty'):
+                        sync_worlds(db, seeded['org'], seeded['users']['admin'], folder, tmp_path / 'files')
+                    assert not db.new and not db.dirty and not db.deleted
+        with Session(engine) as db:
+            for model, rows in before.items():
+                assert list(db.execute(select(model.id, model.archived_at).order_by(model.id))) == rows
+            assert set(db.scalars(select(Event.id))) == event_ids
+            assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0027'
+    finally:
+        command.upgrade(config, 'head')
+        engine.dispose()
 
 
 def test_connected_catalogue_supplements_static_and_sync_is_tenant_scoped(

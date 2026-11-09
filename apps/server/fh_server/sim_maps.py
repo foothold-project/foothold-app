@@ -25,10 +25,12 @@ def supported_world_ids(prepared=None):
     """Packaged worlds plus the separately imported connected v5 building.
 
     This is world identity, not launcher readiness or a map-image allowlist.
-    Invalid/missing catalogues raise before any archive operation.
+    Invalid/missing/empty catalogues raise before any archive operation.
     """
     if prepared is None:
         prepared = load_worlds(WORLD_FOLDER)
+    if not prepared:
+        raise ValueError('Static world catalogue must not be empty')
     return {entry['world_id'] for entry, *_ in prepared} | {'v5_building'}
 
 
