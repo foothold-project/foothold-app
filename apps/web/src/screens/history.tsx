@@ -287,7 +287,7 @@ export function Bell({ cancel }: { cancel?: AbortSignal }) {
   };
   const unread = list?.unread_count ?? 0;
   return <details ref={box} className="fh-more" data-bell>
-    <summary aria-label={list ? `알림 안 읽음 ${unread}건` : '알림'}><span aria-hidden="true">🔔</span>{unread > 0 && <span className="fh-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}</summary>
+    <summary aria-label={list ? `알림 안 읽음 ${unread}건` : '알림'}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" /></svg>{unread > 0 && <span className="fh-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}</summary>
     <div className="card" style={{ whiteSpace: 'normal', width: 'min(360px, 80vw)', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="알림 목록">
       <div className="fh-row"><b className="fh-grow">알림</b><button type="button" className="btn" disabled={!unread} onClick={() => read({ all: true })}>모두 읽음</button></div>
       {err && <p className="fh-msg" role="alert">{err}</p>}
