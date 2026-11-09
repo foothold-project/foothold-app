@@ -2062,7 +2062,7 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty }));
     await open('#/sim'); await toChooser();
     expect($('[data-sim-places]')).toBeTruthy();
-    expect(sitesShown()).toEqual(['장소 시뮬 지형', '장소 옛 장소(purpose 없음)', '내장 시뮬 지도']);
+    expect(sitesShown()).toEqual(['장소 시뮬 지형', '장소 옛 장소(purpose 없음)']);   // 내장 시뮬 지도 묶음 없음(BUILTIN-DROP 11-09)
   });
   it('빈 시뮬 칸은 «지형 만들기» 안내, 장소 고치기에도 만들기 단추 없음', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));

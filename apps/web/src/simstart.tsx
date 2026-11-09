@@ -1,6 +1,6 @@
 // MuJoCo 시뮬 띄우기 칸(11-03 사용자): 지도 카드 고르기 → (여러 층이면) 층 고르기, 기본은 첫 층 → 위에서 본 사진을 눌러 시작 위치(안 누르면 기본 시작 지점) → «시뮬 열기».
 // 열기 주소 약속(시뮬 쪽 SIM-START-POINT 와 같음): simUrl(지도) + 여러 층이면 &floor=<층 id> + 골랐으면 &start=<x>,<y>(m, 소수 2자리).
-import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import SIM_MAPS from '../../../mobile/sim/maps.json';
 import { simUrl } from './simdrive';
 import type { MapFloor, MapVersion } from '../../contracts/ts';
@@ -84,21 +84,20 @@ function Mark({ x, y, yaw, k, pick }: { x: number; y: number; yaw: number; k: nu
   </g>;
 }
 
-/** 내장 시뮬 지도 카드(위에서 본 그림 + 이름). hide = 서버 장소에 이미 있는 것(시뮬 탭 첫 화면), on = 고른 카드 */
-export function BuiltinCards({ open, on, hide }: { open: (id: string) => void; on?: string; hide?: (id: string) => boolean }) {
-  return <ul className="dv-maps" aria-label="시뮬 지도">{SIM_MAPS.filter((m) => !hide?.(m.id)).map((m) => {
+/** 내장 시뮬 지도 카드(위에서 본 그림 + 이름) — 폰 앱 안 SimPick 만 쓴다(PC 시뮬 탭은 서버 SIM 장소만, 11-09). on = 고른 카드 */
+function BuiltinCards({ open, on }: { open: (id: string) => void; on: string }) {
+  return <ul className="dv-maps" aria-label="시뮬 지도">{SIM_MAPS.map((m) => {
     const src = PNG[dir(m.id, floorsOf(m.id)[0].top)];
-    return <li key={m.id}><button type="button" className="dv-map-card" aria-pressed={on ? m.id === on : undefined} onClick={() => open(m.id)} data-sim-card={m.id}>
+    return <li key={m.id}><button type="button" className="dv-map-card" aria-pressed={m.id === on} onClick={() => open(m.id)} data-sim-card={m.id}>
       {src ? <img src={src} alt="" loading="lazy" draggable={false} /> : <i />}<span>{m.name}</span></button></li>;
   })}</ul>;
 }
 
 /** make = PC «시뮬» 탭: «지형 만들기» 입구를 보인다(폰 틀·앱 안은 숨김 — 저장본을 시뮬과 나눌 수 있는 곳만).
- *  only = 한 내장 지도만(PC 시뮬 탭 첫 화면 «내장 시뮬 지도» 카드 안): 카드 목록 대신 위 띠 [back · 이름 · 기본 위치로 · 시뮬 열기], 고른 지도는 기억하지 않음.
  *  옛 «임무 편집»은 아래 시뮬 시나리오(노드 보기)로 합쳤다 — 이 브라우저에 남은 옛 저장본은 수만 알린다 */
-export function SimPick({ make, only, back }: { make?: boolean; only?: string; back?: ReactNode }) {
+export function SimPick({ make }: { make?: boolean }) {
   const [old] = useState(() => (make ? oldMissions() : 0));
-  const [want, setWant] = useState(() => only ?? savedMap()), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0];
+  const [want, setWant] = useState(savedMap), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0];
   const meta = META[dir(map.id, 'top.json')], floors = floorsOf(map.id), [fid, setFid] = useState(''), floor = floors.find((f) => f.id === fid) ?? floors[0];
   const [start, setStart] = useState<[number, number] | null>(null), [why, setWhy] = useState('');
   const grid = useGrid(dir(map.id, floor.map_file)), top = PNG[dir(map.id, floor.top)], home = grid?.spawn_xyyaw;
@@ -116,11 +115,10 @@ export function SimPick({ make, only, back }: { make?: boolean; only?: string; b
   const acts = <>
     <button type="button" className="btn" disabled={!start} onClick={reset} data-sim-home>기본 위치로</button>
     {make && <a className="btn" href="#/terrain" style={{ textDecoration: 'none', color: 'var(--text)' }} data-terrain-enter>지형 만들기</a>}
-    <a className={`btn pri${only ? '' : ' dv-grow'}`} href={openUrl(map.id, floors.length > 1 ? floor.id : '', start)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
+    <a className="btn pri dv-grow" href={openUrl(map.id, floors.length > 1 ? floor.id : '', start)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
   </>;
   return <>
-    {only ? <div className="mx-bar">{back}<b>{map.name}</b><span className="fh-grow" />{acts}</div>
-      : <BuiltinCards open={pickMap} on={map.id} />}
+    <BuiltinCards open={pickMap} on={map.id} />
     {floors.length > 1 && <div className="fh-row dv-floors" role="group" aria-label="층" data-sim-floor>{floors.map((f) =>
       <button key={f.id} type="button" className="btn" aria-pressed={f === floor} data-floor={f.id} onClick={() => { setFid(f.id); reset(); }}>{f.name}</button>)}</div>}
     {meta && top && <svg className="dv-start-map"viewBox={`${x0} ${-y1} ${x1 - x0} ${y1 - y0}`} role="img" aria-label={`${map.name}${floor.name && ` ${floor.name}`} 위에서 본 모습 — 눌러 시작 위치 고르기`} onClick={press} data-sim-top={floor.top}>
@@ -130,7 +128,7 @@ export function SimPick({ make, only, back }: { make?: boolean; only?: string; b
     </svg>}
     <p className="lv-note" data-sim-start>{start ? `시작 위치: 고른 곳 (x ${start[0].toFixed(2)} m, y ${start[1].toFixed(2)} m) · 흰 고리 = 기본 시작 지점` : '시작 위치: 기본 시작 지점(흰 고리) — 지도를 눌러 바꿀 수 있습니다'}</p>
     {why && <p className="fh-why" role="status" data-sim-why>{why}</p>}
-    {only ? <p className="lv-note" data-sim-noscen>서버 장소가 아닌 내장 지도라 시나리오는 만들 수 없습니다 — 시나리오는 위 서버 시뮬 지도에서 만듭니다.</p> : <div className="fh-row">{acts}</div>}
+    <div className="fh-row">{acts}</div>
     {old > 0 && <p className="lv-note" data-old-bt>이 브라우저에만 있는 옛 임무 {old}개</p>}
   </>;
 }
