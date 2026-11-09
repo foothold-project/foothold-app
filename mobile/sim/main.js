@@ -263,7 +263,7 @@ async function main() {
   };
   applySettings = (org) => {
     const caps = commandCaps(adapter.command);
-    Object.assign(settings, simSettings(org, { vx: caps.forward, wz: caps.turnInPlace }, adapter.id));
+    Object.assign(settings, simSettings(org, { vx: caps.forward, wz: caps.turnInPlace, runnerVx: adapter.command.runnerVx }, adapter.id));
     inputSettings = manualSettings(org, adapter.command, adapter.id);
     $('modeCaps').textContent = modeCapText(adapter.command, inputSettings);
   };

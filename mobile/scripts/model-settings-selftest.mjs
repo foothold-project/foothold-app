@@ -35,3 +35,13 @@ assert.equal(manualCommand([1, 0, 0], manual)[0], .1);
 assert.equal(POLICY_MODES.go2.command.kind, 'none');
 assert.ok(Object.values(POLICY_MODES.go2.command.caps).every((n) => n === 0));
 console.log('model settings PASS: mode switches, sparse inheritance, aliases, manual/key/runner/lidar, caps, real replay unchanged');
+
+// Per-mode runner defaults never replace explicit organization/model settings.
+const startMode = POLICY_MODES.start;
+const startCaps = { vx: startMode.command.caps.forward, wz: startMode.command.caps.turnInPlace, runnerVx: startMode.command.runnerVx };
+assert.equal(simSettings({}, startCaps, startMode.id).vx, 1.2);
+assert.equal(simSettings({ sim_runner_vx: .4 }, startCaps, startMode.id).vx, .4);
+assert.equal(simSettings({ sim_runner_vx: .4, model_overrides: { 'start-demo': { sim_runner_vx: 1.2 } } }, startCaps, startMode.id).vx, 1.2);
+assert.equal(simSettings({}, {}, 'nvidia-demo').vx, .4);
+assert.equal(simSettings({}, {}, 'ame2-demo').vx, .4);
+console.log('start runner default PASS: offline 1.2, explicit org .4, model override 1.2, other mode defaults .4');
