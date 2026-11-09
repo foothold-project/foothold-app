@@ -17,12 +17,18 @@ from .test_assignments import assignment, scenario
 from .test_maps import P, auth, maps, save, upload  # noqa: F401
 
 
-def purpose_floor(http, headers, purpose):
-    site = http.post(P + '/sites', headers=headers, json={'name': purpose, 'purpose': purpose}).json()
+def purpose_floor(http, headers, purpose, seeded):
+    site = http.post(P + '/sites', headers=headers, json={'name': purpose, 'purpose': 'REAL'}).json()
     building = http.post(P + f'/sites/{site["id"]}/buildings', headers=headers, json={'name': '건물'}).json()
     floor = http.post(P + f'/buildings/{building["id"]}/floors', headers=headers,
                       json={'name': '1층', 'level': 1}).json()
     version = save(http, headers, floor['id'], upload(http, headers)).json()
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with engine.begin() as conn:
+            conn.execute(text('UPDATE sites SET purpose=:purpose WHERE id=:id'), {'purpose': purpose, 'id': site['id']})
+    finally:
+        engine.dispose()
     return site, floor, version
 
 
@@ -31,23 +37,24 @@ def test_site_create_default_explicit_tree_and_immutable_purpose(maps):
     default = http.post(P + '/sites', headers=headers, json={'name': '실기 기본 장소'})
     assert default.status_code == 201 and default.json()['purpose'] == 'REAL'
     sim = http.post(P + '/sites', headers=headers, json={'name': '시뮬 장소', 'purpose': 'SIM'})
-    assert sim.status_code == 201 and sim.json()['purpose'] == 'SIM'
+    assert sim.status_code == 409 and sim.json()['error']['code'] == 'SIM_PLACE_BY_TERRAIN'
+    assert sim.json()['error']['message'] == '시뮬 지도는 «지형 만들기» 저장으로만 만듭니다'
     assert http.post(P + '/sites', headers=headers, json={'name': '잘못된 장소', 'purpose': 'OTHER'}).status_code == 400
-    path = P + '/sites/' + sim.json()['id']
-    assert http.patch(path, headers=headers, json={'name': '새 이름'}).json()['purpose'] == 'SIM'
-    assert http.patch(path, headers=headers, json={'name': '새 이름', 'purpose': 'REAL'}).status_code == 400
+    path = P + '/sites/' + default.json()['id']
+    assert http.patch(path, headers=headers, json={'name': '새 이름'}).json()['purpose'] == 'REAL'
+    assert http.patch(path, headers=headers, json={'name': '새 이름', 'purpose': 'SIM'}).status_code == 400
     tree = http.get(P + '/sites', headers=headers).json()['items']
-    assert {s['id']: s['purpose'] for s in tree} == {default.json()['id']: 'REAL', sim.json()['id']: 'SIM'}
+    assert {s['id']: s['purpose'] for s in tree} == {default.json()['id']: 'REAL'}
     assert http.delete(path, headers=headers).status_code == 204
     assert next(s for s in http.get(P + '/sites?archived=true', headers=headers).json()['items']
-                if s['id'] == sim.json()['id'])['purpose'] == 'SIM'
+                if s['id'] == default.json()['id'])['purpose'] == 'REAL'
 
 
 @pytest.mark.parametrize('mixed_point', ['waypoint', 'finish'])
-def test_mixed_scenario_create_update_and_preview_reject_atomically(maps, mixed_point):
+def test_mixed_scenario_create_update_and_preview_reject_atomically(maps, seeded, mixed_point):
     http, headers, _ = maps
     real, _, _, _ = scenario(http, headers)
-    _, floor, version = purpose_floor(http, headers, 'SIM')
+    _, floor, version = purpose_floor(http, headers, 'SIM', seeded)
     body = {k: copy.deepcopy(real[k]) for k in ('name', 'waypoints', 'finish', 'notes')}
     point = {**body['waypoints'][0], 'floor_id': floor['id'], 'map_version_id': version['id']}
     if mixed_point == 'waypoint':
@@ -69,7 +76,7 @@ def test_mixed_scenario_create_update_and_preview_reject_atomically(maps, mixed_
 def test_sim_scenario_no_assignment_or_approval_real_unchanged(maps, seeded, robot_simulation):
     http, headers, _ = maps
     real, _, _, _ = scenario(http, headers)
-    _, floor, version = purpose_floor(http, headers, 'SIM')
+    _, floor, version = purpose_floor(http, headers, 'SIM', seeded)
     # HUMAN map content on a SIM place still follows the place purpose.
     assert version['provenance'] == 'HUMAN'
     body = {k: copy.deepcopy(real[k]) for k in ('name', 'waypoints', 'finish', 'notes')}
@@ -155,7 +162,7 @@ def test_purpose_migration_roundtrip_preserves_existing_assignment(maps, seeded,
             conn.execute(text("INSERT INTO sites(org_id,name) VALUES (:org,'다른 조직 장소')"), {'org': foreign_org})
             old_sites = conn.execute(text('SELECT id, org_id, name, archived_at FROM sites ORDER BY id')).all()
             old_assignments = conn.execute(text('SELECT * FROM assignments ORDER BY id')).all()
-        command.upgrade(config, 'head')
+        command.upgrade(config, '0026')
         with engine.begin() as conn:
             assert conn.execute(text('SELECT id, org_id, name, archived_at FROM sites ORDER BY id')).all() == old_sites
             assert set(conn.scalars(text('SELECT purpose FROM sites'))) == {'SIM'}

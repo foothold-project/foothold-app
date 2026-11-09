@@ -105,7 +105,7 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with pytest.raises(IntegrityError):
                 command.downgrade(config, '0006')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0026'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0027'
                 assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
                 assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
                 assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0
@@ -200,15 +200,18 @@ def test_resource_archive_upgrade_preserves_rows_and_guarded_downgrade(monkeypat
                 floor = conn.scalar(text("INSERT INTO floors(id, org_id, building_id, name, level) VALUES (gen_random_uuid(), :org, :building, 'synthetic', 1) RETURNING id"), {'org': org, 'building': building})
             command.upgrade(config, 'head')
             with engine.begin() as conn:
-                assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor AND archived_at IS NULL'), {'floor': floor}) == 1
+                # 0027 archives this unpaired SIM floor, retaining its identity.
+                assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor AND archived_at IS NOT NULL'), {'floor': floor}) == 1
                 conn.execute(text('UPDATE floors SET archived_at=now() WHERE id=:floor'), {'floor': floor})
             with pytest.raises(DBAPIError, match='Reconcile archived map resources'):
                 command.downgrade(config, '0020')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0026'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0027'
                 assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor AND archived_at IS NOT NULL'), {'floor': floor}) == 1
             with engine.begin() as conn:
                 conn.execute(text('UPDATE floors SET archived_at=NULL WHERE id=:floor'), {'floor': floor})
+                conn.execute(text('UPDATE buildings SET archived_at=NULL WHERE id=:id'), {'id': building})
+                conn.execute(text('UPDATE sites SET archived_at=NULL WHERE id=:id'), {'id': site})
             command.downgrade(config, '0020')
             command.upgrade(config, 'head')
             with engine.connect() as conn:
@@ -232,7 +235,7 @@ def test_terrain_source_identity_blocks_downgrade_with_live_data(monkeypatch):
             with pytest.raises(DBAPIError, match='Retire terrain data before downgrade'):
                 command.downgrade(config, '0024')
             with engine.begin() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0026'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0027'
                 assert conn.scalar(text('SELECT count(*) FROM terrains')) == 1
                 conn.execute(text('DELETE FROM terrains'))
             command.downgrade(config, '0024')

@@ -7,7 +7,7 @@ from sqlalchemy import any_, or_, select, text
 from sqlalchemy.dialects.postgresql import distinct_on
 from apps.contracts import models as C
 from .models import (Approval, Assignment, Building, Event, FileDeletion, Floor, MapVersion,
-                     Robot, Run, Scenario, ScenarioVersion, Site, User)
+                     Organization, Robot, Run, Scenario, ScenarioVersion, Site, Terrain, User)
 from .resource_archive import require_unused
 
 log = logging.getLogger(__name__)
@@ -91,6 +91,8 @@ def install(app, DB, Identity, fail, authorize, event):
     def restore(kind: C.TrashKind, identifier: UUID, auth: Identity, db: DB):
         user = auth[0]
         authorize(user, 'O')
+        if kind == 'floor':
+            db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
         row = own(db, user, kind, identifier)
         if row.archived_at is None:
             return
@@ -104,6 +106,13 @@ def install(app, DB, Identity, fail, authorize, event):
                 site = db.scalar(select(Site).where(Site.org_id == user.org_id, Site.id == parent.site_id).with_for_update(read=True))
                 if site.archived_at is not None:
                     fail(409, 'PARENT_ARCHIVED', '상위 장소를 먼저 되살리세요.')
+        if kind == 'floor' and row.terrain_id:
+            require_unused(db, user.org_id, fail, floor=row)
+            terrain = db.get(Terrain, (row.terrain_id, user.org_id), with_for_update=True)
+            if terrain is None:
+                fail(409, 'TERRAIN_PAIR_MISSING', '연결된 지형이 없어 층을 되돌릴 수 없습니다.')
+            terrain.archived_at = None
+            event(db, user.org_id, 'TERRAIN_RESTORED', user.id, {'terrain_id': terrain.id, 'name': terrain.spec['name']})
         row.archived_at = None
         if kind == 'scenario':
             row.version += 1

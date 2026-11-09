@@ -16,7 +16,7 @@ from apps.contracts import models as C
 from .map_files import MAX_IMAGE, MAX_YAML, image_bytes, map_yaml, sha256, yaml_bytes
 from . import idempotency
 from .resource_archive import require_unused
-from .models import Approval, Building, Floor, FloorConnector, MapVersion, Site, Upload, now
+from .models import Approval, Building, Floor, FloorConnector, MapVersion, Organization, Site, Terrain, Upload, now
 
 
 UPLOAD_BODY_SECONDS = 30
@@ -28,6 +28,11 @@ MAX_FEATURE_VERTICES = 4096
 # 4 * (1768 * (2 * 128 * 6 + 1536) + 4096 * 3 * 32) + 128 KiB
 # = 23,429,120 bytes < 32 MiB, including edit indices and escaped change keys.
 MAX_DIFF_BYTES = 32 * 1024 * 1024
+
+
+def require_real_site(site, fail):
+    if site.purpose == 'SIM':
+        fail(409, 'SIM_PLACE_BY_TERRAIN', '시뮬 지도는 «지형 만들기» 저장으로만 만듭니다')
 
 
 def ensure_space(root, required, fail):
@@ -247,6 +252,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     def site_create(body: C.SiteCreate, auth: Identity, db: DB):
         user = auth[0]
         authorize(user, 'O')
+        if body.purpose == 'SIM':
+            fail(409, 'SIM_PLACE_BY_TERRAIN', '시뮬 지도는 «지형 만들기» 저장으로만 만듭니다')
         row = Site(org_id=user.org_id, name=body.name, purpose=body.purpose)
         db.add(row)
         db.flush()
@@ -256,8 +263,9 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     @app.post('/api/v1/sites/{site_id}/buildings', response_model=C.MapBuilding, status_code=201)
     def building_create(site_id: UUID, body: C.MapName, auth: Identity, db: DB):
         user = auth[0]
-        own(db, Site, site_id, user, lock=True, live=True)
+        site = own(db, Site, site_id, user, lock=True, live=True)
         authorize(user, 'O')
+        require_real_site(site, fail)
         row = Building(org_id=user.org_id, site_id=site_id, name=body.name)
         db.add(row)
         db.flush()
@@ -269,6 +277,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         user = auth[0]
         building = own(db, Building, building_id, user, lock=True, live=True)
         authorize(user, 'O')
+        require_real_site(own(db, Site, building.site_id, user), fail)
         row = Floor(provenance='SIMULATION' if building.sim_world_id else 'HUMAN', org_id=user.org_id, building_id=building_id, name=body.name, level=body.level)
         db.add(row)
         db.flush()
@@ -289,6 +298,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
 
         def remove(identifier: UUID, auth: Identity, db: DB):
             user = auth[0]
+            if model is Floor:
+                db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
             row = own(db, model, identifier, user, lock=True)
             authorize(user, 'O')
             if row.archived_at is not None:
@@ -303,6 +314,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             if used:
                 fail(409, 'RESOURCE_IN_USE', '휴지통 밖의 하위 장소·건물·층이 있어 옮길 수 없습니다.')
             row.archived_at = now()
+            if model is Floor and row.terrain_id:
+                terrain = db.get(Terrain, (row.terrain_id, user.org_id), with_for_update=True)
+                if terrain is not None:
+                    terrain.archived_at = row.archived_at
+                    record(db, user, 'TERRAIN_ARCHIVED', row, terrain_id=terrain.id)
             record(db, user, prefix + '_DELETED', row)
             if model is Floor:
                 db.flush()
@@ -390,6 +406,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         if replay is not None:
             return replay
         floor = own(db, Floor, floor_id, user, lock=True, live=True)
+        building = own(db, Building, floor.building_id, user)
+        require_real_site(own(db, Site, building.site_id, user), fail)
         if body.base_version_id != floor.approved_version_id:
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
         upload = own(db, Upload, body.image, user)
@@ -474,6 +492,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             return replay
         original = own(db, MapVersion, version_id, user)
         floor = own(db, Floor, original.floor_id, user, lock=True, live=True)
+        building = own(db, Building, floor.building_id, user)
+        require_real_site(own(db, Site, building.site_id, user), fail)
         if body.base_version_id != floor.approved_version_id:
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
         if original.id == floor.approved_version_id:

@@ -10,6 +10,7 @@ from sqlalchemy import select, func
 from apps.contracts import models as C
 from .map_files import gray_png, sha256, yaml_bytes
 from .maps import ensure_space, refresh_connectors
+from .resource_archive import require_unused
 from .models import Building, Floor, MapVersion, Organization, Site, Terrain, Upload, now
 
 
@@ -51,6 +52,53 @@ def terrain_grid(spec):
 
 def identifier(org_id, key):
     return uuid5(NAMESPACE_URL, f'foothold:{org_id}:custom-terrain/{key}')
+
+
+def publish_terrain_map(db, user, spec, floor, terrain_version, root, fail, created=None):
+    """Publish from a validated spec, shared by terrain saves and pair repair.
+
+    The caller owns the transaction and the library revision. Existing map
+    snapshots remain immutable; failures remove only this attempt's new files.
+    """
+    width, height, origin, pixels = terrain_grid(spec)
+    png = gray_png(width, height, pixels)
+    digest = sha256(png)
+    number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
+    # Random suffix also avoids overwriting an orphan from an interrupted save.
+    path = Path('maps') / str(floor.id) / f'{number}-{uuid4()}.png'
+    destination = root / path
+    next_version = terrain_version
+    metadata = {'resolution': .05, 'origin': origin, 'negate': 0, 'occupied_thresh': .65,
+        'free_thresh': .2, 'terrain_id': spec.id, 'terrain_version': next_version,
+        'terrain_spec': spec.model_dump(mode='json', by_alias=True)}
+    created = [] if created is None else created
+    try:
+        ensure_space(root, len(png) + 16384, fail)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        for target, content in ((destination, png), (destination.with_suffix('.yaml'), yaml_bytes(metadata, destination.name))):
+            with target.open('xb') as out:
+                created.append(target)
+                out.write(content)
+        upload = Upload(provenance='SIMULATION', org_id=user.org_id, image_path=str(path), image_sha256=digest,
+            png_sha256=digest, size_bytes=len(png), width=width, height=height, metadata_json=metadata, created_by=user.id)
+        db.add(upload)
+        db.flush()
+        version = MapVersion(provenance='SIMULATION', org_id=user.org_id, floor_id=floor.id, number=number,
+            base_version_id=floor.approved_version_id, upload_id=upload.id, status='APPROVED', image_path=str(path),
+            image_sha256=digest, width=width, height=height, resolution=.05, origin_x=origin[0], origin_y=origin[1],
+            origin_yaw=0, features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []},
+            source='IMPORT', reason='지형 저장으로 위에서 본 지도 자동 생성', created_by=user.id)
+        db.add(version)
+        db.flush()
+        floor.approved_version_id = version.id
+        refresh_connectors(db, floor)
+        return version
+    except BaseException as exc:
+        for target in created:
+            target.unlink(missing_ok=True)
+        if isinstance(exc, OSError):
+            fail(503, 'FILE_STORAGE_ERROR', '지형 지도를 저장할 수 없습니다.')
+        raise
 
 
 def install(app, DB, Identity, fail, authorize, event, settings):
@@ -122,72 +170,67 @@ def install(app, DB, Identity, fail, authorize, event, settings):
         if any(item.archived_at is not None for item in (site, building, floor)):
             fail(409, 'RESOURCE_ARCHIVED', '지도 휴지통의 장소·건물·층을 먼저 되돌려 주세요.')
         building.name = body.spec.name
-        width, height, origin, pixels = terrain_grid(body.spec)
-        png = gray_png(width, height, pixels)
-        digest = sha256(png)
-        number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
-        # Random suffix also avoids overwriting an orphan from an interrupted save.
-        path = Path('maps') / str(floor.id) / f'{number}-{uuid4()}.png'
-        destination = root / path
-        next_version = row.version + 1 if row else 1
-        metadata = {'resolution': .05, 'origin': origin, 'negate': 0, 'occupied_thresh': .65,
-            'free_thresh': .2, 'terrain_id': terrain_id, 'terrain_version': next_version,
-            'terrain_spec': body.spec.model_dump(mode='json', by_alias=True)}
         created = []
         try:
-            ensure_space(root, len(png) + 16384, fail)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            for target, content in ((destination, png), (destination.with_suffix('.yaml'), yaml_bytes(metadata, destination.name))):
-                with target.open('xb') as out:
-                    created.append(target)
-                    out.write(content)
-            upload = Upload(provenance='SIMULATION', org_id=user.org_id, image_path=str(path), image_sha256=digest,
-                png_sha256=digest, size_bytes=len(png), width=width, height=height, metadata_json=metadata, created_by=user.id)
-            db.add(upload)
-            db.flush()
-            version = MapVersion(provenance='SIMULATION', org_id=user.org_id, floor_id=floor.id, number=number,
-                base_version_id=floor.approved_version_id, upload_id=upload.id, status='APPROVED', image_path=str(path),
-                image_sha256=digest, width=width, height=height, resolution=.05, origin_x=origin[0], origin_y=origin[1],
-                origin_yaw=0, features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []},
-                source='IMPORT', reason='지형 저장으로 위에서 본 지도 자동 생성', created_by=user.id)
-            db.add(version)
-            db.flush()
-            floor.approved_version_id = version.id
+            version = publish_terrain_map(db, user, body.spec, floor,
+                row.version + 1 if row else 1, root, fail, created)
             if row is None:
                 row = Terrain(id=terrain_id, org_id=user.org_id)
                 db.add(row)
-            row.spec = metadata['terrain_spec']
-            row.version = next_version
+                row.version = 0
+            row.spec = body.spec.model_dump(mode='json', by_alias=True)
+            row.version += 1
             row.updated_at = now()
             db.flush()
-            refresh_connectors(db, floor)
             event(db, user.org_id, 'MAP_VERSION_APPROVED', user.id,
-                {'floor_id': str(floor.id), 'map_version_id': str(version.id), 'terrain_id': terrain_id, 'number': number}, category='APPROVAL')
+                {'floor_id': str(floor.id), 'map_version_id': str(version.id), 'terrain_id': terrain_id, 'number': version.number}, category='APPROVAL')
             result = output(db, row)
             db.commit()
             return result
-        except BaseException as exc:
+        except BaseException:
             for target in created:
                 target.unlink(missing_ok=True)
-            if isinstance(exc, OSError):
-                fail(503, 'FILE_STORAGE_ERROR', '지형 지도를 저장할 수 없습니다.')
             raise
 
     @app.delete('/api/v1/terrains/{terrain_id}', status_code=204)
     def archive(terrain_id: str, auth: Identity, db: DB):
         authorize(auth[0], 'A')
+        db.scalar(select(Organization).where(Organization.id == auth[0].org_id).with_for_update())
         row = own(db, auth[0], terrain_id, lock=True)
         if row.archived_at is not None:
             return
+        floor = db.scalar(select(Floor).where(Floor.org_id == row.org_id,
+            Floor.terrain_id == row.id).with_for_update())
+        if floor is not None:
+            require_unused(db, row.org_id, fail, floor=floor)
         row.archived_at = now()
+        if floor is not None:
+            floor.archived_at = row.archived_at
+            event(db, row.org_id, 'FLOOR_DELETED', auth[0].id, {'id': str(floor.id), 'name': floor.name})
+            db.flush()
+            refresh_connectors(db, floor)
         event(db, auth[0].org_id, 'TERRAIN_ARCHIVED', auth[0].id, {'terrain_id': terrain_id, 'name': row.spec['name']})
 
     @app.post('/api/v1/terrains/{terrain_id}/restore', response_model=C.Terrain)
     def restore(terrain_id: str, auth: Identity, db: DB):
         authorize(auth[0], 'A')
+        db.scalar(select(Organization).where(Organization.id == auth[0].org_id).with_for_update())
         row = own(db, auth[0], terrain_id, lock=True)
         if row.archived_at is None:
             return output(db, row)
+        floor = db.scalar(select(Floor).where(Floor.org_id == row.org_id,
+            Floor.terrain_id == row.id).with_for_update())
+        if floor is None:
+            fail(409, 'TERRAIN_PAIR_MISSING', '연결된 층이 없어 지형을 되돌릴 수 없습니다.')
+        building = db.get(Building, floor.building_id)
+        site = db.get(Site, building.site_id)
+        if building.archived_at is not None or site.archived_at is not None:
+            fail(409, 'PARENT_ARCHIVED', '상위 장소·건물을 먼저 되살리세요.')
+        require_unused(db, row.org_id, fail, floor=floor)
+        floor.archived_at = None
         row.archived_at = None
+        event(db, row.org_id, 'FLOOR_RESTORED', auth[0].id, {'id': str(floor.id), 'name': floor.name})
+        db.flush()
+        refresh_connectors(db, floor)
         event(db, auth[0].org_id, 'TERRAIN_RESTORED', auth[0].id, {'terrain_id': terrain_id, 'name': row.spec['name']})
         return output(db, row)
