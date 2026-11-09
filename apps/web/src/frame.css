@@ -150,6 +150,8 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh-fleet>.fl-list{grid-area:list}.fh-fleet>.fl-detail{grid-area:detail}.fh-fleet>.fl-map{grid-area:map}.fh-fleet>.fl-alerts{grid-area:alerts}
 .fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr) minmax(340px,400px);grid-template-areas:"map detail" "alerts detail" "list detail"}
 .fh-fleet.open>.fl-detail{position:sticky;top:0;max-height:calc(100vh - 120px);overflow-y:auto}
+/* 상세 + «실기 보기» 한 칸(TAB-SPLIT 11-10) — 격자 자리는 바깥 .fl-side 가 갖는다 */
+.fl-side{display:flex;flex-direction:column;gap:16px;min-width:0}
 .fh-list.robots button.fl-row,.fl-head{display:grid;grid-template-columns:minmax(150px,1.4fr) minmax(80px,1fr) minmax(90px,1fr) 56px minmax(110px,1.4fr) minmax(130px,1fr);gap:10px;align-items:center}
 .fh-list.robots .fl-row>span{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;white-space:normal}
 .fl-head{padding:0 11px;font-size:12px;color:var(--muted)}

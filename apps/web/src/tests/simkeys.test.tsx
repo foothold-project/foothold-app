@@ -54,7 +54,6 @@ const sleep = (ms: number) => act(() => new Promise<void>((r) => setTimeout(r, m
 async function mount(hash = '#/sim') {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;   // PC 틀
   location.hash = hash;
-  localStorage.setItem('fh.simEngine', 'gazebo');   // 띄우기(서버 계산) 흐름 — 기본은 MuJoCo(10-29)
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />); });
   await flush();
@@ -73,13 +72,15 @@ const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush
 const key = async (type: 'keydown' | 'keyup', code: string, o: KeyboardEventInit & { target?: EventTarget } = {}) => {
   act(() => { (o.target ?? window).dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...o })); }); await flush();
 };
+/** 서버 시뮬 띄우기 = sim.start(첫 월드) — PC 탭의 옛 «띄우기» 단추는 TAB-SPLIT(11-10)로 없음, 이미 띄운 시뮬 보기·조종 화면은 그대로 */
+const launch = async () => { act(() => { void sim.start(sim.get().catalog!.worlds[0].id, 'u-lee'); }); await flush(); };
 /** 마지막 cmd(50 ms 박자) — 다음 박자까지 기다린 뒤 */
 const lastCmd = async () => { await sleep(60); const c = agent().of('cmd'); return c[c.length - 1]; };
 
 /** 띄우기 → 직결 → 조종 시작 → 잠금 해제 → 움직일 수 있음 */
 async function ready(w = welcome(), more: typeof routes = {}) {
   serve(more); await mount();
-  await click(btn('띄우기'));
+  await launch();
   const a = FakeWS.all.find((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')!; a.auto = agentAuto;
   act(() => a.open()); await flush();
   await recv(a, w);
@@ -146,14 +147,14 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
   });
   it('출입증 요청에 surface: "pc"', async () => {
     serve(); await mount();
-    await click(btn('띄우기'));
+    await launch();
     expect(calls.find((c) => c.path === `/robots/${S1}/phone-pass`)!.body).toEqual({ device: expect.any(String), purpose: 'control', surface: 'pc' });
   });
 
   it('403 WEB_SIM_ONLY → 서버 문구만, «다시 연결» 없음, 출입증 재요청 0', async () => {
     serve({ [`POST /robots/${S1}/phone-pass`]: { status: 403, body: { error: { code: 'WEB_SIM_ONLY', message: '웹 시뮬은 시뮬 로봇에만 연결합니다.', detail: {} } } } });
     await mount();
-    await click(btn('띄우기'));
+    await launch();
     await sleep(100);
     expect(box.textContent).toContain('웹 시뮬은 시뮬 로봇에만 연결합니다.');
     expect(btn('다시 연결')).toBeUndefined();
@@ -252,7 +253,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
 
   it('«시뮬 정지»는 연결 중에도 하나', async () => {
     serve(); await mount();
-    await click(btn('띄우기'));
+    await launch();
     expect(sim.get().step).toBe('linking');
     expect(box.querySelectorAll('[data-sim-stop-btn]')).toHaveLength(1);
   });
@@ -309,7 +310,7 @@ describe('PC 시나리오 고르기 모양', () => {
     const MAPPED: SimCatalog = { ...CATALOG, worlds: [{ ...CATALOG.worlds[0], map_id: 'b-1', floors: [{ floor_id: 'f-1', name: '1층', floor_z: 0, map_version_id: 'v-1' }] }] };
     serve({ 'GET /simulation/worlds': { status: 200, body: MAPPED }, 'GET /scenarios': { status: 200, body: { items: [{ id: 's-a', name: '1층 순찰', floor_ids: ['f-1'], archived_at: null }], next_cursor: null } } });
     await mount();
-    await click(btn('띄우기'));
+    await launch();
     const a = FakeWS.all.find((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')!; a.auto = agentAuto;
     act(() => a.open()); await flush();
     await recv(a, welcome()); await recv(a, phoneState()); await flush();

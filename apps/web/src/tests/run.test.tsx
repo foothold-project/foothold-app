@@ -70,12 +70,11 @@ async function launch(frame: 'phone' | 'pc', uid = frame === 'phone' ? 'u-lee' :
   serve(uid);
   window.matchMedia = ((q: string) => ({ matches: frame === 'phone', media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = frame === 'phone' ? '#/drive' : '#/sim';
-  localStorage.setItem('fh.simEngine', 'gazebo');   // PC 띄우기(서버 계산) 흐름 — 기본은 MuJoCo(10-29)
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === uid)} robots={ROBOTS} refresh={() => {}} />); });
   await flush();
   // 폰은 MuJoCo 만(10-29) — Gazebo 로봇은 PC 에서 띄운 것과 같은 sim.start 로
-  if (frame === 'phone') { act(() => { void sim.start(sim.get().catalog!.worlds[0].id, uid); }); await flush(); } else await click(btn('띄우기'));
+  act(() => { void sim.start(sim.get().catalog!.worlds[0].id, uid); }); await flush();   // PC 옛 «띄우기» 단추는 TAB-SPLIT(11-10)로 없음 — 같은 sim.start
   const a = agents()[agents().length - 1]; a.auto = auto;
   act(() => a.open()); await flush();
   await recv(a, welcome(cap));

@@ -1826,7 +1826,8 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(driveBlock(USERS[2], ROBOTS[1])).toBeNull();   // 박OO 의 Go2-7
   });
 
-  it('PC 로봇 탭: 실기를 고르면 STOP 단추·Space 없음, 대시보드 값은 그대로. 시뮬을 고르면 STOP = 그 시뮬', () => {
+  // TAB-SPLIT(11-10): 로봇 탭 = 실기만 — 시뮬 행이 없어 총괄은 이 탭에서 STOP 없음, 시뮬 STOP 은 다른 탭 고르기(아래)·시뮬 탭
+  it('PC 로봇 탭: 실기를 고르면 STOP 단추·Space 없음, 대시보드 값은 그대로. 시뮬 행은 없음', () => {
     mount(false, ADMIN, '#/fleet', MIX);
     serve(KIM, 'r7', 's1');
     expect(row('Go2-7').getAttribute('aria-pressed')).toBe('true');
@@ -1838,11 +1839,7 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(btn('조종 시작')).toBeUndefined();
     space();
     expect(w.of('stop')).toHaveLength(0);
-    click(row('시뮬 로봇 1'));
-    click($('[data-stop]'));
-    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1']);
-    space();
-    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 's1']);
+    expect(row('시뮬 로봇 1')).toBeUndefined();
     expect(w.of('lease.take')).toHaveLength(0);
   });
 

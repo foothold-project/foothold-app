@@ -469,17 +469,15 @@ describe('시뮬 로봇 직결 흐름', () => {
     expect(box.textContent).toContain('명령 범위 조정');
   });
 
-  it('월드 이름·설명을 표시하고(월드 내부 id 는 숨김, U5) 선택한 id로 띄운다', async () => {
+  // TAB-SPLIT(11-10): PC 시뮬 탭에 월드 목록·«띄우기» 없음(장소 카드 → «시뮬 열기» 한 길) — 고른 id 로 띄우는 sim.start 만 남는다
+  it('PC 에 월드 목록·띄우기 없음, sim.start 는 고른 월드 id 로 띄운다', async () => {
     serve({ 'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [
       ...CATALOG.worlds, { id: 'corridor', name: '복도 연습장', description: '' },
     ] } } });
     await mount(true);
-    const list = $('[aria-label="월드 목록"]')!;
-    expect(list.querySelector('b')!.textContent).toBe('빈 연습장');
-    expect([...list.querySelectorAll('small')].map((el) => el.textContent)).toEqual(['장애물이 없는 연습 공간']);
-    expect(list.textContent).not.toMatch(/empty|corridor/);
-    await click(list.querySelector('input[value="corridor"]'));
-    await click(btn('띄우기'));
+    expect($('[aria-label="월드 목록"]')).toBeNull();
+    expect(btn('띄우기')).toBeUndefined();
+    act(() => { void sim.start('corridor', 'u-lee'); }); await flush();
     expect(calls.find((c) => c.method === 'POST' && c.path === '/simulation/robots')!.body).toEqual({ world_id: 'corridor', robot_id: S1 });
   });
 
@@ -1336,16 +1334,11 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
     expect($('[data-sim-dot]')).toBeNull();
   });
 
-  it('두 층 월드는 «시작 층»을 고르고 spawn_floor_id 를 보낸다, 한 층 월드는 표시·전송 0', async () => {
+  it('두 층 월드 sim.start(시작 층) → spawn_floor_id 를 보낸다(PC 시작 층 고르기 칸은 TAB-SPLIT 로 없음)', async () => {
     serve({ 'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [...CATALOG.worlds, V5] } } });
     await mount(true);
-    expect($('[data-sim-spawn]')).toBeNull();   // 기본(빈 연습장) = 시작 층 없음
-    await click($('[aria-label="월드 목록"] input[value="v5_building"]'));
-    const spawn = $('[data-sim-spawn]')!;
-    expect(spawn.textContent).toBe('시작 층1층2층');
-    expect(spawn.querySelector<HTMLInputElement>('input[value="l1"]')!.checked).toBe(true);
-    await click(spawn.querySelector('input[value="l2"]'));
-    await click(btn('띄우기'));
+    expect($('[data-sim-spawn]')).toBeNull();
+    act(() => { void sim.start('v5_building', 'u-lee', 'l2'); }); await flush();
     expect(calls.find((c) => c.method === 'POST' && c.path === '/simulation/robots')!.body).toEqual({ world_id: 'v5_building', robot_id: S1, spawn_floor_id: 'l2' });
   });
 

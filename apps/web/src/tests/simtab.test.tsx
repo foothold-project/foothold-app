@@ -48,7 +48,9 @@ let root: Root | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
 const refresh = vi.fn();
 /** engine = 기억된 계산 방식(null = 기억 없음). 기존 시험은 Gazebo(서버 계산) 띄우기 흐름 */
+let me = 'u-lee';
 async function mount(uid = 'u-lee', robots = ROBOTS, hash = '#/sim', engine: string | null = 'gazebo') {
+  me = uid;
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;   // PC 틀
   location.hash = hash;
   if (engine === null) localStorage.removeItem('fh.simEngine'); else localStorage.setItem('fh.simEngine', engine);
@@ -65,102 +67,15 @@ const agent = () => FakeWS.all.find((w) => w.url === 'ws://127.0.0.1:9481/phone/
 const cam = () => FakeWS.all.find((w) => w.url.endsWith('/phone/camera/ws'))!;
 const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush(); };
 
-describe('PC «시뮬» 고르기(10-29 — MuJoCo / Gazebo)', () => {
-  const engines = () => [...box.querySelectorAll<HTMLInputElement>('input[name="sim-engine"]')].map((i) => [i.value, i.checked, i.disabled]);
-  const remount = async (engine: string | null) => { act(() => root?.unmount()); root = null; box.remove(); sim.clear(); await mount('u-lee', ROBOTS, '#/sim', engine); };
+/** 서버 시뮬 띄우기 = sim.start(마운트한 사용자) — PC 탭의 옛 «띄우기»·월드·시작 층 칸은 TAB-SPLIT(11-10)로 없음. 이미 띄운 시뮬 보기·조종 화면·끝내기는 그대로 */
+const launch = async (from?: 'l1' | 'l2') => { act(() => { void sim.start('empty', me, from); }); await flush(); };
 
-  it('두 칸 이름·설명, 기억 없으면 MuJoCo, 띄우기·월드 목록·내장 지도 카드 없음', async () => {
-    serve(); await mount('u-lee', ROBOTS, '#/sim', null);
-    expect([...$('[data-sim-engine]')!.querySelectorAll('label')].map((l) => l.textContent)).toEqual(['MuJoCo이 기기에서 계산', 'Gazebo서버에서 계산']);
-    expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, false]]);
-    expect(btn('띄우기')).toBeUndefined();
-    expect($('[aria-label="월드 목록"]')).toBeNull();
-    expect($('[data-sim-card]')).toBeNull();   // BUILTIN-DROP(11-09): PC 는 서버 SIM 장소에서만 «시뮬 열기»
-    expect(box.textContent).not.toMatch(/브라우저 시뮬|three\.js|폰 안에서/i);
-  });
-
-  it('Gazebo 고르면 월드·띄우기(정리할 자리가 있으면 막힘), 고른 값 기억 — 깨진 값·읽기/저장 실패면 MuJoCo', async () => {
-    serve({ 'GET /simulation/robots': () => ({ status: 200, body: { items: [], cleanup: [{ robot_id: S1, owner_id: 'u-lee', generation: 1, can_recover: true }] } }) });
-    await mount('u-lee', ROBOTS, '#/sim', null);
-    await click(box.querySelector('input[value="gazebo"]'));
-    expect(localStorage.getItem('fh.simEngine')).toBe('gazebo');
-    expect($('[aria-label="월드 목록"]')).toBeTruthy();
-    expect($('[data-sim-app]')).toBeNull();
-    expect(btn('띄우기')!.disabled).toBe(true);   // 정리할 내 시뮬 자리 먼저
-    await remount('gazebo');
-    expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
-    await remount('nope');
-    expect(engines()[0]).toEqual(['mujoco', true, false]);
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('막힘'); });
-    await remount(null);
-    expect(engines()[0]).toEqual(['mujoco', true, false]);
-    await click(box.querySelector('input[value="gazebo"]'));
-    expect(engines()[0]).toEqual(['mujoco', true, false]);   // 저장 실패 = MuJoCo 로 돌아감
-    expect(btn('띄우기')).toBeUndefined();
-    expect($('[data-sim-mujoco]')).toBeTruthy();
-  });
-
-  it('저장만 실패(읽기는 됨) — Gazebo 눌러도 MuJoCo 그대로', async () => {
-    serve(); await mount('u-lee', ROBOTS, '#/sim', null);
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('막힘'); });
-    await click(box.querySelector('input[value="gazebo"]'));
-    expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, false]]);
-    expect(btn('띄우기')).toBeUndefined();
-  });
-
-  it('정상 목록 뒤 /simulation/worlds 503 → 옛 목록이 남아도 Gazebo «준비 중»·MuJoCo, 내 정리 칸은 그대로', async () => {
-    serve({ 'GET /simulation/robots': () => ({ status: 200, body: { items: [], cleanup: [{ robot_id: S1, owner_id: 'u-lee', generation: 1, can_recover: true }] } }) });
-    await mount();
-    expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
-    routes['GET /simulation/worlds'] = err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.');
-    await act(async () => { await sim.load(); }); await flush();
-    expect(sim.get().catalog?.worlds.length).toBe(1);   // 옛 목록은 남음
-    expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, true]]);
-    expect($('[data-sim-engine]')!.textContent).toContain('서버에서 계산 · 준비 중');
-    expect(btn('띄우기')).toBeUndefined();
-    expect($('[aria-label="정리할 내 시뮬 자리"]')).toBeTruthy();
-    expect(localStorage.getItem('fh.simEngine')).toBe('gazebo');
-    routes['GET /simulation/worlds'] = { status: 200, body: CATALOG };   // 다시 받으면 Gazebo 로 돌아옴
-    await act(async () => { await sim.load(); }); await flush();
-    expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
-  });
-
-  for (const [how, fail] of [['SIM_DISABLED', err(503, 'SIM_DISABLED', '설정 없음')],
-    ['manager_unreachable', { status: 503, body: { error: { code: 'SIM_UNAVAILABLE', message: '관리자 꺼짐', detail: { reason: 'manager_unreachable' } } } }]] as const)
-    it(`정상 목록 뒤 worlds 실패가 다른 문구(simulationMessage: ${how})여도 Gazebo «준비 중»·MuJoCo`, async () => {
-      serve(); await mount();
-      expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
-      routes['GET /simulation/worlds'] = fail;
-      await act(async () => { await sim.load(); }); await flush();
-      expect($('[data-sim-msg]')!.textContent).not.toMatch(/^시뮬 월드 목록을 받지 못했습니다/);   // 앞부분 문구로는 못 가리는 경로
-      expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, true]]);
-      expect(btn('띄우기')).toBeUndefined();
-    });
-
-  it('월드는 받아도 관리자 오류(manager_error)면 Gazebo «준비 중»', async () => {
-    serve({ 'GET /simulation/robots': { status: 200, body: { items: [], manager_error: 'SIM_UNAVAILABLE' } } }); await mount();
-    expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, true]]);
-    expect(btn('띄우기')).toBeUndefined();
-  });
-
-  for (const [how, worlds] of [['목록 못 받음', err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.')], ['빈 목록', { status: 200, body: { ...CATALOG, worlds: [] } }]] as const)
-    it(`서버 월드 ${how} → Gazebo «준비 중»·누를 수 없음, 기억이 Gazebo 여도 지금은 MuJoCo(기억은 그대로)`, async () => {
-      serve({ 'GET /simulation/worlds': worlds }); await mount();
-      expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, true]]);
-      expect($('[data-sim-engine]')!.textContent).toContain('서버에서 계산 · 준비 중');
-      expect(btn('띄우기')).toBeUndefined();
-      expect($('[data-sim-mujoco]')).toBeTruthy();
-      expect(localStorage.getItem('fh.simEngine')).toBe('gazebo');
-    });
-});
-
-// SIM-TAB-CHOOSER(11-09): 첫 화면 = 지도 고르기(서버 SIM 장소 + «+ 지형 만들기»), 서버 시뮬·실기 보기는 아래 접힌 묶음.
+// SIM-TAB-CHOOSER(11-09): 첫 화면 = 지도 고르기(서버 SIM 장소 + «+ 지형 만들기»). TAB-SPLIT(11-10): 접힌 «서버 시뮬·실기 보기» 묶음 없음 — 시뮬은 장소 카드 한 길.
 // BUILTIN-DROP(11-09 «그냥 삭제해줘»): PC 에는 «내장 시뮬 지도» 묶음이 없다 — 폰 앱 안 SimPick 은 그대로(simstart.test)
 describe('PC «시뮬» 탭 첫 화면', () => {
   const SITES = { items: [{ id: 's9', name: '시뮬 월드', purpose: 'SIM', buildings: [{ id: 'b9', site_id: 's9', name: '창고', sim_world_id: 'warehouse',
     floors: [{ id: 'f9', building_id: 'b9', name: '1층', level: 1, approved_version_id: null, pending_count: 0 }] }] }], next_cursor: null };
-  it('지도 고르기 + «+ 지형 만들기», 서버 SIM 장소 카드만(내장 시뮬 지도 없음), 서버 시뮬 묶음은 접힘', async () => {
+  it('지도 고르기 + «+ 지형 만들기», 서버 SIM 장소 카드만(내장 시뮬 지도 없음), 서버 시뮬 띄우기·Go2 실기 보기 없음', async () => {
     serve({ 'GET /sites': { status: 200, body: SITES } }); await mount('u-lee', ROBOTS, '#/sim', null);
     const chooser = $('[aria-label="지도 고르기"]')!;
     expect(chooser.querySelector('h2')!.textContent).toBe('어느 지도로 시뮬할까요?');
@@ -170,11 +85,13 @@ describe('PC «시뮬» 탭 첫 화면', () => {
     expect(chooser.querySelector('[data-sim-card]')).toBeNull();
     expect(chooser.textContent).not.toContain('내장 시뮬 지도');
     expect($('[data-sim-places] [data-sim-start]')).toBeNull();   // 첫 화면에 SimPick 그림·시작 위치 없음
-    const more = $('details[data-sim-more]') as HTMLDetailsElement;
-    expect(more.open).toBe(false);
-    expect(more.querySelector('[data-sim-engine]')).toBeTruthy();
-    expect(more.querySelector('[data-sim-mujoco]')).toBeTruthy();
-    expect(more.querySelector('[data-sim-card]')).toBeNull();
+    expect($('details[data-sim-more]')).toBeNull();
+    expect($('[data-sim-engine]')).toBeNull();
+    expect($('[aria-label="시뮬 로봇 띄우기"]')).toBeNull();
+    expect(btn('띄우기')).toBeUndefined();
+    expect($('[data-go2-replay]')).toBeNull();
+    expect(box.textContent).not.toContain('Go2 실기 보기');
+    expect($('[data-sim-mine]')).toBeNull();   // 띄운 내 시뮬이 없으면 위 줄도 없음
   });
   it('서버 SIM 장소가 없으면 «+ 지형 만들기» 안내만, 내장 지도 카드 없음', async () => {
     serve({ 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }); await mount('u-lee', ROBOTS, '#/sim', null);
@@ -195,10 +112,9 @@ describe('PC «시뮬» 탭', () => {
     }
   });
 
-  it('통과 기준: 시작 층 골라 띄우기 → «시뮬»·상태·좌표·영상 → 끝내기 → 목록에서 빠짐, 조종권 자동 취득 0', async () => {
+  it('통과 기준: 시작 층으로 띄우기(sim.start) → «시뮬»·상태·좌표·영상 → 끝내기 → 목록에서 빠짐, 조종권 자동 취득 0', async () => {
     serve(); await mount();
-    await click([...box.querySelectorAll<HTMLInputElement>('input[name="sim-spawn"]')].find((i) => i.value === 'l2'));
-    await click(btn('띄우기'));
+    await launch('l2');
     expect(calls.find((c) => c.method === 'POST' && c.path === '/simulation/robots')!.body).toEqual({ world_id: 'empty', robot_id: S1, spawn_floor_id: 'l2' });
     const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
     act(() => a.open()); await flush();
@@ -231,14 +147,14 @@ describe('PC «시뮬» 탭', () => {
     expect(calls.some((c) => c.method === 'DELETE' && c.path === `/simulation/robots/${S1}`)).toBe(true);
     expect($('[data-sim-view]')).toBeNull();
     expect($('[data-sim-msg]')!.textContent).toBe('시뮬 로봇을 정리했습니다.');
-    expect(box.querySelector('[aria-label="내 시뮬 로봇"]')).toBeNull();
-    expect(btn('띄우기')!.disabled).toBe(false);
+    expect($('[data-sim-mine-robot]')).toBeNull();
+    expect(btn('띄우기')).toBeUndefined();
     expect(refresh).toHaveBeenCalled();
   });
 
   it('보기 4칸(10-26): RGB·외부·지도·L1 점군 — media/1 로 받고, 못 받는 칸은 이유만, 전체화면 안에도 «시뮬 정지»', async () => {
     serve(); await mount();
-    await click(btn('띄우기'));
+    await launch();
     const a = agent(); act(() => a.open()); await flush();
     const tok = (c: string) => c.repeat(43);
     await recv(a, { ...welcome, media: { version: 'media/1', path: '/phone/media/ws', robot: S1, epoch: 2, episode_id: S2,
@@ -283,28 +199,41 @@ describe('PC «시뮬» 탭', () => {
 
   it('보기 닫기 = 연결만 닫고 시뮬은 켠 채 → «보기 화면 띄우기»로 다시', async () => {
     serve(); await mount();
-    await click(btn('띄우기'));
+    await launch();
     act(() => agent().open()); await flush();
     await recv(agent(), welcome);
     await click(btn('보기 닫기'));
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     expect(agent().readyState).toBe(3);
-    expect(btn('보기 화면 띄우기')).toBeTruthy();
+    expect($('[data-sim-mine]')!.textContent).toContain('내 시뮬 로봇 1');
+    await click(btn('보기'));   // 위 줄 «보기» = 같은 sim.attach — 새 연결, 조종권은 처음부터
+    expect(FakeWS.all.filter((w) => w.url === 'ws://127.0.0.1:9481/phone/ws')).toHaveLength(2);
   });
 
-  it('한 사람 한 대: 내 시뮬이 있으면 띄우기 막고 안내, «보기»·«끝내기»', async () => {
+  it('이미 띄운 내 시뮬 → 위 작은 줄 «내 시뮬 로봇 N · 보기/끝내기», 끝내기 = DELETE → 줄 빠지고 «정리했습니다»', async () => {
     serve(); mine = [{ ...simRobot(), state: 'STARTING' }]; await mount();
-    expect(btn('띄우기')!.disabled).toBe(true);
-    expect($('#sim-one')!.textContent).toContain('한 사람에 한 대');
-    expect(box.querySelector('[aria-label="내 시뮬 로봇"]')!.textContent).toContain('띄우는 중');
+    const row = $('[data-sim-mine]')!;
+    expect(row.textContent).toContain('내 시뮬 로봇 1');
+    expect(row.textContent).toContain('띄우는 중');
+    expect(row.compareDocumentPosition($('[aria-label="지도 고르기"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // 지도 고르기 위
     expect(btn('보기')).toBeTruthy();
-    expect(btn('끝내기')).toBeTruthy();
+    expect(btn('띄우기')).toBeUndefined();
+    await click(btn('끝내기'));
+    expect(calls.filter((c) => c.method === 'DELETE' && c.path === `/simulation/robots/${S1}`)).toHaveLength(1);
+    expect($('[data-sim-mine-robot]')).toBeNull();
+    expect($('[data-sim-msg]')!.textContent).toBe('시뮬 로봇을 정리했습니다.');
+  });
+  it('정리할 내 시뮬 자리(cleanup) → 위 줄에 «정리», 누르면 DELETE', async () => {
+    serve({ 'GET /simulation/robots': () => ({ status: 200, body: { items: [], cleanup: [{ robot_id: S2, owner_id: 'u-lee', can_recover: true }] } }) }); await mount();
+    expect($('[data-sim-mine]')!.textContent).toContain('이전 시뮬이 정리되지 않았습니다.');
+    await click(btn('정리'));
+    expect(calls.some((c) => c.method === 'DELETE' && c.path === `/simulation/robots/${S2}`)).toBe(true);
   });
 
   it('SIM_SLOT_BUSY → 남의 것이면 «사용 중» 안내, 정리·연결 0', async () => {
     serve({ 'POST /simulation/robots': err(409, 'SIM_SLOT_BUSY', '사용 중인 슬롯입니다.') }); await mount();
-    await click(btn('띄우기'));
-    expect($('[data-sim-msg]')!.textContent).toContain('사용 중인 슬롯입니다.');
+    await launch();
+    expect(sim.get().err).toContain('사용 중인 슬롯입니다.');
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     expect(FakeWS.all.some((w) => w.url.includes(':948'))).toBe(false);
   });
@@ -326,11 +255,31 @@ describe('PC «시뮬» 탭', () => {
   });
 
   // PR #99(ADR-003 §7 ③ «끝내기 → 로봇 빠짐»): 끝낸 시뮬 슬롯은 담당을 비운 채 /robots 에 남는다 — 로봇 목록에서 뺀다. 내 시뮬·담당 없는 실기는 그대로
-  it('총괄 로봇 탭: IDLE 시뮬 슬롯(담당 없음)은 목록에 없음, 내 시뮬·담당 없는 실기는 보임', async () => {
+  // TAB-SPLIT(11-10): 로봇 탭 = 실기만 — 내 시뮬도 로봇 탭에는 없고 머리줄 STOP 후보(다른 탭 고르기)에는 그대로
+  it('총괄 로봇 탭: 시뮬(IDLE 슬롯·내 시뮬)은 목록에 없음, 담당 없는 실기는 보임 — 내 시뮬은 STOP 고르기에 그대로', async () => {
     serve();
     await mount('u-kim', [ROBOTS[1], { ...ROBOTS[1], id: 'r9', name: 'Go2-9', owner: '', ownerName: undefined },
       { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: '', sim: true }, { ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-kim', sim: true }], '#/fleet');
-    expect([...box.querySelectorAll('.fh-list.robots b')].map((b) => b.textContent)).toEqual(['Go2-7', 'Go2-9', '시뮬-1']);
+    expect([...box.querySelectorAll('.fh-list.robots b')].map((b) => b.textContent)).toEqual(['Go2-7', 'Go2-9']);
+    expect(box.textContent).not.toContain('시뮬-1');
+    act(() => { location.hash = '#/sim'; }); await flush();
+    await click($('[data-stop]'));
+    expect([...box.querySelectorAll<HTMLOptionElement>('select[aria-label="정지할 로봇"] option')].map((o) => o.textContent)).toEqual(['로봇 고르기', '시뮬-1']);
+  });
+  it('운영자 로봇 탭: 시뮬만 담당이면 «실기 로봇이 없습니다» 안내 + 시뮬 탭 길, 시뮬을 골라 둔 채 들어오면 첫 실기로(화면 = STOP 대상)', async () => {
+    serve();
+    await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }], '#/fleet');
+    expect($('[data-no-real]')!.textContent).toContain('실기 로봇이 없습니다');
+    expect($('[data-no-real] a[href="#/sim"]')).toBeTruthy();
+    expect($('[aria-label="로봇 상태"]')).toBeNull();
+    act(() => root?.unmount()); root = null; box.remove(); sim.clear();
+    serve();
+    await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }, ...ROBOTS], '#/fleet');
+    expect([...box.querySelectorAll('[aria-label="내 로봇 고르기"] b')].map((b) => b.textContent)).not.toContain('시뮬-1');
+    expect($('[aria-label="내 로봇 고르기"] [aria-label="시뮬"]')).toBeNull();
+    const shown = $('[aria-label="로봇 상태"] h2')!.textContent!;
+    expect(shown).not.toBe('시뮬-1');
+    expect($('[aria-label="내 로봇 고르기"] button[aria-pressed="true"]')!.textContent).toContain(shown);
   });
 
   // PR #96 P1: 총괄·시뮬 0대 → 띄우는 중(POST 답 전)에도 그 시뮬이 STOP 대상 — 누름·Space 모두 답이 오면 DELETE 1회, 연결 0
@@ -339,7 +288,7 @@ describe('PC «시뮬» 탭', () => {
     serve({ 'POST /simulation/robots': () => new Promise<Reply>((f) => { answer = () => { mine = [simRobot(S1, 'u-kim')]; f({ status: 201, body: mine[0] }); }; }) });
     await mount('u-kim');
     expect($('[data-stop]')).toBeNull();
-    await click(btn('띄우기'));
+    await launch();
     expect(sim.get().step).toBe('starting');
     expect($('[data-stop]')).toBeTruthy();
     if (how === '누름') await click($('[data-stop]'));
@@ -357,7 +306,7 @@ describe('PC «시뮬» 탭', () => {
     // Root 처럼: refresh = 서버 시뮬 목록을 로봇 목록에 넣어 다시 그림
     const rerender = () => act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-kim')} robots={[...ROBOTS, ...mine.map((r) => ({ ...ROBOTS[0], id: r.robot_id, name: '시뮬', owner: 'u-kim', sim: true }))]} refresh={refresh} />));
     refresh.mockImplementation(rerender);
-    await click(btn('띄우기'));
+    await launch();
     act(() => agent().open()); await flush();
     await recv(agent(), welcome);
     expect($('[data-sim-view]')).toBeTruthy();
@@ -382,7 +331,7 @@ describe('PC «시뮬» 탭', () => {
     await click($('[data-stop]'));
     expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeTruthy();
     await click(btn('닫기'));
-    await click(btn('띄우기'));
+    await launch();
     act(() => agent().open()); await flush();
     await recv(agent(), welcome);
     act(() => { location.hash = '#/fleet'; }); await flush();

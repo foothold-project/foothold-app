@@ -577,9 +577,9 @@ describe('사건 문구 다듬기(10-22 QA R3·R4·R9·R10)', () => {
     expect(rows()[0]).toContain('김총괄님이 시뮬 로봇 2에 시나리오 순찰 1판을 배정했습니다. 이유 없음.');
     expect(rows()[1]).toContain('시뮬 로봇 1 배터리가 부족합니다.');
     expect(card('사건').textContent).not.toMatch(/628962ca|1a2b3c4d/);
+    expect([...card('기록').querySelectorAll('option')].map((x) => x.textContent).filter((t) => /시뮬/.test(t!))).toEqual(['시뮬 로봇 2', '시뮬 로봇 1', '내 연습 시뮬']);
     await click($('a[href="#/fleet"]'));
-    const names = [...card('로봇 목록').querySelectorAll('b')].map((x) => x.textContent);
-    expect(names).toEqual(['Go2-A', '시뮬 로봇 2', '시뮬 로봇 1', '내 연습 시뮬']);
+    expect([...card('로봇 목록').querySelectorAll('b')].map((x) => x.textContent)).toEqual(['Go2-A']);   // TAB-SPLIT: 로봇 탭은 실기만
   });
   it('폰에서 남의 로봇 주소 = 로봇 연결로 돌아가며 «담당 로봇이 아닙니다» 한 줄(닫기)', async () => {
     serve(signedIn(LEE));

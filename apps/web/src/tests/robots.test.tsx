@@ -149,6 +149,17 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
     expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
   });
+  // TAB-SPLIT(11-10): 로봇 탭은 실기만 — 서버 요약(시뮬까지 셈)에서 받은 목록의 시뮬 몫을 뺀다(결재 대기는 그대로)
+  it('총괄: 목록에 시뮬이 있으면 요약·운영 관리자 표에서 그 몫을 빼고, 목록·경보에도 시뮬 없음', async () => {
+    const SIM = robot('s-1', '창고 시뮬', LEE, { simulation: true, attention: ['OFFLINE'] });
+    serve(signedIn(KIM, [RA, RB, SIM], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 3, robots_attention: 2, approvals_pending: 4,
+      operators: [{ user_id: LEE.id, display_name: '이운영', robot_count: 2 }, { user_id: PARK.id, display_name: '박운영', robot_count: 1 }] } } }));
+    await open('#/fleet');
+    expect(kpi()).toEqual({ 전체: '2', 연결: '1', '임무 중': '0', '주의 필요': '1', '결재 대기': '4' });
+    expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
+    expect(card('로봇 목록').textContent).not.toContain('창고 시뮬');
+    expect(card('경보').textContent).not.toContain('창고 시뮬');
+  });
   it('운영 관리자: 요약 수치·운영 관리자 표 없이 내 로봇 한 대 집중, 남의 로봇은 «다른 로봇» 접기(ROBOT-TAB 11-02)', async () => {
     serve(signedIn(LEE, [RA, RB_HIDDEN], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 1, robots_attention: 0, operators: [] } } }));
     await open('#/fleet');
