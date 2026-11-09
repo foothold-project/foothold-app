@@ -47,9 +47,9 @@ def test_actual_phone_transform_uses_validated_sim_tuning(h, phone_transform):
 
 
 @pytest.mark.parametrize('axes,expected', [([0, 0, 0], dict(vx=0, vy=0, wz=0)),
-    ([1, 1, 1], dict(vx=1.5, vy=0, wz=.5)),
-    ([-1, -1, -1], dict(vx=0, vy=0, wz=0)),
-    ([.5, -1, 1], dict(vx=.75, vy=0, wz=-.5))])
+    ([1, 1, 1], dict(vx=1.5, vy=1, wz=4)),
+    ([-1, -1, -1], dict(vx=-1.5, vy=-1, wz=-4)),
+    ([.5, -1, 1], dict(vx=.75, vy=1, wz=-4))])
 def test_actual_phone_physical_velocity_ignores_sim_tuning(physical_h, phone_transform, axes, expected):
     welcome = physical_h.connect()[2]
     settings = dict(sim_max_vx=.2, sim_min_vx=.1, sim_max_vy=0, sim_max_wz=0,
@@ -105,12 +105,12 @@ def test_browser_caps_leave_physical_phone_hub_and_limits_unchanged(physical_h, 
     owner, _, welcome = physical_h.connect()
     limits = welcome['limits']
     assert (limits['vx_min'], limits['vx_max'], limits['vy_min'], limits['vy_max'],
-            limits['wz_min'], limits['wz_max']) == (0, 1.5, 0, 0, -.5, .5)
+            limits['wz_min'], limits['wz_max']) == (-1.5, 1.5, -1, 1, -4, 4)
     assert physical_h.take(owner)['ok']
     physical_h.unlock(owner)
     assert physical_h.cmd(owner, 0)['applied'] == [0, 0, 0]
-    for axes, expected in [([1, 1, 1], [1.5, 0, .5]), ([1, -1, -1], [1.5, 0, -.5]),
-                            ([-1, 1, 1], [0, 0, 0])]:
+    for axes, expected in [([1, 1, 1], [1.5, 1, 4]), ([1, -1, -1], [1.5, -1, -4]),
+                            ([-1, 1, 1], [-1.5, 1, 4])]:
         command = phone_transform(welcome, axes, settings)
         assert list(command.values()) == expected
         assert physical_h.cmd(owner, **command)['applied'] == expected

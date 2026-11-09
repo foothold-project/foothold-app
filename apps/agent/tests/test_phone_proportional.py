@@ -1,73 +1,78 @@
-"""Offline physical-phone steps and unchanged STOP/deadman/output boundaries."""
+"""Offline continuous Go2 phone range; unchanged stop and deadman boundaries."""
 import math
 
 import pytest
 
-from foothold_agent.go2_direct.sink import ALLOWED, DEADLINE_S, Limits, SERVER_ALLOWED, server_velocity
-from foothold_agent.phone.protocol import LIMITS
+from foothold_agent.go2_direct.sink import DEADLINE_S, Limits, SERVER_ALLOWED, server_velocity
+from foothold_agent.phone.protocol import LIMITS, phone_velocity
 from foothold_agent.safety.core import DEAD, Z, quantize_phone
 from test_go2_direct import command, make_sink, unlock
 from test_phone import physical_h
 from test_phone_policy_compat import phone_transform
 
 
-@pytest.mark.parametrize('fx,expected', [(.19, 0), (math.nextafter(.2, 0), 0),
-    (.2, .3), (.26, .3), (.27, .4), (.4, .6), (.5, .7), (.6, .9),
-    (.8, 1.2), (math.nextafter(1., 0), 1.4), (1., 1.5)])
-def test_physical_phone_axis_steps_round_down(fx, expected):
-    assert quantize_phone(fx, 0, 0)[0] == (expected, 0, 0)
+@pytest.mark.parametrize('fx', [.2, .26, .27, .4, .5, .6, .8, math.nextafter(1., 0), 1.])
+def test_physical_phone_axes_are_proportional(fx):
+    assert quantize_phone(fx, 0, 0)[0] == (fx * 1.5, 0, 0)
 
 
-@pytest.mark.parametrize('fx', [.2, math.nextafter(.5, 0), .5, .6, 1.])
-@pytest.mark.parametrize('fw,turn', [(-1, -.5), (-.5, -.5),
-    (math.nextafter(-.5, 0), 0), (0, 0), (math.nextafter(.5, 0), 0), (.5, .5), (1, .5)])
-def test_physical_phone_retains_forward_and_turn_thresholds(fx, fw, turn):
-    velocity, reason = quantize_phone(fx, 0, fw)
-    assert velocity[2] == (turn if fx >= .5 else 0)
-    assert velocity in ALLOWED and not reason
-
-
-@pytest.mark.parametrize('axes', [(-1, 0, 0), (-.2, 0, 1),
-    (1, .5, 0), (.2, -.5, 1), (0, 0, 1), (0, 0, -.5)])
-def test_reverse_lateral_and_spin_stay_zero(axes):
+@pytest.mark.parametrize('axes', [(-1, 0, 0), (-.2, 0, 1), (1, .5, 0),
+                                (.2, -.5, 1), (0, 0, 1), (0, 0, -.5)])
+def test_reverse_lateral_and_spin_are_continuous(axes):
     velocity, reason = quantize_phone(*axes)
-    assert velocity == Z and reason
+    assert velocity == tuple(v * m for v, m in zip(axes, (1.5, 1, 4)))
+    assert not reason and Limits().project(velocity) == velocity
 
 
-def test_exact_phone_alphabet_and_server_alphabet_remains_fixed():
-    expected = {Z} | {(step / 10, 0, turn)
-                      for step in range(3, 16) for turn in (0, -.5, .5)}
-    assert ALLOWED == expected == {tuple(v) for v in LIMITS['commands']}
-    assert len(ALLOWED) == 40
+def test_continuous_phone_metadata_and_unchanged_server_alphabet():
+    assert LIMITS['commands'] == [] and LIMITS['vx_mode'] == 'continuous'
     assert SERVER_ALLOWED == {Z, (1.5, 0, 0), (-1.5, 0, 0), (0, 1.5, 0),
         (0, -1.5, 0), (0, 0, .5), (0, 0, -.5), (1.5, 0, .5), (1.5, 0, -.5)}
     assert DEAD == DEADLINE_S == .3
 
 
-@pytest.mark.parametrize('vx', [step / 10 for step in range(3, 16)])
-@pytest.mark.parametrize('turn', [0, -.5, .5])
-def test_sink_accepts_every_explicit_phone_step(vx, turn):
-    assert Limits().project((vx, 0, turn)) == (vx, 0, turn)
-
-
-@pytest.mark.parametrize('velocity', [(.29, 0, 0), (.31, 0, 0), (.45, 0, .5),
-    (.99, 0, 0), (math.nextafter(.9, 0), 0, 0), (.9, 0, .1)])
-def test_sink_rejects_values_between_explicit_steps(velocity):
-    with pytest.raises(ValueError):
-        Limits().project(velocity)
+@pytest.mark.parametrize('velocity', [(.31, -.27, .99), (-1.5, 1, -4),
+    (1.5, -1, 4), (.45, 0, .8), (.99, .2, 0)])
+def test_hub_si_and_sink_preserve_continuous_values(velocity):
+    assert phone_velocity(*velocity) == (velocity, '')
+    assert Limits().project(velocity) == velocity
     with pytest.raises(ValueError):
         server_velocity(velocity)
 
 
-@pytest.mark.parametrize('fx,expected', [(.19, 0), (.2, .3), (.6, .9), (1, 1.5)])
-def test_shipped_web_transform_through_physical_hub(physical_h, phone_transform, fx, expected):
+@pytest.mark.parametrize('axis', range(3))
+@pytest.mark.parametrize('sign', [-1, 1])
+def test_outside_each_axis_is_rejected_not_clamped(axis, sign, physical_h):
+    maxima = (1.5, 1, 4)
+    velocity = [0., 0., 0.]
+    velocity[axis] = sign * math.nextafter(maxima[axis], math.inf)
+    assert phone_velocity(*velocity) == (Z, 'UNSUPPORTED_VELOCITY')
+    with pytest.raises(ValueError):
+        Limits().project(velocity)
+    owner, _ = physical_h.moving()
+    ack = physical_h.cmd(owner, *velocity)
+    assert ack['applied'] == list(Z) and ack['clipped'] and ack['reason']
+    assert physical_h.cmd(owner, .6)['applied'] == [.6, 0, 0]
+
+
+@pytest.mark.parametrize('axis', range(3))
+@pytest.mark.parametrize('bad', [float('nan'), float('inf'), -float('inf'), True])
+def test_nonfinite_and_bool_are_rejected_on_every_axis(axis, bad):
+    velocity = [0., 0., 0.]; velocity[axis] = bad
+    assert phone_velocity(*velocity) == (Z, 'INVALID_VELOCITY')
+    with pytest.raises(ValueError):
+        Limits().project(velocity)
+
+
+@pytest.mark.parametrize('fx', [.19, .2, .26, .6, 1, -1])
+def test_shipped_web_transform_through_physical_hub(physical_h, phone_transform, fx):
     h = physical_h
     peer, _, welcome = h.connect()
     assert h.take(peer)['ok']
-    h.unlock(peer)
-    h.cmd(peer, 0)
+    h.unlock(peer); h.cmd(peer, 0)
     velocity = phone_transform(welcome, [fx, 0, 0])
-    assert velocity['vx'] == fx * 1.5  # web retains continuous stick intent
+    assert velocity['vx'] == fx * 1.5
+    expected = fx * 1.5 if abs(fx) >= .2 else 0
     assert h.cmd(peer, **velocity)['applied'] == [expected, 0, 0]
     h.send(peer, 'stop')
     assert h.outputs[-1].velocity == Z and h.hub.session.core.latch
@@ -105,3 +110,34 @@ def test_low_speed_sink_stop_and_watchdog_discard_pending(end):
     assert sink.latched and sink.pending == Z
     assert normal.calls[-2:] == [('Move', Z), ('StopMove', ())]
     assert emergency.calls[-2:] == [('Move', Z), ('StopMove', ())]
+
+
+@pytest.mark.parametrize('pressed', [[.05, 0, 0], [0, .1, 0], [0, 0, .05],
+                                    [-.05, 0, 0], [0, -.1, 0], [0, 0, -.05]])
+def test_physical_held_deadzone_cannot_clear_fresh_neutral(physical_h, phone_transform, pressed):
+    h = physical_h
+    owner, _ = h.moving()
+    welcome = h.connect()[2]
+    h.clock.t = .30001; h.hub.tick()
+    assert h.outputs[-1].velocity == Z and h.hub.session.core.need_neutral
+    velocity = phone_transform(welcome, pressed)
+    assert tuple(velocity.values()) != Z
+    ack = h.cmd(owner, **velocity)
+    assert ack['applied'] == list(Z) and ack['reason'] and ack['clipped']
+    assert h.hub.session.core.need_neutral
+    assert h.cmd(owner, -1.5, 1, -4)['applied'] == list(Z)
+    h.cmd(owner, 0)
+    assert h.cmd(owner, -1.5, 1, -4)['applied'] == [-1.5, 1, -4]
+
+
+@pytest.mark.parametrize('stick', [[-.73, .43, -.37], [0, -1, 0], [0, 0, 1], [1, 1, 1]])
+def test_browser_to_physical_hub_to_sdk_preserves_all_axes(physical_h, phone_transform, stick):
+    h = physical_h
+    owner, _ = h.moving()
+    request = phone_transform(h.connect()[2], stick)
+    ack = h.cmd(owner, **request)
+    expected = [stick[0] * 1.5, stick[2], stick[1] * 4]
+    assert ack['applied'] == expected and not ack['clipped']
+    sink, normal, _, clock = make_sink(); unlock(sink, clock)
+    sink.apply(command(velocity=ack['applied']), source='phone'); sink.drain()
+    assert normal.calls[-1] == ('Move', tuple(expected))

@@ -7,10 +7,10 @@ import time
 from uuid import uuid4
 
 from foothold_agent.link.session import Session, MotionCommand, Effects, MAX_BUFFER
-from foothold_agent.safety.core import Z, STATE_STALE, quantize, quantize_phone
+from foothold_agent.safety.core import Z, STATE_STALE, quantize
 from foothold_agent.policy_ranges import velocity_input
 from .protocol import (PROTO, LIMITS, SIMULATION_LIMITS, MAX_SEQ, frame,
-                       project_velocity, simulation_velocity)
+                       project_velocity, simulation_velocity, phone_velocity)
 from .tickets import TicketError
 
 
@@ -52,8 +52,8 @@ class Hub:
         self.simulation = simulation
         self.session = Session(now=now, server_link=False,
                                velocity_projection=(simulation_velocity if simulation is True else
-                                                    quantize_phone if simulation is False else quantize),
-                               **({"axes_validator": velocity_input} if simulation is True else {}))
+                                                    phone_velocity if simulation is False else quantize),
+                               **({"axes_validator": velocity_input} if simulation is True or simulation is False else {}))
         self.session.output_safety = getattr(sink, 'output_safety', None)
         self.peers = {}
         self.closing = {}

@@ -375,7 +375,7 @@ def test_hub_is_only_link_timer_and_owner_matches_session_lease(h):
     assert h.hub.session.lease_id is None
 
 
-@pytest.mark.parametrize('velocity', [(-.6, 0, 0), (.2, 0, 0), (0, .2, 0), (0, 0, .3)])
+@pytest.mark.parametrize('velocity', [(-.1, 0, 0), (.2, 0, 0), (0, .1, 0), (0, 0, .3)])
 def test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it(physical_h, velocity):
     h = physical_h
     owner, _, _ = h.connect(); h.take(owner); h.unlock(owner)

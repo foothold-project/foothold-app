@@ -5,7 +5,7 @@ import pytest
 
 from test_phone import h, physical_h
 from apps.contracts.models import PhoneWelcome
-from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_velocity, simulation_velocity
+from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_velocity, simulation_velocity, phone_velocity
 from foothold_agent.safety.core import Z, quantize_phone
 
 
@@ -30,9 +30,10 @@ def test_simulation_projection_boundaries(vx, vy, wz):
 def test_physical_projection_is_identical_to_default(vx, forward, wz):
     axes, clipped = project_velocity(vx, .3, wz, simulation=False)
     assert (axes, clipped) == project_velocity(vx, .3, wz)
-    applied, _ = quantize_phone(*axes)
-    expected = (forward, 0, wz if vx >= .75 else 0)
-    assert applied == expected and list(applied) in LIMITS['commands']
+    applied, _ = phone_velocity(*axes)
+    expected = Z if abs(vx) > 1.5 else (vx if abs(vx) >= .3 else 0, .3, 0)
+    assert applied == expected
+    assert LIMITS['commands'] == []
 
 
 @pytest.mark.parametrize('fixture,limits', [('h', SIMULATION_LIMITS), ('physical_h', LIMITS)])
@@ -41,7 +42,7 @@ def test_welcome_limits_contract_and_mode(request, fixture, limits):
     _, _, welcome = harness.connect()
     assert welcome['limits'] == limits
     parsed = PhoneWelcome.model_validate(welcome)
-    assert parsed.limits.vx_mode == ('continuous' if welcome['simulation'] else 'discrete')
+    assert parsed.limits.vx_mode == 'continuous'
     if welcome['simulation']:
         assert parsed.limits.vx_min_moving == .2 and parsed.limits.vx_max == 1.5
         assert parsed.limits.policy_velocity_range is None
@@ -49,8 +50,8 @@ def test_welcome_limits_contract_and_mode(request, fixture, limits):
         assert parsed.limits.policy_adapter_id == 'simulation-experimental-si/1'
         assert parsed.limits.requires_forward_motion is False
     else:
-        assert parsed.limits.commands == [[0, 0, 0]] + [[step / 10, 0, turn]
-            for step in range(3, 16) for turn in (0, -.5, .5)]
+        assert parsed.limits.commands == []
+        assert parsed.limits.vx_min == -1.5 and parsed.limits.vy_max == 1 and parsed.limits.wz_max == 4
     welcome['limits']['vx_max'] = 99
     assert harness.connect()[2]['limits'] == limits  # welcome is a copy
 
@@ -66,7 +67,7 @@ def test_mode_reaches_actual_session_output(request, fixture, vx, forward, wz):
     if fixture == 'h':
         expected = Z  # vy=.8 is outside this adapter; reject the whole triple
     else:
-        expected = (forward, 0, wz if vx >= .75 else 0)
+        expected = Z if abs(vx) > 1.5 else (vx if abs(vx) >= .3 else 0, .8, 0)
     assert ack['applied'] == list(expected)
     assert harness.outputs[-1].velocity == expected
     assert ack['clipped'] is (expected != (vx, .8, wz))

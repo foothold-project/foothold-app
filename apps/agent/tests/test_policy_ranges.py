@@ -67,13 +67,14 @@ def test_only_exact_true_selects_simulation_projection(simulation):
 
 
 @pytest.mark.parametrize('velocity,expected', [((.3, 0, 0), (.3, 0, 0)),
-    ((1.5, .2, 0), (1.5, 0, 0)), ((.55, 0, 0), (.5, 0, 0)), ((0, 0, .5), Z)])
-def test_physical_hub_forward_ceiling_keeps_other_modes_closed(physical_h, velocity, expected):
+    ((1.5, .2, 0), (1.5, .2, 0)), ((.55, 0, 0), (.55, 0, 0)), ((0, 0, .5), Z)])
+def test_physical_hub_uses_independent_continuous_envelope(physical_h, velocity, expected):
     owner, _ = physical_h.moving()
     ack = physical_h.cmd(owner, *velocity)
     assert ack['applied'] == list(expected)
     assert ack['clipped'] is (velocity != expected)
-    assert physical_h.hub.session.core.velocity_projection is quantize_phone
+    from foothold_agent.phone.protocol import phone_velocity
+    assert physical_h.hub.session.core.velocity_projection is phone_velocity
     if expected == Z:
         assert ack['reason']
     assert physical_h.connect()[2]['limits'] == LIMITS

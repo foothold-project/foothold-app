@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from test_phone import h, physical_h
 from apps.contracts.models import PhoneLimits, PhoneWelcome
-from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_velocity, simulation_velocity
+from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_velocity, simulation_velocity, phone_velocity
 from foothold_agent.ros_bridge.sink import RosSink, twist_message
 from foothold_agent.safety.core import Z, quantize_phone
 
@@ -52,18 +52,19 @@ def test_omni_session_zero_stop_and_deadman(h, velocity):
 
 
 @pytest.mark.parametrize('velocity', EXPERIMENTS)
-def test_physical_hub_keeps_experiments_closed(physical_h, velocity):
+def test_physical_hub_uses_its_own_continuous_projection(physical_h, velocity):
     owner, _ = physical_h.moving()
     ack = physical_h.cmd(owner, *velocity)
-    assert ack['applied'] == list(Z) and ack['clipped']
-    assert physical_h.outputs[-1].velocity == Z
-    assert physical_h.hub.session.core.velocity_projection is quantize_phone
+    expected = phone_velocity(*velocity)[0]
+    assert ack['applied'] == list(expected) and ack['clipped'] is (expected != velocity)
+    assert physical_h.outputs[-1].velocity == expected
+    assert physical_h.hub.session.core.velocity_projection is phone_velocity
     assert physical_h.connect()[2]['limits'] == LIMITS
-    assert 'experimental' not in LIMITS
+    assert LIMITS['experimental'] == ['reverse', 'lateral', 'turn_in_place']
 
 
 def test_experimental_limits_are_optional_and_welcome_is_deep_copied(h):
-    assert PhoneLimits.model_validate(LIMITS).experimental == []
+    assert PhoneLimits.model_validate(LIMITS).experimental == ['reverse', 'lateral', 'turn_in_place']
     welcome = h.connect()[2]
     assert welcome['limits'] == SIMULATION_LIMITS
     parsed = PhoneWelcome.model_validate(welcome)

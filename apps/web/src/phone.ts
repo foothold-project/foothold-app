@@ -227,12 +227,19 @@ export function tuned(w: PhoneWelcome) {
 }
 /** [전후, 회전, 옆(왼쪽 +)] -1..1. 옆은 없으면 0 */
 export type Axes = [number, number, number?];
-/** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이면 0(실기).
+/** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이면 0(이전 에이전트).
  *  연속 모드(시뮬 limits.vx_mode)는 데드존 밖 앞 기울기 t 를 vx_min_moving + (vx_max − vx_min_moving)·t 로(02 F-TO-05),
  *  뒤(vx_min < 0 일 때만)도 같은 식으로 vx_min 까지. 옆은 데드존 밖 기울기에 비례해 vy_max·vy_min 까지.
  *  옆 범위가 있을 때만 축 고정(AXIS_LOCK), 연속 모드 회전은 TURN_ON 넘으면 ±wz_max — 실기 limits 는 식 그대로 */
 export function velocity([f0, t, y0 = 0]: Axes, w: PhoneWelcome) {
   const s = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
+  // Physical continuous agents pass proportional stick intent on all axes.
+  // The agent owns the 20% deadzone; retaining small nonzero intent prevents
+  // a held stick from masquerading as fresh release after STOP/deadman.
+  if (w.simulation === false && w.limits.vx_mode === 'continuous') {
+    const L = w.limits;
+    return { vx: s(f0, L.vx_min, L.vx_max), vy: s(y0, L.vy_min, L.vy_max), wz: s(t, L.wz_min, L.wz_max) };
+  }
   const { L, dead } = tuned(w), lo = L.vx_min_moving ?? L.vx_min, side = L.vy_max > 0 || L.vy_min < 0;
   const f = side && Math.abs(f0) < AXIS_LOCK * Math.abs(y0) ? 0 : f0, y = side && Math.abs(y0) < AXIS_LOCK * Math.abs(f0) ? 0 : y0;
   const turn = L.vx_mode !== 'continuous' ? s(t, L.wz_min, L.wz_max) : t >= TURN_ON ? L.wz_max : t <= -TURN_ON ? L.wz_min : 0;

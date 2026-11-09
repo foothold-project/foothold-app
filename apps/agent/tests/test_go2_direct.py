@@ -200,20 +200,19 @@ def test_explicit_factory_uses_only_fake_sdk_and_no_motion(marker, monkeypatch):
 
 
 @pytest.mark.parametrize('velocity', [(True, 0, 0), (float('inf'), 0, 0),
-    (float('nan'), 0, 0), (.2, 0, 0), (1.5, 0, .1), (0, 0)])
+    (float('nan'), 0, 0), (1.500001, 0, 0), (0, 1.00001, 0), (0, 0, -4.00001), (0, 0)])
 def test_limits_reject_nonfinite_and_unreviewed_alphabet(velocity):
     with pytest.raises(ValueError):
         Limits().project(velocity)
 
 
-def test_limits_clamp_only_and_cannot_expand():
-    assert Limits().project((1.51, 1, 1)) == (1.5, 0., .5)
-    assert Limits().project((-1, 0, 0)) == (0., 0., 0.)
-    with pytest.raises(ValueError):
-        Limits(vx=(-1.5, 1.5))
-    with pytest.raises(ValueError):
-        Limits(vy=(0., .2))
-    assert Limits(vx=(0., .3)).project((1.5, 0., 0.)) == (.3, 0., 0.)
+def test_limits_reject_out_of_range_and_can_only_narrow():
+    assert Limits().project((-1.5, 1., -4.)) == (-1.5, 1., -4.)
+    assert Limits().project((.35, -.27, 1.234)) == (.35, -.27, 1.234)
+    for kwargs in (dict(vx=(-1.6, 1.5)), dict(vy=(-1., 1.1)), dict(wz=(-4.1, 4.))):
+        with pytest.raises(ValueError):
+            Limits(**kwargs)
+    assert Limits(vx=(0., .35)).project((.35, 0., 0.)) == (.35, 0., 0.)
     with pytest.raises(ValueError):
         Limits(vx=(0., .35)).project((1.5, 0., 0.))
 

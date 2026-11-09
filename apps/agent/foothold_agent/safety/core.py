@@ -2,8 +2,7 @@
 
 No ROS, web, network, or process integration is imported here.
 The caller must serialize access and publish the result of applied().
-Default quantization and all safety gates retain the original behavior. Only
-the simulation phone Hub explicitly supplies a continuous velocity projection.
+Default quantization and all safety gates retain the original behavior. Phone Hubs explicitly select their own velocity projections.
 """
 
 import math
@@ -103,20 +102,25 @@ def quantize(fx, fy, fw):
     return (0.6, 0.0, wz), ''
 
 
-def quantize_phone(fx, fy, fw):
-    """Physical phone: 0.3..1.5 m/s in downward 0.1 m/s steps.
+# Go2 EDU SportClient.Move envelope: sports_services, body-frame SI.
+# Forward/reverse are capped at the product-approved 1.5 m/s.
+PHONE_SPEEDS = (1.5, 1.0, 4.0)
+PHONE_DEADZONE = .2
 
-    Core's default projection stays at the original 0.6 m/s for legacy links.
-    Only the physical phone Hub explicitly selects this projection.
+
+def quantize_phone(fx, fy, fw):
+    """Physical phone axes -> continuous SI, with independent 20% deadzones.
+
+    Only exact release confirms neutral. A held stick inside the deadzone
+    remains rejected intent and cannot clear the fresh-neutral safety gate.
+    Legacy quantize and the simulation projection are independent.
     """
-    velocity, reason = quantize(fx, fy, fw)
-    if fx < 0.2 or abs(fy) >= 0.5:
-        return velocity, reason.replace('앞으로 끝까지 밀면 0.6 m/s', '미는 만큼 0.3~1.5 m/s')
-    # 0.3 + (fx - 0.2) * (1.5 - 0.3) / (1 - 0.2) == 1.5 * fx.
-    # Integer tenths keep every result in the sink's exact finite alphabet.
-    vx = min(15, math.floor(fx * 15)) / 10
-    # quantize retains the original fx >= 0.5 and fw thresholds for turns.
-    return (vx, 0.0, velocity[2]), ''
+    axes = (fx, fy, fw)
+    if not all(finite(v) and -1 <= v <= 1 for v in axes):
+        return Z, 'INVALID_VELOCITY'
+    velocity = tuple(v * maximum if abs(v) >= PHONE_DEADZONE else 0.0
+                     for v, maximum in zip(axes, PHONE_SPEEDS))
+    return velocity, '막대 중립 구간' if velocity == Z and any(axes) else ''
 
 
 class Core:
