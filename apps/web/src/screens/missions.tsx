@@ -731,7 +731,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const on = pts.map((p, i) => [p, i] as const).filter(([p]) => p.floor_id === cur);
   const fence = lock && !!set, one = typeof sel === 'number' ? sel : null;
   const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null), tid = useId();
-  // SCEN-NODE-PREVIEW 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, 저장 안 되는 미리보기). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
+  // SCEN-NODE-PREVIEW·SCEN-LIFECYCLE-EDITOR 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, «운영 흐름» 5단계·임무 = 이 시나리오). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
   const [paneLook, setPaneLook] = useState<'node' | 'list'>('node');
   const lookSeg = <span className="mx-seg" role="group" aria-label="노드·목록 보기">
     <button type="button" className="btn" aria-pressed={paneLook === 'node'} data-look="node" onClick={() => setPaneLook('node')}>노드</button>
@@ -754,8 +754,11 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const robotField = set && <label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
     <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>;
   const where = (p: ScenarioPoint) => `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}${p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}`;
+  // SCEN-LIFECYCLE-EDITOR: 시뮬 탭이면 지점마다 scenarioTree 로 한 번 더 — 거절(운영자 확인·센서 기록·120 s 넘는 대기·옛 판)이면 그 이유를 노드에 «시뮬에서 실행 못 함»
+  const noSim = (p: ScenarioWaypoint) => { if (!sim || !missions) return undefined; const r = scenarioTree({ ...value, waypoints: [p], finish: undefined }, missions);
+    return typeof r === 'string' ? r.replace(/^1번 지점: /, '') : undefined; };
   const nodeItems = pts.map((p) => { const m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
-    return { title: where(p), sub: m ? m.name : p.mission_id ? (missions ? '알 수 없는 임무' : '임무 확인 중') : '이동', kind: (p.mission_id ? kindOf(fresh) : 'MOVE') as StepKind }; });
+    return { title: where(p), sub: m ? m.name : p.mission_id ? (missions ? '알 수 없는 임무' : '임무 확인 중') : '이동', kind: (p.mission_id ? kindOf(fresh) : 'MOVE') as StepKind, no: noSim(p) }; });
   const pick = (t: 'steps' | 'assign') => { setTab(t); if (t === 'assign') setSel(null); };
   const order = assign ? (['steps', 'assign'] as const) : (['steps'] as const);
   /** 탭 방향키(←→·Home·End) = 옆 탭을 고르고 포커스(roving tabIndex) */
@@ -813,7 +816,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}<span className="fh-grow" />{more}</>}>
       {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
       {sim && <SimRun value={value} saved={saved} dirty={sim.dirty} place={place} v={v} missions={missions} cancel={cancel} />}
-      {paneLook === 'node' && <ScenNodes key={`${k}|${missions ? 1 : 0}`} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} />}
+      {paneLook === 'node' && <ScenNodes where={sim ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go}
+        edit={(i) => { go(i); setTab('steps'); setPaneLook('list'); }} />}
       <div className="mx-pane-in" hidden={paneLook === 'node'}>
       {/* 이름·판·실행 확인 로봇 → [단계 N | 배정 N] (지점을 고르면 «‹ N번 지점») */}
       <fieldset disabled={fence} style={{ display: 'contents' }}><div className="mx-in" hidden={one != null && tab === 'steps'}>{nameField}{verField}{robotField}</div></fieldset>
