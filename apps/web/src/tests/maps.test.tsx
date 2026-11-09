@@ -12,6 +12,7 @@ import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
 import { TERRAIN_REASON } from '../simstart';
 import raw from './mapcases.json?raw';
+import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 
@@ -211,6 +212,28 @@ describe('지도 탭 — 장소 나무', () => {
     expect(last.tagName).toBe('BUTTON'); expect(last.textContent).toContain('본관 › 본동');
     await click(last);
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
+  });
+  it('카드 위 작은 지도(SIM-CARDS-WIDE): 승인 판 그림, 마지막에 본 층 그림 / 지도 없는 건물·그림 실패는 같은 칸 «지도 없음»', async () => {
+    const t: SiteTree = { items: [{ ...TREE.items[0], buildings: [TREE.items[0].buildings[0],
+      { id: 'b3', site_id: 's1', name: '빈 동', floors: [floor('f3', '1층', 1, null, 'b3')] }] }], next_cursor: null };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/f3/map-versions': { status: 200, body: { items: [], next_cursor: null } } }));
+    await open('#/map');
+    await click($('[data-to-chooser]'));
+    const pic = (s: string) => $(`${s} > .mx-thumb`)!;
+    expect(pic('[data-building="b1"]').querySelector('image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect(pic('[data-building="b1"]').querySelector('svg')!.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');   // 비율 유지(contain)
+    expect(pic('[data-last]').querySelector('image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect(pic('[data-building="b3"]').textContent).toBe('지도 없음');
+    expect(pic('[data-building="b3"]').querySelector('image')).toBeNull();
+    act(() => { pic('[data-building="b1"]').querySelector('image')!.dispatchEvent(new Event('error')); });
+    await flush();
+    expect(pic('[data-building="b1"]').textContent).toBe('지도 없음');                     // 실패해도 칸(높이 고정 CSS)은 그대로
+    expect(pic('[data-building="b1"]').querySelector('image')).toBeNull();
+    expect(mapscenCss).toMatch(/\.mx-thumb\{[^}]*height:110px/);
+  });
+  it('지도 고르기 첫 화면은 넓게(SIM-CARDS-WIDE): 최대 1600px, 카드 격자는 폭에 맞춰 칸 수가 늘고 좁으면 한 칸', () => {
+    expect(mapscenCss).toMatch(/\.mx-choose\{[^}]*max-width:1600px/);
+    expect(mapscenCss).toContain('.mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr))');
   });
   it('총괄: 고치기 — 장소·건물·층 만들기, 이름 바꾸기 요청 모양', async () => {
     serve(signedIn(KIM, { 'POST /sites': { status: 201, body: { id: 's2', name: '별관', buildings: [] } },
@@ -2097,7 +2120,7 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
       serve(signedIn(KIM, routes)); await open('#/sim'); await toChooser();
       const chip = (b: string) => $(`[data-building="${b}"] [data-lone]`)?.textContent ?? null;
       expect([chip('b9'), chip('b8'), chip('b7')]).toEqual([null, '지형 없음', '지형 없음']);
-      expect(card('지도 고르기').textContent).not.toContain('지도 없음');
+      expect($$('.lv-chip', card('지도 고르기')).map((c) => c.textContent)).not.toContain('지도 없음');   // 칩은 «지형 없음»만(작은 지도 칸의 «지도 없음» 글은 칩 아님)
     });
     it('짝 없는 층(옛 손그림): 편집·새 지도 올리기·되돌리기 없음 + 안내, 저장 기록 보기·비교는 남음', async () => {
       serve(signedIn(KIM, routes)); await open('#/sim'); await toCard('b8');

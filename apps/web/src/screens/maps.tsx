@@ -2,7 +2,7 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 PENDING 판은 «저장 기록»에 «적용 안 됨»으로 보인다. 화면 글에는 «판»을 쓰지 않는다(11-04 — 저장 시각·만든 사람으로 부름).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, Scenario, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
@@ -306,6 +306,21 @@ export function SimPlaces({ user, robots }: { user: User; robots: Robot[] }) {
     <Maps user={user} robots={robots} purpose="SIM" /></section>;
 }
 
+/** 카드 위 작은 지도(SIM-CARDS-WIDE 11-09): 승인 판 그림(MapImage, 벽 범위로 자른 처음 화면) — 카드가 화면 가까이 올 때만 받는다.
+ *  판이 없거나 그림이 실패하면 같은 높이 회색 칸 «지도 없음»(판 받는 중은 빈 회색 칸) — 카드 높이는 CSS(.mx-thumb) 고정 */
+function Thumb({ id, v }: { id?: string | null; v?: MapVersion }) {
+  const ref = useRef<HTMLSpanElement>(null), [near, setNear] = useState(typeof IntersectionObserver === 'undefined'), [bad, setBad] = useState(false), { fit } = useFit(near ? v : undefined);
+  useEffect(() => {
+    if (near || !ref.current) return;
+    const o = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setNear(true); o.disconnect(); } }, { rootMargin: '200px' });
+    o.observe(ref.current); return () => o.disconnect();
+  }, [near]);
+  return <span ref={ref} className="mx-thumb" data-thumb={id && !bad ? id : ''} aria-hidden="true">{!id || bad ? <small>지도 없음</small> : v && near && <svg viewBox={fit.join(' ')} preserveAspectRatio="xMidYMid meet">
+    <MapImage id={v.id} width={v.width} height={v.height} onError={() => setBad(true)} /></svg>}</span>;
+}
+/** 카드 그림 층: 고른 층(마지막에 본 층)·1층 순, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
+const picFloor = (b: MapBuilding, f?: MapFloor) => [f, firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
+
 /** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 마지막에 본 지도 카드 + 장소별 건물 카드(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지도 만들기»·«장소 고치기»·휴지통 */
 function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, children }: { sim: boolean; t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; vers: Record<string, MapVersion>; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal;
   children: ReactNode }) {
@@ -316,6 +331,7 @@ function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, chi
     <span>{counts ? `시나리오 ${new Set(b.floors.flatMap((f) => counts[f.id] ?? [])).size}` : counts === null ? '시나리오 ?' : ''}</span>
     {sim ? b.floors.every((f) => lone(f, f.approved_version_id ? vers[f.approved_version_id] : undefined)) && <span className="lv-chip off" data-lone>지형 없음</span>
       : !b.floors.some((f) => f.approved_version_id) && <span className="lv-chip off">지도 없음</span>}</small>;
+  const thumb = (b: MapBuilding, f?: MapFloor) => { const id = picFloor(b, f)?.approved_version_id; return <Thumb key={id ?? ''} id={id} v={id ? vers[id] : undefined} />; };
   const shown = places.filter(hit), sites = t.tree?.items.filter((s) => shown.some((p) => p.site.id === s.id)) ?? [];
   return <section className="mx" aria-label="지도 고르기">
     <div className="mx-scroll"><div className="mx-choose">
@@ -328,10 +344,10 @@ function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, chi
         {sim ? <a className="btn pri" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>
           : <button type="button" className="btn pri" onClick={() => make('지도 만들기')}>+ 지도 만들기</button>}</div>
       {last && !q.trim() && <button type="button" className="card mx-last" data-last onClick={() => choose(firstFloor(last.building).id)}>
-        <span className="lbl">마지막에 본 지도</span><b>{last.site.name} › {last.building.name}</b>{facts(last.building)}</button>}
+        {thumb(last.building, last.floor)}<span className="lbl">마지막에 본 지도</span><b>{last.site.name} › {last.building.name}</b>{facts(last.building)}</button>}
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
-          <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}><b>{b.name}</b>{facts(b)}</button>)}</div></section>)}
+          <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}>{thumb(b)}<b>{b.name}</b>{facts(b)}</button>)}</div></section>)}
       {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
         : '실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다. «+ 지도 만들기»에서 장소·건물·층을 만들고 지도 파일을 올릴 수도 있습니다.'}</p>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
