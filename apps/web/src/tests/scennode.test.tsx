@@ -40,6 +40,15 @@ describe('운영 흐름 데이터', () => {
     expect(stageGraph('예외 처리', 'websim').edges).toHaveLength(0);
     expect(stageGraph('연결', 'real').nodes).toHaveLength(8);
   });
+  it('REVIEW-308: 단계마다 노드 좌표가 겹치지 않는다(갈래가 이어져도) — 모든 노드가 보이고 눌린다', () => {
+    for (const s of STAGES) for (const w of ['websim', 'real'] as const) {
+      const g = s === '임무' ? missionGraph(ITEMS, '대기', w) : stageGraph(s, w), at = g.nodes.map((n) => `${n.position.x},${n.position.y}`);
+      expect(new Set(at).size, `${s} ${w}`).toBe(at.length);
+    }
+  });
+  it('REVIEW-308: 앱 데이터에 소스 경로·줄번호 인용이 없다(근거는 저장소 밖 대조표에만)', () => {
+    expect(JSON.stringify(LIFE).match(/[\w./-]+\.(tsx?|py|js|json|mjs):\d+/g)).toBeNull();
+  });
 });
 
 describe('운영 흐름 화면', () => {
@@ -89,6 +98,10 @@ describe('운영 흐름 화면', () => {
     await tap(stage('연결'));
     expect($$('.react-flow__node .sn-badge').map((b) => b.textContent)).toEqual(Array(8).fill('됨'));
     expect($('.sn-hint').textContent).toContain('실기체 검증과 다름');
+    for (const s of ['연결', '운행 준비'] as const) {
+      await tap(stage(s));
+      for (const n of LIFE.filter((x) => x.stage === s)) { await tap(node(n.id)); expect($('[data-detail]').dataset.detail).toBe(n.id); }
+    }
     await tap(stage('운행 준비')); await tap(node('check'));
     expect($('[data-detail]').textContent).toContain('일부');
     expect($('[data-miss]').textContent).toContain('시작 관문 없음');

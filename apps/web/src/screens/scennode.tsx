@@ -63,12 +63,15 @@ export function missionGraph(items: NodeIn[], end: string, w: Where): { nodes: N
   ];
   return { nodes, edges: nodes.slice(1).map((n, i) => line(nodes[i].id, n.id)) };
 }
-/** 다른 단계(읽기만): 본 줄은 위→아래 선으로, 갈래는 바로 앞 본 노드 옆에 선 없이. 예외 처리는 순서가 아니라 두 줄 격자(선 없음) */
+/** 다른 단계(읽기만): 본 줄은 위→아래 선으로, 갈래는 바로 앞 본 노드 옆에 선 없이(갈래가 이어지면 한 칸씩 아래로 — 겹치지 않게). 예외 처리는 순서가 아니라 두 줄 격자(선 없음) */
 export function stageGraph(stage: Stage, w: Where): { nodes: N[]; edges: Edge[] } {
   const l = LIFE.filter((n) => n.stage === stage), grid = stage === '예외 처리';
   const nodes: N[] = [], main: string[] = [];
+  let sideRow = -1;
   l.forEach((n, i) => {
-    const side = !grid && SIDE.has(n.id), pos = grid ? at(i % 2, Math.floor(i / 2)) : side ? at(1, Math.max(0, main.length - 1)) : at(0, main.length);
+    const side = !grid && SIDE.has(n.id);
+    if (side) sideRow = Math.max(main.length - 1, sideRow + 1, 0);
+    const pos = grid ? at(i % 2, Math.floor(i / 2)) : side ? at(1, sideRow) : at(0, main.length);
     if (!grid && !side) main.push(n.id);
     nodes.push({ id: n.id, type: 'step', ...pos, data: { icon: '', title: n.name, sub: n.owner, badge: badgeOf(n, w), edge: grid || side ? 'none' : undefined } });
   });
