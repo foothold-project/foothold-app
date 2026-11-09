@@ -39,9 +39,19 @@ console.log('model settings PASS: mode switches, sparse inheritance, aliases, ma
 // Per-mode runner defaults never replace explicit organization/model settings.
 const startMode = POLICY_MODES.start;
 const startCaps = { vx: startMode.command.caps.forward, wz: startMode.command.caps.turnInPlace, runnerVx: startMode.command.runnerVx };
-assert.equal(simSettings({}, startCaps, startMode.id).vx, 1.2);
-assert.equal(simSettings({ sim_runner_vx: .4 }, startCaps, startMode.id).vx, .4);
-assert.equal(simSettings({ sim_runner_vx: .4, model_overrides: { 'start-demo': { sim_runner_vx: 1.2 } } }, startCaps, startMode.id).vx, 1.2);
+for (const [organization, patrolVx, goalVx] of [
+  [{}, .4, 1.2],
+  [{ sim_runner_vx: .4 }, .4, .4],
+  [{ sim_runner_vx: .7 }, .7, .7],
+  [{ sim_runner_vx: .4, model_overrides: { 'start-demo': { sim_runner_vx: 1.2 } } }, 1.2, 1.2],
+]) {
+  const limits = simSettings(organization, startCaps, startMode.id);
+  assert.equal(limits.vx, patrolVx); assert.equal(limits.goalVx, goalVx);
+  const sim = { adapterId: startMode.id, cmd: [0, 0, 0], d: { qpos: [0, 0, .4, 1, 0, 0, 0] } };
+  const runner = createScenarioRunner(sim, () => false, limits);
+  runner.start([{ x: 10, y: 0 }]); assert.equal(runner.tick()[0], patrolVx);
+  runner.cancel(); runner.start([{ x: 10, y: 0 }], true); assert.equal(runner.tick()[0], goalVx);
+}
 assert.equal(simSettings({}, {}, 'nvidia-demo').vx, .4);
 assert.equal(simSettings({}, {}, 'ame2-demo').vx, .4);
-console.log('start runner default PASS: offline 1.2, explicit org .4, model override 1.2, other mode defaults .4');
+console.log('start runner default PASS: patrol .4, clicked goal 1.2, explicit organization and model override win for both');

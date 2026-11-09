@@ -352,6 +352,7 @@ async function main() {
   runningScenario = runner;
   const patrol = createPatrolRunner({ sim, runner, isStopped: () => stopped, lock, planRoute, getMap: () => map,
     getFront: () => front, home: () => ({ x: start[0], y: start[1], yaw: start[2] }),
+    onStart: () => { lastCmd = neutral(); },
     onMark: (p) => {
       const marker = new THREE.Mesh(new THREE.SphereGeometry(.12, 12, 8), new THREE.MeshBasicMaterial({ color: p.level === 'danger' ? 0xff5252 : 0xffd54f, depthTest: false }));
       marker.position.set(p.x, p.y, map.floor_z + .15); patrolMarks.add(marker);
@@ -948,6 +949,7 @@ async function main() {
       }
       if (patrol.active) {
         patrol.tick(POLICY_DT);
+        lastCmd = sim.cmd.slice(); // Include the terminal success/failure tick.
         joy = neutral(); heading = null;
       } else if (runner.active) {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.

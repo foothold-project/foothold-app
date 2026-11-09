@@ -22,7 +22,9 @@ const { resolve, extname, sep } = await import('node:path');
 const { pathToFileURL } = await import('node:url');
 const { chromium } = await import(pathToFileURL(process.env.FH_PLAYWRIGHT));
 const root = resolve('mobile/www');
+let organization = {};
 const server = createServer((req, res) => {
+  if (req.url === '/api/v1/org/settings') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(organization)); return; }
   const file = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
   if (!file.startsWith(root + sep)) return res.writeHead(403).end();
   try {
@@ -55,7 +57,7 @@ try {
     await page.mouse.move(b.x + b.width / 2, b.y - 10);
   };
   for (const event of ['stop', 'blur', 'hidden', 'pagehide', 'freeze', 'Escape', 'Space', 'reset']) {
-    await page.click('#go'); await stick();
+    await page.click('#go'); await page.waitForFunction(() => !__sim.stopped()); await stick();
     assert.deepEqual(rounded(await prepare(1)), [.03, 0, 0], `${event}: fresh history`);
     assert.deepEqual(rounded(await prepare(49)), [1.5, 0, 0]);
     if (event === 'stop') await page.dispatchEvent('#stop', 'pointerdown');
@@ -70,13 +72,68 @@ try {
     // No prepare/physics step between the event and this assertion.
     assert.deepEqual(await page.evaluate(() => [__sim.stopped(), __sim.cmd()]), [true, [0, 0, 0]], event);
     await page.mouse.up(); assert.deepEqual(await prepare(1), [0, 0, 0]);
-    await page.click('#go'); assert.deepEqual(await prepare(1), [0, 0, 0], `${event}: old input cannot revive`);
+    await page.click('#go'); await page.waitForFunction(() => !__sim.stopped()); assert.deepEqual(await prepare(1), [0, 0, 0], `${event}: old input cannot revive`);
     await stick(); assert.deepEqual(rounded(await prepare(1)), [.03, 0, 0], `${event}: restart from zero`);
     await page.mouse.up(); await page.dispatchEvent('#stop', 'pointerdown');
   }
-  await page.click('#go');
+  await page.click('#go'); await page.waitForFunction(() => !__sim.stopped());
   await page.evaluate(() => { const q = __sim.sim.d.qpos; __sim.scenario.start([{ x: q[0] + 5, y: q[1] }], true); });
   assert.equal(rounded(await prepare(1))[0], .03, 'runner passes through the same limiter');
+  // BT starts use the real app's lifecycle hook, runner, planner and command boundary.
+  await page.addInitScript(() => localStorage.setItem('fh.customTerrain.slew-flat', JSON.stringify({
+    schema: 'fh_custom_terrain/1', id: 'slew-flat', name: 'slew flat', size: [20, 10], spawn: [-5, 0, 0], items: [],
+  })));
+  const startPatrol = (root, fail = false) => page.evaluate(({ root, fail }) => {
+    __sim.patrol.mock.move = fail;
+    return __sim.patrol.start({ id: 'slew-patrol', points: [], tree: { format: 'fh_mission_tree/1', max_seconds: 20, root } });
+  }, { root, fail });
+  for (const profile of [
+    { name: 'offline', web: false, org: {}, patrol: .4, goal: 1.2 },
+    { name: 'web-org', web: true, org: { sim_runner_vx: .7 }, patrol: .7, goal: .7 },
+    { name: 'web-model', web: true, org: { sim_runner_vx: .7, model_overrides: { 'start-demo': { sim_runner_vx: .9 } } }, patrol: .9, goal: .9 },
+  ]) {
+    organization = profile.org;
+    await page.goto(`http://127.0.0.1:${server.address().port}/sim/index.html?policy=start-demo&map=custom&terrain=slew-flat${profile.web ? '&from=web' : ''}`);
+    await page.waitForFunction(() => window.__sim?.ready || window.__sim?.err, null, { timeout: 90000, polling: 100 });
+    assert.equal(await page.evaluate(() => __sim.err), null);
+    await page.click('#go'); await page.waitForFunction(() => !__sim.stopped());
+    if (!profile.web) {
+      for (const result of ['success', 'failure']) {
+        await stick(); assert.equal(rounded(await prepare(50))[0], 1.5); await page.mouse.up();
+        const root = result === 'failure' ? { type: 'goto', point: { x: -3, y: 0 } } : { type: 'wait', seconds: .1 };
+        assert.equal(await startPatrol(root, result === 'failure'), true);
+        {
+          let ticks = 0;
+          while (await page.evaluate(() => __sim.patrol.active)) {
+            assert.deepEqual(await prepare(1), [0, 0, 0], `${result}: no old hand command during patrol`);
+            assert.ok(++ticks < 20, 'patrol must finish');
+          }
+          assert.equal(await page.evaluate(() => __sim.patrol.status), result);
+        }
+        assert.equal(await page.evaluate(() => __sim.stopped()), false, result);
+        for (let i = 0; i < 3; i++) assert.deepEqual(await prepare(1), [0, 0, 0], `${result}: no old speed after patrol`);
+        await stick(); assert.deepEqual(rounded(await prepare(1)), [.03, 0, 0], `${result}: fresh command from zero`);
+        await page.mouse.up(); await page.dispatchEvent('#stop', 'pointerdown'); await page.click('#go'); await page.waitForFunction(() => !__sim.stopped());
+      }
+    }
+    const point = await page.evaluate(() => ({ x: __sim.sim.d.qpos[0] + 2, y: __sim.sim.d.qpos[1] }));
+    assert.equal(await startPatrol({ type: 'goto', point }), true, JSON.stringify(await page.evaluate(() => ({ stopped: __sim.stopped(), patrol: __sim.patrol.active, runner: __sim.scenario.active, status: __sim.patrol.status }))));
+    await prepare(1);
+    await page.waitForFunction(() => __sim.scenario.active, null, { polling: 100 });
+    for (let i = 0; i < 3; i++) {
+      const cmd = await prepare(1);
+      assert.ok(cmd[0] > 0 && cmd[0] <= profile.patrol, `${profile.name}: patrol cap ${cmd}`);
+      assert.equal(+cmd[0].toFixed(6), profile.patrol);
+    }
+    await page.dispatchEvent('#stop', 'pointerdown');
+    assert.deepEqual(await page.evaluate(() => __sim.cmd()), [0, 0, 0], 'moving patrol STOP is immediate');
+    await page.click('#go'); await page.waitForFunction(() => !__sim.stopped());
+    assert.equal(await page.evaluate((point) => __sim.scenario.start([point], true), point), true);
+    assert.equal(rounded(await prepare(1))[0], .03, 'clicked goal starts at .03');
+    assert.equal(rounded(await prepare(39))[0], profile.goal, 'goal retains its ramp and setting priority');
+    await page.dispatchEvent('#stop', 'pointerdown');
+    console.log(`command slew patrol PASS: ${profile.name}, patrol ${profile.patrol}, goal .03 -> ${profile.goal}`);
+  }
   assert.deepEqual(errors, []);
   console.log('command slew headless PASS: real sticks+runner, STOP/blur/hidden/pagehide/freeze/Escape/Space/reset immediate zero, restart from zero');
 } finally { await browser?.close(); await new Promise((r) => server.close(r)); }
