@@ -6,7 +6,7 @@ const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.5
 // negative vx and nonzero lateral commands are outside its training range.
 export const MODE_COMMAND_CAPS = Object.freeze({
   nvidia: Object.freeze({ forward: 1.5, reverse: 1.5, lateral: 0.5, turnInPlace: 1, turnWalking: 1 }),
-  start: Object.freeze({ forward: 1.5, reverse: 1, lateral: 0.5, turnInPlace: 1.2, turnWalking: 1 }),
+  start: Object.freeze({ forward: 1.5, reverse: 1.3, lateral: 0.5, turnInPlace: 1.2, turnWalking: 1 }),
 });
 export function commandCaps(command) {
   if (command.caps) return { ...command.caps };

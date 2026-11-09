@@ -195,7 +195,7 @@ try {
   if (option) option.disabled = true;
   const reason = e?.message || String(e);
   $('policyReason').textContent = reason;
-  $('policyEngine').textContent = `시뮬을 열지 못했습니다: ${reason}`;
+  $('policyEngine').textContent = st.policyEngine?.includes('정책 잠금') ? st.policyEngine : `시뮬을 열지 못했습니다: ${reason}`;
   $('policyEngine').hidden = false;
 }
 

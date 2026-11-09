@@ -111,7 +111,7 @@ def test_onnx_hashes_match_provenance_and_browser_contract():
         assert digest in (root / "docs" / document).read_text()
         assert digest in adapters
     start = (root / "mobile/sim/start-demo-adapter.js").read_text()
-    for name in ("start-demo_map_on.onnx", "start-demo_map_off.onnx"):
+    for name in ("start-m13000_map_on.onnx", "start-m13000_map_off.onnx"):
         assert prepare_sim.ONNX_SHA[name] in start
         assert prepare_sim.ONNX_SHA[name] in (root / "docs/POLICY-PROVENANCE.md").read_text()
     lock = json.loads((root / "mobile/package-lock.json").read_text())

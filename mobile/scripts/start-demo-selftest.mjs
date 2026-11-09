@@ -69,7 +69,7 @@ near(mode.torque(100,0,8),45.43);near(mode.torque(100,0,0),23.5);near(mode.torqu
 near(mode.torque(0,31.4,8),-45.43);near(mode.torque(0,-31.4,8),45.43);
 const settings=manualSettings({},mode.command);
 for(const axes of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1],[1,0,1]])report.commands[axes.join(',')]=manualCommand(axes,settings);
-assert.deepEqual(Object.values(report.commands),[[1.5,0,0],[-1,0,0],[0,.5,0],[0,-.5,0],[0,0,1.2],[0,0,-1.2],[1.5,0,1]]);
+assert.deepEqual(Object.values(report.commands),[[1.5,0,0],[-1.3,0,0],[0,.5,0],[0,-.5,0],[0,0,1.2],[0,0,-1.2],[1.5,0,1]]);
 for(const [angle,expected] of [[.1,[1.5,0,.15]],[.2,[.8,0,.3]],[.6,[0,0,.9]],[1,[0,0,1.2]]]){
   const sim={adapterId:mode.id,d:{qpos:[0,0,0,1,0,0,0]},cmd:[0,0,0]},runner=createScenarioRunner(sim,()=>false,{vx:1.5,wz:1.2});
   runner.start([{x:3*Math.cos(angle),y:3*Math.sin(angle)}]);const command=runner.tick();command.forEach((v,i)=>near(v,expected[i]));

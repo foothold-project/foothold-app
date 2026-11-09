@@ -13,7 +13,7 @@ const server=createServer((req,res)=>{
   if(pathname==='/api/v1/org/settings'){settingsFetches++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify(defaults));return;}
   const [variant,...parts]=pathname.slice(1).split('/'),name=parts.join('/');
   const file=resolve(root,name);
-  if(!file.startsWith(root+sep)||(variant==='missing'&&name.includes('start-demo_'))){res.writeHead(404).end();return;}
+  if(!file.startsWith(root+sep)||(variant==='missing'&&name.includes('start-m13000_'))){res.writeHead(404).end();return;}
   try{
     let body=readFileSync(file);
     if(name==='sim/main.js'&&variant==='js')body=body.toString().replace("const DEFAULT_POLICY_BACKEND = 'wasm';","const DEFAULT_POLICY_BACKEND = 'f32';");
@@ -49,17 +49,17 @@ try{
     await page.waitForFunction(()=>window.__startFirst);
     assert.deepEqual(await page.evaluate(()=>[__startFirst.zeroState,__startFirst.first,__startFirst.useGt]),[true,true,true]);
     assert.match(await page.locator('#policyEngine').textContent(),/start · ONNX WASM/);
-    assert.match(await page.locator('#modeCaps').textContent(),/앞1.5 뒤1 옆0.5.*회전1.2\/이동1/);
+    assert.match(await page.locator('#modeCaps').textContent(),/앞1.5 뒤1.3 옆0.5.*회전1.2\/이동1/);
     await page.click('#go');await page.waitForFunction(()=>!__sim.stopped());
     const check=async(axis,value)=>page.waitForFunction(([i,v])=>Math.abs((window.__startLast?.cmd[i]??Infinity)-v)<1e-5,[axis,value]);
-    for(const [key,stick,x,y,axis,value]of [['ArrowUp','stickL',0,-1,0,1.5],['ArrowDown','stickL',0,1,0,-1],['ArrowLeft','stickL',-1,0,1,.5],['ArrowRight','stickL',1,0,1,-.5],['KeyA','stickR',-1,0,2,1.2],['KeyD','stickR',1,0,2,-1.2]]){
+    for(const [key,stick,x,y,axis,value]of [['ArrowUp','stickL',0,-1,0,1.5],['ArrowDown','stickL',0,1,0,-1.3],['ArrowLeft','stickL',-1,0,1,.5],['ArrowRight','stickL',1,0,1,-.5],['KeyA','stickR',-1,0,2,1.2],['KeyD','stickR',1,0,2,-1.2]]){
       await page.keyboard.down(key);await check(axis,value);await page.keyboard.up(key);
       const r=await page.locator('#'+stick).boundingBox(),cx=r.x+r.width/2,cy=r.y+r.height/2;
       await page.mouse.move(cx,cy);await page.mouse.down();await page.mouse.move(cx+x*(r.width/2+10),cy+y*(r.height/2+10));await check(axis,value);await page.mouse.up();
     }
     await page.click('#stop');assert.equal(await page.evaluate(()=>__sim.stopped()),true);
     assert.equal(settingsFetches>fetched,web,'web receives real organization defaults; offline does not fetch');
-    report.push({variant,web,first:await page.evaluate(()=>__startFirst),caps:[1.5,-1,.5,-.5,1.2,-1.2]});
+    report.push({variant,web,first:await page.evaluate(()=>__startFirst),caps:[1.5,-1.3,.5,-.5,1.2,-1.2]});
     if(variant==='wasm'&&!web){
       const timing=await page.evaluate(()=>{
         const sim=__sim.sim,values={map:[],depth:[]};
