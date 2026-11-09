@@ -33,6 +33,26 @@ def reject(status, code, message, *args):
     raise Unavailable(code)
 
 
+def match_files_owner(root, created):
+    """Migration may run as root; leave generated maps writable by the server."""
+    try:
+        owner = root.stat()
+    except OSError as exc:
+        print(f'SIM_PAIR_0027 ownership root={root}: {exc}')
+        return
+    targets = set()
+    for path in created:
+        targets.add(path)
+        targets.update(parent for parent in path.parents if root in parent.parents)
+    for path in sorted(targets, key=lambda p: (len(p.parts), str(p))):
+        try:
+            current = path.stat()
+            if (current.st_uid, current.st_gid) != (owner.st_uid, owner.st_gid):
+                os.chown(path, owner.st_uid, owner.st_gid)
+        except OSError as exc:
+            print(f'SIM_PAIR_0027 ownership path={path}: {exc}')
+
+
 def upgrade():
     root = Path(os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files')).resolve()
     logs = []
@@ -137,8 +157,10 @@ def upgrade():
                     for parent in (site, building, floor):
                         change(parent, 'archived_at', None, 'terrain_only_restore')
                     previous = floor.approved_version_id
+                    created = []
                     published = publish_terrain_map(db, SimpleNamespace(org_id=terrain.org_id, id=actor_id),
-                        spec, floor, terrain.version, root, reject)
+                        spec, floor, terrain.version, root, reject, created)
+                    match_files_owner(root, created)
                     audit(floor, 'terrain_only_rebuild',
                         {'approved_version_id': str(previous) if previous else None},
                         {'approved_version_id': str(published.id)})
@@ -169,15 +191,19 @@ def upgrade():
                 db.flush()
                 refresh_connectors(db, floor)
 
-        # Do not leave empty SIM containers in the chooser. Archived descendants
-        # and scenarios stay intact and remain recoverable in parent-first order.
+        # Archive empty SIM containers except the reusable terrain hierarchy.
+        # Descendants/scenarios stay recoverable in parent-first order.
         buildings = list(db.scalars(select(Building).join(Site, Site.id == Building.site_id)
             .where(Site.purpose == 'SIM', Building.archived_at.is_(None))))
         for building in buildings:
+            if building.site_id == identifier(building.org_id, 'site'):
+                continue  # Terrain saves reuse this shared hierarchy.
             if db.scalar(select(Floor.id).where(Floor.building_id == building.id, Floor.archived_at.is_(None)).limit(1)) is None:
                 change(building, 'archived_at', now(), 'no_live_floors')
         db.flush()
         for site in db.scalars(select(Site).where(Site.purpose == 'SIM', Site.archived_at.is_(None))):
+            if site.id == identifier(site.org_id, 'site'):
+                continue
             if db.scalar(select(Floor.id).join(Building, Building.id == Floor.building_id).where(
                     Building.site_id == site.id, Floor.archived_at.is_(None)).limit(1)) is None:
                 change(site, 'archived_at', now(), 'no_live_floors')

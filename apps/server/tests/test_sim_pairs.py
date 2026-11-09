@@ -1,4 +1,7 @@
 """Simulation pairs: public mutation guards, reversible trash, data repair."""
+from importlib import import_module
+from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from alembic import command
@@ -10,6 +13,7 @@ from sqlalchemy.orm import Session
 from apps.contracts.tests.test_terrain import SPEC
 from apps.server.fh_server.models import (Assignment, Building, Event, Floor, MapVersion,
     Robot, Run, Scenario, ScenarioVersion, Site, Terrain, now)
+from apps.server.fh_server.terrains import identifier
 from .conftest import CONFIG
 from .legacy_approvals import pending_assignment
 from .test_assignments import assignment, scenario
@@ -226,3 +230,101 @@ def test_0027_failed_rebuild_archives_terrain_without_partial_hierarchy(maps, se
             assert len(journal) == 1 and journal[0].data['kind'] == 'terrains'
     finally:
         engine.dispose()
+
+
+def test_0027_empty_terrain_hierarchy_survives_and_new_save_restores_parents(maps, seeded, monkeypatch):
+    http, headers, root = maps
+    old = put(http, headers).json()
+    monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', seeded['urls']['migrate'])
+    monkeypatch.setenv('FH_FILES_ROOT', str(root))
+    config = Config(str(CONFIG))
+    command.downgrade(config, '0026')
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with Session(engine) as db, db.begin():
+            # E: migration must archive the last live floor, but keep its
+            # shared terrain site and building available for the next save.
+            db.get(Terrain, (SPEC['id'], seeded['org'])).archived_at = now()
+        command.upgrade(config, 'head')
+        with Session(engine) as db:
+            floor = db.get(Floor, UUID(old['floor_id']))
+            building = db.get(Building, floor.building_id)
+            site = db.get(Site, building.site_id)
+            assert floor.archived_at
+            assert site.id == identifier(seeded['org'], 'site')
+            assert site.archived_at is None and building.archived_at is None
+            site_id, building_id = site.id, building.id
+        assert http.delete(P + f'/buildings/{building_id}', headers=headers).status_code == 204
+        assert http.delete(P + f'/sites/{site_id}', headers=headers).status_code == 204
+        new_spec = {**SPEC, 'id': 't-new'}
+        # Reuse an empty archived terrain building as well as the shared site.
+        with Session(engine) as db, db.begin():
+            db.add(Building(id=identifier(seeded['org'], 't-new/building'), org_id=seeded['org'],
+                site_id=site_id, name='old name', archived_at=now()))
+        saved = put(http, headers, new_spec)
+        assert saved.status_code == 200, saved.text
+        with Session(engine) as db:
+            floor = db.get(Floor, UUID(saved.json()['floor_id']))
+            building = db.get(Building, floor.building_id)
+            assert db.get(Site, site_id).archived_at is None
+            assert building.archived_at is None and building.name == SPEC['name']
+            assert floor.archived_at is None and floor.approved_version_id
+            assert db.get(Floor, UUID(old['floor_id'])).archived_at
+            assert db.get(Terrain, (SPEC['id'], seeded['org'])).archived_at
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize('uid_delta,gid_delta', [(0, 0), (1, 0), (0, 1)])
+def test_0027_generated_files_and_directories_match_root_owner(tmp_path, monkeypatch, uid_delta, gid_delta):
+    migration = import_module('apps.server.migrations.versions.0027_sim_pairs')
+    root = tmp_path / 'files'
+    folder = root / 'maps' / 'floor'
+    folder.mkdir(parents=True)
+    created = [folder / 'map.png', folder / 'map.yaml']
+    for path in created:
+        path.touch()
+    owner = root.stat()
+    original_stat = Path.stat
+    def fake_stat(path, *args, **kwargs):
+        if path != root and root in path.parents:
+            return SimpleNamespace(st_uid=owner.st_uid + uid_delta, st_gid=owner.st_gid + gid_delta)
+        return original_stat(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'stat', fake_stat)
+    changed = []
+    monkeypatch.setattr(migration.os, 'chown', lambda *args: changed.append(args))
+    migration.match_files_owner(root, created)
+    expected = {root / 'maps', folder, *created} if uid_delta or gid_delta else set()
+    assert set(changed) == {(path, owner.st_uid, owner.st_gid) for path in expected}
+
+
+def test_0027_ownership_errors_print_and_continue(tmp_path, monkeypatch, capsys):
+    migration = import_module('apps.server.migrations.versions.0027_sim_pairs')
+    root = tmp_path / 'files'
+    folder = root / 'maps' / 'floor'
+    folder.mkdir(parents=True)
+    png, yaml = folder / 'map.png', folder / 'map.yaml'
+    owner = root.stat()
+    original_stat = Path.stat
+    def fake_stat(path, *args, **kwargs):
+        if path == png:
+            raise OSError('synthetic stat failure')
+        if path != root and root in path.parents:
+            return SimpleNamespace(st_uid=owner.st_uid + 1, st_gid=owner.st_gid + 1)
+        return original_stat(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'stat', fake_stat)
+    changed = []
+    def chown(path, uid, gid):
+        changed.append(path)
+        if path == folder:
+            raise PermissionError('synthetic chown failure')
+    monkeypatch.setattr(migration.os, 'chown', chown)
+    migration.match_files_owner(root, [png, yaml])
+    assert changed == [root / 'maps', folder, yaml]
+    output = capsys.readouterr().out
+    assert 'synthetic stat failure' in output and 'synthetic chown failure' in output
+    def root_failure(*args, **kwargs):
+        raise OSError('synthetic root failure')
+    monkeypatch.setattr(Path, 'stat', root_failure)
+    migration.match_files_owner(root, [png])
+    assert 'synthetic root failure' in capsys.readouterr().out

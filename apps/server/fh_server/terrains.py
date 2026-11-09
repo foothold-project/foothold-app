@@ -167,8 +167,12 @@ def install(app, DB, Identity, fail, authorize, event, settings):
                 building_id=building.id, name='1층', level=1, terrain_id=terrain_id, provenance='SIMULATION', floor_z=0)
             db.add(floor)
             db.flush()
-        if any(item.archived_at is not None for item in (site, building, floor)):
-            fail(409, 'RESOURCE_ARCHIVED', '지도 휴지통의 장소·건물·층을 먼저 되돌려 주세요.')
+        if floor.archived_at is not None:
+            fail(409, 'RESOURCE_ARCHIVED', '지도 휴지통의 층을 먼저 되돌려 주세요.')
+        # Saving terrain is the entry point for creating simulation places,
+        # including when all previous terrain floors and parents were archived.
+        site.archived_at = None
+        building.archived_at = None
         building.name = body.spec.name
         created = []
         try:
