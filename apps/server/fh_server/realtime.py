@@ -1163,24 +1163,30 @@ class Realtime:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
 
-    def stop_fast_server_drives(self, org_id, actor):
+    def stop_fast_server_drives(self, org_id, actor, *, settings=None):
         # Agent admission is organization-scoped. Run only on the owning loop,
         # after the settings transaction committed, without waiting on SQL.
         if org_id != self.settings.org_id:
             return
+        if settings is not None:
+            # In-flight policy reads started before this commit cannot admit motion.
+            self.real_settings_changed_at = self.clock()
+        from apps.contracts.server_drive import within_caps
         for rid, peer in list(self.agents.items()):
             record = self.arbiter.robots.get(rid)
             holder = record.holder if record else None
             if (peer.closing or peer.simulation or not peer.server_drive
                     or not holder or holder.holder_type != 'USER' or not holder.actor
-                    or not any(peer.server_drive_axes[:2])):
+                    or (within_caps(peer.server_drive_axes, settings) if settings is not None
+                        else not any(peer.server_drive_axes[:2]))):
                 continue
             effects = self.arbiter.stop(rid, actor)
             # Keep the existing STOP audit category and command-policy reason,
             # with one record per robot rather than an extra synthetic event.
             effects = [replace(e, body={**e.body, 'code': 'SERVER_DRIVE_COMMAND',
                 'data': {'reason': 'SERVER_DRIVE_COMMAND',
-                         'real_no_fast_server_drive': True}})
+                         **({'real_no_fast_server_drive': True} if settings is None else
+                            {k: getattr(settings, k) for k in C.REAL_SETTING_FIELDS})}})
                 if e.target == 'audit' else e for e in effects]
             self.apply(effects)
 
@@ -1501,12 +1507,14 @@ class Realtime:
                             self.apply(self.arbiter.respond(rid, actor, str(msg.request_id), msg.accept))
                         elif msg.t == 'cmd':
                             if self.agents[rid].server_drive and not self.agents[rid].simulation:
-                                from apps.contracts.server_drive import ALLOWED
+                                from apps.contracts.server_drive import ALLOWED, within_caps
                                 self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
+                                if peer.policy.checked < getattr(self, 'real_settings_changed_at', float('-inf')):
+                                    raise LeaseError('POLICY_STALE', '조직 속도 상한 확인을 기다리고 있습니다.', 503)
                                 if (tuple(msg.axes) not in ALLOWED or
-                                        (settings.real_no_fast_server_drive and any(msg.axes[:2]))):
+                                        not within_caps(msg.axes, settings)):
                                     self.apply(self.arbiter.stop(rid, actor))
-                                    raise LeaseError('SERVER_DRIVE_COMMAND', '허용된 시험 명령표 밖 입력입니다.', 400)
+                                    raise LeaseError('SERVER_DRIVE_COMMAND', '허용된 시험 명령표 또는 조직 속도 상한 밖 입력입니다.', 400)
                             elif any(abs(axis)>1 for axis in msg.axes):
                                 raise self.api_error(400, 'VALIDATION', '입력 형식을 확인하세요.')
                             self.apply(self.arbiter.cmd(rid, actor, str(msg.lease_id), msg.seq, msg.axes))

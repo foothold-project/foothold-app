@@ -951,6 +951,10 @@ export interface OrgSettings {
   sim_runner_vx?: number;
   sim_runner_wz?: number;
   lidar_view_m?: number;
+  real_max_vx?: number;
+  real_max_vx_back?: number;
+  real_max_vy?: number;
+  real_max_wz?: number;
   real_no_fast_server_drive?: boolean;
   model_overrides?: Record<string, Record<string, number | boolean>>;
 }
@@ -970,6 +974,10 @@ export interface OrgSettingsPatch {
   sim_runner_vx?: number;
   sim_runner_wz?: number;
   lidar_view_m?: number;
+  real_max_vx?: number;
+  real_max_vx_back?: number;
+  real_max_vy?: number;
+  real_max_wz?: number;
   real_no_fast_server_drive?: boolean;
   model_overrides?: Record<string, Record<string, number | boolean | null>>;
 }

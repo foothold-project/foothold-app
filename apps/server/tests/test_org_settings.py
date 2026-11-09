@@ -12,11 +12,12 @@ P = '/api/v1/org/settings'
 DEFAULTS = dict(sim_max_vx=1.5, sim_min_vx=0.2, sim_max_vy=0.5,
     sim_max_wz=1.2, sim_key_vx=1.5, stick_deadzone=0.1,
     sim_runner_vx=0.4, sim_runner_wz=0.6, lidar_view_m=12,
-    real_no_fast_server_drive=False)
+    real_no_fast_server_drive=False, real_max_vx=1.5, real_max_vx_back=1.5, real_max_vy=1.0, real_max_wz=4.0)
 BOUNDS = dict(sim_max_vx=(0.2, 1.5), sim_min_vx=(0.0, 0.5),
     sim_max_vy=(0.0, 0.5), sim_max_wz=(0.0, 1.2), sim_key_vx=(0.1, 1.5),
     stick_deadzone=(0.0, 0.5), sim_runner_vx=(0.1, 1.5),
-    sim_runner_wz=(0.1, 1.0), lidar_view_m=(1, 30))
+    sim_runner_wz=(0.1, 1.0), lidar_view_m=(1, 30),
+    real_max_vx=(0, 1.5), real_max_vx_back=(0, 1.5), real_max_vy=(0, 1), real_max_wz=(0, 4))
 
 
 def test_old_json_defaults_and_all_roles_read_only_admin_writes(client):
@@ -199,7 +200,7 @@ def test_unknown_model_field_and_strict_override_validation_422(client, override
     assert client.get(P).json() == before
 
 
-@pytest.mark.parametrize('field', BOUNDS)
+@pytest.mark.parametrize('field', [key for key in BOUNDS if key in C.SIM_SETTING_FIELDS])
 def test_model_ranges_match_common_ranges(client, field):
     headers = csrf(client)
     low, high = BOUNDS[field]
@@ -270,3 +271,15 @@ def test_contract_model_ids_and_kinds_match_policy_registry():
     for model, kind in registry.items():
         assert C.MODEL_SETTING_FIELDS[model] == (frozenset()
             if kind == 'none' else C.SIM_SETTING_FIELDS)
+
+
+@pytest.mark.parametrize('field', ('real_max_vx', 'real_max_vx_back', 'real_max_vy', 'real_max_wz'))
+def test_real_caps_only_admin_patch_persist_zero_and_reject_overflow(client, field):
+    operator = csrf(client, 'one')
+    before = client.get(P).json()
+    assert client.patch(P, headers=operator, json={field: 0}).status_code == 403
+    assert client.get(P).json() == before
+    assert client.patch(P, headers=csrf(client, 'admin'), json={field: 0}).status_code == 200
+    assert client.get(P).json()[field] == 0
+    assert client.patch(P, headers=csrf(client, 'admin'), json={field: BOUNDS[field][1] + .01}).status_code == 400
+    assert client.get(P).json()[field] == 0

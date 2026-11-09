@@ -1,14 +1,15 @@
 // 실기 직결 조종 화면(10-30 PHONE-REAL-CONNECT, 09 ADR-002 §3·§5): 주변 찾기에서 고른 로봇 에이전트에 폰이 직접(앱 중계 Go2Link) 붙은 뒤.
 // 상태·요청은 phone.ts(시뮬과 같은 fh-phone/1 — 출입증·조종권·잠금·STOP·deadman 판정은 에이전트), 이 파일은 그림만. 틀은 시뮬 조종 화면(dv) 그대로.
-// 실기는 아직 실제 기체에서 확인하지 않았다 — 알약·안내에 «미검증»을 늘 보인다. 명령은 로봇이 알린 limits 로만 자른다(실기 = 정지·전진·전진하며 좌우 회전).
+// 실기는 아직 실제 기체에서 확인하지 않았다 — 알약·안내에 «미검증»을 늘 보인다. 명령은 조직 설정과 로봇이 알린 limits 중 작은 값으로 자른다(실기 = 정지·전진·전진하며 좌우 회전).
 // STOP 은 App 머리줄(늘 보임). 끊기면 로봇이 스스로 0·잠금, 자동 다시 연결·자동 재개 없음.
 import { useEffect, useRef, useState } from 'react';
-import { UNVERIFIED, allowed, sim, useSim } from './phone';
+import { UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
 import { Stick } from './drive';
 import { Video, stopText, useTick } from './simdrive';
 import type { Tone } from './fake';
 
 export function RealDrive() {
+  useTuneSettings();
   const s = useSim(), l = s.link!, st = l.st, w = l.welcome, real = s.real!;
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
   const input = useRef<[number, number]>([0, 0]), gen = useRef(0);   // [전후, 회전]
@@ -46,7 +47,8 @@ export function RealDrive() {
     l.at === 'closed' && <button key="re" type="button" className="btn pri" onClick={() => sim.connect()}>다시 연결</button>,
     !leaving && open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>,
   ].filter(Boolean);
-  const range = w && `로봇 허용: 앞 ${w.limits.vx_max.toFixed(2)} m/s${can.back ? '' : ' · 후진 없음'}${can.left || can.right ? '' : ' · 옆걸음 없음'} · 회전 ±${w.limits.wz_max} rad/s${can.spin ? '' : '(앞으로 밀면서만)'}`;
+  const L = w && tuned(w).L;
+  const range = L && `실효 상한: 앞 ${L.vx_max.toFixed(2)} · ${L.vx_min < 0 ? `뒤 ${Math.abs(L.vx_min).toFixed(2)}` : '후진 없음'} · 옆 ${Math.max(L.vy_max, -L.vy_min).toFixed(2)} m/s · 회전 ${L.wz_min}~${L.wz_max} rad/s${can.spin ? '' : '(앞으로 밀면서만)'}`;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="실기 조종" data-real-drive onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
       <Video ch="rgb" fit="cover" />

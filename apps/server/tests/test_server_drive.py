@@ -159,7 +159,7 @@ def test_org_fast_drive_restriction_only_narrows_existing_table(trial, seeded, n
             for seq, axes in enumerate(sorted(ALLOWED)):
                 trial.portal.call(asyncio.sleep, 0.05)  # Respect the existing intent rate limit.
                 result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=seq, axes=axes))
-                if no_fast and any(axes[:2]):
+                if (no_fast and any(axes[:2])) or axes[1]:
                     assert result['ok'] is False
                     assert result['error']['code'] == 'SERVER_DRIVE_COMMAND'
                     receive(ag, 'stop')
@@ -196,7 +196,7 @@ def test_real_fast_drive_setting_does_not_restrict_simulation(client, seeded, rt
         assert receive(ag, 'cmd')['axes'] == [1, 0, 0]
 
 
-@pytest.mark.parametrize('axes', ([1.5, 0, 0], [0, -1.5, 0], [0, 0, .5], [0, 0, 0]))
+@pytest.mark.parametrize('axes', ([1.5, 0, 0], [-1.5, 0, 0], [0, 0, .5], [0, 0, 0]))
 def test_enable_stops_last_translation_once_after_commit(trial, seeded, monkeypatch, axes):
     rid = seeded['robots']['mine']
     owner, admin = app_token(trial), app_token(trial, 'admin')
@@ -294,8 +294,41 @@ def test_browser_org_caps_do_not_change_physical_server_drive_alphabet(trial, se
             for seq, axes in enumerate(sorted(ALLOWED), start=1):
                 time.sleep(.06)  # Keep the real 20 Hz command-rate guard enabled.
                 ack = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=seq, axes=list(axes)))
-                assert ack['ok'], (axes, ack)
-                assert receive(ag, 'cmd')['axes'] == list(axes)
+                if axes[1]:  # Fixed 1.5 side commands exceed the SDK organization maximum 1.0.
+                    assert ack['error']['code'] == 'SERVER_DRIVE_COMMAND'
+                    receive(ag, 'stop')
+                else:
+                    assert ack['ok'], (axes, ack)
+                    assert receive(ag, 'cmd')['axes'] == list(axes)
             result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=len(ALLOWED)+1, axes=[0, 0, 1.2]))
             assert result['error']['code'] == 'VALIDATION'  # Rejected at the unchanged wire schema.
             receive(ag, 'stop')
+
+
+@pytest.mark.parametrize('patch,axes', [({'real_max_vx': 1.49}, [1.5, 0, 0]),
+    ({'real_max_vx_back': 0}, [-1.5, 0, 0]), ({'real_max_vy': 1}, [0, 1.5, 0]),
+    ({'real_max_wz': .49}, [0, 0, .5]), ({'real_max_wz': 0}, [1.5, 0, -.5])])
+def test_real_caps_reject_over_limit_table_commands_with_stop(trial, seeded, patch, axes):
+    assert trial.patch('/api/v1/org/settings', headers=app_token(trial, 'admin'), json=patch).status_code == 200
+    test_outside_exact_table_is_stopped_and_rejected(trial, seeded, axes)
+
+
+@pytest.mark.parametrize('axes,patch', [([1.5, 0, 0], {'real_max_vx': .5}),
+                                      ([0, 0, .5], {'real_max_wz': 0})])
+def test_lowering_caps_stops_retained_translation_or_rotation_after_commit(trial, seeded, axes, patch):
+    rid = seeded['robots']['mine']
+    owner, admin = app_token(trial), app_token(trial, 'admin')
+    with trial.websocket_connect('/api/v1/agent/ws', headers={'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello()); receive(ag, 'lease'); receive(ag, 'stop')
+        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
+            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        with screen(trial, owner) as ws:
+            lease = take(ws, ag, rid)
+            assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=axes))['ok']
+            receive(ag, 'cmd')
+            assert trial.patch('/api/v1/org/settings', headers=admin, json=patch).status_code == 200
+            assert receive(ag, 'stop')['by_user_id'] == str(seeded['users']['admin'])
+            time.sleep(.1)
+            rejected = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=2, axes=axes))
+            assert not rejected['ok'] and rejected['error']['code'] in ('POLICY_STALE', 'SERVER_DRIVE_COMMAND')

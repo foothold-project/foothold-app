@@ -278,7 +278,7 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     expect(['공통', '실기', '시뮬', '계정'].map((n) => panel(n).hidden)).toEqual([false, true, true, true]);
     const names = (n: string) => [...panel(n).querySelectorAll('input[name]')].map((i) => i.getAttribute('name'));
     expect(names('공통')).toEqual(['battery_low_pct', 'run_min_battery_pct', 'deviation_m']);
-    expect(names('실기')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s', 'real_no_fast_server_drive']);
+    expect(names('실기')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s', 'real_max_vx', 'real_max_vx_back', 'real_max_vy', 'real_max_wz', 'real_no_fast_server_drive']);
     expect(names('시뮬')).toEqual(['sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
     expect(panel('시뮬').querySelector('[aria-label="로봇"]')).not.toBeNull();
     expect(panel('계정').querySelector('[aria-label="내 정보"]')).not.toBeNull();
@@ -328,6 +328,21 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     await submit($('form', cap)!);
     expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vy: .5, sim_max_wz: 1.2 });
   });
+  it('실기 속도 4칸은 총괄이 0까지 저장', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG },
+      'PATCH /org/settings': { status: 200, body: { ...ORG, real_max_vx: 0, real_max_vx_back: .5, real_max_vy: .2, real_max_wz: .3 } } }));
+    await open();
+    const cap = card('속도 제한');
+    expect(cap.textContent).toContain('실기 미검증');
+    expect(cap.textContent).toContain('로봇 쪽 상한보다 높게 넣어도 로봇 상한까지만');
+    for (const [name, value, max] of [['real_max_vx', '0', '1.5'], ['real_max_vx_back', '.5', '1.5'], ['real_max_vy', '.2', '1'], ['real_max_wz', '.3', '4']]) {
+      const input = $<HTMLInputElement>(`input[name="${name}"]`, cap)!;
+      expect(input.min).toBe('0'); expect(input.max).toBe(max); expect(input.disabled).toBe(false);
+      setVal(input, value);
+    }
+    await submit($('form', cap)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ real_max_vx: 0, real_max_vx_back: .5, real_max_vy: .2, real_max_wz: .3 });
+  });
   it('실기 «서버 경유 빠른 이동 끄기»: 바꾼 칸만 PATCH(true)', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, real_no_fast_server_drive: true } } }));
     await open();
@@ -363,7 +378,7 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     await open();
     expect(tabs().map((t) => t.textContent)).toEqual(['공통', '실기', '시뮬', '계정']);
     const inputs = [...box.querySelectorAll<HTMLInputElement>('[role="tabpanel"] form input[name]')].filter((i) => !['display_name', 'current', 'next', 'again'].includes(i.name));
-    expect(inputs).toHaveLength(15);
+    expect(inputs).toHaveLength(19);
     for (const i of inputs) expect(i.type === 'number' ? i.readOnly : i.disabled, i.name).toBe(true);
     const saves = [...box.querySelectorAll<HTMLButtonElement>('[role="tabpanel"] button')].filter((b) => b.textContent === '저장');
     expect(saves).toHaveLength(6);
