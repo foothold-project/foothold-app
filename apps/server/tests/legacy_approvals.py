@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from apps.server.fh_server import approvals
+from apps.server.fh_server.api import fail
 from apps.server.fh_server.models import Assignment, MapVersion, ScenarioVersion, Upload, User
 from .test_maps import FEATURES, P
 
@@ -58,7 +59,7 @@ def pending_assignment(http, headers, scenario, robot, *, database_url=None):
                 status='PENDING', memo='배정 시험', created_by=user.id)
             db.add(row)
             db.flush()
-            row.approval_id = approvals.request_assignment(db, user, row).id
+            row.approval_id = approvals.request_assignment(db, user, row, fail).id
             identifier = str(row.id)
     finally:
         engine.dispose()

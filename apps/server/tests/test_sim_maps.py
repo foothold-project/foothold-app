@@ -137,6 +137,7 @@ def test_import_approved_idempotent_image_replacement_and_snapshots(maps, seeded
     assert http.get(P + '/sites').json()['items'] == []  # Opt-in, no startup import.
     changed = sync(http, seeded, world_folder, files)
     assert len(changed) == 1
+    assert http.get(P + '/sites').json()['items'][0]['purpose'] == 'SIM'
     assert counts(http) == [1, 1, 1, 1, 1, 0, 12, 12, 3, 3]
     before = counts(http)
     assert sync(http, seeded, world_folder, files) == []
@@ -212,40 +213,26 @@ def test_group_world_floors_and_catalog_links_are_tenant_scoped(maps, seeded, wo
     app.state.engine.dispose()
 
 
-def test_simulation_target_enforced_for_admin_operator_and_approval(maps, seeded, world_folder):
+def test_simulation_place_rejects_assignment_to_real_and_sim_robots(maps, seeded, world_folder):
     http, admin, files = maps
     http.headers.update(admin)
     sync(http, seeded, world_folder, files)
     scenario = http.get(P + '/scenarios').json()['items'][0]
     body = dict(scenario_id=scenario['id'], scenario_version=1, robot_id=str(seeded['robots']['mine']), memo='시험')
-    for headers in (admin, auth(http, 'one')):
-        denied = http.post(P + '/assignments', headers=headers, json=body)
-        assert denied.status_code == 422
-        assert denied.json()['error']['code'] == 'SIM_MAP_REQUIRES_SIM_ROBOT'
-    with Session(http.app.state.engine) as db, db.begin():
-        robot = db.get(Robot, seeded['robots']['mine'])
-        version = db.scalar(select(ScenarioVersion).where(ScenarioVersion.scenario_id == UUID(scenario['id'])))
-        with pytest.raises(APIError) as exc:
-            require_target(db, version, robot, lambda *a: (_ for _ in ()).throw(APIError(*a)))
-        assert exc.value.code == 'SIM_MAP_REQUIRES_SIM_ROBOT'
-    # Simulate only the already-existing provenance, never start a manager/slot.
     engine = create_engine(seeded['urls']['migrate'])
-    with engine.begin() as conn:
-        conn.execute(text('UPDATE robots SET simulation=true WHERE id=:id'), {'id': seeded['robots']['mine']})
-    from .legacy_approvals import pending_assignment
-    one = auth(http, 'one')
-    direct = http.post(P + '/assignments', headers=one, json=body)
-    assert direct.status_code == 201, direct.text
-    assert direct.json()['status'] == 'ACTIVE' and direct.json()['approval_id'] is None
-    assert http.get(P + '/approvals', headers=admin).json()['items'] == []
-    assert http.delete(P + '/assignments/' + direct.json()['id'], headers=admin).status_code == 204
-    # Existing requests must still revalidate provenance during a decision.
-    pending = pending_assignment(http, one, scenario, seeded['robots']['mine'])
-    with engine.begin() as conn:
-        conn.execute(text('UPDATE robots SET simulation=false WHERE id=:id'), {'id': seeded['robots']['mine']})
-    stale = http.post(P + '/approvals/' + pending['approval_id'] + '/approve', headers=admin, json={})
-    assert stale.status_code == 409 and stale.json()['error']['code'] == 'APPROVAL_STALE'
-    engine.dispose()
+    try:
+        for simulation in (False, True):
+            with engine.begin() as conn:
+                conn.execute(text('UPDATE robots SET simulation=:sim WHERE id=:id'),
+                             {'sim': simulation, 'id': seeded['robots']['mine']})
+            for headers in (admin, auth(http, 'one')):
+                denied = http.post(P + '/assignments', headers=headers, json=body)
+                assert denied.status_code == 409, denied.text
+                assert denied.json()['error']['code'] == 'SIM_SCENARIO_NO_ASSIGN'
+        assert http.get(P + '/assignments').json()['items'] == []
+        assert http.get(P + '/approvals').json()['items'] == []
+    finally:
+        engine.dispose()
 
 
 def test_all_preset_points_clear_occupied_and_unknown_by_half_meter(world_folder):
@@ -301,7 +288,7 @@ def test_downgrade_refuses_to_erase_simulation_provenance(maps, seeded, world_fo
         assert db.scalar(select(Floor.provenance)) == 'SIMULATION'
     engine = create_engine(seeded['urls']['migrate'])
     with engine.connect() as conn:
-        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0024'
+        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0026'
     engine.dispose()
 
 

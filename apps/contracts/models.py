@@ -20,6 +20,10 @@ def omitted(**constraints):
 
 # 422: simulated map snapshots can only target server-provisioned simulation robots.
 SIM_MAP_REQUIRES_SIM_ROBOT = 'SIM_MAP_REQUIRES_SIM_ROBOT'
+SIM_SCENARIO_NO_ASSIGN = 'SIM_SCENARIO_NO_ASSIGN'
+SCENARIO_MIXED_PURPOSE = 'SCENARIO_MIXED_PURPOSE'
+
+SitePurpose = Literal['SIM', 'REAL']
 
 Role = Literal['ORG_ADMIN', 'OPERATOR']
 Category = Literal['RUN', 'ROUTE', 'LINK', 'LEASE', 'APPROVAL', 'SAFETY', 'ACCOUNT']
@@ -1127,6 +1131,10 @@ class MapName(Contract):
     name: MapNameText = Field(min_length=1, max_length=128, pattern=r'\S')
 
 
+class SiteCreate(MapName):
+    purpose: SitePurpose = 'REAL'
+
+
 TerrainNumber = Annotated[float, Field(strict=True)]
 TerrainPositive = Annotated[float, Field(strict=True, gt=0)]
 
@@ -1259,6 +1267,7 @@ class MapSite(Contract):
     archived_at: UTCDateTime | None = None
     id: UUID
     name: str
+    purpose: SitePurpose
     buildings: list[MapBuilding] = Field(default_factory=list)
 
 
@@ -2738,13 +2747,13 @@ class FieldApproval(Contract):
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
-REQUEST_MODELS = {AssignmentCreate, IdempotencyHeaders, ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
+REQUEST_MODELS = {SiteCreate, AssignmentCreate, IdempotencyHeaders, ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
 REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartRequest, SimProvision, SimRemove})
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 
-TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT']
+TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT', 'SIM_SCENARIO_NO_ASSIGN', 'SCENARIO_MIXED_PURPOSE']
 TOP.update(RunStatus=RunStatus, RunRecordStatus=RunRecordStatus, RunWaitReason=RunWaitReason,
            RunFailCode=RunFailCode, RunRejectCode=RunRejectCode,
            RunReportTransientCode=RunReportTransientCode, RunReportPermanentCode=RunReportPermanentCode)

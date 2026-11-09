@@ -246,9 +246,11 @@ class RobotDevice(Tenant, Base):
 class Site(Tenant, Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = 'sites'
-    __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']), UniqueConstraint('org_id', 'id'))
+    __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']), UniqueConstraint('org_id', 'id'),
+        CheckConstraint("purpose IN ('SIM','REAL')", name='site_purpose'))
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(Text)
+    purpose: Mapped[str] = mapped_column(Text, default='REAL', server_default=text("'REAL'"))
 
 
 class Building(Tenant, Base):

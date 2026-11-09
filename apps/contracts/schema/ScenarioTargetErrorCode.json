@@ -1,6 +1,10 @@
 {
   "$id": "fh-app/1/ScenarioTargetErrorCode",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "const": "SIM_MAP_REQUIRES_SIM_ROBOT",
+  "enum": [
+    "SIM_MAP_REQUIRES_SIM_ROBOT",
+    "SIM_SCENARIO_NO_ASSIGN",
+    "SCENARIO_MIXED_PURPOSE"
+  ],
   "type": "string"
 }

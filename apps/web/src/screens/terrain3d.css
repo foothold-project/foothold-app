@@ -1,0 +1,6 @@
+/* 지형 만들기 3D 화면(terrain3d.tsx). 단추는 기존 .btn, 색은 기존 토큰만 */
+.tr-3d{flex:1;min-height:0;position:relative;outline-offset:-2px;background:var(--bg)}
+.tr-3d:focus-visible{outline:2px solid var(--accent)}
+.tr-3d>canvas{display:block;width:100%;height:100%;touch-action:none}
+.tr-3d[data-tool]:not([data-tool="select"])>canvas{cursor:crosshair}
+.tr-3d-views{position:absolute;top:8px;right:8px;z-index:1;display:flex;gap:4px}

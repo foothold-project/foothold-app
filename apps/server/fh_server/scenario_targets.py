@@ -1,8 +1,21 @@
 """Shared target boundary for assignment and future server execution prechecks."""
 from sqlalchemy import select
-from apps.contracts.models import SIM_MAP_REQUIRES_SIM_ROBOT
-from .models import MapVersion
+from apps.contracts.models import SIM_MAP_REQUIRES_SIM_ROBOT, SIM_SCENARIO_NO_ASSIGN
+from .models import Building, Floor, MapVersion, Site
 from .resource_archive import require_live_floors
+
+
+def site_purposes(db, org_id, floor_ids):
+    """Purpose follows the place, independently of map content provenance."""
+    return set(db.scalars(select(Site.purpose).join(Building,
+        (Building.org_id == Site.org_id) & (Building.site_id == Site.id)).join(Floor,
+        (Floor.org_id == Building.org_id) & (Floor.building_id == Building.id)).where(
+            Site.org_id == org_id, Floor.id.in_(floor_ids)).distinct()))
+
+
+def require_assignable(db, version, fail):
+    if 'SIM' in site_purposes(db, version.org_id, version.floor_ids):
+        fail(409, SIM_SCENARIO_NO_ASSIGN, '시뮬 시나리오는 시뮬 탭에서 바로 실행합니다')
 
 
 def simulation_only(db, version):
