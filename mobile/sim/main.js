@@ -9,7 +9,7 @@ import load from './mujoco/mujoco.js';
 import { createSim, ISAAC_LIKE } from './sim.js';
 import { POLICY_MODES, DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
 import { ame2Joystick } from './ame2-adapter.js';
-import { topFrame, topPoint } from './top-fit.js';
+import { topFrame, topPoint, validateStart, startPickUrl } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, createPatrolRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
 import { treeFromScenario, treeRows, ACTION_SECONDS, validateTree } from './bt.js';
@@ -296,13 +296,9 @@ async function main() {
   inflate(map);   // 선택한 층의 길 찾기 막힘 격자를 미리(쉬어 가며) 만들어 둔다
   let start = map.spawn_xyyaw.slice(), startReason = '';
   if (params.has('start')) {
-    const fields = params.get('start').split(',').map((v) => v.trim());
-    const values = fields.map(Number), [x, y] = values;
-    if (![2, 3].includes(fields.length) || fields.some((v) => !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(v)) || !values.every(Number.isFinite)) startReason = '좌표·방향은 유한한 숫자여야 합니다';
-    else if (x < map.origin[0] || y < map.origin[1] || x >= map.origin[0] + map.w * map.res || y >= map.origin[1] + map.h * map.res) startReason = '지도 밖';
-    else if (cell(map, x, y) !== 254) startReason = '장애물·모르는 칸';
-    else if (!(await fits(map, { x, y }))) startReason = `벽·물건에서 ${CLEARANCE} m 안`;
-    else start = [x, y, values[2] ?? start[2]];
+    const checked = await validateStart(map, params.get('start'));
+    startReason = checked.reason;
+    if (checked.start) start = checked.start;
   }
   const startNote = startReason ? `고른 시작 위치를 쓸 수 없어 기본 위치에서 시작(${startReason})` : '';
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
@@ -488,8 +484,10 @@ async function main() {
   const initialScenario = params.has('bt') && !btNote ? scenarios[0] : scenarios.find((s) => s.floor === startFloor);
   if (initialScenario) select.value = initialScenario.id;
   let scenarioText = '', here = startFloor, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
+  let updateStartPick = () => {};
   const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
   const scenarioUI = () => {
+    updateStartPick();
     if (readonly) {
       select.disabled = $('scenarioRun').disabled = $('scenarioHalt').disabled = true;
       $('scenarioStatus').textContent = '실기 보기 전용'; $('scenarioHint').hidden = true;
@@ -817,20 +815,60 @@ async function main() {
     if (on && curMark() !== shown) drawMarks();   // 목적지에 닿음 = 그 고리 지우고 다음을 진하게
     const m = on && marks[curMark()];
     // 안내(추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
-    const text = picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote || btNote;
+    const text = startPicking ? startPickReason || '다시 시작할 바닥을 찍으세요 · Esc로 취소' : picking && now - planningSince >= 500 ? '길 찾는 중' : now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 목적지 ${curMark() + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : startNote || btNote;
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 
   // ── 따라가기: 기존 돌리기. 탑뷰: 끌어 이동·가리킨 곳 확대, 중심은 프레임 사이 보존.
   const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0, topX: null, topY: null };
   let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
+  let startPicking = false, startPickReason = '', startPickEpoch = 0, startPickBusy = false;
+  const cancelStartPick = () => {
+    startPicking = false; startPickReason = ''; startPickEpoch++; startPickBusy = false;
+    $('topCenter').setAttribute('aria-pressed', 'false');
+  };
+  const startPickBlocked = () => readonly || patrol.active || runner.active;
+  updateStartPick = () => {
+    $('topCenter').disabled = startPickBlocked();
+    if (startPickBlocked() && startPicking) cancelStartPick();
+  };
+  addEventListener('keydown', (e) => { if (e.code === 'Escape') cancelStartPick(); });
+  const viewedMap = () => layers[pin === 'all' ? here : pin ?? here].map;
   const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
-  const topFit = () => topFrame(map, vp[2] / vp[3], view.topRot, view.topH, [view.topX, view.topY]);
+  const topFit = () => topFrame(viewedMap(), vp[2] / vp[3], view.topRot, view.topH, [view.topX, view.topY]);
   const centerTop = (x, y) => {
-    const f = topFrame(map, vp[2] / vp[3], view.topRot, view.topH, [x, y]);
+    const f = topFrame(viewedMap(), vp[2] / vp[3], view.topRot, view.topH, [x, y]);
     view.topX = f.cx; view.topY = f.cy;
   };
   const pointAt = (x, y) => topPoint(topFit(), view.topRot, (x - vp[0]) / vp[2], (y - vp[1]) / vp[3]);
+  const pickStart = async (x, y) => {
+    if (!startPicking || !top || startPickBlocked() || startPickBusy) return;
+    if (pin === 'all') { startPickReason = '시작할 층을 먼저 고르세요'; return; }
+    const floor = pin ?? here, epoch = startPickEpoch, [px, py] = pointAt(x, y);
+    startPickBusy = true;
+    try {
+      const checked = await startPickUrl(layers[floor].map, location.href, px, py, yawOf(), floors[floor]?.id ?? null);
+      if (epoch !== startPickEpoch || !startPicking || !top || startPickBlocked() || floor !== (pin ?? here)) return;
+      if (checked.reason) { startPickReason = `시작할 수 없습니다 · ${checked.reason}`; return; }
+      location.href = checked.url;
+    } finally { if (epoch === startPickEpoch) startPickBusy = false; }
+  };
+
+  // CSS-pixel geometry scaled by the orthographic viewport each frame.
+  // Transparent render list + high order keeps it above translucent floor maps too.
+  const robotLocator = new THREE.Group(); scene.add(robotLocator);
+  const locatorPart = (geo, color, order) => {
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true }));
+    mesh.renderOrder = 1000 + order; mesh.frustumCulled = false; robotLocator.add(mesh); return mesh;
+  };
+  locatorPart(new THREE.CircleGeometry(19, 48), 0x101820, 0);
+  locatorPart(new THREE.CircleGeometry(17, 48), 0xffffff, 1);
+  locatorPart(new THREE.CircleGeometry(14, 48), 0x007fa8, 2);
+  const arrow = new THREE.Shape();
+  arrow.moveTo(27, 0); arrow.lineTo(4, 10); arrow.lineTo(8, 0); arrow.lineTo(4, -10); arrow.closePath();
+  locatorPart(new THREE.ShapeGeometry(arrow), 0x101820, 3);
+  locatorPart(new THREE.ShapeGeometry(arrow), 0xffffff, 4).scale.setScalar(.78);
+  robotLocator.visible = false;
   const zoom = (k, x, y, toX = x, toY = y) => {
     if (!top) { view.dist = clamp(view.dist * k, 0.8, 8); return; }
     const before = pointAt(x, y);
@@ -856,7 +894,10 @@ async function main() {
   });
   cv.addEventListener('pointerup', (e) => {
     // Event timestamps measure the press, even if rendering delays its handlers.
-    if (tap?.id === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) <= 8 && e.timeStamp - tap.t < 500) goTo(e.clientX, e.clientY);
+    if (tap?.id === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) <= 8 && e.timeStamp - tap.t < 500) {
+      if (startPicking) void pickStart(e.clientX, e.clientY);
+      else goTo(e.clientX, e.clientY);
+    }
     tap = null;
   });
   cv.addEventListener('pointermove', (e) => {
@@ -879,11 +920,17 @@ async function main() {
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) cv.addEventListener(ev, (e) => { ptrs.delete(e.pointerId); pinch = null; tap = null; });
   for (const ev of ['blur', 'pagehide']) addEventListener(ev, () => { ptrs.clear(); pinch = null; tap = null; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001), e.clientX, e.clientY); }, { passive: false });
-  $('topCenter').onclick = () => { view.topH = 1; view.topRot = 0; view.topX = view.topY = null; };
+  $('topCenter').onclick = () => {
+    if (startPickBlocked() || !top) return;
+    if (startPicking) cancelStartPick();
+    else { startPicking = true; startPickReason = ''; $('topCenter').setAttribute('aria-pressed', 'true'); }
+  };
 
   $('reset').onclick = () => { lock(); lastCmd = neutral(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
+    cancelStartPick();
+    if (top) { view.topH = 1; view.topRot = 0; view.topX = view.topY = null; }
     $('cam').setAttribute('aria-pressed', String(top));
     $('cam').setAttribute('aria-label', top ? '따라가기' : '위에서 보기');
     $('topCenter').hidden = !top;
@@ -902,7 +949,7 @@ async function main() {
   const bar = $('floorBar'), fbs = [['all', '전체'], ...floors.map((f, i) => [i, f.name])].map(([k, t]) => {
     const b = document.createElement('button'); b.type = 'button'; b.dataset.floor = k; b.textContent = t;
     if (k !== 'all') b.style.boxShadow = `inset 5px 0 0 rgb(${FLOOR_RGB[k % FLOOR_RGB.length]})`;   // 전체 겹침 범례
-    b.onclick = () => { pin = k === 'all' ? 'all' : k === here ? null : k; };
+    b.onclick = () => { pin = k === 'all' ? 'all' : k === here ? null : k; startPickEpoch++; startPickBusy = false; startPickReason = ''; };
     bar.append(b); return [k, b, t];
   });
   let floorKey = '';
@@ -925,6 +972,8 @@ async function main() {
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
       floorZ: layers[startFloor].map.floor_z, spawnFloorZ: sim.spawnFloorZ, custom: params.has('start') && !startReason, reason: startReason, note: startNote }), mission: () => ({ note: btNote, id: scenarios[0]?.id ?? null }),
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner, patrol, patrolMarks: () => patrolMarks.children.length,
+    startPicking: () => ({ active: startPicking, busy: startPickBusy, reason: startPickReason }),
+    locator: () => ({ visible: robotLocator.visible, xy: robotLocator.position.toArray().slice(0, 2), yaw: robotLocator.rotation.z, scale: robotLocator.scale.x, pixels: robotLocator.scale.x * vp[3] / topFit().height }),
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y, z = map.heightAt?.(x, y) ?? map.floor_z) => { const v = new THREE.Vector3(x, y, Number.isFinite(z) ? z : map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
     marks: () => marks.map((p) => ({ ...p })), plan: () => plan.map((p) => ({ ...p })), rings: () => marksG.children.map((c) => c.material.opacity),
@@ -1002,6 +1051,9 @@ async function main() {
       const width = innerWidth - 24, height = Math.max(1, lower - upper);
       renderer.setViewport(12, innerHeight - lower, width, height); vp = [12, upper, width, height];
       const fit = topFit();
+      robotLocator.position.set(bx, by, viewedMap().floor_z + .05);
+      robotLocator.rotation.z = yawOf();
+      robotLocator.scale.setScalar(fit.height / height);
       view.topX = fit.cx; view.topY = fit.cy;
       topCamera.left = -fit.width / 2; topCamera.right = fit.width / 2;
       topCamera.top = fit.height / 2; topCamera.bottom = -fit.height / 2;
@@ -1016,6 +1068,7 @@ async function main() {
       camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx, by, bz);
       camera.near = 0.05;
     }
+    robotLocator.visible = top;
     camera.updateProjectionMatrix();
     camera.position.lerp(camPos, top || !camera.position.lengthSq() ? 1 : 0.25);   // 첫 프레임(원점)은 바로 제자리
     camera.lookAt(look);
