@@ -472,7 +472,7 @@ class NotificationsRead(Contract):
 SIM_SETTING_FIELDS = frozenset(('sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz',
     'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m'))
 MODEL_SETTING_FIELDS = {key: SIM_SETTING_FIELDS for key in ('nvidia-demo', 'ame2-demo', 'start-demo')}
-REAL_SETTING_FIELDS = frozenset(('real_no_fast_server_drive',))
+REAL_SETTING_FIELDS = frozenset(('real_no_fast_server_drive', 'real_max_vx', 'real_max_vx_back', 'real_max_vy', 'real_max_wz'))
 REAL_SETTING_MODELS: frozenset[str] = frozenset()
 MODEL_SETTING_FIELDS.update({key: REAL_SETTING_FIELDS for key in REAL_SETTING_MODELS})
 MODEL_SETTING_FIELDS['go2-demo'] = frozenset()
@@ -504,7 +504,8 @@ class OrgSettings(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx',
         'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m',
-        'real_no_fast_server_drive', 'model_overrides'))
+        'real_no_fast_server_drive', 'real_max_vx', 'real_max_vx_back',
+        'real_max_vy', 'real_max_wz', 'model_overrides'))
 
     battery_low_pct: int = Field(default=20, ge=5, le=50, strict=True)
     run_min_battery_pct: int = Field(default=30, ge=10, le=90, strict=True)
@@ -520,6 +521,10 @@ class OrgSettings(Contract):
     sim_runner_vx: float = Field(default=0.4, ge=0.1, le=1.5, strict=True)
     sim_runner_wz: float = Field(default=0.6, ge=0.1, le=1.0, strict=True)
     lidar_view_m: int = Field(default=12, ge=1, le=30, strict=True)
+    real_max_vx: float = Field(default=1.5, ge=0, le=1.5, strict=True)
+    real_max_vx_back: float = Field(default=1.5, ge=0, le=1.5, strict=True)
+    real_max_vy: float = Field(default=1.0, ge=0, le=1.0, strict=True)
+    real_max_wz: float = Field(default=4.0, ge=0, le=4.0, strict=True)
     real_no_fast_server_drive: bool = Field(default=False, strict=True)
     model_overrides: dict[str, dict[str, SettingValue]] = Field(default_factory=dict)
 
@@ -566,6 +571,10 @@ class OrgSettingsPatch(Contract):
     sim_runner_vx: float = omitted(ge=0.1, le=1.5, strict=True)
     sim_runner_wz: float = omitted(ge=0.1, le=1.0, strict=True)
     lidar_view_m: int = omitted(ge=1, le=30, strict=True)
+    real_max_vx: float = omitted(ge=0, le=1.5, strict=True)
+    real_max_vx_back: float = omitted(ge=0, le=1.5, strict=True)
+    real_max_vy: float = omitted(ge=0, le=1.0, strict=True)
+    real_max_wz: float = omitted(ge=0, le=4.0, strict=True)
     real_no_fast_server_drive: bool = omitted(strict=True)
     model_overrides: dict[str, dict[str, SettingValue | None]] = omitted()
 

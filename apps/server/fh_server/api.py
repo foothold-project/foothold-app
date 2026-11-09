@@ -822,11 +822,13 @@ def create_app(settings: Settings | None = None):
     @app.patch(prefix + '/org/settings', response_model=C.OrgSettings)
     async def patch_settings(body: C.OrgSettingsPatch, auth: Identity, db: DB):
         result, enabled = await asyncio.to_thread(save_settings, body, auth, db)
-        if enabled:
+        caps_changed = bool(body.model_fields_set & (C.REAL_SETTING_FIELDS - {'real_no_fast_server_drive'}))
+        if enabled or caps_changed:
             from .leases import Actor
             user, session = auth
             app.state.realtime.stop_fast_server_drives(user.org_id,
-                Actor(str(user.id), str(session.id), '', user.display_name, user.role))
+                Actor(str(user.id), str(session.id), '', user.display_name, user.role),
+                **({'settings': result} if caps_changed else {}))
         return result
 
     def save_settings(body, auth, db):

@@ -8,6 +8,7 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
+import { simTune } from '../phone';
 import { SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
@@ -26,7 +27,7 @@ function mount(user: string, robots: Robot[] = ON) {
 const unmount = () => { act(() => root!.unmount()); root = null; box.remove(); };
 beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); });
 afterEach(() => {
-  act(() => root?.unmount()); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
+  act(() => root?.unmount()); simTune(null); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
   delete (document as { visibilityState?: string }).visibilityState;
 });
 
@@ -93,8 +94,8 @@ describe('서버 경유 시험 조종 패널', () => {
     ready();
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
     expect(hold(['ArrowDown'])).toBe('-1.5,0,0');
-    expect(hold(['ArrowLeft'])).toBe('0,1.5,0');
-    expect(hold(['ArrowRight'])).toBe('0,-1.5,0');
+    expect(hold(['ArrowLeft'])).toBe('0,0,0');
+    expect(hold(['ArrowRight'])).toBe('0,0,0');
     expect(hold(['KeyA'])).toBe('0,0,0.5');
     expect(hold(['KeyD'])).toBe('0,0,-0.5');
     expect(hold(['ArrowUp', 'KeyA'])).toBe('1.5,0,0.5');
@@ -104,11 +105,27 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
   });
 
+  it('조직 상한을 넘는 단추·키는 0, 저장으로 낮추면 즉시 0이며 올려도 자동 재개 없음', () => {
+    ready(); view();
+    expect(($('[data-sd-move="left"]') as HTMLButtonElement).disabled).toBe(true);
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => simTune({ real_max_vx: .5, real_max_vx_back: 0, real_max_wz: 0 }));
+    expect(lastAxes()).toBe('0,0,0');
+    for (const k of ['up', 'down', 'rotl', 'rotr', 'rotl+up']) expect(($(`[data-sd-move="${k}"]`) as HTMLButtonElement).disabled).toBe(true);
+    key('keydown', 'KeyA'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    act(() => simTune(null)); tick(100); expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => simTune({ real_no_fast_server_drive: true }));
+    expect(lastAxes()).toBe('0,0,0');
+    expect(($('[data-sd-move="up"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(($('[data-sd-move="rotl"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('화면 단추 8개도 같은 표(조종 화면 안) — 누르는 동안만, 떼면 그 자리에서 0', () => {
     ready();
     expect(box.querySelectorAll('[data-sd-move]').length).toBe(0);   // 상세 서랍의 작은 패널에는 조작부를 펼치지 않는다
     view();
-    const want: Record<string, string> = { up: '1.5,0,0', down: '-1.5,0,0', left: '0,1.5,0', right: '0,-1.5,0', rotl: '0,0,0.5', rotr: '0,0,-0.5', 'rotl+up': '1.5,0,0.5', 'rotr+up': '1.5,0,-0.5' };
+    const want: Record<string, string> = { up: '1.5,0,0', down: '-1.5,0,0', left: '0,0,0', right: '0,0,0', rotl: '0,0,0.5', rotr: '0,0,-0.5', 'rotl+up': '1.5,0,0.5', 'rotr+up': '1.5,0,-0.5' };
     expect(box.querySelectorAll('[data-sd-move]').length).toBe(8);
     for (const [k, v] of Object.entries(want)) {
       const b = $(`[data-sd-move="${k}"]`)!;

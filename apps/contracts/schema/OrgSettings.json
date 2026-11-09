@@ -58,6 +58,34 @@
       "title": "Model Overrides",
       "type": "object"
     },
+    "real_max_vx": {
+      "default": 1.5,
+      "maximum": 1.5,
+      "minimum": 0,
+      "title": "Real Max Vx",
+      "type": "number"
+    },
+    "real_max_vx_back": {
+      "default": 1.5,
+      "maximum": 1.5,
+      "minimum": 0,
+      "title": "Real Max Vx Back",
+      "type": "number"
+    },
+    "real_max_vy": {
+      "default": 1.0,
+      "maximum": 1.0,
+      "minimum": 0,
+      "title": "Real Max Vy",
+      "type": "number"
+    },
+    "real_max_wz": {
+      "default": 4.0,
+      "maximum": 4.0,
+      "minimum": 0,
+      "title": "Real Max Wz",
+      "type": "number"
+    },
     "real_no_fast_server_drive": {
       "default": false,
       "title": "Real No Fast Server Drive",

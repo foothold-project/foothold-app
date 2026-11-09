@@ -11,7 +11,9 @@ import { STALLED } from './simdrive';
 import { Cloud3D } from './quad';
 import { driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import type { Robot, Tone } from './fake';
-import type { UnlockRefused } from '../../contracts/ts';
+import { api } from './api';
+import { realCaps, simTune, useTuneSettings } from './phone';
+import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 
 /** 누름 하나: up·down = 전후, left·right = 옆걸음, rotl·rotr = 제자리 회전(A·D) */
 type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
@@ -21,6 +23,11 @@ export const TABLE: Record<string, [number, number, number]> = {
   '': [0, 0, 0], up: [1.5, 0, 0], down: [-1.5, 0, 0], left: [0, 1.5, 0], right: [0, -1.5, 0],
   rotl: [0, 0, 0.5], rotr: [0, 0, -0.5], 'rotl+up': [1.5, 0, 0.5], 'rotr+up': [1.5, 0, -0.5],
 };
+export function permitted(axes: [number, number, number], o: Partial<OrgSettings> | null) {
+  const [vx, vy, wz] = axes, c = realCaps(o);
+  return vx <= c.real_max_vx && vx >= -c.real_max_vx_back && Math.abs(vy) <= c.real_max_vy && Math.abs(wz) <= c.real_max_wz
+    && !(o?.real_no_fast_server_drive && (vx || vy));
+}
 const id = (held: Iterable<Tok>) => [...held].sort().join('+');
 export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
@@ -75,6 +82,7 @@ function trapTab(e: KeyEv<HTMLElement>) {
 const CH_NAME: Record<DriveCh, string> = { rgb: '카메라', lidar: '라이다' };
 
 export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
+  const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
   const l = useLive(r.id), link = rt.link().at, mine = !!l.lease, s = l.state;
   const [on, setOn] = useState(''), [why, setWhy] = useState(''), [full, setFull] = useState<DriveCh | null>(null);
   const [, tick] = useState(0), [asked, setAsked] = useState<number | null>(null);   // asked = 잠금 해제 요청을 보낸 때(rt.now)
@@ -82,7 +90,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const feeds = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar') };
   const ready = mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy;
   const readyRef = useRef(ready); readyRef.current = ready;
-  const send = () => { const [vx, vy, wz] = command(held.current); rt.cmd(r.id, [vx, wz], vy); };
+  const send = () => { const cmd = command(held.current), [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy); };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
   const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
   /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */
@@ -90,8 +98,10 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   /** 전체화면 닫기는 이것 하나(Esc·작게 보기·카메라 클릭): 눌린 이동 키를 버리고 바로 0 을 보낸 뒤 닫는다(#214 r1) */
   const fullRef = useRef(full); fullRef.current = full;
   const closeFull = useRef(() => { if (!fullRef.current) return; zero(); setFull(null); }).current;
-  const press = (t: Tok[]) => { if (!readyRef.current) return; setWhy(''); held.current = new Set(t); changed(); };
+  const press = (t: Tok[]) => { if (!readyRef.current || !permitted(command(t), settingsRef.current)) return; setWhy(''); held.current = new Set(t); changed(); };
 
+  useEffect(() => { const stop = new AbortController(); api.settings(stop.signal).then(simTune, () => {}); return () => stop.abort(); }, [r.id]);
+  useEffect(() => { if (held.current.size) zero('조직 속도 설정이 바뀌어 입력을 0으로 보냈습니다. 다시 누르세요.'); }, [settings]);
   useEffect(() => rt.watch(r.id), [r.id]);   // 이 패널이 열린 동안만 조종권을 쥔다(닫으면 반납 — rt)
   useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(i); }, []);   // 마지막 응답 ms·신호 멈춤
   // 50 ms 마다(0 포함 — 조종권 심장 박동 겸). 잠금·넘김 중 0 과 새 중립은 rt.cmd 가 지킨다
@@ -109,7 +119,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
       if (!t || e.ctrlKey || e.metaKey || e.altKey) return;
       e.preventDefault();
       if (e.repeat || !readyRef.current) return;   // 반복은 새 누름이 아니다(초점 잃음 뒤 되살리지 않음)
-      setWhy(''); held.current.add(t); changed();
+      held.current.add(t); if (!permitted(command(held.current), settingsRef.current)) { changed(); setWhy('조직 속도 상한을 넘는 명령입니다.'); return; } setWhy(''); changed();
     };
     const up = (e: KeyboardEvent) => { const t = KEY[e.code]; if (t && held.current.delete(t)) changed(); };
     const blur = () => zero(SD_NOTE.blur);
@@ -139,7 +149,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
     <span className="fh-stop-t"><span>STOP</span><small>정지 요청</small></span>
   </button>;
   const pad = mine && <div role="group" aria-label="조종(누르는 동안만)" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-    {PAD.map(([t, k, text]) => <button key={k} type="button" className="btn" data-sd-move={id(t)} aria-pressed={on === id(t)} disabled={!ready} style={{ minHeight: 48 }}
+    {PAD.map(([t, k, text]) => <button key={k} type="button" className="btn" data-sd-move={id(t)} aria-pressed={on === id(t)} disabled={!ready || !permitted(command(t), settings)} style={{ minHeight: 48 }}
       onPointerDown={(e: PointerEvent<HTMLButtonElement>) => { e.currentTarget.setPointerCapture?.(e.pointerId); press(t); }}
       onPointerUp={() => zero()} onPointerCancel={() => zero()} onLostPointerCapture={() => { if (on === id(t)) zero(); }}
       onContextMenu={(e) => e.preventDefault()}><b className="mono">{k}</b> {text}</button>)}
@@ -185,7 +195,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const open = (ch: DriveCh) => (e: { currentTarget: HTMLElement }) => { opener.current = e.currentTarget; setFull(ch); };
   // 조종 시작/끝내기 한 줄 — 작은 패널과 조종 화면 중 보이는 쪽 하나에만(같은 id 두 번 없게). 권한·기다릴 이유는 DriveButton 이 글로
   const control = <>
-    {mine ? <div className="fh-row"><span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0</span>
+    {mine ? <div className="fh-row"><span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0. 조직 상한을 넘는 단추는 비활성</span>
         <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button></div>
       : <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />}
     {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>

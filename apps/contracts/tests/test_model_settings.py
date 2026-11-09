@@ -29,3 +29,21 @@ def test_each_model_uses_common_field_envelope_and_merged_order():
                              ('sim_max_wz', 1.21), ('sim_runner_vx', 1.51), ('sim_runner_wz', 1.01)]:
             with pytest.raises(ValidationError, match=model):
                 OrgSettingsPatch(model_overrides={model: {field: value}})
+
+
+@pytest.mark.parametrize('field,maximum', [('real_max_vx', 1.5), ('real_max_vx_back', 1.5),
+                                         ('real_max_vy', 1.0), ('real_max_wz', 4.0)])
+def test_real_cap_defaults_bounds_sparse_patch_and_model_isolation(field, maximum):
+    from apps.contracts.models import REAL_SETTING_FIELDS
+    assert field in REAL_SETTING_FIELDS
+    assert getattr(OrgSettings(), field) == maximum
+    assert field not in OrgSettingsPatch().model_dump(exclude_unset=True)
+    for value in (0, maximum):
+        assert getattr(OrgSettings(**{field: value}), field) == value
+        assert OrgSettingsPatch(**{field: value}).model_dump(exclude_unset=True) == {field: value}
+    for value in (-.01, maximum + .01, True, None, '0', float('nan'), float('inf')):
+        for model in (OrgSettings, OrgSettingsPatch):
+            with pytest.raises(ValidationError):
+                model(**{field: value})
+    with pytest.raises(ValidationError):
+        OrgSettingsPatch(model_overrides={'nvidia-demo': {field: 0}})

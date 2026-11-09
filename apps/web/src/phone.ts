@@ -189,7 +189,16 @@ export const TURN_ON = 0.5;
 export const NUDGE = 0.001;
 /** 조직 시뮬 조작값(05 §8 OrgSettings sim_*·stick_deadzone, 설정 › 시뮬)의 계약 범위(apps/contracts/models.py OrgSettings) */
 const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.5], sim_max_wz: [0, 1.2], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] } as const;
+export const REAL_CAPS = { real_max_vx: 1.5, real_max_vx_back: 1.5, real_max_vy: 1, real_max_wz: 4 } as const;
+export function realCaps(o: Partial<OrgSettings> | null) {
+  return Object.fromEntries(Object.entries(REAL_CAPS).map(([k, max]) => {
+    const v = o?.[k as keyof typeof REAL_CAPS];
+    return [k, typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? v : max];
+  })) as Record<keyof typeof REAL_CAPS, number>;
+}
 let tuneSettings: Partial<OrgSettings> | null = null;
+const tuneSubs = new Set<() => void>();
+export const useTuneSettings = () => useSyncExternalStore((f) => { tuneSubs.add(f); return () => { tuneSubs.delete(f); }; }, () => tuneSettings);
 /** Old names are resolved only when selecting; override keys stay canonical. */
 export function effectiveSettings(o: Partial<OrgSettings> | null, modeId = '') {
   const id = modeId === 'foothold-v2' ? 'nvidia-demo' : modeId;
@@ -199,6 +208,7 @@ export function effectiveSettings(o: Partial<OrgSettings> | null, modeId = '') {
  *  버린다 — 그 필드만 에이전트 limits·DEAD·KEY_VX 로 돌아감 */
 export function simTune(o: Partial<OrgSettings> | null) {
   tuneSettings = o;
+  tuneSubs.forEach((f) => f());
 }
 function simulationTune(modeId = '') {
   const o = effectiveSettings(tuneSettings, modeId);
@@ -213,10 +223,17 @@ function simulationTune(modeId = '') {
   }
   return t;
 }
-/** 시뮬 연결(welcome.simulation)만 에이전트 limits 를 조직 값으로 좁힌다(넓히지 않음 — 최종 자르기는 에이전트). 데드존·키보드 전진(key)도 조직 값.
- *  실기 welcome 은 limits·DEAD 그대로, key 없음(부른 쪽 기본값) */
+/** 연결의 에이전트 limits 를 조직 값으로 좁힌다. 실기·시뮬 설정은 서로 적용하지 않는다. */
 export function tuned(w: PhoneWelcome) {
-  if (w.simulation !== true) return { L: w.limits, dead: DEAD, key: undefined };
+  if (w.simulation !== true) {
+    const L = w.limits, c = realCaps(tuneSettings);
+    if (L.vx_max <= c.real_max_vx && L.vx_min >= -c.real_max_vx_back
+        && L.vy_max <= c.real_max_vy && L.vy_min >= -c.real_max_vy
+        && L.wz_max <= c.real_max_wz && L.wz_min >= -c.real_max_wz) return { L, dead: DEAD, key: undefined };
+    return { L: { ...L, vx_max: Math.min(L.vx_max, c.real_max_vx), vx_min: Math.max(L.vx_min, -c.real_max_vx_back),
+      vy_max: Math.min(L.vy_max, c.real_max_vy), vy_min: Math.max(L.vy_min, -c.real_max_vy),
+      wz_max: Math.min(L.wz_max, c.real_max_wz), wz_min: Math.max(L.wz_min, -c.real_max_wz) }, dead: DEAD, key: undefined };
+  }
   const tune = simulationTune(w.policy?.name);
   const L = w.limits, { sim_max_vx: vx, sim_min_vx: lo, sim_max_vy: vy, sim_max_wz: wz } = tune;
   const vx_max = vx == null ? L.vx_max : Math.min(L.vx_max, vx);
@@ -245,12 +262,12 @@ export function velocity([f0, t, y0 = 0]: Axes, w: PhoneWelcome) {
   const spin = allowed(w).spin, wz = vx === 0 && vy === 0 && !spin ? 0 : turn;
   // 시뮬(제자리 회전 허가)은 스틱이 눌려 있으면 정확한 0 을 보내지 않는다 — 에이전트는 정확한 0 만 새 중립으로 받아(simulation_velocity) deadman 뒤 손 뗌 관문이 풀린다.
   // 움직이지 않는 입력은 에이전트가 0 + 이유로 자르는 작은 wz 로: 문턱 아래 단독 회전은 원래 값, 데드존은 NUDGE. 허가 없는 limits 는 wz 를 보내지 않는다(PR #88 B1, 기존대로)
-  if (L.vx_mode === 'continuous' && spin && vx === 0 && vy === 0 && wz === 0 && (f0 || t || y0)) return { vx, vy, wz: s(t, L.wz_min, L.wz_max) || NUDGE };
+  if (w.simulation === true && L.vx_mode === 'continuous' && spin && vx === 0 && vy === 0 && wz === 0 && (f0 || t || y0)) return { vx, vy, wz: s(t, L.wz_min, L.wz_max) || NUDGE };
   return { vx, vy, wz };
 }
 /** limits 가 허용하는 방향(화면은 이 값만 본다 — 숫자를 박지 않음). 제자리 회전은 시뮬 limits.experimental 에 turn_in_place 가 있을 때만 */
 export function allowed(w: PhoneWelcome | null) {
-  const L = w?.limits, exp = L?.experimental ?? [];
+  const L = w ? tuned(w).L : null, exp = L?.experimental ?? [];
   return { back: !!L && L.vx_min < 0, left: !!L && L.vy_max > 0, right: !!L && L.vy_min < 0, spin: exp.includes('turn_in_place'), experimental: exp.length > 0 };
 }
 /** 50 ms 박자: 조종권이 있으면 cmd(중립 0 포함), 1 s 마다 ping(§13.1 — cmd 가 ping 을 대신하지 않음) */
@@ -474,7 +491,7 @@ export const sim = {
     set({ step: S.step === 'drive' ? 'drive' : 'linking', link: fresh() });
     if (S.real && !url) return arm(S.real);   // 중계가 아직(또는 Wi-Fi 문제로 못 염) — 다시 열고 포트가 오면 onRelay 가 잇는다
     if (!url) return setLink({ at: 'closed', why: '로봇 연결 주소가 올바르지 않습니다.' });
-    // 조직 시뮬 조작값은 연결의 선행 조건이 아니다 — 받기 전·못 받으면 에이전트 limits·기본값(앞 로그인 값도 비움), 받으면 같은 연결 세대일 때만 적용
+    // 조직 조작값은 연결의 선행 조건이 아니다 — 받기 전·못 받으면 에이전트 limits·기본값(앞 로그인 값도 비움), 받으면 같은 연결 세대일 때만 적용
     simTune(null);
     api.settings().then((o) => { if (g === gen) simTune(o); }, () => {});
     let pass;
