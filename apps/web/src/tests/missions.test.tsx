@@ -1389,7 +1389,7 @@ describe('시뮬 시나리오', () => {
     const spec = { schema: 'fh_custom_terrain/1', id: 'hill', name: '언덕', size: [5, 4], spawn: [0, 0, 0], items: [] };
     const T = { status: 200, body: { spec, version: 3, floor_id: 'f1', map_version_id: 'v1', archived_at: null, updated_at: '2026-11-09T00:00:00Z' } };
     seed(); sitePurpose = 'SIM'; f1Extra = { terrain_id: 'hill' }; MAPS.v1 = { ...MAPS.v1, ...TERRAIN_V };   // 5×4 m 지형 = 100×80 칸, 원점 (-2.5, -2)
-    serve(KIM, { over: { 'GET /terrains/hill': [T, T] } });
+    serve(KIM, { over: { 'GET /terrains/hill': [T, T, T, T] } });   // 층 위 «시뮬 열기» + «시뮬에서 실행» 이 한 번씩 받는다 × 두 번 열기
     const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
     localStorage.setItem('fh.customTerrain.hill', JSON.stringify({ ...spec, name: '고치던 언덕' }));
     await open('#/sim'); await scen();
@@ -1405,6 +1405,35 @@ describe('시뮬 시나리오', () => {
     expect(JSON.parse(localStorage.getItem('fh.customTerrain.hill')!)).toEqual(spec);
     expect(localStorage.getItem('fh.customTerrain.hill:base')).toBe('3');
     expect(JSON.parse(localStorage.getItem('fh.btMission.ss1')!)).toMatchObject({ map: 'custom', floor: '' });
+  });
+  // SIM-TAB-CHOOSER(11-09): 층 화면 위 띠 «시뮬 열기» — simAt 규칙 그대로(세계 층 = map·floor, 지형 층 = custom&terrain, 그 밖 = 꺼짐 + 이유)
+  it('층 위 «시뮬 열기»: 세계 층 = 그 지도, 지형 층 = custom&terrain(사본 씀·다른 편집본이면 멈춤), 이어지지 않은 층 = 꺼짐 + 이유', async () => {
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    const openBtn = () => $('.mx-bar [data-sim-open]') as HTMLButtonElement;
+    seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV };
+    serve(KIM); await open('#/sim'); await settle();
+    expect(openBtn().disabled).toBe(false);
+    await click(openBtn());
+    expect(go).toHaveBeenLastCalledWith('/sim/index.html?from=web&map=factory-inspection');
+    act(() => root?.unmount()); root = null; localStorage.clear(); clearPlans();
+    seed(); sitePurpose = 'SIM';   // 사람이 올린 지도
+    serve(KIM); await open('#/sim'); await settle();
+    expect(openBtn().disabled).toBe(true);
+    expect($('[data-sim-open-why]')!.textContent).toContain('시뮬 세계·지형과 이어져 있지 않아');
+    act(() => root?.unmount()); root = null; localStorage.clear(); clearPlans();
+    seed(); sitePurpose = 'SIM'; f1Extra = { terrain_id: 'hill' }; MAPS.v1 = { ...MAPS.v1, ...TERRAIN_V };
+    serve(KIM, { over: { 'GET /terrains/hill': [hill(), hill()] } }); await open('#/sim'); await settle();
+    localStorage.setItem('fh.customTerrain.hill:base', '2');   // 화면을 연 뒤 다른 탭이 남긴 :base — 누를 때 다시 읽고 멈춤
+    await click(openBtn());
+    expect($('[data-sim-open-why]')!.textContent).toContain('덮지 않고 멈췄습니다');
+    localStorage.clear(); go.mockClear();
+    await click(openBtn());
+    expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=custom&terrain=hill');
+    expect(JSON.parse(localStorage.getItem('fh.customTerrain.hill')!)).toEqual(HILL);
+    act(() => root?.unmount()); root = null; localStorage.clear(); clearPlans();
+    seed();   // 지도 탭(REAL) 층에는 «시뮬 열기» 없음
+    serve(KIM); await open('#/map'); await settle();
+    expect($('[data-sim-open]')).toBeNull();
   });
   /** 지형 저장(terrains.py)이 만든 판과 같은 값 */
   const TERRAIN_V = { provenance: 'SIMULATION' as const, source: 'IMPORT' as const, reason: TERRAIN_REASON, origin: [-2.5, -2, 0] as [number, number, number] };

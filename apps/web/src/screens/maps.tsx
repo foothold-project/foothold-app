@@ -13,7 +13,8 @@ import { Chip, inApp, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
 import { Editor, Glyph, featKeys, featName, featSub, kept } from './mapedit';
 import { Hint, Lock, Locked, Menu, Pane, Pop, SideTabs, shut, type Side } from './mapscen';
-import { MissionAdmin, ScenList, ScenarioEdit, keptPlan, useScenarios } from './missions';
+import { MissionAdmin, ScenList, ScenarioEdit, SimOpen, keptPlan, useScenarios } from './missions';
+import { BuiltinCards, SimPick } from '../simstart';
 import { TrashLink, trashFail, type TrashKind } from './trash';
 import { assignFor } from './assign';
 
@@ -196,6 +197,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const [all, setAll] = useState(false), multi = !!cur && cur.building.floors.length >= 2, whole = all && multi;   // 전체 = 건물 층 겹쳐 보기(보기만)
   const [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
   const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false), [make, setMake] = useState(''), [found, setFound] = useState<Msg>(null);   // make = 열린 장소 창 제목(''= 닫힘)
+  const [bi, setBi] = useState('');   // 시뮬 탭: 연 내장 시뮬 지도(SIM_MAPS id, '' = 닫힘)
   const names = useNames(c.user, admin, c.cancel), feats = useFeats(places, c.cancel);
   // 옛 주소가 연 시나리오가 시뮬 장소에 있으면 시뮬 탭으로(고른 층·시나리오는 keptPlan 에 남아 거기서 열린다)
   useEffect(() => { if (!sim && addr && pick && !cur && floorsOf(t0.tree).some((p) => p.floor.id === pick && purposeOf(p.site) === 'SIM')) location.hash = '#/sim'; }, [pick, t0.tree]);
@@ -284,12 +286,14 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
       <button type="button" className="btn" aria-pressed={whole} data-layers onClick={() => choose(null)}>전체 층 겹쳐 보기</button></>}
   </>;
 
+  if (sim && bi) return <section className="mx" aria-label="내장 시뮬 지도" data-builtin={bi}><div className="mx-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <SimPick key={bi} only={bi} back={<button type="button" className="btn" data-to-chooser onClick={() => setBi('')}>‹ 모든 지도 보기</button>} /></div></section>;
   if (madmin) return <MissionAdmin user={c.user} robots={robots} cancel={c.cancel} back={() => setMadmin(false)} />;
   if (finding) return <section className="mx" aria-label="지도 보기"><div className="mx-center"><p className="lv-note" role="status">주소의 시나리오를 찾는 중…</p></div></section>;
   if (whole && cur) return <AllFloors key={cur.building.id} b={cur.building} top={top} cancel={c.cancel} />;
   if (cur) return <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots}
     places={places} sim={sim} sel={sel} setSel={setSel} side={side} setSide={setSide} toAdmin={() => setMadmin(true)} feats={cur.floor.approved_version_id ? feats[cur.floor.approved_version_id] : 0} />;
-  return <Chooser sim={sim} t={t} places={places} choose={choose} make={(title) => { setForm(null); setAsk(null); setMsg(null); setMake(title); }} note={found} cancel={c.cancel} robots={c.robots ?? []}>
+  return <Chooser sim={sim} t={t} places={places} choose={choose} make={(title) => { setForm(null); setAsk(null); setMsg(null); setMake(title); }} note={found} cancel={c.cancel} robots={c.robots ?? []} builtin={setBi}>
     <Pop open={!!make} close={() => { setMake(''); setForm(null); }} label={make || '지도 만들기'}><p className="lv-note">장소 › 건물 › 층을 만들고, 층을 고른 뒤 «새 지도 올리기»로 지도 파일을 올립니다.</p>{make && placeBody}</Pop>
   </Chooser>;
 }
@@ -302,7 +306,8 @@ export function SimPlaces({ user, robots }: { user: User; robots: Robot[] }) {
 }
 
 /** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 마지막에 본 지도 카드 + 장소별 건물 카드(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지도 만들기»·«장소 고치기»·휴지통 */
-function Chooser({ sim, t, places, choose, make, note, cancel, robots, children }: { sim: boolean; t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal; children: ReactNode }) {
+function Chooser({ sim, t, places, choose, make, note, cancel, robots, builtin, children }: { sim: boolean; t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal;
+  builtin: (id: string) => void; children: ReactNode }) {
   const [q, setQ] = useState(''), counts = useCounts(cancel), last = places.find((p) => p.floor.id === lastGet());
   const hit = (p: Place) => `${p.site.name} ${p.building.name} ${p.floor.name}`.toLowerCase().includes(q.trim().toLowerCase());
   /** 카드 아래 줄: 층 수(2층 이상만)·시나리오 수(여러 층 시나리오는 한 번만)·지도 없음 */
@@ -312,21 +317,26 @@ function Chooser({ sim, t, places, choose, make, note, cancel, robots, children 
   const shown = places.filter(hit), sites = t.tree?.items.filter((s) => shown.some((p) => p.site.id === s.id)) ?? [];
   return <section className="mx" aria-label="지도 고르기">
     <div className="mx-scroll"><div className="mx-choose">
-      <h2>{sim ? '시뮬 지도·시나리오' : '어느 지도에서 일할까요?'}</h2>
-      <p className="lv-note">{sim ? '시뮬 지도를 고르면 그 지도의 시나리오를 만들고 «시뮬에서 실행»으로 엽니다(배정·승인 없음).' : '지도를 고르면 그 지도의 요소와 시나리오를 함께 보고 고칩니다.'}</p>
+      <h2>{sim ? '어느 지도로 시뮬할까요?' : '어느 지도에서 일할까요?'}</h2>
+      <p className="lv-note">{sim ? '지도를 고르면 위쪽 «시뮬 열기»로 시뮬을 열고, 그 지도의 시나리오를 만들어 «시뮬에서 실행»합니다(배정·승인 없음).' : '지도를 고르면 그 지도의 요소와 시나리오를 함께 보고 고칩니다.'}</p>
       <Note m={note} />
       {!sim && assignFor.robot && <p className="fh-msg ok" role="status">{robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 먼저 그 시나리오의 지도를 고릅니다.</p>}
       <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="button" className="btn" onClick={() => make('장소 고치기')}>장소 고치기</button>
-        <button type="button" className="btn pri" onClick={() => make('지도 만들기')}>+ 지도 만들기</button></div>
+        {sim ? <a className="btn pri" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>
+          : <button type="button" className="btn pri" onClick={() => make('지도 만들기')}>+ 지도 만들기</button>}</div>
       {last && !q.trim() && <button type="button" className="card mx-last" data-last onClick={() => choose(firstFloor(last.building).id)}>
         <span className="lbl">마지막에 본 지도</span><b>{last.site.name} › {last.building.name}</b>{facts(last.building)}</button>}
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}><b>{b.name}</b>{facts(b)}</button>)}</div></section>)}
-      {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '시뮬 지도가 없습니다. 위 «지형 만들기»로 지형을 저장하면 여기에 보입니다.'
+      {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
         : '실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다. «+ 지도 만들기»에서 장소·건물·층을 만들고 지도 파일을 올릴 수도 있습니다.'}</p>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
+      {/* 서버 장소에 없는 내장 시뮬 지도(같은 sim_world_id 건물 없음) — 들어가면 위에서 본 그림·시작 위치·«시뮬 열기», 시나리오 없음.
+          ponytail: 월드 id(밑줄) ↔ 자산 id(빼기) 를 글자로 맞춘다 — 서버가 건물에 자산 id 를 주면 그걸로 */}
+      {sim && !q.trim() && <section className="mx-site" aria-label="내장 시뮬 지도" data-builtins><h3 className="lbl">내장 시뮬 지도</h3>
+        <BuiltinCards open={builtin} hide={(id) => !!t.tree?.items.some((s) => s.buildings.some((b) => b.sim_world_id?.replace(/_/g, '-') === id))} /></section>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
       {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
       <div className="fh-row"><TrashLink /><span className="lv-note">지운 장소·층·시나리오는 휴지통에서 되돌립니다.</span></div>
@@ -361,7 +371,7 @@ function Floor({ p, sim, sel, setSel, side, setSide, toAdmin, feats, user, robot
     <ScenarioEdit sim={sim} id={sel} n={n} user={user} robots={robots} cancel={cancel} places={places} treeAgain={v.again} floor={p.floor.id} slot={slot} side={tabs(feats ?? '–')} busy={l.busy}
       close={() => setSel(null)} top={msg && <Note m={msg} />} done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} />
   </section>;
-  return <FloorView {...v} p={p} cancel={cancel} top={top} name={name} side={side} setSide={setSide} tabs={tabs} scenN={l.items.length} hov={hov}
+  return <FloorView {...v} p={p} sim={sim} cancel={cancel} top={top} name={name} side={side} setSide={setSide} tabs={tabs} scenN={l.items.length} hov={hov}
     scenList={<ScenList sim={sim} l={l} mine={mine} setMine={setMine} floor={p.floor.id} approved={p.floor.approved_version_id} open={openScen} hover={setHov} admin={toAdmin} robots={robots} cancel={cancel} top={msg && <Note m={msg} />} />} />;
 }
 
@@ -393,7 +403,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림, 보기/편집 토글(승인 판이 있을 때), 아래 접힌 «저장 기록»(옛 판 보기·비교·한때 승인된 판 되돌리기), 새 지도 올리기.
  *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. told = 그때 배지 다시 받기 */
-function FloorView({ p, names, cancel, again, told, top, name, side, setSide, tabs, scenN, hov, scenList }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
+function FloorView({ p, sim, names, cancel, again, told, top, name, side, setSide, tabs, scenN, hov, scenList }: { p: Place; sim?: boolean; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
   side: Side; setSide: (s: Side) => void; tabs: (m: ReactNode, lock?: boolean) => ReactNode; scenN: number; hov: Scenario | null; scenList: ReactNode }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
@@ -432,6 +442,7 @@ function FloorView({ p, names, cancel, again, told, top, name, side, setSide, ta
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
     <div className="mx-bar">
       {top}{/* 편집 중 층 바꾸기·나가기는 기존 «저장 안 한 편집» 확인으로(잠그지 않음) */}
+      {sim && !editing && <SimOpen key={p.floor.id} f={p.floor} v={now} wait={!list && !err} cancel={cancel} />}
       {now && <span className="mx-seg" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
         <button type="button" className="btn" aria-pressed={!!editing} onClick={start}>편집</button></span>}

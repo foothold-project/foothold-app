@@ -33,8 +33,15 @@ export function SimTab({ user, robots = [], refresh }: { user: User; robots?: Ro
   useEffect(() => { if (s.listed) refresh(); }, [ids, s.listed]);
   useEffect(() => { sim.pc(true); return () => sim.pc(false); }, []);   // 이 탭에서 받는 출입증은 surface: 'pc'
   // «시뮬 정지»는 띄우는 중·연결 중·끝내는 중·정리 확인 중에도(sim.live()) 늘 하나 — 조종 화면에서는 머리 카드 안, 그 밖에는 진행 칸 위
-  return s.step === 'drive' && s.link && s.robot ? <SimView admin={user.role === 'ORG_ADMIN'} />
-    : <><Go2ReplayLink robots={robots} />{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view admin={user.role === 'ORG_ADMIN'} /><SimPlaces user={user} robots={robots} /></>;
+  if (s.step === 'drive' && s.link && s.robot) return <SimView admin={user.role === 'ORG_ADMIN'} />;
+  const stop = sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>, launch = <SimLaunch me={user.id} view admin={user.role === 'ORG_ADMIN'} />;
+  if (inApp()) return <>{stop}{launch}</>;   // 폰 앱 시뮬 화면은 그대로(SimPick)
+  // PC(SIM-TAB-CHOOSER 11-09): 첫 화면 = 지도 고르기(SIM 장소 + 내장 시뮬 지도) → 층 위 띠 «시뮬 열기». 서버 시뮬 로봇·Gazebo·Go2 실기 보기는 아래 접힌 묶음,
+  // 띄우는 중·연결 중·끝내는 중(sim.live)이면 그 진행 칸은 지금처럼 맨 위
+  const mine = s.mine.length + s.cleanup.filter((r) => r.owner_id === user.id).length;
+  return <>{stop}{sim.live() && launch}<SimPlaces user={user} robots={robots} />
+    <details className="fh-fold" style={{ flexBasis: '100%' }} data-sim-more><summary>서버 시뮬·실기 보기{mine > 0 && ` · 내 시뮬 로봇 ${mine}`}</summary>
+      {!sim.live() && launch}<Go2ReplayLink robots={robots} /></details></>;
 }
 
 /** «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */
