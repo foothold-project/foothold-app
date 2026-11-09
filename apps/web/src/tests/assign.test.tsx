@@ -54,7 +54,7 @@ function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Rep
     if (path.startsWith('/robots/')) return { status: 200, body: path.endsWith('r-a') ? RA : RB };
     if (path === '/dashboard') return { status: 200, body: { robots_total: 2, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } };
     if (path === '/notifications') return { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } };
-    if (path === '/sites') return { status: 200, body: { items: [{ id: 'st1', name: '본관', buildings: [{ id: 'b1', site_id: 'st1', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: null, pending_count: 0 }] }] }], next_cursor: null } };   // 시나리오는 지도 탭의 층에서 고른다(MAP-TAB-MERGE)
+    if (path === '/sites') return { status: 200, body: { items: [{ id: 'st1', name: '본관', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 'st1', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: null, pending_count: 0 }] }] }], next_cursor: null } };   // 시나리오는 지도 탭의 층에서 고른다(MAP-TAB-MERGE)
     if (path === '/missions') return { status: 200, body: { items: [], next_cursor: null } };
     if (path === '/scenarios') return { status: 200, body: { items: scenarios.filter((s) => q.get('archived') === 'true' || !s.archived_at), next_cursor: null } };
     let m = path.match(/^\/scenarios\/([^/]+)$/);

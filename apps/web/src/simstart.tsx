@@ -3,9 +3,11 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 import SIM_MAPS from '../../../mobile/sim/maps.json';
 import { simUrl } from './simdrive';
-import { BtEditor } from './screens/btedit';
+import type { MapFloor, MapVersion } from '../../contracts/ts';
+import { SIM_TOP, topOf } from './mapframe';
+import { oldMissions } from './screens/btedit';
 
-type Floor = { id: string; name: string; top: string; map_file: string; scenarios_file?: string };
+type Floor = { id: string; name: string; top: string; map_file: string; image_sha256?: string };
 /** top.json(mobile/scripts/make-top.mjs): 사진이 덮는 지도 좌표 [x0, y0, x1, y1] m — 층마다 사진만 다르고 범위는 같다 */
 type TopMeta = { bounds: [number, number, number, number]; floors?: Floor[] };
 type Grid = { origin: number[]; res: number; w: number; h: number; spawn_xyyaw: number[]; px: Uint8Array };
@@ -13,8 +15,6 @@ const dir = (id: string, f: string) => `../../../mobile/sim/assets/${id}/${f}`;
 const PNG = import.meta.glob<string>('../../../mobile/sim/assets/*/top*.png', { eager: true, query: '?url', import: 'default' });
 const META = import.meta.glob<TopMeta>('../../../mobile/sim/assets/*/top.json', { eager: true, import: 'default' });
 /** 장애물 지도(ROS 3값 0 벽·205 모름·254 빈 곳, px = base64) — 커서(최대 1.3 MB) 고른 층 것만 그때 읽는다 */
-/** 시나리오(임무 편집의 기본 임무) — 지도마다 수 KB 라 바로 싣는다 */
-const SCN = import.meta.glob<Parameters<typeof BtEditor>[0]['scenarios']>('../../../mobile/sim/assets/*/scenarios*.json', { eager: true, import: 'default' });
 const GRID = import.meta.glob<Omit<Grid, 'px'> & { px: string }>('../../../mobile/sim/assets/*/map*.json', { import: 'default' });
 const ONE: Floor = { id: '', name: '', top: 'top.png', map_file: 'map.json' };   // 한 층 지도 = top.png·map.json, 주소에 floor 없음
 const floorsOf = (id: string) => META[dir(id, 'top.json')]?.floors ?? [ONE];
@@ -45,6 +45,16 @@ export function blocked(g: Grid, x: number, y: number) {
   }
   return '';
 }
+/** 층(서버 지도) → 시뮬 어디서 열지(SIM-REAL-SPLIT «시뮬에서 실행»). 좌표가 같은 경우만 — 아니면 이유.
+ *  · 지형 층(terrain_id): 시뮬 map=custom&terrain=<id>. 서버 terrain_grid = mobile/sim/terrain buildTerrain 격자(해상도 0.05·원점 −가로/2,−세로/2) — 실행 때 지형 크기로 다시 맞춘다
+ *  · 시뮬 세계 층: topOf(v) = 판 사진 sha 가 시뮬 자산 사진이고 판 격자(원점·해상도·크기)가 그 자산 top.json 격자와 같을 때만(top.json 격자 = 시뮬 map.json 격자) */
+export function simAt(f: MapFloor, v: MapVersion): { map: string; floor: string; terrain?: string } | string {
+  if (f.terrain_id) return /^[a-z0-9-]{1,32}$/.test(f.terrain_id) ? { map: 'custom', floor: '', terrain: f.terrain_id } : '지형 id 형식이 시뮬과 맞지 않습니다.';
+  const map = topOf(v) && SIM_TOP.get(v.image_sha256);
+  if (!map) return '이 층은 시뮬 세계·지형과 이어져 있지 않아 시뮬에서 실행할 수 없습니다(지도 좌표가 시뮬과 같은지 확인되지 않음).';
+  const fl = META[dir(map, 'top.json')]?.floors;
+  return { map, floor: fl ? fl.find((x) => x.image_sha256 === v.image_sha256)?.id ?? '' : '' };
+}
 /** 열기 주소 — 위 약속 그대로 */
 export const openUrl = (map: string, floor: string, start: [number, number] | null) =>
   simUrl(map) + (floor ? `&floor=${floor}` : '') + (start ? `&start=${start[0].toFixed(2)},${start[1].toFixed(2)}` : '');
@@ -68,8 +78,10 @@ function Mark({ x, y, yaw, k, pick }: { x: number; y: number; yaw: number; k: nu
   </g>;
 }
 
-/** make = PC «시뮬» 탭: «지형 만들기» 입구·«임무 편집»을 보인다(폰 틀·앱 안은 숨김 — 저장본을 시뮬과 나눌 수 있는 곳만). admin = 총괄(임무 편집·저장), 아니면 보기만 */
-export function SimPick({ make, admin }: { make?: boolean; admin?: boolean }) {
+/** make = PC «시뮬» 탭: «지형 만들기» 입구를 보인다(폰 틀·앱 안은 숨김 — 저장본을 시뮬과 나눌 수 있는 곳만).
+ *  옛 «임무 편집»은 아래 시뮬 시나리오(노드 보기)로 합쳤다 — 이 브라우저에 남은 옛 저장본은 수만 알린다 */
+export function SimPick({ make }: { make?: boolean }) {
+  const [old] = useState(() => (make ? oldMissions() : 0));
   const [want, setWant] = useState(savedMap), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0];
   const meta = META[dir(map.id, 'top.json')], floors = floorsOf(map.id), [fid, setFid] = useState(''), floor = floors.find((f) => f.id === fid) ?? floors[0];
   const [start, setStart] = useState<[number, number] | null>(null), [why, setWhy] = useState('');
@@ -105,8 +117,6 @@ export function SimPick({ make, admin }: { make?: boolean; admin?: boolean }) {
       {make && <a className="btn" href="#/terrain" style={{ textDecoration: 'none', color: 'var(--text)' }} data-terrain-enter>지형 만들기</a>}
       <a className="btn pri dv-grow" href={openUrl(map.id, floors.length > 1 ? floor.id : '', start)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
     </div>
-    {make && <BtEditor map={map.id} floor={floors.length > 1 ? floor.id : ''} scenarios={SCN[dir(map.id, floor.scenarios_file ?? 'scenarios.json')]} admin={!!admin}
-      openUrl={openUrl(map.id, floors.length > 1 ? floor.id : '', start)}
-      top={meta && top ? { href: top, bounds: meta.bounds, at: (r, cx, cy) => toWorld(r, meta.bounds, cx, cy), blocked: (x, y) => (grid ? blocked(grid, x, y) : '지도를 읽는 중입니다 — 잠시 뒤 다시 눌러 주세요.') } : undefined} />}
+    {old > 0 && <p className="lv-note" data-old-bt>이 브라우저에만 있는 옛 임무 {old}개</p>}
   </>;
 }

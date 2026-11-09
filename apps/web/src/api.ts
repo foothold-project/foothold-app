@@ -146,7 +146,7 @@ export const api = {
   deleteTerrain: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/terrains/${encodeURIComponent(id)}`, undefined, { cancel }),
   restoreTerrain: (id: string, cancel?: AbortSignal) => call<Terrain>('POST', `/terrains/${encodeURIComponent(id)}/restore`, undefined, { cancel }),
   sites: (cancel?: AbortSignal) => call<SiteTree>('GET', '/sites', undefined, { cancel, ms: MAP_READ_MS }),
-  createSite: (name: string, cancel?: AbortSignal) => call<MapSite>('POST', '/sites', { name }, { cancel }),
+  createSite: (name: string, purpose: 'SIM' | 'REAL', cancel?: AbortSignal) => call<MapSite>('POST', '/sites', { name, purpose }, { cancel }),   // purpose = 지도 탭 REAL·시뮬 탭 SIM(SIM-REAL-SPLIT)
   createBuilding: (site: string, name: string, cancel?: AbortSignal) => call<MapBuilding>('POST', `/sites/${encodeURIComponent(site)}/buildings`, { name }, { cancel }),
   createFloor: (building: string, p: FloorCreate, cancel?: AbortSignal) => call<MapFloor>('POST', `/buildings/${encodeURIComponent(building)}/floors`, p, { cancel }),
   savePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, p: FloorPatch, cancel?: AbortSignal) => call<unknown>('PATCH', `/${kind}/${encodeURIComponent(id)}`, p, { cancel }),

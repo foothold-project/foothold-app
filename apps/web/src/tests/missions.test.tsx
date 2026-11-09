@@ -7,7 +7,8 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Action, Assignment, MapVersion, Mission, MissionWrite, RobotSummary, Scenario, ScenarioPoint, ScenarioWrite, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { clearPlans } from '../screens/missions';
+import { clearPlans, simNav } from '../screens/missions';
+import { check, type BtNode } from '../screens/btedit';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 
@@ -45,7 +46,7 @@ type Kind = 'missions' | 'scenarios';
 type Rec = { head: Mission | Scenario; snaps: (Mission | Scenario)[] };
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; match?: string };
-let calls: Call[] = [], assigns: Assignment[] = [], db: Record<Kind, Rec[]>, approved: Record<string, string | null>, link = true, tick = 0;
+let f1Extra: Record<string, unknown> = {}, sitePurpose = 'REAL', calls: Call[] = [], assigns: Assignment[] = [], db: Record<Kind, Rec[]>, approved: Record<string, string | null>, link = true, tick = 0;
 const stamp = () => new Date(Date.UTC(2026, 9, 20, 1, tick++)).toISOString();
 const reqOf = (steps: MissionWrite['steps']) => [...new Set(steps.flatMap((s) => (s.action === 'PHOTO' ? [DEV[String(s.params?.camera)]] : s.action === 'SENSOR_LOG' ? [DEV[String(s.params?.device)]] : [])))];
 const rec = (k: Kind, id: string) => db[k].find((r) => r.head.id === id);
@@ -117,7 +118,7 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
     if (path === '/dashboard') return { status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } };
     if (path === '/notifications') return { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } };
     if (path === '/sites') {
-      const tree: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, approved.f1), floor('f2', '2층', 2, approved.f2), floor('f3', '3층', 3, null)] }] }], next_cursor: null };
+      const tree = { items: [{ id: 's1', name: '본관', purpose: sitePurpose, buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [{ ...floor('f1', '1층', 1, approved.f1), ...f1Extra }, floor('f2', '2층', 2, approved.f2), floor('f3', '3층', 3, null)] }] }], next_cursor: null } as unknown as SiteTree;
       return { status: 200, body: tree };
     }
     let m = path.match(/^\/map-versions\/(v\d)$/);
@@ -161,7 +162,7 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
 }
 /** 기본 자료: 임무 m1(김총괄)·m2(이운영)·m3(보관), 시나리오 s1(김총괄, 1층 지점 2개)·s2(보관) */
 function seed() {
-  db = { missions: [], scenarios: [] }; approved = { f1: 'v1', f2: 'v2' }; link = true; tick = 0; assigns = [];
+  db = { missions: [], scenarios: [] }; approved = { f1: 'v1', f2: 'v2' }; sitePurpose = 'REAL'; f1Extra = {}; MAPS.v1 = ver('v1', 'f1', F1); link = true; tick = 0; assigns = [];
   make('missions', M1, KIM); make('missions', M2, LEE); make('missions', { name: '옛 임무', steps: [{ action: 'WAIT', params: { seconds: 1 } }] }, KIM, true);
   make('scenarios', { name: '1층 순찰', waypoints: [wp('f1', 1, 1), wp('f1', 0, 0, 'm1', 1, { yaw: 1.5, waypoint_ref: 'wp1' })], finish: { mode: 'STAY', target: null }, notes: '' }, KIM);
   make('scenarios', { name: '지난 시나리오', waypoints: [wp('f1', 1, 0)] }, KIM, true);
@@ -1344,5 +1345,86 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     await click(btn('임무 관리…'));                                                                                    // 창이 없는 임무 관리는 메뉴가 위 단추 줄
     expect($('.mx-bar [aria-label="임무 목록"]')).toBeTruthy(); expect($('.mx-pick')).toBeNull();
     await stopSends();
+  });
+});
+
+// SIM-REAL-SPLIT(11-09): 시뮬 탭 시나리오 = 지도 탭과 같은 편집기, 배정·결재 대신 «시뮬에서 실행»(시나리오 → bt.js 나무 → fh.btMission.<id> → 시뮬 ?bt=<id>)
+describe('시뮬 시나리오', () => {
+  /** factory-inspection 시뮬 자산과 같은 사진·격자(mapframe SIM_TOP·top.json) — 지도 좌표 = 시뮬 좌표 */
+  const SIMV = { provenance: 'SIMULATION' as const, image_sha256: '8669ef9e9300c7a6372d02b230aaee98f984337bac9cebe5b1316be1e7d61721', origin: [-0.05, -0.05, 0] as [number, number, number], resolution: 0.05, width: 1002, height: 1002 };
+  const scen = async () => { const b = $('[data-side="scen"]'); if (b) await click(b); };
+  const assigned = () => { assigns = [{ id: 'a1', scenario_id: 's1', scenario_version: 1, robot_id: 'r-a', memo: '', scenario_name: '1층 순찰', scenario_name_snapshot: null,
+    robot_name: 'Go2-A', status: 'ACTIVE', approval_id: null, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', removed_at: null } as Assignment]; };
+  it('시뮬 탭: 로봇·배정 칸 없음, «시뮬에서 실행» = validateTree 통과 나무를 저장하고 시뮬 ?bt= 주소로', async () => {
+    seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV }; assigned();
+    serve(KIM);
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    await open('#/sim'); await scen();
+    expect(rows()).toEqual(['s1']);
+    expect(card('시나리오 목록 창').textContent).not.toContain('Go2-A');   // 배정된 로봇 칸 없음
+    expect(sent('GET', '/assignments')).toHaveLength(0);
+    await click(row('s1')); await settle();
+    expect(btns().some((b) => b.textContent!.startsWith('배정'))).toBe(false);   // [단계 | 배정] 의 배정 탭 없음
+    expect($('[data-sim-run-why]')).toBeNull();
+    await click(btn('시뮬에서 실행'));
+    expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=factory-inspection&bt=ss1');
+    const m = JSON.parse(localStorage.getItem('fh.btMission.ss1')!);
+    expect(m).toMatchObject({ id: 'ss1', name: '1층 순찰', map: 'factory-inspection', floor: '', scenario_id: 's1' });
+    expect(check(m.tree)).toBe('');
+    expect(m.tree.root.children.map((n: BtNode) => n.type)).toEqual(['goto', 'photo', 'wait', 'goto', 'photo', 'wait']);   // m1 = 사진 → 대기 5초
+    expect(writes()).toEqual([]);   // 서버에는 아무것도 안 보냄(배정 없음)
+  });
+  it('시뮬과 좌표가 같다고 확인되지 않는 층(사람이 올린 지도) = «시뮬에서 실행» 회색 + 이유', async () => {
+    seed(); sitePurpose = 'SIM';
+    serve(KIM);
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    await open('#/sim'); await scen();
+    await click(row('s1')); await settle();
+    expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+    expect($('[data-sim-run-why]')!.textContent).toContain('시뮬 세계·지형과 이어져 있지 않아');
+    expect(go).not.toHaveBeenCalled();
+  });
+  it('지형 층: 서버 지형을 받아 격자가 맞으면 이 브라우저에 지형을 두고 map=custom&terrain= 로, 다른 편집본이 있으면 덮지 않고 회색', async () => {
+    const spec = { schema: 'fh_custom_terrain/1', id: 'hill', name: '언덕', size: [5, 4], spawn: [0, 0, 0], items: [] };
+    const T = { status: 200, body: { spec, version: 3, floor_id: 'f1', map_version_id: 'v1', archived_at: null, updated_at: '2026-11-09T00:00:00Z' } };
+    seed(); sitePurpose = 'SIM'; f1Extra = { terrain_id: 'hill' }; MAPS.v1 = { ...MAPS.v1, origin: [-2.5, -2, 0] };   // 5×4 m 지형 = 100×80 칸, 원점 (-2.5, -2)
+    serve(KIM, { over: { 'GET /terrains/hill': [T, T] } });
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    localStorage.setItem('fh.customTerrain.hill', JSON.stringify({ ...spec, name: '고치던 언덕' }));
+    await open('#/sim'); await scen();
+    await click(row('s1')); await settle();
+    expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+    expect($('[data-sim-run-why]')!.textContent).toContain('다른 편집본이 있어 덮지 않습니다');
+    expect(JSON.parse(localStorage.getItem('fh.customTerrain.hill')!).name).toBe('고치던 언덕');
+    act(() => root?.unmount()); root = null; localStorage.clear(); clearPlans();
+    await open('#/sim'); await scen();
+    await click(row('s1')); await settle();
+    await click(btn('시뮬에서 실행'));
+    expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=custom&terrain=hill&bt=ss1');
+    expect(JSON.parse(localStorage.getItem('fh.customTerrain.hill')!)).toEqual(spec);
+    expect(localStorage.getItem('fh.customTerrain.hill:base')).toBe('3');
+    expect(JSON.parse(localStorage.getItem('fh.btMission.ss1')!)).toMatchObject({ map: 'custom', floor: '' });
+  });
+  it('시뮬이 못 하는 일(센서 기록) = 회색 + 그 지점 이유', async () => {
+    seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV };
+    make('scenarios', { name: '센서 순찰', waypoints: [wp('f1', 1, 1, 'm2')], finish: { mode: 'STAY', target: null }, notes: '' }, KIM);
+    serve(KIM);
+    await open('#/sim'); await scen();
+    await click(row('s3')); await settle();
+    expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+    expect($('[data-sim-run-why]')!.textContent).toBe('1번 지점: «센서 값 기록»은 시뮬에서 실행할 수 없습니다.');
+  });
+  it('지도 탭: 시뮬 장소는 보이지 않고, 실기 장소의 시나리오는 배정 탭 그대로·«시뮬에서 실행» 없음', async () => {
+    seed(); sitePurpose = 'SIM';
+    serve(KIM);
+    await open('#/map');
+    expect($('[data-building]')).toBeNull();
+    expect(text()).toContain('실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다.');
+    act(() => root?.unmount()); root = null;
+    seed(); serve(KIM);
+    await open('#/map'); await scen();
+    await click(row('s1')); await settle();
+    expect(btns().some((b) => b.textContent!.startsWith('배정'))).toBe(true);
+    expect(btn('시뮬에서 실행')).toBeUndefined();
   });
 });
