@@ -239,19 +239,19 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         counts = dict(db.execute(select(MapVersion.floor_id, func.count()).join(Approval,
             (Approval.org_id == MapVersion.org_id) & (Approval.target_id == MapVersion.id)).where(
             Approval.org_id == user.org_id, Approval.status == 'PENDING').group_by(MapVersion.floor_id)).all())
-        return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, archived_at=s.archived_at, buildings=[C.MapBuilding(id=b.id,
+        return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, purpose=s.purpose, archived_at=s.archived_at, buildings=[C.MapBuilding(id=b.id,
             site_id=b.site_id, name=b.name, archived_at=b.archived_at, sim_world_id=b.sim_world_id, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
             for b in buildings if b.site_id == s.id]) for s in sites])
 
     @app.post('/api/v1/sites', response_model=C.MapSite, status_code=201)
-    def site_create(body: C.MapName, auth: Identity, db: DB):
+    def site_create(body: C.SiteCreate, auth: Identity, db: DB):
         user = auth[0]
         authorize(user, 'O')
-        row = Site(org_id=user.org_id, name=body.name)
+        row = Site(org_id=user.org_id, name=body.name, purpose=body.purpose)
         db.add(row)
         db.flush()
         record(db, user, 'SITE_CREATED', row)
-        return C.MapSite(id=row.id, name=row.name)
+        return C.MapSite(id=row.id, name=row.name, purpose=row.purpose)
 
     @app.post('/api/v1/sites/{site_id}/buildings', response_model=C.MapBuilding, status_code=201)
     def building_create(site_id: UUID, body: C.MapName, auth: Identity, db: DB):
@@ -310,7 +310,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         app.patch(path, response_model=response_model, name=prefix.lower() + '_patch')(patch)
         app.delete(path, status_code=204, name=prefix.lower() + '_delete')(remove)
 
-    mutable_routes(Site, '/api/v1/sites/{identifier}', C.MapName, C.MapSite, lambda row: C.MapSite(id=row.id, name=row.name), 'SITE')
+    mutable_routes(Site, '/api/v1/sites/{identifier}', C.MapName, C.MapSite, lambda row: C.MapSite(id=row.id, name=row.name, purpose=row.purpose), 'SITE')
     mutable_routes(Building, '/api/v1/buildings/{identifier}', C.MapName, C.MapBuilding,
         lambda row: C.MapBuilding(id=row.id, site_id=row.site_id, name=row.name), 'BUILDING')
     mutable_routes(Floor, '/api/v1/floors/{identifier}', C.FloorPatch, C.MapFloor, floor_object, 'FLOOR')

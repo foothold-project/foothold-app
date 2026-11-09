@@ -188,11 +188,20 @@
     "name": {
       "title": "Name",
       "type": "string"
+    },
+    "purpose": {
+      "enum": [
+        "SIM",
+        "REAL"
+      ],
+      "title": "Purpose",
+      "type": "string"
     }
   },
   "required": [
     "id",
     "name",
+    "purpose",
     "buildings"
   ],
   "title": "MapSite",

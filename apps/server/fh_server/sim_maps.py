@@ -147,7 +147,7 @@ def sync_worlds(db, org_id, actor_id, folder, files_root):
         raise ValueError('Active organization administrator required for import attribution')
     site_id = identifier(org_id, 'sim-site')
     if db.get(Site, site_id) is None:
-        db.add(Site(id=site_id, org_id=org_id, name='시뮬 월드'))
+        db.add(Site(id=site_id, org_id=org_id, name='시뮬 월드', purpose='SIM'))
         db.flush()
     changed = []
     for entry, metadata, png, width, height, presets in prepared:

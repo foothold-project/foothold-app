@@ -104,7 +104,7 @@ def install(app, DB, Identity, fail, authorize, event, settings):
             fail(409, 'RESOURCE_ARCHIVED', '휴지통의 지형을 먼저 되돌려 주세요.')
         site = db.get(Site, identifier(user.org_id, 'site'))
         if site is None:
-            site = Site(id=identifier(user.org_id, 'site'), org_id=user.org_id, name='시뮬 지형')
+            site = Site(id=identifier(user.org_id, 'site'), org_id=user.org_id, name='시뮬 지형', purpose='SIM')
             db.add(site)
             db.flush()
         building = db.get(Building, identifier(user.org_id, terrain_id + '/building'))

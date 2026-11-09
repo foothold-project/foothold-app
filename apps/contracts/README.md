@@ -133,14 +133,21 @@ simmgr는 지도 DB를 소유하지 않는다. 기존 `id`와 월드 실행 가�
 IMPORT/EDIT/ROLLBACK/SLAM(만든 방식)과 구분한다. 사람이 시뮬 층을 편집·되돌려도
 SIMULATION 출처를 유지한다. 서버 업로드 ID 재사용·YAML 연결 복사도 지도 판의 출처를 보존한다.
 
-시뮬 지도 판이 하나라도 든 시나리오를 실기 로봇에 배정하면
-`422 SIM_MAP_REQUIRES_SIM_ROBOT` (`ScenarioTargetErrorCode`)이다. 일반 로봇 API로
-simulation 값을 설정할 수 없으며 기존 서버 등록 값으로 판정한다. 결재 승인 때도
-같은 적합성을 다시 확인한다. 후속 실행 시작 API는 공통 `require_target`을 호출해야 한다.
+장소 `MapSite.purpose`는 `SIM` 또는 `REAL`이다. `POST /sites`는 `SiteCreate`로
+purpose를 받고 생략하면 `REAL`이며, 이름 수정은 purpose 변경을 받지 않는다.
+0026 이관은 보관 장소와 다른 조직을 포함한 기존 장소 전부를 `SIM`으로 바꾸고,
+새 시뮬 월드·지형 장소도 `SIM`으로 만든다. 기존 지도·시나리오·배정 행은 보존한다.
+
+시나리오의 구분은 지도 출처가 아니라 지점·GO_TO 종료 지점이 속한 장소 purpose를 따른다.
+`SIM`·`REAL`을 함께 참조하는 생성·수정·미리보기는 `409 SCENARIO_MIXED_PURPOSE`이다.
+`SIM` 장소 시나리오의 로봇 배정·배정 승인 요청은 로봇 종류와 무관하게
+`409 SIM_SCENARIO_NO_ASSIGN` («시뮬 시나리오는 시뮬 탭에서 바로 실행합니다»)이다.
+`REAL` 장소의 배정은 기존대로이며, 복사된 SIMULATION 출처의 지도 판을 실기 로봇에
+배정하는 기존 `422 SIM_MAP_REQUIRES_SIM_ROBOT` 경계도 유지한다.
+이 오류들은 `ScenarioTargetErrorCode`로 생성된다.
 
 미리 만든 임무 판은 표시·기록용 이름이며 `Mission.steps=[]`로 읽힌다.
-일반 `MissionWrite`는 기존대로 작업 1개 이상을 요구한다. 시뮬 지도 자동 승인은
-지도에만 해당하며 운영자 시나리오 배정의 결재는 기존대로다.
+일반 `MissionWrite`는 기존대로 작업 1개 이상을 요구한다. 지도 판 승인 흐름은 바꾸지 않는다.
 
 ## 시나리오 실행 공통 계약 (scenario/1, 05 §13.10)
 

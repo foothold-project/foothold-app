@@ -43,6 +43,7 @@ def test_save_generates_map_revisions_and_scenario_floor(maps):
     assert first['version'] == 1 and first['spec'] == SPEC
     tree = http.get(P + '/sites', headers=headers).json()['items']
     assert len(tree) == 1 and tree[0]['name'] == '시뮬 지형'
+    assert tree[0]['purpose'] == 'SIM'
     building = tree[0]['buildings'][0]
     assert building['name'] == SPEC['name']
     floor = building['floors'][0]

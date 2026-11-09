@@ -716,6 +716,7 @@ export interface MapSite {
   archived_at?: string | null;
   id: string;
   name: string;
+  purpose: "SIM" | "REAL";
   buildings: MapBuilding[];
 }
 
@@ -2063,6 +2064,11 @@ export interface SimWorldStart {
   spawn_floor_id?: "l1" | "l2" | null;
 }
 
+export interface SiteCreate {
+  name: string;
+  purpose?: "SIM" | "REAL";
+}
+
 export interface SiteTree {
   items: MapSite[];
   next_cursor: null;
@@ -2220,7 +2226,7 @@ export interface WaitParams {
   seconds?: number;
 }
 
-export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT";
+export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT" | "SIM_SCENARIO_NO_ASSIGN" | "SCENARIO_MIXED_PURPOSE";
 export type RunStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
 export type RunRecordStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "ABORTED";
 export type RunWaitReason = "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE";
