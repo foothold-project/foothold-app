@@ -106,6 +106,12 @@ final class Nearby {
         seq = null;
     }
 
+    /** 실기 중계 대상 확인(Go2Link): 이번 찾기에서 mDNS 로 찾은 인증 WS 에이전트(로봇 ID 있음)의 그 주소·포트인지 */
+    boolean found(String host, int port) {
+        for (Map<String, Object> it : items.values()) if (real(it, host, port)) return true;
+        return false;
+    }
+
     void onPermission(boolean granted) {
         if (!scanning) return;
         if (granted) ble(); else problems.add("bt-perm");
@@ -392,6 +398,12 @@ final class Nearby {
         else mode = null;
         if (agent != null && agentOk(agent, host, mode)) o.put("agent", agent);   // discovery-only 는 상태 서비스가 없어 늘 버림
         return o;
+    }
+
+    /** 화면 realTarget 과 같은 기준: mdns · mode 없음 · rid 있음 · agent = ws://<찾은 주소>:<port>/phone/ws */
+    static boolean real(Map<String, Object> it, String host, int port) {
+        return "mdns".equals(it.get("via")) && !it.containsKey("mode") && it.get("rid") != null && host != null && host.equals(it.get("host"))
+            && ("ws://" + host + ":" + port + "/phone/ws").equals(it.get("agent"));
     }
 
     static boolean agentOk(String agent, String host, String mode) {

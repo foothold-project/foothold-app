@@ -9,6 +9,7 @@ import { FallChip } from './go2status';
 import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, Approval, FieldCheck, ManageRobot } from './pairing';
+import { useSim } from './phone';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
 
@@ -68,12 +69,13 @@ export function Drive(c: Ctx) {
  *  총괄은 실기를 연결하지 않아 앱 안에서 주변 찾기만. 내 실기 카드에는 현장 승인 표시 + «현장 안전 확인»·«관리» */
 export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ctx, 'refresh' | 'cancel'>>) {
   useRt();
+  const s = useSim();
   const [view, setView] = useState<'menu' | 'pair' | 'nearby' | null>(null), app = inApp(), op = c.user.role !== 'ORG_ADMIN';
   const live = c.robots.some((r) => !r.sim && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
   const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setView('menu')} data-robot-connect>+ 로봇 연결하기</button>;
   const refresh = c.refresh ?? (() => {}), can = op || app;
   return <>
-    {view === 'nearby' ? <Nearby robots={c.robots} close={() => setView(null)} />
+    {view === 'nearby' || (s.real && s.step !== 'drive') ? <Nearby robots={c.robots} close={() => setView(null)} />
       : view === 'pair' ? <AddRobot mine={c.robots.map((r) => r.id)} close={() => setView(null)} refresh={refresh} cancel={c.cancel} />
       : view === 'menu' ? <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="로봇 연결하기">
         <div className="fh-row"><h2 className="fh-grow">로봇 연결하기</h2><button type="button" className="btn" onClick={() => setView(null)}>닫기</button></div>

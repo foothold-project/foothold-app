@@ -6,4 +6,8 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+    <!-- 실기 직결(10-30): 화면 → 앱 안 중계(Go2Link)는 이 폰의 127.0.0.1 평문 ws 만. 다른 주소는 위 그대로 평문 금지 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
 </network-security-config>

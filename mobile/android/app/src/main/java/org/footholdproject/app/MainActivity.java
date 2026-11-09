@@ -22,21 +22,27 @@ import org.json.JSONException;
  *    원격 조종 화면(#/drive)과 앱 안 시뮬 화면(sim/index.html 의 html[data-drive]) 둘 다
  *  - 주변 로봇 찾기(10-28, Nearby): 같은 읽기로 [data-nearby-scan=<seq>] 를 보고 찾기 시작·멈춤, 결과는 evaluateJavascript 로 'fh-nearby' 이벤트
  *  - Go2 상태 전용(10-28, Go2Status): 같은 읽기로 window.fhGo2Status={seq,url,code} 를 보고 1 s 읽기 시작·멈춤, 결과는 'fh-go2' 이벤트
+ *  - 실기 직결 중계(10-30, Go2Link): 같은 읽기로 window.fhGo2Link={seq,host,port} 를 보고 127.0.0.1 중계 열기·닫기, 결과는 'fh-go2-link' 이벤트
  */
 public class MainActivity extends BridgeActivity {
     private static final long DRIVE_POLL_MS = 500;
     private static final String POLL_JS = "(function(){var n=document.querySelector('[data-nearby-scan]'),g=window.fhGo2Status;"
-        + "return [document.querySelector('[data-drive]')!==null,n?n.getAttribute('data-nearby-scan'):null,g?[String(g.seq),String(g.url),String(g.code)]:null]})()";
+        + "var l=window.fhGo2Link;"
+        + "return [document.querySelector('[data-drive]')!==null,n?n.getAttribute('data-nearby-scan'):null,g?[String(g.seq),String(g.url),String(g.code)]:null,"
+        + "l?[String(l.seq),String(l.host),String(l.port)]:null]})()";
     private final Handler main = new Handler(Looper.getMainLooper());
-    private boolean drive;
+    private boolean drive, resumed;
+    private int pollGen;   // 가려지면 +1 — 그 전에 요청한 늦은 읽기 결과는 버린다(중계·찾기를 다시 켜지 않게)
     private Nearby nearby;
     private Go2Status go2;
+    private Go2Link link;
 
     // ponytail: 0.5 s 마다 읽기(조종 화면 들어간 뒤 최대 0.5 s 늦게 가로) — 더 빨라야 하면 웹이 title 등을 바꾸고 WebChromeClient 로 받기
     private final Runnable poll = new Runnable() {
         @Override
         public void run() {
-            bridge.getWebView().evaluateJavascript(POLL_JS, MainActivity.this::polled);
+            final int g = pollGen;
+            bridge.getWebView().evaluateJavascript(POLL_JS, (r) -> { if (resumed && g == pollGen) polled(r); });
             main.postDelayed(this, DRIVE_POLL_MS);
         }
     };
@@ -48,6 +54,7 @@ public class MainActivity extends BridgeActivity {
         // JS → 네이티브 통로(androidBridge·Cookies·Http)는 RemoteClient 생성자에서 전부 뗀다 — 시작 화면·원격 화면 모두 플러그인 호출 0
         nearby = new Nearby(this, (js) -> bridge.getWebView().evaluateJavascript(js, null));
         go2 = new Go2Status(this, (js) -> bridge.getWebView().evaluateJavascript(js, null));
+        link = new Go2Link(this, (js) -> bridge.getWebView().evaluateJavascript(js, null), nearby);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         // 나중에 더한 콜백이 먼저 불린다 — @capacitor/app 의 뒤로가기(WebView goBack)보다 앞
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -60,14 +67,18 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         immersive();
+        resumed = true;
         main.post(poll);
     }
 
     // 찾기는 onPause 에서 멈추지 않는다 — 권한 창도 onPause 를 부르고, 멈췄다 다시 시작하면 거부 때 창이 되풀이된다. 10 s 뒤 스스로 끝남
     @Override
     public void onPause() {
+        resumed = false;
+        pollGen++;
         main.removeCallbacks(poll);
         go2.stop();   // 가려지면 상태 읽기도 멈춤 — 돌아오면 읽기가 다시 시작
+        link.stop();  // 가려지면 실기 중계도 닫음 — 로봇은 deadman 으로 멈춤, 돌아오면 중계만 다시 열리고 조종 연결은 화면의 «다시 연결»
         super.onPause();
     }
 
@@ -75,6 +86,7 @@ public class MainActivity extends BridgeActivity {
     public void onDestroy() {
         nearby.stop();
         go2.stop();
+        link.stop();
         super.onDestroy();
     }
 
@@ -87,7 +99,7 @@ public class MainActivity extends BridgeActivity {
         nearby.onPermission(ok);
     }
 
-    /** 0.5 s 읽기 결과 [조종 화면?, 찾기 seq|null, 상태 전용 [seq,url,code]|null] */
+    /** 0.5 s 읽기 결과 [조종 화면?, 찾기 seq|null, 상태 전용 [seq,url,code]|null, 실기 중계 [seq,host,port]|null] */
     private void polled(String r) {
         try {
             JSONArray a = new JSONArray(r);
@@ -100,6 +112,13 @@ public class MainActivity extends BridgeActivity {
             else {
                 String k = g.optString(0) + "\n" + g.optString(1) + "\n" + g.optString(2);
                 if (!k.equals(go2.key())) go2.start(k, g.optString(0), g.optString(1), g.optString(2));
+            }
+            JSONArray l = a.optJSONArray(3);
+            if (l == null) link.stop();
+            else {
+                String k = l.optString(0) + "\n" + l.optString(1) + "\n" + l.optString(2);
+                if (!k.equals(link.key())) link.start(k, l.optString(0), l.optString(1), l.optInt(2, -1));
+                else link.check();
             }
         } catch (JSONException e) {
             setDrive(false);
