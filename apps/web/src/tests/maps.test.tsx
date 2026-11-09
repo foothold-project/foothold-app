@@ -8,6 +8,7 @@ import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../.
 import { Root } from '../session';
 import { floorName, pixelTo, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
+import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
 import raw from './mapcases.json?raw';
 import { FakeWS } from './fakeWs';
@@ -22,7 +23,7 @@ const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
 const floor = (id: string, name: string, level: number, approved: string | null, building = 'b1') => ({ id, building_id: building, name, level, approved_version_id: approved, pending_count: 0 });
 /** 본관(본동 1층 판 2 승인·2층 지도 없음) */
-const TREE: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2'), floor('f2', '2층', 2, null)] }] }], next_cursor: null };
+const TREE = { items: [{ id: 's1', name: '본관', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2'), floor('f2', '2층', 2, null)] }] }], next_cursor: null } as unknown as SiteTree;   // purpose REAL = 지도 탭 장소(SIM-REAL-SPLIT)
 const EMPTY = { zones: [], waypoints: [], connectors: [], edits: [] };
 /** 100×80 칸, 0.05 m/칸, origin (-1, -2, 0) — 지도 범위 x -1~4 m, y -2~2 m */
 const ver = (id: string, number: number, p: Partial<MapVersion> = {}): MapVersion => ({ upload_id: `up-${id}`, id, floor_id: 'f1', number, base_version_id: null, copied_from_id: null, status: 'APPROVED', image_sha256: 'ab'.repeat(32),
@@ -243,7 +244,7 @@ describe('지도 탭 — 장소 나무', () => {
     await setVal(field('이름', card('층 이름 바꾸기 — 2층')), '2층 동쪽');
     await click(btn('저장', card('층 이름 바꾸기 — 2층')));
     expect(writes()).toEqual(['POST /sites', 'POST /sites/s1/buildings', 'POST /buildings/b1/floors', 'PATCH /floors/f2']);
-    expect(calls.filter((c) => c.method !== 'GET').map((c) => c.body)).toEqual([{ name: '별관' }, { name: '신동' }, { name: '지하 1층', level: -1 }, { name: '2층 동쪽', level: 2 }]);
+    expect(calls.filter((c) => c.method !== 'GET').map((c) => c.body)).toEqual([{ name: '별관', purpose: 'REAL' }, { name: '신동' }, { name: '지하 1층', level: -1 }, { name: '2층 동쪽', level: 2 }]);
     expect(sent('GET', '/sites')).toHaveLength(5);                                     // 바꿀 때마다 나무를 다시 받음
     expect(card('장소').textContent).toContain('이름을 바꿨습니다.');
     await click(floorBtn('1층'));                                                     // 다른 층을 고르면 지난 알림은 지움
@@ -324,7 +325,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 운영 관리자에게도 «장소 고치기»로 만들라는 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('등록된 층이 없습니다. «+ 지도 만들기»에서 장소·건물·층을 만드세요.');
+    expect(card('지도 고르기').textContent).toContain('실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다.');
     expect(btn('장소 고치기')!.disabled).toBe(false);
     await click(btn('장소 고치기'));
     expect(card('장소').textContent).toContain('등록된 장소가 없습니다. «+ 장소»로 만드세요.');
@@ -345,7 +346,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 안내(총괄은 고치기로 만들기)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('등록된 층이 없습니다. «+ 지도 만들기»에서 장소·건물·층을 만드세요.');
+    expect(card('지도 고르기').textContent).toContain('실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다.');
   });
 });
 
@@ -983,9 +984,9 @@ describe('지도 편집 — 도구', () => {
     expect(b.features.waypoints).toEqual(FEAT.waypoints);
   });
   it('연결점: 같은 건물 다른 층만 짝 층, 짝 층 승인 판의 «이 층 짝» 연결점을 고르면 같은 id·종류', async () => {
-    const tree: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [
+    const tree = { items: [{ id: 's1', name: '본관', purpose: 'REAL', buildings: [
       { id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2'), floor('f2', '2층', 2, 'v9'), floor('f3', '3층', 3, null)] },
-      { id: 'b2', site_id: 's1', name: '별동', floors: [floor('f8', '별동 1층', 1, null, 'b2')] }] }], next_cursor: null };
+      { id: 'b2', site_id: 's1', name: '별동', floors: [floor('f8', '별동 1층', 1, null, 'b2')] }] }], next_cursor: null } as unknown as SiteTree;
     const V9 = ver('v9', 1, { floor_id: 'f2', features: { ...EMPTY, connectors: [{ id: 'c-up', kind: 'ELEVATOR', pair_floor_id: 'f1', x: 1, y: 1, yaw: 0 }, { id: 'c-x', kind: 'STAIRS', pair_floor_id: 'f3', x: 0, y: 0, yaw: 0 }] } });
     serve(editSrv({ 'GET /sites': { status: 200, body: tree }, 'GET /map-versions/v9': { status: 200, body: V9 }, ...saved201 }));
     await startEdit();
@@ -999,7 +1000,7 @@ describe('지도 편집 — 도구', () => {
     expect([c.id, c.kind, c.pair_floor_id]).toEqual(['c-up', 'ELEVATOR', 'f2']);
   });
   it('연결점: 같은 건물에 다른 층이 없으면 놓지 않고 이유', async () => {
-    const tree: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2')] }] }], next_cursor: null };
+    const tree = { items: [{ id: 's1', name: '본관', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2')] }] }], next_cursor: null } as unknown as SiteTree;
     serve(editSrv({ 'GET /sites': { status: 200, body: tree } }));
     await startEdit();
     await tool('연결점'); await tap(2, 1);
@@ -2040,5 +2041,55 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     expect(btns(card('장소')).filter((b) => /^\d층/.test(b.textContent!)).map((b) => b.textContent!.slice(0, 2))).toEqual(['3층']);
     await setVal(q, '');
     expect(btns(card('장소')).filter((b) => /^\d층/.test(b.textContent!))).toHaveLength(6);
+  });
+});
+
+// SIM-REAL-SPLIT(11-09): 지도 탭 = REAL 장소(실기 SLAM 지도)만, 시뮬 탭 아래 칸 = SIM 장소만 — 서버 purpose 로 거른다(이름으로 거르지 않음), purpose 없으면 SIM
+describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
+  const SIMS = { id: 's9', name: '시뮬 지형', purpose: 'SIM', buildings: [{ id: 'b9', site_id: 's9', name: '언덕', floors: [floor('f9', '1층', 1, null, 'b9')] }] };
+  const OLD = { id: 's8', name: '옛 장소(purpose 없음)', buildings: [{ id: 'b8', site_id: 's8', name: '창고', floors: [floor('f8', '1층', 1, null, 'b8')] }] };
+  const BOTH = { items: [TREE.items[0], SIMS, OLD], next_cursor: null } as unknown as SiteTree;
+  const toChooser = async () => { if ($('[data-to-chooser]')) await click($('[data-to-chooser]')); };
+  const sitesShown = () => $$('[aria-label="지도 고르기"] .mx-site').map((s) => s.getAttribute('aria-label'));
+  const empty = { 'GET /floors/f8/map-versions': { status: 200, body: { items: [], next_cursor: null } }, 'GET /floors/f9/map-versions': { status: 200, body: { items: [], next_cursor: null } } };
+  it('지도 탭은 REAL 만', async () => {
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty }));
+    await open('#/map'); await toChooser();
+    expect(sitesShown()).toEqual(['장소 본관']);
+  });
+  it('시뮬 탭은 SIM(+ purpose 없는 옛 장소)만', async () => {
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty }));
+    await open('#/sim'); await toChooser();
+    expect($('[data-sim-places]')).toBeTruthy();
+    expect(sitesShown()).toEqual(['장소 시뮬 지형', '장소 옛 장소(purpose 없음)']);
+  });
+  it('시뮬 탭에서 만든 장소 = POST /sites purpose SIM, 빈 시뮬 칸은 «지형 만들기» 안내', async () => {
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } }, 'POST /sites': { status: 201, body: { id: 's2', name: '시뮬 별관', purpose: 'SIM', buildings: [] } } }));
+    await open('#/sim');
+    expect(card('지도 고르기').textContent).toContain('시뮬 지도가 없습니다. 위 «지형 만들기»로 지형을 저장하면 여기에 보입니다.');
+    await click(btn('장소 고치기'));
+    await click(btn('+ 장소'));
+    await setVal(field('이름', card('새 장소')), '시뮬 별관');
+    await click(btn('저장', card('새 장소')));
+    expect(sent('POST', '/sites').map((c) => c.body)).toEqual([{ name: '시뮬 별관', purpose: 'SIM' }]);
+  });
+  it('옛 시나리오 주소가 시뮬 장소의 시나리오면 시뮬 탭으로 넘긴다', async () => {
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty,
+      'GET /scenarios/sc9': { status: 200, body: { id: 'sc9', name: '언덕 순찰', floor_ids: ['f9'], waypoints: [] } } }));
+    await open('#/mission/sc9');
+    await flush();
+    expect(location.hash).toBe('#/sim');
+  });
+  it('저장 안 한 편집 중 다른 탭 주소 → 떠나던 탭(시뮬)으로 되돌리고 묻는다', async () => {
+    serve(signedIn(KIM));
+    await open('#/sim');
+    const ask = vi.fn();
+    leaving.ask = ask;
+    try {
+      act(() => { location.hash = '#/robots'; });
+      await flush();
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(location.hash).toBe('#/sim');
+    } finally { leaving.ask = null; }
   });
 });

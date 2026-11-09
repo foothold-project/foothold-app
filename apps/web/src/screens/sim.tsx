@@ -10,6 +10,7 @@ import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
 import { Chip, inApp } from '../screens';
+import { SimPlaces } from './maps';
 import type { SimRobot } from '../../../contracts/ts';
 import type { Robot, Tone, User } from '../fake';
 
@@ -33,7 +34,7 @@ export function SimTab({ user, robots = [], refresh }: { user: User; robots?: Ro
   useEffect(() => { sim.pc(true); return () => sim.pc(false); }, []);   // 이 탭에서 받는 출입증은 surface: 'pc'
   // «시뮬 정지»는 띄우는 중·연결 중·끝내는 중·정리 확인 중에도(sim.live()) 늘 하나 — 조종 화면에서는 머리 카드 안, 그 밖에는 진행 칸 위
   return s.step === 'drive' && s.link && s.robot ? <SimView admin={user.role === 'ORG_ADMIN'} />
-    : <><Go2ReplayLink robots={robots} />{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view admin={user.role === 'ORG_ADMIN'} /></>;
+    : <><Go2ReplayLink robots={robots} />{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view admin={user.role === 'ORG_ADMIN'} /><SimPlaces user={user} robots={robots} /></>;
 }
 
 /** «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */

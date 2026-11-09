@@ -96,7 +96,7 @@ const savedEngine = (): Engine => { try { return localStorage.getItem(ENGINE_KEY
 /** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중. view = PC «시뮬» 탭(조종 없이 보기만 — 단추 이름만 다름).
  *  PC 웹(view, 10-29 사용자): «MuJoCo»(이 기기에서 계산 — 시뮬 열기) / «Gazebo»(서버에서 계산 — 띄우기) 중 고르기, 서버 월드 목록이 없으면 Gazebo «준비 중».
  *  폰(앱 안·폰 브라우저 — 폰 틀의 로봇 연결 화면, view 없음) = MuJoCo 만. 이미 떠 있는 내 Gazebo 시뮬 로봇·정리 칸은 둘 다 그대로 */
-export function SimLaunch({ me, view, admin }: { me: string; view?: boolean; admin?: boolean }) {
+export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: boolean }) {
   const only = !view || inApp(), title = !only ? '시뮬 로봇 띄우기' : inApp() ? '시뮬(앱 안)' : '시뮬';
   const [engine, setEngine] = useState(savedEngine);
   const pickEngine = (e: Engine) => { try { localStorage.setItem(ENGINE_KEY, e); setEngine(e); } catch { setEngine('mujoco'); } };   // 저장 실패 = MuJoCo
@@ -142,7 +142,7 @@ export function SimLaunch({ me, view, admin }: { me: string; view?: boolean; adm
         <li key={id}><label className="fh-row">
           <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}
-    {app ? <><SimPick make={!only} admin={admin} />
+    {app ? <><SimPick make={!only} />
       {only && <p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p>}</> : <>
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">

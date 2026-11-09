@@ -161,10 +161,12 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
 
   // 지도 편집을 저장하지 않았으면 다른 탭으로 가는 주소 바꿈(메뉴·뒤로 가기)을 되돌리고 그 화면에 묻는다
   useEffect(() => {
-    const f = () => {
+    const f = (e: HashChangeEvent) => {
       const h = location.hash, ask = leaving.ask;
+      // 편집 중인 탭 = 떠나는 주소의 탭(시뮬 탭도 지도·시나리오 편집 — SIM-REAL-SPLIT). 이전 주소를 모르면 지도 탭
+      const back = (e.oldURL && new URL(e.oldURL).hash) || '#/map';
       // 옛 시나리오 주소도 지도 탭을 다시 그리고 층을 옮기므로 같은 확인을 거친다(REVIEW-260 B1) — 취소하면 지금 편집·선택 그대로
-      if (ask && (tabFromHash(h, false) !== 'map' || oldScenario(h) != null)) { history.replaceState(null, '', '#/map'); ask(() => { location.hash = h; }); return; }
+      if (ask && (tabFromHash(h, false) !== tabFromHash(back, false) || oldScenario(h) != null)) { history.replaceState(null, '', back); ask(() => { location.hash = h; }); return; }
       if (toMap(h)) setMapN((x) => x + 1);   // 옛 시나리오 주소 — 지도 탭을 다시 그려 그 시나리오를 연다
       setWant(h);
     };
