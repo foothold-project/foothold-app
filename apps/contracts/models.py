@@ -1127,6 +1127,100 @@ class MapName(Contract):
     name: MapNameText = Field(min_length=1, max_length=128, pattern=r'\S')
 
 
+TerrainNumber = Annotated[float, Field(strict=True)]
+TerrainPositive = Annotated[float, Field(strict=True, gt=0)]
+
+
+class TerrainPose(Contract):
+    x: TerrainNumber
+    y: TerrainNumber
+    yaw: TerrainNumber
+
+
+class TerrainBox(TerrainPose):
+    kind: Literal['box']
+    sx: TerrainPositive
+    sy: TerrainPositive
+    h: Annotated[float, Field(strict=True, gt=0, le=1)]
+
+
+class TerrainStairs(TerrainPose):
+    kind: Literal['stairs']
+    width: TerrainPositive
+    steps: Annotated[int, Field(strict=True, ge=1, le=50)]
+    rise: Annotated[float, Field(strict=True, ge=0.02, le=0.25)]
+    run: Annotated[float, Field(strict=True, ge=0.15)]
+
+
+class TerrainRamp(TerrainPose):
+    kind: Literal['ramp']
+    length: TerrainPositive
+    width: TerrainPositive
+    h: Annotated[float, Field(strict=True, gt=0, le=1)]
+
+
+class TerrainGap(TerrainPose):
+    kind: Literal['gap']
+    length: TerrainPositive
+    width: TerrainPositive
+
+
+TerrainItem = Annotated[TerrainBox | TerrainStairs | TerrainRamp | TerrainGap, Field(discriminator='kind')]
+
+
+class TerrainSpec(Contract):
+    # Alias preserves the browser's fh_custom_terrain/1 wire format.
+    schema_: Literal['fh_custom_terrain/1'] = Field(alias='schema')
+    id: str = Field(pattern=r'^[a-z0-9-]{1,32}$', min_length=1, max_length=32)
+    name: MapNameText = Field(min_length=1, max_length=40, pattern=r'\S')
+    size: tuple[Annotated[float, Field(strict=True, ge=4, le=30)], Annotated[float, Field(strict=True, ge=4, le=30)]]
+    spawn: tuple[TerrainNumber, TerrainNumber, TerrainNumber]
+    items: list[TerrainItem] = Field(max_length=60)
+
+    @model_validator(mode='after')
+    def geometry(self):
+        sx, sy = self.size
+        x, y, _ = self.spawn
+        if abs(x) > sx / 2 - .45 or abs(y) > sy / 2 - .45:
+            raise ValueError('시작 위치는 바닥 안쪽 가장자리에서 0.45 m 떨어져야 합니다')
+        for o in self.items:
+            length = o.sx if o.kind == 'box' else o.steps * o.run + 1 if o.kind == 'stairs' else o.length
+            width = o.sy if o.kind == 'box' else o.width
+            if o.kind == 'stairs' and o.steps * o.rise > 1:
+                raise ValueError('계단 전체 높이는 1.0 m 이하여야 합니다')
+            if o.kind == 'ramp' and math.atan2(o.h, o.length) > math.pi / 6 + 1e-9:
+                raise ValueError('경사는 30° 이하여야 합니다')
+            c, s = math.cos(o.yaw), math.sin(o.yaw)
+            if (abs(o.x) + abs(c) * length / 2 + abs(s) * width / 2 > sx / 2 + 1e-9
+                    or abs(o.y) + abs(s) * length / 2 + abs(c) * width / 2 > sy / 2 + 1e-9):
+                raise ValueError('물체 전체가 바닥 안에 있어야 합니다')
+            dx, dy = x - o.x, y - o.y
+            u = max(0, abs(c * dx + s * dy) - length / 2)
+            v = max(0, abs(-s * dx + c * dy) - width / 2)
+            if math.hypot(u, v) < .45 - 1e-9:
+                raise ValueError('시작 위치는 물체·틈에서 0.45 m 떨어져야 합니다')
+        return self
+
+
+class TerrainWrite(Contract):
+    spec: TerrainSpec
+    base_version: int = Field(strict=True, ge=0, le=2147483646)
+
+
+class Terrain(Contract):
+    spec: TerrainSpec
+    version: int
+    floor_id: UUID | None
+    map_version_id: UUID | None
+    archived_at: UTCDateTime | None
+    updated_at: UTCDateTime
+
+
+class TerrainList(Contract):
+    items: list[Terrain]
+    next_cursor: str | None = None
+
+
 class FloorCreate(MapName):
     level: int = Field(strict=True, ge=-1000, le=1000)
 
@@ -1137,8 +1231,9 @@ class FloorPatch(Contract):
 
 
 class MapFloor(Contract):
+    terrain_id: str | None = None
     archived_at: UTCDateTime | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'floor_z', 'archived_at'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'floor_z', 'archived_at', 'terrain_id'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     floor_z: float | None = None
     id: UUID
@@ -2676,3 +2771,5 @@ REQUEST_MODELS.add(StopRequestAck)
 REQUEST_MODELS.add(PhoneStateUpload)
 REQUEST_MODELS.update({PairingStart, PairingClaim, PairingConfirm, PairingPoll, FieldApprovalRequest})
 TOP['PairingPollResult'] = PairingWaiting | PairingPaired
+
+REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, TerrainRamp, TerrainGap, TerrainWrite})

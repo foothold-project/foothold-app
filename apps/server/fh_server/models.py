@@ -262,12 +262,25 @@ class Building(Tenant, Base):
     name: Mapped[str] = mapped_column(Text)
 
 
+class Terrain(Tenant, Base):
+    __tablename__ = 'terrains'
+    __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        CheckConstraint('version > 0', name='terrain_version'))
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    org_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    spec: Mapped[dict] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(Integer)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
 class Floor(Tenant, Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = 'floors'
     __table_args__ = (
         CheckConstraint("provenance IN ('HUMAN','SIMULATION')", name='floor_provenance'),
         UniqueConstraint('building_id', 'sim_floor_id'),
+        UniqueConstraint('org_id', 'terrain_id'),
         ForeignKeyConstraint(['org_id', 'building_id'], ['buildings.org_id', 'buildings.id']),
         UniqueConstraint('org_id', 'id'),
         ForeignKeyConstraint(['org_id', 'id', 'approved_version_id'],
@@ -276,6 +289,7 @@ class Floor(Tenant, Base):
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     provenance: Mapped[str] = mapped_column(Text, default='HUMAN', server_default=text("'HUMAN'"))
+    terrain_id: Mapped[str | None] = mapped_column(Text)
     sim_floor_id: Mapped[str | None] = mapped_column(Text)
     floor_z: Mapped[float | None] = mapped_column(Float)
     building_id: Mapped[UUID] = mapped_column(PGUUID)

@@ -2,6 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api, ApiFail } from '../api';
+import type { Terrain as ServerTerrain } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import './fakeWs';
@@ -13,7 +15,12 @@ import { buildTerrain, validateTerrain, type TerrainItem as Item, type TerrainSp
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null, box: HTMLDivElement;
 const render = (el: JSX.Element) => { box = document.createElement('div'); document.body.append(box); act(() => { root = createRoot(box); root.render(el); }); };
-beforeEach(() => localStorage.clear());
+const apiUser = (role: 'ORG_ADMIN' | 'OPERATOR'): Awaited<ReturnType<typeof api.me>> => ({ id: 'u-test', username: 'test', display_name: '시험', role, locked: false, robot_ids: [], created_at: '2026-11-09T00:00:00Z' });
+beforeEach(() => {
+  localStorage.clear();
+  vi.spyOn(api, 'terrains').mockReturnValue(new Promise(() => {}));
+  vi.spyOn(api, 'me').mockReturnValue(new Promise(() => {}));
+});
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); localStorage.clear(); });
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s)!;
 const click = (s: string) => act(() => { $(s).click(); });
@@ -23,7 +30,7 @@ const pin = () => vi.spyOn($('[data-terrain-board]'), 'getBoundingClientRect').m
 const pt = (x: number, y: number) => ({ bubbles: true, clientX: (x + 6.72) * 10, clientY: (6.72 - y) * 10 });
 const fire = (el: Element, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, pt(x, y))); });
 const put = (tool: string, x: number, y: number) => { pin(); click(`[data-terrain-tool="${tool}"]`); fire($('[data-terrain-board]'), 'pointerdown', x, y); };
-const stored = (): Spec => { const k = Object.keys(localStorage).find((x) => x.startsWith('fh.customTerrain.'))!; return JSON.parse(localStorage.getItem(k)!); };
+const stored = (): Spec => { const k = Object.keys(localStorage).find((x) => x.startsWith('fh.customTerrain.') && !x.endsWith(':base'))!; return JSON.parse(localStorage.getItem(k)!); };
 /** 숫자·글자 칸에 치기(React 가 듣는 네이티브 설정) */
 function type(input: HTMLInputElement, v: string) {
   act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, v); input.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -282,5 +289,171 @@ describe('입구', () => {
     act(() => root!.unmount()); box.remove();
     render(<SimPick />);
     expect($('[data-terrain-enter]')).toBeNull();
+  });
+});
+
+
+const settle = () => act(async () => { await Promise.resolve(); });
+const serverTerrain = (spec: Spec, version = 1): ServerTerrain => ({ spec, version, floor_id: 'floor-terrain', map_version_id: 'map-terrain', archived_at: null, updated_at: '2026-11-09T00:00:00Z' });
+
+describe('조직 지형 저장', () => {
+  beforeEach(() => {
+    vi.mocked(api.terrains).mockResolvedValue([]);
+    vi.mocked(api.me).mockResolvedValue(apiUser('ORG_ADMIN'));
+  });
+  it('로컬 저장본을 한 번에 서버로 올리고 로컬은 남긴다, 다시 저장은 읽은 수정 번호를 쓴다', async () => {
+    const spec = base([]);
+    localStorage.setItem(keyOf(spec.id), JSON.stringify(spec)); localStorage.setItem('fh.customTerrainLast', spec.id);
+    const save = vi.spyOn(api, 'saveTerrain').mockImplementation(async (p) => serverTerrain(p.spec, p.base_version + 1));
+    render(<Terrain />); await settle();
+    expect($('[data-terrain-saved]').textContent).toContain('이 브라우저에만');
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장 안 됨');
+    await act(async () => { $('[data-terrain-migrate]').click(); });
+    expect(save.mock.calls[0][0]).toEqual({ spec, base_version: 0 });
+    expect(JSON.parse(localStorage.getItem(keyOf(spec.id))!)).toEqual(spec);
+    expect($('[data-terrain-server]').textContent).toContain('시험');
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장됨');
+    expect($('[data-terrain-server-notice]').textContent).toContain('지도도 만들었습니다');
+    type($<HTMLInputElement>('[data-terrain-name]'), '다시 저장');
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장 안 됨');
+    await act(async () => { $('[data-terrain-save]').click(); });
+    expect(save.mock.calls[1][0].base_version).toBe(1);
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장됨');
+  });
+  it('서버에서 연 지형은 같은 출처 브라우저 사본과 기존 시뮬 주소로 열 수 있다', async () => {
+    const t = serverTerrain(base([]), 4);
+    vi.mocked(api.terrains).mockResolvedValue([t]);
+    const read = vi.spyOn(api, 'terrain').mockResolvedValue(t);
+    render(<Terrain />); await settle();
+    await act(async () => { $('[data-terrain-server] .mx-name').click(); });
+    expect(read).toHaveBeenCalledWith(t.spec.id, expect.any(AbortSignal));
+    expect(JSON.parse(localStorage.getItem(keyOf(t.spec.id))!)).toEqual(t.spec);
+    expect($('[data-terrain-open]').getAttribute('href')).toBe(terrainUrl(t.spec.id));
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장됨');
+  });
+  it('운영자는 보기만 하고 서버 쓰기와 휴지통은 막힌다', async () => {
+    vi.mocked(api.me).mockResolvedValue(apiUser('OPERATOR'));
+    vi.mocked(api.terrains).mockResolvedValue([serverTerrain(base([]))]);
+    render(<Terrain />); await settle();
+    expect($<HTMLButtonElement>('[data-terrain-save]').disabled).toBe(true);
+    expect($('[data-terrain-server]').textContent).not.toContain('휴지통');
+    expect(box.textContent).toContain('총괄 계정만');
+  });
+  it('요청 중 편집한 내용은 저장됨으로 표시하지 않는다, 실패 후에도 로컬은 남는다', async () => {
+    let done!: (t: ServerTerrain) => void;
+    const save = vi.spyOn(api, 'saveTerrain').mockImplementation(() => new Promise((resolve) => { done = resolve; }));
+    render(<Terrain />); await settle();
+    type($<HTMLInputElement>('[data-terrain-name]'), '보낸 이름');
+    click('[data-terrain-save]');
+    const sent = save.mock.calls[0][0].spec;
+    type($<HTMLInputElement>('[data-terrain-name]'), '나중 편집');
+    await act(async () => { done(serverTerrain(sent)); });
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장 안 됨');
+    expect(stored().name).toBe('나중 편집');
+    save.mockRejectedValue(new ApiFail(409, 'VERSION_CONFLICT', '서버 지형이 바뀌었습니다.'));
+    await act(async () => { $('[data-terrain-save]').click(); });
+    expect($('[data-terrain-server-notice]').textContent).toContain('서버 지형이 바뀌었습니다');
+    expect(stored().name).toBe('나중 편집');
+  });
+  const remount = async () => {
+    act(() => root!.unmount()); box.remove();
+    render(<Terrain />); await settle();
+  };
+  it('저장→로컬 수정→시뮬 열기→다시 붙이기 후에도 같은 id와 서버 기준 번호로 저장한다', async () => {
+    const spec = base([]), first = serverTerrain(spec);
+    localStorage.setItem(keyOf(spec.id), JSON.stringify(spec)); localStorage.setItem('fh.customTerrainLast', spec.id);
+    const save = vi.spyOn(api, 'saveTerrain').mockImplementation(async (p) => serverTerrain(p.spec, p.base_version + 1));
+    render(<Terrain />); await settle();
+    await act(async () => { $('[data-terrain-save]').click(); });
+    expect(localStorage.getItem(`${keyOf(spec.id)}:base`)).toBe('1');
+    expect(JSON.parse(localStorage.getItem(keyOf(spec.id))!)).toEqual(spec); // 계약 JSON에 base를 섞지 않음
+    type($<HTMLInputElement>('[data-terrain-name]'), '시뮬에서 시험할 수정');
+    const stopNavigation = (e: Event) => e.preventDefault();
+    document.addEventListener('click', stopNavigation);
+    try { click('[data-terrain-open]'); } finally { document.removeEventListener('click', stopNavigation); }
+    vi.mocked(api.terrains).mockResolvedValue([first]);
+    await remount();
+    expect($('[data-terrain-saved]').textContent).toContain('시뮬에서 시험할 수정');
+    expect(box.querySelectorAll('[data-terrain-saved]')).toHaveLength(1); // :base 키는 지형이 아님
+    expect($('[data-terrain-conflict]')).toBeNull();
+    await act(async () => { $('[data-terrain-save]').click(); });
+    expect(save.mock.calls[1][0]).toEqual({ spec: { ...spec, name: '시뮬에서 시험할 수정' }, base_version: 1 });
+    expect(localStorage.getItem(`${keyOf(spec.id)}:base`)).toBe('2');
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장됨');
+  });
+  it('다시 붙일 때 서버가 더 새로우면 이전 기준을 유지해 진짜 409와 내 수정 보존을 안내한다', async () => {
+    const spec = base([]);
+    localStorage.setItem(keyOf(spec.id), JSON.stringify(spec)); localStorage.setItem('fh.customTerrainLast', spec.id);
+    const save = vi.spyOn(api, 'saveTerrain').mockResolvedValue(serverTerrain(spec));
+    render(<Terrain />); await settle();
+    await act(async () => { $('[data-terrain-save]').click(); });
+    type($<HTMLInputElement>('[data-terrain-name]'), '내 수정');
+    // 내용이 같아도 서버 번호가 앞서 있으면 기준을 몰래 올리지 않는다.
+    vi.mocked(api.terrains).mockResolvedValue([serverTerrain({ ...spec, name: '내 수정' }, 2)]);
+    save.mockRejectedValue(new ApiFail(409, 'VERSION_CONFLICT', '서버 지형이 바뀌었습니다.'));
+    await remount();
+    expect($('[data-terrain-conflict]').textContent).toContain('내 수정은 이 브라우저에 남아');
+    expect($('[data-terrain-status]').textContent).toBe('서버 저장 안 됨');
+    await act(async () => { $('[data-terrain-save]').click(); });
+    expect(save.mock.calls[1][0].base_version).toBe(1);
+    expect(stored().name).toBe('내 수정');
+    expect(localStorage.getItem(`${keyOf(spec.id)}:base`)).toBe('1');
+    expect(box.textContent).toContain('새 지형으로 저장');
+  });
+  it.each([true, false])('서버 사본 열기는 같은 id 로컬 수정본 덮어쓰기를 확인하고 취소하면 그대로 남긴다 (선택 중=%s)', async (selected) => {
+    const spec = base([], { name: '내 수정' }), remote = serverTerrain({ ...spec, name: '서버 이름' }, 2);
+    localStorage.setItem(keyOf(spec.id), JSON.stringify(spec)); localStorage.setItem(`${keyOf(spec.id)}:base`, '1');
+    if (selected) localStorage.setItem('fh.customTerrainLast', spec.id);
+    vi.mocked(api.terrains).mockResolvedValue([remote]); vi.spyOn(api, 'terrain').mockResolvedValue(remote);
+    render(<Terrain />); await settle();
+    await act(async () => { $('[data-terrain-server] .mx-name').click(); });
+    expect($('[data-terrain-replace]').textContent).toContain('덮어쓸까요');
+    expect(stored().name).toBe('내 수정');
+    click('[data-terrain-replace-no]');
+    expect($('[data-terrain-replace]')).toBeNull();
+    expect(stored().name).toBe('내 수정');
+    expect(localStorage.getItem(`${keyOf(spec.id)}:base`)).toBe('1');
+    await act(async () => { $('[data-terrain-server] .mx-name').click(); });
+    click('[data-terrain-replace-yes]');
+    expect(stored().name).toBe('서버 이름');
+    expect(localStorage.getItem(`${keyOf(spec.id)}:base`)).toBe('2');
+    expect($('[data-terrain-replace]')).toBeNull();
+  });
+  it('저장 응답 대기 중 수정한 임시본도 새 기준 번호와 함께 다시 붙인다', async () => {
+    let done!: (t: ServerTerrain) => void;
+    const save = vi.spyOn(api, 'saveTerrain').mockImplementation(() => new Promise((resolve) => { done = resolve; }));
+    render(<Terrain />); await settle();
+    type($<HTMLInputElement>('[data-terrain-name]'), '요청 이름'); click('[data-terrain-save]');
+    const sent = save.mock.calls[0][0].spec;
+    type($<HTMLInputElement>('[data-terrain-name]'), '대기 중 수정');
+    await act(async () => { done(serverTerrain(sent)); });
+    vi.mocked(api.terrains).mockResolvedValue([serverTerrain(sent)]);
+    await remount();
+    save.mockImplementation(async (p) => serverTerrain(p.spec, p.base_version + 1));
+    await act(async () => { $('[data-terrain-save]').click(); });
+    expect(save.mock.calls[1][0].base_version).toBe(1);
+    expect(save.mock.calls[1][0].spec.name).toBe('대기 중 수정');
+  });
+  it.each(['가\u200b나', '👨‍👩‍👧', '가\u0001나'])('서버와 같은 이름 제어·서식 문자 검사: %s', async (name) => {
+    render(<Terrain />); await settle();
+    type($<HTMLInputElement>('[data-terrain-name]'), name);
+    expect($('[aria-label="지형 전체 오류·경고"]').textContent).toContain('제어·서식 문자');
+    expect($<HTMLButtonElement>('[data-terrain-save]').disabled).toBe(true);
+    expect($<HTMLButtonElement>('[data-terrain-open]').disabled).toBe(true);
+  });
+  it('서버 지형은 확인 후 휴지통으로 옮기고 되돌릴 수 있다', async () => {
+    const t = serverTerrain(base([]));
+    vi.mocked(api.terrains).mockResolvedValue([t]);
+    const remove = vi.spyOn(api, 'deleteTerrain').mockResolvedValue();
+    const restore = vi.spyOn(api, 'restoreTerrain').mockResolvedValue(t);
+    render(<Terrain />); await settle();
+    click('[data-terrain-server] .btn');
+    expect(remove).not.toHaveBeenCalled();
+    await act(async () => { const b = [...box.querySelectorAll<HTMLButtonElement>('[data-terrain-server] button')].find((x) => x.textContent === '옮기기')!; b.click(); });
+    expect(remove).toHaveBeenCalledWith(t.spec.id, expect.any(AbortSignal));
+    expect($('[data-terrain-server]').textContent).toContain('되돌리기');
+    await act(async () => { $('[data-terrain-server] .btn').click(); });
+    expect(restore).toHaveBeenCalled();
+    expect($('[data-terrain-server]').textContent).toContain('서버 저장본');
   });
 });

@@ -39,3 +39,6 @@
 .tr-hline{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:3 3;vector-effect:non-scaling-stroke;pointer-events:none}
 .tr-handle{fill:var(--panel);stroke:var(--accent);stroke-width:2.5;vector-effect:non-scaling-stroke;pointer-events:none}
 .tr-hint{max-width:calc(100% - 16px)}
+
+.tr-server-note{margin:0;padding:8px 12px}
+.tr-saved .mx-row{flex-wrap:wrap}

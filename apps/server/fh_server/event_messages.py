@@ -16,6 +16,8 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'TERRAIN_ARCHIVED': '{person}님이 지형 {place}을(를) 휴지통으로 옮겼습니다.',
+    'TERRAIN_RESTORED': '{person}님이 지형 {place}을(를) 되살렸습니다.',
     'SITE_RESTORED': '{person}님이 장소 {place}을(를) 되살렸습니다.',
     'SITE_PURGED': '{person}님이 장소 {place}을(를) 완전 삭제했습니다.',
     'BUILDING_RESTORED': '{person}님이 건물 {place}을(를) 되살렸습니다.',

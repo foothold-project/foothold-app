@@ -310,6 +310,17 @@ describe('지도 탭 — 장소 나무', () => {
     expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만(그대로)
     await stopSends();
   });
+  it('지도 만들기는 기존 장소·건물·층 만들기 창을 열고 지형 입구는 없다', async () => {
+    serve(signedIn(KIM));
+    await open('#/map');
+    if ($('[data-to-chooser]')) await click($('[data-to-chooser]'));
+    expect($('[data-terrain-enter]')).toBeNull();
+    await click(btn('+ 지도 만들기'));
+    expect($('dialog[open]')?.textContent).toContain('지도 만들기');
+    expect($('dialog[open]')?.textContent).toContain('장소 › 건물 › 층');
+    expect(btn('+ 장소')).toBeTruthy();
+  });
+
   it('장소가 없으면 운영 관리자에게도 «장소 고치기»로 만들라는 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');

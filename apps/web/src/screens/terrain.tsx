@@ -1,8 +1,8 @@
-// 시뮬 지형 직접 만들기(TERRAIN-EDITOR 1단계, PC 틀 숨은 탭 #/terrain — 입구 = 시뮬 시작 화면 «지형 만들기»).
-// 위에서 본 판에 상자·계단·경사·틈을 놓고 고치면 이 브라우저에 바로 저장되고, «시뮬로 열기»는 같은 출처 시뮬(map=custom)이 그 저장본을 읽어 연다.
-// 지형 설명 = 약속 fh_custom_terrain/1: 원점 = 바닥 가운데, x·y = 물체 차지 면적 가운데, yaw = 라디안·반시계, 몸 기준 +x = 길이·오르는 방향. 서버 저장 없음(4단계).
+// 지형 편집: 브라우저 임시본 + 조직 서버 저장본. 서버 저장마다 위에서 본 지도를 새로 만듭니다.
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { CLEARANCE, validateTerrain, type TerrainItem, type TerrainSpec } from '../../../../mobile/sim/terrain/index.js';
+import type { Terrain as ServerTerrain } from '../../../contracts/ts';
+import { api, ApiFail } from '../api';
 import { simUrl } from '../simdrive';
 import { toWorld } from '../simstart';
 import { Menu, shut } from './mapscen';
@@ -42,14 +42,31 @@ function parse(raw: string | null, id: string): Spec | null {
     return ok ? s : null;
   } catch { return null; }
 }
-const save = (s: Spec) => { try { localStorage.setItem(keyOf(s.id), JSON.stringify(s)); localStorage.setItem(LAST, s.id); return true; } catch { return false; } };
+const fingerprint = (s: Spec) => JSON.stringify(s, ['schema', 'id', 'name', 'size', 'spawn', 'items', 'kind', 'x', 'y', 'yaw', 'sx', 'sy', 'h', 'width', 'steps', 'rise', 'run', 'length']);
+const baseKey = (id: string) => `${keyOf(id)}:base`;
+function loadBase(id: string): number | undefined {
+  try { const n = Number(localStorage.getItem(baseKey(id))); return Number.isSafeInteger(n) && n > 0 ? n : undefined; } catch { return undefined; }
+}
+const saveBase = (id: string, version: number) => { try { localStorage.setItem(baseKey(id), String(version)); return true; } catch { return false; } };
+const save = (s: Spec, version?: number) => {
+  try {
+    localStorage.setItem(keyOf(s.id), JSON.stringify(s));
+    if (version !== undefined && !saveBase(s.id, version)) return false;
+    localStorage.setItem(LAST, s.id); return true;
+  } catch { return false; }
+};
+function validateSpec(s: Spec) {
+  const result = validateTerrain(s);
+  if (/[\p{Cc}\p{Cf}]/u.test(s.name)) result.errors.push({ msg: '지형 이름에는 제어·서식 문자를 쓸 수 없습니다.' });
+  return result;
+}
 function loadLast() {
   try { const id = localStorage.getItem(LAST); return id ? parse(localStorage.getItem(keyOf(id)), id) : null; } catch { return null; }
 }
 /** 이 브라우저에 저장된 지형. 읽지 못하는 저장본도 지울 수 있게 목록에 남긴다(spec = null) */
 function listSaved() {
   try {
-    return Object.keys(localStorage).filter((k) => k.startsWith(PREFIX)).map((k) => {
+    return Object.keys(localStorage).filter((k) => k.startsWith(PREFIX) && !k.endsWith(':base')).map((k) => {
       const id = k.slice(PREFIX.length);
       return { id, spec: parse(localStorage.getItem(k), id) };
     }).sort((a, b) => (a.spec?.name ?? a.id).localeCompare(b.spec?.name ?? b.id));
@@ -103,10 +120,65 @@ function Shape({ it }: { it: Item }) {
 
 export function Terrain() {
   const [spec, setSpec] = useState<Spec>(() => loadLast() ?? blank());
+  const current = useRef(spec); current.current = spec;
+  const bases = useRef<Record<string, number>>({});
+  if (bases.current[spec.id] === undefined) {
+    const version = loadBase(spec.id);
+    if (version !== undefined) bases.current[spec.id] = version;
+  }
+  const [pendingOpen, setPendingOpen] = useState<ServerTerrain | null>(null), [conflicted, setConflicted] = useState<string | null>(null);
+  const acceptRows = (rows: ServerTerrain[]) => {
+    setRemote(rows); setReady(true);
+    const same = rows.find((t) => fingerprint(t.spec) === fingerprint(current.current));
+    // Legacy copies without metadata can attach when identical. Never advance
+    // an existing base just because a newer server copy has identical content.
+    if (same && bases.current[same.spec.id] === undefined) {
+      bases.current[same.spec.id] = same.version;
+      if (!saveBase(same.spec.id, same.version)) setFailed(true);
+    }
+  };
+  const [remote, setRemote] = useState<ServerTerrain[]>([]), [admin, setAdmin] = useState(false);
+  const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
+  const cancel = useRef<AbortController | null>(null);
+  const upsert = (t: ServerTerrain) => setRemote((all) => [...all.filter((x) => x.spec.id !== t.spec.id), t]);
+  useEffect(() => {
+    const controller = new AbortController(); cancel.current = controller;
+    api.me(controller.signal).then((u) => { if (!controller.signal.aborted) setAdmin(u.role === 'ORG_ADMIN'); }, () => {});
+    api.terrains(controller.signal).then((rows) => {
+      if (controller.signal.aborted) return;
+      acceptRows(rows);
+    }, (e: ApiFail) => { if (!controller.signal.aborted) setNotice(`서버 지형 목록을 받지 못했습니다. ${e.message}`); });
+    return () => { controller.abort(); };
+  }, []);
+  const serverTask = async (work: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true); setNotice('');
+    try { await work(); } catch (e) { if (!cancel.current?.signal.aborted) setNotice((e as Error).message); }
+    finally { if (!cancel.current?.signal.aborted) setBusy(false); }
+  };
+  const storeServer = (next: Spec) => serverTask(async () => {
+    try {
+      const t = await api.saveTerrain({ spec: next, base_version: bases.current[next.id] ?? loadBase(next.id) ?? 0 }, cancel.current?.signal);
+      if (cancel.current?.signal.aborted) return;
+      bases.current[next.id] = t.version; upsert(t); setConflicted(null);
+      // Keep edits made while saving, but persist their new server baseline too.
+      const kept = current.current.id === next.id ? current.current : null;
+      const persisted = kept ? save(kept, t.version) : saveBase(next.id, t.version);
+      setFailed(!persisted);
+      setNotice('서버에 저장하고 위에서 본 지도도 만들었습니다.');
+    } catch (e) {
+      if (!cancel.current?.signal.aborted && (e as ApiFail).code === 'VERSION_CONFLICT') setConflicted(next.id);
+      throw e;
+    }
+  });
   const [sel, setSel] = useState<number | 'spawn' | null>(null), [tool, setTool] = useState<Tool>('select');
   const [failed, setFailed] = useState(false), [wipe, setWipe] = useState(''), [, again] = useState(0), [view, setView] = useState<'top' | '3d'>('top');
-  const update = (next: Spec) => { setSpec(next); setFailed(!save(next)); };
-  const open = (next: Spec) => { setSpec(next); setSel(null); setTool('select'); setWipe(''); setFailed(false); };
+  const update = (next: Spec) => { setSpec(next); setFailed(!save(next, bases.current[next.id])); };
+  const open = (next: Spec) => { setSpec(next); setSel(null); setTool('select'); setWipe(''); setFailed(false); setPendingOpen(null); };
+  const openServer = (t: ServerTerrain) => {
+    bases.current[t.spec.id] = t.version; setConflicted(null);
+    open(t.spec); setFailed(!save(t.spec, t.version));
+  };
   const [W, H] = spec.size, m = Math.max(W, H) * 0.06;
   const bounds: [number, number, number, number] = [-W / 2 - m, -H / 2 - m, W / 2 + m, H / 2 + m];
 
@@ -120,7 +192,7 @@ export function Terrain() {
   }, [view]);   // 3D 에서 돌아오면 새 판을 잰다
   const px = 1 / Math.min(box.w / (bounds[2] - bounds[0]), box.h / (bounds[3] - bounds[1]));   // 화면 1 px = 몇 m
 
-  const { errors, warnings } = validateTerrain(spec);
+  const { errors, warnings } = validateSpec(spec);
   const issuesOf = (i: number) => [...errors.filter((e) => e.item === i).map((e) => ({ ...e, bad: true })), ...warnings.filter((e) => e.item === i).map((e) => ({ ...e, bad: false }))];
   const general = [...errors, ...warnings].filter((e) => e.item == null);
 
@@ -170,7 +242,10 @@ export function Terrain() {
   };
 
   const chosen = typeof sel === 'number' ? spec.items[sel] : null, full = spec.items.length >= MAX_ITEMS;
-  const saved = listSaved();
+  const saved = listSaved().filter((t) => !remote.some((r) => r.spec.id === t.id && fingerprint(r.spec) === (t.spec && fingerprint(t.spec))));
+  const server = remote.find((t) => t.spec.id === spec.id);
+  const conflict = conflicted === spec.id || (!!server && bases.current[spec.id] !== undefined && server.version > bases.current[spec.id]);
+  const synced = !!server && !server.archived_at && !conflict && fingerprint(server.spec) === fingerprint(spec);
   const fontPx = 13 * px, hPos = (it: At, r: number) => ({ cx: it.x + r * Math.cos(it.yaw), cy: -(it.y + r * Math.sin(it.yaw)) });
   /** 고른 것의 돌림 손잡이 */
   const handle = (what: number | 'spawn', r: number) => { const o = poseOf(what), c = hPos(o, r); return <g data-terrain-turn>
@@ -181,18 +256,49 @@ export function Terrain() {
   return <div className="mx tr" data-terrain>
     <div className="mx-bar tr-bar">
       <a className="btn" href="#/sim" data-terrain-back>← 시뮬</a>
-      <Menu label="내 지형" title="이 브라우저에 저장된 지형">
+      <Menu label="내 지형" title="조직의 서버 지형과 이 브라우저의 임시본">
         <button type="button" className="btn" data-terrain-new onClick={(e) => { open(blank()); shut(e); }}>+ 새 지형</button>
+        <p className="lv-note">서버 지형 · 저장할 때마다 위에서 본 지도도 만듭니다.</p>
+        <button type="button" className="btn" disabled={busy} onClick={() => serverTask(async () => {
+          const [rows, me] = await Promise.all([api.terrains(cancel.current?.signal), api.me(cancel.current?.signal)]);
+          if (cancel.current?.signal.aborted) return;
+          acceptRows(rows); setAdmin(me.role === 'ORG_ADMIN');
+        })}>서버 목록 새로고침</button>
+        <ul className="mx-list tr-saved" aria-label="서버 지형">{remote.map((t) => <li key={t.spec.id} className="mx-row" data-terrain-server={t.spec.id}>
+          <button type="button" className="mx-name mx-name2" disabled={busy || !!t.archived_at} onClick={(e) => {
+            const target = e.currentTarget;
+            void serverTask(async () => {
+              const latest = await api.terrain(t.spec.id, cancel.current?.signal);
+              if (cancel.current?.signal.aborted) return;
+              upsert(latest);
+              const local = current.current.id === latest.spec.id ? current.current : parse(localStorage.getItem(keyOf(latest.spec.id)), latest.spec.id);
+              if (local && fingerprint(local) !== fingerprint(latest.spec)) setPendingOpen(latest);
+              else openServer(latest);
+              target.closest('details')?.removeAttribute('open');
+            });
+          }}><b>{t.spec.name}</b><small>{t.archived_at ? '휴지통' : `서버 저장본 · ${t.spec.size[0]}×${t.spec.size[1]} m`}</small></button>
+          {admin && (t.archived_at
+            ? <button type="button" className="btn" disabled={busy} onClick={() => serverTask(async () => {
+                const restored = await api.restoreTerrain(t.spec.id, cancel.current?.signal); if (!cancel.current?.signal.aborted) upsert(restored);
+              })}>되돌리기</button>
+            : <button type="button" className="btn" disabled={busy} onClick={() => setWipe(`server:${t.spec.id}`)}>휴지통</button>)}
+          {wipe === `server:${t.spec.id}` && <span className="tr-wipe">«{t.spec.name}» 지형을 휴지통으로 옮길까요? 지도와 이 브라우저 사본은 남습니다.
+            <button type="button" className="btn" disabled={busy} onClick={() => serverTask(async () => {
+              await api.deleteTerrain(t.spec.id, cancel.current?.signal);
+              if (!cancel.current?.signal.aborted) { upsert({ ...t, archived_at: new Date().toISOString() }); setWipe(''); }
+            })}>옮기기</button><button type="button" className="btn" onClick={() => setWipe('')}>취소</button></span>}
+        </li>)}</ul>
         {saved.length ? <ul className="mx-list tr-saved" aria-label="저장된 지형">{saved.map((t) => <li key={t.id} className="mx-row" data-terrain-saved={t.id}>
           {wipe === t.id ? <span className="tr-wipe"><span className="fh-grow">«{t.spec?.name ?? t.id}» 을 지울까요?</span>
             <button type="button" className="btn" data-terrain-wipe-yes onClick={() => {
-              try { localStorage.removeItem(keyOf(t.id)); if (localStorage.getItem(LAST) === t.id) localStorage.removeItem(LAST); } catch { /* 못 지우면 목록에 남음 */ }
+              try { localStorage.removeItem(keyOf(t.id)); localStorage.removeItem(baseKey(t.id)); delete bases.current[t.id]; if (localStorage.getItem(LAST) === t.id) localStorage.removeItem(LAST); } catch { /* 못 지우면 목록에 남음 */ }
               setWipe('');
               if (t.id === spec.id) open(blank()); else again((n) => n + 1);
             }}>지우기</button>
             <button type="button" className="btn" onClick={() => setWipe('')}>취소</button></span>
           : <><button type="button" className="mx-name mx-name2" aria-pressed={t.id === spec.id} disabled={!t.spec} onClick={(e) => { if (t.spec) { open(t.spec); shut(e); } }}>
-              <b>{t.spec?.name ?? t.id}</b><small>{t.spec ? `${t.spec.size[0]}×${t.spec.size[1]} m · 물체 ${t.spec.items.length}개` : '읽을 수 없는 저장본'}</small></button>
+              <b>{t.spec?.name ?? t.id}</b><small>{t.spec ? `${t.spec.size[0]}×${t.spec.size[1]} m · 물체 ${t.spec.items.length}개 · 이 브라우저에만` : '읽을 수 없는 저장본'}</small></button>
+            {admin && t.spec && !remote.some((r) => r.spec.id === t.id) && <button type="button" className="btn" data-terrain-migrate disabled={busy || !ready || !!validateSpec(t.spec).errors.length} onClick={() => storeServer(t.spec!)}>서버에 저장</button>}
             <button type="button" className="mx-x" aria-label={`${t.spec?.name ?? t.id} 지우기`} title="지우기" data-terrain-wipe onClick={() => setWipe(t.id)}>✕</button></>}
         </li>)}</ul> : <p className="lv-note">아직 저장된 지형이 없습니다.</p>}
       </Menu>
@@ -202,11 +308,22 @@ export function Terrain() {
       <span className="mx-seg" role="group" aria-label="보기">{([['top', '위에서'], ['3d', '3D']] as const).map(([v, t]) =>
         <button key={v} type="button" className="btn" aria-pressed={view === v} data-terrain-view={v} onClick={() => setView(v)}>{t}</button>)}</span>
       <span className="fh-grow" />
+      <span className="mx-tag" data-terrain-status>{synced ? '서버 저장됨' : '서버 저장 안 됨'}</span>
+      <button type="button" className="btn" data-terrain-save disabled={!admin || !ready || busy || !!errors.length || !!server?.archived_at} title={admin ? '지형과 위에서 본 지도를 서버에 저장합니다' : '총괄 계정만 서버에 저장할 수 있습니다'} onClick={() => storeServer(spec)}>{busy ? '저장 중…' : '저장'}</button>
+      {!synced && (conflict || (!!server && !bases.current[spec.id])) && <button type="button" className="btn" disabled={!admin || busy || !!errors.length} onClick={() => { const copy = { ...spec, id: newId() }; open(copy); save(copy); void storeServer(copy); }}>새 지형으로 저장</button>}
       <span className="mx-tag" data-terrain-count>{errors.length ? `오류 ${errors.length}` : '오류 없음'}{warnings.length ? ` · 경고 ${warnings.length}` : ''}</span>
       {errors.length
         ? <button type="button" className="btn pri" disabled title="오류를 고쳐야 열 수 있습니다" data-terrain-open>시뮬로 열기</button>
-        : <a className="btn pri" href={terrainUrl(spec.id)} data-terrain-open onClick={(e) => { if (!save(spec)) { e.preventDefault(); setFailed(true); } }}>시뮬로 열기</a>}
+        : <a className="btn pri" href={terrainUrl(spec.id)} data-terrain-open onClick={(e) => { if (!save(spec, bases.current[spec.id])) { e.preventDefault(); setFailed(true); } }}>시뮬로 열기</a>}
     </div>
+    {pendingOpen && <div className="tr-wipe" role="group" aria-label="지형 덮어쓰기 확인" data-terrain-replace>
+      <span>«{pendingOpen.spec.name}»의 이 브라우저 수정본을 서버 사본으로 덮어쓸까요?</span>
+      <button type="button" className="btn" data-terrain-replace-yes onClick={() => openServer(pendingOpen)}>서버 사본 열기</button>
+      <button type="button" className="btn" data-terrain-replace-no onClick={() => setPendingOpen(null)}>내 수정 유지</button>
+    </div>}
+    {conflict && <p className="lv-note tr-server-note" role="alert" data-terrain-conflict>서버 지형이 바뀌었습니다. 내 수정은 이 브라우저에 남아 있습니다. 새 지형으로 저장하거나 내 지형에서 서버 사본을 확인하세요.</p>}
+    {notice && <p className="lv-note tr-server-note" role="status" data-terrain-server-notice>{notice}</p>}
+    {!admin && <p className="lv-note tr-server-note">서버 지형은 볼 수 있습니다. 서버 저장과 휴지통은 총괄 계정만 사용할 수 있습니다.</p>}
     <div className="mx-body">
       <div className="mx-tools tr-tools" role="toolbar" aria-label="지형 도구" aria-orientation="vertical">
         <button type="button" className="btn" aria-pressed={tool === 'select'} data-terrain-tool="select" onClick={() => setTool('select')}>

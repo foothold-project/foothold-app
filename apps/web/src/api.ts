@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FieldApproval, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, TrashItem, TrashList, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FieldApproval, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -140,6 +140,11 @@ export const api = {
   /** {ids} 또는 {all:true} — 204. 남의·없는 id 가 섞이면 404(하나도 읽음 처리 안 됨) */
   readNotifications: (p: NotificationsRead, cancel?: AbortSignal) => call<void>('POST', '/notifications/read', p, { cancel }),
   // 장소·층·지도 판(05 §5, S3a). 만들기·이름 바꾸기·지우기는 총괄만(운영 관리자는 서버가 403). kind = 경로 앞부분
+  terrains: (cancel?: AbortSignal) => pages<Terrain>('/terrains?archived=true', cancel),
+  terrain: (id: string, cancel?: AbortSignal) => call<Terrain>('GET', `/terrains/${encodeURIComponent(id)}`, undefined, { cancel }),
+  saveTerrain: (p: TerrainWrite, cancel?: AbortSignal) => call<Terrain>('PUT', `/terrains/${encodeURIComponent(p.spec.id)}`, p, { cancel, ms: MAP_WRITE_MS }),
+  deleteTerrain: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/terrains/${encodeURIComponent(id)}`, undefined, { cancel }),
+  restoreTerrain: (id: string, cancel?: AbortSignal) => call<Terrain>('POST', `/terrains/${encodeURIComponent(id)}/restore`, undefined, { cancel }),
   sites: (cancel?: AbortSignal) => call<SiteTree>('GET', '/sites', undefined, { cancel, ms: MAP_READ_MS }),
   createSite: (name: string, cancel?: AbortSignal) => call<MapSite>('POST', '/sites', { name }, { cancel }),
   createBuilding: (site: string, name: string, cancel?: AbortSignal) => call<MapBuilding>('POST', `/sites/${encodeURIComponent(site)}/buildings`, { name }, { cancel }),
