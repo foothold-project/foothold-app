@@ -113,6 +113,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 고를 수 있는 로봇: PC 는 받은 목록(총괄 전체, 운영 관리자 내 로봇), 폰은 내 로봇만(B4 — 총괄은 시뮬 로봇만). 끝낸 시뮬 슬롯(idleSim)은 둘 다 뺀다. 고른 값이 범위 밖이면 첫 로봇
   const pool = (phone ? myRobots(user, robots).filter((r) => !adminReal(user, r)) : robotsFor(user, robots)).filter((r) => !idleSim(r));
   // 기록 탭 로봇 거르기·배정 해제는 끝낸 시뮬 슬롯도 찾아야 한다(지난 시뮬 기록·슬롯에 남은 배정) — PC 의 그 두 탭만 슬롯을 남긴 목록(새 배정·임무 로봇 고르기는 그 화면이 뺀다)
+  // 로봇 탭도 슬롯을 남긴 목록 — 화면은 시뮬을 모두 빼고, 요약(서버 /dashboard 는 슬롯도 셈)에서 그 몫을 뺀다(REVIEW-315 2)
   const withSlots = phone ? pool : robotsFor(user, robots);
   // 폰 #/drive/<로봇 id> = 그 로봇 조종 화면(시뮬 로봇은 서버 경유 조종 화면을 열지 않음 — 직결만), #/drive = 로봇 연결(ADR-002 §3.1). PC 에는 조종 화면이 없다
   const open = phone && tab === 'drive' && pool.some((r) => r.id === sub && !r.sim), path = open ? `#/drive/${sub}` : `#/${tab}${focus ? `?${fk}=${encodeURIComponent(focus)}` : ''}`;
@@ -203,7 +204,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const cur = tabsFor(phone).find((t) => t.id === tab)!, title = !phone ? labelOf(cur, user.role) : tab === 'history' ? '기록' : open || simOpen ? '조종' : '로봇 연결';
   const shut = (e: { currentTarget: Element }, f: () => void) => { e.currentTarget.closest('details')?.removeAttribute('open'); f(); };
   const problems = pool.filter(lost);
-  const ctx: Ctx | null = robot ? { user, robot, robots: tab === 'history' || tab === 'map' ? withSlots : pool, pick: setRid, go, open, phone, setMe, refresh, cancel, focus, dash } : null;
+  const ctx: Ctx | null = robot ? { user, robot, robots: tab === 'history' || tab === 'map' || tab === 'fleet' ? withSlots : pool, pick: setRid, go, open, phone, setMe, refresh, cancel, focus, dash } : null;
   const Body = BODY[tab];
   const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다.' : NO_ROBOT}</p></section>;
 
@@ -272,7 +273,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
         : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
-        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} refresh={refresh}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
+        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
         : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재

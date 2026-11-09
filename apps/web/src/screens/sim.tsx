@@ -1,4 +1,4 @@
-// PC 웹 «시뮬» 탭(10 ADR-003 §1 결정 3·§7 ③④): 월드·시작 층 골라 띄우기 → 보기(«시뮬»·상태·위치·영상)·키보드 조종 → 끝내기.
+// PC 웹 «시뮬» 탭(10 ADR-003 §1 결정 3·§7 ③④): 장소 카드 → 층 → «시뮬 열기»(TAB-SPLIT 11-10), 이미 띄운 서버 시뮬은 위 줄에서 보기(«시뮬»·상태·위치·영상)·키보드 조종 → 끝내기.
 // 띄우기·정리·직결·영상·조종권·잠금 해제·명령은 폰과 같은 phone.ts(sim)·SimLaunch 그대로 — 키보드는 sim.axes 에 넣기만 하고 속도는 phone.ts velocity 가 만든다.
 // 키보드는 이 화면(시뮬 로봇 직결)에만 붙는다 — 실기 로봇 화면에는 없다(ADR-003 §4.2). «시뮬 정지»는 sim.stop()(폰 직결 STOP 과 같은 경로).
 // 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
@@ -14,19 +14,6 @@ import { SimPlaces } from './maps';
 import type { SimRobot } from '../../../contracts/ts';
 import type { Robot, Tone, User } from '../fake';
 
-export function Go2ReplayLink({ robots }: { robots: Robot[] }) {
-  const [selected, select] = useState('');
-  const real = robots.filter((r) => r.sim === false);
-  if (inApp() || !real.length) return null;
-  const robot = real.find((r) => r.id === selected);
-  return <section className="lv-card" aria-label="Go2 실기 보기" data-go2-replay>
-    <h2>Go2 실기 보기</h2><p className="lv-note">실기 보기 전용 · 위치 원점: 기동 시점 기준·미확인</p>
-    <div className="fh-row"><label className="fh-row"><span>로봇</span><select className="fh-user fh-sel" aria-label="실기 보기 로봇" value={robot?.id ?? ''} onChange={(e) => select(e.target.value)}>
-      <option value="">로봇 고르기</option>{real.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-    </select></label>{robot && <a className="btn" data-go2-open href={`/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(robot.id)}`}>Go2 실기 보기 열기</a>}</div>
-  </section>;
-}
-
 export function SimTab({ user, robots = [], refresh }: { user: User; robots?: Robot[]; refresh: () => void }) {
   const s = useSim(), ids = s.mine.map((r) => r.robot_id).join();
   // 띄우기·끝내기로 내 시뮬 목록이 바뀌거나 다시 확정되면(끝내기는 blank() 로 listed=false → load() 로 true) 로봇 목록도 다시 받는다(머리줄 STOP 후보·로봇 탭에 바로 보이게)
@@ -36,12 +23,31 @@ export function SimTab({ user, robots = [], refresh }: { user: User; robots?: Ro
   if (s.step === 'drive' && s.link && s.robot) return <SimView admin={user.role === 'ORG_ADMIN'} />;
   const stop = sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>, launch = <SimLaunch me={user.id} view admin={user.role === 'ORG_ADMIN'} />;
   if (inApp()) return <>{stop}{launch}</>;   // 폰 앱 시뮬 화면은 그대로(SimPick)
-  // PC(SIM-TAB-CHOOSER 11-09): 첫 화면 = 지도 고르기(SIM 장소 + 내장 시뮬 지도) → 층 위 띠 «시뮬 열기». 서버 시뮬 로봇·Gazebo·Go2 실기 보기는 아래 접힌 묶음,
-  // 띄우는 중·연결 중·끝내는 중(sim.live)이면 그 진행 칸은 지금처럼 맨 위
-  const mine = s.mine.length + s.cleanup.filter((r) => r.owner_id === user.id).length;
-  return <>{stop}{sim.live() && launch}<SimPlaces user={user} robots={robots} />
-    <details className="fh-fold" style={{ flexBasis: '100%' }} data-sim-more><summary>서버 시뮬·실기 보기{mine > 0 && ` · 내 시뮬 로봇 ${mine}`}</summary>
-      {!sim.live() && launch}<Go2ReplayLink robots={robots} /></details></>;
+  // PC(TAB-SPLIT 11-10): 시뮬은 장소 카드 → 층 → «시뮬 열기» 한 길(옛 «서버 시뮬 띄우기»·«Go2 실기 보기» 없음 — 실기 보기는 로봇 탭 실기 상세).
+  // 띄우는 중·연결 중·끝내는 중(sim.live)이면 그 진행 칸은 지금처럼 맨 위, 아니면 이미 띄운 내 시뮬만 작은 줄
+  return <>{stop}{sim.live() ? launch : <MineRow me={user.id} />}<SimPlaces user={user} robots={robots} /></>;
+}
+
+/** 이 탭에서 끝내기·정리를 누른 뒤면 결과 문구(«정리했습니다»·실패)를 로봇이 0대가 돼도 보인다 — 누르기 전 목록 오류(관리자 설정 없음 등)는 MuJoCo 만 쓰는 첫 화면에 띄우지 않는다 */
+let ended = false;
+const end = (r?: SimRobot) => { ended = true; void sim.end(r); };
+/** 이미 띄운 내 시뮬 로봇(서버 시뮬·정리할 자리) 한 줄: «내 시뮬 로봇 N · 보기/끝내기». 보기·끝내기·정리는 SimLaunch 와 같은 sim.attach·end·cleanupSlot */
+function MineRow({ me }: { me: string }) {
+  const s = useSim(), cleanup = s.cleanup.filter((r) => r.owner_id === me), n = s.mine.length + cleanup.length;
+  useEffect(() => { if (sim.get().step === 'pick') sim.load(); }, []);   // SimLaunch 가 하던 첫 목록 받기
+  if (!n && !(ended && s.err)) return null;
+  return <section className="lv-card" style={{ flexBasis: '100%', padding: '8px 12px' }} aria-label="내 시뮬 로봇" data-sim-mine>
+    {n > 0 && <div className="fh-row" style={{ flexWrap: 'wrap' }}><b>내 시뮬 로봇 {n}</b>
+      {s.mine.map((r) => <span key={r.robot_id} className="fh-row" data-sim-mine-robot={r.robot_id}><span className="mono">{short(r.robot_id)}</span>
+        <span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span>
+        <button type="button" className="btn pri" onClick={() => sim.attach(r)}>보기</button>
+        <button type="button" className="btn" onClick={() => end(r)}>{r.state === 'ERROR' ? '정리' : '끝내기'}</button></span>)}
+      {cleanup.map((r) => <span key={r.robot_id} className="fh-row" data-sim-cleanup={r.robot_id}><span className="mono">{short(r.robot_id)}</span>
+        <span className="fh-why">{s.managerError ? '관리자가 내 시뮬 자리를 확인하지 못했습니다.' : '이전 시뮬이 정리되지 않았습니다.'}{!r.can_recover && ' 자동 정리할 수 없습니다 — 관리자에게 문의하세요.'}</span>
+        <button type="button" className="btn" onClick={() => { ended = true; void sim.cleanupSlot(r); }}>정리</button></span>)}
+    </div>}
+    {s.err && <p className="fh-why" role="status" data-sim-msg>{s.err}</p>}
+  </section>;
 }
 
 /** «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */
@@ -125,7 +131,7 @@ function SimView({ admin }: { admin: boolean }) {
       {ending && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} role="group" aria-label="시뮬 종료·정리 확인" data-simtab-end-ask>
         <span className="fh-why">이 시뮬을 끝내고 정리합니다 — 조종권 반납·연결 종료·시뮬 삭제. 다시 쓰려면 새로 띄워야 합니다.</span>
         <button type="button" className="btn" data-simtab-end-cancel onClick={() => setEnding(false)}>취소</button>
-        <button type="button" className="btn pri" data-simtab-end-ok onClick={() => { setEnding(false); sim.end(); }}>종료·정리</button>
+        <button type="button" className="btn pri" data-simtab-end-ok onClick={() => { setEnding(false); end(); }}>종료·정리</button>
       </div>}
       {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
         <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}

@@ -338,16 +338,15 @@ describe('r1 — PC 서버 경유 조종 패널은 목록 최신 허용 값 + �
   });
 });
 
-describe('r1 — 총괄 실기 상세에는 «배정» 없음(시뮬은 유지)', () => {
-  it('실기 상세 «배정» 숨김, 시뮬 상세는 그대로', async () => {
+describe('r1 — 총괄 실기 상세에는 «배정» 없음(시뮬은 로봇 탭에 없음 — TAB-SPLIT)', () => {
+  it('실기 상세 «배정» 숨김, 시뮬 행은 목록에 없음', async () => {
     const SIM = robot('s-1', '창고 시뮬', LEE, { simulation: true });
     serve(signedIn(KIM, [RA, SIM]));
     await open('#/fleet', false);
     await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
     expect(card('로봇 상세').textContent).toContain('Go2-A');
     expect($('[aria-label="로봇 상세"] [data-assign-robot]')).toBeNull();
-    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('창고 시뮬')));
-    expect($('[aria-label="로봇 상세"] [data-assign-robot]')).not.toBeNull();
+    expect(card('로봇 목록').textContent).not.toContain('창고 시뮬');
   });
 });
 

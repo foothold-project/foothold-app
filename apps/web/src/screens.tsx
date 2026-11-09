@@ -18,7 +18,7 @@ import { SimTab } from './screens/sim';
 import { Terrain } from './screens/terrain';
 import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
-import { AdminFleet, OperatorRobot } from './screens/fleet';
+import { AdminFleet, OperatorRobot, realDash } from './screens/fleet';
 import { AddRobot, Approval, AssignOwner, FieldCheck, ManageRobot } from './pairing';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
@@ -74,8 +74,10 @@ export function useDash(cancel?: AbortSignal): Dash {
   return { d, err, again: () => get.current() };
 }
 
-/** 로봇 0대의 관제. 총괄: 요약·빈 목록 안내(children)·지도·운영 관리자 표. 운영 관리자: 등록·담당 요청·시뮬 띄우기 입구(요약 숫자 없이 — 한 대 집중 화면과 같게) */
-export function EmptyFleet({ user, cancel, dash: { d, err }, refresh, children }: { user: User; cancel?: AbortSignal; dash: Dash; refresh: () => void; children: ReactNode }) {
+/** 로봇 0대의 관제. 총괄: 요약·빈 목록 안내(children)·지도·운영 관리자 표. 운영 관리자: 등록·담당 요청·시뮬 띄우기 입구(요약 숫자 없이 — 한 대 집중 화면과 같게).
+ *  robots = 끝낸 시뮬 슬롯까지 든 목록 — 요약은 로봇 탭처럼 실기만 센다(realDash) */
+export function EmptyFleet({ user, cancel, dash, robots, refresh, children }: { user: User; cancel?: AbortSignal; dash: Dash; robots: Robot[]; refresh: () => void; children: ReactNode }) {
+  const d = realDash(dash.d, robots), { err } = dash;
   if (user.role !== 'ORG_ADMIN') return <Pair user={user} mine={[]} refresh={refresh} cancel={cancel}>
     <section className="lv-card" aria-label="로봇 없음"><h2>담당 로봇이 없습니다</h2>
       <p className="lv-note">«+ 새 로봇 추가»에서 연결 코드로 실기를 등록하거나, 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.</p>
