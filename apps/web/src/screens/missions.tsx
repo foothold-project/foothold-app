@@ -357,7 +357,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, slot, p
       <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
   </>;
   const h2 = <h2 className="mx-sr">{id ? shown.name || what : `새 ${what}`}</h2>;
-  const nameField = <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} onChange={(e) => put({ ...body, name: e.target.value })} /></label>;
+  const nameField = <label className="fh-field"><span>이름</span><input className="inp" data-name maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} onChange={(e) => put({ ...body, name: e.target.value })} /></label>;
   if (kind === 'missions') return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}
     <div className="mx-scroll"><div className="fh-form" style={{ maxWidth: 760, width: '100%', margin: '0 auto' }}>{h2}{notices}
       {/* 저장 중·저장 확인 전에는 입력을 모두 막는다(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로 */}
@@ -662,6 +662,10 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const lookSeg = <span className="mx-seg" role="group" aria-label="노드·목록 보기">
     <button type="button" className="btn" aria-pressed={paneLook === 'node'} data-look="node" onClick={() => setPaneLook('node')}>노드</button>
     <button type="button" className="btn" aria-pressed={paneLook === 'list'} data-look="list" onClick={() => setPaneLook('list')}>목록</button></span>;
+  // SCEN-SAVE-FIX 11-09: 이름 오류(저장 전 검사·서버 422)면 이름 칸을 가린 것(노드 보기·지점 상세·접힌 창)을 풀고 초점 — 안 그러면 «이름을 입력하세요»만 뜨고 고칠 칸이 안 보인다
+  const seek = useRef(false);
+  useEffect(() => { if (!bad.some((b) => b.at === 'name')) return; seek.current = true; setPaneLook('list'); setSel(null); pane.open = true; setOpen(true); }, [bad]);
+  useEffect(() => { const el = seek.current ? document.querySelector<HTMLInputElement>('.mx-pane input[data-name]') : null; if (el && !el.closest('[hidden]')) { seek.current = false; el.focus(); } });
   /** 끌어서 순서 바꾸기(손잡이) — 키보드는 «더 보기»의 ↑↓ */
   const moveTo = (from: number, to: number) => { if (making || lock) return; const s2 = [...pts], [x] = s2.splice(from, 1); s2.splice(to, 0, x); put(s2); };
   const still = making || lock;   // fieldset 은 끌기 손잡이(span)를 잠그지 못해 직접 막는다

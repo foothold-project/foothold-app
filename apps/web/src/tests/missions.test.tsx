@@ -531,6 +531,24 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(1, 0);
     expect(sent('POST', '/missions')).toHaveLength(1);                 // 둘째 지점은 같은 이동 임무를 다시 쓴다
   });
+  it('SCEN-SAVE-FIX: 노드 보기(기본)에서 새 시나리오 → 지점 → 저장: 이름이 비면 [목록]·지점 상세를 풀어 이름 칸을 보이고 초점, 이름 넣고 저장 = POST', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    expect($('[data-look="node"]')!.getAttribute('aria-pressed')).toBe('true');   // 기본 노드 보기
+    await tap(1, 1); await settle();
+    expect(name().closest('[hidden]')).not.toBeNull();                         // 노드 보기·1번 지점 상세에 가려 있음
+    await click(saveBtn());
+    expect(writes()).toEqual(['POST /missions']);                               // 이름 검사에서 막힘(시나리오 POST 없음)
+    expect(alertText()).toContain('이름을 입력하세요.');
+    expect($('[data-look="list"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(name().closest('[hidden]')).toBeNull();
+    expect(document.activeElement).toBe(name());
+    await setVal(name(), '새 순찰'); await settle();
+    await click(saveBtn());
+    expect(writes()).toEqual(['POST /missions', 'POST /scenarios']);
+    expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ name: '새 순찰' });
+  });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
     await open();
