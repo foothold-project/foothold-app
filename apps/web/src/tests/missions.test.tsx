@@ -551,6 +551,18 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(writes()).toEqual(['POST /missions', 'POST /scenarios']);
     expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ name: '새 순찰' });
   });
+  it('SCEN-LIFECYCLE-EDITOR: 지도 탭 노드 보기 = 운영 흐름(real 판정) — 연결 단계 8개 «됨», 다른 단계는 읽기만, «시뮬에서 실행 못 함» 없음', async () => {
+    seed(); serve(KIM);
+    await open(); await click(row('s1')); await settle();
+    expect($('button[data-stage="임무"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(2);
+    expect($('[data-st="no"]')).toBeNull();
+    await click($('button[data-stage="연결"]'));
+    expect([...box.querySelectorAll('.react-flow__node .sn-badge')].map((b) => b.textContent)).toEqual(Array(8).fill('됨'));
+    expect(box.querySelectorAll('.react-flow__node.draggable')).toHaveLength(0);
+    expect($('.sn-hint')!.textContent).toContain('실기체 검증과 다름');
+    expect(writes()).toEqual([]);
+  });
   it('REVIEW-302: 노드 보기(기본)에서도 저장을 막는 이유(지점 없음·진입 금지)와 경로 확인 실패 «다시 확인»이 지도 위에 보인다(hidden 조상 없음)', async () => {
     seed();
     const over: Record<string, ((real: () => Reply) => Reply | Promise<Reply>)[]> = { 'POST /scenarios/preview': [] };
@@ -1374,6 +1386,25 @@ describe('시뮬 시나리오', () => {
     expect(check(m.tree)).toBe('');
     expect(m.tree.root.children.map((n: BtNode) => n.type)).toEqual(['goto', 'photo', 'wait', 'goto', 'photo', 'wait']);   // m1 = 사진 → 대기 5초
     expect(writes()).toEqual([]);   // 서버에는 아무것도 안 보냄(배정 없음)
+  });
+  it('SCEN-LIFECYCLE-EDITOR: 시뮬 탭 노드 보기 = 운영 흐름(websim 판정), 시뮬이 못 하는 지점(센서 기록)은 «시뮬에서 실행 못 함», «목록에서 이 지점 편집» = 목록·그 지점', async () => {
+    seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV };
+    make('scenarios', { name: '센서 순찰', waypoints: [wp('f1', 1, 1), wp('f1', 0, 0, 'm2')], finish: { mode: 'STAY', target: null }, notes: '' }, KIM);
+    serve(KIM);
+    await open('#/sim'); await scen(); await click(row('s3')); await settle();
+    expect($('[data-look="node"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect($('button[data-stage="임무"]')!.getAttribute('aria-pressed')).toBe('true');   // 기본 = 임무 단계
+    expect($('button[data-stage="연결"]')!.textContent).toContain('됨 0 · 일부 0 · 아직 없음 8');   // websim
+    expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(2);             // 임무 노드 = 지점 수
+    const nd = (id: string) => $(`.react-flow__node[data-id="${id}"]`)!;
+    expect(nd('w0').querySelector('[data-st="no"]')).toBeNull();
+    expect(nd('w1').querySelector('[data-st="no"]')!.textContent).toBe('시뮬에서 실행 못 함');
+    await click(nd('w1'));
+    expect($('[data-miss]')!.textContent).toContain('«센서 값 기록»은 시뮬에서 실행할 수 없습니다.');
+    await click($('[data-edit-point="1"]'));
+    expect($('[data-look="list"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(text()).toContain('2번 지점');
+    expect(writes()).toEqual([]);
   });
   it('시뮬과 좌표가 같다고 확인되지 않는 층(사람이 올린 지도) = «시뮬에서 실행» 회색 + 이유', async () => {
     seed(); sitePurpose = 'SIM';

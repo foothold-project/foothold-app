@@ -1,11 +1,6 @@
-/* SCEN-NODE-PREVIEW 11-09 — 시나리오 노드 보기(React Flow 미리보기). 색은 frame.css·brand.css 토큰만 — React Flow 변수를 토큰으로 덮어 밝은·어두운 둘 다 맞춘다 */
-.sn{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding:8px 12px 12px}
-.sn-note{flex:none;margin:0;padding:6px 10px;border:1px dashed var(--warn);border-radius:8px;background:var(--warn-bg);color:var(--text);font-size:13px;font-weight:600}
-.sn-bar{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.sn-bar .btn{padding:0 12px;white-space:nowrap}
-.sn-bar .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
-.sn-canvas{flex:1;min-height:240px;position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.sn-canvas[data-link] .react-flow__node{cursor:crosshair}
+/* SCEN-NODE-PREVIEW·SCEN-LIFECYCLE-EDITOR 11-09 — 시나리오 «운영 흐름»(React Flow). 색은 frame.css·brand.css 토큰만 — React Flow 변수를 토큰으로 덮어 밝은·어두운 둘 다 맞춘다 */
+.sn{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding:8px 12px 12px;overflow-y:auto}
+.sn-canvas{flex:1 0 180px;min-height:180px;position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .sn-hint{flex:none;margin:0;color:var(--muted);font-size:12px}
 .sn .react-flow{
   --xy-background-color:var(--bg);--xy-background-pattern-color:var(--line2);
@@ -30,4 +25,22 @@
 .sn-num{flex:none;min-width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:12px;font-weight:600}
 .sn-title{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sn-sub{margin:3px 0 0 27px;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media (max-width:1023.98px){.sn-canvas{min-height:200px}}
+@media (max-width:1023.98px){.sn-canvas{min-height:200px;flex-basis:200px}}
+.sn-watch{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 10px;border-radius:8px;background:var(--panel2);font-size:13px}
+.sn-chip{min-height:24px;padding:0 9px;border-radius:12px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.sn-muted{color:var(--muted);font-size:12px}
+.sn-stages{flex:none;display:flex;gap:6px;flex-wrap:wrap}
+.sn-stage{flex:1 1 0;min-width:96px;height:auto;min-height:44px;padding:4px 8px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;text-align:left}
+.sn-stage small{color:var(--muted);font-size:11px;font-weight:400;white-space:nowrap}
+.sn-stage[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
+.sn-foot{margin:5px 0 0 27px}
+.sn-card[data-plain] .sn-sub,.sn-card[data-plain] .sn-foot{margin-left:0}
+.sn-badge{display:inline-flex;align-items:center;min-height:20px;padding:0 7px;border-radius:10px;border:1px solid var(--line2);font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
+.sn-badge[data-st="됨"],.sn-chip[data-st="됨"]{color:var(--ok);border-color:var(--ok);background:var(--ok-bg)}
+.sn-badge[data-st="일부"],.sn-chip[data-st="일부"]{color:var(--warn);border-color:var(--warn);background:var(--warn-bg)}
+.sn-badge[data-st="no"]{color:var(--bad);border-color:var(--bad);background:var(--bad-bg)}
+.sn-detail{flex:none;margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.45;max-height:40%;overflow:auto}
+.sn-detail dt{font-weight:700;margin-bottom:3px}
+.sn-detail dd{margin:2px 0;display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px;align-items:baseline}
+.sn-detail dd>span:first-child{color:var(--muted);font-size:12px}
+.sn-detail em{font-style:normal;color:var(--muted);font-size:12px}
