@@ -10,6 +10,7 @@ import { floorName, pixelTo, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
 import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
+import { TERRAIN_REASON } from '../simstart';
 import raw from './mapcases.json?raw';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
@@ -2063,15 +2064,70 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
     expect($('[data-sim-places]')).toBeTruthy();
     expect(sitesShown()).toEqual(['장소 시뮬 지형', '장소 옛 장소(purpose 없음)', '내장 시뮬 지도']);
   });
-  it('시뮬 탭에서 만든 장소 = POST /sites purpose SIM, 빈 시뮬 칸은 «지형 만들기» 안내', async () => {
-    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } }, 'POST /sites': { status: 201, body: { id: 's2', name: '시뮬 별관', purpose: 'SIM', buildings: [] } } }));
+  it('빈 시뮬 칸은 «지형 만들기» 안내, 장소 고치기에도 만들기 단추 없음', async () => {
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/sim');
     expect(card('지도 고르기').textContent).toContain('서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.');
     await click(btn('장소 고치기'));
-    await click(btn('+ 장소'));
-    await setVal(field('이름', card('새 장소')), '시뮬 별관');
-    await click(btn('저장', card('새 장소')));
-    expect(sent('POST', '/sites').map((c) => c.body)).toEqual([{ name: '시뮬 별관', purpose: 'SIM' }]);
+    expect(card('장소').textContent).toContain('등록된 시뮬 장소가 없습니다. 시뮬 지도는 «+ 지형 만들기»로 만듭니다.');
+    expect(btn('+ 장소')).toBeUndefined();
+  });
+  // SIM-PAIR(11-09 «지형만·지도만은 아예 없게»): 시뮬 탭에서는 지도만 생기는 단추가 없고, 짝 없는 층(simAt 실패)은 안내 + 카드 «지형 없음»
+  describe('시뮬 탭 — 지도만 생기는 단추 없음', () => {
+    const TER = ver('v9', 1, { floor_id: 'f9', provenance: 'SIMULATION', reason: TERRAIN_REASON, origin: [-1, -2, 0] });   // 지형 저장이 만든 판
+    const V8 = ver('v8', 2, { floor_id: 'f8', base_version_id: 'v7' }), V7 = ver('v7', 1, { floor_id: 'f8', status: 'SUPERSEDED' });   // 옛 손그림(A — 짝 없음)
+    const PAIR = { items: [
+      { id: 's9', name: '시뮬 지형', purpose: 'SIM', buildings: [{ id: 'b9', site_id: 's9', name: '언덕', floors: [{ ...floor('f9', '1층', 1, 'v9', 'b9'), terrain_id: 'hill' }] }] },
+      { id: 's8', name: '옛 장소', buildings: [{ id: 'b8', site_id: 's8', name: '창고', floors: [floor('f8', '1층', 1, 'v8', 'b8')] },
+        { id: 'b7', site_id: 's8', name: '빈 동', floors: [floor('f7', '1층', 1, null, 'b7')] }] }], next_cursor: null };
+    const routes = { 'GET /sites': { status: 200, body: PAIR }, 'GET /map-versions/v9': { status: 200, body: TER }, 'GET /map-versions/v8': { status: 200, body: V8 },
+      'GET /floors/f9/map-versions': { status: 200, body: { items: [TER], next_cursor: null } }, 'GET /floors/f8/map-versions': { status: 200, body: { items: [V8, V7], next_cursor: null } },
+      'GET /floors/f7/map-versions': { status: 200, body: { items: [], next_cursor: null } } };
+    const toCard = async (b: string) => { await toChooser(); await click($(`[data-building="${b}"]`)); };
+    const noMapOnly = () => { expect(btn('편집')).toBeUndefined(); expect(btn('새 지도 올리기…')).toBeUndefined(); expect(btn('편집 시작')).toBeUndefined(); expect(btn('이 기록으로 되돌리기')).toBeUndefined(); };
+
+    it('장소 고치기: «+ 장소/+ 건물/+ 층» 없음, 이름 바꾸기·삭제는 남음', async () => {
+      serve(signedIn(KIM, routes)); await open('#/sim'); await toChooser();
+      await click(btn('장소 고치기'));
+      expect(['+ 장소', '+ 건물', '+ 층'].map((t) => btn(t, card('장소')))).toEqual([undefined, undefined, undefined]);
+      const n = (t: string) => btns(card('장소')).filter((b) => b.textContent === t).length;
+      expect([n('이름 바꾸기'), n('삭제')]).toEqual([8, 8]);   // 장소 2 + 건물 3 + 층 3
+    });
+    it('카드: 짝 없는 층만 있는 건물은 «지형 없음», 지형 층 건물은 칩 없음', async () => {
+      serve(signedIn(KIM, routes)); await open('#/sim'); await toChooser();
+      const chip = (b: string) => $(`[data-building="${b}"] [data-lone]`)?.textContent ?? null;
+      expect([chip('b9'), chip('b8'), chip('b7')]).toEqual([null, '지형 없음', '지형 없음']);
+      expect(card('지도 고르기').textContent).not.toContain('지도 없음');
+    });
+    it('짝 없는 층(옛 손그림): 편집·새 지도 올리기·되돌리기 없음 + 안내, 저장 기록 보기·비교는 남음', async () => {
+      serve(signedIn(KIM, routes)); await open('#/sim'); await toCard('b8');
+      expect($('[data-sim-open]')!.hasAttribute('disabled')).toBe(true);
+      noMapOnly();
+      expect($('[data-lone]')!.textContent).toBe('지형이 없는 층입니다 — 삭제하거나 «지형 만들기»로 다시 만드세요.');
+      expect($('[data-lone] a')!.getAttribute('href')).toBe('#/terrain');
+      await click(saveRow(1));                                   // 지난 저장(SUPERSEDED) 고름
+      expect(btn('비교', card('저장 기록 관리'))).toBeTruthy();
+      noMapOnly();
+    });
+    it('빈 층: 올리기 단추 대신 안내', async () => {
+      serve(signedIn(KIM, routes)); await open('#/sim'); await toCard('b7');
+      noMapOnly();
+      expect($('.mx-center [data-lone]')).toBeTruthy();
+      expect(card('지도 보기').textContent).not.toContain('지도 파일(그림·yaml)을 올리면');
+    });
+    it('지형 층: 안내 없음, 편집·올리기도 없음', async () => {
+      serve(signedIn(KIM, routes)); await open('#/sim'); await toCard('b9');
+      expect($('[data-lone]')).toBeNull();
+      noMapOnly();
+    });
+    it('지도 탭(REAL)은 그대로: 편집·새 지도 올리기·되돌리기·+ 장소', async () => {
+      serve(signedIn(KIM)); await open('#/map');
+      expect(btn('편집', card('보기·편집'))).toBeTruthy(); expect(btn('새 지도 올리기…')).toBeTruthy(); expect($('[data-lone]')).toBeNull();
+      await click(saveRow(1));
+      expect(btn('이 기록으로 되돌리기')).toBeTruthy();
+      await fixPlaces();
+      expect(['+ 장소', '+ 건물', '+ 층'].every((t) => btn(t, card('장소')))).toBe(true);
+    });
   });
   it('옛 시나리오 주소가 시뮬 장소의 시나리오면 시뮬 탭으로 넘긴다', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty,
