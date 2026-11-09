@@ -160,6 +160,19 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(card('로봇 목록').textContent).not.toContain('창고 시뮬');
     expect(card('경보').textContent).not.toContain('창고 시뮬');
   });
+  // REVIEW-315 2(P2): 끝낸 시뮬 슬롯(담당 빈 IDLE)도 서버 요약에 들어간다 — App 의 고르기 목록에는 없어도 요약에서 뺀다. 슬롯뿐이면(로봇 0대 화면) 같은 셈
+  it('총괄: 실기 1대 + 끝낸 시뮬 슬롯 → 요약은 실기만, 슬롯뿐이어도 0', async () => {
+    const SLOT = robot('s-9', '빈 슬롯', null, { simulation: true, attention: ['OFFLINE'] });
+    const one = { ...DASH, robots_total: 2, robots_online: 1, robots_attention: 1, operators: [{ user_id: LEE.id, display_name: '이운영', robot_count: 1 }] };
+    serve(signedIn(KIM, [RA, SLOT], { 'GET /dashboard': { status: 200, body: { ...one, robots_attention: 2 } } }));
+    await open('#/fleet');
+    expect(kpi()).toEqual({ 전체: '1', 연결: '1', '임무 중': '0', '주의 필요': '1', '결재 대기': '0' });
+    expect(card('로봇 목록').textContent).not.toContain('빈 슬롯');
+    act(() => root?.unmount()); root = null; box.remove();
+    serve(signedIn(KIM, [SLOT], { 'GET /dashboard': { status: 200, body: { ...one, robots_total: 1, robots_online: 0, robots_attention: 1, operators: [] } } }));
+    await open('#/fleet');
+    expect(kpi()).toEqual({ 전체: '0', 연결: '0', '임무 중': '0', '주의 필요': '0', '결재 대기': '0' });
+  });
   it('운영 관리자: 요약 수치·운영 관리자 표 없이 내 로봇 한 대 집중, 남의 로봇은 «다른 로봇» 접기(ROBOT-TAB 11-02)', async () => {
     serve(signedIn(LEE, [RA, RB_HIDDEN], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 1, robots_attention: 0, operators: [] } } }));
     await open('#/fleet');

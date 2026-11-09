@@ -155,11 +155,13 @@ function RealView({ r }: { r: Robot }) {
 /** 상세 + 실기 보기 한 칸(격자 자리 detail — 총괄 서랍은 이 칸째 붙어 내린다) */
 const Side = ({ r, children }: { r: Robot; children: ReactNode }) => <div className="fl-detail fl-side">{children}<RealView r={r} /></div>;
 
-/** 로봇 탭은 실기만: 목록에서 시뮬을 빼고, App 에서 고른 로봇(머리줄 STOP 대상)이 시뮬이면 첫 실기로 바꾼다(화면의 로봇 = STOP 대상). 실기 0대면 null */
+/** 로봇 탭은 실기만: 목록에서 시뮬(끝낸 슬롯 포함)을 빼고, App 에서 고른 로봇(머리줄 STOP 대상)이 시뮬이면 첫 실기로 바꾼다(운영 관리자 — 화면의 로봇 = STOP 대상). 실기 0대면 null.
+ *  총괄이 고른 시뮬은 그대로 둔다: 총괄 머리줄 STOP·Space 는 내 시뮬뿐(실기 STOP 없음 — App)이라 실기로 바꾸면 이 탭에서 멈출 길이 사라진다(REVIEW-315 1). 서랍은 행을 눌러야 열리고 그때 실기를 고른다 */
 function useReal(c: Ctx): Ctx | null {
-  const robots = c.robots.filter((x) => !x.sim), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0];
+  const robots = c.robots.filter((x) => !x.sim), keep = c.user.role === 'ORG_ADMIN' && !!c.robot.sim;
+  const robot = keep ? c.robot : robots.find((x) => x.id === c.robot.id) ?? robots[0];
   useEffect(() => { if (robot && robot.id !== c.robot.id) c.pick(robot.id); }, [robot?.id, c.robot.id]);
-  return robot ? { ...c, robot, robots } : null;
+  return robots.length ? { ...c, robot, robots } : null;
 }
 const NoReal = () => <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="실기 로봇 없음" data-no-real><h2>실기 로봇이 없습니다</h2>
   <p className="lv-note">로봇 탭에는 실기 로봇만 보입니다. 시뮬 로봇은 «시뮬» 탭에서 보고 조종합니다.</p>
@@ -175,9 +177,9 @@ export function AdminFleet(c0: Ctx) {
   return c ? <Admin {...c} d={d} /> : <><Kpi user={c0.user} d={d} err={c0.dash.err} /><NoReal /><Operators user={c0.user} d={d} /></>;
 }
 
-/** 서버 요약(/dashboard)은 시뮬까지 센다 — 로봇 탭 요약·운영 관리자 표는 서버 값에서 받은 목록의 시뮬 몫만 뺀다(시뮬이 없으면 서버 값 그대로, 결재 대기는 늘 그대로).
- *  ponytail: 목록에 없는 끝낸 시뮬 슬롯(IDLE)은 서버 값에 남는다 — 서버가 실기만 센 값을 주면 그것으로 바꾼다 */
-function realDash(d: Dashboard | null, all: Robot[]): Dashboard | null {
+/** 서버 요약(/dashboard)은 시뮬(끝낸 슬롯 포함)까지 센다 — 로봇 탭 요약·운영 관리자 표는 서버 값에서 받은 목록의 시뮬 몫만 뺀다(시뮬이 없으면 서버 값 그대로, 결재 대기는 늘 그대로).
+ *  all = 끝낸 시뮬 슬롯(IDLE)까지 든 목록(App 이 로봇 탭에 슬롯 포함 목록을 넘긴다 — 로봇 0대 EmptyFleet 도 같음) */
+export function realDash(d: Dashboard | null, all: Robot[]): Dashboard | null {
   const sims = all.filter((x) => x.sim), n = (f: (x: Robot) => boolean) => sims.filter(f).length, less = (v: number, k: number) => Math.max(0, v - k);
   return d && sims.length ? { ...d, robots_total: less(d.robots_total, sims.length), robots_online: less(d.robots_online, n((x) => x.online)),
     robots_running: less(d.robots_running, n((x) => x.online && !!x.mission && x.status !== 'PAUSED')), robots_attention: less(d.robots_attention, n((x) => !!x.attention?.length)),

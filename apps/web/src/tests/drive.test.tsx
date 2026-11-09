@@ -1843,6 +1843,25 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(w.of('lease.take')).toHaveLength(0);
   });
 
+  // REVIEW-315 1(P1): 로봇 탭은 실기만 보여도 총괄이 고른 자기 시뮬(직결 없음 — sim.live() 아님)은 고른 채로 둔다 — 머리줄 STOP·Space = 그 시뮬(ed3af3e 와 같은 대상)
+  it('PC 총괄 + 실기 + 자기 시뮬(직결 없음): 시뮬을 고른 채 기록 → 로봇 탭이면 STOP·Space = 그 시뮬, 실기 행을 누르면 STOP 없음', () => {
+    mount(false, ADMIN, '#/history', [SIM, ROBOTS[1]]);   // 첫 로봇 = 시뮬 → App 의 고른 로봇
+    serve(KIM, 's1', 'r7');
+    act(() => { location.hash = '#/fleet'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect($('main').getAttribute('aria-label')).toBe('로봇');
+    expect(row('시뮬 로봇 1')).toBeUndefined();   // 목록은 실기만
+    expect(row('Go2-7').getAttribute('aria-pressed')).toBe('false');   // 고른 로봇(시뮬)을 실기로 바꾸지 않음
+    click($('[data-stop]'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1']);
+    space();
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 's1']);
+    click(row('Go2-7'));   // 실기를 고르면 총괄은 STOP 없음(10-25, 기존 그대로)
+    expect(box.querySelector('[data-stop]')).toBeNull();
+    space();
+    expect(w.of('stop')).toHaveLength(2);
+    expect(w.of('lease.take')).toHaveLength(0);
+  });
+
   it('PC 다른 탭: STOP 고르기는 시뮬 로봇만, 시뮬이 없으면 STOP·Space 없음', () => {
     mount(false, ADMIN, '#/mission', MIX);
     serve(KIM, 'r7', 's1');
