@@ -1025,10 +1025,17 @@ python -m apps.server.fh_server.sim_maps \
 기존 층 높이 변경은 명시적인 이관이 필요하므로 거부한다.
 
 시뮬 출처는 Floor·Upload·MapVersion에 저장하며 지도 편집·되돌리기와 해당 건물에 수동 추가한 층도
-출처를 유지한다. 시뮬 지도 참조 시나리오를 실기에 배정하면
-`422 SIM_MAP_REQUIRES_SIM_ROBOT`이다. 배정 결재 때도 적합성을 다시 확인한다.
-현재 실행 시작 API는 없으며 후속 실행기는 `scenario_targets.require_target`을
-같은 경계로 사용해야 한다. 일반 지도 저장·결재와 운영자 배정 결재는 기존대로다.
+출처를 유지한다. 장소 purpose 구분은 별도다. 0026 이관은 기존 모든 장소를 `SIM`으로
+옮기며 기존 지도·시나리오·배정 행은 지우거나 재작성하지 않는다. 새 장소는 `REAL`이 기본이고,
+`POST /sites`에서 `SIM`을 명시할 수 있다. 수정 API는 purpose 변경을 받지 않는다.
+시뮬 월드 등록·지형 저장으로 만든 장소는 `SIM`이다.
+
+시나리오의 모든 지점과 GO_TO 종료 지점은 같은 purpose의 장소에 속해야 하며,
+섞인 저장·미리보기는 `409 SCENARIO_MIXED_PURPOSE`로 거절한다. SIM 시나리오는
+로봇 종류와 무관하게 새 배정·배정 승인 요청을 `409 SIM_SCENARIO_NO_ASSIGN`
+(«시뮬 시나리오는 시뮬 탭에서 바로 실행합니다»)으로 거절한다. 기존 배정은 조회·해제할 수 있다.
+REAL 장소에서 SIMULATION 출처 지도 판을 실기에 배정하는 기존
+`422 SIM_MAP_REQUIRES_SIM_ROBOT` 경계와 지도 판 승인 흐름은 유지한다.
 
 파일은 저장소 밖 `files_root/maps/simulation`에 내용 해시로 저장한다. DB 실패 뒤
 남은 파일은 다음 실행에서 내용 대조 후 재사용한다. 관리 명령의 성공은 시뮬 실행이나

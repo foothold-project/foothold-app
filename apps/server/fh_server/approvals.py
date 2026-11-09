@@ -6,7 +6,7 @@ from fastapi import Query
 from sqlalchemy import func, select
 from apps.contracts import models as C
 from .event_messages import render
-from .scenario_targets import simulation_only
+from .scenario_targets import require_assignable, simulation_only
 from .models import Approval, Assignment, Event, Floor, MapVersion, Robot, Scenario, ScenarioVersion, User, now
 from .notifications import append_for_event
 
@@ -54,7 +54,10 @@ def request_map(db, user, version):
     return row
 
 
-def request_assignment(db, user, assignment):
+def request_assignment(db, user, assignment, fail):
+    version = db.scalar(select(ScenarioVersion).where(ScenarioVersion.org_id == user.org_id,
+        ScenarioVersion.id == assignment.scenario_version_id))
+    require_assignable(db, version, fail)
     row = Approval(org_id=user.org_id, kind='SCENARIO_ASSIGNMENT', status='PENDING',
         target_type='assignment', target_id=assignment.id, requester_id=user.id, reason=assignment.memo)
     db.add(row)

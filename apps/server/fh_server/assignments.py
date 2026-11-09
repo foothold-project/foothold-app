@@ -7,7 +7,7 @@ from sqlalchemy import select
 from apps.contracts import models as C
 from . import approvals, idempotency
 from .event_messages import render
-from .scenario_targets import require_target
+from .scenario_targets import require_assignable, require_target
 from .resource_archive import visible_version
 from .models import Approval, Assignment, Event, Robot, Scenario, ScenarioVersion, now
 
@@ -81,6 +81,7 @@ def install(app, DB, Identity, fail, page):
         if version is None:
             fail(404, 'NOT_FOUND', '시나리오 판을 찾을 수 없습니다.')
         robot = robot_for_write(db, user, body.robot_id, fail, creating=True)
+        require_assignable(db, version, fail)
         require_target(db, version, robot, fail)
         if db.scalar(select(Assignment.id).where(Assignment.org_id == user.org_id,
                 Assignment.robot_id == body.robot_id, Assignment.scenario_version_id == version.id,

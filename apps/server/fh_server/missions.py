@@ -12,6 +12,7 @@ from .models import Floor, FloorConnector, MapVersion, Mission, MissionVersion, 
 from .resource_archive import require_unused, visible_version
 from .robots import reported_devices
 from .runs import execution_capabilities
+from .scenario_targets import site_purposes
 
 DEVICE_KINDS = {'rgb': 'CAMERA_RGB', 'depth': 'CAMERA_DEPTH', 'lidar': 'LIDAR', 'battery': 'BATTERY'}
 LABELS = {'PHOTO': '사진 찍기', 'WAIT': '대기', 'OPERATOR_CONFIRM': '운영자 확인', 'SENSOR_LOG': '센서 값 기록'}
@@ -46,6 +47,8 @@ def preview(db, user, body, fail):
         Floor.archived_at.is_(None), Floor.id.in_({p.floor_id for _, p in points})).order_by(Floor.id).with_for_update(read=True))}
     if len(floors) != len({p.floor_id for _, p in points}):
         fail(404, 'NOT_FOUND', '층을 찾을 수 없습니다.')
+    if len(site_purposes(db, user.org_id, floors)) > 1:
+        fail(409, C.SCENARIO_MIXED_PURPOSE, '시뮬 장소와 실기 장소의 지점을 한 시나리오에 함께 넣을 수 없습니다.')
     for element, point in points:
         if floors[point.floor_id].approved_version_id != point.map_version_id:
             fail(409, 'STALE', '지도가 바뀌었습니다. 지금 승인 판에서 다시 저장하세요.', {'elements': [element],
