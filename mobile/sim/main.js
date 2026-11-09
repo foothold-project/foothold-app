@@ -18,7 +18,7 @@ import { MIN_UP } from './walk-surface.js';
 import { loadSimSettings, simSettings } from './settings.js';
 import { manualSettings, manualCommand, commandCaps, modeCapText } from './manual-settings.js';
 import { createFrameClock } from './frame-clock.js';
-import { createKeyboardRamp } from './keyboard-ramp.js';
+import { createKeyboardRamp, slewCommand } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, replayRequirement } from './go2-replay.js';
 import { loadCustomTerrain } from './terrain/index.js';
@@ -56,12 +56,13 @@ const st = (window.__sim = { ready: false, err: null });   // 시험용(headless
 let heading = null;
 const goalAxes = [0, 0, 0];
 let joy = neutral(), stopped = true, sim = null, ready = false, onLock = null, runningScenario = null, runningTree = null;   // onLock = 찍은 점 가기가 찾던 길을 버림
+let lastCmd = neutral();
 const sticks = [];
 let inputSettings = manualSettings({}, adapter.command), refreshSettings = async () => {}, startEpoch = 0, clock;
 let applySettings = () => {};
 function lock() {
   startEpoch++; clock?.reset();
-  stopped = true; joy = neutral(); if (runningTree?.active) runningTree.cancel('중단'); onLock?.();
+  stopped = true; joy = neutral(); lastCmd = neutral(); if (runningTree?.active) runningTree.cancel('중단'); onLock?.();
   if (sim) { sim.cmd = neutral(); sim.cancelPolicyStep(); }
   if (adapter.command.kind === 'nearby_goal') { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
@@ -879,7 +880,7 @@ async function main() {
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001), e.clientX, e.clientY); }, { passive: false });
   $('topCenter').onclick = () => { view.topH = 1; view.topRot = 0; view.topX = view.topY = null; };
 
-  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
+  $('reset').onclick = () => { lock(); lastCmd = neutral(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     $('cam').setAttribute('aria-pressed', String(top));
@@ -955,6 +956,11 @@ async function main() {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped ? neutral() : joy.slice();
+      // All start hand/goal commands share one ramp. STOP remains immediate.
+      if (adapter.command.slew && adapter.command.kind === 'body_velocity' && !patrol.active) {
+        sim.cmd = stopped ? neutral() : slewCommand(lastCmd, sim.cmd, POLICY_DT, adapter.command.slew);
+        lastCmd = sim.cmd.slice();
+      }
       skipLockedDecision = epoch !== startEpoch;
     },
     // Only skip the decision whose prepare locked/reset the clock. Subsequent

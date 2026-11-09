@@ -1,6 +1,6 @@
 // m13000 export contract. External models/vectors are never part of the bundle source.
 import { MODE_COMMAND_CAPS } from './manual-settings.js';
-import { START_KEYBOARD_RAMP } from './keyboard-ramp.js';
+import { START_KEYBOARD_RAMP, START_COMMAND_SLEW } from './keyboard-ramp.js';
 import { makeStartDemoMap } from './start-demo-sensors.js';
 import { makeStartDepthWorker } from './start-depth-worker-client.js';
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -55,7 +55,7 @@ export function makeStartDemoMode(makeTerrainSampler) {
     observations: { size: 45, bodySize: 45, mappingSize: 512 },
     action: { size: 12, joints, defaultPose: defaults, scale: .25, kp: 25, kd: .5, torque: startDemoTorque },
     timing: { physicsDt: .005, decimation: 4, policyDt: .02 }, delay: 0,
-    command: { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.start, keyboardRamp: START_KEYBOARD_RAMP, inRange: (c) => c.length === 3 && c.every(Number.isFinite) && c[0] >= -1.3 && c[0] <= 1.5 && Math.abs(c[1]) <= .5 && Math.abs(c[2]) <= (c[0] || c[1] ? 1 : 1.2) },
+    command: { kind: 'body_velocity', caps: MODE_COMMAND_CAPS.start, keyboardRamp: START_KEYBOARD_RAMP, slew: START_COMMAND_SLEW, inRange: (c) => c.length === 3 && c.every(Number.isFinite) && c[0] >= -1.3 && c[0] <= 1.5 && Math.abs(c[1]) <= .5 && Math.abs(c[2]) <= (c[0] || c[1] ? 1 : 1.2) },
     stop: { input: [0,0,0], pause: false }, fallback: null,
     act(a, out = new Float64Array(12)) {
       for (let i = 0; i < 12; i++) out[i] = defaults[i] + .25 * clamp(a[i], -17, 17);
