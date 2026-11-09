@@ -372,7 +372,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, slot, p
       cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} robots={robots} user={user}
       picker={pick} moreSlot={moreSlot} over={notices} nameField={nameField} assign={assign} assignN={assignN} floor={floor} close={close} more={more}
       verField={latest && <label className="fh-field"><span>저장 기록(옛 기록은 읽기 전용)</span>{verSel}</label>}
-      blockNote={!ro && block && !lock ? <span id="plan-block" className="fh-why" data-block>{block}</span> : null} />
+      blockNote={!ro && block && !lock ? <p id="plan-block" className="fh-why" data-block>{block}</p> : null} />
   </div>;
 }
 
@@ -706,6 +706,11 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           {unsure === 'failed' && <button type="button" className="btn" onClick={() => { setUnsure('checking'); setMN((x) => x + 1); }}>다시 확인</button>}</div>}
         {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
         {over}
+        {/* 저장을 막는 이유·경로 확인 실패(다시 확인) — 노드 보기·창 접힘과 관계없이 지도 위에(SCEN-SAVE-FIX REVIEW-302). 확인 실패면 그 줄이 이유를 대신한다 */}
+        {pe && <div className="fh-row" style={{ flexWrap: 'wrap' }}><p className="fh-msg" role="alert">{pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`}</p>
+          {pe.code === 'STALE' ? <button type="button" className="btn" disabled={lock} onClick={() => { setRemap(true); treeAgain(); }}>새 지도로 다시 확인</button>
+            : pe.status !== 422 && <button type="button" className="btn" disabled={lock} onClick={() => setN((x) => x + 1)}>다시 확인</button>}</div>}
+        {!pe && blockNote}
         {back && <div className="fh-row" role="status" data-undo><span>{back.text}</span>
           <button type="button" className="btn" onClick={() => { put(back.w, back.f); setUndo(null); }}>되돌리기</button></div>}
         {msg && <p className="fh-msg" role="alert">{msg}</p>}
@@ -809,10 +814,6 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
                   <li key={j} className="fh-row"><span>{elName(s.start)} → {elName(s.end)}</span><span className={s.reachable ? 'lbl' : 'fh-why'}>{s.reachable ? `${floorName(s.via[0]?.floor_id ?? '')} → ${floorName(s.via[1]?.floor_id ?? '')} 층 연결점을 거칩니다` : s.reason}</span></li>)}</ul>}
               </details>
             </>}
-            {pe && <div className="fh-row" style={{ flexWrap: 'wrap' }}><p className="fh-msg" role="alert">{pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`}</p>
-              {pe.code === 'STALE' ? <button type="button" className="btn" disabled={lock} onClick={() => { setRemap(true); treeAgain(); }}>새 지도로 다시 확인</button>
-                : pe.status !== 422 && <button type="button" className="btn" disabled={lock} onClick={() => setN((x) => x + 1)}>다시 확인</button>}</div>}
-            {blockNote}
           </div>}
         </div>
       </div>

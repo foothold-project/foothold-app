@@ -549,6 +549,30 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(writes()).toEqual(['POST /missions', 'POST /scenarios']);
     expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ name: '새 순찰' });
   });
+  it('REVIEW-302: 노드 보기(기본)에서도 저장을 막는 이유(지점 없음·진입 금지)와 경로 확인 실패 «다시 확인»이 지도 위에 보인다(hidden 조상 없음)', async () => {
+    seed();
+    const over: Record<string, ((real: () => Reply) => Reply | Promise<Reply>)[]> = { 'POST /scenarios/preview': [] };
+    serve(KIM, { over });
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    expect($('[data-look="node"]')!.getAttribute('aria-pressed')).toBe('true');
+    const why = () => $('[data-block]')!;
+    expect(why().textContent).toBe('지도를 눌러 지점을 하나 이상 찍으세요.');
+    expect(why().closest('[hidden]')).toBeNull();
+    expect(saveBtn().disabled).toBe(true);
+    await tap(3.5, 0); await settle();                                     // 진입 금지 구역 안
+    expect(why().textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
+    expect(why().closest('[hidden]')).toBeNull();
+    over['POST /scenarios/preview'].push(() => { throw new TypeError('끊김'); });
+    await tap(1, 1); await settle();                                       // 경로 확인 실패
+    const again = btn('다시 확인')!;
+    expect(again.closest('[hidden]')).toBeNull();
+    expect(again.parentElement!.textContent).toContain('경로를 확인하지 못했습니다.');
+    expect($('[data-block]')).toBeNull();                                  // 같은 이유를 두 번 쓰지 않음
+    await click(again); await settle();
+    expect(btn('다시 확인')).toBeUndefined();
+    expect(why().textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
+  });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
     await open();
