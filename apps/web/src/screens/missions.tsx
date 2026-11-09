@@ -4,7 +4,7 @@
 // STOP 은 App 머리줄 — 이 화면은 창 키·포인터를 잡지 않는다(지도 svg 포인터만).
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { Action, Assignment, MapVersion, Terrain, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
+import type { Action, Assignment, MapFloor, MapVersion, Terrain, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
 import { KIND as DEVICE, type Ctx } from '../screens';
@@ -388,37 +388,47 @@ const terrainFits = (t: Terrain, v: MapVersion) => { const [sx, sy] = t.spec.siz
   return v.resolution === r && v.origin[0] === -sx / 2 && v.origin[1] === -sy / 2 && v.origin[2] === 0 && v.width === Math.ceil(sx / r) && v.height === Math.ceil(sy / r); };
 const differs = (raw: string, spec: unknown) => { try { return canon(JSON.parse(raw)) !== canon(spec); } catch { return true; } };
 const readLocal = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
-function SimRun({ value, saved, dirty, place, v, missions, cancel }: { value: ScenarioWrite; saved: Scenario | null; dirty: boolean; place?: Place; v?: MapVersion; missions: Mission[] | null; cancel?: AbortSignal }) {
-  const f = place?.floor, at = f && v ? simAt(f, v) : null, tid = at && typeof at !== 'string' ? at.terrain : undefined;
-  const [ter, setTer] = useState<Terrain | string | null>(null), [err, setErr] = useState('');
+/** 층(승인 판) → 시뮬 열 곳 + 지형 확인 — SimRun «시뮬에서 실행»·층 화면 «시뮬 열기»가 같은 규칙을 쓴다.
+ *  at = simAt(문자열이면 못 여는 이유), terWhy = 지형 층 확인 이유('' = 됨), url = 열 주소(?bt 없이), prep() = 누르는 순간 지형 사본 쓰기 → 실패 이유 또는 '' */
+function useSimAt(f?: MapFloor, v?: MapVersion, cancel?: AbortSignal) {
+  const at = f && v ? simAt(f, v) : null, tid = at && typeof at !== 'string' ? at.terrain : undefined;
+  const [ter, setTer] = useState<Terrain | string | null>(null);
   useEffect(() => { setTer(null); if (!tid) return; let live = true;
     api.terrain(tid, cancel).then((t) => { if (live) setTer(t); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setTer(`지형을 받지 못했습니다. ${e.message}`); });
     return () => { live = false; }; }, [tid]);
+  const local = tid ? readLocal(keyOf(tid)) : null;
+  const terWhy = !v || !tid ? '' : !ter ? '지형을 받는 중입니다.' : typeof ter === 'string' ? ter
+    : ter.map_version_id !== v.id ? '이 지형의 서버 지도는 지금 판이 아닙니다(지형 저장 뒤 다른 판이 올라옴) — «지형 만들기»에서 다시 저장하세요.'
+    : !terrainFits(ter, v) ? '지형과 지도 좌표가 다릅니다(지형을 바꾼 뒤 지도를 다시 만들지 않음) — «지형 만들기»에서 다시 저장하세요.'
+    : local != null && differs(local, ter.spec) ? '이 브라우저에 이 지형의 다른 편집본이 있어 덮지 않습니다 — «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.'
+    : '';
+  const prep = () => {
+    if (!ter || typeof ter === 'string') return '';
+    // 누르는 순간 다시 읽는다(렌더 뒤 다른 탭이 편집본·:base 를 만들었을 수 있음 — #303 보호): 둘 다 없을 때만 서버 판을 쓰고,
+    // 편집본이 서버와 같으면 아무것도 안 쓰고, 그 밖(다른 편집본·편집본 없이 :base 만)은 쓰지도 옮기지도 않는다
+    const k = keyOf(ter.spec.id), now = readLocal(k), base = readLocal(`${k}:base`);
+    if (now == null ? base != null : differs(now, ter.spec)) return '방금 이 브라우저에 이 지형의 다른 편집본이 생겼습니다 — 덮지 않고 멈췄습니다. «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.';
+    if (now == null) try { localStorage.setItem(k, JSON.stringify(ter.spec)); localStorage.setItem(`${k}:base`, String(ter.version)); }
+    catch { return '이 브라우저 저장소에 지형을 쓰지 못했습니다(사생활 창일 수 있음).'; }
+    return '';
+  };
+  const url = !at || typeof at === 'string' ? '' : tid ? terrainUrl(tid) : openUrl(at.map, at.floor, null);
+  return { at, terWhy, prep, url };
+}
+function SimRun({ value, saved, dirty, place, v, missions, cancel }: { value: ScenarioWrite; saved: Scenario | null; dirty: boolean; place?: Place; v?: MapVersion; missions: Mission[] | null; cancel?: AbortSignal }) {
+  const f = place?.floor, o = useSimAt(f, v, cancel), at = o.at, [err, setErr] = useState('');
   const pts = [...value.waypoints, ...(value.finish?.target ? [value.finish.target] : [])];
   const tree = missions ? scenarioTree(value, missions) : '임무 목록을 받는 중입니다.';
-  const local = tid ? readLocal(keyOf(tid)) : null;
   const why = !saved ? '저장한 시나리오만 시뮬에서 실행합니다 — 먼저 «저장»을 누르세요.' : dirty ? '저장하지 않은 편집이 있습니다 — 저장한 뒤 실행하세요.'
     : !pts.length ? '지점이 없습니다.' : !f ? '층을 찾지 못했습니다.' : pts.some((p) => p.floor_id !== f.id) ? '여러 층 시나리오는 시뮬에서 실행할 수 없습니다.'
     : !v ? '지도를 불러오는 중입니다.' : pts.some((p) => p.map_version_id !== v.id) ? '지도가 바뀌었습니다 — 지금 지도로 다시 저장한 뒤 실행하세요.'
-    : typeof at === 'string' ? at : typeof tree === 'string' ? tree
-    : tid && !ter ? '지형을 받는 중입니다.' : typeof ter === 'string' ? ter
-    : ter && ter.map_version_id !== v.id ? '이 지형의 서버 지도는 지금 판이 아닙니다(지형 저장 뒤 다른 판이 올라옴) — «지형 만들기»에서 다시 저장하세요.'
-    : ter && !terrainFits(ter, v) ? '지형과 지도 좌표가 다릅니다(지형을 바꾼 뒤 지도를 다시 만들지 않음) — «지형 만들기»에서 다시 저장하세요.'
-    : ter && local != null && differs(local, ter.spec) ? '이 브라우저에 이 지형의 다른 편집본이 있어 덮지 않습니다 — «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.'
-    : '';
+    : typeof at === 'string' ? at : typeof tree === 'string' ? tree : o.terWhy;
   const run = () => {
     if (why || !saved || !at || typeof at === 'string' || typeof tree === 'string') return;
-    const id = simId(saved.id);
-    // 누르는 순간 다시 읽는다(렌더 뒤 다른 탭이 편집본·:base 를 만들었을 수 있음 — #303 보호): 둘 다 없을 때만 서버 판을 쓰고,
-    // 편집본이 서버와 같으면 아무것도 안 쓰고, 그 밖(다른 편집본·편집본 없이 :base 만)은 쓰지도 옮기지도 않는다
-    if (ter && typeof ter !== 'string') {
-      const k = keyOf(ter.spec.id), now = readLocal(k), base = readLocal(`${k}:base`);
-      if (now == null ? base != null : differs(now, ter.spec)) return setErr('방금 이 브라우저에 이 지형의 다른 편집본이 생겼습니다 — 덮지 않고 멈췄습니다. «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.');
-      if (now == null) try { localStorage.setItem(k, JSON.stringify(ter.spec)); localStorage.setItem(`${k}:base`, String(ter.version)); }
-      catch { return setErr('이 브라우저 저장소에 지형을 쓰지 못했습니다(사생활 창일 수 있음).'); }
-    }
+    const id = simId(saved.id), no = o.prep();
+    if (no) return setErr(no);
     if (!saveSim({ id, name: value.name, map: at.map, floor: at.floor, tree, scenario_id: saved.id })) return setErr('이 브라우저 저장소에 임무를 쓰지 못했습니다(사생활 창일 수 있음).');
-    simNav.go(`${tid ? terrainUrl(tid) : openUrl(at.map, at.floor, null)}&bt=${id}`);
+    simNav.go(`${o.url}&bt=${id}`);
   };
   return <div className="mx-in" data-sim-run>
     <div className="fh-row"><button type="button" className="btn pri" disabled={!!why} aria-describedby={why ? 'sim-run-why' : undefined} onClick={run}>시뮬에서 실행</button>
@@ -426,6 +436,18 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel }: { value: Sc
     {why && <p id="sim-run-why" className="fh-why" data-sim-run-why>{why}</p>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </div>;
+}
+
+/** 층 화면 위 띠 «시뮬 열기»(SIM-TAB-CHOOSER 11-09): 승인 판을 simAt 규칙대로 — 시뮬 세계 층 = 그 map·floor, 지형 층 = map=custom&terrain=. 못 열면 꺼짐 + 이유.
+ *  ponytail: 시작 위치 찍기는 없음(기본 시작 지점) — 시뮬 안 «여기서 다시 시작»으로 옮긴다. 층 지도에서 찍으려면 MapFrame 누름 → 판 좌표 + blocked() */
+export function SimOpen({ f, v, wait, cancel }: { f: MapFloor; v: MapVersion | null; wait: boolean; cancel?: AbortSignal }) {
+  const o = useSimAt(f, v ?? undefined, cancel), [err, setErr] = useState('');
+  const why = !v ? (wait ? '지도를 불러오는 중입니다.' : '이 층에는 아직 지도가 없어 시뮬로 열 수 없습니다.') : typeof o.at === 'string' ? o.at : o.terWhy, say = err || why;
+  return <>
+    <button type="button" className="btn pri" disabled={!!why} aria-describedby={say ? 'sim-open-why' : undefined} data-sim-open
+      onClick={() => { const no = o.prep(); setErr(no); if (!no) simNav.go(o.url); }}>시뮬 열기</button>
+    {say && <span id="sim-open-why" className="mx-tag mx-why" role={err ? 'alert' : 'status'} title={say} data-sim-open-why>{say}</span>}
+  </>;
 }
 
 // ── 임무 ──────────────────────────────────────────────

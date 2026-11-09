@@ -2061,12 +2061,12 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty }));
     await open('#/sim'); await toChooser();
     expect($('[data-sim-places]')).toBeTruthy();
-    expect(sitesShown()).toEqual(['장소 시뮬 지형', '장소 옛 장소(purpose 없음)']);
+    expect(sitesShown()).toEqual(['장소 시뮬 지형', '장소 옛 장소(purpose 없음)', '내장 시뮬 지도']);
   });
   it('시뮬 탭에서 만든 장소 = POST /sites purpose SIM, 빈 시뮬 칸은 «지형 만들기» 안내', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } }, 'POST /sites': { status: 201, body: { id: 's2', name: '시뮬 별관', purpose: 'SIM', buildings: [] } } }));
     await open('#/sim');
-    expect(card('지도 고르기').textContent).toContain('시뮬 지도가 없습니다. 위 «지형 만들기»로 지형을 저장하면 여기에 보입니다.');
+    expect(card('지도 고르기').textContent).toContain('서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.');
     await click(btn('장소 고치기'));
     await click(btn('+ 장소'));
     await setVal(field('이름', card('새 장소')), '시뮬 별관');

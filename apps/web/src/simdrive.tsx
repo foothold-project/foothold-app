@@ -142,8 +142,8 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
         <li key={id}><label className="fh-row">
           <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}
-    {app ? <><SimPick make={!only} />
-      {only && <p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p>}</> : <>
+    {app ? only ? <><SimPick /><p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p></>
+      : <p className="lv-note" data-sim-mujoco>MuJoCo 는 위 지도 고르기에서 지도를 연 뒤 «시뮬 열기»로 이 브라우저에서 엽니다.</p> : <>
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
