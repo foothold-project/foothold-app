@@ -232,7 +232,8 @@ def test_0027_failed_rebuild_archives_terrain_without_partial_hierarchy(maps, se
         engine.dispose()
 
 
-def test_0027_empty_terrain_hierarchy_survives_and_new_save_restores_parents(maps, seeded, monkeypatch):
+@pytest.mark.parametrize('archive_shared_site', [False, True])
+def test_0027_empty_terrain_building_archived_and_new_save_restores_parents(maps, seeded, monkeypatch, archive_shared_site):
     http, headers, root = maps
     old = put(http, headers).json()
     monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', seeded['urls']['migrate'])
@@ -242,8 +243,8 @@ def test_0027_empty_terrain_hierarchy_survives_and_new_save_restores_parents(map
     engine = create_engine(seeded['urls']['migrate'])
     try:
         with Session(engine) as db, db.begin():
-            # E: migration must archive the last live floor, but keep its
-            # shared terrain site and building available for the next save.
+            # E: archive the last live floor and its empty building, while
+            # preserving the shared terrain site for the next save.
             db.get(Terrain, (SPEC['id'], seeded['org'])).archived_at = now()
         command.upgrade(config, 'head')
         with Session(engine) as db:
@@ -252,10 +253,13 @@ def test_0027_empty_terrain_hierarchy_survives_and_new_save_restores_parents(map
             site = db.get(Site, building.site_id)
             assert floor.archived_at
             assert site.id == identifier(seeded['org'], 'site')
-            assert site.archived_at is None and building.archived_at is None
+            assert site.archived_at is None and building.archived_at
             site_id, building_id = site.id, building.id
-        assert http.delete(P + f'/buildings/{building_id}', headers=headers).status_code == 204
-        assert http.delete(P + f'/sites/{site_id}', headers=headers).status_code == 204
+        sites = http.get(P + '/sites', headers=headers).json()['items']
+        assert len(sites) == 1 and sites[0]['id'] == str(site_id)
+        assert sites[0]['buildings'] == []
+        if archive_shared_site:
+            assert http.delete(P + f'/sites/{site_id}', headers=headers).status_code == 204
         new_spec = {**SPEC, 'id': 't-new'}
         # Reuse an empty archived terrain building as well as the shared site.
         with Session(engine) as db, db.begin():
@@ -269,6 +273,7 @@ def test_0027_empty_terrain_hierarchy_survives_and_new_save_restores_parents(map
             assert db.get(Site, site_id).archived_at is None
             assert building.archived_at is None and building.name == SPEC['name']
             assert floor.archived_at is None and floor.approved_version_id
+            assert db.get(Building, building_id).archived_at
             assert db.get(Floor, UUID(old['floor_id'])).archived_at
             assert db.get(Terrain, (SPEC['id'], seeded['org'])).archived_at
     finally:

@@ -191,13 +191,11 @@ def upgrade():
                 db.flush()
                 refresh_connectors(db, floor)
 
-        # Archive empty SIM containers except the reusable terrain hierarchy.
+        # Archive empty SIM containers except the shared terrain site.
         # Descendants/scenarios stay recoverable in parent-first order.
         buildings = list(db.scalars(select(Building).join(Site, Site.id == Building.site_id)
             .where(Site.purpose == 'SIM', Building.archived_at.is_(None))))
         for building in buildings:
-            if building.site_id == identifier(building.org_id, 'site'):
-                continue  # Terrain saves reuse this shared hierarchy.
             if db.scalar(select(Floor.id).where(Floor.building_id == building.id, Floor.archived_at.is_(None)).limit(1)) is None:
                 change(building, 'archived_at', now(), 'no_live_floors')
         db.flush()
