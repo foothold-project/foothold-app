@@ -9,6 +9,7 @@ import type { Action, Assignment, MapVersion, Mission, MissionWrite, RobotSummar
 import { Root } from '../session';
 import { clearPlans, simNav } from '../screens/missions';
 import { check, type BtNode } from '../screens/btedit';
+import { TERRAIN_REASON } from '../simstart';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 
@@ -1387,7 +1388,7 @@ describe('시뮬 시나리오', () => {
   it('지형 층: 서버 지형을 받아 격자가 맞으면 이 브라우저에 지형을 두고 map=custom&terrain= 로, 다른 편집본이 있으면 덮지 않고 회색', async () => {
     const spec = { schema: 'fh_custom_terrain/1', id: 'hill', name: '언덕', size: [5, 4], spawn: [0, 0, 0], items: [] };
     const T = { status: 200, body: { spec, version: 3, floor_id: 'f1', map_version_id: 'v1', archived_at: null, updated_at: '2026-11-09T00:00:00Z' } };
-    seed(); sitePurpose = 'SIM'; f1Extra = { terrain_id: 'hill' }; MAPS.v1 = { ...MAPS.v1, origin: [-2.5, -2, 0] };   // 5×4 m 지형 = 100×80 칸, 원점 (-2.5, -2)
+    seed(); sitePurpose = 'SIM'; f1Extra = { terrain_id: 'hill' }; MAPS.v1 = { ...MAPS.v1, ...TERRAIN_V };   // 5×4 m 지형 = 100×80 칸, 원점 (-2.5, -2)
     serve(KIM, { over: { 'GET /terrains/hill': [T, T] } });
     const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
     localStorage.setItem('fh.customTerrain.hill', JSON.stringify({ ...spec, name: '고치던 언덕' }));
@@ -1404,6 +1405,53 @@ describe('시뮬 시나리오', () => {
     expect(JSON.parse(localStorage.getItem('fh.customTerrain.hill')!)).toEqual(spec);
     expect(localStorage.getItem('fh.customTerrain.hill:base')).toBe('3');
     expect(JSON.parse(localStorage.getItem('fh.btMission.ss1')!)).toMatchObject({ map: 'custom', floor: '' });
+  });
+  /** 지형 저장(terrains.py)이 만든 판과 같은 값 */
+  const TERRAIN_V = { provenance: 'SIMULATION' as const, source: 'IMPORT' as const, reason: TERRAIN_REASON, origin: [-2.5, -2, 0] as [number, number, number] };
+  const HILL = { schema: 'fh_custom_terrain/1', id: 'hill', name: '언덕', size: [5, 4], spawn: [0, 0, 0], items: [] };
+  const hill = (map_version_id = 'v1') => ({ status: 200, body: { spec: HILL, version: 3, floor_id: 'f1', map_version_id, archived_at: null, updated_at: '2026-11-09T00:00:00Z' } });
+  const openHill = async (v: Partial<MapVersion>, t = hill()) => {
+    seed(); sitePurpose = 'SIM'; f1Extra = { terrain_id: 'hill' }; MAPS.v1 = { ...MAPS.v1, ...TERRAIN_V, ...v };
+    serve(KIM, { over: { 'GET /terrains/hill': [t, t] } });
+    await open('#/sim'); await scen(); await click(row('s1')); await settle();
+  };
+  it('지형 층 판 확인(REVIEW-306 ①): 원점 회전이 0 이 아니거나·지형 저장이 만든 판이 아니거나·지형의 서버 판이 아니면 회색 + 이유', async () => {
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    await openHill({ origin: [-2.5, -2, Math.PI / 2] });   // x·y·해상도·크기는 맞고 회전만 다름
+    expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+    expect($('[data-sim-run-why]')!.textContent).toContain('«지형 만들기» 저장으로 만든 판이 아닙니다');
+    act(() => root?.unmount()); root = null; clearPlans();
+    await openHill({ reason: '현장 도면으로 바꿈' });   // 같은 층에 사람이 올린 판(지형 id 는 그대로)
+    expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+    expect($('[data-sim-run-why]')!.textContent).toContain('만든 판이 아닙니다');
+    act(() => root?.unmount()); root = null; clearPlans();
+    await openHill({}, hill('v9'));   // 지형이 가리키는 층 판 ≠ 이 시나리오의 판
+    expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+    expect($('[data-sim-run-why]')!.textContent).toContain('지금 판이 아닙니다');
+    expect(go).not.toHaveBeenCalled();
+  });
+  it('지형 층 누를 때 다시 읽기(REVIEW-306 ②): 화면을 연 뒤 다른 탭이 만든 편집본·:base 는 덮지 않고 이동도 멈춤', async () => {
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    await openHill({});
+    expect(btn('시뮬에서 실행')!.disabled).toBe(false);   // 열 때는 저장소가 비어 있음
+    localStorage.setItem('fh.customTerrain.hill', JSON.stringify({ ...HILL, name: '다른 탭 편집본' })); localStorage.setItem('fh.customTerrain.hill:base', '2');
+    await click(btn('시뮬에서 실행'));
+    expect(go).not.toHaveBeenCalled();
+    expect(box.querySelector('[role="alert"]')?.textContent).toContain('다른 편집본이 생겼습니다');
+    expect(JSON.parse(localStorage.getItem('fh.customTerrain.hill')!).name).toBe('다른 탭 편집본');
+    expect(localStorage.getItem('fh.customTerrain.hill:base')).toBe('2');
+    expect(localStorage.getItem('fh.btMission.ss1')).toBeNull();
+    localStorage.clear(); localStorage.setItem('fh.customTerrain.hill:base', '2');   // 편집본 없이 기준 판만 있어도 덮지 않음
+    await click(btn('시뮬에서 실행'));
+    expect(go).not.toHaveBeenCalled();
+    expect(localStorage.getItem('fh.customTerrain.hill:base')).toBe('2');
+    expect(localStorage.getItem('fh.customTerrain.hill')).toBeNull();
+    act(() => root?.unmount()); root = null; clearPlans();
+    localStorage.clear(); localStorage.setItem('fh.customTerrain.hill', JSON.stringify(HILL)); localStorage.setItem('fh.customTerrain.hill:base', '3');   // 서버와 같은 편집본 = 그대로 두고 실행
+    await openHill({});
+    await click(btn('시뮬에서 실행'));
+    expect(localStorage.getItem('fh.customTerrain.hill:base')).toBe('3');
+    expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=custom&terrain=hill&bt=ss1');
   });
   it('시뮬이 못 하는 일(센서 기록) = 회색 + 그 지점 이유', async () => {
     seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV };

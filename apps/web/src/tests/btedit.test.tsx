@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MapFloor, MapVersion, Mission, ScenarioWrite } from '../../../contracts/ts';
-import { SimPick, simAt } from '../simstart';
+import { SimPick, TERRAIN_REASON, simAt } from '../simstart';
 import { check, oldMissions, scenarioTree, simId, treePoints, type Tree } from '../screens/btedit';
 import FI from '../../../../mobile/sim/assets/factory-inspection/top.json';
 import FZ from '../../../../mobile/sim/assets/factory-zone/top.json';
@@ -57,8 +57,13 @@ describe('simAt — 시뮬과 좌표가 같은 층만', () => {
     expect(simAt(floor(), ver(f2.image_sha256, f2.map))).toEqual({ map: 'factory-zone', floor: 'f2' });
   });
   it('지형 층 = custom + 지형 id', () => {
-    expect(simAt(floor({ terrain_id: 'my-hill' }), ver('x', FI.map, { provenance: 'HUMAN' }))).toEqual({ map: 'custom', floor: '', terrain: 'my-hill' });
-    expect(simAt(floor({ terrain_id: 'Bad Id' }), ver('x', FI.map))).toMatch(/형식/);
+    const TV = { source: 'IMPORT', reason: TERRAIN_REASON } as const;
+    expect(simAt(floor({ terrain_id: 'my-hill' }), ver('x', FI.map, TV))).toEqual({ map: 'custom', floor: '', terrain: 'my-hill' });
+    expect(simAt(floor({ terrain_id: 'Bad Id' }), ver('x', FI.map, TV))).toMatch(/형식/);
+    // 지형 id 가 있어도 지형 저장이 만든 판이 아니면(사람 판·고친 판·회전 있는 원점) 막음
+    for (const p of [{ ...TV, provenance: 'HUMAN' }, { ...TV, source: 'EDIT' }, { ...TV, reason: '도면' }] as const)
+      expect(simAt(floor({ terrain_id: 'my-hill' }), ver('x', FI.map, p))).toMatch(/만든 판이 아닙니다/);
+    expect(simAt(floor({ terrain_id: 'my-hill' }), ver('x', { ...FI.map, origin: [-0.05, -0.05, 0.3] }, TV))).toMatch(/만든 판이 아닙니다/);
   });
   it('사람이 올린 지도·격자가 다른 판·모르는 사진은 이유(막음)', () => {
     expect(simAt(floor({ provenance: 'HUMAN' }), ver(FI_SHA, FI.map, { provenance: 'HUMAN' }))).toMatch(/시뮬 세계·지형과 이어져 있지 않아/);

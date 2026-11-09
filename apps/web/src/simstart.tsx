@@ -45,11 +45,17 @@ export function blocked(g: Grid, x: number, y: number) {
   }
   return '';
 }
+/** 지형 저장(서버 terrains.py)이 만든 판인지 — 판에 지형 표시가 따로 없어 그 저장이 남기는 값 전부로 본다:
+ *  SIMULATION·IMPORT·회전 0·해상도 0.05·그 저장의 reason 글. ponytail: reason 은 사람이 올릴 때 같은 글을 쓰면 속는다 — 서버가 판에 terrain_version 을 내주면 그걸로 바꿈 */
+export const TERRAIN_REASON = '지형 저장으로 위에서 본 지도 자동 생성';
+const terrainMade = (v: MapVersion) => v.provenance === 'SIMULATION' && v.source === 'IMPORT' && v.origin[2] === 0 && v.resolution === 0.05 && v.reason === TERRAIN_REASON;
 /** 층(서버 지도) → 시뮬 어디서 열지(SIM-REAL-SPLIT «시뮬에서 실행»). 좌표가 같은 경우만 — 아니면 이유.
  *  · 지형 층(terrain_id): 시뮬 map=custom&terrain=<id>. 서버 terrain_grid = mobile/sim/terrain buildTerrain 격자(해상도 0.05·원점 −가로/2,−세로/2) — 실행 때 지형 크기로 다시 맞춘다
  *  · 시뮬 세계 층: topOf(v) = 판 사진 sha 가 시뮬 자산 사진이고 판 격자(원점·해상도·크기)가 그 자산 top.json 격자와 같을 때만(top.json 격자 = 시뮬 map.json 격자) */
 export function simAt(f: MapFloor, v: MapVersion): { map: string; floor: string; terrain?: string } | string {
-  if (f.terrain_id) return /^[a-z0-9-]{1,32}$/.test(f.terrain_id) ? { map: 'custom', floor: '', terrain: f.terrain_id } : '지형 id 형식이 시뮬과 맞지 않습니다.';
+  if (f.terrain_id) return !/^[a-z0-9-]{1,32}$/.test(f.terrain_id) ? '지형 id 형식이 시뮬과 맞지 않습니다.'
+    : terrainMade(v) ? { map: 'custom', floor: '', terrain: f.terrain_id }
+    : '이 지도 판은 «지형 만들기» 저장으로 만든 판이 아닙니다(사람이 올리거나 고친 판) — 시뮬과 좌표가 같은지 알 수 없어 실행하지 않습니다. «지형 만들기»에서 다시 저장하세요.';
   const map = topOf(v) && SIM_TOP.get(v.image_sha256);
   if (!map) return '이 층은 시뮬 세계·지형과 이어져 있지 않아 시뮬에서 실행할 수 없습니다(지도 좌표가 시뮬과 같은지 확인되지 않음).';
   const fl = META[dir(map, 'top.json')]?.floors;
