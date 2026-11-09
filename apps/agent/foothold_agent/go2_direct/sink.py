@@ -9,13 +9,11 @@ import threading
 import time
 from dataclasses import dataclass
 
+from foothold_agent.safety.core import PHONE_SPEEDS
+
 ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
-# Physical phone forward ceiling is 1.5 m/s; lateral/turn gates are unchanged.
-# Config may only narrow this explicit alphabet.
-ALLOWED = frozenset({ZERO} | {(step / 10, 0., wz)
-                            for step in range(3, 16) for wz in (0., -.5, .5)})
 SERVER_ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (-1.5, 0., 0.),
     (0., 1.5, 0.), (0., -1.5, 0.), (0., 0., .5), (0., 0., -.5),
     (1.5, 0., .5), (1.5, 0., -.5)))
@@ -35,12 +33,12 @@ class OutputError(RuntimeError):
 
 @dataclass(frozen=True)
 class Limits:
-    vx: tuple = (0., 1.5)
-    vy: tuple = (0., 0.)
-    wz: tuple = (-.5, .5)
+    vx: tuple = (-1.5, 1.5)
+    vy: tuple = (-1., 1.)
+    wz: tuple = (-4., 4.)
 
     def __post_init__(self):
-        for bounds, maximum in zip((self.vx, self.vy, self.wz), ((0., 1.5), (0., 0.), (-.5, .5))):
+        for bounds, maximum in zip((self.vx, self.vy, self.wz), tuple((-v, v) for v in PHONE_SPEEDS)):
             if (not isinstance(bounds, tuple) or len(bounds) != 2 or
                     not all(type(x) in (int, float) and math.isfinite(x) for x in bounds) or
                     not maximum[0] <= bounds[0] <= 0 <= bounds[1] <= maximum[1]):
@@ -50,11 +48,11 @@ class Limits:
         if (not isinstance(velocity, (list, tuple)) or len(velocity) != 3 or
                 not all(type(x) in (int, float) and math.isfinite(x) for x in velocity)):
             raise ValueError('finite body-frame vx, vy, wz required')
-        value = tuple(float(min(hi, max(lo, x))) for x, (lo, hi)
-                      in zip(velocity, (self.vx, self.vy, self.wz)))
-        if value not in ALLOWED:
-            raise ValueError('command is outside reviewed real-robot alphabet')
-        return value
+        if not all(lo <= x <= hi for x, (lo, hi)
+                   in zip(velocity, (self.vx, self.vy, self.wz))):
+            raise ValueError('command is outside real-robot velocity bounds')
+        return tuple(float(x) for x in velocity)
+
 
 
 class Go2Sink:

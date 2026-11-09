@@ -13,7 +13,7 @@ import { realTarget, type Found } from '../nearby';
 
 const RID = 'r1', HOST = '192.168.123.18', LEASE = '33333333-3333-4333-8333-333333333333';
 const found: Found = { key: 'mdns:go2', via: 'mdns', name: 'GO2-friday', host: HOST, port: 8765, rid: RID, agent: `ws://${HOST}:8765/phone/ws` };
-const REAL_LIMITS = { vx_min: 0, vx_max: 1.5, vy_min: 0, vy_max: 0, wz_min: -0.5, wz_max: 0.5, commands: [[0, 0, 0], ...Array.from({ length: 13 }, (_, i) => [0, -0.5, 0.5].map((wz) => [(i + 3) / 10, 0, wz])).flat()] };
+const REAL_LIMITS = { vx_min: -1.5, vx_max: 1.5, vy_min: -1, vy_max: 1, wz_min: -4, wz_max: 4, vx_mode: 'continuous', vx_min_moving: 0, commands: [], experimental: ['reverse', 'lateral', 'turn_in_place'] };
 const welcome = { t: 'hello', id: 'p1', robot: RID, proto: 'fh-phone/1', simulation: false, camera_token: null, limits: REAL_LIMITS,
   policy: { name: 'go2-sport', version: 'v1' }, ping_interval_ms: 1000, link_timeout_ms: 3000, lease_timeout_ms: 15000 };
 const st = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: RID, robot_id: RID, pose: null, speed: 0, battery: { soc: 70 }, latched: true, stop_gen: 1, stop_ref: 0,
@@ -107,16 +107,29 @@ describe('실기 연결 흐름', () => {
     expect($('[data-sim-drive]')).toBeNull();
     expect($('[data-real-pill]')?.textContent).toContain('실기 · 미검증');
     expect($('[data-real-unverified]')?.textContent).toContain('미검증');
-    expect($('[data-real-range]')?.textContent).toContain('후진 없음');
+    expect($('[data-real-range]')?.textContent).toContain('뒤 1.50 m/s · 옆 -1~1 m/s · 회전 ±4 rad/s');
     expect($('[data-stop]')).toBeTruthy();   // STOP 늘 보임
     act(() => a.recv(st())); await flush();
     await click(btn('조종 시작'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }))); await flush();
     await click(btn('잠금 해제'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }))); await flush();
-    // 회전만(제자리) = wz 0, 앞 끝까지 = 1.5
+    // 제자리 회전·후진·옆걸음, 앞 끝까지 = 1.5
     sim.axes([0, 1]); await wait(120);
-    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0, vy: 0, wz: 0 });
+    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0, vy: 0, wz: 4 });
+    sim.axes([-1, -.35, .45]); await wait(120);
+    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: -1.5, vy: .45, wz: -1.4 });
+    const move = $('[aria-label="전후·옆 조이스틱"]')!;
+    move.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    const turn = $('[aria-label="회전 조이스틱"]')!;
+    turn.getBoundingClientRect = move.getBoundingClientRect;
+    act(() => turn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 67.5, clientY: 50 })));
+    act(() => move.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 100 })));
+    await wait(120);
+    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: -1.5, vy: 1, wz: -1.4 });
+    act(() => move.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })));
+    await wait(120);
+    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0, vy: 0, wz: -1.4 });
     sim.axes([1, 0]); await wait(120);
     expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 1.5, vy: 0, wz: 0, lease_id: LEASE });
     await click($('[data-stop]'));

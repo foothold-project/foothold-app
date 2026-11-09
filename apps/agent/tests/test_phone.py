@@ -326,16 +326,16 @@ def test_phone_stop_unlock_requires_feedback_and_new_neutral(h):
 
 
 @pytest.mark.parametrize('velocity,expected,clipped', [
-    ((9, 8, 7), (1.5, 0, .5), True), ((-2, 0, 1), Z, True),
-    ((.2, 0, .2), Z, True), ((1.5, 0, -.5), (1.5, 0, -.5), False),
-    ((0, 0, 0), Z, False), ((1.5, 0, .1), (1.5, 0, 0), True)])
-def test_phone_limits_never_expand_core_alphabet(physical_h, velocity, expected, clipped):
+    ((9, 8, 7), Z, True), ((-2, 0, 1), Z, True),
+    ((.2, 0, .2), Z, True), ((1.5, 0, -.8), (1.5, 0, -.8), False),
+    ((0, 0, 0), Z, False), ((1.5, .2, 1.23), (1.5, .2, 1.23), False),
+    ((-1.5, -1, 4), (-1.5, -1, 4), False)])
+def test_phone_continuous_bounds_and_deadzone(physical_h, velocity, expected, clipped):
     h = physical_h
     a, _ = h.moving()
     reply = h.cmd(a, *velocity)
     assert reply['applied'] == list(expected) and reply['clipped'] is clipped
-    assert LIMITS['commands'] == [[0, 0, 0]] + [[step / 10, 0, turn]
-        for step in range(3, 16) for turn in (0, -.5, .5)]
+    assert LIMITS['commands'] == [] and LIMITS['vx_mode'] == 'continuous'
 
 
 @pytest.mark.parametrize('raw', ['[]', '{}', '{', '{"t":"stop","t":"cmd"}', b'binary',
