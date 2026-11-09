@@ -1214,6 +1214,7 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     seed(); serve(KIM);
     await open();
     await click(row('s1'));
+    await click($('[data-look="list"]'));   // SCEN-NODE-PREVIEW: 기본 노드 보기 → 목록
     const tabs = [...card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')];
     expect(tabs.map((t) => t.textContent)).toEqual(['단계 2', '배정 0']);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
@@ -1246,7 +1247,7 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
   });
   it('#235 B2 창을 접었다 펴도 배정 창 입력(메모)이 남는다 — 접기는 숨김, 배정 창은 unmount 되지 않음', async () => {
     seed(); serve(KIM);
-    await open(); await click(row('s1'));
+    await open(); await click(row('s1')); await click($('[data-look="list"]'));   // SCEN-NODE-PREVIEW: 기본 노드 보기 → 목록
     await click(card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')[1]);
     const sec = $('[data-assign]')!;
     await click(btn('로봇에 배정', sec));
