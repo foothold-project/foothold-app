@@ -69,6 +69,8 @@ def preview(db, user, body, fail):
         version = mission_versions.get((point.mission_id, point.mission_version))
         if mission is None or mission.archived_at is not None or version is None:
             fail(422, 'PRECHECK_FAILED', '사용할 수 있는 임무 판을 선택하세요.', {'elements': [f'waypoints.{i}.mission_version']})
+        if point.wait_s is not None and not any(step['action'] == 'WAIT' for step in version.steps):
+            fail(422, 'PRECHECK_FAILED', '이 할 일에는 대기 단계가 없습니다.', {'elements': [f'waypoints.{i}.wait_s']})
         required.update(version.required_devices)
     results = []
     for element, point in points:

@@ -118,18 +118,29 @@ def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, r
         fail(422, 'PRECHECK_FAILED', '실기 배정·시작 사용자·실행 전 점검 증명이 필요합니다.')
     points = []
     for waypoint in row.waypoints:
+        # These fields are for server-side scenario editing, never agent input.
+        agent_point = {key: value for key, value in waypoint.items() if key not in ('name', 'wait_s')}
+        wait_s = waypoint.get('wait_s')
+        if wait_s is not None and revision is None:
+            fail(422, 'EXECUTION_UNAVAILABLE', '지점 대기 시간을 적용하려면 scenario/2 실행기가 필요합니다.')
         mission = db.scalar(select(MissionVersion).where(MissionVersion.org_id == robot.org_id,
             MissionVersion.mission_id == UUID(waypoint['mission_id']),
             MissionVersion.number == waypoint['mission_version']))
         if mission is None:
             fail(422, 'PLAN_UNAVAILABLE', '고정 임무 판을 찾을 수 없습니다.')
         steps = [C.MissionStep.model_validate(step) for step in mission.steps]
+        if wait_s is not None:
+            if not any(step.action == 'WAIT' for step in steps):
+                fail(422, 'PRECHECK_FAILED', '이 할 일에는 대기 단계가 없습니다.')
+            seconds = C.WaitParams(seconds=wait_s).seconds
+            steps = [C.MissionStep(action='WAIT', params={'seconds': seconds})
+                     if step.action == 'WAIT' else step for step in steps]
         if revision is None:
-            points.append(C.AgentScenarioWaypoint(**waypoint, mission_name=mission.name))
+            points.append(C.AgentScenarioWaypoint(**agent_point, mission_name=mission.name))
         else:
             required = C.mission_capabilities(steps)
             require_execution(capabilities, required, revision, fail)
-            points.append(C.ExecutableAgentScenarioWaypoint(**waypoint, mission_name=mission.name,
+            points.append(C.ExecutableAgentScenarioWaypoint(**agent_point, mission_name=mission.name,
                 mission_steps=steps, required_capabilities=required))
     finish = C.ScenarioFinish.model_validate(row.finish)
     all_points = [*points, *([finish.target] if finish.target is not None else [])]
