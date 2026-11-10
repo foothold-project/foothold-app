@@ -28,6 +28,12 @@ const FOLDED = 4 + ITEMS.length + 2;   // 처음(모두 접힘) = 요약 카드 
 const OPEN = new Set(FOLDS);
 const openAll = () => tap($('[data-all-open]'));
 const support = () => tap($('[data-support-toggle]'));
+/** R6 — 캔버스 화면(viewport transform), 왼쪽 끌기(d3-zoom = mousedown 뒤 window mousemove·mouseup, 이어지는 click 은 끌었으면 먹힘) */
+const vp = () => $('.react-flow__viewport').style.transform;
+const drag = async (el: Element, dx: number) => {   // jsdom 은 view 에 vitest window 를 못 받아 뒤에 붙임(d3 가 event.view 에 mousemove 를 건다)
+  const ev = (t: string, x: number) => Object.defineProperty(new MouseEvent(t, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: 50 }), 'view', { value: window });
+  await act(async () => { el.dispatchEvent(ev('mousedown', 100)); window.dispatchEvent(ev('mousemove', 100 + dx));
+    window.dispatchEvent(ev('mouseup', 100 + dx)); el.dispatchEvent(ev('click', 100 + dx)); }); };
 /** wide(true) = PC 넓은 창(늘 크게 보기), wide(false) = 좁은 창(1023.98px 아래 — 나란히) */
 const wide = (on: boolean) => vi.stubGlobal('matchMedia', (q: string) => ({ matches: !on, media: q, addEventListener() {}, removeEventListener() {} }));
 
@@ -200,21 +206,20 @@ describe('운영 흐름 화면', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('R1·R4 크게 보기: 넓은 창은 늘 크게(켜고 끄는 단추·Esc·기억값 없음) — 높이 = 그래프 1배, 휠은 창 스크롤, 윗줄에 확대·축소, 상세는 누를 때만 카드(× 닫기), 좁은 창은 나란히', async () => {
+  it('R1·R4·R6 크게 보기: 넓은 창은 늘 크게(켜고 끄는 단추·Esc·기억값 없음) — 높이 고정 없음(창 스크롤 없음), 휠 = 확대·축소, 윗줄에 확대·축소, 상세는 누를 때만 카드(× 닫기), 좁은 창은 나란히', async () => {
     wide(true); localStorage.clear();
     await show('websim');
     const big = () => flow().hasAttribute('data-big'), esc = () => act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
-    const A = Object.values(flowGraph(ITEMS, '대기', 'websim').areas), gh = Math.max(...A.map((a) => a.y + a.h));
     expect([big(), $('[data-big-toggle]'), $('.sn-big'), box.textContent!.includes('원래 크기')]).toEqual([true, null, null, false]);   // 켜고 끄는 단추 없음
-    expect($('.sn-canvas').style.height).toBe(`${gh + 32}px`);                                // 세로 제한 없음 — 그래프 높이 그대로
+    expect($('.sn-canvas').style.height).toBe('');                                          // R6: 그래프 높이로 늘려 창을 굴리지 않음(캔버스 = 남은 높이)
     expect([$('.react-flow__controls'), $$('.sn-top [aria-label="확대·축소"] button').map((b) => b.getAttribute('aria-label'))]).toEqual([null, ['축소', '확대', '화면 맞춤', '전체 보기']]);
     const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
-    $('.react-flow__pane').dispatchEvent(wheel); expect(wheel.defaultPrevented).toBe(false);          // 휠 = 창 스크롤(캔버스가 먹지 않음)
+    const was = vp();
+    $('.react-flow__pane').dispatchEvent(wheel); expect([wheel.defaultPrevented, vp() !== was]).toEqual([true, true]);   // R6: 휠 = 캔버스 확대·축소(창 스크롤 아님)
     expect([flow().dataset.nodes, $('[data-detail]')]).toEqual([String(FOLDED), null]);     // 상세 = 누를 때만
     expect(stage('연결').title).toBe('됨 0 · 일부 0 · 아직 없음 8');                          // 윗줄 칩: 개수는 title
     await tap(node('s:예외 처리')); expect(flow().dataset.stage).toBe('예외 처리');
     await openAll();
-    expect($('.sn-canvas').style.height).not.toBe(`${gh + 32}px`);                           // 펼치면 캔버스도 길어짐
     await tap(node('w1'));
     expect([$('[data-detail]').dataset.detail, pick.mock.lastCall]).toEqual(['w1', [1]]);
     expect($('[data-edit-point="1"]')).not.toBeNull();                                      // form 없으면 지점도 읽기 상세 + 편집 단추
@@ -225,6 +230,23 @@ describe('운영 흐름 화면', () => {
     act(() => root.unmount()); root = createRoot(box);
     wide(false); await show('websim');                                                   // 좁은 창 = 나란히(안쪽 확대·축소 칸, 높이 제한)
     expect([big(), $('[data-big-toggle]'), $('.sn-canvas').style.height, $('.react-flow__controls') != null]).toEqual([false, null, '', true]);
+  });
+
+  it('R6 끌기 이동: 카드 위에서 끌면 화면만 옮기고(노드 그대로·고르지 않음) 짧은 누름은 고름, 지점 편집 창 안 끌기·휠은 캔버스로 안 감', async () => {
+    wide(true);
+    await act(async () => root.render(<ScenNodes where="websim" items={ITEMS} end="대기" on={0} pick={pick} edit={edit} form={<input data-in />} />));
+    expect($('[data-point-edit]').dataset.pointEdit).toBe('0');
+    const was = vp(), at = node('w1').style.transform;
+    await drag(node('w1'), 60);
+    expect([vp() !== was, node('w1').style.transform, $('[data-point-edit]').dataset.pointEdit]).toEqual([true, at, '0']);
+    expect(pick).not.toHaveBeenCalled();                                                       // 끈 뒤 click = 고르기 아님
+    expect(node('w1').classList.contains('nopan')).toBe(false);                                // 노드 끌기 꺼짐 → 카드 위도 이동
+    await act(() => new Promise((r) => setTimeout(r, 5)));                                    // 끈 뒤 click 막기(d3, 0ms)가 풀릴 때까지
+    await drag(node('w1'), 2); expect([$('[data-detail]').dataset.detail, pick.mock.lastCall]).toEqual(['w1', [1]]);   // 2px 흔들림 = 누름
+    await act(async () => root.render(<ScenNodes where="websim" items={ITEMS} end="대기" on={1} pick={pick} edit={edit} form={<input data-in />} />));   // 지도에서 2번 = 편집 창
+    const v = vp(), wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    $('[data-in]').dispatchEvent(wheel); await drag($('[data-in]'), 80);
+    expect([vp(), wheel.defaultPrevented, $('.react-flow').contains($('[data-point-edit]'))]).toEqual([v, false, false]);   // 편집 창은 캔버스 밖
   });
 
   it('지도 탭 = real 판정(지원 현황 켤 때): 연결 8개 됨, 실기체 미검증 한 줄, 일부면 빠진 것', async () => {

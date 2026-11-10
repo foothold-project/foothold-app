@@ -56,18 +56,18 @@
 .sn-card .react-flow__handle{opacity:0}
 .sn-top{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px}
 .sn-main{display:contents}
-/* 크게 보기(PC 넓은 창은 늘 — R4, scennode.tsx 가 좁은 창·앱에선 켜지 않음): 윗줄 하나(창 위에 붙음) [단계 칩 5 | 확대·축소 | 상시 감시 칩 5] + 캔버스 = 그래프 1배 높이(창이 세로로 굴러감),
+/* 크게 보기(PC 넓은 창은 늘 — R4, scennode.tsx 가 좁은 창·앱에선 켜지 않음): 윗줄 하나 [단계 칩 5 | 확대·축소 | 상시 감시 칩 5] + 캔버스 = 남은 높이(R6 — 끌어 옮김·휠 확대),
    상세 = 화면에 붙은 오른쪽 위 카드. 좁은 창·앱: 윗줄 = [상시 감시 …] / 단계 띠(다음 줄) 그대로 */
 .sn-top>.sn-stages{flex:1 1 100%;order:3}
-.sn[data-big]{flex:none;overflow:visible;padding:0 8px 8px}
-.sn[data-big] .sn-top{position:sticky;top:0;z-index:6;padding:8px 0;background:var(--panel)}
+.sn[data-big]{overflow:hidden;padding:0 8px 8px}   /* R6: 창 스크롤 없음 — 캔버스가 남은 높이를 채우고 안에서 끌어 옮김 */
+.sn[data-big] .sn-top{padding:8px 0;background:var(--panel)}
 .sn[data-big] .sn-top>.sn-stages{flex:1 1 auto;order:1;flex-wrap:nowrap;min-width:0}
 .sn[data-big] .sn-stage{flex:0 1 auto;min-width:0;height:32px;min-height:0;padding:0 10px}
 .sn[data-big] .sn-stage small{display:none}
 .sn-zoom{order:2;flex:none;display:flex;gap:4px}
 .sn-zoom>.sn-chip{min-width:28px;height:28px;padding:0 6px;font-size:14px}
 .sn[data-big] .sn-watch .sn-muted,.sn[data-big] .sn-hint{display:none}
-.sn[data-big] .sn-main{display:block;position:relative}
+.sn[data-big] .sn-main{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
 .sn[data-big] .sn-canvas{min-height:0}
 .sn[data-big] .sn-detail{position:fixed;top:236px;right:28px;z-index:5;width:300px;max-height:calc(100vh - 266px);background:var(--panel);box-shadow:var(--shadow)}
 .sn-name{display:flex;align-items:flex-start;gap:6px}
@@ -97,3 +97,5 @@
 .sn-xy .inp{width:100%;min-width:0}
 .sn-edit>.btn{align-self:flex-start}
 .sn-edit fieldset{margin:0;padding:0;border:0;min-width:0;display:flex;flex-direction:column;gap:8px}
+/* SCEN-ONE-FLOW-R6 11-10 — 끌기 이동: 빈 곳 = grab(React Flow 기본), 끄는 동안은 카드 위에서도 grabbing */
+.sn .react-flow__pane.dragging,.sn .react-flow__pane.dragging *{cursor:grabbing!important}

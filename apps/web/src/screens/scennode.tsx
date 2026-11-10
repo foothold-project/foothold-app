@@ -173,20 +173,15 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
   const focus = sel && sel.on === on ? sel.id : on != null ? `w${on}` : null;
   const tap = (id: string) => { const n = g.nodes.find((x) => x.id === id); if (n?.data.stage) return fold(n.data.stage); setSel(id); if (n?.data.wp != null) pick(n.data.wp); };
   const root = useRef<HTMLDivElement>(null), A = Object.values(g.areas), gw = Math.max(...A.map((a) => a.x + a.w)), gh = Math.max(...A.map((a) => a.y + a.h));
-  /** 크게 보기: 캔버스 안 y(px) 가 윗줄 바로 아래에 오게 오른쪽 창(가장 가까운 세로 스크롤 조상)을 굴린다 */
-  const scroller = () => { let p = root.current?.parentElement; while (p && !/(auto|scroll)/.test(getComputedStyle(p).overflowY)) p = p.parentElement; return p; };
-  const bar = () => root.current?.querySelector<HTMLElement>('.sn-top')?.offsetHeight ?? 0, canvas = () => root.current?.querySelector('.sn-canvas');
-  const scrollTo = (y: number) => { const cv = canvas(), p = scroller(); if (!cv || !p) return;
-    p.scrollTo?.({ top: p.scrollTop + cv.getBoundingClientRect().top - p.getBoundingClientRect().top + y - bar() - 8, behavior: 'smooth' }); };
+  const canvas = () => root.current?.querySelector('.sn-canvas');
   // 묶음 맞춤 = 읽히는 배율(FIT)로, 묶음이 화면보다 크면 묶음 위·왼쪽부터. s 없음 = 전체 보기(배율 제한 없이)
-  // 크게 보기 = 1배 그대로: 그 묶음이 가로 가운데(그래프 끝 넘지 않게), 세로는 창 스크롤로 그 묶음 위로
+  // 크게 보기 = 1배 그대로: 그 묶음이 가로 가운데(그래프 끝 넘지 않게)·위가 캔버스 위에(R6 — 창 스크롤 없이 캔버스 안에서 옮김)
   const view = (s?: Stage) => {
     if (big) { const cw = canvas()?.clientWidth ?? 0;
-      if (!s) { const vh = (scroller()?.clientHeight ?? canvas()?.clientHeight ?? 0) - bar() - 8, z = Math.max(0.05, Math.min(1, (cw - PADY * 2) / gw, (vh - PADY * 2) / gh));   // 전체 = 지금 보이는 창 높이에 다 들어오게
-        void flow.setViewport({ zoom: z, x: (cw - gw * z) / 2, y: PADY }); return scrollTo(0); }
+      if (!s) { const vh = canvas()?.clientHeight ?? 0, z = Math.max(0.05, Math.min(1, (cw - PADY * 2) / gw, (vh - PADY * 2) / gh));   // 전체 = 캔버스에 다 들어오게
+        return void flow.setViewport({ zoom: z, x: (cw - gw * z) / 2, y: PADY }); }
       const b = g.areas[s];
-      void flow.setViewport({ zoom: 1, y: PADY, x: Math.min(PADY, Math.max(cw - gw - PADY, (cw - b.w) / 2 - b.x)) });
-      return scrollTo(b.y && b.y + PADY); }
+      return void flow.setViewport({ zoom: 1, y: PADY - b.y, x: Math.min(PADY, Math.max(cw - gw - PADY, (cw - b.w) / 2 - b.x)) }); }
     if (!s) return void flow.fitView({ padding: 0.04 });
     const id = g.areas[s].id;
     void flow.fitView({ ...FIT, nodes: [{ id }] }).then(() => { const b = flow.getNode(id), v = flow.getViewport(); if (!b) return;
@@ -205,8 +200,8 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
     <div className="sn-top">
       {/* 크게 보기: 캔버스가 길어 안쪽 확대·축소 칸이 화면 밖으로 가므로 윗줄(창 위에 붙음)로 */}
       {big && <span className="sn-zoom" role="group" aria-label="확대·축소">
-        <button type="button" className="sn-chip" aria-label="축소" title="축소 (Ctrl+휠)" onClick={() => void flow.zoomOut()}>−</button>
-        <button type="button" className="sn-chip" aria-label="확대" title="확대 (Ctrl+휠)" onClick={() => void flow.zoomIn()}>+</button>
+        <button type="button" className="sn-chip" aria-label="축소" title="축소 (휠)" onClick={() => void flow.zoomOut()}>−</button>
+        <button type="button" className="sn-chip" aria-label="확대" title="확대 (휠)" onClick={() => void flow.zoomIn()}>+</button>
         <button type="button" className="sn-chip" aria-label="화면 맞춤" title="화면 맞춤(고른 단계, 1배)" onClick={() => view(stage)}>⤢</button>
         <button type="button" className="sn-chip" aria-label="전체 보기" title="전체 보기" data-fit-all onClick={() => view()}>⊞</button></span>}
       <div className="sn-stages" role="group" aria-label="운영 흐름 단계">
@@ -229,7 +224,7 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
       : stage === '예외 처리' ? '읽기만 — 예외 갈래는 내장 «모의 BT 공장 순찰»에만 있고 시나리오 편집기로는 만들지 않습니다'
       : '읽기만 — 코드 기준 판정(11-09 대조표)'}{where === 'real' ? ' · 실기 «됨» = 코드 경로 기준, 실기체 검증과 다름' : ''}</p>
     <div className="sn-main">
-      <Flow key={key} nodes={[...g.boxes, ...g.nodes]} edges={g.edges} on={focus} stage={stage} tap={tap} init={init} view={view} big={big} h={big ? gh + PADY * 2 : undefined} />
+      <Flow key={key} nodes={[...g.boxes, ...g.nodes]} edges={g.edges} on={focus} stage={stage} tap={tap} init={init} view={view} big={big} />
       {(!big || (focus && shut !== focus)) && (form && wp != null && wp === on && items[wp]
         ? <PointEdit i={wp} it={items[wp]} where={where} form={form} edit={edit} close={close} />
         : <Detail id={focus} g={g.nodes} where={where} items={items} edit={edit} close={close} />)}</div>
@@ -237,13 +232,14 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
 }
 
 /** on = 밝힐 노드, stage = 밝힐 묶음(상자·요약 카드), init = 처음 화면(묶음 맞춤 또는 보던 화면), view = 묶음 맞춤 · 전체 보기 */
-/** big = 크게 보기(휠은 창 스크롤 — 확대는 Ctrl+휠·핀치·윗줄 단추, 안쪽 확대·축소 칸 없음), h = 캔버스 높이(그래프 1배 높이) */
-function Flow({ nodes: first, edges, on, stage, tap, init, view, big, h }: { nodes: F[]; edges: Edge[]; on: string | null; stage: Stage; tap: (id: string) => void; init: () => void; view: (s?: Stage) => void; big: boolean; h?: number }) {
+/** big = 크게 보기(안쪽 확대·축소 칸 없음 — 윗줄 단추). R6 11-10 «스크롤 빼고 마우스 끌기로 이동»: 휠 = 확대·축소, 왼쪽 끌기 = 이동(카드 위에서도 — 노드는 안 옮김),
+ *  짧은 누름 = 카드 고르기(paneClickDistance 안 흔들림까지 누름으로 — 넘게 끌면 React Flow 가 그 click 을 먹음) */
+function Flow({ nodes: first, edges, on, stage, tap, init, view, big }: { nodes: F[]; edges: Edge[]; on: string | null; stage: Stage; tap: (id: string) => void; init: () => void; view: (s?: Stage) => void; big: boolean }) {
   const [nodes, setNodes] = useState(first);
   const shown = nodes.map((n): F => { const want = n.type === 'box' || n.data.stage ? n.data.stage === stage : n.id === on;
     return want !== !!n.data.on ? { ...n, data: { ...n.data, on: want } } as F : n; });
-  return <div className="sn-canvas" style={h ? { height: h } : undefined}>
-    <ReactFlow<F> nodes={shown} edges={edges} nodeTypes={TYPES} onInit={init} zoomOnScroll={!big} preventScrolling={!big} minZoom={0.05} maxZoom={2} nodesDraggable={false} nodesConnectable={false} edgesFocusable={false} deleteKeyCode={null}
+  return <div className="sn-canvas">
+    <ReactFlow<F> nodes={shown} edges={edges} nodeTypes={TYPES} onInit={init} panOnScroll={false} panOnDrag zoomOnScroll paneClickDistance={4} minZoom={0.05} maxZoom={2} nodesDraggable={false} nodesConnectable={false} edgesFocusable={false} deleteKeyCode={null}
       onNodesChange={(c) => setNodes((l) => applyNodeChanges(c, l))} onNodeClick={(_, n) => n.type === 'step' && tap(n.id)} aria-label="운영 흐름 노드 캔버스">
       <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
       {!big && <Controls showInteractive={false} showFitView={false} aria-label="확대·축소">
