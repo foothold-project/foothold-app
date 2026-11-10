@@ -39,6 +39,11 @@ describe('scenarioTree — 시뮬 나무로 바꾸기', () => {
     expect(scenarioTree(scen([wp(1, 2, 'gone')]), MS)).toMatch(/옛 판 임무/);
     expect(scenarioTree(scen([]), MS)).toMatch(/children|순찰 지점/);   // 빈 시나리오는 validateTree·지점 검사가 거절
   });
+  it('R5 지점 대기(wait_s)가 임무 판 대기 초를 덮는다 — 120초 넘으면 지금 문구', () => {
+    const t = scenarioTree(scen([{ ...wp(1, 2, 'm-long'), wait_s: 45 } as never]), MS) as Tree;   // 판 300초 → 지점 45초
+    expect(t.root.children!.map((n) => [n.type, n.seconds])).toEqual([['goto', undefined], ['wait', 45]]);
+    expect(scenarioTree(scen([wp(1, 2), { ...wp(1, 3, 'm-wait'), wait_s: 200 } as never]), MS)).toMatch(/2번 지점: 대기 200초 — 시뮬은 한 번에 120초까지/);
+  });
   it('저장 키 id = 시뮬 main.js 형식([a-z0-9-] 32자 이내)', () => {
     expect(simId('SC_01H-ABC.xyz')).toBe('ssc01habcxyz');
     expect(simId('x'.repeat(60))).toHaveLength(32);

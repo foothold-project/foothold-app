@@ -646,6 +646,54 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect([ed().getAttribute('data-point-edit'), $('.react-flow__node[data-id="w0"] .sn-card')!.hasAttribute('data-on')]).toEqual(['0', true]);
     expect($('[data-win-foot]')!.textContent).toContain('1번 지점 · 입구');
   });
+  it('SCEN-ONE-FLOW-R5: 지점 편집 창 이름·대기 → 저장 본문 name·wait_s, 범위 밖은 저장 전 막음, 서버 422 wait_s 는 그 칸에, 대기 없는 할 일로 바꾸면 wait_s 만 빠짐, 빈칸 = 키 없음', async () => {
+    seed(); serve(KIM, { over: { 'PUT /scenarios/s1': [err(422, 'PRECHECK_FAILED', '이 할 일에는 대기 단계가 없습니다.', { elements: ['waypoints.0.wait_s'] })] } });
+    const save = async () => { await settle(); expect(saveBtn().disabled).toBe(false); await click(saveBtn()); return last(sent('PUT', '/scenarios/s1'))!.body as ScenarioWrite; };
+    await open(); await click(row('s1')); await settle();
+    await click($('.react-flow__node[data-id="w0"]'));
+    const ed = () => $('[data-point-edit]')!, nm = () => $<HTMLInputElement>('[data-edit-name]', ed())!, wt = () => $<HTMLInputElement>('[data-edit-wait]', ed());
+    expect([nm().placeholder, nm().maxLength, wt()!.placeholder]).toEqual(['1번 지점', 60, '기본 5초']);   // m1 = 사진 → 대기 5초
+    await setVal(nm(), '정문 앞'); await setVal(wt()!, '4000');
+    expect(ed().textContent).toContain('대기 시간은 1~3600 사이 정수(초)로 넣으세요.');
+    await settle();
+    expect([saveBtn().disabled, $('[data-block]')!.textContent]).toEqual([true, '1번 지점: 대기 시간은 1~3600 사이 정수(초)로 넣으세요.']);   // 저장 전에 막음(미리보기도 안 보냄)
+    await setVal(wt()!, '45');
+    const card = () => $('.react-flow__node[data-id="w0"]')!;
+    expect([card().querySelector('.sn-title')!.textContent, card().textContent!.includes('사진 순찰 · 이 지점 대기 45초')]).toEqual(['정문 앞', true]);
+    expect($('[data-win-foot]')!.textContent).toBe('1번 지점 · 정문 앞 · 사진 순찰 · 이 지점 대기 45초');
+    await save();                                                                             // 서버 422 waypoints.0.wait_s → 그 칸 아래
+    expect($('[data-edit-wait]', ed())!.closest('label')!.textContent).toContain('이 할 일에는 대기 단계가 없습니다.');
+    expect(map().querySelector('[data-pt="0"]')!.hasAttribute('data-bad')).toBe(true);
+    const a = await save();
+    expect(a.waypoints[0]).toMatchObject({ name: '정문 앞', wait_s: 45, mission_id: 'm1' });
+    expect(Object.keys(a.waypoints[1])).not.toContain('name');
+    await setVal($<HTMLSelectElement>('[data-edit-kind]', ed())!, 'PHOTO');                  // 대기 없는 할 일 → wait_s 빠짐·칸 사라짐, 이름 그대로
+    expect(wt()).toBeNull();
+    const b = await save();
+    expect([b.waypoints[0].name, 'wait_s' in b.waypoints[0]]).toEqual(['정문 앞', false]);
+    await setVal(nm(), '   ');                                                               // 빈칸(공백만) = 키 없음 → «1번 지점»
+    expect([nm().value, card().querySelector('.sn-title')!.textContent]).toEqual(['', '1번 지점']);
+    const c = await save();
+    expect('name' in c.waypoints[0]).toBe(false);
+  });
+  it('SCEN-ONE-FLOW-R5: 목록 편집(지도 끌기·↓·할 일 대기로)이 이름·대기를 지우지 않고, 목록 대기 초 «적용»은 그 초 임무를 잇고 wait_s 를 뗀다', async () => {
+    seed(); make('scenarios', { name: '이름 순찰', waypoints: [{ ...wp('f1', 1, 1), name: '정문', wait_s: 45 }, wp('f1', 0.5, 0.5)] }, KIM); serve(KIM);
+    const save = async () => { await settle(); expect(saveBtn().disabled).toBe(false); await click(saveBtn()); return last(sent('PUT', '/scenarios/s3'))!.body as ScenarioWrite; };
+    await open(); await click(row('s3')); await settle(); await click($('[data-look="list"]'));
+    expect(point(0).querySelector('.mx-name')!.textContent).toContain('정문');
+    expect(point(0).querySelector('.mx-name')!.textContent).toContain('사진 순찰 · 이 지점 대기 45초');
+    sized(); await ptr('pointerdown', 1, 1, map().querySelector('[data-pt="0"]')!); await ptr('pointermove', 2, 0.5); await ptr('pointerup', 2, 0.5);
+    await click(aria('1번 지점 아래로'));
+    await setVal($<HTMLSelectElement>('select[aria-label="2번 지점 할 일"]')!, 'WAIT');        // 대기 있는 할 일 → wait_s 그대로
+    expect($<HTMLInputElement>('input[aria-label="2번 지점 대기 초"]')!.value).toBe('45');
+    const a = await save();
+    expect(a.waypoints[1]).toMatchObject({ name: '정문', wait_s: 45, x: 2, y: 0.5 });
+    expect(Object.keys(a.waypoints[0])).not.toContain('wait_s');
+    await setVal($<HTMLInputElement>('input[aria-label="2번 지점 대기 초"]')!, '60');
+    await click(btn('적용', point(1)));
+    const b = await save();
+    expect([b.waypoints[1].name, 'wait_s' in b.waypoints[1], point(1).querySelector('[data-do]')!.textContent]).toEqual(['정문', false, '할 일: 대기 60초']);
+  });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
     await open();
