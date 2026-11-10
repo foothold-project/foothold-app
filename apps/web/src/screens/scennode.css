@@ -52,3 +52,30 @@
 .sn-box-head b{color:var(--text);font-size:14px}
 .sn-box .react-flow__handle{opacity:0}
 .sn .react-flow__edge.sn-jump .react-flow__edge-path{stroke:var(--accent)}
+/* SCEN-ONE-FLOW-R1 11-10 — 옆 기둥으로 가는 단계 사이 선 점(안 보임), «크게 보기» 단추·배치(넓은 창만 — 창 너비는 mapscen.css) */
+.sn-card .react-flow__handle-left,.sn-card .react-flow__handle-right{opacity:0}
+.sn-top{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px}
+.sn-top>.sn-watch{flex:1;min-width:0}
+.sn .btn.sn-big{flex:none;height:32px;min-height:0;padding:0 12px;border-color:var(--accent);color:var(--accent);font-weight:600;white-space:nowrap}
+.sn .sn-big[aria-pressed="true"]{background:var(--acc-bg)}
+.sn-main{display:contents}
+@media (max-width:1023.98px){.sn-big{display:none}}
+/* 크게 보기(처음부터 기본, scennode.tsx 가 좁은 창·앱에선 켜지 않음): 윗줄 하나(창 위에 붙음) [원래 크기 | 단계 칩 5 | 확대·축소 | 상시 감시 칩 5] + 캔버스 = 그래프 1배 높이(창이 세로로 굴러감),
+   상세 = 화면에 붙은 오른쪽 위 카드. 보통 크기: 윗줄 = [상시 감시 … 크게 보기] / 단계 띠(다음 줄) 그대로 */
+.sn-top>.sn-stages{flex:1 1 100%;order:3}
+.sn[data-big]{flex:none;overflow:visible;padding:0 8px 8px}
+.sn[data-big] .sn-top{position:sticky;top:0;z-index:6;padding:8px 0;background:var(--panel)}
+.sn[data-big] .sn-big{order:0}
+.sn[data-big] .sn-top>.sn-stages{flex:1 1 auto;order:1;flex-wrap:nowrap;min-width:0}
+.sn[data-big] .sn-stage{flex:0 1 auto;min-width:0;height:32px;min-height:0;padding:0 10px}
+.sn[data-big] .sn-stage small{display:none}
+.sn-zoom{order:2;flex:none;display:flex;gap:4px}
+.sn-zoom>.sn-chip{min-width:28px;height:28px;padding:0 6px;font-size:14px}
+.sn[data-big] .sn-top>.sn-watch{flex:none;order:4;padding:4px 8px;gap:4px;flex-wrap:nowrap;font-size:12px}
+.sn[data-big] .sn-watch .sn-muted,.sn[data-big] .sn-hint{display:none}
+.sn[data-big] .sn-main{display:block;position:relative}
+.sn[data-big] .sn-canvas{min-height:0}
+.sn[data-big] .sn-detail{position:fixed;top:200px;right:28px;z-index:5;width:300px;max-height:calc(100vh - 230px);background:var(--panel);box-shadow:var(--shadow)}
+.sn-name{display:flex;align-items:flex-start;gap:6px}
+.sn-x{margin-left:auto;flex:none;width:28px;height:28px;margin-top:-4px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer}
+.sn-x:hover{color:var(--text);background:var(--panel2)}

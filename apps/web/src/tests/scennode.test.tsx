@@ -1,6 +1,7 @@
 // SCEN-LIFECYCLE-EDITOR 11-09 — 시나리오 «운영 흐름»(React Flow): 단계 띠 5개·개수, 기본 = 임무, 임무 노드 = 지점 수(시뮬 거절 지점 «시뮬에서 실행 못 함»),
 // SCEN-ONE-FLOW 11-10 — 한 캔버스에 다섯 묶음·단계 사이 선 3개·예외 점선 2개, 단계 띠 = 그 묶음으로 이동(노드 수 그대로),
 // 다른 단계 = 읽기만(끌기·잇기·추가 단추 없음), 시뮬 탭 = websim·지도 탭 = real 배지, 노드 상세, 저장(네트워크) 호출 없음. (jsdom 대역 = setup.ts)
+// SCEN-ONE-FLOW-R1 11-10 — 묶음 = 왼쪽→오른쪽 기둥(예외 = 임무 아래), «크게 보기» 켜기·끄기·Esc·기억.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,9 +26,10 @@ const ALL = 43 + ITEMS.length + 2;   // 다섯 단계 노드(임무 제외 43) +
 
 beforeEach(() => {
   fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy); pick = vi.fn(); edit = vi.fn();
+  localStorage.setItem('fh.scen.big', '0');   // 아래 옛 시험 = «원래 크기»(크게 보기는 R1 시험이 기본값부터 따로 본다)
   box = document.createElement('div'); document.body.append(box); root = createRoot(box);
 });
-afterEach(() => { act(() => root.unmount()); box.remove(); vi.unstubAllGlobals(); });
+afterEach(() => { act(() => root.unmount()); box.remove(); vi.unstubAllGlobals(); localStorage.removeItem('fh.scen.big'); });
 
 describe('운영 흐름 데이터', () => {
   it('54노드 = 다섯 단계, 대조표 요약 개수와 같다', () => {
@@ -62,16 +64,18 @@ describe('운영 흐름 데이터', () => {
     const stageOf = (id: string) => LIFE.find((n) => n.id === id)?.stage ?? '임무';   // 시작(start)·지점·끝나면 = 임무
     for (const n of g.nodes) { const r = R[STAGES.indexOf(stageOf(n.id))];
       expect(n.position.x >= r.x && n.position.x + 200 <= r.r && n.position.y >= r.y && n.position.y + 84 <= r.b, n.id).toBe(true); }
-    const ex = R[STAGES.indexOf('예외 처리')], mi = R[STAGES.indexOf('임무')];
-    expect(ex.x).toBeGreaterThan(mi.r); expect(ex.y).toBe(mi.y);                        // 예외 = 임무 오른쪽 옆
-    expect(g.edges.filter((e) => e.className === 'sn-link').map((e) => e.id)).toEqual(['connected>mode', 'ready>start', 'end>return']);
+    const ex = R[STAGES.indexOf('예외 처리')], mi = R[STAGES.indexOf('임무')], back = R[STAGES.indexOf('복귀·종료')];
+    const cols = (['연결', '운행 준비', '임무', '복귀·종료'] as const).map((s) => R[STAGES.indexOf(s)]);
+    expect(cols.map((c) => c.y)).toEqual([0, 0, 0, 0]);                                   // 가로 배치: 기둥 넷이 한 줄
+    for (let i = 1; i < cols.length; i++) expect(cols[i].x, `기둥 ${i}`).toBeGreaterThanOrEqual(cols[i - 1].r);   // 왼쪽 → 오른쪽 순서
+    expect(ex.x).toBe(mi.x); expect(ex.y).toBeGreaterThanOrEqual(mi.b); expect(back.x).toBeGreaterThanOrEqual(ex.r);   // 예외 = 임무 기둥 바로 아래, 복귀·종료는 그 오른쪽
+    expect(g.edges.filter((e) => e.className === 'sn-link').map((e) => [e.id, e.sourceHandle, e.targetHandle])).toEqual([['connected>mode', 'r', 'l'], ['ready>start', 'r', 'l'], ['end>return', 'r', 'l']]);
     expect(g.edges.filter((e) => e.className === 'sn-jump').map((e) => [e.source, e.target, e.label])).toEqual([['g:임무', 'g:예외 처리', '임무 중 언제든'], ['g:예외 처리', 'g:복귀·종료', undefined]]);
     const exIds = new Set(ofStage('예외 처리').map((n) => n.id));
     expect(g.edges.filter((e) => exIds.has(e.source) || exIds.has(e.target))).toHaveLength(0);
     const ids = new Set(g.nodes.map((n) => n.id));
     expect(g.edges.length).toBe(5 + 6 + (ITEMS.length + 1) + 8 + 3 + 2);
     for (const e of g.edges.filter((x) => x.className !== 'sn-jump')) expect(ids.has(e.source) && ids.has(e.target), e.id).toBe(true);
-    for (const id of ['connected', 'mode', 'ready', 'start', 'end', 'return']) expect(g.nodes.find((n) => n.id === id)!.data.edge, id).toBeUndefined();   // 단계 사이 선 양 끝 = 점 둘 다
   });
   it('REVIEW-308: 앱 데이터에 소스 경로·줄번호 인용이 없다(근거는 저장소 밖 대조표에만)', () => {
     expect(JSON.stringify(LIFE).match(/[\w./-]+\.(tsx?|py|js|json|mjs):\d+/g)).toBeNull();
@@ -124,6 +128,36 @@ describe('운영 흐름 화면', () => {
     expect(d).toContain('배터리 부족 감지'); expect(d).toContain('처리 주체'); expect(d).toContain('실패 시'); expect(d).toContain('«모의 배터리 부족» 단추로만');
     expect($('[data-edit-point]')).toBeNull();
     expect(pick).not.toHaveBeenCalled();
+  });
+
+  it('R1 크게 보기: 처음부터 크게(기본) — 높이 = 그래프 1배, 휠은 창 스크롤, 윗줄에 확대·축소, 상세는 누를 때만 카드(× 닫기), «원래 크기»·Esc 로 줄이고 그 선택만 기억', async () => {
+    localStorage.removeItem('fh.scen.big');
+    await show('websim');
+    const btn = () => $('[data-big-toggle]'), big = () => flow().hasAttribute('data-big'), esc = () => act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    const g = flowGraph(ITEMS, '대기', 'websim'), gh = Math.max(...g.boxes.map((b) => b.position.y + Number(b.style!.height)));
+    expect([big(), btn().textContent, btn().getAttribute('aria-pressed'), localStorage.getItem('fh.scen.big')]).toEqual([true, '↙ 원래 크기', 'true', null]);
+    expect($('.sn-canvas').style.height).toBe(`${gh + 32}px`);                                // 세로 제한 없음 — 그래프 높이 그대로
+    expect([$('.react-flow__controls'), $$('.sn-top [aria-label="확대·축소"] button').map((b) => b.getAttribute('aria-label'))]).toEqual([null, ['축소', '확대', '화면 맞춤', '전체 보기']]);
+    const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    $('.react-flow__pane').dispatchEvent(wheel); expect(wheel.defaultPrevented).toBe(false);          // 휠 = 창 스크롤(캔버스가 먹지 않음)
+    expect([flow().dataset.nodes, $('[data-detail]')]).toEqual([String(ALL), null]);        // 상세 = 누를 때만
+    expect(stage('연결').title).toBe('됨 0 · 일부 0 · 아직 없음 8');                          // 윗줄 칩: 개수는 title
+    await tap(stage('예외 처리')); expect(flow().dataset.stage).toBe('예외 처리');
+    await tap(node('w1'));
+    expect([$('[data-detail]').dataset.detail, pick.mock.lastCall]).toEqual(['w1', [1]]);
+    expect($('[data-edit-point="1"]')).not.toBeNull();                                      // 지점이면 편집 단추 그대로
+    await tap($('[data-detail-close]')); expect($('[data-detail]')).toBeNull();
+    await tap(node('w1')); expect($('[data-detail]').dataset.detail).toBe('w1');            // 같은 노드를 다시 누르면 다시 뜸
+    await tap(node('battery_low')); expect([$('[data-detail]').dataset.detail, $('[data-edit-point]')]).toEqual(['battery_low', null]);
+    await tap(btn());
+    expect([big(), btn().textContent, localStorage.getItem('fh.scen.big'), $('.sn-canvas').style.height]).toEqual([false, '⤢ 크게 보기', '0', '']);
+    expect([$('[data-detail]').dataset.detail, $('[data-detail-close]'), $('.react-flow__controls') != null]).toEqual(['battery_low', null, true]);   // 원래 크기 = 지금 모습
+    await tap(btn()); expect([big(), localStorage.getItem('fh.scen.big')]).toEqual([true, null]);
+    const menu = document.createElement('details'); menu.className = 'mx-menu'; menu.open = true; document.body.append(menu);
+    await esc(); expect(big()).toBe(true);                                                 // 메뉴가 열려 있으면 Esc 는 메뉴 몫
+    menu.remove(); await esc(); expect([big(), localStorage.getItem('fh.scen.big')]).toEqual([false, '0']);
+    act(() => root.unmount()); root = createRoot(box);
+    await show('websim'); expect(big()).toBe(false);                                       // 줄인 선택은 다시 열어도 그대로
   });
 
   it('지도 탭 = real 판정: 연결 8개 됨, 실기체 미검증 한 줄, 일부면 빠진 것', async () => {
