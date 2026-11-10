@@ -568,6 +568,14 @@ function WaitSecs({ i, sec, apply }: { i: number; sec: number; apply: (n: number
     {n !== sec && <button type="button" className="btn" disabled={!ok} onClick={() => apply(n)}>적용</button>}
     {!ok && <span className="fh-why">1~3600 사이 정수로 입력하세요.</span>}</div>;
 }
+/** SCEN-ONE-FLOW-R3 지점 편집 창 좌표 칸(m): 고칠 때마다 apply(막히면 그 이유를 아래에, 값은 그대로 둠). 밖에서 좌표가 바뀌면(지도 끌기) 칸도 따라간다 */
+function Coord({ label, i, val, apply }: { label: string; i: number; val: number; apply: (n: number) => string | null }) {
+  const [t, setT] = useState(String(+val.toFixed(2))), [why, setWhy] = useState('');
+  useEffect(() => { if (Number(t) !== val) { setT(String(+val.toFixed(2))); setWhy(''); } }, [val]);
+  return <label className="fh-field"><span>{label}</span><input className="inp" type="number" step={0.1} inputMode="decimal" aria-label={`${i + 1}번 지점 ${label}`} value={t}
+    onChange={(e) => { setT(e.target.value); const n = Number(e.target.value); setWhy(e.target.value.trim() === '' || !Number.isFinite(n) ? '숫자를 넣으세요.' : apply(n) ?? ''); }} />
+    {why && <span className="fh-why" role="alert">{why}</span>}</label>;
+}
 const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoints\.(\d+)/.test(e) ? `${Number(/^waypoints\.(\d+)/.exec(e)![1]) + 1}번 지점` : e);
 
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·고른 지점 오른쪽 위 X 로 지우기, 오른쪽 단계 창에서 순서·임무·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
@@ -603,6 +611,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const [making, setMaking] = useState(false), [qMsg, setQMsg] = useState(''), cur$ = useRef({ value, set, lock });
   cur$.current = { value, set, lock };
   const [sel, setSel] = useState<number | 'T' | null>(null), [placing, setPlacing] = useState<'point' | 'target'>('point'), [msg, setMsg] = useState('');
+  const [adding, setAdding] = useState(false);   // SCEN-ONE-FLOW-R3 «+ 지점»: 안내만 바꾼다(지도 누름 = 추가는 늘 그대로)
   // drag.at·moved = 누른 화면 자리·TAP 넘게 움직였는지(안 움직이고 떼면 누름 = 고르기만 — 지우기는 X)
   const svg = useRef<SVGSVGElement>(null), drag = useRef<{ i: number | 'T'; from: P; orig: ScenarioPoint; at: P; moved: boolean } | null>(null);
   const [open, setOpen] = useState(pane.open), [undo, setUndo] = useState<{ text: string; w: ScenarioWaypoint[]; f: typeof finish; key: string } | null>(null);
@@ -649,7 +658,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     const p: ScenarioPoint = wp ? { floor_id: cur, map_version_id: v.id, x: wp.x, y: wp.y, yaw: wp.yaw, waypoint_ref: wp.id } : { floor_id: cur, map_version_id: v.id, x: q[0], y: q[1], yaw: 0, waypoint_ref: null };
     if (placing === 'target') { put(pts, { mode: 'GO_TO', target: p }); setPlacing('point'); setSel('T'); return; }
     if (pts.length >= 200) return setMsg('지점은 200개까지 찍을 수 있습니다.');
-    put([...pts, { ...p, ...dflt }]); setSel(pts.length);
+    put([...pts, { ...p, ...dflt }]); setSel(pts.length); setAdding(false);
   };
   const ptAt = (i: number | 'T') => (i === 'T' ? target : pts[i]);
   const down = (e: PointerEvent<SVGSVGElement>) => {
@@ -757,8 +766,33 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   // SCEN-LIFECYCLE-EDITOR: 시뮬 탭이면 지점마다 scenarioTree 로 한 번 더 — 거절(운영자 확인·센서 기록·120 s 넘는 대기·옛 판)이면 그 이유를 노드에 «시뮬에서 실행 못 함»
   const noSim = (p: ScenarioWaypoint) => { if (!sim || !missions) return undefined; const r = scenarioTree({ ...value, waypoints: [p], finish: undefined }, missions);
     return typeof r === 'string' ? r.replace(/^1번 지점: /, '') : undefined; };
-  const nodeItems = pts.map((p) => { const m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
-    return { title: where(p), sub: m ? m.name : p.mission_id ? (missions ? '알 수 없는 임무' : '임무 확인 중') : '이동', kind: (p.mission_id ? kindOf(fresh) : 'MOVE') as StepKind, no: noSim(p) }; });
+  // SCEN-ONE-FLOW-R3: 카드 = 이름 자리(저장 계약에 지점 이름 칸이 없어 이어진 지도 지점 이름, 없으면 «N번 지점»)·할 일·자리(층 + 좌표)
+  const nodeItems = pts.map((p, i) => { const m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
+    return { title: p.waypoint_ref ? refName(p) : `${i + 1}번 지점`, sub: m ? m.name : p.mission_id ? (missions ? '알 수 없는 임무' : '임무 확인 중') : '이동',
+      at: `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`, kind: (p.mission_id ? kindOf(fresh) : 'MOVE') as StepKind, no: noSim(p) }; });
+  /** 편집 창에서 좌표 바꾸기 = 지도 끌기와 같은 규칙(그 층 지도 범위 밖은 막음, 지도 지점에 붙은 지점은 0.05 m 안이면 그대로·넘으면 참조를 뗌). 막힌 이유를 돌려준다 */
+  const moveXY = (i: number, x: number, y: number) => { const o = pts[i];
+    if (!o || !set || lock || making) return '지금은 바꿀 수 없습니다.';
+    if (!v || o.floor_id !== cur) return '이 지점의 층 지도를 연 뒤 바꾸세요.';
+    if (!inside(v, x, y)) return '지도 범위 밖입니다. 지도 그림 안 좌표를 넣으세요.';
+    if (!(o.waypoint_ref && Math.hypot(x - o.x, y - o.y) <= 0.05)) put(pts.map((w, j) => (j === i ? { ...w, x, y, waypoint_ref: null } : w)));
+    return null; };
+  /** 지점 편집 창(노드 크게 보기·원래 크기 모두): 할 일 = 목록과 같은 quick, X·Y = moveXY, 앞으로/뒤로 = shift, 지우기 = drop. 대기 초는 임무 값 읽기만(바꾸기는 목록) */
+  const pointForm = one != null && pts[one] ? (() => { const i = one, p = pts[i], m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
+    const kind = p.mission_id ? kindOf(fresh) : 'MOVE', pr = res[`waypoints.${i}`], no = set && fresh ? cannot(fresh) : null;
+    return <fieldset disabled={!set || fence || making}>
+      <label className="fh-field"><span>할 일</span><select className="inp" aria-label={`편집 창 ${i + 1}번 지점 할 일`} data-edit-kind disabled={!missions || !!unsure} value={kind === 'OTHER' ? '' : kind} onChange={(ev) => quick(i, quickSteps(ev.target.value))}>
+        {kind === 'OTHER' && <option value="" hidden>다른 임무</option>}
+        <option value="MOVE">이동</option><option value="PHOTO">사진 찍기</option><option value="WAIT">대기</option></select></label>
+      {fresh ? <span className="lbl" data-edit-do>{doText(fresh)}{waitOf(fresh) != null ? ' (대기 초는 목록에서)' : ''}</span> : kind === 'OTHER' && <span className="lbl">지금 임무: {m?.name ?? '알 수 없는 임무'}</span>}
+      <div className="sn-xy"><Coord label="X(m)" i={i} val={p.x} apply={(n) => moveXY(i, n, p.y)} /><Coord label="Y(m)" i={i} val={p.y} apply={(n) => moveXY(i, p.x, n)} /></div>
+      {p.waypoint_ref && <span className="lbl">지도 지점 «{refName(p)}»에 붙어 있음 — 좌표를 바꾸면 떨어집니다.</span>}
+      {no && <p className="fh-why">저장은 되지만 지금은 실행 불가 — {no}</p>}
+      {pr && !pr.reachable && <p className="fh-msg" role="alert">갈 수 없음: {pr.reasons.join(' ')}</p>}
+      <div className="fh-row" style={{ flexWrap: 'wrap' }}><button type="button" className="btn" data-edit-up disabled={!i} onClick={() => shift(i, -1)}>앞으로</button>
+        <button type="button" className="btn" data-edit-down disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>뒤로</button>
+        <button type="button" className="btn" data-edit-drop onClick={() => drop(i)}>지우기</button></div>
+    </fieldset>; })() : undefined;
   const pick = (t: 'steps' | 'assign') => { setTab(t); if (t === 'assign') setSel(null); };
   const order = assign ? (['steps', 'assign'] as const) : (['steps'] as const);
   /** 탭 방향키(←→·Home·End) = 옆 탭을 고르고 포커스(roving tabIndex) */
@@ -793,7 +827,9 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         {msg && <p className="fh-msg" role="alert">{msg}</p>}
       </div>
       {/* SCEN-ONE-FLOW-R2: 노드 «크게 보기»면 지도·안내만 노드 위 작은 창(Float) — 위 알림 띠는 창 밖(접어도 보임) */}
-      <Float>
+      <Float head={set && v && <button type="button" className="btn" data-add-point aria-pressed={adding} disabled={lock || making} title="누른 뒤 지도를 누르면 지점 추가(지도를 바로 눌러도 추가됩니다)"
+          onClick={() => { setPlacing('point'); setMsg(''); setAdding(!adding); }}>+ 지점</button>}
+        foot={one != null && nodeItems[one] ? `${one + 1}번 지점${nodeItems[one].title !== `${one + 1}번 지점` ? ` · ${nodeItems[one].title}` : ''} · ${nodeItems[one].sub}` : '지점을 누르면 노드도 골라집니다'}>
       {v ? <MapFrame ref={svg} {...look} photo={v} edit={!!set} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           onContextMenu={(e) => { const h = (e.target as Element).closest('[data-pt]')?.getAttribute('data-pt'); if (h == null || !set || lock || making) return; e.preventDefault(); drop(h === 'T' ? 'T' : Number(h)); }}
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', ...(set && { cursor: 'crosshair' }) }}>
@@ -811,6 +847,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         </MapFrame>
         : <div className="mx-center"><p className="lv-note">{!approved.length && (set || !pts.length) ? '승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.' : mapErr ? '지도를 받지 못했습니다.' : '지도를 불러오는 중…'}</p></div>}
       {set && v && (placing === 'target' ? <Hint text="지도를 누르면 끝나고 갈 지점을 놓습니다" more="이름 붙은 지도 지점을 누르면 그 지점을 씁니다." />
+        : adding ? <Hint text="지도를 누르면 새 지점을 놓습니다" more="이름 붙은 지도 지점을 누르면 그 지점을 씁니다." />
         : <Hint text="지도를 눌러 지점 추가 · 끌어 옮기기 · 우클릭으로 지우기" more="지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 찍힌 지점을 누르면 고르고, 끌면 옮깁니다. 지점을 우클릭하거나 고른 지점 오른쪽 위 X 로 지웁니다. 빨간 구역은 진입 금지입니다." />)}
       </Float>
     </div>
@@ -819,7 +856,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}<span className="fh-grow" />{more}</>}>
       {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
       {sim && <SimRun value={value} saved={saved} dirty={sim.dirty} place={place} v={v} missions={missions} cancel={cancel} />}
-      {paneLook === 'node' && <ScenNodes where={sim ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go}
+      {paneLook === 'node' && <ScenNodes where={sim ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} form={pointForm}
         edit={(i) => { go(i); setTab('steps'); setPaneLook('list'); }} />}
       <div className="mx-pane-in" hidden={paneLook === 'node'}>
       {/* 이름·판·실행 확인 로봇 → [단계 N | 배정 N] (지점을 고르면 «‹ N번 지점») */}

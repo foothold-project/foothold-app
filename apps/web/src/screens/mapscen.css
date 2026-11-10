@@ -167,10 +167,10 @@ li[data-bad] .mx-num{background:var(--bad)}
 /* SCEN-ONE-FLOW-R2 11-10 — 크게 보기: 지도 = 노드 위에 떠 있는 작은 창(mapscen.tsx Float — 자리·크기는 --wx·--wy·--ww·--wh, 접힌 칩은 창 오른쪽 아래 --wr·--wb).
    .mx-map 은 틀을 비키고(contents) 알림 띠는 본문 왼쪽 아래(창을 접어도 보임). 그 밖에는 .mx-win = contents, 창 윗줄·모서리·칩 숨김 */
 .mx-win{display:contents}
-.mx-win>.mx-win-head,.mx-win>.mx-win-grip,.mx-win>.mx-win-chip{display:none}
+.mx-win>.mx-win-head,.mx-win>.mx-win-grip,.mx-win>.mx-win-chip,.mx-win>.mx-win-foot{display:none}
 .mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]){position:relative}
 .mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big])>.mx-map{display:contents}
-.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big])>.mx-map>.mx-over{z-index:7;top:auto;right:auto;bottom:12px;left:12px;max-width:min(560px,50%)}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big])>.mx-map>.mx-over{z-index:7;top:auto;right:12px;bottom:12px;left:auto;max-width:min(560px,50%)}   /* R3: 지도 창이 왼쪽 아래라 알림 띠는 오른쪽 아래 */
 .mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win{position:absolute;z-index:8;left:var(--wx);top:var(--wy);width:var(--ww);height:var(--wh);box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line2);border-radius:10px;background:var(--bg);box-shadow:var(--shadow)}
 .mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win>.mx-win-head{flex:none;display:flex;align-items:center;gap:6px;height:36px;padding:0 4px 0 12px;border-bottom:1px solid var(--line);background:var(--panel);font-size:13px;cursor:move;touch-action:none;user-select:none}
 .mx-win>.mx-win-head>.btn{height:28px;min-height:0;padding:0 10px;font-size:12px}
@@ -183,3 +183,6 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win[data-fold]{left:auto;top:auto;right:var(--wr);bottom:var(--wb);width:auto;height:auto;border:0;background:none;box-shadow:none;overflow:visible}
 .mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win[data-fold]>:not(.mx-win-chip){display:none!important}   /* 지도 svg·단추 줄은 인라인 display 라 important */
 .mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win[data-fold]>.mx-win-chip{display:inline-flex;border-color:var(--accent);color:var(--accent);font-weight:600;box-shadow:var(--shadow)}
+/* SCEN-ONE-FLOW-R3 11-10 — 지도 창 아래 한 줄(고른 지점), 윗줄 «+ 지점» */
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win>.mx-win-foot{display:block;flex:none;margin:0;padding:4px 24px 4px 12px;border-top:1px solid var(--line);background:var(--panel);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mx-win>.mx-win-head>.btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--acc-bg)}

@@ -24,7 +24,7 @@
 .sn-icon{flex:none;width:18px;text-align:center;color:var(--accent);font-size:15px}
 .sn-num{flex:none;min-width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:12px;font-weight:600}
 .sn-title{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sn-sub{margin:3px 0 0 27px;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sn-sub{margin:3px 0 0;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:1023.98px){.sn-canvas{min-height:200px;flex-basis:200px}}
 .sn-watch{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 10px;border-radius:8px;background:var(--panel2);font-size:13px}
 .sn-chip{min-height:24px;padding:0 9px;border-radius:12px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
@@ -33,8 +33,8 @@
 .sn-stage{flex:1 1 0;min-width:96px;height:auto;min-height:44px;padding:4px 8px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;text-align:left}
 .sn-stage small{color:var(--muted);font-size:11px;font-weight:400;white-space:nowrap}
 .sn-stage[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
-.sn-foot{margin:5px 0 0 27px}
-.sn-card[data-plain] .sn-sub,.sn-card[data-plain] .sn-foot{margin-left:0}
+.sn-foot{margin:5px 0 0}
+.sn-card[data-num] .sn-sub,.sn-card[data-num] .sn-foot{margin-left:27px}
 .sn-badge{display:inline-flex;align-items:center;min-height:20px;padding:0 7px;border-radius:10px;border:1px solid var(--line2);font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
 .sn-badge[data-st="됨"],.sn-chip[data-st="됨"]{color:var(--ok);border-color:var(--ok);background:var(--ok-bg)}
 .sn-badge[data-st="일부"],.sn-chip[data-st="일부"]{color:var(--warn);border-color:var(--warn);background:var(--warn-bg)}
@@ -48,14 +48,13 @@
 .sn .react-flow__node-box{pointer-events:none!important;padding:0;border:0;background:none;box-shadow:none}
 .sn-box{width:100%;height:100%;border:1px solid var(--line2);border-radius:12px;background:var(--panel2)}
 .sn-box[data-on]{border-color:var(--accent)}
-.sn-box-head{padding:12px 16px 0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sn-box-head{display:flex;align-items:center;gap:6px;padding:10px 12px 0 16px;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sn-box-head b{color:var(--text);font-size:14px}
 .sn-box .react-flow__handle{opacity:0}
 .sn .react-flow__edge.sn-jump .react-flow__edge-path{stroke:var(--accent)}
 /* SCEN-ONE-FLOW-R1 11-10 — 옆 기둥으로 가는 단계 사이 선 점(안 보임), «크게 보기» 단추·배치(넓은 창만 — 창 너비는 mapscen.css) */
-.sn-card .react-flow__handle-left,.sn-card .react-flow__handle-right{opacity:0}
+.sn-card .react-flow__handle{opacity:0}
 .sn-top{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px}
-.sn-top>.sn-watch{flex:1;min-width:0}
 .sn .btn.sn-big{flex:none;height:32px;min-height:0;padding:0 12px;border-color:var(--accent);color:var(--accent);font-weight:600;white-space:nowrap}
 .sn .sn-big[aria-pressed="true"]{background:var(--acc-bg)}
 .sn-main{display:contents}
@@ -71,11 +70,35 @@
 .sn[data-big] .sn-stage small{display:none}
 .sn-zoom{order:2;flex:none;display:flex;gap:4px}
 .sn-zoom>.sn-chip{min-width:28px;height:28px;padding:0 6px;font-size:14px}
-.sn[data-big] .sn-top>.sn-watch{flex:none;order:4;padding:4px 8px;gap:4px;flex-wrap:nowrap;font-size:12px}
 .sn[data-big] .sn-watch .sn-muted,.sn[data-big] .sn-hint{display:none}
 .sn[data-big] .sn-main{display:block;position:relative}
 .sn[data-big] .sn-canvas{min-height:0}
-.sn[data-big] .sn-detail{position:fixed;top:200px;right:28px;z-index:5;width:300px;max-height:calc(100vh - 230px);background:var(--panel);box-shadow:var(--shadow)}
+.sn[data-big] .sn-detail{position:fixed;top:236px;right:28px;z-index:5;width:300px;max-height:calc(100vh - 266px);background:var(--panel);box-shadow:var(--shadow)}
 .sn-name{display:flex;align-items:flex-start;gap:6px}
 .sn-x{margin-left:auto;flex:none;width:28px;height:28px;margin-top:-4px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer}
 .sn-x:hover{color:var(--text);background:var(--panel2)}
+/* SCEN-ONE-FLOW-R3 11-10 — Codex 예시 «접힌 운영 흐름»: 카드 작은 글·요약 카드(누르면 펼침)·묶음 «접기», 윗줄 [모두 펼치기 | 지원 현황], 그 아래 상시 안전 감시 한 줄, 지점 편집 창 */
+.sn-kind{display:block;margin-bottom:3px;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sn-count{display:inline-block;margin-top:8px;padding:1px 6px;border-radius:4px;background:var(--panel2);color:var(--muted);font-size:11px}
+.sn-card[data-sum]{height:100%;box-sizing:border-box;cursor:pointer}
+.sn-card[data-sum] .sn-kind{color:var(--accent)}
+.sn .react-flow__node-step:has(>.sn-card[data-sum]):hover{box-shadow:0 0 0 1px var(--accent)}
+.sn-box-head>b{white-space:nowrap}
+.sn-fold{margin-left:auto;pointer-events:auto;min-height:22px;font-weight:400;color:var(--muted)}
+.sn-top>.sn-big{order:0}
+.sn-tools{order:1;margin-left:auto;flex:none;display:flex;align-items:center;gap:8px}
+.sn[data-big] .sn-tools{order:5}
+.sn-sup{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap;cursor:pointer}
+.sn-sup>input{margin:0}
+.sn-top>.sn-watch{order:9;flex:1 1 100%;min-width:0;padding:3px 8px;gap:4px;font-size:12px;background:none;border-top:1px solid var(--line);border-radius:0}
+.sn-top>.sn-watch>.sn-chip{min-height:22px}
+.sn-top>.sn-watch>[data-life="safe_stop"]{margin-left:4px}
+.sn-edit{display:flex;flex-direction:column;gap:8px}
+.sn-edit p{margin:0}
+.sn-why em{font-style:normal;color:var(--muted);font-size:12px}
+.sn-warn{color:var(--warn);font-size:12px}
+.sn-edit .fh-field{margin:0}
+.sn-xy{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sn-xy .inp{width:100%;min-width:0}
+.sn-edit>.btn{align-self:flex-start}
+.sn-edit fieldset{margin:0;padding:0;border:0;min-width:0;display:flex;flex-direction:column;gap:8px}

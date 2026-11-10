@@ -558,6 +558,8 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(2);
     expect($('[data-st="no"]')).toBeNull();
     await click($('button[data-stage="연결"]'));
+    expect($('.react-flow__node[data-id="robot"]')).toBeNull();                       // R3: 고정 절차는 처음 접힘(요약 카드)
+    await click($('.react-flow__node[data-id="s:연결"]')); await click($('[data-support-toggle]'));   // 펼치고 지원 현황 켜면 판정 배지
     expect(['robot', 'request', 'auth', 'response', 'media', 'connected', 'retry', 'connection_failed'].map((id) => $(`.react-flow__node[data-id="${id}"] .sn-badge`)!.textContent)).toEqual(Array(8).fill('됨'));
     expect(box.querySelectorAll('.react-flow__node.draggable')).toHaveLength(0);
     expect($('.sn-hint')!.textContent).toContain('실기체 검증과 다름');
@@ -607,6 +609,43 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(map().querySelector('[data-pt="0"]')).toBeTruthy();
     await click($('[data-big-toggle]'));                                       // 원래 크기 = 같은 지도(창 줄·칩은 CSS 로 숨김)
     expect([$('[data-scen-nodes]')!.hasAttribute('data-big'), !!map().closest('[data-win]')]).toEqual([false, true]);
+  });
+  it('SCEN-ONE-FLOW-R3: 지점 편집 창(할 일·X/Y·뒤로) 저장 본문 = 목록 편집(할 일·지도 끌기·↓)과 같은 값, 노드 ↔ 지도 선택 연동, 지도 범위 밖은 막음', async () => {
+    const save = async () => { await settle(); expect(saveBtn().disabled).toBe(false); await click(saveBtn()); return last(sent('PUT', '/scenarios/s1'))!.body; };
+    // ① 편집 창
+    seed(); serve(KIM);
+    await open(); await click(row('s1')); await settle();
+    expect($('[data-point-edit]')).toBeNull();
+    await click($('.react-flow__node[data-id="w0"]'));
+    const ed = () => $('[data-point-edit]')!;
+    expect([ed().getAttribute('data-point-edit'), map().querySelector('[data-pt="0"] circle')!.getAttribute('r')]).toEqual(['0', String(Math.max(100, 80) / 60 * 1.3)]);   // 노드 → 지도 강조
+    expect(ed().textContent).toContain('이동·할 일만 편집됩니다. 안전 절차는 고정입니다.'); expect(ed().textContent).toContain('위치 변경 뒤에는 실제 경로 검사가 필요합니다.');
+    expect($('[data-win-foot]')!.textContent).toBe('1번 지점 · 사진 순찰');
+    await setVal($<HTMLSelectElement>('[data-edit-kind]', ed())!, 'PHOTO');
+    const X = () => $<HTMLInputElement>('input[aria-label="1번 지점 X(m)"]')!, Y = () => $<HTMLInputElement>('input[aria-label="1번 지점 Y(m)"]')!;
+    await setVal(X(), '9');
+    expect(ed().textContent).toContain('지도 범위 밖입니다.');                             // 막음 — 좌표 그대로
+    await setVal(X(), '2'); await setVal(Y(), '0.5');
+    expect(ed().textContent).not.toContain('지도 범위 밖입니다.');
+    expect($('[data-edit-up]', ed())!.hasAttribute('disabled')).toBe(true);
+    await click($('[data-edit-down]', ed()));
+    expect(ed().getAttribute('data-point-edit')).toBe('1');                               // 옮긴 지점을 따라감
+    const a = await save();
+    // ② 목록(같은 편집)
+    act(() => root?.unmount()); root = null; box.remove(); clearPlans(); localStorage.clear(); calls = [];
+    seed(); serve(KIM);
+    await open(); await click(row('s1')); await settle(); await click($('[data-look="list"]'));
+    await setVal($<HTMLSelectElement>('select[aria-label="1번 지점 할 일"]')!, 'PHOTO');
+    sized(); await ptr('pointerdown', 1, 1, map().querySelector('[data-pt="0"]')!); await ptr('pointermove', 2, 0.5); await ptr('pointerup', 2, 0.5);
+    await click(aria('1번 지점 아래로'));
+    const b = await save();
+    expect(a).toEqual(b);
+    expect((a as ScenarioWrite).waypoints.map((w) => [w.x, w.y, w.waypoint_ref])).toEqual([[0, 0, 'wp1'], [2, 0.5, null]]);
+    // ③ 지도에서 고르면 편집 창도 그 지점(노드 보기로 돌아가서)
+    await click($('[data-look="node"]'));
+    sized(); await ptr('pointerdown', 0, 0, map().querySelector('[data-pt="0"]')!); await ptr('pointerup', 0, 0, map().querySelector('[data-pt="0"]')!);
+    expect([ed().getAttribute('data-point-edit'), $('.react-flow__node[data-id="w0"] .sn-card')!.hasAttribute('data-on')]).toEqual(['0', true]);
+    expect($('[data-win-foot]')!.textContent).toContain('1번 지점 · 입구');
   });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
