@@ -1548,6 +1548,9 @@ class ScenarioPoint(Contract):
 class ScenarioWaypoint(ScenarioPoint):
     mission_id: UUID
     mission_version: int = Field(strict=True, ge=1, le=2**31 - 1)
+    name: Annotated[str, Field(min_length=1, max_length=60, pattern=r'\S'), AfterValidator(map_name)] | None = Field(
+        default=None, exclude_if=lambda value: value is None)
+    wait_s: int | None = Field(default=None, strict=True, ge=1, le=3600, exclude_if=lambda value: value is None)
 
 
 class ScenarioFinish(Contract):
@@ -1603,7 +1606,10 @@ def mission_capabilities(steps: list[MissionStep]) -> list[ExecutionCapabilityKe
     return sorted(keys)
 
 
-class AgentScenarioWaypoint(ScenarioWaypoint):
+class AgentScenarioWaypoint(ScenarioPoint):
+    # Storage-only waypoint labels/overrides must not extend the agent wire contract.
+    mission_id: UUID
+    mission_version: int = Field(strict=True, ge=1, le=2**31 - 1)
     mission_name: str
     # Optional only for scenario/1 read compatibility; presence is not permission.
     mission_steps: list[MissionStep] = omitted(max_length=100, exclude_if=lambda value: value is None)

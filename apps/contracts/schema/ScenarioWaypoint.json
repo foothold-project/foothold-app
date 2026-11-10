@@ -24,6 +24,35 @@
       "title": "Mission Version",
       "type": "integer"
     },
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 60,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "wait_s": {
+      "anyOf": [
+        {
+          "maximum": 3600,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Wait S"
+    },
     "waypoint_ref": {
       "anyOf": [
         {
