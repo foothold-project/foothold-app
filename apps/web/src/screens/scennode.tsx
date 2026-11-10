@@ -5,7 +5,7 @@
 // SCEN-ONE-FLOW-R1·R2 11-10 — «크게 보기»(처음부터 기본) = 노드가 본문 전체, 캔버스 = 그래프 1배 높이(휠은 창 스크롤), 지도는 떠 있는 작은 창(mapscen.tsx Float).
 // SCEN-ONE-FLOW-R3 11-10 — Codex 예시 «접힌 운영 흐름»: 고정 절차 넷은 요약 카드(누르면 펼침·묶음 «접기»), 기둥 = 연결·운행 준비 | 임무 | 복귀·종료·예외 처리,
 // 판정 배지는 «지원 현황»을 켰을 때만(시뮬 거절 «시뮬에서 실행 못 함»은 늘), 예외 처리는 시작에서 점선 하나(«발생할 때 확인») — 정상 순서 선 없음. 지점을 고르면 편집 창(form).
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Background, BackgroundVariant, ControlButton, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, applyNodeChanges, useReactFlow,
   type Edge, type Node, type NodeProps, type Viewport } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -196,7 +196,7 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
   const go = (s: Stage) => { setStage(s); view(s); };
   // 크게 보기 = 오른쪽 창 전체가 캔버스(윗줄 = 단계 이동·확대·모두 펼치기·지원 현황, 그 아래 상시 안전 감시 한 줄, 상세는 누를 때만 캔버스 위 카드). 창 넓이·창 위 줄 숨김은 mapscen.css.
   // R4 11-10 «원래 크기 없애고 크게 보기만»: PC 넓은 창은 늘 크게(켜고 끄는 단추·Esc·기억값 없음). 앱(WebView)·좁은 창(1023.98px 아래)은 지금처럼 나란히·한 열
-  const big = !inApp() && !globalThis.matchMedia?.('(max-width:1023.98px)').matches;
+  const big = useBig();
   useEffect(() => { const t = setTimeout(() => view(stage), 150); return () => clearTimeout(t); }, [big]);   // 캔버스 크기가 바뀐 뒤 고른 묶음에 다시 맞춤
   const wp = focus && /^w\d+$/.test(focus) ? Number(focus.slice(1)) : null, close = big ? () => setShut(focus) : undefined;
 
@@ -234,6 +234,11 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
         : <Detail id={focus} g={g.nodes} where={where} items={items} edit={edit} close={close} />)}</div>
   </div>;
 }
+
+/** 크게 보기 판정(PC 넓은 창 = 앱 아님·1024px 이상). R8 11-10 REVIEW-316 P2: 창 폭이 바뀌면(change) 바로 넓음/좁음을 다시 고른다 — mapscen 의 «시뮬에서 실행» 자리도 같은 값 */
+const NARROW = '(max-width:1023.98px)';
+const watchNarrow = (f: () => void) => { const m = globalThis.matchMedia?.(NARROW); m?.addEventListener('change', f); return () => m?.removeEventListener('change', f); };
+export const useBig = () => useSyncExternalStore(watchNarrow, () => !inApp() && !globalThis.matchMedia?.(NARROW).matches);
 
 /** on = 밝힐 노드, stage = 밝힐 묶음(상자·요약 카드), init = 처음 화면(묶음 맞춤 또는 보던 화면), view = 묶음 맞춤 · 전체 보기 */
 /** big = 크게 보기(안쪽 확대·축소 칸 없음 — 윗줄 단추). R6 11-10 «스크롤 빼고 마우스 끌기로 이동»: 휠 = 확대·축소, 왼쪽 끌기 = 이동(카드 위에서도 — 노드는 안 옮김),

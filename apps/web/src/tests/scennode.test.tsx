@@ -232,6 +232,22 @@ describe('운영 흐름 화면', () => {
     expect([big(), $('[data-big-toggle]'), $('.sn-canvas').style.height, $('.react-flow__controls') != null]).toEqual([false, null, '', true]);
   });
 
+  it('R8 REVIEW-316 P2: 창 폭이 바뀌면(matchMedia change) 바로 넓음 ↔ 좁음 — 크게 보기 윗줄·안쪽 확대 칸이 바뀌고, 지운 뒤엔 구독도 풂', async () => {
+    let narrow = false; const subs = new Set<() => void>();
+    vi.stubGlobal('matchMedia', (q: string) => ({ get matches() { return narrow; }, media: q,
+      addEventListener(_e: string, f: () => void) { subs.add(f); }, removeEventListener(_e: string, f: () => void) { subs.delete(f); } }));
+    const resize = (n: boolean) => act(async () => { narrow = n; subs.forEach((f) => f()); });
+    await show('websim');
+    const big = () => flow().hasAttribute('data-big');
+    expect([big(), !!$('.sn-top .sn-zoom'), $('.react-flow__controls')]).toEqual([true, true, null]);
+    await resize(true);                                                                    // 1600 → 800px
+    expect([big(), $('.sn-top .sn-zoom'), $('.react-flow__controls') != null]).toEqual([false, null, true]);
+    await resize(false);                                                                   // 되돌림
+    expect([big(), !!$('.sn-top .sn-zoom'), $('.react-flow__controls')]).toEqual([true, true, null]);
+    act(() => root.unmount()); root = createRoot(box);
+    expect(subs.size).toBe(0);
+  });
+
   it('R7 펼치기·접기·모두 펼치기 = 다시 맞추지 않음: 누른 묶음(모두 = 임무)의 제목 자리가 같은 화면 위치·배율 그대로, 단계 칩은 지금처럼 이동', async () => {
     wide(true);
     await show('websim');

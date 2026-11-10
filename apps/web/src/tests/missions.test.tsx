@@ -10,6 +10,7 @@ import { Root } from '../session';
 import { clearPlans, simNav } from '../screens/missions';
 import { check, type BtNode } from '../screens/btedit';
 import { TERRAIN_REASON } from '../simstart';
+import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 
@@ -1512,6 +1513,22 @@ describe('시뮬 시나리오', () => {
     expect($('[data-look="list"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(text()).toContain('2번 지점');
     expect(writes()).toEqual([]);
+  });
+  it('R8 REVIEW-316 P1: 크게 보기(넓은 창·노드) = 창 머리 한 줄에 [노드|목록]·«시뮬에서 실행»(누르면 실행), 목록 보기는 창 안 그대로 — CSS 는 머리를 숨기지 않음', async () => {
+    seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV };
+    serve(KIM);
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    await open('#/sim'); await scen(); await click(row('s1')); await settle();
+    expect($('.sn')!.hasAttribute('data-big')).toBe(true);
+    const head = () => $('.mx-pane .mx-head')!;
+    expect([!!head().querySelector('[data-look="node"]'), !!head().querySelector('[data-look="list"]'), head().querySelectorAll('[data-sim-run]').length, box.querySelectorAll('[data-sim-run]').length]).toEqual([true, true, 1, 1]);
+    await click(head().querySelector<HTMLButtonElement>('[data-sim-run] button')!);
+    expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=factory-inspection&bt=ss1');
+    await click($('[data-look="list"]'));
+    expect([head().querySelector('[data-sim-run]'), box.querySelectorAll('.mx-pane>.mx-pane-in>[data-sim-run]').length]).toEqual([null, 1]);   // 목록 = 창 안 맨 위
+    await click($('[data-look="node"]')); expect(head().querySelectorAll('[data-sim-run]').length).toBe(1);
+    const big = mapscenCss.split('\n').filter((l) => l.includes('.sn[data-big]') && l.includes('display:none'));
+    expect(big.some((l) => /\.mx-top[,{]|\.mx-head|data-sim-run/.test(l))).toBe(false);   // 옛 규칙(머리·실행 줄 숨김) 없음 — 고르기 줄(.mx-pick)만 숨김
   });
   it('시뮬과 좌표가 같다고 확인되지 않는 층(사람이 올린 지도) = «시뮬에서 실행» 회색 + 이유', async () => {
     seed(); sitePurpose = 'SIM';

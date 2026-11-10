@@ -14,7 +14,7 @@ import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
 import { Float, Hint, Menu, Pane, shut, type Side } from './mapscen';
-import { ScenNodes, type StepKind } from './scennode';
+import { ScenNodes, useBig, type StepKind } from './scennode';
 import { saveSim, scenarioTree, simId } from './btedit';
 import { keyOf, terrainUrl } from './terrain';
 import { openUrl, simAt } from '../simstart';
@@ -433,7 +433,7 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel }: { value: Sc
   return <div className="mx-in" data-sim-run>
     <div className="fh-row"><button type="button" className="btn pri" disabled={!!why} aria-describedby={why ? 'sim-run-why' : undefined} onClick={run}>시뮬에서 실행</button>
       <span className="lv-note fh-grow">배정·결재 없이 이 브라우저 시뮬에서 엽니다.</span></div>
-    {why && <p id="sim-run-why" className="fh-why" data-sim-run-why>{why}</p>}
+    {why && <p id="sim-run-why" className="fh-why" data-sim-run-why title={why}>{why}</p>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </div>;
 }
@@ -751,6 +751,9 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null), tid = useId();
   // SCEN-NODE-PREVIEW·SCEN-LIFECYCLE-EDITOR 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, «운영 흐름» 5단계·임무 = 이 시나리오). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
   const [paneLook, setPaneLook] = useState<'node' | 'list'>('node');
+  // R8 REVIEW-316 P1: 크게 보기(PC 넓은 창·노드)는 창 머리 한 줄([노드|목록] 옆)에 «시뮬에서 실행» — 그 밖은 창 안 맨 위 그대로(판정·막힘 같음)
+  const big = useBig(), simTop = big && paneLook === 'node';
+  const simRun = sim && <SimRun value={value} saved={saved} dirty={sim.dirty} place={place} v={v} missions={missions} cancel={cancel} />;
   const lookSeg = <span className="mx-seg" role="group" aria-label="노드·목록 보기">
     <button type="button" className="btn" aria-pressed={paneLook === 'node'} data-look="node" onClick={() => setPaneLook('node')}>노드</button>
     <button type="button" className="btn" aria-pressed={paneLook === 'list'} data-look="list" onClick={() => setPaneLook('list')}>목록</button></span>;
@@ -878,9 +881,9 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     </div>
     {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
     <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창" pick={picker} name={[value.name || (saved ? WHAT.scenarios : `새 ${WHAT.scenarios}`), place?.floor.name].filter(Boolean).join(' · ')}
-      wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}<span className="fh-grow" />{more}</>}>
+      wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}{simTop && simRun}<span className="fh-grow" />{more}</>}>
       {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
-      {sim && <SimRun value={value} saved={saved} dirty={sim.dirty} place={place} v={v} missions={missions} cancel={cancel} />}
+      {!simTop && simRun}
       {paneLook === 'node' && <ScenNodes where={sim ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} form={pointForm}
         edit={(i) => { go(i); setTab('steps'); setPaneLook('list'); }} />}
       <div className="mx-pane-in" hidden={paneLook === 'node'}>
