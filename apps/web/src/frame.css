@@ -67,7 +67,7 @@ button.nav{border:0;background:none;font-family:inherit;white-space:nowrap;curso
 .fh-list button{width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);text-align:left;font-size:14px}
 .fh-list.robots button{flex-wrap:wrap;row-gap:4px}.fh-list.robots button>*{white-space:nowrap}   /* 좁으면 낱말을 꺾지 않고 뒤 칸(담당·마지막 수신)을 둘째 줄로 */
 .fh-list button[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
-.fh-row>.btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}   /* 고른 로봇·층(운영자 화면 — 고른 로봇이 STOP 대상) */
+.fh-row>.btn:not(.pri,.bad)[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}   /* 고른 로봇·층(운영자 화면 — 고른 로봇이 STOP 대상). 채움·위험 단추는 제 색 유지(흰 글자+옅은 바탕 대비 1.2:1, Codex 검토) */
 .fh-main>.fh-kpi{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:24px;padding:14px 16px}
 .fh-kpi div{display:flex;align-items:baseline;gap:8px;font-size:14px}
 .fh-kpi b{font-size:24px;font-variant-numeric:tabular-nums}

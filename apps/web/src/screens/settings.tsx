@@ -168,8 +168,9 @@ function OrgCard({ org, admin, id, model, label, note, bad, cap, confirm, fields
     const patch = Object.fromEntries(fields.filter(pending).map((f) => [f.key, draft[f.key] === null ? null : value(f)])) as Record<string, number | boolean | null>;
     setErrs({});
     if (!Object.keys(patch).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
-    // 모델 칸의 null 은 «되돌리기»라, 빈 칸(NaN → JSON null)을 보내면 값이 조용히 지워진다 — 보내기 전에 막는다
-    const empty = model ? fields.filter((f) => Number.isNaN(patch[f.key])) : [];
+    // 모델 칸의 null 은 «되돌리기»라, 빈 칸(NaN → JSON null)을 보내면 값이 조용히 지워진다 — 보내기 전에 막는다.
+    // 확인 카드도 «→ NaN» 확인 대신 칸 옆에 알린다(Codex 검토 R2)
+    const empty = model || confirm ? fields.filter((f) => Number.isNaN(patch[f.key])) : [];
     if (empty.length) return setErrs(Object.fromEntries(empty.map((f) => [f.key, `값을 입력하세요. 허용 범위: ${f.label} ${range(f)}`])));
     if (confirm && check === null) return setCheck(fields.filter(pending).map((f) => `${f.label} ${say(f, current(f))} → ${draft[f.key] === null ? '공통 값' : say(f, value(f))}`).join(' · '));
     setCheck(null); setBusy(true); setMsg(null);

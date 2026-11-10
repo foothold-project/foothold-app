@@ -106,7 +106,7 @@ describe('조종 화면', () => {
     // 지도·라이다 자료가 없으면 그리지 않는다(critique 11-10: 고정 벽·계산한 점이 실제 센서로 읽힘) — 작은 칸·큰 칸 모두 «없음»
     expect($('.dv-mini [data-map-none]')!.textContent).toBe('지도 없음');
     click(btn('지도'));
-    expect($('.dv-stage > [data-map-none]')!.textContent).toBe('지도·라이다 미연결 — 받은 값이 없어 그리지 않습니다');
+    expect($('.dv-stage > [data-map-none]')!.textContent).toBe('지도·라이다 자료 없음 · 기능 준비 중');
     expect($('.dv-stage circle')).toBeNull();
     click(btn('RGB'));
     click(btn('조종 시작'));
@@ -1738,7 +1738,7 @@ describe('폰 조종 앱 틀', () => {
 
   it('10-22 QA R1·R2·R12: PC 는 창 높이 틀(메뉴·본문 따로 스크롤 — «설정»이 첫 화면 안), 좁은 칸 긴 글은 줄 통째로, 체크 칸 20px', () => {
     expect(frameCss).toMatch(/(^|\n)\.fh\[data-layout="pc"\]\{height:100vh\}/);
-    expect(frameCss).toContain('.fh-row>.btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}');   // 고른 로봇·층이 보임(critique 11-10)
+    expect(frameCss).toContain('.fh-row>.btn:not(.pri,.bad)[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}');   // 고른 로봇·층이 보임(critique 11-10)
     expect(frameCss).toContain('.btn.bad{border-color:var(--bad);color:var(--bad);background:var(--bad-bg)}');               // 되돌릴 수 없는 확인은 저장 청록과 다르게
     expect(frameCss).toMatch(/\.fh\[data-layout="pc"\] \.fh-nav,\.fh\[data-layout="pc"\] \.fh-main\{overflow-y:auto\}/);
     expect(frameCss).toMatch(/\n\.fh-wide\{flex:1 1 12em;min-width:0;overflow-wrap:anywhere\}/);

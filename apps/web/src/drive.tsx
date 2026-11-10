@@ -268,8 +268,8 @@ function Screen(c: Ctx) {
 /** 실기 RGB·뎁스·지도: 실기 영상 어댑터·지도·라이다 자료가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0).
  *  예전 지도 칸은 고정 벽·계산한 라이다 점을 그려 실제 센서로 읽힐 수 있었다(critique 11-10) — 받은 값이 없으면 그리지 않는다 */
 export const REAL_RGB = '실기 영상 준비 중(미연결)';
-export const REAL_DEPTH = '뎁스 영상 준비 중(미연결)';
-export const REAL_MAP = '지도·라이다 미연결 — 받은 값이 없어 그리지 않습니다';
+export const REAL_DEPTH = '뎁스 영상 없음 · 기능 준비 중';
+export const REAL_MAP = '지도·라이다 자료 없음 · 기능 준비 중';
 function Video({ depth, small }: { depth?: boolean; small?: boolean }) {
   return <div className="dv-video" role="img" aria-label={depth ? '뎁스 영상' : 'RGB 영상'}>
     {!small && <span>{depth ? REAL_DEPTH : REAL_RGB}</span>}</div>;
