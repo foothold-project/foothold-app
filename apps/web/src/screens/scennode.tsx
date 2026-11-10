@@ -163,9 +163,12 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
   useEffect(() => setShut(null), [on]);
   const setSel = (id: string) => { setSel0({ id, on }); setShut(null); };
   const flow = useReactFlow();
-  // 접고 펼친 뒤 = 그 묶음으로 화면(jump), 지점·할 일만 바뀐 뒤 = 보던 화면 그대로(keep — 캔버스는 노드 내용이 바뀌면 새로 그린다)
-  const jump = useRef<Stage | null>(null), keep = useRef<Viewport | null>(null);
-  const fold = (s: Stage) => { jump.current = s; setStage(s); setOpen((o) => { const n = new Set(o); if (n.has(s)) n.delete(s); else n.add(s); return n; }); };
+  // 캔버스는 노드 내용이 바뀌면 새로 그린다(key) — 지점·할 일만 바뀐 뒤 = 보던 화면 그대로(keep).
+  // R7 11-10 «열거나 접을 때 시점이 이상한 데로»: 접고 펼친 뒤 = 다시 맞추지 않고(옛 init → view(s) = 배율·위치 새로 맞춤) 누른 묶음(모두 = 임무)의
+  // 제목 자리가 같은 화면 위치에 남게 새 배치 좌표 차이만큼만 옮김(배율 그대로, anchor = 누르기 전 그 묶음 좌표)
+  const anchor = useRef<{ s: Stage; x: number; y: number } | null>(null), keep = useRef<Viewport | null>(null);
+  const pin = (s: Stage) => { anchor.current = { s, x: g.areas[s].x, y: g.areas[s].y }; };
+  const fold = (s: Stage) => { pin(s); setStage(s); setOpen((o) => { const n = new Set(o); if (n.has(s)) n.delete(s); else n.add(s); return n; }); };
   const all = FOLDS.every((s) => open.has(s));
   const g = flowGraph(items, end, where, open, sup, fold);
   const key = JSON.stringify(g.nodes.map((n) => [n.id, n.data])), was = useRef(key);
@@ -187,8 +190,9 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
     void flow.fitView({ ...FIT, nodes: [{ id }] }).then(() => { const b = flow.getNode(id), v = flow.getViewport(); if (!b) return;
       const x = b.position.x * v.zoom + v.x < 0 ? 16 - b.position.x * v.zoom : v.x, y = b.position.y * v.zoom + v.y < 0 ? 16 - b.position.y * v.zoom : v.y;
       if (x !== v.x || y !== v.y) void flow.setViewport({ ...v, x, y }); }); };
-  const init = () => { const s = jump.current, v = keep.current; jump.current = null; keep.current = null;
-    if (s) view(s); else if (v) void flow.setViewport(v); else view(stage); };
+  const init = () => { const a = anchor.current, v = keep.current; anchor.current = null; keep.current = null;
+    if (a && v) { const b = g.areas[a.s]; return void flow.setViewport({ zoom: v.zoom, x: v.x - (b.x - a.x) * v.zoom, y: v.y - (b.y - a.y) * v.zoom }); }
+    if (v) void flow.setViewport(v); else view(stage); };
   const go = (s: Stage) => { setStage(s); view(s); };
   // 크게 보기 = 오른쪽 창 전체가 캔버스(윗줄 = 단계 이동·확대·모두 펼치기·지원 현황, 그 아래 상시 안전 감시 한 줄, 상세는 누를 때만 캔버스 위 카드). 창 넓이·창 위 줄 숨김은 mapscen.css.
   // R4 11-10 «원래 크기 없애고 크게 보기만»: PC 넓은 창은 늘 크게(켜고 끄는 단추·Esc·기억값 없음). 앱(WebView)·좁은 창(1023.98px 아래)은 지금처럼 나란히·한 열
@@ -212,7 +216,7 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
       </div>
       <span className="sn-tools">
         <button type="button" className="sn-chip" data-all-open aria-pressed={all} title="두 번째 안(단계 펼침) = 고정 절차를 모두 펼친 모양"
-          onClick={() => { jump.current = stage; setOpen(all ? new Set() : new Set(FOLDS)); }}>{all ? '모두 접기' : '모두 펼치기'}</button>
+          onClick={() => { pin('임무'); setOpen(all ? new Set() : new Set(FOLDS)); }}>{all ? '모두 접기' : '모두 펼치기'}</button>
         <label className="sn-sup" title="코드 기준 판정(됨·일부·아직 없음) — 실기체 검증과 다름"><input type="checkbox" data-support-toggle checked={sup} onChange={(e) => setSup(e.target.checked)} />지원 현황</label>
       </span>
       <div className="sn-watch" data-watch><b>상시 안전 감시</b>

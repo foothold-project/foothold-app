@@ -232,6 +232,25 @@ describe('운영 흐름 화면', () => {
     expect([big(), $('[data-big-toggle]'), $('.sn-canvas').style.height, $('.react-flow__controls') != null]).toEqual([false, null, '', true]);
   });
 
+  it('R7 펼치기·접기·모두 펼치기 = 다시 맞추지 않음: 누른 묶음(모두 = 임무)의 제목 자리가 같은 화면 위치·배율 그대로, 단계 칩은 지금처럼 이동', async () => {
+    wide(true);
+    await show('websim');
+    await act(() => new Promise((r) => setTimeout(r, 200)));                                  // 처음 맞춤(150ms 뒤 한 번)이 끝난 뒤
+    const num = (t: string) => (t.match(/-?[\d.]+(e-?\d+)?/g) ?? []).map(Number);
+    const at = (id: string) => { const [x, y, z] = num(vp()), [nx, ny] = num(node(id).style.transform); return [Math.round(x + nx * z), Math.round(y + ny * z), z]; };
+    await drag($('.react-flow__pane'), 70); await act(() => new Promise((r) => setTimeout(r, 5)));   // 끈 뒤 click 막기(d3, 0ms)가 풀릴 때까지
+    $('.react-flow__pane').dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }));   // 끌고 줄인 화면에서 시작
+    const card = at('s:운행 준비'), mission = at('g:임무');
+    expect(card[2]).not.toBe(1);
+    await tap(node('s:운행 준비'));
+    expect([flow().dataset.stage, at('g:운행 준비')]).toEqual(['운행 준비', card]);                // 펼친 묶음 제목 = 카드 자리
+    await tap($('[data-fold-stage="운행 준비"]'));
+    expect(at('s:운행 준비')).toEqual(card);                                                    // 접어도 그 자리
+    await openAll(); expect(at('g:임무')).toEqual(mission);                                     // 모두 펼치기 = 임무 묶음 고정(왼쪽 기둥이 넓어져도)
+    await openAll(); expect(at('g:임무')).toEqual(mission);
+    await tap(stage('복귀·종료')); expect(at('s:복귀·종료')[2]).toBe(1);                         // 단계 칩 = 그 묶음으로 이동(1배)
+  });
+
   it('R6 끌기 이동: 카드 위에서 끌면 화면만 옮기고(노드 그대로·고르지 않음) 짧은 누름은 고름, 지점 편집 창 안 끌기·휠은 캔버스로 안 감', async () => {
     wide(true);
     await act(async () => root.render(<ScenNodes where="websim" items={ITEMS} end="대기" on={0} pick={pick} edit={edit} form={<input data-in />} />));
