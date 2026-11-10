@@ -36,7 +36,7 @@
 .mx-tools .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
 .mx-tools hr{width:100%;margin:2px 0;border:0;border-top:1px solid var(--line)}
 .mx-map{flex:1;min-width:0;min-height:0;position:relative;display:flex;flex-direction:column;overflow:hidden}
-.mx-map>svg{flex:1;min-height:0;width:100%;height:100%}
+.mx-map>svg,.mx-win>svg{flex:1;min-height:0;width:100%;height:100%}
 .mx-scroll{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}   /* 판 비교처럼 지도 + 목록이 함께 오는 보기 */
 .mx-center{margin:auto;padding:24px;max-width:420px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* 지도 위 알림 띠(생길 때만) — 위 왼쪽부터 쌓임 */
@@ -162,5 +162,24 @@ li[data-bad] .mx-num{background:var(--bad)}
 @media (max-width:1023.98px){.mx-pane[data-wide]:not([data-fold]){flex:1 1 50%;overflow-y:auto}}   /* 낮은 창에서는 캔버스(최소 180px)까지 굴려 본다 */
 /* SCEN-ONE-FLOW-R1 11-10 — 노드 «크게 보기»(scennode .sn[data-big], 좁은 폭·앱에선 안 켜짐): 오른쪽 창 70% = 노드 캔버스만(창 위 [지도 요소|시나리오]·‹ 목록·노드/목록·시뮬에서 실행 줄 숨김),
    지도는 남은 자리(약 1/4 — 지점 강조가 보이게, 사라지지 않음, 창만 굴러가 지도는 그 자리). «원래 크기»면 위 규칙 그대로 */
-.mx-pane[data-wide]:not([data-fold]):has(.sn[data-big]){flex-basis:70%;overflow-y:auto}   /* 캔버스가 그래프 높이만큼 길어 창이 세로로 굴러감, 지도는 왼쪽에 그대로 */
+.mx-pane[data-wide]:not([data-fold]):has(.sn[data-big]){flex:1 1 100%;overflow-y:auto}   /* R2: 노드 = 본문 전체(캔버스가 그래프 높이만큼 길어 창이 세로로 굴러감) */
 .mx-pane:has(.sn[data-big])>.mx-top,.mx-pane:has(.sn[data-big]) [data-sim-run]{display:none}
+/* SCEN-ONE-FLOW-R2 11-10 — 크게 보기: 지도 = 노드 위에 떠 있는 작은 창(mapscen.tsx Float — 자리·크기는 --wx·--wy·--ww·--wh, 접힌 칩은 창 오른쪽 아래 --wr·--wb).
+   .mx-map 은 틀을 비키고(contents) 알림 띠는 본문 왼쪽 아래(창을 접어도 보임). 그 밖에는 .mx-win = contents, 창 윗줄·모서리·칩 숨김 */
+.mx-win{display:contents}
+.mx-win>.mx-win-head,.mx-win>.mx-win-grip,.mx-win>.mx-win-chip{display:none}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]){position:relative}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big])>.mx-map{display:contents}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big])>.mx-map>.mx-over{z-index:7;top:auto;right:auto;bottom:12px;left:12px;max-width:min(560px,50%)}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win{position:absolute;z-index:8;left:var(--wx);top:var(--wy);width:var(--ww);height:var(--wh);box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line2);border-radius:10px;background:var(--bg);box-shadow:var(--shadow)}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win>.mx-win-head{flex:none;display:flex;align-items:center;gap:6px;height:36px;padding:0 4px 0 12px;border-bottom:1px solid var(--line);background:var(--panel);font-size:13px;cursor:move;touch-action:none;user-select:none}
+.mx-win>.mx-win-head>.btn{height:28px;min-height:0;padding:0 10px;font-size:12px}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win>.mx-win-grip{display:block;position:absolute;z-index:3;width:16px;height:16px;touch-action:none}
+.mx-win>[data-grip="nw"]{left:0;top:0;cursor:nwse-resize}
+.mx-win>[data-grip="se"]{right:0;bottom:0;cursor:nwse-resize;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 60%,transparent 60%,transparent 75%,var(--line2) 75%,var(--line2) 85%,transparent 85%)}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win [data-map-ctl]{right:20px!important;bottom:8px!important;gap:4px!important}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win [data-map-ctl] .btn{height:28px;min-height:0;padding:0 8px!important;font-size:12px}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win>.mx-hint{top:44px;bottom:auto;max-width:calc(100% - 16px)}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win[data-fold]{left:auto;top:auto;right:var(--wr);bottom:var(--wb);width:auto;height:auto;border:0;background:none;box-shadow:none;overflow:visible}
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win[data-fold]>:not(.mx-win-chip){display:none!important}   /* 지도 svg·단추 줄은 인라인 display 라 important */
+.mx-body:has(>.mx-pane:not([data-fold]) .sn[data-big]) .mx-win[data-fold]>.mx-win-chip{display:inline-flex;border-color:var(--accent);color:var(--accent);font-weight:600;box-shadow:var(--shadow)}

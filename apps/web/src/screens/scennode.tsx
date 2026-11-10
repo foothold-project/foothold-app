@@ -4,6 +4,7 @@
 // 다른 단계 = lifecycle.ts 판정 읽기만(끌기·연결·추가 없음). 시뮬 탭 = 웹 시뮬(websim) 판정, 지도 탭 = 실기(real) 판정.
 // SCEN-ONE-FLOW-R1 11-10 — 묶음 = 왼쪽→오른쪽 기둥(연결 | 운행 준비 | 임무 | 복귀·종료, 예외 처리 = 임무 아래). «크게 보기»(처음부터 기본) = 오른쪽 창 넓게·지도 작게(mapscen.css),
 // 캔버스 = 그래프 실제 높이(1배) — 휠은 창 세로 스크롤, 확대·축소는 단추·Ctrl+휠·핀치, 가로는 끌어서.
+// SCEN-ONE-FLOW-R2 11-10 — 크게 보기 = 노드가 본문 전체, 지도는 노드 위 작은 창(옮기기·크기·접기 — mapscen.tsx Float·mapscen.css). 이 파일은 data-big 만 단다.
 import { useEffect, useRef, useState } from 'react';
 import { Background, BackgroundVariant, ControlButton, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, applyNodeChanges, useReactFlow,
   type Edge, type Node, type NodeProps } from '@xyflow/react';

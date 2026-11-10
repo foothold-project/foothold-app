@@ -587,6 +587,27 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(btn('다시 확인')).toBeUndefined();
     expect(why().textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
   });
+  it('SCEN-ONE-FLOW-R2: 크게 보기(기본) = 지도는 떠 있는 창(Float) 안 — 창을 옮기고 접었다 펴도 지도 눌러 지점 추가 그대로, 저장 막는 이유는 창 밖(접어도 보임)', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    expect($('[data-scen-nodes]')!.hasAttribute('data-big')).toBe(true);
+    const win = () => map().closest<HTMLElement>('[data-win]')!;
+    expect(win()).toBeTruthy();
+    expect($('[data-block]')!.closest('[data-win]')).toBeNull();
+    const head = win().querySelector('.mx-win-head')!;
+    act(() => { for (const [t, x] of [['pointerdown', 500], ['pointermove', 400], ['pointerup', 300]] as const) head.dispatchEvent(new MouseEvent(t, { bubbles: true, clientX: x, clientY: 300, button: 0 })); });
+    await flush();
+    expect(JSON.parse(localStorage.getItem('fh.scen.mapwin')!)).toMatchObject({ x: 0, y: 0, fold: false });   // jsdom 본문 0×0 → 가둔 값으로 기억
+    await click(aria('지도 창 접기')); expect(win().hasAttribute('data-fold')).toBe(true);
+    await click(aria('지도 창 펼치기')); expect(win().hasAttribute('data-fold')).toBe(false);
+    await tap(1, 1); await settle();
+    expect(writes()).toEqual(['POST /missions']);                              // 새 지점의 이동 임무(지점 추가 그대로)
+    expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(1);
+    expect(map().querySelector('[data-pt="0"]')).toBeTruthy();
+    await click($('[data-big-toggle]'));                                       // 원래 크기 = 같은 지도(창 줄·칩은 CSS 로 숨김)
+    expect([$('[data-scen-nodes]')!.hasAttribute('data-big'), !!map().closest('[data-win]')]).toEqual([false, true]);
+  });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
     await open();

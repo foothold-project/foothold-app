@@ -13,7 +13,7 @@ import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, us
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
-import { Hint, Menu, Pane, shut, type Side } from './mapscen';
+import { Float, Hint, Menu, Pane, shut, type Side } from './mapscen';
 import { ScenNodes, type StepKind } from './scennode';
 import { saveSim, scenarioTree, simId } from './btedit';
 import { keyOf, terrainUrl } from './terrain';
@@ -792,6 +792,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           <button type="button" className="btn" onClick={() => { put(back.w, back.f); setUndo(null); }}>되돌리기</button></div>}
         {msg && <p className="fh-msg" role="alert">{msg}</p>}
       </div>
+      {/* SCEN-ONE-FLOW-R2: 노드 «크게 보기»면 지도·안내만 노드 위 작은 창(Float) — 위 알림 띠는 창 밖(접어도 보임) */}
+      <Float>
       {v ? <MapFrame ref={svg} {...look} photo={v} edit={!!set} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           onContextMenu={(e) => { const h = (e.target as Element).closest('[data-pt]')?.getAttribute('data-pt'); if (h == null || !set || lock || making) return; e.preventDefault(); drop(h === 'T' ? 'T' : Number(h)); }}
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', ...(set && { cursor: 'crosshair' }) }}>
@@ -810,6 +812,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         : <div className="mx-center"><p className="lv-note">{!approved.length && (set || !pts.length) ? '승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.' : mapErr ? '지도를 받지 못했습니다.' : '지도를 불러오는 중…'}</p></div>}
       {set && v && (placing === 'target' ? <Hint text="지도를 누르면 끝나고 갈 지점을 놓습니다" more="이름 붙은 지도 지점을 누르면 그 지점을 씁니다." />
         : <Hint text="지도를 눌러 지점 추가 · 끌어 옮기기 · 우클릭으로 지우기" more="지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 찍힌 지점을 누르면 고르고, 끌면 옮깁니다. 지점을 우클릭하거나 고른 지점 오른쪽 위 X 로 지웁니다. 빨간 구역은 진입 금지입니다." />)}
+      </Float>
     </div>
     {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
     <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창" pick={picker} name={[value.name || (saved ? WHAT.scenarios : `새 ${WHAT.scenarios}`), place?.floor.name].filter(Boolean).join(' · ')}
