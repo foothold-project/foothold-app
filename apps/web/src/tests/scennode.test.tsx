@@ -1,9 +1,10 @@
 // SCEN-LIFECYCLE-EDITOR 11-09 — 시나리오 «운영 흐름»(React Flow): 단계 띠 5개·개수, 기본 = 임무, 임무 노드 = 지점 수(시뮬 거절 지점 «시뮬에서 실행 못 함»),
+// SCEN-ONE-FLOW 11-10 — 한 캔버스에 다섯 묶음·단계 사이 선 3개·예외 점선 2개, 단계 띠 = 그 묶음으로 이동(노드 수 그대로),
 // 다른 단계 = 읽기만(끌기·잇기·추가 단추 없음), 시뮬 탭 = websim·지도 탭 = real 배지, 노드 상세, 저장(네트워크) 호출 없음. (jsdom 대역 = setup.ts)
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ScenNodes, missionGraph, stageGraph, type NodeIn } from '../screens/scennode';
+import { ScenNodes, flowGraph, missionGraph, stageGraph, type NodeIn } from '../screens/scennode';
 import { LIFE, STAGES, type Where } from '../screens/lifecycle';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -18,6 +19,9 @@ const node = (id: string) => $(`.react-flow__node[data-id="${id}"]`);
 const tap = async (el: Element) => { await act(async () => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); };
 const show = (where: Where) => act(async () => root.render(<ScenNodes where={where} items={ITEMS} end="마지막 지점에서 대기" on={null} pick={pick} edit={edit} />));
 const stage = (s: string) => $(`button[data-stage="${s}"]`);
+const ofStage = (s: string) => LIFE.filter((n) => n.stage === s);
+const badges = (s: string) => ofStage(s).map((n) => node(n.id).querySelector('.sn-badge')!.textContent);
+const ALL = 43 + ITEMS.length + 2;   // 다섯 단계 노드(임무 제외 43) + 임무 = 시작 + 지점 + 끝나면
 
 beforeEach(() => {
   fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy); pick = vi.fn(); edit = vi.fn();
@@ -46,6 +50,29 @@ describe('운영 흐름 데이터', () => {
       expect(new Set(at).size, `${s} ${w}`).toBe(at.length);
     }
   });
+  it('SCEN-ONE-FLOW: 한 캔버스 = 묶음 5개(제목 개수), 노드는 자기 묶음 안·묶음끼리 안 겹침, 단계 사이 선 3개, 예외 점선 2개(예외 노드끼리 새 선 없음)', () => {
+    const g = flowGraph(ITEMS, '대기', 'websim');
+    expect(g.boxes.map((b) => b.data.title)).toEqual(STAGES.map((s, i) => `${i + 1}. ${s}`));
+    expect(g.boxes.find((b) => b.data.stage === '연결')!.data.sub).toBe('됨 0 · 일부 0 · 아직 없음 8');
+    expect(g.nodes).toHaveLength(ALL);
+    const rect = (b: (typeof g.boxes)[number]) => ({ x: b.position.x, y: b.position.y, r: b.position.x + Number(b.style!.width), b: b.position.y + Number(b.style!.height) });
+    const R = g.boxes.map(rect);
+    for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++)
+      expect(R[i].r <= R[j].x || R[j].r <= R[i].x || R[i].b <= R[j].y || R[j].b <= R[i].y, `${STAGES[i]}·${STAGES[j]}`).toBe(true);
+    const stageOf = (id: string) => LIFE.find((n) => n.id === id)?.stage ?? '임무';   // 시작(start)·지점·끝나면 = 임무
+    for (const n of g.nodes) { const r = R[STAGES.indexOf(stageOf(n.id))];
+      expect(n.position.x >= r.x && n.position.x + 200 <= r.r && n.position.y >= r.y && n.position.y + 84 <= r.b, n.id).toBe(true); }
+    const ex = R[STAGES.indexOf('예외 처리')], mi = R[STAGES.indexOf('임무')];
+    expect(ex.x).toBeGreaterThan(mi.r); expect(ex.y).toBe(mi.y);                        // 예외 = 임무 오른쪽 옆
+    expect(g.edges.filter((e) => e.className === 'sn-link').map((e) => e.id)).toEqual(['connected>mode', 'ready>start', 'end>return']);
+    expect(g.edges.filter((e) => e.className === 'sn-jump').map((e) => [e.source, e.target, e.label])).toEqual([['g:임무', 'g:예외 처리', '임무 중 언제든'], ['g:예외 처리', 'g:복귀·종료', undefined]]);
+    const exIds = new Set(ofStage('예외 처리').map((n) => n.id));
+    expect(g.edges.filter((e) => exIds.has(e.source) || exIds.has(e.target))).toHaveLength(0);
+    const ids = new Set(g.nodes.map((n) => n.id));
+    expect(g.edges.length).toBe(5 + 6 + (ITEMS.length + 1) + 8 + 3 + 2);
+    for (const e of g.edges.filter((x) => x.className !== 'sn-jump')) expect(ids.has(e.source) && ids.has(e.target), e.id).toBe(true);
+    for (const id of ['connected', 'mode', 'ready', 'start', 'end', 'return']) expect(g.nodes.find((n) => n.id === id)!.data.edge, id).toBeUndefined();   // 단계 사이 선 양 끝 = 점 둘 다
+  });
   it('REVIEW-308: 앱 데이터에 소스 경로·줄번호 인용이 없다(근거는 저장소 밖 대조표에만)', () => {
     expect(JSON.stringify(LIFE).match(/[\w./-]+\.(tsx?|py|js|json|mjs):\d+/g)).toBeNull();
   });
@@ -54,6 +81,10 @@ describe('운영 흐름 데이터', () => {
 describe('운영 흐름 화면', () => {
   it('시뮬 탭: 띠 5개·websim 개수, 기본 임무 = 지점 노드, 거절 지점 표시, 누르면 상세·지도 강조·목록 편집 — 저장 없음', async () => {
     await show('websim');
+    expect([flow().dataset.groups, flow().dataset.nodes]).toEqual(['5', String(ALL)]);
+    expect($$('.sn-box').map((b) => b.dataset.group)).toEqual([...STAGES]);
+    expect($('.sn-box[data-on]').dataset.group).toBe('임무');
+    expect($$('button[aria-label="화면 맞춤"], button[aria-label="전체 보기"]')).toHaveLength(2);
     expect($$('button[data-stage]').map((b) => b.dataset.stage)).toEqual([...STAGES]);
     expect(stage('임무').getAttribute('aria-pressed')).toBe('true');
     expect([stage('연결').dataset.done, stage('연결').dataset.part, stage('연결').dataset.none]).toEqual(['0', '0', '8']);
@@ -75,13 +106,18 @@ describe('운영 흐름 화면', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('시뮬 탭 다른 단계 = 읽기만: 연결은 «브라우저 시뮬엔 없음», 예외 처리 17노드·선 없음, 누르면 처리 주체·실패 시', async () => {
+  it('시뮬 탭 다른 단계 = 읽기만, 띠 = 이동(노드 수 그대로): 연결은 «브라우저 시뮬엔 없음», 예외 처리 17노드, 누르면 처리 주체·실패 시', async () => {
     await show('websim');
+    const edges = flow().dataset.edges;
     await tap(stage('연결'));
-    expect(flow().dataset.stage).toBe('연결');
-    expect($$('.react-flow__node .sn-badge').map((b) => b.textContent)).toEqual(Array(8).fill('브라우저 시뮬엔 없음'));
+    expect([flow().dataset.stage, flow().dataset.nodes, flow().dataset.edges]).toEqual(['연결', String(ALL), edges]);
+    expect(stage('연결').getAttribute('aria-pressed')).toBe('true');
+    expect($('.sn-box[data-on]').dataset.group).toBe('연결');
+    expect(badges('연결')).toEqual(Array(8).fill('브라우저 시뮬엔 없음'));
+    expect($$('.react-flow__node .sn-num')).toHaveLength(ITEMS.length);              // 임무 지점도 그대로 보임
     await tap(stage('예외 처리'));
-    expect([flow().dataset.nodes, flow().dataset.edges]).toEqual(['17', '0']);
+    expect(flow().dataset.nodes).toBe(String(ALL));
+    expect(ofStage('예외 처리').filter((n) => node(n.id))).toHaveLength(17);
     expect($('.sn-hint').textContent).toContain('편집기로는 만들지 않습니다');
     await tap(node('battery_low'));
     const d = $('[data-detail]').textContent!;
@@ -96,7 +132,7 @@ describe('운영 흐름 화면', () => {
     expect(node('w0').querySelector('.sn-badge')!.textContent).toBe('아직 없음');     // 실기는 임무 실행 없음
     expect(node('w2').querySelector('[data-st="no"]')).toBeNull();                   // «시뮬에서 실행 못 함»은 시뮬 탭만
     await tap(stage('연결'));
-    expect($$('.react-flow__node .sn-badge').map((b) => b.textContent)).toEqual(Array(8).fill('됨'));
+    expect(badges('연결')).toEqual(Array(8).fill('됨'));
     expect($('.sn-hint').textContent).toContain('실기체 검증과 다름');
     for (const s of ['연결', '운행 준비'] as const) {
       await tap(stage(s));
