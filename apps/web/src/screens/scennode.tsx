@@ -219,10 +219,10 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
           onClick={() => { pin('임무'); setOpen(all ? new Set() : new Set(FOLDS)); }}>{all ? '모두 접기' : '모두 펼치기'}</button>
         <label className="sn-sup" title="코드 기준 판정(됨·일부·아직 없음) — 실기체 검증과 다름"><input type="checkbox" data-support-toggle checked={sup} onChange={(e) => setSup(e.target.checked)} />지원 현황</label>
       </span>
-      <div className="sn-watch" data-watch><b>상시 안전 감시</b>
+      <div className="sn-watch" data-watch><b>내장 안전 기능</b>
         {WATCH.map(([t, id]) => { const b = badgeOf(life(id)!, where);
           return <button type="button" key={id} className="sn-chip" data-st={b.st} data-life={id} title={`${life(id)!.name} — ${b.text}`} onClick={() => setSel(id)}>{t}</button>; })}
-        <span className="sn-muted">임무와 별도로 항상 · 실행 상태 아님</span></div>
+        <span className="sn-muted" data-watch-note>기능 설명 · 지금 로봇 상태 아님</span></div>
     </div>
     <p className="sn-hint">{stage === '임무' ? '임무 = 지금 시나리오 — 지점 카드를 누르면 편집 창(할 일·위치·순서), 지도를 눌러 지점 추가 · 고정 절차는 눌러 펼쳐 읽기만'
       : stage === '예외 처리' ? '읽기만 — 예외 갈래는 내장 «모의 BT 공장 순찰»에만 있고 시나리오 편집기로는 만들지 않습니다'

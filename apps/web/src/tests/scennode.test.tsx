@@ -120,7 +120,7 @@ describe('운영 흐름 화면', () => {
     expect([stage('연결').dataset.done, stage('연결').dataset.part, stage('연결').dataset.none]).toEqual(['0', '0', '8']);
     expect(stage('임무').textContent).toContain('됨 9 · 일부 2 · 아직 없음 0');
     expect($$('[data-watch] button').map((b) => b.textContent)).toEqual(['통신', '조종권', '배터리', '장치', 'STOP']);
-    expect($('[data-watch]').textContent).toContain('상시 안전 감시');
+    expect($('[data-watch]').textContent).toContain('내장 안전 기능'); expect($('[data-watch-note]')!.textContent).toBe('기능 설명 · 지금 로봇 상태 아님');
     expect($$('.react-flow__node .sn-num')).toHaveLength(ITEMS.length);
     expect(node('w0').textContent).toContain('편집 가능한 지점');
     expect($$('.react-flow__node .sn-badge').map((b) => b.textContent)).toEqual(['시뮬에서 실행 못 함']);

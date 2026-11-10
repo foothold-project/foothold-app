@@ -340,8 +340,13 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
       expect(input.min).toBe('0'); expect(input.max).toBe(max); expect(input.disabled).toBe(false);
       setVal(input, value);
     }
+    await submit($('form', cap)!);                                              // 실기 값: 먼저 바뀌는 값을 보이고 아직 안 보냄
+    expect(sent('PATCH', '/org/settings')).toEqual([]);
+    expect($('[data-save-check]', cap)!.textContent).toContain('→ 0 m/s');
+    expect([...cap.querySelectorAll('button')].map((x) => x.textContent)).toContain('이대로 저장');
     await submit($('form', cap)!);
     expect(sent('PATCH', '/org/settings')[0].body).toEqual({ real_max_vx: 0, real_max_vx_back: .5, real_max_vy: .2, real_max_wz: .3 });
+    expect($('[data-save-check]', cap)).toBeNull();
   });
   it('실기 «서버 경유 빠른 이동 끄기»: 바꾼 칸만 PATCH(true)', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, real_no_fast_server_drive: true } } }));
@@ -349,6 +354,8 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     const c = card('속도 제한'), sw = $<HTMLInputElement>('input[name="real_no_fast_server_drive"]', c)!;
     expect([sw.checked, sw.disabled, sw.getAttribute('role')]).toEqual([false, false, 'switch']);
     act(() => sw.click());
+    await submit($('form', c)!);
+    expect($('[data-save-check]', c)!.textContent).toContain('끔 → 켬');
     await submit($('form', c)!);
     expect(sent('PATCH', '/org/settings').map((x) => x.body)).toEqual([{ real_no_fast_server_drive: true }]);
     expect(sw.checked).toBe(true);

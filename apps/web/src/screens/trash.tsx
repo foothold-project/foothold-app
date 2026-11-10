@@ -54,7 +54,7 @@ export function Trash(c: Pick<Ctx, 'cancel'>) {
     {ask && <div className="lv-card fh-form" role="alertdialog" aria-label="완전 삭제 확인" aria-describedby="purge-why" data-purge-ask>
       <b>«{ask.name}» {OBJ[ask.kind]} 완전히 지울까요?</b>
       <p id="purge-why" className="fh-msg" style={{ margin: 0 }}>되돌릴 수 없습니다. 끝난 실행 기록은 이름만 남습니다.</p>
-      <div className="fh-row"><button type="button" className="btn pri" disabled={busy} onClick={() => run(ask, true)}>완전 삭제</button>
+      <div className="fh-row"><button type="button" className="btn bad" disabled={busy} onClick={() => run(ask, true)}>완전 삭제</button>
         <button type="button" className="btn" autoFocus onClick={() => setAsk(null)}>취소</button></div>
     </div>}
     <Note m={msg} />
