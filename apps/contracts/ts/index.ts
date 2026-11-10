@@ -1775,6 +1775,8 @@ export interface ScenarioWaypoint {
   waypoint_ref?: string | null;
   mission_id: string;
   mission_version: number;
+  name?: string | null;
+  wait_s?: number | null;
 }
 
 export interface ScenarioWrite {
