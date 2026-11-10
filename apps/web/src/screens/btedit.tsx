@@ -35,8 +35,8 @@ export function scenarioTree(s: ScenarioWrite, missions: Mission[]): Tree | stri
       if (NO_SIM[st.action]) return `${i + 1}번 지점: «${NO_SIM[st.action]}»은 시뮬에서 실행할 수 없습니다.`;
       if (st.action === 'PHOTO') nodes.push({ type: 'photo' });
       if (st.action === 'WAIT') {
-        const sec = Number(st.params?.seconds);
-        if (!(sec > 0 && sec <= BT.ACTION_SECONDS.wait)) return `${i + 1}번 지점: 대기 ${st.params?.seconds}초 — 시뮬은 한 번에 ${BT.ACTION_SECONDS.wait}초까지 기다립니다.`;
+        const raw = w.wait_s ?? st.params?.seconds, sec = Number(raw);   // 지점 대기(wait_s)가 임무 판 값을 덮는다(서버 실행과 같게)
+        if (!(sec > 0 && sec <= BT.ACTION_SECONDS.wait)) return `${i + 1}번 지점: 대기 ${raw}초 — 시뮬은 한 번에 ${BT.ACTION_SECONDS.wait}초까지 기다립니다.`;
         nodes.push({ type: 'wait', seconds: sec });
       }
     }

@@ -1,6 +1,6 @@
 // 지도·시나리오 탭 공용 틀(MAPSCEN-UI 11-02, 방향 = runs/mapscen-diag/preview): 위 단추 줄 하나 + 몸통(왼쪽 도구줄 | 지도 | 오른쪽 작업 창).
 // 배치만 — API·권한·저장 규칙은 각 화면(maps·mapedit·missions) 그대로. 폰 틀에는 이 두 탭이 없다(menu.tsx PHONE_TABS).
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react';
 import './mapscen.css';
 
 /** 자물쇠(잠긴 지도·잠긴 시나리오 탭) */
@@ -78,6 +78,67 @@ export function Pane({ open, setOpen, bar, head, label, children, pick, name, wi
     {/* 접어도 안 내용은 숨기기만 한다 — 배정 창 입력·보내는 중 상태·늦은 응답 처리를 잃지 않게(#235 B2) */}
     <div className="mx-pane-in" hidden={!open}>{children}</div>
   </aside>;
+}
+
+/** SCEN-ONE-FLOW-R2 11-10 — 노드 «크게 보기»일 때 지도를 노드 위에 띄우는 작은 창(.mx-win). 그 밖(좁은 창·앱)에는 display:contents 라 틀 그대로(mapscen.css).
+ *  x·y = 본문(.mx-body) 안 왼쪽 위(null = 왼쪽 아래 — R3 예시 자리), w·h = 크기, fold = 칩으로 접힘. 이 브라우저에만 기억(fh.scen.mapwin — 못 읽거나 망가졌으면 기본값) */
+export type Win = { x: number | null; y: number | null; w: number; h: number; fold: boolean };
+export const WIN: Win = { x: null, y: null, w: 360, h: 260, fold: false };
+const WKEY = 'fh.scen.mapwin', lim = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+/** 본문(bw×bh) 안에 가둠: 크기 220×160 ~ 본문 90%(본문이 작으면 최소 크기), 자리 = 본문 안(자리 없음 = 왼쪽 아래 12px 띄움) */
+export const fitWin = (s: Win, bw: number, bh: number): Win & { x: number; y: number } => {
+  const w = lim(s.w, 220, bw * 0.9), h = lim(s.h, 160, bh * 0.9);
+  return { ...s, w, h, x: lim(s.x ?? 12, 0, bw - w), y: lim(s.y ?? bh - h - 12, 0, bh - h) };
+};
+type Grip = 'move' | 'nw' | 'se';
+/** 끌기(가둔 창 s 에서 dx·dy): move = 옮김, se = 오른쪽 아래 모서리, nw = 왼쪽 위 모서리(오른쪽 아래 끝은 그 자리) */
+export const dragWin = (s: Win & { x: number; y: number }, how: Grip, dx: number, dy: number, bw: number, bh: number) => {
+  if (how === 'move') return fitWin({ ...s, x: s.x + dx, y: s.y + dy }, bw, bh);
+  if (how === 'se') return fitWin({ ...s, w: s.w + dx, h: s.h + dy }, bw, bh);
+  const r = s.x + s.w, b = s.y + s.h, n = fitWin({ ...s, w: Math.min(s.w - dx, r), h: Math.min(s.h - dy, b) }, bw, bh);
+  return fitWin({ ...n, x: r - n.w, y: b - n.h }, bw, bh);
+};
+const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+export const readWin = (): Win => {
+  try { const o = JSON.parse(localStorage.getItem(WKEY) ?? 'null');
+    if (o && num(o.w) && num(o.h) && (o.x === null || num(o.x)) && (o.y === null || num(o.y)) && typeof o.fold === 'boolean') return { x: o.x, y: o.y, w: o.w, h: o.h, fold: o.fold };
+  } catch { /* 못 읽음 = 기본값 */ }
+  return WIN;
+};
+/** 지도 창: 윗줄(«지도» + 접기)을 끌어 옮김, 왼쪽 위·오른쪽 아래 모서리로 크기, 접으면 «지도 ▴» 칩(창 오른쪽 아래 자리). 본문 크기가 바뀌면 그리면서 다시 가둔다.
+ *  끄는 동안 포인터는 이 창이 잡는다(노드 칸 끌기·휠과 섞이지 않음 — 지도 위 휠은 MapFrame 확대). head = 윗줄 단추(«+ 지점»), foot = 창 아래 한 줄(고른 지점 — 창일 때만 보임) */
+export function Float({ children, head, foot }: { children: ReactNode; head?: ReactNode; foot?: ReactNode }) {
+  const me = useRef<HTMLDivElement>(null), [s, setS] = useState(readWin), [[bw, bh], setB] = useState([0, 0]);
+  const grab = useRef<{ how: Grip; px: number; py: number; s0: Win & { x: number; y: number } } | null>(null);
+  useEffect(() => {
+    const b = me.current?.closest('.mx-body');
+    if (!b) return;
+    const m = () => { const r = b.getBoundingClientRect(); setB([r.width, r.height]); };
+    m();
+    if (typeof ResizeObserver === 'undefined') return;
+    const o = new ResizeObserver(m); o.observe(b); return () => o.disconnect();
+  }, []);
+  const f = fitWin(s, bw, bh);
+  const keep = (n: Win) => { setS(n); try { localStorage.setItem(WKEY, JSON.stringify(n)); } catch { /* 기억 못 해도 지금 창은 바뀜 */ } };
+  const at = (e: PointerEvent<HTMLElement>, g = grab.current!) => dragWin(g.s0, g.how, e.clientX - g.px, e.clientY - g.py, bw, bh);
+  const on = (how: Grip) => ({
+    onPointerDown: (e: PointerEvent<HTMLElement>) => { if (e.button !== 0 || (e.target as Element).closest('button')) return;
+      e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); grab.current = { how, px: e.clientX, py: e.clientY, s0: f }; },
+    onPointerMove: (e: PointerEvent<HTMLElement>) => { if (grab.current) setS(at(e)); },
+    onPointerUp: (e: PointerEvent<HTMLElement>) => { if (grab.current) { keep(at(e)); grab.current = null; } },
+    onPointerCancel: () => { if (grab.current) { setS(grab.current.s0); grab.current = null; } },
+  });
+  const px = (n: number) => `${Math.round(n)}px`;
+  const vars = { '--wx': px(f.x), '--wy': px(f.y), '--ww': px(f.w), '--wh': px(f.h), '--wr': px(bw - f.x - f.w), '--wb': px(bh - f.y - f.h) } as CSSProperties;
+  return <div ref={me} className="mx-win" data-win data-fold={s.fold ? '' : undefined} style={vars}>
+    <div className="mx-win-head" {...on('move')}><b>지도</b><span className="fh-grow" />{head}
+      <button type="button" className="btn" aria-expanded aria-label="지도 창 접기" title="지도 접기" onClick={() => keep({ ...s, fold: true })}>접기 ▾</button></div>
+    {children}
+    {foot != null && <p className="mx-win-foot" data-win-foot>{foot}</p>}
+    <span className="mx-win-grip" data-grip="nw" aria-hidden="true" title="끌어 크기 조절" {...on('nw')} />
+    <span className="mx-win-grip" data-grip="se" aria-hidden="true" title="끌어 크기 조절" {...on('se')} />
+    <button type="button" className="btn mx-win-chip" aria-expanded={false} aria-label="지도 창 펼치기" onClick={() => keep({ ...s, fold: false })}>지도 ▴</button>
+  </div>;
 }
 
 /** 지도 왼쪽 아래 한 줄 안내 + ⓘ(긴 설명은 툴팁) */

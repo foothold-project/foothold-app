@@ -10,6 +10,7 @@ import { Root } from '../session';
 import { clearPlans, simNav } from '../screens/missions';
 import { check, type BtNode } from '../screens/btedit';
 import { TERRAIN_REASON } from '../simstart';
+import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 
@@ -558,7 +559,9 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(2);
     expect($('[data-st="no"]')).toBeNull();
     await click($('button[data-stage="연결"]'));
-    expect([...box.querySelectorAll('.react-flow__node .sn-badge')].map((b) => b.textContent)).toEqual(Array(8).fill('됨'));
+    expect($('.react-flow__node[data-id="robot"]')).toBeNull();                       // R3: 고정 절차는 처음 접힘(요약 카드)
+    await click($('.react-flow__node[data-id="s:연결"]')); await click($('[data-support-toggle]'));   // 펼치고 지원 현황 켜면 판정 배지
+    expect(['robot', 'request', 'auth', 'response', 'media', 'connected', 'retry', 'connection_failed'].map((id) => $(`.react-flow__node[data-id="${id}"] .sn-badge`)!.textContent)).toEqual(Array(8).fill('됨'));
     expect(box.querySelectorAll('.react-flow__node.draggable')).toHaveLength(0);
     expect($('.sn-hint')!.textContent).toContain('실기체 검증과 다름');
     expect(writes()).toEqual([]);
@@ -586,6 +589,111 @@ describe('시나리오 편집(03 §5.3)', () => {
     await click(again); await settle();
     expect(btn('다시 확인')).toBeUndefined();
     expect(why().textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
+  });
+  it('SCEN-ONE-FLOW-R2·R4: 크게 보기(넓은 창은 늘 — 단추 없음) = 지도는 떠 있는 창(Float) 안 — 창을 옮기고 접었다 펴도 지도 눌러 지점 추가 그대로, 저장 막는 이유는 창 밖(접어도 보임)', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    expect($('[data-scen-nodes]')!.hasAttribute('data-big')).toBe(true);
+    const win = () => map().closest<HTMLElement>('[data-win]')!;
+    expect(win()).toBeTruthy();
+    expect($('[data-block]')!.closest('[data-win]')).toBeNull();
+    const head = win().querySelector('.mx-win-head')!;
+    act(() => { for (const [t, x] of [['pointerdown', 500], ['pointermove', 400], ['pointerup', 300]] as const) head.dispatchEvent(new MouseEvent(t, { bubbles: true, clientX: x, clientY: 300, button: 0 })); });
+    await flush();
+    expect(JSON.parse(localStorage.getItem('fh.scen.mapwin')!)).toMatchObject({ x: 0, y: 0, fold: false });   // jsdom 본문 0×0 → 가둔 값으로 기억
+    await click(aria('지도 창 접기')); expect(win().hasAttribute('data-fold')).toBe(true);
+    await click(aria('지도 창 펼치기')); expect(win().hasAttribute('data-fold')).toBe(false);
+    await tap(1, 1); await settle();
+    expect(writes()).toEqual(['POST /missions']);                              // 새 지점의 이동 임무(지점 추가 그대로)
+    expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(1);
+    expect(map().querySelector('[data-pt="0"]')).toBeTruthy();
+    expect([$('[data-big-toggle]'), $('[data-scen-nodes]')!.hasAttribute('data-big')]).toEqual([null, true]);   // R4: «원래 크기» 단추 없음
+  });
+  it('SCEN-ONE-FLOW-R3: 지점 편집 창(할 일·X/Y·뒤로) 저장 본문 = 목록 편집(할 일·지도 끌기·↓)과 같은 값, 노드 ↔ 지도 선택 연동, 지도 범위 밖은 막음', async () => {
+    const save = async () => { await settle(); expect(saveBtn().disabled).toBe(false); await click(saveBtn()); return last(sent('PUT', '/scenarios/s1'))!.body; };
+    // ① 편집 창
+    seed(); serve(KIM);
+    await open(); await click(row('s1')); await settle();
+    expect($('[data-point-edit]')).toBeNull();
+    await click($('.react-flow__node[data-id="w0"]'));
+    const ed = () => $('[data-point-edit]')!;
+    expect([ed().getAttribute('data-point-edit'), map().querySelector('[data-pt="0"] circle')!.getAttribute('r')]).toEqual(['0', String(Math.max(100, 80) / 60 * 1.3)]);   // 노드 → 지도 강조
+    expect(ed().textContent).toContain('이동·할 일만 편집됩니다. 안전 절차는 고정입니다.'); expect(ed().textContent).toContain('위치 변경 뒤에는 실제 경로 검사가 필요합니다.');
+    expect($('[data-win-foot]')!.textContent).toBe('1번 지점 · 사진 순찰');
+    await setVal($<HTMLSelectElement>('[data-edit-kind]', ed())!, 'PHOTO');
+    const X = () => $<HTMLInputElement>('input[aria-label="1번 지점 X(m)"]')!, Y = () => $<HTMLInputElement>('input[aria-label="1번 지점 Y(m)"]')!;
+    await setVal(X(), '9');
+    expect(ed().textContent).toContain('지도 범위 밖입니다.');                             // 막음 — 좌표 그대로
+    await setVal(X(), '2'); await setVal(Y(), '0.5');
+    expect(ed().textContent).not.toContain('지도 범위 밖입니다.');
+    expect($('[data-edit-up]', ed())!.hasAttribute('disabled')).toBe(true);
+    await click($('[data-edit-down]', ed()));
+    expect(ed().getAttribute('data-point-edit')).toBe('1');                               // 옮긴 지점을 따라감
+    const a = await save();
+    // ② 목록(같은 편집)
+    act(() => root?.unmount()); root = null; box.remove(); clearPlans(); localStorage.clear(); calls = [];
+    seed(); serve(KIM);
+    await open(); await click(row('s1')); await settle(); await click($('[data-look="list"]'));
+    await setVal($<HTMLSelectElement>('select[aria-label="1번 지점 할 일"]')!, 'PHOTO');
+    sized(); await ptr('pointerdown', 1, 1, map().querySelector('[data-pt="0"]')!); await ptr('pointermove', 2, 0.5); await ptr('pointerup', 2, 0.5);
+    await click(aria('1번 지점 아래로'));
+    const b = await save();
+    expect(a).toEqual(b);
+    expect((a as ScenarioWrite).waypoints.map((w) => [w.x, w.y, w.waypoint_ref])).toEqual([[0, 0, 'wp1'], [2, 0.5, null]]);
+    // ③ 지도에서 고르면 편집 창도 그 지점(노드 보기로 돌아가서)
+    await click($('[data-look="node"]'));
+    sized(); await ptr('pointerdown', 0, 0, map().querySelector('[data-pt="0"]')!); await ptr('pointerup', 0, 0, map().querySelector('[data-pt="0"]')!);
+    expect([ed().getAttribute('data-point-edit'), $('.react-flow__node[data-id="w0"] .sn-card')!.hasAttribute('data-on')]).toEqual(['0', true]);
+    expect($('[data-win-foot]')!.textContent).toContain('1번 지점 · 입구');
+  });
+  it('SCEN-ONE-FLOW-R5: 지점 편집 창 이름·대기 → 저장 본문 name·wait_s, 범위 밖은 저장 전 막음, 서버 422 wait_s 는 그 칸에, 대기 없는 할 일로 바꾸면 wait_s 만 빠짐, 빈칸 = 키 없음', async () => {
+    seed(); serve(KIM, { over: { 'PUT /scenarios/s1': [err(422, 'PRECHECK_FAILED', '이 할 일에는 대기 단계가 없습니다.', { elements: ['waypoints.0.wait_s'] })] } });
+    const save = async () => { await settle(); expect(saveBtn().disabled).toBe(false); await click(saveBtn()); return last(sent('PUT', '/scenarios/s1'))!.body as ScenarioWrite; };
+    await open(); await click(row('s1')); await settle();
+    await click($('.react-flow__node[data-id="w0"]'));
+    const ed = () => $('[data-point-edit]')!, nm = () => $<HTMLInputElement>('[data-edit-name]', ed())!, wt = () => $<HTMLInputElement>('[data-edit-wait]', ed());
+    expect([nm().placeholder, nm().maxLength, wt()!.placeholder]).toEqual(['1번 지점', 60, '기본 5초']);   // m1 = 사진 → 대기 5초
+    await setVal(nm(), '정문 앞'); await setVal(wt()!, '4000');
+    expect(ed().textContent).toContain('대기 시간은 1~3600 사이 정수(초)로 넣으세요.');
+    await settle();
+    expect([saveBtn().disabled, $('[data-block]')!.textContent]).toEqual([true, '1번 지점: 대기 시간은 1~3600 사이 정수(초)로 넣으세요.']);   // 저장 전에 막음(미리보기도 안 보냄)
+    await setVal(wt()!, '45');
+    const card = () => $('.react-flow__node[data-id="w0"]')!;
+    expect([card().querySelector('.sn-title')!.textContent, card().textContent!.includes('사진 순찰 · 이 지점 대기 45초')]).toEqual(['정문 앞', true]);
+    expect($('[data-win-foot]')!.textContent).toBe('1번 지점 · 정문 앞 · 사진 순찰 · 이 지점 대기 45초');
+    await save();                                                                             // 서버 422 waypoints.0.wait_s → 그 칸 아래
+    expect($('[data-edit-wait]', ed())!.closest('label')!.textContent).toContain('이 할 일에는 대기 단계가 없습니다.');
+    expect(map().querySelector('[data-pt="0"]')!.hasAttribute('data-bad')).toBe(true);
+    const a = await save();
+    expect(a.waypoints[0]).toMatchObject({ name: '정문 앞', wait_s: 45, mission_id: 'm1' });
+    expect(Object.keys(a.waypoints[1])).not.toContain('name');
+    await setVal($<HTMLSelectElement>('[data-edit-kind]', ed())!, 'PHOTO');                  // 대기 없는 할 일 → wait_s 빠짐·칸 사라짐, 이름 그대로
+    expect(wt()).toBeNull();
+    const b = await save();
+    expect([b.waypoints[0].name, 'wait_s' in b.waypoints[0]]).toEqual(['정문 앞', false]);
+    await setVal(nm(), '   ');                                                               // 빈칸(공백만) = 키 없음 → «1번 지점»
+    expect([nm().value, card().querySelector('.sn-title')!.textContent]).toEqual(['', '1번 지점']);
+    const c = await save();
+    expect('name' in c.waypoints[0]).toBe(false);
+  });
+  it('SCEN-ONE-FLOW-R5: 목록 편집(지도 끌기·↓·할 일 대기로)이 이름·대기를 지우지 않고, 목록 대기 초 «적용»은 그 초 임무를 잇고 wait_s 를 뗀다', async () => {
+    seed(); make('scenarios', { name: '이름 순찰', waypoints: [{ ...wp('f1', 1, 1), name: '정문', wait_s: 45 }, wp('f1', 0.5, 0.5)] }, KIM); serve(KIM);
+    const save = async () => { await settle(); expect(saveBtn().disabled).toBe(false); await click(saveBtn()); return last(sent('PUT', '/scenarios/s3'))!.body as ScenarioWrite; };
+    await open(); await click(row('s3')); await settle(); await click($('[data-look="list"]'));
+    expect(point(0).querySelector('.mx-name')!.textContent).toContain('정문');
+    expect(point(0).querySelector('.mx-name')!.textContent).toContain('사진 순찰 · 이 지점 대기 45초');
+    sized(); await ptr('pointerdown', 1, 1, map().querySelector('[data-pt="0"]')!); await ptr('pointermove', 2, 0.5); await ptr('pointerup', 2, 0.5);
+    await click(aria('1번 지점 아래로'));
+    await setVal($<HTMLSelectElement>('select[aria-label="2번 지점 할 일"]')!, 'WAIT');        // 대기 있는 할 일 → wait_s 그대로
+    expect($<HTMLInputElement>('input[aria-label="2번 지점 대기 초"]')!.value).toBe('45');
+    const a = await save();
+    expect(a.waypoints[1]).toMatchObject({ name: '정문', wait_s: 45, x: 2, y: 0.5 });
+    expect(Object.keys(a.waypoints[0])).not.toContain('wait_s');
+    await setVal($<HTMLInputElement>('input[aria-label="2번 지점 대기 초"]')!, '60');
+    await click(btn('적용', point(1)));
+    const b = await save();
+    expect([b.waypoints[1].name, 'wait_s' in b.waypoints[1], point(1).querySelector('[data-do]')!.textContent]).toEqual(['정문', false, '할 일: 대기 60초']);
   });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
@@ -621,7 +729,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(p.textContent).toContain('대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.');
     expect(p.textContent).toContain('필요 장치: 카메라');
     expect(p.textContent).toContain('2번 지점 → 3번 지점본동 1층 → 본동 2층 층 연결점을 거칩니다');
-    expect(text()).not.toContain('Nav2');
+    expect(text()).not.toContain('Nav2 경로가 아닙니다');   // 서버 distance_note 를 그대로 안 보임(운영 흐름 노드 처리 주체 «…+Nav2» 는 별개)
     expect(saveBtn().disabled).toBe(false);
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions', 'POST /missions', 'POST /scenarios']);   // 이동·사진 임무 → 시나리오
@@ -1405,6 +1513,22 @@ describe('시뮬 시나리오', () => {
     expect($('[data-look="list"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(text()).toContain('2번 지점');
     expect(writes()).toEqual([]);
+  });
+  it('R8 REVIEW-316 P1: 크게 보기(넓은 창·노드) = 창 머리 한 줄에 [노드|목록]·«시뮬에서 실행»(누르면 실행), 목록 보기는 창 안 그대로 — CSS 는 머리를 숨기지 않음', async () => {
+    seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV };
+    serve(KIM);
+    const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+    await open('#/sim'); await scen(); await click(row('s1')); await settle();
+    expect($('.sn')!.hasAttribute('data-big')).toBe(true);
+    const head = () => $('.mx-pane .mx-head')!;
+    expect([!!head().querySelector('[data-look="node"]'), !!head().querySelector('[data-look="list"]'), head().querySelectorAll('[data-sim-run]').length, box.querySelectorAll('[data-sim-run]').length]).toEqual([true, true, 1, 1]);
+    await click(head().querySelector<HTMLButtonElement>('[data-sim-run] button')!);
+    expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=factory-inspection&bt=ss1');
+    await click($('[data-look="list"]'));
+    expect([head().querySelector('[data-sim-run]'), box.querySelectorAll('.mx-pane>.mx-pane-in>[data-sim-run]').length]).toEqual([null, 1]);   // 목록 = 창 안 맨 위
+    await click($('[data-look="node"]')); expect(head().querySelectorAll('[data-sim-run]').length).toBe(1);
+    const big = mapscenCss.split('\n').filter((l) => l.includes('.sn[data-big]') && l.includes('display:none'));
+    expect(big.some((l) => /\.mx-top[,{]|\.mx-head|data-sim-run/.test(l))).toBe(false);   // 옛 규칙(머리·실행 줄 숨김) 없음 — 고르기 줄(.mx-pick)만 숨김
   });
   it('시뮬과 좌표가 같다고 확인되지 않는 층(사람이 올린 지도) = «시뮬에서 실행» 회색 + 이유', async () => {
     seed(); sitePurpose = 'SIM';

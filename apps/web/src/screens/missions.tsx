@@ -13,8 +13,8 @@ import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, us
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
-import { Hint, Menu, Pane, shut, type Side } from './mapscen';
-import { ScenNodes, type StepKind } from './scennode';
+import { Float, Hint, Menu, Pane, shut, type Side } from './mapscen';
+import { ScenNodes, useBig, type StepKind } from './scennode';
 import { saveSim, scenarioTree, simId } from './btedit';
 import { keyOf, terrainUrl } from './terrain';
 import { openUrl, simAt } from '../simstart';
@@ -56,7 +56,7 @@ export function changes(a: AnyWrite, b: AnyWrite) {
 
 /** 걸린 곳: at = 'name' · 'steps' · 'steps.2' · 'waypoints.3' · 'finish.target' (서버 detail.elements 앞부분과 같은 모양) */
 type Bad = { at: string; text: string };
-const atOf = (e: string) => /^(steps\.\d+|waypoints\.\d+|finish\.target|name)/.exec(e)?.[1] ?? e.split('.')[0];
+const atOf = (e: string) => /^(steps\.\d+|waypoints\.\d+(?:\.(?:name|wait_s)\b)?|finish\.target|name)/.exec(e)?.[1] ?? e.split('.')[0];
 const elementsOf = (e: ApiFail) => (arr(e.detail?.elements) ? (e.detail!.elements as unknown[]).filter(str).map((x) => atOf(x as string)) : []);
 
 /** 저장 응답이 끊김 — 보낸 본문 + 대조 기준. known = 만들기 전 목록 ID(POST), next = 내 PUT 이 성공했다면 생긴 판 번호(그 번호는 한 번만 생긴다) */
@@ -258,7 +258,7 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
       const at = elementsOf(e), p = e.detail?.preview as ScenarioPreview | undefined;
       // 시나리오: 저장 때 서버가 다시 잰 결과가 앞 미리보기를 대신한다(없으면 앞 결과를 버리고 다시 확인 — 그동안 저장 막힘)
       if (kind === 'scenarios') { if (p && isPreview(p)) setSrv({ key: canon(b), r: p }); else setRecheck((x) => x + 1); }
-      setBad(at.length ? at.map((a) => ({ at: a, text: a === 'name' ? '이름을 확인하세요(1~128자, 보이지 않는 글자 없이).' : kind === 'missions' ? '이 작업의 값을 확인하세요.' : '이 지점을 확인하세요.' })) : []);
+      setBad(at.length ? at.map((a) => ({ at: a, text: a === 'name' ? '이름을 확인하세요(1~128자, 보이지 않는 글자 없이).' : /\.(name|wait_s)$/.test(a) ? e.message : kind === 'missions' ? '이 작업의 값을 확인하세요.' : '이 지점을 확인하세요.' })) : []);
       setMsg({ text: `${e.message} 표시한 곳을 고친 뒤 다시 저장하세요.` }); return;
     }
     if (e.status === 404) { setMsg({ text: `이 ${what}나 고른 층·임무를 찾을 수 없습니다. 목록을 다시 받으세요.` }); return; }
@@ -433,7 +433,7 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel }: { value: Sc
   return <div className="mx-in" data-sim-run>
     <div className="fh-row"><button type="button" className="btn pri" disabled={!!why} aria-describedby={why ? 'sim-run-why' : undefined} onClick={run}>시뮬에서 실행</button>
       <span className="lv-note fh-grow">배정·결재 없이 이 브라우저 시뮬에서 엽니다.</span></div>
-    {why && <p id="sim-run-why" className="fh-why" data-sim-run-why>{why}</p>}
+    {why && <p id="sim-run-why" className="fh-why" data-sim-run-why title={why}>{why}</p>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </div>;
 }
@@ -544,8 +544,15 @@ function scenarioBad(v: ScenarioWrite): Bad[] {
   if (v.waypoints.length > 200) out.push({ at: 'waypoints', text: '지점은 200개까지 찍을 수 있습니다.' });
   return out;
 }
+/** SCEN-ONE-FLOW-R5 지점 이름·대기(계약 그대로: 이름 1~60자·공백만 안 됨·제어/서식 문자 안 됨, 대기 = 정수 1~3600초) — 틀리면 이유, 없으면 '' */
+const nameWhy = (s?: string | null) => (s == null ? '' : s.length > 60 ? '지점 이름은 60자까지입니다.' : !/\S/.test(s) ? '지점 이름을 넣거나 비우세요.'
+  : /[\p{Cc}\p{Cf}]/u.test(s) ? '지점 이름에는 제어·서식 문자를 쓸 수 없습니다.' : '');
+const waitWhy = (n?: number | null) => (n == null || (int(n) && n >= 1 && n <= 3600) ? '' : '대기 시간은 1~3600 사이 정수(초)로 넣으세요.');
+const pointWhy = (v: ScenarioWrite) => { for (const [i, w] of v.waypoints.entries()) { const t = nameWhy(w.name) || waitWhy(w.wait_s); if (t) return `${i + 1}번 지점: ${t}`; } return null; };
+/** 임무의 첫 대기 단계 초(대기 단계가 없으면 null) — 지점 대기 칸의 «기본 N초», 서버는 지점 wait_s 로 대기 단계를 모두 덮는다 */
+const waitDflt = (m?: Mission) => { const s = m?.steps.find((x) => x.action === 'WAIT'); return s ? Number(s.params?.seconds) : null; };
 const MISSING = (v: ScenarioWrite) => (!v.waypoints.length ? '지도를 눌러 지점을 하나 이상 찍으세요.' : v.waypoints.some((w) => !w.mission_id) ? '모든 지점에 할 일을 고르세요.'
-  : v.finish?.mode === 'GO_TO' && !v.finish.target ? '끝나고 갈 지점을 지도에서 찍으세요.' : null);
+  : pointWhy(v) ?? (v.finish?.mode === 'GO_TO' && !v.finish.target ? '끝나고 갈 지점을 지도에서 찍으세요.' : null));
 const TAP = 8;   // 화면 px — MapFrame SLOP 과 같다. 찍힌 지점을 누르고 이만큼 움직이기 전에 떼면 누름(고르기), 넘으면 끌어 옮기기
 /** 단계 창 펼침·실행 확인할 로봇 — 다른 시나리오를 열어도 사람이 고른 그대로(로봇은 로그아웃 때 비움) */
 const pane = { open: true, robot: '' };
@@ -567,6 +574,14 @@ function WaitSecs({ i, sec, apply }: { i: number; sec: number; apply: (n: number
     <input className="inp" type="number" min={1} max={3600} step={1} inputMode="numeric" aria-label={`${i + 1}번 지점 대기 초`} style={{ width: '6em' }} value={v} onChange={(e) => setV(e.target.value)} /></label>
     {n !== sec && <button type="button" className="btn" disabled={!ok} onClick={() => apply(n)}>적용</button>}
     {!ok && <span className="fh-why">1~3600 사이 정수로 입력하세요.</span>}</div>;
+}
+/** SCEN-ONE-FLOW-R3 지점 편집 창 좌표 칸(m): 고칠 때마다 apply(막히면 그 이유를 아래에, 값은 그대로 둠). 밖에서 좌표가 바뀌면(지도 끌기) 칸도 따라간다 */
+function Coord({ label, i, val, apply }: { label: string; i: number; val: number; apply: (n: number) => string | null }) {
+  const [t, setT] = useState(String(+val.toFixed(2))), [why, setWhy] = useState('');
+  useEffect(() => { if (Number(t) !== val) { setT(String(+val.toFixed(2))); setWhy(''); } }, [val]);
+  return <label className="fh-field"><span>{label}</span><input className="inp" type="number" step={0.1} inputMode="decimal" aria-label={`${i + 1}번 지점 ${label}`} value={t}
+    onChange={(e) => { setT(e.target.value); const n = Number(e.target.value); setWhy(e.target.value.trim() === '' || !Number.isFinite(n) ? '숫자를 넣으세요.' : apply(n) ?? ''); }} />
+    {why && <span className="fh-why" role="alert">{why}</span>}</label>;
 }
 const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoints\.(\d+)/.test(e) ? `${Number(/^waypoints\.(\d+)/.exec(e)![1]) + 1}번 지점` : e);
 
@@ -603,6 +618,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const [making, setMaking] = useState(false), [qMsg, setQMsg] = useState(''), cur$ = useRef({ value, set, lock });
   cur$.current = { value, set, lock };
   const [sel, setSel] = useState<number | 'T' | null>(null), [placing, setPlacing] = useState<'point' | 'target'>('point'), [msg, setMsg] = useState('');
+  const [adding, setAdding] = useState(false);   // SCEN-ONE-FLOW-R3 «+ 지점»: 안내만 바꾼다(지도 누름 = 추가는 늘 그대로)
   // drag.at·moved = 누른 화면 자리·TAP 넘게 움직였는지(안 움직이고 떼면 누름 = 고르기만 — 지우기는 X)
   const svg = useRef<SVGSVGElement>(null), drag = useRef<{ i: number | 'T'; from: P; orig: ScenarioPoint; at: P; moved: boolean } | null>(null);
   const [open, setOpen] = useState(pane.open), [undo, setUndo] = useState<{ text: string; w: ScenarioWaypoint[]; f: typeof finish; key: string } | null>(null);
@@ -629,7 +645,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     : !r!.reachable ? '갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.' : null);
   useEffect(() => { setBlock(block); }, [block]);
   const res = Object.fromEntries((r?.points ?? []).map((p) => [p.element, p]));
-  const marks = new Set([...bad.map((b) => b.at), ...(pe ? elementsOf(pe) : []), ...(r?.points ?? []).filter((p) => !p.reachable).map((p) => p.element)]);
+  const marks = new Set([...bad.map((b) => b.at), ...(pe ? elementsOf(pe) : []), ...(r?.points ?? []).filter((p) => !p.reachable).map((p) => p.element)].flatMap((a) => [a, a.replace(/\.(name|wait_s)$/, '')]));   // 칸 오류도 그 지점을 빨갛게
   // 지도가 바뀜(STALE): 나무를 다시 받은 뒤 지점의 판을 지금 승인 판으로 바꿔 다시 미리보기(좌표·지도 지점 참조는 그대로 — 새 판에 맞지 않으면 미리보기가 알린다)
   const [remap, setRemap] = useState(false);
   useEffect(() => {
@@ -649,7 +665,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     const p: ScenarioPoint = wp ? { floor_id: cur, map_version_id: v.id, x: wp.x, y: wp.y, yaw: wp.yaw, waypoint_ref: wp.id } : { floor_id: cur, map_version_id: v.id, x: q[0], y: q[1], yaw: 0, waypoint_ref: null };
     if (placing === 'target') { put(pts, { mode: 'GO_TO', target: p }); setPlacing('point'); setSel('T'); return; }
     if (pts.length >= 200) return setMsg('지점은 200개까지 찍을 수 있습니다.');
-    put([...pts, { ...p, ...dflt }]); setSel(pts.length);
+    put([...pts, { ...p, ...dflt }]); setSel(pts.length); setAdding(false);
   };
   const ptAt = (i: number | 'T') => (i === 'T' ? target : pts[i]);
   const down = (e: PointerEvent<SVGSVGElement>) => {
@@ -693,13 +709,15 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const shift = (i: number, dd: number) => { const s = [...pts], [x] = s.splice(i, 1); s.splice(i + dd, 0, x); put(s); setSel(i + dd); };
   /** 이동·사진·대기 고르기: 같은 내용의 보관 안 된 임무(최신 판)가 있으면 그것을, 없으면 임무를 만들어(POST /missions) 이 지점에 잇는다.
    *  만드는 동안 단계 창·지도 편집·저장을 막는다(지점 번호가 바뀌지 않게). 응답이 끊기면 임무 목록을 다시 받는다 — 다시 고르면 만들어진 것을 찾아 쓴다 */
-  const quick = (i: number, steps: MissionStep[]) => {
+  const quick = (i: number, steps: MissionStep[], clear = false) => {
     // 이을 지점은 순번이 아니라 그 지점 값 자체로 기억한다 — 응답을 기다리는 동안 순서가 바뀌어도 고른 지점에 잇는다(#235 B1). 없어졌으면 잇지 않는다
     const at = pts[i];
     const link = (m: Mission) => { const { value: b, set: s, lock: l } = cur$.current, j = b.waypoints.indexOf(at);
       if (!s || l) return;
       if (j < 0) return setQMsg('임무를 만들었지만 그 지점이 바뀌어 잇지 않았습니다. 지점에서 임무를 다시 고르세요.');
-      s({ ...b, waypoints: b.waypoints.map((o, k) => (k === j ? { ...o, mission_id: m.id, mission_version: m.latest_version } : o)) }); };
+      // R5: 대기 단계 없는 할 일로 바꾸거나(서버 422) 목록에서 대기 초 임무를 고르면(clear) 지점 대기(wait_s)를 뗀다 — 이름은 그대로
+      const keep = (o: ScenarioWaypoint) => { if (!clear && waitDflt(m) != null) return o; const { wait_s: _, ...x } = o; return x; };
+      s({ ...b, waypoints: b.waypoints.map((o, k) => (k === j ? { ...keep(o), mission_id: m.id, mission_version: m.latest_version } : o)) }); };
     if (unsure) return;
     const hit = active.find((m) => canon(m.steps) === canon(steps));
     setQMsg('');
@@ -733,6 +751,9 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null), tid = useId();
   // SCEN-NODE-PREVIEW·SCEN-LIFECYCLE-EDITOR 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, «운영 흐름» 5단계·임무 = 이 시나리오). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
   const [paneLook, setPaneLook] = useState<'node' | 'list'>('node');
+  // R8 REVIEW-316 P1: 크게 보기(PC 넓은 창·노드)는 창 머리 한 줄([노드|목록] 옆)에 «시뮬에서 실행» — 그 밖은 창 안 맨 위 그대로(판정·막힘 같음)
+  const big = useBig(), simTop = big && paneLook === 'node';
+  const simRun = sim && <SimRun value={value} saved={saved} dirty={sim.dirty} place={place} v={v} missions={missions} cancel={cancel} />;
   const lookSeg = <span className="mx-seg" role="group" aria-label="노드·목록 보기">
     <button type="button" className="btn" aria-pressed={paneLook === 'node'} data-look="node" onClick={() => setPaneLook('node')}>노드</button>
     <button type="button" className="btn" aria-pressed={paneLook === 'list'} data-look="list" onClick={() => setPaneLook('list')}>목록</button></span>;
@@ -757,8 +778,49 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   // SCEN-LIFECYCLE-EDITOR: 시뮬 탭이면 지점마다 scenarioTree 로 한 번 더 — 거절(운영자 확인·센서 기록·120 s 넘는 대기·옛 판)이면 그 이유를 노드에 «시뮬에서 실행 못 함»
   const noSim = (p: ScenarioWaypoint) => { if (!sim || !missions) return undefined; const r = scenarioTree({ ...value, waypoints: [p], finish: undefined }, missions);
     return typeof r === 'string' ? r.replace(/^1번 지점: /, '') : undefined; };
-  const nodeItems = pts.map((p) => { const m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
-    return { title: where(p), sub: m ? m.name : p.mission_id ? (missions ? '알 수 없는 임무' : '임무 확인 중') : '이동', kind: (p.mission_id ? kindOf(fresh) : 'MOVE') as StepKind, no: noSim(p) }; });
+  /** R5 지점 대기가 할 일 기본과 다르면 « · 이 지점 대기 N초» */
+  const waitNote = (p: ScenarioWaypoint, m?: Mission) => (p.wait_s != null && p.wait_s !== waitDflt(m) ? ` · 이 지점 대기 ${p.wait_s}초` : '');
+  // SCEN-ONE-FLOW-R3·R5: 카드 = 지점 이름(없으면 이어진 지도 지점 이름, 그것도 없으면 «N번 지점»)·할 일(+지점 대기)·자리(층 + 좌표)
+  const nodeItems = pts.map((p, i) => { const m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
+    return { title: p.name ?? (p.waypoint_ref ? refName(p) : `${i + 1}번 지점`), sub: (m ? m.name : p.mission_id ? (missions ? '알 수 없는 임무' : '임무 확인 중') : '이동') + waitNote(p, fresh),
+      at: `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`, kind: (p.mission_id ? kindOf(fresh) : 'MOVE') as StepKind, no: noSim(p) }; });
+  /** 편집 창에서 좌표 바꾸기 = 지도 끌기와 같은 규칙(그 층 지도 범위 밖은 막음, 지도 지점에 붙은 지점은 0.05 m 안이면 그대로·넘으면 참조를 뗌). 막힌 이유를 돌려준다 */
+  const moveXY = (i: number, x: number, y: number) => { const o = pts[i];
+    if (!o || !set || lock || making) return '지금은 바꿀 수 없습니다.';
+    if (!v || o.floor_id !== cur) return '이 지점의 층 지도를 연 뒤 바꾸세요.';
+    if (!inside(v, x, y)) return '지도 범위 밖입니다. 지도 그림 안 좌표를 넣으세요.';
+    if (!(o.waypoint_ref && Math.hypot(x - o.x, y - o.y) <= 0.05)) put(pts.map((w, j) => (j === i ? { ...w, x, y, waypoint_ref: null } : w)));
+    return null; };
+  /** R5 지점 이름·대기 바꾸기 — null = 그 키를 뺀다(빈칸 = 기본값). 다른 칸(할 일·좌표·참조)은 그대로 */
+  const setPt = (i: number, k: 'name' | 'wait_s', val: string | number | null) => { if (!set || lock || making || !pts[i]) return;
+    put(pts.map((w, j) => { if (j !== i) return w; const o = { ...w, [k]: val }; if (val == null) delete o[k]; return o; })); };
+  const why = (i: number, k: 'name' | 'wait_s') => bad.filter((x) => x.at === `waypoints.${i}.${k}`).map((x, j) => <span key={j} className="fh-why" role="alert">{x.text}</span>);
+  /** 지점 편집 창(노드 크게 보기·좁은 창·앱 모두): 할 일 = 목록과 같은 quick, X·Y = moveXY, 앞으로/뒤로 = shift, 지우기 = drop. 대기 초는 임무 값 읽기만(바꾸기는 목록) */
+  const pointForm = one != null && pts[one] ? (() => { const i = one, p = pts[i], m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
+    const kind = p.mission_id ? kindOf(fresh) : 'MOVE', pr = res[`waypoints.${i}`], no = set && fresh ? cannot(fresh) : null, d = waitDflt(fresh);
+    const nw = nameWhy(p.name), ww = waitWhy(p.wait_s);
+    return <fieldset disabled={!set || fence || making}>
+      {/* R5 이름: 빈칸(공백만 포함) = 키 없음 → «N번 지점» */}
+      <label className="fh-field"><span>지점 이름</span><input className="inp" data-edit-name maxLength={60} placeholder={`${i + 1}번 지점`} aria-label={`편집 창 ${i + 1}번 지점 이름`} aria-invalid={!!nw || undefined}
+        value={p.name ?? ''} onChange={(ev) => setPt(i, 'name', /\S/.test(ev.target.value) ? ev.target.value : null)} />
+        {nw && <span className="fh-why" role="alert">{nw}</span>}{why(i, 'name')}</label>
+      <label className="fh-field"><span>할 일</span><select className="inp" aria-label={`편집 창 ${i + 1}번 지점 할 일`} data-edit-kind disabled={!missions || !!unsure} value={kind === 'OTHER' ? '' : kind} onChange={(ev) => quick(i, quickSteps(ev.target.value))}>
+        {kind === 'OTHER' && <option value="" hidden>다른 임무</option>}
+        <option value="MOVE">이동</option><option value="PHOTO">사진 찍기</option><option value="WAIT">대기</option></select></label>
+      {fresh ? <span className="lbl" data-edit-do>{doText(fresh)}</span> : kind === 'OTHER' && <span className="lbl">지금 임무: {m?.name ?? '알 수 없는 임무'}</span>}
+      {/* R5 대기: 고른 할 일에 대기 단계가 있을 때만(남은 값이 있으면 지울 수 있게 보임), 빈칸 = 할 일 기본 */}
+      {(d != null || p.wait_s != null) && <label className="fh-field"><span>대기 시간(초)</span>
+        <input className="inp" type="number" min={1} max={3600} step={1} inputMode="numeric" data-edit-wait aria-label={`편집 창 ${i + 1}번 지점 대기 초`} aria-invalid={!!ww || undefined}
+          placeholder={d != null ? `기본 ${d}초` : ''} value={p.wait_s ?? ''} onChange={(ev) => setPt(i, 'wait_s', ev.target.value.trim() === '' ? null : Number(ev.target.value))} />
+        {ww && <span className="fh-why" role="alert">{ww}</span>}{d == null && <span className="fh-why">이 할 일에는 대기 단계가 없습니다 — 비우세요.</span>}{why(i, 'wait_s')}</label>}
+      <div className="sn-xy"><Coord label="X(m)" i={i} val={p.x} apply={(n) => moveXY(i, n, p.y)} /><Coord label="Y(m)" i={i} val={p.y} apply={(n) => moveXY(i, p.x, n)} /></div>
+      {p.waypoint_ref && <span className="lbl">지도 지점 «{refName(p)}»에 붙어 있음 — 좌표를 바꾸면 떨어집니다.</span>}
+      {no && <p className="fh-why">저장은 되지만 지금은 실행 불가 — {no}</p>}
+      {pr && !pr.reachable && <p className="fh-msg" role="alert">갈 수 없음: {pr.reasons.join(' ')}</p>}
+      <div className="fh-row" style={{ flexWrap: 'wrap' }}><button type="button" className="btn" data-edit-up disabled={!i} onClick={() => shift(i, -1)}>앞으로</button>
+        <button type="button" className="btn" data-edit-down disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>뒤로</button>
+        <button type="button" className="btn" data-edit-drop onClick={() => drop(i)}>지우기</button></div>
+    </fieldset>; })() : undefined;
   const pick = (t: 'steps' | 'assign') => { setTab(t); if (t === 'assign') setSel(null); };
   const order = assign ? (['steps', 'assign'] as const) : (['steps'] as const);
   /** 탭 방향키(←→·Home·End) = 옆 탭을 고르고 포커스(roving tabIndex) */
@@ -792,6 +854,10 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           <button type="button" className="btn" onClick={() => { put(back.w, back.f); setUndo(null); }}>되돌리기</button></div>}
         {msg && <p className="fh-msg" role="alert">{msg}</p>}
       </div>
+      {/* SCEN-ONE-FLOW-R2: 노드 «크게 보기»면 지도·안내만 노드 위 작은 창(Float) — 위 알림 띠는 창 밖(접어도 보임) */}
+      <Float head={set && v && <button type="button" className="btn" data-add-point aria-pressed={adding} disabled={lock || making} title="누른 뒤 지도를 누르면 지점 추가(지도를 바로 눌러도 추가됩니다)"
+          onClick={() => { setPlacing('point'); setMsg(''); setAdding(!adding); }}>+ 지점</button>}
+        foot={one != null && nodeItems[one] ? `${one + 1}번 지점${nodeItems[one].title !== `${one + 1}번 지점` ? ` · ${nodeItems[one].title}` : ''} · ${nodeItems[one].sub}` : '지점을 누르면 노드도 골라집니다'}>
       {v ? <MapFrame ref={svg} {...look} photo={v} edit={!!set} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           onContextMenu={(e) => { const h = (e.target as Element).closest('[data-pt]')?.getAttribute('data-pt'); if (h == null || !set || lock || making) return; e.preventDefault(); drop(h === 'T' ? 'T' : Number(h)); }}
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', ...(set && { cursor: 'crosshair' }) }}>
@@ -809,14 +875,16 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         </MapFrame>
         : <div className="mx-center"><p className="lv-note">{!approved.length && (set || !pts.length) ? '승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.' : mapErr ? '지도를 받지 못했습니다.' : '지도를 불러오는 중…'}</p></div>}
       {set && v && (placing === 'target' ? <Hint text="지도를 누르면 끝나고 갈 지점을 놓습니다" more="이름 붙은 지도 지점을 누르면 그 지점을 씁니다." />
+        : adding ? <Hint text="지도를 누르면 새 지점을 놓습니다" more="이름 붙은 지도 지점을 누르면 그 지점을 씁니다." />
         : <Hint text="지도를 눌러 지점 추가 · 끌어 옮기기 · 우클릭으로 지우기" more="지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 찍힌 지점을 누르면 고르고, 끌면 옮깁니다. 지점을 우클릭하거나 고른 지점 오른쪽 위 X 로 지웁니다. 빨간 구역은 진입 금지입니다." />)}
+      </Float>
     </div>
     {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
     <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창" pick={picker} name={[value.name || (saved ? WHAT.scenarios : `새 ${WHAT.scenarios}`), place?.floor.name].filter(Boolean).join(' · ')}
-      wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}<span className="fh-grow" />{more}</>}>
+      wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}{simTop && simRun}<span className="fh-grow" />{more}</>}>
       {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
-      {sim && <SimRun value={value} saved={saved} dirty={sim.dirty} place={place} v={v} missions={missions} cancel={cancel} />}
-      {paneLook === 'node' && <ScenNodes where={sim ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go}
+      {!simTop && simRun}
+      {paneLook === 'node' && <ScenNodes where={sim ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} form={pointForm}
         edit={(i) => { go(i); setTab('steps'); setPaneLook('list'); }} />}
       <div className="mx-pane-in" hidden={paneLook === 'node'}>
       {/* 이름·판·실행 확인 로봇 → [단계 N | 배정 N] (지점을 고르면 «‹ N번 지점») */}
@@ -841,8 +909,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
               {set && one == null && <span className="mx-grip" role="img" draggable={!still} aria-label={`${i + 1}번 단계 끌어 옮기기`} aria-disabled={still || undefined}
                 title="끌어서 순서 바꾸기 — 키보드는 단계를 눌러 «더 보기»의 ↑↓"
                 onDragStart={(ev) => { if (still) { ev.preventDefault(); grab.current = null; return; } grab.current = i; ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(i)); }} onDragEnd={() => { grab.current = null; }}><span aria-hidden="true">⋮⋮</span></span>}
-              <button type="button" className="mx-name" aria-pressed={sel === i} onClick={() => go(i)}><span className="mx-num">{i + 1}</span><b>{where(p)}</b>
-                <small>{m ? m.name : p.mission_id ? unknown : '이동'}</small>{warn && <span className="mx-warn" title={no ? `실행 불가 — ${no}` : '확인할 것이 있습니다'}>⚠</span>}</button>
+              <button type="button" className="mx-name" aria-pressed={sel === i} onClick={() => go(i)}><span className="mx-num">{i + 1}</span><b>{p.name ?? where(p)}</b>
+                <small>{p.name ? `${where(p)} · ` : ''}{m ? m.name : p.mission_id ? unknown : '이동'}{waitNote(p, fresh)}</small>{warn && <span className="mx-warn" title={no ? `실행 불가 — ${no}` : '확인할 것이 있습니다'}>⚠</span>}</button>
               {set && <button type="button" className="mx-x" aria-label={`${i + 1}번 지점 지우기`} title="지우기" onClick={() => drop(i)}>✕</button>}
             </div>
             <div className="mx-in" hidden={sel !== i}>
@@ -853,10 +921,11 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
                 : <span className="lbl">{m ? m.name : unknown}</span>}
               {set && kind === 'OTHER' && <span className="lbl" data-other>지금 임무: {m?.name ?? unknown}{m?.archived_at ? ' (보관됨)' : m && !fresh ? ' (옛 내용)' : ''}</span>}
               {fresh && <span className="lbl" data-do>할 일: {doText(fresh)}</span>}
-              {sec != null && <WaitSecs i={i} sec={sec} apply={(n) => quick(i, quickSteps('WAIT', n))} />}
+              {/* R5: 지점 대기(wait_s)가 있으면 그 값 — 목록 «적용»은 그 초 임무를 잇고 지점 대기를 뗀다(지금 값 하나) */}
+              {sec != null && <WaitSecs i={i} sec={p.wait_s ?? sec} apply={(n) => quick(i, quickSteps('WAIT', n), true)} />}
               {no && <p className="fh-why" data-cannot>저장은 되지만 지금은 실행 불가 — {no}</p>}
               {pr && !pr.reachable && <p className="fh-msg" role="alert">갈 수 없음: {pr.reasons.join(' ')}</p>}
-              {bad.filter((x) => x.at === e).map((x, j) => <p key={j} className="fh-msg" role="alert">{x.text}</p>)}
+              {bad.filter((x) => x.at === e || x.at.startsWith(`${e}.`)).map((x, j) => <p key={j} className="fh-msg" role="alert">{x.text}</p>)}
               <details className="fh-fold"><summary>더 보기</summary>
                 <p className="lbl">자리: {floorName(p.floor_id)} · {p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}</p>
                 {set && <div className="fh-row" style={{ flexWrap: 'wrap' }}><button type="button" className="btn" aria-label={`${i + 1}번 지점 위로`} disabled={!i} onClick={() => shift(i, -1)}>↑</button>
