@@ -2,9 +2,10 @@
 // 지도 원본·서버는 그대로다 — 색은 SVG 필터(기존 토큰만), 자르기는 같은 그림을 브라우저에서 한 번 더 읽어 벽 범위를 잰다(실패하면 전체 그림).
 // 이동: 보기 = 끌기·두 손가락, 편집(edit) = 가운데 단추·두 손가락만(왼쪽 누름·한 손가락은 부른 쪽의 그리기·찍기). 확대 = 휠·집기·단추.
 // 키는 잡지 않는다(Space = STOP 은 App 그대로). 누름 좌표는 svg 의 viewBox 를 읽어 바꾼다(toView) — 확대·자르기 뒤에도 같은 계산.
-import { forwardRef, useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent, type SVGProps } from 'react';
+import { forwardRef, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent, type SVGProps } from 'react';
 import type { MapVersion } from '../../contracts/ts';
 import { api } from './api';
+import { terrainTop } from './terraintop';
 
 export type Box = [number, number, number, number];   // x y 폭 높이(그림 픽셀)
 type P = [number, number];
@@ -49,7 +50,7 @@ type TopMeta = { bounds: [number, number, number, number]; map: TopGrid; floors?
 const TOP_PNG = import.meta.glob<string>('../../../mobile/sim/assets/*/top*.png', { eager: true, query: '?url', import: 'default' });
 const TOP_META = import.meta.glob<TopMeta>('../../../mobile/sim/assets/*/top.json', { eager: true, import: 'default' });
 export type Top = { href: string; x: number; y: number; width: number; height: number };
-type Ver = Pick<MapVersion, 'provenance' | 'image_sha256' | 'origin' | 'resolution' | 'width' | 'height'>;
+type Ver = Pick<MapVersion, 'provenance' | 'image_sha256' | 'origin' | 'resolution' | 'width' | 'height'> & Pick<Partial<MapVersion>, 'terrain_spec'>;
 /** 판에 깔 사진 자리(그림 픽셀). 시뮬 등록 판이 아니거나 연결된 시뮬 그림이 아니거나 판 좌표(origin·해상도·크기)가 사진을 구운 지도와 다르면 null */
 export function topOf(v?: Ver | null): Top | null {
   const id = v?.provenance === 'SIMULATION' && SIM_TOP.get(v.image_sha256), t = id && TOP_META[`../../../mobile/sim/assets/${id}/top.json`];
@@ -140,7 +141,7 @@ type Props = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'ref'> & {
   edit?: boolean;   // 왼쪽 누름·한 손가락은 부른 쪽(그리기·찍기) — 이동은 가운데 단추·두 손가락
   still?: boolean;   // 확대·이동·단추 없음(작은 지도 단추 안)
   at?: CSSProperties;   // 단추·축척 칸을 지도 위에 띄울 자리(가장 가까운 position 조상 기준, 시뮬 영상 칸). 없으면 지도 아래 줄
-  photo?: Ver | null;   // 이 판이 시뮬 월드 그림이면 «실제 모습» 사진을 그림 밑에 깔고 보기 단추를 단다(topOf)
+  photo?: Ver | null;   // 이 판이 시뮬 월드 그림이면 «실제 모습» 사진(topOf), 지형 판이면 지형 모양 그림(terrainTop)을 그림 밑에 깔고 보기 단추를 단다
 };
 
 /** 판 그림 틀(svg + 확대 단추·축척). 포인터 처리기는 이동·집기 아닐 때만 넘긴다 */
@@ -235,15 +236,18 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
   };
 
   const [x, y, w, h] = box(v), bar = scaleBar(res, Math.min(size[0] / w, size[1] / h));
-  const top = topOf(photo), want = useLook(), [bad, setBad] = useState(''), shown = !!top && want === 'photo' && bad !== top.href;
+  const top = topOf(photo), want = useLook(), [bad, setBad] = useState(''), gid = `fh-ttop${useId().replace(/:/g, '')}`;
+  // 사진이 없고 판에 지형 모양이 있으면 그 그림 — 사진이 우선. 지형 모양·판 격자가 바뀔 때만 다시 계산
+  const drawn = useMemo(() => (top ? null : terrainTop(photo, gid)), [!!top, photo?.provenance, photo?.terrain_spec, photo?.resolution, photo?.width, photo?.height, photo?.origin?.join(' '), gid]);
+  const shown = want === 'photo' && (top ? bad !== top.href : !!drawn), has = !!(top || drawn);
   const set = (el: SVGSVGElement | null) => { own.current = el; if (typeof ref === 'function') ref(el); else if (ref) ref.current = el; };
   const svg = <svg ref={set} viewBox={`${x} ${y} ${w} ${h}`} onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-    style={{ background: 'var(--bg)', ...(!still && { touchAction: 'none', cursor: edit ? undefined : 'grab' }), ...(shown && ({ '--fh-map-a': 0.45 } as CSSProperties)), ...style }} data-look={top ? (shown ? 'photo' : 'map') : undefined} {...rest}>
-    {shown && <image href={top.href} x={top.x} y={top.y} width={top.width} height={top.height} preserveAspectRatio="none" data-map-top onError={() => setBad(top.href)} style={{ pointerEvents: 'none' }} />}
+    style={{ background: 'var(--bg)', ...(!still && { touchAction: 'none', cursor: edit ? undefined : 'grab' }), ...(shown && ({ '--fh-map-a': 0.45 } as CSSProperties)), ...style }} data-look={has ? (shown ? 'photo' : 'map') : undefined} {...rest}>
+    {shown && (top ? <image href={top.href} x={top.x} y={top.y} width={top.width} height={top.height} preserveAspectRatio="none" data-map-top onError={() => setBad(top.href)} style={{ pointerEvents: 'none' }} /> : drawn)}
     {children}</svg>;
   if (still) return svg;
   // 고른 보기 = 테두리·바탕 강조(drive.css .dv-views 단추와 같은 값)
-  const pick = top && <div role="group" aria-label="지도 보기" style={{ display: 'flex', gap: 4, pointerEvents: 'auto' }}>
+  const pick = has && <div role="group" aria-label="지도 보기" style={{ display: 'flex', gap: 4, pointerEvents: 'auto' }}>
     {([['photo', '실제 모습'], ['map', '장애물 지도']] as const).map(([k, t]) => <button key={k} type="button" className="btn" aria-pressed={want === k} data-look-btn={k} style={{ padding: '0 10px', ...(want === k && { borderColor: 'var(--accent)', background: 'var(--acc-bg)' }) }} onClick={() => setLook(k)}>{t}</button>)}
   </div>;
   const miss = top && want === 'photo' && bad === top.href && <p className="lv-note" role="status" data-top-bad style={{ margin: 0, pointerEvents: 'none' }}>실제 모습 사진을 불러오지 못해 장애물 지도만 보입니다.</p>;
