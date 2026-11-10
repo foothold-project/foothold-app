@@ -1178,6 +1178,7 @@ TerrainItem = Annotated[TerrainBox | TerrainStairs | TerrainRamp | TerrainGap, F
 
 class TerrainSpec(Contract):
     # Alias preserves the browser's fh_custom_terrain/1 wire format.
+    model_config = ConfigDict(serialize_by_alias=True)
     schema_: Literal['fh_custom_terrain/1'] = Field(alias='schema')
     id: str = Field(pattern=r'^[a-z0-9-]{1,32}$', min_length=1, max_length=32)
     name: MapNameText = Field(min_length=1, max_length=40, pattern=r'\S')
@@ -1334,8 +1335,9 @@ class MapVersionCreate(Contract):
 
 
 class MapVersion(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
+    terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
     upload_id: UUID
     id: UUID
     floor_id: UUID

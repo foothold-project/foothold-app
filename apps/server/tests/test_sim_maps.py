@@ -149,6 +149,8 @@ def test_import_approved_idempotent_image_replacement_and_snapshots(maps, seeded
     old_id = floor['approved_version_id']
     version = http.get(P + '/map-versions/' + old_id).json()
     assert version['status'] == 'APPROVED' and version['provenance'] == 'SIMULATION'
+    assert 'terrain_spec' not in version
+    assert http.get(P + f'/floors/{floor["id"]}/map-versions').json()['items'] == [version]
     assert http.get(P + '/map-versions/' + old_id + '/image').content == (world_folder / 'warehouse/maps/f1.png').read_bytes()
     scenarios = http.get(P + '/scenarios').json()['items']
     assert len(scenarios) == 3 and all(s['map_version_ids'] == [old_id] for s in scenarios)

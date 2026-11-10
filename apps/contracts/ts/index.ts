@@ -727,6 +727,7 @@ export interface MapUpload {
 
 export interface MapVersion {
   provenance?: "HUMAN" | "SIMULATION";
+  terrain_spec?: TerrainSpec | null;
   upload_id: string;
   id: string;
   floor_id: string;
