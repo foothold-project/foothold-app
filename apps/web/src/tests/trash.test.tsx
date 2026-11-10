@@ -118,6 +118,7 @@ describe('휴지통(05 §5.1)', () => {
     expect(writes()).toHaveLength(1); expect($('[data-purge-ask]')).toBeNull();
     await click(btn('완전 삭제', row('sc1')));
     await stopSends();                                                     // 확인 창이 떠 있어도 STOP
+    expect(btn('완전 삭제', $('[data-purge-ask]')!)!.className).toBe('btn bad');   // 되돌릴 수 없음 = 위험 색(저장 청록 아님)
     await click(btn('완전 삭제', $('[data-purge-ask]')!));
     expect(confirm).not.toHaveBeenCalled();
     expect(writes()).toEqual(['POST /trash/floor/f2/restore', 'DELETE /trash/scenario/sc1']);

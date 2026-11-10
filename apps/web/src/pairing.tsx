@@ -261,7 +261,7 @@ export function ManageRobot({ r, refresh, cancel }: { r: Robot; refresh: () => v
       <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{ask === 'cut'
         ? `${r.name} 연결을 끊을까요? 연결 키가 폐기되고 진행 중인 조종은 정지·잠금됩니다. 다시 쓰려면 «새 로봇 추가»로 다시 연결합니다.`
         : `${r.name} 로봇을 지울까요? 연결 키가 폐기되고 되돌릴 수 없습니다. 기록은 남습니다.`}</span>
-      <button type="button" className="btn pri" onClick={() => (ask === 'cut'
+      <button type="button" className="btn bad" onClick={() => (ask === 'cut'
         ? run(() => api.disconnectRobot(r.id, cancel), '연결을 끊었습니다. 연결 키를 폐기했습니다.')
         : run(() => api.deleteRobot(r.id, cancel), `${r.name} 로봇을 지웠습니다.`))}>{ask === 'cut' ? '연결 끊기' : '지우기'}</button>
       <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button></div>}

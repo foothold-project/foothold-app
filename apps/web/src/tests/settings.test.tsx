@@ -340,8 +340,40 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
       expect(input.min).toBe('0'); expect(input.max).toBe(max); expect(input.disabled).toBe(false);
       setVal(input, value);
     }
+    await submit($('form', cap)!);                                              // 실기 값: 먼저 바뀌는 값을 보이고 아직 안 보냄
+    expect(sent('PATCH', '/org/settings')).toEqual([]);
+    expect($('[data-save-check]', cap)!.textContent).toContain('→ 0 m/s');
+    expect([...cap.querySelectorAll('button')].map((x) => x.textContent)).toContain('이대로 저장');
     await submit($('form', cap)!);
     expect(sent('PATCH', '/org/settings')[0].body).toEqual({ real_max_vx: 0, real_max_vx_back: .5, real_max_vy: .2, real_max_wz: .3 });
+    expect($('[data-save-check]', cap)).toBeNull();
+  });
+  it('실기 저장 확인: 값 바꾸면 확인 풀림·취소는 값 유지·실패 뒤 재확인·빈 칸은 칸 옆 오류·원래 값이면 안 보냄', async () => {
+    const MSG = '잘못된 값입니다.';
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': err(422, 'VALIDATION', MSG) }));
+    await open();
+    const c = card('속도 제한'), f = $('form', c)!, inp = $<HTMLInputElement>('input[name="real_max_vx"]', c)!, old = inp.value;
+    const check = () => $('[data-save-check]', c)?.textContent ?? null;
+    setVal(inp, '0.3'); await submit(f);
+    expect(check()).toContain('→ 0.3 m/s');
+    setVal(inp, '0.4');                                                         // 확인 뒤 값을 바꾸면 확인이 풀리고 다시 확인부터
+    expect(check()).toBeNull();
+    await submit(f); expect(check()).toContain('→ 0.4 m/s');
+    act(() => [...c.querySelectorAll('button')].find((b) => b.textContent === '취소')!.click());
+    expect([check(), inp.value]).toEqual([null, '0.4']);                        // 취소: 확인만 닫고 입력은 둔다
+    expect(sent('PATCH', '/org/settings')).toEqual([]);
+    await submit(f); await submit(f);                                           // 확인 → 보냄 → 422
+    expect(sent('PATCH', '/org/settings').map((x) => x.body)).toEqual([{ real_max_vx: 0.4 }]);
+    expect([check(), inp.value]).toEqual([null, '0.4']);
+    await submit(f);                                                            // 다시 누르면 다시 확인부터(바로 안 보냄)
+    expect(sent('PATCH', '/org/settings')).toHaveLength(1);
+    expect(check()).toContain('→ 0.4 m/s');
+    setVal(inp, ''); await submit(f);                                           // 빈 칸: «→ NaN» 확인 대신 칸 옆 오류
+    expect(check()).toBeNull();
+    expect(document.getElementById(inp.getAttribute('aria-describedby')!.split(' ')[0])!.textContent).toContain('값을 입력하세요');
+    setVal(inp, old); await submit(f);                                          // 원래 값으로 되돌리면 안 보냄
+    expect([check(), sent('PATCH', '/org/settings').length]).toEqual([null, 1]);
+    expect(c.textContent).toContain('바뀐 값이 없습니다');
   });
   it('실기 «서버 경유 빠른 이동 끄기»: 바꾼 칸만 PATCH(true)', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, real_no_fast_server_drive: true } } }));
@@ -349,6 +381,8 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     const c = card('속도 제한'), sw = $<HTMLInputElement>('input[name="real_no_fast_server_drive"]', c)!;
     expect([sw.checked, sw.disabled, sw.getAttribute('role')]).toEqual([false, false, 'switch']);
     act(() => sw.click());
+    await submit($('form', c)!);
+    expect($('[data-save-check]', c)!.textContent).toContain('끔 → 켬');
     await submit($('form', c)!);
     expect(sent('PATCH', '/org/settings').map((x) => x.body)).toEqual([{ real_no_fast_server_drive: true }]);
     expect(sw.checked).toBe(true);

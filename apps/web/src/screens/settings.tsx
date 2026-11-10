@@ -55,7 +55,7 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
         <p className="st-note">실기에서 도는 모델이 하나뿐이라 모델별 값 없음</p>
       </div>
       {card({ id: 'lease', label: '조종권·연결', fields: LEASE })}
-      {card({ id: 'speed', label: '속도 제한', bad: '실기 미검증', note: '로봇 쪽 상한보다 높게 넣어도 로봇 상한까지만. 0은 그 축을 끕니다. 폰 막대 끝은 실효 상한이며, 서버 경유 고정 명령이 상한을 넘으면 비활성·STOP 거절합니다.', fields: REAL, top: <RealTable /> })}
+      {card({ id: 'speed', label: '속도 제한', bad: '실기 미검증', confirm: true, note: '로봇 쪽 상한보다 높게 넣어도 로봇 상한까지만. 0은 그 축을 끕니다. 폰 막대 끝은 실효 상한이며, 서버 경유 고정 명령이 상한을 넘으면 비활성·STOP 거절합니다.', fields: REAL, top: <RealTable /> })}
       <section className="lv-card st-fixed" aria-label="고정 안전값">
         <h2>고정 안전값</h2>
         <p className="st-note">로봇·서버 코드에 묶인 값. 화면에서는 보기만 합니다.</p>
@@ -141,10 +141,11 @@ function useOrg(cancel?: AbortSignal) {
 }
 
 /** model: 고치는 모델 id(없으면 공통 값). 초안의 null = 저장하면 그 칸을 공통으로 되돌림(모델 칸만) */
-type CardProps = { org: Org; admin: boolean; id: string; model?: string; label: string; note?: string; bad?: string; cap?: boolean; fields: Field[]; top?: ReactNode } & Cancel;
-function OrgCard({ org, admin, id, model, label, note, bad, cap, fields, top, cancel }: CardProps) {
+/** confirm = 실기 값: 저장 전에 바뀌는 값(지금 → 새 값)을 보이고 «이대로 저장»을 한 번 더 받는다 */
+type CardProps = { org: Org; admin: boolean; id: string; model?: string; label: string; note?: string; bad?: string; cap?: boolean; confirm?: boolean; fields: Field[]; top?: ReactNode } & Cancel;
+function OrgCard({ org, admin, id, model, label, note, bad, cap, confirm, fields, top, cancel }: CardProps) {
   const { saved } = org, [draft, setDraft] = useState<Record<string, string | boolean | null>>({});
-  const [msg, setMsg] = useState<Msg>(null), [errs, setErrs] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<Msg>(null), [errs, setErrs] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [check, setCheck] = useState<string | null>(null);
   const over: Record<string, number | boolean> = (model && saved?.model_overrides?.[model]) || {};
   const current = (f: Field) => over[f.key] ?? saved?.[f.key] ?? REAL_CAPS[f.key as keyof typeof REAL_CAPS];   // 저장된 실효값(공통 화면이면 공통 값)
   const shown = (f: Field) => {
@@ -156,7 +157,8 @@ function OrgCard({ org, admin, id, model, label, note, bad, cap, fields, top, ca
   const value = (f: Field) => { const v = shown(f); return typeof v === 'boolean' ? v : v.trim() === '' ? NaN : Number(v); };
   const pending = (f: Field) => f.key in draft && (draft[f.key] === null ? f.key in over : value(f) !== current(f));
   const own = (f: Field) => draft[f.key] !== null && (f.key in over || (f.key in draft && value(f) !== saved?.[f.key]));
-  const edit = (f: Field, v: string | boolean) => { setDraft({ ...draft, [f.key]: v }); setErrs({ ...errs, [f.key]: '' }); };
+  const edit = (f: Field, v: string | boolean) => { setDraft({ ...draft, [f.key]: v }); setErrs({ ...errs, [f.key]: '' }); setCheck(null); };
+  const say = (f: Field, v: unknown) => (typeof v === 'boolean' ? (v ? '켬' : '끔') : `${v ?? '기본값'}${f.unit ? ` ${f.unit}` : ''}`);
   // 되돌리기도 저장 때 한꺼번에 보낸다 — 최대·최소를 함께 되돌릴 때 중간 상태가 교차 검사에 걸리지 않게
   const back = (f: Field) => { const rest = { ...draft }; delete rest[f.key]; setDraft(f.key in over ? { ...rest, [f.key]: null } : rest); setErrs({ ...errs, [f.key]: '' }); };
   const pre = model ? `${model}-` : '', why = admin ? undefined : `why-${pre}${id}`;
@@ -166,10 +168,12 @@ function OrgCard({ org, admin, id, model, label, note, bad, cap, fields, top, ca
     const patch = Object.fromEntries(fields.filter(pending).map((f) => [f.key, draft[f.key] === null ? null : value(f)])) as Record<string, number | boolean | null>;
     setErrs({});
     if (!Object.keys(patch).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
-    // 모델 칸의 null 은 «되돌리기»라, 빈 칸(NaN → JSON null)을 보내면 값이 조용히 지워진다 — 보내기 전에 막는다
-    const empty = model ? fields.filter((f) => Number.isNaN(patch[f.key])) : [];
+    // 모델 칸의 null 은 «되돌리기»라, 빈 칸(NaN → JSON null)을 보내면 값이 조용히 지워진다 — 보내기 전에 막는다.
+    // 확인 카드도 «→ NaN» 확인 대신 칸 옆에 알린다(Codex 검토 R2)
+    const empty = model || confirm ? fields.filter((f) => Number.isNaN(patch[f.key])) : [];
     if (empty.length) return setErrs(Object.fromEntries(empty.map((f) => [f.key, `값을 입력하세요. 허용 범위: ${f.label} ${range(f)}`])));
-    setBusy(true); setMsg(null);
+    if (confirm && check === null) return setCheck(fields.filter(pending).map((f) => `${f.label} ${say(f, current(f))} → ${draft[f.key] === null ? '공통 값' : say(f, value(f))}`).join(' · '));
+    setCheck(null); setBusy(true); setMsg(null);
     try { org.put(await api.saveSettings((model ? { model_overrides: { [model]: patch } } : patch) as OrgSettingsPatch, cancel)); setDraft({}); setMsg({ text: '저장했습니다. 다음 실행부터 적용됩니다.', ok: true }); }
     catch (err) {
       // 서버 검사(400·422 VALIDATION)는 어느 칸인지 알려 주지 않는다 — 교차 검사 문구는 걸린 칸 옆, 범위를 벗어난 칸은 그 칸 옆에 허용 범위와 함께
@@ -212,7 +216,9 @@ function OrgCard({ org, admin, id, model, label, note, bad, cap, fields, top, ca
     {saved && <form className="fh-form" onSubmit={save} noValidate>
       {fields.map(model ? modelRow : row)}
       <div className="fh-row">
-        <button type="submit" className="btn pri" disabled={!admin || busy} aria-describedby={why}>저장</button>
+        {check !== null && <p className="fh-msg warn" role="status" data-save-check>바뀌는 값: {check}</p>}
+        <button type="submit" className="btn pri" disabled={!admin || busy} aria-describedby={why}>{check !== null ? '이대로 저장' : '저장'}</button>
+        {check !== null && <button type="button" className="btn" onClick={() => setCheck(null)}>취소</button>}
         {!admin && <span id={why} className="fh-why" data-why>{NO_EDIT}</span>}
       </div>
     </form>}
@@ -381,7 +387,7 @@ function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; pu
     {!self && noDel && <span id="why-del" className="fh-why" data-why>{noDel}</span>}
     {ask && <div className="fh-row" role="group" aria-label="확인">
       <span>{ask === 'lock' ? `${u.display_name} 계정을 잠글까요? 이 사람의 로그인이 모두 끝납니다.` : `${u.display_name} 계정을 지울까요? 이 사람의 로그인이 모두 끝나고 되돌릴 수 없습니다.`}</span>
-      <button type="button" className="btn pri" onClick={() => (ask === 'lock' ? lock(true) : del())}>{ask === 'lock' ? '잠그기' : '지우기'}</button>
+      <button type="button" className={ask === 'lock' ? 'btn pri' : 'btn bad'} onClick={() => (ask === 'lock' ? lock(true) : del())}>{ask === 'lock' ? '잠그기' : '지우기'}</button>
       <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
     </div>}
     <Note msg={msg} />

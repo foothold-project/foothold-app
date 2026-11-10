@@ -260,27 +260,22 @@ function Screen(c: Ctx) {
     {r.mission && <div className="fh-row dv-run">
       <span>시나리오: {r.mission}</span>
       <span className="fh-grow" />
-      <button type="button" className="btn" {...soon}>일시정지</button>
-      <button type="button" className="btn" {...soon}>중단</button>
-    </div>}
+      <span className="lbl" data-run-stop>멈추려면 STOP</span>
+    </div>}{/* 일시정지·중단 단추는 아직 없다 — 누를 수 없는 단추 대신 멈추는 길만(critique 11-10) */}
   </section>;
 }
 
-/** 실기 RGB: 실기 영상 어댑터·media capability 가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0) */
+/** 실기 RGB·뎁스·지도: 실기 영상 어댑터·지도·라이다 자료가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0).
+ *  예전 지도 칸은 고정 벽·계산한 라이다 점을 그려 실제 센서로 읽힐 수 있었다(critique 11-10) — 받은 값이 없으면 그리지 않는다 */
 export const REAL_RGB = '실기 영상 준비 중(미연결)';
+export const REAL_DEPTH = '뎁스 영상 없음 · 기능 준비 중';
+export const REAL_MAP = '지도·라이다 자료 없음 · 기능 준비 중';
 function Video({ depth, small }: { depth?: boolean; small?: boolean }) {
-  return <div className={`dv-video${depth ? ' depth' : ''}`} role="img" aria-label={depth ? '뎁스 영상' : 'RGB 영상'}>
-    {!small && <span>{depth ? '뎁스 영상 자리 · 가까울수록 붉게' : REAL_RGB}</span>}</div>;
+  return <div className="dv-video" role="img" aria-label={depth ? '뎁스 영상' : 'RGB 영상'}>
+    {!small && <span>{depth ? REAL_DEPTH : REAL_RGB}</span>}</div>;
 }
-/** 지도 + 로봇 위치 + 라이다 점(겹쳐 그림) — 가짜 그림 */
 function MapView({ big }: { big?: boolean }) {
-  const dots = Array.from({ length: 24 }, (_, i) => { const a = (i / 24) * Math.PI * 2, d = 38 + ((i * 7) % 11); return [100 + Math.cos(a) * d * 1.6, 70 + Math.sin(a) * d]; });
-  return <svg className={`dv-map${big ? ' big' : ''}`} viewBox="0 0 200 140" role="img" aria-label="지도와 라이다">
-    <rect width="200" height="140" fill="var(--map)" />
-    <path d="M10 10h180v120H10zM70 10v50M130 80v50" fill="none" stroke="var(--wall)" strokeWidth="3" />
-    {dots.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="1.6" fill="var(--warn)" />)}
-    <path d="M100 62l7 14h-14z" fill="var(--accent)" />
-  </svg>;
+  return <div className="dv-video" role="img" aria-label="지도·라이다 없음" data-map-none>{big ? <span>{REAL_MAP}</span> : <span>지도 없음</span>}</div>;
 }
 
 /** 폰 엄지 조이스틱(03 §5.7): 왼쪽 전후(세로), 오른쪽 회전(가로). both = 세로·가로 두 축(시뮬 왼쪽 상하좌우, set 둘째 값 = 가로, 왼쪽 +).
