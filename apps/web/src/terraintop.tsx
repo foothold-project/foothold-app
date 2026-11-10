@@ -8,12 +8,20 @@ type Item = TerrainSpec['items'][number];
 const tone = (k: number) => `color-mix(in srgb, var(--accent) ${Math.round(14 + 66 * Math.max(0, Math.min(1, k)))}%, var(--panel2))`;   // terrain.tsx 와 같은 값(높이 1 m = 가장 진함)
 const HOLE = '#14171C';   // terrain.tsx 틈 색
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+const num = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+/** 종류마다 있어야 할 숫자(x·y·yaw 말고). 모르는 종류·빠진 값·NaN/Infinity 면 그림 전체를 접는다(장애물 지도만) */
+const NEED = new Map([['box', ['sx', 'sy', 'h']], ['gap', ['length', 'width']], ['ramp', ['length', 'width', 'h']], ['stairs', ['width', 'steps', 'rise', 'run']]]);
+const okItem = (it: unknown) => {
+  const o = it as Record<string, unknown> | null, need = NEED.get(o?.kind as string);
+  return !!need && ['x', 'y', 'yaw', ...need].every((k) => num(o![k]));
+};
 
 /** 판 그림 픽셀 위의 지형 그림. 시뮬 판(SIMULATION)의 지형 모양이 아니거나 판 격자가 지형 크기와 다르면 null. gid = 그러데이션 id 앞말(틀마다 달라야 함) */
 export function terrainTop(v: Ver | null | undefined, gid: string): JSX.Element | null {
   const s = v?.terrain_spec, r = v?.resolution ?? 0, o = v?.origin ?? [];
-  if (!v || v.provenance !== 'SIMULATION' || !s || !Array.isArray(s.size) || !Array.isArray(s.items) || !(r > 0)) return null;
+  if (!v || v.provenance !== 'SIMULATION' || !s || !Array.isArray(s.size) || !Array.isArray(s.items) || !num(r) || !(r > 0)) return null;
   const [sx, sy] = s.size;
+  if (s.size.length !== 2 || !num(sx) || !num(sy) || !(sx > 0) || !(sy > 0) || !s.items.every(okItem)) return null;
   if (v.width !== Math.ceil(sx / r) || v.height !== Math.ceil(sy / r) || o.length !== 3 || !near(o[0], -sx / 2) || !near(o[1], -sy / 2) || !near(o[2], 0)) return null;
   const px = (x: number, y: number) => [(x - o[0]) / r, v.height - (y - o[1]) / r];
   /** 물체 몸 기준(+x = 길이 쪽) 점 → 그림 픽셀 */

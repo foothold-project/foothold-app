@@ -120,4 +120,18 @@ describe('지형 모양 그림', () => {
       act(() => root?.unmount()); root = null; box.remove();
     }
   });
+  it('잘못된 지형 모양(항목 null·모르는 종류·숫자 아님·NaN/Infinity·size 이상) → 오류 없이 장애물 지도만, 장애물 지도 보기에서도', () => {
+    const bad = (items: unknown[], size: unknown = SPEC.size) => ver({ terrain_spec: { ...SPEC, size, items } as unknown as TerrainSpec });
+    const box0 = SPEC.items[0];
+    const cases = [bad([null]), bad([{ ...box0, kind: 'cone' }]), bad([{ ...box0, sx: '1' }]), bad([{ ...box0, h: NaN }]), bad([{ ...SPEC.items[1], steps: Infinity }]), bad([{ kind: 'gap', x: 0, y: 0, yaw: 0, width: 1 }]),
+      bad(SPEC.items, [8]), bad(SPEC.items, [NaN, 6.3]), bad(SPEC.items, [-8, 6.3])];
+    for (const look of ['photo', 'map'] as const) for (const v of cases) {
+      setLook(look);
+      draw(frame(v));
+      expect(box.querySelector('[data-map-top]')).toBeNull();
+      expect(box.querySelector('[data-look-btn]')).toBeNull();
+      expect(box.querySelector('[data-child]')).not.toBeNull();
+      act(() => root?.unmount()); root = null; box.remove();
+    }
+  });
 });
