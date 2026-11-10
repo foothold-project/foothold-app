@@ -1,7 +1,7 @@
 // SCEN-LIFECYCLE-EDITOR 11-09 — 시나리오 «운영 흐름»(React Flow): 단계 띠 5개·개수, 기본 = 임무, 임무 노드 = 지점 수(시뮬 거절 지점 «시뮬에서 실행 못 함»),
 // SCEN-ONE-FLOW 11-10 — 한 캔버스에 다섯 묶음·단계 사이 선 3개·예외 점선 2개, 단계 띠 = 그 묶음으로 이동(노드 수 그대로),
 // 다른 단계 = 읽기만(끌기·잇기·추가 단추 없음), 시뮬 탭 = websim·지도 탭 = real 배지, 노드 상세, 저장(네트워크) 호출 없음. (jsdom 대역 = setup.ts)
-// SCEN-ONE-FLOW-R1 11-10 — «크게 보기» 켜기·끄기·Esc·기억.
+// SCEN-ONE-FLOW-R1 11-10 — «크게 보기». R4 11-10 — PC 넓은 창은 늘 크게(켜고 끄는 단추·Esc·기억값 없음), 좁은 창은 나란히 그대로.
 // SCEN-ONE-FLOW-R3 11-10 — 접힌 운영 흐름(요약 카드·펼치기·모두 펼치기), 지원 현황 켤 때만 판정 배지, 예외는 시작에서 점선 하나, 지점 편집 창(form)·지도 선택 연동.
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -28,13 +28,15 @@ const FOLDED = 4 + ITEMS.length + 2;   // 처음(모두 접힘) = 요약 카드 
 const OPEN = new Set(FOLDS);
 const openAll = () => tap($('[data-all-open]'));
 const support = () => tap($('[data-support-toggle]'));
+/** wide(true) = PC 넓은 창(늘 크게 보기), wide(false) = 좁은 창(1023.98px 아래 — 나란히) */
+const wide = (on: boolean) => vi.stubGlobal('matchMedia', (q: string) => ({ matches: !on, media: q, addEventListener() {}, removeEventListener() {} }));
 
 beforeEach(() => {
   fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy); pick = vi.fn(); edit = vi.fn();
-  localStorage.setItem('fh.scen.big', '0');   // 아래 옛 시험 = «원래 크기»(크게 보기는 R1 시험이 기본값부터 따로 본다)
+  wide(false);   // 아래 옛 시험 = 좁은 창(나란히 모양 — 크게 보기는 R1·R3 시험이 넓은 창으로 따로 본다)
   box = document.createElement('div'); document.body.append(box); root = createRoot(box);
 });
-afterEach(() => { act(() => root.unmount()); box.remove(); vi.unstubAllGlobals(); localStorage.removeItem('fh.scen.big'); });
+afterEach(() => { act(() => root.unmount()); box.remove(); vi.unstubAllGlobals(); });
 
 describe('운영 흐름 데이터', () => {
   it('54노드 = 다섯 단계, 대조표 요약 개수와 같다', () => {
@@ -177,7 +179,7 @@ describe('운영 흐름 화면', () => {
   });
 
   it('R3 지점 편집 창: 지점 노드를 누르면 form 이 든 창(안내 두 줄·× 닫기), 지도에서 다른 지점을 고르면 그 지점으로 — 고정 절차는 읽기 상세', async () => {
-    localStorage.removeItem('fh.scen.big');
+    wide(true);
     let mapPick: (i: number | null) => void = () => {};
     function H() { const [on, setOn] = useState<number | null>(null); mapPick = setOn;
       return <ScenNodes where="websim" items={ITEMS} end="대기" on={on} pick={(i) => { pick(i); setOn(i); }} edit={edit} form={<i data-form>{on}</i>} />; }
@@ -198,12 +200,12 @@ describe('운영 흐름 화면', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('R1 크게 보기: 처음부터 크게(기본) — 높이 = 그래프 1배, 휠은 창 스크롤, 윗줄에 확대·축소, 상세는 누를 때만 카드(× 닫기), «원래 크기»·Esc 로 줄이고 그 선택만 기억', async () => {
-    localStorage.removeItem('fh.scen.big');
+  it('R1·R4 크게 보기: 넓은 창은 늘 크게(켜고 끄는 단추·Esc·기억값 없음) — 높이 = 그래프 1배, 휠은 창 스크롤, 윗줄에 확대·축소, 상세는 누를 때만 카드(× 닫기), 좁은 창은 나란히', async () => {
+    wide(true); localStorage.clear();
     await show('websim');
-    const btn = () => $('[data-big-toggle]'), big = () => flow().hasAttribute('data-big'), esc = () => act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    const big = () => flow().hasAttribute('data-big'), esc = () => act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     const A = Object.values(flowGraph(ITEMS, '대기', 'websim').areas), gh = Math.max(...A.map((a) => a.y + a.h));
-    expect([big(), btn().textContent, btn().getAttribute('aria-pressed'), localStorage.getItem('fh.scen.big')]).toEqual([true, '↙ 원래 크기', 'true', null]);
+    expect([big(), $('[data-big-toggle]'), $('.sn-big'), box.textContent!.includes('원래 크기')]).toEqual([true, null, null, false]);   // 켜고 끄는 단추 없음
     expect($('.sn-canvas').style.height).toBe(`${gh + 32}px`);                                // 세로 제한 없음 — 그래프 높이 그대로
     expect([$('.react-flow__controls'), $$('.sn-top [aria-label="확대·축소"] button').map((b) => b.getAttribute('aria-label'))]).toEqual([null, ['축소', '확대', '화면 맞춤', '전체 보기']]);
     const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
@@ -219,15 +221,10 @@ describe('운영 흐름 화면', () => {
     await tap($('[data-detail-close]')); expect($('[data-detail]')).toBeNull();
     await tap(node('w1')); expect($('[data-detail]').dataset.detail).toBe('w1');            // 같은 노드를 다시 누르면 다시 뜸
     await tap(node('battery_low')); expect([$('[data-detail]').dataset.detail, $('[data-edit-point]')]).toEqual(['battery_low', null]);
-    await tap(btn());
-    expect([big(), btn().textContent, localStorage.getItem('fh.scen.big'), $('.sn-canvas').style.height]).toEqual([false, '⤢ 크게 보기', '0', '']);
-    expect([$('[data-detail]').dataset.detail, $('[data-detail-close]'), $('.react-flow__controls') != null]).toEqual(['battery_low', null, true]);   // 원래 크기 = 지금 모습
-    await tap(btn()); expect([big(), localStorage.getItem('fh.scen.big')]).toEqual([true, null]);
-    const menu = document.createElement('details'); menu.className = 'mx-menu'; menu.open = true; document.body.append(menu);
-    await esc(); expect(big()).toBe(true);                                                 // 메뉴가 열려 있으면 Esc 는 메뉴 몫
-    menu.remove(); await esc(); expect([big(), localStorage.getItem('fh.scen.big')]).toEqual([false, '0']);
+    await esc(); expect([big(), $('[data-detail]').dataset.detail, localStorage.length]).toEqual([true, 'battery_low', 0]);   // Esc 로 줄지 않고 아무것도 기억하지 않음
     act(() => root.unmount()); root = createRoot(box);
-    await show('websim'); expect(big()).toBe(false);                                       // 줄인 선택은 다시 열어도 그대로
+    wide(false); await show('websim');                                                   // 좁은 창 = 나란히(안쪽 확대·축소 칸, 높이 제한)
+    expect([big(), $('[data-big-toggle]'), $('.sn-canvas').style.height, $('.react-flow__controls') != null]).toEqual([false, null, '', true]);
   });
 
   it('지도 탭 = real 판정(지원 현황 켤 때): 연결 8개 됨, 실기체 미검증 한 줄, 일부면 빠진 것', async () => {

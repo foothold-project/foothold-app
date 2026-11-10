@@ -80,7 +80,7 @@ export function Pane({ open, setOpen, bar, head, label, children, pick, name, wi
   </aside>;
 }
 
-/** SCEN-ONE-FLOW-R2 11-10 — 노드 «크게 보기»일 때 지도를 노드 위에 띄우는 작은 창(.mx-win). 그 밖(원래 크기·좁은 창·앱)에는 display:contents 라 틀 그대로(mapscen.css).
+/** SCEN-ONE-FLOW-R2 11-10 — 노드 «크게 보기»일 때 지도를 노드 위에 띄우는 작은 창(.mx-win). 그 밖(좁은 창·앱)에는 display:contents 라 틀 그대로(mapscen.css).
  *  x·y = 본문(.mx-body) 안 왼쪽 위(null = 왼쪽 아래 — R3 예시 자리), w·h = 크기, fold = 칩으로 접힘. 이 브라우저에만 기억(fh.scen.mapwin — 못 읽거나 망가졌으면 기본값) */
 export type Win = { x: number | null; y: number | null; w: number; h: number; fold: boolean };
 export const WIN: Win = { x: null, y: null, w: 360, h: 260, fold: false };

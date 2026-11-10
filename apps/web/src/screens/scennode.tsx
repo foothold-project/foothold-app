@@ -23,7 +23,7 @@ type N = Node<Data, 'step'>;
 type BoxData = { stage: Stage; title: string; sub: string; on?: boolean; fold?: () => void };
 type B = Node<BoxData, 'box'>;
 type F = N | B;
-const W = 220, BIG = 'fh.scen.big', PADY = 16;
+const W = 220, PADY = 16;
 // 화면 맞춤: 글자가 읽히게 0.8 아래로는 줄이지 않고, 넘치면 위(시작)부터 보인다 — 나머지는 끌어 내려 본다
 const FIT = { padding: 0.12, maxZoom: 1, minZoom: 0.8 };
 /** 묶음 상자: 옆·아래 여백, 위 = 제목 칸, GAP = 묶음 사이, HS = 요약 카드 높이. 카드 높이 어림(H) = 임무(작은 글·이름·할 일·자리·배지) / 고정 절차(작은 글·이름·배지) */
@@ -195,21 +195,14 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
   const init = () => { const s = jump.current, v = keep.current; jump.current = null; keep.current = null;
     if (s) view(s); else if (v) void flow.setViewport(v); else view(stage); };
   const go = (s: Stage) => { setStage(s); view(s); };
-  // 크게 보기 = 오른쪽 창 전체가 캔버스(윗줄 = 원래 크기·단계 이동·확대·모두 펼치기·지원 현황, 그 아래 상시 안전 감시 한 줄, 상세는 누를 때만 캔버스 위 카드). 창 넓이·창 위 줄 숨김은 mapscen.css.
-  // 이 브라우저에만 기억(막히면 그냥 보통), 앱(WebView)·좁은 창(1023.98px 아래)은 쓰지 않음. Esc = 원래 크기(열린 메뉴·작은 창이 있으면 그것 먼저)
-  // 처음부터 크게(11-10 현민님) — «원래 크기»로 줄인 선택만 '0' 으로 기억
-  const can = !inApp(), [big0, setBig0] = useState(() => { try { return localStorage.getItem(BIG) !== '0'; } catch { return true; } });
-  const big = can && big0 && !globalThis.matchMedia?.('(max-width:1023.98px)').matches;
-  const setBig = (b: boolean) => { setBig0(b); try { if (b) localStorage.removeItem(BIG); else localStorage.setItem(BIG, '0'); } catch { /* 기억 못 해도 지금 화면은 바뀜 */ } };
-  useEffect(() => { if (!big) return;
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('details.mx-menu[open],dialog[open]')) setBig(false); };
-    addEventListener('keydown', k, true); return () => removeEventListener('keydown', k, true); }, [big]);
+  // 크게 보기 = 오른쪽 창 전체가 캔버스(윗줄 = 단계 이동·확대·모두 펼치기·지원 현황, 그 아래 상시 안전 감시 한 줄, 상세는 누를 때만 캔버스 위 카드). 창 넓이·창 위 줄 숨김은 mapscen.css.
+  // R4 11-10 «원래 크기 없애고 크게 보기만»: PC 넓은 창은 늘 크게(켜고 끄는 단추·Esc·기억값 없음). 앱(WebView)·좁은 창(1023.98px 아래)은 지금처럼 나란히·한 열
+  const big = !inApp() && !globalThis.matchMedia?.('(max-width:1023.98px)').matches;
   useEffect(() => { const t = setTimeout(() => view(stage), 150); return () => clearTimeout(t); }, [big]);   // 캔버스 크기가 바뀐 뒤 고른 묶음에 다시 맞춤
   const wp = focus && /^w\d+$/.test(focus) ? Number(focus.slice(1)) : null, close = big ? () => setShut(focus) : undefined;
 
   return <div ref={root} className="sn" data-scen-nodes data-big={big ? '' : undefined} data-stage={stage} data-groups={g.boxes.length} data-nodes={g.nodes.length} data-edges={g.edges.length} data-support={sup ? '' : undefined}>
     <div className="sn-top">
-      {can && <button type="button" className="btn sn-big" aria-pressed={big} data-big-toggle title={big ? '원래 크기로 (Esc)' : '노드를 크게 — 지도는 작게'} onClick={() => setBig(!big)}>{big ? '↙ 원래 크기' : '⤢ 크게 보기'}</button>}
       {/* 크게 보기: 캔버스가 길어 안쪽 확대·축소 칸이 화면 밖으로 가므로 윗줄(창 위에 붙음)로 */}
       {big && <span className="sn-zoom" role="group" aria-label="확대·축소">
         <button type="button" className="sn-chip" aria-label="축소" title="축소 (Ctrl+휠)" onClick={() => void flow.zoomOut()}>−</button>

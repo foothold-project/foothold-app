@@ -777,7 +777,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     if (!inside(v, x, y)) return '지도 범위 밖입니다. 지도 그림 안 좌표를 넣으세요.';
     if (!(o.waypoint_ref && Math.hypot(x - o.x, y - o.y) <= 0.05)) put(pts.map((w, j) => (j === i ? { ...w, x, y, waypoint_ref: null } : w)));
     return null; };
-  /** 지점 편집 창(노드 크게 보기·원래 크기 모두): 할 일 = 목록과 같은 quick, X·Y = moveXY, 앞으로/뒤로 = shift, 지우기 = drop. 대기 초는 임무 값 읽기만(바꾸기는 목록) */
+  /** 지점 편집 창(노드 크게 보기·좁은 창·앱 모두): 할 일 = 목록과 같은 quick, X·Y = moveXY, 앞으로/뒤로 = shift, 지우기 = drop. 대기 초는 임무 값 읽기만(바꾸기는 목록) */
   const pointForm = one != null && pts[one] ? (() => { const i = one, p = pts[i], m = missions?.find((x) => x.id === p.mission_id), fresh = m && m.latest_version === p.mission_version ? m : undefined;
     const kind = p.mission_id ? kindOf(fresh) : 'MOVE', pr = res[`waypoints.${i}`], no = set && fresh ? cannot(fresh) : null;
     return <fieldset disabled={!set || fence || making}>

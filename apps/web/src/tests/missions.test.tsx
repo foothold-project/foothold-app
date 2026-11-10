@@ -589,7 +589,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(btn('다시 확인')).toBeUndefined();
     expect(why().textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
   });
-  it('SCEN-ONE-FLOW-R2: 크게 보기(기본) = 지도는 떠 있는 창(Float) 안 — 창을 옮기고 접었다 펴도 지도 눌러 지점 추가 그대로, 저장 막는 이유는 창 밖(접어도 보임)', async () => {
+  it('SCEN-ONE-FLOW-R2·R4: 크게 보기(넓은 창은 늘 — 단추 없음) = 지도는 떠 있는 창(Float) 안 — 창을 옮기고 접었다 펴도 지도 눌러 지점 추가 그대로, 저장 막는 이유는 창 밖(접어도 보임)', async () => {
     seed(); serve(KIM);
     await open();
     await click(btn('+ 이 지도에 새 시나리오'));
@@ -607,8 +607,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(writes()).toEqual(['POST /missions']);                              // 새 지점의 이동 임무(지점 추가 그대로)
     expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(1);
     expect(map().querySelector('[data-pt="0"]')).toBeTruthy();
-    await click($('[data-big-toggle]'));                                       // 원래 크기 = 같은 지도(창 줄·칩은 CSS 로 숨김)
-    expect([$('[data-scen-nodes]')!.hasAttribute('data-big'), !!map().closest('[data-win]')]).toEqual([false, true]);
+    expect([$('[data-big-toggle]'), $('[data-scen-nodes]')!.hasAttribute('data-big')]).toEqual([null, true]);   // R4: «원래 크기» 단추 없음
   });
   it('SCEN-ONE-FLOW-R3: 지점 편집 창(할 일·X/Y·뒤로) 저장 본문 = 목록 편집(할 일·지도 끌기·↓)과 같은 값, 노드 ↔ 지도 선택 연동, 지도 범위 밖은 막음', async () => {
     const save = async () => { await settle(); expect(saveBtn().disabled).toBe(false); await click(saveBtn()); return last(sent('PUT', '/scenarios/s1'))!.body; };
