@@ -558,7 +558,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(box.querySelectorAll('.react-flow__node .sn-num')).toHaveLength(2);
     expect($('[data-st="no"]')).toBeNull();
     await click($('button[data-stage="연결"]'));
-    expect([...box.querySelectorAll('.react-flow__node .sn-badge')].map((b) => b.textContent)).toEqual(Array(8).fill('됨'));
+    expect(['robot', 'request', 'auth', 'response', 'media', 'connected', 'retry', 'connection_failed'].map((id) => $(`.react-flow__node[data-id="${id}"] .sn-badge`)!.textContent)).toEqual(Array(8).fill('됨'));
     expect(box.querySelectorAll('.react-flow__node.draggable')).toHaveLength(0);
     expect($('.sn-hint')!.textContent).toContain('실기체 검증과 다름');
     expect(writes()).toEqual([]);
@@ -621,7 +621,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(p.textContent).toContain('대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.');
     expect(p.textContent).toContain('필요 장치: 카메라');
     expect(p.textContent).toContain('2번 지점 → 3번 지점본동 1층 → 본동 2층 층 연결점을 거칩니다');
-    expect(text()).not.toContain('Nav2');
+    expect(text()).not.toContain('Nav2 경로가 아닙니다');   // 서버 distance_note 를 그대로 안 보임(운영 흐름 노드 처리 주체 «…+Nav2» 는 별개)
     expect(saveBtn().disabled).toBe(false);
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions', 'POST /missions', 'POST /scenarios']);   // 이동·사진 임무 → 시나리오
