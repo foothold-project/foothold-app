@@ -117,6 +117,9 @@ def test_upload_direct_save_and_map_tree_crud(maps, seeded, actor):
     result = save(http, headers, floor, image)
     assert result.status_code == 201 and result.json()['status'] == 'APPROVED'
     first = result.json()
+    assert 'terrain_spec' not in first
+    assert http.get(P + '/map-versions/' + first['id'], headers=headers).json() == first
+    assert http.get(P + f'/floors/{floor}/map-versions', headers=headers).json()['items'] == [first]
     assert first['created_by'] == str(seeded['users'][actor])
     for path, payload in [(f'/sites/{site}', {'name': '변경 장소'}),
                           (f'/buildings/{building}', {'name': '변경 건물'}),

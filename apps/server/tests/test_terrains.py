@@ -6,13 +6,13 @@ from pathlib import Path
 import subprocess
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from apps.contracts.models import TerrainSpec
 from apps.contracts.tests.test_terrain import SPEC
 from apps.server.fh_server.map_files import gray_pixels
 from apps.server.fh_server.terrains import terrain_grid
-from .test_maps import maps, auth, P  # noqa: F401
+from .test_maps import maps, auth, P, save, tree  # noqa: F401
 
 
 def put(http, headers, spec=SPEC, version=0):
@@ -51,6 +51,7 @@ def test_save_generates_map_revisions_and_scenario_floor(maps):
     assert floor['terrain_id'] == SPEC['id'] and floor['provenance'] == 'SIMULATION'
     assert floor['id'] == first['floor_id'] and floor['approved_version_id'] == first['map_version_id']
     version = http.get(P + '/map-versions/' + first['map_version_id'], headers=headers).json()
+    assert version['terrain_spec'] == SPEC
     assert (version['width'], version['height'], version['resolution'], version['origin']) == (160, 120, .05, [-4, -3, 0])
     image = http.get(P + '/map-versions/' + first['map_version_id'] + '/image', headers=headers).content
     assert gray_pixels(image) == (160, 120, terrain_grid(TerrainSpec.model_validate(SPEC))[3])
@@ -72,11 +73,83 @@ def test_save_generates_map_revisions_and_scenario_floor(maps):
     assert second['version'] == 2
     old = http.get(P + '/map-versions/' + version['id'], headers=headers).json()
     assert old['status'] == 'SUPERSEDED' and old['image_sha256'] == version['image_sha256']
+    assert old['terrain_spec'] == SPEC
     listing = http.get(P + '/floors/' + floor['id'] + '/map-versions', headers=headers).json()['items']
     assert [v['number'] for v in listing] == [2, 1]
+    assert listing[1] == old
+    assert listing[0] == http.get(P + '/map-versions/' + second['map_version_id'], headers=headers).json()
+    assert listing[0]['terrain_spec'] == second['spec']
+    diff = http.get(P + '/map-versions/' + second['map_version_id'] + '/diff', headers=headers).json()
+    assert diff['version'] == listing[0] and diff['against'] == old
     assert len(list(root.glob('maps/*/*.png'))) == len(list(root.glob('maps/*/*.yaml'))) == 2
     # Lost or stale responses cannot silently create another map revision.
     assert put(http, headers, version=1).status_code == 409
+
+
+def test_terrain_listing_batches_uploads_and_preserves_all_shapes(maps):
+    http, headers, _ = maps
+    spec = {**SPEC, 'items': [SPEC['items'][0],
+        {'kind': 'stairs', 'x': 0, 'y': 1.5, 'yaw': -.7, 'width': .5, 'steps': 3, 'rise': .1, 'run': .15},
+        {'kind': 'gap', 'x': 1, 'y': -1, 'yaw': .32, 'length': .01, 'width': 1},
+        {'kind': 'ramp', 'x': -1, 'y': -1, 'yaw': .8, 'length': 1.5, 'width': .5, 'h': .3}]}
+    for revision in range(4):
+        result = put(http, headers, {**spec, 'name': f'지형 {revision}'}, revision)
+        assert result.status_code == 200, result.text
+    floor_id = result.json()['floor_id']
+    queries = []
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith('SELECT') and 'uploads' in statement:
+            queries.append(statement)
+    event.listen(http.app.state.engine, 'before_cursor_execute', capture)
+    try:
+        listing = http.get(P + '/floors/' + floor_id + '/map-versions', headers=headers)
+        assert listing.status_code == 200, listing.text
+    finally:
+        event.remove(http.app.state.engine, 'before_cursor_execute', capture)
+    assert len(queries) == 1  # Four distinct uploads still require one read.
+    for revision, version in zip(range(3, -1, -1), listing.json()['items'], strict=True):
+        assert version['terrain_spec'] == {**spec, 'name': f'지형 {revision}'}
+        assert version == http.get(P + '/map-versions/' + version['id'], headers=headers).json()
+    first_page = http.get(P + f'/floors/{floor_id}/map-versions?limit=2', headers=headers).json()
+    second_page = http.get(P + f'/floors/{floor_id}/map-versions?limit=2&cursor=' + first_page['next_cursor'], headers=headers).json()
+    assert first_page['items'] + second_page['items'] == listing.json()['items']
+    assert second_page['next_cursor'] is None
+
+
+def test_terrain_upload_is_preserved_by_edit_rollback_and_idempotent_replay(maps):
+    http, headers, _ = maps
+    generated = put(http, headers).json()
+    original = http.get(P + '/map-versions/' + generated['map_version_id'], headers=headers).json()
+    # SIM places still reject direct map edits. Exercise the existing upload
+    # reuse path on an editable REAL floor without changing those write rules.
+    assert save(http, headers, generated['floor_id'], original['upload_id'], base=original['id']).status_code == 409
+    _, _, floor_id = tree(http, headers)
+    first = save(http, headers, floor_id, original['upload_id']).json()
+    edit_headers = {**headers, 'Idempotency-Key': 'terrain-map-edit'}
+    edited_response = save(http, edit_headers, floor_id, original['upload_id'], base=first['id'])
+    assert edited_response.status_code == 201, edited_response.text
+    edited = edited_response.json()
+    assert edited['source'] == 'EDIT' and edited['terrain_spec'] == SPEC
+    assert save(http, edit_headers, floor_id, original['upload_id'], base=first['id']).json() == edited
+    changed = {**SPEC, 'items': [{**SPEC['items'][0], 'sx': 2}]}
+    newer = put(http, headers, changed, 1).json()
+    newer_map = http.get(P + '/map-versions/' + newer['map_version_id'], headers=headers).json()
+    replaced = save(http, headers, floor_id, newer_map['upload_id'], base=edited['id']).json()
+    assert replaced['terrain_spec'] == changed
+    rollback_headers = {**headers, 'Idempotency-Key': 'terrain-map-rollback'}
+    body = {'base_version_id': replaced['id'], 'reason': '옛 지형 판으로 되돌림'}
+    path = P + '/map-versions/' + edited['id'] + '/rollback'
+    rolled_response = http.post(path, headers=rollback_headers, json=body)
+    assert rolled_response.status_code == 201, rolled_response.text
+    rolled = rolled_response.json()
+    assert rolled['source'] == 'ROLLBACK' and rolled['copied_from_id'] == edited['id']
+    assert rolled['upload_id'] == edited['upload_id'] and rolled['terrain_spec'] == SPEC
+    assert http.post(path, headers=rollback_headers, json=body).json() == rolled
+    assert http.get(P + '/map-versions/' + rolled['id'], headers=headers).json() == rolled
+    listing = http.get(P + '/floors/' + floor_id + '/map-versions', headers=headers).json()['items']
+    assert [item['terrain_spec'] for item in listing] == [SPEC, changed, SPEC, SPEC]
+    diff = http.get(P + '/map-versions/' + rolled['id'] + '/diff', headers=headers).json()
+    assert diff['version'] == rolled and diff['against']['terrain_spec'] == changed
 
 
 def test_role_tenant_archive_and_restore(maps, seeded):
