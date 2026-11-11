@@ -141,12 +141,20 @@ function Telemetry({ r }: { r: Robot }) {
   </section>;
 }
 
-/** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능(서버가 담당·기체번호·전체 스위치·로봇 연결을 자동 확인 — server_drive_allowed 만 본다). 허용되면 아래에 서버 경유 패널(STOP·잠금 해제·조종 시작) */
+const DRIVE_BLOCKED: Record<NonNullable<Robot['serverDriveBlocked']>[number], string> = {
+  SWITCH_OFF: '서버에서 실기 조종이 꺼져 있습니다(관리자만 켤 수 있음)',
+  NO_OWNER: '담당자가 없습니다',
+  NO_SERIAL: '로봇 기체번호가 등록되지 않았습니다',
+  AGENT_OFFLINE: '로봇 쪽 노트북 프로그램이 연결되지 않았습니다',
+};
+
+/** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능(허용 판단은 server_drive_allowed 만, 이유 목록은 표시만). 허용되면 아래에 서버 경유 패널(STOP·잠금 해제·조종 시작) */
 function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
   const k = kindOf(r), net = rt.link().at === 'open', on = k === 'on', ok = canDrive(c, r);
   const ready = ok && on;   // 서버 허용 값이 남아 있어도 로봇이 끊기면 완료로 보이지 않는다(목록 갱신 전). 패널(STOP 포함)은 ok 면 그대로 둔다
   const pill = k === 'lost' || k === 'server' ? { tone: 'bad' as const, text: '재연결 필요' } : ready ? { tone: 'ok' as const, text: '조종 가능' } : on ? { tone: 'warn' as const, text: '서버 허용 대기' } : { tone: 'off' as const, text: '연결 대기' };
-  const step = (n: number, done: boolean, cur: boolean, t: string, p: string, more?: ReactNode, id?: string) => <li className={`fl-step${done ? ' done' : cur ? ' cur' : ''}`} data-step={n}>
+  const blocked = !r.serverDrive ? r.serverDriveBlocked?.filter((reason) => DRIVE_BLOCKED[reason]) : null;
+  const step = (n: number, done: boolean, cur: boolean, t: string, p: ReactNode, more?: ReactNode, id?: string) => <li className={`fl-step${done ? ' done' : cur ? ' cur' : ''}`} data-step={n}>
     <span className="fl-mark" aria-hidden="true">{done ? '✓' : n}</span><div><h3>{t}</h3><p className="lv-note" id={id}>{p}</p>{more}</div></li>;
   return <section className="lv-card fl-prep" aria-label="조종 준비">
     <div className="fh-row"><h2 className="fh-grow">조종 준비</h2><Chip {...pill} /></div>
@@ -154,7 +162,7 @@ function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
       {step(1, net, !net, '서버 연결', net ? '관제 서버와 연결되어 있습니다.' : '서버 연결이 끊겼습니다. 네트워크를 확인하세요.')}
       {step(2, on, net && !on, '로봇 연결', on ? '로봇 상태를 받고 있습니다.' : k === 'wait' ? '로봇 상태를 확인하는 중입니다.' : k === 'lost' ? '네트워크와 노트북 연결 프로그램을 확인하세요.' : '노트북 연결 프로그램을 확인하세요.',
         !on && <button type="button" className="btn fl-small" onClick={guide}>연결 방법 보기</button>)}
-      {step(3, ready, on && !ok, '조종 가능', ready ? '서버가 담당·기체번호·서버 전체 스위치·로봇 연결을 확인했습니다.'
+      {step(3, ready, on && !ok, '조종 가능', blocked?.length ? blocked.map((reason, i) => <span key={reason} data-drive-block={reason}>{i > 0 && <br />}{DRIVE_BLOCKED[reason]}</span>) : ready ? '서버가 담당·기체번호·서버 전체 스위치·로봇 연결을 확인했습니다.'
         : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.', undefined, 'fl-step-drive')}
     </ol>
     {ok && <ServerDrive c={c} r={r} />}

@@ -392,7 +392,7 @@ class PhoneRelayState(Contract):
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay',
-        'robot_serial', 'field_approval_expires_at', 'robot_info'))
+        'robot_serial', 'field_approval_expires_at', 'robot_info', 'server_drive_blocked'))
     robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
@@ -402,6 +402,8 @@ class RobotSummary(Contract):
     controller_connected: bool | None = None
     simulation: bool = False
     server_drive_allowed: bool = False
+    server_drive_blocked: list[Literal['SWITCH_OFF', 'NO_OWNER', 'NO_SERIAL', 'AGENT_OFFLINE']] | None = Field(
+        default=None, description='표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다.')
     robot_serial: str | None = None
     field_approval_expires_at: UTCDateTime | None = Field(default=None,
         description='폐기된 사람 현장 승인 호환 필드. 항상 null이며 자동 연결 관문은 server_drive_allowed를 쓴다.')
