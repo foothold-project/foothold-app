@@ -154,7 +154,7 @@ def robot_objects(db, robots, user, realtime):
                     server_drive_blocked.append('NO_OWNER')
                 if not robot.serial:
                     server_drive_blocked.append('NO_SERIAL')
-                if not realtime.field_approved(str(robot.id)):
+                if not server_drive_blocked and not realtime.field_approved(str(robot.id)):
                     server_drive_blocked.append('AGENT_OFFLINE')
         online, state = snapshots[str(robot.id)] if full else (False, {})
         inventory = devices.get(robot.id, {})
