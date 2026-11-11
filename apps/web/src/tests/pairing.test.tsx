@@ -334,7 +334,7 @@ describe('r1 — PC 서버 경유 조종 패널은 목록 최신 허용 값 + �
     expect(panel()).not.toBeNull();
     await act(async () => { await new Promise((r) => setTimeout(r, 600)); });
     expect(panel()).toBeNull();
-    expect($('[aria-label="로봇 상세"] [data-approval]')!.textContent).toContain('현장 확인 다시 필요');
+    expect($('[aria-label="로봇 상세"] [data-field-check]')!.textContent).toContain('현장 확인 다시 필요');   // 담당 운영 상세: 승인 칩은 현장 안전 확인 머리에 한 번
   });
 });
 
@@ -435,7 +435,7 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     await click(btn('넘기기', card('담당 넘기기 확인')));
     expect(sent('PATCH', '/robots/r-a')).toHaveLength(1);
     await pickRobot('Go2-B');
-    expect(card('로봇 상세').textContent).toContain('Go2-B');
+    expect(card('로봇 상태').textContent).toContain('Go2-B');   // 집중 화면: 이름은 상태 한 줄(상세 제목은 «상세»)
     expect($('[data-transferring]')).toBeNull();   // 다른 로봇은 잠그지 않음
     expect(btn('담당 넘기기', transfer())!.disabled).toBe(false);
     await pickRobot('Go2-A');

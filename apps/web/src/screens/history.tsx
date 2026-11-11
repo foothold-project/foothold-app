@@ -61,7 +61,8 @@ function Photo({ e }: { e: Ev }) {
     <img src={api.photoUrl(id, !big)} alt="찍은 사진" loading="lazy" decoding="async" onError={() => setBad(true)} /></button>;
 }
 /** 한 줄 = 한 사건(서랍 «최근 사건»): 시각 · 분류 · 심각도 · 문장 */
-const Row = ({ e }: { e: Ev }) => <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Kind e={e} /><Sev e={e} /><Said e={e} /></li>;
+const Row = ({ e, n = 1, from }: { e: Ev; n?: number; from?: Ev }) => <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Kind e={e} /><Sev e={e} /><Said e={e} />
+  {n > 1 && from && <span className="lbl" data-repeat={n}>같은 기록 {n}번 · {when(stamp(from))}부터</span>}</li>;
 /** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 — 가로로 넘치지 않게 */
 const Table = ({ items, who, label }: { items: Ev[]; who: (e: Ev) => string; label?: string }) => <div className="hs-wrap">
   <table className="hs-table" aria-label={label} hidden={!items.length}>
@@ -242,9 +243,14 @@ export function RecentEvents({ robot, cancel }: { robot: string; cancel?: AbortS
   const ev = useEvents({ ...NONE, robot }, cancel, 5);
   if (ev.err && ev.err.status !== 404) return <Line k="최근 사건"><span className="fh-msg" role="alert">최근 사건을 받지 못했습니다. {ev.err.message}</span></Line>;
   if (!ev.items.length) return null;
-  const hot = ev.items.filter(trouble);
+  // 잇달아 같은 문제(코드·문장 같음)는 한 줄로 묶는다(최신 시각 + «같은 기록 N번 · 처음 시각부터») — 낱낱은 아래 «최근 사건»에 그대로
+  const hot = ev.items.filter(trouble).reduce<{ e: Ev; n: number; from: Ev }[]>((g, e) => {
+    const p = g[g.length - 1];
+    if (p && p.e.code === e.code && p.e.message === e.message) { p.n++; p.from = e; } else g.push({ e, n: 1, from: e });
+    return g;
+  }, []);
   return <>
-    {hot.length > 0 && <Line k="최근 문제"><ul className="fh-list" style={{ flex: 1 }} aria-label="최근 문제" data-recent-trouble>{hot.map((e) => <Row key={e.id} e={e} />)}</ul></Line>}
+    {hot.length > 0 && <Line k="최근 문제"><ul className="fh-list" style={{ flex: 1 }} aria-label="최근 문제" data-recent-trouble>{hot.map((h) => <Row key={h.e.id} {...h} />)}</ul></Line>}
     <details className="fh-fold" data-events-more><summary>최근 사건 {ev.items.length}건</summary>
       <Line k="최근 사건"><ul className="fh-list" style={{ flex: 1 }} aria-label="최근 사건">{ev.items.map((e) => <Row key={e.id} e={e} />)}</ul></Line></details>
   </>;

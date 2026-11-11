@@ -64,7 +64,7 @@ const flat = (x: Go2RobotInfo): Info => ({ roll: x.attitude?.roll ?? null, pitch
 export type Shown = { v: Info | null; why?: string; via?: string };
 export function RobotInfo({ v, why = '모름', via }: Shown) {
   const or = (x: string | null) => x ?? '모름';
-  return <div data-robot-info={via ? 'phone' : v ? 'direct' : 'none'}>
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-robot-info={via ? 'phone' : v ? 'direct' : 'none'}>
     <Line k="자세"><span className="mono">{v ? `roll ${or(sdeg(v.roll))} · pitch ${or(sdeg(v.pitch))}` : why}</span>{via && <span className="lbl">{via}</span>}</Line>
     <Line k="상태 번호"><span className="mono" data-robot-code>{!v ? why : v.code == null ? '모름' : v.code === 0 ? '0(정상 범위)' : String(v.code)}</span></Line>
     <Line k="넘어짐 추정"><span data-robot-fallen>{v?.fallen ? <Chip tone="warn" text="의심(기울기 추정)" /> : v?.fallen === false ? '아님' : v ? '모름' : why}</span></Line>
