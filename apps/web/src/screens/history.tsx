@@ -63,11 +63,11 @@ function Photo({ e }: { e: Ev }) {
   return <button type="button" className="hs-photo" data-photo={big ? 'big' : 'thumb'} aria-label={big ? '사진 작게 보기' : '사진 원본 보기'} aria-expanded={big} onClick={() => setBig(!big)}>
     <img src={api.photoUrl(id, !big)} alt="찍은 사진" loading="lazy" decoding="async" onError={() => setBad(true)} /></button>;
 }
-/** 같은 날이면 «10/30 17:27~17:30», 날이 다르면 양쪽 날짜 */
+/** 묶음 범위 «10/30 17:27~17:30»(같은 날이면 뒤는 시각만). lo·hi = 묶인 사건 중 표시 시각(stamp)이 가장 이른·늦은 것 */
 const span = (a: Ev, b: Ev) => { const x = when(stamp(a)), y = when(stamp(b)); return x.split(' ')[0] === y.split(' ')[0] ? `${x}~${y.split(' ')[1]}` : `${x}~${y}`; };
 /** 한 줄 = 한 사건(서랍 «최근 사건»·«최근 문제»): 위 = 심각도 + 문장, 아래 = 시각 · 분류(· 묶은 수). 좁은 서랍에서도 문장이 시각 밑으로 떨어지지 않게 */
-const Row = ({ e, n = 1, from }: { e: Ev; n?: number; from?: Ev }) => <li className="hs-item"><span className="hs-said"><Sev e={e} /><Said e={e} /></span>
-  <span className="lbl hs-meta"><span className="mono">{n > 1 && from ? span(from, e) : when(stamp(e))}</span> · <Kind e={e} />{n > 1 && <span data-repeat={n}> · {n}번</span>}</span></li>;
+const Row = ({ e, n = 1, lo, hi }: { e: Ev; n?: number; lo?: Ev; hi?: Ev }) => <li className="hs-item"><span className="hs-said"><Sev e={e} /><Said e={e} /></span>
+  <span className="lbl hs-meta"><span className="mono">{n > 1 && lo && hi ? span(lo, hi) : when(stamp(e))}</span> · <Kind e={e} />{n > 1 && <span data-repeat={n}> · {n}번</span>}</span></li>;
 /** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 — 가로로 넘치지 않게 */
 const Table = ({ items, who, label }: { items: Ev[]; who: (e: Ev) => string; label?: string }) => <div className="hs-wrap">
   <table className="hs-table" aria-label={label} hidden={!items.length}>
@@ -249,9 +249,11 @@ export function RecentEvents({ robot, cancel }: { robot: string; cancel?: AbortS
   if (ev.err && ev.err.status !== 404) return <Line k="최근 사건"><span className="fh-msg" role="alert">최근 사건을 받지 못했습니다. {ev.err.message}</span></Line>;
   if (!ev.items.length) return null;
   // 잇달아 같은 문제(코드·문장 같음)는 한 줄로 묶는다(«10/30 17:27~17:30 · 안전 · 4번») — 서버 기록은 그대로, 표시만 — 낱낱은 아래 «최근 사건»에 그대로
-  const hot = ev.items.filter(trouble).reduce<{ e: Ev; n: number; from: Ev }[]>((g, e) => {
+  // 목록은 서버가 받은 순서라 늦게 온 사건의 표시 시각(stamp)은 뒤섞일 수 있다 — 범위는 묶인 것의 최소~최대
+  const t = (x: Ev) => micros(stamp(x));
+  const hot = ev.items.filter(trouble).reduce<{ e: Ev; n: number; lo: Ev; hi: Ev }[]>((g, e) => {
     const p = g[g.length - 1];
-    if (p && p.e.code === e.code && p.e.message === e.message) { p.n++; p.from = e; } else g.push({ e, n: 1, from: e });
+    if (p && p.e.code === e.code && p.e.message === e.message) { p.n++; if (t(e) < t(p.lo)) p.lo = e; if (t(e) > t(p.hi)) p.hi = e; } else g.push({ e, n: 1, lo: e, hi: e });
     return g;
   }, []);
   return <>

@@ -222,7 +222,7 @@ describe('폰 운영 관리자 — 내 로봇 관리', () => {
 });
 
 describe('PC 총괄 — 로봇 탭 읽기 전용 대시보드', () => {
-  const RB = robot('r-b', 'Go2-B', null, { robot_serial: '9-1', attention: ['OFFLINE'], status: 'IDLE' });   // 상태를 받은 적 있어야 «연결 끊김»(없으면 «연결 전» — attn)
+  const RB = robot('r-b', 'Go2-B', null, { robot_serial: '9-1', attention: ['OFFLINE'] });   // status 없어도(다시 로그인 등) 서버 OFFLINE 경보는 «연결 끊김» 그대로(#327 검토 P1 회귀)
   const RAX = { ...RA, field_approval_expires_at: inMin(20), attention: ['BATTERY_LOW'], battery: { soc: 12, updated_at: '2026-11-02T00:00:00Z' } };
   it('목록: 담당·연결·주의. 상세: 기체번호 읽기만, 실기 쓰기·현장 확인 화면 없음', async () => {
     serve(signedIn(KIM, [RAX, RB]));

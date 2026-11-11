@@ -653,6 +653,15 @@ describe('서랍 «최근 사건»', () => {
     expect(hot[0].textContent).toContain(`${when('2026-10-30T08:27:00Z')}~${when('2026-10-30T08:30:00Z').split(' ')[1]}`);
     expect($('[aria-label="최근 사건"]')!.querySelectorAll('li')).toHaveLength(4);
   });
+  it('늦게 온 사건이 섞여도 묶음 범위는 이른~늦은 표시 시각(#327 검토 P2 회귀)', async () => {
+    const f = (id: string, at: string, robot_at: string | null) => ev(id, { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인 실패', at, robot_at });
+    // 서버가 받은 순서(at 역순): 첫 줄은 하루 가까이 늦게 온 사건이라 표시 시각이 더 이르다
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([f('2', '2026-10-31T08:20:00Z', '2026-10-30T08:29:00Z'), f('1', '2026-10-30T08:40:00Z', null)]) : list([])) }));
+    await open('#/fleet');
+    await drawer();
+    const li = $('[data-recent-trouble] li')!;
+    expect(li.textContent).toContain(`${when('2026-10-30T08:29:00Z')}~${when('2026-10-30T08:40:00Z').split(' ')[1]}`);
+  });
   it('없으면·범위 밖(404)이면 칸을 숨김(가짜 없음), 다른 실패는 한 줄', async () => {
     serve(signedIn(KIM));
     await open('#/fleet');

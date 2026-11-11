@@ -95,8 +95,8 @@ export function Pair({ user, mine, refresh, cancel, children }: { user: User; mi
 
 /** 서버 주의 코드(05 §4 attention, 목록 값) → 짧은 글 */
 const ATTN: Record<string, string> = { OFFLINE: '연결 끊김', STATE_STALE: '상태 늦음', BATTERY_LOW: '배터리 낮음', ERROR: '오류', STOP_LATCHED: '정지 잠금', DEVICE_ERROR: '장치 오류' };
-/** 서버는 한 번도 상태를 보내지 않은 로봇(status 없음)에도 OFFLINE 을 단다 — 그 로봇은 «연결 전»(칩·linkText)이라 «연결 끊김»으로 옮기지 않는다(11-11) */
-export const attn = (x: Robot, skip: string[] = []) => (x.attention ?? []).filter((a) => !skip.includes(a) && !(a === 'OFFLINE' && !x.status)).map((a) => ATTN[a] ?? a).join(' · ');
+/** status 없음은 «받은 적 없음»의 근거가 아니다(다시 로그인하면 서버 목록 status=null) — 끊김 경보는 지우지 않는다(11-11 #327 검토) */
+export const attn = (x: Robot, skip: string[] = []) => (x.attention ?? []).filter((a) => !skip.includes(a)).map((a) => ATTN[a] ?? a).join(' · ');
 /** 상세 «주의»: 연결·잠금은 바로 위 칸(상태 한 줄·연결·잠금 칩)이 이미 보여 뺀다 — «연결 전» 로봇이 «연결 끊김»으로 읽히지 않게(11-11 fleet polish) */
 const SHOWN = ['OFFLINE', 'STOP_LATCHED'];
 export const linkText = (x: Robot) => (x.unknown ? '연결 확인 중' : x.online ? '연결됨' : x.status ? '끊김' : '연결 전');
