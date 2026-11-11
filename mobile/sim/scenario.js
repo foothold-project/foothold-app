@@ -4,6 +4,7 @@ import { ame2WorldGoal } from './ame2-adapter.js';
 import { getPolicyMode } from './policy-modes.js';
 import { cell } from './lidar.js';
 import { boundedNumber, DEFAULT_VX, DEFAULT_WZ } from './settings.js';
+import { ZONE_STOP } from './zones.js';
 
 export const REACH_RADIUS = 0.3, MAX_VX = DEFAULT_VX, MAX_WZ = DEFAULT_WZ, BLOCK_RANGE = 0.6;
 // 이 시간 넘게 지점에 0.1 m 도 못 다가가고 방향 오차도 0.1 rad 넘게 못 줄이면 «막힘»(돌다 걸린 것도 멈춤)
@@ -35,7 +36,8 @@ export function frontDistance(rays) {
   return min;
 }
 
-export function createScenarioRunner(sim, isStopped, limits = {}) {
+// entersZone(x, y, 가는 방향, 속력) = 다음 걸음이 접근 금지 구역(몸체 여유 포함)으로 들어가나(zones.js zoneEnters). 없으면 구역 검사 없음
+export function createScenarioRunner(sim, isStopped, limits = {}, entersZone = null) {
   let maxVx = MAX_VX, maxWz = MAX_WZ, origin;
   const mode = getPolicyMode(sim.adapterId);
   const directGoal = mode.command.kind === 'nearby_goal';
@@ -91,6 +93,8 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
       if (dist < runner.best - STALL_GAIN) { runner.best = dist; gained = true; }
       if (Math.abs(error) < runner.turn - STALL_TURN) { runner.turn = Math.abs(error); gained = true; }
       if (gained) runner.stall = 0; else if ((runner.stall += dt) >= STALL_S) return runner.cancel('막힘');
+      // 달리는 중 다음 걸음이 접근 금지 구역이면 멈춘다(제자리 회전은 걸음이 아님). 위치 목표 모델은 목표 쪽으로 걷는다고 본다(정책 속도 ≤ 1.2)
+      if ((directGoal || vx) && entersZone?.(q[0], q[1], directGoal ? Math.atan2(dy, dx) : yaw, directGoal ? 1.2 : vx)) return runner.cancel(ZONE_STOP);
       if (directGoal) {
         // Explicit world yaw wins; otherwise use outgoing path direction,
         // or the incoming segment at the last point (start -> point for one).
