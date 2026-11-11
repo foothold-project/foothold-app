@@ -123,6 +123,15 @@ class Gate:
         except (ValueError, TypeError, PermissionError, OverflowError):
             self.revoke()
             return
+        if self.active is not None and self.valid():
+            # A fresh bounded marker on this same healthy connection renews
+            # only the deadline. NIC/serial/preflight, feedback and transport
+            # checks above still apply; no lease or unlock is created here.
+            if self.remember is not None:
+                self.remember(expiry)
+            self.last_expiry = expiry
+            self.deadline = self.now()+max(0., expiry-self.wall())
+            return
         self.revoke()
         self.last_expiry = expiry
         self.deadline = self.now()+max(0., expiry-self.wall())

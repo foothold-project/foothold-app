@@ -61,7 +61,7 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
         <p className="st-note">로봇·서버 코드에 묶인 값. 화면에서는 보기만 합니다.</p>
         <div className="st-row"><span>입력이 끊기면 정지</span><b>0.3초 뒤</b></div>
         <div className="st-row"><span>로봇 출력 마감</span><b>0.30초</b></div>
-        <div className="st-row"><span>실기 조종 시작 전 현장 승인</span><b>필요</b></div>
+        <div className="st-row"><span>실기 서버 경유 조종</span><b>담당·연결·전체 스위치</b></div>
         <span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></span>
       </section>
     </>)}
@@ -451,7 +451,7 @@ function Robots({ refresh, cancel }: { refresh: () => void } & Cancel) {
   return <>
     <section className="lv-card" aria-label="로봇">
       <h2>시뮬 로봇{list ? ` (${list.length})` : ''}</h2>
-      <p className="lv-note" data-real-note>실기 로봇은 운영 관리자가 폰의 «+ 로봇 연결하기 › 새 로봇 추가»로 연결합니다. 실기 상태·담당·현장 승인은 «로봇» 탭에서 봅니다.</p>
+      <p className="lv-note" data-real-note>실기 로봇은 운영 관리자가 폰의 «+ 로봇 연결하기 › 새 로봇 추가»로 연결합니다. 실기 상태·담당은 «로봇» 탭에서 봅니다.</p>
       {list && !list.length && <p className="lv-note">시뮬 로봇이 없습니다. «시뮬» 탭에서 띄우면 여기에 보입니다.</p>}
       {list && !!list.length && <ul className="fh-list">{list.map((r) => <li key={r.id}>
         <button type="button" aria-pressed={r.id === sel} style={{ flexWrap: 'wrap' }} onClick={() => { setSel(r.id); setMsg(null); }}>

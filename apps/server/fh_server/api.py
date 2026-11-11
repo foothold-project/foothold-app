@@ -265,7 +265,6 @@ def create_app(settings: Settings | None = None):
                 try:
                     await asyncio.to_thread(issuer.flush_denials,factory,settings.org_id)
                     await asyncio.to_thread(expire_user_sessions, factory, settings.org_id, clock=issuer.clock)
-                    await asyncio.to_thread(pairing.expire, factory, settings.org_id)
                 except Exception:
                     # Counters stay durable and retry; never drop a denial silently.
                     continue

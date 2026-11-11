@@ -1,4 +1,4 @@
-// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 기체번호 → 이름)·현장 안전 확인·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
+// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 기체번호 → 이름)·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 연결 키는 화면에 오지 않는다(서버 confirm 답에도 없음).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RobotSummary, User } from '../../../contracts/ts';
 import { LIST_MS, Root } from '../session';
 import { ROBOT_IN_USE } from '../screens/settings';
-import { CHECKS } from '../pairing';
 import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -99,7 +98,7 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     await submit(name.form!);
     expect(sent('POST', '/pairing/p1/confirm')[0].body).toEqual({ name: 'Go2-5678' });
     expect($('[data-pair-done]')!.textContent).toContain('Go2-A 로봇을 등록했습니다.');
-    expect($('[data-pair-done]')!.textContent).toContain('현장 안전 확인');
+    expect($('[data-pair-done]')!.textContent).toContain('조종권을 잡으세요');
     expect(calls.filter((c) => c.path.startsWith('/robots?')).length).toBe(lists);   // 안내가 보이는 동안은 안 바꿈
     await click(btn('내 로봇으로'));
     expect(calls.filter((c) => c.path.startsWith('/robots?')).length).toBeGreaterThan(lists);
@@ -180,44 +179,18 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
   });
 });
 
-describe('폰 운영 관리자 — 현장 안전 확인', () => {
-  it('끊긴 로봇은 체크 막힘 + 이유. 연결되면 세 항목 모두 체크해야 POST, 남은 시간 표시 → 해제 DELETE', async () => {
-    const until = inMin(30);
-    serve(signedIn(LEE, [RA], { 'POST /robots/r-a/field-approval': { status: 200, body: { expires_at: until } }, 'DELETE /robots/r-a/field-approval': { status: 204 } }));
-    await open('#/drive', true);
-    expect($('[data-approval]')!.textContent).toContain('현장 확인 필요');
-    await unfold('현장 안전 확인');
-    const g = card('현장 안전 확인'), ok = () => btn('현장 승인(30분)', g)!;
-    expect(ok().disabled).toBe(true);
-    expect($('[data-field-why]', g)!.textContent).toContain('연결된 뒤에');
+describe('사람 현장 승인 제거', () => {
+  for (const phone of [true, false]) it(`${phone ? '폰' : 'PC'}: 확인 칸·세 체크·승인 칩·API 호출 없이 관리 가능`, async () => {
+    serve(signedIn(LEE, [{ ...RA, server_drive_allowed: true, field_approval_expires_at: inMin(-61) }]));
+    await open(phone ? '#/drive' : '#/fleet', phone);
     online();
-    expect($('[data-field-why]', g)).toBeNull();
-    const boxes = [...g.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
-    expect(boxes.map((b) => b.name)).toEqual(['space_clear', 'emergency_stop_ready', 'robot_verified']);
-    act(() => { boxes[0].click(); boxes[1].click(); });
-    expect(ok().disabled).toBe(true);
-    act(() => boxes[2].click());
-    expect(ok().disabled).toBe(false);
-    await submit(g.querySelector('form')!);
-    expect(sent('POST', '/robots/r-a/field-approval')[0].body).toEqual({ checks: CHECKS.map((c) => c.id) });
-    expect(g.textContent).toMatch(/현장 승인 (29|30)분 \d+초 남음/);
-    await click(btn('해제', g));
-    expect(sent('DELETE', '/robots/r-a/field-approval')).toHaveLength(1);
-    expect(g.textContent).toContain('해제했습니다');
-    expect(g.textContent).toContain('현장 확인 다시 필요');
-  });
-
-  it('목록에 승인이 있다가 비면(만료·해제·노트북 재연결) «현장 확인 다시 필요»', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-    try {
-      serve(signedIn(LEE, [{ ...RA, field_approval_expires_at: inMin(12) }]));
-      await open('#/drive', true);
-      expect($('[data-approval]')!.textContent).toMatch(/현장 승인 1[12]분 \d+초 남음/);
-      routes['GET /robots'] = { status: 200, body: { items: [{ ...RA, field_approval_expires_at: null }], next_cursor: null } };
-      act(() => { vi.advanceTimersByTime(LIST_MS); });   // 운영 관리자 목록 10초 갱신
-      await flush();
-      expect($('[data-approval]')!.textContent).toContain('현장 확인 다시 필요');
-    } finally { vi.useRealTimers(); }
+    expect($('[data-field-check]')).toBeNull();
+    expect($('[data-approval]')).toBeNull();
+    expect(box.textContent).not.toContain('현장 확인 필요');
+    expect(box.textContent).not.toContain('현장 안전 확인');
+    expect(box.querySelector('input[name="space_clear"]')).toBeNull();
+    expect(calls.filter((c) => c.path.includes('field-approval'))).toEqual([]);
+    if (!phone) expect($('[data-server-drive]')).not.toBeNull();
   });
 });
 
@@ -251,14 +224,15 @@ describe('폰 운영 관리자 — 내 로봇 관리', () => {
 describe('PC 총괄 — 로봇 탭 읽기 전용 대시보드', () => {
   const RB = robot('r-b', 'Go2-B', null, { robot_serial: '9-1', attention: ['OFFLINE'] });
   const RAX = { ...RA, field_approval_expires_at: inMin(20), attention: ['BATTERY_LOW'], battery: { soc: 12, updated_at: '2026-11-02T00:00:00Z' } };
-  it('목록: 담당·연결·현장 승인 남은 시간·주의. 상세: 기체번호·현장 승인 읽기만, 실기 쓰기·연결·현장 확인 화면 없음', async () => {
+  it('목록: 담당·연결·주의. 상세: 기체번호 읽기만, 실기 쓰기·현장 확인 화면 없음', async () => {
     serve(signedIn(KIM, [RAX, RB]));
     await open('#/fleet', false);
     expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄 상세는 행을 눌러 여는 서랍(#216)
     const list = card('로봇 목록').textContent!;
-    expect(list).toMatch(/Go2-A.*이운영.*현장 승인 (19|20)분/);
+    expect(list).toMatch(/Go2-A.*이운영/);
+    expect(list).not.toContain('현장 승인');
     expect(list).toContain('배터리 낮음');
-    expect(list).toMatch(/Go2-B.*담당 없음.*현장 확인 필요.*▲ 연결 끊김/);
+    expect(list).toMatch(/Go2-B.*담당 없음.*▲ 연결 끊김/);
     await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
     const d = card('로봇 상세');
     expect(d.textContent).toContain(SERIAL);
@@ -286,10 +260,10 @@ describe('PC 총괄 — 로봇 탭 읽기 전용 대시보드', () => {
 });
 
 describe('PC 웹 운영 관리자', () => {
-  it('내 실기 상세에 현장 안전 확인·내 로봇 관리, 목록 위 «+ 새 로봇 추가» → 같은 추가 화면', async () => {
+  it('내 실기 상세에 내 로봇 관리, 현장 확인 없음, 목록 위 «+ 새 로봇 추가» → 같은 추가 화면', async () => {
     serve(signedIn(LEE, [RA]));
     await open('#/fleet', false);
-    expect($('[aria-label="로봇 상세"] [data-field-check]')).not.toBeNull();
+    expect($('[aria-label="로봇 상세"] [data-field-check]')).toBeNull();
     expect($('[aria-label="로봇 상세"] [data-manage]')).not.toBeNull();
     await click(btn('+ 새 로봇 추가'));
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
@@ -298,43 +272,19 @@ describe('PC 웹 운영 관리자', () => {
   });
 });
 
-describe('r1 — PC 서버 경유 조종 패널은 목록 최신 허용 값 + 현장 승인 만료를 따른다(첫 GET 고정 아님)', () => {
-  const ON = (until: string) => ({ ...RA, server_drive_allowed: true, field_approval_expires_at: until });
-  const panel = () => $('[data-server-drive]');
-  it('승인 전 진입 → 세 항목 승인 POST → 목록이 허용 true 를 주면 패널과 «조종 시작»이 생긴다', async () => {
-    const until = inMin(30);
-    serve(signedIn(LEE, [RA], { 'POST /robots/r-a/field-approval': { status: 200, body: { expires_at: until } } }));
-    await open('#/fleet', false);
-    online();
-    expect(panel()).toBeNull();
-    const g = card('현장 안전 확인');
-    act(() => g.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((b) => b.click()));
-    routes['GET /robots'] = { status: 200, body: { items: [ON(until)], next_cursor: null } };
-    await submit(g.querySelector('form')!);
-    expect(panel()).not.toBeNull();
-    expect(panel()!.textContent).toContain('조종 시작');
-  });
-
-  it('승인 상태 진입 → 해제 DELETE → 목록이 허용 false 를 주면 패널과 «조종 시작»이 닫힌다', async () => {
-    serve(signedIn(LEE, [ON(inMin(30))], { 'DELETE /robots/r-a/field-approval': { status: 204 } }));
-    await open('#/fleet', false);
-    online();
-    expect(panel()!.textContent).toContain('조종 시작');
-    routes['GET /robots'] = { status: 200, body: { items: [RA], next_cursor: null } };
-    await click(btn('해제', card('현장 안전 확인')));
-    expect(sent('DELETE', '/robots/r-a/field-approval')).toHaveLength(1);
-    expect(panel()).toBeNull();
-    expect(btn('조종 시작')).toBeUndefined();
-  });
-
-  it('목록을 다시 받기 전이라도 현장 승인이 만료되면 패널을 닫는다', async () => {
-    serve(signedIn(LEE, [ON(new Date(Date.now() + 400).toISOString())]));
-    await open('#/fleet', false);
-    online();
-    expect(panel()).not.toBeNull();
-    await act(async () => { await new Promise((r) => setTimeout(r, 600)); });
-    expect(panel()).toBeNull();
-    expect($('[aria-label="로봇 상세"] [data-field-check]')!.textContent).toContain('현장 확인 다시 필요');   // 담당 운영 상세: 승인 칩은 현장 안전 확인 머리에 한 번
+describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른다', () => {
+  it('허용되면 승인 API 없이 패널 표시, 목록 허용이 사라지면 패널 닫힘', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      serve(signedIn(LEE, [{ ...RA, server_drive_allowed: true }]));
+      await open('#/fleet', false); online();
+      expect($('[data-server-drive]')).not.toBeNull();
+      routes['GET /robots'] = { status: 200, body: { items: [RA], next_cursor: null } };
+      act(() => { vi.advanceTimersByTime(LIST_MS); });
+      await flush();
+      expect($('[data-server-drive]')).toBeNull();
+      expect(calls.filter((c) => c.path.includes('field-approval'))).toEqual([]);
+    } finally { vi.useRealTimers(); }
   });
 });
 
@@ -379,7 +329,7 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     const ask = card('담당 넘기기 확인');
     expect(document.activeElement).toBe(ask);
     expect(ask.textContent).toContain('Go2-A 담당을 박운영(으)로 넘길까요?');
-    expect(ask.textContent).toContain('넘기면 이 로봇의 폰 출입증과 현장 승인이 풀리고, 조종·배정은 새 담당만 할 수 있습니다');
+    expect(ask.textContent).toContain('넘기면 이 로봇의 폰 출입증과 조종권이 회수되고 로봇은 정지·잠금됩니다. 조종·배정은 새 담당만 할 수 있습니다');
     await click(btn('취소', ask));
     expect($('[aria-label="담당 넘기기 확인"]')).toBeNull();
     expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);

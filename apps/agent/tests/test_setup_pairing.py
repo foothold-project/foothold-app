@@ -240,6 +240,45 @@ def test_no_motion_objects_before_approval_and_existing_locked_start_after():
     gate.revoke()
 
 
+def test_automatic_renewal_past_thirty_minutes_keeps_sink_lease_and_latch():
+    gate, session, client, inputs, wall, clock, nic_ok, made, activate = rig()
+    saved = []
+    gate.remember = saved.append
+    session.receive({'t':'field_approval', 'expires_at':wall.value+1800})
+    activate()
+    active = gate.active
+    session.receive({'t':'lease', 'lease_id':'renewed-lease', 'holder_type':'USER'})
+    lease, latch, epoch = session.lease_id, session.core.latch, gate.epoch
+    for _ in range(62):
+        wall.value += 60; clock.value += 60
+        inputs.lowstate(low(1)); inputs.sportmodestate(sport(1))
+        session.receive({'t':'field_approval', 'expires_at':wall.value+1800})
+        activate()
+        assert gate.allowed() and gate.active is active
+        assert session.lease_id == lease and session.core.latch == latch
+        assert gate.epoch == epoch and len(made) == 1
+    assert len(saved) == 63  # Every fresh expiry is durable, including renewals.
+    session.transport_closed(1006, retry=True)
+    assert gate.active is None and session.lease_id is None and session.core.latch
+    assert made[0][1].calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
+
+
+@pytest.mark.parametrize('failure', ['nic', 'serial', 'too_far', 'expired', 'feedback', 'disconnect'])
+def test_renewal_retains_all_local_safety_checks(failure):
+    gate, session, client, inputs, wall, clock, nic_ok, made, activate = rig()
+    session.receive({'t':'field_approval', 'expires_at':1100}); activate()
+    expiry = 1200
+    if failure == 'nic': nic_ok[0] = False
+    elif failure == 'serial': inputs.lowstate(low(2, sn=(9876,5432)))
+    elif failure == 'too_far': expiry = wall.value+1831
+    elif failure == 'expired': expiry = wall.value
+    elif failure == 'feedback': inputs.feedback._fault = True
+    else: session.disconnect()
+    session.receive({'t':'field_approval', 'expires_at':expiry}); activate()
+    assert not gate.allowed() and session.core.latch and session.lease_id is None
+    assert len(made) == 1
+
+
 @pytest.mark.parametrize('reason', ['expiry', 'monotonic-expiry', 'revoke', 'nic', 'serial', 'disconnect', 'transport', 'link-lost'])
 def test_revocation_stops_locks_and_cannot_rearm_same_approval(reason):
     gate, session, client, inputs, wall, now, nic_ok, made, activate = rig()

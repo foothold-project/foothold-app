@@ -11,7 +11,6 @@ import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay } from '../phoneRelay';
 import { ServerDrive, stopLine } from '../serverdrive';
-import { Approval } from '../pairing';
 import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
@@ -73,11 +72,10 @@ function StateLine({ c, r }: { c: Ctx; r: Robot }) {
 /** 영상·라이다 칸. 실기 시험 조종이 켜진 담당 실기만 서버 경유 패널(기존 serverdrive.tsx — 카메라·라이다는 «조종 화면 열기»), 그 밖은 받는 영상이 없으니
  *  빈 검은 칸 대신 «신호 없음 + 까닭» 한 줄(가짜 그림 0 — 지도에 자리를 준다, 11-11 fleet polish) */
 function Media({ c, r }: { c: Ctx; r: Robot }) {
-  // 조종 허용 = 목록 값(서버 server_drive_allowed) + 현장 승인 만료 전(서버 robots.py 와 같은 판정) — 만료 때 OperatorRobot 이 다시 그림
-  const until = r.approvalUntil ? Date.parse(r.approvalUntil) : 0;
-  const drive = !!r.serverDrive && until > Date.now() && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
+  // 서버가 담당·연결·전체 스위치를 확인한 목록 값을 따른다.
+  const drive = !!r.serverDrive && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
   const why = r.unknown === 'summary' ? '남의 로봇이라 받지 않습니다' : isLost(r) ? '연결이 끊겼습니다' : !r.online ? '로봇이 아직 연결되지 않았습니다'
-    : r.serverDrive && !inApp() ? '현장 승인을 하면 여기서 시험 조종 영상이 보입니다' : '이 화면은 실기 영상을 아직 받지 않습니다';
+    : r.serverDrive && !inApp() ? '로봇 연결과 서버 설정을 확인하세요' : '이 화면은 실기 영상을 아직 받지 않습니다';
   return drive ? <section className="lv-card fl-media" aria-label="영상·라이다"><h2>영상·라이다</h2><ServerDrive c={c} r={r} /></section>
     : <section className="lv-card fl-media" aria-label="영상·라이다"><h2>영상·라이다</h2>
       <p className="lv-note" data-no-signal="rgb lidar">{NO_SIGNAL.rgb} · {NO_SIGNAL.lidar} — {why}</p></section>;
@@ -142,7 +140,6 @@ function SummaryRow({ c, x }: { c: Ctx; x: Robot }) {
     <Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /><span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
     <span className="lbl">{ownerName(x)} · 보는 중</span>
     <span className="lbl" data-link-text>{linkText(x)}</span>
-    <Approval r={x} />
     {a && <span className="lbl" data-attention>▲ {a}</span>}
     <Seen x={x} />
     <PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact />
@@ -195,9 +192,6 @@ export function realDash(d: Dashboard | null, all: Robot[]): Dashboard | null {
 /** 운영 관리자(PC): 고르기(실기 2대 이상만) → 상태 한 줄 → 영상·라이다 · 지도 | 상세(임무·배터리·장치·최근 사건·관리)+실기 보기 → 다른 로봇 */
 function Operator(c: Ctx) {
   useRt();
-  // 현장 승인 만료 때 영상(조종 패널 닫기)·상세(승인 칩)를 함께 다시 그림
-  const [, wake] = useState(0), until = c.robot.approvalUntil ? Date.parse(c.robot.approvalUntil) : 0;
-  useEffect(() => { const ms = until - Date.now(); if (ms <= 0) return; const t = setTimeout(() => wake((n) => n + 1), ms + 50); return () => clearTimeout(t); }, [until]);
   const me = c.user.id, mine = c.robots.filter((x) => x.owner === me), others = c.robots.filter((x) => x.owner !== me), r = c.robot, own = r.owner === me;
   const bad = isLost(r);
   return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
@@ -254,7 +248,7 @@ function Admin({ d, ...c }: Ctx & { d: Dashboard | null }) {
           <button type="button" className="fl-row" aria-pressed={x.id === r.id} onClick={() => open(x.id)}>
             <span><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></span>
             <span className="lbl">{ownerName(x)}</span>
-            <span><span className="lbl" data-link-text>{linkText(x)}</span><Approval r={x} /></span>
+            <span><span className="lbl" data-link-text>{linkText(x)}</span></span>
             <span className="mono">{pct(x.battery)}</span>
             <span>{x.mission ?? '—'}{a && <span className="lbl" data-attention> ▲ {a}</span>}</span>
             <span><Seen x={x} /><PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact /></span>

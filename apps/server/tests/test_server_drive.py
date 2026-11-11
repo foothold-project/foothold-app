@@ -21,9 +21,10 @@ from .test_realtime import app_token, drain_audit, hello, receive, reply, screen
 def trial(seeded):
     engine = create_engine(seeded['urls']['migrate'])
     with DBSession(engine) as db:
-        for rid in seeded['robots'].values():
+        for index, rid in enumerate(seeded['robots'].values()):
             row = db.get(Robot, rid)
             row.simulation = False
+            row.serial = f'1234-{index}'
             row.field_approval_expires_at = now() + timedelta(minutes=30)
             row.agent_token_hash = digest('fake-test-' + str(rid))
         db.commit()
@@ -53,14 +54,12 @@ def test_trial_relay_lease_cmd_stop_admin_and_two_connections(trial, seeded):
     rid = seeded['robots']['mine']
     owner, admin, other = app_token(client), app_token(client, 'admin'), app_token(client, 'two')
     detail = client.get(f'/api/v1/robots/{rid}', headers=owner).json()
-    assert detail['server_drive_allowed'] is True and detail['simulation'] is False
+    assert detail['server_drive_allowed'] is False and detail['simulation'] is False
     with client.websocket_connect('/api/v1/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
         ag.send_json(hello())
         receive(ag, 'lease')
         receive(ag, 'stop')
-        assert client.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
-            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(client, owner) as ws, screen(client, owner) as second, screen(client, admin) as tower:
             lease = take(ws, ag, rid)
@@ -118,8 +117,6 @@ def test_outside_exact_table_is_stopped_and_rejected(trial,seeded,bad):
     with trial.websocket_connect('/api/v1/agent/ws',headers={
             'authorization':'Bearer fake-test-'+str(rid)}) as ag:
         ag.send_json(hello()); receive(ag,'lease'); receive(ag,'stop')
-        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=app_token(trial),
-            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial,app_token(trial)) as ws:
             lease=take(ws,ag,rid)
@@ -151,8 +148,6 @@ def test_org_fast_drive_restriction_only_narrows_existing_table(trial, seeded, n
     with trial.websocket_connect('/api/v1/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
         ag.send_json(hello()); receive(ag, 'lease'); receive(ag, 'stop')
-        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
-            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial, owner) as ws, screen(trial, owner) as second:
             lease = take(ws, ag, rid)
@@ -213,8 +208,6 @@ def test_enable_stops_last_translation_once_after_commit(trial, seeded, monkeypa
     with trial.websocket_connect('/api/v1/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
         ag.send_json(hello()); receive(ag, 'lease'); receive(ag, 'stop')
-        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
-            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial, owner) as ws:
             lease = take(ws, ag, rid)
@@ -282,8 +275,6 @@ def test_browser_org_caps_do_not_change_physical_server_drive_alphabet(trial, se
     with trial.websocket_connect('/api/v1/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
         ag.send_json(hello()); receive(ag, 'lease'); receive(ag, 'stop')
-        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=app_token(trial),
-            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial, app_token(trial)) as ws:
             lease = take(ws, ag, rid)
@@ -320,8 +311,6 @@ def test_lowering_caps_stops_retained_translation_or_rotation_after_commit(trial
     owner, admin = app_token(trial), app_token(trial, 'admin')
     with trial.websocket_connect('/api/v1/agent/ws', headers={'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
         ag.send_json(hello()); receive(ag, 'lease'); receive(ag, 'stop')
-        assert trial.post(f'/api/v1/robots/{rid}/field-approval', headers=owner,
-            json={'checks': sorted(C.FIELD_APPROVAL_CHECKS)}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial, owner) as ws:
             lease = take(ws, ag, rid)
