@@ -164,14 +164,16 @@ def test_publish_read_pages_and_stale_role_guards(maps):
         upload = db.get(Upload, result.map.upload_id)
         assert upload.provenance == 'HUMAN'
         assert 'connected_gt' not in upload.metadata_json
-    # An ordinary edit reusing the upload cannot forge a twin for a new map UUID.
+    # Annotation-only saves receive a new server-created immutable twin.
     copied = save(http, headers, floor, str(result.map.upload_id), base=str(result.map.id)).json()
     with Session(http.app.state.engine) as db:
         robot = db.scalar(select(Robot).where(Robot.name == 'mine'))
         robot.simulation = True
         robot.sim_world_id = 'custom/' + result.terrain.spec.id
-        with pytest.raises(Rejected):
-            simulation_twin(db, robot, UUID(floor), UUID(copied['id']), fail)
+        twin_floor, twin_id = simulation_twin(db, robot, UUID(floor), UUID(copied['id']), fail)
+        assert twin_floor == result.terrain.floor_id
+        assert twin_id != result.terrain.map_version_id
+        assert db.get(MapVersion, twin_id).features == copied['features']
 
 
 def scenario_for(http, headers, floor, version):

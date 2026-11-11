@@ -66,11 +66,27 @@ int32 XYZ로 이은 바이트의 SHA256이고 `source_sha256`은 보관 원본�
 시나리오 원본의 HUMAN floor/map UUID는 바꾸지 않는다. 시뮬 에이전트용 고정 계획을 만들 때만
 서버의 불변 Upload 메타데이터 `voxel_twin`(원본 판 ID·그림 SHA256·원점·치수·해상도·지형 ID)을
 원본 판과 대조해 쌍둥이 SIMULATION floor/map UUID로 치환한다. x/y/yaw와 고정 임무는 그대로다.
-다른 판에서 원본 Upload를 재사용해도 새 판 UUID에는 이 연결을 인정하지 않는다.
+같은 HUMAN 층에서 같은 Upload·그림·원점·치수·해상도·`features.edits`를 유지하고
+구역·지점·연결점만 저장하면, `maps.py` save/rollback은 새 HUMAN 판과 그 판 전용의
+불변 SIMULATION 판·Upload 메타데이터를 같은 트랜잭션에 추가한다. SIMULATION 판은
+기존 PNG/PGM 파일을 공유하고 `features`를 HUMAN 판에서 좌표 변환 없이 복사한다.
+`voxel_twin.map_version_id`는 새 HUMAN 판을 정확히 가리킨다. 기존 판·Upload·파일은 수정하지 않는다.
+지형 spec·지형 저장 번호는 바뀌지 않는다. 이후 지형 저장도 연결된 HUMAN 판의 features를 복사한다.
 
-기본 선택은 첫 번째 생성 지형 판이다. 수정한 지형 판을 명시하려면 기존 agent scenario GET에
+공개 `MapVersion.voxel_map.map_version_id`와 voxel 읽기의 `summary.map_version_id`는
+연결된 새 HUMAN 판 UUID를 반환한다. `terrain_id`·원본/칸 SHA256·칸 배열은 그대로다.
+새 파일(같은 PNG 바이트라도 다른 Upload), 다른 층, WALL/ERASE 편집에는 연결을 넘기지 않는다.
+3D 원본 칸이 있는 비연결 판은 원래 summary UUID를 유지하므로 `voxel_map.map_version_id !== id`다.
+기존에 연결 없이 저장됐던 과거 판을 자동 수정하거나 소급 연결하지 않는다. 그 판을 새로
+저장하거나 되돌리면 위 조건을 확인해 새 판의 연결을 만든다.
+
+기본 선택은 **해당 HUMAN 판과 쌍을 이루는 첫 번째 지형 raster의 불변 판**이다.
+구역 저장 시 이미 존재하는 각 지형 저장 번호마다 같은 raster·새 구역의 쌍둥이를 만든다.
+지형을 수정한 경우에도 기본 raster를 최신으로 바꾸지 않는다. 수정한 지형 판을 명시하려면 기존 agent scenario GET에
 `simulation_map_version_id=<고정 지형 지도 판 UUID>`를 추가한다. RUN_STARTED에서도 보고한
 고정 판을 재검증한다. 승인된 최신 판으로 조용히 바꾸지 않는다.
+이전 HUMAN 판에 묶인 시뮬 UUID를 새 HUMAN 판 실행에 명시하면 422다.
+구역 저장 이후의 UUID를 다시 읽어 명시해야 한다. 쌍둥이의 features가 원본과 달라도 422다.
 
 쌍둥이는 canonical PGM을 저장하고 `connected_gt`에 정확한 PGM/PNG SHA256과
 `world_id=custom/<terrain_id>`, `ros_floor_id=f1`을 고정한다. 로봇의 신뢰된 서버
@@ -84,3 +100,32 @@ SIMULATION 출처·원본 PGM·조직·좌표·치수·world/floor 검사를 그
 이번 검증은 합성 파일·격리 DB의 서버 계약/기록 시험이다. 실제 custom world 시작,
 브라우저 실행기/에이전트가 이 world identity와 파일을 받는 연결, L1/L2 SLAM,
 실기 실행은 확인하지 않았다. 기존 launcher가 허용하는 world 목록을 확장하지 않는다.
+
+## 구역 집행의 현재 범위와 화면 인계
+
+- 실기·시뮬 지도 모두 `POST /api/v1/scenarios/preview`와 시나리오 저장의 같은
+  `missions.preview`를 쓴다. `NO_GO` 다각형 내부와 경계에 있는 목표점·연결점은 거절한다.
+  오목 다각형은 ray crossing으로 판정한다. 선분이 구역을 통과하는지는 검사하지 않는다.
+- `MapZone`은 `{id,type,name,polygon}`이며 `SLOW`에 속도 필드는 없다. 현재 서버·에이전트에는
+  이 구역에 따른 주행 중 감속/회피 집행이 없다. 이를 추가하거나 속도를 추정하지 않았다.
+  실기 실행은 기존 실행 전 증명 미구현으로 계속 fail-closed다.
+- 서버 에이전트 계획은 각 지점과 `map_proofs`에 **동일 features를 보관한 불변 쌍둥이 UUID**를
+  고정한다. features 자체를 계획 응답에 중복 삽입하거나 `RunMapProof` 계약을 바꾸지는 않는다.
+- 로그인한 브라우저는 기존 `GET /api/v1/map-versions/{HUMAN UUID}`의
+  `features.zones`, `features.waypoints`, `features.connectors`를 읽으면 된다.
+  같은 조직 읽기 권한이 필요하며 새 계약 필드는 없다. x/y/yaw와 polygon 좌표는 시뮬과 같다.
+  최신 지형 기준 읽기는 `GET /api/v1/terrains/{terrain_id}` → `map_version_id` →
+  `GET /api/v1/map-versions/{SIMULATION UUID}`이며 여기에도 같은 features가 있다.
+  고정 시나리오에는 그 시나리오의 판 UUID를 사용하고 최신 판으로 조용히 바꾸지 않는다.
+- 현재 `mobile/sim/main.js`의 custom terrain은 localStorage의 지형을 읽고, `?bt=`는
+  `fh.btMission.<id>`의 지점/나무를 읽는다. 위 서버 features를 가져오거나 구역을 집행하지 않는다.
+  브라우저에서 읽기·표시·주행 정책을 적용하는 것은 화면 작업 범위다.
+
+## 기존 시나리오·배정의 고정과 남은 결정
+
+시나리오 판은 지도 판 UUID와 임무 판 번호를 저장하고, 배정은 ScenarioVersion UUID에 묶인다.
+지도 저장/되돌리기만으로 기존 시나리오·배정·고정 임무·실행 기록을 최신으로 바꾸지 않는다.
+따라서 기존 시나리오 실행은 이전 구역을 유지한다. 새 구역을 적용하려면 최신 지도에서
+시나리오 새 판을 저장해 동일 preview를 거치고 기존 배정·승인 절차를 다시 밟는 것이 작은 제안이다.
+자동 재바인딩·자동 재승인은 구현하지 않았다. 이 사용자 흐름과 감속 값·경로 통과/주행 중 구역
+집행 정책은 제품 결정이 필요하다. 이번 변경만으로 실기·브라우저 주행 집행을 보장하지 않는다.

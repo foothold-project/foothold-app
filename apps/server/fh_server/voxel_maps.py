@@ -13,6 +13,7 @@ from .map_files import sha256, yaml_bytes
 from .maps import ensure_space, refresh_connectors, require_real_site, upload_work, version_object
 from .models import Building, Floor, MapVersion, Site, Upload
 from .terrains import save_terrain
+from .voxel_links import twin_proof, voxel_summary
 from .voxel_files import CELL, MAX_BYTES, MAX_VOXELS, PointCloudError, convert
 
 RECORD = struct.Struct('<iii')
@@ -110,7 +111,7 @@ def install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, ev
                     root, fail, event, created=created, twin=twin)
                 event(db, user.org_id, 'MAP_VERSION_APPROVED', user.id,
                     {'floor_id': str(floor.id), 'map_version_id': str(version.id), 'number': number}, category='APPROVAL')
-                return C.VoxelMapImport(map=version_object(version, floor, image), terrain=terrain, voxels=summary)
+                return C.VoxelMapImport(map=version_object(version, floor, image, db), terrain=terrain, voxels=summary)
             try:
                 return upload_write(request, auth, write)
             except BaseException as exc:
@@ -146,7 +147,7 @@ def install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, ev
         meta = image.metadata_json
         if 'voxel_map' not in meta:
             fail(404, 'NOT_FOUND', '이 지도 판에는 3D 칸 자료가 없습니다.')
-        summary = C.VoxelMapSummary.model_validate(meta['voxel_map'])
+        summary = C.VoxelMapSummary.model_validate(voxel_summary(db, row, image))
         path = (root / meta['voxel_cells']).resolve()
         try:
             if not path.is_relative_to(root) or path.stat().st_size != summary.voxel_count * RECORD.size:
@@ -163,13 +164,13 @@ def install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, ev
 
 
 def simulation_twin(db, robot, floor_id, version_id, fail, target_id=None):
-    """Resolve only server-created immutable twins; a copied upload is not a twin."""
+    """Resolve the server-created twin of this exact immutable annotation snapshot."""
     version = db.scalar(select(MapVersion).where(MapVersion.org_id == robot.org_id,
         MapVersion.id == version_id, MapVersion.floor_id == floor_id))
     if version is None or version.provenance != 'HUMAN':
         return floor_id, version_id
     image = db.scalar(select(Upload).where(Upload.org_id == robot.org_id, Upload.id == version.upload_id))
-    summary = image.metadata_json.get('voxel_map', {}) if image else {}
+    summary = voxel_summary(db, version, image) if image else {}
     floor = db.scalar(select(Floor).where(Floor.org_id == robot.org_id, Floor.id == floor_id))
     def bad():
         fail(422, 'MAP_PROOF_UNAVAILABLE', '이 실기 지도 판과 연결된 시뮬 지형·원본·좌표 증명을 확인할 수 없습니다.')
@@ -183,16 +184,20 @@ def simulation_twin(db, robot, floor_id, version_id, fail, target_id=None):
     if twin_floor is None:
         bad()
     query = select(MapVersion).where(MapVersion.org_id == robot.org_id, MapVersion.floor_id == twin_floor.id)
-    # Default to the first immutable generated revision. Explicit newer terrain
-    # selection is checked again when recording RUN_STARTED, never latest-by-default.
-    twin_version = db.scalar(query.where(MapVersion.id == target_id) if target_id else query.where(MapVersion.number == 1))
+    # Default to the original terrain raster paired with this exact source
+    # snapshot. Explicit UUIDs are never replaced by a newer annotation/raster.
+    if target_id:
+        query = query.where(MapVersion.id == target_id)
+    else:
+        query = query.join(Upload, Upload.id == MapVersion.upload_id).where(
+            Upload.org_id == robot.org_id,
+            Upload.metadata_json['voxel_twin']['map_version_id'].astext == str(version.id),
+            Upload.metadata_json['terrain_version'].as_integer() == 1).order_by(MapVersion.number).limit(1)
+    twin_version = db.scalar(query)
     twin_image = db.get(Upload, twin_version.upload_id) if twin_version else None
     proof = twin_image.metadata_json.get('voxel_twin', {}) if twin_image else {}
     origin = [version.origin_x, version.origin_y, version.origin_yaw]
-    expected = dict(floor_id=str(floor_id), map_version_id=str(version_id),
-        image_sha256=version.image_sha256.hex(), origin=origin, resolution=version.resolution,
-        width=version.width, height=version.height, terrain_id=terrain_id,
-        terrain_size=[version.width * version.resolution, version.height * version.resolution])
+    expected = twin_proof(version, terrain_id)
     if (proof != expected or version.status not in ('APPROVED', 'SUPERSEDED')
             or image.metadata_json.get('origin') != origin or summary.get('origin') != origin
             or image.metadata_json.get('resolution') != version.resolution
@@ -201,6 +206,7 @@ def simulation_twin(db, robot, floor_id, version_id, fail, target_id=None):
             or [twin_version.origin_x, twin_version.origin_y, twin_version.origin_yaw] != origin
             or not math_close(twin_version.width * twin_version.resolution, version.width * version.resolution)
             or not math_close(twin_version.height * twin_version.resolution, version.height * version.resolution)
+            or twin_version.features != version.features
             or robot.sim_world_id != 'custom/' + terrain_id):
         bad()
     # The unchanged map_proof gate subsequently verifies SIMULATION + PGM + world + grid.
