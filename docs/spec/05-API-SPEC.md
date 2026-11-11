@@ -105,7 +105,7 @@
 | POST | `/robots` | 실기 직접 등록 폐지 →403 `PAIRING_REQUIRED`; §3.1 사용 | 없음 |
 | GET | `/robots/{id}` | 상세(장치 목록·담당자·현재 실행·현재 층). 담당 밖 운영 관리자에게는 로봇 요약 객체만 200 | 로그인 |
 | GET | `/robots/{id}/owner-candidates` | 넘길 수 있는 같은 조직의 활성(잠금·보관 제외) OPERATOR, 본인 제외. `{items:[{user_id,display_name}],next_cursor}`, 이름순(동명은 user_id순), 기존 `limit/cursor`. 시뮬은 기존 ROBOT_WRITE 판정 후409 `SIM_ROBOT_MANAGED`, 없는 로봇404 | 실기 O(내), 담당 밖·총괄403 |
-| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}`. 실기 넘기기 대상은 같은 조직의 활성 운영, null 거부, 넘기면 현장 승인 해제 | 실기 O(내), 담당 없는 실기 지정만 A, 시뮬 기존 A |
+| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}`. 실기 넘기기 대상은 같은 조직의 활성 운영, null 거부, 넘기면 STOP·잠금·조종권 회수 | 실기 O(내), 담당 없는 실기 지정만 A, 시뮬 기존 A |
 | DELETE | `/robots/{id}` | 해제(실행·조종 중이면 409), 연결 키 폐기 | 실기 O(내), 시뮬 전용 관리 API |
 | POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
@@ -149,22 +149,22 @@
 | POST `/pairing/claim` | `{code}` → `{pairing_id,robot_serial,expires_at}` | 운영만 |
 | POST `/pairing/{id}/confirm` | `{name}` → `RobotSummary`; 새 등록은 담당=claim한 운영·simulation=false, 같은 담당 기체는 기존 id 재연결 | 같은 운영만 |
 | POST `/pairing/{id}/poll` | `{poll_secret}` → `{state:"waiting"}` / `{state:"paired",robot_id,agent_token,agent_ws_url}` / `{state:"consumed"}` | 시작 프로그램의 비밀 필요 |
-| POST `/robots/{id}/field-approval` | `{checks:["space_clear","emergency_stop_ready","robot_verified"]}` → `{expires_at}` | 실기 담당 운영만 |
-| DELETE `/robots/{id}/field-approval` | 즉시 해제 →204 | 실기 담당 운영만 |
+| POST `/robots/{id}/field-approval` | 폐기된 사람 승인 API →410 `FIELD_APPROVAL_RETIRED` | 실기 담당 운영만 |
+| DELETE `/robots/{id}/field-approval` | 폐기된 사람 승인 API →410 `FIELD_APPROVAL_RETIRED` | 실기 담당 운영만 |
 | DELETE `/robots/{id}/connection` | 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금·조종권 회수, 연결 종료 →204 | 실기 담당 운영만 |
 
 - serial은 DDS uint32 두 개를 정규화한 `앞숫자-뒷숫자`다. 같은 serial의 활성 실기가 있고 담당이 confirm한 운영 본인이면 기존 robot_id로 재연결한다. 이름을 바꾸고 새 토큰을 발급하며 옛 토큰·폰 출입증·현장 승인을 폐기하고 진행 중 조종은 연결 끊기와 같은 STOP·잠금·조종권 회수 뒤 옛 연결을 닫는다. 토큰이 살아 있는 노트북 재설치도 같은 처리다. 다른 담당의 기체는409와 «담당 운영에게 넘겨받기 또는 삭제 요청» 안내를 준다. 기존 serial 없는 로봇·토큰은 그대로 둔다.
 - 코드는 10분·1회용, poll_secret은 32바이트 무작위이며 start 응답에서만 전달한다. claim한 다른 운영의 claim/confirm, 없는 코드·사용한 코드·만료 코드는 같은404 `PAIRING_NOT_FOUND`다. 같은 운영의 대기 claim 재요청은 허용한다.
 - start는 실제 연결 IP당 10분 고정 창 10회, claim은 사용자당 10회·IP당 20회다(429). 프록시의 임의 전달 헤더는 신뢰하지 않는다. DB에 카운터를 저장해 실패·재시작으로 초기화되지 않는다. 조직당 확인 전 대기 상한100건이다.
 - 모든 pairing 응답은 `Cache-Control: no-store`. poll_secret은 해시만, 전달 전 토큰은 poll_secret에서 별도로 유도한 키로 AES-GCM 암호화해 저장한다. 한 번 poll하면 암호문을 지운다. 코드·비밀·토큰·serial 원문은 사건에 기록하지 않는다.
-- 담당 없는 실기만 총괄이 PATCH에 `{owner_user_id}` 한 필드만 보내 같은 조직의 활성 운영에게 담당을 지정할 수 있다. null·이름 동시 변경·기존 담당 교체는 허용하지 않는다. 지정은 현장 승인을 해제하고 사건으로 남기며 연결 키를 발급하거나 조종·승인 권한을 주지 않는다.
-- 현장 확인은 정확히 세 필수 id가 각각 한 번 필요하다. 누락·중복·모르는 id는400. 승인 수명은 서버가 정하는30분이며, 생성·해제·만료는 사건으로 기록한다. 담당 넘기기·연결 끊기는 승인을 해제한다. 실기 agent WS가 새로 연결되면 순단·프로그램/서버 재시작을 포함해 DB 승인도 먼저 해제하고 `RobotSummary.field_approval_expires_at=null`로 표시한다. 연결 후 담당 운영자가 현장 안전 확인을 다시 해야 한다.
-- `RobotSummary.robot_serial`, `field_approval_expires_at`은 총괄도 읽는다. 만료된 승인은 null이다. `server_drive_allowed`는 아래 두 관문이 모두 유효할 때만 true다.
-- 서버 경유 실기 수동 조종 = 전체 스위치 AND 해당 로봇의 유효한 현장 승인. 새 `FH_SERVER_DRIVE_ENABLED=1`은 모든 실기의 전체 스위치다. 이 env가 **없을 때만** 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 계속 거부한다.
-- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 열렸지만 현장 승인이 없으면 `FIELD_APPROVAL_REQUIRED`. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬 조종·폰 출입증 경로·수동 명령표·0.30초 감시는 유지한다.
-- agent WS는 승인 상태가 바뀌거나 연결될 때 `{t:"field_approval",expires_at:UTC|null}`을 받는다. 비밀이나 serial을 싣지 않는다. 서버는 만료 시각을 매 입력과 최종 발신에서 확인하고25ms 안전 tick에서도 만료를 처리한다. DB 만료 기록은 별도 주기로 남긴다.
-- 만료·해제·담당 변경은 기존 lease-null·STOP·잠금·조종권 회수로 진행 중 조종을 끝낸다. 이미 대기한 cmd/unlock/유효 lease도 마지막 발신 관문에서 차단한다. 재연결·재승인은 조종권을 복원하지 않으며 다시 취득·STOP 확인·명시 잠금 해제가 필요하다. 승인 없는 STOP·lease-null은 전체 스위치가 열린 실기에 계속 전달할 수 있다.
-- 배포 담당이 할 일: 0022 DB 이관, 서버·새 연결 프로그램의 호환 및 비밀 전달 경로 확인, 필요한 경우 전체 스위치 설정, 별도 승인된 절차로 재시작·통합 검증. 이 구현 작업은 운영 env·서버·실기·시뮬을 건드리지 않는다.
+- 담당 없는 실기만 총괄이 PATCH에 `{owner_user_id}` 한 필드만 보내 같은 조직의 활성 운영에게 담당을 지정할 수 있다. null·이름 동시 변경·기존 담당 교체는 허용하지 않는다. 지정은 진행 중 조종을 정지·잠금·조종권 회수하고 사건으로 남기며 연결 키를 발급하지 않는다.
+- 현장 안전 확인 없음 — 담당·연결·전체 스위치로 관문. 사람의 세 항목 체크와 승인·해제는 사용하지 않는다. 이전 POST/DELETE는 담당 권한 확인 뒤410이며 상태를 바꾸지 않는다.
+- `RobotSummary.robot_serial`은 총괄도 읽는다. 호환 필드 `field_approval_expires_at`은 항상 null이며 DB의 옛 값은 권한으로 쓰지 않는다. DB 열을 지우거나 이관하지 않는다.
+- 서버 경유 실기 수동 조종은 전체 스위치 AND 담당 있음 AND 페어링 기체번호 있음 AND 인증된 실기 agent 연결이 모두 필요하다. `FH_SERVER_DRIVE_ENABLED=1`은 전체 스위치이며, env가 없을 때만 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 거부한다. 목록의 `server_drive_allowed`도 이 조건으로 정한다.
+- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
+- 연결 중 서버는 `{t:"field_approval",expires_at:UTC|null}` 표식을 자동 발급하고60초마다 갱신한다. 한 표식은30분 이하이며, 연결이 살아 있는 동안 자동 관문에 총 시간 제한은 없다. 최종 발신 때 현재 peer·담당·전체 스위치·500ms 이내 인증 확인·연결 생존을 다시 검사한다. 연결이 끊기거나 확인이 오래되면 갱신하지 않는다. `FIELD_APPROVAL_EXPIRED` 사건은 더 만들지 않으며 옛 기록은 읽을 수 있다.
+- 노트북은 기존 nic·serial·최대1800초·벽시계/단조시계 만료 검사를 유지한다. 같은 유효 연결의 정상 표식 갱신은 조종권·잠금 상태를 유지하며, 끊김·만료·검사 실패는 STOP·잠금·조종권 회수다. 연결 끊기·담당 변경·재연결도 진행 중 조종을 끝내며, 재연결 뒤 자동 표식을 받아도 조종권·잠금 해제는 복원하지 않는다. 다시 취득·STOP 확인·명시 잠금 해제가 필요하다. 안전 STOP·lease-null 경로는 그대로다.
+- 배포 담당이 할 일: 기존0022 DB 이관 적용 확인(이번 추가 이관 없음), 서버·새 연결 프로그램의 호환 및 비밀 전달 경로 확인, 필요한 경우 전체 스위치 설정, 별도 승인된 절차로 재시작·통합 검증. 이 구현 작업은 운영 env·서버·실기·시뮬을 건드리지 않는다.
 
 ---
 
@@ -1583,7 +1583,7 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 ### 13.11 총괄 정지 요청과 상태 요약 (ADR-002, FIX-1029)
 
 전체 스위치가 꺼진 실기(`simulation != true`)의 서버 WS 조종권·명령·잠금 해제·STOP 및 REST
-`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·현장 승인을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
+`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·담당·연결을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
 기존 `ADMIN_NO_REAL_CONTROL`을 받는다. 서버의 시작·끊김·기록 장애에 따른 내부 제어
 발신도 전체 스위치가 꺼진 실기로 보내지 않는다. 시뮬의 기존 중계 경로와 에이전트의 구형 수신 STOP 방어는 유지한다.
 

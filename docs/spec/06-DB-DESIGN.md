@@ -132,7 +132,7 @@ erDiagram
 | owner_user_id | uuid FK NULL | 담당 운영 관리자 1명 (PRD Q4). 담당 없는 옛 실기는 총괄의 owner_user_id 단독 PATCH로 같은 조직 활성 운영에게만 지정 가능 |
 | agent_token_hash | bytea NOT NULL | 에이전트 토큰 sha256. 실기는 담당 운영의 페어링으로 발급, 연결 끊기·삭제 시 폐기 |
 | serial | text NULL | DDS 기체번호. 활성 행의 null 아닌 serial에 전역 UNIQUE 부분 색인. 기존 로봇은 null 유지 |
-| field_approval_expires_at | timestamptz NULL | 담당 운영이 확인한30분 현장 승인. 만료·해제·담당 넘기기·연결 끊기·실기 agent WS 새 연결은 해제 |
+| field_approval_expires_at | timestamptz NULL | 호환용 옛 열(삭제·이관 없음), 조종 권한에 사용하지 않음. 현장 안전 확인 없음 — 담당·연결·전체 스위치로 관문 |
 | last_floor_id | uuid NULL | 마지막 확인 층. FK 는 `floors` 표를 만들 때 추가 |
 | last_floor_source | text | `HUMAN` / `AUTO` |
 | last_seen_at | timestamptz | |
@@ -149,7 +149,7 @@ erDiagram
 | info | jsonb | 모델명·펌웨어 등 |
 | updated_at | timestamptz | |
 
-실기 agent WS의 유효한 새 hello 뒤 승인 해제는 토큰을 다시 확인한 로봇 행 잠금·commit과 `FIELD_APPROVAL_REVOKED(reason=AGENT_RECONNECTED)` 사건을 함께 저장한 뒤 새 peer를 게시한다. 저장 전후 실시간 관문을 닫아 이전 SQL 스냅샷이 승인을 복원하지 못하게 한다. 기존0022 열을 사용하며 추가 이관은 없다.
+실기 agent WS의 유효한 새 hello 뒤 승인 해제는 토큰을 다시 확인한 로봇 행 잠금·commit과 `FIELD_APPROVAL_REVOKED(reason=AGENT_RECONNECTED)` 사건을 함께 저장한 뒤 새 peer를 게시한다. 저장 전후 실시간 관문을 닫아 이전 SQL 스냅샷이 조종권을 복원하지 못하게 한다. 새 연결은 담당·기체번호·전체 스위치를 확인해 메모리에서 자동 표식을 발급하며 옛 DB 만료 값은 읽어도 관문에 쓰지 않는다. 기존0022 열을 사용하며 추가 이관은 없다.
 
 **pairings** (이관0022, 단기 자격 전달)
 

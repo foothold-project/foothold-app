@@ -1536,7 +1536,7 @@ export interface RobotSummary {
   simulation: boolean;
   server_drive_allowed: boolean;
   robot_serial?: string | null;
-  /** 실기 agent WS가 새로 연결되면 해제된다. 다시 현장 안전 확인이 필요하다. */
+  /** 폐기된 사람 현장 승인 호환 필드. 항상 null이며 자동 연결 관문은 server_drive_allowed를 쓴다. */
   field_approval_expires_at?: string | null;
   id: string;
   name: string;

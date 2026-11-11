@@ -38,17 +38,6 @@ class NoStorePairing:
         await self.app(scope, receive, no_store)
 
 
-def expire(factory, org_id):
-    """Durable expiry history includes robots whose agent is offline."""
-    with factory.begin() as db:
-        for robot in db.scalars(select(Robot).where(Robot.org_id == org_id,
-                Robot.field_approval_expires_at <= now()).with_for_update(skip_locked=True)):
-            expired = robot.field_approval_expires_at
-            robot.field_approval_expires_at = None
-            db.add(render(db, Event(org_id=org_id, robot_id=robot.id, category='SAFETY',
-                code='FIELD_APPROVAL_EXPIRED', severity='INFO', data={'expires_at': expired.isoformat()})))
-
-
 def revoke_on_agent_connect(factory, org_id, rid, token_hash):
     """Persist before publishing a new authenticated real-agent connection."""
     from .api import lock_organization
@@ -236,40 +225,20 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
                                       path=prefix + '/agent/ws', query='')
         return C.PairingPaired(robot_id=row.robot_id, agent_token=raw, agent_ws_url=str(address))
 
-    async def field_change(robot_id, auth, db, body=None):
+    # Retired human confirmation API: keep a clear response for older clients.
+    @app.post(prefix + '/robots/{robot_id}/field-approval', response_model=C.FieldApproval)
+    async def approve(robot_id: UUID, body: C.FieldApprovalRequest, auth: Identity, db: DB):
         user = operator(auth)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
         authorize(user, 'ROBOT_WRITE', row)
-        if row.simulation:
-            fail(400, 'VALIDATION', '현장 확인은 실기 로봇에만 필요합니다.')
-        if body is not None and (set(body.checks) != C.FIELD_APPROVAL_CHECKS
-                                or len(body.checks) != len(C.FIELD_APPROVAL_CHECKS)):
-            fail(400, 'VALIDATION', '필수 현장 안전 항목을 모두 확인하세요.')
-        rt, rid = app.state.realtime, str(robot_id)
-        rt.begin_robot_change(rid)
-        try:
-            expiry = now() + timedelta(minutes=30) if body is not None else None
-            def write():
-                row.field_approval_expires_at = expiry
-                robot_event(db, user, row, 'FIELD_APPROVAL_GRANTED' if expiry else 'FIELD_APPROVAL_REVOKED',
-                    {'expires_at': expiry.isoformat() if expiry else None,
-                     'checks': sorted(C.FIELD_APPROVAL_CHECKS) if expiry else []})
-                db.commit()
-            # Close the motion gate and revoke the lease before any I/O wait.
-            rt.set_field_approval(rid, None)
-            await asyncio.to_thread(write)
-            rt.set_field_approval(rid, expiry)
-            return expiry
-        finally:
-            rt.end_robot_change(rid)
-
-    @app.post(prefix + '/robots/{robot_id}/field-approval', response_model=C.FieldApproval)
-    async def approve(robot_id: UUID, body: C.FieldApprovalRequest, auth: Identity, db: DB):
-        return C.FieldApproval(expires_at=await field_change(robot_id, auth, db, body))
+        fail(410, 'FIELD_APPROVAL_RETIRED', '현장 안전 확인 없이 담당·연결·서버 설정으로 조종 가능 여부를 확인합니다.')
 
     @app.delete(prefix + '/robots/{robot_id}/field-approval', status_code=204)
     async def revoke(robot_id: UUID, auth: Identity, db: DB):
-        await field_change(robot_id, auth, db)
+        user = operator(auth)
+        row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        authorize(user, 'ROBOT_WRITE', row)
+        fail(410, 'FIELD_APPROVAL_RETIRED', '현장 승인 해제는 사용하지 않습니다. 조종을 멈추려면 STOP을 누르세요.')
 
     @app.delete(prefix + '/robots/{robot_id}/connection', status_code=204)
     async def disconnect(robot_id: UUID, auth: Identity, db: DB):

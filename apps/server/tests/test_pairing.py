@@ -126,11 +126,11 @@ def test_real_owner_management_admin_denial_transfer_clears_approval(client, see
     for owner in ['admin', 'foreign', 'locked']:
         assert client.patch(path, headers=own, json={'owner_user_id': str(seeded['users'][owner])}).status_code == 400
     assert client.patch(path, headers=own, json={'owner_user_id': None}).status_code == 400
-    assert client.post(path + '/field-approval', headers=own, json={'checks': CHECKS[:-1]}).status_code == 400
-    assert client.post(path + '/field-approval', headers=own, json={'checks': CHECKS + ['unknown']}).status_code == 400
+    assert client.post(path + '/field-approval', headers=own, json={'checks': CHECKS[:-1]}).status_code == 410
+    assert client.post(path + '/field-approval', headers=own, json={'checks': CHECKS + ['unknown']}).status_code == 410
     approved = client.post(path + '/field-approval', headers=own, json={'checks': CHECKS})
-    assert approved.status_code == 200
-    assert client.get(path, headers=admin).json()['field_approval_expires_at'] == approved.json()['expires_at']
+    assert approved.status_code == 410
+    assert client.get(path, headers=admin).json()['field_approval_expires_at'] is None
     assert client.patch(path, headers=own, json={'owner_user_id': str(seeded['users']['two'])}).status_code == 200
     assert client.get(path, headers=admin).json()['field_approval_expires_at'] is None
     assert client.patch(path, headers=own, json={'name': 'old owner'}).status_code == 403
@@ -171,19 +171,18 @@ def test_both_motion_gates_required(seeded, enabled, approved, expected):
     with DBSession(engine) as db:
         row = db.get(Robot, rid)
         row.agent_token_hash = digest('fake-gates')
-        row.field_approval_expires_at = now() + timedelta(minutes=30) if approved else None
+        row.serial = '1234-5678' if approved else None
+        row.field_approval_expires_at = now() + timedelta(minutes=30)  # Never authorizes motion.
         db.commit()
     engine.dispose()
     app = create_app(Settings(seeded['urls']['app'], seeded['org'], server_drive_enabled=enabled))
     with TestClient(app, base_url='https://testserver') as client:
         own = app_token(client)
-        assert client.get(P + '/robots/' + str(rid), headers=own).json()['server_drive_allowed'] == (enabled and approved)
+        assert client.get(P + '/robots/' + str(rid), headers=own).json()['server_drive_allowed'] is False
         with client.websocket_connect(P + '/agent/ws', headers={'authorization': 'Bearer fake-gates'}) as ag:
             ag.send_json(hello())
             receive(ag, 'field_approval')
-            if approved:
-                assert client.post(P + '/robots/' + str(rid) + '/field-approval',
-                    headers=own, json={'checks': CHECKS}).status_code == 200
+            if enabled and approved:
                 receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
             with screen(client, own) as ws:
                 result = reply(ws, send(ws, 'lease.take', rid))
@@ -193,40 +192,33 @@ def test_both_motion_gates_required(seeded, enabled, approved, expected):
                     assert result['ok']
 
 
-def test_field_approval_denies_motion_expires_stops_and_cannot_resume(trial, seeded):
+def test_automatic_marker_survives_over_thirty_minutes(trial, seeded, monkeypatch):
     rid = str(seeded['robots']['mine'])
     own = app_token(trial)
-    path = P + '/robots/' + rid + '/field-approval'
     rt = trial.app.state.realtime
     with trial.websocket_connect(P + '/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + rid}) as ag:
-        ag.send_json(hello())
-        receive(ag, 'field_approval')
-        receive(ag, 'lease'); receive(ag, 'stop')
+        ag.send_json(hello()); receive(ag, 'stop')
+        first = receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        from datetime import datetime
+        first_expiry = datetime.fromisoformat(first['expires_at'].replace('Z', '+00:00'))
         with screen(trial, own) as ws:
-            assert reply(ws, send(ws, 'lease.take', rid))['error']['code'] == 'FIELD_APPROVAL_REQUIRED'
-            assert trial.post(path, headers=own, json={'checks': CHECKS}).status_code == 200
-            assert receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
             lease = take(ws, ag, rid)
-            before = rt.arbiter.robot(rid).stop_ref
-            expiry = now() + timedelta(seconds=.2)
+            future = now() + timedelta(minutes=61)
+            # Change only marker wall time, leaving auth/session monotonic clocks live.
+            monkeypatch.setattr(rt, 'field_clock', lambda: future)
+            # Let the real 25 ms ticker schedule its next periodic renewal.
+            trial.portal.call(lambda: setattr(rt.agents[rid], 'field_refresh_at', float('-inf')))
+            renewed = receive(ag, 'field_approval', predicate=lambda m:
+                m['expires_at'] is not None and datetime.fromisoformat(
+                    m['expires_at'].replace('Z', '+00:00')) > first_expiry + timedelta(minutes=60))
+            expiry = datetime.fromisoformat(renewed['expires_at'].replace('Z', '+00:00'))
+            assert timedelta(0) < expiry - future <= timedelta(minutes=30)
+            assert rt.arbiter.robot(rid).holder.lease_id == lease
             with DBSession(trial.app.state.engine) as db:
-                db.get(Robot, UUID(rid)).field_approval_expires_at = expiry
-                db.commit()
-            trial.portal.call(rt.set_field_approval, rid, expiry)
-            receive(ag, 'lease', predicate=lambda m: m['lease_id'] is None)
-            receive(ag, 'stop')
-            receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is None)
-            record = rt.arbiter.robot(rid)
-            assert record.holder is None and record.latched and record.stop_ref > before
-            assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[0,0,0]))['error']['code'] == 'FIELD_APPROVAL_REQUIRED'
-            assert trial.post(path, headers=own, json={'checks': CHECKS}).status_code == 200
-            receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
-            assert record.holder is None and record.latched
-            assert not reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
-            assert trial.delete(path, headers=own).status_code == 204
-            receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is None)
-            assert not rt.field_approved(rid)
+                assert db.get(Robot, UUID(rid)).field_approval_expires_at is None
+                assert not list(db.scalars(select(Event).where(Event.robot_id == UUID(rid),
+                    Event.code == 'FIELD_APPROVAL_EXPIRED')))
 
 
 def test_final_send_gate_cannot_leak_queued_command(trial, seeded):
@@ -237,9 +229,10 @@ def test_final_send_gate_cannot_leak_queued_command(trial, seeded):
         ag.send_json(hello()); receive(ag, 'stop')
         async def verify():
             peer = rt.agents[rid]
+            rt.set_field_approval(rid, None)
             assert await rt.send_body(peer, {'t': 'cmd', 'lease_id': str(uuid4()), 'seq': 1,
                 'axes': [0,0,0], 't_server': now().isoformat()}) is False
-            rt.field_approvals[rid] = now() - timedelta(seconds=1)
+            rt.field_approvals[rid] = None
             assert not rt.field_approved(rid)
             assert await rt.send_body(peer, {'t': 'unlock', 'lease_id': str(uuid4()), 'stop_gen': 3}) is False
             assert await rt.send_body(peer, {'t': 'lease', 'lease_id': None, 'holder_type': None}) is True
@@ -247,7 +240,7 @@ def test_final_send_gate_cannot_leak_queued_command(trial, seeded):
         trial.portal.call(verify)
 
 
-@pytest.mark.parametrize('operation', ['revoke', 'transfer', 'disconnect'])
+@pytest.mark.parametrize('operation', ['transfer', 'disconnect'])
 def test_owner_actions_stop_active_control(trial, seeded, operation):
     own = app_token(trial)
     rid = str(seeded['robots']['mine'])
@@ -256,14 +249,11 @@ def test_owner_actions_stop_active_control(trial, seeded, operation):
     with trial.websocket_connect(P + '/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + rid}) as ag:
         ag.send_json(hello()); receive(ag, 'stop')
-        assert trial.post(path + '/field-approval', headers=own, json={'checks': CHECKS}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial, own) as ws:
             take(ws, ag, rid)
             before = rt.arbiter.robot(rid).stop_ref
-            if operation == 'revoke':
-                assert trial.delete(path + '/field-approval', headers=own).status_code == 204
-            elif operation == 'transfer':
+            if operation == 'transfer':
                 assert trial.patch(path, headers=own, json={
                     'owner_user_id': str(seeded['users']['two'])}).status_code == 200
             else:
@@ -272,24 +262,24 @@ def test_owner_actions_stop_active_control(trial, seeded, operation):
             receive(ag, 'stop')
             record = rt.arbiter.robot(rid)
             assert record.holder is None and record.transfer is None and record.latched
-            assert record.stop_ref > before and not rt.field_approved(rid)
+            assert record.stop_ref > before
+            if operation == 'disconnect':
+                assert not rt.field_approved(rid)
             with DBSession(trial.app.state.engine) as db:
                 assert db.get(Robot, UUID(rid)).field_approval_expires_at is None
 
 
-def test_offline_expiry_is_durable_and_recorded_once(client, seeded):
-    from sqlalchemy.orm import sessionmaker
-    from apps.server.fh_server.pairing import expire
-    rid = seeded['robots']['mine']
-    with DBSession(client.app.state.engine) as db:
-        db.get(Robot, rid).field_approval_expires_at = now() - timedelta(seconds=1)
-        db.commit()
-    for _ in range(2):
-        expire(sessionmaker(client.app.state.engine), seeded['org'])
-    with DBSession(client.app.state.engine) as db:
-        assert db.get(Robot, rid).field_approval_expires_at is None
-        assert len(list(db.scalars(select(Event).where(Event.robot_id == rid,
-            Event.code == 'FIELD_APPROVAL_EXPIRED')))) == 1
+def test_retired_endpoints_cannot_change_automatic_gate(trial, seeded):
+    own = app_token(trial)
+    rid = str(seeded['robots']['mine'])
+    path = P + '/robots/' + rid + '/field-approval'
+    with trial.websocket_connect(P + '/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + rid}) as ag:
+        ag.send_json(hello()); receive(ag, 'stop')
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        assert trial.post(path, headers=own, json={'checks': CHECKS}).status_code == 410
+        assert trial.delete(path, headers=own).status_code == 410
+        assert trial.app.state.realtime.field_approved(rid)
 
 
 def test_owner_repair_preserves_id_stops_control_and_rejects_old_token(trial, seeded):
@@ -302,8 +292,6 @@ def test_owner_repair_preserves_id_stops_control_and_rejects_old_token(trial, se
         db.commit()
     with trial.websocket_connect(P + '/agent/ws', headers={'authorization': 'Bearer ' + old_token}) as ag:
         ag.send_json(hello()); receive(ag, 'stop')
-        assert trial.post(P + '/robots/' + rid + '/field-approval', headers=own,
-            json={'checks': CHECKS}).status_code == 200
         receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         with screen(trial, own) as ws:
             take(ws, ag, rid)

@@ -1,43 +1,15 @@
-// 실기 로봇 연결(ROBOT-PAIRING, 05 §3.1). 운영 관리자: 새 로봇 추가(QR·6자리 → 기체번호 확인 → 이름) → 현장 안전 확인(30분) → 내 로봇 관리(이름·연결 끊기·지우기).
+// 실기 로봇 연결(ROBOT-PAIRING, 05 §3.1). 운영 관리자: 새 로봇 추가(QR·6자리 → 기체번호 확인 → 이름) → 내 로봇 관리(이름·연결 끊기·지우기).
 // 총괄은 실기 로봇에 쓰기가 없다 — 담당 없는 실기의 담당 지정만(AssignOwner). 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
 // 담당 넘기기(TransferOwner): 내 로봇 관리 안 — 넘길 대상 목록(owner-candidates) → 같은 화면 확인 → PATCH owner_user_id.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { PairingClaimed, RobotOwnerCandidate, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
-import type { Robot, Tone } from './fake';
+import type { Robot } from './fake';
 import { Chip } from './screens';
 import { OwnerSelect, robotFail } from './screens/settings';
 
 type Cancel = { cancel?: AbortSignal };
-/** 현장 안전 확인 필수 세 항목(서버 FIELD_APPROVAL_CHECKS 와 같은 id — 모르는 id·빠짐은 400) */
-export const CHECKS = [
-  { id: 'space_clear', label: '시험 공간 확보 — 로봇 주변에 사람·장애물이 없습니다.' },
-  { id: 'emergency_stop_ready', label: '비상 정지 준비 — 리모컨·STOP 을 바로 누를 수 있습니다.' },
-  { id: 'robot_verified', label: '로봇 확인 — 눈앞의 로봇이 이 이름·기체번호의 로봇입니다.' },
-] as const;
 const QR = /^foothold-pair:(\d{6})$/;
-
-/** ms 마다 다시 그림(남은 시간) */
-function useTick(ms: number) {
-  const [, tick] = useState(0);
-  useEffect(() => { const i = setInterval(() => tick((n) => n + 1), ms); return () => clearInterval(i); }, [ms]);
-  return Date.now();
-}
-/** 현장 승인 남은 ms. ponytail: 이 기기 시계로 셈 — 서버와 시계가 어긋나면 그만큼 틀린다, 서버가 남은 초를 주면 그 값으로 */
-export const approvalLeft = (until: string | null | undefined, now = Date.now()) => (until ? Math.max(0, Date.parse(until) - now) : 0);
-const leftText = (ms: number) => (ms >= 60_000 ? `${Math.floor(ms / 60_000)}분 ${Math.floor(ms / 1000) % 60}초` : `${Math.ceil(ms / 1000)}초`);
-/** 이 화면에서 승인을 본 로봇 — 사라지면(만료·해제·노트북 재연결) «다시 필요» */
-const had = new Set<string>();
-export function approvalChip(id: string, until: string | null | undefined, now = Date.now()): { tone: Tone; text: string } {
-  const left = approvalLeft(until, now);
-  if (left) { had.add(id); return { tone: 'ok', text: `현장 승인 ${leftText(left)} 남음` }; }
-  return { tone: 'warn', text: had.has(id) ? '현장 확인 다시 필요' : '현장 확인 필요' };
-}
-/** 실기 로봇의 현장 승인 표시(1 s 마다) — 총괄·운영 모두 읽기 */
-export function Approval({ r }: { r: Pick<Robot, 'id' | 'approvalUntil'> }) {
-  const now = useTick(1000);
-  return <span data-approval><Chip {...approvalChip(r.id, r.approvalUntil, now)} /></span>;
-}
 
 const NOT_FOUND = '코드가 맞지 않거나, 10분이 지났거나, 이미 쓴 코드입니다. 노트북 연결 프로그램 화면의 새 코드로 다시 하세요.';
 const pairFail = (e: unknown) => {
@@ -141,45 +113,15 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
     {step.at === 'done' && <>
       <p role="status" data-pair-done>{step.again
         ? `${step.name} — 기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기됐고, 진행 중이던 조종은 정지·잠금됐습니다.`
-        : `${step.name} 로봇을 등록했습니다.`} 노트북 화면에 «연결됨»이 뜨면 «현장 안전 확인»을 하세요.</p>
+        : `${step.name} 로봇을 등록했습니다.`} 노트북 화면에 «연결됨»이 뜨면 내 로봇에서 조종권을 잡으세요.</p>
       <button type="button" className="btn pri" onClick={() => { refresh(); close(); }}>내 로봇으로</button>
     </>}
     {msg && <p className="fh-msg" role="alert">{msg}</p>}
   </section>;
 }
 
-/** 현장 안전 확인(담당 운영). 세 항목을 모두 체크해야 보냄 → 30분 승인. 해제 = DELETE. 승인 상태는 목록 값(r.approvalUntil — 노트북 재연결 때 서버가 비움) + 방금 받은 답 */
-export function FieldCheck({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
-  const now = useTick(1000), [got, setGot] = useState<{ until: string | null; from: string | null | undefined } | null>(null);
-  const [checked, setChecked] = useState<string[]>([]), [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
-  // 방금 받은 답은 목록 값이 바뀌기 전까지만 쓴다(그 뒤엔 서버 목록이 정본)
-  const until = got && got.from === r.approvalUntil ? got.until : r.approvalUntil, left = approvalLeft(until, now);
-  const run = async (f: () => Promise<string | null>, ok: string) => {
-    if (busy) return;
-    setBusy(true); setMsg(null);
-    try { setGot({ until: await f(), from: r.approvalUntil }); setChecked([]); setMsg({ text: ok, ok: true }); refresh(); }
-    catch (e) { if ((e as ApiFail).code !== 'CANCELED') setMsg({ text: (e as ApiFail).message }); }
-    finally { setBusy(false); }
-  };
-  const grant = (e: FormEvent) => { e.preventDefault(); if (checked.length === CHECKS.length) run(async () => (await api.approveField(r.id, CHECKS.map((c) => c.id), cancel)).expires_at, '현장 승인을 등록했습니다.'); };
-  const offline = !r.online;
-  return <div className="fh-form" role="group" aria-label="현장 안전 확인" data-field-check>
-    <div className="fh-row"><b className="fh-grow">현장 안전 확인</b><Chip {...approvalChip(r.id, until, now)} /></div>
-    {/* 못 하는 까닭을 항목보다 먼저(11-11 fleet polish) — 세 항목·버튼은 그대로, 연결 전엔 꺼짐 */}
-    {!left && offline && <span id={`field-why-${r.id}`} className="fh-why" data-field-why>로봇이 연결된 뒤에 확인하세요 — 노트북 연결 프로그램이 연결될 때 승인이 해제됩니다.</span>}
-    {left ? <div className="fh-row"><span className="fh-grow lbl">남은 시간이 끝나거나 노트북 연결 프로그램이 다시 연결되면 다시 확인해야 합니다.</span>
-      <button type="button" className="btn" disabled={busy} onClick={() => run(async () => { await api.revokeField(r.id, cancel); return null; }, '현장 승인을 해제했습니다. 진행 중인 조종은 정지·잠금됩니다.')}>해제</button></div>
-      : <form className="fh-form" noValidate onSubmit={grant}>
-        {CHECKS.map((c) => <label key={c.id} className="fh-row" style={{ alignItems: 'flex-start' }}><input type="checkbox" name={c.id} checked={checked.includes(c.id)} disabled={offline}
-          onChange={(e) => setChecked((l) => (e.target.checked ? [...l, c.id] : l.filter((x) => x !== c.id)))} /><span className="fh-grow">{c.label}</span></label>)}
-        <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || offline || checked.length !== CHECKS.length} aria-describedby={offline ? `field-why-${r.id}` : undefined}>현장 승인(30분)</button></div>
-      </form>}
-    {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p>}
-  </div>;
-}
-
 /** 담당 넘기기(담당 운영, 실기): 펼치면 대상 목록 → 한 명 고르기 → 같은 화면 확인(브라우저 confirm 없음) → PATCH {owner_user_id}.
- *  넘기면 서버가 폰 출입증 회수·현장 승인 해제 — 성공하면 목록을 다시 받아 이 로봇은 «다른 로봇»으로 내려간다. 실패는 서버 문구 그대로 */
+ *  넘기면 서버가 폰 출입증 회수·조종권 회수 — 성공하면 목록을 다시 받아 이 로봇은 «다른 로봇»으로 내려간다. 실패는 서버 문구 그대로 */
 /** 진행 중인 담당 넘기기: 로봇 id → 끝나면 풀리는 약속. 컴포넌트 밖에 두어 상세가 다시 그려져도(내 로봇 A→B→A) 같은 로봇의 두 번째 PATCH 를 막는다.
  *  로그인 세션이 끝나면 cancel 로 요청이 끊겨 finally 에서 풀린다 */
 const transferring = new Map<string, Promise<void>>();
@@ -223,7 +165,7 @@ function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void }
         onChange={() => setTo(u.user_id)} /><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{u.display_name}</span></label>)}
       <div className="fh-row"><button type="button" className="btn" disabled={!to} onClick={() => setAsk(true)}>넘기기…</button></div></fieldset>}
     {open && ask && <div className="fh-form" role="group" aria-label="담당 넘기기 확인" tabIndex={-1} ref={askBox} style={{ padding: 8, borderRadius: 8 }}>
-      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{`${r.name} 담당을 ${who}(으)로 넘길까요? 넘기면 이 로봇의 폰 출입증과 현장 승인이 풀리고, 조종·배정은 새 담당만 할 수 있습니다.`}</span>
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{`${r.name} 담당을 ${who}(으)로 넘길까요? 넘기면 이 로봇의 폰 출입증과 조종권이 회수되고 로봇은 정지·잠금됩니다. 조종·배정은 새 담당만 할 수 있습니다.`}</span>
       <div className="fh-row"><button type="button" className="btn pri" disabled={busy} onClick={send}>넘기기</button>
         <button type="button" className="btn" disabled={busy} onClick={() => setAsk(false)}>취소</button></div></div>}
     {busy && <p className="lbl" role="status" data-transferring>담당을 넘기는 중…</p>}
@@ -271,7 +213,7 @@ export function ManageRobot({ r, refresh, cancel }: { r: Robot; refresh: () => v
   </div>;
 }
 
-/** 총괄: 담당 없는 실기 로봇에만 담당 운영 관리자 지정(PATCH owner_user_id 한 필드). 연결 키·조종·현장 승인 권한은 주지 않는다 */
+/** 총괄: 담당 없는 실기 로봇에만 담당 운영 관리자 지정(PATCH owner_user_id 한 필드). 연결 키·조종 권한은 주지 않는다 */
 export function AssignOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
   const [ops, setOps] = useState<ApiUser[]>([]), [owner, setOwner] = useState(''), [ask, setAsk] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
@@ -287,7 +229,7 @@ export function AssignOwner({ r, refresh, cancel }: { r: Robot; refresh: () => v
   return <div className="fh-form" role="group" aria-label="담당 지정" data-assign-owner>
     <OwnerSelect ops={ops} value={owner} onChange={(v) => { setOwner(v); setAsk(false); }} />
     <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !owner} onClick={() => setAsk(true)}>담당 지정</button>
-      <span className="lbl">담당 없는 실기 로봇만 지정할 수 있습니다. 연결·현장 확인·조종은 담당 운영 관리자가 합니다.</span></div>
+      <span className="lbl">담당 없는 실기 로봇만 지정할 수 있습니다. 연결·조종은 담당 운영 관리자가 합니다.</span></div>
     {ask && <div className="fh-row" role="group" aria-label="확인">
       <span>{`${r.name} 담당을 ${who}(으)로 지정할까요? 지정한 뒤에는 담당 운영 관리자만 바꿀 수 있습니다.`}</span>
       <button type="button" className="btn pri" onClick={save}>지정</button><button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>}

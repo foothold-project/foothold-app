@@ -1,4 +1,4 @@
-"""Review r1: fresh field confirmation on WS reconnect; narrow orphan assignment."""
+"""Review r1: automatic bounded markers on WS reconnect; narrow orphan assignment."""
 from contextlib import ExitStack
 from datetime import timedelta
 from uuid import UUID
@@ -19,21 +19,23 @@ def test_agent_connect_clears_persisted_field_approval(approved_trial, seeded):
     rid = str(seeded['robots']['mine'])
     owner, admin = app_token(client), app_token(client, 'admin')
     path = P + '/robots/' + rid
-    assert client.get(path, headers=admin).json()['field_approval_expires_at'] is not None
+    assert client.get(path, headers=admin).json()['field_approval_expires_at'] is None
     realtime = client.app.state.realtime
     stale_started = realtime.clock()
     with client.websocket_connect(P + '/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + rid}) as ag:
         ag.send_json(hello())
-        assert receive(ag, 'field_approval')['expires_at'] is None
         receive(ag, 'lease'); receive(ag, 'stop')
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         for auth in (owner, admin):
             summary = client.get(path, headers=auth).json()
             assert summary['field_approval_expires_at'] is None
-            assert summary['server_drive_allowed'] is False
-        client.portal.call(lambda: realtime.set_field_approval(
-            rid, now() + timedelta(minutes=30), observed=stale_started))
-        assert not realtime.field_approved(rid)
+            assert summary['server_drive_allowed'] is True
+        def stale_snapshot():
+            realtime.set_field_approval(rid, now() + timedelta(minutes=30), observed=stale_started)
+            return realtime.field_approvals[rid]
+        assert client.portal.call(stale_snapshot) == seeded['users']['one']
+        assert realtime.field_approved(rid)
         with DBSession(client.app.state.engine) as db:
             assert db.get(Robot, UUID(rid)).field_approval_expires_at is None
             event = db.scalar(select(Event).where(Event.robot_id == UUID(rid),
@@ -42,7 +44,7 @@ def test_agent_connect_clears_persisted_field_approval(approved_trial, seeded):
 
 
 @pytest.mark.parametrize('replace_active', [False, True])
-def test_agent_reconnect_requires_fresh_field_confirmation(trial, seeded, replace_active):
+def test_agent_reconnect_automatically_gates_but_never_restores_lease(trial, seeded, replace_active):
     rid = str(seeded['robots']['mine'])
     owner = app_token(trial)
     path = P + '/robots/' + rid
@@ -51,7 +53,6 @@ def test_agent_reconnect_requires_fresh_field_confirmation(trial, seeded, replac
     with ExitStack() as old_connection, screen(trial, owner) as ws:
         old = old_connection.enter_context(trial.websocket_connect(P + '/agent/ws', headers=headers))
         old.send_json(hello()); receive(old, 'stop')
-        assert trial.post(path + '/field-approval', headers=owner, json={'checks': CHECKS}).status_code == 200
         receive(old, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
         lease = take(ws, old, rid)
         previous_stop = realtime.arbiter.robot(rid).stop_ref
@@ -59,17 +60,15 @@ def test_agent_reconnect_requires_fresh_field_confirmation(trial, seeded, replac
             old_connection.close()
         with trial.websocket_connect(P + '/agent/ws', headers=headers) as new:
             new.send_json(hello())
-            assert receive(new, 'field_approval')['expires_at'] is None
             assert receive(new, 'lease')['lease_id'] is None
             receive(new, 'stop')
+            receive(new, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
             record = realtime.arbiter.robot(rid)
             assert record.holder is None and record.transfer is None and record.latched
             assert record.stop_ref > previous_stop
             assert trial.get(path, headers=owner).json()['field_approval_expires_at'] is None
             denied = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[0,0,0]))
-            assert (denied.get('error') or {}).get('code') == 'FIELD_APPROVAL_REQUIRED'
-            assert trial.post(path + '/field-approval', headers=owner, json={'checks': CHECKS}).status_code == 200
-            receive(new, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+            assert not denied['ok']
             assert record.holder is None and record.latched
             assert not reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
 

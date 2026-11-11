@@ -18,7 +18,7 @@ export type Robot = { id: string; name: string; owner: string; ownerName?: strin
   robotInfo?: Go2RobotInfo | null;
   /** 서버가 이 실기 로봇의 웹 서버 경유 시험 조종을 켰음(10-30 SERVER-DRIVE — serverdrive.tsx). 서버가 true 로 줄 때만 */
   serverDrive?: boolean;
-  /** 실기 현장 승인 만료 시각(서버 field_approval_expires_at, 없음·만료 = null) · 기체번호 · 서버 주의 코드(목록 값) */
+  /** 호환용 옛 현장 승인 값(화면·관문에 쓰지 않음) · 기체번호 · 서버 주의 코드(목록 값) */
   approvalUntil?: string | null; serial?: string | null; attention?: string[] };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
 

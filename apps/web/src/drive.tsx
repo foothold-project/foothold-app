@@ -8,7 +8,7 @@ import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
 import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
-import { AddRobot, Approval, FieldCheck, ManageRobot } from './pairing';
+import { AddRobot, ManageRobot } from './pairing';
 import { useSim } from './phone';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
@@ -66,7 +66,7 @@ export function Drive(c: Ctx) {
 
 /** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기(simdrive.tsx — 직결)
  *  «+ 로봇 연결하기»: 연결된 실기가 없으면 목록 위에 크게, 있으면 목록 아래 작게 → 고르기: «새 로봇 추가»(운영 관리자 — pairing.tsx, ROBOT-PAIRING) · «주변 로봇 찾기»(앱 안만 — nearby.tsx).
- *  총괄은 실기를 연결하지 않아 앱 안에서 주변 찾기만. 내 실기 카드에는 현장 승인 표시 + «현장 안전 확인»·«관리» */
+ *  총괄은 실기를 연결하지 않아 앱 안에서 주변 찾기만. 내 실기 카드에는 «관리» */
 export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ctx, 'refresh' | 'cancel'>>) {
   useRt();
   const s = useSim();
@@ -98,7 +98,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ct
 export const NO_ROBOT = '담당 로봇이 없습니다. «+ 로봇 연결하기 › 새 로봇 추가»로 노트북 연결 프로그램의 로봇을 등록하세요.';
 function Card({ c, r, refresh }: { c: Pick<Ctx, 'user' | 'go' | 'cancel'>; r: Robot; refresh: () => void }) {
   const why = driveBlock(c.user, r), id = `why-${r.id}`, l = rt.get(r.id), rel = l.releasing, own = !r.sim && r.owner === c.user.id && c.user.role !== 'ORG_ADMIN';
-  const [field, setField] = useState(false), [manage, setManage] = useState(false);
+  const [manage, setManage] = useState(false);
   return <li className="card dv-card">
     <div className="fh-row"><b>{r.name}</b>{r.sim && <Chip tone="off" text="시뮬" />}<Chip {...robotStatus(r)} /><FallChip x={r} /><span className="mono">{pct(r.battery)}</span></div>
     <span className="lbl">{holderText(l, c.user.id, r)}</span>
@@ -107,9 +107,8 @@ function Card({ c, r, refresh }: { c: Pick<Ctx, 'user' | 'go' | 'cancel'>; r: Ro
     {r.sim ? <span className="lbl" data-sim-card>시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 로봇에 직접 연결합니다.</span>   // 서버 경유 조종 화면으로 보내지 않는다
       : <><button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기만' : '연결'}</button>
         {why && <span id={id} className="fh-why" data-why>{why}</span>}</>}
-    {/* 내 실기: 현장 승인 표시 + 펼침(현장 안전 확인은 매번 — 연결 → 조종권 → 잠금 해제 앞 단계). 펼친 것만 그린다 */}
-    {own && <><Approval r={r} />
-      <details className="dv-fold" onToggle={(e) => setField(e.currentTarget.open)}><summary className="btn">현장 안전 확인</summary>{field && <FieldCheck r={r} refresh={refresh} cancel={c.cancel} />}</details>
+    {/* 담당 실기의 관리 메뉴 */}
+    {own && <>
       <details className="dv-fold" onToggle={(e) => setManage(e.currentTarget.open)}><summary className="btn">관리</summary>{manage && <ManageRobot r={r} refresh={refresh} cancel={c.cancel} />}</details></>}
   </li>;
 }

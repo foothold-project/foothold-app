@@ -19,7 +19,7 @@ import { Terrain } from './screens/terrain';
 import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
 import { AdminFleet, OperatorRobot, realDash } from './screens/fleet';
-import { AddRobot, Approval, AssignOwner, FieldCheck, ManageRobot } from './pairing';
+import { AddRobot, AssignOwner, ManageRobot } from './pairing';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
@@ -187,12 +187,10 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
   const manage = <>
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     {!solo && <Line k="연결"><span>{linkText(r)}</span></Line>}
-    {!r.sim && !own && <Line k="현장 승인"><Approval r={c.robot} /></Line>}
     {!r.sim && r.serial && <Line k="기체번호"><span className="mono">{r.serial}</span></Line>}
     {!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}
-    {/* 총괄: 담당 없는 실기에만 담당 지정(그 밖 실기 쓰기 없음 — 서버 403). 담당 운영(PC 웹): 현장 안전 확인·내 로봇 관리 */}
+    {/* 총괄: 담당 없는 실기에만 담당 지정(그 밖 실기 쓰기 없음 — 서버 403). 담당 운영(PC 웹): 내 로봇 관리 */}
     {c.user.role === 'ORG_ADMIN' && !r.sim && !c.robot.owner && <AssignOwner r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
-    {own && <FieldCheck r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
     {own && <ManageRobot r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
   </>;
   const mission = solo ? <Line k="임무"><span data-mission>{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무 없음'}</span></Line>
@@ -220,7 +218,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
       <span className="lbl">서버</span><Chip {...server} /><span className="lbl">로봇</span><Chip {...robot} /><span className="lbl">잠금</span><Chip {...lock} /></div>}
     {broken.length > 0 && <p className="fh-msg" role="status" data-detail-alert>▲ 장치 문제: {broken.map((v) => `${v.label} ${(DEVICE[v.state] ?? DEVICE.ERROR).text}`).join(', ')}</p>}
     {/* 집중(solo, 운영 관리자): 임무 진행 → 배터리·장치 → 최근 사건 → 담당·관리. 서랍(총괄): 담당·관리 → 조종권자 → 임무·배터리 → 사건 → 장치(접힘) */}
-    {/* 집중: 담당·관리(현장 안전 확인)를 기록보다 앞에 — 기록이 늘어도 할 일이 밀려 내려가지 않게 */}
+    {/* 집중: 담당·관리를 기록보다 앞에 — 기록이 늘어도 할 일이 밀려 내려가지 않게 */}
     {solo ? <>{mission}{battery}<h3 className="lbl" style={{ margin: 0 }}>담당·관리</h3>{manage}{assign}{more}{events}</>
       : <>{manage}<Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>{mission}{battery}{assign}{events}{more}</>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
