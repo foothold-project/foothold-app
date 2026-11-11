@@ -30,6 +30,9 @@ describe('실기 보기 열기(로봇 탭 실기 상세)', () => {
     expect(box.querySelector('[aria-label="로봇 연결 상태"] h2')!.textContent).toBe(real.name);
     expect(box.querySelector('[data-go2-open]')!.getAttribute('href')).toBe(href(real.id));
     expect(box.querySelector('[data-go2-open]')!.textContent).toBe('실기 보기 열기');
+    const note = box.querySelector('[data-go2-note]')!.textContent!;   // 운영 화면에 개발자 용어 없음(03-UX-SPEC)
+    expect(note).toContain('지도와 맞지 않을 수 있습니다');
+    expect(note).not.toMatch(/원점|기동|미확인|전용/);
     act(() => { location.hash = '#/sim'; }); await flush();
     expect(box.querySelector('[data-go2-replay], [data-go2-open]')).toBeNull();
     expect(box.textContent).not.toContain('Go2 실기 보기');

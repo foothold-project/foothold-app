@@ -253,7 +253,7 @@ function RealView({ r }: { r: Robot }) {
   return <section className="lv-card" aria-label="실기 보기" data-go2-replay>
     <div className="fh-row"><h2>실기 보기</h2><span className="fh-grow" />
       <a className="btn" data-go2-open href={`/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(r.id)}`}>실기 보기 열기</a></div>
-    <p className="lv-note">실기 보기 전용 · 위치 원점: 기동 시점 기준·미확인</p>
+    <p className="lv-note" data-go2-note>로봇 움직임을 화면으로 보기만 합니다(조종 안 됨) · 위치는 로봇을 켠 자리를 기준으로 한 값이라 지도와 맞지 않을 수 있습니다</p>
   </section>;
 }
 /** 상세 + 실기 보기 한 칸(격자 자리 detail — 총괄 서랍은 이 칸째 붙어 내린다) */
