@@ -36,34 +36,52 @@ function fail(e: ApiFail) {
   return e.message;
 }
 
+/** 층마다 올리는 중인 요청 하나 — 창이 내려갔다 다시 열려도 같은 요청의 결과를 기다린다(두 번 보내지 않음) */
+const sending = new Map<string, { p: Promise<VoxelMapImport>; t0: number }>();
+
 /** 3D 지도 파일 올리기. base = 지금 승인 판(새 층이면 null), had = 지금 지도가 있음(구역·지점·연결점이 옮겨지지 않음을 알림).
- *  made = 저장됨(목록 다시 받기), go = 결과 칸의 «지도 보기»·«3D 로 보기» */
-export function VoxelUpload({ floor, base, had, title, ready, cancel, made, go, again }: { floor: string; base: string | null; had: boolean; title: string; ready: boolean; cancel?: AbortSignal;
-  made: (x: VoxelMapImport) => void; go: (how: 'map' | '3d') => void; again: () => void }) {
+ *  made = 저장됨(목록 다시 받기), go = 결과 칸의 «지도 보기»·«3D 로 보기», onBusy = 올리는 중(창 닫기·형식 바꾸기 막기) */
+export function VoxelUpload({ floor, base, had, title, ready, cancel, made, go, again, onBusy }: { floor: string; base: string | null; had: boolean; title: string; ready: boolean; cancel?: AbortSignal;
+  made: (x: VoxelMapImport) => void; go: (how: 'map' | '3d') => void; again: () => void; onBusy?: (b: boolean) => void }) {
   const [file, setFile] = useState<File | null>(null), [name, setName] = useState(() => title.slice(0, 40));
-  const [busy, setBusy] = useState(false), [secs, setSecs] = useState(0), [msg, setMsg] = useState(''), [stale, setStale] = useState(false), [done, setDone] = useState<VoxelMapImport | null>(null);
-  useEffect(() => { if (!busy) return; setSecs(0); const t = setInterval(() => setSecs((s) => s + 1), 1000); return () => clearInterval(t); }, [busy]);
-  const send = async (e: FormEvent) => {
+  const [busy, setBusy] = useState(() => sending.has(floor)), [secs, setSecs] = useState(0), [msg, setMsg] = useState(''), [stale, setStale] = useState(false), [done, setDone] = useState<VoxelMapImport | null>(null);
+  const [ask, setAsk] = useState(false), live = useRef(true);   // ask = 기존 지도 바꾸기 확인 중
+  useEffect(() => { if (!busy) return; const t0 = sending.get(floor)?.t0 ?? Date.now(), tick = () => setSecs(Math.floor((Date.now() - t0) / 1000));
+    tick(); const t = setInterval(tick, 1000); return () => clearInterval(t); }, [busy]);
+  useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { live.current = true; const s = sending.get(floor); if (s) void wait(s.p); return () => { live.current = false; }; }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  const wait = async (p: Promise<VoxelMapImport>) => {
+    setBusy(true);
+    try {
+      const x = await p;
+      if (!live.current) return;
+      if (!x?.map?.id || !x.terrain?.spec?.id) throw new ApiFail(0, 'BAD_BODY', '');
+      setDone(x); made(x);
+    } catch (y) {
+      const f = y as ApiFail;
+      if (!live.current || f.code === 'CANCELED') return;
+      // 보낸 뒤 답이 끊기면 만들어졌을 수 있다 — 목록을 다시 받고 두 번 올리지 않게 알린다
+      if (f.status === 0 && f.code !== 'NETWORK') { setMsg(f.code === 'TIMEOUT' ? fail(f) : '응답을 받지 못했습니다. 만들어졌을 수 있어 저장 기록을 다시 받습니다. 새 기록이 보이면 다시 올리지 마세요.'); again(); return; }
+      setMsg(`올리지 못했습니다. ${fail(f)}`); setStale(f.code === 'STALE' || f.status === 404);
+    } finally { if (live.current) setBusy(false); }
+  };
+  const start = (file: File, format: 'pcd' | 'ply') => {
+    if (sending.has(floor)) return;
+    setAsk(false); setMsg('');
+    const s = { p: api.voxelUpload(floor, file, { name: name.trim(), format, base }, cancel).finally(() => sending.delete(floor)), t0: Date.now() };
+    sending.set(floor, s); void wait(s.p);
+  };
+  const send = (e: FormEvent) => {
     e.preventDefault();
-    if (busy || !ready) return;
+    if (busy || !ready || sending.has(floor)) return;
     const format = file && formatOf(file), why = nameBad(name);
     setStale(false);
     if (!file) return setMsg('3D 지도 파일(.pcd·.ply)을 고르세요.');
     if (!format) return setMsg('3D 지도 파일은 .pcd 또는 .ply 파일이어야 합니다.');
     if (file.size > MAX) return setMsg('파일이 너무 큽니다. 3D 지도 파일은 50 MB 까지 올릴 수 있습니다.');
     if (why) return setMsg(why);
-    setMsg(''); setBusy(true);
-    try {
-      const x = await api.voxelUpload(floor, file, { name: name.trim(), format, base }, cancel);
-      if (!x?.map?.id || !x.terrain?.spec?.id) throw new ApiFail(0, 'BAD_BODY', '');
-      setDone(x); made(x);
-    } catch (y) {
-      const f = y as ApiFail;
-      if (f.code === 'CANCELED') return;
-      // 보낸 뒤 답이 끊기면 만들어졌을 수 있다 — 목록을 다시 받고 두 번 올리지 않게 알린다
-      if (f.status === 0 && f.code !== 'NETWORK') { setMsg(f.code === 'TIMEOUT' ? fail(f) : '응답을 받지 못했습니다. 만들어졌을 수 있어 저장 기록을 다시 받습니다. 새 기록이 보이면 다시 올리지 마세요.'); again(); return; }
-      setMsg(`올리지 못했습니다. ${fail(f)}`); setStale(f.code === 'STALE' || f.status === 404);
-    } finally { setBusy(false); }
+    if (had) { setMsg(''); setAsk(true); return; }   // 기존 지도를 바꿀 때만 한 번 묻는다
+    start(file, format);
   };
   if (done) return <div className="fh-form" role="group" aria-label="3D 지도 결과" data-voxel-done>
     <p className="fh-msg ok" role="status">3D 지도로 이 층의 지도와 시뮬 지형을 만들었습니다.</p>
@@ -76,11 +94,14 @@ export function VoxelUpload({ floor, base, had, title, ready, cancel, made, go, 
     <p className="lv-note">로봇으로 만든 3D 지도 파일 하나로 이 층의 지도와 시뮬 지형이 함께 만들어집니다.</p>
     <label className="fh-field"><span>3D 지도 파일(.pcd·.ply)</span><input type="file" className="inp" accept=".pcd,.ply" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>지도 이름</span><input className="inp" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
-    {had && <p className="fh-msg" role="alert">지금 지도를 바꿉니다. 지금 지도의 진입 금지·감속 구역, 지점, 연결점은 새 지도로 옮겨지지 않습니다.</p>}
+    {had && <p className="fh-msg">지금 지도를 바꿉니다. 지금 지도의 진입 금지·감속 구역, 지점, 연결점은 새 지도로 옮겨지지 않습니다.</p>}
     {!ready && !busy && <p className="lv-note" role="status">지금 지도를 받은 뒤에 올릴 수 있습니다.</p>}
-    <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || !ready}>올리기</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(''); again(); }}>새로 불러오기</button>}</div>
+    {ask ? <div className="fh-row" role="alertdialog" aria-label="지금 지도 바꾸기 확인" data-voxel-ask><p className="fh-msg fh-grow">기존 구역·지점·연결점이 비워집니다. 3D 지도로 지금 지도를 바꿀까요?</p>
+      <button type="button" className="btn" onClick={() => setAsk(false)}>취소</button>
+      <button type="button" className="btn pri" onClick={() => { const fm = file && formatOf(file); if (file && fm) start(file, fm); }}>바꾸기</button></div>
+      : <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || !ready}>올리기</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(''); again(); }}>새로 불러오기</button>}</div>}
     {busy && <p className="lv-note" role="status" data-voxel-busy>3D 지도를 올리고 지도·시뮬 지형을 만드는 중… {secs}초
-      {secs >= 60 && <><br />파일이 크면 몇 분 걸립니다. 창을 닫지 말고 기다리세요.</>}</p>}
+      <br />끝날 때까지 이 창은 닫히지 않습니다.{secs >= 60 && ' 파일이 크면 몇 분 걸립니다.'}</p>}
     {msg && <p className="fh-msg" role="alert">{msg}</p>}
   </form>;
 }
@@ -91,11 +112,13 @@ function useCells(id: string, cancel?: AbortSignal) {
   const [, tick] = useState(0), [info, setInfo] = useState<{ total: number; got: number; err: string; none: boolean }>({ total: 0, got: 0, err: '', none: false }), [n, setN] = useState(0);
   useEffect(() => {
     let live = true;
+    const stop = new AbortController(), off = () => stop.abort();   // 3D 보기를 닫으면(내려가면) 받던 묶음도 끊는다
+    cancel?.addEventListener('abort', off); if (cancel?.aborted) stop.abort();
     (async () => {
       setInfo((o) => ({ ...o, err: '' }));
       try {
         while (live && at.current != null) {
-          const r = await api.voxels(id, at.current, cancel);
+          const r = await api.voxels(id, at.current, stop.signal);
           if (!live) return;
           if (!r || !Array.isArray(r.cells) || !(r.next_cursor === null || Number.isInteger(r.next_cursor)) || !Number.isInteger(r.summary?.voxel_count)) throw new ApiFail(0, 'BAD_SHAPE', '받은 3D 지도 형식이 맞지 않습니다.');
           pages.current.push(r.cells); at.current = r.next_cursor;
@@ -109,7 +132,7 @@ function useCells(id: string, cancel?: AbortSignal) {
         setInfo((o) => ({ ...o, err: f.message }));
       }
     })();
-    return () => { live = false; };
+    return () => { live = false; stop.abort(); cancel?.removeEventListener('abort', off); };
   }, [n]);
   return { pages: pages.current, ...info, more: at.current != null, again: () => setN((x) => x + 1) };
 }

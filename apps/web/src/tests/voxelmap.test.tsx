@@ -37,14 +37,14 @@ const err = (status: number, code: string, message: string) => ({ status, body: 
 
 type Reply = { status: number; body?: unknown };
 type Route = Reply | ((q: URLSearchParams, body?: unknown) => Reply | Promise<Reply>);
-type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; type?: string };
+type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; type?: string; signal?: AbortSignal | null };
 let calls: Call[] = [];
 function serve(routes: Record<string, Route>) {
   calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', [path, qs = ''] = url.replace(/^\/api\/v1/, '').split('?'), q = new URLSearchParams(qs);
     const body = init.body instanceof Blob ? init.body : init.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ method, path, q, body, type: (init.headers as Record<string, string> | undefined)?.['Content-Type'] });
+    calls.push({ method, path, q, body, type: (init.headers as Record<string, string> | undefined)?.['Content-Type'], signal: init.signal });
     const hit = routes[`${method} ${path}`];
     const rep = typeof hit === 'function' ? await hit(q, body) : hit ?? err(404, 'NOT_FOUND', '장소·지도 자료를 찾을 수 없습니다.');
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
@@ -107,6 +107,7 @@ describe('3D 지도 올리기', () => {
     const f = PLY();
     await pick(f);
     await click(btn('올리기', form()));
+    await click(btn('바꾸기', $('[data-voxel-ask]')!));   // 기존 지도 바꾸기 확인
     const up = calls.filter((c) => c.method === 'POST');
     expect(up.map((c) => c.path)).toEqual(['/floors/f1/voxel-maps']);
     expect(Object.fromEntries(up[0].q)).toEqual({ name: '본동 1층', format: 'ply', base_version_id: 'v1' });
@@ -122,6 +123,42 @@ describe('3D 지도 올리기', () => {
     expect($('[data-voxel-done]')).toBeNull();
     expect(last?.n).toBe(1);
     expect(last?.pages.flat()).toHaveLength(3);
+  });
+  it('기존 지도(승인 판 있음)를 바꿀 때만 한 번 확인 — «취소»면 보내지 않음', async () => {
+    serve(signedIn(KIM, 'v1'));
+    await open();
+    await openVoxel();
+    await pick(PLY());
+    await click(btn('올리기', form()));
+    expect($('[data-voxel-ask]')!.textContent).toContain('기존 구역·지점·연결점이 비워집니다');
+    expect(btn('올리기', form())).toBeUndefined();
+    await click(btn('취소', $('[data-voxel-ask]')!));
+    expect($('[data-voxel-ask]')).toBeNull();
+    expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
+  });
+  it('올리는 중: 닫기(✕·Esc)·형식 바꾸기 막힘, «만드는 중» 유지, 다시 보내도 요청 하나 → 끝나면 결과', async () => {
+    let answer!: (r: Reply) => void;
+    serve(signedIn(KIM, null, { 'POST /floors/f1/voxel-maps': () => new Promise<Reply>((r) => { answer = r; }) }));
+    await open();
+    await openVoxel();   // 새 층 — 확인 없이 바로 보냄
+    await pick(PLY());
+    await click(btn('올리기', form()));
+    expect($('[data-voxel-ask]')).toBeNull();
+    expect($('[data-voxel-busy]')!.textContent).toContain('이 창은 닫히지 않습니다');
+    const dlg = form().closest('dialog')!;
+    await click(dlg.querySelector('[aria-label="새 지도 올리기 닫기"]'));
+    act(() => { dlg.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await flush();
+    expect(dlg.hasAttribute('open')).toBe(true);
+    expect($('[data-voxel-busy]')).toBeTruthy();
+    expect(btn('그림·yaml', dlg)!.disabled).toBe(true);
+    act(() => { form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }); await flush();
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);   // 중복 전송 0
+    await act(async () => { answer({ status: 201, body: { map: V2, terrain: TER, voxels: SUM('v2', 3, WARN) } }); });
+    await flush();
+    expect($('[data-voxel-done] [data-voxel-warnings]')).toBeTruthy();
+    expect(btn('그림·yaml', dlg)!.disabled).toBe(false);
+    await click(dlg.querySelector('[aria-label="새 지도 올리기 닫기"]'));
+    expect(dlg.hasAttribute('open')).toBe(false);
   });
   it('보내기 전 막기: 다른 파일 형식·빈 이름·50 MB 넘음 → 요청 없음', async () => {
     serve(signedIn(KIM, null));
@@ -185,6 +222,17 @@ describe('3D 로 보기', () => {
     expect($('[data-voxel-toggle]')!.textContent).toBe('지도 보기');
     await click($('[data-voxel-toggle]'));
     expect($('[data-voxel-view]')).toBeNull();
+  });
+  it('3D 보기를 닫으면 받던 묶음 요청을 끊는다', async () => {
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/voxels': () => new Promise<Reply>(() => {}) }));   // 답 없음
+    await open();
+    await click($('[data-voxel-toggle]'));
+    const got = calls.filter((c) => c.path === '/map-versions/v2/voxels');
+    expect(got).toHaveLength(1);
+    expect(got[0].signal?.aborted).toBe(false);
+    await click($('[data-voxel-toggle]'));   // «지도 보기»
+    expect($('[data-voxel-view]')).toBeNull();
+    expect(got[0].signal?.aborted).toBe(true);
   });
   it('중간 묶음 실패 → 받은 데까지 두고 «이어 받기»는 실패한 자리부터', async () => {
     let fail = true;

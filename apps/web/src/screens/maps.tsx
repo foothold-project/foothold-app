@@ -445,11 +445,11 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
   const keys = v ? featKeys(v.features) : [];
   // 다른 층에 남겨 둔 저장 안 한 편집(kept.d)이 있으면 새 편집이 그것을 비우기 전에 묻는다 — 취소하면 그 층을 열어 이어 쓸 수 있다
   const [drop, setDrop] = useState(false);
-  const begin = () => { if (now) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); setUp(false); } };
+  const begin = () => { if (now && !vbusy) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); setUp(false); } };
   const start = () => { if (editing || !now) return; if (kept.d && kept.d.floor !== p.floor.id) setDrop(true); else begin(); };
   const fz = v?.features;
   // 3D 지도(RB-VOXEL-VIEW): 3D 파일에서 만든 판이면 «3D 로 보기»·«시뮬 지형 수정하기». vu = 올리기 창에서 3D 파일 고름(총괄만 — 서버 권한)
-  const vox = voxelOf(v), [d3, setD3] = useState(false), [vu, setVu] = useState(false), on3d = d3 && !!vox && !editing && !cmp;
+  const vox = voxelOf(v), [d3, setD3] = useState(false), [vu, setVu] = useState(false), [vbusy, setVbusy] = useState(false), on3d = d3 && !!vox && !editing && !cmp;
   // 시뮬 탭(SIM-PAIR 11-09): 편집·새 지도 올리기·되돌리기 없음(지형 판은 «지형 만들기» 저장만 바꾼다), 짝 없는 층은 안내
   const bad = sim && !!list && !err && lone(p.floor, now ?? undefined);
   return <section className="mx" aria-label="지도 보기">
@@ -520,12 +520,12 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
         {now && !sim && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 기록으로 되돌리기</button>}
       </div>}
     </details>}
-    {!editing && <Pop open={up} close={() => setUp(false)} label="새 지도 올리기">
-      {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} onClick={() => setVu(false)}>그림·yaml</button>
-        <button type="button" className="btn" aria-pressed={vu} onClick={() => setVu(true)}>3D 지도 파일(.pcd·.ply)</button></span>}
+    {!editing && <Pop open={up} close={() => { if (!vbusy) setUp(false); }} label="새 지도 올리기">{/* 3D 파일 올리는 중엔 닫기·형식 바꾸기 막음(요청은 이어지는데 진행·결과만 사라지지 않게) */}
+      {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} disabled={vbusy} onClick={() => setVu(false)}>그림·yaml</button>
+        <button type="button" className="btn" aria-pressed={vu} disabled={vbusy} onClick={() => setVu(true)}>3D 지도 파일(.pcd·.ply)</button></span>}
       {admin && vu ? up && <VoxelUpload floor={p.floor.id} base={approved} had={!!approved} title={`${p.building.name} ${p.floor.name}`} ready={canUp} cancel={cancel}
           made={() => { setSel(''); setDone({ text: '3D 지도로 지도와 시뮬 지형을 만들었습니다.', ok: true }); setN(n + 1); again(); }}
-          go={(how) => { setUp(false); setD3(how === '3d'); }} again={() => { setN(n + 1); again(); }} />
+          go={(how) => { setUp(false); setD3(how === '3d'); }} again={() => { setN(n + 1); again(); }} onBusy={setVbusy} />
       : <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={canUp} cancel={cancel}
         saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked); told(); } else { setSel(x.id); setDone(SAVED); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
     </Pop>}
