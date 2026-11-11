@@ -74,7 +74,7 @@ it('폰 경유 값은 새 state 없이 유효 시간만 지나도 상세 묶음�
   const r = withLive(R({ online: false }));
   const c = { user: { id: 'o', name: '운영', role: 'OPERATOR' }, robot: r, robots: [r], go() {}, pick() {}, refresh() {}, setMe() {}, open: false, phone: false,
     dash: { d: null, err: '', again() {} } } as unknown as Ctx;
-  const el = show(<><Detail {...c} solo /><FallChip x={r} /></>);
+  const el = show(<><Detail {...c} /><FallChip x={r} /></>);
   expect(el.querySelector('[data-robot-info]')!.getAttribute('data-robot-info')).toBe('phone');
   expect(el.querySelector('[data-fall-chip]')).not.toBeNull();
   act(() => { vi.advanceTimersByTime(600); });

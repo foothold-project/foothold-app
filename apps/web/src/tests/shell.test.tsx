@@ -257,7 +257,7 @@ describe('B1 폭 전환', () => {
     expect($('h1').textContent).toBe('로봇');
     expect(location.hash).toBe('#/fleet');
     expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/fleet');
-    expect($('[aria-label="로봇 상태"]')).not.toBeNull();   // 운영 관리자 로봇 탭 = 한 대 집중(상태 한 줄)
+    expect($('[aria-label="로봇 연결 상태"]')).not.toBeNull();   // 운영 관리자 로봇 탭 = 한 대 집중(상태 한 줄)
   });
 });
 

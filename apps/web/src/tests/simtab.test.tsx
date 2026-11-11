@@ -271,13 +271,13 @@ describe('PC «시뮬» 탭', () => {
     await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }], '#/fleet');
     expect($('[data-no-real]')!.textContent).toContain('실기 로봇이 없습니다');
     expect($('[data-no-real] a[href="#/sim"]')).toBeTruthy();
-    expect($('[aria-label="로봇 상태"]')).toBeNull();
+    expect($('[aria-label="로봇 연결 상태"]')).toBeNull();
     act(() => root?.unmount()); root = null; box.remove(); sim.clear();
     serve();
     await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }, ...ROBOTS], '#/fleet');
     expect([...box.querySelectorAll('[aria-label="내 로봇 고르기"] b')].map((b) => b.textContent)).not.toContain('시뮬-1');
     expect($('[aria-label="내 로봇 고르기"] [aria-label="시뮬"]')).toBeNull();
-    const shown = $('[aria-label="로봇 상태"] h2')!.textContent!;
+    const shown = $('[aria-label="로봇 연결 상태"] h2')!.textContent!;
     expect(shown).not.toBe('시뮬-1');
     expect($('[aria-label="내 로봇 고르기"] button[aria-pressed="true"]')!.textContent).toContain(shown);
   });

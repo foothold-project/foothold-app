@@ -139,18 +139,55 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh-sel option:disabled{color:var(--muted);cursor:default}
 
 /* 4부 — 로봇 탭 배치(ROBOT-TAB 11-02 역할별, 03 §5.1). 카드는 줄 높이로 늘리지 않는다(지도 자료 없으면 작은 안내만).
-   운영 관리자(.fh-focus): 고르기 → 상태 한 줄 → 왼쪽 영상·라이다·지도 | 오른쪽 상세 → 다른 로봇. 끊기면 상태 줄이 빨강으로 맨 앞, 나머지는 회색(마지막 값).
+   운영 관리자(.fh-focus, 11-11 시안 fleet-ops-7a31): 고르기 → 머리·큰 상태 안내 → 왼쪽 로봇 관측·로봇 상태 | 오른쪽 조종 준비·현재 임무 → 다른 로봇. 끊기면 안내가 빨강으로 맨 앞, 지도는 회색(마지막 값).
    총괄(.fh-fleet.admin): 지도 | 경보 → 표 목록, 서랍을 열면 오른쪽 칸(좁으면 위)에 상세 */
 .fh-main>.fh-focus{flex:1 1 100%;min-width:0;display:grid;gap:16px;align-items:start;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);
-  grid-template-areas:"pick pick" "state state" "media detail" "map detail" "others others"}
-/* 상세가 영상·지도 두 줄을 걸치니 남는 높이는 지도 줄이 갖는다(영상 아래 빈칸 없음) */
+  grid-template-areas:"pick pick" "state state" "obs detail" "tele detail" "others others"}
+/* 오른쪽 칸이 관측·로봇 상태 두 줄을 걸치니 남는 높이는 로봇 상태 줄이 갖는다 */
 @media (min-width:900px){.fh-main>.fh-focus:not([data-summary]){grid-template-rows:auto auto auto 1fr auto}}
-.fh-focus[data-lost]{grid-template-areas:"state state" "pick pick" "media detail" "map detail" "others others"}
-.fh-focus>.fl-pick{grid-area:pick}.fh-focus>.fl-state{grid-area:state}.fh-focus>.fl-media{grid-area:media}.fh-focus>.fl-map{grid-area:map}.fh-focus>.fl-detail{grid-area:detail}.fh-focus>.fl-others{grid-area:others}
+.fh-focus[data-lost]{grid-template-areas:"state state" "pick pick" "obs detail" "tele detail" "others others"}
+.fh-focus>.fl-pick{grid-area:pick}.fh-focus>.fl-state{grid-area:state}.fh-focus>.fl-obs{grid-area:obs}.fh-focus>.fl-tele{grid-area:tele}.fh-focus>.fl-detail{grid-area:detail}.fh-focus>.fl-others{grid-area:others}
 .fh-main>.fh-focus[data-summary]{grid-template-areas:"pick pick" "state state" "detail detail" "others others"}
-.fl-state.bad{border-color:var(--bad);background:var(--bad-bg)}
-/* 끊기면 지도(마지막 위치)만 회색 — 영상 칸(서버 조종 패널의 STOP·확인창)·상세(현장 확인·관리 단추)는 흐리지 않는다(filter 는 fixed 확인창의 기준도 바꿈) */
-.fh-focus[data-lost]>.fl-map{filter:grayscale(1);opacity:.72}
+/* 머리: 이름(크게)·실기·담당 | «로봇 설정» */
+.fl-state{display:flex;flex-direction:column;gap:16px;min-width:0}
+.fl-top{display:flex;align-items:flex-start;gap:12px}.fl-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.fl-title h2{margin:0;font-size:24px;letter-spacing:-.01em;overflow-wrap:anywhere}.fl-title b{color:var(--text);font-weight:600}
+.fl-tag{padding:1px 6px;border-radius:4px;background:var(--panel2)}
+.btn.fl-ghost{background:transparent;border-color:transparent}.btn.fl-ghost:hover{border-color:var(--line2)}
+/* 큰 상태 안내: 기호·제목·한 줄 설명 | 연결 방법·조종 화면 열기 → 상태 한 줄(위 선으로 나눔) */
+.fl-status{padding:0;gap:0}.fl-status.bad{border-color:var(--bad)}
+.fl-lead{display:flex;align-items:center;gap:12px;padding:16px 18px;flex-wrap:wrap}.fl-lead h3{margin:0 0 2px;font-size:17px}
+.fl-acts{flex:none}
+.fl-sym{flex:none;width:40px;height:40px;display:grid;place-items:center;border-radius:10px;background:var(--panel2);color:var(--muted)}
+.fl-sym[data-tone="ok"]{background:var(--acc-bg);color:var(--accent)}.fl-sym[data-tone="bad"]{background:var(--bad-bg);color:var(--bad)}
+.fl-status>.fl-facts{border-top:1px solid var(--line);padding:12px 18px 14px}
+.fl-lostnote{margin:0 18px 14px;padding:8px 10px;border-radius:6px;background:var(--bad-bg)}
+/* 로봇 관측: 지도·카메라·라이다 보기(밑줄 표시) */
+.fl-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 -14px;padding:0 14px}
+.fl-tabs>button{min-height:44px;padding:0 10px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}
+.fl-tabs>button[aria-pressed="true"]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
+.fl-tabs>button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.fl-map{display:flex;flex-direction:column;gap:8px;min-width:0}.fl-nosig{padding:24px 0;text-align:center}
+/* 끊기면 지도(마지막 위치)만 회색 — 서버 조종 패널(STOP·확인창)·관리 단추는 흐리지 않는다(filter 는 fixed 확인창의 기준도 바꿈) */
+.fh-focus[data-lost] .fl-obs .fl-map{filter:grayscale(1);opacity:.72}
+/* 로봇 상태: 배터리 · 본체 자세 · 현재 위치 세 칸(위아래 선) */
+.fl-tele{display:flex;flex-direction:column;gap:8px;min-width:0}.fl-tele h2{margin:0;font-size:15px}
+.fl-tele-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.fl-tele-cell{display:flex;flex-direction:column;gap:4px;min-width:0}.fl-tele-cell>b{font-size:19px;font-weight:600;overflow-wrap:anywhere}
+.fl-tele[data-stale] .fl-tele-cell>b{color:var(--muted)}
+/* 조종 준비: 번호 단계(끝난 단계 ✓) + 허용되면 서버 경유 패널 */
+.fl-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.fl-step{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding-bottom:16px;position:relative}.fl-step:last-child{padding-bottom:0}
+.fl-step:not(:last-child)::after{content:"";position:absolute;left:11px;top:28px;bottom:4px;width:1px;background:var(--line)}
+.fl-mark{width:22px;height:22px;border:1px solid var(--line2);border-radius:50%;display:grid;place-items:center;font-size:12px;color:var(--muted);background:var(--panel)}
+.fl-step.done .fl-mark{border-color:transparent;background:var(--acc-bg);color:var(--accent)}.fl-step.cur .fl-mark{border-color:var(--accent);color:var(--accent)}
+.fl-step h3{margin:0 0 2px;font-size:14px;font-weight:600}.btn.fl-small{height:36px;margin-top:8px;padding:0 10px;font-size:13px}
+/* 화면 위 창(로봇 설정·연결 방법): 머리줄(STOP) 아래에 뜨고 바깥을 막지 않는다 */
+.fl-sheet{position:fixed;z-index:9;top:72px;left:50%;transform:translateX(-50%);width:min(480px,calc(100% - 32px));max-height:calc(100vh - 96px);overflow:auto;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);box-shadow:var(--shadow,0 6px 24px rgba(0,0,0,.4))}
+.fl-sheet[hidden]{display:none}.fl-sheet:focus{outline:none}
+.fl-sheet-head{padding:12px 16px 12px 20px;border-bottom:1px solid var(--line)}.fl-sheet-head h2{margin:0;font-size:16px}
+.fl-sheet-body{padding:16px 20px 20px}
+.fl-guide{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:12px}.fl-guide li{display:flex;flex-direction:column;gap:2px}
 /* 상태 한 줄: 라벨(작게) 위 · 값 아래, 값 크기 하나 */
 .fl-facts{display:flex;flex-wrap:wrap;gap:10px 28px}
 .fl-fact{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;font-size:14px}
@@ -169,7 +206,8 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh-list.robots .fl-row>span{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;white-space:normal}
 .fl-head{padding:0 11px;font-size:12px;color:var(--muted)}
 @media (max-width:899.98px){
-  .fh-main>.fh-focus,.fh-focus[data-lost]{grid-template-columns:minmax(0,1fr);grid-template-areas:"state" "pick" "media" "map" "detail" "others"}
+  .fh-main>.fh-focus,.fh-focus[data-lost]{grid-template-columns:minmax(0,1fr);grid-template-areas:"state" "pick" "detail" "obs" "tele" "others"}
+  .fl-tele-grid{grid-template-columns:minmax(0,1fr)}
   .fh-main>.fh-focus[data-summary]{grid-template-areas:"pick" "state" "detail" "others"}
   .fh-main>.fh-fleet,.fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr);grid-template-areas:"detail" "map" "alerts" "list"}
   .fh-fleet.open>.fl-detail{position:static;max-height:none}
