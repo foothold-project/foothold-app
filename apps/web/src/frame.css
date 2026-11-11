@@ -219,3 +219,17 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh-fold>summary::-webkit-details-marker{display:none}.fh-fold>summary::before{content:'▸';width:1em}.fh-fold[open]>summary::before{content:'▾'}
 .fh-fold[open]>summary{color:var(--text)}
 .fh-fold{display:flex;flex-direction:column;gap:8px}
+
+/* 시뮬 작은 창(simdrive.tsx SimPip, RB-SIM-PIP 11-11): 앱 틀 위(조종 화면 밖 — drive.css 는 무대 안 배치만)에 화면 왼쪽 아래로 떠서 아래 화면을 그대로 쓴다. 세로 폰은 조이스틱(아래 12+120)·아래 단추 줄(144~)보다 위,
+   작은 지도(오른쪽)와 떨어진 왼쪽 — 머리줄(끝내기·STOP)은 위라 닿지 않는다. 가로 폰은 왼쪽 조이스틱(12+88) 오른쪽 아래. 판은 무대 바탕(#05080A — 밝은 화면 위에서도 비치지 않게)·단추는 .dv-menu 단추 값 그대로, 상태 줄을 끌어 옮긴다 */
+.dv-pip{position:fixed;left:calc(8px + env(safe-area-inset-left,0px));bottom:calc(250px + env(safe-area-inset-bottom,0px));z-index:3;width:200px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:4px;border:1px solid rgba(230,235,239,.45);border-radius:10px;background:#05080A;color:#E6EBEF;box-shadow:var(--shadow)}
+.dv-pip-v{position:relative;aspect-ratio:16/9;border-radius:6px;overflow:hidden;background:#05080A}
+.dv-pip .dv-video{font-size:12px}.dv-pip .dv-video>span{padding:0 6px;line-height:1.3}
+.dv-pip-t{margin:0;padding:2px 6px;border-radius:6px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;touch-action:none;cursor:move}
+.dv-pip-t[data-tone="bad"]{box-shadow:inset 0 0 0 1px var(--bad)}
+.dv-pip-t[data-sim-pip-held]{font-size:12px;white-space:normal;cursor:auto}
+.dv-pip-row{display:flex;gap:4px}
+.dv-pip-row .btn{flex:1;min-width:0;min-height:44px;padding:0 4px;font-size:12px;background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+.dv-pip-row .btn:disabled{opacity:.45}
+@media (orientation:portrait) and (max-height:700px){.dv-pip{bottom:calc(200px + env(safe-area-inset-bottom,0px))}}
+@media (max-height:480px){.dv-pip{left:calc(108px + env(safe-area-inset-left,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));width:168px}.dv-pip-row .btn{padding:0 2px;font-size:11px;white-space:nowrap;letter-spacing:-.02em}}

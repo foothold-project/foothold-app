@@ -1,5 +1,5 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
-import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
+import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent } from 'react';
 import type { PhoneWelcome, SimRobot } from '../../contracts/ts';
 import { feedText, media, needsRelink, useFeed } from './media';
 import { useOrbit, viewBlock } from './extview';
@@ -70,6 +70,15 @@ export function blockNote([f, t, y]: [number, number, number], can: ReturnType<t
     : t !== 0 && !can.spin && (!out || (out.vx === 0 && out.vy === 0)) ? SPIN : '';
 }
 export const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
+type Link = NonNullable<Sim['link']>;
+/** 알약·작은 창 공통: 연결·잠금·조종권 한 마디 */
+const lockOf = (l: Link): { tone: Tone; text: string } => l.at !== 'open' ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !l.st ? { tone: 'off', text: '상태 확인 중' }
+  : l.st.latched ? { tone: 'bad', text: '정지 잠금' } : !l.lease ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
+/** 끝나지 않은 시나리오 실행 한 마디(«실행 2/3»), 없으면 '' */
+const runText = (l: Link) => {
+  const rr = l.run && !RUN_END.includes(l.run.status) ? l.run : null, total = rr?.progress.total ?? 0;
+  return !rr ? '' : rr.status === 'PAUSED' ? '실행 일시정지' : total ? `실행 ${Math.min(rr.step + 1, total)}/${total}` : '실행 준비';
+};
 
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
 export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
@@ -125,6 +134,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
     ? <><p className="fh-why" role="status" data-sim="link-fail">{l.why}</p>
         <div className="fh-row">{l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}<button type="button" className="btn" onClick={() => sim.end()}>끝내기</button></div></>
     : <p className="lv-note" role="status" data-sim="linking">출입증을 받아 {s.robot && short(s.robot.robot_id)} 에 직접 연결하는 중입니다…</p>;
+  else if (s.step === 'drive') body = <p className="lv-note" role="status" data-sim="small">시뮬이 작은 창에 떠 있습니다 — 작은 창의 «크게 보기»로 조종 화면에 돌아갑니다.</p>;   // 나가기 뒤 작은 창(App SimPip)
   else if (s.step === 'ending') body = <p className="lv-note" role="status" data-sim="ending">조종권을 반납하고 시뮬 로봇을 정리하는 중입니다…</p>;
   else if (s.step === 'checking') body = <><p className="fh-why" role="status" data-sim="checking">확인 중 — {s.err} {s.listed && s.robot && (s.mine.some((r) => r.robot_id === s.robot!.robot_id) ? '목록에 아직 있습니다.' : '목록에는 없지만 정리됐다고 단정할 수 없습니다.')}</p>
     <div className="fh-row"><button type="button" className="btn pri" onClick={() => sim.end()}>다시 끝내기</button><button type="button" className="btn" onClick={() => sim.load()}>다시 확인</button><button type="button" className="btn" onClick={() => sim.reset()}>처음으로</button></div></>;
@@ -215,7 +225,7 @@ const SPIN = '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로
  *  오른쪽 위 STOP(App 머리줄 — 시뮬 조종 중에는 STOP 만 남아 영상 위에 뜬다, 메뉴·띠·시트가 덮지 못함), 아래 두 구석 조이스틱, 왼쪽 조이스틱 옆 메뉴 단추 하나
  *  (시나리오 띠·작은 지도 켜고 끄기(기본 꺼짐)·설정·정보·시뮬 끝내기·시험용 안내), 안내·단추는 카드 한 장(첫 줄 = 사유, 실행 다음 행동 줄은 그 아래 — 닫으면 글이 사라지고 단추는 남음).
  *  메뉴·띠가 열려 있거나 나가는 중이면 입력 0 */
-export function SimDrive() {
+export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) => void }) {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
   useDeadline(!!r.expires_at);
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
@@ -269,20 +279,23 @@ export function SimDrive() {
     addEventListener('keydown', down); addEventListener('keyup', up); addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);
     return () => { removeEventListener('keydown', down); removeEventListener('keyup', up); removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide); };
   }, []);
-  /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 확인된 반납만 연결 닫고 띄우기 카드로. 시뮬은 켠 채(«조종 화면 띄우기»로 다시 들어옴).
+  /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 확인된 반납만 작은 창으로(shrink — 연결·영상은 그대로, RB-SIM-PIP 11-11). 시뮬은 켠 채.
    *  거절·무응답이면 조종 화면에 남는다(연결·STOP 대상 보존, 입력 0, «다시 반납») */
   const leave = async () => {
     setMenu(''); setBar(false); setLeaving('wait');
+    // «조종 시작» 답을 기다리는 중이면 그 답까지(2 s) 기다린다 — 축소 뒤 늦게 온 취득이 조종권을 남기지 않게(#329 검토)
+    if (sim.get().link?.busy === 'take') await new Promise<void>((f) => {
+      const t = setTimeout(() => { off(); f(); }, 2000), off = sim.subscribe(() => { if (sim.get().link?.busy !== 'take') { clearTimeout(t); off(); f(); } });
+    });
     const k = sim.get().link;
     const ok = k?.lease ? await Promise.race([sim.release(), new Promise<boolean>((f) => setTimeout(() => f(false), 2000))])
-      : !k?.st?.lease_id && k?.busy !== 'release';   // 조종권 없음 = 반납할 것 없음. 서버가 아직 내 것이라 알리거나 반납 답을 기다리는 중이면 확인 못 함
+      : !k?.st?.lease_id && k?.busy !== 'release' && k?.busy !== 'take';   // 조종권 없음 = 반납할 것 없음. 서버가 아직 내 것이라 알리거나 반납·취득 답을 기다리는 중이면 확인 못 함
     if (sim.get().robot?.robot_id !== r.robot_id || sim.get().step !== 'drive') return;
-    if (ok) sim.reset(); else setLeaving('fail');
+    if (ok) shrink(cam); else setLeaving('fail');
   };
   const left = l.exp ? Math.floor(l.exp - Date.now() / 1000) : Infinity;
   const runtimeLeft = remainingTime(s.runtimeUntil);
-  const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
-    : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
+  const lock = lockOf(l);
   const who = !st || !open ? '' : st.lease_id ? '조종 중(나)' : !st.controller ? '조종하는 사람 없음' : st.controller_connected ? '다른 사람이 조종 중' : '조종자 연결 끊김(자리 예약 중)';
   const soc = st?.battery?.soc, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000)), stop = stopText(s);
   // OUTPUT_STALLED·시나리오 실행 안내가 뜰 때는 영상 자리 문구를 숨긴다(아래 안내 칸과 겹침). 실제 영상 장애(lost·none)는 안내 줄 아래로 옮겨 계속 보인다
@@ -320,9 +333,7 @@ export function SimDrive() {
   const lim = w && tuned(w).L;   // 시뮬은 조직 값으로 좁힌 범위
   const range = lim && `로봇 허용 범위(앞 ${lim.vx_max.toFixed(2)} m/s${can.back ? `, 뒤 ${(-lim.vx_min).toFixed(2)} m/s` : ''}${can.left || can.right ? `, 옆 ±${lim.vy_max} m/s` : ''}, 회전 ±${lim.wz_max} rad/s) 밖은 잘라 보냅니다.${!can.spin ? ' 제자리 회전은 앞으로 밀면서 돌리세요.' : ''}`;
   // 알약 하나: 정상이면 «시뮬 · 속도», 잠금·연결·보기는 그 말, 시나리오 실행 중이면 «실행 2/3»(잠금·끊김이 먼저)
-  const rr = l.run && !RUN_END.includes(l.run.status) ? l.run : null, total = rr?.progress.total ?? 0;
-  const state = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone !== 'ok' ? lock.text
-    : rr ? rr.status === 'PAUSED' ? '실행 일시정지' : total ? `실행 ${Math.min(rr.step + 1, total)}/${total}` : '실행 준비' : '';
+  const state = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone !== 'ok' ? lock.text : runText(l);
   const toggle = () => { if (menu || bar) { setMenu(''); setBar(false); } else setMenu('menu'); };
   // 큰 화면 끌기 = 외부 카메라 시점(드래그 yaw·pitch, 핀치 거리) — 조이스틱은 다른 요소라 그 누름은 여기 오지 않고, 이 끌기는 sim.axes 를 부르지 않는다
   const video = (small: boolean) => small ? <Video ch={cam} quiet /> : <Video ch={cam} fit="cover" quiet={hideCam} {...drag} data-orbit={orbitWhy ? undefined : ''} />;
@@ -389,4 +400,30 @@ export function SimDrive() {
       </div>
     </div></div>
   </section>;
+}
+
+/** 작은 창(RB-SIM-PIP 11-11 현민님): 나가기(반납 확인) 뒤 시뮬 연결·영상을 끊지 않고 화면 구석에 띄운다 — 아래 화면(로봇 연결·서버 경유 실기 조종·기록)은 그대로 쓴다.
+ *  조종권이 없어 입력 0(키·조이스틱은 여기 오지 않음). 크게 보기 = 조종 화면(조종권은 «조종 시작»부터, 자동 재개 없음 — held 면 막음: 실기 조종 화면을 끝낸 뒤),
+ *  시뮬 정지 = 머리줄 STOP 과 같은 sim.stop(조종권 없이 됨), 닫기 = 예전 나가기 끝(연결 닫고 띄우기 카드). 상태 줄을 끌어 옮긴다 */
+export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: boolean }) {
+  const s = useSim(), l = s.link, r = s.robot, [at, setAt] = useState<[number, number] | null>(null), grab = useRef<[number, number] | null>(null);
+  useTick(true);
+  if (!l || !r) return null;
+  const lock = lockOf(l), text = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'bad' || !l.st ? lock.text : runText(l) || lock.text;
+  const down = (e: PointerEvent<HTMLElement>) => { const b = e.currentTarget.parentElement!.getBoundingClientRect(); grab.current = [e.clientX - b.left, e.clientY - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const move = (e: PointerEvent<HTMLElement>) => {
+    const g = grab.current, w = e.currentTarget.parentElement!; if (!g) return;
+    setAt([Math.max(0, Math.min(innerWidth - w.offsetWidth, e.clientX - g[0])), Math.max(0, Math.min(innerHeight - w.offsetHeight, e.clientY - g[1]))]);
+  };
+  return <aside className="dv-pip" aria-label="시뮬 작은 창" data-sim-pip style={at ? { left: at[0], top: at[1], bottom: 'auto' } : undefined}>
+    <div className="dv-pip-v"><Video ch={cam} /></div>
+    <p className="dv-pip-t" role="status" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pip-state title="끌어서 옮기기"
+      onPointerDown={down} onPointerMove={move} onPointerUp={() => { grab.current = null; }} onPointerCancel={() => { grab.current = null; }}>시뮬 · {text}</p>
+    {held && <p className="dv-pip-t" data-sim-pip-held>실기 조종을 끝내면 크게 볼 수 있습니다</p>}
+    <div className="dv-pip-row">
+      <button type="button" className="btn" disabled={held} data-sim-pip-big onClick={big}>크게 보기</button>
+      <button type="button" className="btn" data-sim-pip-stop onClick={() => sim.stop()}>시뮬 정지</button>
+      <button type="button" className="btn" data-sim-pip-close onClick={() => sim.reset()}>닫기</button>
+    </div>
+  </aside>;
 }

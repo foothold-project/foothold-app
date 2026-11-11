@@ -1015,7 +1015,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false);
   });
 
-  it('메뉴가 열리면 누르고 있던 입력도 0, 조이스틱 막힘 → 나가기 = 반납 후 카드로(시뮬 그대로, DELETE 0), 다시 들어가도 자동 재개 0', async () => {
+  it('메뉴가 열리면 누르고 있던 입력도 0, 조이스틱 막힘 → 나가기 = 반납 후 작은 창(연결 그대로·DELETE 0) → 크게 보기도 자동 재개 0 → 닫기 = 카드, 다시 들어가도 자동 재개 0', async () => {
     const a = await launch(); await drive(a);
     const fwd = stick('전후');
     ptr(fwd, 'pointerdown', 50, 0); await wait(80);
@@ -1028,15 +1028,44 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     ptr(stick('전후'), 'pointerdown', 50, 0); ptr(stick('회전'), 'pointerdown', 0, 50); await wait(80);   // 막힌 조이스틱은 새로 눌러도 0
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, wz: 0 });
     expect($('[data-sim-vx]')!.textContent).toBe('0.00 m/s');
-    // 나가기(왼쪽 위 «<»)
+    // 나가기(왼쪽 위 «<») — 반납 답은 실제 WS 처럼 보낸 뒤에(가짜 에이전트 즉답은 busy 를 남긴다)
+    a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
     await click($('[data-sim-leave]'));
     expect(a.of('lease.release')).toHaveLength(1);
+    await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: true, lease_id: null });
     const cmds = a.of('cmd');
     expect(cmds.every((m, i) => i < n || (m.vx === 0 && m.wz === 0))).toBe(true);
+    // 작은 창(RB-SIM-PIP): 연결은 그대로, 조종 화면 대신 로봇 연결 화면 + 구석 창. 명령 0(조종권 없음), 키를 눌러도 0
+    expect(a.readyState).toBe(1);
+    expect($('[data-sim-drive]')).toBeNull();
+    expect($('[data-sim-pip]')).toBeTruthy();
+    expect($('[aria-label="내 로봇"]')).toBeTruthy();
+    expect($('[data-sim="small"]')).toBeTruthy();   // 띄우기 카드 자리 = 작은 창 안내(다시 연결 단추 없음)
+    expect(btn('조종 화면 띄우기')).toBeUndefined();
+    const c0 = a.of('cmd').length;
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', bubbles: true, cancelable: true })); }); await wait(120);
+    act(() => { window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', bubbles: true, cancelable: true })); });
+    expect(a.of('cmd')).toHaveLength(c0);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    expect($('[data-stop]')).toBeTruthy();
+    // 크게 보기: 같은 연결의 조종 화면, 조종권은 «조종 시작»부터(자동 재개 0)
+    await recv(a, phoneState({ latched: true, stop_gen: 1 }));
+    await click($('[data-sim-pip-big]'));
+    expect($('[data-sim-drive]')).toBeTruthy();
+    expect($('[data-sim-pip]')).toBeNull();
+    expect(agents()).toHaveLength(1);
+    expect(btn('조종 시작')).toBeTruthy();
+    await wait(120);
+    expect(a.of('lease.take')).toHaveLength(1);   // drive() 의 한 번뿐 — 크게 보기가 조종권을 다시 받지 않음
+    expect(a.of('cmd')).toHaveLength(c0);
+    // 조종권 없이 나가기 = 바로 작은 창 → 닫기 = 예전 나가기 끝(연결 닫고 카드)
+    await click($('[data-sim-leave]'));
+    expect(a.of('lease.release')).toHaveLength(1);
+    await click($('[data-sim-pip-close]'));
     expect(a.readyState).toBe(3);
     const sent = a.sent.length; await wait(120);
-    expect(a.sent.length).toBe(sent);   // 나간 뒤 명령 0
-    expect($('[data-sim-drive]')).toBeNull();
+    expect(a.sent.length).toBe(sent);   // 닫은 뒤 명령 0
+    expect($('[data-sim-pip]')).toBeNull();
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     expect(btn('조종 화면 띄우기')).toBeTruthy();
     expect($('[data-stop]')).toBeTruthy();
@@ -1051,13 +1080,14 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(b.of('cmd')).toHaveLength(0);
   });
 
-  it('나가기 반납 거절: 조종 화면에 남아 «확인하지 못했습니다»·다시 반납·STOP, 입력 0 → 다시 반납 확인되면 카드로', async () => {
+  it('나가기 반납 거절: 조종 화면에 남아 «확인하지 못했습니다»·다시 반납·STOP, 입력 0, 작은 창 0 → 다시 반납 확인되면 작은 창으로', async () => {
     const a = await launch(); await drive(a);
     a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
     await click($('[data-sim-leave]'));
     expect(a.of('lease.release')).toHaveLength(1);
     await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: false, lease_id: null, error: { code: 'STOP_CONFIRM_FAILED', message: 'failed' } });   // 실제 WS 처럼 답은 보낸 뒤에
     expect($('[data-sim-drive]')).toBeTruthy();
+    expect($('[data-sim-pip]')).toBeNull();
     expect(box.textContent).toContain('조종권 반납을 확인하지 못했습니다');
     expect(a.readyState).toBe(1);   // 연결·대상 보존
     await wait(120);
@@ -1070,7 +1100,93 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     await click(btn('다시 반납'));
     expect(a.of('lease.release')).toHaveLength(2);
     expect($('[data-sim-drive]')).toBeNull();
-    expect(btn('조종 화면 띄우기')).toBeTruthy();
+    expect($('[data-sim-pip]')).toBeTruthy();
+    expect(a.readyState).toBe(1);
+  });
+
+  it('«조종 시작» 답 대기 중 나가기(#329 검토): 답까지 기다렸다 받은 조종권을 입력 0 으로 반납한 뒤 작은 창 — 조종권 안 남음, 답이 2 s 안 오면 조종 화면 «다시 반납»', async () => {
+    const a = await launch(); await recv(a, phoneState());
+    a.auto = ((m: Msg) => m.t === 'lease.take' || m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
+    await click(btn('조종 시작'));
+    expect(sim.get().link?.busy).toBe('take');
+    await click($('[data-sim-leave]'));
+    expect($('[data-sim-pip]')).toBeNull();   // 취득 답 전엔 줄지 않음
+    expect(a.of('lease.release')).toHaveLength(0);
+    await recv(a, { t: 'reply', id: a.of('lease.take')[0].id, ok: true, lease_id: LEASE });   // 늦게 온 취득 성공
+    expect(a.of('lease.release')).toHaveLength(1);
+    await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: true, lease_id: null });
+    await recv(a, phoneState());
+    await wait(120);
+    expect($('[data-sim-pip]')).toBeTruthy();
+    expect(sim.get().link?.lease).toBeNull();
+    expect(a.of('cmd').every((m) => m.vx === 0 && m.vy === 0 && m.wz === 0)).toBe(true);   // 명령 값 0
+    // 크게 보기 → 다시 «조종 시작» 답 대기 중 나가기, 답이 안 오면 2 s 뒤 조종 화면에 남는다
+    await click($('[data-sim-pip-big]'));
+    await click(btn('조종 시작'));
+    await click($('[data-sim-leave]'));
+    await wait(2100);
+    expect($('[data-sim-pip]')).toBeNull();
+    expect(box.textContent).toContain('조종권 반납을 확인하지 못했습니다');
+    expect(a.of('cmd').every((m) => m.vx === 0 && m.vy === 0 && m.wz === 0)).toBe(true);
+  }, 8000);
+
+  it('작은 창: 상태 한 줄(보는 중 → 실행 2/3 → 정지 잠금 → 연결 끊김), 시뮬 정지 = 머리줄 STOP 과 같은 에이전트 stop(조종권 없이·서버 STOP·DELETE 0)', async () => {
+    const a = await launch(); await drive(a);
+    await click($('[data-sim-leave]'));
+    await recv(a, phoneState({ latched: false, stop_gen: 1 }));
+    const line = () => $('[data-sim-pip-state]')!.textContent;
+    expect(line()).toBe('시뮬 · 보는 중');
+    await recv(a, { t: 'run.update', run_id: 'r-1', status: 'RUNNING', step: 1, progress: { done: 1, total: 3 }, wait_reason: null, fail_code: null });
+    expect(line()).toBe('시뮬 · 실행 2/3');
+    const n = a.of('cmd').length;
+    await click($('[data-sim-pip-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    expect(a.of('cmd')).toHaveLength(n);
+    expect(calls.some((c) => c.method === 'DELETE' || c.path.endsWith('/stop'))).toBe(false);
+    await recv(a, phoneState({ latched: true, stop_gen: 2 }));
+    expect(line()).toBe('시뮬 · 정지 잠금');
+    expect($('[data-sim-pip-state]')!.getAttribute('data-tone')).toBe('bad');
+    act(() => a.drop(1006)); await flush();
+    expect(line()).toBe('시뮬 · 연결 끊김');
+    expect($('[data-sim-pip]')).toBeTruthy();   // 끊겨도 창은 남는다 — 크게 보기에서 다시 연결, 닫기로 정리
+  });
+
+  it('작은 창: 영상 받기는 끊지 않는다(일회 토큰 — 조종 화면이 내려가도 같은 영상 연결, 고른 영상 그대로)', async () => {
+    const tok = (c: string) => c.repeat(43);
+    const a = await launch({ ...welcome(), media: { version: 'media/1', path: '/phone/media/ws', robot: S1, epoch: 3, episode_id: LEASE,
+      rgb: { available: true, reason: 'Ready', token: tok('r') }, external: { available: true, reason: 'Ready', token: tok('e') },
+      lidar: { available: false, reason: 'x', token: null } } } as ReturnType<typeof welcome>);
+    await drive(a);
+    const socks = FakeWS.all.filter((w) => w.url.endsWith('/phone/media/ws'));
+    expect(socks).toHaveLength(2);
+    act(() => socks.forEach((w) => { w.auto = null; w.open(); })); await flush();
+    const ext = socks.find((w) => w.of('media.hello')[0]?.channel === 'external')!;
+    a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
+    await click($('[data-sim-leave]'));
+    await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: true, lease_id: null });
+    expect($('[data-sim-pip]')).toBeTruthy();
+    expect(socks.every((w) => w.readyState === 1)).toBe(true);
+    await recv(ext, { t: 'media.video', version: 'media/1', robot: S1, epoch: 3, episode_id: LEASE, channel: 'external', source: 'gazebo_external', seq: 1, captured_at: '', frame: 'camera', mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
+    expect($<HTMLImageElement>('[data-sim-pip] img[alt="외부 카메라 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');
+    await recv(a, phoneState({ latched: true, stop_gen: 1 }));   // 에이전트가 조종권 비움을 알림 — 그래야 다음 나가기가 바로 작은 창
+    await click($('[data-sim-pip-big]'));
+    expect(socks.every((w) => w.readyState === 1)).toBe(true);
+    expect(FakeWS.all.filter((w) => w.url.endsWith('/phone/media/ws'))).toHaveLength(2);   // 새 영상 연결 0
+    await click($('[data-sim-leave]'));
+    await click($('[data-sim-pip-close]'));
+    expect(socks.every((w) => w.readyState === 3)).toBe(true);
+  });
+
+  it('작은 창 + 서버 경유 실기 조종 화면: 아래 화면은 그대로, 크게 보기는 막고 안내(실기 조종권을 둔 채 화면을 바꾸지 않음)', async () => {
+    const a = await launch(); await drive(a);
+    await click($('[data-sim-leave]'));
+    act(() => { location.hash = '#/drive/r3'; window.dispatchEvent(new HashChangeEvent('hashchange')); }); await flush();
+    expect($('[data-sim-pip]')).toBeTruthy();
+    expect($('section[aria-label="조종"]')).toBeTruthy();
+    expect($('[data-sim-drive]')).toBeNull();
+    expect($<HTMLButtonElement>('[data-sim-pip-big]')!.disabled).toBe(true);
+    expect($('[data-sim-pip-held]')!.textContent).toBe('실기 조종을 끝내면 크게 볼 수 있습니다');
+    expect(a.readyState).toBe(1);
   });
 
   it('나가기 반납 무응답 2초: 조종 화면에 남아 실패 표시·STOP 대상 보존, 입력 0', async () => {

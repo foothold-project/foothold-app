@@ -12,7 +12,8 @@ import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { Connect, NO_ROBOT, endDrive } from './drive';
 import { sim, useSim } from './phone';
-import { SimDrive } from './simdrive';
+import { SimDrive, SimPip, type Cam } from './simdrive';
+import { media } from './media';
 import { RealDrive } from './realdrive';
 import { Approvals } from './screens/approvals';
 import { Bell, History } from './screens/history';
@@ -121,7 +122,12 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 폰 #/drive/<로봇 id> = 그 로봇 조종 화면(시뮬 로봇은 서버 경유 조종 화면을 열지 않음 — 직결만), #/drive = 로봇 연결(ADR-002 §3.1). PC 에는 조종 화면이 없다
   const open = phone && tab === 'drive' && pool.some((r) => r.id === sub && !r.sim), path = open ? `#/drive/${sub}` : `#/${tab}${focus ? `?${fk}=${encodeURIComponent(focus)}` : ''}`;
   // 시뮬 직결 조종 화면(#/drive 그대로 — 시뮬 로봇은 서버 경유 조종 화면을 쓰지 않는다). 로그아웃·화면 내림이면 직결을 닫고 비운다
-  const sv = useSim(), simOpen = phone && tab === 'drive' && !open && sv.step === 'drive';
+  // 작은 창(RB-SIM-PIP): 시뮬 조종 화면 나가기(반납 확인) 뒤 연결·영상은 그대로 구석에 — small = 그때 보던 영상. 시뮬 직결이 끝나면(끝내기·닫기·끊고 처음으로) 거둔다
+  const sv = useSim(), simUp = phone && sv.step === 'drive' && !sv.real, [small, setSmall] = useState<Cam | null>(null);
+  const simOpen = phone && tab === 'drive' && !open && sv.step === 'drive' && !(simUp && small);
+  useEffect(() => { if (!simUp) setSmall(null); }, [simUp]);
+  // 두 영상 채널은 조종 화면·작은 창이 바뀌는 사이에도 받는다(일회 토큰 — 받는 칸이 0 이 되면 닫혀 부모 연결을 다시 열어야 함). 구독은 안 함(App 다시 그림 0)
+  useEffect(() => { if (!simUp) return; media.want('external', 1); media.want('rgb', 1); return () => { media.want('external', -1); media.want('rgb', -1); }; }, [simUp]);
   useEffect(() => () => sim.clear(), []);
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
   useEffect(() => { if (robot) setRid(robot.id); }, [robot?.id]);
@@ -271,7 +277,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     ].filter(Boolean)}</div>
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.filter((t) => !t.hidden).map((t) => link(t, 'nav'))}<span className="fh-grow" /><ThemeNav />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive />
+      <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
         : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
         : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
@@ -285,5 +291,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>
     </div>
+    {/* 서버 경유 실기 조종 중(open)이면 크게 보기는 막는다 — 실기 조종권을 반납하지 않은 채 화면을 바꾸지 않게. STOP·Space 대상은 위 규칙 그대로(실기 조종 화면 = 그 로봇) */}
+    {simUp && small && <Guard quiet><SimPip cam={small} held={open} big={() => { setSmall(null); go('drive'); }} /></Guard>}
   </div>;
 }
