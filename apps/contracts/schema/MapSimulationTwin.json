@@ -1,0 +1,34 @@
+{
+  "$id": "fh-app/1/MapSimulationTwin",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "simulation_floor_id": {
+      "format": "uuid",
+      "title": "Simulation Floor Id",
+      "type": "string"
+    },
+    "simulation_map_version_id": {
+      "format": "uuid",
+      "title": "Simulation Map Version Id",
+      "type": "string"
+    },
+    "terrain_id": {
+      "title": "Terrain Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "map_version_id",
+    "simulation_map_version_id",
+    "simulation_floor_id",
+    "terrain_id"
+  ],
+  "title": "MapSimulationTwin",
+  "type": "object"
+}

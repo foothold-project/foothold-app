@@ -11,6 +11,7 @@ from uuid import UUID
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 import pytest
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import DBAPIError
@@ -290,7 +291,7 @@ def test_downgrade_refuses_to_erase_simulation_provenance(maps, seeded, world_fo
         assert db.scalar(select(Floor.provenance)) == 'SIMULATION'
     engine = create_engine(seeded['urls']['migrate'])
     with engine.connect() as conn:
-        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0028'
+        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(Config(str(CONFIG))).get_current_head()
     engine.dispose()
 
 

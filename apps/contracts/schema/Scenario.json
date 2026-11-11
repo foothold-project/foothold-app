@@ -1,5 +1,24 @@
 {
   "$defs": {
+    "MapUpdateReason": {
+      "additionalProperties": false,
+      "properties": {
+        "element": {
+          "title": "Element",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "element",
+        "reason"
+      ],
+      "title": "MapUpdateReason",
+      "type": "object"
+    },
     "ScenarioFinish": {
       "additionalProperties": false,
       "properties": {
@@ -26,6 +45,42 @@
         }
       },
       "title": "ScenarioFinish",
+      "type": "object"
+    },
+    "ScenarioMapUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "map_version_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Map Version Ids",
+          "type": "array"
+        },
+        "reasons": {
+          "items": {
+            "$ref": "#/$defs/MapUpdateReason"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "CURRENT",
+            "AUTO_APPLICABLE",
+            "NEEDS_EDIT"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reasons",
+        "map_version_ids"
+      ],
+      "title": "ScenarioMapUpdate",
       "type": "object"
     },
     "ScenarioPoint": {
@@ -220,6 +275,17 @@
     "latest_version": {
       "title": "Latest Version",
       "type": "integer"
+    },
+    "map_update": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScenarioMapUpdate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "map_version_ids": {
       "items": {

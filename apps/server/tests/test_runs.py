@@ -304,6 +304,7 @@ def test_receipt_failure_rolls_back_run_steps_and_event(scenario):
 def test_populated_migration_downgrade_refuses_data_loss(scenario, monkeypatch):
     from alembic import command
     from alembic.config import Config
+    from alembic.script import ScriptDirectory
     from sqlalchemy import text
     from sqlalchemy.exc import DBAPIError
     from .conftest import CONFIG
@@ -314,7 +315,7 @@ def test_populated_migration_downgrade_refuses_data_loss(scenario, monkeypatch):
     migration_engine = create_engine(s['seeded']['urls']['migrate'])
     try:
         with migration_engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0028'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(Config(str(CONFIG))).get_current_head()
     finally:
         migration_engine.dispose()
     assert len(stored(s)) == len(stored(s, RunReport)) == 1
@@ -613,6 +614,7 @@ def test_current_agent_durable_outbox_commit_ack_replay(scenario, tmp_path, monk
 def test_quarantine_only_downgrade_preserves_decisions(scenario, monkeypatch):
     from alembic import command
     from alembic.config import Config
+    from alembic.script import ScriptDirectory
     from sqlalchemy.exc import DBAPIError
     from .conftest import CONFIG
     s = scenario

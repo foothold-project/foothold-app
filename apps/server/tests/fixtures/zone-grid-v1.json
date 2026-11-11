@@ -1,0 +1,352 @@
+{
+  "format_version": 1,
+  "row_order": "TOP_TO_BOTTOM",
+  "cases": [
+    {
+      "name": "edge-and-corner-contact-10cm",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "resolution": 0.1,
+      "width": 3,
+      "height": 3,
+      "zones": [
+        {
+          "id": "closed",
+          "type": "NO_GO",
+          "name": "closed",
+          "polygon": [
+            [
+              0.1,
+              0.1
+            ],
+            [
+              0.14,
+              0.1
+            ],
+            [
+              0.14,
+              0.14
+            ],
+            [
+              0.1,
+              0.14
+            ]
+          ]
+        }
+      ],
+      "cells": [
+        {
+          "index": 3,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        },
+        {
+          "index": 4,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        },
+        {
+          "index": 6,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        },
+        {
+          "index": 7,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        }
+      ]
+    },
+    {
+      "name": "top-row-is-zero-5cm",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "resolution": 0.05,
+      "width": 3,
+      "height": 3,
+      "zones": [
+        {
+          "id": "top",
+          "type": "SLOW",
+          "name": "top",
+          "polygon": [
+            [
+              0.005,
+              0.105
+            ],
+            [
+              0.045,
+              0.105
+            ],
+            [
+              0.045,
+              0.145
+            ],
+            [
+              0.005,
+              0.145
+            ]
+          ]
+        }
+      ],
+      "cells": [
+        {
+          "index": 0,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": null
+        }
+      ]
+    },
+    {
+      "name": "overlap-no-go-and-minimum-speed",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "resolution": 1.0,
+      "width": 3,
+      "height": 3,
+      "zones": [
+        {
+          "id": "wide",
+          "type": "SLOW",
+          "name": "wide",
+          "polygon": [
+            [
+              0.1,
+              0.1
+            ],
+            [
+              2.9,
+              0.1
+            ],
+            [
+              2.9,
+              2.9
+            ],
+            [
+              0.1,
+              2.9
+            ]
+          ],
+          "max_speed_mps": 1.2
+        },
+        {
+          "id": "lower",
+          "type": "SLOW",
+          "name": "lower",
+          "polygon": [
+            [
+              1.1,
+              1.1
+            ],
+            [
+              1.9,
+              1.1
+            ],
+            [
+              1.9,
+              1.9
+            ],
+            [
+              1.1,
+              1.9
+            ]
+          ],
+          "max_speed_mps": 0.3
+        },
+        {
+          "id": "blocked",
+          "type": "NO_GO",
+          "name": "blocked",
+          "polygon": [
+            [
+              2.1,
+              2.1
+            ],
+            [
+              2.9,
+              2.1
+            ],
+            [
+              2.9,
+              2.9
+            ],
+            [
+              2.1,
+              2.9
+            ]
+          ]
+        }
+      ],
+      "cells": [
+        {
+          "index": 0,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 1.2
+        },
+        {
+          "index": 1,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 1.2
+        },
+        {
+          "index": 2,
+          "no_go": true,
+          "slow": true,
+          "max_speed_mps": null
+        },
+        {
+          "index": 3,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 1.2
+        },
+        {
+          "index": 4,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 0.3
+        },
+        {
+          "index": 5,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 1.2
+        },
+        {
+          "index": 6,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 1.2
+        },
+        {
+          "index": 7,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 1.2
+        },
+        {
+          "index": 8,
+          "no_go": false,
+          "slow": true,
+          "max_speed_mps": 1.2
+        }
+      ]
+    },
+    {
+      "name": "rotated-origin",
+      "origin": [
+        10,
+        20,
+        1.5707963267948966
+      ],
+      "resolution": 1.0,
+      "width": 3,
+      "height": 3,
+      "zones": [
+        {
+          "id": "rotated",
+          "type": "NO_GO",
+          "name": "rotated",
+          "polygon": [
+            [
+              9.1,
+              20.1
+            ],
+            [
+              9.9,
+              20.1
+            ],
+            [
+              9.9,
+              20.9
+            ],
+            [
+              9.1,
+              20.9
+            ]
+          ]
+        }
+      ],
+      "cells": [
+        {
+          "index": 6,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        }
+      ]
+    },
+    {
+      "name": "thin-crossing-with-no-cell-corner-inside",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "resolution": 1.0,
+      "width": 3,
+      "height": 3,
+      "zones": [
+        {
+          "id": "thin",
+          "type": "NO_GO",
+          "name": "thin",
+          "polygon": [
+            [
+              0.1,
+              1.45
+            ],
+            [
+              2.9,
+              1.45
+            ],
+            [
+              2.9,
+              1.55
+            ],
+            [
+              0.1,
+              1.55
+            ]
+          ]
+        }
+      ],
+      "cells": [
+        {
+          "index": 3,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        },
+        {
+          "index": 4,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        },
+        {
+          "index": 5,
+          "no_go": true,
+          "slow": false,
+          "max_speed_mps": null
+        }
+      ]
+    }
+  ]
+}

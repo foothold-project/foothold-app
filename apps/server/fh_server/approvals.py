@@ -9,6 +9,7 @@ from .event_messages import render
 from .scenario_targets import require_assignable, simulation_only, site_purposes
 from .models import Approval, Assignment, Event, Floor, MapVersion, Robot, Scenario, ScenarioVersion, User, now
 from .notifications import append_for_event
+from .scenario_maps import effective_version
 
 
 KINDS = {'MAP_REVISION': '지도 수정', 'MAP_ROLLBACK': '지도 되돌리기', 'SCENARIO_ASSIGNMENT': '시나리오 배정'}
@@ -38,6 +39,10 @@ def record(db, approval, actor, version, code, *, approved=None):
             'number': db.get(ScenarioVersion, version.scenario_version_id).number if approval.kind == 'SCENARIO_ASSIGNMENT' else version.number, 'reason': approval.reason,
             'decision_comment': approval.decision_comment, 'approved': approved})
     if approval.kind == 'SCENARIO_ASSIGNMENT':
+        original = db.get(ScenarioVersion, version.scenario_version_id)
+        effective = effective_version(db, original)
+        if original and effective.id != original.id:
+            row.data['effective_scenario_version'] = effective.number
         row.robot_id = version.robot_id
     db.add(render(db, row, other_user_id=approval.requester_id))
     append_for_event(db, row)
@@ -88,7 +93,9 @@ def approval_detail(db, row):
         assignment = db.scalar(select(Assignment).where(Assignment.org_id == row.org_id, Assignment.id == row.target_id))
         version = db.scalar(select(ScenarioVersion).where(ScenarioVersion.org_id == row.org_id, ScenarioVersion.id == assignment.scenario_version_id))
         robot = db.scalar(select(Robot).where(Robot.org_id == row.org_id, Robot.id == assignment.robot_id))
+        effective = effective_version(db, version)
         return C.ApprovalDetail(**approval_object(db, row).model_dump(), preview=C.ApprovalAssignmentPreview(
+            **({'effective_scenario_version': effective.number} if version and effective.id != version.id else {}),
             scenario_id=version.scenario_id if version else None,
             scenario_name=version.name if version else '삭제된 시나리오: ' + (assignment.scenario_name_snapshot or ''),
             scenario_version=version.number if version else None,
@@ -113,7 +120,7 @@ def transition(db, row, user, status, comment, fail):
     if status != 'CANCELED' and row.requester_id == user.id:
         fail(403, 'FORBIDDEN', '본인이 요청한 결재는 취소만 할 수 있습니다. 다른 총괄에게 처리를 요청하세요.')
     if row.kind == 'SCENARIO_ASSIGNMENT':
-        version, stale = transition_assignment(db, row, user, status)
+        version, stale = transition_assignment(db, row, user, status, fail)
         detail = {'assignment_id': str(version.id)}
     else:
         version, stale, detail = transition_map(db, row, user, status, fail)
@@ -146,7 +153,7 @@ def transition_map(db, row, user, status, fail):
     return version, stale, {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None}
 
 
-def transition_assignment(db, approval, user, status):
+def transition_assignment(db, approval, user, status, fail):
     # Global order: approval -> assignment -> scenario -> robot -> sorted floors.
     # Shared locks hold archive/owner/map checks stable through the decision commit.
     row = db.scalar(select(Assignment).where(Assignment.org_id == user.org_id,
@@ -161,16 +168,27 @@ def transition_assignment(db, approval, user, status):
         ScenarioVersion.id == row.scenario_version_id))
     scenario = db.scalar(select(Scenario).where(Scenario.org_id == user.org_id,
         Scenario.id == version.scenario_id).with_for_update(read=True))
+    version = effective_version(db, version, scenario)
     robot = db.scalar(select(Robot).where(Robot.org_id == user.org_id,
         Robot.id == row.robot_id).with_for_update(read=True))
     floors = list(db.scalars(select(Floor).where(Floor.org_id == user.org_id,
         Floor.id.in_(version.floor_ids)).order_by(Floor.id).with_for_update(read=True)))
     maps_current = {f.approved_version_id for f in floors}
-    stale = status == 'APPROVED' and (scenario.archived_at is not None or row.status != 'PENDING'
+    invalid_target = (scenario.archived_at is not None or row.status != 'PENDING'
         or robot.owner_user_id != approval.requester_id or robot.archived_at is not None
-        or len(floors) != len(version.floor_ids) or maps_current != set(version.map_version_ids)
+        or len(floors) != len(version.floor_ids)
         or 'SIM' in site_purposes(db, user.org_id, version.floor_ids)
         or (not robot.simulation and simulation_only(db, version)))
+    if (status == 'APPROVED' and not invalid_target and maps_current != set(version.map_version_ids)
+            and version.number == scenario.latest_version):
+        from .scenario_maps import map_update
+        update, _ = map_update(db, version)
+        if update.status == 'AUTO_APPLICABLE':
+            # Do not consume a valid pending request merely because the explicit
+            # map-update write has not happened yet. No auto-write in approval.
+            fail(409, 'MAP_UPDATE_REQUIRED', '최신 지도를 시나리오에 적용한 뒤 다시 승인하세요.',
+                {'map_update': update.model_dump(mode='json'), 'scenario_id': str(scenario.id)})
+    stale = status == 'APPROVED' and (invalid_target or maps_current != set(version.map_version_ids))
     if stale:
         # No assignment STALE state in 06: retire an invalid request as REJECTED,
         # preserving REMOVED when an already removed assignment is encountered.

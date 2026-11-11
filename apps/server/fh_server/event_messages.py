@@ -200,6 +200,8 @@ def render(db, ev, *, agent=False, other_user_id=None):
         template = TEMPLATES.get(ev.code) if ev.code in AGENT_CODES else TEMPLATES['AGENT_EVENT']
     else:
         template = TEMPLATES[ev.code]
+    if not agent and ev.code == 'SCENARIO_VERSION_CREATED' and ev.data.get('auto_map_from_number') is not None:
+        template = '{person}님이 시나리오 {place} {number}판을 지도 구역 변경으로 자동 갱신했습니다.'
     if ev.code == 'APPROVAL_STALE' and ev.data.get('approval_kind') == 'SCENARIO_ASSIGNMENT':
         template = '{other}님의 시나리오 배정 {number}판 요청 이후 대상이 바뀌어 승인을 막았습니다. 배정을 다시 요청하세요.'
     if template is None:

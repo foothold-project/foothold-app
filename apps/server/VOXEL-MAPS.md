@@ -101,31 +101,24 @@ SIMULATION 출처·원본 PGM·조직·좌표·치수·world/floor 검사를 그
 브라우저 실행기/에이전트가 이 world identity와 파일을 받는 연결, L1/L2 SLAM,
 실기 실행은 확인하지 않았다. 기존 launcher가 허용하는 world 목록을 확장하지 않는다.
 
-## 구역 집행의 현재 범위와 화면 인계
+## 구역·시나리오 최신 지도 인계
 
-- 실기·시뮬 지도 모두 `POST /api/v1/scenarios/preview`와 시나리오 저장의 같은
-  `missions.preview`를 쓴다. `NO_GO` 다각형 내부와 경계에 있는 목표점·연결점은 거절한다.
-  오목 다각형은 ray crossing으로 판정한다. 선분이 구역을 통과하는지는 검사하지 않는다.
-- `MapZone`은 `{id,type,name,polygon}`이며 `SLOW`에 속도 필드는 없다. 현재 서버·에이전트에는
-  이 구역에 따른 주행 중 감속/회피 집행이 없다. 이를 추가하거나 속도를 추정하지 않았다.
-  실기 실행은 기존 실행 전 증명 미구현으로 계속 fail-closed다.
-- 서버 에이전트 계획은 각 지점과 `map_proofs`에 **동일 features를 보관한 불변 쌍둥이 UUID**를
-  고정한다. features 자체를 계획 응답에 중복 삽입하거나 `RunMapProof` 계약을 바꾸지는 않는다.
-- 로그인한 브라우저는 기존 `GET /api/v1/map-versions/{HUMAN UUID}`의
-  `features.zones`, `features.waypoints`, `features.connectors`를 읽으면 된다.
-  같은 조직 읽기 권한이 필요하며 새 계약 필드는 없다. x/y/yaw와 polygon 좌표는 시뮬과 같다.
-  최신 지형 기준 읽기는 `GET /api/v1/terrains/{terrain_id}` → `map_version_id` →
-  `GET /api/v1/map-versions/{SIMULATION UUID}`이며 여기에도 같은 features가 있다.
-  고정 시나리오에는 그 시나리오의 판 UUID를 사용하고 최신 판으로 조용히 바꾸지 않는다.
-- 현재 `mobile/sim/main.js`의 custom terrain은 localStorage의 지형을 읽고, `?bt=`는
-  `fh.btMission.<id>`의 지점/나무를 읽는다. 위 서버 features를 가져오거나 구역을 집행하지 않는다.
-  브라우저에서 읽기·표시·주행 정책을 적용하는 것은 화면 작업 범위다.
+구역 API·형식·화면 흐름의 정본 인계는 [ZONES.md](ZONES.md)를 본다.
+`MapZone.SLOW.max_speed_mps`는 0.3~1.5 m/s이며 옛 값 없음은 그대로다.
+로그인 사용자는 정확한 HUMAN 판의 `/simulation-twin`으로 기본 쌍둥이를 찾고,
+해당 SIMULATION UUID의 `/zone-grid`에서 그 판의 자기 해상도·원점·치수에 맞는
+희소 구역 칸을 읽는다. 변·모서리 접촉 포함, 금지 우선·감속 최솟값, 몸체 여유는 소비자가 적용한다.
 
-## 기존 시나리오·배정의 고정과 남은 결정
+지도 초안은 `/floors/{id}/zone-overlaps`로 기존 시나리오의 지점·연결점·직선 겹침을
+저장 전에 읽기 검사한다. 지도 저장은 겹침만으로 차단하지 않는다.
+시나리오 목록/상세의 `map_update`가 적용 가능이면 별도 쓰기
+`/scenarios/{id}/apply-latest-map`으로 새 불변 판을 확정한 뒤 그 번호로 새 시뮬을 시작한다.
+같은 그림 판정은 #333의 Upload·그림·층·출처·원점·해상도·치수·edits 조건을 공유한다.
+NO_GO 안의 지점·연결점은 수정 필요이고 직선 교차만 있으면 길 찾기로 돌아간다.
+기존 배정·대기 승인의 원래 판은 보존하고 자동 갱신 계보만 유효 판으로 이어진다.
+수동 수정은 계보를 끊으며 기존 규칙을 따른다.
 
-시나리오 판은 지도 판 UUID와 임무 판 번호를 저장하고, 배정은 ScenarioVersion UUID에 묶인다.
-지도 저장/되돌리기만으로 기존 시나리오·배정·고정 임무·실행 기록을 최신으로 바꾸지 않는다.
-따라서 기존 시나리오 실행은 이전 구역을 유지한다. 새 구역을 적용하려면 최신 지도에서
-시나리오 새 판을 저장해 동일 preview를 거치고 기존 배정·승인 절차를 다시 밟는 것이 작은 제안이다.
-자동 재바인딩·자동 재승인은 구현하지 않았다. 이 사용자 흐름과 감속 값·경로 통과/주행 중 구역
-집행 정책은 제품 결정이 필요하다. 이번 변경만으로 실기·브라우저 주행 집행을 보장하지 않는다.
+옛 지도 판으로 새 시작은 거절한다. 단순 조회/preview/agent GET에서 새 시나리오 판을
+만들지 않으며, 진행 중·재개·실행 기록은 기존 고정 판을 유지한다.
+실기 실행의 기존 fail-closed 제한·map_proof·SIMULATION 출처 검사는 유지한다.
+이 서버 PR은 브라우저 자동 이동·손 조종 구역 집행이나 실기 제어를 구현/검증하지 않는다.

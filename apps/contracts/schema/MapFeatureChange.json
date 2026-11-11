@@ -149,6 +149,13 @@
     },
     "MapZone": {
       "additionalProperties": false,
+      "if": {
+        "properties": {
+          "type": {
+            "const": "NO_GO"
+          }
+        }
+      },
       "properties": {
         "id": {
           "maxLength": 128,
@@ -156,6 +163,20 @@
           "pattern": "\\S",
           "title": "Id",
           "type": "string"
+        },
+        "max_speed_mps": {
+          "anyOf": [
+            {
+              "maximum": 1.5,
+              "minimum": 0.3,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Speed Mps"
         },
         "name": {
           "maxLength": 128,
@@ -198,6 +219,13 @@
         "name",
         "polygon"
       ],
+      "then": {
+        "not": {
+          "required": [
+            "max_speed_mps"
+          ]
+        }
+      },
       "title": "MapZone",
       "type": "object"
     }
