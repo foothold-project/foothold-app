@@ -93,14 +93,15 @@ export function missionGraph(items: NodeIn[], end: string, w: Where, sup = false
   ];
   return { nodes, edges: nodes.slice(1).map((n, i) => line(nodes[i].id, n.id)), first: 'start', last: 'end', h };
 }
-/** 고정 절차 단계(읽기만): 본 줄은 위→아래 선으로, 갈래는 바로 앞 본 노드 옆에 선 없이(갈래가 이어지면 한 칸씩 아래로 — 겹치지 않게). 예외 처리는 순서가 아니라 두 줄 격자(선 없음) */
+/** 고정 절차 단계(읽기만): 본 줄은 위→아래 선으로, 갈래는 바로 앞 본 노드의 한 줄 아래 옆 칸에 선 없이(갈래가 이어지면 한 칸씩 아래로 — 겹치지 않게).
+ *  RB-SCEN-START-LAYOUT 11-11: 같은 줄이면 본 줄 끝 노드에서 옆 기둥으로 나가는 선(운행 준비 완료 → 시작)이 갈래 상자를 가로지름. 예외 처리는 순서가 아니라 두 줄 격자(선 없음) */
 export function stageGraph(stage: Stage, w: Where, sup = false): G {
   const l = LIFE.filter((n) => n.stage === stage), grid = stage === '예외 처리', { gy, h } = FIXED;
   const nodes: N[] = [], main: string[] = [];
   let sideRow = -1;
   l.forEach((n, i) => {
     const side = !grid && SIDE.has(n.id);
-    if (side) sideRow = Math.max(main.length - 1, sideRow + 1, 0);
+    if (side) sideRow = Math.max(main.length, sideRow + 1);
     const pos = grid ? at(i % 2, Math.floor(i / 2), gy) : side ? at(1, sideRow, gy) : at(0, main.length, gy);
     if (!grid && !side) main.push(n.id);
     nodes.push({ id: n.id, type: 'step', ...pos, data: { kind: '고정 절차 · 읽기 전용', title: n.name, badge: sup ? badgeOf(n, w) : undefined } });
@@ -141,8 +142,10 @@ export function flowGraph(items: NodeIn[], end: string, w: Where, open: Readonly
     col.forEach((s, i) => { areas[s] = { id: bl[i].put(x, y), x, y, w: bl[i].w, h: bl[i].h }; y += bl[i].h + GAP; });
     x += Math.max(...bl.map((b) => b.w)) + GAP;
   }
+  // 운행 준비 → 시작: 꺾는 세로 줄을 첫 기둥과 임무 사이 빈 칸 가운데로(기본 = 두 점 가운데라 넓게 펼친 연결·운행 준비 묶음의 옆 칸 노드 위를 지나감)
+  const sx = nodes.find((n) => n.id === ends['운행 준비'][1])!.position.x + W, tx = nodes.find((n) => n.id === 'start')!.position.x, mid = areas['임무'].x - GAP / 2;
   edges.push({ ...line(ends['연결'][1], ends['운행 준비'][0]), className: 'sn-link' },
-    { ...line(ends['운행 준비'][1], 'start'), sourceHandle: 'r', targetHandle: 'l', className: 'sn-link' },
+    { ...line(ends['운행 준비'][1], 'start'), sourceHandle: 'r', targetHandle: 'l', className: 'sn-link', pathOptions: { stepPosition: (mid - sx) / (tx - sx) } } as Edge,
     { ...line('end', ends['복귀·종료'][0]), sourceHandle: 'r', targetHandle: 'l', className: 'sn-link' },
     dash('start', open.has('예외 처리') ? 'g:예외 처리' : 's:예외 처리', '발생할 때 확인'));
   return { boxes, nodes, edges, areas };
@@ -179,12 +182,15 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
   const canvas = () => root.current?.querySelector('.sn-canvas');
   // 묶음 맞춤 = 읽히는 배율(FIT)로, 묶음이 화면보다 크면 묶음 위·왼쪽부터. s 없음 = 전체 보기(배율 제한 없이)
   // 크게 보기 = 1배 그대로: 그 묶음이 가로 가운데(그래프 끝 넘지 않게)·위가 캔버스 위에(R6 — 창 스크롤 없이 캔버스 안에서 옮김)
+  // RB-SCEN-START-LAYOUT 11-11: 떠 있는 지도 창(mapscen Float)이 캔버스 왼쪽을 덮으면 그 오른쪽 끝(L)부터 맞춤 — 처음 화면에 노드가 지도 창 밑에 숨지 않게
+  const left = () => { const c = canvas()?.getBoundingClientRect(), m = root.current?.closest('.mx-body')?.querySelector('.mx-win:not([data-fold])')?.getBoundingClientRect();
+    return c && m?.width && m.left < c.left + c.width / 2 && m.bottom > c.top && m.top < c.bottom ? Math.max(0, m.right - c.left) : 0; };
   const view = (s?: Stage) => {
-    if (big) { const cw = canvas()?.clientWidth ?? 0;
+    if (big) { const L = left(), cw = (canvas()?.clientWidth ?? 0) - L;
       if (!s) { const vh = canvas()?.clientHeight ?? 0, z = Math.max(0.05, Math.min(1, (cw - PADY * 2) / gw, (vh - PADY * 2) / gh));   // 전체 = 캔버스에 다 들어오게
-        return void flow.setViewport({ zoom: z, x: (cw - gw * z) / 2, y: PADY }); }
+        return void flow.setViewport({ zoom: z, x: L + (cw - gw * z) / 2, y: PADY }); }
       const b = g.areas[s];
-      return void flow.setViewport({ zoom: 1, y: PADY - b.y, x: Math.min(PADY, Math.max(cw - gw - PADY, (cw - b.w) / 2 - b.x)) }); }
+      return void flow.setViewport({ zoom: 1, y: PADY - b.y, x: L + Math.min(PADY, Math.max(cw - gw - PADY, (cw - b.w) / 2 - b.x)) }); }
     if (!s) return void flow.fitView({ padding: 0.04 });
     const id = g.areas[s].id;
     void flow.fitView({ ...FIT, nodes: [{ id }] }).then(() => { const b = flow.getNode(id), v = flow.getViewport(); if (!b) return;

@@ -85,10 +85,12 @@ export function Pane({ open, setOpen, bar, head, label, children, pick, name, wi
 export type Win = { x: number | null; y: number | null; w: number; h: number; fold: boolean };
 export const WIN: Win = { x: null, y: null, w: 360, h: 260, fold: false };
 const WKEY = 'fh.scen.mapwin', lim = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-/** 본문(bw×bh) 안에 가둠: 크기 220×160 ~ 본문 90%(본문이 작으면 최소 크기), 자리 = 본문 안(자리 없음 = 왼쪽 아래 12px 띄움) */
-export const fitWin = (s: Win, bw: number, bh: number): Win & { x: number; y: number } => {
-  const w = lim(s.w, 220, bw * 0.9), h = lim(s.h, 160, bh * 0.9);
-  return { ...s, w, h, x: lim(s.x ?? 12, 0, bw - w), y: lim(s.y ?? bh - h - 12, 0, bh - h) };
+/** 본문(bw×bh) 안에 가둠: 크기 220×160 ~ 본문 90%(본문이 작으면 최소 크기), 자리 = 본문 안.
+ *  RB-SCEN-START-LAYOUT 11-11 — 옮긴 적 없음(x·y 없음) = 현민님 목표 캡처 자리: 노드 칸(본문 안 위 끝 top) 왼쪽에 세로로 길게, 너비 본문 30%(300~620), 높이 = 노드 칸 높이 */
+export const fitWin = (s: Win, bw: number, bh: number, top = 0): Win & { x: number; y: number } => {
+  const d = s.x == null && s.y == null ? { w: lim(bw * 0.3, 300, 620), h: bh - top - 24 } : s;
+  const w = lim(d.w, 220, bw * 0.9), h = lim(d.h, 160, bh * 0.9);
+  return { ...s, w, h, x: lim(s.x ?? 12, 0, bw - w), y: lim(s.y ?? top + 12, 0, bh - h) };
 };
 type Grip = 'move' | 'nw' | 'se';
 /** 끌기(가둔 창 s 에서 dx·dy): move = 옮김, se = 오른쪽 아래 모서리, nw = 왼쪽 위 모서리(오른쪽 아래 끝은 그 자리) */
@@ -108,17 +110,19 @@ export const readWin = (): Win => {
 /** 지도 창: 윗줄(«지도» + 접기)을 끌어 옮김, 왼쪽 위·오른쪽 아래 모서리로 크기, 접으면 «지도 ▴» 칩(창 오른쪽 아래 자리). 본문 크기가 바뀌면 그리면서 다시 가둔다.
  *  끄는 동안 포인터는 이 창이 잡는다(노드 칸 끌기·휠과 섞이지 않음 — 지도 위 휠은 MapFrame 확대). head = 윗줄 단추(«+ 지점»), foot = 창 아래 한 줄(고른 지점 — 창일 때만 보임) */
 export function Float({ children, head, foot }: { children: ReactNode; head?: ReactNode; foot?: ReactNode }) {
-  const me = useRef<HTMLDivElement>(null), [s, setS] = useState(readWin), [[bw, bh], setB] = useState([0, 0]);
+  const me = useRef<HTMLDivElement>(null), [s, setS] = useState(readWin), [[bw, bh, top], setB] = useState([0, 0, 0]);
   const grab = useRef<{ how: Grip; px: number; py: number; s0: Win & { x: number; y: number } } | null>(null);
+  // top = 본문 안 노드 칸 위 끝(창 머리·단계 줄 아래 — 처음 자리가 그 단추들을 덮지 않게). 그릴 때마다(노드·목록 바꿈 뒤 새 캔버스) + 본문 크기가 바뀔 때 잰다, 같으면 그대로
+  const measure = () => { const b = me.current?.closest('.mx-body'); if (!b) return;
+    const r = b.getBoundingClientRect(), t = b.querySelector('.sn-canvas')?.getBoundingClientRect(), n: [number, number, number] = [r.width, r.height, t ? t.top - r.top : 0];
+    setB((o) => (o.every((v, i) => v === n[i]) ? o : n)); };
+  useEffect(measure);
   useEffect(() => {
     const b = me.current?.closest('.mx-body');
-    if (!b) return;
-    const m = () => { const r = b.getBoundingClientRect(); setB([r.width, r.height]); };
-    m();
-    if (typeof ResizeObserver === 'undefined') return;
-    const o = new ResizeObserver(m); o.observe(b); return () => o.disconnect();
+    if (!b || typeof ResizeObserver === 'undefined') return;
+    const o = new ResizeObserver(measure); o.observe(b); return () => o.disconnect();
   }, []);
-  const f = fitWin(s, bw, bh);
+  const f = fitWin(s, bw, bh, top);
   const keep = (n: Win) => { setS(n); try { localStorage.setItem(WKEY, JSON.stringify(n)); } catch { /* 기억 못 해도 지금 창은 바뀜 */ } };
   const at = (e: PointerEvent<HTMLElement>, g = grab.current!) => dragWin(g.s0, g.how, e.clientX - g.px, e.clientY - g.py, bw, bh);
   const on = (how: Grip) => ({

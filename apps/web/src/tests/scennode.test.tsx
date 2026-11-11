@@ -65,6 +65,24 @@ describe('운영 흐름 데이터', () => {
       expect(new Set(at).size, `${s} ${w}`).toBe(at.length);
     }
   });
+  it('RB-SCEN-START-LAYOUT: 묶음 사이 선(r→l)이 어떤 노드 상자도 가로지르지 않는다 — 연결·운행 준비·모두 펼침, 갈래는 본 줄 끝 노드와 같은 줄이 아님', () => {
+    const H = 88, W = 220;
+    for (const open of [new Set<(typeof FOLDS)[number]>(), new Set(['연결'] as const), new Set(['운행 준비'] as const), OPEN]) {
+      const g = flowGraph(ITEMS, '대기', 'websim', open), node = (id: string) => g.nodes.find((n) => n.id === id), hOf = (n: (typeof g.nodes)[number]) => (n.data.stage ? 128 : H);   // 요약 카드 128
+      for (const e of g.edges.filter((x) => x.sourceHandle === 'r')) {
+        const sn = node(e.source)!, tn = node(e.target);
+        if (!tn) continue;   // 묶음 상자로 가는 점선은 상자 왼쪽 끝(묶음 사이 빈 칸)
+        const s = sn.position, t = tn.position, sx = s.x + W, sy = s.y + hOf(sn) / 2, tx = t.x, ty = t.y + hOf(tn) / 2;
+        const X = sx + (tx - sx) * ((e as { pathOptions?: { stepPosition?: number } }).pathOptions?.stepPosition ?? 0.5);
+        const hit = (n: (typeof g.nodes)[number]) => { const { x, y } = n.position, h = hOf(n);
+          const across = (y0: number, x0: number, x1: number) => y0 > y && y0 < y + h && Math.max(x0, x1) > x && Math.min(x0, x1) < x + W;
+          return across(sy, sx, X) || across(ty, X, tx) || (X > x && X < x + W && Math.max(sy, ty) > y && Math.min(sy, ty) < y + h); };
+        expect(g.nodes.filter((n) => n.id !== e.source && n.id !== e.target && hit(n)).map((n) => n.id), `${[...open]} ${e.id}`).toEqual([]);
+      }
+    }
+    for (const s of ['연결', '운행 준비'] as const) { const g = stageGraph(s, 'websim'), last = g.nodes.find((n) => n.id === g.last)!;
+      expect(g.nodes.filter((n) => n.position.x > 0 && n.position.y === last.position.y), s).toEqual([]); }
+  });
   it('R3 접힌 흐름: 임무만 묶음, 고정 절차 넷 = 요약 카드(«N개 항목»), 기둥 = 연결·운행 준비 | 임무 | 복귀·종료·예외, 선 셋 + 시작 → 예외 점선 하나', () => {
     const g = flowGraph(ITEMS, '대기', 'websim'), A = g.areas;
     expect(g.boxes.map((b) => b.data.stage)).toEqual(['임무']);
