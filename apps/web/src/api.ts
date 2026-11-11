@@ -2,18 +2,9 @@
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
 import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFeatures, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport } from '../../contracts/ts';
 
-// 구역 지키기 1차(RB-ZONE-WEB 11-12) — 서버 계약 생성물이 dev 에 들어오기 전이라 여기 직접 적는다(정본 apps/server/ZONES.md). 생성물에 들어오면 이 묶음을 지운다
-/** 시나리오가 최신 지도를 따라갈 수 있나: CURRENT = 최신, AUTO_APPLICABLE = 그대로 옮겨짐, NEEDS_EDIT = 지점이 구역 안 등 사람이 고쳐야 함 */
-export type MapUpdate = { status: 'CURRENT' | 'AUTO_APPLICABLE' | 'NEEDS_EDIT'; reasons: { element: string; reason: string }[]; map_version_ids: string[] };
-declare module '../../contracts/ts' {
-  interface MapZone { /** 감속 구역만 0.3..1.5 m/s. 없음·null = 값 없음(옛 구역). 접근 금지 구역에는 이 키를 보내지 않는다 */ max_speed_mps?: number | null }
-  interface Scenario { map_update?: MapUpdate }
-}
-/** 구역이 있는 칸만(index = 줄 × 가로 + 칸, 줄 0 = 위). 몸체 여유는 들어 있지 않다 */
-export type ZoneGrid = { format_version: 1; map_version_id: string; origin: [number, number, number]; resolution: number; width: number; height: number; row_order: 'TOP_TO_BOTTOM'; cursor: number;
-  cells: { index: number; no_go: boolean; slow: boolean; max_speed_mps: number | null }[]; next_cursor: number | null };
-export type SimTwin = { map_version_id: string; simulation_map_version_id: string; simulation_floor_id: string; terrain_id: string };
-export type ZoneOverlaps = { scenarios: { scenario_id: string; scenario_name: string; hits: { kind: 'POINT' | 'SEGMENT'; element: string; zone_id: string }[] }[] };
+// 구역 지키기 1차(RB-ZONE-WEB 11-12) — 타입은 계약 생성물 그대로(정본 apps/server/ZONES.md)
+export type { ScenarioMapUpdate as MapUpdate, ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
+import type { ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */

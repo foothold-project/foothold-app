@@ -11,7 +11,7 @@ import { KIND as DEVICE, type Ctx } from '../screens';
 import { MapFrame, MapImage } from '../mapframe';
 import { Note, RUN, Shapes, canon, floorsOf, isVersion, purposeOf, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place, type Run } from './maps';
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
-import { crosses, inPolygon, loadNoGo, loadWalls, noGoAt, route, type Cells } from './zoneroute';
+import { crosses, inPolygon, loadNoGo, loadWalls, noGoAt, routeSoon, type Cells } from './zoneroute';
 import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
 import { Float, Hint, Menu, Pane, shut, type Side } from './mapscen';
@@ -113,8 +113,18 @@ function useAssigned(on: boolean, busy: boolean, cancel?: AbortSignal) {
 export const useScenarios = (floor: string, mine: boolean, cancel?: AbortSignal) => useList('scenarios', false, { mine, floor }, cancel);
 export type ScenarioList = ReturnType<typeof useScenarios>;
 /** 시나리오가 이 층에서 가리키는 지도 판이 지금 승인 판이 아니면 true(«지도 바뀜» — 저장할 때 서버가 STALE 로 알림, 여기는 표시만) */
-/** 최신 지도를 따라가지 못하는 까닭 한 줄(서버 map_update.reasons — 어느 지점 + 이유) */
-export const muWhy = (m: MapUpdate) => m.reasons.map((r) => `${elName(r.element)}: ${r.reason}`).join(' · ') || '바뀐 지도에 맞지 않는 지점이 있습니다.';
+/** map_update 이유가 가리키는 곳을 쉬운 말로 — 서버 키(floor_ids·map_version_ids)·연결점 id 는 보이지 않는다. 모르는 키는 빈 말(이유만 보임) */
+function muEl(e: string) {
+  const one = (x: string) => (x === 'finish.target' ? '끝 지점' : /^waypoints\.\d+$/.test(x) ? `${Number(x.slice(10)) + 1}번 지점` : '');
+  if (e === 'floor_ids') return '층';
+  if (e === 'map_version_ids') return '지도';
+  const m = /^(.+?)->(.+?)(\.via\..*)?$/.exec(e);
+  if (!m) return one(e);
+  const a = one(m[1]), b = one(m[2]);
+  return a && b ? `${a}과 ${b} 사이${m[3] ? ' 연결점' : ''}` : '';
+}
+/** 최신 지도를 따라가지 못하는 까닭 한 줄(서버 map_update.reasons — 어디 + 이유) */
+export const muWhy = (m: MapUpdate) => m.reasons.map((r) => { const el = muEl(r.element); return el ? `${el}: ${r.reason}` : r.reason; }).join(' · ') || '바뀐 지도에 맞지 않는 지점이 있습니다.';
 export const oldMap = (x: Scenario, floor: string, approved: string | null) => !!approved && [...x.waypoints, ...(x.finish?.target ? [x.finish.target] : [])].some((w) => w.floor_id === floor && w.map_version_id !== approved);
 
 /** ③ 오른쪽 «시나리오» 창: «+ 이 지도에 새 시나리오»·«임무 관리…»·«내 것만» + 이 층 목록(이름·지점·거리·어디서 도는지, 마우스를 올리면 지도에 경로) + 휴지통. open('') = 새로.
@@ -424,15 +434,31 @@ function useSimAt(f?: MapFloor, v?: MapVersion, cancel?: AbortSignal) {
     api.terrain(tid, cancel).then((t) => { if (live) setTer(t); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setTer(`지형을 받지 못했습니다. ${e.message}`); });
     return () => { live = false; }; }, [tid]);
   const local = tid ? readLocal(keyOf(tid)) : null, vox = !!twinOf(v);
-  // RB-ZONE-WEB: 3D 지도의 시뮬에는 구역을 넘긴다 — &zones=<시뮬 쪽 판 id>(시뮬이 그 id 로 구역 칸을 직접 받는다). 못 얻으면 붙이지 않는다
-  const zones = useRef<Promise<string>>(Promise.resolve(''));
-  useEffect(() => { zones.current = vox && v ? api.simTwin(v.id, cancel).then((t) => (typeof t?.simulation_map_version_id === 'string' && /^[\w-]{1,64}$/.test(t.simulation_map_version_id) ? `&zones=${t.simulation_map_version_id}` : ''), () => '') : Promise.resolve(''); }, [vox && v?.id]);   // vox = 실기 3D 지도(지형의 서버 판은 쌍둥이 시뮬 층 것이라 판 id 대신 크기·원점으로)
+  // RB-ZONE-WEB: 3D 지도의 시뮬에는 구역을 넘긴다 — &zones=<시뮬 쪽 판 id>(시뮬이 그 id 로 구역 칸을 직접 받는다).
+  // 그 판은 3D 지도를 올릴 때 고정된 지형 판이고 여는 지형은 최신 Terrain.spec 이라, 지형을 그 뒤 고쳤으면 장애물과 구역이 서로 다른 판이 된다(ZONES.md «정확한 쌍둥이 찾기»).
+  // pin = 고정 판(id·그 판의 지형 spec·구역 있나) | 'none' = 이어진 판 없음(구역 안 붙임) | 'fail' = 확인 못 함 | null = 확인 중. 구역이 있는데 지형이 다르면 열지 않는다
+  type Pin = { id: string; spec: unknown; zoned: boolean } | 'none' | 'fail';
+  const [pin, setPin] = useState<Pin | null>(null), [pinN, setPinN] = useState(0);
+  useEffect(() => {
+    setPin(null);
+    if (!vox || !v) return;
+    let live = true;
+    api.simTwin(v.id, cancel).then((t): Pin | Promise<Pin> => {
+      const id = t?.simulation_map_version_id;
+      if (typeof id !== 'string' || !/^[\w-]{1,64}$/.test(id)) return 'none' as const;
+      return api.version(id, cancel).then((sv) => (sv?.id === id && sv.features && Array.isArray(sv.features.zones) ? { id, spec: sv.terrain_spec ?? null, zoned: sv.features.zones.length > 0 } : 'fail'), (): Pin => 'fail');
+    }, (e: ApiFail): Pin => (e.status === 404 ? 'none' : 'fail')).then((x) => { if (live) setPin(x); });
+    return () => { live = false; };
+  }, [vox && v?.id, pinN]);
+  const zoneWhy = !vox ? '' : pin == null ? '시뮬 쪽 구역을 확인하는 중입니다.' : pin === 'fail' ? '시뮬 쪽 구역을 확인하지 못해 열지 않습니다 — 잠시 뒤 다시 시도하세요.'
+    : pin !== 'none' && pin.zoned && ter && typeof ter !== 'string' && canon(pin.spec) !== canon(ter.spec) ? '3D 지도를 올린 뒤 시뮬 지형을 고쳐, 지도의 구역과 지금 지형이 서로 맞지 않습니다 — 어긋난 채로는 열지 않습니다. 3D 지도 파일을 다시 올려 맞추세요.'
+    : '';
   const terWhy = !v || !tid ? '' : !ter ? '지형을 받는 중입니다.' : typeof ter === 'string' ? ter
     : vox && !voxelFits(ter, v) ? '시뮬 지형과 이 실기 지도의 크기·원점이 다릅니다 — 3D 지도 파일을 다시 올리세요.'
     : !vox && ter.map_version_id !== v.id ? '이 지형의 서버 지도는 지금 판이 아닙니다(지형 저장 뒤 다른 판이 올라옴) — «지형 만들기»에서 다시 저장하세요.'
     : !vox && !terrainFits(ter, v) ? '지형과 지도 좌표가 다릅니다(지형을 바꾼 뒤 지도를 다시 만들지 않음) — «지형 만들기»에서 다시 저장하세요.'
     : local != null && differs(local, ter.spec) ? '이 브라우저에 이 지형의 다른 편집본이 있어 덮지 않습니다 — «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.'
-    : '';
+    : zoneWhy;
   const prep = () => {
     if (!ter || typeof ter === 'string') return '';
     // 누르는 순간 다시 읽는다(렌더 뒤 다른 탭이 편집본·:base 를 만들었을 수 있음 — #303 보호): 둘 다 없을 때만 서버 판을 쓰고,
@@ -444,9 +470,9 @@ function useSimAt(f?: MapFloor, v?: MapVersion, cancel?: AbortSignal) {
     return '';
   };
   const url = !at || typeof at === 'string' ? '' : tid ? terrainUrl(tid) : openUrl(at.map, at.floor, null);
-  /** 시뮬 열기(extra = &bt=… 등) — 구역 id 답을 기다렸다가 붙인다 */
-  const go = (extra = '') => zones.current.then((z) => simNav.go(`${url}${extra}${z}`));
-  return { at, terWhy, prep, url, go };
+  /** 시뮬 열기(extra = &bt=… 등) — 확인된 구역 판 id 를 붙인다(terWhy 가 비었을 때만 부른다) */
+  const go = (extra = '') => simNav.go(`${url}${extra}${pin && typeof pin !== 'string' ? `&zones=${pin.id}` : ''}`);
+  return { at, terWhy, prep, url, go, again: pin === 'fail' ? () => setPinN((x) => x + 1) : undefined };
 }
 function SimRun({ value, saved, dirty, place, v, missions, cancel, applied }: { value: ScenarioWrite; saved: Scenario | null; dirty: boolean; place?: Place; v?: MapVersion; missions: Mission[] | null; cancel?: AbortSignal; applied?: (x: Scenario) => void }) {
   const f = place?.floor, o = useSimAt(f, v, cancel), at = o.at, [err, setErr] = useState(''), [busy, setBusy] = useState(false);
@@ -458,7 +484,7 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel, applied }: { 
   const real = !!place && purposeOf(place.site) === 'REAL', only = real && (!place!.floor.approved_version_id ? realOnly(null) : v ? realOnly(v) : '');
   const why = only ? only : !saved ? '저장한 시나리오만 시뮬에서 실행합니다 — 먼저 «저장»을 누르세요.' : dirty ? '저장하지 않은 편집이 있습니다 — 저장한 뒤 실행하세요.'
     : !pts.length ? '지점이 없습니다.' : !f ? '층을 찾지 못했습니다.' : pts.some((p) => p.floor_id !== f.id) ? '여러 층 시나리오는 시뮬에서 실행할 수 없습니다.'
-    : mu?.status === 'NEEDS_EDIT' ? `수정 필요 — ${muWhy(mu)} 지점을 옮기거나 지운 뒤 저장하세요.`
+    : mu?.status === 'NEEDS_EDIT' ? `수정 필요 — ${muWhy(mu)} 시나리오를 고쳐 저장하세요.`
     : !v ? '지도를 불러오는 중입니다.' : !auto && pts.some((p) => p.map_version_id !== v.id) ? '지도가 바뀌었습니다 — 지금 지도로 다시 저장한 뒤 실행하세요.'
     : typeof at === 'string' ? at : typeof tree === 'string' ? tree : o.terWhy;
   const run = async () => {
@@ -473,7 +499,7 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel, applied }: { 
       } catch (e) {
         const x = e as ApiFail, m = x.detail?.map_update as MapUpdate | undefined;
         setBusy(false);
-        if (x.code !== 'CANCELED') setErr(x.status === 409 && m?.status === 'NEEDS_EDIT' && Array.isArray(m.reasons) ? `수정 필요 — ${muWhy(m)} 지점을 옮기거나 지운 뒤 저장하세요.` : `최신 지도를 반영하지 못해 열지 않았습니다. ${x.message}`);
+        if (x.code !== 'CANCELED') setErr(x.status === 409 && m?.status === 'NEEDS_EDIT' && Array.isArray(m.reasons) ? `수정 필요 — ${muWhy(m)} 시나리오를 고쳐 저장하세요.` : `최신 지도를 반영하지 못해 열지 않았습니다. ${x.message}`);
         return;
       }
       setBusy(false);
@@ -490,6 +516,7 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel, applied }: { 
     <div className="fh-row"><button type="button" className="btn pri" disabled={!!why || busy} aria-describedby={why ? 'sim-run-why' : undefined} onClick={run}>시뮬에서 실행</button>
       <span className="lv-note fh-grow">배정·결재 없이 이 브라우저 시뮬에서 엽니다.</span></div>
     {why && <p id="sim-run-why" className="fh-why" data-sim-run-why title={why}>{why}</p>}
+    {why && o.again && <button type="button" className="btn" data-zone-again onClick={o.again}>다시 확인</button>}
     {!why && auto && <p className="lv-note" data-map-update="AUTO_APPLICABLE">지도가 바뀌었습니다 — 누르면 최신 지도를 반영한 뒤 엽니다.</p>}
     {busy && <p className="lv-note" role="status">최신 지도를 반영하는 중…</p>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
@@ -505,6 +532,7 @@ export function SimOpen({ f, v, wait, real, cancel }: { f: MapFloor; v: MapVersi
     <button type="button" className="btn pri" disabled={!!why} aria-describedby={say ? 'sim-open-why' : undefined} data-sim-open
       onClick={() => { const no = o.prep(); setErr(no); if (!no) o.go(); }}>시뮬 열기</button>
     {say && <span id="sim-open-why" className="mx-tag mx-why" role={err ? 'alert' : 'status'} title={say} data-sim-open-why>{say}</span>}
+    {!err && o.again && <button type="button" className="btn" data-zone-again onClick={o.again}>다시 확인</button>}
   </>;
 }
 
@@ -669,15 +697,18 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const v = vid ? maps[vid] : undefined;
   const look = useFit(v);
   // RB-ZONE-WEB: 접근 금지 구역이 있는 지도면 서버 구역 칸 + 지도 그림의 막힌 칸을 받아 둔다(지점 거절·돌아가는 길). 구역 칸을 못 받으면 지점 거절만 구역 모양으로
-  const [zg, setZg] = useState<{ id: string; no: Uint8Array } | null>(null), [walls, setWalls] = useState<{ id: string; wall: Uint8Array | null } | null>(null);
+  const [zg, setZg] = useState<{ id: string; no: Uint8Array } | null>(null), [walls, setWalls] = useState<{ id: string; wall: Uint8Array | null } | null>(null), [zgErr, setZgErr] = useState(''), [zgN, setZgN] = useState(0);
   const hasNoGo = !!v?.features.zones.some((z) => z.type === 'NO_GO');
   useEffect(() => {
+    setZgErr('');
     if (!v || !hasNoGo) return;
     let live = true;
-    loadNoGo(v, cancel).then((no) => { if (live) setZg({ id: v.id, no }); }, () => {});
+    loadNoGo(v, cancel).then((no) => { if (live) setZg({ id: v.id, no }); }, (e: ApiFail) => { if (live && e?.code !== 'CANCELED') setZgErr(v.id); });
     loadWalls(api.imageUrl(v.id), v.width, v.height).then((wall) => { if (live) setWalls({ id: v.id, wall }); });
     return () => { live = false; };
-  }, [v?.id, hasNoGo]);
+  }, [v?.id, hasNoGo, zgN]);
+  /** 구역 칸을 못 받음 — 알리고(다시 시도) 지점 사이 길을 그리지 않는다. 지점 거절은 구역 모양으로 계속 */
+  const zoneFail = !!v && hasNoGo && zgErr === v.id;
   const cells = useMemo<Cells | null>(() => (v && hasNoGo && zg?.id === v.id ? { w: v.width, h: v.height, res: v.resolution, no: zg.no, wall: walls?.id === v.id ? walls.wall : null } : null), [v, hasNoGo, zg, walls]);
   const banned = (x: number, y: number) => !!v && (cells ? noGoAt(cells, toPixel(v, x, y)) : v.features.zones.some((z) => z.type === 'NO_GO' && inPolygon(z.polygon, x, y)));
   // 임무 고르기: 보관 안 된 임무의 최신 판. 이미 고른 옛 판·보관된 임무는 그 지점에만 그대로 보인다
@@ -825,16 +856,30 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const approved = places.filter((p) => p.floor.approved_version_id);
   const rr = v ? Math.max(v.width, v.height) / 60 : 1;
   const on = pts.map((p, i) => [p, i] as const).filter(([p]) => p.floor_id === cur);
-  // 지점 사이 길(그림 픽셀): 곧은 길이 접근 금지 칸을 지나면 돌아가는 길, 길이 없으면 ok false(그 구간에 알림 — 저장은 막지 않는다). 안 바뀐 구간은 다시 계산하지 않는다
-  const routes = useRef<{ of: Cells | null; m: Map<string, { pts: P[]; ok: boolean }> }>({ of: null, m: new Map() });
-  const segs = useMemo(() => {
-    if (!v) return [];
-    if (routes.current.of !== cells || routes.current.m.size > 400) routes.current = { of: cells, m: new Map() };
-    return on.slice(1).map(([p], j) => { const a = toPixel(v, on[j][0].x, on[j][0].y), b = toPixel(v, p.x, p.y), key = `${a}|${b}`;
-      let s = routes.current.m.get(key);
-      if (!s) { const r = cells && crosses(cells, a, b) ? route(cells, a, b) : [a, b]; routes.current.m.set(key, s = r ? { pts: r, ok: true } : { pts: [a, b], ok: false }); }
-      return s; });
-  }, [v, cells, on.map(([p]) => `${p.x},${p.y}`).join(';')]);
+  // 지점 사이 길(그림 픽셀): 곧은 길이 접근 금지 칸을 지나면 돌아가는 길. 길 찾기는 렌더 밖(아래 effect)에서 쉬어 가며 계산하고 구간마다 기억한다 —
+  // st: ok = 그릴 길, wait = 계산 중, none = 갈 수 있는 길 없음, limit = 상한까지 찾고도 못 끝냄(저장은 어느 쪽도 막지 않는다). 구역 칸을 아직·끝내 못 받았으면 길을 그리지 않는다
+  type Seg = { pts: P[]; st: 'ok' | 'wait' | 'none' | 'limit' };
+  const routes = useRef<{ of: Cells | null; m: Map<string, Seg> }>({ of: null, m: new Map() }), [, setRouteN] = useState(0);
+  if (routes.current.of !== cells) routes.current = { of: cells, m: new Map() };
+  const ends = v ? on.slice(1).map(([p], j) => [toPixel(v, on[j][0].x, on[j][0].y), toPixel(v, p.x, p.y)] as [P, P]) : [];
+  const segKey = ([a, b]: [P, P]) => `${a}|${b}`, endsKey = ends.map(segKey).join(';');
+  const segs: Seg[] = hasNoGo && !cells ? [] : ends.map((e) => routes.current.m.get(segKey(e)) ?? { pts: e, st: cells && crosses(cells, e[0], e[1]) ? 'wait' : 'ok' });
+  useEffect(() => {
+    if (!cells) return;
+    const m = routes.current.m, todo = ends.filter((e) => !m.has(segKey(e)) && crosses(cells, e[0], e[1]));
+    if (!todo.length) return;
+    const stop = new AbortController();
+    (async () => {
+      for (const e of todo) {
+        const r = await routeSoon(cells, e[0], e[1], stop.signal);
+        if (stop.signal.aborted) return;
+        if (m.size > 400) m.clear();
+        m.set(segKey(e), r === 'limit' ? { pts: e, st: 'limit' } : r ? { pts: r, st: 'ok' } : { pts: e, st: 'none' });
+        setRouteN((x) => x + 1);
+      }
+    })();
+    return () => stop.abort();
+  }, [cells, endsKey]);
   const fence = lock && !!set, one = typeof sel === 'number' ? sel : null;
   const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null), tid = useId();
   // SCEN-NODE-PREVIEW·SCEN-LIFECYCLE-EDITOR 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, «운영 흐름» 5단계·임무 = 이 시나리오). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
@@ -934,6 +979,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         {making && <p className="lv-note" role="status">임무를 만드는 중…</p>}
         {set && unsure && <div className="fh-row" role="status" data-unsure><span className="lv-note fh-grow">{unsure === 'failed' ? '임무를 만들었는지 아직 확인하지 못했습니다' : '임무를 만들었는지 확인하는 중…'} — 확인될 때까지 임무를 새로 만들지 않습니다.</span>
           {unsure === 'failed' && <button type="button" className="btn" onClick={() => { setUnsure('checking'); setMN((x) => x + 1); }}>다시 확인</button>}</div>}
+        {zoneFail && <div className="fh-row" data-zone-fail><p className="fh-msg" role="alert">구역을 불러오지 못했습니다. 접근 금지 구역을 지나는지 알 수 없어 지점 사이 길을 그리지 않습니다.</p><button type="button" className="btn" onClick={() => setZgN((x) => x + 1)}>다시 시도</button></div>}
         {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
         {over}
         {/* 저장을 막는 이유·경로 확인 실패(다시 확인) — 노드 보기·창 접힘과 관계없이 지도 위에(SCEN-SAVE-FIX REVIEW-302). 확인 실패면 그 줄이 이유를 대신한다 */}
@@ -954,9 +1000,12 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', ...(set && { cursor: 'crosshair' }) }}>
           <MapImage key={mapN} id={v.id} width={v.width} height={v.height} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
           <Shapes v={v} f={v.features} red />
-          {segs.map((s, j) => (s.ok ? <polyline key={j} data-seg={s.pts.length > 2 ? 'around' : 'straight'} points={s.pts.map((q) => q.join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 4', pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />
-            : <g key={j} data-seg="none" style={{ pointerEvents: 'none' }}><polyline points={s.pts.map((q) => q.join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--bad)', strokeWidth: 2, strokeDasharray: '2 6' }} vectorEffect="non-scaling-stroke" />
-              <text x={(s.pts[0][0] + s.pts[1][0]) / 2} y={(s.pts[0][1] + s.pts[1][1]) / 2} fontSize={rr * 1.1} textAnchor="middle" style={{ fill: 'var(--bad)', stroke: 'var(--bg)', strokeWidth: rr * 0.35, paintOrder: 'stroke' }}>갈 수 있는 길이 없습니다</text></g>))}
+          {segs.map((s, j) => { const line = s.pts.map((q) => q.join(',')).join(' ');
+            if (s.st === 'ok') return <polyline key={j} data-seg={s.pts.length > 2 ? 'around' : 'straight'} points={line} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 4', pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />;
+            if (s.st === 'wait') return <polyline key={j} data-seg="wait" points={line} style={{ fill: 'none', stroke: 'var(--ink-3)', strokeWidth: 1, strokeDasharray: '2 6', pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />;
+            const c = s.st === 'none' ? 'var(--bad)' : 'var(--warn)';
+            return <g key={j} data-seg={s.st} style={{ pointerEvents: 'none' }}><polyline points={line} style={{ fill: 'none', stroke: c, strokeWidth: 2, strokeDasharray: '2 6' }} vectorEffect="non-scaling-stroke" />
+              <text x={(s.pts[0][0] + s.pts[1][0]) / 2} y={(s.pts[0][1] + s.pts[1][1]) / 2} fontSize={rr * 1.1} textAnchor="middle" style={{ fill: c, stroke: 'var(--bg)', strokeWidth: rr * 0.35, paintOrder: 'stroke' }}>{s.st === 'none' ? '갈 수 있는 길이 없습니다' : '길을 계산하지 못했습니다'}</text></g>; })}
           {on.map(([p, i]) => { const [x, y] = toPixel(v, p.x, p.y), b = marks.has(`waypoints.${i}`);
             return <g key={i} data-pt={i} data-bad={b ? '' : undefined}><circle cx={x} cy={y} r={sel === i ? rr * 1.3 : rr} style={{ fill: b ? 'var(--bad)' : 'var(--accent)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
               <text x={x} y={y + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: '#FFFFFF', pointerEvents: 'none' }}>{i + 1}</text></g>; })}

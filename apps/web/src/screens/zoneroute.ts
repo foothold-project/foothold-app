@@ -1,7 +1,7 @@
 // 구역 지키기 1차(RB-ZONE-WEB 11-12) — 시나리오 편집 지도의 접근 금지 칸과 돌아가는 길.
 // 금지 칸은 서버가 준 구역 칸(GET /map-versions/{id}/zone-grid — 구역이 닿은 칸만, 줄 0 = 위)이고, 막힌 칸은 지도 그림(254 아닌 칸)이다.
 // 길 찾기는 브라우저 시뮬(mobile/sim/astar.js)과 같은 방식: 막힌 칸을 몸체 여유만큼 부풀린 격자 위 8방향 A*(모서리 자르기 금지), 보이는 구간끼리 줄임.
-// 좌표는 모두 지도 그림 픽셀(= 칸, maps.toPixel) — 부른 쪽이 지도 좌표(m)와 바꾼다. 화면에 그리는 용도라 한 번에 계산한다(시뮬처럼 쉬어 가지 않음).
+// 좌표는 모두 지도 그림 픽셀(= 칸, maps.toPixel) — 부른 쪽이 지도 좌표(m)와 바꾼다. 화면은 routeSoon(쉬어 가며, 칸 수 상한)으로 렌더 밖에서 계산한다.
 import { api } from '../api';
 
 type P = [number, number];
@@ -46,10 +46,21 @@ export function loadWalls(url: string, w: number, h: number) {
 const cell = (w: number, h: number, [x, y]: P) => { const c = Math.floor(x), r = Math.floor(y); return c < 0 || r < 0 || c >= w || r >= h ? -1 : r * w + c; };
 /** 그 자리가 접근 금지 칸인가 */
 export const noGoAt = (g: Pick<Cells, 'w' | 'h' | 'no'>, p: P) => { const i = cell(g.w, g.h, p); return i >= 0 && !!g.no[i]; };
-/** 선분 a–b 를 1/4 칸씩 걸으며 test(칸) 이 참인 칸이 있나. 지도 밖 칸은 out 값 */
+/** 선분 a–b 가 지나는 칸을 빠짐없이 훑어(격자 순회) test(칸) 이 참인 칸이 있나. 지도 밖 칸은 out 값.
+ *  모서리 한 점을 지나면 그 모서리에 닿은 옆 두 칸도 본다(대각선 사이로 빠져나가지 않게 — 길 찾기의 모서리 자르기 금지와 같음) */
 function walk(w: number, h: number, a: P, b: P, test: (i: number) => boolean, out: boolean) {
-  const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 4));
-  for (let k = 0; k <= n; k++) { const i = cell(w, h, [a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]); if (i < 0 ? out : test(i)) return true; }
+  const at = (c: number, r: number) => (c < 0 || r < 0 || c >= w || r >= h ? out : test(r * w + c));
+  let c = Math.floor(a[0]), r = Math.floor(a[1]);
+  const ec = Math.floor(b[0]), er = Math.floor(b[1]), dx = b[0] - a[0], dy = b[1] - a[1], sc = dx > 0 ? 1 : -1, sr = dy > 0 ? 1 : -1;
+  // tx·ty = 다음 세로·가로 칸 경계에 닿는 때(선분 0~1), ix·iy = 한 칸 가는 데 걸리는 때
+  const ix = dx ? Math.abs(1 / dx) : Infinity, iy = dy ? Math.abs(1 / dy) : Infinity;
+  let tx = dx ? (dx > 0 ? c + 1 - a[0] : a[0] - c) * ix : Infinity, ty = dy ? (dy > 0 ? r + 1 - a[1] : a[1] - r) * iy : Infinity;
+  if (at(c, r)) return true;
+  for (let n = Math.abs(ec - c) + Math.abs(er - r); n > 0;) {
+    if (Math.abs(tx - ty) < 1e-12) { if (at(c + sc, r) || at(c, r + sr)) return true; c += sc; r += sr; tx += ix; ty += iy; n -= 2; }
+    else if (tx < ty) { c += sc; tx += ix; n--; } else { r += sr; ty += iy; n--; }
+    if (at(c, r)) return true;
+  }
   return false;
 }
 /** 곧은 길 a–b 가 접근 금지 칸을 지나나 */
@@ -71,10 +82,13 @@ function band(g: Cells) {
 }
 
 const DIRS: [number, number, number][] = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
-/** a → b 돌아가는 길(그림 픽셀 꺾인 선, 양 끝 포함). 길이 없으면 null.
- *  끝점이 부풀린 띠 안(구역·벽 바로 옆)이면 SNAP 안에서는 띠를 무시한다 — 금지 칸·벽 칸 자체는 언제나 못 지난다.
- *  ponytail: 부를 때마다 칸 수만큼 배열을 새로 잡는다(1000×1000 칸 ≈ 수십 ms). 더 큰 지도·끄는 동안 버벅이면 astar.js 처럼 배열을 다시 쓰고 쉬어 가며 계산 */
-export function route(g: Cells, a: P, b: P): P[] | null {
+/** 한 구간에서 펼쳐 보는 칸 수 상한 — 넘으면 «길 없음»이 아니라 «계산하지 못함»('limit'). STEP = 쉬어 가는 간격(칸) */
+export const LIMIT = 300_000, STEP = 4000;
+/** 길(그림 픽셀 꺾인 선, 양 끝 포함) | null = 갈 수 있는 길이 없음 | 'limit' = 상한까지 찾았지만 끝내지 못함 */
+export type Route = P[] | null | 'limit';
+/** 탐색 본체 — STEP 칸마다 한 번 쉰다(yield). 끝점이 부풀린 띠 안(구역·벽 바로 옆)이면 SNAP 안에서는 띠를 무시한다 — 금지 칸·벽 칸 자체는 언제나 못 지난다.
+ *  ponytail: 부를 때마다 칸 수만큼 배열을 새로 잡는다(2000×2000 칸 ≈ 36 MB). 더 큰 지도에서 메모리가 문제면 astar.js 처럼 배열을 다시 쓴다 */
+function* search(g: Cells, a: P, b: P, limit: number): Generator<void, Route> {
   const { w, h } = g, s = cell(w, h, a), t = cell(w, h, b), bd = band(g), near = SNAP / g.res;
   const by = (i: number, p: P) => Math.hypot((i % w) + 0.5 - p[0], Math.floor(i / w) + 0.5 - p[1]) <= near;
   const open = (i: number) => !g.no[i] && !g.wall?.[i] && (!bd[i] || by(i, a) || by(i, b));
@@ -89,10 +103,13 @@ export function route(g: Cells, a: P, b: P): P[] | null {
     if (n) { for (;;) { let c = 2 * k + 1; if (c >= n) break; if (c + 1 < n && key[c + 1] < key[c]) c++; if (key[c] >= f) break; heap[k] = heap[c]; key[k] = key[c]; k = c; } heap[k] = i; key[k] = f; }
     return top; };
   cost[s] = 0; push(s, est(s));
+  let seen = 0, hit = s === t;
   while (heap.length) {
     const i = pop();
     if (done[i]) continue;
-    if (i === t) break;
+    if (i === t) { hit = true; break; }
+    if (++seen > limit) return 'limit';
+    if (seen % STEP === 0) yield;
     done[i] = 1;
     const c = i % w, r = Math.floor(i / w);
     for (const [dc, dr, d] of DIRS) {
@@ -103,7 +120,7 @@ export function route(g: Cells, a: P, b: P): P[] | null {
       if (n < cost[j]) { cost[j] = n; from[j] = i; push(j, n + est(j)); }
     }
   }
-  if (s !== t && from[t] < 0) return null;
+  if (!hit) return null;
   const pts: P[] = [b];
   for (let i = from[t]; i >= 0 && i !== s; i = from[i]) pts.push([(i % w) + 0.5, Math.floor(i / w) + 0.5]);
   pts.push(a); pts.reverse();
@@ -112,6 +129,19 @@ export function route(g: Cells, a: P, b: P): P[] | null {
   for (let at = 0, k = 2; k < pts.length; k++) if (walk(w, h, pts[at], pts[k], shut, true)) { out.push(pts[k - 1]); at = k - 1; }
   out.push(b);
   return out;
+}
+/** a → b 돌아가는 길을 한 번에 계산(시험·작은 지도용) */
+export function route(g: Cells, a: P, b: P, limit = LIMIT): Route {
+  for (const it = search(g, a, b, limit); ;) { const x = it.next(); if (x.done) return x.value; }
+}
+/** 같은 계산을 STEP 칸마다 화면에 차례를 넘기며 한다 — 긴 탐색 중에도 누름(STOP·편집)이 먹는다. 취소되면 'limit' */
+export async function routeSoon(g: Cells, a: P, b: P, cancel?: AbortSignal, limit = LIMIT): Promise<Route> {
+  for (const it = search(g, a, b, limit); ;) {
+    const x = it.next();
+    if (x.done) return x.value;
+    await new Promise((r) => setTimeout(r, 0));
+    if (cancel?.aborted) return 'limit';
+  }
 }
 
 /** 구역 칸을 못 받았을 때만 쓰는 점-안 검사(지도 좌표, 변 위 포함은 아님) */

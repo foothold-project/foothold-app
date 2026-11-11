@@ -319,10 +319,14 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
     if (b) return toBad(b);
     const why = reasonBad(reason, '바꾼 이유');
     if (why) return setMsg({ text: why });
-    if (!f.zones.length) return send();   // 구역이 없으면 겹칠 것이 없다
-    // 저장 직전: 이 구역들과 동선이 겹치는 시나리오가 있으면 묻는다. 검사를 못 해도 저장은 막지 않는다 — 알리고 고르게
+    // 겹침은 이번 편집으로 새로 생기거나 모양·종류가 바뀐 접근 금지 구역만 묻는다 — 벽·지점·연결점·감속 값만 바꾼 저장은 그대로 저장(원래 있던 구역의 겹침으로 막지 않는다)
+    const was = new Set(v.features.zones.filter((z) => z.type === 'NO_GO').map((z) => JSON.stringify(z.polygon)));
+    const fresh = new Set(f.zones.filter((z) => z.type === 'NO_GO' && !was.has(JSON.stringify(z.polygon))).map((z) => z.id));
+    if (!fresh.size) return send();
+    // 저장 직전: 그 구역과 동선이 겹치는 시나리오가 있으면 묻는다. 검사를 못 해도 저장은 막지 않는다 — 알리고 고르게
     setChecking(true); setMsg(null); setOver(null);
-    api.zoneOverlaps(p.floor.id, clean(f), cancel).then((r) => { if (!Array.isArray(r?.scenarios)) throw new ApiFail(0, 'BAD_BODY', ''); return r.scenarios.filter((x) => x.hits?.length); })
+    api.zoneOverlaps(p.floor.id, clean(f), cancel).then((r) => { if (!Array.isArray(r?.scenarios)) throw new ApiFail(0, 'BAD_BODY', '');
+      return r.scenarios.map((x) => ({ ...x, hits: (x.hits ?? []).filter((h) => fresh.has(h.zone_id)) })).filter((x) => x.hits.length); })
       .then((l) => { if (!alive.current) return; setChecking(false); if (l.length) setOver({ list: l }); else send(); },
         (e: ApiFail) => { if (!alive.current || e.code === 'CANCELED') return; setChecking(false); setOver({ list: null }); });
   };

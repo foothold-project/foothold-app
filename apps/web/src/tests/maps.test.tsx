@@ -2178,9 +2178,11 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
 // RB-ZONE-WEB(11-12): 구역 지키기 1차 — 감속 구역 속도 칸, 저장 전 시나리오 겹침 물음
 describe('구역 지키기 — 지도 편집', () => {
   const speed = () => $<HTMLInputElement>('[data-zone-speed]');
-  const HITS = { scenarios: [
-    { scenario_id: 's9', scenario_name: '1층 순찰', hits: [{ kind: 'POINT', element: 'waypoints.0', zone_id: 'z1' }, { kind: 'SEGMENT', element: 'waypoints.0->waypoints.1', zone_id: 'z1' }] },
-    { scenario_id: 's8', scenario_name: '야간 점검', hits: [{ kind: 'SEGMENT', element: 'waypoints.1->finish.target', zone_id: 'z1' }] }] };
+  /** 겹침 답: 보낸 구역 가운데 마지막(방금 그린 것)과 겹친다고 답한다. old = 원래 있던 구역 z1 과만 겹침 */
+  const hits = (old = false): Route => (_q, b) => { const zs = (b as { features: typeof FEAT }).features.zones, zone_id = old ? 'z1' : zs[zs.length - 1].id;
+    return { status: 200, body: { scenarios: [
+      { scenario_id: 's9', scenario_name: '1층 순찰', hits: [{ kind: 'POINT', element: 'waypoints.0', zone_id }, { kind: 'SEGMENT', element: 'waypoints.0->waypoints.1', zone_id }] },
+      { scenario_id: 's8', scenario_name: '야간 점검', hits: [{ kind: 'SEGMENT', element: 'waypoints.1->finish.target', zone_id }] }] } }; };
   it('감속 구역 속도 칸: 새 구역 기본 0.3, 0.3~1.5 밖은 저장 전 막음, 진입 금지에는 칸 없음(종류를 바꾸면 값도 빠짐)', async () => {
     serve(editSrv(saved201));
     await startEdit();
@@ -2221,7 +2223,7 @@ describe('구역 지키기 — 지도 편집', () => {
     expect(body().features.zones.map((x) => Object.keys(x).sort().join())).toEqual(['id,name,polygon,type', 'id,name,polygon,type']);
   });
   it('저장 전 겹침: 창에 시나리오 이름·겹친 꼴, «아니요» = 저장 안 하고 편집 계속, «예» = 저장한 뒤 시뮬 탭 첫 시나리오로', async () => {
-    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': { status: 200, body: HITS } }));
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits() }));
     await startEdit();
     await tool('진입 금지'); await drag(1, 1, 2, 0);
     await click(btn('저장', $('.mx-bar')!)); await save();
@@ -2240,7 +2242,7 @@ describe('구역 지키기 — 지도 편집', () => {
   it('겹침 검사 실패: 저장을 막지 않고 «겹침을 확인하지 못했습니다» — «계속 편집» 또는 «그래도 저장»', async () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': err(500, 'INTERNAL', '서버 오류') }));
     await startEdit();
-    await tool('감속'); await drag(1, 1, 2, 0);
+    await tool('진입 금지'); await drag(1, 1, 2, 0);
     await click(btn('저장', $('.mx-bar')!)); await save();
     expect($('[data-overlap="fail"]')!.textContent).toContain('겹침을 확인하지 못했습니다.');
     await click(btn('계속 편집', $('[data-overlap]')!));
@@ -2250,12 +2252,41 @@ describe('구역 지키기 — 지도 편집', () => {
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
     expect(location.hash).toBe('#/map');                                  // 시나리오로 가지 않음
   });
-  it('구역이 하나도 없으면 겹침 검사 없이 바로 저장', async () => {
-    serve(editSrv(saved201, KIM, { ...UP, features: EMPTY }));
+  // Codex 검토(385596c) 6번: 원래 있던 접근 금지 구역 때문에 연결점만 추가한 저장이 막히던 것
+  it('검토 6: 접근 금지 구역이 새로 생기거나 모양·종류가 바뀐 저장에만 겹침 검사 — 연결점·감속 구역·이름만 바꾸면 그대로 저장', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));   // 기존 구역 z1 은 시나리오와 겹쳐 있다
     await startEdit();
     await tool('연결점'); await tap(1, 1);
-    await click(btn('저장', $('.mx-bar')!)); await save();
+    await click(btn('저장', $('.mx-bar')!)); await save('연결점 추가');
+    expect($('[data-overlap]')).toBeNull();
+    expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);       // 저장 요청이 나갔다(검토 재현: 0회)
+  });
+  it('검토 6: 감속 구역을 새로 그리거나 값만 바꾼 저장도 묻지 않고, 새 접근 금지 구역을 그려도 원래 구역의 겹침은 묻지 않는다', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
+    await startEdit();
+    await tool('감속'); await drag(1, 1, 2, 0);
+    await click(btn('저장', $('.mx-bar')!)); await save('감속 추가');
     expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+    act(() => root?.unmount()); root = null; kept.d = null; kept.job = null;
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
+    await startEdit();
+    await tool('진입 금지'); await drag(1, 1, 2, 0);                        // 새 구역은 겹치지 않고, 답에는 옛 구역 z1 겹침만
+    await click(btn('저장', $('.mx-bar')!)); await save('구역 추가');
+    expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(1);
+    expect($('[data-overlap]')).toBeNull();
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+  });
+  it('검토 6: 기존 접근 금지 구역을 옮기면(모양 바뀜) 겹침을 묻는다', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
+    await startEdit();
+    await tool('고르기');
+    const z = canvas().querySelector('[data-zone]')!;
+    await ptr('pointerdown', -0.3, -1.7, z); await ptr('pointermove', 0.7, -1.2); await ptr('pointerup', 0.7, -1.2);
+    await click(btn('저장', $('.mx-bar')!)); await save('구역 옮김');
+    expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(1);
+    expect($('[data-overlap]')!.textContent).toContain('시나리오 동선과 겹칩니다.');
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
   });
 });
