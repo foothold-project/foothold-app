@@ -32,7 +32,7 @@
 .sn-stages{flex:none;display:flex;gap:6px;flex-wrap:wrap}
 .sn-stage{flex:1 1 0;min-width:96px;height:auto;min-height:44px;padding:4px 8px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;text-align:left}
 .sn-stage small{color:var(--muted);font-size:11px;font-weight:400;white-space:nowrap}
-.sn-stage[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
+.sn-stage[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);color:var(--text)}
 .sn-foot{margin:5px 0 0}
 .sn-card[data-num] .sn-sub,.sn-card[data-num] .sn-foot{margin-left:27px}
 .sn-badge{display:inline-flex;align-items:center;min-height:20px;padding:0 7px;border-radius:10px;border:1px solid var(--line2);font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}

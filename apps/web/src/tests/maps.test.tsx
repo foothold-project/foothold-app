@@ -71,13 +71,13 @@ const sent = (method: string, path: string) => calls.filter((c) => c.method === 
 const writes = () => calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}${c.q.toString() ? `?${c.q}` : ''}`);
 
 let root: ReactRoot | null = null, box: HTMLDivElement;
-/** 화면 틀: frame(true) = 폰 폭으로 줄어듦(matchMedia change) */
+/** 화면 틀: frame(true) = 폰 폭으로 줄어듦(matchMedia change). 손가락 입력도 함께 — 마우스 쓰는 총괄은 좁아도 PC 틀(11-11) */
 const wide = { phone: false, fs: new Set<() => void>() };
 const frame = async (phone: boolean) => { wide.phone = phone; act(() => wide.fs.forEach((f) => f())); await flush(); };
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
 async function open(hash: string) {
   wide.phone = false; wide.fs.clear();
-  window.matchMedia = ((q: string) => ({ get matches() { return wide.phone && q.includes('767'); }, media: q,
+  window.matchMedia = ((q: string) => ({ get matches() { return wide.phone && (q.includes('767') || q === '(pointer: coarse)'); }, media: q,
     addEventListener: (_: string, f: () => void) => wide.fs.add(f), removeEventListener: (_: string, f: () => void) => wide.fs.delete(f) })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
@@ -203,17 +203,7 @@ describe('지도 탭 — 장소 나무', () => {
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 작은 동 1층');
     expect($('[aria-label="층"]')).toBeNull(); expect($('[data-floor]')).toBeNull(); expect($('[data-layers]')).toBeNull();
   });
-  it('«마지막에 본 지도» 카드도 카드 전체를 누르면 그 건물 1층이 열림', async () => {
-    serve(signedIn(KIM));
-    await open('#/map');
-    await click(floorBtn('2층'));
-    await click($('[data-to-chooser]'));
-    const last = $<HTMLButtonElement>('[data-last]')!;
-    expect(last.tagName).toBe('BUTTON'); expect(last.textContent).toContain('본관 › 본동');
-    await click(last);
-    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
-  });
-  it('카드 위 작은 지도(SIM-CARDS-WIDE): 승인 판 그림, 마지막에 본 층 그림 / 지도 없는 건물·그림 실패는 같은 칸 «지도 없음»', async () => {
+  it('카드 위 작은 지도(SIM-CARDS-WIDE): 승인 판 그림, 1층 그림 / 지도 없는 건물·그림 실패는 같은 칸 «지도 없음»', async () => {
     const t: SiteTree = { items: [{ ...TREE.items[0], buildings: [TREE.items[0].buildings[0],
       { id: 'b3', site_id: 's1', name: '빈 동', floors: [floor('f3', '1층', 1, null, 'b3')] }] }], next_cursor: null };
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/f3/map-versions': { status: 200, body: { items: [], next_cursor: null } } }));
@@ -221,19 +211,19 @@ describe('지도 탭 — 장소 나무', () => {
     await click($('[data-to-chooser]'));
     const pic = (s: string) => $(`${s} > .mx-thumb`)!;
     expect(pic('[data-building="b1"]').querySelector('image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect($('[data-last]')).toBeNull();                                                   // 11-11 «마지막에 본 지도» 카드 뺌
     expect(pic('[data-building="b1"]').querySelector('svg')!.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');   // 비율 유지(contain)
-    expect(pic('[data-last]').querySelector('image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     expect(pic('[data-building="b3"]').textContent).toBe('지도 없음');
     expect(pic('[data-building="b3"]').querySelector('image')).toBeNull();
     act(() => { pic('[data-building="b1"]').querySelector('image')!.dispatchEvent(new Event('error')); });
     await flush();
     expect(pic('[data-building="b1"]').textContent).toBe('지도 없음');                     // 실패해도 칸(높이 고정 CSS)은 그대로
     expect(pic('[data-building="b1"]').querySelector('image')).toBeNull();
-    expect(mapscenCss).toMatch(/\.mx-thumb\{[^}]*height:110px/);
+    expect(mapscenCss).toMatch(/\.mx-thumb\{[^}]*height:200px/);
   });
   it('지도 고르기 첫 화면은 넓게(SIM-CARDS-WIDE): 최대 1600px, 카드 격자는 폭에 맞춰 칸 수가 늘고 좁으면 한 칸', () => {
     expect(mapscenCss).toMatch(/\.mx-choose\{[^}]*max-width:1600px/);
-    expect(mapscenCss).toContain('.mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr))');
+    expect(mapscenCss).toContain('.mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))');
   });
   it('총괄: 고치기 — 장소·건물·층 만들기, 이름 바꾸기 요청 모양', async () => {
     serve(signedIn(KIM, { 'POST /sites': { status: 201, body: { id: 's2', name: '별관', buildings: [] } },

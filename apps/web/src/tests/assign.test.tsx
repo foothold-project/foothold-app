@@ -138,7 +138,7 @@ describe('배정 창', () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(KIM);
     expect($('[data-unsaved-assign]')).toBeNull();
-    const name = [...box.querySelectorAll('label')].find((l) => l.textContent === '이름')!.querySelector('input')!;   // 저장된 시나리오 이름은 «···» 안(MAPSCEN-FIX-R1)
+    const name = [...box.querySelectorAll('label')].find((l) => l.textContent?.startsWith('이름'))!.querySelector('input')!;   // 저장된 시나리오 이름은 «···» 안(MAPSCEN-FIX-R1)
     await setVal(name, '1층 순찰 고침');
     expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 마지막으로 저장한 내용(1번째 저장)이 배정됩니다');
     await setVal(name, '1층 순찰');

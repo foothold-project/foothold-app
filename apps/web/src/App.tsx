@@ -50,8 +50,10 @@ const FOCUS: Partial<Record<TabId, string>> = { history: 'event_id', approval: '
 const toMap = (h: string) => { const id = oldScenario(h); if (id == null) return false; keptPlan.kind = 'scenarios'; keptPlan.side = 'scen'; if (id) { keptPlan.sel = id; keptPlan.find = true; } return true; };
 
 export const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientation: landscape) and (max-height: 480px)';
-const watchPhone = (f: () => void) => { const m = matchMedia(PHONE_Q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
+const watchQ = (q: string) => (f: () => void) => { const m = matchMedia(q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
+const COARSE = '(pointer: coarse)', watchPhone = watchQ(PHONE_Q), watchCoarse = watchQ(COARSE);
 export const usePhone = () => useSyncExternalStore(watchPhone, () => matchMedia(PHONE_Q).matches);
+const useCoarse = () => useSyncExternalStore(watchCoarse, () => matchMedia(COARSE).matches);   // 손가락 입력 — 마우스 총괄의 PC 틀 판정(11-11). 키보드 떼는 2-in-1 처럼 중간에 바뀌어도 따라감
 // 전체화면(⋯ 메뉴): Fullscreen API 가 되는 브라우저(Android Chrome 등)만 단추. 아이폰은 웹 요소 전체화면을 막아 «홈 화면에 추가» 안내만.
 // Android 앱(inApp)은 껍데기가 늘 전체화면이라 둘 다 없음. 루트 data-drive = 조종 화면(폰 조종·시뮬 조종) — 앱이 읽어 그때만 가로로 고정
 // 화면 전환일 뿐이라 조종권·입력·STOP 경로는 건드리지 않는다
@@ -99,7 +101,8 @@ export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, {
  *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
  *  note = 띠에 올릴 한 줄(로그아웃 실패 등). */
 export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, stale = false, logout, setMe = () => {}, cancel, note }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; stale?: boolean; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string }) {
-  const phone = usePhone(), full = useFull();
+  // 마우스 쓰는 총괄은 좁은 창(PC 200% 확대·반쪽 창)에서도 PC 틀 — 지도·시뮬·설정은 폰 틀에 없다(11-11 현민님, WCAG 1.4.4)
+  const coarse = useCoarse(), phone = usePhone() && !(user.role === 'ORG_ADMIN' && !coarse), full = useFull();
   useRt();
   const robots = listed.map(withLive), net = rt.link();
   // 상태 구독은 볼 수 있는 로봇만: 총괄 전체, 운영 관리자는 담당 로봇(남의 로봇은 목록 요약만 — 구독하면 서버가 연결을 닫는다)

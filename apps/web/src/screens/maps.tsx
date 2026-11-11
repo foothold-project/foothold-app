@@ -181,10 +181,6 @@ export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' 
 /** 내용 비교용: null 칸을 빼고 열쇠 순서를 맞춘 JSON(서버는 None 칸을 저장하지 않는다) */
 export const canon = (x: unknown) => JSON.stringify(x, (_, v) => (v && typeof v === 'object' && !Array.isArray(v)
   ? Object.fromEntries(Object.entries(v).filter(([, y]) => y != null).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
-/** 마지막에 본 지도(층 id) — 이 브라우저에만(지도 고르기 화면 «마지막에 본 지도» 카드). 저장소가 막혀도 화면은 그대로 */
-const LAST = 'fh.map.last';
-const lastGet = () => { try { return localStorage.getItem(LAST) ?? ''; } catch { return ''; } };
-const lastSet = (id: string) => { try { localStorage.setItem(LAST, id); } catch { /* 막힌 저장소 — 카드만 못 보임 */ } };
 
 /** 지도 탭(03 §5.6 + MAP-TAB-MERGE 11-03 — 옛 시나리오 탭을 합침): ① 지도 고르기(건물 카드) → ② 그 건물 1층(가운데 지도 + 오른쪽 [지도 요소 | 시나리오], 위 줄 층 단추) → ③ 시나리오 목록 → ④ 시나리오 열림 → ⑤ 지도 편집.
  *  장소 고치기는 총괄·운영 관리자 모두(서버 'O', PLACE-EDIT-OPEN 11-02) — ① 화면의 창에서. dash = PENDING 으로 받힌 뒤 배지 다시 받기 */
@@ -207,8 +203,8 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   useEffect(() => {
     if (!finding || !keptPlan.sel) return;
     keptPlan.find = false;
-    api.plan('scenarios', keptPlan.sel, null, c.cancel).then((x) => { const sc = x as Scenario; const f = sc.floor_ids?.[0] ?? sc.waypoints?.[0]?.floor_id ?? lastGet(); setPick(f); keptPlan.floor = f; setFinding(false); },
-      (e: ApiFail) => { if (e.code === 'CANCELED') return; setSel(null); setFinding(false); setPick(keptPlan.floor || lastGet());
+    api.plan('scenarios', keptPlan.sel, null, c.cancel).then((x) => { const sc = x as Scenario; const f = sc.floor_ids?.[0] ?? sc.waypoints?.[0]?.floor_id ?? ''; setPick(f); keptPlan.floor = f; setFinding(false); },
+      (e: ApiFail) => { if (e.code === 'CANCELED') return; setSel(null); setFinding(false); setPick(keptPlan.floor);
         setFound({ text: e.status === 404 ? '주소의 시나리오를 찾을 수 없습니다. 지워졌을 수 있습니다 — 지도를 고른 뒤 «시나리오» 탭에서 찾으세요.' : `주소의 시나리오를 받지 못했습니다. ${e.message}` }); });
   }, []);
   const run = async (k: Kind, f: () => Promise<unknown>, ok: string, act?: NonNullable<Msg>['act']) => {
@@ -219,7 +215,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   };
   /** 층 고르기 — 시나리오가 열려 있으면 위 줄이 잠겨 여기로 오지 않는다. 저장 안 한 지도 편집은 leaving.ask 가 먼저 묻는다. '' = 지도 고르기 화면, null = 전체 층 */
   const choose = (id: string | null) => {
-    const go = () => { if (id !== null) { setPick(id); keptPlan.floor = id; if (id) lastSet(id); setSel(null); } setAll(id === null); setMsg(null); setFound(null); setMake(''); };
+    const go = () => { if (id !== null) { setPick(id); keptPlan.floor = id; setSel(null); } setAll(id === null); setMsg(null); setFound(null); setMake(''); };
     if (id === null && whole) return;
     if (leaving.ask && id !== cur?.floor.id) leaving.ask(go); else go();
   };
@@ -318,20 +314,20 @@ function Thumb({ id, v }: { id?: string | null; v?: MapVersion }) {
   return <span ref={ref} className="mx-thumb" data-thumb={id && !bad ? id : ''} aria-hidden="true">{!id || bad ? <small>지도 없음</small> : v && near && <svg viewBox={fit.join(' ')} preserveAspectRatio="xMidYMid meet">
     <MapImage id={v.id} width={v.width} height={v.height} onError={() => setBad(true)} /></svg>}</span>;
 }
-/** 카드 그림 층: 고른 층(마지막에 본 층)·1층 순, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
-const picFloor = (b: MapBuilding, f?: MapFloor) => [f, firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
+/** 카드 그림 층: 1층, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
+const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
 
-/** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 마지막에 본 지도 카드 + 장소별 건물 카드(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지도 만들기»·«장소 고치기»·휴지통 */
+/** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 장소별 건물 카드(11-11 «마지막에 본 지도» 카드 뺌·그림 크게)(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·«+ 지도 만들기»·«장소 고치기»·휴지통 */
 function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, children }: { sim: boolean; t: ReturnType<typeof useTree>; robots: Robot[]; places: Place[]; vers: Record<string, MapVersion>; choose: (id: string) => void; make: (title: string) => void; note: Msg; cancel?: AbortSignal;
   children: ReactNode }) {
-  const [q, setQ] = useState(''), counts = useCounts(cancel), last = places.find((p) => p.floor.id === lastGet());
+  const [q, setQ] = useState(''), counts = useCounts(cancel);
   const hit = (p: Place) => `${p.site.name} ${p.building.name} ${p.floor.name}`.toLowerCase().includes(q.trim().toLowerCase());
   /** 카드 아래 줄: 층 수(2층 이상만)·시나리오 수(여러 층 시나리오는 한 번만)·지도 없음(시뮬 탭은 모든 층이 짝 없으면 «지형 없음» — 서버 정리 전 옛 층) */
   const facts = (b: MapBuilding) => <small className="fh-row">{b.floors.length >= 2 && <span>층 {b.floors.length}</span>}
     <span>{counts ? `시나리오 ${new Set(b.floors.flatMap((f) => counts[f.id] ?? [])).size}` : counts === null ? '시나리오 ?' : ''}</span>
     {sim ? b.floors.every((f) => lone(f, f.approved_version_id ? vers[f.approved_version_id] : undefined)) && <span className="lv-chip off" data-lone>지형 없음</span>
       : !b.floors.some((f) => f.approved_version_id) && <span className="lv-chip off">지도 없음</span>}</small>;
-  const thumb = (b: MapBuilding, f?: MapFloor) => { const id = picFloor(b, f)?.approved_version_id; return <Thumb key={id ?? ''} id={id} v={id ? vers[id] : undefined} />; };
+  const thumb = (b: MapBuilding) => { const id = picFloor(b)?.approved_version_id; return <Thumb key={id ?? ''} id={id} v={id ? vers[id] : undefined} />; };
   const shown = places.filter(hit), sites = t.tree?.items.filter((s) => shown.some((p) => p.site.id === s.id)) ?? [];
   return <section className="mx" aria-label="지도 고르기">
     <div className="mx-scroll"><div className="mx-choose">
@@ -343,8 +339,6 @@ function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, chi
         <button type="button" className="btn" onClick={() => make('장소 고치기')}>장소 고치기</button>
         {sim ? <a className="btn pri" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>
           : <button type="button" className="btn pri" onClick={() => make('지도 만들기')}>+ 지도 만들기</button>}</div>
-      {last && !q.trim() && <button type="button" className="card mx-last" data-last onClick={() => choose(firstFloor(last.building).id)}>
-        {thumb(last.building, last.floor)}<span className="lbl">마지막에 본 지도</span><b>{last.site.name} › {last.building.name}</b>{facts(last.building)}</button>}
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}>{thumb(b)}<b>{b.name}</b>{facts(b)}</button>)}</div></section>)}
@@ -503,7 +497,7 @@ function FloorView({ p, sim, names, cancel, again, told, top, name, side, setSid
             {keys.length ? <ul className="mx-list" aria-label="요소 목록">{keys.map((k) => <li key={k} className="mx-row" data-el={k}><span className="mx-name"><Glyph f={v.features} k={k} /><b>{featName(v.features, k)}</b><small>{featSub(v.features, k, p.building.floors)}</small></span></li>)}</ul>
               : <div className="mx-in"><div className="mx-empty"><p className="lv-note">이 지도에는 구역·벽이 없습니다.</p>{now && v.id === now.id && !sim && <button type="button" className="btn pri" onClick={start}>편집 시작</button>}</div></div>}
             {now && !sim && !!keys.length && <p className="lv-note mx-in">구역·벽은 «편집»에서 고칩니다.</p>}</>}
-          <div className="mx-foot"><button type="button" className="btn" data-to-scen onClick={() => setSide('scen')}>이 지도를 쓰는 시나리오 {scenN} — 시나리오 탭 ›</button></div></>}
+          <div className="mx-foot"><button type="button" className="btn" data-to-scen onClick={() => setSide('scen')}>이 지도를 쓰는 시나리오 {scenN}개 보기 ›</button></div></>}
       </Pane>}
     </div>}
     {/* 저장 기록(11-04, 기본 닫힘): 줄을 누르면 그 기록을 지도에 — 판 번호 대신 저장 시각·만든 사람 */}

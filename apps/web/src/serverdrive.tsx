@@ -95,7 +95,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
   /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */
   const zero = useRef((note = '') => { held.current.clear(); changed(); if (note) setWhy(note); }).current;
-  /** 전체화면 닫기는 이것 하나(Esc·작게 보기·카메라 클릭): 눌린 이동 키를 버리고 바로 0 을 보낸 뒤 닫는다(#214 r1) */
+  /** 전체화면 닫기는 이것 하나(Esc·작게 보기): 눌린 이동 키를 버리고 바로 0 을 보낸 뒤 닫는다(#214 r1) */
   const fullRef = useRef(full); fullRef.current = full;
   const closeFull = useRef(() => { if (!fullRef.current) return; zero(); setFull(null); }).current;
   const press = (t: Tok[]) => { if (!readyRef.current || !permitted(command(t), settingsRef.current)) return; setWhy(''); held.current = new Set(t); changed(); };
@@ -222,8 +222,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
       {(stopNote || unlock) && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} data-sd-full-state>{stopNote}{unlock}</div>}
       <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar'] as const).map((ch) =>
         <button key={ch} type="button" className="btn" aria-pressed={full === ch} data-sd-ch={ch} onClick={() => setFull(ch)}>{CH_NAME[ch]}</button>)}</div>
-      {full === 'rgb' ? <button type="button" aria-label="카메라 작게 보기" onClick={closeFull} style={{ flex: 1, display: 'flex', padding: 0, border: 0, background: 'none', cursor: 'zoom-out' }}>{box(view('rgb', true), 200)}</button>
-        : box(view('lidar', true), 200)}{/* 라이다 큰 칸은 끌어 돌려 보므로 누름 대신 «작게 보기»·Esc */}
+      {box(view(full, true), 200)}{/* 영상을 눌러도 닫지 않는다(11-11 — 키보드 조종 중 창을 눌러 초점을 되찾다 닫히고 멈추는 일 방지). 닫기는 «작게 보기»·Esc */}
       {notes}
       {pad}
       {control}
