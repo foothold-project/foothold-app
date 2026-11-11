@@ -143,6 +143,19 @@ def robot_objects(db, robots, user, realtime):
                         and realtime.field_approved(str(robot.id)))
         owner = owners.get(robot.owner_user_id)
         full = user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id
+        # Display only: keep the existing permission calculation and gates above.
+        server_drive_blocked = None
+        if robot.simulation is not True and full:
+            server_drive_blocked = []
+            if not server_drive:
+                if not realtime.settings.drive_enabled(robot.id):
+                    server_drive_blocked.append('SWITCH_OFF')
+                if robot.owner_user_id is None:
+                    server_drive_blocked.append('NO_OWNER')
+                if not robot.serial:
+                    server_drive_blocked.append('NO_SERIAL')
+                if not realtime.field_approved(str(robot.id)):
+                    server_drive_blocked.append('AGENT_OFFLINE')
         online, state = snapshots[str(robot.id)] if full else (False, {})
         inventory = devices.get(robot.id, {})
         live_devices = reported_devices(realtime, str(robot.id)) if full else None
@@ -179,6 +192,7 @@ def robot_objects(db, robots, user, realtime):
                 if reported_run['status'] not in TERMINAL_RUNS else None)
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
             server_drive_allowed=server_drive,
+            server_drive_blocked=server_drive_blocked,
             robot_serial=robot.serial, field_approval_expires_at=approval,
             robot_info=state.get('robot_info'),
             phone_relay=phone_relay(realtime, str(robot.id)) if full else None,

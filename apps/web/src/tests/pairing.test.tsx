@@ -273,6 +273,40 @@ describe('PC 웹 운영 관리자', () => {
 });
 
 describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른다', () => {
+  const reasons: NonNullable<RobotSummary['server_drive_blocked']> = ['SWITCH_OFF', 'NO_OWNER', 'NO_SERIAL', 'AGENT_OFFLINE'];
+  const messages = ['서버에서 실기 조종이 꺼져 있습니다(관리자만 켤 수 있음)', '담당자가 없습니다',
+    '로봇 기체번호가 등록되지 않았습니다', '로봇 쪽 노트북 프로그램이 연결되지 않았습니다'];
+  it.each(reasons.map((reason, i) => [reason, messages[i]] as const))('%s 이유를 쉬운 말로 표시하고 조종 패널은 열지 않음', async (reason, message) => {
+    serve(signedIn(LEE, [{ ...RA, server_drive_blocked: [reason] }]));
+    await open('#/fleet', false); online();
+    const step = card('조종 준비').querySelector('[data-step="3"]')!;
+    expect(step.querySelector('[data-drive-block]')!.textContent).toBe(message);
+    expect(step.textContent).not.toMatch(/serial|agent|lease|SLAM|SWITCH_OFF|NO_OWNER|NO_SERIAL|AGENT_OFFLINE/);
+    expect($<HTMLButtonElement>('[data-open-drive]')!.disabled).toBe(true);
+    expect($('[data-server-drive]')).toBeNull();
+  });
+  it('연결 전에도 여러 이유를 각각 한 줄로 표시함', async () => {
+    serve(signedIn(LEE, [{ ...RA, server_drive_blocked: reasons }]));
+    await open('#/fleet', false);
+    const step = card('조종 준비').querySelector('[data-step="3"]')!;
+    expect([...step.querySelectorAll('[data-drive-block]')].map((x) => x.textContent)).toEqual(messages);
+    expect(step.querySelectorAll('br')).toHaveLength(3);
+  });
+  it.each([undefined, null, []])('이유가 %s 이면 기존 안내, 빈 목록만으로 조종을 허용하지 않음', async (blocked) => {
+    serve(signedIn(LEE, [{ ...RA, server_drive_blocked: blocked }]));
+    await open('#/fleet', false); online();
+    expect(card('조종 준비').querySelector('[data-step="3"]')!.textContent).toContain('서버가 아직 조종을 허용하지 않았습니다');
+    expect($('[data-drive-block]')).toBeNull();
+    expect($<HTMLButtonElement>('[data-open-drive]')!.disabled).toBe(true);
+    expect($('[data-server-drive]')).toBeNull();
+  });
+  it.each<{ blocked: NonNullable<RobotSummary['server_drive_blocked']> }>([{ blocked: [] }, { blocked: ['SWITCH_OFF'] }])('서버 허용이면 이유 $blocked 와 무관하게 기존 패널 표시', async ({ blocked }) => {
+    serve(signedIn(LEE, [{ ...RA, server_drive_allowed: true, server_drive_blocked: blocked }]));
+    await open('#/fleet', false); online();
+    expect($('[data-server-drive]')).not.toBeNull();
+    expect(card('조종 준비').querySelector('[data-step="3"]')!.classList.contains('done')).toBe(true);
+    expect($('[data-drive-block]')).toBeNull();
+  });
   it('허용되면 승인 API 없이 패널 표시, 목록 허용이 사라지면 패널 닫힘', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {

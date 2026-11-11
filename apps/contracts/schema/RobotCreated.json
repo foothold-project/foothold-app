@@ -1020,6 +1020,28 @@
           "title": "Server Drive Allowed",
           "type": "boolean"
         },
+        "server_drive_blocked": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "SWITCH_OFF",
+                  "NO_OWNER",
+                  "NO_SERIAL",
+                  "AGENT_OFFLINE"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다.",
+          "title": "Server Drive Blocked"
+        },
         "simulation": {
           "default": false,
           "title": "Simulation",

@@ -18,6 +18,8 @@ export type Robot = { id: string; name: string; owner: string; ownerName?: strin
   robotInfo?: Go2RobotInfo | null;
   /** 서버가 이 실기 로봇의 웹 서버 경유 시험 조종을 켰음(10-30 SERVER-DRIVE — serverdrive.tsx). 서버가 true 로 줄 때만 */
   serverDrive?: boolean;
+  /** 표시 전용: 누락·null 은 옛 서버 응답. 조종 허용 판단에는 쓰지 않음 */
+  serverDriveBlocked?: RobotSummary['server_drive_blocked'];
   /** 호환용 옛 현장 승인 값(화면·관문에 쓰지 않음) · 기체번호 · 서버 주의 코드(목록 값) */
   approvalUntil?: string | null; serial?: string | null; attention?: string[] };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
@@ -91,6 +93,7 @@ export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
   phoneRelay: r.phone_relay ?? null, phoneRelayAt: performance.now(), robotInfo: r.robot_info ?? null,
   serverDrive: r.server_drive_allowed === true,
+  serverDriveBlocked: r.server_drive_blocked,
   approvalUntil: r.field_approval_expires_at ?? null, serial: r.robot_serial ?? null, attention: r.attention,
 });
 export const toRobots = (l: RobotSummary[]) => { const sims = l.filter((r) => r.simulation).map((r) => r.id); return l.map((r) => toRobot(r, sims)); };

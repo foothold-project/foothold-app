@@ -383,6 +383,14 @@ accepted state episode다(서버 sim DB ID와 혼용 금지). launch 바인딩�
 `/v2_live/external_cam/compressed`다. 실제 연결·한계는
 [agent media README](../agent/foothold_agent/media/README.md)를 본다.
 
+## 실기 조종 불가 이유
+
+`RobotSummary.server_drive_blocked`는 선택·nullable 표시용 목록이다. 담당자와 총괄에게만
+실기의 `SWITCH_OFF`(서버 스위치), `NO_OWNER`(담당 없음), `NO_SERIAL`(기체번호 없음),
+`AGENT_OFFLINE`(기존 자동 연결 관문 불충족)을 전달한다. 허용이면 `[]`, 시뮬과 요약만
+볼 수 있는 사용자에게는 `null`이다. 허용 판단은 기존 `server_drive_allowed`와 서버
+조종 관문을 그대로 쓰며, 옛 서버가 이유 필드를 생략하거나 `null`로 보내면 기존 안내를 쓴다.
+
 ## Go2 표시용 로봇 정보
 
 `AgentState.robot_info`와 이를 상속한 `PhoneState.robot_info`는 선택 필드다.

@@ -1535,6 +1535,8 @@ export interface RobotSummary {
   controller_connected?: boolean | null;
   simulation: boolean;
   server_drive_allowed: boolean;
+  /** 표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. */
+  server_drive_blocked?: ("SWITCH_OFF" | "NO_OWNER" | "NO_SERIAL" | "AGENT_OFFLINE")[] | null;
   robot_serial?: string | null;
   /** 폐기된 사람 현장 승인 호환 필드. 항상 null이며 자동 연결 관문은 server_drive_allowed를 쓴다. */
   field_approval_expires_at?: string | null;
