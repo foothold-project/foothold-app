@@ -165,13 +165,14 @@ export function FieldCheck({ r, refresh, cancel }: { r: Robot; refresh: () => vo
   const offline = !r.online;
   return <div className="fh-form" role="group" aria-label="현장 안전 확인" data-field-check>
     <div className="fh-row"><b className="fh-grow">현장 안전 확인</b><Chip {...approvalChip(r.id, until, now)} /></div>
+    {/* 못 하는 까닭을 항목보다 먼저(11-11 fleet polish) — 세 항목·버튼은 그대로, 연결 전엔 꺼짐 */}
+    {!left && offline && <span id={`field-why-${r.id}`} className="fh-why" data-field-why>로봇이 연결된 뒤에 확인하세요 — 노트북 연결 프로그램이 연결될 때 승인이 해제됩니다.</span>}
     {left ? <div className="fh-row"><span className="fh-grow lbl">남은 시간이 끝나거나 노트북 연결 프로그램이 다시 연결되면 다시 확인해야 합니다.</span>
       <button type="button" className="btn" disabled={busy} onClick={() => run(async () => { await api.revokeField(r.id, cancel); return null; }, '현장 승인을 해제했습니다. 진행 중인 조종은 정지·잠금됩니다.')}>해제</button></div>
       : <form className="fh-form" noValidate onSubmit={grant}>
         {CHECKS.map((c) => <label key={c.id} className="fh-row" style={{ alignItems: 'flex-start' }}><input type="checkbox" name={c.id} checked={checked.includes(c.id)} disabled={offline}
           onChange={(e) => setChecked((l) => (e.target.checked ? [...l, c.id] : l.filter((x) => x !== c.id)))} /><span className="fh-grow">{c.label}</span></label>)}
-        <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || offline || checked.length !== CHECKS.length} aria-describedby={offline ? `field-why-${r.id}` : undefined}>현장 승인(30분)</button>
-          {offline && <span id={`field-why-${r.id}`} className="fh-why" data-field-why>로봇이 연결된 뒤에 확인하세요 — 노트북 연결 프로그램이 연결될 때 승인이 해제됩니다.</span>}</div>
+        <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || offline || checked.length !== CHECKS.length} aria-describedby={offline ? `field-why-${r.id}` : undefined}>현장 승인(30분)</button></div>
       </form>}
     {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p>}
   </div>;

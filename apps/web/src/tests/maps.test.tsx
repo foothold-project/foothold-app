@@ -753,6 +753,16 @@ describe('관제 지도 칸 — 층 고르기(FL-03)', () => {
     await open('#/fleet');
     expect([...card('층').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['본동 1층', '본동 2층', '신동 1층']);
   });
+  it('층이 4개 넘으면 단추 대신 고르기 칸 하나(11-11 fleet polish) — 고르면 그 층', async () => {
+    const four: SiteTree = { items: [{ ...TREE.items[0], buildings: [TREE.items[0].buildings[0], { id: 'b2', site_id: 's1', name: '신동', floors: [floor('f8', '1층', 1, null, 'b2'), floor('f9', '2층', 2, null, 'b2')] }] }], next_cursor: null };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: four } }));
+    await open('#/fleet');
+    const pick = card('지도').querySelector<HTMLSelectElement>('select[data-floor-pick]')!;
+    expect(card('지도').querySelector('[role="group"][aria-label="층"]')).toBeNull();
+    expect([...pick.options].map((o) => o.textContent)).toHaveLength(4);
+    act(() => { pick.value = 'f9'; pick.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(card('지도').textContent).toContain('아직 지도가 없습니다.');
+  });
 });
 
 // ── W4b 지도 편집(01 MP-03·05·06, 02 F-MP-03, 03 §5.6, 05 §5 features) ──

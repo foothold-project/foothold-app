@@ -149,7 +149,13 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh-focus>.fl-pick{grid-area:pick}.fh-focus>.fl-state{grid-area:state}.fh-focus>.fl-media{grid-area:media}.fh-focus>.fl-map{grid-area:map}.fh-focus>.fl-detail{grid-area:detail}.fh-focus>.fl-others{grid-area:others}
 .fh-main>.fh-focus[data-summary]{grid-template-areas:"pick pick" "state state" "detail detail" "others others"}
 .fl-state.bad{border-color:var(--bad);background:var(--bad-bg)}
-.fh-focus[data-lost]>:is(.fl-media,.fl-map,.fl-detail){filter:grayscale(1);opacity:.72}
+/* 끊기면 지도(마지막 위치)만 회색 — 영상 칸(서버 조종 패널의 STOP·확인창)·상세(현장 확인·관리 단추)는 흐리지 않는다(filter 는 fixed 확인창의 기준도 바꿈) */
+.fh-focus[data-lost]>.fl-map{filter:grayscale(1);opacity:.72}
+/* 상태 한 줄: 라벨(작게) 위 · 값 아래, 값 크기 하나 */
+.fl-facts{display:flex;flex-wrap:wrap;gap:10px 28px}
+.fl-fact{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;font-size:14px}
+/* 상세 한 줄: 라벨 칸 너비 하나(«넘어짐 추정»도 들어감), 값 14px · 한국어는 낱말 단위로 줄바꿈 */
+.fh-line{font-size:14px;word-break:keep-all;align-items:baseline}.fh-line>.lbl:first-child{flex:0 0 76px}
 .fl-screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
 .fl-screen{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden}
 .fl-pick .btn{gap:6px}
