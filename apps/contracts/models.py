@@ -1241,6 +1241,28 @@ class FloorPatch(Contract):
     level: int = omitted(strict=True, ge=-1000, le=1000)
 
 
+class VoxelMapSummary(Contract):
+    """Coordinates: origin + (cell index + .5) * voxel_size, XYZ in metres."""
+    map_version_id: UUID
+    terrain_id: str
+    voxel_size: Literal[0.1] = 0.1
+    point_count: int = Field(ge=1, le=5_000_000)
+    voxel_count: int = Field(ge=1, le=500_000)
+    origin: tuple[float, float, float]
+    source_translation: tuple[float, float, float]
+    estimated_floor_z: float
+    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    cells_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    warnings: list[str] = Field(max_length=10)
+
+
+class VoxelCells(Contract):
+    summary: VoxelMapSummary
+    cells: list[tuple[int, int, int]] = Field(max_length=20_000)
+    next_cursor: int | None
+    max_page_size: Literal[20000] = 20000
+
+
 class MapFloor(Contract):
     terrain_id: str | None = None
     archived_at: UTCDateTime | None = None
@@ -1337,7 +1359,8 @@ class MapVersionCreate(Contract):
 
 
 class MapVersion(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec'))
+    voxel_map: VoxelMapSummary | None = Field(default=None, exclude_if=lambda value: value is None)
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
     upload_id: UUID
@@ -1379,6 +1402,12 @@ class MapDiff(Contract):
     against: MapVersion | None
     image_changed: bool
     changes: list[MapFeatureChange]
+
+
+class VoxelMapImport(Contract):
+    map: MapVersion
+    terrain: Terrain
+    voxels: VoxelMapSummary
 
 
 class MapVersionList(Contract):

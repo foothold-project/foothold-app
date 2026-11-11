@@ -393,6 +393,17 @@
           "title": "Upload Id",
           "type": "string"
         },
+        "voxel_map": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VoxelMapSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "width": {
           "title": "Width",
           "type": "integer"
@@ -807,6 +818,110 @@
         "run"
       ],
       "title": "TerrainStairs",
+      "type": "object"
+    },
+    "VoxelMapSummary": {
+      "additionalProperties": false,
+      "description": "Coordinates: origin + (cell index + .5) * voxel_size, XYZ in metres.",
+      "properties": {
+        "cells_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Cells Sha256",
+          "type": "string"
+        },
+        "estimated_floor_z": {
+          "title": "Estimated Floor Z",
+          "type": "number"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "origin": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "point_count": {
+          "maximum": 5000000,
+          "minimum": 1,
+          "title": "Point Count",
+          "type": "integer"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "source_translation": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Source Translation",
+          "type": "array"
+        },
+        "terrain_id": {
+          "title": "Terrain Id",
+          "type": "string"
+        },
+        "voxel_count": {
+          "maximum": 500000,
+          "minimum": 1,
+          "title": "Voxel Count",
+          "type": "integer"
+        },
+        "voxel_size": {
+          "const": 0.1,
+          "default": 0.1,
+          "title": "Voxel Size",
+          "type": "number"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "map_version_id",
+        "terrain_id",
+        "voxel_size",
+        "point_count",
+        "voxel_count",
+        "origin",
+        "source_translation",
+        "estimated_floor_z",
+        "source_sha256",
+        "cells_sha256",
+        "warnings"
+      ],
+      "title": "VoxelMapSummary",
       "type": "object"
     }
   },

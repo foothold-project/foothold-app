@@ -54,7 +54,7 @@ def identifier(org_id, key):
     return uuid5(NAMESPACE_URL, f'foothold:{org_id}:custom-terrain/{key}')
 
 
-def publish_terrain_map(db, user, spec, floor, terrain_version, root, fail, created=None):
+def publish_terrain_map(db, user, spec, floor, terrain_version, root, fail, created=None, *, twin=None):
     """Publish from a validated spec, shared by terrain saves and pair repair.
 
     The caller owns the transaction and the library revision. Existing map
@@ -71,14 +71,25 @@ def publish_terrain_map(db, user, spec, floor, terrain_version, root, fail, crea
     metadata = {'resolution': .05, 'origin': origin, 'negate': 0, 'occupied_thresh': .65,
         'free_thresh': .2, 'terrain_id': spec.id, 'terrain_version': next_version,
         'terrain_spec': spec.model_dump(mode='json', by_alias=True)}
+    if twin:
+        # Canonical PGM is the exact terrain raster used by the custom world.
+        # The agent must independently match these bytes and its live world.
+        pgm = f'P5\n{width} {height}\n255\n'.encode() + pixels
+        metadata['voxel_twin'] = twin
+        metadata['connected_gt'] = dict(world_id='custom/' + spec.id, ros_floor_id='f1',
+            source='SIMULATION', sha256=digest.hex(), source_pgm_sha256=sha256(pgm).hex())
     created = [] if created is None else created
     try:
-        ensure_space(root, len(png) + 16384, fail)
+        ensure_space(root, len(png) + 16384 + (len(pgm) if twin else 0), fail)
         destination.parent.mkdir(parents=True, exist_ok=True)
         for target, content in ((destination, png), (destination.with_suffix('.yaml'), yaml_bytes(metadata, destination.name))):
             with target.open('xb') as out:
                 created.append(target)
                 out.write(content)
+        if twin:
+            with destination.with_suffix('.pgm').open('xb') as out:
+                created.append(destination.with_suffix('.pgm'))
+                out.write(pgm)
         upload = Upload(provenance='SIMULATION', org_id=user.org_id, image_path=str(path), image_sha256=digest,
             png_sha256=digest, size_bytes=len(png), width=width, height=height, metadata_json=metadata, created_by=user.id)
         db.add(upload)
@@ -101,6 +112,78 @@ def publish_terrain_map(db, user, spec, floor, terrain_version, root, fail, crea
         raise
 
 
+def terrain_object(db, row):
+    floor = db.scalar(select(Floor).where(Floor.org_id == row.org_id, Floor.terrain_id == row.id))
+    # Floor may have been permanently deleted via existing map trash rules;
+    # keep terrain readable and recreate that floor on the next save.
+    return C.Terrain(spec=row.spec, version=row.version,
+        floor_id=floor.id if floor else None,
+        map_version_id=floor.approved_version_id if floor else None,
+        archived_at=row.archived_at, updated_at=row.updated_at)
+
+
+def save_terrain(db, user, terrain_id, body, root, fail, event, *, created=None, twin=None):
+    if twin and list(body.spec.size) != twin['terrain_size']:
+        fail(422, 'INVALID_TERRAIN', '실기 지도와 좌표를 맞추려면 연결된 지형의 바닥 크기를 유지해 주세요.')
+    if terrain_id != body.spec.id:
+        fail(422, 'INVALID_TERRAIN', '주소와 지형 id가 다릅니다.')
+    # Serialize first saves/site creation, then lock the shared floor just
+    # like ordinary map saves. Version checks prevent silent draft loss.
+    db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
+    row = db.scalar(select(Terrain).where(Terrain.org_id == user.org_id, Terrain.id == terrain_id).with_for_update())
+    if (row.version if row else 0) != body.base_version:
+        fail(409, 'VERSION_CONFLICT', '서버 지형이 바뀌었습니다. 내 지형에서 서버 저장본을 다시 열어 주세요.')
+    if row and row.archived_at is not None:
+        fail(409, 'RESOURCE_ARCHIVED', '휴지통의 지형을 먼저 되돌려 주세요.')
+    site = db.get(Site, identifier(user.org_id, 'site'))
+    if site is None:
+        site = Site(id=identifier(user.org_id, 'site'), org_id=user.org_id, name='시뮬 지형', purpose='SIM')
+        db.add(site)
+        db.flush()
+    building = db.get(Building, identifier(user.org_id, terrain_id + '/building'))
+    if building is None:
+        building = Building(id=identifier(user.org_id, terrain_id + '/building'), org_id=user.org_id,
+            site_id=site.id, name=body.spec.name)
+        db.add(building)
+        db.flush()
+    floor = db.scalar(select(Floor).where(Floor.org_id == user.org_id, Floor.terrain_id == terrain_id).with_for_update())
+    if floor is None:
+        floor = Floor(id=identifier(user.org_id, terrain_id + '/floor'), org_id=user.org_id,
+            building_id=building.id, name='1층', level=1, terrain_id=terrain_id, provenance='SIMULATION', floor_z=0)
+        db.add(floor)
+        db.flush()
+    if floor.archived_at is not None:
+        fail(409, 'RESOURCE_ARCHIVED', '지도 휴지통의 층을 먼저 되돌려 주세요.')
+    # Saving terrain is the entry point for creating simulation places,
+    # including when all previous terrain floors and parents were archived.
+    site.archived_at = None
+    building.archived_at = None
+    building.name = body.spec.name
+    created = [] if created is None else created
+    try:
+        if twin:
+            building.sim_world_id = 'custom/' + terrain_id
+            floor.sim_floor_id = 'f1'
+        version = publish_terrain_map(db, user, body.spec, floor,
+            row.version + 1 if row else 1, root, fail, created, twin=twin)
+        if row is None:
+            row = Terrain(id=terrain_id, org_id=user.org_id)
+            db.add(row)
+            row.version = 0
+        row.spec = body.spec.model_dump(mode='json', by_alias=True)
+        row.version += 1
+        row.updated_at = now()
+        db.flush()
+        event(db, user.org_id, 'MAP_VERSION_APPROVED', user.id,
+            {'floor_id': str(floor.id), 'map_version_id': str(version.id), 'terrain_id': terrain_id, 'number': version.number}, category='APPROVAL')
+        result = terrain_object(db, row)
+        return result
+    except BaseException:
+        for target in created:
+            target.unlink(missing_ok=True)
+        raise
+
+
 def install(app, DB, Identity, fail, authorize, event, settings):
     root = Path(settings.files_root).resolve()
 
@@ -111,15 +194,6 @@ def install(app, DB, Identity, fail, authorize, event, settings):
             fail(404, 'NOT_FOUND', '지형을 찾을 수 없습니다.')
         return row
 
-    def output(db, row):
-        floor = db.scalar(select(Floor).where(Floor.org_id == row.org_id, Floor.terrain_id == row.id))
-        # Floor may have been permanently deleted via existing map trash rules;
-        # keep terrain readable and recreate that floor on the next save.
-        return C.Terrain(spec=row.spec, version=row.version,
-            floor_id=floor.id if floor else None,
-            map_version_id=floor.approved_version_id if floor else None,
-            archived_at=row.archived_at, updated_at=row.updated_at)
-
     @app.get('/api/v1/terrains', response_model=C.TerrainList)
     def listing(auth: Identity, db: DB, archived: bool = False,
                 limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):
@@ -129,66 +203,24 @@ def install(app, DB, Identity, fail, authorize, event, settings):
         if cursor:
             query = query.where(Terrain.id > cursor)
         rows = list(db.scalars(query.order_by(Terrain.id).limit(limit + 1)))
-        return C.TerrainList(items=[output(db, row) for row in rows[:limit]],
+        return C.TerrainList(items=[terrain_object(db, row) for row in rows[:limit]],
             next_cursor=rows[limit - 1].id if len(rows) > limit else None)
 
     @app.get('/api/v1/terrains/{terrain_id}', response_model=C.Terrain)
     def read(terrain_id: str, auth: Identity, db: DB):
-        return output(db, own(db, auth[0], terrain_id))
+        return terrain_object(db, own(db, auth[0], terrain_id))
 
     @app.put('/api/v1/terrains/{terrain_id}', response_model=C.Terrain)
     def save(terrain_id: str, body: C.TerrainWrite, auth: Identity, db: DB):
-        user = auth[0]
-        authorize(user, 'A')
-        if terrain_id != body.spec.id:
-            fail(422, 'INVALID_TERRAIN', '주소와 지형 id가 다릅니다.')
-        # Serialize first saves/site creation, then lock the shared floor just
-        # like ordinary map saves. Version checks prevent silent draft loss.
-        db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
-        row = db.scalar(select(Terrain).where(Terrain.org_id == user.org_id, Terrain.id == terrain_id).with_for_update())
-        if (row.version if row else 0) != body.base_version:
-            fail(409, 'VERSION_CONFLICT', '서버 지형이 바뀌었습니다. 내 지형에서 서버 저장본을 다시 열어 주세요.')
-        if row and row.archived_at is not None:
-            fail(409, 'RESOURCE_ARCHIVED', '휴지통의 지형을 먼저 되돌려 주세요.')
-        site = db.get(Site, identifier(user.org_id, 'site'))
-        if site is None:
-            site = Site(id=identifier(user.org_id, 'site'), org_id=user.org_id, name='시뮬 지형', purpose='SIM')
-            db.add(site)
-            db.flush()
-        building = db.get(Building, identifier(user.org_id, terrain_id + '/building'))
-        if building is None:
-            building = Building(id=identifier(user.org_id, terrain_id + '/building'), org_id=user.org_id,
-                site_id=site.id, name=body.spec.name)
-            db.add(building)
-            db.flush()
-        floor = db.scalar(select(Floor).where(Floor.org_id == user.org_id, Floor.terrain_id == terrain_id).with_for_update())
-        if floor is None:
-            floor = Floor(id=identifier(user.org_id, terrain_id + '/floor'), org_id=user.org_id,
-                building_id=building.id, name='1층', level=1, terrain_id=terrain_id, provenance='SIMULATION', floor_z=0)
-            db.add(floor)
-            db.flush()
-        if floor.archived_at is not None:
-            fail(409, 'RESOURCE_ARCHIVED', '지도 휴지통의 층을 먼저 되돌려 주세요.')
-        # Saving terrain is the entry point for creating simulation places,
-        # including when all previous terrain floors and parents were archived.
-        site.archived_at = None
-        building.archived_at = None
-        building.name = body.spec.name
+        authorize(auth[0], 'A')
+        # Preserve a server-created source binding across terrain edits.
+        floor = db.scalar(select(Floor).where(Floor.org_id == auth[0].org_id, Floor.terrain_id == terrain_id))
+        version = db.get(MapVersion, floor.approved_version_id) if floor and floor.approved_version_id else None
+        upload = db.get(Upload, version.upload_id) if version else None
+        twin = upload.metadata_json.get('voxel_twin') if upload else None
         created = []
         try:
-            version = publish_terrain_map(db, user, body.spec, floor,
-                row.version + 1 if row else 1, root, fail, created)
-            if row is None:
-                row = Terrain(id=terrain_id, org_id=user.org_id)
-                db.add(row)
-                row.version = 0
-            row.spec = body.spec.model_dump(mode='json', by_alias=True)
-            row.version += 1
-            row.updated_at = now()
-            db.flush()
-            event(db, user.org_id, 'MAP_VERSION_APPROVED', user.id,
-                {'floor_id': str(floor.id), 'map_version_id': str(version.id), 'terrain_id': terrain_id, 'number': version.number}, category='APPROVAL')
-            result = output(db, row)
+            result = save_terrain(db, auth[0], terrain_id, body, root, fail, event, created=created, twin=twin)
             db.commit()
             return result
         except BaseException:
@@ -221,7 +253,7 @@ def install(app, DB, Identity, fail, authorize, event, settings):
         db.scalar(select(Organization).where(Organization.id == auth[0].org_id).with_for_update())
         row = own(db, auth[0], terrain_id, lock=True)
         if row.archived_at is None:
-            return output(db, row)
+            return terrain_object(db, row)
         floor = db.scalar(select(Floor).where(Floor.org_id == row.org_id,
             Floor.terrain_id == row.id).with_for_update())
         if floor is None:
@@ -237,4 +269,4 @@ def install(app, DB, Identity, fail, authorize, event, settings):
         db.flush()
         refresh_connectors(db, floor)
         event(db, auth[0].org_id, 'TERRAIN_RESTORED', auth[0].id, {'terrain_id': terrain_id, 'name': row.spec['name']})
-        return output(db, row)
+        return terrain_object(db, row)

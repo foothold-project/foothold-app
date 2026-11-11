@@ -169,7 +169,7 @@ def version_object(row, floor, upload):
         status='SUPERSEDED' if row.status == 'APPROVED' and floor.approved_version_id != row.id else row.status,
         image_sha256=row.image_sha256.hex(), width=row.width, height=row.height, resolution=row.resolution,
         origin=(row.origin_x, row.origin_y, row.origin_yaw), features=row.features, reason=row.reason,
-        source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, created_by=row.created_by, created_at=row.created_at)
+        source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, voxel_map=upload.metadata_json.get('voxel_map'), created_by=row.created_by, created_at=row.created_at)
 
 
 def bounded_features(row, fail):

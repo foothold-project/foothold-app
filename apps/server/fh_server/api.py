@@ -894,6 +894,8 @@ def create_app(settings: Settings | None = None):
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from . import terrains
     terrains.install(app, DB, Identity, fail, authorize, event, settings)
+    from . import voxel_maps
+    voxel_maps.install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, event, settings)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
     trash.install(app, DB, Identity, fail, authorize, event)
