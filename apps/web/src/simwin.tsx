@@ -10,6 +10,8 @@ const subs = new Set<() => void>();
 const set = (w: Win | null) => { win = w; subs.forEach((f) => f()); };
 export const simWin = {
   get: () => win,
+  /** 시뮬 창이 올라와 있나(PC 웹) — 링크는 이때만 가로채 창으로 연다 */
+  hosted: () => hosts > 0,
   /** 시뮬 열기: 창이 올라와 있으면(PC 웹) 그 안에, 아니면(폰 틀·앱 안) 옛 그대로 페이지 이동 */
   go: (url: string) => { if (hosts) set({ url, small: false }); else simWin.leave(url); },
   leave: (url: string) => location.assign(url),   // 시험이 바꿔 끼움

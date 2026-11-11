@@ -133,7 +133,22 @@ def main():
         aliases += [path.replace('/9433/','//9433//') for path in paths]
         for alias in aliases:check(alias,404,headers);count+=1
         assert not traps
-        print('PASS: '+str(count)+' exact route/Origin/upgrade/encoding boundaries; other upstreams never reached')
+        # X-Frame-Options: exactly one value on every response; SAMEORIGIN only for /sim/ files.
+        def frame(path):
+            connection=http.client.HTTPConnection('127.0.0.1',first,timeout=2)
+            try:
+                connection.request('GET',path,headers={'Host':host})
+                response=connection.getresponse();response.read()
+                return response.headers.get_all('X-Frame-Options')
+            finally:connection.close()
+        for path in ('/sim/','/sim/index.html?from=web&map=warehouse','/sim/mujoco/mujoco.wasm','/sim/assets/warehouse/map.json'):
+            assert frame(path)==['SAMEORIGIN'],(path,frame(path));count+=1
+        for path in ('/','/index.html','/sim','/simx/index.html','/SIM/index.html','/Sim/','/x/sim/index.html','/x/../sim/index.html',
+                     '/sim/../index.html','/sim/%2e%2e/index.html','/sim/a/../../index.html','/sim/.hidden/x','//sim/index.html',
+                     '/api/v1/fixture','/api/x','/__fh_phone/x','/__fh_phone/9433/phone/ws'):
+            assert frame(path)==['DENY'],(path,frame(path));count+=1
+        traps.clear()
+        print('PASS: '+str(count)+' exact route/Origin/upgrade/encoding/frame boundaries; other upstreams never reached')
     finally:
         process.terminate()
         try:process.wait(timeout=3)

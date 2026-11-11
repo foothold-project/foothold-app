@@ -130,3 +130,20 @@ it('작은 창은 머리줄(STOP)·띄운 확인 칸보다 아래 층', () => {
   expect(z('.sw[data-sim-win="small"]')).toBeLessThan(z('.fl-sheet'));
   expect(z('.fl-sheet')).toBeLessThan(z('.fh-head'));
 });
+
+it('«지형 만들기»의 «시뮬로 열기»도 PC 웹에서는 같은 시뮬 창(링크로 떠나지 않음), 새 탭 열기(Ctrl)는 링크 그대로', () => {
+  mount(false, '#/terrain');
+  const a = $<HTMLAnchorElement>('a[data-terrain-open]')!, url = a.getAttribute('href')!;
+  expect(url).toContain('/sim/index.html?from=web&map=custom&terrain=');
+  const ctrl = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true });
+  let kept = false; const seen = (e: Event) => { kept = !e.defaultPrevented; e.preventDefault(); };   // 앱이 안 막았는지 본 뒤 jsdom 이 떠나지 않게 막음
+  document.addEventListener('click', seen);
+  try { act(() => { a.dispatchEvent(ctrl); }); } finally { document.removeEventListener('click', seen); }
+  expect(kept).toBe(true);
+  expect($('[data-sim-win]')).toBeNull();
+  const e = new MouseEvent('click', { bubbles: true, cancelable: true });
+  act(() => { a.dispatchEvent(e); });
+  expect(e.defaultPrevented).toBe(true);
+  expect($('[data-sim-win]')!.dataset.simWin).toBe('full');
+  expect(frame().getAttribute('src')).toBe(url);
+});

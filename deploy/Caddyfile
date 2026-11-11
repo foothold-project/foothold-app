@@ -1,7 +1,16 @@
 {$FH_SITE} {
+    # Framing stays DENY everywhere except the same-origin browser simulator
+    # files: the web app shows /sim/ inside its own page. One header line emits
+    # exactly one value. The original path is matched case-sensitively and no
+    # folder may start with a dot, so /sim, /SIM/, /x/../sim/ and /sim/../
+    # (which would serve the app itself) all keep DENY.
+    map {http.request.orig_uri.path} {fh_frame} {
+        ~^/sim/([^/.][^/]*/)*[^/]*$ SAMEORIGIN
+        default DENY
+    }
     header {
         X-Content-Type-Options nosniff
-        X-Frame-Options DENY
+        X-Frame-Options {fh_frame}
         Referrer-Policy no-referrer
         Strict-Transport-Security "max-age=86400"
         -Server
