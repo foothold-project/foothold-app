@@ -204,6 +204,19 @@ describe('배정 창', () => {
     expect(new Set(posts().map((p) => p.key)).size).toBe(4);   // 시도마다 새 키
     expect(asg).toHaveLength(0);
   });
+  it('지도 탭 읽기 목록: 저장 기록이 둘이면 «배정할 저장 기록»에서 옛 판(1)을 골라 배정 = POST scenario_version 1 (검토 P2)', async () => {
+    scenarios = [scen('s1', '1층 순찰', { number: 2, latest_version: 2, version: 2 })];
+    await openAssign(LEE);
+    const sel = $<HTMLSelectElement>('[data-assign-ver]')!;
+    expect([...sel.options].map((o) => o.textContent)).toEqual(['2번째 저장 (최신)', '1번째 저장']);
+    expect(sel.value).toBe('2');
+    await setVal(sel, '1');
+    expect(text()).toContain('«1층 순찰» 1번째 저장을 배정합니다.');
+    await pickRobot('r-a');
+    await click(btn('배정', panel()));
+    expect(posts().map((c) => (c.body as { scenario_version: number }).scenario_version)).toEqual([1]);
+    expect(text()).toContain('Go2-A에 «1층 순찰» 1번째 저장을 배정했습니다.');
+  });
   it('휴지통의 시나리오: 옛 주소로 열면 시뮬 탭 읽기 전용 — 배정 단추 없음(휴지통 것은 지도 탭 목록에도 없어 배정할 곳이 없음)', async () => {
     scenarios = [scen('s1', '1층 순찰', { archived_at: '2026-10-20T03:00:00Z' })];
     serve(KIM);

@@ -118,7 +118,7 @@ export const oldMap = (x: Scenario, floor: string, approved: string | null) => !
 export function ScenList({ sim, read, run, l, mine, setMine, floor, approved, open, hover, admin, robots, user, cancel, top }: { sim?: boolean; read?: boolean; run?: (x: Scenario) => Run | null; l: ScenarioList; mine: boolean; setMine: (m: boolean) => void; floor: string; approved: string | null;
   open: (id: string) => void; hover: (x: Scenario | null) => void; admin: () => void; robots: Robot[]; user?: User; cancel?: AbortSignal; top?: ReactNode }) {
   const assigned = useAssigned(!sim, l.busy, cancel), items = l.items as Scenario[];   // 시뮬 시나리오는 배정하지 않는다(서버 409 SIM_SCENARIO_NO_ASSIGN) — 로봇 칸·배정 안내 없음
-  const [exp, setExp] = useState<string | null>(null);   // 지도 탭에서 펼친 줄(배정 창)
+  const [exp, setExp] = useState<string | null>(null), [pv, setPv] = useState<number | null>(null);   // 지도 탭에서 펼친 줄(배정 창)·배정할 저장 기록(null = 최신)
   const ask = !sim && assignFor.robot && <p className="fh-msg ok" role="status">{robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 고르면 배정 창이 열립니다.</p>;
   return <section className="mx-tab" aria-label="시나리오 목록 창">
     <div className="mx-in">
@@ -132,7 +132,7 @@ export function ScenList({ sim, read, run, l, mine, setMine, floor, approved, op
     <ul className="mx-list" aria-label="시나리오 목록" onMouseLeave={() => hover(null)}>{items.map((x) => { const old = oldMap(x, floor, approved), r = run?.(x);
       return <li key={x.id} className="mx-row" style={read && exp === x.id ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}>
         <button type="button" className="mx-name mx-name2" data-plan={x.id} aria-expanded={read ? exp === x.id : undefined}
-          onClick={() => { hover(null); if (read) setExp(exp === x.id ? null : x.id); else open(x.id); }} onMouseEnter={() => hover(x)} onFocus={() => hover(x)} onBlur={() => hover(null)}>
+          onClick={() => { hover(null); if (read) { setExp(exp === x.id ? null : x.id); setPv(null); } else open(x.id); }} onMouseEnter={() => hover(x)} onFocus={() => hover(x)} onBlur={() => hover(null)}>
           <b>{x.name}</b>
           <small>지점 {x.waypoints.length}{x.est_distance_m > 0 ? ` · 약 ${Math.round(x.est_distance_m)} m` : ''}</small>
           <small>{r && <span className={`lv-chip ${r === 'both' ? 'ok' : 'off'}`} data-run={r}>{RUN[r]}</span>}
@@ -145,7 +145,11 @@ export function ScenList({ sim, read, run, l, mine, setMine, floor, approved, op
         {read && exp === x.id && user && <div className="mx-in" data-scen-read={x.id}>
           <div className="fh-row"><button type="button" className="btn" data-to-sim={x.id} onClick={() => open(x.id)}>시뮬 탭에서 편집 ›</button></div>
           {keptPlan.drafts[`scenarios:${x.id}`] && <p className="fh-why" role="status" data-unsaved-assign>저장하지 않은 편집이 있습니다 — 배정하면 마지막으로 저장한 내용({x.latest_version}번째 저장)이 배정됩니다. 고친 내용을 배정하려면 먼저 «시뮬» 탭에서 «저장»을 누르세요.</p>}
-          <AssignPanel scenario={x.id} name={x.name} version={x.latest_version} archived={!!x.archived_at} user={user} robots={robots} cancel={cancel} /></div>}
+          {/* 옛 저장 기록도 배정(편집 창의 «저장 기록» 고르기를 옮김 — 배정 창은 그 판을 보낸다) */}
+          {x.latest_version > 1 && <label className="fh-field"><span>배정할 저장 기록</span>
+            <select className="inp" data-assign-ver value={pv ?? x.latest_version} onChange={(e) => setPv(Number(e.target.value))}>
+              {Array.from({ length: x.latest_version }, (_, i) => x.latest_version - i).map((n) => <option key={n} value={n}>{`${n}번째 저장${n === x.latest_version ? ' (최신)' : ''}`}</option>)}</select></label>}
+          <AssignPanel scenario={x.id} name={x.name} version={pv ?? x.latest_version} archived={!!x.archived_at} user={user} robots={robots} cancel={cancel} /></div>}
       </li>; })}</ul>
     <div className="mx-in">
       {assigned === null && <p className="lv-note">배정된 로봇을 받지 못했습니다(«?»). 목록을 다시 받으면 다시 시도합니다.</p>}
