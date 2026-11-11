@@ -27,9 +27,12 @@ describe('실기 보기 열기(로봇 탭 실기 상세)', () => {
   it('운영자 집중 화면: 고른 실기의 실기 보기 단추, 시뮬 탭에는 Go2 실기 보기 없음', async () => {
     await mount('u-lee', [...ROBOTS, { ...SIM, owner: 'u-lee' }]);
     const real = ROBOTS.find((r) => r.owner === 'u-lee' && !r.sim)!;
-    expect(box.querySelector('[aria-label="로봇 상태"] h2')!.textContent).toBe(real.name);
+    expect(box.querySelector('[aria-label="로봇 연결 상태"] h2')!.textContent).toBe(real.name);
     expect(box.querySelector('[data-go2-open]')!.getAttribute('href')).toBe(href(real.id));
     expect(box.querySelector('[data-go2-open]')!.textContent).toBe('실기 보기 열기');
+    const note = box.querySelector('[data-go2-note]')!.textContent!;   // 운영 화면에 개발자 용어 없음(03-UX-SPEC)
+    expect(note).toContain('지도와 맞지 않을 수 있습니다');
+    expect(note).not.toMatch(/원점|기동|미확인|전용/);
     act(() => { location.hash = '#/sim'; }); await flush();
     expect(box.querySelector('[data-go2-replay], [data-go2-open]')).toBeNull();
     expect(box.textContent).not.toContain('Go2 실기 보기');

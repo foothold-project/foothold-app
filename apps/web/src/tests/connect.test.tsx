@@ -265,7 +265,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
         'GET /robots/r-b': () => ({ status: 200, body: (routes['GET /robots'] as { body: { items: RobotSummary[] } }).body.items.find((x) => x.id === 'r-b') }),
       }));
       await open('#/fleet');
-      const detail = () => $('[aria-label="로봇 상태"]')!.textContent;   // 조종권자는 집중 화면 상태 한 줄(ROBOT-TAB 11-02)
+      const detail = () => $('[aria-label="로봇 연결 상태"]')!.textContent;   // 조종권자는 집중 화면 상태 한 줄(ROBOT-TAB 11-02)
       const lists = () => calls.filter((c) => c.path.split('?')[0] === '/robots').length;
       act(() => (row('Go2-B') as HTMLElement).click());
       await flush();
@@ -347,10 +347,10 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
   it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시 없음', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
     await open();
-    expect($('[aria-label="로봇 상태"]')!.textContent).toContain('상태 확인 중');   // 첫 state 전(한 대 — 고르기 없이 상태 한 줄)
+    expect($('[aria-label="로봇 연결 상태"]')!.textContent).toContain('상태 확인 중');   // 첫 state 전(한 대 — 고르기 없이 상태 한 줄)
     // 서버는 에이전트가 없는 로봇도 OFFLINE·상태 없음 state 를 보낸다
     act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
-    expect($('[aria-label="로봇 상태"]')!.textContent).toContain('연결 전');
+    expect($('[aria-label="로봇 연결 상태"]')!.textContent).toContain('연결 전');
     expect($('[data-band]')!.textContent).toBe('');
     expect($('[aria-label="로봇 상세"] [data-why]')).toBeNull();   // 조종 단추·이유는 폰 로봇 연결 화면에(아래 시험)
     expect($('[data-dev]')).toBeNull();   // 오래된 개발용 표시 줄 없음(ROBOT-TAB-TIDY)

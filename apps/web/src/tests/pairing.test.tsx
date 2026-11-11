@@ -264,11 +264,11 @@ describe('PC 웹 운영 관리자', () => {
     serve(signedIn(LEE, [RA]));
     await open('#/fleet', false);
     expect($('[aria-label="로봇 상세"] [data-field-check]')).toBeNull();
-    expect($('[aria-label="로봇 상세"] [data-manage]')).not.toBeNull();
+    expect($('[aria-label="로봇 설정"] [data-manage]')).not.toBeNull();   // 내 로봇 관리는 «로봇 설정» 창(11-11 시안)
     await click(btn('+ 새 로봇 추가'));
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
     await click(btn('닫기', card('새 로봇 추가')));
-    expect($('[aria-label="로봇 상태"]')).not.toBeNull();
+    expect($('[aria-label="로봇 연결 상태"]')).not.toBeNull();
   });
 });
 
@@ -285,6 +285,70 @@ describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른�
       expect($('[data-server-drive]')).toBeNull();
       expect(calls.filter((c) => c.path.includes('field-approval'))).toEqual([]);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('PC 운영 관리자 실기 상세 — 11-11 시안 배치(연결 전·연결됨·끊김, 현장 승인 없음)', () => {
+  const title = () => card('로봇 연결 상태').querySelector('h3')!.textContent;
+  const steps = () => [...card('조종 준비').querySelectorAll('[data-step]')].map((x) => x.classList.contains('done') ? 'done' : x.classList.contains('cur') ? 'cur' : 'todo');
+  const drive = () => $<HTMLButtonElement>('[data-open-drive]')!;
+  it('세 상태 문구·조종 준비 단계는 서버 값만, «조종 화면 열기»는 server_drive_allowed 일 때만 서버 경유 조종 화면을 연다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      serve(signedIn(LEE, [RA]));
+      await open('#/fleet', false);
+      act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null })); });
+      expect(title()).toBe('로봇 연결을 기다리고 있습니다');
+      expect(steps()).toEqual(['done', 'cur', 'todo']);
+      expect(drive().disabled).toBe(true);
+      expect(drive().getAttribute('aria-describedby')).toBe('fl-step-drive');
+      expect(box.textContent).not.toMatch(/현장 승인|현장 안전 확인|예시|가상/);
+      online();
+      expect(title()).toBe('로봇이 연결되었습니다');
+      expect(steps()).toEqual(['done', 'done', 'cur']);
+      expect(drive().disabled).toBe(true);   // 서버가 아직 허용 안 함(목록 server_drive_allowed=false) — 웹이 추측하지 않음
+      expect($('[data-server-drive]')).toBeNull();
+      routes['GET /robots'] = { status: 200, body: { items: [{ ...RA, connection: 'ONLINE', server_drive_allowed: true }], next_cursor: null } };
+      act(() => { vi.advanceTimersByTime(LIST_MS); });
+      await flush();
+      expect(steps()).toEqual(['done', 'done', 'done']);
+      expect(card('조종 준비').querySelector('[data-server-drive]')).not.toBeNull();   // STOP·잠금 해제·조종 시작은 기존 패널 그대로
+      await click(drive());
+      expect($('[data-sd-full]')).not.toBeNull();   // 패널의 조종 화면(전체화면) 그대로
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape' })); });
+      expect($('[data-sd-full]')).toBeNull();
+      const main = FakeWS.all.find((w) => w.url.endsWith('/ws'))!;   // 조종 화면이 영상 소켓을 열어 last 는 영상 소켓
+      act(() => main.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null })));
+      expect(title()).toBe('로봇과의 연결이 끊겼습니다');
+      expect(card('로봇 연결 상태').textContent).toContain('연결이 돌아와도 조종 입력을 자동으로 다시 보내지 않습니다');
+      expect($('[data-lost-note]')!.textContent).toContain('아래 값은 마지막으로 받은 정보입니다');
+      expect(card('로봇 상태').querySelector('[data-tele="battery"]')!.textContent).toBe('배터리80%마지막 수신값');
+      expect(steps()).toEqual(['done', 'cur', 'todo']);   // 목록의 서버 허용 값이 남아 있어도 끊긴 동안 «조종 가능» 완료로 안 보임
+      expect(card('조종 준비').textContent).toContain('재연결 필요');
+      expect(card('조종 준비').querySelector('[data-sd-stop="panel"]')).not.toBeNull();   // 패널의 STOP 은 그대로
+    } finally { vi.useRealTimers(); }
+  });
+  it('«로봇 설정»·«연결 방법»은 화면 위 창 — 머리줄 STOP 을 막지 않고, Esc·닫기로 닫으면 연 단추로 초점', async () => {
+    serve(signedIn(LEE, [RA]));
+    await open('#/fleet', false); online();
+    const set = card('로봇 설정');
+    expect(set.hidden).toBe(true);
+    const opener = $<HTMLButtonElement>('[data-open-settings]')!;
+    act(() => opener.focus());
+    await click(opener);
+    expect(set.hidden).toBe(false);
+    expect(document.activeElement).toBe(set);
+    expect(set.querySelector('[data-manage]')).not.toBeNull();   // 이름·연결 끊기·지우기·담당 넘기기 = 기존 내 로봇 관리 그대로
+    const stop = $<HTMLButtonElement>('[data-stop]')!;
+    expect(stop.disabled).toBe(false); expect(stop.closest('[inert]')).toBeNull();
+    act(() => { set.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(set.hidden).toBe(true);
+    expect(document.activeElement).toBe(opener);
+    await click($('[data-open-guide]'));
+    expect(card('로봇 연결 방법').hidden).toBe(false);
+    expect(card('로봇 연결 방법').textContent).toContain(SERIAL);
+    await click(btn('닫기', card('로봇 연결 방법')));
+    expect(card('로봇 연결 방법').hidden).toBe(true);
   });
 });
 
@@ -385,7 +449,7 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     await click(btn('넘기기', card('담당 넘기기 확인')));
     expect(sent('PATCH', '/robots/r-a')).toHaveLength(1);
     await pickRobot('Go2-B');
-    expect(card('로봇 상태').textContent).toContain('Go2-B');   // 집중 화면: 이름은 상태 한 줄(상세 제목은 «상세»)
+    expect(card('로봇 연결 상태').textContent).toContain('Go2-B');   // 집중 화면: 이름은 머리(상세 제목은 «현재 임무»)
     expect($('[data-transferring]')).toBeNull();   // 다른 로봇은 잠그지 않음
     expect(btn('담당 넘기기', transfer())!.disabled).toBe(false);
     await pickRobot('Go2-A');

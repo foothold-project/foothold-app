@@ -56,7 +56,7 @@ const dash = (v: number | null, f: (x: number) => string) => (v == null ? '—' 
 export const deg = (rad: number | null) => dash(rad, (x) => `${((x * 180) / Math.PI).toFixed(1)}°`);
 
 /** 부호 붙인 도(«+1.2°»·«-0.4°»), 없으면 null */
-const sdeg = (rad: number | null) => { if (rad == null) return null; const t = ((rad * 180) / Math.PI).toFixed(1); return t === '-0.0' ? '+0.0°' : `${t.startsWith('-') ? '' : '+'}${t}°`; };
+export const sdeg = (rad: number | null) => { if (rad == null) return null; const t = ((rad * 180) / Math.PI).toFixed(1); return t === '-0.0' ? '+0.0°' : `${t.startsWith('-') ? '' : '+'}${t}°`; };
 /** 자세·상태 번호·넘어짐 추정 — 표시만(안전 판단 0). 상태 번호는 펌웨어마다 뜻이 달라 원값 그대로(0 만 «정상 범위») */
 export type Info = { roll: number | null; pitch: number | null; code: number | null; fallen: boolean | null };
 const flat = (x: Go2RobotInfo): Info => ({ roll: x.attitude?.roll ?? null, pitch: x.attitude?.pitch ?? null, code: x.error_code ?? null, fallen: x.fallen ?? null });

@@ -19,7 +19,7 @@ import { Terrain } from './screens/terrain';
 import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
 import { AdminFleet, OperatorRobot, realDash } from './screens/fleet';
-import { AddRobot, AssignOwner, ManageRobot } from './pairing';
+import { AddRobot, AssignOwner } from './pairing';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
@@ -176,7 +176,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
       c.refresh();
     });
   }, []);
-  const r = got ? withLive(toRobot(got)) : c.robot, hidden = r.unknown === 'summary', own = !r.sim && c.user.role !== 'ORG_ADMIN' && c.robot.owner === c.user.id;
+  const r = got ? withLive(toRobot(got)) : c.robot, hidden = r.unknown === 'summary';
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
   const broken = hidden ? [] : devices.filter((v) => v.state !== 'OK');
   // 서버 연결·로봇 연결·잠금은 서로 다른 값 — 한 줄에 따로 보인다(합치지 않음). 집중 화면(solo)은 위 상태 한 줄에 있어 여기선 뺀다
@@ -191,9 +191,8 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
     {!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}
     {/* 총괄: 담당 없는 실기에만 담당 지정(그 밖 실기 쓰기 없음 — 서버 403). 담당 운영(PC 웹): 내 로봇 관리 */}
     {c.user.role === 'ORG_ADMIN' && !r.sim && !c.robot.owner && <AssignOwner r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
-    {own && <ManageRobot r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
   </>;
-  const mission = solo ? <Line k="임무"><span data-mission>{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무 없음'}</span></Line>
+  const mission = solo ? <Line k="임무"><span data-mission>{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무가 없습니다'}</span></Line>
     : r.mission && <Line k="임무"><span>{r.mission}</span></Line>;
   useRelayExpiry(r.phoneRelay, r.phoneRelayAt);   // 폰 경유 값이 새 state 없이 낡아도 아래 묶음을 다시 고른다
   const info = pickInfo(r);   // 실기 Go2 자세·상태 번호·넘어짐 추정(표시만) — 배터리 옆, 시뮬은 숨김
@@ -210,16 +209,16 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
       : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
           <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} />{codeText(v)}</li>)}</ul>}</Line>
   </details>;
-  // 집중(solo)은 바로 위 상태 한 줄에 이름·상태가 있어 제목만 «상세»(남의 로봇 요약은 이름·상태 그대로)
+  // 집중(solo)은 위 머리에 이름·상태가 있어 제목만 «현재 임무»(남의 로봇 요약은 이름·상태 그대로)
   return <section className="lv-card fl-detail" aria-label="로봇 상세">
-    <div className="fh-row">{solo && !hidden ? <h2>상세</h2> : <><h2>{r.name}</h2><Chip {...robotStatus(r)} /><span className="lbl">{r.sim ? '시뮬' : '실기'}</span></>}
+    <div className="fh-row">{solo && !hidden ? <h2>현재 임무</h2> : <><h2>{r.name}</h2><Chip {...robotStatus(r)} /><span className="lbl">{r.sim ? '시뮬' : '실기'}</span></>}
       {close && <><span className="fh-grow" /><button type="button" className="btn" data-detail-close onClick={close}>닫기</button></>}</div>
     {!solo && <div className="fh-row" aria-label="연결·잠금" data-detail-links>
       <span className="lbl">서버</span><Chip {...server} /><span className="lbl">로봇</span><Chip {...robot} /><span className="lbl">잠금</span><Chip {...lock} /></div>}
     {broken.length > 0 && <p className="fh-msg" role="status" data-detail-alert>▲ 장치 문제: {broken.map((v) => `${v.label} ${(DEVICE[v.state] ?? DEVICE.ERROR).text}`).join(', ')}</p>}
-    {/* 집중(solo, 운영 관리자): 임무 진행 → 배터리·장치 → 최근 사건 → 담당·관리. 서랍(총괄): 담당·관리 → 조종권자 → 임무·배터리 → 사건 → 장치(접힘) */}
-    {/* 집중: 담당·관리를 기록보다 앞에 — 기록이 늘어도 할 일이 밀려 내려가지 않게 */}
-    {solo ? <>{mission}{battery}<h3 className="lbl" style={{ margin: 0 }}>담당·관리</h3>{manage}{assign}{more}{events}</>
+    {/* 서랍(총괄): 담당·관리 → 조종권자 → 임무·배터리 → 사건 → 장치(접힘) */}
+    {/* 집중(solo, 운영 관리자 PC): 이름·담당은 머리, 배터리·자세·위치는 «로봇 상태», 이름·담당 넘기기·연결 끊기·지우기는 «로봇 설정» 창(screens/fleet.tsx) — 여기는 임무·주의·배정·장치·사건 */}
+    {solo ? <>{mission}{!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}{hidden && <>{manage}{battery}</>}{assign}{more}{events}</>
       : <>{manage}<Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>{mission}{battery}{assign}{events}{more}</>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </section>;

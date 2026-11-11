@@ -78,6 +78,9 @@ const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => act(() =
 });
 const submit = async (form: Element) => { act(() => { (form as HTMLFormElement).requestSubmit(); }); await flush(); };
 const kpi = () => Object.fromEntries([...card('요약').querySelectorAll('div')].map((d) => [d.firstElementChild!.textContent, d.querySelector('b')!.textContent]));
+/** 운영 관리자 집중 화면 «로봇 상태»(배터리·본체 자세·현재 위치 — 11-11 시안): 큰 값 / 작은 설명 */
+const tele = (k: 'battery' | 'pose' | 'where') => $(`[aria-label="로봇 상태"] [data-tele="${k}"]`)!;
+const big = (k: 'battery' | 'pose' | 'where') => tele(k).querySelector('b')!.textContent, small = (k: 'battery' | 'pose' | 'where') => tele(k).querySelector('small')?.textContent ?? '';
 const line = (k: string) => [...card('로봇 상세').querySelectorAll('.fh-row')].find((d) => d.firstElementChild?.textContent === k)!.lastElementChild!.textContent;
 /** 총괄 서랍 열기 — 고른 행을 다시 누름 */
 const drawer = () => click(card('로봇 목록').querySelector('button[aria-pressed="true"]'));
@@ -105,13 +108,14 @@ it('keeps relay battery and devices separate from direct status in list and deta
   await open('#/fleet');
   const w = FakeWS.last;
   act(() => { w.open(); w.recv(state('r-a', { battery: { soc: 64, updated_at: AT }, phone_relay: relay })); });
-  expect(line('배터리')).toBe('64%');
+  expect(big('battery')).toBe('64%');
   expect(card('로봇 상세').querySelector('[aria-label="폰 경유 상태"]')!.textContent).toContain('75%');
   expect(row('Go2-A').textContent).toContain('폰 경유 · 0초 전');
   act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null,
     devices: [], latched: null, stop_gen: null, applied: null, phone_relay: relay })));
   expect(row('Go2-A').textContent).toContain('끊김');
-  expect(line('배터리')).toBe('64%');
+  expect(big('battery')).toBe('64%');
+  expect(small('battery')).toBe('마지막 수신값');
   expect(card('로봇 상세').querySelector('[aria-label="폰 경유 상태"]')!.textContent).toContain('폰이 전한 라이다');
   expect(rt.get('r-a').state?.devices).toEqual([]);
 });
@@ -122,22 +126,19 @@ it('실기 robot_info: 상세 배터리 옆 자세·상태 번호·넘어짐 추
   await open('#/fleet');
   const w = FakeWS.last;
   act(() => { w.open(); w.recv(state('r-a', { robot_info: { ...ri, fallen: false } })); });
-  expect(line('자세')).toBe('roll +1.0° · pitch -30.0°');
-  expect(line('상태 번호')).toBe('100');
-  expect(line('넘어짐 추정')).toBe('아님');
+  expect(small('pose')).toBe('roll +1.0° · pitch -30.0° · 상태 번호 100');
+  expect(big('pose')).toBe('넘어지지 않음');
   expect(row('Go2-A').querySelector('[data-fall-chip]')).toBeNull();
   // 남의 로봇(요약만)은 서버 값이 있어도 «확인 안 됨» — 목록 Chip 도 없음
   expect($('[aria-label="다른 로봇"] [data-fall-chip]')).toBeNull();
   act(() => w.recv(state('r-a', { robot_info: ri })));
-  expect(card('로봇 상세').querySelector('[data-robot-fallen] [data-tone="warn"]')!.textContent).toBe('▲의심(기울기 추정)');
+  expect(tele('pose').querySelector('[data-tone="warn"]')!.textContent).toBe('▲넘어짐 의심');
   // 끊김 + 폰 경유 robot_info → 폰 경유 라벨
   const relay = { source: 'PHONE' as const, age_s: .1, valid_for_s: 2.9, battery: null, speed: null, devices: [], robot_info: { ...ri, error_code: 0, fallen: false } };
   act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, devices: [], latched: null, stop_gen: null, applied: null, robot_info: null, phone_relay: relay })));
-  expect(line('자세')).toBe('폰 경유');
-  expect(card('로봇 상세').querySelector('[data-robot-info]')!.getAttribute('data-robot-info')).toBe('phone');
-  expect(line('상태 번호')).toBe('0(정상 범위)');
+  expect(small('pose')).toBe('roll +1.0° · pitch -30.0° · 상태 번호 0(정상 범위) · 폰 경유');   // 끊겨도 폰 경유 값은 신선할 때만 — «마지막 수신값» 아님
   act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, devices: [], latched: null, stop_gen: null, applied: null, robot_info: null, phone_relay: null })));
-  expect(line('상태 번호')).toBe('모름(끊김)');
+  expect([big('pose'), small('pose')]).toEqual(['—', '모름(끊김)']);
 });
 
 describe('관제 요약 = GET /dashboard(05 §4)', () => {
@@ -304,7 +305,8 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     await act(async () => late());
     await flush();
     expect(sent('GET', '/robots/r-b')).toHaveLength(2);
-    expect(line('담당')).toBe('이운영');
+    expect(card('로봇 연결 상태').textContent).toContain('담당 이운영');   // 내 로봇 집중 화면: 담당은 머리(11-11 시안)
+    expect(card('로봇 상세').textContent).not.toContain('박운영');
   });
   it('상세 404 → «찾을 수 없음» + 목록 다시 받기, 그 밖 실패는 이유', async () => {
     serve(signedIn(KIM, [RA], { 'GET /robots/r-a': err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.') }));
@@ -449,13 +451,13 @@ describe('sub 404(apps/server README «S0» — 등록·담당 변경 직후 서
     await flush();
     expect(subs(w)).toEqual([['r-a'], ['r-a', 'r-b'], ['r-a', 'r-b']]);   // 거절 → 목록 한 번 다시 받고 다시 sub → 또 거절이면 멈춤
     expect(lists()).toBe(n + 2);
-    expect(card('로봇 상태').textContent).toContain('Go2-A');
+    expect(card('로봇 연결 상태').textContent).toContain('Go2-A');
     expect($('[aria-label="로봇 없음"]')).toBeNull();
     expect($('[data-missed]')!.textContent).toContain('실시간 상태를 받을 수 없는 로봇이 있습니다');
     expect($('[data-missed]')!.textContent).toContain('다음 목록 갱신 때 다시 확인합니다.');
     expect($('header [data-link]')).toBeNull();            // 연결은 그대로
     act(() => w.recv(state('r-a', { battery: { soc: 33, updated_at: AT } })));
-    expect(line('배터리')).toBe('33%');                     // 고른 내 로봇(Go2-A) 상세
+    expect(big('battery')).toBe('33%');                     // 고른 내 로봇(Go2-A) «로봇 상태»
     expect(row('Go2-B').textContent).toContain('확인 안 됨');
     w.auto = () => ({ ok: true });                         // 서버 정책이 따라잡음 → 다음 목록 갱신에 다시 구독
     act(() => { vi.advanceTimersByTime(10_000); });
