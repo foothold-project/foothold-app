@@ -3,7 +3,8 @@
 // node mobile/scripts/zone-selftest.mjs   (화면·안내 줄·받기 실패 화면은 zone-headless.mjs)
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { BODY_MARGIN, PLAN_MARGIN, ZONE_STOP, loadZoneGrid, addZonePage, zoneIndex, zoneCenter, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneQuads } from '../sim/zones.js';
+import { BODY_MARGIN, PLAN_MARGIN, ZONE_STOP, loadZoneGrid, addZonePage, zoneIndex, zoneCenter, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneLimit, zoneQuads } from '../sim/zones.js';
+import { slewCommand, START_COMMAND_SLEW } from '../sim/keyboard-ramp.js';
 import { CLEARANCE, SNAP, fits, findPath, planRoute, visible, inflate } from '../sim/astar.js';
 import { createScenarioRunner } from '../sim/scenario.js';
 
@@ -210,6 +211,62 @@ for (const c of fixture.cases) {
   assert.equal(guardCommand(layer, m, 1.9, 2, 0, [1.5, 0, 0]).blocked, false, '감속 구역은 들어갈 수 있다');
   assert.equal(zoneQuads(layer, m, 'slow', false).length, 800);
   assert.equal(zoneQuads(layer, m, 'slow', true).length, 2 * 40 + 2 * 18, '테두리 = 구역 가장자리 칸(지도 끝에 닿은 줄 포함)');
+}
+// 8) 돌아간·촘촘한 구역 격자: 구역 칸이 닿는 시뮬 칸은 하나도 빠지지 않는다(넓게 잡는 쪽은 괜찮다) — 검토 P1-1 재현
+{
+  // 재현: 시뮬·구역 10x10·0.05 m, 구역 원점이 45° 돌아 금지 한 칸(마름모)이 시뮬 칸 모서리 표본 사이에 들어감
+  const m = simMap(10, 10, 0.05);
+  const g = addZonePage(null, page({ origin: [0.225, 0.18964466094, Math.PI / 4], resolution: 0.05, width: 10, height: 10, cells: [{ index: 90, no_go: true, slow: false, max_speed_mps: null }] }), ID);
+  const layer = zoneLayer(m, g);
+  assert.ok(layer, '돌아간 금지 한 칸을 놓치지 않는다');
+  const mid = zoneCenter(g, 90);
+  assert.equal(layer.noGo[cellOf(m, mid)], 1);
+  assert.deepEqual(guardCommand(layer, m, 0.1, 0.225, 0, [0.5, 0, 0]), { cmd: [0, 0, 0], blocked: true }, '손 명령이 들어가지 못한다');
+  m.zones = layer;
+  assert.equal(await findPath(m, { x: 0.1, y: 0.225 }, { x: 0.4, y: 0.225 }), null, 'A* 가 금지 칸을 직선으로 지나지 않는다');
+  // 임의 각도·원점·칸 크기(구역 5 cm vs 시뮬 10 cm·3 cm): 구역 칸 안의 촘촘한 점이 놓인 시뮬 칸은 모두 칠해져 있다
+  for (const [res, yaw] of [[0.1, 0], [0.1, 0.3], [0.1, Math.PI / 4], [0.1, -2.1], [0.03, 0.3], [0.03, Math.PI / 2], [0.05, 1]]) {
+    const sm = simMap(Math.round(3 / res), Math.round(3 / res), res, [-0.37, 0.21, 0]);
+    const cells = [{ index: 7 * 20 + 9, no_go: true, slow: false, max_speed_mps: null }, { index: 12 * 20 + 4, no_go: false, slow: true, max_speed_mps: 0.4 }];
+    const zg = addZonePage(null, page({ origin: [1.13 - 0.5 * Math.cos(yaw) + 0.5 * Math.sin(yaw), 1.71 - 0.5 * Math.sin(yaw) - 0.5 * Math.cos(yaw), yaw], resolution: 0.05, width: 20, height: 20, cells }), ID);
+    const l = zoneLayer(sm, zg);
+    assert.ok(l, `yaw ${yaw} res ${res}`);
+    for (const [k, c] of cells.entries()) {
+      const col = c.index % 20, row = Math.floor(c.index / 20), [ox, oy] = zg.origin;
+      for (let a = 0; a <= 20; a++) for (let b = 0; b <= 20; b++) {
+        const lx = (col + 0.001 + 0.998 * a / 20) * 0.05, ly = (20 - 1 - row + 0.001 + 0.998 * b / 20) * 0.05;
+        const p = { x: ox + Math.cos(yaw) * lx - Math.sin(yaw) * ly, y: oy + Math.sin(yaw) * lx + Math.cos(yaw) * ly };
+        assert.equal(zoneIndex(zg, p.x, p.y), c.index);
+        const i = cellOf(sm, p);
+        assert.equal(k ? l.slow[i] || l.noGo[i] : l.noGo[i], 1, `yaw ${yaw} res ${res} 칸 ${c.index} 점 (${p.x.toFixed(3)}, ${p.y.toFixed(3)}) 놓침`);
+        if (k && !l.noGo[i]) assert.ok(Math.abs(l.cap[i] - 0.4) < 1e-6);
+      }
+    }
+    assert.ok(on(l.noGo).length <= (res < 0.05 ? 16 : 9), '넓게 잡아도 둘러싼 상자까지만');
+  }
+}
+
+// 9) 가감속(slew) 뒤 최종 명령: 감속 상한·금지 0 이 이전 속도 쪽으로 되살아나지 않는다 — 검토 P1-2 재현(START 모델 가감속 값)
+{
+  const m = simMap(60, 40), dt = 0.02, cells = [];
+  for (let r = 0; r < 40; r++) for (let c = 10; c < 30; c++) cells.push({ index: r * 60 + c, no_go: false, slow: true, max_speed_mps: 0.3 });
+  for (let r = 0; r < 40; r++) for (let c = 40; c < 50; c++) cells.push({ index: r * 60 + c, no_go: true, slow: false, max_speed_mps: null });
+  const layer = zoneLayer(m, addZonePage(null, page({ origin: [0, 0, 0], resolution: 0.1, width: 60, height: 40, cells }), ID));
+  // main.js prepare 와 같은 순서: 구역 제한 → slew → 구역 제한(최종)
+  const step = (x, prev, joy, guard = true) => {
+    const slewed = slewCommand(prev, zoneLimit(layer, m, x, 2, 0, joy, guard).cmd, dt, START_COMMAND_SLEW);
+    return { slewed, final: zoneLimit(layer, m, x, 2, 0, slewed, guard) };
+  };
+  const slow = step(2, [1.5, 0, 0], [1.5, 0, 0]);
+  assert.ok(Math.abs(slow.slewed[0] - 1.425) < 1e-9, '가감속만 거치면 1.425 로 되살아난다(고치기 전 최종 값)');
+  assert.ok(Math.abs(slow.final.cmd[0] - 0.3) < 1e-6, '최종 명령은 감속 상한 0.3');
+  assert.ok(Math.abs(step(2, [1.5, 0, 0], [1.5, 0, 0], false).final.cmd[0] - 0.3) < 1e-6, '자동 이동(금지 검사는 실행기가 함)도 최종 상한');
+  const stop = step(3.7, [1.5, 0, 0.5], [1.5, 0, 0.5]);
+  assert.ok(stop.slewed[0] > 1.4, '가감속만 거치면 금지 0 이 되살아난다');
+  assert.deepEqual([stop.final.cmd[0], stop.final.cmd[1], stop.final.blocked], [0, 0, true], '최종 명령은 금지 구역 앞 이동 0');
+  assert.equal(stop.final.cmd[2], stop.slewed[2], '제자리 회전은 가감속 그대로');
+  const free = [1.2, 0.1, 0.3], out = zoneLimit(layer, m, 0.3, 2, Math.PI, free);
+  assert.equal(out.cmd, free, '구역 밖·멀어지는 명령은 그대로'); assert.equal(zoneLimit(null, m, 2, 2, 0, free).cmd, free, '구역 없으면 가감속 결과 그대로');
 }
 assert.equal(BODY_MARGIN, 0.4); assert.equal(PLAN_MARGIN, 0.4 + CLEARANCE);
 console.log('zone-selftest ok');

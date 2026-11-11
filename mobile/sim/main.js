@@ -22,7 +22,7 @@ import { createKeyboardRamp, slewCommand } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, replayRequirement } from './go2-replay.js';
 import { loadCustomTerrain } from './terrain/index.js';
-import { loadZoneGrid, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneQuads, ZONE_STOP } from './zones.js';
+import { loadZoneGrid, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneLimit, zoneQuads, ZONE_STOP } from './zones.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
@@ -1074,6 +1074,12 @@ async function main() {
       // All start hand/goal commands share one ramp. STOP remains immediate.
       if (adapter.command.slew && adapter.command.kind === 'body_velocity' && !patrol.active) {
         sim.cmd = stopped ? neutral() : slewCommand(lastCmd, sim.cmd, POLICY_DT, adapter.command.slew);
+        // 구역 제한은 정책에 들어가는 최종 명령에: 가감속이 감속 상한·금지 0 을 이전 값 쪽으로 되살리지 못하게 한 번 더 건다
+        if (map.zones && !stopped) {
+          const g = zoneLimit(map.zones, map, d.qpos[0], d.qpos[1], yawOf(), sim.cmd, !runner.active);
+          if (g.blocked) zoneBlockedAt = performance.now();
+          sim.cmd = g.cmd;
+        }
         lastCmd = sim.cmd.slice();
       }
       skipLockedDecision = epoch !== startEpoch;

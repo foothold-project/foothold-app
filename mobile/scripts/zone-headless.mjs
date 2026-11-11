@@ -155,6 +155,32 @@ try {
       console.log('AME-2: 미지원 안내 확인');
     }
   }
+  // 7) 가감속이 있는 모델(start): 최종 명령이 감속 상한을 넘지 않고, 금지 구역 앞 0 이 되살아나지 않는다(묶음에 모델이 없으면 건너뜀)
+  {
+    const probe = await open(START), has = await probe.evaluate(() => { const o = [...document.getElementById('policySelect').options].find((x) => x.value === 'start-demo'); return !!o && !o.disabled; });
+    await probe.close();
+    if (!has) console.log('start 모델이 묶음에 없어 가감속 경로 화면 시험은 건너뜀');
+    else {
+      const page = await open(`${START}&policy=start-demo&zones=${OK}`);
+      await page.click('#go'); await page.keyboard.down('ArrowUp');
+      let inSlow = 0, over = 0, max = 0, s, blocked = 0, revived = 0;
+      for (let k = 0; k < 2400 && blocked < 20; k++) {
+        s = await state(page);
+        if (s.x > SLOW[0] + 0.1 && s.x < SLOW[2] - 0.05) { inSlow++; if (Math.hypot(s.cmd[0], s.cmd[1]) > 0.5 + 1e-6) over++; }
+        if (s.x < SLOW[0] - 0.1) max = Math.max(max, s.cmd[0]);
+        if (blocked || (s.cmd[0] === 0 && /접근 금지 구역입니다/.test(s.note))) { blocked++; if (s.cmd[0] !== 0) revived++; }
+        await page.waitForTimeout(25);
+      }
+      await page.keyboard.up('ArrowUp');
+      assert.ok(max > 0.5, `감속 구역 앞에서는 상한보다 빠르게 달렸다(최고 ${max.toFixed(2)}) — 되살아날 속도가 있었음`);
+      assert.ok(inSlow > 0 && over === 0, `start: 감속 구역 안 최종 명령 ≤ 0.5 (본 횟수 ${inSlow}, 넘은 횟수 ${over})`);
+      assert.ok(blocked >= 20 && revived === 0, `start: 금지 구역 앞 이동 0 유지 (본 횟수 ${blocked}, 되살아난 횟수 ${revived})`);
+      s = await state(page);
+      assert.ok(NO_GO[0] - s.x >= BODY_MARGIN - 0.1, `start: 멈춘 자리 x=${s.x.toFixed(2)}`);
+      console.log(`start(가감속): 구역 앞 최고 ${max.toFixed(2)} → 감속 구역 안 ${inSlow}회 모두 ≤ 0.5, x=${s.x.toFixed(2)} 에서 멈춤·0 유지 ${blocked}회`);
+      await page.close();
+    }
+  }
   assert.deepEqual(errors, []);
   console.log('zone-headless ok');
 } finally { await browser?.close(); server.close(); }

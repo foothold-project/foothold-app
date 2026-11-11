@@ -76,18 +76,30 @@ const mapIndex = (map, x, y) => {
 export function zoneLayer(map, grid) {
   if (!grid?.count) return null;
   const { w, h, res } = map, N = w * h, noGo = new Uint8Array(N), slow = new Uint8Array(N), cap = new Float32Array(N).fill(Infinity);
-  // 시뮬 칸 안을 구역 칸 크기보다 촘촘하게 찍어 본다(두 격자의 원점·해상도가 달라도 닿은 칸을 놓치지 않게).
-  // ponytail: 돌아간(yaw) 구역 격자는 표본 사이로 모서리만 스치는 칸을 놓칠 수 있다 — 몸체 여유가 덮는다. 정확히 하려면 칸 사각형끼리 겹침 검사
-  const n = Math.max(2, Math.ceil(res / grid.res) + 1), e = 1e-6;
-  let any = false, hasSlow = false;
-  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
-    const i = r * w + c;
-    for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
-      const z = zoneIndex(grid, map.origin[0] + (c + e + (1 - 2 * e) * a / (n - 1)) * res, map.origin[1] + (h - 1 - r + e + (1 - 2 * e) * b / (n - 1)) * res);
-      if (z < 0 || !grid.flag[z]) continue;
-      if (grid.flag[z] & 1) noGo[i] = 1;
-      if (grid.flag[z] & 2) { slow[i] = 1; if (grid.cap[z] < cap[i]) cap[i] = grid.cap[z]; }
+  // 구역 칸(돌아간 사각형)을 둘러싼 축 정렬 상자에 닿는 시뮬 칸을 모두 칠한다 — 원점·해상도·yaw 가 달라도 닿은 칸을 놓치지 않는다.
+  // ponytail: 돌아간 칸은 상자가 실제보다 넓어 모서리 옆 칸까지 칠한다(넓게 잡는 쪽). 딱 맞추려면 사각형끼리 겹침 검사
+  const [ox, oy, yaw] = grid.origin, c0 = Math.cos(yaw), s0 = Math.sin(yaw), e = 1e-6;   // e: 변만 맞닿은 이웃 칸은 빼기
+  const clamp = (v, hi) => Math.max(0, Math.min(hi, v));
+  for (let z = 0; z < grid.flag.length; z++) {
+    const f = grid.flag[z];
+    if (!f) continue;
+    const lx = (z % grid.w) * grid.res, ly = (grid.h - 1 - Math.floor(z / grid.w)) * grid.res;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [u, v] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const px = lx + u * grid.res, py = ly + v * grid.res, x = ox + c0 * px - s0 * py, y = oy + s0 * px + c0 * py;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
     }
+    if (x1 - e < map.origin[0] || y1 - e < map.origin[1] || x0 + e >= map.origin[0] + w * res || y0 + e >= map.origin[1] + h * res) continue;   // 지도 밖
+    const ca = clamp(Math.floor((x0 + e - map.origin[0]) / res), w - 1), cb = clamp(Math.floor((x1 - e - map.origin[0]) / res), w - 1);
+    const ra = clamp(h - 1 - Math.floor((y1 - e - map.origin[1]) / res), h - 1), rb = clamp(h - 1 - Math.floor((y0 + e - map.origin[1]) / res), h - 1);
+    for (let r = ra; r <= rb; r++) for (let c = ca; c <= cb; c++) {
+      const i = r * w + c;
+      if (f & 1) noGo[i] = 1;
+      if (f & 2) { slow[i] = 1; if (grid.cap[z] < cap[i]) cap[i] = grid.cap[z]; }
+    }
+  }
+  let any = false, hasSlow = false;
+  for (let i = 0; i < N; i++) {
     if (noGo[i]) { slow[i] = 0; cap[i] = Infinity; }
     any ||= !!(noGo[i] || slow[i]); hasSlow ||= !!slow[i];
   }
@@ -161,6 +173,14 @@ export function zoneSpeed(layer, map, x, y) {
 export function capCommand(cmd, cap) {
   const speed = Math.hypot(cmd[0], cmd[1]);
   return speed > cap ? [cmd[0] * cap / speed, cmd[1] * cap / speed, cmd[2]] : cmd;
+}
+
+/** 정책에 들어가는 «최종» 속도 명령에 거는 구역 제한: 그 칸의 감속 상한 → (guard 면) 금지 구역 진입 0.
+ *  가감속(slew) 뒤에 반드시 한 번 더 건다 — slew 가 줄인 명령을 이전 값 쪽으로 되살리기 때문 */
+export function zoneLimit(layer, map, x, y, yaw, cmd, guard = true) {
+  if (!layer) return { cmd, blocked: false };
+  const capped = capCommand(cmd, zoneSpeed(layer, map, x, y).cap);
+  return guard ? guardCommand(layer, map, x, y, yaw, capped) : { cmd: capped, blocked: false };
 }
 
 /** 그리기용: 구역 칸의 사각형들 — kind 'noGo'|'slow', edge = 테두리 칸만. 돌려주는 것 [x0, y0, x1, y1, 칸 번호][] */
