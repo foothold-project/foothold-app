@@ -1,11 +1,11 @@
 // 지도 편집(01 MP-03·05·06·AP-01, 02 F-MP-03, 03 §5.6, 05 §5 — S3a features·S4a). 편집 시작 때 승인 판 위에서 고쳐 새 판으로 저장한다 — 누구나 바로 승인 판(10-27 결재 없음).
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
 // 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx.
-// 틀(mapscen.tsx): 왼쪽 아이콘 도구줄 | 지도 | 오른쪽 요소 창(목록 ↔ 고른 요소 속성). 저장은 단추 줄 «새 판으로 저장…» → 바꾼 이유 창.
+// 틀(mapscen.tsx): 왼쪽 아이콘 도구줄 | 지도 | 오른쪽 요소 창(목록 ↔ 고른 요소 속성). 저장은 단추 줄 «저장» → 바꾼 이유 창(→ 시나리오 동선과 겹치면 물음, RB-ZONE-WEB 11-12).
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
-import { ApiFail, api } from '../api';
+import { ApiFail, api, type ZoneOverlaps } from '../api';
 import { MapFrame, MapImage, toView } from '../mapframe';
 import { leaving } from '../menu';
 import { EDIT, KIND, Note, Shapes, ZONE, canon, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
@@ -32,6 +32,12 @@ export function inside(v: Geo, x: number, y: number) {
 }
 
 export const VERTEX_MAX = 4096;
+/** 감속 구역 최고 속도(m/s) 범위·새 감속 구역의 기본 제안 — 서버 MapZone.max_speed_mps 와 같게 */
+export const SPEED = { min: 0.3, max: 1.5, dflt: 0.3 } as const;
+/** 저장에 보낼 모양: 접근 금지 구역에는 속도 키를 보내지 않고, 감속 구역의 빈 값(null)도 키 없이(= 값 없음) */
+export const clean = (f: MapFeatures): MapFeatures => ({ ...f, zones: f.zones.map((z) => { if (z.type === 'SLOW' && z.max_speed_mps != null) return z; const { max_speed_mps: _, ...x } = z; return x; }) });
+/** 겹침 한 줄: 시나리오 이름 — 지점이 구역 안 · 길이 구역을 지남 */
+export const overlapText = (x: ZoneOverlaps['scenarios'][number]) => `${x.scenario_name} — ${[x.hits.some((h) => h.kind === 'POINT') && '지점이 구역 안', x.hits.some((h) => h.kind === 'SEGMENT') && '길이 구역을 지남'].filter(Boolean).join(' · ')}`;
 const CAP = { zones: 256, waypoints: 1000, connectors: 256, edits: 256 } as const;   // 계약(apps/contracts MapFeatures) 상한
 const WHAT = { zones: '구역', waypoints: '지점', connectors: '연결점', edits: '지우개·벽 선' } as const;
 type Group = keyof typeof CAP;
@@ -65,6 +71,8 @@ export function check(f: MapFeatures, v: Geo, pairs?: string[]): Bad | null {
     if (distinct(pg) !== pg.length) return { path: `${at}.polygon`, text: '같은 자리에 점이 두 번 찍혔습니다. 구역을 지우고 다시 그리세요.' };
     const o = out(pg, `${at}.polygon`); if (o) return o;
     if (Math.abs(pg.reduce((a, q, k) => a + orient([0, 0], q, pg[(k + 1) % pg.length]), 0)) < 1e-10) return { path: `${at}.polygon`, text: '구역 넓이가 0입니다(점이 한 줄). 다시 그리세요.' };
+    const sp = z.type === 'SLOW' ? z.max_speed_mps : null;   // 접근 금지 구역의 값은 저장 때 뺀다(clean)
+    if (sp != null && !(sp >= SPEED.min && sp <= SPEED.max)) return { path: `${at}.max_speed_mps`, text: `최고 속도는 ${SPEED.min}~${SPEED.max} m/s 사이로 입력하세요.` };
     for (let a = 0; a < pg.length; a++) for (let b = a + 2; b < pg.length; b++) {
       if (a === 0 && b === pg.length - 1) continue;   // 이웃 변
       if (cross(pg[a], pg[(a + 1) % pg.length], pg[b], pg[(b + 1) % pg.length])) return { path: `${at}.polygon`, text: '구역의 변이 서로 엇갈립니다. 둘레를 따라 차례로 찍어 다시 그리세요.' };
@@ -124,7 +132,7 @@ function saveFail(e: ApiFail) {
 
 // 지우개·지점 도구는 뺐다(11-04) — 이미 저장된 지우개 선·지점은 고르기 도구로 그대로 고치고 저장에도 남는다
 type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'connector' | 'WALL';
-const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['connector', '연결점'], ['WALL', '벽']];
+const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '접근 금지'], ['SLOW', '감속'], ['connector', '연결점'], ['WALL', '벽']];
 const EMPTY: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
 const MIN_BOX = 8;   // 화면 px — 이보다 작은 끌기(그냥 누름 포함)는 구역을 만들지 않는다
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;   // 같은 무리 안에서만 달라야 함(서버 검사)
@@ -133,14 +141,15 @@ const pointsOf = (x: Item): P[] => ('polygon' in x ? x.polygon : 'polyline' in x
 /** 저장하지 않은 편집 — 폰 틀로 바뀌어 지도 탭이 내려가도 남겨 PC 로 돌아오면 이어 쓴다(B3). 나가기 확인·저장·로그아웃 때 비운다 */
 type Draft = { floor: string; base: MapVersion; f: MapFeatures; dirty: boolean; pts: P[]; tool: Tool; dots: boolean; width: number; reason: string };
 /** 보낸 저장 요청(B5) — 기다리는 사이 폰 틀로 내려갔다 돌아와도 같은 층·같은 기준 판 편집이 잠금·결과를 이어받는다 */
-type Job = { floor: string; base: string; wait: Promise<void>; done?: { ok: MapVersion } | { fail: ApiFail } };
+type Job = { floor: string; base: string; go?: string; wait: Promise<void>; done?: { ok: MapVersion } | { fail: ApiFail } };
 export const kept: { d: Draft | null; job: Job | null } = { d: null, job: null };
 addEventListener('beforeunload', (e) => { if (kept.d) { e.preventDefault(); e.returnValue = ''; } });
 const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다. «새로 불러오기»를 누르면 지금 편집 내용을 잃습니다.';
 
 /** 편집. v = 편집 시작 때 승인 판(저장 기준·그림), p = 그 층. saved = 새 판, quit = 보기로, recheck = 판 목록·나무 다시 받기
+ *  toScen = 겹침 물음에 «예» → 저장한 뒤 시뮬 탭의 그 시나리오 편집으로
  *  moved = 남겨 둔 편집을 이어 쓰는데 그 사이 승인 판이 바뀜 → STALE 과 같은 안내 */
-export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: picker, name, foot }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean; slot?: HTMLElement | null;
+export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot, pick: picker, name, foot }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; toScen?: (scenario: string) => void; quit: () => void; recheck: () => void; moved?: boolean; slot?: HTMLElement | null;
   pick?: (n: number) => ReactNode; name?: string; foot?: ReactNode }) {
   const [k] = useState(() => (kept.d?.floor === p.floor.id && kept.d.base.id === v.id ? kept.d : null));
   const [f, setF] = useState<MapFeatures>(() => k?.f ?? JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
@@ -153,8 +162,10 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
   // 지운 요소 되돌리기 한 번 — after = 지운 직후 요소(그 뒤 다른 편집이 생기면 사라진다), open = 오른쪽 요소 창 펼침
   const [undo, setUndo] = useState<{ text: string; f: MapFeatures; after: MapFeatures } | null>(null), [open, setOpen] = useState(true);
   // 저장 중에는 편집을 모두 막는다 — 캔버스 누름·끌기·그리기와 모든 고치기(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로
-  const lock = busy;
-  const [saving, setSaving] = useState(false);   // 바꾼 이유 창(단추 줄 «새 판으로 저장…»)
+  // over = 저장 직전 겹침 검사 결과(겹치는 시나리오 목록, null = 검사 실패) — 저장 창 안에서 묻는다. checking = 검사 중(편집 잠금)
+  const [over, setOver] = useState<{ list: ZoneOverlaps['scenarios'] | null } | null>(null), [checking, setChecking] = useState(false);
+  const lock = busy || checking;
+  const [saving, setSaving] = useState(false);   // 바꾼 이유 창(단추 줄 «저장»)
   useEffect(() => { if (lock) { drag.current = null; rect.current = null; setBox(null); } }, [lock]);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
   const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'WALL';
@@ -176,7 +187,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     if (kept.job === j) kept.job = null;
     setBusy(false);
     const d = j.done!;
-    if ('ok' in d) { leaving.ask = null; left.current = true; saved(d.ok); return; }
+    if ('ok' in d) { leaving.ask = null; left.current = true; saved(d.ok); if (j.go && d.ok.status !== 'PENDING') toScen?.(j.go); return; }
     const x = d.fail;
     if (x.code === 'CANCELED') return;
     // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 편집 내용은 그대로 둔다. 목록을 다시 받아 보인다(다시 저장하면 승인 판이 바뀌어 STALE 로 막힘)
@@ -277,7 +288,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
 
   /** 구역 하나 더하기 — 그 하나를 바로 검사해 걸리면 더하지 않고 알린다(더하면 true) */
   const addZone = (polygon: P[]) => {
-    const t = tool as MapZone['type'], z: MapZone = { id: newId(), type: t, name: `${ZONE[t].text} ${f.zones.filter((x) => x.type === t).length + 1}`, polygon };
+    const t = tool as MapZone['type'], z: MapZone = { id: newId(), type: t, name: `${ZONE[t].text} ${f.zones.filter((x) => x.type === t).length + 1}`, polygon, ...(t === 'SLOW' && { max_speed_mps: SPEED.dflt }) };
     const b = check({ ...EMPTY, zones: [z] }, v);
     if (b) { setMsg({ text: b.text }); return false; }
     add('zones', z);
@@ -308,13 +319,22 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     if (b) return toBad(b);
     const why = reasonBad(reason, '바꾼 이유');
     if (why) return setMsg({ text: why });
-    send();
+    // 겹침은 이번 편집으로 새로 생기거나 모양·종류가 바뀐 접근 금지 구역만 묻는다 — 벽·지점·연결점·감속 값만 바꾼 저장은 그대로 저장(원래 있던 구역의 겹침으로 막지 않는다)
+    const was = new Set(v.features.zones.filter((z) => z.type === 'NO_GO').map((z) => JSON.stringify(z.polygon)));
+    const fresh = new Set(f.zones.filter((z) => z.type === 'NO_GO' && !was.has(JSON.stringify(z.polygon))).map((z) => z.id));
+    if (!fresh.size) return send();
+    // 저장 직전: 그 구역과 동선이 겹치는 시나리오가 있으면 묻는다. 검사를 못 해도 저장은 막지 않는다 — 알리고 고르게
+    setChecking(true); setMsg(null); setOver(null);
+    api.zoneOverlaps(p.floor.id, clean(f), cancel).then((r) => { if (!Array.isArray(r?.scenarios)) throw new ApiFail(0, 'BAD_BODY', '');
+      return r.scenarios.map((x) => ({ ...x, hits: (x.hits ?? []).filter((h) => fresh.has(h.zone_id)) })).filter((x) => x.hits.length); })
+      .then((l) => { if (!alive.current) return; setChecking(false); if (l.length) setOver({ list: l }); else send(); },
+        (e: ApiFail) => { if (!alive.current || e.code === 'CANCELED') return; setChecking(false); setOver({ list: null }); });
   };
-  /** 보내기(저장) — 보낸 뒤엔 편집이 잠겨 있어 보낸 내용 그대로 */
-  const send = () => {
-    setBusy(true); setMsg(null); setBad(null); setStale(false);
-    const j: Job = { floor: p.floor.id, base: v.id, wait: Promise.resolve() };
-    j.wait = api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: f, reason: reason.trim() }, cancel).then(shape(isVersion))   // 빈·어긋난 201 = 저장 불확실(status 0)
+  /** 보내기(저장) — 보낸 뒤엔 편집이 잠겨 있어 보낸 내용 그대로. go = 저장한 뒤 열 시나리오(겹침 물음 «예») */
+  const send = (go?: string) => {
+    setBusy(true); setMsg(null); setBad(null); setStale(false); setOver(null);
+    const j: Job = { floor: p.floor.id, base: v.id, go, wait: Promise.resolve() };
+    j.wait = api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: clean(f), reason: reason.trim() }, cancel).then(shape(isVersion))   // 빈·어긋난 201 = 저장 불확실(status 0)
       .then((x) => { j.done = { ok: x }; }, (y) => { j.done = { fail: y as ApiFail }; });
     kept.job = j;
     follow(j);
@@ -345,7 +365,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     {slot && createPortal(<><span className="mx-tag" data-changed>바뀐 요소 {changed}</span>
       <button type="button" className="btn" disabled={lock} onClick={out}>버리고 나가기</button>
       <button type="button" className="btn pri" disabled={lock || !v.upload_id} title={v.upload_id ? undefined : '이 지도는 아직 편집 저장을 지원하지 않습니다'}
-      aria-expanded={saving} onClick={() => setSaving(true)}>저장…</button></>, slot)}
+      aria-expanded={saving} onClick={() => setSaving(true)}>저장</button></>, slot)}
     {/* 저장 중엔 편집 입력을 모두 막는다(요청 뒤 바꾼 것이 201 뒤 사라지지 않게) — STOP 은 App 머리줄이라 그대로 */}
     <fieldset disabled={lock} style={{ display: 'contents' }}>
     <div className="mx-body" aria-label="지도 편집">
@@ -396,8 +416,15 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
           <b className="mx-sr">{label(f, sel).replace(/: $/, '')}</b>
           {sg === 'zones' && <>
             <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={(cur as MapZone).name} onChange={(e) => swap('zones', si, { ...(cur as MapZone), name: e.target.value })} /></label>
-            <label className="fh-field"><span>종류</span><select className="inp" value={(cur as MapZone).type} onChange={(e) => swap('zones', si, { ...(cur as MapZone), type: e.target.value as MapZone['type'] })}>
-              <option value="NO_GO">진입 금지</option><option value="SLOW">감속</option></select></label>
+            <label className="fh-field"><span>종류</span><select className="inp" value={(cur as MapZone).type} onChange={(e) => { const { max_speed_mps: _, ...z } = cur as MapZone, t = e.target.value as MapZone['type'];
+                swap('zones', si, { ...z, type: t, ...(t === 'SLOW' && { max_speed_mps: SPEED.dflt }) }); }}>
+              <option value="NO_GO">접근 금지</option><option value="SLOW">감속</option></select></label>
+            {/* 감속 구역만: 비우면 «값 없음»(옛 구역 그대로 저장 가능). 접근 금지 구역에는 칸이 없다 */}
+            {(cur as MapZone).type === 'SLOW' && <label className="fh-field"><span>최고 속도(m/s)</span>
+              <input className="inp" type="number" min={SPEED.min} max={SPEED.max} step={0.1} inputMode="decimal" placeholder="값 없음" data-zone-speed aria-invalid={bad?.path.endsWith('.max_speed_mps') || undefined}
+                value={(cur as MapZone).max_speed_mps == null || Number.isNaN((cur as MapZone).max_speed_mps) ? '' : (cur as MapZone).max_speed_mps!}
+                onChange={(e) => swap('zones', si, { ...(cur as MapZone), max_speed_mps: e.target.value.trim() === '' ? null : Number(e.target.value) })} />
+              <span className="lbl">{SPEED.min}~{SPEED.max} m/s · 비우면 값 없음</span></label>}
           </>}
           {sg === 'waypoints' && <>
             <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={(cur as MapWaypoint).name} onChange={(e) => swap('waypoints', si, { ...(cur as MapWaypoint), name: e.target.value })} /></label>
@@ -435,8 +462,20 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot, pick: 
     </div>
     <Pop open={saving} close={() => setSaving(false)} label="지도 저장">
       <form className="fh-form" onSubmit={save} noValidate aria-label="지도 저장">
-        <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => lock || setReason(e.target.value)} /></label>
-        <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>저장</button>
+        <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} disabled={!!over} onChange={(e) => lock || setReason(e.target.value)} /></label>
+        {/* 겹침 물음: 예 = 저장하고 첫 시나리오 편집으로(나머지는 목록에 «수정 필요»), 아니요 = 저장하지 않고 편집 계속. 검사 실패 = 알리고 고르게 */}
+        {over && (over.list ? <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap>
+            <p className="fh-msg" role="alert">시나리오 동선과 겹칩니다. 시나리오를 수정하시겠습니까?</p>
+            <ul className="fh-list" aria-label="겹치는 시나리오">{over.list.map((x) => <li key={x.scenario_id} className="lbl">{overlapText(x)}</li>)}</ul>
+            <p className="lv-note">예 = 지도를 저장하고 «{over.list[0].scenario_name}» 편집으로 갑니다{over.list.length > 1 ? ' — 나머지는 시나리오 목록에 «수정 필요»로 보입니다' : ''}. 아니요 = 저장하지 않고 지도 편집을 계속합니다.</p>
+            <div className="fh-row"><button type="button" className="btn pri" data-overlap-yes onClick={() => send(over.list![0].scenario_id)}>예</button>
+              <button type="button" className="btn" data-overlap-no onClick={() => { setOver(null); setSaving(false); }}>아니요</button></div></div>
+          : <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap="fail">
+            <p className="fh-msg" role="alert">겹침을 확인하지 못했습니다. 시나리오 동선과 겹치는지 모르는 채로 저장할까요?</p>
+            <div className="fh-row"><button type="button" className="btn pri" data-overlap-yes onClick={() => send()}>그래도 저장</button>
+              <button type="button" className="btn" data-overlap-no onClick={() => { setOver(null); setSaving(false); }}>계속 편집</button></div></div>)}
+        {checking && <p className="lv-note" role="status">시나리오 동선과 겹치는지 확인하는 중…</p>}
+        <div className="fh-row" hidden={!!over}><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>저장</button>
           {stale && <button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button>}</div>
         {busy && <p className="lv-note" role="status">저장하는 중…</p>}
         {saving && note}
@@ -458,7 +497,7 @@ export function featName(f: MapFeatures, k: string) {
 export function featSub(f: MapFeatures, k: string, floors: { id: string; name: string }[] = []) {
   const [g, i] = split(k), x = f[g]?.[i] as Item | undefined;
   if (!x) return '';
-  if (g === 'zones') return ZONE[(x as MapZone).type]?.text ?? '';
+  if (g === 'zones') { const z = x as MapZone; return (ZONE[z.type]?.text ?? '') + (z.type === 'SLOW' ? ` · ${z.max_speed_mps == null || Number.isNaN(z.max_speed_mps) ? '속도 값 없음' : `${z.max_speed_mps} m/s`}` : ''); }
   if (g === 'waypoints') return Number.isFinite((x as MapWaypoint).yaw) ? `지점 · ${deg((x as MapWaypoint).yaw)}°` : '지점';
   if (g === 'connectors') return `연결점 → ${floors.find((o) => o.id === (x as MapConnector).pair_floor_id)?.name ?? '?'}`;
   return Number.isFinite((x as MapEdit).width) ? `${(x as MapEdit).width} m` : '';

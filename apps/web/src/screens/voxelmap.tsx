@@ -94,7 +94,7 @@ export function VoxelUpload({ floor, base, had, title, ready, cancel, made, go, 
     <p className="lv-note">로봇으로 만든 3D 지도 파일 하나로 이 층의 지도와 시뮬 지형이 함께 만들어집니다.</p>
     <label className="fh-field"><span>3D 지도 파일(.pcd·.ply)</span><input type="file" className="inp" accept=".pcd,.ply" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>지도 이름</span><input className="inp" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
-    {had && <p className="fh-msg">지금 지도를 바꿉니다. 지금 지도의 진입 금지·감속 구역, 지점, 연결점은 새 지도로 옮겨지지 않습니다.</p>}
+    {had && <p className="fh-msg">지금 지도를 바꿉니다. 지금 지도의 접근 금지·감속 구역, 지점, 연결점은 새 지도로 옮겨지지 않습니다.</p>}
     {!ready && !busy && <p className="lv-note" role="status">지금 지도를 받은 뒤에 올릴 수 있습니다.</p>}
     {ask ? <div className="fh-row" role="alertdialog" aria-label="지금 지도 바꾸기 확인" data-voxel-ask><p className="fh-msg fh-grow">기존 구역·지점·연결점이 비워집니다. 3D 지도로 지금 지도를 바꿀까요?</p>
       <button type="button" className="btn" onClick={() => setAsk(false)}>취소</button>

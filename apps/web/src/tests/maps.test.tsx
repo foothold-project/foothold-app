@@ -65,10 +65,11 @@ const signedIn = (me: User, more: Record<string, Route> = {}) => ({
   'GET /map-versions/v2': { status: 200, body: V2 }, 'GET /map-versions/v1': { status: 200, body: V1 },
   'GET /floors/f1/map-versions': { status: 200, body: { items: [V2, V1], next_cursor: null } },
   'GET /floors/f2/map-versions': { status: 200, body: { items: [], next_cursor: null } },
+  'POST /floors/f1/zone-overlaps': { status: 200, body: { scenarios: [] } },   // 저장 전 시나리오 겹침 검사(RB-ZONE-WEB) — 기본은 겹침 없음
   ...more,
 });
 const sent = (method: string, path: string) => calls.filter((c) => c.method === method && c.path === path);
-const writes = () => calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}${c.q.toString() ? `?${c.q}` : ''}`);
+const writes = () => calls.filter((c) => c.method !== 'GET' && !c.path.endsWith('/zone-overlaps')).map((c) => `${c.method} ${c.path}${c.q.toString() ? `?${c.q}` : ''}`);
 
 let root: ReactRoot | null = null, box: HTMLDivElement;
 /** 화면 틀: frame(true) = 폰 폭으로 줄어듦(matchMedia change). 손가락 입력도 함께 — 마우스 쓰는 총괄은 좁아도 PC 틀(11-11) */
@@ -585,7 +586,7 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await open('#/map');
     expect(alertText()).not.toContain('모두 빠진 새 지도');
     act(() => (card('새 지도 올리기').querySelector('input[type=checkbox]') as HTMLInputElement).click()); await flush();
-    expect(alertText()).toContain('끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 지도가 됩니다.');
+    expect(alertText()).toContain('끄면 접근 금지·감속 구역, 지점, 연결점이 모두 빠진 새 지도가 됩니다.');
   });
   it('검토 B2: STALE 새로 불러오기에서 옛 기준 판 목록이 늦게 와도 최신 목록(판 3)을 덮지 않음, 새 판 자료 전엔 올리기 막힘', async () => {
     let tree = TREE, n = 0, late: (r: Reply) => void = () => {};
@@ -843,7 +844,7 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     expect(btn('편집', card('보기·편집'))!.getAttribute('aria-pressed')).toBe('true');
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 편집 중');
     expect($('[data-history]')).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeNull();
-    expect([...card('편집 도구').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['고르기', '진입 금지', '감속', '연결점', '벽']);   // «지점»·«지우개» 도구 없음(11-04)
+    expect([...card('편집 도구').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['고르기', '접근 금지', '감속', '연결점', '벽']);   // «지점»·«지우개» 도구 없음(11-04)
     expect(canvas().querySelectorAll('[data-zone], [data-waypoint], [data-connector], [data-edit]')).toHaveLength(4);   // 지금 판 요소 그대로(벽 선 포함)
     await click(btn('보기', card('보기·편집')));
     expect(canvas()).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeTruthy();
@@ -892,10 +893,10 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
 });
 
 describe('지도 편집 — 도구', () => {
-  it('진입 금지 구역: 점 찍기·되돌리기·지우기·범위 밖 막음·교차 막음 → 닫기 → 저장 요청 모양(base·image=upload_id·reason)', async () => {
+  it('접근 금지 구역: 점 찍기·되돌리기·지우기·범위 밖 막음·교차 막음 → 닫기 → 저장 요청 모양(base·image=upload_id·reason)', async () => {
     serve(editSrv(saved201));
     await startEdit();
-    await dotTool('진입 금지');
+    await dotTool('접근 금지');
     await tap(1, 1); await tap(2, 1);
     await tap(5, 0);                                                  // 지도 범위 밖(x 는 4 m 까지)
     expect(alertText()).toContain('지도 범위 밖은 찍을 수 없습니다.');
@@ -906,7 +907,7 @@ describe('지도 편집 — 도구', () => {
     await click(btn('닫기', card('그리기')));
     expect($('[data-drawing]')).toBeNull();
     expect(canvas().querySelectorAll('[data-zone="NO_GO"]')).toHaveLength(2);
-    expect(field('이름', card('고른 요소')).value).toBe('진입 금지 2');          // 새 구역이 골라짐
+    expect(field('이름', card('고른 요소')).value).toBe('접근 금지 2');          // 새 구역이 골라짐
     await tool('감속');                                                 // 엇갈린 사각형은 닫지 않음(점 그대로)
     await tap(0, 0); await tap(2, 2); await tap(2, 0); await tap(0, 1);
     await click(btn('닫기', card('그리기')));
@@ -920,7 +921,7 @@ describe('지도 편집 — 도구', () => {
     expect([b.base_version_id, b.image, b.reason]).toEqual(['v2', 'up-2', '공사 구역 추가']);
     expect(b.features.zones).toHaveLength(2);
     expect(b.features.zones[0]).toEqual(FEAT.zones[0]);
-    expect({ ...b.features.zones[1], id: '' }).toEqual({ id: '', type: 'NO_GO', name: '진입 금지 2', polygon: expect.anything() });
+    expect({ ...b.features.zones[1], id: '' }).toEqual({ id: '', type: 'NO_GO', name: '접근 금지 2', polygon: expect.anything() });
     expect(near(b.features.zones[1].polygon)).toEqual([[1, 1], [2, 1], [2, 0]]);
     expect(b.features.waypoints).toEqual(FEAT.waypoints); expect(b.features.connectors).toEqual(FEAT.connectors); expect(b.features.edits).toEqual(FEAT.edits);
     expect(canvas()).toBeNull();                                        // 저장되면 보기로
@@ -929,7 +930,7 @@ describe('지도 편집 — 도구', () => {
   it('구역 끌어 그리기(기본): 놓으면 사각형 1개, 도구 그대로 연달아 3개, 작은 끌기·누름·취소 무시, 범위 밖이면 안 만들고 알림', async () => {
     serve(editSrv(saved201));
     await startEdit();
-    await tool('진입 금지');
+    await tool('접근 금지');
     expect(btn('점으로 그리기', card('그리기'))!.getAttribute('aria-pressed')).toBe('false');
     expect(btn('닫기')).toBeFalsy();                                      // 끌기 모드엔 닫기·되돌리기 없음
     await ptr('pointerdown', 1, 1); await ptr('pointermove', 2, 0);
@@ -938,8 +939,8 @@ describe('지도 편집 — 도구', () => {
     await ptr('pointerup', 2, 0);
     expect($('[data-box]')).toBeNull();
     expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(2);
-    expect(field('이름', card('고른 요소')).value).toBe('진입 금지 2');
-    expect(btn('진입 금지', card('편집 도구'))!.getAttribute('aria-pressed')).toBe('true');   // 도구는 그대로
+    expect(field('이름', card('고른 요소')).value).toBe('접근 금지 2');
+    expect(btn('접근 금지', card('편집 도구'))!.getAttribute('aria-pressed')).toBe('true');   // 도구는 그대로
     await drag(3, 1.5, 2.5, 1);                                           // 거꾸로 끌어도 사각형
     await tool('감속'); await drag(-0.5, 1.5, 0.5, 0.5);
     expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(4);
@@ -953,22 +954,23 @@ describe('지도 편집 — 도구', () => {
     expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(4);
     await save();
     const z = body().features.zones;
-    expect(z.map((x) => [x.type, x.name])).toEqual([['NO_GO', '공사'], ['NO_GO', '진입 금지 2'], ['NO_GO', '진입 금지 3'], ['SLOW', '감속 1']]);
+    expect(z.map((x) => [x.type, x.name])).toEqual([['NO_GO', '공사'], ['NO_GO', '접근 금지 2'], ['NO_GO', '접근 금지 3'], ['SLOW', '감속 1']]);
     expect(near(z[1].polygon)).toEqual([[1, 1], [2, 1], [2, 0], [1, 0]]);
     expect(near(z[2].polygon)).toEqual([[3, 1.5], [2.5, 1.5], [2.5, 1], [3, 1]]);
-    expect(z.every((x) => Object.keys(x).sort().join() === 'id,name,polygon,type')).toBe(true);   // 색은 저장하지 않음
+    expect(z.map((x) => Object.keys(x).sort().join())).toEqual(['id,name,polygon,type', 'id,name,polygon,type', 'id,name,polygon,type', 'id,max_speed_mps,name,polygon,type']);   // 색은 저장하지 않음. 속도는 감속 구역만
+    expect((z[3] as { max_speed_mps?: number }).max_speed_mps).toBe(0.3);   // 새 감속 구역 기본 0.3 m/s(RB-ZONE-WEB)
   });
-  it('구역 표시: 구역마다 다른 채우기(토큰 차례), 종류는 테두리(진입 금지 굵은 실선·감속 점선) + 이름표', async () => {
+  it('구역 표시: 구역마다 다른 채우기(토큰 차례), 종류는 테두리(접근 금지 굵은 실선·감속 점선) + 이름표', async () => {
     serve(editSrv());
     await startEdit();
     await tool('감속'); await drag(1, 1, 2, 0); await drag(2.5, 1.5, 3, 1);
-    await tool('진입 금지'); await drag(-0.5, 1.5, 0.5, 0.5);
+    await tool('접근 금지'); await drag(-0.5, 1.5, 0.5, 0.5);
     await tool('고르기');                                                 // 빈 곳 누름 → 고른 것 없음(고른 표시가 테두리를 덮지 않게)
     await ptr('pointerdown', 3.9, -1.9); await ptr('pointerup', 3.9, -1.9);
     const zs = [...canvas().querySelectorAll<SVGElement>('[data-zone]')];
     expect(zs.map((x) => x.style.fill)).toEqual(['var(--accent)', 'var(--warn)', 'var(--bad)', 'var(--ink-3)']);
     expect(zs.map((x) => [x.dataset.zone, x.style.strokeWidth, x.style.strokeDasharray])).toEqual([['NO_GO', '3.5', ''], ['SLOW', '2.5', '1 5'], ['SLOW', '2.5', '1 5'], ['NO_GO', '3.5', '']]);
-    expect([...canvas().querySelectorAll('text')].map((t) => t.textContent)).toEqual(expect.arrayContaining(['공사', '감속 1', '감속 2', '진입 금지 2']));
+    expect([...canvas().querySelectorAll('text')].map((t) => t.textContent)).toEqual(expect.arrayContaining(['공사', '감속 1', '감속 2', '접근 금지 2']));
   });
   it('저장된 지점: 고르면 이름·방향(도 → 라디안) 고침 / 벽: 굵기, 서로 다른 2점 이상', async () => {
     serve(editSrv(saved201));
@@ -1094,7 +1096,7 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
   it('구역 안을 끌면 통째로(모든 꼭짓점 같은 만큼) — 구역 그리기 도구에서도 새 사각형 대신 옮김, 고르기에서도', async () => {
     serve(editSrv(saved201));
     await startEdit();
-    await tool('진입 금지');
+    await tool('접근 금지');
     await ptr('pointerdown', -0.8, -1.9, zone()); await ptr('pointermove', 0.2, -0.9); await ptr('pointerup', 0.2, -0.9);
     expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(1);                  // 새 사각형을 만들지 않음
     expect(picked()).toBe('공사');
@@ -1173,7 +1175,7 @@ describe('지도 편집 — 저장', () => {
     await ptr('pointerdown', -0.8, -1.9, canvas().querySelector('[data-zone]')!);
     await setVal(field('이름', card('고른 요소')), '공사\u0007');
     await save();
-    expect($('[data-bad]')!.textContent).toBe('진입 금지 구역 «공사\u0007»: 이름에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.');
+    expect($('[data-bad]')!.textContent).toBe('접근 금지 구역 «공사\u0007»: 이름에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.');
     expect((canvas().querySelector('[data-zone]') as SVGElement).style.strokeDasharray).toBe('6 4');
     await setVal(field('이름', card('고른 요소')), '공사 구역');
     await save('  ');
@@ -1193,7 +1195,7 @@ describe('지도 편집 — 저장', () => {
     await startEdit();
     await tool('연결점'); await tap(1, 1);
     await save();
-    expect($('[data-bad]')!.textContent).toBe('진입 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
+    expect($('[data-bad]')!.textContent).toBe('접근 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
     expect(field('이름', card('고른 요소')).value).toBe('공사');
     await save();
     expect($('[data-bad]')!.textContent).toBe('지점 «계기판 A»: 저장할 수 있는 모양이 아닙니다. 이름·점 개수·굵기를 확인하세요.');
@@ -1333,7 +1335,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
   it('그리던 점만 있어도 묻는다, 층 바꾸기 확인에서 나가기 → 그 층으로', async () => {
     serve(editSrv());
     await startEdit();
-    await dotTool('진입 금지'); await tap(1, 1);
+    await dotTool('접근 금지'); await tap(1, 1);
     await click(floorBtn('2층'));
     await click(btn('나가기', card('확인')));
     expect(floorBtn('2층').getAttribute('aria-pressed')).toBe('true');
@@ -1509,8 +1511,8 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     serve(editSrv());
     await startEdit();
     await tool('연결점'); await tap(1, 1);
-    await dotTool('진입 금지'); await tap(1, 1); await tap(2, 1);
-    await tool('진입 금지'); expect(dots()).toBe(2);
+    await dotTool('접근 금지'); await tap(1, 1); await tap(2, 1);
+    await tool('접근 금지'); expect(dots()).toBe(2);
     await tool('감속'); expect(dots()).toBe(2); expect(pressed('감속')).toBe('true');
     await tool('벽');
     expect(card('확인').textContent).toContain('그리던 점 2개를 지우고 도구를 바꿀까요?');
@@ -1618,7 +1620,7 @@ describe('판 비교·되돌리기(W4c)', () => {
     serve(signedIn(KIM, { 'GET /map-versions/v2/diff': { status: 200, body: DIFF } }));
     await open('#/map');
     await compare();
-    expect(rows()).toEqual(['추가 · 진입 금지 구역 «공사»', '삭제 · 지점 «옛 지점»', '바뀜 · 지점 «계기판» → 지점 «계기판 A»', '순서 바뀜 · 벽 선 (2번째 → 1번째)']);
+    expect(rows()).toEqual(['추가 · 접근 금지 구역 «공사»', '삭제 · 지점 «옛 지점»', '바뀜 · 지점 «계기판» → 지점 «계기판 A»', '순서 바뀜 · 벽 선 (2번째 → 1번째)']);
     expect(card('차이 수').textContent).toBe('■ 추가 1■ 삭제 1■ 바뀜 1■ 순서 바뀜 1');
     const g = (k: string) => diffSvg().querySelector(`g[data-change="${k}"]`)!, stroke = (e: Element) => (e as SVGElement).style.stroke;
     expect(stroke(g('added').querySelector('polygon')!)).toBe('var(--ok)');
@@ -1986,12 +1988,12 @@ describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
 
 describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () => {
   const dlg = (name: string) => [...box.querySelectorAll('dialog')].find((d) => d.querySelector('b')?.textContent === name)!;
-  it('단추 줄 «저장…» = 바꾼 이유 창을 연다(모달 아님 — STOP 그대로), 검사 실패면 창을 닫고 그 요소를 오른쪽 창에', async () => {
+  it('단추 줄 «저장» = 바꾼 이유 창을 연다(모달 아님 — STOP 그대로), 검사 실패면 창을 닫고 그 요소를 오른쪽 창에', async () => {
     serve(editSrv());
     await startEdit();
     const d = dlg('지도 저장');
     expect(d.hasAttribute('open')).toBe(false);
-    await click(btn('저장…', $('.mx-bar')!));
+    await click(btn('저장', $('.mx-bar')!));
     expect(d.hasAttribute('open')).toBe(true); expect(d.contains(card('지도 저장'))).toBe(true);
     expect(document.activeElement).toBe(field('바꾼 이유', d));                         // 열면 이유 칸에
     await click($('button[aria-label="지도 저장 닫기"]')!);
@@ -1999,7 +2001,7 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     await ptr('pointerdown', -0.8, -1.9, canvas().querySelector('[data-zone]')!);
     await setVal(field('이름', card('고른 요소')), '공사\u0007');                         // 보이지 않는 글자 → 화면 검사 실패
     await click($('button[aria-label="요소 목록으로"]')!);
-    await click(btn('저장…', $('.mx-bar')!));
+    await click(btn('저장', $('.mx-bar')!));
     await save('지점 추가');
     expect(d.hasAttribute('open')).toBe(false);
     expect(card('요소 창').querySelector('[data-bad]')).toBeTruthy(); expect(card('고른 요소')).toBeTruthy();
@@ -2024,12 +2026,12 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     await click($('.mx-fold')!);
     expect(card('요소 창').hasAttribute('data-fold')).toBe(true);
     const d = dlg('지도 저장');
-    await click(btn('저장…', $('.mx-bar')!));
+    await click(btn('저장', $('.mx-bar')!));
     await save();
     expect(writes()).toEqual(['POST /floors/f1/map-versions']);                       // API·인자는 그대로(한 번 보냄)
     expect(d.hasAttribute('open')).toBe(false);
     expect(card('요소 창').hasAttribute('data-fold')).toBe(false);
-    expect($('[data-bad]')!.textContent).toBe('진입 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
+    expect($('[data-bad]')!.textContent).toBe('접근 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
     expect(document.activeElement).toBe(field('이름', card('고른 요소')));
     expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(2);           // 편집 내용 그대로
   });
@@ -2043,7 +2045,7 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     act(() => { item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(m.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(m.querySelector('summary'));
     await click(btn('편집', card('보기·편집')));
-    const d = dlg('지도 저장'), b = btn('저장…', $('.mx-bar')!)!;
+    const d = dlg('지도 저장'), b = btn('저장', $('.mx-bar')!)!;
     act(() => b.focus()); await click(b);
     expect(document.activeElement).toBe(field('바꾼 이유', d));
     act(() => { field('바꾼 이유', d).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await flush();
@@ -2170,5 +2172,121 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
       expect(ask).toHaveBeenCalledTimes(1);
       expect(location.hash).toBe('#/sim');
     } finally { leaving.ask = null; }
+  });
+});
+
+// RB-ZONE-WEB(11-12): 구역 지키기 1차 — 감속 구역 속도 칸, 저장 전 시나리오 겹침 물음
+describe('구역 지키기 — 지도 편집', () => {
+  const speed = () => $<HTMLInputElement>('[data-zone-speed]');
+  /** 겹침 답: 보낸 구역 가운데 마지막(방금 그린 것)과 겹친다고 답한다. old = 원래 있던 구역 z1 과만 겹침 */
+  const hits = (old = false): Route => (_q, b) => { const zs = (b as { features: typeof FEAT }).features.zones, zone_id = old ? 'z1' : zs[zs.length - 1].id;
+    return { status: 200, body: { scenarios: [
+      { scenario_id: 's9', scenario_name: '1층 순찰', hits: [{ kind: 'POINT', element: 'waypoints.0', zone_id }, { kind: 'SEGMENT', element: 'waypoints.0->waypoints.1', zone_id }] },
+      { scenario_id: 's8', scenario_name: '야간 점검', hits: [{ kind: 'SEGMENT', element: 'waypoints.1->finish.target', zone_id }] }] } }; };
+  it('감속 구역 속도 칸: 새 구역 기본 0.3, 0.3~1.5 밖은 저장 전 막음, 접근 금지에는 칸 없음(종류를 바꾸면 값도 빠짐)', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    await tool('접근 금지'); await drag(1, 1, 2, 0);
+    expect(speed()).toBeNull();                                           // 접근 금지 구역 = 칸 없음
+    await tool('감속'); await drag(2.5, 1.5, 3, 1);
+    expect(speed()!.value).toBe('0.3');
+    expect(speed()!.closest('label')!.textContent).toContain('최고 속도(m/s)');
+    await setVal(speed()!, '2');
+    await save();
+    expect(alertText()).toContain('최고 속도는 0.3~1.5 m/s 사이로 입력하세요.');
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0); expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
+    await setVal(speed()!, '0.2');
+    await click(btn('저장', $('.mx-bar')!)); await save();
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
+    await setVal(speed()!, '1.2');
+    expect(box.textContent).toContain('· 1.2 m/s');                       // 요소 목록에도 값
+    await setVal(choose('종류', card('고른 요소')), 'NO_GO');
+    expect(speed()).toBeNull();
+    await setVal(choose('종류', card('고른 요소')), 'SLOW');
+    expect(speed()!.value).toBe('0.3');                                   // 다시 감속 = 기본값부터
+    await setVal(speed()!, '1.5');
+    await click(btn('저장', $('.mx-bar')!)); await save();
+    const z = body().features.zones as (typeof FEAT.zones[number] & { max_speed_mps?: number })[];
+    expect(z.map((x) => [x.type, 'max_speed_mps' in x ? x.max_speed_mps : '없음'])).toEqual([['NO_GO', '없음'], ['NO_GO', '없음'], ['SLOW', 1.5]]);
+    expect((sent('POST', '/floors/f1/zone-overlaps')[0].body as { features: typeof FEAT }).features.zones).toEqual(z);   // 겹침 검사에도 같은 구역
+  });
+  it('옛 감속 구역(값 없음): 칸이 비어 «값 없음», 그대로 저장하면 속도 키를 보내지 않는다', async () => {
+    const OLD = { ...UP, features: { ...FEAT, zones: [...FEAT.zones, { id: 'z2', type: 'SLOW' as const, name: '옛 감속', polygon: [[1, 1], [2, 1], [2, 0]] as [number, number][] }] } };
+    serve(editSrv({ ...saved201, 'GET /map-versions/v2': { status: 200, body: OLD } }, KIM, OLD));
+    await startEdit();
+    await tool('고르기'); await tap(1.8, 0.8, canvas().querySelectorAll('[data-zone]')[1]);
+    expect(field('이름', card('고른 요소')).value).toBe('옛 감속');
+    expect(speed()!.value).toBe(''); expect(speed()!.placeholder).toBe('값 없음');
+    expect(box.textContent).toContain('속도 값 없음');
+    await setVal(field('이름', card('고른 요소')), '옛 감속 2');
+    await click(btn('저장', $('.mx-bar')!)); await save('이름만');
+    expect(body().features.zones.map((x) => Object.keys(x).sort().join())).toEqual(['id,name,polygon,type', 'id,name,polygon,type']);
+  });
+  it('저장 전 겹침: 창에 시나리오 이름·겹친 꼴, «아니요» = 저장 안 하고 편집 계속, «예» = 저장한 뒤 시뮬 탭 첫 시나리오로', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits() }));
+    await startEdit();
+    await tool('접근 금지'); await drag(1, 1, 2, 0);
+    await click(btn('저장', $('.mx-bar')!)); await save();
+    const ask = () => $('[data-overlap]');
+    expect(ask()!.textContent).toContain('시나리오 동선과 겹칩니다. 시나리오를 수정하시겠습니까?');
+    expect([...ask()!.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['1층 순찰 — 지점이 구역 안 · 길이 구역을 지남', '야간 점검 — 길이 구역을 지남']);
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);     // 묻는 동안은 저장하지 않음
+    await click($('[data-overlap-no]'));
+    expect(ask()).toBeNull(); expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(2);     // 편집 그대로
+    await click(btn('저장', $('.mx-bar')!)); await save();
+    await click($('[data-overlap-yes]')); await hashed();
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+    expect(location.hash).toBe('#/sim'); expect(keptPlan.sel).toBe('s9');
+  });
+  it('겹침 검사 실패: 저장을 막지 않고 «겹침을 확인하지 못했습니다» — «계속 편집» 또는 «그래도 저장»', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': err(500, 'INTERNAL', '서버 오류') }));
+    await startEdit();
+    await tool('접근 금지'); await drag(1, 1, 2, 0);
+    await click(btn('저장', $('.mx-bar')!)); await save();
+    expect($('[data-overlap="fail"]')!.textContent).toContain('겹침을 확인하지 못했습니다.');
+    await click(btn('계속 편집', $('[data-overlap]')!));
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
+    await click(btn('저장', $('.mx-bar')!)); await save();
+    await click(btn('그래도 저장', $('[data-overlap]')!)); await hashed();
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+    expect(location.hash).toBe('#/map');                                  // 시나리오로 가지 않음
+  });
+  // Codex 검토(385596c) 6번: 원래 있던 접근 금지 구역 때문에 연결점만 추가한 저장이 막히던 것
+  it('검토 6: 접근 금지 구역이 새로 생기거나 모양·종류가 바뀐 저장에만 겹침 검사 — 연결점·감속 구역·이름만 바꾸면 그대로 저장', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));   // 기존 구역 z1 은 시나리오와 겹쳐 있다
+    await startEdit();
+    await tool('연결점'); await tap(1, 1);
+    await click(btn('저장', $('.mx-bar')!)); await save('연결점 추가');
+    expect($('[data-overlap]')).toBeNull();
+    expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);       // 저장 요청이 나갔다(검토 재현: 0회)
+  });
+  it('검토 6: 감속 구역을 새로 그리거나 값만 바꾼 저장도 묻지 않고, 새 접근 금지 구역을 그려도 원래 구역의 겹침은 묻지 않는다', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
+    await startEdit();
+    await tool('감속'); await drag(1, 1, 2, 0);
+    await click(btn('저장', $('.mx-bar')!)); await save('감속 추가');
+    expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+    act(() => root?.unmount()); root = null; kept.d = null; kept.job = null;
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
+    await startEdit();
+    await tool('접근 금지'); await drag(1, 1, 2, 0);                        // 새 구역은 겹치지 않고, 답에는 옛 구역 z1 겹침만
+    await click(btn('저장', $('.mx-bar')!)); await save('구역 추가');
+    expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(1);
+    expect($('[data-overlap]')).toBeNull();
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+  });
+  it('검토 6: 기존 접근 금지 구역을 옮기면(모양 바뀜) 겹침을 묻는다', async () => {
+    serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
+    await startEdit();
+    await tool('고르기');
+    const z = canvas().querySelector('[data-zone]')!;
+    await ptr('pointerdown', -0.3, -1.7, z); await ptr('pointermove', 0.7, -1.2); await ptr('pointerup', 0.7, -1.2);
+    await click(btn('저장', $('.mx-bar')!)); await save('구역 옮김');
+    expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(1);
+    expect($('[data-overlap]')!.textContent).toContain('시나리오 동선과 겹칩니다.');
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
   });
 });

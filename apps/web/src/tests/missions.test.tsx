@@ -7,7 +7,7 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Action, Assignment, MapVersion, Mission, MissionWrite, RobotSummary, Scenario, ScenarioPoint, ScenarioWrite, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { clearPlans, simNav } from '../screens/missions';
+import { clearPlans, muWhy, simNav } from '../screens/missions';
 import { check, type BtNode } from '../screens/btedit';
 import { TERRAIN_REASON } from '../simstart';
 import mapscenCss from '../screens/mapscen.css?raw';
@@ -22,7 +22,7 @@ const PARK: User = { ...LEE, id: 'o2', username: 'park', display_name: '박운�
 const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name },
   simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
-// 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 1층: 진입 금지 x 3~4, 이름 붙은 지점 «입구»(0, 0), 2층 계단 연결점
+// 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 1층: 접근 금지 x 3~4, 이름 붙은 지점 «입구»(0, 0), 2층 계단 연결점
 const ver = (id: string, floor_id: string, features: MapVersion['features']): MapVersion => ({ upload_id: `up-${id}`, id, floor_id, number: 1, base_version_id: null, copied_from_id: null, status: 'APPROVED',
   image_sha256: 'ab'.repeat(32), width: 100, height: 80, resolution: 0.05, origin: [-1, -2, 0], features, reason: '처음', source: 'IMPORT', created_by: KIM.id, created_at: '2026-10-19T00:00:00Z' });
 const F1 = { zones: [{ id: 'z1', type: 'NO_GO' as const, name: '공사', polygon: [[3, -2], [4, -2], [4, 2], [3, 2]] as [number, number][] }],
@@ -78,7 +78,7 @@ const M2: MissionWrite = { name: '센서 기록', steps: [{ action: 'SENSOR_LOG'
 const pt = (floor_id: string, x: number, y: number, p: Partial<ScenarioPoint> = {}) => ({ floor_id, map_version_id: approved[floor_id]!, x, y, yaw: 0, waypoint_ref: null, ...p });
 const wp = (floor_id: string, x: number, y: number, mission_id = 'm1', mission_version = 1, p: Partial<ScenarioPoint> = {}) => ({ ...pt(floor_id, x, y, p), mission_id, mission_version });
 
-/** 미리보기 흉내: 판이 승인 판이 아니면 409 STALE, 고른 임무 판이 없으면 422, 지도 밖·진입 금지(x ≥ 3)·참조 어긋남 = 갈 수 없음, 층이 바뀌는데 연결점 짝이 없으면(link=false) 구간 갈 수 없음 */
+/** 미리보기 흉내: 판이 승인 판이 아니면 409 STALE, 고른 임무 판이 없으면 422, 지도 밖·접근 금지(x ≥ 3)·참조 어긋남 = 갈 수 없음, 층이 바뀌는데 연결점 짝이 없으면(link=false) 구간 갈 수 없음 */
 function preview(b: ScenarioWrite): Reply {
   if (!b.name.trim()) return err(422, 'VALIDATION', '입력 값을 확인하세요.', { elements: ['name'] });   // 서버처럼 빈 이름은 422(11-11 — 화면은 미리보기에 대신 이름을 보내야 경로를 본다)
   const all: [string, ScenarioPoint][] = [...b.waypoints.map((w, i) => [`waypoints.${i}`, w] as [string, ScenarioPoint]), ...(b.finish?.mode === 'GO_TO' && b.finish.target ? [['finish.target', b.finish.target] as [string, ScenarioPoint]] : [])];
@@ -88,7 +88,7 @@ function preview(b: ScenarioWrite): Reply {
   if (lost >= 0) return err(422, 'PRECHECK_FAILED', '임무 판을 찾을 수 없습니다.', { elements: [`waypoints.${lost}.mission_version`] });
   const points = all.map(([element, p]) => {
     const reasons: string[] = [], ref = p.waypoint_ref ? MAPS[p.map_version_id].features.waypoints.find((w) => w.id === p.waypoint_ref) : null;
-    if (p.x < -1 || p.x > 4 || p.y < -2 || p.y > 2) reasons.push('지도 범위 밖입니다.'); else if (p.floor_id === 'f1' && p.x >= 3) reasons.push('진입 금지 구역 안입니다.');
+    if (p.x < -1 || p.x > 4 || p.y < -2 || p.y > 2) reasons.push('지도 범위 밖입니다.'); else if (p.floor_id === 'f1' && p.x >= 3) reasons.push('접근 금지 구역 안입니다.');
     if (p.waypoint_ref && !ref) reasons.push('지도 판의 지점 ID와 일치하지 않습니다.'); else if (ref && Math.hypot(ref.x - p.x, ref.y - p.y) > 0.05) reasons.push('참조 지점 좌표에서 0.05 m 넘게 벗어났습니다.');
     return { element, reasons };
   });
@@ -126,6 +126,13 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
     }
     let m = path.match(/^\/map-versions\/(v\d)$/);
     if (m) return { status: 200, body: MAPS[m[1]] };
+    if ((m = path.match(/^\/map-versions\/(v\d)\/zone-grid$/))) {   // 구역 칸(RB-ZONE-WEB): 접근 금지 구역(네모)에 중심이 든 칸만
+      const v = MAPS[m[1]], cells = [];
+      for (let r = 0; r < v.height; r++) for (let c = 0; c < v.width; c++) { const x = v.origin[0] + (c + 0.5) * v.resolution, y = v.origin[1] + (v.height - r - 0.5) * v.resolution;
+        if (v.features.zones.some((z) => z.type === 'NO_GO' && x >= Math.min(...z.polygon.map((q) => q[0])) && x <= Math.max(...z.polygon.map((q) => q[0])) && y >= Math.min(...z.polygon.map((q) => q[1])) && y <= Math.max(...z.polygon.map((q) => q[1]))))
+          cells.push({ index: r * v.width + c, no_go: true, slow: false, max_speed_mps: null }); }
+      return { status: 200, body: { format_version: 1, map_version_id: v.id, origin: v.origin, resolution: v.resolution, width: v.width, height: v.height, row_order: 'TOP_TO_BOTTOM', cursor: 0, cells, next_cursor: null } };
+    }
     if ((m = path.match(/^\/floors\/(f\d)\/map-versions$/))) { const v = approved[m[1]]; return { status: 200, body: { items: v && MAPS[v] ? [MAPS[v]] : [], next_cursor: null } }; }   // 지도 탭 판 목록(MAP-TAB-MERGE)
     if (path === '/actions') return { status: 200, body: acts(q.get('robot_id')) };
     if (path === '/assignments') return { status: 200, body: { items: assigns, next_cursor: null } };
@@ -587,8 +594,8 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(1.5, 1); await settle();
     expect($('p.fh-msg[role=alert]')!.textContent).toBe('고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.');
   });
-  it('REVIEW-302: 노드 보기(기본)에서도 저장을 막는 이유(지점 없음·진입 금지)와 경로 확인 실패 «다시 확인»이 지도 위에 보인다(hidden 조상 없음)', async () => {
-    seed();
+  it('REVIEW-302: 노드 보기(기본)에서도 저장을 막는 이유(지점 없음·접근 금지)와 경로 확인 실패 «다시 확인»이 지도 위에 보인다(hidden 조상 없음)', async () => {
+    seed(); MAPS.v1 = ver('v1', 'f1', { ...F1, zones: [] });   // 화면이 받은 판에는 구역이 없고 서버만 거절(구역이 보이면 화면이 먼저 막는다 — RB-ZONE-WEB)
     const over: Record<string, ((real: () => Reply) => Reply | Promise<Reply>)[]> = { 'POST /scenarios/preview': [] };
     serve(KIM, { over });
     await open();
@@ -598,7 +605,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(why().textContent).toBe('지도를 눌러 지점을 하나 이상 찍으세요.');
     expect(why().closest('[hidden]')).toBeNull();
     expect(saveBtn().disabled).toBe(true);
-    await tap(3.5, 0); await settle();                                     // 진입 금지 구역 안
+    await tap(3.5, 0); await settle();                                     // 접근 금지 구역 안
     expect(why().textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
     expect(why().closest('[hidden]')).toBeNull();
     over['POST /scenarios/preview'].push(() => { throw new TypeError('끊김'); });
@@ -724,7 +731,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect([...floorSel().options].map((o) => o.textContent)).toEqual(['본관 › 본동 › 1층', '본관 › 본동 › 2층', '본관 › 본동 › 3층 — 승인된 지도 없음']);
     expect(floorOpt('3층').disabled).toBe(true);                       // 승인 판 없는 층
     expect(floorSel().value).toBe('f1');
-    expect(map().querySelector('[data-zone="NO_GO"]')).toBeTruthy();   // 진입 금지 구역 그림
+    expect(map().querySelector('[data-zone="NO_GO"]')).toBeTruthy();   // 접근 금지 구역 그림
     await setVal(name(), '새 순찰');
     await tap(1, 1);
     await tap(0, 0, map().querySelector('[data-key="waypoints.0"]')!);
@@ -778,8 +785,9 @@ describe('시나리오 편집(03 §5.3)', () => {
     await touch('pointerup', 1, 1, 3);
     expect(point(0)).toBeTruthy(); expect($('[data-wp="1"]')).toBeNull();
   });
-  it('진입 금지 구역 안 지점 = 갈 수 없음 + 이유 + 저장 막힘(이유 보임), 지도 밖은 찍지 않음', async () => {
-    seed(); serve(KIM);
+  it('접근 금지 구역 안 지점 = 갈 수 없음 + 이유 + 저장 막힘(이유 보임), 지도 밖은 찍지 않음', async () => {
+    seed(); MAPS.v1 = ver('v1', 'f1', { ...F1, zones: [] });   // 화면이 받은 판에는 구역이 없고 서버만 거절(구역이 보이면 화면이 먼저 막는다 — RB-ZONE-WEB)
+    serve(KIM);
     await open();
     await click(btn('+ 이 지도에 새 시나리오'));
     await setVal(name(), '금지 시험');
@@ -790,7 +798,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect($('[data-block]')!.textContent).toBe('경로를 확인하는 중입니다.');
     await settle();
     expect(point(0).hasAttribute('data-bad')).toBe(true);
-    expect(point(0).textContent).toContain('갈 수 없음: 진입 금지 구역 안입니다.');
+    expect(point(0).textContent).toContain('갈 수 없음: 접근 금지 구역 안입니다.');
     expect(map().querySelector('[data-pt="0"]')!.hasAttribute('data-bad')).toBe(true);
     expect(saveBtn().disabled).toBe(true);
     expect($('[data-block]')!.textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
@@ -1704,4 +1712,211 @@ describe('시뮬 시나리오', () => {
     expect(row('s1').querySelector('[data-run]')!.textContent).toBe('시뮬만');
     expect(go).not.toHaveBeenCalled();
   });
+  // RB-ZONE-WEB(11-12): 구역 지키기 1차 — 접근 금지 구역 안 지점 거절, 돌아가는 길, 최신 지도 따라가기(map_update), 3D 지도 시뮬 &zones=
+  describe('구역 지키기', () => {
+    const NOGO = '접근 금지 구역에는 지점을 둘 수 없습니다.';
+    /** 금지 칸 답: 칸 c0~c1, 줄 r0~r1(100×80 칸, 줄 0 = 위) */
+    const zoneGrid = (c0: number, c1: number, r0: number, r1: number) => {
+      const cells = []; for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cells.push({ index: r * 100 + c, no_go: true, slow: false, max_speed_mps: null });
+      return { status: 200, body: { format_version: 1, map_version_id: 'v1', origin: [-1, -2, 0], resolution: 0.05, width: 100, height: 80, row_order: 'TOP_TO_BOTTOM', cursor: 0, cells, next_cursor: null } };
+    };
+    /** 가운데 작은 금지 구역(x 1~1.5 m, y -0.5~0.5 m = 칸 40~49, 줄 30~49) */
+    const BOX = { ...F1, zones: [{ id: 'z1', type: 'NO_GO' as const, name: '공사', polygon: [[1, -0.5], [1.5, -0.5], [1.5, 0.5], [1, 0.5]] as [number, number][] }] };
+    const mu = (status: string, reasons: { element: string; reason: string }[] = []) => ({ status, reasons, map_version_ids: ['v1'] });
+    const setMu = (m: unknown) => { const r = rec('scenarios', 's1')!; r.head = { ...r.head, map_update: m } as typeof r.head; };
+    it('접근 금지 구역 안은 지점을 찍지 못한다(구역은 빨간 줄) — 구역 칸을 못 받아도 구역 모양으로 거절', async () => {
+      seed(); serve(KIM, { over: { 'GET /map-versions/v1/zone-grid': [err(500, 'INTERNAL', '서버 오류')] } });   // 구역 칸을 못 받음 = 모양으로 판정
+      await open();
+      await click(btn('+ 이 지도에 새 시나리오'));
+      const z = map().querySelector<SVGElement>('[data-zone]')!;
+      expect(z.style.stroke).toBe('var(--bad)');
+      await tap(3.5, 0);
+      expect(alertText()).toContain(NOGO); expect($('[data-wp="0"]')).toBeNull();
+      expect(sent('POST', '/scenarios/preview')).toHaveLength(0);
+      await tap(1, 1); await settle();
+      expect(point(0)).toBeTruthy();
+    });
+    it('구역 칸으로 거절 + 지점 사이 길이 구역을 지나면 돌아가는 길, 길이 없으면 그 구간에 «갈 수 있는 길이 없습니다»(저장은 막지 않음)', async () => {
+      seed(); MAPS.v1 = ver('v1', 'f1', BOX);
+      const G = zoneGrid(40, 49, 30, 49);
+      serve(KIM, { over: { 'GET /map-versions/v1/zone-grid': [G, G, G] } });
+      await open();
+      await click(btn('+ 이 지도에 새 시나리오'));
+      await setVal(name(), '돌아가기'); await settle();
+      await tap(1.2, 0);
+      expect(alertText()).toContain(NOGO); expect($('[data-wp="0"]')).toBeNull();
+      await tap(0, 1.5); await tap(0.5, 1.5); await settle();
+      expect([...map().querySelectorAll('[data-seg]')].map((x) => x.getAttribute('data-seg'))).toEqual(['straight']);
+      await tap(0, 0); await tap(2.5, 0); await settle();                 // 3 → 4번 지점 사이에 구역
+      const segs = [...map().querySelectorAll('[data-seg]')];
+      expect(segs.map((x) => x.getAttribute('data-seg'))).toEqual(['straight', 'straight', 'around']);
+      const bend = segs[2].getAttribute('points')!.split(' ').map((q) => q.split(',').map(Number));
+      expect(bend.length).toBeGreaterThan(2);
+      expect(bend.some(([x, y]) => x >= 40 && x < 50 && y >= 30 && y < 50)).toBe(false);   // 꺾는 점이 구역 안에 없음
+      expect(alertText()).not.toContain('갈 수 있는 길이 없습니다');
+      expect(saveBtn().disabled).toBe(false);
+    });
+    it('길이 없는 구간: 빨간 점선 + «갈 수 있는 길이 없습니다», 저장 단추는 그대로', async () => {
+      seed(); MAPS.v1 = ver('v1', 'f1', { ...F1, zones: [{ ...BOX.zones[0], polygon: [[1, -2], [1.5, -2], [1.5, 2], [1, 2]] }] });
+      const G = zoneGrid(40, 49, 0, 79);                                  // 지도를 위아래로 가로지르는 구역
+      serve(KIM, { over: { 'GET /map-versions/v1/zone-grid': [G, G, G] } });
+      await open();
+      await click(btn('+ 이 지도에 새 시나리오'));
+      await setVal(name(), '막힌 길'); await settle();
+      await tap(0, 0); await tap(2.5, 0); await settle();
+      const none = map().querySelector('[data-seg="none"]')!;
+      expect(none.textContent).toContain('갈 수 있는 길이 없습니다');
+      expect(saveBtn().disabled).toBe(false);                             // 서버 미리보기가 통과하면 저장은 막지 않는다
+    });
+    it('목록·실행 칸의 최신 지도 표시: 자동 반영 = 작은 글, 수정 필요 = 표시 + 원인 + «시뮬에서 실행» 막힘, 최신 = 표시 없음', async () => {
+      seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV };
+      serve(KIM);
+      await open('#/sim'); await scen();
+      expect(row('s1').querySelector('[data-map-update]')).toBeNull();     // map_update 없음(옛 서버) = 표시 없음
+      act(() => root?.unmount()); root = null; clearPlans();
+      seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV }; setMu(mu('CURRENT'));
+      serve(KIM); await open('#/sim'); await scen();
+      expect(row('s1').querySelector('[data-map-update]')).toBeNull();
+      act(() => root?.unmount()); root = null; clearPlans();
+      seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV }; setMu(mu('AUTO_APPLICABLE'));
+      serve(KIM); await open('#/sim'); await scen();
+      expect(row('s1').querySelector('[data-map-update="AUTO_APPLICABLE"]')!.textContent).toBe('최신 지도 자동 반영');
+      act(() => root?.unmount()); root = null; clearPlans();
+      seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV }; setMu(mu('NEEDS_EDIT', [{ element: 'waypoints.0', reason: '접근 금지 구역 안입니다.' }]));
+      serve(KIM); await open('#/sim'); await scen();
+      expect(row('s1').querySelector('[data-map-update="NEEDS_EDIT"]')!.textContent).toBe('수정 필요');
+      expect($('[data-map-update-why]')!.textContent).toBe('1번 지점: 접근 금지 구역 안입니다.');
+      await click(row('s1')); await settle();
+      expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+      expect($('[data-sim-run-why]')!.textContent).toBe('수정 필요 — 1번 지점: 접근 금지 구역 안입니다. 시나리오를 고쳐 저장하세요.');
+      expect(sent('POST', '/scenarios/s1/apply-latest-map')).toHaveLength(0);
+    });
+    it('자동 반영: «시뮬에서 실행» = 먼저 apply-latest-map → 성공하면 그 판으로 시뮬, 409 수정 필요면 열지 않고 이유', async () => {
+      seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV }; setMu(mu('AUTO_APPLICABLE'));
+      const applied = () => { const r = rec('scenarios', 's1')!; r.head = { ...r.head, name: '1층 순찰(새 지도)', version: r.head.version + 1, latest_version: r.head.latest_version + 1, map_update: mu('CURRENT') } as typeof r.head; return { status: 200, body: r.head }; };
+      serve(KIM, { over: { 'POST /scenarios/s1/apply-latest-map': [applied] } });
+      const seen: number[] = [], go = vi.spyOn(simNav, 'go').mockImplementation(() => { seen.push(sent('POST', '/scenarios/s1/apply-latest-map').length); });
+      await open('#/sim'); await scen();
+      await click(row('s1')); await settle();
+      expect($('[data-sim-run-why]')).toBeNull();
+      expect($('[data-sim-run] [data-map-update="AUTO_APPLICABLE"]')!.textContent).toContain('누르면 최신 지도를 반영한 뒤 엽니다');
+      await click(btn('시뮬에서 실행')); await settle();
+      expect(seen).toEqual([1]);                                          // 시뮬을 열기 전에 반영 요청이 먼저
+      expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=factory-inspection&bt=ss1');
+      expect(JSON.parse(localStorage.getItem('fh.btMission.ss1')!).name).toBe('1층 순찰(새 지도)');   // 반영된 판 내용으로
+      expect($('[data-sim-run] [data-map-update]')).toBeNull();           // 반영 뒤 = 최신
+      act(() => root?.unmount()); root = null; localStorage.clear(); clearPlans(); go.mockClear();
+      seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV }; setMu(mu('AUTO_APPLICABLE'));
+      serve(KIM, { over: { 'POST /scenarios/s1/apply-latest-map': [err(409, 'MAP_UPDATE_REQUIRED', '시나리오를 고쳐야 합니다.', { map_update: mu('NEEDS_EDIT', [{ element: 'waypoints.1->finish.target', reason: '길이 접근 금지 구역을 지납니다.' }]) })] } });
+      await open('#/sim'); await scen();
+      await click(row('s1')); await settle();
+      await click(btn('시뮬에서 실행')); await settle();
+      expect(go).not.toHaveBeenCalled();
+      expect(alertText()).toContain('수정 필요 — 2번 지점과 끝 지점 사이: 길이 접근 금지 구역을 지납니다. 시나리오를 고쳐 저장하세요.');
+      expect(localStorage.getItem('fh.btMission.ss1')).toBeNull();
+    });
+    // 3D 지도 판 + 그 판에 고정된 시뮬 쪽 판(sim-v — 구역 있음, 지형 spec 고정)
+    const VOX = { map_version_id: 'v1', terrain_id: 'hill', voxel_size: 0.1 as const, point_count: 9, voxel_count: 9, origin: [-2.5, -2, 0] as [number, number, number], source_translation: [0, 0, 0] as [number, number, number], estimated_floor_z: 0, source_sha256: 'a', cells_sha256: 'b', warnings: [] };
+    const terrain = (spec: unknown, version = 3) => ({ status: 200, body: { spec, version, floor_id: 'sim-f', map_version_id: 'sim-v', archived_at: null, updated_at: '2026-11-11T00:00:00Z' } });
+    const TW = { status: 200, body: { map_version_id: 'v1', simulation_map_version_id: 'sim-v', simulation_floor_id: 'sim-f', terrain_id: 'hill' } };
+    const simV = (spec: unknown, features = F1) => ({ status: 200, body: { ...ver('sim-v', 'sim-f', features), provenance: 'SIMULATION', terrain_spec: spec } });
+    const many = <T,>(x: T) => [x, x, x, x, x, x];
+    const voxSeed = () => { seed(); MAPS.v1 = { ...MAPS.v1, origin: [-2.5, -2, 0], voxel_map: VOX }; };
+    it('3D 지도 시뮬 주소에 &zones=<시뮬 쪽 판 id>(그 판의 지형 = 여는 지형일 때) — 이어진 판이 없으면(404) 안 붙인다', async () => {
+      const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+      voxSeed();
+      serve(KIM, { over: { 'GET /terrains/hill': many(terrain(HILL)), 'GET /map-versions/v1/simulation-twin': many(TW), 'GET /map-versions/sim-v': many(simV(HILL)) } });
+      await open();
+      await click(row('s1')); await settle();
+      expect($('[data-sim-run-why]')).toBeNull();
+      await click(btn('시뮬에서 실행')); await settle();
+      expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=custom&terrain=hill&bt=ss1&zones=sim-v');
+      act(() => root?.unmount()); root = null; localStorage.clear(); clearPlans(); go.mockClear();
+      voxSeed();
+      serve(KIM, { over: { 'GET /terrains/hill': many(terrain(HILL)) } });   // simulation-twin 404(연결 없음)
+      await open();
+      await click(row('s1')); await settle();
+      await click(btn('시뮬에서 실행')); await settle();
+      expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=custom&terrain=hill&bt=ss1');
+      expect(sent('GET', '/map-versions/v1/simulation-twin').length).toBeGreaterThan(0);
+    });
+    // Codex 검토(385596c) 2번: &zones= 는 처음 고정된 시뮬 판인데 지형은 최신 Terrain.spec — 같은 크기로 지형을 고친 뒤면 장애물과 구역이 다른 판
+    it('검토 2: 3D 지도를 올린 뒤 지형을 고쳤으면(고정 판 지형 ≠ 여는 지형) 구역이 어긋난 채 열지 않는다 — 막고 이유, 구역이 없는 판이면 그대로 연다', async () => {
+      const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+      const EDITED = { ...HILL, items: [{ type: 'box', pos: [1, 1, 0], size: [1, 1, 1] }] };   // 같은 크기, 물체만 추가
+      voxSeed();
+      serve(KIM, { over: { 'GET /terrains/hill': many(terrain(EDITED, 4)), 'GET /map-versions/v1/simulation-twin': many(TW), 'GET /map-versions/sim-v': many(simV(HILL)) } });
+      await open();
+      await click(row('s1')); await settle();
+      expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+      expect($('[data-sim-run-why]')!.textContent).toContain('지도의 구역과 지금 지형이 서로 맞지 않습니다');
+      expect(go).not.toHaveBeenCalled();
+      expect(localStorage.getItem('fh.customTerrain.hill')).toBeNull();     // 지형도 쓰지 않음
+      act(() => root?.unmount()); root = null; localStorage.clear(); clearPlans();
+      voxSeed();                                                            // 시뮬 쪽 판에 구역이 없으면 어긋날 것이 없다
+      serve(KIM, { over: { 'GET /terrains/hill': many(terrain(EDITED, 4)), 'GET /map-versions/v1/simulation-twin': many(TW), 'GET /map-versions/sim-v': many(simV(HILL, { ...F1, zones: [] })) } });
+      await open();
+      await click(row('s1')); await settle();
+      await click(btn('시뮬에서 실행')); await settle();
+      expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=custom&terrain=hill&bt=ss1&zones=sim-v');
+    });
+    it('검토 2: 시뮬 쪽 판을 확인하지 못하면(이어진 판은 있는데 받기 실패) 열지 않고 «다시 확인»', async () => {
+      const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});
+      const FAIL = err(500, 'INTERNAL', '서버 오류');
+      voxSeed();
+      serve(KIM, { over: { 'GET /terrains/hill': many(terrain(HILL)), 'GET /map-versions/v1/simulation-twin': many(TW), 'GET /map-versions/sim-v': [FAIL, FAIL, simV(HILL), simV(HILL)] } });
+      await open();
+      await click(row('s1')); await settle();
+      expect(btn('시뮬에서 실행')!.disabled).toBe(true);
+      expect($('[data-sim-run-why]')!.textContent).toContain('시뮬 쪽 구역을 확인하지 못해 열지 않습니다');
+      await click($('[data-sim-run] [data-zone-again]')); await settle();
+      expect($('[data-sim-run-why]')).toBeNull();
+      await click(btn('시뮬에서 실행')); await settle();
+      expect(go).toHaveBeenCalledWith('/sim/index.html?from=web&map=custom&terrain=hill&bt=ss1&zones=sim-v');
+    });
+    // 검토 5번: zone-grid 실패를 무시하고 금지 구역을 관통하는 직선을 정상 길처럼 그리던 것
+    it('검토 5: 구역 칸을 못 받으면 «구역을 불러오지 못했습니다» + 지점 사이 길을 그리지 않는다, «다시 시도»로 받으면 돌아가는 길', async () => {
+      seed(); MAPS.v1 = ver('v1', 'f1', BOX);
+      serve(KIM, { over: { 'GET /map-versions/v1/zone-grid': [err(500, 'INTERNAL', '서버 오류')] } });
+      await open();
+      await click(btn('+ 이 지도에 새 시나리오'));
+      await setVal(name(), '구역 실패'); await settle();
+      await tap(0, 0); await tap(2.5, 0); await settle();                 // 사이에 접근 금지 구역
+      expect($('[data-zone-fail]')!.textContent).toContain('구역을 불러오지 못했습니다.');
+      expect(map().querySelectorAll('[data-seg]')).toHaveLength(0);       // 관통하는 직선을 정상처럼 그리지 않음
+      await tap(1.2, 0);
+      expect(alertText()).toContain(NOGO);                                // 지점 거절은 구역 모양으로 계속
+      await click(btn('다시 시도', $('[data-zone-fail]')!)); await settle();
+      expect($('[data-zone-fail]')).toBeNull();
+      expect([...map().querySelectorAll('[data-seg]')].map((x) => x.getAttribute('data-seg'))).toEqual(['around']);
+    });
+    // 검토 4번: 렌더 중 동기 탐색 — 이제 렌더 밖에서 계산하고, 누른 직후에는 «계산 중» 줄만 보인다
+    it('검토 4: 구역을 지나는 구간은 누른 직후 계산 중(wait) 표시 → 계산이 끝나면 돌아가는 길', async () => {
+      seed(); MAPS.v1 = ver('v1', 'f1', BOX);
+      serve(KIM);
+      await open();
+      await click(btn('+ 이 지도에 새 시나리오'));
+      await setVal(name(), '계산 중'); await settle();
+      await tap(0, 0);
+      const raw = (type: string) => act(() => { map().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 3.5 * 80, clientY: 2 * 80, button: 0 })); });
+      raw('pointerdown'); raw('pointerup');                               // (2.5, 0) — 기다리지 않고 바로 본다
+      expect([...map().querySelectorAll('[data-seg]')].map((x) => x.getAttribute('data-seg'))).toEqual(['wait']);   // 렌더가 길 찾기를 기다리지 않음
+      await settle();
+      expect([...map().querySelectorAll('[data-seg]')].map((x) => x.getAttribute('data-seg'))).toEqual(['around']);
+    });
+    // 검토 7번: 서버 이유의 map_version_ids·floor_ids·연결점 id 가 화면에 그대로 나오던 것
+    it('검토 7: 수정 필요 이유는 쉬운 말로 — 서버 키·id 는 보이지 않는다', async () => {
+      const m = (reasons: { element: string; reason: string }[]) => ({ status: 'NEEDS_EDIT' as const, reasons, map_version_ids: ['7d1f0a52-0000-4000-8000-000000000001'] });
+      expect(muWhy(m([{ element: 'map_version_ids', reason: '지도 그림·출처·격자 또는 벽 편집이 바뀌어 시나리오 수정이 필요합니다.' }]))).toBe('지도: 지도 그림·출처·격자 또는 벽 편집이 바뀌어 시나리오 수정이 필요합니다.');
+      expect(muWhy(m([{ element: 'floor_ids', reason: '휴지통의 층 또는 없는 층을 사용합니다.' }]))).toBe('층: 휴지통의 층 또는 없는 층을 사용합니다.');
+      expect(muWhy(m([{ element: 'waypoints.0->waypoints.1.via.0:c-7d1f0a52', reason: '연결점이 없어졌거나 바뀌었습니다.' }, { element: 'finish.target', reason: '접근 금지 구역 안입니다. (구역: 공사)' }])))
+        .toBe('1번 지점과 2번 지점 사이 연결점: 연결점이 없어졌거나 바뀌었습니다. · 끝 지점: 접근 금지 구역 안입니다. (구역: 공사)');
+      expect(muWhy(m([{ element: 'some_new_key', reason: '확인이 필요합니다.' }]))).toBe('확인이 필요합니다.');   // 모르는 키는 숨기고 이유만
+      seed(); sitePurpose = 'SIM'; MAPS.v1 = { ...MAPS.v1, ...SIMV }; setMu(m([{ element: 'map_version_ids', reason: '최신 승인 지도를 찾을 수 없습니다.' }]));
+      serve(KIM); await open('#/sim'); await scen();
+      expect($('[data-map-update-why]')!.textContent).toBe('지도: 최신 승인 지도를 찾을 수 없습니다.');
+      expect(box.textContent).not.toMatch(/map_version_ids|floor_ids|7d1f0a52/);
+    });
+  });
+
 });
