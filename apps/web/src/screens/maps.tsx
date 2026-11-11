@@ -497,7 +497,8 @@ function FloorView({ p, sim, names, cancel, again, told, top, name, side, setSid
             {keys.length ? <ul className="mx-list" aria-label="요소 목록">{keys.map((k) => <li key={k} className="mx-row" data-el={k}><span className="mx-name"><Glyph f={v.features} k={k} /><b>{featName(v.features, k)}</b><small>{featSub(v.features, k, p.building.floors)}</small></span></li>)}</ul>
               : <div className="mx-in"><div className="mx-empty"><p className="lv-note">이 지도에는 구역·벽이 없습니다.</p>{now && v.id === now.id && !sim && <button type="button" className="btn pri" onClick={start}>편집 시작</button>}</div></div>}
             {now && !sim && !!keys.length && <p className="lv-note mx-in">구역·벽은 «편집»에서 고칩니다.</p>}</>}
-          <div className="mx-foot"><button type="button" className="btn" data-to-scen onClick={() => setSide('scen')}>이 지도를 쓰는 시나리오 {scenN}개 보기 ›</button></div></>}
+          <div className="mx-foot">{scenN ? <button type="button" className="btn" data-to-scen onClick={() => setSide('scen')}>이 지도를 쓰는 시나리오 {scenN}개 보기 ›</button>
+            : <span className="lbl" data-no-scen>이 지도를 쓰는 시나리오 없음</span>}</div></>}
       </Pane>}
     </div>}
     {/* 저장 기록(11-04, 기본 닫힘): 줄을 누르면 그 기록을 지도에 — 판 번호 대신 저장 시각·만든 사람 */}

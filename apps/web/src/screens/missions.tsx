@@ -360,7 +360,8 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
       <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
   </>;
   const h2 = <h2 className="mx-sr">{id ? shown.name || what : `새 ${what}`}</h2>;
-  const nameField = <label className="fh-field"><span>이름(필수)</span><input className="inp" data-name required maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} onChange={(e) => put({ ...body, name: e.target.value })} /></label>;
+  const nameField = <label className="fh-field"><span>이름</span><input className="inp" data-name required maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} aria-describedby={nameBadNow ? 'scen-name-why' : undefined} onChange={(e) => put({ ...body, name: e.target.value })} />
+    {nameBadNow && <span id="scen-name-why" className="fh-why" data-name-why>{nameBadNow.text}</span>}</label>;
   if (kind === 'missions') return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}
     <div className="mx-scroll"><div className="fh-form" style={{ maxWidth: 760, width: '100%', margin: '0 auto' }}>{h2}{notices}
       {/* 저장 중·저장 확인 전에는 입력을 모두 막는다(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로 */}

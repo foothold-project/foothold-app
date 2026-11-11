@@ -548,7 +548,10 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect($('[data-look="list"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(name().closest('[hidden]')).toBeNull();
     expect(document.activeElement).toBe(name());
+    expect(name().getAttribute('aria-invalid')).toBe('true');                   // polish-321: 칸 아래 안내 + 칸에 묶임
+    expect(document.getElementById(name().getAttribute('aria-describedby')!)!.textContent).toBe('이름을 입력하세요.');
     await setVal(name(), '새 순찰'); await settle();
+    expect(name().getAttribute('aria-describedby')).toBeNull();
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions', 'POST /scenarios']);
     expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ name: '새 순찰' });
