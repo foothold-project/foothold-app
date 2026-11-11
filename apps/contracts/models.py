@@ -1305,10 +1305,21 @@ MapCoordinate = Annotated[float, Field(strict=True)]
 
 
 class MapZone(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False, json_schema_extra={
+        'if': {'properties': {'type': {'const': 'NO_GO'}}},
+        'then': {'not': {'required': ['max_speed_mps']}}})
     id: str = Field(min_length=1, max_length=128, pattern=r'\S')
     type: Literal['NO_GO', 'SLOW']
     name: str = Field(min_length=1, max_length=128, pattern=r'\S')
     polygon: list[tuple[MapCoordinate, MapCoordinate]] = Field(min_length=3, max_length=256)
+    max_speed_mps: Annotated[float, Field(strict=True, ge=0.3, le=1.5)] | None = Field(
+        default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode='after')
+    def slow_speed_only(self):
+        if self.type == 'NO_GO' and 'max_speed_mps' in self.model_fields_set:
+            raise ValueError('NO_GO cannot specify max_speed_mps')
+        return self
 
 
 class MapWaypoint(Contract):
@@ -1340,6 +1351,64 @@ class MapFeatures(Contract):
     waypoints: list[MapWaypoint] = Field(max_length=1000)
     connectors: list[MapConnector] = Field(max_length=256)
     edits: list[MapEdit] = Field(max_length=256)
+
+
+class ZoneGridCell(Contract):
+    index: int = Field(ge=0)
+    no_go: bool
+    slow: bool
+    max_speed_mps: float | None
+
+
+class ZoneGrid(Contract):
+    format_version: Literal[1] = 1
+    map_version_id: UUID
+    origin: tuple[float, float, float]
+    resolution: float
+    width: int
+    height: int
+    row_order: Literal['TOP_TO_BOTTOM'] = 'TOP_TO_BOTTOM'
+    cursor: int
+    cells: list[ZoneGridCell]
+    next_cursor: int | None
+
+
+class MapSimulationTwin(Contract):
+    map_version_id: UUID
+    simulation_map_version_id: UUID
+    simulation_floor_id: UUID
+    terrain_id: str
+
+
+class ZoneOverlapRequest(Contract):
+    features: MapFeatures
+
+
+class ZoneOverlapHit(Contract):
+    kind: Literal['POINT', 'SEGMENT']
+    element: str
+    zone_id: str
+
+
+class ZoneOverlapScenario(Contract):
+    scenario_id: UUID
+    scenario_name: str
+    hits: list[ZoneOverlapHit]
+
+
+class ZoneOverlaps(Contract):
+    scenarios: list[ZoneOverlapScenario]
+
+
+class MapUpdateReason(Contract):
+    element: str
+    reason: str
+
+
+class ScenarioMapUpdate(Contract):
+    status: Literal['CURRENT', 'AUTO_APPLICABLE', 'NEEDS_EDIT']
+    reasons: list[MapUpdateReason]
+    map_version_ids: list[UUID]
 
 
 def approval_text(value):
@@ -1468,6 +1537,8 @@ class ApprovalMapPreview(Contract):
 
 
 class ApprovalAssignmentPreview(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('effective_scenario_version'))
+    effective_scenario_version: int | None = Field(default=None, exclude_if=lambda value: value is None)
     scenario_id: UUID | None
     scenario_name: str
     scenario_version: int | None
@@ -1605,6 +1676,8 @@ class ScenarioWrite(MapName):
 
 
 class Scenario(ScenarioWrite):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('map_update'))
+    map_update: ScenarioMapUpdate | None = Field(default=None, exclude_if=lambda value: value is None)
     id: UUID
     number: int
     latest_version: int
@@ -1958,6 +2031,8 @@ class AssignmentCreate(Contract):
 
 
 class Assignment(AssignmentCreate):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('effective_scenario_version'))
+    effective_scenario_version: int | None = Field(default=None, exclude_if=lambda value: value is None)
     scenario_id: UUID | None
     scenario_version: int | None
     scenario_name_snapshot: str | None = None
@@ -2821,3 +2896,5 @@ REQUEST_MODELS.update({PairingStart, PairingClaim, PairingConfirm, PairingPoll, 
 TOP['PairingPollResult'] = PairingWaiting | PairingPaired
 
 REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, TerrainRamp, TerrainGap, TerrainWrite})
+
+REQUEST_MODELS.add(ZoneOverlapRequest)

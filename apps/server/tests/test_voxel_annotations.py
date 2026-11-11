@@ -39,6 +39,14 @@ def test_annotations_pin_new_twin_features_proof_and_run_without_changing_histor
     result = post(http, headers).json()
     original = result['map']
     old_scenario = scenario_for(http, headers, original['floor_id'], original['id'])
+    # Read the fixed old plan before any annotation change. New starts on that
+    # old map are rejected later, while this historical proof remains unchanged.
+    factory = sessionmaker(http.app.state.engine, expire_on_commit=False)
+    with factory.begin() as db:
+        sim_robot(db, seeded, result)
+    with factory() as db:
+        _, old_plan = fixed_scenario(db, db.get(Robot, seeded['robots']['mine']), UUID(old_scenario['id']), 1, fail)
+
     old_image = http.get(P + '/map-versions/' + original['id'] + '/image', headers=headers).content
     # Connectors are copied too, without a coordinate transform or invented pairing.
     # Connectors must belong to the same building; use the source's building.
@@ -69,7 +77,9 @@ def test_annotations_pin_new_twin_features_proof_and_run_without_changing_histor
         sim_robot(db, seeded, result)
     with factory() as db:
         robot = db.get(Robot, seeded['robots']['mine'])
-        _, old_plan = fixed_scenario(db, robot, UUID(old_scenario['id']), 1, fail)
+        with pytest.raises(Rejected) as stale:
+            fixed_scenario(db, robot, UUID(old_scenario['id']), 1, fail)
+        assert stale.value.args[1] == 'MAP_UPDATE_REQUIRED'
         _, plan = fixed_scenario(db, robot, UUID(new_scenario['id']), 1, fail)
         assert old_plan.map_proofs[0].map_version_id == UUID(result['terrain']['map_version_id'])
         assert plan.waypoints[0].map_version_id == UUID(twin['id'])

@@ -3,6 +3,18 @@
     "ApprovalAssignmentPreview": {
       "additionalProperties": false,
       "properties": {
+        "effective_scenario_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Scenario Version"
+        },
         "robot_id": {
           "format": "uuid",
           "title": "Robot Id",

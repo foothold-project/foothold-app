@@ -155,7 +155,9 @@ def test_stale_four_causes_commits_terminal_decision(maps, seeded, change):
         http.patch(P + '/robots/' + str(seeded['robots']['mine']), headers=one,
             json={'owner_user_id': str(seeded['users']['two'])})
     elif change == 'map':
-        assert save(http, admin, floor, image, base=old['id']).status_code == 201
+        # A different Upload remains incompatible; annotation-only changes have
+        # their own pending-preservation acceptance test in test_zones.py.
+        assert save(http, admin, floor, upload(http, admin), base=old['id']).status_code == 201
     else:
         # Exercise defensive STALE when a removed target still has a pending
         # request (legacy/imported rows); normal DELETE cancels both atomically.
@@ -351,6 +353,7 @@ def test_concurrent_duplicate_without_key_uses_partial_unique(maps, seeded, monk
 def test_populated_assignment_approval_downgrade_refuses_without_losing_history(maps, seeded, monkeypatch):
     from alembic import command
     from alembic.config import Config
+    from alembic.script import ScriptDirectory
     from .conftest import CONFIG
     http, admin, _ = maps
     value, _, _, _ = scenario(http, admin)
@@ -361,7 +364,7 @@ def test_populated_assignment_approval_downgrade_refuses_without_losing_history(
     engine = create_engine(seeded['urls']['migrate'])
     try:
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0028'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(Config(str(CONFIG))).get_current_head()
             assert conn.scalar(text('SELECT status FROM assignments WHERE id=:id'), {'id': row['id']}) == 'PENDING'
             assert conn.scalar(text('SELECT status FROM approvals WHERE id=:id'), {'id': row['approval_id']}) == 'PENDING'
     finally:
@@ -401,6 +404,7 @@ def test_remove_assignment_after_robot_archived(maps, seeded, creator, remover):
 def test_direct_active_assignment_downgrade_refuses_without_losing_history(maps, seeded, monkeypatch):
     from alembic import command
     from alembic.config import Config
+    from alembic.script import ScriptDirectory
     from .conftest import CONFIG
     http, admin, _ = maps
     value, _, _, _ = scenario(http, admin)
@@ -416,7 +420,7 @@ def test_direct_active_assignment_downgrade_refuses_without_losing_history(maps,
         with pytest.raises(DBAPIError, match='assignment approval history requires backup'):
             command.downgrade(Config(str(CONFIG)), '0014')
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0028'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(Config(str(CONFIG))).get_current_head()
             assert conn.execute(text('SELECT status, approval_id, removed_at FROM assignments WHERE id=:id'),
                 {'id': row['id']}).one() == ('ACTIVE', None, None)
             assert conn.scalar(text("SELECT count(*) FROM approvals WHERE kind='SCENARIO_ASSIGNMENT'")) == 0

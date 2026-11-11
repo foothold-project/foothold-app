@@ -1,0 +1,30 @@
+{
+  "$id": "fh-app/1/ZoneOverlapHit",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "element": {
+      "title": "Element",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "POINT",
+        "SEGMENT"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "zone_id": {
+      "title": "Zone Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "element",
+    "zone_id"
+  ],
+  "title": "ZoneOverlapHit",
+  "type": "object"
+}

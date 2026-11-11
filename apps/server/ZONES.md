@@ -43,6 +43,9 @@ NO_GO가 우선이며 금지 칸의 max_speed_mps는 null이다. 겹친 SLOW는 
 해당 HUMAN 판에 고정된 첫 번째 지형 raster(terrain_version=1)를 반환한다.
 옛 HUMAN UUID를 최신 UUID로 바꾸지 않는다. 연결 없음은 404, 손상된 증명은 422다.
 브라우저는 이 simulation_map_version_id로 zone-grid를 읽는다.
+브라우저에 넣을 지형 spec도 `GET /api/v1/map-versions/{simulation_map_version_id}`의
+고정 `terrain_spec`을 쓴다. 같은 terrain_id의 최신 Terrain.spec로 몰래 바꾸면
+선택한 raster와 물체가 달라질 수 있다. 다른 지형 수정 판은 그 판 UUID를 명시한다.
 이 API는 조직 사용자 인증만 사용하며 로봇 연결·실행·로그인은 새로 하지 않는다.
 선택한 다른 불변 지형 판은 기존 agent API의 simulation_map_version_id로 지정하며
 해당 판의 zone-grid를 읽는다. 기존 실행 증명과 SIMULATION 출처 검사는 유지한다.
@@ -75,3 +78,28 @@ error.detail.map_update에 원인을 담는다. 단순 GET/preview/agent GET에�
 성공한 응답 number를 다음 새 시뮬 시작에 명시한다.
 옛 지도 판으로 새 시작을 요청하면 거절하며 서버가 조용히 바꾸지 않는다.
 진행 중·일시정지/재개·실행 기록은 원래 고정 판을 보존한다.
+
+
+## 배정·승인 이력 보존
+
+migration 0029는 불변 ScenarioVersion에 nullable `auto_map_from_number` 한 칸을 추가한다.
+같은 시나리오의 더 작은 판 번호만 참조할 수 있다. 기존 판은 null이고 수정하지 않는다.
+자동 지도 적용의 새 판에서만 출처 판 번호를 적으며, 사람이 저장한 판은 null이다.
+배정의 scenario_version_id, 승인 target/base와 원래 판 번호를 바꾸지 않는다.
+최신 판까지 끊기지 않는 자동 갱신 계보가 있으면 배정 응답/승인 preview에
+선택 계산 필드 `effective_scenario_version`을 추가한다(원래 `scenario_version`은 보존).
+새 실행은 이 판을 명시적으로 사용하며 원래 옛 지도 판으로 시작할 수 없다.
+승인 결정은 원래 판을 기록하면서 effective_scenario_version을 별도 사건 필드로 남기고,
+그 적용 판에 대해 기존 조직·담당·보관·최신 지도·SIM 출처 검사를 그대로 한다.
+이미 같은 자동 적용 판으로 이어진 ACTIVE/PENDING 배정의 중복 생성은 409다.
+수동 시나리오 수정은 계보를 끊으며 기존 규칙을 따른다. 이미 달리는 Run 참조는 바꾸지 않는다.
+자동 갱신 사건 SCENARIO_VERSION_CREATED.data에는 reason=«지도 구역 변경으로 자동 갱신»,
+auto_map_from_number와 assignment_policy=preserve_original_reference_follow_auto_lineage를 남긴다.
+이 방식은 역순 Assignment/Approval 잠금을 새로 잡거나 이력 값을 덮지 않는다.
+
+자동 적용 가능한 지도 저장 뒤 아직 명시 갱신을 확정하기 전에 대기 승인을 누르면
+409 MAP_UPDATE_REQUIRED로 적용 경로를 안내하고 승인·배정은 PENDING으로 보존한다.
+별도 apply-latest-map 성공 뒤 기존 요청을 다시 승인한다. 승인 API 자체는 시나리오 판을 만들지 않는다.
+그림/격자가 다르거나 지점이 금지 구역 안이거나 담당·보관·대상이 바뀐 요청은 기존 STALE 규칙이다.
+수동 시나리오 수정으로 끊어진 계보에도 이 보존 예외를 적용하지 않는다.
+0029 downgrade는 자동 갱신 계보가 하나라도 있으면 이력 백업 없이 컬럼을 지우지 못하도록 거절한다.
