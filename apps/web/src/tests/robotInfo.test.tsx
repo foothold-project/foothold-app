@@ -42,7 +42,7 @@ it('NaN 등으로 서버가 거른 null 은 그 값만 «모름», 옛 agent(rob
   expect(text(R({ robotInfo: info({ attitude: { roll: null, pitch: 0 }, error_code: null, fallen: null }) })))
     .toBe('자세roll 모름 · pitch +0.0°상태 번호모름넘어짐 추정모름');
   act(() => root!.unmount()); box.remove();
-  expect(text(R({ robotInfo: undefined }))).toBe('자세모름상태 번호모름넘어짐 추정모름');
+  expect(text(R({ robotInfo: undefined }))).toBe('자세·상태모름');   // 받은 값이 없으면 한 줄
 });
 
 it('폰 경유: 직접 값이 없을 때만, «폰 경유» 라벨로 — 둘 다 있으면 직접 값', () => {
@@ -62,7 +62,7 @@ it('시뮬은 숨김, 끊김·실시간 끊김은 «모름(끊김)», 첫 state 
   expect(pickInfo(R({ online: false, unknown: 'wait' }))).toEqual({ v: null, why: '모름' });
   expect(pickInfo(R({ online: false, status: null }))).toEqual({ v: null, why: '모름' });
   expect(pickInfo(R({ online: false, unknown: 'summary' }))).toEqual({ v: null, why: '확인 안 됨' });
-  expect(text(R({ online: false, robotInfo: info() }))).toBe('자세모름(끊김)상태 번호모름(끊김)넘어짐 추정모름(끊김)');
+  expect(text(R({ online: false, robotInfo: info() }))).toBe('자세·상태모름(끊김)');
 });
 
 it('폰 경유 값은 새 state 없이 유효 시간만 지나도 상세 묶음·목록 Chip 에서 내려간다(R1)', () => {
@@ -80,6 +80,6 @@ it('폰 경유 값은 새 state 없이 유효 시간만 지나도 상세 묶음�
   act(() => { vi.advanceTimersByTime(600); });
   expect(el.querySelector('[data-phone-relay]')!.textContent).toBe('폰 경유 · 모름');
   expect(el.querySelector('[data-robot-info]')!.getAttribute('data-robot-info')).toBe('none');
-  expect(el.querySelector('[data-robot-code]')!.textContent).toBe('모름(끊김)');
+  expect(el.querySelector('[data-robot-info]')!.textContent).toBe('자세·상태모름(끊김)');   // 값 없으면 한 줄
   expect(el.querySelector('[data-fall-chip]')).toBeNull();
 });
