@@ -474,8 +474,11 @@ class ScenarioVersion(ResourceSnapshot, Base):
         UniqueConstraint('scenario_id', 'number'),
         UniqueConstraint('org_id', 'id'),
         CheckConstraint('number > 0', name='scenario_number_positive'),
+        ForeignKeyConstraint(['scenario_id', 'auto_map_from_number'], ['scenario_versions.scenario_id', 'scenario_versions.number']),
+        CheckConstraint('auto_map_from_number IS NULL OR (auto_map_from_number > 0 AND auto_map_from_number < number)', name='scenario_auto_map_previous'),
     )
     scenario_id: Mapped[UUID] = mapped_column(PGUUID)
+    auto_map_from_number: Mapped[int | None] = mapped_column(Integer)
     waypoints: Mapped[list] = mapped_column(JSONB)
     finish: Mapped[dict] = mapped_column(JSONB)
     notes: Mapped[str] = mapped_column(Text)

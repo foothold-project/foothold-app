@@ -25,6 +25,18 @@
           "title": "Created By",
           "type": "string"
         },
+        "effective_scenario_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Scenario Version"
+        },
         "id": {
           "format": "uuid",
           "title": "Id",

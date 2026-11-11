@@ -1,5 +1,6 @@
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from apps.server.fh_server.models import Base
@@ -105,7 +106,7 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with pytest.raises(IntegrityError):
                 command.downgrade(config, '0006')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0028'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(config).get_current_head()
                 assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
                 assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
                 assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0
@@ -206,7 +207,7 @@ def test_resource_archive_upgrade_preserves_rows_and_guarded_downgrade(monkeypat
             with pytest.raises(DBAPIError, match='Reconcile archived map resources'):
                 command.downgrade(config, '0020')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0028'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(config).get_current_head()
                 assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor AND archived_at IS NOT NULL'), {'floor': floor}) == 1
             with engine.begin() as conn:
                 conn.execute(text('UPDATE floors SET archived_at=NULL WHERE id=:floor'), {'floor': floor})
@@ -235,7 +236,7 @@ def test_terrain_source_identity_blocks_downgrade_with_live_data(monkeypatch):
             with pytest.raises(DBAPIError, match='Retire terrain data before downgrade'):
                 command.downgrade(config, '0024')
             with engine.begin() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0028'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(config).get_current_head()
                 assert conn.scalar(text('SELECT count(*) FROM terrains')) == 1
                 conn.execute(text('DELETE FROM terrains'))
             command.downgrade(config, '0024')

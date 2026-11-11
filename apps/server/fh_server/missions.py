@@ -7,12 +7,13 @@ from fastapi import Header, Query, Response
 from sqlalchemy import any_, select, tuple_
 
 from apps.contracts import models as C
-from .maps import bounded_features, orientation, within_map
+from .maps import bounded_features, within_map
 from .models import Floor, FloorConnector, MapVersion, Mission, MissionVersion, Robot, RobotDevice, Scenario, ScenarioVersion, now
 from .resource_archive import require_unused, visible_version
 from .robots import reported_devices
 from .runs import execution_capabilities
 from .scenario_targets import site_purposes
+from .zones import inside_polygon
 
 DEVICE_KINDS = {'rgb': 'CAMERA_RGB', 'depth': 'CAMERA_DEPTH', 'lidar': 'LIDAR', 'battery': 'BATTERY'}
 LABELS = {'PHOTO': '사진 찍기', 'WAIT': '대기', 'OPERATOR_CONFIRM': '운영자 확인', 'SENSOR_LOG': '센서 값 기록'}
@@ -24,17 +25,6 @@ def requirements(step):
     if step.action == 'SENSOR_LOG':
         return [DEVICE_KINDS[step.params['device']]]
     return []
-
-
-def inside_polygon(x, y, polygon):
-    # Boundary belongs to NO_GO too. Ray crossing supports concave polygons.
-    inside = False
-    for a, b in zip(polygon, polygon[1:] + polygon[:1]):
-        if abs(orientation(a, b, (x, y))) <= 1e-10 and min(a[0], b[0]) <= x <= max(a[0], b[0]) and min(a[1], b[1]) <= y <= max(a[1], b[1]):
-            return True
-        if (a[1] > y) != (b[1] > y) and x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]:
-            inside = not inside
-    return inside
 
 
 def preview(db, user, body, fail):
@@ -167,16 +157,17 @@ def install(app, DB, Identity, fail, authorize, event, page):
             model.number == (number if number is not None else row.latest_version)))
         if snapshot is None:
             fail(404, 'NOT_FOUND', '판을 찾을 수 없습니다.')
-        return serialize(row, snapshot)
+        return serialize(db, row, snapshot)
 
-    def serialize(row, snapshot):
+    def serialize(db, row, snapshot):
         common = dict(id=row.id, name=snapshot.name, number=snapshot.number, latest_version=row.latest_version,
             version=row.version, required_devices=snapshot.required_devices, created_by=row.created_by,
             created_at=row.created_at, version_created_by=snapshot.created_by,
             version_created_at=snapshot.created_at, archived_at=row.archived_at)
         if isinstance(row, Mission):
             return C.Mission(**common, steps=snapshot.steps)
-        return C.Scenario(**common, waypoints=snapshot.waypoints, finish=snapshot.finish, notes=snapshot.notes,
+        from .scenario_maps import map_update
+        return C.Scenario(**common, map_update=map_update(db, snapshot)[0], waypoints=snapshot.waypoints, finish=snapshot.finish, notes=snapshot.notes,
             floor_ids=snapshot.floor_ids, map_version_ids=snapshot.map_version_ids, est_distance_m=snapshot.est_distance_m)
 
     def batch(db, rows):
@@ -190,7 +181,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
         snapshots = {getattr(s, 'mission_id' if model is MissionVersion else 'scenario_id'): s
             for s in db.scalars(select(model).join(owner, (parent == owner.id) & (model.org_id == owner.org_id) &
                 (model.number == owner.latest_version)).where(owner.org_id == rows[0].org_id, owner.id.in_(parents)))}
-        return [serialize(row, snapshots[row.id]) for row in rows]
+        return [serialize(db, row, snapshots[row.id]) for row in rows]
 
     def save(db, user, body, model, row=None):
         is_mission = model is Mission
@@ -220,7 +211,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
         code = ('MISSION_CREATED' if created else 'MISSION_VERSION_CREATED') if is_mission else ('SCENARIO_CREATED' if created else 'SCENARIO_VERSION_CREATED')
         event(db, user.org_id, code, user.id, {'id': str(row.id), 'name': body.name, 'number': row.latest_version})
         db.flush()
-        return serialize(row, snapshot)
+        return serialize(db, row, snapshot)
 
     def archive(db, user, model, identifier):
         authorize(user, 'O')
@@ -343,6 +334,15 @@ def install(app, DB, Identity, fail, authorize, event, page):
     def create_scenario(body: C.ScenarioWrite, auth: Identity, db: DB, response: Response):
         authorize(auth[0], 'O')
         return tagged(response, save(db, auth[0], body, Scenario))
+
+    @app.post('/api/v1/scenarios/{identifier}/apply-latest-map', response_model=C.Scenario)
+    def apply_latest_map(identifier: UUID, auth: Identity, db: DB, response: Response):
+        from .scenario_maps import apply_latest
+        authorize(auth[0], 'O')
+        row = own(db, auth[0], Scenario, identifier, lock=True)
+        editable(row)
+        snapshot = apply_latest(db, auth[0], row, fail, event)
+        return tagged(response, serialize(db, row, snapshot))
 
     @app.get('/api/v1/scenarios/{identifier}', response_model=C.Scenario)
     def scenario(identifier: UUID, auth: Identity, db: DB, response: Response, version: Annotated[int | None, Query(ge=1)] = None):

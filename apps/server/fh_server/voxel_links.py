@@ -7,6 +7,20 @@ from sqlalchemy import func, select
 from .models import Floor, MapVersion, Upload
 
 
+def same_annotation_raster(version, anchor, image):
+    """All #333 identity/geometry/edit conditions, shared with scenario updates."""
+    origin = [version.origin_x, version.origin_y, version.origin_yaw]
+    return (anchor is not None and image is not None and anchor.org_id == version.org_id and anchor.floor_id == version.floor_id
+        and anchor.upload_id == version.upload_id and image.org_id == version.org_id
+        and anchor.provenance == version.provenance == image.provenance
+        and version.status in ('APPROVED', 'SUPERSEDED') and anchor.status in ('APPROVED', 'SUPERSEDED')
+        and version.image_sha256 == anchor.image_sha256 == image.png_sha256
+        and (version.width, version.height) == (anchor.width, anchor.height) == (image.width, image.height)
+        and origin == [anchor.origin_x, anchor.origin_y, anchor.origin_yaw] == image.metadata_json.get('origin')
+        and version.resolution == anchor.resolution == image.metadata_json.get('resolution')
+        and version.features['edits'] == anchor.features['edits'])
+
+
 def voxel_summary(db, version, image, *, require_twin=True):
     """Rebind the public summary only for the same floor, upload and geometry.
 
@@ -18,18 +32,9 @@ def voxel_summary(db, version, image, *, require_twin=True):
         return None
     anchor = db.get(MapVersion, UUID(summary['map_version_id']))
     origin = [version.origin_x, version.origin_y, version.origin_yaw]
-    if (anchor is None or anchor.org_id != version.org_id or anchor.floor_id != version.floor_id
-            or anchor.upload_id != version.upload_id or image.org_id != version.org_id
+    if (not same_annotation_raster(version, anchor, image)
             or anchor.provenance != 'HUMAN' or anchor.source != 'SLAM'
-            or version.provenance != 'HUMAN' or image.provenance != 'HUMAN'
-            or version.status not in ('APPROVED', 'SUPERSEDED')
-            or version.image_sha256 != anchor.image_sha256 or version.image_sha256 != image.png_sha256
-            or (version.width, version.height) != (anchor.width, anchor.height)
-            or (version.width, version.height) != (image.width, image.height)
-            or origin != [anchor.origin_x, anchor.origin_y, anchor.origin_yaw]
-            or origin != image.metadata_json.get('origin') or origin != summary.get('origin')
-            or version.resolution != anchor.resolution or version.resolution != image.metadata_json.get('resolution')
-            or version.features['edits'] != anchor.features['edits']):
+            or origin != summary.get('origin')):
         return summary
     if require_twin and version.id != anchor.id and db.scalar(select(Upload.id).where(
             Upload.org_id == version.org_id, Upload.provenance == 'SIMULATION',

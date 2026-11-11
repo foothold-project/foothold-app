@@ -9,6 +9,7 @@ from . import approvals, idempotency
 from .event_messages import render
 from .scenario_targets import require_assignable, require_target
 from .resource_archive import visible_version
+from .scenario_maps import effective_version
 from .models import Approval, Assignment, Event, Robot, Scenario, ScenarioVersion, now
 
 
@@ -20,7 +21,10 @@ def assignment_objects(db, rows):
         ScenarioVersion.org_id == org_id, ScenarioVersion.id.in_({r.scenario_version_id for r in rows})))}
     robots = dict(db.execute(select(Robot.id, Robot.name).where(Robot.org_id == org_id,
         Robot.id.in_({r.robot_id for r in rows}))).all())
-    return [C.Assignment(scenario_id=versions[r.scenario_version_id].scenario_id if r.scenario_version_id else None,
+    effective = {key: effective_version(db, value) for key, value in versions.items()}
+    return [C.Assignment(**({'effective_scenario_version': effective[r.scenario_version_id].number}
+        if r.scenario_version_id and effective[r.scenario_version_id].id != r.scenario_version_id else {}),
+        scenario_id=versions[r.scenario_version_id].scenario_id if r.scenario_version_id else None,
         scenario_version=versions[r.scenario_version_id].number if r.scenario_version_id else None,
         scenario_name=versions[r.scenario_version_id].name if r.scenario_version_id else '삭제된 시나리오: ' + (r.scenario_name_snapshot or ''),
         scenario_name_snapshot=r.scenario_name_snapshot,
@@ -83,9 +87,11 @@ def install(app, DB, Identity, fail, page):
         robot = robot_for_write(db, user, body.robot_id, fail, creating=True)
         require_assignable(db, version, fail)
         require_target(db, version, robot, fail)
-        if db.scalar(select(Assignment.id).where(Assignment.org_id == user.org_id,
-                Assignment.robot_id == body.robot_id, Assignment.scenario_version_id == version.id,
-                Assignment.status.in_(['ACTIVE', 'PENDING']))) is not None:
+        live = db.scalars(select(Assignment).join(ScenarioVersion,
+            ScenarioVersion.id == Assignment.scenario_version_id).where(Assignment.org_id == user.org_id,
+                Assignment.robot_id == body.robot_id, ScenarioVersion.scenario_id == scenario.id,
+                Assignment.status.in_(['ACTIVE', 'PENDING'])))
+        if any(effective_version(db, db.get(ScenarioVersion, item.scenario_version_id), scenario).id == version.id for item in live):
             fail(409, 'ASSIGNMENT_EXISTS', '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.')
         row = Assignment(org_id=user.org_id, scenario_version_id=version.id, robot_id=body.robot_id,
             status='ACTIVE', memo=body.memo, created_by=user.id)

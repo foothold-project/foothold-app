@@ -1,0 +1,39 @@
+{
+  "$id": "fh-app/1/ZoneGridCell",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "index": {
+      "minimum": 0,
+      "title": "Index",
+      "type": "integer"
+    },
+    "max_speed_mps": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Max Speed Mps"
+    },
+    "no_go": {
+      "title": "No Go",
+      "type": "boolean"
+    },
+    "slow": {
+      "title": "Slow",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "index",
+    "no_go",
+    "slow",
+    "max_speed_mps"
+  ],
+  "title": "ZoneGridCell",
+  "type": "object"
+}

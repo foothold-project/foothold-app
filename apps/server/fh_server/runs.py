@@ -116,6 +116,8 @@ def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, r
     # Do not let the simulation exception silently enable real execution.
     if robot.simulation is not True:
         fail(422, 'PRECHECK_FAILED', '실기 배정·시작 사용자·실행 전 점검 증명이 필요합니다.')
+    from .scenario_maps import require_current_start
+    require_current_start(db, row, fail)
     from .voxel_maps import simulation_twin
     def translated(point):
         point = dict(point)
@@ -207,9 +209,10 @@ def install(app, DB, fail):
             'Cache-Control': 'private, no-store', 'ETag': '"' + row.image_sha256.hex() + '"'})
 
 
-def reject(status, code, message):
+def reject(status, code, message, detail=None):
     raise ReportRejected({'NOT_FOUND': 'RUN_REPORT_NOT_FOUND',
                           'MAP_PROOF_UNAVAILABLE': 'RUN_REPORT_MAP',
+                          'MAP_UPDATE_REQUIRED': 'RUN_REPORT_MAP',
                           'PLAN_UNAVAILABLE': 'RUN_REPORT_PLAN',
                           'PRECHECK_FAILED': 'RUN_REPORT_PROVENANCE',
                           'EXECUTION_UNAVAILABLE': 'RUN_REPORT_PLAN'}.get(code, 'RUN_REPORT_INVALID'))

@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "ZoneGridCell": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "max_speed_mps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Speed Mps"
+        },
+        "no_go": {
+          "title": "No Go",
+          "type": "boolean"
+        },
+        "slow": {
+          "title": "Slow",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "index",
+        "no_go",
+        "slow",
+        "max_speed_mps"
+      ],
+      "title": "ZoneGridCell",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ZoneGrid",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cells": {
+      "items": {
+        "$ref": "#/$defs/ZoneGridCell"
+      },
+      "title": "Cells",
+      "type": "array"
+    },
+    "cursor": {
+      "title": "Cursor",
+      "type": "integer"
+    },
+    "format_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Format Version",
+      "type": "integer"
+    },
+    "height": {
+      "title": "Height",
+      "type": "integer"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "origin": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Origin",
+      "type": "array"
+    },
+    "resolution": {
+      "title": "Resolution",
+      "type": "number"
+    },
+    "row_order": {
+      "const": "TOP_TO_BOTTOM",
+      "default": "TOP_TO_BOTTOM",
+      "title": "Row Order",
+      "type": "string"
+    },
+    "width": {
+      "title": "Width",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "format_version",
+    "map_version_id",
+    "origin",
+    "resolution",
+    "width",
+    "height",
+    "row_order",
+    "cursor",
+    "cells",
+    "next_cursor"
+  ],
+  "title": "ZoneGrid",
+  "type": "object"
+}

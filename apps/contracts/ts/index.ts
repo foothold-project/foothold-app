@@ -225,6 +225,7 @@ export interface ApprovalApprove {
 }
 
 export interface ApprovalAssignmentPreview {
+  effective_scenario_version?: number | null;
   scenario_id: string | null;
   scenario_name: string;
   scenario_version: number | null;
@@ -274,6 +275,7 @@ export interface Assignment {
   scenario_version: number | null;
   robot_id: string;
   memo: string;
+  effective_scenario_version?: number | null;
   scenario_name_snapshot: string | null;
   id: string;
   scenario_name: string;
@@ -712,12 +714,24 @@ export interface MapRollback {
   reason: string;
 }
 
+export interface MapSimulationTwin {
+  map_version_id: string;
+  simulation_map_version_id: string;
+  simulation_floor_id: string;
+  terrain_id: string;
+}
+
 export interface MapSite {
   archived_at?: string | null;
   id: string;
   name: string;
   purpose: "SIM" | "REAL";
   buildings: MapBuilding[];
+}
+
+export interface MapUpdateReason {
+  element: string;
+  reason: string;
 }
 
 export interface MapUpload {
@@ -773,6 +787,7 @@ export interface MapZone {
   type: "NO_GO" | "SLOW";
   name: string;
   polygon: [number, number][];
+  max_speed_mps?: number | null;
 }
 
 export interface MePatch {
@@ -1725,6 +1740,7 @@ export interface Scenario {
   waypoints: ScenarioWaypoint[];
   finish: ScenarioFinish;
   notes: string;
+  map_update?: ScenarioMapUpdate | null;
   id: string;
   number: number;
   latest_version: number;
@@ -1748,6 +1764,12 @@ export interface ScenarioFinish {
 export interface ScenarioList {
   items: Scenario[];
   next_cursor: string | null;
+}
+
+export interface ScenarioMapUpdate {
+  status: "CURRENT" | "AUTO_APPLICABLE" | "NEEDS_EDIT";
+  reasons: MapUpdateReason[];
+  map_version_ids: string[];
 }
 
 export interface ScenarioPoint {
@@ -2257,6 +2279,46 @@ export interface VoxelMapSummary {
 
 export interface WaitParams {
   seconds?: number;
+}
+
+export interface ZoneGrid {
+  format_version: 1;
+  map_version_id: string;
+  origin: [number, number, number];
+  resolution: number;
+  width: number;
+  height: number;
+  row_order: "TOP_TO_BOTTOM";
+  cursor: number;
+  cells: ZoneGridCell[];
+  next_cursor: number | null;
+}
+
+export interface ZoneGridCell {
+  index: number;
+  no_go: boolean;
+  slow: boolean;
+  max_speed_mps: number | null;
+}
+
+export interface ZoneOverlapHit {
+  kind: "POINT" | "SEGMENT";
+  element: string;
+  zone_id: string;
+}
+
+export interface ZoneOverlapRequest {
+  features: MapFeatures;
+}
+
+export interface ZoneOverlapScenario {
+  scenario_id: string;
+  scenario_name: string;
+  hits: ZoneOverlapHit[];
+}
+
+export interface ZoneOverlaps {
+  scenarios: ZoneOverlapScenario[];
 }
 
 export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT" | "SIM_SCENARIO_NO_ASSIGN" | "SCENARIO_MIXED_PURPOSE";

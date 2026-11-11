@@ -886,6 +886,8 @@ def create_app(settings: Settings | None = None):
 
     from . import events_api, notifications, maps, missions, simulation, runs, photos, external_camera
     simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization)
+    from . import zones
+    zones.install(app, DB, Identity, fail)
     missions.install(app, DB, Identity, fail, authorize, event, page)
     assignments.install(app, DB, Identity, fail, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
