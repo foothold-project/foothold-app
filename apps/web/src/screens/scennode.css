@@ -60,16 +60,16 @@
    상세 = 화면에 붙은 오른쪽 위 카드. 좁은 창·앱: 윗줄 = [상시 감시 …] / 단계 띠(다음 줄) 그대로 */
 .sn-top>.sn-stages{flex:1 1 100%;order:3}
 .sn[data-big]{overflow:hidden;padding:0 8px 8px}   /* R6: 창 스크롤 없음 — 캔버스가 남은 높이를 채우고 안에서 끌어 옮김 */
-.sn[data-big] .sn-top{padding:8px 0;background:var(--panel)}
+.sn[data-big] .sn-top{padding:4px 0;gap:4px 6px;background:var(--panel)}
 .sn[data-big] .sn-top>.sn-stages{flex:1 1 auto;order:1;flex-wrap:nowrap;min-width:0}
-.sn[data-big] .sn-stage{flex:0 1 auto;min-width:0;height:32px;min-height:0;padding:0 10px}
+.sn[data-big] .sn-stage{flex:0 1 auto;min-width:0;height:28px;min-height:0;padding:0 8px;font-size:13px}
 .sn[data-big] .sn-stage small{display:none}
 .sn-zoom{order:2;flex:none;display:flex;gap:4px}
 .sn-zoom>.sn-chip{min-width:28px;height:28px;padding:0 6px;font-size:14px}
 .sn[data-big] .sn-hint{display:none}   /* 안전 기능 칸의 «지금 로봇 상태 아님»은 넓은 화면에서도 보임(실시간 감시로 읽히지 않게) */
 .sn[data-big] .sn-main{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
 .sn[data-big] .sn-canvas{min-height:0}
-.sn[data-big] .sn-detail{position:fixed;top:236px;right:28px;z-index:5;width:300px;max-height:calc(100vh - 266px);background:var(--panel);box-shadow:var(--shadow)}
+.sn[data-big] .sn-detail{position:absolute;top:8px;right:8px;z-index:5;width:300px;max-height:calc(100% - 16px);box-sizing:border-box;background:var(--panel);box-shadow:var(--shadow)}   /* RB-SCEN-START-LAYOUT 11-11: 노드 칸 오른쪽 위(윗줄 높이가 바뀌어도 따라감) */
 .sn-name{display:flex;align-items:flex-start;gap:6px}
 .sn-x{margin-left:auto;flex:none;width:28px;height:28px;margin-top:-4px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer}
 .sn-x:hover{color:var(--text);background:var(--panel2)}
@@ -99,3 +99,6 @@
 .sn-edit fieldset{margin:0;padding:0;border:0;min-width:0;display:flex;flex-direction:column;gap:8px}
 /* SCEN-ONE-FLOW-R6 11-10 — 끌기 이동: 빈 곳 = grab(React Flow 기본), 끄는 동안은 카드 위에서도 grabbing */
 .sn .react-flow__pane.dragging,.sn .react-flow__pane.dragging *{cursor:grabbing!important}
+/* RB-SCEN-START-LAYOUT 11-11 — 크게 보기 윗줄 촘촘하게: 내장 안전 기능 줄은 단계 칩·확대 단추 뒤 같은 줄(자리가 모자라면 다음 줄), 칩 22px */
+.sn[data-big] .sn-top>.sn-watch{order:3;flex:0 1 auto;padding:0 4px;border-top:0}
+.sn[data-big] .sn-zoom>.sn-chip{min-width:26px;height:26px}
