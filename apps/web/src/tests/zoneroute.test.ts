@@ -90,6 +90,40 @@ describe('검토 반영: 짧은 교차·탐색 상한', () => {
     const stop = new AbortController(); stop.abort();
     expect(await routeSoon({ w: N, h: N, res: 0.05, no, wall: null }, [200.5, 1000.5], [1800.5, 1000.5], stop.signal)).toBe('limit');
   });
+  // 재검토(79253c0) 1번: 격자 경계와 평행한 선은 맞닿은 옆 칸을 보지 않던 것 — 서버 규칙은 «닿으면 구역»
+  it('칸 경계를 따라가는 선·경계 위 끝점: 맞닿은 금지 칸에 닿은 것으로 본다', () => {
+    const g = grid(40, 40, 40, 40);
+    expect(crosses(g, [39.5, 41], [41.5, 41])).toBe(true);               // 금지 칸 아랫변 위(재현)
+    expect(crosses(g, [41.5, 41], [39.5, 41])).toBe(true);
+    expect(crosses(g, [39.5, 40], [41.5, 40])).toBe(true);               // 윗변 위
+    expect(crosses(g, [40, 39.5], [40, 41.5])).toBe(true);               // 왼변 위
+    expect(crosses(g, [41, 41.5], [41, 39.5])).toBe(true);               // 오른변 위
+    expect(crosses(g, [39.5, 42], [41.5, 42])).toBe(false);              // 한 칸 떨어진 경계
+    expect(crosses(g, [42, 39.5], [42, 41.5])).toBe(false);
+    expect(crosses(g, [41, 40.5], [43.5, 40.7])).toBe(true);             // 끝점이 금지 칸 변 위
+    expect(crosses(g, [43.5, 42.5], [41, 41])).toBe(true);               // 끝점이 금지 칸 모서리
+    const r = route(g, [39.5, 41], [41.5, 41]) as P[];                   // 정상 직선으로 돌려주지 않는다
+    expect(r.length).toBeGreaterThan(2);
+    for (let i = 1; i < r.length; i++) expect(crosses(g, r[i - 1], r[i])).toBe(false);
+  });
+  // 재검토 2번: 첫 it.next() 가 띠(band) 전체를 한 번에 계산 — 4096×4096·20칸마다 벽이면 상한 1 이어도 1.2초 점유
+  it('routeSoon: 큰 지도의 띠 계산도 쉬어 가며 한다 — 한 번에 잡는 시간이 짧고, 결과는 그대로', async () => {
+    const N = 4096, wall = new Uint8Array(N * N);
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c += 20) wall[r * N + c] = 1;
+    const big: Cells = { w: N, h: N, res: 0.05, no: new Uint8Array(N * N), wall };
+    let last = performance.now(), worst = 0, ticks = 0;
+    const t = setInterval(() => { const now = performance.now(); worst = Math.max(worst, now - last); last = now; ticks++; }, 0);
+    await new Promise((r) => setTimeout(r, 20)); worst = 0; last = performance.now();
+    expect(await routeSoon(big, [30.5, 30.5], [30.5, 300.5], undefined, 1)).toBe('limit');
+    clearInterval(t);
+    expect(big.band).toBeTruthy();
+    expect(ticks).toBeGreaterThan(10);                                   // 띠 계산 사이사이 타이머가 돌았다
+    expect(worst).toBeLessThan(150);                                     // 전에는 1초 넘게 한 번에(SLICE 8 ms + 시험 기계 여유)
+    // 쉬어 가며 만든 띠 = 한 번에 만든 띠
+    const again: Cells = { w: N, h: N, res: 0.05, no: big.no, wall };
+    expect(route(again, [30.5, 30.5], [30.5, 300.5], 1)).toBe('limit');
+    expect(again.band!.every((x, i) => x === big.band![i])).toBe(true);
+  }, 30000);
 });
 
 describe('구역 칸 받기', () => {

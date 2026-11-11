@@ -47,9 +47,16 @@ const cell = (w: number, h: number, [x, y]: P) => { const c = Math.floor(x), r =
 /** 그 자리가 접근 금지 칸인가 */
 export const noGoAt = (g: Pick<Cells, 'w' | 'h' | 'no'>, p: P) => { const i = cell(g.w, g.h, p); return i >= 0 && !!g.no[i]; };
 /** 선분 a–b 가 지나는 칸을 빠짐없이 훑어(격자 순회) test(칸) 이 참인 칸이 있나. 지도 밖 칸은 out 값.
- *  모서리 한 점을 지나면 그 모서리에 닿은 옆 두 칸도 본다(대각선 사이로 빠져나가지 않게 — 길 찾기의 모서리 자르기 금지와 같음) */
+ *  모서리 한 점을 지나면 그 모서리에 닿은 옆 두 칸도 본다(대각선 사이로 빠져나가지 않게 — 길 찾기의 모서리 자르기 금지와 같음).
+ *  서버 규칙이 «닿으면 구역»이라 칸 경계 위도 보수적으로 본다: 경계를 따라가는 선(가로·세로)은 양쪽 칸을, 경계 위의 끝점은 맞닿은 칸을 모두 검사 */
 function walk(w: number, h: number, a: P, b: P, test: (i: number) => boolean, out: boolean) {
-  const at = (c: number, r: number) => (c < 0 || r < 0 || c >= w || r >= h ? out : test(r * w + c));
+  const one = (c: number, r: number) => (c < 0 || r < 0 || c >= w || r >= h ? out : test(r * w + c));
+  const whole = (v: number) => Number.isInteger(v);
+  /** 점 p 에 닿은 칸(경계 위면 2칸, 모서리면 4칸) */
+  const touch = ([x, y]: P) => { const c = Math.floor(x), r = Math.floor(y), l = whole(x), u = whole(y); return one(c, r) || (l && one(c - 1, r)) || (u && one(c, r - 1)) || (l && u && one(c - 1, r - 1)); };
+  if (touch(a) || touch(b)) return true;
+  const px = a[0] === b[0] && whole(a[0]), py = a[1] === b[1] && whole(a[1]);   // 세로·가로 경계를 따라가는 선
+  const at = (c: number, r: number) => one(c, r) || (px && one(c - 1, r)) || (py && one(c, r - 1));
   let c = Math.floor(a[0]), r = Math.floor(a[1]);
   const ec = Math.floor(b[0]), er = Math.floor(b[1]), dx = b[0] - a[0], dy = b[1] - a[1], sc = dx > 0 ? 1 : -1, sr = dy > 0 ? 1 : -1;
   // tx·ty = 다음 세로·가로 칸 경계에 닿는 때(선분 0~1), ix·iy = 한 칸 가는 데 걸리는 때
@@ -66,17 +73,23 @@ function walk(w: number, h: number, a: P, b: P, test: (i: number) => boolean, ou
 /** 곧은 길 a–b 가 접근 금지 칸을 지나나 */
 export const crosses = (g: Pick<Cells, 'w' | 'h' | 'no'>, a: P, b: P) => walk(g.w, g.h, a, b, (i) => !!g.no[i], false);
 
-/** 막힌 칸(금지 + 벽)에서 몸체 여유 안의 칸 — 빈 칸과 맞닿은 막힌 칸만 퍼뜨린다(astar.js inflate 와 같음) */
-function band(g: Cells) {
+/** 한 번에 화면(메인 스레드)을 잡는 시간 상한(ms) — 띠 계산이 이만큼 돌면 쉰다 */
+export const SLICE = 8;
+/** 막힌 칸(금지 + 벽)에서 몸체 여유 안의 칸 — 빈 칸과 맞닿은 막힌 칸만 퍼뜨린다(astar.js inflate 와 같음).
+ *  큰 지도(4096² 칸)는 1초를 넘기므로 SLICE 마다 쉰다(yield). 쉬는 사이 다른 계산이 먼저 끝냈으면 그 값을 쓴다 */
+function* band(g: Cells): Generator<void, Uint8Array> {
   if (g.band) return g.band;
   const { w, h } = g, hard = (i: number) => g.no[i] || g.wall?.[i], k = Math.ceil(CLEARANCE / g.res), disk: P[] = [], out = new Uint8Array(w * h);
   for (let dr = -k; dr <= k; dr++) for (let dc = -k; dc <= k; dc++) if (Math.hypot(dr, dc) * g.res <= CLEARANCE + 1e-9) disk.push([dr, dc]);
-  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
-    const i = r * w + c;
-    if (!hard(i)) continue;
-    out[i] = 1;
-    if ((c > 0 && !hard(i - 1)) || (c < w - 1 && !hard(i + 1)) || (r > 0 && !hard(i - w)) || (r < h - 1 && !hard(i + w)))
-      for (const [dr, dc] of disk) { const rr = r + dr, cc = c + dc; if (rr >= 0 && cc >= 0 && rr < h && cc < w) out[rr * w + cc] = 1; }
+  for (let r = 0, t0 = performance.now(); r < h; r++) {
+    if (performance.now() - t0 > SLICE) { yield; if (g.band) return g.band; t0 = performance.now(); }
+    for (let c = 0; c < w; c++) {
+      const i = r * w + c;
+      if (!hard(i)) continue;
+      out[i] = 1;
+      if ((c > 0 && !hard(i - 1)) || (c < w - 1 && !hard(i + 1)) || (r > 0 && !hard(i - w)) || (r < h - 1 && !hard(i + w)))
+        for (const [dr, dc] of disk) { const rr = r + dr, cc = c + dc; if (rr >= 0 && cc >= 0 && rr < h && cc < w) out[rr * w + cc] = 1; }
+    }
   }
   return (g.band = out);
 }
@@ -86,14 +99,15 @@ const DIRS: [number, number, number][] = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, 
 export const LIMIT = 300_000, STEP = 4000;
 /** 길(그림 픽셀 꺾인 선, 양 끝 포함) | null = 갈 수 있는 길이 없음 | 'limit' = 상한까지 찾았지만 끝내지 못함 */
 export type Route = P[] | null | 'limit';
-/** 탐색 본체 — STEP 칸마다 한 번 쉰다(yield). 끝점이 부풀린 띠 안(구역·벽 바로 옆)이면 SNAP 안에서는 띠를 무시한다 — 금지 칸·벽 칸 자체는 언제나 못 지난다.
- *  ponytail: 부를 때마다 칸 수만큼 배열을 새로 잡는다(2000×2000 칸 ≈ 36 MB). 더 큰 지도에서 메모리가 문제면 astar.js 처럼 배열을 다시 쓴다 */
+/** 탐색 본체 — 띠 계산은 SLICE 마다, 탐색은 STEP 칸마다 한 번 쉰다(yield). 끝점이 부풀린 띠 안(구역·벽 바로 옆)이면 SNAP 안에서는 띠를 무시한다 — 금지 칸·벽 칸 자체는 언제나 못 지난다.
+ *  ponytail: 부를 때마다 칸 수만큼 배열을 새로 잡는다(2000×2000 칸 ≈ 36 MB). 더 큰 지도에서 메모리가 문제면 astar.js 처럼 배열을 다시 쓴다.
+ *  배열은 0 으로 둔 채 쓴다(큰 지도에서 Infinity·-1 로 채우는 것만으로 수십 ms) — cost 0 = 아직 안 감(시작 칸은 맨 먼저 done), from 은 칸 번호 + 1 */
 function* search(g: Cells, a: P, b: P, limit: number): Generator<void, Route> {
-  const { w, h } = g, s = cell(w, h, a), t = cell(w, h, b), bd = band(g), near = SNAP / g.res;
+  const { w, h } = g, s = cell(w, h, a), t = cell(w, h, b), bd = yield* band(g), near = SNAP / g.res;
   const by = (i: number, p: P) => Math.hypot((i % w) + 0.5 - p[0], Math.floor(i / w) + 0.5 - p[1]) <= near;
   const open = (i: number) => !g.no[i] && !g.wall?.[i] && (!bd[i] || by(i, a) || by(i, b));
   if (s < 0 || t < 0 || !open(s) || !open(t)) return null;
-  const cost = new Float32Array(w * h).fill(Infinity), from = new Int32Array(w * h).fill(-1), done = new Uint8Array(w * h), tc = t % w, tr = Math.floor(t / w);
+  const cost = new Float32Array(w * h), from = new Int32Array(w * h), done = new Uint8Array(w * h), tc = t % w, tr = Math.floor(t / w);
   const est = (i: number) => { const dx = Math.abs((i % w) - tc), dy = Math.abs(Math.floor(i / w) - tr); return Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy); };
   // 작은 값 먼저 꺼내는 더미(같은 칸이 여러 번 들어갈 수 있음 — 꺼낼 때 done 으로 거른다)
   const heap: number[] = [], key: number[] = [];
@@ -102,7 +116,7 @@ function* search(g: Cells, a: P, b: P, limit: number): Generator<void, Route> {
   const pop = () => { const top = heap[0], i = heap.pop()!, f = key.pop()!, n = heap.length; let k = 0;
     if (n) { for (;;) { let c = 2 * k + 1; if (c >= n) break; if (c + 1 < n && key[c + 1] < key[c]) c++; if (key[c] >= f) break; heap[k] = heap[c]; key[k] = key[c]; k = c; } heap[k] = i; key[k] = f; }
     return top; };
-  cost[s] = 0; push(s, est(s));
+  push(s, est(s));
   let seen = 0, hit = s === t;
   while (heap.length) {
     const i = pop();
@@ -117,12 +131,12 @@ function* search(g: Cells, a: P, b: P, limit: number): Generator<void, Route> {
       if (cc < 0 || rr < 0 || cc >= w || rr >= h || done[j] || !open(j)) continue;
       if (dc && dr && (!open(r * w + cc) || !open(rr * w + c))) continue;   // 모서리 자르기 금지
       const n = cost[i] + d;
-      if (n < cost[j]) { cost[j] = n; from[j] = i; push(j, n + est(j)); }
+      if (n < (cost[j] || Infinity)) { cost[j] = n; from[j] = i + 1; push(j, n + est(j)); }
     }
   }
   if (!hit) return null;
   const pts: P[] = [b];
-  for (let i = from[t]; i >= 0 && i !== s; i = from[i]) pts.push([(i % w) + 0.5, Math.floor(i / w) + 0.5]);
+  for (let i = from[t] - 1; i >= 0 && i !== s; i = from[i] - 1) pts.push([(i % w) + 0.5, Math.floor(i / w) + 0.5]);
   pts.push(a); pts.reverse();
   // 보이는 구간끼리 줄인다(앞에서부터 — 안 보이는 첫 점의 바로 앞 점을 꺾는 점으로)
   const out: P[] = [a], shut = (i: number) => !open(i);
