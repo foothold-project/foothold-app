@@ -20,13 +20,13 @@ from .test_terrains import put
 
 def room():
     points = [(x / 10 + 100, y / 10 - 20, 2.) for x in range(-30, 31) for y in range(-30, 31)]
-    # Box and two step tops, with floor still sampled beneath them.
+    # Synthetic solid box and two solid steps, sampled in every vertical cell.
     for x in range(8, 17):
         for y in range(8, 17):
-            points.append((x / 10 + 100, y / 10 - 20, 2.5))
+            points.extend((x / 10 + 100, y / 10 - 20, 2. + (z + .5) / 10) for z in range(1, 6))
     for x in range(-20, -10):
         for y in range(8, 16):
-            points.append((x / 10 + 100, y / 10 - 20, 2.2 if x < -15 else 2.4))
+            points.extend((x / 10 + 100, y / 10 - 20, 2. + (z + .5) / 10) for z in range(1, 3 if x < -15 else 5))
     return points
 
 
@@ -60,6 +60,19 @@ class Rejected(Exception):
     pass
 
 
+def assert_terrain_only_on_blocked_cells(png, spec):
+    width, height, pixels = gray_pixels(png)
+    ox, oy = -spec.size[0] / 2, -spec.size[1] / 2
+    for box in spec.items:
+        left = round((box.x - box.sx / 2 - ox) / V.CELL)
+        right = round((box.x + box.sx / 2 - ox) / V.CELL)
+        bottom = round((box.y - box.sy / 2 - oy) / V.CELL)
+        top = round((box.y + box.sy / 2 - oy) / V.CELL)
+        assert left < right and bottom < top
+        assert all(pixels[(height - 1 - y) * width + x] == 0
+                   for x in range(left, right) for y in range(bottom, top))
+
+
 @pytest.mark.parametrize('kind,encode', [('pcd', pcd), ('pcd', lambda p: pcd(p, True)),
     ('ply', ply), ('ply', lambda p: ply(p, 'binary_little_endian')), ('ply', lambda p: ply(p, 'binary_big_endian'))])
 def test_xyz_formats_and_same_coordinates(kind, encode):
@@ -79,16 +92,19 @@ def test_xyz_formats_and_same_coordinates(kind, encode):
     assert pixel(0., 0.) == 254
     assert pixel(-3.1, -3.1) == 205
     assert all(0 < box.h <= 1 for box in result['spec'].items)
+    assert_terrain_only_on_blocked_cells(result['png'], result['spec'])
 
 
-def test_coarsens_to_sixty_and_reports_crop_and_clamp():
+def test_limits_to_sixty_without_filling_free_cells_and_reports_crop_and_clamp():
     points = [(x / 10, y / 10, 0.) for x in range(-60, 61) for y in range(-60, 61)]
-    points += [(x / 10, y / 10, 2.) for x in range(0, 50, 3) for y in range(0, 50, 3)]
+    points += [(x / 10, y / 10, (z + .5) / 10) for x in range(0, 50, 3) for y in range(0, 50, 3) for z in range(1, 21)]
     points += [(-40., 0., 0.), (40., 0., 0.)]
     result = V.convert(pcd(points), 'pcd', 'vox-test', '범위')
-    assert len(result['spec'].items) <= 60
+    assert len(result['spec'].items) == 60
     assert result['spec'].size[0] == 30
     assert len(result['warnings']) == 3
+    assert any('60개만' in warning for warning in result['warnings'])
+    assert_terrain_only_on_blocked_cells(result['png'], result['spec'])
     C.TerrainSpec.model_validate(result['spec'])  # Includes spawn clearance and all footprints.
 
 
@@ -283,3 +299,36 @@ def test_other_organization_cannot_read_or_import(maps, seeded):
         assert response.status_code == 404
         assert post(other, foreign, result['map']['floor_id']).status_code == 404
     app.state.engine.dispose()
+
+
+@pytest.mark.parametrize('overhead', ['ceiling', 'table'])
+def test_overhead_cloud_upload_keeps_2d_and_terrain_free(maps, overhead):
+    http, headers, _ = maps
+    points = [(x / 10, y / 10, 0.) for x in range(-25, 26) for y in range(-25, 26)]
+    if overhead == 'ceiling':
+        points += [(x / 10, y / 10, 2.5) for x in range(-25, 26) for y in range(-25, 26)]
+    else:
+        points += [(x / 10, y / 10, z) for x in range(-10, 11) for y in range(-10, 11) for z in (.7, .8)]
+    response = post(http, headers, data=pcd(points))
+    assert response.status_code == 201, response.text
+    result = response.json()
+    assert result['terrain']['spec']['items'] == []
+    png = http.get(P + '/map-versions/' + result['map']['id'] + '/image', headers=headers).content
+    width, height, pixels = gray_pixels(png)
+    ox, oy, _ = result['map']['origin']
+    x, y = round(-ox / .1), round(-oy / .1)
+    assert pixels[(height - 1 - y) * width + x] == 254
+    assert 0 not in pixels
+    assert not any('높이' in warning for warning in result['voxels']['warnings'])
+
+
+def test_connected_height_stops_at_gap_and_never_adds_free_cell_obstacles():
+    points = [(x / 10, y / 10, 0.) for x in range(-25, 26) for y in range(-25, 26)]
+    # Connected low pillar, overhead shelf after a gap; nearby floating body-band
+    # returns remain blocked in 2D but cannot form a floor-connected terrain box.
+    points += [(1., 1., z) for z in (.15, .25, .35, .75, .85, 2.5)]
+    points += [(-1., 1., z) for z in (.25, .35, .45, .75)]
+    result = V.convert(pcd(points), 'pcd', 'vox-test', '연결 높이')
+    assert len(result['spec'].items) == 1
+    assert result['spec'].items[0].h == pytest.approx(.4)
+    assert_terrain_only_on_blocked_cells(result['png'], result['spec'])

@@ -132,26 +132,25 @@ def points(data, kind):
         raise PointCloudError('점 수 뒤에 알 수 없는 자료가 남아 있습니다.')
 
 
-def rectangles(heights, width, height, stride):
-    coarse = {}
-    for (x, y), h in heights.items():
-        key = x // stride, y // stride
-        coarse[key] = max(coarse.get(key, 0), h)
+def rectangles(heights, width, height):
+    # Keep the exact occupied footprint: filling gaps between occupied cells would turn
+    # free 2D scenario points into terrain obstacles.
+    remaining = heights.copy()
     boxes = []
-    while coarse:
-        x, y = min(coarse, key=lambda p: (p[1], p[0]))
-        h = coarse.pop((x, y))
+    while remaining:
+        x, y = min(remaining, key=lambda p: (p[1], p[0]))
+        h = remaining.pop((x, y))
         right = x + 1
-        while coarse.get((right, y)) == h:
-            coarse.pop((right, y))
+        while remaining.get((right, y)) == h:
+            remaining.pop((right, y))
             right += 1
         top = y + 1
-        while all(coarse.get((xx, top)) == h for xx in range(x, right)):
+        while all(remaining.get((xx, top)) == h for xx in range(x, right)):
             for xx in range(x, right):
-                coarse.pop((xx, top))
+                remaining.pop((xx, top))
             top += 1
-        left_m, bottom_m = x * stride * CELL, y * stride * CELL
-        right_m, top_m = min(width, right * stride) * CELL, min(height, top * stride) * CELL
+        left_m, bottom_m = x * CELL, y * CELL
+        right_m, top_m = right * CELL, top * CELL
         boxes.append(dict(kind='box', x=(left_m + right_m - width * CELL) / 2,
             y=(bottom_m + top_m - height * CELL) / 2, yaw=0.,
             sx=round(right_m - left_m, 8), sy=round(top_m - bottom_m, 8), h=h * CELL))
@@ -186,30 +185,36 @@ def convert(data, kind, terrain_id, name):
     warnings = []
     if len(cells) != len(voxels):
         warnings.append('30 m를 넘는 구역은 가운데 30 m만 지도·지형으로 만들었습니다. 원본 파일은 보관됩니다.')
-    ground, blocked, heights = set(), set(), {}
+    ground, blocked, columns = set(), set(), {}
     for x, y, z in cells:
         if z == 0:
             ground.add((x, y))
         if 1 <= z <= 6:
             blocked.add((x, y))
         if z >= 1:
-            heights[x, y] = max(heights.get((x, y), 0), min(10, z))
-    if any(z > 10 for _, _, z in cells):
-        warnings.append('지형 높이는 1 m까지만 만들었습니다.')
+            columns.setdefault((x, y), set()).add(z)
+    heights, clamped = {}, False
+    for xy in blocked:
+        # Treat the estimated floor plane as the base. Require every occupied
+        # vertical cell from z=1; stop at the first gap, ignoring overhead scans.
+        top = 0
+        while top + 1 in columns[xy]:
+            top += 1
+        if top:
+            heights[xy] = min(10, top + 1)  # Cell top edge, not its bottom.
+            clamped |= top + 1 > 10
+    if clamped:
+        warnings.append('바닥부터 이어진 지형 높이는 1 m까지만 만들었습니다.')
     width, height = size
     pixels = bytearray([205]) * (width * height)
     for x, y in ground:
         pixels[(height - 1 - y) * width + x] = 254
     for x, y in blocked:
         pixels[(height - 1 - y) * width + x] = 0
-    stride = 1
-    while True:
-        boxes = rectangles(heights, width, height, stride)
-        if len(boxes) <= 60:
-            break
-        stride *= 2
-    if stride > 1:
-        warnings.append(f'물체를 60개 이하로 만들기 위해 이웃 칸을 {stride * CELL:g} m 단위로 합쳤습니다.')
+    boxes = rectangles(heights, width, height)
+    if len(boxes) > 60:
+        boxes = boxes[:60]
+        warnings.append('빈 곳을 막지 않고 합칠 수 있는 물체가 60개를 넘어서, 지도 아래쪽부터 왼쪽 순서로 60개만 만들었습니다. 나머지는 지형 수정하기에서 보완해 주세요.')
     def safe(x, y):
         return all(math.hypot(max(0, abs(x - b['x']) - b['sx'] / 2),
                               max(0, abs(y - b['y']) - b['sy'] / 2)) >= .45 for b in boxes)
