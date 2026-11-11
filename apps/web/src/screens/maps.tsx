@@ -71,8 +71,8 @@ export function pixelTo(a: Pick<MapVersion, 'origin' | 'resolution' | 'height'>,
   return [x1 - e, y1 - f, x2 - e, y2 - f, e, f] as const;
 }
 
-/** 구역 종류는 테두리로(진입 금지 = 굵은 실선, 감속 = 둥근 점선)와 이름표로 가른다 — 색에만 기대지 않게 */
-export const ZONE = { NO_GO: { text: '진입 금지', line: { strokeWidth: 3.5 } }, SLOW: { text: '감속', line: { strokeWidth: 2.5, strokeDasharray: '1 5', strokeLinecap: 'round' } } } as const;
+/** 구역 종류는 테두리로(접근 금지 = 굵은 실선, 감속 = 둥근 점선)와 이름표로 가른다 — 색에만 기대지 않게 */
+export const ZONE = { NO_GO: { text: '접근 금지', line: { strokeWidth: 3.5 } }, SLOW: { text: '감속', line: { strokeWidth: 2.5, strokeDasharray: '1 5', strokeLinecap: 'round' } } } as const;
 /** 구역 채우기색 — 기존 토큰을 구역 순서대로 돌려 쓰는 화면 표시값(저장 안 함). 지도 그림은 테마 색(mapframe MapImage)이라 두 테마 바탕 모두에서 보이는 토큰만 */
 const FILL = ['var(--accent)', 'var(--warn)', 'var(--bad)', 'var(--ink-3)'];
 export const fillOf = (i: number) => FILL[i % FILL.length];
@@ -459,7 +459,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
   /** 판 번호 대신 부르는 이름: 저장 시각 · 만든 사람(모르면 시각만, U9) */
   const savedAs = ({ id }: { id: string }) => { const x = list?.find((y) => y.id === id), who = x && names(x.created_by); return x ? `${day(x.created_at)}${who ? ` · ${who}` : ''}` : '이전 저장'; };
   const [up, setUp] = useState(false), [pane, setPane] = useState(true), [slot, setSlot] = useState<HTMLElement | null>(null);   // 올리기 창·오른쪽 창·편집 저장 단추 자리
-  const canUp = !!list && (!approved || !!now);   // 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다)
+  const canUp = !!list && (!approved || !!now);   // 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 접근 금지·감속 구역이 빈 채로 새 승인 판이 된다)
   const upBtn = (e?: { currentTarget: Element }) => { if (e) shut(e as never); setUp(true); };
   const keys = v ? featKeys(v.features) : [];
   // 다른 층에 남겨 둔 저장 안 한 편집(kept.d)이 있으면 새 편집이 그것을 비우기 전에 묻는다 — 취소하면 그 층을 열어 이어 쓸 수 있다
@@ -615,7 +615,7 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
     <label className="fh-field"><span>지도 설정(yaml)</span><input type="file" className="inp" accept=".yaml,.yml" onChange={(e) => setYml(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     {keep && <label className="fh-row"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /><span>지금 지도의 구역·지점·연결점 그대로 두기</span></label>}
-    {keep && !hold && <p className="fh-msg" role="alert">끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 지도가 됩니다.</p>}
+    {keep && !hold && <p className="fh-msg" role="alert">끄면 접근 금지·감속 구역, 지점, 연결점이 모두 빠진 새 지도가 됩니다.</p>}
     {!ready && !step && <p className="lv-note" role="status">지금 지도의 구역·지점·연결점을 받은 뒤에 올릴 수 있습니다.</p>}
     <div className="fh-row"><button type="submit" className="btn pri" disabled={!!step || !ready}>올리기</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(null); again(); }}>새로 불러오기</button>}</div>
     {step && <p className="lv-note" role="status">{step}</p>}

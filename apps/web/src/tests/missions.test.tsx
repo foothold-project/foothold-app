@@ -22,7 +22,7 @@ const PARK: User = { ...LEE, id: 'o2', username: 'park', display_name: '박운�
 const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name },
   simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
-// 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 1층: 진입 금지 x 3~4, 이름 붙은 지점 «입구»(0, 0), 2층 계단 연결점
+// 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 1층: 접근 금지 x 3~4, 이름 붙은 지점 «입구»(0, 0), 2층 계단 연결점
 const ver = (id: string, floor_id: string, features: MapVersion['features']): MapVersion => ({ upload_id: `up-${id}`, id, floor_id, number: 1, base_version_id: null, copied_from_id: null, status: 'APPROVED',
   image_sha256: 'ab'.repeat(32), width: 100, height: 80, resolution: 0.05, origin: [-1, -2, 0], features, reason: '처음', source: 'IMPORT', created_by: KIM.id, created_at: '2026-10-19T00:00:00Z' });
 const F1 = { zones: [{ id: 'z1', type: 'NO_GO' as const, name: '공사', polygon: [[3, -2], [4, -2], [4, 2], [3, 2]] as [number, number][] }],
@@ -78,7 +78,7 @@ const M2: MissionWrite = { name: '센서 기록', steps: [{ action: 'SENSOR_LOG'
 const pt = (floor_id: string, x: number, y: number, p: Partial<ScenarioPoint> = {}) => ({ floor_id, map_version_id: approved[floor_id]!, x, y, yaw: 0, waypoint_ref: null, ...p });
 const wp = (floor_id: string, x: number, y: number, mission_id = 'm1', mission_version = 1, p: Partial<ScenarioPoint> = {}) => ({ ...pt(floor_id, x, y, p), mission_id, mission_version });
 
-/** 미리보기 흉내: 판이 승인 판이 아니면 409 STALE, 고른 임무 판이 없으면 422, 지도 밖·진입 금지(x ≥ 3)·참조 어긋남 = 갈 수 없음, 층이 바뀌는데 연결점 짝이 없으면(link=false) 구간 갈 수 없음 */
+/** 미리보기 흉내: 판이 승인 판이 아니면 409 STALE, 고른 임무 판이 없으면 422, 지도 밖·접근 금지(x ≥ 3)·참조 어긋남 = 갈 수 없음, 층이 바뀌는데 연결점 짝이 없으면(link=false) 구간 갈 수 없음 */
 function preview(b: ScenarioWrite): Reply {
   if (!b.name.trim()) return err(422, 'VALIDATION', '입력 값을 확인하세요.', { elements: ['name'] });   // 서버처럼 빈 이름은 422(11-11 — 화면은 미리보기에 대신 이름을 보내야 경로를 본다)
   const all: [string, ScenarioPoint][] = [...b.waypoints.map((w, i) => [`waypoints.${i}`, w] as [string, ScenarioPoint]), ...(b.finish?.mode === 'GO_TO' && b.finish.target ? [['finish.target', b.finish.target] as [string, ScenarioPoint]] : [])];
@@ -88,7 +88,7 @@ function preview(b: ScenarioWrite): Reply {
   if (lost >= 0) return err(422, 'PRECHECK_FAILED', '임무 판을 찾을 수 없습니다.', { elements: [`waypoints.${lost}.mission_version`] });
   const points = all.map(([element, p]) => {
     const reasons: string[] = [], ref = p.waypoint_ref ? MAPS[p.map_version_id].features.waypoints.find((w) => w.id === p.waypoint_ref) : null;
-    if (p.x < -1 || p.x > 4 || p.y < -2 || p.y > 2) reasons.push('지도 범위 밖입니다.'); else if (p.floor_id === 'f1' && p.x >= 3) reasons.push('진입 금지 구역 안입니다.');
+    if (p.x < -1 || p.x > 4 || p.y < -2 || p.y > 2) reasons.push('지도 범위 밖입니다.'); else if (p.floor_id === 'f1' && p.x >= 3) reasons.push('접근 금지 구역 안입니다.');
     if (p.waypoint_ref && !ref) reasons.push('지도 판의 지점 ID와 일치하지 않습니다.'); else if (ref && Math.hypot(ref.x - p.x, ref.y - p.y) > 0.05) reasons.push('참조 지점 좌표에서 0.05 m 넘게 벗어났습니다.');
     return { element, reasons };
   });
@@ -594,7 +594,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(1.5, 1); await settle();
     expect($('p.fh-msg[role=alert]')!.textContent).toBe('고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.');
   });
-  it('REVIEW-302: 노드 보기(기본)에서도 저장을 막는 이유(지점 없음·진입 금지)와 경로 확인 실패 «다시 확인»이 지도 위에 보인다(hidden 조상 없음)', async () => {
+  it('REVIEW-302: 노드 보기(기본)에서도 저장을 막는 이유(지점 없음·접근 금지)와 경로 확인 실패 «다시 확인»이 지도 위에 보인다(hidden 조상 없음)', async () => {
     seed(); MAPS.v1 = ver('v1', 'f1', { ...F1, zones: [] });   // 화면이 받은 판에는 구역이 없고 서버만 거절(구역이 보이면 화면이 먼저 막는다 — RB-ZONE-WEB)
     const over: Record<string, ((real: () => Reply) => Reply | Promise<Reply>)[]> = { 'POST /scenarios/preview': [] };
     serve(KIM, { over });
@@ -605,7 +605,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(why().textContent).toBe('지도를 눌러 지점을 하나 이상 찍으세요.');
     expect(why().closest('[hidden]')).toBeNull();
     expect(saveBtn().disabled).toBe(true);
-    await tap(3.5, 0); await settle();                                     // 진입 금지 구역 안
+    await tap(3.5, 0); await settle();                                     // 접근 금지 구역 안
     expect(why().textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');
     expect(why().closest('[hidden]')).toBeNull();
     over['POST /scenarios/preview'].push(() => { throw new TypeError('끊김'); });
@@ -731,7 +731,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect([...floorSel().options].map((o) => o.textContent)).toEqual(['본관 › 본동 › 1층', '본관 › 본동 › 2층', '본관 › 본동 › 3층 — 승인된 지도 없음']);
     expect(floorOpt('3층').disabled).toBe(true);                       // 승인 판 없는 층
     expect(floorSel().value).toBe('f1');
-    expect(map().querySelector('[data-zone="NO_GO"]')).toBeTruthy();   // 진입 금지 구역 그림
+    expect(map().querySelector('[data-zone="NO_GO"]')).toBeTruthy();   // 접근 금지 구역 그림
     await setVal(name(), '새 순찰');
     await tap(1, 1);
     await tap(0, 0, map().querySelector('[data-key="waypoints.0"]')!);
@@ -785,7 +785,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await touch('pointerup', 1, 1, 3);
     expect(point(0)).toBeTruthy(); expect($('[data-wp="1"]')).toBeNull();
   });
-  it('진입 금지 구역 안 지점 = 갈 수 없음 + 이유 + 저장 막힘(이유 보임), 지도 밖은 찍지 않음', async () => {
+  it('접근 금지 구역 안 지점 = 갈 수 없음 + 이유 + 저장 막힘(이유 보임), 지도 밖은 찍지 않음', async () => {
     seed(); MAPS.v1 = ver('v1', 'f1', { ...F1, zones: [] });   // 화면이 받은 판에는 구역이 없고 서버만 거절(구역이 보이면 화면이 먼저 막는다 — RB-ZONE-WEB)
     serve(KIM);
     await open();
@@ -798,7 +798,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect($('[data-block]')!.textContent).toBe('경로를 확인하는 중입니다.');
     await settle();
     expect(point(0).hasAttribute('data-bad')).toBe(true);
-    expect(point(0).textContent).toContain('갈 수 없음: 진입 금지 구역 안입니다.');
+    expect(point(0).textContent).toContain('갈 수 없음: 접근 금지 구역 안입니다.');
     expect(map().querySelector('[data-pt="0"]')!.hasAttribute('data-bad')).toBe(true);
     expect(saveBtn().disabled).toBe(true);
     expect($('[data-block]')!.textContent).toBe('갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.');

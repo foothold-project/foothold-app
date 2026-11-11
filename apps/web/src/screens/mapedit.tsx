@@ -132,7 +132,7 @@ function saveFail(e: ApiFail) {
 
 // 지우개·지점 도구는 뺐다(11-04) — 이미 저장된 지우개 선·지점은 고르기 도구로 그대로 고치고 저장에도 남는다
 type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'connector' | 'WALL';
-const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['connector', '연결점'], ['WALL', '벽']];
+const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '접근 금지'], ['SLOW', '감속'], ['connector', '연결점'], ['WALL', '벽']];
 const EMPTY: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
 const MIN_BOX = 8;   // 화면 px — 이보다 작은 끌기(그냥 누름 포함)는 구역을 만들지 않는다
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;   // 같은 무리 안에서만 달라야 함(서버 검사)
@@ -418,7 +418,7 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
             <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={(cur as MapZone).name} onChange={(e) => swap('zones', si, { ...(cur as MapZone), name: e.target.value })} /></label>
             <label className="fh-field"><span>종류</span><select className="inp" value={(cur as MapZone).type} onChange={(e) => { const { max_speed_mps: _, ...z } = cur as MapZone, t = e.target.value as MapZone['type'];
                 swap('zones', si, { ...z, type: t, ...(t === 'SLOW' && { max_speed_mps: SPEED.dflt }) }); }}>
-              <option value="NO_GO">진입 금지</option><option value="SLOW">감속</option></select></label>
+              <option value="NO_GO">접근 금지</option><option value="SLOW">감속</option></select></label>
             {/* 감속 구역만: 비우면 «값 없음»(옛 구역 그대로 저장 가능). 접근 금지 구역에는 칸이 없다 */}
             {(cur as MapZone).type === 'SLOW' && <label className="fh-field"><span>최고 속도(m/s)</span>
               <input className="inp" type="number" min={SPEED.min} max={SPEED.max} step={0.1} inputMode="decimal" placeholder="값 없음" data-zone-speed aria-invalid={bad?.path.endsWith('.max_speed_mps') || undefined}
