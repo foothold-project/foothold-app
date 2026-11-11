@@ -52,7 +52,15 @@ const terrainMade = (v: MapVersion) => v.provenance === 'SIMULATION' && v.source
 /** 층(서버 지도) → 시뮬 어디서 열지(SIM-REAL-SPLIT «시뮬에서 실행»). 좌표가 같은 경우만 — 아니면 이유.
  *  · 지형 층(terrain_id): 시뮬 map=custom&terrain=<id>. 서버 terrain_grid = mobile/sim/terrain buildTerrain 격자(해상도 0.05·원점 −가로/2,−세로/2) — 실행 때 지형 크기로 다시 맞춘다
  *  · 시뮬 세계 층: topOf(v) = 판 사진 sha 가 시뮬 자산 사진이고 판 격자(원점·해상도·크기)가 그 자산 top.json 격자와 같을 때만(top.json 격자 = 시뮬 map.json 격자) */
+/** 3D 지도 파일로 만든 실기 지도 판의 시뮬 지형 id(서버 voxel_map, RB-SCEN-SIMTAB 11-11). 그 판 자신일 때만 — 구역·벽을 고친 새 판은
+ *  같은 원본을 써도 서버가 쌍둥이 시뮬 판으로 인정하지 않는다(apps/server/VOXEL-MAPS.md «같은 시나리오와 실행 증명») */
+export const twinOf = (v?: MapVersion | null) => (v?.voxel_map && v.voxel_map.map_version_id === v.id ? v.voxel_map.terrain_id : null);
+/** 실기 장소 층 판이 시뮬에서 못 도는 이유(«실기만»), 돌면 '' */
+export const realOnly = (v?: MapVersion | null) => (twinOf(v) ? '' : v?.voxel_map ? '3D 지도로 만든 뒤 지도를 고쳐 시뮬 지형과 이어지지 않습니다 — 실기에서만 실행합니다.'
+  : '시뮬 지형이 없는 실기 지도라 실기에서만 실행합니다(3D 지도 파일로 만든 실기 지도만 시뮬에서도 실행).');
 export function simAt(f: MapFloor, v: MapVersion): { map: string; floor: string; terrain?: string } | string {
+  const tw = twinOf(v);   // 실기 3D 지도 = 지도 좌표 그대로 그 지형(서버 voxel_files 원점 −가로/2·−세로/2 = 지형 틀)
+  if (tw) return /^[a-z0-9-]{1,32}$/.test(tw) ? { map: 'custom', floor: '', terrain: tw } : '지형 id 형식이 시뮬과 맞지 않습니다.';
   if (f.terrain_id) return !/^[a-z0-9-]{1,32}$/.test(f.terrain_id) ? '지형 id 형식이 시뮬과 맞지 않습니다.'
     : terrainMade(v) ? { map: 'custom', floor: '', terrain: f.terrain_id }
     : '이 지도 판은 «지형 만들기» 저장으로 만든 판이 아닙니다(사람이 올리거나 고친 판) — 시뮬과 좌표가 같은지 알 수 없어 실행하지 않습니다. «지형 만들기»에서 다시 저장하세요.';

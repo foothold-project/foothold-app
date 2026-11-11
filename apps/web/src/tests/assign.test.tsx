@@ -112,7 +112,7 @@ const setVal = async (el: HTMLInputElement | HTMLSelectElement, v: string) => {
 const panel = () => $('[data-assign]')!;
 const text = () => panel().textContent!;
 const rowOf = (id: string) => $(`[data-assignment="${id}"]`)!;
-/** 임무 탭 시나리오 s1 을 열고 배정 창까지 */
+/** 지도 탭 읽기 목록에서 시나리오 s1 줄을 펼쳐 배정 창까지(RB-SCEN-SIMTAB — 편집은 시뮬 탭) */
 async function openAssign(me: User, o?: Parameters<typeof serve>[1]) {
   serve(me, o);
   await open('#/mission');
@@ -134,15 +134,19 @@ const stopOk = async () => {
 };
 
 describe('배정 창', () => {
-  it('저장 안 한 편집이 있으면 «저장된 판 N 이 배정됩니다», 저장된 대로면 안내 없음', async () => {
+  it('저장 안 한 편집이 있으면 «저장된 판 N 이 배정됩니다», 저장된 대로면 안내 없음 — 편집은 시뮬 탭, 안내는 지도 탭 배정 창', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(KIM);
     expect($('[data-unsaved-assign]')).toBeNull();
-    const name = [...box.querySelectorAll('label')].find((l) => l.textContent?.startsWith('이름'))!.querySelector('input')!;   // 저장된 시나리오 이름은 «···» 안(MAPSCEN-FIX-R1)
+    act(() => root?.unmount()); root = null; box.remove();
+    await open('#/sim');
+    if (!$('[data-plan="s1"]')) await click($('[data-side="scen"]'));
+    await click($('[data-plan="s1"]'));
+    const name = [...box.querySelectorAll('label')].find((l) => l.textContent?.startsWith('이름'))!.querySelector('input')!;
     await setVal(name, '1층 순찰 고침');
+    await click($('nav a[href="#/map"]'));
+    await click($('[data-plan="s1"]'));
     expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 마지막으로 저장한 내용(1번째 저장)이 배정됩니다');
-    await setVal(name, '1층 순찰');
-    expect($('[data-unsaved-assign]')).toBeNull();
   });
   it('총괄: 실기는 회색 + 이유(r2), 시뮬 고르기·메모 → POST /assignments(Idempotency-Key) → ACTIVE «배정됨», 바로 적용 안내', async () => {
     scenarios = [scen('s1', '1층 순찰')]; extra = [SIM];
@@ -200,24 +204,24 @@ describe('배정 창', () => {
     expect(new Set(posts().map((p) => p.key)).size).toBe(4);   // 시도마다 새 키
     expect(asg).toHaveLength(0);
   });
-  it('휴지통의 시나리오: «로봇에 배정» 회색 + 이유', async () => {
+  it('휴지통의 시나리오: 옛 주소로 열면 시뮬 탭 읽기 전용 — 배정 단추 없음(휴지통 것은 지도 탭 목록에도 없어 배정할 곳이 없음)', async () => {
     scenarios = [scen('s1', '1층 순찰', { archived_at: '2026-10-20T03:00:00Z' })];
     serve(KIM);
     await open('#/mission/s1');   // 휴지통 것은 목록에 없고(MAP-TAB-MERGE) 옛 주소·알림 링크로만 연다
-    const b = btn('로봇에 배정', panel())!;
-    expect(b.disabled).toBe(true);
-    expect($(`#${b.getAttribute('aria-describedby')}`)!.textContent).toBe('휴지통에 있는 시나리오는 배정할 수 없습니다.');
+    expect(location.hash).toBe('#/sim');
+    expect($<HTMLInputElement>('[data-name]')!.value).toBe('1층 순찰'); expect($<HTMLInputElement>('[data-name]')!.readOnly).toBe(true);
+    expect($('[data-assign]')).toBeNull(); expect(btn('로봇에 배정')).toBeUndefined();
   });
 });
 
 describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () => {
-  /** 시나리오 창 목록·열린 시나리오의 «배정 N» 이 먼저 받는 조직 전체 배정 목록 두 번(진짜 처리) — 아래 순서는 배정 창 것부터 (MAP-TAB-MERGE) */
+  /** 지도 탭 읽기 목록이 먼저 받는 조직 전체 배정 목록 한 번(진짜 처리) — 아래 순서는 배정 창 것부터 (RB-SCEN-SIMTAB: 편집 창 «배정 N» 없음) */
   const LIST = (real: () => Reply) => real();
   it('처리된 뒤 답이 끊김: «확인 중» → 목록에 새 내 배정 → 성공으로(다시 보내지 않음)', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     let release = () => {};
     const gate = new Promise<void>((r) => { release = r; });
-    await openAssign(LEE, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [LIST, LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
+    await openAssign(LEE, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
       async (real) => { await gate; return real(); }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
@@ -249,7 +253,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     scenarios = [scen('s1', '1층 순찰')];
     // 확인 목록 조회가 처리 전 상태를 보여 확정 못 함 → 같은 키 재전송 → 재생
     await openAssign(LEE, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
-      'GET /assignments': [LIST, LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }] } });
+      'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
     expect(text()).toContain('배정이 아직 목록에 없습니다.');
@@ -260,7 +264,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
   });
   // PR #50 검토: 멱등 재전송 응답은 «최초» 결과의 재생 — 그새 반려·STALE·해제됐으면 목록의 지금 상태로 안내(PENDING/ACTIVE 단정 0)
   const lostThenEmpty = (): Parameters<typeof serve>[1] => ({ over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
-    'GET /assignments': [LIST, LIST, (real) => real(), (real) => real(), { status: 200, body: { items: [], next_cursor: null } }] } });
+    'GET /assignments': [LIST, (real) => real(), (real) => real(), { status: 200, body: { items: [], next_cursor: null } }] } });
   it('처리된 뒤 끊김 → 확인 전 반려(STALE 도 REJECTED) → 같은 키 재전송 = 재생 PENDING 이어도 «반려됨»으로', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(LEE, lostThenEmpty());
