@@ -118,6 +118,9 @@ function Shape({ it }: { it: Item }) {
     <rect x={x0 + n * it.run} y={y0} width={LANDING} height={W} fill={tone(1)} /></>;
 }
 
+/** 다른 화면이 «시뮬 지형 수정하기»로 넘긴 서버 지형 id — 지형 화면이 서버 목록을 받은 뒤 그 지형을 연다(목록 줄 누름과 같은 길). 연 뒤 비운다 */
+export const terrainAsk = { id: '' };
+
 export function Terrain() {
   const [spec, setSpec] = useState<Spec>(() => loadLast() ?? blank());
   const current = useRef(spec); current.current = spec;
@@ -147,6 +150,7 @@ export function Terrain() {
     api.terrains(controller.signal).then((rows) => {
       if (controller.signal.aborted) return;
       acceptRows(rows);
+      if (terrainAsk.id) { const id = terrainAsk.id; terrainAsk.id = ''; pull(id); }
     }, (e: ApiFail) => { if (!controller.signal.aborted) setNotice(`서버 지형 목록을 받지 못했습니다. ${e.message}`); });
     return () => { controller.abort(); };
   }, []);
@@ -170,6 +174,16 @@ export function Terrain() {
       if (!cancel.current?.signal.aborted && (e as ApiFail).code === 'VERSION_CONFLICT') setConflicted(next.id);
       throw e;
     }
+  });
+  /** 서버 지형 열기: 최신본을 받고, 이 브라우저 수정본과 다르면 덮어쓰기를 묻는다 */
+  const pull = (id: string, after?: () => void) => serverTask(async () => {
+    const latest = await api.terrain(id, cancel.current?.signal);
+    if (cancel.current?.signal.aborted) return;
+    upsert(latest);
+    const local = current.current.id === latest.spec.id ? current.current : parse(localStorage.getItem(keyOf(latest.spec.id)), latest.spec.id);
+    if (local && fingerprint(local) !== fingerprint(latest.spec)) setPendingOpen(latest);
+    else openServer(latest);
+    after?.();
   });
   const [sel, setSel] = useState<number | 'spawn' | null>(null), [tool, setTool] = useState<Tool>('select');
   const [failed, setFailed] = useState(false), [wipe, setWipe] = useState(''), [, again] = useState(0), [view, setView] = useState<'top' | '3d'>('top');
@@ -267,15 +281,7 @@ export function Terrain() {
         <ul className="mx-list tr-saved" aria-label="서버 지형">{remote.map((t) => <li key={t.spec.id} className="mx-row" data-terrain-server={t.spec.id}>
           <button type="button" className="mx-name mx-name2" disabled={busy || !!t.archived_at} onClick={(e) => {
             const target = e.currentTarget;
-            void serverTask(async () => {
-              const latest = await api.terrain(t.spec.id, cancel.current?.signal);
-              if (cancel.current?.signal.aborted) return;
-              upsert(latest);
-              const local = current.current.id === latest.spec.id ? current.current : parse(localStorage.getItem(keyOf(latest.spec.id)), latest.spec.id);
-              if (local && fingerprint(local) !== fingerprint(latest.spec)) setPendingOpen(latest);
-              else openServer(latest);
-              target.closest('details')?.removeAttribute('open');
-            });
+            void pull(t.spec.id, () => target.closest('details')?.removeAttribute('open'));
           }}><b>{t.spec.name}</b><small>{t.archived_at ? '휴지통' : `서버 저장본 · ${t.spec.size[0]}×${t.spec.size[1]} m`}</small></button>
           {admin && (t.archived_at
             ? <button type="button" className="btn" disabled={busy} onClick={() => serverTask(async () => {
