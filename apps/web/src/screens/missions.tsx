@@ -9,7 +9,7 @@ import { ApiFail, api, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
 import { KIND as DEVICE, type Ctx } from '../screens';
 import { MapFrame, MapImage } from '../mapframe';
-import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place } from './maps';
+import { Note, RUN, Shapes, canon, floorsOf, isVersion, purposeOf, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place, type Run } from './maps';
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
@@ -17,7 +17,7 @@ import { Float, Hint, Menu, Pane, shut, type Side } from './mapscen';
 import { ScenNodes, useBig, type StepKind } from './scennode';
 import { saveSim, scenarioTree, simId } from './btedit';
 import { keyOf, terrainUrl } from './terrain';
-import { openUrl, simAt } from '../simstart';
+import { openUrl, realOnly, simAt, twinOf } from '../simstart';
 
 type P = [number, number];
 type AnyPlan = Mission | Scenario;
@@ -113,32 +113,47 @@ export type ScenarioList = ReturnType<typeof useScenarios>;
 /** 시나리오가 이 층에서 가리키는 지도 판이 지금 승인 판이 아니면 true(«지도 바뀜» — 저장할 때 서버가 STALE 로 알림, 여기는 표시만) */
 export const oldMap = (x: Scenario, floor: string, approved: string | null) => !!approved && [...x.waypoints, ...(x.finish?.target ? [x.finish.target] : [])].some((w) => w.floor_id === floor && w.map_version_id !== approved);
 
-/** ③ 오른쪽 «시나리오» 창: «+ 이 지도에 새 시나리오»·«임무 관리…»·«내 것만» + 이 층 목록(이름·지점·거리, 마우스를 올리면 지도에 경로) + 휴지통. open('') = 새로 */
-export function ScenList({ sim, l, mine, setMine, floor, approved, open, hover, admin, robots, cancel, top }: { sim?: boolean; l: ScenarioList; mine: boolean; setMine: (m: boolean) => void; floor: string; approved: string | null;
-  open: (id: string) => void; hover: (x: Scenario | null) => void; admin: () => void; robots: Robot[]; cancel?: AbortSignal; top?: ReactNode }) {
+/** ③ 오른쪽 «시나리오» 창: «+ 이 지도에 새 시나리오»·«임무 관리…»·«내 것만» + 이 층 목록(이름·지점·거리·어디서 도는지, 마우스를 올리면 지도에 경로) + 휴지통. open('') = 새로.
+ *  read = 지도 탭(RB-SCEN-SIMTAB 11-11): 만들기·고치기는 시뮬 탭(open = 그리로), 줄을 누르면 펼쳐 실기 로봇 배정·결재(AssignPanel 그대로)만 */
+export function ScenList({ sim, read, run, l, mine, setMine, floor, approved, open, hover, admin, robots, user, cancel, top }: { sim?: boolean; read?: boolean; run?: (x: Scenario) => Run | null; l: ScenarioList; mine: boolean; setMine: (m: boolean) => void; floor: string; approved: string | null;
+  open: (id: string) => void; hover: (x: Scenario | null) => void; admin: () => void; robots: Robot[]; user?: User; cancel?: AbortSignal; top?: ReactNode }) {
   const assigned = useAssigned(!sim, l.busy, cancel), items = l.items as Scenario[];   // 시뮬 시나리오는 배정하지 않는다(서버 409 SIM_SCENARIO_NO_ASSIGN) — 로봇 칸·배정 안내 없음
+  const [exp, setExp] = useState<string | null>(null), [pv, setPv] = useState<number | null>(null);   // 지도 탭에서 펼친 줄(배정 창)·배정할 저장 기록(null = 최신)
   const ask = !sim && assignFor.robot && <p className="fh-msg ok" role="status">{robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 고르면 배정 창이 열립니다.</p>;
   return <section className="mx-tab" aria-label="시나리오 목록 창">
     <div className="mx-in">
-      <button type="button" className="btn pri" onClick={() => open('')}>+ 이 지도에 새 시나리오</button>
+      {read ? <><p className="lv-note" data-scen-read-note>시나리오 만들기·고치기는 «시뮬» 탭에서 합니다. 여기서는 보고 실기 로봇에 배정합니다.</p>
+        <button type="button" className="btn" data-to-sim="" onClick={() => open('')}>시뮬 탭에서 만들기·고치기 ›</button></>
+        : <button type="button" className="btn pri" onClick={() => open('')}>+ 이 지도에 새 시나리오</button>}
       <div className="fh-row"><label className="fh-row"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /><span>내 것만</span></label>
-        <span className="fh-grow" /><button type="button" className="btn" onClick={admin}>임무 관리…</button></div>
+        <span className="fh-grow" />{!read && <button type="button" className="btn" onClick={admin}>임무 관리…</button>}</div>
       {top}{ask}
     </div>
-    <ul className="mx-list" aria-label="시나리오 목록" onMouseLeave={() => hover(null)}>{items.map((x) => { const old = oldMap(x, floor, approved);
-      return <li key={x.id} className="mx-row">
-        <button type="button" className="mx-name mx-name2" data-plan={x.id} onClick={() => { hover(null); open(x.id); }} onMouseEnter={() => hover(x)} onFocus={() => hover(x)} onBlur={() => hover(null)}>
+    <ul className="mx-list" aria-label="시나리오 목록" onMouseLeave={() => hover(null)}>{items.map((x) => { const old = oldMap(x, floor, approved), r = run?.(x);
+      return <li key={x.id} className="mx-row" style={read && exp === x.id ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}>
+        <button type="button" className="mx-name mx-name2" data-plan={x.id} aria-expanded={read ? exp === x.id : undefined}
+          onClick={() => { hover(null); if (read) { setExp(exp === x.id ? null : x.id); setPv(null); } else open(x.id); }} onMouseEnter={() => hover(x)} onFocus={() => hover(x)} onBlur={() => hover(null)}>
           <b>{x.name}</b>
           <small>지점 {x.waypoints.length}{x.est_distance_m > 0 ? ` · 약 ${Math.round(x.est_distance_m)} m` : ''}</small>
-          <small>{old && <span className="lv-chip warn" data-old-map>지도 바뀜</span>}
+          <small>{r && <span className={`lv-chip ${r === 'both' ? 'ok' : 'off'}`} data-run={r}>{RUN[r]}</span>}
+            {old && <span className="lv-chip warn" data-old-map>지도 바뀜</span>}
             {/* 배정된 로봇이 있을 때만(빈 «없음» 줄은 뺐다 — MAPSCEN-UI) */}
             {assigned !== null && assigned?.[x.id]?.length ? <span className="lbl" data-col="robots">로봇 {assigned[x.id].join(', ')}</span> : null}
             {assigned === null && <span className="lbl" data-col="robots">로봇 ?</span>}
             {keptPlan.drafts[`scenarios:${x.id}`] && <span className="lbl">저장 안 한 편집</span>}</small>
-        </button></li>; })}</ul>
+        </button>
+        {read && exp === x.id && user && <div className="mx-in" data-scen-read={x.id}>
+          <div className="fh-row"><button type="button" className="btn" data-to-sim={x.id} onClick={() => open(x.id)}>시뮬 탭에서 편집 ›</button></div>
+          {keptPlan.drafts[`scenarios:${x.id}`] && <p className="fh-why" role="status" data-unsaved-assign>저장하지 않은 편집이 있습니다 — 배정하면 마지막으로 저장한 내용({x.latest_version}번째 저장)이 배정됩니다. 고친 내용을 배정하려면 먼저 «시뮬» 탭에서 «저장»을 누르세요.</p>}
+          {/* 옛 저장 기록도 배정(편집 창의 «저장 기록» 고르기를 옮김 — 배정 창은 그 판을 보낸다) */}
+          {x.latest_version > 1 && <label className="fh-field"><span>배정할 저장 기록</span>
+            <select className="inp" data-assign-ver value={pv ?? x.latest_version} onChange={(e) => setPv(Number(e.target.value))}>
+              {Array.from({ length: x.latest_version }, (_, i) => x.latest_version - i).map((n) => <option key={n} value={n}>{`${n}번째 저장${n === x.latest_version ? ' (최신)' : ''}`}</option>)}</select></label>}
+          <AssignPanel scenario={x.id} name={x.name} version={pv ?? x.latest_version} archived={!!x.archived_at} user={user} robots={robots} cancel={cancel} /></div>}
+      </li>; })}</ul>
     <div className="mx-in">
       {assigned === null && <p className="lv-note">배정된 로봇을 받지 못했습니다(«?»). 목록을 다시 받으면 다시 시도합니다.</p>}
-      {!l.busy && !l.err && !items.length && <p className="lv-note">{mine ? '이 지도에 내 시나리오가 없습니다. «내 것만»을 끄면 다른 사람 것도 봅니다.' : '이 지도에는 시나리오가 없습니다. «+ 이 지도에 새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
+      {!l.busy && !l.err && !items.length && <p className="lv-note">{mine ? '이 지도에 내 시나리오가 없습니다. «내 것만»을 끄면 다른 사람 것도 봅니다.' : read ? '이 지도에는 시나리오가 없습니다. 시나리오는 «시뮬» 탭에서 이 지도에 지점을 찍어 만듭니다.' : '이 지도에는 시나리오가 없습니다. «+ 이 지도에 새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
       {l.err && <p className="fh-msg" role="alert">시나리오 목록을 받지 못했습니다. {l.err}</p>}
       {l.busy && <p className="lv-note" role="status">목록을 불러오는 중…</p>}
       {!l.busy && (l.next || l.err) && <div className="fh-row"><button type="button" className="btn" onClick={l.err && !l.items.length ? l.again : l.more}>{l.err ? '다시 시도' : '더 보기'}</button></div>}
@@ -387,6 +402,9 @@ export const simNav = { go: (url: string) => location.assign(url) };
 /** 지형 층: 서버 지도 판 격자 = 지형 크기로 만든 시뮬 격자(서버 terrain_grid·mobile/sim/terrain buildTerrain — 해상도 0.05, 원점 −가로/2·−세로/2)인지 */
 const terrainFits = (t: Terrain, v: MapVersion) => { const [sx, sy] = t.spec.size, r = 0.05;
   return v.resolution === r && v.origin[0] === -sx / 2 && v.origin[1] === -sy / 2 && v.origin[2] === 0 && v.width === Math.ceil(sx / r) && v.height === Math.ceil(sy / r); };
+/** 실기 3D 지도 판(10 cm) = 그 지형 바닥 크기·가운데 원점(서버 쌍둥이 검사 terrain_size = 가로·세로 × 해상도, 원점 −크기/2) */
+const voxelFits = (t: Terrain, v: MapVersion) => { const [sx, sy] = t.spec.size, eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  return v.origin[2] === 0 && eq(v.origin[0], -sx / 2) && eq(v.origin[1], -sy / 2) && eq(v.width * v.resolution, sx) && eq(v.height * v.resolution, sy); };
 const differs = (raw: string, spec: unknown) => { try { return canon(JSON.parse(raw)) !== canon(spec); } catch { return true; } };
 const readLocal = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 /** 층(승인 판) → 시뮬 열 곳 + 지형 확인 — SimRun «시뮬에서 실행»·층 화면 «시뮬 열기»가 같은 규칙을 쓴다.
@@ -397,10 +415,11 @@ function useSimAt(f?: MapFloor, v?: MapVersion, cancel?: AbortSignal) {
   useEffect(() => { setTer(null); if (!tid) return; let live = true;
     api.terrain(tid, cancel).then((t) => { if (live) setTer(t); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setTer(`지형을 받지 못했습니다. ${e.message}`); });
     return () => { live = false; }; }, [tid]);
-  const local = tid ? readLocal(keyOf(tid)) : null;
+  const local = tid ? readLocal(keyOf(tid)) : null, vox = !!twinOf(v);   // vox = 실기 3D 지도(지형의 서버 판은 쌍둥이 시뮬 층 것이라 판 id 대신 크기·원점으로)
   const terWhy = !v || !tid ? '' : !ter ? '지형을 받는 중입니다.' : typeof ter === 'string' ? ter
-    : ter.map_version_id !== v.id ? '이 지형의 서버 지도는 지금 판이 아닙니다(지형 저장 뒤 다른 판이 올라옴) — «지형 만들기»에서 다시 저장하세요.'
-    : !terrainFits(ter, v) ? '지형과 지도 좌표가 다릅니다(지형을 바꾼 뒤 지도를 다시 만들지 않음) — «지형 만들기»에서 다시 저장하세요.'
+    : vox && !voxelFits(ter, v) ? '시뮬 지형과 이 실기 지도의 크기·원점이 다릅니다 — 3D 지도 파일을 다시 올리세요.'
+    : !vox && ter.map_version_id !== v.id ? '이 지형의 서버 지도는 지금 판이 아닙니다(지형 저장 뒤 다른 판이 올라옴) — «지형 만들기»에서 다시 저장하세요.'
+    : !vox && !terrainFits(ter, v) ? '지형과 지도 좌표가 다릅니다(지형을 바꾼 뒤 지도를 다시 만들지 않음) — «지형 만들기»에서 다시 저장하세요.'
     : local != null && differs(local, ter.spec) ? '이 브라우저에 이 지형의 다른 편집본이 있어 덮지 않습니다 — «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.'
     : '';
   const prep = () => {
@@ -420,7 +439,9 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel }: { value: Sc
   const f = place?.floor, o = useSimAt(f, v, cancel), at = o.at, [err, setErr] = useState('');
   const pts = [...value.waypoints, ...(value.finish?.target ? [value.finish.target] : [])];
   const tree = missions ? scenarioTree(value, missions) : '임무 목록을 받는 중입니다.';
-  const why = !saved ? '저장한 시나리오만 시뮬에서 실행합니다 — 먼저 «저장»을 누르세요.' : dirty ? '저장하지 않은 편집이 있습니다 — 저장한 뒤 실행하세요.'
+  // 실기 장소 = 3D 지도로 만든 그 판일 때만(«실기·시뮬»), 아니면 «실기만» 이유 하나 — 판정은 서버 값(장소 종류·voxel_map)만
+  const real = !!place && purposeOf(place.site) === 'REAL', only = real && (!place!.floor.approved_version_id ? realOnly(null) : v ? realOnly(v) : '');
+  const why = only ? only : !saved ? '저장한 시나리오만 시뮬에서 실행합니다 — 먼저 «저장»을 누르세요.' : dirty ? '저장하지 않은 편집이 있습니다 — 저장한 뒤 실행하세요.'
     : !pts.length ? '지점이 없습니다.' : !f ? '층을 찾지 못했습니다.' : pts.some((p) => p.floor_id !== f.id) ? '여러 층 시나리오는 시뮬에서 실행할 수 없습니다.'
     : !v ? '지도를 불러오는 중입니다.' : pts.some((p) => p.map_version_id !== v.id) ? '지도가 바뀌었습니다 — 지금 지도로 다시 저장한 뒤 실행하세요.'
     : typeof at === 'string' ? at : typeof tree === 'string' ? tree : o.terWhy;
@@ -441,9 +462,9 @@ function SimRun({ value, saved, dirty, place, v, missions, cancel }: { value: Sc
 
 /** 층 화면 위 띠 «시뮬 열기»(SIM-TAB-CHOOSER 11-09): 승인 판을 simAt 규칙대로 — 시뮬 세계 층 = 그 map·floor, 지형 층 = map=custom&terrain=. 못 열면 꺼짐 + 이유.
  *  ponytail: 시작 위치 찍기는 없음(기본 시작 지점) — 시뮬 안 «여기서 다시 시작»으로 옮긴다. 층 지도에서 찍으려면 MapFrame 누름 → 판 좌표 + blocked() */
-export function SimOpen({ f, v, wait, cancel }: { f: MapFloor; v: MapVersion | null; wait: boolean; cancel?: AbortSignal }) {
+export function SimOpen({ f, v, wait, real, cancel }: { f: MapFloor; v: MapVersion | null; wait: boolean; real?: boolean; cancel?: AbortSignal }) {
   const o = useSimAt(f, v ?? undefined, cancel), [err, setErr] = useState('');
-  const why = !v ? (wait ? '지도를 불러오는 중입니다.' : '이 층에는 아직 지도가 없어 시뮬로 열 수 없습니다.') : typeof o.at === 'string' ? o.at : o.terWhy, say = err || why;
+  const why = !v ? (wait ? '지도를 불러오는 중입니다.' : '이 층에는 아직 지도가 없어 시뮬로 열 수 없습니다.') : real && realOnly(v) ? realOnly(v) : typeof o.at === 'string' ? o.at : o.terWhy, say = err || why;
   return <>
     <button type="button" className="btn pri" disabled={!!why} aria-describedby={say ? 'sim-open-why' : undefined} data-sim-open
       onClick={() => { const no = o.prep(); setErr(no); if (!no) simNav.go(o.url); }}>시뮬 열기</button>
@@ -758,6 +779,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const [paneLook, setPaneLook] = useState<'node' | 'list'>('node');
   // R8 REVIEW-316 P1: 크게 보기(PC 넓은 창·노드)는 창 머리 한 줄([노드|목록] 옆)에 «시뮬에서 실행» — 그 밖은 창 안 맨 위 그대로(판정·막힘 같음)
   const big = useBig(), simTop = big && paneLook === 'node';
+  // 시뮬 탭의 실기만 시나리오(실기 장소·3D 지도 짝 없음)는 노드 판정도 실기 — 시뮬에서 못 돌리니 웹 시뮬 판정은 뜻이 없다
+  const web = !!sim && (!place || purposeOf(place.site) !== 'REAL' || !!twinOf(v));
   const simRun = sim && <SimRun value={value} saved={saved} dirty={sim.dirty} place={place} v={v} missions={missions} cancel={cancel} />;
   const lookSeg = <span className="mx-seg" role="group" aria-label="노드·목록 보기">
     <button type="button" className="btn" aria-pressed={paneLook === 'node'} data-look="node" onClick={() => setPaneLook('node')}>노드</button>
@@ -781,7 +804,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>;
   const where = (p: ScenarioPoint) => `${p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}${p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}`;
   // SCEN-LIFECYCLE-EDITOR: 시뮬 탭이면 지점마다 scenarioTree 로 한 번 더 — 거절(운영자 확인·센서 기록·120 s 넘는 대기·옛 판)이면 그 이유를 노드에 «시뮬에서 실행 못 함»
-  const noSim = (p: ScenarioWaypoint) => { if (!sim || !missions) return undefined; const r = scenarioTree({ ...value, waypoints: [p], finish: undefined }, missions);
+  const noSim = (p: ScenarioWaypoint) => { if (!web || !missions) return undefined; const r = scenarioTree({ ...value, waypoints: [p], finish: undefined }, missions);
     return typeof r === 'string' ? r.replace(/^1번 지점: /, '') : undefined; };
   /** R5 지점 대기가 할 일 기본과 다르면 « · 이 지점 대기 N초» */
   const waitNote = (p: ScenarioWaypoint, m?: Mission) => (p.wait_s != null && p.wait_s !== waitDflt(m) ? ` · 이 지점 대기 ${p.wait_s}초` : '');
@@ -889,7 +912,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}{simTop && simRun}<span className="fh-grow" />{more}</>}>
       {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
       {!simTop && simRun}
-      {paneLook === 'node' && <ScenNodes where={sim ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} form={pointForm}
+      {paneLook === 'node' && <ScenNodes where={web ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} form={pointForm}
         edit={(i) => { go(i); setTab('steps'); setPaneLook('list'); }} />}
       <div className="mx-pane-in" hidden={paneLook === 'node'}>
       {/* 이름·판·실행 확인 로봇 → [단계 N | 배정 N] (지점을 고르면 «‹ N번 지점») */}
