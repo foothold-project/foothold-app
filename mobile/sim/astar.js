@@ -2,6 +2,8 @@
 // 장애물(254 아닌 칸)을 CLEARANCE 만큼 부풀린 격자에서 찾는다. 대각선은 옆 두 칸 중 하나라도 막혔으면 못 간다(모서리 자르기 금지).
 // 찾은 칸 경로는 부풀린 격자 위 선분이 보이는 구간끼리 줄여 경유점만 남긴다. 돌려준 모든 구간은 부풀린 격자에서 보인다
 // (띠 안에 선 로봇이 띠 밖 첫 칸으로 나가는 첫 구간만 원래 지도로 검사).
+// 구역(map.zones — zones.js zoneLayer, 있을 때만): 금지 칸 + 여유(plan)를 막힌 칸으로 더한다. 벽 띠(inflate·fits)와 따로 둔다 — 시작 위치 검사는 벽만 본다.
+// 벽 옆 탈출 보정(snap)은 금지 칸을 밟지 않는다: 구역 여유 안에서는 빠져나오지만 구역을 가로질러 나오지는 않는다.
 // 큰 지도(공장 1002×1002)는 부풀림·탐색이 수백 ms — SLICE_MS 마다 쉬어(setTimeout) 화면·STOP·입력이 막히지 않게 한다. 그래서 async.
 import { CLEARANCE, MAX_STEP } from './walk-surface.js';
 export { CLEARANCE }; // m: arrival 0.3 + walking error 0.15, shared with terrain support queries
@@ -25,7 +27,7 @@ const disk = (map) => {
 };
 const stamp = (map, grid, d, r, c) => { for (const [dr, dc] of d) { const rr = r + dr, cc = c + dc; if (rr >= 0 && cc >= 0 && rr < map.h && cc < map.w) grid[rr * map.w + cc] = 1; } };
 // 원래 지도 막힘 격자(254 아닌 칸 = 1)
-const raw = (map) => { let g = raws.get(map); if (!g) raws.set(map, g = Uint8Array.from(map.px, (v) => (v === 254 ? 0 : 1))); return g; };
+const raw = (map) => { let g = raws.get(map); if (!g) raws.set(map, g = Uint8Array.from(map.px, (v, i) => (v === 254 && !map.zones?.noGo[i] ? 0 : 1))); return g; };
 
 /** 막힘 격자(1 = 못 감): 254 아닌 칸 + 그 칸 가운데에서 CLEARANCE 안의 칸(지도마다 한 번, 쉬어 가며). extra = 지도에 없는 장애물 점(라이다로 본 것) — 있으면 사본에 더한다 */
 export async function inflate(map, extra = []) {
@@ -49,6 +51,18 @@ export async function inflate(map, extra = []) {
   if (!extra.length) return grid;
   const out = grid.slice(), d = disk(map);
   for (const p of extra) { const i = idx(map, p.x, p.y); if (i >= 0) stamp(map, out, d, Math.floor(i / map.w), i % map.w); }
+  return out;
+}
+
+// 길 찾기 막힘 격자 = 벽 띠(inflate) + 구역 금지 칸·여유. 구역이 없으면 inflate 그대로
+const zoned = new WeakMap();
+async function blockedGrid(map, extra) {
+  const grid = await inflate(map, extra), plan = map.zones?.plan;
+  if (!plan) return grid;
+  if (!extra?.length && zoned.get(map)?.plan === plan) return zoned.get(map).grid;
+  const out = extra?.length ? grid : grid.slice();   // extra 가 있으면 inflate 가 이미 사본을 줬다
+  for (let i = 0; i < out.length; i++) if (plan[i]) out[i] = 1;
+  if (!extra?.length) zoned.set(map, { plan, grid: out });
   return out;
 }
 
@@ -112,7 +126,7 @@ async function snap(map, grid, i0) {
     const i = q[k], r = Math.floor(i / w), c = i % w;
     for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const rr = r + dr, cc = c + dc, j = rr * w + cc;
-      if (rr < 0 || cc < 0 || rr >= h || cc >= w || seen.has(j) || px[j] !== 254 || Math.hypot(rr - r0, cc - c0) > limit || (map.heightAt && !stepCells(map, i, j))) continue;
+      if (rr < 0 || cc < 0 || rr >= h || cc >= w || seen.has(j) || px[j] !== 254 || map.zones?.noGo[j] || Math.hypot(rr - r0, cc - c0) > limit || (map.heightAt && !stepCells(map, i, j))) continue;
       if (!grid[j]) return j;
       seen.add(j); q.push(j);
     }
@@ -178,7 +192,7 @@ async function search(map, grid, s, g, { potential, all = false } = {}) {
 
 /** from → to 경유점 목록(from 은 빼고 마지막 = to). to 가 목표가 될 수 없거나(fits) 길이 없으면 null */
 export async function findPath(map, from, to, extra) {
-  const grid = await inflate(map, extra), si = idx(map, from.x, from.y), g = idx(map, to.x, to.y);
+  const grid = await blockedGrid(map, extra), si = idx(map, from.x, from.y), g = idx(map, to.x, to.y);
   if (si < 0 || g < 0 || map.px[g] !== 254 || grid[g]) return null;
   const terrain = map;
   if (map.prepareNavigation) {

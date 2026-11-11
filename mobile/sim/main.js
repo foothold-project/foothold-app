@@ -22,6 +22,7 @@ import { createKeyboardRamp, slewCommand } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, replayRequirement } from './go2-replay.js';
 import { loadCustomTerrain } from './terrain/index.js';
+import { loadZoneGrid, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneQuads, ZONE_STOP } from './zones.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
@@ -305,6 +306,15 @@ async function main() {
   const layers = floors.length ? floors : [{ name: '', map }];
   const startFloor = Math.max(0, floors.findIndex((f) => f.id === params.get('floor')));
   if (floors.length) map = floors[startFloor].map;
+  // 구역 지키기(RB-ZONE-SIM): PC 웹이 붙인 ?zones=<시뮬 쪽 지도 판 id> 의 구역 칸을 열 때 한 번 받아 이 층 지도에 얹는다(진행 중 실행은 이 값 그대로).
+  // 없으면 지금 동작 그대로, 받기 실패면 안내를 보이고 자동 이동은 시작하지 않는다(손 조종은 그대로). 휴대폰·앱 안(from=server)은 읽지 않는다
+  const ZONE_FAIL = '구역 정보를 받지 못했습니다';
+  let zonesFailed = false, zoneBlockedAt = -Infinity;
+  if (params.has('zones') && from !== 'server' && !readonly) {
+    try { const layer = zoneLayer(map, await loadZoneGrid(params.get('zones'))); if (layer) map.zones = layer; }
+    catch (e) { console.warn(ZONE_FAIL, e); zonesFailed = true; }
+  }
+  st.zones = () => ({ failed: zonesFailed, on: !!map.zones, note: $('zoneNote').hidden ? '' : $('zoneNote').textContent });
   inflate(map);   // 선택한 층의 길 찾기 막힘 격자를 미리(쉬어 가며) 만들어 둔다
   let start = map.spawn_xyyaw.slice(), startReason = '';
   if (params.has('start')) {
@@ -356,7 +366,8 @@ async function main() {
     }
   }
   const lidar = makeLidar(mj, m, d, 360, settings);
-  const runner = createScenarioRunner(sim, () => stopped, settings);
+  const runner = createScenarioRunner(sim, () => stopped, settings, (x, y, angle, speed) => zoneEnters(map.zones, map, x, y, angle, speed));
+  if (zonesFailed) runner.status = `${ZONE_FAIL} — 실행하지 않습니다`;
   runningScenario = runner;
   const patrol = createPatrolRunner({ sim, runner, isStopped: () => stopped, lock, planRoute, getMap: () => map,
     getFront: () => front, home: () => ({ x: start[0], y: start[1], yaw: start[2] }),
@@ -511,7 +522,7 @@ async function main() {
       : far ? `${floors[far.floor].name} 시나리오 — 실행하면 ${floors[far.floor].name} 출발점에 다시 세워 시작` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
     select.disabled = patrol.active || runner.active || !scenarios.length;
-    $('scenarioRun').disabled = !ready || stopped || patrol.active || runner.active || !scenarios.length || (!!scenarios.find((s) => s.id === select.value)?.tree && from === 'server');
+    $('scenarioRun').disabled = zonesFailed || !ready || stopped || patrol.active || runner.active || !scenarios.length || (!!scenarios.find((s) => s.id === select.value)?.tree && from === 'server');
     $('scenarioHalt').disabled = !runner.active && !patrol.active;
     $('scenarioHint').hidden = !stopped;
   };
@@ -584,6 +595,25 @@ async function main() {
     return plane;
   });
 
+  // 구역 그림: 판정에 쓰는 칸 그대로 바닥에 — 접근 금지 = 빨간 테두리 + 옅은 빨간 채움, 감속 = 주황. 따라가기·위에서 보기 둘 다 보인다.
+  // 칸마다 그 자리 바닥 높이(지형 위)에 놓는다. 높이 읽기가 느릴 수 있어 쉬어 가며 만든다
+  if (map.zones) (async () => {
+    const zm = map, height = (i) => { const z = zm.cellHeight?.(i); return (Number.isFinite(z) ? z : zm.floor_z) + .03; };
+    for (const [kind, color] of [['slow', 0xffa000], ['noGo', 0xff1744]]) for (const edge of [false, true]) {
+      const quads = zoneQuads(zm.zones, zm, kind, edge), position = new Float32Array(quads.length * 18);
+      let t = performance.now();
+      for (let k = 0; k < quads.length; k++) {
+        const [x0, y0, x1, y1, i] = quads[k], z = height(i);
+        position.set([x0, y0, z, x1, y0, z, x1, y1, z, x0, y0, z, x1, y1, z, x0, y1, z], k * 18);
+        if (!(k & 15) && performance.now() - t > 8) { await new Promise((r) => setTimeout(r, 0)); t = performance.now(); }
+      }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(position, 3));
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: edge ? .9 : .28, depthWrite: false, side: THREE.DoubleSide }));
+      mesh.renderOrder = edge ? 2 : 1; scene.add(mesh);
+    }
+    st.zoneDrawn = true;
+  })();
+
   // 두 시점 모두 선택한 지점과 점선 경로를 표시한다. 선택할 때만 geometry 갱신.
   const route = new THREE.Group();
   scene.add(route);
@@ -640,7 +670,7 @@ async function main() {
     mj.mj_forward(m, d); sim.hold(0.5); clock?.reset(); pin = null; floorTick(q[2]);
   };
   $('scenarioRun').onclick = async () => {
-    if (!ready || stopped || patrol.active || runner.active || busy || picking) return;
+    if (zonesFailed || !ready || stopped || patrol.active || runner.active || busy || picking) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
     if (chosen.tree) {
@@ -676,7 +706,7 @@ async function main() {
   // 막대·키 = 취소만(손 조종 우선). 끝나거나 끊기면 남은 고리는 모두 지운다
   const ray = new THREE.Raycaster();
   let vp = [0, 0, 1, 1];   // 마지막으로 그린 칸(CSS px 왼쪽·위·폭·높이) — 누른 점을 그 칸의 카메라로 바닥에 비춘다
-  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
+  const GOAL_END = { 완료: '도착했습니다', [ZONE_STOP]: '접근 금지 구역 앞에서 멈췄습니다', 막힘: '막혀서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
   let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
   let marks = [], plan = [], retried = false;   // 목적지들(가는 중 차례), 가는 경유점(= runner.points, mark = 목적지 번호), 이번 출발에서 다시 찾았나
   // busy = 시나리오·다시 찾기, picking = 찍은 점 탐색 중 중복 입력 금지.
@@ -744,6 +774,7 @@ async function main() {
     const [l, t, w, h] = vp;
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
     if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 다시 누르세요');
+    if (zonesFailed) return say(`${ZONE_FAIL} — 찍어서 이동할 수 없습니다`);
     if (patrol.active || (runner.active && !runner.goal)) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
     if (busy || picking) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
@@ -793,6 +824,7 @@ async function main() {
   const going = () => runner.active && runner.goal && marks.length > 0;
   const addMark = async (p, g0, f) => {
     if (g0 !== gen || f !== map) return;
+    if (f.zones?.plan[(f.h - 1 - Math.floor((p.y - f.origin[1]) / f.res)) * f.w + Math.floor((p.x - f.origin[0]) / f.res)]) return g0 === gen && say('접근 금지 구역이거나 구역에 너무 가까워 갈 수 없습니다');
     if (!(await fits(f, p))) return g0 === gen && say(`벽·물건에서 ${CLEARANCE} m 안이라 갈 수 없습니다 — 조금 떨어진 곳을 찍으세요`);
     // 가는 중이면 마지막 목적지에서 잇고(끝에 줄 세움), 아니면 로봇 자리에서 바로 출발
     const was = going(), from = was ? marks.at(-1) : pos(), leg = await findPath(f, from, p);
@@ -999,6 +1031,24 @@ async function main() {
     $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
   };
   let skipLockedDecision = false;
+  // 손 조종: 접근 금지 구역(몸체 여유 포함)으로 들어가는 이동 명령은 0 — 제자리 회전·멀어지는 방향은 그대로
+  const zoneHand = (axes, speed) => {
+    if (!map.zones) return axes;
+    if (speed === undefined) axes = capCommand(axes, zoneSpeed(map.zones, map, d.qpos[0], d.qpos[1]).cap);   // 속도 명령: 감속 상한을 먼저(다음 걸음 길이가 맞게)
+    const g = guardCommand(map.zones, map, d.qpos[0], d.qpos[1], yawOf(), axes, speed);
+    if (g.blocked) zoneBlockedAt = performance.now();
+    return g.cmd;
+  };
+  let zoneText = '';
+  const zoneUI = (now) => {
+    const z = map.zones, at = zoneSpeed(z, map, d.qpos[0], d.qpos[1]), goalModel = adapter.command.kind === 'nearby_goal';
+    const text = zonesFailed ? `${ZONE_FAIL} — 자동 이동은 시작하지 않습니다(손 조종은 됩니다)` : [
+      now - zoneBlockedAt < 1500 && '접근 금지 구역입니다',
+      z?.hasSlow && goalModel && '이 모델은 감속 구역을 지원하지 않습니다',
+      at.slow && !goalModel && (at.cap < Infinity ? `감속 구역 · 최고 ${+at.cap.toFixed(2)} m/s` : '속도 값이 없는 감속 구역 — 속도 제한 없음'),
+    ].filter(Boolean).join(' · ');
+    if (text !== zoneText) { $('zoneNote').textContent = zoneText = text; $('zoneNote').hidden = !text; }
+  };
   clock = createFrameClock({ dt: POLICY_DT,
     yieldOnRejected: !!adapter.depth,
     prepare: () => {
@@ -1016,9 +1066,11 @@ async function main() {
         runner.tick(front, POLICY_DT); // #253: runner owns velocity/goal policy commands.
         if (adapter.command.kind === 'nearby_goal') { heading = null; joy = sim.cmd.slice(); }
       } else if (adapter.command.kind === 'nearby_goal') {
-        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : goalAxes, POLICY_DT);
+        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : zoneHand(goalAxes, 1.2), POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
-      } else sim.cmd = stopped ? neutral() : joy.slice();
+      } else sim.cmd = stopped ? neutral() : zoneHand(joy.slice());
+      // 감속 구역: 속도 명령을 받는 조종(손 조종·시나리오·찍은 곳 가기)만 그 칸의 상한으로 줄인다. 위치 목표 모델은 줄일 수 없어 안내만(zoneUI)
+      if (map.zones && adapter.command.kind === 'body_velocity' && !stopped) sim.cmd = capCommand(sim.cmd, zoneSpeed(map.zones, map, d.qpos[0], d.qpos[1]).cap);
       // All start hand/goal commands share one ramp. STOP remains immediate.
       if (adapter.command.slew && adapter.command.kind === 'body_velocity' && !patrol.active) {
         sim.cmd = stopped ? neutral() : slewCommand(lastCmd, sim.cmd, POLICY_DT, adapter.command.slew);
@@ -1053,7 +1105,7 @@ async function main() {
     timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();
-    goalUI(now);
+    goalUI(now); zoneUI(now);
     draw();
     const bx = d.qpos[0], by = d.qpos[1], bz = d.qpos[2];
     if (top) {
