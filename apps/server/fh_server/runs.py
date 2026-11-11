@@ -102,7 +102,7 @@ def require_execution(capabilities, required, revision, fail):
         fail(422, 'EXECUTION_UNAVAILABLE', '아직 실행할 수 없습니다: ' + str(exc))
 
 
-def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, revision=None):
+def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, revision=None, simulation_map_version_id=None):
     row = db.scalar(select(ScenarioVersion).where(ScenarioVersion.org_id == robot.org_id,
         ScenarioVersion.scenario_id == identifier, ScenarioVersion.number == version))
     if row is None:
@@ -116,8 +116,16 @@ def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, r
     # Do not let the simulation exception silently enable real execution.
     if robot.simulation is not True:
         fail(422, 'PRECHECK_FAILED', '실기 배정·시작 사용자·실행 전 점검 증명이 필요합니다.')
+    from .voxel_maps import simulation_twin
+    def translated(point):
+        point = dict(point)
+        floor, version_id = simulation_twin(db, robot, UUID(str(point['floor_id'])),
+            UUID(str(point['map_version_id'])), fail, simulation_map_version_id)
+        point.update(floor_id=str(floor), map_version_id=str(version_id))
+        return point
     points = []
-    for waypoint in row.waypoints:
+    for stored_waypoint in row.waypoints:
+        waypoint = translated(stored_waypoint)
         # These fields are for server-side scenario editing, never agent input.
         agent_point = {key: value for key, value in waypoint.items() if key not in ('name', 'wait_s')}
         wait_s = waypoint.get('wait_s')
@@ -142,7 +150,10 @@ def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, r
             require_execution(capabilities, required, revision, fail)
             points.append(C.ExecutableAgentScenarioWaypoint(**agent_point, mission_name=mission.name,
                 mission_steps=steps, required_capabilities=required))
-    finish = C.ScenarioFinish.model_validate(row.finish)
+    finish_data = dict(row.finish)
+    if finish_data.get('target') is not None:
+        finish_data['target'] = translated(finish_data['target'])
+    finish = C.ScenarioFinish.model_validate(finish_data)
     all_points = [*points, *([finish.target] if finish.target is not None else [])]
     proofs = [map_proof(db, robot, floor, version_id, fail) for floor, version_id in
               dict.fromkeys((p.floor_id, p.map_version_id) for p in all_points)]
@@ -158,7 +169,8 @@ def install(app, DB, fail):
     @app.get('/api/v1/agent/scenarios/{identifier}', response_model=C.ExecutableAgentScenario | C.AgentScenario, response_model_exclude_unset=True)
     def scenario(identifier: UUID, request: Request, response: Response, db: DB,
                  version: int = Query(ge=1), run_contract: str | None = None,
-                 execution_capability_revision: int | None = Query(default=None, ge=0)):
+                 execution_capability_revision: int | None = Query(default=None, ge=0),
+                 simulation_map_version_id: UUID | None = None):
         rid = app.state.realtime.agent_identity(request.headers)
         robot = db.scalar(select(Robot).where(Robot.org_id == app.state.realtime.settings.org_id,
             Robot.id == UUID(rid), Robot.archived_at.is_(None)))
@@ -170,7 +182,7 @@ def install(app, DB, fail):
             fail(422, 'EXECUTION_UNAVAILABLE', 'scenario/2 규약과 실행 기능 판을 함께 지정하세요.')
         caps = execution_capabilities(app.state.realtime, robot.id)
         row, plan = fixed_scenario(db, robot, identifier, version, fail,
-            capabilities=caps, revision=execution_capability_revision)
+            capabilities=caps, revision=execution_capability_revision, simulation_map_version_id=simulation_map_version_id)
         for proof in plan.map_proofs:
             db.execute(insert(AgentPlanMap).values(org_id=robot.org_id, robot_id=robot.id,
                 scenario_version_id=row.id, map_version_id=proof.map_version_id).on_conflict_do_nothing())
@@ -213,7 +225,8 @@ def start_run(db, robot, msg, at, capabilities=None):
     if user is None or not (user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id):
         raise ReportRejected('RUN_REPORT_OWNER')
     row, scenario = fixed_scenario(db, robot, body.scenario_id, body.scenario_version, reject,
-        capabilities=capabilities, revision=body.execution_capability_revision if executable else None)
+        capabilities=capabilities, revision=body.execution_capability_revision if executable else None,
+        simulation_map_version_id=body.map_version_id)
     all_points = list(scenario.waypoints)
     if scenario.finish.target is not None:
         all_points.append(scenario.finish.target)

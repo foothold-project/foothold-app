@@ -726,6 +726,7 @@ export interface MapUpload {
 }
 
 export interface MapVersion {
+  voxel_map?: VoxelMapSummary | null;
   provenance?: "HUMAN" | "SIMULATION";
   terrain_spec?: TerrainSpec | null;
   upload_id: string;
@@ -2225,6 +2226,33 @@ export interface UserPatch {
   display_name?: string;
   role?: "ORG_ADMIN" | "OPERATOR";
   locked?: boolean;
+}
+
+export interface VoxelCells {
+  summary: VoxelMapSummary;
+  cells: [number, number, number][];
+  next_cursor: number | null;
+  max_page_size: 20000;
+}
+
+export interface VoxelMapImport {
+  map: MapVersion;
+  terrain: Terrain;
+  voxels: VoxelMapSummary;
+}
+
+export interface VoxelMapSummary {
+  map_version_id: string;
+  terrain_id: string;
+  voxel_size: 0.1;
+  point_count: number;
+  voxel_count: number;
+  origin: [number, number, number];
+  source_translation: [number, number, number];
+  estimated_floor_z: number;
+  source_sha256: string;
+  cells_sha256: string;
+  warnings: string[];
 }
 
 export interface WaitParams {
