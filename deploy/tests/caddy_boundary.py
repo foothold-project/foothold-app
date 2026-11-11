@@ -44,6 +44,7 @@ def main():
     backend=HTTPServer(('127.0.0.1',first+1),Backend)
     thread=threading.Thread(target=backend.serve_forever,daemon=True);thread.start()
     config=json.load(sys.stdin)
+    original=json.dumps(config)
     config['admin']={'disabled':True,'config':{'persist':False}}
     server=config['apps']['http']['servers']['srv0']
     server['listen']=['127.0.0.1:'+str(first)]
@@ -133,20 +134,16 @@ def main():
         aliases += [path.replace('/9433/','//9433//') for path in paths]
         for alias in aliases:check(alias,404,headers);count+=1
         assert not traps
-        # X-Frame-Options: exactly one value on every response; SAMEORIGIN only for /sim/ files.
+        # X-Frame-Options with no simulator file in the web root (web-only release): one DENY everywhere.
         def frame(path):
             connection=http.client.HTTPConnection('127.0.0.1',first,timeout=2)
             try:
                 connection.request('GET',path,headers={'Host':host})
-                response=connection.getresponse();response.read()
-                return response.headers.get_all('X-Frame-Options')
+                response=connection.getresponse();body=response.read()
+                return response.status,response.headers.get_all('X-Frame-Options'),body
             finally:connection.close()
-        for path in ('/sim/','/sim/index.html?from=web&map=warehouse','/sim/mujoco/mujoco.wasm','/sim/assets/warehouse/map.json'):
-            assert frame(path)==['SAMEORIGIN'],(path,frame(path));count+=1
-        for path in ('/','/index.html','/sim','/simx/index.html','/SIM/index.html','/Sim/','/x/sim/index.html','/x/../sim/index.html',
-                     '/sim/../index.html','/sim/%2e%2e/index.html','/sim/a/../../index.html','/sim/.hidden/x','//sim/index.html',
-                     '/api/v1/fixture','/api/x','/__fh_phone/x','/__fh_phone/9433/phone/ws'):
-            assert frame(path)==['DENY'],(path,frame(path));count+=1
+        for path in ('/','/index.html','/sim/index.html','/sim/','/sim/no-such-file','/api/v1/fixture','/api/x','/__fh_phone/x','/__fh_phone/9433/phone/ws'):
+            assert frame(path)[1]==['DENY'],(path,frame(path));count+=1
         traps.clear()
         print('PASS: '+str(count)+' exact route/Origin/upgrade/encoding/frame boundaries; other upstreams never reached')
     finally:
@@ -156,6 +153,50 @@ def main():
         backend.shutdown();backend.server_close();thread.join(2)
         for server in (api,static):server.shutdown();server.server_close()
         for thread in trap_threads:thread.join(2)
+    # Second run keeps the real file_server and SPA fallback over a fixture web root:
+    # SAMEORIGIN only when the simulator page itself is served, never on the fallback.
+    web=storage.name+'/web';os.makedirs(web+'/sim/.hidden')
+    for name,text in (('index.html','APP'),('sim/index.html','SIM'),('sim/main.js','JS'),('sim/.hidden/x','DOT')):
+        with open(web+'/'+name,'w') as handle:handle.write(text)
+    config=json.loads(original)
+    config['admin']={'disabled':True,'config':{'persist':False}}
+    server=config['apps']['http']['servers']['srv0']
+    server['listen']=['127.0.0.1:'+str(first)];server['automatic_https']={'disable':True}
+    def reroot(value):
+        if isinstance(value,dict):
+            if 'dial' in value:value['dial']='127.0.0.1:'+str(first+2)
+            if isinstance(value.get('root'),str):value['root']=web
+            for child in value.values():reroot(child)
+        elif isinstance(value,list):
+            for child in value:reroot(child)
+    reroot(config)
+    process=subprocess.Popen(['caddy','run','--config','-'],env=environment,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    try:
+        process.stdin.write(json.dumps(config).encode());process.stdin.close()
+        for _ in range(100):
+            try:
+                with socket.create_connection(('127.0.0.1',first),timeout=.1):break
+            except OSError:
+                if process.poll() is not None:raise RuntimeError('fixture Caddy startup failed')
+                time.sleep(.02)
+        files=0
+        for path in ('/sim/index.html','/sim/index.html?from=web&map=warehouse'):
+            assert frame(path)==(200,['SAMEORIGIN'],b'SIM'),(path,frame(path));files+=1
+        # Fallback to the app page (200) must stay DENY: missing file, dot segments, encodings, case, folder.
+        for path in ('/sim/no-such-file','/sim/..','/sim/%2e%2e','/sim/../index.html','/sim/%2e%2e/index.html','/sim/x/../../index.html',
+                     '/sim/no-such.html?x=/sim/index.html','/SIM/no-such','/sim','/simx/index.html','/','/index.html','/no-such'):
+            assert frame(path)==(200,['DENY'],b'APP'),(path,frame(path));files+=1
+        # Anything else is DENY whatever it serves: other simulator files, folder index, aliases of the page.
+        for path in ('/sim/main.js','/sim/','/sim/.hidden/x','/x/../sim/index.html','//sim/index.html','/sim//index.html','/sim/./index.html',
+                     '/SIM/index.html','/sim/INDEX.html','/sim/index.html/','/sim/index.html/..','/api/x','/__fh_phone/x'):
+            assert frame(path)[1]==['DENY'],(path,frame(path));files+=1
+        os.remove(web+'/sim/index.html')   # simulator dropped from the release: the page path falls back to the app
+        assert frame('/sim/index.html')==(200,['DENY'],b'APP'),frame('/sim/index.html');files+=1
+        print('PASS: '+str(files)+' frame-header boundaries on the real file_server; SAMEORIGIN only for the served simulator page')
+    finally:
+        process.terminate()
+        try:process.wait(timeout=3)
+        except subprocess.TimeoutExpired:process.kill();process.wait()
         # Caller removes exactly FH_TEST_STORAGE after verifying all children exited.
 
 
