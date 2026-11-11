@@ -1104,6 +1104,32 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(a.readyState).toBe(1);
   });
 
+  it('«조종 시작» 답 대기 중 나가기(#329 검토): 답까지 기다렸다 받은 조종권을 입력 0 으로 반납한 뒤 작은 창 — 조종권 안 남음, 답이 2 s 안 오면 조종 화면 «다시 반납»', async () => {
+    const a = await launch(); await recv(a, phoneState());
+    a.auto = ((m: Msg) => m.t === 'lease.take' || m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
+    await click(btn('조종 시작'));
+    expect(sim.get().link?.busy).toBe('take');
+    await click($('[data-sim-leave]'));
+    expect($('[data-sim-pip]')).toBeNull();   // 취득 답 전엔 줄지 않음
+    expect(a.of('lease.release')).toHaveLength(0);
+    await recv(a, { t: 'reply', id: a.of('lease.take')[0].id, ok: true, lease_id: LEASE });   // 늦게 온 취득 성공
+    expect(a.of('lease.release')).toHaveLength(1);
+    await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: true, lease_id: null });
+    await recv(a, phoneState());
+    await wait(120);
+    expect($('[data-sim-pip]')).toBeTruthy();
+    expect(sim.get().link?.lease).toBeNull();
+    expect(a.of('cmd').every((m) => m.vx === 0 && m.vy === 0 && m.wz === 0)).toBe(true);   // 명령 값 0
+    // 크게 보기 → 다시 «조종 시작» 답 대기 중 나가기, 답이 안 오면 2 s 뒤 조종 화면에 남는다
+    await click($('[data-sim-pip-big]'));
+    await click(btn('조종 시작'));
+    await click($('[data-sim-leave]'));
+    await wait(2100);
+    expect($('[data-sim-pip]')).toBeNull();
+    expect(box.textContent).toContain('조종권 반납을 확인하지 못했습니다');
+    expect(a.of('cmd').every((m) => m.vx === 0 && m.vy === 0 && m.wz === 0)).toBe(true);
+  }, 8000);
+
   it('작은 창: 상태 한 줄(보는 중 → 실행 2/3 → 정지 잠금 → 연결 끊김), 시뮬 정지 = 머리줄 STOP 과 같은 에이전트 stop(조종권 없이·서버 STOP·DELETE 0)', async () => {
     const a = await launch(); await drive(a);
     await click($('[data-sim-leave]'));

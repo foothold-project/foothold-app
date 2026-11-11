@@ -283,9 +283,13 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
    *  거절·무응답이면 조종 화면에 남는다(연결·STOP 대상 보존, 입력 0, «다시 반납») */
   const leave = async () => {
     setMenu(''); setBar(false); setLeaving('wait');
+    // «조종 시작» 답을 기다리는 중이면 그 답까지(2 s) 기다린다 — 축소 뒤 늦게 온 취득이 조종권을 남기지 않게(#329 검토)
+    if (sim.get().link?.busy === 'take') await new Promise<void>((f) => {
+      const t = setTimeout(() => { off(); f(); }, 2000), off = sim.subscribe(() => { if (sim.get().link?.busy !== 'take') { clearTimeout(t); off(); f(); } });
+    });
     const k = sim.get().link;
     const ok = k?.lease ? await Promise.race([sim.release(), new Promise<boolean>((f) => setTimeout(() => f(false), 2000))])
-      : !k?.st?.lease_id && k?.busy !== 'release';   // 조종권 없음 = 반납할 것 없음. 서버가 아직 내 것이라 알리거나 반납 답을 기다리는 중이면 확인 못 함
+      : !k?.st?.lease_id && k?.busy !== 'release' && k?.busy !== 'take';   // 조종권 없음 = 반납할 것 없음. 서버가 아직 내 것이라 알리거나 반납·취득 답을 기다리는 중이면 확인 못 함
     if (sim.get().robot?.robot_id !== r.robot_id || sim.get().step !== 'drive') return;
     if (ok) shrink(cam); else setLeaving('fail');
   };
