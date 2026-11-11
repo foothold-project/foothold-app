@@ -4,6 +4,7 @@ import { CLEARANCE, validateTerrain, type TerrainItem, type TerrainSpec } from '
 import type { Terrain as ServerTerrain } from '../../../contracts/ts';
 import { api, ApiFail } from '../api';
 import { simUrl } from '../simdrive';
+import { simWin } from '../simwin';
 import { toWorld } from '../simstart';
 import { Menu, shut } from './mapscen';
 import './mapscen.css';
@@ -320,7 +321,9 @@ export function Terrain() {
       <span className="mx-tag" data-terrain-count>{errors.length ? `오류 ${errors.length}` : '오류 없음'}{warnings.length ? ` · 경고 ${warnings.length}` : ''}</span>
       {errors.length
         ? <button type="button" className="btn pri" disabled title="오류를 고쳐야 열 수 있습니다" data-terrain-open>시뮬로 열기</button>
-        : <a className="btn pri" href={terrainUrl(spec.id)} data-terrain-open onClick={(e) => { if (!save(spec, bases.current[spec.id])) { e.preventDefault(); setFailed(true); } }}>시뮬로 열기</a>}
+        : <a className="btn pri" href={terrainUrl(spec.id)} data-terrain-open onClick={(e) => { if (!save(spec, bases.current[spec.id])) { e.preventDefault(); setFailed(true); }
+            // PC 웹 = 앱 안 시뮬 창(simwin.tsx, RB-WEBSIM-PIP) — 새 탭 열기(Ctrl·가운데 단추)와 폰 틀·앱 안은 링크 그대로
+            else if (simWin.hosted() && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); simWin.go(terrainUrl(spec.id)); } }}>시뮬로 열기</a>}
     </div>
     {pendingOpen && <div className="tr-wipe" role="group" aria-label="지형 덮어쓰기 확인" data-terrain-replace>
       <span>«{pendingOpen.spec.name}»의 이 브라우저 수정본을 서버 사본으로 덮어쓸까요?</span>

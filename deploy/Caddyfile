@@ -1,7 +1,8 @@
 {$FH_SITE} {
+    vars fh_frame DENY
     header {
         X-Content-Type-Options nosniff
-        X-Frame-Options DENY
+        X-Frame-Options {vars.fh_frame}
         Referrer-Policy no-referrer
         Strict-Transport-Security "max-age=86400"
         -Server
@@ -49,6 +50,20 @@
         }
         handle {
             root * /opt/foothold/current/apps/web/dist
+            # Framing stays DENY (fh_frame, written once by the site header)
+            # except one document: the web app shows the same-origin browser
+            # simulator page inside its own page. Only the exact original path
+            # /sim/index.html, and only while that file really exists, switches
+            # the value. The SPA fallback, dot segments, /sim/, other /sim/
+            # files and case variants keep DENY.
+            @sim_page {
+                expression `{http.request.orig_uri.path} == "/sim/index.html"`
+                file {
+                    root /opt/foothold/current/apps/web/dist
+                    try_files /sim/index.html
+                }
+            }
+            vars @sim_page fh_frame SAMEORIGIN
             try_files {path} /index.html
             file_server
         }

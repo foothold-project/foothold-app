@@ -116,7 +116,8 @@ export function createScenarioRunner(sim, isStopped, limits = {}) {
 
 // Human input cancels autonomy and enters the existing STOP lock. A new Run is required.
 // 찍은 곳 가기(goal)만 예외: 막대·키(손 조종)는 목표를 취소하고 잠그지 않는다 — 손 조종이 바로 이어진다.
-export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, win, home, reset, preserveOnHide = false, mission = null }) {
+// embedded = PC 웹 앱 안 시뮬 칸(RB-WEBSIM-PIP): 집 = 작은 창(끝이 아님)·초점 잃음에도 화면은 보여 시뮬이 돈다 → 그 둘은 중단하지 않는다(숨김·freeze·나가기는 그대로)
+export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, win, home, reset, preserveOnHide = false, mission = null, embedded = false }) {
   const interrupt = () => { if (runner.active || mission?.active) { mission?.cancel('중단'); runner.cancel('중단'); lock(); } };
   const hand = () => { if (!mission?.active && runner.active && runner.goal) runner.cancel('손 조종'); else interrupt(); };
   for (const el of [left, right]) el.addEventListener('pointerdown', hand, { capture: true });
@@ -124,9 +125,9 @@ export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, w
   stop.addEventListener('click', interrupt, { capture: true });
   doc.addEventListener('visibilitychange', () => { if (doc.hidden && (!preserveOnHide || mission?.active)) interrupt(); });
   doc.addEventListener('freeze', () => { if (!preserveOnHide || mission?.active) interrupt(); });
-  for (const ev of ['freeze', 'blur']) win.addEventListener(ev, () => { if (!preserveOnHide || mission?.active) interrupt(); });
+  for (const ev of embedded ? ['freeze'] : ['freeze', 'blur']) win.addEventListener(ev, () => { if (!preserveOnHide || mission?.active) interrupt(); });
   win.addEventListener('pagehide', interrupt);   // 실제로 페이지를 떠나면 기존 취소·잠금
-  for (const el of [home, reset]) el.addEventListener('click', interrupt, { capture: true });
+  for (const el of embedded ? [reset] : [home, reset]) el.addEventListener('click', interrupt, { capture: true });
   return { hand };
 }
 
