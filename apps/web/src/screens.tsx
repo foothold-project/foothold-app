@@ -95,6 +95,7 @@ export function Pair({ user, mine, refresh, cancel, children }: { user: User; mi
 
 /** 서버 주의 코드(05 §4 attention, 목록 값) → 짧은 글 */
 const ATTN: Record<string, string> = { OFFLINE: '연결 끊김', STATE_STALE: '상태 늦음', BATTERY_LOW: '배터리 낮음', ERROR: '오류', STOP_LATCHED: '정지 잠금', DEVICE_ERROR: '장치 오류' };
+/** status 없음은 «받은 적 없음»의 근거가 아니다(다시 로그인하면 서버 목록 status=null) — 끊김 경보는 지우지 않는다(11-11 #327 검토) */
 export const attn = (x: Robot, skip: string[] = []) => (x.attention ?? []).filter((a) => !skip.includes(a)).map((a) => ATTN[a] ?? a).join(' · ');
 /** 상세 «주의»: 연결·잠금은 바로 위 칸(상태 한 줄·연결·잠금 칩)이 이미 보여 뺀다 — «연결 전» 로봇이 «연결 끊김»으로 읽히지 않게(11-11 fleet polish) */
 const SHOWN = ['OFFLINE', 'STOP_LATCHED'];
@@ -181,26 +182,30 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
   const broken = hidden ? [] : devices.filter((v) => v.state !== 'OK');
   // 서버 연결·로봇 연결·잠금은 서로 다른 값 — 한 줄에 따로 보인다(합치지 않음). 집중 화면(solo)은 위 상태 한 줄에 있어 여기선 뺀다
   const server = LINK[rt.link().at] ?? { tone: 'off' as const, text: '연결 중' };
-  const robot = hidden ? { tone: 'off' as const, text: '확인 안 됨' } : !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
+  // 한 번도 상태를 받지 못한 로봇(r.status 없음)의 OFFLINE 은 «연결 전» — 머리 칩(robotStatus)과 같은 판정(11-11, fleet 상태 한 줄과 같음)
+  const robot = hidden ? { tone: 'off' as const, text: '확인 안 됨' } : !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' }
+    : r.status ? { tone: 'bad' as const, text: '끊김' } : { tone: 'off' as const, text: '연결 전' };
   const lock = s?.latched == null ? { tone: 'off' as const, text: '모름' } : s.latched ? { tone: 'bad' as const, text: '잠김' } : { tone: 'ok' as const, text: '풀림' };
   const run = got?.current_run ? RUN[got.current_run.status] ?? got.current_run.status : '';
   const manage = <>
     <Line k="담당"><span>{ownerName(r)}</span></Line>
-    {!solo && <Line k="연결"><span>{linkText(r)}</span></Line>}
     {!r.sim && r.serial && <Line k="기체번호"><span className="mono">{r.serial}</span></Line>}
     {!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}
     {/* 총괄: 담당 없는 실기에만 담당 지정(그 밖 실기 쓰기 없음 — 서버 403). 담당 운영(PC 웹): 내 로봇 관리 */}
     {c.user.role === 'ORG_ADMIN' && !r.sim && !c.robot.owner && <AssignOwner r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
   </>;
-  const mission = solo ? <Line k="임무"><span data-mission>{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무가 없습니다'}</span></Line>
-    : r.mission && <Line k="임무"><span>{r.mission}</span></Line>;
   useRelayExpiry(r.phoneRelay, r.phoneRelayAt);   // 폰 경유 값이 새 state 없이 낡아도 아래 묶음을 다시 고른다
   const info = pickInfo(r);   // 실기 Go2 자세·상태 번호·넘어짐 추정(표시만) — 배터리 옆, 시뮬은 숨김
   const battery = <><Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>{info && <RobotInfo {...info} />}</>;
   /* 총괄은 실기에 배정하지 않는다(로봇 탭 읽기 전용 — 시뮬은 유지, r1) */
-  const assign = !adminReal(c.user, r) && <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
-    onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } keptPlan.side = 'scen'; assignFor.robot = c.robot.id; c.go('map'); }}>배정</button>
-    {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>;
+  const can = mineOf(c.user, c.robot);
+  const assignBtn = !adminReal(c.user, r) && <button type="button" className="btn" disabled={!can} aria-describedby={can ? undefined : 'assign-from-detail'} data-assign-robot
+    onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } keptPlan.side = 'scen'; assignFor.robot = c.robot.id; c.go('map'); }}>배정</button>;
+  const assignWhy = assignBtn && !can && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>;
+  const assign = assignBtn && <div className="fh-row">{assignBtn}{assignWhy}</div>;
+  // 집중(solo): 배정 단추는 임무 줄 끝에(따로 한 줄을 차지하지 않게)
+  const mission = solo ? <><Line k="임무"><span data-mission className="fh-grow">{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무가 없습니다'}</span>{assignBtn}</Line>{assignWhy}</>
+    : r.mission && <Line k="임무"><span>{r.mission}</span></Line>;
   const events = (c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />;
   const more = <details className="fh-fold" data-detail-more><summary>장치·위치{hidden ? '' : ` — 장치 ${devices.length}개`}</summary>
     {!hidden && <PhoneRelay key={r.id} report={r.phoneRelay} receivedAt={r.phoneRelayAt} />}
@@ -218,7 +223,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
     {broken.length > 0 && <p className="fh-msg" role="status" data-detail-alert>▲ 장치 문제: {broken.map((v) => `${v.label} ${(DEVICE[v.state] ?? DEVICE.ERROR).text}`).join(', ')}</p>}
     {/* 서랍(총괄): 담당·관리 → 조종권자 → 임무·배터리 → 사건 → 장치(접힘) */}
     {/* 집중(solo, 운영 관리자 PC): 이름·담당은 머리, 배터리·자세·위치는 «로봇 상태», 이름·담당 넘기기·연결 끊기·지우기는 «로봇 설정» 창(screens/fleet.tsx) — 여기는 임무·주의·배정·장치·사건 */}
-    {solo ? <>{mission}{!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}{hidden && <>{manage}{battery}</>}{assign}{more}{events}</>
+    {solo ? <>{mission}{!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}{hidden && <>{manage}{battery}</>}{events}{more}</>
       : <>{manage}<Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>{mission}{battery}{assign}{events}{more}</>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </section>;

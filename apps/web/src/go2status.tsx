@@ -64,6 +64,8 @@ const flat = (x: Go2RobotInfo): Info => ({ roll: x.attitude?.roll ?? null, pitch
 export type Shown = { v: Info | null; why?: string; via?: string };
 export function RobotInfo({ v, why = '모름', via }: Shown) {
   const or = (x: string | null) => x ?? '모름';
+  // 받은 값이 없으면 «모름» 세 줄 대신 한 줄(11-11 — 연결 전 상세가 모름으로 길어지던 것)
+  if (!v) return <div data-robot-info="none"><Line k="자세·상태"><span>{why}</span></Line></div>;
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-robot-info={via ? 'phone' : v ? 'direct' : 'none'}>
     <Line k="자세"><span className="mono">{v ? `roll ${or(sdeg(v.roll))} · pitch ${or(sdeg(v.pitch))}` : why}</span>{via && <span className="lbl">{via}</span>}</Line>
     <Line k="상태 번호"><span className="mono" data-robot-code>{!v ? why : v.code == null ? '모름' : v.code === 0 ? '0(정상 범위)' : String(v.code)}</span></Line>

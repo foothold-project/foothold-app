@@ -41,12 +41,15 @@ export function told(m: string) {
   return x ? { text: `${x[1]}: ${AGENT_EVENT[x[2]] ?? '기타 사건'}`, code: x[2] } : null;
 }
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
-/** 심각도 = 모양 + 글(색만으로 구분 0) — 분류 배지와 따로 보인다.
- *  INFO 는 «정상»의 증거가 아니다: 서버는 심각도 없이 온 로봇 audit 을 INFO 로 저장한다(realtime.py — STOP_CONFIRM_FAILED 등). 그래서 INFO 는 중립 «알림», 실패류 코드면 «주의» */
-const SEV: Record<string, [Tone, string]> = { INFO: ['off', '알림'], WARN: ['warn', '주의'], ERROR: ['bad', '오류'] };
+/** 심각도 = 기호 + 글(색만으로 구분 0). 색은 심각도에만 쓴다 — 분류는 회색 글(11-11 A안: 줄마다 알약 둘이 서던 것 정리).
+ *  INFO 는 «정상»의 증거가 아니다: 서버는 심각도 없이 온 로봇 audit 을 INFO 로 저장한다(realtime.py — STOP_CONFIRM_FAILED 등). 그래서 INFO 는 표시 없음(정상이라고도 쓰지 않음), 실패류 코드면 «주의» */
+const SEV: Record<string, [Tone, string, string]> = { WARN: ['warn', '▲', '주의'], ERROR: ['bad', '■', '오류'] };
 const FAILED = /_(FAILED|REJECTED|DENIED|TIMEOUT)$/;
-const Sev = ({ e }: { e: Ev }) => { const [tone, text] = e.severity === 'INFO' && FAILED.test(e.code ?? '') ? SEV.WARN : SEV[e.severity] ?? ['off', '알 수 없음']; return <Chip tone={tone} text={text} />; };
-/** 분류 배지: 분류마다 다른 토큰 색(history.css)·글자 같이 */
+const Sev = ({ e }: { e: Ev }) => {
+  const x = e.severity === 'INFO' ? (FAILED.test(e.code ?? '') ? SEV.WARN : null) : SEV[e.severity] ?? ['off', '?', '알 수 없음'];
+  return x && <span className="hs-sev" data-tone={x[0]}><span aria-hidden="true">{x[1]}</span><span>{x[2]}</span></span>;
+};
+/** 분류: 작은 회색 글(색 없음 — 빨강은 오류·정지만 뜻하게) */
 const Kind = ({ e }: { e: Ev }) => <span className="hs-kind" data-kind={e.category}>{KIND_NAME[e.category] ?? '기타'}</span>;
 /** 서버가 저장한 문장. 서버가 모르는 로봇 사건이면 코드 원문은 접힌 상세에만 */
 const Said = ({ e }: { e: Ev }) => { const t = told(e.message);
@@ -60,9 +63,11 @@ function Photo({ e }: { e: Ev }) {
   return <button type="button" className="hs-photo" data-photo={big ? 'big' : 'thumb'} aria-label={big ? '사진 작게 보기' : '사진 원본 보기'} aria-expanded={big} onClick={() => setBig(!big)}>
     <img src={api.photoUrl(id, !big)} alt="찍은 사진" loading="lazy" decoding="async" onError={() => setBad(true)} /></button>;
 }
-/** 한 줄 = 한 사건(서랍 «최근 사건»): 시각 · 분류 · 심각도 · 문장 */
-const Row = ({ e, n = 1, from }: { e: Ev; n?: number; from?: Ev }) => <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Kind e={e} /><Sev e={e} /><Said e={e} />
-  {n > 1 && from && <span className="lbl" data-repeat={n}>같은 기록 {n}번 · {when(stamp(from))}부터</span>}</li>;
+/** 묶음 범위 «10/30 17:27~17:30»(같은 날이면 뒤는 시각만). lo·hi = 묶인 사건 중 표시 시각(stamp)이 가장 이른·늦은 것 */
+const span = (a: Ev, b: Ev) => { const x = when(stamp(a)), y = when(stamp(b)); return x.split(' ')[0] === y.split(' ')[0] ? `${x}~${y.split(' ')[1]}` : `${x}~${y}`; };
+/** 한 줄 = 한 사건(서랍 «최근 사건»·«최근 문제»): 위 = 심각도 + 문장, 아래 = 시각 · 분류(· 묶은 수). 좁은 서랍에서도 문장이 시각 밑으로 떨어지지 않게 */
+const Row = ({ e, n = 1, lo, hi }: { e: Ev; n?: number; lo?: Ev; hi?: Ev }) => <li className="hs-item"><span className="hs-said"><Sev e={e} /><Said e={e} /></span>
+  <span className="lbl hs-meta"><span className="mono">{n > 1 && lo && hi ? span(lo, hi) : when(stamp(e))}</span> · <Kind e={e} />{n > 1 && <span data-repeat={n}> · {n}번</span>}</span></li>;
 /** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 — 가로로 넘치지 않게 */
 const Table = ({ items, who, label }: { items: Ev[]; who: (e: Ev) => string; label?: string }) => <div className="hs-wrap">
   <table className="hs-table" aria-label={label} hidden={!items.length}>
@@ -243,10 +248,12 @@ export function RecentEvents({ robot, cancel }: { robot: string; cancel?: AbortS
   const ev = useEvents({ ...NONE, robot }, cancel, 5);
   if (ev.err && ev.err.status !== 404) return <Line k="최근 사건"><span className="fh-msg" role="alert">최근 사건을 받지 못했습니다. {ev.err.message}</span></Line>;
   if (!ev.items.length) return null;
-  // 잇달아 같은 문제(코드·문장 같음)는 한 줄로 묶는다(최신 시각 + «같은 기록 N번 · 처음 시각부터») — 낱낱은 아래 «최근 사건»에 그대로
-  const hot = ev.items.filter(trouble).reduce<{ e: Ev; n: number; from: Ev }[]>((g, e) => {
+  // 잇달아 같은 문제(코드·문장 같음)는 한 줄로 묶는다(«10/30 17:27~17:30 · 안전 · 4번») — 서버 기록은 그대로, 표시만 — 낱낱은 아래 «최근 사건»에 그대로
+  // 목록은 서버가 받은 순서라 늦게 온 사건의 표시 시각(stamp)은 뒤섞일 수 있다 — 범위는 묶인 것의 최소~최대
+  const t = (x: Ev) => micros(stamp(x));
+  const hot = ev.items.filter(trouble).reduce<{ e: Ev; n: number; lo: Ev; hi: Ev }[]>((g, e) => {
     const p = g[g.length - 1];
-    if (p && p.e.code === e.code && p.e.message === e.message) { p.n++; p.from = e; } else g.push({ e, n: 1, from: e });
+    if (p && p.e.code === e.code && p.e.message === e.message) { p.n++; if (t(e) < t(p.lo)) p.lo = e; if (t(e) > t(p.hi)) p.hi = e; } else g.push({ e, n: 1, lo: e, hi: e });
     return g;
   }, []);
   return <>

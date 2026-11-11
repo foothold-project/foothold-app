@@ -8,7 +8,7 @@ import type { Event as Ev, Notification, RobotSummary, User } from '../../../con
 import { Root } from '../session';
 import { tabFromHash } from '../menu';
 import { NOTE_MS } from '../api';
-import { BELL_MS, stamp } from '../screens/history';
+import { BELL_MS, stamp, when } from '../screens/history';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 import { fleetRow } from './fleetRow';
@@ -127,7 +127,7 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     expect([...card('사건').querySelectorAll('th')].map((t) => t.textContent)).toEqual(['시각', '종류', '상태', '내용', '로봇·사람']);
     const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => [...r.children].map((td) => td.textContent));
     expect(a.slice(1)).toEqual(['안전', '▲주의', '사건 2 문장', 'Go2-A · 김총괄']);
-    expect(b.slice(1)).toEqual(['계정', '○알림', '사건 1 문장', '—']);
+    expect(b.slice(1)).toEqual(['계정', '', '사건 1 문장', '—']);   // INFO = 표시 없음(색은 주의·오류에만, 11-11 A안)
     expect(card('사건').querySelector('[data-kind="SAFETY"]')!.textContent).toBe('안전');
   });
   it('INFO 는 «정상»이라 단정하지 않음 — 서버가 INFO 로 저장한 실패 코드(정지 확인 실패 등)는 ▲주의', async () => {
@@ -641,6 +641,26 @@ describe('서랍 «최근 사건»', () => {
     expect(li.closest('details')).not.toBeNull();   // 사건 5개 전체는 접고
     expect($('[data-recent-trouble]')!.closest('details')).toBeNull();   // 문제 사건은 접힌 밖에 늘
     expect($('[data-recent-trouble]')!.textContent).toContain('Go2-A 정지 확인 실패');
+  });
+  it('잇단 같은 문제는 «최근 문제» 한 줄(시각 범위·N번), 낱낱은 접힌 «최근 사건»에 그대로', async () => {
+    const f = (id: string, at: string) => ev(id, { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인 실패', at });
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([f('4', '2026-10-30T08:30:00Z'), f('3', '2026-10-30T08:29:00Z'), f('2', '2026-10-30T08:28:00Z'), f('1', '2026-10-30T08:27:00Z')]) : list([])) }));
+    await open('#/fleet');
+    await drawer();
+    const hot = [...$('[data-recent-trouble]')!.querySelectorAll('li')];
+    expect(hot).toHaveLength(1);
+    expect(hot[0].querySelector('[data-repeat]')!.textContent).toBe(' · 4번');
+    expect(hot[0].textContent).toContain(`${when('2026-10-30T08:27:00Z')}~${when('2026-10-30T08:30:00Z').split(' ')[1]}`);
+    expect($('[aria-label="최근 사건"]')!.querySelectorAll('li')).toHaveLength(4);
+  });
+  it('늦게 온 사건이 섞여도 묶음 범위는 이른~늦은 표시 시각(#327 검토 P2 회귀)', async () => {
+    const f = (id: string, at: string, robot_at: string | null) => ev(id, { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인 실패', at, robot_at });
+    // 서버가 받은 순서(at 역순): 첫 줄은 하루 가까이 늦게 온 사건이라 표시 시각이 더 이르다
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([f('2', '2026-10-31T08:20:00Z', '2026-10-30T08:29:00Z'), f('1', '2026-10-30T08:40:00Z', null)]) : list([])) }));
+    await open('#/fleet');
+    await drawer();
+    const li = $('[data-recent-trouble] li')!;
+    expect(li.textContent).toContain(`${when('2026-10-30T08:29:00Z')}~${when('2026-10-30T08:40:00Z').split(' ')[1]}`);
   });
   it('없으면·범위 밖(404)이면 칸을 숨김(가짜 없음), 다른 실패는 한 줄', async () => {
     serve(signedIn(KIM));
