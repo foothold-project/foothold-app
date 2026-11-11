@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -16,6 +16,8 @@ const BROKEN = '서버 응답을 끝까지 읽지 못했습니다. 처리됐을 
 export const NOTE_MS = 10_000;
 /** 지도 읽기 / 지도 파일 보내기·판 저장 제한시간. 쓰기는 서버 수신 마감(30 s, 넘으면 408)과 변환 시간보다 길게 — 서버 답이 먼저 오게 */
 export const MAP_READ_MS = 20_000, MAP_WRITE_MS = 60_000;
+/** 3D 지도 파일 올리기 — 서버 수신 마감(60 s) + 지도·지형 변환보다 길게 */
+export const VOXEL_WRITE_MS = 180_000;
 /** 시뮬 띄우기·정리 제한시간 — 서버의 관리자 중계 쓰기 한도(180 s, 05 §13.9)보다 길게, 서버 답이 먼저 오게 */
 export const SIM_WRITE_MS = 200_000;
 /** 결재 목록 한 쪽 — 항목마다 상세(층·판 번호)를 따로 받으므로 작게 */
@@ -158,6 +160,13 @@ export const api = {
   imageUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/image`,
   /** 원시 본문 올리기 두 단계: 그림(type = image/png·image/x-portable-graymap) → 그 ID 로 yaml(text/yaml). 둘째 응답 ID 가 판 저장의 image */
   upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type, ms: MAP_WRITE_MS }),
+  /** 3D 지도 파일(.pcd·.ply) 하나 → 승인 지도 판 + 연결된 시뮬 지형(총괄, REAL 장소 HUMAN 층 — apps/server/VOXEL-MAPS.md). 본문 = 파일 바이트(이름·경로는 보내지 않음).
+   *  base = 지금 승인 판(새 층이면 null — 다르면 409 STALE) */
+  voxelUpload: (floor: string, body: Blob, q: { name: string; format: 'pcd' | 'ply'; base: string | null }, cancel?: AbortSignal) =>
+    call<VoxelMapImport>('POST', `/floors/${encodeURIComponent(floor)}/voxel-maps?${new URLSearchParams({ name: q.name, format: q.format, ...(q.base ? { base_version_id: q.base } : {}) })}`, body,
+      { cancel, raw: 'application/octet-stream', ms: VOXEL_WRITE_MS }),
+  /** 3D 칸 한 묶음(최대 20,000칸). next_cursor null = 끝, 칸 자료 없는 판 = 404 */
+  voxels: (id: string, cursor: number, cancel?: AbortSignal) => call<VoxelCells>('GET', `/map-versions/${encodeURIComponent(id)}/voxels?limit=20000&cursor=${cursor}`, undefined, { cancel, ms: MAP_READ_MS }),
   /** 총괄 = 바로 승인 판, 운영 관리자 = PENDING 판 + 지도 수정 결재(S4a — 승인 판은 그대로). base_version_id 가 지금 승인 판과 다르면 409 STALE */
   saveVersion: (floor: string, p: MapVersionCreate, cancel?: AbortSignal) => call<MapVersion>('POST', `/floors/${encodeURIComponent(floor)}/map-versions`, p, { cancel, ms: MAP_WRITE_MS }),
   /** 두 판 차이(S3b). against 없으면 그 판의 기준 판(첫 판이면 빈 지도)과. 방향은 against → id. 그림 비교는 화면이 두 /image 를 겹쳐 그린다 */
