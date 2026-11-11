@@ -62,6 +62,20 @@ for (const ev of ['left', 'right', 'stop', 'stopClick', 'hidden', 'pagehide', 'f
   assert.equal(runner.active, false, ev); assert.equal(stopped, true, ev); assert.deepEqual(sim.cmd, [0, 0, 0], ev);
   stopped = false; runner.tick(); assert.deepEqual(sim.cmd, [0, 0, 0], `${ev}: no automatic resume`);
 }
+// PC 웹 앱 안 시뮬 칸(embedded, RB-WEBSIM-PIP): 집(= 작은 창)·초점 잃음은 실행을 끊지 않는다 — STOP·다시 세우기·나가기·freeze 는 그대로 끊고 잠근다
+for (const ev of ['home', 'blur', 'stop', 'reset', 'pagehide', 'freeze']) {
+  let stopped = false;
+  const sim = { cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
+  const runner = createScenarioRunner(sim, () => stopped);
+  const els = Object.fromEntries(['left', 'right', 'stop', 'doc', 'win', 'home', 'reset'].map((k) => [k, new EventTarget()]));
+  bindScenarioInterrupts({ runner, lock: () => { stopped = true; sim.cmd = [0, 0, 0]; }, ...els, embedded: true });
+  runner.start([{ x: 2, y: 0 }]); runner.tick();
+  if (['pagehide', 'freeze', 'blur'].includes(ev)) els.win.dispatchEvent(new Event(ev));
+  else els[ev].dispatchEvent(new Event(ev === 'stop' ? 'pointerdown' : 'click'));
+  const keeps = ev === 'home' || ev === 'blur';
+  assert.equal(runner.active, keeps, `embedded ${ev}`); assert.equal(stopped, !keeps, `embedded ${ev}`);
+  if (keeps) { runner.tick(); assert.ok(sim.cmd[0] > 0, `embedded ${ev}: keeps running`); }
+}
 for (const reason of ['막힘', '중단']) {
   let stopped = false;
   const sim = { cmd: [0, 0, 0], d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };

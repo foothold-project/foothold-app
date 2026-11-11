@@ -13,6 +13,7 @@ import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { Connect, NO_ROBOT, endDrive } from './drive';
 import { sim, useSim } from './phone';
 import { SimDrive, SimPip, type Cam } from './simdrive';
+import { SimWindow } from './simwin';
 import { media } from './media';
 import { RealDrive } from './realdrive';
 import { Approvals } from './screens/approvals';
@@ -293,5 +294,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     </div>
     {/* 서버 경유 실기 조종 중(open)이면 크게 보기는 막는다 — 실기 조종권을 반납하지 않은 채 화면을 바꾸지 않게. STOP·Space 대상은 위 규칙 그대로(실기 조종 화면 = 그 로봇) */}
     {simUp && small && <Guard quiet><SimPip cam={small} held={open} big={() => { setSmall(null); go('drive'); }} /></Guard>}
+    {/* 브라우저 시뮬 창(RB-WEBSIM-PIP): PC 웹만 — 폰 틀·앱 안은 옛 그대로 페이지 이동(simwin.tsx) */}
+    {!phone && !inApp() && <Guard quiet><SimWindow /></Guard>}
   </div>;
 }

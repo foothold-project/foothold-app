@@ -115,13 +115,25 @@ function background() {
   clock?.reset(); sim?.cancelPolicyStep();   // 숨긴 시간은 물리·막힘 판정에 더하지 않음(미완료 추론도 버림)
   sticks.forEach((s) => s.release());   // 실행기의 지점·진행·정책 상태는 그대로, 손 조종 입력만 놓음
 }
+// PC 웹 앱 안에 띄운 시뮬(apps/web simwin.tsx 의 시뮬 칸, RB-WEBSIM-PIP 11-11): 집 = 끝내지 않고 작은 창. 작은 창·초점 잃음은 화면이 계속 보여 시뮬이 돈다 →
+// 손 조종·실기 보기 = 잠금(«다시 시작»을 눌러야 움직임), 시나리오·임무·찍은 곳 가기 = 계속 돌고 손 조종 입력만 놓음(handsOff). 탭 숨김·freeze 는 옛 background() 그대로. 닫기 = 칸이 사라짐(pagehide → lock)
+const from = new URLSearchParams(location.search).get('from'), fromServer = from === 'server' && history.length > 1;
+let inWeb = false; try { inWeb = from === 'web' && frameElement?.dataset.simWinFrame != null; } catch { /* 다른 출처 틀 */ }
+const handsOff = () => { if (readonly || !(runningTree?.active || runningScenario?.active)) return lock(); sticks.forEach((s) => s.release()); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) background(); });
-for (const ev of ['freeze', 'blur']) addEventListener(ev, background);
+addEventListener('freeze', background);
+addEventListener('blur', inWeb ? handsOff : background);
 addEventListener('pagehide', lock);   // 실제 나가기·새로고침은 기존 취소·잠금
+if (inWeb) {
+  $('home').dataset.small = ''; $('home').setAttribute('aria-label', '작은 창으로');
+  addEventListener('message', (e) => { if (e.origin === location.origin && e.source === parent && e.data?.fhSim === 'small') handsOff(); });
+}
 // 집: 서버 화면(«시뮬 열기», ?from=server)에서 왔으면 뒤로 = 그 서버 화면(RemoteClient 가 /sim/ 에서는 고른 서버를 잊지 않음),
 // 웹(같은 출처 /sim/, ?from=web)이면 웹 «시뮬» 화면(폰 틀은 로봇 연결로 바뀜), 아니면 앱 시작 화면
-const from = new URLSearchParams(location.search).get('from'), fromServer = from === 'server' && history.length > 1;
-$('home').onclick = () => { lock(); if (fromServer) history.back(); else location.href = from === 'web' ? '../#/sim' : '../index.html'; };
+$('home').onclick = () => {
+  if (inWeb) { handsOff(); parent.postMessage({ fhSim: 'small' }, location.origin); return; }
+  lock(); if (fromServer) history.back(); else location.href = from === 'web' ? '../#/sim' : '../index.html';
+};
 addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ── 막대 두 개(RS-5 배치): 왼쪽 위·아래 = vx ±1, 좌우 = vy ±0.5 / 오른쪽 좌우 = wz ±1. 학습 범위 밖은 자르지 않고 테두리 색으로만 알림
@@ -503,7 +515,7 @@ async function main() {
     $('scenarioHalt').disabled = !runner.active && !patrol.active;
     $('scenarioHint').hidden = !stopped;
   };
-  const { hand } = bindScenarioInterrupts({ runner, mission: patrol, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset'), preserveOnHide: !readonly });
+  const { hand } = bindScenarioInterrupts({ runner, mission: patrol, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset'), preserveOnHide: !readonly, embedded: inWeb });
   for (const el of [$('stickL'), $('stickR')]) el.addEventListener('pointerdown', () => { sim.cancelPolicyStep(); clock?.reset(); }, true);
   addEventListener('keydown', (e) => { if (e.code in KEYS && !e.repeat && !field(e.target)) { sim.cancelPolicyStep(); clock?.reset(); } }, true);
   // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)

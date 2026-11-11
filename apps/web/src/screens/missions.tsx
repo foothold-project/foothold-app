@@ -18,6 +18,7 @@ import { ScenNodes, useBig, type StepKind } from './scennode';
 import { saveSim, scenarioTree, simId } from './btedit';
 import { keyOf, terrainUrl } from './terrain';
 import { openUrl, realOnly, simAt, twinOf } from '../simstart';
+import { simWin } from '../simwin';
 
 type P = [number, number];
 type AnyPlan = Mission | Scenario;
@@ -398,7 +399,7 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
 
 // ── 시뮬에서 실행(SIM-REAL-SPLIT 11-09) ──────────────────
 /** 시뮬 사슬: 저장한 시나리오 → bt.js 나무(scenarioTree·validateTree) → 이 브라우저 fh.btMission.<id> → 시뮬 ?bt=<id>(시뮬 쪽 그대로). 이동은 simNav.go(시험이 바꿔 끼움) */
-export const simNav = { go: (url: string) => location.assign(url) };
+export const simNav = { go: (url: string) => simWin.go(url) };   // PC 웹 = 앱 안 시뮬 창(simwin.tsx), 폰 틀·앱 안 = 페이지 이동
 /** 지형 층: 서버 지도 판 격자 = 지형 크기로 만든 시뮬 격자(서버 terrain_grid·mobile/sim/terrain buildTerrain — 해상도 0.05, 원점 −가로/2·−세로/2)인지 */
 const terrainFits = (t: Terrain, v: MapVersion) => { const [sx, sy] = t.spec.size, r = 0.05;
   return v.resolution === r && v.origin[0] === -sx / 2 && v.origin[1] === -sy / 2 && v.origin[2] === 0 && v.width === Math.ceil(sx / r) && v.height === Math.ceil(sy / r); };
