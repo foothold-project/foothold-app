@@ -160,16 +160,17 @@ def refresh_connectors(db, floor):
                 map_version_a_id=version.id, map_version_b_id=other.id if matching else None, active=matching is not None))
 
 
-def version_object(row, floor, upload):
+def version_object(row, floor, upload, db):
     # The immutable upload belongs to this snapshot, unlike Floor.terrain_id
     # which points at the terrain's current revision. Edits/rollbacks reuse it.
+    from .voxel_links import voxel_summary
     terrain_spec = upload.metadata_json.get('terrain_spec') if row.provenance == 'SIMULATION' else None
     return C.MapVersion(upload_id=row.upload_id, id=row.id, floor_id=row.floor_id, number=row.number, base_version_id=row.base_version_id,
         copied_from_id=row.copied_from_id,
         status='SUPERSEDED' if row.status == 'APPROVED' and floor.approved_version_id != row.id else row.status,
         image_sha256=row.image_sha256.hex(), width=row.width, height=row.height, resolution=row.resolution,
         origin=(row.origin_x, row.origin_y, row.origin_yaw), features=row.features, reason=row.reason,
-        source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, voxel_map=upload.metadata_json.get('voxel_map'), created_by=row.created_by, created_at=row.created_at)
+        source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, voxel_map=voxel_summary(db, row, upload), created_by=row.created_by, created_at=row.created_at)
 
 
 def bounded_features(row, fail):
@@ -446,8 +447,10 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             floor.approved_version_id = row.id
             db.flush()
             refresh_connectors(db, floor)
+            from .voxel_links import publish_annotations
+            publish_annotations(db, user, row, upload)
             record(db, user, 'MAP_VERSION_APPROVED', row)
-            result = idempotency.finish(receipt, version_object(row, floor, upload))
+            result = idempotency.finish(receipt, version_object(row, floor, upload, db))
             db.commit()
             return result
         except BaseException as exc:
@@ -483,8 +486,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                         before_index=old_index, after_index=new_index))
         uploads = {upload.id: upload for upload in db.scalars(select(Upload).where(Upload.org_id == user.org_id,
             Upload.id.in_({item.upload_id for item in (row, baseline) if item is not None})))}
-        result = C.MapDiff(version=version_object(row, floor, uploads[row.upload_id]),
-            against=version_object(baseline, floor, uploads[baseline.upload_id]) if baseline else None,
+        result = C.MapDiff(version=version_object(row, floor, uploads[row.upload_id], db),
+            against=version_object(baseline, floor, uploads[baseline.upload_id], db) if baseline else None,
             image_changed=baseline is None or row.image_sha256 != baseline.image_sha256, changes=changes)
         if len(result.model_dump_json().encode()) > MAX_DIFF_BYTES:
             fail(422, 'DIFF_TOO_LARGE', '비교 결과의 크기 상한을 넘었습니다.')
@@ -527,9 +530,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         floor.approved_version_id = row.id
         db.flush()
         refresh_connectors(db, floor)
+        from .voxel_links import publish_annotations
+        publish_annotations(db, user, row, own(db, Upload, row.upload_id, user))
         record(db, user, 'MAP_VERSION_ROLLED_BACK', row, copied_from_id=str(original.id),
             base_version_id=str(body.base_version_id), copied_from_number=original.number, reason=body.reason)
-        return idempotency.finish(receipt, version_object(row, floor, own(db, Upload, row.upload_id, user)))
+        return idempotency.finish(receipt, version_object(row, floor, own(db, Upload, row.upload_id, user), db))
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)
     def versions(floor_id: UUID, auth: Identity, db: DB, archived: bool = False, limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):
@@ -547,13 +552,13 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         rows = list(db.execute(query.order_by(MapVersion.number.desc()).limit(limit + 1)))
         more = len(rows) > limit
         rows = rows[:limit]
-        return C.MapVersionList(items=[version_object(row, floor, upload) for row, upload in rows],
+        return C.MapVersionList(items=[version_object(row, floor, upload, db) for row, upload in rows],
             next_cursor=str(rows[-1][0].number) if more else None)
 
     @app.get('/api/v1/map-versions/{version_id}', response_model=C.MapVersion)
     def version(version_id: UUID, auth: Identity, db: DB):
         row = own(db, MapVersion, version_id, auth[0])
-        return version_object(row, own(db, Floor, row.floor_id, auth[0]), own(db, Upload, row.upload_id, auth[0]))
+        return version_object(row, own(db, Floor, row.floor_id, auth[0]), own(db, Upload, row.upload_id, auth[0]), db)
 
     @app.get('/api/v1/map-versions/{version_id}/image', response_class=FileResponse)
     def image(version_id: UUID, auth: Identity, db: DB):

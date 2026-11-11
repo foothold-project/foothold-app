@@ -1,8 +1,9 @@
 """Validated terrain library; each save publishes an immutable simulation map."""
+import copy
 import math
 from pathlib import Path
 from typing import Annotated
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import Query
 from sqlalchemy import select, func
@@ -71,7 +72,12 @@ def publish_terrain_map(db, user, spec, floor, terrain_version, root, fail, crea
     metadata = {'resolution': .05, 'origin': origin, 'negate': 0, 'occupied_thresh': .65,
         'free_thresh': .2, 'terrain_id': spec.id, 'terrain_version': next_version,
         'terrain_spec': spec.model_dump(mode='json', by_alias=True)}
+    features = {'zones': [], 'waypoints': [], 'connectors': [], 'edits': []}
     if twin:
+        source = db.get(MapVersion, UUID(twin['map_version_id']))
+        if source is None or source.org_id != user.org_id or source.provenance != 'HUMAN':
+            fail(422, 'MAP_PROOF_UNAVAILABLE', '연결된 실기 지도 판을 찾을 수 없습니다.')
+        features = copy.deepcopy(source.features)
         # Canonical PGM is the exact terrain raster used by the custom world.
         # The agent must independently match these bytes and its live world.
         pgm = f'P5\n{width} {height}\n255\n'.encode() + pixels
@@ -97,7 +103,7 @@ def publish_terrain_map(db, user, spec, floor, terrain_version, root, fail, crea
         version = MapVersion(provenance='SIMULATION', org_id=user.org_id, floor_id=floor.id, number=number,
             base_version_id=floor.approved_version_id, upload_id=upload.id, status='APPROVED', image_path=str(path),
             image_sha256=digest, width=width, height=height, resolution=.05, origin_x=origin[0], origin_y=origin[1],
-            origin_yaw=0, features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []},
+            origin_yaw=0, features=features,
             source='IMPORT', reason='지형 저장으로 위에서 본 지도 자동 생성', created_by=user.id)
         db.add(version)
         db.flush()
@@ -146,12 +152,18 @@ def save_terrain(db, user, terrain_id, body, root, fail, event, *, created=None,
             site_id=site.id, name=body.spec.name)
         db.add(building)
         db.flush()
-    floor = db.scalar(select(Floor).where(Floor.org_id == user.org_id, Floor.terrain_id == terrain_id).with_for_update())
+    floor = db.scalar(select(Floor).where(Floor.org_id == user.org_id, Floor.terrain_id == terrain_id).with_for_update().execution_options(populate_existing=True))
     if floor is None:
         floor = Floor(id=identifier(user.org_id, terrain_id + '/floor'), org_id=user.org_id,
             building_id=building.id, name='1층', level=1, terrain_id=terrain_id, provenance='SIMULATION', floor_z=0)
         db.add(floor)
         db.flush()
+    # A map annotation save may have completed while this terrain save waited
+    # for the floor lock. Use the binding under that lock, not the route's read.
+    if twin and floor.approved_version_id:
+        current = db.get(MapVersion, floor.approved_version_id)
+        current_upload = db.get(Upload, current.upload_id) if current else None
+        twin = current_upload.metadata_json.get('voxel_twin') if current_upload else None
     if floor.archived_at is not None:
         fail(409, 'RESOURCE_ARCHIVED', '지도 휴지통의 층을 먼저 되돌려 주세요.')
     # Saving terrain is the entry point for creating simulation places,
