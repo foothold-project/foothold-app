@@ -80,6 +80,7 @@ const wp = (floor_id: string, x: number, y: number, mission_id = 'm1', mission_v
 
 /** 미리보기 흉내: 판이 승인 판이 아니면 409 STALE, 고른 임무 판이 없으면 422, 지도 밖·진입 금지(x ≥ 3)·참조 어긋남 = 갈 수 없음, 층이 바뀌는데 연결점 짝이 없으면(link=false) 구간 갈 수 없음 */
 function preview(b: ScenarioWrite): Reply {
+  if (!b.name.trim()) return err(422, 'VALIDATION', '입력 값을 확인하세요.', { elements: ['name'] });   // 서버처럼 빈 이름은 422(11-11 — 화면은 미리보기에 대신 이름을 보내야 경로를 본다)
   const all: [string, ScenarioPoint][] = [...b.waypoints.map((w, i) => [`waypoints.${i}`, w] as [string, ScenarioPoint]), ...(b.finish?.mode === 'GO_TO' && b.finish.target ? [['finish.target', b.finish.target] as [string, ScenarioPoint]] : [])];
   const stale = all.filter(([, p]) => approved[p.floor_id] !== p.map_version_id).map(([e]) => e);
   if (stale.length) return err(409, 'STALE', '지도가 바뀌었습니다. 새 승인 판으로 다시 확인하세요.', { elements: stale, approved_version_id: approved.f1 });
@@ -547,7 +548,10 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect($('[data-look="list"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(name().closest('[hidden]')).toBeNull();
     expect(document.activeElement).toBe(name());
+    expect(name().getAttribute('aria-invalid')).toBe('true');                   // polish-321: 칸 아래 안내 + 칸에 묶임
+    expect(document.getElementById(name().getAttribute('aria-describedby')!)!.textContent).toBe('이름을 입력하세요.');
     await setVal(name(), '새 순찰'); await settle();
+    expect(name().getAttribute('aria-describedby')).toBeNull();
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions', 'POST /scenarios']);
     expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ name: '새 순찰' });
@@ -565,6 +569,18 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(box.querySelectorAll('.react-flow__node.draggable')).toHaveLength(0);
     expect($('.sn-hint')!.textContent).toContain('실기체 검증과 다름');
     expect(writes()).toEqual([]);
+  });
+  it('미리보기 422 가 이름(name)이면 이름 안내, 임무 판이면 «임무를 다시 고르세요» (11-11 audit)', async () => {
+    seed();
+    const over: Record<string, ((real: () => Reply) => Reply | Promise<Reply>)[]> = { 'POST /scenarios/preview': [() => err(422, 'VALIDATION', '입력 값을 확인하세요.', { elements: ['name'] })] };
+    serve(KIM, { over });
+    await open();
+    await click(btn('+ 이 지도에 새 시나리오'));
+    await tap(1, 1); await settle();
+    expect($('p.fh-msg[role=alert]')!.textContent).toBe('시나리오 이름을 넣으세요(«목록» 보기의 «이름» 칸).');
+    over['POST /scenarios/preview'].push(() => err(422, 'PRECHECK_FAILED', '임무 판을 찾을 수 없습니다.', { elements: ['waypoints.0.mission_version'] }));
+    await tap(1.5, 1); await settle();
+    expect($('p.fh-msg[role=alert]')!.textContent).toBe('고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.');
   });
   it('REVIEW-302: 노드 보기(기본)에서도 저장을 막는 이유(지점 없음·진입 금지)와 경로 확인 실패 «다시 확인»이 지도 위에 보인다(hidden 조상 없음)', async () => {
     seed();

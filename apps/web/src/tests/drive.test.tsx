@@ -2063,4 +2063,18 @@ describe('전체화면(⋯ 메뉴)', () => {
     expect($('[data-full-tip]').textContent).toContain('홈 화면에 추가');
     expect($('header').lastElementChild).toBe($('[data-stop]'));
   });
+
+  it('좁은 창(768 미만): 마우스 쓰는 총괄은 PC 틀(지도 탭 그대로), 손가락 입력 총괄·운영자는 폰 틀 (11-11 현민님)', () => {
+    const show = (user: string, coarse: boolean) => {
+      if (root) { act(() => root!.unmount()); box.remove(); }
+      window.matchMedia = ((q: string) => ({ matches: q === PHONE_Q || (coarse && q === '(pointer: coarse)'), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+      location.hash = '#/map';
+      box = document.createElement('div'); document.body.append(box);
+      act(() => { root = createRoot(box); root.render(<App {...as(user, ROBOTS)} />); });
+      return `${$('[data-layout]').getAttribute('data-layout')} ${location.hash}`;
+    };
+    expect(show(ADMIN, false)).toBe('pc #/map');
+    expect(show(ADMIN, true)).toMatch(/^phone #\/drive/);
+    expect(show('u-park', false)).toMatch(/^phone #\/drive/);
+  });
 });

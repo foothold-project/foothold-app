@@ -246,7 +246,7 @@ describe('서버 경유 카메라·라이다', () => {
     expect($('[data-sd-full]')!.textContent).not.toContain(NO_SIGNAL.lidar);
   });
 
-  it('«조종 화면 열기» = 전체화면 — STOP 이 가장 크게 보이고 키 조종 그대로, 카메라를 다시 누르거나 Esc 로 복귀', () => {
+  it('«조종 화면 열기» = 전체화면 — STOP 이 가장 크게 보이고 키 조종 그대로, 카메라를 눌러도 그대로(11-11), «작게 보기»·Esc 로 복귀', () => {
     ready();
     view();
     const full = $('[data-sd-full]')!, stop = full.querySelector<HTMLElement>('[data-sd-stop="full"]')!;
@@ -255,7 +255,10 @@ describe('서버 경유 카메라·라이다', () => {
     expect(parseInt(stop.style.minHeight)).toBeGreaterThan(Math.max(...sizes));
     key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     key('keyup', 'ArrowUp'); expect(lastAxes()).toBe('0,0,0');
-    click(full.querySelector('[aria-label="카메라 작게 보기"]')!);
+    click(full.querySelector('[data-sd-full] video, [data-sd-full] canvas, [data-sd-full] img') ?? full.querySelector('[data-sd-full] > div')!);
+    expect($('[data-sd-full]')).not.toBeNull();                                            // 영상 누름은 닫기가 아님
+    expect(full.querySelector('[aria-label="카메라 작게 보기"]')).toBeNull();
+    click($('[data-sd-full] [data-sd-small]')!);
     expect($('[data-sd-full]')).toBeNull();
     view(); ch('lidar');
     expect($('[data-sd-full]')!.getAttribute('aria-label')).toBe('라이다 전체화면');
@@ -359,13 +362,12 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     expect(w.of('stop').length).toBe(n + 1);
   });
 
-  it('#214 r1: 전체화면을 Esc·작게 보기·카메라 클릭 어느 길로 닫아도 눌린 이동 키를 버리고 바로 0 — 200 ms 뒤에도 0', () => {
+  it('#214 r1: 전체화면을 Esc·작게 보기 어느 길로 닫아도 눌린 이동 키를 버리고 바로 0 — 200 ms 뒤에도 0', () => {
     ready();
     const ways: [string, () => void][] = [
       ['Esc', () => key('keydown', 'Escape')],
       ['작게 보기', () => click($('[data-sd-full] [data-sd-small]')!)],
-      ['카메라 클릭', () => click($('[data-sd-full] [aria-label="카메라 작게 보기"]')!)],
-    ];
+      ];
     for (const [way, close] of ways) {
       view();
       key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');

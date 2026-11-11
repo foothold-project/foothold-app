@@ -360,7 +360,8 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
       <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
   </>;
   const h2 = <h2 className="mx-sr">{id ? shown.name || what : `새 ${what}`}</h2>;
-  const nameField = <label className="fh-field"><span>이름</span><input className="inp" data-name maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} onChange={(e) => put({ ...body, name: e.target.value })} /></label>;
+  const nameField = <label className="fh-field"><span>이름</span><input className="inp" data-name required maxLength={128} value={shown.name} readOnly={ro} aria-invalid={!!nameBadNow} aria-describedby={nameBadNow ? 'scen-name-why' : undefined} onChange={(e) => put({ ...body, name: e.target.value })} />
+    {nameBadNow && <span id="scen-name-why" className="fh-why" data-name-why>{nameBadNow.text}</span>}</label>;
   if (kind === 'missions') return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}
     <div className="mx-scroll"><div className="fh-form" style={{ maxWidth: 760, width: '100%', margin: '0 auto' }}>{h2}{notices}
       {/* 저장 중·저장 확인 전에는 입력을 모두 막는다(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로 */}
@@ -551,6 +552,9 @@ const waitWhy = (n?: number | null) => (n == null || (int(n) && n >= 1 && n <= 3
 const pointWhy = (v: ScenarioWrite) => { for (const [i, w] of v.waypoints.entries()) { const t = nameWhy(w.name) || waitWhy(w.wait_s); if (t) return `${i + 1}번 지점: ${t}`; } return null; };
 /** 임무의 첫 대기 단계 초(대기 단계가 없으면 null) — 지점 대기 칸의 «기본 N초», 서버는 지점 wait_s 로 대기 단계를 모두 덮는다 */
 const waitDflt = (m?: Mission) => { const s = m?.steps.find((x) => x.action === 'WAIT'); return s ? Number(s.params?.seconds) : null; };
+const NAME_WHY = '시나리오 이름을 넣으세요(«목록» 보기의 «이름» 칸).';
+/** 미리보기 422: 이름이 걸렸으면 이름 안내, 그 밖은 임무 안내(11-11 — 이름 빈칸에 «임무를 다시 고르세요»가 뜨던 것) */
+const why422 = (e: ApiFail) => (elementsOf(e).includes('name') ? NAME_WHY : '고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.');
 const MISSING = (v: ScenarioWrite) => (!v.waypoints.length ? '지도를 눌러 지점을 하나 이상 찍으세요.' : v.waypoints.some((w) => !w.mission_id) ? '모든 지점에 할 일을 고르세요.'
   : pointWhy(v) ?? (v.finish?.mode === 'GO_TO' && !v.finish.target ? '끝나고 갈 지점을 지도에서 찍으세요.' : null));
 const TAP = 8;   // 화면 px — MapFrame SLOP 과 같다. 찍힌 지점을 누르고 이만큼 움직이기 전에 떼면 누름(고르기), 넘으면 끌어 옮기기
@@ -631,17 +635,18 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
 
   // ③ 미리보기: 본문이 바뀌면 잠깐 뒤 다시(마지막 요청만 반영). 결과는 그 본문(key)에만 맞다
   const k = canon(value), missing = MISSING(value), [pre, setPre] = useState<{ key: string; r?: ScenarioPreview; e?: ApiFail } | null>(null), [checking, setChecking] = useState(false), [n, setN] = useState(0), seq = useRef(0);
+  // 미리보기는 경로만 본다 — 이름이 비면 대신 이름을 넣어 보낸다(서버는 빈 이름을 422 name 으로 막아 경로를 못 보고 «임무를 다시 고르세요»가 떴다, 11-11). 빈 이름은 저장 때 SCEN-SAVE-FIX 가 칸을 열어 알린다
   useEffect(() => {
     if (!set || missing) { seq.current++; setChecking(false); return; }
     const g = ++seq.current;
     setChecking(true);
-    const t = setTimeout(() => api.preview(value, cancel).then(fit(isPreview)).then((r) => { if (g === seq.current) { setPre({ key: k, r }); setChecking(false); } },
+    const t = setTimeout(() => api.preview(value.name.trim() ? value : { ...value, name: '-' }, cancel).then(fit(isPreview)).then((r) => { if (g === seq.current) { setPre({ key: k, r }); setChecking(false); } },
       (e: ApiFail) => { if (g === seq.current && e.code !== 'CANCELED') { setPre({ key: k, e }); setChecking(false); } }), 400);
     return () => clearTimeout(t);
   }, [k, recheck, n, !set]);
   useEffect(() => { if (srv) { seq.current++; setPre(srv); setChecking(false); } }, [srv]);
   const now = pre?.key === k && !checking ? pre : null, r = now?.r, pe = now?.e;
-  const block = !set ? null : making ? '지점 임무를 만드는 중입니다.' : missing ?? (!now ? '경로를 확인하는 중입니다.' : pe ? (pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`)
+  const block = !set ? null : making ? '지점 임무를 만드는 중입니다.' : missing ?? (!now ? '경로를 확인하는 중입니다.' : pe ? (pe.code === 'STALE' ? STALE : pe.status === 422 ? why422(pe) : `경로를 확인하지 못했습니다. ${pe.message}`)
     : !r!.reachable ? '갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.' : null);
   useEffect(() => { setBlock(block); }, [block]);
   const res = Object.fromEntries((r?.points ?? []).map((p) => [p.element, p]));
@@ -846,7 +851,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
         {over}
         {/* 저장을 막는 이유·경로 확인 실패(다시 확인) — 노드 보기·창 접힘과 관계없이 지도 위에(SCEN-SAVE-FIX REVIEW-302). 확인 실패면 그 줄이 이유를 대신한다 */}
-        {pe && <div className="fh-row" style={{ flexWrap: 'wrap' }}><p className="fh-msg" role="alert">{pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무를 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`}</p>
+        {pe && <div className="fh-row" style={{ flexWrap: 'wrap' }}><p className="fh-msg" role="alert">{pe.code === 'STALE' ? STALE : pe.status === 422 ? why422(pe) : `경로를 확인하지 못했습니다. ${pe.message}`}</p>
           {pe.code === 'STALE' ? <button type="button" className="btn" disabled={lock} onClick={() => { setRemap(true); treeAgain(); }}>새 지도로 다시 확인</button>
             : pe.status !== 422 && <button type="button" className="btn" disabled={lock} onClick={() => setN((x) => x + 1)}>다시 확인</button>}</div>}
         {!pe && blockNote}
