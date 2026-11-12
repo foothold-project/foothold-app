@@ -96,8 +96,11 @@ async def run(config, *, stop=None, subscriptions_factory=Subscriptions, client_
     session = Observer(measurements)
     client = client_factory(session, DiscardSink(), config.link)
     tasks = []
+    depth_task = None
     try:
         subscriptions.start()
+        from foothold_agent.depth.source import Publisher as DepthPublisher
+        depth_task = asyncio.create_task(DepthPublisher(config).run())
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(stop.wait())]
         while not any(task.done() for task in tasks):
             session.update_devices(devices(measurements.telemetry(), session.now()))
@@ -106,7 +109,9 @@ async def run(config, *, stop=None, subscriptions_factory=Subscriptions, client_
             if task.done():
                 task.result()
     finally:
+        if depth_task is not None:
+            depth_task.cancel()
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, *([depth_task] if depth_task is not None else []), return_exceptions=True)
         subscriptions.close()
