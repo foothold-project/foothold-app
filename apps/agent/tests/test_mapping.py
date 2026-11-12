@@ -160,7 +160,7 @@ def test_runtime_uses_synchronized_cloud_pose_and_stop_is_unchanged(tmp_path):
     cloud=NS(data=data,width=n,height=1,point_step=12,row_step=len(data),is_bigendian=False,
         fields=[NS(name=k,offset=i*4,datatype=7,count=1) for i,k in enumerate(('x','y','z'))],
         header=NS(stamp=NS(sec=1,nanosec=1),frame_id='utlidar_lidar'))
-    pose=NS(stamp=NS(sec=1,nanosec=1),position=[0.,0.,0.],imu_state=NS(quaternion=[1.,0.,0.,0.]))
+    pose=NS(stamp=NS(sec=999,nanosec=1),position=[0.,0.,0.],imu_state=NS(quaternion=[1.,0.,0.,0.]))
     runtime.sport(pose); runtime.cloud(cloud); runtime.step()
     assert len(runtime.core.cells)>1000
     count=len(runtime.core.cells)

@@ -24,6 +24,7 @@ class MappingRuntime:
         self.commands = deque(maxlen=8)
         self.poses = deque(maxlen=64)
         self.latest = None
+        self.last_input_stamp = -1
         self.online = False
         self.stopping = threading.Event()
         self.handle = None
@@ -56,28 +57,41 @@ class MappingRuntime:
                 self.commands.append(dict(frame))
 
     def sport(self, message):
+        received = self.now()
         try:
-            stamp = message.stamp.sec*1_000_000_000 + message.stamp.nanosec
+            sec, ns = message.stamp.sec, message.stamp.nanosec
+            if type(sec) is not int or type(ns) is not int or not 0 <= sec <= 0x7FFFFFFF or not 0 <= ns < 1_000_000_000:
+                return
+            stamp = sec*1_000_000_000 + ns
             p, q = tuple(message.position), tuple(message.imu_state.quaternion)
             if (len(p) != 3 or len(q) != 4 or stamp <= 0 or
                     not all(type(v) in (float, int) and math.isfinite(v) for v in (*p, *q))):
                 return
             with self.lock:
                 if not self.poses or stamp > self.poses[-1][1]:
-                    self.poses.append((self.now(), stamp, p, q))
+                    self.poses.append((received, stamp, p, q))
         except (AttributeError, TypeError, ValueError, OverflowError):
             pass
 
     def cloud(self, message):
+        received = self.now()
         try:
             if len(message.data) > 2_000_000 or len(message.fields) > 32 or message.width*message.height > 100000:
                 return
-            stamp = message.header.stamp.sec*1_000_000_000 + message.header.stamp.nanosec
+            sec, ns = message.header.stamp.sec, message.header.stamp.nanosec
+            if type(sec) is not int or type(ns) is not int or not 0 <= sec <= 0x7FFFFFFF or not 0 <= ns < 1_000_000_000:
+                return
+            stamp = sec*1_000_000_000 + ns
+            if stamp <= 0:
+                return
             raw = (bytes(message.data), message.width, message.height, message.point_step, message.row_step,
                 message.is_bigendian, tuple((f.name, f.offset, f.datatype, f.count) for f in message.fields),
                 message.header.frame_id)
             with self.lock:
-                self.latest = (self.now(), stamp, raw)
+                if stamp <= self.last_input_stamp:
+                    return
+                self.last_input_stamp = stamp
+                self.latest = (received, stamp, raw)
         except (AttributeError, TypeError, ValueError, OverflowError):
             pass
 
@@ -134,9 +148,11 @@ class MappingRuntime:
                 self.core.fail('LINK_LOST', '연결이 끊겼습니다. 다시 연결한 뒤 저장하거나 취소해 주세요.')
             elif latest:
                 received, stamp, raw = latest
-                matches = [p for p in poses if 0 <= self.now()-p[0] <= .5 and abs(p[1]-stamp) <= 250_000_000]
+                # The two DDS header clocks need not share an epoch. Match local
+                # receipt times; source stamps independently reject replay/duplicates.
+                matches = [p for p in poses if 0 <= self.now()-p[0] <= .5 and abs(p[0]-received) <= .25]
                 if matches and 0 <= self.now()-received <= .5:
-                    pose = min(matches, key=lambda p: abs(p[1]-stamp))
+                    pose = min(matches, key=lambda p: abs(p[0]-received))
                     try:
                         from foothold_agent.go2_direct.media import points
                         import numpy as np

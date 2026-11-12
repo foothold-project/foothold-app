@@ -59,6 +59,8 @@ agent는 Bearer **agent 토큰**으로
 agent 재접속의 LINK_LOST 보고 또는 다음 저장 요청으로 정리한다.
 
 방식: 로봇 odometry(position + IMU quaternion)로 좌표 변환 후 5 cm voxel 누적.
+각 스트림 timestamp는 독립적으로 단조 증가를 확인하고, 서로 다른 시계 원점을 가정해
+노트북 수신 시각이 250ms 이내인 최신 위치와 점군을 맞춘다(원천 시각 동일 원점 추정 안 함).
 루프 닫기/ICP/scan deskew 없음. 장거리 드리프트·빠른 회전·시각 불일치가 품질을 제한한다.
 새 optional `slam = [numpy==1.26.4]`: cp310 manylinux x86_64 wheel로 오프라인 설치 가능.
 **설치 파일 작업자는 slam 묶음을 포함할 것.** 이 작업은 설치 파일을 수정하지 않는다.
@@ -85,7 +87,7 @@ Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:
 
 ## 실기 첫 확인 (이번 작업에서 실행하지 않음)
 
-1. 같은 전용 NIC에서 점군 topic/PointCloud2 frame, odometry 시각의 단조 증가·상대 시차 확인.
+1. 같은 전용 NIC에서 점군 topic/PointCloud2 frame, odometry 시각의 각자 단조 증가·노트북 수신 시차 확인.
 2. 설치 파일의 slam extra 포함과 cp310 NumPy wheel 오프라인 설치 확인.
 3. 담당 운영자 폰 조종 중 지도 만들기·미리보기 1초 갱신·벽 겹침/센서 장착 보정 확인.
 4. STOP의 기존 경로/정지 지연이 그대로인지, 지도 작업의 SDK publisher/RPC가 없는지 확인.
