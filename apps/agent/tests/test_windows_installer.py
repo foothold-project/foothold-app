@@ -617,9 +617,36 @@ def test_removal_cmd_deletes_installed_tree_even_from_extracted_folder(monkeypat
     assert 'rmdir /s /q "%LOCALAPPDATA%\\foothold\\robot"' in script
     assert 'if exist "%LOCALAPPDATA%\\foothold\\robot" exit /b 1' in script
     assert script.index('cd /d "%TEMP%"') < script.index('rmdir /s /q')
-    assert 'if exist "%~dp0" rmdir /s /q "%~dp0"' in script
+    assert 'if exist "%HERE%" rmdir /s /q "%HERE%"' in script
     assert 'agent.json' not in script and '%APPDATA%' not in script
     assert script.count('rmdir /s /q') == 2
+
+
+def test_removal_cmd_captures_relative_batch_folder_once_before_changing_directory(monkeypatch):
+    builder = load_builder(monkeypatch)
+    script = builder.uninstall_script()
+    assert script.count('%~dp0') == 1
+    capture = script.index('set "HERE=%~dp0"')
+    change = script.index('cd /d "%TEMP%"')
+    assert capture < script.index('"%HERE%python\\python.exe"') < change
+    assert '%~dp0' not in script[change:]
+    assert 'setlocal DisableDelayedExpansion' in script[:capture]
+    assert 'cd /d "%TEMP%"\r\nif errorlevel 1 exit /b 1' in script
+    assert 'rmdir /s /q "%HERE%"' in script[change:]
+
+
+@pytest.mark.parametrize('guard', [
+    'if not defined HERE exit /b 1',
+    'if not exist "%HERE%version.json" exit /b 1',
+    'if not exist "%HERE%server.json" exit /b 1',
+    'if not exist "%HERE%python\\Lib\\site-packages\\foothold_agent\\desktop\\windows_launch.py" exit /b 1',
+])
+def test_removal_cmd_refuses_empty_or_unmarked_folder_before_running_and_deleting(monkeypatch, guard):
+    builder = load_builder(monkeypatch)
+    script = builder.uninstall_script()
+    assert script.index(guard) < script.index('uninstall()')
+    after_change = script[script.index('cd /d "%TEMP%"'):]
+    assert after_change.index(guard) < after_change.index('rmdir /s /q')
 
 
 def test_active_desktop_lock_aborts_uninstall_even_without_process_metadata(tmp_path, monkeypatch):

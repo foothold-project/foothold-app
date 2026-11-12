@@ -125,12 +125,20 @@ def make_launcher(stub, target):
 def uninstall_script():
     # Defer deletion until the bundled Python exits: it may itself live in the
     # installed tree. Remove every installed version even from a downloaded ZIP.
-    return ('@echo off\r\n"%~dp0python\\python.exe" -I -c '
+    # cmd can resolve %~dp0 again after changing directories when this batch was
+    # invoked by a quoted relative name. Capture it once and require bundle files.
+    marker = 'python\\Lib\\site-packages\\foothold_agent\\desktop\\windows_launch.py'
+    guards = ('if not defined HERE exit /b 1\r\n'
+              'if not exist "%HERE%version.json" exit /b 1\r\n'
+              'if not exist "%HERE%server.json" exit /b 1\r\n'
+              'if not exist "%HERE%'+marker+'" exit /b 1\r\n')
+    return ('@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "HERE=%~dp0"\r\n'+guards+
+            '"%HERE%python\\python.exe" -I -c '
             '"from foothold_agent.desktop.windows_launch import uninstall; uninstall()"\r\n'
-            'if errorlevel 1 exit /b 1\r\ncd /d "%TEMP%"\r\n(\r\n'
+            'if errorlevel 1 exit /b 1\r\ncd /d "%TEMP%"\r\nif errorlevel 1 exit /b 1\r\n(\r\n'+guards+
             'if exist "%LOCALAPPDATA%\\foothold\\robot" rmdir /s /q "%LOCALAPPDATA%\\foothold\\robot"\r\n'
             'if exist "%LOCALAPPDATA%\\foothold\\robot" exit /b 1\r\n'
-            'if exist "%~dp0" rmdir /s /q "%~dp0"\r\n)\r\n')
+            'if exist "%HERE%" rmdir /s /q "%HERE%"\r\n)\r\n')
 
 
 def build(server, output, version):
