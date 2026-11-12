@@ -5,7 +5,8 @@
     "d435i_rgb",
     "go2_front",
     "gazebo_external",
-    "l1"
+    "l1",
+    "go2_depth"
   ],
   "type": "string"
 }

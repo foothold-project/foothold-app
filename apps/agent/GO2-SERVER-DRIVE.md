@@ -91,9 +91,86 @@ ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. �
 
 카메라는 SDK VideoClient.GetImageSample로 읽어 640×360 이하 JPEG·64 KiB 이하·최대 5 Hz로 줄인다. L1은 같은 승인된 DDS 채널의 `rt/utlidar/cloud`를 읽고 센서 frame(`lidar_link` 또는 `utlidar_lidar`)의 float32 XYZ를 4000점·48 KiB 이하·최대 2 Hz로 줄인다. 지도 TF/위치는 만들지 않는다. 각 관측 worker와 최신 자료 1개짜리 보관함은 Core·Go2Sink와 무관하며, 카메라 RPC·코덱·업로드가 멈춰도 입력 감시/STOP을 기다리게 하지 않는다. 카메라 captured_at은 PC 수신 시각이며 기체 촬영 시각의 정확도는 미검증이다.
 
-에이전트는 기존 agent 토큰으로 **HTTP POST** `/api/v1/agent/drive-media/{rgb|lidar}`에 `{header: media/1 JSON, points: null 또는 XYZ bytes의 base64}`를 올린다(본문 100,000 bytes 상한, 채널당 최대 5 Hz). 조종 WS 4096 bytes 제한과 배포 기동 인자는 유지한다. 웹은 같은 서버의 `/api/v1/robots/{robot_id}/drive-media/{rgb|lidar}` WS에 기존 로그인 쿠키+정확한 Origin으로 접속해 받기만 한다(Bearer 앱 인증도 가능). hello·URL 토큰·조종 입력은 없다. `media.video` JSON, `media.points` JSON 직후 binary xyz_f32le, `media.status`는 기존 media/1 그대로다. robot/epoch/episode_id(null)를 확인하고 epoch 변경·1초 넘은 자료·끊김 때 이전 그림을 비운다. 담당자/총괄만 볼 수 있고 재배정·로그아웃·토큰 폐기 시 재확인하여 닫는다. 느린 viewer는 0.20초 쓰기 마감으로 끊으며 관측 오류가 조종 연결을 닫지 않는다.
+에이전트는 기존 agent 토큰으로 **HTTP POST** `/api/v1/agent/drive-media/{rgb|lidar|depth}`에 `{header: media/1 JSON, points: null 또는 XYZ bytes의 base64}`를 올린다(본문 100,000 bytes 상한, 채널당 최대 5 Hz). 조종 WS 4096 bytes 제한과 배포 기동 인자는 유지한다. 웹은 같은 서버의 `/api/v1/robots/{robot_id}/drive-media/{rgb|lidar|depth}` WS에 기존 로그인 쿠키+정확한 Origin으로 접속해 받기만 한다(Bearer 앱 인증도 가능). hello·URL 토큰·조종 입력은 없다. `media.video` JSON, `media.points` JSON 직후 binary xyz_f32le, `media.status`는 기존 media/1 그대로다. robot/epoch/episode_id(null)를 확인하고 epoch 변경·1초 넘은 자료·끊김 때 이전 그림을 비운다. 담당자/총괄만 볼 수 있고 재배정·로그아웃·토큰 폐기 시 재확인하여 닫는다. 느린 viewer는 0.20초 쓰기 마감으로 끊으며 관측 오류가 조종 연결을 닫지 않는다.
 
-움직임 SDK 객체 없이 상태만 서버로 올릴 때는 별도 **읽기 전용** 모드를 쓴다. `FH_GO2_DIRECT_ENABLED` 및 `FH_GO2_FIELD_APPROVAL`은 제거하고, robot UUID·agent 토큰·서버 WS 주소만 기존처럼 설정한 후 `--server --readonly --nic <ROBOT_NIC>`를 명시한다. 이 모드는 go2_readonly의 두 DDS 구독자·DiscardSink만 사용하고 SportClient/Go2Sink/Move/StopMove/카메라 RPC를 만들지 않는다. 서버 cmd·lease·unlock·STOP은 모두 폐기하고 stop_ref=0을 유지하여 물리 정지 확인이나 조종권을 만들지 않는다. latched/applied는 논리 잠금·폐기 출력이며 **물리 STOP 확인이 아니다**. 이 명령 역시 실제 DDS 읽기 참가이므로 현장 읽기 승인이 있어야 한다. 읽기 모드에서는 카메라·라이다 송출을 하지 않는다.
+움직임 SDK 객체 없이 상태만 서버로 올릴 때는 별도 **읽기 전용** 모드를 쓴다. `FH_GO2_DIRECT_ENABLED` 및 `FH_GO2_FIELD_APPROVAL`은 제거하고, robot UUID·agent 토큰·서버 WS 주소만 기존처럼 설정한 후 `--server --readonly --nic <ROBOT_NIC>`를 명시한다. 이 모드는 go2_readonly의 두 DDS 상태 구독자·DiscardSink를 사용하고 SportClient/Go2Sink/Move/StopMove/카메라 RPC를 만들지 않는다. 서버 cmd·lease·unlock·STOP은 모두 폐기하고 stop_ref=0을 유지하여 물리 정지 확인이나 조종권을 만들지 않는다. latched/applied는 논리 잠금·폐기 출력이며 **물리 STOP 확인이 아니다**. 이 명령 역시 실제 DDS 읽기 참가이므로 현장 읽기 승인이 있어야 한다. 읽기 모드에서는 RGB·라이다 송출을 하지 않으며 뎁스는 아래의 읽기 전용 DDS 경로로만 송출한다.
+
+### 로봇 몸의 뎁스와 보이는 영상 목록
+
+카메라가 로봇 확장 장치에 연결된 경우 노트북은 USB를 열지 않는다. 기존 go2-readonly가
+기체 전용 NIC·domain 0으로 연 **동일한 DDS 참가자**를 재사용한다. 깊이 모듈은 새 참가자,
+DataWriter·서비스 요청·움직임 명령을 만들지 않는다. 선택한 깊이 토픽 하나만 BestEffort·
+Volatile·KeepLast(1)로 읽고, 발견 목록은 `DCPSPublication` 내장 발견 정보만 읽는다.
+Unitree 고정 SDK의 비공개 participant 접근이 바뀌거나 depth 의존성이 없으면 영상만
+사용 불가로 안내하고 조종 경로는 계속된다. 기존 SDK가 설치된 환경에 선택 묶음
+`apps/agent[depth]`가 필요하며 이 변경은 installer에 설치 동작을 추가하지 않는다.
+
+받는 형식은 `sensor_msgs::msg::dds_::Image_`의 `16UC1`(mm), `32FC1`(m),
+또는 `CompressedImage_`의 `16UC1; png compressed`,
+`16UC1; compressedDepth png`, `32FC1; compressedDepth png`다.
+옛 `16UC1; compressedDepth`/`32FC1; compressedDepth` 표기도 실제 PNG 바이트일 때 받는다.
+32FC1 compressedDepth는 12바이트 little-endian ConfigHeader의 역깊이 계수를 사용한다.
+RGB/JPEG·모호한 mono 형식·RVL은 거부한다. 입력은 최대 1920×1080·8 MiB이며 PNG IHDR을
+네이티브 decode 전에 확인한다. ROS wire sequence는 원본과 같은 unbounded 형으로
+유지하므로 DDS 역직렬화 이전의 입력 메모리 상한을 보장하는 것은 아니다.
+
+`depth`의 `media.video`, `source=go2_depth`, `episode_id=null`, `points=null`을 보낸다.
+640×360·64 KiB·최대 5 Hz, header의 `depth_min_m`/`depth_max_m`에 색상 범위(m)를 적는다.
+기본 0.2–5.0 m이며 가까움 빨강·멀리 파랑(TURBO 역방향), 양수 범위 밖은 끝 색,
+0·음수·NaN·Inf는 검정이다. 이는 표시 색상 범위이며 카메라의 보장 측정 범위가 아니다.
+`FH_GO2_DEPTH_MIN_M`/`FH_GO2_DEPTH_MAX_M`로 finite·0≤min<max≤10000 m를 지정할 수 있다.
+captured_at은 노트북 수신 시각이다. 양수 sensor stamp의 중복/역행은 버리고, stamp가 0인
+카메라는 노트북 수신 시각으로 신선도를 판단한다. 최신 프레임 하나만
+보관하며 수신 후 1초가 지나면 NO_VIDEO다. DDS·변환·HTTP는 독립 daemon/업로드 worker에서
+실행하며 종료 때 멈춘 코덱이나 DDS worker를 join하지 않는다.
+
+연결 날 확인 순서(현재 실행 검증은 하지 않음):
+
+1. 현장 읽기 승인 뒤 기존 연결 프로그램을 실행하고 `http://127.0.0.1:9611`의
+   **보이는 영상 목록**을 본다. 목록에는 이름·DDS 형식만 있으며 비밀이나 영상 원물은 없다.
+2. 목록이 비면 «로봇 쪽에서 뎁스 영상을 내보내지 않고 있습니다 — 확장 장치에서 카메라
+   프로그램을 켜야 합니다»를 확인한다. NIC/domain 불일치로 발견하지 못한 경우도 확인한다.
+   확장 장치 접속·설치·카메라 프로그램 실행은 현민님 승인 뒤 별도 작업이다.
+3. 기본 후보는 ROS 이름 `/camera/depth/image_rect_raw`, `/camera/depth/image_raw`,
+   `/camera/camera/depth/image_rect_raw`, `/camera/aligned_depth_to_color/image_raw`,
+   `/depth/image_raw` 순이다. 이는 흔한 RealSense namespace/정렬 이름을 참고한 후보이지
+   연결된 센서 모델의 증거가 아니다. 실제 발견된 지원 형만 고른다. 후보 외 depth 이름이
+   하나면 자동 선택하고, 여러 개면 목록에서 **뎁스로 볼 영상 → 영상 선택**을 누른다.
+   선택은 프로그램 메모리에만 남는다. `FH_GO2_DEPTH_TOPIC`은 ROS 절대 이름 또는
+   발견 목록의 정확한 DDS 이름(`rt/...`)으로 고정할 수 있으며 미발견 시 다른 것으로 바꾸지 않는다.
+4. **뎁스 영상 수신 중 · 0.2–5 m** 표시를 확인하고 담당자 로그인 웹·폰의 뎁스 보기를 고른다.
+   수신 대기/형식 오류는 RGB로 대체하지 않는다. 다른 domain·DDS 보안·ROS 1·독점 카메라
+   프로토콜만 내보내는 장치와 실제 카메라 모델·네트워크 수신·화면은 아직 미확인이다.
+
+wire 필드 근거: ROS 2 공식 [Image](https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/Image.msg),
+[CompressedImage](https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/CompressedImage.msg),
+[Header](https://github.com/ros2/common_interfaces/blob/rolling/std_msgs/msg/Header.msg),
+[Time](https://github.com/ros2/rcl_interfaces/blob/rolling/builtin_interfaces/msg/Time.msg)와
+[ROS IDL 변환 틀](https://github.com/ros2/rosidl/blob/rolling/rosidl_adapter/rosidl_adapter/resource/msg.idl.em),
+[DDS 타입 이름 변환](https://github.com/ros2/rosidl_dds/blob/rolling/rosidl_generator_dds_idl/resource/msg.idl.em).
+압축 계수는 공식 [compressed_depth codec](https://github.com/ros-perception/image_transport_plugins/blob/rolling/compressed_depth_image_transport/src/codec.cpp),
+후보 이름은 공식 [RealSense ROS README](https://github.com/realsenseai/realsense-ros#published-topics)를 참고했다.
+
+코드 자동 검사 기록(2026-11-12, 기능 코드 `3a33142`; 실기·DDS 참가 실행 없음):
+
+- `PYTHONPATH=apps/agent:. python -m pytest apps/agent/tests apps/contracts/tests -q`:
+  2569 통과·3 생략. Node 22.23.2의 `NODE_OPTIONS=--input-type=commonjs-typescript`를 사용하고
+  실행 프로세스의 `LD_LIBRARY_PATH`/`CYCLONEDDS_HOME`/`CYCLONEDDS_URI`를 제거했다.
+  최종 뎁스·기존 관측 53개, 기존 camera 별도 묶음 22개도 통과했다.
+- 공식 ROS 2 Jazzy 직렬화와 새 Image/CompressedImage의 CDR 바이트 비교 2개 통과:
+  `FH_TEST_DEPTH_WIRE=1`, `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`과 설치된 ROS Python/library
+  경로로 `test_depth_wire.py`만 실행했다. Cyclone Python 0.10.2/C 0.10.5를 사용한 오프라인
+  비교이며 참가자·ROS 노드를 만들지 않았다. 일반 묶음의 생략 3개 중 2개는 이 선택 검사다.
+- 서버 미디어 권한·상한·없는 채널·RGB/L1 회귀 33개 통과, 계약 `generate.py --check` 283개 일치.
+- 서버 전체는 격리 PostgreSQL·시험 포트 범위에서 `pytest apps/server/tests -q -n 4`로 실행해
+  1525 통과·23 실패·9 오류였다. 임의 UUID로 수집 ID가 달라지는 기존 `test_robots`의
+  요약 2사례는 병렬 수집에서 제외하고 따로 실행해 모두 통과했다.
+  실패/오류의 중복을 뺀 30사례 중 26개는 분리 실행에서 통과했다(가용성 1개는 첫 분리
+  실패 뒤 추가 단독 실행 통과). **전체 서버 묶음이 한 번에 통과한 것은 아니다.**
+- 남은 `test_sim_orphan_worlds`의 migration/sync 2사례, `test_sim_pairs`의 0027 복구,
+  `test_site_purpose`의 migration roundtrip은 작업 전 `83dafea`의 별도 소스 사본에서도
+  각각 실패했다. 과거 스키마로 내린 뒤 현재 API/ORM을 사용하는 기존 시험 문제로,
+  이 작업에서 마이그레이션·기존 안전 시험 기대값을 바꾸지 않았다.
 
 ## 명시적 0-0 신원 예외 — 서버 시험만
 
@@ -112,7 +189,7 @@ LowState 실측 serial이 **정확히 `0-0`**인 기체에서만 현장 담당�
 
 현장 담당자가 각각 실측값을 채우는 표식 생성 예: `deploy/jetson/make_approval.py --output <비공개 절대 경로> --nic <ROBOT_NIC> --serial-unavailable --robot-mac <실측 MAC> --accept-error-codes <확인된 상태 번호> --approve-field-motion`. 서버 경유 환경의 `FH_GO2_ACCEPT_ERROR_CODES`에도 동일한 정수 목록을 넣는다. 일반 serial이 확인되는 기체는 `--serial <실측 serial>`을 쓰며 0-0 예외를 적용하지 않는다.
 
-관측 소스는 앞 카메라의 SDK VideoClient **RGB JPEG**와 `rt/utlidar/cloud`의 L1 점군이다. 별도 깊이 센서를 연결하지 않은 이번 구성에는 뎁스 영상 소스가 없으며 RGB를 뎁스로 표시하지 않는다.
+기존 관측 소스는 앞 카메라의 SDK VideoClient **RGB JPEG**와 `rt/utlidar/cloud`의 L1 점군이다. 로봇 몸의 별도 카메라는 위 DDS 경로에서 실제 깊이 자료를 받은 때만 뎁스로 표시하며, 미발견·형식 오류·끊김 때 RGB를 뎁스로 표시하지 않는다.
 
 
 서버 경유 이동 표는 현장 사용자 선택으로 전후·좌우 **1.5 m/s**, 회전 **0.5 rad/s**다. 고정 SDK의 SportClient.Move는 vx/vy/vyaw를 JSON으로 직렬화해 _CallNoReply로 보내며 자체 범위 검사/클램프가 없다. 따라서 SDK Python 코드가 vy=1.5를 직접 거부하는 경로는 없지만, 반환0은 펌웨어의 실제 수용·속도·클램프를 보장하지 않는다. 펌웨어 수용 범위와 실기1.5 m/s는 미검증이다. 폰 경로의 기존 표/limits는 유지한다.

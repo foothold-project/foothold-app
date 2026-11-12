@@ -12,7 +12,8 @@
       "enum": [
         "rgb",
         "external",
-        "lidar"
+        "lidar",
+        "depth"
       ],
       "title": "Channel",
       "type": "string"
@@ -60,7 +61,8 @@
         "d435i_rgb",
         "go2_front",
         "gazebo_external",
-        "l1"
+        "l1",
+        "go2_depth"
       ],
       "title": "Source",
       "type": "string"
