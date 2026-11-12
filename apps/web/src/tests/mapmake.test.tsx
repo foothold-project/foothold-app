@@ -150,6 +150,61 @@ describe('지도 만들기 — 진행', () => {
     expect(btn('시작', dlg())).toBeTruthy();
   });
 
+  /** 시험마다 다른 세션(완료 알림은 세션마다 한 번 — 화면 메모리) */
+  const mine = (session_id: string) => (s: MappingProgress['status'], p: Partial<MappingProgress> = {}) => prog(s, { session_id, ...p });
+  /** 저장된 서버(1층 v3 승인) — saved 전에는 옛 지도 */
+  const savedServer = (get: () => MappingProgress | null, save: () => Reply, s: { saved: boolean }) => signedIn(LEE, true, get, {
+    'POST /robots/r-a/slam/save': save,
+    'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: s.saved ? [V3, { ...V2, status: 'SUPERSEDED' }] : [V2], next_cursor: null } }),
+    'GET /floors/f2/map-versions': { status: 200, body: { items: [], next_cursor: null } },
+  });
+  const madeV3 = () => {
+    expect(box.textContent).toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
+    expect($('[data-save="v3"] button')!.getAttribute('aria-pressed')).toBe('true');
+  };
+
+  it('회귀: 1층 저장 중 창을 닫고 2층 창에서 SAVED 를 받아도, 1층으로 돌아와 열면 완료 알림 + 새 지도 선택', async () => {
+    const prog = mine('22222222-2222-4222-8222-222222222222');
+    const s = { saved: false };
+    let now: MappingProgress | null = prog('RUNNING');
+    serve(savedServer(() => now, () => { now = prog('SAVING'); return { status: 202, body: now }; }, s));
+    await open(); await openMake();
+    await click(btn('지도 저장', dlg()));
+    await click($('[aria-label="로봇으로 지도 만들기 닫기"]'));
+    now = prog('SAVED', { map_version_id: 'v3' }); s.saved = true;
+    await click($('[data-floor="f2"]'));
+    await openMake();
+    expect(btn('시작', dlg())).toBeTruthy();   // 2층에서는 1층 저장을 알리지 않는다
+    expect(box.textContent).not.toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
+    await click($('[aria-label="로봇으로 지도 만들기 닫기"]'));
+    await click($('[data-floor="f1"]'));
+    await click($('[data-make-open]')); await flush();   // 열자마자 이 층 SAVED 를 받아 완료 처리(창 닫힘)
+    madeV3();
+  });
+
+  it('회귀: 서버는 저장했는데 save 응답이 끊겨도 다음 조회의 SAVED 로 완료 알림 + 새 지도 선택', async () => {
+    const prog = mine('33333333-3333-4333-8333-333333333333');
+    const s = { saved: false };
+    let now: MappingProgress | null = prog('RUNNING');
+    // 저장이 빨리 끝나 다음 조회부터 SAVED(SAVING 을 한 번도 못 봄)
+    serve(savedServer(() => now, () => { now = prog('SAVED', { map_version_id: 'v3' }); s.saved = true; throw new TypeError('network'); }, s));
+    await open(); await openMake();
+    await click(btn('지도 저장', dlg())); await flush();
+    madeV3();
+  });
+
+  it('지난 SAVED(그 뒤 지도가 바뀌어 v3 가 지난 저장)는 다시 알리지 않는다', async () => {
+    const prog = mine('44444444-4444-4444-8444-444444444444');
+    serve(signedIn(LEE, true, () => prog('SAVED', { map_version_id: 'v3' }), {
+      'GET /sites': { status: 200, body: tree('v4') },
+      'GET /map-versions/v4': { status: 200, body: ver('v4', 4) },
+      'GET /floors/f1/map-versions': { status: 200, body: { items: [ver('v4', 4), { ...V3, status: 'SUPERSEDED' }], next_cursor: null } },
+    }));
+    await open(); await openMake(); await flush();
+    expect(box.textContent).not.toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
+    expect(btn('시작', dlg())).toBeTruthy();
+  });
+
   it('FAILED: 쉬운 이유 + «다시 저장»(FAILED 에서 save), LINK_LOST 는 정해진 문구, 409 STALE 이면 취소하고 다시 시작 안내', async () => {
     let now: MappingProgress | null = prog('FAILED', { error_code: 'LINK_LOST', reason: '연결 끊김' }), stale = false;
     serve(signedIn(LEE, true, () => now, {

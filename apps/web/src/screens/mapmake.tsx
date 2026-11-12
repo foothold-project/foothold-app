@@ -2,13 +2,13 @@
 // 시작·저장·취소는 POST /robots/{id}/slam/{start|save|cancel}, 진행은 1초마다 GET /robots/{id}/slam(창이 열려 있는 동안만 — 닫거나 층을 바꿔도 서버 세션은 계속).
 // 화면 글에 «SLAM» 을 쓰지 않는다. 주행 명령은 보내지 않는다(운전은 폰 조종 화면).
 import { useEffect, useRef, useState } from 'react';
-import type { MappingPreview, MappingProgress } from '../../../contracts/ts';
+import type { MapVersion, MappingPreview, MappingProgress } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Robot, User } from '../fake';
 import { Note, type Msg, type Place } from './maps';
 
-/** 저장을 기다리는 세션(창을 닫았다 다시 열어도 SAVED 를 한 번만 알리게 — 화면 메모리에만) */
-const waiting = new Set<string>();
+/** 완료를 알린 세션(같은 SAVED 를 두 번 알리지 않게 — 화면 메모리에만, 그 층에서 알릴 때만 넣는다) */
+const told = new Set<string>();
 const LIVE = new Set(['RUNNING', 'SAVING']), OPEN = new Set(['RUNNING', 'SAVING', 'FAILED']);
 const OFF = '로봇이 연결되어 있지 않습니다.';
 export const STALE_TEXT = '다른 사람이 이 층 지도를 바꿨습니다. 취소하고 다시 시작하세요.';
@@ -56,8 +56,10 @@ function Preview({ p }: { p?: MappingPreview | null }) {
   </div>;
 }
 
-/** 창 «로봇으로 지도 만들기» 안 — 창이 열릴 때만 그린다(닫으면 언마운트 = 조회 멈춤). made = 이 층에 새 지도가 저장됨(그 판 id) */
-export function MakeMap({ floor, user, robots, places, cancel, made }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string) => void }) {
+/** 창 «로봇으로 지도 만들기» 안 — 창이 열릴 때만 그린다(닫으면 언마운트 = 조회 멈춤). made = 이 층에 새 지도가 저장됨(그 판 id).
+ *  approved·list = 이 층 지금 승인 판 id·받은 판 목록(받는 중 null) — 지난 SAVED(이미 반영·그 뒤 바뀜)를 다시 알리지 않게 */
+export function MakeMap({ floor, user, robots, places, cancel, made, approved, list }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string) => void;
+  approved: string | null; list: MapVersion[] | null }) {
   const mine = makers(user, robots);
   const [rid, setRid] = useState(() => (mine.find((r) => r.online) ?? mine[0])?.id ?? ''), robot = mine.find((r) => r.id === rid);
   const [prog, setProg] = useState<MappingProgress | null | undefined>(), [n, setN] = useState(0), [busy, setBusy] = useState(false);
@@ -74,8 +76,6 @@ export function MakeMap({ floor, user, robots, places, cancel, made }: { floor: 
         const x = (await api.slam(rid, ac.signal)) ?? null;
         if (ac.signal.aborted) return;
         setProg(x); setPoll('');
-        if (x?.status === 'SAVING') waiting.add(x.session_id);
-        if (x?.status === 'SAVED' && waiting.delete(x.session_id) && x.floor_id === floor && x.map_version_id) madeRef.current(x.map_version_id);
         if (x && LIVE.has(x.status)) t = setTimeout(go, 1000);
       } catch (e) {
         const f = e as ApiFail;
@@ -87,14 +87,22 @@ export function MakeMap({ floor, user, robots, places, cancel, made }: { floor: 
     go();
     return () => { ac.abort(); clearTimeout(t); cancel?.removeEventListener('abort', off); };
   }, [rid, n]);
+  // 완료는 서버 값만으로: 이 층·이 세션의 SAVED + map_version_id 이고, 그 판이 아직 화면에 반영되지 않았으면(승인 판이 아님·목록에 없거나 승인 상태) 알린다.
+  // 저장 응답이 끊겼거나 창을 닫았다 다른 층을 거쳐 돌아와도 같은 판정. 다른 층 SAVED 는 소모하지 않는다
+  useEffect(() => {
+    const id = prog?.status === 'SAVED' && prog.floor_id === floor ? prog.map_version_id : null;
+    if (!id || !list || told.has(prog!.session_id)) return;
+    told.add(prog!.session_id);
+    const v = list.find((x) => x.id === id);
+    if (id !== approved && (!v || v.status === 'APPROVED')) madeRef.current(id);
+  }, [prog, list, approved]);
   const act = async (op: 'start' | 'save' | 'cancel') => {
     if (busy) return;
     setBusy(true); setMsg(null); setAsk(false);
     try {
       const x = await api.slamDo(rid, op, op === 'start' ? { floor_id: floor } : { session_id: prog!.session_id }, cancel);
       if (op === 'start') setStale(false);
-      if (op === 'save') waiting.add(x.session_id);
-      if (op === 'cancel') { waiting.delete(x.session_id); setMsg({ text: '지도 만들기를 취소했습니다.', ok: true }); }
+      if (op === 'cancel') { setMsg({ text: '지도 만들기를 취소했습니다.', ok: true }); }
       setProg(x);
     } catch (e) {
       const f = e as ApiFail;

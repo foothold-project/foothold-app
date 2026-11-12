@@ -556,7 +556,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
         saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked); told(); } else { setSel(x.id); setDone(SAVED); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
     </Pop>}
     {!editing && canMake && <Pop open={mk} close={() => setMk(false)} label="로봇으로 지도 만들기">
-      {mk && <MakeMap floor={p.floor.id} user={user} robots={robots} places={places} cancel={cancel}
+      {mk && <MakeMap floor={p.floor.id} approved={approved} list={list} user={user} robots={robots} places={places} cancel={cancel}
         made={(id) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text: MADE, ok: true }); setN(n + 1); again(); }} />}
     </Pop>}
     {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
