@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
 from urllib.parse import urlsplit
@@ -108,6 +109,17 @@ def extra_wheels(python, groups, lock, cache, env):
             raise ValueError('extra wheel hash mismatch')
         resolved.append((wheel, asset))
     return resolved
+
+
+def normalize_stage_permissions(stage):
+    # The API runs with UMask=0077; copy2 also retains private cache/source modes.
+    # Only the package payload becomes public, never the builder's workspace.
+    for path in (stage, *stage.rglob('*')):
+        mode = path.lstat().st_mode
+        if stat.S_ISDIR(mode):
+            path.chmod(0o755)
+        elif stat.S_ISREG(mode):
+            path.chmod(0o755 if mode & 0o111 else 0o644)
 
 
 def build(server, output, version, target_platform="linux"):
@@ -234,6 +246,7 @@ Description: FOOTHOLD robot laptop connection
     for name in ('postinst', 'prerm'):
         shutil.copy2(HERE/name, meta/name)
         (meta/name).chmod(0o755)
+    normalize_stage_permissions(stage)
     result = output/f'foothold-robot_{version}_amd64.deb'
     run('dpkg-deb', '--root-owner-group', '-Zxz', '-z3', '--threads-max=2', '--build', stage, result)
     checksum = hashlib.sha256(result.read_bytes()).hexdigest()
