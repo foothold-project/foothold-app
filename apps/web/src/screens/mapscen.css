@@ -76,11 +76,48 @@
 .mx-row:not(:hover):not(:focus-within)>.mx-x{opacity:0}
 .mx-foot{margin-top:auto;position:sticky;bottom:0;display:flex;flex-direction:column;gap:8px;padding:12px;border-top:1px solid var(--line);background:var(--panel)}
 
-/* 작은 창(모달 아님) — 단추 줄 아래 오른쪽 */
-.mx-dlg{position:absolute;inset:64px 12px auto auto;margin:0;z-index:40;box-sizing:border-box;width:min(400px,calc(100% - 24px));max-height:calc(100% - 76px);overflow:auto;padding:12px 14px 14px;color:var(--text);box-shadow:var(--shadow)}
-.mx-dlg[open]{display:flex;flex-direction:column;gap:12px}
-.mx-dlg-head{display:flex;align-items:center;gap:8px}
-.mx-dlg-head .btn{padding:0 12px}
+/* 작은 창(모달 아님) — 단추 줄 아래 오른쪽. 틀은 로봇 탭 창(.fl-sheet)과 같게: 머리줄(제목 16px + 닫기) · 본문 · 아래 고정 칸(입력·확인·안내) */
+dialog.mx-dlg{position:absolute;inset:64px 16px auto auto;margin:0;z-index:40;box-sizing:border-box;width:min(440px,calc(100% - 32px));max-height:calc(100% - 80px);overflow:auto;padding:0;border-color:var(--line2);border-radius:12px;color:var(--text);box-shadow:var(--shadow)}
+.mx-dlg[open]{display:flex;flex-direction:column;animation:mx-dlg-in .18s cubic-bezier(.16,1,.3,1)}
+@keyframes mx-dlg-in{from{opacity:0;transform:translateY(-6px)}}
+@media (prefers-reduced-motion:reduce){.mx-dlg[open]{animation:none}}
+.mx-dlg-head{position:sticky;top:0;z-index:1;flex:none;display:flex;align-items:center;gap:8px;padding:8px 8px 8px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+.mx-dlg-head>b{font-size:16px;font-weight:600;line-height:1.35;word-break:keep-all}
+.mx-dlg-head .btn{flex:none;width:44px;padding:0;color:var(--muted)}
+.mx-dlg-head .btn:hover{color:var(--text)}
+.mx-dlg-in{display:flex;flex-direction:column;gap:14px;padding:16px 20px 20px}
+.mx-dlg .mx-lead{font-size:14px;line-height:1.55;color:var(--text);word-break:keep-all}
+/* 아래 고정 칸: 만들기·이름 바꾸기 칸, 삭제 확인, 안내 — 긴 목록을 내려도 누른 결과가 바로 보이게 */
+.mx-dlg-foot{position:sticky;bottom:0;display:flex;flex-direction:column;gap:12px;margin:0 -20px -20px;padding:14px 20px 20px;border-top:1px solid var(--line2);background:var(--panel)}
+.mx-dlg-foot:empty{display:none}
+.mx-dlg-foot>form>b{font-size:15px;word-break:keep-all}
+.mx-ask{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel2);font-size:14px;line-height:1.5;word-break:keep-all}
+.mx-ask>p{margin:0}.mx-ask>.fh-row{justify-content:flex-end}
+.mx-dlg-util{padding-top:12px;border-top:1px solid var(--line)}
+.mx-dlg-util .btn,.mx-acts .btn{padding:0 12px;font-size:13px}
+.mx-acts{flex:none;flex-wrap:nowrap;gap:6px}.mx-acts .btn{white-space:nowrap}
+/* 장소 › 건물 › 층 나무: 장소 = 굵은 줄(사이 금), 건물 = 세로 금 안쪽, 층 = 누르는 줄. «+ 건물»·«+ 층»은 그 줄 오른쪽 끝 작은 단추 */
+.mx-tree{display:flex;flex-direction:column;gap:14px}
+.mx-tsite{display:flex;flex-direction:column;gap:6px}
+.mx-tsite+.mx-tsite{padding-top:14px;border-top:1px solid var(--line)}
+.mx-tsite>.fh-row>.fh-grow,.mx-tbld>.fh-row>.fh-grow{flex:1 1 6em;word-break:keep-all}
+.mx-tsite>.fh-row>b{font-size:16px;font-weight:600}
+.mx-tbld{display:flex;flex-direction:column;gap:6px;margin-left:4px;padding-left:14px;border-left:1px solid var(--line2)}
+.mx-tbld>.fh-row>.fh-grow{font-size:14px;font-weight:600}
+.mx-tbld>.fh-list:empty{display:none}
+.mx-tbld .fh-list li{flex-wrap:nowrap}
+.mx-tbld .fh-list button{flex:1;min-width:0}
+.mx-dlg .btn.mx-add{padding:0 10px;border-color:transparent;background:transparent;color:var(--accent);font-size:13px;white-space:nowrap}
+.mx-dlg .btn.mx-add:hover:not([disabled]){background:var(--acc-bg)}
+.mx-dlg .btn.mx-new{border-style:dashed;background:transparent}
+.mx-fix{display:flex;flex-direction:column}
+.mx-fix>.fh-row{min-height:52px;flex-wrap:nowrap}
+.mx-fix>.fh-row+.fh-row{border-top:1px solid var(--line)}
+.mx-fix .lbl{flex:0 0 32px}
+.mx-fix b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 파일 고르기 칸: 브라우저 기본 단추 대신 앱 단추 모양 */
+.mx-dlg input[type=file].inp{height:auto;padding:7px;font-size:13px;color:var(--muted)}
+.mx-dlg input[type=file]::file-selector-button{height:32px;margin-right:10px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel);color:var(--text);font:inherit;font-weight:600;cursor:pointer}
 .mx-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* 시나리오 탭(PR 2): 숨긴 칸은 틀의 display 규칙보다 먼저 숨김, 단계 줄 손잡이·번호·⚠, [단계|배정] 탭 */

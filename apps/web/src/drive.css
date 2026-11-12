@@ -14,8 +14,8 @@
 .dv-views{display:flex;flex-direction:column;gap:8px}
 .dv-views .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
 .dv-back{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 14px;border-radius:8px;background:rgba(8,11,14,.8);color:#FFFFFF}
-.dv-ask{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:2;width:min(440px,calc(100% - 24px));box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
-.dv-ask p{margin:0}
+.dv-ask{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:2;width:min(440px,calc(100% - 24px));box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px 20px;border:1px solid var(--line2);border-radius:12px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
+.dv-ask p{margin:0;font-size:14px;line-height:1.5;word-break:keep-all}.dv-ask>b{font-size:16px}
 .dv-bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
 .dv-bar>i{display:block;height:100%;background:var(--accent)}
 .dv-grow{flex:1;min-width:120px}
@@ -58,8 +58,8 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-sheets{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:1;display:flex;gap:6px}
 .dv-sheets .btn{min-width:56px;min-height:44px;white-space:nowrap;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 .dv-sheets .btn[aria-expanded="true"]{border-color:var(--accent)}
-.fh-sheet{position:absolute;left:8px;right:8px;bottom:8px;z-index:1;max-height:60%;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
-.fh-sheet h2{margin:0;font-size:15px}
+.fh-sheet{position:absolute;left:8px;right:8px;bottom:8px;z-index:1;max-height:60%;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:12px 16px 16px 20px;border:1px solid var(--line2);border-radius:12px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
+.fh-sheet h2{margin:0;font-size:16px}
 @media (orientation:portrait){.dv-sheets{left:8px;right:8px;bottom:144px;transform:none;flex-wrap:wrap;justify-content:center}.dv-sheets .btn{padding:0 8px}.dv.ph .dv-mini{bottom:200px}}
 /* 낮은 세로 폰(320×568 등): 조이스틱을 줄이고 단추 줄을 내려 위 상태 판과 겹치지 않게 */
 @media (orientation:portrait) and (max-height:700px){.dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}.dv-sheets{bottom:104px}.dv.ph .dv-mini{bottom:156px}}

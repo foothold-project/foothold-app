@@ -62,8 +62,8 @@ export function Pop({ open, close, label, children }: { open: boolean; close: ()
   }, [open]);
   const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   return <dialog ref={d} className="card mx-dlg" aria-labelledby={id} onKeyDown={key}>
-    <div className="mx-dlg-head"><b className="fh-grow" id={id}>{label}</b><button type="button" className="btn" aria-label={`${label} 닫기`} onClick={close}>✕</button></div>
-    {children}</dialog>;
+    <div className="mx-dlg-head"><b className="fh-grow" id={id}>{label}</b><button type="button" className="btn fl-ghost" aria-label={`${label} 닫기`} onClick={close}>✕</button></div>
+    <div className="mx-dlg-in">{children}</div></dialog>;
 }
 
 /** 오른쪽 작업 창 — 접으면 세로 막대(«요소 N» + name 한 줄, 넘치면 말줄임), 안 내용은 숨김(unmount 아님). head = 펼친 창 머리(목록 제목 또는 «‹» + 고른 항목, 없으면 줄 없음).
