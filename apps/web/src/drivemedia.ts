@@ -1,24 +1,33 @@
-// 서버 경유 실기 시험의 카메라·라이다(10-30 SERVER-DRIVE-ADD1 B): 서버 WS /api/v1/robots/{id}/drive-media/{rgb|lidar} — 로그인 쿠키·Origin, 받기만(hello·토큰 없음).
+// 서버 경유 실기 시험의 카메라·라이다·뎁스(10-30 SERVER-DRIVE-ADD1 B · 11-12 RB-DEPTH): 서버 WS /api/v1/robots/{id}/drive-media/{rgb|lidar|depth} — 로그인 쿠키·Origin, 받기만(hello·토큰 없음).
 // 내용은 media/1 그대로(media.video · media.points 머리 + 바로 뒤 binary xyz_f32le · media.status). robot·channel 이 다르거나 순서가 어긋나면 그 연결을 닫는다.
 // epoch 가 바뀌면 그림을 비우고 순번을 새로 센다. 관측 전용 — 조종·STOP·조종권과 무관. 끊기면 2 s 뒤 다시(화면이 보이고 칸이 떠 있는 동안만)
 import { useEffect, useState } from 'react';
 import { STALE_MS, pointsBody, pointsHeader, reasonText, type Feed } from './media';
 import type { MediaPointCloudHeader } from '../../contracts/ts';
 
-export type DriveCh = 'rgb' | 'lidar';
+export type DriveCh = 'rgb' | 'lidar' | 'depth';
+/** 뎁스: 색 범위(m) — 가까움 빨강 min · 멀리 파랑 max. 다른 채널은 null */
+export type DriveFeed = Feed & { range: [number, number] | null };
 export const RETRY_MS = 2000;
-export const NO_SIGNAL: Record<DriveCh, string> = { rgb: '카메라 신호 없음', lidar: '라이다 신호 없음' };
-const blank = (state: Feed['state'] = 'wait', why = ''): Feed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0 });
+export const DEPTH_HINT = '뎁스 카메라 영상이 아직 오지 않습니다. 노트북 화면의 «보이는 영상 목록»을 확인하세요';
+export const NO_SIGNAL: Record<DriveCh, string> = { rgb: '카메라 신호 없음', lidar: '라이다 신호 없음', depth: '뎁스 카메라 신호 없음' };
+const blank = (state: Feed['state'] = 'wait', why = ''): DriveFeed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0, range: null });
+/** 계약 depth_min_m·depth_max_m: 유한·0≤min<max≤10000 — 아니면 null(RGB 를 뎁스로 보여 주지 않음) */
+const depthRange = (m: Record<string, unknown>): [number, number] | null => {
+  const a = m.depth_min_m, b = m.depth_max_m;
+  return m.source === 'go2_depth' && typeof a === 'number' && typeof b === 'number' && Number.isFinite(a) && Number.isFinite(b) && a >= 0 && a < b && b <= 10_000 ? [a, b] : null;
+};
 export const driveMediaUrl = (robot: string, ch: DriveCh) =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/robots/${encodeURIComponent(robot)}/drive-media/${ch}`;
 
-/** 이 칸이 떠 있는 동안 그 채널을 받는다 */
-export function useDriveFeed(robot: string, ch: DriveCh): Feed {
-  const [feed, setFeed] = useState<Feed>(blank);
+/** 이 칸이 떠 있는 동안(on) 그 채널을 받는다 — on=false 면 열지 않고, 꺼지면 닫고 비운다 */
+export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
+  const [feed, setFeed] = useState<DriveFeed>(blank);
   useEffect(() => {
+    if (!on) return;
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
     let epoch: number | null = null, top = -1, pending: MediaPointCloudHeader | null = null, ver = 0;
-    const put = (p: Partial<Feed>) => setFeed((f) => ({ ...f, ...p }));
+    const put = (p: Partial<DriveFeed>) => setFeed((f) => ({ ...f, ...p }));
     const clear = (state: Feed['state'], why = '') => { pending = null; setFeed({ ...blank(state, why), ver: ++ver }); };
     const close = () => { if (ws) { ws.onmessage = ws.onclose = null; ws.close(1000); ws = null; } clearTimeout(retry); };
     const again = (state: Feed['state'], why = '') => { close(); clear(state, why); if (alive && document.visibilityState !== 'hidden') retry = setTimeout(open, RETRY_MS); };
@@ -38,6 +47,9 @@ export function useDriveFeed(robot: string, ch: DriveCh): Feed {
       top = m.seq as number;
       if (m.t === 'media.video' && ch === 'rgb' && m.mime === 'image/jpeg' && typeof m.jpeg === 'string' && m.jpeg)
         return put({ state: 'live', why: '', at: performance.now(), seq: top, img: `data:image/jpeg;base64,${m.jpeg}` });
+      const range = m.t === 'media.video' && ch === 'depth' ? depthRange(m) : null;
+      if (range && m.mime === 'image/jpeg' && typeof m.jpeg === 'string' && m.jpeg)
+        return put({ state: 'live', why: '', at: performance.now(), seq: top, img: `data:image/jpeg;base64,${m.jpeg}`, range });
       if (m.t === 'media.points' && ch === 'lidar' && (pending = pointsHeader(m))) return;
       again('bad', '받은 자료가 media/1 약속과 다릅니다');
     };
@@ -52,12 +64,12 @@ export function useDriveFeed(robot: string, ch: DriveCh): Feed {
     const vis = () => { if (document.visibilityState === 'hidden') { close(); clear('off'); } else open(); };
     document.addEventListener('visibilitychange', vis);
     open();
-    return () => { alive = false; close(); document.removeEventListener('visibilitychange', vis); };
-  }, [robot, ch]);
+    return () => { alive = false; close(); document.removeEventListener('visibilitychange', vis); setFeed(blank()); };
+  }, [robot, ch, on]);
   return feed;
 }
 
-/** 칸에 쓸 한 줄 — 받는 중이고 새것이면 '', 아니면 «카메라/라이다 신호 없음» + 까닭 */
+/** 칸에 쓸 한 줄 — 받는 중이고 새것이면 '', 아니면 «카메라/라이다/뎁스 카메라 신호 없음» + 까닭 */
 export function driveFeedText(f: Feed, ch: DriveCh, at = performance.now()) {
   if (f.state === 'live' && at - f.at <= STALE_MS) return '';
   const why = f.state === 'live' ? '2초 넘게 새 자료가 없습니다' : f.why;
