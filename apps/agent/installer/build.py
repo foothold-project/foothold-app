@@ -23,6 +23,14 @@ def run(*args, **kwargs):
     subprocess.run([str(a) for a in args], check=True, **kwargs)
 
 
+def autostart_entry(text):
+    # Login activation has no URI; retaining --protocol here would discard the
+    # --autostart flag and override the user's opt-out in the desktop launcher.
+    return text.replace('Exec=/opt/foothold-robot/launch --protocol %u',
+                        'Exec=/opt/foothold-robot/launch --autostart').replace(
+                            'MimeType=x-scheme-handler/foothold-robot;\n', '')
+
+
 def fetch(asset, cache):
     path = cache / asset['name']
     if not path.exists():
@@ -223,7 +231,7 @@ def build(server, output, version, target_platform="linux"):
         dest.mkdir(parents=True, exist_ok=True)
         shutil.copy2(HERE/'foothold-robot.desktop', dest/'foothold-robot.desktop')
     auto = stage/'etc/xdg/autostart/foothold-robot.desktop'
-    auto.write_text(auto.read_text().replace('Exec=/opt/foothold-robot/launch', 'Exec=/opt/foothold-robot/launch --autostart'))
+    auto.write_text(autostart_entry(auto.read_text()))
     metainfo = stage/'usr/share/metainfo'
     metainfo.mkdir(parents=True)
     shutil.copy2(HERE/'org.foothold.Robot.metainfo.xml', metainfo/'org.foothold.Robot.metainfo.xml')
