@@ -63,3 +63,10 @@
 | 다운로드 응답 | **200**, `Content-Type: application/zip`, 고정 `.zip` attachment 파일명·Content-Length·본문 SHA 일치 |
 
 통합 pytest는 위 네 기존 agent 시험 파일과 `apps/server/tests/test_robot_installer.py`, `test_robot_installer_build.py`, `test_contracts.py`, `apps/agent/tests/test_depth.py`, `test_depth_wire.py`를 같은 명령으로 실행했다. `FH_TEST_PORT_RANGE=19310:19329`의 별도 시험용 범위와 임시 PostgreSQL/인프로세스 API를 사용했다. 초기 신규 서버 시험 한 건은 완료된 자식 목록이 `info()`에서 정리되는 시점을 잘못 가정해 실패했으며 재기동이 없는지를 직접 확인하도록 시험을 고친 뒤 최종 통과했다. 실제 Windows·UAC·DDS/실기는 여전히 미검증이다.
+
+## PR #344 재검토 — 플랫폼 공통 잠금과 작업 공간 상한
+
+- 설치기 루트의 공통 `build.lock` 한 개를 자식에게 상속하여 Linux·Windows 빌드를 동시에 시작하지 않는다. `info()`의 기존 플랫폼 순서에 따라 Linux가 먼저 시작하고, 다음 요청에서 잠금이 풀리면 Windows가 시작한다. 기다리는 플랫폼에는 attempt를 만들지 않아 같은 커밋의 실패 기록으로 남지 않는다. 서로 다른 API manager도 같은 flock을 사용한다.
+- 2 GiB 검사와 완료 전 검사는 해당 플랫폼의 **이번 `work/`**를 대상으로 한다. 재사용 캐시와 current/previous 원물은 다음 빌드 예산에서 제외한다. 해당 자식 그룹이 지웠지만 열어 둔 임시 파일 검사·단일 파일 상한·20분 제한·프로세스 그룹 정리는 그대로 유지했다.
+- 추가한 한 회귀 시험은 수정 전 동시 자식 2개가 생겨 실패했다. 공통 잠금만 적용한 중간 상태에서도 보관 원물이 상한에 합산되어 Linux 자식이 실패하는 것을 재현했다. 두 수정 뒤에는 2 GiB+1 byte의 sparse 과거 ZIP을 보존한 채 `linux start → linux end → windows start → windows end`, 별도 manager의 중복 기동 없음, 대기 중 attempt 부재, 같은 커밋의 양쪽 원물 성공을 확인했다. 큰 원물의 실제 데이터 쓰기/읽기는 하지 않았다.
+- 최종 `pytest apps/server/tests/test_robot_installer.py apps/server/tests/test_robot_installer_build.py apps/server/tests/test_contracts.py -q`: **38 passed** (기존 Starlette/httpx deprecation warning 1개). 공통 heavy-test flock·nice +10·별도 시험 포트 범위를 사용했다. Python compile과 diff check도 통과했다. 이 후속 작업에서는 실제 설치 파일을 다시 만들거나 실기·원격·금지 포트에 접촉하지 않았다.
