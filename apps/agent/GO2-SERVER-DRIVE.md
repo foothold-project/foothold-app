@@ -135,9 +135,12 @@ captured_at은 노트북 수신 시각이다. 양수 sensor stamp의 중복/역�
 2. 목록이 비면 «로봇 쪽에서 뎁스 영상을 내보내지 않고 있습니다 — 확장 장치에서 카메라
    프로그램을 켜야 합니다»를 확인한다. NIC/domain 불일치로 발견하지 못한 경우도 확인한다.
    확장 장치 접속·설치·카메라 프로그램 실행은 현민님 승인 뒤 별도 작업이다.
-3. 기본 후보는 ROS 이름 `/camera/depth/image_rect_raw`, `/camera/depth/image_raw`,
+3. 기본 후보는 ROS 이름 `/d435i/depth/image_rect_raw`,
+   `/d435i/aligned_depth_to_color/image_raw`, `/camera/depth/image_rect_raw`, `/camera/depth/image_raw`,
    `/camera/camera/depth/image_rect_raw`, `/camera/aligned_depth_to_color/image_raw`,
-   `/depth/image_raw` 순이다. 이는 흔한 RealSense namespace/정렬 이름을 참고한 후보이지
+   `/depth/image_raw` 순이다. D435i의 두 토픽이 모두 발견되면 `image_rect_raw`를 먼저 고른다.
+   컬러 토픽 `/d435i/color/image_raw`는 뎁스 기본 후보에 넣지 않는다.
+   이는 RealSense의 `d435i` 이름과 흔한 namespace/정렬 이름을 참고한 후보이지
    연결된 센서 모델의 증거가 아니다. 실제 발견된 지원 형만 고른다. 후보 외 depth 이름이
    하나면 자동 선택하고, 여러 개면 목록에서 **뎁스로 볼 영상 → 영상 선택**을 누른다.
    선택은 프로그램 메모리에만 남는다. `FH_GO2_DEPTH_TOPIC`은 ROS 절대 이름 또는
