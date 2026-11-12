@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFeatures, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport } from '../../contracts/ts';
+import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFeatures, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport, MappingProgress } from '../../contracts/ts';
 
 // 구역 지키기 1차(RB-ZONE-WEB 11-12) — 타입은 계약 생성물 그대로(정본 apps/server/ZONES.md)
 export type { ScenarioMapUpdate as MapUpdate, ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
@@ -175,6 +175,10 @@ export const api = {
   zoneGrid: (id: string, cursor: number, cancel?: AbortSignal) => call<ZoneGrid>('GET', `/map-versions/${encodeURIComponent(id)}/zone-grid?cursor=${cursor}&limit=20000`, undefined, { cancel, ms: MAP_READ_MS }),
   /** 실기 3D 지도 판 → 그 지도에서 나온 시뮬 쪽 판 */
   simTwin: (id: string, cancel?: AbortSignal) => call<SimTwin>('GET', `/map-versions/${encodeURIComponent(id)}/simulation-twin`, undefined, { cancel, ms: 10_000 }),
+  /** 로봇으로 지도 만들기(apps/server/MAPPING.md) — 담당 운영자만(남은 403 MAPPING_OWNER_ONLY). 진행은 1초마다 slam() 으로(없으면 null) */
+  slam: (robot: string, cancel?: AbortSignal) => call<MappingProgress | null>('GET', `/robots/${encodeURIComponent(robot)}/slam`, undefined, { cancel, ms: 10_000 }),
+  slamDo: (robot: string, op: 'start' | 'save' | 'cancel', body: { floor_id: string } | { session_id: string }, cancel?: AbortSignal) =>
+    call<MappingProgress>('POST', `/robots/${encodeURIComponent(robot)}/slam/${op}`, body, { cancel, ms: 20_000 }),
   /** 이 구역들로 저장하면 동선이 겹치는 시나리오(읽기 전용 — 저장하지 않음) */
   zoneOverlaps: (floor: string, features: MapFeatures, cancel?: AbortSignal) => call<ZoneOverlaps>('POST', `/floors/${encodeURIComponent(floor)}/zone-overlaps`, { features }, { cancel, ms: MAP_READ_MS }),
   /** 시나리오를 최신 지도 판으로(본문 없음). 이미 최신이면 새 저장 없이 그대로, 사람이 고쳐야 하면 409 + detail.map_update */

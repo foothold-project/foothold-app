@@ -340,7 +340,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 운영 관리자에게도 «장소 고치기»로 만들라는 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다.');
+    expect(card('지도 고르기').textContent).toContain('층을 고른 뒤 담당 실기 로봇으로 «지도 만들기»를 하면 여기에 보입니다.');
     expect(btn('장소 고치기')!.disabled).toBe(false);
     await click(btn('장소 고치기'));
     expect(card('장소').textContent).toContain('등록된 장소가 없습니다. «+ 장소»로 만드세요.');
@@ -361,7 +361,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 안내(총괄은 고치기로 만들기)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다.');
+    expect(card('지도 고르기').textContent).toContain('층을 고른 뒤 담당 실기 로봇으로 «지도 만들기»를 하면 여기에 보입니다.');
   });
 });
 

@@ -18,6 +18,7 @@ import { simAt, twinOf } from '../simstart';
 import { TrashLink, trashFail, type TrashKind } from './trash';
 import { assignFor } from './assign';
 import { TerrainLink, VoxelUpload, VoxelView, voxelOf } from './voxelmap';
+import { MADE, MakeMap, makers } from './mapmake';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
 /** 시뮬 층 이름이 ROS 층 ID 그대로(서버가 floor_name 없이 넣은 창고 «f1» 등)면 사람이 읽는 이름으로 */
@@ -363,7 +364,7 @@ function Chooser({ sim, t, places, vers, choose, make, note, cancel, robots, chi
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}>{thumb(b)}<b>{b.name}</b>{facts(s, b)}</button>)}</div></section>)}
       {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
-        : '실기 로봇이 SLAM 으로 만든 지도를 올리면 여기에 보입니다. «+ 지도 만들기»에서 장소·건물·층을 만들고 지도 파일을 올릴 수도 있습니다.'}</p>}
+        : '층을 고른 뒤 담당 실기 로봇으로 «지도 만들기»를 하면 여기에 보입니다. «+ 지도 만들기»에서 장소·건물·층을 만들고 지도 파일을 올릴 수도 있습니다.'}</p>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
       {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
@@ -400,7 +401,7 @@ function Floor({ p, sim, sel, setSel, side, setSide, toAdmin, toSim, run, feats,
     <ScenarioEdit sim={sim} id={sel} n={n} user={user} robots={robots} cancel={cancel} places={places} treeAgain={v.again} floor={p.floor.id} slot={slot} side={tabs(feats ?? '–')} busy={l.busy}
       close={() => setSel(null)} top={msg && <Note m={msg} />} done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} />
   </section>;
-  return <FloorView {...v} p={p} sim={sim} toScen={openScen} cancel={cancel} top={top} name={name} side={side} setSide={setSide} tabs={tabs} scenN={l.items.length} hov={hov}
+  return <FloorView {...v} p={p} sim={sim} user={user} robots={robots} places={places} toScen={openScen} cancel={cancel} top={top} name={name} side={side} setSide={setSide} tabs={tabs} scenN={l.items.length} hov={hov}
     scenList={<ScenList sim={sim} read={!sim} run={run} user={user} l={l} mine={mine} setMine={setMine} floor={p.floor.id} approved={p.floor.approved_version_id} open={openScen} hover={setHov} admin={toAdmin} robots={robots} cancel={cancel} top={msg && <Note m={msg} />} />} />;
 }
 
@@ -432,7 +433,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림, 보기/편집 토글(승인 판이 있을 때), 아래 접힌 «저장 기록»(옛 판 보기·비교·한때 승인된 판 되돌리기), 새 지도 올리기.
  *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. told = 그때 배지 다시 받기 */
-function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side, setSide, tabs, scenN, hov, scenList, toScen }: { p: Place; sim?: boolean; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
+function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side, setSide, tabs, scenN, hov, scenList, toScen, user, robots, places }: { p: Place; sim?: boolean; user: User; robots: Robot[]; places: Place[]; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
   side: Side; setSide: (s: Side) => void; tabs: (m: ReactNode, lock?: boolean) => ReactNode; scenN: number; hov: Scenario | null; scenList: ReactNode }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
@@ -472,6 +473,9 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
   // 시뮬 탭(SIM-PAIR 11-09): 편집·새 지도 올리기·되돌리기 없음(지형 판은 «지형 만들기» 저장만 바꾼다), 짝 없는 시뮬 층은 안내.
   // 실기 장소 층(RB-SCEN-SIMTAB 11-11)은 지도 편집·올리기가 지도 탭 — 짝 없음 안내 대신 «시뮬 열기» 이유(«실기만»)
   const real = purposeOf(p.site) === 'REAL', bad = sim && !real && !!list && !err && lone(p.floor, now ?? undefined);
+  // 로봇으로 지도 만들기(RB-SLAM-WEB): 실기 장소·사람 층, 내가 담당 운영자인 실기 로봇이 있을 때만(지도 탭만 — 시뮬 탭에 넣지 않음)
+  const [mk, setMk] = useState(false), canMake = !sim && real && p.floor.provenance !== 'SIMULATION' && makers(user, robots).length > 0;
+  const mkBtn = (e?: { currentTarget: Element }) => { if (e) shut(e as never); setMk(true); };
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
     <div className="mx-bar">
@@ -488,6 +492,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
       <span className="fh-grow" />
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
         {!sim && <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>}
+        {canMake && <button type="button" className="btn" data-make-open onClick={mkBtn}>지도 만들기</button>}
         <TrashLink />
       </Menu>}
       <span ref={setSlot} style={{ display: 'contents' }} />
@@ -503,7 +508,8 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
           : v && on3d ? <VoxelView key={v.id} v={v} cancel={cancel} />
           : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
           : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.</p>
-            <button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button></div>)}
+            <div className="fh-row"><button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button>
+              {canMake && <button type="button" className="btn" data-make-open onClick={() => mkBtn()}>지도 만들기</button>}</div></div>)}
         <div className="mx-over">
           {done && <Note m={done} />}
           {bad && v && LONE}
@@ -533,7 +539,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
     {/* 저장 기록(11-04, 기본 닫힘): 줄을 누르면 그 기록을 지도에 — 판 번호 대신 저장 시각·만든 사람 */}
     {!editing && !!list?.length && <details className="fh-fold mx-hist" data-history><summary>저장 기록 {list.length}</summary>
       <ul className="mx-list" aria-label="저장 기록 목록">{list.map((x) => <li key={x.id} className="mx-row" data-save={x.id}>
-        <button type="button" className="mx-name" aria-pressed={x.id === v?.id} onClick={() => { setSel(x.id); setUndo(null); }}><b>{savedAs(x)}</b><small>{x.reason}</small>{voxelOf(x) && <span className="lv-chip">3D</span>}<Chip {...stateOf(x, approved)} /></button></li>)}</ul>
+        <button type="button" className="mx-name" aria-pressed={x.id === v?.id} onClick={() => { setSel(x.id); setUndo(null); }}><b>{savedAs(x)}</b><small>{x.reason}</small>{voxelOf(x) && <span className="lv-chip">3D</span>}{x.source === 'SLAM' && <span className="lv-chip" data-slam-chip>로봇으로 만든 지도</span>}<Chip {...stateOf(x, approved)} /></button></li>)}</ul>
       {v && <div className="fh-row" role="group" aria-label="저장 기록 관리">
         <button type="button" className="btn" aria-pressed={cmp} onClick={() => setCmp(!cmp)}>비교</button>
         {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
@@ -548,6 +554,10 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, side,
           go={(how) => { setUp(false); setD3(how === '3d'); }} again={() => { setN(n + 1); again(); }} onBusy={setVbusy} />
       : <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={canUp} cancel={cancel}
         saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked); told(); } else { setSel(x.id); setDone(SAVED); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
+    </Pop>}
+    {!editing && canMake && <Pop open={mk} close={() => setMk(false)} label="로봇으로 지도 만들기">
+      {mk && <MakeMap floor={p.floor.id} user={user} robots={robots} places={places} cancel={cancel}
+        made={(id) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text: MADE, ok: true }); setN(n + 1); again(); }} />}
     </Pop>}
     {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
       {undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}
