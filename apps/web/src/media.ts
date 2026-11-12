@@ -2,8 +2,11 @@
 // 토큰은 10초·1회·채널별: 그 채널을 보여 주는 칸이 있을 때만 쓴다. 칸이 모두 내려감·화면 숨김(시뮬 제외)·부모 연결 끊김·robot/epoch 바뀜이면 닫고 지난 자료를 비운다.
 // 다시 받으려면 부모 연결을 새로 열어야 한다(토큰 갱신 경로 없음, 자동 재연결 없음). 조종·STOP·조종권과 무관 — 명령·축 입력을 만들지 않는다.
 import { useEffect, useSyncExternalStore } from 'react';
-import type { MediaChannel, MediaPointCloudHeader, PhoneMediaWelcome } from '../../contracts/ts';
+import type { MediaChannel as AnyChannel, MediaPointCloudHeader, PhoneMediaWelcome } from '../../contracts/ts';
 import { phoneUrl } from './phoneTransport';
+
+/** 폰 직결 welcome.media 는 rgb·external·lidar 만 — 뎁스는 서버 경유(drivemedia.ts)로만 받는다(계약: phone capabilities 에 뎁스 광고 없음) */
+export type MediaChannel = Exclude<AnyChannel, 'depth'>;
 
 export const CHANNELS: readonly MediaChannel[] = ['rgb', 'external', 'lidar'];
 /** 토큰 수명(에이전트 10 s) · 화면에 쌓아 두는 점 상한 · 이보다 오래 새 프레임이 없으면 «멈춤»(에이전트 NO_VIDEO 는 1 s) */
