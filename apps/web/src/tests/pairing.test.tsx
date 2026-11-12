@@ -85,6 +85,7 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
     expect(btn('QR 스캔')!.className).toBe('btn pri');   // 폰은 한 줄·QR 먼저 그대로(PC 두 칸 아님)
     expect($('.pair-cols')).toBeNull();
+    expect($('[data-agent-open]')).toBeNull();   // 폰·앱 틀은 «노트북 연결 프로그램 열기» 없음
     const code = $<HTMLInputElement>('[data-pair-code]')!;
     setVal(code, '12a34');
     expect(code.value).toBe('1234');   // 숫자만
@@ -599,6 +600,8 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect($('.pair-cols [aria-label="코드 넣기"] [data-pair-code]')).not.toBeNull();
     expect(btn('다음')!.className).toBe('btn pri');
     expect(btn('QR 스캔')!.className).toBe('btn');
+    expect($('[data-agent-open] a')!.getAttribute('href')).toBe('foothold-robot://open');   // 노트북 연결 프로그램 열기(PC 만)
+    expect($('[data-agent-open] a')!.textContent).toBe('노트북 연결 프로그램 열기');
   });
 
   it('윈도우 브라우저: 윈도우 줄이 위·강조, 받을 수 있으면 «PC 보호 → 추가 정보 → 실행» 안내', async () => {

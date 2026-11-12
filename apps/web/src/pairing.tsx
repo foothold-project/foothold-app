@@ -163,7 +163,11 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
     {step.at === 'code' && (phone ? <><Installer cancel={cancel} phone />{note}{qr}{form}{again}</>
       : <div className="pair-cols">
         <Installer cancel={cancel} phone={false} />
-        <div className="fh-form" role="group" aria-label="코드 넣기"><b>노트북 화면의 코드 넣기</b>{note}{form}
+        <div className="fh-form" role="group" aria-label="코드 넣기"><b>노트북 화면의 코드 넣기</b>
+          {/* 노트북에 설치된 연결 프로그램 창 띄우기(11-12 현민님 승인) — 설치 안 됐으면 아무 일도 없어 안내를 붙인다. 폰·앱 틀에는 없음 */}
+          <div className="fh-form" style={{ gap: 6 }} data-agent-open><div className="fh-row"><a className="btn" href="foothold-robot://open">노트북 연결 프로그램 열기</a></div>
+            <span className="lbl">안 열리면 아직 설치하지 않은 것입니다 — 설치 파일을 먼저 받으세요. 처음 한 번은 브라우저가 «열까요?» 하고 물으니 «열기»를 누르세요.</span></div>
+          {note}{form}
           {scan ? qr : <div className="fh-row">{qr}<span className="lbl">노트북 카메라로 QR 을 읽을 때</span></div>}{again}</div>
       </div>)}
     {step.at === 'name' && <form className="fh-form pair-one" noValidate onSubmit={(e) => confirm(e, step.p)}>
