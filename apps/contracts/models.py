@@ -2868,6 +2868,28 @@ class FieldApproval(Contract):
     expires_at: UTCDateTime
 
 
+class RobotInstallerAvailable(Contract):
+    platform: Literal['linux', 'windows']
+    available: Literal[True] = True
+    version: str = Field(pattern=r'^[0-9][a-zA-Z0-9.+~-]*$')
+    size: int = Field(gt=0)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    built_at: UTCDateTime
+    commit: str = Field(pattern=r'^[0-9a-f]{40}$')
+    filename: str = Field(pattern=r'^[a-zA-Z0-9][a-zA-Z0-9._+~-]*$')
+
+
+class RobotInstallerUnavailable(Contract):
+    platform: Literal['linux', 'windows']
+    available: Literal[False] = False
+    reason: Literal['not_built', 'building', 'build_failed', 'disabled',
+                    'build_tools_missing', 'limit_exceeded', 'invalid_artifact', 'not_supported_yet']
+
+
+class RobotInstallerInfo(Contract):
+    items: list[RobotInstallerAvailable | RobotInstallerUnavailable]
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 

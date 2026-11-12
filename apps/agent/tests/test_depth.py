@@ -178,17 +178,20 @@ def test_native_discovery_boundary_reads_only_publication_metadata(monkeypatch):
     with pytest.raises(RuntimeError):shared_participant()
 
 
-def test_laptop_projection_selection_and_request_boundaries():
+@pytest.mark.parametrize('desktop_controls',[False,True])
+def test_laptop_projection_selection_and_request_boundaries(desktop_controls):
     status = Status()
     rows = image_topics(endpoints(('rt/custom/depth', IMAGE), ('rt/camera/info', 'CameraInfo')))
     status.update(depth_topics=rows, depth_notice=EMPTY, depth_selected=None)
     assert '보이는 영상 목록' in PAGE and 'textContent=row.name' in PAGE
-    server = make_server(status, 0)
+    actions=[]
+    controls=NS(action=actions.append, snapshot=lambda:{}) if desktop_controls else None
+    server = make_server(status, 0, controls=controls)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     port = server.server_port
-    def post(value, origin=None, host=None):
+    def post(value, origin=None, host=None, path='/depth-topic'):
         conn = HTTPConnection('127.0.0.1', port, timeout=1)
-        conn.request('POST', '/depth-topic', json.dumps(value), headers={
+        conn.request('POST', path, json.dumps(value), headers={
             'Host': host or f'127.0.0.1:{port}', 'Origin': origin or f'http://127.0.0.1:{port}',
             'Content-Type': 'application/json'})
         response = conn.getresponse(); code = response.status; response.read(); conn.close(); return code
@@ -201,14 +204,18 @@ def test_laptop_projection_selection_and_request_boundaries():
         assert post({'topic':None}, origin='https://untrusted.invalid') == 403
         assert post({'topic':None}, host='attacker.invalid') == 403
         assert post({'topic':None}) == 204 and status.depth_choice() is None
+        action={'action':'autostart','enabled':False}
+        assert post(action, path='/action') == (204 if desktop_controls else 403)
+        assert actions == ([action] if desktop_controls else [])
+        assert post(action, path='/action', origin='https://untrusted.invalid') == 403
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=1)
 
 
 def test_laptop_script_compiles_without_network_or_dds():
-    script=re.search(r'<script>(.*?)</script>',PAGE,re.S).group(1)
-    result=subprocess.run(['node','--check'],input=script,capture_output=True,text=True)
-    assert result.returncode==0,result.stderr
+    for script in re.findall(r'<script>(.*?)</script>',PAGE,re.S):
+        result=subprocess.run(['node','--check'],input=script,capture_output=True,text=True)
+        assert result.returncode==0,result.stderr
 
 
 @pytest.mark.parametrize('sensor_stamp',['increasing','zero'])

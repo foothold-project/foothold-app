@@ -1522,6 +1522,27 @@ export interface RobotCreated {
   agent_token: string;
 }
 
+export interface RobotInstallerAvailable {
+  platform: "linux" | "windows";
+  available: true;
+  version: string;
+  size: number;
+  sha256: string;
+  built_at: string;
+  commit: string;
+  filename: string;
+}
+
+export interface RobotInstallerInfo {
+  items: (RobotInstallerAvailable | RobotInstallerUnavailable)[];
+}
+
+export interface RobotInstallerUnavailable {
+  platform: "linux" | "windows";
+  available: false;
+  reason: "not_built" | "building" | "build_failed" | "disabled" | "build_tools_missing" | "limit_exceeded" | "invalid_artifact" | "not_supported_yet";
+}
+
 export interface RobotList {
   items: RobotSummary[];
   next_cursor: string | null;

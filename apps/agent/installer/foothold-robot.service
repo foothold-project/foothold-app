@@ -1,0 +1,11 @@
+[Unit]
+Description=FOOTHOLD robot laptop connection
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/opt/foothold-robot/python/bin/python3 -I -m foothold_agent.desktop --managed
+KillSignal=SIGTERM
+TimeoutStopSec=10
+Restart=no

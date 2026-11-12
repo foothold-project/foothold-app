@@ -65,14 +65,15 @@ export function Drive(c: Ctx) {
 }
 
 /** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기(simdrive.tsx — 직결)
- *  «+ 로봇 연결하기»: 연결된 실기가 없으면 목록 위에 크게, 있으면 목록 아래 작게 → 고르기: «새 로봇 추가»(운영 관리자 — pairing.tsx, ROBOT-PAIRING) · «주변 로봇 찾기»(앱 안만 — nearby.tsx).
+ *  «+ 로봇 연결하기»: 연결된 실기가 없으면 목록 위에 크게, 있으면 목록 아래 작게 → 앱 안은 고르기: «새 로봇 추가»(운영 관리자 — pairing.tsx, ROBOT-PAIRING) · «주변 로봇 찾기»(nearby.tsx).
+ *  앱 밖은 고를 것이 «새 로봇 추가»뿐(단추도 운영 관리자만)이라 메뉴 없이 바로 새 로봇 추가(RB-EASY-PAIR).
  *  총괄은 실기를 연결하지 않아 앱 안에서 주변 찾기만. 내 실기 카드에는 «관리» */
 export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ctx, 'refresh' | 'cancel'>>) {
   useRt();
   const s = useSim();
   const [view, setView] = useState<'menu' | 'pair' | 'nearby' | null>(null), app = inApp(), op = c.user.role !== 'ORG_ADMIN';
   const live = c.robots.some((r) => !r.sim && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
-  const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setView('menu')} data-robot-connect>+ 로봇 연결하기</button>;
+  const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setView(app ? 'menu' : 'pair')} data-robot-connect>+ 로봇 연결하기</button>;
   const refresh = c.refresh ?? (() => {}), can = op || app;
   return <>
     {view === 'nearby' || (s.real && s.step !== 'drive') ? <Nearby robots={c.robots} close={() => setView(null)} />
@@ -80,7 +81,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ct
       : view === 'menu' ? <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="로봇 연결하기">
         <div className="fh-row"><h2 className="fh-grow">로봇 연결하기</h2><button type="button" className="btn" onClick={() => setView(null)}>닫기</button></div>
         {op && <><button type="button" className="btn pri" onClick={() => setView('pair')} data-pair-start>새 로봇 추가</button>
-          <span className="lbl">노트북 연결 프로그램 화면의 QR 또는 6자리 코드로 등록합니다. 다시 설치한 로봇도 여기서 다시 연결합니다.</span></>}
+          <span className="lbl">노트북 화면의 QR 또는 6자리 코드로 등록합니다. 다시 설치한 로봇도 여기서 다시 연결합니다.</span></>}
         {app ? <button type="button" className="btn" onClick={() => setView('nearby')}>주변 로봇 찾기</button>
           : <p className="lv-note" data-robot-connect-note>주변 로봇 찾기(Wi-Fi·블루투스)는 FOOTHOLD Android 앱에서만 됩니다 — 브라우저는 블루투스·같은 망 기기를 찾을 수 없습니다.</p>}
       </section>
@@ -95,7 +96,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ct
   </>;
 }
 /** 담당 로봇 0대 안내(운영 관리자) */
-export const NO_ROBOT = '담당 로봇이 없습니다. «+ 로봇 연결하기 › 새 로봇 추가»로 노트북 연결 프로그램의 로봇을 등록하세요.';
+export const NO_ROBOT = '담당 로봇이 없습니다. «+ 로봇 연결하기»로 노트북 화면의 코드를 넣어 로봇을 등록하세요.';
 function Card({ c, r, refresh }: { c: Pick<Ctx, 'user' | 'go' | 'cancel'>; r: Robot; refresh: () => void }) {
   const why = driveBlock(c.user, r), id = `why-${r.id}`, l = rt.get(r.id), rel = l.releasing, own = !r.sim && r.owner === c.user.id && c.user.role !== 'ORG_ADMIN';
   const [manage, setManage] = useState(false);
