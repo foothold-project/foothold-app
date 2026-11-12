@@ -45,12 +45,12 @@ def compressed_depth(message):
     if not isinstance(message.format, str) or len(message.format) > 128 or len(message.data) > MAX_BYTES:
         raise ValueError('bounded compressed depth required')
     # JPEG colour and ambiguous mono formats are deliberately never accepted.
-    match = re.fullmatch(r'(16UC1|32FC1);\s*(compressedDepth png|png compressed)\s*', message.format)
+    match = re.fullmatch(r'(16UC1|32FC1);\s*(compressedDepth(?: png)?|png compressed)\s*', message.format)
     if not match:
         raise ValueError('explicit metric PNG depth required (RVL unsupported)')
     encoding, transport = match.groups()
     raw = bytes(message.data)
-    offset = 12 if transport == 'compressedDepth png' else 0
+    offset = 12 if transport.startswith('compressedDepth') else 0
     png = raw[offset:]
     if (len(png) < 33 or not png.startswith(PNG) or png[8:16] != b'\x00\x00\x00\x0dIHDR'
             or png[24:29] != b'\x10\x00\x00\x00\x00'):

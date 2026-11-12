@@ -81,16 +81,19 @@ def test_jpeg_bounds_colours_and_invalid_pixels():
     assert np.max(decoded[16, [80, 112, 144, 176]]) < 10
 
 
-@pytest.mark.parametrize('transport', [False, True])
+@pytest.mark.parametrize('transport', [False, True, 'legacy'])
 def test_compressed_16_bit_depth_png(transport):
     message = compressed(transport=transport)
+    if transport=='legacy':message.format=message.format.replace(' png','')
     assert np.allclose(compressed_depth(message), raw_depth(raw()))
     header, _ = colour(message)
     assert header['source'] == 'go2_depth'
 
 
-def test_compressed_float_inverse_depth():
+@pytest.mark.parametrize('legacy',[False,True])
+def test_compressed_float_inverse_depth(legacy):
     message = compressed([[0, 100, 50]], encoding='32FC1')
+    if legacy:message.format=message.format.replace(' png','')
     result = compressed_depth(message)
     assert np.isnan(result[0, 0]) and result[0, 1] == 1 and result[0, 2] == 2
     assert colour(message)[0]['depth_max_m'] == 5

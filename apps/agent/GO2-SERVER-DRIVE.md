@@ -84,6 +84,7 @@ Unitree 고정 SDK의 비공개 participant 접근이 바뀌거나 depth 의존�
 받는 형식은 `sensor_msgs::msg::dds_::Image_`의 `16UC1`(mm), `32FC1`(m),
 또는 `CompressedImage_`의 `16UC1; png compressed`,
 `16UC1; compressedDepth png`, `32FC1; compressedDepth png`다.
+옛 `16UC1; compressedDepth`/`32FC1; compressedDepth` 표기도 실제 PNG 바이트일 때 받는다.
 32FC1 compressedDepth는 12바이트 little-endian ConfigHeader의 역깊이 계수를 사용한다.
 RGB/JPEG·모호한 mono 형식·RVL은 거부한다. 입력은 최대 1920×1080·8 MiB이며 PNG IHDR을
 네이티브 decode 전에 확인한다. ROS wire sequence는 원본과 같은 unbounded 형으로
