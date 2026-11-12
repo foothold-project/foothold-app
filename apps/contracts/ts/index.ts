@@ -82,6 +82,28 @@ export interface AgentLease {
   holder_type: "USER" | string | null;
 }
 
+export interface AgentMappingCommand {
+  t?: "slam";
+  op: "start" | "save" | "cancel";
+  session_id: string;
+  floor_id: string;
+}
+
+export interface AgentMappingUpdate {
+  session_id: string;
+  floor_id: string;
+  status: "RUNNING" | "SAVING" | "SAVED" | "FAILED" | "CANCELLED";
+  distance_m?: number;
+  point_count?: number;
+  elapsed_s?: number;
+  error_code?: string | null;
+  reason?: string | null;
+  preview?: MappingPreview | null;
+  map_version_id?: string | null;
+  terrain_id?: string | null;
+  t?: "slam.update";
+}
+
 export interface AgentMedia {
   t: "media";
   kind: "photo";
@@ -788,6 +810,35 @@ export interface MapZone {
   name: string;
   polygon: [number, number][];
   max_speed_mps?: number | null;
+}
+
+export interface MappingAction {
+  session_id: string;
+}
+
+export interface MappingPreview {
+  resolution: number;
+  cells: [number, number][];
+  robot?: [number, number, number] | null;
+  path: [number, number][];
+}
+
+export interface MappingProgress {
+  session_id: string;
+  floor_id: string;
+  status: "RUNNING" | "SAVING" | "SAVED" | "FAILED" | "CANCELLED";
+  distance_m?: number;
+  point_count?: number;
+  elapsed_s?: number;
+  error_code?: string | null;
+  reason?: string | null;
+  preview?: MappingPreview | null;
+  map_version_id?: string | null;
+  terrain_id?: string | null;
+}
+
+export interface MappingStart {
+  floor_id: string;
 }
 
 export interface MePatch {
@@ -2330,9 +2381,9 @@ export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN
 export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE";
 export type RunReportPermanentCode = "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RUN_REPORT_PLAN" | "RUN_REPORT_STATE" | "RUN_REPORT_STEP" | "RUN_REPORT_PROVENANCE" | "RUN_REPORT_CONFLICT" | "RUN_REPORT_INSTANCE" | "RUN_REPORT_ROBOT" | "RUN_REPORT_NOT_FOUND" | "RUN_REPORT_INVALID";
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
-export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
+export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck | AgentMappingUpdate;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
-export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval;
+export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand;
 export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
 export type MediaChannel = "rgb" | "external" | "lidar";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";

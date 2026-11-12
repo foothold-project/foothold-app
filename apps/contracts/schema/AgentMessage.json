@@ -266,6 +266,129 @@
       "title": "AgentHello",
       "type": "object"
     },
+    "AgentMappingUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "distance_m": {
+          "default": 0,
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Distance M",
+          "type": "number"
+        },
+        "elapsed_s": {
+          "default": 0,
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Elapsed S",
+          "type": "number"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Version Id"
+        },
+        "point_count": {
+          "default": 0,
+          "maximum": 2000000,
+          "minimum": 0,
+          "title": "Point Count",
+          "type": "integer"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingPreview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "RUNNING",
+            "SAVING",
+            "SAVED",
+            "FAILED",
+            "CANCELLED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "t": {
+          "const": "slam.update",
+          "default": "slam.update",
+          "title": "T",
+          "type": "string"
+        },
+        "terrain_id": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Terrain Id"
+        }
+      },
+      "required": [
+        "session_id",
+        "floor_id",
+        "status"
+      ],
+      "title": "AgentMappingUpdate",
+      "type": "object"
+    },
     "AgentMedia": {
       "properties": {
         "kind": {
@@ -1334,6 +1457,85 @@
       "type": "object"
     },
     "JsonValue": {},
+    "MappingPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "maxItems": 2000,
+          "title": "Cells",
+          "type": "array"
+        },
+        "path": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "maxItems": 256,
+          "title": "Path",
+          "type": "array"
+        },
+        "resolution": {
+          "maximum": 100,
+          "minimum": 0.1,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "robot": {
+          "anyOf": [
+            {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Robot"
+        }
+      },
+      "required": [
+        "resolution",
+        "cells",
+        "path"
+      ],
+      "title": "MappingPreview",
+      "type": "object"
+    },
     "Progress": {
       "additionalProperties": false,
       "properties": {
@@ -1580,6 +1782,7 @@
       "phone.revoke.ack": "#/$defs/AgentPhoneRevokeAck",
       "ping": "#/$defs/AgentPing",
       "run.update": "#/$defs/AgentRunUpdate",
+      "slam.update": "#/$defs/AgentMappingUpdate",
       "state": "#/$defs/AgentState"
     },
     "propertyName": "t"
@@ -1608,6 +1811,9 @@
     },
     {
       "$ref": "#/$defs/AgentPhoneRevokeAck"
+    },
+    {
+      "$ref": "#/$defs/AgentMappingUpdate"
     }
   ]
 }

@@ -1,0 +1,39 @@
+{
+  "$id": "fh-app/1/AgentMappingCommand",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "op": {
+      "enum": [
+        "start",
+        "save",
+        "cancel"
+      ],
+      "title": "Op",
+      "type": "string"
+    },
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "t": {
+      "const": "slam",
+      "default": "slam",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "op",
+    "session_id",
+    "floor_id"
+  ],
+  "title": "AgentMappingCommand",
+  "type": "object"
+}

@@ -962,7 +962,50 @@ class AgentPhoneRevokeAck(AgentInput):
     seq: Annotated[int, Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)]
 
 
-AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck,
+
+class MappingStart(Contract):
+    floor_id: UUID
+
+
+class MappingAction(Contract):
+    session_id: UUID
+
+
+class MappingPreview(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    resolution: float = Field(ge=0.1, le=100)
+    cells: list[tuple[int, int]] = Field(max_length=2000)
+    robot: tuple[float, float, float] | None = None
+    path: list[tuple[float, float]] = Field(max_length=256)
+
+
+class MappingProgress(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    session_id: UUID
+    floor_id: UUID
+    status: Literal['RUNNING', 'SAVING', 'SAVED', 'FAILED', 'CANCELLED']
+    distance_m: float = Field(default=0, ge=0, le=1000000)
+    point_count: int = Field(default=0, ge=0, le=2000000)
+    elapsed_s: float = Field(default=0, ge=0, le=1000000000)
+    error_code: str | None = Field(default=None, max_length=80)
+    reason: str | None = Field(default=None, max_length=200)
+    preview: MappingPreview | None = None
+    map_version_id: UUID | None = None
+    terrain_id: str | None = Field(default=None, max_length=100)
+
+
+class AgentMappingUpdate(MappingProgress):
+    t: Literal['slam.update'] = 'slam.update'
+
+
+class AgentMappingCommand(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    t: Literal['slam'] = 'slam'
+    op: Literal['start', 'save', 'cancel']
+    session_id: UUID
+    floor_id: UUID
+
+AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck | AgentMappingUpdate,
                          Field(discriminator='t')]
 
 
@@ -1012,7 +1055,7 @@ class AgentFieldApproval(Contract):
 
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -2898,3 +2941,5 @@ TOP['PairingPollResult'] = PairingWaiting | PairingPaired
 REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, TerrainRamp, TerrainGap, TerrainWrite})
 
 REQUEST_MODELS.add(ZoneOverlapRequest)
+
+REQUEST_MODELS.update({MappingStart, MappingAction, AgentMappingUpdate, AgentMappingCommand})
