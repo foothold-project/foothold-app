@@ -29,7 +29,9 @@ SHA = re.compile(r'^[0-9a-f]{40}$')
 VERSION = re.compile(r'^[0-9][a-zA-Z0-9.+~-]*$')
 REASONS = {'not_built', 'building', 'build_failed', 'disabled', 'build_tools_missing',
            'limit_exceeded', 'invalid_artifact', 'not_supported_yet'}
-DEFAULT_BYTES = 1024 ** 3
+# Includes the cache, build workspace and two retained packages. One GiB can
+# stop an otherwise valid rebuild once the first successful package is kept.
+DEFAULT_BYTES = 2 * 1024 ** 3
 DEFAULT_SECONDS = 20 * 60
 SOURCE_ROOT = Path(__file__).resolve().parents[3]
 
@@ -39,6 +41,7 @@ class Builder:
     script: str
     filename: str
     media_type: str
+    args: tuple[str, ...] = ()
 
 
 # A Windows builder implementing --server/--output/--version can be enabled by
@@ -104,15 +107,40 @@ def source_digest(source, origin):
     return h.hexdigest()
 
 
-def disk_bytes(root):
+def disk_bytes(root, process_group=None):
     total = 0
+    seen = set()
+    def count(info):
+        nonlocal total
+        key = (info.st_dev, info.st_ino)
+        if stat.S_ISREG(info.st_mode) and key not in seen:
+            seen.add(key)
+            total += info.st_size
     for directory, _, files in os.walk(root, followlinks=False):
         for name in files:
             try:
                 info = (Path(directory) / name).lstat()
-                if stat.S_ISREG(info.st_mode):
-                    total += info.st_size
+                count(info)
             except FileNotFoundError:
+                pass
+    if process_group is not None:
+        # dpkg-deb may unlink its temporary archive while keeping the fd open;
+        # directory sizes alone miss that disk use. Inspect only our group.
+        for process in Path('/proc').iterdir():
+            if not process.name.isdigit():
+                continue
+            try:
+                fields = (process / 'stat').read_text().rsplit(')', 1)[1].split()
+                if int(fields[2]) != process_group:
+                    continue
+                for fd in (process / 'fd').iterdir():
+                    try:
+                        info = fd.stat()
+                        if info.st_nlink == 0:
+                            count(info)
+                    except OSError:
+                        pass
+            except (OSError, ValueError, IndexError):
                 pass
     return total
 
@@ -140,7 +168,7 @@ def bounded_run(command, root, env, seconds=DEFAULT_SECONDS, byte_limit=DEFAULT_
     try:
         while True:
             result = process.poll()
-            if time.monotonic() >= deadline or disk_bytes(root) >= byte_limit:
+            if time.monotonic() >= deadline or disk_bytes(root, process.pid) >= byte_limit:
                 return 'limit_exceeded'
             if result is not None:
                 return None if result == 0 else 'build_failed'
@@ -239,9 +267,10 @@ class InstallerManager:
             attempts.mkdir(exist_ok=True)
             attempt = attempts / (self.commit + '.json')
             if attempt.exists():
-                status = read_json(attempt).get('reason', 'build_failed')
+                record = read_json(attempt)
+                status = record.get('reason') if isinstance(record, dict) else None
                 # A building record without its lock means the process died.
-                return status if status in REASONS - {'building'} else 'build_failed'
+                return status if isinstance(status, str) and status in REASONS - {'building'} else 'build_failed'
             self.fingerprint = self.fingerprint or source_digest(self.source, self.origin)
             if current and (base / 'current/source.sha256').read_text() == self.fingerprint:
                 return 'not_built'  # caller serves unchanged successful artifact
@@ -341,7 +370,7 @@ def build_once(root, source, commit, origin, platform, fingerprint, *,
         if not VERSION.fullmatch(version):
             raise ValueError('invalid version')
         builder = BUILDERS[platform]
-        command = ['/usr/bin/python3', str(checkout / builder.script), '--server', origin,
+        command = ['/usr/bin/python3', str(checkout / builder.script), *builder.args, '--server', origin,
                    '--output', str(output), '--version', version]
         env = {'PATH': '/usr/bin:/bin', 'HOME': str(work), 'TMPDIR': str(work),
                'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1',

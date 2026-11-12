@@ -153,3 +153,12 @@ def test_source_preparation_failure_is_also_attempted_once(tmp_path):
     again = manager(root, code)
     assert again.info()['items'][0]['reason'] == 'build_failed'
     assert not again.children
+
+
+def test_unlinked_open_temporary_files_count_toward_disk_limit(tmp_path):
+    # Two unlinked files are each below RLIMIT_FSIZE but together exceed it.
+    script = (f'import tempfile,time; f=tempfile.TemporaryFile(dir={str(tmp_path)!r}); '
+              f'g=tempfile.TemporaryFile(dir={str(tmp_path)!r}); '
+              'f.write(b"x"*60000); f.flush();g.write(b"x"*60000);g.flush();time.sleep(10)')
+    assert R.bounded_run([sys.executable, '-c', script], tmp_path,
+                         {'PATH': '/usr/bin:/bin'}, 5, 100000) == 'limit_exceeded'
