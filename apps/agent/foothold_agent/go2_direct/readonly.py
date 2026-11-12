@@ -11,7 +11,7 @@ import time
 from foothold_agent.go2_readonly.sdk import Subscriptions
 from foothold_agent.go2_readonly.state import State, number
 from foothold_agent.link.client import Client, Settings
-from foothold_agent.link.session import Session
+from foothold_agent.link.session import Session, Effects
 from foothold_agent.phone.observer import DiscardSink
 from foothold_agent.phone.tickets import uuid
 from foothold_agent.phone.tickets import json_object
@@ -78,6 +78,9 @@ class Observer(Session):
             frame = json_object(raw) if isinstance(raw, (str,bytes)) else raw
         except (ValueError, TypeError, UnicodeError, RecursionError):
             return self.tick()
+        if isinstance(frame, dict) and frame.get('t') == 'slam' and getattr(self, 'mapping', None) is not None:
+            self.mapping.command(frame)
+            return Effects((), self.tick().messages)
         return super().receive(frame) if isinstance(frame,dict) and frame.get('t')=='ping' else self.tick()
 
     def _state(self):
@@ -96,8 +99,11 @@ async def run(config, *, stop=None, subscriptions_factory=Subscriptions, client_
     session = Observer(measurements)
     client = client_factory(session, DiscardSink(), config.link)
     tasks = []
+    mapping_task = None
     try:
         subscriptions.start()
+        from foothold_agent.mapping.runtime import attach
+        mapping_task = attach(session, subscriptions, config.link, config.robot, os.environ)
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(stop.wait())]
         while not any(task.done() for task in tasks):
             session.update_devices(devices(measurements.telemetry(), session.now()))
@@ -106,6 +112,9 @@ async def run(config, *, stop=None, subscriptions_factory=Subscriptions, client_
             if task.done():
                 task.result()
     finally:
+        if mapping_task is not None:
+            mapping_task.cancel()
+            await asyncio.gather(mapping_task, return_exceptions=True)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

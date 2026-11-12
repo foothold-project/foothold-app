@@ -18,6 +18,7 @@
 start/save는 연결된 agent 필요(409 ROBOT_OFFLINE). 로봇당 RUNNING/SAVING/FAILED 세션 하나.
 중복 start는 409 MAPPING_ACTIVE. save는 RUNNING/FAILED에서 허용하며 SAVING/SAVED 중복은
 현재 응답 반환(재업로드 없음). 세션 불일치 409 MAPPING_SESSION_MISMATCH.
+담당자가 바뀌면 새 담당자는 이전 작업을 취소한 뒤 새로 시작할 수 있다.
 cancel은 SAVED이면 409 MAPPING_STATE_CONFLICT, CANCELLED 재요청은 같은 결과.
 SAVING 중 취소는 허용하며 이후 업로드는 거부한다. 점군 수신·변환은 조종권과 무관하다.
 
@@ -26,9 +27,12 @@ SAVING 중 취소는 허용하며 이후 업로드는 거부한다. 점군 수�
 서버 → agent: `{t:'slam',op:'start'|'save'|'cancel',session_id,floor_id}`.
 REST에서 권한·연결·세션을 검증한 프레임만 송신한다. 일반 agent 제어 제한을 해제하지 않는다.
 agent → 서버: `AgentMappingUpdate` = `{t:'slam.update', ...MappingProgress}`.
+전송은 agent Bearer 토큰으로 `POST /agent/robots/{id}/slam/{session_id}/progress` (202).
+기존 제어 WS/배포의 4096-byte 제한을 늘리지 않기 위해 별도 bounded HTTP로 보낸다.
+WS slam.update도 4096 byte 이하인 경우 수용하지만 기본 agent는 HTTP를 사용한다.
 RUNNING/SAVING/FAILED/CANCELLED 보고만 반영하며 SAVED는 서버 저장 트랜잭션만 결정한다.
 현재 세션·층과 일치해야 한다. 1초 간격, JSON UTF-8 **64 KiB 이하**.
-다른 agent WS 메시지의 4096 byte 상한은 유지한다. 서버 진행 보고는 지도 생성·명령 실행 권한을 주지 않는다.
+모든 agent WS 메시지의 4096 byte 상한은 유지한다. 서버 진행 보고는 지도 생성·명령 실행 권한을 주지 않는다.
 
 미리보기: `{resolution,cells:[[ix,iy],...],robot:[x,y,yaw]|null,path:[[x,y],...]}`.
 미터·라디안, XY 위에서 보기, cells는 resolution 단위 전역 격자 인덱스.
@@ -60,7 +64,8 @@ agent 재접속의 LINK_LOST 보고 또는 다음 저장 요청으로 정리한�
 **설치 파일 작업자는 slam 묶음을 포함할 것.** 이 작업은 설치 파일을 수정하지 않는다.
 
 SDK 정본 커밋 `unitree_sdk2_python@814556d15970dd2ecf1c9984e845ca02ab07e206`:
-- `example/go2/high_level/go2_sport_client.py`: `rt/sportmodestate`, SportModeState_.
+- 이 저장소 `apps/agent/foothold_agent/go2_readonly/sdk.py`: 기존 `rt/sportmodestate` 구독을 공유.
+  고정 SDK Go2 예제에는 해당 토픽 문자열이 없으므로 SDK에서 확인했다고 주장하지 않는다.
 - `unitree_sdk2py/idl/unitree_go/msg/dds_/_SportModeState_.py`: position, imu_state quaternion, stamp.
 - `unitree_sdk2py/idl/sensor_msgs/msg/dds_/_PointCloud2_.py` 및 `_PointField_.py`: binary 레이아웃.
 **이 고정 SDK에는 라이다 점군 topic 이름 예제가 없다.** 이름을 기억으로 기본 설정하지 않는다.
@@ -69,8 +74,20 @@ SDK 정본 커밋 `unitree_sdk2_python@814556d15970dd2ecf1c9984e845ca02ab07e206`
 `FH_MAPPING_LIDAR_TOPIC` 하나로 topic을 덮어쓴다(L1/L2 교체).
 Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:343-366`
 에는 ROS 표시명 `utlidar/cloud`, frame `utlidar_lidar`가 확인된다(참고 소스만, ROS 실행/설치 없음).
+같은 고정 ROS 소스 `example/src/src/read_low_state.cpp:47-50`은 IMU quaternion 순서를 qw/qx/qy/qz로 명시한다.
 기본 허용 frame은 기존 관측 경로와 같은 utlidar_lidar/lidar_link.
+다른 센서 frame은 `FH_MAPPING_LIDAR_FRAME`으로 덮어쓴다.
 `FH_MAPPING_LIDAR_TO_BODY`(x,y,z,roll,pitch,yaw; m/rad)는 보정 덮어쓰기이며
 기본은 영 변환이다. 센서 장착 오프셋/각도에 따른 벽 겹침은 실기 첫 검증 항목이다.
 잘못된 frame은 FAILED/SENSOR_FRAME.
 같은 초기화 DDS participant/NIC에서 ChannelSubscriber만 추가하며 publisher/RPC/이동 명령은 없다.
+
+
+## 실기 첫 확인 (이번 작업에서 실행하지 않음)
+
+1. 같은 전용 NIC에서 점군 topic/PointCloud2 frame, odometry 시각의 단조 증가·상대 시차 확인.
+2. 설치 파일의 slam extra 포함과 cp310 NumPy wheel 오프라인 설치 확인.
+3. 담당 운영자 폰 조종 중 지도 만들기·미리보기 1초 갱신·벽 겹침/센서 장착 보정 확인.
+4. STOP의 기존 경로/정지 지연이 그대로인지, 지도 작업의 SDK publisher/RPC가 없는지 확인.
+5. 연결 단절 후 누적 정지, 재연결 후 저장 재시도·취소, 새 지도 판/연결 지형과 이전 판 보존 확인.
+6. 긴 경로/회전 중 odometry 드리프트·deskew 미적용에 따른 실제 품질 확인 (루프 닫기 없음).

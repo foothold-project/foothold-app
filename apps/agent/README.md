@@ -140,7 +140,7 @@ Core 안전 피드백인 `on_robot_state`와 별도이며 매 송신마다 원�
 넣는다. Session이 hello와 각 state의 `devices_changed`에서 만료를 다시 계산한다.
 다리와 Session은 같은 단조 시계(시험의 주입 시계도 포함)를 사용해야 한다.
 `event.robot_at`은 `null`이다(주입 단조 시각은 `data.monotonic_s`). 미디어·이진·업로드,
-지도 다운로드·SLAM·층 변경·사람 확인·return 경로 실행은 후속 작업이며 해당 프레임은
+지도 다운로드·층 변경·사람 확인·return 경로 실행은 후속 작업이며 해당 프레임은
 무시한다. 실제 임무 계획을 실행하는 기능은 없다.
 
 검증 결과·변이 표·계약 모호점은 [LINK-VALIDATION.md](LINK-VALIDATION.md)에 기록한다.
@@ -240,3 +240,17 @@ used/회수의 논리4096개 상한·FULL commit·저장 실패 거부는 유지
 열린 조종 연결을0·잠금·비움 및4403 종료한 뒤 ack한다. 새 hello도 거부한다. 재시작 뒤에도
 until까지 유지하며 저장 실패는 정지·새 연결 거부다. 서버 단절 중 새 회수는 최대600초 지연된다.
 발급/회수·회전은 [API §13.7](../../docs/spec/05-API-SPEC.md#137-출입증-발급회수-fh-control)을 따른다.
+
+
+## 실기 지도 만들기 (코드/합성 자료 검증)
+
+Go2 direct의 폰 조종+서버 보고, server 모드, readonly 모드에서 `slam` 프레임을
+읽기 전용 지도 작업으로 분기한다. 기존 조종/STOP 경로는 유지한다.
+`pip install '.[slam]'`의 NumPy 1.26.4만 추가하며 **설치 파일에는 slam extra를 포함할 것**.
+설치 파일·실기 설정·실기/Gazebo 실행은 이 변경에 포함하지 않는다.
+기존 관측 DDS participant/NIC에서 기본 `rt/utlidar/cloud` PointCloud2 구독을 공유한다.
+5 cm voxel odometry 누적이며 루프 닫기/ICP/deskew는 없다.
+미리보기는 1초마다 별도 HTTP로 보내고 binary PCD 저장은 agent 토큰으로 한다.
+업로드 실패 시 `~/.cache/foothold/mapping/<session UUID>.pcd`와 메모리 누적을 유지한다.
+연결 단절 뒤 자동 누적 재개 없이 저장/취소만 가능하며 프로세스 재시작 복구는 지원하지 않는다.
+설정·계약·오류·실기 첫 확인 목록은 [MAPPING.md](../server/MAPPING.md)를 따른다.
