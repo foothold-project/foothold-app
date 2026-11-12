@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFeatures, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport } from '../../contracts/ts';
+import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFeatures, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, RobotInstallerInfo, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport } from '../../contracts/ts';
 
 // 구역 지키기 1차(RB-ZONE-WEB 11-12) — 타입은 계약 생성물 그대로(정본 apps/server/ZONES.md)
 export type { ScenarioMapUpdate as MapUpdate, ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
@@ -116,6 +116,8 @@ export const api = {
   // 실기 연결(05 §3.1, 운영만). claim = 노트북 화면의 6자리 코드 → 기체번호, confirm = 이름 → 로봇(연결 키는 노트북 연결 프로그램만 받는다)
   claimPairing: (code: string, cancel?: AbortSignal) => call<PairingClaimed>('POST', '/pairing/claim', { code }, { cancel }),
   confirmPairing: (id: string, name: string, cancel?: AbortSignal) => call<RobotSummary>('POST', `/pairing/${encodeURIComponent(id)}/confirm`, { name }, { cancel }),
+  /** 노트북 연결 프로그램 설치 파일 상태(운영체제별). 받기는 링크 GET /robot-installer/{linux|windows}(로그인 쿠키) — apps/server/ROBOT-INSTALLER.md */
+  installerInfo: (cancel?: AbortSignal) => call<RobotInstallerInfo>('GET', '/robot-installer/info', undefined, { cancel }),
   /** 연결 끊기: 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금(204) */
   disconnectRobot: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/robots/${encodeURIComponent(id)}/connection`, undefined, { cancel }),
   // 설정 탭 요청은 cancel(로그인 세션의 취소 신호)을 받는다 — 세션이 끝난 뒤 온 답은 CANCELED 로 버려 다음 세션의 인증을 건드리지 않음

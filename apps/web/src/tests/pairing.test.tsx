@@ -563,3 +563,114 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     expect(calls.some((c) => c.path.includes('owner-candidates'))).toBe(false);
   });
 });
+
+describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => {
+  const LINUX = { platform: 'linux', available: true, version: '0.3.0', size: 12_897_485, sha256: 'a'.repeat(64), built_at: '2026-11-12T00:00:00Z', commit: 'c'.repeat(40), filename: 'foothold-robot_0.3.0_amd64.deb' };
+  const WIN = { platform: 'windows', available: false, reason: 'not_supported_yet' };
+  const info = (...items: unknown[]): Reply => ({ status: 200, body: { items } });
+  const ua = (s: string) => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(s);
+  const UBUNTU = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64) Chrome/130', WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130';
+  const rows = () => [...box.querySelectorAll<HTMLElement>('[data-installer] [data-os]')];
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+  it('PC Ubuntu: 내 운영체제 줄 위·강조, 받기 = 로그인 쿠키 링크(크기 MB), 윈도우 준비 중, 받은 뒤 세 줄, 개발자 용어 없음', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(WIN, LINUX) }));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    const box2 = $('[data-installer]')!;
+    expect(box2.textContent).toContain('노트북에 연결 프로그램이 없나요?');
+    expect(rows().map((r) => r.dataset.os)).toEqual(['linux', 'windows']);
+    expect(rows()[0].dataset.mine).toBe('true');
+    expect(rows()[0].textContent).toContain('Ubuntu 노트북 (이 노트북)');
+    const a = $<HTMLAnchorElement>('[data-os="linux"] a')!;
+    expect(a.getAttribute('href')).toBe('/api/v1/robot-installer/linux');
+    expect(a.getAttribute('download')).toBe('foothold-robot_0.3.0_amd64.deb');
+    expect(a.textContent).toBe('받기 (12.3 MB)');
+    expect(a.className).toBe('btn pri');
+    expect($('[data-os="windows"] a')).toBeNull();
+    expect($('[data-os="windows"]')!.textContent).toContain('준비 중입니다');
+    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 코드를 아래에 넣기']);
+    expect(box2.textContent).not.toMatch(/sha|commit|platform|deb|0\.3\.0/i);
+    expect($('[data-installer-phone]')).toBeNull();
+  });
+
+  it('윈도우 브라우저: 윈도우 줄이 위·강조, 받을 수 있으면 «PC 보호 → 추가 정보 → 실행» 안내', async () => {
+    ua(WINDOWS);
+    serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(LINUX, { ...LINUX, platform: 'windows', filename: 'foothold-robot-setup.exe' }) }));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect(rows().map((r) => r.dataset.os)).toEqual(['windows', 'linux']);
+    expect(rows()[0].dataset.mine).toBe('true');
+    expect(rows()[1].dataset.mine).toBeUndefined();
+    expect(rows()[0].textContent).toContain('‘Windows의 PC 보호’ 가 뜨면 ‘추가 정보 → 실행’');
+  });
+
+  it('만드는 중: «만드는 중… 잠시 뒤 다시», 10초마다 다시 묻다가 준비되면 받기, 닫으면 멈춤 / 없는 이유는 쉬운 말', async () => {
+    ua(UBUNTU);
+    let now: Reply = info({ platform: 'linux', available: false, reason: 'building' }, { ...WIN, reason: 'build_tools_missing' });
+    serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': () => now }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });   // 10초 다시 묻기 타이머가 가짜 시계에 걸리게 — flush 의 0ms 는 실제 시간으로 흐름
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect($('[data-os="linux"]')!.textContent).toContain('만드는 중… 잠시 뒤 다시');
+    expect($('[data-os="windows"]')!.textContent).toContain('이 서버에서는 설치 파일을 만들 수 없습니다');
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(1);
+    const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    await wait(9_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(1);
+    await wait(1_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(2);
+    now = info(LINUX, WIN);
+    await wait(10_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(3);
+    expect($('[data-os="linux"] a')!.textContent).toBe('받기 (12.3 MB)');
+    await wait(30_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(3);   // 준비됨 → 더 묻지 않음
+    // 다시 만드는 중으로 열었다가 닫으면 멈춤
+    now = info({ platform: 'linux', available: false, reason: 'not_built' }, WIN);
+    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
+    act(() => btn('+ 새 로봇 추가')!.click()); await wait(0);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
+    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
+    await wait(30_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
+  });
+
+  it('정보 실패(403·네트워크)는 카드 안 한 줄, 6자리 코드 입력·claim 은 그대로', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA], {
+      'GET /robot-installer/info': err(403, 'FORBIDDEN', '권한이 없습니다.'),
+      'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } },
+    }));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect($('[data-installer-fail]')!.textContent).toBe('설치 파일 정보를 받지 못했습니다. 권한이 없습니다.');
+    expect(rows()).toHaveLength(0);
+    expect($('[aria-label="새 로봇 추가"] [role="alert"]')).toBeNull();
+    setVal($<HTMLInputElement>('[data-pair-code]')!, '123456');
+    await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
+    expect(card('새 로봇 추가').dataset.pair).toBe('name');
+    expect($('[data-installer]')).toBeNull();   // 이름 단계엔 카드 없음
+  });
+
+  it('네트워크 실패도 한 줄', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA]));
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', (u: string, i?: RequestInit) => (u.includes('robot-installer') ? Promise.reject(new TypeError('x')) : real(u, i)));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect($('[data-installer-fail]')!.textContent).toContain('서버에 연결하지 못했습니다');
+    expect($<HTMLInputElement>('[data-pair-code]')!.disabled).toBe(false);
+  });
+
+  it('폰: 노트북 브라우저에서 받으라는 안내, 받기 링크는 작게', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [], { 'GET /robot-installer/info': info(LINUX, WIN) }));
+    await open('#/drive', true);
+    await startPair();
+    expect($('[data-installer-phone]')!.textContent).toBe('노트북 브라우저에서 이 사이트에 로그인해 «+ 로봇 연결하기 → 새 로봇 추가» 에서 받으세요.');
+    expect($<HTMLAnchorElement>('[data-os="linux"] a')!.className).toBe('lbl');
+  });
+});

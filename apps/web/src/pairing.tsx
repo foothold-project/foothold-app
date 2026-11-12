@@ -2,10 +2,11 @@
 // 총괄은 실기 로봇에 쓰기가 없다 — 담당 없는 실기의 담당 지정만(AssignOwner). 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
 // 담당 넘기기(TransferOwner): 내 로봇 관리 안 — 넘길 대상 목록(owner-candidates) → 같은 화면 확인 → PATCH owner_user_id.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { PairingClaimed, RobotOwnerCandidate, User as ApiUser } from '../../contracts/ts';
+import type { PairingClaimed, RobotInstallerInfo, RobotOwnerCandidate, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
+import { PHONE_Q } from './App';
 import type { Robot } from './fake';
-import { Chip } from './screens';
+import { Chip, inApp } from './screens';
 import { OwnerSelect, robotFail } from './screens/settings';
 
 type Cancel = { cancel?: AbortSignal };
@@ -47,6 +48,58 @@ function Scan({ found, close }: { found: (code: string) => void; close: () => vo
     {why ? <p className="fh-why" role="status" data-scan-why>{why}</p>
       : <video ref={v} muted playsInline aria-label="QR 카메라" style={{ width: '100%', maxHeight: 280, background: '#000', borderRadius: 8 }} />}
     <button type="button" className="btn" onClick={close}>카메라 닫기</button>
+  </div>;
+}
+
+type Os = RobotInstallerInfo['items'][number]['platform'];
+const OS_NAME: Record<Os, string> = { linux: 'Ubuntu 노트북', windows: '윈도우 노트북' };
+/** 서버가 아직 만드는 중(첫 info 요청이 빌드를 시작 — not_built 는 곧 building) → 10초마다 다시 묻는다 */
+const MAKING = new Set(['building', 'not_built']);
+const WHY: Record<string, string> = {
+  build_failed: '설치 파일을 만들지 못했습니다. 총괄 운영 관리자에게 알려 주세요.',
+  invalid_artifact: '설치 파일을 만들지 못했습니다. 총괄 운영 관리자에게 알려 주세요.',
+  build_tools_missing: '이 서버에서는 설치 파일을 만들 수 없습니다. 총괄 운영 관리자에게 알려 주세요.',
+  limit_exceeded: '서버 저장 공간이 모자라 설치 파일을 만들지 못했습니다. 총괄 운영 관리자에게 알려 주세요.',
+  disabled: '이 서버에서는 설치 파일 받기를 꺼 두었습니다.',
+  not_supported_yet: '준비 중입니다. 곧 받을 수 있습니다.',
+};
+/** 이 브라우저의 운영체제(그 줄을 위에·강조). 모르면 null */
+const myOs = (): Os | null => {
+  const p = `${(navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? ''} ${navigator.userAgent}`;
+  return /Windows/i.test(p) ? 'windows' : /Android/i.test(p) ? null : /Linux|X11|Ubuntu/i.test(p) ? 'linux' : null;
+};
+
+/** 새 로봇 추가 위 «노트북에 연결 프로그램이 없나요?» — 운영체제별 받기·만드는 중·이유. 실패해도 코드 입력은 그대로(카드 안 한 줄).
+ *  폰(좁은 화면·앱)은 노트북 브라우저에서 받으라는 안내, 받기 링크는 작게 */
+function Installer({ cancel }: Cancel) {
+  const [items, setItems] = useState<RobotInstallerInfo['items'] | null>(null), [fail, setFail] = useState('');
+  const phone = inApp() || !!globalThis.matchMedia?.(PHONE_Q).matches, mine = myOs();   // 폰 틀(App PHONE_Q)·앱 — 짧게 열리는 카드라 폭 변화는 따라가지 않음
+  useEffect(() => {
+    let live = true, timer = 0;
+    const load = () => api.installerInfo(cancel).then((r) => {
+      if (!live) return;
+      setItems(r.items); setFail('');
+      if (r.items.some((i) => !i.available && MAKING.has(i.reason))) timer = window.setTimeout(load, 10_000);
+    }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setFail(`설치 파일 정보를 받지 못했습니다. ${e.message}`); });
+    load();
+    return () => { live = false; clearTimeout(timer); };
+  }, []);
+  const rows = [...(items ?? [])].sort((a, b) => Number(b.platform === mine) - Number(a.platform === mine));
+  return <div className="fh-form" role="group" aria-label="설치 파일 받기" data-installer style={{ padding: 8, borderRadius: 8, border: '1px solid var(--line)' }}>
+    <b>노트북에 연결 프로그램이 없나요?</b>
+    {phone && <p className="lv-note" data-installer-phone>노트북 브라우저에서 이 사이트에 로그인해 «+ 로봇 연결하기 → 새 로봇 추가» 에서 받으세요.</p>}
+    {fail ? <p className="lbl" role="status" data-installer-fail>{fail}</p>
+      : !items ? <p className="lbl" role="status">설치 파일을 확인하는 중…</p>
+      : rows.map((i) => <div key={i.platform} className="fh-row" data-os={i.platform} data-mine={i.platform === mine || undefined}
+        style={i.platform === mine ? { padding: 6, borderRadius: 6, border: '1px solid var(--accent)', background: 'var(--acc-bg)' } : undefined}>
+        <span className="fh-grow" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{i.platform === mine ? <b>{OS_NAME[i.platform]} (이 노트북)</b> : OS_NAME[i.platform]}
+          {i.platform === 'windows' && i.available && <span className="lbl" style={{ display: 'block' }}>처음 실행 때 ‘Windows의 PC 보호’ 가 뜨면 ‘추가 정보 → 실행’</span>}</span>
+        {i.available
+          ? <a className={phone ? 'lbl' : 'btn pri'} href={`/api/v1/robot-installer/${i.platform}`} download={i.filename}>받기 ({(i.size / 1048576).toFixed(1)} MB)</a>
+          : <span className="lbl" data-why>{MAKING.has(i.reason) ? '만드는 중… 잠시 뒤 다시' : WHY[i.reason] ?? '아직 받을 수 없습니다.'}</span>}
+      </div>)}
+    <ol className="lbl" style={{ margin: 0, paddingLeft: 20 }} data-installer-steps>
+      <li>받은 파일을 더블클릭해 설치</li><li>랜선을 로봇에 꽂기</li><li>노트북 화면의 코드를 아래에 넣기</li></ol>
   </div>;
 }
 
@@ -92,6 +145,7 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
     <div className="fh-row"><h2 className="fh-grow">새 로봇 추가</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
     {step.at === 'code' && <>
+      <Installer cancel={cancel} />
       <p className="lv-note">노트북에서 FOOTHOLD 로봇 연결을 켜면 화면에 QR·6자리 코드가 나옵니다(10분 안에 한 번만 쓸 수 있습니다).</p>
       {scan ? <Scan found={(c) => { setCode(c); claim(c); }} close={() => setScan(false)} />
         : <button type="button" className="btn pri" disabled={busy} onClick={() => { setMsg(''); setScan(true); }}>QR 스캔</button>}
