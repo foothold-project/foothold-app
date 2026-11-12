@@ -76,7 +76,7 @@ class Discovery:
             info = item.sample_info
             if not info.valid_data or info.instance_state != InstanceState.Alive:
                 self.endpoints.pop(item.key, None)
-            elif item.key in self.endpoints or len(self.endpoints) < 256:
+            elif image_topics([item]) and (item.key in self.endpoints or len(self.endpoints) < 256):
                 self.endpoints[item.key] = item
         return image_topics(self.endpoints.values())
 

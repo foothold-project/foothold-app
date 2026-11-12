@@ -150,8 +150,11 @@ def test_discovery_only_filter_default_candidates_and_explicit_choice():
 def test_native_discovery_boundary_reads_only_publication_metadata(monkeypatch):
     from foothold_agent.depth.discovery import Discovery, shared_participant
     made=[]; publication=object()
-    values=endpoints(('rt/custom/depth',IMAGE))
-    values[0].key='fake-camera'; values[0].sample_info=NS(valid_data=True,instance_state=1)
+    camera=endpoints(('rt/custom/depth',IMAGE))[0]
+    camera.key='fake-camera'; camera.sample_info=NS(valid_data=True,instance_state=1)
+    # Unrelated robot publishers cannot consume the bounded camera inventory.
+    values=[NS(topic_name=f'rt/state{i}',type_name='State',key=str(i),
+        sample_info=NS(valid_data=True,instance_state=1)) for i in range(64)]
     class Builtin:
         def __init__(self, participant, topic): made.append((participant,topic))
         def take(self, count): assert count==64; return values
@@ -161,9 +164,11 @@ def test_native_discovery_boundary_reads_only_publication_metadata(monkeypatch):
     monkeypatch.setitem(sys.modules,'unitree_sdk2py.core.channel',NS(ChannelFactory=lambda:factory))
     assert shared_participant()=='existing-domain-zero-nic-participant'
     discovery=Discovery(shared_participant())
+    assert discovery.poll()==[] and discovery.endpoints=={}
+    values=[camera]
     assert len(discovery.poll())==1
     assert made==[('existing-domain-zero-nic-participant',publication)]
-    values[0].sample_info=NS(valid_data=False,instance_state=2)
+    camera.sample_info=NS(valid_data=False,instance_state=2)
     assert discovery.poll()==[]  # disposed publisher must disappear
     discovery.close()
     factory._ChannelFactory__initialized=False
