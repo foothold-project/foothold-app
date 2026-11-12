@@ -288,14 +288,15 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
     {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
     {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
   </>;
-  // where(지도 탭 «어느 층에?»)는 이름 바꾸기·삭제 없이 층 고르기·만들기만 — 고치기는 층 화면 «이름 바꾸기·삭제…»(fixBody)
-  const where = make === 'robot' || make === 'file', fixing = (k: Kind, x: { id: string; name: string; level?: number }) => (where ? null : tools(k, x));
+  // where(지도 탭 «어느 층에?»)는 층 고르기·만들기만 — 고치기는 층 화면 «이름 바꾸기·삭제…»(fixBody).
+  // 단, 층이 하나도 없는 장소·건물은 들어갈 층 화면이 없으니 그 줄에 이름 바꾸기·삭제를 둔다(REVIEW-341)
+  const where = make === 'robot' || make === 'file', fixing = (k: Kind, x: { id: string; name: string; level?: number }, empty = false) => (where && !empty ? null : tools(k, x));
   const placeBody = <div role="group" aria-label="장소" className="fh-form" style={{ gap: 8 }}>
     {places.length > 4 && <input className="inp" type="search" aria-label="장소 거르기" placeholder="장소·건물·층 이름으로 거르기" value={q} onChange={(e) => setQ(e.target.value)} />}
     {t.tree?.items.filter((s) => own(s) && (!q.trim() || s.buildings.some((b) => hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))) || hit(s.name))).map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div className="fh-row"><b className="fh-grow">{s.name}</b>{fixing('sites', s)}</div>
+      <div className="fh-row"><b className="fh-grow">{s.name}</b>{fixing('sites', s, s.buildings.every((b) => !b.floors.length))}</div>
       {s.buildings.filter((b) => !q.trim() || hit(s.name) || hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))).map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
-        <div className="fh-row"><span className="fh-grow">{b.name}</span>{fixing('buildings', b)}</div>
+        <div className="fh-row"><span className="fh-grow">{b.name}</span>{fixing('buildings', b, !b.floors.length)}</div>
         <ul className="fh-list" aria-label={`${b.name} 층`}>{b.floors.filter((f) => !q.trim() || hit(s.name, b.name, f.name)).map((f) => <li key={f.id} className="fh-row">
           <button type="button" style={{ flex: 1 }} onClick={() => choose(f.id, where ? make as Intent : null)}><span className="fh-grow">{f.name}</span>
             <span className="lbl">{!f.approved_version_id && '지도 없음'}</span></button>{fixing('floors', f)}</li>)}</ul>

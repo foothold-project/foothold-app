@@ -346,6 +346,38 @@ describe('지도 탭 — 장소 나무', () => {
     expect(btn('+ 장소')).toBeTruthy(); expect(btn('이름 바꾸기')).toBeUndefined(); expect(btn('삭제')).toBeUndefined();
     expect(box.textContent).not.toMatch(/SLAM/);
   });
+  // REVIEW-341: 층 없는 장소·건물은 들어갈 층 화면이 없어 «어느 층에?» 줄에서 바로 이름 바꾸기·삭제(층 있는 것은 층 화면에서)
+  const HOLLOW = { ...TREE, items: [{ ...TREE.items[0], buildings: [...TREE.items[0].buildings, { id: 'b2', site_id: 's1', name: '신동', floors: [] }] },
+    { id: 's2', name: '별관', purpose: 'REAL', buildings: [] }] } as unknown as SiteTree;
+  const site = (name: string) => card('장소').querySelector(`[aria-label="장소 ${name}"]`)!;   // 고르기 화면에도 같은 라벨이 있어 «어느 층에?» 창 안에서
+  const rowOf = (at: string, name: string) => { const r = $$('.fh-row', site(at)).find((x) => x.firstElementChild?.textContent === name); expect(r).toBeTruthy(); return r!; };
+  it('빈 건물(층 없음)은 «어느 층에?» 줄에서 이름 바꾸기·삭제 — 층 있는 건물·층·장소 줄엔 없음', async () => {
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: HOLLOW }, 'DELETE /buildings/b2': { status: 204 } }));
+    await open('#/map');
+    await toWhere();
+    expect(btn('이름 바꾸기', rowOf('본관', '신동'))).toBeTruthy();
+    expect(btn('이름 바꾸기', rowOf('본관', '본동'))).toBeUndefined();
+    expect(btn('삭제', rowOf('본관', '본관'))).toBeUndefined();                         // 본동에 층이 있어 본관 장소는 층 화면에서
+    expect(btns(site('본관')).filter((b) => b.textContent === '삭제')).toHaveLength(1);
+    await click(btn('삭제', rowOf('본관', '신동')));
+    expect(card('확인').textContent).toContain('«신동» 건물을 휴지통으로 옮길까요?');
+    await click(btn('삭제', card('확인')));
+    expect(writes()).toEqual(['DELETE /buildings/b2']);
+    expect(card('장소').textContent).toContain('«신동» 건물을 휴지통으로 옮겼습니다.');
+  });
+  it('빈 장소(건물·층 없음)도 «어느 층에?» 줄에서 이름 바꾸기·삭제', async () => {
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: HOLLOW }, 'PATCH /sites/s2': { status: 200, body: { id: 's2', name: '별관 2', purpose: 'REAL', buildings: [] } },
+      'DELETE /sites/s2': { status: 204 } }));
+    await open('#/map');
+    await toWhere();
+    await click(btn('이름 바꾸기', rowOf('별관', '별관')));
+    await setVal(field('이름', card('장소 이름 바꾸기 — 별관')), '별관 2');
+    await click(btn('저장', card('장소 이름 바꾸기 — 별관')));
+    await click(btn('삭제', rowOf('별관', '별관')));
+    expect(card('확인').textContent).toContain('«별관» 장소를 휴지통으로 옮길까요?');
+    await click(btn('삭제', card('확인')));
+    expect(writes()).toEqual(['PATCH /sites/s2', 'DELETE /sites/s2']);
+  });
   it('총괄(담당 로봇 없음)은 «+ 파일 올리기»만', async () => {
     serve(signedIn(KIM));
     await open('#/map');
