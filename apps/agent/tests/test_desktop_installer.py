@@ -268,3 +268,35 @@ def test_cached_inputs_are_reverified_without_download_and_corruption_fails(tmp_
     path.write_bytes(b'corrupted cached archive')
     with pytest.raises(ValueError,match='input hash mismatch'):
         builder.fetch(asset,tmp_path)
+
+
+def test_linux_protocol_handler_has_one_untrusted_uri_argument():
+    import configparser
+    entry = configparser.ConfigParser(interpolation=None)
+    entry.read(INSTALLER/'foothold-robot.desktop')
+    assert entry['Desktop Entry']['Exec'] == '/opt/foothold-robot/launch --protocol %u'
+    assert entry['Desktop Entry']['MimeType'] == 'x-scheme-handler/foothold-robot;'
+    entry.read_string(builder.autostart_entry((INSTALLER/'foothold-robot.desktop').read_text()))
+    assert entry['Desktop Entry']['Exec'] == '/opt/foothold-robot/launch --autostart'
+    automatic = builder.autostart_entry((INSTALLER/'foothold-robot.desktop').read_text())
+    assert '--protocol' not in automatic and 'MimeType=' not in automatic
+
+
+def test_desktop_database_update_failure_does_not_fail_install(tmp_path):
+    import os
+    import subprocess
+    fake = tmp_path/'bin'
+    fake.mkdir()
+    log = tmp_path/'database-call'
+    commands = {
+        'update-desktop-database':'#!/bin/sh\nprintf "%s" "$*" > "$DATABASE_TEST_LOG"\nexit 1\n',
+        'loginctl':'#!/bin/sh\nexit 0\n',
+    }
+    for name, content in commands.items():
+        executable = fake/name
+        executable.write_text(content)
+        executable.chmod(0o755)
+    result = subprocess.run(['sh', str(INSTALLER/'postinst'), 'configure'],
+                            env=dict(os.environ, PATH=str(fake)+':/usr/bin:/bin', DATABASE_TEST_LOG=str(log)))
+    assert result.returncode == 0
+    assert log.read_text() == '/usr/share/applications'

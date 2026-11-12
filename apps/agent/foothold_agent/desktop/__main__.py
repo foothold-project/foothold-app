@@ -14,6 +14,7 @@ from foothold_agent.setup.discovery import candidates, select
 from foothold_agent.setup.storage import default_path
 from foothold_agent.setup.view import Status, make_server
 from . import network
+from .browser import open_window, server_origin, state_dir
 from foothold_agent.setup.platform import install_stop_handlers
 
 
@@ -56,7 +57,7 @@ def set_autostart(enabled):
 
 
 class Controls:
-    def __init__(self):
+    def __init__(self, *, status=None, server=None):
         self.lock = threading.Lock()
         self.active = False
         self.busy = False
@@ -65,17 +66,27 @@ class Controls:
         self.restart = False
         self.selected_nic = None
         self.request_stop = None
+        self.status = status
+        self.server = server_origin(server) if server is not None else None
+
+    def can_open_server(self):
+        return bool(self.server and self.status and self.status.snapshot().get('connected'))
 
     def snapshot(self):
         with self.lock:
             return dict(autostart=autostart_enabled(), network_choices=list(self.choices),
-                        network_message=self.message, busy=self.busy, platform='windows' if os.name == 'nt' else 'linux')
+                        network_message=self.message, busy=self.busy, platform='windows' if os.name == 'nt' else 'linux',
+                        server_web_available=self.can_open_server())
 
     def action(self, body):
         if body == {'action':'autostart', 'enabled':True}:
             set_autostart(True)
         elif body == {'action':'autostart', 'enabled':False}:
             set_autostart(False)
+        elif body == {'action':'server-web'}:
+            if not self.can_open_server():
+                raise PermissionError('server connection required')
+            webbrowser.open(self.server)
         elif set(body) == {'action', 'nic'} and body['action'] == 'network':
             with self.lock:
                 if self.active or self.busy or body['nic'] not in [c['name'] for c in self.choices]:
@@ -89,9 +100,9 @@ class Controls:
                         self.selected_nic = body['nic']
                     message = '유선 연결을 설정했습니다. 로봇을 다시 찾고 있습니다.'
                 except Exception:
-                    message = (('유선 설정을 마치지 못했습니다. 관리자 확인 창(UAC)을 확인하거나 Windows 설정 → 네트워크 및 인터넷 → 고급 네트워크 설정에서 ' if os.name == 'nt' else '유선 설정을 마치지 못했습니다. 비밀번호 창을 확인하거나 Ubuntu 설정 → 네트워크에서 ')
-                               + '기체 전용 유선을 선택하세요. IPv4 수동, 중복 없는 192.168.123.200~254/24, '
-                               '게이트웨이·DNS 비움, 기본 경로 사용 안 함으로 설정하세요. 다른 유선·Wi-Fi는 바꾸지 마세요.')
+                    message = ('유선 설정을 마치지 못했습니다. '+
+                               ('관리자 확인 창' if os.name == 'nt' else '비밀번호 창')+
+                               '을 확인하고 다시 누르세요. 계속 안 되면 아래의 «직접 설정하는 법»을 펼쳐 보세요.')
                 with self.lock:
                     self.message, self.busy = message, False
             threading.Thread(target=worker, daemon=True).start()
@@ -141,11 +152,11 @@ async def connect_when_ready(args, status, controls):
                 else:
                     message = ('로봇을 찾지 못했습니다. 기체 전원과 노트북 랜선을 확인하세요. '
                                '인터넷용 유선 대신 기체 전용 USB 랜 어댑터를 사용하세요. '
-                               '유선 주소는 중복 없는 192.168.123.200~254/24, 게이트웨이·DNS 비움, '
-                               '기본 경로 사용 안 함으로 설정하세요. Wi-Fi는 유지하세요.')
+                               '연결한 뒤 «유선 연결 설정»을 누르세요. Wi-Fi는 켜 두세요. '
+                               '계속 안 되면 아래의 «직접 설정하는 법»을 펼쳐 보세요.')
                 status.update(mode=message)
             except Exception:
-                status.update(mode='유선 연결 정보를 읽지 못했습니다. '+('Windows 설정 → 네트워크 및 인터넷' if os.name == 'nt' else 'Ubuntu 설정 → 네트워크')+'에서 랜선과 기체 전용 주소를 확인하세요.')
+                status.update(mode='유선 연결 정보를 읽지 못했습니다. 랜선을 확인하고 «유선 연결 설정»을 누르세요. 계속 안 되면 «직접 설정하는 법»을 펼쳐 보세요.')
             try:
                 await asyncio.wait_for(stop.wait(), 2)
             except asyncio.TimeoutError:
@@ -156,6 +167,11 @@ async def connect_when_ready(args, status, controls):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # The protocol is only an activation signal. Discard the whole untrusted
+    # payload, including anything that resembles our own CLI options.
+    if '--protocol' in argv:
+        argv = []
     parser = argparse.ArgumentParser(description='FOOTHOLD 로봇 연결')
     parser.add_argument('--autostart', action='store_true')
     parser.add_argument('--managed', action='store_true', help=argparse.SUPPRESS)
@@ -170,12 +186,12 @@ def main(argv=None):
         active = subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'foothold-robot.service']).returncode == 0
         subprocess.run(['systemctl', '--user', 'start', 'foothold-robot.service'], check=True)
         if active and not args.no_browser:
-            webbrowser.open('http://127.0.0.1:9611')
+            open_window('http://127.0.0.1:9611')
         return 0
     os.environ['PATH'] = str(root/'tools')+os.pathsep+os.environ.get('PATH', '/usr/bin:/bin')
     args.server = json.loads((root/'server.json').read_text())['server']
     args.config, args.wheel_dir = default_path(), str(root/'wheels')
-    cache = Path(os.environ['LOCALAPPDATA'])/'foothold/cache' if os.name == 'nt' else Path.home()/'.cache/foothold'
+    cache = state_dir()
     cache.mkdir(mode=0o700, parents=True, exist_ok=True)
     if os.name == 'nt':
         from .windows import InstanceLock
@@ -187,10 +203,11 @@ def main(argv=None):
         instance.__enter__()
     except BlockingIOError:
         if not args.no_browser:
-            webbrowser.open('http://127.0.0.1:9611')
+            open_window('http://127.0.0.1:9611')
         return 0
     try:
-        controls, status = Controls(), Status()
+        status = Status()
+        controls = Controls(status=status, server=args.server)
         report = setup.inspect(args.wheel_dir)  # metadata only, even without a connected NIC
         status.update(preflight={'installation_ready':report['installation_ready'], 'issues':report['issues']})
         server = make_server(status, 9611, controls=controls)
@@ -198,7 +215,7 @@ def main(argv=None):
         worker.start()
         try:
             if not args.no_browser:
-                webbrowser.open('http://127.0.0.1:9611')
+                open_window('http://127.0.0.1:9611')
             asyncio.run(connect_when_ready(args, status, controls))
         finally:
             server.shutdown()

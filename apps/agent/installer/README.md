@@ -30,6 +30,8 @@ python3 apps/agent/installer/build.py --server https://example.invalid
 
 - 앱 목록과 `/etc/xdg/autostart`의 아이콘은 사용자 systemd 서비스로 연결한다. 설치 후 활성 로컬 그래픽 사용자의 기존 user manager에서 시작을 시도하며 root로 프로그램을 실행하지 않는다. 그래픽 세션이 없으면 다음 로그인 때 시작한다. 자동 시작을 끈 사용자의 선택은 재설치에도 보존한다.
 - 앱 화면에서 자동 시작 선택·프로그램 종료·명시적 다시 연결을 제공한다. 중복 실행은 사용자별 flock으로 기존 화면을 연다. token·서버 주소를 명령줄/환경에 넘기지 않는다. Python은 `-I`로 실행한다.
+- 로컬 창은 Linux의 Chrome → Chromium(스냅 포함) → Edge, Windows의 Edge 앱 모드(720×820)를 사용하며 없으면 기본 브라우저로 연다. Linux는 X11/XWayland의 전용 창 식별자, Windows는 앱 창 제목으로 기존 창을 찾아 복원한다(추가 Python 패키지 없음). Ubuntu Desktop의 XWayland를 사용하며 DISPLAY가 없는 환경의 창 재선택은 미검증이다. 전용 프로필은 프로그램 캐시 아래에 두어 개인 로그인과 분리한다(스냅은 자체 상태 폴더 아래). 연결 뒤 **서버 웹 열기**는 설치 때 지정한 HTTPS 원점만 기본 브라우저로 연다.
+- 웹에서 `foothold-robot://open`을 열면 아이콘과 같은 단일 연결 경로로 실행한다. URI와 추가 옵션은 모두 버리고 실행·설정에 사용하지 않는다. Linux `.desktop` MIME 등록과 선택적인 `update-desktop-database` 갱신, Windows HKCU\Software\Classes\foothold-robot 사용자 등록을 사용한다. Windows 제거는 설치 폴더의 **연결 프로그램 제거.cmd**로 링크 등록·바로가기를 지우며 연결 키는 보존한다.
 - 기본 화면과 관리 POST는 정확한 `127.0.0.1:9611` Host/Origin만 받고, 관리 요청은 JSON·크기 제한·cross-site 거부를 적용한다. 관리 API는 저장된 token을 반환하지 않는다.
 - 유선 설정은 명시적 단추로만 새 NetworkManager 프로필을 생성한다. 기존 프로필은 수정하지 않는다. 물리 유선·UP·다른 IPv4 대역 없음·IPv4/IPv6 기본 경로 없음 조건을 재확인한다. 알려진 주소를 피하고 `ipv4.dad-timeout=3000`의 단일 주소 중복 검사가 실패하면 새 UUID의 프로필만 삭제한다. Wi-Fi·다른 NIC·기본 경로·DNS를 수정하지 않는다. DDS 시작 뒤에는 이 단추를 사용할 수 없다.
 - 패키지를 제거하면 해당 사용자 서비스를 먼저 종료한다. 사용자 `agent.json`·옛 env·자동 시작 선호·전용 NM 프로필은 삭제하지 않는다. 파일 관리자의 `.deb` 연결 프로그램이 설치 관리자로 지정되어 있어야 한다. 예전 Ubuntu App Center에서 로컬 deb 열기가 지원되지 않으면 설치 관리자의 업데이트/연결 설정은 배포 담당자가 준비해야 한다.
@@ -70,7 +72,7 @@ Windows 형식은 **공식 embeddable Python + distlib의 amd64 GUI PE 런처를
 
 1. ZIP 받기 → 모두 압축 풀기 → **FOOTHOLD 로봇 연결.exe** 더블클릭.
 2. `%LOCALAPPDATA%\foothold\robot\<version>-<build-id>`으로 복사되고 바탕 화면·시작 메뉴에 아이콘이 생긴다. 이후에는 그 아이콘을 누른다. SmartScreen 경고가 나오면 **추가 정보 → 실행**을 선택한다. 개발판은 서명되지 않았다.
-3. `127.0.0.1:9611` 화면이 열리면 기체 전용 랜선을 연결한다. 필요할 때만 **유선 연결 설정 (관리자 확인)**을 누르고 Windows UAC 확인 창을 승인한다. Windows 방화벽 확인은 실제 Windows 첫 검증 항목이다. 프로그램이 방화벽 규칙을 바꾸지는 않는다.
+3. **FOOTHOLD 로봇 연결** 창이 열리면 기체 전용 랜선을 연결한다. 필요할 때만 **유선 연결 설정 (관리자 확인)**을 누르고 Windows UAC 확인 창을 승인한다. Windows 방화벽 확인은 실제 Windows 첫 검증 항목이다. 프로그램이 방화벽 규칙을 바꾸지는 않는다.
 4. 자동 설정이 실패하거나 UAC를 취소하면 화면 안내에 따라 Windows 설정 → 네트워크 및 인터넷 → 고급 네트워크 설정 → 해당 기체 전용 유선의 IPv4를 수동으로 설정한다. 중복 없는 `192.168.123.200~254`, 마스크 `255.255.255.0`, 게이트웨이·DNS는 비운다. Wi-Fi·인터넷용 유선은 유지한다.
 
 키는 `%APPDATA%\foothold\agent.json`에 저장한다. Windows DACL은 소유 사용자의 FullControl 한 항목만 허용하고 상속을 끈다. 디렉터리와 빈 임시 파일의 ACL을 먼저 보호한 뒤 키를 쓰고 flush/fsync → 원자적 교체한다. 읽을 때도 owner/DACL·단일 링크·reparse point를 검사하며 넓은 ACL의 기존 키를 자동 수용하지 않는다. 기존 `~/.config/foothold/go2-agent.env`나 Windows의 옛 env 파일을 읽지 않는다.

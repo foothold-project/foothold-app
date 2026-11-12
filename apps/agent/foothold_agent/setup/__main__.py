@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 from dataclasses import replace
 from urllib.error import HTTPError, URLError
-import webbrowser
 
 from .platform import inspect, install_stop_handlers
 from foothold_agent.link.client import ReconnectForbidden
@@ -68,7 +67,7 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
             pairing = pairing_factory(server)
             await asyncio.to_thread(pairing.start, serial)
             status.update(code=pairing.code, expires_at=pairing.expires_at, qr=qr_svg(pairing.code),
-                          mode='폰에서 기체번호 확인 후 등록')
+                          mode='웹에서 노트북 화면의 코드를 넣고 이름을 입력하세요')
             while not stop.is_set():
                 if inputs.identity() != serial:
                     raise PermissionError('DDS identity changed during pairing')
@@ -139,7 +138,7 @@ async def serve(args, status, *, stop=None):
             await stop.wait()
             return False
         except Exception:
-            status.update(mode='연결 거부 · NIC·자동 점검·서버 설정 확인 후 프로그램을 다시 실행하세요',
+            status.update(mode='연결 거부 · 랜선·자동 점검·서버 연결을 확인한 뒤 프로그램을 다시 실행하세요',
                           connected=False, code=None, qr=None, expires_at=None)
             print('연결을 거부했습니다. 노트북 화면을 확인하고 종료하려면 Ctrl+C를 누르세요.', file=sys.stderr)
             await stop.wait()
@@ -170,13 +169,14 @@ def main(argv=None):
         url = f'http://127.0.0.1:{server.server_port}'
         print('로봇 연결 화면: '+url, flush=True)
         if not args.no_browser:
-            webbrowser.open(url)
+            from foothold_agent.desktop.browser import open_window
+            open_window(url)
         return 0 if asyncio.run(serve(args, status)) else 2
     except (Exception, KeyboardInterrupt):
         # Exception text and tracebacks may contain request/credential values.
-        status.update(mode='연결 거부 또는 종료 · NIC·자동 점검·서버 설정을 확인하세요', connected=False,
+        status.update(mode='연결 거부 또는 종료 · 랜선·자동 점검·서버 연결을 확인하세요', connected=False,
                       code=None, qr=None, expires_at=None)
-        print('로봇 연결이 종료되었습니다. NIC·자동 점검·서버 설정을 확인하세요.', file=sys.stderr)
+        print('로봇 연결이 종료되었습니다. 랜선·자동 점검·서버 연결을 확인하세요.', file=sys.stderr)
         return 2
     finally:
         if worker is not None:

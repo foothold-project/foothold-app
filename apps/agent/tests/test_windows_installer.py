@@ -389,6 +389,8 @@ def test_bootstrap_installs_version_and_server_identity_preserving_autostart_opt
     (source/'FOOTHOLD 로봇 연결.exe').write_bytes(b'MZ-fixture');(source/'server.json').write_text('{"server":"https://example.invalid"}')
     monkeypatch.setenv('LOCALAPPDATA',str(tmp_path/'local'));monkeypatch.setenv('APPDATA',str(tmp_path/'roaming'))
     monkeypatch.setattr(launch,'powershell',lambda script:NS(stdout=str(tmp_path/'desktop')))
+    protocols=[]
+    monkeypatch.setattr(launch,'register_protocol',lambda target:protocols.append(target))
     links=[];starts=[]
     monkeypatch.setattr(launch,'shortcut',lambda path,target:links.append((path,target)))
     monkeypatch.setattr(win,'set_autostart',lambda enabled,**kw:starts.append((enabled,kw)))
@@ -396,7 +398,9 @@ def test_bootstrap_installs_version_and_server_identity_preserving_autostart_opt
     target=launch.install(source)
     assert target==tmp_path/'local/foothold/robot/0.2.0-1-abcd/FOOTHOLD 로봇 연결.exe'
     assert target.read_bytes()==b'MZ-fixture' and len(links)==2 and len(starts)==1
+    assert protocols == [target]
     assert launch.install(target.parent) is None
+    assert protocols == [target, target]
     assert launch.install(source)==target and len(starts)==1  # opt-out survives reinstall
     (source/'version.json').write_text('{"version":"0.2.0-1","build_id":"ef01"}')
     assert launch.install(source).parent.name=='0.2.0-1-ef01'
@@ -475,3 +479,53 @@ def test_current_slam_pin_reuses_reviewed_cp310_windows_numpy_without_resolution
         raise AssertionError('reviewed slam pin must reuse the locked Windows wheel')
     monkeypatch.setattr(builder, 'urlopen', forbidden)
     assert builder.extra_wheels(groups, lock, tmp_path, tools=tmp_path) == []
+
+
+def test_protocol_registry_is_current_user_only_and_uninstall_removes_it(tmp_path, monkeypatch):
+    from foothold_agent.desktop import windows_launch as launch
+    values = {}
+    deleted = []
+    class Key:
+        def __init__(self, path): self.path = path
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    def create(hive, path):
+        assert hive == 'HKCU'
+        return Key(path)
+    def delete(hive, path):
+        assert hive == 'HKCU'
+        deleted.append(path)
+    fake = NS(HKEY_CURRENT_USER='HKCU', REG_SZ=1, CreateKey=create,
+              SetValueEx=lambda key, name, reserved, kind, value: values.__setitem__((key.path,name),value),
+              DeleteKey=delete)
+    monkeypatch.setitem(sys.modules, 'winreg', fake)
+    target = tmp_path/'한글 공백/FOOTHOLD 로봇 연결.exe'
+    launch.register_protocol(target)
+    base = r'Software\Classes\foothold-robot'
+    assert values[(base,'URL Protocol')] == ''
+    assert values[(base+r'\shell\open\command','')] == '"'+str(target)+'" --protocol "%1"'
+    monkeypatch.setenv('APPDATA', str(tmp_path/'roaming'))
+    monkeypatch.setattr(launch, 'powershell', lambda _: NS(stdout=str(tmp_path/'desktop')))
+    starts = []
+    monkeypatch.setattr(win, 'set_autostart', lambda enabled: starts.append(enabled))
+    launch.uninstall()
+    assert starts == [False]
+    assert deleted == [base+r'\shell\open\command', base+r'\shell\open', base+r'\shell', base]
+
+
+def test_protocol_bootstrap_never_forwards_link_options(tmp_path, monkeypatch):
+    from foothold_agent.desktop import windows_launch as launch
+    target = tmp_path/'installed/FOOTHOLD 로봇 연결.exe'
+    monkeypatch.setattr(launch.sys, 'executable', str(tmp_path/'python/pythonw.exe'))
+    monkeypatch.setattr(launch.sys, 'argv', ['app.exe','--protocol','foothold-robot://open?token=ignored','--repair','--nic','evil'])
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'local'))
+    monkeypatch.setattr(launch, 'install', lambda _: target)
+    class Lock:
+        def __init__(self, *_): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    monkeypatch.setattr(win, 'InstanceLock', Lock)
+    calls = []
+    monkeypatch.setattr(launch.subprocess, 'Popen', lambda argv, **kw: calls.append(argv))
+    launch.main()
+    assert calls == [[str(target)]]

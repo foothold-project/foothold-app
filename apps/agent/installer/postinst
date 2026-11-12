@@ -1,5 +1,8 @@
 #!/bin/sh
 set -eu
+if [ "$1" = configure ] && command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications || true
+fi
 # Start as the active local graphical user, through their existing user manager.
 # Never start the robot program as root or borrow another process's environment.
 if [ "$1" = configure ] && command -v loginctl >/dev/null 2>&1; then
