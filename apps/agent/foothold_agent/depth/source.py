@@ -81,9 +81,13 @@ class Source:
                                     or not 0 <= sec <= 0x7fffffff or not 0 <= nano < 1_000_000_000):
                                 continue
                             marker = sec*1_000_000_000+nano
-                            if marker <= max(0, last_stamp):
+                            # ROS Header may legitimately leave its stamp zero.
+                            # Receive freshness still uses the laptop clock;
+                            # only supplied positive sensor stamps are deduped.
+                            if marker and marker <= last_stamp:
                                 continue
-                            last_stamp = marker
+                            if marker:
+                                last_stamp = marker
                             captured_at = datetime.now(timezone.utc).isoformat()
                             frame, payload = colour(message, low, high)
                             self.invalid = False

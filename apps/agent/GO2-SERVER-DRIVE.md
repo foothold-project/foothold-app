@@ -94,7 +94,8 @@ RGB/JPEG·모호한 mono 형식·RVL은 거부한다. 입력은 최대 1920×108
 기본 0.2–5.0 m이며 가까움 빨강·멀리 파랑(TURBO 역방향), 양수 범위 밖은 끝 색,
 0·음수·NaN·Inf는 검정이다. 이는 표시 색상 범위이며 카메라의 보장 측정 범위가 아니다.
 `FH_GO2_DEPTH_MIN_M`/`FH_GO2_DEPTH_MAX_M`로 finite·0≤min<max≤10000 m를 지정할 수 있다.
-captured_at은 노트북 수신 시각이다. 중복/역행 sensor stamp는 버리고 최신 프레임 하나만
+captured_at은 노트북 수신 시각이다. 양수 sensor stamp의 중복/역행은 버리고, stamp가 0인
+카메라는 노트북 수신 시각으로 신선도를 판단한다. 최신 프레임 하나만
 보관하며 수신 후 1초가 지나면 NO_VIDEO다. DDS·변환·HTTP는 독립 daemon/업로드 worker에서
 실행하며 종료 때 멈춘 코덱이나 DDS worker를 join하지 않는다.
 

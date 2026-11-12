@@ -208,7 +208,8 @@ def test_laptop_script_compiles_without_network_or_dds():
     assert result.returncode==0,result.stderr
 
 
-def test_selected_source_freshness_switch_and_shutdown_without_native_dds():
+@pytest.mark.parametrize('sensor_stamp',['increasing','zero'])
+def test_selected_source_freshness_switch_and_shutdown_without_native_dds(sensor_stamp):
     rows = image_topics(endpoints(('rt/custom/depth', IMAGE), ('rt/second/depth', IMAGE)))
     status = Status(); status.update(depth_topics=rows); status.select_depth('rt/custom/depth')
     created = []; closed = []
@@ -221,6 +222,7 @@ def test_selected_source_freshness_switch_and_shutdown_without_native_dds():
         def take(self):
             self.count += 1
             message=raw(); message.header.stamp.sec=self.count
+            if sensor_stamp=='zero':message.header.stamp=NS(sec=0,nanosec=0)
             return [message]
         def close(self): closed.append(self.selected)
     source=Source(NS(robot=str(uuid4())), status=status, participant=lambda:'fake', discovery=Discovery, images=Images)
