@@ -1,5 +1,6 @@
 """App activation and server navigation, all OS/browser effects replaced by fakes."""
 import asyncio
+import re
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -281,3 +282,16 @@ def test_windows_existing_app_restores_and_focuses_without_browser_tabs(monkeypa
     monkeypatch.setattr(C, 'WINFUNCTYPE', C.CFUNCTYPE, raising=False)
     assert window._windows()
     assert called == [('restore',(2,9)), ('focus',(2,))]
+
+
+def test_window_uses_web_brand_tokens_and_defaults_dark():
+    from foothold_agent.setup.view import TOKENS
+    web = (Path(__file__).parents[2]/'web/public/brand/tokens/foothold.tokens.css').read_text(encoding='utf-8')
+    assert web.endswith(TOKENS) and TOKENS.startswith(':root[data-theme="dark"]{') and ':root[data-theme="light"]{' in TOKENS
+    assert TOKENS in PAGE and '<html lang="ko" data-theme="dark">' in PAGE
+    styles = PAGE.replace(TOKENS, '')
+    assert 'http' not in styles and '@import' not in styles and 'url(' not in styles
+    assert not re.findall(r'#[0-9a-f]{6}\b', styles), '색은 토큰으로만(QR 흰 바탕 #fff 제외)'
+    for value, name in (('dark', '어두움'), ('light', '밝음'), ('system', '기기 설정 따름')):
+        assert f'<option value="{value}">{name}</option>' in PAGE
+    assert "localStorage.getItem('fh.theme')" in PAGE and ':focus-visible{outline:3px solid var(--brand)' in PAGE
