@@ -18,7 +18,9 @@ def powershell(script, *, timeout=15):
 
 
 def literal(value):
-    return "'" + str(value).replace("'", "''") + "'"
+    # PowerShell treats all five characters as single-quote delimiters.
+    escaped = str(value).translate({ord(char): char*2 for char in "'\u2018\u2019\u201a\u201b"})
+    return "'" + escaped + "'"
 
 
 # One process/snapshot per selection; errors never turn into an empty safe route set.

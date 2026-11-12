@@ -21,7 +21,7 @@ def eligible(data, *, configured):
     for row in data['adapters']:
         name, index = row.get('Name'), row.get('Index')
         # FriendlyName is the name Cyclone DDS 0.10.2's Windows ifaddrs uses.
-        if (not isinstance(name, str) or not re.fullmatch(r'''[^<>&"'\x00-\x1f]{1,256}''', name)
+        if (not isinstance(name, str) or not re.fullmatch(r'''[^<>&"'\u2018-\u201b\x00-\x1f]{1,256}''', name)
                 or type(index) is not int or index in defaults or row.get('Up') is not True
                 or row.get('Physical') is not True or row.get('Virtual') is not False or row.get('Type') != 6
                 or not re.fullmatch(r'[0-9a-fA-F-]{36}', row.get('Guid', ''))):

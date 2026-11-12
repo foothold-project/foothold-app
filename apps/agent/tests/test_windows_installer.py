@@ -392,3 +392,56 @@ def test_bootstrap_installs_version_and_server_identity_preserving_autostart_opt
     (source/'version.json').write_text('{"version":"0.2.0-1","build_id":"ef01"}')
     assert launch.install(source).parent.name=='0.2.0-1-ef01'
     assert target.exists()  # active/old binary is never overwritten
+
+
+def parse_ps_single_literal(script):
+    """Model PowerShell's five single-quote delimiters, returning unconsumed code."""
+    quotes = "'\u2018\u2019\u201a\u201b"
+    assert script[0] in quotes
+    value, index = [], 1
+    while index < len(script):
+        char = script[index]
+        if char in quotes:
+            if index+1 < len(script) and script[index+1] == char:
+                value.append(char)
+                index += 2
+                continue
+            return ''.join(value), script[index+1:]
+        value.append(char)
+        index += 1
+    raise AssertionError('unterminated PowerShell literal')
+
+
+@pytest.mark.parametrize('quote', ["'", '\u2018', '\u2019', '\u201a', '\u201b'])
+def test_user_path_quotes_stay_data_in_acl_and_shortcut_scripts(tmp_path, monkeypatch, quote):
+    from foothold_agent.desktop import windows_launch as launch
+    directory = tmp_path/f'O{quote}Neil; Write-Output injected; #'
+    directory.mkdir()
+    path = directory/'agent.json'
+    path.touch()
+    scripts = []
+    monkeypatch.setattr(private, 'powershell', lambda script: scripts.append(script))
+    private.private_acl(path)
+    decoded, rest = parse_ps_single_literal(scripts[0][len('$p='):])
+    assert decoded == str(path)
+    assert rest.startswith('; $sid=')
+    monkeypatch.setattr(launch, 'powershell', lambda script: scripts.append(script))
+    launch.shortcut(directory/'FOOTHOLD.lnk', directory/'FOOTHOLD.exe')
+    shortcut = scripts[-1].split('.CreateShortcut(', 1)[1]
+    decoded, rest = parse_ps_single_literal(shortcut)
+    assert decoded == str(directory/'FOOTHOLD.lnk') and rest.startswith('); ')
+    decoded, rest = parse_ps_single_literal(scripts[-1].split('$s.TargetPath=', 1)[1])
+    assert decoded == str(directory/'FOOTHOLD.exe') and rest.startswith('; ')
+
+
+@pytest.mark.parametrize('quote', ['\u2018', '\u2019', '\u201a', '\u201b'])
+def test_smart_quote_adapter_names_never_reach_elevated_script(quote):
+    value = data(None)
+    value['adapters'][0]['Name'] = f'Ethernet{quote}; Write-Output injected; #'
+    assert win.available(query_fn=lambda: value) == []
+    assert win.candidates(query_fn=lambda: value) == []
+    calls = []
+    with pytest.raises(PermissionError):
+        win.configure('ethernet_7', query_fn=lambda: value,
+                      run=lambda *args, **kwargs: calls.append(args))
+    assert calls == []
