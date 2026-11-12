@@ -147,3 +147,99 @@ it('«지형 만들기»의 «시뮬로 열기»도 PC 웹에서는 같은 시�
   expect($('[data-sim-win]')!.dataset.simWin).toBe('full');
   expect(frame().getAttribute('src')).toBe(url);
 });
+
+/** jsdom 은 배치를 하지 않는다 → 창 자리·크기를 넣은 값대로 돌려준다 */
+function layout(a: HTMLElement, v: HTMLElement) {
+  // jsdom 은 배치를 하지 않는다 → 창 자리·크기를 넣은 값대로 돌려준다(기본 = 왼쪽 아래 360, 테두리 몫 10·시뮬 칸 밖 60, 화면 1024×768)
+  const W = () => parseFloat(a.style.width) || 360, VH = () => (W() - 10) * 9 / 16, H = () => 60 + VH();
+  a.getBoundingClientRect = () => { const left = a.style.left ? parseFloat(a.style.left) : 96, top = a.style.top ? parseFloat(a.style.top) : innerHeight - 16 - H();
+    return { left, top, width: W(), height: H(), right: left + W(), bottom: top + H() } as DOMRect; };
+  Object.defineProperty(v, 'offsetWidth', { get: () => W() - 10 }); Object.defineProperty(v, 'offsetHeight', { get: VH });
+  Object.defineProperty(a, 'offsetWidth', { get: W }); Object.defineProperty(a, 'offsetHeight', { get: H });
+  return { W, H };
+}
+
+it('작은 창 크기 조절: 모서리 손잡이를 끌면 폭이 바뀌고 16:9, 최소 240·최대 화면 안, 크게 보기 뒤에도 마지막 크기', () => {
+  mount();
+  act(() => simNav.go(URL_)); const w = win(); ready(); say(w);
+  const a = $('[data-sim-win]')!, v = frame().parentElement!, z = () => $('[data-sim-win-size]')!;
+  const { W } = layout(a, v);
+  const ptr = (el: HTMLElement, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+  const drag = (el: HTMLElement, dx: number, dy: number) => { ptr(el, 'pointerdown', 500, 400); ptr(el, 'pointermove', 500 + dx, 400 + dy); ptr(el, 'pointerup', 500 + dx, 400 + dy); };
+  const inside = () => { const b = a.getBoundingClientRect(); expect(b.left).toBeGreaterThanOrEqual(0); expect(b.top).toBeGreaterThanOrEqual(0); expect(b.right).toBeLessThanOrEqual(innerWidth); expect(b.bottom).toBeLessThanOrEqual(innerHeight + 1e-6); };
+
+  expect(z().getAttribute('aria-label')).toBe('크기 조절');
+  expect(z().dataset.simWinSize).toBe('tr');   // 기본 자리(왼쪽 아래) = 오른쪽 위 손잡이
+  expect(document.activeElement).toBe($('[data-sim-win-big]'));   // 손잡이가 초점을 가로채지 않음
+  const bottom = a.getBoundingClientRect().bottom;
+  drag(z(), 200, 0);   // 오른쪽으로 끌기 = 넓어짐, 왼쪽 아래 모서리는 제자리
+  expect(W()).toBe(560);
+  expect(a.getBoundingClientRect().left).toBe(96);
+  expect(a.getBoundingClientRect().bottom).toBeCloseTo(bottom);
+  expect(a.style.getPropertyValue('--sw-k')).toBe(String(550 / 700));   // 시뮬 그림도 창에 맞춰 커짐
+  expect(CSS).toContain('.sw[data-sim-win="small"]>.sw-v{flex:none;aspect-ratio:16/9');
+  expect(CSS).toContain('transform:scale(var(--sw-k,.5))');
+  inside();
+  drag(z(), 0, -90);   // 위로만 끌어도 커짐(16:9)
+  expect(W()).toBe(720);
+  drag(z(), -2000, 0);   // 최소
+  expect(W()).toBe(240);
+  drag(z(), 5000, -5000);   // 최대 = 화면 안(여기선 폭이 먼저 닿음: 오른쪽 끝까지)
+  expect(W()).toBe(innerWidth - 96);
+  expect(a.style.getPropertyValue('--sw-k')).toBe('1');   // 큰 창 = 제 크기(더 키우지 않음)
+  inside();
+  expect(z().dataset.simWinSize).toBe('tl');   // 오른쪽 끝에 닿은 창 = 손잡이는 왼쪽으로
+  drag(z(), 5000, 0);   // 왼쪽 손잡이를 안쪽(오른쪽)으로 끌기 = 줄어듦, 오른쪽 끝은 제자리
+  expect(W()).toBe(240);
+  expect(a.getBoundingClientRect().right).toBe(innerWidth);
+
+  // 오른쪽 위로 옮기면 손잡이는 반대쪽(왼쪽 아래), 끌면 오른쪽 위 모서리가 제자리
+  const bar = $('[data-sim-win-bar]')!;
+  ptr(bar, 'pointerdown', 800, 580); ptr(bar, 'pointermove', 5000, -5000); ptr(bar, 'pointerup', 5000, -5000);
+  expect(a.getBoundingClientRect().right).toBe(innerWidth);
+  expect(z().dataset.simWinSize).toBe('bl');
+  drag(z(), -100, 0);
+  expect(W()).toBe(340);
+  expect(a.getBoundingClientRect().right).toBe(innerWidth);
+  expect(a.getBoundingClientRect().top).toBe(0);
+  inside();
+  act(() => { z().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); });   // 키로도
+  expect(W()).toBe(364);
+
+  act(() => { $('[data-sim-win-big]')!.click(); });   // 가득 = 크기 값이 걸리지 않음
+  expect(a.style.width).toBe('');
+  expect($('[data-sim-win-size]')).toBeNull();
+  say(w);
+  expect(W()).toBe(364);   // 다시 작은 창 = 마지막 크기
+  expect(box.textContent).not.toMatch(/iframe|PIP|resize|px/i);
+});
+
+it('화면이 줄면(REVIEW-348) 작은 창을 화면 안으로 당기고, 화면보다 크면 폭도 줄인다', () => {
+  const size = (wd: number, h: number) => act(() => { vi.stubGlobal('innerWidth', wd); vi.stubGlobal('innerHeight', h); dispatchEvent(new Event('resize')); });
+  act(() => { vi.stubGlobal('innerWidth', 1400); vi.stubGlobal('innerHeight', 900); });
+  mount();
+  act(() => simNav.go(URL_)); const w = win(); ready(); say(w);
+  const a = $('[data-sim-win]')!, v = frame().parentElement!, { W, H } = layout(a, v), z = () => $('[data-sim-win-size]')!;
+  const ptr = (el: HTMLElement, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+  const inside = () => { const b = a.getBoundingClientRect(); expect(b.left).toBeGreaterThanOrEqual(0); expect(b.top).toBeGreaterThanOrEqual(0); expect(b.right).toBeLessThanOrEqual(innerWidth); expect(b.bottom).toBeLessThanOrEqual(innerHeight + 1e-6); };
+  size(1400, 900);   // 기본 자리가 화면 안이면 건드리지 않음
+  expect(a.style.left).toBe(''); expect(a.style.width).toBe('');
+  ptr(z(), 'pointerdown', 500, 400); ptr(z(), 'pointermove', -2000, 400); ptr(z(), 'pointerup', -2000, 400);   // 폭 240
+  const bar = $('[data-sim-win-bar]')!;
+  ptr(bar, 'pointerdown', 100, 700); ptr(bar, 'pointermove', 5000, 700); ptr(bar, 'pointerup', 5000, 700);   // 오른쪽 끝으로
+  expect([W(), a.getBoundingClientRect().left]).toEqual([240, 1160]);
+
+  size(1000, 700);   // 재현: left 1160 그대로면 창·손잡이·닫기가 화면 밖
+  expect(W()).toBe(240);
+  expect(a.getBoundingClientRect().right).toBe(1000);
+  inside();
+  expect(z().dataset.simWinSize![1]).toBe('l');   // 손잡이도 화면 안쪽
+
+  size(1400, 900);
+  ptr(z(), 'pointerdown', 500, 400); ptr(z(), 'pointermove', -5000, 400); ptr(z(), 'pointerup', -5000, 400);   // 왼쪽 손잡이로 크게
+  expect(W()).toBeGreaterThan(700);
+  size(600, 500);   // 화면보다 큰 창 = 폭을 화면 안 최대로
+  expect(W()).toBeLessThanOrEqual(600);
+  expect(H()).toBeLessThanOrEqual(500);
+  inside();
+});

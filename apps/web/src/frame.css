@@ -235,13 +235,19 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media (max-height:480px){.dv-pip{left:calc(108px + env(safe-area-inset-left,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));width:168px}.dv-pip-row .btn{padding:0 2px;font-size:11px;white-space:nowrap;letter-spacing:-.02em}}
 
 /* 브라우저 시뮬 창(simwin.tsx, RB-WEBSIM-PIP 11-11): 가득 = 앱 위 전체(옛 페이지 이동과 같은 화면). 작은 창 = 왼쪽 아래 구석(주 메뉴 줄 옆 — 로봇 탭 실기 상세는 오른쪽에 열려 겹치지 않게), 머리줄(z 10 — STOP·로그아웃)·띄운 확인 칸(.fl-sheet 9)보다 아래라 가리지 않는다.
-   작은 창의 시뮬 칸은 두 배 크기로 그려 반으로 줄인다(시뮬 화면 배치 그대로). 판·단추 값은 .dv-pip 와 같게 */
+   작은 창의 시뮬 칸은 크게 그려 --sw-k 배로 줄인다(기본 = 두 배로 그려 반 — 시뮬 화면 배치 그대로, 크기를 바꾸면 simwin.tsx 가 폭과 --sw-k 를 넣는다). 판·단추 값은 .dv-pip 와 같게.
+   크기 손잡이(.sw-z)는 창 모서리 안쪽(simwin.tsx 가 고른 모서리)의 ㄱ자 표시 */
 .sw{position:fixed;inset:0;z-index:50;margin:0;display:flex;flex-direction:column;background:#05080A;color:#E6EBEF}
 .sw-v{position:relative;flex:1;min-height:0;overflow:hidden}
 .sw-v>iframe{display:block;width:100%;height:100%;border:0}
 .sw[data-sim-win="small"]{inset:auto auto 16px 96px;z-index:8;width:min(360px,calc(100vw - 32px));box-sizing:border-box;gap:4px;padding:4px;border:1px solid rgba(230,235,239,.45);border-radius:10px;box-shadow:var(--shadow)}
 .sw[data-sim-win="small"]>.sw-v{flex:none;aspect-ratio:16/9;border-radius:6px}
-.sw[data-sim-win="small"]>.sw-v>iframe{width:200%;height:200%;transform:scale(.5);transform-origin:0 0}
+.sw[data-sim-win="small"]>.sw-v>iframe{width:calc(100% / var(--sw-k,.5));height:calc(100% / var(--sw-k,.5));transform:scale(var(--sw-k,.5));transform-origin:0 0}
+.sw-z{position:absolute;z-index:1;width:24px;height:24px;padding:0;border:0;background:none;touch-action:none;cursor:nwse-resize}
+.sw-z::after{content:"";position:absolute;inset:2px;border:0 solid rgba(230,235,239,.85)}
+.sw-z[data-sim-win-size^="t"]{top:0}.sw-z[data-sim-win-size^="b"]{bottom:0}.sw-z[data-sim-win-size$="r"]{right:0}.sw-z[data-sim-win-size$="l"]{left:0}
+.sw-z[data-sim-win-size^="t"]::after{border-top-width:3px}.sw-z[data-sim-win-size^="b"]::after{border-bottom-width:3px}.sw-z[data-sim-win-size$="r"]::after{border-right-width:3px}.sw-z[data-sim-win-size$="l"]::after{border-left-width:3px}
+.sw-z[data-sim-win-size="tr"],.sw-z[data-sim-win-size="bl"]{cursor:nesw-resize}
 .sw-t{margin:0;padding:2px 6px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;touch-action:none;cursor:move}
 .sw-row{display:flex;gap:4px}
 .sw-row .btn{flex:1;min-width:0;min-height:36px;padding:0 4px;font-size:13px;background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
