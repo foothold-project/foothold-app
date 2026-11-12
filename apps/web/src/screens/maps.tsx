@@ -264,7 +264,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
     if (ok && cur && [cur.floor.id, cur.building.id, cur.site.id].includes(id)) { setPick(''); keptPlan.floor = ''; setSel(null); setAll(false); setIntent(null); }
   };
   // 장소 창(총괄·운영 관리자): 이름 바꾸기·삭제(휴지통으로)
-  const tools = (kind: Kind, x: { id: string; name: string; level?: number }) => <span className="fh-row">
+  const tools = (kind: Kind, x: { id: string; name: string; level?: number }) => <span className="fh-row mx-acts">
     <button type="button" className="btn" disabled={busy} onClick={() => open({ kind, id: x.id, title: `${WHAT[kind]} 이름 바꾸기 — ${x.name}`, name: x.name, level: x.level })}>이름 바꾸기</button>
     <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>삭제</button></span>;
 
@@ -272,48 +272,50 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const label = cur ? `${cur.site.name} › ${cur.building.name} › ${cur.floor.name}` : '';
   // 장소 창 — 지도 탭 «어느 층에?»는 층 고르기 + 장소·건물·층 만들기, 시뮬 탭 «장소 고치기»는 이름 바꾸기·삭제만(SIM-PAIR 11-09 — 시뮬 지도는 «+ 지형 만들기» 하나로만 생긴다)
   // 장소 창 아래칸(만들기·이름 바꾸기 칸, 삭제 확인, 안내) — 장소 창(placeBody)과 층 고치기 창(fixBody)이 같이 쓴다
-  const edits = <>
+  const edits = <div className="mx-dlg-foot">
     {form && <form className="fh-form" onSubmit={submit} noValidate aria-label={form.title}>
       <b>{form.title}</b>
       <label className="fh-field"><span>이름</span><input className="inp" maxLength={128} value={form.name} autoFocus onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
       {form.kind === 'floors' && <label className="fh-field"><span>층 번호(지하 1층 = -1)</span><input className="inp" inputMode="numeric" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} /></label>}
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button><button type="button" className="btn" onClick={() => setForm(null)}>취소</button></div>
     </form>}
-    {ask && <div className="fh-row" role="group" aria-label="확인">
-      <span>«{ask.name}» {OBJ[ask.kind]} 휴지통으로 옮길까요? 휴지통에서 복원하거나 완전 삭제할 수 있습니다.</span>
-      <button type="button" className="btn pri" disabled={busy} onClick={() => remove(ask)}>삭제</button>
-      <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
+    {ask && <div className="mx-ask" role="group" aria-label="확인">
+      <p><b>«{ask.name}» {OBJ[ask.kind]} 휴지통으로 옮길까요?</b> 휴지통에서 복원하거나 완전 삭제할 수 있습니다.</p>
+      <div className="fh-row"><button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
+        <button type="button" className="btn bad" disabled={busy} onClick={() => remove(ask)}>삭제</button></div>
     </div>}
     <Note m={msg} />
     {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
     {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
-  </>;
+  </div>;
   // where(지도 탭 «어느 층에?»)는 층 고르기·만들기만 — 고치기는 층 화면 «이름 바꾸기·삭제…»(fixBody).
   // 단, 층이 하나도 없는 장소·건물은 들어갈 층 화면이 없으니 그 줄에 이름 바꾸기·삭제를 둔다(REVIEW-341)
   const where = make === 'robot' || make === 'file', fixing = (k: Kind, x: { id: string; name: string; level?: number }, empty = false) => (where && !empty ? null : tools(k, x));
-  const placeBody = <div role="group" aria-label="장소" className="fh-form" style={{ gap: 8 }}>
+  const placeBody = <div role="group" aria-label="장소" className="fh-form">
     {places.length > 4 && <input className="inp" type="search" aria-label="장소 거르기" placeholder="장소·건물·층 이름으로 거르기" value={q} onChange={(e) => setQ(e.target.value)} />}
-    {t.tree?.items.filter((s) => own(s) && (!q.trim() || s.buildings.some((b) => hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))) || hit(s.name))).map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div className="fh-row"><b className="fh-grow">{s.name}</b>{fixing('sites', s, s.buildings.every((b) => !b.floors.length))}</div>
-      {s.buildings.filter((b) => !q.trim() || hit(s.name) || hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))).map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
-        <div className="fh-row"><span className="fh-grow">{b.name}</span>{fixing('buildings', b, !b.floors.length)}</div>
+    <div className="mx-tree">{t.tree?.items.filter((s) => own(s) && (!q.trim() || s.buildings.some((b) => hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))) || hit(s.name))).map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} className="mx-tsite">
+      <div className="fh-row"><b className="fh-grow">{s.name}</b>{fixing('sites', s, s.buildings.every((b) => !b.floors.length))}
+        {!sim && <button type="button" className="btn mx-add" disabled={busy} onClick={() => open({ kind: 'buildings', parent: s.id, title: `${s.name} 에 새 건물` })}>+ 건물</button>}</div>
+      {s.buildings.filter((b) => !q.trim() || hit(s.name) || hit(s.name, b.name) || b.floors.some((f) => hit(s.name, b.name, f.name))).map((b) => <div key={b.id} className="mx-tbld">
+        <div className="fh-row"><span className="fh-grow">{b.name}</span>{fixing('buildings', b, !b.floors.length)}
+          {!sim && <button type="button" className="btn mx-add" disabled={busy} onClick={() => open({ kind: 'floors', parent: b.id, title: `${s.name} ${b.name} 에 새 층` })}>+ 층</button>}</div>
         <ul className="fh-list" aria-label={`${b.name} 층`}>{b.floors.filter((f) => !q.trim() || hit(s.name, b.name, f.name)).map((f) => <li key={f.id} className="fh-row">
-          <button type="button" style={{ flex: 1 }} onClick={() => choose(f.id, where ? make as Intent : null)}><span className="fh-grow">{f.name}</span>
-            <span className="lbl">{!f.approved_version_id && '지도 없음'}</span></button>{fixing('floors', f)}</li>)}</ul>
-        {!sim && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'floors', parent: b.id, title: `${s.name} ${b.name} 에 새 층` })}>+ 층</button>}
+          <button type="button" onClick={() => choose(f.id, where ? make as Intent : null)}><span className="fh-grow">{f.name}</span>
+            {f.approved_version_id ? <span className="lv-chip ok">지도 있음</span> : <span className="lv-chip">지도 없음</span>}</button>{fixing('floors', f)}</li>)}</ul>
+        {!b.floors.length && <p className="lv-note">아직 층이 없습니다.</p>}
       </div>)}
-      {!sim && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'buildings', parent: s.id, title: `${s.name} 에 새 건물` })}>+ 건물</button>}
-    </div>)}
+      {!s.buildings.length && <p className="lv-note">아직 건물이 없습니다.</p>}
+    </div>)}</div>
     {t.tree && !t.tree.items.some(own) && <p className="lv-note">{sim ? '등록된 시뮬 장소가 없습니다. 시뮬 지도는 «+ 지형 만들기»로 만듭니다.' : '등록된 장소가 없습니다. «+ 장소»로 만드세요.'}</p>}
-    <hr />
-    <div className="fh-row">{!sim && <button type="button" className="btn fh-grow" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button>}<TrashLink /></div>
+    {!sim && <button type="button" className="btn mx-new" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button>}
+    <div className="fh-row mx-dlg-util"><span className="lv-note fh-grow">지운 장소·건물·층은 휴지통에서 되돌립니다.</span><TrashLink /></div>
     {edits}
   </div>;
   // 고른 층 화면의 고치기 창(지도 탭): 이 장소·건물·층의 이름 바꾸기·삭제(휴지통) — 권한은 서버 'O'(총괄·운영 관리자 모두)
-  const fixBody = <div role="group" aria-label="고치기" className="fh-form" style={{ gap: 8 }}>
-    {cur && <div aria-label="이 지도의 장소" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{([['sites', cur.site], ['buildings', cur.building], ['floors', cur.floor]] as const).map(([k, x]) =>
+  const fixBody = <div role="group" aria-label="고치기" className="fh-form">
+    {cur && <div aria-label="이 지도의 장소" className="mx-fix">{([['sites', cur.site], ['buildings', cur.building], ['floors', cur.floor]] as const).map(([k, x]) =>
       <div key={k} className="fh-row" aria-label={`${WHAT[k]} ${x.name}`} data-fix={k}><span className="lbl">{WHAT[k]}</span><b className="fh-grow">{x.name}</b>{tools(k, x)}</div>)}</div>}
-    <div className="fh-row"><TrashLink /></div>
+    <div className="fh-row mx-dlg-util"><span className="lv-note fh-grow">지운 장소·건물·층은 휴지통에서 되돌립니다.</span><TrashLink /></div>
     {edits}
   </div>;
   // 왼쪽 위 = «‹ 모든 지도 보기» + 2층 이상 건물은 층 단추·«전체 층 겹쳐 보기»(보기만, 층 레이어 10-30)
@@ -330,8 +332,8 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const shut0 = () => { setMake(''); setForm(null); setAsk(null); };
   const title = make === 'robot' ? '지도 만들기 — 어느 층에?' : make === 'file' ? '파일 올리기 — 어느 층에?' : sim ? '장소 고치기' : '이름 바꾸기·삭제';
   const pop = <Pop open={!!make} close={shut0} label={make ? title : '장소'}>
-    {make === 'fix' && !sim ? <><p className="lv-note">이 지도의 장소·건물·층 이름을 바꾸거나 휴지통으로 옮깁니다.</p>{fixBody}</>
-      : make && <><p className="lv-note">{sim ? '시뮬 장소의 이름을 바꾸거나 지웁니다. 새 시뮬 지도는 «+ 지형 만들기»로 만듭니다.'
+    {make === 'fix' && !sim ? <><p className="lv-note mx-lead">이 지도의 장소·건물·층 이름을 바꾸거나 휴지통으로 옮깁니다.</p>{fixBody}</>
+      : make && <><p className="lv-note mx-lead">{sim ? '시뮬 장소의 이름을 바꾸거나 지웁니다. 새 시뮬 지도는 «+ 지형 만들기»로 만듭니다.'
         : `${make === 'robot' ? '로봇으로 지도를 그릴' : '지도 파일을 올릴'} 층을 고르세요. 없으면 «+ 장소»·«+ 건물»·«+ 층»으로 만듭니다.`}</p>{placeBody}</>}
   </Pop>;
   if (cur) return <><Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
