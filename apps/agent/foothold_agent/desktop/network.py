@@ -6,6 +6,7 @@ on the new profile, must succeed before an address is used (no subnet scans).
 from ipaddress import IPv4Interface
 from pathlib import Path
 import re
+import os
 import subprocess
 import uuid
 
@@ -13,6 +14,9 @@ from foothold_agent.setup.discovery import query, ROBOT_NETWORK
 
 
 def available(*, query_fn=query, sysfs=Path('/sys/class/net'), ipv6_defaults=None):
+    if os.name == 'nt':
+        from .windows import available as windows_available
+        return windows_available()
     rows = query_fn('address', 'show')
     routes = query_fn('route', 'show', 'table', 'all')
     if ipv6_defaults is None:
@@ -62,6 +66,9 @@ def command(*args):
 
 
 def configure(name, *, discover=available, query_fn=query, run=command):
+    if os.name == 'nt':
+        from .windows import configure as windows_configure
+        return windows_configure(name)
     choices = [c for c in discover() if c['name'] == name]
     if len(choices) != 1:
         raise PermissionError('wired connection is no longer eligible')

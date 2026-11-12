@@ -2,7 +2,6 @@
 import argparse
 import asyncio
 import os
-import signal
 import sys
 import threading
 import time
@@ -11,7 +10,7 @@ from dataclasses import replace
 from urllib.error import HTTPError, URLError
 import webbrowser
 
-from foothold_agent.go2_direct.preflight import inspect
+from .platform import inspect, install_stop_handlers
 from foothold_agent.link.client import ReconnectForbidden
 from foothold_agent.go2_readonly.sdk import Subscriptions
 from .discovery import candidates, select
@@ -37,7 +36,10 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
         raise PermissionError('saved connection belongs to another server')
     nic = select(await asyncio.to_thread(discover), args.nic)
     inputs = Inputs()
-    subscriptions = subscriptions_factory(inputs, nic.name)
+    if os.name == 'nt' and subscriptions_factory is Subscriptions:
+        subscriptions = subscriptions_factory(inputs, nic.name, dds_name=nic.dds_name)
+    else:
+        subscriptions = subscriptions_factory(inputs, nic.name)
     pairing = None
     try:
         subscriptions.start()  # only two readonly subscriptions; no motion factory
@@ -85,6 +87,9 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                 return
         status.update(code=None, qr=None, expires_at=None, mode='읽기 전용 · 서버 연결 중')
         def check_nic():
+            if os.name == 'nt' and discover is candidates:
+                from .windows_nic import matches
+                return matches(nic)
             try:
                 return select(discover(), nic.name) == nic
             except (ValueError, PermissionError):
@@ -102,12 +107,9 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
         subscriptions.close()
 
 
-async def serve(args, status):
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    signals = (signal.SIGINT, signal.SIGTERM)
-    for sig in signals:
-        loop.add_signal_handler(sig, stop.set)
+async def serve(args, status, *, stop=None):
+    stop = stop if stop is not None else asyncio.Event()
+    restore = install_stop_handlers(stop)
     try:
         try:
             await connect(args, status, stop)
@@ -130,8 +132,7 @@ async def serve(args, status):
             await stop.wait()
             return False
     finally:
-        for sig in signals:
-            loop.remove_signal_handler(sig)
+        restore()
 
 
 def main(argv=None):

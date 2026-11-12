@@ -41,6 +41,8 @@ class Credentials:
 
 
 def default_path():
+    if os.name == 'nt':
+        return Path(os.environ['APPDATA'])/'foothold'/'agent.json'
     return Path.home()/'.config'/'foothold'/'agent.json'
 
 
@@ -82,6 +84,9 @@ def parent_fd(path):
 
 def load(path=None):
     path = credential_path(path)
+    if os.name == 'nt':
+        from .windows import load_credentials
+        return load_credentials(path)
     directory = parent_fd(path)
     try:
         try:
@@ -100,6 +105,9 @@ def load(path=None):
 
 def save(credentials, path=None):
     path = credential_path(path)
+    if os.name == 'nt':
+        from .windows import save_credentials
+        return save_credentials(credentials, path)
     directory = parent_fd(path)
     temporary = '.agent-'+secrets.token_hex(16)
     try:
