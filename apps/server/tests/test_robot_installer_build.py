@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import pytest
 
 from apps.server.fh_server import robot_installer as R
 
@@ -19,11 +20,13 @@ def source(tmp_path, script=None):
 from pathlib import Path
 p=argparse.ArgumentParser()
 p.add_argument('--server');p.add_argument('--output',type=Path);p.add_argument('--version')
+p.add_argument('--platform',default='linux')
 a=p.parse_args()
 assert 'FH_DATABASE_URL' not in os.environ
 assert a.server == 'https://control.example.invalid'
 time.sleep(.3)
-(a.output/f'foothold-robot_{a.version}_amd64.deb').write_bytes(b'fake built deb')
+name=f'foothold-robot_{a.version}_windows_amd64.zip' if a.platform=='windows' else f'foothold-robot_{a.version}_amd64.deb'
+(a.output/name).write_bytes(b'fake built zip' if a.platform=='windows' else b'fake built deb')
 ''')
     return root
 
@@ -57,7 +60,7 @@ def test_single_flight_success_cached_and_unchanged_source_skipped(tmp_path, mon
     changed = manager(root, code, '3' * 40)
     # Last good file is served while the new build runs.
     assert changed.info()['items'][0] == info
-    assert len(changed.children) == 1
+    assert len(changed.children) == 2
     wait(changed)
     assert changed.info()['items'][0]['commit'] == '3' * 40
     assert (root / 'linux/previous/installer').is_file()
@@ -162,3 +165,50 @@ def test_unlinked_open_temporary_files_count_toward_disk_limit(tmp_path):
               'f.write(b"x"*60000); f.flush();g.write(b"x"*60000);g.flush();time.sleep(10)')
     assert R.bounded_run([sys.executable, '-c', script], tmp_path,
                          {'PATH': '/usr/bin:/bin'}, 5, 100000) == 'limit_exceeded'
+
+
+def test_windows_build_table_and_server_child_publish_zip(tmp_path):
+    builder = R.BUILDERS['windows']
+    assert builder.script == 'apps/agent/installer/build.py'
+    assert builder.args == ('--platform', 'windows')
+    assert builder.media_type == 'application/zip'
+    assert R.DEFAULT_BYTES == 2 * 1024**3
+    assert R.DEFAULT_SECONDS == 20 * 60
+    code = source(tmp_path)
+    m = manager(tmp_path/'state', code)
+    assert m.platform_info('windows')['reason'] == 'building'
+    wait(m)
+    info, stream = m.current('windows')
+    try:
+        assert info['filename'] == 'foothold-robot_0.2.0+111111111111_windows_amd64.zip'
+        assert info['available'] and info['platform'] == 'windows'
+        assert stream.read() == b'fake built zip'
+    finally:
+        stream.close()
+    assert m.platform_info('windows') == info
+    assert len(m.children) == 1 and m.children[0].poll() == 0  # no second child
+
+
+@pytest.mark.parametrize('platform', ['linux', 'windows'])
+def test_platform_command_keeps_bounds_and_exact_server_output(tmp_path, monkeypatch, platform):
+    code = source(tmp_path)
+    root = tmp_path/'state'
+    base = root/platform
+    (base/'attempts').mkdir(parents=True)
+    calls = []
+    def run(command, state_root, env, seconds, byte_limit):
+        calls.append((command, state_root, env, seconds, byte_limit))
+        assert seconds == R.DEFAULT_SECONDS and byte_limit == R.DEFAULT_BYTES
+        assert state_root == root and env['PIP_DISABLE_PIP_VERSION_CHECK'] == '1'
+        output = Path(command[command.index('--output')+1])
+        version = command[command.index('--version')+1]
+        (output/R.BUILDERS[platform].filename.format(version=version)).write_bytes(b'fixture')
+    monkeypatch.setattr(R, 'bounded_run', run)
+    monkeypatch.setattr(R.os, 'nice', lambda amount: None)
+    assert R.build_once(root, code, '1'*40, ORIGIN, platform, 'fingerprint') is None
+    command = calls[0][0]
+    assert command[command.index('--server')+1] == ORIGIN
+    if platform == 'windows':
+        assert command[command.index('--platform')+1] == 'windows'
+    else:
+        assert '--platform' not in command

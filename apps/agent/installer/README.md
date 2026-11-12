@@ -62,7 +62,7 @@ python3 apps/agent/installer/build.py --platform windows --server https://exampl
 | 기본 출력 | `output/easy-install/foothold-robot_0.2.0-1_amd64.deb` | `output/easy-install/foothold-robot_0.2.0-1_windows_amd64.zip` |
 | 필요 도구 | x86_64 Linux, Python 3.10+, dpkg-deb | x86_64 Linux, Python 3.10+ 표준 라이브러리만 |
 
-`--version`과 `--output`을 양쪽 모두 지원한다. 출력 마지막 줄은 `artifact`, `bytes`, `sha256`을 담은 JSON이다. 서버는 마지막 JSON 줄의 경로를 사용하거나 위 파일명을 사용하고, 동시 빌드는 출력/캐시가 겹치지 않도록 직렬화해야 한다. 서버 주소는 `server.json`에만 들어가며 빌드 때 고정한다. 사용자에게 주소 입력·Python 설치·pip 실행을 요구하지 않는다. 이 작업은 서버 다운로드 API 구현이나 배포를 수정하지 않는다.
+`--version`과 `--output`을 양쪽 모두 지원한다. 출력 마지막 줄은 `artifact`, `bytes`, `sha256`을 담은 JSON이다. 서버는 마지막 JSON 줄의 경로를 사용하거나 위 파일명을 사용하고, 동시 빌드는 출력/캐시가 겹치지 않도록 직렬화해야 한다. 서버 주소는 `server.json`에만 들어가며 빌드 때 고정한다. 사용자에게 주소 입력·Python 설치·pip 실행을 요구하지 않는다. 서버 `BUILDERS` 표에도 이 Windows 명령과 `application/zip`을 연결했다. 인증된 `/api/v1/robot-installer/windows` 요청은 빌드 후 같은 ZIP 파일명을 attachment로 제공하며 실제 서버 배포는 별도다.
 
 Windows 형식은 **공식 embeddable Python + distlib의 amd64 GUI PE 런처를 담은 ZIP**이다. Linux에서 Windows PE를 실행하거나 컴파일하지 않고 검증한 원물을 조합하므로 wine·apt·컴파일러·Windows SDK·추가 시스템 패키지가 필요 없다. 사용자 설치 시에도 인터넷·관리자 권한이 필요 없으며, 바로가기 아이콘을 만들 수 있다. ZIP을 고른 이유는 서명되지 않은 자체 설치 EXE를 새로 컴파일하는 도구 없이 같은 Ubuntu 개발 서버에서 만들기 위해서다. ZIP은 Windows 탐색기의 **모두 압축 풀기** 한 단계가 필요하다.
 

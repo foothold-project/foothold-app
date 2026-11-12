@@ -44,11 +44,13 @@ class Builder:
     args: tuple[str, ...] = ()
 
 
-# A Windows builder implementing --server/--output/--version can be enabled by
-# adding one row here. Keep platform filenames fixed, never manifest-controlled.
+# Keep platform commands and filenames fixed, never manifest-controlled.
 BUILDERS = {
     'linux': Builder('apps/agent/installer/build.py', 'foothold-robot_{version}_amd64.deb',
                      'application/vnd.debian.binary-package'),
+    'windows': Builder('apps/agent/installer/build.py',
+                       'foothold-robot_{version}_windows_amd64.zip',
+                       'application/zip', ('--platform', 'windows')),
 }
 
 
