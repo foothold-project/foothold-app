@@ -139,7 +139,52 @@ Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:
 - 앞선 voxel/권한/계약/왕복 영향 묶음 114 PASS:
   `FH_TEST_PORT_RANGE=24000:24499 <python> -m pytest apps/server/tests/test_mapping.py apps/server/tests/test_voxel_maps.py apps/server/tests/test_contracts.py apps/server/tests/test_migrations.py apps/server/tests/test_server_drive_blocked.py apps/server/tests/test_admin_no_real_control.py -q`
 - `<python> apps/contracts/generate.py --check`: 생성물 289개 일치.
-- Agent 전체(최종 수신 시각/오류 보완 전): `PYTHONPATH=apps/agent:. FH_TEST_PORT_RANGE=23500:23999 <python> -m pytest apps/agent/tests -q` → 2300 PASS, 20 FAIL, 1 SKIP.
+- 최종 agent 전체: `PYTHONPATH=apps/agent:. FH_TEST_PORT_RANGE=34000:34999 <python> -m pytest apps/agent/tests -q` → 2302 PASS, 20 FAIL, 1 SKIP.
   20개는 test_phone_policy_compat / test_phone_proportional / test_speed_1p5의 Node TS 추출 실패다.
   기준 83dafea의 세 파일에서도 동일한 20 FAIL, 115 PASS를 확인했으며 화면 소스·안전 기대값은 수정하지 않았다.
 - Server ACK 단독 재실행: `test_phone_pass.py::test_real_ws_full_ack_queue_replays_and_switch_opens_only_after_atomic_commit`은 현재 코드/기준 83dafea에서 각각 1 PASS.
+
+
+### 전체 서버 회귀 — 미통과
+
+최종 코드(7a38541, 이후 문서만 수정)를 고정하고 아래처럼 실행했다.
+무작위 UUID를 매번 새로 생성하는 robot summary 두 사례는 병렬 수집 ID가 달라 별도 직렬 실행했다.
+
+- `PYTHONPATH=/tmp:. FH_TEST_PORT_RANGE=30000:33999 <python> -m pytest apps/server/tests -q -n 4 -p rb_slam_test_ports --deselect=apps/server/tests/test_robots.py::test_rest_summaries_reflect_state_and_mask_other_owner`: **1536 PASS, 12 FAIL** (1548개).
+- `FH_TEST_PORT_RANGE=35000:35499 <python> -m pytest apps/server/tests/test_robots.py::test_rest_summaries_reflect_state_and_mask_other_owner -q`: **2 PASS**.
+- 합계 1550개를 실행했으며 **전체 통과라고 보고하지 않는다**. 보완 중 비고정 실행 결과는 최종 결과에 사용하지 않는다.
+
+`rb_slam_test_ports`는 임시 시험 훅으로, 프로세스별 허용 loopback 범위만 나눴다(제품 코드/검사 기대값 변경 없음).
+재현할 때 `/tmp/rb_slam_test_ports.py`에 아래 내용을 두면 된다.
+
+```python
+import os
+
+def pytest_configure(config):
+    worker = os.environ.get('PYTEST_XDIST_WORKER', '')
+    if worker.startswith('gw'):
+        first = 30000 + 1000 * int(worker[2:])
+        os.environ['FH_TEST_PORT_RANGE'] = f'{first}:{first + 999}'
+```
+
+기준 83dafea 사본에서 `test_sim_orphan_worlds.py test_sim_pairs.py test_site_purpose.py -q`를
+별도로 실행해 **4 FAIL, 27 PASS**를 재현했다. 근본 실패는 다음 네 사례다.
+
+- test_sim_orphan_worlds::test_removed_world_archive_preserves_pairs_usage_history_and_is_repeatable (migration/sync 두 사례)
+- test_sim_pairs::test_0027_pairs_repair_archive_preserve_and_audit
+- test_site_purpose::test_purpose_migration_roundtrip_preserves_existing_assignment
+
+`scenario_versions.auto_map_from_number`가 없는 과거 스키마에서 현재 ORM을 사용하는 문제가 보인다.
+특히 마지막 사례는 낮춘 스키마에서 HTTP 요청 실패 시 최신 스키마 복구까지 도달하지 않아
+후속 시험을 오염시킬 수 있다. 이 기존 이력/시험 문제 수정은 이번 지도 만들기 구현과 분리해야 한다.
+
+나머지 실패의 재검사:
+
+- 미디어 두 채널 사례는 현재 코드/기준 커밋에서 각각 단독 **1 PASS**.
+- terrain 1·voxel annotation 2·zone 3 사례는 새 private DB에서 재실행 **6 PASS**.
+- 창고 manager relay 사례는 `PYTHONPATH=apps/agent:.`를 보완한 재실행 **1 PASS**.
+  전체 명령의 agent 경로 누락은 시험 환경 문제이며 제품 코드를 바꾸지 않았다.
+- 위 여덟 사례 재검사는 통과했으나, 전체 회귀의 12개 실패 기록을 지우거나 PASS로 바꾸지 않는다.
+
+결론: 새 기능 관련 묶음은 통과했으나 **기존 회귀 게이트는 미통과**다. 기준 실패 정리와
+통합 재검증·다른 모델 안전 검토 후 합쳐야 하며, 실기 첫 확인은 별도로 남아 있다.
