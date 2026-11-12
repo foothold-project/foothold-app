@@ -22,8 +22,58 @@ def register_protocol(target):
         winreg.SetValueEx(key, '', 0, winreg.REG_SZ, '"'+str(target)+'" --protocol "%1"')
 
 
+def stop_installed(installation):
+    """Ask only the installed desktop listener to quit, then confirm exit.
+
+    Do not terminate the agent forcibly: its normal quit path closes the link
+    and performs the existing stop cleanup. A busy/missing listener or a process
+    that does not exit aborts removal instead of deleting active binaries.
+    """
+    installation = Path(installation)
+    no_reparse(installation)
+    script = '$root='+literal(installation)+'; $uninstaller='+str(os.getpid())+r''';
+$prefix=[IO.Path]::GetFullPath($root).TrimEnd('\')+'\'
+function InstalledProcesses {
+ @(Get-CimInstance Win32_Process | Where-Object {
+  $_.ProcessId -ne $uninstaller -and $_.ExecutablePath -and
+  $_.ExecutablePath.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)
+ })
+}
+$running=@(InstalledProcesses)
+if ($running.Count) {
+ $ids=@($running | ForEach-Object { $_.ProcessId })
+ $listener=@(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 9611 -State Listen -ErrorAction SilentlyContinue |
+  Where-Object { $_.OwningProcess -in $ids })
+ if ($listener.Count -ne 1) { throw 'Close the installed connection program, then run removal again' }
+ $request=[Net.HttpWebRequest]::Create('http://127.0.0.1:9611/action')
+ $request.Proxy=$null; $request.AllowAutoRedirect=$false; $request.Timeout=3000
+ $request.Method='POST'; $request.ContentType='application/json'
+ $request.Headers['Origin']='http://127.0.0.1:9611'
+ $body=[Text.Encoding]::UTF8.GetBytes('{"action":"quit"}')
+ $request.ContentLength=$body.Length
+ $stream=$request.GetRequestStream()
+ try { $stream.Write($body,0,$body.Length) } finally { $stream.Dispose() }
+ $response=$request.GetResponse(); $response.Dispose()
+ $deadline=[DateTime]::UtcNow.AddSeconds(10)
+ do {
+  $running=@(InstalledProcesses)
+  if (!$running.Count) { break }
+  Start-Sleep -Milliseconds 100
+ } while ([DateTime]::UtcNow -lt $deadline)
+ if ($running.Count) { throw 'Connection program is still running; removal cancelled' }
+}
+'''
+    powershell(script, timeout=20)
+    # Also check the desktop's own lifetime lock: incomplete Windows process
+    # metadata must never let an active installation pass the exit check.
+    from .windows import InstanceLock
+    with InstanceLock(installation.parent/'cache/desktop.lock'):
+        pass
+
+
 def uninstall():
     """User-requested removal; keep saved connection keys and preferences."""
+    stop_installed(Path(os.environ['LOCALAPPDATA'])/'foothold/robot')
     import winreg
     base = r'Software\Classes\foothold-robot'
     for suffix in (r'\shell\open\command', r'\shell\open', r'\shell', ''):

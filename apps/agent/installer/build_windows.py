@@ -122,6 +122,17 @@ def make_launcher(stub, target):
     target.write_bytes(stub + b'#!<launcher_dir>\\python\\pythonw.exe -I\n' + buffer.getvalue())
 
 
+def uninstall_script():
+    # Defer deletion until the bundled Python exits: it may itself live in the
+    # installed tree. Remove every installed version even from a downloaded ZIP.
+    return ('@echo off\r\n"%~dp0python\\python.exe" -I -c '
+            '"from foothold_agent.desktop.windows_launch import uninstall; uninstall()"\r\n'
+            'if errorlevel 1 exit /b 1\r\ncd /d "%TEMP%"\r\n(\r\n'
+            'if exist "%LOCALAPPDATA%\\foothold\\robot" rmdir /s /q "%LOCALAPPDATA%\\foothold\\robot"\r\n'
+            'if exist "%LOCALAPPDATA%\\foothold\\robot" exit /b 1\r\n'
+            'if exist "%~dp0" rmdir /s /q "%~dp0"\r\n)\r\n')
+
+
 def build(server, output, version):
     # Shared CLI validates origin/output/version before this function downloads.
     output.mkdir(parents=True, exist_ok=True)
@@ -190,10 +201,7 @@ def build(server, output, version):
     (python/'python310._pth').write_text('python310.zip\n.\nLib/site-packages\nimport site\n')
     with zipfile.ZipFile(next(p for n,p in assets.items() if n.startswith('distlib-'))) as archive:
         make_launcher(archive.read('distlib/w64.exe'),root/'FOOTHOLD 로봇 연결.exe')
-    (root/'연결 프로그램 제거.cmd').write_text(
-        '@echo off\r\n"%~dp0python\\python.exe" -I -c '
-        '"from foothold_agent.desktop.windows_launch import uninstall; uninstall()"\r\n'
-        'if errorlevel 1 exit /b 1\r\ncd /d "%TEMP%"\r\nrmdir /s /q "%~dp0"\r\n', encoding='ascii')
+    (root/'연결 프로그램 제거.cmd').write_text(uninstall_script(), encoding='ascii')
     (root/'server.json').write_text(json.dumps(dict(server=server.rstrip('/')))+'\n')
     agent_wheel = next(wheels.glob('foothold_agent-*.whl'))
     build_id = hashlib.sha256((server.rstrip('/')+'\n'+version+'\n').encode()+agent_wheel.read_bytes()).hexdigest()[:16]

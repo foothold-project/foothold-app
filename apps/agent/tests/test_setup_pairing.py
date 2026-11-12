@@ -658,10 +658,11 @@ def test_saved_connection_auth_rejection_shows_explicit_repair_without_pairing(t
             task = asyncio.create_task(setup.serve(repair_args(path), status))
             try:
                 async with asyncio.timeout(3):
-                    while not any(message in status.snapshot()['mode'] for message in ('이 노트북의 연결이 해제됨', '연결 거부')):
+                    while not any(message in status.snapshot()['mode'] for message in ('이 노트북의 연결이 해제되었습니다', '연결 거부')):
                         await asyncio.sleep(.01)
-                assert '이 노트북의 연결이 해제됨' in status.snapshot()['mode']
-                assert '--repair' in status.snapshot()['mode'] and not status.snapshot()['connected']
+                assert '이 노트북의 연결이 해제되었습니다' in status.snapshot()['mode']
+                assert '다시 연결하기' in status.snapshot()['mode'] and not status.snapshot()['connected']
+                assert '새 로봇 추가' in status.snapshot()['mode'] and '--repair' not in status.snapshot()['mode']
                 assert status.snapshot().get('code') is None
                 assert load(path) == old and attempts == ['Bearer '+TOKEN]
                 assert TOKEN not in json.dumps(status.snapshot())
@@ -734,3 +735,26 @@ def test_failed_explicit_repair_preserves_file_and_never_falls_back_to_old_token
                                 pairing_factory=lambda server:Pairing(server, post=post), runtime=no_runtime)
         assert load(path) == old and stat.S_IMODE(path.stat().st_mode) == 0o600
     asyncio.run(scenario())
+
+
+def test_rejected_saved_connection_explains_web_code_repair_without_old_cli_copy(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from foothold_agent.setup import __main__ as setup
+    from foothold_agent.link.client import ReconnectForbidden
+    async def rejected(*args):
+        raise ReconnectForbidden(4403)
+    monkeypatch.setattr(setup, 'connect', rejected)
+    monkeypatch.setattr(setup, 'install_stop_handlers', lambda _: lambda: None)
+    status = Status()
+    async def scenario():
+        stop = asyncio.Event()
+        stop.set()
+        assert not await setup.serve(SimpleNamespace(), status, stop=stop)
+    asyncio.run(scenario())
+    message = status.snapshot()['mode']
+    output = capsys.readouterr().err
+    for text in ('다시 연결하기', '웹', '새 로봇 추가', '새 코드'):
+        assert text in message and text in output
+    for old in ('--repair', '폰에서', 'QR'):
+        assert old not in message+output
+    assert not status.snapshot()['connected']

@@ -505,7 +505,9 @@ def test_protocol_registry_is_current_user_only_and_uninstall_removes_it(tmp_pat
     assert values[(base,'URL Protocol')] == ''
     assert values[(base+r'\shell\open\command','')] == '"'+str(target)+'" --protocol "%1"'
     monkeypatch.setenv('APPDATA', str(tmp_path/'roaming'))
-    monkeypatch.setattr(launch, 'powershell', lambda _: NS(stdout=str(tmp_path/'desktop')))
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'local'))
+    monkeypatch.setattr(launch, 'powershell', lambda *a, **k: NS(stdout=str(tmp_path/'desktop')))
+    monkeypatch.setattr(launch, 'stop_installed', lambda _: None)
     starts = []
     monkeypatch.setattr(win, 'set_autostart', lambda enabled: starts.append(enabled))
     launch.uninstall()
@@ -529,3 +531,106 @@ def test_protocol_bootstrap_never_forwards_link_options(tmp_path, monkeypatch):
     monkeypatch.setattr(launch.subprocess, 'Popen', lambda argv, **kw: calls.append(argv))
     launch.main()
     assert calls == [[str(target)]]
+
+
+def test_uninstall_stops_only_installed_processes_before_removing_user_registration(tmp_path, monkeypatch):
+    from foothold_agent.desktop import windows_launch as launch
+    installed = tmp_path/'한글 local/foothold/robot'
+    (installed/'v1').mkdir(parents=True)
+    (installed/'v2').mkdir()
+    private = tmp_path/'roaming/foothold/agent.json'
+    private.parent.mkdir(parents=True)
+    private.write_text('saved connection must survive')
+    downloaded = tmp_path/'download'
+    downloaded.mkdir()
+    (downloaded/'python').mkdir()
+    monkeypatch.setenv('LOCALAPPDATA', str(installed.parents[1]))
+    monkeypatch.setenv('APPDATA', str(tmp_path/'roaming'))
+    monkeypatch.setattr(launch.sys, 'executable', str(downloaded/'python/python.exe'))
+    steps = []
+    def stop(path):
+        assert path == installed
+        assert (installed/'v1').is_dir() and (installed/'v2').is_dir()
+        steps.append('stopped')
+    monkeypatch.setattr(launch, 'stop_installed', stop)
+    def delete(hive, key):
+        assert steps[0] == 'stopped'
+        steps.append(key)
+    monkeypatch.setitem(sys.modules, 'winreg', NS(HKEY_CURRENT_USER='HKCU', DeleteKey=delete))
+    monkeypatch.setattr(win, 'set_autostart', lambda enabled: steps.append(('autostart',enabled)))
+    monkeypatch.setattr(launch, 'powershell', lambda _: NS(stdout=str(tmp_path/'desktop')))
+    launch.uninstall()
+    assert private.read_text() == 'saved connection must survive'
+    assert ('autostart',False) in steps
+
+
+def test_stop_installed_uses_verified_listener_and_normal_quit_then_waits(tmp_path, monkeypatch):
+    from foothold_agent.desktop import windows_launch as launch
+    installed = tmp_path/'한글 user/foothold/robot'
+    calls = []
+    monkeypatch.setattr(launch, 'powershell', lambda script, **kw: calls.append((script,kw)))
+    monkeypatch.setattr(launch.os, 'getpid', lambda: 1234)
+    locks = []
+    class Lock:
+        def __init__(self, path): locks.append(path)
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    monkeypatch.setattr(win, 'InstanceLock', Lock)
+    launch.stop_installed(installed)
+    script, options = calls[0]
+    assert '$root='+private.literal(installed) in script
+    assert '$uninstaller=1234' in script
+    assert '$_.ProcessId -ne $uninstaller' in script
+    assert '.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)' in script
+    assert "TrimEnd('\\')+'\\'" in script  # sibling robot-other is outside the tree
+    assert 'OwningProcess -in $ids' in script
+    assert script.index('OwningProcess -in $ids') < script.index("::Create('http://127.0.0.1:9611/action')")
+    assert "GetBytes('{\"action\":\"quit\"}')" in script
+    assert "$request.Headers['Origin']='http://127.0.0.1:9611'" in script
+    assert '$request.Proxy=$null; $request.AllowAutoRedirect=$false' in script
+    assert 'if ($running.Count) { throw' in script
+    assert 'Stop-Process' not in script and 'Remove-Item' not in script
+    assert options == {'timeout':20}
+    assert locks == [installed.parent/'cache/desktop.lock']
+
+
+def test_uninstall_failure_keeps_registration_and_files(tmp_path, monkeypatch):
+    from foothold_agent.desktop import windows_launch as launch
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    installed = tmp_path/'foothold/robot/v1'
+    installed.mkdir(parents=True)
+    binary = installed/'app.exe'
+    binary.write_bytes(b'installed')
+    def blocked(_):
+        raise PermissionError('program did not exit')
+    monkeypatch.setattr(launch, 'stop_installed', blocked)
+    monkeypatch.setitem(sys.modules, 'winreg', NS(DeleteKey=lambda *a: pytest.fail('must not remove registration')))
+    with pytest.raises(PermissionError):
+        launch.uninstall()
+    assert binary.read_bytes() == b'installed'
+
+
+def test_removal_cmd_deletes_installed_tree_even_from_extracted_folder(monkeypatch):
+    builder = load_builder(monkeypatch)
+    script = builder.uninstall_script()
+    assert script.index('uninstall()') < script.index('if errorlevel 1 exit /b 1') < script.index('rmdir /s /q')
+    assert 'rmdir /s /q "%LOCALAPPDATA%\\foothold\\robot"' in script
+    assert 'if exist "%LOCALAPPDATA%\\foothold\\robot" exit /b 1' in script
+    assert script.index('cd /d "%TEMP%"') < script.index('rmdir /s /q')
+    assert 'if exist "%~dp0" rmdir /s /q "%~dp0"' in script
+    assert 'agent.json' not in script and '%APPDATA%' not in script
+    assert script.count('rmdir /s /q') == 2
+
+
+def test_active_desktop_lock_aborts_uninstall_even_without_process_metadata(tmp_path, monkeypatch):
+    from foothold_agent.desktop import windows_launch as launch
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    monkeypatch.setattr(launch, 'powershell', lambda *a, **k: NS(stdout=''))
+    class Busy:
+        def __init__(self, path): pass
+        def __enter__(self): raise BlockingIOError('desktop still active')
+        def __exit__(self, *args): pass
+    monkeypatch.setattr(win, 'InstanceLock', Busy)
+    monkeypatch.setitem(sys.modules, 'winreg', NS(DeleteKey=lambda *a: pytest.fail('must preserve registration')))
+    with pytest.raises(BlockingIOError):
+        launch.uninstall()
