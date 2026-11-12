@@ -122,3 +122,24 @@ Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:
 
 지도 만들기 중에는 층 휴지통 이동/완전 삭제를 거부한다(RESOURCE_IN_USE).
 저장/취소 뒤 층을 완전 삭제하면 해당 지도 만들기 세션 기록도 함께 정리한다.
+
+## 자동 검증 기록 (2026-11-12)
+
+검증 환경은 CPython 3.12.3 / NumPy 1.26.4. 모든 DDS·로봇 출력은 fake이며
+서버 시험은 private PostgreSQL·합성 파일만 사용했다. 실기/시뮬/데모/운영 배포는 실행하지 않았다.
+`<python>`은 시험 가상환경의 Python이다. Orca가 상속한 loader 경로가 실기 입력 검증에
+영향을 주지 않도록 agent 시험은 `env -u LD_LIBRARY_PATH -u CYCLONEDDS_URI -u CYCLONEDDS_HOME`으로 실행했다.
+
+- 최종 agent 관련 221 PASS (지도 9 포함):
+  `PYTHONPATH=apps/agent:. FH_TEST_PORT_RANGE=23000:23499 <python> -m pytest apps/agent/tests/test_mapping.py apps/agent/tests/test_go2_readonly.py apps/agent/tests/test_go2_drive_media.py apps/agent/tests/test_go2_server_drive.py apps/agent/tests/test_go2_direct.py apps/agent/tests/test_original_core.py apps/agent/tests/test_core_boundaries.py -q`
+- 최종 server 지도/계약 20 PASS:
+  `FH_TEST_PORT_RANGE=27000:27499 <python> -m pytest apps/server/tests/test_mapping.py apps/server/tests/test_contracts.py -q`
+- 최종 server 수명·마이그레이션·연결 63 PASS:
+  `FH_TEST_PORT_RANGE=24500:24999 <python> -m pytest apps/server/tests/test_mapping.py apps/server/tests/test_migrations.py apps/server/tests/test_resource_archive.py apps/server/tests/test_trash.py apps/server/tests/test_voxel_annotations.py -q`
+- 앞선 voxel/권한/계약/왕복 영향 묶음 114 PASS:
+  `FH_TEST_PORT_RANGE=24000:24499 <python> -m pytest apps/server/tests/test_mapping.py apps/server/tests/test_voxel_maps.py apps/server/tests/test_contracts.py apps/server/tests/test_migrations.py apps/server/tests/test_server_drive_blocked.py apps/server/tests/test_admin_no_real_control.py -q`
+- `<python> apps/contracts/generate.py --check`: 생성물 289개 일치.
+- Agent 전체(최종 수신 시각/오류 보완 전): `PYTHONPATH=apps/agent:. FH_TEST_PORT_RANGE=23500:23999 <python> -m pytest apps/agent/tests -q` → 2300 PASS, 20 FAIL, 1 SKIP.
+  20개는 test_phone_policy_compat / test_phone_proportional / test_speed_1p5의 Node TS 추출 실패다.
+  기준 83dafea의 세 파일에서도 동일한 20 FAIL, 115 PASS를 확인했으며 화면 소스·안전 기대값은 수정하지 않았다.
+- Server ACK 단독 재실행: `test_phone_pass.py::test_real_ws_full_ack_queue_replays_and_switch_opens_only_after_atomic_commit`은 현재 코드/기준 83dafea에서 각각 1 PASS.
