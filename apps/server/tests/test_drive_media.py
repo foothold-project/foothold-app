@@ -20,9 +20,10 @@ JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof
 def frame(rid,channel='rgb',seq=1):
     header=dict(version='media/1',robot=str(rid),epoch=123,episode_id=None,channel=channel,
         seq=seq,captured_at=datetime.now(timezone.utc).isoformat())
-    if channel=='rgb':
-        header.update(t='media.video',source='go2_front',frame='go2_front_camera',
+    if channel in ('rgb','depth'):
+        header.update(t='media.video',source='go2_depth' if channel=='depth' else 'go2_front',frame='go2_front_camera',
             mime='image/jpeg',width=64,height=36,jpeg=JPEG)
+        if channel=='depth': header.update(depth_min_m=.2, depth_max_m=5.)
     else:
         header.update(t='media.points',source='l1',frame='lidar_link',map_version_id=None,pose=None,
             count=1,truncated=False,encoding='xyz_f32le',byte_length=12)
@@ -35,9 +36,9 @@ def upload(client,rid,header,points=None,token=None):
         json={'header':header,'points':None if points is None else base64.b64encode(points).decode()})
 
 
-def test_two_channels_relay_media_one_without_control_socket(trial,seeded):
+def test_three_channels_relay_media_one_without_control_socket(trial,seeded):
     rid=seeded['robots']['mine']; headers=app_token(trial)
-    for channel in ('rgb','lidar'):
+    for channel in ('rgb','lidar','depth'):
         path=f'/api/v1/robots/{rid}/drive-media/{channel}'
         with trial.websocket_connect(path,headers=headers) as viewer:
             assert receive(viewer,'media.status')['episode_id'] is None
@@ -45,18 +46,21 @@ def test_two_channels_relay_media_one_without_control_socket(trial,seeded):
             assert upload(trial,rid,header,points).status_code==202
             received=receive(viewer,header['t'])
             assert received['robot']==str(rid) and received['epoch']==123
+            if channel=='depth':
+                assert received['depth_min_m']==.2 and received['depth_max_m']==5.
             if channel=='lidar': assert viewer.receive_bytes()==points
             # No fresh upload => bounded stale status, not a fabricated last image.
             assert receive(viewer,'media.status')['state'] in ('NO_VIDEO','NO_POINTS')
 
 
+@pytest.mark.parametrize('channel',['rgb','depth'])
 @pytest.mark.parametrize('case',['other-owner','foreign-robot','bad-origin','outside-list'])
-def test_media_viewer_authentication_and_robot_scope(trial,seeded,case):
+def test_media_viewer_authentication_and_robot_scope(trial,seeded,case,channel):
     rid=seeded['robots']['mine']; headers=app_token(trial)
-    path=f'/api/v1/robots/{rid}/drive-media/rgb'
+    path=f'/api/v1/robots/{rid}/drive-media/{channel}'
     if case=='other-owner': headers=app_token(trial,'two')
-    elif case=='foreign-robot': path=f"/api/v1/robots/{seeded['robots']['foreign']}/drive-media/rgb"
-    elif case=='outside-list': path=f"/api/v1/robots/{seeded['robots']['theirs']}/drive-media/rgb"; headers=app_token(trial,'two')
+    elif case=='foreign-robot': path=f"/api/v1/robots/{seeded['robots']['foreign']}/drive-media/{channel}"
+    elif case=='outside-list': path=f"/api/v1/robots/{seeded['robots']['theirs']}/drive-media/{channel}"; headers=app_token(trial,'two')
     elif case=='bad-origin': headers={'origin':'https://untrusted.invalid'}
     with pytest.raises(WebSocketDisconnect):
         with trial.websocket_connect(path,headers=headers): pass
@@ -100,18 +104,19 @@ def test_viewer_is_receive_only_and_queue_is_latest_one(trial,seeded):
     trial.portal.call(bounded)
 
 
-def test_viewer_closes_after_user_lock_and_upload_token_rotation(trial,seeded):
+@pytest.mark.parametrize('channel',['rgb','depth'])
+def test_viewer_closes_after_user_lock_and_upload_token_rotation(trial,seeded,channel):
     from sqlalchemy.orm import Session
     from apps.server.fh_server.models import User,Robot
     from apps.server.fh_server.security import digest
     rid=seeded['robots']['mine']
-    with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/rgb',headers=app_token(trial)) as viewer:
+    with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/{channel}',headers=app_token(trial)) as viewer:
         receive(viewer,'media.status')
         with Session(trial.app.state.engine) as db:
             db.get(User,seeded['users']['one']).locked=True
             db.get(Robot,rid).agent_token_hash=digest('fake-rotated-token')
             db.commit()
-        assert upload(trial,rid,frame(rid)).status_code==403
+        assert upload(trial,rid,frame(rid,channel)).status_code==403
         with pytest.raises(WebSocketDisconnect): receive(viewer)
 
 
@@ -122,3 +127,31 @@ def test_duplicate_jpeg_frame_headers_are_rejected_before_browser_decode(trial,s
     raw=raw[:at]+raw[at:at+2+length]+raw[at:]
     header['jpeg']=base64.b64encode(raw).decode()
     assert upload(trial,rid,header).status_code==400
+
+
+@pytest.mark.parametrize('bad',['source','missing-range','negative','reversed','rgb-range','payload','oversize','binding','replay','rate','raster'])
+def test_depth_relay_rejects_false_or_invalid_depth(trial,seeded,bad):
+    rid=seeded['robots']['mine']; header=frame(rid,'depth'); points=None
+    if bad=='source': header['source']='go2_front'
+    elif bad=='missing-range': del header['depth_min_m']
+    elif bad=='negative': header['depth_min_m']=-1.
+    elif bad=='reversed': header['depth_min_m']=6.
+    elif bad=='rgb-range': header.update(channel='rgb',source='go2_front')
+    elif bad=='payload': points=b'fake'
+    elif bad=='oversize': header['jpeg']='A'*100000
+    elif bad=='binding': header['robot']=str(uuid4())
+    elif bad=='raster': header['width']=65
+    elif bad in ('replay','rate'):
+        assert upload(trial,rid,header).status_code==202
+        if bad=='replay': time.sleep(.21)
+    result=upload(trial,rid,header,points)
+    assert result.status_code in (400,413,429),result.text
+    assert str(rid) not in trial.app.state.realtime.arbiter.robots
+
+
+def test_unknown_channels_rejected_for_both_agent_and_viewer(trial,seeded):
+    rid=seeded['robots']['mine']
+    header=frame(rid);header['channel']='unknown'
+    assert upload(trial,rid,header).status_code==403
+    with pytest.raises(WebSocketDisconnect):
+        with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/unknown',headers=app_token(trial)): pass

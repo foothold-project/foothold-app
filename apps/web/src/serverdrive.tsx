@@ -9,7 +9,7 @@ import { typing } from './App';
 import { Chip, DriveButton, type Ctx } from './screens';
 import { STALLED } from './simdrive';
 import { Cloud3D } from './quad';
-import { driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
+import { DEPTH_HINT, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
 import type { Robot, Tone } from './fake';
 import { api } from './api';
 import { realCaps, simTune, useTuneSettings } from './phone';
@@ -79,7 +79,15 @@ function trapTab(e: KeyEv<HTMLElement>) {
   const i = f.indexOf(document.activeElement as HTMLElement);
   e.preventDefault(); f[e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : (i + 1) % f.length].focus();
 }
-const CH_NAME: Record<DriveCh, string> = { rgb: '카메라', lidar: '라이다' };
+const CH_NAME: Record<DriveCh, string> = { rgb: '카메라', lidar: '라이다', depth: '뎁스' };
+/** 뎁스 색(계약: OpenCV TURBO 역방향 — 가까움 빨강 → 멀리 파랑), 범례용 띠 */
+const TURBO_R = 'linear-gradient(90deg,#7a0403,#e4460a,#faba39,#a4fc3b,#1bcfd4,#4686fb,#30123b)';
+/** 뎁스 그림 아래 작은 범례 — 범위는 받은 프레임의 depth_min_m·depth_max_m(소수 한 자리) */
+export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <div className="lbl mono" aria-label="뎁스 색 범례" data-sd-depth-legend
+  style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '4px 8px', fontSize: 11, color: '#DDE5EC' }}>
+  <span>가까움 {a.toFixed(1)} m</span><span aria-hidden="true" style={{ flex: 1, minWidth: 60, height: 8, borderRadius: 2, background: TURBO_R }} /><span>멀리 {b.toFixed(1)} m</span>
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span aria-hidden="true" style={{ width: 10, height: 10, background: '#000', border: '1px solid #DDE5EC' }} />거리 모름</span>
+</div>;
 
 export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
@@ -87,7 +95,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const [on, setOn] = useState(''), [why, setWhy] = useState(''), [full, setFull] = useState<DriveCh | null>(null);
   const [, tick] = useState(0), [asked, setAsked] = useState<number | null>(null);   // asked = 잠금 해제 요청을 보낸 때(rt.now)
   const held = useRef(new Set<Tok>()), dlg = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null);
-  const feeds = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar') };
+  const feeds: Record<DriveCh, DriveFeed> = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar'), depth: useDriveFeed(r.id, 'depth', full === 'depth') };   // 뎁스는 고른 동안만 연다
   const ready = mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy;
   const readyRef = useRef(ready); readyRef.current = ready;
   const send = () => { const cmd = command(held.current), [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy); };
@@ -157,6 +165,10 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const view = (ch: DriveCh, big: boolean) => {
     const f = feeds[ch], text = driveFeedText(f, ch);
     if (ch === 'lidar') return <Cloud3D small={!big} big={big} feed={f} empty={text} />;
+    if (ch === 'depth') return text || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
+      : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+        <img src={f.img} alt="뎁스 카메라 — 가까움 빨강, 멀리 파랑, 검정은 거리 모름" draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain' }} data-sd-depth />
+        <DepthLegend range={f.range} /></div>;
     return text ? <div className="dv-video" role="img" aria-label="카메라" data-sd-cam><span>{text}</span></div>
       : <img className="dv-video" src={f.img} alt="카메라" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} data-sd-cam />;
   };
@@ -220,7 +232,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
       </div>
       <div data-sd-full-body style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {(stopNote || unlock) && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} data-sd-full-state>{stopNote}{unlock}</div>}
-      <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar'] as const).map((ch) =>
+      <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar', 'depth'] as const).map((ch) =>
         <button key={ch} type="button" className="btn" aria-pressed={full === ch} data-sd-ch={ch} onClick={() => setFull(ch)}>{CH_NAME[ch]}</button>)}</div>
       {box(view(full, true), 200)}{/* 영상을 눌러도 닫지 않는다(11-11 — 키보드 조종 중 창을 눌러 초점을 되찾다 닫히고 멈추는 일 방지). 닫기는 «작게 보기»·Esc */}
       {notes}

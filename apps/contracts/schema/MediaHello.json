@@ -7,7 +7,8 @@
       "enum": [
         "rgb",
         "external",
-        "lidar"
+        "lidar",
+        "depth"
       ],
       "title": "Channel",
       "type": "string"

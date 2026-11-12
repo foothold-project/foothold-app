@@ -2456,8 +2456,8 @@ MEDIA_POINT_MAX_COUNT = 4_000
 MEDIA_POINT_MAX_HZ = 2
 MEDIA_POINT_MAX_ABS_M = 10_000
 EXTERNAL_VIEW_MAX_HZ = 10
-MediaChannel = Literal['rgb', 'external', 'lidar']
-MediaSource = Literal['d435i_rgb', 'go2_front', 'gazebo_external', 'l1']
+MediaChannel = Literal['rgb', 'external', 'lidar', 'depth']
+MediaSource = Literal['d435i_rgb', 'go2_front', 'gazebo_external', 'l1', 'go2_depth']
 
 
 class MediaLimits(Contract):
@@ -2497,7 +2497,7 @@ class MediaHeader(MediaBinding):
     @model_validator(mode='after')
     def channel_source(self):
         allowed = {'rgb': ('d435i_rgb', 'go2_front'),
-                   'external': ('gazebo_external',), 'lidar': ('l1',)}
+                   'external': ('gazebo_external',), 'lidar': ('l1',), 'depth': ('go2_depth',)}
         if self.source not in allowed[self.channel]:
             raise ValueError('source does not belong to channel')
         if self.channel == 'external' and self.episode_id is None:
@@ -2507,14 +2507,24 @@ class MediaHeader(MediaBinding):
 
 class MediaVideoFrame(MediaHeader):
     t: Literal['media.video']
-    channel: Literal['rgb', 'external']
+    channel: Literal['rgb', 'external', 'depth']
     mime: Literal['image/jpeg']
     width: int = Field(ge=1, le=640, strict=True)
     height: int = Field(ge=1, le=360, strict=True)
     jpeg: str = Field(min_length=4, max_length=87384, pattern=r'^[A-Za-z0-9+/]+={0,2}$')
+    depth_min_m: float | None = Field(default=None, ge=0, le=10000, strict=True, exclude_if=lambda v: v is None)
+    depth_max_m: float | None = Field(default=None, gt=0, le=10000, strict=True, exclude_if=lambda v: v is None)
+
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('depth_min_m', 'depth_max_m'))
 
     @model_validator(mode='after')
     def bounded_jpeg(self):
+        if self.channel == 'depth':
+            if (self.depth_min_m is None or self.depth_max_m is None
+                    or self.depth_min_m >= self.depth_max_m or self.episode_id is not None):
+                raise ValueError('hardware depth requires an increasing metric colour range')
+        elif self.depth_min_m is not None or self.depth_max_m is not None:
+            raise ValueError('metric depth range belongs only to depth')
         try:
             data = base64.b64decode(self.jpeg, validate=True)
         except (ValueError, binascii.Error) as error:

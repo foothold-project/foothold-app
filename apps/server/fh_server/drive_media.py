@@ -19,7 +19,7 @@ from .models import Robot, now
 from .security import digest
 
 FRAME = TypeAdapter(C.MediaMessage)
-CHANNELS = ('rgb', 'lidar')
+CHANNELS = ('rgb', 'lidar', 'depth')
 MAX_JSON = 90_000
 
 
@@ -162,8 +162,8 @@ class Relay:
                         raise ValueError('canonical point encoding required')
                     msg.validate_payload(payload)
                 else:
-                    if body['points'] is not None or msg.source != 'go2_front':
-                        raise ValueError('hardware front camera required')
+                    if body['points'] is not None or msg.source != ('go2_depth' if channel == 'depth' else 'go2_front'):
+                        raise ValueError('matching hardware camera required')
                     if jpeg_dimensions(base64.b64decode(msg.jpeg, validate=True)) != (msg.width, msg.height):
                         raise ValueError('JPEG raster differs from header')
             elif body['points'] is not None:
