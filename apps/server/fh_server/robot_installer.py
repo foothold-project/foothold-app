@@ -229,6 +229,7 @@ class InstallerManager:
             lock_fd = os.open(base / 'build.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         except OSError:
             return 'build_failed'
+        attempt = None
         try:
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -270,6 +271,13 @@ class InstallerManager:
                 return 'build_failed'
             return 'building'
         except (OSError, ValueError):
+            # A damaged input/source marker is still a failed attempt for this
+            # SHA; polling must not repeatedly re-run preparation either.
+            if attempt is not None and not attempt.exists():
+                try:
+                    atomic_json(attempt, {'reason': 'build_failed'})
+                except OSError:
+                    pass
             return 'build_failed'
         finally:
             os.close(lock_fd)

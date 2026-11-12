@@ -142,3 +142,14 @@ def test_build_failure_does_not_touch_deployment_state(tmp_path):
     assert {p.name: p.read_text() for p in deployment.iterdir()} == {
         name: 'unchanged' for name in ('COMMIT', 'autodeploy.failed', 'deploys.log', 'deploy.lock')}
     assert m.info()['items'][0]['reason'] == 'build_failed'
+
+
+def test_source_preparation_failure_is_also_attempted_once(tmp_path):
+    root = tmp_path / 'state'
+    m = manager(root, tmp_path / 'missing-source')
+    assert m.info()['items'][0]['reason'] == 'build_failed'
+    # Even repairing the source under the same SHA must not trigger a build.
+    code = source(tmp_path)
+    again = manager(root, code)
+    assert again.info()['items'][0]['reason'] == 'build_failed'
+    assert not again.children
