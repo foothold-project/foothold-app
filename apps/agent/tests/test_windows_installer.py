@@ -318,7 +318,7 @@ def test_native_routes_include_ipv6_and_onlink_defaults_and_free_table():
 
 def test_windows_readonly_adapter_supports_friendly_names_and_only_relocates_trace(tmp_path,monkeypatch):
     from foothold_agent.go2_readonly import sdk
-    from test_go2_readonly import fake_sdk, measured
+    from test_go2_readonly import fake_sdk, measured, sport
     calls,callbacks,_=fake_sdk(monkeypatch)
     channel=sys.modules['unitree_sdk2py.core.channel']
     channel.ChannelFactoryInitialize.__module__=channel.__name__
@@ -331,11 +331,20 @@ def test_windows_readonly_adapter_supports_friendly_names_and_only_relocates_tra
     assert subscriptions.nic=='ethernet_7'  # matches the unchanged connect_approved socket identity guard
     assert calls[0]==('initialize',0,'로봇 Ethernet 2')
     assert sum(c[0]=='subscribe' for c in calls)==2
+    assert subscriptions.cloud_bus.topics == {}
+    observed = []
+    subscriptions.add_sport_listener(observed.append)
+    message = sport(sec=2)
+    callbacks['rt/sportmodestate'](message)
+    assert observed == [message]
+    closed = []
+    subscriptions.cloud_bus.topics['synthetic'] = (NS(Close=lambda: closed.append('cloud')), set())
     assert 'name="$__IF_NAME__$"' in channel.ChannelConfigHasInterface
     assert str(tmp_path/'foothold/cache/cdds.LOG') in channel.ChannelConfigHasInterface
     for name in ['a<b','a&b','a"b',"a'b"]:
         with pytest.raises(ValueError):sdk.Subscriptions(state,name)
     subscriptions.close()
+    assert closed == ['cloud'] and subscriptions.cloud_bus.topics == {}
 
 
 def wheel_metadata(path,name,version,requires=()):
@@ -445,3 +454,24 @@ def test_smart_quote_adapter_names_never_reach_elevated_script(quote):
         win.configure('ethernet_7', query_fn=lambda: value,
                       run=lambda *args, **kwargs: calls.append(args))
     assert calls == []
+
+
+
+def test_current_slam_pin_reuses_reviewed_cp310_windows_numpy_without_resolution(monkeypatch, tmp_path):
+    try:
+        import tomllib
+    except ImportError:
+        from pip._vendor import tomli as tomllib
+    project = tomllib.loads((INSTALLER.parent/'pyproject.toml').read_text())
+    extras = project['project']['optional-dependencies']
+    assert extras['slam'] == ['numpy==1.26.4']
+    groups = {key: extras[key] for key in ('setup','go2-readonly','slam')}
+    lock = json.loads((INSTALLER/'windows-inputs.lock.json').read_text())
+    asset = next(item for item in lock if item['name'].startswith('numpy-'))
+    assert asset['name'] == 'numpy-1.26.4-cp310-cp310-win_amd64.whl'
+    assert asset['sha256'] == 'b97fe8060236edf3662adfc2c633f56a08ae30560c56310562cb4f95500022d5'
+    builder = load_builder(monkeypatch)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('reviewed slam pin must reuse the locked Windows wheel')
+    monkeypatch.setattr(builder, 'urlopen', forbidden)
+    assert builder.extra_wheels(groups, lock, tmp_path, tools=tmp_path) == []

@@ -70,3 +70,12 @@
 - 2 GiB 검사와 완료 전 검사는 해당 플랫폼의 **이번 `work/`**를 대상으로 한다. 재사용 캐시와 current/previous 원물은 다음 빌드 예산에서 제외한다. 해당 자식 그룹이 지웠지만 열어 둔 임시 파일 검사·단일 파일 상한·20분 제한·프로세스 그룹 정리는 그대로 유지했다.
 - 추가한 한 회귀 시험은 수정 전 동시 자식 2개가 생겨 실패했다. 공통 잠금만 적용한 중간 상태에서도 보관 원물이 상한에 합산되어 Linux 자식이 실패하는 것을 재현했다. 두 수정 뒤에는 2 GiB+1 byte의 sparse 과거 ZIP을 보존한 채 `linux start → linux end → windows start → windows end`, 별도 manager의 중복 기동 없음, 대기 중 attempt 부재, 같은 커밋의 양쪽 원물 성공을 확인했다. 큰 원물의 실제 데이터 쓰기/읽기는 하지 않았다.
 - 최종 `pytest apps/server/tests/test_robot_installer.py apps/server/tests/test_robot_installer_build.py apps/server/tests/test_contracts.py -q`: **38 passed** (기존 Starlette/httpx deprecation warning 1개). 공통 heavy-test flock·nice +10·별도 시험 포트 범위를 사용했다. Python compile과 diff check도 통과했다. 이 후속 작업에서는 실제 설치 파일을 다시 만들거나 실기·원격·금지 포트에 접촉하지 않았다.
+
+## #339 지도 만들기 통합 후 Windows 호환 확인
+
+- `origin/dev`의 `45f1570`을 merge commit `0c95e04`로 반영했다. 유일한 충돌인 `go2_readonly/sdk.py`는 Windows NIC canonical/FriendlyName·trace 경로 처리와 새 `ObservationInputs` 상속·초기화·sport 관측 콜백·cloud bus 종료를 함께 보존했다. mapping·go2_direct·계약·서버의 새 지도 구현은 dev 변경을 그대로 가져왔다.
+- 현재 `slam=["numpy==1.26.4"]`는 Windows lock의 `numpy-1.26.4-cp310-cp310-win_amd64.whl`, SHA256 `b97fe8060236edf3662adfc2c633f56a08ae30560c56310562cb4f95500022d5`와 일치한다. 새 시험은 실제 pyproject/lock을 읽어 추가 해소나 다운로드 없이 기존 핀을 재사용함을 확인한다. Windows SDK 가짜 시험도 관측 callback 전달과 cloud bus 종료를 확인하도록 보강했다.
+- agent 전체(기존 웹 TypeScript 추출 실패 범위 3개 파일 제외)와 server installer/API/계약을 함께 실행: **2344 passed, 3 skipped**. 명령은 `pytest apps/agent/tests --ignore=apps/agent/tests/test_phone_policy_compat.py --ignore=apps/agent/tests/test_phone_proportional.py --ignore=apps/agent/tests/test_speed_1p5.py apps/server/tests/test_robot_installer.py apps/server/tests/test_robot_installer_build.py apps/server/tests/test_contracts.py -q`이며 기존 heavy-test flock·nice +10·별도 시험 포트 범위를 사용했다. 안전 셀프테스트와 기대값은 수정하지 않았다.
+
+- 실제 `build.py --platform windows --server https://example.invalid --version 0.2.0-5`도 통과했다. ZIP의 `extras.json`에 `slam=["numpy==1.26.4"]`, `packages.json`과 설치 METADATA에 numpy 1.26.4를 확인했고 포함된 cp310 win_amd64 wheel SHA도 위 고정 해시와 일치했다. 입력 **22개**의 SHA/mtime을 전후 대조해 재다운로드 없이 재사용했으며 native PE/target 의존성 검사도 통과했다.
+- 새 원물은 `output/easy-install/foothold-robot_0.2.0-5_windows_amd64.zip`, **142,208,681 bytes**, SHA256 `9ee620f343b4769e83060294a98718e130330bc52d2fa1f0330953faf812c2c2`, **3283 files**다. 포함한 Python 소스 **99개**가 현재 제출 소스와 일치한다. 원물/로그는 gitignore `output/`에만 보존했으며 실제 Windows·실기·원격·금지 포트는 접촉하지 않았다. compile/diff check도 통과했다.
