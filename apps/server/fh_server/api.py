@@ -902,6 +902,8 @@ def create_app(settings: Settings | None = None):
     voxel_maps.install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, event, settings)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
+    from . import mapping
+    mapping.install(app, DB, Identity, factory, settings, fail, event, lock_organization)
     trash.install(app, DB, Identity, fail, authorize, event)
     runs.install(app, DB, fail)
     photos.install(app, DB, Identity, fail, authorize)

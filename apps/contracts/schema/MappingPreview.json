@@ -1,0 +1,81 @@
+{
+  "$id": "fh-app/1/MappingPreview",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cells": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "integer"
+          }
+        ],
+        "type": "array"
+      },
+      "maxItems": 2000,
+      "title": "Cells",
+      "type": "array"
+    },
+    "path": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "maxItems": 256,
+      "title": "Path",
+      "type": "array"
+    },
+    "resolution": {
+      "maximum": 100,
+      "minimum": 0.1,
+      "title": "Resolution",
+      "type": "number"
+    },
+    "robot": {
+      "anyOf": [
+        {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Robot"
+    }
+  },
+  "required": [
+    "resolution",
+    "cells",
+    "path"
+  ],
+  "title": "MappingPreview",
+  "type": "object"
+}

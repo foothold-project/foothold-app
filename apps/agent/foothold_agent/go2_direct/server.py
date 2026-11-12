@@ -61,6 +61,9 @@ class DriveSession(Session):
             frame = json_object(raw) if isinstance(raw, (str, bytes)) else raw
         except (ValueError, TypeError, UnicodeError, RecursionError):
             return self.tick()
+        if isinstance(frame, dict) and frame.get('t') == 'slam' and getattr(self, 'mapping', None) is not None:
+            self.mapping.command(frame)
+            return Effects((), self.tick().messages)
         if isinstance(frame, dict):
             if frame.get('t') == 'unlock' and self.identity_gate is not None:
                 self.identity_gate.request(frame, self)
@@ -114,6 +117,7 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
     identity_check = identity_check or verify
     channel = sink = client = None
     media_task = None
+    mapping_task = None
     tasks = []
     deadline = time.monotonic()+max(0, config.approval.expires_at-time.time())
     try:
@@ -137,6 +141,8 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             gate = ResumeGate(config.approval, feedback, check=identity_check)
         session = DriveSession(feedback, identity_gate=gate)
         client = client_factory(session, ServerSink(sink, session), config.link)
+        from foothold_agent.mapping.runtime import attach
+        mapping_task = attach(session, channel, config.link, getattr(config, 'robot', None), env)
         sink.start_threads()
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(stop.wait())]
         # Observations own independent SDK workers and sockets. Their failure is
@@ -176,10 +182,14 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
                 task.cancel()
             if media_task is not None:
                 media_task.cancel()
+            if mapping_task is not None:
+                mapping_task.cancel()
             try:
                 await asyncio.gather(*tasks, return_exceptions=True)
                 if media_task is not None:
                     await asyncio.gather(media_task, return_exceptions=True)
+                if mapping_task is not None:
+                    await asyncio.gather(mapping_task, return_exceptions=True)
             finally:
                 try:
                     if sink is not None:

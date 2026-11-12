@@ -6,9 +6,10 @@ Run in a dedicated process: the SDK channel factory is a process-wide singleton.
 
 import re
 import os
+from ..mapping.inputs import ObservationInputs
 
 
-class Subscriptions:
+class Subscriptions(ObservationInputs):
     def __init__(self, state, nic, *, dds_name=None):
         pattern = r'''[^<>&"'\x00-\x1f]{1,256}''' if os.name == 'nt' else r'[a-zA-Z0-9_.:-]{1,15}'
         if not isinstance(nic, str) or not re.fullmatch(pattern, nic):
@@ -16,6 +17,7 @@ class Subscriptions:
         if dds_name is not None and (os.name != 'nt' or not isinstance(dds_name,str)
                                      or not re.fullmatch(pattern,dds_name)):
             raise ValueError('a valid Windows DDS interface name is required')
+        self.init_observations()
         self.state, self.nic = state, nic
         self.dds_name = nic if dds_name is None else dds_name
         self._subscribers = []
@@ -43,7 +45,7 @@ class Subscriptions:
         try:
             for topic, data_type, callback in (
                     ('rt/lowstate', LowState_, self.state.lowstate),
-                    ('rt/sportmodestate', SportModeState_, self.state.sportmodestate)):
+                    ('rt/sportmodestate', SportModeState_, lambda msg: self.sport(self.state.sportmodestate, msg))):
                 subscriber = ChannelSubscriber(topic, data_type)
                 self._subscribers.append(subscriber)
                 # Direct callback: no unbounded backlog extending receipt freshness.
@@ -53,6 +55,7 @@ class Subscriptions:
             raise
 
     def close(self):
+        self.cloud_bus.close()
         for subscriber in reversed(self._subscribers):
             try:
                 subscriber.Close()

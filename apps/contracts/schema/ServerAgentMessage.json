@@ -122,6 +122,43 @@
       "title": "AgentLease",
       "type": "object"
     },
+    "AgentMappingCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "start",
+            "save",
+            "cancel"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "slam",
+          "default": "slam",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "session_id",
+        "floor_id"
+      ],
+      "title": "AgentMappingCommand",
+      "type": "object"
+    },
     "AgentPhoneRevoke": {
       "additionalProperties": false,
       "properties": {
@@ -469,6 +506,7 @@
       "ping": "#/$defs/AgentServerPing",
       "run.recorded": "#/$defs/RunRecorded",
       "run.report_rejected": "#/$defs/RunReportRejected",
+      "slam": "#/$defs/AgentMappingCommand",
       "stop": "#/$defs/AgentStop",
       "streams": "#/$defs/AgentStreams",
       "unlock": "#/$defs/AgentUnlock"
@@ -505,6 +543,9 @@
     },
     {
       "$ref": "#/$defs/AgentFieldApproval"
+    },
+    {
+      "$ref": "#/$defs/AgentMappingCommand"
     }
   ]
 }
