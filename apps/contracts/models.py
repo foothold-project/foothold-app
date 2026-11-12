@@ -2858,6 +2858,21 @@ class FieldApproval(Contract):
     expires_at: UTCDateTime
 
 
+class RobotInstallerAvailable(Contract):
+    available: Literal[True] = True
+    version: str = Field(pattern=r'^[0-9][a-zA-Z0-9.+~-]*$')
+    size: int = Field(gt=0)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    built_at: UTCDateTime
+    commit: str = Field(pattern=r'^[0-9a-f]{40}$')
+
+
+class RobotInstallerUnavailable(Contract):
+    available: Literal[False] = False
+    reason: Literal['not_built', 'building', 'build_failed', 'disabled',
+                    'build_tools_missing', 'limit_exceeded', 'invalid_artifact']
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
@@ -2894,6 +2909,7 @@ REQUEST_MODELS.add(StopRequestAck)
 REQUEST_MODELS.add(PhoneStateUpload)
 REQUEST_MODELS.update({PairingStart, PairingClaim, PairingConfirm, PairingPoll, FieldApprovalRequest})
 TOP['PairingPollResult'] = PairingWaiting | PairingPaired
+TOP['RobotInstallerInfo'] = RobotInstallerAvailable | RobotInstallerUnavailable
 
 REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, TerrainRamp, TerrainGap, TerrainWrite})
 
