@@ -98,6 +98,22 @@ describe('지도 만들기 — 보이는 조건', () => {
     expect(btn('새 지도 올리기…')).toBeTruthy();
   });
 
+  it('고르기 화면 «+ 지도 만들기»(담당 운영자만) → «어느 층에?» → 층을 고르면 그 층에서 로봇으로 지도 만들기 창', async () => {
+    for (const me of [KIM, PARK]) {
+      serve(signedIn(me, true, () => null)); await open(); await click($('[data-to-chooser]'));
+      expect($('[data-make-robot]')).toBeNull(); expect($('[data-make-file]')).toBeTruthy();
+      act(() => root?.unmount()); box.remove();
+    }
+    serve(signedIn(LEE, true, () => null)); await open(); await click($('[data-to-chooser]'));
+    await click($('[data-make-robot]'));
+    expect(dlg().textContent).toContain('지도 만들기 — 어느 층에?');
+    expect(btn('이름 바꾸기', dlg())).toBeUndefined();
+    await click(dlg().querySelector('ul[aria-label] button'));
+    expect(dlg().textContent).toContain('로봇으로 지도 만들기');
+    expect(dlg().querySelector('select')).toBeTruthy();
+    expect(box.querySelectorAll('dialog[open]')).toHaveLength(1);
+  });
+
   it('연결 안 된 로봇은 고를 수 있되 이유를 보이고 시작을 막는다', async () => {
     serve(signedIn(LEE, false, () => null)); await open(); await live(false); await openMake();
     expect(dlg().querySelector('select')!.textContent).toContain('Go2-A (연결 안 됨)');
