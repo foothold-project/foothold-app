@@ -56,16 +56,20 @@ type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; n
 export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; close: () => void; refresh: () => void } & Cancel) {
   const [step, setStep] = useState<Step>({ at: 'code' }), [msg, setMsg] = useState(''), [busy, setBusy] = useState(false);
   const [scan, setScan] = useState(false), [code, setCode] = useState(''), [name, setName] = useState('');
+  // 지금 확인 중인 코드 — 입력이 바뀌거나 화면이 닫히면 비워서, 늦게 온 옛 코드 답으로 이름 단계(바로 등록)에 가지 않게 한다
+  const want = useRef('');
+  useEffect(() => () => { want.current = ''; }, []);
   const claim = async (c: string) => {
     setScan(false);
     if (busy) return;
     if (!/^\d{6}$/.test(c)) return setMsg('노트북 화면의 6자리 숫자 코드를 넣으세요.');
-    setBusy(true); setMsg('');
+    want.current = c; setBusy(true); setMsg('');
     try {
       const p = await api.claimPairing(c, cancel);
+      if (want.current !== c) return;   // 확인 중 코드가 바뀜·화면 닫힘 — 옛 답 버림
       setName(`Go2-${p.robot_serial.replace(/\D/g, '').slice(-4)}`);   // 기본 이름 «Go2-끝4자리»
       setStep({ at: 'name', p });
-    } catch (e) { if ((e as ApiFail).code !== 'CANCELED') setMsg(pairFail(e)); }
+    } catch (e) { if (want.current === c && (e as ApiFail).code !== 'CANCELED') setMsg(pairFail(e)); }
     finally { setBusy(false); }
   };
   const confirm = async (e: FormEvent, p: PairingClaimed) => {
@@ -93,7 +97,7 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
         : <button type="button" className="btn pri" disabled={busy} onClick={() => { setMsg(''); setScan(true); }}>QR 스캔</button>}
       <form className="fh-row" noValidate onSubmit={(e) => { e.preventDefault(); claim(code.trim()); }}>
         <label className="fh-field fh-grow"><span className="lbl">또는 6자리 코드</span>
-          <input className="inp mono" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" data-pair-code /></label>
+          <input className="inp mono" value={code} disabled={busy} onChange={(e) => { want.current = ''; setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); }} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" data-pair-code /></label>
         <button type="submit" className="btn" disabled={busy || code.length !== 6}>{busy ? '확인 중…' : '다음'}</button>
       </form>
       <p className="lbl">이미 등록한 로봇을 노트북에 다시 설치했으면 같은 방법으로 다시 연결하세요 — 같은 로봇으로 이어지고 옛 연결 키는 바로 폐기됩니다.</p>
