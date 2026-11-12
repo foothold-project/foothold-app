@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "RobotInstallerAvailable": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "const": true,
+          "default": true,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "built_at": {
+          "format": "date-time",
+          "title": "Built At",
+          "type": "string"
+        },
+        "commit": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "filename": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+~-]*$",
+          "title": "Filename",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "windows"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "exclusiveMinimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "version": {
+          "pattern": "^[0-9][a-zA-Z0-9.+~-]*$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "platform",
+        "available",
+        "version",
+        "size",
+        "sha256",
+        "built_at",
+        "commit",
+        "filename"
+      ],
+      "title": "RobotInstallerAvailable",
+      "type": "object"
+    },
+    "RobotInstallerUnavailable": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "const": false,
+          "default": false,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "windows"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "not_built",
+            "building",
+            "build_failed",
+            "disabled",
+            "build_tools_missing",
+            "limit_exceeded",
+            "invalid_artifact",
+            "not_supported_yet"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "platform",
+        "available",
+        "reason"
+      ],
+      "title": "RobotInstallerUnavailable",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/RobotInstallerInfo",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/RobotInstallerAvailable"
+          },
+          {
+            "$ref": "#/$defs/RobotInstallerUnavailable"
+          }
+        ]
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "RobotInstallerInfo",
+  "type": "object"
+}
