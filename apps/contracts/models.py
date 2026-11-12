@@ -985,7 +985,7 @@ class MappingProgress(Contract):
     floor_id: UUID
     status: Literal['RUNNING', 'SAVING', 'SAVED', 'FAILED', 'CANCELLED']
     distance_m: float = Field(default=0, ge=0, le=1000000)
-    point_count: int = Field(default=0, ge=0, le=2000000)
+    point_count: int = Field(default=0, ge=0, le=5000000)
     elapsed_s: float = Field(default=0, ge=0, le=1000000000)
     error_code: str | None = Field(default=None, max_length=80)
     reason: str | None = Field(default=None, max_length=200)

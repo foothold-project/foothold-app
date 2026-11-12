@@ -35,11 +35,14 @@ RUNNING/SAVING/FAILED/CANCELLED 보고만 반영하며 SAVED는 서버 저장 �
 모든 agent WS 메시지의 4096 byte 상한은 유지한다. 서버 진행 보고는 지도 생성·명령 실행 권한을 주지 않는다.
 
 미리보기: `{resolution,cells:[[ix,iy],...],robot:[x,y,yaw]|null,path:[[x,y],...]}`.
-미터·라디안, XY 위에서 보기, cells는 resolution 단위 전역 격자 인덱스.
+미터·라디안, XY 위에서 보기, cells는 resolution 단위 격자 인덱스.
+이번 작업의 odometry 좌표계이며 저장된 층 지도 위에 곧바로 겹치지 않는다.
+저장할 때의 좌표 이동은 VoxelMapSummary.source_translation에 기록된다(이후 위치 찾기는 별도 단계).
 최대 2000칸/256경로점. 넓어지면 해상도를 낮추며 경로를 균등 추출한다.
 벽 높이의 점을 위에서 투영한다. free/unknown 판정 없는 관측점 그림이며 주행 가능 판정이 아니다.
 `distance_m`, `point_count`, `elapsed_s`, `error_code`, 쉬운 한국어 `reason` 포함.
 `map_version_id`/`terrain_id`는 SAVED에서 새 지도/연결 지형을 가리킨다.
+SAVED의 point_count는 저장한 PCD의 실제 점 수다(계약 최대 500만, 현재 agent 누적 한도 200만).
 
 agent는 Bearer **agent 토큰**으로
 `POST /agent/robots/{id}/slam/{session_id}/point-cloud` 에 binary XYZ PCD raw body를 전송한다.
@@ -62,7 +65,9 @@ agent 재접속의 LINK_LOST 보고 또는 다음 저장 요청으로 정리한�
 각 스트림 timestamp는 독립적으로 단조 증가를 확인하고, 서로 다른 시계 원점을 가정해
 노트북 수신 시각이 250ms 이내인 최신 위치와 점군을 맞춘다(원천 시각 동일 원점 추정 안 함).
 루프 닫기/ICP/scan deskew 없음. 장거리 드리프트·빠른 회전·시각 불일치가 품질을 제한한다.
-새 optional `slam = [numpy==1.26.4]`: cp310 manylinux x86_64 wheel로 오프라인 설치 가능.
+선택 이유는 기존 go2-readonly와 같은 NumPy 고정판만으로 구성해 별도 정합기 빌드 없이
+x86_64 cp310 wheel을 오프라인 설치 파일에 넣을 수 있기 때문이다.
+새 optional `slam = [numpy==1.26.4]`: cp310 manylinux x86_64 wheel 다운로드 확인.
 **설치 파일 작업자는 slam 묶음을 포함할 것.** 이 작업은 설치 파일을 수정하지 않는다.
 
 SDK 정본 커밋 `unitree_sdk2_python@814556d15970dd2ecf1c9984e845ca02ab07e206`:
@@ -71,7 +76,7 @@ SDK 정본 커밋 `unitree_sdk2_python@814556d15970dd2ecf1c9984e845ca02ab07e206`
 - `unitree_sdk2py/idl/unitree_go/msg/dds_/_SportModeState_.py`: position, imu_state quaternion, stamp.
 - `unitree_sdk2py/idl/sensor_msgs/msg/dds_/_PointCloud2_.py` 및 `_PointField_.py`: binary 레이아웃.
 **이 고정 SDK에는 라이다 점군 topic 이름 예제가 없다.** 이름을 기억으로 기본 설정하지 않는다.
-기존 `apps/agent/foothold_agent/go2_direct/sdk.py:103` 관측 경로의
+기준 커밋 `83dafea`의 `apps/agent/foothold_agent/go2_direct/sdk.py:103` 관측 경로의
 `rt/utlidar/cloud` / PointCloud2_를 기본으로 재사용한다.
 `FH_MAPPING_LIDAR_TOPIC` 하나로 topic을 덮어쓴다(L1/L2 교체).
 Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:343-366`
@@ -107,9 +112,13 @@ Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:
 | MAPPING_LIMIT, ODOMETRY_JUMP | 점 수 상한 또는 한 스캔 사이 2m 초과 위치 점프. 새 점 누적 중지, 보존한 지도 저장/취소 |
 | MAPPING_EMPTY | 저장할 점 없음. 취소 후 새로 시작 |
 | MAPPING_SESSION_LOST | 프로그램 재시작으로 메모리 누적 없음. 취소 후 새로 시작 (디스크 PCD 자동 재수입 없음) |
+| STALE | 지도 기준 판 변경. 서버의 한국어 이유를 전달하며 취소 후 새로 시작 |
 | MAPPING_FAILED, MAPPING_SAVE_FAILED | 누적/저장 실패. 만든 점은 보존, 저장 재시도/취소 |
 | MAPPING_REPORT_TOO_LARGE | 진행 보고 64KiB 초과, agent가 축소해야 함 |
 | INVALID_POINT_CLOUD, UPLOAD_TOO_LARGE, UPLOAD_TIMEOUT, UPLOAD_BUSY, FILE_STORAGE_ERROR, FILE_STORAGE_FULL | 기존 점 지도 형식·50MiB 상한·수신·변환·저장 오류, 원본 점은 노트북에 보존 |
 
 실기 품질과 CPython 3.10에서의 실제 구동은 미검증이다. 자동 시험은 CPython 3.12에서
 합성 자료·가짜 DDS/가짜 연결만 사용했다. x86_64 cp310 NumPy wheel은 내려받아 존재만 확인했다.
+
+지도 만들기 중에는 층 휴지통 이동/완전 삭제를 거부한다(RESOURCE_IN_USE).
+저장/취소 뒤 층을 완전 삭제하면 해당 지도 만들기 세션 기록도 함께 정리한다.

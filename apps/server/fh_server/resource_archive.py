@@ -1,7 +1,7 @@
 """Archive guards and selection filters; historical snapshots remain readable."""
-from sqlalchemy import any_, exists, or_, select
+from sqlalchemy import any_, exists, inspect, or_, select
 
-from .models import Assignment, Building, Floor, Robot, Run, ScenarioVersion
+from .models import Assignment, Building, Floor, MappingSession, Robot, Run, ScenarioVersion
 
 TERMINAL_RUNS = ('COMPLETED', 'FAILED', 'CANCELED', 'ABORTED')
 
@@ -22,6 +22,10 @@ def require_live_floors(db, version, fail):
 def require_unused(db, org_id, fail, *, floor=None, scenario=None):
     versions = select(ScenarioVersion.id).where(ScenarioVersion.org_id == org_id)
     if floor is not None:
+        # Historical 0027 invokes this helper before 0030 creates its table.
+        if inspect(db.connection()).has_table('mapping_sessions') and db.scalar(select(MappingSession.id).where(MappingSession.org_id == org_id,
+                MappingSession.floor_id == floor.id, MappingSession.status.in_(('RUNNING', 'SAVING', 'FAILED'))).limit(1)):
+            fail(409, 'RESOURCE_IN_USE', '이 층의 지도를 만들고 있습니다. 먼저 저장하거나 취소해 주세요.')
         versions = versions.where(floor.id == any_(ScenarioVersion.floor_ids))
         if db.scalar(select(Robot.id).where(Robot.org_id == org_id, Robot.archived_at.is_(None),
                 Robot.last_floor_id == floor.id).limit(1)):

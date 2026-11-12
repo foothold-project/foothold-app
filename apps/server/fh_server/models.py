@@ -734,9 +734,9 @@ class MappingSession(Tenant, Base):
     __tablename__ = 'mapping_sessions'
     __table_args__ = (
         ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
-        ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id']),
+        ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['org_id', 'owner_id'], ['users.org_id', 'users.id']),
-        ForeignKeyConstraint(['org_id', 'base_version_id'], ['map_versions.org_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'base_version_id'], ['map_versions.org_id', 'map_versions.id'], ondelete='CASCADE'),
         CheckConstraint("status IN ('RUNNING','SAVING','SAVED','FAILED','CANCELLED')", name='mapping_status'),
         Index('mapping_one_active_robot', 'robot_id', unique=True,
               postgresql_where=text("status IN ('RUNNING','SAVING','FAILED')")),

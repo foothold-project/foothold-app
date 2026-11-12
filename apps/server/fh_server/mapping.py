@@ -43,7 +43,8 @@ def owner_scope(db, org_id, robot_id, user, fail, floor_id=None):
 def progress(row):
     body = {**(row.progress or {}), 'session_id': row.id, 'floor_id': row.floor_id, 'status': row.status}
     if row.result:
-        body.update(map_version_id=row.result['map']['id'], terrain_id=row.result['voxels']['terrain_id'])
+        body.update(map_version_id=row.result['map']['id'], terrain_id=row.result['voxels']['terrain_id'],
+                    point_count=row.result['voxels']['point_count'])
     return C.MappingProgress.model_validate(body)
 
 

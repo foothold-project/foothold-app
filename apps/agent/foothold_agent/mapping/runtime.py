@@ -6,14 +6,22 @@ import json
 import math
 from pathlib import Path
 import os
+import re
 import threading
 import time
 from urllib.parse import urlsplit, urlunsplit
+from urllib.error import HTTPError
 from urllib.request import Request, build_opener, ProxyHandler
 from uuid import UUID
 
 from .core import Accumulator
 from foothold_agent.mapping.inputs import DEFAULT_TOPIC
+
+
+class TransferError(RuntimeError):
+    def __init__(self, code, reason):
+        self.code, self.reason = code, reason
+        super().__init__(reason)
 
 
 class MappingRuntime:
@@ -100,8 +108,26 @@ class MappingRuntime:
             'Authorization': 'Bearer ' + self.settings.token,
             'Content-Type': 'application/json' if suffix == 'progress' else 'application/octet-stream'})
         opener = build_opener(ProxyHandler({}))
-        with opener.open(request, timeout=60 if suffix == 'point-cloud' else 2) as response:
-            return json.loads(response.read(2_000_000))
+        try:
+            with opener.open(request, timeout=60 if suffix == 'point-cloud' else 2) as response:
+                return json.loads(response.read(2_000_000))
+        except HTTPError as error:
+            try:
+                try:
+                    payload = error.read(8192)
+                finally:
+                    error.close()
+                body = json.loads(payload).get('error', {})
+                code, reason = body.get('code'), body.get('message')
+                if (isinstance(code, str) and re.fullmatch(r'[A-Z0-9_]{1,80}', code)
+                        and isinstance(reason, str) and 0 < len(reason) <= 200 and '\x00' not in reason
+                        and any('가' <= char <= '힣' for char in reason)):
+                    if code == 'INVALID_POINT_CLOUD':
+                        reason = '지도 자료를 읽을 수 없습니다. 연결 프로그램을 확인한 뒤 다시 저장하거나 취소해 주세요.'
+                    raise TransferError(code, reason) from None
+            except (ValueError, AttributeError, TypeError):
+                pass
+            raise TransferError('MAPPING_SAVE_FAILED', '지도를 저장하지 못했습니다. 연결을 확인한 뒤 다시 저장해 주세요.') from None
 
     def save(self, session, data):
         self.folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -173,6 +199,8 @@ class MappingRuntime:
                 try:
                     future.result()
                     self.core.status = 'SAVED'
+                except TransferError as error:
+                    self.core.fail(error.code, error.reason)
                 except Exception:
                     self.core.fail('MAPPING_SAVE_FAILED', '지도를 저장하지 못했습니다. 연결을 확인한 뒤 다시 저장해 주세요.')
                 self.next_report = float('-inf')

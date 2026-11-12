@@ -115,6 +115,7 @@ def test_save_publishes_exact_twin_and_retry_is_idempotent(setup):
     assert upload(s, sid).json() == result
     polled = http.get(P+f'/robots/{rid}/slam', headers=headers)
     assert polled.json()['status'] == 'SAVED' and polled.json()['map_version_id'] == result['map']['id']
+    assert polled.json()['point_count'] == result['voxels']['point_count']
     assert polled.headers['cache-control'] == 'private, no-store'
     assert action(s, 'cancel', sid).status_code == 409
     second = start(s).json()['session_id']
@@ -240,3 +241,18 @@ def test_authorized_frame_is_actually_sent_once(setup):
     assert sent==[frame] and not rt.mapping.command_allowed(rid,frame)
     assert not http.portal.call(rt.send_body,peer,frame)
     assert sent==[frame]
+
+
+def test_active_mapping_blocks_archive_and_cancelled_session_does_not_block_purge(setup):
+    s=setup
+    http, headers, floor, rid, rt, peer, engine=s
+    sid=start(s).json()['session_id']
+    admin=auth(http,'admin')
+    archived=http.delete(P+f'/floors/{floor}',headers=admin)
+    assert archived.status_code==409 and archived.json()['error']['code']=='RESOURCE_IN_USE'
+    assert action(s,'cancel',sid).status_code==200
+    assert http.delete(P+f'/floors/{floor}',headers=admin).status_code==204
+    deleted=http.delete(P+f'/trash/floor/{floor}',headers=admin)
+    assert deleted.status_code==204, deleted.text
+    with Session(engine) as db:
+        assert db.get(MappingSession,sid) is None

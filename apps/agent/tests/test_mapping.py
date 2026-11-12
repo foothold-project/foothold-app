@@ -200,3 +200,20 @@ def test_new_authorized_start_recovers_a_cancel_missed_while_offline():
     assert runtime.core.session_id==second['session_id'] and runtime.core.status=='RUNNING'
     assert not runtime.core.cells
     runtime.io.shutdown(wait=True)
+
+
+def test_upload_keeps_server_korean_rejection_without_exposing_transport_url(monkeypatch):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    import foothold_agent.mapping.runtime as module
+    class Opener:
+        def open(self,*args,**kwargs):
+            raise HTTPError('https://example.invalid/private',409,'Conflict',{},BytesIO(json.dumps(
+                {'error':{'code':'STALE','message':'층의 지도가 바뀌었습니다. 취소한 뒤 다시 시작해 주세요.'}},ensure_ascii=False).encode()))
+    monkeypatch.setattr(module,'build_opener',lambda *args:Opener())
+    runtime=MappingRuntime(NS(),NS(),Settings('wss://example.invalid/api/v1/agent/ws','fake-token'),str(uuid4()),{})
+    with pytest.raises(module.TransferError) as caught:
+        runtime.http(str(uuid4()),'point-cloud',b'synthetic')
+    assert caught.value.code=='STALE' and '취소' in caught.value.reason
+    assert 'private' not in str(caught.value)
+    runtime.io.shutdown(wait=True)
