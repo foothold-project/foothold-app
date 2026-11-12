@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+# Start as the active local graphical user, through their existing user manager.
+# Never start the robot program as root or borrow another process's environment.
+if [ "$1" = configure ] && command -v loginctl >/dev/null 2>&1; then
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r session rest; do
+        active=$(loginctl show-session "$session" -p Active --value 2>/dev/null) || continue
+        remote=$(loginctl show-session "$session" -p Remote --value 2>/dev/null) || continue
+        kind=$(loginctl show-session "$session" -p Type --value 2>/dev/null) || continue
+        [ "$active" = yes ] && [ "$remote" = no ] || continue
+        case "$kind" in x11|wayland) ;; *) continue ;; esac
+        uid=$(loginctl show-session "$session" -p User --value 2>/dev/null) || continue
+        case "$uid" in ''|*[!0-9]*|0) continue ;; esac
+        user=$(getent passwd "$uid" | cut -d: -f1)
+        [ -n "$user" ] && [ -S "/run/user/$uid/bus" ] || continue
+        runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            systemctl --user daemon-reload || true
+        runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            /opt/foothold-robot/launch --autostart --no-browser || true
+    done || true
+fi
+exit 0
