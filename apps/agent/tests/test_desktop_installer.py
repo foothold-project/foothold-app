@@ -20,7 +20,7 @@ spec.loader.exec_module(builder)
 
 def row(name='eno2', address=None):
     return dict(ifname=name, address='02:11:22:33:44:55', link_type='ether',
-                operstate='UP', addr_info=[] if address is None else [dict(local=address, prefixlen=24)])
+                operstate='UP', addr_info=[] if address is None else [dict(family='inet', local=address, prefixlen=24)])
 
 
 def metadata(tmp_path, rows, routes=(), neighbors=()):
@@ -205,3 +205,66 @@ esac
     assert ('/launch --autostart --no-browser' in calls) is should_start
     assert 'stop foothold-robot.service' in calls
     assert 'agent.json' not in calls and 'go2-agent.env' not in calls
+
+
+@pytest.mark.parametrize('has_ipv4', [False, True])
+def test_real_iproute_address_shapes_offer_wired_nic_without_family_filter(tmp_path, monkeypatch, has_ipv4):
+    from types import SimpleNamespace
+    from foothold_agent.setup import discovery
+    # iproute2 6.1's observed key sets, with host identifiers anonymized.
+    # -4 omits MAC/link_type and drops interfaces that have no IPv4 address.
+    base = dict(ifindex=7, ifname='eno2', flags=['BROADCAST','MULTICAST','UP','LOWER_UP'],
+                mtu=1500, qdisc='fq_codel', operstate='UP', group='default', txqlen=1000)
+    inet = [dict(family='inet', local='192.168.123.200', prefixlen=24,
+                 broadcast='192.168.123.255', scope='global', label='eno2')] if has_ipv4 else []
+    inet6 = [dict(family='inet6', local='fe80::1234', prefixlen=64, scope='link')]
+    v4_rows = [dict(base, addr_info=inet)] if has_ipv4 else []
+    full_rows = [dict(base, link_type='ether', address='02:11:22:33:44:55',
+                      broadcast='ff:ff:ff:ff:ff:ff', addr_info=inet+inet6)]
+    (tmp_path/'eno2/device').mkdir(parents=True)
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[-2:] == ['address','show']:
+            return SimpleNamespace(stdout=json.dumps(v4_rows if '-4' in argv else full_rows))
+        assert argv == ['ip','-j','-4','route','show','table','all']
+        return SimpleNamespace(stdout='[]')
+    monkeypatch.setattr(discovery.subprocess, 'run', run)
+    assert network.available(query_fn=discovery.query, sysfs=tmp_path, ipv6_defaults=[]) == [
+        dict(name='eno2',mac='02:11:22:33:44:55')]
+    assert ['ip','-j','address','show'] in calls
+
+
+def test_real_iproute_link_metadata_and_inet_only_addresses_find_robot_nic(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from foothold_agent.setup import discovery
+    base = dict(ifindex=7, ifname='eno2', flags=['BROADCAST','MULTICAST','UP','LOWER_UP'],
+                mtu=1500, qdisc='fq_codel', operstate='UP', group='default', txqlen=1000)
+    inet = dict(family='inet', local='192.168.123.200', prefixlen=24,
+                broadcast='192.168.123.255', scope='global', label='eno2')
+    full = dict(base, link_type='ether', address='02:11:22:33:44:55',
+                broadcast='ff:ff:ff:ff:ff:ff', addr_info=[inet,dict(
+                    family='inet6',local='fe80::1234',prefixlen=64,scope='link')])
+    (tmp_path/'eno2/device').mkdir(parents=True)
+    def run(argv, **kwargs):
+        if argv[-2:] == ['address','show']:
+            return SimpleNamespace(stdout=json.dumps([dict(base, addr_info=[inet])] if '-4' in argv else [full]))
+        assert argv == ['ip','-j','-4','route','show','table','all']
+        return SimpleNamespace(stdout='[]')
+    monkeypatch.setattr(discovery.subprocess, 'run', run)
+    assert discovery.candidates(query_fn=discovery.query, sysfs=tmp_path) == [
+        discovery.NIC('eno2',7,'02:11:22:33:44:55',(('192.168.123.200',24),))]
+
+
+def test_cached_inputs_are_reverified_without_download_and_corruption_fails(tmp_path, monkeypatch):
+    import hashlib
+    path = tmp_path/'sdk.tar.gz'
+    path.write_bytes(b'verified SDK archive fixture')
+    asset = dict(name=path.name,url='https://archive.invalid/fixed-commit',
+                 sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    def forbidden(*args, **kwargs): raise AssertionError('cached inputs must not be downloaded again')
+    monkeypatch.setattr(builder,'urlopen',forbidden)
+    assert builder.fetch(asset,tmp_path) == path
+    path.write_bytes(b'corrupted cached archive')
+    with pytest.raises(ValueError,match='input hash mismatch'):
+        builder.fetch(asset,tmp_path)

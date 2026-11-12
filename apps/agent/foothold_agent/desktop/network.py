@@ -30,7 +30,7 @@ def available(*, query_fn=query, sysfs=Path('/sys/class/net'), ipv6_defaults=Non
                 or row.get('link_type') != 'ether' or row.get('operstate') != 'UP'
                 or not (sysfs/name/'device').exists() or (sysfs/name/'wireless').exists()):
             continue
-        addresses = row.get('addr_info', [])
+        addresses = [a for a in row.get('addr_info', []) if a.get('family') == 'inet']
         if any(IPv4Interface(f"{a['local']}/{a['prefixlen']}").network != ROBOT_NETWORK
                or a['local'] in ('192.168.123.161', '192.168.123.18') for a in addresses):
             continue
@@ -45,7 +45,7 @@ def free_address(query_fn=query):
     # caught by NM's duplicate-address detection before activation succeeds.
     used = {'192.168.123.161', '192.168.123.18'}
     for row in query_fn('address', 'show'):
-        used.update(a['local'] for a in row.get('addr_info', []))
+        used.update(a['local'] for a in row.get('addr_info', []) if a.get('family') == 'inet')
     used.update(row.get('dst') for row in query_fn('neigh', 'show'))
     for host in range(200, 255):
         address = f'192.168.123.{host}'

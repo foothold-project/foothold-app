@@ -22,3 +22,12 @@
 미확인: Ubuntu 22.04 별도 OS 실행, 실제 GUI 더블클릭 설치/제거, 실제 root dpkg 설치, 설치 직후·로그인 systemd 자동 기동, Polkit 창, 실제 전용 유선 설정·중복 주소 충돌, 실기 serial·QR/저장 연결·실폰·실로봇 이동. `.deb`가 파일 관리자의 설치 관리자로 연결되는지는 대상 Desktop에서 확인해야 한다. 설치 파일은 가짜 서버 주소 전용이며 운영에 배포하지 않았다.
 
 되돌림: 이 PR의 소스 커밋을 revert하고 검토된 이전 설치 원물을 패키지 관리자로 설치한다. 사용자 키를 지우지 않는다. Git revert만으로 노트북·서버·웹을 교체하지 않는다.
+
+## PR #338 검토 수정 — 링크 메타데이터와 캐시 재빌드
+
+- 이 PC iproute2 6.1에서 `ip -j -4 address show`는 link_type·MAC 키를 생략하고, `ip -j address show`는 이 키들과 IPv6 주소를 함께 반환함을 읽기 전용으로 확인했다. 시험 fixture는 실제 두 출력 형태의 키를 유지하고 NIC·MAC·주소를 익명화했다.
+- 수정 전 새 회귀 시험은 **3 failed**: IPv4 없는 유선과 IPv4 있는 유선의 설정 선택지, 기존 DDS 후보 탐지가 모두 실패했다. 주소 조회만 가족 필터 없이 읽고 두 소비자는 `family == inet` 항목을 사용하도록 고쳤다. route·neigh는 계속 `-4`이며 NIC 선택·조종·승인 규칙은 바꾸지 않았다.
+- 수정 후 `pytest apps/agent/tests/test_desktop_installer.py apps/agent/tests/test_setup_pairing.py apps/agent/tests/test_go2_readonly.py -q`: **184 passed**. 캐시 입력의 재다운로드 금지·SHA256 재검증·손상 시 거부 시험도 포함한다.
+- `python3 apps/agent/installer/build.py --server https://example.invalid --version 0.2.0-2`: **PASS**, `pip check` 포함. 고정 입력 23개 전부 `output/easy-install/cache/`에서 재사용했고 빌드 전후 SHA256·mtime이 동일했다. SDK·Ubuntu binutils 원물은 새로 받거나 해시를 교체하지 않았다.
+- 새 원물 `output/easy-install/foothold-robot_0.2.0-2_amd64.deb`: **222,278,220 bytes**, SHA256 `91e2f08f4407202509a6f1b1144a82bf9428b279340c9e3434025965e850a47a`. 기존 0.2.0-1 원물은 남겼다.
+- 새 원물로 `python3 apps/agent/installer/smoke.py output/easy-install/foothold-robot_0.2.0-2_amd64.deb`: **PASS**, 별도 HOME 추출·bundled 점검·없는 NIC의 로봇 없음 안내·자동 시작 선택·중복 실행·종료·제거·키/옛 env 보존. DDS·실기·실제 NM 설정은 실행하지 않았다. 이전 전체 시험의 알려진 실패 및 GUI/실기 미확인 범위는 그대로다.

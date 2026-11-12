@@ -18,6 +18,8 @@ python3 apps/agent/installer/build.py --server https://example.invalid
 
 `--version`은 Debian 버전, `--output`은 이 checkout의 `output/` 또는 `runs/` 하위만 허용한다. 출력 전체가 gitignore 대상이다. 실제 운영 주소가 들어간 파일·빌드 로그는 공개 저장소에 올리지 않는다.
 
+같은 `--output`으로 다시 빌드하면 `cache/`의 받은 원물을 먼저 SHA256으로 재검증해 그대로 쓴다. 서버 주소 변경은 Python·SDK·binutils를 다시 받지 않는다. 특히 GitHub SDK tarball이나 Ubuntu pool의 원물이 나중에 바뀌거나 없어질 수 있으므로 `output/easy-install/cache/`를 보관하고, 개발 서버용 재빌드도 이 위치를 재사용한다. 캐시가 손상되면 새 파일이나 해시를 자동 수용하지 않고 중단한다. 기존 검증 원물을 남기려면 재빌드할 때 `--version 0.2.0-2`처럼 새 버전을 지정한다.
+
 `inputs.lock.json`의 CPython 3.10.21 standalone(20260901)·고정 SDK 커밋 archive·PyPI wheel·Ubuntu native tool을 SHA256으로 검증하고 불일치 시 중단한다. SDK는 검증된 archive에서 로컬 wheel을 만든 뒤 그 커밋의 `direct_url.json`을 기록해 기존 preflight를 유지한다. `pip check`도 수행한다. Python·SDK/DDS·numpy·opencv·websockets·qrcode 핀과 전이 의존 wheel은 모두 고정되어 있다. ELF 확인용 `readelf`와 필요한 libctf만 `/opt`에 묶으므로 binutils apt 설치는 필요 없다. GPL 도구의 정확한 대응 소스·Ubuntu 패치·copyright도 `/opt/foothold-robot/licenses/binutils/`에 함께 넣는다.
 
 빌드는 `pyproject.toml`의 `setup`, `go2-readonly`, **있을 때만 `slam`** 묶음을 읽는다. 묶음 안의 PyPI 항목은 모두 `name==version`이어야 한다. 아직 lock에 없는 고정 항목은 해당 버전의 PyPI SHA256으로 검증한 호환 wheel만 내려받고 설치 파일의 `inputs.lock.json`·`extras.json`에 기록한다. 소스 빌드·임의 버전 해소는 하지 않는다. 새 묶음은 전이 의존성도 핀으로 나열해야 한다(빠지면 `pip check`로 빌드 중단). 기존 lock과 핀이 충돌하면 검토 없이 대체하지 않고 실패한다. `slam`이 없는 현재 checkout에서는 건너뛴다. pyproject 자체는 빌드가 고치지 않는다.
