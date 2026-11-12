@@ -1,4 +1,4 @@
-// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 기체번호 → 이름)·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
+// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 이름(기체번호 작게) → 끝, RB-EASY-PAIR)·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 연결 키는 화면에 오지 않는다(서버 confirm 답에도 없음).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -70,10 +70,11 @@ const unfold = async (label: string) => {
   const d = [...box.querySelectorAll('details.dv-fold')].find((x) => x.querySelector('summary')!.textContent === label) as HTMLDetailsElement;
   act(() => { d.open = true; d.dispatchEvent(new Event('toggle')); }); await flush();
 };
-const startPair = async () => { await click(btn('+ 로봇 연결하기')); await click(btn('새 로봇 추가')); };
+/** 브라우저(앱 밖)는 고를 것이 «새 로봇 추가»뿐이라 «+ 로봇 연결하기» 한 번에 바로 새 로봇 추가 화면(RB-EASY-PAIR) */
+const startPair = async () => { await click(btn('+ 로봇 연결하기')); expect(card('새 로봇 추가').dataset.pair).toBe('code'); };
 
 describe('폰 운영 관리자 — 새 로봇 추가', () => {
-  it('6자리 → claim → 기체번호 확인 «이 로봇 맞음» → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
+  it('6자리 → claim → 바로 이름 단계(기체번호 작게, 확인 단계 없음) → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
     serve(signedIn(LEE, [], {
       'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } },
       'POST /pairing/p1/confirm': { status: 200, body: RA },
@@ -89,8 +90,9 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     setVal(code, '123456');
     await submit(code.form!);
     expect(sent('POST', '/pairing/claim')[0].body).toEqual({ code: '123456' });
+    expect(card('새 로봇 추가').dataset.pair).toBe('name');
     expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
-    await click(btn('이 로봇 맞음'));
+    expect(btn('이 로봇 맞음')).toBeUndefined();
     const name = $<HTMLInputElement>('[aria-label="새 로봇 추가"] input[name="name"]')!;
     expect(name.value).toBe('Go2-5678');
     const lists = calls.filter((c) => c.path.startsWith('/robots?')).length;
@@ -120,7 +122,6 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect(alert()).toBe('연결 시도가 많습니다. 잠시 뒤 다시 시도하세요.');
     claim = { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } };
     await go();
-    await click(btn('이 로봇 맞음'));
     await submit($('[aria-label="새 로봇 추가"] form')!);
     expect(alert()).toContain('다른 운영 관리자가 담당');
     expect(alert()).toContain('넘겨받기 또는 삭제');
@@ -139,7 +140,6 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     await startPair();
     setVal($<HTMLInputElement>('[data-pair-code]')!, '111222');
     await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
-    await click(btn('이 로봇 맞음'));
     await submit($('[aria-label="새 로봇 추가"] form')!);
     expect($('[data-pair-done]')!.textContent).toContain('기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기');
   });
@@ -160,6 +160,47 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect(stop).toHaveBeenCalled();
     expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
     Reflect.deleteProperty(navigator, 'mediaDevices');
+  });
+
+  it('지연 응답(Codex 검토 91c168d): 코드 A 확인 중엔 입력·QR 잠금, 그래도 입력이 B 로 바뀌면 A 의 늦은 답은 버리고 B 로만 등록', async () => {
+    const replies: Record<string, (r: Reply) => void> = {};
+    serve(signedIn(LEE, [], {
+      'POST /pairing/claim': () => new Promise<Reply>((res) => { replies[(calls[calls.length - 1].body as { code: string }).code] = res; }),
+      'POST /pairing/pair-b/confirm': { status: 200, body: RA },
+    }));
+    await open('#/drive', true);
+    await startPair();
+    const input = () => $<HTMLInputElement>('[data-pair-code]')!;
+    setVal(input(), '111111');
+    await submit(input().form!);
+    expect(input().disabled).toBe(true);   // 확인 중 잠금
+    expect(btn('QR 스캔')!.disabled).toBe(true);
+    setVal(input(), '222222');   // 잠금을 넘어 바뀐 경우(방어)
+    replies['111111']({ status: 200, body: { pairing_id: 'pair-a', robot_serial: '9999-00001111', expires_at: inMin(9) } });
+    await flush();
+    expect(card('새 로봇 추가').dataset.pair).toBe('code');   // 옛 답으로 이름 단계에 가지 않음
+    expect(input().disabled).toBe(false);
+    await submit(input().form!);
+    replies['222222']({ status: 200, body: { pairing_id: 'pair-b', robot_serial: SERIAL, expires_at: inMin(9) } });
+    await flush();
+    expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
+    await submit($('[aria-label="새 로봇 추가"] form')!);
+    expect(calls.filter((c) => c.path.endsWith('/confirm')).map((c) => c.path)).toEqual(['/pairing/pair-b/confirm']);
+  });
+
+  it('지연 응답: 확인 중 화면을 닫았다 다시 열면 옛 답은 버림(새 화면은 코드 단계 그대로)', async () => {
+    let late: (r: Reply) => void = () => {};
+    serve(signedIn(LEE, [], { 'POST /pairing/claim': () => new Promise<Reply>((res) => { late = res; }) }));
+    await open('#/drive', true);
+    await startPair();
+    setVal($<HTMLInputElement>('[data-pair-code]')!, '111111');
+    await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
+    await click(btn('닫기', card('새 로봇 추가')));
+    await startPair();
+    late({ status: 200, body: { pairing_id: 'pair-a', robot_serial: SERIAL, expires_at: inMin(9) } });
+    await flush();
+    expect(card('새 로봇 추가').dataset.pair).toBe('code');
+    expect($<HTMLInputElement>('[data-pair-code]')!.value).toBe('');
   });
 
   it('QR 읽기를 못 하는 브라우저 → 이유 + 6자리 입력은 그대로', async () => {
