@@ -19,10 +19,12 @@ from .pairing import Pairing, origin, ws_origin
 from .runtime import Inputs, SerialUnavailable, run
 from .storage import default_path, load, save
 from .view import Status, make_server, qr_svg
+from foothold_agent.depth.source import Source as DepthSource, Publisher as DepthPublisher
+from types import SimpleNamespace
 
 
 async def connect(args, status, stop, *, discover=candidates, subscriptions_factory=Subscriptions,
-                  preflight=inspect, pairing_factory=Pairing, runtime=run):
+                  preflight=inspect, pairing_factory=Pairing, runtime=run, depth_factory=DepthSource):
     # No inherited motion setting, token, legacy config file or DDS loader can
     # silently select a different entrypoint/channel in this process.
     if any(os.environ.get(k) for k in ('CYCLONEDDS_URI', 'CYCLONEDDS_HOME', 'LD_LIBRARY_PATH')):
@@ -39,8 +41,11 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
     inputs = Inputs()
     subscriptions = subscriptions_factory(inputs, nic.name)
     pairing = None
+    depth = media_task = None
     try:
         subscriptions.start()  # only two readonly subscriptions; no motion factory
+        depth = depth_factory(env=os.environ, status=status)
+        depth.start()  # metadata and selected depth reader on an independent daemon
         deadline = time.monotonic()+10
         while not stop.is_set():
             try:
@@ -93,9 +98,17 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
             nonlocal credentials
             credentials = replace(credentials, last_field_approval_expires_at=expiry)
             save(credentials, args.config)
+        media_config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link)
+        depth.bind(media_config)
+        media_task = asyncio.create_task(DepthPublisher(media_config, source=depth).run())
         await runtime(credentials, nic, inputs, subscriptions, remember=remember, ready=report['installation_ready'],
                       check_nic=check_nic, status=status, stop=stop)
     finally:
+        if depth is not None:
+            depth.close()
+        if media_task is not None:
+            media_task.cancel()
+            await asyncio.gather(media_task, return_exceptions=True)
         if pairing is not None:
             pairing.clear()
         status.update(code=None, qr=None, expires_at=None, connected=False)

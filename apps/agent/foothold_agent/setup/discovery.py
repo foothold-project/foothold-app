@@ -18,7 +18,10 @@ class NIC:
 
 
 def query(*args):
-    result = subprocess.run(['ip', '-j', '-4', *args], check=True,
+    # A family filter drops link_type/MAC and interfaces without that family.
+    # Address consumers select inet entries after retaining full link metadata.
+    family = [] if args and args[0] == 'address' else ['-4']
+    result = subprocess.run(['ip', '-j', *family, *args], check=True,
                             capture_output=True, text=True, timeout=.15)
     if len(result.stdout) > 65536:
         raise ValueError('network metadata exceeds limit')

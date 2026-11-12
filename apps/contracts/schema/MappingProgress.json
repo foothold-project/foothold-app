@@ -131,7 +131,7 @@
     },
     "point_count": {
       "default": 0,
-      "maximum": 2000000,
+      "maximum": 5000000,
       "minimum": 0,
       "title": "Point Count",
       "type": "integer"

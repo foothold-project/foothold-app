@@ -985,7 +985,7 @@ class MappingProgress(Contract):
     floor_id: UUID
     status: Literal['RUNNING', 'SAVING', 'SAVED', 'FAILED', 'CANCELLED']
     distance_m: float = Field(default=0, ge=0, le=1000000)
-    point_count: int = Field(default=0, ge=0, le=2000000)
+    point_count: int = Field(default=0, ge=0, le=5000000)
     elapsed_s: float = Field(default=0, ge=0, le=1000000000)
     error_code: str | None = Field(default=None, max_length=80)
     reason: str | None = Field(default=None, max_length=200)
@@ -2499,8 +2499,8 @@ MEDIA_POINT_MAX_COUNT = 4_000
 MEDIA_POINT_MAX_HZ = 2
 MEDIA_POINT_MAX_ABS_M = 10_000
 EXTERNAL_VIEW_MAX_HZ = 10
-MediaChannel = Literal['rgb', 'external', 'lidar']
-MediaSource = Literal['d435i_rgb', 'go2_front', 'gazebo_external', 'l1']
+MediaChannel = Literal['rgb', 'external', 'lidar', 'depth']
+MediaSource = Literal['d435i_rgb', 'go2_front', 'gazebo_external', 'l1', 'go2_depth']
 
 
 class MediaLimits(Contract):
@@ -2540,7 +2540,7 @@ class MediaHeader(MediaBinding):
     @model_validator(mode='after')
     def channel_source(self):
         allowed = {'rgb': ('d435i_rgb', 'go2_front'),
-                   'external': ('gazebo_external',), 'lidar': ('l1',)}
+                   'external': ('gazebo_external',), 'lidar': ('l1',), 'depth': ('go2_depth',)}
         if self.source not in allowed[self.channel]:
             raise ValueError('source does not belong to channel')
         if self.channel == 'external' and self.episode_id is None:
@@ -2550,14 +2550,24 @@ class MediaHeader(MediaBinding):
 
 class MediaVideoFrame(MediaHeader):
     t: Literal['media.video']
-    channel: Literal['rgb', 'external']
+    channel: Literal['rgb', 'external', 'depth']
     mime: Literal['image/jpeg']
     width: int = Field(ge=1, le=640, strict=True)
     height: int = Field(ge=1, le=360, strict=True)
     jpeg: str = Field(min_length=4, max_length=87384, pattern=r'^[A-Za-z0-9+/]+={0,2}$')
+    depth_min_m: float | None = Field(default=None, ge=0, le=10000, strict=True, exclude_if=lambda v: v is None)
+    depth_max_m: float | None = Field(default=None, gt=0, le=10000, strict=True, exclude_if=lambda v: v is None)
+
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('depth_min_m', 'depth_max_m'))
 
     @model_validator(mode='after')
     def bounded_jpeg(self):
+        if self.channel == 'depth':
+            if (self.depth_min_m is None or self.depth_max_m is None
+                    or self.depth_min_m >= self.depth_max_m or self.episode_id is not None):
+                raise ValueError('hardware depth requires an increasing metric colour range')
+        elif self.depth_min_m is not None or self.depth_max_m is not None:
+            raise ValueError('metric depth range belongs only to depth')
         try:
             data = base64.b64decode(self.jpeg, validate=True)
         except (ValueError, binascii.Error) as error:
@@ -2899,6 +2909,28 @@ class FieldApprovalRequest(Contract):
 
 class FieldApproval(Contract):
     expires_at: UTCDateTime
+
+
+class RobotInstallerAvailable(Contract):
+    platform: Literal['linux', 'windows']
+    available: Literal[True] = True
+    version: str = Field(pattern=r'^[0-9][a-zA-Z0-9.+~-]*$')
+    size: int = Field(gt=0)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    built_at: UTCDateTime
+    commit: str = Field(pattern=r'^[0-9a-f]{40}$')
+    filename: str = Field(pattern=r'^[a-zA-Z0-9][a-zA-Z0-9._+~-]*$')
+
+
+class RobotInstallerUnavailable(Contract):
+    platform: Literal['linux', 'windows']
+    available: Literal[False] = False
+    reason: Literal['not_built', 'building', 'build_failed', 'disabled',
+                    'build_tools_missing', 'limit_exceeded', 'invalid_artifact', 'not_supported_yet']
+
+
+class RobotInstallerInfo(Contract):
+    items: list[RobotInstallerAvailable | RobotInstallerUnavailable]
 
 
 TOP = {name: value for name, value in list(globals().items())

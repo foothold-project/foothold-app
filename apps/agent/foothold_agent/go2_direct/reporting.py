@@ -3,6 +3,7 @@ from copy import deepcopy
 import math
 
 from foothold_agent.link.client import Client
+from foothold_agent.link.session import Effects
 from foothold_agent.link.telemetry import STALE_S, number
 from foothold_agent.phone.observer import Observer, DiscardSink
 from foothold_agent.phone.tickets import json_object
@@ -79,6 +80,9 @@ class ReadOnlyObserver(Observer):
             frame = json_object(raw) if isinstance(raw, (str, bytes)) else raw
         except (ValueError, TypeError, UnicodeError, RecursionError):
             return self.tick()
+        if isinstance(frame, dict) and frame.get('t') == 'slam' and getattr(self, 'mapping', None) is not None:
+            self.mapping.command(frame)
+            return Effects((), self.tick().messages)
         if isinstance(frame, dict) and frame.get('t') in ('ping', 'phone.revoke'):
             return super().receive(frame)
         return self.tick()  # includes STOP, lease, cmd, unlock, reset, all run.*

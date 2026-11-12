@@ -80,9 +80,9 @@ def video(data):
     raise ValueError('camera output exceeds bounds')
 
 
-def points(raw):
+def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')):
     data, width, height, step, row_step, big, fields, frame = raw
-    if (frame not in ('lidar_link', 'utlidar_lidar') or
+    if (frame not in frames or
             any(type(x) is not int for x in (width, height, step, row_step)) or
             not 1 <= width*height <= MAX_INPUT_POINTS or min(width, height) < 1 or
             not 12 <= step <= 256 or row_step < width*step or
@@ -98,7 +98,7 @@ def points(raw):
         raise ValueError('unique nonoverlapping XYZ fields required')
     unpack = struct.Struct('>f' if big else '<f').unpack_from
     output = bytearray()
-    stride = max(1, math.ceil(width*height/MAX_POINTS))
+    stride = max(1, math.ceil(width*height/max_points))
     for index in range(0, width*height, stride):
         row, col = divmod(index, width)
         at = row*row_step + col*step
@@ -125,8 +125,12 @@ class Source:
         self.seq = dict(rgb=0, lidar=0)
         self.epoch = secrets.randbits(52)
         self.threads = []
+        from foothold_agent.depth.source import Source as DepthSource
+        self.depth_source = DepthSource(config, env)
+        self.depth_source.epoch = self.epoch
 
     def start(self):
+        self.depth_source.start()
         self.threads = [threading.Thread(target=fn, daemon=True, name='go2-observe-'+name)
             for name, fn in (('rgb', self.camera), ('lidar', self.lidar))]
         for thread in self.threads:
@@ -203,15 +207,19 @@ class Source:
                     pass
 
     def sample(self, channel):
+        if channel == 'depth':
+            return self.depth_source.sample(channel)
         with self.lock:
             item = self.latest.get(channel)
         return item if item and 0 <= self.now()-item[0] <= 1 else None
 
     def close(self):
         self.closing.set()  # never await a stalled SDK/video worker on safety's loop
+        self.depth_source.close()
 
 
 class Publisher:
+    channels = ('rgb', 'lidar', 'depth')
     def __init__(self, config, env, channel, *, source_factory=Source):
         self.config = config
         self.source = source_factory(config, env, channel)
@@ -262,7 +270,7 @@ class Publisher:
 
     async def run(self):
         self.source.start()
-        tasks = [asyncio.create_task(self.stream(channel)) for channel in ('rgb','lidar')]
+        tasks = [asyncio.create_task(self.stream(channel)) for channel in self.channels]
         try:
             await asyncio.gather(*tasks)
         finally:

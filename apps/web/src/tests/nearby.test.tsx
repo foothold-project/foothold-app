@@ -76,7 +76,7 @@ describe('폰 홈 «내 로봇» 카드', () => {
     expect(btn('+ 로봇 연결하기')?.className).toBe('btn');
   });
 
-  it('앱 밖: 총괄은 단추 0 + 못 하는 이유만, 운영 관리자는 단추 → 고르기에 «새 로봇 추가»만(주변 찾기는 이유)', async () => {
+  it('앱 밖: 총괄은 단추 0 + 못 하는 이유만, 운영 관리자는 단추 → 고를 것이 하나라 메뉴 없이 바로 새 로봇 추가(RB-EASY-PAIR)', async () => {
     await render([robot('r1', false)], false, 'ORG_ADMIN');
     expect(btn('+ 로봇 연결하기')).toBeUndefined();
     expect($('[data-robot-connect-note]')?.textContent).toContain('Android 앱에서만');
@@ -84,9 +84,9 @@ describe('폰 홈 «내 로봇» 카드', () => {
     act(() => root?.unmount()); box.remove();
     await render([robot('r1', false)], false);
     act(() => btn('+ 로봇 연결하기')!.click());
-    expect(btn('새 로봇 추가')).toBeDefined();
+    expect($('[aria-label="새 로봇 추가"]')).not.toBeNull();
+    expect($('[aria-label="로봇 연결하기"]')).toBeNull();
     expect(btn('주변 로봇 찾기')).toBeUndefined();
-    expect($('[data-robot-connect-note]')?.textContent).toContain('Android 앱에서만');
   });
 
   it('누르면 찾기 표시 → 앱 결과·권한 거부 안내 → 항목 누름 → 다시 찾기 = 새 seq', async () => {

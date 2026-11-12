@@ -287,11 +287,21 @@ npm run --prefix apps/contracts typecheck
 발급/소비하고 부모 종료·권한 취소·episode 종료 때 관측 연결을 닫아야 한다.
 기존 camera_token을 media 토큰으로 재해석하거나 임의 다른 채널에 재사용하지 않는다.
 
-- `MediaVideoFrame(t=media.video)`은 channel=`rgb|external`, source는
-  `rgb → d435i_rgb|go2_front`, `external → gazebo_external`이다. 장치 이름을
+- `MediaVideoFrame(t=media.video)`은 channel=`rgb|external|depth`, source는
+  `rgb → d435i_rgb|go2_front`, `external → gazebo_external`, `depth → go2_depth`이다. 장치 이름을
   혼용하지 않는다. UTC `captured_at`, robot/epoch/episode/seq/frame을 매 프레임 보낸다.
   JPEG는 decoded ≤65,536B, ≤640×360, wall-clock ≤5Hz다. 새 모델은 canonical base64와
   크기·JPEG 양끝 마커를 검사한다. **완전한 JPEG decode/실제 치수 확인은 B/D 책임**이다.
+- `depth`는 실제 ROS 2 깊이(16UC1 mm / 32FC1 m)에서만 만든 색상 JPEG다.
+  header의 `depth_min_m`, `depth_max_m`는 필수이며 finite·0≤min<max≤10000 m다.
+  색상 범위 기본 0.2–5.0 m, 가까움 빨강·멀리 파랑(OpenCV TURBO 역방향),
+  범위 밖 양수는 끝 색으로 고정하며 0·음수·NaN·Inf는 검정이다.
+  hardware `episode_id=null`만 허용한다. RGB/external에는 거리 필드를 생략하며
+  범위를 붙여 RGB를 뎁스로 위장할 수 없다. 같은 JPEG 상한과 NO_VIDEO를 쓴다.
+  실기 POST `/api/v1/agent/drive-media/depth`는 `{header, points:null}`을 받아
+  `/api/v1/robots/{robot_id}/drive-media/depth` WS로 중계한다. RGB와 동일한
+  로그인/ROBOT_READ·기체 담당·토큰 폐기·신선도·최신 1개 규칙을 따른다.
+  이 추가는 기존 phone capabilities의 뎁스 지원을 광고하지 않는다.
 - `MediaPointCloudHeader(t=media.points)`는 channel=`lidar`, source=`l1`,
   encoding=`xyz_f32le`다. JSON header 직후 같은 소켓의 **바이너리 메시지 하나**에
   순서대로 x/y/z LE float32를 보낸다. `byte_length=count*12`, count=0..4,000,

@@ -10,7 +10,7 @@ import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
-import { NO_SIGNAL, RETRY_MS } from '../drivemedia';
+import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,7 +69,7 @@ function ready() {
 }
 /** «조종 화면 열기»(상세 서랍의 작은 패널 → 전체화면 조종 화면) · 그 안에서 카메라/라이다 고르기 */
 const view = () => click($('[data-sd-open]')!);
-const ch = (c: 'rgb' | 'lidar') => click($(`[data-sd-full] [data-sd-ch="${c}"]`)!);
+const ch = (c: 'rgb' | 'lidar' | 'depth') => click($(`[data-sd-full] [data-sd-ch="${c}"]`)!);
 const hold = (keys: string[]) => { keys.forEach((k) => key('keydown', k)); tick(60); const a = lastAxes(); [...keys].reverse().forEach((k) => key('keyup', k)); return a; };
 
 describe('서버 경유 시험 조종 패널', () => {
@@ -388,5 +388,53 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     expect(w.of('hidden').length).toBe(1);   // 가려짐 = rt 가 hidden(서버가 0·잠금·반납)을 보내고 조종권을 비움 — 그 뒤 cmd 없음
     const n = axes().length; tick(300); expect(axes().length).toBe(n);
     key('keyup', 'ArrowUp');
+  });
+});
+
+// RB-DEPTH-WEB(11-12): 뎁스 = 서버 drive-media/depth, 고른 동안만 연결 · source=go2_depth + depth_min_m/max_m 있는 프레임만 그림 · 범례 소수 한 자리
+describe('서버 경유 뎁스', () => {
+  const depth = (p: object = {}) => ({ t: 'media.video', version: 'media/1', channel: 'depth', robot: 'r7', epoch: 1, episode_id: null, seq: 1, source: 'go2_depth', mime: 'image/jpeg', jpeg: 'BBBB', depth_min_m: 0.2, depth_max_m: 5, ...p });
+  const pic = () => $('[data-sd-full] [data-sd-depth]')!;
+  const has = () => FakeWS.all.some((x) => x.url.endsWith('/drive-media/depth') && x.readyState !== 3);
+
+  it('뎁스를 고를 때만 연결하고, 다른 보기로 가면 닫는다 — 신호 없으면 안내', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view();
+    expect(has()).toBe(false);
+    ch('depth');
+    const d = mediaSock('depth');
+    expect(d.url).toBe(`ws://${location.host}/api/v1/robots/r7/drive-media/depth`);
+    expect($('[data-sd-full]')!.getAttribute('aria-label')).toBe('뎁스 전체화면');
+    expect(pic().textContent).toContain(NO_SIGNAL.depth); expect(pic().textContent).toContain(DEPTH_HINT);
+    ch('rgb');
+    expect(d.readyState).toBe(3); expect(has()).toBe(false);
+    expect(mediaSock('rgb').readyState).not.toBe(3);   // RGB 는 그대로
+    expect(d.sent.length).toBe(0);
+  });
+
+  it('거리 필드가 없거나 go2_depth 가 아닌 프레임은 그리지 않는다, 맞는 프레임은 그림 + 범례', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('depth');
+    let d = mediaSock('depth');
+    act(() => { d.open(); d.recv(depth({ depth_min_m: undefined, depth_max_m: undefined })); });
+    expect(pic().tagName).toBe('DIV'); expect(pic().textContent).toContain(NO_SIGNAL.depth); expect($('[data-sd-depth-legend]')).toBeNull();
+    tick(RETRY_MS); d = mediaSock('depth');   // 재연결 뒤에도 같은 epoch 순번은 이어 센다
+    act(() => { d.open(); d.recv(depth({ seq: 2, source: 'go2_front' })); });   // RGB 를 뎁스로 보이지 않기
+    expect(pic().tagName).toBe('DIV');
+    tick(RETRY_MS); d = mediaSock('depth');
+    act(() => { d.open(); d.recv(depth({ seq: 3, depth_min_m: 3, depth_max_m: 3 })); });   // min<max 아님
+    expect(pic().tagName).toBe('DIV');
+    tick(RETRY_MS); d = mediaSock('depth');
+    act(() => { d.open(); d.recv(depth({ seq: 4, depth_min_m: 0.25, depth_max_m: 4.96 })); });
+    expect(pic().tagName).toBe('IMG'); expect(pic().getAttribute('src')).toBe('data:image/jpeg;base64,BBBB');
+    const lg = $('[data-sd-depth-legend]')!.textContent!;
+    expect(lg).toContain('가까움 0.3 m'); expect(lg).toContain('멀리 5.0 m'); expect(lg).toContain('거리 모름');
+    tick(2100);   // 새 프레임 없음 → 지난 그림 숨김 + 안내
+    expect(pic().tagName).toBe('DIV'); expect(pic().textContent).toContain(DEPTH_HINT);
+  });
+
+  it('로봇 관측 칸에 «뎁스» 보기 — 받는 연결 없이 «뎁스 카메라 신호 없음»', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    click($('[data-view="depth"]')!);
+    expect($('[data-no-signal="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
+    expect(has()).toBe(false);
   });
 });

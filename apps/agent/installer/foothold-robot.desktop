@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=FOOTHOLD 로봇 연결
+Comment=유선 로봇을 찾아 폰에 연결합니다
+Exec=/opt/foothold-robot/launch
+Icon=/opt/foothold-robot/foothold.svg
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

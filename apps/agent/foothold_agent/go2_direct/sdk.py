@@ -3,14 +3,16 @@
 import socket
 import time
 import os
+from foothold_agent.mapping.inputs import ObservationInputs, DEFAULT_TOPIC
 from .approval import validate
 from .identity import verify
 
 SDK_TIMEOUT_S = .10
 
 
-class _Channel:
+class _Channel(ObservationInputs):
     def __init__(self, approval):
+        self.init_observations()
         self.approval = approval
         self.subscribers = []
 
@@ -20,7 +22,7 @@ class _Channel:
         try:
             for topic, data_type, callback in (
                     ('rt/lowstate', LowState_, inputs.lowstate),
-                    ('rt/sportmodestate', SportModeState_, inputs.sportmodestate)):
+                    ('rt/sportmodestate', SportModeState_, lambda msg: self.sport(inputs.sportmodestate, msg))):
                 subscriber = ChannelSubscriber(topic, data_type)
                 self.subscribers.append(subscriber)
                 subscriber.Init(callback, 0)  # direct callback; no stale DDS queue
@@ -29,6 +31,7 @@ class _Channel:
             raise
 
     def close(self):
+        self.cloud_bus.close()
         first = None
         for subscriber in reversed(self.subscribers):
             try:
@@ -98,15 +101,7 @@ def observation(env, channel, observed_serial, *, callback=None):
             or channel.approval != approval):
         raise PermissionError('observation channel identity mismatch')
     if callback is not None:
-        from unitree_sdk2py.core.channel import ChannelSubscriber
-        from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_
-        subscriber = ChannelSubscriber('rt/utlidar/cloud', PointCloud2_)
-        try:
-            subscriber.Init(callback, 0)
-        except BaseException:
-            subscriber.Close()
-            raise
-        return subscriber
+        return channel.cloud(DEFAULT_TOPIC, callback)
     from unitree_sdk2py.go2.video.video_client import VideoClient
     client = VideoClient()
     client.SetTimeout(SDK_TIMEOUT_S)

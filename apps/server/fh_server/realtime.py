@@ -1271,6 +1271,11 @@ class Realtime:
         self.apply(safety + records)
 
     def blocked_agent_control(self, peer, body):
+        if body.get('t') == 'slam':
+            rid = next((key for key, value in self.agents.items() if value is peer), None)
+            mapping = getattr(self, 'mapping', None)
+            return not (peer.actor is None and not peer.simulation and mapping is not None
+                        and mapping.command_allowed(rid, body))
         rid = next((key for key, value in self.agents.items() if value is peer), None)
         motion = (body.get('t') in ('cmd', 'unlock') or
                   (body.get('t') == 'lease' and body.get('lease_id') is not None))
@@ -1301,6 +1306,9 @@ class Realtime:
                     return False
                 self.cached_access(peer, [body['robot']], 'ROBOT_READ')
             await asyncio.wait_for(peer.socket.send_json(body), timeout=0.25)
+            if body.get('t') == 'slam':
+                rid = next((key for key, value in self.agents.items() if value is peer), None)
+                self.mapping.consume(rid, body)
             return True
 
     async def replies(self, peer):
@@ -2079,6 +2087,9 @@ class Realtime:
                     if accepted and msg.devices_changed is not None:
                         self.inventory.submit(rid, [d.model_dump(mode='json') for d in msg.devices_changed],
                             None, digest(ws.headers.get('authorization', '')[7:]))
+                elif msg.t == 'slam.update':
+                    if getattr(self, 'mapping', None) is not None:
+                        await self.read(self.mapping.report, rid, msg)
                 elif msg.t == 'phone.revoke.ack':
                     self.queue_phone_ack(rid,peer,msg.seq)
                 elif msg.t in ('event', 'run.update') and (msg.t == 'run.update'
