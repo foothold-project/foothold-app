@@ -10,3 +10,17 @@
 이 PC의 실제 `127.0.0.1:9611`, 사용자 `foothold-robot` 서비스, 실제 연결 설정은 읽거나 바꾸지 않았다. 실기·DDS 참가·Gazebo·SSH·금지 포트 접촉은 없었다. `installer/smoke.py`는 9611을 사용하므로 실행하지 않았다. 실제 Windows 앱 창의 복원·Edge 프로필·레지스트리·링크 확인 대화상자·제거, 새 DEB/ZIP 전체 빌드·실설치, DISPLAY/XWayland가 없는 Wayland 전용 환경은 미검증이다.
 
 새 Python 패키지는 추가하지 않았다. 개인 로그인과 섞이지 않도록 전용 브라우저 프로필은 앱 캐시 아래에 두며, 스냅 Chromium은 자체 상태 폴더 아래에 둔다. Linux의 창 복원은 Ubuntu Desktop의 기존 X11/XWayland 라이브러리를 `ctypes`로 사용하고 Windows는 기존 user32를 사용한다. Git push·Draft PR은 배포가 아니며 되돌림은 이 변경 커밋의 revert와 기존 설치 파일 사용이다.
+
+## #349 후속 — 재연결 안내·Windows 설치본 제거
+
+기준 `origin/dev 85aa2a5`로 같은 담당 브랜치를 fast-forward했다. 재연결 거부 화면·stderr의 옛 `--repair`·폰 QR 안내를 «다시 연결하기 → 웹 새 로봇 추가 → 노트북 새 코드»로 고쳤다. Windows 제거는 실행 위치와 관계없이 `%LOCALAPPDATA%\foothold\robot`의 모든 버전과 실행한 폴더를 지우도록 바꿨으며, `%APPDATA%\foothold\agent.json`과 사용자 선호 파일은 남긴다.
+
+삭제 전에 설치 경로에 속한 프로세스와 9611 리스너의 소유 PID를 대조해 기존 관리 API의 정상 종료를 요청하고 종료를 기다린다. 다른 프로세스의 리스너·종료 요청 실패·남은 프로세스·사용 중인 desktop lock은 제거를 중단한다. 강제 종료나 기존 종료/STOP 정책 변경은 없다. 이 검사는 PowerShell·Windows lock을 모의 처리했으며 이 PC의 실제 9611·사용자 서비스·비공개 설정에 접촉하지 않았다.
+
+위와 같은 6개 pytest 파일 재실행: **208 passed, 1 skipped**, Python compile·`git diff --check` 통과. 기존 401/403·4401/4403 시험은 안내 문구 기대값만 갱신했고, 자동 재등록 금지·기존 키 보존·연결 상태 검사는 유지했다. 새 Windows 시험은 종료 선행·경로/PID 한정·종료 실패 시 등록/파일 보존·모든 설치 버전 삭제 명령·연결 키 경로 제외를 확인한다. 생략은 전체 Linux 설치 파일 빌드이며 실제 Windows CMD/PowerShell 실행·새 ZIP 빌드/실설치는 여전히 미검증이다.
+
+### REVIEW-350 — CMD 제거 경로 고정
+
+따옴표 붙은 상대 배치 이름으로 실행한 뒤 `cd`하면 `%~dp0`가 다시 계산되는 위험을 수정했다. 시작 시 `HERE`에 한 번만 저장하고 이후 Python 실행·폴더 확인·삭제에 고정값을 사용한다. 실행 전과 삭제 직전에 `HERE`가 비지 않고 `version.json`·`server.json`·우리 `foothold_agent/desktop/windows_launch.py` 표식 파일이 있는지 확인하며, 표식 누락이나 TEMP 이동 실패 시 삭제하지 않는다. 지연 확장도 꺼서 경로의 느낌표를 보존한다.
+
+Windows 생성 CMD 시험 **61 passed**, 위 6개 회귀 파일 **213 passed, 1 skipped**, Python compile·`git diff --check` 통과. `%~dp0`가 `cd` 전 한 번만 나오고 그 뒤에는 고정 경로만 사용하며, 빈 폴더/표식 누락 방어가 모든 삭제보다 먼저 나오는지 생성물로 확인했다. 실제 Windows CMD 실행·설치 파일 전체 빌드는 미검증이며 운영 연결·비공개 설정·금지 포트에 접촉하지 않았다.

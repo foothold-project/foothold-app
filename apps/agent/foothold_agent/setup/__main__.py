@@ -127,9 +127,9 @@ async def serve(args, status, *, stop=None):
             await connect(args, status, stop)
             return True
         except ReconnectForbidden:
-            status.update(mode='이 노트북의 연결이 해제됨 → 다시 연결: 종료 후 --repair로 실행하고 폰에서 새 QR을 확인하세요',
+            status.update(mode='이 노트북의 연결이 해제되었습니다. «다시 연결하기»를 누른 뒤 웹의 «새 로봇 추가»에서 노트북 화면의 새 코드를 넣으세요',
                           connected=False, code=None, qr=None, expires_at=None)
-            print('이 노트북의 연결이 해제됨 → 다시 연결: 종료 후 --repair로 실행하세요.', file=sys.stderr)
+            print('이 노트북의 연결이 해제되었습니다. 노트북 화면의 «다시 연결하기»를 누르고 웹의 «새 로봇 추가»에서 새 코드를 넣으세요.', file=sys.stderr)
             await stop.wait()
             return False
         except SerialUnavailable:
