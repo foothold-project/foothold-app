@@ -1,11 +1,9 @@
 import argparse
 import configparser
 import asyncio
-import fcntl
 import json
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
 import threading
@@ -16,13 +14,20 @@ from foothold_agent.setup.discovery import candidates, select
 from foothold_agent.setup.storage import default_path
 from foothold_agent.setup.view import Status, make_server
 from . import network
+from foothold_agent.setup.platform import install_stop_handlers
 
 
 def autostart_path():
+    if os.name == 'nt':
+        from .windows import startup_path
+        return startup_path()
     return Path(os.environ.get('XDG_CONFIG_HOME', Path.home()/'.config'))/'autostart/foothold-robot.desktop'
 
 
 def autostart_enabled():
+    if os.name == 'nt':
+        from .windows import autostart_enabled as windows_enabled
+        return windows_enabled()
     path = autostart_path()
     if not path.exists():
         return True
@@ -36,6 +41,9 @@ def autostart_enabled():
 
 
 def set_autostart(enabled):
+    if os.name == 'nt':
+        from .windows import set_autostart as windows_set
+        return windows_set(enabled)
     path = autostart_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     text = ('[Desktop Entry]\nType=Application\nName=FOOTHOLD 로봇 연결\n'
@@ -56,11 +64,12 @@ class Controls:
         self.choices = []
         self.restart = False
         self.selected_nic = None
+        self.request_stop = None
 
     def snapshot(self):
         with self.lock:
             return dict(autostart=autostart_enabled(), network_choices=list(self.choices),
-                        network_message=self.message, busy=self.busy)
+                        network_message=self.message, busy=self.busy, platform='windows' if os.name == 'nt' else 'linux')
 
     def action(self, body):
         if body == {'action':'autostart', 'enabled':True}:
@@ -72,7 +81,7 @@ class Controls:
                 if self.active or self.busy or body['nic'] not in [c['name'] for c in self.choices]:
                     raise PermissionError('configuration unavailable')
                 self.busy = True
-                self.message = '유선 연결 설정 중 · 비밀번호 창이 뜨면 확인하세요.'
+                self.message = '유선 연결 설정 중 · 관리자 확인 창(UAC)이 뜨면 확인하세요.' if os.name == 'nt' else '유선 연결 설정 중 · 비밀번호 창이 뜨면 확인하세요.'
             def worker():
                 try:
                     network.configure(body['nic'])
@@ -80,8 +89,8 @@ class Controls:
                         self.selected_nic = body['nic']
                     message = '유선 연결을 설정했습니다. 로봇을 다시 찾고 있습니다.'
                 except Exception:
-                    message = ('유선 설정을 마치지 못했습니다. 비밀번호 창을 확인하거나 Ubuntu 설정 → 네트워크에서 '
-                               '기체 전용 유선을 선택하세요. IPv4 수동, 중복 없는 192.168.123.200~254/24, '
+                    message = (('유선 설정을 마치지 못했습니다. 관리자 확인 창(UAC)을 확인하거나 Windows 설정 → 네트워크 및 인터넷 → 고급 네트워크 설정에서 ' if os.name == 'nt' else '유선 설정을 마치지 못했습니다. 비밀번호 창을 확인하거나 Ubuntu 설정 → 네트워크에서 ')
+                               + '기체 전용 유선을 선택하세요. IPv4 수동, 중복 없는 192.168.123.200~254/24, '
                                '게이트웨이·DNS 비움, 기본 경로 사용 안 함으로 설정하세요. 다른 유선·Wi-Fi는 바꾸지 마세요.')
                 with self.lock:
                     self.message, self.busy = message, False
@@ -91,7 +100,9 @@ class Controls:
                 if self.busy:
                     raise PermissionError('wait for network configuration')
                 self.restart = body['action'] == 'repair'
-            timer = threading.Timer(.2, lambda: os.kill(os.getpid(), signal.SIGTERM))
+            if self.request_stop is None:
+                raise PermissionError('desktop is not ready to stop')
+            timer = threading.Timer(.2, self.request_stop)
             timer.daemon = True
             timer.start()
         else:
@@ -101,8 +112,8 @@ class Controls:
 async def connect_when_ready(args, status, controls):
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stop.set)
+    controls.request_stop = lambda: loop.call_soon_threadsafe(stop.set)
+    restore = install_stop_handlers(stop)
     try:
         while not stop.is_set():
             try:
@@ -118,7 +129,7 @@ async def connect_when_ready(args, status, controls):
                 if ready:
                     select(found, nic_name)  # same selection rule as the existing program
                     args.nic = nic_name
-                    await setup.serve(args, status)
+                    await setup.serve(args, status, stop=stop)
                     return
                 choices = await asyncio.to_thread(network.available)
                 with controls.lock:
@@ -134,14 +145,14 @@ async def connect_when_ready(args, status, controls):
                                '기본 경로 사용 안 함으로 설정하세요. Wi-Fi는 유지하세요.')
                 status.update(mode=message)
             except Exception:
-                status.update(mode='유선 연결 정보를 읽지 못했습니다. Ubuntu 설정 → 네트워크에서 랜선과 기체 전용 주소를 확인하세요.')
+                status.update(mode='유선 연결 정보를 읽지 못했습니다. '+('Windows 설정 → 네트워크 및 인터넷' if os.name == 'nt' else 'Ubuntu 설정 → 네트워크')+'에서 랜선과 기체 전용 주소를 확인하세요.')
             try:
                 await asyncio.wait_for(stop.wait(), 2)
             except asyncio.TimeoutError:
                 pass
     finally:
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.remove_signal_handler(sig)
+        controls.request_stop = None
+        restore()
 
 
 def main(argv=None):
@@ -154,7 +165,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.autostart and not autostart_enabled():
         return 0
-    root = Path(sys.executable).resolve().parents[2]
+    root = Path(sys.executable).resolve().parent.parent if os.name == 'nt' else Path(sys.executable).resolve().parents[2]
     if root == Path('/opt/foothold-robot') and not args.managed:
         active = subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'foothold-robot.service']).returncode == 0
         subprocess.run(['systemctl', '--user', 'start', 'foothold-robot.service'], check=True)
@@ -164,16 +175,21 @@ def main(argv=None):
     os.environ['PATH'] = str(root/'tools')+os.pathsep+os.environ.get('PATH', '/usr/bin:/bin')
     args.server = json.loads((root/'server.json').read_text())['server']
     args.config, args.wheel_dir = default_path(), str(root/'wheels')
-    cache = Path.home()/'.cache/foothold'
+    cache = Path(os.environ['LOCALAPPDATA'])/'foothold/cache' if os.name == 'nt' else Path.home()/'.cache/foothold'
     cache.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock = os.open(cache/'desktop.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    if os.name == 'nt':
+        from .windows import InstanceLock
+        instance = InstanceLock(cache/'desktop.lock')
+    else:
+        from .locking import InstanceLock
+        instance = InstanceLock(cache/'desktop.lock')
     try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            if not args.no_browser:
-                webbrowser.open('http://127.0.0.1:9611')
-            return 0
+        instance.__enter__()
+    except BlockingIOError:
+        if not args.no_browser:
+            webbrowser.open('http://127.0.0.1:9611')
+        return 0
+    try:
         controls, status = Controls(), Status()
         report = setup.inspect(args.wheel_dir)  # metadata only, even without a connected NIC
         status.update(preflight={'installation_ready':report['installation_ready'], 'issues':report['issues']})
@@ -189,7 +205,7 @@ def main(argv=None):
             worker.join(timeout=3)
             server.server_close()
     finally:
-        os.close(lock)
+        instance.__exit__(None, None, None)
     if controls.restart:
         os.execv(sys.executable, [sys.executable, '-I', '-m', 'foothold_agent.desktop', '--managed', '--repair'])
     return 0

@@ -29,8 +29,8 @@ SHA = re.compile(r'^[0-9a-f]{40}$')
 VERSION = re.compile(r'^[0-9][a-zA-Z0-9.+~-]*$')
 REASONS = {'not_built', 'building', 'build_failed', 'disabled', 'build_tools_missing',
            'limit_exceeded', 'invalid_artifact', 'not_supported_yet'}
-# Includes the cache, build workspace and two retained packages. One GiB can
-# stop an otherwise valid rebuild once the first successful package is kept.
+# Bound only the active build workspace. Retained releases and reusable caches
+# must not consume a later commit's build budget.
 DEFAULT_BYTES = 2 * 1024 ** 3
 DEFAULT_SECONDS = 20 * 60
 SOURCE_ROOT = Path(__file__).resolve().parents[3]
@@ -44,11 +44,13 @@ class Builder:
     args: tuple[str, ...] = ()
 
 
-# A Windows builder implementing --server/--output/--version can be enabled by
-# adding one row here. Keep platform filenames fixed, never manifest-controlled.
+# Keep platform commands and filenames fixed, never manifest-controlled.
 BUILDERS = {
     'linux': Builder('apps/agent/installer/build.py', 'foothold-robot_{version}_amd64.deb',
                      'application/vnd.debian.binary-package'),
+    'windows': Builder('apps/agent/installer/build.py',
+                       'foothold-robot_{version}_windows_amd64.zip',
+                       'application/zip', ('--platform', 'windows')),
 }
 
 
@@ -230,6 +232,7 @@ class InstallerManager:
     def info(self):
         with self.lock:
             self.children = [child for child in self.children if child.poll() is None]
+            # Shared flock admits one child; this order starts Linux first.
             return {'items': [self.platform_info(p) for p in PLATFORMS]}
 
     def platform_info(self, platform):
@@ -254,7 +257,7 @@ class InstallerManager:
         base = self.root / platform
         try:
             base.mkdir(parents=True, exist_ok=True, mode=0o700)
-            lock_fd = os.open(base / 'build.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            lock_fd = os.open(self.root / 'build.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         except OSError:
             return 'build_failed'
         attempt = None
@@ -282,7 +285,7 @@ class InstallerManager:
             atomic_json(attempt, {'reason': reason})
             if reason != 'building':
                 return reason
-            # The child retains only this platform lock, never deployment locks,
+            # The child retains only the shared installer lock, never deployment locks,
             # credentials, sessions or database configuration from the API.
             command = [sys.executable, str(Path(__file__).resolve()), 'build',
                        '--root', str(self.root), '--source', str(self.source),
@@ -375,7 +378,7 @@ def build_once(root, source, commit, origin, platform, fingerprint, *,
         env = {'PATH': '/usr/bin:/bin', 'HOME': str(work), 'TMPDIR': str(work),
                'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1',
                'PIP_DISABLE_PIP_VERSION_CHECK': '1'}
-        reason = bounded_run(command, root, env, seconds, byte_limit)
+        reason = bounded_run(command, work, env, seconds, byte_limit)
         if reason:
             return reason
         artifact = output / builder.filename.format(version=version)
@@ -387,7 +390,7 @@ def build_once(root, source, commit, origin, platform, fingerprint, *,
         info = dict(platform=platform, available=True, version=version,
                     filename=artifact.name, size=artifact.stat().st_size, sha256=checksum,
                     built_at=datetime.now(timezone.utc).isoformat(), commit=commit)
-        if disk_bytes(root) >= byte_limit:
+        if disk_bytes(work) >= byte_limit:
             reason = 'limit_exceeded'
             return reason
         publish(base, artifact, info, fingerprint)

@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import pytest
 
 from apps.server.fh_server import robot_installer as R
 
@@ -19,11 +20,13 @@ def source(tmp_path, script=None):
 from pathlib import Path
 p=argparse.ArgumentParser()
 p.add_argument('--server');p.add_argument('--output',type=Path);p.add_argument('--version')
+p.add_argument('--platform',default='linux')
 a=p.parse_args()
 assert 'FH_DATABASE_URL' not in os.environ
 assert a.server == 'https://control.example.invalid'
 time.sleep(.3)
-(a.output/f'foothold-robot_{a.version}_amd64.deb').write_bytes(b'fake built deb')
+name=f'foothold-robot_{a.version}_windows_amd64.zip' if a.platform=='windows' else f'foothold-robot_{a.version}_amd64.deb'
+(a.output/name).write_bytes(b'fake built zip' if a.platform=='windows' else b'fake built deb')
 ''')
     return root
 
@@ -33,8 +36,15 @@ def manager(root, code, commit='1' * 40):
 
 
 def wait(m):
-    for process in m.children:
-        assert process.wait(timeout=15) in (0, 1)
+    # Each info poll may start the next platform after the shared lock releases.
+    deadline = time.monotonic()+15
+    while True:
+        for process in list(m.children):
+            assert process.wait(timeout=max(.1,deadline-time.monotonic())) in (0, 1)
+        m.info()
+        if not m.children:
+            return
+        assert time.monotonic() < deadline
 
 
 def test_single_flight_success_cached_and_unchanged_source_skipped(tmp_path, monkeypatch):
@@ -162,3 +172,106 @@ def test_unlinked_open_temporary_files_count_toward_disk_limit(tmp_path):
               'f.write(b"x"*60000); f.flush();g.write(b"x"*60000);g.flush();time.sleep(10)')
     assert R.bounded_run([sys.executable, '-c', script], tmp_path,
                          {'PATH': '/usr/bin:/bin'}, 5, 100000) == 'limit_exceeded'
+
+
+def test_windows_build_table_and_server_child_publish_zip(tmp_path):
+    builder = R.BUILDERS['windows']
+    assert builder.script == 'apps/agent/installer/build.py'
+    assert builder.args == ('--platform', 'windows')
+    assert builder.media_type == 'application/zip'
+    assert R.DEFAULT_BYTES == 2 * 1024**3
+    assert R.DEFAULT_SECONDS == 20 * 60
+    code = source(tmp_path)
+    m = manager(tmp_path/'state', code)
+    assert m.platform_info('windows')['reason'] == 'building'
+    assert m.children[0].wait(timeout=15) == 0
+    info, stream = m.current('windows')
+    try:
+        assert info['filename'] == 'foothold-robot_0.2.0+111111111111_windows_amd64.zip'
+        assert info['available'] and info['platform'] == 'windows'
+        assert stream.read() == b'fake built zip'
+    finally:
+        stream.close()
+    assert m.platform_info('windows') == info
+    assert len(m.children) == 1 and m.children[0].poll() == 0  # no second child
+
+
+@pytest.mark.parametrize('platform', ['linux', 'windows'])
+def test_platform_command_keeps_bounds_and_exact_server_output(tmp_path, monkeypatch, platform):
+    code = source(tmp_path)
+    root = tmp_path/'state'
+    base = root/platform
+    (base/'attempts').mkdir(parents=True)
+    calls = []
+    def run(command, state_root, env, seconds, byte_limit):
+        calls.append((command, state_root, env, seconds, byte_limit))
+        assert seconds == R.DEFAULT_SECONDS and byte_limit == R.DEFAULT_BYTES
+        assert state_root == base/'work' and env['PIP_DISABLE_PIP_VERSION_CHECK'] == '1'
+        output = Path(command[command.index('--output')+1])
+        version = command[command.index('--version')+1]
+        (output/R.BUILDERS[platform].filename.format(version=version)).write_bytes(b'fixture')
+    monkeypatch.setattr(R, 'bounded_run', run)
+    monkeypatch.setattr(R.os, 'nice', lambda amount: None)
+    assert R.build_once(root, code, '1'*40, ORIGIN, platform, 'fingerprint') is None
+    command = calls[0][0]
+    assert command[command.index('--server')+1] == ORIGIN
+    if platform == 'windows':
+        assert command[command.index('--platform')+1] == 'windows'
+    else:
+        assert '--platform' not in command
+
+
+def test_info_serializes_linux_then_windows_and_excludes_retained_packages_from_work_budget(tmp_path):
+    root = tmp_path/'state'
+    base = root/'windows'
+    base.mkdir(parents=True)
+    retained = tmp_path/'old.zip'
+    with retained.open('wb') as stream:
+        stream.truncate(R.DEFAULT_BYTES+1)  # sparse: no multi-GiB allocation/IO
+    old_commit = '0'*40
+    old_version = '0.2.0+'+old_commit[:12]
+    R.publish(base, retained, dict(platform='windows', available=True, version=old_version,
+        filename=R.BUILDERS['windows'].filename.format(version=old_version),
+        size=R.DEFAULT_BYTES+1, sha256='0'*64, built_at='2026-11-12T00:00:00Z', commit=old_commit), 'old-input')
+    trace = tmp_path/'order.txt'
+    active = tmp_path/'active'
+    release = tmp_path/'release-linux'
+    code = source(tmp_path, f'''import argparse,time
+from pathlib import Path
+p=argparse.ArgumentParser()
+p.add_argument('--server');p.add_argument('--output',type=Path);p.add_argument('--version')
+p.add_argument('--platform',default='linux')
+a=p.parse_args()
+with Path({str(active)!r}).open('x'):
+ with Path({str(trace)!r}).open('a') as log: log.write(a.platform+' start\\n')
+ if a.platform=='linux':
+  deadline=time.monotonic()+10
+  while not Path({str(release)!r}).exists():
+   assert time.monotonic()<deadline
+   time.sleep(.01)
+ name=f'foothold-robot_{{a.version}}_windows_amd64.zip' if a.platform=='windows' else f'foothold-robot_{{a.version}}_amd64.deb'
+ (a.output/name).write_bytes(b'new package')
+ with Path({str(trace)!r}).open('a') as log: log.write(a.platform+' end\\n')
+Path({str(active)!r}).unlink()
+''')
+    first = manager(root, code)
+    other = manager(root, code)
+    try:
+        first.info()
+        assert len(first.children) == 1
+        other.info()  # independent API process must share the same global lock
+        assert not other.children
+        assert not (base/'attempts'/('1'*40+'.json')).exists()  # waiting is not a failed attempt
+        release.touch()
+        assert first.children[0].wait(timeout=15) == 0
+        result = first.info()
+        assert result['items'][0]['available'] and len(first.children) == 1
+        assert first.children[0].wait(timeout=15) == 0
+        result = first.info()
+        assert all(item['available'] and item['commit']=='1'*40 for item in result['items'])
+        assert trace.read_text().splitlines() == ['linux start','linux end','windows start','windows end']
+        assert (base/'previous/installer').stat().st_size == R.DEFAULT_BYTES+1
+    finally:
+        release.touch()
+        for process in first.children+other.children:
+            process.wait(timeout=15)

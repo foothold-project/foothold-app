@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an offline Ubuntu amd64 deb without sudo; all fetched inputs are hashed."""
+"""Build offline Ubuntu amd64 deb or Windows x64 ZIP; all fetched inputs are hashed."""
 import argparse
 import hashlib
 import json
@@ -110,7 +110,9 @@ def extra_wheels(python, groups, lock, cache, env):
     return resolved
 
 
-def build(server, output, version):
+def build(server, output, version, target_platform="linux"):
+    if target_platform not in ("linux", "windows"):
+        raise ValueError("unsupported installer platform")
     parsed = urlsplit(server)
     if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
             or parsed.path not in ('', '/') or parsed.query or parsed.fragment
@@ -122,6 +124,9 @@ def build(server, output, version):
     output = output.resolve()
     if not any(output.is_relative_to(ROOT/name) for name in ('output', 'runs')):
         raise ValueError('--output must be inside this checkout output/ or runs/')
+    if target_platform == 'windows':
+        from build_windows import build as build_windows
+        return build_windows(server, output, version)
     output.mkdir(parents=True, exist_ok=True)
     cache = output/'cache'
     cache.mkdir(exist_ok=True)
@@ -240,13 +245,14 @@ Description: FOOTHOLD robot laptop connection
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', required=True)
+    parser.add_argument('--platform', choices=('linux','windows'), default='linux')
     parser.add_argument('--output', type=Path, default=ROOT/'output/easy-install')
     parser.add_argument('--version', default='0.2.0-1')
     args = parser.parse_args()
     import re
     if not re.fullmatch(r'[0-9]+[a-zA-Z0-9.+~-]*', args.version):
         parser.error('invalid Debian version')
-    build(args.server, args.output, args.version)
+    build(args.server, args.output, args.version, args.platform)
 
 
 if __name__ == '__main__':

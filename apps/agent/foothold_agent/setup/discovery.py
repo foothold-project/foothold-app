@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from ipaddress import IPv4Interface, IPv4Network
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -15,6 +16,7 @@ class NIC:
     index: int
     mac: str
     addresses: tuple
+    dds_name: str | None = None  # Windows FriendlyName; name stays socket.if_nameindex identity
 
 
 def query(*args):
@@ -29,6 +31,9 @@ def query(*args):
 
 
 def candidates(*, query_fn=query, sysfs=Path('/sys/class/net')):
+    if os.name == 'nt':
+        from foothold_agent.desktop.windows import candidates as windows_candidates
+        return windows_candidates()
     rows = query_fn('address', 'show')
     routes = query_fn('route', 'show', 'table', 'all')
     if not isinstance(rows, list) or not isinstance(routes, list):

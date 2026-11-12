@@ -23,13 +23,13 @@ P = '/api/v1/robot-installer'
 SHA = '1' * 40
 
 
-def artifact(root, tmp_path, commit=SHA, payload=b'fake deb'):
+def artifact(root, tmp_path, commit=SHA, payload=b'fake deb', platform='linux'):
     root.mkdir(parents=True, exist_ok=True)
     source = tmp_path / 'fake.deb'
     source.write_bytes(payload)
     version = '0.2.0+' + commit[:12]
-    info = dict(platform='linux', available=True, version=version, size=len(payload),
-                filename=f'foothold-robot_{version}_amd64.deb',
+    info = dict(platform=platform, available=True, version=version, size=len(payload),
+                filename=R.BUILDERS[platform].filename.format(version=version),
                 sha256=hashlib.sha256(payload).hexdigest(),
                 built_at='2026-11-12T00:00:00+00:00', commit=commit)
     R.publish(root, source, info, 'unchanged')
@@ -68,9 +68,9 @@ def test_allowed_roles_missing_file_and_windows(client, installer, user):
     C.RobotInstallerInfo.model_validate(response.json())
     assert response.json() == {'items': [
         {'platform': 'linux', 'available': False, 'reason': 'not_built'},
-        {'platform': 'windows', 'available': False, 'reason': 'not_supported_yet'}]}
+        {'platform': 'windows', 'available': False, 'reason': 'not_built'}]}
     assert client.get(P + '/linux').status_code == 404
-    assert client.get(P + '/windows').json()['error']['detail']['reason'] == 'not_supported_yet'
+    assert client.get(P + '/windows').json()['error']['detail']['reason'] == 'not_built'
 
 
 def test_download_fixed_path_headers_and_metadata(client, installer, tmp_path):
@@ -144,3 +144,19 @@ def test_snapshot_survives_atomic_replacement_and_only_one_old_copy(tmp_path):
         stream.close()
     assert {p.name for p in (base / 'releases').iterdir()} == {'2' * 40, '3' * 40}
     assert (base / 'previous/installer').read_bytes() == b'second'
+
+
+def test_windows_download_zip_content_type_filename_hash_and_fixed_path(client, installer, tmp_path):
+    info = artifact(installer.root/'windows', tmp_path, payload=b'PK-fake-zip', platform='windows')
+    assert login(client).status_code == 200
+    state = client.get(P+'/info').json()['items'][1]
+    assert state['available'] and state['filename'] == info['filename']
+    assert state['filename'].endswith('_windows_amd64.zip')
+    response = client.get(P+'/windows', params={'path':'/etc/passwd','filename':'../../private'})
+    assert response.status_code == 200 and response.content == b'PK-fake-zip'
+    assert response.headers['content-type'] == 'application/zip'
+    assert response.headers['content-disposition'] == f'attachment; filename="{info["filename"]}"'
+    assert response.headers['content-length'] == str(info['size'])
+    assert response.headers['cache-control'] == 'private, no-store'
+    assert response.headers['x-content-type-options'] == 'nosniff'
+    assert hashlib.sha256(response.content).hexdigest() == state['sha256']
