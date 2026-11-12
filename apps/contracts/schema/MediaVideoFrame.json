@@ -11,10 +11,39 @@
     "channel": {
       "enum": [
         "rgb",
-        "external"
+        "external",
+        "depth"
       ],
       "title": "Channel",
       "type": "string"
+    },
+    "depth_max_m": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 10000,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Depth Max M"
+    },
+    "depth_min_m": {
+      "anyOf": [
+        {
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Depth Min M"
     },
     "episode_id": {
       "anyOf": [
@@ -77,7 +106,8 @@
         "d435i_rgb",
         "go2_front",
         "gazebo_external",
-        "l1"
+        "l1",
+        "go2_depth"
       ],
       "title": "Source",
       "type": "string"

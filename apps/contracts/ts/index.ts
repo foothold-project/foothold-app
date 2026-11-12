@@ -808,8 +808,8 @@ export interface MediaHeader {
   epoch: number;
   episode_id: string | null;
   version: "media/1";
-  channel: "rgb" | "external" | "lidar";
-  source: "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
+  channel: "rgb" | "external" | "lidar" | "depth";
+  source: "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
   seq: number;
   captured_at: string;
   frame: string;
@@ -822,7 +822,7 @@ export interface MediaHello {
   episode_id: string | null;
   t: "media.hello";
   version: "media/1";
-  channel: "rgb" | "external" | "lidar";
+  channel: "rgb" | "external" | "lidar" | "depth";
   token: string;
 }
 
@@ -872,7 +872,7 @@ export interface MediaStatus {
   episode_id: string | null;
   t: "media.status";
   version: "media/1";
-  channel: "rgb" | "external" | "lidar";
+  channel: "rgb" | "external" | "lidar" | "depth";
   state: "NO_VIDEO" | "NO_POINTS" | "UNAVAILABLE";
   reason: string;
 }
@@ -883,8 +883,8 @@ export interface MediaVideoFrame {
   epoch: number;
   episode_id: string | null;
   version: "media/1";
-  channel: "rgb" | "external";
-  source: "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
+  channel: "rgb" | "external" | "depth";
+  source: "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
   seq: number;
   captured_at: string;
   frame: string;
@@ -893,6 +893,8 @@ export interface MediaVideoFrame {
   width: number;
   height: number;
   jpeg: string;
+  depth_min_m?: number | null;
+  depth_max_m?: number | null;
 }
 
 export interface Mission {
@@ -2334,7 +2336,7 @@ export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | Ag
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
 export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval;
 export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
-export type MediaChannel = "rgb" | "external" | "lidar";
-export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
+export type MediaChannel = "rgb" | "external" | "lidar" | "depth";
+export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
 export type PairingPollResult = PairingWaiting | PairingPaired;

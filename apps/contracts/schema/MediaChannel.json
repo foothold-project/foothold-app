@@ -4,7 +4,8 @@
   "enum": [
     "rgb",
     "external",
-    "lidar"
+    "lidar",
+    "depth"
   ],
   "type": "string"
 }
