@@ -44,6 +44,24 @@ export function SimWindow() {
     // 작은 창 = 초점을 시뮬 칸 밖(작은 창 단추)으로 옮겨 키가 시뮬로 가지 않게 + 시뮬에 알림. 가득 = 키 조종이 시뮬로
     if (small) { f.closest('aside')?.querySelector<HTMLElement>('button:not(:disabled)')?.focus(); f.contentWindow?.postMessage({ fhSim: 'small' }, location.origin); } else f.focus();
   }, [up, small]);
+  /** 손잡이는 화면에 여유가 많은 쪽 모서리로(오른쪽 끝에 붙은 창 = 왼쪽 손잡이, 아래 끝 = 위 손잡이) */
+  const place = (el: HTMLElement, b: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'> = el.parentElement!.getBoundingClientRect()) => { setCorner((b.top + b.height / 2 < innerHeight / 2 ? 'b' : 't') + (b.left + b.width / 2 < innerWidth / 2 ? 'r' : 'l')); };
+  /** 폭을 정한다: 최소 MIN_W, 최대 = 제자리 모서리에서 화면 끝까지(높이 16:9 포함) — 화면 밖 막기가 최소보다 먼저 */
+  const fit = (p: Pull, want: number) => {
+    const max = Math.min(p.r ? innerWidth - p.ax : p.ax, ((p.d ? innerHeight - p.ay : p.ay) - p.extra) * 16 / 9 + p.pad);
+    const wd = Math.round(Math.min(max, Math.max(MIN_W, want))), h = p.extra + (wd - p.pad) * 9 / 16;
+    setAt([p.r ? p.ax : p.ax - wd, p.d ? p.ay : p.ay - h]); setSize([wd, Math.min(1, (wd - p.pad) / VIEW_W)]);
+  };
+  // 화면이 줄거나 돌면(REVIEW-348) 저장한 자리·크기가 화면 밖에 남지 않게: 폭을 화면 안 최대로 줄이고 자리를 화면 안으로 당긴다(끌기와 같은 fit)
+  useEffect(() => {
+    if (!small) return;
+    const re = () => { const v = frame.current?.parentElement, b = v?.parentElement?.getBoundingClientRect(); if (!v || !b) return;
+      if (b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight) return;
+      const pad = b.width - v.offsetWidth, extra = b.height - v.offsetWidth * 9 / 16, wd = Math.floor(Math.min(b.width, innerWidth, (innerHeight - extra) * 16 / 9 + pad)), h = extra + (wd - pad) * 9 / 16;
+      const ax = Math.max(0, Math.min(innerWidth - wd, b.left)), ay = Math.max(0, Math.min(Math.floor(innerHeight - h), b.top));   // 내림 = 소수점 높이로 아래 끝을 넘지 않게
+      fit({ w: wd, x: 0, y: 0, pad, extra, ax, ay, r: true, d: true }, wd); place(v, { left: ax, top: ay, width: wd, height: h }); };
+    addEventListener('resize', re); return () => removeEventListener('resize', re);
+  }, [small]);
   if (!w) return null;
   // 시뮬이 뜨지 못했으면(집 단추가 준비 안 됨 — 파일 없음·읽기 실패) 가득 화면에 갇히지 않게 작은 창 + 닫기만
   const loaded = () => { const f = frame.current; let ok = false;
@@ -54,18 +72,11 @@ export function SimWindow() {
     const g = grab.current, b = e.currentTarget.parentElement!; if (!g) return;
     setAt([Math.max(0, Math.min(innerWidth - b.offsetWidth, e.clientX - g[0])), Math.max(0, Math.min(innerHeight - b.offsetHeight, e.clientY - g[1]))]);
   };
-  /** 손잡이는 화면에 여유가 많은 쪽 모서리로(오른쪽 끝에 붙은 창 = 왼쪽 손잡이, 아래 끝 = 위 손잡이) */
-  const place = (el: HTMLElement) => { const b = el.parentElement!.getBoundingClientRect(); setCorner((b.top + b.height / 2 < innerHeight / 2 ? 'b' : 't') + (b.left + b.width / 2 < innerWidth / 2 ? 'r' : 'l')); };
   const drop = (e: PointerEvent<HTMLElement>) => { grab.current = null; place(e.currentTarget); };
   const begin = (el: HTMLElement, x = 0, y = 0): Pull => {
     const b = el.parentElement!.getBoundingClientRect(), v = frame.current!.parentElement!, r = corner[1] === 'r', d = corner[0] === 'b';
-    return { w: b.width, x, y, pad: b.width - v.offsetWidth, extra: b.height - v.offsetHeight, ax: r ? b.left : b.right, ay: d ? b.top : b.bottom, r, d };
-  };
-  /** 폭을 정한다: 최소 MIN_W, 최대 = 제자리 모서리에서 화면 끝까지(높이 16:9 포함) — 화면 밖 막기가 최소보다 먼저 */
-  const fit = (p: Pull, want: number) => {
-    const max = Math.min(p.r ? innerWidth - p.ax : p.ax, ((p.d ? innerHeight - p.ay : p.ay) - p.extra) * 16 / 9 + p.pad);
-    const wd = Math.round(Math.min(max, Math.max(MIN_W, want))), h = p.extra + (wd - p.pad) * 9 / 16;
-    setAt([p.r ? p.ax : p.ax - wd, p.d ? p.ay : p.ay - h]); setSize([wd, Math.min(1, (wd - p.pad) / VIEW_W)]);
+    return { w: b.width, x, y, pad: b.width - v.offsetWidth, extra: b.height - v.offsetWidth * 9 / 16,   // 시뮬 칸 높이는 16:9 로 셈(offsetHeight 는 반올림돼 소수점이 어긋남)
+      ax: r ? b.left : b.right, ay: d ? b.top : b.bottom, r, d };
   };
   // 끄는 동안 포인터는 손잡이가 잡고(capture) 시뮬 칸은 작은 창 내내 inert 라 시뮬이 포인터를 먹지 않는다
   const zDown = (e: PointerEvent<HTMLElement>) => { pull.current = begin(e.currentTarget, e.clientX, e.clientY); e.currentTarget.setPointerCapture?.(e.pointerId); };
