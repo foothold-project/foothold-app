@@ -96,6 +96,8 @@ class Images:
             Policy.Reliability.BestEffort, Policy.Durability.Volatile,
             Policy.History.KeepLast(1), Policy.ResourceLimits(max_samples=1, max_instances=1, max_samples_per_instance=1),
             Policy.DataRepresentation(use_cdrv0_representation=True),
+            # ROS DDS generators can append '_' to member names. XCDR1 field
+            # order is identical; compare structure rather than member spelling.
             Policy.TypeConsistency.AllowTypeCoercion(ignore_member_names=True)))
 
     def take(self):

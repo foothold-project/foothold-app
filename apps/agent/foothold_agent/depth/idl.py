@@ -1,4 +1,4 @@
-"""ROS 2 DDS wire layouts, derived from official msg definitions (see README).
+"""ROS 2 DDS wire layouts; official references are in GO2-SERVER-DRIVE.md.
 
 Importing types does not construct a participant, reader or writer.
 Unbounded ROS wire sequences are bounded before conversion, not redefined on wire.

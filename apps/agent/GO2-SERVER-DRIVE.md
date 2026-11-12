@@ -127,6 +127,27 @@ wire 필드 근거: ROS 2 공식 [Image](https://github.com/ros2/common_interfac
 압축 계수는 공식 [compressed_depth codec](https://github.com/ros-perception/image_transport_plugins/blob/rolling/compressed_depth_image_transport/src/codec.cpp),
 후보 이름은 공식 [RealSense ROS README](https://github.com/realsenseai/realsense-ros#published-topics)를 참고했다.
 
+코드 자동 검사 기록(2026-11-12, 기능 코드 `3a33142`; 실기·DDS 참가 실행 없음):
+
+- `PYTHONPATH=apps/agent:. python -m pytest apps/agent/tests apps/contracts/tests -q`:
+  2569 통과·3 생략. Node 22.23.2의 `NODE_OPTIONS=--input-type=commonjs-typescript`를 사용하고
+  실행 프로세스의 `LD_LIBRARY_PATH`/`CYCLONEDDS_HOME`/`CYCLONEDDS_URI`를 제거했다.
+  최종 뎁스·기존 관측 53개, 기존 camera 별도 묶음 22개도 통과했다.
+- 공식 ROS 2 Jazzy 직렬화와 새 Image/CompressedImage의 CDR 바이트 비교 2개 통과:
+  `FH_TEST_DEPTH_WIRE=1`, `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`과 설치된 ROS Python/library
+  경로로 `test_depth_wire.py`만 실행했다. Cyclone Python 0.10.2/C 0.10.5를 사용한 오프라인
+  비교이며 참가자·ROS 노드를 만들지 않았다. 일반 묶음의 생략 3개 중 2개는 이 선택 검사다.
+- 서버 미디어 권한·상한·없는 채널·RGB/L1 회귀 33개 통과, 계약 `generate.py --check` 283개 일치.
+- 서버 전체는 격리 PostgreSQL·시험 포트 범위에서 `pytest apps/server/tests -q -n 4`로 실행해
+  1525 통과·23 실패·9 오류였다. 임의 UUID로 수집 ID가 달라지는 기존 `test_robots`의
+  요약 2사례는 병렬 수집에서 제외하고 따로 실행해 모두 통과했다.
+  실패/오류의 중복을 뺀 30사례 중 26개는 분리 실행에서 통과했다(가용성 1개는 첫 분리
+  실패 뒤 추가 단독 실행 통과). **전체 서버 묶음이 한 번에 통과한 것은 아니다.**
+- 남은 `test_sim_orphan_worlds`의 migration/sync 2사례, `test_sim_pairs`의 0027 복구,
+  `test_site_purpose`의 migration roundtrip은 작업 전 `83dafea`의 별도 소스 사본에서도
+  각각 실패했다. 과거 스키마로 내린 뒤 현재 API/ORM을 사용하는 기존 시험 문제로,
+  이 작업에서 마이그레이션·기존 안전 시험 기대값을 바꾸지 않았다.
+
 ## 명시적 0-0 신원 예외 — 서버 시험만
 
 LowState 실측 serial이 **정확히 `0-0`**인 기체에서만 현장 담당자의 선택으로 유선 이웃·MAC 확인을 사용한다. 기존 표식의 소유자·0600·단일 링크·최대 30분 만료는 유지하고, JSON에 `"robot_serial":null,"serial_unavailable":true,"robot_mac":"<현장에서 읽은 소문자 unicast MAC>"`을 모두 명시한다. 누락·다른 serial·MAC 불일치에는 적용하지 않으며 폰 경유는 이 예외를 허용하지 않는다. 생성기는 `deploy/jetson/make_approval.py --output <비공개 절대 경로> --nic <ROBOT_NIC> --serial-unavailable --robot-mac <실측 MAC> --approve-field-motion`이다. 실제 값은 저장소·공유 로그에 넣지 않는다.
