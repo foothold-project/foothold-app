@@ -637,6 +637,30 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
   });
 
+  it('응답 대기 중 닫으면 그 조회를 끊는다(다시 열어도 옛·새 요청이 겹치지 않음), 조회에 제한시간', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA]));
+    const fake = globalThis.fetch, sigs: AbortSignal[] = [];
+    vi.stubGlobal('fetch', (u: string, i: RequestInit = {}) => {   // 설치 정보는 답 없이 대기 — 끊으면(abort) 실제 fetch 처럼 거절
+      if (!u.includes('robot-installer')) return fake(u, i);
+      sigs.push(i.signal!);
+      return new Promise((_, no) => i.signal!.addEventListener('abort', () => no(new DOMException('aborted', 'AbortError'))));
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect(sigs).toHaveLength(1);
+    await click(btn('닫기', card('새 로봇 추가')));
+    expect(sigs[0].aborted).toBe(true);   // 닫으면 끊김
+    await click(btn('+ 새 로봇 추가'));
+    expect(sigs).toHaveLength(2);
+    expect(sigs[1].aborted).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(sigs[1].aborted).toBe(true);   // 제한시간
+    expect($('[data-installer-fail]')!.textContent).toContain('설치 파일 정보를 받지 못했습니다');
+    expect($<HTMLInputElement>('[data-pair-code]')!.disabled).toBe(false);
+  });
+
   it('정보 실패(403·네트워크)는 카드 안 한 줄, 6자리 코드 입력·claim 은 그대로', async () => {
     ua(UBUNTU);
     serve(signedIn(LEE, [RA], {

@@ -117,7 +117,7 @@ export const api = {
   claimPairing: (code: string, cancel?: AbortSignal) => call<PairingClaimed>('POST', '/pairing/claim', { code }, { cancel }),
   confirmPairing: (id: string, name: string, cancel?: AbortSignal) => call<RobotSummary>('POST', `/pairing/${encodeURIComponent(id)}/confirm`, { name }, { cancel }),
   /** 노트북 연결 프로그램 설치 파일 상태(운영체제별). 받기는 링크 GET /robot-installer/{linux|windows}(로그인 쿠키) — apps/server/ROBOT-INSTALLER.md */
-  installerInfo: (cancel?: AbortSignal) => call<RobotInstallerInfo>('GET', '/robot-installer/info', undefined, { cancel }),
+  installerInfo: (cancel?: AbortSignal) => call<RobotInstallerInfo>('GET', '/robot-installer/info', undefined, { cancel, ms: 15_000 }),
   /** 연결 끊기: 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금(204) */
   disconnectRobot: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/robots/${encodeURIComponent(id)}/connection`, undefined, { cancel }),
   // 설정 탭 요청은 cancel(로그인 세션의 취소 신호)을 받는다 — 세션이 끝난 뒤 온 답은 CANCELED 로 버려 다음 세션의 인증을 건드리지 않음

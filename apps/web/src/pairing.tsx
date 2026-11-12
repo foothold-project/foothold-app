@@ -75,14 +75,18 @@ function Installer({ cancel }: Cancel) {
   const [items, setItems] = useState<RobotInstallerInfo['items'] | null>(null), [fail, setFail] = useState('');
   const phone = inApp() || !!globalThis.matchMedia?.(PHONE_Q).matches, mine = myOs();   // 폰 틀(App PHONE_Q)·앱 — 짧게 열리는 카드라 폭 변화는 따라가지 않음
   useEffect(() => {
+    // 닫으면(언마운트) 대기 중 조회를 끊는다 — 다시 열어도 옛·새 요청이 겹치지 않게. 로그인 세션이 끝나도 끊김. 늦게 온 옛 답은 live 로 버림
     let live = true, timer = 0;
-    const load = () => api.installerInfo(cancel).then((r) => {
+    const stop = new AbortController(), off = () => stop.abort();
+    cancel?.addEventListener('abort', off);
+    if (cancel?.aborted) stop.abort();
+    const load = () => api.installerInfo(stop.signal).then((r) => {
       if (!live) return;
       setItems(r.items); setFail('');
       if (r.items.some((i) => !i.available && MAKING.has(i.reason))) timer = window.setTimeout(load, 10_000);
     }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setFail(`설치 파일 정보를 받지 못했습니다. ${e.message}`); });
     load();
-    return () => { live = false; clearTimeout(timer); };
+    return () => { live = false; clearTimeout(timer); stop.abort(); cancel?.removeEventListener('abort', off); };
   }, []);
   const rows = [...(items ?? [])].sort((a, b) => Number(b.platform === mine) - Number(a.platform === mine));
   return <div className="fh-form" role="group" aria-label="설치 파일 받기" data-installer style={{ padding: 8, borderRadius: 8, border: '1px solid var(--line)' }}>
