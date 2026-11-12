@@ -22,12 +22,12 @@ const pairFail = (e: unknown) => {
 };
 
 /** 브라우저 카메라로 QR(foothold-pair:<6자리>) 읽기 — 내장 BarcodeDetector 만(새 라이브러리 없음). 안 되면 이유를 보이고 6자리 입력으로. 찾으면 카메라를 끈다 */
-function Scan({ found, close }: { found: (code: string) => void; close: () => void }) {
+function Scan({ found, close, at }: { found: (code: string) => void; close: () => void; at: string }) {
   const v = useRef<HTMLVideoElement>(null), hit = useRef(found), [why, setWhy] = useState('');
   hit.current = found;
   useEffect(() => {
     const D = (window as { BarcodeDetector?: new (o: { formats: string[] }) => { detect: (s: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
-    if (!D || !navigator.mediaDevices?.getUserMedia) { setWhy('이 브라우저는 QR 읽기를 지원하지 않습니다. 노트북 화면의 6자리 코드를 아래에 넣으세요.'); return; }
+    if (!D || !navigator.mediaDevices?.getUserMedia) { setWhy(`이 브라우저는 QR 읽기를 지원하지 않습니다. 노트북 화면의 6자리 코드를 ${at} 넣으세요.`); return; }
     let stream: MediaStream | null = null, timer = 0, off = false;
     const det = new D({ formats: ['qr_code'] });
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then((s) => {
@@ -41,7 +41,7 @@ function Scan({ found, close }: { found: (code: string) => void; close: () => vo
         timer = window.setTimeout(look, 300);
       };
       look();
-    }, () => setWhy('카메라를 쓸 수 없습니다(권한 거부·카메라 없음). 노트북 화면의 6자리 코드를 아래에 넣으세요.'));
+    }, () => setWhy(`카메라를 쓸 수 없습니다(권한 거부·카메라 없음). 노트북 화면의 6자리 코드를 ${at} 넣으세요.`));
     return () => { off = true; clearTimeout(timer); stream?.getTracks().forEach((t) => t.stop()); };
   }, []);
   return <div className="fh-form" data-scan>
@@ -71,9 +71,9 @@ const myOs = (): Os | null => {
 
 /** 새 로봇 추가 위 «노트북에 연결 프로그램이 없나요?» — 운영체제별 받기·만드는 중·이유. 실패해도 코드 입력은 그대로(카드 안 한 줄).
  *  폰(좁은 화면·앱)은 노트북 브라우저에서 받으라는 안내, 받기 링크는 작게 */
-function Installer({ cancel }: Cancel) {
+function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
   const [items, setItems] = useState<RobotInstallerInfo['items'] | null>(null), [fail, setFail] = useState('');
-  const phone = inApp() || !!globalThis.matchMedia?.(PHONE_Q).matches, mine = myOs();   // 폰 틀(App PHONE_Q)·앱 — 짧게 열리는 카드라 폭 변화는 따라가지 않음
+  const mine = myOs();
   useEffect(() => {
     // 닫으면(언마운트) 대기 중 조회를 끊는다 — 다시 열어도 옛·새 요청이 겹치지 않게. 로그인 세션이 끝나도 끊김. 늦게 온 옛 답은 live 로 버림
     let live = true, timer = 0;
@@ -89,7 +89,7 @@ function Installer({ cancel }: Cancel) {
     return () => { live = false; clearTimeout(timer); stop.abort(); cancel?.removeEventListener('abort', off); };
   }, []);
   const rows = [...(items ?? [])].sort((a, b) => Number(b.platform === mine) - Number(a.platform === mine));
-  return <div className="fh-form" role="group" aria-label="설치 파일 받기" data-installer style={{ padding: 8, borderRadius: 8, border: '1px solid var(--line)' }}>
+  return <div className="fh-form" role="group" aria-label="설치 파일 받기" data-installer style={phone ? { padding: 8, borderRadius: 8, border: '1px solid var(--line)' } : undefined}>
     <b>노트북에 연결 프로그램이 없나요?</b>
     {phone && <p className="lv-note" data-installer-phone>노트북 브라우저에서 이 사이트에 로그인해 «+ 로봇 연결하기 → 새 로봇 추가» 에서 받으세요.</p>}
     {fail ? <p className="lbl" role="status" data-installer-fail>{fail}</p>
@@ -103,13 +103,14 @@ function Installer({ cancel }: Cancel) {
           : <span className="lbl" data-why>{MAKING.has(i.reason) ? '만드는 중… 잠시 뒤 다시' : WHY[i.reason] ?? '아직 받을 수 없습니다.'}</span>}
       </div>)}
     <ol className="lbl" style={{ margin: 0, paddingLeft: 20 }} data-installer-steps>
-      <li>받은 파일을 더블클릭해 설치</li><li>랜선을 로봇에 꽂기</li><li>노트북 화면의 코드를 아래에 넣기</li></ol>
+      <li>받은 파일을 더블클릭해 설치</li><li>랜선을 로봇에 꽂기</li><li>{phone ? '노트북 화면의 코드를 아래에 넣기' : '노트북 화면의 코드를 «6자리 코드» 칸에 넣기'}</li></ol>
   </div>;
 }
 
 type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean };
 
-/** 새 로봇 추가(운영 관리자). mine = 지금 내 로봇 id(확정 답의 id 가 이미 있으면 재연결) */
+/** 새 로봇 추가(운영 관리자). mine = 지금 내 로봇 id(확정 답의 id 가 이미 있으면 재연결).
+ *  PC(넓은 화면·마우스)는 «설치 파일 받기 | 코드 넣기» 두 칸, 6자리 코드가 주 동작이고 QR(노트북 카메라)은 보조. 폰·앱은 한 줄로 QR 먼저(11-12) */
 export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; close: () => void; refresh: () => void } & Cancel) {
   const [step, setStep] = useState<Step>({ at: 'code' }), [msg, setMsg] = useState(''), [busy, setBusy] = useState(false);
   const [scan, setScan] = useState(false), [code, setCode] = useState(''), [name, setName] = useState('');
@@ -146,31 +147,36 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
     } finally { setBusy(false); }
   };
   const restart = () => { setStep({ at: 'code' }); setCode(''); setMsg(''); };
-  return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
+  const phone = inApp() || !!globalThis.matchMedia?.(PHONE_Q).matches;   // 폰 틀(App PHONE_Q)·앱 — 짧게 열리는 카드라 폭 변화는 따라가지 않음
+  const note = <p className="lv-note">노트북에서 FOOTHOLD 로봇 연결을 켜면 화면에 QR·6자리 코드가 나옵니다(10분 안에 한 번만 쓸 수 있습니다).</p>;
+  const qr = scan ? <Scan found={(c) => { setCode(c); claim(c); }} close={() => setScan(false)} at={phone ? '아래에' : '«6자리 코드» 칸에'} />
+    : <button type="button" className={phone ? 'btn pri' : 'btn'} disabled={busy} onClick={() => { setMsg(''); setScan(true); }}>QR 스캔</button>;
+  const form = <form className="fh-row" noValidate onSubmit={(e) => { e.preventDefault(); claim(code.trim()); }}>
+    <label className={phone ? 'fh-field fh-grow' : 'fh-field'}><span className="lbl">{phone ? '또는 6자리 코드' : '6자리 코드'}</span>
+      <input className="inp mono" value={code} disabled={busy} onChange={(e) => { want.current = ''; setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); }} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" data-pair-code /></label>
+    <button type="submit" className={phone ? 'btn' : 'btn pri'} disabled={busy || code.length !== 6}>{busy ? '확인 중…' : '다음'}</button>
+  </form>;
+  const toMine = <button type="button" className="btn pri" onClick={() => { refresh(); close(); }}>내 로봇으로</button>;
+  const again = <p className="lbl">이미 등록한 로봇을 노트북에 다시 설치했으면 같은 방법으로 다시 연결하세요 — 같은 로봇으로 이어지고 옛 연결 키는 바로 폐기됩니다.</p>;
+  return <section className={phone ? 'lv-card' : 'lv-card pair-pc'} style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
     <div className="fh-row"><h2 className="fh-grow">새 로봇 추가</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
-    {step.at === 'code' && <>
-      <Installer cancel={cancel} />
-      <p className="lv-note">노트북에서 FOOTHOLD 로봇 연결을 켜면 화면에 QR·6자리 코드가 나옵니다(10분 안에 한 번만 쓸 수 있습니다).</p>
-      {scan ? <Scan found={(c) => { setCode(c); claim(c); }} close={() => setScan(false)} />
-        : <button type="button" className="btn pri" disabled={busy} onClick={() => { setMsg(''); setScan(true); }}>QR 스캔</button>}
-      <form className="fh-row" noValidate onSubmit={(e) => { e.preventDefault(); claim(code.trim()); }}>
-        <label className="fh-field fh-grow"><span className="lbl">또는 6자리 코드</span>
-          <input className="inp mono" value={code} disabled={busy} onChange={(e) => { want.current = ''; setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); }} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" data-pair-code /></label>
-        <button type="submit" className="btn" disabled={busy || code.length !== 6}>{busy ? '확인 중…' : '다음'}</button>
-      </form>
-      <p className="lbl">이미 등록한 로봇을 노트북에 다시 설치했으면 같은 방법으로 다시 연결하세요 — 같은 로봇으로 이어지고 옛 연결 키는 바로 폐기됩니다.</p>
-    </>}
-    {step.at === 'name' && <form className="fh-form" noValidate onSubmit={(e) => confirm(e, step.p)}>
+    {step.at === 'code' && (phone ? <><Installer cancel={cancel} phone />{note}{qr}{form}{again}</>
+      : <div className="pair-cols">
+        <Installer cancel={cancel} phone={false} />
+        <div className="fh-form" role="group" aria-label="코드 넣기"><b>노트북 화면의 코드 넣기</b>{note}{form}
+          {scan ? qr : <div className="fh-row">{qr}<span className="lbl">노트북 카메라로 QR 을 읽을 때</span></div>}{again}</div>
+      </div>)}
+    {step.at === 'name' && <form className="fh-form pair-one" noValidate onSubmit={(e) => confirm(e, step.p)}>
       <span className="lbl">기체번호 <span className="mono" data-pair-serial>{step.p.robot_serial}</span> — 노트북 화면과 다르면 «처음으로»</span>
       <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" value={name} maxLength={128} autoComplete="off" onChange={(e) => setName(e.target.value)} /></label>
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>{busy ? '등록 중…' : '등록'}</button><button type="button" className="btn" onClick={restart}>처음으로</button></div>
       <span className="lbl">등록한 사람(나)이 이 로봇의 담당이 됩니다. 연결 키는 노트북 연결 프로그램이 받아 저장하며 화면에는 보이지 않습니다.</span>
     </form>}
     {step.at === 'done' && <>
-      <p role="status" data-pair-done>{step.again
+      <p className="pair-one" role="status" data-pair-done>{step.again
         ? `${step.name} — 기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기됐고, 진행 중이던 조종은 정지·잠금됐습니다.`
         : `${step.name} 로봇을 등록했습니다.`} 노트북 화면에 «연결됨»이 뜨면 내 로봇에서 조종권을 잡으세요.</p>
-      <button type="button" className="btn pri" onClick={() => { refresh(); close(); }}>내 로봇으로</button>
+      {phone ? toMine : <div className="fh-row">{toMine}</div>}
     </>}
     {msg && <p className="fh-msg" role="alert">{msg}</p>}
   </section>;
