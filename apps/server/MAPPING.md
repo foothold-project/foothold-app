@@ -91,3 +91,23 @@ Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:
 4. STOP의 기존 경로/정지 지연이 그대로인지, 지도 작업의 SDK publisher/RPC가 없는지 확인.
 5. 연결 단절 후 누적 정지, 재연결 후 저장 재시도·취소, 새 지도 판/연결 지형과 이전 판 보존 확인.
 6. 긴 경로/회전 중 odometry 드리프트·deskew 미적용에 따른 실제 품질 확인 (루프 닫기 없음).
+
+## 오류 코드 보충
+
+화면은 서버/진행 보고의 한국어 `message`/`reason`을 표시하고, FAILED에서는 저장 재시도·취소를 제공한다.
+
+| 코드 | 의미/처리 |
+|---|---|
+| MAPPING_CONFIG_REQUIRED, SENSOR_FRAME | topic/frame/보정 설정 또는 구독 실패. 연결 프로그램 설정 확인 후 취소/재시작 |
+| MAPPING_DEPENDENCY | slam optional 묶음 미설치. 설치 파일에 포함 후 다시 연결 |
+| SENSOR_UNAVAILABLE | 3초간 시각이 맞는 라이다·위치를 받지 못함. 기존 점은 보존 |
+| LINK_LOST | 서버 연결 끊김. 같은 프로세스 재연결 뒤 저장/취소 |
+| MAPPING_LIMIT, ODOMETRY_JUMP | 점 수 상한 또는 한 스캔 사이 2m 초과 위치 점프. 새 점 누적 중지, 보존한 지도 저장/취소 |
+| MAPPING_EMPTY | 저장할 점 없음. 취소 후 새로 시작 |
+| MAPPING_SESSION_LOST | 프로그램 재시작으로 메모리 누적 없음. 취소 후 새로 시작 (디스크 PCD 자동 재수입 없음) |
+| MAPPING_FAILED, MAPPING_SAVE_FAILED | 누적/저장 실패. 만든 점은 보존, 저장 재시도/취소 |
+| MAPPING_REPORT_TOO_LARGE | 진행 보고 64KiB 초과, agent가 축소해야 함 |
+| INVALID_POINT_CLOUD, UPLOAD_TOO_LARGE, UPLOAD_TIMEOUT, UPLOAD_BUSY, FILE_STORAGE_ERROR, FILE_STORAGE_FULL | 기존 점 지도 형식·50MiB 상한·수신·변환·저장 오류, 원본 점은 노트북에 보존 |
+
+실기 품질과 CPython 3.10에서의 실제 구동은 미검증이다. 자동 시험은 CPython 3.12에서
+합성 자료·가짜 DDS/가짜 연결만 사용했다. x86_64 cp310 NumPy wheel은 내려받아 존재만 확인했다.
