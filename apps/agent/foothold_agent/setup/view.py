@@ -51,8 +51,59 @@ class Status:
         return value
 
 
-PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>FOOTHOLD 로봇 연결</title><style>body{font:18px system-ui;max-width:640px;margin:40px auto;padding:20px;background:#f3f5f4;color:#192821}section{background:white;padding:24px;border-radius:16px}svg{width:240px;height:240px}.ok{color:#186c3b}.bad{color:#b22525}#code{font-size:36px;letter-spacing:8px}small{color:#57625d}</style>
+# 웹 공식 토큰 사본(값 수정 금지): apps/web/public/brand/tokens/foothold.tokens.css 의 data-theme 두 묶음 그대로.
+# 연결 프로그램은 따로 설치돼 웹 파일을 못 읽는다 — 같은지는 tests/test_desktop_browser.py 가 본다.
+TOKENS = ''':root[data-theme="dark"]{
+  --paper:#12161d;
+  --paper-2:#191e27;
+  --card:#181d26;
+  --ink:#e9e7e1;
+  --ink-2:#adb5c1;
+  --ink-3:#7d8693;
+  --dim-ink:#3ec7b4;
+  --note-ink:#dc9a30;
+  --rule:#2b323d;
+  --brand:#3ec7b4;
+  --dim:var(--brand);
+  --dim-soft:#11302c;
+  --note:#dc9a30;
+  --note-soft:#332710;
+  --stop:#e56d5e;
+  --stop-soft:#331c19;
+  --grid:rgba(233,231,225,.035);
+  --measure:720px;
+  --nav:268px;
+}
+
+:root[data-theme="light"]{
+  --paper:#f6f5f1;
+  --paper-2:#eeece6;
+  --card:#fff;
+  --ink:#161c26;
+  --ink-2:#4a5566;
+  --ink-3:#7c8798;
+  --dim-ink:#0b6459;
+  --note-ink:#8a5600;
+  --rule:#d9d6cd;
+  --brand:#0e7a6e;
+  --dim:var(--brand);
+  --dim-soft:#e0f0ed;
+  --note:#a86a08;
+  --note-soft:#fbf0dc;
+  --stop:#a3342a;
+  --stop-soft:#fbe9e7;
+  --grid:rgba(22,28,38,.04);
+  --measure:720px;
+  --nav:268px;
+}
+'''
+
+PAGE = '''<!doctype html><html lang="ko" data-theme="dark"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>FOOTHOLD 로봇 연결</title><style>'''+TOKENS+''':root{color-scheme:light;--on:var(--card);--line2:color-mix(in srgb,var(--rule),var(--ink) 16%)}:root[data-theme="dark"]{color-scheme:dark;--on:var(--paper)}body{font:16px/1.5 'Pretendard Variable',Pretendard,'Malgun Gothic','Segoe UI',system-ui,sans-serif;max-width:640px;margin:40px auto;padding:20px;background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased}header{display:flex;justify-content:flex-end;margin-bottom:8px}section{background:var(--card);border:1px solid var(--rule);padding:24px;border-radius:10px}section+section{margin-top:16px}h1{font-size:22px;margin:0 0 8px}h2{font-size:17px}svg{width:240px;height:240px;background:#fff;border-radius:8px}.ok{color:var(--dim-ink)}.bad{color:var(--stop)}#code{font-size:36px;letter-spacing:8px;font-variant-numeric:tabular-nums}small{color:var(--ink-2)}button,select{font:inherit;color:var(--ink);min-height:44px;padding:0 16px;max-width:100%;margin:4px 0;box-sizing:border-box;border:1px solid var(--line2);border-radius:8px;background:var(--paper-2)}button{cursor:pointer;font-weight:600}button:disabled{opacity:.55;cursor:wait}button:hover:not(:disabled){border-color:var(--brand)}#depth-select{background:var(--brand);border-color:var(--brand);color:var(--on)}#theme{min-height:36px;padding:0 8px;margin:0;font-size:13px}summary{cursor:pointer}input[type=checkbox]{accent-color:var(--brand)}:focus-visible{outline:3px solid var(--brand);outline-offset:3px}hr{border:0;border-top:1px solid var(--rule);margin-top:24px}#depth-topics{padding-inline-start:24px;overflow-wrap:anywhere}#depth-choice{display:block;width:100%;margin-block:8px}@media(max-width:480px){body{margin:0;padding:16px}section{padding:20px}svg{max-width:100%}}</style>
+<header><select id="theme" aria-label="화면 밝기"><option value="dark">어두움</option><option value="light">밝음</option><option value="system">기기 설정 따름</option></select></header>
+<script>
+{const pick=document.getElementById('theme'),media=matchMedia('(prefers-color-scheme: light)');const apply=()=>{document.documentElement.dataset.theme=pick.value==='light'||pick.value==='system'&&media.matches?'light':'dark'};try{const v=localStorage.getItem('fh.theme');if(v==='light'||v==='system')pick.value=v}catch{}pick.onchange=()=>{try{localStorage.setItem('fh.theme',pick.value)}catch{}apply()};media.addEventListener('change',apply);apply()}
+</script>
 <section><h1>로봇 연결</h1><h2 id="serial" aria-live="polite">기체 찾는 중</h2><div id="qr"></div><div id="code"></div><p id="expiry"></p>
 <p id="mode" role="status"></p><p id="connection"></p><p id="preflight"></p><small>웹 + 로봇 연결하기 → 새 로봇 추가 → 노트북 화면의 코드 넣기 → 이름 순서로 진행하세요.<br>연결 뒤 서버가 자동으로 사용 조건을 확인합니다.<br>연결된 뒤에는 웹에서 STOP을 누르고 조종을 시작하세요.<br>로봇이 멈춘 것을 확인한 뒤 움직임을 허용하고, 조종 버튼에서 손을 뗐다가 다시 눌러야 움직입니다.</small>
 <div id="desktop" hidden><hr><p><label><input id="autostart" type="checkbox"> 로그인하면 자동으로 켜기</label></p>
@@ -61,13 +112,11 @@ PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewp
 <p><button id="server-web" type="button" hidden>서버 웹 열기</button></p><p id="network-message" role="status"></p><p><button id="repair">다시 연결하기</button> <button id="quit">프로그램 종료</button></p>
 <small id="uninstall">다시 연결하기는 웹에서 새 코드를 넣은 뒤 저장된 연결을 갱신합니다. 프로그램을 지우려면 Ubuntu 앱 센터의 설치됨 목록에서 FOOTHOLD 로봇 연결을 제거하세요. 연결 키는 남습니다.</small></div></section>
 <section><h2>보이는 영상 목록</h2><p id="depth-notice">로봇에서 보내는 영상 목록을 확인하고 있습니다</p><ul id="depth-topics"></ul><label>뎁스로 볼 영상 <select id="depth-choice"><option value="">기본 후보에서 자동 선택</option></select></label><button id="depth-select" type="button">영상 선택</button><p id="depth-feedback" role="status"></p><small>이 목록은 영상 내용을 받지 않고 로봇이 알려 준 이름과 형식만 읽습니다. 선택한 영상이 실제 깊이 자료일 때만 표시합니다.</small></section>
-<style>#depth-topics{padding-inline-start:24px;overflow-wrap:anywhere}#depth-choice{display:block;max-width:100%;width:100%;margin-block:8px;font:inherit;padding:8px}#depth-select{font:inherit;padding:8px 16px;border:1px solid #186c3b;border-radius:8px;background:#186c3b;color:white;cursor:pointer}#depth-select:hover{background:#12532d}#depth-select:focus-visible,#depth-choice:focus-visible{outline:3px solid #192821;outline-offset:3px}</style>
 <script>
 let topicKey='';
 function showDepth(s){document.getElementById('depth-notice').textContent=s.depth_notice||'로봇에서 보내는 영상 목록을 확인하고 있습니다';const rows=s.depth_topics||[];const key=JSON.stringify(rows);if(topicKey!==key){topicKey=key;const list=document.getElementById('depth-topics');list.replaceChildren();const select=document.getElementById('depth-choice');select.replaceChildren(new Option('기본 후보에서 자동 선택',''));for(const row of rows){const item=document.createElement('li');item.textContent=row.name+' · '+row.type+(row.supported?'':' · 지원하지 않는 영상 형식');list.append(item);if(row.supported)select.add(new Option(row.name,row.name));}select.value=s.depth_selected||'';}}
 document.getElementById('depth-select').onclick=async()=>{const feedback=document.getElementById('depth-feedback');try{const response=await fetch('/depth-topic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:document.getElementById('depth-choice').value||null})});feedback.textContent=response.ok?'영상 선택을 적용했습니다':'목록이 바뀌었습니다. 다시 골라 주세요';}catch{feedback.textContent='프로그램 연결을 확인하세요';}};
 async function refresh(){try{const s=await(await fetch('/status',{cache:'no-store'})).json();document.getElementById('serial').textContent=s.serial?'Go2 기체번호 '+s.serial+' 찾음':s.mode.startsWith('로봇을 찾지')?'로봇을 찾지 못함':'기체 찾는 중';document.getElementById('code').textContent=s.code||'';document.getElementById('qr').innerHTML=s.qr||'';document.getElementById('expiry').textContent=s.code?'10분·1회용 코드 · '+new Date(s.expires_at*1000).toLocaleTimeString()+' 만료':'';document.getElementById('mode').textContent=s.mode;document.getElementById('connection').textContent=s.connected?'● 서버 연결됨':'● 서버 연결 대기';const p=document.getElementById('preflight');p.textContent=s.preflight?(s.preflight.installation_ready?'● 자동 점검 통과':'● 자동 점검 실패: '+s.preflight.issues.join(', ')):'자동 점검 중';p.className=s.preflight&&s.preflight.installation_ready?'ok':'bad';showDepth(s);}catch{document.getElementById('mode').textContent='프로그램 연결 끊김';}setTimeout(refresh,1000)}refresh()</script>
-<style>button,select{font:inherit;padding:10px;max-width:100%;margin:4px 0}button{cursor:pointer;background:#192821;color:white;border:0;border-radius:6px}button:disabled{opacity:.6;cursor:wait}button:hover:not(:disabled){background:#2d4d3c}:focus-visible{outline:3px solid #186c3b;outline-offset:3px}hr{border:0;border-top:1px solid #bac6be;margin-top:24px}#code{font-variant-numeric:tabular-nums}@media(max-width:480px){body{margin:0;padding:16px}section{padding:20px}svg{max-width:100%}}</style>
 <script>
 async function action(body){try{const r=await fetch('/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error();await desktop()}catch{document.getElementById('network-message').textContent='요청을 마치지 못했습니다. 프로그램이 켜져 있는지 확인하세요.'}}
 async function desktop(){try{const r=await fetch('/desktop',{cache:'no-store'});if(!r.ok)return;const s=await r.json();document.getElementById('desktop').hidden=false;document.getElementById('server-web').hidden=!s.server_web_available;if(s.platform==='windows'){document.getElementById('configure').textContent='유선 연결 설정 (관리자 확인)';document.getElementById('manual-settings').textContent='Windows 설정 → 네트워크 및 인터넷 → 고급 네트워크 설정에서 기체에 꽂은 유선을 선택하세요.';document.getElementById('uninstall').textContent='다시 연결하기는 웹에서 새 코드를 넣은 뒤 연결을 갱신합니다. 제거: 압축을 푼 폴더나 설치 폴더의 «연결 프로그램 제거.cmd»를 실행하세요. 실행 중인 프로그램을 종료한 뒤 설치본을 지웁니다. 연결 키는 남습니다. SmartScreen 경고: 추가 정보 → 실행.';}document.getElementById('autostart').checked=s.autostart;const select=document.getElementById('nic');const previous=select.value;select.replaceChildren(...s.network_choices.map(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.label||c.name;return o}));if(s.network_choices.some(c=>c.name===previous))select.value=previous;document.getElementById('network').hidden=!s.network_choices.length;document.getElementById('configure').disabled=s.busy;document.getElementById('quit').disabled=s.busy;document.getElementById('repair').disabled=s.busy;document.getElementById('network-message').textContent=s.network_message}catch{}}
