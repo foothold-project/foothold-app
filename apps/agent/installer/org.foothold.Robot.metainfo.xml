@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.foothold.Robot</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>FOOTHOLD 로봇 연결</name>
+  <summary>Go2 노트북 유선 연결 프로그램</summary>
+  <description><p>기체를 찾아 QR 코드로 폰에 연결하고 저장된 연결을 이어갑니다.</p></description>
+  <launchable type="desktop-id">foothold-robot.desktop</launchable>
+  <pkgname>foothold-robot</pkgname>
+  <categories><category>Utility</category></categories>
+</component>

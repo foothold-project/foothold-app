@@ -104,9 +104,9 @@ function StateLine({ c, r, own, guide, settings, drive }: { c: Ctx; r: Robot; ow
   </section>;
 }
 
-type View = 'map' | 'rgb' | 'lidar';
-const VIEW: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lidar', '라이다']];
-/** 로봇 관측: 지도·카메라·라이다 한 칸(보기 고르기). 카메라·라이다는 서버 경유 조종 화면(serverdrive.tsx)만 받는다 — 여기는 받는 영상이 없으니
+type View = 'map' | 'rgb' | 'lidar' | 'depth';
+const VIEW: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lidar', '라이다'], ['depth', '뎁스']];
+/** 로봇 관측: 지도·카메라·라이다·뎁스 한 칸(보기 고르기). 카메라·라이다는 서버 경유 조종 화면(serverdrive.tsx)만 받는다 — 여기는 받는 영상이 없으니
  *  가짜 그림 없이 «신호 없음 + 까닭» 한 줄. 끊기면 지도(마지막 위치)만 회색 */
 function Observe({ c, r }: { c: Ctx; r: Robot }) {
   const [v, setV] = useState<View>('map'), k = kindOf(r);

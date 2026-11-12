@@ -1,4 +1,4 @@
-// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 기체번호 → 이름)·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
+// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 이름(기체번호 작게) → 끝, RB-EASY-PAIR)·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 연결 키는 화면에 오지 않는다(서버 confirm 답에도 없음).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -70,10 +70,11 @@ const unfold = async (label: string) => {
   const d = [...box.querySelectorAll('details.dv-fold')].find((x) => x.querySelector('summary')!.textContent === label) as HTMLDetailsElement;
   act(() => { d.open = true; d.dispatchEvent(new Event('toggle')); }); await flush();
 };
-const startPair = async () => { await click(btn('+ 로봇 연결하기')); await click(btn('새 로봇 추가')); };
+/** 브라우저(앱 밖)는 고를 것이 «새 로봇 추가»뿐이라 «+ 로봇 연결하기» 한 번에 바로 새 로봇 추가 화면(RB-EASY-PAIR) */
+const startPair = async () => { await click(btn('+ 로봇 연결하기')); expect(card('새 로봇 추가').dataset.pair).toBe('code'); };
 
 describe('폰 운영 관리자 — 새 로봇 추가', () => {
-  it('6자리 → claim → 기체번호 확인 «이 로봇 맞음» → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
+  it('6자리 → claim → 바로 이름 단계(기체번호 작게, 확인 단계 없음) → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
     serve(signedIn(LEE, [], {
       'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } },
       'POST /pairing/p1/confirm': { status: 200, body: RA },
@@ -89,8 +90,9 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     setVal(code, '123456');
     await submit(code.form!);
     expect(sent('POST', '/pairing/claim')[0].body).toEqual({ code: '123456' });
+    expect(card('새 로봇 추가').dataset.pair).toBe('name');
     expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
-    await click(btn('이 로봇 맞음'));
+    expect(btn('이 로봇 맞음')).toBeUndefined();
     const name = $<HTMLInputElement>('[aria-label="새 로봇 추가"] input[name="name"]')!;
     expect(name.value).toBe('Go2-5678');
     const lists = calls.filter((c) => c.path.startsWith('/robots?')).length;
@@ -120,7 +122,6 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect(alert()).toBe('연결 시도가 많습니다. 잠시 뒤 다시 시도하세요.');
     claim = { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } };
     await go();
-    await click(btn('이 로봇 맞음'));
     await submit($('[aria-label="새 로봇 추가"] form')!);
     expect(alert()).toContain('다른 운영 관리자가 담당');
     expect(alert()).toContain('넘겨받기 또는 삭제');
@@ -139,7 +140,6 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     await startPair();
     setVal($<HTMLInputElement>('[data-pair-code]')!, '111222');
     await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
-    await click(btn('이 로봇 맞음'));
     await submit($('[aria-label="새 로봇 추가"] form')!);
     expect($('[data-pair-done]')!.textContent).toContain('기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기');
   });
@@ -160,6 +160,47 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect(stop).toHaveBeenCalled();
     expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
     Reflect.deleteProperty(navigator, 'mediaDevices');
+  });
+
+  it('지연 응답(Codex 검토 91c168d): 코드 A 확인 중엔 입력·QR 잠금, 그래도 입력이 B 로 바뀌면 A 의 늦은 답은 버리고 B 로만 등록', async () => {
+    const replies: Record<string, (r: Reply) => void> = {};
+    serve(signedIn(LEE, [], {
+      'POST /pairing/claim': () => new Promise<Reply>((res) => { replies[(calls[calls.length - 1].body as { code: string }).code] = res; }),
+      'POST /pairing/pair-b/confirm': { status: 200, body: RA },
+    }));
+    await open('#/drive', true);
+    await startPair();
+    const input = () => $<HTMLInputElement>('[data-pair-code]')!;
+    setVal(input(), '111111');
+    await submit(input().form!);
+    expect(input().disabled).toBe(true);   // 확인 중 잠금
+    expect(btn('QR 스캔')!.disabled).toBe(true);
+    setVal(input(), '222222');   // 잠금을 넘어 바뀐 경우(방어)
+    replies['111111']({ status: 200, body: { pairing_id: 'pair-a', robot_serial: '9999-00001111', expires_at: inMin(9) } });
+    await flush();
+    expect(card('새 로봇 추가').dataset.pair).toBe('code');   // 옛 답으로 이름 단계에 가지 않음
+    expect(input().disabled).toBe(false);
+    await submit(input().form!);
+    replies['222222']({ status: 200, body: { pairing_id: 'pair-b', robot_serial: SERIAL, expires_at: inMin(9) } });
+    await flush();
+    expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
+    await submit($('[aria-label="새 로봇 추가"] form')!);
+    expect(calls.filter((c) => c.path.endsWith('/confirm')).map((c) => c.path)).toEqual(['/pairing/pair-b/confirm']);
+  });
+
+  it('지연 응답: 확인 중 화면을 닫았다 다시 열면 옛 답은 버림(새 화면은 코드 단계 그대로)', async () => {
+    let late: (r: Reply) => void = () => {};
+    serve(signedIn(LEE, [], { 'POST /pairing/claim': () => new Promise<Reply>((res) => { late = res; }) }));
+    await open('#/drive', true);
+    await startPair();
+    setVal($<HTMLInputElement>('[data-pair-code]')!, '111111');
+    await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
+    await click(btn('닫기', card('새 로봇 추가')));
+    await startPair();
+    late({ status: 200, body: { pairing_id: 'pair-a', robot_serial: SERIAL, expires_at: inMin(9) } });
+    await flush();
+    expect(card('새 로봇 추가').dataset.pair).toBe('code');
+    expect($<HTMLInputElement>('[data-pair-code]')!.value).toBe('');
   });
 
   it('QR 읽기를 못 하는 브라우저 → 이유 + 6자리 입력은 그대로', async () => {
@@ -520,5 +561,140 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     expect($('[data-transfer]')).toBeNull();
     expect(btn('담당 넘기기')).toBeUndefined();
     expect(calls.some((c) => c.path.includes('owner-candidates'))).toBe(false);
+  });
+});
+
+describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => {
+  const LINUX = { platform: 'linux', available: true, version: '0.3.0', size: 12_897_485, sha256: 'a'.repeat(64), built_at: '2026-11-12T00:00:00Z', commit: 'c'.repeat(40), filename: 'foothold-robot_0.3.0_amd64.deb' };
+  const WIN = { platform: 'windows', available: false, reason: 'not_supported_yet' };
+  const info = (...items: unknown[]): Reply => ({ status: 200, body: { items } });
+  const ua = (s: string) => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(s);
+  const UBUNTU = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64) Chrome/130', WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130';
+  const rows = () => [...box.querySelectorAll<HTMLElement>('[data-installer] [data-os]')];
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+  it('PC Ubuntu: 내 운영체제 줄 위·강조, 받기 = 로그인 쿠키 링크(크기 MB), 윈도우 준비 중, 받은 뒤 세 줄, 개발자 용어 없음', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(WIN, LINUX) }));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    const box2 = $('[data-installer]')!;
+    expect(box2.textContent).toContain('노트북에 연결 프로그램이 없나요?');
+    expect(rows().map((r) => r.dataset.os)).toEqual(['linux', 'windows']);
+    expect(rows()[0].dataset.mine).toBe('true');
+    expect(rows()[0].textContent).toContain('Ubuntu 노트북 (이 노트북)');
+    const a = $<HTMLAnchorElement>('[data-os="linux"] a')!;
+    expect(a.getAttribute('href')).toBe('/api/v1/robot-installer/linux');
+    expect(a.getAttribute('download')).toBe('foothold-robot_0.3.0_amd64.deb');
+    expect(a.textContent).toBe('받기 (12.3 MB)');
+    expect(a.className).toBe('btn pri');
+    expect($('[data-os="windows"] a')).toBeNull();
+    expect($('[data-os="windows"]')!.textContent).toContain('준비 중입니다');
+    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 코드를 아래에 넣기']);
+    expect(box2.textContent).not.toMatch(/sha|commit|platform|deb|0\.3\.0/i);
+    expect($('[data-installer-phone]')).toBeNull();
+  });
+
+  it('윈도우 브라우저: 윈도우 줄이 위·강조, 받을 수 있으면 «PC 보호 → 추가 정보 → 실행» 안내', async () => {
+    ua(WINDOWS);
+    serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(LINUX, { ...LINUX, platform: 'windows', filename: 'foothold-robot-setup.exe' }) }));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect(rows().map((r) => r.dataset.os)).toEqual(['windows', 'linux']);
+    expect(rows()[0].dataset.mine).toBe('true');
+    expect(rows()[1].dataset.mine).toBeUndefined();
+    expect(rows()[0].textContent).toContain('‘Windows의 PC 보호’ 가 뜨면 ‘추가 정보 → 실행’');
+  });
+
+  it('만드는 중: «만드는 중… 잠시 뒤 다시», 10초마다 다시 묻다가 준비되면 받기, 닫으면 멈춤 / 없는 이유는 쉬운 말', async () => {
+    ua(UBUNTU);
+    let now: Reply = info({ platform: 'linux', available: false, reason: 'building' }, { ...WIN, reason: 'build_tools_missing' });
+    serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': () => now }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });   // 10초 다시 묻기 타이머가 가짜 시계에 걸리게 — flush 의 0ms 는 실제 시간으로 흐름
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect($('[data-os="linux"]')!.textContent).toContain('만드는 중… 잠시 뒤 다시');
+    expect($('[data-os="windows"]')!.textContent).toContain('이 서버에서는 설치 파일을 만들 수 없습니다');
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(1);
+    const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    await wait(9_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(1);
+    await wait(1_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(2);
+    now = info(LINUX, WIN);
+    await wait(10_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(3);
+    expect($('[data-os="linux"] a')!.textContent).toBe('받기 (12.3 MB)');
+    await wait(30_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(3);   // 준비됨 → 더 묻지 않음
+    // 다시 만드는 중으로 열었다가 닫으면 멈춤
+    now = info({ platform: 'linux', available: false, reason: 'not_built' }, WIN);
+    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
+    act(() => btn('+ 새 로봇 추가')!.click()); await wait(0);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
+    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
+    await wait(30_000);
+    expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
+  });
+
+  it('응답 대기 중 닫으면 그 조회를 끊는다(다시 열어도 옛·새 요청이 겹치지 않음), 조회에 제한시간', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA]));
+    const fake = globalThis.fetch, sigs: AbortSignal[] = [];
+    vi.stubGlobal('fetch', (u: string, i: RequestInit = {}) => {   // 설치 정보는 답 없이 대기 — 끊으면(abort) 실제 fetch 처럼 거절
+      if (!u.includes('robot-installer')) return fake(u, i);
+      sigs.push(i.signal!);
+      return new Promise((_, no) => i.signal!.addEventListener('abort', () => no(new DOMException('aborted', 'AbortError'))));
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect(sigs).toHaveLength(1);
+    await click(btn('닫기', card('새 로봇 추가')));
+    expect(sigs[0].aborted).toBe(true);   // 닫으면 끊김
+    await click(btn('+ 새 로봇 추가'));
+    expect(sigs).toHaveLength(2);
+    expect(sigs[1].aborted).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(sigs[1].aborted).toBe(true);   // 제한시간
+    expect($('[data-installer-fail]')!.textContent).toContain('설치 파일 정보를 받지 못했습니다');
+    expect($<HTMLInputElement>('[data-pair-code]')!.disabled).toBe(false);
+  });
+
+  it('정보 실패(403·네트워크)는 카드 안 한 줄, 6자리 코드 입력·claim 은 그대로', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA], {
+      'GET /robot-installer/info': err(403, 'FORBIDDEN', '권한이 없습니다.'),
+      'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } },
+    }));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect($('[data-installer-fail]')!.textContent).toBe('설치 파일 정보를 받지 못했습니다. 권한이 없습니다.');
+    expect(rows()).toHaveLength(0);
+    expect($('[aria-label="새 로봇 추가"] [role="alert"]')).toBeNull();
+    setVal($<HTMLInputElement>('[data-pair-code]')!, '123456');
+    await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
+    expect(card('새 로봇 추가').dataset.pair).toBe('name');
+    expect($('[data-installer]')).toBeNull();   // 이름 단계엔 카드 없음
+  });
+
+  it('네트워크 실패도 한 줄', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [RA]));
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', (u: string, i?: RequestInit) => (u.includes('robot-installer') ? Promise.reject(new TypeError('x')) : real(u, i)));
+    await open('#/fleet', false);
+    await click(btn('+ 새 로봇 추가'));
+    expect($('[data-installer-fail]')!.textContent).toContain('서버에 연결하지 못했습니다');
+    expect($<HTMLInputElement>('[data-pair-code]')!.disabled).toBe(false);
+  });
+
+  it('폰: 노트북 브라우저에서 받으라는 안내, 받기 링크는 작게', async () => {
+    ua(UBUNTU);
+    serve(signedIn(LEE, [], { 'GET /robot-installer/info': info(LINUX, WIN) }));
+    await open('#/drive', true);
+    await startPair();
+    expect($('[data-installer-phone]')!.textContent).toBe('노트북 브라우저에서 이 사이트에 로그인해 «+ 로봇 연결하기 → 새 로봇 추가» 에서 받으세요.');
+    expect($<HTMLAnchorElement>('[data-os="linux"] a')!.className).toBe('lbl');
   });
 });

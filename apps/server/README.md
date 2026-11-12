@@ -3,6 +3,9 @@
 정본: `docs/spec/04-ARCHITECTURE.md`, `05-API-SPEC.md`, `06-DB-DESIGN.md`.
 저장소 루트에서 실행한다. Python 3.12, PostgreSQL 16을 사용한다.
 
+노트북 로봇 연결 프로그램은 웹 **+ 로봇 연결하기 → 새 로봇 추가**에서 받는다.
+서버의 자동 생성 시점·끄는 법·권한·운영체제별 API는 [ROBOT-INSTALLER.md](ROBOT-INSTALLER.md)를 본다.
+
 ## 설치·실행
 
 ```sh

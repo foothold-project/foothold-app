@@ -147,7 +147,7 @@ Unitree 공식 `unitree_ros2@668d1ec5a05d1c38d3306bdca7d59f2ba3581a88/README.md:
 
 ### 전체 서버 회귀 — 미통과
 
-최종 코드(7a38541, 이후 문서만 수정)를 고정하고 아래처럼 실행했다.
+당시 코드(7a38541)를 고정하고 아래처럼 실행했다.
 무작위 UUID를 매번 새로 생성하는 robot summary 두 사례는 병렬 수집 ID가 달라 별도 직렬 실행했다.
 
 - `PYTHONPATH=/tmp:. FH_TEST_PORT_RANGE=30000:33999 <python> -m pytest apps/server/tests -q -n 4 -p rb_slam_test_ports --deselect=apps/server/tests/test_robots.py::test_rest_summaries_reflect_state_and_mask_other_owner`: **1536 PASS, 12 FAIL** (1548개).
@@ -188,3 +188,25 @@ def pytest_configure(config):
 
 결론: 새 기능 관련 묶음은 통과했으나 **기존 회귀 게이트는 미통과**다. 기준 실패 정리와
 통합 재검증·다른 모델 안전 검토 후 합쳐야 하며, 실기 첫 확인은 별도로 남아 있다.
+
+
+## dev f2628b4 병합 검증 (2026-11-12)
+
+`git merge origin/dev`로 f2628b4를 합쳤다(rebase/force push 없음).
+관측 전용 실행기에서 지도·뎁스 두 백그라운드 작업을 모두 시작하고 함께 취소·회수한 뒤
+DDS 구독을 닫도록 충돌을 해결했으며, 가짜 작업으로 동시 수명을 확인하는 시험을 추가했다.
+
+- agent: test_mapping / test_depth / test_depth_wire / test_go2_readonly /
+  test_go2_drive_media / test_go2_server_drive / test_go2_direct / test_desktop_installer → **259 PASS, 2 SKIP**.
+  선택적 ROS/Cyclone wire 비교 두 건은 환경 미구성으로 미실행했다. 합성 자료·가짜 DDS만 사용했다.
+  임시 pytest socket 훅으로 loopback 동적 포트를 38000:38499로 제한하고 금지 포트 bind/connect를 차단했다.
+- server: test_mapping / test_drive_media / test_contracts / test_robot_installer /
+  test_robot_installer_build / test_voxel_maps / test_voxel_annotations /
+  test_server_drive_blocked / test_admin_no_real_control → **173 PASS** (private PostgreSQL, 38500:38999).
+- 추가 mapping 단독 재확인 **10 PASS**, `generate.py --check` **292개 일치**, staged diff 공백 검사 통과.
+- 설치 포함 확인: `installer/build.py::project_groups`가 실제 pyproject의 `slam=[numpy==1.26.4]`를 읽고
+  잠금 wheel의 같은 NumPy를 설치하며, `robot_installer.py::build_once`도 해당 pyproject를 포함한
+  agent 디렉터리를 복사해 같은 빌더를 실행한다. 실제 설치 파일 빌드/배포는 이번에 실행하지 않았다.
+
+이번 결과는 충돌 해소의 변경 영향 검사이며, 앞 절에 기록한 전체 회귀 실패를 삭제하거나
+전체 회귀 통과로 바꾸지 않는다. 실기·실제 DDS·Gazebo·운영 서버 접촉은 하지 않았다.

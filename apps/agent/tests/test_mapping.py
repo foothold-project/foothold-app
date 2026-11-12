@@ -217,3 +217,58 @@ def test_upload_keeps_server_korean_rejection_without_exposing_transport_url(mon
     assert caught.value.code=='STALE' and '취소' in caught.value.reason
     assert 'private' not in str(caught.value)
     runtime.io.shutdown(wait=True)
+
+
+def test_readonly_keeps_mapping_and_depth_lifetimes_together(monkeypatch):
+    import asyncio
+    from foothold_agent.go2_direct import readonly
+    import foothold_agent.mapping.runtime as mapping
+    import foothold_agent.depth.source as depth
+
+    async def scenario():
+        running = {name: asyncio.Event() for name in ('mapping', 'depth')}
+        closed = set()
+        stop = asyncio.Event()
+
+        async def observation(name):
+            running[name].set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                closed.add(name)
+
+        class Subscriptions:
+            def __init__(self, measurements, nic):
+                assert nic == 'fake0'
+
+            def start(self):
+                pass
+
+            def close(self):
+                assert closed == {'mapping', 'depth'}
+                closed.add('subscriptions')
+
+        class Client:
+            def __init__(self, session, sink, settings):
+                pass
+
+            async def run(self):
+                await asyncio.gather(*(event.wait() for event in running.values()))
+                stop.set()
+                await asyncio.Event().wait()
+
+        class Depth:
+            def __init__(self, config):
+                pass
+
+            async def run(self):
+                await observation('depth')
+
+        monkeypatch.setattr(mapping, 'attach', lambda *args: asyncio.create_task(observation('mapping')))
+        monkeypatch.setattr(depth, 'Publisher', Depth)
+        config = readonly.Config(str(uuid4()), 'fake0', Settings('wss://example.invalid/api/v1/agent/ws', 'fake-token'))
+        await asyncio.wait_for(readonly.run(config, stop=stop, subscriptions_factory=Subscriptions,
+                                            client_factory=Client), timeout=2)
+        assert closed == {'mapping', 'depth', 'subscriptions'}
+
+    asyncio.run(scenario())

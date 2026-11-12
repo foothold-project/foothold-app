@@ -1,0 +1,42 @@
+{
+  "$id": "fh-app/1/RobotInstallerUnavailable",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "available": {
+      "const": false,
+      "default": false,
+      "title": "Available",
+      "type": "boolean"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "not_built",
+        "building",
+        "build_failed",
+        "disabled",
+        "build_tools_missing",
+        "limit_exceeded",
+        "invalid_artifact",
+        "not_supported_yet"
+      ],
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "platform",
+    "available",
+    "reason"
+  ],
+  "title": "RobotInstallerUnavailable",
+  "type": "object"
+}

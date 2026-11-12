@@ -41,6 +41,7 @@ class Settings:
     tunnel_origin: str | None = None
     server_drive_robots: frozenset[UUID] = frozenset()
     server_drive_enabled: bool | None = None
+    robot_installer_enabled: bool = True
 
     def drive_enabled(self, robot_id):
         return (self.server_drive_enabled if self.server_drive_enabled is not None
@@ -52,6 +53,7 @@ class Settings:
                    ws_origin=os.environ.get('FH_WS_ORIGIN'),
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
                    phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
+                   robot_installer_enabled=os.environ.get('FH_ROBOT_INSTALLER_ENABLED', '1') == '1',
                    simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
                    tunnel_origin=tunnel_origin(os.environ),
                    server_drive_enabled=(os.environ['FH_SERVER_DRIVE_ENABLED'] == '1'
@@ -906,6 +908,8 @@ def create_app(settings: Settings | None = None):
     runs.install(app, DB, fail)
     photos.install(app, DB, Identity, fail, authorize)
     external_camera.install(app, UploadIdentity, upload_write, fail, authorize)
+    from . import robot_installer_api
+    robot_installer_api.install(app, Identity, fail, authorize, settings)
     app.state.phone_pass_issuer = issuer
     app.state.realtime.phone_pass_clock = lambda: issuer.clock()
     from . import phone_telemetry
