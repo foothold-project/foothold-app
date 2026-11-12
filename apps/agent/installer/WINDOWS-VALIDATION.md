@@ -1,6 +1,6 @@
 # RB-AGENT-WIN 검증 — 2026-11-12
 
-기준은 `7810a8b` (`dev`, PR #338 통합)에서 시작한 `less82/rb-agent-win`이다. 수정은 `apps/agent/**`에 한정했다. Windows PC·Wine·apt·새 시스템 패키지·실기·DDS 참가·로봇 명령·운영/개발 서버·금지 포트의 기존 프로세스에는 접촉하지 않았다. 새 의존성은 `output/`의 시험 전용 venv에만 설치했고 산출물·로그도 gitignore 된 `output/`에만 썼다.
+기준은 `7810a8b` (`dev`, PR #338 통합)에서 시작한 `less82/rb-agent-win`이다. 초기 구현 수정은 `apps/agent/**`에 한정했다. 아래 검토 후속 작업은 별도 허용된 서버 설치기 파일과 그 시험도 수정했다. Windows PC·Wine·apt·새 시스템 패키지·실기·DDS 참가·로봇 명령·운영/개발 서버·금지 포트의 기존 프로세스에는 접촉하지 않았다. 새 의존성은 `output/`의 시험 전용 venv에만 설치했고 산출물·로그도 gitignore 된 `output/`에만 썼다.
 
 ## 가능 여부와 빌드
 
@@ -41,3 +41,25 @@
 - 실기 검증은 별도 승인 후 serial·QR/저장 키·field_approval 자동 조건·잠금·조종 SDK 생성 순서·STOP/해제/재연결을 확인한다. Linux 빌드/가짜 시험은 이 확인을 대체하지 않는다.
 
 되돌림: 이 PR의 소스 커밋을 revert하고 검토된 이전 설치 원물을 사용한다. Windows 새 프로그램은 자동 시작을 끄고 종료한 뒤 해당 build-id 폴더와 아이콘만 제거한다. 연결 키는 삭제하지 않는다. Git push/PR은 서버·웹·노트북 배포가 아니다.
+
+## PR #344 검토 수정과 서버 빌드 연결
+
+- PowerShell이 ASCII 작은따옴표 외에 U+2018·U+2019·U+201A·U+201B도 구분자로 읽는 경계를 고쳤다. 사용자 경로를 만드는 `literal()`은 다섯 문자를 각각 두 번 쓰고, NIC FriendlyName에서는 네 smart quote를 거부한다. ACL·바로가기의 악의적인 경로가 한 문자열로 남는지와 해당 NIC가 UAC 호출 전에 제외되는지 새 시험으로 확인했다.
+- 수정 전 새 9개 시험은 **8 failed / 1 passed**, 수정 후 Windows 전체는 **48 passed**였다. 실제 PowerShell이나 UAC를 실행하지 않고 가짜 명령과 다섯 작은따옴표 구분자를 해석하는 시험으로 경계를 확인했다.
+- `origin/dev`의 #343 통합 `cd746ce`를 merge commit `9d45603`으로 가져왔고, 이어 추가 통합된 `f2628b4`까지 merge commit `4994fdd`로 반영했다. `setup/view.py`의 충돌은 새 영상 선택 UI와 Windows 제거/SmartScreen 안내·FriendlyName 표시를 함께 보존했다. depth·media·웹·계약 파일은 dev의 변경을 그대로 가져왔다.
+- 서버 `robot_installer.BUILDERS`에 `--platform windows`, 고정 `foothold-robot_{version}_windows_amd64.zip`, `application/zip`을 연결했다. 기존 API 인증·고정 경로·현재/이전 원물 보존과 **2 GiB·20분** 상한은 유지했다. 시험은 `Content-Disposition`의 `.zip` 파일명·Content-Type·길이·SHA와 플랫폼별 실제 자식 명령/상한 전달을 검사한다.
+- 최종 통합 pytest와 서버 경로 실제 빌드 결과는 아래에 기록한다. 초기 Linux/Windows 검증 기록은 해당 시점의 결과이며 이 후속 검증과 구분한다.
+
+
+| 후속 검사 | 실제 결과 |
+|---|---|
+| 서버 installer/API/계약 + agent Windows/기존 installer/setup/readonly + merge된 depth/wire 관련 pytest | **309 passed, 2 skipped** (별도 활성화가 필요한 ROS 2/Cyclone wire 비교 2개) |
+| 서버 경로 실제 빌드 기준 | `4994fdd0a8febedaec3082243b474a12700f0827` (아래 검증 기록만 추가하기 전 통합 커밋) |
+| 실행 경로 | `InstallerManager.schedule → child main → build_once → bounded_run → publish → GET /api/v1/robot-installer/windows` |
+| 입력 주소 | `https://control.example.invalid`, 실제 서버/로봇 접속 없음 |
+| 최종 파일명 | `foothold-robot_0.2.0+4994fdd0a8fe_windows_amd64.zip` |
+| 크기·SHA256·내용 | **142,189,463 bytes**, `1abf446f8f9af3ba42d3254d30ba864407302fd7cc330105b93bc5c009fc9fc2`, **3279 files**, 포함된 Python 소스 **95개**가 현재 제출 소스와 일치 |
+| 시간·용량 | **13.46초 / 상태 영역 관측 최대 516,869,430 bytes**, 기존 상한 **1200초 / 2,147,483,648 bytes** 안 |
+| 다운로드 응답 | **200**, `Content-Type: application/zip`, 고정 `.zip` attachment 파일명·Content-Length·본문 SHA 일치 |
+
+통합 pytest는 위 네 기존 agent 시험 파일과 `apps/server/tests/test_robot_installer.py`, `test_robot_installer_build.py`, `test_contracts.py`, `apps/agent/tests/test_depth.py`, `test_depth_wire.py`를 같은 명령으로 실행했다. `FH_TEST_PORT_RANGE=19310:19329`의 별도 시험용 범위와 임시 PostgreSQL/인프로세스 API를 사용했다. 초기 신규 서버 시험 한 건은 완료된 자식 목록이 `info()`에서 정리되는 시점을 잘못 가정해 실패했으며 재기동이 없는지를 직접 확인하도록 시험을 고친 뒤 최종 통과했다. 실제 Windows·UAC·DDS/실기는 여전히 미검증이다.
