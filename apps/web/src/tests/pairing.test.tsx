@@ -83,6 +83,9 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect(btn('+ 로봇 연결하기')!.className).toBe('btn pri');   // 연결된 실기 0 → 목록 위 큰 단추
     await startPair();
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
+    expect(btn('QR 스캔')!.className).toBe('btn pri');   // 폰은 한 줄·QR 먼저 그대로(PC 두 칸 아님)
+    expect($('.pair-cols')).toBeNull();
+    expect($('[data-agent-open]')).toBeNull();   // 폰·앱 틀은 «노트북 연결 프로그램 열기» 없음
     const code = $<HTMLInputElement>('[data-pair-code]')!;
     setVal(code, '12a34');
     expect(code.value).toBe('1234');   // 숫자만
@@ -590,9 +593,15 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect(a.className).toBe('btn pri');
     expect($('[data-os="windows"] a')).toBeNull();
     expect($('[data-os="windows"]')!.textContent).toContain('준비 중입니다');
-    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 코드를 아래에 넣기']);
+    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 코드를 «6자리 코드» 칸에 넣기']);
     expect(box2.textContent).not.toMatch(/sha|commit|platform|deb|0\.3\.0/i);
     expect($('[data-installer-phone]')).toBeNull();
+    // PC(11-12): «설치 | 코드» 두 칸, 6자리 코드가 주 동작·QR 은 보조(폰 틀이 아님)
+    expect($('.pair-cols [aria-label="코드 넣기"] [data-pair-code]')).not.toBeNull();
+    expect(btn('다음')!.className).toBe('btn pri');
+    expect(btn('QR 스캔')!.className).toBe('btn');
+    expect($('[data-agent-open] a')!.getAttribute('href')).toBe('foothold-robot://open');   // 노트북 연결 프로그램 열기(PC 만)
+    expect($('[data-agent-open] a')!.textContent).toBe('노트북 연결 프로그램 열기');
   });
 
   it('윈도우 브라우저: 윈도우 줄이 위·강조, 받을 수 있으면 «PC 보호 → 추가 정보 → 실행» 안내', async () => {

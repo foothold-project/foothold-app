@@ -251,3 +251,10 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .sw-t{margin:0;padding:2px 6px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;touch-action:none;cursor:move}
 .sw-row{display:flex;gap:4px}
 .sw-row .btn{flex:1;min-width:0;min-height:36px;padding:0 4px;font-size:13px;background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+
+/* 새 로봇 추가 PC(pairing.tsx .pair-pc) — «설치 파일 받기 | 코드 넣기» 두 칸, 줄은 화면 끝까지 늘이지 않는다(11-12). 폰·앱은 한 줄 그대로 */
+.pair-cols{display:flex;flex-wrap:wrap;align-items:flex-start;gap:20px 40px}
+.pair-cols>*{flex:1 1 20rem;max-width:30rem}
+.pair-cols form.fh-row{align-items:flex-end}
+.pair-cols [data-pair-code]{width:9em;letter-spacing:.2em}
+.pair-pc .pair-one{max-width:30rem}
