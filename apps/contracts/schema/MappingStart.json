@@ -1,0 +1,17 @@
+{
+  "$id": "fh-app/1/MappingStart",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "floor_id"
+  ],
+  "title": "MappingStart",
+  "type": "object"
+}

@@ -19,6 +19,54 @@ from .voxel_files import CELL, MAX_BYTES, MAX_VOXELS, PointCloudError, convert
 RECORD = struct.Struct('<iii')
 
 
+
+def publish_cloud(db, user, floor, base_version_id, result, data, format, terrain_id, root, fail, event, created):
+    """Shared transaction: approved HUMAN snapshot and its exact simulation twin."""
+    identifier = uuid4()
+    folder = Path('maps') / str(floor.id) / str(identifier)
+    png = result['png']
+    cells = b''.join(RECORD.pack(*cell) for cell in result['cells'])
+    summary = C.VoxelMapSummary(map_version_id=identifier, terrain_id=terrain_id,
+        point_count=result['point_count'], voxel_count=result['voxel_count'], origin=result['origin'],
+        source_translation=result['source_translation'], estimated_floor_z=result['floor_z'],
+        source_sha256=sha256(data).hex(), cells_sha256=sha256(cells).hex(), warnings=result['warnings'])
+    meta = dict(resolution=CELL, origin=result['origin'], negate=0, occupied_thresh=.65, free_thresh=.2,
+        voxel_map=summary.model_dump(mode='json'), voxel_cells=str(folder / 'cells.bin'),
+        voxel_original=str(folder / ('source.' + format)))
+    ensure_space(root, len(data) + len(cells) + len(png) + 4_000_000, fail)
+    (root / folder).mkdir(parents=True, exist_ok=False)
+    for relative, content in ((folder / ('source.' + format), data), (folder / 'cells.bin', cells),
+            (folder / 'image.png', png), (folder / 'image.yaml', yaml_bytes(meta, 'image.png'))):
+        with (root / relative).open('xb') as out:
+            created.append(root / relative)
+            out.write(content)
+    image = Upload(org_id=user.org_id, provenance='HUMAN', image_path=str(folder / 'image.png'),
+        image_sha256=sha256(png), png_sha256=sha256(png), size_bytes=len(png),
+        width=result['width'], height=result['height'], metadata_json=meta, created_by=user.id)
+    db.add(image)
+    db.flush()
+    number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
+    version = MapVersion(id=identifier, org_id=user.org_id, floor_id=floor.id, number=number,
+        provenance='HUMAN', base_version_id=base_version_id, upload_id=image.id, status='APPROVED',
+        image_path=image.image_path, image_sha256=image.png_sha256, width=image.width, height=image.height,
+        resolution=CELL, origin_x=result['origin'][0], origin_y=result['origin'][1], origin_yaw=0.,
+        features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []}, source='SLAM',
+        reason='점 지도 파일에서 지도·시뮬 지형 자동 생성', created_by=user.id)
+    db.add(version)
+    db.flush()
+    floor.approved_version_id = version.id
+    refresh_connectors(db, floor)
+    twin = dict(floor_id=str(floor.id), map_version_id=str(version.id),
+        image_sha256=version.image_sha256.hex(), origin=result['origin'], resolution=CELL,
+        width=version.width, height=version.height, terrain_id=terrain_id,
+        terrain_size=list(result['spec'].size))
+    terrain = save_terrain(db, user, terrain_id, C.TerrainWrite(spec=result['spec'], base_version=0),
+        root, fail, event, created=created, twin=twin)
+    event(db, user.org_id, 'MAP_VERSION_APPROVED', user.id,
+        {'floor_id': str(floor.id), 'map_version_id': str(version.id), 'number': number}, category='APPROVAL')
+    return C.VoxelMapImport(map=version_object(version, floor, image, db), terrain=terrain, voxels=summary)
+
+
 def install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, event, settings):
     root = Path(settings.files_root).resolve()
     slot = asyncio.Semaphore(1)
@@ -69,49 +117,8 @@ def install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, ev
                     fail(422, 'INVALID_POINT_CLOUD', '실기용 층에 점 지도를 올려 주세요.')
                 if floor.approved_version_id != base_version_id:
                     fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다. 지도를 다시 열어 주세요.')
-                identifier = uuid4()
-                folder = Path('maps') / str(floor.id) / str(identifier)
-                png = result['png']
-                cells = b''.join(RECORD.pack(*cell) for cell in result['cells'])
-                summary = C.VoxelMapSummary(map_version_id=identifier, terrain_id=terrain_id,
-                    point_count=result['point_count'], voxel_count=result['voxel_count'], origin=result['origin'],
-                    source_translation=result['source_translation'], estimated_floor_z=result['floor_z'],
-                    source_sha256=sha256(data).hex(), cells_sha256=sha256(cells).hex(), warnings=result['warnings'])
-                meta = dict(resolution=CELL, origin=result['origin'], negate=0, occupied_thresh=.65, free_thresh=.2,
-                    voxel_map=summary.model_dump(mode='json'), voxel_cells=str(folder / 'cells.bin'),
-                    voxel_original=str(folder / ('source.' + format)))
-                ensure_space(root, len(data) + len(cells) + len(png) + 4_000_000, fail)
-                (root / folder).mkdir(parents=True, exist_ok=False)
-                for relative, content in ((folder / ('source.' + format), data), (folder / 'cells.bin', cells),
-                        (folder / 'image.png', png), (folder / 'image.yaml', yaml_bytes(meta, 'image.png'))):
-                    with (root / relative).open('xb') as out:
-                        created.append(root / relative)
-                        out.write(content)
-                image = Upload(org_id=user.org_id, provenance='HUMAN', image_path=str(folder / 'image.png'),
-                    image_sha256=sha256(png), png_sha256=sha256(png), size_bytes=len(png),
-                    width=result['width'], height=result['height'], metadata_json=meta, created_by=user.id)
-                db.add(image)
-                db.flush()
-                number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
-                version = MapVersion(id=identifier, org_id=user.org_id, floor_id=floor.id, number=number,
-                    provenance='HUMAN', base_version_id=base_version_id, upload_id=image.id, status='APPROVED',
-                    image_path=image.image_path, image_sha256=image.png_sha256, width=image.width, height=image.height,
-                    resolution=CELL, origin_x=result['origin'][0], origin_y=result['origin'][1], origin_yaw=0.,
-                    features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []}, source='SLAM',
-                    reason='점 지도 파일에서 지도·시뮬 지형 자동 생성', created_by=user.id)
-                db.add(version)
-                db.flush()
-                floor.approved_version_id = version.id
-                refresh_connectors(db, floor)
-                twin = dict(floor_id=str(floor.id), map_version_id=str(version.id),
-                    image_sha256=version.image_sha256.hex(), origin=result['origin'], resolution=CELL,
-                    width=version.width, height=version.height, terrain_id=terrain_id,
-                    terrain_size=list(result['spec'].size))
-                terrain = save_terrain(db, user, terrain_id, C.TerrainWrite(spec=result['spec'], base_version=0),
-                    root, fail, event, created=created, twin=twin)
-                event(db, user.org_id, 'MAP_VERSION_APPROVED', user.id,
-                    {'floor_id': str(floor.id), 'map_version_id': str(version.id), 'number': number}, category='APPROVAL')
-                return C.VoxelMapImport(map=version_object(version, floor, image, db), terrain=terrain, voxels=summary)
+                return publish_cloud(db, user, floor, base_version_id, result, data, format,
+                    terrain_id, root, fail, event, created)
             try:
                 return upload_write(request, auth, write)
             except BaseException as exc:

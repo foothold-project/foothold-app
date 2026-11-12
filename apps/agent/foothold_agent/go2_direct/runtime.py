@@ -19,6 +19,7 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
     feedback = Feedback(config.approval.robot_serial)
     channel = sink = hub = phone = reporting = None
     tasks = []
+    mapping_task = None
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     deadline = time.monotonic()+max(0, config.approval.expires_at-time.time())
     try:
@@ -49,6 +50,8 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
         if reporting_factory is not None and config.link is not None:
             reporting = reporting_factory(hub, feedback, config.link)
             tasks.append(asyncio.create_task(reporting.run()))
+            from foothold_agent.mapping.runtime import attach
+            mapping_task = attach(reporting.observer, channel, config.link, config.robot, env)
         healthy = False
         while not any(task.done() for task in tasks):
             if feedback.fault:
@@ -78,8 +81,12 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
         except BaseException as error:
             errors.append(error)
         finally:
+            if mapping_task is not None:
+                mapping_task.cancel()
             for task in tasks:
                 task.cancel()
+            if mapping_task is not None:
+                await asyncio.gather(mapping_task, return_exceptions=True)
             results = await asyncio.gather(*tasks, return_exceptions=True)
             errors.extend(r for r in results if isinstance(r, BaseException)
                           and not isinstance(r, asyncio.CancelledError) and r is not primary)

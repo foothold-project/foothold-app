@@ -80,9 +80,9 @@ def video(data):
     raise ValueError('camera output exceeds bounds')
 
 
-def points(raw):
+def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')):
     data, width, height, step, row_step, big, fields, frame = raw
-    if (frame not in ('lidar_link', 'utlidar_lidar') or
+    if (frame not in frames or
             any(type(x) is not int for x in (width, height, step, row_step)) or
             not 1 <= width*height <= MAX_INPUT_POINTS or min(width, height) < 1 or
             not 12 <= step <= 256 or row_step < width*step or
@@ -98,7 +98,7 @@ def points(raw):
         raise ValueError('unique nonoverlapping XYZ fields required')
     unpack = struct.Struct('>f' if big else '<f').unpack_from
     output = bytearray()
-    stride = max(1, math.ceil(width*height/MAX_POINTS))
+    stride = max(1, math.ceil(width*height/max_points))
     for index in range(0, width*height, stride):
         row, col = divmod(index, width)
         at = row*row_step + col*step

@@ -728,3 +728,25 @@ class FileDeletion(Tenant, Base):
     path: Mapped[str] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text('0'))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class MappingSession(Tenant, Base):
+    __tablename__ = 'mapping_sessions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['org_id', 'owner_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'base_version_id'], ['map_versions.org_id', 'map_versions.id'], ondelete='CASCADE'),
+        CheckConstraint("status IN ('RUNNING','SAVING','SAVED','FAILED','CANCELLED')", name='mapping_status'),
+        Index('mapping_one_active_robot', 'robot_id', unique=True,
+              postgresql_where=text("status IN ('RUNNING','SAVING','FAILED')")),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    floor_id: Mapped[UUID] = mapped_column(PGUUID)
+    owner_id: Mapped[UUID] = mapped_column(PGUUID)
+    base_version_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    status: Mapped[str] = mapped_column(Text)
+    progress: Mapped[dict | None] = mapped_column(JSONB)
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

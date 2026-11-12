@@ -5,12 +5,14 @@ Run in a dedicated process: the SDK channel factory is a process-wide singleton.
 """
 
 import re
+from ..mapping.inputs import ObservationInputs
 
 
-class Subscriptions:
+class Subscriptions(ObservationInputs):
     def __init__(self, state, nic):
         if not isinstance(nic, str) or not re.fullmatch(r'[a-zA-Z0-9_.:-]{1,15}', nic):
             raise ValueError('an explicit valid NIC name is required')
+        self.init_observations()
         self.state, self.nic = state, nic
         self._subscribers = []
         self._started = False
@@ -26,7 +28,7 @@ class Subscriptions:
         try:
             for topic, data_type, callback in (
                     ('rt/lowstate', LowState_, self.state.lowstate),
-                    ('rt/sportmodestate', SportModeState_, self.state.sportmodestate)):
+                    ('rt/sportmodestate', SportModeState_, lambda msg: self.sport(self.state.sportmodestate, msg))):
                 subscriber = ChannelSubscriber(topic, data_type)
                 self._subscribers.append(subscriber)
                 # Direct callback: no unbounded backlog extending receipt freshness.
@@ -36,6 +38,7 @@ class Subscriptions:
             raise
 
     def close(self):
+        self.cloud_bus.close()
         for subscriber in reversed(self._subscribers):
             try:
                 subscriber.Close()

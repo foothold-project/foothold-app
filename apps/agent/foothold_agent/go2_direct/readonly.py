@@ -11,7 +11,7 @@ import time
 from foothold_agent.go2_readonly.sdk import Subscriptions
 from foothold_agent.go2_readonly.state import State, number
 from foothold_agent.link.client import Client, Settings
-from foothold_agent.link.session import Session
+from foothold_agent.link.session import Session, Effects
 from foothold_agent.phone.observer import DiscardSink
 from foothold_agent.phone.tickets import uuid
 from foothold_agent.phone.tickets import json_object
@@ -78,6 +78,9 @@ class Observer(Session):
             frame = json_object(raw) if isinstance(raw, (str,bytes)) else raw
         except (ValueError, TypeError, UnicodeError, RecursionError):
             return self.tick()
+        if isinstance(frame, dict) and frame.get('t') == 'slam' and getattr(self, 'mapping', None) is not None:
+            self.mapping.command(frame)
+            return Effects((), self.tick().messages)
         return super().receive(frame) if isinstance(frame,dict) and frame.get('t')=='ping' else self.tick()
 
     def _state(self):
@@ -96,9 +99,11 @@ async def run(config, *, stop=None, subscriptions_factory=Subscriptions, client_
     session = Observer(measurements)
     client = client_factory(session, DiscardSink(), config.link)
     tasks = []
-    depth_task = None
+    mapping_task = depth_task = None
     try:
         subscriptions.start()
+        from foothold_agent.mapping.runtime import attach
+        mapping_task = attach(session, subscriptions, config.link, config.robot, os.environ)
         from foothold_agent.depth.source import Publisher as DepthPublisher
         depth_task = asyncio.create_task(DepthPublisher(config).run())
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(stop.wait())]
@@ -109,9 +114,8 @@ async def run(config, *, stop=None, subscriptions_factory=Subscriptions, client_
             if task.done():
                 task.result()
     finally:
-        if depth_task is not None:
-            depth_task.cancel()
-        for task in tasks:
+        observations = [task for task in (mapping_task, depth_task) if task is not None]
+        for task in (*tasks, *observations):
             task.cancel()
-        await asyncio.gather(*tasks, *([depth_task] if depth_task is not None else []), return_exceptions=True)
+        await asyncio.gather(*tasks, *observations, return_exceptions=True)
         subscriptions.close()
