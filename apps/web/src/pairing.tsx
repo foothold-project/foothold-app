@@ -1,4 +1,4 @@
-// 실기 로봇 연결(ROBOT-PAIRING, 05 §3.1). 운영 관리자: 새 로봇 추가(QR·6자리 → 기체번호 확인 → 이름) → 내 로봇 관리(이름·연결 끊기·지우기).
+// 실기 로봇 연결(ROBOT-PAIRING, 05 §3.1). 운영 관리자: 새 로봇 추가(QR·6자리 → 이름(기본값·기체번호 작게) → 끝, RB-EASY-PAIR) → 내 로봇 관리(이름·연결 끊기·지우기).
 // 총괄은 실기 로봇에 쓰기가 없다 — 담당 없는 실기의 담당 지정만(AssignOwner). 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
 // 담당 넘기기(TransferOwner): 내 로봇 관리 안 — 넘길 대상 목록(owner-candidates) → 같은 화면 확인 → PATCH owner_user_id.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -11,7 +11,7 @@ import { OwnerSelect, robotFail } from './screens/settings';
 type Cancel = { cancel?: AbortSignal };
 const QR = /^foothold-pair:(\d{6})$/;
 
-const NOT_FOUND = '코드가 맞지 않거나, 10분이 지났거나, 이미 쓴 코드입니다. 노트북 연결 프로그램 화면의 새 코드로 다시 하세요.';
+const NOT_FOUND = '코드가 맞지 않거나, 10분이 지났거나, 이미 쓴 코드입니다. 노트북 화면의 새 코드로 다시 하세요.';
 const pairFail = (e: unknown) => {
   const f = e as ApiFail;
   if (f.code === 'PAIRING_NOT_FOUND' || f.status === 404) return NOT_FOUND;
@@ -50,7 +50,7 @@ function Scan({ found, close }: { found: (code: string) => void; close: () => vo
   </div>;
 }
 
-type Step = { at: 'code' } | { at: 'serial' | 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean };
+type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean };
 
 /** 새 로봇 추가(운영 관리자). mine = 지금 내 로봇 id(확정 답의 id 가 이미 있으면 재연결) */
 export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; close: () => void; refresh: () => void } & Cancel) {
@@ -64,7 +64,7 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
     try {
       const p = await api.claimPairing(c, cancel);
       setName(`Go2-${p.robot_serial.replace(/\D/g, '').slice(-4)}`);   // 기본 이름 «Go2-끝4자리»
-      setStep({ at: 'serial', p });
+      setStep({ at: 'name', p });
     } catch (e) { if ((e as ApiFail).code !== 'CANCELED') setMsg(pairFail(e)); }
     finally { setBusy(false); }
   };
@@ -88,7 +88,7 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
     <div className="fh-row"><h2 className="fh-grow">새 로봇 추가</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
     {step.at === 'code' && <>
-      <p className="lv-note">노트북에서 연결 프로그램을 켜면 «Go2 기체번호 찾음»과 QR·6자리 코드가 보입니다(10분, 한 번만).</p>
+      <p className="lv-note">노트북에서 FOOTHOLD 로봇 연결을 켜면 화면에 QR·6자리 코드가 나옵니다(10분 안에 한 번만 쓸 수 있습니다).</p>
       {scan ? <Scan found={(c) => { setCode(c); claim(c); }} close={() => setScan(false)} />
         : <button type="button" className="btn pri" disabled={busy} onClick={() => { setMsg(''); setScan(true); }}>QR 스캔</button>}
       <form className="fh-row" noValidate onSubmit={(e) => { e.preventDefault(); claim(code.trim()); }}>
@@ -98,14 +98,8 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
       </form>
       <p className="lbl">이미 등록한 로봇을 노트북에 다시 설치했으면 같은 방법으로 다시 연결하세요 — 같은 로봇으로 이어지고 옛 연결 키는 바로 폐기됩니다.</p>
     </>}
-    {step.at === 'serial' && <>
-      <p>노트북 화면의 기체번호와 같은지 확인하세요.</p>
-      <b className="mono" style={{ fontSize: 24, overflowWrap: 'anywhere' }} data-pair-serial>{step.p.robot_serial}</b>
-      <div className="fh-row"><button type="button" className="btn pri" onClick={() => setStep({ at: 'name', p: step.p })}>이 로봇 맞음</button>
-        <button type="button" className="btn" onClick={restart}>다름 — 처음으로</button></div>
-    </>}
     {step.at === 'name' && <form className="fh-form" noValidate onSubmit={(e) => confirm(e, step.p)}>
-      <span className="lbl">기체번호 <span className="mono">{step.p.robot_serial}</span></span>
+      <span className="lbl">기체번호 <span className="mono" data-pair-serial>{step.p.robot_serial}</span> — 노트북 화면과 다르면 «처음으로»</span>
       <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" value={name} maxLength={128} autoComplete="off" onChange={(e) => setName(e.target.value)} /></label>
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>{busy ? '등록 중…' : '등록'}</button><button type="button" className="btn" onClick={restart}>처음으로</button></div>
       <span className="lbl">등록한 사람(나)이 이 로봇의 담당이 됩니다. 연결 키는 노트북 연결 프로그램이 받아 저장하며 화면에는 보이지 않습니다.</span>

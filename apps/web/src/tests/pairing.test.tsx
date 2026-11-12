@@ -1,4 +1,4 @@
-// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 기체번호 → 이름)·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
+// ROBOT-PAIRING C 화면(05 §3.1) — 운영 관리자 새 로봇 추가(QR·6자리 → 이름(기체번호 작게) → 끝, RB-EASY-PAIR)·내 로봇 관리, 총괄 읽기 전용 대시보드·담당 지정.
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 연결 키는 화면에 오지 않는다(서버 confirm 답에도 없음).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -70,10 +70,11 @@ const unfold = async (label: string) => {
   const d = [...box.querySelectorAll('details.dv-fold')].find((x) => x.querySelector('summary')!.textContent === label) as HTMLDetailsElement;
   act(() => { d.open = true; d.dispatchEvent(new Event('toggle')); }); await flush();
 };
-const startPair = async () => { await click(btn('+ 로봇 연결하기')); await click(btn('새 로봇 추가')); };
+/** 브라우저(앱 밖)는 고를 것이 «새 로봇 추가»뿐이라 «+ 로봇 연결하기» 한 번에 바로 새 로봇 추가 화면(RB-EASY-PAIR) */
+const startPair = async () => { await click(btn('+ 로봇 연결하기')); expect(card('새 로봇 추가').dataset.pair).toBe('code'); };
 
 describe('폰 운영 관리자 — 새 로봇 추가', () => {
-  it('6자리 → claim → 기체번호 확인 «이 로봇 맞음» → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
+  it('6자리 → claim → 바로 이름 단계(기체번호 작게, 확인 단계 없음) → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
     serve(signedIn(LEE, [], {
       'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } },
       'POST /pairing/p1/confirm': { status: 200, body: RA },
@@ -89,8 +90,9 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     setVal(code, '123456');
     await submit(code.form!);
     expect(sent('POST', '/pairing/claim')[0].body).toEqual({ code: '123456' });
+    expect(card('새 로봇 추가').dataset.pair).toBe('name');
     expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
-    await click(btn('이 로봇 맞음'));
+    expect(btn('이 로봇 맞음')).toBeUndefined();
     const name = $<HTMLInputElement>('[aria-label="새 로봇 추가"] input[name="name"]')!;
     expect(name.value).toBe('Go2-5678');
     const lists = calls.filter((c) => c.path.startsWith('/robots?')).length;
@@ -120,7 +122,6 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect(alert()).toBe('연결 시도가 많습니다. 잠시 뒤 다시 시도하세요.');
     claim = { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } };
     await go();
-    await click(btn('이 로봇 맞음'));
     await submit($('[aria-label="새 로봇 추가"] form')!);
     expect(alert()).toContain('다른 운영 관리자가 담당');
     expect(alert()).toContain('넘겨받기 또는 삭제');
@@ -139,7 +140,6 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     await startPair();
     setVal($<HTMLInputElement>('[data-pair-code]')!, '111222');
     await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
-    await click(btn('이 로봇 맞음'));
     await submit($('[aria-label="새 로봇 추가"] form')!);
     expect($('[data-pair-done]')!.textContent).toContain('기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기');
   });
