@@ -1521,17 +1521,24 @@ export interface RobotCreated {
 }
 
 export interface RobotInstallerAvailable {
+  platform: "linux" | "windows";
   available: true;
   version: string;
   size: number;
   sha256: string;
   built_at: string;
   commit: string;
+  filename: string;
+}
+
+export interface RobotInstallerInfo {
+  items: (RobotInstallerAvailable | RobotInstallerUnavailable)[];
 }
 
 export interface RobotInstallerUnavailable {
+  platform: "linux" | "windows";
   available: false;
-  reason: "not_built" | "building" | "build_failed" | "disabled" | "build_tools_missing" | "limit_exceeded" | "invalid_artifact";
+  reason: "not_built" | "building" | "build_failed" | "disabled" | "build_tools_missing" | "limit_exceeded" | "invalid_artifact" | "not_supported_yet";
 }
 
 export interface RobotList {
@@ -2352,4 +2359,3 @@ export type MediaChannel = "rgb" | "external" | "lidar";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
 export type PairingPollResult = PairingWaiting | PairingPaired;
-export type RobotInstallerInfo = RobotInstallerAvailable | RobotInstallerUnavailable;

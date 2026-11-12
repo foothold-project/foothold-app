@@ -19,6 +19,19 @@
       "title": "Commit",
       "type": "string"
     },
+    "filename": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+~-]*$",
+      "title": "Filename",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
     "sha256": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Sha256",
@@ -36,12 +49,14 @@
     }
   },
   "required": [
+    "platform",
     "available",
     "version",
     "size",
     "sha256",
     "built_at",
-    "commit"
+    "commit",
+    "filename"
   ],
   "title": "RobotInstallerAvailable",
   "type": "object"

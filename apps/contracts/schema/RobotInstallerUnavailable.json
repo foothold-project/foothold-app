@@ -9,6 +9,14 @@
       "title": "Available",
       "type": "boolean"
     },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
     "reason": {
       "enum": [
         "not_built",
@@ -17,13 +25,15 @@
         "disabled",
         "build_tools_missing",
         "limit_exceeded",
-        "invalid_artifact"
+        "invalid_artifact",
+        "not_supported_yet"
       ],
       "title": "Reason",
       "type": "string"
     }
   },
   "required": [
+    "platform",
     "available",
     "reason"
   ],

@@ -2859,18 +2859,25 @@ class FieldApproval(Contract):
 
 
 class RobotInstallerAvailable(Contract):
+    platform: Literal['linux', 'windows']
     available: Literal[True] = True
     version: str = Field(pattern=r'^[0-9][a-zA-Z0-9.+~-]*$')
     size: int = Field(gt=0)
     sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     built_at: UTCDateTime
     commit: str = Field(pattern=r'^[0-9a-f]{40}$')
+    filename: str = Field(pattern=r'^[a-zA-Z0-9][a-zA-Z0-9._+~-]*$')
 
 
 class RobotInstallerUnavailable(Contract):
+    platform: Literal['linux', 'windows']
     available: Literal[False] = False
     reason: Literal['not_built', 'building', 'build_failed', 'disabled',
-                    'build_tools_missing', 'limit_exceeded', 'invalid_artifact']
+                    'build_tools_missing', 'limit_exceeded', 'invalid_artifact', 'not_supported_yet']
+
+
+class RobotInstallerInfo(Contract):
+    items: list[RobotInstallerAvailable | RobotInstallerUnavailable]
 
 
 TOP = {name: value for name, value in list(globals().items())
@@ -2909,7 +2916,6 @@ REQUEST_MODELS.add(StopRequestAck)
 REQUEST_MODELS.add(PhoneStateUpload)
 REQUEST_MODELS.update({PairingStart, PairingClaim, PairingConfirm, PairingPoll, FieldApprovalRequest})
 TOP['PairingPollResult'] = PairingWaiting | PairingPaired
-TOP['RobotInstallerInfo'] = RobotInstallerAvailable | RobotInstallerUnavailable
 
 REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, TerrainRamp, TerrainGap, TerrainWrite})
 
