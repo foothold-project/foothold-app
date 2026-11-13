@@ -153,7 +153,7 @@ def test_runtime_stale_sensors_disconnect_and_save_retention(tmp_path):
 def test_runtime_uses_synchronized_cloud_pose_and_stop_is_unchanged(tmp_path):
     from foothold_agent.go2_direct.server import DriveSession
     runtime=MappingRuntime(NS(),NS(),Settings('wss://example.invalid/api/v1/agent/ws','fake-token'),
-        str(uuid4()),{'FH_MAPPING_CACHE_DIR':str(tmp_path)},request=lambda *a:{'accepted':True})
+        str(uuid4()),{'FH_MAPPING_CACHE_DIR':str(tmp_path), 'FH_MAPPING_LIDAR_TOPIC':'rt/utlidar/cloud'},request=lambda *a:{'accepted':True})
     runtime.online=True
     start=command(); runtime.command(start); runtime.step()
     data=synthetic_room().astype('<f4').tobytes(); n=len(data)//12

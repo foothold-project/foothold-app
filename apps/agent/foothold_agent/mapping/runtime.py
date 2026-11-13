@@ -16,6 +16,7 @@ from uuid import UUID
 
 from .core import Accumulator
 from foothold_agent.mapping.inputs import DEFAULT_TOPIC
+from .poses import Poses
 
 
 class TransferError(RuntimeError):
@@ -25,12 +26,17 @@ class TransferError(RuntimeError):
 
 
 class MappingRuntime:
-    def __init__(self, observer, channel, settings, robot, env, *, now=time.monotonic, request=None):
+    def __init__(self, observer, channel, settings, robot, env, *, now=time.monotonic, request=None,
+                 enabled=lambda: True):
         self.observer, self.channel, self.settings = observer, channel, settings
         self.robot, self.env, self.now = str(UUID(str(robot))), env, now
+        self.enabled = enabled
         self.lock = threading.Lock()
         self.commands = deque(maxlen=8)
-        self.poses = deque(maxlen=64)
+        self.poses = Poses(now)
+        self.odom_handle = None
+        self.topic = env.get('FH_MAPPING_LIDAR_TOPIC', DEFAULT_TOPIC)
+        self.odom_frame = env.get('FH_MAPPING_LIDAR_FRAME', 'odom' if self.topic == DEFAULT_TOPIC else '') == 'odom'
         self.latest = None
         self.last_input_stamp = -1
         self.online = False
@@ -46,7 +52,8 @@ class MappingRuntime:
         self.thread = None
         self.path = None
         try:
-            extrinsic = tuple(float(n) for n in env.get('FH_MAPPING_LIDAR_TO_BODY', '0,0,0,0,0,0').split(','))
+            extrinsic = ((0.,)*6 if self.odom_frame else
+                         tuple(float(n) for n in env.get('FH_MAPPING_LIDAR_TO_BODY', '0,0,0,0,0,0').split(',')))
             if len(extrinsic) != 6 or not all(math.isfinite(n) and abs(n) <= 100 for n in extrinsic):
                 raise ValueError()
         except ValueError:
@@ -60,28 +67,29 @@ class MappingRuntime:
 
     def command(self, frame):
         # Reader remains constant-time; even PCD encoding never runs on its loop.
+        if self.stopping.is_set() or not self.enabled():
+            return
         with self.lock:
             if len(self.commands) < self.commands.maxlen:
                 self.commands.append(dict(frame))
 
     def sport(self, message):
-        received = self.now()
-        try:
-            sec, ns = message.stamp.sec, message.stamp.nanosec
-            if type(sec) is not int or type(ns) is not int or not 0 <= sec <= 0x7FFFFFFF or not 0 <= ns < 1_000_000_000:
-                return
-            stamp = sec*1_000_000_000 + ns
-            p, q = tuple(message.position), tuple(message.imu_state.quaternion)
-            if (len(p) != 3 or len(q) != 4 or stamp <= 0 or
-                    not all(type(v) in (float, int) and math.isfinite(v) for v in (*p, *q))):
-                return
-            with self.lock:
-                if not self.poses or stamp > self.poses[-1][1]:
-                    self.poses.append((received, stamp, p, q))
-        except (AttributeError, TypeError, ValueError, OverflowError):
-            pass
+        if not self.stopping.is_set():
+            self.poses.sport(message)
+
+    def odom(self, message):
+        if not self.stopping.is_set():
+            self.poses.odom(message)
+
+    def close(self):
+        self.online = False
+        self.stopping.set()
+        if getattr(self.observer, 'mapping', None) is self:
+            self.observer.mapping = None
 
     def cloud(self, message):
+        if self.stopping.is_set() or not self.enabled():
+            return
         received = self.now()
         try:
             if len(message.data) > 2_000_000 or len(message.fields) > 32 or message.width*message.height > 100000:
@@ -140,10 +148,11 @@ class MappingRuntime:
         return self.request(session, 'point-cloud', data)
 
     def step(self):
+        if self.stopping.is_set() or not self.enabled():
+            return
         with self.lock:
             commands, self.commands = self.commands, deque(maxlen=8)
             latest, self.latest = self.latest, None
-            poses = tuple(self.poses)
         for frame in commands:
             # A new server-authorized UUID proves the prior server session ended.
             # Its cancel/SAVED reply may have been lost while this laptop was offline.
@@ -174,18 +183,16 @@ class MappingRuntime:
                 self.core.fail('LINK_LOST', '연결이 끊겼습니다. 다시 연결한 뒤 저장하거나 취소해 주세요.')
             elif latest:
                 received, stamp, raw = latest
-                # The two DDS header clocks need not share an epoch. Match local
-                # receipt times; source stamps independently reject replay/duplicates.
-                matches = [p for p in poses if 0 <= self.now()-p[0] <= .5 and abs(p[0]-received) <= .25]
-                if matches and 0 <= self.now()-received <= .5:
-                    pose = min(matches, key=lambda p: abs(p[0]-received))
+                pose = self.poses.nearest(received, stamp)
+                if pose is not None and 0 <= self.now()-received <= .5:
                     try:
                         from foothold_agent.go2_direct.media import points
                         import numpy as np
                         frames = ((self.env['FH_MAPPING_LIDAR_FRAME'],) if self.env.get('FH_MAPPING_LIDAR_FRAME')
-                                  else ('lidar_link', 'utlidar_lidar'))
+                                  else (('odom',) if self.odom_frame else ('lidar_link', 'utlidar_lidar')))
                         _, data = points(raw, max_points=100000, frames=frames)
-                        self.core.add(np.frombuffer(data, dtype='<f4').reshape(-1, 3), pose[2], pose[3], stamp=stamp)
+                        self.core.add(np.frombuffer(data, dtype='<f4').reshape(-1, 3), pose[2], pose[3], stamp=stamp,
+                                      frame='odom' if self.odom_frame else 'lidar_link')
                         self.last_cloud = received
                     except ImportError:
                         self.core.fail('MAPPING_DEPENDENCY', '지도 만들기 구성요소를 설치한 뒤 다시 연결해 주세요.')
@@ -219,46 +226,63 @@ class MappingRuntime:
             self.next_report = self.now()+1
 
     def worker(self):
-        while not self.stopping.wait(.05):
-            try:
-                self.step()
-            except Exception:
-                self.core.fail('MAPPING_FAILED', '지도를 그리지 못했습니다. 연결을 확인한 뒤 저장하거나 취소해 주세요.')
-        if self.handle:
-            try:
-                self.handle.Close()
-            except Exception:
-                pass
-
-    async def run(self):
-        self.observer.mapping = self
-        self.channel.add_sport_listener(self.sport)
         try:
-            topic = self.env.get('FH_MAPPING_LIDAR_TOPIC', DEFAULT_TOPIC)
+            if self.stopping.is_set() or not self.enabled():
+                return
+            self.acquire()
+            while not self.stopping.wait(.05):
+                try:
+                    self.step()
+                except Exception:
+                    self.core.fail('MAPPING_FAILED', '지도를 그리지 못했습니다. 연결을 확인한 뒤 저장하거나 취소해 주세요.')
+        finally:
+            # SDK Init/Close may stall; neither runs on the control/STOP loop.
+            for handle in (self.handle, self.odom_handle):
+                if handle is not None:
+                    try:
+                        handle.Close()
+                    except Exception:
+                        pass
+            self.handle = self.odom_handle = None
+
+    def acquire(self):
+        try:
+            topic = self.topic
             if not topic or len(topic) > 200 or any(c.isspace() for c in topic):
                 raise ValueError('invalid cloud topic')
             self.handle = self.channel.cloud(topic, self.cloud)
         except Exception:
             self.error = '지도 센서에 연결하지 못했습니다. 연결 프로그램 설정을 확인해 주세요.'
+        if not self.stopping.is_set() and hasattr(self.channel, 'odometry'):
+            try:
+                self.odom_handle = self.channel.odometry(self.odom)
+            except Exception:
+                pass  # sport pose remains available when odometry is absent
+
+    async def run(self):
+        self.observer.mapping = self
+        self.channel.add_sport_listener(self.sport)
         self.thread = threading.Thread(target=self.worker, name='mapping-acquire', daemon=True)
         self.thread.start()
         try:
-            while True:
+            while self.enabled():
                 self.online = bool(self.observer.connected and not self.observer.link_lost
                                    and not self.observer.reconnect_required)
                 await asyncio.sleep(.05)
         finally:
-            self.online = False
-            self.stopping.set()
+            self.close()
+            if hasattr(self.channel, 'remove_sport_listener'):
+                self.channel.remove_sport_listener(self.sport)
             self.io.shutdown(wait=False, cancel_futures=True)
 
 
-def attach(observer, channel, settings, robot, env):
+def attach(observer, channel, settings, robot, env, *, enabled=lambda: True):
     """Return background task, never changes the control task graph's health."""
     if not hasattr(channel, 'cloud') or not hasattr(channel, 'add_sport_listener'):
         return None  # observation-less adapters retain their existing control lifetime
     try:
-        mapper = MappingRuntime(observer, channel, settings, robot, env)
+        mapper = MappingRuntime(observer, channel, settings, robot, env, enabled=enabled)
     except (ValueError, TypeError, AttributeError):
         return None  # a mapping configuration fault cannot stop physical control
+    observer.mapping = mapper
     return asyncio.create_task(mapper.run())
