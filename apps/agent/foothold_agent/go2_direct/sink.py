@@ -13,12 +13,14 @@ from dataclasses import dataclass
 ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
+# Full-scale server axes per second: zero <-> maximum takes one second.
+SERVER_SLEW = (1.5, 1., .5)
 # Physical phone forward ceiling is 1.5 m/s; lateral/turn gates are unchanged.
 # Config may only narrow this explicit alphabet.
 ALLOWED = frozenset({ZERO} | {(step / 10, 0., wz)
                             for step in range(3, 16) for wz in (0., -.5, .5)})
 SERVER_ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (-1.5, 0., 0.),
-    (0., 1.5, 0.), (0., -1.5, 0.), (0., 0., .5), (0., 0., -.5),
+    (0., 1., 0.), (0., -1., 0.), (0., 0., .5), (0., 0., -.5),
     (1.5, 0., .5), (1.5, 0., -.5)))
 
 
@@ -89,6 +91,8 @@ class Go2Sink:
         self._stop_requested = threading.Event()
         self._threads = []
         self.pending = ZERO
+        self._ramp_velocity = ZERO
+        self._ramp_at = self.now()
         self.latched = True
         self.generation = 0
         self.source = None
@@ -130,6 +134,8 @@ class Go2Sink:
 
     def _hold(self):
         self.pending = ZERO
+        self._ramp_velocity = ZERO
+        self._ramp_at = self.now()
         self.latched = True
         self.generation += 1
         self._confirmed_generation = None
@@ -202,7 +208,11 @@ class Go2Sink:
                         and (self._source_received is None or input_received_at > self._source_received)):
                     self._source_received = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
-            self.pending = ZERO if self.latched or self._neutral_required else velocity
+            target = ZERO if self.latched or self._neutral_required else velocity
+            if target != self.pending:
+                # Do not spend preceding idle time on a newly received target.
+                self._ramp_at = stamp
+            self.pending = target
             if not self.latched and self._neutral_required and velocity == ZERO:
                 self._neutral_required = False
 
@@ -270,6 +280,14 @@ class Go2Sink:
                     self._stop_requested.set()
                 generation, urgent = self.generation, self._urgent
                 velocity = ZERO if self.latched else self.pending
+                if self.source == 'server' and not self.latched and not urgent:
+                    elapsed = max(0., stamp-self._ramp_at)
+                    velocity = tuple(current + max(-rate*elapsed, min(rate*elapsed, target-current))
+                                     for current, target, rate in
+                                     zip(self._ramp_velocity, velocity, SERVER_SLEW))
+                # Safety holds reset this state; neither STOP lane uses the ramp.
+                self._ramp_velocity = ZERO if urgent else velocity
+                self._ramp_at = stamp
                 self._urgent = False
             try:
                 if urgent:

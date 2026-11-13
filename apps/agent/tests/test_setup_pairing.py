@@ -410,8 +410,12 @@ def test_fake_http_dds_and_real_loopback_ws_pair_save_approve_move_expire(tmp_pa
                 for seq in range(3, 12):
                     await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=seq, axes=[1.5,0,.5])))
                     await asyncio.sleep(.04)
-                    if ('Move',(1.5,0,.5)) in motion[0][0].calls: break
-                assert ('Move',(1.5,0,.5)) in motion[0][0].calls
+                    if any(kind == 'Move' and 0 < axes[0] <= 1.5 and 0 < axes[2] <= .5
+                           for kind, axes in motion[0][0].calls): break
+                # Approval expires before a full ramp; verify real nonzero output
+                # here and leave the one-second endpoint to deterministic tests.
+                assert any(kind == 'Move' and 0 < axes[0] <= 1.5 and 0 < axes[2] <= .5
+                           for kind, axes in motion[0][0].calls)
                 async with asyncio.timeout(2):
                     while observed['gate'].active is not None: await asyncio.sleep(.01)
                 assert motion[0][1].calls[-1] == ('StopMove',())

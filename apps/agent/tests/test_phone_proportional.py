@@ -39,8 +39,8 @@ def test_exact_phone_alphabet_and_server_alphabet_remains_fixed():
                       for step in range(3, 16) for turn in (0, -.5, .5)}
     assert ALLOWED == expected == {tuple(v) for v in LIMITS['commands']}
     assert len(ALLOWED) == 40
-    assert SERVER_ALLOWED == {Z, (1.5, 0, 0), (-1.5, 0, 0), (0, 1.5, 0),
-        (0, -1.5, 0), (0, 0, .5), (0, 0, -.5), (1.5, 0, .5), (1.5, 0, -.5)}
+    assert SERVER_ALLOWED == {Z, (1.5, 0, 0), (-1.5, 0, 0), (0, 1., 0),
+        (0, -1., 0), (0, 0, .5), (0, 0, -.5), (1.5, 0, .5), (1.5, 0, -.5)}
     assert DEAD == DEADLINE_S == .3
 
 
