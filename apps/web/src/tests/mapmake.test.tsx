@@ -15,7 +15,8 @@ import { FakeWS, state } from './fakeWs';
 const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
 const PARK: User = { ...LEE, id: 'o2', username: 'park', display_name: '박운영', robot_ids: [] };
-const robot = (online: boolean): RobotSummary => ({ id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name }, simulation: false, server_drive_allowed: false,
+let allowed = false;   // 서버가 이 PC 조종을 허용함(server_drive_allowed)
+const robot = (online: boolean): RobotSummary => ({ id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name }, simulation: false, server_drive_allowed: allowed,
   connection: online ? 'ONLINE' : 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] });
 const floor = (id: string, name: string, level: number, approved: string | null) => ({ id, building_id: 'b1', name, level, approved_version_id: approved, pending_count: 0 });
 const tree = (approved: string) => ({ items: [{ id: 's1', name: '본관', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, approved), floor('f2', '2층', 2, null)] }] }], next_cursor: null } as unknown as SiteTree);
@@ -75,7 +76,7 @@ async function open() {
 /** 실시간 연결로 로봇 상태(연결됨/끊김)를 받는다 — 화면의 «연결됨»은 실시간 state 만 믿는다 */
 const live = async (online: boolean) => { act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: online ? 'ONLINE' : 'OFFLINE' })); }); await flush(); };
 beforeEach(() => { vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null); });
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { allowed = false; act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -262,5 +263,47 @@ describe('지도 만들기 — 진행', () => {
     await open(); await openMake();
     expect($('[data-elsewhere]')!.textContent).toContain('«본동 2층»');
     expect(btn('시작', dlg())).toBeUndefined();
+  });
+});
+
+describe('지도 만들기 — 창 안에서 조종(11-13 RB-MAP-VIEW-WEB)', () => {
+  it('그리는 중 + 서버가 이 PC 조종을 허용한 내 로봇: 실시간 지도 아래 같은 조종 패널(STOP·조종 시작), 저장 중이 되면 사라진다 · 개발 용어 없음', async () => {
+    allowed = true;
+    let now: MappingProgress | null = null;
+    serve(signedIn(LEE, true, () => now, { 'POST /robots/r-a/slam/start': () => { now = prog('RUNNING'); return { status: 202, body: now }; },
+      'POST /robots/r-a/slam/save': () => { now = prog('SAVING'); return { status: 202, body: now }; } }));
+    await open(); await live(true); await openMake();
+    expect(dlg().textContent).toContain('시작한 뒤 이 창의 조종 단추나 키보드로 로봇을 움직이고');
+    expect($('[data-make-drive]')).toBeNull();   // 시작 전에는 조종 없음
+    await click(btn('시작', dlg()));
+    const d = $('[data-make-drive] [data-server-drive]')!;
+    expect($('canvas[data-preview]')!.dataset.preview).toBe('5');
+    expect(d.querySelector('[data-sd-stop="panel"]')).toBeTruthy();
+    expect(btn('조종 시작', d)).toBeTruthy();
+    expect(dlg().textContent).toContain('그리는 중 — 이 창의 조종 단추나 키보드로 로봇을 천천히 움직이세요.');
+    expect(dlg().textContent).not.toMatch(/SLAM|odom|deskew/i);
+    await click(btn('지도 저장', dlg()));
+    expect($('[data-saving]')).toBeTruthy();
+    expect($('[data-make-drive]')).toBeNull();
+  });
+
+  it('서버가 허용하지 않은 로봇은 지금처럼 폰 조종 안내만 — 조종·STOP 패널 없음', async () => {
+    serve(signedIn(LEE, true, () => prog('RUNNING')));
+    await open(); await live(true); await openMake();
+    expect($('[data-progress="RUNNING"]')).toBeTruthy();
+    expect($('[data-make-drive]')).toBeNull();
+    expect(dlg().querySelector('[data-sd-stop]')).toBeNull();
+    expect(dlg().textContent).toContain('폰 조종 화면으로 로봇을 천천히 움직이세요');
+  });
+
+  it('담당이 아닌 운영자·총괄은 허용된 로봇이어도 창을 열 단추가 없어 조종이 붙지 않는다', async () => {
+    allowed = true;
+    for (const me of [KIM, PARK]) {
+      serve(signedIn(me, true, () => prog('RUNNING')));
+      await open();
+      expect($('[data-make-open]')).toBeNull();
+      expect($('[data-make-drive]')).toBeNull();
+      act(() => root?.unmount()); root = null; box.remove();
+    }
   });
 });

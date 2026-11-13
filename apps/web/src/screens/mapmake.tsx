@@ -1,11 +1,14 @@
-// 지도 탭 «지도 만들기»(RB-SLAM-WEB 11-12, 계약 apps/server/MAPPING.md): 담당 운영자가 실기 로봇을 폰 조종 화면으로 움직이며 이 층 지도를 그린다.
+// 지도 탭 «지도 만들기»(RB-SLAM-WEB 11-12, 계약 apps/server/MAPPING.md): 담당 운영자가 실기 로봇을 움직이며 이 층 지도를 그린다.
+// 11-13 RB-MAP-VIEW-WEB: 그리는 동안(RUNNING) 서버가 이 PC 조종을 허용한 로봇이면(fleet 와 같은 canDrive) 창 안에 같은 조종 패널(ServerDrive — STOP 포함)을 붙인다. 아니면 지금처럼 폰 조종 화면.
 // 시작·저장·취소는 POST /robots/{id}/slam/{start|save|cancel}, 진행은 1초마다 GET /robots/{id}/slam(창이 열려 있는 동안만 — 닫거나 층을 바꿔도 서버 세션은 계속).
-// 화면 글에 «SLAM» 을 쓰지 않는다. 주행 명령은 보내지 않는다(운전은 폰 조종 화면).
+// 화면 글에 «SLAM» 을 쓰지 않는다. 이 파일은 주행 명령을 만들지 않는다(운전은 ServerDrive 또는 폰 조종 화면).
 import { useEffect, useRef, useState } from 'react';
 import type { MapVersion, MappingPreview, MappingProgress } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Robot, User } from '../fake';
 import { Note, type Msg, type Place } from './maps';
+import { ServerDrive, canDrive } from '../serverdrive';
+import { usePhone } from '../App';
 
 /** 완료를 알린 세션(같은 SAVED 를 두 번 알리지 않게 — 화면 메모리에만, 그 층에서 알릴 때만 넣는다) */
 const told = new Set<string>();
@@ -65,6 +68,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
   const [prog, setProg] = useState<MappingProgress | null | undefined>(), [n, setN] = useState(0), [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null), [poll, setPoll] = useState(''), [ask, setAsk] = useState(false), [stale, setStale] = useState(false);
   const madeRef = useRef(made); madeRef.current = made;
+  const phone = usePhone(), drive = !!robot && canDrive({ user, phone }, robot), how = drive ? '이 창의 조종 단추나 키보드로' : '폰 조종 화면으로';
   // 1초마다 조회(RUNNING·SAVING 동안만). 언마운트·로봇 바꿈은 AbortSignal 로 진행 중 요청까지 거둔다
   useEffect(() => {
     if (!rid) return;
@@ -123,7 +127,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
     {prog === undefined && !poll && <p className="lv-note" role="status">진행 상황을 확인하는 중…</p>}
     {open && !here && <p className="fh-msg" role="status" data-elsewhere>이 로봇은 {elsewhere ? `«${elsewhere.building.name} ${elsewhere.floor.name}»` : '다른 층'}에서 지도를 만드는 중입니다. 그 층에서 저장하거나 취소하세요.</p>}
     {prog !== undefined && !open && <>
-      <p className="lv-note">로봇이 돌아다니며 이 층 지도를 그립니다. 시작한 뒤 폰 조종 화면으로 로봇을 움직이고, 다 돌면 «지도 저장»을 누릅니다.</p>
+      <p className="lv-note">로봇이 돌아다니며 이 층 지도를 그립니다. 시작한 뒤 {how} 로봇을 움직이고, 다 돌면 «지도 저장»을 누릅니다.</p>
       {robot && !robot.online && <p className="fh-msg" role="alert" data-offline>{OFF}</p>}
       <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !robot?.online} onClick={() => act('start')}>시작</button></div>
     </>}
@@ -131,7 +135,8 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
       <Preview p={p.preview} />
       <div className="mx-sum" aria-label="진행" data-progress={p.status}>
         <span><b>{(p.distance_m ?? 0).toFixed(1)} m</b>걸은 거리</span><span><b>{(p.point_count ?? 0).toLocaleString('ko-KR')}</b>점 수</span><span><b>{time(p.elapsed_s ?? 0)}</b>걸린 시간</span></div>
-      {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">그리는 중 — 폰 조종 화면으로 로봇을 천천히 움직이세요.</p>}
+      {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">그리는 중 — {how} 로봇을 천천히 움직이세요.</p>}
+      {p.status === 'RUNNING' && drive && <div data-make-drive><ServerDrive c={{ user }} r={robot!} inline /></div>}
       {p.status === 'SAVING' && <p className="lv-note" role="status" data-saving>지도를 저장하는 중… 시뮬 지형까지 만들어 시간이 걸릴 수 있습니다.</p>}
       {p.status === 'FAILED' && <p className="fh-msg" role="alert" data-failed>{failText(p)}</p>}
       {ask ? <div className="fh-row" role="group" aria-label="확인"><span>지금까지 그린 것을 버리고 지도 만들기를 취소할까요?</span>

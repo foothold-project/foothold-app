@@ -6,11 +6,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent as KeyEv, type PointerEvent, type ReactNode } from 'react';
 import { CMD_MS, rt, useLive, type Live } from './rt';
 import { typing } from './App';
-import { Chip, DriveButton, type Ctx } from './screens';
+import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
 import { Cloud3D } from './quad';
+import { LidarMap } from './lidarmap';
 import { DEPTH_HINT, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
-import type { Robot, Tone } from './fake';
+import { adminReal, type Robot, type Tone } from './fake';
 import { api } from './api';
 import { realCaps, simTune, useTuneSettings } from './phone';
 import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
@@ -89,7 +90,13 @@ export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span aria-hidden="true" style={{ width: 10, height: 10, background: '#000', border: '1px solid #DDE5EC' }} />거리 모름</span>
 </div>;
 
-export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
+/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기 */
+export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
+/** 쌓이는 지도로 그릴 라이다인가(계약 frame 'odom' — 로봇이 처음 켜진 곳 기준 좌표 + pose) */
+const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
+
+/** inline = 작은 패널에도 조작부를 둔다(지도 만들기 창 — 실시간 지도를 보면서 바로 조종, 11-13) */
+export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; inline?: boolean }) {
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
   const l = useLive(r.id), link = rt.link().at, mine = !!l.lease, s = l.state;
   const [on, setOn] = useState(''), [why, setWhy] = useState(''), [full, setFull] = useState<DriveCh | null>(null);
@@ -164,7 +171,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   </div>;
   const view = (ch: DriveCh, big: boolean) => {
     const f = feeds[ch], text = driveFeedText(f, ch);
-    if (ch === 'lidar') return <Cloud3D small={!big} big={big} feed={f} empty={text} />;
+    if (ch === 'lidar') return stacked(f) ? <LidarMap feed={f} empty={text} /> : <Cloud3D small={!big} big={big} feed={f} empty={text} />;
     if (ch === 'depth') return text || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
       : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
         <img src={f.img} alt="뎁스 카메라 — 가까움 빨강, 멀리 파랑, 검정은 거리 모름" draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain' }} data-sd-depth />
@@ -220,8 +227,9 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
     {stop(false)}
     {stopNote}
     {unlock}
+    {!full && inline && pad}
     {!full && control}
-    <button type="button" className="btn pri" data-sd-open onClick={open('rgb')}>조종 화면 열기 — 카메라·라이다·조작부</button>
+    <button type="button" className="btn pri" data-sd-open onClick={open(stacked(feeds.lidar) ? 'lidar' : 'rgb')}>조종 화면 열기 — 카메라·라이다·조작부</button>
     {notes}
     {full && <div role="dialog" aria-modal="true" aria-label={`${CH_NAME[full]} 전체화면`} data-sd-full ref={dlg} onKeyDown={trapTab}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)', overflow: 'hidden' }}>

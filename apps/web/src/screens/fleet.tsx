@@ -10,7 +10,7 @@ import { rt, useRt } from '../rt';
 import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
-import { ServerDrive, stopLine } from '../serverdrive';
+import { ServerDrive, canDrive, stopLine } from '../serverdrive';
 import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
@@ -47,8 +47,6 @@ const isLost = (x: Robot) => x.unknown === 'link' || lost(x);
 /** 큰 상태 안내의 갈래(서버 값만): 연결됨 · 끊김(로봇) · 서버 끊김 · 첫 상태 기다림 · 연결 전 · 남의 로봇 요약 */
 type Kind = 'on' | 'lost' | 'server' | 'wait' | 'pre' | 'summary';
 const kindOf = (r: Robot): Kind => (r.unknown === 'summary' ? 'summary' : r.unknown === 'link' ? 'server' : r.unknown === 'wait' ? 'wait' : r.online ? 'on' : r.status ? 'lost' : 'pre');
-/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기 */
-const canDrive = (c: Ctx, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
 
 const SYM: Record<'ok' | 'plug' | 'cut', ReactNode> = {
   ok: <path d="M5 12.5l4.5 4.5L19 7.5" />,
