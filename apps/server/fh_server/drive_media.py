@@ -155,8 +155,8 @@ class Relay:
                     raise ValueError('stale or replayed media')
                 seq = msg.seq
                 if msg.t == 'media.points':
-                    if msg.frame != 'lidar_link' or not isinstance(body['points'],str) or len(body['points']) > 64000:
-                        raise ValueError('bounded hardware sensor frame required')
+                    if msg.frame not in ('lidar_link', 'odom') or not isinstance(body['points'],str) or len(body['points']) > 64000:
+                        raise ValueError('bounded hardware cloud frame required')
                     payload = base64.b64decode(body['points'], validate=True)
                     if base64.b64encode(payload).decode('ascii') != body['points']:
                         raise ValueError('canonical point encoding required')

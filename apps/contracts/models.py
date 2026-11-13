@@ -2591,7 +2591,7 @@ class MediaPointCloudHeader(MediaHeader):
     t: Literal['media.points']
     channel: Literal['lidar']
     source: Literal['l1']
-    frame: Literal['map', 'lidar_link']
+    frame: Literal['map', 'lidar_link', 'odom']
     map_version_id: UUID | None
     pose: MediaPose | None
     count: int = Field(ge=0, le=4000, strict=True)
@@ -2605,6 +2605,8 @@ class MediaPointCloudHeader(MediaHeader):
             raise ValueError('XYZ float32 LE requires byte_length = count * 12')
         if self.frame == 'map' and (self.map_version_id is None or self.pose is None):
             raise ValueError('map points require a verified map version and pose/TF')
+        if self.frame == 'odom' and (self.map_version_id is not None or self.pose is None):
+            raise ValueError('odom points require odometry pose and no map version')
         if self.frame == 'lidar_link' and (self.map_version_id is not None or self.pose is not None):
             raise ValueError('raw lidar points must not claim map pose/version')
         return self

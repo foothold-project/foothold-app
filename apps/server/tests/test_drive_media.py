@@ -36,6 +36,27 @@ def upload(client,rid,header,points=None,token=None):
         json={'header':header,'points':None if points is None else base64.b64encode(points).decode()})
 
 
+@pytest.mark.parametrize('case', ['valid', 'missing-pose', 'map-version', 'map-frame'])
+def test_odom_scan_relay_requires_pose_and_never_claims_map(trial, seeded, case):
+    rid = seeded['robots']['mine']
+    header = frame(rid, 'lidar')
+    header.update(frame='odom', pose=dict(x=1., y=2., z=.3, yaw=.5))
+    if case == 'missing-pose': header['pose'] = None
+    if case == 'map-version': header['map_version_id'] = str(uuid4())
+    if case == 'map-frame':
+        header.update(frame='map', map_version_id=str(uuid4()))
+    points = struct.pack('<fff', 3., 4., 5.)
+    with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/lidar', headers=app_token(trial)) as viewer:
+        receive(viewer, 'media.status')
+        result = upload(trial, rid, header, points)
+        assert result.status_code == (202 if case == 'valid' else 400)
+        if case == 'valid':
+            got = receive(viewer, 'media.points')
+            assert got['frame'] == 'odom' and got['pose'] == header['pose']
+            assert got['map_version_id'] is None and viewer.receive_bytes() == points
+    assert str(rid) not in trial.app.state.realtime.arbiter.robots
+
+
 def test_three_channels_relay_media_one_without_control_socket(trial,seeded):
     rid=seeded['robots']['mine']; headers=app_token(trial)
     for channel in ('rgb','lidar','depth'):

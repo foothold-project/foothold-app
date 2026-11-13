@@ -120,6 +120,20 @@ def test_point_payload_requires_exact_little_endian_xyz_and_verified_map_frame()
                                       'pose': dict(x=0, y=0, z=0, yaw=0)})
 
 
+@pytest.mark.parametrize('pose,version,valid', [
+    (dict(x=1., y=2., z=0., yaw=.5), None, True),
+    (None, None, False), (dict(x=0., y=0., z=0., yaw=0.), U, False),
+    (None, U, False),
+])
+def test_odom_points_require_pose_without_map_version(pose, version, valid):
+    value = dict(POINTS, frame='odom', pose=pose, map_version_id=version)
+    if valid:
+        C.MediaPointCloudHeader(**value).validate_payload(struct.pack('<fff', 1., 2., 3.))
+    else:
+        with pytest.raises(ValidationError):
+            C.MediaPointCloudHeader(**value)
+
+
 def test_observer_request_has_no_robot_pose_or_service_escape_hatch():
     view = dict(BINDING, t='external.view', version='observer/1', seq=1, yaw=0.0, pitch=0.0, radius=2.0)
     assert C.ExternalCameraViewRequest(**view)
