@@ -11,6 +11,7 @@ from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.readonly import Measurements
 from foothold_agent.go2_direct.reporting import devices
 from foothold_agent.go2_direct.sdk import connect_approved
+from foothold_agent.go2_direct.identity import ResumeGate
 from foothold_agent.go2_direct.server import DriveSession, ServerSink
 from foothold_agent.go2_direct.sink import Go2Sink
 from foothold_agent.go2_readonly.state import integer
@@ -34,6 +35,7 @@ class Inputs(Measurements):
         self.conflict = False
         self.feedback = None
         self.serial_received = float('-inf')
+        self.mac_identity = None
 
     def lowstate(self, message):
         sn = getattr(message, 'sn', None)
@@ -53,13 +55,22 @@ class Inputs(Measurements):
         if self.feedback is not None:
             self.feedback.sportmodestate(message)
 
-    def identity(self):
+    def observed_identity(self):
         with self.identity_lock:
-            if self.serial == '0-0':
-                raise SerialUnavailable('manual procedure required')
-            if self.conflict or not valid_serial(self.serial) or time.monotonic()-self.serial_received > .20:
+            if (self.conflict or self.serial != '0-0' and not valid_serial(self.serial)
+                    or not 0 <= time.monotonic()-self.serial_received <= .20):
                 raise PermissionError('fresh unambiguous nonzero DDS serial required')
             return self.serial
+
+    def identity(self):
+        serial = self.observed_identity()
+        if self.mac_identity is not None:
+            if serial != '0-0' or not self.mac_identity.valid():
+                raise PermissionError('confirmed body identity unavailable')
+            return self.mac_identity.serial
+        if serial == '0-0':
+            raise SerialUnavailable('operator confirmation required')
+        return serial
 
 
 class GatedSession(DriveSession):
@@ -83,6 +94,11 @@ class GatedSession(DriveSession):
     def disconnect(self):
         self.gate.revoke()
         return super().disconnect()
+
+    def unlock_verified(self, frame):
+        if self.gate.allowed():
+            return super().unlock_verified(frame)
+        return self.feedback_lost()
 
     def transport_closed(self, close_code, *, retry):
         self.gate.revoke()
@@ -145,6 +161,8 @@ class Gate:
         self.pending = None
         self.epoch += 1
         if self.session is not None:
+            if self.session.identity_gate is not None:
+                self.session.identity_gate.close()
             self.session.core.st = None
             self.session.core.stop('field approval unavailable')
             self.session.lease_confirmed = False
@@ -209,11 +227,16 @@ class Gate:
 async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, status, stop,
               client_factory=Client, connect=connect_approved, sink_factory=Go2Sink, remember=None,
               depth_source=None, media_factory=approved_publisher, recorder_factory=Recorder):
-    inputs.feedback = Feedback(credentials.robot_serial)
+    identity = inputs.mac_identity
+    if identity is not None:
+        await identity.refresh()
+    inputs.feedback = Feedback('0-0' if identity is not None else credentials.robot_serial)
     nic_valid = True
     gate = Gate(nic, credentials.robot_serial, inputs, ready=ready, nic_matches=lambda: nic_valid,
                 last_expiry=credentials.last_field_approval_expires_at, remember=remember)
     session = GatedSession(inputs.feedback, gate)
+    if identity is not None:
+        session.identity_gate = ResumeGate(None, inputs.feedback, check=identity.verify_resume)
     client = client_factory(session, gate, credentials.link)
     network = asyncio.create_task(client.run())
     recorder = recorder_factory(os.environ, status=status)
@@ -223,11 +246,23 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
         depth_source.recorder = recorder
         depth_source.recording_allowed = lambda: gate.active is not None
     nic_task = None
+    identity_task = None
+    next_identity = 0.
     next_nic = 0.
     healthy = False
     try:
         while not stop.is_set() and not network.done():
             stamp = time.monotonic()
+            if identity is not None:
+                if identity_task is not None and identity_task.done():
+                    try:
+                        identity_task.result()
+                    except Exception:
+                        identity.fault = True
+                    identity_task = None
+                if identity_task is None and stamp >= next_identity and not identity.fault:
+                    identity_task = asyncio.create_task(identity.refresh())
+                    next_identity = stamp+.05
             if nic_task is None and stamp >= next_nic:
                 nic_task = asyncio.create_task(asyncio.to_thread(check_nic))
                 next_nic = stamp+.1
@@ -242,6 +277,8 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                     nic_valid = False  # hung kernel query cannot keep motion enabled
             gate.allowed()
             gate.activate(subscriptions, connect=connect, sink_factory=sink_factory)
+            if session.identity_gate is not None:
+                session.identity_gate.poll(client)
             # Observations follow an approval epoch but are never part of the
             # control health/lifetime task set. Close signals only; no SDK join.
             if gate.active is not media_epoch:
@@ -276,7 +313,10 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             readings.append(dict(key='go2-preflight', kind='OTHER', label='연결 프로그램 자동 점검',
                                  state='OK' if ready else 'ERROR', received_monotonic_s=session.now()))
             session.update_devices(readings)
-            status.update(mode='승인됨 · 조종권과 잠금 해제 필요' if gate.active else '읽기 전용 · 현장 안전 확인 필요',
+            mode = '승인됨 · 조종권과 잠금 해제 필요' if gate.active else '읽기 전용 · 현장 안전 확인 필요'
+            if identity is not None and identity.fault:
+                mode = '로봇의 연결 정보가 바뀌어 조종을 잠갔습니다. 랜선을 확인한 뒤 프로그램을 다시 실행해 주세요.'
+            status.update(mode=mode,
                           connected=session.connected, field_approval_expires_at=gate.last_expiry
                           if gate.active else None,
                           record_notice=recorder.notice if gate.active or recorder.stopped.is_set()
@@ -300,5 +340,8 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             network.cancel()
             if nic_task is not None:
                 nic_task.cancel()
+            if identity_task is not None:
+                identity_task.cancel()
             await asyncio.gather(network, *([nic_task] if nic_task is not None else []),
+                                 *([identity_task] if identity_task is not None else []),
                                  *retired_media, return_exceptions=True)

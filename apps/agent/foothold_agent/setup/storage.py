@@ -10,6 +10,15 @@ import stat
 from uuid import UUID
 
 from foothold_agent.link.client import Settings
+from foothold_agent.go2_direct.identity import valid_mac
+
+
+def mac_serial(mac):
+    """Injectively encode all 48 MAC bits into two uint32s; never use 0-0."""
+    if not valid_mac(mac):
+        raise ValueError('valid body MAC required')
+    value = int(mac.replace(':', ''), 16)
+    return f'{0xFFFF0000 | (value >> 32)}-{value & 0xFFFFFFFF}'
 
 
 def valid_serial(value):
@@ -24,10 +33,15 @@ class Credentials:
     agent_token: str = field(repr=False)
     agent_ws_url: str = field(repr=False)
     last_field_approval_expires_at: float | None = None
+    identity_source: str = 'serial'
+    robot_mac: str | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if str(UUID(self.robot_id)) != self.robot_id or not valid_serial(self.robot_serial):
             raise ValueError('invalid pairing identity')
+        if not ((self.identity_source == 'serial' and self.robot_mac is None) or
+                (self.identity_source == 'mac' and self.robot_serial == mac_serial(self.robot_mac))):
+            raise ValueError('explicit matching MAC identity required')
         Settings(self.agent_ws_url, self.agent_token)
         used = self.last_field_approval_expires_at
         if used is not None and (type(used) not in (int, float) or not math.isfinite(used) or used <= 0):
