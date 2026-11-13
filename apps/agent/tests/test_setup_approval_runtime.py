@@ -45,6 +45,96 @@ def test_invalidated_initialization_never_installs_output(change, monkeypatch):
     exercise_initialization(monkeypatch, zero=True, change=change)
 
 
+@pytest.mark.parametrize('zero', [False, True])
+@pytest.mark.parametrize('code,velocity,ready,still,level', [
+    (0, (0., 0., .05), True, True, 'OK'),
+    (100, (0., 0., .05), True, True, 'ACCEPTED'),
+    (100, (0., 0., .07), True, False, 'ACCEPTED'),
+    (100, (.03, 0., .05), True, False, 'ACCEPTED'),
+    (101, (0., 0., .05), False, True, 'ERROR'),
+    (0xFFFFFFFF, (0., 0., .05), False, True, 'ERROR'),
+])
+def test_setup_fixed_agile_allowlist_and_stillness(zero, code, velocity, ready, still, level,
+                                                 monkeypatch, caplog):
+    # An inherited manual-trial list cannot widen the installation policy.
+    monkeypatch.setenv('FH_GO2_ACCEPT_ERROR_CODES', '101,4294967295')
+    inputs = Inputs()
+    sn = (0, 0) if zero else (1234, 5678)
+    creds = credentials()
+    if zero:
+        inputs.mac_identity = MacIdentity(NIC_VALUE.name, MAC, inputs,
+                                         query=lambda _: (MAC, ['192.168.123.161']))
+        creds = replace(creds, robot_serial=inputs.mac_identity.serial,
+                        identity_source='mac', robot_mac=MAC)
+
+    async def scenario():
+        stop, seen, states = asyncio.Event(), {}, []
+        sequence = 0
+        def pulse():
+            nonlocal sequence
+            sequence += 1
+            inputs.lowstate(low(sequence, sn=sn))
+            inputs.sportmodestate(sport(sequence, error_code=code, velocity=velocity))
+            seen['pulse'] = asyncio.get_running_loop().call_later(.01, pulse)
+        class FakeClient(Client):
+            async def run(self):
+                seen['client'] = self
+                self._emit(self.session.connect())
+                while not stop.is_set():
+                    self._emit(self.session.receive(dict(t='ping', seq=sequence)))
+                    await asyncio.sleep(.02)
+            def on_robot_state(self, value):
+                states.append(value)
+                super().on_robot_state(value)
+        class Media:
+            source = NS(close=lambda: None)
+            async def run(self):
+                await stop.wait()
+        recorder = NS(notice='', stopped=threading.Event(), start=lambda: None, close=lambda: None)
+        pulse()
+        task = asyncio.create_task(run(creds, NIC_VALUE, inputs, object(), ready=True,
+            check_nic=lambda: True, status=Status(), stop=stop, client_factory=FakeClient,
+            connect=lambda *args: (FakeSport(), FakeSport()), sink_factory=OfflineSink,
+            recorder_factory=lambda *args, **kwargs: recorder, media_factory=lambda *args: Media()))
+        try:
+            await until(lambda: 'client' in seen and inputs.feedback.sample() is not None, task)
+            client = seen['client']
+            assert inputs.feedback.accept_error_codes == frozenset({100})
+            assert not inputs.feedback.error_allowed(100)  # no server sink before approval
+            assert inputs.feedback.telemetry()['status_code']['level'] != 'ACCEPTED'
+            assert not states and client.sink.active is None
+            client._emit(client.session.receive(dict(t='field_approval', expires_at=time.time()+60)))
+            # Only callbacks taken after sink installation can confirm its
+            # STOP generation; the preapproval sample cannot do that.
+            await until(lambda: states and states[-1]['stop_requested'] is (ready and still)
+                        and any(d['key'] == 'go2-sport'
+                                for d in client.session._device_snapshot()), task)
+            assert states[-1]['policy_running'] is ready
+            assert states[-1]['body_still'] is still
+            assert states[-1]['stop_requested'] is (ready and still)
+            assert inputs.feedback.consume(client) is ready
+            device = next(d for d in client.session._device_snapshot() if d['key'] == 'go2-sport')
+            assert device['state'] == ('ERROR' if level == 'ERROR' else 'OK')
+            assert device['status_code'] == dict(raw=code, level=level,
+                reason='EXPLICIT_SERVER_ALLOWLIST' if level == 'ACCEPTED' else None)
+            assert client.sink.active.sink.latched and client.session.core.latch
+            assert client.session.lease_id is None  # evidence never grants control/unlocks
+            violations = {v['axis']: v for v in states[-1]['still_violations']}
+            if velocity[2] == .07:
+                assert violations == {'vz': dict(axis='vz', value=.07, limit=.06, unit='m/s')}
+            elif velocity[0] == .03:
+                assert violations == {'vx': dict(axis='vx', value=.03, limit=.02, unit='m/s')}
+            else:
+                assert not violations
+        finally:
+            stop.set()
+            seen['pulse'].cancel()
+            await asyncio.wait_for(task, 3)
+    asyncio.run(scenario())
+    assert [r.getMessage() for r in caplog.records
+            if r.name == 'foothold_agent.setup.runtime'] == ['서버 시험 운동 상태 허용: 100(Agile)']
+
+
 def exercise_initialization(monkeypatch, *, zero, change=None, stop_result=0):
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
     if not zero:

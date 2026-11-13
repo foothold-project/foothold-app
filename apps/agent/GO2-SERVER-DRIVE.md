@@ -227,6 +227,10 @@ LowState 실측 serial이 **정확히 `0-0`**인 기체에서만 현장 담당�
 
 서버 경유 시험에만 `FH_GO2_ACCEPT_ERROR_CODES=<확인된 상태 번호의 쉼표 목록>`과 승인 JSON의 `"accept_error_codes":[<같은 정수 목록>]`이 정확히 같은 집합일 때 활성화한다. 기본은 둘 다 빈 목록, 0은 항상 허용, 목록 밖 값은 계속 거부한다. 시작 로그에 `서버 시험 운동 상태 허용: 100(Agile)`처럼 선택한 상태를 한 줄로 남긴다. 폰 경유와 읽기 전용 모드의 조종 권한에는 영향이 없다. 신선한 실측 정지·기존 mode/progress/높이/자세 조건·serial/MAC·명시 해제·새 중립·0.30초는 유지한다. 기본 보행 장치는 같은 허용 기준으로 `state=OK`, 선택 `status_code.level=ACCEPTED`를 보고하며 원시 코드와 허용 사유를 보존한다. 허용 목록 밖 nonzero는 기존 ERROR이며, 다른 readiness 관문은 그대로다. 잠금 해제 거절은 선택 `unlock_refused`로 보고하고 정지 판정을 막은 축의 값·기준·단위를 포함한다(계약 README 참조).
 
+설치판(`foothold_agent.setup`)의 서버 연결 길은 현장 승인에 따라 허용 집합을 **{100}으로 고정**한다. 환경 변수나 승인 JSON으로 이 집합을 넓히지 않으며, 기존 `error_allowed`의 서버 sink 조건과 현장 승인 관문을 유지한다. 서버 sink가 없는 읽기 전용 상태와 폰 길에서는 100을 허용하지 않는다. 설치판도 시작 로그에 `서버 시험 운동 상태 허용: 100(Agile)`을 한 줄 남기고 같은 장치 상태·원시 코드·허용 사유를 보고한다.
+
+현장 승인된 실측 정지 기준은 수동 길과 설치판 길 공통으로 **|vz| ≤ 0.06 m/s**, 앞뒤·옆 **|vx|, |vy| ≤ 0.02 m/s**, 회전 **|wz| ≤ 0.03 rad/s**이다. 관절·자이로 기준과 나머지 readiness·잠금 해제 조건은 유지하며, 정지 진단에 보고하는 vz 한계도 0.06 m/s이다.
+
 현장 담당자가 각각 실측값을 채우는 표식 생성 예: `deploy/jetson/make_approval.py --output <비공개 절대 경로> --nic <ROBOT_NIC> --serial-unavailable --robot-mac <실측 MAC> --accept-error-codes <확인된 상태 번호> --approve-field-motion`. 서버 경유 환경의 `FH_GO2_ACCEPT_ERROR_CODES`에도 동일한 정수 목록을 넣는다. 일반 serial이 확인되는 기체는 `--serial <실측 serial>`을 쓰며 0-0 예외를 적용하지 않는다.
 
 기존 관측 소스는 앞 카메라의 SDK VideoClient **RGB JPEG**와 `rt/utlidar/cloud`의 L1 점군이다. 로봇 몸의 별도 카메라는 위 DDS 경로에서 실제 깊이 자료를 받은 때만 뎁스로 표시하며, 미발견·형식 오류·끊김 때 RGB를 뎁스로 표시하지 않는다.

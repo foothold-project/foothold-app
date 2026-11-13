@@ -76,14 +76,14 @@ def test_go2_still_refusal_reports_every_failed_axis_including_vertical_and_join
     feedback.sink = sink
     s = setup_session()
     feedback.lowstate(low(gyro=(.06, 0., 0.), dq=.11))
-    feedback.sportmodestate(sport(velocity=(.021, -.022, .023), yaw_speed=.031))
+    feedback.sportmodestate(sport(velocity=(.021, -.022, .063), yaw_speed=.031))
     feedback.consume(SimpleNamespace(on_robot_state=s.on_robot_state))
     result = s.receive(dict(t='unlock', lease_id=s.lease_id, stop_gen=s.core.stop_gen))
     refusal = s._state()['unlock_refused']
     assert refusal['reason'] == 'STILL_MOVING'
     values = {v['axis']: v for v in refusal['axes']}
     assert set(values) == {'vx', 'vy', 'vz', 'wz', 'gyro_x', *(f'joint_{i}' for i in range(12))}
-    assert values['vz'] == dict(axis='vz', value=.023, limit=.02, unit='m/s')
+    assert values['vz'] == dict(axis='vz', value=.063, limit=.06, unit='m/s')
     assert values['gyro_x']['limit'] == .05 and values['joint_11']['limit'] == .10
     assert not any(m.kind == 'unlock' for m in result.motion)
     assert s.core.latch and s.core.out == Z

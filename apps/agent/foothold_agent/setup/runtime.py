@@ -1,5 +1,6 @@
 """One readonly DDS subscription pair and WS; motion objects exist only in approval epochs."""
 import asyncio
+import logging
 import os
 import threading
 import time
@@ -250,7 +251,11 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
     identity = inputs.mac_identity
     if identity is not None:
         await identity.refresh()
-    inputs.feedback = Feedback('0-0' if identity is not None else credentials.robot_serial)
+    # Installation trials allow only the approved Agile state. Feedback still
+    # requires a server-selected sink; no inherited environment can widen this.
+    inputs.feedback = Feedback('0-0' if identity is not None else credentials.robot_serial,
+                               accept_error_codes=(100,))
+    logging.getLogger(__name__).warning('서버 시험 운동 상태 허용: 100(Agile)')
     nic_valid = True
     gate = Gate(nic, credentials.robot_serial, inputs, ready=ready, nic_matches=lambda: nic_valid,
                 last_expiry=credentials.last_field_approval_expires_at, remember=remember)
