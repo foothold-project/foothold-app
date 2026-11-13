@@ -156,8 +156,9 @@ def test_odometry_bus_uses_nav_msgs_and_releases_last_listener(monkeypatch):
     assert calls[-1] == ('closed', ODOM_TOPIC)
 
 
-@pytest.mark.parametrize('end', ['revoke', 'reconnect', 'mapping-error'])
-def test_installed_setup_slam_start_progress_save_and_approval_lifetime(tmp_path, end):
+@pytest.mark.parametrize('end', ['revoke', 'reconnect', 'feedback', 'mapping-error'])
+@pytest.mark.parametrize('operation', ['save', 'cancel'])
+def test_installed_setup_slam_start_progress_save_and_approval_lifetime(tmp_path, end, operation):
     async def scenario():
         stop, seen, reports, uploads, maps = asyncio.Event(), {}, [], [], []
         inputs = Inputs()
@@ -177,7 +178,8 @@ def test_installed_setup_slam_start_progress_save_and_approval_lifetime(tmp_path
                 sequence = 0
                 while not stop.is_set():
                     sequence += 1
-                    inputs.lowstate(low(sequence)); inputs.sportmodestate(sport(sequence))
+                    if not seen.get('feedback_lost'):
+                        inputs.lowstate(low(sequence)); inputs.sportmodestate(sport(sequence))
                     self._emit(self.session.receive(dict(t='ping', seq=sequence)))
                     await asyncio.sleep(.01)
         def request(session, suffix, data):
@@ -217,26 +219,46 @@ def test_installed_setup_slam_start_progress_save_and_approval_lifetime(tmp_path
                 channel.callbacks[ODOM_TOPIC](odom())
                 channel.callbacks[DEFAULT_TOPIC](scan([[3., 2., 1.], [3., 2., 0.]]))
                 await until(lambda: bool(mapper.core.cells), task)
-                session.receive({**start, 'op': 'save'})
-                await until(lambda: any(r['status'] == 'SAVED' for r in reports), task)
-                assert uploads and b'DATA binary\n' in uploads[0]
-                assert any(r['status'] == 'RUNNING' for r in reports)
+                retained = mapper.core.pcd()
                 if end == 'reconnect': session.disconnect()
+                elif end == 'feedback': seen['feedback_lost'] = True
                 else: client.sink.revoke()
-                await until(lambda: mapper.stopping.is_set() and not channel.listeners
-                            and set(channel.closed) == {DEFAULT_TOPIC, ODOM_TOPIC}, task)
-                assert set(channel.closed) == {DEFAULT_TOPIC, ODOM_TOPIC}
-                assert getattr(session, 'mapping', None) is None
+                await until(lambda: mapper.core.error_code == 'LINK_LOST', task)
+                assert not mapper.stopping.is_set() and mapper.core.pcd() == retained
+                assert mapper.core.session_id == start['session_id']
+                assert session.core.latch and client.sink.active is None
+                assert not uploads and len(maps) == 1
+                channel.callbacks[ODOM_TOPIC](odom(stamp=2))
+                channel.callbacks[DEFAULT_TOPIC](scan([[9., 8., 1.]], stamp=2))
+                # Frames arriving without approval cannot save/cancel the map.
+                session.receive({**start, 'op': operation})
+                await asyncio.sleep(.08)
+                assert mapper.core.status == 'FAILED' and mapper.core.pcd() == retained
                 if end == 'reconnect': session.connect()
+                seen['feedback_lost'] = False
+                await until(lambda: inputs.feedback.sample() is not None, task)
                 session.receive(dict(t='field_approval', expires_at=time.time()+120))
-                await until(lambda: len(maps) == 2, task)
-                assert maps[1] is not mapper and not maps[1].core.cells
+                await until(lambda: client.sink.active is not None and mapper.online, task)
+                assert session.mapping is mapper and len(maps) == 1
+                assert mapper.core.status == 'FAILED' and mapper.core.pcd() == retained
+                session.receive({**start, 'op': operation})
+                if operation == 'save':
+                    await until(lambda: any(r['status'] == 'SAVED' for r in reports), task)
+                    assert uploads == [retained]
+                    assert any(r['status'] == 'RUNNING' for r in reports)
+                else:
+                    await until(lambda: any(r['status'] == 'CANCELLED' for r in reports), task)
+                    assert not mapper.core.cells and not uploads
             effects = session.receive(dict(t='stop', stop_ref=44))
             assert session.core.latch and any(c.kind == 'stop' for c in effects.motion)
         finally:
             stop.set(); await asyncio.wait_for(task, 3)
             assert all(m.stopping.is_set() for m in maps)
             assert not channel.listeners
+            for mapper in maps:
+                if mapper.thread is not None:
+                    await asyncio.to_thread(mapper.thread.join, .5)
+            assert end == 'mapping-error' or set(channel.closed) == {DEFAULT_TOPIC, ODOM_TOPIC}
     asyncio.run(scenario())
 
 
@@ -273,3 +295,53 @@ def test_mapping_sdk_stall_never_holds_the_event_loop(stall):
         finally:
             release.set()
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('had_pose', [False, True])
+def test_media_continuous_deskew_without_pose_falls_back_after_three_seconds(had_pose):
+    clock = NS(t=0.)
+    source = Source(NS(robot=str(uuid4()), approval=NS(robot_serial='fake')), {}, object(),
+        now=lambda: clock.t, include_depth=False, recorder=NS(lidar=lambda raw: None))
+    try:
+        if had_pose:
+            source.poses.odom(odom())
+        for index in range(7):
+            clock.t = index * .5
+            source.deskewed(scan([[3., 2., 1.]], stamp=index+1))
+            raw = cloud(); raw.header.stamp.nanosec = index+1
+            source.cloud(raw); source.publish_clouds()
+            sample = source.sample('lidar')
+            if clock.t == 0. and had_pose:
+                assert sample[1]['frame'] == 'odom'
+            elif clock.t < 3.:
+                assert sample is None or sample[1]['frame'] == 'odom'
+            else:
+                assert sample[1]['frame'] == 'lidar_link'
+                assert sample[1]['pose'] is None and sample[1]['map_version_id'] is None
+                MediaPointCloudHeader.model_validate(sample[1]).validate_payload(sample[2])
+        clock.t = 3.5
+        source.poses.odom(odom(stamp=8))
+        source.deskewed(scan([[3., 2., 1.]], stamp=8)); source.publish_clouds()
+        assert source.sample('lidar')[1]['frame'] == 'odom'
+    finally:
+        source.close()
+
+
+@pytest.mark.parametrize('same_robot', [False, True])
+def test_new_runtime_cannot_restore_another_runtime_map(tmp_path, same_robot):
+    robot = str(uuid4())
+    args = (NS(), NS(), Settings('wss://example.invalid/api/v1/agent/ws', 'fake'))
+    env = {'FH_MAPPING_CACHE_DIR': str(tmp_path)}
+    first = MappingRuntime(*args, robot, env, request=lambda *args: {})
+    second = MappingRuntime(*args, robot if same_robot else str(uuid4()), env, request=lambda *args: {})
+    try:
+        start = command()
+        first.online = second.online = True
+        first.command(start); first.step()
+        first.core.add([[3., 2., 1.]], [1., 0., 0.], [1., 0., 0., 0.], stamp=1, frame='odom')
+        second.command({**start, 'op': 'save'}); second.step()
+        assert second.core.error_code == 'MAPPING_SESSION_LOST' and not second.core.cells
+        assert first.core.status == 'RUNNING' and first.core.cells
+    finally:
+        for mapper in (first, second):
+            mapper.close(); mapper.io.shutdown(wait=True)

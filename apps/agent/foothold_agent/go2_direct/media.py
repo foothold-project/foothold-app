@@ -129,7 +129,7 @@ class Source:
         self.raw_cloud = None
         self.deskew_cloud = None
         self.poses = Poses(now)
-        self.last_deskew = self.now()
+        self.last_odom_points = self.now()
         self.next_deskew = float('-inf')
         self.last_deskew_stamp = -1
         self.next_lidar_publish = float('-inf')
@@ -209,7 +209,6 @@ class Source:
                     if raw[-1] != 'odom':
                         return
                     self.deskew_cloud = received, raw, marker
-                    self.last_deskew = received
                     self.next_deskew, self.last_deskew_stamp = received+.5, marker
                 else:
                     self.raw_cloud = received, raw
@@ -226,7 +225,6 @@ class Source:
         with self.lock:
             raw, self.raw_cloud = self.raw_cloud, None
             deskew, self.deskew_cloud = self.deskew_cloud, None
-            last_deskew = self.last_deskew
         if raw is not None:
             try:
                 self.recorder.lidar(raw[1])  # recorder retains original sensor coordinates
@@ -236,12 +234,17 @@ class Source:
             if deskew is not None:
                 received, data, stamp = deskew
                 pose = self.poses.nearest(received, stamp)
-                if pose is not None:
+                if pose is not None and 0 <= self.now()-received <= 1:
                     header, payload = points(data, frames=('odom',))
                     header.update(frame='odom', pose=media_pose(pose))
                     self.publish('lidar', received, (header, payload))
+                    self.last_odom_points = self.now()
                     self.next_lidar_publish = self.now()+.5
-            elif raw is not None and self.now()-last_deskew >= 3:
+                    return
+        except (ValueError, TypeError, OverflowError):
+            pass
+        try:
+            if raw is not None and self.now()-self.last_odom_points >= 3:
                 self.publish('lidar', raw[0], points(raw[1]))
                 self.next_lidar_publish = self.now()+.5
         except (ValueError, TypeError, OverflowError):
@@ -261,7 +264,7 @@ class Source:
                 except Exception:
                     pass  # raw fallback remains available without deskewed DDS
             else:
-                self.last_deskew = float('-inf')  # raw-only observation adapters
+                self.last_odom_points = float('-inf')  # raw-only observation adapters
             if hasattr(self.channel, 'odometry'):
                 try:
                     subscribers.append(self.channel.odometry(self.poses.odom))

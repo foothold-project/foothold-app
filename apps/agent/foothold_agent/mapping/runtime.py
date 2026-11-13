@@ -41,6 +41,7 @@ class MappingRuntime:
         self.last_input_stamp = -1
         self.online = False
         self.stopping = threading.Event()
+        self.interrupted = threading.Event()
         self.handle = None
         self.error = None
         self.request = request or self.http
@@ -74,12 +75,20 @@ class MappingRuntime:
                 self.commands.append(dict(frame))
 
     def sport(self, message):
-        if not self.stopping.is_set():
+        if not self.stopping.is_set() and self.enabled():
             self.poses.sport(message)
 
     def odom(self, message):
-        if not self.stopping.is_set():
+        if not self.stopping.is_set() and self.enabled():
             self.poses.odom(message)
+
+    def suspend(self):
+        """Stop acquisition/reporting, retaining the current session and points."""
+        self.online = False
+        with self.lock:
+            self.commands.clear()
+            self.latest = None
+            self.interrupted.set()
 
     def close(self):
         self.online = False
@@ -148,8 +157,15 @@ class MappingRuntime:
         return self.request(session, 'point-cloud', data)
 
     def step(self):
-        if self.stopping.is_set() or not self.enabled():
+        if self.stopping.is_set():
             return
+        if self.interrupted.is_set() or not self.enabled():
+            self.interrupted.clear()
+            if self.core.status == 'RUNNING':
+                self.core.fail('LINK_LOST', '연결이 끊겼습니다. 다시 연결한 뒤 저장하거나 취소해 주세요.')
+            self.next_report = float('-inf')
+            if not self.enabled():
+                return
         with self.lock:
             commands, self.commands = self.commands, deque(maxlen=8)
             latest, self.latest = self.latest, None
@@ -218,7 +234,7 @@ class MappingRuntime:
                 self.save_future = self.io.submit(self.save, self.save_session, data)
             except ValueError:
                 self.core.fail('MAPPING_EMPTY', '아직 그린 지도가 없습니다. 취소한 뒤 다시 시작해 주세요.')
-        if self.online and self.now() >= self.next_report and (self.report_future is None or self.report_future.done()):
+        if self.enabled() and self.online and self.now() >= self.next_report and (self.report_future is None or self.report_future.done()):
             body = self.core.report()
             if body:
                 self.report_future = self.io.submit(self.request, self.core.session_id, 'progress',
@@ -227,7 +243,7 @@ class MappingRuntime:
 
     def worker(self):
         try:
-            if self.stopping.is_set() or not self.enabled():
+            if self.stopping.is_set():
                 return
             self.acquire()
             while not self.stopping.wait(.05):
@@ -265,8 +281,8 @@ class MappingRuntime:
         self.thread = threading.Thread(target=self.worker, name='mapping-acquire', daemon=True)
         self.thread.start()
         try:
-            while self.enabled():
-                self.online = bool(self.observer.connected and not self.observer.link_lost
+            while True:
+                self.online = bool(self.enabled() and self.observer.connected and not self.observer.link_lost
                                    and not self.observer.reconnect_required)
                 await asyncio.sleep(.05)
         finally:
