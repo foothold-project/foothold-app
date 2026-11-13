@@ -153,9 +153,24 @@ async def serve(args, status, *, stop=None):
                           connected=False, code=None, qr=None, expires_at=None)
             await stop.wait()
             return False
-        except Exception:
+        except Exception as error:
             status.update(mode='연결 거부 · 랜선·자동 점검·서버 연결을 확인한 뒤 프로그램을 다시 실행하세요',
                           connected=False, code=None, qr=None, expires_at=None)
+            # Exception messages/tracebacks can embed addresses and credentials.
+            # Emit only a reviewed type label and a fixed reason on one line.
+            names = {'PermissionError', 'ValueError', 'TypeError', 'AttributeError',
+                     'KeyError', 'RuntimeError', 'OSError', 'TimeoutError',
+                     'ConnectionError', 'ImportError', 'ModuleNotFoundError',
+                     'FileNotFoundError', 'OutputError', 'LocalPortError'}
+            name = type(error).__name__
+            name = name if name in names else 'Exception'
+            message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else ''
+            reason = {'motion output failed': 'motion_output_failed',
+                      'motion sink failed': 'motion_sink_failed',
+                      'emergency SDK output failed': 'emergency_sdk_output_failed',
+                      'normal SDK output failed': 'normal_sdk_output_failed',
+                      'SDK worker did not stop': 'sdk_worker_shutdown_failed'}.get(message, 'connection_failed')
+            print(f'SETUP_FAILURE type={name} reason={reason}', file=sys.stderr)
             print('연결을 거부했습니다. 노트북 화면을 확인하고 종료하려면 Ctrl+C를 누르세요.', file=sys.stderr)
             await stop.wait()
             return False
