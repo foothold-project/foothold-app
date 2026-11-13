@@ -135,19 +135,43 @@ def endpoints(*names):
 
 @pytest.mark.parametrize('topic', [
     'rt/d435i/depth/image_rect_raw', 'rt/d435i/aligned_depth_to_color/image_raw',
+    'rt/d455/depth/image_rect_raw', 'rt/d455/aligned_depth_to_color/image_raw',
 ])
-def test_discovery_auto_selects_d435i_before_legacy_or_custom_depth(topic):
+def test_discovery_auto_selects_named_realsense_before_legacy_or_custom_depth(topic):
     rows = image_topics(endpoints((topic, IMAGE), ('rt/camera/depth/image_rect_raw', IMAGE),
         ('rt/custom/depth/image_raw', IMAGE), ('rt/d435i/color/image_raw', IMAGE)))
     assert choose(rows)['name'] == topic
 
 
-def test_discovery_prefers_d435i_rectified_depth_when_both_are_discovered():
-    rows = image_topics(endpoints(('rt/d435i/aligned_depth_to_color/image_raw', IMAGE),
-        ('rt/d435i/depth/image_rect_raw', IMAGE), ('rt/camera/depth/image_rect_raw', IMAGE)))
-    assert choose(rows)['name'] == 'rt/d435i/depth/image_rect_raw'
-    assert choose(list(reversed(rows)))['name'] == 'rt/d435i/depth/image_rect_raw'
-    assert choose(rows, '/d435i/aligned_depth_to_color/image_raw')['name'] == 'rt/d435i/aligned_depth_to_color/image_raw'
+@pytest.mark.parametrize('camera', ['d435i', 'd455'])
+def test_discovery_prefers_realsense_rectified_depth_when_both_are_discovered(camera):
+    rows = image_topics(endpoints((f'rt/{camera}/aligned_depth_to_color/image_raw', IMAGE),
+        (f'rt/{camera}/depth/image_rect_raw', IMAGE), ('rt/camera/depth/image_rect_raw', IMAGE)))
+    assert choose(rows)['name'] == f'rt/{camera}/depth/image_rect_raw'
+    assert choose(list(reversed(rows)))['name'] == f'rt/{camera}/depth/image_rect_raw'
+    assert choose(rows, f'/{camera}/aligned_depth_to_color/image_raw')['name'] == f'rt/{camera}/aligned_depth_to_color/image_raw'
+
+
+@pytest.mark.parametrize('names', [
+    ('rt/d455/depth/image_rect_raw',),
+    ('rt/d455/aligned_depth_to_color/image_raw',),
+    ('rt/d455/depth/image_rect_raw', 'rt/d455/aligned_depth_to_color/image_raw'),
+])
+def test_discovery_auto_selects_when_only_d455_is_discovered(names):
+    rows = image_topics(endpoints(*((name, IMAGE) for name in names)))
+    assert choose(rows)['name'] == names[0]
+
+
+@pytest.mark.parametrize('d435i', [
+    'rt/d435i/depth/image_rect_raw', 'rt/d435i/aligned_depth_to_color/image_raw',
+])
+@pytest.mark.parametrize('d455', [
+    'rt/d455/depth/image_rect_raw', 'rt/d455/aligned_depth_to_color/image_raw',
+])
+def test_discovery_prefers_d435i_before_d455(d435i, d455):
+    rows = image_topics(endpoints((d455, IMAGE), (d435i, IMAGE)))
+    assert choose(rows)['name'] == d435i
+    assert choose(list(reversed(rows)))['name'] == d435i
 
 
 @pytest.mark.parametrize('preferred,other', [
@@ -162,9 +186,10 @@ def test_discovery_preserves_legacy_candidate_priority(preferred, other):
     assert choose(rows)['name'] == preferred
 
 
-def test_discovery_does_not_auto_select_d435i_colour_or_unsupported_depth():
-    rows = image_topics(endpoints(('rt/d435i/color/image_raw', IMAGE),
-        ('rt/d435i/depth/image_rect_raw', 'unsupported')))
+@pytest.mark.parametrize('camera', ['d435i', 'd455'])
+def test_discovery_does_not_auto_select_realsense_colour_or_unsupported_depth(camera):
+    rows = image_topics(endpoints((f'rt/{camera}/color/image_raw', IMAGE),
+        (f'rt/{camera}/depth/image_rect_raw', 'unsupported')))
     assert choose(rows) is None
 
 

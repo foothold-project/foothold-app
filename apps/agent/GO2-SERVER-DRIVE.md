@@ -122,6 +122,8 @@ RGB/JPEG·모호한 mono 형식·RVL은 거부한다. 입력은 최대 1920×108
 640×360·64 KiB·최대 5 Hz, header의 `depth_min_m`/`depth_max_m`에 색상 범위(m)를 적는다.
 기본 0.2–5.0 m이며 가까움 빨강·멀리 파랑(TURBO 역방향), 양수 범위 밖은 끝 색,
 0·음수·NaN·Inf는 검정이다. 이는 표시 색상 범위이며 카메라의 보장 측정 범위가 아니다.
+카메라별 최소 거리나 고정 입력 해상도는 가정하지 않는다. 입력 크기는 위 상한 안에서
+메시지의 width/height를 따르고, 출력은 종횡비를 유지해 최대 640×360으로 줄인다.
 `FH_GO2_DEPTH_MIN_M`/`FH_GO2_DEPTH_MAX_M`로 finite·0≤min<max≤10000 m를 지정할 수 있다.
 captured_at은 노트북 수신 시각이다. 양수 sensor stamp의 중복/역행은 버리고, stamp가 0인
 카메라는 노트북 수신 시각으로 신선도를 판단한다. 최신 프레임 하나만
@@ -136,11 +138,13 @@ captured_at은 노트북 수신 시각이다. 양수 sensor stamp의 중복/역�
    프로그램을 켜야 합니다»를 확인한다. NIC/domain 불일치로 발견하지 못한 경우도 확인한다.
    확장 장치 접속·설치·카메라 프로그램 실행은 현민님 승인 뒤 별도 작업이다.
 3. 기본 후보는 ROS 이름 `/d435i/depth/image_rect_raw`,
-   `/d435i/aligned_depth_to_color/image_raw`, `/camera/depth/image_rect_raw`, `/camera/depth/image_raw`,
+   `/d435i/aligned_depth_to_color/image_raw`, `/d455/depth/image_rect_raw`,
+   `/d455/aligned_depth_to_color/image_raw`, `/camera/depth/image_rect_raw`, `/camera/depth/image_raw`,
    `/camera/camera/depth/image_rect_raw`, `/camera/aligned_depth_to_color/image_raw`,
-   `/depth/image_raw` 순이다. D435i의 두 토픽이 모두 발견되면 `image_rect_raw`를 먼저 고른다.
-   컬러 토픽 `/d435i/color/image_raw`는 뎁스 기본 후보에 넣지 않는다.
-   이는 RealSense의 `d435i` 이름과 흔한 namespace/정렬 이름을 참고한 후보이지
+   `/depth/image_raw` 순이다. D435i와 D455가 함께 발견되면 D435i를 먼저 고르고,
+   각 이름의 두 토픽이 모두 발견되면 `depth/image_rect_raw`를 먼저 고른다.
+   컬러 토픽 `/d435i/color/image_raw`, `/d455/color/image_raw`는 뎁스 기본 후보에 넣지 않는다.
+   이는 RealSense의 `d435i`·`d455` 이름과 흔한 namespace/정렬 이름을 참고한 후보이지
    연결된 센서 모델의 증거가 아니다. 실제 발견된 지원 형만 고른다. 후보 외 depth 이름이
    하나면 자동 선택하고, 여러 개면 목록에서 **뎁스로 볼 영상 → 영상 선택**을 누른다.
    선택은 프로그램 메모리에만 남는다. `FH_GO2_DEPTH_TOPIC`은 ROS 절대 이름 또는

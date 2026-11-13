@@ -4,6 +4,7 @@ COMPRESSED = 'sensor_msgs::msg::dds_::CompressedImage_'
 TYPES = (IMAGE, COMPRESSED)
 DEFAULT_TOPICS = (
     'rt/d435i/depth/image_rect_raw', 'rt/d435i/aligned_depth_to_color/image_raw',
+    'rt/d455/depth/image_rect_raw', 'rt/d455/aligned_depth_to_color/image_raw',
     'rt/camera/depth/image_rect_raw', 'rt/camera/depth/image_raw',
     'rt/camera/camera/depth/image_rect_raw',
     'rt/camera/aligned_depth_to_color/image_raw', 'rt/depth/image_raw',
