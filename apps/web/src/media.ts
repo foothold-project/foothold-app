@@ -73,9 +73,9 @@ export function mediaWelcome(v: unknown): PhoneMediaWelcome | null {
 }
 
 /** 점군 머리(JSON) 검사 — 맞으면 그 머리, 아니면 null */
-export function pointsHeader(m: Record<string, unknown>): MediaPointCloudHeader | null {
-  const n = m.count;
-  return m.channel === 'lidar' && m.source === 'l1' && m.encoding === 'xyz_f32le' && (m.frame === 'map' || m.frame === 'lidar_link')
+export function pointsHeader(m: Record<string, unknown>, odom = false): MediaPointCloudHeader | null {
+  const n = m.count;   // odom = 서버 경유(drivemedia.ts)만 받는 «로봇이 처음 켜진 곳 기준» 좌표(11-13 RB-MAP-VIEW)
+  return m.channel === 'lidar' && m.source === 'l1' && m.encoding === 'xyz_f32le' && (m.frame === 'map' || m.frame === 'lidar_link' || (odom && m.frame === 'odom'))
     && typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= POINT_MAX && m.byte_length === n * 12 && typeof m.truncated === 'boolean'
     && Number.isInteger(m.seq) ? m as unknown as MediaPointCloudHeader : null;
 }

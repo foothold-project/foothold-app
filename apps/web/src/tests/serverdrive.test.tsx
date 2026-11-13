@@ -247,6 +247,83 @@ describe('서버 경유 카메라·라이다', () => {
     expect($('[data-sd-full]')!.textContent).not.toContain(NO_SIGNAL.lidar);
   });
 
+  // 11-13 RB-MAP-VIEW-WEB: frame 'odom'(이미 로봇이 처음 켜진 곳 기준 + pose) = 쌓는 지도, lidar_link = 지금처럼 한 장씩
+  const head = (seq: number, count: number, p: object = {}) => ({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le',
+    frame: 'odom', map_version_id: null, pose: { x: 0, y: 0, z: 0, yaw: 0 }, count, byte_length: count * 12, truncated: false, ...p });
+  const scan = (lid: FakeWS, h: object, pts: number[]) => act(() => { lid.recv(h); lid.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
+  const map = () => $('[data-sd-full] [data-lidar-map]');
+
+  it('odom 라이다는 쌓는다: 같은 5 cm 칸은 한 번만, 로봇 위치·지나온 길, 조종 화면이 지도로 열리고 조작부·STOP 이 함께, «처음부터 다시»는 화면만 지움', () => {
+    ready();
+    const lid = mediaSock('lidar');
+    act(() => { lid.open(); });
+    scan(lid, head(1, 2), [1, 2, 0.5, -1, 0, 0]);
+    view();   // 쌓는 라이다가 오면 조종 화면은 지도부터
+    expect($('[data-sd-full] [data-sd-ch="lidar"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(map()!.dataset.lidarMap).toBe('2');
+    scan(lid, head(2, 3, { pose: { x: 1, y: 0, z: 0, yaw: 0.5 } }), [1.01, 2.01, 0.51, 3, 3, 0, 4, 4, 9]);   // 첫 점 = 같은 칸, 끝 점 = 천장(로봇보다 1.2 m 넘게 위)
+    expect(map()!.dataset.lidarMap).toBe('3');
+    expect(map()!.dataset.path).toBe('2');
+    expect($('[data-sd-full] [data-cloud]')).toBeNull();
+    // 지도를 보면서 바로 조종: 같은 화면에 조작부 8개·STOP, 키도 그대로
+    expect(document.querySelectorAll('[data-sd-full] [data-sd-move]').length).toBe(8);
+    expect($('[data-sd-full] [data-sd-stop="full"]')).toBeTruthy();
+    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
+    expect($('[data-sd-full]')!.textContent).not.toMatch(/odom|SLAM|deskew/i);
+    const sent = w.sent.length;
+    click($('[data-lm-wipe]')!);
+    expect(map()!.dataset.lidarMap).toBe('0');
+    expect(w.sent.slice(sent).every((m) => m.t === 'cmd')).toBe(true);   // 화면만 지움 — 서버·로봇에 새 요청 없음(50 ms 조종 박동뿐)
+    scan(lid, head(3, 1), [1, 2, 0.5]);
+    expect(map()!.dataset.lidarMap).toBe('1');
+    // 로봇이 새로 시작하면(epoch) 기준 자리가 달라지므로 쌓은 것을 버린다
+    scan(lid, head(1, 1, { epoch: 2 }), [7, 7, 0]);
+    expect(map()!.dataset.lidarMap).toBe('1');
+    // pose 없는 odom 은 약속 위반
+    scan(lid, head(2, 1, { epoch: 2, pose: null }), [8, 8, 0]);
+    expect(lid.readyState).toBe(3);
+  });
+
+  it('lidar_link 는 쌓지 않는다 — 지금처럼 한 장씩 바꿔 그리고, 조종 화면은 카메라부터', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    const lid = mediaSock('lidar');
+    act(() => { lid.open(); });
+    scan(lid, head(1, 2, { frame: 'lidar_link', pose: null }), [1, 2, 0.5, -1, 0, 0]);
+    view();
+    expect($('[data-sd-full] [data-sd-ch="rgb"]')!.getAttribute('aria-pressed')).toBe('true');
+    ch('lidar');
+    scan(lid, head(2, 1, { frame: 'lidar_link', pose: null }), [5, 5, 0]);
+    expect($('[data-sd-full] [data-cloud]')!.getAttribute('data-cloud')).toBe('1');
+    expect(map()).toBeNull();
+    // 쌓다가 lidar_link 로 돌아오면 쌓은 것을 버린다
+    scan(lid, head(3, 2), [1, 2, 0.5, -1, 0, 0]);
+    expect(map()!.dataset.lidarMap).toBe('2');
+    scan(lid, head(4, 1, { frame: 'lidar_link', pose: null }), [5, 5, 0]);
+    scan(lid, head(5, 1), [9, 9, 0]);
+    expect(map()!.dataset.lidarMap).toBe('1');
+  });
+
+  it('쌓는 지도는 0.5초에 한 번만 다시 그린다(그 사이 여러 장이 와도)', () => {
+    let draws = 0;
+    const ctx = new Proxy({} as Record<string, unknown>, { set: () => true, get: (_, k) => k === 'putImageData' ? () => { draws++; }
+      : k === 'createImageData' ? (a: number, b: number) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }) : () => {} });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as never);
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200); vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100);
+    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    const lid = mediaSock('lidar');
+    act(() => { lid.open(); });
+    scan(lid, head(1, 1), [1, 2, 0.5]);
+    view();
+    expect(draws).toBe(1);   // 열 때 한 번
+    for (let i = 2; i <= 6; i++) { scan(lid, head(i, 1), [i, 2, 0.5]); tick(50); }
+    expect(draws).toBe(1);
+    tick(300);
+    expect(draws).toBe(2);
+    tick(2000);   // 새 자료가 없으면 다시 그리지 않는다
+    expect(draws).toBe(2);
+    vi.restoreAllMocks();
+  });
+
   it('«조종 화면 열기» = 전체화면 — STOP 이 가장 크게 보이고 키 조종 그대로, 카메라를 눌러도 그대로(11-11), «작게 보기»·Esc 로 복귀', () => {
     ready();
     view();

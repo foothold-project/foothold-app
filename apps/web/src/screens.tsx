@@ -44,7 +44,7 @@ export const soon = { disabled: true, 'aria-describedby': 'fh-soon' } as const;
 export const pct = (b: number | null) => (b == null ? '—' : `${b}%`);
 
 /** 조종 단추: 못 하면 비활성 + 이유를 글로 함께(title 에만 두지 않음). wait = 권한은 있지만 지금 기다려야 하는 이유 */
-export function DriveButton({ c, r, label, onClick, wait }: { c: Ctx; r: Robot; label: string; onClick: () => void; wait?: string }) {
+export function DriveButton({ c, r, label, onClick, wait }: { c: Pick<Ctx, 'user'>; r: Robot; label: string; onClick: () => void; wait?: string }) {
   const why = driveBlock(c.user, r) ?? (wait || null), id = `why-${r.id}`;
   return <div className="fh-row">
     <button type="button" className="btn pri" disabled={!!why} aria-describedby={why ? id : undefined} onClick={onClick}>{label}</button>
