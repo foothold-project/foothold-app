@@ -339,12 +339,8 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             # control health/lifetime task set. Close signals only; no SDK join.
             if gate.active is not media_epoch:
                 mapper = getattr(session, 'mapping', None)
-                if mapper is not None:
-                    mapper.close()
-                if mapping_task is not None:
-                    mapping_task.cancel()
-                    retired_media.append(mapping_task)
-                    mapping_task = None
+                if mapper is not None and media_epoch is not None:
+                    mapper.suspend()
                 if media is not None:
                     media.source.close()
                     media = None
@@ -354,13 +350,15 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                     media_task = None
                 media_epoch = gate.active
                 if media_epoch is not None:
-                    active = media_epoch
-                    try:
-                        mapping_task = mapping_factory(session, subscriptions, credentials.link,
-                            credentials.robot_id, os.environ,
-                            enabled=lambda active=active: gate.active is active)
-                    except Exception:
-                        pass  # mapping startup never changes motion lifetime
+                    if mapping_task is None:
+                        try:
+                            # Retain this robot's in-memory map across approval
+                            # epochs; disabled mapping cannot acquire or upload.
+                            mapping_task = mapping_factory(session, subscriptions, credentials.link,
+                                credentials.robot_id, os.environ,
+                                enabled=lambda: gate.active is not None)
+                        except Exception:
+                            pass  # mapping startup never changes motion lifetime
                     try:
                         recorder.start()
                         approval = Approval(nic.name, credentials.robot_serial, gate.last_expiry)

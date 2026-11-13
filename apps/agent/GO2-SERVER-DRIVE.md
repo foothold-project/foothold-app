@@ -95,7 +95,7 @@ ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. �
 
 ## 관측 전용 경로와 읽기 모드
 
-카메라는 SDK VideoClient.GetImageSample로 읽어 640×360 이하 JPEG·64 KiB 이하·최대 5 Hz로 줄인다. L1은 같은 승인된 DDS 채널의 `rt/utlidar/cloud_deskewed`를 읽고 로봇이 낸 `odom` 기준 float32 XYZ를 고르게 솎아 4000점·48 KiB 이하·최대 2 Hz로 보낸다. `frame=odom`에는 그 스캔과 가까운 `rt/utlidar/robot_odom`의 위치·yaw(없으면 sport 위치·yaw)를 붙이며 `map_version_id`는 null이다. deskewed 점이 3초 동안 없으면 `rt/utlidar/cloud`의 센서 frame(`lidar_link`)으로 돌아가고 pose는 null로 보낸다. 녹화는 원래 센서 기준 점을 유지한다. 각 관측 worker와 최신 자료 1개짜리 보관함은 Core·Go2Sink와 무관하며, 카메라 RPC·코덱·업로드가 멈춰도 입력 감시/STOP을 기다리게 하지 않는다. 카메라 captured_at은 PC 수신 시각이며 기체 촬영 시각의 정확도는 미검증이다.
+카메라는 SDK VideoClient.GetImageSample로 읽어 640×360 이하 JPEG·64 KiB 이하·최대 5 Hz로 줄인다. L1은 같은 승인된 DDS 채널의 `rt/utlidar/cloud_deskewed`를 읽고 로봇이 낸 `odom` 기준 float32 XYZ를 고르게 솎아 4000점·48 KiB 이하·최대 2 Hz로 보낸다. `frame=odom`에는 그 스캔과 가까운 `rt/utlidar/robot_odom`의 위치·yaw(없으면 sport 위치·yaw)를 붙이며 `map_version_id`는 null이다. pose와 짝지어 보낼 수 있는 deskewed 점이 3초 동안 없으면 `rt/utlidar/cloud`의 센서 frame(`lidar_link`)으로 돌아가고 pose는 null로 보낸다. 녹화는 원래 센서 기준 점을 유지한다. 각 관측 worker와 최신 자료 1개짜리 보관함은 Core·Go2Sink와 무관하며, 카메라 RPC·코덱·업로드가 멈춰도 입력 감시/STOP을 기다리게 하지 않는다. 카메라 captured_at은 PC 수신 시각이며 기체 촬영 시각의 정확도는 미검증이다.
 
 에이전트는 기존 agent 토큰으로 **HTTP POST** `/api/v1/agent/drive-media/{rgb|lidar|depth}`에 `{header: media/1 JSON, points: null 또는 XYZ bytes의 base64}`를 올린다(본문 100,000 bytes 상한, 채널당 최대 5 Hz). 조종 WS 4096 bytes 제한과 배포 기동 인자는 유지한다. 웹은 같은 서버의 `/api/v1/robots/{robot_id}/drive-media/{rgb|lidar|depth}` WS에 기존 로그인 쿠키+정확한 Origin으로 접속해 받기만 한다(Bearer 앱 인증도 가능). hello·URL 토큰·조종 입력은 없다. `media.video` JSON, `media.points` JSON 직후 binary xyz_f32le, `media.status`는 기존 media/1 그대로다. robot/epoch/episode_id(null)를 확인하고 epoch 변경·1초 넘은 자료·끊김 때 이전 그림을 비운다. 담당자/총괄만 볼 수 있고 재배정·로그아웃·토큰 폐기 시 재확인하여 닫는다. 느린 viewer는 0.20초 쓰기 마감으로 끊으며 관측 오류가 조종 연결을 닫지 않는다.
 
@@ -351,6 +351,6 @@ StopMove는 펌웨어의 응답 코드도 반환하므로 자세·모드 관련 
 
 ## odom 점으로 지도 만들기
 
-설치판에서도 조종 활성화와 같은 서버 승인 수명에 읽기 전용 mapping 작업을 붙인다. «지도 만들기»는 기본 `rt/utlidar/cloud_deskewed`의 이미 odom 기준인 점을 회전·장착 보정 없이 누적하며, 로봇 위치·경로·이동 거리는 가까운 robot_odom(없으면 sport)에서 얻는다. 로봇 위치로부터 0.3 m 안의 점은 제외한다. 진행 자료를 서버 지도 탭에 보내고 «지도 저장» 때 누적 PCD를 기존 저장 API로 올린다. 이 지도는 오래 걸으면 odometry 오차로 밀릴 수 있으며, 진짜 SLAM의 루프 폐쇄·위치 보정이 아니다. Unitree SLAM이나 `/api/slam_operate`를 호출하지 않는다. 승인 회수·재연결 때 구독과 누적 작업을 정리하며 지도 작업 실패는 조종·STOP 작업 수명을 바꾸지 않는다.
+설치판에서도 조종 활성화와 같은 서버 승인 수명에 읽기 전용 mapping 작업을 붙인다. «지도 만들기»는 기본 `rt/utlidar/cloud_deskewed`의 이미 odom 기준인 점을 회전·장착 보정 없이 누적하며, 로봇 위치·경로·이동 거리는 가까운 robot_odom(없으면 sport)에서 얻는다. 로봇 위치로부터 0.3 m 안의 점은 제외한다. 진행 자료를 서버 지도 탭에 보내고 «지도 저장» 때 누적 PCD를 기존 저장 API로 올린다. 이 지도는 오래 걸으면 odometry 오차로 밀릴 수 있으며, 진짜 SLAM의 루프 폐쇄·위치 보정이 아니다. Unitree SLAM이나 `/api/slam_operate`를 호출하지 않는다. 승인 회수·재연결 때 지도 누적·전송을 멈추고 LINK_LOST로 표시하되, 같은 로봇·같은 연결 프로그램 실행의 점과 세션은 메모리에 남긴다. 다시 승인되면 그 지도를 저장하거나 취소할 수 있으며 누적을 자동 재개하지 않는다. 프로그램 종료 때 작업·구독을 정리하고, 다른 로봇이나 프로그램 재시작에는 지도를 공유·복원하지 않아 기존 MAPPING_SESSION_LOST를 사용한다. 지도 작업 실패는 조종·STOP 작업 수명을 바꾸지 않는다.
 
 기존 센서 기준 누적은 `FH_MAPPING_LIDAR_TOPIC=rt/utlidar/cloud`로 선택할 수 있다. 이 경우 `FH_MAPPING_LIDAR_FRAME`(기본 lidar_link/utlidar_lidar)과 `FH_MAPPING_LIDAR_TO_BODY=x,y,z,roll,pitch,yaw`의 장착 보정이 적용된다. odom 입력에는 장착 보정을 적용하지 않는다. 실제 기체·설치판·지도 저장 결과의 현장 확인은 별도이며 이 변경의 시험은 가짜 채널·합성 점을 사용했다.
