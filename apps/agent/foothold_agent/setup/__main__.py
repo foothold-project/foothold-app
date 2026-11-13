@@ -17,6 +17,7 @@ from .pairing import Pairing, origin, ws_origin
 from .runtime import Inputs, SerialUnavailable, run
 from .storage import default_path, load, save
 from .view import Status, make_server, qr_svg
+from .identity import confirm_zero_identity, IdentityUnavailable
 from foothold_agent.depth.source import Source as DepthSource, Publisher as DepthPublisher
 from types import SimpleNamespace
 
@@ -53,22 +54,33 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                 serial = inputs.identity()
                 break
             except SerialUnavailable:
-                raise
+                identity = await confirm_zero_identity(inputs, nic, status, stop, credentials,
+                                                       windows=os.name == 'nt')
+                if identity is None:
+                    return
+                serial = inputs.identity()
+                break
             except PermissionError:
                 if inputs.conflict or time.monotonic() >= deadline:
                     raise PermissionError('one fresh nonzero DDS identity required') from None
                 await asyncio.sleep(.02)
         else:
             return
-        status.update(serial=serial)
+        status.update(serial=serial if inputs.mac_identity is None else None,
+                      identity_source='mac' if inputs.mac_identity else 'serial')
         if credentials is not None and credentials.robot_serial != serial:
             raise PermissionError('saved serial differs from current DDS identity')
+        if credentials is not None and ((credentials.identity_source == 'mac') !=
+                                        (inputs.mac_identity is not None)):
+            raise PermissionError('saved identity source differs')
         if credentials is None or getattr(args, 'repair', False):
             pairing = pairing_factory(server)
             await asyncio.to_thread(pairing.start, serial)
             status.update(code=pairing.code, expires_at=pairing.expires_at, qr=qr_svg(pairing.code),
                           mode='웹에서 노트북 화면의 코드를 넣고 이름을 입력하세요')
             while not stop.is_set():
+                if inputs.mac_identity is not None:
+                    await inputs.mac_identity.refresh()
                 if inputs.identity() != serial:
                     raise PermissionError('DDS identity changed during pairing')
                 try:
@@ -81,6 +93,10 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                     await asyncio.sleep(2)
                     continue
                 if credentials is not None:
+                    if inputs.mac_identity is not None:
+                        await inputs.mac_identity.refresh()
+                        credentials = replace(credentials, identity_source='mac',
+                                              robot_mac=inputs.mac_identity.mac)
                     if saved_credentials is not None and saved_credentials.robot_id == credentials.robot_id:
                         credentials = replace(credentials, last_field_approval_expires_at=
                                               saved_credentials.last_field_approval_expires_at)
@@ -132,8 +148,8 @@ async def serve(args, status, *, stop=None):
             print('이 노트북의 연결이 해제되었습니다. 노트북 화면의 «다시 연결하기»를 누르고 웹의 «새 로봇 추가»에서 새 코드를 넣으세요.', file=sys.stderr)
             await stop.wait()
             return False
-        except SerialUnavailable:
-            status.update(mode='기체번호를 읽을 수 없는 기체 — 수동 절차 (GO2-SERVER-DRIVE.md의 문제 생겼을 때 참고)',
+        except IdentityUnavailable as error:
+            status.update(mode=str(error),
                           connected=False, code=None, qr=None, expires_at=None)
             await stop.wait()
             return False

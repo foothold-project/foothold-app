@@ -25,16 +25,18 @@ def neighbors(nic):
     return json.loads(result.stdout)
 
 
-def verify(approval, observed_serial, *, entries=None):
-    if not getattr(approval, 'serial_unavailable', False):
-        if (not isinstance(approval.robot_serial,str) or observed_serial == '0-0'
-                or observed_serial != approval.robot_serial):
-            raise PermissionError('robot serial does not match field approval')
-        return True
-    if (approval.robot_serial is not None or observed_serial != '0-0' or
-            not approval.robot_mac):
-        raise PermissionError('explicit zero-serial fallback required')
-    entries = neighbors(approval.nic) if entries is None else entries
+def valid_mac(mac):
+    return (isinstance(mac, str) and re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac)
+            and mac != '00:00:00:00:00:00' and not int(mac[:2], 16) & 1)
+
+
+def neighbor_identity(nic, *, entries=None, exclusive=False):
+    """Read the body's MAC and bounded neighbor addresses on the selected NIC.
+
+    The old manual trial retains its exclusive two-peer rule. Setup presents
+    other addresses to the operator, requiring usable identity only for .161.
+    """
+    entries = neighbors(nic) if entries is None else entries
     if not isinstance(entries, list) or len(entries) > 256:
         raise PermissionError('bounded neighbor snapshot required')
     found = {}
@@ -45,20 +47,36 @@ def verify(approval, observed_serial, *, entries=None):
             address = IPv4Address(row.get('dst'))
         except (ValueError, TypeError):
             raise PermissionError('invalid neighbor address') from None
-        if address not in NETWORK:
+        if exclusive and address not in NETWORK:
             continue
         key, mac = str(address), row.get('lladdr')
         states = row.get('state', [])
         if isinstance(states, str):
             states = [states]
-        if (key not in PEERS or key in found or row.get('dev', approval.nic) != approval.nic
-                or not isinstance(states,list) or not states
-                or any(x not in ('REACHABLE','STALE','DELAY','PROBE','PERMANENT') for x in states)
-                or not isinstance(mac,str) or not re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac)
-                or mac == '00:00:00:00:00:00' or int(mac[:2],16) & 1):
-            raise PermissionError('dedicated neighbor identity unavailable')
+        if key in found or row.get('dev', nic) != nic:
+            raise PermissionError('conflicting neighbor snapshot')
+        if key == GO2 or exclusive:
+            if ((exclusive and key not in PEERS) or not isinstance(states, list) or not states
+                    or any(x not in ('REACHABLE', 'STALE', 'DELAY', 'PROBE', 'PERMANENT') for x in states)
+                    or not valid_mac(mac)):
+                raise PermissionError('dedicated neighbor identity unavailable')
         found[key] = mac
-    if set(found) != PEERS or found[GO2] != approval.robot_mac:
+    if GO2 not in found or exclusive and set(found) != PEERS:
+        raise PermissionError('robot body neighbor unavailable')
+    return found[GO2], sorted(found, key=IPv4Address)
+
+
+def verify(approval, observed_serial, *, entries=None):
+    if not getattr(approval, 'serial_unavailable', False):
+        if (not isinstance(approval.robot_serial,str) or observed_serial == '0-0'
+                or observed_serial != approval.robot_serial):
+            raise PermissionError('robot serial does not match field approval')
+        return True
+    if (approval.robot_serial is not None or observed_serial != '0-0' or
+            not approval.robot_mac):
+        raise PermissionError('explicit zero-serial fallback required')
+    mac, _ = neighbor_identity(approval.nic, entries=entries, exclusive=True)
+    if mac != approval.robot_mac:
         raise PermissionError('dedicated neighbor identity differs from approval')
     return True
 
