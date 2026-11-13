@@ -2,7 +2,7 @@
 import importlib.metadata as metadata
 import hashlib
 import json
-import os
+from .loader import INHERITED_LOADER_OVERRIDE
 from pathlib import Path
 import platform
 import subprocess
@@ -49,7 +49,7 @@ def inspect(wheel_dir):
         issues.append('official-wheel-hash-unverified')
     if not dds_elf or not bundled_ddsc:
         issues.append('dds-bundled-elf-metadata-unverified')
-    if any(os.environ.get(k) for k in ('CYCLONEDDS_URI','CYCLONEDDS_HOME','LD_LIBRARY_PATH')):
+    if INHERITED_LOADER_OVERRIDE:
         issues.append('inherited-dds-loader-override')
     return dict(installation_ready=not issues, issues=issues, packages=packages,
         sdk_commit_verified=commit == SDK_COMMIT, dds_wheel_sha256=DDS_SHA256,

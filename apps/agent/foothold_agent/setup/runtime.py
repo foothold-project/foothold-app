@@ -239,7 +239,15 @@ class Gate:
 
     def apply(self, command):
         if self.allowed():
-            self.active.apply(command)
+            active = self.active
+            try:
+                active.apply(command)
+            except Exception as error:
+                # A failed worker's generic "adapter closed" exception must not
+                # hide the original SDK fault from the setup diagnostic.
+                if active.sink.error is not None and active.sink.error is not error:
+                    raise error from active.sink.error
+                raise
 
     def output_safety(self):
         return self.active.output_safety() if self.allowed() else (self.epoch, True)
@@ -346,7 +354,7 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                         pass  # missing camera/SDK/storage cannot affect motion
             if gate.active is not None:
                 if gate.active.sink.error is not None:
-                    raise RuntimeError('motion output failed')
+                    raise RuntimeError('motion output failed') from gate.active.sink.error
                 fresh = inputs.feedback.consume(client)
                 if healthy and not fresh:
                     client._emit(session.feedback_lost())

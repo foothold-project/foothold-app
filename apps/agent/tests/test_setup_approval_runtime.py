@@ -293,7 +293,56 @@ def test_serve_diagnostic_is_one_fixed_line_without_exception_values(error_type,
     asyncio.run(scenario())
     output = capsys.readouterr().err
     name = 'Exception' if error_type.__name__ == 'untrusted_private_type' else error_type.__name__
-    assert output.splitlines()[0] == f'SETUP_FAILURE type={name} reason={reason}'
+    assert output.splitlines()[0] == f'SETUP_FAILURE type={name} reason={reason} cause_type=ValueError'
     assert len(output.splitlines()) == 2
     for value in private.split() + ['Traceback', 'untrusted_private_type']:
         assert value not in output
+
+
+@pytest.mark.parametrize('private_type', [False, True])
+def test_serve_reports_first_explicit_cause_and_conditional_posture_hint(private_type, monkeypatch, capsys):
+    from foothold_agent.setup import __main__ as setup
+    from foothold_agent.go2_direct.sink import OutputError
+    from foothold_agent.link.client import LocalPortError
+    cause_type = type('private_serial_in_type', (Exception,), {}) if private_type else TimeoutError
+    async def fail(*_args):
+        try:
+            try:
+                raise cause_type('private SDK message')
+            except Exception as error:
+                raise OutputError('normal SDK output failed') from error
+        except OutputError as error:
+            raise LocalPortError('motion sink failed') from error
+    monkeypatch.setattr(setup, 'connect', fail)
+    monkeypatch.setattr(setup, 'install_stop_handlers', lambda _: lambda: None)
+    async def scenario():
+        stop, status = asyncio.Event(), Status()
+        stop.set()
+        assert not await setup.serve(NS(), status, stop=stop)
+        state = status.snapshot()
+        assert not state['connected']
+        assert '누워 있다면 현장 담당자가 먼저 세워 주세요' in state['mode']
+        assert 'private' not in str(state)
+    asyncio.run(scenario())
+    output = capsys.readouterr().err
+    root_name = 'Exception' if private_type else 'TimeoutError'
+    assert output.splitlines()[0] == ('SETUP_FAILURE type=LocalPortError '
+        f'reason=motion_sink_failed cause_type={root_name}')
+    assert 'private' not in output
+
+
+def test_setup_gate_preserves_first_worker_fault_behind_closed_adapter():
+    from foothold_agent.setup.runtime import Gate
+    from foothold_agent.go2_direct.sink import OutputError
+    from foothold_agent.link.client import LocalPortError
+    original = TimeoutError('private SDK message')
+    def closed(_command):
+        raise OutputError('adapter closed or failed')
+    gate = Gate(NIC_VALUE, '1234-5678', Inputs(), ready=True, nic_matches=lambda: True)
+    gate.allowed = lambda: True
+    gate.active = NS(apply=closed, sink=NS(error=original))
+    client = Client(NS(), gate, credentials().link)
+    from foothold_agent.link.session import Effects, MotionCommand
+    with pytest.raises(LocalPortError) as caught:
+        client._emit(Effects((MotionCommand(),)))
+    assert caught.value.__cause__.__cause__ is original
