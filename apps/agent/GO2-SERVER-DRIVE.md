@@ -242,6 +242,80 @@ LowState 실측 serial이 **정확히 `0-0`**인 기체에서만 현장 담당�
 
 ## 문제 생겼을 때
 
+### RGB 기록 뒤 같은 프로그램에서 다시 연결할 때 자동 점검 실패
+
+OpenCV는 import할 때 프로세스의 `LD_LIBRARY_PATH`를 추가할 수 있다. 이를
+매 연결마다 읽으면 RGB 기록 뒤 다시 연결할 때 `inherited-dds-loader-override`로
+잘못 거부했다. 이제 setup/go2_direct 패키지 진입 시 선택 미디어를 import하기 전에
+세 로더 변수(`CYCLONEDDS_URI`, `CYCLONEDDS_HOME`, `LD_LIBRARY_PATH`)의
+존재 여부만 한 번 저장하고, 재연결과 Linux/Windows 자동 점검은 같은 판정을 쓴다.
+시작부터 비어 있지 않은 값이 있었다면 나중에 지워져도 계속 거부한다.
+실행 중 환경 값을 지우거나 덮어쓰지 않고, 실제 DDS 채널·NIC 검증은 유지한다.
+별도 프로세스로 다시 시작할 때는 그 프로세스가 물려받은 값으로 새로 판단한다.
+
+### 승인 직후 정지 출력 실패 (2026-11-13 조사)
+
+현장 담당자는 로봇을 세운 뒤 연결이 됐다고 보고했다. 따라서 이번 현상은
+로봇의 자세·제어 상태와 관련된 것으로 의심하되, 당시의 SDK 반환 코드와
+높이·모드 표본이 없어 자동 판정 조건은 추가하지 않았다. 이 수정은 진단과
+쉬운 복구 안내만 추가하며, 누운 상태에서 연결을 유지하는 새 정책은 포함하지 않는다.
+
+`SDK_OUTPUT_FAILED method=Move code=3102`처럼 실패한 SDK 호출마다 stderr에
+명령 이름과 정수 반환 코드만 남긴다. 예외이면 `code=TimeoutError`처럼 검토된
+종류만, 알 수 없는 예외이면 `Exception`, 정수가 아닌 반환이면
+`InvalidReturnType`을 남긴다. 인자·예외 본문·IP·MAC·기체번호는 출력하지 않는다.
+`SETUP_FAILURE ... cause_type=...`은 명시적 `__cause__`를 따라간 최초 원인의
+종류이며, 명시적 원인이 없으면 `None`이다. SDK 출력 실패가 나면 연결 창에
+«로봇이 누워 있다면 현장 담당자가 먼저 세워 주세요»와 랜선·제어 상태 확인을 안내한다.
+
+10월 30일 서버 시험 코드 `af87977`과 설치판 `f0c5ff0`을 비교했다.
+두 길 모두 일반/비상 **서로 다른 SportClient 두 개**를 차례로 생성하고,
+각각 `SetTimeout(0.10)` → `Init()` → 경계 래퍼 순서다. sink 설치 뒤 독립된
+일반/비상 worker를 시작하고, 일반 worker의 첫 출력은 잠긴 상태의
+`Move(0,0,0)`와 `StopMove`다. 출력 worker 시작 전 별도 준비 확인 호출이나
+대기 시간은 두 길 모두 없다. 수동 길은 domain 0/지정 NIC 채널을 한 번 열고,
+설치판은 같은 domain 0/선택 NIC의 기존 readonly 참가자를 재사용한다.
+설치판의 0-0/MAC 길은 승인 후 SDK 생성을 별도 스레드에서 수행하며,
+진행 중 신원 갱신과 연결 감시를 유지하고 완료 후 승인 세대를 다시 확인한다.
+두 길의 SDK 초기화·STOP 순서 차이가 원인이라는 증거는 찾지 못했다.
+이 작업 폴더에 비공개 현장 기록 두 파일은 없어, 실제 성공 실행의 정확한
+커밋·로봇 상태는 제공된 현장 기록과 별도로 재확인해야 한다.
+
+고정 SDK `814556d15970dd2ecf1c9984e845ca02ab07e206`의
+[SportClient](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/unitree_sdk2py/go2/sport/sport_client.py)에서
+`Move`는 `_CallNoReply`, `StopMove`는 응답을 기다리는 `_Call`이다.
+Python 계층에는 누움/댐핑 상태에 따른 Move 거절 검사가 없다.
+따라서 **Move의 3102를 누운 자세 거절로 해석할 수 없다**.
+StopMove는 펌웨어의 응답 코드도 반환하므로 자세·모드 관련 거절 가능성은
+남아 있으나, 확인한 공개 클라이언트 코드에는 그 대응표가 없다.
+누워 있으면 반드시 어느 코드가 나온다고 단정하지 않는다.
+
+[RPC 코드](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/unitree_sdk2py/rpc/internal.py)와
+[호출 구현](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/unitree_sdk2py/rpc/client_base.py)에 따르면
+**3102는 클라이언트 송신 실패**, **3104는 응답 시간 초과**다.
+[DDS writer](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/unitree_sdk2py/core/channel.py)는
+수신자 발견을 기다릴 때 0.1초씩 차감하며, timeout을 다 쓰면 송신 전에 실패한다.
+따라서 현재 0.1초 timeout에서는 첫 검사 때 매칭이 없으면 3102가 가능하다.
+[ClientStub 생성](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/unitree_sdk2py/rpc/client_stub.py)은
+이미 0.5초를 기다리므로 `Init()` 직후라는 사실만으로 발견 실패를 확정할 수 없다.
+최초 Move=3102 / StopMove=3104를 각각 주는 가짜 SDK로 초기 출력 실패·비상 STOP
+시도·잠금 유지·후속 출력 거부를 재현한다. 실제 현장 코드를 측정한 결과는 아니다.
+실패 무시·자동 재시도·timeout 연장·자동 기립·모드 변경은 넣지 않았다.
+
+현장에서 확인할 순서:
+
+1. 사람이 안전 공간과 비상 정지를 확보하고, 로봇이 누워 있거나 댐핑 상태라면
+   기존 공식 조종기로 먼저 세워 정지시킨다. 이 연결 프로그램은 자동으로 세우지 않는다.
+2. 현장 승인된 절차로 연결 프로그램을 다시 실행하고 승인 직후의
+   `SDK_OUTPUT_FAILED` 줄과 `SETUP_FAILURE` 줄만 수집한다. 실값은 공유하지 않는다.
+3. Move=3102이면 전용 랜선/NIC와 로봇의 sport 명령 수신 서비스가 준비됐는지 확인한다.
+   상태를 읽을 수 있다는 사실만으로 sport 명령 수신자가 준비됐다고 볼 수 없다.
+   StopMove=3104이면 sport 서비스 응답과 제어 모드를 확인한다. 다른 정수라면
+   해당 펌웨어판의 공식 반환 코드 의미를 대조한다.
+4. 정지 명령 실패를 무시하고 승인 상태로 대기시키지 않는다. 실패한 worker는
+   복구할 수 없고 실측 정지·명시 해제·새 중립을 대신할 수 없으므로 현재는 연결을
+   닫고 잠금을 유지한다. 현장 자세와 실제 반환 코드 확인 후 별도 복구 정책을 검토한다.
+
 <details>
 <summary>옛 수동 시험 순서와 0-0/MAC 예외 복구 참고</summary>
 
