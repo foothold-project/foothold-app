@@ -194,7 +194,7 @@ class Gate:
             self.revoke()
         return self.active is not None
 
-    def activate(self, subscriptions, *, connect=connect_approved, sink_factory=Go2Sink):
+    def prepare_activation(self):
         if self.pending is None:
             return
         if not self.valid():
@@ -204,17 +204,37 @@ class Gate:
         if feedback.sample() is None:
             return
         approval, self.pending = self.pending, None
-        # SDK imports/construction occur only here, after all gates. No Move is
-        # issued by the factory. The sink starts latched and has no retained lease.
+        # Consume the epoch durably before any SDK construction. The factory
+        # issues no Move; output will start latched with no retained lease.
         if self.remember is not None:
             self.remember(approval.expires_at)  # durable before constructing any motion client
-        clients = connect(approval, self.serial, subscriptions)
+        return approval
+
+    def finish_activation(self, clients, *, epoch, sink_factory=Go2Sink):
+        # SDK initialization may be slow. No output object/workers may be
+        # installed after an intervening revocation, reconnect or ID change.
+        if epoch != self.epoch:
+            return
+        if not self.valid():
+            self.revoke()
+            return
+        if self.inputs.feedback.sample() is None:
+            self.revoke()
+            return
+        feedback = self.inputs.feedback
         sink = sink_factory(*clients, phone_watchdog=True)
         self.active = ServerSink(sink, self.session)
         feedback.sink = sink
         sink.start_threads()
         if not self.valid():
             self.revoke()
+
+    def activate(self, subscriptions, *, connect=connect_approved, sink_factory=Go2Sink):
+        approval = self.prepare_activation()
+        if approval is not None:
+            epoch = self.epoch
+            clients = connect(approval, self.serial, subscriptions)
+            self.finish_activation(clients, epoch=epoch, sink_factory=sink_factory)
 
     def apply(self, command):
         if self.allowed():
@@ -247,6 +267,8 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
         depth_source.recording_allowed = lambda: gate.active is not None
     nic_task = None
     identity_task = None
+    activation_task = None
+    activation_epoch = None
     next_identity = 0.
     next_nic = 0.
     healthy = False
@@ -276,7 +298,24 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 elif stamp-next_nic > .20:
                     nic_valid = False  # hung kernel query cannot keep motion enabled
             gate.allowed()
-            gate.activate(subscriptions, connect=connect, sink_factory=sink_factory)
+            if identity is None:
+                gate.activate(subscriptions, connect=connect, sink_factory=sink_factory)
+            elif activation_task is not None:
+                if activation_epoch == gate.epoch and not gate.valid():
+                    gate.revoke()
+                if activation_task.done():
+                    clients = activation_task.result()
+                    activation_task = None
+                    gate.finish_activation(clients, epoch=activation_epoch, sink_factory=sink_factory)
+            if identity is not None and activation_task is None:
+                approval = gate.prepare_activation()
+                if approval is not None:
+                    activation_epoch = gate.epoch
+                    # Imports and SportClient.Init must not starve the MAC
+                    # refresh, transport watchdog or readonly DDS evidence.
+                    # Only construction runs here; Core/sink stay on this loop.
+                    activation_task = asyncio.create_task(asyncio.to_thread(
+                        connect, approval, credentials.robot_serial, subscriptions))
             if session.identity_gate is not None:
                 session.identity_gate.poll(client)
             # Observations follow an approval epoch but are never part of the
@@ -342,6 +381,9 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 nic_task.cancel()
             if identity_task is not None:
                 identity_task.cancel()
+            if activation_task is not None:
+                activation_task.cancel()
             await asyncio.gather(network, *([nic_task] if nic_task is not None else []),
                                  *([identity_task] if identity_task is not None else []),
+                                 *([activation_task] if activation_task is not None else []),
                                  *retired_media, return_exceptions=True)
