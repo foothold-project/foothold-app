@@ -142,7 +142,7 @@ class Feedback:
         return snapshot
 
     def error_allowed(self, error):
-        """Shared display/readiness policy; configuration already verified marker+env."""
+        """Shared display/readiness policy; only an explicit server list applies."""
         return error == 0 or (error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')
 
     def consume(self, hub):
@@ -167,7 +167,8 @@ class Feedback:
             generation=sport['generation'], sequence=sport['sequence'],
             received_at=sport['received'], stationary=True))
         self._last_ready = ready
-        checks = [(axis, value, .02, 'm/s') for axis, value in zip(('vx', 'vy', 'vz'), sport['velocity'])]
+        checks = [(axis, value, limit, 'm/s') for axis, value, limit in
+                  zip(('vx', 'vy', 'vz'), sport['velocity'], (.02, .02, STILL_VZ_MAX_M_S))]
         checks += [('wz', sport['yaw'], .03, 'rad/s')]
         checks += [(axis, value, .05, 'rad/s') for axis, value in
                    zip(('gyro_x', 'gyro_y', 'gyro_z'), low['gyro'] or ())]
