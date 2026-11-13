@@ -899,7 +899,7 @@ export interface MediaPointCloudHeader {
   source: "l1";
   seq: number;
   captured_at: string;
-  frame: "map" | "lidar_link";
+  frame: "map" | "lidar_link" | "odom";
   t: "media.points";
   map_version_id: string | null;
   pose: MediaPose | null;
