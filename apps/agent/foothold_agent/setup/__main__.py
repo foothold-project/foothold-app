@@ -10,6 +10,7 @@ from dataclasses import replace
 from urllib.error import HTTPError, URLError
 
 from .platform import inspect, install_stop_handlers
+from foothold_agent.go2_direct.loader import INHERITED_LOADER_OVERRIDE
 from foothold_agent.link.client import ReconnectForbidden
 from foothold_agent.go2_readonly.sdk import Subscriptions
 from .discovery import candidates, select
@@ -26,7 +27,7 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                   preflight=inspect, pairing_factory=Pairing, runtime=run, depth_factory=DepthSource):
     # No inherited motion setting, token, legacy config file or DDS loader can
     # silently select a different entrypoint/channel in this process.
-    if any(os.environ.get(k) for k in ('CYCLONEDDS_URI', 'CYCLONEDDS_HOME', 'LD_LIBRARY_PATH')):
+    if INHERITED_LOADER_OVERRIDE:
         raise PermissionError('DDS loader overrides require review')
     report = await asyncio.to_thread(preflight, args.wheel_dir)
     status.update(preflight={'installation_ready': report['installation_ready'], 'issues': report['issues']})
@@ -154,8 +155,6 @@ async def serve(args, status, *, stop=None):
             await stop.wait()
             return False
         except Exception as error:
-            status.update(mode='연결 거부 · 랜선·자동 점검·서버 연결을 확인한 뒤 프로그램을 다시 실행하세요',
-                          connected=False, code=None, qr=None, expires_at=None)
             # Exception messages/tracebacks can embed addresses and credentials.
             # Emit only a reviewed type label and a fixed reason on one line.
             names = {'PermissionError', 'ValueError', 'TypeError', 'AttributeError',
@@ -170,7 +169,23 @@ async def serve(args, status, *, stop=None):
                       'emergency SDK output failed': 'emergency_sdk_output_failed',
                       'normal SDK output failed': 'normal_sdk_output_failed',
                       'SDK worker did not stop': 'sdk_worker_shutdown_failed'}.get(message, 'connection_failed')
-            print(f'SETUP_FAILURE type={name} reason={reason}', file=sys.stderr)
+            # Follow explicit causes to the first fault; stop on malformed cycles.
+            cause, seen = error.__cause__, {id(error)}
+            root = None
+            output_failed = name == 'OutputError' or reason != 'connection_failed'
+            while cause is not None and id(cause) not in seen:
+                seen.add(id(cause))
+                root = cause
+                output_failed |= type(cause).__name__ == 'OutputError'
+                cause = cause.__cause__
+            cause_type = type(root).__name__ if root is not None else 'None'
+            if cause_type not in names and cause_type != 'None':
+                cause_type = 'Exception'
+            mode = ('연결 거부 · 로봇 정지 명령을 보내지 못했습니다. 로봇이 누워 있다면 현장 담당자가 먼저 세워 주세요. '
+                    '랜선과 로봇 제어 상태를 확인한 뒤 프로그램을 다시 실행하세요.' if output_failed else
+                    '연결 거부 · 랜선·자동 점검·서버 연결을 확인한 뒤 프로그램을 다시 실행하세요')
+            status.update(mode=mode, connected=False, code=None, qr=None, expires_at=None)
+            print(f'SETUP_FAILURE type={name} reason={reason} cause_type={cause_type}', file=sys.stderr)
             print('연결을 거부했습니다. 노트북 화면을 확인하고 종료하려면 Ctrl+C를 누르세요.', file=sys.stderr)
             await stop.wait()
             return False

@@ -5,6 +5,7 @@ never physical stopping. No fabricated Core feedback is emitted by this module.
 """
 
 import math
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -223,8 +224,20 @@ class Go2Sink:
             return True
 
     def _call(self, client, method, *args):
-        code = getattr(client, method)(*args)
+        try:
+            code = getattr(client, method)(*args)
+        except BaseException as error:
+            # SDK exception text (and arbitrary class names) can contain private
+            # values. Keep the diagnostic vocabulary fixed and never print args.
+            name = type(error).__name__
+            name = name if name in {'TimeoutError', 'OSError', 'ConnectionError',
+                'RuntimeError', 'ValueError', 'TypeError', 'AttributeError',
+                'PermissionError', 'DDSException', 'KeyboardInterrupt', 'SystemExit'} else 'Exception'
+            print(f'SDK_OUTPUT_FAILED method={method} code={name}', file=sys.stderr)
+            raise
         if type(code) is not int or code != 0:
+            value = str(code) if type(code) is int else 'InvalidReturnType'
+            print(f'SDK_OUTPUT_FAILED method={method} code={value}', file=sys.stderr)
             raise OutputError('SDK command submission failed')
 
     def _stop_output(self, client):

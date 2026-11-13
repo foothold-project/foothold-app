@@ -2,7 +2,7 @@
 import hashlib
 import importlib.metadata as metadata
 import json
-import os
+from foothold_agent.go2_direct.loader import INHERITED_LOADER_OVERRIDE
 from pathlib import Path
 import platform
 import struct
@@ -65,7 +65,7 @@ def inspect(wheel_dir):
         issues.append('sdk-source-commit-unverified')
     if not verified:
         issues.append('official-wheel-or-bundled-pe-unverified')
-    if any(os.environ.get(k) for k in ('CYCLONEDDS_URI','CYCLONEDDS_HOME','LD_LIBRARY_PATH')):
+    if INHERITED_LOADER_OVERRIDE:
         issues.append('inherited-dds-loader-override')
     return dict(installation_ready=not issues,issues=issues,packages=packages,
                 sdk_commit_verified=commit == SDK_COMMIT,dds_wheel_sha256=DDS_SHA256,
