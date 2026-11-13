@@ -111,7 +111,7 @@ def test_empty_list_retains_real_rejection(client, seeded):
     assert client.post(f'/api/v1/robots/{rid}/stop', headers=owner).json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
 
 
-@pytest.mark.parametrize('bad', [[1.5000000001,0,0],[-1.5,0,.5],[1.5,1.5,0],[1,0,0],[True,0,0]])
+@pytest.mark.parametrize('bad', [[0,1.5,0],[0,-1.5,0],[1.5000000001,0,0],[-1.5,0,.5],[1.5,1.5,0],[1,0,0],[True,0,0]])
 def test_outside_exact_table_is_stopped_and_rejected(trial,seeded,bad):
     rid=seeded['robots']['mine']
     with trial.websocket_connect('/api/v1/agent/ws',headers={
@@ -154,7 +154,7 @@ def test_org_fast_drive_restriction_only_narrows_existing_table(trial, seeded, n
             for seq, axes in enumerate(sorted(ALLOWED)):
                 trial.portal.call(asyncio.sleep, 0.05)  # Respect the existing intent rate limit.
                 result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=seq, axes=axes))
-                if (no_fast and any(axes[:2])) or axes[1]:
+                if no_fast and any(axes[:2]):
                     assert result['ok'] is False
                     assert result['error']['code'] == 'SERVER_DRIVE_COMMAND'
                     receive(ag, 'stop')
@@ -267,7 +267,7 @@ def test_enable_commit_failure_never_stops_or_saves(trial, seeded, monkeypatch):
     dict(sim_max_vx=.2, sim_min_vx=0, sim_key_vx=.1, sim_max_vy=0, sim_max_wz=0)])
 def test_browser_org_caps_do_not_change_physical_server_drive_alphabet(trial, seeded, caps):
     assert ALLOWED == frozenset(((0., 0., 0.), (1.5, 0., 0.), (-1.5, 0., 0.),
-        (0., 1.5, 0.), (0., -1.5, 0.), (0., 0., .5), (0., 0., -.5),
+        (0., 1., 0.), (0., -1., 0.), (0., 0., .5), (0., 0., -.5),
         (1.5, 0., .5), (1.5, 0., -.5)))
     admin = app_token(trial, 'admin')
     assert trial.patch('/api/v1/org/settings', headers=admin, json=caps).status_code == 200
@@ -285,19 +285,15 @@ def test_browser_org_caps_do_not_change_physical_server_drive_alphabet(trial, se
             for seq, axes in enumerate(sorted(ALLOWED), start=1):
                 time.sleep(.06)  # Keep the real 20 Hz command-rate guard enabled.
                 ack = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=seq, axes=list(axes)))
-                if axes[1]:  # Fixed 1.5 side commands exceed the SDK organization maximum 1.0.
-                    assert ack['error']['code'] == 'SERVER_DRIVE_COMMAND'
-                    receive(ag, 'stop')
-                else:
-                    assert ack['ok'], (axes, ack)
-                    assert receive(ag, 'cmd')['axes'] == list(axes)
+                assert ack['ok'], (axes, ack)
+                assert receive(ag, 'cmd')['axes'] == list(axes)
             result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=len(ALLOWED)+1, axes=[0, 0, 1.2]))
             assert result['error']['code'] == 'VALIDATION'  # Rejected at the unchanged wire schema.
             receive(ag, 'stop')
 
 
 @pytest.mark.parametrize('patch,axes', [({'real_max_vx': 1.49}, [1.5, 0, 0]),
-    ({'real_max_vx_back': 0}, [-1.5, 0, 0]), ({'real_max_vy': 1}, [0, 1.5, 0]),
+    ({'real_max_vx_back': 0}, [-1.5, 0, 0]), ({'real_max_vy': .99}, [0, 1, 0]),
     ({'real_max_wz': .49}, [0, 0, .5]), ({'real_max_wz': 0}, [1.5, 0, -.5])])
 def test_real_caps_reject_over_limit_table_commands_with_stop(trial, seeded, patch, axes):
     assert trial.patch('/api/v1/org/settings', headers=app_token(trial, 'admin'), json=patch).status_code == 200

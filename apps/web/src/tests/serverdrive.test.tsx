@@ -57,7 +57,7 @@ function serve(...ids: string[]) {
 const axes = () => w.of('cmd').map((m) => (m.axes as number[]).join());
 const lastAxes = () => axes()[axes().length - 1];
 /** 서버·에이전트 허용 표 — 이 9개 밖은 나가면 안 된다 */
-const ALLOWED = new Set(['0,0,0', '1.5,0,0', '-1.5,0,0', '0,1.5,0', '0,-1.5,0', '0,0,0.5', '0,0,-0.5', '1.5,0,0.5', '1.5,0,-0.5']);
+const ALLOWED = new Set(['0,0,0', '1.5,0,0', '-1.5,0,0', '0,1,0', '0,-1,0', '0,0,0.5', '0,0,-0.5', '1.5,0,0.5', '1.5,0,-0.5']);
 /** 박OO 가 Go2-7(서버 허용) 을 골라 조종 시작 → 잠금 해제 → 중립까지 */
 function ready() {
   mount('u-park'); serve('r7');
@@ -94,8 +94,8 @@ describe('서버 경유 시험 조종 패널', () => {
     ready();
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
     expect(hold(['ArrowDown'])).toBe('-1.5,0,0');
-    expect(hold(['ArrowLeft'])).toBe('0,0,0');
-    expect(hold(['ArrowRight'])).toBe('0,0,0');
+    expect(hold(['ArrowLeft'])).toBe('0,1,0');
+    expect(hold(['ArrowRight'])).toBe('0,-1,0');
     expect(hold(['KeyA'])).toBe('0,0,0.5');
     expect(hold(['KeyD'])).toBe('0,0,-0.5');
     expect(hold(['ArrowUp', 'KeyA'])).toBe('1.5,0,0.5');
@@ -107,11 +107,12 @@ describe('서버 경유 시험 조종 패널', () => {
 
   it('조직 상한을 넘는 단추·키는 0, 저장으로 낮추면 즉시 0이며 올려도 자동 재개 없음', () => {
     ready(); view();
-    expect(($('[data-sd-move="left"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(($('[data-sd-move="left"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(($('[data-sd-move="right"]') as HTMLButtonElement).disabled).toBe(false);
     key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
-    act(() => simTune({ real_max_vx: .5, real_max_vx_back: 0, real_max_wz: 0 }));
+    act(() => simTune({ real_max_vx: .5, real_max_vx_back: 0, real_max_wz: 0, real_max_vy: .99 }));
     expect(lastAxes()).toBe('0,0,0');
-    for (const k of ['up', 'down', 'rotl', 'rotr', 'rotl+up']) expect(($(`[data-sd-move="${k}"]`) as HTMLButtonElement).disabled).toBe(true);
+    for (const k of ['up', 'down', 'left', 'right', 'rotl', 'rotr', 'rotl+up']) expect(($(`[data-sd-move="${k}"]`) as HTMLButtonElement).disabled).toBe(true);
     key('keydown', 'KeyA'); tick(60); expect(lastAxes()).toBe('0,0,0');
     act(() => simTune(null)); tick(100); expect(lastAxes()).toBe('0,0,0');
     key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
@@ -125,7 +126,7 @@ describe('서버 경유 시험 조종 패널', () => {
     ready();
     expect(box.querySelectorAll('[data-sd-move]').length).toBe(0);   // 상세 서랍의 작은 패널에는 조작부를 펼치지 않는다
     view();
-    const want: Record<string, string> = { up: '1.5,0,0', down: '-1.5,0,0', left: '0,0,0', right: '0,0,0', rotl: '0,0,0.5', rotr: '0,0,-0.5', 'rotl+up': '1.5,0,0.5', 'rotr+up': '1.5,0,-0.5' };
+    const want: Record<string, string> = { up: '1.5,0,0', down: '-1.5,0,0', left: '0,1,0', right: '0,-1,0', rotl: '0,0,0.5', rotr: '0,0,-0.5', 'rotl+up': '1.5,0,0.5', 'rotr+up': '1.5,0,-0.5' };
     expect(box.querySelectorAll('[data-sd-move]').length).toBe(8);
     for (const [k, v] of Object.entries(want)) {
       const b = $(`[data-sd-move="${k}"]`)!;

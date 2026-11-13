@@ -43,14 +43,26 @@ def rig():
     return now, sink, normal, emergency, session, client, measured, frame
 
 
+def hold_for(now, sink, session, measured, frame, axes, seconds=1.):
+    """Fresh 20 Hz operator frames, feedback and output on a deterministic clock."""
+    for _ in range(round(seconds/.05)):
+        now.value += .05
+        measured()
+        frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=list(axes))
+        sink.drain()
+        assert not sink.check_watchdog()
+    return sink.client.calls[-1][1]
+
+
 @pytest.mark.parametrize('axes,expected', [(list(value), value) for value in (
-    (0.,0.,0.), (1.5,0.,0.), (-1.5,0.,0.), (0.,1.5,0.), (0.,-1.5,0.),
+    (0.,0.,0.), (1.5,0.,0.), (-1.5,0.,0.), (0.,1.,0.), (0.,-1.,0.),
     (0.,0.,.5), (0.,0.,-.5), (1.5,0.,.5), (1.5,0.,-.5))])
 def test_existing_server_command_to_sdk_alphabet(axes, expected):
     now, sink, normal, _, session, client, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=axes)
     sink.drain()
-    assert not sink.latched and normal.calls[-1] == ('Move', expected)
+    actual = hold_for(now, sink, session, measured, frame, axes)
+    assert not sink.latched and actual == pytest.approx(expected)
     state = session._state()
     assert state['battery']['soc'] == 75 and state['speed'] == 0
 
@@ -107,8 +119,10 @@ def test_stop_confirmation_requires_new_measurement_then_explicit_unlock_and_new
     now, sink, normal, emergency, session, client, measured, frame = rig()
     frame('stop', stop_ref=42)
     assert session._state()['stop_ref'] == 0
+    assert sink.check_watchdog()  # service the independent STOP lane before recovery
     frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
     assert sink.latched
+    assert sink.check_watchdog()  # rejected resume republishes STOP too
     measured()
     assert session._state()['stop_ref'] == 42
     frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
@@ -119,7 +133,7 @@ def test_stop_confirmation_requires_new_measurement_then_explicit_unlock_and_new
     frame('cmd', lease_id='fake-lease', seq=3, axes=[1.5,0,0])
     sink.drain()
     sink.drain()  # the first drain services the queued STOP before any motion
-    assert normal.calls[-1] == ('Move',(1.5,0,0))
+    assert hold_for(now, sink, session, measured, frame, [1.5,0,0]) == pytest.approx((1.5,0,0))
 
 
 def test_two_sources_and_run_cannot_drive_server_mode():
@@ -203,7 +217,7 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallb
             await ws.send(json.dumps(dict(t='unlock', lease_id='fake-lease', stop_gen=measured_state['stop_gen'])))
             await read(ws, lambda x:x['t']=='state' and x['latched'] is False)
             await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=0, axes=[0,0,0])))
-            for seq in range(1, 8):
+            for seq in range(1, 24):
                 await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=seq, axes=[1.5,0,.5])))
                 await asyncio.sleep(.06)
                 if ('Move',(1.5,0,.5)) in normal.calls:
@@ -246,6 +260,7 @@ def test_feedback_loss_reports_lock_and_requires_explicit_recovery():
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
     client._emit(session.feedback_lost())
     assert session.connected and sink.latched and session._state()['latched']
+    assert sink.check_watchdog()
     measured()
     frame('cmd', lease_id='fake-lease', seq=2, axes=[1.5,0,0])
     assert sink.latched and sink.pending == (0,0,0)
@@ -257,7 +272,7 @@ def test_feedback_loss_reports_lock_and_requires_explicit_recovery():
     frame('cmd', lease_id='fake-lease', seq=5, axes=[1.5,0,0])
     sink.drain()
     sink.drain()
-    assert normal.calls[-1] == ('Move',(1.5,0,0))
+    assert hold_for(now, sink, session, measured, frame, [1.5,0,0]) == pytest.approx((1.5,0,0))
 
 
 def test_server_si_table_is_exact_and_phone_forward_ceiling_matches():
@@ -269,7 +284,7 @@ def test_server_si_table_is_exact_and_phone_forward_ceiling_matches():
 
 
 @pytest.mark.parametrize('bad', [[.4,0,0],[1,0,0],[.6,0,0],[1.5000000001,0,0],[-1.5,0,.5],
-    [1.5,1.5,0],[0,0,1],[True,0,0],[float('nan'),0,0]])
+    [1.5,1.5,0],[0,1.5,0],[0,-1.5,0],[0,0,1],[True,0,0],[float('nan'),0,0]])
 def test_outside_exact_server_table_stops_without_quantization(bad):
     _, sink, normal, emergency, session, client, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
@@ -323,3 +338,71 @@ def test_readonly_server_mode_never_constructs_motion_adapter(monkeypatch):
         await read_run(config,stop=stop,subscriptions_factory=Subscribers,client_factory=ObserverClient)
         assert observed['closed']
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('target', [(1.5,0.,0.), (-1.5,0.,0.), (0.,1.,0.),
+    (0.,-1.,0.), (0.,0.,.5), (0.,0.,-.5), (1.5,0.,.5)])
+def test_server_ramps_one_second_each_axis_and_normal_key_release(target):
+    now, sink, normal, _, session, _, measured, frame = rig()
+    frame('cmd', lease_id='fake-lease', seq=1, axes=list(target))
+    sink.drain()
+    assert normal.calls[-1] == ('Move', (0.,0.,0.))
+    for part in range(1,21):
+        actual = hold_for(now, sink, session, measured, frame, target, .05)
+        assert actual == pytest.approx(tuple(x*part/20 for x in target))
+    assert now() == pytest.approx(1001.)
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[0,0,0])
+    for part in range(1,21):
+        actual = hold_for(now, sink, session, measured, frame, [0,0,0], .05)
+        assert actual == pytest.approx(tuple(x*(1-part/20) for x in target), abs=1e-10)
+        assert all(min(0,t)-1e-10 <= x <= max(0,t)+1e-10 for x,t in zip(actual,target))
+    assert now() == pytest.approx(1002.) and not sink.latched
+
+
+def test_server_direction_reversal_crosses_zero_at_same_rate():
+    now, sink, _, _, session, _, measured, frame = rig()
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
+    hold_for(now, sink, session, measured, frame, [1.5,0,0])
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[-1.5,0,0])
+    for part in range(1,41):
+        actual = hold_for(now, sink, session, measured, frame, [-1.5,0,0], .05)
+        assert actual == pytest.approx((1.5-part*.075,0,0), abs=1e-10)
+
+
+@pytest.mark.parametrize('reason', ['stop', 'disconnect', 'lease', 'feedback', 'deadline'])
+def test_safety_stop_bypasses_in_progress_ramp_without_elapsed_time(reason):
+    now, sink, normal, emergency, session, client, measured, frame = rig()
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,.5])
+    actual = hold_for(now, sink, session, measured, frame, [1.5,0,.5], .5)
+    assert actual == pytest.approx((.75,0,.25))
+    if reason == 'stop': frame('stop', stop_ref=42)
+    elif reason == 'disconnect': client._emit(session.disconnect())
+    elif reason == 'lease': frame('lease', lease_id=None, holder_type=None)
+    elif reason == 'feedback': client._emit(session.feedback_lost())
+    else: now.value += .301  # original operator input clock, no refresh
+    stamp = now()
+    assert sink.check_watchdog()
+    assert now() == stamp
+    assert emergency.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
+    sink.drain()
+    assert normal.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
+    assert sink._ramp_velocity == (0,0,0) and sink.latched
+
+
+
+def test_setup_approval_revocation_during_ramp_stops_on_close_lane():
+    from types import SimpleNamespace as NS
+    from foothold_agent.setup.runtime import Gate
+    now, sink, _, emergency, session, _, measured, frame = rig()
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
+    assert hold_for(now, sink, session, measured, frame, [1.5,0,0], .5) == pytest.approx((.75,0,0))
+    inputs = NS(feedback=session.feedback)
+    gate = Gate(NS(name='fake0'), '1234-5678', inputs, ready=True,
+                nic_matches=lambda: True, now=now)
+    gate.session, gate.active = session, ServerSink(sink, session)
+    stamp = now()
+    gate.revoke()
+    assert now() == stamp and sink.latched and sink._closed.is_set()
+    assert gate.active is None and session.core.latch and session.lease_id is None
+    assert emergency.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
+    assert sink._ramp_velocity == (0,0,0)

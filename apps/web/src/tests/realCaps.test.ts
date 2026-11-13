@@ -53,7 +53,9 @@ describe('실기 조직 상한: 로봇 상한과 min, 0은 축 끄기', () => {
 
 it('서버 단추: 고정표 경계·0·빠른 이동 금지는 더 엄격한 쪽 적용', () => {
   expect(permitted(TABLE.up, null)).toBe(true);
-  expect(permitted(TABLE.left, null)).toBe(false); // 1.5 > SDK 최대 1.0
+  expect(permitted(TABLE.left, null)).toBe(true); // SDK 최대 1.0
+  expect(permitted(TABLE.right, null)).toBe(true);
+  expect(permitted(TABLE.left, { real_max_vy: .99 })).toBe(false);
   expect(permitted(TABLE.up, { real_max_vx: 1.49 })).toBe(false);
   expect(permitted(TABLE.down, { real_max_vx_back: 0 })).toBe(false);
   expect(permitted(TABLE.rotl, { real_max_wz: .5 })).toBe(true);
