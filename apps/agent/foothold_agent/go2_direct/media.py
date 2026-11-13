@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import sdk
 from .identity import expected_serial
+from .record import Recorder
 
 MAX_INPUT_BYTES = 2_000_000
 MAX_INPUT_POINTS = 100_000
@@ -113,9 +114,13 @@ def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')
 
 
 class Source:
-    def __init__(self, config, env, channel, *, factory=sdk.observation, now=time.monotonic):
+    def __init__(self, config, env, channel, *, factory=sdk.observation, now=time.monotonic,
+                 recorder=None, enabled=lambda: True, include_depth=True):
         self.config, self.env, self.channel = config, env, channel
         self.factory, self.now = factory, now
+        self.enabled = enabled
+        self.recorder = recorder if recorder is not None else Recorder(env)
+        self.owns_recorder = recorder is None
         self.closing = threading.Event()
         self.lock = threading.Lock()
         self.latest = {}
@@ -126,18 +131,22 @@ class Source:
         self.epoch = secrets.randbits(52)
         self.threads = []
         from foothold_agent.depth.source import Source as DepthSource
-        self.depth_source = DepthSource(config, env)
-        self.depth_source.epoch = self.epoch
+        self.depth_source = DepthSource(config, env, recorder=self.recorder,
+                                        recording_allowed=enabled) if include_depth else None
+        if self.depth_source is not None:
+            self.depth_source.epoch = self.epoch
 
     def start(self):
-        self.depth_source.start()
+        self.recorder.start()
+        if self.depth_source is not None:
+            self.depth_source.start()
         self.threads = [threading.Thread(target=fn, daemon=True, name='go2-observe-'+name)
             for name, fn in (('rgb', self.camera), ('lidar', self.lidar))]
         for thread in self.threads:
             thread.start()
 
     def publish(self, channel, received, frame):
-        if not 0 <= self.now()-received <= 1 or self.closing.is_set():
+        if not 0 <= self.now()-received <= 1 or self.closing.is_set() or not self.enabled():
             return
         header, payload = frame
         with self.lock:
@@ -150,10 +159,16 @@ class Source:
     def camera(self):
         try:
             client = self.factory(self.env, self.channel, expected_serial(self.config.approval))
-            while not self.closing.is_set():
+            while not self.closing.is_set() and self.enabled():
                 code, data = client.GetImageSample()
                 received = self.now()
                 if type(code) is int and code == 0:
+                    if self.closing.is_set() or not self.enabled():
+                        break
+                    try:
+                        self.recorder.rgb(data)
+                    except Exception:
+                        pass  # recording failure must never suppress publication
                     try:
                         self.publish('rgb', received, video(data))
                     except (ValueError, TypeError, OSError, ImportError):
@@ -164,7 +179,7 @@ class Source:
 
     def cloud(self, message):
         received = self.now()
-        if received < self.next_cloud or self.closing.is_set():
+        if received < self.next_cloud or self.closing.is_set() or not self.enabled():
             return
         try:
             fields = message.fields
@@ -189,12 +204,16 @@ class Source:
         subscriber = None
         try:
             subscriber = self.factory(self.env, self.channel, expected_serial(self.config.approval), callback=self.cloud)
-            while not self.closing.wait(.02):
+            while not self.closing.wait(.02) and self.enabled():
                 with self.lock:
                     item, self.raw_cloud = self.raw_cloud, None
                 if item is not None:
                     try:
                         self.publish('lidar', item[0], points(item[1]))
+                        try:
+                            self.recorder.lidar(item[1])
+                        except Exception:
+                            pass
                     except (ValueError, TypeError, OverflowError):
                         pass
         except Exception:
@@ -207,21 +226,28 @@ class Source:
                     pass
 
     def sample(self, channel):
+        if self.closing.is_set() or not self.enabled():
+            return None
         if channel == 'depth':
-            return self.depth_source.sample(channel)
+            return self.depth_source.sample(channel) if self.depth_source is not None else None
         with self.lock:
             item = self.latest.get(channel)
         return item if item and 0 <= self.now()-item[0] <= 1 else None
 
     def close(self):
         self.closing.set()  # never await a stalled SDK/video worker on safety's loop
-        self.depth_source.close()
+        if self.depth_source is not None:
+            self.depth_source.close()
+        if self.owns_recorder:
+            self.recorder.close()
 
 
 class Publisher:
     channels = ('rgb', 'lidar', 'depth')
-    def __init__(self, config, env, channel, *, source_factory=Source):
+    def __init__(self, config, env, channel, *, source_factory=Source, channels=None):
         self.config = config
+        if channels is not None:
+            self.channels = channels
         self.source = source_factory(config, env, channel)
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='go2-media-upload')
         self.opener = build_opener(ProxyHandler({}))
@@ -279,3 +305,38 @@ class Publisher:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
+    """Desktop observations reuse the existing approved DDS participant/NIC.
+
+    No file-based manual approval, new participant or motion client is opened.
+    SDK imports and camera construction stay on observation daemon workers.
+    """
+    from types import SimpleNamespace
+
+    def observation(env, channel, observed_serial, *, callback=None):
+        import socket
+        from .approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
+        from .identity import verify
+        from foothold_agent.go2_readonly.sdk import Subscriptions
+        if (not enabled() or type(approval) is not Approval or type(channel) is not Subscriptions
+                or not channel._started or channel.nic != approval.nic
+                or approval.nic not in {name for _, name in socket.if_nameindex()}):
+            raise PermissionError('approved observation channel required')
+        validate_value(dict(v=1, purpose='go2-field-motion', nic=approval.nic,
+                            robot_serial=approval.robot_serial, expires_at=approval.expires_at),
+                       approval.nic, clock_skew_s=SERVER_CLOCK_SKEW_S)
+        verify(approval, observed_serial)
+        if callback is not None:
+            return channel.cloud('rt/utlidar/cloud', callback)
+        from unitree_sdk2py.go2.video.video_client import VideoClient
+        client = VideoClient()
+        client.SetTimeout(sdk.SDK_TIMEOUT_S)
+        client.Init()
+        return client
+
+    config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link, approval=approval)
+    return Publisher(config, {}, subscriptions, channels=('rgb', 'lidar'),
+        source_factory=lambda config, env, channel: Source(config, env, channel,
+            factory=observation, recorder=recorder, enabled=enabled, include_depth=False))

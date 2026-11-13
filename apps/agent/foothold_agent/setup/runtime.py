@@ -1,9 +1,12 @@
 """One readonly DDS subscription pair and WS; motion objects exist only in approval epochs."""
 import asyncio
+import os
 import threading
 import time
 
-from foothold_agent.go2_direct.approval import SERVER_CLOCK_SKEW_S, validate_value
+from foothold_agent.go2_direct.approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
+from foothold_agent.go2_direct.media import approved_publisher
+from foothold_agent.go2_direct.record import Recorder
 from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.readonly import Measurements
 from foothold_agent.go2_direct.reporting import devices
@@ -204,7 +207,8 @@ class Gate:
 
 
 async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, status, stop,
-              client_factory=Client, connect=connect_approved, sink_factory=Go2Sink, remember=None):
+              client_factory=Client, connect=connect_approved, sink_factory=Go2Sink, remember=None,
+              depth_source=None, media_factory=approved_publisher, recorder_factory=Recorder):
     inputs.feedback = Feedback(credentials.robot_serial)
     nic_valid = True
     gate = Gate(nic, credentials.robot_serial, inputs, ready=ready, nic_matches=lambda: nic_valid,
@@ -212,6 +216,12 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
     session = GatedSession(inputs.feedback, gate)
     client = client_factory(session, gate, credentials.link)
     network = asyncio.create_task(client.run())
+    recorder = recorder_factory(os.environ, status=status)
+    media = media_task = media_epoch = None
+    retired_media = []
+    if depth_source is not None:
+        depth_source.recorder = recorder
+        depth_source.recording_allowed = lambda: gate.active is not None
     nic_task = None
     next_nic = 0.
     healthy = False
@@ -232,6 +242,27 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                     nic_valid = False  # hung kernel query cannot keep motion enabled
             gate.allowed()
             gate.activate(subscriptions, connect=connect, sink_factory=sink_factory)
+            # Observations follow an approval epoch but are never part of the
+            # control health/lifetime task set. Close signals only; no SDK join.
+            if gate.active is not media_epoch:
+                if media is not None:
+                    media.source.close()
+                    media = None
+                if media_task is not None:
+                    media_task.cancel()
+                    retired_media.append(media_task)
+                    media_task = None
+                media_epoch = gate.active
+                if media_epoch is not None:
+                    try:
+                        recorder.start()
+                        approval = Approval(nic.name, credentials.robot_serial, gate.last_expiry)
+                        active = media_epoch
+                        media = media_factory(credentials, approval, subscriptions, recorder,
+                                              lambda active=active: gate.active is active)
+                        media_task = asyncio.create_task(media.run())
+                    except Exception:
+                        pass  # missing camera/SDK/storage cannot affect motion
             if gate.active is not None:
                 if gate.active.sink.error is not None:
                     raise RuntimeError('motion output failed')
@@ -247,7 +278,9 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             session.update_devices(readings)
             status.update(mode='승인됨 · 조종권과 잠금 해제 필요' if gate.active else '읽기 전용 · 현장 안전 확인 필요',
                           connected=session.connected, field_approval_expires_at=gate.last_expiry
-                          if gate.active else None)
+                          if gate.active else None,
+                          record_notice=recorder.notice if gate.active or recorder.stopped.is_set()
+                          or not recorder.notice else '기록 대기: 연결 승인 필요')
             await asyncio.sleep(.02)
         if network.done():
             network.result()
@@ -256,7 +289,16 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
         try:
             gate.revoke()
         finally:
+            recorder.close()
+            if recorder.notice.startswith('기록 저장 중:'):
+                status.update(record_notice='기록 멈춤: 연결 종료')
+            if media is not None:
+                media.source.close()
+            if media_task is not None:
+                media_task.cancel()
+                retired_media.append(media_task)
             network.cancel()
             if nic_task is not None:
                 nic_task.cancel()
-            await asyncio.gather(network, *([nic_task] if nic_task is not None else []), return_exceptions=True)
+            await asyncio.gather(network, *([nic_task] if nic_task is not None else []),
+                                 *retired_media, return_exceptions=True)

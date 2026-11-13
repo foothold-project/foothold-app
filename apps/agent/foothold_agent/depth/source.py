@@ -15,7 +15,8 @@ from .discovery import Discovery, Images, choose, notice, shared_participant, UN
 
 class Source:
     def __init__(self, config=None, env=None, *, status=None, now=time.monotonic,
-                 participant=shared_participant, discovery=Discovery, images=Images):
+                 participant=shared_participant, discovery=Discovery, images=Images,
+                 recorder=None, recording_allowed=lambda: False):
         self.config, self.env, self.status, self.now = config, env or {}, status, now
         self.participant, self.discovery_factory, self.images_factory = participant, discovery, images
         self.epoch, self.seq = secrets.randbits(52), 0
@@ -24,6 +25,7 @@ class Source:
         self.latest = None
         self.thread = None
         self.invalid = False
+        self.recorder, self.recording_allowed = recorder, recording_allowed
 
     def bind(self, config):
         with self.lock:
@@ -99,6 +101,11 @@ class Source:
                                             epoch=self.epoch, episode_id=None, channel='depth', seq=self.seq,
                                             captured_at=captured_at)
                                         self.latest = received, frame, payload
+                                try:
+                                    if self.recorder is not None and self.recording_allowed():
+                                        self.recorder.depth(message, frame, selected['name'])
+                                except Exception:
+                                    pass  # disk failure never invalidates the depth observation
                         except Exception:
                             # Bad colour/JPEG/RVL/RGB cannot become depth. Keep
                             # metadata discovery running when an image is invalid.

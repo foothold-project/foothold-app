@@ -106,7 +106,7 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
         depth.bind(media_config)
         media_task = asyncio.create_task(DepthPublisher(media_config, source=depth).run())
         await runtime(credentials, nic, inputs, subscriptions, remember=remember, ready=report['installation_ready'],
-                      check_nic=check_nic, status=status, stop=stop)
+                      check_nic=check_nic, status=status, stop=stop, depth_source=depth)
     finally:
         if depth is not None:
             depth.close()

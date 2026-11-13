@@ -64,7 +64,7 @@ def test_sdk_camera_and_cloud_workers_are_independent_latest_only(monkeypatch):
             callback(cloud(10000)); return Subscription()
         return Video()
     config=NS(robot=str(uuid4()),approval=NS(robot_serial='fake-serial'))
-    source=Source(config,{},object(),factory=sdk_factory)
+    source=Source(config,{'FH_RECORD':'0'},object(),factory=sdk_factory)
     source.start()
     try:
         assert camera_entered.wait(.3)
