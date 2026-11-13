@@ -255,7 +255,10 @@ class Gate:
 
 async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, status, stop,
               client_factory=Client, connect=connect_approved, sink_factory=Go2Sink, remember=None,
-              depth_source=None, media_factory=approved_publisher, recorder_factory=Recorder):
+              depth_source=None, media_factory=approved_publisher, recorder_factory=Recorder,
+              mapping_factory=None):
+    if mapping_factory is None:
+        from foothold_agent.mapping.runtime import attach as mapping_factory
     identity = inputs.mac_identity
     if identity is not None:
         await identity.refresh()
@@ -274,6 +277,7 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
     network = asyncio.create_task(client.run())
     recorder = recorder_factory(os.environ, status=status)
     media = media_task = media_epoch = None
+    mapping_task = None
     retired_media = []
     if depth_source is not None:
         depth_source.recorder = recorder
@@ -334,6 +338,13 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             # Observations follow an approval epoch but are never part of the
             # control health/lifetime task set. Close signals only; no SDK join.
             if gate.active is not media_epoch:
+                mapper = getattr(session, 'mapping', None)
+                if mapper is not None:
+                    mapper.close()
+                if mapping_task is not None:
+                    mapping_task.cancel()
+                    retired_media.append(mapping_task)
+                    mapping_task = None
                 if media is not None:
                     media.source.close()
                     media = None
@@ -343,6 +354,13 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                     media_task = None
                 media_epoch = gate.active
                 if media_epoch is not None:
+                    active = media_epoch
+                    try:
+                        mapping_task = mapping_factory(session, subscriptions, credentials.link,
+                            credentials.robot_id, os.environ,
+                            enabled=lambda active=active: gate.active is active)
+                    except Exception:
+                        pass  # mapping startup never changes motion lifetime
                     try:
                         recorder.start()
                         approval = Approval(nic.name, credentials.robot_serial, gate.last_expiry)
@@ -386,6 +404,12 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 status.update(record_notice='기록 멈춤: 연결 종료')
             if media is not None:
                 media.source.close()
+            mapper = getattr(session, 'mapping', None)
+            if mapper is not None:
+                mapper.close()
+            if mapping_task is not None:
+                mapping_task.cancel()
+                retired_media.append(mapping_task)
             if media_task is not None:
                 media_task.cancel()
                 retired_media.append(media_task)

@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor
 from . import sdk
 from .identity import expected_serial
 from .record import Recorder
+from foothold_agent.mapping.inputs import DEFAULT_TOPIC
+from foothold_agent.mapping.poses import Poses, media_pose
 
 MAX_INPUT_BYTES = 2_000_000
 MAX_INPUT_POINTS = 100_000
@@ -125,6 +127,12 @@ class Source:
         self.lock = threading.Lock()
         self.latest = {}
         self.raw_cloud = None
+        self.deskew_cloud = None
+        self.poses = Poses(now)
+        self.last_deskew = self.now()
+        self.next_deskew = float('-inf')
+        self.last_deskew_stamp = -1
+        self.next_lidar_publish = float('-inf')
         self.next_cloud = float('-inf')
         self.last_cloud_stamp = -1
         self.seq = dict(rgb=0, lidar=0)
@@ -177,9 +185,10 @@ class Source:
         except Exception:
             pass  # observation loss is reported as NO_VIDEO, never a control fault
 
-    def cloud(self, message):
+    def cloud(self, message, *, deskewed=False):
         received = self.now()
-        if received < self.next_cloud or self.closing.is_set() or not self.enabled():
+        next_cloud = self.next_deskew if deskewed else self.next_cloud
+        if received < next_cloud or self.closing.is_set() or not self.enabled():
             return
         try:
             fields = message.fields
@@ -188,38 +197,84 @@ class Source:
                     not 0 <= stamp.sec <= 0x7FFFFFFF or not 0 <= stamp.nanosec < 1_000_000_000):
                 return
             marker = stamp.sec*1_000_000_000+stamp.nanosec
-            if (not 0 < marker or marker <= self.last_cloud_stamp or len(message.data)>MAX_INPUT_BYTES
+            previous = self.last_deskew_stamp if deskewed else self.last_cloud_stamp
+            if (not 0 < marker or marker <= previous or len(message.data)>MAX_INPUT_BYTES
                     or len(fields)>32 or message.width*message.height>MAX_INPUT_POINTS):
                 return
             raw = (bytes(message.data), message.width, message.height, message.point_step,
                 message.row_step, message.is_bigendian,
                 tuple((f.name, f.offset, f.datatype, f.count) for f in fields), message.header.frame_id)
             with self.lock:
-                self.raw_cloud = received, raw
-            self.next_cloud, self.last_cloud_stamp = received+.5, marker
+                if deskewed:
+                    if raw[-1] != 'odom':
+                        return
+                    self.deskew_cloud = received, raw, marker
+                    self.last_deskew = received
+                    self.next_deskew, self.last_deskew_stamp = received+.5, marker
+                else:
+                    self.raw_cloud = received, raw
+                    self.next_cloud, self.last_cloud_stamp = received+.5, marker
         except (AttributeError, TypeError, ValueError, OverflowError):
             return
 
-    def lidar(self):
-        subscriber = None
+    def deskewed(self, message):
+        self.cloud(message, deskewed=True)
+
+    def publish_clouds(self):
+        if self.now() < self.next_lidar_publish or self.closing.is_set() or not self.enabled():
+            return
+        with self.lock:
+            raw, self.raw_cloud = self.raw_cloud, None
+            deskew, self.deskew_cloud = self.deskew_cloud, None
+            last_deskew = self.last_deskew
+        if raw is not None:
+            try:
+                self.recorder.lidar(raw[1])  # recorder retains original sensor coordinates
+            except Exception:
+                pass
         try:
-            subscriber = self.factory(self.env, self.channel, expected_serial(self.config.approval), callback=self.cloud)
+            if deskew is not None:
+                received, data, stamp = deskew
+                pose = self.poses.nearest(received, stamp)
+                if pose is not None:
+                    header, payload = points(data, frames=('odom',))
+                    header.update(frame='odom', pose=media_pose(pose))
+                    self.publish('lidar', received, (header, payload))
+                    self.next_lidar_publish = self.now()+.5
+            elif raw is not None and self.now()-last_deskew >= 3:
+                self.publish('lidar', raw[0], points(raw[1]))
+                self.next_lidar_publish = self.now()+.5
+        except (ValueError, TypeError, OverflowError):
+            pass
+
+    def lidar(self):
+        subscribers = []
+        try:
+            subscribers.append(self.factory(self.env, self.channel, expected_serial(self.config.approval), callback=self.cloud))
+            if hasattr(self.channel, 'add_sport_listener'):
+                self.channel.add_sport_listener(self.poses.sport)
+            # Factory above validates approval/identity before any additional
+            # read-only subscription on the very same participant.
+            if hasattr(self.channel, 'cloud'):
+                try:
+                    subscribers.append(self.channel.cloud(DEFAULT_TOPIC, self.deskewed))
+                except Exception:
+                    pass  # raw fallback remains available without deskewed DDS
+            else:
+                self.last_deskew = float('-inf')  # raw-only observation adapters
+            if hasattr(self.channel, 'odometry'):
+                try:
+                    subscribers.append(self.channel.odometry(self.poses.odom))
+                except Exception:
+                    pass  # sport state is the pose fallback
             while not self.closing.wait(.02) and self.enabled():
-                with self.lock:
-                    item, self.raw_cloud = self.raw_cloud, None
-                if item is not None:
-                    try:
-                        self.publish('lidar', item[0], points(item[1]))
-                        try:
-                            self.recorder.lidar(item[1])
-                        except Exception:
-                            pass
-                    except (ValueError, TypeError, OverflowError):
-                        pass
+                self.publish_clouds()
         except Exception:
             pass
         finally:
-            if subscriber is not None:
+            if hasattr(self.channel, 'remove_sport_listener'):
+                self.channel.remove_sport_listener(self.poses.sport)
+            for subscriber in subscribers:
                 try:
                     subscriber.Close()
                 except Exception:

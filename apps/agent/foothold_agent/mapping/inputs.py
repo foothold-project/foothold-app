@@ -1,7 +1,9 @@
 """Shared read-only DDS subscribers on an already initialized NIC/participant."""
 import threading
 
-DEFAULT_TOPIC = 'rt/utlidar/cloud'
+RAW_TOPIC = 'rt/utlidar/cloud'
+DEFAULT_TOPIC = 'rt/utlidar/cloud_deskewed'
+ODOM_TOPIC = 'rt/utlidar/robot_odom'
 
 
 class Handle:
@@ -17,12 +19,15 @@ class CloudBus:
         self.lock = threading.RLock()
         self.topics = {}
 
-    def subscribe(self, topic, callback):
+    def subscribe(self, topic, callback, *, odometry=False):
         from unitree_sdk2py.core.channel import ChannelSubscriber
-        from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_
+        if odometry:
+            from unitree_sdk2py.idl.nav_msgs.msg.dds_ import Odometry_ as Message
+        else:
+            from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_ as Message
         with self.lock:
             if topic not in self.topics:
-                sub = ChannelSubscriber(topic, PointCloud2_)
+                sub = ChannelSubscriber(topic, Message)
                 callbacks = set()
                 self.topics[topic] = sub, callbacks
                 def dispatch(message):
@@ -72,8 +77,14 @@ class ObservationInputs:
     def cloud(self, topic, callback):
         return self.cloud_bus.subscribe(topic, callback)
 
+    def odometry(self, callback):
+        return self.cloud_bus.subscribe(ODOM_TOPIC, callback, odometry=True)
+
     def add_sport_listener(self, callback):
         self.sport_listeners = (*self.sport_listeners, callback)
+
+    def remove_sport_listener(self, callback):
+        self.sport_listeners = tuple(c for c in self.sport_listeners if c != callback)
 
     def sport(self, primary, message):
         primary(message)  # preserve original safety feedback first

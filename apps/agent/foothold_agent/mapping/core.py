@@ -74,7 +74,7 @@ class Accumulator:
         if self.status not in ('SAVED', 'CANCELLED'):
             self.status, self.error_code, self.reason = 'FAILED', code, reason
 
-    def add(self, xyz, position, quaternion, *, stamp):
+    def add(self, xyz, position, quaternion, *, stamp, frame='lidar_link'):
         import numpy as np
         if self.status != 'RUNNING' or stamp <= self.last_cloud_stamp:
             return
@@ -88,6 +88,8 @@ class Accumulator:
             self.fail('ODOMETRY_JUMP', '로봇 위치가 크게 바뀌었습니다. 만든 지도를 확인한 뒤 저장하거나 취소해 주세요.')
             return
         r = rotation(quaternion)
+        if frame not in ('lidar_link', 'odom'):
+            raise ValueError('invalid accumulation frame')
         x, y, z, roll, pitch, yaw = self.extrinsic
         # Euler XYZ mount calibration, explicit meters/radians.
         cr, sr, cp, sp, cy, sy = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch), math.cos(yaw), math.sin(yaw)
@@ -95,9 +97,9 @@ class Accumulator:
                           [sy*cp, sy*sp*sr+cy*cr, sy*sp*cr-cy*sr], [-sp, cp*sr, cp*cr]])
         cloud = cloud[np.isfinite(cloud).all(axis=1)]
         # Preserve floor points, but omit returns inside the robot's envelope.
-        ranges = np.linalg.norm(cloud, axis=1)
+        ranges = np.linalg.norm(cloud-position if frame == 'odom' else cloud, axis=1)
         cloud = cloud[(ranges >= .3) & (ranges <= 40)]
-        world = (cloud @ mount.T + np.array([x, y, z])) @ r.T + position
+        world = cloud if frame == 'odom' else (cloud @ mount.T + np.array([x, y, z])) @ r.T + position
         if not np.isfinite(world).all() or (world.size and np.max(np.abs(world)) > 10000):
             raise ValueError('point range exceeded')
         keys = np.floor(world / .05).astype('int64')

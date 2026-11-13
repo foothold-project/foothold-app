@@ -3,7 +3,7 @@
 import socket
 import time
 import os
-from foothold_agent.mapping.inputs import ObservationInputs, DEFAULT_TOPIC
+from foothold_agent.mapping.inputs import ObservationInputs, RAW_TOPIC
 from .approval import validate
 from .identity import verify
 
@@ -101,7 +101,7 @@ def observation(env, channel, observed_serial, *, callback=None):
             or channel.approval != approval):
         raise PermissionError('observation channel identity mismatch')
     if callback is not None:
-        return channel.cloud(DEFAULT_TOPIC, callback)
+        return channel.cloud(RAW_TOPIC, callback)
     from unitree_sdk2py.go2.video.video_client import VideoClient
     client = VideoClient()
     client.SetTimeout(SDK_TIMEOUT_S)
