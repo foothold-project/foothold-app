@@ -1,11 +1,11 @@
 // 조종 화면 «쌓이는 라이다» 지도(11-13 RB-MAP-VIEW-WEB): drivemedia.ts 가 쌓아 둔 점을 위에서 본 그림으로(x 오른쪽·y 위 — 지도 만들기 창 그림과 같은 방향).
-// 색 = 로봇 기준 높이, 로봇 화살표 + 지나온 길. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
+// 색 = 로봇 기준 높이(같은 자리에 겹치면 높은 점이 위 — 벽이 바닥에 묻히지 않게), 로봇 화살표 + 지나온 길. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
 import { useEffect, useRef, useState } from 'react';
 import { CELL_M, type DriveFeed } from './drivemedia';
 import { QEmpty, hue } from './quad';
 
 /** 처음 보이는 범위(로봇 둘레 ±m) · 확대 한계(화면 px / m) */
-const SPAN_M = 10, K_MIN = 4, K_MAX = 400;
+const SPAN_M = 6, K_MIN = 4, K_MAX = 400;
 const ZL = -1, ZH = 1, N = 64;
 /** 높이 색표(hsl(hue 80% 60%) → 화소 ABGR) — 점마다 글자 색을 만들지 않게 */
 const LUT = Uint32Array.from({ length: N }, (_, i) => {
@@ -19,23 +19,23 @@ export function LidarMap({ feed, empty }: { feed: DriveFeed; empty: string }) {
   cur.current = feed;
   useEffect(() => {
     const el = cv.current!, v = view.current;
-    let img: ImageData | null = null;
+    let img: ImageData | null = null, top = new Uint8Array(0);   // top = 그 화소에 이미 그린 높이 단계 + 1
     const draw = redraw.current = () => {
       const dpr = window.devicePixelRatio || 1, W = Math.round(el.clientWidth * dpr), H = Math.round(el.clientHeight * dpr), c = cur.current;
       v.ver = c.ver; v.w = el.clientWidth; v.h = el.clientHeight;
       const g = W && H ? el.getContext('2d') : null;
       if (!g) return;
       if (el.width !== W || el.height !== H) { el.width = W; el.height = H; }
-      if (!img || img.width !== W || img.height !== H) img = g.createImageData(W, H);
+      if (!img || img.width !== W || img.height !== H) { img = g.createImageData(W, H); top = new Uint8Array(W * H); }
       if (v.follow && c.pose) { v.x = c.pose.x; v.y = c.pose.y; }
       const k = (v.k ||= Math.min(el.clientWidth, el.clientHeight) / (SPAN_M * 2)) * dpr, px = new Uint32Array(img.data.buffer), z0 = c.pose?.z ?? 0;
       const r = Math.max(1, Math.min(8, Math.ceil(CELL_M * k))), X = (x: number) => W / 2 + (x - v.x) * k, Y = (y: number) => H / 2 - (y - v.y) * k;
-      px.fill(0);
+      px.fill(0); top.fill(0);
       for (let i = 0; i < c.n; i++) {
         const u = Math.floor(X(c.xyz[i * 3])), w = Math.floor(Y(c.xyz[i * 3 + 1]));
         if (u < 0 || w < 0 || u + r > W || w + r > H) continue;
-        const col = LUT[Math.max(0, Math.min(N - 1, Math.round(((c.xyz[i * 3 + 2] - z0 - ZL) / (ZH - ZL)) * (N - 1))))];
-        for (let b = 0; b < r; b++) for (let a = 0; a < r; a++) px[(w + b) * W + u + a] = col;
+        const zi = Math.max(0, Math.min(N - 1, Math.round(((c.xyz[i * 3 + 2] - z0 - ZL) / (ZH - ZL)) * (N - 1)))), col = LUT[zi];
+        for (let b = 0; b < r; b++) for (let a = 0; a < r; a++) { const q = (w + b) * W + u + a; if (zi >= top[q]) { top[q] = zi + 1; px[q] = col; } }
       }
       g.setTransform(1, 0, 0, 1, 0, 0); g.putImageData(img, 0, 0);
       g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 2 * dpr; g.beginPath();

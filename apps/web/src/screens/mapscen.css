@@ -78,7 +78,7 @@
 
 /* 작은 창(모달 아님) — 단추 줄 아래 오른쪽. 틀은 로봇 탭 창(.fl-sheet)과 같게: 머리줄(제목 16px + 닫기) · 본문 · 아래 고정 칸(입력·확인·안내) */
 dialog.mx-dlg{position:absolute;inset:64px 16px auto auto;margin:0;z-index:40;box-sizing:border-box;width:min(440px,calc(100% - 32px));max-height:calc(100% - 80px);overflow:auto;padding:0;border-color:var(--line2);border-radius:12px;color:var(--text);box-shadow:var(--shadow)}
-dialog.mx-dlg:has([data-make-drive]){width:min(760px,calc(100% - 32px))}   /* 지도 만들기 — 조종하며 그리는 동안은 실시간 지도를 크게(11-13) */
+dialog.mx-dlg:has([data-make-drive]){width:min(1040px,calc(100% - 32px))}   /* 지도 만들기 — 조종하며 그리는 동안은 실시간 지도를 크게(11-13) */
 .mx-dlg[open]{display:flex;flex-direction:column;animation:mx-dlg-in .18s cubic-bezier(.16,1,.3,1)}
 @keyframes mx-dlg-in{from{opacity:0;transform:translateY(-6px)}}
 @media (prefers-reduced-motion:reduce){.mx-dlg[open]{animation:none}}

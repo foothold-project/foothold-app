@@ -132,11 +132,16 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
       <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !robot?.online} onClick={() => act('start')}>시작</button></div>
     </>}
     {p && <>
-      <Preview p={p.preview} />
-      <div className="mx-sum" aria-label="진행" data-progress={p.status}>
-        <span><b>{(p.distance_m ?? 0).toFixed(1)} m</b>걸은 거리</span><span><b>{(p.point_count ?? 0).toLocaleString('ko-KR')}</b>점 수</span><span><b>{time(p.elapsed_s ?? 0)}</b>걸린 시간</span></div>
+      {/* 왼쪽 실시간 지도·진행, 오른쪽 조종(좁으면 아래로) — 지도를 보면서 스크롤 없이 STOP·조종 */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: '1.4 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Preview p={p.preview} />
+          <div className="mx-sum" aria-label="진행" data-progress={p.status}>
+            <span><b>{(p.distance_m ?? 0).toFixed(1)} m</b>걸은 거리</span><span><b>{(p.point_count ?? 0).toLocaleString('ko-KR')}</b>점 수</span><span><b>{time(p.elapsed_s ?? 0)}</b>걸린 시간</span></div>
+        </div>
+        {p.status === 'RUNNING' && drive && <div data-make-drive style={{ flex: '1 1 300px', minWidth: 0 }}><ServerDrive c={{ user }} r={robot!} inline /></div>}
+      </div>
       {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">그리는 중 — {how} 로봇을 천천히 움직이세요.</p>}
-      {p.status === 'RUNNING' && drive && <div data-make-drive><ServerDrive c={{ user }} r={robot!} inline /></div>}
       {p.status === 'SAVING' && <p className="lv-note" role="status" data-saving>지도를 저장하는 중… 시뮬 지형까지 만들어 시간이 걸릴 수 있습니다.</p>}
       {p.status === 'FAILED' && <p className="fh-msg" role="alert" data-failed>{failText(p)}</p>}
       {ask ? <div className="fh-row" role="group" aria-label="확인"><span>지금까지 그린 것을 버리고 지도 만들기를 취소할까요?</span>
