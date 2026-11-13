@@ -10,6 +10,7 @@ import threading
 import webbrowser
 
 from foothold_agent.setup import __main__ as setup
+from foothold_agent.go2_direct.loader import restart_environment
 from foothold_agent.setup.discovery import candidates, select
 from foothold_agent.setup.storage import default_path
 from foothold_agent.setup.view import Status, make_server
@@ -224,7 +225,8 @@ def main(argv=None):
     finally:
         instance.__exit__(None, None, None)
     if controls.restart:
-        os.execv(sys.executable, [sys.executable, '-I', '-m', 'foothold_agent.desktop', '--managed', '--repair'])
+        os.execve(sys.executable, [sys.executable, '-I', '-m', 'foothold_agent.desktop', '--managed', '--repair'],
+                  restart_environment())
     return 0
 
 
