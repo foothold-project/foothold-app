@@ -1,0 +1,56 @@
+{
+  "$id": "fh-app/1/PostureResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "stand_up",
+        "stand_down"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "code": {
+      "maxLength": 64,
+      "title": "Code",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "sdk_code": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Sdk Code"
+    },
+    "status": {
+      "enum": [
+        "RUNNING",
+        "SUCCEEDED",
+        "REJECTED",
+        "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "action",
+    "status",
+    "code",
+    "sdk_code"
+  ],
+  "title": "PostureResult",
+  "type": "object"
+}

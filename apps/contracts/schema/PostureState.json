@@ -1,0 +1,36 @@
+{
+  "$id": "fh-app/1/PostureState",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "anyOf": [
+        {
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Mode"
+    },
+    "state": {
+      "enum": [
+        "UNKNOWN",
+        "LYING",
+        "STANDING",
+        "TRANSITIONING"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state",
+    "mode"
+  ],
+  "title": "PostureState",
+  "type": "object"
+}

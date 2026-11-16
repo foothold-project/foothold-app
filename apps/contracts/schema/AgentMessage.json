@@ -780,6 +780,28 @@
         "pose": {
           "$ref": "#/$defs/AgentPose"
         },
+        "posture": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostureState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "posture_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostureResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "reported_run": {
           "anyOf": [
             {
@@ -1534,6 +1556,94 @@
         "path"
       ],
       "title": "MappingPreview",
+      "type": "object"
+    },
+    "PostureResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "stand_up",
+            "stand_down"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "sdk_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sdk Code"
+        },
+        "status": {
+          "enum": [
+            "RUNNING",
+            "SUCCEEDED",
+            "REJECTED",
+            "FAILED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "action",
+        "status",
+        "code",
+        "sdk_code"
+      ],
+      "title": "PostureResult",
+      "type": "object"
+    },
+    "PostureState": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "anyOf": [
+            {
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mode"
+        },
+        "state": {
+          "enum": [
+            "UNKNOWN",
+            "LYING",
+            "STANDING",
+            "TRANSITIONING"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "mode"
+      ],
+      "title": "PostureState",
       "type": "object"
     },
     "Progress": {

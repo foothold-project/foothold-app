@@ -1,0 +1,40 @@
+{
+  "$id": "fh-app/1/AgentPosture",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "stand_up",
+        "stand_down"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "t": {
+      "const": "posture",
+      "default": "posture",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "request_id",
+    "lease_id",
+    "action"
+  ],
+  "title": "AgentPosture",
+  "type": "object"
+}
