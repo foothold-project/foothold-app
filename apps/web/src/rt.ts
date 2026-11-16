@@ -2,7 +2,7 @@
 // 조종권·넘김·정지 확인 판정은 서버 중재기가 한다. 여기는 서버가 준 lease·state 를 그대로 들고,
 // 화면 쪽 안전 규칙(넘김 중·잠금 중 0, 새 조종권은 새 중립부터, 숨기거나 떠나면 반납)만 더한다. 시각 판정은 단조 시계.
 import { useSyncExternalStore } from 'react';
-import type { ErrorBody, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenReply, ScreenState, ScreenSubscriptionRevoked } from '../../contracts/ts';
+import type { ErrorBody, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenPosture, ScreenReply, ScreenState, ScreenSubscriptionRevoked } from '../../contracts/ts';
 import { api, expireAuth, type ApiFail } from './api';
 import type { Holder, Robot, Status } from './fake';
 
@@ -242,6 +242,7 @@ function onState(s: ScreenState) {
     && (p.safety_reason ?? null) === (s.safety_reason ?? null)
     && shown(p) === shown(s)
     && JSON.stringify(p.unlock_refused ?? null) === JSON.stringify(s.unlock_refused ?? null)   // 잠금 해제 거절 사유(contracts UnlockRefused)
+    && JSON.stringify([p.posture?.state, p.posture_result]) === JSON.stringify([s.posture?.state, s.posture_result])   // 자세·자세 명령 결과(contracts PostureState·PostureResult)
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }
@@ -415,6 +416,13 @@ export const rt = {
     if (!l.lease) return;
     if (gen == null) return set(id, { notice: '로봇 상태를 아직 받지 못했습니다. 잠시 뒤 다시 누르세요.' });
     send({ t: 'unlock', robot: id, lease_id: l.lease, stop_gen: gen }, (r) => set(id, { neutral: false, notice: r.ok ? undefined : say(r.error) }));
+  },
+  /** 자세 명령(contracts ScreenPosture: 일어서기 stand_up·엎드리기 stand_down) — 조종권자만. done(null) = 서버 접수, done(글) = 거부 이유.
+   *  로봇이 한 결과는 state.posture_result 로 온다 */
+  posture(id: string, action: ScreenPosture['action'], done: (why: string | null) => void) {
+    const l = get(id);
+    if (!l.lease) return done(say());
+    send({ t: 'posture', robot: id, lease_id: l.lease, action }, (r) => done(r.ok ? null : say(r.error)));
   },
   /** 50 ms 마다(0 포함, 조종권 심장 박동 겸). 넘기는 중·잠금 중(또는 상태 모름)은 0, 새 lease·잠금 해제 뒤에는 중립을 본 다음부터 보낸다.
    *  [전후, 회전] + 옆걸음 fy(서버 경유 실기 시험만 — serverdrive.tsx, 그 밖 0) → 계약 axes [fx, fy, fw] */
