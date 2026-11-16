@@ -677,7 +677,13 @@ class ScreenPing(ScreenEnvelope):
     t: Literal['ping']
 
 
-ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing,
+class ScreenPosture(ScreenRobot):
+    t: Literal['posture']
+    lease_id: UUID
+    action: Literal['stand_up', 'stand_down']
+
+
+ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture,
                           Field(discriminator='t')]
 
 
@@ -775,7 +781,22 @@ class AgentBattery(AgentInput):
     voltage: float | None = None
 
 
+class PostureState(Contract):
+    state: Literal['UNKNOWN', 'LYING', 'STANDING', 'TRANSITIONING']
+    mode: Annotated[int, Field(ge=0, le=255, strict=True)] | None
+
+
+class PostureResult(Contract):
+    request_id: str = Field(min_length=1, max_length=128)
+    action: Literal['stand_up', 'stand_down']
+    status: Literal['RUNNING', 'SUCCEEDED', 'REJECTED', 'FAILED']
+    code: str = Field(max_length=64)
+    sdk_code: StrictInt | None
+
+
 class AgentState(AgentInput):
+    posture: PostureState | None = None
+    posture_result: PostureResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     controller: UUID | None = None
     controller_device: UUID | None = None
@@ -1053,9 +1074,16 @@ class AgentFieldApproval(Contract):
     expires_at: UTCDateTime | None
 
 
+class AgentPosture(Contract):
+    t: Literal['posture'] = 'posture'
+    request_id: str = Field(min_length=1, max_length=128)
+    lease_id: UUID
+    action: Literal['stand_up', 'stand_down']
+
+
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1101,7 +1129,9 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result'))
+    posture: PostureState | None = None
+    posture_result: PostureResult | None = None
     robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'
