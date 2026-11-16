@@ -1,0 +1,51 @@
+{
+  "$id": "fh-app/1/ScreenPosture",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "stand_up",
+        "stand_down"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-rt/1",
+      "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "t": {
+      "const": "posture",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "robot",
+    "t",
+    "lease_id",
+    "action"
+  ],
+  "title": "ScreenPosture",
+  "type": "object"
+}

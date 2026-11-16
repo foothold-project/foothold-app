@@ -106,6 +106,114 @@ class Go2Sink:
         self._feedback_seq = -1
         self._feedback_received = float("-inf")
         self._stall_sequence = 0
+        self.posture_feedback = None
+        self.posture_authorized = lambda lease: False
+        self._posture = None
+        self._posture_stop_only = False
+        self.posture_result = None
+
+    def _posture_sample(self):
+        return (self.posture_feedback() if self.posture_feedback is not None
+                else dict(state='UNKNOWN', mode=None, still=False))
+
+    @property
+    def posture_busy(self):
+        with self._lock:
+            return self._posture is not None
+
+    def request_posture(self, request_id, action, lease):
+        """Queue one reviewed action; SDK I/O stays on the normal output worker."""
+        with self._lock:
+            sample = self._posture_sample()
+            reason = ('BUSY' if self._posture is not None else
+                'NOT_AUTHORIZED' if not self.posture_authorized(lease) else
+                'MOVING' if self.pending != ZERO or self._ramp_velocity != ZERO or not sample['still'] else
+                'WRONG_POSTURE' if sample['state'] != ('LYING' if action == 'stand_up' else 'STANDING') else None)
+            if reason is not None:
+                self.posture_result = dict(request_id=request_id, action=action,
+                    status='REJECTED', code=reason, sdk_code=None)
+                return False
+            self._hold()
+            self._posture_stop_only = True
+            self._posture = dict(request_id=request_id, action=action, lease=lease,
+                stage='start', deadline=self.now()+15.)
+            self.posture_result = dict(request_id=request_id, action=action,
+                status='RUNNING', code='STARTED', sdk_code=None)
+            return True
+
+    def cancel_posture(self, reason='STOPPED'):
+        with self._lock:
+            if self._posture is not None:
+                self._posture_finish('FAILED', reason, None)
+
+    def _posture_finish(self, status, code, sdk_code):
+        job, self._posture = self._posture, None
+        self.posture_result = dict(request_id=job['request_id'], action=job['action'],
+            status=status, code=code, sdk_code=sdk_code)
+        if status == 'FAILED':
+            self._urgent = True
+            self._stop_requested.set()
+
+    def _posture_step(self):
+        # Only the normal worker calls this; STOP uses the independent lane.
+        with self._lock:
+            job = self._posture
+            if job is None:
+                return
+            if not self.posture_authorized(job['lease']) or self._closed.is_set():
+                self._posture_finish('FAILED', 'AUTHORITY_LOST', None)
+                return
+            sample = self._posture_sample()
+            if sample['state'] == 'UNKNOWN' or self.now() >= job['deadline']:
+                self._posture_finish('FAILED', 'FEEDBACK_UNAVAILABLE' if sample['state'] == 'UNKNOWN' else 'TIMEOUT', None)
+                return
+            method = None
+            if job['stage'] == 'start':
+                expected = 'LYING' if job['action'] == 'stand_up' else 'STANDING'
+                if sample['state'] != expected or not sample['still']:
+                    self._posture_finish('FAILED', 'POSTURE_CHANGED', None)
+                    return
+                method = 'StandUp' if job['action'] == 'stand_up' else 'StandDown'
+            elif (job['stage'] == 'stand' and sample['state'] == 'STANDING' and sample['still']
+                    and sample['sequence'] > job['sequence']):
+                method = 'BalanceStand'
+            elif job['stage'] == 'confirm':
+                target = 'STANDING' if job['action'] == 'stand_up' else 'LYING'
+                if sample['sequence'] > job['sequence'] and sample['state'] == target and sample['still'] and (
+                        target == 'LYING' or sample['mode'] in (1, 3)):
+                    self._posture_finish('SUCCEEDED', 'CONFIRMED', 0)
+                return
+            if method is None:
+                return
+        # Recheck after every RPC. A concurrent STOP prevents later stages.
+        if method == 'StandDown':
+            try:
+                self._call(self.client, 'StopMove')
+            except Exception as error:
+                with self._lock:
+                    if self._posture is job:
+                        self._posture_finish('FAILED', 'SDK_REJECTED', getattr(error, 'sdk_code', None))
+                raise  # standing stop rejection remains a fatal output fault
+        try:
+            with self._lock:
+                if self._posture is not job or not self.posture_authorized(job['lease']):
+                    return
+                if method == 'StandDown':
+                    current = self._posture_sample()
+                    if current['state'] != 'STANDING' or not current['still']:
+                        self._posture_finish('FAILED', 'POSTURE_CHANGED', None)
+                        return
+            code = getattr(self.client, method)()
+        except Exception:
+            code = None
+        with self._lock:
+            if self._posture is not job:
+                return
+            if type(code) is not int or code != 0:
+                self._posture_finish('FAILED', 'SDK_REJECTED', code if type(code) is int else None)
+                return
+            job['stage'] = 'stand' if method == 'StandUp' else 'confirm'
+            job['sequence'] = self._posture_sample().get('sequence', -1)
 
     def output_safety(self):
         """Atomic observation for the ONE phone Session; never mutate its Core."""
@@ -178,9 +286,12 @@ class Go2Sink:
                 self._hold()
                 raise ValueError('not the selected command source')
             if command.kind == 'unlock':
+                if self._posture is not None:
+                    return
                 if (self._confirmed_generation == self.generation and
                         0 <= self.now()-self._feedback_received <= FEEDBACK_MAX_AGE_S):
                     self.latched = False
+                    self._posture_stop_only = False
                     self._neutral_required = True
                 return
             if command.kind != 'apply':
@@ -208,7 +319,8 @@ class Go2Sink:
                         and (self._source_received is None or input_received_at > self._source_received)):
                     self._source_received = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
-            target = ZERO if self.latched or self._neutral_required else velocity
+            posture_held = self.posture_feedback is not None and self._posture_sample()['state'] != 'STANDING'
+            target = ZERO if self.latched or self._neutral_required or self._posture is not None or posture_held else velocity
             if target != self.pending:
                 # Do not spend preceding idle time on a newly received target.
                 self._ramp_at = stamp
@@ -246,13 +358,23 @@ class Go2Sink:
             print(f'SDK_OUTPUT_FAILED method={method} code={name}', file=sys.stderr)
             raise
         if type(code) is not int or code != 0:
+            # Only a fresh, known non-standing posture explains stop rejection.
+            # Exceptions, invalid responses and unknown/stale posture still fail.
+            sample = self._posture_sample()
+            if (type(code) is int and method == 'StopMove' and sample['mode'] in (5, 8) and
+                    sample['state'] in ('LYING', 'TRANSITIONING')):
+                return
             value = str(code) if type(code) is int else 'InvalidReturnType'
             print(f'SDK_OUTPUT_FAILED method={method} code={value}', file=sys.stderr)
-            raise OutputError('SDK command submission failed')
+            error = OutputError('SDK command submission failed')
+            error.sdk_code = code if type(code) is int else None
+            raise error
 
     def _stop_output(self, client):
         first = None
-        for method, args in [('Move', ZERO), ('StopMove', ())]:
+        sample = self._posture_sample()
+        stop_only = sample['state'] in ('LYING', 'TRANSITIONING') or self._posture_stop_only
+        for method, args in ([('StopMove', ())] if stop_only else [('Move', ZERO), ('StopMove', ())]):
             try:
                 self._call(client, method, *args)
             except BaseException as error:
@@ -292,8 +414,9 @@ class Go2Sink:
             try:
                 if urgent:
                     self._stop_output(self.client)
-                else:
+                elif self._posture is None and (self.posture_feedback is None or self._posture_sample()['state'] == 'STANDING'):
                     self._call(self.client, 'Move', *velocity)
+                self._posture_step()
                 # An in-flight SDK call cannot be cancelled. Compensate on its
                 # own lane immediately after return if STOP/close raced it.
                 with self._lock:
@@ -340,6 +463,8 @@ class Go2Sink:
             if not requested and self._tripped:
                 return False
             self._tripped = expired
+            if expired:
+                self.cancel_posture('WATCHDOG')
             if expired and not requested:
                 self._stall()
             else:
@@ -380,6 +505,7 @@ class Go2Sink:
 
     def close(self):
         self._closed.set()
+        self.cancel_posture('CLOSED')
         self._stop_requested.set()
         self.emergency_stop()
         for thread in self._threads:

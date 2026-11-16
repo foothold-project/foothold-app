@@ -57,16 +57,41 @@ def open_channel(env, *, wall=time.time):
 class SportBoundary:
     def __init__(self, client, approval, *, now=time.monotonic, wall=time.time):
         self.client = client
+        self.identity = (approval.nic, approval.robot_serial)
         self.deadline = now()+max(0., approval.expires_at-wall())
         self.now = now
 
-    def Move(self, vx, vy, wz):
-        if (vx, vy, wz) != (0., 0., 0.) and self.now() >= self.deadline:
+    def renew(self, approval, *, deadline):
+        if (approval.nic, approval.robot_serial) != self.identity:
+            raise PermissionError('approval identity changed')
+        self.deadline = deadline
+
+    def revoke(self):
+        self.deadline = float('-inf')
+
+    def _authorized(self):
+        if self.now() >= self.deadline:
             raise PermissionError('field marker expired; only zero and stop allowed')
+
+    def Move(self, vx, vy, wz):
+        if (vx, vy, wz) != (0., 0., 0.):
+            self._authorized()
         return self.client.Move(vx, vy, wz)
 
     def StopMove(self):
         return self.client.StopMove()
+
+    def StandUp(self):
+        self._authorized()
+        return self.client.StandUp()
+
+    def BalanceStand(self):
+        self._authorized()
+        return self.client.BalanceStand()
+
+    def StandDown(self):
+        self._authorized()
+        return self.client.StandDown()
 
 
 def connect(env, *, observed_serial, wall=time.time, monotonic=time.monotonic, channel=None):

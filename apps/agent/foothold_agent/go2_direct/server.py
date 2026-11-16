@@ -4,7 +4,7 @@ import time
 import logging
 
 from foothold_agent.link.client import Client
-from foothold_agent.link.session import Session, MotionCommand, Effects
+from foothold_agent.link.session import Session, MotionCommand, Effects, LINK_TIMEOUT
 from foothold_agent.phone.tickets import json_object
 from . import sdk
 from .feedback import Feedback
@@ -28,6 +28,8 @@ class DriveSession(Session):
     def __init__(self, feedback, *, identity_gate=None, **kwargs):
         self.feedback = feedback
         self.identity_gate = identity_gate
+        self.posture_sink = None
+        self.posture_gate = lambda: True
         super().__init__(identity={'robot_model': 'unitree_go2'},
                          axes_validator=axes, velocity_projection=project_velocity, **kwargs)
 
@@ -40,8 +42,16 @@ class DriveSession(Session):
         return super().connect()
 
     def shutdown(self):
+        if self.posture_sink is not None:
+            self.posture_sink.cancel_posture('DISCONNECTED')
         self.lease_confirmed = False
         return super().shutdown()
+
+    def posture_authorized(self, lease):
+        return (self.connected and not self.link_lost and not self.reconnect_required
+                and self.last_server is not None and 0 <= self.now()-self.last_server < LINK_TIMEOUT
+                and self.lease_confirmed and self.holder_type == 'USER'
+                and self.lease_id == lease and self.posture_gate())
 
     def feedback_lost(self):
         # Keep the transport reporting the lock; recovery still needs a fresh
@@ -65,6 +75,19 @@ class DriveSession(Session):
             self.mapping.command(frame)
             return Effects((), self.tick().messages)
         if isinstance(frame, dict):
+            if frame.get('t') == 'posture' and self.posture_sink is not None:
+                super().receive({'t': 'ping'})
+                action, request_id = frame.get('action'), frame.get('request_id')
+                if action not in ('stand_up', 'stand_down') or not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+                    return self.tick()
+                if self.core.intent != (0., 0., 0.) or self.core.out != (0., 0., 0.):
+                    self.posture_sink.posture_result = dict(request_id=request_id, action=action,
+                        status='REJECTED', code='MOVING', sdk_code=None)
+                elif self.posture_sink.request_posture(request_id, action, frame.get('lease_id')):
+                    self.core.stop('posture requested')
+                return self._finish(state=True)
+            if frame.get('t') == 'unlock' and self.posture_sink is not None and self.posture_sink.posture_busy:
+                return self.tick()
             if frame.get('t') == 'unlock' and self.identity_gate is not None:
                 self.identity_gate.request(frame, self)
                 return self.tick()
@@ -73,7 +96,14 @@ class DriveSession(Session):
                 self.core.stop('outside server-drive command table')
                 return self._finish((MotionCommand('stop'),), state=True)
             if frame.get('t') == 'stop':
+                if self.posture_sink is not None:
+                    self.posture_sink.cancel_posture()
                 self.core.st = None
+            if frame.get('t') == 'lease' and frame.get('lease_id') != self.lease_id and self.posture_sink is not None:
+                self.posture_sink.cancel_posture('LEASE_CHANGED')
+            if frame.get('t') == 'cmd' and self.posture_sink is not None and (
+                    self.feedback.posture_snapshot()['state'] != 'STANDING' or self.posture_sink.posture_busy):
+                frame = {**frame, 'axes': [0., 0., 0.]}
             if frame.get('t') == 'lease' and frame.get('holder_type') not in (None, 'USER'):
                 return self.shutdown()
             if frame.get('t') not in ('lease', 'cmd', 'stop', 'unlock', 'ping'):
@@ -85,6 +115,9 @@ class DriveSession(Session):
 
     def _state(self):
         result = {**super()._state(), **project(self.feedback.telemetry(), self.now())}
+        posture = self.feedback.posture_snapshot()
+        result['posture'] = {key: posture[key] for key in ('state', 'mode')}
+        result['posture_result'] = None if self.posture_sink is None else self.posture_sink.posture_result
         # A zero request is not a measured stop. Arbiter grants wait for DDS.
         if not (self.core.st and self.core.st.get('stop_requested') is True
                 and self.feedback.sample() is not None):
@@ -96,6 +129,9 @@ class ServerSink:
     def __init__(self, sink, session):
         self.sink, self.session = sink, session
         sink.select_source('server')
+        session.posture_sink = sink
+        sink.posture_feedback = session.feedback.posture_snapshot
+        sink.posture_authorized = session.posture_authorized
 
     def apply(self, command):
         # Tick/telemetry output cannot refresh the original operator input clock.
@@ -136,6 +172,7 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             await asyncio.to_thread(identity_check, config.approval, feedback.serial)
         clients = (connect_factory or sdk.connect)(env, observed_serial=feedback.serial, channel=channel)
         sink = Go2Sink(*clients, phone_watchdog=True)
+        sink.posture_feedback = feedback.posture_snapshot
         feedback.sink = sink
         if getattr(config.approval, 'serial_unavailable', False):
             gate = ResumeGate(config.approval, feedback, check=identity_check)

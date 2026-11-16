@@ -1212,7 +1212,7 @@ class Realtime:
                         if body['t'] == 'lease' and body['holder_type'] == 'RUN':
                             self.runs[rid]['lease_id'] = body['lease_id']
                             body['holder_type'] = 'RUN:' + self.runs[rid]['run_id']
-                        if body['t'] in ('cmd', 'unlock') or (body['t'] == 'lease' and body['lease_id'] is not None):
+                        if body['t'] in ('cmd', 'unlock', 'posture') or (body['t'] == 'lease' and body['lease_id'] is not None):
                             if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
                                 continue
                         if body['t'] == 'cmd':
@@ -1226,7 +1226,8 @@ class Realtime:
                             retained = []
                             while not peer.queue.empty():
                                 item = peer.queue.get_nowait()
-                                if item.get('t') not in ('cmd', 'ping', 'streams'):
+                                if item.get('t') not in (('cmd', 'ping', 'streams', 'posture')
+                                        if body['t'] in ('stop', 'lease') else ('cmd', 'ping', 'streams')):
                                     retained.append(item)
                             for item in retained:
                                 peer.queue.put_nowait(item)
@@ -1271,6 +1272,14 @@ class Realtime:
         self.apply(safety + records)
 
     def blocked_agent_control(self, peer, body):
+        if body.get('t') == 'posture':
+            rid = next((key for key, value in self.agents.items() if value is peer), None)
+            record = self.arbiter.robots.get(rid)
+            holder = record.holder if record else None
+            return not (peer.actor is None and not peer.simulation and peer.server_drive
+                and self.field_approved(rid) and rid not in self.robot_changes
+                and not self.owner_uncertain and self.clock()-peer.auth_checked <= .5
+                and holder and holder.holder_type == 'USER' and holder.lease_id == body.get('lease_id'))
         if body.get('t') == 'slam':
             rid = next((key for key, value in self.agents.items() if value is peer), None)
             mapping = getattr(self, 'mapping', None)
@@ -1472,7 +1481,7 @@ class Realtime:
                     settings = self.cached_access(peer, robots, policy, safety=safe)
                     if msg.t in ('lease.take', 'lease.request') and rid in peer.revoked_robots:
                         raise LeaseError('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.')
-                    if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock'):
+                    if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock', 'posture'):
                         self.policy_controls.add(actor.session)
                     if (rid and msg.t != 'lease.cancel' and isinstance(self.audit, FairAuditQueue)
                             and not self.audit.admission_open(rid)):
@@ -1535,6 +1544,8 @@ class Realtime:
                             elif any(abs(axis)>1 for axis in msg.axes):
                                 raise self.api_error(400, 'VALIDATION', '입력 형식을 확인하세요.')
                             self.apply(self.arbiter.cmd(rid, actor, str(msg.lease_id), msg.seq, msg.axes))
+                        elif msg.t == 'posture':
+                            self.send_posture(rid, actor, msg)
                         elif msg.t == 'unlock':
                             self.apply(self.arbiter.unlock(rid, actor, str(msg.lease_id), msg.stop_gen))
                     self.put(peer, C.ScreenReply(id=msg.id, ok=True).model_dump(mode='json'))
@@ -1588,12 +1599,25 @@ class Realtime:
         online, state = live_state(self, rid)
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
             robot_info=state.get('robot_info'),
+            posture=state.get('posture'), posture_result=state.get('posture_result'),
             phone_relay=phone_relay(self, rid),
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
             latched=state.get('latched'), safety_reason=state.get('safety_reason'),
             unlock_refused=state.get('unlock_refused'), stop_gen=state.get('stop_gen'),
             applied=state.get('applied')).model_dump(mode='json')
+
+    def send_posture(self, rid, actor, msg):
+        self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
+        peer = self.agents[rid]
+        body = C.AgentPosture(request_id=msg.id, lease_id=msg.lease_id,
+            action=msg.action).model_dump(mode='json')
+        if self.blocked_agent_control(peer, body):
+            raise LeaseError('POSTURE_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
+        if (self.clock()-peer.state_received_at > .5 or peer.state.get('applied') != [0, 0, 0]
+                or peer.server_drive_axes != (0, 0, 0)):
+            raise LeaseError('POSTURE_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
+        self.put(peer, body)
 
     async def screen_watch(self, peer):
         try:
@@ -2156,6 +2180,8 @@ class Realtime:
         data = msg.model_dump(mode='json')
         peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'unlock_refused', 'stop_gen', 'applied')})
         peer.state['robot_info'] = data.get('robot_info')
+        peer.state['posture'] = data.get('posture')
+        peer.state['posture_result'] = data.get('posture_result')
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']
         context = pose.get('floor_context')

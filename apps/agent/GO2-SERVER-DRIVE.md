@@ -4,6 +4,32 @@ ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. �
 
 서버 조종의 정상 출력은 에이전트 `Go2Sink.drain` 한 곳에서 축별 일정한 비율(전후 1.5 m/s², 옆 1.0 m/s², 회전 0.5 rad/s²)로 목표까지 변한다. 0에서 최대까지, 키를 떼어 최대에서 0까지 각각 약 1초이며 반대 방향 전환은 같은 비율로 0을 지나간다. 목표는 기존 9개 표만 받으며 옆 이동은 ±1.0 m/s, 회전은 ±0.5 rad/s다. STOP·비상 정지·잠금·승인 회수·연결 끊김·입력 watchdog/deadline 만료·정지 판정 실패는 램프를 거치지 않고 즉시 0 + `StopMove`를 요청하고, 기존 정지 실측·해제·새 중립 관문을 유지한다. SDK 요청 성공은 실제 기체 정지 확인을 대신하지 않는다.
 
+## 조종 시간과 엎드린 상태
+
+노트북 연결 프로그램은 연결·승인이 유효하면 **전체 조종 시간 상한 없이** 이어진다. 서버는 계속 60초마다 최대 30분짜리 승인 표식을 갱신하며, 같은 연결·NIC·기체의 갱신은 Gate와 일반·비상 두 `SportBoundary`의 단조 시계 기한에 함께 반영한다. 30분은 표식 하나의 유효 기간이지 세션 전체 제한이 아니다. 승인 갱신은 조종권이나 잠금 해제를 만들지 않는다. STOP·비상 정지·잠금·승인 회수·연결 및 입력 watchdog·NIC/기체 변경 검사는 유지한다. 수동 파일 승인으로 실행하는 옛 개발 진입점은 파일의 만료를 그대로 지킨다.
+
+신선한 일치 기체의 LowState와 SportModeState(수신 후 200 ms 이내)를 함께 사용한다. Unitree 공식 [ROS 2 Sportmode state 표](https://github.com/unitreerobotics/unitree_ros2#1-sportmode-state)의 mode **5=lieDown**, **0=idle/default stand·1=balanceStand·3=locomotion**, **8=recoveryStand**를 기준으로 한다. 서 있음은 기존 높이 0.20~0.50 m·progress=0·기울기 60도 미만·허용 오류 코드까지 확인한다. mode 8 또는 알려진 자세의 progress 진행 중은 TRANSITIONING, 누락·오래됨·모르는 mode·오류는 UNKNOWN이다. mode 6(jointLock)·7(damping)을 엎드림으로 추정하지 않는다.
+
+LYING에서는 웹의 이동 입력을 0으로 처리하고 `Move`를 보내지 않는다. 정지는 `StopMove`만 시도하며, 신선한 mode 5·8의 정수 거부 응답은 서 있지 않음으로 처리해 연결을 끊지 않는다. 예외·잘못된 응답 형식과 **서 있을 때의 정지 거부는 기존처럼 실패**다. 연결·카메라·라이다·지도 수명은 자세 때문에 종료하지 않는다. `state.posture={state,mode}`를 서버를 거쳐 화면으로 보고하며, 오래된 측정은 UNKNOWN이다.
+
+## 일어서기·엎드리기
+
+담당 운영자의 현재 연결 조종권과 유효한 실기 승인만 허용한다. 잠긴 채 엎드린 로봇도 조종권을 받으면 일어서기를 요청할 수 있으며, 자세 명령 자체가 이동 잠금을 풀지는 않는다. 서버의 마지막 명령/적용 속도 0, 에이전트의 입력·출력·램프 속도 0과 신선한 기존 실측 정지 기준을 모두 통과해야 한다. 실행 중인 자세 요청이 있으면 다음은 BUSY로 거부한다. 요청을 자동 재시도하지 않는다.
+
+- `stand_up`: LYING → `StandUp()` → 새 측정의 STANDING·정지 확인 → `BalanceStand()` → 그 뒤의 새 mode 1·3 및 정지 확인으로 성공.
+- `stand_down`: STANDING·정지 확인 → `StopMove()` 성공 → `StandDown()` → 그 뒤의 새 mode 5·정지 확인으로 성공. 전원을 끄기 전 이 성공과 실제 자세를 확인한다.
+- 실행 중 STOP은 독립 경로에서 **`StopMove`만** 보내고 남은 자세 단계를 취소한다. 이미 진행 중인 RPC/기체 자세 전환의 물리 중단은 보장하지 않는다. `Damp`와 다른 동작은 호출하지 않는다. 승인·조종권·연결·피드백 상실, watchdog, 15초 동작 대기는 실패로 끝내고 이동 잠금을 유지한다.
+
+SDK 근거는 고정 Python SDK [SportClient](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/unitree_sdk2py/go2/sport/sport_client.py)의 StandUp(1004)·BalanceStand(1002)·StandDown(1005)·StopMove(1003)와 공식 [Go2 기본 예제](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_sport_client.cpp)의 normal_stand/BalanceStand 분기다. 위 순서는 이 API 의미를 이용한 구현 정책이며 펌웨어별 자세 도달 시간과 전원 종료 자세는 **실기 미확인**이다. RPC 코드 0만으로 완료라고 보고하지 않는다.
+
+화면은 `posture` 메시지에 `id,robot,lease_id,action`을 보내고, 서버는 권한 확인 후 `request_id,lease_id,action`을 에이전트에 전달한다. `state.posture_result`는 `{request_id,action,status,code,sdk_code}`이며 RUNNING/SUCCEEDED/REJECTED/FAILED와 원본 정수 SDK 거부 코드를 보고한다. 계약은 `apps/contracts/models.py`와 생성 TS/Schema가 정본이다. 완료·실패 뒤 이동은 기존 실측 정지 → 명시적 잠금 해제 → 새 중립 입력을 다시 거친다.
+
+### 2026-11-16 소프트웨어 검증
+
+`env -i`의 독립 시험 환경에서 agent setup·Go2 직접 출력·서버 조종·기존 Core·STOP·link·stall 회귀 **579개**, 서버 posture·server-drive·기존 realtime·계약 회귀 **143개**, 계약 시험 **234개** 통과. 계약 생성물 **296개 일치**, 계약 TS 타입 검사 통과. 새 자세 시험은 에이전트 30개·서버 18개·계약 13개이며 위 숫자에 포함한다. 가짜 시계의 실제 `SportBoundary` 2개에 62분간 갱신 후 비영 Move와 회수 후 차단, 엎드린 채 실제 출력 스레드·전송·관측·지도 유지, 동작 순서·실측 확인·중복·STOP/RPC 경합을 검사했다. 기존 Core 셀프테스트 기대값은 바꾸지 않았다. 설치 화면의 «먼저 세워 주세요» 문구 시험만 새 동작에 맞췄다.
+
+추가 속도 회귀는 **13개 통과**. `test_speed_1p5.py::test_shipped_web_transform_through_physical_hub_to_fake_sdk`의 세 경우는 시험 도구가 웹 TypeScript의 `as keyof`를 JavaScript에 남겨 Node에서 SyntaxError로 실패했다. 기준 커밋 `c2b2c76`의 에이전트 소스로도 동일 **3개 실패**를 재현했으며 이 작업에서는 웹·속도표·그 시험 도구를 수정하지 않았다. 실기·DDS 참가·설치본 교체·서버 배포는 수행하지 않았다. 펌웨어별 자세 확인과 현장 STOP 효과 검증, 두 모델 안전 검토 및 통합 검증이 남는다.
+
 ## 노트북 연결 프로그램으로 시작
 
 대상은 **Ubuntu 22.04·24.04 Desktop x86_64 노트북**이다. 연결 프로그램은 Go2에 랜선으로 연결한 노트북에서 실행하며 Wi-Fi 인터넷은 유지한다. 배포 담당자가 서버 주소를 넣어 만든 설치 파일 하나를 제공한다. 운영자는 Python·터미널·서버 주소를 입력하지 않는다.
