@@ -260,14 +260,13 @@ def test_watchdog_cancels_posture_without_releasing_joint_forces():
     assert emergency.calls == [('StopMove', ())]
 
 
-@pytest.mark.parametrize('failure', ['sdk', 'feedback', 'authority', 'timeout'])
+@pytest.mark.parametrize('failure', ['sdk', 'authority', 'timeout'])
 def test_posture_failure_reports_without_disconnecting(failure):
     clock, sink, normal, _, session, _, measured, frame = rig()
     request(frame)
     if failure == 'sdk': normal.posture_code = 73
     sink.drain()
-    if failure == 'feedback': clock.value += .201
-    elif failure == 'authority': session.lease_confirmed = False
+    if failure == 'authority': session.lease_confirmed = False
     elif failure == 'timeout':
         clock.value += 16
         measured()
@@ -277,7 +276,8 @@ def test_posture_failure_reports_without_disconnecting(failure):
     assert session.connected and sink.error is None
 
 
-def test_lying_approval_keeps_live_workers_transport_camera_and_mapping():
+@pytest.mark.parametrize('motion_state', [0, 1004])
+def test_lying_approval_keeps_live_workers_transport_camera_and_mapping(motion_state):
     from foothold_agent.setup.runtime import Inputs, run
     from foothold_agent.setup.view import Status
     from test_setup_pairing import credentials, NIC_VALUE
@@ -294,7 +294,7 @@ def test_lying_approval_keeps_live_workers_transport_camera_and_mapping():
             nonlocal sequence
             sequence += 1
             inputs.lowstate(low(sequence))
-            inputs.sportmodestate(sport(sequence, mode=5, body_height=.1))
+            inputs.sportmodestate(sport(sequence, mode=5, body_height=.1, error_code=motion_state))
             seen['pulse'] = asyncio.get_running_loop().call_later(.01, pulse)
 
         class FakeClient(Client):

@@ -102,7 +102,7 @@ class DriveSession(Session):
             if frame.get('t') == 'lease' and frame.get('lease_id') != self.lease_id and self.posture_sink is not None:
                 self.posture_sink.cancel_posture('LEASE_CHANGED')
             if frame.get('t') == 'cmd' and self.posture_sink is not None and (
-                    self.feedback.posture_snapshot()['state'] != 'STANDING' or self.posture_sink.posture_busy):
+                    not self.feedback.posture_snapshot()['walkable'] or self.posture_sink.posture_busy):
                 frame = {**frame, 'axes': [0., 0., 0.]}
             if frame.get('t') == 'lease' and frame.get('holder_type') not in (None, 'USER'):
                 return self.shutdown()
