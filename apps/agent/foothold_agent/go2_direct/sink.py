@@ -5,6 +5,7 @@ never physical stopping. No fabricated Core feedback is emitted by this module.
 """
 
 import math
+import logging
 import sys
 import threading
 import time
@@ -171,6 +172,7 @@ class Go2Sink:
 
     def _posture_step(self):
         # Only the normal worker calls this; STOP uses the independent lane.
+        notice = None
         with self._lock:
             job = self._posture
             if job is None:
@@ -199,12 +201,21 @@ class Go2Sink:
                 method = 'BalanceStand'
             elif job['stage'] == 'confirm':
                 target = 'STANDING' if job['action'] == 'stand_up' else 'LYING'
-                if sample['sequence'] > job['sequence'] and sample['state'] == target and sample['still'] and (
-                        target == 'LYING' or (sample['mode'] in (1, 3) and self._walkable(sample))):
-                    self._posture_finish('SUCCEEDED', 'CONFIRMED', 0)
+                if sample['sequence'] > job['sequence'] and sample['state'] == target and sample['still']:
+                    if target == 'LYING' or (sample['mode'] in (1, 3) and self._walkable(sample)):
+                        self._posture_finish('SUCCEEDED', 'CONFIRMED', 0)
+                    elif sample['mode'] in (1, 3):
+                        notice = (sample['mode'], sample['motion_state'], sample['height'])
+                        self._posture_finish('FAILED', 'STOOD_NOT_WALKABLE', 0)
+                if notice is None:
+                    return
+            if method is None and notice is None:
                 return
-            if method is None:
-                return
+        if notice is not None:
+            # No journal I/O while holding the memory lock used by STOP.
+            logging.getLogger(__name__).warning(
+                'GO2_POSTURE_STOOD_NOT_WALKABLE mode=%d motion_state=%d height_m=%.2f', *notice)
+            return
         # Recheck after every RPC. A concurrent STOP prevents later stages.
         if method == 'StandDown':
             try:

@@ -223,18 +223,20 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallb
                 if ('Move',(1.5,0,.5)) in normal.calls:
                     break
             assert ('Move',(1.5,0,.5)) in normal.calls
-            stop_count = len(emergency.calls)
+            stop_counts = len(normal.calls), len(emergency.calls)
             await ws.close()
             async with asyncio.timeout(.25):
                 while not captured['client'].sink.sink.latched:
                     await asyncio.sleep(.001)
             assert captured['client'].session.core.latch
+            captured['latched_counts'] = len(normal.calls), len(emergency.calls)
             async with asyncio.timeout(.25):
                 # Both independent lanes must stop before shutting workers down.
-                # Keep the original .25 s deadline and emergency assertion.
-                while (len(emergency.calls) < stop_count+2
-                       or emergency.calls[-1] != ('StopMove',())
-                       or normal.calls[-2:] != [('Move',(0,0,0)), ('StopMove',())]):
+                # Ordinary latched ticks may append another Move(0) after STOP.
+                # Check each lane's new zero/stop evidence within the SAME .25 s
+                # deadline, then require only zero outputs after the close latch.
+                while not all(('Move',(0,0,0)) in calls[start:] and ('StopMove',()) in calls[start:]
+                        for calls, start in zip((normal.calls, emergency.calls), stop_counts)):
                     await asyncio.sleep(.001)
             stop.set()
         async with serve(server, '127.0.0.1', 0) as listener:
@@ -251,7 +253,10 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallb
             assert '100(Agile)' in caplog.text
         if fallback:
             assert len(identity_checks) >= 2  # startup plus explicit resume, never a cached grant
-        assert normal.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
+        assert captured['client'].session.core.latch and captured['client'].sink.sink.latched
+        assert captured['client'].sink.sink.pending == (0,0,0)
+        for calls, start in zip((normal.calls, emergency.calls), captured['latched_counts']):
+            assert all(method != 'Move' or velocity == (0,0,0) for method, velocity in calls[start:])
     asyncio.run(scenario())
 
 

@@ -258,6 +258,22 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
   });
 
+  it.each(['FAILED', 'REJECTED'] as const)('서기는 확인됐지만 걷기 허용 상태가 아니면 이유 표시·이동 잠금·STOP 유지 (%s)', (status) => {
+    ready(); view(); posture('LYING');
+    click(pose('up'));
+    posture('STANDING');
+    act(() => push('r7', { latched: true }));
+    result('q1', 'stand_up', status, 'STOOD_NOT_WALKABLE');
+    expect(msg()).toBe(`${POSE.up.fail} — 로봇은 섰지만 걷기 허용 상태가 아닙니다. 현장에서 로봇 상태를 확인하세요.`);
+    expect(locked()).toBe('false,false');
+    expect(moves().every((b) => b.disabled)).toBe(true);
+    expect(hold(['ArrowUp'])).toBe('0,0,0');
+    const stop = $('[data-sd-stop="full"]') as HTMLButtonElement;
+    expect(stop.disabled).toBe(false);
+    click(stop);
+    expect(w.of('stop').length).toBe(1);
+  });
+
   it('거부·실패는 이유를 쉬운 말로(개발 용어 없음), 결과가 안 오면 «확인하지 못함» — 모두 잠금이 풀린다', () => {
     ready(); view(); posture('LYING');
     const base = w.auto!;
