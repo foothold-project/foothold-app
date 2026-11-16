@@ -4,7 +4,7 @@
 // 로봇 상세 서랍에는 작게(STOP·정지 단계·잠금 해제·조종 시작/끝내기), «조종 화면 열기» = 전체화면 모달(카메라·라이다 drivemedia.ts·조작부·상태줄, 다시 누르거나 Esc 로 복귀).
 // 그 안에도 STOP 이 가장 크게. 키 조종은 패널이 열린 동안 그대로
 import { useEffect, useRef, useState, type KeyboardEvent as KeyEv, type PointerEvent, type ReactNode } from 'react';
-import { CMD_MS, postureOf, rt, useLive, type Live } from './rt';
+import { CMD_MS, rt, useLive, type Live } from './rt';
 import { typing } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
@@ -57,14 +57,26 @@ export function stopLine({ stop: p, state: s }: Pick<Live, 'stop' | 'state'>): {
     return { tone: 'ok', text: '로봇 정지 확인 — 잠금·출력 0·수평 속도 0' };
   return { tone: 'warn', text: `정지 요청 접수${p.phase === 'fallback' ? '(대체 경로)' : ''} — 로봇 정지 확인 대기` };
 }
-/** 자세 단추(11-16): 일어서기·엎드리기. goal = 다 됐을 때 로봇이 보고하는 자세 */
+/** 자세 단추(11-16): 일어서기·엎드리기 — 계약 ScreenPosture.action 으로 보내고, 결과는 로봇이 보고한 state.posture_result 로 안다 */
 export const POSE = {
-  up: { act: 'STAND', goal: 'STANDING', name: '일어서기', doing: '일어서는 중…', done: '일어섰습니다.', fail: '일어서지 못했습니다' },
-  down: { act: 'LIE', goal: 'LYING', name: '엎드리기', doing: '엎드리는 중…', done: '엎드렸습니다. 이제 전원을 꺼도 됩니다.', fail: '엎드리지 못했습니다' },
+  up: { act: 'stand_up', name: '일어서기', doing: '일어서는 중…', done: '일어섰습니다.', fail: '일어서지 못했습니다' },
+  down: { act: 'stand_down', name: '엎드리기', doing: '엎드리는 중…', done: '엎드렸습니다. 이제 전원을 꺼도 됩니다.', fail: '엎드리지 못했습니다' },
 } as const;
 type PoseKey = keyof typeof POSE;
-/** 자세 명령 뒤 이 시간 안에 로봇이 그 자세를 보고하지 않으면 «확인하지 못함»(실기 동작 시간에 맞춰 고치는 값) */
-export const POSE_WAIT_MS = 15000;
+const POSE_KEY = { stand_up: 'up', stand_down: 'down' } as const;
+/** 로봇이 알린 자세 명령 거부·실패 사유(계약 PostureResult.code)를 쉬운 말로. 모르는 값은 현장 확인 안내 */
+const POSE_WHY: Record<string, string> = {
+  MOVING: '로봇이 움직이고 있습니다. 멈춘 뒤 다시 누르세요.',
+  BUSY: '다른 자세 동작을 하는 중입니다. 끝난 뒤 다시 누르세요.',
+  NOT_AUTHORIZED: '조종권이 없습니다. [조종 시작]부터 다시 하세요.', AUTHORITY_LOST: '동작 중에 조종권이 바뀌었습니다. [조종 시작]부터 다시 하세요.',
+  LEASE_CHANGED: '동작 중에 조종권이 바뀌었습니다. [조종 시작]부터 다시 하세요.',
+  STOPPED: '정지 요청으로 동작을 멈췄습니다. 현장에서 로봇을 확인하세요.', DISCONNECTED: '로봇 연결이 끊겼습니다. 현장에서 로봇을 확인하세요.',
+  FEEDBACK_UNAVAILABLE: '로봇이 자세를 알려 주지 않습니다. 현장에서 로봇을 확인하세요.',
+  TIMEOUT: '시간 안에 끝나지 않았습니다. 현장에서 로봇을 확인하세요.', SDK_REJECTED: '로봇이 동작을 받지 않았습니다. 잠시 뒤 다시 누르세요.',
+};
+export const poseWhy = (code?: string | null) => POSE_WHY[code ?? ''] ?? '로봇이 동작을 하지 못했습니다. 현장에서 로봇을 확인하세요.';
+/** 자세 명령 뒤 이 시간 안에 로봇의 결과 보고가 없으면 «확인하지 못함». 로봇 쪽 동작 시한보다 길게(실기 동작 시간에 맞춰 고치는 값) */
+export const POSE_WAIT_MS = 20000;
 export const LYING_TEXT = '로봇이 엎드려 있습니다. «일어서기»를 누르면 걸을 수 있습니다.';
 export const POWER_HINT = '전원을 끄기 전에 엎드리게 하세요.';
 /** 잠금 해제 요청 뒤 이 시간 안에 잠금이 안 풀리면 «미확인» */
@@ -113,10 +125,12 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   const [, tick] = useState(0), [asked, setAsked] = useState<number | null>(null);   // asked = 잠금 해제 요청을 보낸 때(rt.now)
   const held = useRef(new Set<Tok>()), dlg = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null);
   const feeds: Record<DriveCh, DriveFeed> = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar'), depth: useDriveFeed(r.id, 'depth', full === 'depth') };   // 뎁스는 고른 동안만 연다
-  const [pose, setPose] = useState<PoseKey | null>(null), [poseMsg, setPoseMsg] = useState('');   // pose = 보낸 자세 명령(끝날 때까지 두 단추 잠금)
-  const posture = postureOf(s), poseNow: PoseKey | null = pose ?? (posture === 'STANDING_UP' ? 'up' : posture === 'LYING_DOWN' ? 'down' : null);
-  // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
-  const ready = mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !poseNow && (posture == null || posture === 'STANDING');
+  // pose = 내가 보낸 자세 명령(결과가 올 때까지 두 단추 잠금), prev = 누를 때 보이던 앞 결과(같은 것을 내 결과로 읽지 않게)
+  const [pose, setPose] = useState<{ k: PoseKey; prev: string | null } | null>(null), [poseMsg, setPoseMsg] = useState('');
+  const posture = s?.posture?.state ?? null, res = s?.posture_result ?? null;
+  const poseNow: PoseKey | null = pose?.k ?? (res?.status === 'RUNNING' ? POSE_KEY[res.action] : null), shifting = !!poseNow || posture === 'TRANSITIONING';
+  // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
+  const ready = mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
   const send = () => { const cmd = command(held.current), [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy); };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
@@ -163,14 +177,17 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   useEffect(() => { if (l.stop) zero(SD_NOTE.stop); }, [l.stop?.n]);   // 머리줄 STOP·Space 도
   useEffect(() => { if (s?.latched !== true || !mine) setAsked(null); }, [s?.latched, mine]);   // 풀렸거나 조종권이 없으면 해제 대기 끝
   useEffect(() => { if (l.notice) setAsked(null); }, [l.notice]);
-  useEffect(() => { if (pose && posture === POSE[pose].goal) { setPose(null); setPoseMsg(POSE[pose].done); } }, [pose, posture]);
+  useEffect(() => {
+    if (!pose || !res || res.request_id === pose.prev || res.action !== POSE[pose.k].act || res.status === 'RUNNING') return;
+    setPose(null); setPoseMsg(res.status === 'SUCCEEDED' ? POSE[pose.k].done : `${POSE[pose.k].fail} — ${poseWhy(res.code)}`);
+  }, [pose, res?.request_id, res?.status]);
   useEffect(() => { if (!mine) setPose(null); }, [mine]);
   useEffect(() => {
     if (!pose) return;
-    const t = setTimeout(() => { setPose(null); setPoseMsg(`${POSE[pose].fail} — 로봇이 자세를 알려 주지 않았습니다. 현장에서 로봇을 확인하세요.`); }, POSE_WAIT_MS);
+    const t = setTimeout(() => { setPose(null); setPoseMsg(`${POSE[pose.k].fail} — 로봇이 결과를 알려 주지 않았습니다. 현장에서 로봇을 확인하세요.`); }, POSE_WAIT_MS);
     return () => clearTimeout(t);
   }, [pose]);
-  const askPose = (k: PoseKey) => { zero(); setPoseMsg(''); setPose(k); rt.posture(r.id, POSE[k].act, (bad) => { if (bad) { setPose(null); setPoseMsg(`${POSE[k].fail} — ${bad}`); } }); };   // 서버가 해제 요청을 거절(rt.unlock notice) — 대기 아님
+  const askPose = (k: PoseKey) => { zero(); setPoseMsg(''); setPose({ k, prev: res?.request_id ?? null }); rt.posture(r.id, POSE[k].act, (bad) => { if (bad) { setPose(null); setPoseMsg(`${POSE[k].fail} — ${bad}`); } }); };   // 서버가 해제 요청을 거절(rt.unlock notice) — 대기 아님
   // 전체화면 = 모달: 열 때 «작게 보기»로 초점, 밖은 inert, 닫을 때 연 칸으로 초점 복귀
   useEffect(() => {
     if (!full || !dlg.current) return;
@@ -214,7 +231,8 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
         : `해제 대기 — 로봇이 정지를 확인하면 풀립니다.${refused ? ` ${refused}` : ''}`}</span>}
   </div>;
   const lock = !s || s.connection !== 'ONLINE' ? { tone: 'off' as const, text: '상태 모름' } : s.latched !== false ? { tone: 'bad' as const, text: '정지 잠금' }
-    : !mine ? { tone: 'off' as const, text: '보는 중' } : posture === 'LYING' ? { tone: 'warn' as const, text: '엎드려 있음' } : l.neutral ? { tone: 'ok' as const, text: '움직일 수 있음' } : { tone: 'warn' as const, text: '중립 확인 중' };
+    : !mine ? { tone: 'off' as const, text: '보는 중' } : posture === 'LYING' ? { tone: 'warn' as const, text: '엎드려 있음' } : shifting ? { tone: 'warn' as const, text: '자세 바꾸는 중' }
+    : posture === 'UNKNOWN' ? { tone: 'off' as const, text: '자세 모름' } : l.neutral ? { tone: 'ok' as const, text: '움직일 수 있음' } : { tone: 'warn' as const, text: '중립 확인 중' };
   const status = <div className="fh-row lbl mono" style={{ flexWrap: 'wrap', gap: 10 }} data-sd-status>
     <span>배터리 {s?.battery?.soc != null ? `${s.battery.soc}%` : '—'}</span>
     <span>수평 속도 {s?.speed != null ? `${s.speed.toFixed(1)} m/s` : '—'}</span>
@@ -223,6 +241,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     <span>마지막 응답 {age != null ? `${age} ms 전` : '없음'}</span>
   </div>;
   const notes = <>{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
+    {posture === 'UNKNOWN' && mine && <p className="dv-note" role="status" data-sd-pose-unknown>로봇 자세를 아직 알 수 없어 이동 단추를 잠갔습니다. 현장에서 로봇을 확인한 뒤 «일어서기»를 누르세요.</p>}
     {why && <p className="dv-note" role="status" data-sd-why>{why}</p>}
     {l.notice && <p className="dv-note" role="status">{l.notice}</p>}
     {stalled && <p className="dv-note" role="status">{STALLED}</p>}</>;
@@ -240,10 +259,10 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
         <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button></div>
       : <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />}
     {mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>
-      {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={!!poseNow || link !== 'open' || s?.connection !== 'ONLINE'}
+      {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE'}
         onClick={() => askPose(k)}>{POSE[k].name}</button>)}
       <span className="lbl">{POWER_HINT}</span>
-      {(poseNow || poseMsg) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : poseMsg}</span>}
+      {(shifting || poseMsg) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg}</span>}
     </div>}
     {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
       <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>}

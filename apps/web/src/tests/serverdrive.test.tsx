@@ -9,7 +9,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { LYING_TEXT, POSE, POSE_WAIT_MS, POWER_HINT, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { LYING_TEXT, POSE, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
 
@@ -200,9 +200,12 @@ describe('서버 경유 시험 조종 패널', () => {
 
 describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
   const pose = (k: 'up' | 'down') => $(`[data-sd-pose="${k}"]`) as HTMLButtonElement;
-  const posture = (v: string | null) => act(() => push('r7', { posture: v } as never));
+  const posture = (v: 'UNKNOWN' | 'LYING' | 'STANDING' | 'TRANSITIONING') => act(() => push('r7', { posture: { state: v, mode: null } }));
+  const result = (n: string, action: 'stand_up' | 'stand_down', status: 'RUNNING' | 'SUCCEEDED' | 'REJECTED' | 'FAILED', code = '') =>
+    act(() => push('r7', { posture_result: { request_id: n, action, status, code, sdk_code: null } }));
   const msg = () => $('[data-sd-pose-msg]')?.textContent ?? '';
   const moves = () => [...box.querySelectorAll<HTMLButtonElement>('[data-sd-move]')];
+  const locked = () => [pose('up').disabled, pose('down').disabled].join();
 
   it('조종 중일 때만 보인다 — 보는 중·총괄에게는 없음, «전원을 끄기 전에» 안내가 옆에', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
@@ -221,14 +224,16 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     ready(); view(); posture('STANDING');
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
     click(pose('down'));
-    expect(w.of('posture').map((m) => [m.robot, m.action, typeof m.lease_id])).toEqual([['r7', 'LIE', 'string']]);
-    expect([pose('up').disabled, pose('down').disabled]).toEqual([true, true]);
+    expect(w.of('posture').map((m) => [m.robot, m.action, typeof m.lease_id])).toEqual([['r7', 'stand_down', 'string']]);
+    expect(locked()).toBe('true,true');
     expect(msg()).toBe(POSE.down.doing);
     expect(moves().every((b) => b.disabled)).toBe(true);   // 자세 바꾸는 중에도 이동 잠금
-    posture('LYING_DOWN'); expect(msg()).toBe(POSE.down.doing);
-    posture('LYING');
+    result('q1', 'stand_down', 'RUNNING', 'STARTED'); posture('TRANSITIONING');
+    expect(msg()).toBe(POSE.down.doing); expect(locked()).toBe('true,true');
+    expect($('[data-sd-full-head]')!.textContent).toContain('자세 바꾸는 중'); expect($('[data-sd-full-head]')!.textContent).not.toContain('움직일 수 있음');
+    posture('LYING'); result('q1', 'stand_down', 'SUCCEEDED', 'CONFIRMED');
     expect(msg()).toBe(POSE.down.done);
-    expect([pose('up').disabled, pose('down').disabled]).toEqual([false, false]);
+    expect(locked()).toBe('false,false');
     expect($('[data-sd-lying]')!.textContent).toBe(LYING_TEXT);
     expect($('[data-sd-full-head]')!.textContent).toContain('엎드려 있음');
     expect(moves().length).toBe(8); expect(moves().every((b) => b.disabled)).toBe(true);
@@ -239,38 +244,49 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     expect(w.of('stop').length).toBe(1);
   });
 
-  it('일어서기: 로봇이 일어서는 중이라고 알리면 잠금, 다 서면 결과 한 줄 + 다시 걸을 수 있음', () => {
-    ready(); view(); posture('LYING');
+  it('일어서기: 앞 결과는 내 결과로 읽지 않고, 다 서면 결과 한 줄 + 다시 걸을 수 있음', () => {
+    ready(); view(); posture('LYING'); result('q1', 'stand_up', 'SUCCEEDED', 'CONFIRMED');   // 앞사람·앞 명령의 결과가 남아 있음
     click(pose('up'));
-    expect(w.of('posture')[0].action).toBe('STAND');
-    posture('STANDING_UP');
-    expect(msg()).toBe(POSE.up.doing); expect(pose('down').disabled).toBe(true);
-    posture('STANDING');
+    expect(w.of('posture')[0].action).toBe('stand_up');
+    expect(msg()).toBe(POSE.up.doing); expect(locked()).toBe('true,true');
+    result('q2', 'stand_up', 'RUNNING', 'STARTED');
+    expect(msg()).toBe(POSE.up.doing);
+    posture('STANDING'); result('q2', 'stand_up', 'SUCCEEDED', 'CONFIRMED');
     expect(msg()).toBe(POSE.up.done);
     expect($('[data-sd-lying]')).toBeNull();
     tick(100);
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
   });
 
-  it('거부되면 이유를 쉬운 말로, 로봇이 자세를 알리지 않으면 «확인하지 못함» — 둘 다 잠금이 풀린다', () => {
+  it('거부·실패는 이유를 쉬운 말로(개발 용어 없음), 결과가 안 오면 «확인하지 못함» — 모두 잠금이 풀린다', () => {
     ready(); view(); posture('LYING');
     const base = w.auto!;
-    w.auto = (m) => (m.t === 'posture' ? fail('X', '로봇이 넘어져 있어 일어설 수 없습니다.') : base(m));
-    click(pose('up'));
-    expect(msg()).toBe(`${POSE.up.fail} — 로봇이 넘어져 있어 일어설 수 없습니다.`);
-    expect(pose('up').disabled).toBe(false);
+    w.auto = (m) => (m.t === 'posture' ? fail('X', '로봇에 닿지 않았습니다.') : base(m));
+    click(pose('up'));   // 서버가 거부
+    expect(msg()).toBe(`${POSE.up.fail} — 로봇에 닿지 않았습니다.`);
+    expect(locked()).toBe('false,false');
     w.auto = base;
+    click(pose('up')); result('q1', 'stand_up', 'REJECTED', 'MOVING');   // 로봇이 거부
+    expect(msg()).toBe(`${POSE.up.fail} — ${poseWhy('MOVING')}`);
+    expect(locked()).toBe('false,false');
+    click(pose('down')); result('q2', 'stand_down', 'FAILED', 'SOMETHING_NEW');   // 모르는 사유
+    expect(msg()).toBe(`${POSE.down.fail} — ${poseWhy('SOMETHING_NEW')}`);
+    expect(msg()).not.toMatch(/[A-Z]{3}|stand|mode/);
     click(pose('up'));
     expect(msg()).toBe(POSE.up.doing);
     tick(POSE_WAIT_MS);
     expect(msg()).toContain(POSE.up.fail); expect(msg()).toContain('현장에서 로봇을 확인하세요');
-    expect(pose('up').disabled).toBe(false);
+    expect(locked()).toBe('false,false');
   });
 
-  it('자세를 알리지 않는 로봇(옛 에이전트)은 전처럼 움직인다', () => {
-    ready();
+  it('자세 모름·바꾸는 중이면 이동 잠금, 자세를 알리지 않는 로봇(옛 에이전트)은 전처럼 움직인다', () => {
+    ready(); view();
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
     expect($('[data-sd-lying]')).toBeNull();
+    posture('UNKNOWN');
+    expect($('[data-sd-pose-unknown]')).not.toBeNull(); expect(hold(['ArrowUp'])).toBe('0,0,0'); expect(locked()).toBe('false,false');
+    posture('TRANSITIONING');   // 리모컨 등 다른 곳에서 바꾸는 중
+    expect(msg()).toBe('자세를 바꾸는 중…'); expect(locked()).toBe('true,true'); expect(hold(['ArrowUp'])).toBe('0,0,0');
   });
 });
 
