@@ -9,7 +9,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { LYING_TEXT, POSE, POSE_WAIT_MS, POWER_HINT, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
 
@@ -195,6 +195,82 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(w.of('stop').length).toBe(1);
     tick(200);
     expect(lastAxes()).toBe('0,0,0');
+  });
+});
+
+describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
+  const pose = (k: 'up' | 'down') => $(`[data-sd-pose="${k}"]`) as HTMLButtonElement;
+  const posture = (v: string | null) => act(() => push('r7', { posture: v } as never));
+  const msg = () => $('[data-sd-pose-msg]')?.textContent ?? '';
+  const moves = () => [...box.querySelectorAll<HTMLButtonElement>('[data-sd-move]')];
+
+  it('조종 중일 때만 보인다 — 보는 중·총괄에게는 없음, «전원을 끄기 전에» 안내가 옆에', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    expect($('[data-sd-posture]')).toBeNull();   // 조종 시작 전
+    click(btn('조종 시작'));
+    expect(pose('up').textContent).toBe('일어서기'); expect(pose('down').textContent).toBe('엎드리기');
+    expect($('[data-sd-posture]')!.textContent).toContain(POWER_HINT);
+    click(btn('조종 끝내기'));
+    expect($('[data-sd-posture]')).toBeNull();
+    unmount();
+    mount('u-kim'); serve('r3', 'r7', 'r1'); click(row('Go2-7'));   // 총괄 → 패널 자체가 없음
+    expect($('[data-sd-posture]')).toBeNull();
+  });
+
+  it('엎드리기: 실행 중 두 단추 잠금 + «엎드리는 중…» → 엎드리면 결과·안내, 이동 단추·키 잠금, STOP 은 살아 있음', () => {
+    ready(); view(); posture('STANDING');
+    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
+    click(pose('down'));
+    expect(w.of('posture').map((m) => [m.robot, m.action, typeof m.lease_id])).toEqual([['r7', 'LIE', 'string']]);
+    expect([pose('up').disabled, pose('down').disabled]).toEqual([true, true]);
+    expect(msg()).toBe(POSE.down.doing);
+    expect(moves().every((b) => b.disabled)).toBe(true);   // 자세 바꾸는 중에도 이동 잠금
+    posture('LYING_DOWN'); expect(msg()).toBe(POSE.down.doing);
+    posture('LYING');
+    expect(msg()).toBe(POSE.down.done);
+    expect([pose('up').disabled, pose('down').disabled]).toEqual([false, false]);
+    expect($('[data-sd-lying]')!.textContent).toBe(LYING_TEXT);
+    expect($('[data-sd-full-head]')!.textContent).toContain('엎드려 있음');
+    expect(moves().length).toBe(8); expect(moves().every((b) => b.disabled)).toBe(true);
+    expect(hold(['ArrowUp'])).toBe('0,0,0');
+    const stop = $('[data-sd-stop="full"]') as HTMLButtonElement;
+    expect(stop.disabled).toBe(false);
+    click(stop);
+    expect(w.of('stop').length).toBe(1);
+  });
+
+  it('일어서기: 로봇이 일어서는 중이라고 알리면 잠금, 다 서면 결과 한 줄 + 다시 걸을 수 있음', () => {
+    ready(); view(); posture('LYING');
+    click(pose('up'));
+    expect(w.of('posture')[0].action).toBe('STAND');
+    posture('STANDING_UP');
+    expect(msg()).toBe(POSE.up.doing); expect(pose('down').disabled).toBe(true);
+    posture('STANDING');
+    expect(msg()).toBe(POSE.up.done);
+    expect($('[data-sd-lying]')).toBeNull();
+    tick(100);
+    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
+  });
+
+  it('거부되면 이유를 쉬운 말로, 로봇이 자세를 알리지 않으면 «확인하지 못함» — 둘 다 잠금이 풀린다', () => {
+    ready(); view(); posture('LYING');
+    const base = w.auto!;
+    w.auto = (m) => (m.t === 'posture' ? fail('X', '로봇이 넘어져 있어 일어설 수 없습니다.') : base(m));
+    click(pose('up'));
+    expect(msg()).toBe(`${POSE.up.fail} — 로봇이 넘어져 있어 일어설 수 없습니다.`);
+    expect(pose('up').disabled).toBe(false);
+    w.auto = base;
+    click(pose('up'));
+    expect(msg()).toBe(POSE.up.doing);
+    tick(POSE_WAIT_MS);
+    expect(msg()).toContain(POSE.up.fail); expect(msg()).toContain('현장에서 로봇을 확인하세요');
+    expect(pose('up').disabled).toBe(false);
+  });
+
+  it('자세를 알리지 않는 로봇(옛 에이전트)은 전처럼 움직인다', () => {
+    ready();
+    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
+    expect($('[data-sd-lying]')).toBeNull();
   });
 });
 

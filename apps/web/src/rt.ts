@@ -68,6 +68,9 @@ const RESULT_ERR: Record<string, string> = {
 };
 
 export const now = () => performance.now();
+/** 로봇 자세 보고. 임시 이름 — RB-POSTURE 계약을 받으면 여기와 rt.posture 만 맞춘다. 보고가 없으면(옛 에이전트) null = 모름 */
+export type Posture = 'STANDING' | 'LYING' | 'STANDING_UP' | 'LYING_DOWN';
+export const postureOf = (s: ScreenState | null): Posture | null => (s as { posture?: Posture | null } | null)?.posture ?? null;
 const clock = () => new Date().toTimeString().slice(0, 8);   // 13:40:05 — 목록의 seenAt 과 같은 꼴
 const zero = (a: number[] | null | undefined) => !!a && a.every((v) => v === 0);
 
@@ -242,6 +245,7 @@ function onState(s: ScreenState) {
     && (p.safety_reason ?? null) === (s.safety_reason ?? null)
     && shown(p) === shown(s)
     && JSON.stringify(p.unlock_refused ?? null) === JSON.stringify(s.unlock_refused ?? null)   // 잠금 해제 거절 사유(contracts UnlockRefused)
+    && postureOf(p) === postureOf(s)
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }
@@ -415,6 +419,12 @@ export const rt = {
     if (!l.lease) return;
     if (gen == null) return set(id, { notice: '로봇 상태를 아직 받지 못했습니다. 잠시 뒤 다시 누르세요.' });
     send({ t: 'unlock', robot: id, lease_id: l.lease, stop_gen: gen }, (r) => set(id, { neutral: false, notice: r.ok ? undefined : say(r.error) }));
+  },
+  /** 자세 명령(일어서기·엎드리기) — 조종권자만. done(null) = 서버 접수, done(글) = 거부 이유 */
+  posture(id: string, action: 'STAND' | 'LIE', done: (why: string | null) => void) {
+    const l = get(id);
+    if (!l.lease) return done(say());
+    send({ t: 'posture', robot: id, lease_id: l.lease, action }, (r) => done(r.ok ? null : say(r.error)));
   },
   /** 50 ms 마다(0 포함, 조종권 심장 박동 겸). 넘기는 중·잠금 중(또는 상태 모름)은 0, 새 lease·잠금 해제 뒤에는 중립을 본 다음부터 보낸다.
    *  [전후, 회전] + 옆걸음 fy(서버 경유 실기 시험만 — serverdrive.tsx, 그 밖 0) → 계약 axes [fx, fy, fw] */
