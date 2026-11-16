@@ -181,7 +181,7 @@ async def serve(args, status, *, stop=None):
             cause_type = type(root).__name__ if root is not None else 'None'
             if cause_type not in names and cause_type != 'None':
                 cause_type = 'Exception'
-            mode = ('연결 거부 · 로봇 정지 명령을 보내지 못했습니다. 로봇이 누워 있다면 현장 담당자가 먼저 세워 주세요. '
+            mode = ('연결 거부 · 로봇 정지 명령을 보내지 못했습니다. '
                     '랜선과 로봇 제어 상태를 확인한 뒤 프로그램을 다시 실행하세요.' if output_failed else
                     '연결 거부 · 랜선·자동 점검·서버 연결을 확인한 뒤 프로그램을 다시 실행하세요')
             status.update(mode=mode, connected=False, code=None, qr=None, expires_at=None)

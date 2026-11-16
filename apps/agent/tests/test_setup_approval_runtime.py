@@ -300,7 +300,7 @@ def test_serve_diagnostic_is_one_fixed_line_without_exception_values(error_type,
 
 
 @pytest.mark.parametrize('private_type', [False, True])
-def test_serve_reports_first_explicit_cause_and_conditional_posture_hint(private_type, monkeypatch, capsys):
+def test_serve_reports_first_explicit_cause_without_manual_stand_hint(private_type, monkeypatch, capsys):
     from foothold_agent.setup import __main__ as setup
     from foothold_agent.go2_direct.sink import OutputError
     from foothold_agent.link.client import LocalPortError
@@ -321,7 +321,8 @@ def test_serve_reports_first_explicit_cause_and_conditional_posture_hint(private
         assert not await setup.serve(NS(), status, stop=stop)
         state = status.snapshot()
         assert not state['connected']
-        assert '누워 있다면 현장 담당자가 먼저 세워 주세요' in state['mode']
+        assert '로봇 정지 명령을 보내지 못했습니다' in state['mode']
+        assert '먼저 세워 주세요' not in state['mode']
         assert 'private' not in str(state)
     asyncio.run(scenario())
     output = capsys.readouterr().err

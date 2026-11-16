@@ -11,7 +11,7 @@ from foothold_agent.go2_direct.record import Recorder
 from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.readonly import Measurements
 from foothold_agent.go2_direct.reporting import devices
-from foothold_agent.go2_direct.sdk import connect_approved
+from foothold_agent.go2_direct.sdk import SportBoundary, connect_approved
 from foothold_agent.go2_direct.identity import ResumeGate
 from foothold_agent.go2_direct.server import DriveSession, ServerSink
 from foothold_agent.go2_direct.sink import Go2Sink
@@ -151,6 +151,9 @@ class Gate:
                 self.remember(expiry)
             self.last_expiry = expiry
             self.deadline = self.now()+max(0., expiry-self.wall())
+            for boundary in (self.active.sink.client, self.active.sink.emergency_client):
+                if isinstance(boundary, SportBoundary):
+                    boundary.renew(approval, deadline=self.deadline)
             return
         self.revoke()
         self.last_expiry = expiry
@@ -172,6 +175,9 @@ class Gate:
                 self.session.core.drop(self.session.core.controller, 'field approval unavailable')
         try:
             if active is not None:
+                for boundary in (active.sink.client, active.sink.emergency_client):
+                    if isinstance(boundary, SportBoundary):
+                        boundary.revoke()
                 # STOP/zero on the independent SDK lane before closing workers.
                 try:
                     active.sink.apply(MotionCommand('stop'), source='server')
@@ -224,7 +230,12 @@ class Gate:
             return
         feedback = self.inputs.feedback
         sink = sink_factory(*clients, phone_watchdog=True)
+        sink.posture_feedback = feedback.posture_snapshot
+        for boundary in clients:
+            if isinstance(boundary, SportBoundary):
+                boundary.renew(Approval(self.nic.name, self.serial, self.last_expiry), deadline=self.deadline)
         self.active = ServerSink(sink, self.session)
+        self.session.posture_gate = lambda: self.active is not None and self.active.sink is sink and self.valid()
         feedback.sink = sink
         sink.start_threads()
         if not self.valid():

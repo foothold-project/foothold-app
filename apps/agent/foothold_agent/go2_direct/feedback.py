@@ -145,6 +145,37 @@ class Feedback:
         """Shared display/readiness policy; only an explicit server list applies."""
         return error == 0 or (error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')
 
+    def posture_snapshot(self):
+        """Fresh identity-bound posture, never inferred from an RPC return code.
+
+        Unitree unitree_ros2 README Sportmode state: 5 lieDown, 8
+        recoveryStand, 0 idle/default stand, 1 balanceStand, 3 locomotion.
+        Height/progress/attitude disambiguate incomplete stand transitions.
+        """
+        return self._posture(self.sample())
+
+    def _posture(self, sample):
+        result = dict(state='UNKNOWN', mode=None, still=False, sequence=-1)
+        if sample is None:
+            return result
+        low, sport = sample
+        result['mode'] = sport['mode']
+        result['sequence'] = sport['sequence']
+        angles = low['attitude']
+        tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
+        safe = (self.error_allowed(sport['error']) and tilt is not None and tilt < math.pi/3
+                and number(sport['progress']) and sport['progress'] == 0)
+        result['still'] = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
+            and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
+        if safe and sport['mode'] == 5:
+            result['state'] = 'LYING'
+        elif safe and sport['mode'] in (0, 1, 3) and number(sport['height'], .20, .50):
+            result['state'] = 'STANDING'
+        elif self.error_allowed(sport['error']) and (sport['mode'] == 8 or
+                (sport['mode'] in (0, 1, 3, 5) and number(sport['progress']) and sport['progress'] != 0)):
+            result['state'] = 'TRANSITIONING'
+        return result
+
     def consume(self, hub):
         sample = self.sample()
         if sample is None:
@@ -163,7 +194,8 @@ class Feedback:
         still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
                  and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
         generation, latched = self.sink.feedback_context()
-        confirmed = (ready and still and low['generation'] == sport['generation'] and self.sink.confirm_stopped(
+        lying = self._posture(sample)['state'] == 'LYING'
+        confirmed = ((ready or lying) and still and low['generation'] == sport['generation'] and self.sink.confirm_stopped(
             generation=sport['generation'], sequence=sport['sequence'],
             received_at=sport['received'], stationary=True))
         self._last_ready = ready
