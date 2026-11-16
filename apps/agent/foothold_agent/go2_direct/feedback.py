@@ -6,6 +6,7 @@ Another LowState identity permanently faults this process, including at startup.
 """
 from copy import deepcopy
 import math
+import logging
 import threading
 import time
 
@@ -36,6 +37,7 @@ class Feedback:
         self._last_ready = False
         self._fault = False
         self.sink = None
+        self._journal_posture_value = None
 
     @property
     def fault(self):
@@ -118,6 +120,7 @@ class Feedback:
             low = deepcopy(self._low)
             sport = deepcopy(self._sport)
             fault = self._fault
+        self._journal_posture(sport)
         snapshot = self.state.snapshot()
         # The read-only display cache stamps when it is updated. Preserve the
         # actual DDS callback-entry receipts for phone/relay freshness instead.
@@ -141,6 +144,18 @@ class Feedback:
                 reason='EXPLICIT_SERVER_ALLOWLIST' if accepted else None)
         return snapshot
 
+    def _journal_posture(self, sport):
+        if sport is None:
+            return
+        height = float(sport['height']) if number(sport['height']) else -1.
+        value = (sport['mode'], sport['error'], height)
+        if value != self._journal_posture_value:
+            self._journal_posture_value = value
+            # Numeric diagnostics only: no identity, address, token or SDK text.
+            # Called on the reporting loop, outside the DDS/cache lock.
+            logging.getLogger(__name__).warning(
+                'GO2_POSTURE mode=%d motion_state=%d height_m=%.6f', *value)
+
     def error_allowed(self, error):
         """Shared display/readiness policy; only an explicit server list applies."""
         return error == 0 or (error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')
@@ -155,7 +170,8 @@ class Feedback:
         return self._posture(self.sample())
 
     def _posture(self, sample):
-        result = dict(state='UNKNOWN', mode=None, still=False, sequence=-1)
+        result = dict(state='UNKNOWN', mode=None, still=False, sequence=-1,
+                      standing_locked=False, walkable=False)
         if sample is None:
             return result
         low, sport = sample
@@ -163,17 +179,22 @@ class Feedback:
         result['sequence'] = sport['sequence']
         angles = low['attitude']
         tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
-        safe = (self.error_allowed(sport['error']) and tilt is not None and tilt < math.pi/3
+        safe = (tilt is not None and tilt < math.pi/3
                 and number(sport['progress']) and sport['progress'] == 0)
         result['still'] = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
             and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
-        if safe and sport['mode'] == 5:
+        if safe and sport['mode'] == 5 and number(sport['height'], 0., .50):
             result['state'] = 'LYING'
         elif safe and sport['mode'] in (0, 1, 3) and number(sport['height'], .20, .50):
             result['state'] = 'STANDING'
-        elif self.error_allowed(sport['error']) and (sport['mode'] == 8 or
+            result['walkable'] = self.error_allowed(sport['error'])
+        elif (sport['mode'] == 8 or
                 (sport['mode'] in (0, 1, 3, 5) and number(sport['progress']) and sport['progress'] != 0)):
             result['state'] = 'TRANSITIONING'
+        # Keep UNKNOWN on the existing wire: TRANSITIONING disables the web's
+        # recovery buttons. A measured joint lock is recoverable, never walkable.
+        result['standing_locked'] = (safe and sport['mode'] == 6 and
+            number(sport['height'], .20, .50) and result['still'])
         return result
 
     def consume(self, hub):
@@ -194,8 +215,9 @@ class Feedback:
         still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
                  and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
         generation, latched = self.sink.feedback_context()
-        lying = self._posture(sample)['state'] == 'LYING'
-        confirmed = ((ready or lying) and still and low['generation'] == sport['generation'] and self.sink.confirm_stopped(
+        posture = self._posture(sample)
+        posture_stopped = posture['state'] == 'LYING' or posture['standing_locked']
+        confirmed = ((ready or posture_stopped) and still and low['generation'] == sport['generation'] and self.sink.confirm_stopped(
             generation=sport['generation'], sequence=sport['sequence'],
             received_at=sport['received'], stationary=True))
         self._last_ready = ready

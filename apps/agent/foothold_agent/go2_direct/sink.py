@@ -116,6 +116,21 @@ class Go2Sink:
         return (self.posture_feedback() if self.posture_feedback is not None
                 else dict(state='UNKNOWN', mode=None, still=False))
 
+    def _walkable(self, sample=None):
+        # Legacy sinks without measured posture keep their existing fail-closed
+        # SDK return handling; server sinks always install the measured provider.
+        return self.posture_feedback is None or (sample or self._posture_sample()).get('walkable', False)
+
+    @staticmethod
+    def _standing(sample):
+        return sample['state'] == 'STANDING' or sample.get('standing_locked', False)
+
+    @classmethod
+    def _posture_start_allowed(cls, sample, action):
+        if action == 'stand_up':
+            return sample['state'] == 'LYING' or sample.get('standing_locked', False)
+        return action == 'stand_down' and cls._standing(sample)
+
     @property
     def posture_busy(self):
         with self._lock:
@@ -128,7 +143,7 @@ class Go2Sink:
             reason = ('BUSY' if self._posture is not None else
                 'NOT_AUTHORIZED' if not self.posture_authorized(lease) else
                 'MOVING' if self.pending != ZERO or self._ramp_velocity != ZERO or not sample['still'] else
-                'WRONG_POSTURE' if sample['state'] != ('LYING' if action == 'stand_up' else 'STANDING') else None)
+                'WRONG_POSTURE' if not self._posture_start_allowed(sample, action) else None)
             if reason is not None:
                 self.posture_result = dict(request_id=request_id, action=action,
                     status='REJECTED', code=reason, sdk_code=None)
@@ -164,23 +179,28 @@ class Go2Sink:
                 self._posture_finish('FAILED', 'AUTHORITY_LOST', None)
                 return
             sample = self._posture_sample()
-            if sample['state'] == 'UNKNOWN' or self.now() >= job['deadline']:
-                self._posture_finish('FAILED', 'FEEDBACK_UNAVAILABLE' if sample['state'] == 'UNKNOWN' else 'TIMEOUT', None)
+            if self.now() >= job['deadline']:
+                self._posture_finish('FAILED', 'TIMEOUT', None)
                 return
+            if sample['state'] == 'UNKNOWN' and not sample.get('standing_locked', False):
+                return  # a brief DDS gap/unknown mode cannot strand a joint lock
             method = None
             if job['stage'] == 'start':
-                expected = 'LYING' if job['action'] == 'stand_up' else 'STANDING'
-                if sample['state'] != expected or not sample['still']:
+                expected = self._posture_start_allowed(sample, job['action'])
+                if not expected or not sample['still']:
                     self._posture_finish('FAILED', 'POSTURE_CHANGED', None)
                     return
-                method = 'StandUp' if job['action'] == 'stand_up' else 'StandDown'
-            elif (job['stage'] == 'stand' and sample['state'] == 'STANDING' and sample['still']
+                if job['action'] == 'stand_up':
+                    method = 'BalanceStand' if sample.get('standing_locked', False) else 'StandUp'
+                else:
+                    method = 'StandDown'
+            elif (job['stage'] == 'stand' and self._standing(sample) and sample['still']
                     and sample['sequence'] > job['sequence']):
                 method = 'BalanceStand'
             elif job['stage'] == 'confirm':
                 target = 'STANDING' if job['action'] == 'stand_up' else 'LYING'
                 if sample['sequence'] > job['sequence'] and sample['state'] == target and sample['still'] and (
-                        target == 'LYING' or sample['mode'] in (1, 3)):
+                        target == 'LYING' or (sample['mode'] in (1, 3) and self._walkable(sample))):
                     self._posture_finish('SUCCEEDED', 'CONFIRMED', 0)
                 return
             if method is None:
@@ -200,7 +220,9 @@ class Go2Sink:
                     return
                 if method == 'StandDown':
                     current = self._posture_sample()
-                    if current['state'] != 'STANDING' or not current['still']:
+                    if current['state'] == 'UNKNOWN' and not current.get('standing_locked', False):
+                        return  # wait, then recheck StopMove before any StandDown
+                    if not self._standing(current) or not current['still']:
                         self._posture_finish('FAILED', 'POSTURE_CHANGED', None)
                         return
             code = getattr(self.client, method)()
@@ -319,7 +341,7 @@ class Go2Sink:
                         and (self._source_received is None or input_received_at > self._source_received)):
                     self._source_received = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
-            posture_held = self.posture_feedback is not None and self._posture_sample()['state'] != 'STANDING'
+            posture_held = not self._walkable()
             target = ZERO if self.latched or self._neutral_required or self._posture is not None or posture_held else velocity
             if target != self.pending:
                 # Do not spend preceding idle time on a newly received target.
@@ -358,11 +380,11 @@ class Go2Sink:
             print(f'SDK_OUTPUT_FAILED method={method} code={name}', file=sys.stderr)
             raise
         if type(code) is not int or code != 0:
-            # Only a fresh, known non-standing posture explains stop rejection.
-            # Exceptions, invalid responses and unknown/stale posture still fail.
+            # Non-walkable/unknown posture may reject stopping as an unsupported
+            # operation. Keep transport/observations alive, never enable motion.
             sample = self._posture_sample()
-            if (type(code) is int and method == 'StopMove' and sample['mode'] in (5, 8) and
-                    sample['state'] in ('LYING', 'TRANSITIONING')):
+            if (type(code) is int and not self._walkable(sample) and
+                    (method == 'StopMove' or (method == 'Move' and args == ZERO))):
                 return
             value = str(code) if type(code) is int else 'InvalidReturnType'
             print(f'SDK_OUTPUT_FAILED method={method} code={value}', file=sys.stderr)
@@ -373,7 +395,9 @@ class Go2Sink:
     def _stop_output(self, client):
         first = None
         sample = self._posture_sample()
-        stop_only = sample['state'] in ('LYING', 'TRANSITIONING') or self._posture_stop_only
+        stop_only = (sample['state'] in ('LYING', 'TRANSITIONING') or
+            sample.get('standing_locked', False) or self._posture_stop_only or
+            (sample['state'] == 'STANDING' and not self._walkable(sample)))
         for method, args in ([('StopMove', ())] if stop_only else [('Move', ZERO), ('StopMove', ())]):
             try:
                 self._call(client, method, *args)
@@ -414,7 +438,7 @@ class Go2Sink:
             try:
                 if urgent:
                     self._stop_output(self.client)
-                elif self._posture is None and (self.posture_feedback is None or self._posture_sample()['state'] == 'STANDING'):
+                elif self._posture is None and self._walkable():
                     self._call(self.client, 'Move', *velocity)
                 self._posture_step()
                 # An in-flight SDK call cannot be cancelled. Compensate on its
