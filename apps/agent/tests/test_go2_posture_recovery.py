@@ -1,5 +1,7 @@
 """B1/B2 regression with numeric V2 states; fake SDK/clock only."""
 import logging
+import threading
+import time
 
 import pytest
 
@@ -127,7 +129,7 @@ def test_stop_between_standup_and_balance_can_recover_joint_lock(action):
     assert session.core.latch and sink.latched
 
 
-def test_mode_error_and_height_changes_emit_only_numeric_diagnostics(caplog):
+def test_mode_and_error_changes_emit_numeric_diagnostics_with_cm_height(caplog):
     _, _, _, _, session, _, measured, _ = rig()
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger='foothold_agent.go2_direct.feedback'):
@@ -138,8 +140,65 @@ def test_mode_error_and_height_changes_emit_only_numeric_diagnostics(caplog):
         measured(6, body_height=.3, error_code=1005); session._state()
     logs = [r.getMessage() for r in caplog.records if r.name == 'foothold_agent.go2_direct.feedback']
     assert logs == [
-        'GO2_POSTURE mode=5 motion_state=1004 height_m=0.100000',
-        'GO2_POSTURE mode=5 motion_state=1005 height_m=0.100000',
-        'GO2_POSTURE mode=5 motion_state=1005 height_m=0.150000',
-        'GO2_POSTURE mode=6 motion_state=1005 height_m=0.300000']
+        'GO2_POSTURE mode=5 motion_state=1004 height_m=0.10',
+        'GO2_POSTURE mode=5 motion_state=1005 height_m=0.10',
+        'GO2_POSTURE mode=6 motion_state=1005 height_m=0.30']
     assert '1234' not in ''.join(logs) and 'fake-lease' not in ''.join(logs)
+
+
+def test_ten_seconds_of_fifty_hz_height_noise_produces_at_most_one_journal_line(caplog):
+    from foothold_agent.go2_direct.feedback import Feedback
+    from test_go2_direct import Clock
+    clock = Clock()
+    feedback = Feedback('1234-5678', now=clock)
+    with caplog.at_level(logging.WARNING, logger='foothold_agent.go2_direct.feedback'):
+        for tick in range(1, 501):
+            clock.value += .02
+            feedback.lowstate(low(tick))
+            feedback.sportmodestate(sport(tick, mode=0, error_code=100,
+                body_height=.30 + .0001*(tick % 13)))
+            feedback.telemetry()
+    logs = [r.getMessage() for r in caplog.records if r.name == 'foothold_agent.go2_direct.feedback']
+    assert logs == ['GO2_POSTURE mode=0 motion_state=100 height_m=0.30']
+
+
+@pytest.mark.parametrize('mode', [1, 3])
+def test_stood_but_motion_state_not_allowed_reports_distinct_failure_once(mode, caplog):
+    _, sink, normal, _, session, _, measured, frame = rig()
+    request(frame); sink.drain()
+    measured(6, error_code=1005); sink.drain()
+    assert normal.calls[-1] == ('BalanceStand', ())
+    caplog.clear()
+    measured(mode, error_code=1004)
+    sink.drain(); sink.drain()
+    assert sink.posture_result == dict(request_id='request', action='stand_up',
+        status='FAILED', code='STOOD_NOT_WALKABLE', sdk_code=0)
+    assert sink.latched and session.core.latch and session.connected
+    assert session.core.intent == sink.pending == ZERO
+    assert not any(name == 'Move' and axes != ZERO for name, axes in normal.calls)
+    logs = [r.getMessage() for r in caplog.records if r.name == 'foothold_agent.go2_direct.sink']
+    assert logs == [f'GO2_POSTURE_STOOD_NOT_WALKABLE mode={mode} motion_state=1004 height_m=0.30']
+
+
+def test_stood_diagnostic_journal_cannot_own_stop_memory_lock(monkeypatch):
+    _, sink, _, emergency, _, _, measured, frame = rig()
+    request(frame); sink.drain()
+    measured(6, error_code=1005); sink.drain()
+    measured(1, error_code=1004)
+    entered, release = threading.Event(), threading.Event()
+    def blocked_journal(*_args):
+        entered.set()
+        assert release.wait(1)
+    monkeypatch.setattr(logging.getLogger('foothold_agent.go2_direct.sink'), 'warning', blocked_journal)
+    worker = threading.Thread(target=sink.drain)
+    worker.start()
+    try:
+        assert entered.wait(1)
+        before = time.monotonic()
+        frame('stop', stop_ref=20)
+        sink.check_watchdog()
+        assert time.monotonic()-before < .1
+        assert emergency.calls == [('StopMove', ())]
+    finally:
+        release.set(); worker.join(1)
+    assert not worker.is_alive()

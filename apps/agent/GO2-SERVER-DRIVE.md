@@ -24,9 +24,9 @@ mode 6은 높이 0.20~0.50 m·progress=0·기울기 60도 미만과 기존 실�
 
 SDK 근거는 고정 Python SDK [SportClient](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/unitree_sdk2py/go2/sport/sport_client.py)의 StandUp(1004)·BalanceStand(1002)·StandDown(1005)·StopMove(1003)와 공식 [Go2 기본 예제](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_sport_client.cpp)의 normal_stand/BalanceStand 분기다. 위 순서는 이 API 의미를 이용한 구현 정책이며 펌웨어별 자세 도달 시간과 전원 종료 자세는 **실기 미확인**이다. RPC 코드 0만으로 완료라고 보고하지 않는다.
 
-화면은 `posture` 메시지에 `id,robot,lease_id,action`을 보내고, 서버는 권한 확인 후 `request_id,lease_id,action`을 에이전트에 전달한다. `state.posture_result`는 `{request_id,action,status,code,sdk_code}`이며 RUNNING/SUCCEEDED/REJECTED/FAILED와 원본 정수 SDK 거부 코드를 보고한다. 계약은 `apps/contracts/models.py`와 생성 TS/Schema가 정본이다. 완료·실패 뒤 이동은 기존 실측 정지 → 명시적 잠금 해제 → 새 중립 입력을 다시 거친다.
+화면은 `posture` 메시지에 `id,robot,lease_id,action`을 보내고, 서버는 권한 확인 후 `request_id,lease_id,action`을 에이전트에 전달한다. `state.posture_result`는 `{request_id,action,status,code,sdk_code}`이며 RUNNING/SUCCEEDED/REJECTED/FAILED와 원본 정수 SDK 거부 코드를 보고한다. BalanceStand 후 새 mode 1·3과 정지로 서기는 확인됐지만 운동 상태 번호가 이동 허용 밖이면 기다리다 TIMEOUT으로 끝내지 않고 `FAILED/STOOD_NOT_WALKABLE`로 구분한다. SDK 호출 자체는 성공했으므로 sdk_code는 0이며 이동 잠금을 유지한다. 웹은 «로봇은 섰지만 걷기 허용 상태가 아닙니다. 현장에서 로봇 상태를 확인하세요.»를 표시한다. 이 결과 때에도 mode·운동 상태 번호·높이를 journal에 한 줄 남기며 STOP이 쓰는 메모리 잠금 안에서 기록하지 않는다. 계약은 `apps/contracts/models.py`와 생성 TS/Schema가 정본이다. 완료·실패 뒤 이동은 기존 실측 정지 → 명시적 잠금 해제 → 새 중립 입력을 다시 거친다.
 
-노트북 journal에는 보고 루프가 관측한 mode·운동 상태 번호·높이 조합이 바뀔 때마다 `GO2_POSTURE mode=5 motion_state=1004 height_m=0.100000` 형식으로 한 줄을 남긴다. 예제 숫자는 가짜 값이다. 같은 조합은 반복하지 않으며 기체번호·주소·토큰·SDK 원문을 넣지 않는다. 높이가 잘못된 값이면 숫자 -1로 기록한다. DDS 콜백/캐시 잠금 안에서 journal을 쓰지 않는다.
+노트북 journal에는 보고 루프가 관측한 **mode 또는 운동 상태 번호가 바뀔 때만** `GO2_POSTURE mode=5 motion_state=1004 height_m=0.10` 형식으로 한 줄을 남긴다. 예제 숫자는 가짜 값이다. 높이는 그 줄에만 소수 두 자리(cm)로 싣고, 높이 변화만으로는 새 줄을 만들지 않는다. 기체번호·주소·토큰·SDK 원문을 넣지 않는다. 높이가 잘못된 값이면 숫자 -1로 기록한다. DDS 콜백/캐시 잠금 안에서 journal을 쓰지 않는다.
 
 ### 2026-11-16 #366 최초 소프트웨어 검증
 
@@ -37,6 +37,14 @@ SDK 근거는 고정 Python SDK [SportClient](https://github.com/unitreerobotics
 ### #366 사후 B1·B2 수정 검증
 
 `dev` 기준 `574d509`에서 자세/이동 허용 분리·mode 6 복구·15초 내 측정 공백 대기를 수정했다. `env -i`에서 에이전트 setup·Go2·Core·STOP·link·stall **601개**, 서버 posture·server-drive 네 파일 **112개**, 계약 **234개** 통과. 계약 생성물 **296개 일치**. 에이전트 자세 시험은 기존 수정 포함 **52개**이며 B1·B2 추가 회귀 22개가 위 숫자에 포함된다. error_code 1004·1005·uint32 최댓값에서 엎드림/기타 자세 연결 유지와 이동 차단, mode 6의 중간 단계 및 직접 두 자세 명령, 200 ms 초과 공백 후 재개·15초 만료·STOP 후 재요청, mode/운동 상태/높이 변경 숫자 기록을 확인했다. 시간 제한 제거·SDK 승인 경계·기존 Core·속도표·램프·웹·계약은 변경하지 않았다. 기존 STOP 회귀의 UNKNOWN 상태 `Move(0)`+`StopMove` 호출 순서도 유지했다. 실기·DDS 참가·설치본/서버 교체는 하지 않았으며 실제 펌웨어의 mode·운동 상태 번호·높이와 자세 전환 효과는 다음 현장에서 확인해야 한다.
+
+### #368 사후 N1·결과 문구·종료 시험 검증
+
+`dev` 기준 `de45001`에서 journal 조건을 mode·운동 상태 번호 두 값으로 줄였다. 가짜 시계의 50 Hz·10초·높이 잡음 500개 샘플에서 기록은 **1줄**이다. 서기는 확인됐지만 이동 허용 번호가 아닌 경우는 `STOOD_NOT_WALKABLE` 결과와 숫자 journal 한 줄로 구분한다. 기존 계약의 code 문자열을 사용하며, 웹은 승인된 문구 매핑 한 줄과 FAILED/REJECTED 표시 시험만 추가했다.
+
+`env -i` 에이전트 Go2/setup/Core/STOP/link/stall 회귀 **605개**, 웹 타입 검사와 `serverdrive.test.tsx` **32개** 통과. 계약 생성물 **296개 일치**. 자세 시험 56개에는 journal 상한·새 결과 구분·journal 대기 중 독립 STOP 시험이 포함된다. 서버·계약 모델과 나머지 웹은 변경하지 않았다.
+
+종료 순서 문제는 수정 전 `574d509`의 에이전트 소스를 따로 읽어 같은 기존 WS 시험을 3개 매개변수 × 20회(두 프로세스) 실행해 **58개 통과·2개 실패**로 재현했다. 둘 다 마지막 두 호출이 StopMove→Move(0)로 끝나던 기존 순서 오류다. 정상 0 출력 틱 두 번을 종료 전에 허용하는 모의 스케줄에서도 수정 전 기존 검사는 3개 실패, 수정 후 검사는 3개 통과했다. STOP 출력 경로는 변경하지 않고 시험만 새 zero/StopMove 증거를 두 경로에서 0.25초 안에 확인하게 했다. 잠금 관측 이후 두 경로의 비영 Move 0건·Core/출력 잠금·목표 0 검사는 유지한다. 수정 후 일반 반복 **30개 모두 통과**했으며 이는 가끔 실패할 가능성이 영구히 없다는 보장은 아니다. 실기·DDS 참가·설치본/서버 교체·재시작은 수행하지 않았다.
 
 ## 노트북 연결 프로그램으로 시작
 

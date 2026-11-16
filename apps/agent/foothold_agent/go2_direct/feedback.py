@@ -148,13 +148,13 @@ class Feedback:
         if sport is None:
             return
         height = float(sport['height']) if number(sport['height']) else -1.
-        value = (sport['mode'], sport['error'], height)
+        value = (sport['mode'], sport['error'])
         if value != self._journal_posture_value:
             self._journal_posture_value = value
             # Numeric diagnostics only: no identity, address, token or SDK text.
             # Called on the reporting loop, outside the DDS/cache lock.
             logging.getLogger(__name__).warning(
-                'GO2_POSTURE mode=%d motion_state=%d height_m=%.6f', *value)
+                'GO2_POSTURE mode=%d motion_state=%d height_m=%.2f', *value, height)
 
     def error_allowed(self, error):
         """Shared display/readiness policy; only an explicit server list applies."""
@@ -171,11 +171,13 @@ class Feedback:
 
     def _posture(self, sample):
         result = dict(state='UNKNOWN', mode=None, still=False, sequence=-1,
-                      standing_locked=False, walkable=False)
+                      standing_locked=False, walkable=False, motion_state=None, height=None)
         if sample is None:
             return result
         low, sport = sample
         result['mode'] = sport['mode']
+        result['motion_state'] = sport['error']
+        result['height'] = sport['height'] if number(sport['height']) else None
         result['sequence'] = sport['sequence']
         angles = low['attitude']
         tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())

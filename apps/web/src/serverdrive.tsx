@@ -73,6 +73,7 @@ const POSE_WHY: Record<string, string> = {
   STOPPED: '정지 요청으로 동작을 멈췄습니다. 현장에서 로봇을 확인하세요.', DISCONNECTED: '로봇 연결이 끊겼습니다. 현장에서 로봇을 확인하세요.',
   FEEDBACK_UNAVAILABLE: '로봇이 자세를 알려 주지 않습니다. 현장에서 로봇을 확인하세요.',
   TIMEOUT: '시간 안에 끝나지 않았습니다. 현장에서 로봇을 확인하세요.', SDK_REJECTED: '로봇이 동작을 받지 않았습니다. 잠시 뒤 다시 누르세요.',
+  STOOD_NOT_WALKABLE: '로봇은 섰지만 걷기 허용 상태가 아닙니다. 현장에서 로봇 상태를 확인하세요.',
 };
 /** 20초(POSE_WAIT_MS) 안에 최종 결과가 없을 때 */
 export const POSE_LOST = '로봇에서 결과를 받지 못했습니다. 현장에서 로봇을 확인하세요.';
