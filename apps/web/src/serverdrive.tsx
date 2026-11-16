@@ -74,6 +74,8 @@ const POSE_WHY: Record<string, string> = {
   FEEDBACK_UNAVAILABLE: '로봇이 자세를 알려 주지 않습니다. 현장에서 로봇을 확인하세요.',
   TIMEOUT: '시간 안에 끝나지 않았습니다. 현장에서 로봇을 확인하세요.', SDK_REJECTED: '로봇이 동작을 받지 않았습니다. 잠시 뒤 다시 누르세요.',
 };
+/** 20초(POSE_WAIT_MS) 안에 최종 결과가 없을 때 */
+export const POSE_LOST = '로봇에서 결과를 받지 못했습니다. 현장에서 로봇을 확인하세요.';
 export const poseWhy = (code?: string | null) => POSE_WHY[code ?? ''] ?? '로봇이 동작을 하지 못했습니다. 현장에서 로봇을 확인하세요.';
 /** 자세 명령 뒤 이 시간 안에 로봇의 결과 보고가 없으면 «확인하지 못함». 로봇 쪽 동작 시한보다 길게(실기 동작 시간에 맞춰 고치는 값) */
 export const POSE_WAIT_MS = 20000;
@@ -126,9 +128,14 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   const held = useRef(new Set<Tok>()), dlg = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null);
   const feeds: Record<DriveCh, DriveFeed> = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar'), depth: useDriveFeed(r.id, 'depth', full === 'depth') };   // 뎁스는 고른 동안만 연다
   // pose = 내가 보낸 자세 명령(결과가 올 때까지 두 단추 잠금), prev = 누를 때 보이던 앞 결과(같은 것을 내 결과로 읽지 않게)
-  const [pose, setPose] = useState<{ k: PoseKey; prev: string | null } | null>(null), [poseMsg, setPoseMsg] = useState('');
+  const [pose, setPose] = useState<{ k: PoseKey; prev: string | null; at: number } | null>(null), [poseMsg, setPoseMsg] = useState('');
   const posture = s?.posture?.state ?? null, res = s?.posture_result ?? null;
-  const poseNow: PoseKey | null = pose?.k ?? (res?.status === 'RUNNING' ? POSE_KEY[res.action] : null), shifting = !!poseNow || posture === 'TRANSITIONING';
+  // «실행 중» 보고도 요청마다 POSE_WAIT_MS 까지만 믿는다(REVIEW-365 B1: 최종 결과가 안 오면 단추가 영영 잠김). 내 요청이면 누른 때부터, 아니면 처음 본 때부터 — 250 ms 틱이 다시 그린다
+  const run = useRef<{ id: string; at: number } | null>(null);
+  if (res?.status === 'RUNNING' && run.current?.id !== res.request_id) run.current = { id: res.request_id, at: pose && res.request_id !== pose.prev ? pose.at : rt.now() };
+  const running = res?.status === 'RUNNING' && rt.now() - run.current!.at < POSE_WAIT_MS ? POSE_KEY[res.action] : null;
+  const lost = res?.status === 'RUNNING' && !running ? `${POSE[POSE_KEY[res.action]].fail} — ${POSE_LOST}` : '';
+  const poseNow: PoseKey | null = pose?.k ?? running, shifting = !!poseNow || posture === 'TRANSITIONING';
   // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
   const ready = mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
@@ -182,12 +189,13 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     setPose(null); setPoseMsg(res.status === 'SUCCEEDED' ? POSE[pose.k].done : `${POSE[pose.k].fail} — ${poseWhy(res.code)}`);
   }, [pose, res?.request_id, res?.status]);
   useEffect(() => { if (!mine) setPose(null); }, [mine]);
+  useEffect(() => { if (res?.status === 'RUNNING') setPoseMsg(''); }, [res?.request_id]);   // 새 동작이 시작되면 앞 결과 글은 지운다
   useEffect(() => {
     if (!pose) return;
-    const t = setTimeout(() => { setPose(null); setPoseMsg(`${POSE[pose.k].fail} — 로봇이 결과를 알려 주지 않았습니다. 현장에서 로봇을 확인하세요.`); }, POSE_WAIT_MS);
+    const t = setTimeout(() => { setPose(null); setPoseMsg(`${POSE[pose.k].fail} — ${POSE_LOST}`); }, POSE_WAIT_MS);
     return () => clearTimeout(t);
   }, [pose]);
-  const askPose = (k: PoseKey) => { zero(); setPoseMsg(''); setPose({ k, prev: res?.request_id ?? null }); rt.posture(r.id, POSE[k].act, (bad) => { if (bad) { setPose(null); setPoseMsg(`${POSE[k].fail} — ${bad}`); } }); };   // 서버가 해제 요청을 거절(rt.unlock notice) — 대기 아님
+  const askPose = (k: PoseKey) => { zero(); setPoseMsg(''); setPose({ k, prev: res?.request_id ?? null, at: rt.now() }); rt.posture(r.id, POSE[k].act, (bad) => { if (bad) { setPose(null); setPoseMsg(`${POSE[k].fail} — ${bad}`); } }); };   // 서버가 해제 요청을 거절(rt.unlock notice) — 대기 아님
   // 전체화면 = 모달: 열 때 «작게 보기»로 초점, 밖은 inert, 닫을 때 연 칸으로 초점 복귀
   useEffect(() => {
     if (!full || !dlg.current) return;
@@ -262,7 +270,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
       {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE'}
         onClick={() => askPose(k)}>{POSE[k].name}</button>)}
       <span className="lbl">{POWER_HINT}</span>
-      {(shifting || poseMsg) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg}</span>}
+      {(shifting || poseMsg || lost) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg || lost}</span>}
     </div>}
     {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
       <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>}

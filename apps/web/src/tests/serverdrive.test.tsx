@@ -9,7 +9,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { LYING_TEXT, POSE, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
 
@@ -277,6 +277,28 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     tick(POSE_WAIT_MS);
     expect(msg()).toContain(POSE.up.fail); expect(msg()).toContain('현장에서 로봇을 확인하세요');
     expect(locked()).toBe('false,false');
+  });
+
+  it('REVIEW-365 B1: «실행 중» 보고 뒤 최종 결과가 안 오면 20초 뒤 «결과를 받지 못했습니다» + 자세 단추 회복 — 실제 자세에 따른 이동 잠금·STOP 은 그대로', () => {
+    ready(); view(); posture('LYING');
+    click(pose('up'));
+    result('q1', 'stand_up', 'RUNNING', 'STARTED');   // 최종 결과는 끝내 안 옴, 자세도 엎드린 그대로
+    tick(POSE_WAIT_MS - 1000);
+    expect(msg()).toBe(POSE.up.doing); expect(locked()).toBe('true,true');
+    tick(2000);
+    expect(msg()).toBe(`${POSE.up.fail} — ${POSE_LOST}`); expect(locked()).toBe('false,false');
+    expect(moves().every((b) => b.disabled)).toBe(true); expect(hold(['ArrowUp'])).toBe('0,0,0');   // 엎드려 있으니 이동은 잠금
+    expect(($('[data-sd-stop="full"]') as HTMLButtonElement).disabled).toBe(false);
+    click(pose('up'));   // 다시 누를 수 있고, 새 요청의 결과는 읽는다
+    expect(msg()).toBe(POSE.up.doing);
+    posture('STANDING'); result('q2', 'stand_up', 'SUCCEEDED', 'CONFIRMED');
+    expect(msg()).toBe(POSE.up.done); tick(100); expect(hold(['ArrowUp'])).toBe('1.5,0,0');
+    // 내가 누르지 않은 «실행 중»(다른 곳에서 시작)도 처음 본 때부터 20초까지만 잠근다
+    result('q3', 'stand_down', 'RUNNING', 'STARTED');
+    expect(locked()).toBe('true,true'); expect(msg()).toBe(POSE.down.doing);
+    tick(POSE_WAIT_MS + 500);
+    expect(locked()).toBe('false,false'); expect(msg()).toBe(`${POSE.down.fail} — ${POSE_LOST}`);
+    expect(hold(['ArrowUp'])).toBe('1.5,0,0');   // 서 있다고 보고 중이면 이동은 된다
   });
 
   it('자세 모름·바꾸는 중이면 이동 잠금, 자세를 알리지 않는 로봇(옛 에이전트)은 전처럼 움직인다', () => {
