@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "Go2ActionParams": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": -1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 1,
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "pitch": {
+          "anyOf": [
+            {
+              "maximum": 0.5,
+              "minimum": -0.5,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pitch"
+        },
+        "roll": {
+          "anyOf": [
+            {
+              "maximum": 0.5,
+              "minimum": -0.5,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roll"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "maximum": 0.5,
+              "minimum": -0.5,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Yaw"
+        }
+      },
+      "title": "Go2ActionParams",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ScreenAction",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "Damp",
+        "BalanceStand",
+        "StopMove",
+        "StandUp",
+        "StandDown",
+        "RecoveryStand",
+        "Euler",
+        "Sit",
+        "RiseSit",
+        "SpeedLevel",
+        "Hello",
+        "Stretch",
+        "Content",
+        "Dance1",
+        "Dance2",
+        "SwitchJoystick",
+        "Pose",
+        "Scrape",
+        "FrontFlip",
+        "FrontJump",
+        "FrontPounce",
+        "Heart",
+        "StaticWalk",
+        "TrotRun",
+        "EconomicGait",
+        "LeftFlip",
+        "BackFlip",
+        "HandStand",
+        "FreeWalk",
+        "FreeBound",
+        "FreeJump",
+        "FreeAvoid",
+        "ClassicWalk",
+        "WalkUpright",
+        "CrossStep",
+        "AutoRecoverySet",
+        "AutoRecoveryGet",
+        "SwitchAvoidMode",
+        "CheckMode",
+        "SelectMode"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "confirmed": {
+      "default": false,
+      "title": "Confirmed",
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "params": {
+      "$ref": "#/$defs/Go2ActionParams"
+    },
+    "proto": {
+      "const": "fh-rt/1",
+      "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "t": {
+      "const": "action",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "id",
+    "robot",
+    "t",
+    "lease_id"
+  ],
+  "title": "ScreenAction",
+  "type": "object"
+}

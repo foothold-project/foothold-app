@@ -11,6 +11,7 @@ import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
 import { ServerDrive, canDrive, stopLine } from '../serverdrive';
+import { ActionTrial } from './actiontrial';
 import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
@@ -164,7 +165,7 @@ function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
       {step(3, ready, on && !ok, '조종 가능', blocked?.length ? blocked.map((reason, i) => <span key={reason} data-drive-block={reason}>{i > 0 && <br />}{DRIVE_BLOCKED[reason]}</span>) : ready ? '서버가 담당·기체번호·서버 전체 스위치·로봇 연결을 확인했습니다.'
         : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.', undefined, 'fl-step-drive')}
     </ol>
-    {ok && <ServerDrive c={c} r={r} />}
+    {ok ? <ServerDrive c={c} r={r} /> : !r.sim && <ActionTrial robot={r} allowed={false} />}
   </section>;
 }
 

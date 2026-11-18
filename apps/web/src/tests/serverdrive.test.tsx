@@ -12,6 +12,7 @@ import { simTune } from '../phone';
 import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
+import { rt } from '../rt';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -539,7 +540,10 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     expect(btn('조종 끝내기').closest('[data-sd-full]')).not.toBeNull();   // 조종 끝내기는 보이는 쪽(조종 화면) 하나에만
     expect(full.closest('[inert]')).toBeNull();
     expect(full.querySelector('[data-sd-lock] button')!.textContent).toBe('② 잠금 해제');   // 작게 보기 없이 해제
-    const f = [...full.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    const f = [...full.querySelectorAll<HTMLElement>('button:not([disabled]), summary')].filter((el) => {
+      const closed = el.closest('details:not([open])');
+      return !closed || el.tagName === 'SUMMARY' && el.parentElement === closed;
+    });
     const tab = (shift = false) => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: shift, bubbles: true, cancelable: true })); });
     f[0].focus(); tab(true); expect(document.activeElement).toBe(f[f.length - 1]);
     tab(); expect(document.activeElement).toBe(f[0]);
@@ -645,4 +649,17 @@ describe('서버 경유 뎁스', () => {
     expect($('[data-no-signal="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
     expect(has()).toBe(false);
   });
+});
+
+
+it('동작 결과의 요청 ID는 페이지 재접속 뒤의 이전 결과와 겹치지 않는 UUID이며 기존 조종 소켓을 쓴다', () => {
+  ready();
+  const count = FakeWS.all.length, done = vi.fn();
+  act(() => { rt.action('r7', 'Hello', {}, false, done); rt.action('r7', 'Hello', {}, false, done); });
+  const requests = w.of('action');
+  expect(requests).toHaveLength(2);
+  expect(requests[0].id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(requests[1].id).not.toBe(requests[0].id);
+  expect(FakeWS.all.length).toBe(count);
+  expect(done).toHaveBeenCalledWith(null, requests[0].id);
 });

@@ -13,6 +13,7 @@ import { LidarMap } from './lidarmap';
 import { DEPTH_HINT, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
 import { adminReal, type Robot, type Tone } from './fake';
 import { api } from './api';
+import { ActionTrial } from './screens/actiontrial';
 import { realCaps, simTune, useTuneSettings } from './phone';
 import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 
@@ -100,7 +101,10 @@ function inertOutside(el: HTMLElement) {
 /** Tab·Shift+Tab 을 대화상자 안에서 돌림 */
 function trapTab(e: KeyEv<HTMLElement>) {
   if (e.key !== 'Tab') return;
-  const f = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')];
+  const f = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((el) => {
+    const closed = el.closest('details:not([open])');
+    return !closed || el.tagName === 'SUMMARY' && el.parentElement === closed;
+  });
   if (!f.length) return;
   const i = f.indexOf(document.activeElement as HTMLElement);
   e.preventDefault(); f[e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : (i + 1) % f.length].focus();
@@ -136,7 +140,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   if (res?.status === 'RUNNING' && run.current?.id !== res.request_id) run.current = { id: res.request_id, at: pose && res.request_id !== pose.prev ? pose.at : rt.now() };
   const running = res?.status === 'RUNNING' && rt.now() - run.current!.at < POSE_WAIT_MS ? POSE_KEY[res.action] : null;
   const lost = res?.status === 'RUNNING' && !running ? `${POSE[POSE_KEY[res.action]].fail} — ${POSE_LOST}` : '';
-  const poseNow: PoseKey | null = pose?.k ?? running, shifting = !!poseNow || posture === 'TRANSITIONING';
+  const poseNow: PoseKey | null = pose?.k ?? running, shifting = !!poseNow || posture === 'TRANSITIONING' || s?.action_result?.status === 'RUNNING';
   // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
   const ready = mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
@@ -273,6 +277,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
       <span className="lbl">{POWER_HINT}</span>
       {(shifting || poseMsg || lost) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg || lost}</span>}
     </div>}
+    <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />
     {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
       <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>}
   </>;

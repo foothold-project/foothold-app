@@ -1,0 +1,85 @@
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { Live } from '../rt';
+import { ActionTrial, ACTION_NAMES, DANGEROUS, actionResultText } from '../screens/actiontrial';
+import { ROBOTS } from './fixtures';
+import { state } from './fakeWs';
+
+const mock = vi.hoisted(() => ({ live: {} as Live, link: 'open', action: vi.fn(), now: 1000 }));
+vi.mock('../rt', () => ({ useLive: () => mock.live, rt: { now: () => mock.now, link: () => ({ at: mock.link }), action: mock.action } }));
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let root: Root, box: HTMLDivElement;
+beforeEach(() => {
+  vi.useFakeTimers(); mock.link = 'open'; mock.now = 1000; mock.action.mockReset();
+  mock.live = { lease: 'lease', stateAt: 1000, state: state('r7', { posture: { state: 'STANDING', mode: 1 } }) } as Live;
+  box = document.createElement('div'); document.body.append(box); root = createRoot(box);
+});
+afterEach(() => { act(() => root.unmount()); box.remove(); vi.useRealTimers(); });
+const render = (allowed = true, sim = false) => act(() => root.render(<ActionTrial robot={{ ...ROBOTS[1], sim }} allowed={allowed} />));
+const button = (api: string) => box.querySelector<HTMLButtonElement>(`[data-go2-action="${api}"]`)!;
+const click = (el: HTMLElement) => act(() => el.click());
+
+it('offers every closed-list API, excludes Move/ReleaseMode/lowcmd and hides all controls on simulation', () => {
+  render();
+  expect(box.querySelectorAll('[data-go2-action]').length).toBe(Object.keys(ACTION_NAMES).length);
+  expect(box.querySelector('details')?.open).toBe(false);
+  for (const name of ['Move', 'ReleaseMode', 'lowcmd']) expect(button(name)).toBeNull();
+  expect(button('SelectMode').disabled).toBe(true);
+  render(true, true); expect(box.innerHTML).toBe('');
+});
+
+it.each(['not_allowed', 'no_lease', 'offline', 'stale'])('locks buttons with a reason: %s', (why) => {
+  if (why === 'no_lease') mock.live.lease = null;
+  if (why === 'offline') mock.link = 'lost';
+  if (why === 'stale') mock.now = 2100;
+  render(why !== 'not_allowed');
+  expect(button('Sit').disabled).toBe(true);
+  expect(box.querySelector('.fh-why')?.textContent).not.toBe('');
+  click(button('Sit')); expect(mock.action).not.toHaveBeenCalled();
+});
+
+it('danger requires an inline second click and sends exactly one confirmed request', () => {
+  render(); click(button('FrontFlip'));
+  expect(mock.action).not.toHaveBeenCalled();
+  const confirm = [...box.querySelectorAll('button')].find((b) => b.textContent === '위험을 확인했고 실행')!;
+  click(confirm);
+  expect(mock.action).toHaveBeenCalledTimes(1);
+  expect(mock.action.mock.calls[0].slice(0, 4)).toEqual(['r7', 'FrontFlip', {}, true]);
+  expect(button('Sit').disabled).toBe(true);
+  act(() => { mock.now += 5100; vi.advanceTimersByTime(5100); });
+  expect(mock.action).toHaveBeenCalledTimes(1);
+  expect(box.textContent).toContain('자동 재전송하지 않습니다');
+});
+
+it('all dangerous buttons require standing and stationary evidence', () => {
+  mock.live.state = state('r7', { posture: { state: 'LYING', mode: 5 } }); render();
+  for (const name of DANGEROUS) expect(button(name).disabled).toBe(true);
+  expect(button('RecoveryStand').disabled).toBe(false);
+  mock.live.state = state('r7', { posture: { state: 'STANDING', mode: 1 }, speed: .1 }); render();
+  for (const name of DANGEROUS) expect(button(name).disabled).toBe(true);
+});
+
+it('cancels inline confirmation across a STOP generation or lease change', () => {
+  render(); click(button('Damp'));
+  expect(box.querySelector('[aria-label="위험 동작 확인"]')).not.toBeNull();
+  mock.live.state = { ...mock.live.state!, stop_gen: 2 }; render();
+  expect(box.querySelector('[aria-label="위험 동작 확인"]')).toBeNull();
+  expect(mock.action).not.toHaveBeenCalled();
+});
+
+it('shows SDK result only for this request and preserves numeric rejection and read-only data', () => {
+  mock.action.mockImplementation((_id, _action, _params, _confirmed, done) => done(null, 'request'));
+  render(); click(button('Sit'));
+  mock.live.state = { ...mock.live.state!, action_result: { request_id: 'other', action: 'Sit', status: 'SUCCEEDED', code: 'SDK_ACCEPTED', sdk_code: 0, mode: null, enabled: null } }; render();
+  expect(box.querySelector('[data-action-result]')?.textContent).toContain('기다리고');
+  mock.live.state = { ...mock.live.state!, action_result: { ...mock.live.state!.action_result!, request_id: 'request', status: 'FAILED', code: 'SDK_REJECTED', sdk_code: 73 } }; render();
+  expect(box.querySelector('[data-action-result]')?.textContent).toContain('SDK 73');
+  expect(box.querySelector('[data-action-result]')?.textContent).toContain('실패');
+  expect(actionResultText({ request_id: 'a', action: 'CheckMode', status: 'SUCCEEDED', code: 'SDK_ACCEPTED', sdk_code: 0, mode: 'normal', enabled: null })).toContain('현재 모드: normal');
+});
+
+it('submits Euler defaults and no confirmation for an ordinary one-shot action', () => {
+  render(); click(button('Euler'));
+  expect(mock.action.mock.calls[0].slice(0, 4)).toEqual(['r7', 'Euler', { roll: 0, pitch: 0, yaw: 0 }, false]);
+});
