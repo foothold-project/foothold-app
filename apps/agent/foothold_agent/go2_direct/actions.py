@@ -120,7 +120,16 @@ class Actions:
             self.inflight = True
         code, mode, enabled, failure = None, None, None, None
         try:
-            value = getattr(s.client, job['action'])(*job['args'])
+            rpc = getattr(s.client, job['action'])
+            # Lookup may initialize an SDK wrapper; STOP during it cancels the call.
+            with s._lock:
+                if self.job is not job:
+                    return
+                reason = self.reason(job['lease'], job['action'], job['confirmed'])
+                if reason:
+                    self.cancel(reason)
+                    return
+            value = rpc(*job['args'])
             if job['action'] in ('CheckMode', 'AutoRecoveryGet'):
                 code, data = value
                 if job['action'] == 'CheckMode' and isinstance(data, dict):

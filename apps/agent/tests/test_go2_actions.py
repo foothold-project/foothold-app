@@ -138,3 +138,42 @@ def test_action_argument_validation_without_sdk():
     boundary = SportBoundary(normal, Approval('fake','serial',1100))
     for name in ('ReleaseMode', 'lowcmd', '_Call'):
         with pytest.raises(AttributeError): getattr(boundary, name)
+
+
+def test_stop_during_method_lookup_prevents_starting_cancelled_action():
+    _, sink, normal, emergency, _, _, _, frame = rig(0)
+    calls = []
+    class LookupSport(type(normal)):
+        @property
+        def Hello(self):
+            frame('stop', stop_ref=25)
+            sink.check_watchdog()
+            return lambda: calls.append('Hello') or 0
+    normal.__class__ = LookupSport
+    send(frame)
+    sink.drain()
+    assert not calls
+    assert sink.actions.result['code'] == 'STOPPED'
+    assert ('StopMove', ()) in emergency.calls
+
+
+def test_check_mode_uses_bounded_readonly_switcher_and_never_selects(monkeypatch):
+    import sys
+    from types import ModuleType
+    clock, _, normal, _, _, _, _, _ = rig(0)
+    calls = []
+    class Switcher:
+        def SetTimeout(self, value): calls.append(('timeout', value))
+        def Init(self): calls.append(('init',))
+        def CheckMode(self): calls.append(('check',)); return 0, {'name': 'normal'}
+    for name in ('unitree_sdk2py', 'unitree_sdk2py.comm', 'unitree_sdk2py.comm.motion_switcher', 'unitree_sdk2py.comm.motion_switcher.motion_switcher_client'):
+        monkeypatch.setitem(sys.modules, name, ModuleType(name))
+    sys.modules['unitree_sdk2py.comm.motion_switcher.motion_switcher_client'].MotionSwitcherClient = Switcher
+    boundary = SportBoundary(normal, Approval('fake','serial',1100), now=clock, wall=clock)
+    assert boundary.CheckMode() == (0, {'name': 'normal'})
+    assert calls == [('timeout', .1), ('init',), ('check',)]
+    assert boundary.CheckMode()[0] == 0
+    assert calls.count(('init',)) == 1
+    with pytest.raises(AttributeError): boundary.SelectMode('normal')
+    clock.value = 1100
+    with pytest.raises(PermissionError): boundary.CheckMode()
