@@ -794,7 +794,24 @@ class PostureResult(Contract):
     sdk_code: StrictInt | None
 
 
+class RobotResponseHealth(Contract):
+    """Display-only RPC round trips; timeouts are censored at SDK's 100 ms limit.
+
+    Counts and samples cover the last 3 seconds, with at most 20 RPC samples.
+    No field is a motion acknowledgement or physical stop evidence.
+    """
+    slow: bool
+    timeout_count: Annotated[int, Field(ge=0, le=256)]
+    last_timeout_at: UTCDateTime | None
+    last_ms: Annotated[float, Field(ge=0)] | None
+    last_timed_out: bool
+    median_ms: Annotated[float, Field(ge=0)] | None
+    median_timed_out: bool
+    sample_count: Annotated[int, Field(ge=0, le=20)]
+
+
 class AgentState(AgentInput):
+    response_health: RobotResponseHealth | None = None
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)

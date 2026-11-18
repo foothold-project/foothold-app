@@ -172,7 +172,7 @@ def test_stand_down_stops_before_lowering_and_requires_measured_lying():
 
 
 def test_stand_down_prestop_rejection_keeps_code_and_faults_standing_output():
-    _, sink, normal, _, _, _, _, frame = rig(0)
+    _, sink, normal, _, _, _, measured, frame = rig(0)
     count = 0
     def stop():
         nonlocal count
@@ -181,6 +181,7 @@ def test_stand_down_prestop_rejection_keeps_code_and_faults_standing_output():
         return 43 if count == 2 else 0
     normal.StopMove = stop
     request(frame, 'stand_down')
+    measured(0)  # fresh evidence for the STOP generation created by request
     with pytest.raises(OutputError): sink.drain()
     assert sink.posture_result['status'] == 'FAILED'
     assert sink.posture_result['sdk_code'] == 43

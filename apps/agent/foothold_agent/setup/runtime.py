@@ -14,7 +14,7 @@ from foothold_agent.go2_direct.reporting import devices
 from foothold_agent.go2_direct.sdk import SportBoundary, connect_approved
 from foothold_agent.go2_direct.identity import ResumeGate
 from foothold_agent.go2_direct.server import DriveSession, ServerSink
-from foothold_agent.go2_direct.sink import Go2Sink
+from foothold_agent.go2_direct.sink import Go2Sink, OutputError
 from foothold_agent.go2_readonly.state import integer
 from foothold_agent.link.client import Client
 from foothold_agent.link.session import MotionCommand
@@ -409,14 +409,18 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
         raise
     finally:
         # Local STOP precedes all network cancellation and waits.
+        failed_sink = None if gate.active is None else gate.active.sink
         try:
             try:
                 gate.revoke()
-            except BaseException:
-                if failure is None:
+            except BaseException as cleanup_error:
+                if not (failure is not None and failed_sink is not None
+                        and failed_sink.error is not None
+                        and isinstance(cleanup_error, OutputError)
+                        and str(cleanup_error) == 'adapter closed or failed'):
                     raise
-                # Cleanup still attempts STOP and closes workers in revoke();
-                # its secondary failure must not replace the connection cause.
+                # Only duplicate apply-on-failed-sink errors preserve the cause.
+                # A fresh emergency submission failure must remain visible.
                 logging.getLogger(__name__).warning('GO2_CLEANUP_STOP_FAILED original_failure_preserved')
         finally:
             recorder.close()
