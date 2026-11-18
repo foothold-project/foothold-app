@@ -1,6 +1,6 @@
 # Jetson 사용자 폴더 오프라인 설치 묶음
 
-기준: `dev 7116345` 이후 RB-JETSON-BUNDLE, 2026-11-18.
+기준: `dev fa6450e` 이후 RB-JETSON-HARDEN (RV-374 권고 ①③), 2026-11-18.
 승인 범위는 **설치 묶음 생성과 검증된 ARM DDS의 자동 점검 허용**이다.
 이 작업에서 Jetson 접속·SSH·복사·설치·DDS 참가·실기 명령은 실행하지 않는다.
 아래 Jetson 명령은 담당자가 실행 시간을 정한 뒤 수행할 현장 절차다.
@@ -98,7 +98,8 @@ sh ./install.sh --server https://example.invalid --nic enP8p1s0 --port 9539 --in
 설치 순서는 다음과 같다.
 
 1. 압축 안 모든 파일과 고정 원본·wheel SHA256을 재검사하고 독립 사용자 폴더에 복사한다.
-2. `python3 -I -m venv --without-pip`로 venv를 만든다. 동봉한 공식 pip wheel을
+2. `install.sh`는 PATH의 `python3` 대신 `/usr/bin/python3`를 쓰고, 판이 3.10이 아니면
+   설치 전에 멈춘다. `/usr/bin/python3 -I -m venv --without-pip`로 venv를 만든다. 동봉한 공식 pip wheel을
    zip import로 실행해 hash 고정 wheel만 `--no-index --no-deps --require-hashes`로 설치한다.
    ensurepip·get-pip·인터넷·시스템 Python 설치는 사용하지 않는다.
 3. `build/` 안에서 Cyclone DDS C를 CMake로 빌드해 `dds/`에 설치한다.
@@ -132,8 +133,11 @@ stat -c '%a' "${HOME:?}/foothold-robot/dds-build-manifest.json"   # 600
 ARM에서 `installation_ready`가 되려면 Linux/Python 3.10·기존 패키지 고정 판,
 정확한 전용 venv와 빌드 기록, **코드에 고정된 원본 해시** 및 남아 있는 원물,
 실제 설치 파일 전체의 해시와 AArch64 ELF가 모두 일치해야 한다.
+`cyclonedds`·`unitree_sdk2py`의 실제 import 예정 경로(`find_spec().origin`)도
+검증한 각 패키지 폴더 안이어야 하며, 다른 경로가 먼저 잡히거나 찾을 수 없으면 차단한다.
 기록 없음·원본/설치 해시 다름·x86 ELF·파일 누락/추가·loader 환경변수면 한국어 이유와
 함께 차단한다. 환경변수로 이 점검을 풀 수 없다. 기존 x86_64 검사 본문은 그대로다.
+`.pyc` 변조는 로컬 설치 폴더를 바꿀 수 있는 사용자를 신뢰하는 현재 위협 모델 안에 있어 별도 검증하지 않는다.
 
 `installation_ready`는 설치 자동 점검 결과다. NIC·기체 신원·서버 승인·조종권·
 STOP·잠금 해제·끊김·0.3초 감시·속도 한도와 runtime 허용 조건은 바꾸지 않는다.
@@ -179,6 +183,7 @@ Git revert로 하며, Git 되돌림만으로 장치 설치가 제거되지는 �
 
 새 시험은 ARM 기록 정상/소스 해시 불일치/.so 해시 불일치/x86 ELF/기록 누락/
 환경변수 시도와 파일 추가·누락·권한·경로를 확인한다. 기존 x86 시험 기대값은 유지한다.
+검증 폴더 밖의 같은 이름 패키지가 먼저 잡힐 때 차단되고, 설치 스크립트가 PATH의 다른 Python을 무시하는지도 확인한다.
 가짜 HOME에서 파일 복사·권한·부분 실패 보존을 실제 수행하며 ARM 컴파일 subprocess는
 모의한다. 이 PC에서 `venv --without-pip`와 공식 pip wheel bootstrap은 별도 실제 시험한다.
 전체 pytest 명령과 결과·생성 묶음 이름·크기·SHA256은 PR과 gitignore된 `runs/` 보고서에 남긴다.

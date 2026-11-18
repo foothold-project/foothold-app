@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tarfile
 from types import SimpleNamespace
@@ -168,6 +169,37 @@ def test_builder_plan_does_not_download_or_install(tmp_path, monkeypatch):
     monkeypatch.setattr(builder, 'download', lambda *a: pytest.fail('plan downloaded'))
     assert builder.main(['--output', str(tmp_path/'runs/new')]) == 0
     assert not (tmp_path/'runs').exists()
+
+
+def test_install_shell_ignores_path_python_and_checks_system_version(tmp_path):
+    script = tmp_path/'install.sh'
+    script.write_text(builder.INSTALL_SH)
+    fake_bin = tmp_path/'bin'
+    fake_bin.mkdir()
+    marker = tmp_path/'path-python-ran'
+    fake_python = fake_bin/'python3'
+    fake_python.write_text('#!/bin/sh\ntouch "'+str(marker)+'"\nexit 99\n')
+    fake_python.chmod(0o700)
+    # A harmless stand-in proves whether version checking allowed dispatch;
+    # it never invokes the real installer or builds anything.
+    installer_script = tmp_path/'apps/agent/installer/install_jetson_bundle.py'
+    installer_script.parent.mkdir(parents=True)
+    installer_script.write_text('import sys; print("installer fixture", sys.argv[1:]); sys.exit(23)\n')
+    home = tmp_path/'home'
+    home.mkdir()
+    system_is_310 = subprocess.run(['/usr/bin/python3', '-I', '-c',
+        'import sys; sys.exit(0 if sys.version_info[:2] == (3, 10) else 1)']).returncode == 0
+    result = subprocess.run(['/bin/sh', str(script), '--server', 'https://example.invalid'],
+        env=dict(PATH=str(fake_bin)+':/usr/bin:/bin', HOME=str(home)), capture_output=True, text=True)
+    assert not marker.exists()
+    if system_is_310:
+        assert result.returncode == 23
+        assert "installer fixture ['--server', 'https://example.invalid']" in result.stdout
+    else:
+        assert result.returncode == 2
+        assert '/usr/bin/python3의 판이 3.10이어야 합니다' in result.stderr
+        assert 'installer fixture' not in result.stdout
+    assert list(home.iterdir()) == []
 
 
 def test_wheel_audit_ignores_vendored_distribution_metadata(tmp_path):

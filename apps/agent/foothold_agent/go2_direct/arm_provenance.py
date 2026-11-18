@@ -5,6 +5,7 @@ archive hashes are review inputs in code, never configurable through the env.
 """
 import hashlib
 import importlib.metadata as metadata
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -128,6 +129,20 @@ def verify_receipt(root):
     return receipt
 
 
+def verify_import_origins():
+    """Resolve top-level packages without importing SDK/DDS or loading ELF."""
+    for distribution, module in (('cyclonedds', 'cyclonedds'),
+                                 ('unitree-sdk2py', 'unitree_sdk2py')):
+        package_dir = Path(metadata.distribution(distribution).locate_file(module)).absolute()
+        try:
+            spec = importlib.util.find_spec(module)
+            origin = Path(spec.origin).resolve() if spec and spec.origin else None
+        except (ImportError, ValueError, TypeError, OSError) as error:
+            raise ValueError('Jetson: 불러올 통신 프로그램 경로를 확인할 수 없습니다. 새 터미널에서 다시 설치하세요.') from error
+        if origin is None or not origin.is_relative_to(package_dir):
+            raise ValueError('Jetson: 불러올 통신 프로그램이 검증한 폴더와 다릅니다. 다른 경로의 프로그램을 빼고 다시 확인하세요.')
+
+
 def inspect_arm(pinned, inherited_override):
     packages = {}
     for name in pinned:
@@ -149,6 +164,7 @@ def inspect_arm(pinned, inherited_override):
                 or Path(sys.prefix) != root/'venv'):
             raise ValueError('Jetson: 전용 사용자 폴더의 venv로 실행하세요.')
         verify_receipt(root)
+        verify_import_origins()
         verified = True
     except FileNotFoundError:
         issues.append('Jetson: DDS 빌드 기록이나 설치 파일이 없습니다. 설치를 끝낸 뒤 다시 확인하세요.')
