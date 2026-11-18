@@ -99,9 +99,9 @@ class Actions:
             if self.job is not None:
                 self.job['hold_stop_generation'] = generation
 
-    def stop(self, generation=None):
+    def stop(self, generation=None, *, source=None):
         with self.sink._lock:
-            if (self.job is not None and type(generation) is int
+            if (source == 'server' and self.job is not None and type(generation) is int
                     and self.job.get('hold_stop_generation') == generation):
                 return  # same Core hold, not a new operator/safety STOP
             self.cancel()

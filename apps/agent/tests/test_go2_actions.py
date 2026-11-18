@@ -214,13 +214,14 @@ def test_routine_held_stop_is_published_without_cancelling_own_action():
     assert sink.actions.result['status'] == 'SUCCEEDED'
 
 
-def test_new_core_stop_generation_cancels_while_repeated_hold_does_not():
+@pytest.mark.parametrize('source,offset', [('server', 1), ('phone', 0), ('nav2', 0)])
+def test_new_core_stop_generation_or_other_source_cancels_while_repeated_hold_does_not(source, offset):
     from foothold_agent.link.session import MotionCommand
     _, sink, normal, _, session, _, _, frame = rig(0)
     send(frame)
     sink.apply(MotionCommand('stop', stop_generation=session.core.stop_gen), source='server')
     assert sink.actions.result['status'] == 'RUNNING'
-    sink.apply(MotionCommand('stop', stop_generation=session.core.stop_gen+1), source='server')
+    sink.apply(MotionCommand('stop', stop_generation=session.core.stop_gen+offset), source=source)
     assert sink.actions.result['code'] == 'STOPPED'
     normal.Hello = lambda: pytest.fail('cancelled action must never start')
     sink.drain()
