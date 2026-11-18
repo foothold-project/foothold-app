@@ -99,8 +99,8 @@ const setLink = (l: Link) => { link = l; emit(); };
 const hiddenPage = () => document.visibilityState === 'hidden';
 
 /** 보내기. 닫혀 있으면 false(답 함수에는 NETWORK) */
-function send(body: Record<string, unknown>, done?: (r: ScreenReply) => void) {
-  const id = String(++n);
+function send(body: Record<string, unknown>, done?: (r: ScreenReply) => void, requestId?: string) {
+  const id = requestId ?? String(++n);
   if (sock?.readyState !== 1) { done?.({ t: 'reply', id, ok: false, error: { code: 'NETWORK', message: LINK_LOST, detail: {} } }); return false; }
   if (done) waiting.set(id, done);
   sock.send(JSON.stringify({ ...body, id, proto: 'fh-rt/1' }));
@@ -427,7 +427,8 @@ export const rt = {
   action(id: string, action: ScreenAction['action'], params: ScreenAction['params'], confirmed: boolean, done: (why: string | null, id?: string) => void) {
     const l = get(id);
     if (!l.lease || link.at !== 'open') return done('조종권과 서버 연결을 확인하세요.');
-    send({ t: 'action', robot: id, lease_id: l.lease, action, params, confirmed }, (r) => done(r.ok ? null : say(r.error), r.id));
+    // Results can outlive a page reload; action IDs must not restart at 1.
+    send({ t: 'action', robot: id, lease_id: l.lease, action, params, confirmed }, (r) => done(r.ok ? null : say(r.error), r.id), crypto.randomUUID());
   },
   /** 50 ms 마다(0 포함, 조종권 심장 박동 겸). 넘기는 중·잠금 중(또는 상태 모름)은 0, 새 lease·잠금 해제 뒤에는 중립을 본 다음부터 보낸다.
    *  [전후, 회전] + 옆걸음 fy(서버 경유 실기 시험만 — serverdrive.tsx, 그 밖 0) → 계약 axes [fx, fy, fw] */

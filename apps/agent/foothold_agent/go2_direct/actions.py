@@ -78,14 +78,14 @@ class Actions:
                 args = arguments(action, params)
                 if type(confirmed) is not bool: raise ValueError('boolean confirmation required')
                 reason = ('BUSY' if self.busy or s._posture is not None else
-                          'DUPLICATE' if request_id in self.seen else
+                          'DUPLICATE' if (lease, request_id) in self.seen else
                           'MOVING' if moving else self.reason(lease, action, confirmed))
             except (ValueError, TypeError):
                 reason, args = 'INVALID_ARGUMENTS', ()
             if reason:
                 self.report(request_id, action, 'REJECTED', reason)
                 return False
-            self.seen.append(request_id)
+            self.seen.append((lease, request_id))
             s._hold()
             s._posture_stop_only = True
             self.job = dict(request_id=request_id, action=action, args=args,
@@ -175,6 +175,9 @@ class Actions:
                     self.job = None
                     valid = type(code) is int
                     ok = valid and code == 0 and failure is None
+                    if not ok:
+                        s._urgent = True
+                        s._stop_requested.set()
                     self.report(job['request_id'], job['action'], 'SUCCEEDED' if ok else 'FAILED',
                                 'SDK_ACCEPTED' if ok else failure or (SDK_REASONS.get(code, 'SDK_REJECTED') if valid else 'SDK_REJECTED'),
                                 code if valid else None, mode=mode, enabled=enabled)

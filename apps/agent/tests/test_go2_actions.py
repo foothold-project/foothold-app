@@ -225,3 +225,30 @@ def test_new_core_stop_generation_or_other_source_cancels_while_repeated_hold_do
     assert sink.actions.result['code'] == 'STOPPED'
     normal.Hello = lambda: pytest.fail('cancelled action must never start')
     sink.drain()
+
+
+
+def test_request_ids_are_scoped_to_the_lease_not_a_previous_browser_connection():
+    _, sink, normal, _, _, _, measured, frame = rig(0)
+    calls = []
+    normal.Hello = lambda: calls.append('Hello') or 0
+    send(frame); sink.drain()
+    frame('lease', lease_id='new-lease', holder_type='USER')
+    measured(0)
+    send(frame, lease_id='new-lease')
+    sink.drain()
+    assert calls == ['Hello','Hello']
+    assert sink.actions.result['status'] == 'SUCCEEDED'
+
+
+
+def test_failed_rpc_requests_stop_on_the_existing_independent_lane():
+    _, sink, normal, emergency, _, _, _, frame = rig(0)
+    sink.check_watchdog()
+    emergency.calls.clear()
+    normal.Hello = lambda: 3104
+    send(frame); sink.drain()
+    assert sink.actions.result['code'] == 'TIMEOUT'
+    assert sink.check_watchdog()
+    assert ('StopMove', ()) in emergency.calls
+    assert sink.error is None

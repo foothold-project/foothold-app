@@ -12,6 +12,7 @@ import { simTune } from '../phone';
 import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
+import { rt } from '../rt';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -648,4 +649,17 @@ describe('서버 경유 뎁스', () => {
     expect($('[data-no-signal="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
     expect(has()).toBe(false);
   });
+});
+
+
+it('동작 결과의 요청 ID는 페이지 재접속 뒤의 이전 결과와 겹치지 않는 UUID이며 기존 조종 소켓을 쓴다', () => {
+  ready();
+  const count = FakeWS.all.length, done = vi.fn();
+  act(() => { rt.action('r7', 'Hello', {}, false, done); rt.action('r7', 'Hello', {}, false, done); });
+  const requests = w.of('action');
+  expect(requests).toHaveLength(2);
+  expect(requests[0].id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(requests[1].id).not.toBe(requests[0].id);
+  expect(FakeWS.all.length).toBe(count);
+  expect(done).toHaveBeenCalledWith(null, requests[0].id);
 });
