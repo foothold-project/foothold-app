@@ -41,7 +41,7 @@ def audit_wheels(wheels, lock, scratch):
     audit = []
     for row in lock['wheels']:
         with zipfile.ZipFile(wheels/row['filename']) as wheel:
-            records = [n for n in wheel.namelist() if n.endswith('.dist-info/METADATA')]
+            records = [n for n in wheel.namelist() if n.count('/') == 1 and n.endswith('.dist-info/METADATA')]
             if len(records) != 1:
                 raise ValueError('invalid wheel metadata')
             fields = BytesParser().parsebytes(wheel.read(records[0]))

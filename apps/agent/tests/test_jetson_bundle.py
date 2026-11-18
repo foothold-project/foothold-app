@@ -168,3 +168,14 @@ def test_builder_plan_does_not_download_or_install(tmp_path, monkeypatch):
     monkeypatch.setattr(builder, 'download', lambda *a: pytest.fail('plan downloaded'))
     assert builder.main(['--output', str(tmp_path/'runs/new')]) == 0
     assert not (tmp_path/'runs').exists()
+
+
+def test_wheel_audit_ignores_vendored_distribution_metadata(tmp_path):
+    import zipfile
+    row = dict(name='rich-click', version='1.8.9', filename='rich_click-1.8.9-py3-none-any.whl')
+    with zipfile.ZipFile(tmp_path/row['filename'], 'w') as wheel:
+        wheel.writestr('rich_click-1.8.9.dist-info/METADATA',
+                       'Name: rich-click\nVersion: 1.8.9\nRequires-Python: >=3.8\n')
+        wheel.writestr('rich_click/_vendor/nested-1.0.dist-info/METADATA',
+                       'Name: nested\nVersion: 1.0\nRequires-Dist: do-not-resolve-vendored-package\n')
+    assert builder.audit_wheels(tmp_path, dict(wheels=[row]), tmp_path/'scratch.so') == []
