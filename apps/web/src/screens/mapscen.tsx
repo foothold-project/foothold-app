@@ -1,4 +1,4 @@
-// 지도·시나리오 탭 공용 틀(MAPSCEN-UI 11-02, 방향 = runs/mapscen-diag/preview): 위 단추 줄 하나 + 몸통(왼쪽 도구줄 | 지도 | 오른쪽 작업 창).
+// 지도·시뮬 탭 공용 틀(MAPSCEN-UI 11-02, 방향 = runs/mapscen-diag/preview): 위 단추 줄 하나 + 몸통(왼쪽 도구줄 | 지도 | 오른쪽 작업 창).
 // 배치만 — API·권한·저장 규칙은 각 화면(maps·mapedit·missions) 그대로. 폰 틀에는 이 두 탭이 없다(menu.tsx PHONE_TABS).
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react';
 import './mapscen.css';
@@ -6,13 +6,15 @@ import './mapscen.css';
 /** 자물쇠(잠긴 지도·잠긴 시나리오 탭) */
 export const Lock = () => <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style={{ flex: 'none', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 }}><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>;
 export type Side = 'map' | 'scen';
-/** 오른쪽 창 맨 위 [지도 요소 N | 시나리오 N](MAP-TAB-MERGE 11-03 — 옛 [지도 | 시나리오] 탭 전환을 대신함). lock = 지도 편집 중(시나리오 탭 잠김) */
-export const SideTabs = ({ side, set, map, scen, lock }: { side: Side; set: (s: Side) => void; map: ReactNode; scen: ReactNode; lock?: boolean }) =>
-  <span className="mx-seg mx-side" role="group" aria-label="오른쪽 창">
-    <button type="button" className="btn" aria-pressed={side === 'map'} data-side="map" onClick={() => set('map')}>지도 요소 <span className="mx-n">{map}</span></button>
+/** 오른쪽 창 맨 위 [지도 요소 N | 시나리오 N](MAP-TAB-MERGE 11-03 — 옛 [지도 | 시나리오] 탭 전환을 대신함). lock = 지도 편집 중(시나리오 탭 잠김).
+ *  scen 없음 = 지도 탭(RB-MAP-NO-SCEN 11-18 — 시나리오 창 없음): «지도 요소 N» 제목만 */
+export const SideTabs = ({ side, set, map, scen, lock }: { side?: Side; set?: (s: Side) => void; map: ReactNode; scen?: ReactNode; lock?: boolean }) => (scen == null
+  ? <b className="mx-side" data-side="map">지도 요소 <span className="mx-n">{map}</span></b>
+  : <span className="mx-seg mx-side" role="group" aria-label="오른쪽 창">
+    <button type="button" className="btn" aria-pressed={side === 'map'} data-side="map" onClick={() => set?.('map')}>지도 요소 <span className="mx-n">{map}</span></button>
     <button type="button" className="btn" aria-pressed={side === 'scen'} data-side="scen" aria-disabled={lock || undefined} title={lock ? '지도 편집 중에는 시나리오 탭이 잠깁니다' : undefined}
-      onClick={() => { if (!lock) set('scen'); }}>{lock ? <><Lock /> 시나리오</> : <>시나리오 <span className="mx-n">{scen}</span></>}</button>
-  </span>;
+      onClick={() => { if (!lock) set?.('scen'); }}>{lock ? <><Lock /> 시나리오</> : <>시나리오 <span className="mx-n">{scen}</span></>}</button>
+  </span>);
 /** 잠긴 장소 › 건물 › 층(시나리오가 열렸거나 지도 편집 중 — 바꾸지 못함) */
 export const Locked = ({ text, why }: { text: string; why: string }) => <span className="btn mx-lock" title={why} aria-label={`지도: ${text} (잠김 — ${why})`} data-locked><Lock /><span className="mx-cut">{text}</span></span>;
 

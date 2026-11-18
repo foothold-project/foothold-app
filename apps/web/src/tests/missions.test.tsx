@@ -268,24 +268,14 @@ describe('목록 [임무 | 시나리오]', () => {
     expect(rows()).toEqual(['m1', 'm2', 'm3']);
     await stopSends();
   });
-  it('배정된 로봇 열: ACTIVE·결재 대기만(해제·반려 빼고, 같은 로봇 한 번), 서버 값이 없는 마지막 실행 줄은 없음 / 배정 목록 실패 → «?» + 안내', async () => {
-    seed();
-    const a = (id: string, robot: string, status: Assignment['status'], scenario_version = 1): Assignment => ({ id, scenario_id: 's1', scenario_version, robot_id: `r-${robot}`, memo: '', scenario_name: '1층 순찰', scenario_name_snapshot: null,
-      robot_name: `Go2-${robot}`, status, approval_id: null, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', removed_at: null });
-    assigns = [a('a1', 'A', 'ACTIVE'), a('a2', 'A', 'ACTIVE', 2), a('a3', 'B', 'PENDING'), a('a4', 'C', 'REMOVED'), a('a5', 'D', 'REJECTED')];
-    serve(KIM);
-    await open('#/mission');   // 배정된 로봇은 지도 탭 읽기 목록(RB-SCEN-SIMTAB)
-    expect(row('s1').querySelector('[data-col="robots"]')!.textContent).toBe('로봇 Go2-A, Go2-B(결재 대기)');
-    expect(row('s1').querySelector('[data-col="last-run"]')).toBeNull();
-    expect(sent('GET', '/assignments')[0].q.get('robot_id')).toBeNull();                 // 조직 전체
-    act(() => root?.unmount()); box.remove(); clearPlans();
-    serve(KIM, { over: { 'GET /assignments': [err(500, 'INTERNAL_ERROR', '서버 오류입니다.')] } });
-    await open('#/mission');
-    expect(row('s1').querySelector('[data-col="robots"]')!.textContent).toBe('로봇 ?');
-    expect(card('시나리오 목록 창').textContent).toContain('배정된 로봇을 받지 못했습니다');
+  it('목록에 배정 로봇 열 없음(RB-MAP-NO-SCEN 11-18 — 배정 화면 없음, /assignments 를 부르지 않음), 임무에도 열 없음', async () => {
+    seed(); serve(KIM);
+    await open();
+    expect(row('s1').querySelector('[data-col]')).toBeNull();
+    expect(sent('GET', '/assignments')).toEqual([]);
     act(() => root?.unmount()); box.remove(); clearPlans(); serve(KIM);
     await open(); await kind('임무');   // 임무 관리는 시뮬 탭
-    expect(row('m1').querySelector('[data-col]')).toBeNull();                            // 임무에는 배정·실행 열 없음
+    expect(row('m1').querySelector('[data-col]')).toBeNull();
     await stopSends();
   });
   it('거르기 «내 것만» = 서버 mine, 층은 지도 탭에서 고른 층(floor_id) — 맞는 것이 없으면 안내, 임무에는 거르기 없음', async () => {
@@ -1403,14 +1393,13 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     await click(aria('단계 목록으로'));
     expect([0, 1, 2].every((i) => !point(i).hidden)).toBe(true);
   });
-  it('[단계 N] 탭: 시뮬 탭 편집 창에는 배정 탭 없음(배정은 지도 탭 읽기 목록) · 경로는 한 줄(✓ 모두 갈 수 있음 · 약 N m) + «경로 더 보기»', async () => {
+  it('«단계 N» 제목: 편집 창에는 배정 탭 없음(배정 화면 없음 — RB-MAP-NO-SCEN) · 경로는 한 줄(✓ 모두 갈 수 있음 · 약 N m) + «경로 더 보기»', async () => {
     seed(); serve(KIM);
     await open();
     await click(row('s1'));
     await click($('[data-look="list"]'));   // SCEN-NODE-PREVIEW: 기본 노드 보기 → 목록
-    const tabs = [...card('단계 창').querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-    expect(tabs.map((t) => t.textContent)).toEqual(['단계 2']);
-    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(card('단계 창').querySelector('[data-steps]')!.textContent).toBe('단계 2');
+    expect(card('단계 창').querySelector('[role="tab"]')).toBeNull();
     await settle();
     const p = card('경로 확인');
     expect(p.querySelector('[role="status"]')!.textContent).toBe('✓ 모두 갈 수 있음 · 약 12 m ⓘ');
@@ -1446,7 +1435,7 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     seed(); serve(KIM);
     await open();
     await click(btn('+ 이 지도에 새 시나리오'));
-    expect([...card('단계 창').querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['단계 0']);
+    expect(card('단계 창').querySelector('[data-steps]')!.textContent).toBe('단계 0'); expect(card('단계 창').querySelector('[role="tab"]')).toBeNull();
     expect(saveBtn().closest('.mx-bar')).toBeTruthy();
     expect(card('단계 창').querySelector('.mx-pick [aria-label="오른쪽 창"]')).toBeTruthy();                       // 창 맨 위 [지도 요소 | 시나리오] 탭
     expect($('.mx-bar [data-locked]')!.getAttribute('aria-label')).toBe('지도: 본관 › 본동 › 1층 (잠김 — 시나리오를 닫으면 지도를 바꿀 수 있습니다)');
@@ -1640,7 +1629,7 @@ describe('시뮬 시나리오', () => {
     expect(btn('시뮬에서 실행')!.disabled).toBe(true);
     expect($('[data-sim-run-why]')!.textContent).toBe('1번 지점: «센서 값 기록»은 시뮬에서 실행할 수 없습니다.');
   });
-  it('RB-SCEN-SIMTAB 지도 탭: 시뮬 장소는 보이지 않고, 시나리오는 읽기 목록 — 편집 칸·새로 만들기·임무 관리 없음, 줄을 펼치면 배정 창(배정 그대로), «시뮬 탭에서 편집» = 시뮬 탭 그 시나리오', async () => {
+  it('RB-SCEN-SIMTAB 지도 탭: 시뮬 장소는 보이지 않고, 시나리오 창·목록·배정이 없다(RB-MAP-NO-SCEN 11-18) — 실기 지도 시나리오는 시뮬 탭에서 고친다', async () => {
     seed(); sitePurpose = 'SIM';
     serve(KIM);
     await open('#/map');
@@ -1649,27 +1638,20 @@ describe('시뮬 시나리오', () => {
     act(() => root?.unmount()); root = null;
     seed(); serve(KIM);
     await open('#/map'); await scen();
-    expect($('[data-scen-read-note]')).toBeTruthy();
-    expect(btn('+ 이 지도에 새 시나리오')).toBeUndefined(); expect(btn('임무 관리…')).toBeUndefined();
+    expect($('[data-side="scen"]')).toBeNull(); expect($('[data-plan]')).toBeNull(); expect($('[data-to-sim]')).toBeNull(); expect($('[data-assign]')).toBeNull();
+    expect(sent('GET', '/scenarios').filter((c) => c.q.get('floor_id'))).toEqual([]);   // 지도 탭은 층 시나리오를 받지 않는다
+    act(() => root?.unmount()); root = null; clearPlans();
+    seed(); serve(KIM);
+    await open('#/sim'); await scen();
     expect(row('s1').querySelector('[data-run]')!.textContent).toBe('실기만');
     await click(row('s1')); await settle();
-    expect(row('s1').getAttribute('aria-expanded')).toBe('true');
-    expect($('[aria-label="시나리오 편집 칸"]')).toBeNull(); expect($('[data-name]')).toBeNull(); expect(btn('저장')).toBeUndefined();
-    expect(btn('시뮬에서 실행')).toBeUndefined();
-    const sec = $('[data-scen-read="s1"] [data-assign]')!;
-    await click(btn('로봇에 배정', sec));
-    await setVal(field('메모', sec), '야간 순찰');
-    expect(field('메모', sec).value).toBe('야간 순찰');
-    expect(writes()).toEqual([]);
-    await click($('[data-to-sim="s1"]'));
-    expect(location.hash).toBe('#/sim');
     expect(name().value).toBe('1층 순찰');   // 시뮬 탭에서 그 시나리오가 열림
     await setVal(name(), '1층 순찰 고침'); await settle();
     await click(saveBtn());
     expect(writes()).toEqual(['PUT /scenarios/s1']);   // 시뮬 탭에서 실기 지도 시나리오 편집 = 같은 저장 요청
     expect(last(sent('PUT', '/scenarios/s1'))!.body).toMatchObject({ name: '1층 순찰 고침' });
   });
-  it('RB-SCEN-SIMTAB 옛 주소 #/mission/<id> = 시뮬 탭 그 시나리오(편집), #/mission 만이면 지도 탭 읽기 목록', async () => {
+  it('RB-SCEN-SIMTAB 옛 주소 #/mission/<id> = 시뮬 탭 그 시나리오(편집), #/mission 만이면 지도 탭(시나리오 창 없음 — RB-MAP-NO-SCEN)', async () => {
     seed(); serve(KIM);
     await open('#/mission/s1'); await settle();
     expect(location.hash).toBe('#/sim');
@@ -1677,7 +1659,7 @@ describe('시뮬 시나리오', () => {
     act(() => root?.unmount()); root = null; clearPlans();
     seed(); serve(KIM);
     await open('#/mission');
-    expect($('[data-scen-read-note]')).toBeTruthy(); expect($('[data-name]')).toBeNull();
+    expect($('[data-plan]')).toBeNull(); expect($('[data-name]')).toBeNull();
   });
   it('RB-SCEN-SIMTAB 시뮬 탭 표시 셋: 실기만(시뮬 지형 없는 실기 지도) = «시뮬에서 실행» 막고 이유 한 줄 · 실기·시뮬(3D 지도로 만든 그 판) = 지형으로 실행 · 시뮬만(시뮬 장소)', async () => {
     const go = vi.spyOn(simNav, 'go').mockImplementation(() => {});

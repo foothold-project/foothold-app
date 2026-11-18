@@ -1,6 +1,6 @@
-// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 폰 시나리오 카드는 서버 배정(screens/assign.tsx).
+// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 폰 시나리오 시트는 이 층 시나리오 고르기(screens/missions.tsx ScenarioPick).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { adminReal, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
+import { driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
@@ -10,9 +10,8 @@ import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
-import { keptPlan } from './screens/missions';
+import { ScenarioPick } from './screens/missions';
 import { Trash } from './screens/trash';
-import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
 import { Terrain } from './screens/terrain';
@@ -197,14 +196,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
   useRelayExpiry(r.phoneRelay, r.phoneRelayAt);   // 폰 경유 값이 새 state 없이 낡아도 아래 묶음을 다시 고른다
   const info = pickInfo(r);   // 실기 Go2 자세·상태 번호·넘어짐 추정(표시만) — 배터리 옆, 시뮬은 숨김
   const battery = <><Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>{info && <RobotInfo {...info} />}</>;
-  /* 총괄은 실기에 배정하지 않는다(로봇 탭 읽기 전용 — 시뮬은 유지, r1) */
-  const can = mineOf(c.user, c.robot);
-  const assignBtn = !adminReal(c.user, r) && <button type="button" className="btn" disabled={!can} aria-describedby={can ? undefined : 'assign-from-detail'} data-assign-robot
-    onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } keptPlan.side = 'scen'; assignFor.robot = c.robot.id; c.go('map'); }}>배정</button>;
-  const assignWhy = assignBtn && !can && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>;
-  const assign = assignBtn && <div className="fh-row">{assignBtn}{assignWhy}</div>;
-  // 집중(solo): 배정 단추는 임무 줄 끝에(따로 한 줄을 차지하지 않게)
-  const mission = solo ? <><Line k="임무"><span data-mission className="fh-grow">{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무가 없습니다'}</span>{assignBtn}</Line>{assignWhy}</>
+  const mission = solo ? <Line k="임무"><span data-mission className="fh-grow">{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무가 없습니다'}</span></Line>
     : r.mission && <Line k="임무"><span>{r.mission}</span></Line>;
   const events = (c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />;
   const more = <details className="fh-fold" data-detail-more><summary>장치·위치{hidden ? '' : ` — 장치 ${devices.length}개`}</summary>
@@ -222,9 +214,9 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
       <span className="lbl">서버</span><Chip {...server} /><span className="lbl">로봇</span><Chip {...robot} /><span className="lbl">잠금</span><Chip {...lock} /></div>}
     {broken.length > 0 && <p className="fh-msg" role="status" data-detail-alert>▲ 장치 문제: {broken.map((v) => `${v.label} ${(DEVICE[v.state] ?? DEVICE.ERROR).text}`).join(', ')}</p>}
     {/* 서랍(총괄): 담당·관리 → 조종권자 → 임무·배터리 → 사건 → 장치(접힘) */}
-    {/* 집중(solo, 운영 관리자 PC): 이름·담당은 머리, 배터리·자세·위치는 «로봇 상태», 이름·담당 넘기기·연결 끊기·지우기는 «로봇 설정» 창(screens/fleet.tsx) — 여기는 임무·주의·배정·장치·사건 */}
+    {/* 집중(solo, 운영 관리자 PC): 이름·담당은 머리, 배터리·자세·위치는 «로봇 상태», 이름·담당 넘기기·연결 끊기·지우기는 «로봇 설정» 창(screens/fleet.tsx) — 여기는 임무·주의·장치·사건 */}
     {solo ? <>{mission}{!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}{hidden && <>{manage}{battery}</>}{events}{more}</>
-      : <>{manage}<Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>{mission}{battery}{assign}{events}{more}</>}
+      : <>{manage}<Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>{mission}{battery}{events}{more}</>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </section>;
 }
@@ -232,7 +224,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
 /** 실행 단계(contracts CurrentRun.status) → 짧은 글. 일시정지 까닭은 서버 요약에 없어 쓰지 않는다 */
 const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 중', MOVING: '이동 중', AT_WAYPOINT: '지점 도착', PERFORMING: '작업 중', WAIT_CONFIRM: '확인 기다림', PAUSED: '일시정지' };
 
-/** 이 로봇에 배정된 시나리오(GET /assignments?robot_id=) — 폰 조종 화면의 시나리오 시트 */
-export const Scenario = (c: Ctx) => <AssignedCards robot={c.robot} cancel={c.cancel} />;
+/** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
+export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;
 
 export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
