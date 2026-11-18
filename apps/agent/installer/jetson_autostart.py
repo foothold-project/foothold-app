@@ -21,7 +21,9 @@ def unit_text(root):
     return ('[Unit]\nDescription=FOOTHOLD robot computer connection\n'
             'StartLimitIntervalSec=600\nStartLimitBurst=5\n\n'
             '[Service]\nType=simple\n'
-            f'WorkingDirectory={quote(root)}\n'
+            # WorkingDirectory keeps surrounding quotes literally; only
+            # systemd specifiers need escaping here, unlike ExecStart args.
+            f'WorkingDirectory={str(root).replace("%", "%%")}\n'
             f'ExecStart={quote(root/"venv/bin/python", environment=True)} -I {quote(root/"launch.py", environment=True)}\n'
             'Environment=PYTHONUNBUFFERED=1\nUMask=0077\n'
             'KillSignal=SIGINT\nTimeoutStopSec=30\nRestart=on-failure\nRestartSec=20\n'

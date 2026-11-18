@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -265,11 +266,39 @@ def test_autostart_failure_and_symlink_do_not_delete_unit(tmp_path, monkeypatch)
     assert unit.is_symlink()
 
 
-def test_autostart_systemd_paths_escape_specifiers_and_expansion():
+@pytest.mark.parametrize('name', ['foothold-robot', 'space % path'])
+def test_autostart_unit_has_unquoted_working_directory_and_passes_systemd_verify(tmp_path, name):
     import jetson_autostart as auto
-    text = auto.unit_text(Path('/fake/space % $ " back\\slash'))
-    assert '%%' in text and '$$' in text and '\\"' in text and 'back\\\\slash' in text
+    root = tmp_path/name
+    (root/'venv/bin').mkdir(parents=True)
+    python = root/'venv/bin/python'
+    python.write_text('#!/bin/sh\nexit 0\n')  # checked for existence, never executed
+    python.chmod(0o700)
+    (root/'launch.py').touch()
+    text = auto.unit_text(root)
+    working_directory = next(line for line in text.splitlines() if line.startswith('WorkingDirectory='))
+    # Catch the regression even on platforms without systemd-analyze.
+    assert working_directory == 'WorkingDirectory='+str(root).replace('%', '%%')
+    assert working_directory.removeprefix('WorkingDirectory=').startswith('/')
     with pytest.raises(ValueError): auto.unit_text(Path('/fake/new\nline'))
+    analyzer = shutil.which('systemd-analyze')
+    if analyzer is None:
+        return
+    unit = tmp_path/auto.UNIT
+    unit.write_text(text)
+    home = tmp_path/'home'; home.mkdir()
+    runtime = tmp_path/'runtime'; runtime.mkdir(mode=0o700)
+    result = subprocess.run([analyzer, 'verify', '--user', '--generators=no', str(unit)],
+        env=dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home/'.config'),
+                 XDG_RUNTIME_DIR=str(runtime)), capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stdout+result.stderr
+
+
+def test_autostart_working_directory_only_escapes_percent():
+    import jetson_autostart as auto
+    root = Path('/fake/space % $ " back\\slash')
+    value = next(line for line in auto.unit_text(root).splitlines() if line.startswith('WorkingDirectory='))
+    assert value == 'WorkingDirectory='+str(root).replace('%', '%%')
 
 
 def test_installed_shell_wrappers_enable_disable_with_fake_systemctl(bundle, monkeypatch):
