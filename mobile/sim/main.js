@@ -1,5 +1,5 @@
 // 앱 안 오프라인 시뮬(RS-6 창고 브라우저 시뮬을 옮김): 창고 f1 안에서 Go2 를 두 막대로 걷게 한다. 서버·인터넷 없이 앱 번들(www/sim)만 읽는다.
-// go2-demo는 예외: 웹 세션의 로봇 상태 GET만 읽어 실기 자세를 그리며 정책·물리·명령은 실행하지 않는다.
+// go2-demo는 예외: 웹 세션의 로봇 상태(실시간 연결, 안 되면 GET)만 읽어 실기 자세를 그리며 정책·물리·명령은 실행하지 않는다.
 // 지도 = ?map=<이름>(maps.json 목록 안, [a-z0-9-] 만 — 없거나 틀리면 warehouse) → assets/<이름>/ 의 scene.json·map.json·<이름>.xml.
 // 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = nvidia-demo 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
 // RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 숨김 = 손 조종 STOP, 시뮬 임무는 복귀 후 계속
@@ -20,7 +20,7 @@ import { manualSettings, manualCommand, commandCaps, modeCapText } from './manua
 import { createFrameClock } from './frame-clock.js';
 import { createKeyboardRamp, slewCommand } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
-import { createReplayReader, replayRequirement } from './go2-replay.js';
+import { createReplayReader, readAlign, replayRequirement } from './go2-replay.js';
 import { loadCustomTerrain } from './terrain/index.js';
 import { loadZoneGrid, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneLimit, zoneQuads, ZONE_STOP } from './zones.js';
 
@@ -356,14 +356,68 @@ async function main() {
   const { m, d } = sim;
   layers.forEach((layer, i) => sim.walkSurface?.attach(layer.map, floors[i] ? floors[i].z[1] - .4 : Infinity));
   const replay = readonly ? createReplayReader(sim, new URL(location.href)) : null;
+  // 실기 보기 맞추기(보기 전용 — 서버로 보내지 않음): 이 브라우저에만, 로봇+지도별. 지도를 고르지 않았으면(기본 지형) 맞추지 않는다
+  let replayTap = null;
   if (replay) {
     const timer = setInterval(() => { if (!document.hidden) void replay.poll(); }, 200);
-    addEventListener('pagehide', () => clearInterval(timer), { once: true });
+    addEventListener('pagehide', () => { clearInterval(timer); replay.close(); }, { once: true });
     void replay.poll();
     $('policyEngine').hidden = false;
     for (const id of ['stop', 'go', 'reset', 'stickL', 'stickR', 'keys']) {
       $(id).hidden = true; $(id).setAttribute('aria-disabled', 'true');
     }
+    const chosen = !!customTerrain || (!!q && id === q);
+    const alignKey = `fh.replayAlign.${params.get('robot')}.${id === 'custom' ? `custom:${params.get('terrain')}` : id}.${params.get('floor') ?? ''}`;
+    let align = chosen ? readAlign(localStorage, alignKey) : null, draft = null;
+    replay.setAlign(align);
+    $('replayPanel').hidden = false;
+    $('replayMap').textContent = chosen ? `지도: ${params.get('mapName') || maps.find((x) => x.id === id)?.name || '만든 지형'}` : '지도 없음 — 기본 지형으로 보여 줍니다';
+    const deg = (r) => Math.round((r * 180) / Math.PI);
+    const replayUI = () => {
+      $('replayWhere').textContent = !align ? '위치 미정(켤 때 기준) — 관절·자세만 보여 주고, 지도 위 자리는 맞추기 전까지 모릅니다'
+        : `지도에 맞춤(${((d) => `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`)(new Date(align.at))}) — 그 뒤 움직인 만큼 옮겨 그립니다. 오래 걷거나 로봇을 다시 켜면 어긋날 수 있으니 다시 맞추세요`;
+      $('replayWhere').dataset.aligned = String(!!align);
+      $('replayAlign').disabled = !chosen || !!draft;
+      $('replayAlign').title = chosen ? '' : '지도를 골라 열어야 맞출 수 있습니다';
+      $('replayClear').hidden = !align || !!draft;
+      $('replayEdit').hidden = !draft;
+      if (!draft) return;
+      $('replayStep').textContent = draft.step === 'place' ? '화면 바닥에서 로봇이 지금 서 있는 곳을 누르세요'
+        : draft.step === 'face' ? '로봇이 바라보는 쪽 바닥을 누르세요(건너뛰려면 아래 방향 숫자를 고치세요)' : '방향·바닥 높이를 확인하고 «맞춤 저장»을 누르세요';
+      $('replaySave').disabled = draft.step === 'place';
+    };
+    const preview = () => { if (draft?.step !== 'place') replay.setAlign({ ...draft, yaw: (Number($('replayYaw').value) * Math.PI) / 180, floor: Number($('replayFloor').value) }); };
+    $('replayAlign').onclick = () => {
+      const raw = replay.raw();
+      if (!chosen) return;
+      if (!raw) { $('replayWhere').textContent = '아직 로봇 상태를 받지 못해 맞출 수 없습니다'; return; }
+      draft = { step: 'place', raw }; replayUI();
+    };
+    $('replayCancel').onclick = () => { draft = null; replay.setAlign(align); replayUI(); };
+    $('replayClear').onclick = () => { align = null; try { localStorage.removeItem(alignKey); } catch { /* 못 지워도 이 화면에선 지움 */ } replay.setAlign(null); replayUI(); };
+    $('replaySave').onclick = () => {
+      if (!draft || draft.step === 'place') return;
+      const a = { raw: draft.raw, x: draft.x, y: draft.y, yaw: (Number($('replayYaw').value) * Math.PI) / 180, floor: Number($('replayFloor').value), at: new Date().toISOString() };
+      if (![a.yaw, a.floor].every(Number.isFinite)) { $('replayStep').textContent = '방향·바닥 높이는 숫자로 적으세요'; return; }
+      align = a; draft = null;
+      try { localStorage.setItem(alignKey, JSON.stringify(a)); } catch { /* 저장 못 함 — 이 화면에서만 맞춤 */ }
+      replay.setAlign(align); replayUI();
+    };
+    for (const k of ['replayYaw', 'replayFloor']) $(k).oninput = () => { if (draft && draft.step !== 'place') { draft.step = 'check'; preview(); replayUI(); } };
+    /** 맞추는 중 바닥 누름: 첫 번째 = 자리(+그 바닥 높이), 두 번째 = 바라보는 쪽 */
+    replayTap = (p) => {
+      if (!draft) return false;
+      if (draft.step === 'place') {
+        Object.assign(draft, { step: 'face', x: p.x, y: p.y });
+        $('replayYaw').value = String(deg(draft.raw[3])); $('replayFloor').value = p.z.toFixed(2);
+      } else {
+        if (Math.hypot(p.x - draft.x, p.y - draft.y) < .1) return true;
+        $('replayYaw').value = String(deg(Math.atan2(p.y - draft.y, p.x - draft.x))); draft.step = 'check';
+      }
+      preview(); replayUI(); return true;
+    };
+    replayUI();
+    st.replay = replay;
   }
   const lidar = makeLidar(mj, m, d, 360, settings);
   const runner = createScenarioRunner(sim, () => stopped, settings, (x, y, angle, speed) => zoneEnters(map.zones, map, x, y, angle, speed));
@@ -770,7 +824,7 @@ async function main() {
     });
   };
   const goTo = (cx, cy) => {
-    if (readonly) return say('실기 보기 전용');
+    if (readonly) return replayPoint(cx, cy);
     const [l, t, w, h] = vp;
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
     if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 다시 누르세요');
@@ -816,6 +870,18 @@ async function main() {
     picking = true; // set before the promise microtask so a second tap cannot queue work
     planningSince = performance.now();
     adding = adding.then(() => addMark(p, g0, f)).finally(() => { picking = false; planningSince = Infinity; });
+  };
+  // 실기 보기: 맞추는 중에만 누른 바닥 점(보이는 면 중 위를 보는 면, 없으면 지금 층 바닥 높이 평면)을 맞추기에 넘긴다
+  const replayPoint = (cx, cy) => {
+    const [l, t, w, h] = vp;
+    if (!replayTap || cx < l || cy < t || cx > l + w || cy > t + h) return;
+    ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
+    scene.updateMatrixWorld(true);
+    const hit = ray.intersectObjects(solids, false).find((x) => x.face && x.face.normal.clone().transformDirection(x.object.matrixWorld).z >= MIN_UP);
+    const o = ray.ray.origin, dz = ray.ray.direction.z, k = dz < 0 ? (map.floor_z - o.z) / dz : NaN;
+    const p = hit ? hit.point : k > 0 ? o.clone().addScaledVector(ray.ray.direction, k) : null;
+    if (!p) return say('바닥을 누르세요');
+    if (!replayTap(p)) say('실기 보기 전용 — 위치를 맞추려면 «로봇 지금 여기 맞추기»를 누르세요');
   };
   // 끊김(STOP·pagehide·reset = lock, 막대·조종 키 = 손 조종) 순간 찾던 길·줄 선 누름을 모두 버린다 — 늦은 결과가 출발하거나 손 조종을 덮지 않게
   onLock = () => { gen++; };
@@ -1107,7 +1173,7 @@ async function main() {
     }
     if (now - lastScan >= 100) { scan(); lastScan = now; }
     if (!adapter.depth && !readonly) clock.frame(now, !ready || document.hidden || (adapter.stop.pause && stopped));
-    if (replay) $('policyEngine').textContent = replay.status();
+    if (replay) { replay.frame(); $('policyEngine').textContent = replay.status(); }
     timingUI();
     floorTick(d.qpos[2]);
     scenarioUI();

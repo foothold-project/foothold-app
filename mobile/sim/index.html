@@ -90,6 +90,18 @@
     #btns { bottom: calc(var(--edge) + env(safe-area-inset-bottom)); }
     #keys { display: block; }
   }
+  /* 실기 보기(보기 전용): 위쪽 안내·맞추기 칸 — STOP·시작 단추가 없는 자리. 찍은 곳 안내는 아래로 */
+  #replayPanel { position: fixed; z-index: 90; top: var(--t); left: calc(68px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); max-width: 460px; box-sizing: border-box;
+    border: 1px solid rgb(255 255 255 / .28); border-radius: 12px; padding: 8px 10px; background: rgb(20 23 28 / .9); font: 13px system-ui; }
+  #replayPanel p { margin: 0 0 6px; overflow-wrap: anywhere; }
+  #replayWhere[data-aligned="false"] { color: #ffd54f; }
+  #replayPanel .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  #replayPanel button { width: auto; height: auto; min-height: 40px; padding: 6px 10px; font: inherit; }
+  #replayPanel label { display: inline-flex; gap: 4px; align-items: center; }
+  #replayPanel input { width: 5em; background: #14171c; color: #e6e8eb; border: 1px solid rgb(255 255 255 / .28); border-radius: 8px; padding: 6px; font: inherit; -webkit-user-select: text; user-select: text; }
+  #replayEdit { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgb(255 255 255 / .18); }
+  body:has(#replayPanel:not([hidden])) #goalNote { top: auto; bottom: calc(var(--edge) + 80px + env(safe-area-inset-bottom)); }
+  body:has(#replayPanel:not([hidden])) #modeCaps { display: none; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -134,6 +146,17 @@
     <details id="btLog"><summary>기록 전체</summary><pre id="btEventsAll" aria-label="사건 기록"></pre></details>
   </div>
   <p id="goalHint">화면 바닥을 짧게 누르면 바로 그곳으로 갑니다(장애물은 A* 로 돌아감 · 가는 중에 누르면 끝에 줄 세워 도착하면 바로 다음으로 · 막히면 한 번 다시 찾고 또 막히면 멈춤 · 막대·키·정지로 끊기면 남은 목적지는 지움).</p>
+</section>
+<section id="replayPanel" aria-label="실기 보기" hidden>
+  <p id="replayMap"></p>
+  <p id="replayWhere" role="status"></p>
+  <div class="row"><button id="replayAlign" type="button">로봇 지금 여기 맞추기</button><button id="replayClear" type="button" hidden>맞춤 지우기</button></div>
+  <div id="replayEdit" hidden>
+    <p id="replayStep" role="status"></p>
+    <div class="row"><label>방향(도)<input id="replayYaw" type="number" step="5" inputmode="decimal"></label><label>바닥 높이(m)<input id="replayFloor" type="number" step="0.05" inputmode="decimal"></label></div>
+    <div class="row" style="margin-top:6px"><button id="replaySave" type="button" disabled>맞춤 저장</button><button id="replayCancel" type="button">취소</button></div>
+    <p style="margin:6px 0 0;color:#b9c0ca;font-size:12px">이 브라우저에만 저장합니다(로봇에 보내지 않음).</p>
+  </div>
 </section>
 <div id="busy"></div>
 <svg id="fail" viewBox="0 0 24 24" hidden><circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>
