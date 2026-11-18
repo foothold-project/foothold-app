@@ -124,6 +124,8 @@ class Go2Sink:
         self._rpc_samples = deque(maxlen=20)
         self._stop_timeouts = deque(maxlen=256)
         self._last_timeout_at = None
+        from .actions import Actions
+        self.actions = Actions(self)
 
     def _posture_sample(self):
         return (self.posture_feedback() if self.posture_feedback is not None
@@ -147,13 +149,13 @@ class Go2Sink:
     @property
     def posture_busy(self):
         with self._lock:
-            return self._posture is not None
+            return self._posture is not None or self.actions.busy
 
     def request_posture(self, request_id, action, lease):
         """Queue one reviewed action; SDK I/O stays on the normal output worker."""
         with self._lock:
             sample = self._posture_sample()
-            reason = ('BUSY' if self._posture is not None else
+            reason = ('BUSY' if self._posture is not None or self.actions.busy else
                 'NOT_AUTHORIZED' if not self.posture_authorized(lease) else
                 'MOVING' if self.pending != ZERO or self._ramp_velocity != ZERO or not sample['still'] else
                 'WRONG_POSTURE' if not self._posture_start_allowed(sample, action) else None)
@@ -171,6 +173,7 @@ class Go2Sink:
 
     def cancel_posture(self, reason='STOPPED'):
         with self._lock:
+            self.actions.cancel(reason)
             if self._posture is not None:
                 self._posture_finish('FAILED', reason, None)
 
@@ -331,6 +334,7 @@ class Go2Sink:
                 raise OutputError('adapter closed or failed')
             # STOP dominates every source; source arbitration is not an auth gate.
             if command.kind == 'stop':
+                self.actions.cancel()
                 # Core can publish the same held STOP on every tick/sample.
                 # Only a new hold invalidates sensor evidence; Core's own STOP
                 # generation/CAS and authority checks remain untouched.
@@ -351,7 +355,7 @@ class Go2Sink:
                 self._hold()
                 raise ValueError('not the selected command source')
             if command.kind == 'unlock':
-                if self._posture is not None:
+                if self._posture is not None or self.actions.busy:
                     return
                 if (self._confirmed_generation == self.generation and
                         0 <= self.now()-self._feedback_received <= FEEDBACK_MAX_AGE_S):
@@ -385,7 +389,7 @@ class Go2Sink:
                     self._source_received = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
             posture_held = not self._walkable()
-            target = ZERO if self.latched or self._neutral_required or self._posture is not None or posture_held else velocity
+            target = ZERO if self.latched or self._neutral_required or self._posture is not None or self.actions.busy or posture_held else velocity
             if target != self.pending:
                 # Do not spend preceding idle time on a newly received target.
                 self._ramp_at = stamp
@@ -551,9 +555,10 @@ class Go2Sink:
             try:
                 if urgent or self.latched:
                     self._stop_output(self.client)
-                elif self._posture is None and self._walkable():
+                elif self._posture is None and not self.actions.busy and self._walkable():
                     self._call(self.client, 'Move', *velocity)
                 self._posture_step()
+                self.actions.step()
                 # An in-flight SDK call cannot be cancelled. Compensate on its
                 # own lane immediately after return if STOP/close raced it.
                 with self._lock:
@@ -590,6 +595,7 @@ class Go2Sink:
             self._emergency.release()
 
     def check_watchdog(self):
+        self.actions.poll()
         previous = self._stop_attempts.get('emergency')
         retry = (previous is not None and self.latched and
                  self.now()-previous[1] >= STOP_RETRY_S and

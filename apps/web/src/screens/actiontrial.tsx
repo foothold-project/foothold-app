@@ -1,0 +1,98 @@
+import { useEffect, useRef, useState } from 'react';
+import { rt, useLive } from '../rt';
+import type { Robot } from '../fake';
+import type { ActionResult, ScreenAction } from '../../../contracts/ts';
+
+type Name = ScreenAction['action'];
+export const ACTION_NAMES: Record<Name, string> = {
+  Sit: '앉기', RiseSit: '앉은 자세에서 일어서기', StandUp: '일어서기', StandDown: '엎드리기',
+  BalanceStand: '균형 서기', RecoveryStand: '쓰러짐에서 일어나기', StopMove: '동작 정지 요청',
+  Hello: '인사', Stretch: '기지개', Content: '기쁨 표현', Heart: '하트', Dance1: '춤 1', Dance2: '춤 2',
+  Scrape: '발 긁기', Euler: '몸 기울이기', SpeedLevel: '속도 단계', SwitchJoystick: '조이스틱 입력', Pose: '자세 모드',
+  StaticWalk: '정적 걸음', TrotRun: '뛰는 걸음', EconomicGait: '절약 걸음', FreeWalk: '자유 걸음',
+  FreeAvoid: '자유 회피', ClassicWalk: '기본 걸음', CrossStep: '교차 걸음', SwitchAvoidMode: '회피 모드 바꾸기',
+  AutoRecoverySet: '자동 일어나기 설정', AutoRecoveryGet: '자동 일어나기 조회', CheckMode: '현재 모드 조회', SelectMode: '모드 전환',
+  Damp: '힘 빼기 · 주저앉음', FrontFlip: '앞 공중제비', LeftFlip: '왼쪽 공중제비', BackFlip: '뒤 공중제비',
+  FrontJump: '앞으로 점프', FrontPounce: '앞으로 덮치기', HandStand: '물구나무', WalkUpright: '직립 걸음', FreeJump: '자유 점프', FreeBound: '자유 도약',
+};
+export const DANGEROUS = new Set<Name>(['FrontFlip', 'LeftFlip', 'BackFlip', 'FrontJump', 'FrontPounce', 'HandStand', 'WalkUpright', 'FreeJump', 'FreeBound', 'Damp']);
+const FLAGS = new Set<Name>(['SwitchJoystick', 'Pose', 'HandStand', 'FreeBound', 'FreeJump', 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet']);
+const REASONS: Record<string, string> = {
+  STARTED: '응답을 기다리고 있습니다', SDK_ACCEPTED: 'SDK 접수 성공 · 실제 동작 완료는 현장에서 확인하세요',
+  BUSY: '다른 동작이나 자세 작업 중입니다', DUPLICATE: '이미 접수한 요청입니다', NOT_AUTHORIZED: '조종권 또는 현장 승인이 유효하지 않습니다',
+  AUTHORITY_LOST: '조종권 또는 현장 승인이 만료되어 취소했습니다', STALE_STATE: '0.20초 이내의 새 로봇 상태가 필요합니다',
+  MOVING: '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요', CONFIRM_REQUIRED: '위험 동작 확인이 필요합니다',
+  STANDING_REQUIRED: '서 있음과 정지가 확인되어야 합니다', INVALID_ARGUMENTS: '입력 범위를 확인하세요',
+  STOPPED: 'STOP으로 취소했습니다', WATCHDOG: '감시 시간 초과로 취소했습니다', DISCONNECTED: '연결이 끊겨 취소했습니다',
+  LEASE_CHANGED: '조종권이 바뀌어 취소했습니다', CLOSED: '연결을 종료해 취소했습니다', TIMEOUT: 'SDK 응답 시간이 초과됐습니다',
+  SDK_REJECTED: 'SDK가 거부했습니다 · 지원 여부와 로봇 상태를 확인하세요', SDK_ERROR: 'SDK 호출에 실패했습니다',
+  UNSUPPORTED: '설치된 SDK가 이 동작을 제공하지 않습니다', MODE_READ_ONLY: '안전한 전환 대상이 확인되지 않아 현재 모드 조회만 가능합니다',
+};
+export function actionResultText(result: ActionResult) {
+  const status = { RUNNING: '대기', SUCCEEDED: '성공', REJECTED: '거부', FAILED: '실패' }[result.status];
+  return `${ACTION_NAMES[result.action]}: ${status} — ${REASONS[result.code] ?? result.code}${result.sdk_code == null ? '' : ` (SDK ${result.sdk_code})`}${result.mode == null ? '' : ` · 현재 모드: ${result.mode}`}${result.enabled == null ? '' : ` · 자동 일어나기: ${result.enabled ? '켜짐' : '꺼짐'}`}`;
+}
+
+/** Plain trial controls inside the existing real-robot drive surface. */
+export function ActionTrial({ robot: r, allowed, beforeSend = () => {} }: { robot: Robot; allowed: boolean; beforeSend?: () => void }) {
+  const l = useLive(r.id), link = rt.link().at;
+  const [confirm, setConfirm] = useState<Name | null>(null), [enabled, setEnabled] = useState(false);
+  const [angles, setAngles] = useState(['0', '0', '0']), [level, setLevel] = useState('0'), [mode, setMode] = useState('');
+  const [pending, setPending] = useState<{ id?: string; at: number } | null>(null), [message, setMessage] = useState('');
+  const [clock, setClock] = useState(rt.now());
+  useEffect(() => { const timer = setInterval(() => setClock(rt.now()), 250); return () => clearInterval(timer); }, []);
+  const result = l.state?.action_result, recent = clock - l.stateAt <= 1000;
+  const running = useRef({ id: '', at: 0 });
+  if (result?.status === 'RUNNING' && running.current.id !== result.request_id) running.current = { id: result.request_id, at: rt.now() };
+  const busy = !!pending || result?.status === 'RUNNING' && clock - running.current.at <= 5000 || l.state?.posture_result?.status === 'RUNNING';
+  const reason = !allowed ? '서버가 이 로봇의 실기 조종을 허용하지 않았습니다.' : !l.lease ? '조종 시작 후 사용할 수 있습니다.'
+    : link !== 'open' || l.state?.connection !== 'ONLINE' ? '로봇과 서버 연결을 확인하세요.' : !recent ? '새 로봇 상태를 기다리고 있습니다.'
+    : busy ? '동작 결과를 기다리고 있습니다.' : '';
+  const standing = l.state?.posture?.state === 'STANDING' && l.state?.speed != null && l.state.speed <= .02
+    && l.state?.applied?.every((x) => x === 0);
+  useEffect(() => { setConfirm(null); }, [r.id, l.lease, link, l.state?.stop_gen, allowed]);
+  useEffect(() => {
+    if (pending?.id && result?.request_id === pending.id && result.status !== 'RUNNING') {
+      setMessage(actionResultText(result)); setPending(null);
+    } else if (pending && clock - pending.at > 5000) {
+      setMessage('동작 결과를 확인하지 못했습니다. 현장에서 로봇을 확인하고 STOP을 누르세요. 자동 재전송하지 않습니다.'); setPending(null);
+    }
+  }, [clock, result, pending]);
+  if (r.sim) return null;
+  const send = (action: Name, confirmed = false) => {
+    if (reason || action === 'SelectMode') return;
+    let params: ScreenAction['params'] = {};
+    if (action === 'Euler') {
+      if (angles.some((v) => v.trim() === '' || !Number.isFinite(Number(v)) || Math.abs(Number(v)) > .5)) { setMessage('각도는 -0.5~0.5 rad로 입력하세요.'); return; }
+      params = { roll: Number(angles[0]), pitch: Number(angles[1]), yaw: Number(angles[2]) };
+    } else if (action === 'SpeedLevel') params = { level: Number(level) };
+    else if (FLAGS.has(action)) params = { enabled };
+    beforeSend(); setConfirm(null); setMessage('서버 접수를 기다리고 있습니다.'); setPending({ at: rt.now() });
+    rt.action(r.id, action, params, confirmed, (why, id) => {
+      if (why) { setMessage(`거부 — ${why}`); setPending(null); }
+      else { setMessage('서버 접수 · 로봇의 SDK 결과를 기다리고 있습니다.'); setPending({ id, at: rt.now() }); }
+    });
+  };
+  const buttons = (danger: boolean) => (Object.keys(ACTION_NAMES) as Name[]).filter((name) => DANGEROUS.has(name) === danger).map((name) =>
+    <button key={name} type="button" className="btn" data-go2-action={name} disabled={!!reason || name === 'SelectMode' || danger && !standing}
+      onClick={() => danger ? setConfirm(name) : send(name)}>{ACTION_NAMES[name]} <small>{name}</small></button>);
+  return <details data-action-trial><summary>동작 시험</summary>
+    <p className="lbl">실기 미검증 · 단추를 누른 결과로 지원 여부를 확인합니다. SDK 접수 성공은 실제 동작 완료 확인이 아닙니다.</p>
+    {reason && <p className="fh-why" role="status">{reason}</p>}
+    <div className="fh-row" style={{ flexWrap: 'wrap' }}>
+      {['roll', 'pitch', 'yaw'].map((name, i) => <label key={name}>{name} (rad)
+        <input className="inp" type="number" min={-.5} max={.5} step={.05} value={angles[i]} onChange={(e) => setAngles((prev) => prev.map((v, j) => j === i ? e.target.value : v))} /></label>)}
+      <label>속도 단계 <select className="inp" value={level} onChange={(e) => setLevel(e.target.value)}><option value="-1">-1</option><option value="0">0</option><option value="1">1</option></select></label>
+      <label><input type="checkbox" checked={enabled} onChange={(e) => { setEnabled(e.target.checked); setConfirm(null); }} /> 토글 동작 켜기 (체크 해제: 끄기)</label>
+    </div>
+    <div className="fh-row" style={{ flexWrap: 'wrap' }}>{buttons(false)}</div>
+    <label>전환할 모드 이름 <input className="inp" value={mode} maxLength={32} onChange={(e) => setMode(e.target.value)} disabled /></label>
+    <p className="lbl">모드 전환은 읽기 전용입니다. 고수준 동작 서비스 유지가 확인되지 않아 현재 모드 조회만 허용합니다.</p>
+    <h3>위험</h3><p className="fh-why">넘어짐·충돌·주저앉음 위험. 주변 공간을 비우고 현장에서 확인하세요. 서 있음과 정지가 필요합니다.</p>
+    <div className="fh-row" style={{ flexWrap: 'wrap' }}>{buttons(true)}</div>
+    {confirm && <div role="group" aria-label="위험 동작 확인"><p>{ACTION_NAMES[confirm]} ({confirm}){FLAGS.has(confirm) ? ` · ${enabled ? '켜기' : '끄기'}` : ''}를 한 번 실행할까요?</p>
+      <button className="btn" type="button" disabled={!!reason || !standing} onClick={() => send(confirm, true)}>위험을 확인했고 실행</button>{' '}
+      <button className="btn" type="button" onClick={() => setConfirm(null)}>취소</button></div>}
+    <p className="lbl" role="status" data-action-result>{message || (result ? actionResultText(result) : '아직 실행한 동작이 없습니다.')}</p>
+  </details>;
+}

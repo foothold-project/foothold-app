@@ -60,6 +60,24 @@ class SportBoundary:
         self.identity = (approval.nic, approval.robot_serial)
         self.deadline = now()+max(0., approval.expires_at-wall())
         self.now = now
+        self._switcher = None
+
+    def __getattr__(self, name):
+        from .actions import ACTIONS
+        if name not in ACTIONS or name == 'SelectMode':
+            raise AttributeError(name)
+        def call(*args):
+            self._authorized()
+            if name == 'CheckMode':
+                if self._switcher is None:
+                    from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
+                    switcher = MotionSwitcherClient()
+                    switcher.SetTimeout(SDK_TIMEOUT_S)
+                    switcher.Init()
+                    self._switcher = switcher
+                return self._switcher.CheckMode()
+            return getattr(self.client, name)(*args)
+        return call
 
     def renew(self, approval, *, deadline):
         if (approval.nic, approval.robot_serial) != self.identity:

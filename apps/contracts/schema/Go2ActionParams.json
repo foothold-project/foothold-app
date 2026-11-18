@@ -1,0 +1,92 @@
+{
+  "$id": "fh-app/1/Go2ActionParams",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Enabled"
+    },
+    "level": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": -1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Level"
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mode"
+    },
+    "pitch": {
+      "anyOf": [
+        {
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pitch"
+    },
+    "roll": {
+      "anyOf": [
+        {
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Roll"
+    },
+    "yaw": {
+      "anyOf": [
+        {
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Yaw"
+    }
+  },
+  "title": "Go2ActionParams",
+  "type": "object"
+}

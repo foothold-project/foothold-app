@@ -539,7 +539,10 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     expect(btn('조종 끝내기').closest('[data-sd-full]')).not.toBeNull();   // 조종 끝내기는 보이는 쪽(조종 화면) 하나에만
     expect(full.closest('[inert]')).toBeNull();
     expect(full.querySelector('[data-sd-lock] button')!.textContent).toBe('② 잠금 해제');   // 작게 보기 없이 해제
-    const f = [...full.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    const f = [...full.querySelectorAll<HTMLElement>('button:not([disabled]), summary')].filter((el) => {
+      const closed = el.closest('details:not([open])');
+      return !closed || el.tagName === 'SUMMARY' && el.parentElement === closed;
+    });
     const tab = (shift = false) => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: shift, bubbles: true, cancelable: true })); });
     f[0].focus(); tab(true); expect(document.activeElement).toBe(f[f.length - 1]);
     tab(); expect(document.activeElement).toBe(f[0]);

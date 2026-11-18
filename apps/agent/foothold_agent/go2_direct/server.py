@@ -75,6 +75,13 @@ class DriveSession(Session):
             self.mapping.command(frame)
             return Effects((), self.tick().messages)
         if isinstance(frame, dict):
+            if frame.get('t') == 'action' and self.posture_sink is not None:
+                super().receive({'t': 'ping'})
+                if self.posture_sink.actions.request(frame.get('request_id'), frame.get('action'),
+                        frame.get('params', {}), frame.get('lease_id'), frame.get('confirmed', False),
+                        moving=self.core.intent != (0., 0., 0.) or self.core.out != (0., 0., 0.)):
+                    self.core.stop('action requested')
+                return self._finish(state=True)
             if frame.get('t') == 'posture' and self.posture_sink is not None:
                 super().receive({'t': 'ping'})
                 action, request_id = frame.get('action'), frame.get('request_id')
@@ -120,6 +127,7 @@ class DriveSession(Session):
         if self.posture_sink is not None:
             result['response_health'] = self.posture_sink.response_health()
         result['posture_result'] = None if self.posture_sink is None else self.posture_sink.posture_result
+        result['action_result'] = None if self.posture_sink is None else self.posture_sink.actions.result
         # A zero request is not a measured stop. Arbiter grants wait for DDS.
         if not (self.core.st and self.core.st.get('stop_requested') is True
                 and self.feedback.sample() is not None):

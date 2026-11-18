@@ -16,6 +16,11 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'GO2_ACTION': '{person}님이 {robot} 동작 시험 {action}을 요청했습니다. 실제 동작 완료 확인 아님.',
+    'ACTION_NOT_ALLOWED': '{robot} 실기 조종 승인과 조종권을 확인할 수 없어 동작 요청을 거절했습니다.',
+    'ACTION_MOVING': '{robot} 정지가 확인되지 않아 동작 요청을 거절했습니다.',
+    'POSTURE_NOT_ALLOWED': '{robot} 실기 조종 승인과 조종권을 확인할 수 없어 자세 요청을 거절했습니다.',
+    'POSTURE_MOVING': '{robot} 정지가 확인되지 않아 자세 요청을 거절했습니다.',
     'TERRAIN_ARCHIVED': '{person}님이 지형 {place}을(를) 휴지통으로 옮겼습니다.',
     'TERRAIN_RESTORED': '{person}님이 지형 {place}을(를) 되살렸습니다.',
     'SITE_RESTORED': '{person}님이 장소 {place}을(를) 되살렸습니다.',
@@ -217,7 +222,7 @@ def render(db, ev, *, agent=False, other_user_id=None):
     robot = name(Robot, ev.robot_id, '로봇', Robot.name)
     person = name(User, ev.user_id, '운영자', User.display_name)
     other = name(User, other_user_id, '운영자', User.display_name)
-    values = dict(copied_from_number=number_value(data.get('copied_from_number')), place=text_value(data.get('name')), number=number_value(data.get('number')), robot=robot, person=person, other=other, code=text_value(ev.code),
+    values = dict(action=text_value(data.get('action')), copied_from_number=number_value(data.get('copied_from_number')), place=text_value(data.get('name')), number=number_value(data.get('number')), robot=robot, person=person, other=other, code=text_value(ev.code),
         subject=particle(robot, '이', '가'), with_particle=particle(robot, '과', '와'),
         object_particle=particle(robot, '을', '를'),
         count=number_value(data.get('count', 1)), status=text_value(data.get('last_status')),

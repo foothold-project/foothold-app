@@ -677,13 +677,51 @@ class ScreenPing(ScreenEnvelope):
     t: Literal['ping']
 
 
+# Experimental Go2 high-level requests; SDK success is not physical completion.
+Go2ActionName = Literal['Damp', 'BalanceStand', 'StopMove', 'StandUp', 'StandDown', 'RecoveryStand', 'Euler', 'Sit', 'RiseSit', 'SpeedLevel', 'Hello', 'Stretch', 'Content', 'Dance1', 'Dance2', 'SwitchJoystick', 'Pose', 'Scrape', 'FrontFlip', 'FrontJump', 'FrontPounce', 'Heart', 'StaticWalk', 'TrotRun', 'EconomicGait', 'LeftFlip', 'BackFlip', 'HandStand', 'FreeWalk', 'FreeBound', 'FreeJump', 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet', 'AutoRecoveryGet', 'SwitchAvoidMode', 'CheckMode', 'SelectMode']
+
+
+class Go2ActionParams(Contract):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False, json_schema_serialization_defaults_required=False)
+    roll: Annotated[float, Field(ge=-0.5, le=0.5, strict=True)] | None = None
+    pitch: Annotated[float, Field(ge=-0.5, le=0.5, strict=True)] | None = None
+    yaw: Annotated[float, Field(ge=-0.5, le=0.5, strict=True)] | None = None
+    level: Annotated[int, Field(ge=-1, le=1, strict=True)] | None = None
+    enabled: StrictBool | None = None
+    mode: Annotated[str, Field(min_length=1, max_length=32, pattern=r'^[A-Za-z][A-Za-z0-9_-]*$')] | None = None
+
+
+class Go2ActionRequest(Contract):
+    action: Go2ActionName
+    params: Go2ActionParams = Field(default_factory=Go2ActionParams)
+    confirmed: StrictBool = False
+
+    @model_validator(mode='after')
+    def action_arguments(self):
+        flags = {'SwitchJoystick', 'Pose', 'HandStand', 'FreeBound', 'FreeJump',
+                 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet'}
+        expected = ({'roll', 'pitch', 'yaw'} if self.action == 'Euler' else
+                    {'level'} if self.action == 'SpeedLevel' else
+                    {'enabled'} if self.action in flags else
+                    {'mode'} if self.action == 'SelectMode' else set())
+        supplied = self.params.model_dump(exclude_none=True)
+        if set(supplied) != expected:
+            raise ValueError('exact action parameters required')
+        return self
+
+
+class ScreenAction(ScreenRobot, Go2ActionRequest):
+    t: Literal['action']
+    lease_id: UUID
+
+
 class ScreenPosture(ScreenRobot):
     t: Literal['posture']
     lease_id: UUID
     action: Literal['stand_up', 'stand_down']
 
 
-ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture,
+ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction,
                           Field(discriminator='t')]
 
 
@@ -810,10 +848,22 @@ class RobotResponseHealth(Contract):
     sample_count: Annotated[int, Field(ge=0, le=20)]
 
 
+class ActionResult(Contract):
+    request_id: str = Field(min_length=1, max_length=128)
+    action: Go2ActionName
+    status: Literal['RUNNING', 'SUCCEEDED', 'REJECTED', 'FAILED']
+    code: str = Field(max_length=64)
+    sdk_code: StrictInt | None
+    # Only bounded read-only mode/auto-recovery data; never raw exception text.
+    mode: str | None = Field(max_length=64)
+    enabled: StrictBool | None
+
+
 class AgentState(AgentInput):
     response_health: RobotResponseHealth | None = None
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
+    action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     controller: UUID | None = None
     controller_device: UUID | None = None
@@ -1091,6 +1141,12 @@ class AgentFieldApproval(Contract):
     expires_at: UTCDateTime | None
 
 
+class AgentAction(Go2ActionRequest):
+    t: Literal['action'] = 'action'
+    request_id: str = Field(min_length=1, max_length=128)
+    lease_id: UUID
+
+
 class AgentPosture(Contract):
     t: Literal['posture'] = 'posture'
     request_id: str = Field(min_length=1, max_length=128)
@@ -1100,7 +1156,7 @@ class AgentPosture(Contract):
 
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1146,9 +1202,10 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
+    action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'

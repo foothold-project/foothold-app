@@ -1,0 +1,119 @@
+{
+  "$id": "fh-app/1/ActionResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "Damp",
+        "BalanceStand",
+        "StopMove",
+        "StandUp",
+        "StandDown",
+        "RecoveryStand",
+        "Euler",
+        "Sit",
+        "RiseSit",
+        "SpeedLevel",
+        "Hello",
+        "Stretch",
+        "Content",
+        "Dance1",
+        "Dance2",
+        "SwitchJoystick",
+        "Pose",
+        "Scrape",
+        "FrontFlip",
+        "FrontJump",
+        "FrontPounce",
+        "Heart",
+        "StaticWalk",
+        "TrotRun",
+        "EconomicGait",
+        "LeftFlip",
+        "BackFlip",
+        "HandStand",
+        "FreeWalk",
+        "FreeBound",
+        "FreeJump",
+        "FreeAvoid",
+        "ClassicWalk",
+        "WalkUpright",
+        "CrossStep",
+        "AutoRecoverySet",
+        "AutoRecoveryGet",
+        "SwitchAvoidMode",
+        "CheckMode",
+        "SelectMode"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "code": {
+      "maxLength": 64,
+      "title": "Code",
+      "type": "string"
+    },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Enabled"
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Mode"
+    },
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "sdk_code": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Sdk Code"
+    },
+    "status": {
+      "enum": [
+        "RUNNING",
+        "SUCCEEDED",
+        "REJECTED",
+        "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "action",
+    "status",
+    "code",
+    "sdk_code",
+    "mode",
+    "enabled"
+  ],
+  "title": "ActionResult",
+  "type": "object"
+}
