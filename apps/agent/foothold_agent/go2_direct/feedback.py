@@ -40,6 +40,32 @@ class Feedback:
         self._journal_posture_value = None
 
     @property
+    def sink(self):
+        return self._sink
+
+    @sink.setter
+    def sink(self, value):
+        self._sink = value
+        if value is not None:
+            value.stop_feedback = lambda: self.stop_snapshot(value)
+
+    def stop_snapshot(self, sink):
+        """Identity-bound measurements for STOP RPC timeout handling only.
+
+        Never acknowledges Core or unlocks it; both DDS receipts must belong to
+        the same sink generation and remain within the existing freshness gate.
+        """
+        sample = self.sample()
+        if sample is None or self.sink is not sink:
+            return None
+        low, sport = sample
+        if low['generation'] != sport['generation']:
+            return None
+        return dict(generation=sport['generation'],
+                    received_at=min(low['received'], sport['received']),
+                    stationary=self._posture(sample)['still'])
+
+    @property
     def fault(self):
         with self._lock:
             return self._fault

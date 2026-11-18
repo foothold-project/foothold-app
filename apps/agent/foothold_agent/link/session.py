@@ -47,6 +47,8 @@ class MotionCommand:
 
     kind: str = "apply"  # apply | stop | unlock (one-shot Core-approved request)
     velocity: tuple[float, float, float] = Z
+    # Local output deduplication only; never a robot ACK or an unlock CAS.
+    stop_generation: int | None = None
 
 
 @dataclass(frozen=True)
@@ -297,7 +299,9 @@ class Session:
         if self.core.want_stop_pub() and not any(a.kind == "stop" for a in actions):
             actions = tuple(actions) + (MotionCommand("stop"),)
             self.core._safety_log.emit('stop_effect', 'core_wants_stop', _log_source(), stop_gen=self.core.stop_gen)
-        return Effects(tuple(actions) + (MotionCommand(velocity=self.core.out),),
+        actions = tuple(MotionCommand(a.kind, a.velocity, self.core.stop_gen)
+                        if a.kind == 'stop' else a for a in actions)
+        return Effects(actions + (MotionCommand(velocity=self.core.out),),
                        tuple(deepcopy(messages)))
 
     def connect(self):

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
+STOP_RETRY_S = .20
 # Full-scale server axes per second: zero <-> maximum takes one second.
 SERVER_SLEW = (1.5, 1., .5)
 # Physical phone forward ceiling is 1.5 m/s; lateral/turn gates are unchanged.
@@ -112,6 +113,11 @@ class Go2Sink:
         self._posture = None
         self._posture_stop_only = False
         self.posture_result = None
+        self.stop_feedback = None
+        self._hold_reason = None
+        # Each independent lane owns its own RPC history, never the other lock.
+        self._stop_attempts = {}
+        self._stop_diagnostics = {}
 
     def _posture_sample(self):
         return (self.posture_feedback() if self.posture_feedback is not None
@@ -263,7 +269,7 @@ class Go2Sink:
     def _stall(self):
         if not self.latched:
             self._stall_sequence += 1
-        self._hold()
+        self._hold(preserve=True)
 
     def select_source(self, source):
         if source not in ('phone', 'nav2', 'server'):
@@ -273,11 +279,15 @@ class Go2Sink:
                 self._hold()
                 self.source = source
 
-    def _hold(self):
+    def _hold(self, *, reason=None, preserve=False):
+        repeated = self.latched and (preserve or (reason is not None and reason == self._hold_reason))
         self.pending = ZERO
         self._ramp_velocity = ZERO
         self._ramp_at = self.now()
         self.latched = True
+        if repeated:
+            return
+        self._hold_reason = reason
         self.generation += 1
         self._confirmed_generation = None
         self._neutral_required = True
@@ -305,7 +315,13 @@ class Go2Sink:
                 raise OutputError('adapter closed or failed')
             # STOP dominates every source; source arbitration is not an auth gate.
             if command.kind == 'stop':
-                self._hold()
+                # Core can publish the same held STOP on every tick/sample.
+                # Only a new hold invalidates sensor evidence; Core's own STOP
+                # generation/CAS and authority checks remain untouched.
+                stop_generation = getattr(command, 'stop_generation', None)
+                reason = (('stop', source, stop_generation)
+                          if type(stop_generation) is int else None)
+                self._hold(reason=reason)
                 self._stop_requested.set()
                 return
             self._require_workers()
@@ -378,7 +394,29 @@ class Go2Sink:
             self._feedback_received = received_at
             return True
 
-    def _call(self, client, method, *args):
+    def _measured_stop(self, generation):
+        # Read the current cache, not a sticky past confirmation: movement or
+        # stale LowState must also reject a timeout after a previous still sample.
+        provider = self.stop_feedback
+        sample = provider() if provider is not None else None
+        with self._lock:
+            return (self.latched and generation == self.generation and sample is not None
+                    and sample['generation'] == generation and sample['stationary'] is True
+                    and 0 <= self.now()-sample['received_at'] <= FEEDBACK_MAX_AGE_S)
+
+    def _stop_diagnostic(self, client, started, elapsed, code):
+        lane = 'normal' if client is self.client else 'emergency'
+        previous, failures = self._stop_diagnostics.get(lane, (None, 0))
+        failures = failures + 1 if code != 0 else 0
+        self._stop_diagnostics[lane] = (started, failures)
+        logging.getLogger('foothold_agent.go2_direct.stop_rpc').warning(
+            'GO2_STOP_RESULT lane=%s elapsed_ms=%.3f code=%s consecutive_failures=%d interval_ms=%.3f',
+            lane, elapsed*1000, code, failures,
+            -1. if previous is None else (started-previous)*1000)
+
+    def _call(self, client, method, *args, allow_stop_timeout=False):
+        generation = self.generation
+        started = time.monotonic()
         try:
             code = getattr(client, method)(*args)
         except BaseException as error:
@@ -388,13 +426,21 @@ class Go2Sink:
             name = name if name in {'TimeoutError', 'OSError', 'ConnectionError',
                 'RuntimeError', 'ValueError', 'TypeError', 'AttributeError',
                 'PermissionError', 'DDSException', 'KeyboardInterrupt', 'SystemExit'} else 'Exception'
+            if method == 'StopMove':
+                self._stop_diagnostic(client, started, time.monotonic()-started, name)
             print(f'SDK_OUTPUT_FAILED method={method} code={name}', file=sys.stderr)
             raise
+        if method == 'StopMove':
+            self._stop_diagnostic(client, started, time.monotonic()-started,
+                                  code if type(code) is int else 'InvalidReturnType')
         if type(code) is not int or code != 0:
+            timeout = method == 'StopMove' and type(code) is int and code == 3104
+            if timeout and allow_stop_timeout and self._measured_stop(generation):
+                return  # measured hold only; no unlock or synthetic Core feedback
             # Non-walkable/unknown posture may reject stopping as an unsupported
             # operation. Keep transport/observations alive, never enable motion.
             sample = self._posture_sample()
-            if (type(code) is int and not self._walkable(sample) and
+            if (not timeout and type(code) is int and not self._walkable(sample) and
                     (method == 'StopMove' or (method == 'Move' and args == ZERO))):
                 return
             value = str(code) if type(code) is int else 'InvalidReturnType'
@@ -403,15 +449,26 @@ class Go2Sink:
             error.sdk_code = code if type(code) is int else None
             raise error
 
-    def _stop_output(self, client):
+    def _stop_output(self, client, *, force=False):
         first = None
+        with self._lock:
+            generation = self.generation
+        measured = self._measured_stop(generation)
+        lane = 'normal' if client is self.client else 'emergency'
+        previous = self._stop_attempts.get(lane)
+        send_stop = (force or previous is None or previous[0] != generation or
+                     (not measured and self.now()-previous[1] >= STOP_RETRY_S))
         sample = self._posture_sample()
         stop_only = (sample['state'] in ('LYING', 'TRANSITIONING') or
             sample.get('standing_locked', False) or self._posture_stop_only or
             (sample['state'] == 'STANDING' and not self._walkable(sample)))
         for method, args in ([('StopMove', ())] if stop_only else [('Move', ZERO), ('StopMove', ())]):
+            if method == 'StopMove':
+                if not send_stop and first is None:
+                    continue
+                self._stop_attempts[lane] = (generation, self.now())
             try:
-                self._call(client, method, *args)
+                self._call(client, method, *args, allow_stop_timeout=True)
             except BaseException as error:
                 first = first or error
         if first is not None:
@@ -447,7 +504,7 @@ class Go2Sink:
                 self._ramp_at = stamp
                 self._urgent = False
             try:
-                if urgent:
+                if urgent or self.latched:
                     self._stop_output(self.client)
                 elif self._posture is None and self._walkable():
                     self._call(self.client, 'Move', *velocity)
@@ -466,21 +523,21 @@ class Go2Sink:
                     if changed:
                         self._urgent = True
                 if changed:
-                    self._stop_output(self.client)
+                    self._stop_output(self.client, force=velocity != ZERO)
             except BaseException as error:
                 self._fail(error)
                 self.emergency_stop()
                 raise OutputError('normal SDK output failed') from error
 
-    def emergency_stop(self):
+    def emergency_stop(self, *, force=False):
         # Independent lane: a blocked normal RPC must not own this lock.
         if not self._emergency.acquire(blocking=False):
             return
         try:
             with self._lock:
-                self._hold()
+                self._hold(preserve=True)
             try:
-                self._stop_output(self.emergency_client)
+                self._stop_output(self.emergency_client, force=force)
             except BaseException as error:
                 self._fail(error)
                 raise OutputError('emergency SDK output failed') from error
@@ -488,14 +545,19 @@ class Go2Sink:
             self._emergency.release()
 
     def check_watchdog(self):
+        previous = self._stop_attempts.get('emergency')
+        retry = (previous is not None and self.latched and
+                 self.now()-previous[1] >= STOP_RETRY_S and
+                 not self._measured_stop(self.generation))
         with self._lock:
+            retry = retry and self.latched
             requested = self._stop_requested.is_set()
             self._stop_requested.clear()
             expired = self._expired(self.now())
-            if not requested and not expired:
+            if not requested and not expired and not retry:
                 self._tripped = False
                 return False
-            if not requested and self._tripped:
+            if not requested and self._tripped and not retry:
                 return False
             self._tripped = expired
             if expired:
@@ -503,7 +565,7 @@ class Go2Sink:
             if expired and not requested:
                 self._stall()
             else:
-                self._hold()
+                self._hold(preserve=True)
         self.emergency_stop()
         return True
 
@@ -527,7 +589,7 @@ class Go2Sink:
                             # I/O-free. Preserve the first fault if stopping fails.
                             try:
                                 with self._output:
-                                    self._stop_output(self.client)
+                                    self._stop_output(self.client, force=True)
                             except BaseException as stop_error:
                                 self._fail(stop_error)
                         return
@@ -542,7 +604,7 @@ class Go2Sink:
         self._closed.set()
         self.cancel_posture('CLOSED')
         self._stop_requested.set()
-        self.emergency_stop()
+        self.emergency_stop(force=True)
         for thread in self._threads:
             thread.join(timeout=.25)
         if any(t.is_alive() for t in self._threads):
