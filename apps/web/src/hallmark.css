@@ -1,0 +1,177 @@
+/* ── hallmark 겉모양(RB-HALLMARK-PORT 11-18, 미리보기) ─────────────────────────
+   시안(hallmark-design apps/web/hallmark/ tokens·base·app.css)의 겉모양만 React 화면에 입힌다 — 기능·DOM·data-*·aria 는 그대로.
+   - 색: 새 값 없음. 공식 브랜드 토큰(--paper·--card·--paper-2·--ink…)과 brand.css 다리(--bg·--panel·--line…)만 섞는다.
+     시안의 --color-* 이름은 아래에서 같은 토큰으로 잇는다(두 색 체계가 엇갈리지 않게 한 곳에서).
+   - 배치: 왼쪽 메뉴는 창 높이 전체(시안 .side), 머리줄은 그 오른쪽. 모서리 0·가는 선 한 줄·그림자 없음, 숫자는 기기 고정폭 글꼴.
+   - 지키는 것: STOP(.fh-stop 채움·흰 글자·크기)·머리줄 고정·폰 머리줄/안전 여백·조종 무대(.dv)·지도 그림(svg)은 손대지 않는다.
+     누름 44px(U7)는 시안 36px 대신 그대로. 전역 button/input/svg/img 선택자는 쓰지 않는다(전부 .fh 아래 class).
+   - 원래 규칙과 같은 선택자 세기로 쓰고 이 파일을 마지막에 불러 덮는다(frame.css·mapscen.css 등 원문은 시험이 글자로 읽으므로 고치지 않음). */
+
+html .fh, html .fh.light {
+  --color-paper: var(--paper); --color-paper-2: var(--card); --color-paper-3: var(--paper-2);
+  --color-ink-2: color-mix(in srgb, var(--ink) 50%, var(--ink-2));
+  --color-rule-2: color-mix(in srgb, var(--rule) 55%, var(--paper));
+  --font-outlier: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --hm-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow: none;                       /* 시안: 그림자 없음 — 뜨는 판은 선으로 가른다 */
+  line-height: 1.55;
+}
+.fh :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fh-main { word-break: keep-all; }
+html .fh .mono { font-family: var(--font-outlier); font-variant-numeric: tabular-nums; }
+
+/* 틀(PC): 왼쪽 메뉴 = 창 높이 전체, 오른쪽에 머리줄 · 고르기 · 띠 · 본문. .fh-body 는 자리만 내준다 */
+.fh[data-layout="pc"] { display: grid; grid-template-columns: 76px minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); }
+.fh[data-layout="pc"] > * { grid-column: 2; min-width: 0; }
+.fh[data-layout="pc"] > .fh-head { grid-row: 1; }
+.fh[data-layout="pc"] > .fh-pick { grid-row: 2; }
+.fh[data-layout="pc"] > .fh-band { grid-row: 3; }
+.fh[data-layout="pc"] > .fh-body { display: contents; }
+.fh[data-layout="pc"] .fh-nav { grid-column: 1; grid-row: 1 / 5; }
+.fh[data-layout="pc"] .fh-main { grid-column: 2; grid-row: 4; min-height: 0; }
+
+/* 머리줄: 바탕 = 종이, 아래 선 하나 */
+.fh-head { background: var(--bg); gap: 16px; }
+.fh[data-layout="pc"] .fh-head { padding: 6px 24px; }
+.fh-head h1 { font-weight: 500; font-size: 1.2rem; letter-spacing: -0.02em; }
+.fh-sep { height: 24px; }
+.fh-dot { font-size: 14px; color: var(--muted); font-weight: 500; }
+.fh-me { color: var(--muted); font-weight: 500; }
+.fh-user { border-radius: 0; border-color: var(--line); background: transparent; }
+
+/* 왼쪽 메뉴: 종이보다 한 단 진한 바탕, 고른 곳 = 강조 14% */
+.fh-nav { background: var(--panel2); }
+.nav { font-weight: 500; transition: background-color 220ms var(--hm-ease), color 220ms var(--hm-ease); }
+.nav:hover { background: var(--panel); }
+.nav.cur { color: var(--text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.fh-badge { border-radius: 0; }
+
+/* 본문: 여백 24, 묶음 사이 넓게 */
+.fh-main { padding: 24px; gap: 32px 24px; }
+.fh.phone .fh-main { padding: 12px; gap: 16px; }
+
+/* 단추: 모서리 0, 가는 선, 채움 없음. 주 단추(.pri)만 청록 채움. 위험(.bad)은 테두리형 그대로.
+   조종 무대(.dv) 위 단추는 영상 위에서 읽히도록 drive.css 바탕을 그대로 둔다(:where 로 세기 0) */
+.btn { border-radius: 0; }
+.btn:not(:where(.dv .btn)) { border-color: var(--line); background: transparent; font-weight: 500; transition: background-color 220ms var(--hm-ease), transform 120ms var(--hm-ease); }
+.btn:not(.pri, .bad, :where(.dv .btn)):not(:disabled):hover { background: var(--panel); }
+.btn:not(:disabled, :where(.dv .btn)):active { transform: translateY(1px); }
+.btn.pri[disabled] { border-radius: 0; }
+.fh-more > summary { border-radius: 0; border-color: var(--line); background: transparent; }
+
+/* 입력: 모서리 0, 종이 바탕, 흐린 글자색 선 */
+.inp { border-radius: 0; border-color: var(--muted); background: var(--bg); height: 44px; font-size: 14px; }
+.inp:focus { outline: 2px solid var(--accent); outline-offset: -3px; }
+.fh-sel::picker(select) { border-radius: 0; border-color: var(--line); }
+.fh-sel option { border-radius: 0; }
+.lbl { font-weight: 500; }
+
+/* 상태 칩: 테두리·채움 없이 기호 + 글, 색은 뜻에만 */
+.lv-chip { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; font-size: 14px; font-weight: 500; }
+.lv-chip.ok, .lv-chip.warn, .lv-chip.bad { border: 0; }
+
+/* 묶음(카드): 상자 대신 위 선 하나. 조종 무대 위(.dv) 판은 그대로 */
+.fh-main .lv-card:not(.dv .lv-card), .fh-main .card:is(.fh-kpi, .fh-form) {
+  padding: 16px 0 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none;
+}
+.fh-main .lv-card h2, .fh-main .card > h2 { font-size: 1.2rem; font-weight: 500; letter-spacing: -0.02em; }
+.fh-main h3 { font-weight: 500; }
+.lv-note { font-size: 13px; }
+.card { border-radius: 0; }
+.fh-more > .card { border-color: var(--line); }
+
+/* 요약 숫자: 세로 실선으로 나눈 칸, 숫자는 크게 고정폭(시안 .stats) */
+.fh-main > .card.fh-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0; padding: 0; border-bottom: 1px solid var(--line); }
+.fh-kpi > div { flex-direction: column-reverse; align-items: flex-start; gap: 4px; padding: 16px 24px; border-left: 1px solid var(--line); }
+.fh-kpi > div:first-child { padding-left: 0; border-left: 0; }
+.fh-kpi span { color: var(--muted); font-weight: 500; }
+.fh-kpi b { font: 400 2.074rem/1 var(--font-outlier); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.fh-kpi .bad b { color: var(--warn); }
+.fh-kpi > .fh-msg { grid-column: 1 / -1; padding-bottom: 12px; }
+
+/* 목록·표: 줄마다 가는 선, 고른 줄 = 한 단 밝은 바탕 + 왼쪽 강조 선 */
+.fh-list { gap: 0; border-top: 1px solid var(--line); }
+.fh-list button { border: 0; border-bottom: 1px solid var(--color-rule-2); border-radius: 0; background: none; transition: background-color 220ms var(--hm-ease); }
+.fh-list button:not(:disabled):hover { background: var(--panel); }
+.fh-list button[aria-pressed="true"] { background: var(--panel); box-shadow: inset 2px 0 0 var(--accent); }
+ul.fh-list:has(>.hs-item) { gap: 0; }
+.fl-head { padding: 8px 11px; border-top: 1px solid var(--line); font-weight: 500; }
+.fl-head + .fh-list { border-top: 0; }
+.hs-table th, .st-table th { font-weight: 500; border-bottom-color: var(--line); }
+.hs-table td, .st-table td { border-bottom-color: var(--color-rule-2); }
+.st-row { border-bottom-color: var(--color-rule-2); }
+.st-row b { font-weight: 500; }
+
+/* 탭: 고른 탭 = 한 단 밝은 바탕(밑줄·테두리 없음) */
+.st-tabs { gap: 2px; padding: 0; border: 0; border-radius: 0; background: none; }
+.st-tabs button { min-height: 44px; padding: 0 14px; border-radius: 0; font-weight: 500; }
+.st-tabs button[aria-selected="true"], .st-tabs button[aria-pressed="true"] { background: var(--panel); box-shadow: none; }
+.fl-tabs { gap: 2px; margin: 0; padding: 0; border-bottom: 0; }
+.fl-tabs > button { border-bottom: 0; }
+.fl-tabs > button[aria-pressed="true"] { background: var(--panel); font-weight: 500; }
+
+/* 작은 표지: 네모 테두리 */
+.st-tag, .fl-tag { border-radius: 0; font-weight: 500; }
+.fl-tag { padding: 0 6px; border: 1px solid var(--line); background: none; }
+
+/* 로봇 탭 — 총괄: 지도 | 살펴볼 로봇 → 목록, 서랍 = 한 단 밝은 판 + 왼쪽 선. 운영: 큰 상태 안내·단계 */
+.fh-fleet.open > .fl-detail { padding: 16px 24px 24px; border-top: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.fh-main .fl-side > .lv-card.fl-detail { padding: 0; border: 0; background: none; }
+.fl-status { border-top: 1px solid var(--line); }
+.fl-status.bad { border-top-color: var(--bad); }
+.fl-lead { padding: 16px 0; }
+.fl-status > .fl-facts { padding: 12px 0 14px; }
+.fl-lostnote { margin: 0 0 14px; border-radius: 0; }
+.fl-sym { border-radius: 0; }
+.fl-title h2 { font-weight: 500; letter-spacing: -0.03em; }
+.fl-tele-cell > b { font-family: var(--font-outlier); font-weight: 400; }
+.fl-mark { border-radius: 0; }
+.fl-screen { border-radius: 0; }
+.fl-sheet { border-radius: 0; border-color: var(--line); background: var(--panel); }
+
+/* 띠·고르기: 모서리 0, 여백은 본문과 맞춤 */
+.fh[data-layout="pc"] .fh-band, .fh[data-layout="pc"] .fh-pick { padding-inline: 24px; }
+
+/* 접기 */
+.fh-fold > summary { font-weight: 500; }
+
+/* 로그인 */
+.fh-login h2 { font-weight: 500; font-size: 1.728rem; letter-spacing: -0.04em; }
+
+/* 지도·시뮬 틀(mapscen.css): 단추 줄 = 종이 바탕, 판 = 한 단 밝은 바탕, 모서리 0 */
+.mx-bar { background: var(--bg); }
+.mx-seg > .btn:first-child, .mx-seg > .btn:last-child { border-radius: 0; }
+.mx-seg > [aria-pressed="true"], .mx-seg > [aria-selected="true"], .mx-seg > [aria-current] { background: var(--panel); }
+.mx-tools { background: var(--panel2); }
+.mx-pop { border-radius: 0; }
+.mx-row, .mx-name, .mx-x { border-radius: 0; }
+.mx-over > * { border-radius: 0; border-color: var(--line); }
+.mx-hint, .mx-legend { border-radius: 0; }
+.mx-head { font-weight: 500; }
+dialog.mx-dlg { border-radius: 0; border-color: var(--line); }
+
+/* 기록: 분류 단추 줄·사진 */
+.hs-photo, .hs-photo img { border-radius: 0; }
+.hs-sev { font-weight: 500; }
+
+@media (prefers-reduced-motion: reduce) { .btn, .nav, .fh-list button { transition: none; } }
+
+/* 지도 첫 화면(어느 지도에서 일할까요?): 본문 여백 24, 건물 칸 = 선 하나짜리 네모, 이름은 500 */
+.mx-scroll:has(> .mx-choose) { padding: 24px; }
+.mx-choose > h2 { font-weight: 500; letter-spacing: -0.02em; }
+.mx-site > h3 { color: var(--muted); font-size: 13px; }
+.fh-main .card.mx-bld { border-radius: 0; border-color: var(--line); background: none; }
+.fh-main .card.mx-bld:hover { background: var(--panel); border-color: var(--accent); }
+.mx-bld b, .mx-bld strong { font-weight: 500; }
+.mx-thumb { border-radius: 0; }
+
+/* 본문 맨 위 묶음은 머리줄 선과 겹치지 않게 위 선을 뺀다(요약 숫자 줄은 시안처럼 선을 둔다) */
+.fh-main > .lv-card:first-child:not(.fh-kpi), .fh-main > :first-child > .lv-card:first-child { border-top: 0; padding-top: 0; }
+.fh-main .inp[type="number"] { font-family: var(--font-outlier); }
+
+/* 폰 조종 판(시나리오·자세·지도·정책): 네모 판 + 위 선, 판 안 단추는 시안 단추. 무대 위 원형 조종(스틱·메뉴)은 그대로 */
+.fh-sheet { border-radius: 0; border-color: var(--line); }
+.fh-sheet h2 { font-weight: 500; letter-spacing: -0.02em; }
+.dv .fh-sheet .btn:not(.pri, :disabled) { background: transparent; border-color: var(--line); }
+.dv-note, .dv-ask, .dv-line, .dv-exp, .dv-map-card, .dv-start-map { border-radius: 0; }
+.lv-card > .mx-scroll:has(> .mx-choose) { padding: 0 0 24px; }
