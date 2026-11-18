@@ -2,6 +2,7 @@
 from copy import deepcopy
 import math
 
+from foothold_agent.go2_readonly.state import STALE_S as REPLAY_STALE_S
 from foothold_agent.link.client import Client
 from foothold_agent.link.session import Effects
 from foothold_agent.link.telemetry import STALE_S, number
@@ -9,10 +10,10 @@ from foothold_agent.phone.observer import Observer, DiscardSink
 from foothold_agent.phone.tickets import json_object
 
 
-def fresh(snapshot, topic):
+def fresh(snapshot, topic, *, max_age_s=STALE_S):
     value = snapshot.get('sources', {}).get(topic, {})
     age = value.get('age_s')
-    return value.get('fresh') is True and number(age) and 0 <= age <= STALE_S
+    return value.get('fresh') is True and number(age) and 0 <= age <= max_age_s
 
 
 def project(snapshot, now):
@@ -27,6 +28,11 @@ def project(snapshot, now):
                 error_code=error if sport and type(error) is int and 0 <= error <= 0xFFFFFFFF else None,
                 fallen=fallen if low and all(v is not None for v in angles.values()) and type(fallen) is bool else None,
                 fallen_source='imu_tilt_estimate')
+    # Reuse the read-only snapshot's 2 s display lifetime, independently of
+    # motion feedback and the shorter battery/speed reporting lifetime.
+    info.update({field: deepcopy(snapshot[field]) for field, topic in (
+        ('joints', 'lowstate'), ('quaternion', 'lowstate'), ('position', 'sportmodestate'))
+        if field in snapshot and fresh(snapshot, topic, max_age_s=REPLAY_STALE_S)})
     result = dict(speed=None, battery={'soc': None},
                   robot_info=info,
                   pose=dict.fromkeys(('floor_id', 'map_version_id', 'x', 'y', 'yaw', 'confidence')))
