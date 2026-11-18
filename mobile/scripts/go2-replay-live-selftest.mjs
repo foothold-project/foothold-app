@@ -39,7 +39,9 @@ const near = (a, b, e = 1e-9) => a.length === b.length && a.every((v, i) => Math
   assert.deepEqual(readAlign(storage, 'k').raw, align.raw); assert.equal(readAlign(storage, 'bad'), null); assert.equal(readAlign(storage, 'none'), null);
 }
 
-// 가짜 시계·GET·WebSocket
+// 가짜 시계·GET·WebSocket. 가짜 로봇 시계 = 브라우저 now()(t ms) — 가짜 GET 은 실제 서버처럼 «받은 뒤 지난 시간»을 나이에 더한다
+const aged = (ri) => ri && Object.fromEntries(Object.entries(ri).map(([k, v]) => [k, { ...v, age_s: Math.max(v.age_s, (t - Date.parse(v.received_at)) / 1000) }]));
+const getter = (count) => async () => { count(); return { ok: true, json: async () => ({ ...getBody, robot_info: aged(getBody.robot_info) }) }; };
 let t = 0, wallMs = Date.UTC(2026, 10, 18, 5, 0, 0), getBody = { simulation: false, robot_info: info(0) }, gets = 0;
 const applied = [];
 const sim = { world, applyReplay: (q, wxyz, xyz) => applied.push({ q: q.slice(), wxyz, xyz }) };
@@ -52,7 +54,7 @@ class FakeWS {
   msg(m) { this.onmessage?.({ data: JSON.stringify(m) }); }
 }
 const reader = createReplayReader(sim, url, { now: () => t, wall: () => wallMs + t, WebSocket: FakeWS,
-  fetcher: async () => { gets++; return { ok: true, json: async () => getBody }; } });
+  fetcher: getter(() => gets++) });
 assert.match(reader.status(), /상태 기다리는 중/);
 // 1) 첫 GET 으로 실기 확인 + 첫 표본, 그 뒤에야 실시간 연결을 연다
 await reader.poll(); assert.equal(gets, 1); assert.equal(sockets.length, 0);
@@ -88,7 +90,7 @@ const n = applied.length;
 getBody = { simulation: false, robot_info: info(200, { j: 2 }) };
 t = 1600; await reader.poll(); assert.equal(gets, before + 1, '실시간이 조용하면 GET');
 assert.equal(reader.live, false);
-assert.match(reader.status(), /상태 끊김 · 마지막 자세로 멈춤 · 마지막 수신 14:00:00\(1\.3초 전\)/);
+assert.match(reader.status(), /상태 끊김 · 마지막 자세로 멈춤 · 마지막 수신 14:00:00\(1\.4초 전\)/);
 for (t = 1700; t < 3000; t += 100) assert.equal(reader.frame(), false);
 assert.equal(applied.length, n, '끊긴 동안 자세 그대로');
 // 7) 연결이 닫히면 3초 뒤 다시 열고, 그동안 GET 새 표본은 받는다
@@ -106,4 +108,31 @@ assert.deepEqual(reader.raw().slice(0, 3), [0, 0, .3]);
 // 10) 시뮬 로봇이면 거부하고 실시간 연결도 닫는다
 getBody = { simulation: true, robot_info: info(9000) }; t = 9000; await reader.poll();
 assert.match(reader.status(), /실기 로봇을 골라야 함/);
-console.log('go2 replay live selftest OK: 표본 검사·맞추기 전 시작 자리·맞춘 뒤 이동량·저장본, ws 구독·GET 대체·다시 연결·거절, 역순·중복·옛 값 버림, 보간, 끊김 동결, 수신 시각 표시');
+// 11) 실시간으로 늦게 온 표본(RV-377): t=10 초에 0.1 초에 받은 표본(서버 나이 0) = 실제 9.9 초 지남 → 적용 안 함·«0초 전» 아님·GET 대체
+{
+  getBody = { simulation: false, robot_info: info(0) }; sockets.length = 0; t = 0;
+  let g = 0; const out = [];
+  const r = createReplayReader({ world, applyReplay: (q) => out.push(q[0]) }, url, { now: () => t, wall: () => wallMs + t, WebSocket: FakeWS, fetcher: getter(() => g++) });
+  await r.poll(); r.frame(); t = 200; await r.poll(); const s = sockets[0]; s.open();
+  t = 10000; assert.match(r.status(), /상태 끊김/);
+  s.msg({ t: 'state', robot: rid, robot_info: info(100, { j: 9 }) });
+  r.frame(); assert.ok(out.every((v) => v !== 9), '늦은 표본은 적용 안 함');
+  assert.match(r.status(), /상태 끊김/); assert.doesNotMatch(r.status(), /0\.0초 전/); assert.equal(r.live, false);
+  const g0 = g; await r.poll(); assert.equal(g, g0 + 1, 'GET 대체가 다시 돈다');
+  // 같은 연결로 방금 받은 표본은 그대로 받는다
+  t = 10100; s.msg({ t: 'state', robot: rid, robot_info: info(10050, { j: 4 }) });
+  assert.equal(r.live, true); r.frame(); assert.equal(out.at(-1), 4); assert.match(r.status(), /상태 수신 중 .*\(0\.1초 전\)/);
+  r.close();
+}
+// 12) GET 으로 잰 시계 근거가 없으면(첫 GET 에 표본 없음) 실시간 표본은 신선하다고 보지 않는다
+{
+  getBody = { simulation: false, robot_info: null }; sockets.length = 0; t = 0;
+  let g = 0; const out = [];
+  const r = createReplayReader({ world, applyReplay: (q) => out.push(q[0]) }, url, { now: () => t, wall: () => wallMs + t, WebSocket: FakeWS, fetcher: getter(() => g++) });
+  await r.poll(); t = 200; await r.poll(); sockets[0].open();
+  t = 300; sockets[0].msg({ t: 'state', robot: rid, robot_info: info(300, { j: 6 }) });
+  assert.equal(r.frame(), false); assert.equal(out.length, 0); assert.equal(r.live, false);
+  const g0 = g; await r.poll(); assert.equal(g, g0 + 1);
+  r.close();
+}
+console.log('go2 replay live selftest OK: 표본 검사·맞추기 전 시작 자리·맞춘 뒤 이동량·저장본, ws 구독·GET 대체·다시 연결·거절, 역순·중복·옛 값 버림, 보간, 끊김 동결, 수신 시각 표시, 실시간 늦은 표본·시계 근거 없음 거부');
