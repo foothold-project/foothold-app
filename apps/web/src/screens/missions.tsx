@@ -413,7 +413,7 @@ const differs = (raw: string, spec: unknown) => { try { return canon(JSON.parse(
 const readLocal = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 /** 층(승인 판) → 시뮬 열 곳 + 지형 확인 — SimRun «시뮬에서 실행»·층 화면 «시뮬 열기»가 같은 규칙을 쓴다.
  *  at = simAt(문자열이면 못 여는 이유), terWhy = 지형 층 확인 이유('' = 됨), url = 열 주소(?bt 없이), prep() = 누르는 순간 지형 사본 쓰기 → 실패 이유 또는 '' */
-function useSimAt(f?: MapFloor, v?: MapVersion, cancel?: AbortSignal) {
+export function useSimAt(f?: MapFloor, v?: MapVersion, cancel?: AbortSignal) {
   const at = f && v ? simAt(f, v) : null, tid = at && typeof at !== 'string' ? at.terrain : undefined;
   const [ter, setTer] = useState<Terrain | string | null>(null);
   useEffect(() => { setTer(null); if (!tid) return; let live = true;

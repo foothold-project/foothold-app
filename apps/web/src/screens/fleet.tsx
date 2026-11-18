@@ -15,6 +15,7 @@ import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
 import { FallChip, pickInfo, sdeg } from '../go2status';
+import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
 
@@ -253,13 +254,37 @@ function SummaryRow({ c, x }: { c: Ctx; x: Robot }) {
   </button></li>;
 }
 
-/** 실기 보기(옛 시뮬 탭 «Go2 실기 보기» — 같은 주소·같은 조건: 폰 앱 밖·실기만). 상세 칸 아래 */
+/** 실기 보기(옛 시뮬 탭 «Go2 실기 보기» — 같은 조건: 폰 앱 밖·실기만). 상세 칸 아래.
+ *  지도 고르기(RB-REPLAY-LIVE 11-18): 승인 판이 있는 층 → 층 화면 «시뮬 열기»와 같은 규칙(useSimAt)으로 그 지형을 연다(못 열면 꺼짐 + 이유). 기본 = 로봇이 있는 층, 없으면 «지도 없이»(기본 지형) */
 function RealView({ r }: { r: Robot }) {
   if (inApp() || r.sim) return null;   // 로봇 탭은 이미 실기만 — 서버 목록은 simulation 을 늘 보낸다
+  return <RealViewPick r={r} />;
+}
+function RealViewPick({ r }: { r: Robot }) {
+  const t = useTree(), places = floorsOf(t.tree).filter((x) => x.floor.approved_version_id), here = where(r)?.floor_id ?? '';
+  const [pick, setPick] = useState<string | null>(null), fid = pick ?? (places.some((x) => x.floor.id === here) ? here : '');
+  const p = places.find((x) => x.floor.id === fid), vid = p?.floor.approved_version_id ?? '';
+  const [v, setV] = useState<MapVersion | null>(null), [verr, setVerr] = useState(''), [err, setErr] = useState('');
+  useEffect(() => {
+    setV(null); setVerr('');
+    if (!vid) return;
+    let live = true;
+    api.version(vid).then(shape(isVersion)).then((x) => { if (live) setV(x); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setVerr(`지도를 받지 못했습니다. ${e.message}`); });
+    return () => { live = false; };
+  }, [vid]);
+  const o = useSimAt(p?.floor, v?.id === vid ? v : undefined);
+  const name = p ? `${p.site.name} · ${p.building.name} ${p.floor.name}` : '', me = `&policy=go2-demo&robot=${encodeURIComponent(r.id)}`;
+  const why = !p ? (t.err ? '지도 목록을 받지 못해 지도 없이 엽니다.' : '') : verr || (!v || v.id !== vid ? '지도를 불러오는 중입니다.' : typeof o.at === 'string' ? o.at : o.terWhy);
+  const href = !p ? `/sim/index.html?from=web${me}` : why ? undefined : `${o.url}${me}&mapName=${encodeURIComponent(name)}`;
   return <section className="lv-card" aria-label="실기 보기" data-go2-replay>
     <div className="fh-row"><h2>실기 보기</h2><span className="fh-grow" />
-      <a className="btn" data-go2-open href={`/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(r.id)}`}>실기 보기 열기</a></div>
-    <p className="lv-note" data-go2-note>로봇 움직임을 화면으로 보기만 합니다(조종 안 됨) · 위치는 로봇을 켠 자리를 기준으로 한 값이라 지도와 맞지 않을 수 있습니다</p>
+      <label className="fh-row lbl">지도<select className="fh-user fh-sel" aria-label="실기 보기 지도" data-go2-map value={fid} onChange={(e) => { setPick(e.target.value); setErr(''); }}>
+        <option value="">지도 없이(기본 지형)</option>
+        {places.map((x) => <option key={x.floor.id} value={x.floor.id}>{`${x.site.name} · ${x.building.name} ${x.floor.name}`}</option>)}</select></label>
+      <a className="btn" data-go2-open href={href} aria-disabled={href ? undefined : true}
+        onClick={(e) => { const no = !href ? '-' : p ? o.prep() : ''; if (no) { e.preventDefault(); if (no !== '-') setErr(no); } }}>실기 보기 열기</a></div>
+    {(err || why) && <p className="fh-why" role={err ? 'alert' : 'status'} data-go2-why>{err || why}</p>}
+    <p className="lv-note" data-go2-note>로봇 움직임을 화면으로 보기만 합니다(조종 안 됨) · 처음에는 위치가 지도와 맞지 않을 수 있습니다 — 열린 화면에서 «로봇 지금 여기 맞추기»로 한 번 맞추세요</p>
   </section>;
 }
 /** 상세 + 실기 보기 한 칸(격자 자리 detail — 총괄 서랍은 이 칸째 붙어 내린다) */
