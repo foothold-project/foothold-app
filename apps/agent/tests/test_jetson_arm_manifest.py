@@ -34,8 +34,9 @@ def installed(tmp_path, monkeypatch):
     for name, data in {
         'dds/lib/libddsc.so.0.10.2': elf(),
         'venv/lib/python3.10/site-packages/cyclonedds/_clayer.cpython-310-aarch64-linux-gnu.so': elf(),
+        'venv/lib/python3.10/site-packages/cyclonedds/__init__.py': b'raise AssertionError("DDS must never be imported")\n',
         'venv/lib/python3.10/site-packages/cyclonedds/__library__.py': b'in_wheel = True\n',
-        'venv/lib/python3.10/site-packages/unitree_sdk2py/__init__.py': b'# fake SDK, never imported\n',
+        'venv/lib/python3.10/site-packages/unitree_sdk2py/__init__.py': b'raise AssertionError("SDK must never be imported")\n',
     }.items():
         path = root/name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,7 +50,10 @@ def installed(tmp_path, monkeypatch):
         path.write_bytes(('source fixture '+name).encode())
         hashes[name] = arm.digest(path)
     monkeypatch.setattr(arm, 'SOURCE_HASHES', hashes)
-    files = {'cyclonedds': ['cyclonedds/_clayer.cpython-310-aarch64-linux-gnu.so',
+    monkeypatch.syspath_prepend(str(site))
+    for module in ('cyclonedds', 'unitree_sdk2py'):
+        monkeypatch.delitem(arm.sys.modules, module, raising=False)
+    files = {'cyclonedds': ['cyclonedds/__init__.py', 'cyclonedds/_clayer.cpython-310-aarch64-linux-gnu.so',
                            'cyclonedds/__library__.py'],
              'unitree-sdk2py': ['unitree_sdk2py/__init__.py']}
     monkeypatch.setattr(arm.metadata, 'version', lambda name: preflight.PINNED[name])
@@ -76,6 +80,44 @@ def test_verified_arm_is_installation_ready_but_never_motion_ready(installed):
     assert report['sdk_commit_verified']
     assert not report['sdk_imported'] and not report['robot_connected']
     assert not report['motion_enabled'] and not report['field_nic_serial_approval_verified']
+    assert 'cyclonedds' not in arm.sys.modules and 'unitree_sdk2py' not in arm.sys.modules
+
+
+@pytest.mark.parametrize('module', ['cyclonedds', 'unitree_sdk2py'])
+def test_package_outside_verified_directory_found_first_blocks(installed, tmp_path, monkeypatch, module):
+    root, _ = installed
+    shadow = tmp_path/'other-site'
+    package = shadow/module
+    package.mkdir(parents=True)
+    (package/'__init__.py').write_text('raise AssertionError("shadow must never be imported")\n')
+    monkeypatch.syspath_prepend(str(shadow))
+    monkeypatch.setenv('FH_SKIP_PREFLIGHT', '1')
+    monkeypatch.setenv('FH_ALLOW_ARM_DDS', '1')
+    assert Path(arm.importlib.util.find_spec(module).origin).is_relative_to(shadow)
+    report = preflight.inspect(root)
+    assert not report['installation_ready'] and not report['arm_manifest_verified']
+    assert any('검증한 폴더와 다릅니다' in issue for issue in report['issues'])
+    assert '조종 차단' in preflight_message(report)
+    assert module not in arm.sys.modules
+
+
+@pytest.mark.parametrize('module', ['cyclonedds', 'unitree_sdk2py'])
+@pytest.mark.parametrize('problem', ['missing', 'no-origin', 'invalid-spec'])
+def test_unresolvable_import_blocks(installed, monkeypatch, module, problem):
+    root, _ = installed
+    original = arm.importlib.util.find_spec
+
+    def find_spec(name):
+        if name != module:
+            return original(name)
+        if problem == 'invalid-spec':
+            raise ValueError('missing __spec__')
+        return None if problem == 'missing' else SimpleNamespace(origin=None)
+
+    monkeypatch.setattr(arm.importlib.util, 'find_spec', find_spec)
+    report = preflight.inspect(root)
+    assert not report['installation_ready'] and not report['arm_manifest_verified']
+    assert any(issue.startswith('Jetson: 불러올 통신 프로그램') for issue in report['issues'])
 
 
 @pytest.mark.parametrize('damage', ['source-hash', 'source-bytes', 'so-hash', 'elf-x86', 'elf-not-elf',

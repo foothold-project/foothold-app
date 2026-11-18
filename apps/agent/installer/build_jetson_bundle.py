@@ -14,6 +14,16 @@ import zipfile
 from jetson_bundle_common import checked_bundle, digest, provenance
 
 REPO = Path(__file__).resolve().parents[3]
+INSTALL_SH = '''#!/bin/sh
+set -eu
+: "${HOME:?HOME must be set}"
+cd -- "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+if ! /usr/bin/python3 -I -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 10) else 1)'; then
+    printf '%s\\n' '설치 중단: /usr/bin/python3의 판이 3.10이어야 합니다. 시스템 Python을 바꾸지 말고 담당자에게 확인하세요.' >&2
+    exit 2
+fi
+exec /usr/bin/python3 -I apps/agent/installer/install_jetson_bundle.py "$@"
+'''
 
 
 def download(url, target, expected):
@@ -114,9 +124,7 @@ def main(argv=None):
             agent_source_sha256=digest(output/'agent.tar'), sources=arm.SOURCES,
             target='Linux aarch64 CPython 3.10', native_wheel_audit=audit,
             jetson_built=False, installed=False, robot_connected=False), indent=2)+'\n')
-        (bundle/'install.sh').write_text('#!/bin/sh\nset -eu\n: "${HOME:?HOME must be set}"\n'
-            'cd -- "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"\n'
-            'exec python3 -I apps/agent/installer/install_jetson_bundle.py "$@"\n')
+        (bundle/'install.sh').write_text(INSTALL_SH)
         (bundle/'install.sh').chmod(0o700)
         (bundle/'SHA256SUMS').write_text(''.join(
             f'{digest(p)}  {p.relative_to(bundle)}\n'
