@@ -319,6 +319,19 @@
     "AgentServerPing": {
       "additionalProperties": false,
       "properties": {
+        "ping_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ping Id"
+        },
         "t": {
           "const": "ping",
           "default": "ping",
@@ -333,7 +346,8 @@
       },
       "required": [
         "t",
-        "t_server"
+        "t_server",
+        "ping_id"
       ],
       "title": "AgentServerPing",
       "type": "object"

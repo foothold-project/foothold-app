@@ -17,7 +17,7 @@ export const FREE_TEXT = '조종권이 비었습니다. [조종 시작]으로 �
 const LINK_LOST = '서버 연결이 끊겼습니다.';
 
 /** idle = 연결 안 함, connecting = 첫 연결 중, lost = 끊김(다시 연결 중), denied = 서버가 거부(다시 연결 안 함) */
-export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number };
+export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number; latencyMs?: number; latencyAt?: number };
 /** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | unsure(보냈지만 접수 답을 못 받음) | failed(보내지 못함). 로봇이 멈췄는지는 state 로만 본다 */
 export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; g0: number; conn: number; latched?: true };   // at = 이 단계가 된 때, g0·conn = STOP 때 stop_gen·소켓, latched = 그 뒤 새 세대 잠금을 이 소켓에서 받음
 /** 서버가 이 화면의 구독을 거둠(담당 바뀜·로봇 지움, apps/server README). n = 몇 번째인지(화면이 한 번씩 처리) */
@@ -207,7 +207,16 @@ function startBeat() {
       if (up) for (const [id, l] of live) if (l.lease) send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes: [0, 0, 0] });
       drop(); closed(4000, up ? STEADY_MS : 0); return;
     }
-    if (sock.readyState === 1 && t - lastPing >= PING_MS) { lastPing = t; send({ t: 'ping' }); }
+    if (sock.readyState === 1 && t - lastPing >= PING_MS) {
+      lastPing = t;
+      const connection = conn;
+      const pingId = String(n + 1);
+      send({ t: 'ping' }, (r) => {
+        if (r.ok && connection === conn && link.at === 'open' && now() - t < SILENT_MS)
+          setLink({ ...link, latencyMs: now() - t, latencyAt: now() });
+      });
+      setTimeout(() => waiting.delete(pingId), SILENT_MS);
+    }
   }, 250);
 }
 const stopBeat = () => clearInterval(beat);
@@ -240,6 +249,8 @@ function onState(s: ScreenState) {
   // 화면에 보이는 값이 바뀔 때만 다시 그림(10 Hz 그대로 그리지 않음)
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
     && (p.safety_reason ?? null) === (s.safety_reason ?? null)
+    && p.latency_ms === s.latency_ms
+    && JSON.stringify(p.response_health ?? null) === JSON.stringify(s.response_health ?? null)
     && shown(p) === shown(s)
     && JSON.stringify(p.unlock_refused ?? null) === JSON.stringify(s.unlock_refused ?? null)   // 잠금 해제 거절 사유(contracts UnlockRefused)
     && JSON.stringify([p.posture?.state, p.posture_result, p.action_result]) === JSON.stringify([s.posture?.state, s.posture_result, s.action_result])   // 자세·자세 명령 결과(contracts PostureState·PostureResult)

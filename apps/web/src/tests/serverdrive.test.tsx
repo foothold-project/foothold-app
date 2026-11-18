@@ -663,3 +663,49 @@ it('동작 결과의 요청 ID는 페이지 재접속 뒤의 이전 결과와 �
   expect(FakeWS.all.length).toBe(count);
   expect(done).toHaveBeenCalledWith(null, requests[0].id);
 });
+
+describe('로봇 응답 느림과 왕복 시간', () => {
+  it('최근 시간 초과 경고와 세 구간 지연을 보여 주고 다음 정상 상태에서 경고를 지운다', () => {
+    ready(); view();
+    const original = w.auto;
+    w.auto = (m) => {
+      if (m.t === 'ping') { setTimeout(() => w.recv({ t: 'reply', id: m.id, ok: true }), 42); return; }
+      return original?.(m);
+    };
+    act(() => push('r7', { latency_ms: 27, action_result: { request_id: 'latency-with-action', action: 'Hello',
+      status: 'FAILED', code: 'SDK_REJECTED', sdk_code: 73, mode: null, enabled: null }, response_health: { slow: true, timeout_count: 3,
+      last_timeout_at: '2026-11-18T09:45:03Z', last_ms: 101, last_timed_out: true,
+      median_ms: 100, median_timed_out: true, sample_count: 5 } }));
+    tick(1000); tick(42); tick(1000);
+    expect($('[data-sd-slow]')!.textContent).toContain('로봇 응답 느림 · 최근 3초 3회 · 마지막');
+    const text = $('[data-sd-latency]')!.textContent;
+    expect(text).toContain('로봇 응답: 0.1초 넘음');
+    expect(text).toContain('최근 5회 중앙값 시간 초과 포함');
+    expect(text).toContain('로봇 컴퓨터↔서버: 27 ms');
+    expect(text).toContain('서버↔이 화면: 42 ms');
+    expect($('[data-action-result]')!.textContent).toContain('인사: 실패');
+    expect($('[data-action-result]')!.textContent).toContain('SDK 73');
+    expect(FakeWS.all.filter((x) => x.url.endsWith('/api/v1/ws'))).toHaveLength(1);
+    act(() => push('r7', { response_health: { slow: false, timeout_count: 0, last_timeout_at: '2026-11-18T09:45:03Z',
+      last_ms: 9.3, last_timed_out: false, median_ms: 15.6, median_timed_out: false, sample_count: 4 } }));
+    expect($('[data-sd-slow]')).toBeNull();
+    tick(1000);
+    expect($('[data-sd-latency]')!.textContent).toContain('로봇 응답: 9 ms');
+    expect($('[data-sd-latency]')!.textContent).toContain('최근 4회 중앙값 16 ms');
+    expect($('[data-action-result]')!.textContent).toContain('SDK 73');
+    expect(poseWhy('ROBOT_SLOW')).toContain('로봇 응답 느림');
+  });
+
+  it('오래된 측정과 연결이 끊긴 때에는 이전 숫자를 현재 지연으로 표시하지 않는다', () => {
+    ready(); view();
+    act(() => push('r7', { latency_ms: 18, response_health: { slow: true, timeout_count: 1,
+      last_timeout_at: '2026-11-18T09:45:03Z', last_ms: 101, last_timed_out: true,
+      median_ms: 100, median_timed_out: true, sample_count: 1 } }));
+    for (let i = 0; i < 4; i++) { act(() => w.recv({ t: 'ping' })); tick(1000); }
+    expect($('[data-sd-slow]')).toBeNull();
+    expect($('[data-sd-latency]')!.textContent).toContain('로봇 응답: 측정 대기');
+    expect($('[data-sd-latency]')!.textContent).toContain('로봇 컴퓨터↔서버: 측정 대기');
+    act(() => w.drop(1006));
+    expect($('[data-sd-latency]')!.textContent).toContain('서버↔이 화면: 측정 대기');
+  });
+});

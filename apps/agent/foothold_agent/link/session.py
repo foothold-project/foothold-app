@@ -575,8 +575,13 @@ class Session:
                     self.core._void()
                     self._run_status("RUNNING")
                 # return needs a planner: unsupported, never creates motion.
-        # ping and unsupported operations have no effect on command authority.
-        return self._finish(actions, state=kind in {"lease", "stop", "unlock"})
+        # Echo only the opaque challenge; the server measures on its own clock.
+        # No command authority, lease heartbeat or Core feedback is created.
+        effects = self._finish(actions, state=kind in {"lease", "stop", "unlock"})
+        ping_id = frame.get('ping_id')
+        if kind == 'ping' and isinstance(ping_id, str) and 0 < len(ping_id) <= 64:
+            return Effects(effects.motion, effects.messages + ({'t': 'ping', 'ping_id': ping_id},))
+        return effects
 
     def executor_command(self, run_id, axes):
         """Local normalized axes (including 0 at 20 Hz); never a server cmd."""
