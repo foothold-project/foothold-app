@@ -23,6 +23,9 @@ def preflight_message(report):
         return '자동 점검 중'
     if report.get('installation_ready'):
         return '● 자동 점검 통과'
+    for issue in report.get('issues', []):
+        if issue.startswith('Jetson:'):
+            return '● 조종 차단 · '+issue
     if 'requires-x86_64-cpython-3.10-official-wheel' in report.get('issues', []):
         return ('● 조종 차단 · 이 컴퓨터용 로봇 통신 프로그램은 아직 검증되지 않았습니다. '
                 'Jetson 설치 안내를 확인하세요.')
