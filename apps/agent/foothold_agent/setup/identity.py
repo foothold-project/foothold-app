@@ -1,9 +1,11 @@
 """Operator-confirmed 0-0 identity; no network writes or DDS initialization."""
 import asyncio
 import hashlib
+import logging
 from pathlib import Path
 import re
 import time
+import threading
 
 from foothold_agent.go2_direct.identity import neighbor_identity, valid_mac
 from .storage import mac_serial
@@ -11,6 +13,10 @@ from .storage import mac_serial
 
 class IdentityUnavailable(PermissionError):
     """A safe, user-facing explanation for refusing the zero-serial flow."""
+
+
+class IdentityConflict(PermissionError):
+    """Positive evidence of another body; restarting is required."""
 
 
 def computer_identity(path=Path('/etc/machine-id')):
@@ -35,21 +41,50 @@ class MacIdentity:
         self.checked = float('-inf')
         self.fault = False
         self.binding = None
+        self.failure_epoch = 0
+        self.unavailable = False
+        self._lock = threading.Lock()
 
-    def check(self, _approval=None, observed_serial='0-0'):
-        # Used on the background worker and on EVERY explicit unlock. A
-        # failure is permanent for this process, including a transient swap.
-        started = self.now()
+    def _zero_identity(self):
+        # Check retained serial conflicts before freshness: a stale sample must
+        # not hide positive evidence that a different body was observed.
+        if self.inputs.zero_identity_changed():
+            raise IdentityConflict('zero identity changed')
+        if self.inputs.observed_identity() != '0-0':
+            raise IdentityConflict('zero identity changed')
+
+    def check(self, _approval=None, observed_serial='0-0', *, started=None):
+        # Used on the background worker and on EVERY explicit unlock. Only
+        # positive conflicting evidence permanently poisons this process.
+        started = self.now() if started is None else started
+        with self._lock:
+            epoch = self.failure_epoch
         try:
-            if self.fault or observed_serial != '0-0' or self.inputs.observed_identity() != '0-0':
-                raise PermissionError('zero identity changed')
+            if self.fault or observed_serial != '0-0':
+                raise IdentityConflict('zero identity changed')
+            self._zero_identity()
             mac, addresses = self.query(self.nic)
-            if (mac != self.mac or self.inputs.observed_identity() != '0-0'
-                    or not 0 <= self.now()-started < .20):
-                raise PermissionError('body identity changed or expired')
+            if mac != self.mac:
+                raise IdentityConflict('body identity changed')
+            self._zero_identity()
+            if not 0 <= self.now()-started < .20:
+                raise PermissionError('body identity expired')
+            with self._lock:
+                if self.fault or epoch != self.failure_epoch:
+                    raise PermissionError('identity check superseded by failure')
+                self.checked = started
+                if self.unavailable:
+                    logging.getLogger(__name__).warning('기체 확인 다시 확인됨')
+                self.unavailable = False
             return addresses
-        except Exception:
-            self.fault = True
+        except Exception as error:
+            with self._lock:
+                self.checked = float('-inf')
+                self.failure_epoch += 1
+                self.fault = self.fault or isinstance(error, IdentityConflict)
+                if not self.fault and not self.unavailable:
+                    logging.getLogger(__name__).warning('기체 확인 잠시 안 됨')
+                self.unavailable = True
             raise
 
     def verify_resume(self, approval, observed_serial):
@@ -57,10 +92,8 @@ class MacIdentity:
         return True
 
     async def refresh(self):
-        started = self.now()
-        addresses = await asyncio.to_thread(self.check)
-        self.checked = started
-        return addresses
+        # Include executor queue time in the unchanged .20 s freshness bound.
+        return await asyncio.to_thread(self.check, started=self.now())
 
     def valid(self):
         return not self.fault and 0 <= self.now()-self.checked < .20

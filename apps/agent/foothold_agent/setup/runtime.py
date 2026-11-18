@@ -63,6 +63,10 @@ class Inputs(Measurements):
                 raise PermissionError('fresh unambiguous nonzero DDS serial required')
             return self.serial
 
+    def zero_identity_changed(self):
+        with self.identity_lock:
+            return self.conflict or self.serial not in (None, '0-0')
+
     def identity(self):
         serial = self.observed_identity()
         if self.mac_identity is not None:
@@ -126,6 +130,9 @@ class Gate:
         self.remember = remember
         self.deadline = float('-inf')
         self.epoch = 0
+        # Even a failed unlock query followed by a successful background check
+        # between loop ticks must revoke the old motion approval and lease.
+        self.identity_epoch = 0 if getattr(inputs, 'mac_identity', None) is None else inputs.mac_identity.failure_epoch
 
     def approve(self, expiry):
         try:
@@ -164,6 +171,8 @@ class Gate:
         active, self.active = self.active, None
         self.pending = None
         self.epoch += 1
+        if getattr(self.inputs, 'mac_identity', None) is not None:
+            self.identity_epoch = self.inputs.mac_identity.failure_epoch
         if self.session is not None:
             if self.session.identity_gate is not None:
                 self.session.identity_gate.close()
@@ -190,6 +199,8 @@ class Gate:
     def valid(self):
         try:
             return (self.ready and self.nic_matches() and self.now() < self.deadline
+                    and (getattr(self.inputs, 'mac_identity', None) is None
+                         or self.identity_epoch == self.inputs.mac_identity.failure_epoch)
                     and self.wall() < self.last_expiry and self.inputs.identity() == self.serial
                     and not self.inputs.feedback.fault and self.session.connected
                     and not self.session.link_lost and not self.session.reconnect_required)
@@ -272,7 +283,10 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
         from foothold_agent.mapping.runtime import attach as mapping_factory
     identity = inputs.mac_identity
     if identity is not None:
-        await identity.refresh()
+        try:
+            await identity.refresh()
+        except Exception:
+            pass  # keep transport/status alive while the background check retries
     # Installation trials allow only the approved Agile state. Feedback still
     # requires a server-selected sink; no inherited environment can widen this.
     inputs.feedback = Feedback('0-0' if identity is not None else credentials.robot_serial,
@@ -309,7 +323,7 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                     try:
                         identity_task.result()
                     except Exception:
-                        identity.fault = True
+                        pass  # MacIdentity distinguishes transient loss from conflict
                     identity_task = None
                 if identity_task is None and stamp >= next_identity and not identity.fault:
                     identity_task = asyncio.create_task(identity.refresh())
@@ -392,10 +406,18 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             readings = devices(inputs.feedback.telemetry(), session.now())
             readings.append(dict(key='go2-preflight', kind='OTHER', label='연결 프로그램 자동 점검',
                                  state='OK' if ready else 'ERROR', received_monotonic_s=session.now()))
+            if identity is not None:
+                identity_ready = identity.valid()
+                readings.append(dict(key='go2-identity', kind='OTHER',
+                    label='로봇 확인' if identity_ready else '로봇 연결 정보 변경 · 이동 잠김'
+                    if identity.fault else '로봇 확인 잠시 안 됨 · 이동 잠김',
+                    state='OK' if identity_ready else 'ERROR', received_monotonic_s=session.now()))
             session.update_devices(readings)
             mode = '승인됨 · 조종권과 잠금 해제 필요' if gate.active else '읽기 전용 · 현장 안전 확인 필요'
             if identity is not None and identity.fault:
                 mode = '로봇의 연결 정보가 바뀌어 조종을 잠갔습니다. 랜선을 확인한 뒤 프로그램을 다시 실행해 주세요.'
+            elif identity is not None and not identity.valid():
+                mode = '로봇 확인 잠시 안 됨 · 이동 잠김'
             status.update(mode=mode,
                           connected=session.connected, field_approval_expires_at=gate.last_expiry
                           if gate.active else None,
