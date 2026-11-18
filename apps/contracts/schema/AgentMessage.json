@@ -582,6 +582,19 @@
     },
     "AgentPing": {
       "properties": {
+        "ping_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ping Id"
+        },
         "t": {
           "const": "ping",
           "title": "T",

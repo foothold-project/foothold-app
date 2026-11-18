@@ -151,6 +151,9 @@ class Peer:
     subscriptions: dict[str, set[str]] = field(default_factory=dict)
     last_rx: float = 0
     last_ping: float = 0
+    ping_challenges: dict[str, float] = field(default_factory=dict)
+    link_rtt_ms: float | None = None
+    link_rtt_at: float = float('-inf')
     state: dict = field(default_factory=dict)
     run: dict | None = None
     closing: bool = False
@@ -1599,13 +1602,16 @@ class Realtime:
 
     def screen_state(self, rid):
         online, state = live_state(self, rid)
+        peer = self.agents.get(rid)
+        link_rtt_ms = (peer.link_rtt_ms if online and self.clock()-peer.link_rtt_at < 3 else None)
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
             robot_info=state.get('robot_info'),
             posture=state.get('posture'), posture_result=state.get('posture_result'),
             action_result=state.get('action_result'),
+            response_health=state.get('response_health'),
             phone_relay=phone_relay(self, rid),
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
-            devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
+            devices=state.get('devices', []), speed=state.get('speed'), latency_ms=link_rtt_ms,
             latched=state.get('latched'), safety_reason=state.get('safety_reason'),
             unlock_refused=state.get('unlock_refused'), stop_gen=state.get('stop_gen'),
             applied=state.get('applied')).model_dump(mode='json')
@@ -2134,6 +2140,8 @@ class Realtime:
                     if accepted and msg.devices_changed is not None:
                         self.inventory.submit(rid, [d.model_dump(mode='json') for d in msg.devices_changed],
                             None, digest(ws.headers.get('authorization', '')[7:]))
+                elif msg.t == 'ping':
+                    self.accept_ping(peer, msg.ping_id)
                 elif msg.t == 'slam.update':
                     if getattr(self, 'mapping', None) is not None:
                         await self.read(self.mapping.report, rid, msg)
@@ -2195,6 +2203,20 @@ class Realtime:
             with suppress(asyncio.CancelledError):
                 await asyncio.gather(*(t for t in (sender, watcher, revoker, ack_writer, run_writer) if t), return_exceptions=True)
 
+    def agent_ping(self, peer):
+        at = self.clock()
+        peer.ping_challenges = {key: sent for key, sent in peer.ping_challenges.items()
+                                if 0 <= at-sent < 3}
+        token = str(uuid4())
+        peer.ping_challenges[token] = at
+        return C.AgentServerPing(t_server=now(), ping_id=token).model_dump(mode='json')
+
+    def accept_ping(self, peer, token):
+        sent = peer.ping_challenges.pop(token, None)
+        if sent is not None and 0 <= self.clock()-sent < 3:
+            peer.link_rtt_ms = round((self.clock()-sent)*1000, 1)
+            peer.link_rtt_at = self.clock()
+
     def accept_state(self, rid, peer, msg):
         if self.agents.get(rid) is not peer or peer.closing:
             return False
@@ -2206,6 +2228,7 @@ class Realtime:
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
         peer.state['action_result'] = data.get('action_result')
+        peer.state['response_health'] = data.get('response_health')
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']
         context = pose.get('floor_context')
@@ -2293,7 +2316,7 @@ class Realtime:
                     asyncio.create_task(peer.socket.close(code=1013))
                 elif at - peer.last_ping >= 1 and not peer.closing:
                     peer.last_ping = at
-                    self.put(peer, C.AgentServerPing(t_server=now()).model_dump(mode='json'))
+                    self.put(peer, self.agent_ping(peer))
 
     def record(self, effect):
         body, rid = effect.body, UUID(effect.robot)

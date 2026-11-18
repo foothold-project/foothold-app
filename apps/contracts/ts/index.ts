@@ -144,6 +144,7 @@ export interface AgentPhoneRevokeAck {
 
 export interface AgentPing {
   t: "ping";
+  ping_id?: string | null;
 }
 
 export interface AgentPose {
@@ -202,6 +203,7 @@ export interface AgentScenarioWaypoint {
 export interface AgentServerPing {
   t: "ping";
   t_server: string;
+  ping_id: string | null;
 }
 
 export interface AgentState {
@@ -2066,6 +2068,7 @@ export interface ScreenServerPing {
 }
 
 export interface ScreenState {
+  response_health?: RobotResponseHealth | null;
   posture?: PostureState | null;
   posture_result?: PostureResult | null;
   action_result?: ActionResult | null;

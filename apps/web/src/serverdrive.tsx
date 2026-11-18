@@ -67,6 +67,7 @@ type PoseKey = keyof typeof POSE;
 const POSE_KEY = { stand_up: 'up', stand_down: 'down' } as const;
 /** 로봇이 알린 자세 명령 거부·실패 사유(계약 PostureResult.code)를 쉬운 말로. 모르는 값은 현장 확인 안내 */
 const POSE_WHY: Record<string, string> = {
+  ROBOT_SLOW: '로봇 응답 느림. 잠시 뒤 다시 누르세요.',
   MOVING: '로봇이 움직이고 있습니다. 멈춘 뒤 다시 누르세요.',
   BUSY: '다른 자세 동작을 하는 중입니다. 끝난 뒤 다시 누르세요.',
   NOT_AUTHORIZED: '조종권이 없습니다. [조종 시작]부터 다시 하세요.', AUTHORITY_LOST: '동작 중에 조종권이 바뀌었습니다. [조종 시작]부터 다시 하세요.',
@@ -90,6 +91,25 @@ export function refusedText(r: UnlockRefused | null | undefined) {
   if (!r?.reason) return '';
   const ax = (r.axes ?? []).map((a) => `${a.axis} ${a.value} ${a.unit} > 기준 ${a.limit} ${a.unit}`).join(', ');
   return `거절 사유: ${r.reason}${ax ? ` — ${ax}` : ''}`;
+}
+/** 서로 다른 컴퓨터의 시각을 빼지 않고, 각 연결에서 측정한 왕복만 표시한다. */
+export function ResponseLine({ state: s, screenMs }: { state: Live['state']; screenMs: number | null }) {
+  const current = useRef({ state: s, screenMs }); current.current = { state: s, screenMs };
+  const [sample, setSample] = useState(current.current);
+  useEffect(() => { const timer = setInterval(() => setSample(current.current), 1000); return () => clearInterval(timer); }, []);
+  const h = s?.connection === 'ONLINE' ? sample.state?.response_health : null;
+  const ms = (value: number | null | undefined) => value == null ? '측정 대기' : `${Math.round(value)} ms`;
+  return <div className="lbl mono" data-sd-latency>
+    로봇 응답: {h?.last_timed_out ? '0.1초 넘음' : ms(h?.last_ms)}
+    {h && h.sample_count > 0 && <> (최근 {h.sample_count}회 중앙값 {h.median_timed_out ? '시간 초과 포함' : ms(h.median_ms)})</>}
+    {' · '}로봇 컴퓨터↔서버: {ms(s?.connection === 'ONLINE' ? sample.state?.latency_ms : null)}
+    {' · '}서버↔이 화면: {ms(screenMs == null ? null : sample.screenMs)}
+  </div>;
+}
+export function SlowResponse({ health }: { health: NonNullable<Live['state']>['response_health'] }) {
+  if (!health?.slow) return null;
+  const at = health.last_timeout_at ? new Date(health.last_timeout_at).toLocaleTimeString('ko-KR', { hour12: false }) : '모름';
+  return <p className="dv-note" role="status" data-sd-slow>로봇 응답 느림 · 최근 3초 {health.timeout_count}회 · 마지막 {at}</p>;
 }
 /** 대화상자 밖을 inert(초점·누름 막음) — 대화상자 조상 줄의 형제 모두. 돌려줄 때 원래대로 */
 function inertOutside(el: HTMLElement) {
@@ -250,10 +270,12 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     <span>배터리 {s?.battery?.soc != null ? `${s.battery.soc}%` : '—'}</span>
     <span>수평 속도 {s?.speed != null ? `${s.speed.toFixed(1)} m/s` : '—'}</span>
     <span>잠금 {s?.latched == null ? '모름' : s.latched ? '잠김' : '풀림'}</span>
-    <span>지연 {s?.latency_ms != null ? `${s.latency_ms} ms` : '—'}</span>
     <span>마지막 응답 {age != null ? `${age} ms 전` : '없음'}</span>
   </div>;
-  const notes = <>{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
+  const connection = rt.link();
+  const freshState = rt.now()-l.stateAt < 3000 ? s : null;
+  const latency = <ResponseLine state={freshState} screenMs={link === 'open' && connection.latencyAt != null && rt.now()-connection.latencyAt < 3000 ? connection.latencyMs ?? null : null} />;
+  const notes = <><SlowResponse health={freshState?.connection === 'ONLINE' ? freshState.response_health : null} />{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
     {posture === 'UNKNOWN' && mine && <p className="dv-note" role="status" data-sd-pose-unknown>로봇 자세를 아직 알 수 없어 이동 단추를 잠갔습니다. 현장에서 로봇을 확인한 뒤 «일어서기»를 누르세요.</p>}
     {why && <p className="dv-note" role="status" data-sd-why>{why}</p>}
     {l.notice && <p className="dv-note" role="status">{l.notice}</p>}
@@ -285,6 +307,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   // 상세 서랍 안은 작게: 상태·STOP·정지 단계·잠금 해제·조종 시작/끝내기 + «조종 화면 열기». 영상·라이다·조작부·상태줄은 조종 화면(전체화면 모달, #214)에서
   return <section className="card" aria-label="서버 경유 시험 조종" data-server-drive style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10, borderColor: 'var(--warn)' }}>
     <div className="fh-row" style={{ flexWrap: 'wrap' }}><Chip tone="warn" text={TRIAL} /><Chip {...lock} /></div>
+    {!full && latency}
     {stop(false)}
     {stopNote}
     {unlock}
@@ -299,6 +322,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
         <Chip tone="warn" text={TRIAL} /><Chip {...lock} />{status}<span className="fh-grow" style={{ flex: 1 }} />
         <button type="button" className="btn" data-sd-small onClick={closeFull}>작게 보기(Esc)</button>{stop(true)}
       </div>
+      {latency}
       <div data-sd-full-body style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {(stopNote || unlock) && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} data-sd-full-state>{stopNote}{unlock}</div>}
       <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar', 'depth'] as const).map((ch) =>

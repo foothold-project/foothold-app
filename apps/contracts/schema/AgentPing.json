@@ -2,6 +2,19 @@
   "$id": "fh-app/1/AgentPing",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "ping_id": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ping Id"
+    },
     "t": {
       "const": "ping",
       "title": "T",

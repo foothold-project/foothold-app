@@ -892,6 +892,7 @@ class AgentState(AgentInput):
 
 class AgentPing(AgentInput):
     t: Literal['ping']
+    ping_id: str | None = Field(default=None, max_length=64)
 
 
 class AgentEvent(AgentInput):
@@ -1126,6 +1127,7 @@ class AgentUnlock(Contract):
 class AgentServerPing(Contract):
     t: Literal['ping'] = 'ping'
     t_server: UTCDateTime
+    ping_id: str | None = Field(default=None, max_length=64)
 
 
 class AgentStreams(Contract):
@@ -1202,7 +1204,8 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result'))
+    response_health: RobotResponseHealth | None = None
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
