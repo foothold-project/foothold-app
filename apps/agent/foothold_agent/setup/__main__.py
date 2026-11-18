@@ -56,7 +56,7 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                 break
             except SerialUnavailable:
                 identity = await confirm_zero_identity(inputs, nic, status, stop, credentials,
-                                                       windows=os.name == 'nt')
+                                                       windows=os.name == 'nt', onboard=getattr(args, 'onboard', False))
                 if identity is None:
                     return
                 serial = inputs.identity()
@@ -69,6 +69,11 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
             return
         status.update(serial=serial if inputs.mac_identity is None else None,
                       identity_source='mac' if inputs.mac_identity else 'serial')
+        if (getattr(args, 'onboard', False) and inputs.mac_identity is not None
+                and credentials is not None and (credentials.robot_serial != serial
+                or credentials.identity_source != 'mac' or credentials.robot_mac != inputs.mac_identity.mac)):
+            # Human has confirmed a changed body: never attach its old token.
+            credentials = None
         if credentials is not None and credentials.robot_serial != serial:
             raise PermissionError('saved serial differs from current DDS identity')
         if credentials is not None and ((credentials.identity_source == 'mac') !=
@@ -78,7 +83,7 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
             pairing = pairing_factory(server)
             await asyncio.to_thread(pairing.start, serial)
             status.update(code=pairing.code, expires_at=pairing.expires_at, qr=qr_svg(pairing.code),
-                          mode='웹에서 노트북 화면의 코드를 넣고 이름을 입력하세요')
+                          mode='웹에서 '+('로봇 컴퓨터' if getattr(args, 'onboard', False) else '노트북')+' 화면의 코드를 넣고 이름을 입력하세요')
             while not stop.is_set():
                 if inputs.mac_identity is not None:
                     await inputs.mac_identity.refresh()
@@ -97,7 +102,8 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                     if inputs.mac_identity is not None:
                         await inputs.mac_identity.refresh()
                         credentials = replace(credentials, identity_source='mac',
-                                              robot_mac=inputs.mac_identity.mac)
+                                              robot_mac=inputs.mac_identity.mac,
+                                              mounted_binding=inputs.mac_identity.binding)
                     if saved_credentials is not None and saved_credentials.robot_id == credentials.robot_id:
                         credentials = replace(credentials, last_field_approval_expires_at=
                                               saved_credentials.last_field_approval_expires_at)
@@ -106,6 +112,10 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
                 await asyncio.sleep(2)
             else:
                 return
+        if (getattr(args, 'onboard', False) and inputs.mac_identity is not None
+                and credentials.mounted_binding != inputs.mac_identity.binding):
+            credentials = replace(credentials, mounted_binding=inputs.mac_identity.binding)
+            save(credentials, args.config)
         status.update(code=None, qr=None, expires_at=None, mode='읽기 전용 · 서버 연결 중')
         def check_nic():
             if os.name == 'nt' and discover is candidates:
@@ -146,13 +156,20 @@ async def serve(args, status, *, stop=None):
         except ReconnectForbidden:
             status.update(mode='이 노트북의 연결이 해제되었습니다. «다시 연결하기»를 누른 뒤 웹의 «새 로봇 추가»에서 노트북 화면의 새 코드를 넣으세요',
                           connected=False, code=None, qr=None, expires_at=None)
-            print('이 노트북의 연결이 해제되었습니다. 노트북 화면의 «다시 연결하기»를 누르고 웹의 «새 로봇 추가»에서 새 코드를 넣으세요.', file=sys.stderr)
-            await stop.wait()
+            if getattr(args, 'onboard', False):
+                status.update(mode='로봇 컴퓨터의 연결이 해제되었습니다. 담당자에게 새 등록을 요청하세요.')
+                print('로봇 컴퓨터의 연결이 해제되었습니다. 담당자에게 새 등록을 요청하세요. 코드: reconnect_forbidden', file=sys.stderr)
+            else:
+                print('이 노트북의 연결이 해제되었습니다. 노트북 화면의 «다시 연결하기»를 누르고 웹의 «새 로봇 추가»에서 새 코드를 넣으세요.', file=sys.stderr)
+            if not getattr(args, 'headless', False):
+                await stop.wait()
             return False
         except IdentityUnavailable as error:
+            print('기체 확인 실패 · 랜선을 확인하세요. 코드: identity_unavailable', file=sys.stderr)
             status.update(mode=str(error),
                           connected=False, code=None, qr=None, expires_at=None)
-            await stop.wait()
+            if not getattr(args, 'headless', False):
+                await stop.wait()
             return False
         except Exception as error:
             # Exception messages/tracebacks can embed addresses and credentials.
@@ -186,8 +203,11 @@ async def serve(args, status, *, stop=None):
                     '연결 거부 · 랜선·자동 점검·서버 연결을 확인한 뒤 프로그램을 다시 실행하세요')
             status.update(mode=mode, connected=False, code=None, qr=None, expires_at=None)
             print(f'SETUP_FAILURE type={name} reason={reason} cause_type={cause_type}', file=sys.stderr)
-            print('연결을 거부했습니다. 노트북 화면을 확인하고 종료하려면 Ctrl+C를 누르세요.', file=sys.stderr)
-            await stop.wait()
+            if getattr(args, 'headless', False):
+                print(f'연결을 거부했습니다. 랜선·로봇 상태·서버 연결을 확인하세요. 코드: {reason}', file=sys.stderr)
+            else:
+                print('연결을 거부했습니다. 노트북 화면을 확인하고 종료하려면 Ctrl+C를 누르세요.', file=sys.stderr)
+                await stop.wait()
             return False
     finally:
         restore()
@@ -198,6 +218,7 @@ def main(argv=None):
     parser.add_argument('--server', help='first run: HTTPS server origin; later recovered from private saved connection')
     parser.add_argument('--repair', action='store_true',
                         help='explicitly pair again; replace the saved token only after phone confirmation succeeds')
+    parser.add_argument('--onboard', action='store_true', help='fixed robot computer installation; remember confirmed body binding')
     parser.add_argument('--nic', help='choose one detected dedicated wired NIC when there are multiple')
     parser.add_argument('--port', type=int, default=9611)
     parser.add_argument('--config', type=Path, default=default_path(),
@@ -206,7 +227,10 @@ def main(argv=None):
     parser.add_argument('--no-browser', '--headless', dest='no_browser', action='store_true',
                         help='run without a local GUI; keep the loopback status/confirmation page')
     args = parser.parse_args(argv)
-    status = Status()
+    # Desktop's own --no-browser still keeps its GUI status service alive.
+    # Only this standalone setup entrypoint opts into process exit on failure.
+    args.headless = args.no_browser
+    status = Status(onboard=args.onboard)
     server = worker = None
     try:
         # Listener validation/bind happens before any DDS import/initialization.

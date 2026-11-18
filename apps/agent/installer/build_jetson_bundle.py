@@ -124,6 +124,7 @@ def main(argv=None):
             agent_source_sha256=digest(output/'agent.tar'), sources=arm.SOURCES,
             target='Linux aarch64 CPython 3.10', native_wheel_audit=audit,
             jetson_built=False, installed=False, robot_connected=False), indent=2)+'\n')
+        (bundle/'README.md').write_text((agent/'installer/JETSON-README.md').read_text())
         (bundle/'install.sh').write_text(INSTALL_SH)
         (bundle/'install.sh').chmod(0o700)
         (bundle/'SHA256SUMS').write_text(''.join(

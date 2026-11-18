@@ -33,7 +33,8 @@ def preflight_message(report):
 
 
 class Status:
-    def __init__(self):
+    def __init__(self, *, onboard=False):
+        self.onboard = onboard
         self._lock = threading.Lock()
         self._value = {'mode': '기체 찾는 중', 'connected': False}
         self._depth_choice = None
@@ -193,7 +194,12 @@ def make_server(status, port=9611, *, controls=None):
                 self.send_error(403)
                 return
             if self.path == '/':
-                body, kind = PAGE.encode(), 'text/html; charset=utf-8'
+                page = PAGE
+                if status.onboard:
+                    page = page.replace('노트북', '로봇 컴퓨터')
+                    page = page.replace('<p><label><input id="autostart"', '<p hidden><label><input id="autostart"')
+                    page = page.replace('<details><summary>직접 설정하는 법</summary>', '<details hidden><summary>직접 설정하는 법</summary>')
+                body, kind = page.encode(), 'text/html; charset=utf-8'
             elif self.path == '/desktop' and controls is not None:
                 body, kind = json.dumps(controls.snapshot(), ensure_ascii=False).encode(), 'application/json'
             elif self.path == '/status':

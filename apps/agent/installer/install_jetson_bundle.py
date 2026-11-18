@@ -24,7 +24,7 @@ from jetson_bundle_common import checked_bundle, digest, unpack
 
 BUNDLE = Path(__file__).resolve().parents[3]
 
-LAUNCHER = '''"""Manual start only; no service registration or automatic start."""
+LAUNCHER = '''"""Robot computer entrypoint; optional user service runs this same launcher."""
 import json
 import os
 from pathlib import Path
@@ -36,7 +36,7 @@ python = str(root/'venv/bin/python')
 os.environ['XDG_CACHE_HOME'] = str(root/'cache')
 os.environ['FH_MAPPING_CACHE_DIR'] = str(root/'cache/mapping')
 os.environ['FH_RECORD'] = '0'
-args = [python, '-I', '-m', 'foothold_agent.setup', '--headless',
+args = [python, '-I', '-m', 'foothold_agent.setup', '--headless', '--onboard',
         '--config', str(root/'private/agent.json'), '--wheel-dir', str(root/'bundle/wheels'),
         '--server', config['server'], '--nic', config['nic'], '--port', str(config['port'])]
 os.execv(python, args)
@@ -199,6 +199,13 @@ def install(bundle, root, lock, config):
     run([python, '-I', '-m', 'foothold_agent.go2_direct.preflight'], root, verify_env)
     (root/'connection.json').write_text(json.dumps(config, indent=2)+'\n')
     (root/'launch.py').write_text(LAUNCHER)
+    shutil.copyfile(bundle/'apps/agent/installer/jetson_autostart.py', root/'autostart.py')
+    for action in ('enable', 'disable'):
+        script = root/(action+'-autostart.sh')
+        script.write_text('#!/bin/sh\nset -eu\n'
+            'root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)\n'
+            'exec /usr/bin/python3 -I "$root/autostart.py" '+action+'\n')
+        script.chmod(0o700)
     (root/'connection.json').chmod(0o600)
     (root/'INCOMPLETE').unlink()
 

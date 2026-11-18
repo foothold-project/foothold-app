@@ -342,3 +342,20 @@ def test_owner_can_repair_after_connection_is_revoked(client):
     assert after['field_approval_expires_at'] is None and new['agent_token'] != old['agent_token']
     with DBSession(client.app.state.engine) as db:
         assert db.get(Robot, UUID(after['id'])).agent_token_hash == digest(new['agent_token'])
+
+
+@pytest.mark.parametrize('second_user', ['one', 'two'])
+@pytest.mark.parametrize('serial', ['4294901760-17', '4294967295-4294967295'])
+def test_mac_placeholder_always_creates_new_robot_and_keeps_old_token(client, second_user, serial):
+    own = app_token(client)
+    before, old, _ = paired(client, own, name='첫 로봇', serial=serial)
+    auth = own if second_user == 'one' else app_token(client, second_user)
+    after, new, _ = paired(client, auth, name='다른 로봇', serial=serial)
+    assert before['id'] != after['id'] and old['robot_id'] != new['robot_id']
+    assert before['robot_serial'] == after['robot_serial'] == serial
+    with DBSession(client.app.state.engine) as db:
+        first = db.get(Robot, UUID(before['id']))
+        second = db.get(Robot, UUID(after['id']))
+        assert first.agent_token_hash == digest(old['agent_token']) and first.name == '첫 로봇'
+        assert second.agent_token_hash == digest(new['agent_token'])
+        assert (first.owner_user_id == second.owner_user_id) is (second_user == 'one')
