@@ -177,3 +177,13 @@ def test_check_mode_uses_bounded_readonly_switcher_and_never_selects(monkeypatch
     with pytest.raises(AttributeError): boundary.SelectMode('normal')
     clock.value = 1100
     with pytest.raises(PermissionError): boundary.CheckMode()
+
+
+@pytest.mark.parametrize('sdk_code,reason', [(3102,'SDK_SEND_FAILED'), (3103,'UNSUPPORTED'), (3104,'TIMEOUT'), (3105,'SDK_VERSION_MISMATCH'), (3106,'SDK_ARGUMENTS'), (3107,'SDK_AUTHORITY'), (3203,'UNSUPPORTED'), (3204,'SDK_ARGUMENTS'), (3205,'SDK_AUTHORITY'), (3206,'SDK_AUTHORITY'), (3207,'SDK_BUSY')])
+def test_documented_sdk_errors_keep_number_and_plain_reason(sdk_code, reason):
+    _, sink, normal, _, _, _, _, frame = rig(0)
+    normal.Hello = lambda: sdk_code
+    send(frame); sink.drain()
+    assert sink.actions.result['sdk_code'] == sdk_code
+    assert sink.actions.result['code'] == reason
+    assert sink.actions.result['status'] == 'FAILED'

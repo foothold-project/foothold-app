@@ -11,6 +11,13 @@ ACTIONS = frozenset('Damp BalanceStand StopMove StandUp StandDown RecoveryStand 
 FLAGS = frozenset('SwitchJoystick Pose HandStand FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet'.split())
 DANGEROUS = frozenset('FrontFlip LeftFlip BackFlip FrontJump FrontPounce HandStand WalkUpright FreeJump FreeBound Damp'.split())
 TIMEOUT_S = 2.
+# Unitree SDK pinned rpc/internal.py; unknown firmware codes stay SDK_REJECTED.
+SDK_REASONS = {
+    3102: 'SDK_SEND_FAILED', 3103: 'UNSUPPORTED', 3104: 'TIMEOUT',
+    3105: 'SDK_VERSION_MISMATCH', 3106: 'SDK_ARGUMENTS', 3107: 'SDK_AUTHORITY',
+    3203: 'UNSUPPORTED', 3204: 'SDK_ARGUMENTS', 3205: 'SDK_AUTHORITY',
+    3206: 'SDK_AUTHORITY', 3207: 'SDK_BUSY',
+}
 
 
 def arguments(action, params):
@@ -156,5 +163,5 @@ class Actions:
                     valid = type(code) is int
                     ok = valid and code == 0 and failure is None
                     self.report(job['request_id'], job['action'], 'SUCCEEDED' if ok else 'FAILED',
-                                'SDK_ACCEPTED' if ok else failure or 'SDK_REJECTED',
+                                'SDK_ACCEPTED' if ok else failure or (SDK_REASONS.get(code, 'SDK_REJECTED') if valid else 'SDK_REJECTED'),
                                 code if valid else None, mode=mode, enabled=enabled)

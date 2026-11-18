@@ -26,7 +26,9 @@ const REASONS: Record<string, string> = {
   STOPPED: 'STOP으로 취소했습니다', WATCHDOG: '감시 시간 초과로 취소했습니다', DISCONNECTED: '연결이 끊겨 취소했습니다',
   LEASE_CHANGED: '조종권이 바뀌어 취소했습니다', CLOSED: '연결을 종료해 취소했습니다', TIMEOUT: 'SDK 응답 시간이 초과됐습니다',
   SDK_REJECTED: 'SDK가 거부했습니다 · 지원 여부와 로봇 상태를 확인하세요', SDK_ERROR: 'SDK 호출에 실패했습니다',
-  UNSUPPORTED: '설치된 SDK가 이 동작을 제공하지 않습니다', MODE_READ_ONLY: '안전한 전환 대상이 확인되지 않아 현재 모드 조회만 가능합니다',
+  SDK_SEND_FAILED: '로봇 동작 서비스에 요청을 보내지 못했습니다', SDK_VERSION_MISMATCH: 'SDK와 로봇의 동작 규약이 맞지 않습니다',
+  SDK_ARGUMENTS: 'SDK가 동작 인자를 거부했습니다', SDK_AUTHORITY: '로봇 동작 서비스의 조종권을 확인하세요', SDK_BUSY: 'SDK 조종권이 이미 사용 중입니다',
+  UNSUPPORTED: '설치된 SDK 또는 로봇이 이 동작을 제공하지 않습니다', MODE_READ_ONLY: '안전한 전환 대상이 확인되지 않아 현재 모드 조회만 가능합니다',
 };
 export function actionResultText(result: ActionResult) {
   const status = { RUNNING: '대기', SUCCEEDED: '성공', REJECTED: '거부', FAILED: '실패' }[result.status];
