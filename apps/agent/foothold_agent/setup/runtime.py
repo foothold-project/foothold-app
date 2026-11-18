@@ -300,6 +300,7 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
     next_identity = 0.
     next_nic = 0.
     healthy = False
+    failure = None
     try:
         while not stop.is_set() and not network.done():
             stamp = time.monotonic()
@@ -403,10 +404,20 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             await asyncio.sleep(.02)
         if network.done():
             network.result()
+    except BaseException as error:
+        failure = error
+        raise
     finally:
         # Local STOP precedes all network cancellation and waits.
         try:
-            gate.revoke()
+            try:
+                gate.revoke()
+            except BaseException:
+                if failure is None:
+                    raise
+                # Cleanup still attempts STOP and closes workers in revoke();
+                # its secondary failure must not replace the connection cause.
+                logging.getLogger(__name__).warning('GO2_CLEANUP_STOP_FAILED original_failure_preserved')
         finally:
             recorder.close()
             if recorder.notice.startswith('기록 저장 중:'):
