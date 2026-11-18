@@ -1,18 +1,18 @@
 // 임무 탭(01 MS-01·02·03·09, 02 F-MS-01~04·§10, 03 §5.3, 05 §6.1~6.3 — S5a /actions·/missions·/scenarios·/scenarios/preview).
 // 목록 [임무 | 시나리오](보관 제외 기본·보관 보기·더 보기) + 편집 칸. 저장할 때마다 새 판(PUT If-Match = 받은 본체 version), 옛 판은 읽기 전용(덮어쓰기 단추 없음).
-// 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정 창·목록은 저장된 시나리오 칸 아래(screens/assign.tsx, S5b), 실행은 S7 뒤.
+// 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 시나리오는 시뮬 탭에서만 고치고(RB-MAP-NO-SCEN 11-18 — 배정 화면 없음), 실기 조종 화면은 이 층 시나리오를 고른다(ScenarioPick).
 // STOP 은 App 머리줄 — 이 화면은 창 키·포인터를 잡지 않는다(지도 svg 포인터만).
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { Action, Assignment, MapFloor, MapVersion, Terrain, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
+import type { Action, MapFloor, MapVersion, Terrain, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type MapUpdate, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
-import { KIND as DEVICE, type Ctx } from '../screens';
+import { KIND as DEVICE, soon, type Ctx } from '../screens';
+import { rt, useRt } from '../rt';
 import { MapFrame, MapImage } from '../mapframe';
 import { Note, RUN, Shapes, canon, floorsOf, isVersion, purposeOf, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place, type Run } from './maps';
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { crosses, inPolygon, loadNoGo, loadWalls, noGoAt, routeSoon, type Cells } from './zoneroute';
-import { AssignPanel, assignFor } from './assign';
 import { TrashLink, trashFail } from './trash';
 import { Float, Hint, Menu, Pane, shut, type Side } from './mapscen';
 import { ScenNodes, useBig, type StepKind } from './scennode';
@@ -69,7 +69,7 @@ type Adopt = 'all' | 'base' | 'none';
 /** floor = 지도 탭에서 고른 층(''= 지도 고르기 화면), side = 오른쪽 창 [지도 요소 | 시나리오], find = sel 시나리오의 층을 찾아 열기(옛 #/mission/<id> 주소) — MAP-TAB-MERGE 11-03 */
 export const keptPlan: { kind: Plan; sel: string | null; drafts: Record<string, Draft>; now: boolean; floor: string; side: Side; find: boolean } = { kind: 'scenarios', sel: null, drafts: {}, now: false, floor: '', side: 'map', find: false };
 /** 로그아웃 때 비운다(session.tsx) */
-export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; keptPlan.floor = ''; keptPlan.side = 'map'; keptPlan.find = false; assignFor.robot = null; pane.robot = ''; };
+export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; keptPlan.floor = ''; keptPlan.side = 'map'; keptPlan.find = false; pane.robot = ''; };
 addEventListener('beforeunload', (e) => { if (keptPlan.now || Object.keys(keptPlan.drafts).length) { e.preventDefault(); e.returnValue = ''; } });
 
 /** 목록(오래된 것 먼저) + cursor 로 더 받기. 종류·보관 보기·거르기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다(결재 탭 useList 와 같다) */
@@ -88,30 +88,39 @@ function useList(kind: Plan, archived: boolean, only: { mine: boolean; floor: st
   return { items, next, busy, err, more: () => load(next), again: () => setN((x) => x + 1) };
 }
 
-/** 시나리오별 배정된 로봇 이름(ACTIVE·결재 대기, 조직 전체 배정 목록에서). 목록을 받을 때마다 다시 — 받는 중 undefined, 못 받으면 null */
-function useAssigned(on: boolean, busy: boolean, cancel?: AbortSignal) {
-  const [by, setBy] = useState<Record<string, string[]> | null>();
-  useEffect(() => {
-    if (!on || busy) return;
-    let live = true;
-    api.assignments(null, cancel).then((l: Assignment[]) => {
-      if (!arr(l) || !l.every((a) => !!a && (a.scenario_id === null || str(a.scenario_id)) && str(a.robot_name) && str(a.status))) throw new ApiFail(0, 'BAD_SHAPE', '');   // 지워진 시나리오 배정은 null(§5.1)
-      const m: Record<string, string[]> = {};
-      for (const a of l) if (a.scenario_id && (a.status === 'ACTIVE' || a.status === 'PENDING')) {
-        const name = a.status === 'PENDING' ? `${a.robot_name}(결재 대기)` : a.robot_name;
-        const k = a.scenario_id;
-        if (!(m[k] ??= []).includes(name)) m[k].push(name);
-      }
-      if (live) setBy(m);
-    }).catch((e: ApiFail) => { if (live && e.code !== 'CANCELED') setBy(null); });
-    return () => { live = false; };
-  }, [on, busy]);
-  return by;
-}
-
-/** 지도 탭 오른쪽 «시나리오» 창의 목록(이 층 시나리오, 보관 제외 — MAP-TAB-MERGE 11-03). 서버 floor_id·mine 거르기 */
+/** 시뮬 탭 오른쪽 «시나리오» 창·폰 조종 시나리오 고르기의 목록(이 층 시나리오, 보관 제외 — MAP-TAB-MERGE 11-03). 서버 floor_id·mine 거르기 */
 export const useScenarios = (floor: string, mine: boolean, cancel?: AbortSignal) => useList('scenarios', false, { mine, floor }, cancel);
 export type ScenarioList = ReturnType<typeof useScenarios>;
+
+/** 폰 조종 화면 «시나리오» 시트(RB-MAP-NO-SCEN 11-18 — 배정 대신 조종할 때 고름): 이 로봇이 있는 층의 실기 시나리오(실기 장소 층, 휴지통 제외).
+ *  층을 모르거나 실기 장소 층이 아니면 실기 장소 시나리오 전체 + 안내 한 줄. 실행은 실기 실행기 전이라 «준비 중» 비활성(고르기만) */
+export function ScenarioPick({ robot, cancel }: Pick<Ctx, 'robot' | 'cancel'>) {
+  useRt();
+  const s = robot.unknown ? null : rt.get(robot.id).state, at = (s ? s.location : robot.location)?.floor_id;
+  const t = useTree(cancel), real = floorsOf(t.tree).filter((p) => purposeOf(p.site) === 'REAL'), here = real.find((p) => p.floor.id === at);
+  const [all, setAll] = useState<Scenario[] | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [pick, setPick] = useState('');
+  useEffect(() => {
+    let live = true;
+    setErr('');
+    api.allPlans('scenarios', cancel).then((l) => { if (live) setAll((l as Scenario[]).filter((x) => isPlan(x) && !x.archived_at)); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
+    return () => { live = false; };
+  }, [n]);
+  const where = (x: Scenario) => real.find((p) => x.floor_ids.includes(p.floor.id));
+  const list = t.tree && all ? all.filter((x) => (here ? x.floor_ids.includes(here.floor.id) : !!where(x))) : null, chosen = list?.find((x) => x.id === pick);
+  return <>
+    <h2>시나리오 고르기</h2>
+    {t.tree && <p className="lv-note" data-scen-where>{here ? `${here.site.name} › ${here.building.name} › ${here.floor.name}의 시나리오입니다.` : '로봇이 있는 층을 아직 모릅니다 — 실기 장소의 시나리오를 모두 보여 줍니다. 로봇이 있는 층의 시나리오를 고르세요.'}</p>}
+    {list && !!list.length && <ul className="fh-list" aria-label="시나리오 목록">{list.map((x) => { const w = here ? null : where(x);
+      return <li key={x.id}><button type="button" aria-pressed={pick === x.id} data-scen-pick={x.id} onClick={() => setPick(x.id)}>
+        <b>{x.name}</b><span className="fh-grow" /><span className="lbl">{w ? `${w.building.name} ${w.floor.name} · ` : ''}지점 {x.waypoints.length}</span></button></li>; })}</ul>}
+    {list && !list.length && <p className="lv-note">{here ? '이 층에는 시나리오가 없습니다.' : '실기 장소에 시나리오가 없습니다.'} 시나리오는 PC «시뮬» 탭에서 만듭니다.</p>}
+    <div className="fh-row"><button type="button" className="btn pri" aria-label={`${chosen ? chosen.name : '고른 시나리오'} 실행(준비 중)`} {...soon}>▶ 실행(준비 중)</button></div>
+    <p className="lv-note">실기 시나리오 실행은 준비 중입니다. 지금은 고르기만 됩니다.</p>
+    {!list && !err && !t.err && <p className="lv-note" role="status">시나리오를 불러오는 중…</p>}
+    {(err || t.err) && <div className="fh-row"><p className="fh-msg" role="alert">시나리오를 받지 못했습니다. {err || t.err}</p>
+      <button type="button" className="btn" onClick={() => { if (err) setN((x) => x + 1); if (t.err) t.again(); }}>다시 시도</button></div>}
+  </>;
+}
 /** 시나리오가 이 층에서 가리키는 지도 판이 지금 승인 판이 아니면 true(«지도 바뀜» — 저장할 때 서버가 STALE 로 알림, 여기는 표시만) */
 /** map_update 이유가 가리키는 곳을 쉬운 말로 — 서버 키(floor_ids·map_version_ids)·연결점 id 는 보이지 않는다. 모르는 키는 빈 말(이유만 보임) */
 function muEl(e: string) {
@@ -127,26 +136,21 @@ function muEl(e: string) {
 export const muWhy = (m: MapUpdate) => m.reasons.map((r) => { const el = muEl(r.element); return el ? `${el}: ${r.reason}` : r.reason; }).join(' · ') || '바뀐 지도에 맞지 않는 지점이 있습니다.';
 export const oldMap = (x: Scenario, floor: string, approved: string | null) => !!approved && [...x.waypoints, ...(x.finish?.target ? [x.finish.target] : [])].some((w) => w.floor_id === floor && w.map_version_id !== approved);
 
-/** ③ 오른쪽 «시나리오» 창: «+ 이 지도에 새 시나리오»·«임무 관리…»·«내 것만» + 이 층 목록(이름·지점·거리·어디서 도는지, 마우스를 올리면 지도에 경로) + 휴지통. open('') = 새로.
- *  read = 지도 탭(RB-SCEN-SIMTAB 11-11): 만들기·고치기는 시뮬 탭(open = 그리로), 줄을 누르면 펼쳐 실기 로봇 배정·결재(AssignPanel 그대로)만 */
-export function ScenList({ sim, read, run, l, mine, setMine, floor, approved, open, hover, admin, robots, user, cancel, top }: { sim?: boolean; read?: boolean; run?: (x: Scenario) => Run | null; l: ScenarioList; mine: boolean; setMine: (m: boolean) => void; floor: string; approved: string | null;
-  open: (id: string) => void; hover: (x: Scenario | null) => void; admin: () => void; robots: Robot[]; user?: User; cancel?: AbortSignal; top?: ReactNode }) {
-  const assigned = useAssigned(!sim, l.busy, cancel), items = l.items as Scenario[];   // 시뮬 시나리오는 배정하지 않는다(서버 409 SIM_SCENARIO_NO_ASSIGN) — 로봇 칸·배정 안내 없음
-  const [exp, setExp] = useState<string | null>(null), [pv, setPv] = useState<number | null>(null);   // 지도 탭에서 펼친 줄(배정 창)·배정할 저장 기록(null = 최신)
-  const ask = !sim && assignFor.robot && <p className="fh-msg ok" role="status">{robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 고르면 배정 창이 열립니다.</p>;
+/** ③ 시뮬 탭 오른쪽 «시나리오» 창: «+ 이 지도에 새 시나리오»·«임무 관리…»·«내 것만» + 이 층 목록(이름·지점·거리·어디서 도는지, 마우스를 올리면 지도에 경로) + 휴지통. open('') = 새로 */
+export function ScenList({ run, l, mine, setMine, floor, approved, open, hover, admin, top }: { run?: (x: Scenario) => Run | null; l: ScenarioList; mine: boolean; setMine: (m: boolean) => void; floor: string; approved: string | null;
+  open: (id: string) => void; hover: (x: Scenario | null) => void; admin: () => void; top?: ReactNode }) {
+  const items = l.items as Scenario[];
   return <section className="mx-tab" aria-label="시나리오 목록 창">
     <div className="mx-in">
-      {read ? <><p className="lv-note" data-scen-read-note>시나리오 만들기·고치기는 «시뮬» 탭에서 합니다. 여기서는 보고 실기 로봇에 배정합니다.</p>
-        <button type="button" className="btn" data-to-sim="" onClick={() => open('')}>시뮬 탭에서 만들기·고치기 ›</button></>
-        : <button type="button" className="btn pri" onClick={() => open('')}>+ 이 지도에 새 시나리오</button>}
+      <button type="button" className="btn pri" onClick={() => open('')}>+ 이 지도에 새 시나리오</button>
       <div className="fh-row"><label className="fh-row"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /><span>내 것만</span></label>
-        <span className="fh-grow" />{!read && <button type="button" className="btn" onClick={admin}>임무 관리…</button>}</div>
-      {top}{ask}
+        <span className="fh-grow" /><button type="button" className="btn" onClick={admin}>임무 관리…</button></div>
+      {top}
     </div>
     <ul className="mx-list" aria-label="시나리오 목록" onMouseLeave={() => hover(null)}>{items.map((x) => { const old = oldMap(x, floor, approved), r = run?.(x), mu = x.map_update;
-      return <li key={x.id} className="mx-row" style={read && exp === x.id ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}>
-        <button type="button" className="mx-name mx-name2" data-plan={x.id} aria-expanded={read ? exp === x.id : undefined}
-          onClick={() => { hover(null); if (read) { setExp(exp === x.id ? null : x.id); setPv(null); } else open(x.id); }} onMouseEnter={() => hover(x)} onFocus={() => hover(x)} onBlur={() => hover(null)}>
+      return <li key={x.id} className="mx-row">
+        <button type="button" className="mx-name mx-name2" data-plan={x.id}
+          onClick={() => { hover(null); open(x.id); }} onMouseEnter={() => hover(x)} onFocus={() => hover(x)} onBlur={() => hover(null)}>
           <b>{x.name}</b>
           <small>지점 {x.waypoints.length}{x.est_distance_m > 0 ? ` · 약 ${Math.round(x.est_distance_m)} m` : ''}</small>
           <small>{r && <span className={`lv-chip ${r === 'both' ? 'ok' : 'off'}`} data-run={r}>{RUN[r]}</span>}
@@ -154,24 +158,12 @@ export function ScenList({ sim, read, run, l, mine, setMine, floor, approved, op
             {mu?.status === 'NEEDS_EDIT' ? <span className="lv-chip warn" data-map-update="NEEDS_EDIT" title={muWhy(mu)}>수정 필요</span>
               : mu?.status === 'AUTO_APPLICABLE' ? <span className="lbl" data-map-update="AUTO_APPLICABLE">최신 지도 자동 반영</span>
               : old && <span className="lv-chip warn" data-old-map>지도 바뀜</span>}
-            {/* 배정된 로봇이 있을 때만(빈 «없음» 줄은 뺐다 — MAPSCEN-UI) */}
-            {assigned !== null && assigned?.[x.id]?.length ? <span className="lbl" data-col="robots">로봇 {assigned[x.id].join(', ')}</span> : null}
-            {assigned === null && <span className="lbl" data-col="robots">로봇 ?</span>}
             {keptPlan.drafts[`scenarios:${x.id}`] && <span className="lbl">저장 안 한 편집</span>}</small>
           {mu?.status === 'NEEDS_EDIT' && <small className="fh-why" data-map-update-why>{muWhy(mu)}</small>}
         </button>
-        {read && exp === x.id && user && <div className="mx-in" data-scen-read={x.id}>
-          <div className="fh-row"><button type="button" className="btn" data-to-sim={x.id} onClick={() => open(x.id)}>시뮬 탭에서 편집 ›</button></div>
-          {keptPlan.drafts[`scenarios:${x.id}`] && <p className="fh-why" role="status" data-unsaved-assign>저장하지 않은 편집이 있습니다 — 배정하면 마지막으로 저장한 내용({x.latest_version}번째 저장)이 배정됩니다. 고친 내용을 배정하려면 먼저 «시뮬» 탭에서 «저장»을 누르세요.</p>}
-          {/* 옛 저장 기록도 배정(편집 창의 «저장 기록» 고르기를 옮김 — 배정 창은 그 판을 보낸다) */}
-          {x.latest_version > 1 && <label className="fh-field"><span>배정할 저장 기록</span>
-            <select className="inp" data-assign-ver value={pv ?? x.latest_version} onChange={(e) => setPv(Number(e.target.value))}>
-              {Array.from({ length: x.latest_version }, (_, i) => x.latest_version - i).map((n) => <option key={n} value={n}>{`${n}번째 저장${n === x.latest_version ? ' (최신)' : ''}`}</option>)}</select></label>}
-          <AssignPanel scenario={x.id} name={x.name} version={pv ?? x.latest_version} archived={!!x.archived_at} user={user} robots={robots} cancel={cancel} /></div>}
       </li>; })}</ul>
     <div className="mx-in">
-      {assigned === null && <p className="lv-note">배정된 로봇을 받지 못했습니다(«?»). 목록을 다시 받으면 다시 시도합니다.</p>}
-      {!l.busy && !l.err && !items.length && <p className="lv-note">{mine ? '이 지도에 내 시나리오가 없습니다. «내 것만»을 끄면 다른 사람 것도 봅니다.' : read ? '이 지도에는 시나리오가 없습니다. 시나리오는 «시뮬» 탭에서 이 지도에 지점을 찍어 만듭니다.' : '이 지도에는 시나리오가 없습니다. «+ 이 지도에 새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
+      {!l.busy && !l.err && !items.length && <p className="lv-note">{mine ? '이 지도에 내 시나리오가 없습니다. «내 것만»을 끄면 다른 사람 것도 봅니다.' : '이 지도에는 시나리오가 없습니다. «+ 이 지도에 새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
       {l.err && <p className="fh-msg" role="alert">시나리오 목록을 받지 못했습니다. {l.err}</p>}
       {l.busy && <p className="lv-note" role="status">목록을 불러오는 중…</p>}
       {!l.busy && (l.next || l.err) && <div className="fh-row"><button type="button" className="btn" onClick={l.err && !l.items.length ? l.again : l.more}>{l.err ? '다시 시도' : '더 보기'}</button></div>}
@@ -180,13 +172,11 @@ export function ScenList({ sim, read, run, l, mine, setMine, floor, approved, op
   </section>;
 }
 
-/** ④ 시나리오 열림(지도 탭 안). places·treeAgain = 지도 탭의 장소 나무, floor = 지도 탭에서 고른 층(그 층 지도로 연다), side = 창 맨 위 [지도 요소 | 시나리오] 탭, close = «‹ 목록», slot = 위 단추 줄 오른쪽 자리 */
-export function ScenarioEdit({ sim, id, n, user, robots, cancel, places, treeAgain, floor, slot, side, close, busy, done, top }: { sim?: boolean; id: string; n: number; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void;
-  floor: string; slot: HTMLElement | null; side: ReactNode; close: () => void; busy: boolean; done: (x: AnyPlan | null, m: Msg) => void; top?: ReactNode }) {
-  const assigned = useAssigned(!!id && !sim, busy, cancel);
+/** ④ 시나리오 열림(시뮬 탭 안). places·treeAgain = 장소 나무, floor = 고른 층(그 층 지도로 연다), side = 창 맨 위 [지도 요소 | 시나리오] 탭, close = «‹ 목록», slot = 위 단추 줄 오른쪽 자리 */
+export function ScenarioEdit({ id, n, user, robots, cancel, places, treeAgain, floor, slot, side, close, done, top }: { id: string; n: number; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void;
+  floor: string; slot: HTMLElement | null; side: ReactNode; close: () => void; done: (x: AnyPlan | null, m: Msg) => void; top?: ReactNode }) {
   useEffect(() => { keptPlan.kind = 'scenarios'; keptPlan.sel = id; }, [id]);
-  return <Edit key={`scenarios-${id}-${id ? '' : n}`} kind="scenarios" sim={sim} id={id} user={user} robots={robots} cancel={cancel} places={places} treeAgain={treeAgain} slot={slot} pick={side} top={top} floor={floor} close={close}
-    assignN={assigned && id ? assigned[id]?.length ?? 0 : undefined} done={done} />;
+  return <Edit key={`scenarios-${id}-${id ? '' : n}`} kind="scenarios" sim id={id} user={user} robots={robots} cancel={cancel} places={places} treeAgain={treeAgain} slot={slot} pick={side} top={top} floor={floor} close={close} done={done} />;
 }
 
 /** 임무 관리(시나리오 목록의 «임무 관리…» — 옛 임무 탭 목록): 단추 줄 «‹ 지도로»·«임무 이름 ▾»(목록·＋새·보관 보기) + 편집 */
@@ -230,8 +220,8 @@ const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'm
 
 /** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
  *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
-function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, assignN, floor, close }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
-  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; assignN?: number; floor?: string; close?: () => void }) {
+function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, floor, close }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
+  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; floor?: string; close?: () => void }) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null);
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
   const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
@@ -401,14 +391,10 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
       <fieldset disabled={lock && !ro} style={{ display: 'contents' }}>{nameField}
         <MissionForm value={shown as MissionWrite} set={ro ? undefined : (b) => put(b)} bad={view ? [] : bad} robots={robots} user={user} cancel={cancel} /></fieldset>
     </div></div></div>;
-  // 배정은 저장된 판만 간다 — 저장 안 한 편집이 있으면 어느 판이 가는지 바로 위에 알린다
-  // 시뮬 시나리오 = 배정·결재 없이 «시뮬에서 실행»(SIM-REAL-SPLIT 결정 ④)
-  const assign = !sim && id && latest ? <>{!view && dirty && <p className="fh-why" role="status" data-unsaved-assign>저장하지 않은 편집이 있습니다 — 배정하면 마지막으로 저장한 내용({latest.latest_version}번째 저장)이 배정됩니다. 고친 내용을 배정하려면 먼저 «저장»을 누르세요.</p>}
-    <AssignPanel scenario={id} name={latest.name} version={view?.number ?? latest.latest_version} archived={archived} user={user} robots={robots} cancel={cancel} /></> : null;
   return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}{h2}
     <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
       cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} robots={robots} user={user}
-      picker={pick} moreSlot={moreSlot} over={notices} nameField={nameField} assign={assign} sim={sim ? { dirty, applied: (x) => saved(x, '최신 지도를 반영했습니다.') } : undefined} assignN={assignN} floor={floor} close={close} more={more}
+      picker={pick} moreSlot={moreSlot} over={notices} nameField={nameField} sim={sim ? { dirty, applied: (x) => saved(x, '최신 지도를 반영했습니다.') } : undefined} floor={floor} close={close} more={more}
       verField={latest && <label className="fh-field"><span>저장 기록(옛 기록은 읽기 전용)</span>{verSel}</label>}
       blockNote={!ro && block && !lock ? <p id="plan-block" className="fh-why" data-block>{block}</p> : null} />
   </div>;
@@ -678,9 +664,9 @@ const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoint
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·고른 지점 오른쪽 위 X 로 지우기, 오른쪽 단계 창에서 순서·임무·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
  *  set 없음 = 읽기 전용(옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
  *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과) */
-function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, robots, user, picker, moreSlot, over, nameField, assign, assignN, blockNote, floor, close, more, verField, sim }: { sim?: { dirty: boolean; applied?: (x: Scenario) => void }; value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
+function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, robots, user, picker, moreSlot, over, nameField, blockNote, floor, close, more, verField, sim }: { sim?: { dirty: boolean; applied?: (x: Scenario) => void }; value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
   cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; robots: Robot[]; user: User;
-  picker?: ReactNode; moreSlot: HTMLElement | null; over: ReactNode; nameField: ReactNode; assign: ReactNode; assignN?: number; blockNote: ReactNode; floor?: string; close?: () => void; more?: ReactNode; verField?: ReactNode }) {
+  picker?: ReactNode; moreSlot: HTMLElement | null; over: ReactNode; nameField: ReactNode; blockNote: ReactNode; floor?: string; close?: () => void; more?: ReactNode; verField?: ReactNode }) {
   const pts = value.waypoints, finish = value.finish ?? { mode: 'STAY', target: null }, target = finish.target ?? null;
   // 처음 보이는 층 = 지도 탭에서 고른 층(MAP-TAB-MERGE) — 없으면 첫 지점의 층, 그것도 없으면 승인 판이 있는 첫 층
   const [cur, setCur] = useState(() => floor || (pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? ''));
@@ -881,7 +867,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     return () => stop.abort();
   }, [cells, endsKey]);
   const fence = lock && !!set, one = typeof sel === 'number' ? sel : null;
-  const [tab, setTab] = useState<'steps' | 'assign'>('steps'), grab = useRef<number | null>(null), tid = useId();
+  const grab = useRef<number | null>(null);
   // SCEN-NODE-PREVIEW·SCEN-LIFECYCLE-EDITOR 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, «운영 흐름» 5단계·임무 = 이 시나리오). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
   const [paneLook, setPaneLook] = useState<'node' | 'list'>('node');
   // R8 REVIEW-316 P1: 크게 보기(PC 넓은 창·노드)는 창 머리 한 줄([노드|목록] 옆)에 «시뮬에서 실행» — 그 밖은 창 안 맨 위 그대로(판정·막힘 같음)
@@ -957,17 +943,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         <button type="button" className="btn" data-edit-down disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>뒤로</button>
         <button type="button" className="btn" data-edit-drop onClick={() => drop(i)}>지우기</button></div>
     </fieldset>; })() : undefined;
-  const pick = (t: 'steps' | 'assign') => { setTab(t); if (t === 'assign') setSel(null); };
-  const order = assign ? (['steps', 'assign'] as const) : (['steps'] as const);
-  /** 탭 방향키(←→·Home·End) = 옆 탭을 고르고 포커스(roving tabIndex) */
-  const arrow = (e: KeyboardEvent<HTMLElement>) => {
-    const n = order.length, at = order.indexOf(tab as never), to = e.key === 'ArrowRight' ? (at + 1) % n : e.key === 'ArrowLeft' ? (at - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
-    if (to < 0) return;
-    e.preventDefault(); pick(order[to]); document.getElementById(`${tid}-${order[to]}`)?.focus();
-  };
-  const tabBtn = (t: 'steps' | 'assign', text: string) => <button type="button" role="tab" className="btn" id={`${tid}-${t}`} aria-controls={`${tid}-${t}-panel`} aria-selected={tab === t} tabIndex={tab === t ? 0 : -1} onClick={() => pick(t)}>{text}</button>;
-  const tabs = <span className="fh-grow"><span className="mx-seg" role="tablist" aria-label="단계·배정" onKeyDown={arrow}>
-    {tabBtn('steps', `단계 ${pts.length}`)}{assign && tabBtn('assign', `배정${assignN != null ? ` ${assignN}` : ''}`)}</span></span>;
+  const tabs = <span className="fh-grow"><b data-steps>단계 {pts.length}</b></span>;
   return <>
     {morePick}
     <div className="mx-map">
@@ -1027,13 +1003,13 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
       {!simTop && simRun}
       {paneLook === 'node' && <ScenNodes where={web ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} form={pointForm}
-        edit={(i) => { go(i); setTab('steps'); setPaneLook('list'); }} />}
+        edit={(i) => { go(i); setPaneLook('list'); }} />}
       <div className="mx-pane-in" hidden={paneLook === 'node'}>
       {/* 이름·판·실행 확인 로봇 → [단계 N | 배정 N] (지점을 고르면 «‹ N번 지점») */}
-      <fieldset disabled={fence} style={{ display: 'contents' }}><div className="mx-in" hidden={one != null && tab === 'steps'}>{nameField}{verField}{robotField}</div></fieldset>
-      {one != null && tab === 'steps' ? <div className="mx-head"><button type="button" className="btn" aria-label="단계 목록으로" title="목록으로" onClick={() => setSel(null)}>‹</button><span className="fh-grow">{one + 1}번 지점</span></div>
+      <fieldset disabled={fence} style={{ display: 'contents' }}><div className="mx-in" hidden={one != null}>{nameField}{verField}{robotField}</div></fieldset>
+      {one != null ? <div className="mx-head"><button type="button" className="btn" aria-label="단계 목록으로" title="목록으로" onClick={() => setSel(null)}>‹</button><span className="fh-grow">{one + 1}번 지점</span></div>
         : <div className="mx-in" style={{ paddingTop: 0 }}>{tabs}</div>}
-      <div className="mx-tab" role="tabpanel" id={`${tid}-steps-panel`} aria-labelledby={`${tid}-steps`} hidden={tab !== 'steps'}>
+      <div className="mx-tab" aria-label="단계">
         <fieldset disabled={fence} style={{ display: 'contents' }}>
         <div className="mx-in" hidden={one != null}>
           {set && cat.err && <div className="fh-row"><p className="fh-msg" role="alert">실행할 수 있는지 확인하지 못했습니다. {cat.err}</p><button type="button" className="btn" onClick={cat.again}>다시 받기</button></div>}
@@ -1107,7 +1083,6 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           </div>}
         </div>
       </div>
-      {assign && <div className="mx-in" role="tabpanel" id={`${tid}-assign-panel`} aria-labelledby={`${tid}-assign`} hidden={tab !== 'assign'}>{assign}</div>}
       </div>
     </Pane>
   </>;

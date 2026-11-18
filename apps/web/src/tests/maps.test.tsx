@@ -1149,9 +1149,10 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
   it('요소 창 접기 → 지도 옆 세로 막대 «◂ 요소 4», 눌러 펼친다(옛 ≤440 px 자동 접기 대신 — 창 폭 320 고정)', async () => {
     serve(editSrv());
     await startEdit();
-    // «모든 지도 보기»는 위 단추 줄 맨 앞, 창 맨 위는 [지도 요소 | 시나리오] 탭(MAP-TAB-MERGE 11-03)
+    // «모든 지도 보기»는 위 단추 줄 맨 앞, 창 맨 위는 «지도 요소 N» 제목만(RB-MAP-NO-SCEN 11-18 — 지도 탭에 시나리오 탭 없음)
     expect($('.mx-bar')!.firstElementChild!.textContent).toBe('‹ 모든 지도 보기');
-    expect(card('요소 창').querySelector('.mx-pick [aria-label="오른쪽 창"]')).toBeTruthy();
+    expect(card('요소 창').querySelector('.mx-pick [data-side="map"]')!.textContent).toBe('지도 요소 4');
+    expect(card('요소 창').querySelector('[aria-label="오른쪽 창"], [data-side="scen"]')).toBeNull();
     await click($('button[aria-label="요소 4 창 접기"]')!);
     expect($('.mx-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.mx-fold')!.textContent).toBe('◂ 요소 4 · 본관 › 본동 › 1층');
     expect(card('요소 창').hasAttribute('data-fold')).toBe(true); expect($('[data-el]')!.closest('[hidden]')).toBeTruthy();   // 접기 = 숨김(unmount 아님)

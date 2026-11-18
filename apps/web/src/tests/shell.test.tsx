@@ -287,7 +287,7 @@ describe('B4 폰 로봇 범위', () => {
     click($$('.dv-card button')[0]);
     expect(location.hash).toBe('#/drive/r7');
     click($$('[aria-label="조종 메뉴"] button').find((b) => b.textContent === '시나리오')!);
-    expect($('[data-sheet]').textContent).toContain('배정된 시나리오');   // 이 로봇(r7) 것만 서버에 묻는다 — assign.test
+    expect($('[data-sheet]').textContent).toContain('시나리오 고르기');   // 이 로봇(r7)이 있는 층 것만 — scenpick.test
     expect($('main').textContent).not.toContain('2층 순찰');
     click($$('header details button').find((b) => b.textContent === '기록')!);
     expect(location.hash).toBe('#/history');
