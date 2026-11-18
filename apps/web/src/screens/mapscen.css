@@ -140,8 +140,6 @@ li[data-bad] .mx-num{background:var(--bad)}
 
 /* MAP-TAB-MERGE 11-03 — 시나리오 탭을 지도 탭에 합침(사진 ①~⑤). 색·선은 기존 토큰만 */
 .mx-side{flex:0 1 auto;min-width:0}
-.mx-side>.btn{padding:0 12px;gap:6px}
-.mx-side>[aria-disabled="true"]{color:var(--muted);cursor:not-allowed}
 .mx-n{font-size:12px;color:var(--muted);font-weight:400}
 .mx-lock{gap:6px;color:var(--muted);cursor:default;max-width:340px;min-width:0}
 .mx-why{white-space:normal;min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -195,7 +193,7 @@ li[data-bad] .mx-num{background:var(--bad)}
 /* SCEN-NODE-PREVIEW 11-09 — 시나리오 편집 «노드» 보기일 때만 오른쪽 창을 지도와 반반(목록·지도 요소 창은 320px 그대로). 좁은 폭(한 열)은 위아래 반반 */
 .mx-pane[data-wide]:not([data-fold]){flex:0 0 50%;overflow:hidden}
 @media (max-width:1023.98px){.mx-pane[data-wide]:not([data-fold]){flex:1 1 50%;overflow-y:auto}}   /* 낮은 창에서는 캔버스(최소 180px)까지 굴려 본다 */
-/* SCEN-ONE-FLOW-R1 11-10 — 노드 «크게 보기»(scennode .sn[data-big], 좁은 폭·앱에선 안 켜짐): 오른쪽 창 70% = 노드 캔버스만(창 위 [지도 요소|시나리오]·‹ 목록·노드/목록·시뮬에서 실행 줄 숨김),
+/* SCEN-ONE-FLOW-R1 11-10 — 노드 «크게 보기»(scennode .sn[data-big], 좁은 폭·앱에선 안 켜짐): 오른쪽 창 70% = 노드 캔버스만(창 위 제목·‹ 목록·노드/목록·시뮬에서 실행 줄 숨김),
    R4: PC 넓은 창은 늘 크게 보기, 위 반반 규칙은 앱(WebView) 넓은 창에만 */
 .mx-pane[data-wide]:not([data-fold]):has(.sn[data-big]){flex:1 1 100%;overflow:hidden}   /* R2: 노드 = 본문 전체, R6: 창 스크롤 없음(캔버스 안에서 끌어 옮김) */
 .mx-pane:has(.sn[data-big])>.mx-top>.mx-pick{display:none}

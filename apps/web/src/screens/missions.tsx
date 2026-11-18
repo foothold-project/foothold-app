@@ -14,7 +14,7 @@ import { Note, RUN, Shapes, canon, floorsOf, isVersion, purposeOf, reasonBad, sh
 import { DelX, fromScreen, inside, nameBad } from './mapedit';
 import { crosses, inPolygon, loadNoGo, loadWalls, noGoAt, routeSoon, type Cells } from './zoneroute';
 import { TrashLink, trashFail } from './trash';
-import { Float, Hint, Menu, Pane, shut, type Side } from './mapscen';
+import { Float, Hint, Menu, Pane, shut } from './mapscen';
 import { ScenNodes, useBig, type StepKind } from './scennode';
 import { saveSim, scenarioTree, simId } from './btedit';
 import { keyOf, terrainUrl } from './terrain';
@@ -66,10 +66,10 @@ type Unsure = { body: AnyWrite; id: string; known: string[] | null; next: number
 /** 저장하지 않은 편집 — 다른 탭·다른 항목·폰 틀로 가도 남겨 다시 열면 이어 쓴다(지도 편집 kept 와 같은 생각, 확인창 없이). base = 편집을 시작한 판(If-Match 기준) */
 type Draft = { body: AnyWrite; base: AnyPlan | null; unsure: Unsure | null };
 type Adopt = 'all' | 'base' | 'none';
-/** floor = 지도 탭에서 고른 층(''= 지도 고르기 화면), side = 오른쪽 창 [지도 요소 | 시나리오], find = sel 시나리오의 층을 찾아 열기(옛 #/mission/<id> 주소) — MAP-TAB-MERGE 11-03 */
-export const keptPlan: { kind: Plan; sel: string | null; drafts: Record<string, Draft>; now: boolean; floor: string; side: Side; find: boolean } = { kind: 'scenarios', sel: null, drafts: {}, now: false, floor: '', side: 'map', find: false };
+/** floor = 지도 탭에서 고른 층(''= 지도 고르기 화면), find = sel 시나리오의 층을 찾아 열기(옛 #/mission/<id> 주소) — MAP-TAB-MERGE 11-03 */
+export const keptPlan: { kind: Plan; sel: string | null; drafts: Record<string, Draft>; now: boolean; floor: string; find: boolean } = { kind: 'scenarios', sel: null, drafts: {}, now: false, floor: '', find: false };
 /** 로그아웃 때 비운다(session.tsx) */
-export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; keptPlan.floor = ''; keptPlan.side = 'map'; keptPlan.find = false; pane.robot = ''; };
+export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; keptPlan.floor = ''; keptPlan.find = false; pane.robot = ''; };
 addEventListener('beforeunload', (e) => { if (keptPlan.now || Object.keys(keptPlan.drafts).length) { e.preventDefault(); e.returnValue = ''; } });
 
 /** 목록(오래된 것 먼저) + cursor 로 더 받기. 종류·보관 보기·거르기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다(결재 탭 useList 와 같다) */
@@ -172,7 +172,7 @@ export function ScenList({ run, l, mine, setMine, floor, approved, open, hover, 
   </section>;
 }
 
-/** ④ 시나리오 열림(시뮬 탭 안). places·treeAgain = 장소 나무, floor = 고른 층(그 층 지도로 연다), side = 창 맨 위 [지도 요소 | 시나리오] 탭, close = «‹ 목록», slot = 위 단추 줄 오른쪽 자리 */
+/** ④ 시나리오 열림(시뮬 탭 안). places·treeAgain = 장소 나무, floor = 고른 층(그 층 지도로 연다), side = 창 맨 위 제목(«시나리오 N»), close = «‹ 목록», slot = 위 단추 줄 오른쪽 자리 */
 export function ScenarioEdit({ id, n, user, robots, cancel, places, treeAgain, floor, slot, side, close, done, top }: { id: string; n: number; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void;
   floor: string; slot: HTMLElement | null; side: ReactNode; close: () => void; done: (x: AnyPlan | null, m: Msg) => void; top?: ReactNode }) {
   useEffect(() => { keptPlan.kind = 'scenarios'; keptPlan.sel = id; }, [id]);

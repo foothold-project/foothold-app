@@ -49,7 +49,7 @@ function stopText(r: Robot, l: Live) {
 /** 알림 링크가 여는 항목(주소 매개변수 이름) */
 const FOCUS: Partial<Record<TabId, string>> = { history: 'event_id', approval: 'approval_id' };
 /** 옛 시나리오 탭 주소(#/mission·#/mission/<id>·?scenario_id=)면 지도 탭 시나리오 쪽으로, id 가 있으면 그 시나리오를 연 채(그 층은 지도 탭이 찾음) — 북마크·알림 링크가 깨지지 않게(MAP-TAB-MERGE 11-03). 옛 주소였으면 true */
-const toMap = (h: string) => { const id = oldScenario(h); if (id == null) return false; keptPlan.kind = 'scenarios'; keptPlan.side = 'scen'; if (id) { keptPlan.sel = id; keptPlan.find = true; } return true; };
+const toMap = (h: string) => { const id = oldScenario(h); if (id == null) return false; keptPlan.kind = 'scenarios'; if (id) { keptPlan.sel = id; keptPlan.find = true; } return true; };
 
 export const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientation: landscape) and (max-height: 480px)';
 const watchQ = (q: string) => (f: () => void) => { const m = matchMedia(q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };

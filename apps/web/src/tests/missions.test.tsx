@@ -254,6 +254,9 @@ describe('목록 [임무 | 시나리오]', () => {
     const q = sent('GET', '/scenarios');
     expect(last(q)!.q.get('limit')).toBe('50'); expect(last(q)!.q.get('archived')).toBeNull(); expect(last(q)!.q.get('floor_id')).toBe('f1');
     expect(rows()).toEqual(['s1']);
+    // 오른쪽 창 = 시나리오만(RB-SIM-NO-MAPEL 11-18): 제목 «시나리오 N», 지도 요소 전환·요약·목록·«시나리오 N개 보기» 없음
+    expect($('.mx-pick [data-side="scen"]')!.textContent).toBe('시나리오 1'); expect($('[data-side="map"], [aria-label="오른쪽 창"]')).toBeNull();
+    expect($('[data-summary]')).toBeNull(); expect($('[aria-label="요소 목록"]')).toBeNull(); expect($('[data-to-scen], [data-no-scen]')).toBeNull();
     expect(row('s1').textContent).toBe('1층 순찰지점 2 · 약 12 m실기만');   // 시뮬 탭에서 본 실기 지도(3D 지도 짝 없음) 시나리오
     expect(row('s1').querySelector('[data-run]')!.getAttribute('data-run')).toBe('real');
     expect(card('시나리오 목록 창').textContent).not.toContain('Go2-A');
@@ -1437,7 +1440,8 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     await click(btn('+ 이 지도에 새 시나리오'));
     expect(card('단계 창').querySelector('[data-steps]')!.textContent).toBe('단계 0'); expect(card('단계 창').querySelector('[role="tab"]')).toBeNull();
     expect(saveBtn().closest('.mx-bar')).toBeTruthy();
-    expect(card('단계 창').querySelector('.mx-pick [aria-label="오른쪽 창"]')).toBeTruthy();                       // 창 맨 위 [지도 요소 | 시나리오] 탭
+    expect(card('단계 창').querySelector('.mx-pick [data-side="scen"]')!.textContent).toBe('시나리오 1');            // 창 맨 위 제목 = 시나리오만(RB-SIM-NO-MAPEL)
+    expect(card('단계 창').querySelector('[data-side="map"], [aria-label="오른쪽 창"]')).toBeNull();
     expect($('.mx-bar [data-locked]')!.getAttribute('aria-label')).toBe('지도: 본관 › 본동 › 1층 (잠김 — 시나리오를 닫으면 지도를 바꿀 수 있습니다)');
     expect(card('단계 창').contains(name())).toBe(true);
     await click($('[data-back]'));
