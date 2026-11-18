@@ -164,7 +164,10 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
         def existing_robot():
             return db.scalar(select(Robot).where(Robot.serial == row.robot_serial,
                 Robot.archived_at.is_(None)).with_for_update())
-        existing = await asyncio.to_thread(existing_robot)
+        # 0xFFFF0000..0xFFFFFFFF denotes a MAC-derived placeholder, not a
+        # unique body identity. Reconnect those records only by saved token.
+        mac_placeholder = 0xFFFF0000 <= int(row.robot_serial.split('-')[0]) <= 0xFFFFFFFF
+        existing = None if mac_placeholder else await asyncio.to_thread(existing_robot)
         if existing is not None:
             if (existing.org_id != user.org_id or existing.owner_user_id != user.id
                     or existing.simulation):

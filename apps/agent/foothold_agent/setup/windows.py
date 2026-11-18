@@ -108,7 +108,7 @@ def load_credentials(path):
 
 
 def save_credentials(credentials, path):
-    from dataclasses import asdict
+    from .storage import credential_value
     import secrets
     path = Path(path)
     private_directory(path.parent)
@@ -122,7 +122,7 @@ def save_credentials(credentials, path):
         # Create empty, then protect before placing any token bytes in the file.
         with temporary.open('xb') as stream:
             private_acl(temporary, create=True)
-            stream.write(json.dumps(asdict(credentials)).encode('utf-8'))
+            stream.write(json.dumps(credential_value(credentials)).encode('utf-8'))
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)

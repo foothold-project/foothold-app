@@ -21,6 +21,7 @@ import build_jetson_bundle as builder
 def bundle(tmp_path, monkeypatch):
     directory = tmp_path/'bundle'
     (directory/'apps/agent/installer').mkdir(parents=True)
+    (directory/'apps/agent/installer/jetson_autostart.py').write_text((DIRECTORY/'jetson_autostart.py').read_text())
     (directory/'sources').mkdir()
     (directory/'wheels').mkdir()
     source = directory/'sources/fake-source.tar.gz'
@@ -117,6 +118,12 @@ def test_real_staging_and_mocked_build_install_stay_in_fake_home(bundle, monkeyp
     assert (root/'connection.json').stat().st_mode & 0o777 == 0o600
     assert (root/'private').stat().st_mode & 0o777 == 0o700
     assert (root/'launch.py').is_file() and not (home/'.config').exists()
+    assert '--onboard' in (root/'launch.py').read_text()
+    assert 'Manual start only' not in (root/'launch.py').read_text()
+    for action in ('enable', 'disable'):
+        script = root/(action+'-autostart.sh')
+        assert script.stat().st_mode & 0o777 == 0o700
+        assert 'autostart.py' in script.read_text()
     assert not any(word in str(calls) for word in ('systemctl', 'sudo', 'apt', 'ssh'))
     assert '--write-receipt' in str(calls) and 'go2_direct.preflight' in str(calls)
 
@@ -211,3 +218,75 @@ def test_wheel_audit_ignores_vendored_distribution_metadata(tmp_path):
         wheel.writestr('rich_click/_vendor/nested-1.0.dist-info/METADATA',
                        'Name: nested\nVersion: 1.0\nRequires-Dist: do-not-resolve-vendored-package\n')
     assert builder.audit_wheels(tmp_path, dict(wheels=[row]), tmp_path/'scratch.so') == []
+
+
+def test_autostart_enable_disable_via_fake_systemctl(tmp_path):
+    home = tmp_path/'fake-home'
+    root = home/'foothold-robot'; root.mkdir(parents=True)
+    (root/'launch.py').write_text('# fake launch; never invoked\n')
+    (root/'autostart.py').write_text((DIRECTORY/'jetson_autostart.py').read_text())
+    binary = tmp_path/'bin'; binary.mkdir()
+    log = tmp_path/'systemctl-calls'
+    fake = binary/'systemctl'
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALL_LOG"\n')
+    fake.chmod(0o700)
+    env = dict(os.environ, HOME=str(home), PATH=str(binary)+':/usr/bin:/bin', CALL_LOG=str(log))
+    script = root/'autostart.py'
+    result = subprocess.run([sys.executable, '-I', str(script), 'enable'], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout+result.stderr
+    unit = home/'.config/systemd/user/foothold-robot.service'
+    value = unit.read_text()
+    for required in ('KillSignal=SIGINT', 'Restart=on-failure', 'RestartSec=20',
+                     'StartLimitIntervalSec=600', 'StartLimitBurst=5', 'WantedBy=default.target',
+                     'StandardOutput=append:%h/foothold-robot-run.log', '-I "'+str(root/'launch.py')+'"'):
+        assert required in value
+    assert log.read_text().splitlines() == ['--user daemon-reload', '--user reset-failed foothold-robot.service',
+                                           '--user enable --now foothold-robot.service']
+    (root/'private').mkdir(); key = root/'private/agent.json'; key.write_text('fake key')
+    result = subprocess.run([sys.executable, '-I', str(script), 'disable'], env=env, capture_output=True, text=True)
+    assert result.returncode == 0 and not unit.exists() and key.read_text() == 'fake key'
+    assert log.read_text().splitlines()[-2:] == ['--user disable --now foothold-robot.service', '--user daemon-reload']
+    assert 'sudo' not in value and 'linger' not in value
+
+
+def test_autostart_failure_and_symlink_do_not_delete_unit(tmp_path, monkeypatch):
+    import jetson_autostart as auto
+    home = tmp_path/'fake-home'; root = home/'foothold-robot'; root.mkdir(parents=True)
+    (root/'launch.py').touch()
+    directory = home/'.config/systemd/user'; directory.mkdir(parents=True)
+    unit = directory/auto.UNIT; unit.write_text('preserve on failed stop')
+    monkeypatch.setenv('HOME', str(home))
+    def failed(*args, **kwargs): raise subprocess.CalledProcessError(1, 'fake-systemctl')
+    monkeypatch.setattr(auto.subprocess, 'run', failed)
+    with pytest.raises(subprocess.CalledProcessError): auto.configure('disable', root)
+    assert unit.read_text() == 'preserve on failed stop'
+    unit.unlink(); unit.symlink_to(root/'launch.py')
+    with pytest.raises(ValueError): auto.configure('enable', root)
+    assert unit.is_symlink()
+
+
+def test_autostart_systemd_paths_escape_specifiers_and_expansion():
+    import jetson_autostart as auto
+    text = auto.unit_text(Path('/fake/space % $ " back\\slash'))
+    assert '%%' in text and '$$' in text and '\\"' in text and 'back\\\\slash' in text
+    with pytest.raises(ValueError): auto.unit_text(Path('/fake/new\nline'))
+
+
+def test_installed_shell_wrappers_enable_disable_with_fake_systemctl(bundle, monkeypatch):
+    directory, home, lock = bundle
+    root = home/'foothold-robot'
+    monkeypatch.setattr(installer, 'bootstrap', lambda r, l, e:r/'venv/bin/python')
+    monkeypatch.setattr(installer, 'build_sources', lambda *a:None)
+    monkeypatch.setattr(installer, 'run', lambda *a, **k:None)
+    installer.install(directory, root, lock, installer.configuration('https://example.invalid', 'auto', 9570))
+    binary = home/'bin'; binary.mkdir()
+    fake = binary/'systemctl'; log = home/'calls'
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALL_LOG"\n'); fake.chmod(0o700)
+    env = dict(os.environ, HOME=str(home), PATH=str(binary)+':/usr/bin:/bin', CALL_LOG=str(log))
+    for action in ('enable', 'disable'):
+        result = subprocess.run(['/bin/sh', str(root/(action+'-autostart.sh'))],
+            cwd=directory, env=env, text=True, capture_output=True)
+        assert result.returncode == 0, result.stdout+result.stderr
+    assert '--user enable --now foothold-robot.service' in log.read_text()
+    assert '--user disable --now foothold-robot.service' in log.read_text()
+    assert not (home/'.config/systemd/user/foothold-robot.service').exists()

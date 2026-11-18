@@ -1,13 +1,30 @@
 """Operator-confirmed 0-0 identity; no network writes or DDS initialization."""
 import asyncio
+import hashlib
+from pathlib import Path
+import re
 import time
 
-from foothold_agent.go2_direct.identity import neighbor_identity
+from foothold_agent.go2_direct.identity import neighbor_identity, valid_mac
 from .storage import mac_serial
 
 
 class IdentityUnavailable(PermissionError):
     """A safe, user-facing explanation for refusing the zero-serial flow."""
+
+
+def computer_identity(path=Path('/etc/machine-id')):
+    """Local OS installation identity, hashed and never published or logged."""
+    value = path.read_text().strip()
+    if not re.fullmatch(r'[0-9a-f]{32}', value) or value == '0'*32:
+        raise PermissionError('stable computer identity unavailable')
+    return hashlib.sha256(('foothold-onboard-v1:'+value).encode()).hexdigest()
+
+
+def mounted_binding(nic, mac, *, computer=None):
+    if not valid_mac(nic.mac):
+        raise PermissionError('stable internal NIC identity unavailable')
+    return dict(nic=nic.name, nic_mac=nic.mac, robot_mac=mac, computer=(computer or computer_identity)())
 
 
 class MacIdentity:
@@ -17,6 +34,7 @@ class MacIdentity:
         self.serial = mac_serial(mac)
         self.checked = float('-inf')
         self.fault = False
+        self.binding = None
 
     def check(self, _approval=None, observed_serial='0-0'):
         # Used on the background worker and on EVERY explicit unlock. A
@@ -49,18 +67,30 @@ class MacIdentity:
 
 
 async def confirm_zero_identity(inputs, nic, status, stop, credentials, *,
-                                query=neighbor_identity, windows=False):
+                                query=neighbor_identity, windows=False, onboard=False, computer=None):
     if windows:
         raise IdentityUnavailable('이 로봇은 기체번호를 보내지 않습니다. Windows에서는 아직 연결할 수 없습니다. Ubuntu 노트북을 사용해 주세요.')
     try:
         mac, addresses = await asyncio.to_thread(query, nic.name)
         identity = MacIdentity(nic.name, mac, inputs, query=query)
         await identity.refresh()
-        if credentials is not None and (credentials.identity_source != 'mac'
+        if not onboard and credentials is not None and (credentials.identity_source != 'mac'
                 or credentials.robot_mac != mac or credentials.robot_serial != identity.serial):
             raise PermissionError('saved identity differs')
     except Exception:
         raise IdentityUnavailable('로봇 몸의 연결 주소를 확인하지 못했습니다. 랜선이 로봇에 직접 꽂혀 있는지 확인한 뒤 프로그램을 다시 실행해 주세요.') from None
+    if onboard:
+        try:
+            identity.binding = mounted_binding(nic, mac, computer=computer)
+        except (OSError, ValueError, PermissionError):
+            # No stable local evidence means confirmation on every launch.
+            identity.binding = None
+        if (identity.binding is not None and credentials is not None
+                and credentials.identity_source == 'mac'
+                and credentials.robot_mac == mac and credentials.robot_serial == identity.serial
+                and credentials.mounted_binding == identity.binding):
+            inputs.mac_identity = identity
+            return identity
     request = status.request_identity(mac, addresses)
     try:
         while not stop.is_set():

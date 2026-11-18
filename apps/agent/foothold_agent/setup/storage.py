@@ -14,7 +14,7 @@ from foothold_agent.go2_direct.identity import valid_mac
 
 
 def mac_serial(mac):
-    """Injectively encode all 48 MAC bits into two uint32s; never use 0-0."""
+    """Encode 48 MAC bits; this placeholder is NOT a unique physical body ID."""
     if not valid_mac(mac):
         raise ValueError('valid body MAC required')
     value = int(mac.replace(':', ''), 16)
@@ -35,6 +35,7 @@ class Credentials:
     last_field_approval_expires_at: float | None = None
     identity_source: str = 'serial'
     robot_mac: str | None = field(default=None, repr=False)
+    mounted_binding: dict | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if str(UUID(self.robot_id)) != self.robot_id or not valid_serial(self.robot_serial):
@@ -42,6 +43,15 @@ class Credentials:
         if not ((self.identity_source == 'serial' and self.robot_mac is None) or
                 (self.identity_source == 'mac' and self.robot_serial == mac_serial(self.robot_mac))):
             raise ValueError('explicit matching MAC identity required')
+        binding = self.mounted_binding
+        if binding is not None:
+            if (not isinstance(binding, dict) or set(binding) != {'nic', 'nic_mac', 'robot_mac', 'computer'}
+                    or self.identity_source != 'mac' or binding['robot_mac'] != self.robot_mac
+                    or not isinstance(binding['nic'], str)
+                    or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,15}', binding['nic'])
+                    or not valid_mac(binding['nic_mac']) or not isinstance(binding['computer'], str)
+                    or not re.fullmatch(r'[0-9a-f]{64}', binding['computer'])):
+                raise ValueError('explicit mounted computer binding required')
         Settings(self.agent_ws_url, self.agent_token)
         used = self.last_field_approval_expires_at
         if used is not None and (type(used) not in (int, float) or not math.isfinite(used) or used <= 0):
@@ -117,6 +127,13 @@ def load(path=None):
         os.close(directory)
 
 
+def credential_value(credentials):
+    value = asdict(credentials)
+    if value['mounted_binding'] is None:
+        value.pop('mounted_binding')  # unchanged laptop/legacy file shape
+    return value
+
+
 def save(credentials, path=None):
     path = credential_path(path)
     if os.name == 'nt':
@@ -134,7 +151,7 @@ def save(credentials, path=None):
         try:
             private_file(os.fstat(fd))
             with os.fdopen(fd, 'w', closefd=False) as stream:
-                json.dump(asdict(credentials), stream)
+                json.dump(credential_value(credentials), stream)
                 stream.flush()
                 os.fsync(fd)
         finally:
