@@ -16,6 +16,9 @@ PINNED = {'foothold-agent':'0.2.0', 'unitree-sdk2py':'1.0.1', 'cyclonedds':'0.10
 
 
 def inspect(wheel_dir):
+    if platform.machine() == 'aarch64':
+        from .arm_provenance import inspect_arm
+        return inspect_arm(PINNED, INHERITED_LOADER_OVERRIDE)
     packages = {}
     for name in PINNED:
         try:

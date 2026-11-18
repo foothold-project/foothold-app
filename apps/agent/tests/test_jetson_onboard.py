@@ -81,13 +81,13 @@ def test_arm_preflight_remains_blocked_and_status_explains_it(tmp_path, monkeypa
     monkeypatch.setattr(preflight.platform, 'machine', lambda: 'aarch64')
     report = preflight.inspect(tmp_path)  # package/ELF metadata only, never DDS import
     assert report['installation_ready'] is False
-    assert 'requires-x86_64-cpython-3.10-official-wheel' in report['issues']
+    assert any(reason.startswith('Jetson:') for reason in report['issues'])
     status = Status()
     status.update(preflight=dict(installation_ready=False, issues=report['issues']))
     snapshot = status.snapshot()
     assert snapshot['preflight']['installation_ready'] is False
     assert '조종 차단' in snapshot['preflight_message']
-    assert '아직 검증되지 않았습니다' in snapshot['preflight_message']
+    assert '설치' in snapshot['preflight_message'] or 'Python 3.10' in snapshot['preflight_message']
     assert 'Jetson' in snapshot['preflight_message']
     assert 'p.textContent=s.preflight_message' in PAGE
 
