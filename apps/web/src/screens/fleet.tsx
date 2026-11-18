@@ -1,6 +1,7 @@
 // 로봇 탭 역할별 배치(ROBOT-TAB 11-02 — runs/robot-tab-review-1102/claude.md Q3 순서). 화면만: API 호출·인자·서버 권한·STOP 범위는 그대로.
-// 운영 관리자 = 내 로봇 고르기 + 한 대 집중(상태 한 줄 → 영상·라이다 → 지도 위 현재 위치 → 상세: 임무·배터리·장치·최근 사건), 남의 로봇은 아래 접힌 «다른 로봇 N대»(요약 그대로).
-// 총괄 = 요약 → 큰 지도(전 로봇 위치) + 경보(주의 먼저) → 표 목록 + 거르기 → 행을 누르면 서랍 상세(읽기 전용). STOP 은 머리줄 하나(화면 안에 새로 두지 않음)
+// 배치는 hallmark fleet 시안 순서(11-18): 머리 → 판(지도 + 곁 칸) → 로봇 목록 → 오른쪽 서랍.
+// 운영 관리자 = 머리(상태 안내 + 조종 입구, 설정·연결 방법은 «…» 메뉴) → 판(로봇 관측 | 로봇 상태) → 내 로봇 목록 → 접힌 «다른 로봇 N대», 서랍(늘 열림) = 조종 준비·현재 임무·실기 보기.
+// 총괄 = 요약 → 판(지도 + 살펴볼 로봇) → 로봇 목록(이름 찾기·상태·담당 거르기 + 표) → 줄을 누르면 서랍 상세(읽기 전용). STOP 은 머리줄 하나(화면 안에 새로 두지 않음)
 // TAB-SPLIT(11-10): 로봇 탭 = 실기만(목록·고르기·거르기·요약·지도·경보). 시뮬 로봇은 «시뮬» 탭에서만 — 머리줄 STOP 후보(App)는 그대로 시뮬 포함
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dashboard, Location, MapVersion } from '../../../contracts/ts';
@@ -81,14 +82,17 @@ function StateLine({ c, r, own, guide, settings, drive }: { c: Ctx; r: Robot; ow
           {r.owner !== c.user.id && <span className="lbl" data-not-mine>{ownerName(r)} · 보는 중(요약만)</span>}</div>
         <span className="lbl">담당 <b>{ownerName(r)}</b></span>
       </div>
-      {own && <button type="button" className="btn fl-ghost" onClick={settings} data-open-settings>로봇 설정</button>}
+      {/* hallmark 배치(11-18): 머리 오른쪽에 조종 입구 하나, 설정·연결 방법은 «…» 메뉴 안 — 메뉴는 고른 뒤에도 열어 둔다(창을 닫으면 연 단추로 초점이 돌아옴) */}
+      {own && <div className="fh-row fl-acts">
+        <button type="button" className="btn pri" disabled={!ok} aria-describedby={ok ? undefined : 'fl-step-drive'} onClick={drive} data-open-drive>조종 화면 열기</button>
+        <details className="fl-menu"><summary className="btn" aria-label="로봇 메뉴" title="로봇 메뉴">…</summary>
+          <div className="fl-menu-list"><button type="button" className="btn" onClick={settings} data-open-settings>로봇 설정</button>
+            <button type="button" className="btn" onClick={guide} data-open-guide>연결 방법</button></div></details></div>}
     </div>
     <div className={`lv-card fl-status${bad ? ' bad' : ''}`} data-kind={k}>
       <div className="fl-lead">
         <Sym k={sym} tone={tone} />
         <div className="fh-grow"><h3>{title}</h3><p className="lv-note">{copy}{bad && r.mission ? ' 임무 «이어서»는 실행을 건 같은 화면에서만 할 수 있습니다.' : ''}</p></div>
-        {own && <div className="fh-row fl-acts"><button type="button" className="btn" onClick={guide} data-open-guide>연결 방법</button>
-          <button type="button" className="btn pri" disabled={!ok} aria-describedby={ok ? undefined : 'fl-step-drive'} onClick={drive} data-open-drive>조종 화면 열기</button></div>}
       </div>
       <div className="fl-facts" data-state-line>
         <Fact k="서버"><Chip {...server} /></Fact><Fact k="로봇"><Chip {...robot} /></Fact>
@@ -190,18 +194,19 @@ const Guide = ({ r }: { r: Robot }) => <ol className="fl-guide">
 
 /** 관제 지도(기존 지도 칸과 같은 GET /sites · /map-versions/{id}) + 로봇 위치 점. 판이 같은 위치만 그린다(지어내지 않음), 끊긴 로봇은 회색 점.
  *  prefer = 처음 보일 층(집중 로봇이 있는 층) */
-function FleetMap({ robots, sel, cancel }: { robots: Robot[]; sel?: string; cancel?: AbortSignal }) {
+function FleetMap({ robots, sel, cancel, title }: { robots: Robot[]; sel?: string; cancel?: AbortSignal; title?: string }) {
   useRt();
   const t = useTree(cancel), places = floorsOf(t.tree), [pick, setPick] = useState('');
   const prefer = robots.map(where).find((l) => l?.floor_id)?.floor_id;
   const cur = places.find((p) => p.floor.id === pick) ?? places.find((p) => p.floor.id === prefer && p.floor.approved_version_id) ?? places.find((p) => p.floor.approved_version_id) ?? places[0];
   const many = new Set(places.map((p) => p.building.id)).size > 1;
-  return <>
-    {/* 층 3개까지는 단추 한 줄, 넘으면 고르기 칸 하나(단추가 지도보다 먼저 읽히지 않게 — 11-11 fleet polish) */}
-    {places.length > 3 ? <label className="fh-row lbl">층<select className="fh-user fh-sel" aria-label="층" data-floor-pick value={cur?.floor.id} onChange={(e) => setPick(e.target.value)}>
+  // 층 3개까지는 단추 한 줄, 넘으면 고르기 칸 하나(단추가 지도보다 먼저 읽히지 않게 — 11-11 fleet polish)
+  const floors = places.length > 3 ? <label className="fh-row lbl">층<select className="fh-user fh-sel" aria-label="층" data-floor-pick value={cur?.floor.id} onChange={(e) => setPick(e.target.value)}>
       {places.map((p) => <option key={p.floor.id} value={p.floor.id}>{`${p.site.name} · ${p.building.name} ${p.floor.name}`}</option>)}</select></label>
       : places.length > 1 && <div className="fh-row" role="group" aria-label="층">{places.map((p) => <button key={p.floor.id} type="button" className="btn" aria-pressed={p === cur} onClick={() => setPick(p.floor.id)}>
-      {many ? `${p.building.name} ${p.floor.name}` : p.floor.name}</button>)}</div>}
+      {many ? `${p.building.name} ${p.floor.name}` : p.floor.name}</button>)}</div>;
+  return <>
+    {title ? <div className="fl-hd"><h2>{title}</h2>{floors}</div> : floors}
     {cur?.floor.approved_version_id ? <Marked key={cur.floor.approved_version_id} id={cur.floor.approved_version_id} robots={robots} sel={sel} cancel={cancel} />
       : cur ? <p className="lv-note">아직 지도가 없습니다.</p>
       : t.tree && <p className="lv-note">등록된 층이 없습니다. 지도 탭에서 장소·층을 만들면 여기에 보입니다.</p>}
@@ -296,7 +301,7 @@ export function realDash(d: Dashboard | null, all: Robot[]): Dashboard | null {
     operators: d.operators.map((o) => ({ ...o, robot_count: less(o.robot_count, n((x) => x.owner === o.user_id)) })) } : d;
 }
 
-/** 운영 관리자(PC): 고르기(실기 2대 이상만) → 머리·큰 상태 안내·상태 한 줄 → 로봇 관측(지도·카메라·라이다)·로봇 상태 | 조종 준비·현재 임무(상세)+실기 보기 → 다른 로봇.
+/** 운영 관리자(PC): 머리·큰 상태 안내·상태 한 줄 → 판(로봇 관측 | 로봇 상태) → 내 로봇 고르기(실기 2대 이상만) → 다른 로봇, 오른쪽 서랍 = 조종 준비·현재 임무(상세)+실기 보기.
  *  «로봇 설정»(이름·담당 넘기기·연결 끊기·지우기 — pairing.tsx 그대로)·«연결 방법»은 화면 위 창 */
 function Operator(c: Ctx) {
   useRt();
@@ -308,15 +313,15 @@ function Operator(c: Ctx) {
   const guide = () => setSheet('guide');
   return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
     <div className="fh-focus" ref={root} data-lost={bad || undefined} data-summary={!own || undefined}>
-      {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><h2>내 실기 로봇 {mine.length}대</h2>
-        <div className="fh-row" role="group" aria-label="실기">{mine.map((x) => <button key={x.id} type="button" className="btn" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></button>)}</div></section>}
+      <StateLine c={c} r={r} own={own} guide={guide} settings={() => setSheet('settings')} drive={drive} />
+      {/* 남의 로봇은 서버가 실시간 값을 감춘다 — 관측·로봇 상태·조종 준비 없이 요약 상세만 */}
+      {own && <div className="fl-board"><Observe key={r.id} c={c} r={r} /><Telemetry r={r} /></div>}
+      {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><div className="fl-hd"><h2>내 실기 로봇 {mine.length}대</h2></div>
+        <ul className="fh-list robots" aria-label="실기">{mine.map((x) => <li key={x.id}><button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
+          <Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /><span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span></button></li>)}</ul></section>}
       {!mine.length && <section className="lv-card fl-pick" aria-label="로봇 없음"><h2>담당 로봇이 없습니다</h2>
         <p className="lv-note">«+ 새 로봇 추가»에서 연결 코드로 실기를 등록하거나, 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.</p>
         <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>}
-      <StateLine c={c} r={r} own={own} guide={guide} settings={() => setSheet('settings')} drive={drive} />
-      {/* 남의 로봇은 서버가 실시간 값을 감춘다 — 관측·로봇 상태·조종 준비 없이 요약 상세만 */}
-      {own && <Observe key={r.id} c={c} r={r} />}
-      {own && <Telemetry r={r} />}
       <Side r={r}>{own && <Prepare key={r.id} c={c} r={r} guide={guide} />}<Detail key={`${r.id}-${r.owner}`} {...c} solo /></Side>
       {others.length > 0 && <details className="lv-card fh-fold fl-others" aria-label="다른 로봇" open={!own || undefined}>
         <summary>다른 로봇 {others.length}대 — 남의 로봇은 요약만</summary>
@@ -327,7 +332,8 @@ function Operator(c: Ctx) {
   </Pair>;
 }
 
-type Filter = { owner: string; state: '' | 'attn' | 'online' | 'off' };
+type Filter = { owner: string; state: '' | 'attn' | 'online' | 'off'; q: string };
+const NO_FILTER: Filter = { owner: '', state: '', q: '' };
 const RANK: Record<Tone, number> = { bad: 0, warn: 1, ok: 2, off: 3 };
 const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || !!x.attention?.length; };
 
@@ -335,36 +341,44 @@ const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' 
  *  서랍을 닫아도 고른 행은 그대로 — 표시만 접는다(총괄은 실기 STOP 이 없어 이 탭의 머리줄 STOP 은 떠 있는 내 시뮬만 — App) */
 function Admin({ d, ...c }: Ctx & { d: Dashboard | null }) {
   useRt();
-  const r = c.robot, { err } = c.dash, [drawer, setDrawer] = useState(false), [f, setF] = useState<Filter>({ owner: '', state: '' });
+  const r = c.robot, { err } = c.dash, [drawer, setDrawer] = useState(false), [f, setF] = useState<Filter>(NO_FILTER);
   const open = (id: string) => { c.pick(id); setDrawer(true); };
   const owners = [...new Map(c.robots.map((x) => [x.owner, ownerName(x)])).entries()];
-  const rows = c.robots.filter((x) => (!f.owner || x.owner === (f.owner === '-' ? '' : f.owner))
+  const q = f.q.trim().toLowerCase();
+  const rows = c.robots.filter((x) => (!q || x.name.toLowerCase().includes(q)) && (!f.owner || x.owner === (f.owner === '-' ? '' : f.owner))
     && (!f.state || (f.state === 'attn' ? needs(x) : f.state === 'online' ? x.online : !x.online)));
   const alerts = c.robots.filter(needs).sort((a, b) => RANK[robotStatus(a).tone] - RANK[robotStatus(b).tone]);
-  const sel = (k: keyof Filter, label: string, opts: [string, string][]) => <label className="fh-row lbl">{label}
+  const sel = (k: 'owner' | 'state', label: string, opts: [string, string][]) => <label className="fl-field">{label}
     <select className="fh-user fh-sel" value={f[k]} data-filter={k} onChange={(e) => setF({ ...f, [k]: e.target.value })}>{opts.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>;
+  // hallmark fleet 배치(11-18): 요약 → 판(지도 + 살펴볼 로봇) → 로봇 목록(찾기·거르기 + 표) → 운영 관리자(접힘), 줄을 누르면 오른쪽 서랍
   return <>
     <Kpi user={c.user} d={d} err={err} />
     <div className={`fh-fleet admin${drawer ? ' open' : ''}`}>
-      <section className="lv-card fl-map" aria-label="지도"><h2>지도 — 전 로봇 위치</h2><Guard><FleetMap robots={c.robots} sel={drawer ? r.id : undefined} cancel={c.cancel} /></Guard></section>
-      <section className="lv-card fl-alerts" aria-label="경보"><h2>경보{alerts.length ? ` ${alerts.length}` : ''}</h2>
-        {!alerts.length ? <p className="lv-note">주의가 필요한 로봇이 없습니다.</p>
-          : <ul className="fh-list">{alerts.map((x) => <li key={x.id}><button type="button" aria-pressed={drawer && x.id === r.id} onClick={() => open(x.id)}>
-            <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="lbl fh-wide">{attn(x) || robotStatus(x).text} · {ownerName(x)}</span></button></li>)}</ul>}
-      </section>
+      <div className="fl-board">
+        <section className="lv-card fl-map" aria-label="지도"><Guard><FleetMap robots={c.robots} sel={drawer ? r.id : undefined} cancel={c.cancel} title="지도" /></Guard></section>
+        <section className="lv-card fl-alerts" aria-label="살펴볼 로봇"><div className="fl-hd"><h2>살펴볼 로봇{alerts.length ? ` ${alerts.length}` : ''}</h2></div>
+          {!alerts.length ? <p className="lv-note">주의가 필요한 로봇이 없습니다.</p>
+            : <ul className="fl-alist">{alerts.map((x) => <li key={x.id}><button type="button" aria-pressed={drawer && x.id === r.id} onClick={() => open(x.id)}>
+              <span className="fh-row"><b>{x.name}</b><Chip {...robotStatus(x)} /></span><span className="lbl">{attn(x) || robotStatus(x).text} · {ownerName(x)}</span></button></li>)}</ul>}
+        </section>
+      </div>
       <section className="lv-card fl-list" aria-label="로봇 목록">
-        <div className="fh-row"><h2>로봇 {rows.length === c.robots.length ? c.robots.length : `${rows.length}/${c.robots.length}`}대</h2><span className="fh-grow" />
+        <div className="fl-hd"><h2>로봇 목록</h2><span className="lbl">{rows.length === c.robots.length ? c.robots.length : `${rows.length}/${c.robots.length}`}대</span></div>
+        <div className="fl-filter" role="search" aria-label="로봇 거르기">
+          <label className="fl-field">이름으로 찾기<input className="inp" type="search" autoComplete="off" value={f.q} data-filter="q" onChange={(e) => setF({ ...f, q: e.target.value })} /></label>
+          {sel('state', '상태', [['', '전체'], ['attn', '주의 필요'], ['online', '연결됨'], ['off', '끊김·연결 전']])}
           {sel('owner', '담당', [['', '전체'], ...owners.map(([id, name]): [string, string] => [id || '-', name])])}
-          {sel('state', '상태', [['', '전체'], ['attn', '주의 필요'], ['online', '연결됨'], ['off', '끊김·연결 전']])}</div>
-        <div className="fl-row fl-head" aria-hidden="true"><span>로봇</span><span>담당</span><span>연결</span><span>배터리</span><span>임무</span><span>마지막 보고</span></div>
-        {!rows.length && <p className="lv-note">거른 조건에 맞는 로봇이 없습니다.</p>}
+          <button type="button" className="btn" disabled={f.q === '' && f.owner === '' && f.state === ''} onClick={() => setF(NO_FILTER)} data-filter-clear>조건 지우기</button>
+        </div>
+        <div className="fl-row fl-head" aria-hidden="true"><span>로봇</span><span>상태</span><span>배터리</span><span>하는 일</span><span>담당</span><span>마지막 보고</span></div>
+        {!rows.length && <p className="lv-note">조건에 맞는 로봇이 없습니다.</p>}
         <ul className="fh-list robots fl-table">{rows.map((x) => { const a = attn(x); return <li key={x.id}>
           <button type="button" className="fl-row" aria-pressed={x.id === r.id} onClick={() => open(x.id)}>
-            <span><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></span>
-            <span className="lbl">{ownerName(x)}</span>
-            <span><span className="lbl" data-link-text>{linkText(x)}</span></span>
+            <span><b>{x.name}</b><FallChip x={x} /></span>
+            <span><Chip {...robotStatus(x)} /><span className="lbl" data-link-text>{linkText(x)}</span></span>
             <span className="mono">{pct(x.battery)}</span>
             <span>{x.mission ?? '—'}{a && <span className="lbl" data-attention> ▲ {a}</span>}</span>
+            <span className="lbl">{ownerName(x)}</span>
             <span><Seen x={x} /><PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact /></span>
           </button></li>; })}</ul>
       </section>

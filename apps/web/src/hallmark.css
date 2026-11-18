@@ -115,8 +115,9 @@ ul.fh-list:has(>.hs-item) { gap: 0; }
 .fl-tag { padding: 0 6px; border: 1px solid var(--line); background: none; }
 
 /* 로봇 탭 — 총괄: 지도 | 살펴볼 로봇 → 목록, 서랍 = 한 단 밝은 판 + 왼쪽 선. 운영: 큰 상태 안내·단계 */
-.fh-fleet.open > .fl-detail { padding: 16px 24px 24px; border-top: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.fh-fleet.open > .fl-detail, .fh-focus > .fl-detail { padding: 16px 24px 24px; border-top: 0; border-left: 1px solid var(--line); background: var(--panel); }
 .fh-main .fl-side > .lv-card.fl-detail { padding: 0; border: 0; background: none; }
+.fh-main .fl-side > .lv-card:first-child { border-top: 0; padding-top: 0; }
 .fl-status { border-top: 1px solid var(--line); }
 .fl-status.bad { border-top-color: var(--bad); }
 .fl-lead { padding: 16px 0; }

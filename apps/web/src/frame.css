@@ -139,15 +139,25 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh-sel option:disabled{color:var(--muted);cursor:default}
 
 /* 4부 — 로봇 탭 배치(ROBOT-TAB 11-02 역할별, 03 §5.1). 카드는 줄 높이로 늘리지 않는다(지도 자료 없으면 작은 안내만).
-   운영 관리자(.fh-focus, 11-11 시안 fleet-ops-7a31): 고르기 → 머리·큰 상태 안내 → 왼쪽 로봇 관측·로봇 상태 | 오른쪽 조종 준비·현재 임무 → 다른 로봇. 끊기면 안내가 빨강으로 맨 앞, 지도는 회색(마지막 값).
-   총괄(.fh-fleet.admin): 지도 | 경보 → 표 목록, 서랍을 열면 오른쪽 칸(좁으면 위)에 상세 */
-.fh-main>.fh-focus{flex:1 1 100%;min-width:0;display:grid;gap:16px;align-items:start;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);
-  grid-template-areas:"pick pick" "state state" "obs detail" "tele detail" "others others"}
-/* 오른쪽 칸이 관측·로봇 상태 두 줄을 걸치니 남는 높이는 로봇 상태 줄이 갖는다 */
-@media (min-width:900px){.fh-main>.fh-focus:not([data-summary]){grid-template-rows:auto auto auto 1fr auto}}
-.fh-focus[data-lost]{grid-template-areas:"state state" "pick pick" "obs detail" "tele detail" "others others"}
-.fh-focus>.fl-pick{grid-area:pick}.fh-focus>.fl-state{grid-area:state}.fh-focus>.fl-obs{grid-area:obs}.fh-focus>.fl-tele{grid-area:tele}.fh-focus>.fl-detail{grid-area:detail}.fh-focus>.fl-others{grid-area:others}
-.fh-main>.fh-focus[data-summary]{grid-template-areas:"pick pick" "state state" "detail detail" "others others"}
+   배치는 hallmark fleet 시안(11-18): 왼쪽 = 머리 → 판(넓은 칸 2 : 곁 칸 1) → 목록, 오른쪽 = 서랍(붙어 내림, 좁으면 머리 바로 아래).
+   운영 관리자(.fh-focus): 머리·큰 상태 안내 → 판(로봇 관측 | 로봇 상태) → 내 로봇 고르기 → 다른 로봇, 서랍 = 조종 준비·현재 임무(늘 열림). 끊기면 안내가 빨강, 지도는 회색(마지막 값).
+   총괄(.fh-fleet.admin): 판(지도 | 살펴볼 로봇) → 로봇 목록, 줄을 누르면 서랍에 상세. 남는 높이는 마지막 줄이 갖는다(서랍이 왼쪽 줄을 늘리지 않게) */
+.fh-main>.fh-focus{flex:1 1 100%;min-width:0;display:grid;gap:24px 32px;align-items:start;grid-template-columns:minmax(0,1fr) minmax(340px,400px);
+  grid-template-rows:auto auto auto 1fr;grid-template-areas:"state detail" "board detail" "pick detail" "others detail"}
+.fh-focus>.fl-pick{grid-area:pick}.fh-focus>.fl-state{grid-area:state}.fh-focus>.fl-board{grid-area:board}.fh-focus>.fl-detail{grid-area:detail}.fh-focus>.fl-others{grid-area:others}
+.fl-board{display:grid;gap:24px 32px;align-items:start;grid-template-columns:minmax(0,2fr) minmax(0,1fr);min-width:0}
+.fl-board .fl-tele-grid{grid-template-columns:minmax(0,1fr)}
+.fl-hd{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:36px}.fl-hd>h2{margin:0 auto 0 0}
+/* «…» 메뉴(로봇 설정·연결 방법): 펼치면 단추 아래 목록, 화면 위 창은 아니다 */
+.fl-menu{position:relative}.fl-menu>summary{list-style:none;min-width:44px;justify-content:center}.fl-menu>summary::-webkit-details-marker{display:none}
+.fl-menu-list{position:absolute;right:0;top:calc(100% + 4px);z-index:8;display:flex;flex-direction:column;min-width:160px;border:1px solid var(--line);background:var(--panel)}
+.fl-menu-list>.btn{justify-content:flex-start;border:0}
+/* 살펴볼 로봇: 이름·칩 한 줄 + 까닭 한 줄 */
+.fl-alist{list-style:none;margin:0;padding:0}.fl-alist button{display:grid;gap:4px;width:100%;padding:10px 0;border:0;border-bottom:1px solid var(--line);background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.fl-alist button[aria-pressed="true"]{background:var(--panel2)}.fl-alist button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+/* 찾기·거르기 한 줄: 라벨 위 · 칸 아래, 단추는 칸 바닥에 맞춤 */
+.fl-filter{display:flex;flex-wrap:wrap;align-items:end;gap:8px 12px;margin:8px 0 12px}.fl-field{display:grid;gap:4px;font-size:13px;font-weight:500;color:var(--muted)}
+.fl-ops>summary h2{margin:0;font-size:inherit;font-weight:inherit}
 /* 머리: 이름(크게)·실기·담당 | «로봇 설정» */
 .fl-state{display:flex;flex-direction:column;gap:16px;min-width:0}
 .fl-top{display:flex;align-items:flex-start;gap:12px}.fl-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
@@ -196,23 +206,24 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fl-screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
 .fl-screen{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden}
 .fl-pick .btn{gap:6px}
-.fh-main>.fh-fleet{flex:1 1 100%;min-width:0;display:grid;gap:16px;align-items:start;grid-template-columns:minmax(0,1fr) minmax(260px,340px);grid-template-areas:"map alerts" "list list"}
-.fh-fleet>.fl-list{grid-area:list}.fh-fleet>.fl-detail{grid-area:detail}.fh-fleet>.fl-map{grid-area:map}.fh-fleet>.fl-alerts{grid-area:alerts}
-.fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr) minmax(340px,400px);grid-template-areas:"map detail" "alerts detail" "list detail"}
-.fh-fleet.open>.fl-detail{position:sticky;top:0;max-height:calc(100vh - 120px);overflow-y:auto}
+.fh-main>.fh-fleet{flex:1 1 100%;min-width:0;display:grid;gap:24px 32px;align-items:start;grid-template-columns:minmax(0,1fr);grid-template-areas:"board" "list"}
+.fh-fleet>.fl-list{grid-area:list}.fh-fleet>.fl-detail{grid-area:detail}.fh-fleet>.fl-board{grid-area:board}
+.fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr) minmax(340px,400px);grid-template-rows:auto 1fr;grid-template-areas:"board detail" "list detail"}
+.fh-fleet.open>.fl-detail,.fh-focus>.fl-detail{position:sticky;top:0;max-height:calc(100vh - 120px);overflow-y:auto}
 /* 상세 + «실기 보기» 한 칸(TAB-SPLIT 11-10) — 격자 자리는 바깥 .fl-side 가 갖는다 */
 .fl-side{display:flex;flex-direction:column;gap:16px;min-width:0}
-.fh-list.robots button.fl-row,.fl-head{display:grid;grid-template-columns:minmax(150px,1.4fr) minmax(80px,1fr) minmax(90px,1fr) 56px minmax(110px,1.4fr) minmax(130px,1fr);gap:10px;align-items:center}
+.fh-list.robots button.fl-row,.fl-head{display:grid;grid-template-columns:minmax(110px,1fr) minmax(140px,1.3fr) 56px minmax(110px,1.4fr) minmax(80px,1fr) minmax(130px,1fr);gap:10px;align-items:center}
 .fh-list.robots .fl-row>span{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;white-space:normal}
 .fl-head{padding:0 11px;font-size:12px;color:var(--muted)}
 @media (max-width:899.98px){
-  .fh-main>.fh-focus,.fh-focus[data-lost]{grid-template-columns:minmax(0,1fr);grid-template-areas:"state" "pick" "detail" "obs" "tele" "others"}
+  .fh-main>.fh-focus{grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-template-areas:"state" "detail" "board" "pick" "others"}
   .fl-tele-grid{grid-template-columns:minmax(0,1fr)}
-  .fh-main>.fh-focus[data-summary]{grid-template-areas:"pick" "state" "detail" "others"}
-  .fh-main>.fh-fleet,.fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr);grid-template-areas:"detail" "map" "alerts" "list"}
-  .fh-fleet.open>.fl-detail{position:static;max-height:none}
+  .fh-main>.fh-fleet,.fh-main>.fh-fleet.open{grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-template-areas:"detail" "board" "list"}
+  .fh-fleet.open>.fl-detail,.fh-focus>.fl-detail{position:static;max-height:none}
   .fh-list.robots button.fl-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.fh-fleet .fl-head{display:none}
 }
+@media (max-width:959.98px){.fl-board{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:1279.98px){.fh-fleet.open .fl-board,.fh-focus .fl-board{grid-template-columns:minmax(0,1fr)}}
 /* 서랍을 연 좁은 PC(1280@125% 등): 표 칸을 세 칸 두 줄로 — 가로로 넘치지 않게 */
 @media (max-width:1399.98px){.fh-fleet.open .fh-list.robots button.fl-row{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)}.fh-fleet.open .fl-head{display:none}}
 .fh-fold>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:14px;color:var(--muted)}

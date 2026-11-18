@@ -159,7 +159,21 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(kpi()).toEqual({ 전체: '2', 연결: '1', '임무 중': '0', '주의 필요': '1', '결재 대기': '4' });
     expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
     expect(card('로봇 목록').textContent).not.toContain('창고 시뮬');
-    expect(card('경보').textContent).not.toContain('창고 시뮬');
+    expect(card('살펴볼 로봇').textContent).not.toContain('창고 시뮬');
+  });
+  // hallmark 배치(11-18): 목록 위 «이름으로 찾기» + 상태·담당 거르기, «조건 지우기»는 세 조건을 한 번에 비운다
+  it('총괄: 이름으로 찾기·조건 지우기', async () => {
+    serve(signedIn(KIM, [RA, RB]));
+    await open('#/fleet');
+    const names = () => [...card('로봇 목록').querySelectorAll('.fl-table b')].map((b) => b.textContent);
+    const clear = $<HTMLButtonElement>('[data-filter-clear]')!;
+    expect(names()).toEqual(['Go2-A', 'Go2-B']); expect(clear.disabled).toBe(true);
+    setVal($<HTMLInputElement>('[data-filter="q"]')!, ' go2-b ');
+    expect(names()).toEqual(['Go2-B']); expect(card('로봇 목록').textContent).toContain('1/2대');
+    setVal($<HTMLInputElement>('[data-filter="q"]')!, '없는 이름');
+    expect(names()).toEqual([]); expect(card('로봇 목록').textContent).toContain('조건에 맞는 로봇이 없습니다');
+    await click(clear);
+    expect(names()).toEqual(['Go2-A', 'Go2-B']); expect($<HTMLInputElement>('[data-filter="q"]')!.value).toBe('');
   });
   // REVIEW-315 2(P2): 끝낸 시뮬 슬롯(담당 빈 IDLE)도 서버 요약에 들어간다 — App 의 고르기 목록에는 없어도 요약에서 뺀다. 슬롯뿐이면(로봇 0대 화면) 같은 셈
   it('총괄: 실기 1대 + 끝낸 시뮬 슬롯 → 요약은 실기만, 슬롯뿐이어도 0', async () => {

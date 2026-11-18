@@ -141,12 +141,13 @@ export function Kpi({ user, d, err }: { user: User; d: Dashboard | null; err: st
 
 export function Operators({ user, d }: { user: User; d: Dashboard | null }) {
   if (user.role !== 'ORG_ADMIN') return null;
-  return <section className="lv-card" aria-label="운영 관리자">
-    <h2>운영 관리자{d ? ` ${d.operators.length}명` : ''}</h2>
+  // 로봇 탭 첫 화면을 단순하게(hallmark 배치 11-18) — 접어 둔다, 제목 줄이 그대로 여닫는 단추
+  return <details className="lv-card fh-fold fl-ops" aria-label="운영 관리자">
+    <summary><h2>운영 관리자{d ? ` ${d.operators.length}명` : ''}</h2></summary>
     {d && !d.operators.length && <p className="lv-note">운영 관리자 계정이 없습니다.</p>}
     {d && !!d.operators.length && <ul className="fh-list">{d.operators.map((o) => <li key={o.user_id} className="fh-row">
       <span className="fh-grow">{o.display_name}</span><span className="mono">로봇 {o.robot_count}대</span></li>)}</ul>}
-  </section>;
+  </details>;
 }
 
 export const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_DEPTH: '뎁스 카메라', LIDAR: '라이다', BATTERY: '배터리', OTHER: '기타' };
@@ -199,9 +200,11 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
   const mission = solo ? <Line k="임무"><span data-mission className="fh-grow">{r.mission ? `${r.mission}${run ? ` · ${run}` : ''}` : '진행 중인 임무가 없습니다'}</span></Line>
     : r.mission && <Line k="임무"><span>{r.mission}</span></Line>;
   const events = (c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />;
-  const more = <details className="fh-fold" data-detail-more><summary>장치·위치{hidden ? '' : ` — 장치 ${devices.length}개`}</summary>
+  const place = <Line k="위치"><span>{hidden ? '확인 안 됨' : loc ? <><span className="mono">x {m(loc.x)} · y {m(loc.y)}</span> <span className="lbl">({hms(loc.updated_at)})</span></> : '위치 없음'}</span></Line>;
+  // 서랍(총괄)은 위치를 사실 줄로 꺼내 둔다(hallmark 서랍 — 담당·위치·임무·배터리), 집중(solo)은 «로봇 상태»에 현재 위치가 있어 접힌 안
+  const more = <details className="fh-fold" data-detail-more><summary>{solo ? '장치·위치' : '장치'}{hidden ? '' : ` — 장치 ${devices.length}개`}</summary>
     {!hidden && <PhoneRelay key={r.id} report={r.phoneRelay} receivedAt={r.phoneRelayAt} />}
-    <Line k="위치"><span>{hidden ? '확인 안 됨' : loc ? <><span className="mono">x {m(loc.x)} · y {m(loc.y)}</span> <span className="lbl">({hms(loc.updated_at)})</span></> : '위치 없음'}</span></Line>
+    {solo && place}
     <Line k="장치">{hidden ? <span>확인 안 됨</span> : !devices.length ? <span>장치 정보 없음</span>
       : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
           <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} />{codeText(v)}</li>)}</ul>}</Line>
@@ -216,7 +219,8 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
     {/* 서랍(총괄): 담당·관리 → 조종권자 → 임무·배터리 → 사건 → 장치(접힘) */}
     {/* 집중(solo, 운영 관리자 PC): 이름·담당은 머리, 배터리·자세·위치는 «로봇 상태», 이름·담당 넘기기·연결 끊기·지우기는 «로봇 설정» 창(screens/fleet.tsx) — 여기는 임무·주의·장치·사건 */}
     {solo ? <>{mission}{!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}{hidden && <>{manage}{battery}</>}{events}{more}</>
-      : <>{manage}<Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>{mission}{battery}{events}{more}</>}
+      : <>{manage}{place}<Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>{mission}{battery}{events}{more}
+        <div className="fh-row fl-dacts"><a className="btn" href="#/map">지도에서 보기</a></div></>}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </section>;
 }
