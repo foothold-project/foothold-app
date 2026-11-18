@@ -187,3 +187,40 @@ def test_documented_sdk_errors_keep_number_and_plain_reason(sdk_code, reason):
     assert sink.actions.result['sdk_code'] == sdk_code
     assert sink.actions.result['code'] == reason
     assert sink.actions.result['status'] == 'FAILED'
+
+
+
+def test_routine_held_stop_is_published_without_cancelling_own_action():
+    _, sink, normal, emergency, session, _, measured, frame = rig(0)
+    entered, release = threading.Event(), threading.Event()
+    def hello():
+        entered.set(); assert release.wait(2); return 0
+    normal.Hello = hello
+    send(frame)
+    worker = threading.Thread(target=sink.drain)
+    worker.start()
+    try:
+        assert entered.wait(1)
+        # Core keeps publishing the same STOP while waiting for measured stop.
+        session.core.st = {**session.core.st, 'stop_requested': False}
+        frame('ping')
+        assert sink.actions.result['status'] == 'RUNNING'
+        assert sink.latched
+        sink.check_watchdog()
+        assert ('StopMove', ()) in emergency.calls
+        assert sink.actions.result['status'] == 'RUNNING'
+    finally:
+        release.set(); worker.join(2)
+    assert sink.actions.result['status'] == 'SUCCEEDED'
+
+
+def test_new_core_stop_generation_cancels_while_repeated_hold_does_not():
+    from foothold_agent.link.session import MotionCommand
+    _, sink, normal, _, session, _, _, frame = rig(0)
+    send(frame)
+    sink.apply(MotionCommand('stop', stop_generation=session.core.stop_gen), source='server')
+    assert sink.actions.result['status'] == 'RUNNING'
+    sink.apply(MotionCommand('stop', stop_generation=session.core.stop_gen+1), source='server')
+    assert sink.actions.result['code'] == 'STOPPED'
+    normal.Hello = lambda: pytest.fail('cancelled action must never start')
+    sink.drain()

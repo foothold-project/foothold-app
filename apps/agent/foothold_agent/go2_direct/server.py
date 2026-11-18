@@ -81,6 +81,7 @@ class DriveSession(Session):
                         frame.get('params', {}), frame.get('lease_id'), frame.get('confirmed', False),
                         moving=self.core.intent != (0., 0., 0.) or self.core.out != (0., 0., 0.)):
                     self.core.stop('action requested')
+                    self.posture_sink.actions.core_hold(self.core.stop_gen)
                 return self._finish(state=True)
             if frame.get('t') == 'posture' and self.posture_sink is not None:
                 super().receive({'t': 'ping'})

@@ -334,7 +334,7 @@ class Go2Sink:
                 raise OutputError('adapter closed or failed')
             # STOP dominates every source; source arbitration is not an auth gate.
             if command.kind == 'stop':
-                self.actions.cancel()
+                self.actions.stop(getattr(command, 'stop_generation', None))
                 # Core can publish the same held STOP on every tick/sample.
                 # Only a new hold invalidates sensor evidence; Core's own STOP
                 # generation/CAS and authority checks remain untouched.
