@@ -334,21 +334,24 @@ class Go2Sink:
                 raise OutputError('adapter closed or failed')
             # STOP dominates every source; source arbitration is not an auth gate.
             if command.kind == 'stop':
-                self.actions.stop(getattr(command, 'stop_generation', None), source=source)
+                action_hold = self.actions.stop(getattr(command, 'stop_generation', None), source=source)
                 # Core can publish the same held STOP on every tick/sample.
                 # Only a new hold invalidates sensor evidence; Core's own STOP
                 # generation/CAS and authority checks remain untouched.
                 stop_generation = getattr(command, 'stop_generation', None)
                 reason = (('stop', source, stop_generation)
                           if type(stop_generation) is int else None)
-                self._hold(reason=reason)
+                self._hold(reason=reason, preserve=action_hold)
+                if action_hold:
+                    self._hold_reason = reason
                 self._stop_requested.set()
                 return
             self._require_workers()
             # Check OLD clocks before any input can refresh them. Otherwise a
             # delayed apply -> drain -> watchdog sequence erases the outage.
             stamp = self.now()
-            if not self.latched and self._expired(stamp):
+            if (not self.latched or self.actions.executing is not None) and self._expired(stamp):
+                self.actions.cancel('WATCHDOG')
                 self._stall()
                 self._stop_requested.set()
             if source != self.source or self.source is None:
@@ -501,6 +504,9 @@ class Go2Sink:
     def _stop_output(self, client, *, force=False):
         first = None
         with self._lock:
+            self.actions.poll()
+            if not force and self.actions.executing is not None:
+                return  # only the accepted action's own held STOP generation
             generation = self.generation
         measured = self._measured_stop(generation)
         lane = 'normal' if client is self.client else 'emergency'
@@ -538,6 +544,8 @@ class Go2Sink:
                     return
                 self._require_workers()
                 stamp = self.now()
+                if self.actions.executing is not None and self._expired(stamp):
+                    self.actions.cancel('WATCHDOG')
                 if not self.latched and self._expired(stamp):
                     self._stall()
                     self._stop_requested.set()
@@ -565,7 +573,8 @@ class Go2Sink:
                     stamp = self.now()
                     # A stalled SDK return can also beat the watcher. Do not
                     # erase the outage by stamping its late completion as fresh.
-                    if not self.latched and self._expired(stamp):
+                    if (not self.latched or self.actions.executing is not None) and self._expired(stamp):
+                        self.actions.cancel('WATCHDOG')
                         self._stall()
                         self._stop_requested.set()
                     self._last_drain = stamp
@@ -579,12 +588,14 @@ class Go2Sink:
                 self.emergency_stop()
                 raise OutputError('normal SDK output failed') from error
 
-    def emergency_stop(self, *, force=False):
+    def emergency_stop(self, *, force=False, retry=False):
         # Independent lane: a blocked normal RPC must not own this lock.
         if not self._emergency.acquire(blocking=False):
             return
         try:
             with self._lock:
+                if not retry and self.actions.executing is not None:
+                    self.actions.cancel()
                 self._hold(preserve=True)
             try:
                 self._stop_output(self.emergency_client, force=force)
@@ -599,12 +610,15 @@ class Go2Sink:
         previous = self._stop_attempts.get('emergency')
         retry = (previous is not None and self.latched and
                  self.now()-previous[1] >= STOP_RETRY_S and
-                 not self._measured_stop(self.generation))
+                 not self._measured_stop(self.generation) and
+                 self.actions.executing is None)
         with self._lock:
             retry = retry and self.latched
+            expired = self._expired(self.now())
+            if expired and self.actions.executing is not None:
+                self.actions.cancel('WATCHDOG')
             requested = self._stop_requested.is_set()
             self._stop_requested.clear()
-            expired = self._expired(self.now())
             if not requested and not expired and not retry:
                 self._tripped = False
                 return False
@@ -617,7 +631,7 @@ class Go2Sink:
                 self._stall()
             else:
                 self._hold(preserve=True)
-        self.emergency_stop()
+        self.emergency_stop(retry=True)
         return True
 
     def start_threads(self):

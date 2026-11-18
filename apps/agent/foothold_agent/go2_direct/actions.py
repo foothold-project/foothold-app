@@ -11,6 +11,11 @@ ACTIONS = frozenset('Damp BalanceStand StopMove StandUp StandDown RecoveryStand 
 FLAGS = frozenset('SwitchJoystick Pose HandStand FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet'.split())
 DANGEROUS = frozenset('FrontFlip LeftFlip BackFlip FrontJump FrontPounce HandStand WalkUpright FreeJump FreeBound Damp'.split())
 TIMEOUT_S = 2.
+# Firmware does not report action completion. Bound the accepted-motion wait
+# generously, then resume ordinary STOP retries. StandUp/StandDown retain their
+# existing posture/STOP behavior; configuration/read-only RPCs never defer STOP.
+EXECUTION_MAX_S = {action: 60. for action in ACTIONS - frozenset(
+    'StandUp StandDown StopMove SpeedLevel SwitchJoystick AutoRecoverySet AutoRecoveryGet SwitchAvoidMode CheckMode SelectMode'.split())}
 # Unitree SDK pinned rpc/internal.py; unknown firmware codes stay SDK_REJECTED.
 SDK_REASONS = {
     3102: 'SDK_SEND_FAILED', 3103: 'UNSUPPORTED', 3104: 'TIMEOUT',
@@ -49,12 +54,13 @@ class Actions:
         self.sink = sink
         self.job = None
         self.inflight = False
+        self.executing = None
         self.result = None
         self.seen = deque(maxlen=256)
 
     @property
     def busy(self):
-        return self.job is not None or self.inflight
+        return self.job is not None or self.inflight or self.executing is not None
 
     def report(self, request_id, action, status, code, sdk_code=None, *, mode=None, enabled=None):
         self.result = dict(request_id=request_id, action=action, status=status, code=code,
@@ -77,8 +83,9 @@ class Actions:
             try:
                 args = arguments(action, params)
                 if type(confirmed) is not bool: raise ValueError('boolean confirmation required')
-                reason = ('BUSY' if self.busy or s._posture is not None else
+                reason = ('BUSY' if self.job is not None or self.inflight or s._posture is not None else
                           'DUPLICATE' if (lease, request_id) in self.seen else
+                          'BUSY' if self.executing is not None else
                           'MOVING' if moving else self.reason(lease, action, confirmed))
             except (ValueError, TypeError):
                 reason, args = 'INVALID_ARGUMENTS', ()
@@ -101,13 +108,29 @@ class Actions:
 
     def stop(self, generation=None, *, source=None):
         with self.sink._lock:
-            if (source == 'server' and self.job is not None and type(generation) is int
-                    and self.job.get('hold_stop_generation') == generation):
-                return  # same Core hold, not a new operator/safety STOP
+            active = self.job if self.job is not None else self.executing
+            if (source == 'server' and active is not None and type(generation) is int
+                    and active.get('hold_stop_generation') == generation):
+                # Keep posture/configuration STOP generations unchanged.
+                return active['action'] in EXECUTION_MAX_S
             self.cancel()
+            return False
 
     def cancel(self, reason='STOPPED'):
         with self.sink._lock:
+            if self.executing is not None:
+                active = self.executing
+                self.executing = None
+                # Safety interruption must send immediately on BOTH lanes even
+                # if their last same-generation STOP was less than .20 s ago.
+                hold_reason = self.sink._hold_reason
+                if type(active.get('hold_stop_generation')) is int:
+                    hold_reason = ('stop', 'server', active['hold_stop_generation'])
+                self.sink._hold()
+                # Repeated publication of the old Core hold is still the same
+                # cause; it must not create another epoch after this safety STOP.
+                self.sink._hold_reason = hold_reason
+                self.sink._stop_requested.set()
             if self.job is not None:
                 job, self.job = self.job, None
                 self.report(job['request_id'], job['action'], 'FAILED', reason)
@@ -115,6 +138,21 @@ class Actions:
 
     def poll(self):
         with self.sink._lock:
+            active = self.executing
+            if active is not None:
+                s = self.sink
+                if (s.generation != active['generation'] or s._closed.is_set()
+                        or not s.posture_authorized(active['lease'])):
+                    self.cancel('AUTHORITY_LOST')
+                elif s.now() >= active['deadline']:
+                    self.executing = None
+                    # Wake even a lane that had no pre-action STOP attempt.
+                    s._stop_requested.set()
+                elif (s._measured_stop(active['generation']) and
+                      s._posture_sample().get('sequence', -1) > active['sequence']):
+                    # Acceptance is not completion. Only a newer measured stop
+                    # (existing identity/generation/freshness gates) ends early.
+                    self.executing = None
             if self.job is not None:
                 if self.sink.now() >= self.job['deadline']:
                     self.cancel('TIMEOUT')
@@ -178,6 +216,10 @@ class Actions:
                     if not ok:
                         s._urgent = True
                         s._stop_requested.set()
+                    elif job['action'] in EXECUTION_MAX_S:
+                        self.executing = dict(job, generation=s.generation,
+                            deadline=s.now()+EXECUTION_MAX_S[job['action']],
+                            sequence=s._posture_sample().get('sequence', -1))
                     self.report(job['request_id'], job['action'], 'SUCCEEDED' if ok else 'FAILED',
                                 'SDK_ACCEPTED' if ok else failure or (SDK_REASONS.get(code, 'SDK_REJECTED') if valid else 'SDK_REJECTED'),
                                 code if valid else None, mode=mode, enabled=enabled)
