@@ -45,16 +45,17 @@ export function createReplaySim(mj, path, world) {
 
 const finiteVector = (a, n) => Array.isArray(a) && a.length === n && a.every(Number.isFinite);
 const fresh = (v) => Number.isFinite(v?.age_s) && v.age_s >= 0 && Number.isFinite(Date.parse(v.received_at));
-/** robot_info → 표본 { seq, age, q, wxyz, xyz } — 모양이 틀리거나 위치 출처가 다르면 null(그 표본만 버림).
- *  seq = 세 값의 받은 시각 중 가장 늦은 것(ms): 이보다 작거나 같은 표본 = 역순·중복 */
+/** robot_info → 표본 { seq, born, clock, age, q, wxyz, xyz } — 모양이 틀리거나 위치 출처가 다르면 null(그 표본만 버림).
+ *  seq = 세 값의 받은 시각 중 가장 늦은 것(ms): 이보다 작거나 같은 표본 = 역순·중복. born = 가장 이른 받은 시각,
+ *  clock = 서버가 보낼 때의 로봇 시계(받은 시각 + 나이, 셋 중 작은 것). 받은 시각은 로봇 쪽 시계라 브라우저 시계와 바로 비교하지 않는다 */
 export function sampleOf(info, latency = 0) {
   const { joints, quaternion, position } = info ?? {};
   if (!joints || !finiteVector(joints.positions, 12) || !Array.isArray(joints.names) || joints.names.length !== 12 ||
       new Set(joints.names).size !== 12 || !joints.names.every((n) => GO2_JOINTS.includes(n)) || !fresh(joints) ||
       !quaternion || !finiteVector(quaternion.wxyz, 4) || Math.abs(Math.hypot(...quaternion.wxyz) - 1) > .1 || !fresh(quaternion) ||
       position?.origin !== 'BOOT_ORIGIN_UNVERIFIED' || !finiteVector(position.xyz, 3) || !fresh(position)) return null;
-  const norm = Math.hypot(...quaternion.wxyz);
-  return { seq: Math.max(...[joints, quaternion, position].map((v) => Date.parse(v.received_at))),
+  const norm = Math.hypot(...quaternion.wxyz), parts = [joints, quaternion, position], at = parts.map((v) => Date.parse(v.received_at));
+  return { seq: Math.max(...at), born: Math.min(...at), clock: Math.min(...parts.map((v, i) => at[i] + 1000 * v.age_s)),
     age: Math.max(joints.age_s, quaternion.age_s, position.age_s) + latency,
     q: GO2_JOINTS.map((n) => joints.positions[joints.names.indexOf(n)]), wxyz: quaternion.wxyz.map((v) => v / norm), xyz: position.xyz.slice() };
 }
@@ -92,9 +93,14 @@ export function createReplayReader(sim, url, { fetcher = globalThis.fetch, now =
   const started = now();
   let buf = [], lastSeq = -Infinity, gap = 0, lastFresh = null, lastWall = null, pending = false, error = '', align = null, drawn = null;
   let verified = false, ws = null, wsUp = false, wsAt = -Infinity, wsRetryAt = -Infinity, pingAt = -Infinity, n = 0;
-  /** 새 표본 하나 — 역순·중복·옛 값(1 초 넘음)은 버린다. t = 받은 시각(이어 그리기), lastFresh = 받은 시각 − 나이(신선도) */
+  // 로봇 시계 − 브라우저 now() 의 상한(ms). 마지막 GET 으로만 잰다: 서버가 보낸 때 ≥ 요청 시작이라 이 값으로 잰 나이는 실제보다 작지 않다.
+  // 없으면(아직 GET 표본 없음) 실시간 표본은 신선하다고 보지 않는다. ponytail: 실시간만 오래 받는 동안 로봇 시계가 앞으로 뛰면 그만큼 젊게 보임(서버 나이 아래로는 안 내려감) — 문제면 실시간 중에도 가끔 GET 으로 다시 잰다
+  let skew = null;
+  /** 새 표본 하나 — 역순·중복·옛 값(1 초 넘음)은 버린다. t = 받은 시각(이어 그리기), lastFresh = 받은 시각 − 나이(신선도).
+   *  latency = GET 왕복(s). null = 실시간: 나이 = 서버 나이와 «지금 − 가장 이른 받은 시각(브라우저 시계로 옮김)» 중 큰 것 */
   const push = (info, latency) => {
-    const s = sampleOf(info, latency), at = now();
+    const s = sampleOf(info, latency ?? 0), at = now();
+    if (s && latency === null) s.age = skew === null ? Infinity : Math.max(s.age, (at + skew - s.born) / 1000);
     if (!s || s.seq <= lastSeq || s.age > 1) return false;
     s.t = Math.max(at, (buf.at(-1)?.t ?? -Infinity) + 1);
     if (buf.length && s.t - buf.at(-1).t > 1000) buf = [];   // 끊겼다 다시 받음 — 옛 표본과 잇지 않는다
@@ -115,8 +121,8 @@ export function createReplayReader(sim, url, { fetcher = globalThis.fetch, now =
       if (m?.t === 'reply' && m.ok === false && m.error?.code !== 'NETWORK') { closeWs(); wsRetryAt = now() + 10000; return; }   // 구독 거절 → GET 으로(10 s 뒤 다시)
       if (m?.t === 'subscription.revoked' && m.robot === rid) { closeWs(); wsRetryAt = now() + 10000; return; }
       if (m?.t !== 'state' || m.robot !== rid) return;
-      wsUp = true; wsAt = now();
-      push(m.robot_info, 0);
+      wsUp = true;
+      if (push(m.robot_info, null)) wsAt = now();   // 늙은·빈 표본은 «실시간 받는 중»으로 치지 않는다 — GET 대체가 계속 돈다
     };
     s.onclose = () => { if (ws === s) { ws = null; wsUp = false; wsRetryAt = now() + 3000; } };
   };
@@ -136,6 +142,8 @@ export function createReplayReader(sim, url, { fetcher = globalThis.fetch, now =
         const robot = await response.json();
         if (robot.simulation !== false) { verified = false; closeWs(); throw new Error('실기 로봇을 골라야 함'); }
         verified = true;
+        const s = sampleOf(robot.robot_info);
+        if (s) skew = s.clock - t;
         push(robot.robot_info, Math.max(0, now() - t) / 1000);
       } catch (e) { error = e.name === 'AbortError' ? '로봇 상태 조회 시간 초과' : e.message; }
       finally { clearTimeout(timer); pending = false; }
