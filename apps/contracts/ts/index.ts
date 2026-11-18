@@ -186,6 +186,7 @@ export interface AgentServerPing {
 }
 
 export interface AgentState {
+  response_health?: RobotResponseHealth | null;
   posture?: PostureState | null;
   posture_result?: PostureResult | null;
   robot_info?: Go2RobotInfo | null;
@@ -1390,6 +1391,7 @@ export interface PhoneRunUpdate {
 }
 
 export interface PhoneState {
+  response_health?: RobotResponseHealth | null;
   posture: PhonePosture;
   posture_result?: PostureResult | null;
   robot_info?: Go2RobotInfo | null;
@@ -1636,6 +1638,17 @@ export interface RobotPatch {
   name?: string;
   /** 실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다. */
   owner_user_id?: string | null;
+}
+
+export interface RobotResponseHealth {
+  slow: boolean;
+  timeout_count: number;
+  last_timeout_at: string | null;
+  last_ms: number | null;
+  last_timed_out: boolean;
+  median_ms: number | null;
+  median_timed_out: boolean;
+  sample_count: number;
 }
 
 export interface RobotSummary {

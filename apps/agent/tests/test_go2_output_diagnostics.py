@@ -30,8 +30,8 @@ def test_successful_output_is_silent_and_stop_pair_preserves_first_exception(cap
     assert caught.value is original
     assert calls == [('Move', ZERO), ('StopMove', ())]
     assert capsys.readouterr().err.splitlines() == [
-        'SDK_OUTPUT_FAILED method=Move code=TimeoutError',
-        'SDK_OUTPUT_FAILED method=StopMove code=3104']
+        'SDK_OUTPUT_FAILED method=Move code=TimeoutError']
+    assert sink.response_health()['timeout_count'] == 1
 
 
 @pytest.mark.parametrize('method', ['Move', 'StopMove'])
@@ -41,6 +41,10 @@ def test_successful_output_is_silent_and_stop_pair_preserves_first_exception(cap
 def test_failed_submission_reports_only_method_and_code(method, result, label, capsys):
     client = NS(**{method: lambda *args: result})
     sink = Go2Sink(client, object(), offline_test_mode=True)
+    if method == 'StopMove' and result == 3104:
+        assert sink._call(client, method) == 3104
+        assert not capsys.readouterr().err
+        return
     with pytest.raises(OutputError, match='SDK command submission failed'):
         sink._call(client, method, *(ZERO if method == 'Move' else ()))
     assert capsys.readouterr().err == f'SDK_OUTPUT_FAILED method={method} code={label}\n'
@@ -108,12 +112,21 @@ def test_first_output_after_init_fails_closed_without_retrying_motion(method, co
     try:
         sink.start_threads()
         assert stopped.wait(1), 'independent emergency STOP must be attempted'
-        with pytest.raises(OutputError):
+        if method == 'StopMove':
             sink.apply(NS(kind='apply', velocity=ZERO), source='server')
-        assert sink.error is not None and sink.latched and sink.pending == ZERO
+            assert sink.error is None and sink.latched and sink.pending == ZERO
+        else:
+            with pytest.raises(OutputError):
+                sink.apply(NS(kind='apply', velocity=ZERO), source='server')
+            assert sink.error is not None and sink.latched and sink.pending == ZERO
         assert {which for which, current, _ in calls if current == 'StopMove'} == {0, 1}
     finally:
         sink.close()
     # Later fake calls succeed, but that cannot erase the first failure or unlock.
-    assert sink.error is not None and sink.latched
-    assert f'SDK_OUTPUT_FAILED method={method} code={code}' in capsys.readouterr().err.splitlines()
+    assert sink.latched
+    if method == 'StopMove':
+        assert sink.error is None
+        assert f'SDK_OUTPUT_FAILED method={method} code={code}' not in capsys.readouterr().err.splitlines()
+    else:
+        assert sink.error is not None
+        assert f'SDK_OUTPUT_FAILED method={method} code={code}' in capsys.readouterr().err.splitlines()

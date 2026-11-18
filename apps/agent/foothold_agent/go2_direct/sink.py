@@ -10,6 +10,9 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from collections import deque
+from datetime import datetime, timezone
+from statistics import median
 
 ZERO = (0., 0., 0.)
 DEADLINE_S = .30
@@ -118,6 +121,9 @@ class Go2Sink:
         # Each independent lane owns its own RPC history, never the other lock.
         self._stop_attempts = {}
         self._stop_diagnostics = {}
+        self._rpc_samples = deque(maxlen=20)
+        self._stop_timeouts = deque(maxlen=256)
+        self._last_timeout_at = None
 
     def _posture_sample(self):
         return (self.posture_feedback() if self.posture_feedback is not None
@@ -225,7 +231,12 @@ class Go2Sink:
         # Recheck after every RPC. A concurrent STOP prevents later stages.
         if method == 'StandDown':
             try:
-                self._call(self.client, 'StopMove')
+                code = self._call(self.client, 'StopMove')
+                if code == 3104:
+                    with self._lock:
+                        if self._posture is job:
+                            self._posture_finish('REJECTED', 'ROBOT_SLOW', 3104)
+                    return
             except Exception as error:
                 with self._lock:
                     if self._posture is job:
@@ -242,7 +253,12 @@ class Go2Sink:
                     if not self._standing(current) or not current['still']:
                         self._posture_finish('FAILED', 'POSTURE_CHANGED', None)
                         return
-            code = getattr(self.client, method)()
+            started = time.monotonic()
+            code = None
+            try:
+                code = getattr(self.client, method)()
+            finally:
+                self._rpc_diagnostic(method, time.monotonic()-started, code)
         except Exception:
             code = None
         with self._lock:
@@ -404,6 +420,32 @@ class Go2Sink:
                     and sample['generation'] == generation and sample['stationary'] is True
                     and 0 <= self.now()-sample['received_at'] <= FEEDBACK_MAX_AGE_S)
 
+    def _rpc_diagnostic(self, method, elapsed, code):
+        with self._lock:
+            stamp = self.now()
+            timed_out = type(code) is int and code == 3104
+            self._rpc_samples.append((stamp, elapsed*1000, timed_out))
+            if method == 'StopMove' and timed_out:
+                self._stop_timeouts.append(stamp)
+                self._last_timeout_at = datetime.now(timezone.utc).isoformat()
+
+    def response_health(self):
+        """Display only; both workers share this bounded, lock-protected cache."""
+        with self._lock:
+            stamp = self.now()
+            while self._stop_timeouts and stamp-self._stop_timeouts[0] >= 3.:
+                self._stop_timeouts.popleft()
+            recent = [row for row in self._rpc_samples if 0 <= stamp-row[0] < 3.]
+            last = recent[-1] if recent else None
+            return dict(slow=bool(self._stop_timeouts), timeout_count=len(self._stop_timeouts),
+                last_timeout_at=self._last_timeout_at,
+                last_ms=None if last is None else round(last[1], 3),
+                last_timed_out=False if last is None else last[2],
+                median_ms=None if not recent else round(median(max(100., row[1]) if row[2]
+                    else row[1] for row in recent), 3),
+                median_timed_out=bool(recent) and sum(row[2] for row in recent)*2 >= len(recent),
+                sample_count=len(recent))
+
     def _stop_diagnostic(self, client, started, elapsed, code):
         lane = 'normal' if client is self.client else 'emergency'
         previous, failures = self._stop_diagnostics.get(lane, (None, 0))
@@ -414,8 +456,7 @@ class Go2Sink:
             lane, elapsed*1000, code, failures,
             -1. if previous is None else (started-previous)*1000)
 
-    def _call(self, client, method, *args, allow_stop_timeout=False):
-        generation = self.generation
+    def _call(self, client, method, *args):
         started = time.monotonic()
         try:
             code = getattr(client, method)(*args)
@@ -431,16 +472,19 @@ class Go2Sink:
             print(f'SDK_OUTPUT_FAILED method={method} code={name}', file=sys.stderr)
             raise
         if method == 'StopMove':
-            self._stop_diagnostic(client, started, time.monotonic()-started,
+            elapsed = time.monotonic()-started
+            self._stop_diagnostic(client, started, elapsed,
                                   code if type(code) is int else 'InvalidReturnType')
+            self._rpc_diagnostic(method, elapsed, code)
         if type(code) is not int or code != 0:
             timeout = method == 'StopMove' and type(code) is int and code == 3104
-            if timeout and allow_stop_timeout and self._measured_stop(generation):
-                return  # measured hold only; no unlock or synthetic Core feedback
+            if timeout:
+                return code  # display only; no unlock or synthetic Core feedback
             # Non-walkable/unknown posture may reject stopping as an unsupported
-            # operation. Keep transport/observations alive, never enable motion.
+            # operation. Client/transport error codes (3000+) stay fatal.
+            # Keep transport/observations alive, never enable motion.
             sample = self._posture_sample()
-            if (not timeout and type(code) is int and not self._walkable(sample) and
+            if (type(code) is int and code < 3000 and not self._walkable(sample) and
                     (method == 'StopMove' or (method == 'Move' and args == ZERO))):
                 return
             value = str(code) if type(code) is int else 'InvalidReturnType'
@@ -448,6 +492,7 @@ class Go2Sink:
             error = OutputError('SDK command submission failed')
             error.sdk_code = code if type(code) is int else None
             raise error
+        return code
 
     def _stop_output(self, client, *, force=False):
         first = None
@@ -468,7 +513,7 @@ class Go2Sink:
                     continue
                 self._stop_attempts[lane] = (generation, self.now())
             try:
-                self._call(client, method, *args, allow_stop_timeout=True)
+                self._call(client, method, *args)
             except BaseException as error:
                 first = first or error
         if first is not None:

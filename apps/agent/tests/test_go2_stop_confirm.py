@@ -1,4 +1,4 @@
-"""A-plan STOP handling: offline fake SDK and identity-checked sample cache only."""
+"""Slow-response STOP handling: offline fake SDK and identity-checked sample cache only."""
 import asyncio
 import logging
 import re
@@ -56,7 +56,7 @@ def test_timeout_with_current_measured_stop_keeps_connection_and_lock(motion_sta
 @pytest.mark.parametrize('lane', ['normal', 'emergency'])
 @pytest.mark.parametrize('evidence', ['none', 'stale', 'stale-low', 'future', 'generation',
     'identity', 'vx', 'vy', 'vz', 'yaw', 'gyro', 'joint', 'new-motion'])
-def test_timeout_without_fresh_physical_stop_faults(lane, evidence):
+def test_timeout_without_fresh_physical_stop_keeps_connection(lane, evidence):
     clock, sink, feedback, normal, emergency = rig()
     if evidence != 'none':
         values = dict(velocity={'vx': (.020001, 0, 0), 'vy': (0, .020001, 0),
@@ -76,11 +76,11 @@ def test_timeout_without_fresh_physical_stop_faults(lane, evidence):
             assert feedback.consume(NS(on_robot_state=lambda _: None))
             feedback.sportmodestate(sport(2, velocity=(.4, 0, 0)))
     stop_code(normal if lane == 'normal' else emergency, 3104)
-    with pytest.raises(OutputError):
-        sink.drain() if lane == 'normal' else sink.emergency_stop()
-    assert sink.error is not None and sink.latched and sink.pending == ZERO
-    with pytest.raises(OutputError):
-        sink.apply(MotionCommand(), source='server')
+    sink.drain() if lane == 'normal' else sink.emergency_stop()
+    assert sink.error is None and sink.latched and sink.pending == ZERO
+    assert sink._confirmed_generation is None or evidence == 'new-motion'
+    sink.apply(MotionCommand(), source='server')
+    assert sink.response_health()['slow']
 
 
 @pytest.mark.parametrize('code', [3102, 42, -1, None, False])
@@ -163,13 +163,13 @@ def test_session_labels_retransmits_but_advances_every_new_stop():
     assert stop_generations(session.tick()) == [session.core.stop_gen]
 
 
-def test_feedback_from_replacement_sink_cannot_excuse_retired_sink_timeout():
+def test_replacement_feedback_is_not_required_to_tolerate_timeout():
     _, sink, feedback, normal, _ = rig()
     measured(feedback)
     feedback.sink = Go2Sink(FakeSport(), FakeSport(), offline_test_mode=True)
     stop_code(normal, 3104)
-    with pytest.raises(OutputError): sink.drain()
-    assert sink.error is not None
+    sink.drain()
+    assert sink.error is None and sink.latched
 
 
 @pytest.mark.parametrize('fresh_on_return', [False, True])
@@ -182,17 +182,13 @@ def test_timeout_policy_reads_measurements_after_rpc_returns(fresh_on_return):
         if fresh_on_return: measured(feedback, 2)
         return 3104
     normal.StopMove = stop
-    if fresh_on_return:
-        sink.drain()
-        assert sink.error is None and sink.latched
-    else:
-        with pytest.raises(OutputError): sink.drain()
-        assert sink.error is not None
+    sink.drain()
+    assert sink.error is None and sink.latched
 
 
-def test_stand_down_prestop_timeout_remains_fatal_even_when_measured_still():
+def test_stand_down_prestop_timeout_refuses_only_posture_job():
     from test_go2_posture import rig as posture_rig, request
-    _, sink, normal, _, _, _, _, frame = posture_rig(0)
+    _, sink, normal, _, _, _, measured, frame = posture_rig(0)
     count = 0
     def stop():
         nonlocal count
@@ -201,8 +197,11 @@ def test_stand_down_prestop_timeout_remains_fatal_even_when_measured_still():
         return 3104 if count == 2 else 0
     normal.StopMove = stop
     request(frame, 'stand_down')
-    with pytest.raises(OutputError): sink.drain()
-    assert sink.error is not None and ('StandDown', ()) not in normal.calls
+    measured(0)  # request advances the STOP generation; use post-request evidence
+    sink.drain()
+    assert sink.error is None and ('StandDown', ()) not in normal.calls
+    assert sink.posture_result['status'] == 'REJECTED'
+    assert sink.posture_result['code'] == 'ROBOT_SLOW'
     assert sink.posture_result['sdk_code'] == 3104
 
 
@@ -229,10 +228,10 @@ def test_cleanup_failure_cannot_mask_runtime_or_serve_diagnostic(monkeypatch, ca
     original.__cause__ = TimeoutError('private SDK details')
     class FailedClient(Client):
         async def run(self):
+            self.session.gate.active = NS(sink=NS(error=original))
             raise original
     class FailedCleanup(runtime.Gate):
         def revoke(self):
-            super().revoke()
             raise OutputError('adapter closed or failed')
     monkeypatch.setattr(runtime, 'Gate', FailedCleanup)
     async def fail(*args):
@@ -251,3 +250,74 @@ def test_cleanup_failure_cannot_mask_runtime_or_serve_diagnostic(monkeypatch, ca
     asyncio.run(scenario())
     assert ('SETUP_FAILURE type=LocalPortError reason=motion_sink_failed '
             'cause_type=TimeoutError') in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('lane', ['normal', 'emergency'])
+def test_recorded_real_robot_sequence_keeps_sending_stop(lane):
+    clock, sink, _, normal, emergency = rig()
+    client = normal if lane == 'normal' else emergency
+    for code in (0, 3104, 3104, 0, 3104):
+        stop_code(client, code)
+        sink.drain() if lane == 'normal' else sink.check_watchdog()
+        assert sink.error is None and sink.latched
+        clock.value += .21
+    assert sum(name == 'StopMove' for name, _ in client.calls) == 5
+    assert sum(name == 'Move' for name, _ in client.calls) == 5
+    assert sink._confirmed_generation is None
+    health = sink.response_health()
+    assert health['slow'] and health['timeout_count'] == 3
+    assert health['last_timed_out'] and health['last_timeout_at'] is not None
+    clock.value += 3
+    health = sink.response_health()
+    assert not health['slow'] and health['timeout_count'] == 0
+    assert health['last_ms'] is None and health['sample_count'] == 0
+
+
+@pytest.mark.parametrize('lane', ['normal', 'emergency'])
+def test_sdk_exceptions_stay_fatal(lane):
+    _, sink, _, normal, emergency = rig()
+    def stop(): raise TimeoutError('fake')
+    (normal if lane == 'normal' else emergency).StopMove = stop
+    with pytest.raises(OutputError):
+        sink.drain() if lane == 'normal' else sink.emergency_stop()
+    assert sink.error is not None
+
+
+def test_health_is_display_only_on_server_state():
+    from test_go2_posture import rig as posture_rig
+    _, sink, normal, _, session, _, _, _ = posture_rig(0)
+    stop_code(normal, 3104)
+    sink._stop_output(normal, force=True)
+    state = session._state()
+    assert state['response_health']['timeout_count'] == 1
+    assert sink.error is None and session.core.latch and sink.latched
+
+
+def test_cleanup_emergency_failure_is_not_hidden_by_original_link_error(monkeypatch):
+    from foothold_agent.setup import runtime
+    from foothold_agent.setup.view import Status
+    from foothold_agent.link.client import Client, LocalPortError
+    from test_setup_pairing import credentials, NIC_VALUE
+    class FailedClient(Client):
+        async def run(self): raise LocalPortError('motion sink failed')
+    class FailedCleanup(runtime.Gate):
+        def revoke(self): raise OutputError('emergency SDK output failed')
+    monkeypatch.setattr(runtime, 'Gate', FailedCleanup)
+    async def scenario():
+        with pytest.raises(OutputError, match='emergency SDK output failed'):
+            await runtime.run(credentials(), NIC_VALUE, runtime.Inputs(), object(), ready=True,
+                check_nic=lambda: True, status=Status(), stop=asyncio.Event(),
+                client_factory=FailedClient, recorder_factory=lambda *args, **kw:
+                    NS(notice='', stopped=threading.Event(), close=lambda: None))
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('lane', ['normal', 'emergency'])
+def test_send_failure_stays_fatal_even_lying(lane):
+    from test_go2_posture import rig as posture_rig
+    _, sink, normal, emergency, _, _, _, _ = posture_rig(5)
+    stop_code(normal if lane == 'normal' else emergency, 3102)
+    sink.apply(MotionCommand('stop', stop_generation=99), source='server')
+    with pytest.raises(OutputError):
+        sink.drain() if lane == 'normal' else sink.emergency_stop(force=True)
+    assert sink.error is not None

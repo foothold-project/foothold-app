@@ -117,6 +117,8 @@ class DriveSession(Session):
         result = {**super()._state(), **project(self.feedback.telemetry(), self.now())}
         posture = self.feedback.posture_snapshot()
         result['posture'] = {key: posture[key] for key in ('state', 'mode')}
+        if self.posture_sink is not None:
+            result['response_health'] = self.posture_sink.response_health()
         result['posture_result'] = None if self.posture_sink is None else self.posture_sink.posture_result
         # A zero request is not a measured stop. Arbiter grants wait for DDS.
         if not (self.core.st and self.core.st.get('stop_requested') is True

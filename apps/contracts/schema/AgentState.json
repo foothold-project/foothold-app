@@ -746,6 +746,84 @@
       "title": "Progress",
       "type": "object"
     },
+    "RobotResponseHealth": {
+      "additionalProperties": false,
+      "description": "Display-only RPC round trips; timeouts are censored at SDK's 100 ms limit.\n\nCounts and samples cover the last 3 seconds, with at most 20 RPC samples.\nNo field is a motion acknowledgement or physical stop evidence.",
+      "properties": {
+        "last_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Ms"
+        },
+        "last_timed_out": {
+          "title": "Last Timed Out",
+          "type": "boolean"
+        },
+        "last_timeout_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Timeout At"
+        },
+        "median_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Median Ms"
+        },
+        "median_timed_out": {
+          "title": "Median Timed Out",
+          "type": "boolean"
+        },
+        "sample_count": {
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Sample Count",
+          "type": "integer"
+        },
+        "slow": {
+          "title": "Slow",
+          "type": "boolean"
+        },
+        "timeout_count": {
+          "maximum": 256,
+          "minimum": 0,
+          "title": "Timeout Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slow",
+        "timeout_count",
+        "last_timeout_at",
+        "last_ms",
+        "last_timed_out",
+        "median_ms",
+        "median_timed_out",
+        "sample_count"
+      ],
+      "title": "RobotResponseHealth",
+      "type": "object"
+    },
     "RunSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1033,6 +1111,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/RunSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "response_health": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RobotResponseHealth"
         },
         {
           "type": "null"
