@@ -50,8 +50,8 @@ def test_invalid_samples_omitted(bad):
     assert snapshot['fallen'] is False  # replay fields do not affect tilt readout
 
 
-def test_only_server_readonly_observer_adds_replay_and_uses_existing_state_tick():
-    measurements = Measurements()
+def test_readonly_observer_uses_shared_projection_and_existing_state_tick():
+    measurements = Measurements(now=lambda: 0.)
     low, sport = samples()
     measurements.lowstate(low)
     measurements.sportmodestate(sport)
@@ -59,6 +59,6 @@ def test_only_server_readonly_observer_adds_replay_and_uses_existing_state_tick(
     frame = observer._state()
     assert frame['robot_info']['joints']['names'] == list(SDK_JOINTS)
     assert frame['stop_ref'] == 0
-    assert not {'joints', 'quaternion', 'position'} & project(measurements.telemetry(), measurements.now())['robot_info'].keys()
+    assert frame['robot_info'] == project(measurements.telemetry(), measurements.now())['robot_info']
     # No new publishing timer; the existing Session._state remains the sender.
     assert observer.measurements is measurements
