@@ -203,7 +203,8 @@ def main(argv=None):
     parser.add_argument('--config', type=Path, default=default_path(),
                         help='private absolute agent.json path (legacy go2-agent.env is never read)')
     parser.add_argument('--wheel-dir', default='runs/go2-x86-artifacts')
-    parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--no-browser', '--headless', dest='no_browser', action='store_true',
+                        help='run without a local GUI; keep the loopback status/confirmation page')
     args = parser.parse_args(argv)
     status = Status()
     server = worker = None

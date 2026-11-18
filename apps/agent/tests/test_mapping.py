@@ -166,7 +166,8 @@ def test_runtime_uses_synchronized_cloud_pose_and_stop_is_unchanged(tmp_path):
     count=len(runtime.core.cells)
     runtime.cloud(cloud); runtime.step()
     assert len(runtime.core.cells)==count  # repeated sensor timestamp ignored
-    feedback=NS(telemetry=lambda:{},sample=lambda:None)
+    feedback=NS(telemetry=lambda:{},sample=lambda:None,
+                posture_snapshot=lambda:dict(state='UNKNOWN', mode=None))
     session=DriveSession(feedback)
     session.mapping=runtime
     session.connect()

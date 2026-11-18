@@ -24,7 +24,9 @@ def phone_transform():
     for annotation in (': Partial<Record<keyof typeof TUNE, number>>',
                        ': Partial<OrgSettings> | null', ': typeof tune', ': unknown',
                        ': Axes', ': PhoneWelcome | null', ': PhoneWelcome', ': number',
-                       ' as const', ' as (keyof typeof TUNE)[]'):
+                       ' as const', ' as (keyof typeof TUNE)[]',
+                       ' as keyof typeof REAL_CAPS', ' as Record<keyof typeof REAL_CAPS, number>',
+                       '<() => void>'):
         functions = functions.replace(annotation, '')
     script = (constants + '\n' + functions).replace('export ', '')
 

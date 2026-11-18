@@ -90,3 +90,9 @@ NIC 최초 선택은 PowerShell `Get-NetAdapter`/`Get-NetIPAddress`/`Get-NetRout
 출처: [공식 Python embeddable 배포](https://www.python.org/downloads/release/python-31011/), [Cyclone DDS 0.10.2 wheel](https://pypi.org/project/cyclonedds/0.10.2/#files), [Unitree 고정 setup.py](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/setup.py), [Get-NetAdapter](https://learn.microsoft.com/en-us/powershell/module/netadapter/get-netadapter), [netsh interface](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-interface), [IP Helper](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getadaptersaddresses), [distlib relative launcher](https://github.com/pypa/distlib/blob/0.3.9/PC/launcher.c).
 
 Windows의 실행한 시험·원물 SHA·미검증 범위는 [WINDOWS-VALIDATION.md](WINDOWS-VALIDATION.md)를 본다.
+
+## Jetson 사용자 폴더 설치 준비
+
+ARM 대상은 [JETSON-ONBOARD.md](../JETSON-ONBOARD.md)를 따른다. `jetson_onboard.py`는
+완성·검토된 ARM 오프라인 wheelhouse로 새 사용자 venv와 수동 시작 전용 unit을 준비한다.
+ARM DDS 공급과 조종 설치 검증은 후속 차단 항목이며 기존 amd64 DEB를 Jetson에 설치하지 않는다.
