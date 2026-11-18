@@ -18,6 +18,17 @@ def qr_svg(code):
     return qrcode.make('foothold-pair:'+code, image_factory=SvgPathImage).to_string().decode()
 
 
+def preflight_message(report):
+    if report is None:
+        return '자동 점검 중'
+    if report.get('installation_ready'):
+        return '● 자동 점검 통과'
+    if 'requires-x86_64-cpython-3.10-official-wheel' in report.get('issues', []):
+        return ('● 조종 차단 · 이 컴퓨터용 로봇 통신 프로그램은 아직 검증되지 않았습니다. '
+                'Jetson 설치 안내를 확인하세요.')
+    return '● 조종 차단 · 설치 파일 점검을 통과하지 못했습니다. 설치 안내를 확인하세요.'
+
+
 class Status:
     def __init__(self):
         self._lock = threading.Lock()
@@ -81,6 +92,7 @@ class Status:
             '승인됨 · 조종권과 잠금 해제 필요': '연결 준비 완료 · 웹에서 조종을 시작하고 움직임을 허용하세요',
             '읽기 전용 · 현장 안전 확인 필요': '상태 확인 중 · 서버의 연결 확인을 기다리고 있습니다',
         }.get(value['mode'], value['mode'])
+        value['preflight_message'] = preflight_message(value.get('preflight'))
         return value
 
 
@@ -153,7 +165,7 @@ async function confirmIdentity(confirmed){for(const id of ['identity-yes','ident
 document.getElementById('identity-yes').onclick=()=>confirmIdentity(true);document.getElementById('identity-cancel').onclick=()=>confirmIdentity(false);
 function showDepth(s){document.getElementById('depth-notice').textContent=s.depth_notice||'로봇에서 보내는 영상 목록을 확인하고 있습니다';const rows=s.depth_topics||[];const key=JSON.stringify(rows);if(topicKey!==key){topicKey=key;const list=document.getElementById('depth-topics');list.replaceChildren();const select=document.getElementById('depth-choice');select.replaceChildren(new Option('기본 후보에서 자동 선택',''));for(const row of rows){const item=document.createElement('li');item.textContent=row.name+' · '+row.type+(row.supported?'':' · 지원하지 않는 영상 형식');list.append(item);if(row.supported)select.add(new Option(row.name,row.name));}select.value=s.depth_selected||'';}}
 document.getElementById('depth-select').onclick=async()=>{const feedback=document.getElementById('depth-feedback');try{const response=await fetch('/depth-topic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:document.getElementById('depth-choice').value||null})});feedback.textContent=response.ok?'영상 선택을 적용했습니다':'목록이 바뀌었습니다. 다시 골라 주세요';}catch{feedback.textContent='프로그램 연결을 확인하세요';}};
-async function refresh(){try{const s=await(await fetch('/status',{cache:'no-store'})).json();document.getElementById('serial').textContent=s.identity_source==='mac'?'기체번호 없이 연결 · 로봇 확인됨':s.serial?'Go2 기체번호 '+s.serial+' 찾음':s.mode.startsWith('로봇을 찾지')?'로봇을 찾지 못함':'기체 찾는 중';document.getElementById('code').textContent=s.code||'';document.getElementById('qr').innerHTML=s.qr||'';document.getElementById('expiry').textContent=s.code?'10분·1회용 코드 · '+new Date(s.expires_at*1000).toLocaleTimeString()+' 만료':'';document.getElementById('mode').textContent=s.mode;document.getElementById('connection').textContent=s.connected?'● 서버 연결됨':'● 서버 연결 대기';const p=document.getElementById('preflight');p.textContent=s.preflight?(s.preflight.installation_ready?'● 자동 점검 통과':'● 자동 점검 실패: '+s.preflight.issues.join(', ')):'자동 점검 중';p.className=s.preflight&&s.preflight.installation_ready?'ok':'bad';showIdentity(s);showDepth(s);const record=document.getElementById('record-notice');record.textContent=s.record_notice||'';record.hidden=!s.record_notice;}catch{document.getElementById('mode').textContent='프로그램 연결 끊김';}setTimeout(refresh,1000)}refresh()</script>
+async function refresh(){try{const s=await(await fetch('/status',{cache:'no-store'})).json();document.getElementById('serial').textContent=s.identity_source==='mac'?'기체번호 없이 연결 · 로봇 확인됨':s.serial?'Go2 기체번호 '+s.serial+' 찾음':s.mode.startsWith('로봇을 찾지')?'로봇을 찾지 못함':'기체 찾는 중';document.getElementById('code').textContent=s.code||'';document.getElementById('qr').innerHTML=s.qr||'';document.getElementById('expiry').textContent=s.code?'10분·1회용 코드 · '+new Date(s.expires_at*1000).toLocaleTimeString()+' 만료':'';document.getElementById('mode').textContent=s.mode;document.getElementById('connection').textContent=s.connected?'● 서버 연결됨':'● 서버 연결 대기';const p=document.getElementById('preflight');p.textContent=s.preflight_message;p.className=s.preflight&&s.preflight.installation_ready?'ok':'bad';showIdentity(s);showDepth(s);const record=document.getElementById('record-notice');record.textContent=s.record_notice||'';record.hidden=!s.record_notice;}catch{document.getElementById('mode').textContent='프로그램 연결 끊김';}setTimeout(refresh,1000)}refresh()</script>
 <script>
 async function action(body){try{const r=await fetch('/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error();await desktop()}catch{document.getElementById('network-message').textContent='요청을 마치지 못했습니다. 프로그램이 켜져 있는지 확인하세요.'}}
 async function desktop(){try{const r=await fetch('/desktop',{cache:'no-store'});if(!r.ok)return;const s=await r.json();document.getElementById('desktop').hidden=false;document.getElementById('server-web').hidden=!s.server_web_available;if(s.platform==='windows'){document.getElementById('configure').textContent='유선 연결 설정 (관리자 확인)';document.getElementById('manual-settings').textContent='Windows 설정 → 네트워크 및 인터넷 → 고급 네트워크 설정에서 기체에 꽂은 유선을 선택하세요.';document.getElementById('uninstall').textContent='다시 연결하기는 웹에서 새 코드를 넣은 뒤 연결을 갱신합니다. 제거: 압축을 푼 폴더나 설치 폴더의 «연결 프로그램 제거.cmd»를 실행하세요. 실행 중인 프로그램을 종료한 뒤 설치본을 지웁니다. 연결 키는 남습니다. SmartScreen 경고: 추가 정보 → 실행.';}document.getElementById('autostart').checked=s.autostart;const select=document.getElementById('nic');const previous=select.value;select.replaceChildren(...s.network_choices.map(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.label||c.name;return o}));if(s.network_choices.some(c=>c.name===previous))select.value=previous;document.getElementById('network').hidden=!s.network_choices.length;document.getElementById('configure').disabled=s.busy;document.getElementById('quit').disabled=s.busy;document.getElementById('repair').disabled=s.busy;document.getElementById('network-message').textContent=s.network_message}catch{}}
