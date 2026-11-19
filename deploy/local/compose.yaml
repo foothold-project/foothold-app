@@ -1,0 +1,110 @@
+# 로컬 한 벌: db + 서버 + 웹 (MuJoCo 브라우저 시뮬 포함) + HTTPS 앞단.
+# 「로컬 먼저 · 서버는 마지막」 (팀장 11/19). 운영 서버 · 로봇 · Gazebo 에 닿지 않는다.
+# 쓰는 법: deploy/local/README.md. 값은 같은 폴더 .env (저장소에는 .env.example 만).
+#   cp deploy/local/.env.example deploy/local/.env   # 값 채우기
+#   docker compose -f deploy/local/compose.yaml up --build
+#   → https://localhost:8443 (Caddy 내부 인증서 · 브라우저 경고 한 번)
+name: foothold-local
+
+x-server: &server-image
+  build:
+    context: ../..
+    dockerfile: deploy/local/server.Dockerfile
+  image: foothold-local-server
+
+services:
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${FH_LOCAL_DB_ADMIN_PASSWORD:?set in deploy/local/.env}
+      POSTGRES_DB: foothold
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "foothold"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # 한 번 돌고 끝난다: 역할 → alembic → 첫 조직 · 총괄. 다시 띄우면 있는 것은 건너뛴다.
+  # 관리자 DSN 은 여기에만 가고 server 에는 가지 않는다 (apps/server/README.md).
+  init:
+    <<: *server-image
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      FH_BOOTSTRAP_DATABASE_DSN: postgresql://postgres:${FH_LOCAL_DB_ADMIN_PASSWORD}@db:5432/foothold
+      FH_MIGRATE_PASSWORD: ${FH_MIGRATE_PASSWORD:?}
+      FH_APP_PASSWORD: ${FH_APP_PASSWORD:?}
+      FH_READONLY_PASSWORD: ${FH_READONLY_PASSWORD:?}
+      FH_MIGRATE_DATABASE_URL: postgresql+psycopg://fh_migrate:${FH_MIGRATE_PASSWORD}@db:5432/foothold
+      FH_ORG_ID: ${FH_ORG_ID:?}
+      FH_ORG_NAME: ${FH_ORG_NAME:-로컬}
+      FH_BOOTSTRAP_USERNAME: ${FH_BOOTSTRAP_USERNAME:?}
+      FH_BOOTSTRAP_DISPLAY_NAME: ${FH_BOOTSTRAP_DISPLAY_NAME:-로컬 총괄}
+      FH_BOOTSTRAP_PASSWORD: ${FH_BOOTSTRAP_PASSWORD:?}
+    command: ["python", "deploy/local/init_db.py"]
+    restart: "no"
+
+  server:
+    <<: *server-image
+    depends_on:
+      init: { condition: service_completed_successfully }
+    environment:
+      FH_DATABASE_URL: postgresql+psycopg://fh_app:${FH_APP_PASSWORD}@db:5432/foothold
+      FH_ORG_ID: ${FH_ORG_ID}
+      FH_WS_ORIGIN: https://localhost:${FH_LOCAL_HTTPS_PORT:-8443}
+      FH_FILES_ROOT: /var/lib/foothold/files
+      # 로컬에서는 로봇 설치 파일 (.deb) 백그라운드 빌드를 끈다
+      FH_ROBOT_INSTALLER_ENABLED: "0"
+    # 운영과 같은 단일 프로세스 (apps/server/README.md). 앞단 Caddy 만 이 컨테이너에 닿는다
+    command: ["uvicorn", "apps.server.fh_server.main:app", "--host", "0.0.0.0", "--port", "8810",
+              "--workers", "1", "--ws-max-size", "4096", "--forwarded-allow-ips", "*", "--no-access-log"]
+    volumes:
+      - files:/var/lib/foothold/files
+    restart: unless-stopped
+
+  # 한 번 돌고 끝난다: 웹 빌드 + MuJoCo 시뮬 묶기 (deploy/prepare-release.sh 와 같은 입력 · 같은 prepare_sim.py).
+  # FH_SIM_ASSETS 폴더가 비었거나 SHA 가 다르면 prepare_sim.py 가 /sim/ 을 빼고 웹만 남긴다.
+  web:
+    image: node:22-bookworm
+    working_dir: /work
+    volumes:
+      - ../..:/src:ro
+      - ${FH_SIM_ASSETS:-./no-sim-assets}:/sim-assets:ro
+      - webdist:/out
+      - webnpm:/root/.npm
+    command: ["sh", "/src/deploy/local/build_web.sh"]
+    restart: "no"
+
+  caddy:
+    image: caddy:2.8
+    depends_on:
+      server: { condition: service_started }
+      web: { condition: service_completed_successfully }
+    environment:
+      FH_LOCAL_HTTPS_PORT: ${FH_LOCAL_HTTPS_PORT:-8443}
+    # 이 컴퓨터에서만 연다 (127.0.0.1). 폰에서 여는 것은 아직 미확인 (README 4 절)
+    ports:
+      - "127.0.0.1:${FH_LOCAL_HTTPS_PORT:-8443}:${FH_LOCAL_HTTPS_PORT:-8443}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - webdist:/srv:ro
+      - caddy:/data
+    restart: unless-stopped
+
+  # 가짜 로봇 · 실기 기록 재생 자리 (미구현).
+  # 저장소에는 서버 agent WS (/api/v1/agent/ws) 에 붙는 가짜 로봇 실행 명령이 없다.
+  # 있는 agent 진입점은 모두 실 DDS (unitree SDK) 나 ROS (rclpy) 가 필요하다. README 「가짜 로봇」 절.
+  # robot:
+  #   profiles: ["robot"]
+  #   <<: *server-image
+  #   command: ["python", "-m", "<가짜 로봇 또는 기록 재생 모듈 · 아직 없음>"]
+
+volumes:
+  db:
+  files:
+  webdist:
+  webnpm:
+  caddy:
