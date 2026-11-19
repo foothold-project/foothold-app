@@ -379,7 +379,7 @@ describe('서버 경유 카메라·라이다', () => {
     const lid = mediaSock('lidar'), xyz = new Float32Array([1, 2, 0.5, -1, 0, 0]);
     act(() => { lid.open(); lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq: 1, source: 'l1', encoding: 'xyz_f32le', frame: 'lidar_link', count: 2, byte_length: 24, truncated: false });
       lid.onmessage?.({ data: xyz.buffer } as never); });
-    expect($('[data-sd-full] [data-cloud]')!.getAttribute('data-cloud')).toBe('2');
+    expect($('[data-sd-full] [data-lidar-map]')!.getAttribute('data-lidar-map')).toBe('2');
     expect($('[data-sd-full]')!.textContent).not.toContain(NO_SIGNAL.lidar);
   });
 
@@ -400,7 +400,6 @@ describe('서버 경유 카메라·라이다', () => {
     scan(lid, head(2, 3, { pose: { x: 1, y: 0, z: 0, yaw: 0.5 } }), [1.01, 2.01, 0.51, 3, 3, 0, 4, 4, 9]);   // 첫 점 = 같은 칸, 끝 점 = 천장(로봇보다 1.2 m 넘게 위)
     expect(map()!.dataset.lidarMap).toBe('3');
     expect(map()!.dataset.path).toBe('2');
-    expect($('[data-sd-full] [data-cloud]')).toBeNull();
     // 지도를 보면서 바로 조종: 같은 화면에 조작부 8개·STOP, 키도 그대로
     expect(document.querySelectorAll('[data-sd-full] [data-sd-move]').length).toBe(8);
     expect($('[data-sd-full] [data-sd-stop="full"]')).toBeTruthy();
@@ -429,8 +428,8 @@ describe('서버 경유 카메라·라이다', () => {
     expect($('[data-sd-full] [data-sd-ch="rgb"]')!.getAttribute('aria-pressed')).toBe('true');
     ch('lidar');
     scan(lid, head(2, 1, { frame: 'lidar_link', pose: null }), [5, 5, 0]);
-    expect($('[data-sd-full] [data-cloud]')!.getAttribute('data-cloud')).toBe('1');
-    expect(map()).toBeNull();
+    expect(map()!.dataset.lidarMap).toBe('1');   // 11-19: lidar_link 도 같은 칸(3D/위에서) — 한 장씩 바꿔 그림
+    expect($('[data-lm-wipe]')).toBeNull();   // 쌓지 않으니 «처음부터 다시» 없음
     // 쌓다가 lidar_link 로 돌아오면 쌓은 것을 버린다
     scan(lid, head(3, 2), [1, 2, 0.5, -1, 0, 0]);
     expect(map()!.dataset.lidarMap).toBe('2');

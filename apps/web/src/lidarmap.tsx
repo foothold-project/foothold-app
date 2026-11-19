@@ -1,7 +1,9 @@
 // 조종 화면 «쌓이는 라이다» 지도(11-13 RB-MAP-VIEW-WEB): drivemedia.ts 가 쌓아 둔 점을 위에서 본 그림으로(x 오른쪽·y 위 — 지도 만들기 창 그림과 같은 방향).
+// 11-19 RB-LIDAR-3D: 기본은 3D(lidar3d.tsx), «위에서» 단추로 이 그림. WebGL 이 없으면 이 그림만.
 // 색 = 로봇 기준 높이(같은 자리에 겹치면 높은 점이 위 — 벽이 바닥에 묻히지 않게), 로봇 화살표 + 지나온 길. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
 import { useEffect, useRef, useState } from 'react';
 import { CELL_M, type DriveFeed } from './drivemedia';
+import { Lidar3D } from './lidar3d';
 import { QEmpty, hue } from './quad';
 
 /** 처음 보이는 범위(로봇 둘레 ±m) · 확대 한계(화면 px / m) */
@@ -13,7 +15,27 @@ const LUT = Uint32Array.from({ length: N }, (_, i) => {
   return (0xff000000 | (f(4) << 16) | (f(8) << 8) | f(0)) >>> 0;
 });
 
-export function LidarMap({ feed, empty }: { feed: DriveFeed; empty: string }) {
+/** small = 작은 칸(단추·범례 없이 보기만), start = 처음 보기(지도 칸은 위에서) */
+export function LidarMap({ feed, empty, small = false, start = '3d' }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top' }) {
+  const [mode, setMode] = useState(start), [no3d, setNo3d] = useState(false), is3d = mode === '3d' && !no3d;
+  return <div style={{ position: 'absolute', inset: 0 }} data-lidar-map={feed.n} data-path={feed.path.length / 2} data-lm-mode={is3d ? '3d' : 'top'}>
+    {is3d ? <Lidar3D feed={feed} small={small} onFail={() => setNo3d(true)} /> : <TopView feed={feed} small={small} />}
+    {!small && <div className="fh-row" style={{ position: 'absolute', left: 8, top: 8, flexWrap: 'wrap' }}>
+      {!no3d && <div className="fh-row" role="group" aria-label="보기">{(['3d', 'top'] as const).map((m) =>
+        <button key={m} type="button" className="btn" aria-pressed={mode === m} data-lm-view={m} onClick={() => setMode(m)}>{m === '3d' ? '3D' : '위에서'}</button>)}</div>}
+      {(feed.frame as string) === 'odom' && <button type="button" className="btn" data-lm-wipe onClick={() => feed.wipe()}>처음부터 다시</button>}
+    </div>}
+    {no3d && !small && <div className="qd-legend" role="status" style={{ right: 'auto', left: 8, top: 52, bottom: 'auto' }} data-lm-no3d>이 브라우저는 3D 를 그릴 수 없어 위에서 본 그림으로 보입니다</div>}
+    {empty && (feed.n ? <div className="qd-legend" role="status" style={{ right: 'auto', left: 8 }}>{empty}</div> : <QEmpty text={empty} />)}
+    {!small && <div className="qd-legend" aria-label="점 높이 범례">
+      <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hue(ZL + t * (ZH - ZL))} 80% 60%)`).join(',')})` }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${ZL} m`}</span><span>로봇 높이</span><span>{`+${ZH} m`}</span></div>
+      <div>{`색 = 로봇 기준 높이 · 점 ${feed.n.toLocaleString('ko-KR')}`}</div></div>}
+  </div>;
+}
+
+/** 위에서 본 그림(11-13 그대로) — 끌어서 옮기고 휠로 확대 */
+function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
   const cv = useRef<HTMLCanvasElement>(null), cur = useRef(feed), [free, setFree] = useState(false);
   const view = useRef({ x: 0, y: 0, k: 0, follow: true, ver: -1, w: 0, h: 0 }), redraw = useRef(() => {});
   cur.current = feed;
@@ -51,7 +73,7 @@ export function LidarMap({ feed, empty }: { feed: DriveFeed; empty: string }) {
     const t = setInterval(() => { if (cur.current.ver !== v.ver || el.clientWidth !== v.w || el.clientHeight !== v.h) draw(); }, 500);
     let d: null | { id: number; x: number; y: number; vx: number; vy: number } = null, raf = 0;
     const soon = () => { raf ||= requestAnimationFrame(() => { raf = 0; draw(); }); };
-    const down = (e: PointerEvent) => { if (d || !v.k) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
+    const down = (e: PointerEvent) => { if (small || d || !v.k) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
     const move = (e: PointerEvent) => {
       if (!d || e.pointerId !== d.id) return;
       v.x = d.vx - (e.clientX - d.x) / v.k; v.y = d.vy + (e.clientY - d.y) / v.k;
@@ -59,7 +81,7 @@ export function LidarMap({ feed, empty }: { feed: DriveFeed; empty: string }) {
       soon();
     };
     const end = (e?: PointerEvent) => { if (d && (!e || e.pointerId === d.id)) d = null; };
-    const wheel = (e: WheelEvent) => { if (!v.k) return; e.preventDefault(); v.k = Math.max(K_MIN, Math.min(K_MAX, v.k * Math.exp(-e.deltaY * 0.0015))); soon(); };
+    const wheel = (e: WheelEvent) => { if (small || !v.k) return; e.preventDefault(); v.k = Math.max(K_MIN, Math.min(K_MAX, v.k * Math.exp(-e.deltaY * 0.0015))); soon(); };
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('wheel', wheel, { passive: false });
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); el.addEventListener('lostpointercapture', end);
     draw();
@@ -69,16 +91,8 @@ export function LidarMap({ feed, empty }: { feed: DriveFeed; empty: string }) {
     };
   }, []);
   const back = () => { view.current.follow = true; setFree(false); redraw.current(); };
-  return <div style={{ position: 'absolute', inset: 0 }} data-lidar-map={feed.n} data-path={feed.path.length / 2}>
-    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: 'grab' }} aria-label="라이다로 그린 지도 — 위에서 본 그림(끌어서 옮기고 휠로 확대)" />
-    <div className="fh-row" style={{ position: 'absolute', left: 8, top: 8 }}>
-      <button type="button" className="btn" data-lm-wipe onClick={() => { feed.wipe(); back(); }}>처음부터 다시</button>
-      {free && <button type="button" className="btn" data-lm-back onClick={back}>로봇 위치로</button>}
-    </div>
-    {empty && (feed.n ? <div className="qd-legend" role="status" style={{ right: 'auto', left: 8 }}>{empty}</div> : <QEmpty text={empty} />)}
-    <div className="qd-legend" aria-label="점 높이 범례">
-      <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hue(ZL + t * (ZH - ZL))} 80% 60%)`).join(',')})` }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${ZL} m`}</span><span>로봇 높이</span><span>{`+${ZH} m`}</span></div>
-      <div>{`색 = 로봇 기준 높이 · 점 ${feed.n.toLocaleString('ko-KR')}`}</div></div>
-  </div>;
+  return <>
+    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none', cursor: small ? undefined : 'grab' }} aria-label={`라이다로 그린 지도 — 위에서 본 그림${small ? '' : '(끌어서 옮기고 휠로 확대)'}`} />
+    {free && !small && <button type="button" className="btn" data-lm-back style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={back}>로봇 위치로</button>}
+  </>;
 }

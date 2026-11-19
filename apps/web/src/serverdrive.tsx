@@ -8,7 +8,6 @@ import { CMD_MS, rt, useLive, type Live } from './rt';
 import { typing } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
-import { Cloud3D } from './quad';
 import { LidarMap } from './lidarmap';
 import { DEPTH_HINT, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
 import { adminReal, type Robot, type Tone } from './fake';
@@ -366,7 +365,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
 /** 카메라·라이다·뎁스 한 칸 그림(받은 feed 그대로 — 없으면 «…신호 없음» + 까닭). 패널 전체화면과 세 칸 화면 가운데 칸이 같이 쓴다 */
 export function DriveView({ f, ch, big }: { f: DriveFeed; ch: DriveCh; big: boolean }) {
   const text = driveFeedText(f, ch);
-  if (ch === 'lidar') return stacked(f) ? <LidarMap feed={f} empty={text} /> : <Cloud3D small={!big} big={big} feed={f} empty={text} />;
+  if (ch === 'lidar') return <LidarMap small={!big} feed={f} empty={text} />;
   if (ch === 'depth') return text || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
     : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
       <img src={f.img} alt="뎁스 카메라 — 가까움 빨강, 멀리 파랑, 검정은 거리 모름" draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain' }} data-sd-depth />

@@ -11,7 +11,7 @@ import { Chip, LINK, type Ctx } from './screens';
 import { TRIAL, MAX_TURN_RATE, DriveView, stacked, useServerDrive } from './serverdrive';
 import { driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import { LidarMap } from './lidarmap';
-import { Cloud3D, Quad, type QTile } from './quad';
+import { Quad, type QTile } from './quad';
 import { STALLED } from './simdrive';
 import { MakeMap } from './screens/mapmake';
 import { floorsOf, purposeOf, useTree } from './screens/maps';
@@ -127,9 +127,9 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const why = !s?.latched ? '' : d.stalled ? STALLED : d.refused || (l.stop ? '정지 요청으로 잠겼습니다.' : '로봇이 정지 잠금을 알렸습니다 — 잠금 해제 전에 현장을 확인하세요.');
   const lidarText = driveFeedText(lidar, 'lidar');
   const tiles: QTile[] = [
-    { id: 'map', label: stack ? '지도 — 라이다로 쌓는 중' : '지도', body: () => (stack ? <LidarMap feed={lidar} empty={lidarText} /> : <div className="pd-floor">{floorMap}</div>) },
+    { id: 'map', label: stack ? '지도 — 라이다로 쌓는 중' : '지도', body: (z) => (stack ? <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} start="top" /> : <div className="pd-floor">{floorMap}</div>) },
     { id: 'rgb', label: '카메라', body: (z) => <Feed robot={r.id} ch="rgb" big={z === 'big'} /> },
-    { id: 'lidar', label: '라이다', body: (z) => <Cloud3D small={z === 'thumb'} big={z === 'big'} feed={lidar} empty={lidarText} /> },
+    { id: 'lidar', label: '라이다', body: (z) => <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} /> },
     { id: 'depth', label: '뎁스', body: (z) => <Feed robot={r.id} ch="depth" big={z === 'big'} /> },
   ];
   const fact = (k: string, v: ReactNode, attr: string) => <div className="pd-fact" data-pd={attr}><span className="lbl">{k}</span><b>{v}</b></div>;
