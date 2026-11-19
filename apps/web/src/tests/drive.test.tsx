@@ -13,6 +13,9 @@ import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, 
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
 import { ADMIN_REAL, driveBlock } from '../fake';
+import { MAX_TURN_RATE } from '../serverdrive';
+import { simTune } from '../phone';
+import { REAL_STICK } from '../drive';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
 
@@ -2076,5 +2079,75 @@ describe('전체화면(⋯ 메뉴)', () => {
     expect(show(ADMIN, false)).toBe('pc #/map');
     expect(show(ADMIN, true)).toMatch(/^phone #\/drive/);
     expect(show('u-park', false)).toMatch(/^phone #\/drive/);
+  });
+});
+
+// RB-PHONE-REAL-TABLE 11-19: 서버 경유 실기(serverDrive)는 서버가 명령표 값만 받는다 — 폰 스틱도 표 값(켜짐/꺼짐)으로. 시뮬은 비례 그대로
+describe('폰 실기 조종 = 서버 명령표', () => {
+  afterEach(() => { act(() => simTune(null)); });
+  const SD = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true } : r));
+  const sticks = () => {
+    const fwd = $('[aria-label="전후 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
+    for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return { fwd, turn };
+  };
+  const ptr = (el: Element, type: string, x = 60, y = 60) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+  /** 전후 스틱 y(-1..1, 위 +)·회전 스틱 x(-1..1, 왼쪽 +) 로 누름 */
+  const fwdAt = (el: Element, y: number) => ptr(el, 'pointerdown', 60, 60 - y * 60);
+  const turnAt = (el: Element, x: number) => ptr(el, 'pointerdown', 60 - x * 60, 60);
+  const open = (robots = SD) => { mount(true, 'u-park', '#/drive/r7', robots); serve(PARK, 'r7'); ready(); return sticks(); };
+
+  it('중간·최대 전진 → 1.5, 문턱 아래 → 0, 회전만 → ±MAX_TURN_RATE, 조합 → 표 값, 후진은 막음', () => {
+    const { fwd, turn } = open();
+    expect(text()).toContain(REAL_STICK);
+    fwdAt(fwd, 0.6); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    ptr(fwd, 'pointermove', 60, 0); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    ptr(fwd, 'pointermove', 60, 60 - 0.3 * 60); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    ptr(fwd, 'pointerup'); turnAt(turn, 1); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    ptr(turn, 'pointermove', 120, 60); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, -MAX_TURN_RATE]);
+    ptr(turn, 'pointermove', 0, 60); tick(100); expect(lastAxes()).toEqual([1.5, 0, MAX_TURN_RATE]);
+    ptr(fwd, 'pointerup'); ptr(turn, 'pointerup'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    fwdAt(fwd, -1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('후진은 아직 지원하지 않습니다');
+    ptr(fwd, 'pointerup');
+    key('keydown', 'KeyW'); key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([1.5, 0, -MAX_TURN_RATE]);   // 키도 같은 표
+    key('keyup', 'KeyW'); key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+  });
+
+  it('조직 상한·빠른 조종 끔이면 0, 표 값 밖 비례 값은 보내지 않음', () => {
+    const { fwd, turn } = open();
+    act(() => simTune({ real_no_fast_server_drive: true }));
+    fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    turnAt(turn, 1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);           // 앞+회전 조합도 막힘
+    ptr(fwd, 'pointerup'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);   // 제자리 회전은 상한 안
+    act(() => simTune({ real_max_wz: 1 })); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    ptr(turn, 'pointerup');
+    act(() => simTune({ real_max_vx: 1 })); fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    const ok = new Set(['0,0,0', '1.5,0,0', `0,0,${MAX_TURN_RATE}`, `0,0,${-MAX_TURN_RATE}`, `1.5,0,${MAX_TURN_RATE}`, `1.5,0,${-MAX_TURN_RATE}`]);
+    expect(cmds().every((m) => ok.has(String(m.axes)))).toBe(true);
+  });
+
+  it('잠금 해제 뒤 새 중립 전에는 0, 시트를 열면 0 이고 다시 눌러야 움직임', () => {
+    mount(true, 'u-park', '#/drive/r7', SD); serve(PARK, 'r7');
+    click(btn('조종 시작'));
+    key('keydown', 'KeyW'); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
+    click(btn('잠금 해제')); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('중립 확인 중');
+    key('keyup', 'KeyW'); tick(100); expect(text()).toContain('움직일 수 있음');
+    const { fwd } = sticks();
+    fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    click($('.dv-sheets button')); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    click(btn('닫기')); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 시트를 닫아도 쥐던 포인터는 되살리지 않음
+    fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);     // 새로 누르면 움직임
+  });
+
+  // 시뮬 폰 조종은 simdrive.tsx(직결, phone.test) 라 이 화면에 오지 않는다 — 서버 경유가 아닌 로봇은 이 화면에서도 비례 그대로
+  it('서버 경유 실기가 아니면 비례 그대로', () => {
+    const { fwd, turn } = open(ROBOTS);
+    expect(text()).not.toContain(REAL_STICK);
+    fwdAt(fwd, 0.5); turnAt(turn, 1); tick(100);
+    expect(lastAxes()).toEqual([0.5, 0, 1]);
   });
 });

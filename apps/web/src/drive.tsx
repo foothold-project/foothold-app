@@ -9,7 +9,9 @@ import { FallChip } from './go2status';
 import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
-import { useSim } from './phone';
+import { simTune, useSim, useTuneSettings } from './phone';
+import { command, permitted, TABLE } from './serverdrive';
+import { api } from './api';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
 
@@ -23,6 +25,13 @@ function useNow(on: boolean) {
 const secs = (until: number, now: number) => Math.max(0, Math.ceil((until - now) / 1000));
 const pct = (b: number | null) => (b == null ? '' : `${b}%`);
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+/** 실기(서버 경유) 스틱 문턱: 서버는 명령표 값만 받으므로 비례 대신 켜짐/꺼짐(RB-PHONE-REAL-TABLE) */
+const ON_AT = 0.5;
+/** 실기: [전후, 회전] 스틱 → 서버 명령표(serverdrive TABLE) 값 [vx, vy, wz]. 표 밖·조직 상한 밖이면 0 */
+export function realAxes([f, w]: Axes, o: Parameters<typeof permitted>[1]) {
+  const cmd = command([...(f > ON_AT ? ['up' as const] : []), ...(w > ON_AT ? ['rotl' as const] : w < -ON_AT ? ['rotr' as const] : [])]);
+  return permitted(cmd, o) ? cmd : TABLE[''];
+}
 /** 조종권 요청 창 단추는 마우스·터치로만(F-TO-04 규칙 4): 키보드로 생긴 click 은 detail 0 */
 const pointerOnly = (f: () => void) => (e: MouseEvent) => { if (e.detail > 0) f(); };
 
@@ -58,6 +67,8 @@ export function endDrive(id: string, go: Ctx['go']) {
   rt.cmd(id, [0, 0]);
   if (l.lease) rt.release(id); else go('drive');
 }
+/** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
+export const REAL_STICK = '실기는 스틱을 반 넘게 밀면 정해진 속도로 움직입니다.';
 const RELEASING = '조종권 반납을 확인하는 중입니다. 확인되면 다시 누르세요.';
 
 export function Drive(c: Ctx) {
@@ -133,7 +144,8 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 
 /** F-TO-02~05: 조종 화면 */
 function Screen(c: Ctx) {
-  const r = c.robot, me = c.user.id, l = useLive(r.id), mine = !!l.lease, link = rt.link().at;
+  const r = c.robot, me = c.user.id, l = useLive(r.id), mine = !!l.lease, link = rt.link().at, real = !!r.serverDrive && !r.sim;
+  const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false);
@@ -180,12 +192,14 @@ function Screen(c: Ctx) {
     const f = (e: Event) => { if ((e.target as HTMLDetailsElement).open) neutralRef.current(); };
     document.addEventListener('toggle', f, true); return () => document.removeEventListener('toggle', f, true);
   }, []);
-  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다)
+  // 실기는 조직 속도 상한(서버와 같은 값)을 받아 permitted 로 거른다 — PC 조종(serverdrive)과 같은 길
+  useEffect(() => { if (!real) return; const stop = new AbortController(); api.settings(stop.signal).then(simTune, () => {}); return () => stop.abort(); }, [r.id, real]);
+  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다). 실기는 표 값, 시뮬은 비례
   useEffect(() => {
     if (!mine) return;
-    const i = setInterval(() => rt.cmd(r.id, axes()), CMD_MS);
+    const i = setInterval(() => { if (!real) return rt.cmd(r.id, axes()); const [vx, vy, wz] = realAxes(axes(), settingsRef.current); rt.cmd(r.id, [vx, wz], vy); }, CMD_MS);
     return () => clearInterval(i);
-  }, [mine, r.id]);
+  }, [mine, r.id, real]);
 
   const start = (pauseRun = false) => {
     setAsk(false);
@@ -221,7 +235,8 @@ function Screen(c: Ctx) {
   </div>;
   // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
   const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
-  const note = <>{l.notice && <p className="dv-note" role="status">{l.notice}</p>}{stalled && <p className="dv-note" role="status" data-stalled>{STALLED}</p>}</>;
+  const note = <>{l.notice && <p className="dv-note" role="status">{l.notice}</p>}{stalled && <p className="dv-note" role="status" data-stalled>{STALLED}</p>}
+    {real && ready && <p className="dv-note" data-real-stick>{REAL_STICK}</p>}</>;
   const views = <div className="dv-views" aria-label="보기">
     {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도']] as const).map(([v, t]) =>
       <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
