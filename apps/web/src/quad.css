@@ -34,4 +34,6 @@
 .qd:fullscreen.f .qt.on{grid-row:2/-1}
 .qd:fullscreen.f .qt.on .qb{height:calc(100vh - 186px)}
 .qd:fullscreen .qfs-bar{top:8px;right:12px;max-width:calc(100% - 24px);height:120px}
-.qd:fullscreen .qfs-bar>[data-sd-stop-phase]{min-width:0}
+/* 정지 단계 줄은 STOP·«전체화면 끝» 사이 남은 폭에서 줄바꿈(RV-398) — 칩 기본 nowrap 이면 긴 실패 사유가 STOP 뒤로 넘쳐 가려진다 */
+.qd:fullscreen .qfs-bar>[data-sd-stop-phase]{min-width:0;max-height:120px;overflow-y:auto}
+.qd:fullscreen .qfs-bar>[data-sd-stop-phase]>.lv-chip{box-sizing:border-box;max-width:100%;padding:4px 8px;white-space:normal;overflow-wrap:anywhere;line-height:1.35}
