@@ -143,6 +143,15 @@ export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <
 
 /** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기 */
 export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
+/** 이 화면(새로 고침 전까지)에서 한 번이라도 canDrive 였던 로봇 id — RB-PC-DRIVE-OFFLINE */
+const drove = new Set<string>();
+/** 세 칸 조종 화면을 둘 로봇(RB-PC-DRIVE-OFFLINE 11-19): 지금 canDrive, 또는 한 번 canDrive 였고 서버가 막는 까닭이 «로봇 연결 없음»(AGENT_OFFLINE) 하나뿐
+ *  (담당·기체번호·서버 스위치는 그대로 맞음 — 서버 목록 server_drive_blocked). 조종 가능 여부는 여전히 canDrive·연결 상태가 정한다 */
+export const keepDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => {
+  if (canDrive(c, r)) return drove.add(r.id), true;
+  const b = r.serverDriveBlocked;
+  return drove.has(r.id) && b?.length === 1 && b[0] === 'AGENT_OFFLINE' && canDrive(c, { ...r, serverDrive: true });
+};
 /** 쌓이는 지도로 그릴 라이다인가(계약 frame 'odom' — 로봇이 처음 켜진 곳 기준 좌표 + pose) */
 export const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
 

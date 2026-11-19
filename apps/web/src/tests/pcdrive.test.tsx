@@ -77,6 +77,46 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect($('[data-pc-drive]')).toBeNull();
   });
 
+  // RB-PC-DRIVE-OFFLINE(11-19): 한 번 허용된 로봇이 끊겨도(서버 목록 = 허용 꺼짐 + 까닭 «로봇 연결 없음»뿐) 세 칸 화면 그대로, 조종만 꺼짐
+  const drop = (rs: Robot[], blocked: NonNullable<Robot['serverDriveBlocked']>) => rs.map((r) => (r.id === 'r7' ? { ...r, serverDrive: false, serverDriveBlocked: blocked } : r));
+  const relist = (robots: Robot[]) => act(() => { root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={robots} />); });
+  it('로봇 연결이 끊겨도 세 칸 유지 — 조종 시작·단추·키 꺼짐·명령 0, 쉬운 말 안내, STOP 은 그대로 · 다시 연결돼도 자동 조종 없음', () => {
+    mount('u-park'); serve('r7');
+    click(btn('조종 시작')); click(btn('② 잠금 해제')); tick(100);
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => { push('r7', { connection: 'OFFLINE', latched: null, robot_info: null }); });   // 목록 갱신 전에도 state 로 끊김
+    expect($('[data-pc-drive]')).not.toBeNull(); expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-pd-offline]')!.textContent).toBe('로봇 연결이 끊겼습니다 · 다시 연결되면 «조종 시작»을 다시 누르세요');
+    act(() => { w.recv(lease('r7', null)); }); relist(drop(ON, ['AGENT_OFFLINE']));
+    key('keyup', 'ArrowUp');
+    expect($('[data-pc-drive]')).not.toBeNull(); expect($('[data-pd-left]')).not.toBeNull(); expect($('[aria-label="조종 보기 4칸"]')).not.toBeNull(); expect($('[data-pd-make]')).not.toBeNull();
+    expect($('[data-pd-noreport]')).not.toBeNull(); expect($('[data-pd-left]')!.hasAttribute('data-stale')).toBe(true);
+    expect($('[data-pd-offline]')).not.toBeNull(); expect($('[data-pc-drive]')!.textContent).not.toMatch(/충전|전원/);   // 세 칸 화면 안은 까닭 추측 없음
+    expect((btn('조종 시작') as HTMLButtonElement).disabled).toBe(true);
+    const n = w.of('cmd').length, takes = w.of('lease.take').length;
+    click(btn('조종 시작')); key('keydown', 'ArrowUp'); tick(300); key('keyup', 'ArrowUp');
+    expect(w.of('cmd').length).toBe(n); expect(w.of('lease.take').length).toBe(takes);   // 명령도 조종권 요청도 나가지 않음
+    const stop = $('[data-pd-top] [data-sd-stop="full"]') as HTMLButtonElement;
+    expect(stop.disabled).toBe(false); click(stop); expect(w.of('stop').length).toBe(1);
+    // 다시 연결: 같은 화면, 안내 사라짐, 조종 시작은 다시 눌러야(자동 조종권·명령 없음)
+    relist(ON); act(() => { push('r7', { connection: 'ONLINE', latched: true }); }); tick(300);
+    expect($('[data-pc-drive]')).not.toBeNull(); expect($('[data-pd-offline]')).toBeNull();
+    expect(w.of('cmd').length).toBe(n); expect(w.of('lease.take').length).toBe(takes);
+    expect((btn('조종 시작') as HTMLButtonElement).disabled).toBe(false);
+    click(btn('조종 시작')); expect(w.of('lease.take').length).toBe(takes + 1);
+  });
+
+  it('끊김 유지는 한 번 허용됐던 로봇만, 까닭이 «로봇 연결 없음» 하나일 때만 — 처음부터 끊긴 로봇·스위치 꺼짐은 지금처럼 옛 화면', () => {
+    // 다른 시험이 r7 을 이미 허용 로봇으로 기억했으므로(새로 고침 전까지) 이 시험은 처음 보는 id
+    const X = (rs: Robot[]) => rs.map((r) => (r.id === 'r7' ? { ...r, id: 'r7x' } : r)), drop = (rs: Robot[], blocked: NonNullable<Robot['serverDriveBlocked']>) => X(rs).map((r) => (r.id === 'r7x' ? { ...r, serverDrive: false, serverDriveBlocked: blocked } : r));
+    mount('u-park', drop(ROBOTS, ['AGENT_OFFLINE'])); serve('r7x');
+    expect($('[data-pc-drive]')).toBeNull(); expect($('[aria-label="조종 준비"]')).not.toBeNull();
+    relist(X(ON)); expect($('[data-pc-drive]')).not.toBeNull();
+    relist(drop(ON, ['SWITCH_OFF'])); expect($('[data-pc-drive]')).toBeNull();
+    relist(drop(ON, ['AGENT_OFFLINE'])); expect($('[data-pc-drive]')).not.toBeNull();
+    relist(drop(ON.map((r) => (r.id === 'r7' ? { ...r, owner: 'u-lee' } : r)), ['AGENT_OFFLINE'])); expect($('[data-pc-drive]')).toBeNull();
+  });
+
   it('STOP 은 맨 위 줄에 늘 보이고 가장 크다 — 조종 전·조종 중·잠김 모두, 누르면 입력 0 먼저 + 정지', () => {
     mount('u-park'); serve('r7');
     const top = () => $('[data-pd-top] [data-sd-stop="full"]')!;

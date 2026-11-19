@@ -120,6 +120,8 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const ago = s ? (rt.now() - l.stateAt) / 1000 : null, a = s?.applied ?? null;
   const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh), temps = go2Temps(s, fresh, ago ?? 0), motion = useGo2Motion(s?.robot_info, pose);
   const [tags, setTags] = useState(true);
+  // 로봇 연결 끊김(서버 허용이 «로봇 연결 없음»으로 꺼짐, 또는 목록 갱신 전 state OFFLINE): 화면은 그대로, 조종 시작만 꺼 둔다(키·단추는 useServerDrive ready 가 이미 막음)
+  const off = !r.serverDrive || (!!s && s.connection !== 'ONLINE');
   const server = LINK[d.link] ?? { tone: 'off' as const, text: '연결 중' };
   const robot = !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
   const why = !s?.latched ? '' : d.stalled ? STALLED : d.refused || (l.stop ? '정지 요청으로 잠겼습니다.' : '로봇이 정지 잠금을 알렸습니다 — 잠금 해제 전에 현장을 확인하세요.');
@@ -136,11 +138,12 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
       <button type="button" className="btn" onClick={back} data-pd-back>← 목록</button>
       <h2>{r.name}</h2><Chip tone="warn" text={TRIAL} /><Chip {...d.lock} />
       <span className="lbl pd-link" data-pd-link>서버 <Chip {...server} /> 로봇 <Chip {...robot} /></span>
-      {mine ? d.end : d.begin}
+      {mine ? d.end : off ? <button type="button" className="btn pri" disabled data-pd-begin-off>조종 시작</button> : d.begin}
       {d.unlock}{d.stopNote}
       <span className="fh-grow" />
       {d.stop(true)}
     </div>
+    {off && <p className="fh-msg" role="status" data-pd-offline>로봇 연결이 끊겼습니다 · 다시 연결되면 «조종 시작»을 다시 누르세요</p>}
     {d.latency}
     {d.notes}
     {d.releasing}
