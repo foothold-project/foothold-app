@@ -6,6 +6,7 @@ import type { OrgSettings, PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Sc
 import { ApiFail, api, authMark } from './api';
 import { media } from './media';
 import { phoneUrl } from './phoneTransport';
+import { GAP_MS, bumpInputs } from './rt';
 
 /** pick 고르기 · starting 띄우는 중 · unsure 시작 확인 안 됨(서버 STARTING 일 수 있음) · linking 출입증·연결 · drive 조종 화면 · ending 끝내는 중 · checking 정리 확인 안 됨 */
 export type Step = 'pick' | 'starting' | 'unsure' | 'linking' | 'drive' | 'ending' | 'checking';
@@ -56,6 +57,7 @@ const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400
 // gen = 연결 세대(close 마다), epoch = 화면 세션(clear 마다), cancel = 띄우는 중 STOP(POST 답이 오면 바로 정리), me = 내 사용자 id(총괄 목록은 조직 전체라 owner 로 내 것 판정)
 let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, lastSimPing = -Infinity, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '';
 let axes: Axes = [0, 0];   // [전후, 회전, 옆] -1..1, 조종 화면이 넣는다
+let lastCmd = Infinity;   // 마지막 cmd 를 보낸 때(단조) — 명령 틱 공백 검사
 let surface: 'pc' | undefined;   // PC «시뮬» 탭이 열려 있으면 'pc' — 출입증 요청에 싣는다(ADR-003 §6.2, 폰은 보내지 않음)
 const replies = new Map<string, (ok: boolean, r?: PhoneReply) => void>();
 /** 실행 끝 상태 · 이 화면 id · 이 화면이 건 실행의 이어서 비밀값(05 §13.10.4 — 이 탭 메모리에만: 서버·기록·URL·저장소 0, 새로고침하면 잃는다)
@@ -207,7 +209,9 @@ export function effectiveSettings(o: Partial<OrgSettings> | null, modeId = '') {
 /** 연결할 때 받고 설정에서 저장하면 바로 바뀐다. 숫자가 아니거나·유한하지 않거나·범위 밖·교차 조건(최소·키보드 ≤ 최대)을 어긴 필드는
  *  버린다 — 그 필드만 에이전트 limits·DEAD·KEY_VX 로 돌아감 */
 export function simTune(o: Partial<OrgSettings> | null) {
+  if (o === tuneSettings) return;
   tuneSettings = o;
+  axes = [0, 0]; bumpInputs();   // 데드존·상한이 바뀌면 누른 채인 입력이 다른 값이 된다 — 0, 새로 눌러야(RV-429 ②, 서버 경유와 같게)
   tuneSubs.forEach((f) => f());
 }
 function simulationTune(modeId = '') {
@@ -276,7 +280,11 @@ export const stopping = () => { const p = S.stop, st = S.link?.st; return !!p &&
 function beat() {
   const l = S.link;
   if (!l || l.at !== 'open' || !l.welcome) return;
-  if (l.lease && !runMoving(l.run)) send({ t: 'cmd', lease_id: l.lease, seq: ++seq, ...velocity(l.st?.latched === false && !stopping() ? axes : [0, 0], l.welcome) });
+  if (l.lease && !runMoving(l.run)) {
+    // 틱이 GAP_MS 넘게 끊기면 에이전트는 입력 끊김으로 새 중립을 요구한다 — 앞 입력을 다시 보내지 않고 0, 화면 세대 +1(RV-429 ①, rt inputGen.tick 과 같은 규칙)
+    const at = now(); if (at - lastCmd > GAP_MS) { axes = [0, 0]; bumpInputs(); } lastCmd = at;
+    send({ t: 'cmd', lease_id: l.lease, seq: ++seq, ...velocity(l.st?.latched === false && !stopping() ? axes : [0, 0], l.welcome) });
+  }
   if (l.welcome.simulation === true) simPing();
   else if (tick++ % (PING_MS / CMD_MS) === 0) send({ t: 'ping', client_time_ms: Date.now() });
   if (l.ask && l.ask.until < now()) setLink({ ask: null });
@@ -511,7 +519,7 @@ export const sim = {
     if (g !== gen) return;
     setLink({ exp: pass.exp });
     const w = new WebSocket(url), ticket = pass.token;
-    ws = w; seq = 0; tick = 0; lastSimPing = -Infinity;
+    ws = w; seq = 0; tick = 0; lastSimPing = -Infinity; lastCmd = Infinity;
     w.onopen = () => {
       if (ws !== w) return;
       w.send(JSON.stringify({ t: 'hello', id: `p${++ids}`, robot: r.robot_id, proto: 'fh-phone/1', device: deviceId(), ticket }));

@@ -3,7 +3,7 @@
 // 영상·지도·시나리오 제어는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_REAL, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
-import { CMD_MS, inputGen, rt, useLive, useRt, type Live } from './rt';
+import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
 import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
@@ -191,13 +191,15 @@ function Screen(c: Ctx) {
   useEffect(() => {
     const keys = input.current.keys;
     const down = (e: KeyboardEvent) => {
+      if (metaCut(e)) { if (keys.size) blur(); return; }   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
       const k = KEY[e.code]; if (!k) return;
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();   // Ctrl·Alt·Meta 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
+      if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       if (!e.repeat) keys.set(e.code, nowRef.current());
       else if (!keys.has(e.code)) keys.set(e.code, -1);   // 반복은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (k === 'b') setBack(true);
     };
     const up = (e: KeyboardEvent) => {
+      if (metaCut(e)) { if (keys.size) blur(); return; }
       const k = KEY[e.code]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
     };
     // 창 밖에서 뗀 키는 keyup 이 안 온다 — 적은 키를 모두 지우고 세대 +1, 바로 0(앞 세대는 이미 무시되므로 지워도 안전, RV-426 ⑦⑨)

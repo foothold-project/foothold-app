@@ -2486,4 +2486,20 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
     tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
     key('keyup', 'KeyW');
   });
+
+  // RV-429 ③: 맥은 Cmd 누른 동안 다른 키의 keyup 을 주지 않는다
+  const mk = (type: 'keydown' | 'keyup', code: string, o: KeyboardEventInit = {}) => act(() => { window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...o })); });
+  it('RV-429 ③ Cmd+W 뒤 Cmd 뗌(W keyup 없음) → 0, W 를 누른 채 Cmd → 0 — 새로 누르면 표 값', () => {
+    go();
+    mk('keydown', 'MetaLeft', { key: 'Meta', metaKey: true });
+    mk('keydown', 'KeyW', { metaKey: true }); tick(60);
+    mk('keyup', 'MetaLeft', { key: 'Meta' }); tick(200);   // W keyup 은 오지 않음(맥)
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    mk('keydown', 'MetaLeft', { key: 'Meta', metaKey: true }); tick(60);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
+    mk('keyup', 'MetaLeft', { key: 'Meta' }); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'KeyW'); expect(lastAxes()).toEqual([0, 0, 0]);
+  });
 });

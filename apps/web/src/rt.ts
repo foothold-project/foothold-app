@@ -486,14 +486,19 @@ const version = () => ver;
 export const GAP_MS = 300;
 /** 입력 세대(RB-DRIVE-FRESH-PRESS): 화면은 키(e.code)·포인터(pointerId)마다 누른 순간의 세대(current)를 적고, 지금 세대 입력만 명령에 쓴다.
  *  앞 세대에 눌린 입력이 하나라도 아직 눌려 있으면 명령 전체가 0 — 떼었다가 다시 눌러야 한다(손을 뗐는지 추측하지 않음).
- *  sync = 조종권·잠금·stop_gen·연결·넘김·STOP·숨김과 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 명령 틱 공백이 GAP_MS 넘으면 +1 */
+ *  sync = 조종권·잠금·stop_gen·연결·넘김·STOP·숨김·bumpInputs 와 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 명령 틱 공백이 GAP_MS 넘으면 +1 */
+/** 화면의 키·손가락 기록 밖에서 일어나 모든 입력 세대를 다음 sync 에서 +1 하는 일(RV-429): 직결 명령 틱 공백(phone.ts beat)·조직 설정 바뀜(phone.ts simTune) */
+let outer = 0;
+export const bumpInputs = () => { outer++; };
+/** 맥은 Cmd(Meta) 누른 동안 다른 키의 keyup 을 주지 않을 수 있다 — Meta 를 누르거나 뗄 때·Meta 가 눌린 채 온 키 = 적은 키를 모두 지우고 세대 +1(RV-429 ③) */
+export const metaCut = (e: KeyboardEvent) => e.key === 'Meta' || e.metaKey;
 export function inputGen() {
   let n = 0, k: unknown[] = [], t = Infinity;
   return {
     get current() { return n; },
     bump() { return ++n; },
     sync(id: string, extra: unknown[]) {
-      const l = get(id), x = [l.lease, l.state?.latched, l.state?.stop_gen, l.state?.connection, l.busy, l.stop?.n, document.visibilityState, ...extra];   // neutral 은 넣지 않음 — 이번 세대 입력으로 중립이 되면 그 입력이 앞 세대가 됨
+      const l = get(id), x = [l.lease, l.state?.latched, l.state?.stop_gen, l.state?.connection, l.busy, l.stop?.n, document.visibilityState, outer, ...extra];   // neutral 은 넣지 않음 — 이번 세대 입력으로 중립이 되면 그 입력이 앞 세대가 됨
       if (x.length !== k.length || x.some((v, i) => v !== k[i])) { k = x; n++; }
       return n;
     },

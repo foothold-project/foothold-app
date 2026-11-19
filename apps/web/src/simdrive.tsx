@@ -6,7 +6,7 @@ import { useOrbit, viewBlock } from './extview';
 import { DEAD, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
-import { inputGen } from './rt';
+import { inputGen, metaCut } from './rt';
 import { Chip, inApp } from './screens';
 import { typing } from './App';
 import { simName, type Tone } from './fake';
@@ -276,11 +276,11 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
       input.current[1] = a[1]; input.current[2] = a[2]; keyRef.current.put(0, a[0]);
     };
     const down = (e: KeyboardEvent) => {
-      if (held.current.size && (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음
+      if (held.current.size && (metaCut(e) || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음(RV-429 ③)
       if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
       e.preventDefault(); held.current.set(e.code, keyRef.current.sync()); apply();
     };
-    const up = (e: KeyboardEvent) => { if (held.current.delete(e.code)) apply(); };
+    const up = (e: KeyboardEvent) => { if (metaCut(e) && held.current.size) zero(); else if (held.current.delete(e.code)) apply(); };
     const zero = () => { held.current.clear(); gen.bump(); apply(); };   // 창 밖에서 뗀 키·손가락은 알 수 없다 — 세대 +1, 누르던 스틱도 다시 눌러야
     const hide = () => { if (document.visibilityState === 'hidden') zero(); };
     addEventListener('keydown', down); addEventListener('keyup', up); addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);

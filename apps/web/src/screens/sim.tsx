@@ -4,7 +4,7 @@
 // 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
 import { useEffect, useRef, useState } from 'react';
 import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
-import { inputGen } from '../rt';
+import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
@@ -82,11 +82,11 @@ function SimView({ admin }: { admin: boolean }) {
       setOut((o) => o.vx === vx && o.note === note ? o : { vx, note });
     };
     const down = (e: KeyboardEvent) => {
-      if (held.current.size && (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음
+      if (held.current.size && (metaCut(e) || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음(RV-429 ③)
       if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !canDrive()) return;
       e.preventDefault(); held.current.set(e.code, sync()); apply();
     };
-    const up = (e: KeyboardEvent) => { if (held.current.delete(e.code)) apply(); };
+    const up = (e: KeyboardEvent) => { if (metaCut(e) && held.current.size) zero(); else if (held.current.delete(e.code)) apply(); };
     const zero = () => { held.current.clear(); gen.bump(); apply(); };   // 창 밖에서 뗀 키는 알 수 없다 — 세대 +1
     const hide = () => { if (document.visibilityState === 'hidden') zero(); };
     addEventListener('keydown', down); addEventListener('keyup', up); addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);

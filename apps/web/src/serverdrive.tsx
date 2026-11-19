@@ -4,7 +4,7 @@
 // 로봇 상세 서랍에는 작게(STOP·정지 단계·잠금 해제·조종 시작/끝내기), «조종 화면 열기» = 전체화면 모달(카메라·라이다 drivemedia.ts·조작부·상태줄, 다시 누르거나 Esc 로 복귀).
 // 그 안에도 STOP 이 가장 크게. 키 조종은 패널이 열린 동안 그대로
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent as KeyEv, type PointerEvent, type ReactNode } from 'react';
-import { CMD_MS, inputGen, rt, useLive, type Live } from './rt';
+import { CMD_MS, inputGen, metaCut, rt, useLive, type Live } from './rt';
 import { typing } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
@@ -246,18 +246,20 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Escape') return esc?.current();
+      if (metaCut(e)) return cut();   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
       const t = KEY[e.code], k = keys.current;
       // 글 입력 중·반복(e.repeat)은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (typing(e.target) || e.repeat) { if (t && !k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
       if (!t) return;
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();   // Ctrl·Alt·Meta 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
+      if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       k.set(e.code, now());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
       const p = pressed();
       if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy('조직 속도 상한을 넘는 명령입니다.'); return; }
       if (readyRef.current) setWhy(''); changed();
     };
-    const up = (e: KeyboardEvent) => { if (keys.current.delete(e.code)) changed(); };
+    const up = (e: KeyboardEvent) => { if (metaCut(e)) cut(); else if (keys.current.delete(e.code)) changed(); };
+    const cut = () => { if (keys.current.size) { keys.current.clear(); zero(); } };
     // 창 밖에서 뗀 키는 keyup 이 안 온다 — 적은 키를 모두 지우고 세대 +1(앞 세대는 이미 무시되므로 지워도 안전, RV-426 ⑦)
     const blur = () => { keys.current.clear(); zero(SD_NOTE.blur); };
     const hide = () => { if (document.visibilityState === 'hidden') { keys.current.clear(); zero(SD_NOTE.hidden); } };

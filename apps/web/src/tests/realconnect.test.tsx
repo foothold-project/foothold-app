@@ -313,4 +313,16 @@ describe('실기 직결 조종 — 새로 누른 입력만', () => {
     expect(await cmd(a)).toMatchObject({ vx: 1.5 });
     ptr(fwd, 'pointerup', 50, 0);
   });
+  it('RV-429 ① 명령 틱이 300 ms 넘게 멈춘 뒤 같은 손가락으로 1.5 를 다시 보내지 않음 — 떼었다가 새로 누르면 다시', async () => {
+    const a = await drive(), fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 0); expect(await cmd(a)).toMatchObject({ vx: 1.5 });
+    const real = performance.now.bind(performance), gap = vi.spyOn(performance, 'now').mockImplementation(() => real() + 400);
+    expect(await cmd(a)).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 1.5
+    ptr(fwd, 'pointermove', 50, 5);
+    expect(await cmd(a)).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerup', 50, 0); ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd(a)).toMatchObject({ vx: 1.5 });
+    ptr(fwd, 'pointerup', 50, 0); expect(await cmd(a)).toMatchObject({ vx: 0, wz: 0 });
+    gap.mockRestore();
+  });
 });
