@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
 import { Stick } from './drive';
+import { inputGen } from './rt';
 import { Video, stopText, useTick } from './simdrive';
 import type { Tone } from './fake';
 
@@ -12,13 +13,28 @@ export function RealDrive() {
   useTuneSettings();
   const s = useSim(), l = s.link!, st = l.st, w = l.welcome, real = s.real!;
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
-  const input = useRef<[number, number]>([0, 0]), gen = useRef(0);   // [전후, 회전]
+  const input = useRef<[number, number]>([0, 0]);   // [전후, 회전]
+  // 입력 세대(rt inputGen — 실기 drive.tsx·직결 시뮬 simdrive.tsx 와 같은 규칙): 스틱 손가락마다 잡은 순간의 세대. 잠김·해제·조종권·stop_gen·연결·STOP·숨김·live 가 바뀌거나 blur 면 +1.
+  // 앞 세대 손가락이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 잡은 손가락의 세대(없으면 null)
+  const [gen] = useState(inputGen), sg = useRef<(number | null)[]>([null, null]);
   const [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
   const live = ready && !leaving;
   useTick(true);
   useEffect(() => () => sim.axes([0, 0]), []);
   useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [live]);   // 움직일 수 없게 되면 입력 0(다시 눌러야)
-  const put = (i: 0 | 1, v: number) => { input.current[i] = v; sim.axes([input.current[0], input.current[1]]); };
+  /** 지금 세대 — 값은 저장소에서 바로(rt 로봇이 아니므로 id '' = 빈 항목, 숨김은 inputGen 이 본다) */
+  const sync = () => { const g = sim.get(), k = g.link; return gen.sync('', [ref.current.live, k?.at, k?.lease, k?.st?.latched, k?.st?.stop_gen, k?.welcome, g.stop]); };
+  /** 지금 세대 입력만 보낸다. 앞 세대 손가락이 남아 있으면 0 */
+  const push = () => { const n = sync(), old = sg.current.some((x) => x != null && x !== n); sim.axes(old ? [0, 0] : [input.current[0], input.current[1]]); };
+  const put = (i: 0 | 1, v: number) => { input.current[i] = v; push(); };
+  const ref = useRef({ live, push }); ref.current = { live, push };
+  useEffect(() => {
+    const zero = () => { gen.bump(); ref.current.push(); };   // 창 밖에서 뗀 손가락은 알 수 없다 — 세대 +1, 누르던 스틱도 다시 눌러야
+    const hide = () => { if (document.visibilityState === 'hidden') zero(); };
+    addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);
+    const off = sim.subscribe(() => ref.current.push());   // 잠김·해제·stop_gen·STOP 이 오면 손을 대지 않아도 그 자리에서 세대를 맞춰 0
+    return () => { removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide); off(); };
+  }, []);
   /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 확인된 반납만 연결·중계를 닫고 로봇 연결 화면으로. 못 하면 남는다(입력 0, «다시 반납») */
   const leave = async () => {
     setLeaving('wait');
@@ -68,8 +84,8 @@ export function RealDrive() {
           <b id="real-ask-t">조종권 요청</b><p>다른 사람이 이 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
           <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
         {mine && open && <>
-          <Stick label="전후" vertical on={live} epoch={+live} gen={gen} set={(v) => put(0, v)} />
-          <Stick label="회전" on={live} epoch={+live} gen={gen} set={(v) => put(1, v)} />
+          <Stick label="전후" vertical on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v) => put(0, v)} />
+          <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)} />
         </>}
       </div>
     </div></div>

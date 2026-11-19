@@ -4,6 +4,7 @@
 // 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
 import { useEffect, useRef, useState } from 'react';
 import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
+import { inputGen } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
@@ -63,28 +64,35 @@ function SimView({ admin }: { admin: boolean }) {
   const keys = w?.simulation === true, live = canDrive(), can = allowed(w);
   useDeadline(!!r.expires_at);
   useTick(true);
-  const held = useRef(new Set<string>()), [out, setOut] = useState({ vx: 0, note: '' }), [ending, setEnding] = useState(false);   // ending = «시뮬 종료·정리» 화면 안 확인 단계
+  const [out, setOut] = useState({ vx: 0, note: '' }), [ending, setEnding] = useState(false);   // ending = «시뮬 종료·정리» 화면 안 확인 단계
+  // 입력 세대(rt inputGen — 직결 시뮬 simdrive.tsx·실기 drive.tsx 와 같은 규칙): 키(e.code)마다 누른 순간의 세대. 잠김·해제·조종권·stop_gen·연결·STOP·숨김이 바뀌거나 blur 면 +1.
+  // 앞 세대 키가 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다(RV-428)
+  const [gen] = useState(inputGen), held = useRef(new Map<string, number>());
   useEffect(() => {
+    /** 지금 세대 — 시뮬 값은 저장소에서 바로(rt 로봇이 아니므로 id '' = 빈 항목, 숨김은 inputGen 이 본다) */
+    const sync = () => { const g = sim.get(), k = g.link; return gen.sync('', [canDrive(), k?.lease, k?.st?.latched, k?.st?.stop_gen, k?.welcome, g.stop]); };
     const apply = () => {
       if (!canDrive()) held.current.clear();
+      const n = sync(), old = [...held.current.values()].some((x) => x !== n);
       const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
-      held.current.forEach((c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
+      if (!old) held.current.forEach((_, c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
       if (a[0] > 0 && k) a[0] = forward(k);
       sim.axes(a);
-      const v = k ? velocity(a, k) : null;
-      setOut({ vx: v?.vx ?? 0, note: blockNote(a, allowed(k ?? null), v) });
+      const v = k ? velocity(a, k) : null, vx = v?.vx ?? 0, note = blockNote(a, allowed(k ?? null), v);
+      setOut((o) => o.vx === vx && o.note === note ? o : { vx, note });
     };
     const down = (e: KeyboardEvent) => {
       if (held.current.size && (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음
       if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !canDrive()) return;
-      e.preventDefault(); held.current.add(e.code); apply();
+      e.preventDefault(); held.current.set(e.code, sync()); apply();
     };
     const up = (e: KeyboardEvent) => { if (held.current.delete(e.code)) apply(); };
-    const zero = () => { held.current.clear(); apply(); };
+    const zero = () => { held.current.clear(); gen.bump(); apply(); };   // 창 밖에서 뗀 키는 알 수 없다 — 세대 +1
     const hide = () => { if (document.visibilityState === 'hidden') zero(); };
     addEventListener('keydown', down); addEventListener('keyup', up); addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);
+    const off = sim.subscribe(apply);   // 잠김·해제·stop_gen·STOP 이 오면 손을 대지 않아도 그 자리에서 세대를 맞춰 0
     return () => {
-      removeEventListener('keydown', down); removeEventListener('keyup', up); removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide);
+      removeEventListener('keydown', down); removeEventListener('keyup', up); removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide); off();
       held.current.clear(); sim.axes([0, 0]);
     };
   }, []);

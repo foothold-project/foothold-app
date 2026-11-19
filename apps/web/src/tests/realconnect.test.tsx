@@ -270,3 +270,47 @@ describe('실기 연결 흐름', () => {
     expect(FakeWS.last.url).toBe(`ws://127.0.0.1:40125/phone/ws?fh=${NONCE}`);
   });
 });
+
+// RB-SIMTAB-FRESH-PRESS: 폰 실기 직결 스틱도 drive.tsx·simdrive.tsx 와 같은 입력 세대(rt inputGen) — 앞 세대 손가락이 남아 있으면 0
+describe('실기 직결 조종 — 새로 누른 입력만', () => {
+  const ST = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
+  const stick = (label: string) => {
+    const el = $(`[aria-label="${label} 조이스틱"]`)!;
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    return el;
+  };
+  const ptr = (el: Element, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })); });
+  const cmd = async (a: FakeWS) => { await wait(70); return a.of('cmd').slice(-1)[0]; };
+  async function drive() {
+    serve();
+    const a = await connected();
+    act(() => a.recv(st())); await flush();
+    await click(btn('조종 시작'));
+    act(() => a.recv(st(ST))); await flush();
+    await click(btn('잠금 해제'));
+    act(() => a.recv(st({ ...ST, latched: false }))); await flush();
+    return a;
+  }
+  it('정상: 새로 누르면 값, 놓으면 0, STOP 즉시', async () => {
+    const a = await drive(), fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 0); expect(await cmd(a)).toMatchObject({ vx: 1.5 });
+    ptr(fwd, 'pointerup', 50, 0); expect(await cmd(a)).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerdown', 50, 0); expect(await cmd(a)).toMatchObject({ vx: 1.5 });
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    expect(await cmd(a)).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerup', 50, 0);
+  });
+  for (const how of ['stop_gen 1→2(잠금 해제 그대로)', '창 초점 잃음'] as const) it(`${how} → 0, 같은 손가락을 움직여도 0 — 떼었다가 새로 누르면 다시`, async () => {
+    const a = await drive(), fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 0); expect(await cmd(a)).toMatchObject({ vx: 1.5 });
+    if (how === '창 초점 잃음') act(() => { window.dispatchEvent(new Event('blur')); });
+    else { act(() => a.recv(st({ ...ST, latched: false, stop_gen: 2 }))); await flush(); }
+    expect(await cmd(a)).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointermove', 50, 0); ptr(fwd, 'pointermove', 50, 5);
+    expect(await cmd(a)).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 1.5
+    ptr(fwd, 'pointerup', 50, 0); ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd(a)).toMatchObject({ vx: 1.5 });
+    ptr(fwd, 'pointerup', 50, 0);
+  });
+});

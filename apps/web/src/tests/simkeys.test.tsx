@@ -251,6 +251,35 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
   });
 
+  it('RV-428: W 누른 채 잠금 해제 상태로 stop_gen 1→2 → 0, 그 뒤 A 만 새로 눌러도 앞 세대 W 가 남아 0 — W 떼고 새로 누르면 그 키만', async () => {
+    const a = await ready(), ST = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
+    await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await recv(a, phoneState({ ...ST, latched: false, stop_gen: 2 }));
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+    await key('keydown', 'KeyA');
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 0.6 · wz 0.5
+    expect($('[data-sim-vx]')!.textContent).toBe('0.00 m/s');
+    await key('keyup', 'KeyW'); await key('keyup', 'KeyA'); await key('keydown', 'KeyA');
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0.5 });
+    await key('keydown', 'KeyW');
+    expect(await lastCmd()).toMatchObject({ wz: 0.5 });
+    expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+  });
+  it('정상: 새로 누르면 값, 놓으면 0, 창 초점 잃은 뒤 새로 누르면 다시 값, Space STOP 은 즉시 0', async () => {
+    const a = await ready();
+    await key('keydown', 'KeyW'); expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await key('keyup', 'KeyW'); expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+    await key('keydown', 'KeyW'); expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    act(() => { window.dispatchEvent(new Event('blur')); }); expect(await lastCmd()).toMatchObject({ vx: 0 });
+    await key('keyup', 'KeyW'); await key('keydown', 'KeyW'); expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    const n = a.of('cmd').length;
+    await key('keydown', 'Space');
+    expect(a.of('stop')).toHaveLength(1);
+    await sleep(60);
+    expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
+  });
+
   it('«시뮬 정지»는 연결 중에도 하나', async () => {
     serve(); await mount();
     await launch();
