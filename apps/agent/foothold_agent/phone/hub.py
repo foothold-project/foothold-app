@@ -130,7 +130,7 @@ class Hub:
                    Effects((), tuple(self.session.pop_history(MAX_BUFFER - 1))))
         self._emit(effects)
 
-    def stop(self):
+    def stop(self, *, cause=None):
         try:
             self.runs.stopped()
         finally:
@@ -140,7 +140,7 @@ class Hub:
                 self._emit(self.session.shutdown())
                 raise RuntimeError('phone STOP reference exhausted')
             self.stop_ref += 1
-            self._emit(self.session.receive({'t': 'stop', 'stop_ref': self.stop_ref, 'by_user_id': None}))
+            self._emit(self.session.receive({'t': 'stop', 'stop_ref': self.stop_ref, 'by_user_id': None, 'cause': cause}))
 
     def _notify(self, peer, message):
         if peer in self.peers:
@@ -472,7 +472,7 @@ class Hub:
             if self.pending is not None and self.pending['peer'] == peer:
                 self._request_result('CANCELED', self_cancel=True)
         elif kind == 'stop':
-            self.stop()  # authenticated view-only phones may STOP
+            self.stop(cause='user_stop')  # authenticated view-only phones may STOP
             if 'request_id' in f:
                 # Bounded confirmation metadata never suppresses the STOP itself.
                 if len(self.stop_requests) >= 16:

@@ -12,6 +12,7 @@ import time
 
 from foothold_agent.go2_readonly.state import State, attitude, integer, number
 from foothold_agent.safety.core import SCHEMA
+from .remote import RemoteActivity
 from .sink import FEEDBACK_MAX_AGE_S
 
 STILL_VZ_MAX_M_S = .06  # ponytail: 실측 정지 분포 보고 조정 (현장 승인).
@@ -30,6 +31,7 @@ class Feedback:
         self.accept_error_codes = frozenset(accept_error_codes)
         if any(type(x) is not int or not 0<=x<=0xFFFFFFFF for x in self.accept_error_codes):
             raise ValueError('explicit uint32 state list required')
+        self.remote = RemoteActivity.configured(now)
         self.state = State(now=now, wall=wall)
         self._lock = threading.Lock()
         self._low = self._sport = None
@@ -48,6 +50,7 @@ class Feedback:
     def sink(self, value):
         self._sink = value
         if value is not None:
+            value.remote = self.remote
             value.stop_feedback = lambda: self.stop_snapshot(value)
 
     def stop_snapshot(self, sink):
@@ -102,6 +105,8 @@ class Feedback:
                              gyro=gyro, dq=dq,
                              still=gyro is not None and dq is not None and
                              all(abs(x) <= .05 for x in gyro) and all(abs(x) <= .10 for x in dq))
+            if not self._fault:
+                self.remote.observe(getattr(message, 'wireless_remote', None), received)
             self.state.lowstate(message)
 
     def sportmodestate(self, message):

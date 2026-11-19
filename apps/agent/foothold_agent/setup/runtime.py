@@ -18,6 +18,7 @@ from foothold_agent.go2_direct.sink import Go2Sink, OutputError
 from foothold_agent.go2_readonly.state import integer
 from foothold_agent.link.client import Client
 from foothold_agent.link.session import MotionCommand
+from foothold_agent.safety.lock_log import server_cause
 from foothold_agent.phone.tickets import json_object
 from .pairing import timestamp
 from .storage import valid_serial
@@ -93,6 +94,9 @@ class GatedSession(DriveSession):
             self.gate.approve(frame.get('expires_at'))
             return self.tick()
         if not self.gate.allowed():
+            if (self.connected and not self.reconnect_required and isinstance(frame, dict)
+                    and frame.get('t') == 'stop' and server_cause(frame) in ('unknown', 'user_stop')):
+                self.operator_stop = True  # retain priority without creating output or a STOP acknowledgement
             return super().receive(frame) if isinstance(frame, dict) and frame.get('t') == 'ping' else self.tick()
         return super().receive(frame)
 
@@ -189,6 +193,8 @@ class Gate:
         if getattr(self.inputs, 'mac_identity', None) is not None:
             self.identity_epoch = self.inputs.mac_identity.failure_epoch
         if self.session is not None:
+            self.session.movement_gate = None
+            self.session.posture_sink = None
             if self.session.identity_gate is not None:
                 self.session.identity_gate.close()
             self.session.core.st = None
@@ -452,6 +458,8 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 mode = '로봇의 연결 정보가 바뀌어 조종을 잠갔습니다. 랜선을 확인한 뒤 프로그램을 다시 실행해 주세요.'
             elif identity is not None and not identity.valid():
                 mode = '로봇 확인 잠시 안 됨 · 이동 잠김'
+            elif gate.active is not None:
+                mode = gate.active.sink.movement_reason() or mode
             status.update(mode=mode,
                           connected=session.connected, field_approval_expires_at=gate.last_expiry
                           if gate.active else None,

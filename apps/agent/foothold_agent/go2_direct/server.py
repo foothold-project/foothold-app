@@ -77,9 +77,10 @@ class DriveSession(Session):
         if isinstance(frame, dict):
             if frame.get('t') == 'action' and self.posture_sink is not None:
                 super().receive({'t': 'ping'})
+                trial_blocked = self.posture_sink.movement_trial_blocked(frame.get('action'))
                 if self.posture_sink.actions.request(frame.get('request_id'), frame.get('action'),
                         frame.get('params', {}), frame.get('lease_id'), frame.get('confirmed', False),
-                        moving=self.core.intent != (0., 0., 0.) or self.core.out != (0., 0., 0.)):
+                        moving=trial_blocked or self.core.intent != (0., 0., 0.) or self.core.out != (0., 0., 0.)):
                     self.core.stop('action requested')
                     self.posture_sink.actions.core_hold(self.core.stop_gen)
                 return self._finish(state=True)
@@ -109,14 +110,19 @@ class DriveSession(Session):
                 self.core.st = None
             if frame.get('t') == 'lease' and frame.get('lease_id') != self.lease_id and self.posture_sink is not None:
                 self.posture_sink.cancel_posture('LEASE_CHANGED')
-            if frame.get('t') == 'cmd' and self.posture_sink is not None and (
-                    not self.feedback.posture_snapshot()['walkable'] or self.posture_sink.posture_busy):
-                frame = {**frame, 'axes': [0., 0., 0.]}
             if frame.get('t') == 'lease' and frame.get('holder_type') not in (None, 'USER'):
                 return self.shutdown()
             if frame.get('t') not in ('lease', 'cmd', 'stop', 'unlock', 'ping'):
                 return self.tick()
         return super().receive(frame)
+
+    def _command_input(self, axes):
+        # Posture can project a deflection to zero only after the input gate
+        # has checked the original, authorized joystick sample for neutral.
+        if self.posture_sink is not None and (
+                not self.feedback.posture_snapshot()['walkable'] or self.posture_sink.posture_busy):
+            axes = (0., 0., 0.)
+        super()._command_input(axes)
 
     def unlock_verified(self, frame):
         return super().receive(frame)
@@ -140,13 +146,24 @@ class ServerSink:
     def __init__(self, sink, session):
         self.sink, self.session = sink, session
         sink.select_source('server')
+        session.movement_gate = sink.movement_reason
+        if session.operator_stop:
+            sink.apply(MotionCommand('stop'), source='server', operator_stop=True)
         session.posture_sink = sink
         sink.posture_feedback = session.feedback.posture_snapshot
-        sink.posture_authorized = session.posture_authorized
+        sink.posture_authorized = self.posture_authorized
+
+    def posture_authorized(self, lease):
+        # The action worker rechecks this after SDK method lookup and on every
+        # poll. A queued trial cannot outlive a handset takeover.
+        job = self.sink.actions.job or self.sink.actions.executing
+        return (self.session.posture_authorized(lease)
+                and not (job and self.sink.movement_trial_blocked(job['action'])))
 
     def apply(self, command):
         # Tick/telemetry output cannot refresh the original operator input clock.
-        self.sink.apply(command, source='server', input_received_at=self.session.core.intent_t)
+        self.sink.apply(command, source='server', input_received_at=self.session.core.intent_t,
+                        operator_stop=self.session.operator_stop)
 
     def output_safety(self):
         return self.sink.output_safety()

@@ -7,6 +7,7 @@ from copy import deepcopy
 
 from foothold_agent.link.session import Session, Effects, MAX_BUFFER, SAFETY_EVENTS
 from foothold_agent.link.history import History
+from foothold_agent.safety.lock_log import server_cause
 from .tickets import json_object
 from .protocol import sequence
 
@@ -155,7 +156,7 @@ class Observer:
             return self.tick()
         if isinstance(f, dict):
             if f.get('t') == 'stop':
-                self.phone.stop()  # malformed STOP also only moves toward safety
+                self.phone.stop(cause=server_cause(f))  # malformed STOP also only moves toward safety
                 ref = f.get('stop_ref')
                 if sequence(ref) and ref > 0 and self.core.latch and not any(self.core.out):
                     self.server_stop_ref = ref
