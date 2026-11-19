@@ -127,7 +127,9 @@ describe('서버 경유 시험 조종 패널', () => {
     for (const k of ['up', 'down', 'left', 'right', 'rotl', 'rotr', 'rotl+up']) expect(($(`[data-sd-move="${k}"]`) as HTMLButtonElement).disabled).toBe(true);
     key('keydown', 'KeyA'); tick(60); expect(lastAxes()).toBe('0,0,0');
     act(() => simTune(null)); tick(100); expect(lastAxes()).toBe('0,0,0');
-    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0,0');   // 공용 설정이 비면 받음도 풀림(RV-425 9)
+    act(() => simTune({})); tick(60); expect(lastAxes()).toBe('0,0,0');     // 다시 받아도 앞 세대(A·↑)가 눌린 채면 0
+    key('keyup', 'KeyA'); key('keyup', 'ArrowUp'); tick(60); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     act(() => simTune({ real_no_fast_server_drive: true }));
     expect(lastAxes()).toBe('0,0,0');
     expect(($('[data-sd-move="up"]') as HTMLButtonElement).disabled).toBe(true);
@@ -754,5 +756,53 @@ describe('로봇 응답 느림과 왕복 시간', () => {
     expect($('[data-sd-latency]')!.textContent).toContain('로봇 컴퓨터↔서버: 측정 대기');
     act(() => w.drop(1006));
     expect($('[data-sd-latency]')!.textContent).toContain('서버↔이 화면: 측정 대기');
+  });
+});
+
+// RV-425(RB-DRIVE-FRESH-PRESS): PC 도 «잠금 해제 뒤 새로 누른 입력만» — 가짜 WS 순서 그대로, 고치기 전 값은 주석
+describe('RV-425: PC 입력 세대', () => {
+  const lock = () => { act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100); };
+  const unlock = () => { click(btn('② 잠금 해제')); tick(100); };
+  const go = (settings: object = {}) => { settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(settings); } }) as never); ready(); };
+
+  it('[4] 잠기기 전 누른 ↑ / 잠긴 뒤 누른 ↑ → 해제 뒤 ↑ 를 떼기 전 A 회전 안 나감', () => {
+    go();
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    lock(); unlock();
+    key('keydown', 'KeyA'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 0,0,2.5
+    key('keyup', 'ArrowUp'); key('keyup', 'KeyA'); tick(100);
+    lock();
+    key('keydown', 'ArrowUp'); tick(60);                    // 잠긴 동안 누름
+    unlock();
+    key('keydown', 'KeyA'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 0,0,2.5
+    key('keyup', 'ArrowUp'); key('keyup', 'KeyA'); tick(100);
+    key('keydown', 'KeyA'); tick(60);
+    expect(lastAxes()).toBe('0,0,2.5');                     // 모두 떼고 새로 누르면 표 값
+  });
+
+  it('[5] 해제 직후 ↑ 키 + 화면 회전 단추를 같이 누르고 단추만 놓음 → ↑ 보존, D 회전 오작동 없음', () => {
+    go(); view();
+    key('keydown', 'ArrowUp'); ptr($('[data-sd-move="rotr"]')!, 'pointerdown'); tick(60);
+    expect(lastAxes()).toBe('1.5,0,-2.5');                  // 고치기 전: 0,0,-2.5(↑ 를 잃음)
+    ptr($('[data-sd-move="rotr"]')!, 'pointerup'); tick(60);
+    expect(lastAxes()).toBe('1.5,0,0');                     // 고치기 전: 0,0,0
+    expect(axes()).not.toContain('0,0,-2.5');
+    key('keyup', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0,0');
+  });
+
+  it('[8] 조직 설정 타입이 틀리면(real_max_vx: "0") 받음 아님 → 0 + 안내', () => {
+    go({ real_max_vx: '0' });
+    expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
+    expect(hold(['ArrowUp'])).toBe('0,0,0');                // 고치기 전: 1.5,0,0
+  });
+
+  it('[9] 빠른 조종 금지 확인 뒤 공용 설정이 simTune(null) 로 비면 받음도 풀림 → 0', () => {
+    go({ real_no_fast_server_drive: true });
+    expect(hold(['ArrowUp'])).toBe('0,0,0');
+    act(() => simTune(null)); tick(100);
+    expect(hold(['ArrowUp'])).toBe('0,0,0');                // 고치기 전: 1.5,0,0
+    expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
   });
 });

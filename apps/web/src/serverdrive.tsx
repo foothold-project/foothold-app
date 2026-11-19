@@ -4,7 +4,7 @@
 // 로봇 상세 서랍에는 작게(STOP·정지 단계·잠금 해제·조종 시작/끝내기), «조종 화면 열기» = 전체화면 모달(카메라·라이다 drivemedia.ts·조작부·상태줄, 다시 누르거나 Esc 로 복귀).
 // 그 안에도 STOP 이 가장 크게. 키 조종은 패널이 열린 동안 그대로
 import { useEffect, useRef, useState, type KeyboardEvent as KeyEv, type PointerEvent, type ReactNode } from 'react';
-import { CMD_MS, rt, useLive, type Live } from './rt';
+import { CMD_MS, inputGen, rt, useLive, type Live } from './rt';
 import { typing } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
@@ -19,8 +19,17 @@ import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
 
 /** 누름 하나: up·down = 전후, left·right = 옆걸음, rotl·rotr = 제자리 회전(A·D) */
 type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
-/** 조직 설정은 객체로 온 값만 «받음» — 본문 없는 200·배열·글자는 못 받음과 같다(RV-424) */
-export const isSettings = (o: unknown): o is OrgSettings => !!o && typeof o === 'object' && !Array.isArray(o);
+const FIELD = orgSettingsSchema.properties as Record<string, { type: string; minimum?: number; maximum?: number }>;
+const plain = (o: unknown): o is Record<string, unknown> => !!o && typeof o === 'object' && !Array.isArray(o);
+/** 조직 설정은 계약(OrgSettings 스키마)대로 검증된 객체만 «받음» — 본문 없는 200·배열·모르는 칸·타입 틀림(real_max_vx: "0")·범위 밖은 못 받음과 같다(RV-424·425).
+ *  빠진 칸은 서버 기본값과 같은 상한으로 본다(realCaps) */
+export const isSettings = (o: unknown): o is OrgSettings => plain(o) && Object.entries(o).every(([k, v]) => {
+  const f = FIELD[k];
+  if (!f) return false;
+  if (f.type === 'object') return plain(v);
+  if (f.type === 'boolean') return typeof v === 'boolean';
+  return typeof v === 'number' && Number.isFinite(v) && (f.type !== 'integer' || Number.isInteger(v)) && v >= (f.minimum ?? -Infinity) && v <= (f.maximum ?? Infinity);
+});
 const KEY: Record<string, Tok> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'rotl', KeyD: 'rotr' };
 export const MAX_TURN_RATE = orgSettingsSchema.properties.real_max_wz.maximum;
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
@@ -167,12 +176,13 @@ export const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
  *  한 화면에 하나만 붙인다(키·조종권이 하나). esc = Esc 를 눌렀을 때(패널의 전체화면 닫기) */
 export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: () => void }) {
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
-  // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 입력은 0 — 기본 상한 1.5 로 보내 서버가 거절·STOP 하지 않게(폰 drive.tsx 와 같게)
+  // got = 이 화면이 조직 설정을 받음(그리고 지금 공용 설정이 검증된 객체 — simTune(null) 로 비면 못 받음). 받기 전(앞 화면이 남긴 값 포함)·못 받으면 입력은 0 — 기본 상한 1.5 로 보내 서버가 거절·STOP 하지 않게(폰 drive.tsx 와 같게)
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const l = useLive(r.id), link = rt.link().at, mine = !!l.lease, s = l.state;
   const [on, setOn] = useState(''), [why, setWhy] = useState('');
   const [, tick] = useState(0), [asked, setAsked] = useState<number | null>(null);   // asked = 잠금 해제 요청을 보낸 때(rt.now)
-  const held = useRef(new Set<Tok>());
+  // 누른 것(입력 세대 — rt inputGen): 물리 키(e.code)·화면 단추 포인터(pointerId)마다 누른 순간의 세대. 지금 세대가 아닌 것이 남아 있으면 명령 0
+  const [g] = useState(inputGen), keys = useRef(new Map<string, number>()), pads = useRef(new Map<number, { n: number; t: Tok[] }>());
   // pose = 내가 보낸 자세 명령(결과가 올 때까지 두 단추 잠금), prev = 누를 때 보이던 앞 결과(같은 것을 내 결과로 읽지 않게)
   const [pose, setPose] = useState<{ k: PoseKey; prev: string | null; at: number } | null>(null), [poseMsg, setPoseMsg] = useState('');
   const posture = s?.posture?.state ?? null, res = s?.posture_result ?? null;
@@ -189,35 +199,53 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const stale = useRef(false); if (off) stale.current = true;
   const ready = !off && !stale.current && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
-  const send = () => { const cmd = readyRef.current && gotRef.current ? command(held.current) : TABLE[''], [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, held.current.size > 0); };
+  const sync = () => g.sync(r.id, [settingsRef.current, readyRef.current]);
+  /** 지금 세대에 누른 것. 앞 세대에 누른 키·단추가 아직 눌려 있으면 null(→ 0) */
+  const pressed = (): Set<Tok> | null => {
+    const n = sync(), out = new Set<Tok>();
+    for (const [c, x] of keys.current) { if (x !== n) return null; out.add(KEY[c]); }
+    for (const p of pads.current.values()) { if (p.n !== n) return null; p.t.forEach((t) => out.add(t)); }
+    return out;
+  };
+  const send = () => {
+    const t = pressed(), cmd = t && readyRef.current && gotRef.current && isSettings(settingsRef.current) ? command(t) : TABLE[''];
+    const [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, !t);
+  };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
-  const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
-  /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */
-  const zero = useRef((note = '') => { held.current.clear(); changed(); if (note) setWhy(note); }).current;
-  const press = (t: Tok[]) => { if (!readyRef.current || !permitted(command(t), settingsRef.current)) return; setWhy(''); held.current = new Set(t); changed(); };
+  const changed = () => { setOn(id(pressed() ?? [])); if (rt.get(r.id).lease) send(); };
+  /** 0 으로: 입력 세대를 올려 지금 누른 것을 모두 앞 세대로 — 떼고 새로 눌러야 움직인다. 바로 보낸다 + 안내 */
+  const zero = useRef((note = '') => { g.bump(); changed(); if (note) setWhy(note); }).current;
+  const press = (e: PointerEvent<HTMLButtonElement>, t: Tok[]) => {
+    if (!readyRef.current || !permitted(command(t), settingsRef.current)) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId); pads.current.set(e.pointerId, { n: sync(), t }); setWhy(''); changed();
+  };
+  const lift = (p: number) => { if (pads.current.delete(p)) changed(); };
 
   useEffect(() => { setGot(false); const stop = new AbortController(); api.settings(stop.signal).then((o) => { if (isSettings(o)) { simTune(o); setGot(true); } }, () => {}); return () => stop.abort(); }, [r.id]);
-  useEffect(() => { if (held.current.size) zero('조직 속도 설정이 바뀌어 입력을 0으로 보냈습니다. 다시 누르세요.'); }, [settings]);
+  useEffect(() => { if (keys.current.size || pads.current.size) zero('조직 속도 설정이 바뀌어 입력을 0으로 보냈습니다. 다시 누르세요.'); }, [settings]);
   useEffect(() => rt.watch(r.id), [r.id]);   // 이 패널이 열린 동안만 조종권을 쥔다(닫으면 반납 — rt)
   useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(i); }, []);   // 마지막 응답 ms·신호 멈춤
   // 50 ms 마다(0 포함 — 조종권 심장 박동 겸). 잠금·넘김 중 0 과 새 중립은 rt.cmd 가 지킨다
   useEffect(() => {
     if (!mine) return;
-    const i = setInterval(send, CMD_MS);
+    const i = setInterval(() => { g.tick(); send(); }, CMD_MS);
     return () => clearInterval(i);
   }, [mine, r.id]);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Escape') return esc?.current();
-      if (typing(e.target)) return;
+      const t = KEY[e.code], k = keys.current;
+      // 글 입력 중·반복(e.repeat)은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
+      if (typing(e.target) || e.repeat) { if (t && !k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
-      const t = KEY[e.code];
-      if (!t || e.ctrlKey || e.metaKey || e.altKey) return;
-      e.preventDefault();
-      if (e.repeat || !readyRef.current) return;   // 반복은 새 누름이 아니다(초점 잃음 뒤 되살리지 않음)
-      held.current.add(t); if (!permitted(command(held.current), settingsRef.current)) { changed(); setWhy('조직 속도 상한을 넘는 명령입니다.'); return; } setWhy(''); changed();
+      if (!t) return;
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();   // Ctrl·Alt·Meta 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
+      k.set(e.code, sync());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
+      const p = pressed();
+      if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy('조직 속도 상한을 넘는 명령입니다.'); return; }
+      if (readyRef.current) setWhy(''); changed();
     };
-    const up = (e: KeyboardEvent) => { const t = KEY[e.code]; if (t && held.current.delete(t)) changed(); };
+    const up = (e: KeyboardEvent) => { if (keys.current.delete(e.code)) changed(); };
     const blur = () => zero(SD_NOTE.blur);
     const hide = () => { if (document.visibilityState === 'hidden') zero(SD_NOTE.hidden); };
     addEventListener('keydown', down, true); addEventListener('keyup', up, true); addEventListener('blur', blur); document.addEventListener('visibilitychange', hide);
@@ -253,8 +281,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   </button>;
   const pad = mine && <div role="group" aria-label="조종(누르는 동안만)" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
     {PAD.map(([t, k, text]) => <button key={k} type="button" className="btn" data-sd-move={id(t)} aria-pressed={on === id(t)} disabled={!ready || !permitted(command(t), settings)} style={{ minHeight: 48 }}
-      onPointerDown={(e: PointerEvent<HTMLButtonElement>) => { e.currentTarget.setPointerCapture?.(e.pointerId); press(t); }}
-      onPointerUp={() => zero()} onPointerCancel={() => zero()} onLostPointerCapture={() => { if (on === id(t)) zero(); }}
+      onPointerDown={(e: PointerEvent<HTMLButtonElement>) => press(e, t)}
+      onPointerUp={(e) => lift(e.pointerId)} onPointerCancel={(e) => lift(e.pointerId)} onLostPointerCapture={(e) => lift(e.pointerId)}
       onContextMenu={(e) => e.preventDefault()}><b className="mono">{k}</b> {text}</button>)}
   </div>;
   const age = s ? Math.round(rt.now() - l.stateAt) : null, stalled = !!s?.latched && s.safety_reason === 'OUTPUT_STALLED';
@@ -283,7 +311,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const latency = <ResponseLine state={freshState} screenMs={link === 'open' && connection.latencyAt != null && rt.now()-connection.latencyAt < 3000 ? connection.latencyMs ?? null : null} />;
   const notes = <><SlowResponse health={freshState?.connection === 'ONLINE' ? freshState.response_health : null} />{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
     {posture === 'UNKNOWN' && mine && <p className="dv-note" role="status" data-sd-pose-unknown>로봇 자세를 아직 알 수 없어 이동 단추를 잠갔습니다. 현장에서 로봇을 확인한 뒤 «일어서기»를 누르세요.</p>}
-    {ready && !got && <p className="dv-note" role="status" data-real-wait>{REAL_WAIT}</p>}
+    {ready && !(got && isSettings(settings)) && <p className="dv-note" role="status" data-real-wait>{REAL_WAIT}</p>}
     {why && <p className="dv-note" role="status" data-sd-why>{why}</p>}
     {l.notice && <p className="dv-note" role="status">{l.notice}</p>}
     {stalled && <p className="dv-note" role="status">{STALLED}</p>}</>;
