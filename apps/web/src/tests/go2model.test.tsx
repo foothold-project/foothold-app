@@ -108,16 +108,17 @@ describe('Go2 그림', () => {
 type Box = { x: number; y: number; w: number; h: number };
 const noOverlap = (b: Box[]) => b.every((p, i) => b.every((o, j) => j <= i || !(p.x < o.x + o.w && o.x < p.x + p.w && p.y < o.y + o.h && o.y < p.y + p.h)));
 /** 보고 목록 중 i 번째까지 차례로 넣는다(센서마다 시각·값·만료를 따로) */
-type Rep = { t: number; xy?: number[] | null; pt?: number; page?: number };
+type Rep = { t: number; xy?: number[] | null; pt?: number; page?: number; yaw?: number; qt?: number };
 const info = (r: Rep) => {
   const at = (ms: number) => new Date(Date.UTC(2026, 10, 19, 0, 0, 0, ms)).toISOString();
   return { joints: { received_at: at(r.t), age_s: 0, names: JOINTS, positions: POSE!.q },
-    quaternion: { received_at: at(r.t), age_s: 0, wxyz: [1, 0, 0, 0] },
+    quaternion: { received_at: at(r.qt ?? r.t), age_s: 0, wxyz: quat(r.yaw ?? 0) },
     position: r.xy === null ? null : { received_at: at(r.pt ?? r.t), age_s: r.page ?? 0, xyz: [...(r.xy ?? [0, 0]), 0.3], origin: 'BOOT_ORIGIN_UNVERIFIED' } } as unknown as Go2RobotInfo;
 };
 function Seq({ reps, i }: { reps: Rep[]; i: number }) {
-  last = useGo2Motion(info(reps[i]), POSE);
-  return <Go2Figure pose={POSE} motion={last} />;
+  const pose: Pose = { q: POSE!.q, wxyz: quat(reps[i].yaw ?? 0) };
+  last = useGo2Motion(info(reps[i]), pose);
+  return <Go2Figure pose={pose} motion={last} />;
 }
 function run(reps: Rep[]) {
   show(<Seq reps={reps} i={0} />);
@@ -142,6 +143,22 @@ describe('RV-403 막는 결함', () => {
     go(1); expect(last!.v![0]).toBeCloseTo(0.5);
     go(2); expect(last!.v![0]).toBeCloseTo(0.5);   // 위치 시각 50 ms(거꾸로) — 무시
     go(3); expect(last!.v![0]).toBeCloseTo(0.5);   // 위치 시각 100 ms(같음) — 무시
+  });
+
+  it('RV-405 늦게 온 옛 방향 보고(yaw π)는 버린다 — 몸 기준 화살표는 그대로 앞(+)', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    const go = run([{ t: 1000, xy: [0, 0] }, { t: 1100, xy: [0.05, 0] }, { t: 1150, xy: [0.05, 0], pt: 1100, yaw: Math.PI, qt: 1050 }]);
+    go(1); expect(last!.v![0]).toBeCloseTo(0.5);
+    go(2); expect(last!.v![0]).toBeCloseTo(0.5); expect(last!.v![1]).toBeCloseTo(0); expect(last!.wz).toBeCloseTo(0);
+    expect($('[data-go2-move]')!.textContent).toBe('0.5 m/s');
+  });
+
+  it('RV-405 1.16초 묵은 역순 위치 보고는 최신 이력을 지우지 않는다, 같은 보고가 묵으면 지금처럼 만료', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    const go = run([{ t: 1000, xy: [0, 0] }, { t: 1100, xy: [0.05, 0] }, { t: 1150, xy: [9, 0], pt: 40, page: 1.16 }, { t: 1200, xy: [0.05, 0], pt: 1100, page: 1.2 }]);
+    go(1); expect(last!.v![0]).toBeCloseTo(0.5);
+    go(2); expect(last!.v![0]).toBeCloseTo(0.5); expect($('[data-go2-move]')!.textContent).toBe('0.5 m/s');
+    go(3); expect(last!.v).toBeNull(); expect($('[data-go2-move]')).toBeNull();
   });
 
   it('2 WebGL 이 없으면 선 그림(몸통 상자·다리 4개)이 관절각대로 그려진다', () => {
