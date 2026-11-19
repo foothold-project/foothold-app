@@ -34,11 +34,13 @@ const yawOf = ([w, x, y, z]: number[]) => Math.atan2(2 * (w * z + x * y), 1 - 2 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 /** 이보다 오래된 센서 보고(age_s, 초)는 만료 — 그 센서 이력을 비운다(REPORT_STALE_MS 와 같은 1초) */
 const STALE_S = 1;
-/** 센서 하나의 보고를 이력에(RV-403 1). 값·시각이 없거나 만료면 이력을 비워 속도·화살표를 지운다. 같은 시각(같은 보고)·거꾸로 간 시각은 버린다 */
+/** 센서 하나의 보고를 이력에(RV-403 1). 거꾸로 간 시각(늦게 온 옛 보고)은 만료 판정보다 먼저 버린다(RV-405 — 최신 이력을 지우지 않음).
+ *  값·시각이 없거나 만료면 이력을 비워 속도·화살표를 지운다. 같은 시각(같은 보고)은 버린다 */
 const push = (h: Sample[], at: { received_at?: string; age_s?: number } | null | undefined, v: number[] | undefined) => {
-  const t = at?.received_at ? Date.parse(at.received_at) : NaN;
+  const t = at?.received_at ? Date.parse(at.received_at) : NaN, lt = h.length ? h[h.length - 1].t : -Infinity;
+  if (t < lt) return;
   if (!v || !Number.isFinite(t) || !((at?.age_s ?? Infinity) <= STALE_S)) { h.length = 0; return; }
-  if (h.length && t <= h[h.length - 1].t) return;
+  if (t === lt) return;
   h.push({ t, v }); if (h.length > 2) h.shift();
 };
 const NONE: Motion = { dq: null, v: null, wz: null };
@@ -52,8 +54,9 @@ export function useGo2Motion(info: Go2RobotInfo | null | undefined, pose: Pose):
   push(h.p, info.position, xyz && xyz.length >= 2 && xyz.every(Number.isFinite) ? xyz.slice(0, 2) : undefined);
   push(h.y, info.quaternion, info.quaternion?.wxyz ? [yawOf(pose.wxyz)] : undefined);
   const dy = h.y.length === 2 ? { ...h.y[1], v: [h.y[0].v[0] + wrap(h.y[1].v[0] - h.y[0].v[0])] } : undefined;
-  const w = rate(h.p[0], h.p[1]), yaw = yawOf(pose.wxyz), c = Math.cos(yaw), s = Math.sin(yaw);
-  return { dq: rate(h.j[0], h.j[1]), v: w ? [c * w[0] + s * w[1], -s * w[0] + c * w[1]] : null, wz: rate(h.y[0], dy)?.[0] ?? null };
+  // 몸 기준 변환은 마지막으로 받아들인 yaw 만(RV-405 — 늦게 온 옛 방향 보고로 화살표가 뒤집히지 않게). yaw 이력이 없으면 몸 속도도 모름
+  const w = rate(h.p[0], h.p[1]), yaw = h.y[h.y.length - 1]?.v[0], c = Math.cos(yaw ?? 0), s = Math.sin(yaw ?? 0);
+  return { dq: rate(h.j[0], h.j[1]), v: w && yaw !== undefined ? [c * w[0] + s * w[1], -s * w[0] + c * w[1]] : null, wz: rate(h.y[0], dy)?.[0] ?? null };
 }
 
 /** 부품 모양의 CPU 자료(꼭짓점·법선·순서 배열). 그림마다 이것으로 제 BufferGeometry 를 만들고 떠날 때 해제한다(RV-403 4) */
