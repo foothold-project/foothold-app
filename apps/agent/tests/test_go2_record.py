@@ -286,7 +286,7 @@ def test_desktop_observation_factory_reuses_existing_participant_without_motion(
                                    subscriptions, recording(), lambda: enabled[0])
     try:
         source = publisher.source
-        assert publisher.channels == ('rgb', 'lidar', 'depth') and source.depth_source is None
+        assert publisher.channels == ('rgb', 'lidar') and source.depth_source is None
         callback = lambda _: None
         assert source.factory({}, subscriptions, SERIAL, callback=callback) == 'cloud-handle'
         source.factory({}, subscriptions, SERIAL)
@@ -329,8 +329,7 @@ def test_setup_approval_starts_shared_observations_and_failure_does_not_affect_s
             pair = FakeSport(), FakeSport()
             motion.append(pair)
             return pair
-        def media_factory(creds, approval, subscriptions, shared, enabled, *, depth_source):
-            assert depth_source is depth
+        def media_factory(creds, approval, subscriptions, shared, enabled):
             assert shared is recorder and enabled() and depth.recording_allowed()
             publishers.append(dict(enabled=enabled, closed=False))
             if media_failure == 'factory': raise OSError('camera absent')
