@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,24 @@ sys.path.insert(0, str(DIRECTORY))
 import jetson_bundle_common as common
 import install_jetson_bundle as installer
 import build_jetson_bundle as builder
+
+
+def test_dds_loader_does_not_reuse_pips_same_second_bytecode(tmp_path):
+    loader = tmp_path/'__library__.py'
+    library = tmp_path/'libddsc.so'
+    # The original wheel omits the final newline. Its False and the pinned
+    # True plus newline have the same length, so timestamp validation collides.
+    loader.write_text('in_wheel = False\nlibrary_path = '+repr(str(library)))
+    original = loader.stat()
+    py_compile.compile(str(loader), doraise=True,
+                       invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP)
+    installer.pin_dds_library(loader, library)
+    os.utime(loader, ns=(original.st_atime_ns, original.st_mtime_ns))
+    assert loader.stat().st_size == original.st_size
+    spec = importlib.util.spec_from_file_location('__library__', loader)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.in_wheel is True and module.library_path == str(library)
 
 
 @pytest.fixture
