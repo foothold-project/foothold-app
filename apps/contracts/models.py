@@ -336,6 +336,20 @@ class Go2Position(Contract):
     origin: Literal['BOOT_ORIGIN_UNVERIFIED']
 
 
+Go2TemperatureReading = Annotated[
+    Annotated[int, Field(ge=1, le=150, strict=True)] | None,
+    BeforeValidator(lambda v: v if type(v) is int and 1 <= v <= 150 else None),
+]
+
+
+class Go2Temperature(Contract):
+    joints: list[Go2TemperatureReading] = Field(min_length=12, max_length=12)
+    battery: list[Go2TemperatureReading] = Field(min_length=4, max_length=4)
+    imu: Go2TemperatureReading
+    body: list[Go2TemperatureReading] = Field(min_length=2, max_length=2)
+    age_s: float = Field(ge=0, strict=True)
+
+
 class Go2RobotInfo(Contract):
     """Readout only; never an input to STOP, lease, readiness or accepted codes."""
     source: Literal['GO2_DDS']
@@ -344,10 +358,22 @@ class Go2RobotInfo(Contract):
         description='SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2).')
     fallen: bool | None = Field(strict=True)
     fallen_source: Literal['imu_tilt_estimate']
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('joints', 'quaternion', 'position'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('joints', 'quaternion', 'position', 'temperature'))
     joints: Go2Joints | None = Field(default=None, exclude_if=lambda v: v is None)
     quaternion: Go2Quaternion | None = Field(default=None, exclude_if=lambda v: v is None)
     position: Go2Position | None = Field(default=None, exclude_if=lambda v: v is None)
+    temperature: Go2Temperature | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @field_validator('temperature', mode='wrap')
+    @classmethod
+    def measured_temperature(cls, value, handler):
+        try:
+            sample = handler(value)
+        except ValidationError:
+            return None
+        if sample is not None and any(v is not None for v in (*sample.joints, *sample.battery, sample.imu, *sample.body)):
+            return sample
+        return None
 
     @field_validator('joints', 'quaternion', 'position', mode='before')
     @classmethod

@@ -51,7 +51,7 @@ def live_state(realtime, rid):
     info = state.get('robot_info')
     if info is not None:
         info = dict(info)
-        for key in ('joints', 'quaternion', 'position'):
+        for key in ('joints', 'quaternion', 'position', 'temperature'):
             if info.get(key) is not None:
                 info[key] = {**info[key], 'age_s': info[key]['age_s'] + max(0, realtime.clock() - peer.state_received_at)}
         state['robot_info'] = info

@@ -35,7 +35,9 @@ def post(pc, body, *, robot=None, headers=None):
 def test_valid_phone_pass_relay_reaches_rest_and_web_without_agent_or_arbiter(pc, seeded, purpose):
     body = upload(pc, seeded, purpose=purpose)
     info = dict(source='GO2_DDS', attitude=dict(roll=.1, pitch=-.2), error_code=100,
-                fallen=False, fallen_source='imu_tilt_estimate')
+                fallen=False, fallen_source='imu_tilt_estimate',
+                temperature=dict(joints=[None] * 12, battery=[None] * 4, imu=38,
+                                 body=[None, 31], age_s=.5))
     body['state']['robot_info'] = info
     pc.upload_headers = app_token(pc)
     rid = body['robot']
