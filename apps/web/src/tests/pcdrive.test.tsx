@@ -10,6 +10,7 @@ import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SD_NOTE } from '../serverdrive';
 import { REPORT_STALE_MS, go2Pose } from '../pcdrive';
+import quadCss from '../quad.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -185,6 +186,9 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     const inner = $('[data-qfs-stop] [data-sd-stop-phase]');
     expect(inner && qd.contains(inner)).toBe(true);
     expect(inner!.textContent).toContain('정지 요청 실패 — 현장 확인');
+    // RV-398: 좁은 전체화면(768×400·800×600)에서 긴 실패 사유가 STOP 뒤로 넘쳐 가려지지 않게 칩이 줄바꿈 — 좌표는 headless(runs 사진)로
+    expect(inner!.firstElementChild!.classList.contains('lv-chip')).toBe(true);
+    expect(quadCss.replace(/\s+/g, '')).toMatch(/\.qd:fullscreen\.qfs-bar>\[data-sd-stop-phase\]>\.lv-chip\{[^}]*white-space:normal/);
   });
 
   it('전체화면의 «전체화면 끝»은 STOP 과 같은 줄에 따로(겹쳐 놓지 않음) — 눌러도 stop 0건', async () => {
