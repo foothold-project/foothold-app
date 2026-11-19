@@ -119,8 +119,7 @@ def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')
 
 class Source:
     def __init__(self, config, env, channel, *, factory=sdk.observation, now=time.monotonic,
-                 recorder=None, enabled=lambda: True, include_depth=True,
-                 depth_source=None, depth_allowed=lambda: True):
+                 recorder=None, enabled=lambda: True, include_depth=True):
         self.config, self.env, self.channel = config, env, channel
         self.factory, self.now = factory, now
         self.enabled = enabled
@@ -143,17 +142,14 @@ class Source:
         self.epoch = secrets.randbits(52)
         self.threads = []
         from foothold_agent.depth.source import Source as DepthSource
-        self.owns_depth_source = depth_source is None and include_depth
-        self.depth_allowed = depth_allowed
-        self.depth_source = depth_source
-        if self.owns_depth_source:
-            self.depth_source = DepthSource(config, env, recorder=self.recorder,
-                                            recording_allowed=enabled)
+        self.depth_source = DepthSource(config, env, recorder=self.recorder,
+                                        recording_allowed=enabled) if include_depth else None
+        if self.depth_source is not None:
             self.depth_source.epoch = self.epoch
 
     def start(self):
         self.recorder.start()
-        if self.owns_depth_source:
+        if self.depth_source is not None:
             self.depth_source.start()
         self.threads = [threading.Thread(target=self.observe, args=(name, fn),
                                        daemon=True, name='go2-observe-'+name)
@@ -202,7 +198,15 @@ class Source:
             client = self.factory(self.env, self.channel, expected_serial(self.config.approval))
             self.start_ready('rgb')
             while not self.closing.is_set() and self.enabled():
-                code, data = client.GetImageSample()
+                try:
+                    code, data = client.GetImageSample()
+                except Exception as error:
+                    self.start_failed('rgb', error)
+                    # Retry the same VideoClient: the pinned SDK has no public
+                    # close API, and replacing it leaks its DDS reader/writer.
+                    self.closing.wait(1.)
+                    continue
+                self.start_ready('rgb')
                 received = self.now()
                 if type(code) is int and code == 0:
                     if self.closing.is_set() or not self.enabled():
@@ -322,25 +326,14 @@ class Source:
         if self.closing.is_set() or not self.enabled():
             return None
         if channel == 'depth':
-            try:
-                if self.depth_source is None or not self.depth_allowed():
-                    return None
-                item = self.depth_source.sample(channel)
-                if item is None or not 0 <= self.now()-item[0] <= 1:
-                    return None
-                # Setup owns the reader across approval epochs. Rebind a copy
-                # to this publisher without mutating or restarting that reader.
-                received, header, payload = item
-                return received, dict(header, robot=self.config.robot, epoch=self.epoch), payload
-            except Exception:
-                return None  # depth failure never stops the RGB/lidar workers
+            return self.depth_source.sample(channel) if self.depth_source is not None else None
         with self.lock:
             item = self.latest.get(channel)
         return item if item and 0 <= self.now()-item[0] <= 1 else None
 
     def close(self):
         self.closing.set()  # never await a stalled SDK/video worker on safety's loop
-        if self.owns_depth_source:
+        if self.depth_source is not None:
             self.depth_source.close()
         if self.owns_recorder:
             self.recorder.close()
@@ -430,7 +423,7 @@ class Publisher:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-def approved_publisher(credentials, approval, subscriptions, recorder, enabled, *, depth_source=None):
+def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     """Desktop observations reuse the existing approved DDS participant/NIC.
 
     No file-based manual approval, new participant or motion client is opened.
@@ -485,11 +478,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled, 
 
     config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link, approval=approval)
 
-    def depth_allowed():
-        authorize(subscriptions, expected_serial(approval))
-        return True
-
-    return Publisher(config, {}, subscriptions, channels=('rgb', 'lidar', 'depth'),
+    # Setup's DepthPublisher already owns /drive-media/depth across approvals.
+    return Publisher(config, {}, subscriptions, channels=('rgb', 'lidar'),
         source_factory=lambda config, env, channel: Source(config, env, channel,
-            factory=observation, recorder=recorder, enabled=enabled, include_depth=False,
-            depth_source=depth_source, depth_allowed=depth_allowed))
+            factory=observation, recorder=recorder, enabled=enabled, include_depth=False))

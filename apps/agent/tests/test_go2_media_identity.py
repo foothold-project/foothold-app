@@ -83,20 +83,17 @@ def test_mac_media_reuses_current_connection_identity(monkeypatch, caplog, failu
     monkeypatch.setattr(builtins, '__import__', fake_import)
     monkeypatch.setattr(socket, 'if_nameindex', lambda: [(7, NIC_VALUE.name)])
     monkeypatch.setattr(media, 'video', lambda _: (dict(t='media.video'), None))
-    depth_reads = []
-    def depth_sample(channel):
-        depth_reads.append(channel)
-        return time.monotonic(), dict(t='media.video', seq=1), None
-    depth = NS(sample=depth_sample)
     enabled = [True]
     publisher = approved_publisher(creds, Approval(NIC_VALUE.name, identity.serial, time.time()+60),
-                                   subscriptions, recorder(), lambda: enabled[0], depth_source=depth)
+                                   subscriptions, recorder(), lambda: enabled[0])
     source = publisher.source
+    assert publisher.channels == ('rgb', 'lidar')
+    assert source.depth_source is None
     source.last_odom_points = float('-inf')
     try:
         if failure:
             source.camera(); source.lidar()
-            assert source.sample('depth') is None and depth_reads == []
+            assert source.sample('depth') is None
             assert opened == [] and source.sample('rgb') is None and source.sample('lidar') is None
             assert 'GO2_MEDIA start_failed reason=identity' in caplog.text
             assert MAC not in caplog.text and '192.168.' not in caplog.text
@@ -108,13 +105,12 @@ def test_mac_media_reuses_current_connection_identity(monkeypatch, caplog, failu
             assert source.sample('rgb')[1]['seq'] == 1
             assert source.sample('lidar')[1]['count'] == 1
             assert 'camera' in opened and 'rt/utlidar/cloud' in opened
-            assert source.sample('depth')[1]['epoch'] == source.epoch
-            assert depth_reads == ['depth']
+            assert source.sample('depth') is None
             enabled[0] = False
-            assert source.sample('depth') is None and depth_reads == ['depth']
+            assert source.sample('rgb') is None and source.sample('lidar') is None
             enabled[0] = True
             identity.checked = float('-inf')
-            assert source.sample('depth') is None and depth_reads == ['depth']
+            assert source.sample('depth') is None
             with pytest.raises(PermissionError): source.factory({}, subscriptions, identity.serial)
     finally:
         source.close()

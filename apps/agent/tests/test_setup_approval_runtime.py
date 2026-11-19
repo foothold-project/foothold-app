@@ -40,7 +40,7 @@ def test_slow_initialization_does_not_prematurely_close_new_output(monkeypatch):
     exercise_initialization(monkeypatch, zero=True, stop_result=-1)
 
 
-def test_setup_passes_existing_depth_reader_to_approved_media(monkeypatch):
+def test_setup_keeps_depth_recording_without_forwarding_reader_to_approved_media(monkeypatch):
     exercise_initialization(monkeypatch, zero=True, depth=True)
 
 
@@ -203,9 +203,8 @@ def exercise_initialization(monkeypatch, *, zero, change=None, stop_result=0, de
             outputs.append(sink)
             return sink
         depth_source = NS() if depth else None
-        def media_factory(_credentials, approval, subscriptions, recorder, enabled, **kwargs):
+        def media_factory(_credentials, approval, subscriptions, recorder, enabled):
             assert enabled() and approval.robot_serial == creds.robot_serial
-            assert kwargs == (dict(depth_source=depth_source) if depth else {})
             if depth:
                 assert depth_source.recorder is recorder and depth_source.recording_allowed()
             item = NS(closed=False, enabled=enabled)
