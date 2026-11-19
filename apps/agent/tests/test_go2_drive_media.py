@@ -6,6 +6,7 @@ import struct
 import threading
 import time
 from types import SimpleNamespace as NS
+from urllib.error import HTTPError, URLError
 from uuid import uuid4
 
 import pytest
@@ -132,6 +133,51 @@ def test_upload_format_has_no_url_token_and_keeps_control_ws_limit():
         assert body=={'header':{'t':'media.points'},'points':'ZmFrZQ=='}
         assert requests[0].get_header('Authorization')=='Bearer fake-token'
     finally:publisher.executor.shutdown(wait=True)
+
+
+def test_lidar_upload_logs_only_changes_in_frame_or_result(monkeypatch, caplog):
+    url = 'https://private.invalid'
+    attempts = iter([
+        (False, 202), (False, 202), (True, 202), (True, 202),
+        (True, HTTPError(url, 403, 'private reason', {}, None)),
+        (True, HTTPError(url, 403, 'private reason', {}, None)),
+        (True, 503), (True, URLError(TimeoutError(url))), (True, asyncio.TimeoutError()),
+        (True, URLError(url)), (True, ValueError(url)), (True, 202),
+    ])
+    seq = 0
+    response = None
+
+    def sample(channel):
+        nonlocal seq, response
+        step = next(attempts, None)
+        if step is None:
+            raise asyncio.CancelledError
+        has_points, response = step
+        seq += 1
+        return (0, {'t': 'media.points', 'seq': seq}, b'private points') if has_points else None
+
+    def open_response(request, timeout):
+        if isinstance(response, Exception):
+            raise response
+        return NS(status=response, read=lambda n: b'', close=lambda: None)
+
+    async def skip_delay(seconds):
+        pass
+
+    monkeypatch.setattr(asyncio, 'sleep', skip_delay)
+    config = NS(robot='private robot', link=Settings('wss://private.invalid/api/v1/agent/ws', 'fake-token'))
+    publisher = Publisher(config, {}, None, source_factory=lambda *args: NS(sample=sample, epoch=1))
+    publisher.opener = NS(open=open_response)
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(publisher.stream('lidar'))
+    finally:
+        publisher.executor.shutdown(wait=True)
+    assert caplog.messages == ['GO2_MEDIA lidar_upload frame=' + value for value in (
+        'no_points result=http_202', 'points result=http_202', 'points result=http_403',
+        'points result=http_503', 'points result=timeout', 'points result=network_error',
+        'points result=error', 'points result=http_202',
+    )]
 
 
 def test_camera_metadata_rejects_multiple_or_oversized_rasters_without_codec_import():
