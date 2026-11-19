@@ -376,7 +376,7 @@ def test_depth_reports_stalled_reader_and_recovers_on_same_topic(first_read):
     def update(**state):
         assert state['depth_selected'] == topic
         notices.append(state['depth_notice'])
-        if '수신 중' in notices[-1]:
+        if '최근 뎁스 영상을 받았습니다' in notices[-1]:
             source.close()
 
     source = Source(NS(robot=str(uuid4())), now=lambda: clock[0],
@@ -387,12 +387,72 @@ def test_depth_reports_stalled_reader_and_recovers_on_same_topic(first_read):
         assert clock[0] < 6
     source.closing.wait = advance
     source.run()
-    assert expected in notices and '수신 중' in notices[-1]
+    assert expected in notices and '최근 뎁스 영상을 받았습니다' in notices[-1]
     assert source.seq == 1 and len(closed) == len(opened)
     if first_read == 'error':
         assert len(opened) == 2 and opened[1] - opened[0] >= 1
     else:
         assert len(opened) == 1
+
+
+def test_intermittent_depth_status_and_bounded_reopen_without_stale_frames(caplog):
+    from foothold_agent.depth.source import NO_IMAGE, STALL_SECONDS, RETRY_SECONDS
+
+    clock = [0.]
+    topic = 'rt/custom/depth'
+    rows = image_topics(endpoints((topic, IMAGE)))
+    events, notices = [], []
+    sent = set()
+
+    class Images:
+        def __init__(self, participant, selected):
+            assert selected == rows[0]
+            assert not events or events[-1][0] == 'close'
+            events.append(('open', clock[0]))
+
+        def take(self):
+            # Two good frames four seconds apart, a sustained outage across two
+            # reader lifetimes, and then a fresh sample on the third reader.
+            for index, available in enumerate((0, 4, 34)):
+                if clock[0] >= available and index not in sent:
+                    sent.add(index)
+                    message = raw()
+                    message.header.stamp.sec = index + 1
+                    return [message]
+            return []
+
+        def close(self):
+            events.append(('close', clock[0]))
+
+    def update(**state):
+        notices.append((clock[0], state['depth_notice']))
+        if 1.5 < clock[0] < 4:
+            assert source.sample('depth') is None
+        if source.seq == 3:
+            source.close()
+
+    source = Source(NS(robot=str(uuid4())), now=lambda: clock[0],
+                    status=NS(update=update, depth_choice=lambda: None),
+                    participant=lambda: 'shared',
+                    discovery=lambda _: NS(poll=lambda: rows, close=lambda: None), images=Images)
+
+    def advance(seconds):
+        clock[0] += seconds
+        assert clock[0] < 36
+
+    source.closing.wait = advance
+    source.run()
+    assert [action for action, _ in events] == ['open', 'close'] * 3
+    reports = [record.getMessage() for record in caplog.records if 'Depth receiver' in record.getMessage()]
+    assert len(reports) == 1 and 'topic=custom' in reports[0]
+    assert 'samples=2 frames=2' in reports[0] and "'stalls': 2" in reports[0]
+    assert events[1][1] >= 4 + STALL_SECONDS
+    for closed, opened in ((events[1][1], events[2][1]), (events[3][1], events[4][1])):
+        assert opened - closed >= RETRY_SECONDS
+    assert events[3][1] - events[2][1] >= STALL_SECONDS
+    assert all('최근 뎁스 영상을 받았습니다' in message for at, message in notices if 1.5 < at < 14)
+    assert any(message == NO_IMAGE for at, message in notices if at > 17)
+    assert '최근 뎁스 영상을 받았습니다' in notices[-1][1]
 
 
 @pytest.mark.parametrize('case',['missing-range','equal','nan','source','rgb-with-depth','episode'])
