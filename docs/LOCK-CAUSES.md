@@ -1,6 +1,6 @@
 # 조종 정지·잠금·조종권 해제 원인 지도
 
-기준: `origin/dev` 506a996 이후 RB-LOCK-CAUSES 계측 추가본. **코드 87개(서버 27, 에이전트 60)**, 아래 별도 관문 8개. 모의 표본과 소스에서 확인했으며 과거 r4~r10의 실제 원인을 확정하는 자료는 아니다. 실기·DDS·Jetson·원격 서버·운영 DB는 접촉하지 않았다.
+기준: `origin/dev` 3591441(#391 포함) 이후 RB-LOCK-CAUSES 계측 추가본. **코드 87개(서버 27, 에이전트 60)**, 아래 별도 관문 8개. 모의 표본과 소스에서 확인했으며 과거 r4~r10의 실제 원인을 확정하는 자료는 아니다. 실기·DDS·Jetson·원격 서버·운영 DB는 접촉하지 않았다.
 
 `a` = 명령 0/STOP, `b` = 잠금(명시적인 잠금 해제 필요), `c` = 조종권 해제(조종 시작부터 필요). `(c)`는 당시 실제 controller가 있었을 때만 해제 사건이 남는다는 뜻이다. STOP 요청/명령 0은 실측 정지의 증거가 아니다.
 
@@ -96,7 +96,7 @@
 | `identity_check_failed` | MacIdentity 실패 epoch 변화(커널 조회 실패·일시 미확인); 성공이 사이에 와도 옛 승인 철회. [apps/agent/foothold_agent/setup/runtime.py:226](../apps/agent/foothold_agent/setup/runtime.py#L226) | a/b/(c) | 원인 복구 → 새 승인 epoch → 조종 시작 → 잠금 해제 | 읽기 전용 · 현장 안전 확인 필요 / 정지 잠금(원인별 새 웹 문구 없음) |
 | `feedback_identity_conflict` | Feedback의 영구 serial 충돌 fault. [apps/agent/foothold_agent/setup/runtime.py:229](../apps/agent/foothold_agent/setup/runtime.py#L229) | a/b/(c) | 원인 복구 → 새 승인 epoch → 조종 시작 → 잠금 해제 | 읽기 전용 · 현장 안전 확인 필요 / 정지 잠금(원인별 새 웹 문구 없음) |
 | `activation_feedback_lost` | SDK 구성 뒤 활성화 직전 feedback.sample 없음. [apps/agent/foothold_agent/setup/runtime.py:267](../apps/agent/foothold_agent/setup/runtime.py#L267) | a/b/(c) | 원인 복구 → 새 승인 epoch → 조종 시작 → 잠금 해제 | 읽기 전용 · 현장 안전 확인 필요 / 정지 잠금(원인별 새 웹 문구 없음) |
-| `runtime_exit` | setup.run finally에서 독립 SDK 레인 STOP 후 worker 닫음. [apps/agent/foothold_agent/setup/runtime.py:471](../apps/agent/foothold_agent/setup/runtime.py#L471) | a/b/(c) | 원인 복구 → 새 승인 epoch → 조종 시작 → 잠금 해제 | 읽기 전용 · 현장 안전 확인 필요 / 정지 잠금(원인별 새 웹 문구 없음) |
+| `runtime_exit` | setup.run finally에서 독립 SDK 레인 STOP 후 worker 닫음. [apps/agent/foothold_agent/setup/runtime.py:473](../apps/agent/foothold_agent/setup/runtime.py#L473) | a/b/(c) | 원인 복구 → 새 승인 epoch → 조종 시작 → 잠금 해제 | 읽기 전용 · 현장 안전 확인 필요 / 정지 잠금(원인별 새 웹 문구 없음) |
 | `identity_check_delayed` | MacIdentity 검사가 executor 대기 포함 0≤경과<.20 s를 넘김. 긍정적 충돌과 구별. [apps/agent/foothold_agent/setup/identity.py:73](../apps/agent/foothold_agent/setup/identity.py#L73) | a/b/(c) | 새 신선한 기체 확인 → 새 승인·조종권·잠금 해제 | 로봇 확인 잠시 안 됨 · 이동 잠김 |
 | `output_apply_stalled` | 잠금이 풀린 상태에서 SDK sink apply 공백 ≥.30 s. 이미 잠긴 idle의 반복 watchdog은 새 사건으로 세지 않음. [apps/agent/foothold_agent/go2_direct/sink.py:293](../apps/agent/foothold_agent/go2_direct/sink.py#L293) | a/b | 출력/연결 원인 복구 → 실측 정지 확인 → 잠금 해제 | 출력이 늦어져 로봇을 멈췄습니다 — 다시 잠금 해제하면 이어집니다.(stall 계열); 나머지는 정지 잠금 |
 | `output_drain_stalled` | apply는 신선하지만 정상 출력 worker drain 공백 ≥.30 s. [apps/agent/foothold_agent/go2_direct/sink.py:294](../apps/agent/foothold_agent/go2_direct/sink.py#L294) | a/b | 출력/연결 원인 복구 → 실측 정지 확인 → 잠금 해제 | 출력이 늦어져 로봇을 멈췄습니다 — 다시 잠금 해제하면 이어집니다.(stall 계열); 나머지는 정지 잠금 |
