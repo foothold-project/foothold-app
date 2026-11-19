@@ -9,7 +9,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SD_NOTE } from '../serverdrive';
-import { REPORT_STALE_MS, go2Pose } from '../pcdrive';
+import { REPORT_STALE_MS, TEMP_STALE_S, go2Pose, go2Temps } from '../pcdrive';
 import quadCss from '../quad.css?raw';
 import pcCss from '../pcdrive.css?raw';
 
@@ -228,6 +228,45 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(open()).toBe(0);
     click($('.qpip')!);
     expect(open()).toBe(1);
+  });
+
+  // RB-TEMP-WEB(11-19): robot_info.temperature — 관절 12개(JOINTS 순서)·배터리 4·자세 센서·본체 2·age_s
+  const JT = [30, 31, 32, 33, 34, 41, 35, 36, 37, 38, 39, 40];
+  const warm = (age = 0.5, t: Record<string, unknown> = {}) => ({ ...info(), temperature: { joints: JT, battery: [28, 30, null, 29], imu: 36, body: [38, null], age_s: age, ...t } }) as unknown as ScreenState['robot_info'];
+  it('온도: 관절 값 라벨 12개에 °C, 가장 뜨거운 관절 강조, 위쪽 카드 3개(관절 최고·배터리·몸 안)', () => {
+    mount('u-park'); serve('r7');
+    act(() => push('r7', { robot_info: warm() }));
+    const stage = $('[data-pd-stage]')!, tags = [...stage.querySelectorAll('[data-go2-joint]')];
+    expect(tags).toHaveLength(12);
+    tags.forEach((t) => expect(t.textContent).toMatch(/^-?\d+° · \d+°C/));
+    expect(stage.querySelector('[data-go2-joint="FL_calf_joint"]')!.textContent).toContain('41°C');
+    expect([...stage.querySelectorAll('[data-hot]')].map((x) => x.getAttribute('data-go2-joint'))).toEqual(['FL_calf_joint']);
+    const f = (k: string) => $(`[data-pd-left] [data-pd="${k}"]`)!.textContent;
+    expect(f('temp-joint')).toContain('41°C (앞 왼 종아리)'); expect(f('temp-battery')).toContain('30°C'); expect(f('temp-inside')).toContain('38°C');
+    click($('[data-pd-tags]')!);   // «관절 값» 끄면 온도 라벨도 같이 숨김
+    expect(stage.querySelectorAll('[data-go2-joint]')).toHaveLength(0);
+    expect(pcCss).toMatch(/\.pd-tag\[data-hot\]\{[^}]*#3EC7B4/); expect(pcCss).not.toMatch(/data-hot[^}]*var\(--(warn|bad|danger)/);
+  });
+  it('온도가 없거나 오래되면(3초 넘음) 온도만 «—» — 관절 각도·그림은 그대로', () => {
+    mount('u-park'); serve('r7');
+    const f = (k: string) => $(`[data-pd-left] [data-pd="${k}"] b`)!.textContent;
+    for (const ri of [info(), warm(TEMP_STALE_S + 0.5), { ...info(), temperature: null }]) {
+      act(() => push('r7', { robot_info: ri as ScreenState['robot_info'] }));
+      expect(['temp-joint', 'temp-battery', 'temp-inside'].map(f)).toEqual(['—', '—', '—']);
+      expect($('[data-pd-left]')!.hasAttribute('data-stale')).toBe(false);
+      const tags = [...$('[data-pd-stage]')!.querySelectorAll('[data-go2-joint]')];
+      expect(tags).toHaveLength(12); tags.forEach((t) => expect(t.textContent).not.toContain('°C'));
+      expect($('[data-pd-stage] [data-hot]')).toBeNull();
+    }
+    act(() => push('r7', { robot_info: warm(0.5, { joints: JT.map(() => null), battery: [null, null, null, null], imu: null, body: [null, null] }) }));
+    expect(['temp-joint', 'temp-battery', 'temp-inside'].map(f)).toEqual(['—', '—', '—']);
+  });
+  it('go2Temps: 연결·새 보고일 때만, 관절 12개 아니면 관절만 비움, 숫자 아닌 값은 버림', () => {
+    const s = state('r7', { robot_info: warm() });
+    expect(go2Temps(s, true)).toEqual({ joints: JT, hot: 5, battery: 30, inside: 38 });
+    expect(go2Temps(s, false)).toBeNull(); expect(go2Temps({ ...s, connection: 'OFFLINE' }, true)).toBeNull();
+    expect(go2Temps(state('r7', { robot_info: warm(0.5, { age_s: undefined }) }), true)).toBeNull();
+    expect(go2Temps(state('r7', { robot_info: warm(0.5, { joints: JT.slice(1), imu: 'x', body: [NaN, 37] }) }), true)).toEqual({ joints: JT.map(() => null), hot: -1, battery: 30, inside: 37 });
   });
 
   it('go2Pose: 관절 12개·연결·새것일 때만, 이름 순서대로 다시 맞춤', () => {

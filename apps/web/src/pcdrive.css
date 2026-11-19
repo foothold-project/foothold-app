@@ -31,6 +31,8 @@
 /* 그림 위 관절 값·화살표 글자(어두운 그림 바탕 위 — 고정 밝은 글자). 자리는 go2model.tsx spread(겹치지 않게)가 정한다 */
 .pd-tag{position:absolute;z-index:1;pointer-events:none;overflow:hidden;box-sizing:border-box;display:flex;gap:3px;align-items:center;height:14px;padding:0 3px;border-radius:4px;background:rgba(8,11,14,.62);color:#E6EBEF;font-size:10px;line-height:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .pd-tag i{font-style:normal;color:#3EC7B4;font-weight:600}
+/* 가장 뜨거운 관절 = 굵게 + 테두리(화살표와 같은 색 — 경고색 아님, 위험 문턱은 정하지 않음) */
+.pd-tag[data-hot]{font-weight:700;box-shadow:inset 0 0 0 1px #3EC7B4}
 .pd-tag-move{height:16px;font-size:11px;font-weight:600;color:#3EC7B4}
 .pd-mid{min-width:0}
 .pd-floor{position:absolute;inset:0;overflow:auto;padding:6px;background:var(--panel)}

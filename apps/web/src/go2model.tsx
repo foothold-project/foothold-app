@@ -166,7 +166,7 @@ export function spread(tags: { x: number; y: number; side: number; w: number; h:
 }
 /** 그림 아래 줄의 관절 이름(앞 오른 종아리 등) */
 const LEG: Record<string, string> = { FR: '앞 오른', FL: '앞 왼', RR: '뒤 오른', RL: '뒤 왼' }, PART: Record<string, string> = { hip: '엉덩이', thigh: '허벅지', calf: '종아리' };
-const jointName = (n: string) => `${LEG[n.slice(0, 2)]} ${PART[n.split('_')[1]]}`;
+export const jointName = (n: string) => `${LEG[n.slice(0, 2)]} ${PART[n.split('_')[1]]}`;
 /** 자세를 놓고, 관절·화살표 끝을 화면 px 로. 관절 화살표 = 각속도 부호 × (돌림축이 카메라 쪽이면 +) — 오른손 법칙대로 + 는 보는 사람에게 반시계(↺) */
 function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number) {
   const q = pose?.q ?? STAND, [qw, qx, qy, qz] = pose?.wxyz ?? [1, 0, 0, 0];
@@ -204,8 +204,9 @@ function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number) {
   return { joints, sketch, move: v ? { ...px(r.tip), speed: Math.hypot(...v) } : null, turn: wz != null ? { ...px(r.end), wz } : null };
 }
 
-/** 그림 칸 — 3D(메시 또는 상자, WebGL 이 없으면 선 그림) + 관절 값·화살표 글자. 그림 안에 자리가 없는 관절 값은 그림 아래 줄. showJoints=false 면 관절 값 숨김 */
-export function Go2Figure({ pose, motion = NONE, showJoints = true }: { pose: Pose; motion?: Motion; showJoints?: boolean }) {
+/** 그림 칸 — 3D(메시 또는 상자, WebGL 이 없으면 선 그림) + 관절 값·화살표 글자. 그림 안에 자리가 없는 관절 값은 그림 아래 줄. showJoints=false 면 관절 값 숨김.
+ *  temps = 관절 온도 12개(JOINTS 순서, °C, 모르면 null) — 각도 옆에 같이. hot = 가장 뜨거운 관절 번호(라벨 강조, -1 이면 없음) */
+export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null, hot = -1 }: { pose: Pose; motion?: Motion; showJoints?: boolean; temps?: (number | null)[] | null; hot?: number }) {
   const box = useRef<HTMLDivElement>(null), gl = useRef<THREE.WebGLRenderer | null>(null);
   const [rig] = useState(() => { const r = makeRig(typeof document === 'undefined' ? null : getComputedStyle(document.documentElement)); dress(r, null); return r; });
   const [fail, setFail] = useState(false), [size, setSize] = useState({ w: 300, h: 260 }), [kind, setKind] = useState(rig.kind);
@@ -238,13 +239,13 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true }: { pose: Po
       .filter((x) => !!x).map((x) => ({ ...x, dir: '', rate: 0, side: x.x < size.w / 2 ? 1 : -1, h: 16, w: 8 + 7 * x.text.length, pin: true }));
     const t = (showJoints && q ? at.joints : []).map((j, i) => {
       const dq = motion.dq?.[i], dir = dq != null && Math.abs(dq) >= JOINT_MIN ? (dq * j.toward > 0 ? 'ccw' : 'cw') : '';
-      const text = `${deg(q![i])}°`, rate = dir ? Math.abs(deg(dq!)) : 0;
-      return { name: JOINTS[i], text, dir, rate, x: j.x, y: j.y, side: j.side, h: 14, w: 6 + 6 * text.length + (dir ? 16 + 6 * `${rate}°/s`.length : 0) };
+      const c = temps?.[i], text = `${deg(q![i])}°${c != null ? ` · ${Math.round(c)}°C` : ''}`, rate = dir ? Math.abs(deg(dq!)) : 0;
+      return { name: JOINTS[i], text, dir, rate, hot: i === hot, x: j.x, y: j.y, side: j.side, h: 14, w: 6 + 6 * text.length + (dir ? 16 + 6 * `${rate}°/s`.length : 0) };
     });
     const all = [...arrows, ...t], b = spread(all, size.w, size.h);
     return all.map((x, i) => ({ ...x, b: b[i] }));
-  }, [at, q?.join(), motion.dq?.join(), size, showJoints]);
-  const val = (t: (typeof tags)[number], b?: Box) => <span className="pd-tag" data-go2-joint={t.name} data-moving={t.dir || undefined} style={b && { left: b.x, top: b.y, width: b.w }}>
+  }, [at, q?.join(), motion.dq?.join(), size, showJoints, temps?.join(), hot]);
+  const val = (t: (typeof tags)[number], b?: Box) => <span className="pd-tag" data-go2-joint={t.name} data-moving={t.dir || undefined} data-hot={'hot' in t && t.hot ? '' : undefined} style={b && { left: b.x, top: b.y, width: b.w }}>
     {t.text}{t.dir && <i>{t.dir === 'ccw' ? '↺' : '↻'} {t.rate}°/s</i>}</span>;
   const spill = tags.filter((t) => !t.b);
   const k = at.sketch, line = (p: readonly (readonly [number, number])[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
