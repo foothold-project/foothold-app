@@ -15,7 +15,7 @@ import threading
 import time
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, build_opener, ProxyHandler
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from concurrent.futures import ThreadPoolExecutor
 
 from . import sdk
@@ -361,6 +361,7 @@ class Publisher:
         # A stalled depth HTTP request must not occupy RGB/lidar's workers.
         self.executor = ThreadPoolExecutor(max_workers=len(self.channels), thread_name_prefix='go2-media-upload')
         self.opener = build_opener(ProxyHandler({}))
+        self.last_lidar_upload = None
 
     def url(self, channel):
         url = urlsplit(self.config.link.url)
@@ -380,7 +381,7 @@ class Publisher:
         try:
             response = self.opener.open(request, timeout=.5)
             if response.status != 202:
-                raise ValueError('observation upload rejected')
+                raise HTTPError(request.full_url, response.status, 'observation upload rejected', None, None)
             response.read(128)
         except HTTPError as error:
             # urllib raises HTTPError before returning the response. It owns
@@ -393,12 +394,30 @@ class Publisher:
             if response is not None:
                 response.close()
 
+    def log_lidar_upload(self, header, error=None):
+        frame = 'points' if header['t'] == 'media.points' else 'no_points'
+        if error is None:
+            result = 'http_202'
+        elif isinstance(error, HTTPError):
+            result = f'http_{error.code}'
+        elif isinstance(error, (asyncio.TimeoutError, TimeoutError)) or (
+                isinstance(error, URLError) and isinstance(error.reason, TimeoutError)):
+            result = 'timeout'
+        elif isinstance(error, (URLError, OSError)):
+            result = 'network_error'
+        else:
+            result = 'error'
+        if (frame, result) != self.last_lidar_upload:
+            self.last_lidar_upload = frame, result
+            logging.getLogger(__name__).warning('GO2_MEDIA lidar_upload frame=%s result=%s', frame, result)
+
     async def stream(self, channel):
         seq = -1
         while True:
+            header = None
             try:
                 item = self.source.sample(channel)
-                header = payload = None
+                payload = None
                 if item is not None and item[1]['seq'] != seq:
                     _, header, payload = item
                 elif item is None:
@@ -409,12 +428,16 @@ class Publisher:
                 if header is not None:
                     await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(
                         self.executor, self.upload, channel, header, payload), .6)
+                    if channel == 'lidar':
+                        self.log_lidar_upload(header)
                     if item is not None:
                         seq = header['seq']
                 await asyncio.sleep(.5 if channel=='lidar' else .2)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as error:
+                if channel == 'lidar' and header is not None:
+                    self.log_lidar_upload(header, error)
                 await asyncio.sleep(1)  # observation failure never touches motion
 
     async def run(self):
