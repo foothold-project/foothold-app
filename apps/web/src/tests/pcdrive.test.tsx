@@ -110,6 +110,7 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     mount('u-park'); serve('r7');
     const left = () => $('[data-pd-left]')!;
     expect(left().hasAttribute('data-stale')).toBe(true); expect($('[data-pd-noreport]')!.textContent).toBe('로봇 보고 없음');
+    expect(pcCss).toMatch(/\.pd-noreport\{[^}]*pointer-events:none/);   // 안내가 아래 온도 점의 마우스 올림·누름을 막지 않음(RV-410)
     act(() => push('r7', { robot_info: info() }));
     expect(left().hasAttribute('data-stale')).toBe(false); expect($('[data-pd-noreport]')).toBeNull();
     expect(left().querySelector('[data-pd="posture"]')!.textContent).toContain('자세');

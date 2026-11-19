@@ -31,8 +31,6 @@ export function go2Pose(s: Live['state'], fresh: boolean): Pose {
   return { q, wxyz: norm > 0.9 && norm < 1.1 ? w!.map((v) => v / norm) : [1, 0, 0, 0] };
 }
 
-/** robot_info.temperature(RB-TEMP-DATA) 모양 — 계약(Go2RobotInfo)에 아직 없어 여기 둔다. 계약에 들어오면 그 타입으로 바꾼다 */
-type Go2Temp = { joints?: unknown[]; battery?: unknown[]; imu?: unknown; body?: unknown[]; age_s?: number };
 /** 온도 보고가 이보다 오래되면(초) 온도만 «—»(그림 흐림 규칙과 따로) */
 export const TEMP_STALE_S = 3;
 export type Temps = { joints: (number | null)[]; hot: number; battery: number | null; inside: number | null } | null;
@@ -41,8 +39,8 @@ const top = (a: unknown[]) => { const f = a.map(num).filter((v): v is number => 
 /** 관절 12개(JOINTS 순서)·가장 뜨거운 관절·배터리 4개 중 최고·몸 안(자세 센서·본체) 중 최고. 연결이 끊겼거나 보고가 오래되면 null(지어내지 않음).
  *  ago = 이 state 를 받은 뒤 화면 시계로 지난 초 — 나이 = age_s + ago(RV-409 4: 다음 보고를 기다리지 않고 3초 넘으면 «—») */
 export function go2Temps(s: Live['state'], fresh: boolean, ago = 0): Temps {
-  const t = (s?.robot_info as { temperature?: Go2Temp | null } | null | undefined)?.temperature;
-  if (!fresh || s?.connection !== 'ONLINE' || !t || !(t.age_s! + ago <= TEMP_STALE_S)) return null;
+  const t = s?.robot_info?.temperature;   // 계약 Go2Temperature(#407) — 값 없으면 키 없음. 받은 값은 그래도 수·길이를 확인
+  if (!fresh || s?.connection !== 'ONLINE' || !t || !(t.age_s + ago <= TEMP_STALE_S)) return null;
   const joints = Array.isArray(t.joints) && t.joints.length === 12 ? t.joints.map(num) : JOINTS.map(() => null), hi = top(joints);
   return { joints, hot: hi == null ? -1 : joints.indexOf(hi), battery: top(Array.isArray(t.battery) ? t.battery : []), inside: top([t.imu, ...(Array.isArray(t.body) ? t.body : [])]) };
 }
