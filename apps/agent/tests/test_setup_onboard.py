@@ -26,43 +26,74 @@ def saved():
                    identity_source='mac', mounted_binding=binding)
 
 
-@pytest.mark.parametrize('change', ['none', 'nic-name', 'nic-mac', 'robot-mac', 'computer', 'missing', 'laptop', 'computer-unavailable'])
-def test_only_matching_mounted_binding_skips_human_confirmation(change):
+@pytest.mark.parametrize('change', ['none', 'new', 'nic-name', 'nic-mac', 'computer', 'missing'])
+def test_onboard_accepts_same_body_without_human_confirmation(change):
+    async def scenario():
+        inputs = Inputs(); inputs.lowstate(low(1, sn=(0, 0)))
+        nic, creds, computer = NIC_VALUE, saved(), lambda:COMPUTER
+        if change == 'new': creds = None
+        if change == 'nic-name': nic = replace(nic, name='other0')
+        if change == 'nic-mac': nic = replace(nic, mac='02:00:00:00:00:22')
+        if change == 'computer': computer = lambda:'b'*64
+        if change == 'missing': creds = replace(creds, mounted_binding=None)
+        status = Status(onboard=True)
+        def no_confirmation(*_): pytest.fail('onboard must never request human confirmation')
+        status.request_identity = no_confirmation
+        identity = await asyncio.wait_for(confirm_zero_identity(inputs, nic, status, asyncio.Event(), creds,
+            query=lambda _:(MAC, []), onboard=True, computer=computer), 1)
+        assert identity is inputs.mac_identity and identity.valid()
+        assert identity.binding == mounted_binding(nic, MAC, computer=computer)
+        assert not status.snapshot().get('identity_confirmation')
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('failure', ['different-body', 'serial-source', 'computer-unavailable', 'nic-unavailable'])
+def test_onboard_refuses_without_human_confirmation_when_binding_is_unsafe(failure, caplog):
     async def scenario():
         inputs = Inputs(); inputs.lowstate(low(1, sn=(0, 0)))
         nic, mac, creds, computer = NIC_VALUE, MAC, saved(), lambda:COMPUTER
-        if change == 'nic-name': nic = replace(nic, name='other0')
-        if change == 'nic-mac': nic = replace(nic, mac='02:00:00:00:00:22')
-        if change == 'robot-mac': mac = '02:00:00:00:00:33'
-        if change == 'computer': computer = lambda:'b'*64
-        if change == 'missing': creds = replace(creds, mounted_binding=None)
-        if change == 'computer-unavailable':
+        if failure == 'different-body': mac = '02:00:00:00:00:33'
+        if failure == 'serial-source': creds = credentials()
+        if failure == 'computer-unavailable':
             def computer(): raise OSError('synthetic missing identity')
-        status, stop = Status(), asyncio.Event()
-        # Keep DDS evidence fresh while waiting for the operator.
-        def pulse():
-            inputs.lowstate(low(1, sn=(0, 0)))
-            handles.append(asyncio.get_running_loop().call_later(.01, pulse))
-        handles = []; pulse()
-        task = asyncio.create_task(confirm_zero_identity(inputs, nic, status, stop, creds,
-            query=lambda _:(mac, []), onboard=change != 'laptop', computer=computer))
-        try:
-            if change == 'none':
-                identity = await asyncio.wait_for(task, 1)
-                assert not status.snapshot().get('identity_confirmation')
-            else:
+        if failure == 'nic-unavailable': nic = replace(nic, mac='00:00:00:00:00:00')
+        status = Status(onboard=True)
+        def no_confirmation(*_): pytest.fail('onboard must never request human confirmation')
+        status.request_identity = no_confirmation
+        with pytest.raises(IdentityUnavailable) as error:
+            await confirm_zero_identity(inputs, nic, status, asyncio.Event(), creds,
+                query=lambda _:(mac, []), onboard=True, computer=computer)
+        if failure in ('different-body', 'serial-source'):
+            assert str(error.value) == '저장된 로봇과 다른 로봇입니다. 이 로봇으로 바꾸려면 등록을 다시 하세요'
+        assert inputs.mac_identity is None and not status.snapshot().get('identity_confirmation')
+        assert MAC not in str(error.value) and mac not in str(error.value)
+    asyncio.run(scenario())
+    assert MAC not in caplog.text and '192.168.' not in caplog.text
+
+
+def test_laptop_requires_confirmation_on_every_launch_even_with_matching_binding():
+    async def scenario():
+        for _ in range(2):
+            inputs = Inputs(); inputs.lowstate(low(1, sn=(0, 0)))
+            status, stop = Status(), asyncio.Event()
+            def pulse():
+                inputs.lowstate(low(1, sn=(0, 0)))
+                handles.append(asyncio.get_running_loop().call_later(.01, pulse))
+            handles = []; pulse()
+            task = asyncio.create_task(confirm_zero_identity(inputs, NIC_VALUE, status, stop, saved(),
+                query=lambda _:(MAC, []), onboard=False, computer=lambda:COMPUTER))
+            try:
                 await until(lambda:status.snapshot().get('identity_confirmation'))
                 assert inputs.mac_identity is None and not task.done()
                 shown = status.snapshot()['identity_confirmation']
                 status.confirm_identity(shown['request'], True)
                 identity = await asyncio.wait_for(task, 1)
-            assert identity is inputs.mac_identity
-            if change in ('laptop', 'computer-unavailable'): assert identity.binding is None
-        finally:
-            stop.set()
-            for handle in handles: handle.cancel()
-            if not task.done(): task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+                assert identity is inputs.mac_identity and identity.binding is None
+            finally:
+                stop.set()
+                for handle in handles: handle.cancel()
+                if not task.done(): task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
     asyncio.run(scenario())
 
 
@@ -137,7 +168,8 @@ def test_onboard_page_has_robot_computer_wording_and_hidden_controls():
         server.shutdown(); server.server_close(); worker.join()
 
 
-def test_first_registration_remembers_binding_next_boot_skips_confirmation_and_failure_closes(tmp_path, monkeypatch):
+@pytest.mark.parametrize('previous', ['new', 'matching', 'missing', 'computer', 'different', 'serial-source'])
+def test_onboard_connect_binds_same_body_and_never_repairs_a_different_body(tmp_path, monkeypatch, capsys, previous):
     from foothold_agent.setup import identity as identity_module
     monkeypatch.setattr('foothold_agent.go2_direct.identity.neighbors', lambda _: [
         dict(dst='192.168.123.161', dev=NIC_VALUE.name, lladdr=MAC, state=['STALE'])])
@@ -156,41 +188,78 @@ def test_first_registration_remembers_binding_next_boot_skips_confirmation_and_f
         import time
         expires_at = time.time()+590
         def __init__(self, server): calls.append('pairing')
-        def start(self, serial): pass
-        def poll(self, serial): return replace(credentials(), robot_serial=serial)
+        def start(self, serial):
+            assert serial == mac_serial(MAC)
+            calls.append('pairing-started')
+        def poll(self, serial):
+            assert serial == mac_serial(MAC)
+            calls.append('pairing-polled')
+            return replace(credentials(), robot_serial=serial)
         def clear(self): calls.append('pairing-cleared')
-    async def runtime(*args, **kwargs): calls.append('runtime')
-    args = NS(config=tmp_path/'private/agent.json', server='http://127.0.0.1', nic=None,
-              wheel_dir='fake', repair=False, onboard=True, no_browser=True, headless=True)
+    async def runtime(creds, nic, inputs, *args, **kwargs):
+        assert creds.robot_mac == MAC and creds.robot_serial == mac_serial(MAC)
+        assert creds.mounted_binding == saved().mounted_binding
+        assert load(config) == creds  # binding is persisted before server/runtime
+        assert inputs.identity() == mac_serial(MAC)
+        calls.append('runtime')
+    config = tmp_path/'private/agent.json'
+    if previous != 'new':
+        creds = saved()
+        if previous == 'missing': creds = replace(creds, mounted_binding=None)
+        if previous == 'computer': creds = replace(creds, mounted_binding={**creds.mounted_binding, 'computer':'b'*64})
+        if previous == 'different':
+            other = '02:00:00:00:00:33'
+            creds = replace(creds, robot_mac=other, robot_serial=mac_serial(other), mounted_binding=None)
+        if previous == 'serial-source': creds = credentials()
+        save(creds, config)
+    original = config.read_bytes() if config.exists() else None
+    args = NS(config=config, server='http://127.0.0.1', nic=None,
+              wheel_dir='fake', repair=previous in ('different', 'serial-source'), onboard=True, no_browser=True, headless=True)
     async def scenario():
         async def connect(status, run=runtime):
             return await setup.connect(args, status, asyncio.Event(), discover=lambda:[NIC_VALUE],
                 subscriptions_factory=Subscriptions, preflight=lambda _:dict(installation_ready=True, issues=[]),
                 pairing_factory=Pairing, runtime=run,
                 depth_factory=lambda **_:NS(start=lambda:None, close=lambda:calls.append('depth-closed'), bind=lambda _:None))
-        status = Status(onboard=True)
-        task = asyncio.create_task(connect(status))
-        await until(lambda:status.snapshot().get('identity_confirmation'))
-        shown = status.snapshot()['identity_confirmation']
-        assert not args.config.exists() and 'pairing' not in calls
-        status.confirm_identity(shown['request'], True)
-        await asyncio.wait_for(task, 2)
+        def status_without_confirmation():
+            status = Status(onboard=True)
+            def no_confirmation(*_): pytest.fail('onboard must never request human confirmation')
+            status.request_identity = no_confirmation
+            return status
+        status = status_without_confirmation()
+        if previous in ('different', 'serial-source'):
+            # Even --repair cannot silently attach a different body or token.
+            real_connect = setup.connect
+            async def delegated(*_):
+                monkeypatch.setattr(setup, 'connect', real_connect)
+                return await connect(status)
+            monkeypatch.setattr(setup, 'connect', delegated)
+            monkeypatch.setattr(setup, 'install_stop_handlers', lambda _:lambda:None)
+            assert await asyncio.wait_for(setup.serve(args, status), 2) is False
+            assert status.snapshot()['mode'] == '저장된 로봇과 다른 로봇입니다. 이 로봇으로 바꾸려면 등록을 다시 하세요'
+            assert calls == ['depth-closed', 'subscriptions-closed']
+            assert config.read_bytes() == original
+            assert not status.snapshot().get('identity_confirmation')
+            return
+        await asyncio.wait_for(connect(status), 2)
         assert load(args.config).mounted_binding == saved().mounted_binding
-        assert calls.count('pairing') == 1
+        pairings = int(previous == 'new')
+        assert calls.count('pairing') == calls.count('pairing-started') == calls.count('pairing-polled') == pairings
         # New process inputs and status, same saved evidence: no operator click.
-        status = Status(onboard=True)
+        status = status_without_confirmation()
         await asyncio.wait_for(connect(status), 2)
         assert not status.snapshot().get('identity_confirmation')
-        assert calls.count('pairing') == 1 and calls.count('runtime') == 2
+        assert calls.count('pairing') == pairings and calls.count('runtime') == 2
         # The existing connect finally closes read-only and media resources even
         # when activation/runtime fails; serve then returns in headless mode.
         async def fail(*args, **kwargs): raise RuntimeError('fake activation failure')
         real_connect = setup.connect
         async def delegated(*_):
             monkeypatch.setattr(setup, 'connect', real_connect)
-            return await connect(Status(onboard=True), fail)
+            return await connect(status_without_confirmation(), fail)
         monkeypatch.setattr(setup, 'connect', delegated)
         monkeypatch.setattr(setup, 'install_stop_handlers', lambda _:lambda:None)
         assert await asyncio.wait_for(setup.serve(args, Status(onboard=True)), 2) is False
         assert calls.count('subscriptions-closed') == calls.count('depth-closed') == 3
     asyncio.run(scenario())
+    assert MAC not in capsys.readouterr().err
