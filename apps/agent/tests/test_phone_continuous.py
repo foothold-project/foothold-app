@@ -32,7 +32,7 @@ def test_physical_projection_is_identical_to_default(vx, forward, wz):
     assert (axes, clipped) == project_velocity(vx, .3, wz)
     applied, _ = quantize_phone(*axes)
     expected = (forward, 0, wz if vx >= .75 else 0)
-    assert applied == expected and list(applied) in LIMITS['commands']
+    assert applied == expected
 
 
 @pytest.mark.parametrize('fixture,limits', [('h', SIMULATION_LIMITS), ('physical_h', LIMITS)])
@@ -50,7 +50,7 @@ def test_welcome_limits_contract_and_mode(request, fixture, limits):
         assert parsed.limits.requires_forward_motion is False
     else:
         assert parsed.limits.commands == [[0, 0, 0]] + [[step / 10, 0, turn]
-            for step in range(3, 16) for turn in (0, -.5, .5)]
+            for step in range(3, 16) for turn in (0, -.5, .5, -2.5, 2.5)]
     welcome['limits']['vx_max'] = 99
     assert harness.connect()[2]['limits'] == limits  # welcome is a copy
 

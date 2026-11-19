@@ -2,8 +2,8 @@
 
 No ROS, web, network, or process integration is imported here.
 The caller must serialize access and publish the result of applied().
-Default quantization and all safety gates retain the original behavior. Only
-the simulation phone Hub explicitly supplies a continuous velocity projection.
+Default quantization and all safety gates retain the original behavior.
+Phone Hubs select a velocity projection for physical or simulated motion.
 """
 
 import math
@@ -19,6 +19,8 @@ STATE_STALE = 1.0     # 시뮬 상태가 이만큼 안 오면 «끊김»
 RESUME_TIMEOUT = 3.0  # STOP 해제 요청 뒤 시뮬 확인을 기다리는 시간
 RESET_TIMEOUT = 35.0  # 리셋 응답 대기(계약: 첫 새 state 뒤 응답, 30 s 이내)
 Z = (0.0, 0.0, 0.0)
+# Full-stick remote turns measured ±2.47 rad/s (peak one-second mean).
+MAX_TURN_RATE = 2.5
 
 
 class _SafetyLog:
@@ -105,19 +107,21 @@ def quantize(fx, fy, fw):
 
 
 def quantize_phone(fx, fy, fw):
-    """Physical phone: 0.3..1.5 m/s in downward 0.1 m/s steps.
+    """Physical phone: forward in 0.1 m/s steps, with proportional steering.
 
     Core's default projection stays at the original 0.6 m/s for legacy links.
     Only the physical phone Hub explicitly selects this projection.
     """
+    if abs(fw) > 1:
+        return Z, 'UNSUPPORTED_VELOCITY'
     velocity, reason = quantize(fx, fy, fw)
     if fx < 0.2 or abs(fy) >= 0.5:
         return velocity, reason.replace('앞으로 끝까지 밀면 0.6 m/s', '미는 만큼 0.3~1.5 m/s')
     # 0.3 + (fx - 0.2) * (1.5 - 0.3) / (1 - 0.2) == 1.5 * fx.
-    # Integer tenths keep every result in the sink's exact finite alphabet.
+    # Integer tenths keep forward motion in the sink's approved steps.
     vx = min(15, math.floor(fx * 15)) / 10
-    # quantize retains the original fx >= 0.5 and fw thresholds for turns.
-    return (vx, 0.0, velocity[2]), ''
+    # Keep the original forward threshold for steering.
+    return (vx, 0.0, fw * MAX_TURN_RATE if fx >= .5 else 0.0), ''
 
 
 class Core:

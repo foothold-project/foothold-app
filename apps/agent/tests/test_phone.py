@@ -326,16 +326,17 @@ def test_phone_stop_unlock_requires_feedback_and_new_neutral(h):
 
 
 @pytest.mark.parametrize('velocity,expected,clipped', [
-    ((9, 8, 7), (1.5, 0, .5), True), ((-2, 0, 1), Z, True),
+    ((9, 8, 7), Z, True), ((-2, 0, 1), Z, True),
     ((.2, 0, .2), Z, True), ((1.5, 0, -.5), (1.5, 0, -.5), False),
-    ((0, 0, 0), Z, False), ((1.5, 0, .1), (1.5, 0, 0), True)])
+    ((0, 0, 0), Z, False), ((1.5, 0, .1), (1.5, 0, .1), False)])
 def test_phone_limits_never_expand_core_alphabet(physical_h, velocity, expected, clipped):
     h = physical_h
     a, _ = h.moving()
     reply = h.cmd(a, *velocity)
     assert reply['applied'] == list(expected) and reply['clipped'] is clipped
-    assert LIMITS['commands'] == [[0, 0, 0]] + [[step / 10, 0, turn]
-        for step in range(3, 16) for turn in (0, -.5, .5)]
+    if abs(velocity[2]) > 2.5:
+        assert h.hub.session.core.need_neutral
+        assert h.cmd(a, 1.5)['applied'] == list(Z)
 
 
 @pytest.mark.parametrize('raw', ['[]', '{}', '{', '{"t":"stop","t":"cmd"}', b'binary',

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { OrgSettings, PhoneWelcome } from '../../../contracts/ts';
 import { realCaps, simTune, tuned, velocity } from '../phone';
 import { permitted, TABLE } from '../serverdrive';
-const L = { vx_min: -1.5, vx_max: 1.5, vy_min: -1, vy_max: 1, wz_min: -4, wz_max: 4,
+const L = { vx_min: -1.5, vx_max: 1.5, vy_min: -1, vy_max: 1, wz_min: -2.5, wz_max: 2.5,
   commands: [], experimental: ['reverse', 'lateral', 'turn_in_place'] };
 const welcome = (limits = L) => ({ simulation: false, limits }) as unknown as PhoneWelcome;
 afterEach(() => simTune(null));
@@ -17,7 +17,13 @@ describe('실기 조직 상한: 로봇 상한과 min, 0은 축 끄기', () => {
     expect(velocity([-.5, -.5], w)).toEqual({ vx: -.2, vy: 0, wz: -.1 });
     expect(velocity([0, 0, .55], w).vy).toBeCloseTo(.3);
   });
-  it('조직 최대도 현재 에이전트의 후진·옆·회전 상한을 넓히지 않음', () => {
+  it('실기 회전은 최대 ±2.5 rad/s까지 스틱에 비례', () => {
+    const w = welcome({ ...L, wz_min: -4, wz_max: 4 });
+    for (const t of [-1, -.5, 0, .37, 1]) {
+      expect(velocity([1, t], w).wz).toBe(t * 2.5);
+    }
+  });
+  it('조직 최대도 이전 에이전트의 후진·옆·회전 상한을 넓히지 않음', () => {
     simTune(realCaps(null));
     const w = welcome({ ...L, vx_min: 0, vy_min: 0, vy_max: 0, wz_min: -.5, wz_max: .5 });
     expect(tuned(w).L).toEqual(w.limits);

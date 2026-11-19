@@ -7,7 +7,7 @@ nonfinite numbers, duplicate JSON keys and noncanonical UUIDs are rejected.
 import math
 from decimal import Decimal
 
-from foothold_agent.safety.core import Z, quantize_phone
+from foothold_agent.safety.core import MAX_TURN_RATE, Z, quantize_phone
 from foothold_agent.policy_ranges import velocity_input
 from .tickets import json_object, uuid
 
@@ -98,7 +98,7 @@ def simulation_velocity(vx, vy, wz):
 
 
 def project_velocity(vx, vy, wz, *, simulation=False):
-    """SI input -> Core axes; physical mode uses the explicit 1.5 m/s phone alphabet."""
+    """SI input -> Core axes. Physical steering is proportional above the forward gate."""
     if simulation is True:
         limited, _ = simulation_velocity(vx, vy, wz)
         # Keep rejected SI intent for Core's reason and fresh-neutral gate.
@@ -106,8 +106,10 @@ def project_velocity(vx, vy, wz, *, simulation=False):
     # The shipped phone sends vx = 1.5 * stick. Decimal avoids converting
     # exact SI boundaries such as 0.3 / 1.5 to an axis just below 0.2.
     x = float(max(Decimal('-1'), min(Decimal('1'), Decimal(str(vx)) / Decimal('1.5'))))
-    turn = .5 if wz >= .5 else -.5 if wz <= -.5 else 0.0
-    axes = (x, 0.0, turn / .5)
+    axes = (x, 0.0, wz / MAX_TURN_RATE)
+    if abs(wz) > MAX_TURN_RATE:
+        # Session rejects the out-of-range axis and invalidates prior intent.
+        return axes, True
     limited, _ = quantize_phone(*axes)
     if not any(limited) and any((vx, vy, wz)):
         # Valid, nonneutral Core inputs that quantize to ZERO with a reason.
@@ -115,18 +117,19 @@ def project_velocity(vx, vy, wz, *, simulation=False):
         axes = ((-1.0, 0.0, 0.0) if vx < 0 else
                 (0.0, 1.0 if vy > 0 else -1.0, 0.0) if vy else
                 (.1, 0.0, .2) if vx else (0.0, 0.0, 1.0 if wz > 0 else -1.0))
-    return axes, limited != (vx, vy, wz)
+    return axes, (limited[:2] != (vx, vy) or not math.isclose(limited[2], wz, rel_tol=1e-15))
 
 
 LIMITS = {'vx_min': 0.0, 'vx_max': 1.5, 'vy_min': 0.0, 'vy_max': 0.0,
-          'wz_min': -.5, 'wz_max': .5,
+          'wz_min': -MAX_TURN_RATE, 'wz_max': MAX_TURN_RATE,
+          # Discrete forward presets. Steering between the yaw endpoints is proportional.
           'commands': [[0.0, 0.0, 0.0]] + [[step / 10, 0.0, wz]
-              for step in range(3, 16) for wz in (0.0, -.5, .5)]}
+              for step in range(3, 16) for wz in (0., -.5, .5, -MAX_TURN_RATE, MAX_TURN_RATE)]}
 
 # Explicit simulation input envelope; the learned policy ranges remain unchanged.
 # These experimental commands are accepted, not validated walking capabilities.
 SIMULATION_LIMITS = {**LIMITS, 'vx_mode': 'continuous', 'vx_min_moving': .2,
                      'vx_min': -.3, 'vx_max': 1.5, 'vy_min': -.3, 'vy_max': .3,
-                     'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
+                     'wz_min': -.5, 'wz_max': .5, 'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
                      'policy_adapter_id': 'simulation-experimental-si/1',
                      'requires_forward_motion': False}

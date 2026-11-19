@@ -4,7 +4,7 @@ import math
 import pytest
 
 from apps.contracts.server_drive import ALLOWED as DRIVE_AXES
-from foothold_agent.go2_direct.sink import ALLOWED, SERVER_ALLOWED, Limits, server_velocity
+from foothold_agent.go2_direct.sink import SERVER_ALLOWED, Limits, server_velocity
 from foothold_agent.phone.protocol import LIMITS, project_velocity, simulation_velocity
 from foothold_agent.safety.core import Core, Z, quantize, quantize_phone
 from test_phone import physical_h, h
@@ -17,12 +17,12 @@ def test_phone_and_unchanged_server_share_exact_forward_ceiling(wz):
     velocity = (1.5, 0, wz)
     assert max(v[0] for v in DRIVE_AXES) == LIMITS['vx_max'] == 1.5
     assert SERVER_ALLOWED == DRIVE_AXES
-    assert velocity in ALLOWED and velocity in SERVER_ALLOWED
+    assert velocity in SERVER_ALLOWED
     assert server_velocity(velocity) == Limits().project(velocity) == velocity
     axes, clipped = project_velocity(*velocity)
     assert not clipped and quantize_phone(*axes) == (velocity, '')
     # The original Core alphabet and default remain unchanged.
-    assert quantize(*axes) == ((.6, 0, wz), '')
+    assert quantize(1, 0, 2 * wz) == ((.6, 0, wz), '')
     assert Core().velocity_projection is quantize
     assert Limits().project((1.51, 0, wz)) == velocity
     assert project_velocity(1.51, 0, wz) == (axes, True)
@@ -89,16 +89,21 @@ def test_1p5_sdk_stop_and_watchdog_discard_pending_motion(event):
     assert normal.calls[-1] == ('Move', Z)
 
 
-@pytest.mark.parametrize('turn', [-1, 0, 1])
+@pytest.mark.parametrize('turn', [-1, -.37, 0, .5, 1])
 def test_shipped_web_transform_through_physical_hub_to_fake_sdk(physical_h, phone_transform, turn):
     h = physical_h
     owner, _ = h.moving()
     welcome = h.connect()[2]
     request = phone_transform(welcome, [1, turn, 1], {'sim_max_vx': .2})
     ack = h.cmd(owner, **request)
-    assert ack['applied'] == [1.5, 0, turn * .5] and not ack['clipped']
+    assert ack['applied'] == [1.5, 0, turn * 2.5] and not ack['clipped']
     sink, normal, _, clock = make_sink()
     unlock(sink, clock)
     sink.apply(command(velocity=ack['applied']), source='phone')
     sink.drain()
-    assert normal.calls[-1] == ('Move', (1.5, 0, turn * .5))
+    assert normal.calls[-1] == ('Move', (1.5, 0, 0))
+    for _ in range(41):
+        clock.value += .05
+        sink.apply(command(velocity=ack['applied']), source='phone')
+        sink.drain()
+    assert normal.calls[-1] == ('Move', (1.5, 0, turn * 2.5))
