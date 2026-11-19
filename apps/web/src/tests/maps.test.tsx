@@ -346,6 +346,16 @@ describe('지도 탭 — 장소 나무', () => {
     expect(btn('+ 장소')).toBeTruthy(); expect(btn('이름 바꾸기')).toBeUndefined(); expect(btn('삭제')).toBeUndefined();
     expect(box.textContent).not.toMatch(/SLAM/);
   });
+  it('RV-394: 앱 WebView(FootholdApp) 지도 탭에는 «+ 지형 만들기» 없음(옛 시뮬 탭 입구처럼, 두 역할 모두)', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) Chrome/140 Mobile Safari/537.36 FootholdApp/1.2.5-dev');
+    for (const me of [KIM, LEE]) {
+      serve(signedIn(me));
+      await open('#/map');
+      await click($('[data-to-chooser]'));
+      expect(btn('+ 파일 올리기')).toBeTruthy(); expect($('[data-terrain-enter]')).toBeNull();
+      act(() => root?.unmount()); root = null; box?.remove();
+    }
+  });
   // REVIEW-341: 층 없는 장소·건물은 들어갈 층 화면이 없어 «어느 층에?» 줄에서 바로 이름 바꾸기·삭제(층 있는 것은 층 화면에서)
   const HOLLOW = { ...TREE, items: [{ ...TREE.items[0], buildings: [...TREE.items[0].buildings, { id: 'b2', site_id: 's1', name: '신동', floors: [] }] },
     { id: 's2', name: '별관', purpose: 'REAL', buildings: [] }] } as unknown as SiteTree;

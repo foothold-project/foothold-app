@@ -2,6 +2,8 @@
 // f = null 이면 2×2, 아니면 그 칸이 크게 + 나머지 3칸은 오른쪽 세로 작은 칸. 칸 머리 단추로만 바꾼다(그림 위 끌기 — 지도 이동·3D 회전 — 와 겹치지 않게).
 // 작은 칸을 숨기면(›) 그 칸 내용을 내려 media 구독도 놓는다(display:none 만으로는 받기가 계속됨).
 // 큰 칸일 때만 «전체화면»(이 묶음만 Fullscreen API). 전체화면은 머리줄 STOP 을 가리므로 fs(STOP)를 그 안에 늘 둔다.
+// first = 처음부터 크게 볼 칸(PC 로봇 탭 세 칸 화면 — 큰 1 + 작은 3). 주면 «4분할 ↔ 큰 화면» 단추가 위 줄에 붙는다.
+// onLeave = 전체화면을 벗어나는 순간(단추·4분할·Esc·브라우저) — 조종 입력 0(RV-397 1). onShown = 지금 그려지는 칸 id(안 보이는 칸이 쓰는 구독을 놓게, RV-397 4).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { feedText, useFeed, type Feed } from './media';
 import './quad.css';
@@ -9,20 +11,23 @@ import './quad.css';
 export type QSize = 'grid' | 'big' | 'thumb';
 export type QTile = { id: string; label: string; body: (s: QSize) => ReactNode };
 
-export function Quad({ tiles, label, fs, top }: { tiles: QTile[]; label: string; fs: ReactNode; top?: ReactNode }) {
-  const [f, setF] = useState<string | null>(null), [pip, setPip] = useState(true), [full, setFull] = useState(false), [err, setErr] = useState('');
-  const root = useRef<HTMLDivElement>(null);
+export function Quad({ tiles, label, fs, top, first, onLeave, onShown }: { tiles: QTile[]; label: string; fs: ReactNode; top?: ReactNode; first?: string; onLeave?: () => void; onShown?: (ids: string[]) => void }) {
+  const [f, setF] = useState<string | null>(first ?? null), [pip, setPip] = useState(true), [full, setFull] = useState(false), [err, setErr] = useState('');
+  const root = useRef<HTMLDivElement>(null), was = useRef(false), leave = useRef(onLeave); leave.current = onLeave;
+  const exit = () => { leave.current?.(); document.exitFullscreen().catch(() => {}); };
   useEffect(() => {   // 전체화면 들어감/나옴(Esc·브라우저 단추 포함)
-    const ch = () => setFull(!!root.current && document.fullscreenElement === root.current);
+    const ch = () => { const on = !!root.current && document.fullscreenElement === root.current; if (was.current && !on) leave.current?.(); was.current = on; setFull(on); };
     document.addEventListener('fullscreenchange', ch); return () => document.removeEventListener('fullscreenchange', ch);
   }, []);
-  useEffect(() => { if (!f && root.current && document.fullscreenElement === root.current) document.exitFullscreen().catch(() => {}); }, [f]);   // 2×2 로 돌아가면 전체화면도 끝
+  useEffect(() => { if (!f && root.current && document.fullscreenElement === root.current) exit(); }, [f]);   // 2×2 로 돌아가면 전체화면도 끝
   const goFull = async () => {
     setErr('');
     try { if (!root.current?.requestFullscreen) throw new Error('이 브라우저는 지원 안 함'); await root.current.requestFullscreen(); }
     catch (e) { setErr(`전체화면 안 됨(${(e as Error).message || e}) — 큰 칸으로 보입니다`); }
   };
   const others = f ? tiles.filter((t) => t.id !== f).map((t) => t.id) : [];
+  const shown = (f && !pip ? [f] : tiles.map((t) => t.id)).join();
+  useEffect(() => { onShown?.(shown.split(',')); }, [shown]);
   return <div ref={root} className={`qd${f ? ' f' : ''}${f && !pip ? ' nopip' : ''}`} role="group" aria-label={label} data-qfull={full ? '1' : undefined}>
     {tiles.map((t) => {
       const s: QSize = !f ? 'grid' : f === t.id ? 'big' : 'thumb', pi = others.indexOf(t.id);
@@ -33,10 +38,13 @@ export function Quad({ tiles, label, fs, top }: { tiles: QTile[]; label: string;
       </div>;
     })}
     {f && <button type="button" className="qpip" aria-pressed={pip} aria-label={pip ? '작은 칸 숨기기' : '작은 칸 보이기'} onClick={() => setPip(!pip)}><span aria-hidden="true">{pip ? '›' : '‹'}</span></button>}
-    {f && <button type="button" className="btn qfs" aria-pressed={full} title={full ? '전체화면 끝내기(Esc)' : '이 묶음만 화면 전체로 · STOP 은 안에 그대로'}
-      onClick={() => (full ? document.exitFullscreen().catch(() => {}) : goFull())}>{full ? '전체화면 끝' : '전체화면'}</button>}
-    {full && <div className="qfs-stop" data-qfs-stop>{fs}</div>}
-    {(top || err) && <div className="qd-top">{err && <span className="fh-why" role="status">{err}</span>}{top}</div>}
+    {/* 전체화면 단추와 STOP 은 한 줄(flex)에 나란히 — 서로 덮지 않는다(RV-397 3) */}
+    {f && <div className="qfs-bar" data-qfs-stop={full ? '' : undefined}>
+      <button type="button" className="btn qfs" aria-pressed={full} title={full ? '전체화면 끝내기(Esc)' : '이 묶음만 화면 전체로 · STOP 은 안에 그대로'}
+        onClick={() => (full ? exit() : goFull())}>{full ? '전체화면 끝' : '전체화면'}</button>
+      {full && fs}</div>}
+    {(top || err || first) && <div className="qd-top">{first && <button type="button" className="btn" aria-pressed={!f} data-q-grid onClick={() => setF(f ? null : first)}>{f ? '4분할' : '큰 화면 1 + 작은 3'}</button>}
+      {err && <span className="fh-why" role="status">{err}</span>}{top}</div>}
   </div>;
 }
 
@@ -89,7 +97,7 @@ export function Cloud3D({ small, big, feed: given, empty: none = '' }: { small: 
       el.removeEventListener('pointerup', end); el.removeEventListener('pointercancel', end); el.removeEventListener('lostpointercapture', end); document.removeEventListener('visibilitychange', vis);
     };
   }, [small]);
-  const label = feed.frame === 'map' ? '지도 기준 누적' : 'L1 센서 기준 1스캔 · 지도 누적 아님';
+  const label = feed.frame === 'map' ? '지도 기준 누적' : (feed.frame as string) === 'odom' ? '켠 곳 기준 누적' : 'L1 센서 기준 1스캔 · 지도 누적 아님';
   return <div style={{ position: 'absolute', inset: 0 }} data-cloud={feed.n}>
     <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none' }} aria-label={`3D 점군 — ${label}${small ? '' : '(끌어서 돌려 보기)'}`} />
     {empty ? <QEmpty text={empty} /> : big && <div className="qd-legend" aria-label="점 높이 범례">
