@@ -19,6 +19,8 @@ import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
 
 /** 누름 하나: up·down = 전후, left·right = 옆걸음, rotl·rotr = 제자리 회전(A·D) */
 type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
+/** 조직 설정은 객체로 온 값만 «받음» — 본문 없는 200·배열·글자는 못 받음과 같다(RV-424) */
+export const isSettings = (o: unknown): o is OrgSettings => !!o && typeof o === 'object' && !Array.isArray(o);
 const KEY: Record<string, Tok> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'rotl', KeyD: 'rotr' };
 export const MAX_TURN_RATE = orgSettingsSchema.properties.real_max_wz.maximum;
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
@@ -194,7 +196,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const zero = useRef((note = '') => { held.current.clear(); changed(); if (note) setWhy(note); }).current;
   const press = (t: Tok[]) => { if (!readyRef.current || !permitted(command(t), settingsRef.current)) return; setWhy(''); held.current = new Set(t); changed(); };
 
-  useEffect(() => { setGot(false); const stop = new AbortController(); api.settings(stop.signal).then((o) => { simTune(o); setGot(true); }, () => {}); return () => stop.abort(); }, [r.id]);
+  useEffect(() => { setGot(false); const stop = new AbortController(); api.settings(stop.signal).then((o) => { if (isSettings(o)) { simTune(o); setGot(true); } }, () => {}); return () => stop.abort(); }, [r.id]);
   useEffect(() => { if (held.current.size) zero('조직 속도 설정이 바뀌어 입력을 0으로 보냈습니다. 다시 누르세요.'); }, [settings]);
   useEffect(() => rt.watch(r.id), [r.id]);   // 이 패널이 열린 동안만 조종권을 쥔다(닫으면 반납 — rt)
   useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(i); }, []);   // 마지막 응답 ms·신호 멈춤
