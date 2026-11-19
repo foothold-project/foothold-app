@@ -2,7 +2,8 @@
 // 폰 앱(mobile/ Go2Status.java)이 1 s 마다 GET(3 s 제한, Wi-Fi 망에 묶음)해 'fh-go2' 이벤트로 넣는다. 이 화면은 window.fhGo2Status={seq,url,code} 를 둘 뿐(JS → 네이티브 호출 0).
 // 읽기만: 조종 화면·서버 등록·조종권으로 넘어가지 않고 STOP 도 없다. 현장 코드는 메모리에만(URL·로그·저장 0), 401 이면 버리고 다시 받는다.
 import { useEffect, useState } from 'react';
-import type { Go2RobotInfo } from '../../contracts/ts';
+import type { Go2MotorTemps, Go2RobotInfo } from '../../contracts/ts';
+import { HEAT_TEXT, HEAT_TONE, STAND_DRAIN_PCT_PER_MIN, batteryLevel, heatOf, jointLabel, minutesTo } from './heat';
 import type { Robot, Tone } from './fake';
 import { Chip, Line } from './screens';
 import { PROBLEM } from './nearby';
@@ -12,7 +13,7 @@ export type Conn = 'ONLINE' | 'STALE' | 'OFFLINE';
 /** 노트북 에이전트가 받는 Go2 토픽(state.py sources) — fresh = 그 토픽이 노트북에 새로 오고 있음, age = 마지막으로 받은 뒤 초(없으면 null) */
 export const TOPICS = { lowstate: '배터리·자세', sportmodestate: '모드·오류' } as const;
 export type Src = Record<keyof typeof TOPICS, { fresh: boolean | null; age: number | null }>;
-export type Go2 = { connection: Conn; soc: number | null; voltage: number | null; roll: number | null; pitch: number | null; fallen: boolean | null; mode: number | null; error: number | null; sources: Src };
+export type Go2 = { connection: Conn; soc: number | null; voltage: number | null; roll: number | null; pitch: number | null; fallen: boolean | null; mode: number | null; error: number | null; sources: Src; temps?: Go2MotorTemps | null };
 /** 폰 시계(performance.now) 기준: 마지막 정상 응답 뒤 이만큼 지나면 늦음 / 끊김(값 지움) */
 export const STALE_MS = 2000, OFFLINE_MS = 10000;
 export const PORT = 9610;
@@ -33,14 +34,22 @@ const CUT_NOTE = { phone: { STALE: '마지막 값 — 폰 Wi-Fi·노트북 전�
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const obj = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
 
+/** 상태 전용 본문의 motor_temps (state.py) → 12 관절 숫자가 아니면 null */
+function temps(v: unknown): Go2MotorTemps | null {
+  const t = obj(v), c = t.celsius, names = t.names, r = t.reserve_nonzero;
+  if (!Array.isArray(c) || c.length !== 12 || !c.every((x) => n(x) != null) || !Array.isArray(names) || names.length !== 12) return null;
+  return { received_at: String(t.received_at), age_s: n(t.age_s) ?? 0, names: names as Go2MotorTemps['names'], celsius: c as number[],
+    reserve_nonzero: Array.isArray(r) && r.length === 12 && r.every((x) => typeof x === 'boolean') ? (r as boolean[]) : null };
+}
+
 /** 200 본문 → Go2. 상태 전용(kind·v·read_only·motion_enabled)이 아니면 null — 숫자가 아닌 값은 null(«—»), 0 으로 바꾸지 않는다 */
 export function body(b: unknown): Go2 | null {
   const o = obj(b);
   if (o.v !== 1 || o.kind !== 'go2-readonly' || o.read_only !== true || o.motion_enabled !== false || !(typeof o.connection === 'string' && o.connection in RANK)) return null;
-  const bat = obj(o.battery), att = obj(o.attitude), src = obj(o.sources);
+  const bat = obj(o.battery), att = obj(o.attitude), src = obj(o.sources), t = temps(o.motor_temps);
   const one = (k: keyof Src) => { const t = obj(src[k]); return { fresh: typeof t.fresh === 'boolean' ? t.fresh : null, age: n(t.age_s) }; };
   return { connection: o.connection as Conn, soc: n(bat.soc), voltage: n(bat.voltage), roll: n(att.roll), pitch: n(att.pitch), fallen: typeof o.fallen === 'boolean' ? o.fallen : null, mode: n(o.mode), error: n(o.error_code),
-    sources: { lowstate: one('lowstate'), sportmodestate: one('sportmodestate') } };
+    sources: { lowstate: one('lowstate'), sportmodestate: one('sportmodestate') }, ...(t ? { temps: t } : {}) };
 }
 
 /** 서버(로봇 쪽)가 말한 연결과 폰이 마지막으로 받은 뒤 지난 시간 중 더 나쁜 쪽 */
@@ -58,8 +67,8 @@ export const deg = (rad: number | null) => dash(rad, (x) => `${((x * 180) / Math
 /** 부호 붙인 도(«+1.2°»·«-0.4°»), 없으면 null */
 export const sdeg = (rad: number | null) => { if (rad == null) return null; const t = ((rad * 180) / Math.PI).toFixed(1); return t === '-0.0' ? '+0.0°' : `${t.startsWith('-') ? '' : '+'}${t}°`; };
 /** 자세·상태 번호·넘어짐 추정 — 표시만(안전 판단 0). 상태 번호는 펌웨어마다 뜻이 달라 원값 그대로(0 만 «정상 범위») */
-export type Info = { roll: number | null; pitch: number | null; code: number | null; fallen: boolean | null };
-const flat = (x: Go2RobotInfo): Info => ({ roll: x.attitude?.roll ?? null, pitch: x.attitude?.pitch ?? null, code: x.error_code ?? null, fallen: x.fallen ?? null });
+export type Info = { roll: number | null; pitch: number | null; code: number | null; fallen: boolean | null; temps?: Go2MotorTemps | null };
+const flat = (x: Go2RobotInfo): Info => ({ roll: x.attitude?.roll ?? null, pitch: x.attitude?.pitch ?? null, code: x.error_code ?? null, fallen: x.fallen ?? null, temps: x.motor_temps ?? null });
 /** v 없음 = why(«모름»·«모름(끊김)»·«확인 안 됨»), via = 출처(«폰 경유») */
 export type Shown = { v: Info | null; why?: string; via?: string };
 export function RobotInfo({ v, why = '모름', via }: Shown) {
@@ -70,6 +79,22 @@ export function RobotInfo({ v, why = '모름', via }: Shown) {
     <Line k="자세"><span className="mono">{v ? `roll ${or(sdeg(v.roll))} · pitch ${or(sdeg(v.pitch))}` : why}</span>{via && <span className="lbl">{via}</span>}</Line>
     <Line k="상태 번호"><span className="mono" data-robot-code>{!v ? why : v.code == null ? '모름' : v.code === 0 ? '0(정상 범위)' : String(v.code)}</span></Line>
     <Line k="넘어짐 추정"><span data-robot-fallen>{v?.fallen ? <Chip tone="warn" text="의심(기울기 추정)" /> : v?.fallen === false ? '아님' : v ? '모름' : why}</span></Line>
+  </div>;
+}
+const PROVISIONAL = '잠정 · 업체 열 판정 대기';
+const LEGS = ['FR', 'FL', 'RR', 'RL'] as const;
+/** 관절 12 개 온도 · 배터리 경고 (heat.ts 판정, 표시만). 값이 없으면 그 줄을 그리지 않는다 (지어내지 않음) */
+export function HeatInfo({ temps, soc }: { temps: Go2MotorTemps | null | undefined; soc: number | null | undefined }) {
+  const h = temps ? heatOf(temps) : null, b = soc == null ? null : batteryLevel(soc);
+  if (!h && soc == null) return null;
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-heat={h?.worst.heat ?? 'none'}>
+    {h && temps && <>
+      <Line k="관절 온도"><span data-heat-worst><Chip tone={HEAT_TONE[h.worst.heat]} text={`${HEAT_TEXT[h.worst.heat]} · 최고 ${jointLabel(h.worst.name)} ${Math.round(h.worst.c)} °C${h.worst.reserve ? ' · 보호 신호' : ''}`} /></span><span className="lbl">{PROVISIONAL}</span></Line>
+      <Line k="관절 °C"><span className="mono" data-heat-legs>{LEGS.map((leg) => `${leg} ${h.joints.filter((j) => j.name.startsWith(`${leg}_`)).map((j) => Math.round(j.c)).join('·')}`).join('  ')}</span><span className="lbl">hip·thigh·calf · 50 주의 · 60 경고 · 70 위험</span></Line>
+    </>}
+    {soc != null && b && <Line k="배터리 남은 시간"><span data-heat-battery>{b !== 'ok' && <Chip tone={b === 'low10' ? 'bad' : 'warn'} text={b === 'low10' ? '10 % 이하 · 충전' : '20 % 이하 · 충전 준비'} />}
+      <span className="mono">{` 서 있기 기준 약 ${minutesTo(soc)} 분 · 10 % 까지 ${minutesTo(soc, 10)} 분`}</span></span>
+      <span className="lbl">{`${STAND_DRAIN_PCT_PER_MIN} %/분 (11/19 실측) · 걸으면 더 짧음 · 잠정`}</span></Line>}
   </div>;
 }
 /** 로봇 → 보일 묶음. 시뮬 = null(숨김). 직접 값(연결 중일 때만)이 폰 경유보다 먼저, 폰 경유는 신선할 때만 */
@@ -134,6 +159,7 @@ export function Go2View({ name, url, close }: { name: string; url: string; close
       <div className="fh-row" data-go2-cut={where ?? undefined}><Chip tone={TONE[c]} text={CHIP[c][where ?? 'phone']} />{last && c !== 'ONLINE' && where && <span className="lbl">{CUT_NOTE[where][c]}</span>}</div>
       {!heard && old ? <p className="fh-why" data-go2-old>이 앱 판은 상태 전용을 지원하지 않습니다 — FOOTHOLD 앱을 1.2.3-dev 이상으로 업데이트하세요.</p> : !last && !why && <p className="lv-note" role="status">읽는 중…</p>}
       <Line k="배터리"><span className="mono">{dash(g?.soc ?? null, (x) => `${Math.round(x)}%`)} · {dash(g?.voltage ?? null, (x) => `${x.toFixed(1)} V`)}</span></Line>
+      <HeatInfo temps={g?.temps} soc={g?.soc} />
       <RobotInfo v={g ? { roll: g.roll, pitch: g.pitch, code: g.error, fallen: g.fallen } : null} why={last ? '모름(끊김)' : '모름'} />
       {last && <Line k="로봇 자료"><span data-go2-src>{where === 'phone' ? '모름(폰↔노트북 끊김)' : (Object.keys(TOPICS) as (keyof Src)[]).map((k) => { const t = last.go2.sources[k];
         return `${TOPICS[k]} ${t.fresh ? '받는 중' : t.fresh === false ? `끊김${t.age == null ? '(받은 적 없음)' : `(${t.age.toFixed(1)}초 전)`}` : '모름'}`; }).join(' · ')}</span>

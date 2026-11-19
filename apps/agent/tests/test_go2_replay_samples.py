@@ -62,3 +62,26 @@ def test_readonly_observer_uses_shared_projection_and_existing_state_tick():
     assert frame['robot_info'] == project(measurements.telemetry(), measurements.now())['robot_info']
     # No new publishing timer; the existing Session._state remains the sender.
     assert observer.measurements is measurements
+
+
+def test_motor_temps_and_reserve_flow_to_robot_info():
+    """LowState MotorState.temperature/reserve reach robot_info for the heat warning; bad values omitted."""
+    measurements = Measurements(now=lambda: 0.)
+    low, sport = samples()
+    for i, motor in enumerate(low.motor_state):
+        motor.temperature, motor.reserve = 30 + i, [0, 0]
+    low.motor_state[6].temperature, low.motor_state[6].reserve = 71, [1, 0]  # 11/19 RR hip event shape
+    measurements.lowstate(low)
+    measurements.sportmodestate(sport)
+    temps = Observer(measurements)._state()['robot_info']['motor_temps']
+    assert temps['names'] == list(SDK_JOINTS)
+    assert temps['celsius'][6] == 71. and temps['celsius'][0] == 30.
+    assert temps['reserve_nonzero'] == [i == 6 for i in range(12)]
+    state = State()
+    low.tick = 2
+    low.motor_state[0].temperature = float('nan')
+    state.lowstate(low)
+    assert 'motor_temps' not in state.snapshot()
+    low.tick, low.motor_state[0].temperature, low.motor_state[0].reserve = 3, 30, None
+    state.lowstate(low)
+    assert state.snapshot()['motor_temps']['reserve_nonzero'] is None  # unknown, not "no protection"

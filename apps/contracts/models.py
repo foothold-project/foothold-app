@@ -336,6 +336,23 @@ class Go2Position(Contract):
     origin: Literal['BOOT_ORIGIN_UNVERIFIED']
 
 
+class Go2MotorTemps(Contract):
+    """LowState MotorState.temperature (deg C) and reserve words; display and warning only."""
+    received_at: UTCDateTime
+    age_s: float = Field(ge=0)
+    names: list[Go2JointName] = Field(min_length=12, max_length=12)
+    celsius: list[Annotated[float, Field(ge=-40, le=200)]] = Field(min_length=12, max_length=12)
+    reserve_nonzero: list[StrictBool] | None = Field(
+        min_length=12, max_length=12,
+        description='True when any MotorState.reserve word is nonzero (motor protection signal, 11/18-19 events).')
+
+    @model_validator(mode='after')
+    def unique_names(self):
+        if len(set(self.names)) != 12:
+            raise ValueError('twelve unique joint names required')
+        return self
+
+
 class Go2RobotInfo(Contract):
     """Readout only; never an input to STOP, lease, readiness or accepted codes."""
     source: Literal['GO2_DDS']
@@ -344,18 +361,20 @@ class Go2RobotInfo(Contract):
         description='SportModeState raw uint32; firmware may use motion-state numbers (100=Agile in V2).')
     fallen: bool | None = Field(strict=True)
     fallen_source: Literal['imu_tilt_estimate']
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('joints', 'quaternion', 'position'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('joints', 'quaternion', 'position', 'motor_temps'))
     joints: Go2Joints | None = Field(default=None, exclude_if=lambda v: v is None)
     quaternion: Go2Quaternion | None = Field(default=None, exclude_if=lambda v: v is None)
     position: Go2Position | None = Field(default=None, exclude_if=lambda v: v is None)
+    motor_temps: Go2MotorTemps | None = Field(default=None, exclude_if=lambda v: v is None)
 
-    @field_validator('joints', 'quaternion', 'position', mode='before')
+    @field_validator('joints', 'quaternion', 'position', 'motor_temps', mode='before')
     @classmethod
     def display_sample(cls, value, info):
         if value is None:
             return None
         model, field = {'joints': (Go2Joints, 'positions'), 'quaternion': (Go2Quaternion, 'wxyz'),
-                        'position': (Go2Position, 'xyz')}[info.field_name]
+                        'position': (Go2Position, 'xyz'),
+                        'motor_temps': (Go2MotorTemps, 'celsius')}[info.field_name]
         if isinstance(value, model):
             return value
         # Bad display data must not discard an otherwise valid legacy state.

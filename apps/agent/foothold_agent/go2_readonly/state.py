@@ -27,6 +27,20 @@ def integer(value, high):
     return type(value) is int and 0 <= value <= high
 
 
+def motor_heat(motors):
+    """LowState MotorState.temperature (deg C) and reserve words, display only."""
+    if not isinstance(motors, (list, tuple)) or len(motors) < 12:
+        return None, None
+    celsius = vector([getattr(m, 'temperature', None) for m in motors[:12]], 12)
+    if celsius is not None and not all(-40 <= c <= 200 for c in celsius):
+        celsius = None
+    words = [getattr(m, 'reserve', None) for m in motors[:12]]
+    reserve = ([any(w != 0 for w in r) for r in words]
+               if all(isinstance(r, (list, tuple)) and r and all(integer(w, 0xFFFFFFFF) for w in r)
+                      for r in words) else None)
+    return celsius, reserve
+
+
 def attitude(message):
     rpy = getattr(getattr(message, 'imu_state', None), 'rpy', None)
     if not isinstance(rpy, (list, tuple)) or len(rpy) != 3:
@@ -75,11 +89,14 @@ class State:
         motors = getattr(message, 'motor_state', None)
         joints = (vector([getattr(m, 'q', None) for m in motors[:12]], 12)
                   if isinstance(motors, (list, tuple)) else None)
+        celsius, reserve = motor_heat(motors)
         quaternion = vector(getattr(getattr(message, 'imu_state', None), 'quaternion', None), 4)
         if quaternion is not None and not .9 <= math.hypot(*quaternion) <= 1.1:
             quaternion = None
         self._accept('lowstate', tick, {
             'joints': joints, 'quaternion': quaternion,
+            'motor_temps': (None if celsius is None else
+                            {'celsius': celsius, 'reserve_nonzero': reserve}),
             'battery': {'soc': soc if number(soc, 0, 100) else None,
                         'voltage': float(voltage) if number(voltage, .01, 100) else None},
             'attitude': attitude(message)})
@@ -123,10 +140,16 @@ class State:
                   any(abs(v) >= TILT_RAD for v in pose.values()))
         latest_topic = max(topics, key=lambda name: topics[name]['received'], default=None)
         replay = {}
-        for field in ('joints', 'quaternion', 'position'):
+        for field in ('joints', 'quaternion', 'position', 'motor_temps'):
             topic = 'sportmodestate' if field == 'position' else 'lowstate'
             values = sport if field == 'position' else low
             value = values.get(field)
+            if field == 'motor_temps':
+                if value is not None:
+                    replay[field] = {'received_at': sources[topic]['received_at'],
+                                     'age_s': sources[topic]['age_s'],
+                                     'names': list(SDK_JOINTS), **value}
+                continue
             if value is not None:
                 replay[field] = {'received_at': sources[topic]['received_at'],
                                  'age_s': sources[topic]['age_s'],
