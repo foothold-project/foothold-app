@@ -8,9 +8,16 @@
 .pd-cols{display:grid;gap:10px;align-items:start;grid-template-columns:minmax(260px,1fr) minmax(0,2.2fr) minmax(280px,1fr)}
 .pd-left,.pd-right{display:flex;flex-direction:column;gap:10px;min-width:0}
 .pd-left{padding:10px}
-.pd-stage{position:relative;height:min(46vh,420px);min-height:300px;border-radius:8px;overflow:hidden;background:#05080A}
-.pd-go2{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden}
-.pd-go2-fail{color:#9AA7B3;font-size:13px;padding:12px;text-align:center}
+.pd-stage{position:relative;border-radius:8px;overflow:hidden;background:#05080A}
+/* 그림 칸(크기 고정) + 그 아래 줄(그림에 자리가 없는 관절 값 — 줄이 생겨도 그림 크기는 그대로) */
+.pd-go2{display:flex;flex-direction:column}
+.pd-go2-view{position:relative;height:min(46vh,420px);min-height:300px;overflow:hidden}
+.pd-go2-sketch{position:absolute;inset:0;width:100%;height:100%}
+.pd-go2-fail{position:absolute;left:0;right:0;bottom:6px;color:#9AA7B3;font-size:11px;text-align:center}
+.pd-go2-more{display:flex;flex-wrap:wrap;gap:2px 10px;margin:0;padding:4px 8px 6px;list-style:none;border-top:1px solid rgba(230,235,239,.14);color:#9AA7B3;font-size:10px;line-height:14px}
+.pd-go2-more li{display:flex;gap:4px;align-items:center}
+.pd-go2-more b{font-weight:600}
+.pd-go2-more .pd-tag{position:static;background:none;padding:0}
 .pd-left[data-stale] .pd-go2{opacity:.32;filter:grayscale(1)}
 .pd-noreport{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);padding:6px 12px;border-radius:8px;background:rgba(8,11,14,.8);color:#FFFFFF;font-size:14px;font-weight:600}
 /* 상태 글자는 그림 위 별도 영역(그림을 가리지 않음). 긴 글(잠긴 까닭)은 줄바꿈 — 그림은 아래로 밀릴 뿐 겹치지 않는다 */
@@ -22,7 +29,7 @@
 .pd-facts .pd-tags{justify-self:start;align-self:end;min-height:0;height:28px;padding:0 10px;font-size:12px}
 .pd-facts .pd-tags[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
 /* 그림 위 관절 값·화살표 글자(어두운 그림 바탕 위 — 고정 밝은 글자). 자리는 go2model.tsx spread(겹치지 않게)가 정한다 */
-.pd-tag{position:absolute;z-index:1;pointer-events:none;display:flex;gap:3px;align-items:center;height:14px;padding:0 3px;border-radius:4px;background:rgba(8,11,14,.62);color:#E6EBEF;font-size:10px;line-height:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pd-tag{position:absolute;z-index:1;pointer-events:none;overflow:hidden;box-sizing:border-box;display:flex;gap:3px;align-items:center;height:14px;padding:0 3px;border-radius:4px;background:rgba(8,11,14,.62);color:#E6EBEF;font-size:10px;line-height:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .pd-tag i{font-style:normal;color:#3EC7B4;font-weight:600}
 .pd-tag-move{height:16px;font-size:11px;font-weight:600;color:#3EC7B4}
 .pd-mid{min-width:0}
