@@ -162,7 +162,7 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
           <button type="button" className="btn pd-tags" aria-pressed={tags} onClick={() => setTags((v) => !v)} data-pd-tags>관절 값</button>
         </div>
         <div className="pd-stage" data-pd-stage>
-          <Go2Figure pose={pose} motion={motion} showJoints={tags} temps={temps?.joints} hot={temps?.hot} />
+          <Go2Figure pose={pose} motion={motion} showJoints={tags} temps={temps?.joints} />
           {!pose && <span className="pd-noreport" role="status" data-pd-noreport>로봇 보고 없음</span>}
         </div>
         {d.poseRow}

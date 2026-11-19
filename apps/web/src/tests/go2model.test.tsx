@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Go2RobotInfo } from '../../../contracts/ts';
-import { Go2Figure, JOINTS, resetGo2Cache, spread, useGo2Motion, type Motion, type Pose } from '../go2model';
+import { Go2Figure, JOINTS, TEMP_MAX, TEMP_MIN, resetGo2Cache, spread, tempColor, useGo2Motion, type Motion, type Pose } from '../go2model';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null, box: HTMLDivElement;
@@ -94,6 +94,15 @@ describe('Go2 그림', () => {
     expect($('[data-go2-turn]')!.dataset.go2Turn).toBe('right');
   });
 
+  it('tempColor: 한 색상 눈금 20°C 연함 → 50°C → 80°C 진함(토큰 값), 범위 밖은 끝 색, 없음은 회색', () => {
+    expect([20, 50, 80].map(tempColor)).toEqual(['#e0f0ed', '#3ec7b4', '#0b6459']);
+    expect(tempColor(-5)).toBe(tempColor(TEMP_MIN)); expect(tempColor(120)).toBe(tempColor(TEMP_MAX));
+    expect([null, undefined, NaN].map(tempColor)).toEqual(['#7d8693', '#7d8693', '#7d8693']);
+    const lum = (h: string) => [1, 3, 5].reduce((a, o, k) => a + [0.2126, 0.7152, 0.0722][k] * parseInt(h.slice(o, o + 2), 16), 0);
+    const L = Array.from({ length: 61 }, (_, i) => lum(tempColor(20 + i)));
+    expect(L.every((v, i) => i === 0 || v < L[i - 1])).toBe(true);   // 뜨거울수록 늘 더 진함
+  });
+
   it('spread: 겹치는 글자는 위아래로 비켜 놓고 칸 밖으로 안 나감', () => {
     const b = spread([{ x: 50, y: 50, side: 1, w: 30, h: 14 }, { x: 50, y: 50, side: 1, w: 30, h: 14 }, { x: 95, y: 50, side: 1, w: 30, h: 14 }], 100, 100);
     expect(b.every(Boolean)).toBe(true);
@@ -159,6 +168,32 @@ describe('RV-403 막는 결함', () => {
     go(1); expect(last!.v![0]).toBeCloseTo(0.5);
     go(2); expect(last!.v![0]).toBeCloseTo(0.5); expect($('[data-go2-move]')!.textContent).toBe('0.5 m/s');
     go(3); expect(last!.v).toBeNull(); expect($('[data-go2-move]')).toBeNull();
+  });
+
+  it('RV-406 위치가 1050 ms 짜리 역순 보고만 반복되면 마지막 유효 위치(1100 ms)가 1초 넘게 묵은 때 화살표가 사라진다', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    const old = (t: number, page: number) => ({ t, xy: [0.01, 0], pt: 1050, page });
+    const go = run([{ t: 1000, xy: [0, 0] }, { t: 1100, xy: [0.05, 0] }, old(1500, 0.45), old(2300, 1.25), old(3000, 1.95)]);
+    go(1); expect(last!.v![0]).toBeCloseTo(0.5);
+    go(2); expect(last!.v![0]).toBeCloseTo(0.5);   // 0.4초 묵음 — 아직 그대로
+    go(3); expect(last!.v).toBeNull(); expect($('[data-go2-move]')).toBeNull();   // 1.2초
+    go(4); expect(last!.v).toBeNull(); expect($('[data-go2-move]')).toBeNull();   // 1.9초
+  });
+
+  it('RV-406 age_s 가 0 으로 오는(잘못 적힌) 역순 위치 보고도 관절·방향 시각으로 만료', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    const old = (t: number) => ({ t, xy: [0.01, 0], pt: 1050, page: 0 });
+    const go2 = run([{ t: 1000, xy: [0, 0] }, { t: 1100, xy: [0.05, 0] }, old(2300), old(3000)]);
+    go2(1); expect(last!.v![0]).toBeCloseTo(0.5);
+    go2(2); expect(last!.v).toBeNull(); go2(3); expect(last!.v).toBeNull();
+  });
+
+  it('RV-406 시계가 크게 되감기면(새 보고인데 1초 넘게 뒤) 옛 시각을 기다리지 않고 새 이력으로 다시 속도', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    const go = run([{ t: 100000, xy: [0, 0] }, { t: 100100, xy: [0.05, 0] }, { t: 1000, xy: [1, 0] }, { t: 1100, xy: [1.03, 0] }]);
+    go(1); expect(last!.v![0]).toBeCloseTo(0.5);
+    go(2); expect(last!.v).toBeNull();   // 되감김 = 새 이력 한 개
+    go(3); expect(last!.v![0]).toBeCloseTo(0.3); expect($('[data-go2-move]')!.textContent).toBe('0.3 m/s');
   });
 
   it('2 WebGL 이 없으면 선 그림(몸통 상자·다리 4개)이 관절각대로 그려진다', () => {
