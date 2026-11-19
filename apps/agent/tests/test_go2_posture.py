@@ -106,7 +106,7 @@ def test_boundary_identity_and_expiry_apply_to_posture_too():
 
 @pytest.mark.parametrize('mode,height,state', [(5,.1,'LYING'), (0,.3,'STANDING'),
     (1,.3,'STANDING'), (3,.3,'STANDING'), (8,.15,'TRANSITIONING'),
-    (7,.1,'UNKNOWN'), (6,.3,'UNKNOWN'), (42,.3,'UNKNOWN'), (0,.1,'UNKNOWN')])
+    (7,.1,'UNKNOWN'), (6,.3,'UNKNOWN'), (42,.3,'UNKNOWN'), (0,.17,'UNKNOWN')])
 def test_documented_modes_and_freshness(mode, height, state):
     clock, sink, _, _, session, _, measured, _ = rig()
     measured(mode, body_height=height)
