@@ -453,7 +453,7 @@ export const rt = {
     if (l.busy === 'give' || l.state?.latched !== false || stopping) axes = [0, 0, 0];
     // 앞 세대 입력이 없으면 중립으로 본다 — 해제 직후 첫 틱 전에 새로 누른 입력도 바로 인정(RV-426 ⑧)
     else if (!l.neutral) { if (stale) axes = [0, 0, 0]; else set(id, { neutral: true }); }
-    send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes });
+    if (send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes })) cmdAt.set(id, now());   // 공백 기준 = 실제로 보낸 때만(RV-430 ①)
   },
   /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼거나 STOP_WS_MS 안에 답이 없으면 HTTP 대체 경로(같은 STOP 을 한 번 더 — 정지는 겹쳐도 안전),
    *  그것도 안 되면: WS 로 보낸 적이 있거나 시한 초과면 «접수 확인 못함», 아니면 «보내지 못함».
@@ -486,14 +486,16 @@ const version = () => ver;
 export const GAP_MS = 300;
 /** 입력 세대(RB-DRIVE-FRESH-PRESS): 화면은 키(e.code)·포인터(pointerId)마다 누른 순간의 세대(current)를 적고, 지금 세대 입력만 명령에 쓴다.
  *  앞 세대에 눌린 입력이 하나라도 아직 눌려 있으면 명령 전체가 0 — 떼었다가 다시 눌러야 한다(손을 뗐는지 추측하지 않음).
- *  sync = 조종권·잠금·stop_gen·연결·넘김·STOP·숨김·bumpInputs 와 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 명령 틱 공백이 GAP_MS 넘으면 +1 */
+ *  sync = 조종권·잠금·stop_gen·연결·넘김·STOP·숨김·bumpInputs 와 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 마지막으로 보낸 cmd 뒤 GAP_MS 넘으면 +1 */
 /** 화면의 키·손가락 기록 밖에서 일어나 모든 입력 세대를 다음 sync 에서 +1 하는 일(RV-429): 직결 명령 틱 공백(phone.ts beat)·조직 설정 바뀜(phone.ts simTune) */
 let outer = 0;
+/** 로봇마다 cmd 를 실제로 보낸 마지막 때(단조) — 명령 틱 공백 검사의 유일한 기준. 키 누름·화면 이벤트·보내지 못한 전송은 갱신하지 않는다(RV-430 ①) */
+const cmdAt = new Map<string, number>();
 export const bumpInputs = () => { outer++; };
 /** 맥은 Cmd(Meta) 누른 동안 다른 키의 keyup 을 주지 않을 수 있다 — Meta 를 누르거나 뗄 때·Meta 가 눌린 채 온 키 = 적은 키를 모두 지우고 세대 +1(RV-429 ③) */
 export const metaCut = (e: KeyboardEvent) => e.key === 'Meta' || e.metaKey;
 export function inputGen() {
-  let n = 0, k: unknown[] = [], t = Infinity;
+  let n = 0, k: unknown[] = [], seen = NaN;   // seen = 이미 +1 한 공백의 기준(같은 공백으로 두 번 올리지 않음)
   return {
     get current() { return n; },
     bump() { return ++n; },
@@ -502,7 +504,8 @@ export function inputGen() {
       if (x.length !== k.length || x.some((v, i) => v !== k[i])) { k = x; n++; }
       return n;
     },
-    tick() { const at = now(); if (at - t > GAP_MS) n++; t = at; },
+    /** 명령 공백 검사: id 로봇에 마지막으로 보낸 cmd 뒤 GAP_MS 가 지났으면 +1(그 공백에 한 번). 기준은 바꾸지 않는다 — rt.cmd 가 보낼 때만 */
+    tick(id: string) { const t = cmdAt.get(id) ?? Infinity; if (now() - t > GAP_MS && t !== seen) { n++; seen = t; } },
   };
 }
 export const useRt = () => useSyncExternalStore(rt.subscribe, version);

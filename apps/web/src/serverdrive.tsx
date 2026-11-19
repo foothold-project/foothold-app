@@ -214,7 +214,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   };
   /** 틱과 즉시 전송이 같이 쓰는 한 길: 명령 공백(GAP_MS) 검사로 세대를 맞춘 뒤 보낸다(RV-426 ③) */
   const send = () => {
-    g.tick();
+    g.tick(r.id);
     const t = pressed(), cmd = t && readyRef.current && gotRef.current && isSettings(settingsRef.current) ? command(t) : TABLE[''];
     const [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, !t);
   };
@@ -223,7 +223,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   /** 0 으로: 입력 세대를 올려 지금 누른 것을 모두 앞 세대로 — 떼고 새로 눌러야 움직인다. 바로 보낸다 + 안내 */
   const zero = useRef((note = '') => { g.bump(); changed(); if (note) setWhy(note); }).current;
   /** 누른 순간의 세대 — 공백 검사를 먼저(공백 뒤 새 누름은 새 세대) */
-  const now = () => { g.tick(); return sync(); };
+  const now = () => { g.tick(r.id); return sync(); };
   // 잠긴 동안·상한 밖 단추도 키처럼 누른 세대를 적는다(RV-426 ④) — 명령은 ready·permitted 일 때만 나간다
   const press = (e: PointerEvent<HTMLButtonElement>, t: Tok[]) => {
     e.currentTarget.setPointerCapture?.(e.pointerId); pads.current.set(e.pointerId, { n: now(), t, el: e.currentTarget });

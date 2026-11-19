@@ -178,13 +178,13 @@ function Screen(c: Ctx) {
    *  이 화면은 실기만 연다(시뮬은 App 이 막고 simdrive 직결) — 비례는 없다. 서버 경유 확인 + 설정 받음 = 표 값, 그 밖(목록 갱신 전 등)은 0 */
   const send = () => {
     if (!rt.get(r.id).lease) return;
-    gen.tick();
+    gen.tick(r.id);
     const a = axes(), [vx, vy, wz] = a && real && gotRef.current && isSettings(settingsRef.current) ? realAxes(a, settingsRef.current) : TABLE[''];
     rt.cmd(r.id, [vx, wz], vy, !a);
   };
   const sendRef = useRef(send); sendRef.current = send;
   /** 누른 순간의 세대 — 공백 검사를 먼저(공백 뒤 새 누름은 새 세대) */
-  const now0 = () => { gen.tick(); return sync(); };
+  const now0 = () => { gen.tick(r.id); return sync(); };
   const nowRef = useRef(now0); nowRef.current = now0;
 
   // 키보드(F-TO-05). 요청 창이 떠 있어도 방향키는 조종
