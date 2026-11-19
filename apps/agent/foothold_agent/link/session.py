@@ -83,6 +83,8 @@ class Session:
             "devices": [], "map_versions": [], "last_floor_id": None,
             **deepcopy(identity or {}),
         }
+        self.operator_stop = False
+        self.movement_gate = None
         self._devices = []
         self.update_devices(self.identity["devices"])
         self.lease_id = None
@@ -215,6 +217,14 @@ class Session:
         if self.holder_type == "RUN" and (self.run is None or self.run["status"] != "RUNNING"):
             self.core._void()
         self.core.out = self.core.applied()
+        reason = self.movement_gate() if self.movement_gate else None
+        if reason:
+            self.core._void()
+            self.core.out = Z
+            self.core.reason = reason
+
+    def _command_input(self, axes):
+        self.core.cmd(self.lease_id, axes)
 
     def _generation(self):
         return min(MAX_SEQ, self.core.stop_gen)
@@ -275,6 +285,9 @@ class Session:
                            "state": device["state"] if fresh else "MISSING"})
             if fresh and device.get('status_code') is not None:
                 result[-1]['status_code'] = deepcopy(device['status_code'])
+        reason = self.movement_gate() if self.movement_gate else None
+        if reason:
+            result.append(dict(key='go2-drive-input', kind='OTHER', label=reason, state='OK'))
         return result
 
     def _finish(self, actions=(), *, state=False):
@@ -480,6 +493,11 @@ class Session:
         urgent_stop = (self.connected and not self.reconnect_required
                        and isinstance(frame, dict) and frame.get('t') == 'stop')
         if urgent_stop:
+            # A legacy server STOP has no cause and keeps emergency priority.
+            # Local Hub watchdog/lease stops omit cause; operator stops set it.
+            if ((self.server_link or frame.get('cause') is not None)
+                    and server_cause(frame) in ('user_stop', 'unknown')):
+                self.operator_stop = True
             if not self.server_link:
                 self.core.stop("server STOP", cause="other_stop", source="agent")
             elif server_cause(frame) == "unknown":
@@ -528,6 +546,7 @@ class Session:
                       'INVALID_GENERATION' if type(gen) is not int or not 0 <= gen <= MAX_SEQ else
                       'OUTPUT_HELD' if self._output_stall_locked and self._output_feedback_held else None)
             if reason is None and self.core.resume(self.lease_id, gen):
+                self.operator_stop = False
                 actions = (MotionCommand("unlock"),)
                 self.unlock_refused = None
             else:
@@ -548,7 +567,12 @@ class Session:
                     and type(seq) is int and 0 <= seq <= MAX_SEQ and seq > self.last_seq):
                 self.last_seq = seq
                 self.ack_pending = True
-                self.core.cmd(self.lease_id, self.axes_validator(frame.get("axes")))
+                axes = self.axes_validator(frame.get("axes"))
+                # Only a new, authorized operator frame can re-arm after takeover.
+                # Repeated telemetry, timeout zeros and executor samples cannot.
+                neutral = axes == Z and not self.core.latch and not self.core.sim_block()
+                if self.movement_gate is None or not self.movement_gate(neutral=neutral):
+                    self._command_input(axes)
             elif self.holder_type == "RUN":
                 # The server cannot overwrite *or invalidate* local executor intent.
                 if not self._run_server_cmd_reported:

@@ -11,7 +11,8 @@ class PhoneSink:
 
     def apply(self, command):
         received = None if self.hub is None else self.hub.session.core.intent_t
-        self.sink.apply(command, source='phone', input_received_at=received)
+        self.sink.apply(command, source='phone', input_received_at=received,
+                        operator_stop=self.hub is not None and self.hub.session.operator_stop)
 
     def output_safety(self):
         return self.sink.output_safety()
@@ -21,6 +22,7 @@ class Go2Hub(Hub):
     def __init__(self, *args, feedback, **kwargs):
         self.feedback = feedback
         super().__init__(*args, **kwargs)
+        self.session.movement_gate = self.sink.sink.movement_reason
 
     def update_display(self):
         from .reporting import devices

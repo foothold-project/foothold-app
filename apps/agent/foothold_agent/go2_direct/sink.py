@@ -137,6 +137,11 @@ class Go2Sink:
         self.posture_result = None
         self.stop_feedback = None
         self._hold_reason = None
+        self.remote = None
+        self._last_remote_activity = float('-inf')
+        self._wait_operator_neutral = False
+        self._operator_stop = False
+        self._ordinary_hold = True
         # Each independent lane owns its own RPC history, never the other lock.
         self._stop_attempts = {}
         self._stop_diagnostics = {}
@@ -145,6 +150,39 @@ class Go2Sink:
         self._last_timeout_at = None
         from .actions import Actions
         self.actions = Actions(self)
+
+    def _remote_active(self):
+        # Caller owns the memory lock. A takeover invalidates even commands
+        # queued before the worker observed the handset or finished an RPC.
+        if self.remote is None:
+            return False
+        active, last_activity = self.remote.snapshot()
+        if last_activity > self._last_remote_activity:
+            self._last_remote_activity = last_activity
+            self.pending = self._ramp_velocity = ZERO
+            self._ramp_at = (self.now(),) * 3
+            self._source_received = None
+            self._wait_operator_neutral = self._neutral_required = True
+        return active is True
+
+    def movement_reason(self, *, neutral=False):
+        with self._lock:
+            active = self._remote_active()
+            if self._operator_stop:
+                return '비상정지가 걸려 있습니다'
+            if active:
+                return '리모컨으로 조종 중이라 화면 조종은 멈춰 있습니다'
+            if self._wait_operator_neutral:
+                if not neutral or self.latched:
+                    return '조종 막대에서 손을 한 번 뗀 뒤 다시 조종해 주세요'
+                self._wait_operator_neutral = False
+            return None
+
+    def movement_trial_blocked(self, action):
+        from .actions import EXECUTION_MAX_S
+        moves = isinstance(action, str) and (action in EXECUTION_MAX_S or
+                                              action in ('StopMove', 'StandDown', 'StandUp'))
+        return moves and bool(self.movement_reason())
 
     def _posture_sample(self):
         return (self.posture_feedback() if self.posture_feedback is not None
@@ -340,6 +378,10 @@ class Go2Sink:
         self._source_received = None
 
     def _expired(self, stamp):
+        if ((self._remote_active() or self._wait_operator_neutral) and not self._operator_stop
+                and not self.actions.busy and self._posture is None):
+            # No lower-priority stream owns movement or needs a deadman STOP.
+            return False
         return (stamp-self._last_apply >= DEADLINE_S or
                 stamp-self._last_drain >= DEADLINE_S or
                 (self._phone_watchdog and self._source_received is not None and
@@ -356,12 +398,17 @@ class Go2Sink:
             self._stop_requested.set()
             raise OutputError('both live workers must be ready before input/output')
 
-    def apply(self, command, *, source, input_received_at=None):
+    def apply(self, command, *, source, input_received_at=None, operator_stop=None):
         with self._lock:
             if self._closed.is_set() or self.error is not None:
                 raise OutputError('adapter closed or failed')
             # STOP dominates every source; source arbitration is not an auth gate.
             if command.kind == 'stop':
+                if operator_stop:
+                    self._operator_stop = True
+                    self._wait_operator_neutral = True
+                # Unclassified adapter calls retain their conservative STOP output.
+                self._ordinary_hold = operator_stop is False
                 action_hold = self.actions.stop(getattr(command, 'stop_generation', None), source=source)
                 # Core can publish the same held STOP on every tick/sample.
                 # Only a new hold invalidates sensor evidence; Core's own STOP
@@ -392,6 +439,7 @@ class Go2Sink:
                     return
                 if (self._confirmed_generation == self.generation and
                         0 <= self.now()-self._feedback_received <= FEEDBACK_MAX_AGE_S):
+                    self._operator_stop = False
                     self.latched = False
                     self._posture_stop_only = False
                     self._neutral_required = True
@@ -416,6 +464,8 @@ class Go2Sink:
                 raise
             self._last_apply = stamp
             self.lock_log.healthy(stamp)
+            if self._remote_active() or self._wait_operator_neutral:
+                return  # discard, including zero: a periodic apply cannot re-arm
             if self._phone_watchdog and not self.latched:
                 fresh_input = (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
                                and 0 <= stamp-input_received_at < DEADLINE_S)
@@ -531,15 +581,16 @@ class Go2Sink:
             self._rpc_diagnostic(method, elapsed, code)
         if type(code) is not int or code != 0:
             timeout = method == 'StopMove' and type(code) is int and code == 3104
-            if timeout:
-                return code  # display only; no unlock or synthetic Core feedback
             # Non-walkable/unknown posture may reject stopping as an unsupported
             # operation. Client/transport error codes (3000+) stay fatal.
             # Keep transport/observations alive, never enable motion.
             sample = self._posture_sample()
-            if (type(code) is int and code < 3000 and not self._walkable(sample) and
-                    (method == 'StopMove' or (method == 'Move' and args == ZERO))):
-                return
+            unsupported_stop = (type(code) is int and code < 3000 and not self._walkable(sample)
+                                and (method == 'StopMove' or (method == 'Move' and args == ZERO)))
+            if timeout or unsupported_stop:
+                if self._operator_stop:
+                    logging.getLogger(__name__).critical('GO2_EMERGENCY_OUTPUT_FAILED method=%s code=%d', method, code)
+                return code  # no unlock or synthetic Core feedback
             value = str(code) if type(code) is int else 'InvalidReturnType'
             print(f'SDK_OUTPUT_FAILED method={method} code={value}', file=sys.stderr)
             error = OutputError('SDK command submission failed')
@@ -547,18 +598,51 @@ class Go2Sink:
             raise error
         return code
 
+    def _movement_rpc(self, client, method, args, *, movement_epoch=None):
+        with self._lock:
+            active = self._remote_active()
+            activity_before = self._last_remote_activity
+            emergency = self._operator_stop
+            if not emergency and active:
+                return
+            if movement_epoch is not None and (self.latched or self._closed.is_set()
+                    or self._wait_operator_neutral or movement_epoch != (self.generation, activity_before)):
+                return
+        try:
+            self._call(client, method, *args)
+        except (OSError, RuntimeError) as error:
+            # A dispatched RPC cannot be withdrawn. A rejection overlapping
+            # observed handset activity must not tear down the DDS/WS session.
+            with self._lock:
+                overlap = self._remote_active() or self._last_remote_activity > activity_before
+            if not (active or overlap) or isinstance(error, PermissionError):
+                raise
+            code = getattr(error, 'sdk_code', None)
+            if isinstance(error, OutputError) and code is None:
+                raise
+            logger = logging.getLogger(__name__)
+            if emergency:
+                logger.critical('GO2_EMERGENCY_OUTPUT_FAILED method=%s code=%s', method, code)
+            else:
+                logger.warning('GO2_REMOTE_OUTPUT_REJECTED method=%s code=%s', method, code)
+
     def _stop_output(self, client, *, force=False):
         first = None
         with self._lock:
+            if self._remote_active() and not self._operator_stop:
+                return
             self.actions.poll()
-            if not force and self.actions.executing is not None:
+            if not force and not self._operator_stop and self.actions.executing is not None:
                 return  # only the accepted action's own held STOP generation
             generation = self.generation
+            quiet = self._ordinary_hold and not self._operator_stop
         measured = self._measured_stop(generation)
         lane = 'normal' if client is self.client else 'emergency'
         previous = self._stop_attempts.get(lane)
         send_stop = (force or previous is None or previous[0] != generation or
                      (not measured and self.now()-previous[1] >= STOP_RETRY_S))
+        if quiet and measured and not send_stop:
+            return
         sample = self._posture_sample()
         stop_only = (sample['state'] in ('LYING', 'TRANSITIONING') or
             sample.get('standing_locked', False) or self._posture_stop_only or
@@ -569,7 +653,7 @@ class Go2Sink:
                     continue
                 self._stop_attempts[lane] = (generation, self.now())
             try:
-                self._call(client, method, *args)
+                self._movement_rpc(client, method, args)
             except BaseException as error:
                 first = first or error
         if first is not None:
@@ -598,6 +682,7 @@ class Go2Sink:
                     self._stall()
                     self._stop_requested.set()
                 generation, urgent = self.generation, self._urgent
+                movement_epoch = (generation, self._last_remote_activity)
                 velocity = ZERO if self.latched else self.pending
                 if self.source == 'server' and not self.latched and not urgent:
                     velocity = tuple(
@@ -618,7 +703,7 @@ class Go2Sink:
                 if urgent or self.latched:
                     self._stop_output(self.client)
                 elif self._posture is None and not self.actions.busy and self._walkable():
-                    self._call(self.client, 'Move', *velocity)
+                    self._movement_rpc(self.client, 'Move', velocity, movement_epoch=movement_epoch)
                 self._posture_step()
                 self.actions.step()
                 # An in-flight SDK call cannot be cancelled. Compensate on its
@@ -644,12 +729,18 @@ class Go2Sink:
 
     def emergency_stop(self, *, force=False, retry=False):
         # Independent lane: a blocked normal RPC must not own this lock.
+        if not retry:
+            with self._lock:
+                self._hold(preserve=self._operator_stop)
+                self._operator_stop = True
+                self._wait_operator_neutral = True
+                self.actions.cancel()
         if not self._emergency.acquire(blocking=False):
+            if not retry:
+                self._stop_requested.set()
             return
         try:
             with self._lock:
-                if not retry and self.actions.executing is not None:
-                    self.actions.cancel()
                 self._hold(preserve=True)
             try:
                 self._stop_output(self.emergency_client, force=force)
