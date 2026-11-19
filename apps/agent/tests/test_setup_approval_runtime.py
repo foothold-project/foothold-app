@@ -3,6 +3,7 @@ import asyncio
 import builtins
 from dataclasses import replace
 import socket
+import sys
 import threading
 import time
 from types import SimpleNamespace as NS
@@ -15,7 +16,7 @@ from foothold_agent.link.client import Client
 from foothold_agent.setup.identity import MacIdentity
 from foothold_agent.setup.runtime import Inputs, run
 from foothold_agent.setup.view import Status
-from test_setup_pairing import credentials, NIC_VALUE, OfflineSink, FakeSport, low, sport
+from test_setup_pairing import credentials, NIC_VALUE, OfflineSink, FakeSport, low, sport, rig, SERIAL
 
 MAC = '02:00:00:00:00:11'
 
@@ -355,3 +356,86 @@ def test_setup_gate_preserves_first_worker_fault_behind_closed_adapter():
     with pytest.raises(LocalPortError) as caught:
         client._emit(Effects((MotionCommand(),)))
     assert caught.value.__cause__.__cause__ is original
+
+
+@pytest.fixture
+def sport_readers(monkeypatch):
+    opened = []
+
+    class Sport(FakeSport):
+        def __init__(self):
+            super().__init__()
+            opened.append(self)
+
+        def SetTimeout(self, timeout):
+            assert timeout == .1
+
+        def Init(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, 'unitree_sdk2py.go2.sport.sport_client', NS(SportClient=Sport))
+    monkeypatch.setattr(socket, 'if_nameindex', lambda: [(7, NIC_VALUE.name)])
+    return Sport, opened
+
+
+def test_reapproval_reuses_two_sport_readers_and_keeps_old_boundaries_revoked(sport_readers):
+    _, opened = sport_readers
+    gate, session, client, inputs, *_ = rig()
+    gate.wall, gate.now = time.time, time.monotonic
+    subscriptions = Subscriptions(inputs, NIC_VALUE.name)
+    subscriptions._started = True
+
+    def activate(sequence):
+        inputs.lowstate(low(sequence))
+        inputs.sportmodestate(sport(sequence))
+        client._emit(session.receive(dict(t='field_approval', expires_at=time.time()+60+sequence)))
+        gate.activate(subscriptions, sink_factory=OfflineSink)
+        sink = gate.active.sink
+        assert sink.latched and session.core.latch and session.lease_id is None
+        return sink.client, sink.emergency_client
+
+    old = activate(2)
+    try:
+        gate.revoke()
+        current = activate(3)
+        assert len(opened) == 2 and opened[0] is not opened[1]
+        for previous, new, transport in zip(old, current, opened):
+            assert previous is not new
+            assert previous.client is new.client is transport
+            before = len(transport.calls)
+            with pytest.raises(PermissionError):
+                previous.Move(.1, 0, 0)
+            assert len(transport.calls) == before
+        assert old[1].StopMove() == 0
+        assert opened[1].calls[-1] == ('StopMove', ())
+    finally:
+        gate.revoke()
+
+
+def test_partial_sport_initialization_retries_same_reader_only_for_same_participant(sport_readers, monkeypatch):
+    from foothold_agent.go2_direct.approval import Approval
+
+    fake_sport, opened = sport_readers
+    attempts = []
+
+    def initialize(client):
+        attempts.append(client)
+        if len(attempts) == 2:
+            raise RuntimeError('second reader initialization failed')
+
+    monkeypatch.setattr(fake_sport, 'Init', initialize)
+    subscriptions = Subscriptions(Inputs(), NIC_VALUE.name)
+    subscriptions._started = True
+    approval = Approval(NIC_VALUE.name, SERIAL, time.time()+60)
+    with pytest.raises(RuntimeError, match='second reader initialization failed'):
+        connect_approved(approval, SERIAL, subscriptions)
+    with pytest.raises(PermissionError):
+        connect_approved(approval, 'other', subscriptions)
+    pair = connect_approved(approval, SERIAL, subscriptions)
+    assert [boundary.client for boundary in pair] == opened
+    assert attempts == [opened[0], opened[1], opened[1]]
+
+    other = Subscriptions(Inputs(), NIC_VALUE.name)
+    other._started = True
+    next_pair = connect_approved(approval, SERIAL, other)
+    assert len(opened) == 4 and [boundary.client for boundary in next_pair] == opened[2:]
