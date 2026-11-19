@@ -154,7 +154,8 @@ function RightCol({ c, r, trial }: { c: Ctx; r: Robot; trial: ReactNode }) {
 /** 세 칸 조종 화면. back = 목록으로. floorMap = 고른 층 지도(fleet FleetMap — 로봇 위치 점) */
 export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () => void; floorMap: ReactNode }) {
   const d = useServerDrive(c, r), { l, s, mine } = d;
-  const lidar = useDriveFeed(r.id, 'lidar'), stack = stacked(lidar);   // 라이다 하나를 지도 칸(쌓이는 지도)·라이다 칸(3D)이 같이 본다
+  // 라이다 하나를 지도 칸(쌓이는 지도)·라이다 칸(3D)이 같이 본다 — 둘 다 안 보이면(카메라·뎁스만) 구독을 놓는다(RV-397 4)
+  const [wantLidar, setWantLidar] = useState(true), lidar = useDriveFeed(r.id, 'lidar', wantLidar), stack = stacked(lidar);
   const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh);
   const ago = s ? (rt.now() - l.stateAt) / 1000 : null, a = s?.applied ?? null;
   const server = LINK[d.link] ?? { tone: 'off' as const, text: '연결 중' };
@@ -202,7 +203,8 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
         {mine && <p className="lv-note">{d.hint}</p>}
       </section>
       <section className="pd-mid" aria-label="지도·카메라·라이다·뎁스">
-        <Quad label="조종 보기 4칸" first="map" tiles={tiles} fs={d.stop(true)} />
+        <Quad label="조종 보기 4칸" first="map" tiles={tiles} fs={<>{d.stopNote}{d.stop(true)}</>} onLeave={() => d.zero()}
+          onShown={(ids) => setWantLidar(ids.includes('map') || ids.includes('lidar'))} />
       </section>
       <RightCol c={c} r={r} trial={d.trial} />
     </div>
