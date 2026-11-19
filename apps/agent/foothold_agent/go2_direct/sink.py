@@ -302,6 +302,7 @@ class Go2Sink:
             raise ValueError('known source required')
         with self._lock:
             if self.source != source:
+                self.lock_log.emit("stop", "output_source_changed")
                 self.lock_log.emit("lock", "output_source_changed")
                 self._hold()
                 self.source = source
@@ -365,6 +366,7 @@ class Go2Sink:
                 self._stall()
                 self._stop_requested.set()
             if source != self.source or self.source is None:
+                self.lock_log.emit('stop', 'output_source_invalid')
                 self.lock_log.emit('lock', 'output_source_invalid')
                 self._hold()
                 raise ValueError('not the selected command source')
@@ -378,6 +380,7 @@ class Go2Sink:
                     self._neutral_required = True
                 return
             if command.kind != 'apply':
+                self.lock_log.emit('stop', 'output_command_invalid')
                 self.lock_log.emit('lock', 'output_command_invalid')
                 self._hold()
                 raise ValueError('unsupported motion kind')
@@ -385,6 +388,7 @@ class Go2Sink:
                 velocity = (server_velocity(command.velocity) if source == 'server'
                             else self.limits.project(command.velocity))
             except ValueError:
+                self.lock_log.emit("stop", "output_velocity_invalid")
                 self.lock_log.emit("lock", "output_velocity_invalid")
                 self._hold()
                 self._stop_requested.set()

@@ -191,3 +191,20 @@ def test_local_phone_envelopes_do_not_claim_server_provenance(caplog):
     session.receive(dict(t='stop'))
     assert any('cause=other_stop source=agent ' in x for x in records(caplog))
     assert all('source=server' not in x for x in records(caplog))
+
+
+@pytest.mark.parametrize('failure,expected', [('query','identity_check_failed'),
+    ('slow','identity_check_delayed'), ('conflict','identity_changed')])
+def test_identity_check_records_safe_failure_category(failure, expected):
+    from foothold_agent.setup.identity import MacIdentity
+    clock = Clock()
+    inputs = NS(zero_identity_changed=lambda: False, observed_identity=lambda: '0-0')
+    mac = '02:00:00:00:00:11'
+    def query(_):
+        if failure == 'query': raise PermissionError('private neighbor query failure')
+        if failure == 'slow': clock.value += .201
+        return ('02:00:00:00:00:12' if failure == 'conflict' else mac), []
+    identity = MacIdentity('fake-nic', mac, inputs, query=query, now=clock)
+    with pytest.raises(PermissionError): identity.check()
+    assert identity.failure_cause == expected and identity.failure_epoch == 1
+    assert identity.fault is (failure == 'conflict')

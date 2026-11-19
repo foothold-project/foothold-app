@@ -33,3 +33,8 @@ def test_cause_never_relaxes_existing_validation():
         C.AgentStop(t='stop', by_user_id=None, stop_ref=True, cause='user_stop')
     with pytest.raises(ValidationError):
         C.AgentLease(t='lease', lease_id=uuid4(), holder_type='OTHER', cause='lease_expired')
+
+
+def test_agent_and_contract_share_the_same_bounded_wire_codes():
+    from foothold_agent.safety.lock_log import SERVER_CAUSES
+    assert set(get_args(C.AgentLockCause)) == SERVER_CAUSES
