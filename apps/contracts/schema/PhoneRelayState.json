@@ -348,6 +348,17 @@
           "const": "GO2_DDS",
           "title": "Source",
           "type": "string"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2Temperature"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -358,6 +369,92 @@
         "fallen_source"
       ],
       "title": "Go2RobotInfo",
+      "type": "object"
+    },
+    "Go2Temperature": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "battery": {
+          "items": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Battery",
+          "type": "array"
+        },
+        "body": {
+          "items": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Body",
+          "type": "array"
+        },
+        "imu": {
+          "anyOf": [
+            {
+              "maximum": 150,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Imu"
+        },
+        "joints": {
+          "items": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Joints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "joints",
+        "battery",
+        "imu",
+        "body",
+        "age_s"
+      ],
+      "title": "Go2Temperature",
       "type": "object"
     }
   },

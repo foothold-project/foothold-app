@@ -31,8 +31,9 @@ def project(snapshot, now):
     # Reuse the read-only snapshot's 2 s display lifetime, independently of
     # motion feedback and the shorter battery/speed reporting lifetime.
     info.update({field: deepcopy(snapshot[field]) for field, topic in (
-        ('joints', 'lowstate'), ('quaternion', 'lowstate'), ('position', 'sportmodestate'))
-        if field in snapshot and fresh(snapshot, topic, max_age_s=REPLAY_STALE_S)})
+        ('joints', 'lowstate'), ('quaternion', 'lowstate'), ('position', 'sportmodestate'),
+        ('temperature', 'lowstate'))
+        if snapshot.get(field) is not None and fresh(snapshot, topic, max_age_s=REPLAY_STALE_S)})
     result = dict(speed=None, battery={'soc': None},
                   robot_info=info,
                   pose=dict.fromkeys(('floor_id', 'map_version_id', 'x', 'y', 'yaw', 'confidence')))

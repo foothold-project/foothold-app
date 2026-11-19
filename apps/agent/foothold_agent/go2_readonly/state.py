@@ -27,6 +27,26 @@ def integer(value, high):
     return type(value) is int and 0 <= value <= high
 
 
+def temperature(message):
+    def reading(value):
+        return value if type(value) is int and 1 <= value <= 150 else None
+
+    def slots(values, size):
+        items = list(values[:size]) if isinstance(values, (list, tuple, bytes, bytearray)) else []
+        return items + [None] * (size - len(items))
+
+    motors = slots(getattr(message, 'motor_state', None), 12)
+    joints = [reading(getattr(motor, 'temperature', None)) for motor in motors]
+    bms = getattr(message, 'bms_state', None)
+    battery = [reading(value) for field in ('bq_ntc', 'mcu_ntc')
+               for value in slots(getattr(bms, field, None), 2)]
+    imu = reading(getattr(getattr(message, 'imu_state', None), 'temperature', None))
+    body = [reading(getattr(message, field, None)) for field in ('temperature_ntc1', 'temperature_ntc2')]
+    if any(value is not None for value in (*joints, *battery, imu, *body)):
+        return dict(joints=joints, battery=battery, imu=imu, body=body)
+    return None
+
+
 def attitude(message):
     rpy = getattr(getattr(message, 'imu_state', None), 'rpy', None)
     if not isinstance(rpy, (list, tuple)) or len(rpy) != 3:
@@ -79,7 +99,7 @@ class State:
         if quaternion is not None and not .9 <= math.hypot(*quaternion) <= 1.1:
             quaternion = None
         self._accept('lowstate', tick, {
-            'joints': joints, 'quaternion': quaternion,
+            'joints': joints, 'quaternion': quaternion, 'temperature': temperature(message),
             'battery': {'soc': soc if number(soc, 0, 100) else None,
                         'voltage': float(voltage) if number(voltage, .01, 100) else None},
             'attitude': attitude(message)})
@@ -123,6 +143,8 @@ class State:
                   any(abs(v) >= TILT_RAD for v in pose.values()))
         latest_topic = max(topics, key=lambda name: topics[name]['received'], default=None)
         replay = {}
+        if low.get('temperature') is not None:
+            replay['temperature'] = {**low['temperature'], 'age_s': sources['lowstate']['age_s']}
         for field in ('joints', 'quaternion', 'position'):
             topic = 'sportmodestate' if field == 'position' else 'lowstate'
             values = sport if field == 'position' else low

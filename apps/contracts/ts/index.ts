@@ -668,6 +668,15 @@ export interface Go2RobotInfo {
   joints?: Go2Joints | null;
   quaternion?: Go2Quaternion | null;
   position?: Go2Position | null;
+  temperature?: Go2Temperature | null;
+}
+
+export interface Go2Temperature {
+  joints: (number | null)[];
+  battery: (number | null)[];
+  imu: number | null;
+  body: (number | null)[];
+  age_s: number;
 }
 
 export interface IdempotencyHeaders {

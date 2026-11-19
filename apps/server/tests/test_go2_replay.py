@@ -2,7 +2,7 @@
 import time
 from uuid import uuid4
 
-from apps.contracts.tests.test_go2_replay_contract import replay_info
+from apps.contracts.tests.test_go2_replay_contract import replay_info, temperature_sample
 from .test_realtime import agent, app_token, rt, state
 
 
@@ -11,6 +11,7 @@ def test_replay_received_forwarded_expired_and_legacy_clears(client, seeded, rt)
     headers = app_token(client)
     path = f'/api/v1/robots/{rid}'
     info = replay_info()
+    info['temperature'] = temperature_sample()
     with agent(client, seeded, direct=True, robot_model='unitree_go2') as ag:
         frame = state()
         frame['robot_info'] = info
@@ -20,14 +21,16 @@ def test_replay_received_forwarded_expired_and_legacy_clears(client, seeded, rt)
             assert time.monotonic() < deadline
             time.sleep(.01)
         detail = client.get(path, headers=headers).json()
-        for key in ('joints', 'quaternion', 'position'):
+        for key in ('joints', 'quaternion', 'position', 'temperature'):
             sample = detail['robot_info'][key]
             assert 0 <= sample['age_s'] < 1
             assert {k: v for k, v in sample.items() if k != 'age_s'} == {k: v for k, v in info[key].items() if k != 'age_s'}
             assert rt.agents[str(rid)].state['robot_info'][key]['age_s'] == 0  # cache not mutated by GET
         assert detail['lease'] is None and detail['status'] == 'STOP_LATCHED'
         rt.agents[str(rid)].state_received_at -= 1.1
-        assert client.get(path, headers=headers).json()['robot_info']['joints']['age_s'] >= 1.1
+        aged = client.get(path, headers=headers).json()['robot_info']
+        assert aged['joints']['age_s'] >= 1.1
+        assert aged['temperature']['age_s'] >= 1.1
         rt.agents[str(rid)].state_received_at -= 4
         assert client.get(path, headers=headers).json()['robot_info'] is None
         ag.send_json(state())  # old agents still work and clear all optional samples
