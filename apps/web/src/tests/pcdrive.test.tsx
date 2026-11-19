@@ -106,6 +106,45 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     click(btn('조종 시작')); expect(w.of('lease.take').length).toBe(takes + 1);
   });
 
+  // RV-412 1: 서버 목록의 끊김(AGENT_OFFLINE)이 WS state·조종권 회수보다 먼저 와도 누른 것을 버리고 0 만 — 복구 뒤에도 «조종 시작» 다시 + 새로 눌러야 이동
+  it('목록 끊김이 먼저 와도 끊김 동안·복구 뒤 0 이 아닌 명령 없음, «조종 시작» 다시 누르고 새로 눌러야만 이동 · STOP 은 그대로', () => {
+    mount('u-park'); serve('r7');
+    click(btn('조종 시작')); click(btn('② 잠금 해제')); tick(100);
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    const n = axes().length, moving = () => axes().slice(n).filter((a) => a !== '0,0,0');
+    relist(drop(ON, ['AGENT_OFFLINE']));   // state 는 아직 ONLINE, 조종권도 아직 내 것 — 목록만 먼저
+    tick(150);
+    expect(moving()).toEqual([]); expect(w.of('lease.release').length).toBe(1);
+    expect($('[data-pd-offline]')).not.toBeNull();
+    const stop = $('[data-pd-top] [data-sd-stop="full"]') as HTMLButtonElement;
+    expect(stop.disabled).toBe(false);
+    relist(ON); tick(300);   // 목록 복구 — 키는 계속 누른 채
+    expect(moving()).toEqual([]); expect($('[data-pd-offline]')).toBeNull();
+    key('keydown', 'ArrowUp'); tick(100); expect(moving()).toEqual([]);   // 조종권 없이 눌러도 없음
+    click(btn('조종 시작')); tick(100);
+    expect(moving()).toEqual([]);   // 시작만으로는 움직이지 않음(누른 채였던 키는 버려짐)
+    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60);
+    expect(lastAxes()).toBe('1.5,0,0');
+    key('keyup', 'ArrowUp'); click(stop); expect(w.of('stop').length).toBe(1);
+  });
+
+  // RV-412 2: 끊김 유지 기록은 로그인(사용자·세션)별 — A 가 허용받았던 로봇을 끊긴 채 B 에게 배정하고 같은 탭에서 B 로 로그인하면 옛 화면
+  it('끊김 유지 기록은 로그인별 — 사용자가 바뀌거나 다시 로그인하면 지워져 옛 화면', () => {
+    const g1 = new AbortController(), as = (user: string, robots: Robot[], cancel?: AbortSignal, k = user) =>
+      act(() => { root!.render(<App key={k} user={USERS.find((u) => u.id === user)} robots={robots} cancel={cancel} />); });
+    mount('u-park'); serve('r7');
+    as('u-park', ON, g1.signal, 'park-1'); expect($('[data-pc-drive]')).not.toBeNull();
+    as('u-park', drop(ON, ['AGENT_OFFLINE']), g1.signal, 'park-1'); expect($('[data-pc-drive]')).not.toBeNull();   // 같은 로그인 — 유지
+    const toLee = drop(ON.map((r) => (r.id === 'r7' ? { ...r, owner: 'u-lee', ownerName: '이OO' } : r)), ['AGENT_OFFLINE']);
+    g1.abort(); as('u-lee', toLee, new AbortController().signal); serve('r7');
+    expect($('[data-pc-drive]')).toBeNull();
+    // 같은 사람도 로그아웃 뒤 다시 로그인(새 세션)하면 지워짐
+    const g2 = new AbortController();
+    as('u-park', ON, g2.signal, 'park-2'); expect($('[data-pc-drive]')).not.toBeNull();
+    g2.abort(); as('u-park', drop(ON, ['AGENT_OFFLINE']), new AbortController().signal, 'park-3');
+    expect($('[data-pc-drive]')).toBeNull();
+  });
+
   it('끊김 유지는 한 번 허용됐던 로봇만, 까닭이 «로봇 연결 없음» 하나일 때만 — 처음부터 끊긴 로봇·스위치 꺼짐은 지금처럼 옛 화면', () => {
     // 다른 시험이 r7 을 이미 허용 로봇으로 기억했으므로(새로 고침 전까지) 이 시험은 처음 보는 id
     const X = (rs: Robot[]) => rs.map((r) => (r.id === 'r7' ? { ...r, id: 'r7x' } : r)), drop = (rs: Robot[], blocked: NonNullable<Robot['serverDriveBlocked']>) => X(rs).map((r) => (r.id === 'r7x' ? { ...r, serverDrive: false, serverDriveBlocked: blocked } : r));
