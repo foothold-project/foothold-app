@@ -119,7 +119,8 @@ def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')
 
 class Source:
     def __init__(self, config, env, channel, *, factory=sdk.observation, now=time.monotonic,
-                 recorder=None, enabled=lambda: True, include_depth=True):
+                 recorder=None, enabled=lambda: True, include_depth=True,
+                 depth_source=None, depth_allowed=lambda: True):
         self.config, self.env, self.channel = config, env, channel
         self.factory, self.now = factory, now
         self.enabled = enabled
@@ -142,19 +143,35 @@ class Source:
         self.epoch = secrets.randbits(52)
         self.threads = []
         from foothold_agent.depth.source import Source as DepthSource
-        self.depth_source = DepthSource(config, env, recorder=self.recorder,
-                                        recording_allowed=enabled) if include_depth else None
-        if self.depth_source is not None:
+        self.owns_depth_source = depth_source is None and include_depth
+        self.depth_allowed = depth_allowed
+        self.depth_source = depth_source
+        if self.owns_depth_source:
+            self.depth_source = DepthSource(config, env, recorder=self.recorder,
+                                            recording_allowed=enabled)
             self.depth_source.epoch = self.epoch
 
     def start(self):
         self.recorder.start()
-        if self.depth_source is not None:
+        if self.owns_depth_source:
             self.depth_source.start()
-        self.threads = [threading.Thread(target=fn, daemon=True, name='go2-observe-'+name)
+        self.threads = [threading.Thread(target=self.observe, args=(name, fn),
+                                       daemon=True, name='go2-observe-'+name)
             for name, fn in (('rgb', self.camera), ('lidar', self.lidar))]
         for thread in self.threads:
             thread.start()
+
+    def observe(self, channel, worker):
+        while not self.closing.is_set():
+            try:
+                if self.enabled():
+                    worker()
+            except Exception as error:
+                self.start_failed(channel, error)
+            # Transient identity/approval freshness gaps must not permanently
+            # retire a channel within the same approval epoch. Each worker's
+            # factory still verifies the body before opening any SDK resource.
+            self.closing.wait(1.)
 
     def publish(self, channel, received, frame):
         if not 0 <= self.now()-received <= 1 or self.closing.is_set() or not self.enabled():
@@ -305,14 +322,25 @@ class Source:
         if self.closing.is_set() or not self.enabled():
             return None
         if channel == 'depth':
-            return self.depth_source.sample(channel) if self.depth_source is not None else None
+            try:
+                if self.depth_source is None or not self.depth_allowed():
+                    return None
+                item = self.depth_source.sample(channel)
+                if item is None or not 0 <= self.now()-item[0] <= 1:
+                    return None
+                # Setup owns the reader across approval epochs. Rebind a copy
+                # to this publisher without mutating or restarting that reader.
+                received, header, payload = item
+                return received, dict(header, robot=self.config.robot, epoch=self.epoch), payload
+            except Exception:
+                return None  # depth failure never stops the RGB/lidar workers
         with self.lock:
             item = self.latest.get(channel)
         return item if item and 0 <= self.now()-item[0] <= 1 else None
 
     def close(self):
         self.closing.set()  # never await a stalled SDK/video worker on safety's loop
-        if self.depth_source is not None:
+        if self.owns_depth_source:
             self.depth_source.close()
         if self.owns_recorder:
             self.recorder.close()
@@ -325,7 +353,8 @@ class Publisher:
         if channels is not None:
             self.channels = channels
         self.source = source_factory(config, env, channel)
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='go2-media-upload')
+        # A stalled depth HTTP request must not occupy RGB/lidar's workers.
+        self.executor = ThreadPoolExecutor(max_workers=len(self.channels), thread_name_prefix='go2-media-upload')
         self.opener = build_opener(ProxyHandler({}))
 
     def url(self, channel):
@@ -401,7 +430,7 @@ class Publisher:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
+def approved_publisher(credentials, approval, subscriptions, recorder, enabled, *, depth_source=None):
     """Desktop observations reuse the existing approved DDS participant/NIC.
 
     No file-based manual approval, new participant or motion client is opened.
@@ -411,7 +440,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     inputs = subscriptions.state
     identity = getattr(inputs, 'mac_identity', None)
 
-    def observation(env, channel, observed_serial, *, callback=None):
+    def authorize(channel, observed_serial):
         import socket
         from .approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
         from .identity import verify
@@ -443,6 +472,9 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
                 raise PermissionError('confirmed media body identity unavailable')
         if not enabled():
             raise PermissionError('approved observation channel required')
+
+    def observation(env, channel, observed_serial, *, callback=None):
+        authorize(channel, observed_serial)
         if callback is not None:
             return channel.cloud('rt/utlidar/cloud', callback)
         from unitree_sdk2py.go2.video.video_client import VideoClient
@@ -452,6 +484,12 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
         return client
 
     config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link, approval=approval)
-    return Publisher(config, {}, subscriptions, channels=('rgb', 'lidar'),
+
+    def depth_allowed():
+        authorize(subscriptions, expected_serial(approval))
+        return True
+
+    return Publisher(config, {}, subscriptions, channels=('rgb', 'lidar', 'depth'),
         source_factory=lambda config, env, channel: Source(config, env, channel,
-            factory=observation, recorder=recorder, enabled=enabled, include_depth=False))
+            factory=observation, recorder=recorder, enabled=enabled, include_depth=False,
+            depth_source=depth_source, depth_allowed=depth_allowed))

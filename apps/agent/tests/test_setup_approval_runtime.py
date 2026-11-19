@@ -40,6 +40,10 @@ def test_slow_initialization_does_not_prematurely_close_new_output(monkeypatch):
     exercise_initialization(monkeypatch, zero=True, stop_result=-1)
 
 
+def test_setup_passes_existing_depth_reader_to_approved_media(monkeypatch):
+    exercise_initialization(monkeypatch, zero=True, depth=True)
+
+
 @pytest.mark.parametrize('change', ['mac', 'serial', 'nic', 'disconnect', 'revoke', 'expiry'])
 def test_invalidated_initialization_never_installs_output(change, monkeypatch):
     exercise_initialization(monkeypatch, zero=True, change=change)
@@ -135,7 +139,7 @@ def test_setup_fixed_agile_allowlist_and_stillness(zero, code, velocity, ready, 
             if r.name == 'foothold_agent.setup.runtime'] == ['서버 시험 운동 상태 허용: 100(Agile)']
 
 
-def exercise_initialization(monkeypatch, *, zero, change=None, stop_result=0):
+def exercise_initialization(monkeypatch, *, zero, change=None, stop_result=0, depth=False):
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
     if not zero:
         release.set()  # normal serial keeps its established synchronous factory
@@ -198,8 +202,12 @@ def exercise_initialization(monkeypatch, *, zero, change=None, stop_result=0):
             sink = OfflineSink(*args, **kwargs)
             outputs.append(sink)
             return sink
-        def media_factory(_credentials, approval, subscriptions, recorder, enabled):
+        depth_source = NS() if depth else None
+        def media_factory(_credentials, approval, subscriptions, recorder, enabled, **kwargs):
             assert enabled() and approval.robot_serial == creds.robot_serial
+            assert kwargs == (dict(depth_source=depth_source) if depth else {})
+            if depth:
+                assert depth_source.recorder is recorder and depth_source.recording_allowed()
             item = NS(closed=False, enabled=enabled)
             media.append(item)
             class Publisher:
@@ -213,6 +221,7 @@ def exercise_initialization(monkeypatch, *, zero, change=None, stop_result=0):
         task = asyncio.create_task(run(creds, NIC_VALUE, inputs, subscriptions, ready=True,
             check_nic=lambda: nic_ok[0], status=status, stop=stop, client_factory=FakeClient,
             connect=sdk, sink_factory=sink_factory, media_factory=media_factory,
+            depth_source=depth_source,
             recorder_factory=lambda *args, **kwargs: recorder))
         try:
             await until(lambda: 'client' in seen and inputs.feedback.sample() is not None, task)
