@@ -1,9 +1,8 @@
 // PC 로봇 탭 «바로 조종» 세 칸 화면(RB-PC-DRIVE-3COL 11-19): 서버가 조종을 허용한 실기 로봇(canDrive)을 고르면 로봇 탭 본문이 곧 이 화면.
-// 맨 위 줄 = STOP(가장 크게)·조종 시작/끝내기·잠금 해제·연결 상태. 왼쪽 = Go2 3D(로봇이 보낸 관절·자세) + 상태 글자 + 자세 단추,
+// 맨 위 줄 = STOP(가장 크게)·조종 시작/끝내기·잠금 해제·연결 상태. 왼쪽 = 상태 글자(위) + Go2 3D(go2model.tsx — 실제 모양·관절 값·움직임 화살표, 글자와 안 겹침) + 자세 단추,
 // 가운데 = quad.tsx 4칸(지도·카메라·라이다·뎁스 — 처음은 큰 1 + 작은 3), 오른쪽 = 지도 만들기(mapmake 흐름 그대로)·속도·시나리오·목표.
 // 조종 논리(조종권·키·deadman 0·STOP·잠금 해제·자세)는 serverdrive.tsx useServerDrive 하나 — 이 파일은 배치만, 새 명령 값·서버 길 없음.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import * as THREE from 'three';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { MapVersion, Scenario } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { rt, type Live } from './rt';
@@ -17,17 +16,11 @@ import { STALLED } from './simdrive';
 import { MakeMap } from './screens/mapmake';
 import { floorsOf, purposeOf, useTree } from './screens/maps';
 import type { Robot } from './fake';
+import { Go2Figure, JOINTS, useGo2Motion, type Pose } from './go2model';
 import './pcdrive.css';
 
-/** Go2 관절 이름 순서(mobile/sim/go2-replay.js GO2_JOINTS 와 같음) · 서 있는 기본 자세(보고 없을 때 그림) */
-const JOINTS = ['FR', 'FL', 'RR', 'RL'].flatMap((leg) => ['hip', 'thigh', 'calf'].map((part) => `${leg}_${part}_joint`));
-const STAND = JOINTS.map((n) => (n.includes('hip') ? (n[1] === 'R' ? -0.1 : 0.1) : n.includes('thigh') ? (n.startsWith('F') ? 0.8 : 1) : -1.5));
 /** 이만큼 넘게 새 보고가 없으면 «로봇 보고 없음»(서버 state 는 0.1 s 마다) */
 export const REPORT_STALE_MS = 1000;
-/** Go2 치수(m, 공개 URDF 값): 엉덩이 앞뒤·좌우, 허벅지 옆 간격, 허벅지·종아리 길이, 몸통 */
-const G = { hx: 0.1934, hy: 0.0465, ty: 0.0955, l1: 0.213, l2: 0.213, body: [0.376, 0.094, 0.114] as const };
-
-type Pose = { q: number[]; wxyz: number[] } | null;
 /** state.robot_info 에서 그림에 쓸 관절 12개 + 몸 자세. 모양이 틀리거나 연결이 끊겼거나 오래되면 null(지어내지 않음) */
 export function go2Pose(s: Live['state'], fresh: boolean): Pose {
   const j = s?.robot_info?.joints, w = s?.robot_info?.quaternion?.wxyz;
@@ -36,53 +29,6 @@ export function go2Pose(s: Live['state'], fresh: boolean): Pose {
   if (q.some((v) => v === undefined)) return null;
   const norm = w && w.length === 4 && w.every(Number.isFinite) ? Math.hypot(...w) : 0;
   return { q, wxyz: norm > 0.9 && norm < 1.1 ? w!.map((v) => v / norm) : [1, 0, 0, 0] };
-}
-
-/** Go2 3D 그림(three — 상자·막대로 몸통과 다리 4개, 관절각 그대로). 그림만 — 명령 0. WebGL 이 없으면 글로 대신 */
-function Go2Figure({ pose }: { pose: Pose }) {
-  const box = useRef<HTMLDivElement>(null), parts = useRef<{ draw: (p: Pose) => void } | null>(null), [fail, setFail] = useState(false);
-  useEffect(() => {
-    const el = box.current!;
-    let renderer: THREE.WebGLRenderer;
-    try { if (typeof WebGLRenderingContext === 'undefined') throw 0; renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); } catch { setFail(true); return; }
-    const css = getComputedStyle(el), tok = (k: string, fb: string) => new THREE.Color(css.getPropertyValue(k).trim() || fb);
-    const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(35, 1, 0.05, 20);
-    cam.position.set(0.9, 0.55, 0.9); cam.lookAt(0, -0.08, 0);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.2)); const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(1, 2, 1); scene.add(sun);
-    const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; scene.add(world);   // 로봇 좌표(z 위) → three(y 위)
-    const grid = new THREE.GridHelper(1.6, 8, tok('--line2', '#556'), tok('--line', '#334')); grid.rotation.x = Math.PI / 2; grid.position.z = -0.33; world.add(grid);
-    const skin = new THREE.MeshStandardMaterial({ color: tok('--text', '#ccd'), roughness: 0.6 }), leg = new THREE.MeshStandardMaterial({ color: tok('--muted', '#889'), roughness: 0.7 });
-    const body = new THREE.Group(); world.add(body);
-    body.add(new THREE.Mesh(new THREE.BoxGeometry(...G.body), skin));
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.06), new THREE.MeshStandardMaterial({ color: tok('--accent', '#3a8') })); head.position.x = G.body[0] / 2 + 0.02; body.add(head);
-    const bar = (len: number) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.032, len), leg); m.position.z = -len / 2; return m; };
-    const joints = ['FR', 'FL', 'RR', 'RL'].map((n) => {
-      const sx = n[0] === 'F' ? 1 : -1, sy = n[1] === 'L' ? 1 : -1;
-      const hip = new THREE.Group(); hip.position.set(sx * G.hx, sy * G.hy, 0); body.add(hip);
-      const thigh = new THREE.Group(); thigh.position.y = sy * G.ty; hip.add(thigh); thigh.add(bar(G.l1));
-      const calf = new THREE.Group(); calf.position.z = -G.l1; thigh.add(calf); calf.add(bar(G.l2));
-      const foot = new THREE.Mesh(new THREE.SphereGeometry(0.022), leg); foot.position.z = -G.l2; calf.add(foot);
-      return [hip, thigh, calf] as const;
-    });
-    const size = () => { const w = el.clientWidth || 300, h = el.clientHeight || 220; renderer.setPixelRatio(window.devicePixelRatio || 1); renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); };
-    const draw = (p: Pose) => {
-      const q = p?.q ?? STAND, [w, x, y, z] = p?.wxyz ?? [1, 0, 0, 0];
-      joints.forEach(([hip, thigh, calf], i) => { hip.rotation.x = q[i * 3]; thigh.rotation.y = q[i * 3 + 1]; calf.rotation.y = q[i * 3 + 2]; });
-      body.quaternion.set(x, y, z, w);
-      renderer.render(scene, cam);
-    };
-    el.prepend(renderer.domElement); renderer.domElement.style.cssText = 'width:100%;height:100%;display:block';
-    size(); parts.current = { draw };
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { size(); draw(last.current); });
-    ro?.observe(el);
-    draw(last.current);
-    return () => { ro?.disconnect(); parts.current = null; renderer.dispose(); renderer.domElement.remove(); scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.(); }); };
-  }, []);
-  const last = useRef(pose); last.current = pose;
-  useEffect(() => { parts.current?.draw(pose); }, [pose?.q.join(), pose?.wxyz.join()]);
-  return <div ref={box} className="pd-go2" role="img" aria-label={pose ? 'Go2 — 로봇이 보낸 관절·자세' : 'Go2 — 기본 자세(로봇 보고 없음)'}>
-    {fail && <span className="pd-go2-fail">이 브라우저는 3D 그림을 그릴 수 없습니다</span>}
-  </div>;
 }
 
 const POSTURE: Record<string, string> = { STANDING: '서 있음', LYING: '엎드림', TRANSITIONING: '바뀌는 중', UNKNOWN: '모름' };
@@ -156,7 +102,8 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const d = useServerDrive(c, r), { l, s, mine } = d;
   // 라이다 하나를 지도 칸(쌓이는 지도)·라이다 칸(3D)이 같이 본다 — 둘 다 안 보이면(카메라·뎁스만) 구독을 놓는다(RV-397 4)
   const [wantLidar, setWantLidar] = useState(true), lidar = useDriveFeed(r.id, 'lidar', wantLidar), stack = stacked(lidar);
-  const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh);
+  const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh), motion = useGo2Motion(s?.robot_info, pose);
+  const [tags, setTags] = useState(true);
   const ago = s ? (rt.now() - l.stateAt) / 1000 : null, a = s?.applied ?? null;
   const server = LINK[d.link] ?? { tone: 'off' as const, text: '연결 중' };
   const robot = !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
@@ -184,19 +131,20 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
     {d.releasing}
     <div className="pd-cols">
       <section className="lv-card pd-left" aria-label="로봇 상태" data-pd-left data-stale={pose ? undefined : ''}>
-        <div className="pd-stage">
-          <Go2Figure pose={pose} />
+        <div className="pd-facts" data-pd-facts>
+          {fact('자세', POSTURE[s?.posture?.state ?? ''] ?? '모름', 'posture')}
+          {fact('움직일 수', d.lock.text, 'move')}
+          {fact('배터리', s?.battery?.soc != null ? `${s.battery.soc}%` : '—', 'battery')}
+          {fact('수평 속도', s?.speed != null ? `${s.speed.toFixed(1)} m/s` : '—', 'hspeed')}
+          {fact('보내는 속도', a ? `앞뒤 ${n1(a[0])} · 옆 ${n1(a[1])} m/s · 회전 ${n1(a[2])} rad/s` : '—', 'speed')}
+          {fact('조종하는 사람', holderText(l, c.user.id, r), 'holder')}
+          {fact('마지막 보고', ago == null ? '없음' : `${ago.toFixed(1)}초 전`, 'ago')}
+          {why && fact('잠긴 까닭', why, 'why')}
+          <button type="button" className="btn pd-tags" aria-pressed={tags} onClick={() => setTags((v) => !v)} data-pd-tags>관절 값</button>
+        </div>
+        <div className="pd-stage" data-pd-stage>
+          <Go2Figure pose={pose} motion={motion} showJoints={tags} />
           {!pose && <span className="pd-noreport" role="status" data-pd-noreport>로봇 보고 없음</span>}
-          <div className="pd-facts">
-            {fact('자세', POSTURE[s?.posture?.state ?? ''] ?? '모름', 'posture')}
-            {fact('움직일 수', d.lock.text, 'move')}
-            {fact('배터리', s?.battery?.soc != null ? `${s.battery.soc}%` : '—', 'battery')}
-            {fact('보내는 속도', a ? `앞뒤 ${n1(a[0])} · 옆 ${n1(a[1])} m/s · 회전 ${n1(a[2])} rad/s` : '—', 'speed')}
-            {fact('수평 속도', s?.speed != null ? `${s.speed.toFixed(1)} m/s` : '—', 'hspeed')}
-            {fact('조종하는 사람', holderText(l, c.user.id, r), 'holder')}
-            {why && fact('잠긴 까닭', why, 'why')}
-            {fact('마지막 보고', ago == null ? '없음' : `${ago.toFixed(1)}초 전`, 'ago')}
-          </div>
         </div>
         {d.poseRow}
         {d.pad}
