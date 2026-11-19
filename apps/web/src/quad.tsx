@@ -2,6 +2,7 @@
 // f = null 이면 2×2, 아니면 그 칸이 크게 + 나머지 3칸은 오른쪽 세로 작은 칸. 칸 머리 단추로만 바꾼다(그림 위 끌기 — 지도 이동·3D 회전 — 와 겹치지 않게).
 // 작은 칸을 숨기면(›) 그 칸 내용을 내려 media 구독도 놓는다(display:none 만으로는 받기가 계속됨).
 // 큰 칸일 때만 «전체화면»(이 묶음만 Fullscreen API). 전체화면은 머리줄 STOP 을 가리므로 fs(STOP)를 그 안에 늘 둔다.
+// first = 처음부터 크게 볼 칸(PC 로봇 탭 세 칸 화면 — 큰 1 + 작은 3). 주면 «4분할 ↔ 큰 화면» 단추가 위 줄에 붙는다.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { feedText, useFeed, type Feed } from './media';
 import './quad.css';
@@ -9,8 +10,8 @@ import './quad.css';
 export type QSize = 'grid' | 'big' | 'thumb';
 export type QTile = { id: string; label: string; body: (s: QSize) => ReactNode };
 
-export function Quad({ tiles, label, fs, top }: { tiles: QTile[]; label: string; fs: ReactNode; top?: ReactNode }) {
-  const [f, setF] = useState<string | null>(null), [pip, setPip] = useState(true), [full, setFull] = useState(false), [err, setErr] = useState('');
+export function Quad({ tiles, label, fs, top, first }: { tiles: QTile[]; label: string; fs: ReactNode; top?: ReactNode; first?: string }) {
+  const [f, setF] = useState<string | null>(first ?? null), [pip, setPip] = useState(true), [full, setFull] = useState(false), [err, setErr] = useState('');
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {   // 전체화면 들어감/나옴(Esc·브라우저 단추 포함)
     const ch = () => setFull(!!root.current && document.fullscreenElement === root.current);
@@ -36,7 +37,8 @@ export function Quad({ tiles, label, fs, top }: { tiles: QTile[]; label: string;
     {f && <button type="button" className="btn qfs" aria-pressed={full} title={full ? '전체화면 끝내기(Esc)' : '이 묶음만 화면 전체로 · STOP 은 안에 그대로'}
       onClick={() => (full ? document.exitFullscreen().catch(() => {}) : goFull())}>{full ? '전체화면 끝' : '전체화면'}</button>}
     {full && <div className="qfs-stop" data-qfs-stop>{fs}</div>}
-    {(top || err) && <div className="qd-top">{err && <span className="fh-why" role="status">{err}</span>}{top}</div>}
+    {(top || err || first) && <div className="qd-top">{first && <button type="button" className="btn" aria-pressed={!f} data-q-grid onClick={() => setF(f ? null : first)}>{f ? '4분할' : '큰 화면 1 + 작은 3'}</button>}
+      {err && <span className="fh-why" role="status">{err}</span>}{top}</div>}
   </div>;
 }
 
@@ -89,7 +91,7 @@ export function Cloud3D({ small, big, feed: given, empty: none = '' }: { small: 
       el.removeEventListener('pointerup', end); el.removeEventListener('pointercancel', end); el.removeEventListener('lostpointercapture', end); document.removeEventListener('visibilitychange', vis);
     };
   }, [small]);
-  const label = feed.frame === 'map' ? '지도 기준 누적' : 'L1 센서 기준 1스캔 · 지도 누적 아님';
+  const label = feed.frame === 'map' ? '지도 기준 누적' : (feed.frame as string) === 'odom' ? '켠 곳 기준 누적' : 'L1 센서 기준 1스캔 · 지도 누적 아님';
   return <div style={{ position: 'absolute', inset: 0 }} data-cloud={feed.n}>
     <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none' }} aria-label={`3D 점군 — ${label}${small ? '' : '(끌어서 돌려 보기)'}`} />
     {empty ? <QEmpty text={empty} /> : big && <div className="qd-legend" aria-label="점 높이 범례">

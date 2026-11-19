@@ -142,16 +142,16 @@ export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <
 /** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기 */
 export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
 /** 쌓이는 지도로 그릴 라이다인가(계약 frame 'odom' — 로봇이 처음 켜진 곳 기준 좌표 + pose) */
-const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
+export const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
 
-/** inline = 작은 패널에도 조작부를 둔다(지도 만들기 창 — 실시간 지도를 보면서 바로 조종, 11-13) */
-export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; inline?: boolean }) {
+/** 조종 논리 하나(조종권·키·누름 단추·deadman 0·STOP·잠금 해제·자세) — 작은 패널(ServerDrive)과 PC 로봇 탭 세 칸 화면(pcdrive.tsx)이 같이 쓴다.
+ *  한 화면에 하나만 붙인다(키·조종권이 하나). esc = Esc 를 눌렀을 때(패널의 전체화면 닫기) */
+export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: () => void }) {
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
   const l = useLive(r.id), link = rt.link().at, mine = !!l.lease, s = l.state;
-  const [on, setOn] = useState(''), [why, setWhy] = useState(''), [full, setFull] = useState<DriveCh | null>(null);
+  const [on, setOn] = useState(''), [why, setWhy] = useState('');
   const [, tick] = useState(0), [asked, setAsked] = useState<number | null>(null);   // asked = 잠금 해제 요청을 보낸 때(rt.now)
-  const held = useRef(new Set<Tok>()), dlg = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null);
-  const feeds: Record<DriveCh, DriveFeed> = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar'), depth: useDriveFeed(r.id, 'depth', full === 'depth') };   // 뎁스는 고른 동안만 연다
+  const held = useRef(new Set<Tok>());
   // pose = 내가 보낸 자세 명령(결과가 올 때까지 두 단추 잠금), prev = 누를 때 보이던 앞 결과(같은 것을 내 결과로 읽지 않게)
   const [pose, setPose] = useState<{ k: PoseKey; prev: string | null; at: number } | null>(null), [poseMsg, setPoseMsg] = useState('');
   const posture = s?.posture?.state ?? null, res = s?.posture_result ?? null;
@@ -169,9 +169,6 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
   /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */
   const zero = useRef((note = '') => { held.current.clear(); changed(); if (note) setWhy(note); }).current;
-  /** 전체화면 닫기는 이것 하나(Esc·작게 보기): 눌린 이동 키를 버리고 바로 0 을 보낸 뒤 닫는다(#214 r1) */
-  const fullRef = useRef(full); fullRef.current = full;
-  const closeFull = useRef(() => { if (!fullRef.current) return; zero(); setFull(null); }).current;
   const press = (t: Tok[]) => { if (!readyRef.current || !permitted(command(t), settingsRef.current)) return; setWhy(''); held.current = new Set(t); changed(); };
 
   useEffect(() => { const stop = new AbortController(); api.settings(stop.signal).then(simTune, () => {}); return () => stop.abort(); }, [r.id]);
@@ -186,7 +183,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   }, [mine, r.id]);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.code === 'Escape') return closeFull();
+      if (e.code === 'Escape') return esc?.current();
       if (typing(e.target)) return;
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
       const t = KEY[e.code];
@@ -221,13 +218,6 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     return () => clearTimeout(t);
   }, [pose]);
   const askPose = (k: PoseKey) => { zero(); setPoseMsg(''); setPose({ k, prev: res?.request_id ?? null, at: rt.now() }); rt.posture(r.id, POSE[k].act, (bad) => { if (bad) { setPose(null); setPoseMsg(`${POSE[k].fail} — ${bad}`); } }); };   // 서버가 해제 요청을 거절(rt.unlock notice) — 대기 아님
-  // 전체화면 = 모달: 열 때 «작게 보기»로 초점, 밖은 inert, 닫을 때 연 칸으로 초점 복귀
-  useEffect(() => {
-    if (!full || !dlg.current) return;
-    const back = opener.current, undo = inertOutside(dlg.current);
-    dlg.current.querySelector<HTMLElement>('[data-sd-small]')?.focus();
-    return () => { undo(); back?.focus(); };
-  }, [!!full]);
 
   const stop = (big: boolean) => <button type="button" className="fh-stop" aria-label="비상 정지 — 이 로봇" data-sd-stop={big ? 'full' : 'panel'}
     style={big ? { minHeight: 120, minWidth: 320 } : { minHeight: 56, width: '100%' }} onClick={() => { zero(SD_NOTE.stop); rt.stop(r.id); }}>
@@ -240,17 +230,6 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
       onPointerUp={() => zero()} onPointerCancel={() => zero()} onLostPointerCapture={() => { if (on === id(t)) zero(); }}
       onContextMenu={(e) => e.preventDefault()}><b className="mono">{k}</b> {text}</button>)}
   </div>;
-  const view = (ch: DriveCh, big: boolean) => {
-    const f = feeds[ch], text = driveFeedText(f, ch);
-    if (ch === 'lidar') return stacked(f) ? <LidarMap feed={f} empty={text} /> : <Cloud3D small={!big} big={big} feed={f} empty={text} />;
-    if (ch === 'depth') return text || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
-      : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-        <img src={f.img} alt="뎁스 카메라 — 가까움 빨강, 멀리 파랑, 검정은 거리 모름" draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain' }} data-sd-depth />
-        <DepthLegend range={f.range} /></div>;
-    return text ? <div className="dv-video" role="img" aria-label="카메라" data-sd-cam><span>{text}</span></div>
-      : <img className="dv-video" src={f.img} alt="카메라" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} data-sd-cam />;
-  };
-  const box = (children: ReactNode, h?: number) => <div style={{ position: 'relative', flex: 1, minHeight: h, background: '#070A0C', borderRadius: 8, overflow: 'hidden' }}>{children}</div>;
   const age = s ? Math.round(rt.now() - l.stateAt) : null, stalled = !!s?.latched && s.safety_reason === 'OUTPUT_STALLED';
   const sl = stopLine(l), stopNote = sl && <span role="status" data-sd-stop-phase data-tone={sl.tone}><Chip {...sl} /></span>;
   const refused = refusedText(s?.unlock_refused);
@@ -286,22 +265,48 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     : l.outgoing ? `${l.holder?.name || '조종하는 사람'}님에게 조종권을 요청했습니다.`
     : l.cooldown > rt.now() ? '잠시 뒤 다시 요청할 수 있습니다.'
     : l.holder?.type === 'RUN' ? '시나리오 실행 중에는 이 시험 화면에서 조종을 시작하지 않습니다.' : '';
+  // 조종 시작/끝내기 — 조각으로 돌려주고 붙이는 쪽이 배치(같은 단추를 두 번 그리지 않게). 권한·기다릴 이유는 DriveButton 이 글로
+  const hint = <span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0. 조직 상한을 넘는 단추는 비활성</span>;
+  const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
+  const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
+  const poseRow = mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>
+    {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE'}
+      onClick={() => askPose(k)}>{POSE[k].name}</button>)}
+    <span className="lbl">{POWER_HINT}</span>
+    {(shifting || poseMsg || lost) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg || lost}</span>}
+  </div>;
+  const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
+  const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
+    <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>;
+  return { l, s, mine, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, trial, releasing };
+}
 
+/** inline = 작은 패널에도 조작부를 둔다(지도 만들기 창 — 실시간 지도를 보면서 바로 조종, 11-13) */
+export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; inline?: boolean }) {
+  const [full, setFull] = useState<DriveCh | null>(null), dlg = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null);
+  const feeds: Record<DriveCh, DriveFeed> = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar'), depth: useDriveFeed(r.id, 'depth', full === 'depth') };   // 뎁스는 고른 동안만 연다
+  /** 전체화면 닫기는 이것 하나(Esc·작게 보기): 눌린 이동 키를 버리고 바로 0 을 보낸 뒤 닫는다(#214 r1) */
+  const fullRef = useRef(full); fullRef.current = full;
+  const esc = useRef(() => {});
+  const d = useServerDrive(c, r, esc), { mine, lock, stop, stopNote, unlock, pad, status, latency, notes } = d;
+  const closeFull = esc.current = () => { if (!fullRef.current) return; d.zero(); setFull(null); };
+  // 전체화면 = 모달: 열 때 «작게 보기»로 초점, 밖은 inert, 닫을 때 연 칸으로 초점 복귀
+  useEffect(() => {
+    if (!full || !dlg.current) return;
+    const back = opener.current, undo = inertOutside(dlg.current);
+    dlg.current.querySelector<HTMLElement>('[data-sd-small]')?.focus();
+    return () => { undo(); back?.focus(); };
+  }, [!!full]);
+
+  const view = (ch: DriveCh, big: boolean) => <DriveView f={feeds[ch]} ch={ch} big={big} />;
+  const box = (children: ReactNode, h?: number) => <div style={{ position: 'relative', flex: 1, minHeight: h, background: '#070A0C', borderRadius: 8, overflow: 'hidden' }}>{children}</div>;
   const open = (ch: DriveCh) => (e: { currentTarget: HTMLElement }) => { opener.current = e.currentTarget; setFull(ch); };
-  // 조종 시작/끝내기 한 줄 — 작은 패널과 조종 화면 중 보이는 쪽 하나에만(같은 id 두 번 없게). 권한·기다릴 이유는 DriveButton 이 글로
+  // 조종 시작/끝내기 한 줄 — 작은 패널과 조종 화면 중 보이는 쪽 하나에만(같은 id 두 번 없게)
   const control = <>
-    {mine ? <div className="fh-row"><span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0. 조직 상한을 넘는 단추는 비활성</span>
-        <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button></div>
-      : <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />}
-    {mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>
-      {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE'}
-        onClick={() => askPose(k)}>{POSE[k].name}</button>)}
-      <span className="lbl">{POWER_HINT}</span>
-      {(shifting || poseMsg || lost) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg || lost}</span>}
-    </div>}
-    <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />
-    {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
-      <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>}
+    {mine ? <div className="fh-row">{d.hint}{d.end}</div> : d.begin}
+    {d.poseRow}
+    {d.trial}
+    {d.releasing}
   </>;
 
   // 상세 서랍 안은 작게: 상태·STOP·정지 단계·잠금 해제·조종 시작/끝내기 + «조종 화면 열기». 영상·라이다·조작부·상태줄은 조종 화면(전체화면 모달, #214)에서
@@ -334,4 +339,16 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
       </div>
     </div>}
   </section>;
+}
+
+/** 카메라·라이다·뎁스 한 칸 그림(받은 feed 그대로 — 없으면 «…신호 없음» + 까닭). 패널 전체화면과 세 칸 화면 가운데 칸이 같이 쓴다 */
+export function DriveView({ f, ch, big }: { f: DriveFeed; ch: DriveCh; big: boolean }) {
+  const text = driveFeedText(f, ch);
+  if (ch === 'lidar') return stacked(f) ? <LidarMap feed={f} empty={text} /> : <Cloud3D small={!big} big={big} feed={f} empty={text} />;
+  if (ch === 'depth') return text || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
+    : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <img src={f.img} alt="뎁스 카메라 — 가까움 빨강, 멀리 파랑, 검정은 거리 모름" draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain' }} data-sd-depth />
+      <DepthLegend range={f.range} /></div>;
+  return text ? <div className="dv-video" role="img" aria-label="카메라" data-sd-cam><span>{text}</span></div>
+    : <img className="dv-video" src={f.img} alt="카메라" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} data-sd-cam />;
 }

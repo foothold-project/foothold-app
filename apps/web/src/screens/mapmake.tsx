@@ -60,15 +60,16 @@ function Preview({ p }: { p?: MappingPreview | null }) {
 }
 
 /** 창 «로봇으로 지도 만들기» 안 — 창이 열릴 때만 그린다(닫으면 언마운트 = 조회 멈춤). made = 이 층에 새 지도가 저장됨(그 판 id).
- *  approved·list = 이 층 지금 승인 판 id·받은 판 목록(받는 중 null) — 지난 SAVED(이미 반영·그 뒤 바뀜)를 다시 알리지 않게 */
-export function MakeMap({ floor, user, robots, places, cancel, made, approved, list }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string) => void;
-  approved: string | null; list: MapVersion[] | null }) {
+ *  approved·list = 이 층 지금 승인 판 id·받은 판 목록(받는 중 null) — 지난 SAVED(이미 반영·그 뒤 바뀜)를 다시 알리지 않게.
+ *  bare = 로봇 고르기·조종 패널 없이(PC 로봇 탭 세 칸 화면 오른쪽 칸 — 로봇은 robots[0] 하나, 조종은 그 화면이 이미 붙임). 흐름·서버 길은 같다 */
+export function MakeMap({ floor, user, robots, places, cancel, made, approved, list, bare }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string) => void;
+  approved: string | null; list: MapVersion[] | null; bare?: boolean }) {
   const mine = makers(user, robots);
   const [rid, setRid] = useState(() => (mine.find((r) => r.online) ?? mine[0])?.id ?? ''), robot = mine.find((r) => r.id === rid);
   const [prog, setProg] = useState<MappingProgress | null | undefined>(), [n, setN] = useState(0), [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null), [poll, setPoll] = useState(''), [ask, setAsk] = useState(false), [stale, setStale] = useState(false);
   const madeRef = useRef(made); madeRef.current = made;
-  const phone = usePhone(), drive = !!robot && canDrive({ user, phone }, robot), how = drive ? '이 창의 조종 단추나 키보드로' : '폰 조종 화면으로';
+  const phone = usePhone(), drive = !!robot && canDrive({ user, phone }, robot), how = drive ? (bare ? '이 화면의 조종 단추나 키보드로' : '이 창의 조종 단추나 키보드로') : '폰 조종 화면으로';
   // 1초마다 조회(RUNNING·SAVING 동안만). 언마운트·로봇 바꿈은 AbortSignal 로 진행 중 요청까지 거둔다
   useEffect(() => {
     if (!rid) return;
@@ -121,9 +122,9 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
   const elsewhere = open && !here && places.find((p) => p.floor.id === prog!.floor_id);
   const p = here ? prog! : null, isStale = stale || p?.error_code === 'STALE';
   return <div className="fh-form" style={{ gap: 10 }} data-make-map>
-    <label className="fh-field"><span>로봇</span>
+    {!bare && <label className="fh-field"><span>로봇</span>
       <select className="inp" value={rid} disabled={busy || (here && p!.status !== 'FAILED')} onChange={(e) => { setRid(e.target.value); setProg(undefined); setMsg(null); setStale(false); }}>
-        {mine.map((r) => <option key={r.id} value={r.id}>{r.name}{r.online ? '' : ' (연결 안 됨)'}</option>)}</select></label>
+        {mine.map((r) => <option key={r.id} value={r.id}>{r.name}{r.online ? '' : ' (연결 안 됨)'}</option>)}</select></label>}
     {prog === undefined && !poll && <p className="lv-note" role="status">진행 상황을 확인하는 중…</p>}
     {open && !here && <p className="fh-msg" role="status" data-elsewhere>이 로봇은 {elsewhere ? `«${elsewhere.building.name} ${elsewhere.floor.name}»` : '다른 층'}에서 지도를 만드는 중입니다. 그 층에서 저장하거나 취소하세요.</p>}
     {prog !== undefined && !open && <>
@@ -139,7 +140,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
           <div className="mx-sum" aria-label="진행" data-progress={p.status}>
             <span><b>{(p.distance_m ?? 0).toFixed(1)} m</b>걸은 거리</span><span><b>{(p.point_count ?? 0).toLocaleString('ko-KR')}</b>점 수</span><span><b>{time(p.elapsed_s ?? 0)}</b>걸린 시간</span></div>
         </div>
-        {p.status === 'RUNNING' && drive && <div data-make-drive style={{ flex: '1 1 300px', minWidth: 0 }}><ServerDrive c={{ user }} r={robot!} inline /></div>}
+        {p.status === 'RUNNING' && drive && !bare && <div data-make-drive style={{ flex: '1 1 300px', minWidth: 0 }}><ServerDrive c={{ user }} r={robot!} inline /></div>}
       </div>
       {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">그리는 중 — {how} 로봇을 천천히 움직이세요.</p>}
       {p.status === 'SAVING' && <p className="lv-note" role="status" data-saving>지도를 저장하는 중… 시뮬 지형까지 만들어 시간이 걸릴 수 있습니다.</p>}

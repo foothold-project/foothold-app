@@ -2,6 +2,7 @@
 // 운영 관리자 = 내 로봇 고르기 + 한 대 집중(상태 한 줄 → 영상·라이다 → 지도 위 현재 위치 → 상세: 임무·배터리·장치·최근 사건), 남의 로봇은 아래 접힌 «다른 로봇 N대»(요약 그대로).
 // 총괄 = 요약 → 큰 지도(전 로봇 위치) + 경보(주의 먼저) → 표 목록 + 거르기 → 행을 누르면 서랍 상세(읽기 전용). STOP 은 머리줄 하나(화면 안에 새로 두지 않음)
 // TAB-SPLIT(11-10): 로봇 탭 = 실기만(목록·고르기·거르기·요약·지도·경보). 시뮬 로봇은 «시뮬» 탭에서만 — 머리줄 STOP 후보(App)는 그대로 시뮬 포함
+// RB-PC-DRIVE-3COL(11-19): 서버가 조종을 허용한 내 실기(canDrive)를 고르면 본문이 곧 세 칸 조종 화면(pcdrive.tsx) — «← 목록»으로 이 화면, «조종 화면 열기»로 다시. 모달 없음
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dashboard, Location, MapVersion } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
@@ -10,7 +11,8 @@ import { rt, useRt } from '../rt';
 import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
-import { ServerDrive, canDrive, stopLine } from '../serverdrive';
+import { canDrive, stopLine } from '../serverdrive';
+import { PcDrive } from '../pcdrive';
 import { ActionTrial } from './actiontrial';
 import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
@@ -148,7 +150,7 @@ const DRIVE_BLOCKED: Record<NonNullable<Robot['serverDriveBlocked']>[number], st
   AGENT_OFFLINE: '로봇 쪽 노트북 프로그램이 연결되지 않았습니다',
 };
 
-/** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능(허용 판단은 server_drive_allowed 만, 이유 목록은 표시만). 허용되면 아래에 서버 경유 패널(STOP·잠금 해제·조종 시작) */
+/** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능(허용 판단은 server_drive_allowed 만, 이유 목록은 표시만). 허용되면 조종은 세 칸 조종 화면(«조종 화면 열기»)에서 */
 function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
   const k = kindOf(r), net = rt.link().at === 'open', on = k === 'on', ok = canDrive(c, r);
   const ready = ok && on;   // 서버 허용 값이 남아 있어도 로봇이 끊기면 완료로 보이지 않는다(목록 갱신 전). 패널(STOP 포함)은 ok 면 그대로 둔다
@@ -165,7 +167,7 @@ function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
       {step(3, ready, on && !ok, '조종 가능', blocked?.length ? blocked.map((reason, i) => <span key={reason} data-drive-block={reason}>{i > 0 && <br />}{DRIVE_BLOCKED[reason]}</span>) : ready ? '서버가 담당·기체번호·서버 전체 스위치·로봇 연결을 확인했습니다.'
         : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.', undefined, 'fl-step-drive')}
     </ol>
-    {ok ? <ServerDrive c={c} r={r} /> : !r.sim && <ActionTrial robot={r} allowed={false} />}
+    {!ok && !r.sim && <ActionTrial robot={r} allowed={false} />}
   </section>;
 }
 
@@ -327,19 +329,20 @@ export function realDash(d: Dashboard | null, all: Robot[]): Dashboard | null {
 function Operator(c: Ctx) {
   useRt();
   const me = c.user.id, mine = c.robots.filter((x) => x.owner === me), others = c.robots.filter((x) => x.owner !== me), r = c.robot, own = r.owner === me;
-  const bad = isLost(r), [sheet, setSheet] = useState<'' | 'settings' | 'guide'>(''), root = useRef<HTMLDivElement>(null);
-  useEffect(() => setSheet(''), [r.id]);
-  // «조종 화면 열기»는 조종 준비 칸의 서버 경유 패널(serverdrive.tsx) 단추를 그대로 누른다 — 조종 화면·STOP·명령 경로는 패널 하나
-  const drive = () => root.current?.querySelector<HTMLButtonElement>('[data-sd-open]')?.click();
+  const bad = isLost(r), [sheet, setSheet] = useState<'' | 'settings' | 'guide'>(''), [list, setList] = useState(false);
+  useEffect(() => { setSheet(''); setList(false); }, [r.id]);   // 로봇을 고르면 바로 조종 화면(허용된 로봇만)
   const guide = () => setSheet('guide');
+  if (own && canDrive(c, r) && !list) return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
+    <PcDrive key={r.id} c={c} r={r} back={() => setList(true)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />
+  </Pair>;
   return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <div className="fh-focus" ref={root} data-lost={bad || undefined} data-summary={!own || undefined}>
+    <div className="fh-focus" data-lost={bad || undefined} data-summary={!own || undefined}>
       {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><h2>내 실기 로봇 {mine.length}대</h2>
         <div className="fh-row" role="group" aria-label="실기">{mine.map((x) => <button key={x.id} type="button" className="btn" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></button>)}</div></section>}
       {!mine.length && <section className="lv-card fl-pick" aria-label="로봇 없음"><h2>담당 로봇이 없습니다</h2>
         <p className="lv-note">«+ 새 로봇 추가»에서 연결 코드로 실기를 등록하거나, 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.</p>
         <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>}
-      <StateLine c={c} r={r} own={own} guide={guide} settings={() => setSheet('settings')} drive={drive} />
+      <StateLine c={c} r={r} own={own} guide={guide} settings={() => setSheet('settings')} drive={() => setList(false)} />
       {/* 남의 로봇은 서버가 실시간 값을 감춘다 — 관측·로봇 상태·조종 준비 없이 요약 상세만 */}
       {own && <Observe key={r.id} c={c} r={r} />}
       {own && <Telemetry r={r} />}
