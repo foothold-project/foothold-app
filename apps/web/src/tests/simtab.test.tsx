@@ -70,16 +70,16 @@ const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush
 /** 서버 시뮬 띄우기 = sim.start(마운트한 사용자) — PC 탭의 옛 «띄우기»·월드·시작 층 칸은 TAB-SPLIT(11-10)로 없음. 이미 띄운 시뮬 보기·조종 화면·끝내기는 그대로 */
 const launch = async (from?: 'l1' | 'l2') => { act(() => { void sim.start('empty', me, from); }); await flush(); };
 
-// SIM-TAB-CHOOSER(11-09): 첫 화면 = 지도 고르기(서버 SIM 장소 + «+ 지형 만들기»). TAB-SPLIT(11-10): 접힌 «서버 시뮬·실기 보기» 묶음 없음 — 시뮬은 장소 카드 한 길.
+// SIM-TAB-CHOOSER(11-09): 첫 화면 = 지도 고르기(서버 SIM 장소, «+ 지형 만들기»는 11-19 지도 탭으로). TAB-SPLIT(11-10): 접힌 «서버 시뮬·실기 보기» 묶음 없음 — 시뮬은 장소 카드 한 길.
 // BUILTIN-DROP(11-09 «그냥 삭제해줘»): PC 에는 «내장 시뮬 지도» 묶음이 없다 — 폰 앱 안 SimPick 은 그대로(simstart.test)
 describe('PC «시뮬» 탭 첫 화면', () => {
   const SITES = { items: [{ id: 's9', name: '시뮬 월드', purpose: 'SIM', buildings: [{ id: 'b9', site_id: 's9', name: '창고', sim_world_id: 'warehouse',
     floors: [{ id: 'f9', building_id: 'b9', name: '1층', level: 1, approved_version_id: null, pending_count: 0 }] }] }], next_cursor: null };
-  it('지도 고르기 + «+ 지형 만들기», 서버 SIM 장소 카드만(내장 시뮬 지도 없음), 서버 시뮬 띄우기·Go2 실기 보기 없음', async () => {
+  it('지도 고르기(«+ 지형 만들기» 없음 — 지도 탭), 서버 SIM 장소 카드만(내장 시뮬 지도 없음), 서버 시뮬 띄우기·Go2 실기 보기 없음', async () => {
     serve({ 'GET /sites': { status: 200, body: SITES } }); await mount('u-lee', ROBOTS, '#/sim', null);
     const chooser = $('[aria-label="지도 고르기"]')!;
     expect(chooser.querySelector('h2')!.textContent).toBe('어느 지도로 시뮬할까요?');
-    expect(chooser.querySelector('[data-terrain-enter]')!.getAttribute('href')).toBe('#/terrain');
+    expect(chooser.querySelector('[data-terrain-enter]')).toBeNull();
     expect(chooser.querySelector('[data-building="b9"]')!.textContent).toContain('창고');
     expect(chooser.querySelector('[data-builtins]')).toBeNull();
     expect(chooser.querySelector('[data-sim-card]')).toBeNull();
@@ -93,10 +93,10 @@ describe('PC «시뮬» 탭 첫 화면', () => {
     expect(box.textContent).not.toContain('Go2 실기 보기');
     expect($('[data-sim-mine]')).toBeNull();   // 띄운 내 시뮬이 없으면 위 줄도 없음
   });
-  it('서버 SIM 장소가 없으면 «+ 지형 만들기» 안내만, 내장 지도 카드 없음', async () => {
+  it('서버 SIM 장소가 없으면 지도 탭 «+ 지형 만들기» 안내만, 내장 지도 카드 없음', async () => {
     serve({ 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }); await mount('u-lee', ROBOTS, '#/sim', null);
     const chooser = $('[aria-label="지도 고르기"]')!;
-    expect(chooser.querySelector('[data-empty]')!.textContent).toContain('«+ 지형 만들기»');
+    expect(chooser.querySelector('[data-empty]')!.textContent).toContain('지도 탭의 «+ 지형 만들기»');
     expect(chooser.querySelector('[data-sim-card]')).toBeNull();
     expect($('[data-builtin]')).toBeNull();
   });

@@ -267,6 +267,8 @@ describe('입구', () => {
     app(false, '#/terrain');
     expect($('[data-terrain]')).toBeTruthy();
     expect($('.fh-nav').textContent).not.toMatch('지형');
+    expect($('.fh-nav [aria-current="page"]')!.textContent).toBe('지도');   // 지형 화면은 지도 탭 안(11-19)
+    expect($('[data-terrain-back]')!.getAttribute('href')).toBe('#/map');
     act(() => root!.unmount()); box.remove();
     app(false, '#/terrain', []);
     expect($('[data-terrain]')).toBeTruthy();
@@ -275,9 +277,9 @@ describe('입구', () => {
     app(true, '#/terrain');
     expect($('[data-terrain]')).toBeNull();
   });
-  it('App: PC «시뮬» 탭에 입구가 있고 폰 로봇 연결 화면에는 없다', () => {
+  it('App: PC «시뮬» 탭·폰 로봇 연결 화면에는 입구가 없다(11-19 지도 탭으로 옮김 — maps.test)', () => {
     app(false, '#/sim');
-    expect($('[data-terrain-enter]').getAttribute('href')).toBe('#/terrain');
+    expect($('[data-terrain-enter]')).toBeNull();
     act(() => root!.unmount()); box.remove();
     app(true, '#/drive', []);
     expect($('[data-sim-app]')).toBeTruthy();

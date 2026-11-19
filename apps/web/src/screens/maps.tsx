@@ -30,8 +30,8 @@ export type Purpose = 'SIM' | 'REAL';
 export const purposeOf = (s: MapSite): Purpose => ((s as { purpose?: string }).purpose === 'REAL' ? 'REAL' : 'SIM');
 /** 시뮬 탭 «짝 없는 층»(SIM-PAIR 11-09): 지도가 없거나 시뮬 세계·지형과 이어지지 않은 층(simAt 실패). v = 승인 판(못 받았으면 undefined → 모름 = false) */
 const lone = (f: MapFloor, v?: MapVersion) => !f.approved_version_id || (!!v && typeof simAt(f, v) === 'string');
-/** 짝 없는 층 안내 — 시뮬 지도는 «지형 만들기» 저장으로만 만든다 */
-const LONE = <p className="fh-msg" role="status" data-lone>지형이 없는 층입니다 — 삭제하거나 <a href="#/terrain" style={{ color: 'inherit', fontWeight: 700 }}>«지형 만들기»</a>로 다시 만드세요.</p>;
+/** 짝 없는 층 안내 — 시뮬 지도는 지도 탭 «지형 만들기» 저장으로만 만든다(11-19 입구를 지도 탭으로) */
+const LONE = <p className="fh-msg" role="status" data-lone>지형이 없는 층입니다 — 삭제하거나 지도 탭의 <a href="#/terrain" style={{ color: 'inherit', fontWeight: 700 }}>«지형 만들기»</a>로 다시 만드세요.</p>;
 /** 어디서 도는지(RB-SCEN-SIMTAB 11-11) — 서버 값만: 장소 종류(purpose) + 승인 판 voxel_map(3D 지도 파일로 만든 실기 지도 = 시뮬 지형 있음). 판을 아직 못 받았으면 null(표시 안 함) */
 export type Run = 'both' | 'real' | 'sim';
 export const RUN: Record<Run, string> = { both: '실기·시뮬', real: '실기만', sim: '시뮬만' };
@@ -269,7 +269,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
 
   const [q, setQ] = useState(''), hit = (...s: string[]) => s.join(' ').toLowerCase().includes(q.trim().toLowerCase());
   const label = cur ? `${cur.site.name} › ${cur.building.name} › ${cur.floor.name}` : '';
-  // 장소 창 — 지도 탭 «어느 층에?»는 층 고르기 + 장소·건물·층 만들기, 시뮬 탭 «장소 고치기»는 이름 바꾸기·삭제만(SIM-PAIR 11-09 — 시뮬 지도는 «+ 지형 만들기» 하나로만 생긴다)
+  // 장소 창 — 지도 탭 «어느 층에?»는 층 고르기 + 장소·건물·층 만들기, 시뮬 탭 «장소 고치기»는 이름 바꾸기·삭제만(SIM-PAIR 11-09 — 시뮬 지도는 지도 탭 «+ 지형 만들기» 하나로만 생긴다)
   // 장소 창 아래칸(만들기·이름 바꾸기 칸, 삭제 확인, 안내) — 장소 창(placeBody)과 층 고치기 창(fixBody)이 같이 쓴다
   const edits = <div className="mx-dlg-foot">
     {form && <form className="fh-form" onSubmit={submit} noValidate aria-label={form.title}>
@@ -305,7 +305,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
       </div>)}
       {!s.buildings.length && <p className="lv-note">아직 건물이 없습니다.</p>}
     </div>)}</div>
-    {t.tree && !t.tree.items.some(own) && <p className="lv-note">{sim ? '등록된 시뮬 장소가 없습니다. 시뮬 지도는 «+ 지형 만들기»로 만듭니다.' : '등록된 장소가 없습니다. «+ 장소»로 만드세요.'}</p>}
+    {t.tree && !t.tree.items.some(own) && <p className="lv-note">{sim ? '등록된 시뮬 장소가 없습니다. 시뮬 지도는 지도 탭의 «+ 지형 만들기»로 만듭니다.' : '등록된 장소가 없습니다. «+ 장소»로 만드세요.'}</p>}
     {!sim && <button type="button" className="btn mx-new" disabled={busy} onClick={() => open({ kind: 'sites', title: '새 장소' })}>+ 장소</button>}
     <div className="fh-row mx-dlg-util"><span className="lv-note fh-grow">지운 장소·건물·층은 휴지통에서 되돌립니다.</span><TrashLink /></div>
     {edits}
@@ -332,7 +332,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const title = make === 'robot' ? '지도 만들기 — 어느 층에?' : make === 'file' ? '파일 올리기 — 어느 층에?' : sim ? '장소 고치기' : '이름 바꾸기·삭제';
   const pop = <Pop open={!!make} close={shut0} label={make ? title : '장소'}>
     {make === 'fix' && !sim ? <><p className="lv-note mx-lead">이 지도의 장소·건물·층 이름을 바꾸거나 휴지통으로 옮깁니다.</p>{fixBody}</>
-      : make && <><p className="lv-note mx-lead">{sim ? '시뮬 장소의 이름을 바꾸거나 지웁니다. 새 시뮬 지도는 «+ 지형 만들기»로 만듭니다.'
+      : make && <><p className="lv-note mx-lead">{sim ? '시뮬 장소의 이름을 바꾸거나 지웁니다. 새 시뮬 지도는 지도 탭의 «+ 지형 만들기»로 만듭니다.'
         : `${make === 'robot' ? '로봇으로 지도를 그릴' : '지도 파일을 올릴'} 층을 고르세요. 없으면 «+ 장소»·«+ 건물»·«+ 층»으로 만듭니다.`}</p>{placeBody}</>}
   </Pop>;
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
@@ -368,7 +368,7 @@ function Thumb({ id, v }: { id?: string | null; v?: MapVersion }) {
 const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
 
 /** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 장소별 건물 카드(11-11 «마지막에 본 지도» 카드 뺌·그림 크게)(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·휴지통.
- *  지도 탭 = «+ 지도 만들기»(로봇, 담당 운영자만)·«+ 파일 올리기» — 둘 다 «어느 층에?»(11-12 현민님), 장소 고치기는 층 화면. 시뮬 탭 = «장소 고치기»·«+ 지형 만들기» 그대로 */
+ *  지도 탭 = «+ 지도 만들기»(로봇, 담당 운영자만)·«+ 파일 올리기» — 둘 다 «어느 층에?»(11-12 현민님), 장소 고치기는 층 화면 + «+ 지형 만들기»(11-19 시뮬 탭에서 옮김). 시뮬 탭 = «장소 고치기» */
 function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, children }: { sim: boolean; maker: boolean; t: ReturnType<typeof useTree>; places: Place[]; vers: Record<string, MapVersion>; choose: (id: string) => void; make: (k: Make) => void; note: Msg; cancel?: AbortSignal;
   children: ReactNode }) {
   const [q, setQ] = useState(''), counts = useCounts(sim, cancel);
@@ -391,14 +391,14 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
         : '지도를 고르면 그 지도의 구역·벽을 보고 고칩니다. 시나리오는 «시뮬» 탭에서 만들고 고칩니다.'}</p>
       <Note m={note} />
       <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
-        {sim ? <><button type="button" className="btn" onClick={() => make('fix')}>장소 고치기</button>
-          <a className="btn pri" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a></>
+        {sim ? <button type="button" className="btn" onClick={() => make('fix')}>장소 고치기</button>
           : <>{maker && <button type="button" className="btn pri" data-make-robot onClick={() => make('robot')}>+ 지도 만들기</button>}
-            <button type="button" className={`btn${maker ? '' : ' pri'}`} data-make-file onClick={() => make('file')}>+ 파일 올리기</button></>}</div>
+            <button type="button" className={`btn${maker ? '' : ' pri'}`} data-make-file onClick={() => make('file')}>+ 파일 올리기</button>
+            <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a></>}</div>
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}>{thumb(b)}<b>{b.name}</b>{facts(s, b)}</button>)}</div></section>)}
-      {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
+      {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
         : '등록된 지도가 없습니다. «+ 지도 만들기»로 담당 실기 로봇이 돌아다니며 그리거나, «+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.'}</p>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}

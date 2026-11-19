@@ -334,12 +334,12 @@ describe('지도 탭 — 장소 나무', () => {
     expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만(그대로)
     await stopSends();
   });
-  it('고르기 화면 맨 위(11-12): «+ 지도 만들기»(로봇 — 담당 운영자만)·«+ 파일 올리기» 둘, «장소 고치기»·지형 입구 없음, 파일 올리기 = «어느 층에?»', async () => {
+  it('고르기 화면 맨 위(11-12): «+ 지도 만들기»(로봇 — 담당 운영자만)·«+ 파일 올리기»·«+ 지형 만들기»(11-19), «장소 고치기» 없음, 파일 올리기 = «어느 층에?»', async () => {
     serve(signedIn(LEE));
     await open('#/map');
     await click($('[data-to-chooser]'));
     expect(btn('+ 지도 만들기')).toBeTruthy(); expect(btn('+ 파일 올리기')).toBeTruthy();
-    expect(btn('장소 고치기')).toBeUndefined(); expect($('[data-terrain-enter]')).toBeNull();
+    expect(btn('장소 고치기')).toBeUndefined(); expect($('[data-terrain-enter]')!.getAttribute('href')).toBe('#/terrain');
     await click(btn('+ 파일 올리기'));
     expect($('dialog[open]')?.textContent).toContain('파일 올리기 — 어느 층에?');
     expect($('dialog[open]')?.textContent).toContain('지도 파일을 올릴 층을 고르세요.');
@@ -2158,9 +2158,9 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
   it('빈 시뮬 칸은 «지형 만들기» 안내, 장소 고치기에도 만들기 단추 없음', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/sim');
-    expect(card('지도 고르기').textContent).toContain('서버 시뮬 지도가 없습니다. «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.');
+    expect(card('지도 고르기').textContent).toContain('서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.');
     await click(btn('장소 고치기'));
-    expect(card('장소').textContent).toContain('등록된 시뮬 장소가 없습니다. 시뮬 지도는 «+ 지형 만들기»로 만듭니다.');
+    expect(card('장소').textContent).toContain('등록된 시뮬 장소가 없습니다. 시뮬 지도는 지도 탭의 «+ 지형 만들기»로 만듭니다.');
     expect(btn('+ 장소')).toBeUndefined();
   });
   // SIM-PAIR(11-09 «지형만·지도만은 아예 없게»): 시뮬 탭에서는 지도만 생기는 단추가 없고, 짝 없는 층(simAt 실패)은 안내 + 카드 «지형 없음»
@@ -2198,7 +2198,7 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
       serve(signedIn(KIM, routes)); await open('#/sim'); await toCard('b8');
       expect($('[data-sim-open]')!.hasAttribute('disabled')).toBe(true);
       noMapOnly();
-      expect($('[data-lone]')!.textContent).toBe('지형이 없는 층입니다 — 삭제하거나 «지형 만들기»로 다시 만드세요.');
+      expect($('[data-lone]')!.textContent).toBe('지형이 없는 층입니다 — 삭제하거나 지도 탭의 «지형 만들기»로 다시 만드세요.');
       expect($('[data-lone] a')!.getAttribute('href')).toBe('#/terrain');
       await click(saveRow(1));                                   // 지난 저장(SUPERSEDED) 고름
       expect(btn('비교', card('저장 기록 관리'))).toBeTruthy();
