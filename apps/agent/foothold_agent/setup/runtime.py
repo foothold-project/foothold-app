@@ -390,8 +390,10 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                         approval = Approval(nic.name, identity.serial if identity is not None
                                             else credentials.robot_serial, gate.last_expiry)
                         active = media_epoch
+                        media_options = dict(depth_source=depth_source) if depth_source is not None else {}
                         media = media_factory(credentials, approval, subscriptions, recorder,
-                                              lambda active=active: gate.active is active and gate.valid())
+                                              lambda active=active: gate.active is active and gate.valid(),
+                                              **media_options)
                         media_task = asyncio.create_task(media.run())
                     except Exception as error:
                         reason = 'identity' if isinstance(error, PermissionError) else 'source'
