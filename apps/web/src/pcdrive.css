@@ -13,13 +13,16 @@
 .pd-go2{display:flex;flex-direction:column}
 .pd-go2-view{position:relative;height:min(46vh,420px);min-height:300px;overflow:hidden}
 .pd-go2-sketch{position:absolute;inset:0;width:100%;height:100%}
-.pd-go2-fail{position:absolute;left:0;right:0;bottom:6px;color:#9AA7B3;font-size:11px;text-align:center}
+/* WebGL 없음 안내는 그림 칸 아래 줄(그림 칸 안 범례·관절 값과 겹치지 않음 — RV-409 5) */
+.pd-go2-fail{margin:0;padding:4px 8px;border-top:1px solid rgba(230,235,239,.14);color:#9AA7B3;font-size:11px;line-height:14px;text-align:center}
 .pd-go2-more{display:flex;flex-wrap:wrap;gap:2px 10px;margin:0;padding:4px 8px 6px;list-style:none;border-top:1px solid rgba(230,235,239,.14);color:#9AA7B3;font-size:10px;line-height:14px}
 .pd-go2-more li{display:flex;gap:4px;align-items:center}
 .pd-go2-more b{font-weight:600}
 .pd-go2-more .pd-tag{position:static;background:none;padding:0}
-.pd-left[data-stale] .pd-go2{opacity:.32;filter:grayscale(1)}
-.pd-noreport{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);padding:6px 12px;border-radius:8px;background:rgba(8,11,14,.8);color:#FFFFFF;font-size:14px;font-weight:600}
+/* 흐림은 그림만 — 온도 점·범례·설명은 온도 카드와 같은 3초 기준이라 색 그대로(RV-409 3) */
+.pd-left[data-stale] :is(.pd-go2-view,.pd-go2-more,.pd-go2-fail){opacity:.32;filter:grayscale(1)}
+/* 온도 점 층(z 2) 위 */
+.pd-noreport{position:absolute;z-index:3;left:50%;top:42%;transform:translate(-50%,-50%);padding:6px 12px;border-radius:8px;background:rgba(8,11,14,.8);color:#FFFFFF;font-size:14px;font-weight:600}
 /* 상태 글자는 그림 위 별도 영역(그림을 가리지 않음). 긴 글(잠긴 까닭)은 줄바꿈 — 그림은 아래로 밀릴 뿐 겹치지 않는다 */
 .pd-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;font-size:12px;line-height:1.35;color:var(--text)}
 .pd-fact{display:flex;flex-direction:column;min-width:0}
@@ -36,7 +39,7 @@
 .pd-go2-dots{position:absolute;left:0;top:0;pointer-events:none}
 .pd-dot{position:absolute;z-index:2;pointer-events:auto;width:12px;height:12px;min-height:0;margin:-6px 0 0 -6px;padding:0;border:1.5px solid #E6EBEF;border-radius:50%;box-shadow:0 0 0 1px #05080A;cursor:help}
 .pd-dot:focus-visible{outline:2px solid #3EC7B4;outline-offset:2px}
-.pd-tip{position:absolute;z-index:4;transform:translate(-50%,-100%);padding:2px 6px;border-radius:4px;background:rgba(8,11,14,.92);color:#E6EBEF;font-size:11px;line-height:16px;white-space:nowrap;pointer-events:none}
+.pd-tip{position:absolute;z-index:4;transform:translate(-50%,-100%);padding:2px 6px;border-radius:4px;background:#080B0E;color:#E6EBEF;font-size:11px;line-height:16px;white-space:nowrap;pointer-events:none}
 .pd-legend{position:absolute;z-index:1;display:flex;align-items:center;gap:4px;box-sizing:border-box;padding:0 5px;border-radius:4px;background:rgba(8,11,14,.62);color:#9AA7B3;font-size:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .pd-legend i{flex:1;height:6px;border-radius:3px}
 .pd-legend .pd-legend-none{flex:0 0 8px;height:8px;border-radius:50%}

@@ -277,6 +277,38 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
       expect($('[data-pd-stage]')!.querySelectorAll('[data-go2-joint]')).toHaveLength(12);
     }
   });
+  it('RV-409 3 관절각·온도 age_s 1.5: 그림은 흐려도 카드 41°C 와 같은 기준(3초)으로 온도 점 12개·범례·설명이 남는다', () => {
+    mount('u-park'); serve('r7');
+    act(() => push('r7', { robot_info: { ...info(1.5), temperature: { joints: JT, battery: [28, 30, null, 29], imu: 36, body: [38, null], age_s: 1.5 } } as unknown as ScreenState['robot_info'] }));
+    expect($('[data-pd-left]')!.hasAttribute('data-stale')).toBe(true);
+    expect($('[data-pd-left] [data-pd="temp-joint"]')!.textContent).toContain('41°C');
+    expect(dots()).toHaveLength(12); dots().forEach((d, i) => expect(d.style.background).toBe(paint(tempColor(JT[i]))));
+    expect($('[data-go2-legend]')).not.toBeNull();
+    const hot = dots().find((d) => d.getAttribute('data-go2-temp') === 'FL_calf_joint')!;
+    act(() => { hot.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect($('[data-go2-tip]')!.textContent).toBe('앞 왼 종아리 41°C');
+    expect(pcCss).not.toMatch(/\[data-stale\] \.pd-go2\{/);   // 흐림은 그림만 — 온도 점·범례 색은 그대로
+  });
+  it('RV-409 4 온도 age_s 2.8 뒤 다음 보고가 없으면 화면 시계로 나이를 늘려 3초 넘을 때 «—»', () => {
+    mount('u-park'); serve('r7');
+    const f = (k: string) => $(`[data-pd-left] [data-pd="${k}"] b`)!.textContent;
+    act(() => push('r7', { robot_info: warm(2.8) }));
+    expect(f('temp-battery')).toBe('30°C');
+    tick(500);   // 실제 3.3초 — 다음 보고 없음
+    expect(['temp-joint', 'temp-battery', 'temp-inside'].map(f)).toEqual(['—', '—', '—']);
+    dots().forEach((d) => expect(d.style.background).toBe(paint(tempColor(null))));
+  });
+  it('RV-409 말풍선이 뜨면 그 관절 각도 글자는 숨는다(말풍선에 각도가 있음) — 말풍선이 위', () => {
+    mount('u-park'); serve('r7');
+    act(() => push('r7', { robot_info: warm() }));
+    const tag = () => $('[data-pd-stage] .pd-go2-view [data-go2-joint="FL_calf_joint"]');
+    expect(tag()).not.toBeNull();
+    const hot = dots().find((d) => d.getAttribute('data-go2-temp') === 'FL_calf_joint')!;
+    act(() => { hot.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect($('[data-go2-tip]')!.textContent).toBe('앞 왼 종아리 41°C · 11°'); expect(tag()).toBeNull();
+    act(() => { hot.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
+    expect(tag()).not.toBeNull();
+  });
   it('go2Temps: 연결·새 보고일 때만, 관절 12개 아니면 관절만 비움, 숫자 아닌 값은 버림', () => {
     const s = state('r7', { robot_info: warm() });
     expect(go2Temps(s, true)).toEqual({ joints: JT, hot: 5, battery: 30, inside: 38 });

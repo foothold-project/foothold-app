@@ -38,10 +38,11 @@ export const TEMP_STALE_S = 3;
 export type Temps = { joints: (number | null)[]; hot: number; battery: number | null; inside: number | null } | null;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const top = (a: unknown[]) => { const f = a.map(num).filter((v): v is number => v != null); return f.length ? Math.max(...f) : null; };
-/** 관절 12개(JOINTS 순서)·가장 뜨거운 관절·배터리 4개 중 최고·몸 안(자세 센서·본체) 중 최고. 연결이 끊겼거나 보고가 오래되면 null(지어내지 않음) */
-export function go2Temps(s: Live['state'], fresh: boolean): Temps {
+/** 관절 12개(JOINTS 순서)·가장 뜨거운 관절·배터리 4개 중 최고·몸 안(자세 센서·본체) 중 최고. 연결이 끊겼거나 보고가 오래되면 null(지어내지 않음).
+ *  ago = 이 state 를 받은 뒤 화면 시계로 지난 초 — 나이 = age_s + ago(RV-409 4: 다음 보고를 기다리지 않고 3초 넘으면 «—») */
+export function go2Temps(s: Live['state'], fresh: boolean, ago = 0): Temps {
   const t = (s?.robot_info as { temperature?: Go2Temp | null } | null | undefined)?.temperature;
-  if (!fresh || s?.connection !== 'ONLINE' || !t || !(t.age_s! <= TEMP_STALE_S)) return null;
+  if (!fresh || s?.connection !== 'ONLINE' || !t || !(t.age_s! + ago <= TEMP_STALE_S)) return null;
   const joints = Array.isArray(t.joints) && t.joints.length === 12 ? t.joints.map(num) : JOINTS.map(() => null), hi = top(joints);
   return { joints, hot: hi == null ? -1 : joints.indexOf(hi), battery: top(Array.isArray(t.battery) ? t.battery : []), inside: top([t.imu, ...(Array.isArray(t.body) ? t.body : [])]) };
 }
@@ -118,9 +119,9 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const d = useServerDrive(c, r), { l, s, mine } = d;
   // 라이다 하나를 지도 칸(쌓이는 지도)·라이다 칸(3D)이 같이 본다 — 둘 다 안 보이면(카메라·뎁스만) 구독을 놓는다(RV-397 4)
   const [wantLidar, setWantLidar] = useState(true), lidar = useDriveFeed(r.id, 'lidar', wantLidar), stack = stacked(lidar);
-  const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh), temps = go2Temps(s, fresh), motion = useGo2Motion(s?.robot_info, pose);
-  const [tags, setTags] = useState(true);
   const ago = s ? (rt.now() - l.stateAt) / 1000 : null, a = s?.applied ?? null;
+  const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh), temps = go2Temps(s, fresh, ago ?? 0), motion = useGo2Motion(s?.robot_info, pose);
+  const [tags, setTags] = useState(true);
   const server = LINK[d.link] ?? { tone: 'off' as const, text: '연결 중' };
   const robot = !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
   const why = !s?.latched ? '' : d.stalled ? STALLED : d.refused || (l.stop ? '정지 요청으로 잠겼습니다.' : '로봇이 정지 잠금을 알렸습니다 — 잠금 해제 전에 현장을 확인하세요.');
