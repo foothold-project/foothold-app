@@ -19,7 +19,7 @@ const LINK_LOST = '서버 연결이 끊겼습니다.';
 /** idle = 연결 안 함, connecting = 첫 연결 중, lost = 끊김(다시 연결 중), denied = 서버가 거부(다시 연결 안 함) */
 export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number; latencyMs?: number; latencyAt?: number };
 /** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | unsure(보냈지만 접수 답을 못 받음) | failed(보내지 못함). 로봇이 멈췄는지는 state 로만 본다 */
-export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; g0: number; conn: number; latched?: true };   // at = 이 단계가 된 때, g0·conn = STOP 때 stop_gen·소켓, latched = 그 뒤 새 세대 잠금을 이 소켓에서 받음
+export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; g0: number; conn: number; rev: number; latched?: true };   // at = 이 단계가 된 때, g0·conn·rev = STOP 때 stop_gen·소켓·lease 차례, latched = 그 뒤 새 세대 잠금을 이 소켓에서 받음
 /** 서버가 이 화면의 구독을 거둠(담당 바뀜·로봇 지움, apps/server README). n = 몇 번째인지(화면이 한 번씩 처리) */
 export type Revoked = { robot: string; reason: ScreenSubscriptionRevoked['reason']; n: number };
 export type Live = {
@@ -443,13 +443,16 @@ export const rt = {
   },
   /** 50 ms 마다(0 포함, 조종권 심장 박동 겸). 넘기는 중·잠금 중(또는 상태 모름)은 0, 새 lease·잠금 해제 뒤에는 중립을 본 다음부터 보낸다.
    *  [전후, 회전] + 옆걸음 fy(서버 경유 실기 시험만 — serverdrive.tsx, 그 밖 0) → 계약 axes [fx, fy, fw] */
-  cmd(id: string, [fx, fw]: [number, number], fy = 0, stale = false) {   // 화면은 이번 입력 세대에 새로 누른 입력만 보낸다(inputGen) — 여기는 0 을 한 번 본 뒤부터. stale = 앞 세대 입력이 아직 눌림(0 이어도 손 뗌 아님 → «중립 확인 중»)
-    const l = get(id);
+  cmd(id: string, [fx, fw]: [number, number], fy = 0, stale = false) {   // 화면은 이번 입력 세대에 새로 누른 입력만 보낸다(inputGen). stale = 앞 세대 입력이 아직 눌림 → 0·«중립 확인 중»
+    const l = get(id), s = l.stop;
     if (!l.lease) return;
     if (hiddenPage()) return leave(id);
     let axes = [fx, fy, fw];
-    if (l.busy === 'give' || l.state?.latched !== false) axes = [0, 0, 0];
-    else if (!l.neutral) { if (!(fx || fw || fy) && !stale) set(id, { neutral: true }); axes = [0, 0, 0]; }
+    // STOP 을 보낸 뒤 이 STOP 의 새 세대 보고(stop_gen > g0 — 잠김이든 해제든)가 오기 전에는 0(RV-426 ②). 거절된 STOP·그 뒤 새로 받은 조종권은 기다리지 않음
+    const stopping = !!s && s.phase !== 'failed' && s.rev === l.rev && (l.state?.stop_gen ?? -1) <= s.g0;
+    if (l.busy === 'give' || l.state?.latched !== false || stopping) axes = [0, 0, 0];
+    // 앞 세대 입력이 없으면 중립으로 본다 — 해제 직후 첫 틱 전에 새로 누른 입력도 바로 인정(RV-426 ⑧)
+    else if (!l.neutral) { if (stale) axes = [0, 0, 0]; else set(id, { neutral: true }); }
     send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes });
   },
   /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼거나 STOP_WS_MS 안에 답이 없으면 HTTP 대체 경로(같은 STOP 을 한 번 더 — 정지는 겹쳐도 안전),
@@ -458,7 +461,7 @@ export const rt = {
    *  타이머·HTTP 는 이 로그인 세션에 묶여 로그아웃·계정 전환 때 거둔다(다음 사람의 CSRF 로 나가지 않게) */
   stop(id: string) {
     const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'>) => { const t = get(id).stop; if (!s.aborted && t?.n === k) set(id, { stop: { ...t, phase: p.phase, why: p.why, at: now() } }); };
-    set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? -1, conn } });
+    set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? -1, conn, rev: get(id).rev } });
     let via: 'ws' | 'http' = 'ws', acked = false, viaWs = false;   // viaWs = WS 로 실제로 보냄(닫혀 있으면 send 가 바로 답을 불러 false)
     const http = () => {
       via = 'http'; clearTimeout(late);
@@ -483,14 +486,14 @@ const version = () => ver;
 export const GAP_MS = 300;
 /** 입력 세대(RB-DRIVE-FRESH-PRESS): 화면은 키(e.code)·포인터(pointerId)마다 누른 순간의 세대(current)를 적고, 지금 세대 입력만 명령에 쓴다.
  *  앞 세대에 눌린 입력이 하나라도 아직 눌려 있으면 명령 전체가 0 — 떼었다가 다시 눌러야 한다(손을 뗐는지 추측하지 않음).
- *  sync = 조종권·잠금·stop_gen·연결·중립·넘김·STOP·숨김과 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 명령 틱 공백이 GAP_MS 넘으면 +1 */
+ *  sync = 조종권·잠금·stop_gen·연결·넘김·STOP·숨김과 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 명령 틱 공백이 GAP_MS 넘으면 +1 */
 export function inputGen() {
   let n = 0, k: unknown[] = [], t = Infinity;
   return {
     get current() { return n; },
     bump() { return ++n; },
     sync(id: string, extra: unknown[]) {
-      const l = get(id), x = [l.lease, l.state?.latched, l.state?.stop_gen, l.state?.connection, l.neutral, l.busy, l.stop?.n, document.visibilityState, ...extra];
+      const l = get(id), x = [l.lease, l.state?.latched, l.state?.stop_gen, l.state?.connection, l.busy, l.stop?.n, document.visibilityState, ...extra];   // neutral 은 넣지 않음 — 이번 세대 입력으로 중립이 되면 그 입력이 앞 세대가 됨
       if (x.length !== k.length || x.some((v, i) => v !== k[i])) { k = x; n++; }
       return n;
     },
