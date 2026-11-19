@@ -3,7 +3,6 @@ import asyncio
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-import hmac
 import json
 import time
 from uuid import UUID, uuid4
@@ -16,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from apps.contracts import models as C
 from .models import Robot, now
+from .robots import server_drive_allowed
 from .security import digest
 
 FRAME = TypeAdapter(C.MediaMessage)
@@ -68,31 +68,28 @@ class Relay:
         async with asyncio.timeout(2):
             return await asyncio.get_running_loop().run_in_executor(self.executor, function, *args)
 
-    def eligible(self, rid):
-        if UUID(rid) not in self.rt.settings.server_drive_robots:
-            raise ValueError('trial disabled')
-        with self.factory() as db:
-            row = db.get(Robot, UUID(rid))
-            if row is None or row.org_id != self.rt.settings.org_id or row.archived_at or row.simulation is True:
-                raise ValueError('physical trial unavailable')
+    def require_eligible(self, robot):
+        if (robot is None or robot.org_id != self.rt.settings.org_id or robot.archived_at
+                or not server_drive_allowed(robot, self.rt)):
+            raise ValueError('physical trial unavailable')
 
     def viewer_auth(self, headers, cookies, rid):
         actor = self.rt.identity(headers, cookies, 'drive-media-'+str(uuid4()), factory=self.factory)
         self.rt.access(actor, [rid], 'ROBOT_READ', factory=self.factory)
-        self.eligible(rid)
+        with self.factory() as db:
+            self.require_eligible(db.get(Robot, UUID(rid)))
 
     def agent_auth(self, headers):
         raw = headers.get('authorization', '')
         if not raw.startswith('Bearer ') or not raw[7:]:
             raise ValueError('agent authentication required')
         with self.factory() as db:
-            rows = db.scalars(select(Robot).where(Robot.org_id == self.rt.settings.org_id,
-                Robot.id.in_(self.rt.settings.server_drive_robots), Robot.archived_at.is_(None),
-                Robot.simulation.is_(False))).all()
-            matching = [str(row.id) for row in rows if hmac.compare_digest(row.agent_token_hash or b'', digest(raw[7:]))]
-        if len(matching) != 1:
-            raise ValueError('agent authentication rejected')
-        return matching[0]
+            matching = db.scalars(select(Robot).where(Robot.org_id == self.rt.settings.org_id,
+                Robot.archived_at.is_(None), Robot.agent_token_hash == digest(raw[7:])).limit(2)).all()
+            if len(matching) != 1:
+                raise ValueError('agent authentication rejected')
+            self.require_eligible(matching[0])
+            return str(matching[0].id)
 
     @staticmethod
     def status(rid, channel, reason, epoch=0):
@@ -127,7 +124,7 @@ class Relay:
         authenticated = False
         self.pending += 1
         try:
-            if self.pending > 16 or channel not in CHANNELS or not self.rt.settings.server_drive_robots:
+            if self.pending > 16 or channel not in CHANNELS:
                 raise HTTPException(403)
             rid = await self.read(self.agent_auth, request.headers)
             authenticated = True

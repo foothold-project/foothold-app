@@ -1,6 +1,7 @@
 """Observation uploads/receive-only viewers cannot bypass robot ACLs or command."""
 import asyncio
 import base64
+from dataclasses import replace
 from datetime import datetime,timezone
 import struct
 import time
@@ -9,8 +10,15 @@ from uuid import uuid4
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from .test_server_drive import trial
-from .test_realtime import app_token, receive
+from .test_server_drive import trial as drive_trial
+from .test_realtime import agent, app_token, receive
+
+
+@pytest.fixture
+def trial(drive_trial, monkeypatch):
+    # Isolate media payload/ACL tests from the control socket's liveness timer.
+    monkeypatch.setattr(drive_trial.app.state.realtime, 'field_approved', lambda rid: True)
+    return drive_trial
 
 
 # Synthetic 64x36 black JPEG; server tests need no image codec dependency.
@@ -34,6 +42,37 @@ def upload(client,rid,header,points=None,token=None):
     return client.post('/api/v1/agent/drive-media/'+header.get('channel','rgb'),headers={
         'authorization':'Bearer '+(token or 'fake-test-'+str(rid))},
         json={'header':header,'points':None if points is None else base64.b64encode(points).decode()})
+
+
+@pytest.mark.parametrize('enabled,listed', [(True, False), (False, True)])
+def test_media_follows_server_drive_permission(drive_trial, seeded, monkeypatch, enabled, listed):
+    client = drive_trial
+    rt = client.app.state.realtime
+    rid = seeded['robots']['mine']
+    monkeypatch.setattr(rt, 'settings', replace(rt.settings, server_drive_enabled=enabled,
+        server_drive_robots=frozenset({rid}) if listed else frozenset()))
+    owner = app_token(client)
+    path = f'/api/v1/robots/{rid}'
+
+    def check_denied():
+        assert client.get(path, headers=owner).json()['server_drive_allowed'] is False
+        assert upload(client, rid, frame(rid)).status_code == 403
+        with pytest.raises(WebSocketDisconnect) as denied:
+            with client.websocket_connect(path + '/drive-media/rgb', headers=owner):
+                pytest.fail('ineligible viewer accepted')
+        assert denied.value.code == 4403
+
+    check_denied()
+    with agent(client, seeded, direct=not enabled) as ws:
+        if enabled:
+            receive(ws, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+            assert client.get(path, headers=owner).json()['server_drive_allowed'] is True
+            with client.websocket_connect(path + '/drive-media/rgb', headers=owner) as viewer:
+                assert upload(client, rid, frame(rid)).status_code == 202
+                assert receive(viewer, 'media.video')['robot'] == str(rid)
+        else:
+            check_denied()
+    check_denied()
 
 
 @pytest.mark.parametrize('case', ['valid', 'missing-pose', 'map-version', 'map-frame'])
