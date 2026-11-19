@@ -347,7 +347,8 @@ describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른�
   it.each<{ blocked: NonNullable<RobotSummary['server_drive_blocked']> }>([{ blocked: [] }, { blocked: ['SWITCH_OFF'] }])('서버 허용이면 이유 $blocked 와 무관하게 기존 패널 표시', async ({ blocked }) => {
     serve(signedIn(LEE, [{ ...RA, server_drive_allowed: true, server_drive_blocked: blocked }]));
     await open('#/fleet', false); online();
-    expect($('[data-server-drive]')).not.toBeNull();
+    expect($('[data-server-drive]')).not.toBeNull();   // 로봇 탭 = 세 칸 조종 화면(RB-PC-DRIVE-3COL)
+    await click($('[data-pd-back]'));                  // «← 목록» → 조종 준비 단계
     expect(card('조종 준비').querySelector('[data-step="3"]')!.classList.contains('done')).toBe(true);
     expect($('[data-drive-block]')).toBeNull();
   });
@@ -389,12 +390,15 @@ describe('PC 운영 관리자 실기 상세 — 11-11 시안 배치(연결 전·
       routes['GET /robots'] = { status: 200, body: { items: [{ ...RA, connection: 'ONLINE', server_drive_allowed: true }], next_cursor: null } };
       act(() => { vi.advanceTimersByTime(LIST_MS); });
       await flush();
-      expect(steps()).toEqual(['done', 'done', 'done']);
-      expect(card('조종 준비').querySelector('[data-server-drive]')).not.toBeNull();   // STOP·잠금 해제·조종 시작은 기존 패널 그대로
-      await click(drive());
-      expect($('[data-sd-full]')).not.toBeNull();   // 패널의 조종 화면(전체화면) 그대로
-      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape' })); });
+      expect($('[data-pc-drive]')).not.toBeNull();   // 허용되면 로봇 탭 본문이 곧 세 칸 조종 화면(모달 없음)
       expect($('[data-sd-full]')).toBeNull();
+      await click($('[data-pd-back]'));               // «← 목록»
+      expect($('[data-pc-drive]')).toBeNull();
+      expect(steps()).toEqual(['done', 'done', 'done']);
+      await click(drive());                            // «조종 화면 열기» = 다시 세 칸 화면
+      expect($('[data-pc-drive]')).not.toBeNull();
+      expect($('[data-sd-full]')).toBeNull();
+      await click($('[data-pd-back]'));
       const main = FakeWS.all.find((w) => w.url.endsWith('/ws'))!;   // 조종 화면이 영상 소켓을 열어 last 는 영상 소켓
       act(() => main.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null })));
       expect(title()).toBe('로봇과의 연결이 끊겼습니다');
@@ -403,7 +407,7 @@ describe('PC 운영 관리자 실기 상세 — 11-11 시안 배치(연결 전·
       expect(card('로봇 상태').querySelector('[data-tele="battery"]')!.textContent).toBe('배터리80%마지막 수신값');
       expect(steps()).toEqual(['done', 'cur', 'todo']);   // 목록의 서버 허용 값이 남아 있어도 끊긴 동안 «조종 가능» 완료로 안 보임
       expect(card('조종 준비').textContent).toContain('재연결 필요');
-      expect(card('조종 준비').querySelector('[data-sd-stop="panel"]')).not.toBeNull();   // 패널의 STOP 은 그대로
+      expect($('[data-stop]')).not.toBeNull();   // 머리줄 STOP 은 그대로
     } finally { vi.useRealTimers(); }
   });
   it('«로봇 설정»·«연결 방법»은 화면 위 창 — 머리줄 STOP 을 막지 않고, Esc·닫기로 닫으면 연 단추로 초점', async () => {

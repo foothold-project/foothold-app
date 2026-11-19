@@ -1,5 +1,7 @@
 // 실기 서버 경유 시험 조종(serverdrive.tsx·drivemedia.ts, 10-30 SERVER-DRIVE-WEB·ADD1): 서버가 켠 로봇만 패널, 누르는 동안만·떼면 0,
 // 초점 잃음·가려짐·끊김 → 0, STOP 우선, SI 값 9개 밖 없음, «조종 화면 열기»(전체화면: 카메라·라이다·조작부). 가짜 WebSocket 이 서버 중재기(drive.test 와 같은 흉내).
+// RB-PC-DRIVE-3COL(11-19): 로봇 탭은 이제 세 칸 화면(pcdrive.test) — 여기서는 지도 만들기 창이 쓰는 작은 패널(ServerDrive)을 App 옆에 직접 붙여 같은 시험을 한다(panel).
+// 로봇 탭(fleet) 자체를 보는 시험만 panel=false.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +11,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
 import { rt } from '../rt';
@@ -19,11 +21,13 @@ import { rt } from '../rt';
 let root: Root | null = null, box: HTMLDivElement, w: FakeWS, st: Record<string, ScreenState> = {};
 const PARK = { id: 'u-park', name: '박OO' };
 const ON = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true, approvalUntil: new Date(Date.now() + 30 * 60_000).toISOString() } : r));
-function mount(user: string, robots: Robot[] = ON) {
+/** panel = 서버가 허용한 내 로봇이면 작은 패널을 App 옆에 붙이고, 로봇 탭에는 허용을 숨긴다(세 칸 화면과 패널이 같이 뜨지 않게 — 키·조종권은 하나) */
+function mount(user: string, robots: Robot[] = ON, panel = true) {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = '#/fleet';
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === user)} robots={robots} />); });
+  const u = USERS.find((x) => x.id === user)!, side = panel ? robots.find((x) => x.serverDrive && x.owner === user) : undefined;
+  act(() => { root = createRoot(box); root.render(<><App user={u} robots={side ? robots.map((x) => ({ ...x, serverDrive: false })) : robots} />{side && <ServerDrive c={{ user: u }} r={side} />}</>); });
 }
 const unmount = () => { act(() => root!.unmount()); root = null; box.remove(); };
 beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); });
@@ -78,7 +82,7 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(toRobot({ id: 'x', simulation: false, server_drive_allowed: true } as never).serverDrive).toBe(true);
     expect(toRobot({ id: 'x', simulation: false, server_drive: true } as never).serverDrive).toBe(false);   // 옛 가정 이름은 아님
     expect(toRobot({ id: 'x', simulation: false } as never).serverDrive).toBe(false);
-    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    mount('u-park', ON, false); serve('r7'); click(row('Go2-7'));   // 로봇 탭 = 세 칸 조종 화면(pcdrive)
     expect($('[data-server-drive]')!.textContent).toContain(TRIAL);
     expect($('[data-sd-stop]')).not.toBeNull();
     unmount();

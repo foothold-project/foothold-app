@@ -1,0 +1,31 @@
+/* PC 로봇 탭 세 칸 조종 화면(pcdrive.tsx) — 기존 색 토큰만. Go2 그림 바탕은 영상 칸과 같은 어두운 고정색(#05080A, quad.css 와 같음) */
+.fh-main>.pd{flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:10px}
+/* 맨 위 줄(STOP)은 스크롤해도 늘 보이게 */
+.pd-top{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:8px 10px;border:1px solid var(--warn);border-radius:10px;background:var(--panel)}
+.pd-top h2{margin:0;font-size:17px}
+.pd-top>.fh-row{margin:0}
+.pd-link{display:inline-flex;align-items:center;gap:6px}
+.pd-cols{display:grid;gap:10px;align-items:start;grid-template-columns:minmax(260px,1fr) minmax(0,2.2fr) minmax(280px,1fr)}
+.pd-left,.pd-right{display:flex;flex-direction:column;gap:10px;min-width:0}
+.pd-left{padding:10px}
+.pd-stage{position:relative;height:min(52vh,460px);min-height:300px;border-radius:8px;overflow:hidden;background:#05080A}
+.pd-go2{position:absolute;inset:0;display:grid;place-items:center}
+.pd-go2-fail{color:#9AA7B3;font-size:13px;padding:12px;text-align:center}
+.pd-left[data-stale] .pd-go2{opacity:.32;filter:grayscale(1)}
+.pd-noreport{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);padding:6px 12px;border-radius:8px;background:rgba(8,11,14,.8);color:#FFFFFF;font-size:14px;font-weight:600}
+.pd-facts{position:absolute;left:8px;right:8px;bottom:8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;padding:8px 10px;border-radius:8px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;line-height:1.35}
+.pd-fact{display:flex;flex-direction:column;min-width:0}
+.pd-fact .lbl{color:#9AA7B3;font-size:11px}
+.pd-fact b{font-weight:600;overflow-wrap:anywhere}
+.pd-fact[data-pd="speed"],.pd-fact[data-pd="why"]{grid-column:1/-1}
+.pd-mid{min-width:0}
+.pd-floor{position:absolute;inset:0;overflow:auto;padding:6px;background:var(--panel)}
+.pd-sec{display:flex;flex-direction:column;gap:8px;padding:10px}
+.pd-sec h3{margin:0;font-size:15px}
+.pd-sec .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
+@media (max-width:1100px){.pd-cols{grid-template-columns:minmax(240px,1fr) minmax(0,2fr)}.pd-right{grid-column:1/-1}}
+@media (max-width:760px){.pd-cols{grid-template-columns:minmax(0,1fr)}}
+/* 큰 화면 1 + 작은 3 일 때 «4분할» 단추는 큰 칸 왼쪽 아래 위에(큰 칸이 모든 줄을 덮음) */
+.pd-mid .qd.f .qd-top{position:absolute;z-index:3;left:14px;bottom:14px}
+/* 좁은 왼쪽 칸의 방향 단추: 키 위·글자 아래로 */
+.pd-left [data-sd-move]{flex-direction:column;justify-content:center;gap:2px;padding:4px 6px;font-size:12px;line-height:1.25;white-space:normal}
