@@ -58,8 +58,10 @@ it('서버 단추: 고정표 경계·0·빠른 이동 금지는 더 엄격한 �
   expect(permitted(TABLE.left, { real_max_vy: .99 })).toBe(false);
   expect(permitted(TABLE.up, { real_max_vx: 1.49 })).toBe(false);
   expect(permitted(TABLE.down, { real_max_vx_back: 0 })).toBe(false);
-  expect(permitted(TABLE.rotl, { real_max_wz: .5 })).toBe(true);
-  expect(permitted(TABLE.rotl, { real_max_wz: .49 })).toBe(false);
+  for (const turn of [TABLE.rotl, TABLE.rotr]) {
+    expect(permitted(turn, { real_max_wz: 2.5 })).toBe(true);
+    expect(permitted(turn, { real_max_wz: 2.49 })).toBe(false);
+  }
   expect(permitted(TABLE.up, { real_no_fast_server_drive: true })).toBe(false);
   expect(permitted(TABLE.rotl, { real_no_fast_server_drive: true })).toBe(true);
   expect(permitted(TABLE[''], { real_max_vx: 0, real_max_vx_back: 0, real_max_vy: 0, real_max_wz: 0, real_no_fast_server_drive: true })).toBe(true);
