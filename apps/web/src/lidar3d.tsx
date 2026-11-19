@@ -1,6 +1,7 @@
 // 조종 화면 라이다 칸 3D 점(11-19 RB-LIDAR-3D): drivemedia 가 준 xyz 를 그대로(frame map·odom = 그 기준 자리, lidar_link = 센서가 원점) three 로 그린다.
 // 색 = 로봇 기준 높이(위에서 본 그림·범례와 같은 hue), 로봇 화살표, 옅은 바닥 격자. 끌기 = 돌리기, 휠·두 손가락 = 확대, 오른쪽 끌기·Shift+끌기 = 옮기기.
-// 받은 판이 바뀔 때만 버퍼를 다시 채우고, 그리기는 바뀐 때만(끌기·판·크기). 탭이 숨었거나 칸 크기가 0 이면 그리지 않고 미뤄 둔다. 그림만 — 명령 0.
+// 받은 판이 바뀔 때만 버퍼를 다시 채우고, 그리기는 바뀐 때만(끌기·판·크기). 탭이 숨었거나 칸이 화면 밖·크기 0 이면 버퍼 갱신·그리기를 멈추고, 돌아오면 최신 판으로 한 번. 그림만 — 명령 0.
+// 닫을 때 WebGL 문맥을 바로 놓는다(forceContextLoss) — 3D↔위에서를 여러 번 바꿔도 문맥이 쌓여 다른 3D 그림이 꺼지지 않게.
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -58,8 +59,9 @@ export function Lidar3D({ feed, small, onFail }: { feed: DriveFeed; small: boole
     const orbit = new OrbitControls(cam, canvas);
     orbit.enabled = !small; orbit.maxDistance = 150; orbit.screenSpacePanning = true;
     const v = { ver: -1, w: 0, h: 0, follow: true, drag: false, dirty: true, at: new THREE.Vector3() };
+    let onScreen = true;
     const draw = () => {
-      if (document.hidden || !el.clientWidth || !el.clientHeight) { v.dirty = true; return; }   // 안 보이면 미룸
+      if (document.hidden || !onScreen || !el.clientWidth || !el.clientHeight) { v.dirty = true; return; }   // 안 보이면 미룸
       v.dirty = false; g.render(scene, cam);
     };
     const fit = () => { v.w = el.clientWidth; v.h = el.clientHeight; if (!v.w || !v.h) return; g.setSize(v.w, v.h, false); cam.aspect = v.w / v.h; cam.updateProjectionMatrix(); };
@@ -87,21 +89,25 @@ export function Lidar3D({ feed, small, onFail }: { feed: DriveFeed; small: boole
       if (v.follow && r && orbit.target.distanceTo(v.at.set(r.x, r.y, r.z)) > 0.05) { v.follow = false; setFree(true); }
     });
     again.current = () => { v.follow = true; setFree(false); home(); draw(); };
-    const t = setInterval(() => {
+    const tick = () => {
       const size = el.clientWidth !== v.w || el.clientHeight !== v.h;
       if (size) fit();
+      if (document.hidden || !onScreen || !el.clientWidth || !el.clientHeight) { v.dirty = true; return; }   // 안 보이면 버퍼도 그대로
       if (cur.current.ver !== v.ver) load();
       else if (!size && !v.dirty) return;
       draw();
-    }, 500);   // 판 갱신 2 Hz
+    };
+    const t = setInterval(tick, 500);   // 판 갱신 2 Hz
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { fit(); draw(); });
     ro?.observe(el);
-    const vis = () => { if (!document.hidden && v.dirty) draw(); };
+    const io = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver((es) => { onScreen = es[es.length - 1].isIntersecting; tick(); });
+    io?.observe(el);
+    const vis = () => tick();
     document.addEventListener('visibilitychange', vis);
     fit(); home(); load(); draw();
     return () => {
-      clearInterval(t); ro?.disconnect(); document.removeEventListener('visibilitychange', vis); orbit.dispose();
-      geo.dispose(); mat.dispose(); grid.dispose(); arrow.dispose(); g.dispose(); canvas.remove();
+      clearInterval(t); ro?.disconnect(); io?.disconnect(); document.removeEventListener('visibilitychange', vis); orbit.dispose();
+      geo.dispose(); mat.dispose(); grid.dispose(); arrow.dispose(); g.dispose(); g.forceContextLoss(); canvas.remove();
     };
   }, [small]);   // eslint-disable-line react-hooks/exhaustive-deps
   return <div ref={host} style={{ position: 'absolute', inset: 0 }} data-lidar3d={feed.n}>

@@ -36,9 +36,9 @@ export function LidarMap({ feed, empty, small = false, start = '3d' }: { feed: D
 
 /** 위에서 본 그림(11-13 그대로) — 끌어서 옮기고 휠로 확대 */
 function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
-  const cv = useRef<HTMLCanvasElement>(null), cur = useRef(feed), [free, setFree] = useState(false);
-  const view = useRef({ x: 0, y: 0, k: 0, follow: true, ver: -1, w: 0, h: 0 }), redraw = useRef(() => {});
-  cur.current = feed;
+  const cv = useRef<HTMLCanvasElement>(null), cur = useRef(feed), sm = useRef(small), [free, setFree] = useState(false);
+  const view = useRef({ x: 0, y: 0, k: 0, follow: true, ver: -1, w: 0, h: 0, frame: feed.frame }), redraw = useRef(() => {});
+  cur.current = feed; sm.current = small;   // 칸 크기가 바뀌면 끌기·휠도 새 값으로
   useEffect(() => {
     const el = cv.current!, v = view.current;
     let img: ImageData | null = null, top = new Uint8Array(0);   // top = 그 화소에 이미 그린 높이 단계 + 1
@@ -49,6 +49,7 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
       if (!g) return;
       if (el.width !== W || el.height !== H) { el.width = W; el.height = H; }
       if (!img || img.width !== W || img.height !== H) { img = g.createImageData(W, H); top = new Uint8Array(W * H); }
+      if (c.frame !== v.frame) { v.frame = c.frame; v.x = v.y = 0; if (!v.follow) { v.follow = true; setFree(false); } }   // 기준이 바뀌면 옛 중심은 뜻이 없다 — 원점·따라가기로
       if (v.follow && c.pose) { v.x = c.pose.x; v.y = c.pose.y; }
       const k = (v.k ||= Math.min(el.clientWidth, el.clientHeight) / (SPAN_M * 2)) * dpr, px = new Uint32Array(img.data.buffer), z0 = c.pose?.z ?? 0;
       const r = Math.max(1, Math.min(8, Math.ceil(CELL_M * k))), X = (x: number) => W / 2 + (x - v.x) * k, Y = (y: number) => H / 2 - (y - v.y) * k;
@@ -73,7 +74,7 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
     const t = setInterval(() => { if (cur.current.ver !== v.ver || el.clientWidth !== v.w || el.clientHeight !== v.h) draw(); }, 500);
     let d: null | { id: number; x: number; y: number; vx: number; vy: number } = null, raf = 0;
     const soon = () => { raf ||= requestAnimationFrame(() => { raf = 0; draw(); }); };
-    const down = (e: PointerEvent) => { if (small || d || !v.k) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
+    const down = (e: PointerEvent) => { if (sm.current || d || !v.k) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
     const move = (e: PointerEvent) => {
       if (!d || e.pointerId !== d.id) return;
       v.x = d.vx - (e.clientX - d.x) / v.k; v.y = d.vy + (e.clientY - d.y) / v.k;
@@ -81,7 +82,7 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
       soon();
     };
     const end = (e?: PointerEvent) => { if (d && (!e || e.pointerId === d.id)) d = null; };
-    const wheel = (e: WheelEvent) => { if (small || !v.k) return; e.preventDefault(); v.k = Math.max(K_MIN, Math.min(K_MAX, v.k * Math.exp(-e.deltaY * 0.0015))); soon(); };
+    const wheel = (e: WheelEvent) => { if (sm.current || !v.k) return; e.preventDefault(); v.k = Math.max(K_MIN, Math.min(K_MAX, v.k * Math.exp(-e.deltaY * 0.0015))); soon(); };
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('wheel', wheel, { passive: false });
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); el.addEventListener('lostpointercapture', end);
     draw();
