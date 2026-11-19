@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Enable/disable the installed robot computer's user service; never use sudo."""
+"""Start/stop the installed robot computer's user service by hand; never use sudo.
+
+No boot or login auto start (팀장 11/19: 22:16 the enabled service came up by
+itself and could have sent robot commands). The unit has no [Install] section,
+so it cannot be enabled, and `start` also removes any enable link an older
+install left behind.
+"""
 import argparse
 import os
 from pathlib import Path
@@ -28,8 +34,8 @@ def unit_text(root):
             'Environment=PYTHONUNBUFFERED=1\nUMask=0077\n'
             'KillSignal=SIGINT\nTimeoutStopSec=30\nRestart=on-failure\nRestartSec=20\n'
             'StandardOutput=append:%h/foothold-robot-run.log\n'
-            'StandardError=append:%h/foothold-robot-run.log\n\n'
-            '[Install]\nWantedBy=default.target\n')
+            # No [Install] section on purpose: manual start only, never at boot or login.
+            'StandardError=append:%h/foothold-robot-run.log\n')
 
 
 def configure(action, root):
@@ -46,13 +52,16 @@ def configure(action, root):
         raise ValueError('regular user service file required')
     def systemctl(*args):
         subprocess.run(['systemctl', '--user', *args], check=True)
-    if action == 'disable':
+    if action == 'stop':
         systemctl('disable', '--now', UNIT)
         unit.unlink(missing_ok=True)
         systemctl('daemon-reload')
-        print('자동 시작을 껐습니다. 저장된 로봇 연결 정보와 기록은 남습니다.')
+        print('연결 서비스를 멈추고 서비스 파일을 지웠습니다. 저장된 로봇 연결 정보와 기록은 남습니다.')
         return
     directory.mkdir(parents=True, exist_ok=True)
+    if unit.exists():
+        # An older install enabled the unit at login; drop that link first.
+        subprocess.run(['systemctl', '--user', 'disable', UNIT], check=False)
     temporary = directory/(UNIT+'.'+secrets.token_hex(12)+'.tmp')
     try:
         with open(temporary, 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
@@ -62,20 +71,20 @@ def configure(action, root):
         temporary.unlink(missing_ok=True)
     systemctl('daemon-reload')
     systemctl('reset-failed', UNIT)
-    systemctl('enable', '--now', UNIT)
-    print('자동 시작을 켰습니다. 사용자 로그인 때 연결하며 실패하면 20초 뒤 다시 시도합니다.')
+    systemctl('start', UNIT)
+    print('연결 서비스를 지금 한 번 켰습니다. 부팅 · 로그인 때 자동으로 켜지지 않습니다. 실패하면 20초 뒤 다시 시도합니다.')
     print('기록: '+str(home/'foothold-robot-run.log'))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('enable', 'disable'))
+    parser.add_argument('action', choices=('start', 'stop'))
     args = parser.parse_args(argv)
     try:
         configure(args.action, Path(__file__).resolve().parent)
         return 0
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
-        print('자동 시작 설정 실패 · 사용자 로그인과 systemd 사용자 서비스를 확인하세요.')
+        print('연결 서비스 켜기 · 끄기 실패 · 사용자 로그인과 systemd 사용자 서비스를 확인하세요.')
         return 2
 
 
