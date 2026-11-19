@@ -1,5 +1,5 @@
 // 관절 온도 · 배터리 경고 판정 (표시만, 로봇 명령 0). 값의 근거: foothold-lab inbox/jay/20261101-app/APP-ROBOT-DIRECTION-1119.md 5b
-// (팀장 11/19 03:14) · 배터리 소모는 GO2X-JETSON-SETUP-1119.md 8 절 (11/19 05:00 27 % → 05:07 21 %, 서 있기만).
+// (팀장 11/19 03:14) · 배터리 소모는 GO2X-JETSON-SETUP-1119.md 8 절 (lab #877 에서 구간 바로잡음: 서 있기 03:15~03:35 · 걷기 05:00~05:07).
 // 업체의 열 보호 판정이 아직 오지 않아 화면에 «잠정» 을 붙인다. 문턱을 짐작으로 바꾸지 않는다.
 import type { Go2MotorTemps } from '../../contracts/ts';
 import type { Tone } from './fake';
@@ -8,9 +8,10 @@ import type { Tone } from './fake';
 export const TEMP_C = { caution: 50, warn: 60, danger: 70 } as const;
 /** 배터리 알림 단계 (막지 않음) */
 export const BATTERY_ALERT_PCT = [20, 10] as const;
-/** 서 있기만 해도 약 0.86 %/분 (11/19 05:00 27 % → 05:07 21 % = 6 %p / 7 분). 걸으면 더 빠르다 (미측정).
- *  lab 문서의 «약 0.7» 은 같은 기록에서 나온 어림값이라 기록 숫자로 바로잡음 (리뷰 #389) */
-export const STAND_DRAIN_PCT_PER_MIN = 0.86;
+/** 서 있기만: 약 0.55 %/분 (11/19 03:15 93 % → 03:35 82 % = 11 %p / 20 분) */
+export const STAND_DRAIN_PCT_PER_MIN = 0.55;
+/** 방 걷기: 약 0.86 %/분 (11/19 05:00 27 % → 05:07 21 % = 6 %p / 7 분). 앞서 이 구간을 서 있기로 잘못 적었음 (lab #877) */
+export const WALK_DRAIN_PCT_PER_MIN = 0.86;
 /** 5b 이상 체크 중 같은 다리 비교: 한 관절이 같은 다리 다른 관절보다 이만큼 넘게 높으면 알림 (lead 제안 값 · 잠정).
  *  «2 분에 10 °C 넘게 오름» 은 지난 값 기록이 필요해 아직 미구현 */
 export const LEG_GAP_C = 15;
@@ -47,8 +48,8 @@ export function legOutliers(joints: JointHeat[]): JointHeat[] {
 
 export type Battery = 'ok' | 'low20' | 'low10';
 export const batteryLevel = (soc: number): Battery => (soc <= BATTERY_ALERT_PCT[1] ? 'low10' : soc <= BATTERY_ALERT_PCT[0] ? 'low20' : 'ok');
-/** 서 있기 기준으로 soc 가 to % 까지 내려가는 분 (내림). 이미 그 아래면 0 */
-export const minutesTo = (soc: number, to = 0) => Math.max(0, Math.floor((soc - to) / STAND_DRAIN_PCT_PER_MIN));
+/** 소모율 rate (%/분) 로 soc 가 to % 까지 내려가는 분 (내림). 이미 그 아래면 0 */
+export const minutesTo = (soc: number, to = 0, rate: number = STAND_DRAIN_PCT_PER_MIN) => Math.max(0, Math.floor((soc - to) / rate));
 
 /** 화면용 관절 이름: FR_hip_joint → FR hip */
 export const jointLabel = (name: string) => name.replace(/_joint$/, '').replace('_', ' ');

@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it } from 'vitest';
 import type { Go2MotorTemps } from '../../../contracts/ts';
 import { HeatInfo } from '../go2status';
-import { batteryLevel, heatOf, jointHeat, legOutliers, minutesTo } from '../heat';
+import { STAND_DRAIN_PCT_PER_MIN, WALK_DRAIN_PCT_PER_MIN, batteryLevel, heatOf, jointHeat, legOutliers, minutesTo } from '../heat';
 import { rt } from '../rt';
 import { FakeWS, state } from './fakeWs';
 
@@ -30,10 +30,13 @@ it('11/19 01:27 사건 꼴: RR hip 71 °C → 위험, 가장 나쁜 관절 RR hi
   expect(heatOf(T(c2, r)).worst.name).toBe('FR_hip_joint');
 });
 
-it('배터리: 20 % · 10 % 단계와 서 있기 0.86 %/분 (27 → 21 % / 7 분) 남은 분', () => {
+it('배터리: 20 % · 10 % 단계와 서 있기 0.55 · 걷기 0.86 %/분 남은 분', () => {
   expect([21, 20, 11, 10, 3].map(batteryLevel)).toEqual(['ok', 'low20', 'low20', 'low10', 'low10']);
-  expect(minutesTo(27)).toBe(31);        // 27 / 0.86 = 31.4
-  expect(minutesTo(27, 10)).toBe(19);    // 17 / 0.86 = 19.8
+  expect([STAND_DRAIN_PCT_PER_MIN, WALK_DRAIN_PCT_PER_MIN]).toEqual([0.55, 0.86]);   // (93-82)/20 · (27-21)/7
+  expect(minutesTo(27)).toBe(49);        // 27 / 0.55 = 49.1 (서 있기)
+  expect(minutesTo(27, 10)).toBe(30);    // 17 / 0.55 = 30.9
+  expect(minutesTo(27, 0, WALK_DRAIN_PCT_PER_MIN)).toBe(31);    // 27 / 0.86 = 31.4 (걷기)
+  expect(minutesTo(27, 10, WALK_DRAIN_PCT_PER_MIN)).toBe(19);   // 17 / 0.86 = 19.8
   expect(minutesTo(5, 10)).toBe(0);
 });
 
@@ -44,7 +47,7 @@ it('화면: 최고 관절 · 다리별 12 값 · 잠정 · 남은 분, 값이 �
   expect(el.querySelector('[data-heat-worst]')!.textContent).toBe('■위험 · 앉히기 권고 · 최고 RR hip 71 °C');
   expect(el.querySelector('[data-heat-legs]')!.textContent).toBe('FR 31·32·33  FL 31·32·33  RR 71·40·45  RL 30·30·30');
   expect(el.textContent).toContain('잠정 · 업체 열 판정 대기');
-  expect(el.querySelector('[data-heat-battery]')!.textContent).toBe('▲20 % 이하 · 충전 준비 서 있기 기준 약 18 분 · 10 % 까지 6 분');
+  expect(el.querySelector('[data-heat-battery]')!.textContent).toBe('▲20 % 이하 · 충전 준비 서 있기 약 29 분 · 걸으면 약 18 분 · 10 % 까지 10 · 6 분');
   act(() => root!.render(<HeatInfo temps={null} soc={null} />));
   expect(el.textContent).toBe('');
 });

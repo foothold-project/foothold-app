@@ -3,7 +3,7 @@
 // 읽기만: 조종 화면·서버 등록·조종권으로 넘어가지 않고 STOP 도 없다. 현장 코드는 메모리에만(URL·로그·저장 0), 401 이면 버리고 다시 받는다.
 import { useEffect, useState } from 'react';
 import type { Go2MotorTemps, Go2RobotInfo } from '../../contracts/ts';
-import { HEAT_TEXT, HEAT_TONE, LEG_GAP_C, STAND_DRAIN_PCT_PER_MIN, batteryLevel, heatOf, jointLabel, legOutliers, minutesTo } from './heat';
+import { HEAT_TEXT, HEAT_TONE, LEG_GAP_C, STAND_DRAIN_PCT_PER_MIN, WALK_DRAIN_PCT_PER_MIN, batteryLevel, heatOf, jointLabel, legOutliers, minutesTo } from './heat';
 import type { Robot, Tone } from './fake';
 import { Chip, Line } from './screens';
 import { PROBLEM } from './nearby';
@@ -94,8 +94,8 @@ export function HeatInfo({ temps, soc }: { temps: Go2MotorTemps | null | undefin
       <Line k="관절 °C"><span className="mono" data-heat-legs>{LEGS.map((leg) => `${leg} ${h.joints.filter((j) => j.name.startsWith(`${leg}_`)).map((j) => Math.round(j.c)).join('·')}`).join('  ')}</span><span className="lbl">hip·thigh·calf · 50 주의 · 60 경고 · 70 위험</span></Line>
     </>}
     {soc != null && b && <Line k="배터리 남은 시간"><span data-heat-battery>{b !== 'ok' && <Chip tone={b === 'low10' ? 'bad' : 'warn'} text={b === 'low10' ? '10 % 이하 · 충전' : '20 % 이하 · 충전 준비'} />}
-      <span className="mono">{` 서 있기 기준 약 ${minutesTo(soc)} 분 · 10 % 까지 ${minutesTo(soc, 10)} 분`}</span></span>
-      <span className="lbl">{`${STAND_DRAIN_PCT_PER_MIN} %/분 (11/19 05:00 → 05:07 서 있기 실측) · 걸으면 더 짧음 · 잠정`}</span></Line>}
+      <span className="mono">{` 서 있기 약 ${minutesTo(soc)} 분 · 걸으면 약 ${minutesTo(soc, 0, WALK_DRAIN_PCT_PER_MIN)} 분 · 10 % 까지 ${minutesTo(soc, 10)} · ${minutesTo(soc, 10, WALK_DRAIN_PCT_PER_MIN)} 분`}</span></span>
+      <span className="lbl">{`서 있기 ${STAND_DRAIN_PCT_PER_MIN} %/분 (11/19 03:15 → 03:35 실측) · 걷기 ${WALK_DRAIN_PCT_PER_MIN} %/분 (05:00 → 05:07 실측) · 잠정`}</span></Line>}
   </div>;
 }
 /** 로봇 → 보일 묶음. 시뮬 = null(숨김). 직접 값(연결 중일 때만)이 폰 경유보다 먼저, 폰 경유는 신선할 때만 */
