@@ -108,6 +108,12 @@ def is_running(state):
     return state.get('status') == 'RUNNING'
 
 
+def server_drive_allowed(robot, realtime):
+    return (robot.simulation is not True and realtime.settings.drive_enabled(robot.id)
+            and robot.owner_user_id is not None and bool(robot.serial)
+            and realtime.field_approved(str(robot.id)))
+
+
 def robot_objects(db, robots, user, realtime):
     if not robots:
         return []
@@ -138,9 +144,7 @@ def robot_objects(db, robots, user, realtime):
     for robot in robots:
         # Legacy column remains readable in storage, but never grants control.
         approval = None
-        server_drive = (robot.simulation is not True and realtime.settings.drive_enabled(robot.id)
-                        and robot.owner_user_id is not None and bool(robot.serial)
-                        and realtime.field_approved(str(robot.id)))
+        server_drive = server_drive_allowed(robot, realtime)
         owner = owners.get(robot.owner_user_id)
         full = user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id
         # Display only: keep the existing permission calculation and gates above.
