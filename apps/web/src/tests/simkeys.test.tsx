@@ -380,8 +380,27 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await key('keydown', 'KeyW');
     expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 넘기는 중 = 0
     await fail(a);
-    expect(sim.get().link?.busy).toBe('');
+    expect(sim.get().link?.giving).toBe(false);
     expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 0.6(넘기는 중 누른 W 가 무산 뒤 살아남)
+    await key('keyup', 'KeyW'); await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await key('keyup', 'KeyW');
+  });
+  // RV-432: 넘기는 중 실행 요청(busy = 'run')이 «넘기는 중» 을 덮어 무산 때 입력을 버리지 않았다
+  it.each([
+    ['실행', () => sim.runStart({ id: 's-a', version: 1 } as unknown as Parameters<typeof sim.runStart>[0], { floor_id: 'f-1', map_version_id: 'v-1' } as unknown as Parameters<typeof sim.runStart>[1])],
+    ['실행 취소', () => sim.runControl('abort')],
+  ] as const)('RV-432 [넘기기] → W → %s 요청 → 넘김 취소 → 0, 떼고 다시 눌러야 값', async (op, go) => {
+    const a = await ready();
+    if (op === '실행 취소') await recv(a, { t: 'run.update', run_id: 'r1', status: 'PAUSED', step: 0, progress: { done: 0, total: 3 }, wait_reason: 'STOPPED_BY_USER', fail_code: null });
+    await recv(a, { t: 'lease.requested', request_id: 'q1' });
+    await click(btn('넘기기'));
+    await key('keydown', 'KeyW');
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+    act(() => { go(); }); await flush();
+    expect(a.of(op === '실행' ? 'run.start' : 'run.control')).toHaveLength(1);
+    await recv(a, { t: 'lease.result', result: 'CANCELED' });
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 0.6
     await key('keyup', 'KeyW'); await key('keydown', 'KeyW');
     expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
     await key('keyup', 'KeyW');
