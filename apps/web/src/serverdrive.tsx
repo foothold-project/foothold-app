@@ -183,7 +183,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const stale = useRef(false); if (off) stale.current = true;
   const ready = !off && !stale.current && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
-  const send = () => { const cmd = readyRef.current ? command(held.current) : TABLE[''], [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy); };
+  const send = () => { const cmd = readyRef.current ? command(held.current) : TABLE[''], [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, held.current.size > 0); };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
   const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
   /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */

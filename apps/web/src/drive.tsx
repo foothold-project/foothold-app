@@ -69,6 +69,8 @@ export function endDrive(id: string, go: Ctx['go']) {
 }
 /** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
 export const REAL_STICK = '실기는 스틱을 반 넘게 밀면 정해진 속도로 움직입니다.';
+/** 실기에서 서버 경유 허용(목록 server_drive)·조직 속도 설정을 아직 확인하지 못함 — 그동안 입력은 0(RB-PHONE-REAL-TABLE-FIX) */
+export const REAL_WAIT = '서버 경유 조종 허용·조직 속도 설정을 확인하는 중이라 입력을 0으로 보냅니다.';
 const RELEASING = '조종권 반납을 확인하는 중입니다. 확인되면 다시 누르세요.';
 
 export function Drive(c: Ctx) {
@@ -146,6 +148,8 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 function Screen(c: Ctx) {
   const r = c.robot, me = c.user.id, l = useLive(r.id), mine = !!l.lease, link = rt.link().at, real = !!r.serverDrive && !r.sim;
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
+  // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 실기 입력은 0 — 서버가 상한 밖이라 거절·STOP 하지 않게
+  const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false);
@@ -193,11 +197,19 @@ function Screen(c: Ctx) {
     document.addEventListener('toggle', f, true); return () => document.removeEventListener('toggle', f, true);
   }, []);
   // 실기는 조직 속도 상한(서버와 같은 값)을 받아 permitted 로 거른다 — PC 조종(serverdrive)과 같은 길
-  useEffect(() => { if (!real) return; const stop = new AbortController(); api.settings(stop.signal).then(simTune, () => {}); return () => stop.abort(); }, [r.id, real]);
-  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다). 실기는 표 값, 시뮬은 비례
+  useEffect(() => {
+    setGot(false); if (!real) return;
+    const stop = new AbortController(); api.settings(stop.signal).then((o) => { simTune(o); setGot(true); }, () => {}); return () => stop.abort();
+  }, [r.id, real]);
+  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다).
+  // 이 화면은 실기만 연다(시뮬은 App 이 막고 simdrive 직결) — 비례는 없다. 서버 경유 확인 + 설정 받음 = 표 값, 그 밖(목록 갱신 전 등)은 0.
+  // 표·상한이 만든 0 은 손 뗌이 아니다(rt 새 중립은 실제 입력으로)
   useEffect(() => {
     if (!mine) return;
-    const i = setInterval(() => { if (!real) return rt.cmd(r.id, axes()); const [vx, vy, wz] = realAxes(axes(), settingsRef.current); rt.cmd(r.id, [vx, wz], vy); }, CMD_MS);
+    const i = setInterval(() => {
+      const a = axes(), [vx, vy, wz] = real && gotRef.current ? realAxes(a, settingsRef.current) : TABLE[''];
+      rt.cmd(r.id, [vx, wz], vy, !!(a[0] || a[1]));
+    }, CMD_MS);
     return () => clearInterval(i);
   }, [mine, r.id, real]);
 
@@ -236,7 +248,7 @@ function Screen(c: Ctx) {
   // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
   const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
   const note = <>{l.notice && <p className="dv-note" role="status">{l.notice}</p>}{stalled && <p className="dv-note" role="status" data-stalled>{STALLED}</p>}
-    {real && ready && <p className="dv-note" data-real-stick>{REAL_STICK}</p>}</>;
+    {ready && (real && got ? <p className="dv-note" data-real-stick>{REAL_STICK}</p> : <p className="dv-note" data-real-wait>{REAL_WAIT}</p>)}</>;
   const views = <div className="dv-views" aria-label="보기">
     {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도']] as const).map(([v, t]) =>
       <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}

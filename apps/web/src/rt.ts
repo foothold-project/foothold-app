@@ -443,13 +443,13 @@ export const rt = {
   },
   /** 50 ms 마다(0 포함, 조종권 심장 박동 겸). 넘기는 중·잠금 중(또는 상태 모름)은 0, 새 lease·잠금 해제 뒤에는 중립을 본 다음부터 보낸다.
    *  [전후, 회전] + 옆걸음 fy(서버 경유 실기 시험만 — serverdrive.tsx, 그 밖 0) → 계약 axes [fx, fy, fw] */
-  cmd(id: string, [fx, fw]: [number, number], fy = 0) {
+  cmd(id: string, [fx, fw]: [number, number], fy = 0, held = !!(fx || fw || fy)) {   // held = 사람이 누르고 있음(표·상한이 0 으로 바꿔도) — 새 중립은 held 가 아닐 때만
     const l = get(id);
     if (!l.lease) return;
     if (hiddenPage()) return leave(id);
     let axes = [fx, fy, fw];
     if (l.busy === 'give' || l.state?.latched !== false) axes = [0, 0, 0];
-    else if (!l.neutral) { if (!fx && !fw && !fy) set(id, { neutral: true }); axes = [0, 0, 0]; }
+    else if (!l.neutral) { if (!held) set(id, { neutral: true }); axes = [0, 0, 0]; }
     send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes });
   },
   /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼거나 STOP_WS_MS 안에 답이 없으면 HTTP 대체 경로(같은 STOP 을 한 번 더 — 정지는 겹쳐도 안전),

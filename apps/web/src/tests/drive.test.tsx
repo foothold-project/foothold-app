@@ -15,7 +15,7 @@ import { STALLED } from '../simdrive';
 import { ADMIN_REAL, driveBlock } from '../fake';
 import { MAX_TURN_RATE } from '../serverdrive';
 import { simTune } from '../phone';
-import { REAL_STICK } from '../drive';
+import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
 
@@ -30,16 +30,25 @@ const as = (user: string, robots: Robot[] = ROBOTS) => {
   return { user: me, robots: kim ? robots.map((r) => ({ ...r, owner: 'u-kim', ownerName: '김OO' })) : robots };
 };
 /** robots = 서버 /robots 응답(기본 = 가짜 3대 전부). 붙이면 rt.connect → 가짜 WebSocket 하나(아직 안 열림) */
-function mount(phone: boolean, user: string, hash: string, robots: Robot[] = ROBOTS) {
+/** 폰 기본 = 서버 경유 실기(목록 server_drive 허용) — 폰 조종 화면의 비례 입력은 시뮬로 확인된 로봇만(RB-PHONE-REAL-TABLE-FIX), 실기는 표 값 */
+const SD_ROBOTS = ROBOTS.map((r) => ({ ...r, serverDrive: true }));
+function mount(phone: boolean, user: string, hash: string, robots: Robot[] = phone ? SD_ROBOTS : ROBOTS) {
   window.matchMedia = ((q: string) => ({ matches: phone, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App {...as(user, robots)} />); });
 }
 // 판정은 단조 시계(performance.now): advanceTimersByTime 은 그것도 움직이고, setSystemTime(벽시계)은 움직이지 않는다
-beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); });
+/** 조직 설정 응답: 기본은 바로(같은 틀에) 빈 설정. 늦은 응답을 볼 시험은 settingsLater() */
+const spySettings = () => vi.spyOn(api, 'settings');
+let settingsMock: ReturnType<typeof spySettings>;
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
+  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({}); } }) as never);
+});
 afterEach(() => {
   act(() => root?.unmount()); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
+  settingsMock.mockRestore(); simTune(null);
   delete (document as { visibilityState?: string }).visibilityState;
 });
 
@@ -129,7 +138,7 @@ describe('조종 화면', () => {
     const n = cmds().length;
     tick(1000);
     expect(cmds().length - n).toBe(1000 / 50);
-    expect(lastAxes()).toEqual([1, 0, 1]);
+    expect(lastAxes()).toEqual([1.5, 0, MAX_TURN_RATE]);
     const seq = cmds().map((m) => m.seq as number);
     expect(seq.every((s, i) => i === 0 || s > seq[i - 1])).toBe(true);
     act(() => push('r7', { speed: 0.6 }));
@@ -182,7 +191,7 @@ describe('조종 화면', () => {
     key('keyup', 'ArrowUp'); tick(100);
     expect(text()).toContain('움직일 수 있음');
     key('keydown', 'ArrowUp'); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     key('keyup', 'ArrowUp'); key('keydown', 'KeyS'); tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain('후진은 아직 지원하지 않습니다');
@@ -194,7 +203,7 @@ describe('조종 화면', () => {
     ready();
     key('keydown', 'KeyW'); tick(100);
     const old = end(cmds())!;
-    expect(old.axes).toEqual([1, 0, 0]);
+    expect(old.axes).toEqual([1.5, 0, 0]);
     recv(lease('r7', PARK, 'L-new'));                      // 서버가 새 조종권을 줌(다른 lease)
     const n = cmds().length;
     tick(300);
@@ -202,7 +211,7 @@ describe('조종 화면', () => {
     expect(cmds().slice(n).every((m) => m.lease_id === 'L-new' && String(m.axes) === '0,0,0')).toBe(true);
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'KeyW'); tick(100); key('keydown', 'KeyW'); tick(100);
-    expect(end(cmds())).toMatchObject({ lease_id: 'L-new', axes: [1, 0, 0] });
+    expect(end(cmds())).toMatchObject({ lease_id: 'L-new', axes: [1.5, 0, 0] });
     expect((end(cmds())!.seq as number) > (old.seq as number)).toBe(true);
   });
 
@@ -268,7 +277,7 @@ describe('조종 화면', () => {
     serve(PARK, 'r7');
     ready();
     key('keydown', 'KeyW'); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     hide();
     expect(w.of('hidden')).toMatchObject([{ robot: 'r7' }]);
     const n = cmds().length;
@@ -305,7 +314,7 @@ describe('조종 화면', () => {
     const give = $('[data-ask="give"]');
     give.focus();
     key('keydown', 'ArrowUp', give); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);                 // 방향키는 계속 조종
+    expect(lastAxes()).toEqual([1.5, 0, 0]);                 // 방향키는 계속 조종
     key('keyup', 'ArrowUp', give);
     key('keydown', 'Enter', give); key('keyup', 'Enter', give);
     clickWith(give, 0);                                     // Enter 가 만든 click
@@ -321,7 +330,7 @@ describe('조종 화면', () => {
     serve(PARK, 'r7');
     ready();
     key('keydown', 'KeyW'); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     recv(ask());
     clickWith($('[data-ask="give"]'), 1);
     const n = cmds().length;
@@ -460,10 +469,10 @@ describe('조종 화면', () => {
     const fwd = $('[aria-label="전후 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
     expect([fwd.className, turn.className]).toEqual(['dv-stick v', 'dv-stick h']);
     for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
-    act(() => { fwd.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60, clientY: 30 })); });
+    act(() => { fwd.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60, clientY: 20 })); });
     act(() => { turn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 60 })); });
     tick(100);
-    expect(lastAxes()).toEqual([0.5, 0, 1]);               // 위로 반 = 전진 0.5, 왼쪽 끝 = 왼쪽 회전
+    expect(lastAxes()).toEqual([1.5, 0, MAX_TURN_RATE]);   // 위로 반 넘게 = 전진, 왼쪽 끝 = 왼쪽 회전(실기 표 값)
     act(() => { fwd.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); turn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); });
     tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
@@ -1046,13 +1055,13 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     ready();
     key('keydown', 'KeyW'); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     w.auto = null;                                         // 서버가 말이 없어짐(ping·state 없음)
     let waited = 0;
     while (!box.querySelector('header [data-link]') && waited < 4000) { tick(50); waited += 50; }
     expect(waited).toBeGreaterThanOrEqual(2900);           // 3 s(0.25 s 간격 확인) 전에는 끊김으로 보지 않음
     expect(waited).toBeLessThanOrEqual(3300);
-    expect(cmds().slice(-2).map((m) => String(m.axes))).toEqual(['1,0,0', '0,0,0']);   // 끊김 직전까지 조종, 끊으며 0
+    expect(cmds().slice(-2).map((m) => String(m.axes))).toEqual(['1.5,0,0', '0,0,0']);   // 끊김 직전까지 조종, 끊으며 0
     const n = cmds().length;
     tick(2000);
     expect(cmds().length).toBe(n);                         // 그 뒤 cmd 0건(새 소켓에도)
@@ -1286,7 +1295,7 @@ describe('폰 조종 앱 틀', () => {
     expect($('main').getAttribute('aria-label')).toBe('조종');
     ready();
     key('keydown', 'KeyW'); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     click(btn('끝내기'));
     expect(w.of('lease.release')).toMatchObject([{ robot: 'r7' }]);
     expect(w.of('hidden')).toHaveLength(0);
@@ -1304,14 +1313,14 @@ describe('폰 조종 앱 틀', () => {
     Object.defineProperty(e, 'pointerId', { value: id });
     el.dispatchEvent(e);
   });
-  /** 전후 조이스틱(120 px 상자): 위 6.6 px = 전진 0.89. 포인터 잡기·놓기를 기록한다 */
+  /** 전후 조이스틱(120 px 상자): 위 6.6 px = 스틱 0.89(실기 표 값 1.5). 포인터 잡기·놓기를 기록한다 */
   const grip = () => {
     const el = $('[aria-label="전후 조이스틱"]'), held = new Set<number>();
     el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     Object.assign(el, { setPointerCapture: (i: number) => held.add(i), hasPointerCapture: (i: number) => held.has(i), releasePointerCapture: (i: number) => held.delete(i) });
     return { el, held };
   };
-  const FWD = 0.89;
+  const FWD = 1.5;   // 0.89 는 문턱(0.5) 위 → 실기 표 값 1.5
   // [B1] 시트·⋯ 가 조이스틱을 가리는 네 경우: 열기·전환·닫기·⋯ 열기
   for (const [name, before, act_] of [
     ['시트 열기', () => {}, () => click(btn('자세'))],
@@ -1328,7 +1337,7 @@ describe('폰 조종 앱 틀', () => {
     key('keydown', 'KeyA');
     tick(100);
     expect((lastAxes() as number[])[0]).toBeCloseTo(FWD, 2);
-    expect((lastAxes() as number[])[2]).toBe(1);
+    expect((lastAxes() as number[])[2]).toBe(MAX_TURN_RATE);
     expect(held.has(1)).toBe(true);
     const n = cmds().length;
     act_();
@@ -1346,7 +1355,7 @@ describe('폰 조종 앱 틀', () => {
     pe('pointerup', el, 60, 6.6, 2);
     key('keyup', 'KeyA'); key('keydown', 'KeyA');           // 키도 새로 누르면
     tick(100);
-    expect(lastAxes()).toEqual([0, 0, 1]);
+    expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
   });
 
   // [r2 Y3] 시트를 연 같은 틀(다시 그리기·effect 전)에 옛 포인터가 움직여도 입력은 0
@@ -1390,7 +1399,7 @@ describe('폰 조종 앱 틀', () => {
     serve(KIM, 'r7');
     ready();
     key('keydown', 'KeyW'); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     expect(endBtn().textContent).toBe('끝내기');
   }
   const zeroThenRelease = () => {
@@ -2019,7 +2028,7 @@ describe('전체화면(⋯ 메뉴)', () => {
     ready();
     expect($('[data-full-tip]')).toBeNull();
     key('keydown', 'KeyW'); tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     const lid = end(cmds()).lease_id;
     await act(async () => { $('[data-full]').click(); });
     expect(req).toHaveBeenCalledTimes(1);
@@ -2027,13 +2036,13 @@ describe('전체화면(⋯ 메뉴)', () => {
     const n = cmds().length;
     tick(500);
     expect(cmds().length - n).toBe(500 / 50);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     expect(end(cmds()).lease_id).toBe(lid);
     await act(async () => { $('[data-full]').click(); });
     expect(exit).toHaveBeenCalledTimes(1);
     expect($('[data-full]').textContent).toBe('전체화면');
     tick(100);
-    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
     expect([w.of('lease.release'), w.of('hidden'), w.of('stop')].map((a) => a.length)).toEqual([0, 0, 0]);
     expect($('header').lastElementChild).toBe($('[data-stop]'));
     click($('[data-stop]'));
@@ -2082,7 +2091,7 @@ describe('전체화면(⋯ 메뉴)', () => {
   });
 });
 
-// RB-PHONE-REAL-TABLE 11-19: 서버 경유 실기(serverDrive)는 서버가 명령표 값만 받는다 — 폰 스틱도 표 값(켜짐/꺼짐)으로. 시뮬은 비례 그대로
+// RB-PHONE-REAL-TABLE 11-19: 서버 경유 실기(serverDrive)는 서버가 명령표 값만 받는다 — 폰 스틱도 표 값(켜짐/꺼짐)으로. 허용이 확인 안 되면 0(-FIX)
 describe('폰 실기 조종 = 서버 명령표', () => {
   afterEach(() => { act(() => simTune(null)); });
   const SD = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true } : r));
@@ -2143,11 +2152,75 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);     // 새로 누르면 움직임
   });
 
-  // 시뮬 폰 조종은 simdrive.tsx(직결, phone.test) 라 이 화면에 오지 않는다 — 서버 경유가 아닌 로봇은 이 화면에서도 비례 그대로
-  it('서버 경유 실기가 아니면 비례 그대로', () => {
+  // 시뮬 로봇은 이 화면이 열리지 않는다(App — simdrive 직결). 서버 경유 허용이 확인 안 된 로봇은 비례 대신 0
+  it('서버 경유 허용이 확인 안 된 로봇은 0 + 안내', () => {
     const { fwd, turn } = open(ROBOTS);
     expect(text()).not.toContain(REAL_STICK);
+    expect(text()).toContain(REAL_WAIT);
     fwdAt(fwd, 0.5); turnAt(turn, 1); tick(100);
-    expect(lastAxes()).toEqual([0.5, 0, 1]);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+  });
+});
+
+// RV-420 막는 것 3건(RB-PHONE-REAL-TABLE-FIX) — 가짜 WS 순서 그대로
+describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
+  const sticks = () => {
+    const fwd = $('[aria-label="전후 조이스틱"]');
+    fwd.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return fwd;
+  };
+  const fwdAt = (el: Element, y: number) => act(() => { el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60, clientY: 60 - y * 60 })); });
+  const tableOnly = () => cmds().every((m) => (m.axes as number[]).every((v) => v === 0 || Math.abs(v) === 1.5 || Math.abs(v) === MAX_TURN_RATE));
+
+  it('[1] 오프라인 때 받은 목록(server_drive 거짓)인 채 재연결 ONLINE·조종권이 목록 갱신보다 먼저 와도 비례 0.6 을 보내지 않음 → 갱신 뒤 표 값', () => {
+    const off = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, sim: false, serverDrive: false, serverDriveBlocked: ['AGENT_OFFLINE' as const] } : r));
+    mount(true, 'u-park', '#/drive/r7', off);
+    serve(PARK, 'r7');                                      // 실시간: 로봇 ONLINE(목록은 아직 옛 값)
+    ready();
+    const fwd = sticks();
+    fwdAt(fwd, 0.6); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(cmds().some((m) => (m.axes as number[]).some((v) => v !== 0))).toBe(false);
+    expect(text()).toContain(REAL_WAIT);
+    act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={off.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true, serverDriveBlocked: [] } : r))} />));   // 목록 갱신
+    tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+    expect(tableOnly()).toBe(true);
+  });
+
+  it('[2] 조직 설정(빠른 조종 끔) 응답이 늦으면 받기 전에는 0 — 앞 화면이 남긴 설정 값도 믿지 않음', async () => {
+    let answer!: (o: object) => void;
+    settingsMock.mockImplementation(() => new Promise((ok) => { answer = ok; }) as never);
+    act(() => simTune({}));                                 // 앞 화면이 받아 둔 옛 값(빠른 조종 켬)
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    const fwd = sticks();
+    fwdAt(fwd, 1); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain(REAL_WAIT);
+    await act(async () => { answer({ real_no_fast_server_drive: true }); });
+    tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 빠른 조종 끔: 전진은 상한 밖
+    expect(cmds().some((m) => (m.axes as number[])[0] !== 0)).toBe(false);
+    expect(text()).toContain(REAL_STICK);
+  });
+
+  it('[3] 빠른 조종 끔에서 W+A 를 누른 채 잠금 해제 → 상한이 만든 0 은 새 중립이 아님, W 만 떼도 A 회전 안 나감', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ real_no_fast_server_drive: true }); } }) as never);
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종 시작'));
+    key('keydown', 'KeyW'); key('keydown', 'KeyA'); tick(200);
+    click(btn('잠금 해제')); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('중립 확인 중');
+    key('keyup', 'KeyW'); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
+    expect(text()).toContain('중립 확인 중');
+    key('keyup', 'KeyA'); tick(100);
+    expect(text()).toContain('움직일 수 있음');              // 실제로 손을 뗀 뒤에만 새 중립
+    key('keydown', 'KeyA'); tick(100);
+    expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
   });
 });
