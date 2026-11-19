@@ -1,0 +1,50 @@
+# Local compose only. Production is deploy/Caddyfile; this keeps its headers,
+# the /api/v1 proxy (WS upgrades included) and the /sim/index.html framing rule,
+# and drops the phone (/__fh_phone) and Gazebo routes, which need simmgr.
+# Server cookies are always Secure, so the browser must see HTTPS: Caddy's own
+# local CA ("tls internal"), localhost only.
+{
+	admin off
+	skip_install_trust
+	# only the published HTTPS port; no :80 redirect listener
+	auto_https disable_redirects
+}
+
+https://localhost:{$FH_LOCAL_HTTPS_PORT} {
+	tls internal
+	vars fh_frame DENY
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options {vars.fh_frame}
+		Referrer-Policy no-referrer
+		-Server
+	}
+	route {
+		handle /api/v1/* {
+			reverse_proxy server:8810 {
+				header_up X-Forwarded-For {remote_host}
+				header_up X-Forwarded-Proto https
+				header_up -Forwarded
+			}
+		}
+		handle /api/* {
+			respond 404
+		}
+		handle /__fh_phone* {
+			respond 404
+		}
+		handle {
+			root * /srv/dist
+			@sim_page {
+				expression `{http.request.orig_uri.path} == "/sim/index.html"`
+				file {
+					root /srv/dist
+					try_files /sim/index.html
+				}
+			}
+			vars @sim_page fh_frame SAMEORIGIN
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}
