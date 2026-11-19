@@ -207,6 +207,9 @@ def test_limits_reject_nonfinite_and_unreviewed_alphabet(velocity):
 
 
 def test_limits_clamp_only_and_cannot_expand():
+    assert Limits().wz == (-2.5, 2.5)
+    with pytest.raises(ValueError):
+        Limits(wz=(-2.5, 2.51))
     assert Limits().project((1.51, 1, 1)) == (1.5, 0., .5)
     assert Limits().project((-1, 0, 0)) == (0., 0., 0.)
     with pytest.raises(ValueError):

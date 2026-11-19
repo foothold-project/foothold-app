@@ -17,7 +17,8 @@ def test_exact_server_speed_table_matches_wire_schema(axes):
     Draft202012Validator(C.ScreenCmd.model_json_schema()).validate(value)
 
 
-@pytest.mark.parametrize('axes',[[1.2,0,0],[1.5,1.5,0],[-1.5,0,.5],[1.50001,0,0],[True,0,0]])
+@pytest.mark.parametrize('axes',[[1.2,0,0],[1.5,1.5,0],[-1.5,0,.5],[1.50001,0,0],[0,2.5,0],[0,0,2.50001],
+                                [0,0,-2.50001],[.1,0,2.5],[True,0,0]])
 def test_non_normalized_non_table_values_are_rejected(axes):
     value=frame(axes)
     with pytest.raises(ValueError):C.ScreenCmd.model_validate(value)

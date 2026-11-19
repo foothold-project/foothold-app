@@ -654,7 +654,7 @@ class Realtime:
                 if not robot:
                     raise self.api_error(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
                 self.authorize(user, permission, robot)
-            return C.OrgSettings.model_validate(db.get(Organization, user.org_id).settings) if with_settings else None
+            return C.OrgSettings.from_stored(db.get(Organization, user.org_id).settings) if with_settings else None
 
     def load_policy(self, actor):
         checked = self.clock()
@@ -682,7 +682,7 @@ class Realtime:
                         if exc.code in ('ADMIN_NO_REAL_CONTROL', 'PHONE_DIRECT_REQUIRED'):
                             allowed.add(exc.code)
                 rights[str(robot.id)] = frozenset(allowed)
-            return Policy(rights, C.OrgSettings.model_validate(org.settings), session.expires_at, checked)
+            return Policy(rights, C.OrgSettings.from_stored(org.settings), session.expires_at, checked)
 
     def load_policy_batch(self, lane):
         actors = []
@@ -732,7 +732,7 @@ class Realtime:
                         user_rights[user.id] = policy_rights(self.authorize, self.api_error,
                             (user.id, user.org_id, user.role, user.locked, user.archived_at), robot_values)
                     rights = user_rights[user.id]
-                    result[actor.session] = Policy(rights, C.OrgSettings.model_validate(row.settings),
+                    result[actor.session] = Policy(rights, C.OrgSettings.from_stored(row.settings),
                                                    row.expires_at, checked)
                 except self.api_error as exc:
                     result[actor.session] = exc

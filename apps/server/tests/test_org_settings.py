@@ -12,12 +12,12 @@ P = '/api/v1/org/settings'
 DEFAULTS = dict(sim_max_vx=1.5, sim_min_vx=0.2, sim_max_vy=0.5,
     sim_max_wz=1.2, sim_key_vx=1.5, stick_deadzone=0.1,
     sim_runner_vx=0.4, sim_runner_wz=0.6, lidar_view_m=12,
-    real_no_fast_server_drive=False, real_max_vx=1.5, real_max_vx_back=1.5, real_max_vy=1.0, real_max_wz=4.0)
+    real_no_fast_server_drive=False, real_max_vx=1.5, real_max_vx_back=1.5, real_max_vy=1.0, real_max_wz=2.5)
 BOUNDS = dict(sim_max_vx=(0.2, 1.5), sim_min_vx=(0.0, 0.5),
     sim_max_vy=(0.0, 0.5), sim_max_wz=(0.0, 1.2), sim_key_vx=(0.1, 1.5),
     stick_deadzone=(0.0, 0.5), sim_runner_vx=(0.1, 1.5),
     sim_runner_wz=(0.1, 1.0), lidar_view_m=(1, 30),
-    real_max_vx=(0, 1.5), real_max_vx_back=(0, 1.5), real_max_vy=(0, 1), real_max_wz=(0, 4))
+    real_max_vx=(0, 1.5), real_max_vx_back=(0, 1.5), real_max_vy=(0, 1), real_max_wz=(0, 2.5))
 
 
 def test_old_json_defaults_and_all_roles_read_only_admin_writes(client):
@@ -32,6 +32,20 @@ def test_old_json_defaults_and_all_roles_read_only_admin_writes(client):
     saved = client.get(P).json()
     assert saved['sim_runner_vx'] == 0.7 and saved['real_no_fast_server_drive'] is True
     assert saved['battery_low_pct'] == 20
+
+
+def test_previously_saved_turn_cap_is_narrowed_on_read_and_next_write(client, seeded):
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Organization
+    with Session(client.app.state.engine) as db:
+        db.get(Organization, seeded['org']).settings = {'real_max_wz': 4.0}
+        db.commit()
+    headers = csrf(client, 'admin')
+    assert client.get(P).json()['real_max_wz'] == 2.5
+    assert client.patch(P, headers=headers, json={'real_max_wz': 2.51}).status_code == 400
+    assert client.patch(P, headers=headers, json={'battery_low_pct': 25}).json()['real_max_wz'] == 2.5
+    with Session(client.app.state.engine) as db:
+        assert db.get(Organization, seeded['org']).settings == {'real_max_wz': 2.5, 'battery_low_pct': 25}
 
 
 @pytest.mark.parametrize('field', BOUNDS)

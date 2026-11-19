@@ -135,7 +135,7 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
   it('키 조종은 이 화면이 보이는 동안 그대로, 창 초점 잃음 = 바로 0 + 안내, 자동 재개 없음', () => {
     mount('u-park'); serve('r7');
     click(btn('조종 시작')); click(btn('② 잠금 해제')); tick(100);
-    key('keydown', 'KeyA'); tick(60); expect(lastAxes()).toBe('0,0,0.5');
+    key('keydown', 'KeyA'); tick(60); expect(lastAxes()).toBe('0,0,2.5');
     act(() => { window.dispatchEvent(new Event('blur')); });
     expect(lastAxes()).toBe('0,0,0');
     expect($('[data-sd-why]')!.textContent).toBe(SD_NOTE.blur);

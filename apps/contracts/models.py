@@ -8,8 +8,8 @@ import unicodedata
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
-from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED
+from pydantic import AfterValidator, BeforeValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
+from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED, MAX_TURN_RATE
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -530,9 +530,17 @@ class OrgSettings(Contract):
     real_max_vx: float = Field(default=1.5, ge=0, le=1.5, strict=True)
     real_max_vx_back: float = Field(default=1.5, ge=0, le=1.5, strict=True)
     real_max_vy: float = Field(default=1.0, ge=0, le=1.0, strict=True)
-    real_max_wz: float = Field(default=4.0, ge=0, le=4.0, strict=True)
+    real_max_wz: float = Field(default=MAX_TURN_RATE, ge=0, le=MAX_TURN_RATE, strict=True)
     real_no_fast_server_drive: bool = Field(default=False, strict=True)
     model_overrides: dict[str, dict[str, SettingValue]] = Field(default_factory=dict)
+
+    @classmethod
+    def from_stored(cls, settings):
+        # Previously valid, explicitly saved limits can exceed the new ceiling.
+        cap = settings.get('real_max_wz')
+        if type(cap) in (int, float) and MAX_TURN_RATE < cap <= 4.0:
+            settings = {**settings, 'real_max_wz': MAX_TURN_RATE}
+        return cls.model_validate(settings)
 
     @field_validator('model_overrides', mode='before')
     @classmethod
@@ -580,7 +588,7 @@ class OrgSettingsPatch(Contract):
     real_max_vx: float = omitted(ge=0, le=1.5, strict=True)
     real_max_vx_back: float = omitted(ge=0, le=1.5, strict=True)
     real_max_vy: float = omitted(ge=0, le=1.0, strict=True)
-    real_max_wz: float = omitted(ge=0, le=4.0, strict=True)
+    real_max_wz: float = omitted(ge=0, le=MAX_TURN_RATE, strict=True)
     real_no_fast_server_drive: bool = omitted(strict=True)
     model_overrides: dict[str, dict[str, SettingValue | None]] = omitted()
 
@@ -618,8 +626,12 @@ class SessionList(Contract):
 # FH-SPEC-05 §§9–10: flat envelopes, no WebSocket subprotocol header.
 Axis = Annotated[float, Field(ge=-1, le=1, strict=True)]
 Axes = Annotated[list[Axis], Field(min_length=3, max_length=3)]
-ScreenCommandAxes = Annotated[list[Annotated[float, Field(ge=-1.5, le=1.5, strict=True)]],
-    Field(min_length=3, max_length=3, json_schema_extra={'anyOf': [
+TranslationAxis = Annotated[float, Field(ge=-1.5, le=1.5, strict=True)]
+TurnAxis = Annotated[float, Field(ge=-MAX_TURN_RATE, le=MAX_TURN_RATE, strict=True)]
+ScreenAxisTuple = tuple[TranslationAxis, TranslationAxis, TurnAxis]
+ScreenCommandAxes = Annotated[list[float],
+    BeforeValidator(TypeAdapter(ScreenAxisTuple).validate_python, json_schema_input_type=ScreenAxisTuple),
+    Field(json_schema_extra={'anyOf': [
         {'type':'array','minItems':3,'maxItems':3,'items':{'type':'number','minimum':-1,'maximum':1}},
         {'type':'array','enum':[list(value) for value in sorted(SERVER_DRIVE_ALLOWED)
                               if any(abs(axis)>1 for axis in value)]}]})]

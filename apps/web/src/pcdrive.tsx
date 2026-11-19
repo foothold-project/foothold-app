@@ -9,7 +9,7 @@ import { api, type ApiFail } from './api';
 import { rt, type Live } from './rt';
 import { holderText } from './drive';
 import { Chip, LINK, type Ctx } from './screens';
-import { TRIAL, DriveView, stacked, useServerDrive } from './serverdrive';
+import { TRIAL, MAX_TURN_RATE, DriveView, stacked, useServerDrive } from './serverdrive';
 import { driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import { LidarMap } from './lidarmap';
 import { Cloud3D, Quad, type QTile } from './quad';
@@ -131,7 +131,7 @@ function RightCol({ c, r, trial }: { c: Ctx; r: Robot; trial: ReactNode }) {
         <button type="button" className="btn" aria-pressed="true" data-pd-speed-on>보통(지금 값)</button>
         <button type="button" className="btn" disabled title="준비 중">빠름</button>
       </div>
-      <p className="lv-note">느림·빠름은 준비 중입니다. 앞뒤 1.5 · 옆 1 m/s · 회전 0.5 rad/s.</p>
+      <p className="lv-note">느림·빠름은 준비 중입니다. 앞뒤 1.5 m/s · 옆걸음 1.0 m/s · 회전 최대 {MAX_TURN_RATE} rad/s. 회전 키나 단추를 누르고 있으면 2초에 걸쳐 빨라집니다.</p>
     </section>
     <section className="lv-card pd-sec" aria-label="시나리오" data-pd-scen>
       <h3>시나리오</h3>

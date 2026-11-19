@@ -268,7 +268,8 @@ def test_enable_commit_failure_never_stops_or_saves(trial, seeded, monkeypatch):
 def test_browser_org_caps_do_not_change_physical_server_drive_alphabet(trial, seeded, caps):
     assert ALLOWED == frozenset(((0., 0., 0.), (1.5, 0., 0.), (-1.5, 0., 0.),
         (0., 1., 0.), (0., -1., 0.), (0., 0., .5), (0., 0., -.5),
-        (1.5, 0., .5), (1.5, 0., -.5)))
+        (1.5, 0., .5), (1.5, 0., -.5), (0., 0., 2.5), (0., 0., -2.5),
+        (1.5, 0., 2.5), (1.5, 0., -2.5)))
     admin = app_token(trial, 'admin')
     assert trial.patch('/api/v1/org/settings', headers=admin, json=caps).status_code == 200
     rid = seeded['robots']['mine']
@@ -294,7 +295,7 @@ def test_browser_org_caps_do_not_change_physical_server_drive_alphabet(trial, se
 
 @pytest.mark.parametrize('patch,axes', [({'real_max_vx': 1.49}, [1.5, 0, 0]),
     ({'real_max_vx_back': 0}, [-1.5, 0, 0]), ({'real_max_vy': .99}, [0, 1, 0]),
-    ({'real_max_wz': .49}, [0, 0, .5]), ({'real_max_wz': 0}, [1.5, 0, -.5])])
+    ({'real_max_wz': 2.49}, [0, 0, 2.5]), ({'real_max_wz': .49}, [0, 0, .5]), ({'real_max_wz': 0}, [1.5, 0, -.5])])
 def test_real_caps_reject_over_limit_table_commands_with_stop(trial, seeded, patch, axes):
     assert trial.patch('/api/v1/org/settings', headers=app_token(trial, 'admin'), json=patch).status_code == 200
     test_outside_exact_table_is_stopped_and_rejected(trial, seeded, axes)

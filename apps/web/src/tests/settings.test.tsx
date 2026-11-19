@@ -335,7 +335,8 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     const cap = card('속도 제한');
     expect(cap.textContent).toContain('실기 미검증');
     expect(cap.textContent).toContain('로봇 쪽 상한보다 높게 넣어도 로봇 상한까지만');
-    for (const [name, value, max] of [['real_max_vx', '0', '1.5'], ['real_max_vx_back', '.5', '1.5'], ['real_max_vy', '.2', '1'], ['real_max_wz', '.3', '4']]) {
+    expect($<HTMLInputElement>('input[name="real_max_wz"]', cap)!.value).toBe('2.5');
+    for (const [name, value, max] of [['real_max_vx', '0', '1.5'], ['real_max_vx_back', '.5', '1.5'], ['real_max_vy', '.2', '1'], ['real_max_wz', '.3', '2.5']]) {
       const input = $<HTMLInputElement>(`input[name="${name}"]`, cap)!;
       expect(input.min).toBe('0'); expect(input.max).toBe(max); expect(input.disabled).toBe(false);
       setVal(input, value);

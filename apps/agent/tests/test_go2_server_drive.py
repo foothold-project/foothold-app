@@ -283,13 +283,24 @@ def test_feedback_loss_reports_lock_and_requires_explicit_recovery():
 def test_server_si_table_is_exact_and_phone_forward_ceiling_matches():
     from foothold_agent.go2_direct.sink import ALLOWED, SERVER_ALLOWED
     from apps.contracts.server_drive import ALLOWED as CONTRACT
-    assert SERVER_ALLOWED == CONTRACT and len(SERVER_ALLOWED) == 9
+    assert SERVER_ALLOWED == CONTRACT and len(SERVER_ALLOWED) == 13
     assert ALLOWED == {(0., 0., 0.)} | {(step / 10, 0., wz)
         for step in range(3, 16) for wz in (0., -.5, .5)}
 
 
+def test_local_narrower_turn_limit_also_bounds_server_output():
+    from foothold_agent.go2_direct.sink import Limits
+    _, sink, _, emergency, _, _, _, _ = rig()
+    sink.limits = Limits(wz=(-.5, .5))
+    sink.apply(command(velocity=(0., 0., .5)), source='server', input_received_at=sink.now())
+    with pytest.raises(ValueError, match='local limit'):
+        sink.apply(command(velocity=(0., 0., 2.5)), source='server', input_received_at=sink.now())
+    assert sink.pending == (0., 0., 0.) and sink.latched
+    assert sink.check_watchdog() and emergency.calls[-1] == ('StopMove', ())
+
+
 @pytest.mark.parametrize('bad', [[.4,0,0],[1,0,0],[.6,0,0],[1.5000000001,0,0],[-1.5,0,.5],
-    [1.5,1.5,0],[0,1.5,0],[0,-1.5,0],[0,0,1],[True,0,0],[float('nan'),0,0]])
+    [1.5,1.5,0],[0,1.5,0],[0,-1.5,0],[0,0,1],[0,0,2.50001],[1.5,0,-2.50001],[True,0,0],[float('nan'),0,0]])
 def test_outside_exact_server_table_stops_without_quantization(bad):
     _, sink, normal, emergency, session, client, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
@@ -346,8 +357,8 @@ def test_readonly_server_mode_never_constructs_motion_adapter(monkeypatch):
 
 
 @pytest.mark.parametrize('target', [(1.5,0.,0.), (-1.5,0.,0.), (0.,1.,0.),
-    (0.,-1.,0.), (0.,0.,.5), (0.,0.,-.5), (1.5,0.,.5)])
-def test_server_ramps_one_second_each_axis_and_normal_key_release(target):
+    (0.,-1.,0.)])
+def test_server_ramps_translation_one_second_and_normal_key_release(target):
     now, sink, normal, _, session, _, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=list(target))
     sink.drain()
@@ -364,6 +375,56 @@ def test_server_ramps_one_second_each_axis_and_normal_key_release(target):
     assert now() == pytest.approx(1002.) and not sink.latched
 
 
+@pytest.mark.parametrize('vx,sign', [(0., 1), (0., -1), (1.5, 1), (1.5, -1)])
+def test_server_turn_reaches_full_speed_in_two_seconds_and_brakes_in_point_three(vx, sign):
+    now, sink, _, _, session, _, measured, frame = rig()
+    target = [vx, 0., sign * 2.5]
+    frame('cmd', lease_id='fake-lease', seq=1, axes=target)
+    sink.drain()
+    assert sink.client.calls[-1] == ('Move', (0., 0., 0.))
+    for duration, forward, turn in [(.5, vx / 2, .625), (.5, vx, 1.25),
+                                     (1., vx, 2.5), (.5, vx, 2.5)]:
+        actual = hold_for(now, sink, session, measured, frame, target, duration)
+        assert actual == pytest.approx((forward, 0., sign * turn))
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[0, 0, 0])
+    for tick in range(1, 7):
+        actual = hold_for(now, sink, session, measured, frame, [0, 0, 0], .05)
+        assert actual == pytest.approx((vx * (1 - tick/20), 0., sign * 2.5 * (1 - tick/6)), abs=1e-10)
+    assert not sink.latched
+
+
+def test_combining_forward_with_a_held_turn_keeps_yaw_ramping():
+    now, sink, _, _, session, _, measured, frame = rig()
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[0., 0., 2.5])
+    hold_for(now, sink, session, measured, frame, [0., 0., 2.5], .5)
+    # Forward is pressed between output ticks while the turn key stays held.
+    now.value += .025
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[1.5, 0., 2.5])
+    now.value += .025
+    sink.drain()
+    assert sink.client.calls[-1][1] == pytest.approx((.0375, 0., .6875))
+
+
+@pytest.mark.parametrize('sign', [1, -1])
+def test_server_turn_reversal_brakes_then_accelerates_for_remaining_time(sign):
+    now, sink, _, _, session, _, measured, frame = rig()
+    target = [0., 0., sign * 2.5]
+    frame('cmd', lease_id='fake-lease', seq=1, axes=target)
+    hold_for(now, sink, session, measured, frame, target, 2.05)
+    target[2] *= -1
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=target)
+    for duration, turn in [(.15, 1.25), (.15, 0.), (.5, -.625), (1.5, -2.5)]:
+        actual = hold_for(now, sink, session, measured, frame, target, duration)
+        assert actual[2] == pytest.approx(sign * turn, abs=1e-10)
+    # Brake from a legacy .5 target in .06 s, then accelerate for .04 s.
+    target[2] = -sign * .5
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=target)
+    assert hold_for(now, sink, session, measured, frame, target, .3)[2] == -sign * .5
+    target[2] = sign * 2.5
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=target)
+    assert hold_for(now, sink, session, measured, frame, target, .1)[2] == pytest.approx(sign * .05)
+
+
 def test_server_direction_reversal_crosses_zero_at_same_rate():
     now, sink, _, _, session, _, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
@@ -377,9 +438,9 @@ def test_server_direction_reversal_crosses_zero_at_same_rate():
 @pytest.mark.parametrize('reason', ['stop', 'disconnect', 'lease', 'feedback', 'deadline'])
 def test_safety_stop_bypasses_in_progress_ramp_without_elapsed_time(reason):
     now, sink, normal, emergency, session, client, measured, frame = rig()
-    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,.5])
-    actual = hold_for(now, sink, session, measured, frame, [1.5,0,.5], .5)
-    assert actual == pytest.approx((.75,0,.25))
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,2.5])
+    actual = hold_for(now, sink, session, measured, frame, [1.5,0,2.5], .5)
+    assert actual == pytest.approx((.75,0,.625))
     if reason == 'stop': frame('stop', stop_ref=42)
     elif reason == 'disconnect': client._emit(session.disconnect())
     elif reason == 'lease': frame('lease', lease_id=None, holder_type=None)

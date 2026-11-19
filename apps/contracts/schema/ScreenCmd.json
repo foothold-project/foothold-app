@@ -23,6 +23,21 @@
               0.0
             ],
             [
+              0.0,
+              0.0,
+              -2.5
+            ],
+            [
+              0.0,
+              0.0,
+              2.5
+            ],
+            [
+              1.5,
+              0.0,
+              -2.5
+            ],
+            [
               1.5,
               0.0,
               -0.5
@@ -36,18 +51,35 @@
               1.5,
               0.0,
               0.5
+            ],
+            [
+              1.5,
+              0.0,
+              2.5
             ]
           ],
           "type": "array"
         }
       ],
-      "items": {
-        "maximum": 1.5,
-        "minimum": -1.5,
-        "type": "number"
-      },
       "maxItems": 3,
       "minItems": 3,
+      "prefixItems": [
+        {
+          "maximum": 1.5,
+          "minimum": -1.5,
+          "type": "number"
+        },
+        {
+          "maximum": 1.5,
+          "minimum": -1.5,
+          "type": "number"
+        },
+        {
+          "maximum": 2.5,
+          "minimum": -2.5,
+          "type": "number"
+        }
+      ],
       "title": "Axes",
       "type": "array"
     },
