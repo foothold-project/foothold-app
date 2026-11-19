@@ -11,7 +11,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
@@ -23,20 +23,22 @@ let root: Root | null = null, box: HTMLDivElement, w: FakeWS, st: Record<string,
 const PARK = { id: 'u-park', name: '박OO' };
 const ON = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true, approvalUntil: new Date(Date.now() + 30 * 60_000).toISOString() } : r));
 /** panel = 서버가 허용한 내 로봇이면 작은 패널을 App 옆에 붙이고, 로봇 탭에는 허용을 숨긴다(세 칸 화면과 패널이 같이 뜨지 않게 — 키·조종권은 하나) */
-function mount(user: string, robots: Robot[] = ON, panel = true) {
+function mount(user: string, robots: Robot[] = ON, panel = true, inline = false) {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = '#/fleet';
   box = document.createElement('div'); document.body.append(box);
   const u = USERS.find((x) => x.id === user)!, side = panel ? robots.find((x) => x.serverDrive && x.owner === user) : undefined;
-  act(() => { root = createRoot(box); root.render(<><App user={u} robots={side ? robots.map((x) => ({ ...x, serverDrive: false })) : robots} />{side && <ServerDrive c={{ user: u }} r={side} />}</>); });
+  act(() => { root = createRoot(box); root.render(<><App user={u} robots={side ? robots.map((x) => ({ ...x, serverDrive: false })) : robots} />{side && <ServerDrive c={{ user: u }} r={side} inline={inline} />}</>); });
 }
 const unmount = () => { act(() => root!.unmount()); root = null; box.remove(); };
 /** 조직 설정 응답: 기본은 바로(같은 틀에) 빈 설정 — 받기 전에는 0 이라(RB-DRIVE-NEUTRAL-FIX). 늦거나 못 받는 응답은 그 시험에서 바꾼다 */
 const spySettings = () => vi.spyOn(api, 'settings');
+/** 계약 OrgSettings 필수 칸(서버 기본값) — 전체 스키마 검증을 통과하는 가장 작은 조직 설정(RV-426 ①) */
+const ORG = { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30 };
 let settingsMock: ReturnType<typeof spySettings>;
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
-  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({}); } }) as never);
+  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
 });
 afterEach(() => {
   act(() => root?.unmount()); settingsMock.mockRestore(); simTune(null); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
@@ -119,33 +121,33 @@ describe('서버 경유 시험 조종 패널', () => {
 
   it('조직 상한을 넘는 단추·키는 0, 저장으로 낮추면 즉시 0이며 올려도 자동 재개 없음', () => {
     ready(); view();
-    expect(($('[data-sd-move="left"]') as HTMLButtonElement).disabled).toBe(false);
-    expect(($('[data-sd-move="right"]') as HTMLButtonElement).disabled).toBe(false);
+    expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('false');
+    expect($('[data-sd-move="right"]')!.getAttribute('aria-disabled')).toBe('false');
     key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
-    act(() => simTune({ real_max_vx: .5, real_max_vx_back: 0, real_max_wz: 0, real_max_vy: .99 }));
+    act(() => simTune({ ...ORG, real_max_vx: .5, real_max_vx_back: 0, real_max_wz: 0, real_max_vy: .99 }));
     expect(lastAxes()).toBe('0,0,0');
-    for (const k of ['up', 'down', 'left', 'right', 'rotl', 'rotr', 'rotl+up']) expect(($(`[data-sd-move="${k}"]`) as HTMLButtonElement).disabled).toBe(true);
+    for (const k of ['up', 'down', 'left', 'right', 'rotl', 'rotr', 'rotl+up']) expect($(`[data-sd-move="${k}"]`)!.getAttribute('aria-disabled')).toBe('true');
     key('keydown', 'KeyA'); tick(60); expect(lastAxes()).toBe('0,0,0');
     act(() => simTune(null)); tick(100); expect(lastAxes()).toBe('0,0,0');
     key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0,0');   // 공용 설정이 비면 받음도 풀림(RV-425 9)
-    act(() => simTune({})); tick(60); expect(lastAxes()).toBe('0,0,0');     // 다시 받아도 앞 세대(A·↑)가 눌린 채면 0
+    act(() => simTune(ORG)); tick(60); expect(lastAxes()).toBe('0,0,0');     // 다시 받아도 앞 세대(A·↑)가 눌린 채면 0
     key('keyup', 'KeyA'); key('keyup', 'ArrowUp'); tick(60); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
-    act(() => simTune({ real_no_fast_server_drive: true }));
+    act(() => simTune({ ...ORG, real_no_fast_server_drive: true }));
     expect(lastAxes()).toBe('0,0,0');
-    expect(($('[data-sd-move="up"]') as HTMLButtonElement).disabled).toBe(true);
-    expect(($('[data-sd-move="rotl"]') as HTMLButtonElement).disabled).toBe(false);
+    expect($('[data-sd-move="up"]')!.getAttribute('aria-disabled')).toBe('true');
+    expect($('[data-sd-move="rotl"]')!.getAttribute('aria-disabled')).toBe('false');
   });
 
   it('조직 설정을 받기 전·못 받으면 0 + 안내 — 앞 화면이 남긴 설정·기본 상한으로 1.5 를 보내지 않음', async () => {
     let answer!: (o: object) => void;
     settingsMock.mockImplementation(() => new Promise((ok) => { answer = ok; }) as never);
-    act(() => simTune({}));                                 // 앞 화면이 받아 둔 옛 값(빠른 조종 켬)
+    act(() => simTune(ORG));                                 // 앞 화면이 받아 둔 옛 값(빠른 조종 켬)
     ready();
     expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
     key('keydown', 'ArrowUp'); tick(200);
     expect(axes().every((a) => a === '0,0,0')).toBe(true);   // 고치기 전: 1.5,0,0
     key('keyup', 'ArrowUp');
-    await act(async () => { answer({ real_no_fast_server_drive: true }); });
+    await act(async () => { answer({ ...ORG, real_no_fast_server_drive: true }); });
     expect($('[data-server-drive]')!.textContent).not.toContain(REAL_WAIT);
     key('keydown', 'ArrowUp'); tick(200);
     expect(axes().every((a) => a === '0,0,0')).toBe(true);   // 빠른 조종 끔: 전진은 상한 밖
@@ -233,7 +235,7 @@ describe('서버 경유 시험 조종 패널', () => {
     tick(300);
     expect(w.sent.slice(i).filter((m) => m.t === 'cmd').every((m) => (m.axes as number[]).join() === '0,0,0')).toBe(true);
     expect($('[data-sd-lock]')).not.toBeNull();   // 잠금 → «정지 확인 → 해제» 단계
-    expect(fwd.hasAttribute('disabled')).toBe(true);
+    expect(fwd.getAttribute('aria-disabled')).toBe('true');   // 잠긴 동안에도 누름은 받아 세대를 적는다(RV-426 ④) — 명령은 0
     key('keyup', 'ArrowUp');
   });
 
@@ -278,7 +280,7 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     expect(w.of('posture').map((m) => [m.robot, m.action, typeof m.lease_id])).toEqual([['r7', 'stand_down', 'string']]);
     expect(locked()).toBe('true,true');
     expect(msg()).toBe(POSE.down.doing);
-    expect(moves().every((b) => b.disabled)).toBe(true);   // 자세 바꾸는 중에도 이동 잠금
+    expect(moves().every((b) => b.getAttribute('aria-disabled') === 'true')).toBe(true);   // 자세 바꾸는 중에도 이동 잠금
     result('q1', 'stand_down', 'RUNNING', 'STARTED'); posture('TRANSITIONING');
     expect(msg()).toBe(POSE.down.doing); expect(locked()).toBe('true,true');
     expect($('[data-sd-full-head]')!.textContent).toContain('자세 바꾸는 중'); expect($('[data-sd-full-head]')!.textContent).not.toContain('움직일 수 있음');
@@ -287,7 +289,7 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     expect(locked()).toBe('false,false');
     expect($('[data-sd-lying]')!.textContent).toBe(LYING_TEXT);
     expect($('[data-sd-full-head]')!.textContent).toContain('엎드려 있음');
-    expect(moves().length).toBe(8); expect(moves().every((b) => b.disabled)).toBe(true);
+    expect(moves().length).toBe(8); expect(moves().every((b) => b.getAttribute('aria-disabled') === 'true')).toBe(true);
     expect(hold(['ArrowUp'])).toBe('0,0,0');
     const stop = $('[data-sd-stop="full"]') as HTMLButtonElement;
     expect(stop.disabled).toBe(false);
@@ -317,7 +319,7 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     result('q1', 'stand_up', status, 'STOOD_NOT_WALKABLE');
     expect(msg()).toBe(`${POSE.up.fail} — 로봇은 섰지만 걷기 허용 상태가 아닙니다. 현장에서 로봇 상태를 확인하세요.`);
     expect(locked()).toBe('false,false');
-    expect(moves().every((b) => b.disabled)).toBe(true);
+    expect(moves().every((b) => b.getAttribute('aria-disabled') === 'true')).toBe(true);
     expect(hold(['ArrowUp'])).toBe('0,0,0');
     const stop = $('[data-sd-stop="full"]') as HTMLButtonElement;
     expect(stop.disabled).toBe(false);
@@ -354,7 +356,7 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     expect(msg()).toBe(POSE.up.doing); expect(locked()).toBe('true,true');
     tick(2000);
     expect(msg()).toBe(`${POSE.up.fail} — ${POSE_LOST}`); expect(locked()).toBe('false,false');
-    expect(moves().every((b) => b.disabled)).toBe(true); expect(hold(['ArrowUp'])).toBe('0,0,0');   // 엎드려 있으니 이동은 잠금
+    expect(moves().every((b) => b.getAttribute('aria-disabled') === 'true')).toBe(true); expect(hold(['ArrowUp'])).toBe('0,0,0');   // 엎드려 있으니 이동은 잠금
     expect(($('[data-sd-stop="full"]') as HTMLButtonElement).disabled).toBe(false);
     click(pose('up'));   // 다시 누를 수 있고, 새 요청의 결과는 읽는다
     expect(msg()).toBe(POSE.up.doing);
@@ -763,7 +765,7 @@ describe('로봇 응답 느림과 왕복 시간', () => {
 describe('RV-425: PC 입력 세대', () => {
   const lock = () => { act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100); };
   const unlock = () => { click(btn('② 잠금 해제')); tick(100); };
-  const go = (settings: object = {}) => { settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(settings); } }) as never); ready(); };
+  const go = (settings: object = ORG) => { settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(settings); } }) as never); ready(); };
 
   it('[4] 잠기기 전 누른 ↑ / 잠긴 뒤 누른 ↑ → 해제 뒤 ↑ 를 떼기 전 A 회전 안 나감', () => {
     go();
@@ -793,16 +795,119 @@ describe('RV-425: PC 입력 세대', () => {
   });
 
   it('[8] 조직 설정 타입이 틀리면(real_max_vx: "0") 받음 아님 → 0 + 안내', () => {
-    go({ real_max_vx: '0' });
+    go({ ...ORG, real_max_vx: '0' });
     expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
     expect(hold(['ArrowUp'])).toBe('0,0,0');                // 고치기 전: 1.5,0,0
   });
 
   it('[9] 빠른 조종 금지 확인 뒤 공용 설정이 simTune(null) 로 비면 받음도 풀림 → 0', () => {
-    go({ real_no_fast_server_drive: true });
+    go({ ...ORG, real_no_fast_server_drive: true });
     expect(hold(['ArrowUp'])).toBe('0,0,0');
     act(() => simTune(null)); tick(100);
     expect(hold(['ArrowUp'])).toBe('0,0,0');                // 고치기 전: 1.5,0,0
     expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
+  });
+});
+
+// RV-426(RB-DRIVE-FRESH-PRESS2): PC — 가짜 WS 순서 그대로, 고치기 전 값은 주석
+describe('RV-426: PC 입력 세대 마무리', () => {
+  const lock = () => { act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100); };
+  const unlock = () => { click(btn('② 잠금 해제')); tick(100); };
+  const pd = (el: Element, type: string, id = 1) => act(() => { el.dispatchEvent(Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true }), { pointerId: id })); });
+
+  it('① 조직 설정은 계약 스키마 전체로 — 필수 칸 빠짐·model_overrides 안쪽 타입 틀림은 받음 아님 → 0 + 안내', () => {
+    expect(isSettings(ORG)).toBe(true);
+    expect(isSettings({ ...ORG, model_overrides: { 'nvidia-demo': { sim_max_vx: 1.2, x: true } } })).toBe(true);
+    expect(isSettings({ real_max_vx: 1.5 })).toBe(false);                                              // 필수 칸 빠짐(고치기 전: true)
+    expect(isSettings({ ...ORG, model_overrides: { 'nvidia-demo': { sim_max_vx: '1' } } })).toBe(false);   // 안쪽 타입(고치기 전: true)
+    expect(isSettings({ ...ORG, model_overrides: { 'nvidia-demo': 1 } })).toBe(false);                   // 안쪽이 객체 아님(고치기 전: true)
+    expect(isSettings({ ...ORG, battery_low_pct: 20.5 })).toBe(false);
+    for (const bad of [{ real_max_vx: 1.5 }, { ...ORG, model_overrides: { m: { sim_max_vx: '1' } } }]) {
+      settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(bad); } }) as never);
+      ready();
+      expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
+      expect(hold(['ArrowUp'])).toBe('0,0,0');              // 고치기 전: 1.5,0,0
+      unmount();
+    }
+  });
+
+  it('② STOP 뒤 잠김·해제 보고가 오기 전에는 새로 누른 키도 0', () => {
+    ready();
+    const auto = w.auto!; w.auto = (m) => (m.t === 'stop' ? w.recv({ t: 'reply', id: m.id, ok: true }) : auto(m));
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    click($('[data-sd-stop="panel"]')!);
+    key('keydown', 'KeyA'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'ArrowUp'); key('keyup', 'KeyA'); key('keydown', 'KeyA'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 0,0,2.5
+    expect(axes()).not.toContain('0,0,2.5');
+    lock(); unlock(); key('keyup', 'KeyA'); key('keydown', 'KeyA'); tick(60);
+    expect(lastAxes()).toBe('0,0,2.5');
+  });
+
+  it('③ 틱이 300 ms 넘게 멈춘 뒤 첫 키 이벤트의 즉시 전송도 공백 검사 — 앞 입력(A)을 섞지 않음', () => {
+    ready();
+    key('keydown', 'KeyA'); tick(60); expect(lastAxes()).toBe('0,0,2.5');
+    const real = performance.now.bind(performance);
+    const gap = vi.spyOn(performance, 'now').mockImplementation(() => real() + 350);
+    key('keydown', 'ArrowUp');                              // 틱 없이 바로 보냄
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 1.5,0,2.5
+    key('keyup', 'KeyA'); key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60);
+    expect(lastAxes()).toBe('1.5,0,0');
+    gap.mockRestore();
+  });
+
+  it('④ 잠긴 동안 누른 화면 단추도 기록 → 해제 뒤 단추를 놓기 전에는 새 키도 0', () => {
+    ready(); view(); lock();
+    const up = $('[data-sd-full] [data-sd-move="up"]')!;
+    pd(up, 'pointerdown'); tick(60);
+    unlock();
+    key('keydown', 'KeyA'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 0,0,2.5
+    pd(up, 'pointerup'); tick(60);
+    expect(lastAxes()).toBe('0,0,2.5');
+    key('keyup', 'KeyA');
+  });
+
+  it('⑥ 단추를 누른 채 화면 전환(단추가 사라짐) → 그 포인터 지움·0, 놓음은 창 어디서든 받음', () => {
+    mount('u-park', ON, true, true); serve('r7');
+    click(row('Go2-7')); click(btn('조종 시작')); click(btn('② 잠금 해제')); tick(100);
+    pd($('[data-sd-move="up"]')!, 'pointerdown'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    view(); tick(200);                                      // 작은 패널 단추가 사라지고 전체화면 단추가 붙음
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 1.5,0,0(놓음을 못 받아 계속 전진)
+    pd(document.body, 'pointerup'); tick(60);
+    const up = $('[data-sd-full] [data-sd-move="up"]')!;
+    pd(up, 'pointerdown', 2); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    pd(document.body, 'pointerup', 2);                      // 단추 밖에서 놓음(캡처를 잃은 경우)
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 1.5,0,0
+    tick(100); expect(lastAxes()).toBe('0,0,0');
+  });
+
+  it('⑦ ↑ 를 누른 채 창 밖에서 뗌 → 복귀 뒤 새로 누른 A 는 표 값', () => {
+    ready();
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    expect(lastAxes()).toBe('0,0,0');
+    key('keydown', 'KeyA'); tick(60);
+    expect(lastAxes()).toBe('0,0,2.5');                     // 고치기 전: 0,0,0(↑ 가 앞 세대로 남음)
+  });
+
+  it('⑧ 해제 직후 첫 틱 전에 누른 ↑ → 바로 표 값', () => {
+    ready(); lock();
+    click(btn('② 잠금 해제'));
+    key('keydown', 'ArrowUp'); tick(200);
+    expect(lastAxes()).toBe('1.5,0,0');                     // 고치기 전: 0,0,0(중립 확인 중 그대로)
+  });
+
+  it('정상: 새로 누르면 표 값, 놓으면 그 자리에서 0, STOP 은 입력 0 먼저', () => {
+    ready();
+    key('keydown', 'ArrowUp'); expect(lastAxes()).toBe('1.5,0,0');
+    key('keyup', 'ArrowUp'); expect(lastAxes()).toBe('0,0,0');
+    key('keydown', 'ArrowUp'); tick(60);
+    click($('[data-sd-stop="panel"]')!);
+    const i = w.sent.findIndex((m) => m.t === 'stop');
+    expect((w.sent.slice(0, i).filter((m) => m.t === 'cmd').pop()!.axes as number[]).join()).toBe('0,0,0');
+    expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
+    key('keyup', 'ArrowUp');
   });
 });

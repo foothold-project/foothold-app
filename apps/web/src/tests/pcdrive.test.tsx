@@ -28,10 +28,12 @@ function mount(user: string, robots: Robot[] = ON) {
 }
 /** 조직 설정은 바로 빈 설정으로 — 받기 전에는 0 이라(RB-DRIVE-NEUTRAL-FIX) */
 const spySettings = () => vi.spyOn(api, 'settings');
+/** 계약 OrgSettings 필수 칸(서버 기본값) — 전체 스키마 검증을 통과하는 가장 작은 조직 설정(RV-426 ①) */
+const ORG = { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30 };
 let settingsMock: ReturnType<typeof spySettings>;
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
-  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({}); } }) as never);
+  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
 });
 afterEach(() => { act(() => root?.unmount()); settingsMock.mockRestore(); simTune(null); root = null; box?.remove(); vi.useRealTimers(); });
 

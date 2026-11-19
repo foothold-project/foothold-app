@@ -41,10 +41,12 @@ function mount(phone: boolean, user: string, hash: string, robots: Robot[] = pho
 // 판정은 단조 시계(performance.now): advanceTimersByTime 은 그것도 움직이고, setSystemTime(벽시계)은 움직이지 않는다
 /** 조직 설정 응답: 기본은 바로(같은 틀에) 빈 설정. 늦은 응답을 볼 시험은 settingsLater() */
 const spySettings = () => vi.spyOn(api, 'settings');
+/** 계약 OrgSettings 필수 칸(서버 기본값) — 전체 스키마 검증을 통과하는 가장 작은 조직 설정(RV-426 ①) */
+const ORG = { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30 };
 let settingsMock: ReturnType<typeof spySettings>;
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
-  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({}); } }) as never);
+  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
 });
 afterEach(() => {
   act(() => root?.unmount()); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
@@ -2130,13 +2132,13 @@ describe('폰 실기 조종 = 서버 명령표', () => {
 
   it('조직 상한·빠른 조종 끔이면 0, 표 값 밖 비례 값은 보내지 않음', () => {
     const { fwd, turn } = open();
-    act(() => simTune({ real_no_fast_server_drive: true }));
+    act(() => simTune({ ...ORG, real_no_fast_server_drive: true }));
     fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     turnAt(turn, 1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);           // 앞+회전 조합도 막힘
     ptr(fwd, 'pointerup'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);   // 제자리 회전은 상한 안
-    act(() => simTune({ real_max_wz: 1 })); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    act(() => simTune({ ...ORG, real_max_wz: 1 })); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     ptr(turn, 'pointerup');
-    act(() => simTune({ real_max_vx: 1 })); fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    act(() => simTune({ ...ORG, real_max_vx: 1 })); fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     const ok = new Set(['0,0,0', '1.5,0,0', `0,0,${MAX_TURN_RATE}`, `0,0,${-MAX_TURN_RATE}`, `1.5,0,${MAX_TURN_RATE}`, `1.5,0,${-MAX_TURN_RATE}`]);
     expect(cmds().every((m) => ok.has(String(m.axes)))).toBe(true);
   });
@@ -2153,7 +2155,7 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     click($('.dv-sheets button')); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     expect(lastAxes()).toEqual([0, 0, 0]);
     click(btn('닫기')); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 시트를 닫아도 쥐던 포인터는 되살리지 않음
-    fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);     // 새로 누르면 움직임
+    ptr(fwd, 'pointerup'); fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);     // 떼고 새로 누르면 움직임
   });
 
   // 시뮬 로봇은 이 화면이 열리지 않는다(App — simdrive 직결). 서버 경유 허용이 확인 안 된 로봇은 비례 대신 0
@@ -2198,7 +2200,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
   it('[2] 조직 설정(빠른 조종 끔) 응답이 늦으면 받기 전에는 0 — 앞 화면이 남긴 설정 값도 믿지 않음', async () => {
     let answer!: (o: object) => void;
     settingsMock.mockImplementation(() => new Promise((ok) => { answer = ok; }) as never);
-    act(() => simTune({}));                                 // 앞 화면이 받아 둔 옛 값(빠른 조종 켬)
+    act(() => simTune(ORG));                                 // 앞 화면이 받아 둔 옛 값(빠른 조종 켬)
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
     ready();
@@ -2206,7 +2208,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     fwdAt(fwd, 1); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain(REAL_WAIT);
-    await act(async () => { answer({ real_no_fast_server_drive: true }); });
+    await act(async () => { answer({ ...ORG, real_no_fast_server_drive: true }); });
     tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 빠른 조종 끔: 전진은 상한 밖
     expect(cmds().some((m) => (m.axes as number[])[0] !== 0)).toBe(false);
@@ -2214,7 +2216,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
   });
 
   it('[3] 빠른 조종 끔에서 W+A 를 누른 채 잠금 해제 → 상한이 만든 0 은 새 중립이 아님, W 만 떼도 A 회전 안 나감', () => {
-    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ real_no_fast_server_drive: true }); } }) as never);
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ ...ORG, real_no_fast_server_drive: true }); } }) as never);
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
     click(btn('조종 시작'));
@@ -2247,7 +2249,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
   });
 
   it('[5] RV-424: W+↑ 를 누른 채 잠금 해제 → ↑ 만 떼도 W 가 남아 새 중립이 아님, A 회전 안 나감', () => {
-    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ real_no_fast_server_drive: true }); } }) as never);
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ ...ORG, real_no_fast_server_drive: true }); } }) as never);
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
     click(btn('조종 시작'));
@@ -2293,15 +2295,14 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
   });
   /** 서버가 잠금(stop_gen +1)을 보내고 → 잠금 해제 */
   const relock = () => { act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100); click(btn('잠금 해제')); tick(100); };
-  const go = (settings: object = {}) => {
+  const go = (settings: object = ORG) => {
     settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(settings); } }) as never);
     mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
   };
 
-  it('[1] W 유지 중 blur·시트·⋯ 뒤 Ctrl+↑ 로 시작 → A 회전 안 나감', () => {
+  it('[1] W 유지 중 시트·⋯ 뒤 Ctrl+↑ 로 시작 → A 회전 안 나감', () => {   // blur 는 RV-426 ⑦(적은 키를 지움) — 아래 시험
     go();
     key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
-    act(() => { window.dispatchEvent(new Event('blur')); });
     click(btn('자세')); click(btn('닫기'));
     key('keydown', 'ArrowUp', window, true); key('keydown', 'KeyA'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
@@ -2369,19 +2370,120 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
   });
 
   it('[8] 조직 설정 타입이 틀리면(real_max_vx: "0") 받음 아님 → 0 + 안내', () => {
-    go({ real_max_vx: '0' });
+    go({ ...ORG, real_max_vx: '0' });
     key('keydown', 'ArrowUp'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
     expect(text()).toContain(REAL_WAIT);
   });
 
   it('[9] 빠른 조종 금지 확인 뒤 공용 설정이 simTune(null) 로 비면 받음도 풀림 → 0', () => {
-    go({ real_no_fast_server_drive: true });
+    go({ ...ORG, real_no_fast_server_drive: true });
     key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     key('keyup', 'KeyW');
     act(() => simTune(null)); tick(100);
     key('keydown', 'KeyW'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
     expect(text()).toContain(REAL_WAIT);
+  });
+});
+
+// RV-426(RB-DRIVE-FRESH-PRESS2): 폰 — 가짜 WS 순서 그대로, 고치기 전 값은 주석
+describe('RV-426: 폰 입력 세대 마무리', () => {
+  const stick = (label = '전후') => {
+    const el = $(`[aria-label="${label} 조이스틱"]`);
+    el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return el;
+  };
+  const pe = (type: string, el: Element, y: number, id = 1) => act(() => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 60, clientY: 60 - y * 60 });
+    Object.defineProperty(e, 'pointerId', { value: id });
+    el.dispatchEvent(e);
+  });
+  const go = () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+  };
+
+  it('② STOP 뒤 잠김·해제 보고가 오기 전에는 새로 누른 키도 0 → 보고·해제 뒤 새로 누르면 표 값', () => {
+    go();
+    const auto = w.auto!; w.auto = (m) => (m.t === 'stop' ? w.recv({ t: 'reply', id: m.id, ok: true }) : auto(m));   // 접수만, 상태 보고 늦음
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    click($('[data-stop]'));
+    key('keyup', 'KeyW'); key('keydown', 'KeyW'); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
+    act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    click(btn('잠금 해제')); tick(100);
+    key('keyup', 'KeyW'); key('keydown', 'KeyW'); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+  });
+
+  it('⑤ 스틱을 민 채 조종권을 잃고 다시 받음 → 부모 축 값도 0, 손가락 없이 대기·이동 없음 → 새 키는 표 값', () => {
+    go();
+    const el = stick();
+    pe('pointerdown', el, 0.9); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    recv(lease('r7', null)); tick(100);                    // 조종권 잃음(스틱이 사라짐, 손가락은 그대로)
+    click(btn('조종 시작')); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('움직일 수 있음');              // 고치기 전: 중립 확인 중(부모 축 0.9 가 남아 계속 대기)
+    key('keydown', 'KeyW'); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);               // 고치기 전: [0, 0, 0]
+  });
+
+  it('⑦ W 를 누른 채 창 밖에서 뗌(keyup 못 받음) → 복귀 뒤 새로 누른 A 는 표 값', () => {
+    go();
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'KeyA'); tick(100);
+    expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);     // 고치기 전: [0, 0, 0](W 가 앞 세대로 남아 계속 0)
+  });
+
+  it('⑧ 해제 직후 첫 중립 틱 전에 새로 누른 W → 바로 표 값(계속 대기 아님)', () => {
+    go();
+    act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100);
+    click(btn('잠금 해제'));                                 // 서버가 바로 latched=false — 틱 전에
+    key('keydown', 'KeyW'); tick(200);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);               // 고치기 전: [0, 0, 0](중립 확인 중 그대로)
+    expect(text()).toContain('움직일 수 있음');
+  });
+
+  it('⑨ 키 뗌·스틱 놓음·blur 는 다음 틱이 아니라 그 자리에서 0 을 한 번 보냄', () => {
+    go();
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'KeyW');
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0](다음 틱까지)
+    const el = stick();
+    pe('pointerdown', el, 0.9); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    pe('pointerup', el, 0.9);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
+    pe('pointerdown', el, 0.9, 2); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
+  });
+
+  it('⑩ 같은 스틱 두 손가락: 처음 잡은 손가락만 — 그 손가락을 떼면 남은 손가락으로는 다시 전진하지 않음', () => {
+    go();
+    const el = stick();
+    pe('pointerdown', el, 0.9, 1); pe('pointerdown', el, 0.9, 2); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+    pe('pointermove', el, 0, 2); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);               // 둘째 손가락 이동은 무시
+    pe('pointerup', el, 0.9, 1); pe('pointermove', el, 0.9, 2); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
+    pe('pointerup', el, 0.9, 2); pe('pointerdown', el, 0.9, 3); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);               // 새로 잡으면 표 값
+  });
+
+  it('정상: 해제 뒤 새로 누르면 표 값 바로, 놓으면 바로 0, STOP 은 바로 나감', () => {
+    go();
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'KeyW'); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'KeyW'); tick(60);
+    const n = w.sent.length;
+    click($('[data-stop]'));
+    expect(w.sent.slice(n).some((m) => m.t === 'stop')).toBe(true);
+    tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'KeyW');
   });
 });
