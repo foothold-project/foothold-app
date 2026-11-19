@@ -338,6 +338,35 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await key('keyup', 'KeyA');
   });
 
+  // RV-430 ②: 직결 [넘기기] 누른 순간 0 + 세대 +1, 상태 보고 전까지 앞 입력을 되풀이하지 않음(서버 경유 rt.cmd 의 busy === 'give' 와 같게)
+  it('RV-430 ② W 전진 중 [넘기기] → 상태 보고 전에도 0, 넘김 무산(취소)이면 떼고 새로 눌러야 값', async () => {
+    const a = await ready();
+    await key('keydown', 'KeyW'); expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await recv(a, { t: 'lease.requested', request_id: 'q1' });
+    await click(btn('넘기기'));
+    expect(a.of('lease.respond')[0]).toMatchObject({ request_id: 'q1', accept: true });
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 0.6(보고 전 120 ms 동안 W 되풀이)
+    await recv(a, { t: 'lease.result', result: 'CANCELED' });   // 요청자가 그새 취소 = 내 조종권 그대로
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 넘기기 전에 누른 W 는 앞 세대
+    await key('keyup', 'KeyW'); await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await key('keyup', 'KeyW');
+  });
+  it('RV-430 ② [넘기기] 뒤 보고에서 내 lease 가 사라지면 cmd 를 더 보내지 않음, [계속 조종]은 입력 그대로', async () => {
+    const a = await ready();
+    await key('keydown', 'KeyW'); expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await recv(a, { t: 'lease.requested', request_id: 'q1' });
+    await click(btn('계속 조종'));
+    expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);          // 거절 = 그대로 조종
+    await recv(a, { t: 'lease.requested', request_id: 'q2' });
+    await click(btn('넘기기'));
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+    await recv(a, phoneState({ lease_id: null, controller: 'u-kim', controller_connected: true, latched: false }));
+    const n = a.of('cmd').length; await sleep(120);
+    expect(a.of('cmd')).toHaveLength(n);
+    await key('keyup', 'KeyW');
+  });
+
   it('Space 는 PR #94·#96 그대로 STOP — 시뮬 탭이면 이 시뮬 로봇에 직접 stop', async () => {
     const a = await ready();
     await key('keydown', 'Space');

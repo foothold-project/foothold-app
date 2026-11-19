@@ -2369,6 +2369,21 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     gap.mockRestore();
   });
 
+  it('[10] RV-430 ① W 전진 중 마지막 cmd 190 ms 뒤 A(송신 없음) → 380 ms 뒤 첫 cmd 도 공백 → 0. 공백 없으면 W+A 그대로', () => {
+    go();
+    key('keydown', 'KeyW'); tick(100); key('keydown', 'KeyA'); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, MAX_TURN_RATE]);   // 정상: 틱이 이어지면 새로 누른 A 도 합산
+    key('keyup', 'KeyA'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    const real = performance.now.bind(performance); let skip = 0;
+    const gap = vi.spyOn(performance, 'now').mockImplementation(() => real() + skip);   // 틱 타이머가 멈춘 것과 같음
+    skip = 190; key('keydown', 'KeyA');                    // 누름만 — 송신 없음, 공백 기준도 그대로
+    skip = 330; tick(50);                                  // 마지막 cmd 뒤 380 ms 에 첫 cmd
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 2.5]
+    key('keyup', 'KeyW'); key('keyup', 'KeyA'); tick(100); key('keydown', 'KeyA'); tick(100);
+    expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    gap.mockRestore();
+  });
+
   it('[8] 조직 설정 타입이 틀리면(real_max_vx: "0") 받음 아님 → 0 + 안내', () => {
     go({ ...ORG, real_max_vx: '0' });
     key('keydown', 'ArrowUp'); tick(200);

@@ -16,7 +16,7 @@ export type Link = {
   /** 닫힌 이유(사람 문구)·닫기 코드 */
   why: string; code: number;
   /** 요청 실패·조종권 알림 한 줄 */
-  notice: string; busy: '' | 'take' | 'unlock' | 'release' | 'run';
+  notice: string; busy: '' | 'take' | 'unlock' | 'release' | 'run' | 'give';   // give = 요청을 받아들여 넘기는 중(상태 보고로 lease 가 바뀌거나 넘김이 무산될 때까지)
   /** 마지막 cmd.ack 가 잘렸는지(«명령 범위 조정») */
   clipped: boolean; rtt: number | null; cam: Cam; img: string;
   /** 다른 사람의 조종권 요청(내가 조종자일 때) */
@@ -282,8 +282,10 @@ function beat() {
   if (!l || l.at !== 'open' || !l.welcome) return;
   if (l.lease && !runMoving(l.run)) {
     // 틱이 GAP_MS 넘게 끊기면 에이전트는 입력 끊김으로 새 중립을 요구한다 — 앞 입력을 다시 보내지 않고 0, 화면 세대 +1(RV-429 ①, rt inputGen.tick 과 같은 규칙)
-    const at = now(); if (at - lastCmd > GAP_MS) { axes = [0, 0]; bumpInputs(); } lastCmd = at;
-    send({ t: 'cmd', lease_id: l.lease, seq: ++seq, ...velocity(l.st?.latched === false && !stopping() ? axes : [0, 0], l.welcome) });
+    // 기준은 실제로 보낸 cmd 만(보내지 못하면 그대로, RV-430 ①). 넘기는 중·받는 중·반납 중이면 0(서버 경유 rt.cmd 의 busy === 'give' 와 같게, RV-430 ②)
+    const at = now(); if (at - lastCmd > GAP_MS) { axes = [0, 0]; bumpInputs(); }
+    const hold = l.busy === 'give' || l.busy === 'take' || l.busy === 'release';
+    if (send({ t: 'cmd', lease_id: l.lease, seq: ++seq, ...velocity(l.st?.latched === false && !stopping() && !hold ? axes : [0, 0], l.welcome) })) lastCmd = at;
   }
   if (l.welcome.simulation === true) simPing();
   else if (tick++ % (PING_MS / CMD_MS) === 0) send({ t: 'ping', client_time_ms: Date.now() });
@@ -337,7 +339,7 @@ function onMsg(raw: string) {
   } else if (m.t === 'reply') {
     const r = m as unknown as PhoneReply, f = replies.get(r.id);
     replies.delete(r.id);
-    setLink({ busy: '', ...(r.lease_id ? { lease: r.lease_id } : {}), ...(r.ok ? {} : { notice: ERR[r.error?.code ?? ''] ?? `요청을 처리하지 못했습니다(${r.error?.code}).` }) });
+    setLink({ busy: l.busy === 'give' && r.ok ? 'give' : '', ...(r.lease_id ? { lease: r.lease_id } : {}), ...(r.ok ? {} : { notice: ERR[r.error?.code ?? ''] ?? `요청을 처리하지 못했습니다(${r.error?.code}).` }) });
     f?.(r.ok, r);   // 안내를 고쳐 쓸 수 있게 기본 안내 뒤에 부른다
   } else if (m.t === 'cmd.ack') {
     if (!!m.clipped !== l.clipped) setLink({ clipped: !!m.clipped });
@@ -347,7 +349,7 @@ function onMsg(raw: string) {
     if (fresh) lastEcho = echo.id;
     if (l.st && (st.stop_gen !== l.st.stop_gen || st.latched !== l.st.latched)) axes = [0, 0];   // 잠김·해제·stop_gen 이 바뀌면 이전 입력을 버린다 — 화면은 새로 누른 입력만 다시 넣는다
     // 반납 답 전의 옛 state 로 lease 를 되살리지 않음
-    setLink({ st, stAt: now(), lease: l.busy === 'release' ? null : st.lease_id, rtt: fresh ? Date.now() - echo.client_time_ms : l.rtt,
+    setLink({ st, stAt: now(), lease: l.busy === 'release' ? null : st.lease_id, ...(l.busy === 'give' && st.lease_id !== l.lease && { busy: '' }),   // 넘김 끝 = 보고의 lease 가 바뀜 rtt: fresh ? Date.now() - echo.client_time_ms : l.rtt,
       run: st.run === undefined ? l.run : seeRun(st.run) });   // run 이 없는 옛 에이전트면 그대로
     // 같은 연결에서 이 STOP 뒤 세대(stop_gen > g0)의 잠금을 받은 뒤 latched=false 가 와야 STOP 안내를 지운다. 옛 세대·옛 연결의 보고로는 지우지 않는다
     const p = S.stop;
@@ -362,7 +364,7 @@ function onMsg(raw: string) {
   } else if (m.t === 'lease.requested') {
     setLink({ ask: { id: m.request_id as string, until: now() + 10_000 } });
   } else if (m.t === 'lease.result') {
-    setLink({ ask: null, notice: RESULT[m.result as string] ?? '' });
+    setLink({ ask: null, notice: RESULT[m.result as string] ?? '', ...(l.busy === 'give' && m.result !== 'ACCEPTED' && { busy: '' }) });   // 넘김 무산(취소·시간 지남) = 내 조종권 그대로
   }
 }
 /** 영상(§13.8): 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello. 끊겨도 조종·STOP 에는 영향 없음, 다시 열려면 새 연결 */
@@ -572,7 +574,12 @@ export const sim = {
   /** 끝난 실행 안내 내리기 */
   dismiss(id: string) { dismissed = id; emit(); },
   dismissed: (id: string) => dismissed === id,
-  respond(accept: boolean) { const a = S.link?.ask; if (a && send({ t: 'lease.respond', request_id: a.id, accept })) setLink({ ask: null }); },
+  /** 받아들이면 누른 순간 입력 0 + 세대 +1, 상태 보고 전까지 넘기는 중(beat 가 0) — 서버 경유 rt.respond 와 같게(RV-430 ②) */
+  respond(accept: boolean) {
+    const a = S.link?.ask; if (!a || !send({ t: 'lease.respond', request_id: a.id, accept })) return;
+    if (accept) { axes = [0, 0]; bumpInputs(); }
+    setLink({ ask: null, ...(accept && { busy: 'give' as const }) });
+  },
   /** 지금 STOP 이 갈 시뮬 로봇 — 고르기 밖 모든 단계(띄우는 중·확인 중 포함). 있으면 머리줄 STOP 은 다른 로봇(rt)으로 가지 않는다 */
   live: () => (S.robot && S.step !== 'pick' ? S.robot : null),
   /** STOP: 직결(hello 끝남)이면 에이전트에 직접(보기 연결도 됨). 연결 전·끊김·확인 중이면 로봇에 보낼 길이 없다 —
