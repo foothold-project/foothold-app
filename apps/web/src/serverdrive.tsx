@@ -20,10 +20,12 @@ import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 /** 누름 하나: up·down = 전후, left·right = 옆걸음, rotl·rotr = 제자리 회전(A·D) */
 type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
 const KEY: Record<string, Tok> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'rotl', KeyD: 'rotr' };
+import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
+const MAX_TURN_RATE = orgSettingsSchema.properties.real_max_wz.maximum;
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
 export const TABLE: Record<string, [number, number, number]> = {
   '': [0, 0, 0], up: [1.5, 0, 0], down: [-1.5, 0, 0], left: [0, 1, 0], right: [0, -1, 0],
-  rotl: [0, 0, 0.5], rotr: [0, 0, -0.5], 'rotl+up': [1.5, 0, 0.5], 'rotr+up': [1.5, 0, -0.5],
+  rotl: [0, 0, MAX_TURN_RATE], rotr: [0, 0, -MAX_TURN_RATE], 'rotl+up': [1.5, 0, MAX_TURN_RATE], 'rotr+up': [1.5, 0, -MAX_TURN_RATE],
 };
 export function permitted(axes: [number, number, number], o: Partial<OrgSettings> | null) {
   const [vx, vy, wz] = axes, c = realCaps(o);
@@ -34,9 +36,9 @@ const id = (held: Iterable<Tok>) => [...held].sort().join('+');
 export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
 const PAD: [Tok[], string, string][] = [
-  [['rotl', 'up'], '↑+A', '앞+왼쪽 회전'], [['up'], '↑', '앞 1.5'], [['rotr', 'up'], '↑+D', '앞+오른쪽 회전'],
-  [['left'], '←', '옆 왼쪽 1.5'], [['down'], '↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1.5'],
-  [['rotl'], 'A', '제자리 왼쪽'], [['rotr'], 'D', '제자리 오른쪽'],
+  [['rotl', 'up'], '↑+A', `앞+왼쪽 회전 최대 ${MAX_TURN_RATE} rad/s`], [['up'], '↑', '앞 1.5'], [['rotr', 'up'], '↑+D', `앞+오른쪽 회전 최대 ${MAX_TURN_RATE} rad/s`],
+  [['left'], '←', '옆 왼쪽 1.0'], [['down'], '↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1.0'],
+  [['rotl'], 'A', `제자리 왼쪽 최대 ${MAX_TURN_RATE} rad/s`], [['rotr'], 'D', `제자리 오른쪽 최대 ${MAX_TURN_RATE} rad/s`],
 ];
 export const TRIAL = '실기 · 서버 경유 시험 · 미검증';
 /** 입력 0 안내 — 화면이 보낸 0 일 뿐 로봇 정지 확인이 아니다(F-COM-01: 확인 없이 «멈췄습니다» 금지). 정지 확인은 stopLine 만 */

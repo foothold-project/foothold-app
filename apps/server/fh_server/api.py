@@ -804,7 +804,7 @@ def create_app(settings: Settings | None = None):
         rows = list(db.scalars(query))
         error_ids = set(db.scalars(select(RobotDevice.robot_id).where(RobotDevice.org_id == user.org_id,
             RobotDevice.robot_id.in_([r.id for r in rows]), RobotDevice.state == 'ERROR').distinct()))
-        policy = C.OrgSettings.model_validate(db.get(Organization, user.org_id).settings)
+        policy = C.OrgSettings.from_stored(db.get(Organization, user.org_id).settings)
         snapshots = [(row, *live_state(app.state.realtime, str(row.id))) for row in rows]
         operators = []
         if user.role == 'ORG_ADMIN':
@@ -821,7 +821,7 @@ def create_app(settings: Settings | None = None):
 
     @app.get(prefix + '/org/settings', response_model=C.OrgSettings)
     def get_settings(auth: Identity, db: DB):
-        return C.OrgSettings.model_validate(db.get(Organization, auth[0].org_id).settings)
+        return C.OrgSettings.from_stored(db.get(Organization, auth[0].org_id).settings)
 
     @app.patch(prefix + '/org/settings', response_model=C.OrgSettings)
     async def patch_settings(body: C.OrgSettingsPatch, auth: Identity, db: DB):
@@ -842,9 +842,9 @@ def create_app(settings: Settings | None = None):
         if any(value is None for value in values.values()):
             fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
         org = lock_organization(db, user.org_id)
-        previous = C.OrgSettings.model_validate(org.settings)
+        previous = C.OrgSettings.from_stored(org.settings)
         was_enabled = previous.real_no_fast_server_drive
-        stored = {**org.settings, **values}
+        stored = {**previous.model_dump(include=set(org.settings)), **values}
         if 'model_overrides' in values:
             overrides = {model: dict(fields) for model, fields in previous.model_overrides.items()}
             for model, patch in values['model_overrides'].items():

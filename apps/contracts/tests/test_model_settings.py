@@ -32,7 +32,7 @@ def test_each_model_uses_common_field_envelope_and_merged_order():
 
 
 @pytest.mark.parametrize('field,maximum', [('real_max_vx', 1.5), ('real_max_vx_back', 1.5),
-                                         ('real_max_vy', 1.0), ('real_max_wz', 4.0)])
+                                         ('real_max_vy', 1.0), ('real_max_wz', 2.5)])
 def test_real_cap_defaults_bounds_sparse_patch_and_model_isolation(field, maximum):
     from apps.contracts.models import REAL_SETTING_FIELDS
     assert field in REAL_SETTING_FIELDS

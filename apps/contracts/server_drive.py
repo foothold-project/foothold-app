@@ -1,7 +1,10 @@
 """Explicit server-drive hardware trial SI alphabet; never a phone policy."""
-ALLOWED = frozenset(((0., 0., 0.), (1.5, 0., 0.), (-1.5, 0., 0.),
-                     (0., 1., 0.), (0., -1., 0.), (0., 0., .5),
-                     (0., 0., -.5), (1.5, 0., .5), (1.5, 0., -.5)))
+# Full-stick remote turns measured ±2.47 rad/s (peak one-second mean).
+MAX_TURN_RATE = 2.5
+ALLOWED = frozenset({(0., 0., 0.), (1.5, 0., 0.), (-1.5, 0., 0.),
+                     (0., 1., 0.), (0., -1., 0.)}
+                    | {(vx, 0., wz) for vx in (0., 1.5)
+                       for wz in (-MAX_TURN_RATE, -.5, .5, MAX_TURN_RATE)})
 
 
 def within_caps(axes, settings):

@@ -19,15 +19,33 @@ ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 STOP_RETRY_S = .20
-# Full-scale server axes per second: zero <-> maximum takes one second.
-SERVER_SLEW = (1.5, 1., .5)
-# Physical phone forward ceiling is 1.5 m/s; lateral/turn gates are unchanged.
-# Config may only narrow this explicit alphabet.
+# Full-stick remote turns measured ±2.47 rad/s (peak one-second mean).
+MAX_TURN_RATE = 2.5
+TURN_RAMP_S = 2.0
+TURN_BRAKE_S = .30
+SERVER_SLEW = (1.5, 1., MAX_TURN_RATE / TURN_RAMP_S)
+SERVER_BRAKE = (1.5, 1., MAX_TURN_RATE / TURN_BRAKE_S)
+PHONE_TURN_RATE = .5
 ALLOWED = frozenset({ZERO} | {(step / 10, 0., wz)
-                            for step in range(3, 16) for wz in (0., -.5, .5)})
-SERVER_ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (-1.5, 0., 0.),
-    (0., 1., 0.), (0., -1., 0.), (0., 0., .5), (0., 0., -.5),
-    (1.5, 0., .5), (1.5, 0., -.5)))
+                    for step in range(3, 16) for wz in (0., -PHONE_TURN_RATE, PHONE_TURN_RATE)})
+SERVER_ALLOWED = frozenset({ZERO, (1.5, 0., 0.), (-1.5, 0., 0.), (0., 1., 0.), (0., -1., 0.)}
+                    | {(vx, 0., wz) for vx in (0., 1.5)
+                       for wz in (-MAX_TURN_RATE, -.5, .5, MAX_TURN_RATE)})
+
+
+def _slew_axis(current, target, elapsed, acceleration, braking):
+    if current * target < 0:
+        # Brake to zero first. Only the time left in this tick can accelerate.
+        stop_time = abs(current) / braking
+        if elapsed < stop_time:
+            return current - math.copysign(braking * elapsed, current)
+        elapsed -= stop_time
+        current = 0.
+    rate = braking if abs(target) < abs(current) else acceleration
+    step = rate * elapsed
+    if abs(target - current) <= step:
+        return target
+    return current + math.copysign(step, target - current)
 
 
 def server_velocity(value):
@@ -46,10 +64,10 @@ class OutputError(RuntimeError):
 class Limits:
     vx: tuple = (0., 1.5)
     vy: tuple = (0., 0.)
-    wz: tuple = (-.5, .5)
+    wz: tuple = (-MAX_TURN_RATE, MAX_TURN_RATE)
 
     def __post_init__(self):
-        for bounds, maximum in zip((self.vx, self.vy, self.wz), ((0., 1.5), (0., 0.), (-.5, .5))):
+        for bounds, maximum in zip((self.vx, self.vy, self.wz), (Limits.vx, Limits.vy, Limits.wz)):
             if (not isinstance(bounds, tuple) or len(bounds) != 2 or
                     not all(type(x) in (int, float) and math.isfinite(x) for x in bounds) or
                     not maximum[0] <= bounds[0] <= 0 <= bounds[1] <= maximum[1]):
@@ -59,6 +77,8 @@ class Limits:
         if (not isinstance(velocity, (list, tuple)) or len(velocity) != 3 or
                 not all(type(x) in (int, float) and math.isfinite(x) for x in velocity)):
             raise ValueError('finite body-frame vx, vy, wz required')
+        vx, vy, wz = velocity
+        velocity = (vx, vy, min(PHONE_TURN_RATE, max(-PHONE_TURN_RATE, wz)))
         value = tuple(float(min(hi, max(lo, x))) for x, (lo, hi)
                       in zip(velocity, (self.vx, self.vy, self.wz)))
         if value not in ALLOWED:
@@ -99,7 +119,7 @@ class Go2Sink:
         self._threads = []
         self.pending = ZERO
         self._ramp_velocity = ZERO
-        self._ramp_at = self.now()
+        self._ramp_at = (self.now(),) * 3
         self.latched = True
         self.generation = 0
         self.source = None
@@ -311,7 +331,7 @@ class Go2Sink:
         repeated = self.latched and (preserve or (reason is not None and reason == self._hold_reason))
         self.pending = ZERO
         self._ramp_velocity = ZERO
-        self._ramp_at = self.now()
+        self._ramp_at = (self.now(),) * 3
         self.latched = True
         if repeated:
             return
@@ -385,8 +405,12 @@ class Go2Sink:
                 self._hold()
                 raise ValueError('unsupported motion kind')
             try:
-                velocity = (server_velocity(command.velocity) if source == 'server'
-                            else self.limits.project(command.velocity))
+                if source == 'server':
+                    velocity = server_velocity(command.velocity)
+                    if not self.limits.wz[0] <= velocity[2] <= self.limits.wz[1]:
+                        raise ValueError('server turn exceeds local limit')
+                else:
+                    velocity = self.limits.project(command.velocity)
             except ValueError:
                 self.lock_log.emit("stop", "output_velocity_invalid")
                 self.lock_log.emit("lock", "output_velocity_invalid")
@@ -415,7 +439,8 @@ class Go2Sink:
             target = ZERO if self.latched or self._neutral_required or self._posture is not None or self.actions.busy or posture_held else velocity
             if target != self.pending:
                 # Do not spend preceding idle time on a newly received target.
-                self._ramp_at = stamp
+                self._ramp_at = tuple(stamp if new != old else previous
+                                      for new, old, previous in zip(target, self.pending, self._ramp_at))
             self.pending = target
             if not self.latched and self._neutral_required and velocity == ZERO:
                 self._neutral_required = False
@@ -574,13 +599,13 @@ class Go2Sink:
                 generation, urgent = self.generation, self._urgent
                 velocity = ZERO if self.latched else self.pending
                 if self.source == 'server' and not self.latched and not urgent:
-                    elapsed = max(0., stamp-self._ramp_at)
-                    velocity = tuple(current + max(-rate*elapsed, min(rate*elapsed, target-current))
-                                     for current, target, rate in
-                                     zip(self._ramp_velocity, velocity, SERVER_SLEW))
+                    velocity = tuple(
+                        _slew_axis(current, target, max(0., stamp - previous), acceleration, braking)
+                        for current, target, previous, acceleration, braking in
+                        zip(self._ramp_velocity, velocity, self._ramp_at, SERVER_SLEW, SERVER_BRAKE))
                 # Safety holds reset this state; neither STOP lane uses the ramp.
                 self._ramp_velocity = ZERO if urgent else velocity
-                self._ramp_at = stamp
+                self._ramp_at = (stamp,) * 3
                 self._urgent = False
             try:
                 if urgent or self.latched:

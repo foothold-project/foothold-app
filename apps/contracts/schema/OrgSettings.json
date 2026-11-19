@@ -80,8 +80,8 @@
       "type": "number"
     },
     "real_max_wz": {
-      "default": 4.0,
-      "maximum": 4.0,
+      "default": 2.5,
+      "maximum": 2.5,
       "minimum": 0,
       "title": "Real Max Wz",
       "type": "number"

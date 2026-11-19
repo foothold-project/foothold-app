@@ -124,7 +124,7 @@ def robot_objects(db, robots, user, realtime):
             devices.setdefault(device.robot_id, {})[device.key] = C.Device(key=device.key,
                 kind=device.kind, label=device.label, state=device.state,
                 status_code=(device.info or {}).get('status_code'))
-    settings = C.OrgSettings.model_validate(db.get(Organization, user.org_id).settings)
+    settings = C.OrgSettings.from_stored(db.get(Organization, user.org_id).settings)
     current_runs = {}
     if full_ids:
         for run, version in db.execute(select(Run, ScenarioVersion).join(ScenarioVersion,

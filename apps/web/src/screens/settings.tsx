@@ -4,9 +4,12 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import type { OrgSettings, OrgSettingsPatch, RobotSummary, Session, User as ApiUser } from '../../../contracts/ts';
 import { api, expireAuth, type ApiFail } from '../api';
 import { ROLE_NAME, robotName, type Role, type User } from '../fake';
-import { REAL_CAPS, simTune } from '../phone';
+import orgSettingsSchema from '../../../contracts/schema/OrgSettings.json';
+import { REAL_CAPS as phoneCaps, simTune } from '../phone';
 import { Chip, type Ctx } from '../screens';
 import './settings.css';
+
+const REAL_CAPS = { ...phoneCaps, real_max_wz: orgSettingsSchema.properties.real_max_wz.maximum };
 
 type Msg = { text: string; ok?: boolean } | null;
 /** 긴 이름·아이디(128자)는 칸 안에서 줄을 바꾼다 */
@@ -103,7 +106,7 @@ const REAL = [
   num('real_max_vx', '최대 전진 속도', 'm/s', 0, 1.5, 0.05, { hint: '기본 1.5' }),
   num('real_max_vx_back', '최대 후진 속도', 'm/s', 0, 1.5, 0.05, { hint: '기본 1.5' }),
   num('real_max_vy', '최대 옆걸음', 'm/s', 0, 1, 0.05, { hint: '기본 1.0' }),
-  num('real_max_wz', '최대 회전', '라디안/초', 0, 4, 0.05, { hint: '기본 4.0' }),
+  num('real_max_wz', '최대 회전', '라디안/초', 0, REAL_CAPS.real_max_wz, 0.05, { hint: `기본 ${REAL_CAPS.real_max_wz}` }),
   num('real_no_fast_server_drive', '서버 경유 빠른 이동 끄기', '', 0, 1, 1, { kind: 'switch', hint: '켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP 합니다. 회전·정지는 그대로.' })];
 const SIM_CAP = [
   num('sim_max_vx', '최대 전진 속도', 'm/s', 0.2, 1.5, 0.05, { kind: 'range', hint: '기본 1.5. 모드 상한 안에서 적용합니다. AME-2는 위치 목표 정책으로 손 조종 목표에 속도 상한을 적용하지 않습니다.' }),

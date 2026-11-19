@@ -75,7 +75,7 @@
       "type": "number"
     },
     "real_max_wz": {
-      "maximum": 4.0,
+      "maximum": 2.5,
       "minimum": 0,
       "title": "Real Max Wz",
       "type": "number"
