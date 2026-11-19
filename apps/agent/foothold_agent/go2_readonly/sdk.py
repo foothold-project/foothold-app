@@ -6,6 +6,7 @@ Run in a dedicated process: the SDK channel factory is a process-wide singleton.
 
 import re
 import os
+import threading
 from ..mapping.inputs import ObservationInputs
 
 
@@ -22,6 +23,10 @@ class Subscriptions(ObservationInputs):
         self.dds_name = nic if dds_name is None else dds_name
         self._subscribers = []
         self._started = False
+        # Setup's approval-scoped media workers share one SDK camera reader on
+        # this participant. Read-only discovery itself never opens the client.
+        self.video_client = None
+        self.video_lock = threading.Lock()
 
     def start(self):
         if self._started:

@@ -194,6 +194,18 @@ class Source:
             self.start_failures.pop(channel, None)
 
     def camera(self):
+        # A retired approval may still be waiting for its SDK sample. Let the
+        # next worker retry without queueing behind it or opening a new reader.
+        lock = getattr(self.channel, 'video_lock', None)
+        if lock is not None and not lock.acquire(blocking=False):
+            return
+        try:
+            self._read_camera()
+        finally:
+            if lock is not None:
+                lock.release()
+
+    def _read_camera(self):
         try:
             client = self.factory(self.env, self.channel, expected_serial(self.config.approval))
             self.start_ready('rgb')
@@ -470,11 +482,15 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
         authorize(channel, observed_serial)
         if callback is not None:
             return channel.cloud('rt/utlidar/cloud', callback)
-        from unitree_sdk2py.go2.video.video_client import VideoClient
-        client = VideoClient()
-        client.SetTimeout(sdk.SDK_TIMEOUT_S)
-        client.Init()
-        return client
+        # VideoClient has no close API. Its DDS reader deserializes every
+        # videohub reply even after its original worker has exited.
+        if channel.video_client is None:
+            from unitree_sdk2py.go2.video.video_client import VideoClient
+            client = VideoClient()
+            client.SetTimeout(sdk.SDK_TIMEOUT_S)
+            client.Init()
+            channel.video_client = client
+        return channel.video_client
 
     config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link, approval=approval)
 

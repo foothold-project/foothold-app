@@ -128,6 +128,69 @@ def test_start_failure_logs_only_reason_and_state_changes(caplog):
     assert 'private-mac-token' not in caplog.text
 
 
+def test_retiring_approval_cannot_duplicate_video_reader_or_publish_late_frame(monkeypatch):
+    import foothold_agent.go2_direct.media as media
+    from test_setup_pairing import SERIAL
+
+    entered, release = threading.Event(), threading.Event()
+    clients, reads, recorded = [], [], []
+    class Camera:
+        def __init__(self): clients.append(self)
+        def SetTimeout(self, timeout): pass
+        def Init(self): pass
+        def GetImageSample(self):
+            reads.append(self)
+            if len(reads) == 1:
+                entered.set()
+                assert release.wait(3)
+                return 0, b'retired'
+            return 0, b'current'
+
+    original = builtins.__import__
+    def sdk_import(name, *args, **kwargs):
+        if name == 'unitree_sdk2py.go2.video.video_client': return NS(VideoClient=Camera)
+        return original(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', sdk_import)
+    monkeypatch.setattr(socket, 'if_nameindex', lambda: [(7, NIC_VALUE.name)])
+    monkeypatch.setattr(media, 'video', lambda _: (dict(t='media.video'), None))
+    channel = Subscriptions(NS(), NIC_VALUE.name)
+    channel._started = True
+    active = [0]
+    publishers = [approved_publisher(credentials(), Approval(NIC_VALUE.name, SERIAL, time.time()+60),
+        channel, NS(rgb=recorded.append), lambda i=i: active[0] == i) for i in range(2)]
+    old, current = [p.source for p in publishers]
+    old_worker = threading.Thread(target=old.camera, daemon=True)
+    overlapping_worker = threading.Thread(target=current.camera, daemon=True)
+    new_worker = threading.Thread(target=current.camera, daemon=True)
+    try:
+        old_worker.start()
+        assert entered.wait(1)
+        active[0] = 1
+        old.close()
+        overlapping_worker.start()
+        overlapping_worker.join(.5)
+        assert not overlapping_worker.is_alive()
+        assert len(clients) == len(reads) == 1
+        release.set()
+        old_worker.join(1)
+        assert not old_worker.is_alive() and not recorded and not old.latest
+        new_worker.start()
+        deadline = time.monotonic()+1
+        while current.sample('rgb') is None and time.monotonic()<deadline:
+            time.sleep(.005)
+        assert current.sample('rgb')[1]['epoch'] == current.epoch
+        assert clients == [reads[0]] and all(reader is clients[0] for reader in reads)
+        assert recorded and set(recorded) == {b'current'}
+    finally:
+        release.set()
+        for publisher in publishers:
+            publisher.source.close()
+            publisher.executor.shutdown(wait=True)
+        for worker in (old_worker, overlapping_worker, new_worker):
+            if worker.ident is not None:
+                worker.join(1)
+
+
 def test_publisher_start_failure_is_reported_and_cleaned_up(caplog):
     closed = []
     def fail(): raise PermissionError('private start failure')
