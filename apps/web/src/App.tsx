@@ -218,9 +218,10 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const Body = BODY[tab];
   const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다.' : NO_ROBOT}</p></section>;
 
+  const navTab = tab === 'terrain' ? 'map' : tab;   // 지형 만들기는 지도 탭 안 화면(11-19)
   const link = (t: Tab, cls: string) => {
     const badge = t.id === 'approval' ? dash.d?.approvals_pending ?? 0 : 0;   // 서버 수 그대로: 총괄 = 조직 전체 대기, 운영 관리자 = 내 대기 요청
-    return <a key={t.id} className={`${cls}${t.id === tab ? ' cur' : ''}`} href={`#/${t.id}`} aria-current={t.id === tab ? 'page' : undefined}
+    return <a key={t.id} className={`${cls}${t.id === navTab ? ' cur' : ''}`} href={`#/${t.id}`} aria-current={t.id === navTab ? 'page' : undefined}
       aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => { if (!leaving.ask) setWant(`#/${t.id}`); }}>
       {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };

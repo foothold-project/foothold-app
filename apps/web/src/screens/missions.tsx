@@ -441,16 +441,16 @@ export function useSimAt(f?: MapFloor, v?: MapVersion, cancel?: AbortSignal) {
     : '';
   const terWhy = !v || !tid ? '' : !ter ? '지형을 받는 중입니다.' : typeof ter === 'string' ? ter
     : vox && !voxelFits(ter, v) ? '시뮬 지형과 이 실기 지도의 크기·원점이 다릅니다 — 3D 지도 파일을 다시 올리세요.'
-    : !vox && ter.map_version_id !== v.id ? '이 지형의 서버 지도는 지금 판이 아닙니다(지형 저장 뒤 다른 판이 올라옴) — «지형 만들기»에서 다시 저장하세요.'
-    : !vox && !terrainFits(ter, v) ? '지형과 지도 좌표가 다릅니다(지형을 바꾼 뒤 지도를 다시 만들지 않음) — «지형 만들기»에서 다시 저장하세요.'
-    : local != null && differs(local, ter.spec) ? '이 브라우저에 이 지형의 다른 편집본이 있어 덮지 않습니다 — «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.'
+    : !vox && ter.map_version_id !== v.id ? '이 지형의 서버 지도는 지금 판이 아닙니다(지형 저장 뒤 다른 판이 올라옴) — 지도 탭의 «지형 만들기»에서 다시 저장하세요.'
+    : !vox && !terrainFits(ter, v) ? '지형과 지도 좌표가 다릅니다(지형을 바꾼 뒤 지도를 다시 만들지 않음) — 지도 탭의 «지형 만들기»에서 다시 저장하세요.'
+    : local != null && differs(local, ter.spec) ? '이 브라우저에 이 지형의 다른 편집본이 있어 덮지 않습니다 — 지도 탭의 «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.'
     : zoneWhy;
   const prep = () => {
     if (!ter || typeof ter === 'string') return '';
     // 누르는 순간 다시 읽는다(렌더 뒤 다른 탭이 편집본·:base 를 만들었을 수 있음 — #303 보호): 둘 다 없을 때만 서버 판을 쓰고,
     // 편집본이 서버와 같으면 아무것도 안 쓰고, 그 밖(다른 편집본·편집본 없이 :base 만)은 쓰지도 옮기지도 않는다
     const k = keyOf(ter.spec.id), now = readLocal(k), base = readLocal(`${k}:base`);
-    if (now == null ? base != null : differs(now, ter.spec)) return '방금 이 브라우저에 이 지형의 다른 편집본이 생겼습니다 — 덮지 않고 멈췄습니다. «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.';
+    if (now == null ? base != null : differs(now, ter.spec)) return '방금 이 브라우저에 이 지형의 다른 편집본이 생겼습니다 — 덮지 않고 멈췄습니다. 지도 탭의 «지형 만들기»에서 저장하거나 서버 판을 연 뒤 다시 누르세요.';
     if (now == null) try { localStorage.setItem(k, JSON.stringify(ter.spec)); localStorage.setItem(`${k}:base`, String(ter.version)); }
     catch { return '이 브라우저 저장소에 지형을 쓰지 못했습니다(사생활 창일 수 있음).'; }
     return '';

@@ -26,7 +26,7 @@ export const PC_TABS: Tab[] = [
   { id: 'approval', label: { ORG_ADMIN: '결재', OPERATOR: '내 요청' }, icon: ICON.approval, hidden: true },
   { id: 'map', label: '지도', icon: ICON.map },
   { id: 'sim', label: '시뮬', icon: ICON.sim },
-  { id: 'terrain', label: '지형 만들기', icon: ICON.sim, hidden: true },   // 입구 = 시뮬 시작 화면 «지형 만들기»(TERRAIN-EDITOR 11-04)
+  { id: 'terrain', label: '지형 만들기', icon: ICON.sim, hidden: true },   // 입구 = 지도 탭 고르기 화면 «+ 지형 만들기»(11-19, 처음엔 시뮬 탭) — 열려 있으면 메뉴는 «지도»가 골라짐(App link)
   { id: 'history', label: '기록', icon: ICON.history },
   { id: 'trash', label: '휴지통', icon: ICON.trash, hidden: true },   // 입구 = 지도·시나리오 화면의 «휴지통»(11-02)
 ];
