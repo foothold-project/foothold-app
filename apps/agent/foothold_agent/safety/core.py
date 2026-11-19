@@ -11,6 +11,7 @@ import logging
 import sys
 import time
 from collections import deque
+from .lock_log import LockLog, STOP_CAUSES
 
 SCHEMA = 'v2_live/state/1'
 DEAD = 0.3            # 입력 끊김 → 0 (s)
@@ -127,6 +128,7 @@ class Core:
     def __init__(self, now=time.monotonic, *, velocity_projection=quantize):
         self.now = now
         self._safety_log = _SafetyLog(now)
+        self.lock_log = LockLog(now)
         self.velocity_projection = velocity_projection
         self.controller = None      # 조종권을 가진 연결 id
         self.latch = False          # 앱 STOP 래치
@@ -155,9 +157,11 @@ class Core:
             except Exception:
                 pass
 
-    def _lock(self):
+    def _lock(self, cause="lock_transition", source="agent"):
         """잠금 + 재개 취소 + 입력 폐기 + 잠금 세대 +1(이미 잠겼어도)"""
         self.latch = True; self.resume_pending = None; self._void(); self.stop_gen += 1
+        self.lock_log.emit('stop', cause, source)
+        self.lock_log.emit('lock', cause, source)
         self._safety_log.emit('lock', 'lock_transition', _log_source(2), stop_gen=self.stop_gen)
 
     def _void(self):
@@ -189,7 +193,7 @@ class Core:
             self.ev('bad', '넘어짐 (시뮬 판정)')
         if self.episode is not None and d['episode'] != self.episode:
             self.ep_change_t = self.now()               # 사진: 바뀐 직후 도착한 프레임은 옛 episode 렌더일 수 있음
-            self._lock()
+            self._lock('episode_changed')
             self.ev('warn', f'새 에피소드 {d["episode"]} · STOP 유지')
         self.episode = d['episode']
         if self.resume_pending and self.state_seq > self.resume_pending[1] and not d['stop_requested']:
@@ -197,7 +201,7 @@ class Core:
             self._safety_log.emit('resume', 'sim_confirmed', _log_source(), stop_gen=self.stop_gen)
             self.ev('ok', 'STOP 해제 확인(시뮬) · 새 입력 전까지 0')
         elif d['stop_requested'] and not self.latch:      # 시뮬이 STOP 상태(리셋 뒤 등)면 앱도 잠근다
-            self._lock(); self.ev('warn', '시뮬이 STOP 상태 · «STOP 해제» 필요')
+            self._lock('robot_stop'); self.ev('warn', '시뮬이 STOP 상태 · «STOP 해제» 필요')
             self._safety_log.emit('relock', 'sim_stop_requested', _log_source(), stop_gen=self.stop_gen)
         return True
 
@@ -210,10 +214,12 @@ class Core:
             self.controller = cid; self._void(); self.ev('ok', f'조종권 얻음 · {who}')
         return True
 
-    def drop(self, cid, why):
+    def drop(self, cid, why, *, cause=None, source="agent"):
         """조종권을 잃으면(반납·끊김·숨김·로그아웃) 0 + STOP 잠금 — 다음 조종자는 «STOP 해제»부터(정지 뒤 재움직임 원인 미확인이라 보수적으로)"""
         if self.controller == cid:
-            self.controller = None; self._lock()
+            cause = cause if cause is not None else (STOP_CAUSES.get(why, "lease_changed") if isinstance(why, str) else "lease_changed")
+            self.controller = None; self._lock(cause, source)
+            self.lock_log.emit("release", cause, source)
             self.ev('warn', f'조종권 해제 · {why} → 명령 0 · STOP 잠금')
 
     def cmd(self, cid, axes):
@@ -223,20 +229,25 @@ class Core:
         if axes is None:
             if not self.bad_input:
                 self.ev('warn', '형식 오류 입력 → 명령 0')
+            self.lock_log.emit('stop', 'input_invalid')
             self.bad_input = True; self._void(); return
         self.bad_input = False
         if self.latch or self.reset_pending or self.resume_pending or self.sim_block():
             self._void(); return                 # 잠금·대기·끊김 중 입력은 버린다 — 풀린 뒤 새 손 뗌부터
         self.intent = axes; self.intent_t = self.now()
+        self.lock_log.healthy(self.intent_t)
         if self.velocity_projection(*axes) == (Z, ''):
             self.need_neutral = False
 
-    def stop(self, who):
+    def stop(self, who, *, cause=None, source="agent"):
         if not self.latch:
             self.ev('bad', f'STOP 요청 · 명령 0 잠금 ({who})')
         elif self.resume_pending:
             self.ev('bad', f'STOP ({who}) · 재개 요청 취소')
-        self._lock()   # 이미 잠겼어도 세대 +1 — 확인창 동안 누른 남의 STOP 을 resume 이 풀지 못하게
+        if who == "server STOP" and cause is None:
+            cause, source = "unknown", "server"
+        cause = cause if cause is not None else (STOP_CAUSES.get(who, "other_stop") if isinstance(who, str) else "other_stop")
+        self._lock(cause, source)   # 이미 잠겼어도 세대 +1 — 확인창 동안 누른 남의 STOP 을 resume 이 풀지 못하게
         # Fixed labels only: who can contain a caller-supplied reason or identity.
         reason = who if isinstance(who, str) and who in {'startup', 'connection/reconnection', 'link grace expired',
             'output stalled', 'wire generation exhausted', 'protocol mismatch',
@@ -273,21 +284,21 @@ class Core:
         why = self.sim_busy or ('조종권 없음' if cid != self.controller else '리셋 처리 중' if self.reset_pending else '' if ready else '리셋 서비스 미연결')
         if why:
             self.ev('warn', f'시뮬 리셋 거부 · {why}'); return False
-        self.reset_pending = self.now(); self._lock()
+        self.reset_pending = self.now(); self._lock('reset_requested')
         self.ev('warn', '시뮬 리셋 요청 · STOP 잠금')
         return True
 
     def reset_done(self, ok, msg):
         if self.reset_pending is None:
             return                                   # 시간 초과로 이미 닫힘
-        self.reset_pending = None; self._lock()
+        self.reset_pending = None; self._lock('reset_finished')
         self.ev('ok' if ok else 'bad', f'리셋 {"응답" if ok else "실패"}: {msg} · STOP 유지')
 
     def busy_sim(self, why):
         """지도 체험 시작 접수: 조종권 해제(누구든) · 0 · STOP 잠금 · 입력 폐기, 끝날 때까지 take·resume·reset·비영 거부(sim_busy). 끝나도 잠금 유지"""
         if self.controller:
             self.drop(self.controller, why)
-        self._lock(); self.sim_busy = why
+        self._lock('sim_busy'); self.sim_busy = why
 
     def want_stop_pub(self):
         """앱이 잠겼는데 시뮬이 아직 STOP 이 아니면 STOP 을 다시 보낸다(재개 대기 중은 제외)."""
@@ -304,6 +315,8 @@ class Core:
         block = self.sim_block()
         if block:
             if self.sim_was_ok:
+                self.lock_log.emit('stop', {'시뮬 상태 미수신': 'sim_unseen', '시뮬 상태 끊김': 'sim_stale',
+                    '시뮬 리셋 중': 'sim_resetting', '정책 미실행': 'policy_not_running'}.get(block, 'sim_busy'))
                 self.ev('warn', f'{block} → 명령 0 · 입력 버림')
             if self.resume_pending:
                 self.resume_pending = None; self.ev('warn', '재개 요청 취소 · 시뮬 상태 이상')
@@ -320,6 +333,7 @@ class Core:
             self.reason = 'STOP 요청 · 명령 잠금'; return Z
         if now - self.intent_t > DEAD:
             if self.intent != Z:
+                self.lock_log.emit('stop', 'input_deadman')
                 self.ev('warn', '입력 끊김 0.3 s → 명령 0')
             self._void(); self.reason = ''; return Z
         c, why = self.velocity_projection(*self.intent)

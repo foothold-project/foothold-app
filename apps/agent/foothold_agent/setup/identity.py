@@ -42,6 +42,7 @@ class MacIdentity:
         self.fault = False
         self.binding = None
         self.failure_epoch = 0
+        self.failure_cause = "identity_check_failed"
         self.unavailable = False
         self._lock = threading.Lock()
 
@@ -59,6 +60,7 @@ class MacIdentity:
         started = self.now() if started is None else started
         with self._lock:
             epoch = self.failure_epoch
+        failure_cause = "identity_check_failed"
         try:
             if self.fault or observed_serial != '0-0':
                 raise IdentityConflict('zero identity changed')
@@ -68,6 +70,7 @@ class MacIdentity:
                 raise IdentityConflict('body identity changed')
             self._zero_identity()
             if not 0 <= self.now()-started < .20:
+                failure_cause = 'identity_check_delayed'
                 raise PermissionError('body identity expired')
             with self._lock:
                 if self.fault or epoch != self.failure_epoch:
@@ -81,6 +84,8 @@ class MacIdentity:
             with self._lock:
                 self.checked = float('-inf')
                 self.failure_epoch += 1
+                self.failure_cause = ("identity_changed" if isinstance(error, IdentityConflict) else
+                                      failure_cause)
                 self.fault = self.fault or isinstance(error, IdentityConflict)
                 if not self.fault and not self.unavailable:
                     logging.getLogger(__name__).warning('기체 확인 잠시 안 됨')

@@ -7,6 +7,7 @@ on_robot_state() must receive real bridge feedback before Core can allow motion.
 """
 
 from .history import History
+from foothold_agent.safety.lock_log import server_cause
 import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
@@ -208,6 +209,7 @@ class Session:
                 and self.run["status"] not in TERMINAL and self.executor_t is not None
                 and self.now() - self.executor_t > DEAD):
             self.core._void()
+            self.core.lock_log.emit("stop", "executor_stalled")
             self._run_status("FAILED", "EXECUTOR_STALLED")
             self._event("EXECUTOR_STALLED")
         if self.holder_type == "RUN" and (self.run is None or self.run["status"] != "RUNNING"):
@@ -446,7 +448,9 @@ class Session:
         changed = lease != self.lease_id or holder != self.holder_type or run_id != self.holder_run_id
         if lease is None or changed:
             if self.core.controller is not None:
-                self.core.drop(self.core.controller, "server lease")
+                self.core.drop(self.core.controller, "server lease",
+                               cause=server_cause(frame) if self.server_link else "lease_changed",
+                               source="server" if self.server_link else "agent")
             elif invalid and not self.core.latch:
                 self.core.stop("invalid lease")
             else:
@@ -476,7 +480,12 @@ class Session:
         urgent_stop = (self.connected and not self.reconnect_required
                        and isinstance(frame, dict) and frame.get('t') == 'stop')
         if urgent_stop:
-            self.core.stop("server STOP")  # no lease or user check on STOP
+            if not self.server_link:
+                self.core.stop("server STOP", cause="other_stop", source="agent")
+            elif server_cause(frame) == "unknown":
+                self.core.stop("server STOP")  # legacy frame; no lease or user check
+            else:
+                self.core.stop("server STOP", cause=server_cause(frame), source="server")
             # This Session entry is also used by Hub.stop(); do not claim it
             # proves that a cloud server or a particular peer originated STOP.
             self.core._safety_log.emit('stop_received', 'session_stop_frame', _log_source(), stop_gen=self.core.stop_gen)

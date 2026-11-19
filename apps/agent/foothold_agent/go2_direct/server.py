@@ -53,11 +53,11 @@ class DriveSession(Session):
                 and self.lease_confirmed and self.holder_type == 'USER'
                 and self.lease_id == lease and self.posture_gate())
 
-    def feedback_lost(self):
+    def feedback_lost(self, *, cause='feedback_lost'):
         # Keep the transport reporting the lock; recovery still needs a fresh
         # physical stop, explicit unlock and new neutral on the retained lease.
         self.core.st = None
-        self.core.stop('local feedback unavailable')
+        self.core.stop('local feedback unavailable', cause=cause)
         return self._finish((MotionCommand('stop'),), state=True)
 
     def transport_closed(self, close_code, *, retry):
@@ -204,6 +204,9 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
         healthy = False
         while not any(task.done() for task in tasks):
             if feedback.fault or time.monotonic() >= deadline:
+                cause = 'feedback_identity_conflict' if feedback.fault else 'approval_expired'
+                session.core.lock_log.emit('stop', cause)
+                session.core.lock_log.emit('lock', cause)
                 raise PermissionError('identity conflict or approval expired')
             if sink.error is not None:
                 raise RuntimeError('Go2 output failed') from sink.error

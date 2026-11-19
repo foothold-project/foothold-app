@@ -96,6 +96,7 @@ export interface AgentInput {
 }
 
 export interface AgentLease {
+  cause?: "unknown" | "user_stop" | "lease_release" | "lease_expired" | "lease_take" | "lease_transfer" | "run_takeover" | "transfer_canceled" | "screen_hidden" | "access_revoked" | "robot_changed" | "screen_auth_revoked" | "screen_policy_stale" | "screen_disconnected" | "agent_auth_revoked" | "agent_policy_stale" | "agent_connected" | "agent_disconnected" | "agent_silent" | "field_approval_revoked" | "audit_unavailable" | "run_finished" | "transfer_access_lost" | "archive_blocked" | "drive_command_rejected" | "drive_frame_invalid" | "drive_settings_changed" | null;
   t: "lease";
   lease_id: string | null;
   holder_type: "USER" | string | null;
@@ -232,6 +233,7 @@ export interface AgentState {
 }
 
 export interface AgentStop {
+  cause?: "unknown" | "user_stop" | "lease_release" | "lease_expired" | "lease_take" | "lease_transfer" | "run_takeover" | "transfer_canceled" | "screen_hidden" | "access_revoked" | "robot_changed" | "screen_auth_revoked" | "screen_policy_stale" | "screen_disconnected" | "agent_auth_revoked" | "agent_policy_stale" | "agent_connected" | "agent_disconnected" | "agent_silent" | "field_approval_revoked" | "audit_unavailable" | "run_finished" | "transfer_access_lost" | "archive_blocked" | "drive_command_rejected" | "drive_frame_invalid" | "drive_settings_changed" | null;
   t: "stop";
   by_user_id: string | null;
   stop_ref: number;

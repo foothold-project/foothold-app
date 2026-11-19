@@ -97,7 +97,7 @@ class GatedSession(DriveSession):
         return super().receive(frame)
 
     def disconnect(self):
-        self.gate.revoke()
+        self.gate.revoke_with_cause("connection_changed")
         return super().disconnect()
 
     def unlock_verified(self, frame):
@@ -106,11 +106,11 @@ class GatedSession(DriveSession):
         return self.feedback_lost()
 
     def transport_closed(self, close_code, *, retry):
-        self.gate.revoke()
+        self.gate.revoke_with_cause("transport_closed")
         return super().transport_closed(close_code, retry=retry)
 
     def shutdown(self):
-        self.gate.revoke()
+        self.gate.revoke_with_cause("shutdown")
         return super().shutdown()
 
     def _state(self):
@@ -121,9 +121,11 @@ class GatedSession(DriveSession):
 
 
 class Gate:
-    def __init__(self, nic, serial, inputs, *, ready, nic_matches, wall=time.time, now=time.monotonic, last_expiry=None, remember=None):
+    def __init__(self, nic, serial, inputs, *, ready, nic_matches, wall=time.time, now=time.monotonic, last_expiry=None, remember=None, nic_cause=lambda: "nic_mismatch"):
         self.nic, self.serial, self.inputs = nic, serial, inputs
         self.ready, self.nic_matches = ready, nic_matches
+        self.nic_cause = nic_cause
+        self.invalid_cause = "approval_revoked"
         self.wall, self.now = wall, now
         self.active = self.pending = self.session = None
         self.last_expiry = float('-inf') if last_expiry is None else last_expiry
@@ -135,20 +137,26 @@ class Gate:
         self.identity_epoch = 0 if getattr(inputs, 'mac_identity', None) is None else inputs.mac_identity.failure_epoch
 
     def approve(self, expiry):
+        cause = "approval_revoked" if expiry is None else "approval_invalid"
         try:
             expiry = timestamp(expiry)
             # Duplicate delivery is harmless; it cannot extend a monotonic epoch.
             if expiry == self.last_expiry:
                 return
             if expiry < self.last_expiry or self.session is None or not self.session.connected:
+                cause = "approval_connection"
                 raise PermissionError('fresh approval on connected transport required')
             approval = validate_value(dict(v=1, purpose='go2-field-motion', nic=self.nic.name,
                                           robot_serial=self.serial, expires_at=expiry), self.nic.name,
                                       now=self.wall(), clock_skew_s=SERVER_CLOCK_SKEW_S)
-            if not self.ready or not self.nic_matches() or self.inputs.identity() != self.serial:
+            cause = "identity_unavailable"
+            if (not self._check(self.ready, "preflight_unavailable")
+                    or not self._check(self.nic_matches(), self.nic_cause)
+                    or not self._check(self.inputs.identity() == self.serial, "identity_changed")):
+                cause = self.invalid_cause
                 raise PermissionError('preflight and current identity required')
         except (ValueError, TypeError, PermissionError, OverflowError):
-            self.revoke()
+            self.revoke_with_cause(cause)
             return
         if self.active is not None and self.valid():
             # A fresh bounded marker on this same healthy connection renews
@@ -162,12 +170,19 @@ class Gate:
                 if isinstance(boundary, SportBoundary):
                     boundary.renew(approval, deadline=self.deadline)
             return
-        self.revoke()
+        self.revoke_with_cause(self.invalid_cause if self.active is not None else "approval_replaced")
         self.last_expiry = expiry
         self.deadline = self.now()+max(0., expiry-self.wall())
         self.pending = approval
 
+    def revoke_with_cause(self, cause):
+        # Keep the existing no-argument cleanup hook (including failure hooks).
+        self.revoke_cause = cause
+        return self.revoke()
+
     def revoke(self):
+        cause = getattr(self, 'revoke_cause', 'approval_revoked')
+        self.revoke_cause = 'approval_revoked'
         active, self.active = self.active, None
         self.pending = None
         self.epoch += 1
@@ -177,11 +192,11 @@ class Gate:
             if self.session.identity_gate is not None:
                 self.session.identity_gate.close()
             self.session.core.st = None
-            self.session.core.stop('field approval unavailable')
+            self.session.core.stop('field approval unavailable', cause=cause)
             self.session.lease_confirmed = False
             self.session.lease_id = self.session.holder_type = self.session.holder_run_id = None
             if self.session.core.controller is not None:
-                self.session.core.drop(self.session.core.controller, 'field approval unavailable')
+                self.session.core.drop(self.session.core.controller, 'field approval unavailable', cause=cause)
         try:
             if active is not None:
                 for boundary in (active.sink.client, active.sink.emergency_client):
@@ -196,27 +211,39 @@ class Gate:
             if self.inputs.feedback is not None:
                 self.inputs.feedback.sink = None
 
+    def _check(self, value, cause):
+        if not value:
+            self.invalid_cause = cause() if callable(cause) else cause
+        return value
+
     def valid(self):
         try:
-            return (self.ready and self.nic_matches() and self.now() < self.deadline
-                    and (getattr(self.inputs, 'mac_identity', None) is None
-                         or self.identity_epoch == self.inputs.mac_identity.failure_epoch)
-                    and self.wall() < self.last_expiry and self.inputs.identity() == self.serial
-                    and not self.inputs.feedback.fault and self.session.connected
-                    and not self.session.link_lost and not self.session.reconnect_required)
+            return (self._check(self.ready, 'preflight_unavailable')
+                    and self._check(self.nic_matches(), self.nic_cause)
+                    and self._check(self.now() < self.deadline, 'approval_expired')
+                    and self._check((getattr(self.inputs, 'mac_identity', None) is None
+                         or self.identity_epoch == self.inputs.mac_identity.failure_epoch),
+                        lambda: getattr(self.inputs.mac_identity, 'failure_cause', 'identity_check_failed'))
+                    and self._check(self.wall() < self.last_expiry, 'approval_expired')
+                    and self._check(self.inputs.identity() == self.serial, 'identity_changed')
+                    and self._check(not self.inputs.feedback.fault, 'feedback_identity_conflict')
+                    and self._check(self.session.connected, 'connection_changed')
+                    and self._check(not self.session.link_lost, 'link_lost')
+                    and self._check(not self.session.reconnect_required, 'connection_changed'))
         except (ValueError, PermissionError):
+            self.invalid_cause = 'identity_unavailable'
             return False
 
     def allowed(self):
         if self.active is not None and not self.valid():
-            self.revoke()
+            self.revoke_with_cause(self.invalid_cause)
         return self.active is not None
 
     def prepare_activation(self):
         if self.pending is None:
             return
         if not self.valid():
-            self.revoke()
+            self.revoke_with_cause(self.invalid_cause)
             return
         feedback = self.inputs.feedback
         if feedback.sample() is None:
@@ -234,10 +261,10 @@ class Gate:
         if epoch != self.epoch:
             return
         if not self.valid():
-            self.revoke()
+            self.revoke_with_cause(self.invalid_cause)
             return
         if self.inputs.feedback.sample() is None:
-            self.revoke()
+            self.revoke_with_cause("activation_feedback_lost")
             return
         feedback = self.inputs.feedback
         sink = sink_factory(*clients, phone_watchdog=True)
@@ -250,7 +277,7 @@ class Gate:
         feedback.sink = sink
         sink.start_threads()
         if not self.valid():
-            self.revoke()
+            self.revoke_with_cause(self.invalid_cause)
 
     def activate(self, subscriptions, *, connect=connect_approved, sink_factory=Go2Sink):
         approval = self.prepare_activation()
@@ -293,8 +320,10 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                                accept_error_codes=(100,))
     logging.getLogger(__name__).warning('서버 시험 운동 상태 허용: 100(Agile)')
     nic_valid = True
+    nic_cause = "nic_mismatch"
     gate = Gate(nic, credentials.robot_serial, inputs, ready=ready, nic_matches=lambda: nic_valid,
-                last_expiry=credentials.last_field_approval_expires_at, remember=remember)
+                last_expiry=credentials.last_field_approval_expires_at, remember=remember,
+                nic_cause=lambda: nic_cause)
     session = GatedSession(inputs.feedback, gate)
     if identity is not None:
         session.identity_gate = ResumeGate(None, inputs.feedback, check=identity.verify_resume)
@@ -335,17 +364,20 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 if nic_task.done():
                     try:
                         nic_valid = nic_task.result() is True
+                        nic_cause = "nic_mismatch"
                     except Exception:
                         nic_valid = False
+                        nic_cause = "nic_check_failed"
                     nic_task = None
                 elif stamp-next_nic > .20:
                     nic_valid = False  # hung kernel query cannot keep motion enabled
+                    nic_cause = "nic_check_delayed"
             gate.allowed()
             if identity is None:
                 gate.activate(subscriptions, connect=connect, sink_factory=sink_factory)
             elif activation_task is not None:
                 if activation_epoch == gate.epoch and not gate.valid():
-                    gate.revoke()
+                    gate.revoke_with_cause(gate.invalid_cause)
                 if activation_task.done():
                     clients = activation_task.result()
                     activation_task = None
@@ -436,7 +468,7 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
         failed_sink = None if gate.active is None else gate.active.sink
         try:
             try:
-                gate.revoke()
+                gate.revoke_with_cause("runtime_exit")
             except BaseException as cleanup_error:
                 if not (failure is not None and failed_sink is not None
                         and failed_sink.error is not None

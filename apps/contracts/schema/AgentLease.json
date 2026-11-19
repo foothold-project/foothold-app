@@ -3,6 +3,47 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "cause": {
+      "anyOf": [
+        {
+          "enum": [
+            "unknown",
+            "user_stop",
+            "lease_release",
+            "lease_expired",
+            "lease_take",
+            "lease_transfer",
+            "run_takeover",
+            "transfer_canceled",
+            "screen_hidden",
+            "access_revoked",
+            "robot_changed",
+            "screen_auth_revoked",
+            "screen_policy_stale",
+            "screen_disconnected",
+            "agent_auth_revoked",
+            "agent_policy_stale",
+            "agent_connected",
+            "agent_disconnected",
+            "agent_silent",
+            "field_approval_revoked",
+            "audit_unavailable",
+            "run_finished",
+            "transfer_access_lost",
+            "archive_blocked",
+            "drive_command_rejected",
+            "drive_frame_invalid",
+            "drive_settings_changed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cause"
+    },
     "holder_type": {
       "anyOf": [
         {
