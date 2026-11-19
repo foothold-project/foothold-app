@@ -235,7 +235,9 @@ function receive(m: { t?: unknown }) {
 
 /** 상세 서랍에 보이는 위치(0.1 m·초)·장치 — 이것만 바뀌어도 다시 그린다 */
 const d1 = (rad?: number | null) => (rad == null ? null : ((rad * 180) / Math.PI).toFixed(1));
-const info = (x?: ScreenState['robot_info']) => x && [d1(x.attitude?.roll), d1(x.attitude?.pitch), x.error_code, x.fallen];
+// 관절 온도(정수 °C)·reserve 도 넣는다: 앉아 있어 자세·배터리가 그대로여도 온도 경고는 바뀌어야 한다(리뷰 #389)
+const info = (x?: ScreenState['robot_info']) => x && [d1(x.attitude?.roll), d1(x.attitude?.pitch), x.error_code, x.fallen,
+  x.motor_temps && [x.motor_temps.celsius.map(Math.round), x.motor_temps.reserve_nonzero]];
 const shown = (s: ScreenState) => {
   const l = s.location;
   const relay = s.phone_relay;

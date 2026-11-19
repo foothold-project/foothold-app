@@ -8,8 +8,12 @@ import type { Tone } from './fake';
 export const TEMP_C = { caution: 50, warn: 60, danger: 70 } as const;
 /** 배터리 알림 단계 (막지 않음) */
 export const BATTERY_ALERT_PCT = [20, 10] as const;
-/** 서 있기만 해도 약 0.7 %/분 (11/19 새벽 실측). 걸으면 더 빠르다 (미측정) */
-export const STAND_DRAIN_PCT_PER_MIN = 0.7;
+/** 서 있기만 해도 약 0.86 %/분 (11/19 05:00 27 % → 05:07 21 % = 6 %p / 7 분). 걸으면 더 빠르다 (미측정).
+ *  lab 문서의 «약 0.7» 은 같은 기록에서 나온 어림값이라 기록 숫자로 바로잡음 (리뷰 #389) */
+export const STAND_DRAIN_PCT_PER_MIN = 0.86;
+/** 5b 이상 체크 중 같은 다리 비교: 한 관절이 같은 다리 다른 관절보다 이만큼 넘게 높으면 알림 (lead 제안 값 · 잠정).
+ *  «2 분에 10 °C 넘게 오름» 은 지난 값 기록이 필요해 아직 미구현 */
+export const LEG_GAP_C = 15;
 
 export type Heat = 'ok' | 'caution' | 'warn' | 'danger';
 const RANK: Record<Heat, number> = { ok: 0, caution: 1, warn: 2, danger: 3 };
@@ -31,6 +35,14 @@ export function heatOf(t: Go2MotorTemps): { worst: JointHeat; joints: JointHeat[
   });
   const worst = joints.reduce((a, b) => (RANK[b.heat] > RANK[a.heat] || (RANK[b.heat] === RANK[a.heat] && b.c > a.c) ? b : a));
   return { worst, joints };
+}
+
+/** 같은 다리 다른 두 관절 중 더 뜨거운 것보다 LEG_GAP_C 넘게 높은 관절 (없으면 빈 배열) */
+export function legOutliers(joints: JointHeat[]): JointHeat[] {
+  return joints.filter((j) => {
+    const leg = j.name.slice(0, 3), others = joints.filter((o) => o !== j && o.name.startsWith(leg));
+    return others.length > 0 && j.c - Math.max(...others.map((o) => o.c)) > LEG_GAP_C;
+  });
 }
 
 export type Battery = 'ok' | 'low20' | 'low10';
