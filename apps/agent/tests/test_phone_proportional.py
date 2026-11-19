@@ -34,13 +34,14 @@ def test_reverse_lateral_and_spin_stay_zero(axes):
     assert velocity == Z and reason
 
 
-def test_exact_phone_alphabet_and_server_alphabet_remains_fixed():
+def test_phone_and_server_alphabets_are_separate_and_exact():
     expected = {Z} | {(step / 10, 0, turn)
                       for step in range(3, 16) for turn in (0, -.5, .5)}
     assert ALLOWED == expected == {tuple(v) for v in LIMITS['commands']}
     assert len(ALLOWED) == 40
     assert SERVER_ALLOWED == {Z, (1.5, 0, 0), (-1.5, 0, 0), (0, 1., 0),
-        (0, -1., 0), (0, 0, .5), (0, 0, -.5), (1.5, 0, .5), (1.5, 0, -.5)}
+        (0, -1., 0), (0, 0, .5), (0, 0, -.5), (1.5, 0, .5), (1.5, 0, -.5),
+        (0, 0, 2.5), (0, 0, -2.5), (1.5, 0, 2.5), (1.5, 0, -2.5)}
     assert DEAD == DEADLINE_S == .3
 
 
