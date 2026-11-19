@@ -11,6 +11,7 @@ import { simTune } from '../phone';
 import { SD_NOTE } from '../serverdrive';
 import { REPORT_STALE_MS, go2Pose } from '../pcdrive';
 import quadCss from '../quad.css?raw';
+import pcCss from '../pcdrive.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -117,6 +118,22 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(left().hasAttribute('data-stale')).toBe(true);
     act(() => push('r7', { robot_info: info(), connection: 'OFFLINE' }));
     expect(left().hasAttribute('data-stale')).toBe(true);
+  });
+
+  it('상태 글자는 그림 위 별도 영역(그림 칸 밖·겹쳐 놓지 않음), 그림 칸엔 Go2·관절 값 12개만 — «관절 값» 단추로 끄고 켬', () => {
+    mount('u-park'); serve('r7');
+    act(() => push('r7', { robot_info: info() }));
+    const facts = $('[data-pd-facts]')!, stage = $('[data-pd-stage]')!;
+    expect(stage.contains(facts)).toBe(false); expect(facts.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const k of ['posture', 'move', 'battery', 'speed', 'hspeed', 'holder', 'why', 'ago']) {
+      expect(facts.querySelector(`[data-pd="${k}"]`)).not.toBeNull(); expect(stage.querySelector(`[data-pd="${k}"]`)).toBeNull();
+    }
+    expect(pcCss).not.toMatch(/\.pd-facts\{[^}]*position:absolute/);
+    expect(stage.querySelectorAll('[data-go2-joint]')).toHaveLength(12);
+    click($('[data-pd-tags]')!);
+    expect($('[data-pd-tags]')!.getAttribute('aria-pressed')).toBe('false'); expect(stage.querySelectorAll('[data-go2-joint]')).toHaveLength(0);
+    click($('[data-pd-tags]')!);
+    expect(stage.querySelectorAll('[data-go2-joint]')).toHaveLength(12);
   });
 
   it('왼쪽 글자: 자세·움직일 수·배터리·보내는 속도·조종하는 사람·잠긴 까닭·마지막 보고, 자세 단추는 조종 중에만', () => {
