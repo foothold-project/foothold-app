@@ -65,6 +65,8 @@ class Source:
             detail = None
             last_arrival = retry_at = 0.
             last_displayed = None
+            choice_seen = float('-inf')
+            previous_request = None
             counts = Counter()
             next_report = self.now() + REPORT_SECONDS
             rows = []
@@ -74,6 +76,16 @@ class Source:
                     rows = discovery.poll()
                     requested = (self.status.depth_choice() if self.status else None) or self.env.get('FH_GO2_DEPTH_TOPIC')
                     choice = choose(rows, requested)
+                    if choice is not None:
+                        choice_seen = stamp
+                    elif (images is not None and previous_request == requested
+                          and stamp - choice_seen < STALL_SECONDS
+                          and all(row['name'] != selected['name'] for row in rows)):
+                        # A publisher can disappear from discovery for a few polls.
+                        # Keep its existing reader and menu entry for a bounded grace.
+                        choice = selected
+                        rows = [selected, *rows[:63]]
+                    previous_request = requested
                     if choice != selected:
                         if images is not None:
                             images.close()

@@ -49,6 +49,8 @@ def choose(rows, requested=None):
 def notice(rows, selected):
     if not rows:
         return EMPTY
+    if selected is None and not any(row['supported'] for row in rows):
+        return '카메라는 보이지만 선택할 영상이 아직 없습니다'
     if selected is None:
         return '보이는 영상 중 뎁스 영상을 고르세요 — 이름만으로 깊이 자료인지는 확인할 수 없습니다'
     return '뎁스 영상 수신 대기 — 실제 깊이 자료를 받으면 웹·폰에 표시합니다'

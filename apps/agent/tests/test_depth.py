@@ -455,6 +455,58 @@ def test_intermittent_depth_status_and_bounded_reopen_without_stale_frames(caplo
     assert '최근 뎁스 영상을 받았습니다' in notices[-1][1]
 
 
+def test_temporary_discovery_gap_keeps_reader_and_persistent_loss_clears_selection():
+    from foothold_agent.depth.source import STALL_SECONDS
+
+    clock = [0.]
+    rows = image_topics(endpoints(('rt/custom/depth', IMAGE), ('rt/camera/info', 'CameraInfo')))
+    info_only = [row for row in rows if not row['supported']]
+    topic = choose(rows)['name']
+    lifetime, states = [], []
+
+    def poll():
+        t = clock[0]
+        return info_only if 1 <= t < 3 or t >= 5 else rows
+
+    class Images:
+        def __init__(self, participant, selected):
+            lifetime.append('opened')
+
+        def take(self):
+            if clock[0] >= 5:
+                return []
+            message = raw()
+            message.header.stamp.sec = 0
+            message.header.stamp.nanosec = 0
+            return [message]
+
+        def close(self):
+            lifetime.append('closed')
+
+    def update(**state):
+        states.append((clock[0], state))
+        if clock[0] >= 5 + STALL_SECONDS + 1:
+            source.close()
+
+    source = Source(NS(robot=str(uuid4())), now=lambda: clock[0],
+                    status=NS(update=update, depth_choice=lambda: None), participant=lambda: 'shared',
+                    discovery=lambda _: NS(poll=poll, close=lambda: None), images=Images)
+
+    def advance(seconds):
+        clock[0] += seconds
+        assert clock[0] < 20
+
+    source.closing.wait = advance
+    source.run()
+    assert lifetime == ['opened', 'closed']
+    gap = [state for t, state in states if 1 <= t < 3]
+    assert gap and all(state['depth_selected'] == topic and choose(state['depth_topics']) for state in gap)
+    assert all('최근 뎁스 영상을 받았습니다' in state['depth_notice'] for state in gap)
+    assert states[-1][1]['depth_selected'] is None
+    assert states[-1][1]['depth_topics'] == info_only
+    assert '선택할 영상이 아직 없습니다' in states[-1][1]['depth_notice']
+
+
 @pytest.mark.parametrize('case',['missing-range','equal','nan','source','rgb-with-depth','episode'])
 def test_contract_rejects_fake_or_unlabelled_depth(case):
     header=colour(raw())[0]
