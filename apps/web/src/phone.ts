@@ -270,11 +270,13 @@ export function allowed(w: PhoneWelcome | null) {
   const L = w ? tuned(w).L : null, exp = L?.experimental ?? [];
   return { back: !!L && L.vx_min < 0, left: !!L && L.vy_max > 0, right: !!L && L.vy_min < 0, spin: exp.includes('turn_in_place'), experimental: exp.length > 0 };
 }
+/** STOP 을 보낸 뒤 이 STOP 의 새 세대 보고(stop_gen > g0)가 오기 전 — 옛 latched=false 가 남아 있어도 입력 0(rt.cmd 와 같은 규칙) */
+export const stopping = () => { const p = S.stop, st = S.link?.st; return !!p && !p.latched && !!st && st.stop_gen <= (p.g0 ?? Infinity); };
 /** 50 ms 박자: 조종권이 있으면 cmd(중립 0 포함), 1 s 마다 ping(§13.1 — cmd 가 ping 을 대신하지 않음) */
 function beat() {
   const l = S.link;
   if (!l || l.at !== 'open' || !l.welcome) return;
-  if (l.lease && !runMoving(l.run)) send({ t: 'cmd', lease_id: l.lease, seq: ++seq, ...velocity(l.st?.latched === false ? axes : [0, 0], l.welcome) });
+  if (l.lease && !runMoving(l.run)) send({ t: 'cmd', lease_id: l.lease, seq: ++seq, ...velocity(l.st?.latched === false && !stopping() ? axes : [0, 0], l.welcome) });
   if (l.welcome.simulation === true) simPing();
   else if (tick++ % (PING_MS / CMD_MS) === 0) send({ t: 'ping', client_time_ms: Date.now() });
   if (l.ask && l.ask.until < now()) setLink({ ask: null });
@@ -335,6 +337,7 @@ function onMsg(raw: string) {
     simPing();
     const st = m as unknown as PhoneState, echo = st.echo, fresh = echo && echo.id !== lastEcho;   // 같은 echo 는 10 Hz 로 되풀이 — 새 짝일 때만 왕복 시간
     if (fresh) lastEcho = echo.id;
+    if (l.st && (st.stop_gen !== l.st.stop_gen || st.latched !== l.st.latched)) axes = [0, 0];   // 잠김·해제·stop_gen 이 바뀌면 이전 입력을 버린다 — 화면은 새로 누른 입력만 다시 넣는다
     // 반납 답 전의 옛 state 로 lease 를 되살리지 않음
     setLink({ st, stAt: now(), lease: l.busy === 'release' ? null : st.lease_id, rtt: fresh ? Date.now() - echo.client_time_ms : l.rtt,
       run: st.run === undefined ? l.run : seeRun(st.run) });   // run 이 없는 옛 에이전트면 그대로
