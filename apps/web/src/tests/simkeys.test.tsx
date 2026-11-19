@@ -305,6 +305,39 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
   });
 
+  // RV-429: 직결 경로도 서버 경유(rt inputGen)와 같은 세대 규칙 — 명령 틱 공백·늦은 조직 설정·Cmd 뗌
+  it('RV-429 ① 명령 틱이 300 ms 넘게 멈춘 뒤 새 누름 없이 앞 입력(W)을 다시 보내지 않음 — 떼고 새로 누르면 값', async () => {
+    await ready();
+    await key('keydown', 'KeyW'); expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    const real = performance.now.bind(performance), gap = vi.spyOn(performance, 'now').mockImplementation(() => real() + 400);
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 0.6
+    await key('keydown', 'KeyA');
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 앞 세대 W 가 남아 0
+    await key('keyup', 'KeyW'); expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0.5 });
+    await key('keyup', 'KeyA'); expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+    gap.mockRestore();
+  });
+  it('RV-429 ② W 를 누른 채 조직 설정이 늦게 오면 0 — 같은 W 로 새 값이 나가지 않음, 새로 누르면 새 값', async () => {
+    let answer: (r: Reply) => void = () => {};
+    await ready(welcome(), { 'GET /org/settings': () => new Promise<Reply>((f) => { answer = f; }) });
+    await key('keydown', 'KeyW'); expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    answer({ status: 200, body: { sim_key_vx: 0.4 } }); await flush();
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 0.4(W 다시 합산)
+    await key('keyup', 'KeyW'); await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.4, 5);
+    await key('keyup', 'KeyW'); expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+  });
+  it('RV-429 ③ Cmd 를 누른 채 W → Cmd 뗌(W keyup 없음) → 0, Cmd 없이 새로 누르면 값', async () => {
+    await ready();
+    await key('keydown', 'MetaLeft', { key: 'Meta', metaKey: true });
+    await key('keydown', 'KeyW', { metaKey: true });
+    await key('keyup', 'MetaLeft', { key: 'Meta' });
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+    await key('keydown', 'KeyA');
+    expect(await lastCmd()).toMatchObject({ wz: 0.5 });
+    await key('keyup', 'KeyA');
+  });
+
   it('Space 는 PR #94·#96 그대로 STOP — 시뮬 탭이면 이 시뮬 로봇에 직접 stop', async () => {
     const a = await ready();
     await key('keydown', 'Space');

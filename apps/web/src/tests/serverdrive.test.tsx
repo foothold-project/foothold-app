@@ -910,4 +910,26 @@ describe('RV-426: PC 입력 세대 마무리', () => {
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
     key('keyup', 'ArrowUp');
   });
+
+  // RV-429 ③: 맥은 Cmd 누른 동안 다른 키의 keyup 을 주지 않는다 — ↑ keyup 없이 Cmd 를 떼도 전진이 남으면 안 된다
+  const mk = (type: 'keydown' | 'keyup', code: string, o: KeyboardEventInit = {}) => act(() => { window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...o })); });
+  it('RV-429 ③ Cmd 를 누른 채 ↑ → Cmd 뗌(↑ keyup 없음) → 0, 다시 누르면 표 값', () => {
+    ready();
+    mk('keydown', 'MetaLeft', { key: 'Meta', metaKey: true });
+    mk('keydown', 'ArrowUp', { metaKey: true }); tick(60);
+    mk('keyup', 'MetaLeft', { key: 'Meta' }); tick(200);   // ↑ keyup 은 오지 않음(맥)
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 1.5,0,0
+    mk('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    mk('keyup', 'ArrowUp'); expect(lastAxes()).toBe('0,0,0');
+  });
+  it('RV-429 ③ ↑ 를 누른 채 Cmd → 0, Cmd 뗀 뒤에도 0 — 새로 눌러야', () => {
+    ready();
+    mk('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    mk('keydown', 'MetaLeft', { key: 'Meta', metaKey: true }); tick(60);
+    expect(lastAxes()).toBe('0,0,0');                       // 고치기 전: 1.5,0,0
+    mk('keyup', 'MetaLeft', { key: 'Meta' }); tick(200);
+    expect(lastAxes()).toBe('0,0,0');
+    mk('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    mk('keyup', 'ArrowUp');
+  });
 });
