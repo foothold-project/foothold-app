@@ -35,7 +35,7 @@ export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
 const PAD: [Tok[], string, string][] = [
   [['rotl', 'up'], '↑+A', '앞+왼쪽 회전'], [['up'], '↑', '앞 1.5'], [['rotr', 'up'], '↑+D', '앞+오른쪽 회전'],
-  [['left'], '←', '옆 왼쪽 1.5'], [['down'], '↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1.5'],
+  [['left'], '←', '옆 왼쪽 1'], [['down'], '↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1'],
   [['rotl'], 'A', '제자리 왼쪽'], [['rotr'], 'D', '제자리 오른쪽'],
 ];
 export const TRIAL = '실기 · 서버 경유 시험 · 미검증';
@@ -266,7 +266,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     : l.cooldown > rt.now() ? '잠시 뒤 다시 요청할 수 있습니다.'
     : l.holder?.type === 'RUN' ? '시나리오 실행 중에는 이 시험 화면에서 조종을 시작하지 않습니다.' : '';
   // 조종 시작/끝내기 — 조각으로 돌려주고 붙이는 쪽이 배치(같은 단추를 두 번 그리지 않게). 권한·기다릴 이유는 DriveButton 이 글로
-  const hint = <span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0. 조직 상한을 넘는 단추는 비활성</span>;
+  const hint = <span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0. 조직 상한을 넘는 단추는 비활성</span>;
   const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
   const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
   const poseRow = mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>

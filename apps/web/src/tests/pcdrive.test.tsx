@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScreenState } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
-import { FakeWS, lease, state } from './fakeWs';
+import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SD_NOTE } from '../serverdrive';
 import { REPORT_STALE_MS, go2Pose } from '../pcdrive';
@@ -145,6 +145,68 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     const n = w.of('cmd').length; key('keydown', 'ArrowUp'); tick(200);
     expect(w.of('cmd').slice(n).every((m) => (m.axes as number[]).every((v) => v === 0))).toBe(true);
     key('keyup', 'ArrowUp');
+  });
+
+  // RV-397 막는 것 1~4: 가운데 4칸 전체화면(이 묶음만 Fullscreen API) — jsdom 에는 없으므로 흉내(바로 fullscreenchange)
+  const fullscreen = () => {
+    const qd = $('[aria-label="조종 보기 4칸"]')!;
+    let el: Element | null = null;
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => el });
+    qd.requestFullscreen = async () => { el = qd; document.dispatchEvent(new Event('fullscreenchange')); };
+    document.exitFullscreen = async () => { el = null; document.dispatchEvent(new Event('fullscreenchange')); };
+    return qd;
+  };
+  const driving = () => { click(btn('조종 시작')); click(btn('② 잠금 해제')); tick(100); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0'); };
+  afterEach(() => { Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null }); });
+
+  it('전체화면을 «4분할»·«전체화면 끝»·브라우저(Esc)로 벗어나면 그 순간 0 — 키를 누르고 있어도 재개 없음', async () => {
+    mount('u-park'); serve('r7');
+    fullscreen(); driving();
+    for (const leave of [() => click($('[data-q-grid]')!), () => click(btn('전체화면 끝')), () => act(async () => { await document.exitFullscreen(); })]) {
+      if (!$('.qd.f')) click($('[data-q-grid]')!);
+      await act(async () => { btn('전체화면').click(); });
+      expect($('[data-qfs-stop]')).not.toBeNull();
+      key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+      await leave();
+      expect($('[data-qfs-stop]')).toBeNull();
+      expect(lastAxes()).toBe('0,0,0');
+      tick(220); expect(lastAxes()).toBe('0,0,0');
+      key('keyup', 'ArrowUp');
+    }
+  });
+
+  it('전체화면 STOP 이 거절되면 전체화면 안 STOP 옆에 «정지 요청 실패 — 현장 확인»', async () => {
+    mount('u-park'); serve('r7');
+    const auto = w.auto!; w.auto = (m) => (m.t === 'stop' ? fail('ROBOT_OFFLINE', '거절') : auto(m));
+    const qd = fullscreen();
+    await act(async () => { btn('전체화면').click(); });
+    click($('[data-qfs-stop] [data-sd-stop]')!); tick(100);
+    expect(w.of('stop').length).toBe(1);
+    const inner = $('[data-qfs-stop] [data-sd-stop-phase]');
+    expect(inner && qd.contains(inner)).toBe(true);
+    expect(inner!.textContent).toContain('정지 요청 실패 — 현장 확인');
+  });
+
+  it('전체화면의 «전체화면 끝»은 STOP 과 같은 줄에 따로(겹쳐 놓지 않음) — 눌러도 stop 0건', async () => {
+    mount('u-park'); serve('r7');
+    fullscreen();
+    await act(async () => { btn('전체화면').click(); });
+    const bar = $('[data-qfs-stop]')!, end = btn('전체화면 끝');
+    expect(bar.contains(end) && bar.contains($('[data-qfs-stop] [data-sd-stop]'))).toBe(true);   // 한 flex 줄 = 서로 자리를 비킴(실제 좌표는 headless 로)
+    await act(async () => { end.click(); });
+    expect(w.of('stop').length).toBe(0);
+  });
+
+  it('지도·라이다 칸이 모두 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
+    mount('u-park'); serve('r7');
+    const open = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).length;
+    expect(open()).toBe(1);
+    click($('[aria-label="조종 보기 4칸"] [data-tile="rgb"] .qh')!);   // 카메라 크게
+    expect(open()).toBe(1);   // 지도·라이다는 작은 칸으로 보임
+    click($('.qpip')!);   // 작은 칸 숨김 = 카메라만
+    expect(open()).toBe(0);
+    click($('.qpip')!);
+    expect(open()).toBe(1);
   });
 
   it('go2Pose: 관절 12개·연결·새것일 때만, 이름 순서대로 다시 맞춤', () => {

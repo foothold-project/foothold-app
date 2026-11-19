@@ -41,7 +41,7 @@ const poseOf = (p: unknown): Pose | null => {
   return q && [q.x, q.y, q.z, q.yaw].every((v) => typeof v === 'number' && Number.isFinite(v)) ? { x: q.x, y: q.y, z: q.z, yaw: q.yaw } : null;
 };
 export const RETRY_MS = 2000;
-export const DEPTH_HINT = '뎁스 카메라 영상이 아직 오지 않습니다. 노트북 화면의 «보이는 영상 목록»을 확인하세요';
+export const DEPTH_HINT = '뎁스 카메라 영상이 아직 오지 않습니다. 로봇 컴퓨터의 뎁스 카메라 프로그램이 켜져 있는지 확인하세요';
 export const NO_SIGNAL: Record<DriveCh, string> = { rgb: '카메라 신호 없음', lidar: '라이다 신호 없음', depth: '뎁스 카메라 신호 없음' };
 const blank = (state: Feed['state'] = 'wait', why = ''): Raw => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0, range: null, pose: null, path: [] });
 /** 계약 depth_min_m·depth_max_m: 유한·0≤min<max≤10000 — 아니면 null(RGB 를 뎁스로 보여 주지 않음) */
