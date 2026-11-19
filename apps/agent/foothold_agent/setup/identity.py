@@ -1,4 +1,4 @@
-"""Operator-confirmed 0-0 identity; no network writes or DDS initialization."""
+"""0-0 body identity for mounted computers and operator-confirmed laptops."""
 import asyncio
 import hashlib
 import logging
@@ -113,17 +113,18 @@ async def confirm_zero_identity(inputs, nic, status, stop, credentials, *,
     except Exception:
         raise IdentityUnavailable('로봇 몸의 연결 주소를 확인하지 못했습니다. 랜선이 로봇에 직접 꽂혀 있는지 확인한 뒤 프로그램을 다시 실행해 주세요.') from None
     if onboard:
+        if credentials is not None and (credentials.identity_source != 'mac'
+                or credentials.robot_mac != mac or credentials.robot_serial != identity.serial):
+            raise IdentityUnavailable('저장된 로봇과 다른 로봇입니다. 이 로봇으로 바꾸려면 등록을 다시 하세요')
         try:
             identity.binding = mounted_binding(nic, mac, computer=computer)
         except (OSError, ValueError, PermissionError):
-            # No stable local evidence means confirmation on every launch.
-            identity.binding = None
-        if (identity.binding is not None and credentials is not None
-                and credentials.identity_source == 'mac'
-                and credentials.robot_mac == mac and credentials.robot_serial == identity.serial
-                and credentials.mounted_binding == identity.binding):
-            inputs.mac_identity = identity
-            return identity
+            raise IdentityUnavailable('로봇 컴퓨터의 연결 정보를 저장할 수 없습니다. 설치 상태를 확인한 뒤 다시 실행해 주세요.') from None
+        # A dedicated mounted computer accepts its directly observed body on
+        # first registration too. Saved credentials may only follow that same
+        # body; local installation/NIC changes merely renew the private binding.
+        inputs.mac_identity = identity
+        return identity
     request = status.request_identity(mac, addresses)
     try:
         while not stop.is_set():

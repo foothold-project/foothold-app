@@ -69,11 +69,6 @@ async def connect(args, status, stop, *, discover=candidates, subscriptions_fact
             return
         status.update(serial=serial if inputs.mac_identity is None else None,
                       identity_source='mac' if inputs.mac_identity else 'serial')
-        if (getattr(args, 'onboard', False) and inputs.mac_identity is not None
-                and credentials is not None and (credentials.robot_serial != serial
-                or credentials.identity_source != 'mac' or credentials.robot_mac != inputs.mac_identity.mac)):
-            # Human has confirmed a changed body: never attach its old token.
-            credentials = None
         if credentials is not None and credentials.robot_serial != serial:
             raise PermissionError('saved serial differs from current DDS identity')
         if credentials is not None and ((credentials.identity_source == 'mac') !=
@@ -218,7 +213,7 @@ def main(argv=None):
     parser.add_argument('--server', help='first run: HTTPS server origin; later recovered from private saved connection')
     parser.add_argument('--repair', action='store_true',
                         help='explicitly pair again; replace the saved token only after phone confirmation succeeds')
-    parser.add_argument('--onboard', action='store_true', help='fixed robot computer installation; remember confirmed body binding')
+    parser.add_argument('--onboard', action='store_true', help='fixed robot computer installation; bind directly observed body without operator confirmation')
     parser.add_argument('--nic', help='choose one detected dedicated wired NIC when there are multiple')
     parser.add_argument('--port', type=int, default=9611)
     parser.add_argument('--config', type=Path, default=default_path(),
