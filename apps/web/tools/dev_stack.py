@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 
-def server(folder: Path, port: int):
+def server(folder: Path, port: int, seed=None, after=None):
+    """seed(db, org, users, stack) — 커밋 전에 DB 예시 자료 추가, after(stack) — 서버가 뜬 뒤 HTTP 로 예시 자료 추가(preview_stack.py)"""
     from alembic import command
     from alembic.config import Config
     from pgserver import initdb, pg_ctl
@@ -58,8 +59,11 @@ def server(folder: Path, port: int):
                      for k, name, role in (('kim', '김총괄', 'ORG_ADMIN'), ('park', '박운영', 'OPERATOR'), ('lee', '이운영', 'OPERATOR'))}
             db.add_all(users.values()); db.flush()
             robot = Robot(org_id=org.id, name='Go2-7', model='unitree_go2', owner_user_id=users['park'].id, agent_token_hash=digest(token))
-            db.add(robot); db.commit()
+            db.add(robot); db.flush()
             stack = {'org': str(org.id), 'robot': str(robot.id), 'agent_token': token, 'passwords': pw, 'base': f'http://127.0.0.1:{port}'}
+            if seed:
+                seed(db, org, users, stack)
+            db.commit()
         (folder / 'stack.json').write_text(json.dumps(stack, ensure_ascii=False, indent=1))
         (folder / 'stack.json').chmod(0o600)
 
@@ -68,6 +72,8 @@ def server(folder: Path, port: int):
         uv = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.server.fh_server.main:app', '--host', '127.0.0.1', '--port', str(port),
                                '--ws-max-size', '4096', '--workers', '1', '--no-proxy-headers'], cwd=ROOT, env=env)
         print(f'서버 {stack["base"]} — 계정·토큰은 {folder / "stack.json"}', flush=True)
+        if after:
+            after(stack, folder)
         uv.wait()
     except KeyboardInterrupt:
         pass
@@ -111,7 +117,14 @@ def agent(folder: Path):
                         Settings(url=stack['base'].replace('http', 'ws', 1) + '/api/v1/agent/ws', token=os.environ.get('FH_AGENT_TOKEN') or stack['agent_token']))
         task = asyncio.create_task(client.run())
         last = None
+        # FH_AGENT_POSE='{"floor_id":…,"map_version_id":…,"x":…,"y":…,"yaw":…,"soc":…}' 면 그 자리·배터리를 계속 보고(미리보기용 예시 값)
+        pose = json.loads(os.environ['FH_AGENT_POSE']) if os.environ.get('FH_AGENT_POSE') else None
         while not task.done():
+            if pose:
+                t = asyncio.get_running_loop().time()
+                seen = {'clock': 'simulation', 'received_monotonic_s': t, 'progress_monotonic_s': t}
+                client.update_telemetry({'observation': seen, 'battery': {'soc': pose['soc']},
+                                         'location': {**seen, **{k: pose[k] for k in ('floor_id', 'map_version_id', 'x', 'y', 'yaw')}}})
             vx, _, wz = bridge.velocity
             client.on_robot_state({'schema': SCHEMA, 'episode': 0, 'stop_requested': bridge.stop, 'reset_in_progress': False,
                                    'policy_running': True, 'vx': vx, 'wz': wz})

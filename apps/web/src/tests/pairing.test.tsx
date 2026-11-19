@@ -276,7 +276,7 @@ describe('PC 총괄 — 로봇 탭 읽기 전용 대시보드', () => {
     expect(list).toMatch(/Go2-A.*이운영/);
     expect(list).not.toContain('현장 승인');
     expect(list).toContain('배터리 낮음');
-    expect(list).toMatch(/Go2-B.*담당 없음.*▲ 연결 끊김/);
+    expect(list).toMatch(/Go2-B.*▲ 연결 끊김.*담당 없음/);   // 표 칸 순서 = hallmark(로봇·상태·배터리·하는 일·담당·마지막 보고)
     await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
     const d = card('로봇 상세');
     expect(d.textContent).toContain(SERIAL);

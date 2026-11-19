@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { Root } from './session';
 import './frame.css';
 import './brand.css';
+import './hallmark.css';
 import { syncTheme } from './theme';
 
 syncTheme();
