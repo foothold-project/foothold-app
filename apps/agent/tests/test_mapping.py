@@ -84,6 +84,27 @@ def test_limits_duplicates_nonfinite_and_preview_budget():
     assert core.command({**start,'op':'cancel'})
 
 
+def test_voxel_sort_avoids_gil_holding_row_unique_and_preserves_first_returns(monkeypatch):
+    unique = np.unique
+
+    def numeric_unique(values, *args, **kwargs):
+        # Row-wise unique in pinned NumPy 1.26.4 can block the identity worker.
+        assert kwargs.get('axis') is None
+        return unique(values, *args, **kwargs)
+
+    monkeypatch.setattr(np, 'unique', numeric_unique)
+    core = Accumulator(max_points=4)
+    assert core.command(command())
+    xyz = [(1.01, 0., 0.), (-1.01, .11, .12), (-1.01, .11, -.12),
+           (-1.02, .12, .13), (-1.01, -.11, .12), (2.01, 0., 0.)]
+    # An empty scan still advances the pose before the first usable return.
+    core.add([[0., 0., 0.]], [0, 0, 0], [1, 0, 0, 0], stamp=1, frame='odom')
+    assert not core.cells and core.last_cloud_stamp == 1
+    core.add(xyz, [0, 0, 0], [1, 0, 0, 0], stamp=2, frame='odom')
+    assert list(core.cells.values()) == [xyz[4], xyz[2], xyz[1], xyz[0]]
+    assert core.error_code == 'MAPPING_LIMIT'
+
+
 def test_frame_dispatch_has_zero_motion_and_preserves_existing_stop():
     from foothold_agent.go2_direct.readonly import Observer, Measurements
     observer = Observer(Measurements())

@@ -103,7 +103,16 @@ class Accumulator:
         if not np.isfinite(world).all() or (world.size and np.max(np.abs(world)) > 10000):
             raise ValueError('point range exceeded')
         keys = np.floor(world / .05).astype('int64')
-        _, indices = np.unique(keys, axis=0, return_index=True)
+        # A structured-row np.unique sort can hold the GIL longer than the
+        # identity freshness window. Sort native integer columns instead.
+        # lexsort is stable, so each voxel retains its first observed point.
+        indices = np.lexsort((keys[:, 2], keys[:, 1], keys[:, 0]))
+        if indices.size:
+            ordered = keys[indices]
+            first = np.empty(indices.size, dtype=bool)
+            first[0] = True
+            first[1:] = np.any(ordered[1:] != ordered[:-1], axis=1)
+            indices = indices[first]
         for index in indices:
             key = tuple(map(int, keys[index]))
             if key not in self.cells:
