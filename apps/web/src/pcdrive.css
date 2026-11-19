@@ -31,6 +31,15 @@
 /* 그림 위 관절 값·화살표 글자(어두운 그림 바탕 위 — 고정 밝은 글자). 자리는 go2model.tsx spread(겹치지 않게)가 정한다 */
 .pd-tag{position:absolute;z-index:1;pointer-events:none;overflow:hidden;box-sizing:border-box;display:flex;gap:3px;align-items:center;height:14px;padding:0 3px;border-radius:4px;background:rgba(8,11,14,.62);color:#E6EBEF;font-size:10px;line-height:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .pd-tag i{font-style:normal;color:#3EC7B4;font-weight:600}
+/* 관절 온도 점(go2model.tsx tempColor — 청록 한 색상 연함→진함, 없음 회색). 그림 칸 위에 겹친 층, 점만 눌림·초점 받음 */
+.pd-go2{position:relative}
+.pd-go2-dots{position:absolute;left:0;top:0;pointer-events:none}
+.pd-dot{position:absolute;z-index:2;pointer-events:auto;width:12px;height:12px;min-height:0;margin:-6px 0 0 -6px;padding:0;border:1.5px solid #E6EBEF;border-radius:50%;box-shadow:0 0 0 1px #05080A;cursor:help}
+.pd-dot:focus-visible{outline:2px solid #3EC7B4;outline-offset:2px}
+.pd-tip{position:absolute;z-index:4;transform:translate(-50%,-100%);padding:2px 6px;border-radius:4px;background:rgba(8,11,14,.92);color:#E6EBEF;font-size:11px;line-height:16px;white-space:nowrap;pointer-events:none}
+.pd-legend{position:absolute;z-index:1;display:flex;align-items:center;gap:4px;box-sizing:border-box;padding:0 5px;border-radius:4px;background:rgba(8,11,14,.62);color:#9AA7B3;font-size:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pd-legend i{flex:1;height:6px;border-radius:3px}
+.pd-legend .pd-legend-none{flex:0 0 8px;height:8px;border-radius:50%}
 .pd-tag-move{height:16px;font-size:11px;font-weight:600;color:#3EC7B4}
 .pd-mid{min-width:0}
 .pd-floor{position:absolute;inset:0;overflow:auto;padding:6px;background:var(--panel)}

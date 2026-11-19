@@ -16,7 +16,7 @@ import { STALLED } from './simdrive';
 import { MakeMap } from './screens/mapmake';
 import { floorsOf, purposeOf, useTree } from './screens/maps';
 import type { Robot } from './fake';
-import { Go2Figure, JOINTS, useGo2Motion, type Pose } from './go2model';
+import { Go2Figure, JOINTS, jointName, useGo2Motion, type Pose } from './go2model';
 import './pcdrive.css';
 
 /** 이만큼 넘게 새 보고가 없으면 «로봇 보고 없음»(서버 state 는 0.1 s 마다) */
@@ -30,6 +30,22 @@ export function go2Pose(s: Live['state'], fresh: boolean): Pose {
   const norm = w && w.length === 4 && w.every(Number.isFinite) ? Math.hypot(...w) : 0;
   return { q, wxyz: norm > 0.9 && norm < 1.1 ? w!.map((v) => v / norm) : [1, 0, 0, 0] };
 }
+
+/** robot_info.temperature(RB-TEMP-DATA) 모양 — 계약(Go2RobotInfo)에 아직 없어 여기 둔다. 계약에 들어오면 그 타입으로 바꾼다 */
+type Go2Temp = { joints?: unknown[]; battery?: unknown[]; imu?: unknown; body?: unknown[]; age_s?: number };
+/** 온도 보고가 이보다 오래되면(초) 온도만 «—»(그림 흐림 규칙과 따로) */
+export const TEMP_STALE_S = 3;
+export type Temps = { joints: (number | null)[]; hot: number; battery: number | null; inside: number | null } | null;
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const top = (a: unknown[]) => { const f = a.map(num).filter((v): v is number => v != null); return f.length ? Math.max(...f) : null; };
+/** 관절 12개(JOINTS 순서)·가장 뜨거운 관절·배터리 4개 중 최고·몸 안(자세 센서·본체) 중 최고. 연결이 끊겼거나 보고가 오래되면 null(지어내지 않음) */
+export function go2Temps(s: Live['state'], fresh: boolean): Temps {
+  const t = (s?.robot_info as { temperature?: Go2Temp | null } | null | undefined)?.temperature;
+  if (!fresh || s?.connection !== 'ONLINE' || !t || !(t.age_s! <= TEMP_STALE_S)) return null;
+  const joints = Array.isArray(t.joints) && t.joints.length === 12 ? t.joints.map(num) : JOINTS.map(() => null), hi = top(joints);
+  return { joints, hot: hi == null ? -1 : joints.indexOf(hi), battery: top(Array.isArray(t.battery) ? t.battery : []), inside: top([t.imu, ...(Array.isArray(t.body) ? t.body : [])]) };
+}
+const deg = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v)}°C`);
 
 const POSTURE: Record<string, string> = { STANDING: '서 있음', LYING: '엎드림', TRANSITIONING: '바뀌는 중', UNKNOWN: '모름' };
 const n1 = (v: number | undefined) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(1));
@@ -102,7 +118,7 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const d = useServerDrive(c, r), { l, s, mine } = d;
   // 라이다 하나를 지도 칸(쌓이는 지도)·라이다 칸(3D)이 같이 본다 — 둘 다 안 보이면(카메라·뎁스만) 구독을 놓는다(RV-397 4)
   const [wantLidar, setWantLidar] = useState(true), lidar = useDriveFeed(r.id, 'lidar', wantLidar), stack = stacked(lidar);
-  const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh), motion = useGo2Motion(s?.robot_info, pose);
+  const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh), temps = go2Temps(s, fresh), motion = useGo2Motion(s?.robot_info, pose);
   const [tags, setTags] = useState(true);
   const ago = s ? (rt.now() - l.stateAt) / 1000 : null, a = s?.applied ?? null;
   const server = LINK[d.link] ?? { tone: 'off' as const, text: '연결 중' };
@@ -135,6 +151,9 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
           {fact('자세', POSTURE[s?.posture?.state ?? ''] ?? '모름', 'posture')}
           {fact('움직일 수', d.lock.text, 'move')}
           {fact('배터리', s?.battery?.soc != null ? `${s.battery.soc}%` : '—', 'battery')}
+          {fact('관절 최고 온도', temps && temps.hot >= 0 ? `${deg(temps.joints[temps.hot])} (${jointName(JOINTS[temps.hot])})` : '—', 'temp-joint')}
+          {fact('배터리 온도', deg(temps?.battery), 'temp-battery')}
+          {fact('몸 안 온도', deg(temps?.inside), 'temp-inside')}
           {fact('수평 속도', s?.speed != null ? `${s.speed.toFixed(1)} m/s` : '—', 'hspeed')}
           {fact('보내는 속도', a ? `앞뒤 ${n1(a[0])} · 옆 ${n1(a[1])} m/s · 회전 ${n1(a[2])} rad/s` : '—', 'speed')}
           {fact('조종하는 사람', holderText(l, c.user.id, r), 'holder')}
@@ -143,7 +162,7 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
           <button type="button" className="btn pd-tags" aria-pressed={tags} onClick={() => setTags((v) => !v)} data-pd-tags>관절 값</button>
         </div>
         <div className="pd-stage" data-pd-stage>
-          <Go2Figure pose={pose} motion={motion} showJoints={tags} />
+          <Go2Figure pose={pose} motion={motion} showJoints={tags} temps={temps?.joints} />
           {!pose && <span className="pd-noreport" role="status" data-pd-noreport>로봇 보고 없음</span>}
         </div>
         {d.poseRow}

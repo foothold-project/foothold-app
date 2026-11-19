@@ -9,7 +9,8 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SD_NOTE } from '../serverdrive';
-import { REPORT_STALE_MS, go2Pose } from '../pcdrive';
+import { REPORT_STALE_MS, TEMP_STALE_S, go2Pose, go2Temps } from '../pcdrive';
+import { TEMP_MAX, TEMP_MIN, tempColor } from '../go2model';
 import quadCss from '../quad.css?raw';
 import pcCss from '../pcdrive.css?raw';
 
@@ -228,6 +229,60 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(open()).toBe(0);
     click($('.qpip')!);
     expect(open()).toBe(1);
+  });
+
+  // RB-TEMP-WEB(11-19): robot_info.temperature — 관절 12개(JOINTS 순서)·배터리 4·자세 센서·본체 2·age_s
+  const JT = [30, 31, 32, 33, 34, 41, 35, 36, 37, 38, 39, 40];
+  const warm = (age = 0.5, t: Record<string, unknown> = {}) => ({ ...info(), temperature: { joints: JT, battery: [28, 30, null, 29], imu: 36, body: [38, null], age_s: age, ...t } }) as unknown as ScreenState['robot_info'];
+  const paint = (c: string) => { const d = document.createElement('i'); d.style.background = c; return d.style.background; };
+  const dots = () => [...$('[data-pd-stage]')!.querySelectorAll<HTMLElement>('[data-go2-temp]')];
+  it('온도: 관절 자리 점 12개를 온도 색으로(한 색상 눈금·범례 20~80°C), 라벨엔 각도만, 위쪽 카드 3개(관절 최고·배터리·몸 안)', () => {
+    mount('u-park'); serve('r7');
+    act(() => push('r7', { robot_info: warm() }));
+    const stage = $('[data-pd-stage]')!;
+    expect(dots().map((d) => d.getAttribute('data-go2-temp'))).toEqual(NAMES);
+    dots().forEach((d, i) => expect(d.style.background).toBe(paint(tempColor(JT[i]))));
+    expect(new Set(dots().map((d) => d.style.background)).size).toBe(12);   // 온도마다 다른 색
+    const tags = [...stage.querySelectorAll('[data-go2-joint]')];
+    expect(tags).toHaveLength(12); tags.forEach((t) => expect(t.textContent).not.toContain('°C'));
+    expect($('[data-go2-legend]')!.textContent).toBe(`${TEMP_MIN}°C${TEMP_MAX}°C`);
+    const f = (k: string) => $(`[data-pd-left] [data-pd="${k}"]`)!.textContent;
+    expect(f('temp-joint')).toContain('41°C (앞 왼 종아리)'); expect(f('temp-battery')).toContain('30°C'); expect(f('temp-inside')).toContain('38°C');
+    click($('[data-pd-tags]')!);   // «관절 값» 끄면 각도 글자만 숨김, 온도 점은 그대로
+    expect(stage.querySelectorAll('[data-go2-joint]')).toHaveLength(0); expect(dots()).toHaveLength(12);
+  });
+  it('관절 점에 마우스·키보드 초점·누름 = «이름 온도 · 각도» 설명, 떠나면 사라짐', () => {
+    mount('u-park'); serve('r7');
+    act(() => push('r7', { robot_info: warm() }));
+    const hot = () => dots().find((d) => d.getAttribute('data-go2-temp') === 'FL_calf_joint')!, tip = () => $('[data-go2-tip]');
+    expect(tip()).toBeNull(); expect(hot().getAttribute('aria-label')).toBe('앞 왼 종아리 41°C · 11°');
+    act(() => { hot().dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(tip()!.textContent).toBe('앞 왼 종아리 41°C · 11°'); expect(tip()!.getAttribute('role')).toBe('tooltip');
+    act(() => { hot().dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
+    expect(tip()).toBeNull();
+    act(() => dots()[0].focus());
+    expect(tip()!.textContent).toBe('앞 오른 엉덩이 30°C · 11°');
+    act(() => dots()[0].blur()); expect(tip()).toBeNull();
+    click(hot()); expect(tip()!.textContent).toContain('41°C');   // 터치(누름)
+  });
+  it('온도가 없거나 오래되면(3초 넘음) 관절 점은 회색·설명 «온도 모름», 위쪽 온도 카드 «—» — 각도·그림은 그대로', () => {
+    mount('u-park'); serve('r7');
+    const f = (k: string) => $(`[data-pd-left] [data-pd="${k}"] b`)!.textContent;
+    for (const ri of [info(), warm(TEMP_STALE_S + 0.5), { ...info(), temperature: null }, warm(0.5, { joints: JT.map(() => null), battery: [null, null, null, null], imu: null, body: [null, null] })]) {
+      act(() => push('r7', { robot_info: ri as ScreenState['robot_info'] }));
+      expect(['temp-joint', 'temp-battery', 'temp-inside'].map(f)).toEqual(['—', '—', '—']);
+      expect($('[data-pd-left]')!.hasAttribute('data-stale')).toBe(false);
+      expect(dots()).toHaveLength(12); dots().forEach((d) => expect(d.style.background).toBe(paint(tempColor(null))));
+      expect(dots()[0].getAttribute('aria-label')).toBe('앞 오른 엉덩이 온도 모름 · 11°');
+      expect($('[data-pd-stage]')!.querySelectorAll('[data-go2-joint]')).toHaveLength(12);
+    }
+  });
+  it('go2Temps: 연결·새 보고일 때만, 관절 12개 아니면 관절만 비움, 숫자 아닌 값은 버림', () => {
+    const s = state('r7', { robot_info: warm() });
+    expect(go2Temps(s, true)).toEqual({ joints: JT, hot: 5, battery: 30, inside: 38 });
+    expect(go2Temps(s, false)).toBeNull(); expect(go2Temps({ ...s, connection: 'OFFLINE' }, true)).toBeNull();
+    expect(go2Temps(state('r7', { robot_info: warm(0.5, { age_s: undefined }) }), true)).toBeNull();
+    expect(go2Temps(state('r7', { robot_info: warm(0.5, { joints: JT.slice(1), imu: 'x', body: [NaN, 37] }) }), true)).toEqual({ joints: JT.map(() => null), hot: -1, battery: 30, inside: 37 });
   });
 
   it('go2Pose: 관절 12개·연결·새것일 때만, 이름 순서대로 다시 맞춤', () => {
