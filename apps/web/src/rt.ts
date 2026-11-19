@@ -262,7 +262,7 @@ function onState(s: ScreenState) {
   let stop = l.stop;
   if (stop && s.latched === null) stop = { ...stop, latched: undefined };
   else if (stop?.conn === conn && (s.stop_gen ?? -1) > stop.g0) stop = s.latched ? { ...stop, latched: true } : stop.latched ? null : stop;
-  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral, stop });   // 잠기면 해제 뒤 새 중립부터
+  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral && s.stop_gen === p?.stop_gen, stop });   // 잠기면·잠김 보고 없이 세대만 올라도 해제 뒤 새 중립부터
 }
 
 function onLease(m: ScreenLeaseUpdate) {
@@ -443,13 +443,13 @@ export const rt = {
   },
   /** 50 ms 마다(0 포함, 조종권 심장 박동 겸). 넘기는 중·잠금 중(또는 상태 모름)은 0, 새 lease·잠금 해제 뒤에는 중립을 본 다음부터 보낸다.
    *  [전후, 회전] + 옆걸음 fy(서버 경유 실기 시험만 — serverdrive.tsx, 그 밖 0) → 계약 axes [fx, fy, fw] */
-  cmd(id: string, [fx, fw]: [number, number], fy = 0, held = !!(fx || fw || fy)) {   // held = 사람이 누르고 있음(표·상한이 0 으로 바꿔도) — 새 중립은 held 가 아닐 때만
+  cmd(id: string, [fx, fw]: [number, number], fy = 0, stale = false) {   // 화면은 이번 입력 세대에 새로 누른 입력만 보낸다(inputGen) — 여기는 0 을 한 번 본 뒤부터. stale = 앞 세대 입력이 아직 눌림(0 이어도 손 뗌 아님 → «중립 확인 중»)
     const l = get(id);
     if (!l.lease) return;
     if (hiddenPage()) return leave(id);
     let axes = [fx, fy, fw];
     if (l.busy === 'give' || l.state?.latched !== false) axes = [0, 0, 0];
-    else if (!l.neutral) { if (!held) set(id, { neutral: true }); axes = [0, 0, 0]; }
+    else if (!l.neutral) { if (!(fx || fw || fy) && !stale) set(id, { neutral: true }); axes = [0, 0, 0]; }
     send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes });
   },
   /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼거나 STOP_WS_MS 안에 답이 없으면 HTTP 대체 경로(같은 STOP 을 한 번 더 — 정지는 겹쳐도 안전),
@@ -479,6 +479,24 @@ export const rt = {
 
 const version = () => ver;
 /** 실시간 저장소가 바뀌면 다시 그림 */
+/** 명령 틱이 이만큼 끊기면 에이전트 Core 가 입력 끊김(0.3 s)으로 새 중립을 요구한다 — 화면도 입력 세대를 올린다 */
+export const GAP_MS = 300;
+/** 입력 세대(RB-DRIVE-FRESH-PRESS): 화면은 키(e.code)·포인터(pointerId)마다 누른 순간의 세대(current)를 적고, 지금 세대 입력만 명령에 쓴다.
+ *  앞 세대에 눌린 입력이 하나라도 아직 눌려 있으면 명령 전체가 0 — 떼었다가 다시 눌러야 한다(손을 뗐는지 추측하지 않음).
+ *  sync = 조종권·잠금·stop_gen·연결·중립·넘김·STOP·숨김과 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 명령 틱 공백이 GAP_MS 넘으면 +1 */
+export function inputGen() {
+  let n = 0, k: unknown[] = [], t = Infinity;
+  return {
+    get current() { return n; },
+    bump() { return ++n; },
+    sync(id: string, extra: unknown[]) {
+      const l = get(id), x = [l.lease, l.state?.latched, l.state?.stop_gen, l.state?.connection, l.neutral, l.busy, l.stop?.n, document.visibilityState, ...extra];
+      if (x.length !== k.length || x.some((v, i) => v !== k[i])) { k = x; n++; }
+      return n;
+    },
+    tick() { const at = now(); if (at - t > GAP_MS) n++; t = at; },
+  };
+}
 export const useRt = () => useSyncExternalStore(rt.subscribe, version);
 export const useLive = (id: string) => { useRt(); return get(id); };
 
