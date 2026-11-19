@@ -180,7 +180,9 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
   // off = 로봇 연결 끊김(서버 목록 허용 꺼짐 — 보통 AGENT_OFFLINE, 또는 state OFFLINE). 어느 쪽이 먼저 와도 이동 잠금(RB-PC-DRIVE-OFFLINE-FIX)
   const off = !r.serverDrive || (!!s && s.connection !== 'ONLINE');
-  const ready = !off && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
+  // 끊김을 본 뒤 «조종 시작»을 새로 누르기 전 = 그 전에 보낸 조종권 요청은 무효. 늦게 승인이 와도 바로 반납·이동 잠금(RB-PC-DRIVE-OFFLINE-FIX2)
+  const stale = useRef(false); if (off) stale.current = true;
+  const ready = !off && !stale.current && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
   const send = () => { const cmd = readyRef.current ? command(held.current) : TABLE[''], [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy); };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
@@ -221,7 +223,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   }, []);
   useEffect(() => { if (!ready) zero(); }, [ready]);   // 움직일 수 없게 되면 누른 것을 버린다(자동 재개 없음)
   // 끊기면 0 을 보내고 조종권을 돌려준다 — 다시 연결돼도 «조종 시작»을 다시 누르고 새로 눌러야 움직인다(화면 안내와 같게)
-  useEffect(() => { if (off && mine) { zero(); rt.release(r.id); } }, [off, mine]);
+  useEffect(() => { if (mine && (off || stale.current)) { zero(); rt.release(r.id); } }, [off, mine]);
   useEffect(() => { if (link === 'lost' || link === 'denied') zero(SD_NOTE.link); }, [link]);
   useEffect(() => { if (l.stop) zero(SD_NOTE.stop); }, [l.stop?.n]);   // 머리줄 STOP·Space 도
   useEffect(() => { if (s?.latched !== true || !mine) setAsked(null); }, [s?.latched, mine]);   // 풀렸거나 조종권이 없으면 해제 대기 끝
@@ -288,7 +290,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   // 조종 시작/끝내기 — 조각으로 돌려주고 붙이는 쪽이 배치(같은 단추를 두 번 그리지 않게). 권한·기다릴 이유는 DriveButton 이 글로
   const hint = <span className="lbl fh-grow">↑/↓ 앞뒤 1.5 m/s · ←/→ 옆걸음 1.0 m/s. A/D를 누르고 있으면 2초에 걸쳐 최대 {MAX_TURN_RATE} rad/s까지 회전 속도가 올라갑니다. ↑+A/D로 전진하며 회전합니다. 떼거나 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
   const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
-  const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
+  const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
   const poseRow = mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>
     {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE'}
       onClick={() => askPose(k)}>{POSE[k].name}</button>)}

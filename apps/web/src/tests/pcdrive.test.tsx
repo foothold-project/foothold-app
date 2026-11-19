@@ -128,6 +128,28 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     key('keyup', 'ArrowUp'); click(stop); expect(w.of('stop').length).toBe(1);
   });
 
+  // RV-413: «조종 시작» 답을 기다리는 사이 목록이 끊김→복구되고 그 뒤 앞 요청이 승인돼도 무효 — 바로 반납, 0 이 아닌 명령 없음
+  it('요청 보류 중 끊김→복구 뒤 늦은 승인은 바로 반납 — 잠금 해제·↑ 해도 0 이 아닌 명령 없음, «조종 시작» 다시 누르면 이동', () => {
+    mount('u-park'); serve('r7');
+    const auto = w.auto!; let held: string | null = null;
+    w.auto = (m) => (m.t === 'lease.take' && !held ? void (held = m.id as string) : auto(m));   // 첫 요청은 답 보류
+    click(btn('조종 시작')); expect(w.of('lease.take').length).toBe(1);
+    relist(drop(ON, ['AGENT_OFFLINE'])); tick(100);
+    relist(ON); tick(100);
+    act(() => { w.recv({ t: 'reply', id: held, ok: true }); w.recv(lease('r7', PARK, 'Llate')); w.recv({ t: 'lease.result', robot: 'r7', request_id: null, result: 'ACCEPTED' }); });
+    tick(100);
+    expect(w.of('lease.release').length).toBe(1);
+    const unlock = [...box.querySelectorAll('button')].find((b) => b.textContent?.startsWith('② 잠금 해제'));
+    if (unlock) click(unlock);
+    key('keydown', 'ArrowUp'); tick(300); key('keyup', 'ArrowUp');
+    expect(axes().filter((a) => a !== '0,0,0')).toEqual([]);
+    expect(w.of('lease.take').length).toBe(1);
+    click(btn('조종 시작')); tick(100); expect(w.of('lease.take').length).toBe(2);   // 끊긴 뒤 새로 누른 것만 유효
+    click(btn('② 잠금 해제')); tick(100);
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0'); key('keyup', 'ArrowUp');
+    expect(w.of('lease.release').length).toBe(1);
+  });
+
   // RV-412 2: 끊김 유지 기록은 로그인(사용자·세션)별 — A 가 허용받았던 로봇을 끊긴 채 B 에게 배정하고 같은 탭에서 B 로 로그인하면 옛 화면
   it('끊김 유지 기록은 로그인별 — 사용자가 바뀌거나 다시 로그인하면 지워져 옛 화면', () => {
     const g1 = new AbortController(), as = (user: string, robots: Robot[], cancel?: AbortSignal, k = user) =>
