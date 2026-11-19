@@ -36,7 +36,7 @@ const PARTS = ['trunk', 'hip', 'thigh', 'thigh_mirror', 'calf'];
 export type Pose = { q: number[]; wxyz: number[] } | null;
 /** 움직임: 관절 각속도 12개(rad/s) · 몸 속도(몸 기준 앞 vx·왼쪽 vy, m/s) · 회전 wz(rad/s, 왼쪽 +). 모르면 null */
 export type Motion = { dq: number[] | null; v: [number, number] | null; wz: number | null };
-type Sample = { t: number; v: number[] };
+type Sample = { t: number; v: number[]; at?: number };   // at = 받아들인 때의 화면 시계(performance.now, ms)
 
 /** 연속 보고 두 개(로봇이 받은 시각이 다른 것)의 차 ÷ 시간. 시간이 0 이하·1초 넘음이면 null(지어내지 않음) */
 export function rate(a: Sample | undefined, b: Sample | undefined): number[] | null {
@@ -50,17 +50,21 @@ const STALE_S = 1;
 type At = { received_at?: string; age_s?: number } | null | undefined;
 /** 보고 시계(로봇 쪽 received_at)로 본 «지금» = 센서마다 received_at + age_s 중 가장 늦은 것. 모르면 NaN */
 const nowOf = (ats: At[]) => Math.max(...ats.map((a) => (a?.received_at ? Date.parse(a.received_at) + (a.age_s ?? NaN) * 1000 : NaN)).filter(Number.isFinite));
-/** 센서 하나의 보고를 이력에(RV-403 1). 받아들인 마지막 보고가 now 보다 1초 넘게 묵으면 먼저 비운다(RV-406 — 역순 보고만 와도 만료).
- *  거꾸로 간 시각(늦게 온 옛 보고)은 버린다(RV-405 — 최신 이력을 지우지 않음). 단 새 보고(age_s ≤ 1초)인데 1초 넘게 뒤로 갔으면 시계가 되감긴 것 — 새 이력 시작(RV-406 2).
+/** 센서 하나의 보고를 이력에(RV-403 1). 받아들인 마지막 보고가 now 보다, 또는 화면 시계로 1초 넘게 묵으면 먼저 비운다
+ *  (RV-406 — 역순 보고만 와도 만료 · RV-409 2 — 받아들이지 않는 옛 보고만 계속 와도 만료).
+ *  거꾸로 간 시각(늦게 온 옛 보고)은 버린다(RV-405 — 최신 이력을 지우지 않음). 단 새 보고(age_s ≤ 1초이고 다른 센서들의 now 와도 1초 안)인데
+ *  1초 넘게 뒤로 갔으면 시계가 되감긴 것 — 새 이력 시작(RV-406 2). 센서 하나만 옛 시각이면 되감김이 아니라 옛 보고(RV-409 1).
  *  값·시각이 없거나 만료면 이력을 비워 속도·화살표를 지운다. 같은 시각(같은 보고)은 버린다 */
-const push = (h: Sample[], at: At, v: number[] | undefined, now: number) => {
-  if (h.length && now - h[h.length - 1].t > STALE_S * 1000) h.length = 0;
-  const t = at?.received_at ? Date.parse(at.received_at) : NaN, lt = h.length ? h[h.length - 1].t : -Infinity, ok = (at?.age_s ?? Infinity) <= STALE_S;
+const push = (h: Sample[], at: At, v: number[] | undefined, now: number, clock: number) => {
+  const end = h[h.length - 1];
+  if (end && (now - end.t > STALE_S * 1000 || clock - end.at! > STALE_S * 1000)) h.length = 0;
+  const t = at?.received_at ? Date.parse(at.received_at) : NaN, lt = h.length ? h[h.length - 1].t : -Infinity;
+  const ok = (at?.age_s ?? Infinity) <= STALE_S && !(now - t > STALE_S * 1000);
   if (ok && t < lt - STALE_S * 1000) h.length = 0;
   else if (t < lt) return;
   if (!v || !Number.isFinite(t) || !ok) { h.length = 0; return; }
   if (h.length && t === h[h.length - 1].t) return;
-  h.push({ t, v }); if (h.length > 2) h.shift();
+  h.push({ t, v, at: clock }); if (h.length > 2) h.shift();
 };
 const NONE: Motion = { dq: null, v: null, wz: null };
 
@@ -68,11 +72,11 @@ const NONE: Motion = { dq: null, v: null, wz: null };
 export function useGo2Motion(info: Go2RobotInfo | null | undefined, pose: Pose): Motion {
   const h = useRef({ j: [] as Sample[], p: [] as Sample[], y: [] as Sample[] }).current;
   if (!pose || !info) { h.j.length = h.p.length = h.y.length = 0; return NONE; }
-  const now = nowOf([info.joints, info.position, info.quaternion]);
-  push(h.j, info.joints, pose.q, now);
+  const now = nowOf([info.joints, info.position, info.quaternion]), clock = performance.now();
+  push(h.j, info.joints, pose.q, now, clock);
   const xyz = info.position?.xyz;
-  push(h.p, info.position, xyz && xyz.length >= 2 && xyz.every(Number.isFinite) ? xyz.slice(0, 2) : undefined, now);
-  push(h.y, info.quaternion, info.quaternion?.wxyz ? [yawOf(pose.wxyz)] : undefined, now);
+  push(h.p, info.position, xyz && xyz.length >= 2 && xyz.every(Number.isFinite) ? xyz.slice(0, 2) : undefined, now, clock);
+  push(h.y, info.quaternion, info.quaternion?.wxyz ? [yawOf(pose.wxyz)] : undefined, now, clock);
   const dy = h.y.length === 2 ? { ...h.y[1], v: [h.y[0].v[0] + wrap(h.y[1].v[0] - h.y[0].v[0])] } : undefined;
   // 몸 기준 변환은 마지막으로 받아들인 yaw 만(RV-405 — 늦게 온 옛 방향 보고로 화살표가 뒤집히지 않게). yaw 이력이 없으면 몸 속도도 모름
   const w = rate(h.p[0], h.p[1]), yaw = h.y[h.y.length - 1]?.v[0], c = Math.cos(yaw ?? 0), s = Math.sin(yaw ?? 0);
@@ -269,7 +273,15 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
     {t.text}{t.dir && <i>{t.dir === 'ccw' ? '↺' : '↻'} {t.rate}°/s</i>}</span>;
   const spill = tags.filter((t) => !t.b);
   const cOf = (i: number) => temps?.[i], tipText = (i: number) => `${jointName(JOINTS[i])} ${cOf(i) != null ? `${Math.round(cOf(i)!)}°C` : '온도 모름'}${q ? ` · ${deg(q[i])}°` : ''}`;
-  const tj = tip >= 0 && q ? at.joints[tip] : null;
+  const tj = tip >= 0 ? at.joints[tip] : null, tipEl = useRef<HTMLSpanElement>(null), [cover, setCover] = useState<Box | null>(null);
+  // 말풍선이 덮는 자리(그림 칸 기준 px) — 그 밑 관절 값 글자와 이 관절 글자(말풍선에 각도가 있음)는 숨겨 말풍선만 보이게
+  useLayoutEffect(() => {
+    const e = tipEl.current, v = box.current;
+    if (!e || !v) { setCover(null); return; }
+    const a = e.getBoundingClientRect(), o = v.getBoundingClientRect();
+    setCover({ x: a.left - o.left, y: a.top - o.top, w: a.width, h: a.height });
+  }, [tip, at]);
+  const under = (b: Box) => !!cover && b.x < cover.x + cover.w && cover.x < b.x + b.w && b.y < cover.y + cover.h && cover.y < b.y + b.h;
   const k = at.sketch, line = (p: readonly (readonly [number, number])[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   return <div className="pd-go2" data-go2-model={kind}>
     <div ref={box} className="pd-go2-view" role="img" aria-label={pose ? 'Go2 — 로봇이 보낸 관절·자세' : 'Go2 — 기본 자세(로봇 보고 없음)'}>
@@ -281,19 +293,19 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
           <circle cx={l[3][0]} cy={l[3][1]} r={4} fill={TONE.mid} /></g>)}
         {k.move && <polyline points={line(k.move)} fill="none" stroke={ARROW} strokeWidth={4} strokeLinecap="round" />}
       </svg>}
-      {fail && <span className="pd-go2-fail">간단한 그림(3D 를 못 그리는 브라우저)</span>}
-      {tags.map((t) => !t.b ? null : t.name in ARROW_TAG
+      {tags.map((t) => !t.b || (t.name === JOINTS[tip] || under(t.b)) && !(t.name in ARROW_TAG) ? null : t.name in ARROW_TAG
         ? <span key={t.name} className="pd-tag pd-tag-move" {...{ [ARROW_TAG[t.name][0]]: ARROW_TAG[t.name][1] }} style={{ left: t.b.x, top: t.b.y, width: t.b.w }}>{t.text}</span>
         : <Fragment key={t.name}>{val(t, t.b)}</Fragment>)}
     </div>
-    {q && <div className="pd-go2-dots" role="group" aria-label="관절 온도" style={{ width: size.w, height: size.h }}>
+    {(q || temps) && <div className="pd-go2-dots" role="group" aria-label="관절 온도" style={{ width: size.w, height: size.h }}>
       {at.joints.map((j, i) => <button key={JOINTS[i]} type="button" className="pd-dot" data-go2-temp={JOINTS[i]} aria-label={tipText(i)} aria-describedby={tip === i ? 'pd-go2-tip' : undefined}
         style={{ left: j.x, top: j.y, background: tempColor(cOf(i)) }}
         onMouseEnter={() => setTip(i)} onMouseLeave={() => setTip(-1)} onFocus={() => setTip(i)} onBlur={() => setTip(-1)} onClick={() => setTip(i)} />)}
-      {tj && <span id="pd-go2-tip" className="pd-tip" role="tooltip" data-go2-tip style={{ left: Math.min(Math.max(tj.x, 70), size.w - 70), top: tj.y - 9 }}>{tipText(tip)}</span>}
+      {tj && <span ref={tipEl} id="pd-go2-tip" className="pd-tip" role="tooltip" data-go2-tip style={{ left: Math.min(Math.max(tj.x, 70), size.w - 70), top: tj.y - 9 }}>{tipText(tip)}</span>}
       <span className="pd-legend" data-go2-legend style={{ width: LEGEND.w, height: LEGEND.h, right: LEGEND.pad, bottom: LEGEND.pad }}>
         {TEMP_MIN}°C<i style={{ background: `linear-gradient(90deg, ${RAMP.join(', ')})` }} />{TEMP_MAX}°C<i className="pd-legend-none" style={{ background: NO_TEMP }} title="온도 모름" /></span>
     </div>}
+    {fail && <p className="pd-go2-fail">간단한 그림(3D 를 못 그리는 브라우저)</p>}
     {spill.length > 0 && <ul className="pd-go2-more" aria-label="그림에 다 못 넣은 관절 값" data-go2-more>
       {spill.map((t) => <li key={t.name}><b>{jointName(t.name)}</b>{val(t)}</li>)}
     </ul>}

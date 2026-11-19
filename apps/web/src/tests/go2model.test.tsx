@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Go2RobotInfo } from '../../../contracts/ts';
+import pcCss from '../pcdrive.css?raw';
 import { Go2Figure, JOINTS, TEMP_MAX, TEMP_MIN, resetGo2Cache, spread, tempColor, useGo2Motion, type Motion, type Pose } from '../go2model';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -194,6 +195,34 @@ describe('RV-403 막는 결함', () => {
     go(1); expect(last!.v![0]).toBeCloseTo(0.5);
     go(2); expect(last!.v).toBeNull();   // 되감김 = 새 이력 한 개
     go(3); expect(last!.v![0]).toBeCloseTo(0.3); expect($('[data-go2-move]')!.textContent).toBe('0.3 m/s');
+  });
+
+  it('RV-409 1 위치가 5000→5100→5200 ms 로 가는데 4000 ms 옛 방향(yaw π, age_s 0)이 오면 되감김으로 보지 않는다 — 몸 기준 +0.5 그대로', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    const go = run([{ t: 5000, xy: [0, 0] }, { t: 5100, xy: [0.05, 0] }, { t: 5200, xy: [0.1, 0], yaw: Math.PI, qt: 4000 }]);
+    go(1); expect(last!.v![0]).toBeCloseTo(0.5);
+    go(2); expect(last!.v![0]).toBeCloseTo(0.5); expect(last!.v![1]).toBeCloseTo(0);
+    expect($('[data-go2-move]')!.textContent).toBe('0.5 m/s');
+  });
+
+  it('RV-409 2 받아들이지 않는 옛 보고(10050 ms·age_s 0)가 100 ms 마다 계속 와도 화면 시계로 1초 뒤 화살표 만료', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      const old = { t: 10050, xy: [0.025, 0] }, go = run([{ t: 10000, xy: [0, 0] }, { t: 10100, xy: [0.05, 0] }, ...Array(13).fill(old)]);
+      go(1); expect(last!.v![0]).toBeCloseTo(0.5);
+      for (let i = 2; i <= 14; i++) { vi.advanceTimersByTime(100); go(i); }   // 1.3초
+      expect(last!.v).toBeNull(); expect($('[data-go2-move]')).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('RV-409 5 WebGL 이 없을 때 «간단한 그림» 안내는 그림 칸 밖 아래 줄 — 범례(그림 칸 오른쪽 아래)와 겹치지 않는다', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    show(<Go2Figure pose={POSE} temps={JOINTS.map(() => 40)} />);
+    const note = $('.pd-go2-fail')!;
+    expect(note.textContent).toBe('간단한 그림(3D 를 못 그리는 브라우저)');
+    expect(note.closest('.pd-go2-view')).toBeNull(); expect(note.closest('.pd-go2-dots')).toBeNull();
+    expect(pcCss).not.toMatch(/\.pd-go2-fail\{[^}]*position:absolute/);
   });
 
   it('2 WebGL 이 없으면 선 그림(몸통 상자·다리 4개)이 관절각대로 그려진다', () => {
