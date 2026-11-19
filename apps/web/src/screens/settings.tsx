@@ -87,7 +87,7 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
 }
 
 /** 고정표는 조직 상한으로 늘리거나 비례 조정하지 않는다. */
-const RealTable = () => <details><summary>서버 경유 고정 명령표</summary><p className="st-note">전후·옆 1.5 m/s, 회전 0.5 라디안/초. 옆 명령 1.5는 조직 최대 1.0을 넘어 사용할 수 없습니다. 폰 실효 상한은 연결한 로봇의 조종 화면에서 확인하세요.</p></details>;
+const RealTable = () => <details><summary>서버 경유 고정 명령표</summary><p className="st-note">앞뒤 1.5 m/s, 옆걸음 1.0 m/s. 회전 키나 단추를 누르고 있으면 2초에 걸쳐 최대 {REAL_CAPS.real_max_wz} 라디안/초까지 빨라집니다. 폰 실효 상한은 연결한 로봇의 조종 화면에서 확인하세요.</p></details>;
 
 /** 조직 값(05 API §8 GET·PATCH /org/settings). 범위는 계약(apps/contracts/models.py OrgSettingsPatch)과 같게 — 검사는 서버가 한다.
  *  kind: 기본 숫자 칸, range = 미끄럼 막대, switch = 켜고 끄기. int = 정수만. cap = 시뮬 모드·연결 상한 안에서만 */
