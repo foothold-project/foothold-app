@@ -645,6 +645,15 @@ export interface Go2Joints {
   positions: number[];
 }
 
+export interface Go2MotorTemps {
+  received_at: string;
+  age_s: number;
+  names: ("FR_hip_joint" | "FR_thigh_joint" | "FR_calf_joint" | "FL_hip_joint" | "FL_thigh_joint" | "FL_calf_joint" | "RR_hip_joint" | "RR_thigh_joint" | "RR_calf_joint" | "RL_hip_joint" | "RL_thigh_joint" | "RL_calf_joint")[];
+  celsius: number[];
+  /** True when any MotorState.reserve word is nonzero (motor protection signal, 11/18-19 events). */
+  reserve_nonzero: boolean[] | null;
+}
+
 export interface Go2Position {
   received_at: string;
   age_s: number;
@@ -668,6 +677,7 @@ export interface Go2RobotInfo {
   joints?: Go2Joints | null;
   quaternion?: Go2Quaternion | null;
   position?: Go2Position | null;
+  motor_temps?: Go2MotorTemps | null;
 }
 
 export interface IdempotencyHeaders {

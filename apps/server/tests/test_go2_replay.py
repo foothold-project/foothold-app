@@ -11,6 +11,8 @@ def test_replay_received_forwarded_expired_and_legacy_clears(client, seeded, rt)
     headers = app_token(client)
     path = f'/api/v1/robots/{rid}'
     info = replay_info()
+    info['motor_temps'] = dict(received_at=info['joints']['received_at'], age_s=0., names=info['joints']['names'],
+                               celsius=[35.] * 11 + [71.], reserve_nonzero=[False] * 11 + [True])
     with agent(client, seeded, direct=True, robot_model='unitree_go2') as ag:
         frame = state()
         frame['robot_info'] = info
@@ -20,7 +22,7 @@ def test_replay_received_forwarded_expired_and_legacy_clears(client, seeded, rt)
             assert time.monotonic() < deadline
             time.sleep(.01)
         detail = client.get(path, headers=headers).json()
-        for key in ('joints', 'quaternion', 'position'):
+        for key in ('joints', 'quaternion', 'position', 'motor_temps'):
             sample = detail['robot_info'][key]
             assert 0 <= sample['age_s'] < 1
             assert {k: v for k, v in sample.items() if k != 'age_s'} == {k: v for k, v in info[key].items() if k != 'age_s'}

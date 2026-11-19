@@ -818,6 +818,82 @@
       "title": "Go2Joints",
       "type": "object"
     },
+    "Go2MotorTemps": {
+      "additionalProperties": false,
+      "description": "LowState MotorState.temperature (deg C) and reserve words; display and warning only.",
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "celsius": {
+          "items": {
+            "maximum": 200,
+            "minimum": -40,
+            "type": "number"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Celsius",
+          "type": "array"
+        },
+        "names": {
+          "items": {
+            "enum": [
+              "FR_hip_joint",
+              "FR_thigh_joint",
+              "FR_calf_joint",
+              "FL_hip_joint",
+              "FL_thigh_joint",
+              "FL_calf_joint",
+              "RR_hip_joint",
+              "RR_thigh_joint",
+              "RR_calf_joint",
+              "RL_hip_joint",
+              "RL_thigh_joint",
+              "RL_calf_joint"
+            ],
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Names",
+          "type": "array"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "reserve_nonzero": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "maxItems": 12,
+              "minItems": 12,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "True when any MotorState.reserve word is nonzero (motor protection signal, 11/18-19 events).",
+          "title": "Reserve Nonzero"
+        }
+      },
+      "required": [
+        "received_at",
+        "age_s",
+        "names",
+        "celsius",
+        "reserve_nonzero"
+      ],
+      "title": "Go2MotorTemps",
+      "type": "object"
+    },
     "Go2Position": {
       "additionalProperties": false,
       "properties": {
@@ -927,6 +1003,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/Go2Joints"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "motor_temps": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Go2MotorTemps"
             },
             {
               "type": "null"

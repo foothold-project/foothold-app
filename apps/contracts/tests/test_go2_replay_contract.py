@@ -33,3 +33,13 @@ def test_bad_optional_sample_omitted_without_losing_state(field, change):
     result = Go2RobotInfo(**data).model_dump(mode='json')
     assert field not in result
     assert result['error_code'] == 0 and result['fallen'] is False
+
+
+def test_motor_temps_optional_and_bad_values_omitted():
+    data = replay_info()
+    data['motor_temps'] = dict(received_at='2026-01-01T00:00:00Z', age_s=0., names=data['joints']['names'],
+                               celsius=[30.] * 11 + [71.], reserve_nonzero=[False] * 11 + [True])
+    assert Go2RobotInfo(**data).model_dump(mode='json') == data
+    data['motor_temps']['celsius'] = [float('nan')] * 12
+    result = Go2RobotInfo(**data).model_dump(mode='json')
+    assert 'motor_temps' not in result and result['error_code'] == 0
