@@ -892,7 +892,7 @@ class Realtime:
         if owner is None or (previous is not None and previous != owner):
             record = self.arbiter.robots.get(rid)
             if record and (previous is not None or record.holder or record.transfer or record.request):
-                self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+                self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='field_approval_revoked'))
         agent = self.agents.get(rid)
         if agent is not None and not agent.simulation and (previous != owner or observed is None):
             self.put(agent, C.AgentFieldApproval(expires_at=None).model_dump(mode='json'))
@@ -904,7 +904,7 @@ class Realtime:
             or (r.transfer and r.transfer.actor == peer.actor)))
         if r:
             if controlled:
-                self.apply(self.arbiter.revoke(rid, peer.actor))
+                self.apply(self.arbiter.revoke(rid, peer.actor, cause='access_revoked'))
             elif r.request and r.request.actor == peer.actor:
                 self.apply(self.arbiter.cancel_request(rid))
         return controlled
@@ -946,7 +946,7 @@ class Realtime:
         r = self.arbiter.robots.get(rid)
         actor = r.holder.actor if r and r.holder else r.transfer.actor if r and r.transfer else None
         if actor and (deleted or actor.user == old_owner):
-            self.apply(self.arbiter.revoke(rid, actor))
+            self.apply(self.arbiter.revoke(rid, actor, cause='robot_changed'))
         elif r and r.request and (deleted or r.request.actor.user == old_owner):
             self.apply(self.arbiter.cancel_request(rid))
         for peer in list(self.screens.values()):
@@ -993,10 +993,10 @@ class Realtime:
                 raise self.api_error(403, 'FIELD_APPROVAL_REQUIRED', '로봇 연결과 담당 정보를 확인하고 있습니다.')
         return policy.settings
 
-    def revoke_actor(self, actor):
+    def revoke_actor(self, actor, *, cause="screen_auth_revoked"):
         for rid, r in self.arbiter.robots.items():
             if (r.holder and r.holder.actor == actor) or (r.transfer and r.transfer.actor == actor):
-                self.apply(self.arbiter.revoke(rid, actor))
+                self.apply(self.arbiter.revoke(rid, actor, cause=cause))
             elif r.request and r.request.actor == actor:
                 self.apply(self.arbiter.cancel_request(rid))
 
@@ -1007,7 +1007,7 @@ class Realtime:
             if r.request and r.request.actor == actor:
                 self.apply(self.arbiter.cancel_request(rid))
             if r.transfer and r.transfer.actor == actor:
-                self.apply(self.arbiter.revoke(rid, actor))
+                self.apply(self.arbiter.revoke(rid, actor, cause='screen_disconnected'))
 
     async def deny_screen(self, peer, code):
         peer.closing = True
@@ -1020,7 +1020,7 @@ class Realtime:
         # Preserve safe outputs/audits first, then forbid new take/state input.
         if self.agents.get(rid) is peer:
             peer.auth_checked = float('-inf')
-            self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+            self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='agent_auth_revoked'))
         peer.closing = True
 
     def ingress_allowed(self, peer, *, archive=False):
@@ -1196,7 +1196,8 @@ class Realtime:
                 'data': {'reason': 'SERVER_DRIVE_COMMAND',
                          **({'real_no_fast_server_drive': True} if settings is None else
                             {k: getattr(settings, k) for k in C.REAL_SETTING_FIELDS})}})
-                if e.target == 'audit' else e for e in effects]
+                if e.target == 'audit' else replace(e, cause='drive_settings_changed')
+                if e.target == 'agent' else e for e in effects]
             self.apply(effects)
 
     def apply(self, effects):
@@ -1207,6 +1208,8 @@ class Realtime:
                 body, rid = dict(effect.body), effect.robot
                 target = effect.target
                 if target == 'agent':
+                    if effect.cause is not None:
+                        body['cause'] = effect.cause
                     peer = self.agents.get(rid)
                     if peer:
                         # DB provenance plus explicit per-robot manual trial only.
@@ -1270,7 +1273,7 @@ class Realtime:
         # discards the very lease revocations that it caused.
         safety, records = [], []
         for rid in self.arbiter.robots:
-            for effect in self.arbiter.revoke(rid, op='EXPIRE'):
+            for effect in self.arbiter.revoke(rid, op='EXPIRE', cause='audit_unavailable'):
                 (records if effect.target == 'audit' else safety).append(effect)
         self.apply(safety + records)
 
@@ -1542,7 +1545,7 @@ class Realtime:
                                     raise LeaseError('POLICY_STALE', '조직 속도 상한 확인을 기다리고 있습니다.', 503)
                                 if (tuple(msg.axes) not in ALLOWED or
                                         not within_caps(msg.axes, settings)):
-                                    self.apply(self.arbiter.stop(rid, actor))
+                                    self.apply(self.arbiter.stop(rid, actor, cause='drive_command_rejected'))
                                     raise LeaseError('SERVER_DRIVE_COMMAND', '허용된 시험 명령표 또는 조직 속도 상한 밖 입력입니다.', 400)
                             elif any(abs(axis)>1 for axis in msg.axes):
                                 raise self.api_error(400, 'VALIDATION', '입력 형식을 확인하세요.')
@@ -1564,7 +1567,7 @@ class Realtime:
                             if agent is not None and agent.server_drive and not agent.simulation:
                                 self.cached_access(peer, [rejected_rid], 'O_OWN')
                                 self.arbiter.owned(self.arbiter.robot(rejected_rid), actor, str(UUID(raw.get('lease_id'))))
-                                self.apply(self.arbiter.stop(rejected_rid, actor))
+                                self.apply(self.arbiter.stop(rejected_rid, actor, cause="drive_frame_invalid"))
                     self.put(peer, {'t': 'reply', 'id': str(raw.get('id', ''))[:128], 'ok': False,
                                     'error': {'code': 'VALIDATION', 'message': '입력 형식을 확인하세요.', 'detail': {}}})
                 except (self.api_error, LeaseError) as exc:
@@ -1677,7 +1680,7 @@ class Realtime:
                 except TRANSIENT_DB:
                     age = self.clock() - peer.policy.checked
                     if age > 0.5 and not peer.stale_revoked:
-                        self.revoke_actor(peer.actor)
+                        self.revoke_actor(peer.actor, cause="screen_policy_stale")
                         peer.stale_revoked = True
                     if age >= DB_RETRY_GRACE:
                         await self.deny_screen(peer, 1013)
@@ -1685,7 +1688,7 @@ class Realtime:
                     continue
                 except LeaseError:
                     # A stale snapshot is uncertainty, not an authorization denial.
-                    self.revoke_actor(peer.actor)
+                    self.revoke_actor(peer.actor, cause="screen_policy_stale")
                     if self.clock() - peer.policy.checked >= DB_RETRY_GRACE:
                         await self.deny_screen(peer, 1013)
                         return
@@ -1807,7 +1810,7 @@ class Realtime:
                     return
                 age = self.clock() - peer.auth_checked
                 if age > 0.5 and not peer.stale_revoked:
-                    self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+                    self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='agent_policy_stale'))
                     peer.stale_revoked = True
                 if age < DB_RETRY_GRACE:
                     continue
@@ -1964,7 +1967,7 @@ class Realtime:
                         if (run and run['status'] in ('COMPLETED', 'FAILED', 'CANCELED', 'ABORTED')
                                 and holder and holder.holder_type == 'RUN'
                                 and run.get('lease_id') == holder.lease_id):
-                            self.apply(self.arbiter.revoke(rid))
+                            self.apply(self.arbiter.revoke(rid, cause='run_finished'))
             except Exception:
                 raw = payload if isinstance(payload, dict) else payload.model_dump(mode='json', exclude_unset=True)
                 retry = rejection(raw, 'RUN_REPORT_STORAGE') if kind == 'report' else None
@@ -2053,7 +2056,7 @@ class Realtime:
             fresh_reference = r.stop_ref < C.MAX_SAFE_INTEGER
             r.stop_gen = hello.stop_gen
             r.latched = hello.latched
-            self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+            self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='agent_connected'))
             peer.state = {'devices': [d.model_dump(mode='json') for d in hello.devices],
                           'latched': hello.latched, 'stop_gen': hello.stop_gen}
             if hello.execution_capabilities is not None:
@@ -2194,7 +2197,7 @@ class Realtime:
             if self.agents.get(rid) is peer:
                 self.agents.pop(rid, None)
                 self.inventory.forget(rid)
-                self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+                self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='agent_disconnected'))
                 self.apply([Effect('audit', rid, {'op': 'AGENT_DISCONNECTED'})])
             peer.closing = True
             for task in (sender, watcher, revoker, ack_writer, run_writer):
@@ -2276,7 +2279,7 @@ class Realtime:
                     raise LeaseError('LEASE_REQUEST_STALE', '요청자 연결이 끊겼습니다.')
                 self.cached_access(target, [rid], 'O_OWN')
             except (self.api_error, LeaseError):
-                self.apply(self.arbiter.revoke(rid, pending.actor))
+                self.apply(self.arbiter.revoke(rid, pending.actor, cause='transfer_access_lost'))
         self.apply(self.arbiter.state(rid, msg.latched, msg.applied, msg.stop_gen, msg.stop_ref))
         return True
 
@@ -2312,7 +2315,7 @@ class Realtime:
                     self.put(peer, C.AgentFieldApproval(expires_at=None).model_dump(mode='json'))
                 if at - peer.last_rx >= 3 and not peer.closing and not peer.audit_waiting:
                     peer.closing = True
-                    self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+                    self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='agent_silent'))
                     asyncio.create_task(peer.socket.close(code=1013))
                 elif at - peer.last_ping >= 1 and not peer.closing:
                     peer.last_ping = at
@@ -2372,7 +2375,7 @@ class Realtime:
         channel.retry_at = self.clock() + 1
         # Physical delivery is scheduled before diagnostic/file work, and only
         # this robot is revoked. Other robots retain their leases and budgets.
-        self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+        self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='archive_blocked'))
         peer = self.agents.get(rid)
         if peer is not None:
             peer.auth_checked = float('-inf')
@@ -2386,9 +2389,9 @@ class Realtime:
 
     async def close_archive_source(self, rid, peer):
         try:
-            await self.send_body(peer, {'t': 'lease', 'lease_id': None, 'holder_type': None})
+            await self.send_body(peer, {'t': 'lease', 'lease_id': None, 'holder_type': None, 'cause': 'archive_blocked'})
             await self.send_body(peer, {'t': 'stop', 'by_user_id': None,
-                                       'stop_ref': self.arbiter.robot(rid).stop_ref})
+                                       'stop_ref': self.arbiter.robot(rid).stop_ref, 'cause': 'archive_blocked'})
         except (Exception, asyncio.CancelledError):
             pass  # the close reason is also an explicit storage-stop signal
         finally:

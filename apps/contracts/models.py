@@ -1098,7 +1098,20 @@ AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | Agen
                          Field(discriminator='t')]
 
 
+AgentLockCause = Literal[
+    'unknown', 'user_stop', 'lease_release', 'lease_expired',
+    'lease_take', 'lease_transfer', 'run_takeover', 'transfer_canceled',
+    'screen_hidden', 'access_revoked', 'robot_changed', 'screen_auth_revoked',
+    'screen_policy_stale', 'screen_disconnected', 'agent_auth_revoked', 'agent_policy_stale',
+    'agent_connected', 'agent_disconnected', 'agent_silent', 'field_approval_revoked',
+    'audit_unavailable', 'run_finished', 'transfer_access_lost', 'archive_blocked',
+    'drive_command_rejected', 'drive_frame_invalid', 'drive_settings_changed',
+]
+
+
 class AgentLease(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields("cause"))
+    cause: AgentLockCause | None = Field(default=None, exclude_if=lambda v: v is None)
     t: Literal['lease'] = 'lease'
     lease_id: UUID | None
     holder_type: Literal['USER'] | Annotated[str, Field(pattern=r'^RUN:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')] | None
@@ -1113,6 +1126,8 @@ class AgentCommand(Contract):
 
 
 class AgentStop(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields("cause"))
+    cause: AgentLockCause | None = Field(default=None, exclude_if=lambda v: v is None)
     t: Literal['stop'] = 'stop'
     by_user_id: UUID | None
     stop_ref: StopReference

@@ -9,6 +9,7 @@ import logging
 import sys
 import threading
 import time
+from foothold_agent.safety.lock_log import LockLog
 from dataclasses import dataclass
 from collections import deque
 from datetime import datetime, timezone
@@ -89,6 +90,7 @@ class Go2Sink:
         self._phone_watchdog = phone_watchdog
         self._source_received = None
         self.limits, self.now = limits or Limits(), now
+        self.lock_log = LockLog(now)
         self._lock = threading.RLock()
         self._output = threading.RLock()
         self._emergency = threading.Lock()
@@ -287,6 +289,11 @@ class Go2Sink:
 
     def _stall(self):
         if not self.latched:
+            stamp = self.now()
+            cause = ('output_apply_stalled' if stamp-self._last_apply >= DEADLINE_S else
+                     'output_drain_stalled' if stamp-self._last_drain >= DEADLINE_S else 'output_input_stale')
+            self.lock_log.emit('stop', cause)
+            self.lock_log.emit('lock', cause)
             self._stall_sequence += 1
         self._hold(preserve=True)
 
@@ -295,6 +302,7 @@ class Go2Sink:
             raise ValueError('known source required')
         with self._lock:
             if self.source != source:
+                self.lock_log.emit("lock", "output_source_changed")
                 self._hold()
                 self.source = source
 
@@ -324,6 +332,8 @@ class Go2Sink:
         # holding that lock, so neither may output before the pair is ready.
         if not self._offline_test_mode and (len(self._threads) != 2 or
                                            not all(t.is_alive() for t in self._threads)):
+            self.lock_log.emit('stop', 'output_workers_unready')
+            self.lock_log.emit('lock', 'output_workers_unready')
             self._hold()
             self._stop_requested.set()
             raise OutputError('both live workers must be ready before input/output')
@@ -355,6 +365,7 @@ class Go2Sink:
                 self._stall()
                 self._stop_requested.set()
             if source != self.source or self.source is None:
+                self.lock_log.emit('lock', 'output_source_invalid')
                 self._hold()
                 raise ValueError('not the selected command source')
             if command.kind == 'unlock':
@@ -367,16 +378,19 @@ class Go2Sink:
                     self._neutral_required = True
                 return
             if command.kind != 'apply':
+                self.lock_log.emit('lock', 'output_command_invalid')
                 self._hold()
                 raise ValueError('unsupported motion kind')
             try:
                 velocity = (server_velocity(command.velocity) if source == 'server'
                             else self.limits.project(command.velocity))
             except ValueError:
+                self.lock_log.emit("lock", "output_velocity_invalid")
                 self._hold()
                 self._stop_requested.set()
                 raise
             self._last_apply = stamp
+            self.lock_log.healthy(stamp)
             if self._phone_watchdog and not self.latched:
                 fresh_input = (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
                                and 0 <= stamp-input_received_at < DEADLINE_S)
@@ -392,6 +406,8 @@ class Go2Sink:
                     self._source_received = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
             posture_held = not self._walkable()
+            if posture_held and velocity != ZERO:
+                self.lock_log.emit("stop", "output_posture_hold")
             target = ZERO if self.latched or self._neutral_required or self._posture is not None or self.actions.busy or posture_held else velocity
             if target != self.pending:
                 # Do not spend preceding idle time on a newly received target.
@@ -532,6 +548,8 @@ class Go2Sink:
     def _fail(self, error):
         with self._lock:
             if self.error is None:
+                self.lock_log.emit("stop", "output_fault")
+                self.lock_log.emit("lock", "output_fault")
                 self._stall_sequence += 1
             self.error = self.error or error
             self._hold()
@@ -666,6 +684,8 @@ class Go2Sink:
                 thread.start()
 
     def close(self):
+        self.lock_log.emit("stop", "output_closed")
+        self.lock_log.emit("lock", "output_closed")
         self._closed.set()
         self.cancel_posture('CLOSED')
         self._stop_requested.set()

@@ -58,6 +58,7 @@ class Effect:
     target: str  # agent | screens | connection ID | audit
     robot: str
     body: dict
+    cause: str | None = None  # diagnostic metadata, serialized by Realtime.apply
 
 
 @dataclass
@@ -79,8 +80,8 @@ class Arbiter:
     def robot(self, robot):
         return self.robots.setdefault(robot, RobotLease())
 
-    def effect(self, target, robot, **body):
-        return Effect(target, robot, body)
+    def effect(self, target, robot, *, cause=None, **body):
+        return Effect(target, robot, body, cause)
 
     def audit(self, robot, op, actor=None, other=None):
         return self.effect('audit', robot, op=op, user_id=actor.user if actor else None,
@@ -121,17 +122,18 @@ class Arbiter:
         # the lease yet. Cancel that transfer too, preserving lease-null/STOP.
         if r.transfer and r.transfer.request and r.transfer.actor == actor:
             r.cooldown[actor.user] = self.clock() + 30
-            return self.revoke(robot, actor)
+            return self.revoke(robot, actor, cause='transfer_canceled')
         raise LeaseError('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.')
 
-    def revoke(self, robot, actor=None, op='RELEASE'):
+    def revoke(self, robot, actor=None, op='RELEASE', *, cause=None):
+        cause = cause or ('lease_expired' if op == 'EXPIRE' else 'lease_release')
         r = self.robot(robot)
         h, tr = r.holder, r.transfer
         r.holder = r.transfer = None
         r.stop_ref = min(MAX_SAFE_INTEGER, r.stop_ref + 1)
         # Safety ordering is contractual: lease null reaches the agent before stop.
-        effects = [self.effect('agent', robot, t='lease', lease_id=None, holder_type=None),
-                   self.effect('agent', robot, t='stop', by_user_id=actor.user if actor else None, stop_ref=r.stop_ref),
+        effects = [self.effect('agent', robot, t='lease', lease_id=None, holder_type=None, cause=cause),
+                   self.effect('agent', robot, t='stop', by_user_id=actor.user if actor else None, stop_ref=r.stop_ref, cause=cause),
                    self.announce(robot), *self.cancel_request(robot)]
         if h and h.actor:
             effects += [self.effect(h.actor.connection, robot, **self.announce(robot).body)]
@@ -141,10 +143,10 @@ class Arbiter:
             effects += [self.audit(robot, op, h.actor if h else tr.actor)]
         return effects
 
-    def begin(self, robot, actor, req=None, op='RELEASE'):
+    def begin(self, robot, actor, req=None, op='RELEASE', *, cause='lease_take'):
         r = self.robot(robot)
         exhausted = r.stop_ref >= MAX_SAFE_INTEGER
-        effects = self.revoke(robot, actor, op=op)
+        effects = self.revoke(robot, actor, op=op, cause=cause)
         if exhausted:
             # Safety STOP still goes out, but an exhausted reference may never
             # confirm another grant. Restart/reconciliation requires a new link.
@@ -160,7 +162,7 @@ class Arbiter:
     def take(self, robot, actor):
         r = self.robot(robot)
         if r.holder and r.holder.holder_type == 'RUN' and not r.transfer:
-            effects = self.begin(robot, actor, op=None)
+            effects = self.begin(robot, actor, op=None, cause='run_takeover')
             return effects + [self.audit(robot, 'RUN_PAUSE_TAKEOVER', actor)]
         if r.holder or r.transfer:
             raise LeaseError('LEASE_HELD', '다른 연결이 조종 중입니다.')
@@ -192,17 +194,17 @@ class Arbiter:
         if not accept:
             r.cooldown[req.actor.user] = self.clock() + 30
             return [*self.result(robot, req, 'DECLINED'), self.audit(robot, 'DECLINE', actor, req.actor)]
-        return self.begin(robot, req.actor, req)
+        return self.begin(robot, req.actor, req, cause='lease_transfer')
 
-    def release(self, robot, actor):
+    def release(self, robot, actor, *, cause="lease_release"):
         self.owned(self.robot(robot), actor)
-        return self.revoke(robot, actor)
+        return self.revoke(robot, actor, cause=cause)
 
     def hidden(self, robot, actor):
         r = self.robot(robot)
         if r.transfer and r.transfer.actor == actor:
-            return self.revoke(robot, actor)
-        return self.release(robot, actor)
+            return self.revoke(robot, actor, cause="screen_hidden")
+        return self.release(robot, actor, cause="screen_hidden")
 
     def heartbeat(self, robot, actor, lease_id, seq, neutral=False):
         h = self.owned(self.robot(robot), actor, lease_id)
@@ -229,12 +231,12 @@ class Arbiter:
             raise LeaseError('STOP_GEN_MISMATCH', '정지 상태가 바뀌었습니다.')
         return [self.effect('agent', robot, t='unlock', lease_id=lease_id, stop_gen=stop_gen)]
 
-    def stop(self, robot, actor):
+    def stop(self, robot, actor, *, cause="user_stop"):
         # Cancel an in-flight handoff so an old stop acknowledgement cannot grant it.
         r = self.robot(robot)
         tr, r.transfer = r.transfer, None
         r.stop_ref = min(MAX_SAFE_INTEGER, r.stop_ref + 1)
-        effects = [self.effect('agent', robot, t='stop', by_user_id=actor.user, stop_ref=r.stop_ref)]
+        effects = [self.effect('agent', robot, t='stop', by_user_id=actor.user, stop_ref=r.stop_ref, cause=cause)]
         if tr and tr.request:
             effects += self.result(robot, tr.request, 'CANCELED')
         elif tr and tr.actor:
