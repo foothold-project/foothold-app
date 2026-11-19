@@ -2238,4 +2238,35 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     key('keyup', 'KeyA'); tick(100);
     expect(text()).toContain('움직일 수 있음');
   });
+
+  it('[5] RV-424: W+↑ 를 누른 채 잠금 해제 → ↑ 만 떼도 W 가 남아 새 중립이 아님, A 회전 안 나감', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ real_no_fast_server_drive: true }); } }) as never);
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종 시작'));
+    key('keydown', 'KeyW'); key('keydown', 'ArrowUp'); tick(200);
+    click(btn('잠금 해제')); tick(200);
+    expect(text()).toContain('중립 확인 중');
+    key('keyup', 'ArrowUp'); tick(200);
+    expect(text()).toContain('중립 확인 중');                // 고치기 전: 움직일 수 있음
+    key('keydown', 'KeyA'); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
+    key('keyup', 'KeyA'); key('keyup', 'KeyW'); tick(100);
+    expect(text()).toContain('움직일 수 있음');
+  });
+
+  it('[6] RV-424: 조직 설정이 본문 없는 200·객체 아님이면 받음이 아님 — 0 + 안내', async () => {
+    for (const bad of [undefined, null, 'ok', [], 1]) {
+      settingsMock.mockImplementation(() => Promise.resolve(bad) as never);
+      mount(true, 'u-park', '#/drive/r7');
+      serve(PARK, 'r7');
+      ready();
+      await act(async () => {});
+      key('keydown', 'ArrowUp'); tick(200);
+      expect(lastAxes()).toEqual([0, 0, 0]);                // 고치기 전: [1.5, 0, 0]
+      expect(text()).toContain(REAL_WAIT);
+      key('keyup', 'ArrowUp');
+      act(() => root!.unmount()); root = null; box.remove();
+    }
+  });
 });

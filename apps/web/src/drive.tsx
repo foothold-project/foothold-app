@@ -10,7 +10,7 @@ import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { command, permitted, REAL_WAIT, TABLE } from './serverdrive';
+import { command, isSettings, permitted, REAL_WAIT, TABLE } from './serverdrive';
 import { api } from './api';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
@@ -143,6 +143,10 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
   policy: () => <Later text="지금 보행 정책 표시와 바꾸기는 다음 단계에서 열립니다." />,
 };
 
+/** 물리 키(e.code) → 방향. 누른 키는 e.code 로 쥔다 — W 와 ↑ 처럼 같은 방향 둘 중 하나만 떼도 다른 쪽은 계속 누름(RV-424) */
+const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
+const held = (keys: Set<string>, d: string) => [...keys].some((c) => KEY[c] === d);
+
 /** F-TO-02~05: 조종 화면 */
 function Screen(c: Ctx) {
   const r = c.robot, me = c.user.id, l = useLive(r.id), mine = !!l.lease, link = rt.link().at, real = !!r.serverDrive && !r.sim;
@@ -166,22 +170,21 @@ function Screen(c: Ctx) {
   const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
   const axes = (): Axes => {
     const { keys: k, stick } = input.current;
-    return [Math.max(0, clamp(+k.has('f') + stick[0])), clamp(+k.has('l') - +k.has('r') + stick[1])];   // 후진은 막음(PRD Q1)
+    return [Math.max(0, clamp(+held(k, 'f') + stick[0])), clamp(+held(k, 'l') - +held(k, 'r') + stick[1])];   // 후진은 막음(PRD Q1)
   };
 
   // 키보드(F-TO-05). 요청 창이 떠 있어도 방향키는 조종
   useEffect(() => {
-    const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
     const keys = input.current.keys;
     const down = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const k = KEY[e.code]; if (!k) return;
       e.preventDefault();
-      if (e.repeat && !keys.has(k)) return;   // 시트를 열며 비운 키는 다시 눌러야 한다
-      keys.add(k); if (k === 'b') setBack(true);
+      if (e.repeat && !keys.has(e.code)) return;   // 시트를 열며 비운 키는 다시 눌러야 한다
+      keys.add(e.code); if (k === 'b') setBack(true);
     };
     const up = (e: KeyboardEvent) => {
-      const k = KEY[e.code]; if (k) { keys.delete(k); if (k === 'b') setBack(false); }
+      const k = KEY[e.code]; if (k) { keys.delete(e.code); if (k === 'b') setBack(held(keys, 'b')); }
     };
     const blur = () => keys.clear();
     addEventListener('keydown', down, true); addEventListener('keyup', up, true); addEventListener('blur', blur);
@@ -198,7 +201,7 @@ function Screen(c: Ctx) {
   // 실기는 조직 속도 상한(서버와 같은 값)을 받아 permitted 로 거른다 — PC 조종(serverdrive)과 같은 길
   useEffect(() => {
     setGot(false); if (!real) return;
-    const stop = new AbortController(); api.settings(stop.signal).then((o) => { simTune(o); setGot(true); }, () => {}); return () => stop.abort();
+    const stop = new AbortController(); api.settings(stop.signal).then((o) => { if (isSettings(o)) { simTune(o); setGot(true); } }, () => {}); return () => stop.abort();
   }, [r.id, real]);
   // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다).
   // 이 화면은 실기만 연다(시뮬은 App 이 막고 simdrive 직결) — 비례는 없다. 서버 경유 확인 + 설정 받음 = 표 값, 그 밖(목록 갱신 전 등)은 0.

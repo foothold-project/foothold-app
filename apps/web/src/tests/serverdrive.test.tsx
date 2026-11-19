@@ -158,6 +158,18 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(axes().every((a) => a === '0,0,0')).toBe(true);
   });
 
+  it('RV-424: 조직 설정이 본문 없는 200·객체 아님이면 받음이 아님 — 0 + 안내', async () => {
+    for (const bad of [undefined, null, 'ok', [], 1]) {
+      settingsMock.mockImplementation(() => Promise.resolve(bad) as never);
+      ready();
+      await act(async () => {});
+      expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
+      expect(hold(['ArrowUp'])).toBe('0,0,0');               // 고치기 전: 1.5,0,0
+      expect(axes().every((a) => a === '0,0,0')).toBe(true);
+      unmount();
+    }
+  });
+
   it('화면 단추 8개도 같은 표(조종 화면 안) — 누르는 동안만, 떼면 그 자리에서 0', () => {
     ready();
     expect(box.querySelectorAll('[data-sd-move]').length).toBe(0);   // 상세 서랍의 작은 패널에는 조작부를 펼치지 않는다
