@@ -75,7 +75,7 @@ def test_marker_generator_can_record_confirmed_state_list(tmp_path):
     assert json.loads(target.read_text())['accept_error_codes']==[100]
 
 
-@pytest.mark.parametrize('changes',[dict(mode=7),dict(body_height=.1),dict(progress=1),dict(velocity=(.4,0,0))])
+@pytest.mark.parametrize('changes',[dict(mode=7),dict(body_height=.17),dict(progress=1),dict(velocity=(.4,0,0))])
 def test_confirmed_state_does_not_bypass_other_stop_evidence(changes):
     now,sink,old_feedback,hub,states=fixture();sink.select_source('server')
     feedback=Feedback('1234-5678',now=now,accept_error_codes=(100,));feedback.sink=sink

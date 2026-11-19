@@ -113,7 +113,7 @@ def test_competing_identity_fault_is_permanent():
 
 
 @pytest.mark.parametrize('changes', [dict(mode=7), dict(error_code=1), dict(progress=1.),
-                                    dict(body_height=.1), dict(velocity=(float('nan'), 0., 0.))])
+                                    dict(body_height=.17), dict(velocity=(float('nan'), 0., 0.))])
 def test_unknown_or_unhealthy_feedback_never_confirms_stop(changes):
     _, sink, feedback, hub, states = fixture()
     feedback.lowstate(low())

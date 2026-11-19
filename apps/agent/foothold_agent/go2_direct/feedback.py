@@ -15,6 +15,7 @@ from foothold_agent.safety.core import SCHEMA
 from .sink import FEEDBACK_MAX_AGE_S
 
 STILL_VZ_MAX_M_S = .06  # ponytail: 실측 정지 분포 보고 조정 (현장 승인).
+LYING_HEIGHT_MAX_M = .15  # Go2 X idle (mode 0) can also mean lying down.
 
 
 def vector(value, length):
@@ -211,7 +212,10 @@ class Feedback:
                 and number(sport['progress']) and sport['progress'] == 0)
         result['still'] = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
             and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
-        if safe and sport['mode'] == 5 and number(sport['height'], 0., .50):
+        # Preserve the existing mode-5 range; Go2 X also lies down in mode 0.
+        if safe and ((sport['mode'] == 5 and number(sport['height'], 0., .50)) or
+                (sport['mode'] in (0, 5) and number(sport['height'], 0.)
+                 and sport['height'] < LYING_HEIGHT_MAX_M)):
             result['state'] = 'LYING'
         elif safe and sport['mode'] in (0, 1, 3) and number(sport['height'], .20, .50):
             result['state'] = 'STANDING'
