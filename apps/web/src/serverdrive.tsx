@@ -143,14 +143,19 @@ export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <
 
 /** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기 */
 export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
-/** 이 화면(새로 고침 전까지)에서 한 번이라도 canDrive 였던 로봇 id — RB-PC-DRIVE-OFFLINE */
-const drove = new Set<string>();
+/** 이 로그인 세션(사용자·세션 취소 신호)에서 한 번이라도 canDrive 였던 로봇 id — RB-PC-DRIVE-OFFLINE. 사용자가 바뀌거나 로그아웃(세션 신호 끝남)하면 비운다(RB-PC-DRIVE-OFFLINE-FIX) */
+let drove = { user: '', cancel: undefined as AbortSignal | undefined, ids: new Set<string>() };
+const droveIds = (c: Pick<Ctx, 'user' | 'cancel'>) => {
+  if (drove.user !== c.user.id || drove.cancel !== c.cancel || c.cancel?.aborted) drove = { user: c.user.id, cancel: c.cancel, ids: new Set() };
+  return drove.ids;
+};
 /** 세 칸 조종 화면을 둘 로봇(RB-PC-DRIVE-OFFLINE 11-19): 지금 canDrive, 또는 한 번 canDrive 였고 서버가 막는 까닭이 «로봇 연결 없음»(AGENT_OFFLINE) 하나뿐
  *  (담당·기체번호·서버 스위치는 그대로 맞음 — 서버 목록 server_drive_blocked). 조종 가능 여부는 여전히 canDrive·연결 상태가 정한다 */
-export const keepDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => {
-  if (canDrive(c, r)) return drove.add(r.id), true;
+export const keepDrive = (c: Pick<Ctx, 'user' | 'phone' | 'cancel'>, r: Robot) => {
+  const ids = droveIds(c);
+  if (canDrive(c, r)) return ids.add(r.id), true;
   const b = r.serverDriveBlocked;
-  return drove.has(r.id) && b?.length === 1 && b[0] === 'AGENT_OFFLINE' && canDrive(c, { ...r, serverDrive: true });
+  return ids.has(r.id) && b?.length === 1 && b[0] === 'AGENT_OFFLINE' && canDrive(c, { ...r, serverDrive: true });
 };
 /** 쌓이는 지도로 그릴 라이다인가(계약 frame 'odom' — 로봇이 처음 켜진 곳 기준 좌표 + pose) */
 export const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
@@ -173,9 +178,11 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const lost = res?.status === 'RUNNING' && !running ? `${POSE[POSE_KEY[res.action]].fail} — ${POSE_LOST}` : '';
   const poseNow: PoseKey | null = pose?.k ?? running, shifting = !!poseNow || posture === 'TRANSITIONING' || s?.action_result?.status === 'RUNNING';
   // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
-  const ready = mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
+  // off = 로봇 연결 끊김(서버 목록 허용 꺼짐 — 보통 AGENT_OFFLINE, 또는 state OFFLINE). 어느 쪽이 먼저 와도 이동 잠금(RB-PC-DRIVE-OFFLINE-FIX)
+  const off = !r.serverDrive || (!!s && s.connection !== 'ONLINE');
+  const ready = !off && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
-  const send = () => { const cmd = command(held.current), [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy); };
+  const send = () => { const cmd = readyRef.current ? command(held.current) : TABLE[''], [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy); };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
   const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
   /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */
@@ -213,6 +220,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     };
   }, []);
   useEffect(() => { if (!ready) zero(); }, [ready]);   // 움직일 수 없게 되면 누른 것을 버린다(자동 재개 없음)
+  // 끊기면 0 을 보내고 조종권을 돌려준다 — 다시 연결돼도 «조종 시작»을 다시 누르고 새로 눌러야 움직인다(화면 안내와 같게)
+  useEffect(() => { if (off && mine) { zero(); rt.release(r.id); } }, [off, mine]);
   useEffect(() => { if (link === 'lost' || link === 'denied') zero(SD_NOTE.link); }, [link]);
   useEffect(() => { if (l.stop) zero(SD_NOTE.stop); }, [l.stop?.n]);   // 머리줄 STOP·Space 도
   useEffect(() => { if (s?.latched !== true || !mine) setAsked(null); }, [s?.latched, mine]);   // 풀렸거나 조종권이 없으면 해제 대기 끝
@@ -289,7 +298,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
   const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
     <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>;
-  return { l, s, mine, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, trial, releasing };
+  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, trial, releasing };
 }
 
 /** inline = 작은 패널에도 조작부를 둔다(지도 만들기 창 — 실시간 지도를 보면서 바로 조종, 11-13) */
