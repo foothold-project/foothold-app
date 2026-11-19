@@ -317,6 +317,8 @@ function drop(code: number) {
   if (code === 1013) { backoff = Math.min(8000, backoff ? backoff * 2 : 1000); S.retryAt = now() + backoff; }   // 1 s 부터 늘림(§13.6)
   setLink({ at: 'closed', lease: null, busy: '', ask: null, code, why: closeText(code), cam: S.link?.cam === 'off' ? 'off' : 'lost' });
 }
+/** 넘김 무산(취소·시간 지남·거절) — 넘기는 중 누른 입력도 앞 세대, 떼고 다시 눌러야 쓰인다(RV-431 ①) */
+function dropGiveInputs() { axes = [0, 0]; bumpInputs(); }
 function onMsg(raw: string) {
   let m: { t?: string; [k: string]: unknown };
   try { m = JSON.parse(raw); } catch { return; }
@@ -339,6 +341,7 @@ function onMsg(raw: string) {
   } else if (m.t === 'reply') {
     const r = m as unknown as PhoneReply, f = replies.get(r.id);
     replies.delete(r.id);
+    if (l.busy === 'give' && !r.ok) dropGiveInputs();
     setLink({ busy: l.busy === 'give' && r.ok ? 'give' : '', ...(r.lease_id ? { lease: r.lease_id } : {}), ...(r.ok ? {} : { notice: ERR[r.error?.code ?? ''] ?? `요청을 처리하지 못했습니다(${r.error?.code}).` }) });
     f?.(r.ok, r);   // 안내를 고쳐 쓸 수 있게 기본 안내 뒤에 부른다
   } else if (m.t === 'cmd.ack') {
@@ -349,7 +352,8 @@ function onMsg(raw: string) {
     if (fresh) lastEcho = echo.id;
     if (l.st && (st.stop_gen !== l.st.stop_gen || st.latched !== l.st.latched)) axes = [0, 0];   // 잠김·해제·stop_gen 이 바뀌면 이전 입력을 버린다 — 화면은 새로 누른 입력만 다시 넣는다
     // 반납 답 전의 옛 state 로 lease 를 되살리지 않음
-    setLink({ st, stAt: now(), lease: l.busy === 'release' ? null : st.lease_id, ...(l.busy === 'give' && st.lease_id !== l.lease && { busy: '' }),   // 넘김 끝 = 보고의 lease 가 바뀜 rtt: fresh ? Date.now() - echo.client_time_ms : l.rtt,
+    setLink({ st, stAt: now(), lease: l.busy === 'release' ? null : st.lease_id, ...(l.busy === 'give' && st.lease_id !== l.lease && { busy: '' }),   // 넘김 끝 = 보고의 lease 가 바뀜
+      rtt: fresh ? Date.now() - echo.client_time_ms : l.rtt,
       run: st.run === undefined ? l.run : seeRun(st.run) });   // run 이 없는 옛 에이전트면 그대로
     // 같은 연결에서 이 STOP 뒤 세대(stop_gen > g0)의 잠금을 받은 뒤 latched=false 가 와야 STOP 안내를 지운다. 옛 세대·옛 연결의 보고로는 지우지 않는다
     const p = S.stop;
@@ -364,6 +368,7 @@ function onMsg(raw: string) {
   } else if (m.t === 'lease.requested') {
     setLink({ ask: { id: m.request_id as string, until: now() + 10_000 } });
   } else if (m.t === 'lease.result') {
+    if (l.busy === 'give' && m.result !== 'ACCEPTED') dropGiveInputs();
     setLink({ ask: null, notice: RESULT[m.result as string] ?? '', ...(l.busy === 'give' && m.result !== 'ACCEPTED' && { busy: '' }) });   // 넘김 무산(취소·시간 지남) = 내 조종권 그대로
   }
 }

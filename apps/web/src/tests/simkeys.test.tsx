@@ -367,6 +367,34 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await key('keyup', 'KeyW');
   });
 
+  // RV-431 ①: 넘기는 중 새로 누른 입력도 넘김이 무산되면 앞 세대 — 다시 누르지 않으면 0
+  it.each([
+    ['CANCELED', (a: FakeWS) => recv(a, { t: 'lease.result', result: 'CANCELED' })],
+    ['TIMEOUT', (a: FakeWS) => recv(a, { t: 'lease.result', result: 'TIMEOUT' })],
+    ['거절 답', (a: FakeWS) => recv(a, { t: 'reply', id: a.of('lease.respond')[0].id, ok: false, error: { code: 'X', message: '', detail: {} } })],
+  ] as const)('RV-431 ① [넘기기] 뒤 W 를 새로 누른 채 넘김 무산(%s) → 0, 떼고 다시 눌러야 값', async (_, fail) => {
+    const a = await ready();
+    a.auto = ((m: Msg) => (m.t === 'lease.respond' ? undefined : agentAuto!(m))) as FakeWS['auto'];   // 넘기기 답은 시험이 보낸다
+    await recv(a, { t: 'lease.requested', request_id: 'q1' });
+    await click(btn('넘기기'));
+    await key('keydown', 'KeyW');
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 넘기는 중 = 0
+    await fail(a);
+    expect(sim.get().link?.busy).toBe('');
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });   // 고치기 전: vx 0.6(넘기는 중 누른 W 가 무산 뒤 살아남)
+    await key('keyup', 'KeyW'); await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await key('keyup', 'KeyW');
+  });
+  // #431 회귀: rtt 가 주석 안으로 들어가 늘 null 이었다
+  it('보낸 ping 의 echo 가 state 로 오면 왕복 시간(rtt)이 숫자', async () => {
+    const a = await ready();
+    const pings = a.of('ping'), p = pings[pings.length - 1];
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false,
+      echo: { id: 'e1', client_time_ms: (p.client_time_ms as number) - 30, agent_time_ms: Date.now() } }));
+    expect(sim.get().link?.rtt).toBeGreaterThanOrEqual(30);
+  });
+
   it('Space 는 PR #94·#96 그대로 STOP — 시뮬 탭이면 이 시뮬 로봇에 직접 stop', async () => {
     const a = await ready();
     await key('keydown', 'Space');
