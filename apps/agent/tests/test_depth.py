@@ -347,6 +347,54 @@ def test_depth_codec_stall_never_waits_on_input_watchdog_or_stop(monkeypatch):
     asyncio.run(scenario()); source.thread.join(timeout=1)
 
 
+@pytest.mark.parametrize('first_read', ['empty', 'error'])
+def test_depth_reports_stalled_reader_and_recovers_on_same_topic(first_read):
+    from foothold_agent.depth.source import NO_IMAGE, READ_ERROR
+
+    topic = 'rt/custom/depth'
+    expected = NO_IMAGE if first_read == 'empty' else READ_ERROR
+    notices, opened, closed = [], [], []
+    clock = [0.]
+    rows = image_topics(endpoints((topic, IMAGE)))
+
+    class Discovery:
+        def poll(self): return rows
+        def close(self): pass
+
+    class Images:
+        def __init__(self, participant, selected):
+            assert participant == 'shared' and selected['name'] == topic
+            opened.append(clock[0])
+
+        def take(self):
+            if first_read == 'error' and len(opened) == 1:
+                raise OSError('synthetic read failure')
+            return [raw()] if expected in notices else []
+
+        def close(self): closed.append(clock[0])
+
+    def update(**state):
+        assert state['depth_selected'] == topic
+        notices.append(state['depth_notice'])
+        if '수신 중' in notices[-1]:
+            source.close()
+
+    source = Source(NS(robot=str(uuid4())), now=lambda: clock[0],
+                    status=NS(update=update, depth_choice=lambda: None),
+                    participant=lambda: 'shared', discovery=lambda _: Discovery(), images=Images)
+    def advance(seconds):
+        clock[0] += seconds
+        assert clock[0] < 6
+    source.closing.wait = advance
+    source.run()
+    assert expected in notices and '수신 중' in notices[-1]
+    assert source.seq == 1 and len(closed) == len(opened)
+    if first_read == 'error':
+        assert len(opened) == 2 and opened[1] - opened[0] >= 1
+    else:
+        assert len(opened) == 1
+
+
 @pytest.mark.parametrize('case',['missing-range','equal','nan','source','rgb-with-depth','episode'])
 def test_contract_rejects_fake_or_unlabelled_depth(case):
     header=colour(raw())[0]

@@ -12,6 +12,12 @@ from foothold_agent.go2_direct.media import Publisher as MediaPublisher
 from .convert import colour, limits
 from .discovery import Discovery, Images, choose, notice, shared_participant, UNAVAILABLE
 
+READ_ERROR = '뎁스 영상을 읽을 수 없어 다시 연결하고 있습니다'
+NO_IMAGE = '뎁스 카메라는 보이지만 영상이 도착하지 않고 있습니다'
+INVALID_IMAGE = '선택한 영상에서 거리 정보를 읽을 수 없습니다'
+OLD_IMAGE = '뎁스 영상은 도착하지만 촬영 시각이 갱신되지 않고 있습니다'
+SLOW_IMAGE = '뎁스 영상은 도착하지만 화면에 표시하기까지 시간이 오래 걸리고 있습니다'
+
 
 class Source:
     def __init__(self, config=None, env=None, *, status=None, now=time.monotonic,
@@ -24,7 +30,6 @@ class Source:
         self.lock = threading.Lock()
         self.latest = None
         self.thread = None
-        self.invalid = False
         self.recorder, self.recording_allowed = recorder, recording_allowed
 
     def bind(self, config):
@@ -50,6 +55,8 @@ class Source:
             participant = self.participant()
             discovery = self.discovery_factory(participant)
             last_stamp, next_frame, next_discovery = -1, float('-inf'), float('-inf')
+            detail = None
+            last_arrival = retry_at = 0.
             rows = []
             while not self.closing.is_set():
                 stamp = self.now()
@@ -63,37 +70,61 @@ class Source:
                         images = None
                         with self.lock:
                             self.latest = None
-                        selected, last_stamp, self.invalid = choice, -1, False
-                        if selected:
+                        selected, last_stamp, detail = choice, -1, None
+                        last_arrival = retry_at = stamp
+                    if selected and images is None and stamp >= retry_at:
+                        try:
                             images = self.images_factory(participant, selected)
+                            last_arrival = self.now()
+                            detail = None
+                        except Exception:
+                            detail = READ_ERROR
+                            retry_at = stamp + 1
                     text = notice(rows, selected)
                     if self.sample('depth') is not None:
                         text = f'뎁스 영상 수신 중 · {low:g}–{high:g} m · 가까움 빨강 / 멀리 파랑'
-                    elif self.invalid:
-                        text = '선택한 영상의 깊이 형식을 읽을 수 없습니다 — 16UC1·32FC1 깊이 또는 compressedDepth PNG인지 확인하세요'
+                    elif selected and images is not None and stamp - last_arrival >= 3:
+                        text = NO_IMAGE
+                    elif detail:
+                        text = detail
                     self.update(rows, selected, text)
                     next_discovery = stamp+.2
                 if images is not None and stamp >= next_frame:
-                    for message in images.take():
+                    try:
+                        messages = images.take()
+                    except Exception:
+                        images.close()
+                        images = None
+                        with self.lock:
+                            self.latest = None
+                        detail = READ_ERROR
+                        retry_at = self.now() + 1
+                        self.update(rows, selected, detail)
+                        messages = ()
+                    for message in messages:
                         received = self.now()
+                        last_arrival = received
                         try:
                             header = message.header
                             sec, nano = header.stamp.sec, header.stamp.nanosec
                             if (type(sec) is not int or type(nano) is not int
                                     or not 0 <= sec <= 0x7fffffff or not 0 <= nano < 1_000_000_000):
+                                detail = '뎁스 영상의 촬영 시각을 읽을 수 없습니다'
                                 continue
                             marker = sec*1_000_000_000+nano
                             # ROS Header may legitimately leave its stamp zero.
                             # Receive freshness still uses the laptop clock;
                             # only supplied positive sensor stamps are deduped.
                             if marker and marker <= last_stamp:
+                                detail = OLD_IMAGE
                                 continue
                             if marker:
                                 last_stamp = marker
                             captured_at = datetime.now(timezone.utc).isoformat()
                             frame, payload = colour(message, low, high)
-                            self.invalid = False
+                            detail = SLOW_IMAGE
                             if self.now()-received <= 1 and not self.closing.is_set():
+                                detail = None
                                 with self.lock:
                                     if self.config is not None:
                                         self.seq += 1
@@ -101,6 +132,8 @@ class Source:
                                             epoch=self.epoch, episode_id=None, channel='depth', seq=self.seq,
                                             captured_at=captured_at)
                                         self.latest = received, frame, payload
+                                    else:
+                                        detail = '뎁스 영상이 도착했습니다. 로봇 연결을 기다리고 있습니다'
                                 try:
                                     if self.recorder is not None and self.recording_allowed():
                                         self.recorder.depth(message, frame, selected['name'])
@@ -109,7 +142,7 @@ class Source:
                         except Exception:
                             # Bad colour/JPEG/RVL/RGB cannot become depth. Keep
                             # metadata discovery running when an image is invalid.
-                            self.invalid = True
+                            detail = INVALID_IMAGE
                     next_frame = self.now()+.2
                 self.closing.wait(.02)
         except Exception:

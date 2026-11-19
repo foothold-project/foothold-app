@@ -118,6 +118,14 @@ def bootstrap(root, lock, env):
     return python
 
 
+def pin_dds_library(loader, library):
+    loader.write_text('in_wheel = True\nlibrary_path = '+repr(str(library))+'\n')
+    # pip may have compiled the old loader in the same second with the same
+    # source size. Such a timestamp-based pyc still looks current to Python.
+    for cached in (loader.parent/'__pycache__').glob('__library__.*.pyc'):
+        cached.unlink()
+
+
 def build_sources(root, python, env):
     sources = root/'bundle/sources'
     core = unpack(sources/'cyclonedds-c.tar.gz', root/'build/c-source')
@@ -151,7 +159,7 @@ def build_sources(root, python, env):
     # CYCLONEDDS_HOME/LD_LIBRARY_PATH export, system search or patching utility.
     site = root/'venv/lib/python3.10/site-packages'
     loader = site/'cyclonedds/__library__.py'
-    loader.write_text('in_wheel = True\nlibrary_path = '+repr(str(prefix/'lib/libddsc.so'))+'\n')
+    pin_dds_library(loader, prefix/'lib/libddsc.so')
     run([python, '-I', '-m', 'pip', 'check'], root, env)
 
 
