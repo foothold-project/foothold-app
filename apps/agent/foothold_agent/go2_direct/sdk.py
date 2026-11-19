@@ -1,13 +1,41 @@
 """Explicit field-only SDK boundary; validation precedes every SDK import."""
 
 import socket
+import threading
 import time
 import os
+from weakref import WeakKeyDictionary
 from foothold_agent.mapping.inputs import ObservationInputs, RAW_TOPIC
 from .approval import validate
 from .identity import verify
 
 SDK_TIMEOUT_S = .10
+
+
+class _SportTransports:
+    """Two independent SDK response readers for one setup DDS participant."""
+    def __init__(self):
+        self.ready = []
+        self.pending = None
+
+    def initialize(self):
+        from unitree_sdk2py.go2.sport.sport_client import SportClient
+        while len(self.ready) < 2:
+            # Construction opens the DDS reader. If configuration fails, retry
+            # on that same object; the SDK provides no close for a SportClient.
+            if self.pending is None:
+                self.pending = SportClient()
+            self.pending.SetTimeout(SDK_TIMEOUT_S)
+            self.pending.Init()
+            self.ready.append(self.pending)
+            self.pending = None
+        return self.ready
+
+
+# Keep raw motion clients private to the SDK boundary. Only initialization
+# takes this lock; neither ordinary RPCs nor the emergency lane acquire it.
+_setup_sport_transports = WeakKeyDictionary()
+_sport_init_lock = threading.Lock()
 
 
 class _Channel(ObservationInputs):
@@ -169,11 +197,8 @@ def connect_approved(approval, observed_serial, subscriptions):
     if (not subscriptions._started or subscriptions.nic != approval.nic
             or approval.nic not in {name for _, name in socket.if_nameindex()}):
         raise PermissionError('current dedicated subscription NIC required')
-    from unitree_sdk2py.go2.sport.sport_client import SportClient
-    clients = []
-    for _ in range(2):
-        client = SportClient()
-        client.SetTimeout(SDK_TIMEOUT_S)
-        client.Init()
-        clients.append(SportBoundary(client, approval))
-    return tuple(clients)
+    with _sport_init_lock:
+        transports = _setup_sport_transports.setdefault(subscriptions, _SportTransports())
+        clients = transports.initialize()
+    # Each approval still owns independent deadlines and revocation state.
+    return tuple(SportBoundary(client, approval) for client in clients)
