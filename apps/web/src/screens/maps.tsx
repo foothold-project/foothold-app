@@ -394,11 +394,12 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
         {sim ? <button type="button" className="btn" onClick={() => make('fix')}>장소 고치기</button>
           : <>{maker && <button type="button" className="btn pri" data-make-robot onClick={() => make('robot')}>+ 지도 만들기</button>}
             <button type="button" className={`btn${maker ? '' : ' pri'}`} data-make-file onClick={() => make('file')}>+ 파일 올리기</button>
-            <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a></>}</div>
+            {!inApp() && <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>}</>}</div>
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}>{thumb(b)}<b>{b.name}</b>{facts(s, b)}</button>)}</div></section>)}
-      {t.tree && !places.length && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
+      {/* 시뮬 탭: 실기 카드는 보이되 시뮬로 쓸 지도(시뮬 장소·3D 실기)가 하나도 없으면 안내 — 판을 아직 못 받은 층(null)은 모름이라 안내 안 함 */}
+      {t.tree && (sim ? places.every((p) => runOf(p, vers) === 'real') : !places.length) && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
         : '등록된 지도가 없습니다. «+ 지도 만들기»로 담당 실기 로봇이 돌아다니며 그리거나, «+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.'}</p>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}

@@ -100,6 +100,14 @@ describe('PC «시뮬» 탭 첫 화면', () => {
     expect(chooser.querySelector('[data-sim-card]')).toBeNull();
     expect($('[data-builtin]')).toBeNull();
   });
+  it('RV-394: 실기 장소(3D 지형 없음)만 있으면 실기 카드는 보이고 지도 탭 «+ 지형 만들기» 안내도 보임', async () => {
+    const REAL = { items: [{ id: 's1', name: '본관', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 's1', name: '본동',
+      floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: null, pending_count: 0 }] }] }], next_cursor: null };
+    serve({ 'GET /sites': { status: 200, body: REAL } }); await mount('u-lee', ROBOTS, '#/sim', null);
+    const chooser = $('[aria-label="지도 고르기"]')!;
+    expect(chooser.querySelector('[data-building="b1"]')!.textContent).toContain('본동');
+    expect(chooser.querySelector('[data-empty]')!.textContent).toContain('지도 탭의 «+ 지형 만들기»');
+  });
 });
 
 describe('PC «시뮬» 탭', () => {
