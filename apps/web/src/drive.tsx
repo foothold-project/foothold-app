@@ -10,7 +10,7 @@ import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { command, permitted, TABLE } from './serverdrive';
+import { command, permitted, REAL_WAIT, TABLE } from './serverdrive';
 import { api } from './api';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
@@ -69,8 +69,7 @@ export function endDrive(id: string, go: Ctx['go']) {
 }
 /** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
 export const REAL_STICK = '실기는 스틱을 반 넘게 밀면 정해진 속도로 움직입니다.';
-/** 실기에서 서버 경유 허용(목록 server_drive)·조직 속도 설정을 아직 확인하지 못함 — 그동안 입력은 0(RB-PHONE-REAL-TABLE-FIX) */
-export const REAL_WAIT = '서버 경유 조종 허용·조직 속도 설정을 확인하는 중이라 입력을 0으로 보냅니다.';
+export { REAL_WAIT };
 const RELEASING = '조종권 반납을 확인하는 중입니다. 확인되면 다시 누르세요.';
 
 export function Drive(c: Ctx) {
@@ -203,12 +202,12 @@ function Screen(c: Ctx) {
   }, [r.id, real]);
   // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다).
   // 이 화면은 실기만 연다(시뮬은 App 이 막고 simdrive 직결) — 비례는 없다. 서버 경유 확인 + 설정 받음 = 표 값, 그 밖(목록 갱신 전 등)은 0.
-  // 표·상한이 만든 0 은 손 뗌이 아니다(rt 새 중립은 실제 입력으로)
+  // 표·상한이 만든 0 은 손 뗌이 아니다(rt 새 중립은 실제 입력으로). 합산 축도 아니다 — A+D 처럼 서로 상쇄돼도 누르고 있음(RV-423)
   useEffect(() => {
     if (!mine) return;
     const i = setInterval(() => {
-      const a = axes(), [vx, vy, wz] = real && gotRef.current ? realAxes(a, settingsRef.current) : TABLE[''];
-      rt.cmd(r.id, [vx, wz], vy, !!(a[0] || a[1]));
+      const { keys, stick } = input.current, [vx, vy, wz] = real && gotRef.current ? realAxes(axes(), settingsRef.current) : TABLE[''];
+      rt.cmd(r.id, [vx, wz], vy, keys.size > 0 || !!(stick[0] || stick[1]));
     }, CMD_MS);
     return () => clearInterval(i);
   }, [mine, r.id, real]);
