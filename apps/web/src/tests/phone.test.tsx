@@ -1544,3 +1544,63 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
     expect($('[data-sim-floor]')!.textContent).toBe('지도 판이 맞지 않습니다');
   });
 });
+
+describe('직결 시뮬 조종 — 새로 누른 입력만(RB-SIMDRIVE-FRESH-PRESS, RV-427 ①②③)', () => {
+  const ST = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
+  const cmd = async () => { await wait(70); return last(agents()[0].of('cmd')); };
+  it('정상: 새로 누르면 비례 값, 놓으면 즉시 0, STOP 은 바로 나감', async () => {
+    const a = await launch(); await drive(a);
+    const fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 25);
+    const half = (await cmd()).vx as number;
+    expect(half).toBeGreaterThan(0); expect(half).toBeLessThan(0.6);   // 비례(끝까지 아님)
+    ptr(fwd, 'pointermove', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0.6 });
+    ptr(fwd, 'pointerup', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0.6 });
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    ptr(fwd, 'pointerup', 50, 0);
+  });
+  it('① 스틱 전진 중 창 초점을 잃으면 0 — 같은 손가락은 떼었다가 다시 눌러야', async () => {
+    const a = await launch(); await drive(a);
+    const fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0.6 });
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointermove', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerup', 50, 0); ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0.6 });
+    ptr(fwd, 'pointerup', 50, 0);
+  });
+  it('② STOP 뒤 잠금 보고 전 같은 손가락 이동은 0', async () => {
+    const a = await launch(); await drive(a);
+    const fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0.6 });
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    ptr(fwd, 'pointermove', 50, 0); ptr(fwd, 'pointermove', 50, 5);
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerup', 50, 0); ptr(fwd, 'pointerdown', 50, 0);   // 보고 전에는 새로 눌러도 0
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerup', 50, 0);
+  });
+  it('③ 잠금 해제 상태에서 stop_gen 만 바뀌어도 0 — 새로 눌러야 다시 움직임', async () => {
+    const a = await launch(); await drive(a);
+    const fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0.6 });
+    await recv(a, phoneState({ ...ST, latched: false, stop_gen: 2 }));
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointermove', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    ptr(fwd, 'pointerup', 50, 0); ptr(fwd, 'pointerdown', 50, 0);
+    expect(await cmd()).toMatchObject({ vx: 0.6 });
+    ptr(fwd, 'pointerup', 50, 0);
+  });
+});
