@@ -281,11 +281,10 @@ def test_feedback_loss_reports_lock_and_requires_explicit_recovery():
 
 
 def test_server_si_table_is_exact_and_phone_forward_ceiling_matches():
-    from foothold_agent.go2_direct.sink import ALLOWED, SERVER_ALLOWED
+    from foothold_agent.go2_direct.sink import PHONE_FORWARD_STEPS, SERVER_ALLOWED
     from apps.contracts.server_drive import ALLOWED as CONTRACT
     assert SERVER_ALLOWED == CONTRACT and len(SERVER_ALLOWED) == 13
-    assert ALLOWED == {(0., 0., 0.)} | {(step / 10, 0., wz)
-        for step in range(3, 16) for wz in (0., -.5, .5)}
+    assert PHONE_FORWARD_STEPS == {step / 10 for step in range(3, 16)}
 
 
 def test_local_narrower_turn_limit_also_bounds_server_output():

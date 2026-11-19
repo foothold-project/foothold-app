@@ -9,6 +9,7 @@ import logging
 import sys
 import threading
 import time
+from foothold_agent.safety.core import MAX_TURN_RATE
 from foothold_agent.safety.lock_log import LockLog
 from dataclasses import dataclass
 from collections import deque
@@ -19,15 +20,11 @@ ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 STOP_RETRY_S = .20
-# Full-stick remote turns measured ±2.47 rad/s (peak one-second mean).
-MAX_TURN_RATE = 2.5
 TURN_RAMP_S = 2.0
 TURN_BRAKE_S = .30
 SERVER_SLEW = (1.5, 1., MAX_TURN_RATE / TURN_RAMP_S)
 SERVER_BRAKE = (1.5, 1., MAX_TURN_RATE / TURN_BRAKE_S)
-PHONE_TURN_RATE = .5
-ALLOWED = frozenset({ZERO} | {(step / 10, 0., wz)
-                    for step in range(3, 16) for wz in (0., -PHONE_TURN_RATE, PHONE_TURN_RATE)})
+PHONE_FORWARD_STEPS = frozenset(step / 10 for step in range(3, 16))
 SERVER_ALLOWED = frozenset({ZERO, (1.5, 0., 0.), (-1.5, 0., 0.), (0., 1., 0.), (0., -1., 0.)}
                     | {(vx, 0., wz) for vx in (0., 1.5)
                        for wz in (-MAX_TURN_RATE, -.5, .5, MAX_TURN_RATE)})
@@ -77,11 +74,11 @@ class Limits:
         if (not isinstance(velocity, (list, tuple)) or len(velocity) != 3 or
                 not all(type(x) in (int, float) and math.isfinite(x) for x in velocity)):
             raise ValueError('finite body-frame vx, vy, wz required')
-        vx, vy, wz = velocity
-        velocity = (vx, vy, min(PHONE_TURN_RATE, max(-PHONE_TURN_RATE, wz)))
+        if abs(velocity[2]) > MAX_TURN_RATE:
+            raise ValueError('phone turn exceeds physical limit')
         value = tuple(float(min(hi, max(lo, x))) for x, (lo, hi)
                       in zip(velocity, (self.vx, self.vy, self.wz)))
-        if value not in ALLOWED:
+        if value != ZERO and value[0] not in PHONE_FORWARD_STEPS:
             raise ValueError('command is outside reviewed real-robot alphabet')
         return value
 
@@ -437,10 +434,14 @@ class Go2Sink:
             if posture_held and velocity != ZERO:
                 self.lock_log.emit("stop", "output_posture_hold")
             target = ZERO if self.latched or self._neutral_required or self._posture is not None or self.actions.busy or posture_held else velocity
-            if target != self.pending:
+            if source == 'server' and target != self.pending:
                 # Do not spend preceding idle time on a newly received target.
                 self._ramp_at = tuple(stamp if new != old else previous
                                       for new, old, previous in zip(target, self.pending, self._ramp_at))
+            elif source == 'phone' and target[2] and self.pending[2] == self._ramp_velocity[2] == 0:
+                # Start at first deflection. Later analog samples can change
+                # the target on every tick without restarting the slew clock.
+                self._ramp_at = (*self._ramp_at[:2], stamp)
             self.pending = target
             if not self.latched and self._neutral_required and velocity == ZERO:
                 self._neutral_required = False
@@ -603,6 +604,12 @@ class Go2Sink:
                         _slew_axis(current, target, max(0., stamp - previous), acceleration, braking)
                         for current, target, previous, acceleration, braking in
                         zip(self._ramp_velocity, velocity, self._ramp_at, SERVER_SLEW, SERVER_BRAKE))
+                elif self.source == 'phone' and velocity[0] > 0 and not urgent:
+                    # Translation stays immediate. Releasing forward also cuts yaw
+                    # immediately so braking can never command a turn in place.
+                    turn = _slew_axis(self._ramp_velocity[2], velocity[2],
+                                      max(0., stamp - self._ramp_at[2]), SERVER_SLEW[2], SERVER_BRAKE[2])
+                    velocity = (velocity[0], velocity[1], turn)
                 # Safety holds reset this state; neither STOP lane uses the ramp.
                 self._ramp_velocity = ZERO if urgent else velocity
                 self._ramp_at = (stamp,) * 3

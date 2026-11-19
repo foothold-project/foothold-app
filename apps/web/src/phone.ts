@@ -189,7 +189,7 @@ export const TURN_ON = 0.5;
 export const NUDGE = 0.001;
 /** 조직 시뮬 조작값(05 §8 OrgSettings sim_*·stick_deadzone, 설정 › 시뮬)의 계약 범위(apps/contracts/models.py OrgSettings) */
 const TUNE = { sim_max_vx: [0.2, 1.5], sim_min_vx: [0, 0.5], sim_max_vy: [0, 0.5], sim_max_wz: [0, 1.2], sim_key_vx: [0.1, 1.5], stick_deadzone: [0, 0.5] } as const;
-export const REAL_CAPS = { real_max_vx: 1.5, real_max_vx_back: 1.5, real_max_vy: 1, real_max_wz: 4 } as const;
+export const REAL_CAPS = { real_max_vx: 1.5, real_max_vx_back: 1.5, real_max_vy: 1, real_max_wz: 2.5 } as const;
 export function realCaps(o: Partial<OrgSettings> | null) {
   return Object.fromEntries(Object.entries(REAL_CAPS).map(([k, max]) => {
     const v = o?.[k as keyof typeof REAL_CAPS];

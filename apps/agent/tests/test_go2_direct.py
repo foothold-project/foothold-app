@@ -200,7 +200,7 @@ def test_explicit_factory_uses_only_fake_sdk_and_no_motion(marker, monkeypatch):
 
 
 @pytest.mark.parametrize('velocity', [(True, 0, 0), (float('inf'), 0, 0),
-    (float('nan'), 0, 0), (.2, 0, 0), (1.5, 0, .1), (0, 0)])
+    (float('nan'), 0, 0), (.2, 0, 0), (1.5, 0, -2.50001), (1.5, 0, 2.50001), (0, 0, .1), (0, 0)])
 def test_limits_reject_nonfinite_and_unreviewed_alphabet(velocity):
     with pytest.raises(ValueError):
         Limits().project(velocity)
@@ -210,7 +210,8 @@ def test_limits_clamp_only_and_cannot_expand():
     assert Limits().wz == (-2.5, 2.5)
     with pytest.raises(ValueError):
         Limits(wz=(-2.5, 2.51))
-    assert Limits().project((1.51, 1, 1)) == (1.5, 0., .5)
+    assert Limits().project((1.51, 1, 1)) == (1.5, 0., 1)
+    assert Limits(wz=(-.2, .3)).project((1.5, 0., .5)) == (1.5, 0., .3)
     assert Limits().project((-1, 0, 0)) == (0., 0., 0.)
     with pytest.raises(ValueError):
         Limits(vx=(-1.5, 1.5))
