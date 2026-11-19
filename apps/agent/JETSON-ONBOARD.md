@@ -1,7 +1,7 @@
 # Jetson 사용자 폴더 오프라인 설치 묶음
 
 기준: `dev 224d149` 이후 RB-JETSON-AUTOSTART, 2026-11-18.
-이번 소스 변경은 **설치 묶음 생성·ARM 자동 점검·사용자 서비스 손 켜기 · 끄기 스크립트 (부팅 · 로그인 자동 시작 없음 · 11/19 고침)**를 포함한다.
+이번 소스 변경은 **설치 묶음 생성·ARM 자동 점검·사용자 서비스 자동 시작 스크립트**를 포함한다.
 이 작업에서 Jetson 접속·SSH·복사·설치·DDS 참가·실기 명령은 실행하지 않는다.
 아래 Jetson 명령은 담당자가 실행 시간을 정한 뒤 수행할 현장 절차다.
 상태 화면을 보는 수단과 실제 실행·로봇 검증은 별도 승인이 필요하다.
@@ -152,7 +152,7 @@ OpenCV의 GL 등 외부 라이브러리 해석과 실제 미디어 로딩도 대
 
 이 명령부터 DDS 참가와 서버 연결이 생긴다. headless는 브라우저를 열지 않으며,
 상태 화면은 loopback 전용 포트 9539다. 보호 포트는 installer에서 거부한다.
-외부 공개·cloudflared·터널을 설정하지 않는다. 부팅 · 로그인 자동 시작은 하지 않는다 (아래).
+외부 공개·cloudflared·터널을 설정하지 않는다. 자동 시작은 아래 스크립트로 켠다.
 
 첫 등록은 한 번: 웹의 «로봇 연결하기 → 새 로봇 추가»에서 승인된 상태 화면의 일회용
 코드를 입력한다. 새 Jetson 전용 인증을 `private/agent.json`에 저장하고 다음 실행에
@@ -167,22 +167,21 @@ OpenCV의 GL 등 외부 라이브러리 해석과 실제 미디어 로딩도 대
 유선 `enP8p1s0`/`auto`의 기존 물리 유선·단일 후보·예약 주소·기본 경로 규칙도 유지한다.
 Jetson의 현재 주소가 예약 주소로 거부되면 주소를 임의 변경하지 말고 별도 검토한다.
 
-## 연결 서비스 손으로 켜기·끄기와 기록
+## 자동 시작 켜기·끄기와 기록
 
-부팅 · 로그인 자동 시작 금지 (팀장 11/19 · 22:16 서비스가 스스로 떠 로봇 명령을 낼 수 있었음).
-서비스 파일에 `[Install]` 칸을 두지 않아 `enable` 자체가 되지 않는다.
+자동 시작은 **기본 꺼짐 (opt-in)** 이다. 설치 · 수동 실행은 사용자 서비스를 등록하지 않는다.
+켜면 부팅 · 로그인 때 사람 없이 DDS 참가와 서버 연결이 생긴다 (11/19 22:16 실제로 떠 로봇 명령을 낼 수 있었음).
+팀장이 정한 경우에만 켜고, 현장 작업이 끝나면 끈다. 켜져 있는지는
+`systemctl --user is-enabled foothold-robot.service` 로 본다 (`enabled` 면 켜짐).
 
 ```sh
-sh "${HOME:?}/foothold-robot/start-service.sh"
-sh "${HOME:?}/foothold-robot/stop-service.sh"
+sh "${HOME:?}/foothold-robot/enable-autostart.sh"
+sh "${HOME:?}/foothold-robot/disable-autostart.sh"
 ```
 
-켜기는 `~/.config/systemd/user/foothold-robot.service`를 등록하고 `start` 만 한다.
-예전 설치가 `enable` 해 둔 연결이 남아 있으면 먼저 `disable` 로 지운다.
+켜기는 `~/.config/systemd/user/foothold-robot.service`를 등록하고 `enable --now`한다.
 끄기는 `disable --now` 후 파일을 지우고 daemon-reload한다. sudo·linger는 사용하지 않는다.
-재부팅하면 꺼진 채로 있고, 사람이 로봇 곁에서 다시 켠다.
-이미 `enable-autostart.sh` 로 켠 옛 설치는 `systemctl --user disable --now foothold-robot.service`
-로 끄거나 새 묶음을 설치한 뒤 `stop-service.sh` 를 실행한다.
+GUI 자동 로그인 때 부팅 후 사용자 서비스가 시작한다. 로그인 전 실행은 보장하지 않는다.
 headless 실패는 STOP·잠금·소켓 정리를 마친 뒤 종료 코드 2로 끝나며,
 `Restart=on-failure`, `RestartSec=20`, `StartLimitBurst=5`/600초로 재시도한다.
 제한으로 멈췄다면 원인을 해결한 뒤 켜기 스크립트를 다시 실행한다(reset-failed 포함).
@@ -194,7 +193,7 @@ STOP 출력과 SDK 시간 한도는 별도 RB-STOP-CONFIRM 작업에서 다룬�
 ## 중지·되돌리기
 
 담당자가 위 수동 실행 터미널에서 Ctrl+C로 중지하고 프로세스 종료를 확인한다.
-연결 서비스를 켰다면 먼저 `stop-service.sh` 를 실행한다. 동시 실행 중인 측정 프로그램이나
+자동 시작을 켰다면 먼저 끄기 스크립트를 실행한다. 동시 실행 중인 측정 프로그램이나
 다른 서비스는 건드리지 않는다.
 필요한 설치 기록을 개인 자료로 보관한 뒤 **이 설치만 제거**한다. 인증 정보도 지워지므로
 웹에서 Jetson 전용 등록을 회수할 담당자를 먼저 정한다. 빈 HOME의 잘못된 삭제는 거부한다.

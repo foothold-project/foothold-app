@@ -208,9 +208,8 @@ def install(bundle, root, lock, config):
     (root/'connection.json').write_text(json.dumps(config, indent=2)+'\n')
     (root/'launch.py').write_text(LAUNCHER)
     shutil.copyfile(bundle/'apps/agent/installer/jetson_autostart.py', root/'autostart.py')
-    # Manual start / stop only. No boot or login auto start (팀장 11/19).
-    for action in ('start', 'stop'):
-        script = root/(action+'-service.sh')
+    for action in ('enable', 'disable'):
+        script = root/(action+'-autostart.sh')
         script.write_text('#!/bin/sh\nset -eu\n'
             'root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)\n'
             'exec /usr/bin/python3 -I "$root/autostart.py" '+action+'\n')
