@@ -2,7 +2,7 @@
 // 운영 관리자 = 내 로봇 고르기 + 한 대 집중(상태 한 줄 → 영상·라이다 → 지도 위 현재 위치 → 상세: 임무·배터리·장치·최근 사건), 남의 로봇은 아래 접힌 «다른 로봇 N대»(요약 그대로).
 // 총괄 = 요약 → 큰 지도(전 로봇 위치) + 경보(주의 먼저) → 표 목록 + 거르기 → 행을 누르면 서랍 상세(읽기 전용). STOP 은 머리줄 하나(화면 안에 새로 두지 않음)
 // TAB-SPLIT(11-10): 로봇 탭 = 실기만(목록·고르기·거르기·요약·지도·경보). 시뮬 로봇은 «시뮬» 탭에서만 — 머리줄 STOP 후보(App)는 그대로 시뮬 포함
-// RB-PC-DRIVE-3COL(11-19): 서버가 조종을 허용한 내 실기(canDrive)를 고르면 본문이 곧 세 칸 조종 화면(pcdrive.tsx) — «← 목록»으로 이 화면, «조종 화면 열기»로 다시. 모달 없음
+// RB-PC-DRIVE-3COL(11-19): 서버가 조종을 허용한 내 실기(canDrive — 한 번 허용된 뒤 로봇만 끊기면 keepDrive 로 유지)를 고르면 본문이 곧 세 칸 조종 화면(pcdrive.tsx) — «← 목록»으로 이 화면, «조종 화면 열기»로 다시. 모달 없음
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dashboard, Location, MapVersion } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
@@ -11,7 +11,7 @@ import { rt, useRt } from '../rt';
 import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
-import { canDrive, stopLine } from '../serverdrive';
+import { canDrive, keepDrive, stopLine } from '../serverdrive';
 import { PcDrive } from '../pcdrive';
 import { ActionTrial } from './actiontrial';
 import { MapFrame, MapImage } from '../mapframe';
@@ -62,7 +62,7 @@ const Sym = ({ k, tone }: { k: keyof typeof SYM; tone: Tone }) => <span classNam
 
 /** 머리(이름·실기·담당·«로봇 설정») + 큰 상태 안내(갈래 문구 + «연결 방법»·«조종 화면 열기») + 상태 한 줄(서버·로봇·조종 중인 사람·정지 잠금·마지막 보고 · 폰 경유) */
 function StateLine({ c, r, own, guide, settings, drive }: { c: Ctx; r: Robot; own: boolean; guide: () => void; settings: () => void; drive: () => void }) {
-  const l = rt.get(r.id), s = r.unknown ? null : l.state, hidden = r.unknown === 'summary', bad = isLost(r), k = kindOf(r), ok = canDrive(c, r);
+  const l = rt.get(r.id), s = r.unknown ? null : l.state, hidden = r.unknown === 'summary', bad = isLost(r), k = kindOf(r), ok = keepDrive(c, r);
   const server = LINK[rt.link().at] ?? { tone: 'off' as const, text: '연결 중' };
   // 한 번도 상태를 받지 못한 로봇(r.status 없음)의 OFFLINE 은 «연결 전» — 제목·상세(robotStatus·linkText)와 같은 판정(끊김 경보 아님)
   const robot = hidden ? { tone: 'off' as const, text: '확인 안 됨' } : !s ? { tone: 'off' as const, text: r.unknown === 'link' ? '모름(서버 끊김)' : '모름' }
@@ -332,7 +332,7 @@ function Operator(c: Ctx) {
   const bad = isLost(r), [sheet, setSheet] = useState<'' | 'settings' | 'guide'>(''), [list, setList] = useState(false);
   useEffect(() => { setSheet(''); setList(false); }, [r.id]);   // 로봇을 고르면 바로 조종 화면(허용된 로봇만)
   const guide = () => setSheet('guide');
-  if (own && canDrive(c, r) && !list) return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
+  if (own && keepDrive(c, r) && !list) return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
     <PcDrive key={r.id} c={c} r={r} back={() => setList(true)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />
   </Pair>;
   return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>

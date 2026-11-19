@@ -321,8 +321,9 @@ describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른�
   const messages = ['서버에서 실기 조종이 꺼져 있습니다(관리자만 켤 수 있음)', '담당자가 없습니다',
     '로봇 기체번호가 등록되지 않았습니다', '로봇 쪽 노트북 프로그램이 연결되지 않았습니다'];
   it.each(reasons.map((reason, i) => [reason, messages[i]] as const))('%s 이유를 쉬운 말로 표시하고 조종 패널은 열지 않음', async (reason, message) => {
-    serve(signedIn(LEE, [{ ...RA, server_drive_blocked: [reason] }]));
-    await open('#/fleet', false); online();
+    // 이 화면에서 한 번도 허용된 적 없는 로봇(앞 시험이 r-a 를 허용 로봇으로 기억 — RB-PC-DRIVE-OFFLINE keepDrive, 새로 고침 전까지)
+    serve(signedIn(LEE, [{ ...robot('r-gate', 'Go2-A', LEE, { robot_serial: SERIAL }), server_drive_blocked: [reason] }]));
+    await open('#/fleet', false); online('r-gate');
     const step = card('조종 준비').querySelector('[data-step="3"]')!;
     expect(step.querySelector('[data-drive-block]')!.textContent).toBe(message);
     expect(step.textContent).not.toMatch(/serial|agent|lease|SLAM|SWITCH_OFF|NO_OWNER|NO_SERIAL|AGENT_OFFLINE/);
