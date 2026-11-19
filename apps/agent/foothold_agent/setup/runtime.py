@@ -387,13 +387,15 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                             pass  # mapping startup never changes motion lifetime
                     try:
                         recorder.start()
-                        approval = Approval(nic.name, credentials.robot_serial, gate.last_expiry)
+                        approval = Approval(nic.name, identity.serial if identity is not None
+                                            else credentials.robot_serial, gate.last_expiry)
                         active = media_epoch
                         media = media_factory(credentials, approval, subscriptions, recorder,
-                                              lambda active=active: gate.active is active)
+                                              lambda active=active: gate.active is active and gate.valid())
                         media_task = asyncio.create_task(media.run())
-                    except Exception:
-                        pass  # missing camera/SDK/storage cannot affect motion
+                    except Exception as error:
+                        reason = 'identity' if isinstance(error, PermissionError) else 'source'
+                        logging.getLogger(__name__).warning('GO2_MEDIA start_failed reason=%s', reason)
             if gate.active is not None:
                 if gate.active.sink.error is not None:
                     raise RuntimeError('motion output failed') from gate.active.sink.error

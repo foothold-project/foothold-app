@@ -121,8 +121,7 @@ def test_upload_format_has_no_url_token_and_keeps_control_ws_limit():
     requests=[]
     class Response:
         status=202
-        def __enter__(self):return self
-        def __exit__(self,*args):pass
+        def close(self):pass
         def read(self,count):assert count==128
     class Opener:
         def open(self,request,timeout):requests.append(request);return Response()

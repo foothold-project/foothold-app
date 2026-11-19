@@ -7,6 +7,7 @@ import asyncio
 import base64
 from datetime import datetime, timezone
 import json
+import logging
 import math
 import secrets
 import struct
@@ -14,6 +15,7 @@ import threading
 import time
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, build_opener, ProxyHandler
+from urllib.error import HTTPError
 from concurrent.futures import ThreadPoolExecutor
 
 from . import sdk
@@ -126,6 +128,7 @@ class Source:
         self.closing = threading.Event()
         self.lock = threading.Lock()
         self.latest = {}
+        self.start_failures = {}
         self.raw_cloud = None
         self.deskew_cloud = None
         self.poses = Poses(now)
@@ -164,9 +167,23 @@ class Source:
                 captured_at=datetime.now(timezone.utc).isoformat())
             self.latest[channel] = received, header, payload
 
+    def start_failed(self, channel, error):
+        reason = 'identity' if isinstance(error, PermissionError) else 'source'
+        with self.lock:
+            if self.start_failures.get(channel) == reason:
+                return
+            self.start_failures[channel] = reason
+        logging.getLogger(__name__).warning(
+            'GO2_MEDIA start_failed reason=%s channel=%s', reason, channel)
+
+    def start_ready(self, channel):
+        with self.lock:
+            self.start_failures.pop(channel, None)
+
     def camera(self):
         try:
             client = self.factory(self.env, self.channel, expected_serial(self.config.approval))
+            self.start_ready('rgb')
             while not self.closing.is_set() and self.enabled():
                 code, data = client.GetImageSample()
                 received = self.now()
@@ -182,8 +199,8 @@ class Source:
                     except (ValueError, TypeError, OSError, ImportError):
                         pass
                 self.closing.wait(.2)
-        except Exception:
-            pass  # observation loss is reported as NO_VIDEO, never a control fault
+        except Exception as error:
+            self.start_failed('rgb', error)  # NO_VIDEO, never a control fault
 
     def cloud(self, message, *, deskewed=False):
         received = self.now()
@@ -254,6 +271,7 @@ class Source:
         subscribers = []
         try:
             subscribers.append(self.factory(self.env, self.channel, expected_serial(self.config.approval), callback=self.cloud))
+            self.start_ready('lidar')
             if hasattr(self.channel, 'add_sport_listener'):
                 self.channel.add_sport_listener(self.poses.sport)
             # Factory above validates approval/identity before any additional
@@ -272,8 +290,8 @@ class Source:
                     pass  # sport state is the pose fallback
             while not self.closing.wait(.02) and self.enabled():
                 self.publish_clouds()
-        except Exception:
-            pass
+        except Exception as error:
+            self.start_failed('lidar', error)
         finally:
             if hasattr(self.channel, 'remove_sport_listener'):
                 self.channel.remove_sport_listener(self.poses.sport)
@@ -322,11 +340,24 @@ class Publisher:
         if len(body) > 100_000:
             raise ValueError('observation body exceeds bound')
         request = Request(self.url(channel), data=body, method='POST', headers={
-            'Authorization':'Bearer '+self.config.link.token,'Content-Type':'application/json'})
-        with self.opener.open(request, timeout=.5) as response:
+            'Authorization':'Bearer '+self.config.link.token,'Content-Type':'application/json',
+            'Connection':'close'})
+        response = None
+        try:
+            response = self.opener.open(request, timeout=.5)
             if response.status != 202:
                 raise ValueError('observation upload rejected')
             response.read(128)
+        except HTTPError as error:
+            # urllib raises HTTPError before returning the response. It owns
+            # a response/socket too, outside the normal success cleanup path.
+            error.close()
+            raise
+        finally:
+            # Executor cancellation cannot stop an in-flight upload; its bounded
+            # socket timeout still reaches this cleanup even after wait_for ends.
+            if response is not None:
+                response.close()
 
     async def stream(self, channel):
         seq = -1
@@ -353,10 +384,15 @@ class Publisher:
                 await asyncio.sleep(1)  # observation failure never touches motion
 
     async def run(self):
-        self.source.start()
-        tasks = [asyncio.create_task(self.stream(channel)) for channel in self.channels]
+        tasks = []
         try:
+            self.source.start()
+            tasks = [asyncio.create_task(self.stream(channel)) for channel in self.channels]
             await asyncio.gather(*tasks)
+        except Exception as error:
+            reason = 'identity' if isinstance(error, PermissionError) else 'source'
+            logging.getLogger(__name__).warning('GO2_MEDIA start_failed reason=%s', reason)
+            raise
         finally:
             self.source.close()
             self.executor.shutdown(wait=False, cancel_futures=True)
@@ -372,6 +408,8 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     SDK imports and camera construction stay on observation daemon workers.
     """
     from types import SimpleNamespace
+    inputs = subscriptions.state
+    identity = getattr(inputs, 'mac_identity', None)
 
     def observation(env, channel, observed_serial, *, callback=None):
         import socket
@@ -385,7 +423,26 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
         validate_value(dict(v=1, purpose='go2-field-motion', nic=approval.nic,
                             robot_serial=approval.robot_serial, expires_at=approval.expires_at),
                        approval.nic, clock_skew_s=SERVER_CLOCK_SKEW_S)
-        verify(approval, observed_serial)
+        if identity is None:
+            # Preserve the serial/manual-trial verifier unchanged.
+            if getattr(credentials, 'identity_source', None) == 'mac':
+                raise PermissionError('confirmed media body identity unavailable')
+            verify(approval, observed_serial)
+        else:
+            # Reuse setup's current connection/body evidence, including its
+            # freshness and conflict latch. Never apply the manual trial's
+            # exclusive two-neighbor policy to a confirmed MAC connection.
+            binding = getattr(credentials, 'mounted_binding', None)
+            if (getattr(credentials, 'identity_source', None) != 'mac'
+                    or credentials.robot_mac != identity.mac
+                    or identity.nic != approval.nic
+                    or approval.robot_serial != identity.serial
+                    or inputs.mac_identity is not identity
+                    or not identity.valid() or inputs.identity() != identity.serial
+                    or binding is not None and binding.get('robot_mac') != identity.mac):
+                raise PermissionError('confirmed media body identity unavailable')
+        if not enabled():
+            raise PermissionError('approved observation channel required')
         if callback is not None:
             return channel.cloud('rt/utlidar/cloud', callback)
         from unitree_sdk2py.go2.video.video_client import VideoClient
