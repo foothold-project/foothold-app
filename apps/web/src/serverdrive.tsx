@@ -31,6 +31,8 @@ export function permitted(axes: [number, number, number], o: Partial<OrgSettings
   return vx <= c.real_max_vx && vx >= -c.real_max_vx_back && Math.abs(vy) <= c.real_max_vy && Math.abs(wz) <= c.real_max_wz
     && !(o?.real_no_fast_server_drive && (vx || vy));
 }
+/** 실기에서 서버 경유 허용(목록 server_drive)·조직 속도 설정을 아직 확인하지 못함 — 그동안 입력은 0(RB-PHONE-REAL-TABLE-FIX, 폰·PC 같은 문구) */
+export const REAL_WAIT = '서버 경유 조종 허용·조직 속도 설정을 확인하는 중이라 입력을 0으로 보냅니다.';
 const id = (held: Iterable<Tok>) => [...held].sort().join('+');
 export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
@@ -163,6 +165,8 @@ export const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
  *  한 화면에 하나만 붙인다(키·조종권이 하나). esc = Esc 를 눌렀을 때(패널의 전체화면 닫기) */
 export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: () => void }) {
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
+  // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 입력은 0 — 기본 상한 1.5 로 보내 서버가 거절·STOP 하지 않게(폰 drive.tsx 와 같게)
+  const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const l = useLive(r.id), link = rt.link().at, mine = !!l.lease, s = l.state;
   const [on, setOn] = useState(''), [why, setWhy] = useState('');
   const [, tick] = useState(0), [asked, setAsked] = useState<number | null>(null);   // asked = 잠금 해제 요청을 보낸 때(rt.now)
@@ -183,14 +187,14 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const stale = useRef(false); if (off) stale.current = true;
   const ready = !off && !stale.current && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
   const readyRef = useRef(ready); readyRef.current = ready;
-  const send = () => { const cmd = readyRef.current ? command(held.current) : TABLE[''], [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, held.current.size > 0); };
+  const send = () => { const cmd = readyRef.current && gotRef.current ? command(held.current) : TABLE[''], [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, held.current.size > 0); };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
   const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
   /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */
   const zero = useRef((note = '') => { held.current.clear(); changed(); if (note) setWhy(note); }).current;
   const press = (t: Tok[]) => { if (!readyRef.current || !permitted(command(t), settingsRef.current)) return; setWhy(''); held.current = new Set(t); changed(); };
 
-  useEffect(() => { const stop = new AbortController(); api.settings(stop.signal).then(simTune, () => {}); return () => stop.abort(); }, [r.id]);
+  useEffect(() => { setGot(false); const stop = new AbortController(); api.settings(stop.signal).then((o) => { simTune(o); setGot(true); }, () => {}); return () => stop.abort(); }, [r.id]);
   useEffect(() => { if (held.current.size) zero('조직 속도 설정이 바뀌어 입력을 0으로 보냈습니다. 다시 누르세요.'); }, [settings]);
   useEffect(() => rt.watch(r.id), [r.id]);   // 이 패널이 열린 동안만 조종권을 쥔다(닫으면 반납 — rt)
   useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(i); }, []);   // 마지막 응답 ms·신호 멈춤
@@ -277,6 +281,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const latency = <ResponseLine state={freshState} screenMs={link === 'open' && connection.latencyAt != null && rt.now()-connection.latencyAt < 3000 ? connection.latencyMs ?? null : null} />;
   const notes = <><SlowResponse health={freshState?.connection === 'ONLINE' ? freshState.response_health : null} />{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
     {posture === 'UNKNOWN' && mine && <p className="dv-note" role="status" data-sd-pose-unknown>로봇 자세를 아직 알 수 없어 이동 단추를 잠갔습니다. 현장에서 로봇을 확인한 뒤 «일어서기»를 누르세요.</p>}
+    {ready && !got && <p className="dv-note" role="status" data-real-wait>{REAL_WAIT}</p>}
     {why && <p className="dv-note" role="status" data-sd-why>{why}</p>}
     {l.notice && <p className="dv-note" role="status">{l.notice}</p>}
     {stalled && <p className="dv-note" role="status">{STALLED}</p>}</>;

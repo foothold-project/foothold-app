@@ -8,6 +8,7 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
+import { api } from '../api';
 import { SD_NOTE } from '../serverdrive';
 import { REPORT_STALE_MS, TEMP_STALE_S, go2Pose, go2Temps } from '../pcdrive';
 import { TEMP_MAX, TEMP_MIN, tempColor } from '../go2model';
@@ -25,8 +26,14 @@ function mount(user: string, robots: Robot[] = ON) {
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === user)} robots={robots} />); });
 }
-beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); });
-afterEach(() => { act(() => root?.unmount()); simTune(null); root = null; box?.remove(); vi.useRealTimers(); });
+/** 조직 설정은 바로 빈 설정으로 — 받기 전에는 0 이라(RB-DRIVE-NEUTRAL-FIX) */
+const spySettings = () => vi.spyOn(api, 'settings');
+let settingsMock: ReturnType<typeof spySettings>;
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
+  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({}); } }) as never);
+});
+afterEach(() => { act(() => root?.unmount()); settingsMock.mockRestore(); simTune(null); root = null; box?.remove(); vi.useRealTimers(); });
 
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t)!;

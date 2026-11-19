@@ -2223,4 +2223,19 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     key('keydown', 'KeyA'); tick(100);
     expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
   });
+
+  it('[4] RV-423: A+D 를 누른 채 잠금 해제 → 서로 상쇄된 0 도 새 중립이 아님, D 만 떼도 회전 안 나감', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종 시작'));
+    key('keydown', 'KeyA'); key('keydown', 'KeyD'); tick(200);
+    click(btn('잠금 해제')); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('중립 확인 중');
+    key('keyup', 'KeyD'); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
+    expect(text()).toContain('중립 확인 중');
+    key('keyup', 'KeyA'); tick(100);
+    expect(text()).toContain('움직일 수 있음');
+  });
 });

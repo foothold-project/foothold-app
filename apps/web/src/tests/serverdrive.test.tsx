@@ -11,7 +11,8 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { api } from '../api';
 import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
 import { rt } from '../rt';
@@ -30,9 +31,15 @@ function mount(user: string, robots: Robot[] = ON, panel = true) {
   act(() => { root = createRoot(box); root.render(<><App user={u} robots={side ? robots.map((x) => ({ ...x, serverDrive: false })) : robots} />{side && <ServerDrive c={{ user: u }} r={side} />}</>); });
 }
 const unmount = () => { act(() => root!.unmount()); root = null; box.remove(); };
-beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); });
+/** 조직 설정 응답: 기본은 바로(같은 틀에) 빈 설정 — 받기 전에는 0 이라(RB-DRIVE-NEUTRAL-FIX). 늦거나 못 받는 응답은 그 시험에서 바꾼다 */
+const spySettings = () => vi.spyOn(api, 'settings');
+let settingsMock: ReturnType<typeof spySettings>;
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
+  settingsMock = spySettings().mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({}); } }) as never);
+});
 afterEach(() => {
-  act(() => root?.unmount()); simTune(null); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
+  act(() => root?.unmount()); settingsMock.mockRestore(); simTune(null); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
   delete (document as { visibilityState?: string }).visibilityState;
 });
 
@@ -125,6 +132,30 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(lastAxes()).toBe('0,0,0');
     expect(($('[data-sd-move="up"]') as HTMLButtonElement).disabled).toBe(true);
     expect(($('[data-sd-move="rotl"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('조직 설정을 받기 전·못 받으면 0 + 안내 — 앞 화면이 남긴 설정·기본 상한으로 1.5 를 보내지 않음', async () => {
+    let answer!: (o: object) => void;
+    settingsMock.mockImplementation(() => new Promise((ok) => { answer = ok; }) as never);
+    act(() => simTune({}));                                 // 앞 화면이 받아 둔 옛 값(빠른 조종 켬)
+    ready();
+    expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
+    key('keydown', 'ArrowUp'); tick(200);
+    expect(axes().every((a) => a === '0,0,0')).toBe(true);   // 고치기 전: 1.5,0,0
+    key('keyup', 'ArrowUp');
+    await act(async () => { answer({ real_no_fast_server_drive: true }); });
+    expect($('[data-server-drive]')!.textContent).not.toContain(REAL_WAIT);
+    key('keydown', 'ArrowUp'); tick(200);
+    expect(axes().every((a) => a === '0,0,0')).toBe(true);   // 빠른 조종 끔: 전진은 상한 밖
+    key('keyup', 'ArrowUp');
+    expect(hold(['KeyA'])).toBe('0,0,2.5');
+    unmount();
+    settingsMock.mockImplementation(() => Promise.reject(new Error('500')) as never);   // 못 받음
+    ready();
+    await act(async () => {});
+    expect($('[data-server-drive]')!.textContent).toContain(REAL_WAIT);
+    expect(hold(['ArrowUp'])).toBe('0,0,0');
+    expect(axes().every((a) => a === '0,0,0')).toBe(true);
   });
 
   it('화면 단추 8개도 같은 표(조종 화면 안) — 누르는 동안만, 떼면 그 자리에서 0', () => {
