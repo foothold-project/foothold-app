@@ -72,8 +72,8 @@ function cast(L: Int8Array, mark: Uint8Array, touched: Int32Array, cnt: Int32Arr
   // 차례: pass ps = 점 ps, ps+P, ps+2P …(P = pass 수, 한 pass ≈ RAY_CHUNK 개) → 다음 pass … 한 바퀴 m 개. from 부터 쏘고 멈춘 자리를 돌려줌.
   // 루프 하나로 편다 — 겹 루프면 바깥 갈래가 데운 뒤에야 처음 타서 같은 멈춤
   const P = Math.ceil(m / RAY_CHUNK);
-  let q = m ? from % m : 0, ps = P ? q % P : 0, nt = 0;
-  for (let j = 0; j < m; j++) {
+  let q = m ? from % m : 0, ps = P ? q % P : 0, nt = 0, j = 0;
+  for (; j < m; j++) {
     if ((j & 7) === 7 && performance.now() - t0 > budget) break;
     const p = q * step;
     q += P; if (q >= m) { ps = ps + 1 < P ? ps + 1 : 0; q = ps; }
@@ -95,6 +95,6 @@ function cast(L: Int8Array, mark: Uint8Array, touched: Int32Array, cnt: Int32Arr
     }
   }
   for (let k = 0; k < nt; k++) mark[touched[k]] = 0;
-  return q;
+  return j < m ? q : from;   // 다 쏜 판(빈 판·작은 판 포함)은 잘린 자리를 그대로 둠 — 사이에 낀 작은 판이 이어 쏘기를 0 으로 돌리지 않게(RV-450 ①)
 }
 export const occGrid = (size = GRID_N) => new OccGrid(size);
