@@ -143,7 +143,9 @@ def test_camera_read_exceptions_reuse_one_video_client(monkeypatch, caplog, stop
     try:
         if stop_during_retry:
             deadline = time.monotonic()+1
-            while not reads and time.monotonic() < deadline: time.sleep(.001)
+            # GetImageSample records its read before the worker catches and logs the error.
+            while 'GO2_MEDIA start_failed reason=source channel=rgb' not in caplog.text and time.monotonic() < deadline:
+                time.sleep(.001)
             assert reads
         else:
             assert published.wait(3)

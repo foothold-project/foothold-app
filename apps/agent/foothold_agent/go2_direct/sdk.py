@@ -164,13 +164,16 @@ def connect(env, *, observed_serial, wall=time.time, monotonic=time.monotonic, c
     return tuple(clients)
 
 
-def observation(env, channel, observed_serial, *, callback=None):
-    """Read-only media factory, called on observation workers after field gates."""
+def authorize_observation(env, channel, observed_serial):
     approval = validate(env)
     verify(approval, observed_serial)
     if (type(channel) is not _Channel
             or channel.approval != approval):
         raise PermissionError('observation channel identity mismatch')
+
+
+def observation(env, channel, observed_serial, *, callback=None):
+    authorize_observation(env, channel, observed_serial)
     if callback is not None:
         return channel.cloud(RAW_TOPIC, callback)
     from unitree_sdk2py.go2.video.video_client import VideoClient

@@ -145,6 +145,18 @@ SDK 근거는 고정 Python SDK [SportClient](https://github.com/unitreerobotics
 
 움직임 SDK 객체 없이 상태만 서버로 올릴 때는 별도 **읽기 전용** 모드를 쓴다. `FH_GO2_DIRECT_ENABLED` 및 `FH_GO2_FIELD_APPROVAL`은 제거하고, robot UUID·agent 토큰·서버 WS 주소만 기존처럼 설정한 후 `--server --readonly --nic <ROBOT_NIC>`를 명시한다. 이 모드는 go2_readonly의 두 DDS 상태 구독자·DiscardSink를 사용하고 SportClient/Go2Sink/Move/StopMove/카메라 RPC를 만들지 않는다. 서버 cmd·lease·unlock·STOP은 모두 폐기하고 stop_ref=0을 유지하여 물리 정지 확인이나 조종권을 만들지 않는다. latched/applied는 논리 잠금·폐기 출력이며 **물리 STOP 확인이 아니다**. 이 명령 역시 실제 DDS 읽기 참가이므로 현장 읽기 승인이 있어야 한다. 읽기 모드에서는 RGB·라이다 송출을 하지 않으며 뎁스는 아래의 읽기 전용 DDS 경로로만 송출한다.
 
+### Unitree 내장 SLAM 관측 (내부 시험)
+
+현장 승인이 유효할 때 사람이 Unitree 앱에서 지도 작성이나 위치 추정을 켜면 관측을 시작한다. 실행 환경에 `FH_USLAM=0` 한 줄을 넣으면 다음 기동부터 이 구독과 전송을 끈다. 기본값은 켬이다.
+
+| 웹에서 읽는 값 | DDS 원본과 형식 |
+|---|---|
+| `drive-media/slam` | `rt/uslam/frontend/cloud_world_ds` 한 판을 약 1 Hz로 전달한다. `media.slam_points` JSON 다음에 `count × 12` 바이트의 little-endian float32 XYZ가 온다. 최대 4,000점·48,000 B다. |
+| `drive-media/slam_pose`, `ScreenState.slam_pose` | `media.slam_pose` JSON의 `source`는 지도 작성 중이면 `rt/uslam/frontend/odom`, 저장 지도 위치 추정이면 `rt/uslam/localization/odom`이다. 가장 최근에 수신한 판의 `pose.{x,y,z,yaw}`(m, rad)와 부모·자식 프레임을 담는다. |
+| 자료가 끊긴 채널 | 2.5초 동안 새 업로드가 없으면 서버가 `media.status / NO_SLAM`을 보내며 만료된 `slam_pose`는 화면 상태에서 생략한다. |
+
+`frame`과 `child_frame`은 DDS 원본 식별자다. 지도 원점, 축 대응, 점군 한 판이 전체 지도인지 증분인지는 실기 확인 대상이다. 설치형 서비스의 `~/foothold-robot-run.log`에서 `GO2_SLAM observation`을 찾으면 토픽별 첫 5판의 수신 간격과 DDS 메타데이터를 볼 수 있다. 사전 등록한 센서 용어 외 식별자는 로그에서 해시로 표시한다. `rt/uslam/cloud_map`은 처음 5판의 메타데이터를 기록하면 구독을 닫는다. `GO2_SLAM dropped`에는 해석이나 업로드 실패 사유가 기록된다.
+
 ### 기록 저장
 
 설치형 노트북 연결 프로그램도 연결 승인 중에는 기존 DDS 참가자를 재사용해 RGB·L1을

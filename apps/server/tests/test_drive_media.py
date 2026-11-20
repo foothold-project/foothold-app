@@ -215,3 +215,89 @@ def test_unknown_channels_rejected_for_both_agent_and_viewer(trial,seeded):
     assert upload(trial,rid,header).status_code==403
     with pytest.raises(WebSocketDisconnect):
         with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/unknown',headers=app_token(trial)): pass
+
+
+def run_slam_reader(client, rid, channel, monkeypatch):
+    """Fake DDS supplies one SDK-shaped sample; route the agent's HTTP bytes into ASGI."""
+    from io import BytesIO
+    from pathlib import Path
+    from threading import Timer
+    from types import SimpleNamespace as NS
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / 'agent'))
+    from foothold_agent.go2_direct import uslam
+    from foothold_agent.go2_direct.media import Publisher, Source
+
+    header = NS(stamp=NS(sec=1, nanosec=0), frame_id='world')
+    xyz = struct.pack('<fff', 1., 2., 3.)
+    def subscribe(topic, callback, *, odometry=False):
+        if topic == uslam.CLOUD:
+            callback(NS(header=header, width=4001, height=1, point_step=12, row_step=4001*12,
+                        data=xyz*4001, is_bigendian=False,
+                        fields=[NS(name=n, offset=i*4, datatype=7, count=1) for i, n in enumerate('xyz')]))
+        elif topic == uslam.LOCALIZATION:
+            assert odometry
+            callback(NS(header=header, child_frame_id='body', pose=NS(pose=NS(
+                position=NS(x=1., y=-2., z=.5), orientation=NS(w=1., x=0., y=0., z=0.)))))
+        return NS(Close=lambda: None)
+
+    config = NS(robot=rid, approval=NS(robot_serial='fake'), link=NS(
+        url='wss://testserver/api/v1/agent/ws', token='fake-test-'+rid))
+    publisher = Publisher(config, {}, NS(cloud_bus=NS(subscribe=subscribe)),
+                          source_factory=lambda *args: Source(*args, include_depth=False, authorize=lambda *_: None))
+    posted = []
+    def open_request(request, timeout):
+        response = client.post(request.full_url, headers=dict(request.header_items()), content=request.data)
+        publisher.source.close()
+        assert response.status_code == 202, response.text
+        posted.append(request.full_url)
+        stream = BytesIO(response.content)
+        stream.status = response.status_code
+        return stream
+    publisher.opener = NS(open=open_request)
+    deadline = Timer(3, publisher.source.close)
+    deadline.start()
+    try:
+        uslam.Reader(publisher.source, channel).run()
+        assert posted == [publisher.url(channel)]
+    finally:
+        deadline.cancel()
+        publisher.source.close()
+        publisher.executor.shutdown()
+
+
+@pytest.mark.parametrize('channel', ['slam', 'slam_pose'])
+def test_slam_upload_to_viewer_and_screen_state(trial, seeded, monkeypatch, channel):
+    from apps.server.fh_server import drive_media
+    monkeypatch.setattr(drive_media, 'SLAM_TTL', .3)
+    rid = str(seeded['robots']['mine'])
+    rt = trial.app.state.realtime
+    header = dict(version='media/1', robot=rid, epoch=3, episode_id=None, channel=channel,
+                  seq=1, captured_at=datetime.now(timezone.utc).isoformat(), frame='world')
+    payload = None
+    if channel == 'slam':
+        header.update(t='media.slam_points', source='rt/uslam/frontend/cloud_world_ds',
+                      count=4000, truncated=True, encoding='xyz_f32le', byte_length=48000)
+        payload = struct.pack('<fff', 1., 2., 3.) * 4000
+    else:
+        header.update(t='media.slam_pose', source='rt/uslam/localization/odom', child_frame='body',
+                      pose=dict(x=1., y=-2., z=.5, yaw=.25))
+    with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/{channel}', headers=app_token(trial)) as viewer:
+        assert receive(viewer, 'media.status')['state'] == 'NO_SLAM'
+        assert upload(trial, rid, header, payload, token='wrong-token').status_code == 403
+        assert upload(trial, rid, header, b'invalid').status_code == 400
+        run_slam_reader(trial, rid, channel, monkeypatch)
+        received = receive(viewer, header['t'])
+        assert received['source'] == header['source'] and received['frame'] == 'world'
+        if payload is None:
+            assert received['pose'] == dict(x=1., y=-2., z=.5, yaw=0.)
+            assert rt.screen_state(rid)['slam_pose'] == received
+            monkeypatch.setattr(rt, 'field_approved', lambda _: False)
+            assert 'slam_pose' not in rt.screen_state(rid)
+            monkeypatch.setattr(rt, 'field_approved', lambda _: True)
+        else:
+            assert received['count'] == 4000 and received['byte_length'] == 48000 and received['truncated']
+            assert viewer.receive_bytes() == payload
+        status = receive(viewer, 'media.status')
+        assert status['state'] == 'NO_SLAM' and status['reason'] == 'SLAM 자료 없음'
+        assert 'slam_pose' not in rt.screen_state(rid)
+    assert rid not in rt.arbiter.robots

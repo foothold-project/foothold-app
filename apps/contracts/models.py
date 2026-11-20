@@ -1258,11 +1258,12 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = None
+    slam_pose: 'SlamPoseFrame | None' = Field(default=None, exclude_if=lambda v: v is None)
     phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'
     robot: UUID
@@ -2772,11 +2773,62 @@ class MediaPointCloudHeader(MediaHeader):
         return self
 
     def validate_payload(self, payload: bytes) -> None:
-        if not isinstance(payload, bytes) or len(payload) != self.byte_length:
-            raise ValueError('point binary length differs from header')
-        for (coordinate,) in struct.iter_unpack('<f', payload):
-            if not math.isfinite(coordinate) or abs(coordinate) > MEDIA_POINT_MAX_ABS_M:
-                raise ValueError('point coordinate must be finite and within 10000 m')
+        validate_xyz_payload(payload, self.byte_length)
+
+
+def validate_xyz_payload(payload: bytes, expected_length: int) -> None:
+    if not isinstance(payload, bytes) or len(payload) != expected_length:
+        raise ValueError('point binary length differs from header')
+    for (coordinate,) in struct.iter_unpack('<f', payload):
+        if not math.isfinite(coordinate) or abs(coordinate) > MEDIA_POINT_MAX_ABS_M:
+            raise ValueError('point coordinate must be finite and within 10000 m')
+
+
+class SlamHeader(MediaBinding):
+    version: Literal['media/1']
+    episode_id: None
+    captured_at: UTCDateTime
+    seq: Sequence
+    frame: str = Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9_/-]+$')
+
+
+class SlamPointCloudHeader(SlamHeader):
+    t: Literal['media.slam_points']
+    channel: Literal['slam']
+    source: Literal['rt/uslam/frontend/cloud_world_ds']
+    count: int = Field(ge=1, le=4000, strict=True)
+    truncated: bool = Field(strict=True)
+    encoding: Literal['xyz_f32le']
+    byte_length: int = Field(ge=12, le=48000, strict=True)
+
+    @model_validator(mode='after')
+    def point_layout(self):
+        if self.byte_length != self.count * 12:
+            raise ValueError('XYZ float32 LE requires byte_length = count * 12')
+        return self
+
+    def validate_payload(self, payload: bytes) -> None:
+        validate_xyz_payload(payload, self.byte_length)
+
+
+class SlamPoseFrame(SlamHeader):
+    t: Literal['media.slam_pose']
+    channel: Literal['slam_pose']
+    source: Literal['rt/uslam/frontend/odom', 'rt/uslam/localization/odom']
+    child_frame: str = Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9_/-]+$')
+    pose: MediaPose
+
+
+class SlamStatus(MediaBinding):
+    t: Literal['media.status']
+    version: Literal['media/1']
+    episode_id: None
+    channel: Literal['slam', 'slam_pose']
+    state: Literal['NO_SLAM']
+    reason: str = Field(min_length=1, max_length=256)
+
+
+SlamMessage = Annotated[SlamPointCloudHeader | SlamPoseFrame | SlamStatus, Field(discriminator='t')]
 
 
 class MediaStatus(MediaBinding):
@@ -3119,7 +3171,7 @@ REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenU
 REQUEST_MODELS.update(T for T in TOP.values() if isinstance(T, type)
                       and issubclass(T, (AgentInput, ScreenEnvelope)))
 
-TOP.update(MediaMessage=MediaMessage, MediaChannel=MediaChannel, MediaSource=MediaSource,
+TOP.update(SlamMessage=SlamMessage, MediaMessage=MediaMessage, MediaChannel=MediaChannel, MediaSource=MediaSource,
            ExecutionCapabilityKey=ExecutionCapabilityKey)
 REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})
 

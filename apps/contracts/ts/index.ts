@@ -2084,6 +2084,7 @@ export interface ScreenState {
   posture_result?: PostureResult | null;
   action_result?: ActionResult | null;
   robot_info?: Go2RobotInfo | null;
+  slam_pose?: SlamPoseFrame | null;
   phone_relay?: PhoneRelayState | null;
   t: "state";
   robot: string;
@@ -2285,6 +2286,63 @@ export interface SiteCreate {
 export interface SiteTree {
   items: MapSite[];
   next_cursor: null;
+}
+
+export interface SlamHeader {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: null;
+  version: "media/1";
+  captured_at: string;
+  seq: number;
+  frame: string;
+}
+
+export interface SlamPointCloudHeader {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: null;
+  version: "media/1";
+  captured_at: string;
+  seq: number;
+  frame: string;
+  t: "media.slam_points";
+  channel: "slam";
+  source: "rt/uslam/frontend/cloud_world_ds";
+  count: number;
+  truncated: boolean;
+  encoding: "xyz_f32le";
+  byte_length: number;
+}
+
+export interface SlamPoseFrame {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: null;
+  version: "media/1";
+  captured_at: string;
+  seq: number;
+  frame: string;
+  t: "media.slam_pose";
+  channel: "slam_pose";
+  source: "rt/uslam/frontend/odom" | "rt/uslam/localization/odom";
+  child_frame: string;
+  pose: MediaPose;
+}
+
+export interface SlamStatus {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: null;
+  t: "media.status";
+  version: "media/1";
+  channel: "slam" | "slam_pose";
+  state: "NO_SLAM";
+  reason: string;
 }
 
 export interface StopRequest {
@@ -2518,6 +2576,7 @@ export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd 
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck | AgentMappingUpdate;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
 export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction;
+export type SlamMessage = SlamPointCloudHeader | SlamPoseFrame | SlamStatus;
 export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
 export type MediaChannel = "rgb" | "external" | "lidar" | "depth";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
