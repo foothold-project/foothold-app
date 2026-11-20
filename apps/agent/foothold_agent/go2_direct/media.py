@@ -5,6 +5,8 @@ JPEG acquisition/encoding and point conversion never run on the control loop.
 """
 import asyncio
 import base64
+from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import logging
@@ -351,6 +353,47 @@ class Source:
             self.recorder.close()
 
 
+def upload_result(error):
+    if isinstance(error, HTTPError):
+        return f'http_{error.code}'
+    if isinstance(error, (asyncio.TimeoutError, TimeoutError)) or (
+            isinstance(error, URLError) and isinstance(error.reason, TimeoutError)):
+        return 'timeout'
+    if isinstance(error, (URLError, OSError)):
+        return 'network_error'
+    return 'error'
+
+
+@dataclass
+class UploadAttempt:
+    started: float
+    frame: str
+    interval_ms: int | None
+    body_bytes: int = 0  # set by the HTTP worker before it sends the request
+    elapsed_ms: int = 0
+    result: str = ''
+
+
+def log_upload_window(channel, attempts):
+    if not attempts:
+        return
+
+    def percentiles(values):
+        ordered = sorted(values)
+        return tuple(ordered[math.ceil(len(ordered)*p)-1] for p in (.5, .95)) if ordered else ()
+
+    data = [a for a in attempts if a.frame != 'status' and a.body_bytes]
+    points = [a for a in data if a.frame in ('odom', 'lidar_link')]
+    logging.getLogger(__name__).warning(
+        'GO2_MEDIA upload_summary channel=%s attempts=%d results=%s elapsed_ms_p50_p95=%s '
+        'interval_ms_p50_p95=%s data_attempts=%d data_bytes_p50_p95=%s frames=%s ack_frames=%s',
+        channel, len(attempts), dict(Counter(a.result for a in attempts)),
+        percentiles(a.elapsed_ms for a in attempts),
+        percentiles(a.interval_ms for a in attempts if a.interval_ms is not None),
+        len(data), percentiles(a.body_bytes for a in data), dict(Counter(a.frame for a in points)),
+        dict(Counter(a.frame for a in points if a.result == 'http_202')))
+
+
 class Publisher:
     channels = ('rgb', 'lidar', 'depth')
     def __init__(self, config, env, channel, *, source_factory=Source, channels=None):
@@ -368,7 +411,7 @@ class Publisher:
         scheme = 'https' if url.scheme == 'wss' else 'http'
         return urlunsplit((scheme, url.netloc, url.path.rsplit('/',1)[0]+'/drive-media/'+channel, '', ''))
 
-    def upload(self, channel, header, payload):
+    def upload(self, channel, header, payload, attempt=None):
         # HTTP avoids raising the deployment's 4096-byte control WS limit.
         body = json.dumps({'header':header, 'points':None if payload is None else
             base64.b64encode(payload).decode('ascii')}, allow_nan=False).encode()
@@ -378,15 +421,15 @@ class Publisher:
             'Authorization':'Bearer '+self.config.link.token,'Content-Type':'application/json',
             'Connection':'close'})
         response = None
+        if attempt is not None:
+            attempt.body_bytes = len(body)
         try:
-            response = self.opener.open(request, timeout=.5)
+            response = self.opener.open(request, timeout=.5 if channel == 'depth' else .9)
             if response.status != 202:
                 raise HTTPError(request.full_url, response.status, 'observation upload rejected', None, None)
             response.read(128)
         except HTTPError as error:
-            # urllib raises HTTPError before returning the response. It owns
-            # a response/socket too, outside the normal success cleanup path.
-            error.close()
+            error.close()  # urllib may raise before returning the response
             raise
         finally:
             # Executor cancellation cannot stop an in-flight upload; its bounded
@@ -394,51 +437,81 @@ class Publisher:
             if response is not None:
                 response.close()
 
-    def log_lidar_upload(self, header, error=None):
+    def log_lidar_upload(self, header, result):
         frame = 'points' if header['t'] == 'media.points' else 'no_points'
-        if error is None:
-            result = 'http_202'
-        elif isinstance(error, HTTPError):
-            result = f'http_{error.code}'
-        elif isinstance(error, (asyncio.TimeoutError, TimeoutError)) or (
-                isinstance(error, URLError) and isinstance(error.reason, TimeoutError)):
-            result = 'timeout'
-        elif isinstance(error, (URLError, OSError)):
-            result = 'network_error'
-        else:
-            result = 'error'
         if (frame, result) != self.last_lidar_upload:
             self.last_lidar_upload = frame, result
             logging.getLogger(__name__).warning('GO2_MEDIA lidar_upload frame=%s result=%s', frame, result)
 
     async def stream(self, channel):
         seq = -1
-        while True:
-            header = None
-            try:
-                item = self.source.sample(channel)
-                payload = None
-                if item is not None and item[1]['seq'] != seq:
-                    _, header, payload = item
-                elif item is None:
-                    header = dict(t='media.status', version='media/1', robot=self.config.robot,
-                        epoch=self.source.epoch, episode_id=None, channel=channel,
-                        state='NO_POINTS' if channel=='lidar' else 'NO_VIDEO',
-                        reason='No fresh source sample within 1 second')
-                if header is not None:
-                    await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(
-                        self.executor, self.upload, channel, header, payload), .6)
-                    if channel == 'lidar':
-                        self.log_lidar_upload(header)
-                    if item is not None:
+        live = channel in ('rgb', 'lidar')
+        attempts = []
+        previous_start = None
+        cadence = .5 if channel == 'lidar' else .2
+        pending = None
+        try:
+            while True:
+                header = attempt = None
+                result = 'http_202'
+                delay = cadence
+                try:
+                    item = self.source.sample(channel)
+                    payload = None
+                    if item is None:
+                        header = dict(t='media.status', version='media/1', robot=self.config.robot,
+                            epoch=self.source.epoch, episode_id=None, channel=channel,
+                            state='NO_POINTS' if channel=='lidar' else 'NO_VIDEO',
+                            reason='No fresh source sample within 1 second')
+                    else:
+                        _, header, payload = item
+                        if header['seq'] == seq:
+                            # Poll only the source until it has a new sample.
+                            await asyncio.sleep(.05 if live else cadence)
+                            continue
+                    started = time.monotonic()
+                    if live:
+                        interval = None if previous_start is None else round((started-previous_start)*1000)
+                        previous_start = started
+                        frame = 'status' if item is None else header.get('frame', 'unknown')
+                        attempt = UploadAttempt(started, frame, interval)
+                        if item is not None:
+                            # A lost acknowledgment may still mean the relay accepted this seq.
+                            seq = header['seq']
+                    pending = asyncio.get_running_loop().run_in_executor(
+                        self.executor, self.upload, channel, header, payload, attempt)
+                    await asyncio.wait_for(asyncio.shield(pending) if live else pending,
+                                           1.0 if live else .6)
+                    if live:
+                        # Count transfer time toward cadence; allow the relay's minimum
+                        # 200 ms between accepted requests even if the next one is fast.
+                        delay = max(.2, cadence - (time.monotonic()-started))
+                    elif item is not None:
                         seq = header['seq']
-                await asyncio.sleep(.5 if channel=='lidar' else .2)
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    result = upload_result(error)
+                    delay = .2 if live and result == 'timeout' else 1
                 if channel == 'lidar' and header is not None:
-                    self.log_lidar_upload(header, error)
-                await asyncio.sleep(1)  # observation failure never touches motion
+                    self.log_lidar_upload(header, result)
+                if attempt is not None:
+                    attempt.result = result
+                    attempt.elapsed_ms = round((time.monotonic()-attempt.started)*1000)
+                    attempts.append(attempt)
+                    if len(attempts) == 32:
+                        log_upload_window(channel, attempts)
+                        attempts.clear()
+                if live and pending is not None and not pending.done():
+                    # wait_for cannot cancel a socket in an executor thread. Keep just
+                    # this stream occupied until it settles, then sample the newest frame.
+                    await asyncio.shield(asyncio.gather(pending, return_exceptions=True))
+                pending = None
+                await asyncio.sleep(delay)
+        finally:
+            if pending is not None:
+                pending.cancel()  # drop queued work when the publisher retires
+            log_upload_window(channel, attempts)
 
     async def run(self):
         tasks = []

@@ -173,11 +173,104 @@ def test_lidar_upload_logs_only_changes_in_frame_or_result(monkeypatch, caplog):
             asyncio.run(publisher.stream('lidar'))
     finally:
         publisher.executor.shutdown(wait=True)
-    assert caplog.messages == ['GO2_MEDIA lidar_upload frame=' + value for value in (
+    transitions = [message for message in caplog.messages if 'lidar_upload' in message]
+    assert transitions == ['GO2_MEDIA lidar_upload frame=' + value for value in (
         'no_points result=http_202', 'points result=http_202', 'points result=http_403',
         'points result=http_503', 'points result=timeout', 'points result=network_error',
         'points result=error', 'points result=http_202',
     )]
+
+    summary, = [message for message in caplog.messages if 'upload_summary' in message]
+    assert 'channel=lidar attempts=12' in summary and "'timeout': 2" in summary
+    assert 'data_attempts=10' in summary and 'private' not in summary
+
+
+def test_slow_ack_then_timeout_samples_next_frame_without_one_second_backoff(monkeypatch, caplog):
+    intervals = []
+    sent = []
+    responses = iter([202, TimeoutError(), 202])
+    seqs = iter([1, 2, 2, 3])
+
+    def sample(_):
+        seq = next(seqs, None)
+        if seq is None:
+            raise asyncio.CancelledError
+        return 0, dict(t='media.points', frame='odom', seq=seq), b'x'
+
+    def post(request, timeout):
+        sent.append(json.loads(request.data)['header']['seq'])
+        response = next(responses)
+        if response == 202 and len(sent) == 1:
+            time.sleep(.65)  # past the old 600 ms overall cutoff
+        if isinstance(response, Exception):
+            raise response
+        return NS(status=202, read=lambda _: b'', close=lambda: None)
+
+    async def delay(seconds):
+        intervals.append(seconds)
+
+    monkeypatch.setattr(asyncio, 'sleep', delay)
+    config = NS(link=Settings('wss://example.invalid/api/v1/agent/ws','fake-token'))
+    publisher = Publisher(config, {}, None, source_factory=lambda *_: NS(sample=sample))
+    publisher.opener = NS(open=post)
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(publisher.stream('lidar'))
+    finally:
+        publisher.executor.shutdown(wait=True)
+    assert "frames={'odom': 3} ack_frames={'odom': 2}" in caplog.text
+    assert sent == [1, 2, 3]
+    assert intervals[:3] == [.2, .2, .05]
+
+
+def test_wall_timeout_waits_for_worker_before_next_lidar_request(monkeypatch, caplog):
+    entered, release = threading.Event(), threading.Event()
+    second = threading.Event()
+    samples = iter([1, 2])
+    original_sleep = asyncio.sleep
+
+    def sample(_):
+        seq = next(samples, None)
+        if seq is None:
+            raise asyncio.CancelledError
+        return 0, dict(t='media.points', seq=seq, frame='odom'), b'x'
+
+    def post(request, timeout):
+        if entered.is_set():
+            second.set()
+        else:
+            entered.set()
+            assert release.wait(4)
+        return NS(status=202, read=lambda _: b'', close=lambda: None)
+
+    async def skip_delay(seconds):
+        await original_sleep(0)
+
+    monkeypatch.setattr(asyncio, 'sleep', skip_delay)
+    config = NS(link=Settings('wss://example.invalid/api/v1/agent/ws','fake-token'))
+    pub = Publisher(config, {}, None, source_factory=lambda *_: NS(sample=sample))
+    pub.opener = NS(open=post)
+
+    async def scenario():
+        task = asyncio.create_task(pub.stream('lidar'))
+        try:
+            async with asyncio.timeout(3):
+                while 'result=timeout' not in caplog.text:
+                    await original_sleep(.01)
+            assert entered.is_set() and not second.is_set()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+            assert second.is_set()
+        finally:
+            release.set()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        pub.executor.shutdown(wait=True)
 
 
 def test_camera_metadata_rejects_multiple_or_oversized_rasters_without_codec_import():

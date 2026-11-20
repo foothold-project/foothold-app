@@ -215,7 +215,7 @@ def test_upload_closes_responses_on_success_and_failure(failure):
     fp = io.BytesIO(b'fake response')
     error = HTTPError('https://example.invalid', 409, 'fake rejection', {}, fp)
     def open_response(request, timeout):
-        assert timeout == .5 and request.get_header('Connection') == 'close'
+        assert timeout == .9 and request.get_header('Connection') == 'close'
         if failure == 'http-error': raise error
         if failure == 'open-timeout': raise TimeoutError('fake timeout before response')
         return Response()
