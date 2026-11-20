@@ -1,8 +1,10 @@
 """One readonly DDS subscription pair and WS; motion objects exist only in approval epochs."""
 import asyncio
+from functools import cache
 import logging
 import math
 import os
+import queue
 import threading
 import time
 from time import process_time
@@ -40,6 +42,77 @@ def _identity_error(error, branch):
     return error
 
 
+@cache
+def _host_requests():
+    # One optional sampler across approval epochs. A stalled OS call cannot
+    # hold the control loop or shutdown, or accumulate work on repeated locks.
+    requests = queue.Queue(maxsize=1)
+
+    def collect():
+        while True:
+            inputs = requests.get()
+            try:
+                inputs.sample_host()
+            except Exception:
+                pass  # A previous sample carries its age; absent fields are marked.
+            finally:
+                del inputs
+
+    threading.Thread(target=collect, name='go2-host-sample', daemon=True).start()
+    return requests
+
+
+class LockEvidence(dict):
+    """Fixed set of locally published clocks, samples and decision labels."""
+    def snapshot(self):
+        # One shallow CPython dict copy. Writers replace entries and never
+        # mutate a published feedback sample. No DDS or output lock is taken.
+        return LockEvidence(self)
+
+    def suffix(self, stamp, cause):
+        if cause == 'identity_unavailable':
+            branch = self.get('identity_branch')
+            if branch not in ('serial_conflict', 'serial_missing', 'serial_invalid', 'serial_stale',
+                              'nonzero_serial', 'body_conflict', 'body_check_failed',
+                              'body_check_stale', 'body_unconfirmed'):
+                branch = 'unavailable'
+        elif cause.startswith('identity_') or cause == 'feedback_identity_conflict':
+            branch = cause
+        else:
+            branch = 'none'
+        for topic in ('low', 'sport'):
+            sample = self.get(topic)
+            self[topic + '_accepted'] = sample['received'] if sample else None
+        clocks = ('low_rx', 'sport_rx', 'low_accepted', 'sport_accepted',
+                  'serial_refresh', 'body_refresh', 'output_input', 'watchdog_input')
+        missing = []
+        parts = []
+        for key in clocks:
+            at = self.get(key)
+            if at is None:
+                missing.append(key + '_ms')
+            parts.append(f'{key}_ms={_age_ms(stamp, at)}')
+        try:
+            latest = Feedback.journal_readiness(stamp, self)
+        except Exception:
+            latest = 'unavailable'
+            missing.append('feedback_latest')
+        failure = self.get('feedback_failed', 'unchecked')
+        parts.extend((f'identity_branch={branch}', f'feedback_failed={failure}', f'feedback_latest={latest}'))
+        sampled, cpu_pct, window_ms, load = self.get('host_sample', (None, None, None, None))
+        for key, value in (('cpu_pct', cpu_pct), ('cpu_window_ms', window_ms), ('load1', load)):
+            if value is None:
+                missing.append(key)
+                value = -1
+            parts.append(f'{key}={value:.2f}')
+        if sampled is None:
+            missing.append('host_sample_age_ms')
+        parts.append(f'host_sample_age_ms={_age_ms(stamp, sampled)}')
+        if missing:
+            parts.append('detail_missing=' + ','.join(missing))
+        return ' ' + ' '.join(parts)
+
+
 class Inputs(Measurements):
     """Read-only discovery plus independent, strict motion feedback when identified."""
     def __init__(self):
@@ -50,12 +123,13 @@ class Inputs(Measurements):
         self.feedback = None
         self.serial_received = float('-inf')
         self.mac_identity = None
-        self.lock_evidence = {}
+        self.lock_evidence = LockEvidence()
         self.low_receipts = ReceiptIntervals()
         self.sport_receipts = ReceiptIntervals()
         stamp = time.monotonic()
         self.report_at = stamp
-        self.lock_evidence['cpu_baseline'] = self.cpu_recent = (stamp, process_time())
+        self.cpu_recent = (stamp, process_time())
+        self.host_due = stamp + 1.
 
     def lowstate(self, message):
         self.lock_evidence['low_rx'] = self.low_receipts.record(time.monotonic())
@@ -105,10 +179,28 @@ class Inputs(Measurements):
             raise _identity_error(SerialUnavailable('operator confirmation required'), 'body_unconfirmed')
         return serial
 
+    def sample_host(self):
+        # Only the host sampler updates the baseline and publishes a complete
+        # window. Use the actual sample time, even if its request was delayed.
+        stamp, cpu = time.monotonic(), process_time()
+        start, previous = self.cpu_recent
+        window = stamp - start
+        if window < 1.:
+            return
+        try:
+            load = os.getloadavg()[0]
+        except (AttributeError, OSError):
+            load = None
+        self.lock_evidence['host_sample'] = (stamp, 100 * (cpu - previous) / window, window * 1000, load)
+        self.cpu_recent = (stamp, cpu)
+
     def report_intervals(self, stamp):
-        # Keep a recent process-CPU baseline even across a long quiet period.
-        if stamp - self.cpu_recent[0] >= 1.:
-            self.lock_evidence['cpu_baseline'], self.cpu_recent = self.cpu_recent, (stamp, process_time())
+        if stamp >= self.host_due:
+            self.host_due = stamp + 1.
+            try:
+                _host_requests().put_nowait(self)
+            except queue.Full:
+                pass  # Read the last completed sample until the worker catches up.
         checked = self.mac_identity.checked if self.mac_identity is not None else None
         if checked is not None and math.isfinite(checked):
             self.lock_evidence['body_refresh'] = checked
@@ -121,36 +213,6 @@ class Inputs(Measurements):
             self.low_receipts.summary('low'), self.sport_receipts.summary('sport'),
             sum(drops.values()), ','.join(f'{key}:{drops[key]}' for key in sorted(drops)) or 'none')
 
-    @staticmethod
-    def lock_details(stamp, cause, evidence):
-        if cause == 'identity_unavailable':
-            branch = evidence.get('identity_branch')
-            if branch not in ('serial_conflict', 'serial_missing', 'serial_invalid', 'serial_stale',
-                              'nonzero_serial', 'body_conflict', 'body_check_failed',
-                              'body_check_stale', 'body_unconfirmed'):
-                branch = 'unavailable'
-        elif cause.startswith('identity_') or cause == 'feedback_identity_conflict':
-            branch = cause
-        else:
-            branch = 'none'
-        start, cpu = evidence['cpu_baseline']
-        elapsed = stamp - start
-        cpu_pct = 100 * (process_time() - cpu) / elapsed if elapsed > 0 else -1
-        try:
-            load = os.getloadavg()[0]
-        except (AttributeError, OSError):
-            load = -1.
-        for topic in ('low', 'sport'):
-            sample = evidence.get(topic)
-            evidence[topic + '_accepted'] = sample['received'] if sample else None
-        latest = Feedback.journal_readiness(stamp, evidence)
-        clocks = ('low_rx', 'sport_rx', 'low_accepted', 'sport_accepted',
-                  'serial_refresh', 'body_refresh', 'output_input', 'watchdog_input')
-        ages = ''.join(f' {key}_ms={_age_ms(stamp, evidence.get(key))}' for key in clocks)
-        failure = evidence.get('feedback_failed', 'unchecked')
-        return (f'{ages} identity_branch={branch} feedback_failed={failure} feedback_latest={latest}'
-                f' cpu_pct={cpu_pct:.1f} cpu_window_ms={elapsed * 1000:.0f} load1={load:.2f}')
-
 
 class GatedSession(DriveSession):
     def __init__(self, feedback, gate):
@@ -159,7 +221,7 @@ class GatedSession(DriveSession):
         gate.session = self
         if isinstance(gate.inputs, Inputs):
             feedback.attach_journal(gate.lock_evidence)
-            self.core.lock_log.set_details(gate.lock_evidence, Inputs.lock_details)
+            self.core.lock_log.evidence = gate.lock_evidence
 
     def receive(self, raw):
         try:
@@ -357,7 +419,7 @@ class Gate:
         if isinstance(self.inputs, Inputs):
             self.lock_evidence.update(output_input=None, watchdog_input=None, server_source=False)
             sink.lock_evidence = self.lock_evidence
-            sink.lock_log.set_details(self.lock_evidence, Inputs.lock_details)
+            sink.lock_log.evidence = self.lock_evidence
         sink.posture_feedback = feedback.posture_snapshot
         for boundary in clients:
             if isinstance(boundary, SportBoundary):
