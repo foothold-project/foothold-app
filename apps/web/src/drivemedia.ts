@@ -3,11 +3,12 @@
 // 라이다 frame 'odom'(11-13 RB-MAP-VIEW-WEB: 점이 이미 로봇이 처음 켜진 곳 기준 + pose)이면 버리지 않고 쌓는다(stack) — lidar_link 는 지금처럼 한 장씩.
 // epoch 가 바뀌면 그림(쌓은 것 포함)을 비우고 순번을 새로 센다(서버가 붙자마자 보내는 epoch 0 «최근 자료 없음» 상태는 새 시작이 아님).
 // 11-20 RB-FEED-HOLD-LAST: 한 번 받은 그림은 잠깐 끊겨도(오래됨·연결 끊김·로봇이 못 보냄·탭 숨김) 남겨 두고 «마지막 그림 · N초 전» 을 띄운다 —
-// 로봇 바뀜·화면 나감·«처음부터 다시»·epoch 바뀜·약속 위반(남의 로봇 자료 등)이면 버린다. 관측 전용 — 조종·STOP·조종권과 무관. 끊기면 2 s 뒤 다시(화면이 보이고 칸이 떠 있는 동안만)
+// 로봇 바뀜·화면 나감·«처음부터 다시»·epoch 바뀜·약속 위반(남의 로봇 자료 등)·기체 확인 영구 오류(RV-435 ①)면 버린다. 관측 전용 — 조종·STOP·조종권과 무관. 끊기면 2 s 뒤 다시(화면이 보이고 칸이 떠 있는 동안만)
 import { useEffect, useRef, useState } from 'react';
 import { STALE_MS, pointsBody, pointsHeader, reasonText, type Feed } from './media';
-import type { MediaPointCloudHeader } from '../../contracts/ts';
+import type { Device, MediaPointCloudHeader } from '../../contracts/ts';
 import { occGrid, type OccGrid } from './occgrid';
+import { useLive } from './rt';
 
 export type DriveCh = 'rgb' | 'lidar' | 'depth';
 /** 뎁스: 색 범위(m) — 가까움 빨강 min · 멀리 파랑 max. 다른 채널은 null */
@@ -54,14 +55,22 @@ const depthRange = (m: Record<string, unknown>): [number, number] | null => {
   const a = m.depth_min_m, b = m.depth_max_m;
   return m.source === 'go2_depth' && typeof a === 'number' && typeof b === 'number' && Number.isFinite(a) && Number.isFinite(b) && a >= 0 && a < b && b <= 10_000 ? [a, b] : null;
 };
+/** 에이전트 장치 go2-identity 의 영구 오류 문구(setup/runtime.py identity.fault — 랜선이 바뀌어 다른 몸일 수 있음, 프로그램을 다시 켜야 풀림).
+ *  장치 표에 오는 낱말은 key·kind·label·state 뿐이라 «로봇 확인 잠시 안 됨»(잠깐 — 그림 남김)과는 label 로만 가른다 */
+export const IDENTITY_FAULT_LABEL = '로봇 연결 정보 변경 · 이동 잠김';
+export const BODY_FAULT = '로봇 연결 정보가 바뀌어 받지 않습니다. 랜선을 확인한 뒤 로봇 프로그램을 다시 실행하세요';
+export const bodyFault = (devices: readonly Device[] | null | undefined) =>
+  !!devices?.some((d) => d.key === 'go2-identity' && d.state === 'ERROR' && d.label === IDENTITY_FAULT_LABEL);
 export const driveMediaUrl = (robot: string, ch: DriveCh) =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/robots/${encodeURIComponent(robot)}/drive-media/${ch}`;
 
-/** 이 칸이 떠 있는 동안(on) 그 채널을 받는다 — on=false 면 열지 않고, 꺼지면 닫고 비운다 */
+/** 이 칸이 떠 있는 동안(on) 그 채널을 받는다 — on=false 면 열지 않고, 꺼지면 닫고 비운다.
+ *  기체 확인 영구 오류(실시간 state 장치 go2-identity)면 구독을 놓고 남은 그림·쌓은 지도를 버린 채 «신호 없음 — 까닭» */
 export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   const [feed, setFeed] = useState<Raw>(blank), wipe = useRef(() => {});
+  const fault = bodyFault(useLive(robot).state?.devices), want = on && !fault;
   useEffect(() => {
-    if (!on) return;
+    if (!want) return;
     let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도 — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link 로 돌아가면 버린다
     wipe.current = () => { st = null; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], grid: null, ver: ++ver })); };
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
@@ -81,7 +90,8 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
         const pose = poseOf(h.pose);
         if (!pose) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
         (st ??= stack()).add(xyz, pose);
-        return put({ ...live, xyz: st.xyz, n: st.n, pose, path: st.path, grid: st.grid, ver: ++ver });
+        // 점 0개 판은 «마지막 점 받은 시각»을 바꾸지 않는다 — 옛 점이 남아 있으면 «마지막 그림 · N초 전» 그대로(RV-435 ③)
+        return setFeed((f) => ({ ...f, ...live, at: xyz.length ? live.at : f.at, xyz: st!.xyz, n: st!.n, pose, path: st!.path, grid: st!.grid, ver: ++ver }));
       }
       let m: Record<string, unknown>;
       try { m = JSON.parse(data); } catch { return again('bad', '받은 자료를 읽지 못했습니다'); }
@@ -110,8 +120,8 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
     document.addEventListener('visibilitychange', vis);
     open();
     return () => { alive = false; close(); document.removeEventListener('visibilitychange', vis); setFeed(blank()); };
-  }, [robot, ch, on]);
-  return { ...feed, wipe: () => wipe.current() };
+  }, [robot, ch, want]);
+  return { ...(fault ? blank('none', BODY_FAULT) : feed), wipe: () => wipe.current() };
 }
 
 /** 지금 그림이 아닌 까닭 — 받는 중이고 새것이면 null */

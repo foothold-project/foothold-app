@@ -10,6 +10,7 @@ import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { api } from '../api';
 import { SD_NOTE } from '../serverdrive';
+import { BODY_FAULT, IDENTITY_FAULT_LABEL, NO_SIGNAL } from '../drivemedia';
 import { REPORT_STALE_MS, TEMP_STALE_S, go2Pose, go2Temps } from '../pcdrive';
 import { TEMP_MAX, TEMP_MIN, tempColor } from '../go2model';
 import quadCss from '../quad.css?raw';
@@ -370,6 +371,38 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(open()).toBe(0);
     click($('.qpip')!);
     expect(open()).toBe(1);
+  });
+
+  // RV-435 ②·①: PC 큰 칸 오른쪽 위는 작은 칸이 가림 — «마지막 그림 · N초 전»은 큰 칸 머리줄에, 작은 칸은 그대로 칸 안. 기체 확인 영구 오류면 그림·쌓은 지도를 지움
+  const lidarSock = () => FakeWS.all.filter((x) => x.url.endsWith('/robots/r7/drive-media/lidar')).pop()!;
+  const odom = (seq: number, pts: number[]) => act(() => { const l = lidarSock(); l.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1',
+    encoding: 'xyz_f32le', frame: 'odom', map_version_id: null, pose: { x: 0, y: 0, z: 0, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false });
+    l.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
+  const tile = (id: string) => $(`[aria-label="조종 보기 4칸"] [data-tile="${id}"]`)!;
+  it('큰 지도 칸의 «마지막 그림 · N초 전»은 칸 머리줄에(작은 칸에 가리지 않게), 작은 라이다 칸은 칸 안 그대로', () => {
+    mount('u-park'); serve('r7');
+    act(() => lidarSock().open()); odom(1, [1, 2, 0.5, -1, 0, 0]);
+    expect(tile('map').querySelector('[data-feed-held]')).toBeNull();
+    tick(2100);
+    expect(tile('map').querySelector('.qh [data-feed-held]')!.textContent).toBe('마지막 그림 · 2초 전 · 2초 넘게 새 자료가 없습니다');
+    expect(tile('map').querySelector('.qb [data-feed-held]')).toBeNull();   // 큰 칸 안 오른쪽 위에는 두지 않음
+    expect(tile('lidar').querySelector('.qh [data-feed-held]')).toBeNull();
+    expect(tile('lidar').querySelector('.qb [data-feed-held]')!.textContent).toContain('마지막 그림 · 2초 전');   // 작은 칸은 지금처럼
+    click(tile('lidar').querySelector('.qh')!);   // 라이다를 크게 → 머리줄로, 작아진 지도 칸은 칸 안
+    expect(tile('lidar').querySelector('.qh [data-feed-held]')).not.toBeNull(); expect(tile('lidar').querySelector('.qb [data-feed-held]')).toBeNull();
+    expect(tile('map').querySelector('.qh [data-feed-held]')).toBeNull();   // 작아진 지도 칸 머리줄엔 없음
+  });
+
+  it('기체 확인 영구 오류면 세 칸 화면도 카메라·라이다 구독을 놓고 쌓은 지도를 지운다', () => {
+    mount('u-park'); serve('r7');
+    const lid = lidarSock(), rgb = FakeWS.all.filter((x) => x.url.endsWith('/robots/r7/drive-media/rgb')).pop()!;
+    act(() => lid.open()); odom(1, [1, 2, 0.5, -1, 0, 0]);
+    expect(tile('map').querySelector('[data-occ-map]')).not.toBeNull();
+    act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: IDENTITY_FAULT_LABEL, state: 'ERROR' }] } as Partial<ScreenState>));
+    expect(lid.readyState).toBe(3); expect(rgb.readyState).toBe(3);
+    expect(tile('map').querySelector('[data-occ-map]')).toBeNull();   // 쌓던 것이 없어 층 지도로
+    expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+    expect(tile('lidar').textContent).toContain(`${NO_SIGNAL.lidar} — ${BODY_FAULT}`);
   });
 
   // RB-TEMP-WEB(11-19): robot_info.temperature — 관절 12개(JOINTS 순서)·배터리 4·자세 센서·본체 2·age_s

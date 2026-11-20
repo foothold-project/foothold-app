@@ -9,7 +9,7 @@ import { rt, type Live } from './rt';
 import { holderText } from './drive';
 import { Chip, LINK, type Ctx } from './screens';
 import { TRIAL, MAX_TURN_RATE, DriveView, stacked, useServerDrive } from './serverdrive';
-import { driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
+import { driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import { LidarMap } from './lidarmap';
 import { OccMap } from './occmap';
 import { Quad, type QTile } from './quad';
@@ -126,11 +126,11 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const server = LINK[d.link] ?? { tone: 'off' as const, text: '연결 중' };
   const robot = !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
   const why = !s?.latched ? '' : d.stalled ? STALLED : d.refused || (l.stop ? '정지 요청으로 잠겼습니다.' : '로봇이 정지 잠금을 알렸습니다 — 잠금 해제 전에 현장을 확인하세요.');
-  const lidarText = driveFeedText(lidar, 'lidar');
+  const lidarText = driveFeedText(lidar, 'lidar'), held = driveFeedHeld(lidar).replace('\n', ' · ');   // 큰 칸이면 머리줄에(RV-435 ②)
   const tiles: QTile[] = [
-    { id: 'map', label: stack ? '지도 — 걸으며 만드는 중' : '지도', body: (z) => (stack ? <OccMap small={z === 'thumb'} feed={lidar} empty={lidarText} /> : <div className="pd-floor">{floorMap}</div>) },
+    { id: 'map', label: stack ? '지도 — 걸으며 만드는 중' : '지도', held: stack ? held : '', body: (z) => (stack ? <OccMap small={z === 'thumb'} feed={lidar} empty={lidarText} /> : <div className="pd-floor">{floorMap}</div>) },
     { id: 'rgb', label: '카메라', body: (z) => <Feed robot={r.id} ch="rgb" big={z === 'big'} /> },
-    { id: 'lidar', label: '라이다', body: (z) => <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} /> },
+    { id: 'lidar', label: '라이다', held, body: (z) => <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} tag={z !== 'big'} /> },
     { id: 'depth', label: '뎁스', body: (z) => <Feed robot={r.id} ch="depth" big={z === 'big'} /> },
   ];
   const fact = (k: string, v: ReactNode, attr: string) => <div className="pd-fact" data-pd={attr}><span className="lbl">{k}</span><b>{v}</b></div>;
