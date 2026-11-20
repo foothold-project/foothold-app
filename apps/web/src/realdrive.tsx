@@ -9,11 +9,14 @@ import { UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phon
 import { Stick } from './drive';
 import { inputGen } from './rt';
 import { Video, stopText, useTick } from './simdrive';
-import { feedText, useFeed } from './media';
+import { feedText, media, useFeed } from './media';
 import { Lidar3D } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
 import type { Tone } from './fake';
 import './realdrive.css';
+
+/** 화면 글에서 내부 규약명(media/1)·영문 원문 괄호를 뺀다(RV-449 ⑤) — media.ts 문구는 그대로 두고 이 화면에서만 */
+export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').replace(/media\/1\s*/g, '');
 
 export function RealDrive() {
   useTuneSettings();
@@ -26,11 +29,19 @@ export function RealDrive() {
   const [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
   const live = ready && !leaving;
   useTick(true);
-  // 라이다: 받는 중·기다리는 중이면 큰 화면 기본, 못 받으면 큰 화면 = 카메라(작은 창에 이유 글). 두 칸은 늘 같은 자리에 두고 class 만 바꾼다 — 다시 그리면 1회 토큰이 닫힌다
-  const lf = useFeed('lidar'), lidarOk = lf.state === 'live' || lf.state === 'wait';
-  const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk ? pick : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false);
+  // 라이다(RV-449 ③④, 11-20 RB-PHONE-LOOK-FIX): media 주소가 없으면(지금 실기 경로는 robot_id 만 — 길 만들기는 다른 작업) 받지 않고 «카메라만» 안내, 교환 단추 없음.
+  // 큰 화면 = 라이다는 새 점(2초 안)을 받는 동안만. 대기·멈춤·끊김이면 큰 화면 = 카메라 — 한 번 받다가 멈추면 다시 와도 저절로 돌아가지 않는다(깜빡임 0, 작은 창을 눌러 돌아감)
+  // 두 칸·3D 그림은 늘 같은 자리에 두고 class(크기·자리)만 바꾼다 — 다시 만들면 WebGL 생성으로 명령 주기가 끊기고(RV-449 ②) 1회 토큰이 닫힌다
+  const hasMedia = !!s.robot?.agent_address, lf = useFeed('lidar', hasMedia), rf = useFeed('rgb', false);
+  const lidarOk = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
+  const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk && pick === 'lidar' ? 'lidar' : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false);
+  const had = useRef(false);
+  useEffect(() => { if (lidarOk) had.current = true; else if (had.current) setPick('rgb'); }, [lidarOk]);
   const swap = (ch: 'lidar' | 'rgb') => main !== ch && lidarOk && <button type="button" className="rd-swap" aria-label="큰 화면과 바꾸기" data-real-swap={ch} onClick={() => setPick(ch)} />;
-  const lidarBig = main === 'lidar', lidarText = feedText(lf, 'lidar'), lidarFeed = { ...lf, range: null, pose: null, path: [], grid: null, wipe() {} };
+  const lidarBig = main === 'lidar', lidarFeed = { ...lf, range: null, pose: null, path: [], grid: null, wipe() {} };
+  const lidarText = !hasMedia ? '라이다 화면 없음 — 이 연결은 카메라만 보입니다' : lidarOk ? '' : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다'
+    : lf.state === 'wait' || lf.state === 'off' ? '라이다 기다리는 중' : `라이다 신호 없음 — ${plain(feedText(lf, 'lidar'))}`;
+  const rgbText = media.has('rgb') ? plain(feedText(rf, 'rgb')) : '';   // 옛 카메라 경로 글은 Video 그대로
   useEffect(() => () => sim.axes([0, 0]), []);
   useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [live]);   // 움직일 수 없게 되면 입력 0(다시 눌러야)
   /** 지금 세대 — 값은 저장소에서 바로(rt 로봇이 아니므로 id '' = 빈 항목, 숨김은 inputGen 이 본다) */
@@ -79,9 +90,9 @@ export function RealDrive() {
   const range = L && `실효 상한: 앞 ${L.vx_max.toFixed(2)} · ${L.vx_min < 0 ? `뒤 ${Math.abs(L.vx_min).toFixed(2)}` : '후진 없음'} · 옆 ${Math.max(L.vy_max, -L.vy_min).toFixed(2)} m/s · 회전 ${L.wz_min}~${L.wz_max} rad/s${can.spin ? '' : '(앞으로 밀면서만)'}`;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="실기 조종" data-real-drive data-main={main} onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
-      <div className={`rd-view ${main === 'rgb' ? 'big' : 'pip'}`} data-real-view="rgb"><Video ch="rgb" fit="cover" />{swap('rgb')}</div>
-      <div className={`rd-view ${lidarBig ? 'big' : 'pip'}`} data-real-view="lidar">
-        {lidarOk && (no3d ? <Cloud3D small={!lidarBig} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={!lidarBig} onFail={() => setNo3d(true)} />)}
+      <div className={`rd-view ${main === 'rgb' ? 'big' : 'pip'}`} data-real-view="rgb"><Video ch="rgb" fit="cover" quiet={!!rgbText} />{rgbText && <QEmpty text={rgbText} />}{swap('rgb')}</div>
+      <div className={`rd-view ${lidarBig ? 'big' : 'pip'}`} data-real-view="lidar" data-off={!hasMedia || undefined}>
+        {lidarOn && (no3d ? <Cloud3D small={false} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={false} onFail={() => setNo3d(true)} />)}
         {lidarText && <QEmpty text={lidarText} />}
         {swap('lidar')}
       </div>
@@ -89,14 +100,15 @@ export function RealDrive() {
         <button type="button" className="dv-gear dv-leave" aria-label="나가기" disabled={leaving === 'wait'} data-real-leave onClick={leave}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M15 5l-7 7 7 7" /></svg></button>
         <div className="dv-top" aria-label="상태" data-tone={lock.tone} data-real-pill>실기 · 미검증 · {lock.text} · {real.name}{typeof soc === 'number' && ` · 배터리 ${Math.round(soc)}%`}</div>
+        {/* 안전 글(반납 실패·출입증·끊김 이유·미검증·현장 비상 정지 수단)은 접어도 늘 위에 — 넘치면 카드 안 스크롤(접히는 실효 상한이 맨 아래) */}
         <div className="rd-card" data-real-card>
-          <button type="button" className="rd-card-h" aria-expanded={info} data-real-info onClick={() => setInfo(!info)}>
-            <span>미검증 · 실효 상한</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d={info ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} /></svg></button>
-          <div className="rd-card-t" hidden={!info}>
-            <p className="dv-note" role="note" data-real-unverified>{UNVERIFIED}</p>
-            {range && <p className="dv-note" data-real-range>{range}</p>}
-          </div>
           {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
+          <p className="dv-note" role="note" data-real-unverified>{UNVERIFIED}</p>
+          {range && <>
+            <button type="button" className="rd-card-h" aria-expanded={info} data-real-info onClick={() => setInfo(!info)}>
+              <span>실효 상한</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d={info ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} /></svg></button>
+            <div className="rd-card-t" hidden={!info}><p className="dv-note" data-real-range>{range}</p></div>
+          </>}
         </div>
         {acts.length > 0 && <div className="rd-band" role="group" aria-label="조종 단추" data-real-band>{acts}</div>}
         {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="real-ask-t" aria-live="assertive">

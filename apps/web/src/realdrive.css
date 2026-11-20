@@ -5,14 +5,20 @@
 .rd-view.big{inset:0}
 .rd-view.pip{z-index:1;top:60px;left:8px;width:clamp(120px,24vw,220px);aspect-ratio:4/3;border:1.5px solid rgba(230,235,239,.45);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.5)}
 .rd-view.pip .qd-empty{font-size:11px;padding:6px;color:#9AA7B3}
-.rd-view .qd-empty{color:#9AA7B3}
+.rd-view .qd-empty{color:#9AA7B3;word-break:keep-all}
+/* 멈춘 3D 점 위 안내(라이다 신호 없음·기다리는 중)는 어둡게 덮어 읽히게 */
+.rd-view [data-lidar3d]~.qd-empty{background:rgba(8,11,14,.72);color:#E6EBEF}
+.rd-view.pip[data-off]{border-style:dashed}
+/* 작은 창의 3D 칸은 그림만(돌리기·따라가기 없음) — 크기만 바꾸고 다시 만들지 않으므로 손 입력은 여기서 막는다 */
+.rd-view.pip [data-lidar3d]{pointer-events:none}
+.rd-view.pip [data-l3-follow]{display:none}
 .rd-swap{position:absolute;inset:0;z-index:1;width:100%;height:100%;padding:0;border:0;background:none;cursor:pointer}
 .rd-swap:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 /* lidar3d «로봇 따라가기»(왼쪽 아래 — 조이스틱 밑에 묻힘) → 위 가운데 상태 줄 아래 */
 [data-real-drive] [data-l3-follow]{left:50% !important;top:56px;bottom:auto !important;transform:translateX(-50%);min-height:40px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 /* 위 얇은 줄: «<»(8 + 44) 와 STOP(오른쪽 114 + 8) 사이 가운데 */
 [data-real-drive] .dv-top{left:60px;right:130px;width:fit-content;max-width:calc(100% - 190px);margin-inline:auto;transform:none;min-height:30px;font-size:12px}
-/* 안내 카드: 오른쪽, STOP(64) 아래 ~ 오른쪽 조이스틱 위. 위 줄(펼침 단추) + 급한 안내는 늘 보임, 미검증·실효 상한은 접힘 */
+/* 안내 카드: 오른쪽, STOP(64) 아래 ~ 오른쪽 조이스틱 위. 안전 글·미검증은 늘 보임, 실효 상한만 접힘(맨 아래) */
 .rd-card{position:absolute;top:80px;right:8px;z-index:1;box-sizing:border-box;width:min(300px,calc(100% - 16px));max-height:calc(100% - 80px - 148px);overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:2px 4px 4px;border:1px solid rgba(230,235,239,.3);border-radius:12px;background:rgba(8,11,14,.55);color:#E6EBEF}
 .rd-card .dv-note{padding:4px 8px;font-size:12px;line-height:1.4;background:none;color:#E6EBEF;word-break:keep-all}
 .rd-card-h{min-height:36px;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 6px 0 8px;border:0;background:none;color:#E6EBEF;font-size:12px;font-weight:600;cursor:pointer}
@@ -26,7 +32,8 @@
 [data-real-drive] .dv-stick{background:rgba(8,11,14,.35);border-color:rgba(230,235,239,.35)}
 [data-real-drive] .dv-stick>i{background:rgba(230,235,239,.7)}
 /* 가로 폰(낮은 높이 — 조이스틱 88): 카드·띠를 조이스틱 크기에 맞춤 */
-@media (max-height:480px){.rd-card{max-height:calc(100% - 80px - 104px)}.rd-band{bottom:10px;max-width:calc(100% - 216px)}}
+/* 카드는 넓혀 줄 수를 줄인다(844×390 에서 반납 실패 + 출입증 + 미검증이 겹쳐도 스크롤 없이 다 보이게) */
+@media (max-height:480px){.rd-card{width:min(360px,calc(100% - 16px));max-height:calc(100% - 80px - 104px)}.rd-band{bottom:10px;max-width:calc(100% - 216px)}}
 /* 세로: 위 = 큰 화면, 아래 = 띠 + 조이스틱 두 개(어두운 판) */
 @media (orientation:portrait){
   .rd-view.big{bottom:200px}
