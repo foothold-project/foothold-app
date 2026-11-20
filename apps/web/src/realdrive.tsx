@@ -17,6 +17,10 @@ import './realdrive.css';
 
 /** 화면 글에서 내부 규약명(media/1)·영문 원문 괄호를 뺀다(RV-449 ⑤) — media.ts 문구는 그대로 두고 이 화면에서만 */
 export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').replace(/media\/1\s*/g, '');
+/** 화면에 낼 사유 한 줄(RV-454 3): plain 뒤에도 한글이 없거나 영문 낱말이 이어지면(에이전트가 알린 모르는 사유 «Media ROS reader unavailable» 등) 원문 대신 쉬운 말 */
+export const say = (t: string) => { const p = plain(t); return !p || /[가-힣]/.test(p) && !/[A-Za-z]+\s+[A-Za-z]+/.test(p) ? p : '로봇에서 영상을 받지 못하고 있습니다'; };
+/** 이보다 적은 점의 판은 빈 판 — 라이다 대기로 본다(RV-454 2). ponytail: 고정값, 실기 점 수를 보고 맞출 것 */
+const FEW = 10;
 
 export function RealDrive() {
   useTuneSettings();
@@ -33,15 +37,21 @@ export function RealDrive() {
   // 큰 화면 = 라이다는 새 점(2초 안)을 받는 동안만. 대기·멈춤·끊김이면 큰 화면 = 카메라 — 한 번 받다가 멈추면 다시 와도 저절로 돌아가지 않는다(깜빡임 0, 작은 창을 눌러 돌아감)
   // 두 칸·3D 그림은 늘 같은 자리에 두고 class(크기·자리)만 바꾼다 — 다시 만들면 WebGL 생성으로 명령 주기가 끊기고(RV-449 ②) 1회 토큰이 닫힌다
   const hasMedia = !!s.robot?.agent_address, lf = useFeed('lidar', hasMedia), rf = useFeed('rgb', false);
-  const lidarOk = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
+  // 새 판이 와도 점이 0개(또는 FEW 미만)면 빈 라이다 — «라이다 기다리는 중», 큰 화면 = 카메라(2초 규칙과 같은 길, RV-454 2)
+  const fresh = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOk = fresh && lf.n >= FEW, lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
   const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk && pick === 'lidar' ? 'lidar' : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false);
   const had = useRef(false);
   useEffect(() => { if (lidarOk) had.current = true; else if (had.current) setPick('rgb'); }, [lidarOk]);
-  const swap = (ch: 'lidar' | 'rgb') => main !== ch && lidarOk && <button type="button" className="rd-swap" aria-label="큰 화면과 바꾸기" data-real-swap={ch} onClick={() => setPick(ch)} />;
+  // 교환은 pointerup(RV-454 1): 스틱을 쥔 채 누른 두 번째 손가락엔 click 이 생기지 않는다. 이 단추에서 누른 손가락만(스틱 손가락은 스틱이 잡고 있어 여기 오지 않음),
+  // click 은 키보드(detail 0)만 — 손가락·마우스는 pointerup 이 이미 바꿨다
+  const tap = useRef<number | null>(null);
+  const swap = (ch: 'lidar' | 'rgb') => main !== ch && lidarOk && <button type="button" className="rd-swap" aria-label="큰 화면과 바꾸기" data-real-swap={ch}
+    onPointerDown={(e) => { tap.current = e.pointerId; }} onPointerCancel={() => { tap.current = null; }}
+    onPointerUp={(e) => { if (tap.current === e.pointerId) setPick(ch); tap.current = null; }} onClick={(e) => { if (!e.detail) setPick(ch); }} />;
   const lidarBig = main === 'lidar', lidarFeed = { ...lf, range: null, pose: null, path: [], grid: null, wipe() {} };
-  const lidarText = !hasMedia ? '라이다 화면 없음 — 이 연결은 카메라만 보입니다' : lidarOk ? '' : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다'
-    : lf.state === 'wait' || lf.state === 'off' ? '라이다 기다리는 중' : `라이다 신호 없음 — ${plain(feedText(lf, 'lidar'))}`;
-  const rgbText = media.has('rgb') ? plain(feedText(rf, 'rgb')) : '';   // 옛 카메라 경로 글은 Video 그대로
+  const lidarText = !hasMedia ? '라이다 화면 없음 — 이 연결은 카메라만 보입니다' : lidarOk ? '' : fresh || lf.state === 'wait' || lf.state === 'off' ? '라이다 기다리는 중'
+    : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다' : `라이다 신호 없음 — ${say(feedText(lf, 'lidar'))}`;
+  const rgbText = media.has('rgb') ? say(feedText(rf, 'rgb')) : '';   // 옛 카메라 경로 글은 Video 그대로
   useEffect(() => () => sim.axes([0, 0]), []);
   useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [live]);   // 움직일 수 없게 되면 입력 0(다시 눌러야)
   /** 지금 세대 — 값은 저장소에서 바로(rt 로봇이 아니므로 id '' = 빈 항목, 숨김은 inputGen 이 본다) */

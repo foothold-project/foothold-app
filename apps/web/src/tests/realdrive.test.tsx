@@ -8,7 +8,7 @@ import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
 import { sim } from '../phone';
 import { media, BAD_WELCOME, NO_MEDIA, type Feed } from '../media';
-import { plain } from '../realdrive';
+import { plain, say } from '../realdrive';
 import type { Found } from '../nearby';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -74,20 +74,25 @@ async function connected(media?: unknown, { addr = false, exp = 600 } = {}) {
 }
 const view = (ch: string) => $(`[data-real-view="${ch}"]`)!;
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); sim.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); l3.mounts = 0; l3.smalls = []; });
-/** media 저장소의 라이다 값만 바꿔 보인다(앱 중계 media 길이 없어 실제로는 받지 못함). lidar() 값(state·at)이 바뀔 때만 새 객체 — useSyncExternalStore 가 같은 값엔 같은 객체를 요구 */
+/** media 저장소의 라이다 값만 바꿔 보인다(앱 중계 media 길이 없어 실제로는 받지 못함). lidar() 값(state·at·n)이 바뀔 때만 새 객체 — useSyncExternalStore 가 같은 값엔 같은 객체를 요구 */
 function fakeLidar(lidar: () => Partial<Feed>) {
   const get = media.get.bind(media);
   let seen: unknown = null, key = '', out: ReturnType<typeof get> | null = null;
   vi.spyOn(media, 'get').mockImplementation(() => {
-    const f = get(), p = lidar(), k = `${p.state}:${p.at}`;
+    const f = get(), p = lidar(), k = `${p.state}:${p.at}:${p.n}`;
     if (f !== seen || k !== key) { seen = f; key = k; out = { ...f, lidar: { ...f.lidar, ...p } }; }
     return out!;
   });
 }
 const XYZ = new Float32Array(9);
-const live = (p: Partial<Feed> = {}): Partial<Feed> => ({ state: 'live', why: '', at: Infinity, n: 3, xyz: XYZ, frame: 'lidar_link', ver: 1, ...p });
+const live = (p: Partial<Feed> = {}): Partial<Feed> => ({ state: 'live', why: '', at: Infinity, n: 500, xyz: XYZ, frame: 'lidar_link', ver: 1, ...p });
 const ST = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
-const ptr = (el: Element, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })); });
+/** id = 손가락(pointerId) — 두 손가락(멀티 터치)은 id 를 달리한다. jsdom 에 PointerEvent 가 없어 MouseEvent 에 pointerId 를 붙인다 */
+const ptr = (el: Element, type: string, x: number, y: number, id?: number) => act(() => {
+  const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+  if (id != null) Object.defineProperties(e, { pointerId: { value: id }, isPrimary: { value: id === 1 }, pointerType: { value: 'touch' } });
+  el.dispatchEvent(e);
+});
 async function driving(a: FakeWS) {
   await click(btn('조종 시작'));
   act(() => a.recv(st(ST))); await flush();
@@ -222,5 +227,67 @@ describe('실기 직결 조종 화면 배치', () => {
     ]);
     expect(ps.every((e) => !e.closest('[hidden]'))).toBe(true);
     expect(btn('다시 반납')).toBeTruthy();
+  });
+  it('두 번째 손가락: 전진 스틱을 쥔 채 작은 창을 누르면(click 없음, pointer 만) 가로·세로 각 4회 모두 바뀌고 스틱 입력은 그대로 (RV-454 1)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    fakeLidar(() => live());
+    const a = await connected(MEDIA, { addr: true });
+    await driving(a);
+    const fwd = $('[aria-label="전후 조이스틱"]')!;
+    fwd.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    ptr(fwd, 'pointerdown', 50, 0, 1);
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    const from = a.of('cmd').length;
+    for (const _o of ['가로', '세로']) for (let i = 0; i < 4; i++) {
+      const was = $('[data-real-drive]')!.getAttribute('data-main'), sw = $('[data-real-swap]')!;
+      ptr(sw, 'pointerdown', 20, 80, 2); ptr(sw, 'pointerup', 20, 80, 2); await flush();   // 두 번째 손가락은 click 이 생기지 않는다
+      expect($('[data-real-drive]')!.getAttribute('data-main')).not.toBe(was);
+      await act(() => vi.advanceTimersByTimeAsync(100));
+    }
+    const during = a.of('cmd').slice(from);
+    expect(during.length).toBeGreaterThanOrEqual(16);
+    expect(during.every((c) => c.vx === 1.5)).toBe(true);   // 교환 손가락이 스틱 손가락과 섞이지 않음
+    ptr(fwd, 'pointerup', 50, 0, 1);
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0, wz: 0 });
+  });
+
+  it('스틱 손가락이 작은 창 위에서 떼어져도(다른 데서 누른 손가락) 바뀌지 않고, 키보드(click) 는 바뀜', async () => {
+    fakeLidar(() => live());
+    await connected(MEDIA, { addr: true });
+    const sw = $('[data-real-swap]')!;
+    ptr(sw, 'pointerup', 20, 80, 5); await flush();
+    expect($('[data-real-drive]')!.getAttribute('data-main')).toBe('lidar');
+    await click(sw);
+    expect($('[data-real-drive]')!.getAttribute('data-main')).toBe('rgb');
+  });
+
+  it('300 ms 마다 점 0개(또는 아주 적은) 새 판이 와도 빈 라이다는 큰 화면에 두지 않음 — «라이다 대기», 큰 화면 = 카메라 (RV-454 2)', async () => {
+    let n = 0, at = performance.now();
+    fakeLidar(() => live({ at, n }));
+    const a = await connected(MEDIA, { addr: true });
+    const poke = async () => { at = performance.now(); act(() => a.recv(st())); await flush(); };   // 새 판(방금 받음)
+    for (const k of [0, 3, 0]) {
+      n = k; await poke();
+      expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
+      expect(view('lidar').textContent).toContain('라이다 기다리는 중');
+      expect($('[data-real-swap]')).toBeNull();
+    }
+    n = 500; await poke();
+    expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('lidar');
+    n = 0; await poke();   // 받다가 빈 판 → 2초 규칙과 같은 길(카메라, 저절로 돌아가지 않음)
+    expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
+    n = 500; await poke();
+    expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
+  });
+
+  it('에이전트가 알린 모르는 영문 사유(Media ROS reader unavailable)는 화면에 내지 않고 쉬운 한국어 한 줄 (RV-454 3)', async () => {
+    const down = { available: false, reason: 'Media ROS reader unavailable', token: null };
+    await connected({ ...MEDIA, rgb: down, external: down, lidar: down }, { addr: true });
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(box.textContent).not.toMatch(/Media|ROS|reader|unavailable/);
+    expect(say('Media ROS reader unavailable')).toBe('로봇에서 영상을 받지 못하고 있습니다');
+    expect(say('RGB 카메라가 꺼져 있습니다 (RGB source is disabled)')).toBe('RGB 카메라가 꺼져 있습니다');
+    expect(say('받은 자료가 media/1 약속과 달라 연결을 닫았습니다')).toBe('받은 자료가 약속과 달라 연결을 닫았습니다');
   });
 });
