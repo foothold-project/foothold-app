@@ -26,6 +26,8 @@ type Head = { seq: number; epoch: number; count: number; byte_length: number };
 /** 계약 frame·child_frame 이름(1~128자) */
 const FRAME = /^[A-Za-z0-9_/-]{1,128}$/;
 const named = (v: unknown) => typeof v === 'string' && FRAME.test(v);
+/** 계약 seq·epoch: 0 ~ 2^53−1 정수(음수·비정수·비유한·상한 넘음은 틀린 판) */
+const count = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 /** pose = 로봇 위치, making = 지도를 만드는 중(저장 지도 위 위치 찾기가 아님), path = 만드는 동안 지나온 길(x,y 이어 붙임) */
 export type Slam = { xyz: Float32Array; n: number; ver: number; at: number; pose: Pose | null; poseAt: number; making: boolean; path: number[] };
 const blank = (): Slam => ({ xyz: new Float32Array(0), n: 0, ver: 0, at: 0, pose: null, poseAt: 0, making: false, path: [] });
@@ -36,13 +38,13 @@ export const slamUrl = (robot: string, ch: Ch) =>
 export function slamHeader(m: Record<string, unknown>): Head | null {
   const n = m.count;
   return m.t === 'media.slam_points' && m.source === 'rt/uslam/frontend/cloud_world_ds' && m.encoding === 'xyz_f32le' && named(m.frame)
-    && typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= SLAM_MAX && m.byte_length === n * 12 && typeof m.truncated === 'boolean' && Number.isInteger(m.seq)
+    && typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= SLAM_MAX && m.byte_length === n * 12 && typeof m.truncated === 'boolean' && count(m.seq)
     ? m as unknown as Head : null;
 }
 /** 위치 검사(계약 SlamPoseFrame) — 맞으면 [위치, 만드는 중], 아니면 null */
 export function slamPose(m: Record<string, unknown>): [Pose, boolean] | null {
   const p = m.pose as Pose | null;
-  return m.t === 'media.slam_pose' && (m.source === MAKING || m.source === 'rt/uslam/localization/odom') && named(m.frame) && named(m.child_frame) && Number.isInteger(m.seq) && !!p && typeof p === 'object'
+  return m.t === 'media.slam_pose' && (m.source === MAKING || m.source === 'rt/uslam/localization/odom') && named(m.frame) && named(m.child_frame) && count(m.seq) && !!p && typeof p === 'object'
     && [p.x, p.y, p.z, p.yaw].every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 10_000) ? [{ x: p.x, y: p.y, z: p.z, yaw: p.yaw }, m.source === MAKING] : null;
 }
 
@@ -84,7 +86,7 @@ export function useSlam(robot: string, on = true): Slam {
       if (ch === 'slam') pend = null;   // 머리 뒤 본문 없이 글이 오면 그 머리는 버림
       let m: Record<string, unknown>;
       try { m = JSON.parse(data); } catch { return; }
-      if (!m || m.version !== 'media/1' || m.channel !== ch || m.robot !== robot || !Number.isInteger(m.epoch)) return;
+      if (!m || m.version !== 'media/1' || m.channel !== ch || m.robot !== robot || !count(m.epoch)) return;
       const ep = m.epoch as number;
       if (m.t === 'media.status') {   // 서버가 붙자마자 보내는 epoch 0 «최근 자료 없음» 은 새 시작이 아님
         if (m.state !== 'NO_SLAM' || gone.has(ep)) return;
