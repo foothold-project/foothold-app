@@ -235,6 +235,20 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(left().hasAttribute('data-stale')).toBe(true);
   });
 
+  it('RS-JOINTS-PATH 1(rt.ts): 관절만 바뀐 새 표본(수신 시각 바뀜)이 오면 그림이 따라 움직이고, 같은 표본의 나이만 바뀌면 다시 그리지 않는다', () => {
+    mount('u-park'); serve('r7');
+    const at = (t: string, v: number, age = 0.05) => { const x = info(age)!; x.joints = { ...x.joints!, received_at: t, positions: NAMES.map(() => v) }; return x; };
+    const deg = () => $('[data-pd-stage] [data-go2-joint]')!.textContent;
+    act(() => push('r7', { robot_info: at('2026-11-19T00:00:00.100Z', 0.2) }));
+    expect(deg()).toContain('11');
+    act(() => push('r7', { robot_info: at('2026-11-19T00:00:00.200Z', 0.5) }));   // 관절만 바뀜(자세·위치·배터리 그대로)
+    expect(deg()).toContain('29');
+    act(() => push('r7', { robot_info: at('2026-11-19T00:00:00.200Z', 0.9, 0.15) }));   // 같은 표본 — 나이만
+    expect(deg()).toContain('29');
+    act(() => push('r7', { robot_info: at('2026-11-19T00:00:00.200Z', 0.5, 1.5) }));   // 같은 표본이 늙어 신선함이 바뀌면 한 번 — 흐림
+    expect($('[data-pd-left]')!.hasAttribute('data-stale')).toBe(true);
+  });
+
   it('상태 글자는 그림 위 별도 영역(그림 칸 밖·겹쳐 놓지 않음), 그림 칸엔 Go2·관절 값 12개만 — «관절 값» 단추로 끄고 켬', () => {
     mount('u-park'); serve('r7');
     act(() => push('r7', { robot_info: info() }));

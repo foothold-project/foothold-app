@@ -99,7 +99,7 @@ export default function Voxel3D({ v, pages, n }: Props) {
 
   const shown = cut ?? top;
   return <div ref={host} className="vx-3d" tabIndex={0} role="application" data-voxel-3d aria-label="3D 지도 — 끌어 돌리기, 오른쪽 끌기 이동, 휠 확대">
-    {failed ? <p className="lv-note mx-center" role="alert" data-voxel-3d-failed>이 브라우저에서 3D 화면을 그릴 수 없습니다(WebGL 없음). «지도 보기»로 보세요.</p>
+    {failed ? <p className="lv-note mx-center" role="alert" data-voxel-3d-failed>이 브라우저에서는 3D 화면을 볼 수 없습니다. «지도 보기»로 보세요.</p>
       : <div className="vx-tools" role="group" aria-label="3D 시점">
         <button type="button" className="btn" onClick={() => rig.current?.view(true)}>위에서 보기</button>
         <button type="button" className="btn" onClick={() => rig.current?.view(false)}>비스듬히</button>
