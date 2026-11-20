@@ -20,7 +20,7 @@ vi.mock('three', async (orig) => {
 });
 
 const feed = (n: number, ver: number, frame = 'odom'): DriveFeed => ({ state: 'live', why: '', at: 0, seq: ver, img: '', xyz: new Float32Array(n * 3).map((_, i) => i % 7), n, frame, truncated: false, ver,
-  range: null, pose: frame === 'odom' ? { x: 1, y: 2, z: 0, yaw: 0.3 } : null, path: [], wipe: () => {} } as DriveFeed);
+  range: null, pose: frame === 'odom' ? { x: 1, y: 2, z: 0, yaw: 0.3 } : null, path: [], grid: null, wipe: () => {} } as DriveFeed);
 let root: Root | null = null, box: HTMLDivElement;
 const show = (f: DriveFeed, o: { small?: boolean; start?: '3d' | 'top' } = {}) => act(() => { root!.render(<LidarMap feed={f} empty="" {...o} />); });
 const $ = (s: string) => box.querySelector<HTMLElement>(s);

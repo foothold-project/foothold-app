@@ -330,6 +330,36 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(w.of('stop').length).toBe(0);
   });
 
+  // RB-SLAM-GRID-WEB(11-20): 쌓는 라이다(odom)면 지도 칸 = 걸으며 만드는 2D 격자(빈 바닥·벽·모름), 라이다 칸은 그대로, lidar_link 면 층 지도 — 버리는 때는 쌓은 점과 같음
+  it('쌓는 라이다면 지도 칸이 걸으며 만드는 지도로 자라고, epoch·lidar_link 에 버린다', () => {
+    mount('u-park'); serve('r7');
+    const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
+    const scan = (seq: number, pts: number[], p: object = {}) => act(() => {
+      lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le', frame: 'odom', map_version_id: null,
+        pose: { x: 0, y: 0, z: 0.3, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false, ...p });
+      lid.onmessage?.({ data: new Float32Array(pts).buffer } as never);
+    });
+    const tile = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"]')!, occ = () => tile().querySelector<HTMLElement>('[data-occ-map]');
+    act(() => { lid.open(); });
+    expect(occ()).toBeNull();
+    for (let s = 1; s <= 3; s++) scan(s, [2.025, 0.025, 0.3, 1.025, 1.025, 0]);   // 벽 점 하나 + 바닥 점 하나
+    expect(tile().textContent).toContain('지도 — 걸으며 만드는 중');
+    expect(occ()!.dataset.occWall).toBe('1');
+    expect(Number(occ()!.dataset.occMap)).toBeGreaterThan(40);
+    expect($('[aria-label="조종 보기 4칸"] [data-tile="lidar"] [data-lidar-map]')).toBeTruthy();   // 라이다 칸은 그대로
+    expect(box.textContent).not.toMatch(/SLAM|odom|로그오즈/i);
+    act(() => { tile().querySelector<HTMLElement>('[data-occ-wipe]')!.click(); });
+    expect(occ()!.dataset.occMap).toBe('0');   // «처음부터 다시» = 화면만
+    scan(4, [2.025, 0.025, 0.3]);
+    expect(occ()!.dataset.occWall).toBe('1');
+    scan(1, [5, 5, 0], { epoch: 2 });   // 로봇이 새로 시작 = 새 격자
+    expect(occ()!.dataset.occWall).toBe('0');
+    scan(2, [1, 0, 0], { epoch: 2, frame: 'lidar_link', pose: null });
+    expect(occ()).toBeNull();
+    expect(tile().querySelector('.pd-floor')).toBeTruthy();
+    expect(tile().textContent).not.toContain('걸으며');
+  });
+
   it('지도·라이다 칸이 모두 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
     mount('u-park'); serve('r7');
     const open = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).length;
