@@ -18,10 +18,20 @@ export type DriveFeed = Feed & { range: [number, number] | null; pose: Pose | nu
 type Raw = Omit<DriveFeed, 'wipe'>;
 /** 쌓는 칸 크기(m) · 쌓는 점 상한 · 길 꼭짓점 상한 · 로봇보다 이만큼 높은 점(천장)은 위에서 본 그림을 덮으므로 쌓지 않음 */
 export const CELL_M = 0.05, STACK_MAX = 200_000, PATH_MAX = 5000, CEIL_M = 1.2;
+/** 칸 키(0 ≤ k < 2^53 정수) → 표 자리: 아래·위 32비트를 섞어 murmur3 fmix32 — 이웃 칸이 표에 고르게 흩어지게 */
+const cellHash = (k: number, mask: number) => {
+  let h = (k >>> 0) ^ Math.imul((k / 4294967296) | 0, 0x9e3779b1);
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+  return (h ^ (h >>> 16)) & mask;
+};
 /** 쌓는 지도: 5 cm 칸(x·y·z)에 점 하나만, cap 을 넘으면 가장 오래된 점부터 덮어쓴다. xyz 는 한 버퍼를 계속 씀(앞 n 개가 유효).
- *  grid = 같은 판으로 자라는 2D 격자 지도 — stack 과 함께 생기고 함께 버려진다(로봇 바뀜·epoch·«처음부터 다시»·lidar_link) */
+ *  grid = 같은 판으로 자라는 2D 격자 지도 — stack 과 함께 생기고 함께 버려진다(로봇 바뀜·epoch·«처음부터 다시»·lidar_link)
+ *  칸 중복 제거(11-20 RB-STACK-PERF) = 칸 키를 바로 담는 해시 표(선형 탐사, 빈 칸 −1, 지울 땐 뒤 칸을 당겨 메움) — 큰 수 Set 은 5만 점 판에 수십~100 ms.
+ *  판 사이에 그리기가 캐시를 밀어내 표 읽기는 거의 매번 메모리까지 감 — 점마다 무작위 읽기가 적게(찾기 1 · 지우기 1) 키를 표에 바로 둔다.
+ *  점은 pointsBody 가 유한·|v| ≤ 10 km 로 거른 것이라 NaN 키는 없음. 지우기를 stack 안 함수로 빼면 stack 마다 다른 클로저라 JIT 가 버려져(deopt) 판이 튄다 — 루프 안에 둠 */
 export function stack(cap = STACK_MAX) {
-  const xyz = new Float32Array(cap * 3), keys = new Float64Array(cap), seen = new Set<number>(), path: number[] = [], grid = occGrid();
+  const xyz = new Float32Array(cap * 3), keys = new Float64Array(cap), path: number[] = [], grid = occGrid();
+  const mask = 2 ** Math.ceil(Math.log2(cap * 2)) - 1, tk = new Float64Array(mask + 1).fill(-1);   // 채움률 ≤ 1/2
   let total = 0;
   return {
     xyz, path, grid,
@@ -31,11 +41,20 @@ export function stack(cap = STACK_MAX) {
       for (let i = 0; i + 2 < pts.length; i += 3) {
         const x = pts[i], y = pts[i + 1], z = pts[i + 2], iz = Math.floor(z / CELL_M) + 1024;
         if (z > pose.z + CEIL_M || iz < 0 || iz > 2047) continue;
-        const k = ((Math.floor(x / CELL_M) + 2 ** 20) * 2 ** 21 + Math.floor(y / CELL_M) + 2 ** 20) * 2048 + iz;   // |x|,|y| ≤ 10 km(pointsBody) → 53비트 안
-        if (seen.has(k)) continue;
+        const k = ((Math.floor(x / CELL_M) + 2 ** 20) * 2 ** 21 + Math.floor(y / CELL_M) + 2 ** 20) * 2048 + iz, h = cellHash(k, mask);   // |x|,|y| ≤ 10 km(pointsBody) → 53비트 안
+        let j = h;
+        while (tk[j] >= 0 && tk[j] !== k) j = (j + 1) & mask;
+        if (tk[j] >= 0) continue;
         const w = total++ % cap;
-        if (total > cap) seen.delete(keys[w]);
-        seen.add(k); keys[w] = k; xyz[w * 3] = x; xyz[w * 3 + 1] = y; xyz[w * 3 + 2] = z;
+        if (total > cap) {   // 가장 오래된 점(링 자리 w)의 칸을 표에서 빼고, 뒤 묶음 중 제 자리가 빈 칸과 같거나 앞인 것을 당겨 온다
+          const old = keys[w];
+          let e = cellHash(old, mask);
+          while (tk[e] !== old) e = (e + 1) & mask;
+          for (let f = (e + 1) & mask; tk[f] >= 0; f = (f + 1) & mask) if (((f - cellHash(tk[f], mask)) & mask) >= ((f - e) & mask)) { tk[e] = tk[f]; e = f; }
+          tk[e] = -1;
+          for (j = h; tk[j] >= 0; j = (j + 1) & mask);   // 지우면 빈 칸이 앞당겨질 수 있어 다시 찾음
+        }
+        tk[j] = k; keys[w] = k; xyz[w * 3] = x; xyz[w * 3 + 1] = y; xyz[w * 3 + 2] = z;
       }
       const m = path.length;
       if (!m || Math.hypot(pose.x - path[m - 2], pose.y - path[m - 1]) >= CELL_M) { path.push(pose.x, pose.y); if (path.length > PATH_MAX * 2) path.splice(0, 2); }
