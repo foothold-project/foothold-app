@@ -13,6 +13,7 @@ import { SD_NOTE } from '../serverdrive';
 import { BODY_FAULT, IDENTITY_FAULT_LABEL, NO_SIGNAL } from '../drivemedia';
 import { REPORT_STALE_MS, TEMP_STALE_S, go2Pose, go2Temps } from '../pcdrive';
 import { TEMP_MAX, TEMP_MIN, tempColor } from '../go2model';
+import { HELD_GAP } from '../quad';
 import quadCss from '../quad.css?raw';
 import pcCss from '../pcdrive.css?raw';
 
@@ -393,6 +394,19 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(tile('map').querySelector('.qh [data-feed-held]')).toBeNull();   // 작아진 지도 칸 머리줄엔 없음
   });
 
+  // RV-440 ③: 1440×900 실측에서 보통 보기는 «전체화면» 단추(.qfs-bar right 44px)가, 전체화면은 첫 작은 칸(--tw)이 머리줄 표시를 가렸다 — 그 자리를 비워 둔다
+  it('큰 칸 머리줄 «마지막 그림»은 보통 보기에선 전체화면 단추 자리, 전체화면에선 작은 칸 자리를 비워 둔다', async () => {
+    mount('u-park'); serve('r7'); fullscreen();
+    act(() => lidarSock().open()); odom(1, [1, 2, 0.5, -1, 0, 0]); tick(2100);
+    const h = () => tile('map').querySelector<HTMLElement>('.qh [data-feed-held]')!;
+    expect(quadCss.replace(/\s+/g, '')).toContain('.qfs-bar{position:absolute;z-index:5;top:9px;right:44px;');   // HELD_GAP 은 이 자리 기준(바뀌면 다시 잴 것)
+    expect(h().style.marginRight).toBe(HELD_GAP);
+    await act(async () => { btn('전체화면').click(); });
+    expect(h().style.marginRight).toBe('var(--tw)');
+    click($('.qpip')!);   // 작은 칸 숨김 — 가릴 것이 없음
+    expect(h().style.marginRight).toMatch(/^0(px)?$/);
+  });
+
   it('기체 확인 영구 오류면 세 칸 화면도 카메라·라이다 구독을 놓고 쌓은 지도를 지운다', () => {
     mount('u-park'); serve('r7');
     const lid = lidarSock(), rgb = FakeWS.all.filter((x) => x.url.endsWith('/robots/r7/drive-media/rgb')).pop()!;
@@ -403,6 +417,7 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(tile('map').querySelector('[data-occ-map]')).toBeNull();   // 쌓던 것이 없어 층 지도로
     expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
     expect(tile('lidar').textContent).toContain(`${NO_SIGNAL.lidar} — ${BODY_FAULT}`);
+    act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'OK' }] } as Partial<ScreenState>));   // 로봇별로 기억 — 다음 시험을 위해 품
   });
 
   // RB-TEMP-WEB(11-19): robot_info.temperature — 관절 12개(JOINTS 순서)·배터리 4·자세 센서·본체 2·age_s
