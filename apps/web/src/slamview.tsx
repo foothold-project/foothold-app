@@ -22,7 +22,10 @@ export const GONE_MS = 2500, SLAM_MAX = 4000;
 export const SLAM_STACK = false;
 const MAKING = 'rt/uslam/frontend/odom';
 type Ch = 'slam' | 'slam_pose';
-type Head = { seq: number; count: number; byte_length: number };
+type Head = { seq: number; epoch: number; count: number; byte_length: number };
+/** 계약 frame·child_frame 이름(1~128자) */
+const FRAME = /^[A-Za-z0-9_/-]{1,128}$/;
+const named = (v: unknown) => typeof v === 'string' && FRAME.test(v);
 /** pose = 로봇 위치, making = 지도를 만드는 중(저장 지도 위 위치 찾기가 아님), path = 만드는 동안 지나온 길(x,y 이어 붙임) */
 export type Slam = { xyz: Float32Array; n: number; ver: number; at: number; pose: Pose | null; poseAt: number; making: boolean; path: number[] };
 const blank = (): Slam => ({ xyz: new Float32Array(0), n: 0, ver: 0, at: 0, pose: null, poseAt: 0, making: false, path: [] });
@@ -32,14 +35,14 @@ export const slamUrl = (robot: string, ch: Ch) =>
 /** 점군 머리 검사(계약 SlamPointCloudHeader) — 맞으면 그 머리, 아니면 null(뒤따르는 본문도 버림) */
 export function slamHeader(m: Record<string, unknown>): Head | null {
   const n = m.count;
-  return m.t === 'media.slam_points' && m.source === 'rt/uslam/frontend/cloud_world_ds' && m.encoding === 'xyz_f32le' && typeof m.frame === 'string'
-    && typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= SLAM_MAX && m.byte_length === n * 12 && typeof m.truncated === 'boolean' && Number.isInteger(m.seq)
+  return m.t === 'media.slam_points' && m.source === 'rt/uslam/frontend/cloud_world_ds' && m.encoding === 'xyz_f32le' && named(m.frame)
+    && typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= SLAM_MAX && m.byte_length === n * 12 && typeof m.truncated === 'boolean' && Number.isInteger(m.seq)
     ? m as unknown as Head : null;
 }
 /** 위치 검사(계약 SlamPoseFrame) — 맞으면 [위치, 만드는 중], 아니면 null */
 export function slamPose(m: Record<string, unknown>): [Pose, boolean] | null {
   const p = m.pose as Pose | null;
-  return m.t === 'media.slam_pose' && (m.source === MAKING || m.source === 'rt/uslam/localization/odom') && !!p && typeof p === 'object'
+  return m.t === 'media.slam_pose' && (m.source === MAKING || m.source === 'rt/uslam/localization/odom') && named(m.frame) && named(m.child_frame) && Number.isInteger(m.seq) && !!p && typeof p === 'object'
     && [p.x, p.y, p.z, p.yaw].every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 10_000) ? [{ x: p.x, y: p.y, z: p.z, yaw: p.yaw }, m.source === MAKING] : null;
 }
 
@@ -51,12 +54,19 @@ export function useSlam(robot: string, on = true): Slam {
   useEffect(() => {
     if (!ok) return;
     let cur = blank(), st: ReturnType<typeof stack> | null = null, pend: Head | null = null, alive = true, retry: ReturnType<typeof setTimeout> | undefined;
-    let epoch: number | null = null, top: Record<Ch, number> = { slam: -1, slam_pose: -1 };
+    let epoch: number | null = null, top: Record<Ch, number> = { slam: -1, slam_pose: -1 }, tPts: ReturnType<typeof setTimeout> | undefined, tPose = tPts;
     const gone = new Set<number>(), socks = new Map<Ch, WebSocket>();
     const emit = (p: Partial<Slam>) => { cur = { ...cur, ...p }; setS(cur); };
     const wipe = () => { st = null; pend = null; emit({ ...blank(), ver: cur.ver + 1 }); };
     const dropPts = () => { st = null; pend = null; emit({ xyz: new Float32Array(0), n: 0, at: 0, ver: cur.ver + 1 }); };
-    const dropPose = () => emit({ pose: null, poseAt: 0 });
+    const dropPose = () => emit({ pose: null, poseAt: 0, path: [] });   // 위치가 없으면 지나온 길도 비움
+    /** 검증을 통과한 판만 부른다: 지난 epoch·이미 본 순번이면 false, 새 epoch 면 그때 바꾸고 비움(틀린 판 하나로 지도·epoch 가 바뀌지 않게) */
+    const take = (ep: number, ch: Ch, seq: number) => {
+      if (gone.has(ep) || (ep === epoch && seq <= top[ch])) return false;
+      if (ep !== epoch) { if (epoch !== null) gone.add(epoch); epoch = ep; top = { slam: -1, slam_pose: -1 }; wipe(); }
+      top[ch] = seq;
+      return true;
+    };
     const close = () => { clearTimeout(retry); socks.forEach((w) => { w.onmessage = w.onclose = null; w.close(1000); }); socks.clear(); };
     const hidden = () => document.visibilityState === 'hidden';
     const again = () => { close(); wipe(); if (alive && !hidden()) retry = setTimeout(open, RETRY_MS); };
@@ -64,9 +74,9 @@ export function useSlam(robot: string, on = true): Slam {
       if (typeof data !== 'string') {   // 점군 본문: 바로 앞 머리와 짝일 때만. 길이·유한·범위가 어긋나거나 이미 본 판이면 버림
         const h = pend; pend = null;
         const xyz = ch === 'slam' && h && data instanceof ArrayBuffer ? pointsBody(data, h) : null;
-        if (!xyz || h!.seq <= top.slam) return;
-        top.slam = h!.seq;
+        if (!xyz || !take(h!.epoch, 'slam', h!.seq)) return;
         const at = performance.now();
+        clearTimeout(tPts); tPts = setTimeout(dropPts, GONE_MS);   // 마지막 수신 뒤 2.5 s 면 비움
         if (!SLAM_STACK) return emit({ xyz, n: h!.count, at, ver: cur.ver + 1 });
         const k = (st ??= stack()); k.add(xyz, cur.pose ?? { x: 0, y: 0, z: 0, yaw: 0 });
         return emit({ xyz: k.xyz, n: k.n, at, ver: cur.ver + 1 });
@@ -76,16 +86,15 @@ export function useSlam(robot: string, on = true): Slam {
       try { m = JSON.parse(data); } catch { return; }
       if (!m || m.version !== 'media/1' || m.channel !== ch || m.robot !== robot || !Number.isInteger(m.epoch)) return;
       const ep = m.epoch as number;
-      if (!(m.t === 'media.status' && ep === 0)) {   // 서버가 붙자마자 보내는 epoch 0 «최근 자료 없음» 은 새 시작이 아님
-        if (gone.has(ep)) return;
-        if (ep !== epoch) { if (epoch !== null) gone.add(epoch); epoch = ep; top = { slam: -1, slam_pose: -1 }; wipe(); }
+      if (m.t === 'media.status') {   // 서버가 붙자마자 보내는 epoch 0 «최근 자료 없음» 은 새 시작이 아님
+        if (m.state !== 'NO_SLAM' || gone.has(ep)) return;
+        if (ep !== 0 && ep !== epoch) take(ep, ch, -1);
+        return (ch === 'slam' ? dropPts : dropPose)();
       }
-      if (m.t === 'media.status') { if (m.state === 'NO_SLAM') (ch === 'slam' ? dropPts : dropPose)(); return; }
-      if (!Number.isInteger(m.seq) || (m.seq as number) < top[ch]) return;
-      if (ch === 'slam') { pend = slamHeader(m); return; }
+      if (ch === 'slam') { pend = slamHeader(m); return; }   // epoch·순번은 본문까지 맞을 때 take
       const p = slamPose(m);
-      if (!p || m.seq === top.slam_pose) return;
-      top.slam_pose = m.seq as number;
+      if (!p || !take(ep, ch, m.seq as number)) return;
+      clearTimeout(tPose); tPose = setTimeout(dropPose, GONE_MS);
       const [pose, making] = p, q = cur.path, j = q.length;
       // 지나온 길은 만드는 동안만(저장 지도 위로 바뀌면 지움). 5 cm 넘게 움직였을 때만 꼭짓점, PATH_MAX 상한
       const path = !making ? [] : j && Math.hypot(pose.x - q[j - 2], pose.y - q[j - 1]) < CELL_M ? q : [...q.slice(j >= PATH_MAX * 2 ? 2 : 0), pose.x, pose.y];
@@ -102,14 +111,9 @@ export function useSlam(robot: string, on = true): Slam {
       }
     }
     const vis = () => { if (hidden()) { close(); wipe(); } else open(); };
-    const tick = setInterval(() => {
-      const t = performance.now();
-      if (cur.n && t - cur.at > GONE_MS) dropPts();
-      if (cur.pose && t - cur.poseAt > GONE_MS) dropPose();
-    }, 500);
     document.addEventListener('visibilitychange', vis);
     open();
-    return () => { alive = false; close(); clearInterval(tick); document.removeEventListener('visibilitychange', vis); setS(blank()); };
+    return () => { alive = false; close(); clearTimeout(tPts); clearTimeout(tPose); document.removeEventListener('visibilitychange', vis); setS(blank()); };
   }, [robot, ok]);
   return s;
 }
@@ -220,12 +224,12 @@ function Slam3D({ s, small }: { s: Slam; small: boolean }) {
 export const SlamView = ({ s, small = false }: { s: Slam; small?: boolean }) =>
   s.n ? <Slam3D s={s} small={small} /> : <div style={{ position: 'absolute', inset: 0, background: BG }} data-slam-empty><QEmpty text={SLAM_HINT} /></div>;
 
-/** «우리 지도» / «로봇 지도» 고르기 + 그 보기(부모를 채움, 단추는 오른쪽 위 top px). ours = 우리 지도 그림(없으면 로봇 지도만 — 단추 없음). 로봇 지도 단추는 받은 점이 있을 때만 */
-export function MapPick({ robot, ours, small = false, top = 52 }: { robot: string; ours: ReactNode | null; small?: boolean; top?: number }) {
+/** «우리 지도» / «로봇 지도» 고르기 + 그 보기(부모를 채움, 단추는 오른쪽 위 top px — left 를 주면 왼쪽 위). ours = 우리 지도 그림(없으면 로봇 지도만 — 단추 없음). 로봇 지도 단추는 받은 점이 있을 때만 */
+export function MapPick({ robot, ours, small = false, top = 52, left }: { robot: string; ours: ReactNode | null; small?: boolean; top?: number; left?: number }) {
   const s = useSlam(robot), [pick, setPick] = useState<'ours' | 'robot'>('ours'), show = ours && pick === 'ours' ? 'ours' : 'robot';
   return <div style={{ position: 'absolute', inset: 0 }} data-map-pick={show}>
     {show === 'ours' ? ours : <SlamView s={s} small={small} />}
-    {ours && <div className="fh-row" role="group" aria-label="지도 고르기" style={{ position: 'absolute', right: 8, top, zIndex: 1 }}>
+    {ours && <div className="fh-row" role="group" aria-label="지도 고르기" style={{ position: 'absolute', ...(left == null ? { right: 8 } : { left }), top, zIndex: 1 }}>
       <button type="button" className="btn" aria-pressed={show === 'ours'} data-pick="ours" onClick={() => setPick('ours')}>우리 지도</button>
       <button type="button" className="btn" aria-pressed={show === 'robot'} data-pick="robot" disabled={!s.n} title={s.n ? undefined : SLAM_HINT} onClick={() => setPick('robot')}>로봇 지도</button>
     </div>}
