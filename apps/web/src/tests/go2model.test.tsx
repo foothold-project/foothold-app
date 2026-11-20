@@ -258,4 +258,41 @@ describe('RV-403 막는 결함', () => {
       if (more.length) expect($('[data-go2-more]')!.textContent).toMatch(/(앞|뒤) (오른|왼) (엉덩이|허벅지|종아리)/);
     } finally { delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth; delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight; }
   });
+  it('RB-GO2-ORBIT 끌면 시점이 바뀌고(관절 자리·선 그림이 따라 움직임) «처음 보기»·두 번 누름이면 돌아온다 · 휠 확대 · 위아래는 한계', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    show(<Go2Figure pose={POSE} temps={JOINTS.map(() => 40)} />);
+    const view = $('[data-go2-orbit]')!, dot = () => $('[data-go2-temp="FR_calf_joint"]')!.style.cssText, sk = () => $('[data-go2-leg="RR"] polyline')!.getAttribute('points');
+    const fire = (type: string, x: number, y: number, el: Element = view) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+    const home = [dot(), sk()];
+    expect(view.dataset.go2Orbit).toBe('home'); expect($('[data-go2-home]')).toBeNull();
+    fire('pointerdown', 100, 100); fire('pointermove', 160, 100); fire('pointerup', 160, 100);
+    expect(view.dataset.go2Orbit).toBe('moved'); expect([dot(), sk()]).not.toEqual(home);
+    fire('pointermove', 260, 100); const after = dot();   // 뗀 뒤 움직임은 무시
+    expect(dot()).toBe(after);
+    act(() => $('[data-go2-home]')!.click());
+    expect(view.dataset.go2Orbit).toBe('home'); expect([dot(), sk()]).toEqual(home);
+    // 휠 = 확대(기본 스크롤 막음) · 두 번 누름 = 처음 보기
+    const w = new WheelEvent('wheel', { deltaY: -300, bubbles: true, cancelable: true });
+    act(() => { view.dispatchEvent(w); });
+    expect(w.defaultPrevented).toBe(true); expect(dot()).not.toBe(home[0]);
+    fire('dblclick', 0, 0); expect(dot()).toBe(home[0]);
+    // 위아래로 아주 많이 끌어도 한계에서 멈춤(바닥 밑 안 감) — 더 끌어도 그대로
+    fire('pointerdown', 0, 0); fire('pointermove', 0, 5000); const top = dot(); fire('pointermove', 0, 9000); expect(dot()).toBe(top);
+    fire('pointermove', 0, -20000); const low = dot(); fire('pointermove', 0, -30000); expect(dot()).toBe(low); fire('pointerup', 0, 0);
+  });
+
+  it('RB-GO2-ORBIT 그림·«처음 보기» 를 눌러도 초점을 옮기지 않고(mousedown 기본 막음) 끄는 중 조종 키 입력은 창까지 그대로 간다', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    show(<Go2Figure pose={POSE} />);
+    const view = $('[data-go2-orbit]')!, md = (el: Element) => { const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true }); act(() => { el.dispatchEvent(e); }); return e.defaultPrevented; };
+    const got: string[] = [], key = (e: KeyboardEvent) => got.push(e.code);
+    addEventListener('keydown', key, true);
+    try {
+      expect(md(view)).toBe(true);
+      act(() => { view.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 })); view.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 30, clientY: 0 })); });
+      act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', bubbles: true })); });
+      expect(got).toEqual(['KeyW']);
+      expect(md($('[data-go2-home]')!)).toBe(true);
+    } finally { removeEventListener('keydown', key, true); }
+  });
 });
