@@ -2,13 +2,14 @@
 // 11-13 RB-MAP-VIEW-WEB: 그리는 동안(RUNNING) 서버가 이 PC 조종을 허용한 로봇이면(fleet 와 같은 canDrive) 창 안에 같은 조종 패널(ServerDrive — STOP 포함)을 붙인다. 아니면 지금처럼 폰 조종 화면.
 // 시작·저장·취소는 POST /robots/{id}/slam/{start|save|cancel}, 진행은 1초마다 GET /robots/{id}/slam(창이 열려 있는 동안만 — 닫거나 층을 바꿔도 서버 세션은 계속).
 // 화면 글에 «SLAM» 을 쓰지 않는다. 이 파일은 주행 명령을 만들지 않는다(운전은 ServerDrive 또는 폰 조종 화면).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { MapVersion, MappingPreview, MappingProgress } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Robot, User } from '../fake';
 import { Note, type Msg, type Place } from './maps';
 import { ServerDrive, canDrive } from '../serverdrive';
 import { usePhone } from '../App';
+import { MapPick } from '../slamview';
 
 /** 완료를 알린 세션(같은 SAVED 를 두 번 알리지 않게 — 화면 메모리에만, 그 층에서 알릴 때만 넣는다) */
 const told = new Set<string>();
@@ -58,6 +59,10 @@ function Preview({ p }: { p?: MappingPreview | null }) {
     {!n && <p className="lv-note" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', margin: 0 }}>아직 그린 것이 없습니다.</p>}
   </div>;
 }
+
+/** 지도 칸: «우리 지도»(ours — 위에서 본 그림, 그리는 중일 때만) / «로봇 지도»(Unitree 앱으로 로봇이 만드는 지도 — slamview.tsx) */
+const MapBox = ({ robot, ours }: { robot: string; ours: ReactNode | null }) =>
+  <div style={{ position: 'relative', aspectRatio: '640 / 400', borderRadius: 8, overflow: 'hidden' }} data-make-mapbox><MapPick robot={robot} ours={ours} top={8} /></div>;
 
 /** 창 «로봇으로 지도 만들기» 안 — 창이 열릴 때만 그린다(닫으면 언마운트 = 조회 멈춤). made = 이 층에 새 지도가 저장됨(그 판 id).
  *  approved·list = 이 층 지금 승인 판 id·받은 판 목록(받는 중 null) — 지난 SAVED(이미 반영·그 뒤 바뀜)를 다시 알리지 않게.
@@ -131,12 +136,13 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
       <p className="lv-note">로봇이 돌아다니며 이 층 지도를 그립니다. 시작한 뒤 {how} 로봇을 움직이고, 다 돌면 «지도 저장»을 누릅니다.</p>
       {robot && !robot.online && <p className="fh-msg" role="alert" data-offline>{OFF}</p>}
       <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !robot?.online} onClick={() => act('start')}>시작</button></div>
+      <MapBox robot={rid} ours={null} />
     </>}
     {p && <>
       {/* 왼쪽 실시간 지도·진행, 오른쪽 조종(좁으면 아래로) — 지도를 보면서 스크롤 없이 STOP·조종 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ flex: '1.4 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Preview p={p.preview} />
+          <MapBox robot={rid} ours={<Preview p={p.preview} />} />
           <div className="mx-sum" aria-label="진행" data-progress={p.status}>
             <span><b>{(p.distance_m ?? 0).toFixed(1)} m</b>걸은 거리</span><span><b>{(p.point_count ?? 0).toLocaleString('ko-KR')}</b>점 수</span><span><b>{time(p.elapsed_s ?? 0)}</b>걸린 시간</span></div>
         </div>

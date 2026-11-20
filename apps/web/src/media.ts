@@ -82,7 +82,7 @@ export function pointsHeader(m: Record<string, unknown>, odom = false): MediaPoi
     && Number.isInteger(m.seq) ? m as unknown as MediaPointCloudHeader : null;
 }
 /** 바이너리 → xyz(LE float32). 길이·유한·좌표 범위가 어긋나면 null(그 스캔을 받지 않음) */
-export function pointsBody(buf: ArrayBuffer, h: MediaPointCloudHeader): Float32Array | null {
+export function pointsBody(buf: ArrayBuffer, h: Pick<MediaPointCloudHeader, 'count' | 'byte_length'>): Float32Array | null {   // 로봇 지도(slamview.tsx)도 같은 본문 검사를 쓴다
   if (buf.byteLength !== h.byte_length) return null;
   const v = new DataView(buf), out = new Float32Array(h.count * 3);
   for (let i = 0; i < out.length; i++) {
