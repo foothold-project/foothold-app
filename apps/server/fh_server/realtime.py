@@ -1607,7 +1607,9 @@ class Realtime:
         online, state = live_state(self, rid)
         peer = self.agents.get(rid)
         link_rtt_ms = (peer.link_rtt_ms if online and self.clock()-peer.link_rtt_at < 3 else None)
+        media = getattr(self, 'drive_media', None)
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
+            slam_pose=media.slam_pose(rid) if media else None,
             robot_info=state.get('robot_info'),
             posture=state.get('posture'), posture_result=state.get('posture_result'),
             action_result=state.get('action_result'),

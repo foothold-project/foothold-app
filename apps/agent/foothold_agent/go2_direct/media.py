@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import math
+import os
 import secrets
 import struct
 import threading
@@ -20,7 +21,7 @@ from urllib.request import Request, build_opener, ProxyHandler
 from urllib.error import HTTPError, URLError
 from concurrent.futures import ThreadPoolExecutor
 
-from . import sdk
+from . import sdk, uslam
 from .identity import expected_serial
 from .record import Recorder
 from foothold_agent.mapping.inputs import DEFAULT_TOPIC
@@ -121,10 +122,12 @@ def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')
 
 class Source:
     def __init__(self, config, env, channel, *, factory=sdk.observation, now=time.monotonic,
-                 recorder=None, enabled=lambda: True, include_depth=True):
+                 recorder=None, enabled=lambda: True, include_depth=True, authorize=sdk.authorize_observation):
         self.config, self.env, self.channel = config, env, channel
         self.factory, self.now = factory, now
         self.enabled = enabled
+        self.authorize = authorize
+        self.slam_upload = None  # bound by the hardware publisher when enabled
         self.recorder = recorder if recorder is not None else Recorder(env)
         self.owns_recorder = recorder is None
         self.closing = threading.Event()
@@ -140,7 +143,7 @@ class Source:
         self.next_lidar_publish = float('-inf')
         self.next_cloud = float('-inf')
         self.last_cloud_stamp = -1
-        self.seq = dict(rgb=0, lidar=0)
+        self.seq = dict.fromkeys(('rgb', 'lidar', *uslam.TOPICS), 0)
         self.epoch = secrets.randbits(52)
         self.threads = []
         from foothold_agent.depth.source import Source as DepthSource
@@ -156,6 +159,11 @@ class Source:
         self.threads = [threading.Thread(target=self.observe, args=(name, fn),
                                        daemon=True, name='go2-observe-'+name)
             for name, fn in (('rgb', self.camera), ('lidar', self.lidar))]
+        if self.slam_upload is not None:
+            for channel in uslam.TOPICS:
+                reader = uslam.Reader(self, channel)
+                self.threads.append(threading.Thread(target=self.observe, args=(channel, reader.run),
+                                                     daemon=True, name='go2-observe-' + channel))
         for thread in self.threads:
             thread.start()
 
@@ -401,6 +409,9 @@ class Publisher:
         if channels is not None:
             self.channels = channels
         self.source = source_factory(config, env, channel)
+        if (isinstance(self.source, Source) and hasattr(channel, 'cloud_bus')
+                and env.get('FH_USLAM', '1') != '0'):
+            self.source.slam_upload = self.upload
         # A stalled depth HTTP request must not occupy RGB/lidar's workers.
         self.executor = ThreadPoolExecutor(max_workers=len(self.channels), thread_name_prefix='go2-media-upload')
         self.opener = build_opener(ProxyHandler({}))
@@ -541,7 +552,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     inputs = subscriptions.state
     identity = getattr(inputs, 'mac_identity', None)
 
-    def authorize(channel, observed_serial):
+    def authorize(env, channel, observed_serial):
         import socket
         from .approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
         from .identity import verify
@@ -575,7 +586,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
             raise PermissionError('approved observation channel required')
 
     def observation(env, channel, observed_serial, *, callback=None):
-        authorize(channel, observed_serial)
+        authorize(env, channel, observed_serial)
         if callback is not None:
             return channel.cloud('rt/utlidar/cloud', callback)
         # VideoClient has no close API. Its DDS reader deserializes every
@@ -591,6 +602,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link, approval=approval)
 
     # Setup's DepthPublisher already owns /drive-media/depth across approvals.
-    return Publisher(config, {}, subscriptions, channels=('rgb', 'lidar'),
+    env = {'FH_USLAM': os.environ.get('FH_USLAM', '1')}
+    return Publisher(config, env, subscriptions, channels=('rgb', 'lidar'),
         source_factory=lambda config, env, channel: Source(config, env, channel,
-            factory=observation, recorder=recorder, enabled=enabled, include_depth=False))
+            factory=observation, recorder=recorder, enabled=enabled, include_depth=False, authorize=authorize))

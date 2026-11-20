@@ -19,7 +19,10 @@ from .robots import server_drive_allowed
 from .security import digest
 
 FRAME = TypeAdapter(C.MediaMessage)
-CHANNELS = ('rgb', 'lidar', 'depth')
+SLAM_FRAME = TypeAdapter(C.SlamMessage)
+SLAM_CHANNELS = ('slam', 'slam_pose')
+CHANNELS = ('rgb', 'lidar', 'depth', *SLAM_CHANNELS)
+SLAM_TTL = 2.5
 MAX_JSON = 90_000
 
 
@@ -93,8 +96,18 @@ class Relay:
 
     @staticmethod
     def status(rid, channel, reason, epoch=0):
+        if channel in SLAM_CHANNELS:
+            return dict(t='media.status', version='media/1', robot=rid, epoch=epoch, episode_id=None,
+                        channel=channel, state='NO_SLAM', reason='SLAM 자료 없음')
         return dict(t='media.status', version='media/1', robot=rid, epoch=epoch, episode_id=None,
                     channel=channel, state='NO_POINTS' if channel == 'lidar' else 'NO_VIDEO', reason=reason)
+
+    def slam_pose(self, rid):
+        item = self.latest.get((rid, 'slam_pose'))
+        if (item and item[1]['t'] == 'media.slam_pose' and time.monotonic()-item[0] < SLAM_TTL
+                and self.rt.field_approved(rid)):
+            return item[1]
+        return None
 
     def publish(self, key, header, payload=None):
         item = time.monotonic(), header, payload
@@ -137,7 +150,8 @@ class Relay:
             body = json.loads(raw)
             if not isinstance(body, dict) or set(body) != {'header', 'points'}:
                 raise ValueError('observation envelope required')
-            msg = FRAME.validate_python(body['header'])
+            adapter = SLAM_FRAME if channel in SLAM_CHANNELS else FRAME
+            msg = adapter.validate_python(body['header'])
             key = rid, channel
             if str(msg.robot) != rid or msg.channel != channel or msg.episode_id is not None:
                 raise ValueError('media binding mismatch')
@@ -151,13 +165,18 @@ class Relay:
                 if msg.seq <= seq or not -1 <= (now()-msg.captured_at).total_seconds() <= 1:
                     raise ValueError('stale or replayed media')
                 seq = msg.seq
-                if msg.t == 'media.points':
-                    if msg.frame not in ('lidar_link', 'odom') or not isinstance(body['points'],str) or len(body['points']) > 64000:
+                if msg.t in ('media.points', 'media.slam_points'):
+                    if msg.t == 'media.points' and msg.frame not in ('lidar_link', 'odom'):
+                        raise ValueError('bounded hardware cloud frame required')
+                    if not isinstance(body['points'], str) or len(body['points']) > 64000:
                         raise ValueError('bounded hardware cloud frame required')
                     payload = base64.b64decode(body['points'], validate=True)
                     if base64.b64encode(payload).decode('ascii') != body['points']:
                         raise ValueError('canonical point encoding required')
                     msg.validate_payload(payload)
+                elif msg.t == 'media.slam_pose':
+                    if body['points'] is not None:
+                        raise ValueError('pose cannot carry binary data')
                 else:
                     if body['points'] is not None or msg.source != ('go2_depth' if channel == 'depth' else 'go2_front'):
                         raise ValueError('matching hardware camera required')
@@ -196,7 +215,8 @@ class Relay:
             queue = asyncio.Queue(maxsize=1)
             self.viewers.setdefault(key, set()).add(queue)
             item = self.latest.get(key)
-            queue.put_nowait(item if item and time.monotonic()-item[0] <= 1 else
+            ttl = SLAM_TTL if channel in SLAM_CHANNELS else 1
+            queue.put_nowait(item if item and time.monotonic()-item[0] <= ttl else
                 (time.monotonic(), self.status(*key, 'No fresh source sample within 1 second'), None))
             async def reject_input():
                 await ws.receive()
@@ -214,18 +234,23 @@ class Relay:
                     self.viewers.pop(key)
 
     async def frames(self, ws, key, queue):
+        ttl = SLAM_TTL if key[1] in SLAM_CHANNELS else 1
+        wait = ttl
         while True:
             try:
-                received, header, payload = await asyncio.wait_for(queue.get(), 1)
+                received, header, payload = await asyncio.wait_for(queue.get(), wait)
             except asyncio.TimeoutError:
                 received, header, payload = 0, None, None
-            if time.monotonic()-received > 1:
+            if header is None or time.monotonic()-received > ttl:
                 old = self.latest.get(key)
                 epoch = old[1]['epoch'] if old else 0
                 header, payload = self.status(*key, 'No fresh source sample within 1 second', epoch=epoch), None
             await asyncio.wait_for(ws.send_json(header), .2)
             if payload is not None:
                 await asyncio.wait_for(ws.send_bytes(payload), .2)
+            if key[1] in SLAM_CHANNELS:
+                # Report absence once. An idle viewer still has its independent ACL monitor.
+                wait = None if header['t'] == 'media.status' else max(0, received + ttl - time.monotonic())
 
     async def close(self):
         async def close_socket(ws):
