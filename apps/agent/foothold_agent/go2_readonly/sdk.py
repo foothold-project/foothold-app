@@ -4,10 +4,76 @@ SDK imports are lazy; tests inject fake modules and never initialize real DDS.
 Run in a dedicated process: the SDK channel factory is a process-wide singleton.
 """
 
+from collections import Counter, deque
+import math
 import re
 import os
 import threading
 from ..mapping.inputs import ObservationInputs
+
+
+class ReceiptIntervals:
+    """Append numeric DDS entry times; the reporter owns interval calculations."""
+    CAPACITY = 32768
+
+    def __init__(self):
+        self.receipts = deque()
+        self.previous = None
+        # If reporting stalls for more than a full buffer, fold the remaining
+        # tail into a histogram instead of losing intervals or growing a queue.
+        self.lock = threading.Lock()
+        self.tail = None
+        self.overflow = Counter()
+        self.maximum = 0.
+        self.over_200 = 0
+
+    def record(self, stamp):
+        if len(self.receipts) < self.CAPACITY:
+            self.receipts.append(stamp)
+            return stamp
+        with self.lock:
+            if len(self.receipts) < self.CAPACITY:  # reporter drained while waiting
+                self.receipts.append(stamp)
+            else:
+                previous = self.receipts[-1] if self.tail is None else self.tail
+                gap = max(0., stamp - previous)
+                self.tail = max(previous, stamp)
+                self.overflow[round(gap * 1000)] += 1
+                self.maximum = max(self.maximum, gap)
+                self.over_200 += gap > .2
+        return stamp
+
+    def summary(self, topic):
+        with self.lock:
+            # deque append/popleft are atomic; callbacks appended during this
+            # drain belong to the next window. Keep the boundary receipt.
+            stamps = [self.receipts.popleft() for _ in range(len(self.receipts))]
+            tail, self.tail = self.tail, None
+            bins, self.overflow = self.overflow, Counter()
+            maximum, over = self.maximum, self.over_200
+            self.maximum, self.over_200 = 0., 0
+        previous = self.previous
+        for stamp in sorted(stamps):
+            if previous is not None:
+                gap = max(0., stamp - previous)
+                bins[round(gap * 1000)] += 1
+                maximum = max(maximum, gap)
+                over += gap > .2
+            previous = stamp
+        self.previous = previous if tail is None else tail
+        count = sum(bins.values())
+        cumulative = 0
+        p50 = p95 = -1
+        for milliseconds, frequency in sorted(bins.items()):
+            cumulative += frequency
+            if p50 < 0 and cumulative >= math.ceil(count * .50):
+                p50 = milliseconds
+            if cumulative >= math.ceil(count * .95):
+                p95 = milliseconds
+                break
+        maximum = maximum * 1000 if count else -1
+        return (f'{topic}_n={count} {topic}_p50_ms={p50} {topic}_p95_ms={p95} '
+                f'{topic}_max_ms={maximum:.2f} {topic}_over_200ms={over}')
 
 
 class Subscriptions(ObservationInputs):
