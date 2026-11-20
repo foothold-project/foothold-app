@@ -12,7 +12,8 @@
 /* 작은 창의 3D 칸은 그림만(돌리기·따라가기 없음) — 크기만 바꾸고 다시 만들지 않으므로 손 입력은 여기서 막는다 */
 .rd-view.pip [data-lidar3d]{pointer-events:none}
 .rd-view.pip [data-l3-follow]{display:none}
-.rd-swap{position:absolute;inset:0;z-index:1;width:100%;height:100%;padding:0;border:0;background:none;cursor:pointer}
+/* touch-action:none — 스틱을 쥔 채 두 번째 손가락으로 눌러도 두 손가락 확대로 잡히지 않게(pointercancel 없이 pointerup) */
+.rd-swap{position:absolute;inset:0;z-index:1;width:100%;height:100%;padding:0;border:0;background:none;cursor:pointer;touch-action:none}
 .rd-swap:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 /* lidar3d «로봇 따라가기»(왼쪽 아래 — 조이스틱 밑에 묻힘) → 위 가운데 상태 줄 아래 */
 [data-real-drive] [data-l3-follow]{left:50% !important;top:56px;bottom:auto !important;transform:translateX(-50%);min-height:40px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
