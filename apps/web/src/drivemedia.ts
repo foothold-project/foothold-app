@@ -78,7 +78,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   const fault = stuck(robot, useLive(robot).state?.devices), want = on && !fault;
   useEffect(() => {
     if (!want) return;
-    let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도 — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link 로 돌아가면 버린다
+    let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도(점·격자) — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link·약속 위반(RV-438 ①)이면 버린다
     wipe.current = () => { st = null; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], grid: null, ver: ++ver })); };
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
     let epoch: number | null = null, top = -1, pending: MediaPointCloudHeader | null = null, ver = 0;
@@ -86,7 +86,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
     /** drop = 그림까지 버림, 아니면 받은 그림이 있으면 남기고 상태·까닭만 바꾼다 */
     const clear = (state: Feed['state'], why = '', drop = false) => { pending = null; setFeed((f) => (drop || !hasPicture(f) ? { ...blank(state, why), ver: ++ver } : { ...f, state, why })); };
     const close = () => { if (ws) { ws.onmessage = ws.onclose = null; ws.close(1000); ws = null; } clearTimeout(retry); };
-    const again = (state: Feed['state'], why = '') => { close(); clear(state, why, state === 'bad'); if (alive && document.visibilityState !== 'hidden') retry = setTimeout(open, RETRY_MS); };
+    const again = (state: Feed['state'], why = '') => { close(); if (state === 'bad') st = null; clear(state, why, state === 'bad'); if (alive && document.visibilityState !== 'hidden') retry = setTimeout(open, RETRY_MS); };
     const frame = (data: unknown) => {
       if (typeof data !== 'string') {   // 점군 바이너리: 바로 앞 media.points 머리와 짝일 때만
         const h = pending; pending = null;
