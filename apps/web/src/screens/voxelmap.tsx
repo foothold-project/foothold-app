@@ -15,9 +15,9 @@ export const voxelOf = (v?: MapVersion | null): VoxelMapSummary | null => {
   return x && typeof x.terrain_id === 'string' && Number.isInteger(x.voxel_count) && Array.isArray(x.origin) && x.origin.length === 3 ? x : null;
 };
 
-/** 높이색 띠(참고 그림 — 바닥 주황 → 노랑·초록·하늘·파랑·자주, 높을수록). 이 화면 전용 값(토큰 아님) */
-export const Z_TOP = 2;   // 이 높이(m) 이상은 맨 끝 색
-export const hueAt = (z: number) => 30 + 270 * Math.max(0, Math.min(1, z / Z_TOP));   // HSL 색상각(채도 100%·밝기 50%)
+/** 높이색 띠(11-20 RB-UNITREE-LOOK-WEB — Unitree 앱 저장 지도 보기처럼: 바닥 초록 → 노랑·주황 → 빨강·분홍, 높을수록). 이 화면 전용 값(토큰 아님) */
+export const Z_TOP = 2;   // 이 높이(m) 이상은 맨 끝 색. ponytail: 영상에서 m 경계를 역산 못 함 — 실기 지도와 나란히 보고 조정
+export const hueAt = (z: number) => (120 - 150 * Math.max(0, Math.min(1, z / Z_TOP)) + 360) % 360;   // HSL 색상각 120°(초록) → −30°(=330° 분홍)
 const BAND = `linear-gradient(to right, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hueAt(t * Z_TOP)} 100% 50%) ${t * 100}%`).join(', ')})`;
 
 /** «시뮬 지형 수정하기» — 지형 화면을 열고 그 지형을 고른다 */

@@ -1,5 +1,5 @@
 // 3D 지도 그리기(RB-VOXEL-VIEW, voxelmap.tsx 의 «3D 로 보기»). 동적 import 로만 불려 three 는 따로 묶인다.
-// 칸 = 한 변 0.1 m 상자 하나를 InstancedMesh 로(묶음이 올 때마다 뒤에 붙임), 색 = 높이(Z) 띠. 상자 테두리는 면 무늬(가장자리 어두운 선)로.
+// 칸 = 작은 점 하나(11-20 RB-UNITREE-LOOK-WEB — Unitree 앱 저장 지도 보기처럼 촘촘한 점, 묶음이 올 때마다 뒤에 붙임), 색 = 높이(Z) 띠(초록 → 노랑·주황 → 빨강·분홍), 회색 반투명 바닥면.
 // 좌표 = 서버 지도 좌표(x 오른쪽·y 위·z 위, 칸 중심 = origin + (index + .5) × 0.1).
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -12,23 +12,12 @@ export type Props = { v: MapVersion; pages: VoxelCells['cells'][]; n: number };
 /** 칸 중심 좌표(m) */
 export const centerOf = (o: [number, number, number], s: number, [i, j, k]: [number, number, number]) => [o[0] + (i + 0.5) * s, o[1] + (j + 0.5) * s, o[2] + (k + 0.5) * s] as const;
 
-/** 면 무늬: 흰 바탕 + 가장자리 어두운 선 — 칸 색을 곱해 참고 그림처럼 칸마다 테두리가 보인다 */
-function edgeTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 16;
-  const g = c.getContext('2d');
-  if (!g) return null;
-  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 16, 16);
-  g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 2; g.strokeRect(1, 1, 14, 14);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.LinearFilter;
-  return t;
-}
-const token = (el: Element, name: string, fb: string) => {
-  const v = getComputedStyle(el).getPropertyValue(name).trim(), col = new THREE.Color(fb);
-  if (/^(#[0-9a-f]{3,8}|rgba?\()/i.test(v)) col.setStyle(v);
-  return col;
-};
+/** 점 크기(CSS px) — 확대해도 그대로(Unitree 저장 지도 보기처럼 작은 점) */
+const DOT_PX = 1.5;
+/** 어두운 고정 바탕·격자 선 = frame.css .fh 어두운 테마 --bg·--line 값 */
+const DARK = { bg: '#0B0E11', line: '#26313A' };
 
-type Rig = { renderer: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCamera; orbit: OrbitControls; mesh: THREE.InstancedMesh; mat: THREE.MeshLambertMaterial; drawn: number; top: number; draw: () => void; view: (top: boolean) => void };
+type Rig = { renderer: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCamera; orbit: OrbitControls; geo: THREE.BufferGeometry; count: number; mat: THREE.PointsMaterial; drawn: number; top: number; draw: () => void; view: (top: boolean) => void };
 
 export default function Voxel3D({ v, pages, n }: Props) {
   const host = useRef<HTMLDivElement>(null), rig = useRef<Rig | null>(null);
@@ -41,23 +30,26 @@ export default function Voxel3D({ v, pages, n }: Props) {
     const el = host.current!;
     let renderer: THREE.WebGLRenderer;
     try { renderer = new THREE.WebGLRenderer({ antialias: true }); } catch { setFailed(true); return; }
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    const ratio = Math.min(devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(ratio);
     renderer.localClippingEnabled = true;
     const canvas = renderer.domElement;
     el.prepend(canvas);
     const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(45, 1, 0.05, 500);
     cam.up.set(0, 0, 1);
-    scene.background = token(el, '--bg', '#12161d');
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x606060, 1.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.3); sun.position.set(-3, -5, 8); scene.add(sun);
-    const line = token(el, '--line', '#2b3240'), grid = new THREE.GridHelper(Math.ceil(Math.max(W, H)) + 4, Math.ceil(Math.max(W, H)) + 4, line, line);   // 1 m 칸
-    grid.rotation.x = Math.PI / 2; grid.position.set(cx, cy, o[2] - 0.001); scene.add(grid);
-    const mat = new THREE.MeshLambertMaterial({ map: edgeTexture() });
-    // ponytail: 숨은 칸(사방이 막힌 속)도 그린다 — 칸 상한(서버 50만)에서 느리면 겉면 칸만 고르기
-    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(s, s, s), mat, total);
-    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(total * 3), 3);
-    mesh.count = 0; mesh.frustumCulled = false;   // 묶음마다 늘어나 경계 구가 맞지 않는다
-    scene.add(mesh);
+    scene.background = new THREE.Color(DARK.bg);   // 점이 밝은 색이라 바탕은 테마와 상관없이 어두운 고정색(Unitree 저장 지도 보기처럼)
+    const line = new THREE.Color(DARK.line), grid = new THREE.GridHelper(Math.ceil(Math.max(W, H)) + 4, Math.ceil(Math.max(W, H)) + 4, line, line);   // 1 m 칸
+    grid.rotation.x = Math.PI / 2; grid.position.set(cx, cy, o[2] - 0.002); scene.add(grid);
+    // 회색 반투명 바닥면(지도 범위 + 둘레 1 m) — 점이 떠 보이지 않게
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W + 2, H + 2), new THREE.MeshBasicMaterial({ color: 0x8a8f98, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
+    floor.position.set(cx, cy, o[2] - 0.001); scene.add(floor);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(total * 3), 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(total * 3), 3));
+    geo.setDrawRange(0, 0);
+    const mat = new THREE.PointsMaterial({ size: DOT_PX * ratio, sizeAttenuation: false, vertexColors: true });
+    const pts = new THREE.Points(geo, mat); pts.frustumCulled = false;   // 묶음마다 늘어나 경계 구가 맞지 않는다
+    scene.add(pts);
     const orbit = new OrbitControls(cam, canvas);
     orbit.maxPolarAngle = Math.PI / 2 - 0.02; orbit.maxDistance = 300;
     const draw = () => renderer.render(scene, cam);
@@ -67,14 +59,14 @@ export default function Voxel3D({ v, pages, n }: Props) {
       orbit.target.set(cx, cy, 0); orbit.update(); draw();
     };
     orbit.addEventListener('change', draw);
-    rig.current = { renderer, scene, cam, orbit, mesh, mat, drawn: 0, top: 0, draw, view };
+    rig.current = { renderer, scene, cam, orbit, geo, count: 0, mat, drawn: 0, top: 0, draw, view };
     const fit = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; renderer.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); draw(); };
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
     ro?.observe(el);
     view(false); fit();
     return () => {
       ro?.disconnect(); orbit.dispose();
-      mesh.geometry.dispose(); mat.map?.dispose(); mat.dispose(); grid.dispose(); renderer.dispose(); canvas.remove();
+      geo.dispose(); mat.dispose(); floor.geometry.dispose(); floor.material.dispose(); grid.dispose(); renderer.dispose(); canvas.remove();
       rig.current = null;
     };
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -83,18 +75,16 @@ export default function Voxel3D({ v, pages, n }: Props) {
   useEffect(() => {
     const r = rig.current;
     if (!r) return;
-    const m = new THREE.Matrix4(), c = new THREE.Color();
-    let i = r.mesh.count, hi = r.top;
+    const c = new THREE.Color(), pos = r.geo.attributes.position as THREE.BufferAttribute, col = r.geo.attributes.color as THREE.BufferAttribute;
+    let i = r.count, hi = r.top;
     for (; r.drawn < pages.length; r.drawn++) for (const cell of pages[r.drawn]) {
       if (i >= total) break;   // 요약 수보다 많이 오면 버림(자리 없음)
       const [x, y, z] = centerOf(o, s, cell);
-      m.makeTranslation(x, y, z); r.mesh.setMatrixAt(i, m);
-      r.mesh.setColorAt(i, c.setHSL(hueAt(z) / 360, 1, 0.5)); i++;
+      pos.setXYZ(i, x, y, z); c.setHSL(hueAt(z) / 360, 0.75, 0.5); col.setXYZ(i, c.r, c.g, c.b); i++;
       hi = Math.max(hi, z + s / 2);
     }
-    r.mesh.count = i; r.top = hi;
-    r.mesh.instanceMatrix.needsUpdate = true;
-    if (r.mesh.instanceColor) r.mesh.instanceColor.needsUpdate = true;
+    r.count = i; r.top = hi;
+    r.geo.setDrawRange(0, i); pos.needsUpdate = true; col.needsUpdate = true;
     setTop(+hi.toFixed(1));
     r.draw();
   }, [n]);   // eslint-disable-line react-hooks/exhaustive-deps

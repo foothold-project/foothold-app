@@ -1,19 +1,16 @@
 // 조종 화면 «쌓이는 라이다» 지도(11-13 RB-MAP-VIEW-WEB): drivemedia.ts 가 쌓아 둔 점을 위에서 본 그림으로(x 오른쪽·y 위 — 지도 만들기 창 그림과 같은 방향).
 // 11-19 RB-LIDAR-3D: 기본은 3D(lidar3d.tsx), «위에서» 단추로 이 그림. WebGL 이 없으면 이 그림만.
-// 색 = 로봇 기준 높이(같은 자리에 겹치면 높은 점이 위 — 벽이 바닥에 묻히지 않게), 로봇 화살표 + 지나온 길. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
+// 색 = 바닥부터 높이(3D 와 같은 색표 — lidar3d.tsx, 같은 자리에 겹치면 높은 점이 위 — 벽이 바닥에 묻히지 않게), 로봇 화살표 + 지나온 길. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
+// 11-20 RB-UNITREE-LOOK-WEB: 쌓을 때는 높은 점도 남기고(3D 용), 이 그림만 로봇보다 CEIL_M 넘게 높은 점(천장)을 숨긴다 — 천장이 바닥 그림을 덮지 않게.
 import { useEffect, useRef, useState } from 'react';
-import { CELL_M, driveFeedHeld, type DriveFeed } from './drivemedia';
-import { Lidar3D } from './lidar3d';
-import { QEmpty, hue } from './quad';
+import { CEIL_M, CELL_M, driveFeedHeld, type DriveFeed } from './drivemedia';
+import { FLOOR_DZ, HeightLegend, Lidar3D, levelOf, rgbOf } from './lidar3d';
+import { QEmpty } from './quad';
 
 /** 처음 보이는 범위(로봇 둘레 ±m) · 확대 한계(화면 px / m) */
 const SPAN_M = 6, K_MIN = 4, K_MAX = 400;
-const ZL = -1, ZH = 1, N = 64;
-/** 높이 색표(hsl(hue 80% 60%) → 화소 ABGR) — 점마다 글자 색을 만들지 않게 */
-const LUT = Uint32Array.from({ length: N }, (_, i) => {
-  const h = hue(ZL + (i / (N - 1)) * (ZH - ZL)), a = 0.8 * 0.4, f = (n: number) => { const k = (n + h / 30) % 12; return Math.round(255 * (0.6 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); };
-  return (0xff000000 | (f(4) << 16) | (f(8) << 8) | f(0)) >>> 0;
-});
+/** 높이 색표(3D 와 같음 → 화소 ABGR) — 점마다 글자 색을 만들지 않게 */
+const LUT = Uint32Array.from({ length: 64 }, (_, i) => { const [r, g, b] = rgbOf(i); return (0xff000000 | (b << 16) | (g << 8) | r) >>> 0; });
 
 /** small = 작은 칸(단추·범례 없이 보기만), start = 처음 보기(지도 칸은 위에서), tag = false 면 «마지막 그림» 표시를 칸 머리줄이 대신 띄움(PC 4칸 큰 칸) */
 export function LidarMap({ feed, empty, small = false, start = '3d', tag = true }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top'; tag?: boolean }) {
@@ -27,10 +24,7 @@ export function LidarMap({ feed, empty, small = false, start = '3d', tag = true 
     </div>}
     {no3d && !small && <div className="qd-legend" role="status" style={{ right: 'auto', left: 8, top: 52, bottom: 'auto' }} data-lm-no3d>이 브라우저는 3D 를 그릴 수 없어 위에서 본 그림으로 보입니다</div>}
     {empty && (feed.n ? tag && <HeldTag text={driveFeedHeld(feed)} /> : <QEmpty text={empty} />)}
-    {!small && <div className="qd-legend" aria-label="점 높이 범례">
-      <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hue(ZL + t * (ZH - ZL))} 80% 60%)`).join(',')})` }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${ZL} m`}</span><span>로봇 높이</span><span>{`+${ZH} m`}</span></div>
-      <div>{`색 = 로봇 기준 높이 · 점 ${feed.n.toLocaleString('ko-KR')}`}</div></div>}
+    {!small && !is3d && <HeightLegend />}
   </div>;
 }
 
@@ -56,13 +50,13 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
       if (!img || img.width !== W || img.height !== H) { img = g.createImageData(W, H); top = new Uint8Array(W * H); }
       if (c.frame !== v.frame) { v.frame = c.frame; v.x = v.y = 0; if (!v.follow) { v.follow = true; setFree(false); } }   // 기준이 바뀌면 옛 중심은 뜻이 없다 — 원점·따라가기로
       if (v.follow && c.pose) { v.x = c.pose.x; v.y = c.pose.y; }
-      const k = (v.k ||= Math.min(el.clientWidth, el.clientHeight) / (SPAN_M * 2)) * dpr, px = new Uint32Array(img.data.buffer), z0 = c.pose?.z ?? 0;
+      const k = (v.k ||= Math.min(el.clientWidth, el.clientHeight) / (SPAN_M * 2)) * dpr, px = new Uint32Array(img.data.buffer), z0 = c.pose?.z ?? 0, ceil = z0 + CEIL_M;
       const r = Math.max(1, Math.min(8, Math.ceil(CELL_M * k))), X = (x: number) => W / 2 + (x - v.x) * k, Y = (y: number) => H / 2 - (y - v.y) * k;
       px.fill(0); top.fill(0);
       for (let i = 0; i < c.n; i++) {
-        const u = Math.floor(X(c.xyz[i * 3])), w = Math.floor(Y(c.xyz[i * 3 + 1]));
-        if (u < 0 || w < 0 || u + r > W || w + r > H) continue;
-        const zi = Math.max(0, Math.min(N - 1, Math.round(((c.xyz[i * 3 + 2] - z0 - ZL) / (ZH - ZL)) * (N - 1)))), col = LUT[zi];
+        const u = Math.floor(X(c.xyz[i * 3])), w = Math.floor(Y(c.xyz[i * 3 + 1])), z = c.xyz[i * 3 + 2];
+        if (u < 0 || w < 0 || u + r > W || w + r > H || z > ceil) continue;   // 천장 숨김 — 지금 로봇 높이 기준
+        const zi = levelOf(z, z0 + FLOOR_DZ), col = LUT[zi];
         for (let b = 0; b < r; b++) for (let a = 0; a < r; a++) { const q = (w + b) * W + u + a; if (zi >= top[q]) { top[q] = zi + 1; px[q] = col; } }
       }
       g.setTransform(1, 0, 0, 1, 0, 0); g.putImageData(img, 0, 0);
