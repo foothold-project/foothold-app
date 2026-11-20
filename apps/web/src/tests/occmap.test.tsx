@@ -44,6 +44,18 @@ describe('걸으며 만드는 지도 칸', () => {
     expect($('[data-occ-legend]')!.textContent).toBe('빈 바닥벽·물건아직 못 본 곳');
     expect(box.textContent).not.toMatch(/SLAM|odom|로그|오즈|grid|격자/i);
   });
+  it('작은 칸(160×120)에서 줄여 그려도 벽은 남는다 — 한 화소에 벽 칸이 하나라도 있으면 검정(RV-438 ②)', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(160);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(120);
+    const g = occGrid(400), pts: number[] = [];
+    for (let m = -40; m < 40; m++) pts.push(c(m), c(20), WALL);   // 4 m 벽(80칸), 1 m 앞 — 1 화소 = 2칸이라 이 줄은 화소 가운데에 안 걸림
+    for (let i = 0; i < 3; i++) g.add(new Float32Array(pts), P);
+    expect(g.wall).toBe(80);
+    show(feed(1, g), true);
+    const last = frames[frames.length - 1];
+    expect(last.length).toBe(160 * 120);
+    expect(last.filter((p) => p === ABGR(20, 20, 26)).length).toBeGreaterThanOrEqual(39);   // 4 m × 10 px/m
+  });
   it('격자가 없으면(쌓기 전) 온통 회색', () => {
     show({ ...feed(1), grid: null });
     expect(new Set(frames[0]).size).toBe(1);

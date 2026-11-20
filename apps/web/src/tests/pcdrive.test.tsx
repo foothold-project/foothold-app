@@ -10,7 +10,7 @@ import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { api } from '../api';
 import { SD_NOTE } from '../serverdrive';
-import { BODY_FAULT, IDENTITY_FAULT_LABEL, NO_SIGNAL } from '../drivemedia';
+import { BODY_FAULT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { REPORT_STALE_MS, TEMP_STALE_S, go2Pose, go2Temps } from '../pcdrive';
 import { TEMP_MAX, TEMP_MIN, tempColor } from '../go2model';
 import quadCss from '../quad.css?raw';
@@ -359,6 +359,27 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(occ()).toBeNull();
     expect(tile().querySelector('.pd-floor')).toBeTruthy();
     expect(tile().textContent).not.toContain('걸으며');
+  });
+
+  it('약속 위반으로 버린 뒤 같은 epoch 로 다시 붙으면 옛 벽 없이 새 격자(RV-438 ①)', () => {
+    mount('u-park'); serve('r7');
+    const sock = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
+    const scan = (lid: FakeWS, seq: number, pts: number[], p: object = {}) => act(() => {
+      lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le', frame: 'odom', map_version_id: null,
+        pose: { x: 0, y: 0, z: 0.3, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false, ...p });
+      lid.onmessage?.({ data: new Float32Array(pts).buffer } as never);
+    });
+    const occ = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"] [data-occ-map]');
+    let lid = sock();
+    act(() => { lid.open(); });
+    scan(lid, 1, [2.025, 0.025, 0.3]);
+    expect(occ()!.dataset.occWall).toBe('1');
+    scan(lid, 2, [1, 1, 0.3], { robot: 'r3' });   // 남의 로봇 자료 = 약속 위반 → 닫고 그림을 버림
+    expect(occ()).toBeNull();
+    tick(RETRY_MS); lid = sock();
+    act(() => { lid.open(); });
+    scan(lid, 3, [0.025, 2.025, 0.3]);   // 같은 epoch 1 — 새 벽 하나만
+    expect(occ()!.dataset.occWall).toBe('1');
   });
 
   it('지도·라이다 칸이 모두 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
