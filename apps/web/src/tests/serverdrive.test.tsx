@@ -541,8 +541,7 @@ describe('서버 경유 카메라·라이다', () => {
       mount('u-park'); serve('r7'); click(row('Go2-7'));   // serve = ONLINE, devices: [] (에이전트 첫 상태 전)
       expect(media()).toBe(0); view(); ch('rgb');
       expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_CHECK}`);
-      act(() => push('r7', { devices: [{ key: 'go2-preflight', kind: 'OTHER', label: '연결 프로그램 자동 점검', state: 'OK' }] }));   // go2-identity 없는 표
-      act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'MISSING' }] }));
+      act(() => push('r7', { devices: [{ key: 'go2-preflight', kind: 'OTHER', label: '연결 프로그램 자동 점검', state: 'OK' }, { key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'MISSING' }] }));
       tick(5000); expect(media()).toBe(0);
       act(() => push('r7', identOk));
       expect(media()).toBe(3 - 1);   // rgb·lidar (뎁스는 고른 동안만)
@@ -569,6 +568,19 @@ describe('서버 경유 카메라·라이다', () => {
         unmount(); FakeWS.all.length = 0;
       } finally { LIST.length = 0; }
     }
+  });
+
+  // RV-448 ②: DDS 기체번호도 앞 수가 0xFFFF0000~0xFFFFFFFF 일 수 있다(contracts 허용) — 번호만으로는 MAC 과 못 가른다.
+  // MAC 에이전트는 비어 있지 않은 장치 표마다 go2-identity 를 넣으므로(setup/runtime.py), 비어 있지 않은 표에 go2-identity 가 아예 없으면 DDS 기체
+  it('RV-448 ②: 자리표시 범위의 DDS 기체번호(4294967295-17)도 go2-identity 없는 정상 표면 세 채널을 연다 — 빈 표에는 아직 닫음', () => {
+    listed({ serial: '4294967295-17' });
+    try {
+      mount('u-park'); serve('r7'); click(row('Go2-7'));
+      expect(media()).toBe(0);
+      act(() => push('r7', { devices: [{ key: 'go2-preflight', kind: 'OTHER', label: '연결 프로그램 자동 점검', state: 'OK' }] }));
+      expect(media()).toBe(2);
+      view(); ch('depth'); expect(media()).toBe(3);
+    } finally { LIST.length = 0; }
   });
 
   // RV-445 ②: 짧은 OFFLINE 뒤 새 소켓에 서버가 같은 epoch·seq 의 마지막 판을 다시 준다(drive_media.py viewer) — 이미 본 판은 조용히 넘긴다
@@ -610,6 +622,29 @@ describe('서버 경유 카메라·라이다', () => {
     frame: 'odom', map_version_id: null, pose: { x: 0, y: 0, z: 0, yaw: 0 }, count, byte_length: count * 12, truncated: false, ...p });
   const scan = (lid: FakeWS, h: object, pts: number[]) => act(() => { lid.recv(h); lid.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
   const map = () => $('[data-sd-full] [data-lidar-map]');
+
+  // RV-448 ①: 중계기는 머리·본문을 따로 보낸다 — 머리만 받고 끊긴 판은 아직 그리지 않은 판이라, 다시 붙어 같은 순번으로 오면 그린다
+  it('RV-448 ①: 라이다 머리 뒤 끊기면 같은 순번 재전송 본문을 받아 쌓는다', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
+    let lid = mediaSock('lidar');
+    act(() => lid.open()); scan(lid, head(4, 1), [1, 0, 0.5]);
+    act(() => { lid.recv(head(5, 1)); });
+    act(() => push('r7', { connection: 'OFFLINE', devices: [] }));
+    tick(500); act(() => push('r7', { connection: 'ONLINE' }));
+    lid = mediaSock('lidar');
+    act(() => lid.open()); scan(lid, head(5, 1), [3, 0, 0.5]);
+    expect(lid.readyState).not.toBe(3); expect(map()!.dataset.lidarMap).toBe('2');
+  });
+
+  // RV-448 ③: 같은 순번 재전송이어도 모양 검사가 먼저 — odom 판에 필수 pose 가 없으면 약속 위반(닫고 그림 지움)
+  it('RV-448 ③: 같은 순번 odom 판에 pose 가 없으면 소켓을 닫고 쌓은 그림을 지운다', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
+    const lid = mediaSock('lidar');
+    act(() => lid.open()); scan(lid, head(5, 1), [1, 0, 0.5]);
+    expect(map()!.dataset.lidarMap).toBe('1');
+    scan(lid, head(5, 1, { pose: null }), [1, 0, 0.5]);
+    expect(lid.readyState).toBe(3); expect(map()?.dataset.lidarMap ?? '0').toBe('0');
+  });
 
   it('odom 라이다는 쌓는다: 같은 5 cm 칸은 한 번만, 로봇 위치·지나온 길, 조종 화면이 지도로 열리고 조작부·STOP 이 함께, «처음부터 다시»는 화면만 지움', () => {
     ready();

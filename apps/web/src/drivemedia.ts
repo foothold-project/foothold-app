@@ -81,8 +81,8 @@ export const IDENTITY_FAULT_LABEL = '로봇 연결 정보 변경 · 이동 잠�
 export const BODY_FAULT = '로봇 연결 정보가 바뀌어 받지 않습니다. 랜선을 확인한 뒤 로봇 프로그램을 다시 실행하세요';
 export const bodyFault = (devices: readonly Device[] | null | undefined) =>
   !!devices?.some((d) => d.key === 'go2-identity' && d.state !== 'OK' && d.label === IDENTITY_FAULT_LABEL);   // MISSING 이어도 문구가 남으면 영구 오류(link/session.py — 오래되면 state 만 MISSING)
-/** 기체번호가 MAC 자리표시(앞 수 0xFFFF0000~0xFFFFFFFF, agent setup/storage.py mac_serial · server pairing.py)인 실기 = 에이전트가 MAC 으로 몸을 확인하는 로봇 —
- *  장치 표에 늘 go2-identity 를 넣는다(setup/runtime.py: mac_identity 가 있을 때만). 다른 실기(DDS 기체번호)·시뮬은 go2-identity 가 원래 없다.
+/** 기체번호가 MAC 자리표시 범위(앞 수 0xFFFF0000~0xFFFFFFFF, agent setup/storage.py mac_serial · server pairing.py)인 실기 = MAC 으로 몸을 확인하는 로봇일 수 있음 —
+ *  그런 에이전트는 비어 있지 않은 장치 표마다 go2-identity 를 넣는다(setup/runtime.py: mac_identity 가 있을 때만). 같은 범위의 DDS 기체번호(4294967295-17 등, contracts 허용)·시뮬은 go2-identity 가 원래 없다(RV-448 ②).
  *  ponytail: 목록(ROBOTS)에 없는 로봇은 확인할 수 없어 예전처럼 ONLINE 표면 연다 — 조종 화면은 목록에서 고른 로봇만 띄운다 */
 export const macBody = (robot: string) => {
   const r = ROBOTS.find((x) => x.id === robot), hi = Number(r?.serial?.split('-')[0]);
@@ -92,11 +92,11 @@ export const macBody = (robot: string) => {
  *  에이전트는 영구 오류를 다시 켤 때까지 장치 표로 계속 보내므로(setup/runtime.py), 화면이 따로 기억하지 않고 표를 다시 받아 본다(RV-442) */
 export const BODY_CHECK = '로봇 상태를 확인하는 중입니다';
 type Gate = 'ok' | 'wait' | 'fault';
-/** MAC 실기(mac)는 go2-identity 가 표에 실제로 있고 MISSING 이 아닐 때만 ok — 빈 표(에이전트 첫 상태 전·3 s 넘게 상태 없음, server robots.py live_state)는 «아직 모름»(RV-445 ①).
- *  «로봇 확인 잠시 안 됨»(ERROR, 영구 오류 문구 아님)은 ok — 그림·소켓을 남긴다 */
+/** 자리표시 범위 실기(mac)는 빈 표(에이전트 첫 상태 전·3 s 넘게 상태 없음, server robots.py live_state)·go2-identity MISSING 이면 «아직 모름»(RV-445 ①).
+ *  비어 있지 않은 표에 go2-identity 가 아예 없으면 MAC 에이전트가 아님(DDS 기체) — ok(RV-448 ②). «로봇 확인 잠시 안 됨»(ERROR, 영구 오류 문구 아님)은 ok — 그림·소켓을 남긴다 */
 const gateOf = (s: { connection?: string; devices?: readonly Device[] } | null | undefined, mac: boolean): Gate =>
   !s || s.connection !== 'ONLINE' ? 'wait' : bodyFault(s.devices) ? 'fault'
-    : mac && !s.devices?.some((d) => d.key === 'go2-identity' && d.state !== 'MISSING') ? 'wait' : 'ok';
+    : mac && (!s.devices?.length || s.devices.some((d) => d.key === 'go2-identity' && d.state === 'MISSING')) ? 'wait' : 'ok';
 export const driveMediaUrl = (robot: string, ch: DriveCh) =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/robots/${encodeURIComponent(robot)}/drive-media/${ch}`;
 
@@ -121,13 +121,13 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
       if (typeof data !== 'string') {   // 점군 바이너리: 바로 앞 media.points 머리와 짝일 때만
         const h = pending, dup = skip; pending = null; skip = false;
         const xyz = ch === 'lidar' && h && data instanceof ArrayBuffer ? pointsBody(data, h) : null;
-        if (!xyz || !h) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
+        // 재전송이어도 모양 검사가 먼저 — odom 판에 필수 pose 가 없으면 약속 위반(RV-448 ③)
+        if (!xyz || !h || ((h.frame as string) === 'odom' && !poseOf(h.pose))) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
+        top = h.seq;   // 본문까지 받아야 그 순번을 본 것(RV-448 ①)
         if (dup) return;   // 이미 쌓은·그린 판
         const live = { state: 'live' as const, why: '', at: performance.now(), seq: h.seq, frame: h.frame, truncated: h.truncated };
         if ((h.frame as string) !== 'odom') { st = null; return put({ ...live, xyz, n: h.count, pose: null, path: [], grid: null, ver: ++ver }); }   // 로봇 중심 한 장
-        const pose = poseOf(h.pose);
-        if (!pose) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
-        const s = (st ??= stack()); s.add(xyz, pose);
+        const pose = poseOf(h.pose)!, s = (st ??= stack()); s.add(xyz, pose);
         // 점 0개 판은 «마지막 점 받은 시각»을 바꾸지 않는다 — 옛 점이 남아 있으면 «마지막 그림 · N초 전» 그대로(RV-435 ③).
         // 지도·점 수는 지금 잡아 둔다 — 렌더 전에 다음 epoch 가 와 st 가 비어도 갱신 함수가 null 을 읽지 않게(RV-440 ②)
         const v = { xyz: s.xyz, n: s.n, path: s.path, grid: s.grid, ver: ++ver }, at = xyz.length ? live.at : null;
@@ -142,13 +142,14 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
       // 모양은 그대로 따지고 그림만 바꾸지 않는다(RV-445 ②). 순번이 되돌아감은 약속 위반 — 서버의 마지막 판은 늘 본 것 중 가장 새것이다
       if (!Number.isInteger(m.seq) || (m.seq as number) < Math.max(top, 0)) return again('bad', '순번이 어긋났습니다');
       const seen = m.seq === top;
+      // 라이다 머리는 순번을 아직 확정하지 않는다 — 머리만 받고 끊긴 판을 다시 붙어 같은 순번으로 받으면 그린다(RV-448 ①, 중계기는 머리·본문을 따로 보냄)
+      if (m.t === 'media.points' && ch === 'lidar' && (pending = pointsHeader(m, true))) { skip = seen; return; }
       top = m.seq as number;
       if (m.t === 'media.video' && ch === 'rgb' && m.mime === 'image/jpeg' && typeof m.jpeg === 'string' && m.jpeg)
         return seen ? undefined : put({ state: 'live', why: '', at: performance.now(), seq: top, img: `data:image/jpeg;base64,${m.jpeg}` });
       const range = m.t === 'media.video' && ch === 'depth' ? depthRange(m) : null;
       if (range && m.mime === 'image/jpeg' && typeof m.jpeg === 'string' && m.jpeg)
         return seen ? undefined : put({ state: 'live', why: '', at: performance.now(), seq: top, img: `data:image/jpeg;base64,${m.jpeg}`, range });
-      if (m.t === 'media.points' && ch === 'lidar' && (pending = pointsHeader(m, true))) { skip = seen; return; }
       again('bad', '받은 자료가 media/1 약속과 다릅니다');
     };
     function open() {
