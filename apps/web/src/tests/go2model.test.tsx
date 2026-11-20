@@ -7,6 +7,17 @@ import pcCss from '../pcdrive.css?raw';
 import { Go2Figure, JOINTS, TEMP_MAX, TEMP_MIN, resetGo2Cache, spread, tempColor, useGo2Motion, type Motion, type Pose } from '../go2model';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom 엔 WebGL 이 없다 — WebGLRenderingContext 를 넣은 시험에서만 쓰이는, 그리기 횟수·그린 자세를 세는 가짜 그리개(RV-437 2)
+const gl = { renders: 0, snap: '' };
+vi.mock('three', async (orig) => {
+  const T = await orig<typeof import('three')>();
+  class FakeRenderer {
+    domElement = document.createElement('canvas');
+    setPixelRatio() {} setSize() {} dispose() {} forceContextLoss() {}
+    render(scene: import('three').Scene) { gl.renders++; const r: number[] = []; scene.traverse((o) => r.push(o.rotation.x, o.rotation.y)); gl.snap = r.join(); }
+  }
+  return { ...T, WebGLRenderer: FakeRenderer };
+});
 let root: Root | null = null, box: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); resetGo2Cache(); vi.unstubAllGlobals(); });
 const show = (el: JSX.Element) => { box = document.createElement('div'); document.body.append(box); act(() => { root = createRoot(box); root.render(el); }); };
@@ -294,5 +305,48 @@ describe('RV-403 막는 결함', () => {
       expect(got).toEqual(['KeyW']);
       expect(md($('[data-go2-home]')!)).toBe(true);
     } finally { removeEventListener('keydown', key, true); }
+  });
+
+  it('RV-437 1 정면 가까이 돌려 앞·뒤 오른 엉덩이 온도 점이 겹치면 카메라에 가까운 앞(80°C)이 위 — 그리기·마우스 판정 모두(z-index)', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    show(<Go2Figure pose={POSE} temps={JOINTS.map((n) => (n === 'FR_hip_joint' ? 80 : n === 'RR_hip_joint' ? 20 : 40))} />);
+    const view = $('[data-go2-orbit]')!, fire = (type: string, x: number, y: number) => act(() => { view.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+    fire('pointerdown', 200, 0); fire('pointermove', 112, -50); fire('pointerup', 112, -50);   // 정면 가까이(az ≈ 1.55)·el ≈ 0.18 — 두 점 1.4 px 차
+    const dot = (n: string) => $(`[data-go2-temp="${n}"]`)!, fr = dot('FR_hip_joint'), rr = dot('RR_hip_joint');
+    expect(Math.hypot(parseFloat(fr.style.left) - parseFloat(rr.style.left), parseFloat(fr.style.top) - parseFloat(rr.style.top))).toBeLessThan(3);   // 겹침(점 지름 12 px)
+    expect(Number(fr.style.zIndex)).toBeGreaterThan(Number(rr.style.zIndex));
+    expect(Number(rr.style.zIndex)).toBeGreaterThanOrEqual(2);   // 범례(z 1)·관절 글자(z 1) 위 그대로
+    fire('dblclick', 0, 0);   // 처음 보기(오른쪽 앞 위) — 가장 가까운 점은 앞 오른 다리, 가장 먼 점은 뒤 왼 다리
+    const zs = JOINTS.map((n) => Number(dot(n).style.zIndex)), by = (z: number) => JOINTS[zs.indexOf(z)];
+    expect(new Set(zs).size).toBe(12); expect(by(Math.max(...zs))).toMatch(/^FR_/); expect(by(Math.min(...zs))).toMatch(/^RL_/);
+  });
+
+  it('RV-437 2 탭 숨김·칸이 화면 밖이면 부모가 여러 번 갱신해도 그리지 않고, 다시 보이면 최신 자세로 한 번', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    vi.stubGlobal('WebGLRenderingContext', class {});
+    let seen: (es: { isIntersecting: boolean }[]) => void = () => {};
+    vi.stubGlobal('IntersectionObserver', class { constructor(cb: typeof seen) { seen = cb; } observe() {} disconnect() {} });
+    const setHidden = (h: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
+    const at = (k: number): Pose => ({ q: JOINTS.map(() => 0.3 + k * 0.1), wxyz: [1, 0, 0, 0] });
+    try {
+      show(<Go2Figure pose={at(0)} />); act(() => root!.render(<Go2Figure pose={at(0)} />));   // 보일 때는 갱신마다 그림
+      const r0 = gl.renders, s0 = gl.snap;
+      expect(r0).toBeGreaterThan(0);
+      act(() => seen([{ isIntersecting: false }]));
+      for (const k of [1, 2, 3, 4]) act(() => root!.render(<Go2Figure pose={at(k)} />));
+      expect(gl.renders).toBe(r0);
+      act(() => seen([{ isIntersecting: true }]));
+      expect(gl.renders).toBe(r0 + 1);
+      const s4 = gl.snap; expect(s4).not.toBe(s0);
+      act(() => root!.render(<Go2Figure pose={at(4)} />)); expect(gl.snap).toBe(s4);   // 다시 보일 때 그린 것 = 최신(4번째)
+      // 탭 숨김도 같다
+      const r1 = gl.renders;
+      setHidden(true); act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+      for (const k of [5, 6, 7, 8]) act(() => root!.render(<Go2Figure pose={at(k)} />));
+      expect(gl.renders).toBe(r1);
+      setHidden(false); act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+      expect(gl.renders).toBe(r1 + 1);
+      const s8 = gl.snap; act(() => root!.render(<Go2Figure pose={at(8)} />)); expect(gl.snap).toBe(s8);
+    } finally { delete (document as { hidden?: boolean }).hidden; }
   });
 });
