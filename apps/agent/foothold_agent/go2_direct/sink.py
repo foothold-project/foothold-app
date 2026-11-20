@@ -107,6 +107,7 @@ class Go2Sink:
             raise ValueError('phone_watchdog must be a boolean')
         self._phone_watchdog = phone_watchdog
         self._source_received = None
+        self.lock_evidence = {}
         self.limits, self.now = limits or Limits(), now
         self.lock_log = LockLog(now)
         self._lock = threading.RLock()
@@ -163,6 +164,7 @@ class Go2Sink:
             self.pending = self._ramp_velocity = ZERO
             self._ramp_at = (self.now(),) * 3
             self._source_received = None
+            self.lock_evidence['watchdog_input'] = None
             self._wait_operator_neutral = self._neutral_required = True
         return active is True
 
@@ -362,6 +364,7 @@ class Go2Sink:
                 self.lock_log.emit("lock", "output_source_changed")
                 self._hold()
                 self.source = source
+                self.lock_evidence['server_source'] = source == 'server'
 
     def _hold(self, *, reason=None, preserve=False):
         repeated = self.latched and (preserve or (reason is not None and reason == self._hold_reason))
@@ -377,6 +380,7 @@ class Go2Sink:
         self._neutral_required = True
         self._urgent = True
         self._source_received = None
+        self.lock_evidence['watchdog_input'] = None
 
     def _expired(self, stamp):
         if ((self._remote_active() or self._wait_operator_neutral) and not self._operator_stop
@@ -470,6 +474,10 @@ class Go2Sink:
             if self._phone_watchdog and not self.latched:
                 fresh_input = (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
                                and 0 <= stamp-input_received_at < DEADLINE_S)
+                # Keep the original packet time even if this very packet is
+                # rejected or _hold clears the watchdog clock.
+                self.lock_evidence['output_input'] = (input_received_at
+                    if type(input_received_at) in (int, float) and math.isfinite(input_received_at) else None)
                 if velocity != ZERO and not fresh_input:
                     self._stall()
                     self._stop_requested.set()
@@ -480,6 +488,7 @@ class Go2Sink:
                 if (fresh_input
                         and (self._source_received is None or input_received_at > self._source_received)):
                     self._source_received = input_received_at
+                    self.lock_evidence['watchdog_input'] = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
             posture_held = not self._walkable()
             if posture_held and velocity != ZERO:

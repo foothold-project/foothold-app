@@ -4,6 +4,7 @@ DDS has no cryptographic identity. SportModeState has no serial at all. This
 requires an operator-confirmed exclusive robot NIC and fresh matching LowState.
 Another LowState identity permanently faults this process, including at startup.
 """
+from collections import Counter
 from copy import deepcopy
 import math
 import logging
@@ -38,9 +39,17 @@ class Feedback:
         self._sequence = 0
         self._consumed = -1
         self._last_ready = False
+        self._drops = Counter()
+        self.lock_evidence = {'accepted_errors': self.accept_error_codes}
+        self._consumed_failure = 'unchecked'
         self._fault = False
         self.sink = None
         self._journal_posture_value = None
+
+    def attach_journal(self, evidence):
+        with self._lock:
+            evidence.update(self.lock_evidence)
+            self.lock_evidence = evidence
 
     @property
     def sink(self):
@@ -80,22 +89,31 @@ class Feedback:
         generation = None if sink is None else sink.generation  # nonblocking epoch snapshot
         sn, tick = getattr(message, 'sn', None), getattr(message, 'tick', None)
         if not isinstance(sn, (tuple, list)) or len(sn) != 2 or not all(integer(x, 0xFFFFFFFF) for x in sn):
+            with self._lock:
+                self._drops['low_serial_invalid'] += 1
             return
         serial = f'{sn[0]}-{sn[1]}'
         with self._lock:
             # Identity conflict is permanent evidence, even if motion evidence
             # aged out or crossed STOP while this callback waited for the lock.
             if serial != self.serial:
+                self.lock_evidence['feedback_fault'] = True
+                self._drops['low_identity_conflict'] += 1
                 self._fault = True
                 return
             if (not 0 <= self.now()-received <= FEEDBACK_MAX_AGE_S or self.sink is not sink
                     or (sink is not None and sink.generation != generation)):
+                reason = ('low_generation_changed' if self.sink is not sink or
+                          (sink is not None and sink.generation != generation) else 'low_callback_age')
+                self._drops[reason] += 1
                 return
             if not integer(tick, 0xFFFFFFFF):
+                self._drops['low_tick_invalid'] += 1
                 return
             if self._low is not None:
                 previous = self._low['tick']
                 if tick <= previous and not (previous > 0xF0000000 and tick < 0x0FFFFFFF):
+                    self._drops['low_tick_replay'] += 1
                     return
             gyro = vector(getattr(getattr(message, 'imu_state', None), 'gyroscope', None), 3)
             motors = getattr(message, 'motor_state', None)
@@ -105,6 +123,7 @@ class Feedback:
                              gyro=gyro, dq=dq,
                              still=gyro is not None and dq is not None and
                              all(abs(x) <= .05 for x in gyro) and all(abs(x) <= .10 for x in dq))
+            self.lock_evidence['low'] = self._low
             if not self._fault:
                 self.remote.observe(getattr(message, 'wireless_remote', None), received)
             self.state.lowstate(message)
@@ -116,6 +135,8 @@ class Feedback:
         stamp = getattr(message, 'stamp', None)
         sec, nsec = getattr(stamp, 'sec', None), getattr(stamp, 'nanosec', None)
         if not integer(sec, 0x7FFFFFFF) or not integer(nsec, 999999999):
+            with self._lock:
+                self._drops['sport_stamp_invalid'] += 1
             return
         marker = sec*1000000000+nsec
         velocity = vector(getattr(message, 'velocity', None), 3)
@@ -129,20 +150,73 @@ class Feedback:
                     self._fault or self._low is None or
                     not 0 <= now-self._low['received'] <= FEEDBACK_MAX_AGE_S or marker <= 0 or
                     (self._sport is not None and marker <= self._sport['marker'])):
+                if not 0 <= now-received <= FEEDBACK_MAX_AGE_S:
+                    reason = 'sport_callback_age'
+                elif self.sink is not sink or (sink is not None and sink.generation != generation):
+                    reason = 'sport_generation_changed'
+                elif self._fault:
+                    reason = 'sport_identity_conflict'
+                elif self._low is None:
+                    reason = 'sport_low_missing'
+                elif not 0 <= now-self._low['received'] <= FEEDBACK_MAX_AGE_S:
+                    reason = 'sport_low_stale'
+                else:
+                    reason = 'sport_stamp_zero' if marker <= 0 else 'sport_stamp_replay'
+                self._drops[reason] += 1
                 return
             if velocity is None or not number(yaw) or not integer(mode, 255) or not integer(error, 0xFFFFFFFF):
+                self._drops['sport_invalid_fields'] += 1
                 return
             self._sequence += 1
             self._sport = dict(marker=marker, received=received, sequence=self._sequence,
                                generation=generation, velocity=velocity, yaw=float(yaw),
                                mode=mode, error=error, progress=progress, height=height)
+            self.lock_evidence['sport'] = self._sport
             self.state.sportmodestate(message)
 
-    def sample(self):
+    def take_drops(self):
+        with self._lock:
+            drops, self._drops = self._drops, Counter()
+        return drops
+
+    @staticmethod
+    def _sample_failures(stamp, low, sport, fault):
+        fields = ['identity_conflict'] if fault else []
+        for topic, sample in (('low', low), ('sport', sport)):
+            if sample is None:
+                fields.append(topic + '_missing')
+            elif not 0 <= stamp-sample['received'] <= FEEDBACK_MAX_AGE_S:
+                fields.append(topic + '_stale')
+        return fields
+
+    @staticmethod
+    def _posture_failures(sport, tilt, error_ok):
+        return [name for name, valid in (
+            ('mode', sport['mode'] in (0, 1, 3)), ('error', error_ok),
+            ('progress', number(sport['progress']) and sport['progress'] == 0),
+            ('height', number(sport['height'], .20, .50)),
+            ('tilt', tilt is not None and tilt < math.pi/3)) if not valid]
+
+    @classmethod
+    def journal_readiness(cls, stamp, evidence):
+        low, sport = evidence.get('low'), evidence.get('sport')
+        fields = cls._sample_failures(stamp, low, sport, evidence.get('feedback_fault'))
+        if not fields:
+            angles = low['attitude'].values()
+            tilt = None if None in angles else max(abs(x) for x in angles)
+            error_ok = (sport['error'] == 0 or (evidence.get('server_source') and
+                        sport['error'] in evidence['accepted_errors']))
+            fields = cls._posture_failures(sport, tilt, error_ok)
+        return ','.join(fields) or 'none'
+
+    def sample(self, *, record_failure=False):
         with self._lock:
             now = self.now()
             if (self._fault or self._low is None or self._sport is None or
                     any(not 0 <= now-s['received'] <= FEEDBACK_MAX_AGE_S for s in (self._low, self._sport))):
+                if record_failure:
+                    self.lock_evidence['feedback_failed'] = ','.join(
+                        self._sample_failures(now, self._low, self._sport, self._fault))
                 return None
             return deepcopy((self._low, self._sport))
 
@@ -235,11 +309,12 @@ class Feedback:
         return result
 
     def consume(self, hub):
-        sample = self.sample()
+        sample = self.sample(record_failure=True)
         if sample is None:
             return False
         low, sport = sample
         if sport['sequence'] == self._consumed:
+            self.lock_evidence['feedback_failed'] = self._consumed_failure
             return self._last_ready  # never refresh Core time or confirm a new generation from cache
         self._consumed = sport['sequence']
         angles = low['attitude']
@@ -249,6 +324,9 @@ class Feedback:
         ready = (sport['mode'] in (0, 1, 3) and self.error_allowed(sport['error']) and
                  number(sport['progress']) and sport['progress'] == 0 and
                  number(sport['height'], .20, .50) and tilt is not None and tilt < math.pi/3)
+        self._consumed_failure = ('none' if ready else ','.join(
+            self._posture_failures(sport, tilt, self.error_allowed(sport['error']))))
+        self.lock_evidence['feedback_failed'] = self._consumed_failure
         still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
                  and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
         generation, latched = self.sink.feedback_context()
