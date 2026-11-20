@@ -342,7 +342,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     : l.cooldown > rt.now() ? '잠시 뒤 다시 요청할 수 있습니다.'
     : l.holder?.type === 'RUN' ? '시나리오 실행 중에는 이 시험 화면에서 조종을 시작하지 않습니다.' : '';
   // 조종 시작/끝내기 — 조각으로 돌려주고 붙이는 쪽이 배치(같은 단추를 두 번 그리지 않게). 권한·기다릴 이유는 DriveButton 이 글로
-  const hint = <span className="lbl fh-grow">↑/↓ 앞뒤 1.5 m/s · ←/→ 옆걸음 1.0 m/s. A/D를 누르고 있으면 2초에 걸쳐 최대 {MAX_TURN_RATE} rad/s까지 회전 속도가 올라갑니다. ↑+A/D로 전진하며 회전합니다. 떼거나 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
+  const hint = <span className="lbl fh-grow">↑/↓ 앞뒤 1.5 m/s · ←/→ 옆걸음 1.0 m/s. A/D 회전 최대 {MAX_TURN_RATE} rad/s. 누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다. ↑+A/D로 전진하며 회전합니다. 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
   const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
   const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
   const poseRow = mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>

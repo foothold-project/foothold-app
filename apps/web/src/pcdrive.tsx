@@ -8,7 +8,7 @@ import { api, type ApiFail } from './api';
 import { rt, type Live } from './rt';
 import { holderText } from './drive';
 import { Chip, LINK, type Ctx } from './screens';
-import { TRIAL, MAX_TURN_RATE, DriveView, stacked, useServerDrive } from './serverdrive';
+import { TRIAL, DriveView, stacked, useServerDrive } from './serverdrive';
 import { driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import { LidarMap } from './lidarmap';
 import { OccMap } from './occmap';
@@ -84,16 +84,6 @@ function RightCol({ c, r, trial }: { c: Ctx; r: Robot; trial: ReactNode }) {
         : <MakeMap key={fid} bare floor={fid} user={c.user} robots={[r]} places={places} cancel={c.cancel} approved={p.floor.approved_version_id ?? null} list={list}
           made={() => { setMade('새 지도를 저장했습니다. 지도 탭에서 확인·승인하세요.'); setN((k) => k + 1); c.refresh(); }} />}
       {made && <p className="fh-msg ok" role="status">{made}</p>}
-    </section>
-    <section className="lv-card pd-sec" aria-label="속도" data-pd-speed>
-      <h3>속도</h3>
-      <div className="fh-row" role="group" aria-label="속도 단계">
-        {/* 서버·에이전트 허용 표가 고정 값 하나라 지금은 «보통»만(표 밖 값은 화면이 만들지 않음) */}
-        <button type="button" className="btn" disabled title="준비 중">느림</button>
-        <button type="button" className="btn" aria-pressed="true" data-pd-speed-on>보통(지금 값)</button>
-        <button type="button" className="btn" disabled title="준비 중">빠름</button>
-      </div>
-      <p className="lv-note">느림·빠름은 준비 중입니다. 앞뒤 1.5 m/s · 옆걸음 1.0 m/s · 회전 최대 {MAX_TURN_RATE} rad/s. 회전 키나 단추를 누르고 있으면 2초에 걸쳐 빨라집니다.</p>
     </section>
     <section className="lv-card pd-sec" aria-label="시나리오" data-pd-scen>
       <h3>시나리오</h3>
