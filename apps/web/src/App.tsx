@@ -80,9 +80,19 @@ export function typing(t: EventTarget | null) {
   return false;
 }
 
+/** 정지 단추 누름(RV-456 1) = pointerdown 즉시 — 스틱을 쥔 채 누른 두 번째 손가락엔 click 이 생기지 않는다. 주 단추(왼쪽·손가락)만.
+ *  click 은 그 누름의 pointerdown 이 이미 멈췄으면 넘긴다(한 누름 = 한 번 — 고르기 창이 열린 뒤 click 이 곧바로 정지하지 않게). 키보드 Enter(detail 0)·pointerdown 없는 click 은 그대로 정지 */
+export function useStopPress(f: () => void) {
+  const down = useRef(false);
+  return {
+    onPointerDown: (e: { button: number }) => { if (e.button !== 0) return; down.current = true; f(); },
+    onClick: (e: { detail: number }) => { const skip = !!e.detail && down.current; down.current = false; if (!skip) f(); },
+  };
+}
+
 /** STOP — 모든 탭·두 틀에 늘 보임(총괄은 정지할 시뮬 로봇이 있을 때만 — 실기 STOP 은 운영자 폰. 폰 홈은 멈출 것이 없다고 확인될 때만 숨김 — App calm). 폰 64px, PC 44px 이상(U7). 누르면 서버에 정지 요청(로봇이 0 + 잠금) */
 export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
-  return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} onClick={onStop}>
+  return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} {...useStopPress(onStop)}>
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
     <span className="fh-stop-t"><span>STOP</span>{!phone && <small>정지 요청</small>}</span>
   </button>;
@@ -204,6 +214,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
   // 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
   const stopKey = useRef(stop); stopKey.current = stop;
+  const pickPress = useStopPress(stop);
   useEffect(() => {
     const down = (e: KeyboardEvent) => { if (e.code !== 'Space' || typing(e.target)) return; e.preventDefault(); if (!e.repeat) stopKey.current(); };
     const up = (e: KeyboardEvent) => { if (e.code === 'Space' && !typing(e.target)) e.preventDefault(); };
@@ -261,7 +272,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
         {!choose && <option value="">로봇 고르기</option>}
         {stops.map((r) => <option key={r.id} value={r.id}>{r.name}{rt.get(r.id).lease ? ' (내가 조종 중)' : rt.get(r.id).releasing ? ' (반납 확인 중)' : ''}</option>)}</select>
-      <button type="button" className="fh-stop" disabled={!choose} onClick={stop}>정지</button>
+      <button type="button" className="fh-stop" disabled={!choose} {...pickPress}>정지</button>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
     </div> : <div className="fh-pick" role="alertdialog" aria-label="멈출 로봇 없음" data-no-stop>
       <span>▲ 이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요.</span>

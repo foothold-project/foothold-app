@@ -5,7 +5,7 @@
 // 그 안에도 STOP 이 가장 크게. 키 조종은 패널이 열린 동안 그대로
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent as KeyEv, type PointerEvent, type ReactNode } from 'react';
 import { CMD_MS, inputGen, metaCut, rt, useLive, type Live } from './rt';
-import { typing } from './App';
+import { typing, useStopPress } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
 import { HeldTag, LidarMap } from './lidarmap';
@@ -293,8 +293,9 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   }, [pose]);
   const askPose = (k: PoseKey) => { zero(); setPoseMsg(''); setPose({ k, prev: res?.request_id ?? null, at: rt.now() }); rt.posture(r.id, POSE[k].act, (bad) => { if (bad) { setPose(null); setPoseMsg(`${POSE[k].fail} — ${bad}`); } }); };   // 서버가 해제 요청을 거절(rt.unlock notice) — 대기 아님
 
+  const stopPress = useStopPress(() => { zero(SD_NOTE.stop); rt.stop(r.id); });   // pointerdown 즉시(RV-456 1)
   const stop = (big: boolean) => <button type="button" className="fh-stop" aria-label="비상 정지 — 이 로봇" data-sd-stop={big ? 'full' : 'panel'}
-    style={big ? { minHeight: 120, minWidth: 320 } : { minHeight: 56, width: '100%' }} onClick={() => { zero(SD_NOTE.stop); rt.stop(r.id); }}>
+    style={big ? { minHeight: 120, minWidth: 320 } : { minHeight: 56, width: '100%' }} {...stopPress}>
     <svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
     <span className="fh-stop-t"><span>STOP</span><small>정지 요청</small></span>
   </button>;

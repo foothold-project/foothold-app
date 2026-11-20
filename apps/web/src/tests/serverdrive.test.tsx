@@ -1075,6 +1075,19 @@ describe('RV-426: PC 입력 세대 마무리', () => {
     }
   });
 
+  it('RV-456: 화면 전진 단추를 쥔 채 두 번째 손가락으로 STOP(pointerdown 만, click 없음) → 정지 1건·입력 0. 마우스 click 은 1건', () => {
+    ready(); view();
+    const up = $('[data-sd-full] [data-sd-move="up"]')!, stop = $('[data-sd-full] [data-sd-stop="full"]')!;
+    pd(up, 'pointerdown', 1); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    pd(stop, 'pointerdown', 2);
+    expect(w.of('stop').length).toBe(1);                    // 고치기 전: 0(click 을 기다림 — 손가락 둘이면 click 없음)
+    pd(stop, 'pointerup', 2); tick(200);
+    expect(lastAxes()).toBe('0,0,0');
+    pd(up, 'pointerup', 1); tick(60);
+    pd(stop, 'pointerdown', 3); act(() => { stop.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); });
+    expect(w.of('stop').length).toBe(2);                    // 한 번 누름(pointerdown + click) = 한 번
+  });
+
   it('② STOP 뒤 잠김·해제 보고가 오기 전에는 새로 누른 키도 0', () => {
     ready();
     const auto = w.auto!; w.auto = (m) => (m.t === 'stop' ? w.recv({ t: 'reply', id: m.id, ok: true }) : auto(m));

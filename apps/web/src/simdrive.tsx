@@ -8,7 +8,7 @@ import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { inputGen, metaCut } from './rt';
 import { Chip, inApp } from './screens';
-import { typing } from './App';
+import { typing, useStopPress } from './App';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import { SimPick } from './simstart';
@@ -416,6 +416,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
 export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: boolean }) {
   const s = useSim(), l = s.link, r = s.robot, [at, setAt] = useState<[number, number] | null>(null), grab = useRef<[number, number] | null>(null);
   useTick(true);
+  const stopPress = useStopPress(() => sim.stop());   // pointerdown 즉시 — 실기 스틱을 쥔 채 눌러도(RV-456 1)
   if (!l || !r) return null;
   const lock = lockOf(l), text = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'bad' || !l.st ? lock.text : runText(l) || lock.text;
   const down = (e: PointerEvent<HTMLElement>) => { const b = e.currentTarget.parentElement!.getBoundingClientRect(); grab.current = [e.clientX - b.left, e.clientY - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
@@ -430,7 +431,7 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
     {held && <p className="dv-pip-t" data-sim-pip-held>실기 조종을 끝내면 크게 볼 수 있습니다</p>}
     <div className="dv-pip-row">
       <button type="button" className="btn" disabled={held} data-sim-pip-big onClick={big}>크게 보기</button>
-      <button type="button" className="btn" data-sim-pip-stop onClick={() => sim.stop()}>시뮬 정지</button>
+      <button type="button" className="btn" data-sim-pip-stop {...stopPress}>시뮬 정지</button>
       <button type="button" className="btn" data-sim-pip-close onClick={() => sim.reset()}>닫기</button>
     </div>
   </aside>;

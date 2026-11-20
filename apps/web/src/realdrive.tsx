@@ -9,7 +9,7 @@ import { UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phon
 import { Stick } from './drive';
 import { inputGen } from './rt';
 import { Video, stopText, useTick } from './simdrive';
-import { feedText, media, reasonText, useFeed } from './media';
+import { feedText, media, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { Lidar3D } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
 import type { Tone } from './fake';
@@ -17,14 +17,16 @@ import './realdrive.css';
 
 /** 화면 글에서 내부 규약명(media/1)·영문 원문 괄호를 뺀다(RV-449 ⑤) — media.ts 문구는 그대로 두고 이 화면에서만 */
 export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').replace(/media\/1\s*/g, '');
-/** 화면에 낼 영상·라이다 사유 한 줄 — 이 화면의 사유는 모두 여기를 지난다(RV-454 3·RV-455 3). 알려진 에이전트 사유(media reasonText «한국어 (원문)»)는 한국어 쪽만,
- *  나머지는 plain 뒤 한글이 있고 영문(오류 코드 E_TIMEOUT·괄호 원문 등)이 하나도 없을 때만, 아니면 쉬운 말 한 줄. 빈 글만 빈 글(원문만인 사유를 빈 글로 넘기면 Video 가 원문을 낸다) */
+/** 에이전트가 알린 사유 한 줄(RV-454 3·RV-455 3·RV-456 2). 알려진 사유(media reasonText «한국어 (원문)»)는 한국어 쪽만,
+ *  나머지는 plain 뒤 한글이 있고 영문·숫자·괄호(오류 코드 E_TIMEOUT·504·원문 괄호 등)가 하나도 없을 때만, 아니면 쉬운 말 한 줄. 빈 글만 빈 글(원문만인 사유를 빈 글로 넘기면 Video 가 원문을 낸다) */
 export const say = (t: string) => {
   const k = /^(.+?) \((.+)\)$/.exec(t);
   if (k && reasonText(k[2]) === t) return k[1];
   const p = plain(t);
-  return !t ? '' : /[가-힣]/.test(p) && !/[A-Za-z]/.test(p) ? p : '로봇에서 영상을 받지 못하고 있습니다';
+  return !t ? '' : /[가-힣]/.test(p) && !/[A-Za-z0-9()[\]]/.test(p) ? p : '로봇에서 영상을 받지 못하고 있습니다';
 };
+/** 이 화면의 영상·라이다 사유는 모두 여기를 지난다. 에이전트 글이 실리는 곳은 none(알림·사유)뿐 — 그 밖(끊김·만료·멈춤 «2초»·«10초·1회»)은 media.ts 의 앱 자체 글이라 plain 만 */
+export const why = (f: Feed, ch: MediaChannel, at?: number) => { const t = feedText(f, ch, at); return f.state === 'none' ? say(t) : plain(t); };
 /** 이보다 적은 점의 판은 빈 판 — 라이다 대기로 본다(RV-454 2). ponytail: 고정값, 실기 점 수를 보고 맞출 것 */
 const FEW = 10;
 
@@ -60,8 +62,8 @@ export function RealDrive() {
     }} onClick={(e) => { if (!e.detail) setPick(ch); }} />;
   const lidarBig = main === 'lidar', lidarFeed = { ...lf, range: null, pose: null, path: [], grid: null, wipe() {} };
   const lidarText = !hasMedia ? '라이다 화면 없음 — 이 연결은 카메라만 보입니다' : lidarOk ? '' : fresh || lf.state === 'wait' || lf.state === 'off' ? '라이다 기다리는 중'
-    : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다' : `라이다 신호 없음 — ${say(feedText(lf, 'lidar'))}`;
-  const rgbText = media.has('rgb') ? say(feedText(rf, 'rgb')) : '';   // 옛 카메라 경로 글은 Video 그대로
+    : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다' : `라이다 신호 없음 — ${why(lf, 'lidar')}`;
+  const rgbText = media.has('rgb') ? why(rf, 'rgb') : '';   // 옛 카메라 경로 글은 Video 그대로
   useEffect(() => () => sim.axes([0, 0]), []);
   useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [live]);   // 움직일 수 없게 되면 입력 0(다시 눌러야)
   /** 지금 세대 — 값은 저장소에서 바로(rt 로봇이 아니므로 id '' = 빈 항목, 숨김은 inputGen 이 본다) */
