@@ -10,7 +10,7 @@ import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { api } from '../api';
 import { SD_NOTE } from '../serverdrive';
-import { BODY_FAULT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS } from '../drivemedia';
+import { BODY_CHECK, BODY_FAULT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { REPORT_STALE_MS, TEMP_STALE_S, go2Pose, go2Temps } from '../pcdrive';
 import { TEMP_MAX, TEMP_MIN, tempColor } from '../go2model';
 import { HELD_GAP } from '../quad';
@@ -438,7 +438,43 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(tile('map').querySelector('[data-occ-map]')).toBeNull();   // 쌓던 것이 없어 층 지도로
     expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
     expect(tile('lidar').textContent).toContain(`${NO_SIGNAL.lidar} — ${BODY_FAULT}`);
-    act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'OK' }] } as Partial<ScreenState>));   // 로봇별로 기억 — 다음 시험을 위해 품
+  });
+
+  // RV-442: 화면이 영구 오류를 따로 기억하지 않는다 — 에이전트가 다시 켤 때까지 장치 표로 계속 보내므로, 이번 상태 연결에서 그 로봇의 표를 받고 오류가 아닐 때만 연다
+  const FAULT = { devices: [{ key: 'go2-identity', kind: 'OTHER', label: IDENTITY_FAULT_LABEL, state: 'ERROR' }] } as Partial<ScreenState>;
+  const OK = { devices: [{ key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'OK' }] } as Partial<ScreenState>;
+  const media = () => FakeWS.all.filter((x) => x.url.includes('/robots/r7/drive-media/'));
+  const chans = () => new Set(media().filter((x) => x.readyState !== 3).map((x) => x.url.split('/').pop()));
+  it('새로고침 직후 그 로봇의 장치 표를 받기 전엔 세 채널을 열지 않고, 영구 오류 표면 계속 닫아 둔다(RV-442 ①)', () => {
+    mount('u-park'); serve();   // 새 페이지 — 상태 소켓은 열렸지만 r7 표는 아직
+    expect($('[data-pc-drive]')).not.toBeNull();
+    tick(10_000);
+    expect(media().length).toBe(0); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_CHECK}`);
+    act(() => push('r7', FAULT));
+    tick(10_000);
+    expect(media().length).toBe(0); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+    act(() => push('r7', OK));   // 로봇 프로그램을 다시 켜 오류 없는 표가 오면 연다
+    expect(chans()).toEqual(new Set(['rgb', 'lidar', 'depth']));
+  });
+
+  it('다른 화면을 보는 동안 받은 영구 오류 — 상태 소켓이 다시 붙은 뒤 표를 받기 전엔 열지 않고 옛 그림도 없다(RV-442 ②)', () => {
+    mount('u-park'); serve('r7');
+    const rgb = media().find((x) => x.url.endsWith('/rgb'))!;
+    act(() => { rgb.open(); rgb.recv({ t: 'media.video', version: 'media/1', channel: 'rgb', robot: 'r7', epoch: 1, episode_id: null, seq: 1, mime: 'image/jpeg', jpeg: 'AAAA' }); });
+    expect(tile('rgb').querySelector('img')).not.toBeNull();
+    click($('[data-pd-back]')!);   // 목록으로 — r7 칸이 내려감
+    expect(chans().size).toBe(0);
+    act(() => push('r7', FAULT));   // 보지 않는 동안 영구 오류
+    act(() => { w.drop(1006); }); tick(1000); serve();   // 상태 소켓 다시 붙음 — r7 표는 아직
+    const n = media().length;
+    click($('[data-open-drive]')!);
+    tick(10_000);
+    expect(media().length).toBe(n); expect(tile('rgb').querySelector('img')).toBeNull();
+    act(() => push('r7', FAULT));   // 에이전트가 계속 보내는 영구 오류
+    tick(10_000);
+    expect(media().length).toBe(n); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+    act(() => push('r7', OK));
+    expect(chans()).toEqual(new Set(['rgb', 'lidar', 'depth']));
   });
 
   // RB-TEMP-WEB(11-19): robot_info.temperature — 관절 12개(JOINTS 순서)·배터리 4·자세 센서·본체 2·age_s

@@ -13,7 +13,7 @@ import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
-import { BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
+import { BODY_CHECK, BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
 import { DriveView } from '../serverdrive';
 import { toRobot } from '../fake';
 import { rt } from '../rt';
@@ -450,7 +450,8 @@ describe('서버 경유 카메라·라이다', () => {
   });
 
   it('다른 로봇으로 바뀌면 마지막 그림을 지우고 «신호 없음»', () => {
-    act(() => root?.unmount());
+    mount('u-park', ON, false); serve('r7', 'r3');   // 상태 연결(App)은 그대로 두고 옆 칸에서 — 두 로봇의 장치 표를 받은 뒤
+    const app = root!, appBox = box;
     box = document.createElement('div'); document.body.append(box);
     function Probe({ robot }: { robot: string }) { return <div data-sd-full><DriveView f={useDriveFeed(robot, 'rgb')} ch="rgb" big /></div>; }
     act(() => { root = createRoot(box); root.render(<Probe robot="r7" />); });
@@ -461,6 +462,7 @@ describe('서버 경유 카메라·라이다', () => {
     act(() => { root!.render(<Probe robot="r3" />); });
     expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(NO_SIGNAL.rgb); expect(held()).toBeNull();
     expect(FakeWS.all.some((x) => x.url.endsWith('/robots/r3/drive-media/rgb'))).toBe(true);
+    act(() => app.unmount()); appBox.remove();
   });
 
   // RV-435 ①: 기체 확인(go2-identity) 영구 오류 = 랜선이 바뀌어 다른 몸일 수 있음 — 세 채널 구독을 놓고 남은 그림·쌓은 지도를 버린다. «잠시 안 됨»은 그림 남김
@@ -482,13 +484,15 @@ describe('서버 경유 카메라·라이다', () => {
     const n = FakeWS.all.length;
     tick(10_000);   // 10 초가 지나도 다시 열지 않고 옛 그림도 없음
     expect(FakeWS.all.length).toBe(n); expect(map()!.dataset.lidarMap).toBe('0'); expect(held()).toBeNull();
-    act(() => push('r7', { devices: [] }));   // 장치 표가 비기만 해서는 풀지 않는다(RV-440 ①)
+    act(() => push('r7', { connection: 'OFFLINE', devices: [] }));   // 로봇이 끊겨 장치 표가 빈 것은 확인이 아니다 — 열지 않는다
     expect(FakeWS.all.length).toBe(n);
+    act(() => push('r7', { connection: 'ONLINE' }));
     act(() => push('r7', identOk));   // 로봇 프로그램을 다시 켜 같은 로봇 확인이 통과하면 새로 받는다(옛 쌓은 지도 없이)
     expect(mediaSock('lidar')).not.toBe(lid); expect(mediaSock('rgb')).not.toBe(rgb); expect(map()!.dataset.lidarMap).toBe('0');
   });
 
-  // RV-440 ①: 영구 오류 뒤 상태 소켓만 끊기면 rt 가 state 를 비운다(rt.ts closed) — 그래도 풀지 않고, 다시 이어진 뒤에도 같은 로봇 확인(OK)이 새로 와야 푼다
+  // RV-440 ①: 영구 오류 뒤 상태 소켓만 끊기면 rt 가 state 를 비운다(rt.ts closed) — 다시 이어진 뒤 그 로봇의 장치 표를 받기 전엔 열지 않고,
+  // 에이전트가 계속 보내는 영구 오류 표면 그대로 닫혀 있다. 프로그램을 다시 켜 오류 없는 표가 와야 연다(RV-442)
   it('영구 오류 뒤 상태 소켓이 끊겼다 다시 이어져도 세 채널을 다시 열지 않고 옛 카메라 그림도 없다', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
     const rgb = mediaSock('rgb');
@@ -498,11 +502,32 @@ describe('서버 경유 카메라·라이다', () => {
     expect(rgb.readyState).toBe(3);
     const media = () => FakeWS.all.filter((x) => x.url.includes('/drive-media/')).length, n = media();
     act(() => { w.drop(1006); });   // 상태 소켓만 끊김 → state = null
-    tick(1000); serve('r7');   // 다시 이어짐(장치 표 빈 상태)
+    tick(1000); serve();   // 다시 이어짐 — 아직 장치 표 없음
     tick(10_000);
-    expect(media()).toBe(n); expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+    expect(media()).toBe(n); expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_CHECK}`);
+    act(() => push('r7', ident(IDENTITY_FAULT_LABEL)));   // 에이전트는 다시 켤 때까지 영구 오류를 보낸다
+    tick(10_000);
+    expect(media()).toBe(n); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
     act(() => push('r7', identOk));
     expect(media()).toBeGreaterThan(n); expect(mediaSock('rgb')).not.toBe(rgb);
+  });
+
+  it('상태 소켓이 끊기면 장치 표를 다시 받을 때까지 세 채널을 닫되, 받은 그림·쌓은 지도는 «마지막 그림»으로 남긴다(RV-442)', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    const rgb = mediaSock('rgb'), lid = mediaSock('lidar');
+    act(() => { rgb.open(); lid.open(); rgb.recv(video()); });
+    scan(lid, head(1, 2), [1, 2, 0.5, -1, 0, 0]);
+    view(); ch('rgb');
+    act(() => { w.drop(1006); });
+    expect(rgb.readyState).toBe(3); expect(lid.readyState).toBe(3);
+    expect(cam().tagName).toBe('IMG'); expect(held()).toContain(BODY_CHECK);
+    tick(1000); serve(); tick(5000);   // 다시 붙었지만 r7 표는 아직
+    expect(mediaSock('rgb')).toBe(rgb); expect(cam().tagName).toBe('IMG');
+    act(() => push('r7'));   // 오류 없는 표 — 다시 연다
+    const lid2 = mediaSock('lidar');
+    expect(mediaSock('rgb')).not.toBe(rgb); expect(lid2).not.toBe(lid);
+    act(() => lid2.open()); scan(lid2, head(2, 1), [3, 0, 0.5]);   // 같은 epoch — 쌓은 지도를 이어 쌓는다
+    ch('lidar'); expect(map()!.dataset.lidarMap).toBe('3');
   });
 
   it('라이다: media.points 머리 + 바로 뒤 binary 만 그린다', () => {

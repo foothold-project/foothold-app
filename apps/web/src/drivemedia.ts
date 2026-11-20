@@ -61,23 +61,23 @@ export const IDENTITY_FAULT_LABEL = '로봇 연결 정보 변경 · 이동 잠�
 export const BODY_FAULT = '로봇 연결 정보가 바뀌어 받지 않습니다. 랜선을 확인한 뒤 로봇 프로그램을 다시 실행하세요';
 export const bodyFault = (devices: readonly Device[] | null | undefined) =>
   !!devices?.some((d) => d.key === 'go2-identity' && d.state === 'ERROR' && d.label === IDENTITY_FAULT_LABEL);
-/** 영구 오류를 본 로봇(RV-440 ①) — 상태 소켓이 끊겨 state 가 비어도(rt.ts closed) 풀지 않고, 같은 로봇의 go2-identity 가 다시 OK 일 때만 푼다 */
-const faulted = new Set<string>();
-const stuck = (robot: string, devices: readonly Device[] | null | undefined) => {
-  if (bodyFault(devices)) faulted.add(robot);
-  else if (devices?.some((d) => d.key === 'go2-identity' && d.state === 'OK')) faulted.delete(robot);
-  return faulted.has(robot);
-};
+/** 그 로봇의 장치 표를 이번 상태 연결에서 받기 전(새로고침·상태 소켓 다시 붙음 = rt state 비어 있음)·로봇 끊김(OFFLINE 의 장치 표는 빈 것) 동안의 까닭 —
+ *  에이전트는 영구 오류를 다시 켤 때까지 장치 표로 계속 보내므로(setup/runtime.py), 화면이 따로 기억하지 않고 표를 다시 받아 본다(RV-442) */
+export const BODY_CHECK = '로봇 상태를 확인하는 중입니다';
+type Gate = 'ok' | 'wait' | 'fault';
+const gateOf = (s: { connection?: string; devices?: readonly Device[] } | null | undefined): Gate =>
+  !s || s.connection !== 'ONLINE' ? 'wait' : bodyFault(s.devices) ? 'fault' : 'ok';
 export const driveMediaUrl = (robot: string, ch: DriveCh) =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/robots/${encodeURIComponent(robot)}/drive-media/${ch}`;
 
 /** 이 칸이 떠 있는 동안(on) 그 채널을 받는다 — on=false 면 열지 않고, 꺼지면 닫고 비운다.
- *  기체 확인 영구 오류(실시간 state 장치 go2-identity)면 구독을 놓고 남은 그림·쌓은 지도를 버린 채 «신호 없음 — 까닭» */
+ *  그 로봇의 장치 표를 이번 상태 연결에서 받고 go2-identity 가 영구 오류가 아닐 때만 연다. 영구 오류면 구독을 놓고 남은 그림·쌓은 지도를 버린 채 «신호 없음 — 까닭» */
 export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
-  const [feed, setFeed] = useState<Raw>(blank), wipe = useRef(() => {});
-  const fault = stuck(robot, useLive(robot).state?.devices), want = on && !fault;
+  const [feed, setFeed] = useState<Raw>(blank), wipe = useRef(() => {}), hold = useRef((_g: Gate) => {});
+  const gate = gateOf(useLive(robot).state), now = useRef(gate);
+  now.current = gate;
   useEffect(() => {
-    if (!want) return;
+    if (!on) return;
     let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도(점·격자) — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link·약속 위반(RV-438 ①)이면 버린다
     wipe.current = () => { st = null; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], grid: null, ver: ++ver })); };
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
@@ -119,18 +119,21 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
     };
     function open() {
       clearTimeout(retry);
-      if (!alive || ws || document.visibilityState === 'hidden') return;
+      if (!alive || ws || now.current !== 'ok' || document.visibilityState === 'hidden') return;
       const w = ws = new WebSocket(driveMediaUrl(robot, ch));
       w.binaryType = 'arraybuffer';
       w.onmessage = (e: { data?: unknown }) => { if (ws === w) frame(e.data); };
       w.onclose = () => { if (ws === w) { ws = null; again('lost', '연결이 끊겼습니다'); } };
     }
     const vis = () => { if (document.visibilityState === 'hidden') { close(); clear('off'); } else open(); };
+    // 장치 표 확인 전·로봇 끊김이면 닫고 받은 그림은 남긴다(«마지막 그림»), 영구 오류면 닫고 그림·쌓은 지도를 버린다
+    hold.current = (g) => { if (g === 'ok') { if (!ws) clear('wait'); return open(); } close(); if (g === 'fault') { st = null; clear('none', BODY_FAULT, true); } else clear('wait', BODY_CHECK); };
     document.addEventListener('visibilitychange', vis);
-    open();
-    return () => { alive = false; close(); document.removeEventListener('visibilitychange', vis); setFeed(blank()); };
-  }, [robot, ch, want]);
-  return { ...(fault ? blank('none', BODY_FAULT) : feed), wipe: () => wipe.current() };
+    hold.current(now.current);
+    return () => { alive = false; hold.current = () => {}; close(); document.removeEventListener('visibilitychange', vis); setFeed(blank()); };
+  }, [robot, ch, on]);
+  useEffect(() => hold.current(gate), [gate]);
+  return { ...(gate === 'fault' ? blank('none', BODY_FAULT) : feed), wipe: () => wipe.current() };
 }
 
 /** 지금 그림이 아닌 까닭 — 받는 중이고 새것이면 null */
