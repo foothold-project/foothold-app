@@ -2,12 +2,18 @@
 // 상태·요청은 phone.ts(시뮬과 같은 fh-phone/1 — 출입증·조종권·잠금·STOP·deadman 판정은 에이전트), 이 파일은 그림만. 틀은 시뮬 조종 화면(dv) 그대로.
 // 실기는 아직 실제 기체에서 확인하지 않았다 — 알약·안내에 «미검증»을 늘 보인다. 명령은 조직 설정과 로봇이 알린 limits 중 작은 값으로 자른다(실기 = 정지·전진·전진하며 좌우 회전).
 // STOP 은 App 머리줄(늘 보임). 끊기면 로봇이 스스로 0·잠금, 자동 다시 연결·자동 재개 없음.
+// 11-20 RB-PHONE-DIRECT-LOOK(참고 = Unitree 앱 «느낌»만): 큰 화면 = 라이다 3D(lidar3d.tsx) 또는 카메라, 왼쪽 위 작은 창 = 다른 쪽(눌러 바꿈).
+// 위 얇은 줄(나가기·상태 알약) · 오른쪽 접히는 안내 카드 · 아래 가운데 반투명 띠(조종 시작·잠금 해제·다시 연결) · 아래 양 끝 조이스틱. 모양·자리만 — 명령·조종권 흐름 그대로
 import { useEffect, useRef, useState } from 'react';
 import { UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
 import { Stick } from './drive';
 import { inputGen } from './rt';
 import { Video, stopText, useTick } from './simdrive';
+import { feedText, useFeed } from './media';
+import { Lidar3D } from './lidar3d';
+import { Cloud3D, QEmpty } from './quad';
 import type { Tone } from './fake';
+import './realdrive.css';
 
 export function RealDrive() {
   useTuneSettings();
@@ -20,6 +26,11 @@ export function RealDrive() {
   const [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
   const live = ready && !leaving;
   useTick(true);
+  // 라이다: 받는 중·기다리는 중이면 큰 화면 기본, 못 받으면 큰 화면 = 카메라(작은 창에 이유 글). 두 칸은 늘 같은 자리에 두고 class 만 바꾼다 — 다시 그리면 1회 토큰이 닫힌다
+  const lf = useFeed('lidar'), lidarOk = lf.state === 'live' || lf.state === 'wait';
+  const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk ? pick : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false);
+  const swap = (ch: 'lidar' | 'rgb') => main !== ch && lidarOk && <button type="button" className="rd-swap" aria-label="큰 화면과 바꾸기" data-real-swap={ch} onClick={() => setPick(ch)} />;
+  const lidarBig = main === 'lidar', lidarText = feedText(lf, 'lidar'), lidarFeed = { ...lf, range: null, pose: null, path: [], grid: null, wipe() {} };
   useEffect(() => () => sim.axes([0, 0]), []);
   useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [live]);   // 움직일 수 없게 되면 입력 0(다시 눌러야)
   /** 지금 세대 — 값은 저장소에서 바로(rt 로봇이 아니므로 id '' = 빈 항목, 숨김은 inputGen 이 본다) */
@@ -45,6 +56,7 @@ export function RealDrive() {
     if (ok) sim.reset(); else setLeaving('fail');
   };
   const left = l.exp ? Math.floor(l.exp - Date.now() / 1000) : Infinity, can = allowed(w);
+  const soc = st?.battery?.soc;
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const notes = [
@@ -65,21 +77,28 @@ export function RealDrive() {
   ].filter(Boolean);
   const L = w && tuned(w).L;
   const range = L && `실효 상한: 앞 ${L.vx_max.toFixed(2)} · ${L.vx_min < 0 ? `뒤 ${Math.abs(L.vx_min).toFixed(2)}` : '후진 없음'} · 옆 ${Math.max(L.vy_max, -L.vy_min).toFixed(2)} m/s · 회전 ${L.wz_min}~${L.wz_max} rad/s${can.spin ? '' : '(앞으로 밀면서만)'}`;
-  return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="실기 조종" data-real-drive onContextMenu={(e) => e.preventDefault()}>
+  return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="실기 조종" data-real-drive data-main={main} onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
-      <Video ch="rgb" fit="cover" />
+      <div className={`rd-view ${main === 'rgb' ? 'big' : 'pip'}`} data-real-view="rgb"><Video ch="rgb" fit="cover" />{swap('rgb')}</div>
+      <div className={`rd-view ${lidarBig ? 'big' : 'pip'}`} data-real-view="lidar">
+        {lidarOk && (no3d ? <Cloud3D small={!lidarBig} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={!lidarBig} onFail={() => setNo3d(true)} />)}
+        {lidarText && <QEmpty text={lidarText} />}
+        {swap('lidar')}
+      </div>
       <div className="dv-safe">
         <button type="button" className="dv-gear dv-leave" aria-label="나가기" disabled={leaving === 'wait'} data-real-leave onClick={leave}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M15 5l-7 7 7 7" /></svg></button>
-        <div className="dv-top" aria-label="상태" data-tone={lock.tone} data-real-pill>실기 · 미검증 · {real.name} · {lock.text}</div>
-        <div className="dv-act" data-real-card>
-          <div className="dv-act-t">
+        <div className="dv-top" aria-label="상태" data-tone={lock.tone} data-real-pill>실기 · 미검증 · {lock.text} · {real.name}{typeof soc === 'number' && ` · 배터리 ${Math.round(soc)}%`}</div>
+        <div className="rd-card" data-real-card>
+          <button type="button" className="rd-card-h" aria-expanded={info} data-real-info onClick={() => setInfo(!info)}>
+            <span>미검증 · 실효 상한</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d={info ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} /></svg></button>
+          <div className="rd-card-t" hidden={!info}>
             <p className="dv-note" role="note" data-real-unverified>{UNVERIFIED}</p>
             {range && <p className="dv-note" data-real-range>{range}</p>}
-            {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
           </div>
-          {acts.length > 0 && <div className="fh-row">{acts}</div>}
+          {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
         </div>
+        {acts.length > 0 && <div className="rd-band" role="group" aria-label="조종 단추" data-real-band>{acts}</div>}
         {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="real-ask-t" aria-live="assertive">
           <b id="real-ask-t">조종권 요청</b><p>다른 사람이 이 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
           <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
