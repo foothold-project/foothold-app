@@ -8,8 +8,8 @@ import { CMD_MS, inputGen, metaCut, rt, useLive, type Live } from './rt';
 import { typing } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
-import { LidarMap } from './lidarmap';
-import { DEPTH_HINT, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
+import { HeldTag, LidarMap } from './lidarmap';
+import { DEPTH_HINT, driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
 import { adminReal, type Robot, type Tone } from './fake';
 import { api } from './api';
 import { ActionTrial } from './screens/actiontrial';
@@ -424,14 +424,14 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   </section>;
 }
 
-/** 카메라·라이다·뎁스 한 칸 그림(받은 feed 그대로 — 없으면 «…신호 없음» + 까닭). 패널 전체화면과 세 칸 화면 가운데 칸이 같이 쓴다 */
+/** 카메라·라이다·뎁스 한 칸 그림(받은 feed 그대로 — 없으면 «…신호 없음» + 까닭, 받았던 그림은 끊겨도 흐리게 남기고 «마지막 그림 · N초 전»). 패널 전체화면과 세 칸 화면 가운데 칸이 같이 쓴다 */
 export function DriveView({ f, ch, big }: { f: DriveFeed; ch: DriveCh; big: boolean }) {
-  const text = driveFeedText(f, ch);
+  const text = driveFeedText(f, ch), held = driveFeedHeld(f), pic = !text || !!held, dim = held ? 0.55 : undefined;
   if (ch === 'lidar') return <LidarMap small={!big} feed={f} empty={text} />;
-  if (ch === 'depth') return text || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
+  if (ch === 'depth') return !pic || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
     : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-      <img src={f.img} alt="뎁스 카메라 — 가까움 빨강, 멀리 파랑, 검정은 거리 모름" draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain' }} data-sd-depth />
-      <DepthLegend range={f.range} /></div>;
-  return text ? <div className="dv-video" role="img" aria-label="카메라" data-sd-cam><span>{text}</span></div>
-    : <img className="dv-video" src={f.img} alt="카메라" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} data-sd-cam />;
+      <img src={f.img} alt={`뎁스 카메라${held ? '(마지막 그림)' : ''} — 가까움 빨강, 멀리 파랑, 검정은 거리 모름`} draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain', opacity: dim }} data-sd-depth />
+      <DepthLegend range={f.range} /><HeldTag text={held} /></div>;
+  return !pic ? <div className="dv-video" role="img" aria-label="카메라" data-sd-cam><span>{text}</span></div>
+    : <><img className="dv-video" src={f.img} alt={held ? '카메라(마지막 그림)' : '카메라'} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: dim }} data-sd-cam /><HeldTag text={held} /></>;
 }

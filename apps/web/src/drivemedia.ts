@@ -1,7 +1,9 @@
 // 서버 경유 실기 시험의 카메라·라이다·뎁스(10-30 SERVER-DRIVE-ADD1 B · 11-12 RB-DEPTH): 서버 WS /api/v1/robots/{id}/drive-media/{rgb|lidar|depth} — 로그인 쿠키·Origin, 받기만(hello·토큰 없음).
 // 내용은 media/1 그대로(media.video · media.points 머리 + 바로 뒤 binary xyz_f32le · media.status). robot·channel 이 다르거나 순서가 어긋나면 그 연결을 닫는다.
 // 라이다 frame 'odom'(11-13 RB-MAP-VIEW-WEB: 점이 이미 로봇이 처음 켜진 곳 기준 + pose)이면 버리지 않고 쌓는다(stack) — lidar_link 는 지금처럼 한 장씩.
-// epoch 가 바뀌면 그림(쌓은 것 포함)을 비우고 순번을 새로 센다. 관측 전용 — 조종·STOP·조종권과 무관. 끊기면 2 s 뒤 다시(화면이 보이고 칸이 떠 있는 동안만)
+// epoch 가 바뀌면 그림(쌓은 것 포함)을 비우고 순번을 새로 센다(서버가 붙자마자 보내는 epoch 0 «최근 자료 없음» 상태는 새 시작이 아님).
+// 11-20 RB-FEED-HOLD-LAST: 한 번 받은 그림은 잠깐 끊겨도(오래됨·연결 끊김·로봇이 못 보냄·탭 숨김) 남겨 두고 «마지막 그림 · N초 전» 을 띄운다 —
+// 로봇 바뀜·화면 나감·«처음부터 다시»·epoch 바뀜·약속 위반(남의 로봇 자료 등)이면 버린다. 관측 전용 — 조종·STOP·조종권과 무관. 끊기면 2 s 뒤 다시(화면이 보이고 칸이 떠 있는 동안만)
 import { useEffect, useRef, useState } from 'react';
 import { STALE_MS, pointsBody, pointsHeader, reasonText, type Feed } from './media';
 import type { MediaPointCloudHeader } from '../../contracts/ts';
@@ -62,9 +64,10 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
     let epoch: number | null = null, top = -1, pending: MediaPointCloudHeader | null = null, ver = 0;
     const put = (p: Partial<Raw>) => setFeed((f) => ({ ...f, ...p }));
-    const clear = (state: Feed['state'], why = '') => { pending = null; setFeed({ ...blank(state, why), ver: ++ver }); };
+    /** drop = 그림까지 버림, 아니면 받은 그림이 있으면 남기고 상태·까닭만 바꾼다 */
+    const clear = (state: Feed['state'], why = '', drop = false) => { pending = null; setFeed((f) => (drop || !hasPicture(f) ? { ...blank(state, why), ver: ++ver } : { ...f, state, why })); };
     const close = () => { if (ws) { ws.onmessage = ws.onclose = null; ws.close(1000); ws = null; } clearTimeout(retry); };
-    const again = (state: Feed['state'], why = '') => { close(); clear(state, why); if (alive && document.visibilityState !== 'hidden') retry = setTimeout(open, RETRY_MS); };
+    const again = (state: Feed['state'], why = '') => { close(); clear(state, why, state === 'bad'); if (alive && document.visibilityState !== 'hidden') retry = setTimeout(open, RETRY_MS); };
     const frame = (data: unknown) => {
       if (typeof data !== 'string') {   // 점군 바이너리: 바로 앞 media.points 머리와 짝일 때만
         const h = pending; pending = null;
@@ -80,7 +83,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
       let m: Record<string, unknown>;
       try { m = JSON.parse(data); } catch { return again('bad', '받은 자료를 읽지 못했습니다'); }
       if (pending || m.version !== 'media/1' || m.channel !== ch || m.robot !== robot || !Number.isInteger(m.epoch)) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
-      if (m.epoch !== epoch) { epoch = m.epoch as number; top = -1; st = null; clear('wait'); }   // 로봇 쪽이 새로 시작함 — 지난 그림을 버린다
+      if (m.epoch !== epoch && !(m.t === 'media.status' && m.epoch === 0)) { epoch = m.epoch as number; top = -1; st = null; clear('wait', '', true); }   // 로봇 쪽이 새로 시작함 — 지난 그림을 버린다
       if (m.t === 'media.status') return clear('none', reasonText(String(m.reason ?? '')));
       if (!Number.isInteger(m.seq) || (m.seq as number) <= top) return again('bad', '순번이 어긋났습니다');
       top = m.seq as number;
@@ -108,9 +111,19 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   return { ...feed, wipe: () => wipe.current() };
 }
 
+/** 지금 그림이 아닌 까닭 — 받는 중이고 새것이면 null */
+const whyNot = (f: Feed, at: number) => (f.state !== 'live' ? f.why : at - f.at <= STALE_MS ? null : '2초 넘게 새 자료가 없습니다');
+/** 받아 둔 그림(카메라·뎁스 사진 또는 라이다 점)이 있다 */
+export const hasPicture = (f: Feed) => f.img !== '' || f.n > 0;
+
 /** 칸에 쓸 한 줄 — 받는 중이고 새것이면 '', 아니면 «카메라/라이다/뎁스 카메라 신호 없음» + 까닭 */
 export function driveFeedText(f: Feed, ch: DriveCh, at = performance.now()) {
-  if (f.state === 'live' && at - f.at <= STALE_MS) return '';
-  const why = f.state === 'live' ? '2초 넘게 새 자료가 없습니다' : f.why;
-  return why ? `${NO_SIGNAL[ch]} — ${why}` : NO_SIGNAL[ch];
+  const why = whyNot(f, at);
+  return why == null ? '' : why ? `${NO_SIGNAL[ch]} — ${why}` : NO_SIGNAL[ch];
+}
+
+/** 남겨 둔 마지막 그림 위 표시 «마지막 그림 · N초 전»(+ 까닭 한 줄) — 지금 그림이거나 받은 그림이 없으면 '' */
+export function driveFeedHeld(f: Feed, at = performance.now()) {
+  const why = whyNot(f, at);
+  return why == null || !hasPicture(f) ? '' : `마지막 그림 · ${Math.max(0, Math.floor((at - f.at) / 1000))}초 전${why ? `\n${why}` : ''}`;
 }

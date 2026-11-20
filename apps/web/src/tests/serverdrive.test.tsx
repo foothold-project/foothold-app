@@ -13,7 +13,8 @@ import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
-import { DEPTH_HINT, NO_SIGNAL, RETRY_MS } from '../drivemedia';
+import { DEPTH_HINT, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
+import { DriveView } from '../serverdrive';
 import { toRobot } from '../fake';
 import { rt } from '../rt';
 
@@ -384,6 +385,8 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
 describe('서버 경유 카메라·라이다', () => {
   const video = (p: object = {}) => ({ t: 'media.video', version: 'media/1', channel: 'rgb', robot: 'r7', epoch: 1, episode_id: null, seq: 1, mime: 'image/jpeg', jpeg: 'AAAA', ...p });
   const cam = () => $('[data-sd-full] [data-sd-cam]')!;
+  /** 남겨 둔 마지막 그림 위 표시(없으면 null) */
+  const held = () => $('[data-sd-full] [data-feed-held]')?.textContent ?? null;
 
   it('같은 서버의 drive-media 경로로 받기만(보내는 것 0), 자료 없으면 «신호 없음»', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
@@ -396,12 +399,14 @@ describe('서버 경유 카메라·라이다', () => {
     expect(cam().textContent).toBe(NO_SIGNAL.rgb);
     act(() => { rgb.open(); rgb.recv(video()); });
     expect(cam().getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
-    tick(2100);   // 2 s 넘게 새 프레임 없음 → 지난 그림을 보이지 않는다
-    expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toContain(NO_SIGNAL.rgb);
+    expect(held()).toBeNull();
+    tick(2100);   // 2 s 넘게 새 프레임 없음 → 마지막 그림을 흐리게 남기고 «마지막 그림 · N초 전» + 까닭(RB-FEED-HOLD-LAST)
+    expect(cam().tagName).toBe('IMG'); expect(cam().getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
+    expect(held()).toContain('마지막 그림 · 2초 전'); expect(held()).toContain('2초 넘게');
     act(() => { rgb.recv(video({ seq: 2 })); });
-    expect(cam().tagName).toBe('IMG');
+    expect(cam().tagName).toBe('IMG'); expect(held()).toBeNull();   // 다시 받으면 표시 없이 새 그림
     act(() => { rgb.recv({ t: 'media.status', version: 'media/1', channel: 'rgb', robot: 'r7', epoch: 1, reason: 'No fresh source sample within 1 second' }); });
-    expect(cam().textContent).toContain(NO_SIGNAL.rgb); expect(cam().textContent).toContain('1초 넘게');
+    expect(cam().tagName).toBe('IMG'); expect(held()).toContain('마지막 그림'); expect(held()).toContain('1초 넘게');
     expect(rgb.sent.length + lid.sent.length).toBe(0);
   });
 
@@ -410,6 +415,8 @@ describe('서버 경유 카메라·라이다', () => {
     const rgb = mediaSock('rgb');
     act(() => { rgb.open(); rgb.recv(video({ seq: 9 })); });
     expect(cam().tagName).toBe('IMG');
+    act(() => { rgb.recv({ ...video({ epoch: 0, seq: 1 }), t: 'media.status', reason: 'No fresh source sample within 1 second' }); });   // 서버가 붙자마자 보내는 epoch 0 «최근 자료 없음» — 새 시작이 아님
+    expect(cam().tagName).toBe('IMG'); expect(held()).toContain('마지막 그림');
     act(() => { rgb.recv({ ...video({ epoch: 2, seq: 1 }), t: 'media.status', reason: 'RGB source is disabled' }); });   // 새 epoch 의 첫 자료가 상태 — 지난 그림 없음
     expect(cam().tagName).toBe('DIV');
     act(() => { rgb.recv(video({ epoch: 2, seq: 1 })); });   // 새 epoch 은 seq 1 부터 받는다
@@ -421,13 +428,51 @@ describe('서버 경유 카메라·라이다', () => {
     expect(mediaSock('rgb')).not.toBe(rgb); expect(FakeWS.all.length).toBe(n + 1);
   });
 
+  it('받은 그림은 끊겨도 남긴다: 연결 끊김·다시 연결·탭 숨김 동안 «마지막 그림», 다시 받으면 표시 없음, 약속 위반이면 지움', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view();
+    let rgb = mediaSock('rgb');
+    act(() => { rgb.open(); rgb.recv(video({ seq: 1 })); });
+    act(() => { rgb.drop(1006); });
+    expect(cam().tagName).toBe('IMG'); expect(held()).toContain('마지막 그림 · 0초 전'); expect(held()).toContain('연결이 끊겼습니다');
+    tick(RETRY_MS); rgb = mediaSock('rgb');
+    act(() => { rgb.open(); rgb.recv({ t: 'media.status', version: 'media/1', channel: 'rgb', robot: 'r7', epoch: 0, episode_id: null, reason: 'No fresh source sample within 1 second' }); });
+    expect(cam().tagName).toBe('IMG'); expect(held()).toContain('마지막 그림 · 2초 전'); expect(held()).toContain('1초 넘게');
+    act(() => { rgb.recv(video({ seq: 2, jpeg: 'CCCC' })); });   // 같은 epoch 순번을 이어 받는다
+    expect(cam().getAttribute('src')).toBe('data:image/jpeg;base64,CCCC'); expect(held()).toBeNull();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(cam().tagName).toBe('IMG'); expect(held()).toContain('마지막 그림');
+    delete (document as { visibilityState?: string }).visibilityState;
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    rgb = mediaSock('rgb');
+    act(() => { rgb.open(); rgb.recv(video({ seq: 3, channel: 'lidar' })); });   // 약속 위반(다른 채널) — 믿을 수 없어 지운다
+    expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toContain(NO_SIGNAL.rgb); expect(held()).toBeNull();
+  });
+
+  it('다른 로봇으로 바뀌면 마지막 그림을 지우고 «신호 없음»', () => {
+    act(() => root?.unmount());
+    box = document.createElement('div'); document.body.append(box);
+    function Probe({ robot }: { robot: string }) { return <div data-sd-full><DriveView f={useDriveFeed(robot, 'rgb')} ch="rgb" big /></div>; }
+    act(() => { root = createRoot(box); root.render(<Probe robot="r7" />); });
+    const rgb = mediaSock('rgb');
+    act(() => { rgb.open(); rgb.recv(video({ seq: 1 })); });
+    act(() => { rgb.drop(1006); });
+    expect(cam().tagName).toBe('IMG'); expect(held()).toContain('마지막 그림');
+    act(() => { root!.render(<Probe robot="r3" />); });
+    expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(NO_SIGNAL.rgb); expect(held()).toBeNull();
+    expect(FakeWS.all.some((x) => x.url.endsWith('/robots/r3/drive-media/rgb'))).toBe(true);
+  });
+
   it('라이다: media.points 머리 + 바로 뒤 binary 만 그린다', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
     const lid = mediaSock('lidar'), xyz = new Float32Array([1, 2, 0.5, -1, 0, 0]);
     act(() => { lid.open(); lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq: 1, source: 'l1', encoding: 'xyz_f32le', frame: 'lidar_link', count: 2, byte_length: 24, truncated: false });
       lid.onmessage?.({ data: xyz.buffer } as never); });
     expect($('[data-sd-full] [data-lidar-map]')!.getAttribute('data-lidar-map')).toBe('2');
-    expect($('[data-sd-full]')!.textContent).not.toContain(NO_SIGNAL.lidar);
+    expect($('[data-sd-full]')!.textContent).not.toContain(NO_SIGNAL.lidar); expect(held()).toBeNull();
+    act(() => { lid.drop(1006); });   // 끊겨도 마지막 점은 남기고 같은 꼴의 표시
+    expect($('[data-sd-full] [data-lidar-map]')!.getAttribute('data-lidar-map')).toBe('2');
+    expect(held()).toContain('마지막 그림 · 0초 전'); expect(held()).toContain('연결이 끊겼습니다');
   });
 
   // 11-13 RB-MAP-VIEW-WEB: frame 'odom'(이미 로봇이 처음 켜진 곳 기준 + pose) = 쌓는 지도, lidar_link = 지금처럼 한 장씩
@@ -690,8 +735,9 @@ describe('서버 경유 뎁스', () => {
     expect(pic().tagName).toBe('IMG'); expect(pic().getAttribute('src')).toBe('data:image/jpeg;base64,BBBB');
     const lg = $('[data-sd-depth-legend]')!.textContent!;
     expect(lg).toContain('가까움 0.3 m'); expect(lg).toContain('멀리 5.0 m'); expect(lg).toContain('거리 모름');
-    tick(2100);   // 새 프레임 없음 → 지난 그림 숨김 + 안내
-    expect(pic().tagName).toBe('DIV'); expect(pic().textContent).toContain(DEPTH_HINT);
+    tick(2100);   // 새 프레임 없음 → 마지막 그림·범례를 남기고 «마지막 그림 · N초 전»
+    expect(pic().tagName).toBe('IMG'); expect($('[data-sd-depth-legend]')).not.toBeNull();
+    expect($('[data-sd-full] [data-feed-held]')!.textContent).toContain('마지막 그림 · 2초 전');
   });
 
   it('로봇 관측 칸에 «뎁스» 보기 — 받는 연결 없이 «뎁스 카메라 신호 없음»', () => {
