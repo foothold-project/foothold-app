@@ -2,23 +2,23 @@
 // media 주소 없음 → 카메라만 안내·교환 없음, 라이다 대기·멈춤 → 큰 화면 카메라, 안전 글·미검증은 접어도 보임, 화면 글에 media/1 없음. 연결 준비는 realconnect.test.tsx 와 같은 가짜 서버·에이전트
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
 import { sim } from '../phone';
-import { media, BAD_WELCOME, NO_MEDIA, type Feed } from '../media';
+import { media, reasonText, BAD_WELCOME, NO_MEDIA, type Feed } from '../media';
 import { plain, say } from '../realdrive';
 import type { Found } from '../nearby';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // 3D 칸(WebGL)은 jsdom 에 없다 — 같은 자리에 마운트 수·small 값을 세는 칸을 둔다. 마운트 1회 = WebGL 문맥 1개(RV-449 ②: 교환마다 새로 만들면 명령 주기가 끊김)
-const l3 = vi.hoisted(() => ({ mounts: 0, smalls: [] as boolean[] }));
+const l3 = vi.hoisted(() => ({ mounts: 0, smalls: [] as boolean[], ratios: [] as (number | undefined)[] }));
 vi.mock('../lidar3d', async (orig) => {
   const { useEffect } = await import('react');
-  return { ...(await orig<object>()), Lidar3D({ small }: { small: boolean }) {
-    l3.smalls.push(small);
+  return { ...(await orig<object>()), Lidar3D({ small, ratio }: { small: boolean; ratio?: number }) {
+    l3.smalls.push(small); l3.ratios.push(ratio);
     useEffect(() => { l3.mounts++; }, [small]);   // lidar3d 는 small 이 바뀌면 WebGL 을 새로 만든다 — 같은 조건으로 센다
     return <div data-lidar3d="stub" />;
   } };
@@ -43,7 +43,7 @@ const click = async (el: Element | null | undefined) => { expect(el).toBeTruthy(
 const link = () => (window as { fhGo2Link?: { seq: string } }).fhGo2Link;
 
 /** addr = 이 로봇의 media 주소가 있다고 둔다(지금 실기 경로는 robot_id 만 저장 — 주소 있는 경우는 앞으로의 길·시뮬 직결과 같음). exp = 출입증 남은 초 */
-async function connected(media?: unknown, { addr = false, exp = 600 } = {}) {
+async function connected(media?: unknown, { addr = false as boolean | string, exp = 600 } = {}) {
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const key = `${init.method ?? 'GET'} ${url.replace(/^\/api\/v1/, '').split('?')[0]}`;
     const body = key === `POST /robots/${RID}/phone-pass` ? { token: 'pass-secret', exp: Math.floor(Date.now() / 1000) + exp, kid: 'k1' } : { items: [] };
@@ -62,7 +62,7 @@ async function connected(media?: unknown, { addr = false, exp = 600 } = {}) {
   await flush();
   await click([...box.querySelectorAll('.dv-card button')].find((b) => b.textContent?.includes('GO2-friday')));
   await click($('[data-real-connect]'));
-  if (addr) (sim.get().robot as { agent_address?: string }).agent_address = `ws://${HOST}:8765`;
+  if (addr) (sim.get().robot as { agent_address?: string }).agent_address = typeof addr === 'string' ? addr : `ws://${HOST}:8765`;
   act(() => { window.dispatchEvent(new CustomEvent('fh-go2-link', { detail: { seq: link()!.seq, port: 40123, nonce: '0123456789abcdef0123456789abcdef' } })); });
   await flush();
   const a = FakeWS.all.find((w) => w.url.startsWith('ws://127.0.0.1:40123/') && !w.url.includes('media'))!;
@@ -73,24 +73,37 @@ async function connected(media?: unknown, { addr = false, exp = 600 } = {}) {
   return a;
 }
 const view = (ch: string) => $(`[data-real-view="${ch}"]`)!;
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); sim.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); l3.mounts = 0; l3.smalls = []; });
+/** 작은 창 자리(가로 폰 기준 8,60 ~ 228,225) — jsdom 은 크기가 0 이라 교환 단추마다 붙인다(손가락을 단추 안·밖에서 뗀 것을 가림) */
+const PIP = { left: 8, top: 60, width: 220, height: 165, right: 228, bottom: 225, x: 8, y: 60, toJSON() {} } as DOMRect;
+beforeEach(() => { vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLButtonElement) { return this.matches('[data-real-swap]') ? PIP : ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect); }); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); sim.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); l3.mounts = 0; l3.smalls = []; l3.ratios = []; });
 /** media 저장소의 라이다 값만 바꿔 보인다(앱 중계 media 길이 없어 실제로는 받지 못함). lidar() 값(state·at·n)이 바뀔 때만 새 객체 — useSyncExternalStore 가 같은 값엔 같은 객체를 요구 */
 function fakeLidar(lidar: () => Partial<Feed>) {
   const get = media.get.bind(media);
   let seen: unknown = null, key = '', out: ReturnType<typeof get> | null = null;
   vi.spyOn(media, 'get').mockImplementation(() => {
-    const f = get(), p = lidar(), k = `${p.state}:${p.at}:${p.n}`;
+    const f = get(), p = lidar(), k = `${p.state}:${p.at}:${p.n}:${p.last}`;
     if (f !== seen || k !== key) { seen = f; key = k; out = { ...f, lidar: { ...f.lidar, ...p } }; }
     return out!;
   });
 }
 const XYZ = new Float32Array(9);
-const live = (p: Partial<Feed> = {}): Partial<Feed> => ({ state: 'live', why: '', at: Infinity, n: 500, xyz: XYZ, frame: 'lidar_link', ver: 1, ...p });
+/** 실제 media 소켓을 여는 주소(phoneUrl 이 /phone/ws 만 받음) — media 저장소를 가짜로 두지 않는 시험용 */
+const MEDIA_AT = `ws://${HOST}:8765/phone/ws`;
+/** 열린 media 소켓 중 이 채널(hello 의 channel) — 아직 안 열린 것은 연다 */
+async function mediaWs(ch: string) {
+  for (const w of FakeWS.all.filter((x) => x.url.includes('/phone/media/ws') && x.readyState === 0)) { w.auto = null; act(() => w.open()); }   // 받기만 — 답 없음
+  await flush();
+  const ws = FakeWS.all.find((w) => w.readyState === 1 && w.sent.some((m) => m.t === 'media.hello' && (m as unknown as { channel: string }).channel === ch));
+  expect(ws, `${ch} media 소켓 ${FakeWS.all.map((w) => w.url).join(' ')}`).toBeTruthy();
+  return ws!;
+}
+const live = (p: Partial<Feed> = {}): Partial<Feed> => ({ state: 'live', why: '', at: Infinity, n: 500, last: 500, xyz: XYZ, frame: 'lidar_link', ver: 1, ...p });
 const ST = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
 /** id = 손가락(pointerId) — 두 손가락(멀티 터치)은 id 를 달리한다. jsdom 에 PointerEvent 가 없어 MouseEvent 에 pointerId 를 붙인다 */
-const ptr = (el: Element, type: string, x: number, y: number, id?: number) => act(() => {
+const ptr = (el: Element, type: string, x: number, y: number, id?: number, kind = 'touch') => act(() => {
   const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
-  if (id != null) Object.defineProperties(e, { pointerId: { value: id }, isPrimary: { value: id === 1 }, pointerType: { value: 'touch' } });
+  if (id != null) Object.defineProperties(e, { pointerId: { value: id }, isPrimary: { value: id === 1 }, pointerType: { value: kind } });
   el.dispatchEvent(e);
 });
 async function driving(a: FakeWS) {
@@ -131,6 +144,7 @@ describe('실기 직결 조종 화면 배치', () => {
     expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('lidar');
     expect(l3.mounts).toBe(1);
     expect(new Set(l3.smalls)).toEqual(new Set([false]));   // 크기는 CSS 만 — small 이 바뀌면 lidar3d 가 WebGL 을 새로 만든다
+    expect(new Set(l3.ratios)).toEqual(new Set([1]));   // 픽셀 비율 1 — 큰 화면이 될 때 다시 그리는 비용이 명령 주기를 막지 않게(RV-455 1)
   });
 
   it('가짜 시계: 전진 스틱을 쥔 채 큰 화면을 여러 번 바꿔도 입력이 유지되고 명령이 50 ms 마다 그대로 (RV-449 ②)', async () => {
@@ -264,7 +278,7 @@ describe('실기 직결 조종 화면 배치', () => {
 
   it('300 ms 마다 점 0개(또는 아주 적은) 새 판이 와도 빈 라이다는 큰 화면에 두지 않음 — «라이다 대기», 큰 화면 = 카메라 (RV-454 2)', async () => {
     let n = 0, at = performance.now();
-    fakeLidar(() => live({ at, n }));
+    fakeLidar(() => live({ at, n, last: n }));
     const a = await connected(MEDIA, { addr: true });
     const poke = async () => { at = performance.now(); act(() => a.recv(st())); await flush(); };   // 새 판(방금 받음)
     for (const k of [0, 3, 0]) {
@@ -289,5 +303,63 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(say('Media ROS reader unavailable')).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say('RGB 카메라가 꺼져 있습니다 (RGB source is disabled)')).toBe('RGB 카메라가 꺼져 있습니다');
     expect(say('받은 자료가 media/1 약속과 달라 연결을 닫았습니다')).toBe('받은 자료가 약속과 달라 연결을 닫았습니다');
+  });
+
+  it('지도 판(map) 누적: 6점 두 번 뒤 0점 판을 300 ms 마다 8번 받아도(누적 n=12) 최근 판 점 수로 «라이다 대기», 큰 화면 = 카메라 (RV-455 2)', async () => {
+    const a = await connected(MEDIA, { addr: MEDIA_AT });
+    const ws = await mediaWs('lidar');
+    let seq = 0;
+    const frame = (k: number) => act(() => {
+      ws.recv({ t: 'media.points', version: 'media/1', robot: RID, epoch: 1, episode_id: null, channel: 'lidar', seq: ++seq, source: 'l1', encoding: 'xyz_f32le',
+        frame: 'map', map_version_id: 'mv1', count: k, byte_length: k * 12, truncated: false });
+      ws.onmessage?.({ data: new Float32Array(k * 3).fill(0.5).buffer as unknown as string });
+    });
+    const poke = async () => { act(() => a.recv(st())); await flush(); };
+    frame(6); frame(6); await poke();
+    expect(media.get().lidar).toMatchObject({ n: 12, last: 6 });
+    for (let i = 0; i < 8; i++) {
+      frame(0); await poke();
+      expect(media.get().lidar).toMatchObject({ state: 'live', n: 12, last: 0 });
+      expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
+      expect(view('lidar').textContent).toContain('라이다 기다리는 중');
+    }
+    frame(500); await poke();
+    expect(media.get().lidar).toMatchObject({ last: 500 });
+    expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('lidar');
+  });
+
+  it('사유 거르기 한 곳(say): 오류 코드(수신기 E_TIMEOUT)·괄호 원문만인 사유((decoder offline))도 화면에 내지 않음 — RGB·라이다 모두 (RV-455 3)', async () => {
+    await connected(MEDIA, { addr: MEDIA_AT });
+    const status = async (ch: string, reason: string) => {
+      const ws = await mediaWs(ch);
+      act(() => ws.recv({ t: 'media.status', version: 'media/1', robot: RID, epoch: 1, episode_id: null, channel: ch, reason })); await flush();
+    };
+    await status('rgb', '(decoder offline)'); await status('lidar', '수신기 E_TIMEOUT');
+    expect(view('rgb').textContent).toBe('로봇에서 영상을 받지 못하고 있습니다');
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(box.textContent).not.toMatch(/decoder|offline|E_TIMEOUT|\(\s*[A-Za-z]/);
+    for (const t of ['수신기 E_TIMEOUT', '(decoder offline)', 'decoder offline', '영상 수신기 오프라인 [decoder]', '카메라 오류: E504']) expect(say(t)).toBe('로봇에서 영상을 받지 못하고 있습니다');
+    expect(say('JPEG decoder (Pillow) is unavailable')).toBe('로봇에서 영상을 받지 못하고 있습니다');
+    expect(say(reasonText('JPEG decoder (Pillow) is unavailable'))).toBe('로봇 쪽 JPEG 해독기가 없어 영상을 보낼 수 없습니다');   // 알려진 것 = 쉬운 한국어
+    expect(say(reasonText('RGB source is disabled'))).toBe('RGB 카메라가 꺼져 있습니다');
+    expect(say('영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요')).toBe('영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요');
+    expect(say('')).toBe('');
+  });
+
+  it('마우스: 단추 안에서 눌러 밖에서 뗀 뒤, 밖에서 다시 눌러 단추 위에서 떼도 바뀌지 않음. pointercancel·lostpointercapture·밖에서 뗀 터치도 마찬가지 (RV-455 4)', async () => {
+    fakeLidar(() => live());
+    await connected(MEDIA, { addr: true });
+    const main = () => $('[data-real-drive]')!.getAttribute('data-main'), sw = () => $('[data-real-swap]')!;
+    ptr(sw(), 'pointerdown', 20, 80, 1, 'mouse'); ptr(document.body, 'pointerup', 400, 300, 1, 'mouse'); await flush();
+    ptr(document.body, 'pointerdown', 400, 300, 1, 'mouse'); ptr(sw(), 'pointerup', 20, 80, 1, 'mouse'); await flush();
+    expect(main()).toBe('lidar');
+    ptr(sw(), 'pointerdown', 20, 80, 3); ptr(sw(), 'pointercancel', 20, 80, 3); ptr(sw(), 'pointerup', 20, 80, 3); await flush();
+    expect(main()).toBe('lidar');
+    ptr(sw(), 'pointerdown', 20, 80, 4); ptr(sw(), 'lostpointercapture', 20, 80, 4); ptr(sw(), 'pointerup', 20, 80, 4); await flush();
+    expect(main()).toBe('lidar');
+    ptr(sw(), 'pointerdown', 20, 80, 5); ptr(sw(), 'pointerup', 400, 300, 5); await flush();   // 터치는 누른 단추가 잡고 있어 밖에서 떼도 단추로 온다
+    expect(main()).toBe('lidar');
+    ptr(sw(), 'pointerdown', 20, 80, 1, 'mouse'); ptr(sw(), 'pointerup', 20, 80, 1, 'mouse'); await flush();   // 정상 누름은 바뀜
+    expect(main()).toBe('rgb');
   });
 });

@@ -20,6 +20,8 @@ export type Feed = {
   img: string;
   /** 점군: xyz(LE float32 를 풀어 둔 것) n 개, frame·truncated, ver = 바뀔 때마다 +1 */
   xyz: Float32Array; n: number; frame: MediaPointCloudHeader['frame'] | ''; truncated: boolean; ver: number;
+  /** 최근 판 하나의 점 수(map 판은 n 이 누적이라 따로) — 직결 media 만 채운다 */
+  last?: number;
 };
 type Binding = Pick<PhoneMediaWelcome, 'robot' | 'epoch' | 'episode_id'>;
 
@@ -39,7 +41,7 @@ const EXPIRED = '영상 연결 권한(10초·1회)이 끝났습니다 — «영�
 const BAD = '받은 자료가 media/1 약속과 달라 연결을 닫았습니다';
 const HIDDEN = '화면을 숨겨 영상 연결을 닫았습니다 — «영상 다시 받기»로 다시 연결하세요';
 
-const blank = (state: FeedState = 'off', why = ''): Feed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0 });
+const blank = (state: FeedState = 'off', why = ''): Feed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, last: 0, frame: '', truncated: false, ver: 0 });
 let feeds: Record<MediaChannel, Feed> = { rgb: blank(), external: blank(), lidar: blank() };
 let offer: { w: PhoneMediaWelcome; address: string; at: number; used: Set<MediaChannel>; simulation: boolean } | null = null;
 const socks = new Map<MediaChannel, WebSocket>(), want = new Map<MediaChannel, number>();
@@ -109,7 +111,7 @@ function onFrame(ch: MediaChannel, data: unknown) {
       all.set(f.xyz.subarray((f.n - keep) * 3, f.n * 3)); all.set(xyz, keep * 3);
     }
     mapVer = h.frame === 'map' ? h.map_version_id : null;
-    return put('lidar', { state: 'live', why: '', at: now(), seq: h.seq, xyz: all, n: all.length / 3, frame: h.frame, truncated: h.truncated, ver: f.ver + 1 });
+    return put('lidar', { state: 'live', why: '', at: now(), seq: h.seq, xyz: all, n: all.length / 3, last: h.count, frame: h.frame, truncated: h.truncated, ver: f.ver + 1 });
   }
   let m: Record<string, unknown>;
   try { m = JSON.parse(data); } catch { return fail(); }

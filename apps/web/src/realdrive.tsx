@@ -9,7 +9,7 @@ import { UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phon
 import { Stick } from './drive';
 import { inputGen } from './rt';
 import { Video, stopText, useTick } from './simdrive';
-import { feedText, media, useFeed } from './media';
+import { feedText, media, reasonText, useFeed } from './media';
 import { Lidar3D } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
 import type { Tone } from './fake';
@@ -17,8 +17,14 @@ import './realdrive.css';
 
 /** 화면 글에서 내부 규약명(media/1)·영문 원문 괄호를 뺀다(RV-449 ⑤) — media.ts 문구는 그대로 두고 이 화면에서만 */
 export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').replace(/media\/1\s*/g, '');
-/** 화면에 낼 사유 한 줄(RV-454 3): plain 뒤에도 한글이 없거나 영문 낱말이 이어지면(에이전트가 알린 모르는 사유 «Media ROS reader unavailable» 등) 원문 대신 쉬운 말 */
-export const say = (t: string) => { const p = plain(t); return !p || /[가-힣]/.test(p) && !/[A-Za-z]+\s+[A-Za-z]+/.test(p) ? p : '로봇에서 영상을 받지 못하고 있습니다'; };
+/** 화면에 낼 영상·라이다 사유 한 줄 — 이 화면의 사유는 모두 여기를 지난다(RV-454 3·RV-455 3). 알려진 에이전트 사유(media reasonText «한국어 (원문)»)는 한국어 쪽만,
+ *  나머지는 plain 뒤 한글이 있고 영문(오류 코드 E_TIMEOUT·괄호 원문 등)이 하나도 없을 때만, 아니면 쉬운 말 한 줄. 빈 글만 빈 글(원문만인 사유를 빈 글로 넘기면 Video 가 원문을 낸다) */
+export const say = (t: string) => {
+  const k = /^(.+?) \((.+)\)$/.exec(t);
+  if (k && reasonText(k[2]) === t) return k[1];
+  const p = plain(t);
+  return !t ? '' : /[가-힣]/.test(p) && !/[A-Za-z]/.test(p) ? p : '로봇에서 영상을 받지 못하고 있습니다';
+};
 /** 이보다 적은 점의 판은 빈 판 — 라이다 대기로 본다(RV-454 2). ponytail: 고정값, 실기 점 수를 보고 맞출 것 */
 const FEW = 10;
 
@@ -37,17 +43,21 @@ export function RealDrive() {
   // 큰 화면 = 라이다는 새 점(2초 안)을 받는 동안만. 대기·멈춤·끊김이면 큰 화면 = 카메라 — 한 번 받다가 멈추면 다시 와도 저절로 돌아가지 않는다(깜빡임 0, 작은 창을 눌러 돌아감)
   // 두 칸·3D 그림은 늘 같은 자리에 두고 class(크기·자리)만 바꾼다 — 다시 만들면 WebGL 생성으로 명령 주기가 끊기고(RV-449 ②) 1회 토큰이 닫힌다
   const hasMedia = !!s.robot?.agent_address, lf = useFeed('lidar', hasMedia), rf = useFeed('rgb', false);
-  // 새 판이 와도 점이 0개(또는 FEW 미만)면 빈 라이다 — «라이다 기다리는 중», 큰 화면 = 카메라(2초 규칙과 같은 길, RV-454 2)
-  const fresh = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOk = fresh && lf.n >= FEW, lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
+  // 새 판이 와도 그 판의 점이 0개(또는 FEW 미만)면 빈 라이다 — «라이다 기다리는 중», 큰 화면 = 카메라(2초 규칙과 같은 길, RV-454 2). 누적 n 이 아니라 최근 판(last, RV-455 2)
+  const fresh = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOk = fresh && (lf.last ?? 0) >= FEW, lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
   const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk && pick === 'lidar' ? 'lidar' : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false);
   const had = useRef(false);
   useEffect(() => { if (lidarOk) had.current = true; else if (had.current) setPick('rgb'); }, [lidarOk]);
-  // 교환은 pointerup(RV-454 1): 스틱을 쥔 채 누른 두 번째 손가락엔 click 이 생기지 않는다. 이 단추에서 누른 손가락만(스틱 손가락은 스틱이 잡고 있어 여기 오지 않음),
-  // click 은 키보드(detail 0)만 — 손가락·마우스는 pointerup 이 이미 바꿨다
-  const tap = useRef<number | null>(null);
+  // 교환은 pointerup(RV-454 1): 스틱을 쥔 채 누른 두 번째 손가락엔 click 이 생기지 않는다. 이 단추에서 누르고 단추 안에서 뗀 손가락만(스틱 손가락은 스틱이 잡고 있어 여기 오지 않음),
+  // click 은 키보드(detail 0)만 — 손가락·마우스는 pointerup 이 이미 바꿨다. 기억한 손가락은 밖에서 뗌(창 pointerup)·cancel·lostpointercapture 에서 지운다(RV-455 4)
+  const tap = useRef<number | null>(null), untap = () => { tap.current = null; };
   const swap = (ch: 'lidar' | 'rgb') => main !== ch && lidarOk && <button type="button" className="rd-swap" aria-label="큰 화면과 바꾸기" data-real-swap={ch}
-    onPointerDown={(e) => { tap.current = e.pointerId; }} onPointerCancel={() => { tap.current = null; }}
-    onPointerUp={(e) => { if (tap.current === e.pointerId) setPick(ch); tap.current = null; }} onClick={(e) => { if (!e.detail) setPick(ch); }} />;
+    onPointerDown={(e) => { tap.current = e.pointerId; }} onPointerCancel={untap} onLostPointerCapture={untap}
+    onPointerUp={(e) => {   // 터치는 누른 단추가 잡고 있어 밖에서 떼도 여기로 온다 — 단추 안에서 뗀 것만
+      const r = e.currentTarget.getBoundingClientRect(), inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (tap.current === e.pointerId && inside) setPick(ch);
+      untap();
+    }} onClick={(e) => { if (!e.detail) setPick(ch); }} />;
   const lidarBig = main === 'lidar', lidarFeed = { ...lf, range: null, pose: null, path: [], grid: null, wipe() {} };
   const lidarText = !hasMedia ? '라이다 화면 없음 — 이 연결은 카메라만 보입니다' : lidarOk ? '' : fresh || lf.state === 'wait' || lf.state === 'off' ? '라이다 기다리는 중'
     : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다' : `라이다 신호 없음 — ${say(feedText(lf, 'lidar'))}`;
@@ -63,9 +73,10 @@ export function RealDrive() {
   useEffect(() => {
     const zero = () => { gen.bump(); ref.current.push(); };   // 창 밖에서 뗀 손가락은 알 수 없다 — 세대 +1, 누르던 스틱도 다시 눌러야
     const hide = () => { if (document.visibilityState === 'hidden') zero(); };
-    addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);
+    const lift = (e: PointerEvent) => { if (e.pointerId === tap.current) tap.current = null; };   // 교환 단추 밖에서 뗀 손가락(단추엔 오지 않음)
+    addEventListener('blur', zero); document.addEventListener('visibilitychange', hide); addEventListener('pointerup', lift); addEventListener('pointercancel', lift);
     const off = sim.subscribe(() => ref.current.push());   // 잠김·해제·stop_gen·STOP 이 오면 손을 대지 않아도 그 자리에서 세대를 맞춰 0
-    return () => { removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide); off(); };
+    return () => { removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide); removeEventListener('pointerup', lift); removeEventListener('pointercancel', lift); off(); };
   }, []);
   /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 확인된 반납만 연결·중계를 닫고 로봇 연결 화면으로. 못 하면 남는다(입력 0, «다시 반납») */
   const leave = async () => {
@@ -102,7 +113,7 @@ export function RealDrive() {
     <div className="dv-body"><div className="dv-stage rgb">
       <div className={`rd-view ${main === 'rgb' ? 'big' : 'pip'}`} data-real-view="rgb"><Video ch="rgb" fit="cover" quiet={!!rgbText} />{rgbText && <QEmpty text={rgbText} />}{swap('rgb')}</div>
       <div className={`rd-view ${lidarBig ? 'big' : 'pip'}`} data-real-view="lidar" data-off={!hasMedia || undefined}>
-        {lidarOn && (no3d ? <Cloud3D small={false} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={false} onFail={() => setNo3d(true)} />)}
+        {lidarOn && (no3d ? <Cloud3D small={false} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={false} ratio={1} onFail={() => setNo3d(true)} />)}
         {lidarText && <QEmpty text={lidarText} />}
         {swap('lidar')}
       </div>
