@@ -10,12 +10,9 @@ import struct
 import threading
 
 from .identity import expected_serial
+from foothold_agent.mapping.inputs import CLOUD, MAP, FRONTEND, LOCALIZATION
 from foothold_agent.mapping.poses import media_pose, timestamp
 
-CLOUD = 'rt/uslam/frontend/cloud_world_ds'
-MAP = 'rt/uslam/cloud_map'
-FRONTEND = 'rt/uslam/frontend/odom'
-LOCALIZATION = 'rt/uslam/localization/odom'
 TOPICS = {'slam': (CLOUD,), 'slam_pose': (FRONTEND, LOCALIZATION)}
 FORMATS = {1: 'b', 2: 'B', 3: 'h', 4: 'H', 5: 'i', 6: 'I', 7: 'f', 8: 'd'}
 MAX_POINTS = 4000

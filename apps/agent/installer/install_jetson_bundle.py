@@ -205,6 +205,7 @@ def install(bundle, root, lock, config):
     # env, and do not execute setup, import the SDK or join a DDS domain.
     verify_env = dict(env, HOME=str(root.parent))
     run([python, '-I', '-m', 'foothold_agent.go2_direct.preflight'], root, verify_env)
+    run([python, '-I', '-m', 'foothold_agent.record', '--help'], root, verify_env)
     (root/'connection.json').write_text(json.dumps(config, indent=2)+'\n')
     (root/'launch.py').write_text(LAUNCHER)
     shutil.copyfile(bundle/'apps/agent/installer/jetson_autostart.py', root/'autostart.py')

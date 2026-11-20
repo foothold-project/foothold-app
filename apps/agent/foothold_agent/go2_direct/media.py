@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import sdk, uslam
 from .identity import expected_serial
 from .record import Recorder
-from foothold_agent.mapping.inputs import DEFAULT_TOPIC
+from foothold_agent.mapping.inputs import DEFAULT_TOPIC, RAW_TOPIC
 from foothold_agent.mapping.poses import Poses, media_pose
 
 MAX_INPUT_BYTES = 2_000_000
@@ -588,7 +588,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     def observation(env, channel, observed_serial, *, callback=None):
         authorize(env, channel, observed_serial)
         if callback is not None:
-            return channel.cloud('rt/utlidar/cloud', callback)
+            return channel.cloud(RAW_TOPIC, callback)
         # VideoClient has no close API. Its DDS reader deserializes every
         # videohub reply even after its original worker has exited.
         if channel.video_client is None:

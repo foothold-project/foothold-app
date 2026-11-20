@@ -9,7 +9,7 @@ import math
 import re
 import os
 import threading
-from ..mapping.inputs import ObservationInputs
+from ..mapping.inputs import LOW_TOPIC, SPORT_TOPIC, ObservationInputs
 
 
 class ReceiptIntervals:
@@ -115,8 +115,8 @@ class Subscriptions(ObservationInputs):
         ChannelFactoryInitialize(0, self.dds_name)
         try:
             for topic, data_type, callback in (
-                    ('rt/lowstate', LowState_, self.state.lowstate),
-                    ('rt/sportmodestate', SportModeState_, lambda msg: self.sport(self.state.sportmodestate, msg))):
+                    (LOW_TOPIC, LowState_, self.state.lowstate),
+                    (SPORT_TOPIC, SportModeState_, lambda msg: self.sport(self.state.sportmodestate, msg))):
                 subscriber = ChannelSubscriber(topic, data_type)
                 self._subscribers.append(subscriber)
                 # Direct callback: no unbounded backlog extending receipt freshness.
