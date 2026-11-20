@@ -61,6 +61,13 @@ export const IDENTITY_FAULT_LABEL = '로봇 연결 정보 변경 · 이동 잠�
 export const BODY_FAULT = '로봇 연결 정보가 바뀌어 받지 않습니다. 랜선을 확인한 뒤 로봇 프로그램을 다시 실행하세요';
 export const bodyFault = (devices: readonly Device[] | null | undefined) =>
   !!devices?.some((d) => d.key === 'go2-identity' && d.state === 'ERROR' && d.label === IDENTITY_FAULT_LABEL);
+/** 영구 오류를 본 로봇(RV-440 ①) — 상태 소켓이 끊겨 state 가 비어도(rt.ts closed) 풀지 않고, 같은 로봇의 go2-identity 가 다시 OK 일 때만 푼다 */
+const faulted = new Set<string>();
+const stuck = (robot: string, devices: readonly Device[] | null | undefined) => {
+  if (bodyFault(devices)) faulted.add(robot);
+  else if (devices?.some((d) => d.key === 'go2-identity' && d.state === 'OK')) faulted.delete(robot);
+  return faulted.has(robot);
+};
 export const driveMediaUrl = (robot: string, ch: DriveCh) =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/robots/${encodeURIComponent(robot)}/drive-media/${ch}`;
 
@@ -68,7 +75,7 @@ export const driveMediaUrl = (robot: string, ch: DriveCh) =>
  *  기체 확인 영구 오류(실시간 state 장치 go2-identity)면 구독을 놓고 남은 그림·쌓은 지도를 버린 채 «신호 없음 — 까닭» */
 export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   const [feed, setFeed] = useState<Raw>(blank), wipe = useRef(() => {});
-  const fault = bodyFault(useLive(robot).state?.devices), want = on && !fault;
+  const fault = stuck(robot, useLive(robot).state?.devices), want = on && !fault;
   useEffect(() => {
     if (!want) return;
     let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도 — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link 로 돌아가면 버린다
@@ -89,9 +96,11 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
         if ((h.frame as string) !== 'odom') { st = null; return put({ ...live, xyz, n: h.count, pose: null, path: [], grid: null, ver: ++ver }); }   // 로봇 중심 한 장
         const pose = poseOf(h.pose);
         if (!pose) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
-        (st ??= stack()).add(xyz, pose);
-        // 점 0개 판은 «마지막 점 받은 시각»을 바꾸지 않는다 — 옛 점이 남아 있으면 «마지막 그림 · N초 전» 그대로(RV-435 ③)
-        return setFeed((f) => ({ ...f, ...live, at: xyz.length ? live.at : f.at, xyz: st!.xyz, n: st!.n, pose, path: st!.path, grid: st!.grid, ver: ++ver }));
+        const s = (st ??= stack()); s.add(xyz, pose);
+        // 점 0개 판은 «마지막 점 받은 시각»을 바꾸지 않는다 — 옛 점이 남아 있으면 «마지막 그림 · N초 전» 그대로(RV-435 ③).
+        // 지도·점 수는 지금 잡아 둔다 — 렌더 전에 다음 epoch 가 와 st 가 비어도 갱신 함수가 null 을 읽지 않게(RV-440 ②)
+        const v = { xyz: s.xyz, n: s.n, path: s.path, grid: s.grid, ver: ++ver }, at = xyz.length ? live.at : null;
+        return setFeed((f) => ({ ...f, ...live, ...v, at: at ?? f.at, pose }));
       }
       let m: Record<string, unknown>;
       try { m = JSON.parse(data); } catch { return again('bad', '받은 자료를 읽지 못했습니다'); }

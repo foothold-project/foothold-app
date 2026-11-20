@@ -9,8 +9,12 @@ import { feedText, useFeed, type Feed } from './media';
 import './quad.css';
 
 export type QSize = 'grid' | 'big' | 'thumb';
-/** held = 큰 칸일 때 머리줄에 붙일 «마지막 그림 · N초 전»(큰 칸 오른쪽 위는 작은 칸이 가림 — RV-435 ②) */
+/** held = 큰 칸일 때 머리줄에 붙일 «마지막 그림 · N초 전»(큰 칸 오른쪽 위는 작은 칸이 가림 — RV-435 ②).
+ *  머리줄 오른쪽은 보통 보기에선 «전체화면» 단추(.qfs-bar), 전체화면에선 첫 작은 칸(--tw)이 덮으므로 그만큼 비워 둔다(RV-440 ③) */
 export type QTile = { id: string; label: string; held?: string; body: (s: QSize) => ReactNode };
+
+/** 보통 보기 큰 칸 머리줄에서 «전체화면» 단추(오른쪽 44px + 단추 폭)를 피할 자리 — 12px 글자 기준 */
+export const HELD_GAP = '8em';
 
 export function Quad({ tiles, label, fs, top, first, onLeave, onShown }: { tiles: QTile[]; label: string; fs: ReactNode; top?: ReactNode; first?: string; onLeave?: () => void; onShown?: (ids: string[]) => void }) {
   const [f, setF] = useState<string | null>(first ?? null), [pip, setPip] = useState(true), [full, setFull] = useState(false), [err, setErr] = useState('');
@@ -34,7 +38,7 @@ export function Quad({ tiles, label, fs, top, first, onLeave, onShown }: { tiles
       const s: QSize = !f ? 'grid' : f === t.id ? 'big' : 'thumb', pi = others.indexOf(t.id);
       return <div key={t.id} className={`qt${s === 'big' ? ' on' : ''}${s === 'thumb' ? ` pip p${pi}` : ''}`} data-tile={t.id}>
         <button type="button" className="qh" aria-pressed={s === 'big'} title={s === 'big' ? '4칸으로 돌아가기' : '이 칸 크게 보기'} onClick={() => setF((x) => (x === t.id ? null : t.id))}>
-          <span>{t.label}</span>{s === 'big' && t.held && <span data-feed-held style={{ marginLeft: 'auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 400, color: 'var(--muted)' }}>{t.held}</span>}<span aria-hidden="true">{s === 'big' ? '⤡' : '⤢'}</span></button>
+          <span>{t.label}</span>{s === 'big' && t.held && <span data-feed-held style={{ marginLeft: 'auto', marginRight: !full ? HELD_GAP : pip ? 'var(--tw)' : 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 400, color: 'var(--muted)' }}>{t.held}</span>}<span aria-hidden="true">{s === 'big' ? '⤡' : '⤢'}</span></button>
         <div className="qb">{s === 'thumb' && !pip ? null : t.body(s)}</div>
       </div>;
     })}
