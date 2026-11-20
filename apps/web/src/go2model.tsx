@@ -18,6 +18,13 @@ const TONE: Record<string, string> = { light: '#EEECE6', mid: '#ADB5C1', dark: '
 const ARROW = '#3EC7B4';
 /** 카메라: 오른쪽 앞 위에서 본다(three 좌표 — y 위). FIT = 다 보여야 할 반지름(m) */
 const VIEW = new THREE.Vector3(0.8, 0.9, 1).normalize(), AIM = new THREE.Vector3(0.02, -0.2, 0), FIT = 0.5;
+/** 시점(RB-GO2-ORBIT 11-20): az = 위에서 본 방향(rad, 제한 없음), el = 올려 본 각(rad, EL 안 — 바닥 밑 안 감), zoom = 기본 거리 배수(ZOOM 안). HOME = 처음 보기 */
+export type View = { az: number; el: number; zoom: number };
+export const HOME: View = { az: Math.atan2(VIEW.x, VIEW.z), el: Math.asin(VIEW.y), zoom: 1 };
+const EL = [0.05, 1.45] as const, ZOOM = [0.5, 2.5] as const, DRAG = 0.01;   // DRAG = 끈 px 당 rad
+const clamp = (x: number, [a, b]: readonly [number, number]) => Math.min(Math.max(x, a), b);
+/** «처음 보기» 단추 자리(그림 칸 왼쪽 위 px) — 관절 값 글자가 이 자리를 피한다 */
+const RESET = { x: 6, y: 6, w: 80, h: 26 };
 /** 관절 온도 색 눈금 범위(°C) — 범위 표시용일 뿐 위험 기준 아님. 밖은 끝 색 */
 export const TEMP_MIN = 20, TEMP_MAX = 80;
 /** 한 색상(청록) 연함→진함: --dim-soft(밝은 테마) → --brand(어두운 테마) → --dim-ink(밝은 테마). 온도 없음·오래됨 = --ink-3(어두운 테마) 회색 */
@@ -192,7 +199,7 @@ export function spread(tags: { x: number; y: number; side: number; w: number; h:
 const LEG: Record<string, string> = { FR: '앞 오른', FL: '앞 왼', RR: '뒤 오른', RL: '뒤 왼' }, PART: Record<string, string> = { hip: '엉덩이', thigh: '허벅지', calf: '종아리' };
 export const jointName = (n: string) => `${LEG[n.slice(0, 2)]} ${PART[n.split('_')[1]]}`;
 /** 자세를 놓고, 관절·화살표 끝을 화면 px 로. 관절 화살표 = 각속도 부호 × (돌림축이 카메라 쪽이면 +) — 오른손 법칙대로 + 는 보는 사람에게 반시계(↺) */
-function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number) {
+function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number, view: View = HOME) {
   const q = pose?.q ?? STAND, [qw, qx, qy, qz] = pose?.wxyz ?? [1, 0, 0, 0];
   r.legs.forEach((l, i) => { l.hip.rotation.x = q[i * 3]; l.thigh.rotation.y = q[i * 3 + 1]; l.calf.rotation.y = q[i * 3 + 2]; });
   // 몸은 기울기(앞뒤·옆)만 — 방향(yaw)은 빼서 늘 같은 쪽에서 본다(회전은 굽은 화살표로)
@@ -203,7 +210,8 @@ function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number) {
   r.turn.visible = wz != null; r.turn.scale.y = wz != null && wz < 0 ? -1 : 1;
   // 칸 모양에 맞춰 로봇·바닥 화살표(반지름 FIT)가 다 들어오는 거리 — 좁고 긴 칸이면 멀리
   const half = Math.min(17.5, (Math.atan(Math.tan((17.5 * Math.PI) / 180) * (w / h)) * 180) / Math.PI);
-  r.cam.aspect = w / h; r.cam.position.copy(VIEW).multiplyScalar(FIT / Math.sin((half * Math.PI) / 180)).add(AIM); r.cam.lookAt(AIM);
+  const ce = Math.cos(view.el), eye0 = new THREE.Vector3(ce * Math.sin(view.az), Math.sin(view.el), ce * Math.cos(view.az));
+  r.cam.aspect = w / h; r.cam.position.copy(eye0).multiplyScalar((view.zoom * FIT) / Math.sin((half * Math.PI) / 180)).add(AIM); r.cam.lookAt(AIM);
   r.cam.updateMatrixWorld(); r.cam.updateProjectionMatrix(); r.scene.updateMatrixWorld(true);   // 카메라는 장면 밖 — 직접 갱신해야 첫 그림부터 글자 자리가 맞음
   const px = (o: THREE.Object3D): Tag => {
     const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).project(r.cam);
@@ -234,6 +242,12 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
   const box = useRef<HTMLDivElement>(null), gl = useRef<THREE.WebGLRenderer | null>(null);
   const [rig] = useState(() => { const r = makeRig(typeof document === 'undefined' ? null : getComputedStyle(document.documentElement)); dress(r, null); return r; });
   const [tip, setTip] = useState(-1), [fail, setFail] = useState(false), [size, setSize] = useState({ w: 300, h: 260 }), [kind, setKind] = useState(rig.kind);
+  const [view, setView] = useState(HOME), drag = useRef<{ x: number; y: number } | null>(null), moved = view !== HOME;
+  useEffect(() => {   // 휠 = 확대/축소 — React 휠은 passive 라 페이지 스크롤을 못 막아 직접 단다
+    const el = box.current!, wheel = (e: WheelEvent) => { e.preventDefault(); setView((v) => ({ ...v, zoom: clamp(v.zoom * Math.exp(e.deltaY * 0.001), ZOOM) })); };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => el.removeEventListener('wheel', wheel);
+  }, []);
   useEffect(() => {
     const el = box.current!;
     let live = true;
@@ -252,7 +266,7 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
       free(rig); g?.dispose(); g?.forceContextLoss(); g?.domElement.remove();   // 이 그림이 만든 모양·재질·그리개를 모두 해제(RV-403 4)
     };
   }, [rig]);
-  const at = useMemo(() => place(rig, pose, motion, size.w, size.h), [rig, pose?.q.join(), pose?.wxyz.join(), motion.dq?.join(), motion.v?.join(), motion.wz, size, kind]);
+  const at = useMemo(() => place(rig, pose, motion, size.w, size.h, view), [rig, pose?.q.join(), pose?.wxyz.join(), motion.dq?.join(), motion.v?.join(), motion.wz, size, kind, view]);
   useLayoutEffect(() => { gl.current?.render(rig.scene, rig.cam); });
   const q = pose?.q;
   // 관절 값 글자: 각도 + 도는 중이면 방향·각속도. 글자 폭은 10px 숫자 기준 어림(겹침 피하기용) — 글자 칸은 이 폭으로 잘린다(그림 밖으로 안 나감)
@@ -266,9 +280,9 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
       const text = `${deg(q![i])}°`, rate = dir ? Math.abs(deg(dq!)) : 0;
       return { name: JOINTS[i], text, dir, rate, x: j.x, y: j.y, side: j.side, h: 14, w: 6 + 6 * text.length + (dir ? 16 + 6 * `${rate}°/s`.length : 0) };
     });
-    const all = [...arrows, ...t], b = spread(all, size.w, size.h, q ? [{ x: size.w - LEGEND.w - LEGEND.pad, y: size.h - LEGEND.h - LEGEND.pad, w: LEGEND.w, h: LEGEND.h }] : []);
+    const all = [...arrows, ...t], b = spread(all, size.w, size.h, [...(q ? [{ x: size.w - LEGEND.w - LEGEND.pad, y: size.h - LEGEND.h - LEGEND.pad, w: LEGEND.w, h: LEGEND.h }] : []), ...(moved ? [RESET] : [])]);
     return all.map((x, i) => ({ ...x, b: b[i] }));
-  }, [at, q?.join(), motion.dq?.join(), size, showJoints]);
+  }, [at, q?.join(), motion.dq?.join(), size, showJoints, moved]);
   const val = (t: (typeof tags)[number], b?: Box) => <span className="pd-tag" data-go2-joint={t.name} data-moving={t.dir || undefined} style={b && { left: b.x, top: b.y, width: b.w }}>
     {t.text}{t.dir && <i>{t.dir === 'ccw' ? '↺' : '↻'} {t.rate}°/s</i>}</span>;
   const spill = tags.filter((t) => !t.b);
@@ -282,9 +296,19 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
     setCover({ x: a.left - o.left, y: a.top - o.top, w: a.width, h: a.height });
   }, [tip, at]);
   const under = (b: Box) => !!cover && b.x < cover.x + cover.w && cover.x < b.x + b.w && b.y < cover.y + cover.h && cover.y < b.y + b.h;
+  const end = () => { drag.current = null; };
   const k = at.sketch, line = (p: readonly (readonly [number, number])[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   return <div className="pd-go2" data-go2-model={kind}>
-    <div ref={box} className="pd-go2-view" role="img" aria-label={pose ? 'Go2 — 로봇이 보낸 관절·자세' : 'Go2 — 기본 자세(로봇 보고 없음)'}>
+    {/* 끌기 = 돌려 보기 · 휠 = 확대 · 두 번 누름 = 처음 보기. 눌러도 초점을 옮기지 않는다(mousedown 기본 막음 — 조종 키 입력 그대로, serverdrive 11-11 과 같은 이유). 그림만 — 명령 0 */}
+    <div ref={box} className="pd-go2-view" role="img" aria-label={pose ? 'Go2 — 로봇이 보낸 관절·자세 (끌어서 돌려 보기)' : 'Go2 — 기본 자세(로봇 보고 없음)'}
+      data-go2-orbit={moved ? 'moved' : 'home'} style={{ touchAction: 'none', cursor: 'grab' }}
+      onMouseDown={(e) => e.preventDefault()} onDoubleClick={() => setView(HOME)}
+      onPointerDown={(e) => { if (e.button) return; drag.current = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture?.(e.pointerId); }}
+      onPointerMove={(e) => {
+        const d = drag.current; if (!d) return;
+        const dx = e.clientX - d.x, dy = e.clientY - d.y; d.x = e.clientX; d.y = e.clientY;
+        if (dx || dy) setView((v) => ({ ...v, az: v.az - dx * DRAG, el: clamp(v.el + dy * DRAG, EL) }));
+      }} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}>
       {fail && <svg className="pd-go2-sketch" data-go2-sketch viewBox={`0 0 ${size.w} ${size.h}`} aria-hidden="true">
         {[[0, 1, 2, 3, 0], [4, 5, 6, 7, 4], [0, 4], [1, 5], [2, 6], [3, 7]].map((e, i) => <polyline key={i} points={line(e.map((n) => k.body[n]))} fill="none" stroke={TONE.mid} strokeWidth={2} />)}
         <polygon points={line([4, 5, 6, 7].map((n) => k.body[n]))} fill={TONE.light} fillOpacity={0.25} />
@@ -297,6 +321,8 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
         ? <span key={t.name} className="pd-tag pd-tag-move" {...{ [ARROW_TAG[t.name][0]]: ARROW_TAG[t.name][1] }} style={{ left: t.b.x, top: t.b.y, width: t.b.w }}>{t.text}</span>
         : <Fragment key={t.name}>{val(t, t.b)}</Fragment>)}
     </div>
+    {moved && <button type="button" className="btn" data-go2-home onMouseDown={(e) => e.preventDefault()} onClick={() => setView(HOME)}
+      style={{ position: 'absolute', zIndex: 3, left: RESET.x, top: RESET.y, width: RESET.w, height: RESET.h, minHeight: 0, padding: 0, fontSize: 12 }}>처음 보기</button>}
     {(q || temps) && <div className="pd-go2-dots" role="group" aria-label="관절 온도" style={{ width: size.w, height: size.h }}>
       {at.joints.map((j, i) => <button key={JOINTS[i]} type="button" className="pd-dot" data-go2-temp={JOINTS[i]} aria-label={tipText(i)} aria-describedby={tip === i ? 'pd-go2-tip' : undefined}
         style={{ left: j.x, top: j.y, background: tempColor(cOf(i)) }}
