@@ -1,9 +1,16 @@
 """Shared read-only DDS subscribers on an already initialized NIC/participant."""
 import threading
 
+LOW_TOPIC = 'rt/lowstate'
+SPORT_TOPIC = 'rt/sportmodestate'
 RAW_TOPIC = 'rt/utlidar/cloud'
 DEFAULT_TOPIC = 'rt/utlidar/cloud_deskewed'
 ODOM_TOPIC = 'rt/utlidar/robot_odom'
+
+CLOUD = 'rt/uslam/frontend/cloud_world_ds'
+MAP = 'rt/uslam/cloud_map'
+FRONTEND = 'rt/uslam/frontend/odom'
+LOCALIZATION = 'rt/uslam/localization/odom'
 
 
 class Handle:

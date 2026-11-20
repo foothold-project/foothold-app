@@ -5,7 +5,7 @@ import threading
 import time
 import os
 from weakref import WeakKeyDictionary
-from foothold_agent.mapping.inputs import ObservationInputs, RAW_TOPIC
+from foothold_agent.mapping.inputs import LOW_TOPIC, SPORT_TOPIC, ObservationInputs, RAW_TOPIC
 from .approval import validate
 from .identity import verify
 
@@ -49,8 +49,8 @@ class _Channel(ObservationInputs):
         from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_, SportModeState_
         try:
             for topic, data_type, callback in (
-                    ('rt/lowstate', LowState_, inputs.lowstate),
-                    ('rt/sportmodestate', SportModeState_, lambda msg: self.sport(inputs.sportmodestate, msg))):
+                    (LOW_TOPIC, LowState_, inputs.lowstate),
+                    (SPORT_TOPIC, SportModeState_, lambda msg: self.sport(inputs.sportmodestate, msg))):
                 subscriber = ChannelSubscriber(topic, data_type)
                 self.subscribers.append(subscriber)
                 subscriber.Init(callback, 0)  # direct callback; no stale DDS queue
