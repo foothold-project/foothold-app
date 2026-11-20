@@ -109,9 +109,10 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   useEffect(() => {
     if (!on) return;
     let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도(점·격자) — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link·약속 위반(RV-438 ①)이면 버린다
-    wipe.current = () => { st = null; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], grid: null, ver: ++ver })); };
+    wipe.current = () => { st = null; skip = true; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], grid: null, ver: ++ver })); };
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
-    let epoch: number | null = null, top = -1, pending: MediaPointCloudHeader | null = null, skip = false, ver = 0;   // skip = pending 이 이미 본 판의 머리
+    let epoch: number | null = null, top = -1, pending: MediaPointCloudHeader | null = null, skip = false, ver = 0;   // skip = pending 의 본문은 읽기만 하고 쓰지 않음 — 이미 본 판·머리 뒤 «처음부터 다시»(RV-443 ③)·지난 epoch 판(④)
+    const gone = new Set<number>();   // 지난 epoch(에이전트가 켤 때마다 52비트 무작위라 다시 쓰지 않음)
     const put = (p: Partial<Raw>) => setFeed((f) => ({ ...f, ...p }));
     /** drop = 그림까지 버림, 아니면 받은 그림이 있으면 남기고 상태·까닭만 바꾼다 */
     const clear = (state: Feed['state'], why = '', drop = false) => { pending = null; setFeed((f) => (drop || !hasPicture(f) ? { ...blank(state, why), ver: ++ver } : { ...f, state, why })); };
@@ -122,7 +123,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
         const h = pending, dup = skip; pending = null; skip = false;
         const xyz = ch === 'lidar' && h && data instanceof ArrayBuffer ? pointsBody(data, h) : null;
         if (!xyz || !h) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
-        if (dup) return;   // 이미 쌓은·그린 판
+        if (dup) return;   // 이미 쌓은·그린 판·버린 판
         const live = { state: 'live' as const, why: '', at: performance.now(), seq: h.seq, frame: h.frame, truncated: h.truncated };
         if ((h.frame as string) !== 'odom') { st = null; return put({ ...live, xyz, n: h.count, pose: null, path: [], grid: null, ver: ++ver }); }   // 로봇 중심 한 장
         const pose = poseOf(h.pose);
@@ -136,7 +137,13 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
       let m: Record<string, unknown>;
       try { m = JSON.parse(data); } catch { return again('bad', '받은 자료를 읽지 못했습니다'); }
       if (pending || m.version !== 'media/1' || m.channel !== ch || m.robot !== robot || !Number.isInteger(m.epoch)) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
-      if (m.epoch !== epoch && !(m.t === 'media.status' && m.epoch === 0)) { epoch = m.epoch as number; top = -1; st = null; clear('wait', '', true); }   // 로봇 쪽이 새로 시작함 — 지난 그림을 버린다
+      const now0 = m.t === 'media.status' && m.epoch === 0;   // 서버가 붙자마자 보내는 «최근 자료 없음» — 새 시작 아님
+      if (!now0 && gone.has(m.epoch as number)) {   // 늦게 온 지난 epoch 판 — 버린다(점군이면 뒤따르는 본문까지, 연결은 그대로 · RV-443 ④)
+        if (m.t !== 'media.points' || ch !== 'lidar') return;
+        if (!(pending = pointsHeader(m, true))) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
+        skip = true; return;
+      }
+      if (m.epoch !== epoch && !now0) { if (epoch !== null) gone.add(epoch); epoch = m.epoch as number; top = -1; st = null; clear('wait', '', true); }   // 로봇 쪽이 새로 시작함 — 지난 그림을 버린다
       if (m.t === 'media.status') return clear('none', reasonText(String(m.reason ?? '')));
       // 같은 epoch 의 같은 순번 = 이미 본 판: 새 소켓이 붙으면 서버가 1초 안의 마지막 판을 다시 보낸다(server drive_media.py viewer — 짧은 OFFLINE 뒤 등).
       // 모양은 그대로 따지고 그림만 바꾸지 않는다(RV-445 ②). 순번이 되돌아감은 약속 위반 — 서버의 마지막 판은 늘 본 것 중 가장 새것이다

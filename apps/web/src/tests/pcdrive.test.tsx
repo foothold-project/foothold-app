@@ -384,6 +384,43 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(occ()!.dataset.occWall).toBe('1');
   });
 
+  // RV-443 ③·④: 머리 받은 뒤 본문 오기 전 «처음부터 다시» → 그 머리로 본문을 쓰지 않음 · epoch 바뀐 뒤 늦게 온 옛 epoch 판은 버림(연결은 그대로)
+  const occScan = (lid: FakeWS, seq: number, pts: number[], p: object = {}, body = true) => act(() => {
+    lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 71, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le', frame: 'odom', map_version_id: null,
+      pose: { x: 0, y: 0, z: 0.3, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false, ...p });
+    if (body) lid.onmessage?.({ data: new Float32Array(pts).buffer } as never);
+  });
+  const occBody = (lid: FakeWS, pts: number[]) => act(() => { lid.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
+  it('머리 받은 뒤 본문 오기 전에 «처음부터 다시» 하면 그 판은 버린다(RV-443 ③)', () => {
+    mount('u-park'); serve('r7');
+    const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
+    const tile = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"]')!, occ = () => tile().querySelector<HTMLElement>('[data-occ-map]');
+    act(() => { lid.open(); });
+    occScan(lid, 1, [0.025, 2.025, 0.3]);
+    occScan(lid, 2, [2.025, 0.025, 0.3], {}, false);   // 머리만
+    act(() => { tile().querySelector<HTMLElement>('[data-occ-wipe]')!.click(); });
+    occBody(lid, [2.025, 0.025, 0.3]);   // 지우기 전에 머리가 온 판의 본문
+    occScan(lid, 3, [-2.025, 0.025, 0.3]);
+    expect(occ()!.dataset.occWall).toBe('1');   // 새 판 벽 하나만
+    expect(lid.readyState).not.toBe(3);   // 약속 위반 아님 — 연결 그대로
+  });
+  it('epoch 가 바뀐 뒤 늦게 온 옛 epoch 판은 지금 지도를 덮지 않는다(RV-443 ④)', () => {
+    mount('u-park'); serve('r7');
+    const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
+    const tile = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"]')!, occ = () => tile().querySelector<HTMLElement>('[data-occ-map]');
+    act(() => { lid.open(); });
+    occScan(lid, 5, [0.025, 2.025, 0.3]);
+    occScan(lid, 1, [2.025, 0.025, 0.3], { epoch: 14 });   // 로봇이 새로 시작
+    expect(occ()!.dataset.occWall).toBe('1');
+    occScan(lid, 6, [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3]);   // 늦게 온 71 판(벽 2개)
+    act(() => { lid.recv({ t: 'media.status', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 71, episode_id: null, reason: 'No fresh source sample within 1 second' }); });
+    expect(occ()!.dataset.occWall).toBe('1');   // 14 판 벽 그대로
+    expect(tile().textContent).not.toContain(NO_SIGNAL.lidar);
+    occScan(lid, 2, [-2.025, 0.025, 0.3], { epoch: 14 });   // 14 는 순번 그대로 이어짐
+    expect(occ()!.dataset.occWall).toBe('2');
+    expect(lid.readyState).not.toBe(3);
+  });
+
   it('지도·라이다 칸이 모두 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
     mount('u-park'); serve('r7');
     const open = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).length;

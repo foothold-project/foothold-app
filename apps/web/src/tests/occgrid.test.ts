@@ -3,8 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { FLOOR_DZ, GRID_BUDGET_MS, GRID_PTS, GRID_RES, L_LIM, OBST_DZ, RANGE_M, TOP_DZ, cellState, occGrid } from '../occgrid';
 import { stack } from '../drivemedia';
 
-/** node 의 process.cpuUsage(웹 tsconfig 에 node 형이 없음) */
-const cpu = (globalThis as unknown as { process: { cpuUsage(p?: object): { user: number; system: number } } }).process.cpuUsage;
 const P = { x: 0, y: 0, z: 0.3, yaw: 0 }, WALL = P.z + FLOOR_DZ + OBST_DZ + 0.1, FLOOR = P.z + FLOOR_DZ;
 const st = (g: ReturnType<typeof occGrid>, x: number, y: number) => cellState(g.L[g.at(x, y)]);
 const c = (m: number) => (m + 0.5) * GRID_RES;   // 칸 가운데
@@ -83,21 +81,65 @@ describe('2D 격자 지도', () => {
     expect(g.wall).toBeGreaterThan(once);   // 다음 판은 다른 광선부터
     expect(GRID_BUDGET_MS).toBeLessThanOrEqual(8);
   });
-  // 이 프로세스 CPU 시간으로 잰다(벽시계는 남의 부하로 늘어남). 한가할 때 벽시계 p95 = 6~9 ms(11-20, 이 PC). 전체 시험을 함께 돌리면 JIT 가 늦게 데워져 첫 회가 넘칠 수 있어 다시 2번(데워진 뒤 값)
-  it('주 스레드 판당 p95 ≤ 10 ms(5만 점·10 m — 처음 5판은 JIT 데우기라 빼고 20판)', () => {
-    let s = 7;
-    const r = () => (s = (s * 16807) % 2147483647) / 2147483647, g = occGrid(), ms: number[] = [];
-    for (let k = 0; k < 25; k++) {
-      const pts = new Float32Array(50_000 * 3);
-      for (let i = 0; i < 50_000; i++) { const a = r() * 2 * Math.PI, d = 0.5 + r() * 9.4; pts[i * 3] = Math.cos(a) * d; pts[i * 3 + 1] = Math.sin(a) * d; pts[i * 3 + 2] = r() * 1.2 - 0.3; }
-      const t = cpu();
-      g.add(pts, { ...P, x: k * 0.1 });
-      const d = cpu(t);
-      if (k >= 5) ms.push((d.user + d.system) / 1000);
+  /** 벽이 있는 1도 부채꼴 수(로봇 둘레 r±0.3 m) */
+  const arcs = (g: ReturnType<typeof occGrid>, r: number) => {
+    const on = new Set<number>();
+    for (let dx = -Math.ceil((r + 0.3) / GRID_RES); dx * GRID_RES <= r + 0.3; dx++) for (let dy = -Math.ceil((r + 0.3) / GRID_RES); dy * GRID_RES <= r + 0.3; dy++) {
+      const x = c(dx), y = c(dy);
+      if (Math.abs(Math.hypot(x, y) - r) < 0.3 && st(g, x, y) === 2) on.add(Math.floor(((Math.atan2(y, x) * 180) / Math.PI + 360) % 360));
     }
-    ms.sort((a, b) => a - b);
-    expect(ms[Math.floor(ms.length * 0.95)]).toBeLessThanOrEqual(10);
-    expect(g.wall).toBeGreaterThan(0);
+    return on.size;
+  };
+  it('예산에 잘리면 다음 판은 잘린 광선 바로 다음부터 — 같은 원형 벽을 거듭 넣으면 360도 빠짐없이(RV-443 ②)', () => {
+    let t = 0;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (t += 0.1));   // 부를 때마다 0.1 ms — 판당 광선 ≈ 320개(앞 판의 첫 pass 8000/16 = 500 보다 적게 잘림)
+    const n = 8000, pts = new Float32Array(n * 3);   // 9 m 원형 벽 8000점(차례대로 = 한 바퀴)
+    for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; pts[i * 3] = Math.cos(a) * 9; pts[i * 3 + 1] = Math.sin(a) * 9; pts[i * 3 + 2] = WALL; }
+    const g = occGrid(400);
+    g.add(pts, P);
+    const once = arcs(g, 9);
+    for (let k = 1; k < 32; k++) g.add(pts, P);
+    now.mockRestore();
+    expect(once).toBeLessThan(360);   // 한 판은 예산에서 잘림
+    expect(arcs(g, 9)).toBe(360);   // 32판이면 남은 광선을 모두 쏨(앞 판: 판마다 같은 pass 처음으로 되돌아가 1판 = 32판)
+  });
+  it('판이 바뀌면 옛 판 나머지는 버리고 새 판의 다음 차례부터(옛 점이 새 판에 섞이지 않음)', () => {
+    let t = 0;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (t += 0.1));
+    const ring = (r: number) => { const n = 8000, p = new Float32Array(n * 3); for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; p[i * 3] = Math.cos(a) * r; p[i * 3 + 1] = Math.sin(a) * r; p[i * 3 + 2] = WALL; } return p; };
+    const g = occGrid(400);
+    g.add(ring(4), P);
+    const a = g.wall;
+    g.add(new Float32Array(0), P);   // 빈 판 — 잘린 자리만 남고 아무것도 안 함
+    g.add(ring(6), P);
+    now.mockRestore();
+    expect(g.wall).toBeGreaterThan(a);
+    let in4 = 0;
+    for (let dx = -90; dx <= 90; dx++) for (let dy = -90; dy <= 90; dy++) { const x = dx * GRID_RES, y = dy * GRID_RES, d = Math.hypot(x, y); if (d > 4.5 && d < 5.5 && st(g, x, y) === 2) in4++; }
+    expect(in4).toBe(0);   // 4 m~6 m 사이엔 벽 없음
+  });
+  // RV-443 ①: Codex 재현 그대로 — 새 격자에 2Hz 판을 데우기 없이 20판씩(4천·5천·5만 점), 판당 p95 ≤ 8 ms(20판 nearest-rank = 19번째). 주 스레드 벽시계
+  // (예산도 벽시계 — process.cpuUsage 는 JIT·GC 보조 스레드까지 세어 데우기 전 판이 부풂). 앞 판: 광선 예산 뒤 칸 반영 루프가 따로 돌고(10~18 ms)
+  // 새 격자·새 점 수마다 JIT 가 광선 루프를 버리고 주 스레드에서 다시 OSR 컴파일(Node 18, 20~67 ms). 남은 것: 프로세스에서 처음 최적화하는 한 판(14~25 ms)
+  // — 20판 중 한 판이라 p95 안. 기계가 몹시 바쁘면(부하 20/12코어 실측) 벽시계가 늘어 다시 2번
+  it('새 격자 첫 판부터 판당 p95 ≤ 8 ms(4천·5천·5만 점·10 m, 각 20판)', () => {
+    let s = 7;
+    const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    for (const N of [4000, 5000, 50_000]) {
+      const g = occGrid(), ms: number[] = [], all = Array.from({ length: 20 }, () => {   // 판은 미리 만들어 둠(시험 쪽 할당이 부른 GC 가 재는 동안 끼지 않게)
+        const pts = new Float32Array(N * 3);
+        for (let i = 0; i < N; i++) { const a = r() * 2 * Math.PI, d = 0.5 + r() * 9.4; pts[i * 3] = Math.cos(a) * d; pts[i * 3 + 1] = Math.sin(a) * d; pts[i * 3 + 2] = r() * 1.2 - 0.3; }
+        return pts;
+      });
+      for (let k = 0; k < 20; k++) {
+        const t = performance.now();
+        g.add(all[k], { ...P, x: k * 0.1 });
+        ms.push(performance.now() - t);
+      }
+      ms.sort((a, b) => a - b);
+      expect(ms[Math.ceil(ms.length * 0.95) - 1], `${N}점 p95 (${ms.map((v) => v.toFixed(0)).join(' ')})`).toBeLessThanOrEqual(8);
+      expect(g.wall).toBeGreaterThan(0);
+    }
   }, { retry: 2 });
   it('격자 밖(처음 자리에서 너무 멀리)은 무시', () => {
     const g = occGrid(100);   // 5 m 정사각형
