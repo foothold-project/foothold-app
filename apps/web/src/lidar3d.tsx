@@ -29,14 +29,15 @@ export function fillPoints(pos: Float32Array, col: Float32Array, xyz: Float32Arr
 /** 로봇 자리: pose 가 있으면 그것, lidar_link(센서 기준 한 장)면 원점, 그 밖(pose 없는 map)은 모름 */
 export const robotOf = (f: DriveFeed): Pose | null => f.pose ?? (f.frame === 'lidar_link' ? { x: 0, y: 0, z: 0, yaw: 0 } : null);
 
-export function Lidar3D({ feed, small, onFail }: { feed: DriveFeed; small: boolean; onFail: () => void }) {
+/** ratio = 그리는 픽셀 비율 상한(기본 2 — 그대로). 실기 직결 조종은 1: 큰 화면 교환 때 다시 그리는 비용이 조종 명령 주기를 막지 않게(RV-455 1) */
+export function Lidar3D({ feed, small, onFail, ratio = 2 }: { feed: DriveFeed; small: boolean; onFail: () => void; ratio?: number }) {
   const host = useRef<HTMLDivElement>(null), cur = useRef(feed), [free, setFree] = useState(false), again = useRef(() => {});
   cur.current = feed;
   useEffect(() => {
     const el = host.current!, cap = small ? CAP_SMALL : CAP_BIG;
     let g: THREE.WebGLRenderer;
     try { g = new THREE.WebGLRenderer({ antialias: !small }); } catch { onFail(); return; }
-    g.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    g.setPixelRatio(Math.min(window.devicePixelRatio || 1, ratio));
     const canvas = g.domElement;
     canvas.style.cssText = `display:block;width:100%;height:100%;touch-action:${small ? 'auto' : 'none'}`;
     canvas.setAttribute('role', 'img');
