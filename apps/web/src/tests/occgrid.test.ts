@@ -103,6 +103,16 @@ describe('2D 격자 지도', () => {
     expect(once).toBeLessThan(360);   // 한 판은 예산에서 잘림
     expect(arcs(g, 9)).toBe(360);   // 32판이면 남은 광선을 모두 쏨(앞 판: 판마다 같은 pass 처음으로 되돌아가 1판 = 32판)
   });
+  it('빈 판·한 점 판이 끼어도 잘린 자리를 지우지 않는다 — 원형 벽 32판이면 360도(RV-450 ①)', () => {
+    let t = 0;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (t += 0.1));
+    const n = 8000, pts = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; pts[i * 3] = Math.cos(a) * 9; pts[i * 3 + 1] = Math.sin(a) * 9; pts[i * 3 + 2] = WALL; }
+    const g = occGrid(400);
+    for (let k = 0; k < 32; k++) { g.add(pts, P); g.add(new Float32Array(0), P); g.add(new Float32Array([c(20), c(0), WALL]), P); }
+    now.mockRestore();
+    expect(arcs(g, 9)).toBe(360);
+  });
   it('판이 바뀌면 옛 판 나머지는 버리고 새 판의 다음 차례부터(옛 점이 새 판에 섞이지 않음)', () => {
     let t = 0;
     const now = vi.spyOn(performance, 'now').mockImplementation(() => (t += 0.1));

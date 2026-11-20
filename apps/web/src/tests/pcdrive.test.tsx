@@ -421,6 +421,26 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(lid.readyState).not.toBe(3);
   });
 
+  it('칸을 숨겼다 다시 열어도 지난 epoch 기록은 이어진다 — 늦은 71 판이 14 지도를 덮지 않음(RV-450 ②)', () => {
+    mount('u-park'); serve('r7');
+    const sock = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
+    const occ = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"] [data-occ-map]');
+    let lid = sock();
+    act(() => { lid.open(); });
+    occScan(lid, 5, [0.025, 2.025, 0.3]);
+    occScan(lid, 1, [2.025, 0.025, 0.3], { epoch: 14 });   // 71 → 14
+    click($('[aria-label="조종 보기 4칸"] [data-tile="rgb"] .qh')!); click($('.qpip')!);   // 지도·라이다 칸 숨김 = 라이다 소켓 닫음
+    click($('.qpip')!);   // 다시 보임 = 새 소켓
+    lid = sock();
+    act(() => { lid.open(); });
+    const walls: string[] = [];
+    occScan(lid, 2, [2.025, 0.025, 0.3], { epoch: 14 }); walls.push(occ()!.dataset.occWall!);
+    occScan(lid, 6, [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3]); walls.push(occ()!.dataset.occWall!);   // 늦게 온 71 판(벽 2개)
+    occScan(lid, 3, [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3], { epoch: 14 }); walls.push(occ()!.dataset.occWall!);
+    expect(walls).toEqual(['1', '1', '3']);
+    expect(lid.readyState).not.toBe(3);
+  });
+
   it('지도·라이다 칸이 모두 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
     mount('u-park'); serve('r7');
     const open = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).length;
