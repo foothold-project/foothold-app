@@ -9,6 +9,8 @@ import { typing, useStopPress } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
 import { HeldTag, LidarMap } from './lidarmap';
+import { REPORT_STALE_MS, go2Pose, type Pose } from './go2model';
+import type { Look } from './lidar3d';
 import { MapPick } from './slamview';
 import { DEPTH_HINT, driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
 import { adminReal, type Robot, type Tone } from './fake';
@@ -150,6 +152,9 @@ function trapTab(e: KeyEv<HTMLElement>) {
   e.preventDefault(); f[e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : (i + 1) % f.length].focus();
 }
 const CH_NAME: Record<DriveCh, string> = { rgb: '카메라', lidar: '라이다', depth: '뎁스' };
+/** 조종 화면 큰 화면 고르기 — 채널 셋 + «상자»(라이다 쌓인 자료를 5 cm 상자로, 11-20 RB-UNITREE-LOOK-FIX) */
+type Big = DriveCh | 'box';
+const BIG_NAME: Record<Big, string> = { ...CH_NAME, box: '상자' };
 /** 뎁스 색(계약: OpenCV TURBO 역방향 — 가까움 빨강 → 멀리 파랑), 범례용 띠 */
 const TURBO_R = 'linear-gradient(90deg,#7a0403,#e4460a,#faba39,#a4fc3b,#1bcfd4,#4686fb,#30123b)';
 /** 뎁스 그림 아래 작은 범례 — 범위는 받은 프레임의 depth_min_m·depth_max_m(소수 한 자리) */
@@ -368,7 +373,7 @@ function PadButton({ gone, ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { g
 
 /** inline = 작은 패널에도 조작부를 둔다(지도 만들기 창 — 실시간 지도를 보면서 바로 조종, 11-13) */
 export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; inline?: boolean }) {
-  const [full, setFull] = useState<DriveCh | null>(null), dlg = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null);
+  const [full, setFull] = useState<Big | null>(null), dlg = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null);
   const feeds: Record<DriveCh, DriveFeed> = { rgb: useDriveFeed(r.id, 'rgb'), lidar: useDriveFeed(r.id, 'lidar'), depth: useDriveFeed(r.id, 'depth', full === 'depth') };   // 뎁스는 고른 동안만 연다
   /** 전체화면 닫기는 이것 하나(Esc·작게 보기): 눌린 이동 키를 버리고 바로 0 을 보낸 뒤 닫는다(#214 r1) */
   const fullRef = useRef(full); fullRef.current = full;
@@ -383,9 +388,10 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     return () => { undo(); back?.focus(); };
   }, [!!full]);
 
-  const view = (ch: DriveCh, big: boolean) => <DriveView f={feeds[ch]} ch={ch} big={big} robot={r.id} />;
+  const go2 = go2Pose(d.s, !!d.s && rt.now() - d.l.stateAt < REPORT_STALE_MS);   // 3D 속 Go2 관절각(없거나 오래되면 null = 선 자세)
+  const view = (ch: Big, big: boolean) => (ch === 'box' ? <DriveView f={feeds.lidar} ch="lidar" big={big} look="boxes" go2={go2} /> : <DriveView f={feeds[ch]} ch={ch} big={big} robot={r.id} go2={go2} />);
   const box = (children: ReactNode, h?: number) => <div style={{ position: 'relative', flex: 1, minHeight: h, background: '#070A0C', borderRadius: 8, overflow: 'hidden' }}>{children}</div>;
-  const open = (ch: DriveCh) => (e: { currentTarget: HTMLElement }) => { opener.current = e.currentTarget; setFull(ch); };
+  const open = (ch: Big) => (e: { currentTarget: HTMLElement }) => { opener.current = e.currentTarget; setFull(ch); };
   // 조종 시작/끝내기 한 줄 — 작은 패널과 조종 화면 중 보이는 쪽 하나에만(같은 id 두 번 없게)
   const control = <>
     {mine ? <div className="fh-row">{d.hint}{d.end}</div> : d.begin}
@@ -405,7 +411,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     {!full && control}
     <button type="button" className="btn pri" data-sd-open onClick={open(stacked(feeds.lidar) ? 'lidar' : 'rgb')}>조종 화면 열기 — 카메라·라이다·조작부</button>
     {notes}
-    {full && <div role="dialog" aria-modal="true" aria-label={`${CH_NAME[full]} 전체화면`} data-sd-full ref={dlg} onKeyDown={trapTab}
+    {full && <div role="dialog" aria-modal="true" aria-label={`${BIG_NAME[full]} 전체화면`} data-sd-full ref={dlg} onKeyDown={trapTab}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)', overflow: 'hidden' }}>
       {/* 머리줄(STOP)은 스크롤하지 않음 — 아래 본문만 스크롤해 어떤 스크롤 위치·상태(잠금 해제 미확인 포함)에서도 STOP 이 보이고 눌림(#216 B1) */}
       <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center', flex: 'none' }} data-sd-full-head>
@@ -415,8 +421,8 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
       {latency}
       <div data-sd-full-body style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {(stopNote || unlock) && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} data-sd-full-state>{stopNote}{unlock}</div>}
-      <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar', 'depth'] as const).map((ch) =>
-        <button key={ch} type="button" className="btn" aria-pressed={full === ch} data-sd-ch={ch} onClick={() => setFull(ch)}>{CH_NAME[ch]}</button>)}</div>
+      <div className="fh-row" role="group" aria-label="보기">{(['rgb', 'lidar', 'box', 'depth'] as const).map((ch) =>
+        <button key={ch} type="button" className="btn" aria-pressed={full === ch} data-sd-ch={ch} onClick={() => setFull(ch)}>{BIG_NAME[ch]}</button>)}</div>
       {box(view(full, true), 200)}{/* 영상을 눌러도 닫지 않는다(11-11 — 키보드 조종 중 창을 눌러 초점을 되찾다 닫히고 멈추는 일 방지). 닫기는 «작게 보기»·Esc */}
       {notes}
       {pad}
@@ -427,10 +433,10 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
 }
 
 /** 카메라·라이다·뎁스 한 칸 그림(받은 feed 그대로 — 없으면 «…신호 없음» + 까닭, 받았던 그림은 끊겨도 흐리게 남기고 «마지막 그림 · N초 전»). 패널 전체화면과 세 칸 화면 가운데 칸이 같이 쓴다.
- *  robot 을 주면 큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기(slamview.tsx — 로봇이 Unitree 앱으로 만드는 지도) */
-export function DriveView({ f, ch, big, robot }: { f: DriveFeed; ch: DriveCh; big: boolean; robot?: string }) {
+ *  robot 을 주면 큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기(slamview.tsx — 로봇이 Unitree 앱으로 만드는 지도), look·go2 = 3D 점/상자·Go2 관절각(RB-UNITREE-LOOK-FIX) */
+export function DriveView({ f, ch, big, robot, look, go2 }: { f: DriveFeed; ch: DriveCh; big: boolean; robot?: string; look?: Look; go2?: Pose }) {
   const text = driveFeedText(f, ch), held = driveFeedHeld(f), pic = !text || !!held, dim = held ? 0.55 : undefined;
-  if (ch === 'lidar') return big && robot ? <MapPick robot={robot} ours={<LidarMap feed={f} empty={text} />} /> : <LidarMap small={!big} feed={f} empty={text} />;
+  if (ch === 'lidar') { const lm = <LidarMap small={!big} feed={f} empty={text} look={look} go2={go2} />; return big && robot ? <MapPick robot={robot} ours={lm} /> : lm; }
   if (ch === 'depth') return !pic || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
     : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
       <img src={f.img} alt={`뎁스 카메라${held ? '(마지막 그림)' : ''} — 가까움 빨강, 멀리 파랑, 검정은 거리 모름`} draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain', opacity: dim }} data-sd-depth />

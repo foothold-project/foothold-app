@@ -10,7 +10,7 @@ import { Stick } from './drive';
 import { inputGen } from './rt';
 import { Video, stopText, useTick } from './simdrive';
 import { feedText, media, reasonText, useFeed, type Feed, type MediaChannel } from './media';
-import { Lidar3D } from './lidar3d';
+import { Lidar3D, type Look } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
 import type { Tone } from './fake';
 import './realdrive.css';
@@ -48,7 +48,7 @@ export function RealDrive() {
   const hasMedia = !!s.robot?.agent_address, lf = useFeed('lidar', hasMedia), rf = useFeed('rgb', false);
   // 새 판이 와도 그 판의 점이 0개(또는 FEW 미만)면 빈 라이다 — «라이다 기다리는 중», 큰 화면 = 카메라(2초 규칙과 같은 길, RV-454 2). 누적 n 이 아니라 최근 판(last, RV-455 2)
   const fresh = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOk = fresh && (lf.last ?? 0) >= FEW, lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
-  const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk && pick === 'lidar' ? 'lidar' : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false);
+  const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk && pick === 'lidar' ? 'lidar' : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false), [look, setLook] = useState<Look>('points');
   const had = useRef(false);
   useEffect(() => { if (lidarOk) had.current = true; else if (had.current) setPick('rgb'); }, [lidarOk]);
   // 교환은 pointerup(RV-454 1): 스틱을 쥔 채 누른 두 번째 손가락엔 click 이 생기지 않는다. 이 단추에서 누르고 단추 안에서 뗀 손가락만(스틱 손가락은 스틱이 잡고 있어 여기 오지 않음),
@@ -116,8 +116,11 @@ export function RealDrive() {
     <div className="dv-body"><div className="dv-stage rgb">
       <div className={`rd-view ${main === 'rgb' ? 'big' : 'pip'}`} data-real-view="rgb"><Video ch="rgb" fit="cover" quiet={!!rgbText} />{rgbText && <QEmpty text={rgbText} />}{swap('rgb')}</div>
       <div className={`rd-view ${lidarBig ? 'big' : 'pip'}`} data-real-view="lidar" data-off={!hasMedia || undefined}>
-        {lidarOn && (no3d ? <Cloud3D small={false} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={false} ratio={1} onFail={() => setNo3d(true)} />)}
+        {lidarOn && (no3d ? <Cloud3D small={false} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={false} ratio={1} look={look} onFail={() => setNo3d(true)} />)}
         {lidarText && <QEmpty text={lidarText} />}
+        {/* 큰 화면 고르기 «점 ↔ 상자»(11-20 RB-UNITREE-LOOK-FIX) — 같은 3D 그림에서 모양만 바꿈(WebGL 다시 만들지 않음). 작은 창 아래 */}
+        {lidarBig && !no3d && <button type="button" className="btn" aria-pressed={look === 'boxes'} data-real-look={look} onClick={() => setLook(look === 'boxes' ? 'points' : 'boxes')}
+          style={{ position: 'absolute', zIndex: 2, left: 8, top: 'calc(68px + clamp(120px, 24vw, 220px) * 0.75)' }}>{look === 'boxes' ? '점으로 보기' : '상자로 보기'}</button>}
         {swap('lidar')}
       </div>
       <div className="dv-safe">

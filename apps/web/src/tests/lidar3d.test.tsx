@@ -3,11 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DriveFeed } from '../drivemedia';
-import { CAP_BIG, CAP_PHONE, CAP_SMALL, capFor, fillBoxes } from '../lidar3d';
+import { BLOCK, BLOCK_UP, CAP_BIG, CAP_PHONE, CAP_SMALL, Lidar3D, TOP_M, capFor, fillBoxes, fillRange } from '../lidar3d';
+import { JOINTS, type Pose } from '../go2model';
 import { CEIL_M } from '../drivemedia';
 import { LidarMap } from '../lidarmap';
 
-const gl = { ok: true, renders: 0, alive: 0, drawn: -1 };
+const gl = { ok: true, renders: 0, alive: 0, drawn: -1, up: 0, inst: 0, pts: 0, snap: '' };
+type Inst = { rotation: { x: number; y: number }; isInstancedMesh?: boolean; isPoints?: boolean; count: number; instanceMatrix: { version: number }; geometry: { drawRange: { count: number }; attributes: { position: { version: number } } } };
+const seenVer = new WeakMap<object, number>();
 vi.mock('three', async (orig) => {
   const T = await orig<typeof import('three')>();
   class FakeRenderer {
@@ -15,7 +18,17 @@ vi.mock('three', async (orig) => {
     constructor() { if (!gl.ok) throw new Error('Error creating WebGL context.'); gl.alive++; }
     setPixelRatio() {} setSize() {} dispose() {}
     forceContextLoss() { gl.alive--; }
-    render(scene: { children: { isInstancedMesh?: boolean; count?: number }[] }) { gl.renders++; gl.drawn = scene.children.find((c) => c.isInstancedMesh)!.count!; }
+    render(scene: { traverse: (f: (o: Inst) => void) => void }) {   // drawn = 상자 묶음 합, up = 이번에 GPU 로 다시 올린 묶음 수(가장 큰 값)
+      gl.renders++; gl.drawn = 0; gl.inst = 0; gl.pts = 0; let up = 0; const rot: number[] = [];
+      scene.traverse((o) => {   // 상자 묶음(InstancedMesh)·점 묶음(Points) 둘 다 · snap = 모든 것의 돌림(Go2 다리)
+        rot.push(o.rotation.x, o.rotation.y);
+        if (!o.isInstancedMesh && !o.isPoints) return;
+        const [n, ver] = o.isInstancedMesh ? [o.count, o.instanceMatrix.version] : [o.geometry.drawRange.count, o.geometry.attributes.position.version];
+        gl.drawn += n; if (o.isInstancedMesh) gl.inst++; else gl.pts++; if (seenVer.get(o) !== ver) { up++; seenVer.set(o, ver); }
+      });
+      gl.snap = rot.join();
+      gl.up = Math.max(gl.up, up);
+    }
   }
   return { ...T, WebGLRenderer: FakeRenderer };
 });
@@ -23,12 +36,12 @@ vi.mock('three', async (orig) => {
 const feed = (n: number, ver: number, frame = 'odom'): DriveFeed => ({ state: 'live', why: '', at: 0, seq: ver, img: '', xyz: new Float32Array(n * 3).map((_, i) => i % 7), n, frame, truncated: false, ver,
   range: null, pose: frame === 'odom' ? { x: 1, y: 2, z: 0, yaw: 0.3 } : null, path: [], grid: null, wipe: () => {} } as DriveFeed);
 let root: Root | null = null, box: HTMLDivElement;
-const show = (f: DriveFeed, o: { small?: boolean; start?: '3d' | 'top' } = {}) => act(() => { root!.render(<LidarMap feed={f} empty="" {...o} />); });
+const show = (f: DriveFeed, o: { small?: boolean; start?: '3d' | 'top' } = {}) => { act(() => { root!.render(<LidarMap feed={f} empty="" {...o} />); }); act(() => { vi.advanceTimersByTime(2); }); };   // 처음 열기는 두 조각(setTimeout 0 — 가짜 타이머는 안에서 건 0 을 1 ms 로)으로 나뉨
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const setHidden = (h: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
 
 beforeEach(() => {
-  gl.ok = true; gl.renders = 0; gl.alive = 0; gl.drawn = -1; vi.useFakeTimers(); setHidden(false);
+  gl.ok = true; gl.renders = 0; gl.alive = 0; gl.drawn = -1; gl.up = 0; vi.useFakeTimers(); setHidden(false);
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);   // jsdom 엔 그림판 없음(상자 면 무늬는 없이) — «Not implemented» 소음 끔
@@ -75,6 +88,43 @@ describe('라이다 칸 3D', () => {
 
   it('상자 상한은 칸 크기별: 작은 칸 < 폰 < PC', () => {
     expect([capFor(true, 1280, 800), capFor(false, 390, 844), capFor(false, 844, 390), capFor(false, 1280, 800)]).toEqual([CAP_SMALL, CAP_PHONE, CAP_PHONE, CAP_BIG]);
+    expect(capFor(false, 203, 152)).toBe(CAP_SMALL);   // 폰 직결 작은 창(small 아님)도 크기로 작은 칸
+  });
+
+  /** 프레임 대기열(jsdom 엔 그리기 프레임이 없다) — frames() = 남은 프레임을 다 돌리고 돈 수 */
+  const rafQueue = () => {
+    let q: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => q.push(f));
+    vi.stubGlobal('cancelAnimationFrame', () => { q = []; });
+    return () => { let k = 0; while (q.length && k < 500) { const f = q; q = []; act(() => f.forEach((x) => x(0))); k++; } return k; };
+  };
+
+  it('RV-460 1: 20만 칸 3D 는 한 번에 다 만들지 않고 여러 프레임에 나눠 채운다(한 번에 GPU 로 올리는 묶음 ≤ BLOCK_UP)', () => {
+    const frames = rafQueue();
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1268);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(614);
+    show(feed(CAP_BIG, 1));
+    expect(gl.drawn).toBeLessThanOrEqual(BLOCK * BLOCK_UP);   // 첫 손 = 묶음 몇 개만
+    expect(frames()).toBeGreaterThan(3);
+    expect(gl.drawn).toBe(CAP_BIG);
+    expect(gl.up).toBeLessThanOrEqual(BLOCK_UP);
+    const r0 = gl.renders;   // 새 판인데 내용이 같으면 다시 올리지 않는다(바뀐 묶음만)
+    show(feed(CAP_BIG, 2)); act(() => { vi.advanceTimersByTime(600); }); frames();
+    expect(gl.renders).toBe(r0 + 1);
+  });
+
+  it('RV-460 2: 칸 크기가 바뀌면 그 크기의 상한으로 다시(PC 20만 → 폰 6만 → 작은 창 2만 → PC)', () => {
+    const frames = rafQueue();
+    const size = (w: number, h: number) => { vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(w); vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(h); };
+    size(1268, 614);
+    show(feed(CAP_BIG, 1)); frames();
+    expect(gl.drawn).toBe(CAP_BIG);
+    size(378, 658); act(() => { vi.advanceTimersByTime(600); }); frames();
+    expect(gl.drawn).toBeLessThanOrEqual(CAP_PHONE); expect(gl.drawn).toBeGreaterThan(CAP_PHONE * 0.6);
+    size(203, 152); act(() => { vi.advanceTimersByTime(600); }); frames();
+    expect(gl.drawn).toBeLessThanOrEqual(CAP_SMALL); expect(gl.drawn).toBeGreaterThan(CAP_SMALL * 0.6);
+    size(1268, 614); act(() => { vi.advanceTimersByTime(600); }); frames();
+    expect(gl.drawn).toBe(CAP_BIG);
   });
 
   it('범례 «바닥 → 높음»(개발자 말 없음), 손으로 확대하면 «로봇 뒤에서 보기» 하나로 되돌림', () => {
@@ -142,6 +192,42 @@ describe('라이다 칸 3D', () => {
     expect(gl.alive).toBe(1);
     act(() => root!.unmount()); root = null;
     expect(gl.alive).toBe(0);
+  });
+
+  it('RB-UNITREE-LOOK-FIX A·B: 라이다 칸은 점(Points), «보기» 줄 «상자»는 같은 그림을 상자(InstancedMesh)로 — WebGL 하나 그대로, 다시 3D 면 점', () => {
+    act(() => root!.render(<LidarMap feed={feed(3, 1)} empty="" pick />)); act(() => { vi.advanceTimersByTime(600); });
+    expect(gl.pts).toBeGreaterThan(0); expect(gl.inst).toBe(0); expect($('[data-lidar3d]')!.dataset.l3Look).toBe('points');
+    expect($('.qd-legend')?.textContent).toContain('바닥');
+    act(() => { $('[data-lm-view="box"]')!.click(); }); act(() => { vi.advanceTimersByTime(600); });
+    expect($('[data-lidar3d]')!.dataset.l3Look).toBe('boxes'); expect(gl.inst).toBeGreaterThan(0); expect(gl.pts).toBe(0);
+    expect(gl.alive).toBe(1); expect(gl.drawn).toBe(3);
+    act(() => { $('[data-lm-view="3d"]')!.click(); }); act(() => { vi.advanceTimersByTime(600); });
+    expect(gl.pts).toBeGreaterThan(0); expect(gl.inst).toBe(0); expect(gl.alive).toBe(1);
+    act(() => root!.render(<LidarMap feed={feed(3, 1)} empty="" />));
+    expect($('[data-lm-view="box"]')).toBeNull();   // pick 없으면(서버 경유 — 바깥 고르기가 «상자») 줄엔 3D·위에서만
+  });
+
+  it('RB-UNITREE-LOOK-FIX ①: 점 색 = 영상 B·저장 지도(바닥 초록 → 위 빨강·분홍), 자리는 받은 그대로(5 cm 맞춤 없음)', () => {
+    const xyz = new Float32Array([0.013, 0, 0, 0.013, 0, TOP_M + 1]), pos = new Float32Array(6), col = new Float32Array(6);
+    expect(fillRange(pos, col, xyz, 2, 10, 0, 0, 2, false)).toEqual([2, true]);
+    expect(pos[0]).toBeCloseTo(0.013, 5);
+    const [r0, g0, b0, r1, g1, b1] = col;
+    expect(g0).toBeGreaterThan(r0 * 2); expect(g0).toBeGreaterThan(b0 * 2);   // 바닥 = 초록(청록 아님)
+    expect(r1).toBeGreaterThan(g1 * 2); expect(b1).toBeGreaterThan(g1);   // 위 = 분홍
+  });
+
+  it('RB-UNITREE-LOOK-FIX E: 받은 관절각이 바뀌면 3D 속 Go2 다리가 그 판에 바로 움직이고, 없으면 선 자세 + «자세 정보 없음»', () => {
+    const f = feed(3, 1), at = (go2: Pose) => act(() => root!.render(<Lidar3D feed={f} small={false} onFail={() => {}} go2={go2} />));
+    at(null); act(() => { vi.advanceTimersByTime(600); });
+    const stand = gl.snap;
+    expect($('[data-l3-nopose]')!.textContent).toBe('자세 정보 없음 — 서 있는 모양으로 보입니다');
+    const pose = (v: number): Pose => ({ q: JOINTS.map(() => v), wxyz: [1, 0, 0, 0] });
+    let r0 = gl.renders; at(pose(0.3));
+    expect(gl.renders).toBe(r0 + 1); expect(gl.snap).not.toBe(stand); expect($('[data-l3-nopose]')).toBeNull();   // 2 Hz 판 기다리지 않음
+    const a = gl.snap; r0 = gl.renders; at(pose(0.3));
+    expect(gl.renders).toBe(r0);   // 값이 같은 새 객체 = 다시 그리지 않음
+    at(pose(0.6)); expect(gl.snap).not.toBe(a);
+    at(null); expect(gl.snap).toBe(stand); expect($('[data-l3-nopose]')).toBeTruthy();   // 끊기면 선 자세로(꾸미지 않음)
   });
 
   it('칸이 화면 밖이면 새 판이 와도 버퍼·그리기 멈춤, 돌아오면 최신 판으로 한 번', () => {

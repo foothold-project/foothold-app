@@ -14,13 +14,13 @@ import type { Found } from '../nearby';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // 3D 칸(WebGL)은 jsdom 에 없다 — 같은 자리에 마운트 수·small 값을 세는 칸을 둔다. 마운트 1회 = WebGL 문맥 1개(RV-449 ②: 교환마다 새로 만들면 명령 주기가 끊김)
-const l3 = vi.hoisted(() => ({ mounts: 0, smalls: [] as boolean[], ratios: [] as (number | undefined)[] }));
+const l3 = vi.hoisted(() => ({ mounts: 0, smalls: [] as boolean[], ratios: [] as (number | undefined)[] }));   // look = 점/상자(11-20 RB-UNITREE-LOOK-FIX)
 vi.mock('../lidar3d', async (orig) => {
   const { useEffect } = await import('react');
-  return { ...(await orig<object>()), Lidar3D({ small, ratio }: { small: boolean; ratio?: number }) {
+  return { ...(await orig<object>()), Lidar3D({ small, ratio, look }: { small: boolean; ratio?: number; look?: string }) {
     l3.smalls.push(small); l3.ratios.push(ratio);
     useEffect(() => { l3.mounts++; }, [small]);   // lidar3d 는 small 이 바뀌면 WebGL 을 새로 만든다 — 같은 조건으로 센다
-    return <div data-lidar3d="stub" />;
+    return <div data-lidar3d="stub" data-l3-look={look} />;
   } };
 });
 
@@ -145,6 +145,13 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(l3.mounts).toBe(1);
     expect(new Set(l3.smalls)).toEqual(new Set([false]));   // 크기는 CSS 만 — small 이 바뀌면 lidar3d 가 WebGL 을 새로 만든다
     expect(new Set(l3.ratios)).toEqual(new Set([1]));   // 픽셀 비율 1 — 큰 화면이 될 때 다시 그리는 비용이 명령 주기를 막지 않게(RV-455 1)
+    // 11-20 RB-UNITREE-LOOK-FIX B: 큰 라이다 화면에서 «상자로 보기» = 같은 3D 칸의 모양만(다시 만들지 않음), 작은 창일 땐 단추 없음
+    expect($('[data-lidar3d]')!.getAttribute('data-l3-look')).toBe('points');
+    await click($('[data-real-look]'));
+    expect($('[data-lidar3d]')!.getAttribute('data-l3-look')).toBe('boxes'); expect($('[data-real-look]')!.textContent).toBe('점으로 보기');
+    expect(l3.mounts).toBe(1);
+    await click($('[data-real-swap="rgb"]'));
+    expect($('[data-real-look]')).toBeNull();
   });
 
   it('가짜 시계: 전진 스틱을 쥔 채 큰 화면을 여러 번 바꿔도 입력이 유지되고 명령이 50 ms 마다 그대로 (RV-449 ②)', async () => {

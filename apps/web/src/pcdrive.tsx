@@ -18,20 +18,10 @@ import { STALLED } from './simdrive';
 import { MakeMap } from './screens/mapmake';
 import { floorsOf, purposeOf, useTree } from './screens/maps';
 import type { Robot } from './fake';
-import { Go2Figure, JOINTS, jointName, useGo2Motion, type Pose } from './go2model';
+import { Go2Figure, JOINTS, REPORT_STALE_MS, go2Pose, jointName, useGo2Motion } from './go2model';
 import './pcdrive.css';
 
-/** 이만큼 넘게 새 보고가 없으면 «로봇 보고 없음»(서버 state 는 0.1 s 마다) */
-export const REPORT_STALE_MS = 1000;
-/** state.robot_info 에서 그림에 쓸 관절 12개 + 몸 자세. 모양이 틀리거나 연결이 끊겼거나 오래되면 null(지어내지 않음) */
-export function go2Pose(s: Live['state'], fresh: boolean): Pose {
-  const j = s?.robot_info?.joints, w = s?.robot_info?.quaternion?.wxyz;
-  if (!fresh || s?.connection !== 'ONLINE' || !j || j.positions.length !== 12 || j.names.length !== 12 || !j.positions.every(Number.isFinite) || !(j.age_s <= 1)) return null;
-  const q = JOINTS.map((n) => j.positions[j.names.indexOf(n as never)]);
-  if (q.some((v) => v === undefined)) return null;
-  const norm = w && w.length === 4 && w.every(Number.isFinite) ? Math.hypot(...w) : 0;
-  return { q, wxyz: norm > 0.9 && norm < 1.1 ? w!.map((v) => v / norm) : [1, 0, 0, 0] };
-}
+export { REPORT_STALE_MS, go2Pose } from './go2model';   // 11-20 RB-UNITREE-LOOK-FIX: 라이다 3D 속 Go2 도 같이 써서 go2model 로 옮김
 
 /** 온도 보고가 이보다 오래되면(초) 온도만 «—»(그림 흐림 규칙과 따로) */
 export const TEMP_STALE_S = 3;
@@ -121,8 +111,8 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const tiles: QTile[] = [
     { id: 'map', label: stack ? '지도 — 걸으며 만드는 중' : '지도', held: stack ? held : '', body: (z) => (stack ? <OccMap small={z === 'thumb'} feed={lidar} empty={lidarText} /> : <div className="pd-floor">{floorMap}</div>) },
     { id: 'rgb', label: '카메라', body: (z) => <Feed robot={r.id} ch="rgb" big={z === 'big'} /> },
-    { id: 'lidar', label: '라이다', held, body: (z) => z === 'big' ? <MapPick robot={r.id} left={8} top={60} ours={<LidarMap feed={lidar} empty={lidarText} tag={false} />} />   // 큰 칸이면 «우리 지도 / 로봇 지도»(serverdrive 와 같게) — 오른쪽은 작은 칸이 가려 왼쪽 «3D·위에서» 아래
-      : <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} tag /> },
+    { id: 'lidar', label: '라이다', held, body: (z) => z === 'big' ? <MapPick robot={r.id} left={8} top={60} ours={<LidarMap feed={lidar} empty={lidarText} tag={false} pick go2={pose} />} />   // 큰 칸이면 «우리 지도 / 로봇 지도»(serverdrive 와 같게) — 오른쪽은 작은 칸이 가려 왼쪽 «3D·상자·위에서» 아래
+      : <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} tag pick go2={pose} /> },   // pick: «보기» 줄 3D(점)·상자·위에서(11-20 RB-UNITREE-LOOK-FIX — 4칸 틀 그대로)
     { id: 'depth', label: '뎁스', body: (z) => <Feed robot={r.id} ch="depth" big={z === 'big'} /> },
   ];
   const fact = (k: string, v: ReactNode, attr: string) => <div className="pd-fact" data-pd={attr}><span className="lbl">{k}</span><b>{v}</b></div>;

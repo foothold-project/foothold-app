@@ -233,9 +233,11 @@ function receive(m: { t?: unknown }) {
   }
 }
 
-/** 상세 서랍에 보이는 위치(0.1 m·초)·장치 — 이것만 바뀌어도 다시 그린다 */
+/** 상세 서랍에 보이는 위치(0.1 m·초)·장치 — 이것만 바뀌어도 다시 그린다.
+ *  11-20 RB-UNITREE-LOOK-FIX(RS-JOINTS-PATH 1): 관절·몸 자세는 새 표본(수신 시각)과 신선함(age_s ≤ 1 — pcdrive go2Pose 와 같은 선)이 바뀔 때만 — 같은 표본의 나이만 바뀌면 그대로 */
 const d1 = (rad?: number | null) => (rad == null ? null : ((rad * 180) / Math.PI).toFixed(1));
-const info = (x?: ScreenState['robot_info']) => x && [d1(x.attitude?.roll), d1(x.attitude?.pitch), x.error_code, x.fallen];
+const info = (x?: ScreenState['robot_info']) => x && [d1(x.attitude?.roll), d1(x.attitude?.pitch), x.error_code, x.fallen,
+  x.joints && [x.joints.received_at, x.joints.age_s <= 1], x.quaternion?.received_at];
 const shown = (s: ScreenState) => {
   const l = s.location;
   const relay = s.phone_relay;

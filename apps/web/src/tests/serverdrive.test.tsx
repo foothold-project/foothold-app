@@ -657,6 +657,10 @@ describe('서버 경유 카메라·라이다', () => {
     scan(lid, head(2, 3, { pose: { x: 1, y: 0, z: 0, yaw: 0.5 } }), [1.01, 2.01, 0.51, 3, 3, 0, 4, 4, 9]);   // 첫 점 = 같은 칸, 끝 점 = 천장(11-20 RB-UNITREE-LOOK-WEB: 3D 누적엔 넣고 위에서 본 그림에서만 숨김)
     expect(map()!.dataset.lidarMap).toBe('4');
     expect(map()!.dataset.path).toBe('2');
+    // 11-20 RB-UNITREE-LOOK-FIX B: 큰 화면 고르기 «상자» = 같은 쌓인 점(jsdom 은 WebGL 없어 위에서 본 그림), 다시 «라이다»
+    click($('[data-sd-full] [data-sd-ch="box"]')!);
+    expect($('[data-sd-full] [data-sd-ch="box"]')!.getAttribute('aria-pressed')).toBe('true'); expect(map()!.dataset.lidarMap).toBe('4');
+    click($('[data-sd-full] [data-sd-ch="lidar"]')!);
     // 지도를 보면서 바로 조종: 같은 화면에 조작부 8개·STOP, 키도 그대로
     expect(document.querySelectorAll('[data-sd-full] [data-sd-move]').length).toBe(8);
     expect($('[data-sd-full] [data-sd-stop="full"]')).toBeTruthy();

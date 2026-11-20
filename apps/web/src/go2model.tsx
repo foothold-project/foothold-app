@@ -4,6 +4,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type { Go2RobotInfo } from '../../contracts/ts';
+import type { Live } from './rt';
 
 /** Go2 관절 이름 순서(mobile/sim/go2-replay.js GO2_JOINTS 와 같음) · 서 있는 기본 자세(보고 없을 때 그림) */
 export const JOINTS = ['FR', 'FL', 'RR', 'RL'].flatMap((leg) => ['hip', 'thigh', 'calf'].map((part) => `${leg}_${part}_joint`));
@@ -41,6 +42,18 @@ const LEGEND = { w: 150, h: 18, pad: 4 };
 const PARTS = ['trunk', 'hip', 'thigh', 'thigh_mirror', 'calf'];
 
 export type Pose = { q: number[]; wxyz: number[] } | null;
+/** 이만큼 넘게 새 보고가 없으면 «로봇 보고 없음»(서버 state 는 0.1 s 마다) */
+export const REPORT_STALE_MS = 1000;
+/** state.robot_info 에서 그림에 쓸 관절 12개 + 몸 자세. 모양이 틀리거나 연결이 끊겼거나 오래되면 null(지어내지 않음) */
+export function go2Pose(s: Live['state'], fresh: boolean): Pose {
+  const j = s?.robot_info?.joints, w = s?.robot_info?.quaternion?.wxyz;
+  if (!fresh || s?.connection !== 'ONLINE' || !j || j.positions.length !== 12 || j.names.length !== 12 || !j.positions.every(Number.isFinite) || !(j.age_s <= 1)) return null;
+  const q = JOINTS.map((n) => j.positions[j.names.indexOf(n as never)]);
+  if (q.some((v) => v === undefined)) return null;
+  const norm = w && w.length === 4 && w.every(Number.isFinite) ? Math.hypot(...w) : 0;
+  return { q, wxyz: norm > 0.9 && norm < 1.1 ? w!.map((v) => v / norm) : [1, 0, 0, 0] };
+}
+
 /** 움직임: 관절 각속도 12개(rad/s) · 몸 속도(몸 기준 앞 vx·왼쪽 vy, m/s) · 회전 wz(rad/s, 왼쪽 +). 모르면 null */
 export type Motion = { dq: number[] | null; v: [number, number] | null; wz: number | null };
 type Sample = { t: number; v: number[]; at?: number };   // at = 받아들인 때의 화면 시계(performance.now, ms)
@@ -176,17 +189,26 @@ function dress(r: Rig, m: Map<string, Part> | null) {
   r.kind = 'mesh';
 }
 
-/** 라이다 3D 안에 둘 서 있는 Go2(RB-UNITREE-LOOK-WEB): 로봇 좌표(z 위·x 앞), 몸통 가운데가 원점. 모든 면을 재질 하나(mat)로. 메시(m)가 없으면 상자·막대 그림.
- *  돌려준 묶음의 모양(geometry)은 부르는 쪽이 해제한다 */
-export function go2Standing(m: Map<string, Part> | null, mat: THREE.Material) {
+/** 관절각 12개(JOINTS 순서)·몸 기울기를 다리·몸에 — 자세가 없으면(null) 선 자세·기울기 0. 방향(yaw)은 빼서 기울기(앞뒤·옆)만 */
+function lean(legs: Leg[], body: THREE.Object3D, pose: Pose) {
+  const q = pose?.q ?? STAND, [qw, qx, qy, qz] = pose?.wxyz ?? [1, 0, 0, 0];
+  legs.forEach((l, i) => { l.hip.rotation.x = q[i * 3]; l.thigh.rotation.y = q[i * 3 + 1]; l.calf.rotation.y = q[i * 3 + 2]; });
+  body.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -yawOf([qw, qx, qy, qz])).multiply(new THREE.Quaternion(qx, qy, qz, qw));
+}
+
+/** 라이다 3D 안에 둘 Go2(RB-UNITREE-LOOK-WEB · 11-20 RB-UNITREE-LOOK-FIX E): 로봇 좌표(z 위·x 앞), 몸통 가운데가 원점. 모든 면을 재질 하나(mat)로. 메시(m)가 없으면 상자·막대 그림.
+ *  pose(p) = 받은 관절각·기울기로(Go2Figure 와 같은 lean), null 이면 선 자세. 돌려준 묶음의 모양(geometry)은 부르는 쪽이 해제한다 */
+export function go2Body(m: Map<string, Part> | null, mat: THREE.Material) {
   const r = makeRig(null);
   dress(r, m);
-  r.legs.forEach((l, i) => { l.hip.rotation.x = STAND[i * 3]; l.thigh.rotation.y = STAND[i * 3 + 1]; l.calf.rotation.y = STAND[i * 3 + 2]; });
+  lean(r.legs, r.body, null);
   r.world.remove(r.body);
   free(r);   // 몸 밖(바닥 격자·화살표)과 원래 재질만 해제 — 몸 모양은 떼어 둬서 남는다
   r.body.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = mat; });
-  return r.body;
+  return { body: r.body, pose: (p: Pose) => lean(r.legs, r.body, p) };
 }
+/** 선 자세 몸(slamview.tsx 로봇 지도 3D) */
+export const go2Standing = (m: Map<string, Part> | null, mat: THREE.Material) => go2Body(m, mat).body;
 
 /** 몸 화살표 글자의 시험용 표시(data-go2-move · data-go2-turn=left|right) */
 const ARROW_TAG: Record<string, [string, string]> = { move: ['data-go2-move', ''], left: ['data-go2-turn', 'left'], right: ['data-go2-turn', 'right'] };
@@ -212,11 +234,7 @@ const LEG: Record<string, string> = { FR: '앞 오른', FL: '앞 왼', RR: '뒤 
 export const jointName = (n: string) => `${LEG[n.slice(0, 2)]} ${PART[n.split('_')[1]]}`;
 /** 자세를 놓고, 관절·화살표 끝을 화면 px 로. 관절 화살표 = 각속도 부호 × (돌림축이 카메라 쪽이면 +) — 오른손 법칙대로 + 는 보는 사람에게 반시계(↺) */
 function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number, view: View = HOME) {
-  const q = pose?.q ?? STAND, [qw, qx, qy, qz] = pose?.wxyz ?? [1, 0, 0, 0];
-  r.legs.forEach((l, i) => { l.hip.rotation.x = q[i * 3]; l.thigh.rotation.y = q[i * 3 + 1]; l.calf.rotation.y = q[i * 3 + 2]; });
-  // 몸은 기울기(앞뒤·옆)만 — 방향(yaw)은 빼서 늘 같은 쪽에서 본다(회전은 굽은 화살표로)
-  const full = new THREE.Quaternion(qx, qy, qz, qw), yaw = yawOf([qw, qx, qy, qz]);
-  r.body.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -yaw).multiply(full);
+  lean(r.legs, r.body, pose);   // 몸은 기울기(앞뒤·옆)만 — 방향(yaw)은 빼서 늘 같은 쪽에서 본다(회전은 굽은 화살표로)
   const v = mo.v && Math.hypot(...mo.v) >= MOVE_MIN ? mo.v : null, wz = mo.wz != null && Math.abs(mo.wz) >= TURN_MIN ? mo.wz : null;
   r.move.visible = !!v; if (v) r.move.rotation.z = Math.atan2(v[1], v[0]);
   r.turn.visible = wz != null; r.turn.scale.y = wz != null && wz < 0 ? -1 : 1;
