@@ -90,7 +90,7 @@ describe('로봇 지도', () => {
   it('2.5초 새 판이 없거나 NO_SLAM 이면 비우고 안내만(남겨 두지 않음)', () => {
     mount(); scan(); act(() => { pick('robot').click(); });
     tick(GONE_MS - 600); expect(n()).toBe(2);
-    tick(1100);   // 0.5초마다 보므로 늦어도 3초 안
+    tick(600);   // 마지막 판 뒤 2.5초
     expect($('[data-slam-view]')).toBeNull(); expect($('[data-slam-empty]')!.textContent).toBe(SLAM_HINT); expect(pick('robot').disabled).toBe(true);
     scan({ seq: 2 }); expect(n()).toBe(2);
     act(() => { sock('slam').recv({ t: 'media.status', version: 'media/1', robot: R, epoch: 8, episode_id: null, channel: 'slam', state: 'NO_SLAM', reason: 'SLAM 자료 없음' }); });
@@ -148,6 +148,46 @@ describe('로봇 지도', () => {
     mount(false);
     expect($('[data-pick="robot"]')).toBeNull(); expect($('[data-slam-empty]')!.textContent).toBe(SLAM_HINT);
     scan(); expect(n()).toBe(2);
+  });
+
+  // RV-461 2: 검증을 통과한 판만 epoch 를 바꾼다 — 상한 넘은 epoch 9 판 하나로 지도가 지워지거나 그 뒤 epoch 8 판을 버리면 안 됨
+  it('틀린 새 epoch 판은 버리고 이전 지도·epoch 유지', () => {
+    mount(); scan(); act(() => { pick('robot').click(); });
+    scan({ epoch: 9, seq: 1, count: 4001, byte_length: 4001 * 12 }, body(4001));
+    expect(n()).toBe(2);
+    act(() => { sock('slam_pose').recv(pose({ epoch: 9, pose: { x: NaN, y: 0, z: 0, yaw: 0 } })); });   // 틀린 위치도 epoch 를 못 바꿈
+    expect(n()).toBe(2);
+    scan({ seq: 2, count: 3, byte_length: 36 }, body(3));
+    expect(n()).toBe(3);
+  });
+
+  // RV-461 3: 계약(count ≥ 1, frame 비지 않음)
+  it('0점·빈 frame 판은 거절', () => {
+    expect(slamHeader(head({ count: 0, byte_length: 0 }))).toBeNull();
+    expect(slamHeader(head({ frame: '' }))).toBeNull();
+    expect(slamPose(pose({ frame: '' }))).toBeNull();
+  });
+
+  // RV-461 4: 위치가 NO_SLAM·무자료가 되면 지나온 길도 비움
+  it('위치 NO_SLAM·무자료면 지나온 길도 비운다', () => {
+    mount(); scan(); act(() => { pick('robot').click(); });
+    const walk = (seq: number) => act(() => { sock('slam_pose').recv(pose({ seq, pose: { x: seq, y: 0, z: 0.3, yaw: 0 } })); });
+    walk(1); walk(2); walk(3);
+    expect($('[data-slam-view]')!.dataset.slamPath).toBe('3');
+    act(() => { sock('slam_pose').recv({ t: 'media.status', version: 'media/1', robot: R, epoch: 8, episode_id: null, channel: 'slam_pose', state: 'NO_SLAM', reason: 'SLAM 자료 없음' }); });
+    expect($('[data-slam-view]')!.dataset.slamPath).toBe('0');
+    walk(4); walk(5); scan({ seq: 2 });
+    expect($('[data-slam-view]')!.dataset.slamPath).toBe('2');
+    tick(GONE_MS); scan({ seq: 3 });   // 위치만 끊김 → 길도 비움
+    expect($('[data-slam-view]')!.dataset.slamPath).toBe('0');
+  });
+
+  // RV-461 5: 무자료 안내는 마지막 수신 뒤 정확히 2.5초
+  it('무자료 안내는 2.5초에', () => {
+    mount(); scan(); act(() => { pick('robot').click(); });
+    tick(300); scan({ seq: 2 });
+    tick(GONE_MS - 1); expect(n()).toBe(2);
+    tick(1); expect($('[data-slam-empty]')).not.toBeNull();
   });
 
   it('로봇이 연결 안 됨이면 열지 않는다', () => {
