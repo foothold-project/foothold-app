@@ -176,6 +176,18 @@ function dress(r: Rig, m: Map<string, Part> | null) {
   r.kind = 'mesh';
 }
 
+/** 라이다 3D 안에 둘 서 있는 Go2(RB-UNITREE-LOOK-WEB): 로봇 좌표(z 위·x 앞), 몸통 가운데가 원점. 모든 면을 재질 하나(mat)로. 메시(m)가 없으면 상자·막대 그림.
+ *  돌려준 묶음의 모양(geometry)은 부르는 쪽이 해제한다 */
+export function go2Standing(m: Map<string, Part> | null, mat: THREE.Material) {
+  const r = makeRig(null);
+  dress(r, m);
+  r.legs.forEach((l, i) => { l.hip.rotation.x = STAND[i * 3]; l.thigh.rotation.y = STAND[i * 3 + 1]; l.calf.rotation.y = STAND[i * 3 + 2]; });
+  r.world.remove(r.body);
+  free(r);   // 몸 밖(바닥 격자·화살표)과 원래 재질만 해제 — 몸 모양은 떼어 둬서 남는다
+  r.body.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = mat; });
+  return r.body;
+}
+
 /** 몸 화살표 글자의 시험용 표시(data-go2-move · data-go2-turn=left|right) */
 const ARROW_TAG: Record<string, [string, string]> = { move: ['data-go2-move', ''], left: ['data-go2-turn', 'left'], right: ['data-go2-turn', 'right'] };
 const deg = (v: number) => Math.round((v * 180) / Math.PI);

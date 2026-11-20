@@ -1,4 +1,4 @@
-// 쌓는 라이다 지도(drivemedia.ts stack, 11-13 RB-MAP-VIEW-WEB): 5 cm 칸 중복 제거 · 상한을 넘으면 오래된 점부터 버림 · 천장 버림 · 지나온 길
+// 쌓는 라이다 지도(drivemedia.ts stack, 11-13 RB-MAP-VIEW-WEB): 5 cm 칸 중복 제거 · 상한을 넘으면 오래된 점부터 버림 · 높은 점도 남김 · 지나온 길
 import { describe, expect, it } from 'vitest';
 import { CEIL_M, PATH_MAX, STACK_MAX, stack } from '../drivemedia';
 
@@ -22,12 +22,10 @@ describe('쌓는 라이다 지도', () => {
     s.add(new Float32Array([1, 0, 0, 4, 0, 0]), P);   // 1 은 버려졌으니 다시 들어가고(2 를 밀어냄), 4 는 아직 있어 중복
     expect(pts(s).sort()).toEqual([1, 3, 4]);
   });
-  it('로봇보다 훨씬 높은 점(천장)은 쌓지 않는다 — 로봇 높이 기준', () => {
+  it('로봇보다 높은 점(높은 벽·천장)도 쌓는다 — 3D 용(천장 숨기기는 위에서 본 그림에서만, 11-20 RB-UNITREE-LOOK-WEB)', () => {
     const s = stack();
-    s.add(new Float32Array([0, 0, CEIL_M + 0.1, 1, 0, CEIL_M - 0.1]), P);
-    expect(s.n).toBe(1);
-    s.add(new Float32Array([0, 0, CEIL_M + 0.1]), { ...P, z: 0.5 });
-    expect(s.n).toBe(2);
+    s.add(new Float32Array([0, 0, CEIL_M + 0.1, 1, 0, CEIL_M - 0.1, 2, 0, 3]), P);
+    expect(s.n).toBe(3);
   });
   it('지나온 길: 5 cm 넘게 움직였을 때만 잇고, 상한을 넘으면 앞에서 버린다', () => {
     const s = stack(10), none = new Float32Array(0);

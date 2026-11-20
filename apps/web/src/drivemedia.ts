@@ -17,7 +17,8 @@ export type Pose = { x: number; y: number; z: number; yaw: number };
 /** pose·path·grid = 쌓는 지도일 때 로봇 위치·지나온 길(x,y 를 이어 붙인 것)·2D 격자 지도(occgrid.ts), wipe = «처음부터 다시»(화면에 쌓은 것만 지움) */
 export type DriveFeed = Feed & { range: [number, number] | null; pose: Pose | null; path: number[]; grid: OccGrid | null; wipe: () => void };
 type Raw = Omit<DriveFeed, 'wipe'>;
-/** 쌓는 칸 크기(m) · 쌓는 점 상한 · 길 꼭짓점 상한 · 로봇보다 이만큼 높은 점(천장)은 위에서 본 그림을 덮으므로 쌓지 않음 */
+/** 쌓는 칸 크기(m) · 쌓는 점 상한 · 길 꼭짓점 상한 · 로봇보다 이만큼 높은 점(천장)은 위에서 본 그림(lidarmap.tsx)에서만 숨긴다 —
+ *  11-20 RB-UNITREE-LOOK-WEB: 3D 는 높은 벽·천장까지 보이게 쌓을 때는 버리지 않는다(2D 격자 occgrid.ts 는 따로 +1.0 m 컷) */
 export const CELL_M = 0.05, STACK_MAX = 200_000, PATH_MAX = 5000, CEIL_M = 1.2;
 /** 칸 키(0 ≤ k < 2^53 정수) → 표 자리: 아래·위 32비트를 섞어 murmur3 fmix32 — 이웃 칸이 표에 고르게 흩어지게 */
 const cellHash = (k: number, mask: number) => {
@@ -41,7 +42,7 @@ export function stack(cap = STACK_MAX) {
       grid.add(pts, pose);
       for (let i = 0; i + 2 < pts.length; i += 3) {
         const x = pts[i], y = pts[i + 1], z = pts[i + 2], iz = Math.floor(z / CELL_M) + 1024;
-        if (z > pose.z + CEIL_M || iz < 0 || iz > 2047) continue;
+        if (iz < 0 || iz > 2047) continue;
         const k = ((Math.floor(x / CELL_M) + 2 ** 20) * 2 ** 21 + Math.floor(y / CELL_M) + 2 ** 20) * 2048 + iz, h = cellHash(k, mask);   // |x|,|y| ≤ 10 km(pointsBody) → 53비트 안
         let j = h;
         while (tk[j] >= 0 && tk[j] !== k) j = (j + 1) & mask;

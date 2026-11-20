@@ -298,8 +298,8 @@ describe('3D 표시·지형 수정하기 길', () => {
 });
 
 describe('높이색·좌표', () => {
-  it('바닥 주황(30°) → 2 m 이상 자주(300°), 음수는 바닥색', () => {
-    expect([hueAt(-1), hueAt(0), hueAt(1), hueAt(2), hueAt(5)]).toEqual([30, 30, 165, 300, 300]);
+  it('바닥 초록(120°) → 1 m 주황 쪽(45°) → 2 m 이상 분홍(330°), 음수는 바닥색', () => {
+    expect([hueAt(-1), hueAt(0), hueAt(1), hueAt(2), hueAt(5)]).toEqual([120, 120, 45, 330, 330]);
   });
   it('칸 중심 = origin + (index + .5) × 0.1', () => {
     const [x, y, z] = centerOf([-5, -4, 0], 0.1, [0, 10, -1]);

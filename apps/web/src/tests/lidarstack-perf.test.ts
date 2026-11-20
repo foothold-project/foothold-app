@@ -1,6 +1,6 @@
 // 쌓는 라이다 지도 판당 시간(11-20 RB-STACK-PERF): 5 cm 칸 중복 제거가 큰 수 Set 이라 5만 점 판에 100 ms 넘던 것 — 고친 판과 옛 판(아래 refStack)이 같은 점을 남기는지 + 판당 시간
 import { describe, expect, it } from 'vitest';
-import { CEIL_M, CELL_M, stack, type Pose } from '../drivemedia';
+import { CELL_M, stack, type Pose } from '../drivemedia';
 
 /** 고치기 전 dedupe(Set<number>, 키 = 53비트 수) 그대로 — 격자(grid)·길(path)은 뺌 */
 function refStack(cap: number) {
@@ -8,10 +8,10 @@ function refStack(cap: number) {
   let total = 0;
   return {
     xyz, get n() { return Math.min(total, cap); },
-    add(pts: Float32Array, pose: Pose) {
+    add(pts: Float32Array, _pose: Pose) {
       for (let i = 0; i + 2 < pts.length; i += 3) {
         const x = pts[i], y = pts[i + 1], z = pts[i + 2], iz = Math.floor(z / CELL_M) + 1024;
-        if (z > pose.z + CEIL_M || iz < 0 || iz > 2047) continue;
+        if (iz < 0 || iz > 2047) continue;
         const k = ((Math.floor(x / CELL_M) + 2 ** 20) * 2 ** 21 + Math.floor(y / CELL_M) + 2 ** 20) * 2048 + iz;
         if (seen.has(k)) continue;
         const w = total++ % cap;
