@@ -161,6 +161,18 @@ describe('로봇 지도', () => {
     expect(n()).toBe(3);
   });
 
+  // RV-463: 계약 밖 순번·epoch(음수·비정수·비유한·상한 넘음) 판은 epoch·순번을 바꾸지 못함 — 그 뒤 정상 epoch 8 판이 그대로 보여야 함
+  it('계약 밖 순번·epoch 판은 버리고 이전 epoch 유지', () => {
+    mount(); scan(); act(() => { pick('robot').click(); });
+    for (const bad of [{ seq: -1 }, { seq: 1.5 }, { seq: Infinity }, { seq: 2 ** 53 }, { epoch: -1 }, { epoch: 2 ** 53 }]) {
+      scan({ epoch: 9, count: 1, byte_length: 12, ...bad }, body(1)); expect(n()).toBe(2);
+      act(() => { sock('slam_pose').recv(pose({ epoch: 9, ...bad })); }); expect(n()).toBe(2);
+    }
+    for (const bad of [{ seq: -1 }, { seq: 2 ** 53 }]) { expect(slamHeader(head(bad))).toBeNull(); expect(slamPose(pose(bad))).toBeNull(); }
+    scan({ seq: 2, count: 3, byte_length: 36 }, body(3));
+    expect(n()).toBe(3);
+  });
+
   // RV-461 3: 계약(count ≥ 1, frame 비지 않음)
   it('0점·빈 frame 판은 거절', () => {
     expect(slamHeader(head({ count: 0, byte_length: 0 }))).toBeNull();
