@@ -131,6 +131,8 @@ class Go2Sink:
         self._feedback_received = float("-inf")
         self._stall_sequence = 0
         self.posture_feedback = None
+        # Without a sequence provider, no posture can prove it postdates motion.
+        self.latest_sport_sequence = lambda: math.inf
         self.posture_authorized = lambda lease: False
         self._posture = None
         self._posture_stop_only = False
@@ -608,7 +610,7 @@ class Go2Sink:
         # Normal output is serialized. STOP on either lane needs newer posture
         # evidence than a sample captured before or during this motion RPC.
         with self._lock:
-            self._last_motion_sequence = self._posture_sample().get('sequence', -1)
+            self._last_motion_sequence = self.latest_sport_sequence()
             self._motion_inflight = False
 
     @staticmethod
@@ -617,7 +619,7 @@ class Go2Sink:
         return sample['state'] == 'LYING' or sample['mode'] == 10
 
     def _resting_for_stop(self, sample):
-        return (sample['still'] and self._lying_or_sitting(sample)
+        return (sample['still'] and (sample['state'] == 'LYING' or sample.get('sitting_settled', False))
                 and not self._motion_inflight
                 and sample.get('sequence', -1) > self._last_motion_sequence)
 

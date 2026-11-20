@@ -4,7 +4,7 @@ import pytest
 from foothold_agent.go2_direct.sink import ZERO
 from test_go2_actions import send
 from test_go2_feedback import low, sport
-from test_go2_posture import rig
+from test_go2_posture import request, rig
 from test_go2_remote_priority import packet
 from test_setup_pairing import rig as setup_rig
 
@@ -61,6 +61,50 @@ def test_motion_after_quiet_stop_immediately_wakes_both_lanes(mode, height, expe
     assert emergency.calls == expected
     sink.drain()
     assert normal.calls == expected
+
+
+def test_lowstate_gap_at_standup_return_requires_new_sport_before_skipping_stop():
+    clock, sink, normal, emergency, session, _, _, frame = rig(5)
+    feedback = session.feedback
+
+    def stand_up():
+        normal.calls.append(('StandUp', ()))
+        feedback.lowstate(low(3))
+        clock.value += .15
+        feedback.sportmodestate(sport(3, mode=5, body_height=.10))
+        clock.value += .07
+        return 0
+
+    normal.StandUp = stand_up
+    request(frame)
+    sink.drain()
+    assert normal.calls == [('StandUp', ())]
+    feedback.lowstate(low(4))
+    frame('stop', cause='user_stop')
+    sink.check_watchdog()
+    sink.drain()
+    assert emergency.calls == [('StopMove', ())]
+    assert normal.calls == [('StandUp', ()), ('StopMove', ())]
+
+    feedback.sportmodestate(sport(4, mode=5, body_height=.10))
+    frame('stop', cause='user_stop')
+    sink.check_watchdog()
+    sink.drain()
+    assert emergency.calls == [('StopMove', ())]
+    assert normal.calls == [('StandUp', ()), ('StopMove', ())]
+
+
+@pytest.mark.parametrize('roll,progress', [(1.4, 0.), (0., .5)])
+def test_sitting_tilt_or_transition_requires_stop_on_both_lanes(roll, progress):
+    _, sink, normal, emergency, session, _, _, frame = rig(10)
+    message = low(3)
+    message.imu_state.rpy[0] = roll
+    session.feedback.lowstate(message)
+    session.feedback.sportmodestate(sport(3, mode=10, body_height=.24, progress=progress))
+    frame('stop', cause='user_stop')
+    sink.check_watchdog()
+    sink.drain()
+    assert normal.calls == emergency.calls == [('StopMove', ())]
 
 
 def test_zero_move_returning_after_robot_lies_down_does_not_send_stopmove():
