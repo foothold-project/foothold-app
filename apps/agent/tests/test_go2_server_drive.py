@@ -43,10 +43,10 @@ def rig():
     return now, sink, normal, emergency, session, client, measured, frame
 
 
-def hold_for(now, sink, session, measured, frame, axes, seconds=1.):
-    """Fresh 20 Hz operator frames, feedback and output on a deterministic clock."""
-    for _ in range(round(seconds/.05)):
-        now.value += .05
+def hold_for(now, sink, session, measured, frame, axes, seconds=2., *, tick=.05):
+    """Fresh operator frames, feedback and output on a deterministic clock."""
+    for _ in range(round(seconds/tick)):
+        now.value += tick
         measured()
         frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=list(axes))
         sink.drain()
@@ -217,7 +217,7 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallb
             await ws.send(json.dumps(dict(t='unlock', lease_id='fake-lease', stop_gen=measured_state['stop_gen'])))
             await read(ws, lambda x:x['t']=='state' and x['latched'] is False)
             await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=0, axes=[0,0,0])))
-            for seq in range(1, 24):
+            for seq in range(1, 45):
                 await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=seq, axes=[1.5,0,.5])))
                 await asyncio.sleep(.06)
                 if ('Move',(1.5,0,.5)) in normal.calls:
@@ -355,41 +355,24 @@ def test_readonly_server_mode_never_constructs_motion_adapter(monkeypatch):
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize('target', [(1.5,0.,0.), (-1.5,0.,0.), (0.,1.,0.),
-    (0.,-1.,0.)])
-def test_server_ramps_translation_one_second_and_normal_key_release(target):
+@pytest.mark.parametrize('target', [
+    (1.5, 0., 0.), (-1.5, 0., 0.), (0., 1., 0.), (0., -1., 0.),
+    (0., 0., 2.5), (0., 0., -2.5), (1.5, 0., 2.5), (1.5, 0., -2.5),
+])
+def test_server_reaches_max_in_two_seconds_and_brakes_in_point_three(target):
     now, sink, normal, _, session, _, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=list(target))
     sink.drain()
-    assert normal.calls[-1] == ('Move', (0.,0.,0.))
-    for part in range(1,21):
-        actual = hold_for(now, sink, session, measured, frame, target, .05)
-        assert actual == pytest.approx(tuple(x*part/20 for x in target))
-    assert now() == pytest.approx(1001.)
-    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[0,0,0])
-    for part in range(1,21):
-        actual = hold_for(now, sink, session, measured, frame, [0,0,0], .05)
-        assert actual == pytest.approx(tuple(x*(1-part/20) for x in target), abs=1e-10)
-        assert all(min(0,t)-1e-10 <= x <= max(0,t)+1e-10 for x,t in zip(actual,target))
-    assert now() == pytest.approx(1002.) and not sink.latched
-
-
-@pytest.mark.parametrize('vx,sign', [(0., 1), (0., -1), (1.5, 1), (1.5, -1)])
-def test_server_turn_reaches_full_speed_in_two_seconds_and_brakes_in_point_three(vx, sign):
-    now, sink, _, _, session, _, measured, frame = rig()
-    target = [vx, 0., sign * 2.5]
-    frame('cmd', lease_id='fake-lease', seq=1, axes=target)
-    sink.drain()
-    assert sink.client.calls[-1] == ('Move', (0., 0., 0.))
-    for duration, forward, turn in [(.5, vx / 2, .625), (.5, vx, 1.25),
-                                     (1., vx, 2.5), (.5, vx, 2.5)]:
-        actual = hold_for(now, sink, session, measured, frame, target, duration)
-        assert actual == pytest.approx((forward, 0., sign * turn))
+    assert normal.calls[-1] == ('Move', (0., 0., 0.))
+    for tick in range(1, 21):
+        actual = hold_for(now, sink, session, measured, frame, target, .1, tick=.1)
+        assert actual == pytest.approx(tuple(x * tick / 20 for x in target))
+    assert actual == target
     frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[0, 0, 0])
-    for tick in range(1, 7):
-        actual = hold_for(now, sink, session, measured, frame, [0, 0, 0], .05)
-        assert actual == pytest.approx((vx * (1 - tick/20), 0., sign * 2.5 * (1 - tick/6)), abs=1e-10)
-    assert not sink.latched
+    for tick in range(1, 4):
+        actual = hold_for(now, sink, session, measured, frame, [0, 0, 0], .1, tick=.1)
+        assert actual == pytest.approx(tuple(x * (1 - tick/3) for x in target), abs=1e-10)
+    assert actual == (0., 0., 0.) and not sink.latched
 
 
 def test_combining_forward_with_a_held_turn_keeps_yaw_ramping():
@@ -401,7 +384,7 @@ def test_combining_forward_with_a_held_turn_keeps_yaw_ramping():
     frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[1.5, 0., 2.5])
     now.value += .025
     sink.drain()
-    assert sink.client.calls[-1][1] == pytest.approx((.0375, 0., .6875))
+    assert sink.client.calls[-1][1] == pytest.approx((.01875, 0., .6875))
 
 
 @pytest.mark.parametrize('sign', [1, -1])
@@ -424,14 +407,20 @@ def test_server_turn_reversal_brakes_then_accelerates_for_remaining_time(sign):
     assert hold_for(now, sink, session, measured, frame, target, .1)[2] == pytest.approx(sign * .05)
 
 
-def test_server_direction_reversal_crosses_zero_at_same_rate():
+@pytest.mark.parametrize('forward', [(1.5, 0., 0.), (0., 1., 0.)])
+def test_server_translation_reversal_brakes_to_zero_then_ramps_up(forward):
     now, sink, _, _, session, _, measured, frame = rig()
-    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
-    hold_for(now, sink, session, measured, frame, [1.5,0,0])
-    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[-1.5,0,0])
-    for part in range(1,41):
-        actual = hold_for(now, sink, session, measured, frame, [-1.5,0,0], .05)
-        assert actual == pytest.approx((1.5-part*.075,0,0), abs=1e-10)
+    frame('cmd', lease_id='fake-lease', seq=1, axes=list(forward))
+    assert hold_for(now, sink, session, measured, frame, forward, 2., tick=.1) == forward
+    reverse = tuple(-x for x in forward)
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=list(reverse))
+    for tick in range(1, 4):
+        actual = hold_for(now, sink, session, measured, frame, reverse, .1, tick=.1)
+        assert actual == pytest.approx(tuple(x * (1 - tick/3) for x in forward), abs=1e-10)
+    for tick in range(1, 21):
+        actual = hold_for(now, sink, session, measured, frame, reverse, .1, tick=.1)
+        assert actual == pytest.approx(tuple(x * tick / 20 for x in reverse))
+    assert actual == reverse
 
 
 @pytest.mark.parametrize('reason', ['stop', 'disconnect', 'lease', 'feedback', 'deadline'])
@@ -439,7 +428,7 @@ def test_safety_stop_bypasses_in_progress_ramp_without_elapsed_time(reason):
     now, sink, normal, emergency, session, client, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,2.5])
     actual = hold_for(now, sink, session, measured, frame, [1.5,0,2.5], .5)
-    assert actual == pytest.approx((.75,0,.625))
+    assert actual == pytest.approx((.375,0,.625))
     if reason == 'stop': frame('stop', stop_ref=42)
     elif reason == 'disconnect': client._emit(session.disconnect())
     elif reason == 'lease': frame('lease', lease_id=None, holder_type=None)
@@ -460,7 +449,7 @@ def test_setup_approval_revocation_during_ramp_stops_on_close_lane():
     from foothold_agent.setup.runtime import Gate
     now, sink, _, emergency, session, _, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
-    assert hold_for(now, sink, session, measured, frame, [1.5,0,0], .5) == pytest.approx((.75,0,0))
+    assert hold_for(now, sink, session, measured, frame, [1.5,0,0], .5) == pytest.approx((.375,0,0))
     inputs = NS(feedback=session.feedback)
     gate = Gate(NS(name='fake0'), '1234-5678', inputs, ready=True,
                 nic_matches=lambda: True, now=now)

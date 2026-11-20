@@ -20,10 +20,11 @@ ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 STOP_RETRY_S = .20
-TURN_RAMP_S = 2.0
-TURN_BRAKE_S = .30
-SERVER_SLEW = (1.5, 1., MAX_TURN_RATE / TURN_RAMP_S)
-SERVER_BRAKE = (1.5, 1., MAX_TURN_RATE / TURN_BRAKE_S)
+SERVER_RAMP_S = 2.0
+SERVER_BRAKE_S = .30
+SERVER_AXIS_MAX = (1.5, 1., MAX_TURN_RATE)
+SERVER_SLEW = tuple(speed / SERVER_RAMP_S for speed in SERVER_AXIS_MAX)
+SERVER_BRAKE = tuple(speed / SERVER_BRAKE_S for speed in SERVER_AXIS_MAX)
 PHONE_FORWARD_STEPS = frozenset(step / 10 for step in range(3, 16))
 SERVER_ALLOWED = frozenset({ZERO, (1.5, 0., 0.), (-1.5, 0., 0.), (0., 1., 0.), (0., -1., 0.)}
                     | {(vx, 0., wz) for vx in (0., 1.5)
