@@ -303,6 +303,24 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(a.of('stop').length).toBe(n + 2);
   });
 
+  it('STOP 누름 표시는 그 누름에만: 터치 취소·뗌 없는 누름 뒤의 다음 독립 클릭(pointerdown 없음 — 다른 단추를 쥔 채 누른 마우스)도 정지 (RV-457 1)', async () => {
+    const a = await connected(MEDIA, { addr: true });
+    await driving(a);
+    const stop = $('[data-stop]')!, n = a.of('stop').length;
+    const clickOnly = () => act(() => { stop.dispatchEvent(Object.assign(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }), { pointerId: 1 })); });
+    ptr(stop, 'pointerdown', 700, 20, 5); ptr(stop, 'pointercancel', 700, 20, 5); await flush();   // 터치 취소(스크롤 등)
+    expect(a.of('stop').length).toBe(n + 1);
+    clickOnly(); await flush();
+    expect(a.of('stop').length).toBe(n + 2);                 // 고치기 전: n + 1(묵은 표시가 click 을 넘김)
+    ptr(stop, 'pointerdown', 700, 20, 1, 'mouse'); await flush();   // 뗌 없이 끝난 누름(단추 밖에서 뗌)
+    expect(a.of('stop').length).toBe(n + 3);
+    clickOnly(); await flush();
+    expect(a.of('stop').length).toBe(n + 4);
+    ptr(stop, 'pointerdown', 700, 20, 6); ptr(stop, 'pointerup', 700, 20, 6); await flush();   // 다른 손가락이 눌렀다 뗀 뒤의 마우스 click
+    clickOnly(); await flush();
+    expect(a.of('stop').length).toBe(n + 6);
+  });
+
   it('스틱 손가락이 작은 창 위에서 떼어져도(다른 데서 누른 손가락) 바뀌지 않고, 키보드(click) 는 바뀜', async () => {
     fakeLidar(() => live());
     await connected(MEDIA, { addr: true });
@@ -383,6 +401,17 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(say('')).toBe('');
   });
 
+  it('전각 사유 «수신기 오류 （５０４）»·«라이다 오류 （５０３）»도 화면에 원문을 내지 않음 (RV-457 4)', async () => {
+    await connected(MEDIA, { addr: MEDIA_AT });
+    for (const [ch, reason] of [['rgb', '수신기 오류 （５０４）'], ['lidar', '라이다 오류 （５０３）']]) {
+      const ws = await mediaWs(ch);
+      act(() => ws.recv({ t: 'media.status', version: 'media/1', robot: RID, epoch: 1, episode_id: null, channel: ch, reason })); await flush();
+    }
+    expect(view('rgb').textContent).toBe('로봇에서 영상을 받지 못하고 있습니다');
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(box.textContent!.normalize('NFKC')).not.toMatch(/50[34]|\(\s*\d/);
+  });
+
   it('에이전트 사유의 숫자 코드·괄호(수신기 오류 (504)·라이다 오류 (503))는 화면에 내지 않고 쉬운 한국어 한 줄 — 앱 자체 글(10초·1회)은 그대로 (RV-456 2)', async () => {
     await connected(MEDIA, { addr: MEDIA_AT });
     for (const [ch, reason] of [['rgb', '수신기 오류 (504)'], ['lidar', '라이다 오류 (503)']]) {
@@ -394,6 +423,8 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(box.textContent).not.toMatch(/50[34]|\(\s*\d/);
     for (const t of ['수신기 오류 (504)', '라이다 오류 (503)', '오류 504', '수신기 오류 [12]', '수신기 오류 (끊김)']) expect(say(t)).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say('영상 수신기가 꺼져 있습니다')).toBe('영상 수신기가 꺼져 있습니다');   // 숫자·괄호·영문 없는 한국어 사유는 그대로
+    for (const t of ['수신기 오류 （５０４）', '라이다 오류 ［１２］', '수신기 ＥＲＲ', '수신기 오류 ⑤'])   // 전각 숫자·괄호·영문(RV-457 4)
+      expect(say(t)).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(why({ state: 'expired', why: '영상 연결 권한(10초·1회)이 끝났습니다' } as Feed, 'rgb')).toBe('영상 연결 권한(10초·1회)이 끝났습니다');   // 앱 자체 글
     expect(why({ state: 'live', why: '', at: 0 } as Feed, 'rgb', 10_000)).toBe('2초 넘게 새 자료가 없습니다(멈춤)');
     expect(why({ state: 'none', why: NO_MEDIA } as Feed, 'lidar')).toBe(plain(NO_MEDIA));

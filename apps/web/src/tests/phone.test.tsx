@@ -1189,6 +1189,20 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(a.readyState).toBe(1);
   });
 
+  it('작은 창 + 실기 조종 화면: «시뮬 정지»에 초점 → Space 는 시뮬에 정지(뒤의 실기로 새지 않음), 누르는 순간에도 정지 (RV-457 3)', async () => {
+    const a = await launch(); await drive(a);
+    await click($('[data-sim-leave]'));
+    act(() => { location.hash = '#/drive/r3'; window.dispatchEvent(new HashChangeEvent('hashchange')); }); await flush();
+    const rtWs = FakeWS.all.find((w) => w.url.endsWith('/api/v1/ws'))!, n = a.of('stop').length, pip = $('[data-sim-pip-stop]')!;
+    pip.focus();
+    for (const t of ['keydown', 'keyup']) act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent(t, { code: 'Space', bubbles: true, cancelable: true })); });
+    await flush();
+    expect(a.of('stop').length).toBe(n + 1);                 // 고치기 전: n(머리줄 STOP 이 뒤의 실기 r3 로)
+    expect(rtWs.of('stop')).toHaveLength(0);
+    act(() => { pip.dispatchEvent(Object.assign(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }), { pointerId: 2 })); }); await flush();
+    expect(a.of('stop').length).toBe(n + 2);
+  });
+
   it('나가기 반납 무응답 2초: 조종 화면에 남아 실패 표시·STOP 대상 보존, 입력 0', async () => {
     const a = await launch(); await drive(a);
     a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];

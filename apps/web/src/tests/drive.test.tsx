@@ -691,6 +691,22 @@ describe('화면 안전 규칙', () => {
   });
 });
 
+describe('RV-457 1: 정지 단추의 «같은 누름 click 넘김»은 그 누름에만', () => {
+  it('고르기 창 «정지»를 마우스로 눌러(창이 닫혀 click·뗌 없음) 멈춘 뒤, 창을 다시 열어 누른 클릭(pointerdown 없음)도 정지', () => {
+    mount(false, 'u-kim', '#/mission');
+    serve(KIM, 'r3', 'r7', 'r1');
+    const choose = (id: string) => { click($('[data-stop]')); const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+      act(() => { pick.value = id; pick.dispatchEvent(new Event('change', { bubbles: true })); }); };
+    choose('r7');
+    act(() => { btn('정지').dispatchEvent(Object.assign(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }), { pointerId: 1 })); });
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    choose('r3');
+    clickWith(btn('정지'), 1);   // 다른 마우스 단추를 쥔 채 왼쪽 클릭 = pointerdown 없는 click
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7', 'r3']);   // 고치기 전: ['r7'](묵은 표시가 click 을 넘김)
+  });
+});
+
 // ── PR #12 Codex 1차 검토 B1~B6·C1·C2 재현(고치기 전에는 실패)
 describe('PR #12 검토 1차', () => {
   const settle = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });

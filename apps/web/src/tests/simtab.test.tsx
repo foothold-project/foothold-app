@@ -194,10 +194,18 @@ describe('PC «시뮬» 탭', () => {
     const inner = $('[data-qfs-stop] [data-sim-stop-btn]');
     expect(inner && qd.contains(inner)).toBe(true);
     const stop = vi.spyOn(sim, 'stop').mockImplementation(() => {});
-    await click(inner);
+    // RV-457 2: 누르는 순간 정지(두 번째 손가락·마우스 누름) — 같은 누름의 click 은 한 번으로, 키보드 click 은 그대로
+    const pd = (el: Element, type: string, id: number) => act(() => { el.dispatchEvent(Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, detail: 1 }), { pointerId: id })); });
+    pd(inner!, 'pointerdown', 2);
+    expect(stop).toHaveBeenCalledTimes(1);                    // 고치기 전: 0(click 을 기다림)
+    pd(inner!, 'pointerup', 2); pd(inner!, 'click', 2);
     expect(stop).toHaveBeenCalledTimes(1);
+    await click(inner);
+    expect(stop).toHaveBeenCalledTimes(2);
     await click(btn('전체화면 끝'));
     expect($('[data-qfs-stop]')).toBeNull();
+    pd($('[data-sim-stop-btn]')!, 'pointerdown', 3);           // 본문 «시뮬 정지»도
+    expect(stop).toHaveBeenCalledTimes(3);
     // 보기 닫기 = 부모 끊김 → 관측 연결도 모두 닫고 그림 비움
     await click(btn('보기 닫기'));
     expect(socks.every((w) => w.readyState === 3)).toBe(true);
