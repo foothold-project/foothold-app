@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
 import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
+import { useStopPress } from '../App';
 import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
@@ -54,7 +55,7 @@ function MineRow({ me }: { me: string }) {
 /** «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */
 function SimStop() {
   return <button type="button" className="btn" data-sim-stop-btn aria-label="시뮬 정지 — 이 시뮬 로봇만 멈춥니다"
-    style={{ minWidth: 120, borderColor: 'var(--warn)', color: 'var(--warn)', background: 'var(--warn-bg)', borderWidth: 2, borderRadius: 4 }} onClick={() => sim.stop()}>
+    style={{ minWidth: 120, borderColor: 'var(--warn)', color: 'var(--warn)', background: 'var(--warn-bg)', borderWidth: 2, borderRadius: 4 }} {...useStopPress(() => sim.stop())}>
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="6" y="6" width="4" height="4" fill="currentColor" /></svg>시뮬 정지</button>;
 }
 

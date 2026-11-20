@@ -81,12 +81,20 @@ export function typing(t: EventTarget | null) {
 }
 
 /** 정지 단추 누름(RV-456 1) = pointerdown 즉시 — 스틱을 쥔 채 누른 두 번째 손가락엔 click 이 생기지 않는다. 주 단추(왼쪽·손가락)만.
- *  click 은 그 누름의 pointerdown 이 이미 멈췄으면 넘긴다(한 누름 = 한 번 — 고르기 창이 열린 뒤 click 이 곧바로 정지하지 않게). 키보드 Enter(detail 0)·pointerdown 없는 click 은 그대로 정지 */
+ *  click 은 바로 그 누름(같은 pointerId 가 이 단추에서 눌러 이 단추에서 뗀 지 0.3초 안)일 때만 넘긴다(한 누름 = 한 번 — 고르기 창이 열린 뒤 click 이 곧바로 정지하지 않게).
+ *  취소·뗌 없음(단추가 사라짐)·다른 손가락·늦은 click 은 다시 정지 — 두 번 나가도 0건은 없게(RV-457 1). 키보드 Enter(detail 0)는 늘 정지.
+ *  data-stop-press = 초점이 이 단추에 있으면 Space 도 이 단추의 정지(App 전역 Space, RV-457 3) */
 export function useStopPress(f: () => void) {
-  const down = useRef(false);
+  const p = useRef<{ id: number; up: number | null } | null>(null);
   return {
-    onPointerDown: (e: { button: number }) => { if (e.button !== 0) return; down.current = true; f(); },
-    onClick: (e: { detail: number }) => { const skip = !!e.detail && down.current; down.current = false; if (!skip) f(); },
+    'data-stop-press': '',
+    onPointerDown: (e: { button: number; pointerId: number }) => { if (e.button !== 0) return; p.current = { id: e.pointerId, up: null }; f(); },
+    onPointerUp: (e: { pointerId: number }) => { if (p.current?.id === e.pointerId) p.current.up = performance.now(); },
+    onPointerCancel: () => { p.current = null; },
+    onClick: (e: { detail: number; nativeEvent: Event }) => {
+      const q = p.current, id = (e.nativeEvent as { pointerId?: number }).pointerId; p.current = null;
+      if (!(e.detail && q?.up != null && (id == null || id === q.id) && performance.now() - q.up < 300)) f();
+    },
   };
 }
 
@@ -216,7 +224,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const stopKey = useRef(stop); stopKey.current = stop;
   const pickPress = useStopPress(stop);
   useEffect(() => {
-    const down = (e: KeyboardEvent) => { if (e.code !== 'Space' || typing(e.target)) return; e.preventDefault(); if (!e.repeat) stopKey.current(); };
+    // 초점이 정지 단추(useStopPress)면 그 단추의 정지(시뮬 정지·서버 경유 STOP — 고르기 창·뒤의 다른 로봇으로 새지 않게, RV-457 3)
+    const own = (t: EventTarget | null) => (t instanceof HTMLElement && t.closest<HTMLElement>('[data-stop-press]')) || null;
+    const down = (e: KeyboardEvent) => { if (e.code !== 'Space' || typing(e.target)) return; e.preventDefault(); if (!e.repeat) { const b = own(e.target); if (b) b.click(); else stopKey.current(); } };
     const up = (e: KeyboardEvent) => { if (e.code === 'Space' && !typing(e.target)) e.preventDefault(); };
     addEventListener('keydown', down, true); addEventListener('keyup', up, true);
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); };

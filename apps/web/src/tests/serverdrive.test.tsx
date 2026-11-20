@@ -1084,8 +1084,22 @@ describe('RV-426: PC 입력 세대 마무리', () => {
     pd(stop, 'pointerup', 2); tick(200);
     expect(lastAxes()).toBe('0,0,0');
     pd(up, 'pointerup', 1); tick(60);
-    pd(stop, 'pointerdown', 3); act(() => { stop.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); });
-    expect(w.of('stop').length).toBe(2);                    // 한 번 누름(pointerdown + click) = 한 번
+    pd(stop, 'pointerdown', 3); pd(stop, 'pointerup', 3); act(() => { stop.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); });
+    expect(w.of('stop').length).toBe(2);                    // 한 번 누름(pointerdown + pointerup + click) = 한 번
+  });
+
+  it('RV-457 3: 지도 탭(머리줄 STOP 대상 없음)에서 패널·전체화면 STOP 에 초점 → Space 는 그 로봇 정지 1건, 고르기 창만 열림 0', () => {
+    ready();
+    act(() => { location.hash = '#/map'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    const space = (at: Element) => { (at as HTMLElement).focus(); for (const t of ['keydown', 'keyup']) act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent(t, { code: 'Space', bubbles: true, cancelable: true })); }); };   // 키는 초점 있는 단추로
+    const sd = $('[data-sd-stop="panel"]')!;
+    space(sd);
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);   // 고치기 전: [] — 머리줄 STOP 이 고르기 창만 열었다
+    expect($('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    view();
+    space($('[data-sd-full] [data-sd-stop="full"]')!);
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7', 'r7']);
+    expect($('[aria-label="정지할 로봇 고르기"]')).toBeNull();
   });
 
   it('② STOP 뒤 잠김·해제 보고가 오기 전에는 새로 누른 키도 0', () => {

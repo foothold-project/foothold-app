@@ -20,6 +20,7 @@ export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').repla
 /** 에이전트가 알린 사유 한 줄(RV-454 3·RV-455 3·RV-456 2). 알려진 사유(media reasonText «한국어 (원문)»)는 한국어 쪽만,
  *  나머지는 plain 뒤 한글이 있고 영문·숫자·괄호(오류 코드 E_TIMEOUT·504·원문 괄호 등)가 하나도 없을 때만, 아니면 쉬운 말 한 줄. 빈 글만 빈 글(원문만인 사유를 빈 글로 넘기면 Video 가 원문을 낸다) */
 export const say = (t: string) => {
+  t = t.normalize('NFKC');   // 전각 숫자·괄호·영문(«（５０４）»)도 같은 검사로(RV-457 4)
   const k = /^(.+?) \((.+)\)$/.exec(t);
   if (k && reasonText(k[2]) === t) return k[1];
   const p = plain(t);
