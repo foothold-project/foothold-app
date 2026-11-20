@@ -7,23 +7,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { STALE_MS, pointsBody, pointsHeader, reasonText, type Feed } from './media';
 import type { MediaPointCloudHeader } from '../../contracts/ts';
+import { occGrid, type OccGrid } from './occgrid';
 
 export type DriveCh = 'rgb' | 'lidar' | 'depth';
 /** 뎁스: 색 범위(m) — 가까움 빨강 min · 멀리 파랑 max. 다른 채널은 null */
 export type Pose = { x: number; y: number; z: number; yaw: number };
-/** pose·path = 쌓는 지도일 때 로봇 위치·지나온 길(x,y 를 이어 붙인 것), wipe = «처음부터 다시»(화면에 쌓은 것만 지움) */
-export type DriveFeed = Feed & { range: [number, number] | null; pose: Pose | null; path: number[]; wipe: () => void };
+/** pose·path·grid = 쌓는 지도일 때 로봇 위치·지나온 길(x,y 를 이어 붙인 것)·2D 격자 지도(occgrid.ts), wipe = «처음부터 다시»(화면에 쌓은 것만 지움) */
+export type DriveFeed = Feed & { range: [number, number] | null; pose: Pose | null; path: number[]; grid: OccGrid | null; wipe: () => void };
 type Raw = Omit<DriveFeed, 'wipe'>;
 /** 쌓는 칸 크기(m) · 쌓는 점 상한 · 길 꼭짓점 상한 · 로봇보다 이만큼 높은 점(천장)은 위에서 본 그림을 덮으므로 쌓지 않음 */
 export const CELL_M = 0.05, STACK_MAX = 200_000, PATH_MAX = 5000, CEIL_M = 1.2;
-/** 쌓는 지도: 5 cm 칸(x·y·z)에 점 하나만, cap 을 넘으면 가장 오래된 점부터 덮어쓴다. xyz 는 한 버퍼를 계속 씀(앞 n 개가 유효) */
+/** 쌓는 지도: 5 cm 칸(x·y·z)에 점 하나만, cap 을 넘으면 가장 오래된 점부터 덮어쓴다. xyz 는 한 버퍼를 계속 씀(앞 n 개가 유효).
+ *  grid = 같은 판으로 자라는 2D 격자 지도 — stack 과 함께 생기고 함께 버려진다(로봇 바뀜·epoch·«처음부터 다시»·lidar_link) */
 export function stack(cap = STACK_MAX) {
-  const xyz = new Float32Array(cap * 3), keys = new Float64Array(cap), seen = new Set<number>(), path: number[] = [];
+  const xyz = new Float32Array(cap * 3), keys = new Float64Array(cap), seen = new Set<number>(), path: number[] = [], grid = occGrid();
   let total = 0;
   return {
-    xyz, path,
+    xyz, path, grid,
     get n() { return Math.min(total, cap); },
     add(pts: Float32Array, pose: Pose) {
+      grid.add(pts, pose);
       for (let i = 0; i + 2 < pts.length; i += 3) {
         const x = pts[i], y = pts[i + 1], z = pts[i + 2], iz = Math.floor(z / CELL_M) + 1024;
         if (z > pose.z + CEIL_M || iz < 0 || iz > 2047) continue;
@@ -45,7 +48,7 @@ const poseOf = (p: unknown): Pose | null => {
 export const RETRY_MS = 2000;
 export const DEPTH_HINT = '뎁스 카메라 영상이 아직 오지 않습니다. 로봇 컴퓨터의 뎁스 카메라 프로그램이 켜져 있는지 확인하세요';
 export const NO_SIGNAL: Record<DriveCh, string> = { rgb: '카메라 신호 없음', lidar: '라이다 신호 없음', depth: '뎁스 카메라 신호 없음' };
-const blank = (state: Feed['state'] = 'wait', why = ''): Raw => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0, range: null, pose: null, path: [] });
+const blank = (state: Feed['state'] = 'wait', why = ''): Raw => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0, range: null, pose: null, path: [], grid: null });
 /** 계약 depth_min_m·depth_max_m: 유한·0≤min<max≤10000 — 아니면 null(RGB 를 뎁스로 보여 주지 않음) */
 const depthRange = (m: Record<string, unknown>): [number, number] | null => {
   const a = m.depth_min_m, b = m.depth_max_m;
@@ -60,7 +63,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   useEffect(() => {
     if (!on) return;
     let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도 — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link 로 돌아가면 버린다
-    wipe.current = () => { st = null; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], ver: ++ver })); };
+    wipe.current = () => { st = null; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], grid: null, ver: ++ver })); };
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
     let epoch: number | null = null, top = -1, pending: MediaPointCloudHeader | null = null, ver = 0;
     const put = (p: Partial<Raw>) => setFeed((f) => ({ ...f, ...p }));
@@ -74,11 +77,11 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
         const xyz = ch === 'lidar' && h && data instanceof ArrayBuffer ? pointsBody(data, h) : null;
         if (!xyz || !h) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
         const live = { state: 'live' as const, why: '', at: performance.now(), seq: h.seq, frame: h.frame, truncated: h.truncated };
-        if ((h.frame as string) !== 'odom') { st = null; return put({ ...live, xyz, n: h.count, pose: null, path: [], ver: ++ver }); }   // 로봇 중심 한 장
+        if ((h.frame as string) !== 'odom') { st = null; return put({ ...live, xyz, n: h.count, pose: null, path: [], grid: null, ver: ++ver }); }   // 로봇 중심 한 장
         const pose = poseOf(h.pose);
         if (!pose) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
         (st ??= stack()).add(xyz, pose);
-        return put({ ...live, xyz: st.xyz, n: st.n, pose, path: st.path, ver: ++ver });
+        return put({ ...live, xyz: st.xyz, n: st.n, pose, path: st.path, grid: st.grid, ver: ++ver });
       }
       let m: Record<string, unknown>;
       try { m = JSON.parse(data); } catch { return again('bad', '받은 자료를 읽지 못했습니다'); }
