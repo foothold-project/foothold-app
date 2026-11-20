@@ -14,11 +14,11 @@ import type { Found } from '../nearby';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // 3D 칸(WebGL)은 jsdom 에 없다 — 같은 자리에 마운트 수·small 값을 세는 칸을 둔다. 마운트 1회 = WebGL 문맥 1개(RV-449 ②: 교환마다 새로 만들면 명령 주기가 끊김)
-const l3 = vi.hoisted(() => ({ mounts: 0, smalls: [] as boolean[], ratios: [] as (number | undefined)[] }));   // look = 점/상자(11-20 RB-UNITREE-LOOK-FIX)
+const l3 = vi.hoisted(() => ({ mounts: 0, smalls: [] as boolean[], ratios: [] as (number | undefined)[], go2: [] as unknown[] }));   // look = 점/상자(11-20 RB-UNITREE-LOOK-FIX)
 vi.mock('../lidar3d', async (orig) => {
   const { useEffect } = await import('react');
-  return { ...(await orig<object>()), Lidar3D({ small, ratio, look }: { small: boolean; ratio?: number; look?: string }) {
-    l3.smalls.push(small); l3.ratios.push(ratio);
+  return { ...(await orig<object>()), Lidar3D({ small, ratio, look, go2 = null }: { small: boolean; ratio?: number; look?: string; go2?: unknown }) {
+    l3.smalls.push(small); l3.ratios.push(ratio); l3.go2.push(go2);   // go2 = 받은 관절각·기울기(RV-466 1)
     useEffect(() => { l3.mounts++; }, [small]);   // lidar3d 는 small 이 바뀌면 WebGL 을 새로 만든다 — 같은 조건으로 센다
     return <div data-lidar3d="stub" data-l3-look={look} />;
   } };
@@ -76,7 +76,7 @@ const view = (ch: string) => $(`[data-real-view="${ch}"]`)!;
 /** 작은 창 자리(가로 폰 기준 8,60 ~ 228,225) — jsdom 은 크기가 0 이라 교환 단추마다 붙인다(손가락을 단추 안·밖에서 뗀 것을 가림) */
 const PIP = { left: 8, top: 60, width: 220, height: 165, right: 228, bottom: 225, x: 8, y: 60, toJSON() {} } as DOMRect;
 beforeEach(() => { vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLButtonElement) { return this.matches('[data-real-swap]') ? PIP : ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect); }); });
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); sim.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); l3.mounts = 0; l3.smalls = []; l3.ratios = []; });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); sim.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); l3.mounts = 0; l3.smalls = []; l3.ratios = []; l3.go2 = []; });
 /** media 저장소의 라이다 값만 바꿔 보인다(앱 중계 media 길이 없어 실제로는 받지 못함). lidar() 값(state·at·n)이 바뀔 때만 새 객체 — useSyncExternalStore 가 같은 값엔 같은 객체를 요구 */
 function fakeLidar(lidar: () => Partial<Feed>) {
   const get = media.get.bind(media);
@@ -152,6 +152,30 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(l3.mounts).toBe(1);
     await click($('[data-real-swap="rgb"]'));
     expect($('[data-real-look]')).toBeNull();
+  });
+
+  it('직결로 받은 관절 12개·기울기를 3D Go2 에 넘김 — 새 표본마다 따라가고, age_s 1.2·연결 끊김·1초 넘게 보고 없음이면 선 자세(null) (RV-466 1)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'] });
+    fakeLidar(() => live());
+    const a = await connected(MEDIA, { addr: true });
+    const N = ['FR', 'FL', 'RR', 'RL'].flatMap((g) => ['hip', 'thigh', 'calf'].map((p) => `${g}_${p}_joint`));
+    const info = (q: number[], w: number[], age = 0.02) => ({ source: 'GO2_DDS', attitude: { roll: 0, pitch: 0 }, error_code: 0, fallen: false, fallen_source: 'imu_tilt_estimate',
+      joints: { received_at: new Date().toISOString(), age_s: age, names: N, positions: [0, 1, 2, 3].flatMap(() => q) }, quaternion: { received_at: new Date().toISOString(), age_s: age, wxyz: w } });
+    const last = () => l3.go2[l3.go2.length - 1] as { q: number[]; wxyz: number[] } | null;
+    expect(last()).toBeNull();   // 아직 robot_info 없음
+    const t1 = [Math.cos(0.1), Math.sin(0.1), 0, 0], t2 = [Math.cos(0.25), Math.sin(0.25), 0, 0];
+    act(() => a.recv(st({ robot_info: info([0.2, 1.0, -1.3], t1) }))); await flush();
+    expect(last()?.q).toEqual([0, 1, 2, 3].flatMap(() => [0.2, 1.0, -1.3]));
+    expect(last()?.wxyz[1]).toBeCloseTo(Math.sin(0.1));
+    act(() => a.recv(st({ robot_info: info([0.5, 1.3, -1.0], t2) }))); await flush();
+    expect(last()?.q).toEqual([0, 1, 2, 3].flatMap(() => [0.5, 1.3, -1.0]));
+    expect(last()?.wxyz[1]).toBeCloseTo(Math.sin(0.25));
+    act(() => a.recv(st({ robot_info: info([0.5, 1.3, -1.0], t2, 1.2) }))); await flush();
+    expect(last()).toBeNull();   // 로봇 쪽 표본이 1초 넘게 묵음
+    act(() => a.recv(st({ robot_info: info([0.5, 1.3, -1.0], t2) }))); await flush();
+    expect(last()).not.toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });   // 직결 보고가 1초 넘게 끊김
+    expect(last()).toBeNull();
   });
 
   it('가짜 시계: 전진 스틱을 쥔 채 큰 화면을 여러 번 바꿔도 입력이 유지되고 명령이 50 ms 마다 그대로 (RV-449 ②)', async () => {

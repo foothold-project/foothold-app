@@ -12,6 +12,7 @@ import { Video, stopText, useTick } from './simdrive';
 import { feedText, media, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { Lidar3D, type Look } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
+import { REPORT_STALE_MS, go2Pose } from './go2model';
 import type { Tone } from './fake';
 import './realdrive.css';
 
@@ -61,6 +62,8 @@ export function RealDrive() {
       if (tap.current === e.pointerId && inside) setPick(ch);
       untap();
     }} onClick={(e) => { if (!e.detail) setPick(ch); }} />;
+  // 3D 속 Go2 관절각·기울기(RV-466 1): 서버 경유·PC 와 같은 go2Pose — 직결 state 엔 connection 이 없어 «열린 연결 = ONLINE», 1초 넘게 보고가 없으면 선 자세(null)
+  const go2 = go2Pose(open && st ? { connection: 'ONLINE', robot_info: st.robot_info } as Parameters<typeof go2Pose>[0] : null, performance.now() - l.stAt < REPORT_STALE_MS);
   const lidarBig = main === 'lidar', lidarFeed = { ...lf, range: null, pose: null, path: [], grid: null, wipe() {} };
   const lidarText = !hasMedia ? '라이다 화면 없음 — 이 연결은 카메라만 보입니다' : lidarOk ? '' : fresh || lf.state === 'wait' || lf.state === 'off' ? '라이다 기다리는 중'
     : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다' : `라이다 신호 없음 — ${why(lf, 'lidar')}`;
@@ -116,7 +119,7 @@ export function RealDrive() {
     <div className="dv-body"><div className="dv-stage rgb">
       <div className={`rd-view ${main === 'rgb' ? 'big' : 'pip'}`} data-real-view="rgb"><Video ch="rgb" fit="cover" quiet={!!rgbText} />{rgbText && <QEmpty text={rgbText} />}{swap('rgb')}</div>
       <div className={`rd-view ${lidarBig ? 'big' : 'pip'}`} data-real-view="lidar" data-off={!hasMedia || undefined}>
-        {lidarOn && (no3d ? <Cloud3D small={false} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={false} ratio={1} look={look} onFail={() => setNo3d(true)} />)}
+        {lidarOn && (no3d ? <Cloud3D small={false} big={false} feed={lf} /> : <Lidar3D feed={lidarFeed} small={false} ratio={1} look={look} go2={go2} onFail={() => setNo3d(true)} />)}
         {lidarText && <QEmpty text={lidarText} />}
         {/* 큰 화면 고르기 «점 ↔ 상자»(11-20 RB-UNITREE-LOOK-FIX) — 같은 3D 그림에서 모양만 바꿈(WebGL 다시 만들지 않음). 작은 창 아래 */}
         {lidarBig && !no3d && <button type="button" className="btn" aria-pressed={look === 'boxes'} data-real-look={look} onClick={() => setLook(look === 'boxes' ? 'points' : 'boxes')}

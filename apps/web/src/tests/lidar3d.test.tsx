@@ -14,7 +14,7 @@ const seenVer = new WeakMap<object, number>();
 vi.mock('three', async (orig) => {
   const T = await orig<typeof import('three')>();
   class FakeRenderer {
-    domElement = document.createElement('canvas');
+    domElement = document.createElement('canvas'); debug = { checkShaderErrors: true };
     constructor() { if (!gl.ok) throw new Error('Error creating WebGL context.'); gl.alive++; }
     setPixelRatio() {} setSize() {} dispose() {}
     forceContextLoss() { gl.alive--; }
@@ -36,12 +36,13 @@ vi.mock('three', async (orig) => {
 const feed = (n: number, ver: number, frame = 'odom'): DriveFeed => ({ state: 'live', why: '', at: 0, seq: ver, img: '', xyz: new Float32Array(n * 3).map((_, i) => i % 7), n, frame, truncated: false, ver,
   range: null, pose: frame === 'odom' ? { x: 1, y: 2, z: 0, yaw: 0.3 } : null, path: [], grid: null, wipe: () => {} } as DriveFeed);
 let root: Root | null = null, box: HTMLDivElement;
-const show = (f: DriveFeed, o: { small?: boolean; start?: '3d' | 'top' } = {}) => { act(() => { root!.render(<LidarMap feed={f} empty="" {...o} />); }); act(() => { vi.advanceTimersByTime(2); }); };   // 처음 열기는 두 조각(setTimeout 0 — 가짜 타이머는 안에서 건 0 을 1 ms 로)으로 나뉨
+const show = (f: DriveFeed, o: { small?: boolean; start?: '3d' | 'top' } = {}) => { act(() => { root!.render(<LidarMap feed={f} empty="" {...o} />); }); act(() => { vi.advanceTimersByTime(5); }); };   // 처음 열기는 다섯 조각(문맥·확장·렌더러·Go2·첫 판, setTimeout 0 — 가짜 타이머는 안에서 건 0 을 1 ms 로)으로 나뉨
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const setHidden = (h: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
 
 beforeEach(() => {
   gl.ok = true; gl.renders = 0; gl.alive = 0; gl.drawn = -1; gl.up = 0; vi.useFakeTimers(); setHidden(false);
+  vi.stubGlobal('WebGL2RenderingContext', class {});   // jsdom 엔 없다 — 있으면 3D 를 만들어 본다(없으면 lidar3d 가 곧바로 위에서 본 그림)
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);   // jsdom 엔 그림판 없음(상자 면 무늬는 없이) — «Not implemented» 소음 끔
@@ -189,6 +190,7 @@ describe('라이다 칸 3D', () => {
       act(() => { $('[data-lm-view="top"]')!.click(); });
       act(() => { $('[data-lm-view="3d"]')!.click(); });
     }
+    act(() => { vi.advanceTimersByTime(5); });   // 마지막 3D 만 문맥까지 간다(빨리 바꾸면 그 사이 것은 문맥을 만들지 않음)
     expect(gl.alive).toBe(1);
     act(() => root!.unmount()); root = null;
     expect(gl.alive).toBe(0);
@@ -264,6 +266,25 @@ describe('라이다 칸 3D', () => {
     expect(wheel()).toBe(true);   // 작은 칸 = 보기만
     show(feed(3, 1), { small: false, start: 'top' });
     expect(wheel()).toBe(false);   // 큰 칸 = 휠을 잡아 확대
+  });
+
+  it('처음 열기를 잘게: 누른 작업에선 문맥 0 — 문맥(getContext)·렌더러는 다음 작업들에서 하나씩 (RV-466 2)', () => {
+    const ctx = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
+    act(() => { root!.render(<LidarMap feed={feed(3, 1)} empty="" />); });
+    expect(ctx.mock.calls.filter(([k]) => k === 'webgl2')).toHaveLength(0); expect(gl.alive).toBe(0);
+    act(() => { vi.advanceTimersToNextTimer(); });   // 작업 하나씩
+    expect(ctx.mock.calls.filter(([k]) => k === 'webgl2')).toHaveLength(1); expect(gl.alive).toBe(0);
+    act(() => { vi.advanceTimersToNextTimer(); });   // 확장
+    expect(gl.alive).toBe(0);
+    act(() => { vi.advanceTimersToNextTimer(); });
+    expect(gl.alive).toBe(1);
+  });
+
+  it('WebGL2 가 아예 없는 환경이면 기다리지 않고 바로 위에서 본 그림', () => {
+    vi.stubGlobal('WebGL2RenderingContext', undefined);
+    act(() => { root!.render(<LidarMap feed={feed(3, 1)} empty="" />); });
+    expect($('[data-lm-mode]')!.dataset.lmMode).toBe('top');
+    expect(gl.alive).toBe(0);
   });
 
   it('WebGL 이 없으면 위에서 본 그림 + 까닭 한 줄, 바꾸기 단추는 숨김', () => {
