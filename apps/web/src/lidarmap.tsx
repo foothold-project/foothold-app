@@ -2,7 +2,7 @@
 // 11-19 RB-LIDAR-3D: 기본은 3D(lidar3d.tsx), «위에서» 단추로 이 그림. WebGL 이 없으면 이 그림만.
 // 색 = 로봇 기준 높이(같은 자리에 겹치면 높은 점이 위 — 벽이 바닥에 묻히지 않게), 로봇 화살표 + 지나온 길. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
 import { useEffect, useRef, useState } from 'react';
-import { CELL_M, type DriveFeed } from './drivemedia';
+import { CELL_M, driveFeedHeld, type DriveFeed } from './drivemedia';
 import { Lidar3D } from './lidar3d';
 import { QEmpty, hue } from './quad';
 
@@ -26,12 +26,17 @@ export function LidarMap({ feed, empty, small = false, start = '3d' }: { feed: D
       {(feed.frame as string) === 'odom' && <button type="button" className="btn" data-lm-wipe onClick={() => feed.wipe()}>처음부터 다시</button>}
     </div>}
     {no3d && !small && <div className="qd-legend" role="status" style={{ right: 'auto', left: 8, top: 52, bottom: 'auto' }} data-lm-no3d>이 브라우저는 3D 를 그릴 수 없어 위에서 본 그림으로 보입니다</div>}
-    {empty && (feed.n ? <div className="qd-legend" role="status" style={{ right: 'auto', left: 8 }}>{empty}</div> : <QEmpty text={empty} />)}
+    {empty && (feed.n ? <HeldTag text={driveFeedHeld(feed)} /> : <QEmpty text={empty} />)}
     {!small && <div className="qd-legend" aria-label="점 높이 범례">
       <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hue(ZL + t * (ZH - ZL))} 80% 60%)`).join(',')})` }} />
       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${ZL} m`}</span><span>로봇 높이</span><span>{`+${ZH} m`}</span></div>
       <div>{`색 = 로봇 기준 높이 · 점 ${feed.n.toLocaleString('ko-KR')}`}</div></div>}
   </div>;
+}
+
+/** 끊긴 뒤 남겨 둔 마지막 그림 위 오른쪽 구석 표시(카메라·뎁스·라이다 같은 꼴) — 매초 바뀌므로 읽어 주는 영역(role=status)으로 두지 않는다 */
+export function HeldTag({ text }: { text: string }) {
+  return text ? <div className="qd-legend" style={{ top: 8, bottom: 'auto', whiteSpace: 'pre-line' }} data-feed-held>{text}</div> : null;
 }
 
 /** 위에서 본 그림(11-13 그대로) — 끌어서 옮기고 휠로 확대 */
