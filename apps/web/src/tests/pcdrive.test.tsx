@@ -71,7 +71,8 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect($('[data-pc-drive]')).not.toBeNull();
     expect($('[data-pd-left]')).not.toBeNull(); expect($('[aria-label="조종 보기 4칸"]')).not.toBeNull(); expect($('[data-pd-make]')).not.toBeNull();
     expect($('[data-sd-open]')).toBeNull(); expect($('[data-sd-full]')).toBeNull(); expect($('[role="dialog"][aria-modal="true"]')).toBeNull();
-    for (const sec of ['지도 만들기', '속도', '시나리오', '목표']) expect($(`.pd-right [aria-label="${sec}"]`)).not.toBeNull();
+    for (const sec of ['지도 만들기', '시나리오', '목표']) expect($(`.pd-right [aria-label="${sec}"]`)).not.toBeNull();
+    expect($('.pd-right [aria-label="속도"]')).toBeNull();   // 속도 단계 칸 없앰(11-20)
     expect(box.textContent).not.toMatch(/SLAM|lease|epoch|odom/i);
     click($('[data-pd-back]')!);
     expect($('[data-pc-drive]')).toBeNull(); expect($('[aria-label="조종 준비"]')).not.toBeNull();

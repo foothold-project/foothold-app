@@ -107,6 +107,7 @@ describe('서버 경유 시험 조종 패널', () => {
 
   it('키: 화살표 = 이동, A/D = 제자리 회전, ↑+A/D — 표의 SI 값 그대로, 그 밖 조합·W 는 0', () => {
     ready();
+    expect(document.body.textContent).toContain('누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다');   // 앞뒤·옆·회전 공통 안내(11-20)
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
     expect(hold(['ArrowDown'])).toBe('-1.5,0,0');
     expect(hold(['ArrowLeft'])).toBe('0,1,0');
