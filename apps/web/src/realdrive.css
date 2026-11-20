@@ -1,0 +1,37 @@
+/* 실기 직결 조종(realdrive.tsx, 11-20 RB-PHONE-DIRECT-LOOK): 큰 화면 + 왼쪽 위 작은 창(눌러 바꿈), 위 얇은 줄, 오른쪽 접히는 안내 카드, 아래 가운데 반투명 띠, 아래 양 끝 조이스틱.
+   판·테두리·글자 색은 drive.css 영상 위 값(rgba(8,11,14,…)·rgba(230,235,239,.45)·#E6EBEF) 그대로. STOP 은 App 머리줄(z 10) — 이 화면은 그 아래 */
+[data-real-drive] .dv-stage{background:#0B0E12}
+.rd-view{position:absolute;overflow:hidden;background:#0B0E12}
+.rd-view.big{inset:0}
+.rd-view.pip{z-index:1;top:60px;left:8px;width:clamp(120px,24vw,220px);aspect-ratio:4/3;border:1.5px solid rgba(230,235,239,.45);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+.rd-view.pip .qd-empty{font-size:11px;padding:6px;color:#9AA7B3}
+.rd-view .qd-empty{color:#9AA7B3}
+.rd-swap{position:absolute;inset:0;z-index:1;width:100%;height:100%;padding:0;border:0;background:none;cursor:pointer}
+.rd-swap:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+/* lidar3d «로봇 따라가기»(왼쪽 아래 — 조이스틱 밑에 묻힘) → 위 가운데 상태 줄 아래 */
+[data-real-drive] [data-l3-follow]{left:50% !important;top:56px;bottom:auto !important;transform:translateX(-50%);min-height:40px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+/* 위 얇은 줄: «<»(8 + 44) 와 STOP(오른쪽 114 + 8) 사이 가운데 */
+[data-real-drive] .dv-top{left:60px;right:130px;width:fit-content;max-width:calc(100% - 190px);margin-inline:auto;transform:none;min-height:30px;font-size:12px}
+/* 안내 카드: 오른쪽, STOP(64) 아래 ~ 오른쪽 조이스틱 위. 위 줄(펼침 단추) + 급한 안내는 늘 보임, 미검증·실효 상한은 접힘 */
+.rd-card{position:absolute;top:80px;right:8px;z-index:1;box-sizing:border-box;width:min(300px,calc(100% - 16px));max-height:calc(100% - 80px - 148px);overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:2px 4px 4px;border:1px solid rgba(230,235,239,.3);border-radius:12px;background:rgba(8,11,14,.55);color:#E6EBEF}
+.rd-card .dv-note{padding:4px 8px;font-size:12px;line-height:1.4;background:none;color:#E6EBEF;word-break:keep-all}
+.rd-card-h{min-height:36px;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 6px 0 8px;border:0;background:none;color:#E6EBEF;font-size:12px;font-weight:600;cursor:pointer}
+.rd-card-t[hidden]{display:none}
+/* 아래 가운데 반투명 둥근 띠(조종 시작·잠금 해제·다시 연결): 두 조이스틱(12 + 120) 사이 */
+.rd-band{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:1;box-sizing:border-box;max-width:calc(100% - 288px);display:flex;flex-wrap:wrap;justify-content:center;gap:6px;padding:6px;border:1px solid rgba(230,235,239,.3);border-radius:30px;background:rgba(8,11,14,.55)}
+.rd-band .btn{min-height:44px;border-radius:22px;white-space:nowrap}
+.rd-band .btn:not(.pri){background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+.rd-band .btn:disabled{opacity:.45}
+/* 조이스틱: 더 옅은 반투명 원 */
+[data-real-drive] .dv-stick{background:rgba(8,11,14,.35);border-color:rgba(230,235,239,.35)}
+[data-real-drive] .dv-stick>i{background:rgba(230,235,239,.7)}
+/* 가로 폰(낮은 높이 — 조이스틱 88): 카드·띠를 조이스틱 크기에 맞춤 */
+@media (max-height:480px){.rd-card{max-height:calc(100% - 80px - 104px)}.rd-band{bottom:10px;max-width:calc(100% - 216px)}}
+/* 세로: 위 = 큰 화면, 아래 = 띠 + 조이스틱 두 개(어두운 판) */
+@media (orientation:portrait){
+  .rd-view.big{bottom:200px}
+  .rd-view.pip{width:clamp(110px,32vw,160px)}
+  .rd-card{left:auto;width:calc(100% - 16px - clamp(110px,32vw,160px) - 8px);max-height:calc(100% - 80px - 212px)}
+  .rd-band{bottom:144px;max-width:calc(100% - 16px)}
+}
+@media (orientation:portrait) and (max-height:700px){.rd-view.big{bottom:160px}.rd-band{bottom:104px}.rd-card{max-height:calc(100% - 80px - 172px)}}
