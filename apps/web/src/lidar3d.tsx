@@ -86,6 +86,8 @@ export const HeightLegend = ({ style, look = 'points' }: { style?: CSSProperties
 
 type Mode = 'chase' | 'follow' | 'free';
 export type Look = 'points' | 'boxes';
+/** three 가 만들 때(init)·무늬 첫 올리기(이방성)에 부르는 확장 — 문맥 다음 작업에서 미리 불러 둔다(RV-466 2 성능 기록) */
+const EXTS = ['EXT_color_buffer_float', 'WEBGL_clip_cull_distance', 'OES_texture_float_linear', 'EXT_color_buffer_half_float', 'WEBGL_multisampled_render_to_texture', 'WEBGL_render_shared_exponent', 'EXT_texture_filter_anisotropic'];
 /** 상자 묶음 하나 분량의 단위 행렬(한 번만 만들고 묶음마다 복사) */
 let unitM: Float32Array | null = null;
 const unit = () => { if (!unitM) { unitM = new Float32Array(BLOCK * 16); for (let i = 0; i < unitM.length; i += 16) unitM[i] = unitM[i + 5] = unitM[i + 10] = unitM[i + 15] = 1; } return unitM; };
@@ -99,9 +101,21 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
   const host = useRef<HTMLDivElement>(null), cur = useRef(feed), joints = useRef(go2), [mode, setMode] = useState<Mode>('chase'), again = useRef(() => {}), first = useRef(look), relook = useRef((_: Look) => {}), stance = useRef(() => {});
   cur.current = feed; joints.current = go2;
   useEffect(() => {
+    // 처음 열기를 더 잘게(RV-466 2 — 성능 기록: 누른 작업 하나에 React 반영 + WebGL 문맥 + three 초기화 + Go2 입히기가 몰려 STOP 이 늦음).
+    // ⓪ 누른 작업 = 칸만 ① 문맥(getContext) ② three 가 부를 확장(첫 getExtension 은 GPU 와 동기 왕복) ③ 렌더러·장면(setup) — 사이사이에 STOP·조종 입력이 끼어든다. WebGL2 자체가 없으면 곧바로 위에서 본 그림
+    if (typeof WebGL2RenderingContext === 'undefined') { onFail(); return; }
+    let t = window.setTimeout(() => {
+      const c = document.createElement('canvas'), gl = c.getContext('webgl2', { alpha: true, depth: true, stencil: false, antialias: !small, premultipliedAlpha: true, preserveDrawingBuffer: false });   // three 기본 속성 그대로
+      t = window.setTimeout(() => { EXTS.forEach((x) => gl?.getExtension(x)); t = window.setTimeout(() => { stop = setup(c, gl) ?? stop; }, 0); }, 0);
+    }, 0), stop = () => {};
+    return () => { clearTimeout(t); stop(); };
+  }, [small]);   // eslint-disable-line react-hooks/exhaustive-deps
+  /** 3D 칸 만들기(들여쓰기는 옛 useEffect 그대로) — 돌려주는 것 = 닫기. 문맥을 못 만들었으면(gl null) three 가 한 번 더 시도하고 실패하면 onFail */
+  function setup(c: HTMLCanvasElement, gl: WebGL2RenderingContext | null) {
     const el = host.current!;
     let g: THREE.WebGLRenderer;
-    try { g = new THREE.WebGLRenderer({ antialias: !small }); } catch { onFail(); return; }
+    try { g = new THREE.WebGLRenderer({ canvas: c, context: gl ?? undefined, antialias: !small }); } catch { onFail(); return; }
+    g.debug.checkShaderErrors = false;   // 첫 그리기의 셰이더 로그 읽기(동기 GPU 왕복)를 뺀다 — 우리 셰이더는 three 기본 재질뿐
     g.setPixelRatio(Math.min(window.devicePixelRatio || 1, ratio));
     const canvas = g.domElement;
     canvas.style.cssText = `display:block;width:100%;height:100%;touch-action:${small ? 'auto' : 'none'}`;
@@ -149,7 +163,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
       const b = go2Body(m, skin); bot.add(b.body); lean = b.pose; lean(joints.current);
     };
     let live = true;
-    loadGo2().then((m) => { if (live && m) { dress(m); draw(); } });
+    loadGo2().then((m) => { if (m) setTimeout(() => { if (live) { dress(m); draw(); } }, 0); });   // 받아 둔 메시면 then 이 지금 작업 끝에 돌아 붙는다 — 따로 한 작업으로
     scene.add(boxes, grid, bot);
     const orbit = new OrbitControls(cam, canvas);
     orbit.enabled = !small; orbit.maxDistance = 150; orbit.screenSpacePanning = true;
@@ -232,7 +246,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     const prepare = () => {   // 셰이더 준비를 기다림(주 스레드 안 막음) — 처음과 look 바꿀 때
       if (!g.compileAsync) { ready = true; return; }
       ready = false;
-      const done = () => { if (live) { ready = true; tick(); } };
+      const done = () => { if (live) { ready = true; draw(); setTimeout(tick, 0); } };   // 첫 그리기(프로그램 첫 사용·무늬 올리기)와 첫 채우기·올리기를 다른 작업으로
       g.compileAsync(scene, cam).then(done, done);
     };
     stance.current = () => {   // 새 관절·기울기 표본(약 10 Hz)마다 다리만 옮겨 한 번 그림 — 점·상자 버퍼는 그대로(나눠 채우는 중이면 그 프레임이 그림)
@@ -256,7 +270,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
       cube.dispose(); blocks.forEach((b) => b.free()); mat.map?.dispose(); mat.dispose(); dot.dispose(); skin.dispose(); bot.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       grid.dispose(); g.dispose(); g.forceContextLoss(); canvas.remove();
     };
-  }, [small]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }
   useEffect(() => { first.current = look; relook.current(look); }, [look]);
   useEffect(() => stance.current(), [go2]);
   return <div ref={host} style={{ position: 'absolute', inset: 0 }} data-lidar3d={feed.n} data-l3-view={mode} data-l3-look={look}>
