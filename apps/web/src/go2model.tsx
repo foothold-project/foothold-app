@@ -180,7 +180,7 @@ function dress(r: Rig, m: Map<string, Part> | null) {
 const ARROW_TAG: Record<string, [string, string]> = { move: ['data-go2-move', ''], left: ['data-go2-turn', 'left'], right: ['data-go2-turn', 'right'] };
 const deg = (v: number) => Math.round((v * 180) / Math.PI);
 const fix = (v: number, d: number) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
-type Tag = { x: number; y: number; side: number };
+type Tag = { x: number; y: number; side: number; z: number };   // z = 화면 깊이(NDC, 작을수록 카메라에 가까움)
 type Box = { x: number; y: number; w: number; h: number };
 /** 글자 상자를 겹치지 않게 놓는다(앞에서부터 차례로): 관절 바깥쪽 옆 → 위아래로 14 px 씩 → 반대쪽.
  *  taken = 이미 찬 자리(범례). 칸 안에 겹치지 않는 자리가 없으면 null(그림 아래 줄로 — RV-403 3). pin(몸 화살표 글자)은 첫 자리를 칸 안으로 당겨 늘 그림 안에 */
@@ -215,7 +215,7 @@ function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number, view: View 
   r.cam.updateMatrixWorld(); r.cam.updateProjectionMatrix(); r.scene.updateMatrixWorld(true);   // 카메라는 장면 밖 — 직접 갱신해야 첫 그림부터 글자 자리가 맞음
   const px = (o: THREE.Object3D): Tag => {
     const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).project(r.cam);
-    return { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h, side: 0 };
+    return { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h, side: 0, z: p.z };
   };
   const mid = px(r.body).x, eye = r.cam.position, xy = (o: THREE.Object3D) => { const p = px(o); return [p.x, p.y] as const; };
   const joints = r.legs.flatMap((l) => ([[l.hip, new THREE.Vector3(1, 0, 0)], [l.thigh, new THREE.Vector3(0, 1, 0)], [l.calf, new THREE.Vector3(0, 1, 0)]] as const).map(([j, ax], k) => {
@@ -243,6 +243,8 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
   const [rig] = useState(() => { const r = makeRig(typeof document === 'undefined' ? null : getComputedStyle(document.documentElement)); dress(r, null); return r; });
   const [tip, setTip] = useState(-1), [fail, setFail] = useState(false), [size, setSize] = useState({ w: 300, h: 260 }), [kind, setKind] = useState(rig.kind);
   const [view, setView] = useState(HOME), drag = useRef<{ x: number; y: number } | null>(null), moved = view !== HOME;
+  // 탭 숨김·칸이 화면 밖이면 그리지 않는다(RV-437 2). 장면은 매 갱신 place 로 최신이라 다시 보일 때 한 번 그리면 최신
+  const out = useRef(false), draw = () => { if (!out.current && !document.hidden) gl.current?.render(rig.scene, rig.cam); };
   useEffect(() => {   // 휠 = 확대/축소 — React 휠은 passive 라 페이지 스크롤을 못 막아 직접 단다
     const el = box.current!, wheel = (e: WheelEvent) => { e.preventDefault(); setView((v) => ({ ...v, zoom: clamp(v.zoom * Math.exp(e.deltaY * 0.001), ZOOM) })); };
     el.addEventListener('wheel', wheel, { passive: false });
@@ -258,16 +260,18 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
       const g = new THREE.WebGLRenderer({ antialias: true, alpha: true }); g.setPixelRatio(window.devicePixelRatio || 1);
       el.prepend(g.domElement); g.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block'; gl.current = g;
     } catch { setFail(true); }
-    fit();
+    fit(); draw();
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit); ro?.observe(el);
+    const io = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver((es) => { out.current = !es[es.length - 1].isIntersecting; draw(); });
+    io?.observe(el); document.addEventListener('visibilitychange', draw);
     return () => {
-      live = false; ro?.disconnect();
+      live = false; ro?.disconnect(); io?.disconnect(); document.removeEventListener('visibilitychange', draw);
       const g = gl.current; gl.current = null;
       free(rig); g?.dispose(); g?.forceContextLoss(); g?.domElement.remove();   // 이 그림이 만든 모양·재질·그리개를 모두 해제(RV-403 4)
     };
   }, [rig]);
   const at = useMemo(() => place(rig, pose, motion, size.w, size.h, view), [rig, pose?.q.join(), pose?.wxyz.join(), motion.dq?.join(), motion.v?.join(), motion.wz, size, kind, view]);
-  useLayoutEffect(() => { gl.current?.render(rig.scene, rig.cam); });
+  useLayoutEffect(draw);
   const q = pose?.q;
   // 관절 값 글자: 각도 + 도는 중이면 방향·각속도. 글자 폭은 10px 숫자 기준 어림(겹침 피하기용) — 글자 칸은 이 폭으로 잘린다(그림 밖으로 안 나감)
   const tags = useMemo(() => {
@@ -287,6 +291,8 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
     {t.text}{t.dir && <i>{t.dir === 'ccw' ? '↺' : '↻'} {t.rate}°/s</i>}</span>;
   const spill = tags.filter((t) => !t.b);
   const cOf = (i: number) => temps?.[i], tipText = (i: number) => `${jointName(JOINTS[i])} ${cOf(i) != null ? `${Math.round(cOf(i)!)}°C` : '온도 모름'}${q ? ` · ${deg(q[i])}°` : ''}`;
+  // 겹친 점은 카메라에 가까운 것이 위(그리기·마우스 판정 모두 — RV-437 1): z-index = 2 + 더 먼 점 수. 점 묶음은 z 2 한 겹(글자 1 위, «처음 보기» 3 아래 그대로), 말풍선(4)은 묶음 밖
+  const near = at.joints.map((j) => 2 + at.joints.filter((o) => o.z > j.z).length);
   const tj = tip >= 0 ? at.joints[tip] : null, tipEl = useRef<HTMLSpanElement>(null), [cover, setCover] = useState<Box | null>(null);
   // 말풍선이 덮는 자리(그림 칸 기준 px) — 그 밑 관절 값 글자와 이 관절 글자(말풍선에 각도가 있음)는 숨겨 말풍선만 보이게
   useLayoutEffect(() => {
@@ -323,14 +329,14 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
     </div>
     {moved && <button type="button" className="btn" data-go2-home onMouseDown={(e) => e.preventDefault()} onClick={() => setView(HOME)}
       style={{ position: 'absolute', zIndex: 3, left: RESET.x, top: RESET.y, width: RESET.w, height: RESET.h, minHeight: 0, padding: 0, fontSize: 12 }}>처음 보기</button>}
-    {(q || temps) && <div className="pd-go2-dots" role="group" aria-label="관절 온도" style={{ width: size.w, height: size.h }}>
+    {(q || temps) && <div className="pd-go2-dots" role="group" aria-label="관절 온도" style={{ width: size.w, height: size.h, zIndex: 2 }}>
       {at.joints.map((j, i) => <button key={JOINTS[i]} type="button" className="pd-dot" data-go2-temp={JOINTS[i]} aria-label={tipText(i)} aria-describedby={tip === i ? 'pd-go2-tip' : undefined}
-        style={{ left: j.x, top: j.y, background: tempColor(cOf(i)) }}
+        style={{ left: j.x, top: j.y, zIndex: near[i], background: tempColor(cOf(i)) }}
         onMouseEnter={() => setTip(i)} onMouseLeave={() => setTip(-1)} onFocus={() => setTip(i)} onBlur={() => setTip(-1)} onClick={() => setTip(i)} />)}
-      {tj && <span ref={tipEl} id="pd-go2-tip" className="pd-tip" role="tooltip" data-go2-tip style={{ left: Math.min(Math.max(tj.x, 70), size.w - 70), top: tj.y - 9 }}>{tipText(tip)}</span>}
       <span className="pd-legend" data-go2-legend style={{ width: LEGEND.w, height: LEGEND.h, right: LEGEND.pad, bottom: LEGEND.pad }}>
         {TEMP_MIN}°C<i style={{ background: `linear-gradient(90deg, ${RAMP.join(', ')})` }} />{TEMP_MAX}°C<i className="pd-legend-none" style={{ background: NO_TEMP }} title="온도 모름" /></span>
     </div>}
+    {(q || temps) && tj && <span ref={tipEl} id="pd-go2-tip" className="pd-tip" role="tooltip" data-go2-tip style={{ left: Math.min(Math.max(tj.x, 70), size.w - 70), top: tj.y - 9 }}>{tipText(tip)}</span>}
     {fail && <p className="pd-go2-fail">간단한 그림(3D 를 못 그리는 브라우저)</p>}
     {spill.length > 0 && <ul className="pd-go2-more" aria-label="그림에 다 못 넣은 관절 값" data-go2-more>
       {spill.map((t) => <li key={t.name}><b>{jointName(t.name)}</b>{val(t)}</li>)}
