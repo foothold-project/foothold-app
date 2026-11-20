@@ -131,6 +131,8 @@ class Go2Sink:
         self._feedback_received = float("-inf")
         self._stall_sequence = 0
         self.posture_feedback = None
+        # Without a sequence provider, no posture can prove it postdates motion.
+        self.latest_sport_sequence = lambda: math.inf
         self.posture_authorized = lambda lease: False
         self._posture = None
         self._posture_stop_only = False
@@ -144,6 +146,9 @@ class Go2Sink:
         self._ordinary_hold = True
         # Each independent lane owns its own RPC history, never the other lock.
         self._stop_attempts = {}
+        self._resting_lanes = set()
+        self._motion_inflight = False
+        self._last_motion_sequence = -1
         self._stop_diagnostics = {}
         self._rpc_samples = deque(maxlen=20)
         self._stop_timeouts = deque(maxlen=256)
@@ -303,6 +308,7 @@ class Go2Sink:
                         self._posture_finish('FAILED', 'SDK_REJECTED', getattr(error, 'sdk_code', None))
                 raise  # standing stop rejection remains a fatal output fault
         try:
+            rpc = getattr(self.client, method)
             with self._lock:
                 if self._posture is not job or not self.posture_authorized(job['lease']):
                     return
@@ -313,11 +319,13 @@ class Go2Sink:
                     if not self._standing(current) or not current['still']:
                         self._posture_finish('FAILED', 'POSTURE_CHANGED', None)
                         return
+                self._motion_inflight = True
             started = time.monotonic()
             code = None
             try:
-                code = getattr(self.client, method)()
+                code = rpc()
             finally:
+                self._motion_returned()
                 self._rpc_diagnostic(method, time.monotonic()-started, code)
         except Exception:
             code = None
@@ -598,7 +606,25 @@ class Go2Sink:
             raise error
         return code
 
+    def _motion_returned(self):
+        # Normal output is serialized. STOP on either lane needs newer posture
+        # evidence than a sample captured before or during this motion RPC.
+        with self._lock:
+            self._last_motion_sequence = self.latest_sport_sequence()
+            self._motion_inflight = False
+
+    @staticmethod
+    def _lying_or_sitting(sample):
+        # Unitree Go2 SportModeState mode 10 is sit; mode 0 can be lying on Go2 X.
+        return sample['state'] == 'LYING' or sample['mode'] == 10
+
+    def _resting_for_stop(self, sample):
+        return (sample['still'] and (sample['state'] == 'LYING' or sample.get('sitting_settled', False))
+                and not self._motion_inflight
+                and sample.get('sequence', -1) > self._last_motion_sequence)
+
     def _movement_rpc(self, client, method, args, *, movement_epoch=None):
+        motion = method == 'Move' and args != ZERO
         with self._lock:
             active = self._remote_active()
             activity_before = self._last_remote_activity
@@ -608,6 +634,8 @@ class Go2Sink:
             if movement_epoch is not None and (self.latched or self._closed.is_set()
                     or self._wait_operator_neutral or movement_epoch != (self.generation, activity_before)):
                 return
+            if motion:
+                self._motion_inflight = True
         try:
             self._call(client, method, *args)
         except (OSError, RuntimeError) as error:
@@ -625,6 +653,9 @@ class Go2Sink:
                 logger.critical('GO2_EMERGENCY_OUTPUT_FAILED method=%s code=%s', method, code)
             else:
                 logger.warning('GO2_REMOTE_OUTPUT_REJECTED method=%s code=%s', method, code)
+        finally:
+            if motion:
+                self._motion_returned()
 
     def _stop_output(self, client, *, force=False):
         first = None
@@ -638,19 +669,31 @@ class Go2Sink:
             quiet = self._ordinary_hold and not self._operator_stop
         measured = self._measured_stop(generation)
         lane = 'normal' if client is self.client else 'emergency'
+        with self._lock:
+            sample = self._posture_sample()
+            if self._resting_for_stop(sample):
+                self._resting_lanes.add(lane)
+                return
+            resume = lane in self._resting_lanes
+            self._resting_lanes.discard(lane)
         previous = self._stop_attempts.get(lane)
-        send_stop = (force or previous is None or previous[0] != generation or
+        send_stop = (force or resume or previous is None or previous[0] != generation or
                      (not measured and self.now()-previous[1] >= STOP_RETRY_S))
         if quiet and measured and not send_stop:
             return
-        sample = self._posture_sample()
-        stop_only = (sample['state'] in ('LYING', 'TRANSITIONING') or
+        stop_only = (self._lying_or_sitting(sample) or sample['state'] == 'TRANSITIONING' or
             sample.get('standing_locked', False) or self._posture_stop_only or
             (sample['state'] == 'STANDING' and not self._walkable(sample)))
         for method, args in ([('StopMove', ())] if stop_only else [('Move', ZERO), ('StopMove', ())]):
             if method == 'StopMove':
                 if not send_stop and first is None:
                     continue
+                # Move(0) can block while the robot finishes lying down.
+                if not stop_only:
+                    with self._lock:
+                        if self._resting_for_stop(self._posture_sample()):
+                            self._resting_lanes.add(lane)
+                            break
                 self._stop_attempts[lane] = (generation, self.now())
             try:
                 self._movement_rpc(client, method, args)
@@ -758,7 +801,9 @@ class Go2Sink:
                  not self._measured_stop(self.generation) and
                  self.actions.executing is None)
         with self._lock:
-            retry = retry and self.latched
+            # A suppressed lane has no RPC deadline. Re-evaluate it on the
+            # next watchdog tick so newly observed motion stops immediately.
+            retry = self.latched and (retry or 'emergency' in self._resting_lanes)
             expired = self._expired(self.now())
             if expired and self.actions.executing is not None:
                 self.actions.cancel('WATCHDOG')

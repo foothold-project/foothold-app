@@ -313,9 +313,10 @@ def test_cleanup_emergency_failure_is_not_hidden_by_original_link_error(monkeypa
 
 
 @pytest.mark.parametrize('lane', ['normal', 'emergency'])
-def test_send_failure_stays_fatal_even_lying(lane):
+def test_send_failure_stays_fatal_when_low_robot_is_moving(lane):
     from test_go2_posture import rig as posture_rig
-    _, sink, normal, emergency, _, _, _, _ = posture_rig(5)
+    _, sink, normal, emergency, _, _, measured, _ = posture_rig(5)
+    measured(5, velocity=(.3, 0., 0.))
     stop_code(normal if lane == 'normal' else emergency, 3102)
     sink.apply(MotionCommand('stop', stop_generation=99), source='server')
     with pytest.raises(OutputError):

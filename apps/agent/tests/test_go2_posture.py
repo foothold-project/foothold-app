@@ -115,7 +115,7 @@ def test_documented_modes_and_freshness(mode, height, state):
     assert session._state()['posture'] == dict(state='UNKNOWN', mode=None)
 
 
-def test_lying_keeps_session_stop_confirmation_and_ignores_motion_and_stop_rejection():
+def test_stationary_lying_keeps_session_stop_confirmation_without_sport_output():
     _, sink, normal, emergency, session, _, measured, frame = rig()
     normal.result = emergency.result = 42
     frame('stop', stop_ref=25)
@@ -126,8 +126,7 @@ def test_lying_keeps_session_stop_confirmation_and_ignores_motion_and_stop_rejec
     assert session.connected and session.lease_confirmed and sink.error is None
     assert session._state()['stop_ref'] == 25
     assert session.core.intent == sink.pending == ZERO
-    assert normal.calls == [('StopMove', ())]
-    assert emergency.calls == [('StopMove', ())]
+    assert normal.calls == emergency.calls == []
 
 
 def test_standing_stop_rejection_remains_fatal():
@@ -336,7 +335,7 @@ def test_lying_approval_keeps_live_workers_transport_camera_and_mapping(motion_s
             assert client.sink.active is active and client.session.connected
             assert active.sink.error is None and active.sink.pending == ZERO
             assert counts['media'] > 10 and counts['mapping'] > 10
-            assert all(name == 'StopMove' for sdk_client in clients for name, _ in sdk_client.calls)
+            assert all(sdk_client.calls == [] for sdk_client in clients)
         finally:
             stop.set()
             seen['pulse'].cancel()

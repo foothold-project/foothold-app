@@ -52,6 +52,12 @@ class Feedback:
         if value is not None:
             value.remote = self.remote
             value.stop_feedback = lambda: self.stop_snapshot(value)
+            value.latest_sport_sequence = self.latest_sport_sequence
+
+    def latest_sport_sequence(self):
+        """Last accepted SportModeState, even when LowState has aged out."""
+        with self._lock:
+            return self._sequence
 
     def stop_snapshot(self, sink):
         """Identity-bound measurements for STOP RPC timeout handling only.
@@ -202,7 +208,7 @@ class Feedback:
         return self._posture(self.sample())
 
     def _posture(self, sample):
-        result = dict(state='UNKNOWN', mode=None, still=False, sequence=-1,
+        result = dict(state='UNKNOWN', mode=None, still=False, sequence=-1, sitting_settled=False,
                       standing_locked=False, walkable=False, motion_state=None, height=None)
         if sample is None:
             return result
@@ -215,6 +221,7 @@ class Feedback:
         tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
         safe = (tilt is not None and tilt < math.pi/3
                 and number(sport['progress']) and sport['progress'] == 0)
+        result['sitting_settled'] = sport['mode'] == 10 and safe
         result['still'] = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
             and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
         # Preserve the existing mode-5 range; Go2 X also lies down in mode 0.
