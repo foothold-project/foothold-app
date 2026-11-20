@@ -209,3 +209,36 @@ def test_failed_readiness_detail_preserves_clocks_and_latch(monkeypatch, caplog)
     assert float(row['sport_rx_ms']) == 1000
     assert sink.latched and sink.source == 'phone'
     assert 'private detail failure' not in caplog.text
+
+
+def test_sink_formats_snapshot_after_releasing_its_lock(monkeypatch, caplog):
+    clock, inputs, gate, _ = rig(monkeypatch)
+    sink = gate.active.sink
+    clock.value += 1
+    inputs.lock_evidence['watchdog_input'] = clock() - .125
+    entered, resume = threading.Event(), threading.Event()
+    evidence_type = type(inputs.lock_evidence)
+    suffix = evidence_type.suffix
+
+    def blocked(snapshot, stamp, cause):
+        entered.set()
+        resume.wait(5)
+        return suffix(snapshot, stamp, cause)
+
+    monkeypatch.setattr(evidence_type, 'suffix', blocked)
+    caplog.clear()
+    thread = threading.Thread(target=sink.select_source, args=('phone',))
+    thread.start()
+    try:
+        assert entered.wait(2)
+        assert sink._lock.acquire(blocking=False)
+        try:
+            assert sink.latched and sink.source == 'phone'
+            assert inputs.lock_evidence['watchdog_input'] is None
+        finally:
+            sink._lock.release()
+    finally:
+        resume.set()
+        thread.join(2)
+    assert not thread.is_alive()
+    assert float(fields(caplog, 'output_source_changed')['watchdog_input_ms']) == 125

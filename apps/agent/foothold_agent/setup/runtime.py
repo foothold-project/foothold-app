@@ -64,12 +64,14 @@ def _host_requests():
 
 class LockEvidence(dict):
     """Fixed set of locally published clocks, samples and decision labels."""
-    def suffix(self, stamp, cause):
+    def snapshot(self):
         # One shallow CPython dict copy. Writers replace entries and never
         # mutate a published feedback sample. No DDS or output lock is taken.
-        evidence = self.copy()
+        return LockEvidence(self)
+
+    def suffix(self, stamp, cause):
         if cause == 'identity_unavailable':
-            branch = evidence.get('identity_branch')
+            branch = self.get('identity_branch')
             if branch not in ('serial_conflict', 'serial_missing', 'serial_invalid', 'serial_stale',
                               'nonzero_serial', 'body_conflict', 'body_check_failed',
                               'body_check_stale', 'body_unconfirmed'):
@@ -79,25 +81,25 @@ class LockEvidence(dict):
         else:
             branch = 'none'
         for topic in ('low', 'sport'):
-            sample = evidence.get(topic)
-            evidence[topic + '_accepted'] = sample['received'] if sample else None
+            sample = self.get(topic)
+            self[topic + '_accepted'] = sample['received'] if sample else None
         clocks = ('low_rx', 'sport_rx', 'low_accepted', 'sport_accepted',
                   'serial_refresh', 'body_refresh', 'output_input', 'watchdog_input')
         missing = []
         parts = []
         for key in clocks:
-            at = evidence.get(key)
+            at = self.get(key)
             if at is None:
                 missing.append(key + '_ms')
             parts.append(f'{key}_ms={_age_ms(stamp, at)}')
         try:
-            latest = Feedback.journal_readiness(stamp, evidence)
+            latest = Feedback.journal_readiness(stamp, self)
         except Exception:
             latest = 'unavailable'
             missing.append('feedback_latest')
-        failure = evidence.get('feedback_failed', 'unchecked')
+        failure = self.get('feedback_failed', 'unchecked')
         parts.extend((f'identity_branch={branch}', f'feedback_failed={failure}', f'feedback_latest={latest}'))
-        sampled, cpu_pct, window_ms, load = evidence.get('host_sample', (None, None, None, None))
+        sampled, cpu_pct, window_ms, load = self.get('host_sample', (None, None, None, None))
         for key, value in (('cpu_pct', cpu_pct), ('cpu_window_ms', window_ms), ('load1', load)):
             if value is None:
                 missing.append(key)
