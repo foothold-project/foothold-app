@@ -1,9 +1,13 @@
 """One readonly DDS subscription pair and WS; motion objects exist only in approval epochs."""
 import asyncio
+from functools import cache
 import logging
+import math
 import os
+import queue
 import threading
 import time
+from time import process_time
 
 from foothold_agent.go2_direct.approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
 from foothold_agent.go2_direct.media import approved_publisher
@@ -15,6 +19,7 @@ from foothold_agent.go2_direct.sdk import SportBoundary, connect_approved
 from foothold_agent.go2_direct.identity import ResumeGate
 from foothold_agent.go2_direct.server import DriveSession, ServerSink
 from foothold_agent.go2_direct.sink import Go2Sink, OutputError
+from foothold_agent.go2_readonly.sdk import ReceiptIntervals
 from foothold_agent.go2_readonly.state import integer
 from foothold_agent.link.client import Client
 from foothold_agent.link.session import MotionCommand
@@ -28,6 +33,86 @@ class SerialUnavailable(PermissionError):
     pass
 
 
+def _age_ms(stamp, at):
+    return round((stamp - at) * 1000, 2) if at is not None and math.isfinite(at) else -1
+
+
+def _identity_error(error, branch):
+    error.lock_branch = branch
+    return error
+
+
+@cache
+def _host_requests():
+    # One optional sampler across approval epochs. A stalled OS call cannot
+    # hold the control loop or shutdown, or accumulate work on repeated locks.
+    requests = queue.Queue(maxsize=1)
+
+    def collect():
+        while True:
+            inputs = requests.get()
+            try:
+                inputs.sample_host()
+            except Exception:
+                pass  # A previous sample carries its age; absent fields are marked.
+            finally:
+                del inputs
+
+    threading.Thread(target=collect, name='go2-host-sample', daemon=True).start()
+    return requests
+
+
+class LockEvidence(dict):
+    """Fixed set of locally published clocks, samples and decision labels."""
+    def snapshot(self):
+        # One shallow CPython dict copy. Writers replace entries and never
+        # mutate a published feedback sample. No DDS or output lock is taken.
+        return LockEvidence(self)
+
+    def suffix(self, stamp, cause):
+        if cause == 'identity_unavailable':
+            branch = self.get('identity_branch')
+            if branch not in ('serial_conflict', 'serial_missing', 'serial_invalid', 'serial_stale',
+                              'nonzero_serial', 'body_conflict', 'body_check_failed',
+                              'body_check_stale', 'body_unconfirmed'):
+                branch = 'unavailable'
+        elif cause.startswith('identity_') or cause == 'feedback_identity_conflict':
+            branch = cause
+        else:
+            branch = 'none'
+        for topic in ('low', 'sport'):
+            sample = self.get(topic)
+            self[topic + '_accepted'] = sample['received'] if sample else None
+        clocks = ('low_rx', 'sport_rx', 'low_accepted', 'sport_accepted',
+                  'serial_refresh', 'body_refresh', 'output_input', 'watchdog_input')
+        missing = []
+        parts = []
+        for key in clocks:
+            at = self.get(key)
+            if at is None:
+                missing.append(key + '_ms')
+            parts.append(f'{key}_ms={_age_ms(stamp, at)}')
+        try:
+            latest = Feedback.journal_readiness(stamp, self)
+        except Exception:
+            latest = 'unavailable'
+            missing.append('feedback_latest')
+        failure = self.get('feedback_failed', 'unchecked')
+        parts.extend((f'identity_branch={branch}', f'feedback_failed={failure}', f'feedback_latest={latest}'))
+        sampled, cpu_pct, window_ms, load = self.get('host_sample', (None, None, None, None))
+        for key, value in (('cpu_pct', cpu_pct), ('cpu_window_ms', window_ms), ('load1', load)):
+            if value is None:
+                missing.append(key)
+                value = -1
+            parts.append(f'{key}={value:.2f}')
+        if sampled is None:
+            missing.append('host_sample_age_ms')
+        parts.append(f'host_sample_age_ms={_age_ms(stamp, sampled)}')
+        if missing:
+            parts.append('detail_missing=' + ','.join(missing))
+        return ' ' + ' '.join(parts)
+
+
 class Inputs(Measurements):
     """Read-only discovery plus independent, strict motion feedback when identified."""
     def __init__(self):
@@ -38,8 +123,16 @@ class Inputs(Measurements):
         self.feedback = None
         self.serial_received = float('-inf')
         self.mac_identity = None
+        self.lock_evidence = LockEvidence()
+        self.low_receipts = ReceiptIntervals()
+        self.sport_receipts = ReceiptIntervals()
+        stamp = time.monotonic()
+        self.report_at = stamp
+        self.cpu_recent = (stamp, process_time())
+        self.host_due = stamp + 1.
 
     def lowstate(self, message):
+        self.lock_evidence['low_rx'] = self.low_receipts.record(time.monotonic())
         sn = getattr(message, 'sn', None)
         if isinstance(sn, (tuple, list)) and len(sn) == 2 and all(integer(x, 0xFFFFFFFF) for x in sn):
             serial = f'{sn[0]}-{sn[1]}'
@@ -48,11 +141,13 @@ class Inputs(Measurements):
                     self.conflict = True
                 self.serial = serial
                 self.serial_received = time.monotonic()
+                self.lock_evidence['serial_refresh'] = self.serial_received
         super().lowstate(message)
         if self.feedback is not None:
             self.feedback.lowstate(message)
 
     def sportmodestate(self, message):
+        self.lock_evidence['sport_rx'] = self.sport_receipts.record(time.monotonic())
         super().sportmodestate(message)
         if self.feedback is not None:
             self.feedback.sportmodestate(message)
@@ -61,7 +156,10 @@ class Inputs(Measurements):
         with self.identity_lock:
             if (self.conflict or self.serial != '0-0' and not valid_serial(self.serial)
                     or not 0 <= time.monotonic()-self.serial_received <= .20):
-                raise PermissionError('fresh unambiguous nonzero DDS serial required')
+                branch = ('serial_conflict' if self.conflict else 'serial_missing' if self.serial is None
+                          else 'serial_invalid' if self.serial != '0-0' and not valid_serial(self.serial)
+                          else 'serial_stale')
+                raise _identity_error(PermissionError('fresh unambiguous nonzero DDS serial required'), branch)
             return self.serial
 
     def zero_identity_changed(self):
@@ -72,11 +170,48 @@ class Inputs(Measurements):
         serial = self.observed_identity()
         if self.mac_identity is not None:
             if serial != '0-0' or not self.mac_identity.valid():
-                raise PermissionError('confirmed body identity unavailable')
+                branch = ('nonzero_serial' if serial != '0-0' else 'body_conflict' if self.mac_identity.fault
+                          else 'body_check_failed' if self.mac_identity.unavailable else 'body_check_stale')
+                raise _identity_error(PermissionError('confirmed body identity unavailable'), branch)
+            self.lock_evidence['body_refresh'] = self.mac_identity.checked
             return self.mac_identity.serial
         if serial == '0-0':
-            raise SerialUnavailable('operator confirmation required')
+            raise _identity_error(SerialUnavailable('operator confirmation required'), 'body_unconfirmed')
         return serial
+
+    def sample_host(self):
+        # Only the host sampler updates the baseline and publishes a complete
+        # window. Use the actual sample time, even if its request was delayed.
+        stamp, cpu = time.monotonic(), process_time()
+        start, previous = self.cpu_recent
+        window = stamp - start
+        if window < 1.:
+            return
+        try:
+            load = os.getloadavg()[0]
+        except (AttributeError, OSError):
+            load = None
+        self.lock_evidence['host_sample'] = (stamp, 100 * (cpu - previous) / window, window * 1000, load)
+        self.cpu_recent = (stamp, cpu)
+
+    def report_intervals(self, stamp):
+        if stamp >= self.host_due:
+            self.host_due = stamp + 1.
+            try:
+                _host_requests().put_nowait(self)
+            except queue.Full:
+                pass  # Read the last completed sample until the worker catches up.
+        checked = self.mac_identity.checked if self.mac_identity is not None else None
+        if checked is not None and math.isfinite(checked):
+            self.lock_evidence['body_refresh'] = checked
+        if stamp - self.report_at < 30.:
+            return
+        elapsed, self.report_at = stamp - self.report_at, stamp
+        drops = self.feedback.take_drops()
+        logging.getLogger('foothold_agent.lock').warning(
+            'GO2_DDS window_s=%.2f %s %s drops=%d drop_reasons=%s', elapsed,
+            self.low_receipts.summary('low'), self.sport_receipts.summary('sport'),
+            sum(drops.values()), ','.join(f'{key}:{drops[key]}' for key in sorted(drops)) or 'none')
 
 
 class GatedSession(DriveSession):
@@ -84,6 +219,9 @@ class GatedSession(DriveSession):
         self.gate = gate
         super().__init__(feedback)
         gate.session = self
+        if isinstance(gate.inputs, Inputs):
+            feedback.attach_journal(gate.lock_evidence)
+            self.core.lock_log.evidence = gate.lock_evidence
 
     def receive(self, raw):
         try:
@@ -130,6 +268,7 @@ class Gate:
         self.ready, self.nic_matches = ready, nic_matches
         self.nic_cause = nic_cause
         self.invalid_cause = "approval_revoked"
+        self.lock_evidence = getattr(inputs, 'lock_evidence', {})
         self.wall, self.now = wall, now
         self.active = self.pending = self.session = None
         self.last_expiry = float('-inf') if last_expiry is None else last_expiry
@@ -159,7 +298,8 @@ class Gate:
                     or not self._check(self.inputs.identity() == self.serial, "identity_changed")):
                 cause = self.invalid_cause
                 raise PermissionError('preflight and current identity required')
-        except (ValueError, TypeError, PermissionError, OverflowError):
+        except (ValueError, TypeError, PermissionError, OverflowError) as error:
+            self.lock_evidence['identity_branch'] = getattr(error, 'lock_branch', 'unavailable')
             self.revoke_with_cause(cause)
             return
         if self.active is not None and self.valid():
@@ -216,6 +356,7 @@ class Gate:
         finally:
             if self.inputs.feedback is not None:
                 self.inputs.feedback.sink = None
+                self.lock_evidence['server_source'] = False
 
     def _check(self, value, cause):
         if not value:
@@ -236,7 +377,8 @@ class Gate:
                     and self._check(self.session.connected, 'connection_changed')
                     and self._check(not self.session.link_lost, 'link_lost')
                     and self._check(not self.session.reconnect_required, 'connection_changed'))
-        except (ValueError, PermissionError):
+        except (ValueError, PermissionError) as error:
+            self.lock_evidence['identity_branch'] = getattr(error, 'lock_branch', 'unavailable')
             self.invalid_cause = 'identity_unavailable'
             return False
 
@@ -274,6 +416,10 @@ class Gate:
             return
         feedback = self.inputs.feedback
         sink = sink_factory(*clients, phone_watchdog=True)
+        if isinstance(self.inputs, Inputs):
+            self.lock_evidence.update(output_input=None, watchdog_input=None, server_source=False)
+            sink.lock_evidence = self.lock_evidence
+            sink.lock_log.evidence = self.lock_evidence
         sink.posture_feedback = feedback.posture_snapshot
         for boundary in clients:
             if isinstance(boundary, SportBoundary):
@@ -443,6 +589,10 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 healthy = fresh
             else:
                 healthy = False
+            try:
+                inputs.report_intervals(stamp)
+            except Exception:
+                pass  # Optional journal output must not end the motion session.
             readings = devices(inputs.feedback.telemetry(), session.now())
             readings.append(dict(key='go2-preflight', kind='OTHER', label='연결 프로그램 자동 점검',
                                  state='OK' if ready else 'ERROR', received_monotonic_s=session.now()))

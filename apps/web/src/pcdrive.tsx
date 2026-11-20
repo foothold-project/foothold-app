@@ -11,6 +11,7 @@ import { Chip, LINK, type Ctx } from './screens';
 import { TRIAL, DriveView, stacked, useServerDrive } from './serverdrive';
 import { driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import { LidarMap } from './lidarmap';
+import { MapPick } from './slamview';
 import { OccMap } from './occmap';
 import { Quad, type QTile } from './quad';
 import { STALLED } from './simdrive';
@@ -110,7 +111,8 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const tiles: QTile[] = [
     { id: 'map', label: stack ? '지도 — 걸으며 만드는 중' : '지도', held: stack ? held : '', body: (z) => (stack ? <OccMap small={z === 'thumb'} feed={lidar} empty={lidarText} /> : <div className="pd-floor">{floorMap}</div>) },
     { id: 'rgb', label: '카메라', body: (z) => <Feed robot={r.id} ch="rgb" big={z === 'big'} /> },
-    { id: 'lidar', label: '라이다', held, body: (z) => <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} tag={z !== 'big'} pick go2={pose} /> },   // pick: «보기» 줄 3D(점)·상자·위에서(11-20 RB-UNITREE-LOOK-FIX — 4칸 틀 그대로)
+    { id: 'lidar', label: '라이다', held, body: (z) => z === 'big' ? <MapPick robot={r.id} left={8} top={60} ours={<LidarMap feed={lidar} empty={lidarText} tag={false} pick go2={pose} />} />   // 큰 칸이면 «우리 지도 / 로봇 지도»(serverdrive 와 같게) — 오른쪽은 작은 칸이 가려 왼쪽 «3D·상자·위에서» 아래
+      : <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} tag pick go2={pose} /> },   // pick: «보기» 줄 3D(점)·상자·위에서(11-20 RB-UNITREE-LOOK-FIX — 4칸 틀 그대로)
     { id: 'depth', label: '뎁스', body: (z) => <Feed robot={r.id} ch="depth" big={z === 'big'} /> },
   ];
   const fact = (k: string, v: ReactNode, attr: string) => <div className="pd-fact" data-pd={attr}><span className="lbl">{k}</span><b>{v}</b></div>;

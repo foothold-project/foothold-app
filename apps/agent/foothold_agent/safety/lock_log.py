@@ -1,4 +1,6 @@
 """Bounded, diagnostic-only cause records. Never accept labels from user data."""
+from contextlib import contextmanager
+from functools import partial
 import logging
 import time
 
@@ -60,6 +62,33 @@ class LockLog:
         self.now = now
         self.last_healthy = None
         self.last = {}
+        self.evidence = None
+
+    @contextmanager
+    def after_unlock(self):
+        """Capture records inside a sink operation, flush on the same thread after its lock exits."""
+        records = []
+        try:
+            yield partial(self.emit, records=records)
+        finally:
+            for record in records:
+                self._write(*record)
+
+    @staticmethod
+    def _write(kind, cause, source, held_ms, stamp, snapshot):
+        try:
+            suffix = ''
+            if kind == 'lock':
+                suffix = ' detail_missing=lock_snapshot'
+                if snapshot is not None:
+                    try:
+                        suffix = snapshot.suffix(stamp, cause)
+                    except Exception:
+                        pass  # Always emit the original lock record on a diagnostic fault.
+            logging.getLogger('foothold_agent.lock').warning(
+                'GO2_LOCK kind=%s cause=%s source=%s held_ms=%d%s', kind, cause, source, held_ms, suffix)
+        except Exception:
+            pass  # Logging must never prevent STOP or release.
 
     def healthy(self, at=None):
         try:
@@ -67,7 +96,7 @@ class LockLog:
         except Exception:
             pass
 
-    def emit(self, kind, cause, source='agent'):
+    def emit(self, kind, cause, source='agent', *, records=None):
         try:
             if kind not in ('stop', 'lock', 'release'):
                 return
@@ -80,7 +109,16 @@ class LockLog:
                 return
             self.last[key] = stamp
             held_ms = -1 if self.last_healthy is None else max(0, int((stamp-self.last_healthy)*1000))
-            logging.getLogger('foothold_agent.lock').warning(
-                'GO2_LOCK kind=%s cause=%s source=%s held_ms=%d', kind, cause, source, held_ms)
+            snapshot = None
+            if kind == 'lock' and self.evidence is not None:
+                try:
+                    snapshot = self.evidence.snapshot()
+                except Exception:
+                    pass
+            record = (kind, cause, source, held_ms, stamp, snapshot)
+            if records is None:
+                self._write(*record)
+            else:
+                records.append(record)
         except Exception:
-            pass  # Logging must never prevent STOP or release.
+            pass  # Diagnostics must never prevent STOP or release.

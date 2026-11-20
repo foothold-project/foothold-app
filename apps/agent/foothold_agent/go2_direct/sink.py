@@ -107,6 +107,7 @@ class Go2Sink:
             raise ValueError('phone_watchdog must be a boolean')
         self._phone_watchdog = phone_watchdog
         self._source_received = None
+        self.lock_evidence = {}
         self.limits, self.now = limits or Limits(), now
         self.lock_log = LockLog(now)
         self._lock = threading.RLock()
@@ -163,6 +164,7 @@ class Go2Sink:
             self.pending = self._ramp_velocity = ZERO
             self._ramp_at = (self.now(),) * 3
             self._source_received = None
+            self.lock_evidence['watchdog_input'] = None
             self._wait_operator_neutral = self._neutral_required = True
         return active is True
 
@@ -343,25 +345,26 @@ class Go2Sink:
         with self._lock:
             return self.generation, self.latched
 
-    def _stall(self):
+    def _stall(self, emit):
         if not self.latched:
             stamp = self.now()
             cause = ('output_apply_stalled' if stamp-self._last_apply >= DEADLINE_S else
                      'output_drain_stalled' if stamp-self._last_drain >= DEADLINE_S else 'output_input_stale')
-            self.lock_log.emit('stop', cause)
-            self.lock_log.emit('lock', cause)
+            emit('stop', cause)
+            emit('lock', cause)
             self._stall_sequence += 1
         self._hold(preserve=True)
 
     def select_source(self, source):
         if source not in ('phone', 'nav2', 'server'):
             raise ValueError('known source required')
-        with self._lock:
+        with self.lock_log.after_unlock() as emit, self._lock:
             if self.source != source:
-                self.lock_log.emit("stop", "output_source_changed")
-                self.lock_log.emit("lock", "output_source_changed")
+                emit("stop", "output_source_changed")
+                emit("lock", "output_source_changed")
                 self._hold()
                 self.source = source
+                self.lock_evidence['server_source'] = source == 'server'
 
     def _hold(self, *, reason=None, preserve=False):
         repeated = self.latched and (preserve or (reason is not None and reason == self._hold_reason))
@@ -377,6 +380,7 @@ class Go2Sink:
         self._neutral_required = True
         self._urgent = True
         self._source_received = None
+        self.lock_evidence['watchdog_input'] = None
 
     def _expired(self, stamp):
         if ((self._remote_active() or self._wait_operator_neutral) and not self._operator_stop
@@ -388,19 +392,19 @@ class Go2Sink:
                 (self._phone_watchdog and self._source_received is not None and
                  stamp-self._source_received >= DEADLINE_S))
 
-    def _require_workers(self):
+    def _require_workers(self, emit):
         # Call under the memory lock. start_threads starts BOTH workers while
         # holding that lock, so neither may output before the pair is ready.
         if not self._offline_test_mode and (len(self._threads) != 2 or
                                            not all(t.is_alive() for t in self._threads)):
-            self.lock_log.emit('stop', 'output_workers_unready')
-            self.lock_log.emit('lock', 'output_workers_unready')
+            emit('stop', 'output_workers_unready')
+            emit('lock', 'output_workers_unready')
             self._hold()
             self._stop_requested.set()
             raise OutputError('both live workers must be ready before input/output')
 
     def apply(self, command, *, source, input_received_at=None, operator_stop=None):
-        with self._lock:
+        with self.lock_log.after_unlock() as emit, self._lock:
             if self._closed.is_set() or self.error is not None:
                 raise OutputError('adapter closed or failed')
             # STOP dominates every source; source arbitration is not an auth gate.
@@ -422,17 +426,17 @@ class Go2Sink:
                     self._hold_reason = reason
                 self._stop_requested.set()
                 return
-            self._require_workers()
+            self._require_workers(emit)
             # Check OLD clocks before any input can refresh them. Otherwise a
             # delayed apply -> drain -> watchdog sequence erases the outage.
             stamp = self.now()
             if (not self.latched or self.actions.executing is not None) and self._expired(stamp):
                 self.actions.cancel('WATCHDOG')
-                self._stall()
+                self._stall(emit)
                 self._stop_requested.set()
             if source != self.source or self.source is None:
-                self.lock_log.emit('stop', 'output_source_invalid')
-                self.lock_log.emit('lock', 'output_source_invalid')
+                emit('stop', 'output_source_invalid')
+                emit('lock', 'output_source_invalid')
                 self._hold()
                 raise ValueError('not the selected command source')
             if command.kind == 'unlock':
@@ -446,8 +450,8 @@ class Go2Sink:
                     self._neutral_required = True
                 return
             if command.kind != 'apply':
-                self.lock_log.emit('stop', 'output_command_invalid')
-                self.lock_log.emit('lock', 'output_command_invalid')
+                emit('stop', 'output_command_invalid')
+                emit('lock', 'output_command_invalid')
                 self._hold()
                 raise ValueError('unsupported motion kind')
             try:
@@ -458,8 +462,8 @@ class Go2Sink:
                 else:
                     velocity = self.limits.project(command.velocity)
             except ValueError:
-                self.lock_log.emit("stop", "output_velocity_invalid")
-                self.lock_log.emit("lock", "output_velocity_invalid")
+                emit("stop", "output_velocity_invalid")
+                emit("lock", "output_velocity_invalid")
                 self._hold()
                 self._stop_requested.set()
                 raise
@@ -470,8 +474,12 @@ class Go2Sink:
             if self._phone_watchdog and not self.latched:
                 fresh_input = (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
                                and 0 <= stamp-input_received_at < DEADLINE_S)
+                # Keep the original packet time even if this very packet is
+                # rejected or _hold clears the watchdog clock.
+                self.lock_evidence['output_input'] = (input_received_at
+                    if type(input_received_at) in (int, float) and math.isfinite(input_received_at) else None)
                 if velocity != ZERO and not fresh_input:
-                    self._stall()
+                    self._stall(emit)
                     self._stop_requested.set()
                     if (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
                             and input_received_at <= stamp):
@@ -480,10 +488,11 @@ class Go2Sink:
                 if (fresh_input
                         and (self._source_received is None or input_received_at > self._source_received)):
                     self._source_received = input_received_at
+                    self.lock_evidence['watchdog_input'] = input_received_at
             # Expiry cannot be undone by continuing input; only explicit unlock.
             posture_held = not self._walkable()
             if posture_held and velocity != ZERO:
-                self.lock_log.emit("stop", "output_posture_hold")
+                emit("stop", "output_posture_hold")
             target = ZERO if self.latched or self._neutral_required or self._posture is not None or self.actions.busy or posture_held else velocity
             if source == 'server' and target != self.pending:
                 # Do not spend preceding idle time on a newly received target.
@@ -661,10 +670,10 @@ class Go2Sink:
             raise first
 
     def _fail(self, error):
-        with self._lock:
+        with self.lock_log.after_unlock() as emit, self._lock:
             if self.error is None:
-                self.lock_log.emit("stop", "output_fault")
-                self.lock_log.emit("lock", "output_fault")
+                emit("stop", "output_fault")
+                emit("lock", "output_fault")
                 self._stall_sequence += 1
             self.error = self.error or error
             self._hold()
@@ -672,15 +681,15 @@ class Go2Sink:
     def drain(self):
         """Normal output worker only. Never hold the memory lock across SDK I/O."""
         with self._output:
-            with self._lock:
+            with self.lock_log.after_unlock() as emit, self._lock:
                 if self._closed.is_set():
                     return
-                self._require_workers()
+                self._require_workers(emit)
                 stamp = self.now()
                 if self.actions.executing is not None and self._expired(stamp):
                     self.actions.cancel('WATCHDOG')
                 if not self.latched and self._expired(stamp):
-                    self._stall()
+                    self._stall(emit)
                     self._stop_requested.set()
                 generation, urgent = self.generation, self._urgent
                 movement_epoch = (generation, self._last_remote_activity)
@@ -709,13 +718,13 @@ class Go2Sink:
                 self.actions.step()
                 # An in-flight SDK call cannot be cancelled. Compensate on its
                 # own lane immediately after return if STOP/close raced it.
-                with self._lock:
+                with self.lock_log.after_unlock() as emit, self._lock:
                     stamp = self.now()
                     # A stalled SDK return can also beat the watcher. Do not
                     # erase the outage by stamping its late completion as fresh.
                     if (not self.latched or self.actions.executing is not None) and self._expired(stamp):
                         self.actions.cancel('WATCHDOG')
-                        self._stall()
+                        self._stall(emit)
                         self._stop_requested.set()
                     self._last_drain = stamp
                     changed = generation != self.generation or self._closed.is_set()
@@ -758,7 +767,7 @@ class Go2Sink:
                  self.now()-previous[1] >= STOP_RETRY_S and
                  not self._measured_stop(self.generation) and
                  self.actions.executing is None)
-        with self._lock:
+        with self.lock_log.after_unlock() as emit, self._lock:
             retry = retry and self.latched
             expired = self._expired(self.now())
             if expired and self.actions.executing is not None:
@@ -774,7 +783,7 @@ class Go2Sink:
             if expired:
                 self.cancel_posture('WATCHDOG')
             if expired and not requested:
-                self._stall()
+                self._stall(emit)
             else:
                 self._hold(preserve=True)
         self.emergency_stop(retry=True)

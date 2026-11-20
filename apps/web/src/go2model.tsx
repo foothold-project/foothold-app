@@ -207,6 +207,8 @@ export function go2Body(m: Map<string, Part> | null, mat: THREE.Material) {
   r.body.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = mat; });
   return { body: r.body, pose: (p: Pose) => lean(r.legs, r.body, p) };
 }
+/** 선 자세 몸(slamview.tsx 로봇 지도 3D) */
+export const go2Standing = (m: Map<string, Part> | null, mat: THREE.Material) => go2Body(m, mat).body;
 
 /** 몸 화살표 글자의 시험용 표시(data-go2-move · data-go2-turn=left|right) */
 const ARROW_TAG: Record<string, [string, string]> = { move: ['data-go2-move', ''], left: ['data-go2-turn', 'left'], right: ['data-go2-turn', 'right'] };

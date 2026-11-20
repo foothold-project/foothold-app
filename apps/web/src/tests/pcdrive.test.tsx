@@ -508,6 +508,16 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(tile('map').querySelector('.qh [data-feed-held]')).toBeNull();   // 작아진 지도 칸 머리줄엔 없음
   });
 
+  // RV-461 1: PC 기본 조종 화면도 큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기(서버 경유 화면과 같게) — 작은 칸엔 없음
+  it('큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기, 작은 칸엔 없음', () => {
+    mount('u-park'); serve('r7');
+    expect(tile('lidar').querySelector('[data-pick]')).toBeNull();
+    click(tile('lidar').querySelector('.qh')!);
+    expect(tile('lidar').querySelector('[data-pick="ours"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(tile('lidar').querySelector('[data-lidar-map]')).not.toBeNull();
+    expect((tile('lidar').querySelector('[data-pick="robot"]') as HTMLButtonElement).disabled).toBe(true);   // 로봇 지도 점이 오기 전
+  });
+
   // RV-440 ③: 1440×900 실측에서 보통 보기는 «전체화면» 단추(.qfs-bar right 44px)가, 전체화면은 첫 작은 칸(--tw)이 머리줄 표시를 가렸다 — 그 자리를 비워 둔다
   it('큰 칸 머리줄 «마지막 그림»은 보통 보기에선 전체화면 단추 자리, 전체화면에선 작은 칸 자리를 비워 둔다', async () => {
     mount('u-park'); serve('r7'); fullscreen();
