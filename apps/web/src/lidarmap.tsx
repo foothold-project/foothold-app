@@ -15,8 +15,8 @@ const LUT = Uint32Array.from({ length: N }, (_, i) => {
   return (0xff000000 | (f(4) << 16) | (f(8) << 8) | f(0)) >>> 0;
 });
 
-/** small = 작은 칸(단추·범례 없이 보기만), start = 처음 보기(지도 칸은 위에서) */
-export function LidarMap({ feed, empty, small = false, start = '3d' }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top' }) {
+/** small = 작은 칸(단추·범례 없이 보기만), start = 처음 보기(지도 칸은 위에서), tag = false 면 «마지막 그림» 표시를 칸 머리줄이 대신 띄움(PC 4칸 큰 칸) */
+export function LidarMap({ feed, empty, small = false, start = '3d', tag = true }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top'; tag?: boolean }) {
   const [mode, setMode] = useState(start), [no3d, setNo3d] = useState(false), is3d = mode === '3d' && !no3d;
   return <div style={{ position: 'absolute', inset: 0 }} data-lidar-map={feed.n} data-path={feed.path.length / 2} data-lm-mode={is3d ? '3d' : 'top'}>
     {is3d ? <Lidar3D feed={feed} small={small} onFail={() => setNo3d(true)} /> : <TopView feed={feed} small={small} />}
@@ -26,7 +26,7 @@ export function LidarMap({ feed, empty, small = false, start = '3d' }: { feed: D
       {(feed.frame as string) === 'odom' && <button type="button" className="btn" data-lm-wipe onClick={() => feed.wipe()}>처음부터 다시</button>}
     </div>}
     {no3d && !small && <div className="qd-legend" role="status" style={{ right: 'auto', left: 8, top: 52, bottom: 'auto' }} data-lm-no3d>이 브라우저는 3D 를 그릴 수 없어 위에서 본 그림으로 보입니다</div>}
-    {empty && (feed.n ? <HeldTag text={driveFeedHeld(feed)} /> : <QEmpty text={empty} />)}
+    {empty && (feed.n ? tag && <HeldTag text={driveFeedHeld(feed)} /> : <QEmpty text={empty} />)}
     {!small && <div className="qd-legend" aria-label="점 높이 범례">
       <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hue(ZL + t * (ZH - ZL))} 80% 60%)`).join(',')})` }} />
       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${ZL} m`}</span><span>로봇 높이</span><span>{`+${ZH} m`}</span></div>

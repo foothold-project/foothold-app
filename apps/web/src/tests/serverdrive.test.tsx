@@ -13,7 +13,7 @@ import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
-import { DEPTH_HINT, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
+import { BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
 import { DriveView } from '../serverdrive';
 import { toRobot } from '../fake';
 import { rt } from '../rt';
@@ -463,6 +463,28 @@ describe('서버 경유 카메라·라이다', () => {
     expect(FakeWS.all.some((x) => x.url.endsWith('/robots/r3/drive-media/rgb'))).toBe(true);
   });
 
+  // RV-435 ①: 기체 확인(go2-identity) 영구 오류 = 랜선이 바뀌어 다른 몸일 수 있음 — 세 채널 구독을 놓고 남은 그림·쌓은 지도를 버린다. «잠시 안 됨»은 그림 남김
+  const ident = (label: string) => ({ devices: [{ key: 'go2-identity', kind: 'OTHER', label, state: 'ERROR' }] }) as Partial<ScreenState>;
+  it('기체 확인 영구 오류면 카메라·라이다 구독을 놓고 남은 그림·쌓은 지도를 지운다(«신호 없음» + 까닭), 잠깐 오류는 그림 남김', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    const rgb = mediaSock('rgb'), lid = mediaSock('lidar');
+    act(() => { rgb.open(); lid.open(); rgb.recv(video()); });
+    scan(lid, head(1, 2), [1, 2, 0.5, -1, 0, 0]);
+    view(); ch('rgb');
+    act(() => push('r7', ident('로봇 확인 잠시 안 됨 · 이동 잠김')));
+    expect(cam().tagName).toBe('IMG'); expect(rgb.readyState).not.toBe(3);
+    act(() => push('r7', ident(IDENTITY_FAULT_LABEL)));
+    expect(rgb.readyState).toBe(3); expect(lid.readyState).toBe(3);
+    expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`); expect(held()).toBeNull();
+    ch('lidar');
+    expect(map()!.dataset.lidarMap).toBe('0'); expect($('[data-sd-full]')!.textContent).toContain(`${NO_SIGNAL.lidar} — ${BODY_FAULT}`);
+    const n = FakeWS.all.length;
+    tick(10_000);   // 10 초가 지나도 다시 열지 않고 옛 그림도 없음
+    expect(FakeWS.all.length).toBe(n); expect(map()!.dataset.lidarMap).toBe('0'); expect(held()).toBeNull();
+    act(() => push('r7', { devices: [] }));   // 로봇 프로그램을 다시 켜 풀리면 새로 받는다(옛 쌓은 지도 없이)
+    expect(mediaSock('lidar')).not.toBe(lid); expect(mediaSock('rgb')).not.toBe(rgb); expect(map()!.dataset.lidarMap).toBe('0');
+  });
+
   it('라이다: media.points 머리 + 바로 뒤 binary 만 그린다', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
     const lid = mediaSock('lidar'), xyz = new Float32Array([1, 2, 0.5, -1, 0, 0]);
@@ -509,6 +531,24 @@ describe('서버 경유 카메라·라이다', () => {
     // pose 없는 odom 은 약속 위반
     scan(lid, head(2, 1, { epoch: 2, pose: null }), [8, 8, 0]);
     expect(lid.readyState).toBe(3);
+  });
+
+  // RV-435 ③: 점 0개 odom 판은 «마지막 점 받은 시각»을 바꾸지 않는다 — 옛 점이 남아 있으면 «마지막 그림 · N초 전» 그대로
+  it('점을 받은 뒤 오래됨 표시가 뜨면, 점 0개 odom 판이 와도 표시가 남고 N초가 계속 는다', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7'));
+    const lid = mediaSock('lidar');
+    act(() => { lid.open(); });
+    scan(lid, head(1, 2), [1, 2, 0.5, -1, 0, 0]);
+    view();
+    expect(held()).toBeNull();
+    tick(2100);
+    expect(held()).toContain('마지막 그림 · 2초 전');
+    scan(lid, head(2, 0, { pose: { x: 0.5, y: 0, z: 0, yaw: 0 } }), []);
+    expect(map()!.dataset.lidarMap).toBe('2'); expect(held()).toContain('마지막 그림 · 2초 전');
+    tick(1000);
+    expect(held()).toContain('마지막 그림 · 3초 전');
+    scan(lid, head(3, 1), [5, 5, 0]);   // 점이 오면 표시 없이 새 그림
+    expect(map()!.dataset.lidarMap).toBe('3'); expect(held()).toBeNull();
   });
 
   it('lidar_link 는 쌓지 않는다 — 지금처럼 한 장씩 바꿔 그리고, 조종 화면은 카메라부터', () => {
