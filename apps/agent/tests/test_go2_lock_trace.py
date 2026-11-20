@@ -57,8 +57,8 @@ def test_identity_revoke_records_failed_branch_and_clocks(monkeypatch, caplog, z
     assert float(row['serial_refresh_ms']) == (0 if zero else 250)
     assert float(row['body_refresh_ms']) == (250 if zero else -1)
     assert float(row['sport_rx_ms']) == 0 and float(row['sport_accepted_ms']) == 250
-    assert float(row['cpu_pct']) >= 0 and float(row['cpu_window_ms']) == 250
-    assert 'load1' in row
+    assert {'cpu_pct', 'cpu_window_ms', 'load1'} <= set(row['detail_missing'].split(','))
+    assert float(row['host_sample_age_ms']) == -1
     assert SERIAL not in caplog.text and NIC_VALUE.mac not in caplog.text
 
 
@@ -146,33 +146,66 @@ def test_interval_overflow_preserves_tail_and_next_window():
         'low_n=1 low_p50_ms=250 low_p95_ms=250 low_max_ms=250.00 low_over_200ms=1')
 
 
-@pytest.mark.parametrize('slow', [True, False])
-def test_failed_or_blocked_details_preserve_lock_record_and_hold(monkeypatch, caplog, slow):
-    clock, _, gate, _ = rig(monkeypatch)
+def test_stalled_host_sampler_does_not_block_or_strip_later_locks(monkeypatch, caplog):
+    clock, inputs, gate, _ = rig(monkeypatch)
     sink = gate.active.sink
     entered, release, done = threading.Event(), threading.Event(), threading.Event()
-
-    def faulty(*_):
-        entered.set()
-        if slow:
-            release.wait(2)
-        raise RuntimeError('private collector failure')
-
-    sink.lock_log.set_details({}, faulty)
-    def change_source():
-        sink.select_source('phone')
-        done.set()
-
-    caplog.clear()
     clock.value += 1
-    thread = threading.Thread(target=change_source)
-    thread.start()
+    monkeypatch.setattr('foothold_agent.setup.runtime.os.getloadavg', lambda: (3., 0., 0.))
+    inputs.sample_host()
+    first = clock()
+
+    def unavailable():
+        entered.set()
+        release.wait(5)
+        raise OSError('private sampler failure')
+
+    sample_host = inputs.sample_host
+    def collect():
+        try:
+            sample_host()
+        finally:
+            done.set()
+
+    monkeypatch.setattr(inputs, 'sample_host', collect)
+    monkeypatch.setattr('foothold_agent.setup.runtime.os.getloadavg', unavailable)
+    clock.value += 1
+    inputs.report_intervals(clock())
     try:
-        assert entered.wait(1) and done.wait(.2)
-        assert sink.latched and sink.source == 'phone'
-        row = fields(caplog, 'output_source_changed')
-        assert set(row) == {'kind', 'cause', 'source', 'held_ms'}
+        assert entered.wait(2)
+        for source in ('phone', 'server', 'phone'):
+            caplog.clear()
+            clock.value += 1
+            sink.select_source(source)
+            assert sink.latched and sink.source == source
+            row = fields(caplog, 'output_source_changed')
+            assert float(row['low_rx_ms']) == float(row['sport_accepted_ms']) == (clock() - first + 1) * 1000
+            assert float(row['cpu_pct']) >= 0 and float(row['cpu_window_ms']) == 1000
+            assert float(row['load1']) == 3 and float(row['host_sample_age_ms']) == (clock() - first) * 1000
+            assert not done.is_set()
     finally:
         release.set()
-        thread.join(2)
-    assert 'private collector failure' not in caplog.text
+        assert done.wait(2)
+    caplog.clear()
+    clock.value += 1
+    sink.select_source('server')
+    row = fields(caplog, 'output_source_changed')
+    assert 'load1' in row['detail_missing'].split(',') and float(row['load1']) == -1
+    assert float(row['cpu_pct']) >= 0 and float(row['low_rx_ms']) > 0
+    assert 'private sampler failure' not in caplog.text
+
+
+def test_failed_readiness_detail_preserves_clocks_and_latch(monkeypatch, caplog):
+    clock, _, gate, _ = rig(monkeypatch)
+    def faulty(*_):
+        raise ValueError('private detail failure')
+    monkeypatch.setattr(Feedback, 'journal_readiness', faulty)
+    caplog.clear()
+    clock.value += 1
+    sink = gate.active.sink
+    sink.select_source('phone')
+    row = fields(caplog, 'output_source_changed')
+    assert 'feedback_latest' in row['detail_missing'].split(',')
+    assert float(row['sport_rx_ms']) == 1000
+    assert sink.latched and sink.source == 'phone'
+    assert 'private detail failure' not in caplog.text

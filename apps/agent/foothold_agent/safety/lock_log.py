@@ -1,9 +1,5 @@
 """Bounded, diagnostic-only cause records. Never accept labels from user data."""
-from concurrent.futures import Future
-from functools import cache
 import logging
-import queue
-import threading
 import time
 
 SERVER_CAUSES = frozenset({
@@ -53,30 +49,6 @@ def server_cause(frame):
     return value if isinstance(value, str) and value in SERVER_CAUSES else 'unknown'
 
 
-# One daemon for all Go2 output epochs. A stuck optional collector cannot
-# accumulate threads/jobs or hold shutdown. Only locally constructed fields
-# belong in its result; never pass SDK messages or exception text.
-DETAIL_BUDGET_S = .002
-
-
-@cache
-def _detail_requests():
-    requests = queue.Queue(maxsize=1)
-
-    def collect():
-        while True:
-            callback, stamp, cause, evidence, future = requests.get()
-            if future.set_running_or_notify_cancel():
-                try:
-                    future.set_result(callback(stamp, cause, evidence))
-                except Exception:
-                    future.set_result('')
-            del callback, future, evidence
-
-    threading.Thread(target=collect, name='go2-lock-detail', daemon=True).start()
-    return requests
-
-
 class LockLog:
     """One line per (kind, cause, source) per rolling second; bounded key space.
 
@@ -88,25 +60,15 @@ class LockLog:
         self.now = now
         self.last_healthy = None
         self.last = {}
-        self._details = None
-
-    def set_details(self, evidence, callback):
-        try:
-            self._details = (_detail_requests(), evidence, callback)
-        except Exception:
-            self._details = None
+        self.evidence = None
 
     def _suffix(self, stamp, cause):
-        if self._details is None:
-            return ''
-        requests, evidence, callback = self._details
-        future = Future()
-        try:
-            requests.put_nowait((callback, stamp, cause, evidence.copy(), future))
-            return future.result(timeout=DETAIL_BUDGET_S)
-        except Exception:
-            future.cancel()
-            return ''
+        if self.evidence is not None:
+            try:
+                return self.evidence.suffix(stamp, cause)
+            except Exception:
+                pass  # Always emit the original lock record on a diagnostic fault.
+        return ' detail_missing=lock_snapshot'
 
     def healthy(self, at=None):
         try:
