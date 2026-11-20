@@ -100,12 +100,21 @@ const gateOf = (s: { connection?: string; devices?: readonly Device[] } | null |
 export const driveMediaUrl = (robot: string, ch: DriveCh) =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/robots/${encodeURIComponent(robot)}/drive-media/${ch}`;
 
+/** 로봇·채널별 지금·지난 epoch 기록 — 칸을 숨겼다 열어도(on, 카메라·뎁스 칸은 내려갔다 다시 붙음) 이어간다: 다시 구독할 때 늦은 지난 epoch 판을 새 시작으로 받지 않게(RV-450 ② · RV-452).
+ *  그 로봇을 받는 훅이 하나도 없으면(화면 나감) 버린다 */
+type Eps = { epoch: number | null; gone: Set<number> };
+const EPS = new Map<string, { users: number; ch: Partial<Record<DriveCh, Eps>> }>();
+const epsRobot = (robot: string) => { let r = EPS.get(robot); if (!r) EPS.set(robot, (r = { users: 0, ch: {} })); return r; };
+
 /** 이 칸이 떠 있는 동안(on) 그 채널을 받는다 — on=false 면 열지 않고, 꺼지면 닫고 비운다.
  *  그 로봇의 장치 표를 이번 상태 연결에서 받고 go2-identity 가 영구 오류가 아닐 때만 연다. 영구 오류면 구독을 놓고 남은 그림·쌓은 지도를 버린 채 «신호 없음 — 까닭» */
 export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   const [feed, setFeed] = useState<Raw>(blank), wipe = useRef(() => {}), hold = useRef((_g: Gate) => {});
-  // 지금·지난 epoch 기록은 이 로봇·채널 동안 칸을 숨겼다 열어도(on) 이어간다 — 다시 구독할 때 늦은 지난 epoch 판을 새 시작으로 받지 않게(RV-450 ②)
-  const eps = useRef<{ key: string; epoch: number | null; gone: Set<number> }>({ key: '', epoch: null, gone: new Set() });
+  useEffect(() => {
+    const r = epsRobot(robot);
+    r.users++;
+    return () => { if (!--r.users && EPS.get(robot) === r) EPS.delete(robot); };
+  }, [robot]);
   const gate = gateOf(useLive(robot).state, macBody(robot)), now = useRef(gate);
   now.current = gate;
   useEffect(() => {
@@ -113,8 +122,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
     let st: ReturnType<typeof stack> | null = null;   // 쌓는 지도(점·격자) — 끊겼다 다시 붙어도 남고, epoch 바뀜·«처음부터 다시»·lidar_link·약속 위반(RV-438 ①)이면 버린다
     wipe.current = () => { st = null; skip = true; setFeed((f) => ({ ...f, xyz: new Float32Array(0), n: 0, pose: null, path: [], grid: null, ver: ++ver })); };
     let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
-    if (eps.current.key !== `${robot}/${ch}`) eps.current = { key: `${robot}/${ch}`, epoch: null, gone: new Set() };
-    const ep = eps.current;
+    const ep = (epsRobot(robot).ch[ch] ??= { epoch: null, gone: new Set() });
     let top = -1, pending: MediaPointCloudHeader | null = null, skip = false, ver = 0;   // skip = pending 의 본문은 읽기만 하고 쓰지 않음 — 이미 본 판·머리 뒤 «처음부터 다시»(RV-443 ③)·지난 epoch 판(④)
     const gone = ep.gone;   // 지난 epoch(에이전트가 켤 때마다 52비트 무작위라 다시 쓰지 않음)
     const put = (p: Partial<Raw>) => setFeed((f) => ({ ...f, ...p }));
