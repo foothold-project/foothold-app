@@ -441,6 +441,27 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(lid.readyState).not.toBe(3);
   });
 
+  it('카메라·뎁스 작은 칸을 숨겼다 다시 열어도 지난 epoch 기록은 이어진다 — 늦은 71 영상이 14 영상을 덮지 않음(RV-452)', () => {
+    mount('u-park'); serve('r7');
+    const sock = (ch: string) => FakeWS.all.filter((x) => x.url.endsWith(`/drive-media/${ch}`) && x.readyState !== 3).pop()!;
+    const vid = (ch: string, epoch: number, seq: number, jpeg: string) => ({ t: 'media.video', version: 'media/1', channel: ch, robot: 'r7', epoch, episode_id: null, seq, mime: 'image/jpeg', jpeg,
+      ...(ch === 'depth' ? { source: 'go2_depth', depth_min_m: 0.2, depth_max_m: 5 } : {}) });
+    const img = (ch: string) => $(`[aria-label="조종 보기 4칸"] [data-tile="${ch}"] img`)?.getAttribute('src')?.split(',')[1];
+    for (const ch of ['rgb', 'depth']) { const s = sock(ch); act(() => { s.open(); s.recv(vid(ch, 71, 5, 'A71')); s.recv(vid(ch, 14, 1, 'A14')); }); }   // 71 → 14
+    click($('.qpip')!);   // 작은 칸 숨김 = 카메라·뎁스 칸 내려감(소켓 닫음)
+    expect(img('rgb')).toBeUndefined();
+    click($('.qpip')!);   // 다시 보임 = 새 소켓
+    for (const ch of ['rgb', 'depth']) {
+      const s = sock(ch), seen: (string | undefined)[] = [];
+      act(() => { s.open(); });
+      act(() => { s.recv(vid(ch, 14, 2, 'B14')); }); seen.push(img(ch));
+      act(() => { s.recv(vid(ch, 71, 6, 'L71')); }); seen.push(img(ch));   // 늦게 온 71 영상
+      act(() => { s.recv(vid(ch, 14, 3, 'C14')); }); seen.push(img(ch));
+      expect([ch, ...seen]).toEqual([ch, 'B14', 'B14', 'C14']);
+      expect(s.readyState).not.toBe(3);
+    }
+  });
+
   it('지도·라이다 칸이 모두 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
     mount('u-park'); serve('r7');
     const open = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).length;
