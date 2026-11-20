@@ -15,7 +15,7 @@ import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, pose
 import { api } from '../api';
 import { BODY_CHECK, BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
 import { DriveView } from '../serverdrive';
-import { toRobot } from '../fake';
+import { ROBOTS as LIST, toRobot } from '../fake';
 import { rt } from '../rt';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -529,6 +529,68 @@ describe('서버 경유 카메라·라이다', () => {
     expect(mediaSock('rgb')).not.toBe(rgb); expect(lid2).not.toBe(lid);
     act(() => lid2.open()); scan(lid2, head(2, 1), [3, 0, 0.5]);   // 같은 epoch — 쌓은 지도를 이어 쌓는다
     ch('lidar'); expect(map()!.dataset.lidarMap).toBe('3');
+  });
+
+  // RV-445 ①: MAC 자리표시 기체번호 실기(agent setup/storage.py mac_serial)는 go2-identity 가 표에 실제로 있고 MISSING·영구 오류가 아닐 때만 연다 — 빈 표는 «아직 모름»
+  const MAC = '4294945467-3437096703';   // aa:bb:cc:dd:ee:ff
+  const listed = (p: Partial<Robot>) => { LIST.splice(0, LIST.length, { ...ON.find((r) => r.id === 'r7')!, ...p }); };
+  const media = () => FakeWS.all.filter((x) => x.url.includes('/drive-media/')).length;
+  it('MAC 실기: 새로고침·상태 소켓 다시 붙음 뒤 ONLINE 빈 표·MISSING(영구 오류 문구 포함)이면 세 채널을 열지 않고, 확인 OK 에만 연다', () => {
+    listed({ serial: MAC });
+    try {
+      mount('u-park'); serve('r7'); click(row('Go2-7'));   // serve = ONLINE, devices: [] (에이전트 첫 상태 전)
+      expect(media()).toBe(0); view(); ch('rgb');
+      expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_CHECK}`);
+      act(() => push('r7', { devices: [{ key: 'go2-preflight', kind: 'OTHER', label: '연결 프로그램 자동 점검', state: 'OK' }] }));   // go2-identity 없는 표
+      act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'MISSING' }] }));
+      tick(5000); expect(media()).toBe(0);
+      act(() => push('r7', identOk));
+      expect(media()).toBe(3 - 1);   // rgb·lidar (뎁스는 고른 동안만)
+      const rgb = mediaSock('rgb');
+      act(() => { rgb.open(); rgb.recv(video()); });
+      act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: IDENTITY_FAULT_LABEL, state: 'MISSING' }] }));   // 오래돼 MISSING 이지만 영구 오류 문구
+      expect(rgb.readyState).toBe(3); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+      const n = media();
+      act(() => { w.drop(1006); }); tick(1000); serve();
+      act(() => push('r7', { connection: 'ONLINE', devices: [] }));   // 다시 붙은 뒤 서버가 줄 수 있는 빈 표(robots.py live_state)
+      tick(10_000);
+      expect(media()).toBe(n); expect(cam().tagName).toBe('DIV');
+      act(() => push('r7', identOk));
+      expect(media()).toBeGreaterThan(n);
+    } finally { LIST.length = 0; }
+  });
+
+  it('go2-identity 가 원래 없는 로봇(DDS 기체번호 실기·시뮬)은 ONLINE 표면 연다', () => {
+    for (const p of [{ serial: '1234-5678' }, { serial: MAC, sim: true }, {}] as Partial<Robot>[]) {
+      listed(p);
+      try {
+        mount('u-park'); serve('r7'); click(row('Go2-7'));
+        expect(media()).toBe(2);
+        unmount(); FakeWS.all.length = 0;
+      } finally { LIST.length = 0; }
+    }
+  });
+
+  // RV-445 ②: 짧은 OFFLINE 뒤 새 소켓에 서버가 같은 epoch·seq 의 마지막 판을 다시 준다(drive_media.py viewer) — 이미 본 판은 조용히 넘긴다
+  it('짧은 OFFLINE 뒤 같은 판을 다시 받아도 마지막 그림·소켓을 지키고, 순번이 되돌아가면 닫는다', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('rgb');
+    let rgb = mediaSock('rgb'), lid = mediaSock('lidar');
+    act(() => { rgb.open(); lid.open(); rgb.recv(video({ seq: 5 })); });
+    scan(lid, head(4, 2), [1, 2, 0.5, -1, 0, 0]);
+    act(() => push('r7', { connection: 'OFFLINE', devices: [] }));
+    expect(rgb.readyState).toBe(3); expect(cam().tagName).toBe('IMG');
+    tick(500); act(() => push('r7', { connection: 'ONLINE' }));
+    rgb = mediaSock('rgb'); lid = mediaSock('lidar');
+    act(() => { rgb.open(); lid.open(); rgb.recv(video({ seq: 5 })); });
+    scan(lid, head(4, 2), [1, 2, 0.5, -1, 0, 0]);
+    expect(rgb.readyState).not.toBe(3); expect(lid.readyState).not.toBe(3);
+    expect(cam().tagName).toBe('IMG'); expect(cam().getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
+    expect($('[data-sd-full]')!.textContent).not.toContain('순번이 어긋났습니다');
+    ch('lidar'); expect(map()!.dataset.lidarMap).toBe('2'); ch('rgb');
+    act(() => { rgb.recv(video({ seq: 6, jpeg: 'CCCC' })); });
+    expect(cam().getAttribute('src')).toBe('data:image/jpeg;base64,CCCC'); expect(held()).toBeNull();
+    act(() => { rgb.recv(video({ seq: 3 })); });   // 되돌아감 = 약속 위반
+    expect(rgb.readyState).toBe(3); expect(cam().tagName).toBe('DIV');
   });
 
   it('라이다: media.points 머리 + 바로 뒤 binary 만 그린다', () => {
