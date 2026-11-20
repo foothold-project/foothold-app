@@ -9,6 +9,7 @@ import { typing, useStopPress } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
 import { HeldTag, LidarMap } from './lidarmap';
+import { MapPick } from './slamview';
 import { DEPTH_HINT, driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
 import { adminReal, type Robot, type Tone } from './fake';
 import { api } from './api';
@@ -382,7 +383,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     return () => { undo(); back?.focus(); };
   }, [!!full]);
 
-  const view = (ch: DriveCh, big: boolean) => <DriveView f={feeds[ch]} ch={ch} big={big} />;
+  const view = (ch: DriveCh, big: boolean) => <DriveView f={feeds[ch]} ch={ch} big={big} robot={r.id} />;
   const box = (children: ReactNode, h?: number) => <div style={{ position: 'relative', flex: 1, minHeight: h, background: '#070A0C', borderRadius: 8, overflow: 'hidden' }}>{children}</div>;
   const open = (ch: DriveCh) => (e: { currentTarget: HTMLElement }) => { opener.current = e.currentTarget; setFull(ch); };
   // 조종 시작/끝내기 한 줄 — 작은 패널과 조종 화면 중 보이는 쪽 하나에만(같은 id 두 번 없게)
@@ -425,10 +426,11 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
   </section>;
 }
 
-/** 카메라·라이다·뎁스 한 칸 그림(받은 feed 그대로 — 없으면 «…신호 없음» + 까닭, 받았던 그림은 끊겨도 흐리게 남기고 «마지막 그림 · N초 전»). 패널 전체화면과 세 칸 화면 가운데 칸이 같이 쓴다 */
-export function DriveView({ f, ch, big }: { f: DriveFeed; ch: DriveCh; big: boolean }) {
+/** 카메라·라이다·뎁스 한 칸 그림(받은 feed 그대로 — 없으면 «…신호 없음» + 까닭, 받았던 그림은 끊겨도 흐리게 남기고 «마지막 그림 · N초 전»). 패널 전체화면과 세 칸 화면 가운데 칸이 같이 쓴다.
+ *  robot 을 주면 큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기(slamview.tsx — 로봇이 Unitree 앱으로 만드는 지도) */
+export function DriveView({ f, ch, big, robot }: { f: DriveFeed; ch: DriveCh; big: boolean; robot?: string }) {
   const text = driveFeedText(f, ch), held = driveFeedHeld(f), pic = !text || !!held, dim = held ? 0.55 : undefined;
-  if (ch === 'lidar') return <LidarMap small={!big} feed={f} empty={text} />;
+  if (ch === 'lidar') return big && robot ? <MapPick robot={robot} ours={<LidarMap feed={f} empty={text} />} /> : <LidarMap small={!big} feed={f} empty={text} />;
   if (ch === 'depth') return !pic || !f.range ? <div className="dv-video" role="img" aria-label="뎁스 카메라" data-sd-depth><span style={{ padding: 12, textAlign: 'center' }}>{text}<br />{DEPTH_HINT}</span></div>
     : <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
       <img src={f.img} alt={`뎁스 카메라${held ? '(마지막 그림)' : ''} — 가까움 빨강, 멀리 파랑, 검정은 거리 모름`} draggable={false} style={{ flex: 1, minHeight: 0, width: '100%', objectFit: 'contain', opacity: dim }} data-sd-depth />
