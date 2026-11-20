@@ -8,7 +8,7 @@ import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
 import { sim } from '../phone';
 import { media, reasonText, BAD_WELCOME, NO_MEDIA, type Feed } from '../media';
-import { plain, say } from '../realdrive';
+import { plain, say, why } from '../realdrive';
 import type { Found } from '../nearby';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -266,6 +266,43 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0, wz: 0 });
   });
 
+  it('두 번째 손가락 STOP: 전진 스틱을 쥔 채 머리줄 STOP 을 누르면(click 없음, pointerdown 만) 즉시 정지 명령·전진 멈춤 — 두 번 (RV-456 1)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    fakeLidar(() => live());
+    const a = await connected(MEDIA, { addr: true });
+    for (let round = 0; round < 2; round++) {
+      if (!btn('조종 시작')) { await click(btn('잠금 해제')); act(() => a.recv(st({ ...ST, latched: false }))); await flush(); }
+      else await driving(a);
+      const fwd = $('[aria-label="전후 조이스틱"]')!;
+      fwd.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON() {} }) as DOMRect;
+      ptr(fwd, 'pointerdown', 50, 0, 1);
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 1.5 });
+      const n = a.of('stop').length, stop = $('[data-stop]')!;
+      ptr(stop, 'pointerdown', 700, 20, 2); await flush();   // 정지는 누르는 순간 — 뗌·click 을 기다리지 않는다
+      expect(a.of('stop').length).toBe(n + 1);
+      ptr(stop, 'pointerup', 700, 20, 2); await flush();
+      act(() => a.recv(st({ ...ST, latched: true, stop_gen: 2 + n }))); await flush();
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(a.of('stop').length).toBe(n + 1);
+      expect(a.of('cmd').slice(-1)[0]).toMatchObject({ vx: 0, wz: 0 });   // 스틱은 아직 쥔 채 — 전진 멈춤
+      ptr(fwd, 'pointerup', 50, 0, 1); await flush();
+    }
+  });
+
+  it('STOP 한 번 누름 = 정지 한 번: 마우스(pointerdown + click), 키보드(Enter = click 만) 각 1회 (RV-456 1)', async () => {
+    const a = await connected(MEDIA, { addr: true });
+    await driving(a);
+    const stop = $('[data-stop]')!, n = a.of('stop').length;
+    ptr(stop, 'pointerdown', 700, 20, 1, 'mouse'); ptr(stop, 'pointerup', 700, 20, 1, 'mouse');
+    act(() => { stop.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); }); await flush();
+    expect(a.of('stop').length).toBe(n + 1);
+    act(() => { stop.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 2 })); }); await flush();   // 오른쪽 단추는 누름 아님
+    expect(a.of('stop').length).toBe(n + 1);
+    act(() => { stop.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 })); }); await flush();   // 키보드 Enter
+    expect(a.of('stop').length).toBe(n + 2);
+  });
+
   it('스틱 손가락이 작은 창 위에서 떼어져도(다른 데서 누른 손가락) 바뀌지 않고, 키보드(click) 는 바뀜', async () => {
     fakeLidar(() => live());
     await connected(MEDIA, { addr: true });
@@ -342,8 +379,24 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(say('JPEG decoder (Pillow) is unavailable')).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say(reasonText('JPEG decoder (Pillow) is unavailable'))).toBe('로봇 쪽 JPEG 해독기가 없어 영상을 보낼 수 없습니다');   // 알려진 것 = 쉬운 한국어
     expect(say(reasonText('RGB source is disabled'))).toBe('RGB 카메라가 꺼져 있습니다');
-    expect(say('영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요')).toBe('영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요');
+    expect(why({ state: 'expired', why: '영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요' } as Feed, 'rgb')).toBe('영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요');   // 앱 자체 글은 why 가 say 를 거치지 않는다(RV-456 2)
     expect(say('')).toBe('');
+  });
+
+  it('에이전트 사유의 숫자 코드·괄호(수신기 오류 (504)·라이다 오류 (503))는 화면에 내지 않고 쉬운 한국어 한 줄 — 앱 자체 글(10초·1회)은 그대로 (RV-456 2)', async () => {
+    await connected(MEDIA, { addr: MEDIA_AT });
+    for (const [ch, reason] of [['rgb', '수신기 오류 (504)'], ['lidar', '라이다 오류 (503)']]) {
+      const ws = await mediaWs(ch);
+      act(() => ws.recv({ t: 'media.status', version: 'media/1', robot: RID, epoch: 1, episode_id: null, channel: ch, reason })); await flush();
+    }
+    expect(view('rgb').textContent).toBe('로봇에서 영상을 받지 못하고 있습니다');
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(box.textContent).not.toMatch(/50[34]|\(\s*\d/);
+    for (const t of ['수신기 오류 (504)', '라이다 오류 (503)', '오류 504', '수신기 오류 [12]', '수신기 오류 (끊김)']) expect(say(t)).toBe('로봇에서 영상을 받지 못하고 있습니다');
+    expect(say('영상 수신기가 꺼져 있습니다')).toBe('영상 수신기가 꺼져 있습니다');   // 숫자·괄호·영문 없는 한국어 사유는 그대로
+    expect(why({ state: 'expired', why: '영상 연결 권한(10초·1회)이 끝났습니다' } as Feed, 'rgb')).toBe('영상 연결 권한(10초·1회)이 끝났습니다');   // 앱 자체 글
+    expect(why({ state: 'live', why: '', at: 0 } as Feed, 'rgb', 10_000)).toBe('2초 넘게 새 자료가 없습니다(멈춤)');
+    expect(why({ state: 'none', why: NO_MEDIA } as Feed, 'lidar')).toBe(plain(NO_MEDIA));
   });
 
   it('마우스: 단추 안에서 눌러 밖에서 뗀 뒤, 밖에서 다시 눌러 단추 위에서 떼도 바뀌지 않음. pointercancel·lostpointercapture·밖에서 뗀 터치도 마찬가지 (RV-455 4)', async () => {
