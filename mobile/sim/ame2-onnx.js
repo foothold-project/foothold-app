@@ -1,4 +1,4 @@
-// ame2-demo.onnx compatibility entry: named action/gaze_r outputs, no recurrent state.
+// ame2-m27001.onnx compatibility entry: named action/gaze_r outputs, no recurrent state.
 import { POLICY_MODES } from './policy-modes.js';
 import { loadOnnxPolicy, selectOnnxPolicy } from './policy-onnx.js';
 export const AME2_ONNX_SHA256 = POLICY_MODES.ame2.onnx.sha256[POLICY_MODES.ame2.onnx.file];

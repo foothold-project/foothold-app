@@ -19,7 +19,7 @@ const server = createServer((req, res) => {
   }
   const name = parts.join('/');
   const file = resolve(root, name);
-  const missing = (name === 'sim/ame2-demo.onnx' && ['f32-only', 'neither'].includes(assets))
+  const missing = (name === 'sim/ame2-m27001.onnx' && ['f32-only', 'neither'].includes(assets))
     || (['sim/ame2_actor.f32', 'sim/ame2_actor.json'].includes(name) && ['onnx-only', 'neither'].includes(assets));
   if (!file.startsWith(root + sep) || missing) { res.writeHead(404).end(); return; }
   try {

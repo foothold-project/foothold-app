@@ -105,13 +105,13 @@ def test_complete_ame2_pair_verified_and_incomplete_pair_omitted(bundle, monkeyp
 def test_onnx_hashes_match_provenance_and_browser_contract():
     root = Path(__file__).resolve().parents[2]
     adapters = (root / "mobile/sim/policy-adapters.js").read_text()
-    for name, document in (("ame2-demo.onnx", "AME2-PROVENANCE.md"),
+    for name, document in (("ame2-m27001.onnx", "AME2-PROVENANCE.md"),
                            ("policy_v2.onnx", "POLICY-PROVENANCE.md")):
         digest = prepare_sim.ONNX_SHA[name]
         assert digest in (root / "docs" / document).read_text()
         assert digest in adapters
     start = (root / "mobile/sim/start-demo-adapter.js").read_text()
-    for name in ("start-m13000_map_on.onnx", "start-m13000_map_off.onnx"):
+    for name in ("start-m15500_map_on.onnx", "start-m15500_map_off.onnx"):
         assert prepare_sim.ONNX_SHA[name] in start
         assert prepare_sim.ONNX_SHA[name] in (root / "docs/POLICY-PROVENANCE.md").read_text()
     lock = json.loads((root / "mobile/package-lock.json").read_text())

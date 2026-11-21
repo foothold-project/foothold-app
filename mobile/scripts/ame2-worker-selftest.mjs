@@ -195,7 +195,7 @@ try {
         if (failure !== 'worker-runtime' || inWorker) return r.fulfill({ status: 404, body: 'missing' });
         return r.continue();
       });
-      if (failure === 'hash') await p.route('**/' + (id === 'ame2-demo' ? 'ame2-demo.onnx' : 'policy_v2.onnx'), (r) => r.fulfill({ body: 'bad model' }));
+      if (failure === 'hash') await p.route('**/' + (id === 'ame2-demo' ? 'ame2-m27001.onnx' : 'policy_v2.onnx'), (r) => r.fulfill({ body: 'bad model' }));
       await p.goto(base + `/sim/index.html?policy=${id}&policyBackend=wasm`); await p.waitForFunction(() => window.__sim?.ready);
       if (failure === 'run') {
         await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; }); await p.waitForTimeout(75);
