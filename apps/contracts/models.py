@@ -2938,6 +2938,23 @@ class SimWorldStart(Contract):
         return self
 
 
+class FallReport(Contract):
+    """넘어짐 · 일어서기 기록 (팀장 11/22). 시뮬 페이지 (브라우저 MuJoCo) 가 보낸다. 실기는 agent 사건 ROBOT_FALL* 로 같은 코드."""
+    phase: Literal['FALL', 'RECOVERED', 'FAILED']
+    cause: str = Field(min_length=1, max_length=64)
+    map: str = Field(min_length=1, max_length=64)
+    policy: str = Field(min_length=1, max_length=64)
+    start_map: str | None = Field(default=None, max_length=32)
+    pos: list[float] = Field(min_length=3, max_length=3)
+    yaw: float
+    grav_z: float
+    height: float
+    attempts: int = Field(ge=0, le=20)
+    cmd_last: list[float] = Field(min_length=3, max_length=4)
+    cmd_peak: list[float] = Field(min_length=3, max_length=4)
+    sim_t: float = Field(ge=0)
+
+
 class SimStartRequest(SimWorldStart):
     robot_id: UUID
 

@@ -1116,6 +1116,18 @@ async function main() {
   const fall = readonly ? null : (() => {
     const detector = createFallDetector(POLICY_DT), recovery = createRecoveryStand({ dt: POLICY_DT, standPose: adapter.action.defaultPose });
     const recent = [], falls = (st.falls = []);
+    // 넘어짐은 긴급 기록: 앱 서버에서 연 시뮬이면 서버 SAFETY 사건 + 알림 (POST /simulation/falls). 실패해도 시뮬은 멈추지 않고 기록에 남긴다.
+    const report = (phase, r) => {
+      if (from !== 'web' && from !== 'server') { r.server = '서버 없음 (단독 시뮬)'; return; }
+      const peak = [0, 1, 2].map((i) => r.cmdLast2s.reduce((a, c) => (Math.abs(c.cmd[i]) > Math.abs(a) ? c.cmd[i] : a), 0));
+      const body = { phase, cause: r.cause, map: String(r.map).slice(0, 64), policy: r.policy, start_map: r.startMap, pos: r.pos, yaw: r.yaw,
+        grav_z: r.gravZ, height: r.height, attempts: r.attemptsUsed ?? 0, cmd_last: (r.cmdLast2s.at(-1)?.cmd ?? [0, 0, 0]).slice(0, 4), cmd_peak: peak, sim_t: r.simT };
+      fetch('/api/v1/auth/session', { credentials: 'same-origin' }).then((s) => (s.ok ? s.json() : Promise.reject(new Error(`세션 ${s.status}`))))
+        .then((s) => fetch('/api/v1/simulation/falls', { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-FH-CSRF': s.csrf_token ?? '' }, body: JSON.stringify(body) }))
+        .then((res) => { r.server = { ...(r.server ?? {}), [phase]: res.ok ? '보냄' : `실패 ${res.status}` }; },
+          (e) => { r.server = { ...(r.server ?? {}), [phase]: `실패 ${e.message}` }; });
+    };
     let testFlip = false;
     // 시험: 그 자리에서 배가 위로 뒤집는다 (몸을 0.3 m 띄우고 속도 0). 「시작」 상태에서만.
     $('fallTest').hidden = false;
@@ -1146,8 +1158,9 @@ async function main() {
         const m = measure(), current = sim.jointsPolicyOrder(), record = falls.at(-1);
         const target = recovery.step(current, m.gravZ, sim.grav[1], upright(m));
         record.attemptsUsed = recovery.attempt;
+        if (recovery.state === 'failed' && !record.failedAt) { record.failedAt = +sim.t.toFixed(2); report('FAILED', record); }
         if (recovery.state === 'done') {
-          record.recoveredAt = +sim.t.toFixed(2);
+          record.recoveredAt = +sim.t.toFixed(2); report('RECOVERED', record);
           recovery.stop(); detector.reset(); sim.resumePolicy(); lastCmd = neutral(); doneAt = performance.now();
           return sim.step();
         }
@@ -1162,7 +1175,7 @@ async function main() {
             pos: Array.from(d.qpos.slice(0, 3), (x) => +x.toFixed(2)), yaw: +Math.atan2(Math.sin(yawOf()), Math.cos(yawOf())).toFixed(2), gravZ: +state.gravZ.toFixed(2), height: +state.height.toFixed(2),
             cmdLast2s: recent.slice(), headingHold: $('headingHold').checked, scenario: runner.active || patrol.active, cause: testFlip ? '시험 단추' : '주행 중' };
           testFlip = false;
-          falls.push(record); console.info('[fall]', JSON.stringify(record));
+          falls.push(record); console.info('[fall]', JSON.stringify(record)); report('FALL', record);
           recovery.start();
         }
         show();

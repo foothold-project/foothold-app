@@ -562,6 +562,22 @@ export interface ExternalCameraViewRequest {
   radius: number;
 }
 
+export interface FallReport {
+  phase: "FALL" | "RECOVERED" | "FAILED";
+  cause: string;
+  map: string;
+  policy: string;
+  start_map: string | null;
+  pos: number[];
+  yaw: number;
+  grav_z: number;
+  height: number;
+  attempts: number;
+  cmd_last: number[];
+  cmd_peak: number[];
+  sim_t: number;
+}
+
 export interface FieldApproval {
   expires_at: string;
 }

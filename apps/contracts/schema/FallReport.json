@@ -1,0 +1,115 @@
+{
+  "$id": "fh-app/1/FallReport",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "넘어짐 · 일어서기 기록 (팀장 11/22). 시뮬 페이지 (브라우저 MuJoCo) 가 보낸다. 실기는 agent 사건 ROBOT_FALL* 로 같은 코드.",
+  "properties": {
+    "attempts": {
+      "maximum": 20,
+      "minimum": 0,
+      "title": "Attempts",
+      "type": "integer"
+    },
+    "cause": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Cause",
+      "type": "string"
+    },
+    "cmd_last": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 4,
+      "minItems": 3,
+      "title": "Cmd Last",
+      "type": "array"
+    },
+    "cmd_peak": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 4,
+      "minItems": 3,
+      "title": "Cmd Peak",
+      "type": "array"
+    },
+    "grav_z": {
+      "title": "Grav Z",
+      "type": "number"
+    },
+    "height": {
+      "title": "Height",
+      "type": "number"
+    },
+    "map": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Map",
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "FALL",
+        "RECOVERED",
+        "FAILED"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "policy": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Policy",
+      "type": "string"
+    },
+    "pos": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Pos",
+      "type": "array"
+    },
+    "sim_t": {
+      "minimum": 0,
+      "title": "Sim T",
+      "type": "number"
+    },
+    "start_map": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Start Map"
+    },
+    "yaw": {
+      "title": "Yaw",
+      "type": "number"
+    }
+  },
+  "required": [
+    "phase",
+    "cause",
+    "map",
+    "policy",
+    "start_map",
+    "pos",
+    "yaw",
+    "grav_z",
+    "height",
+    "attempts",
+    "cmd_last",
+    "cmd_peak",
+    "sim_t"
+  ],
+  "title": "FallReport",
+  "type": "object"
+}

@@ -23,6 +23,10 @@ KINDS = {
     'ROUTE_DEVIATION': ('ROUTE_DEVIATION', '경로 이탈'),
     'RUN_FAILED': ('RUN_FAILED', '실행 실패'),
     'RUN_COMPLETED': ('RUN_COMPLETED', '실행 완료'),
+    # 넘어짐은 긴급: 총괄 · 로봇 담당 · (시뮬은 로봇이 없어) 그 사건을 만든 사람에게 (팀장 11/22)
+    'ROBOT_FALL': ('ROBOT_FALL', '넘어짐'),
+    'ROBOT_FALL_FAILED': ('ROBOT_FALL', '일어서기 실패'),
+    'ROBOT_FALL_RECOVERED': ('ROBOT_FALL', '다시 섬'),
 }
 
 
@@ -44,7 +48,8 @@ def append_for_event(db, event, *, other_user_id=None):
     else:
         owner = select(Robot.owner_user_id).where(Robot.org_id == event.org_id,
             Robot.id == event.robot_id, Robot.archived_at.is_(None)).scalar_subquery()
-        recipients = select(User).where(or_(User.role == 'ORG_ADMIN', User.id == owner))
+        recipients = select(User).where(or_(User.role == 'ORG_ADMIN', User.id == owner,
+            User.id == event.user_id if kind == 'ROBOT_FALL' and event.user_id is not None else False))
     recipients = recipients.where(User.org_id == event.org_id, User.locked.is_(False), User.archived_at.is_(None))
     db.flush()  # event ID is allocated inside the same audit transaction
     inserted = 0
