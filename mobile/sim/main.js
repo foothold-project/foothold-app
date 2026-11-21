@@ -925,9 +925,9 @@ async function main() {
   };
 
   // ── 따라가기: 기존 돌리기. 탑뷰: 끌어 이동·가리킨 곳 확대, 중심은 프레임 사이 보존.
-  // 따라가기 기본 = 몸통 뒤쪽 엉덩이 위 (중심에서 뒤로 0.45 m · 위로 0.35 m) 에 붙어 앞을 본다 — 벽을 등지고 시작해도 벽 너머로 가지 않게.
-  // 사용자가 돌리기 · 끌기 · 확대로 바꾼 값 (yaw · pitch · dist) 은 그대로 둔다.
-  const view = { yaw: 0, pitch: Math.atan2(0.35, 0.45), dist: Math.hypot(0.35, 0.45), topH: 1, topRot: 0, topX: null, topY: null };
+  // 따라가기 기본 = 팀장이 11/22 04:40 화면에서 맞춘 값 (몸통 중심에서 뒤로 1.10 m · 위로 0.40 m, 내려다보는 각 20°).
+  // 예전 기본 (뒤 1.7 m · 위 0.75 m) 보다 가까워 벽을 등지고 시작해도 벽 너머로 덜 간다. 사용자가 돌리기 · 끌기 · 확대로 바꾼 값은 그대로.
+  const view = { yaw: 0, pitch: Math.atan2(0.40, 1.10), dist: Math.hypot(0.40, 1.10), topH: 1, topRot: 0, topX: null, topY: null };
   let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
   let startPicking = false, startPickReason = '', startPickEpoch = 0, startPickBusy = false;
   const cancelStartPick = () => {
