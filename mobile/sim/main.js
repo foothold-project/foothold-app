@@ -931,7 +931,9 @@ async function main() {
   };
 
   // ── 따라가기: 기존 돌리기. 탑뷰: 끌어 이동·가리킨 곳 확대, 중심은 프레임 사이 보존.
-  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0, topX: null, topY: null };
+  // 따라가기 기본 = 몸통 뒤쪽 엉덩이 위 (중심에서 뒤로 0.45 m · 위로 0.35 m) 에 붙어 앞을 본다 — 벽을 등지고 시작해도 벽 너머로 가지 않게.
+  // 사용자가 돌리기 · 끌기 · 확대로 바꾼 값 (yaw · pitch · dist) 은 그대로 둔다.
+  const view = { yaw: 0, pitch: Math.atan2(0.35, 0.45), dist: Math.hypot(0.35, 0.45), topH: 1, topRot: 0, topX: null, topY: null };
   let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
   let startPicking = false, startPickReason = '', startPickEpoch = 0, startPickBusy = false;
   const cancelStartPick = () => {
@@ -981,7 +983,7 @@ async function main() {
   locatorPart(new THREE.ShapeGeometry(arrow), 0xffffff, 4).scale.setScalar(.78);
   robotLocator.visible = false;
   const zoom = (k, x, y, toX = x, toY = y) => {
-    if (!top) { view.dist = clamp(view.dist * k, 0.8, 8); return; }
+    if (!top) { view.dist = clamp(view.dist * k, 0.4, 8); return; }
     const before = pointAt(x, y);
     view.topH = clamp(view.topH * k, 0.08, 3);
     const after = pointAt(toX, toY), f = topFit();
@@ -1114,6 +1116,17 @@ async function main() {
   const fall = readonly ? null : (() => {
     const detector = createFallDetector(POLICY_DT), recovery = createRecoveryStand({ dt: POLICY_DT, standPose: adapter.action.defaultPose });
     const recent = [], falls = (st.falls = []);
+    let testFlip = false;
+    // 시험: 그 자리에서 배가 위로 뒤집는다 (몸을 0.3 m 띄우고 속도 0). 「시작」 상태에서만.
+    $('fallTest').hidden = false;
+    $('fallTest').onclick = () => {
+      $('fallTest').blur();
+      if (stopped || recovery.state !== 'idle') return;
+      const q = d.qpos, yaw = yawOf();
+      // 몸 x 축으로 180° 돈 자세 = yaw 회전 · roll π
+      q[3] = 0; q[4] = Math.cos(yaw / 2); q[5] = Math.sin(yaw / 2); q[6] = 0; q[2] += 0.3;
+      d.qvel.fill(0); sim.cancelPolicyStep(); testFlip = true;
+    };
     let last = { gravZ: -1, height: 0, bad: false }, doneAt = -Infinity;
     const ground = () => { const g = map.heightAt?.(d.qpos[0], d.qpos[1]); return Number.isFinite(g) ? g : map.floor_z; };
     const measure = () => ({ gravZ: sim.grav[2], height: d.qpos[2] - ground() });
@@ -1147,7 +1160,8 @@ async function main() {
         if (recovery.state === 'idle' && !stopped && state.fallen) {
           const record = { at: new Date().toISOString(), simT: +sim.t.toFixed(2), map: id, policy: adapter.id, startMap: adapter.depth ? sim.startMapMode : null,
             pos: Array.from(d.qpos.slice(0, 3), (x) => +x.toFixed(2)), yaw: +Math.atan2(Math.sin(yawOf()), Math.cos(yawOf())).toFixed(2), gravZ: +state.gravZ.toFixed(2), height: +state.height.toFixed(2),
-            cmdLast2s: recent.slice(), headingHold: $('headingHold').checked, scenario: runner.active || patrol.active };
+            cmdLast2s: recent.slice(), headingHold: $('headingHold').checked, scenario: runner.active || patrol.active, cause: testFlip ? '시험 단추' : '주행 중' };
+          testFlip = false;
           falls.push(record); console.info('[fall]', JSON.stringify(record));
           recovery.start();
         }
@@ -1274,7 +1288,9 @@ async function main() {
     } else {
       renderer.setViewport(0, 0, innerWidth, innerHeight); vp = [0, 0, innerWidth, innerHeight];
       const a = followYaw() + view.yaw, h = view.dist * Math.cos(view.pitch);
-      camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx, by, bz);
+      // 가까이 붙을수록 몸 앞쪽 (최대 1.2 m) 을 본다 — 멀리 빼면 예전처럼 몸을 본다
+      const ahead = clamp(1.6 - view.dist, 0, 1.2);
+      camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx + Math.cos(a) * ahead, by + Math.sin(a) * ahead, bz);
       camera.near = 0.05;
     }
     robotLocator.visible = top;
