@@ -3,6 +3,7 @@ import gc
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import create_engine, text
@@ -40,6 +41,12 @@ def migrated(postgres):
 @pytest.fixture
 def seeded(migrated):
     engine = create_engine(migrated['migrate'])
+    # A migration test that fails after downgrading must not leave the shared
+    # database on an old schema for every later case (head ORM columns).
+    with engine.connect() as conn:
+        current = conn.scalar(text('SELECT version_num FROM alembic_version'))
+    if current != ScriptDirectory.from_config(Config(str(CONFIG))).get_current_head():
+        command.upgrade(Config(str(CONFIG)), 'head')
     with engine.begin() as conn:
         conn.execute(text('TRUNCATE events, sessions, robots, users, organizations RESTART IDENTITY CASCADE'))
     with DBSession(engine) as db:
