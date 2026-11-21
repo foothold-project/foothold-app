@@ -116,7 +116,8 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
       const infer = () => {
         if (gen !== generation) return null;
         inputs ??= adapter.observe(s, command, candidate);
-        return policy(...inputs);
+        const ti = performance.now();   // 배속 표시용: 추론 왕복만 (깊이 · 관측은 policyMs 에서 뺀 나머지)
+        return Promise.resolve(policy(...inputs)).then((r) => { s.inferMs = performance.now() - ti; return r; });
       };
       // Initial depth is required before observation. Later captures happen in
       // commit, after inference acceptance. Neither changes the 20 ms budget.

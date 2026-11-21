@@ -1077,6 +1077,8 @@ async function main() {
 
   // Fixed policy dt/decimation; keep debt through inference, bounded catch-up.
   let frames = 0, fps = 0, fpsT = performance.now();
+  // 실제 배속 = 1 초 동안 진행한 시뮬 시간 / 벽시계. 결정 = 관측 · 깊이 · 추론 왕복, 추론 = Worker 왕복만.
+  let rateSteps = 0, decideMs = 0, inferMs = 0, decided = 0;
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
     timing: () => clock.stats,
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
@@ -1153,7 +1155,7 @@ async function main() {
     // Only skip the decision whose prepare locked/reset the clock. Subsequent
     // STOP ticks retain the mode's existing zero-input policy/physics behavior.
     step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return sim.step(); },
-    onStep: () => { st.steps++; timingUI(); },
+    onStep: () => { st.steps++; decided++; decideMs += sim.policyMs ?? 0; inferMs += sim.inferMs ?? 0; timingUI(); },
     onError: (e) => {
       lock(); st.err = String(e);
       if (adapter.fallback === null) { ready = st.ready = false; ui(); }
@@ -1211,7 +1213,14 @@ async function main() {
     renderer.render(scene, camera);
     lastDrawAt = performance.now();
     frames++;
-    if (now - fpsT > 1000) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
+    if (now - fpsT > 1000) {
+      const running = ready && !readonly && !document.hidden && !(adapter.stop.pause && stopped);
+      st.rate = running ? (st.steps - rateSteps) * POLICY_DT * 1000 / (now - fpsT) : null;
+      st.decideMs = decided ? decideMs / decided : null; st.inferMs = decided && sim.inferMs !== undefined ? inferMs / decided : null;
+      $('simRate').hidden = st.rate === null;
+      if (st.rate !== null) $('simRate').textContent = `배속 ${st.rate.toFixed(2)}×` + (st.decideMs === null ? '' : ` · 결정 ${st.decideMs.toFixed(1)} ms`) + (st.inferMs === null ? '' : ` (추론 ${st.inferMs.toFixed(1)})`);
+      fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; rateSteps = st.steps; decideMs = inferMs = decided = 0;
+    }
     $('stickL').classList.toggle('out', !inRange(sim.cmd)); $('keys').classList.toggle('out', !inRange(sim.cmd));
     requestAnimationFrame(frame);
   }

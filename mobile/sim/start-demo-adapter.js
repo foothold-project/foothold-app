@@ -67,7 +67,11 @@ export function makeStartDemoMode(makeTerrainSampler) {
     makeDepthScanner: makeStartDepthWorker,
     map(s) { s.mapping.set(sensorSample(s,'map',() => s.heightScanner(s.d.qpos,s.mapping))); return s.mapping; },
     depth(s) { return sensorSample(s,'depth',() => s.depthScanner(s.d.qpos)); },
-    prepare(s, mem) { if (!mem.depth2) return this.depth(s); },
+    // Depth reaches the action only through reconstruction. In gt/off the ONNX
+    // ignores depth2 for action and h_prop (m15500 vectors, zero depth: same
+    // action within 1e-5), so skip the 3600-ray capture and feed zeros.
+    usesDepth(s) { return s.startMapMode === 'reconstruction'; },
+    prepare(s, mem) { if (!mem.depth2 && this.usesDepth(s)) return this.depth(s); },
     observe(s, cmd, mem) {
       const obs = s.observation;
       obs.set(s.angB, 0); obs.set(s.grav, 3); obs.set(cmd, 6);
@@ -77,7 +81,8 @@ export function makeStartDemoMode(makeTerrainSampler) {
       }
       mem.hist = startDemoHistory(mem.hist, obs);
       const tick = mem.step % 5 === 0;
-      if (tick) {
+      if (!this.usesDepth(s)) mem.depth2 ??= new Float32Array(7200);
+      else if (tick) {
         if (!mem.depth2) {
           const frame = this.depth(s).slice();
           mem.depth2 = new Float32Array(7200); mem.depth2.set(frame); mem.depth2.set(frame, 3600); mem.captured = frame;
