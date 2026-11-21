@@ -39,6 +39,8 @@ class User(Tenant, Base):
     role: Mapped[str] = mapped_column(Text)
     password_hash: Mapped[str] = mapped_column(Text)
     locked: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # 임시 · 공용 기본 비밀번호로 만든 계정은 첫 로그인 때 바꾸기 전까지 다른 API 를 못 쓴다 (0032).
+    password_must_change: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     notify_prefs: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

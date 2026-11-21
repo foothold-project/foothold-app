@@ -21,6 +21,11 @@
           "title": "Locked",
           "type": "boolean"
         },
+        "password_must_change": {
+          "default": false,
+          "title": "Password Must Change",
+          "type": "boolean"
+        },
         "robot_ids": {
           "items": {
             "format": "uuid",
@@ -49,7 +54,8 @@
         "role",
         "locked",
         "robot_ids",
-        "created_at"
+        "created_at",
+        "password_must_change"
       ],
       "title": "User",
       "type": "object"

@@ -15,7 +15,7 @@ import { buildTerrain, validateTerrain, type TerrainItem as Item, type TerrainSp
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null, box: HTMLDivElement;
 const render = (el: JSX.Element) => { box = document.createElement('div'); document.body.append(box); act(() => { root = createRoot(box); root.render(el); }); };
-const apiUser = (role: 'ORG_ADMIN' | 'OPERATOR'): Awaited<ReturnType<typeof api.me>> => ({ id: 'u-test', username: 'test', display_name: '시험', role, locked: false, robot_ids: [], created_at: '2026-11-09T00:00:00Z' });
+const apiUser = (role: 'ORG_ADMIN' | 'OPERATOR'): Awaited<ReturnType<typeof api.me>> => ({ id: 'u-test', username: 'test', display_name: '시험', role, locked: false, password_must_change: false, robot_ids: [], created_at: '2026-11-09T00:00:00Z' });
 beforeEach(() => {
   localStorage.clear();
   vi.spyOn(api, 'terrains').mockReturnValue(new Promise(() => {}));

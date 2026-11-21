@@ -637,6 +637,8 @@ class Realtime:
             user = db.get(User, session.user_id) if session else None
             if not user or user.locked or user.archived_at or user.org_id != self.settings.org_id:
                 raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
+            if user.password_must_change:   # 첫 로그인 비밀번호를 바꾸기 전에는 실시간 연결도 열지 않는다 (api.identity 와 같음)
+                raise self.api_error(403, 'PASSWORD_CHANGE_REQUIRED', '처음 로그인했습니다. 비밀번호를 바꾼 뒤 쓰세요.')
             self.authorize(user, 'LOGIN')
             return Actor(str(user.id), str(session.id), connection, user.display_name, user.role)
 

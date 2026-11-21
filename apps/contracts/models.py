@@ -102,6 +102,7 @@ class User(Contract):
     locked: bool
     robot_ids: list[UUID]
     created_at: UTCDateTime
+    password_must_change: bool = False
 
 
 class LoginResponse(User):
