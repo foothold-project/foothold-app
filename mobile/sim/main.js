@@ -22,6 +22,7 @@ import { createKeyboardRamp, slewCommand } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, readAlign, replayRequirement } from './go2-replay.js';
 import { loadCustomTerrain } from './terrain/index.js';
+import { FALL, RECOVERY_GAINS, createFallDetector, createRecoveryStand } from './recovery-stand.js';
 import { loadZoneGrid, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneLimit, zoneQuads, ZONE_STOP } from './zones.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
@@ -1036,7 +1037,7 @@ async function main() {
     else { startPicking = true; startPickReason = ''; $('topCenter').setAttribute('aria-pressed', 'true'); }
   };
 
-  $('reset').onclick = () => { lock(); lastCmd = neutral(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
+  $('reset').onclick = () => { fall?.clear(); lock(); lastCmd = neutral(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     cancelStartPick();
@@ -1108,6 +1109,53 @@ async function main() {
     $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
   };
   let skipLockedDecision = false;
+  // 넘어짐 판정 → RecoveryStand 대역 (시뮬) → 정책 재개. 판정 식 · 값은 recovery-stand.js FALL, 화면 왼쪽 위 줄에 늘 표시.
+  // 넘어질 때마다 재현 조건 (시각 · 지도 · 위치 · 방향 · 직전 2 초 명령 · 정책 · 지도 모드) 을 window.__sim.falls 와 콘솔에 남긴다.
+  const fall = readonly ? null : (() => {
+    const detector = createFallDetector(POLICY_DT), recovery = createRecoveryStand({ dt: POLICY_DT, standPose: adapter.action.defaultPose });
+    const recent = [], falls = (st.falls = []);
+    let last = { gravZ: -1, height: 0, bad: false }, doneAt = -Infinity;
+    const ground = () => { const g = map.heightAt?.(d.qpos[0], d.qpos[1]); return Number.isFinite(g) ? g : map.floor_z; };
+    const measure = () => ({ gravZ: sim.grav[2], height: d.qpos[2] - ground() });
+    const upright = (m) => m.gravZ < -0.9 && m.height > 0.25;
+    const show = () => {
+      const r = recovery.state, el = $('fallNote');
+      el.textContent = r === 'active' ? `RecoveryStand 대역 (시뮬) · 시도 ${recovery.attempt}/${recovery.attempts}`
+        : r === 'failed' ? `RecoveryStand 대역 실패 (${recovery.attempts}번) · 멈춤 · 다시 세우기 단추`
+        : performance.now() - doneAt < 3000 ? '일어섬 · 정책 재개'
+        : `넘어짐 판정 중력z ${last.gravZ.toFixed(2)} (> ${FALL.gravZ}) · 높이 ${last.height.toFixed(2)} m (< ${FALL.height}) · ${FALL.holdSec} 초`;
+      el.classList.toggle('alert', r !== 'idle' || last.bad);
+    };
+    return {
+      get active() { return recovery.state === 'active' || recovery.state === 'failed'; },
+      // 정책 대신 한 틱. 실패면 그 자리 관절 각을 붙잡고 버틴다 (정책을 다시 돌리지 않음).
+      tick() {
+        const m = measure(), current = sim.jointsPolicyOrder(), record = falls.at(-1);
+        const target = recovery.step(current, m.gravZ, sim.grav[1], upright(m));
+        record.attemptsUsed = recovery.attempt;
+        if (recovery.state === 'done') {
+          record.recoveredAt = +sim.t.toFixed(2);
+          recovery.stop(); detector.reset(); sim.resumePolicy(); lastCmd = neutral(); doneAt = performance.now();
+          return sim.step();
+        }
+        return sim.recoverStep(target ?? current, RECOVERY_GAINS);
+      },
+      observe() {
+        if (recent.push({ t: +sim.t.toFixed(2), cmd: sim.cmd.map((x) => +x.toFixed(2)) }) > Math.round(2 / POLICY_DT)) recent.shift();
+        const state = detector.update(...Object.values(measure()));
+        last = state;
+        if (recovery.state === 'idle' && !stopped && state.fallen) {
+          const record = { at: new Date().toISOString(), simT: +sim.t.toFixed(2), map: id, policy: adapter.id, startMap: adapter.depth ? sim.startMapMode : null,
+            pos: Array.from(d.qpos.slice(0, 3), (x) => +x.toFixed(2)), yaw: +Math.atan2(Math.sin(yawOf()), Math.cos(yawOf())).toFixed(2), gravZ: +state.gravZ.toFixed(2), height: +state.height.toFixed(2),
+            cmdLast2s: recent.slice(), headingHold: $('headingHold').checked, scenario: runner.active || patrol.active };
+          falls.push(record); console.info('[fall]', JSON.stringify(record));
+          recovery.start();
+        }
+        show();
+      },
+      clear() { recovery.stop(); detector.reset(); show(); },
+    };
+  })();
   // 직진 방향 유지 (기본 끔 · 팀장 11/22 02:39). 손 조종에서 앞뒤 · 옆 명령이 있고 회전 명령이 0 일 때만,
   // 그 순간 방향을 붙잡고 wz = clamp(HOLD_K × 방향 오차, ±HOLD_MAX) 를 넣는다. 회전 명령 · 멈춤 · 정지 · 시나리오에서는 놓는다.
   // 정책의 좌우 쏠림을 가리지 않도록 켰을 때 화면에 「방향 유지 켬」 을 띄운다.
@@ -1177,8 +1225,8 @@ async function main() {
     },
     // Only skip the decision whose prepare locked/reset the clock. Subsequent
     // STOP ticks retain the mode's existing zero-input policy/physics behavior.
-    step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return sim.step(); },
-    onStep: () => { st.steps++; decided++; decideMs += sim.policyMs ?? 0; inferMs += sim.inferMs ?? 0; timingUI(); },
+    step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return fall?.active ? fall.tick() : sim.step(); },
+    onStep: () => { fall?.observe(); st.steps++; decided++; decideMs += sim.policyMs ?? 0; inferMs += sim.inferMs ?? 0; timingUI(); },
     onError: (e) => {
       lock(); st.err = String(e);
       if (adapter.fallback === null) { ready = st.ready = false; ui(); }

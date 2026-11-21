@@ -103,10 +103,12 @@
   body:has(#replayPanel:not([hidden])) #goalNote { top: auto; bottom: calc(var(--edge) + 80px + env(safe-area-inset-bottom)); }
   body:has(#replayPanel:not([hidden])) #modeCaps { display: none; }
   [hidden] { display: none !important; }
+#fallNote.alert{color:#ffd54f}
 </style>
 </head>
 <body class="stopped">
 <output id="policyEngine" role="status" style="position:fixed;bottom:4px;left:8px;z-index:20;max-width:90vw;background:#182028;color:#fff;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
+<output id="fallNote" role="status" style="position:fixed;bottom:52px;right:8px;z-index:20;max-width:90vw;background:#182028;color:#cfd8dc;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
 <output id="headingHoldNote" role="status" hidden style="position:fixed;bottom:28px;right:8px;z-index:20;background:#182028;color:#ffd54f;padding:3px 7px;font:12px sans-serif;pointer-events:none">방향 유지 켬</output>
 <output id="simRate" role="status" hidden style="position:fixed;bottom:4px;right:8px;z-index:20;background:#182028;color:#fff;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
 <output id="simSlow" role="status" hidden style="position:fixed;bottom:28px;left:8px;z-index:20;background:#182028;color:#ffd54f;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
