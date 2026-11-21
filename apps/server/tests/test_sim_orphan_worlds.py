@@ -29,6 +29,9 @@ def test_removed_world_archive_preserves_pairs_usage_history_and_is_repeatable(
     monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', seeded['urls']['migrate'])
     config = Config(str(CONFIG))
     command.downgrade(config, '0027')
+    # 0027 판 DB 에 지금 API (ORM) 로 자료를 만든다: 0027 뒤에 users 에 더한 열은 미리 둔다 (0032 는 IF NOT EXISTS).
+    with create_engine(seeded['urls']['migrate']).begin() as conn:
+        conn.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_must_change boolean NOT NULL DEFAULT false'))
     ordinary, ordinary_floor, _, _ = scenario(http, headers)
     active, active_floor, _, _ = scenario(http, headers)
     assert assignment(http, headers, active, seeded['robots']['mine']).status_code == 201

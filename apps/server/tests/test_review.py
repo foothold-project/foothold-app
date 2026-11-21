@@ -74,18 +74,24 @@ def test_b2_last_active_admin_cannot_be_removed(client, seeded, action):
     assert client.patch(P + '/org/settings', json={'link_loss_wait_s': 1}, headers=headers).status_code == 200
 
 
-def extra_admin(client, headers):
+def extra_admin(client, headers, seeded):
     response = client.post(P + '/users', headers=headers, json={
         'username': 'second-admin', 'display_name': '두 번째 총괄',
         'role': 'ORG_ADMIN', 'temp_password': 'fake-test-password'})
     assert response.status_code == 201
-    return UUID(response.json()['id'])
+    uid = UUID(response.json()['id'])
+    # 새 계정은 첫 로그인 비밀번호 바꾸기가 필수 (0032). 이 시험들은 이미 바꾼 총괄 둘을 다룬다.
+    engine = create_engine(seeded['urls']['migrate'])
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE users SET password_must_change = false WHERE id = :id'), {'id': uid})
+    engine.dispose()
+    return uid
 
 
 @pytest.mark.parametrize('action', ['demote', 'lock', 'delete'])
 def test_b2_concurrent_admin_removal_preserves_one(client, seeded, action):
     first_headers = csrf(client)
-    second_id = extra_admin(client, first_headers)
+    second_id = extra_admin(client, first_headers, seeded)
     with TestClient(client.app, base_url='https://testserver') as second:
         second_headers = csrf(second, 'second-admin')
         barrier = Barrier(2)
@@ -372,7 +378,7 @@ def test_r11_cursor_order_is_created_at_then_uuid(client, seeded, kind):
 
 def test_b2_admins_locking_each_other_do_not_deadlock(client, seeded):
     first_headers = csrf(client)
-    second_id = extra_admin(client, first_headers)
+    second_id = extra_admin(client, first_headers, seeded)
     with TestClient(client.app, base_url='https://testserver') as second:
         second_headers = csrf(second, 'second-admin')
         barrier = Barrier(2)

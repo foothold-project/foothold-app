@@ -4,7 +4,6 @@ Accounts created with a temporary or shared default password must change it
 before any other API use. Existing accounts keep working (default false).
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = '0032'
 down_revision = '0031'
@@ -13,8 +12,9 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column('users', sa.Column('password_must_change', sa.Boolean(), nullable=False, server_default=sa.text('false')))
+    # IF NOT EXISTS: 옛 판으로 내린 DB 에서 현재 ORM 으로 자료를 만드는 시험 (test_sim_orphan_worlds) 이 열을 먼저 더해 둘 수 있다.
+    op.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_must_change boolean NOT NULL DEFAULT false')
 
 
 def downgrade():
-    op.drop_column('users', 'password_must_change')
+    op.execute('ALTER TABLE users DROP COLUMN IF EXISTS password_must_change')
