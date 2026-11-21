@@ -1092,6 +1092,15 @@ async function main() {
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
+  // 따라가기 카메라는 몸통 방향 (yaw) 만 따른다. 몸통 앞 축을 바닥에 내려 잰 방향이라 roll · pitch 가 섞이지 않고,
+  // 몸통 위 축이 60° 넘게 누우면 (넘어짐 · 뒤집힘) 방향을 마지막 값에 고정한다 — 쓰러질 때 카메라가 돌지 않게.
+  let camYaw = null;
+  const followYaw = () => {
+    const [w, x, y, z] = [d.qpos[3], d.qpos[4], d.qpos[5], d.qpos[6]];
+    const upright = 1 - 2 * (x * x + y * y) >= 0.5, hx = 1 - 2 * (y * y + z * z), hy = 2 * (x * y + w * z);
+    if (camYaw === null || (upright && Math.hypot(hx, hy) > 1e-3)) camYaw = Math.atan2(hy, hx);
+    return camYaw;
+  };
   const timingUI = () => {
     const timing = clock.stats;
     st.stepsBehind = timing.drops;
@@ -1099,6 +1108,20 @@ async function main() {
     $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
   };
   let skipLockedDecision = false;
+  // 직진 방향 유지 (기본 끔 · 팀장 11/22 02:39). 손 조종에서 앞뒤 · 옆 명령이 있고 회전 명령이 0 일 때만,
+  // 그 순간 방향을 붙잡고 wz = clamp(HOLD_K × 방향 오차, ±HOLD_MAX) 를 넣는다. 회전 명령 · 멈춤 · 정지 · 시나리오에서는 놓는다.
+  // 정책의 좌우 쏠림을 가리지 않도록 켰을 때 화면에 「방향 유지 켬」 을 띄운다.
+  const HOLD_K = 1.0, HOLD_MAX = 0.3;
+  let holdYaw = null;
+  $('headingHold').checked = false;
+  $('headingHold').onchange = () => { holdYaw = null; $('headingHoldNote').hidden = !$('headingHold').checked; $('headingHold').blur(); };   // 초점을 놓아야 조종 키가 먹는다 (field())
+  const headingHold = (cmd) => {
+    const moving = Math.abs(cmd[0]) > 0.05 || Math.abs(cmd[1]) > 0.05;
+    if (!$('headingHold').checked || adapter.command.kind !== 'body_velocity' || stopped || !moving || Math.abs(cmd[2]) > 1e-3) { holdYaw = null; return cmd; }
+    const yaw = yawOf(); holdYaw ??= yaw;
+    const err = Math.atan2(Math.sin(holdYaw - yaw), Math.cos(holdYaw - yaw));
+    return [cmd[0], cmd[1], Math.min(HOLD_MAX, Math.max(-HOLD_MAX, HOLD_K * err))];
+  };
   // 손 조종: 접근 금지 구역(몸체 여유 포함)으로 들어가는 이동 명령은 0 — 제자리 회전·멀어지는 방향은 그대로
   const zoneHand = (axes, speed) => {
     if (!map.zones) return axes;
@@ -1136,7 +1159,7 @@ async function main() {
       } else if (adapter.command.kind === 'nearby_goal') {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : zoneHand(goalAxes, 1.2), POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
-      } else sim.cmd = stopped ? neutral() : zoneHand(joy.slice());
+      } else sim.cmd = stopped ? neutral() : zoneHand(headingHold(joy.slice()));
       // 감속 구역: 속도 명령을 받는 조종(손 조종·시나리오·찍은 곳 가기)만 그 칸의 상한으로 줄인다. 위치 목표 모델은 줄일 수 없어 안내만(zoneUI)
       if (map.zones && adapter.command.kind === 'body_velocity' && !stopped) sim.cmd = capCommand(sim.cmd, zoneSpeed(map.zones, map, d.qpos[0], d.qpos[1]).cap);
       // All start hand/goal commands share one ramp. STOP remains immediate.
@@ -1202,7 +1225,7 @@ async function main() {
       camera.near = 0.1; // Roof-free assets; the whole site stays inside the orthographic frustum.
     } else {
       renderer.setViewport(0, 0, innerWidth, innerHeight); vp = [0, 0, innerWidth, innerHeight];
-      const a = yawOf() + view.yaw, h = view.dist * Math.cos(view.pitch);
+      const a = followYaw() + view.yaw, h = view.dist * Math.cos(view.pitch);
       camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx, by, bz);
       camera.near = 0.05;
     }
