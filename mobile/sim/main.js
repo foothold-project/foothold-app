@@ -247,17 +247,11 @@ async function preparePolicies() {
   const startOption = Array.from(choice.options).find((x) => x.value === start.id);
   startOption.disabled = !startAvailable;
   if (!startAvailable) startOption.textContent = `${start.label} · ONNX 파일 없음`;
-  const [onnxAvailable, weightsAvailable, manifest] = await Promise.all([
-    exists(ame2.onnx.file), exists(ame2.network.file), json(ame2.network.manifest).catch(() => null),
-  ]);
-  const f32Available = weightsAvailable && manifest?.schema === 'ame2-f32-v1';
-  const backend = backendFor(ame2);
-  const available = backend === 'f32' ? f32Available
-    : ['wasm', 'webgpu'].includes(backend) && (onnxAvailable || f32Available);
+  // AME-2 는 ONNX 만 (JS f32 예비 없음 · 팀장 11/22).
+  const onnxAvailable = await exists(ame2.onnx.file);
+  const available = ['wasm', 'webgpu'].includes(backendFor(ame2)) && onnxAvailable;
   if (option) option.disabled = !available;
-  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정'
-    : backend === 'f32' ? 'AME-2 · JS f32 파일 또는 배치표 없음' : 'AME-2 · ONNX와 JS f32 파일 없음';
-  // A URL selecting AME-2 stays on that mode: its own optional f32 can recover.
+  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정' : 'AME-2 · ONNX 파일 없음';
   if (readonly) {
     reason.textContent = replayReason || '실기 보기 전용';
     if (replayReason) throw new Error(replayReason);

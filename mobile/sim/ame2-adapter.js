@@ -86,7 +86,9 @@ export function makeAme2Adapter(makeTerrainSampler) {
     id: 'ame2-demo', label: 'AME-2(시연)', statusLabel: 'AME-2',
     // go2_env_cfg.py:78-87: terrain scan starts 20 m above the body.
     observations: { size: 49, bodySize: 49, mappingSize: 1131, height: { grid: ame2Grid, rayOffset: 20, noise: 0, clip: [-1.5, 1.5] } },
-    network: { file: 'ame2_actor.f32', manifest: 'ame2_actor.json', sha256: '28edbc05169b817044c600d90cc081bb797ae56c5b8400b8ffebf648410d26a0' },
+    // JS f32 예비 (m14999) 는 걷어냄 (팀장 11/22 03:26 「ONNX 가 있는데 왜 예비 파일을 둬」). ONNX 를 못 쓰면 정책 잠금.
+    // loadPolicy (ame2-network.js) 는 개발용 비교 스크립트만 쓴다.
+    network: null,
     action: { size: 12, joints: AME2_JOINT_ORDER, defaultPose: defaults, scale: .25, kp: 25, kd: .5, targetClip: 100, torque: ame2Torque },
     timing: { physicsDt: .005, decimation: 4, policyDt: .02, delayRange: [0, 0] },
     makeActionDelay: makeAme2ActionDelay,

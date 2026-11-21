@@ -11,11 +11,7 @@ import sys
 
 # Public provenance records identify the approved exports, not local filenames.
 POLICY_SHA = "da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c"
-# Optional JS fallback remains the same m14999 export; the new ONNX is independent.
-AME2_SHA = {
-    "ame2_actor.f32": "28edbc05169b817044c600d90cc081bb797ae56c5b8400b8ffebf648410d26a0",
-    "ame2_actor.json": "92ddf3db0b36582b72d9e136e2749a2edf21dbc4156875ecf603c36dc3711fe7",
-}
+# AME-2 is ONNX only: the m14999 JS f32 fallback was removed (owner 2026-11-22).
 # docs/AME2-PROVENANCE.md and docs/POLICY-PROVENANCE.md, FP32 ONNX exports.
 ONNX_SHA = {
     "start-m15500_map_on.onnx": "df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f",
@@ -115,11 +111,6 @@ def copy_simulator(source, private, target):
     for mesh in meshes:
         name = Path("assets/unitree_go2/assets") / mesh
         files.append((regular(private / name), name))
-    ame2_present = all((private / name).exists() for name in AME2_SHA)
-    if ame2_present:
-        for name, digest in AME2_SHA.items():
-            verify(private / name, digest)
-            files.append((private / name, Path(name)))
     regular(source / "index.html")
     shutil.copytree(source, target)
     for origin, relative in files:
@@ -139,7 +130,8 @@ def copy_simulator(source, private, target):
             destination.chmod(0o644)
         except (FileNotFoundError, SimulatorUnavailable):
             destination.unlink(missing_ok=True)
-            detail = "start mode unavailable (no f32 fallback)" if name.startswith("start-m15500_") else "retaining f32 fallback"
+            detail = ("start mode unavailable (no f32 fallback)" if name.startswith("start-m15500_")
+                      else "AME-2 unavailable (ONNX only)" if name.startswith("ame2-") else "retaining f32 fallback")
             print(f"WARNING: {name} absent or SHA-256 differs from provenance; {detail}.", file=sys.stderr)
     ort = target / "ort"
     if ort.exists():
@@ -156,8 +148,6 @@ def copy_simulator(source, private, target):
         if ort.exists():
             shutil.rmtree(ort)
         print("WARNING: ONNX runtime absent/incomplete or SHA-256 differs from provenance; retaining f32 fallback.", file=sys.stderr)
-    if not ame2_present:
-        print("WARNING: AME-2 assets absent/incomplete; ONNX availability controls selection; f32 fallback not prepared.", file=sys.stderr)
     print("Prepared /sim/index.html?from=web (existing MuJoCo runtime and verified policies).")
     return True
 
