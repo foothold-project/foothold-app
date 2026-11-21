@@ -20,7 +20,7 @@ AME2_SHA = {
 ONNX_SHA = {
     "start-m15500_map_on.onnx": "df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f",
     "start-m15500_map_off.onnx": "be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41",
-    "ame2-demo.onnx": "830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6",
+    "ame2-m27001.onnx": "2f7a8b18e8a3cc89ab5975836fff4870165df5c5bb8102ac823b56fe75b472ce",
     "policy_v2.onnx": "c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2",
 }
 # onnxruntime-web 1.31.1, the same WASM-only files as mobile/scripts/sync-web.mjs.
