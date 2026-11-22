@@ -74,6 +74,16 @@ def command_from_remote(r: Remote) -> np.ndarray:
     return np.array([axis(r.ly, *CAPS['vx']), axis(-r.lx, *CAPS['vy']), axis(-r.rx, *CAPS['wz'])], np.float32)
 
 
+def remote_active(r: Remote) -> bool:
+    """리모컨을 만지는 중인가 (단추 하나라도 · 막대가 중립 밖). 만지는 동안 앱 명령은 무시 (리모컨 우선)."""
+    return bool(r.keys) or max(abs(r.lx), abs(r.ly), abs(r.rx)) >= STICK_DEADBAND
+
+
+def command_from_app(vel) -> np.ndarray:
+    """앱 속도를 리모컨과 같은 학습 상한으로 자른다."""
+    return np.array([np.clip(v, -CAPS[k][0], CAPS[k][1]) for v, k in zip(vel, ('vx', 'vy', 'wz'))], np.float32)
+
+
 class Phase(enum.Enum):
     HIGH = 'high'            # 고수준 (순정 SportMode) · 우리는 명령 안 보냄
     STANDING_UP = 'standing_up'
@@ -94,8 +104,9 @@ class LowLevelRunner:
        low_state() -> (stamp_s, quat_wxyz, gyro, q_sdk[12], dq_sdk[12], remote_bytes) · send(q, dq, kp, kd, tau) (SDK 순서 12 개씩) ·
        stand_down() · release_mode() · check_mode() -> str · select_mode(name) · recovery_stand() · balance_stand()"""
 
-    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False, sit_first=False):
+    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False, sit_first=False, app=None):
         self.sdk, self.policy, self.live, self.clock, self.on_event = sdk, policy, live, clock, on_event
+        self.app = app   # applink.AppLink 또는 None (앱 명령 끔)
         self.sport_mode, self.stand_only, self.sit_first = sport_mode, stand_only, sit_first   # stand_only: 일어선 뒤 정책 없이 기본 자세만 (첫 실기 · 관절 순서 확인)
         self.phase = Phase.HIGH
         self.target = DEFAULT_POSE.copy()
@@ -218,9 +229,35 @@ class LowLevelRunner:
         if self.phase in (Phase.POLICY, Phase.DAMPING) and ({'left', 'start'} <= keys or {'right', 'start'} <= keys):
             self.back_to_factory('free_walk' if 'left' in keys else 'classic')
             return s
+        if self.app is not None:
+            self.app.poll()
+            mode = self.app.take_mode()
+            if mode and self.app_mode(mode, s):
+                return s
         if self.phase is Phase.POLICY:
             self.policy_step(s, depth_frame)
         return s
+
+    def app_mode(self, mode, s) -> bool:
+        """앱 모드 요청. 리모컨을 만지는 중이면 버린다. 할 수 없는 상태면 알리고 버린다 (다시 시도하지 않음)."""
+        if remote_active(s['remote']):
+            self.emit('APP_MODE_IGNORED', mode=mode, reason='remote active', phase=self.phase.value)
+            return False
+        low = self.phase in (Phase.STANDING_UP, Phase.POLICY)
+        if mode == 'damp' and low:
+            self.damp('app')
+        elif mode == 'sit' and low:
+            self.sit_down()
+        elif mode == 'start' and self.phase in (Phase.HIGH, Phase.DAMPING):
+            self.emit('APP_MODE', mode=mode)
+            self.start_policy(s)
+        elif mode in ('classic', 'free_walk') and self.phase in (Phase.POLICY, Phase.DAMPING):
+            self.emit('APP_MODE', mode=mode)
+            self.back_to_factory(mode)
+        else:
+            self.emit('APP_MODE_IGNORED', mode=mode, reason='phase', phase=self.phase.value)
+            return False
+        return True
 
     def start_policy(self, s):
         self.to_low()
@@ -249,6 +286,9 @@ class LowLevelRunner:
             self._send(DEFAULT_POSE, KP, KD)
             return
         goal, dt = command_from_remote(s['remote']), 1. / POLICY_HZ
+        app_vel = self.app.velocity() if self.app is not None else None
+        if app_vel is not None and not remote_active(s['remote']):
+            goal = command_from_app(app_vel)   # 리모컨이 중립일 때만 앱 속도. 0.3 초 끊기면 None → 0 으로 감속
         for i in range(3):   # 시뮬과 같은 명령 변화 상한
             slowing = abs(goal[i]) < abs(self.cmd[i]) or self.cmd[i] * goal[i] < 0
             lim = (SLEW_DOWN if slowing else SLEW_UP)[i] * dt

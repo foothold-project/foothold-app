@@ -227,3 +227,77 @@ def test_down_start_logged_once_while_held(rig):
     sdk.keys = ('down', 'start')
     for _ in range(10): run.tick()
     assert [e.code for e in run.events].count('AME2_UNAVAILABLE') == 1
+
+
+# ── 앱 명령 (applink · 수행 전 · 가짜 SDK 만) ──
+import json as _json
+import socket as _socket
+
+from foothold_agent.policy.applink import AppLink, APP_TIMEOUT_S
+
+
+def _pkt(seq, **kw):
+    return _json.dumps({'seq': seq, **kw}).encode()
+
+
+def test_applink_rejects_bad_packets():
+    clock = Clock(); app = AppLink(clock=clock)
+    assert app.feed(_pkt(1, vx=.3)) and app.velocity() == (.3, 0., 0.)
+    assert not app.feed(_pkt(1, vx=.9))                    # 같은 seq
+    assert not app.feed(b'{"seq": 2, "vx": NaN}')          # 유한하지 않음
+    assert not app.feed(_pkt(3, mode='jump'))              # 모르는 모드
+    assert not app.feed(b'not json') and not app.feed(b'{"seq": 4}' + b' ' * 600)
+    assert not app.feed(_pkt(True, vx=1.))                 # bool 은 seq 아님
+    assert app.rejected == 6 and app.velocity() == (.3, 0., 0.)
+    clock.t += APP_TIMEOUT_S + .01
+    assert app.velocity() is None                          # 끊기면 버림
+
+
+def test_app_velocity_drives_policy_but_remote_wins(rig):
+    clock, sdk = rig
+    app = AppLink(clock=clock)
+    run = LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock, app=app)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    app.feed(_pkt(1, vx=9.))                               # 상한 1.5 로 잘림 · 가감속 1 틱 0.03
+    run.tick()
+    assert np.isclose(run.cmd[0], 1.5 / 50)
+    sdk.keys = ('X',)                                      # 리모컨을 만지면 앱 속도 무시 → 감속
+    app.feed(_pkt(2, vx=9.)); run.tick()
+    assert run.cmd[0] == 0.                                # 감속 한도 안에서 0 까지
+    sdk.keys = ()
+    for i in range(5):
+        app.feed(_pkt(3 + i, vx=.5)); run.tick()
+    assert np.isclose(run.cmd[0], 5 * 1.5 / 50)
+    clock.t += APP_TIMEOUT_S + .01                         # 앱 끊김 → 0 으로 감속
+    before = run.cmd[0]; run.tick()
+    assert run.cmd[0] < before
+
+
+def test_app_modes_follow_phase_and_remote_priority(rig):
+    clock, sdk = rig
+    app = AppLink(clock=clock)
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock, app=app)
+    app.feed(_pkt(1, mode='sit')); run.tick()              # 순정에서 앉기는 할 수 없음 → 알리고 버림
+    assert run.phase is Phase.HIGH and run.events[-1].code == 'APP_MODE_IGNORED'
+    sdk.keys = ('A',); app.feed(_pkt(2, mode='start')); run.tick()
+    assert run.phase is Phase.HIGH and run.events[-1].data['reason'] == 'remote active'
+    sdk.keys = (); app.feed(_pkt(3, mode='start')); run.tick()
+    assert run.phase is Phase.POLICY and 'APP_MODE' in [e.code for e in run.events]
+    app.feed(_pkt(4, mode='damp')); run.tick()
+    assert run.phase is Phase.DAMPING and run.events[-1].data == {'reason': 'app'}
+
+
+def test_applink_udp_loopback_only():
+    app = AppLink(0)
+    try:
+        assert app.sock.getsockname()[0] == '127.0.0.1'
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        s.sendto(_pkt(1, vx=.2, mode='start'), ('127.0.0.1', app.port)); s.close()
+        import time as _t
+        for _ in range(50):
+            app.poll()
+            if app.vel: break
+            _t.sleep(.01)
+        assert app.velocity() == (.2, 0., 0.) and app.take_mode() == 'start' and app.take_mode() is None
+    finally:
+        app.close()

@@ -29,6 +29,7 @@ def main(argv=None):
     ap.add_argument('--seconds', type=float, default=0, help='0 = until Ctrl+C')
     ap.add_argument('--status', type=float, default=1.0, help='상태 한 줄 간격 (초) · 0 = 끔')
     ap.add_argument('--stand-only', action='store_true', help='일어선 뒤 정책 없이 기본 자세만 유지 (첫 실기 시험)')
+    ap.add_argument('--app-port', type=int, default=0, help='앱 명령 받기 (127.0.0.1 UDP 포트 · 0 = 끔 · 리모컨 우선 · 실기 미확인)')
     ap.add_argument('--sit-first', action='store_true', help='넘겨받기 전에 StandDown 으로 앉히기 (기본: 지금 자세 그대로 넘겨받음)')
     a = ap.parse_args(argv)
     if a.live:
@@ -37,10 +38,14 @@ def main(argv=None):
         if approval.nic != a.nic:
             raise PermissionError('approval NIC differs from --nic')
     from .unitree import UnitreeSdk
+    app = None
+    if a.app_port:
+        from .applink import AppLink
+        app = AppLink(a.app_port)
     sdk = UnitreeSdk(a.nic)
-    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first,
+    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first, app=app,
                             on_event=lambda e: print(json.dumps({'t': round(e.t, 3), 'code': e.code, **e.data}, ensure_ascii=False), flush=True))
-    runner.emit('RUNNER_READY', live=a.live, mode=a.mode)
+    runner.emit('RUNNER_READY', live=a.live, mode=a.mode, app_port=a.app_port or None)
     t0, k = time.monotonic(), 0
     per = CMD_HZ // POLICY_HZ
     try:
@@ -50,7 +55,7 @@ def main(argv=None):
                 if a.status and k % int(a.status * CMD_HZ) == 0:
                     print(json.dumps({'status': runner.phase.value, 'stale': bool(s['stale']), 'grav_z': round(float(s['grav'][2]), 3),
                                       'keys': sorted(s['remote'].keys), 'lx': round(s['remote'].lx, 2), 'ly': round(s['remote'].ly, 2),
-                                      'rx': round(s['remote'].rx, 2), 'cmd': [round(float(x), 2) for x in runner.cmd], 'act_max': round(float(abs(runner.last_action).max()), 2), 'pitch_x': round(float(s['grav'][0]), 3), 'roll_y': round(float(s['grav'][1]), 3), 'sent': runner.sent}, ensure_ascii=False), flush=True)
+                                      'rx': round(s['remote'].rx, 2), 'cmd': [round(float(x), 2) for x in runner.cmd], 'act_max': round(float(abs(runner.last_action).max()), 2), 'pitch_x': round(float(s['grav'][0]), 3), 'roll_y': round(float(s['grav'][1]), 3), 'sent': runner.sent, 'app': app is not None and app.velocity() is not None}, ensure_ascii=False), flush=True)
             else:
                 runner.hold()
             k += 1
@@ -62,6 +67,8 @@ def main(argv=None):
             runner.damp('exit')
             runner.to_high()
         runner.emit('RUNNER_EXIT', sent=runner.sent)
+        if app is not None:
+            app.close()
     return 0
 
 
