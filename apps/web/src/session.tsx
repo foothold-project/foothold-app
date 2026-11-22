@@ -30,8 +30,9 @@ export function Root() {
   useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; clearPlans(); } }, [st.at]);   // 남겨 둔 지도·임무 편집·저장 요청도
   const enter = async () => {
     const raw = await api.me();
-    // 임시 · 기본 비밀번호로 만든 계정: 들어가게 하고 바꾸기를 권한다 (팀장 11/22 11:33 · 막지 않음)
-    const askPassword = raw.password_must_change;
+    // 임시 · 기본 비밀번호로 만든 계정: 들어가게 하고 바꾸기를 한 번 권한다 (팀장 11/22 11:33 · 막지 않음).
+    // 「나중에」 는 이 기기에서 90 일 동안 다시 묻지 않는다 (팀장 12:34 「로그인할 때마다 띄우면 귀찮다」).
+    const askPassword = raw.password_must_change && !snoozed(raw.id);
     const me = toUser(raw);
     const fresh = now(), robots = toRobots(await api.robots(listScope(me)));
     setServerData(me, robots);
@@ -82,7 +83,7 @@ export function Root() {
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
   // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
   const refresh = () => { reload(st.user, `${st.user.id}-${st.n}`, st.cancel).catch(() => {}); };
-  const later = () => setSt((s) => (s.at === 'app' ? { ...s, askPassword: false } : s));
+  const later = () => { snooze(st.user.id); setSt((s) => (s.at === 'app' ? { ...s, askPassword: false } : s)); };
   return <>
     <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} />
     {st.askPassword && <div className={fh}><FirstPassword name={st.user.name} later={later} /></div>}
@@ -113,6 +114,10 @@ function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
   </main></div>;
 }
 
+const PW_LATER_DAYS = 90, pwKey = (id: string) => `fh.passwordLater.${id}`;
+const snoozed = (id: string) => { try { return Number(localStorage.getItem(pwKey(id)) ?? 0) > Date.now(); } catch { return false; } };
+const snooze = (id: string) => { try { localStorage.setItem(pwKey(id), String(Date.now() + PW_LATER_DAYS * 86400_000)); } catch { /* 저장 못 하면 다음 로그인에 다시 묻는다 */ } };
+
 export const FIRST_PW_DONE = '비밀번호를 바꿨습니다. 새 비밀번호로 다시 로그인하세요.';
 
 /** 첫 로그인 비밀번호 바꾸기 권유 (팝업 · 「나중에」 로 닫음). 바꾸면 서버가 모든 세션을 끝내므로 로그인 화면으로 */
@@ -140,7 +145,7 @@ function FirstPassword({ name, later }: { name: string; later: () => void }) {
       {msg && <p className="fh-msg" role="alert">{msg}</p>}
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>{busy ? '바꾸는 중…' : '비밀번호 바꾸기'}</button>
         <button type="button" className="btn" onClick={later} disabled={busy}>나중에</button></div>
-      <span className="lbl">바꾸면 모든 기기에서 로그아웃되고 새 비밀번호로 다시 로그인합니다.</span>
+      <span className="lbl">「나중에」 를 누르면 이 기기에서 90 일 동안 다시 묻지 않습니다. 바꾸면 모든 기기에서 로그아웃되고 새 비밀번호로 다시 로그인합니다.</span>
     </form>
   </div>;
 }

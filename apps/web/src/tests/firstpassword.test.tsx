@@ -37,6 +37,13 @@ it('앱은 열고 비밀번호 바꾸기를 권한다 · 나중에 · 바꾸면 
   act(() => later.click()); await flush();
   expect(box.querySelector('[aria-label="비밀번호 바꾸기"]')).toBeNull();
   act(() => root!.unmount()); box.remove();
+  // 「나중에」 는 90 일 묻지 않음: 다시 열어도 팝업 없음
+  box = document.createElement('div'); document.body.append(box);
+  act(() => { root = createRoot(box); root.render(<Root />); });
+  await flush();
+  expect(box.querySelector('[aria-label="비밀번호 바꾸기"]')).toBeNull();
+  act(() => root!.unmount()); box.remove();
+  localStorage.clear();
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
