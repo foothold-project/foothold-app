@@ -22,16 +22,25 @@ class Clock:
 class FakeSdk:
     def __init__(self, clock):
         self.clock, self.calls, self.sent = clock, [], []
-        self.quat, self.keys, self.mode_left = (1, 0, 0, 0), (), 2
+        self.quat, self.keys, self.mode_left, self.mode = (1, 0, 0, 0), (), 2, 'mcf'
+        self.select_ok = True
         self.q = np.zeros(12)
     def low_state(self):
         self.clock.t += .005
         return self.clock.t, self.quat, (0, 0, 0), self.q, np.zeros(12), remote(*self.keys)
     def send(self, q, dq, kp, kd, tau): self.sent.append((np.array(q), float(kp[0]), float(kd[0])))
     def stand_down(self): self.calls.append('stand_down')
-    def release_mode(self): self.calls.append('release_mode'); self.mode_left -= 1
-    def check_mode(self): self.calls.append('check_mode'); return 'normal' if self.mode_left > 0 else ''
-    def select_mode(self, name): self.calls.append(f'select_mode:{name}')
+    def release_mode(self):
+        self.calls.append('release_mode'); self.mode_left -= 1
+        if self.mode_left <= 0: self.mode = ''
+    def check_mode(self):
+        self.calls.append('check_mode')
+        if self.mode == '': return ''
+        return self.mode if self.mode_left > 0 else ''
+    def select_mode(self, name):
+        self.calls.append(f'select_mode:{name}')
+        if self.select_ok: self.mode, self.mode_left = name, 1
+        return 0 if self.select_ok else 7004
     def recovery_stand(self): self.calls.append('recovery_stand')
     def balance_stand(self): self.calls.append('balance_stand')
     def free_walk(self): self.calls.append('free_walk')
@@ -73,7 +82,7 @@ def test_live_sequence_standdown_release_standup_policy(rig):
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
     sdk.keys = ('up', 'start')
     run.tick()
-    assert sdk.calls[:5] == ['stand_down', 'release_mode', 'check_mode', 'release_mode', 'check_mode']
+    assert sdk.calls[:6] == ['check_mode', 'stand_down', 'release_mode', 'check_mode', 'release_mode', 'check_mode']
     assert run.phase is Phase.POLICY
     first, last = sdk.sent[0], sdk.sent[-1]
     assert first[1] == lowlevel.STAND_KP and np.isclose(last[1], lowlevel.KP)
@@ -110,7 +119,7 @@ def test_fall_damps_switches_high_and_recovery_stands(rig):
             break
     codes = [e.code for e in run.events]
     assert 'ROBOT_FALL' in codes and 'ROBOT_FALL_RECOVERY_STAND' in codes
-    assert sdk.calls[-2:] == ['select_mode:normal', 'recovery_stand'] and run.phase is Phase.HIGH
+    assert sdk.calls[-3:] == ['select_mode:mcf', 'check_mode', 'recovery_stand'] and run.phase is Phase.HIGH
 
 
 @pytest.mark.parametrize('arrow,gait,call', [('left', 'free_walk', 'free_walk'), ('right', 'classic', 'classic_walk:True')])
@@ -118,7 +127,7 @@ def test_arrow_start_returns_to_factory_gait(rig, arrow, gait, call):
     clock, sdk = rig
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = (arrow, 'start'); run.tick()
-    assert run.phase is Phase.HIGH and sdk.calls[-3:] == ['select_mode:normal', 'recovery_stand', call]
+    assert run.phase is Phase.HIGH and sdk.calls[-4:] == ['select_mode:mcf', 'check_mode', 'recovery_stand', call]
     assert run.events[-1].code == 'FACTORY_GAIT' and run.events[-1].data['gait'] == gait
 
 
@@ -137,3 +146,13 @@ def test_stand_only_holds_default_pose_without_policy(rig):
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = (); run.tick()
     q, kp, kd = sdk.sent[-1]
     assert np.allclose(q, DEFAULT_POSE[SDK_FROM_POLICY]) and kp == lowlevel.KP
+
+
+def test_failed_select_mode_is_reported_not_claimed(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    sdk.select_ok = False
+    sdk.keys = ('right', 'start'); run.tick()
+    codes = [e.code for e in run.events]
+    assert 'MODE_HIGH_FAILED' in codes and 'FACTORY_GAIT' not in codes and 'recovery_stand' not in sdk.calls

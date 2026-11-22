@@ -25,7 +25,7 @@ def main(argv=None):
     ap.add_argument('--nic', required=True)
     ap.add_argument('--mode', default='off', choices=['off'])
     ap.add_argument('--live', action='store_true')
-    ap.add_argument('--sport-mode', default='normal', help="고수준 복귀 이름 (SDK 예제 'normal' · 펌웨어에 따라 'mcf' · 실기 미확인)")
+    ap.add_argument('--sport-mode', default='mcf', help="고수준 복귀 이름 (기본 mcf · 11/22 실기 확인 · 시작할 때 CheckMode 로 읽은 이름이 우선)")
     ap.add_argument('--seconds', type=float, default=0, help='0 = until Ctrl+C')
     ap.add_argument('--status', type=float, default=1.0, help='상태 한 줄 간격 (초) · 0 = 끔')
     ap.add_argument('--stand-only', action='store_true', help='일어선 뒤 정책 없이 기본 자세만 유지 (첫 실기 시험)')

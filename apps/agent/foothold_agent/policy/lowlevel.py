@@ -83,7 +83,7 @@ class LowLevelRunner:
        low_state() -> (stamp_s, quat_wxyz, gyro, q_sdk[12], dq_sdk[12], remote_bytes) · send(q, dq, kp, kd, tau) (SDK 순서 12 개씩) ·
        stand_down() · release_mode() · check_mode() -> str · select_mode(name) · recovery_stand() · balance_stand()"""
 
-    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='normal', stand_only=False):
+    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False):
         self.sdk, self.policy, self.live, self.clock, self.on_event = sdk, policy, live, clock, on_event
         self.sport_mode, self.stand_only = sport_mode, stand_only   # stand_only: 일어선 뒤 정책 없이 기본 자세만 (첫 실기 · 관절 순서 확인)
         self.phase = Phase.HIGH
@@ -118,6 +118,10 @@ class LowLevelRunner:
     # ── 모드 전환 ──
     def to_low(self, timeout_s=10.):
         if self.live:
+            # 해제 전에 지금 순정 모드 이름을 읽어 두고, 돌아갈 때 그 이름을 쓴다 (11/22: 이 Go2 X 는 'mcf' · 'normal' 은 7004 거절)
+            name = self.sdk.check_mode()
+            if name and name != 'unknown':
+                self.sport_mode = name
             self.sdk.stand_down()
             deadline = self.clock() + timeout_s
             while True:
@@ -129,11 +133,19 @@ class LowLevelRunner:
                 time.sleep(.5)
         self.emit('MODE_LOW')
 
-    def to_high(self):
-        if self.live:
-            self.sdk.select_mode(self.sport_mode)
+    def to_high(self, tries=5):
+        """순정 복귀. 요청 결과와 CheckMode 로 확인하고, 실패하면 다시 시도 · 끝내 실패면 MODE_HIGH_FAILED (사람 확인)."""
+        ok = not self.live
+        for _ in range(tries if self.live else 0):
+            code = self.sdk.select_mode(self.sport_mode)
+            time.sleep(1.)
+            if self.sdk.check_mode() == self.sport_mode:
+                ok = True
+                break
+            self.emit('MODE_HIGH_RETRY', mode=self.sport_mode, result=code)
         self.phase = Phase.HIGH
-        self.emit('MODE_HIGH', mode=self.sport_mode)
+        self.emit('MODE_HIGH' if ok else 'MODE_HIGH_FAILED', mode=self.sport_mode)
+        return ok
 
     # ── 상태 읽기 ──
     def read(self):
@@ -220,8 +232,7 @@ class LowLevelRunner:
 
     def recover(self):
         self.phase = Phase.RECOVERING
-        self.to_high()
-        if self.live:
+        if self.to_high() and self.live:
             self.sdk.recovery_stand()
         self.emit('ROBOT_FALL_RECOVERY_STAND')
         self.phase = Phase.HIGH
@@ -230,7 +241,8 @@ class LowLevelRunner:
         """감쇠 → 고수준 복귀 → 일어서기 → 순정 보행 (free walk · classic). 펌웨어 쪽 동작은 실기 미확인."""
         if self.phase is Phase.POLICY:
             self.damp('operator back to factory')
-        self.to_high()
+        if not self.to_high():
+            return
         if self.live:
             self.sdk.recovery_stand()
             self.sdk.free_walk() if gait == 'free_walk' else self.sdk.classic_walk(True)
