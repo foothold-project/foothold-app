@@ -27,6 +27,7 @@ def main(argv=None):
     ap.add_argument('--live', action='store_true')
     ap.add_argument('--sport-mode', default='normal', help="고수준 복귀 이름 (SDK 예제 'normal' · 펌웨어에 따라 'mcf' · 실기 미확인)")
     ap.add_argument('--seconds', type=float, default=0, help='0 = until Ctrl+C')
+    ap.add_argument('--status', type=float, default=1.0, help='상태 한 줄 간격 (초) · 0 = 끔')
     a = ap.parse_args(argv)
     if a.live:
         from foothold_agent.go2_direct.approval import validate
@@ -43,7 +44,11 @@ def main(argv=None):
     try:
         while not a.seconds or time.monotonic() - t0 < a.seconds:
             if k % per == 0:
-                runner.tick()
+                s = runner.tick()
+                if a.status and k % int(a.status * CMD_HZ) == 0:
+                    print(json.dumps({'status': runner.phase.value, 'stale': bool(s['stale']), 'grav_z': round(float(s['grav'][2]), 3),
+                                      'keys': sorted(s['remote'].keys), 'lx': round(s['remote'].lx, 2), 'ly': round(s['remote'].ly, 2),
+                                      'rx': round(s['remote'].rx, 2), 'q0': round(float(s['q'][0]), 3), 'sent': runner.sent}, ensure_ascii=False), flush=True)
             else:
                 runner.hold()
             k += 1
