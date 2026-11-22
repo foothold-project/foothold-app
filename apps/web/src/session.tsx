@@ -85,7 +85,7 @@ export function Root() {
   const later = () => setSt((s) => (s.at === 'app' ? { ...s, askPassword: false } : s));
   return <>
     <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} />
-    {st.askPassword && <FirstPassword name={st.user.name} later={later} />}
+    {st.askPassword && <div className={fh}><FirstPassword name={st.user.name} later={later} /></div>}
   </>;
 }
 
@@ -129,7 +129,7 @@ function FirstPassword({ name, later }: { name: string; later: () => void }) {
     try { await api.password({ current_password: cur, new_password: next }); expireAuth(FIRST_PW_DONE); }
     catch (err) { setMsg((err as ApiFail).message); setBusy(false); }
   };
-  return <div className="fh-pick" role="dialog" aria-modal="true" aria-label="비밀번호 바꾸기"
+  return <div role="dialog" aria-modal="true" aria-label="비밀번호 바꾸기"
     style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,.45)' }}>
     <form className="lv-card fh-form" onSubmit={submit} noValidate style={{ width: 'min(420px, calc(100vw - 32px))' }}>
       <h2>처음 로그인 · 비밀번호를 바꾸세요</h2>
