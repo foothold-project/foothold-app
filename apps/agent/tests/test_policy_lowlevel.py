@@ -129,6 +129,7 @@ def test_arrow_start_returns_to_factory_gait(rig, arrow, gait, call):
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = (arrow, 'start'); run.tick()
     assert run.phase is Phase.HIGH and sdk.calls[-4:] == ['select_mode:mcf', 'check_mode', 'recovery_stand', call]
+    assert not any(kp == 0 for _, kp, _ in sdk.sent)   # 감쇠 없이 서 있는 채로 넘김
     assert run.events[-1].code == 'FACTORY_GAIT' and run.events[-1].data['gait'] == gait
 
 
@@ -157,6 +158,7 @@ def test_failed_select_mode_is_reported_not_claimed(rig):
     sdk.keys = ('right', 'start'); run.tick()
     codes = [e.code for e in run.events]
     assert 'MODE_HIGH_FAILED' in codes and 'FACTORY_GAIT' not in codes and 'recovery_stand' not in sdk.calls
+    assert codes[-1] == 'DAMPING'   # 끝내 안 붙으면 그때 감쇠
 
 
 def test_l2b_in_factory_mode_sends_nothing_and_restart_from_damping(rig):

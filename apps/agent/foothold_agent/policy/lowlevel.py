@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import enum
 import struct
+import threading
 import time
 from dataclasses import dataclass
 
@@ -145,11 +146,13 @@ class LowLevelRunner:
                 time.sleep(.5)
         self.emit('MODE_LOW')
 
-    def to_high(self, tries=5):
+    def to_high(self, tries=5, on_selected=lambda: None):
         """순정 복귀. 요청 결과와 CheckMode 로 확인하고, 실패하면 다시 시도 · 끝내 실패면 MODE_HIGH_FAILED (사람 확인)."""
         ok = not self.live
         for _ in range(tries if self.live else 0):
             code = self.sdk.select_mode(self.sport_mode)
+            if (code[0] if isinstance(code, tuple) else code) == 0:
+                on_selected()   # 순정이 받아들였으면 우리 LowCmd 를 바로 멈춘다 (둘이 같이 쥐지 않게)
             time.sleep(1.)
             if self.sdk.check_mode() == self.sport_mode:
                 ok = True
@@ -270,10 +273,28 @@ class LowLevelRunner:
         self.phase = Phase.HIGH
 
     def back_to_factory(self, gait):
-        """감쇠 → 고수준 복귀 → 일어서기 → 순정 보행 (free walk · classic). 펌웨어 쪽 동작은 실기 미확인."""
-        if self.phase is Phase.POLICY:
-            self.damp('operator back to factory')
-        if not self.to_high():
+        """서 있는 채로 순정 복귀 → 순정 보행 (free walk · classic).
+        11/22 14:25 실기: 감쇠부터 하면 SelectMode 가 1~3 초 걸리는 동안 선 채로 힘이 빠져 몸이 뒤집혔다.
+        그래서 순정이 붙을 때까지 기본 자세를 200 Hz 로 계속 잡고 (뒤 스레드), 붙은 것을 확인하면 바로 놓는다.
+        끝내 안 붙으면 그때 감쇠."""
+        hold = self.phase in (Phase.POLICY, Phase.STANDING_UP)
+        stop = threading.Event()
+        def holder():
+            while not stop.is_set():
+                self._send(DEFAULT_POSE, KP, KD)
+                time.sleep(1. / CMD_HZ)
+        th = threading.Thread(target=holder, daemon=True) if hold and self.live else None
+        if th:
+            th.start()
+        self.emit('FACTORY_HANDOVER', gait=gait, holding=bool(th))
+        try:
+            ok = self.to_high(on_selected=stop.set)
+        finally:
+            stop.set()
+            if th:
+                th.join(1.)
+        if not ok:
+            self.damp('factory mode did not attach')
             return
         if self.live:
             self.sdk.recovery_stand()
