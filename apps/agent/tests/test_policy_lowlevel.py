@@ -219,3 +219,11 @@ def test_l2a_in_policy_sits_down_then_damps(rig):
 def test_stick_deadband_zeroes_jitter():
     assert np.allclose(command_from_remote(parse_remote(remote(ly=.03, lx=-.04, rx=.02))), 0)
     assert command_from_remote(parse_remote(remote(ly=.2)))[0] > 0
+
+
+def test_down_start_logged_once_while_held(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('down', 'start')
+    for _ in range(10): run.tick()
+    assert [e.code for e in run.events].count('AME2_UNAVAILABLE') == 1

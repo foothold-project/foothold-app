@@ -102,6 +102,7 @@ class LowLevelRunner:
         self.kp, self.kd = KP, KD
         self.last_action = np.zeros(12, np.float32)
         self.cmd = np.zeros(3, np.float32)
+        self._ame2_held = False
         self.stop_trace = None   # 명령이 0 이 된 순간부터 2 초: 발 힘 · 기울기 · 관절 (lead 11/22 14:16 · 멈출 때 마지막 발 비교용)
         self.fall_since = None
         self.events: list[Event] = []
@@ -209,8 +210,11 @@ class LowLevelRunner:
             self.start_policy(s)
             return s
         if {'down', 'start'} <= keys:
-            self.emit('AME2_UNAVAILABLE', note='AME-2 student ONNX 없음 (석헌 student 대기)')
+            if not self._ame2_held:   # 누르는 동안 한 번만 (11/22 실기: 누르고 있는 동안 매 틱 16 번 기록됨)
+                self.emit('AME2_UNAVAILABLE', note='AME-2 student ONNX 없음 (석헌 student 대기)')
+            self._ame2_held = True
             return s
+        self._ame2_held = False
         if self.phase in (Phase.POLICY, Phase.DAMPING) and ({'left', 'start'} <= keys or {'right', 'start'} <= keys):
             self.back_to_factory('free_walk' if 'left' in keys else 'classic')
             return s
