@@ -152,8 +152,10 @@ class LowLevelRunner:
         ok = not self.live
         for _ in range(tries if self.live else 0):
             code = self.sdk.select_mode(self.sport_mode)
-            if (code[0] if isinstance(code, tuple) else code) == 0:
-                on_selected()   # 순정이 받아들였으면 우리 LowCmd 를 바로 멈춘다 (둘이 같이 쥐지 않게)
+            # 11/22 14:32 실기: 첫 요청이 시간 초과 (3104) 로 돌아와도 순정은 이미 붙어 있을 수 있다 → 그 사이 우리 LowCmd 와
+            # 순정이 함께 모터를 쥐어 긁히는 소리. 결과 코드와 상관없이 바로 CheckMode 로 붙었는지 보고 붙었으면 즉시 놓는다.
+            if (code[0] if isinstance(code, tuple) else code) == 0 or self.sdk.check_mode() == self.sport_mode:
+                on_selected()
             time.sleep(1.)
             if self.sdk.check_mode() == self.sport_mode:
                 ok = True
