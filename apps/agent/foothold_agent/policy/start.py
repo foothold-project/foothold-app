@@ -82,7 +82,7 @@ class StartMemory:
 class StartPolicy:
     """관측 → 입력 9 개 → ONNX → 행동 · GRU 상태. 깊이 프레임은 호출자가 준다 (60×60, 0~1, 미검출 1.0)."""
 
-    def __init__(self, folder: Path, mode: str = 'reconstruction', *, providers=('CPUExecutionProvider',), check_sha=True):
+    def __init__(self, folder: Path, mode: str = 'reconstruction', *, providers=('CPUExecutionProvider',), check_sha=True, threads=2):
         import onnxruntime as ort
         if mode not in MODEL_FILES:
             raise ValueError(f'unknown START map mode: {mode}')
@@ -90,7 +90,12 @@ class StartPolicy:
         if check_sha and file_sha256(path) != MODEL_SHA256[path.name]:
             raise ValueError(f'{path.name} SHA-256 differs from the canon contract')
         self.mode = mode
-        self.session = ort.InferenceSession(str(path), providers=list(providers))
+        # 스레드 수를 정해 둔다: 자동이면 Jetson (15 W · CPU 0-3 만 켜짐) 에서 꺼진 코어에 묶으려다 실패해 p95 42 ms.
+        # 2 개로 p50 3.9 · p95 4.3 ms (11/22 Orin 실측).
+        so = ort.SessionOptions()
+        so.intra_op_num_threads, so.inter_op_num_threads = threads, 1
+        so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        self.session = ort.InferenceSession(str(path), so, providers=list(providers))
         self.outputs = [o.name for o in self.session.get_outputs()]
         self.memory = StartMemory()
 
