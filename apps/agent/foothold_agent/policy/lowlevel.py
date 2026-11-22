@@ -86,9 +86,9 @@ class LowLevelRunner:
        low_state() -> (stamp_s, quat_wxyz, gyro, q_sdk[12], dq_sdk[12], remote_bytes) · send(q, dq, kp, kd, tau) (SDK 순서 12 개씩) ·
        stand_down() · release_mode() · check_mode() -> str · select_mode(name) · recovery_stand() · balance_stand()"""
 
-    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False):
+    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False, sit_first=False):
         self.sdk, self.policy, self.live, self.clock, self.on_event = sdk, policy, live, clock, on_event
-        self.sport_mode, self.stand_only = sport_mode, stand_only   # stand_only: 일어선 뒤 정책 없이 기본 자세만 (첫 실기 · 관절 순서 확인)
+        self.sport_mode, self.stand_only, self.sit_first = sport_mode, stand_only, sit_first   # stand_only: 일어선 뒤 정책 없이 기본 자세만 (첫 실기 · 관절 순서 확인)
         self.phase = Phase.HIGH
         self.target = DEFAULT_POSE.copy()
         self.kp, self.kd = KP, KD
@@ -130,8 +130,11 @@ class LowLevelRunner:
                 return
             if name and name != 'unknown':
                 self.sport_mode = name
-            self.sdk.stand_down()
-            time.sleep(SIT_WAIT_S)
+            # 팀장 11/22 14:19: 순정 모드끼리 바꾸듯 어떤 자세 (선 채 · 감쇠 · 엎드림) 에서든 위 + start 로 바로 붙는다.
+            # 해제 직후 지금 관절 각을 잡고 기본 자세로 보간하므로 선 채로 넘겨받아도 주저앉지 않는다 (4b 실측).
+            if self.sit_first:
+                self.sdk.stand_down()
+                time.sleep(SIT_WAIT_S)
             deadline = self.clock() + timeout_s
             while True:
                 self.sdk.release_mode()

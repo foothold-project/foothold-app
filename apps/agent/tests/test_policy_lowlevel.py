@@ -83,7 +83,7 @@ def test_live_sequence_standdown_release_standup_policy(rig):
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
     sdk.keys = ('up', 'start')
     run.tick()
-    assert sdk.calls[:6] == ['check_mode', 'stand_down', 'release_mode', 'check_mode', 'release_mode', 'check_mode']
+    assert sdk.calls[:5] == ['check_mode', 'release_mode', 'check_mode', 'release_mode', 'check_mode']   # 기본: 앉히지 않고 바로 넘겨받음
     assert run.phase is Phase.POLICY
     first, last = sdk.sent[0], sdk.sent[-1]
     assert first[1] == lowlevel.STAND_KP and np.isclose(last[1], lowlevel.KP)
@@ -196,3 +196,10 @@ def test_stop_trace_two_seconds_after_command_release(rig):
     for _ in range(150): clock.t += .02; run.tick()
     tr = [e for e in run.events if e.code == 'STOP_TRACE']
     assert len(tr) == 1 and tr[0].data['cmd0'][0] > .05 and tr[0].data['rows'][-1][0] >= 2. and tr[0].data['rows'][0][2] == [10, 20, 30, 40]
+
+
+def test_sit_first_option_stands_down_before_release(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock, sit_first=True)
+    sdk.keys = ('up', 'start'); run.tick()
+    assert sdk.calls[:3] == ['check_mode', 'stand_down', 'release_mode']
