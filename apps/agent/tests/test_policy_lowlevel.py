@@ -34,6 +34,8 @@ class FakeSdk:
     def select_mode(self, name): self.calls.append(f'select_mode:{name}')
     def recovery_stand(self): self.calls.append('recovery_stand')
     def balance_stand(self): self.calls.append('balance_stand')
+    def free_walk(self): self.calls.append('free_walk')
+    def classic_walk(self, flag=True): self.calls.append(f'classic_walk:{flag}')
 
 
 class FakePolicy:
@@ -109,3 +111,19 @@ def test_fall_damps_switches_high_and_recovery_stands(rig):
     codes = [e.code for e in run.events]
     assert 'ROBOT_FALL' in codes and 'ROBOT_FALL_RECOVERY_STAND' in codes
     assert sdk.calls[-2:] == ['select_mode:normal', 'recovery_stand'] and run.phase is Phase.HIGH
+
+
+@pytest.mark.parametrize('arrow,gait,call', [('left', 'free_walk', 'free_walk'), ('right', 'classic', 'classic_walk:True')])
+def test_arrow_start_returns_to_factory_gait(rig, arrow, gait, call):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = (arrow, 'start'); run.tick()
+    assert run.phase is Phase.HIGH and sdk.calls[-3:] == ['select_mode:normal', 'recovery_stand', call]
+    assert run.events[-1].code == 'FACTORY_GAIT' and run.events[-1].data['gait'] == gait
+
+
+def test_down_start_is_ame2_placeholder(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('down', 'start'); run.tick()
+    assert run.phase is Phase.HIGH and run.events[-1].code == 'AME2_UNAVAILABLE' and sdk.calls == []

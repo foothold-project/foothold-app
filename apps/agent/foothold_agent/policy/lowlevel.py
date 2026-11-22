@@ -8,7 +8,8 @@
   5 끝 · 비상: 감쇠 (kp 0 · kd 3) → 고수준 복귀 (SelectMode)
 
 명령 송신 조건: `--live` 와 go2_direct 승인 표식 (사람 · 30 분 · 0600) 이 둘 다 있을 때만. 기본은 dry-run (LowState 를 읽고 계산만, 송신 0).
-리모컨 (LowState.wireless_remote): L2 + B = 비상 감쇠 (언제나), 위 + start = 정책 시작, 아래 + start = 앉히고 고수준 복귀.
+리모컨 (LowState.wireless_remote · 팀장 11/22 12:34): 위 + start = START 정책, 아래 + start = AME-2 (student ONNX 를 받으면 · 지금은 알림만),
+← + start = 순정 free walk 로 복귀, → + start = 순정 classic 으로 복귀, L2 + B = 비상 감쇠 (언제나). 고수준 (순정) 일 때 ← · → + start 는 펌웨어가 처리.
 리모컨 바이트 배치와 모드 이름 ('normal' · 'mcf') 은 Unitree SDK 예제 기준이며 이 Go2 X 에서 아직 재지 않았다 (실기 미확인).
 """
 from __future__ import annotations
@@ -167,8 +168,11 @@ class LowLevelRunner:
         if self.phase is Phase.HIGH and {'up', 'start'} <= keys:
             self.start_policy(s)
             return s
-        if self.phase in (Phase.POLICY, Phase.DAMPING) and {'down', 'start'} <= keys:
-            self.stop_to_high()
+        if {'down', 'start'} <= keys:
+            self.emit('AME2_UNAVAILABLE', note='AME-2 student ONNX 없음 (석헌 student 대기)')
+            return s
+        if self.phase in (Phase.POLICY, Phase.DAMPING) and ({'left', 'start'} <= keys or {'right', 'start'} <= keys):
+            self.back_to_factory('free_walk' if 'left' in keys else 'classic')
             return s
         if self.phase is Phase.POLICY:
             self.policy_step(s, depth_frame)
@@ -219,9 +223,12 @@ class LowLevelRunner:
         self.emit('ROBOT_FALL_RECOVERY_STAND')
         self.phase = Phase.HIGH
 
-    def stop_to_high(self):
+    def back_to_factory(self, gait):
+        """감쇠 → 고수준 복귀 → 일어서기 → 순정 보행 (free walk · classic). 펌웨어 쪽 동작은 실기 미확인."""
         if self.phase is Phase.POLICY:
-            self.damp('operator stop')
+            self.damp('operator back to factory')
         self.to_high()
         if self.live:
-            self.sdk.stand_down()
+            self.sdk.recovery_stand()
+            self.sdk.free_walk() if gait == 'free_walk' else self.sdk.classic_walk(True)
+        self.emit('FACTORY_GAIT', gait=gait)

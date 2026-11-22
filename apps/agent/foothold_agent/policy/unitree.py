@@ -65,6 +65,12 @@ class UnitreeSdk:
     def balance_stand(self):
         return self.sport.BalanceStand()
 
+    def free_walk(self):
+        return self.sport.FreeWalk()
+
+    def classic_walk(self, flag=True):
+        return self.sport.ClassicWalk(flag)
+
     def release_mode(self):
         return self.switcher.ReleaseMode()
 

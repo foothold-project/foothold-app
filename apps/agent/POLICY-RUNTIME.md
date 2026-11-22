@@ -17,7 +17,7 @@
 | `foothold_agent/policy/unitree.py` | 실기 경계 (unitree_sdk2py: LowState · LowCmd + CRC · SportClient · MotionSwitcherClient) |
 | `foothold_agent/policy/run.py` | 실행 명령. 기본 dry-run (읽고 계산만, 송신 0). `--live` 는 go2_direct 승인 표식 (사람 · 0600 · 30 분) 이 있어야 시작 |
 
-리모컨 (실행기가 저수준일 때 읽음): 위 + start = 정책 시작, 아래 + start = 고수준 복귀, L2 + B = 비상 감쇠.
+리모컨 (팀장 11/22 12:34): 위 + start = START 정책, 아래 + start = AME-2 (student 대기 · 알림만), ← + start = 순정 free walk, → + start = 순정 classic, L2 + B = 비상 감쇠.
 리모컨 바이트 배치 · 고수준 모드 이름 ('normal' 또는 'mcf') 은 SDK 예제 기준이며 이 Go2 X 에서 아직 재지 않았다.
 지금은 끔 (off) 모드만 연다. 복원 (reconstruction) 은 D435i 깊이 원천을 붙인 뒤.
 
