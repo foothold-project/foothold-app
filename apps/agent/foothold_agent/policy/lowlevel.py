@@ -37,7 +37,8 @@ SIT_WAIT_S = 3.0
 RECOVER_WAIT_S = 3.0
 # 저수준에서 천천히 앉히기: 엎드린 관절 각 (정책 순서, 시뮬 recovery-stand.js fold 와 같음) · 2 초 보간
 SIT_POSE = np.array([0, 0, 0, 0, 1.2, 1.2, 1.2, 1.2, -2.7, -2.7, -2.7, -2.7], np.float32)
-SIT_SEC = 2.0   # RecoveryStand 가 다 서는 시간 (보행 전환은 그 뒤)   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
+SIT_SEC = 2.0
+STICK_DEADBAND = .05   # RecoveryStand 가 다 서는 시간 (보행 전환은 그 뒤)   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
 # 사람 확인 전 안전 상한: 관절 목표는 기본 자세에서 이만큼만 (rad). 정책 action clip 17 × 0.25 = 4.25 보다 좁다.
 TARGET_SPAN = 1.6
 
@@ -67,6 +68,8 @@ def command_from_remote(r: Remote) -> np.ndarray:
     """왼 막대 앞뒤 · 좌우 = vx · vy, 오른 막대 좌우 = wz (시뮬 손 조종과 같은 뜻). 막대 끝 = 학습 상한."""
     def axis(v, lo, hi):
         v = float(np.clip(v, -1, 1))
+        if abs(v) < STICK_DEADBAND:   # 막대 중립 떨림은 0 (11/22 실기: 멈춤 기록이 88 번 새로 시작됨)
+            return 0.
         return v * hi if v >= 0 else -v * lo
     return np.array([axis(r.ly, *CAPS['vx']), axis(-r.lx, *CAPS['vy']), axis(-r.rx, *CAPS['wz'])], np.float32)
 
@@ -265,7 +268,7 @@ class LowLevelRunner:
             ff = getattr(self.sdk, 'foot_force', lambda: [])()
             self.stop_trace['rows'].append([round(self.clock() - self.stop_trace['t0'], 3), [round(float(x), 3) for x in s['grav']], list(ff),
                                             [round(float(x), 3) for x in s['q']]])
-            if self.clock() - self.stop_trace['t0'] >= 2. or np.abs(goal).max() > 1e-3:
+            if self.clock() - self.stop_trace['t0'] >= 2. or np.abs(goal).max() > .05:
                 self.emit('STOP_TRACE', **self.stop_trace)
                 self.stop_trace = None
 

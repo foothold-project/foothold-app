@@ -214,3 +214,8 @@ def test_l2a_in_policy_sits_down_then_damps(rig):
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ('L2', 'A'); run.tick()
     assert run.phase is Phase.DAMPING and [e.code for e in run.events][-2:] == ['SIT_DOWN', 'DAMPING']
     assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp > 0)
+
+
+def test_stick_deadband_zeroes_jitter():
+    assert np.allclose(command_from_remote(parse_remote(remote(ly=.03, lx=-.04, rx=.02))), 0)
+    assert command_from_remote(parse_remote(remote(ly=.2)))[0] > 0
