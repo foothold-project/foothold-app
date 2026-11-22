@@ -33,7 +33,8 @@ FALL_GRAV_Z, FALL_HOLD_S = -.5, .5
 CAPS = {'vx': (-1.3, 1.5), 'vy': (-.5, .5), 'wz': (-1.2, 1.2)}
 # 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
 SLEW_UP, SLEW_DOWN = (1.5, .5, 2.4), (3.75, 1.25, 3.)
-SIT_WAIT_S = 3.0   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
+SIT_WAIT_S = 3.0
+RECOVER_WAIT_S = 3.0   # RecoveryStand 가 다 서는 시간 (보행 전환은 그 뒤)   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
 # 사람 확인 전 안전 상한: 관절 목표는 기본 자세에서 이만큼만 (rad). 정책 action clip 17 × 0.25 = 4.25 보다 좁다.
 TARGET_SPAN = 1.6
 
@@ -296,7 +297,10 @@ class LowLevelRunner:
         if not ok:
             self.damp('factory mode did not attach')
             return
+        codes = {}
         if self.live:
-            self.sdk.recovery_stand()
-            self.sdk.free_walk() if gait == 'free_walk' else self.sdk.classic_walk(True)
-        self.emit('FACTORY_GAIT', gait=gait)
+            codes['recovery_stand'] = self.sdk.recovery_stand()
+            # 11/22 14:26 실기: RecoveryStand 직후 바로 보행 전환을 보내면 무시되고 기본 sport 로 남음 → 다 선 뒤 (3 초) 보낸다
+            time.sleep(RECOVER_WAIT_S)
+            codes[gait] = self.sdk.free_walk() if gait == 'free_walk' else self.sdk.classic_walk(True)
+        self.emit('FACTORY_GAIT', gait=gait, result=str(codes))
