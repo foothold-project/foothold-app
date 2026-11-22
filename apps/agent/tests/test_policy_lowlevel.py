@@ -127,3 +127,13 @@ def test_down_start_is_ame2_placeholder(rig):
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
     sdk.keys = ('down', 'start'); run.tick()
     assert run.phase is Phase.HIGH and run.events[-1].code == 'AME2_UNAVAILABLE' and sdk.calls == []
+
+
+def test_stand_only_holds_default_pose_without_policy(rig):
+    clock, sdk = rig
+    class Boom(FakePolicy):
+        def run(self, feed): raise AssertionError('policy must not run in stand-only')
+    run = LowLevelRunner(sdk, Boom(), live=True, clock=clock, stand_only=True)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = (); run.tick()
+    q, kp, kd = sdk.sent[-1]
+    assert np.allclose(q, DEFAULT_POSE[SDK_FROM_POLICY]) and kp == lowlevel.KP

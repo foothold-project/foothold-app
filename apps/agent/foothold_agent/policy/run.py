@@ -28,6 +28,7 @@ def main(argv=None):
     ap.add_argument('--sport-mode', default='normal', help="고수준 복귀 이름 (SDK 예제 'normal' · 펌웨어에 따라 'mcf' · 실기 미확인)")
     ap.add_argument('--seconds', type=float, default=0, help='0 = until Ctrl+C')
     ap.add_argument('--status', type=float, default=1.0, help='상태 한 줄 간격 (초) · 0 = 끔')
+    ap.add_argument('--stand-only', action='store_true', help='일어선 뒤 정책 없이 기본 자세만 유지 (첫 실기 시험)')
     a = ap.parse_args(argv)
     if a.live:
         from foothold_agent.go2_direct.approval import validate
@@ -36,7 +37,7 @@ def main(argv=None):
             raise PermissionError('approval NIC differs from --nic')
     from .unitree import UnitreeSdk
     sdk = UnitreeSdk(a.nic)
-    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode), live=a.live, sport_mode=a.sport_mode,
+    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only,
                             on_event=lambda e: print(json.dumps({'t': round(e.t, 3), 'code': e.code, **e.data}, ensure_ascii=False), flush=True))
     runner.emit('RUNNER_READY', live=a.live, mode=a.mode)
     t0, k = time.monotonic(), 0
