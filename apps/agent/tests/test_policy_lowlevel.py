@@ -156,3 +156,27 @@ def test_failed_select_mode_is_reported_not_claimed(rig):
     sdk.keys = ('right', 'start'); run.tick()
     codes = [e.code for e in run.events]
     assert 'MODE_HIGH_FAILED' in codes and 'FACTORY_GAIT' not in codes and 'recovery_stand' not in sdk.calls
+
+
+def test_l2b_in_factory_mode_sends_nothing_and_restart_from_damping(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('L2', 'B'); run.tick()
+    assert run.phase is Phase.HIGH and sdk.sent == []           # 순정일 때는 펌웨어 몫
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    sdk.keys = ('L2', 'B'); run.tick(); sdk.keys = ()
+    assert run.phase is Phase.DAMPING
+    n = len(sdk.calls)
+    sdk.keys = ('up', 'start'); run.tick()                        # 감쇠 뒤 다시: 이미 저수준이라 앉히기 · 해제 없이
+    assert run.phase is Phase.POLICY and 'stand_down' not in sdk.calls[n:]
+
+
+def test_command_slew_matches_sim(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    import struct
+    full = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., 1.) + bytes(14)   # 왼쪽 막대 끝까지 앞
+    sdk.low_state = (lambda f=sdk.low_state: (lambda r: r[:5] + (full,))(f()))
+    run.tick()
+    assert np.isclose(run.cmd[0], 1.5 / 50)                         # 한 틱 (20 ms) 에 0.03 m/s 만

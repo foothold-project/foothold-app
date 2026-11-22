@@ -49,7 +49,7 @@ def main(argv=None):
                 if a.status and k % int(a.status * CMD_HZ) == 0:
                     print(json.dumps({'status': runner.phase.value, 'stale': bool(s['stale']), 'grav_z': round(float(s['grav'][2]), 3),
                                       'keys': sorted(s['remote'].keys), 'lx': round(s['remote'].lx, 2), 'ly': round(s['remote'].ly, 2),
-                                      'rx': round(s['remote'].rx, 2), 'q0': round(float(s['q'][0]), 3), 'sent': runner.sent}, ensure_ascii=False), flush=True)
+                                      'rx': round(s['remote'].rx, 2), 'cmd': [round(float(x), 2) for x in runner.cmd], 'act_max': round(float(abs(runner.last_action).max()), 2), 'pitch_x': round(float(s['grav'][0]), 3), 'roll_y': round(float(s['grav'][1]), 3), 'sent': runner.sent}, ensure_ascii=False), flush=True)
             else:
                 runner.hold()
             k += 1

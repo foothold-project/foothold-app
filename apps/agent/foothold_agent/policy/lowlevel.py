@@ -30,6 +30,9 @@ CMD_HZ, POLICY_HZ = 200, 50
 STALE_S = .05
 FALL_GRAV_Z, FALL_HOLD_S = -.5, .5
 CAPS = {'vx': (-1.3, 1.5), 'vy': (-.5, .5), 'wz': (-1.2, 1.2)}
+# 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
+SLEW_UP, SLEW_DOWN = (1.5, .5, 2.4), (3.75, 1.25, 3.)
+SIT_WAIT_S = 3.0   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
 # 사람 확인 전 안전 상한: 관절 목표는 기본 자세에서 이만큼만 (rad). 정책 action clip 17 × 0.25 = 4.25 보다 좁다.
 TARGET_SPAN = 1.6
 
@@ -90,6 +93,7 @@ class LowLevelRunner:
         self.target = DEFAULT_POSE.copy()
         self.kp, self.kd = KP, KD
         self.last_action = np.zeros(12, np.float32)
+        self.cmd = np.zeros(3, np.float32)
         self.fall_since = None
         self.events: list[Event] = []
         self.sent = 0
@@ -120,9 +124,13 @@ class LowLevelRunner:
         if self.live:
             # 해제 전에 지금 순정 모드 이름을 읽어 두고, 돌아갈 때 그 이름을 쓴다 (11/22: 이 Go2 X 는 'mcf' · 'normal' 은 7004 거절)
             name = self.sdk.check_mode()
+            if name == '':
+                self.emit('MODE_LOW', already=True)   # 이미 저수준 (감쇠 뒤 다시 시작): 앉히기 · 해제 없이 바로 일어서기
+                return
             if name and name != 'unknown':
                 self.sport_mode = name
             self.sdk.stand_down()
+            time.sleep(SIT_WAIT_S)
             deadline = self.clock() + timeout_s
             while True:
                 self.sdk.release_mode()
@@ -166,7 +174,8 @@ class LowLevelRunner:
         s = self.read()
         keys = s['remote'].keys
         if {'L2', 'B'} <= keys:
-            if self.phase is not Phase.DAMPING:
+            # 저수준으로 우리가 쥐고 있을 때만 감쇠를 보낸다. 순정 (HIGH) 일 때는 펌웨어가 L2 + B 를 처리한다.
+            if self.phase in (Phase.STANDING_UP, Phase.POLICY):
                 self.damp('remote L2+B')
             return s
         if s['stale'] and self.phase in (Phase.STANDING_UP, Phase.POLICY):
@@ -177,7 +186,7 @@ class LowLevelRunner:
             self.emit('ROBOT_FALL', grav_z=float(s['grav'][2]))
             self.recover()
             return s
-        if self.phase is Phase.HIGH and {'up', 'start'} <= keys:
+        if self.phase in (Phase.HIGH, Phase.DAMPING) and {'up', 'start'} <= keys:
             self.start_policy(s)
             return s
         if {'down', 'start'} <= keys:
@@ -208,6 +217,7 @@ class LowLevelRunner:
             time.sleep(1. / CMD_HZ)
         self.policy.reset()
         self.last_action[:] = 0
+        self.cmd[:] = 0
         self.phase = Phase.POLICY
         self.emit('POLICY_START', mode=self.policy.mode)
 
@@ -215,7 +225,12 @@ class LowLevelRunner:
         if self.stand_only:
             self._send(DEFAULT_POSE, KP, KD)
             return
-        cmd = command_from_remote(s['remote'])
+        goal, dt = command_from_remote(s['remote']), 1. / POLICY_HZ
+        for i in range(3):   # 시뮬과 같은 명령 변화 상한
+            slowing = abs(goal[i]) < abs(self.cmd[i]) or self.cmd[i] * goal[i] < 0
+            lim = (SLEW_DOWN if slowing else SLEW_UP)[i] * dt
+            self.cmd[i] += np.clip(goal[i] - self.cmd[i], -lim, lim)
+        cmd = self.cmd.copy()
         obs = observation(s['gyro'], s['grav'], cmd, s['q'], s['dq'], self.last_action)
         feed = self.policy.inputs(obs, depth_frame if self.policy.depth_needed() else None)
         out = self.policy.run(feed)
