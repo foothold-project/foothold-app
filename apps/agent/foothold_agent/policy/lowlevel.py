@@ -34,7 +34,10 @@ CAPS = {'vx': (-1.3, 1.5), 'vy': (-.5, .5), 'wz': (-1.2, 1.2)}
 # 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
 SLEW_UP, SLEW_DOWN = (1.5, .5, 2.4), (3.75, 1.25, 3.)
 SIT_WAIT_S = 3.0
-RECOVER_WAIT_S = 3.0   # RecoveryStand 가 다 서는 시간 (보행 전환은 그 뒤)   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
+RECOVER_WAIT_S = 3.0
+# 저수준에서 천천히 앉히기: 엎드린 관절 각 (정책 순서, 시뮬 recovery-stand.js fold 와 같음) · 2 초 보간
+SIT_POSE = np.array([0, 0, 0, 0, 1.2, 1.2, 1.2, 1.2, -2.7, -2.7, -2.7, -2.7], np.float32)
+SIT_SEC = 2.0   # RecoveryStand 가 다 서는 시간 (보행 전환은 그 뒤)   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
 # 사람 확인 전 안전 상한: 관절 목표는 기본 자세에서 이만큼만 (rad). 정책 action clip 17 × 0.25 = 4.25 보다 좁다.
 TARGET_SPAN = 1.6
 
@@ -196,6 +199,9 @@ class LowLevelRunner:
             self.emit('ROBOT_FALL', grav_z=float(s['grav'][2]))
             self.recover()
             return s
+        if self.phase in (Phase.POLICY, Phase.STANDING_UP) and {'L2', 'A'} <= keys:
+            self.sit_down()   # 저수준일 때 L2 + A = 천천히 앉아 감쇠 (순정의 L2 + A 엎드리기와 같은 뜻 · 팀장 11/22 14:46)
+            return s
         if self.phase in (Phase.HIGH, Phase.DAMPING) and {'up', 'start'} <= keys:
             self.start_policy(s)
             return s
@@ -275,12 +281,33 @@ class LowLevelRunner:
         self.emit('ROBOT_FALL_RECOVERY_STAND')
         self.phase = Phase.HIGH
 
+    def sit_down(self):
+        """지금 자세에서 엎드린 자세로 2 초 보간 → 감쇠. 서 있는 채로 감쇠하면 다리가 이상하게 접힌다 (11/22 실기)."""
+        s0, t0 = self.read(), self.clock()
+        start = s0['q'].copy()
+        self.phase = Phase.STANDING_UP   # 보간 중 (L2 + B · 끊김이면 감쇠)
+        self.emit('SIT_DOWN')
+        while True:
+            a = min(1., (self.clock() - t0) / SIT_SEC)
+            st = self.read()
+            if {'L2', 'B'} <= st['remote'].keys or st['stale']:
+                break
+            self._send(start + (SIT_POSE - start) * (a * a * (3 - 2 * a)), KP, KD)
+            if a >= 1.:
+                break
+            time.sleep(1. / CMD_HZ)
+        self.damp('sat down')
+
     def back_to_factory(self, gait):
         """서 있는 채로 순정 복귀 → 순정 보행 (free walk · classic).
         11/22 14:25 실기: 감쇠부터 하면 SelectMode 가 1~3 초 걸리는 동안 선 채로 힘이 빠져 몸이 뒤집혔다.
         그래서 순정이 붙을 때까지 기본 자세를 200 Hz 로 계속 잡고 (뒤 스레드), 붙은 것을 확인하면 바로 놓는다.
         끝내 안 붙으면 그때 감쇠."""
-        hold = self.phase in (Phase.POLICY, Phase.STANDING_UP)
+        # 11/22 14:46 실기: 선 채로 자세를 잡은 채 넘기면 SelectMode 가 2~3 초 막혀 있는 동안 순정과 겹쳐 긁히는 소리.
+        # 그래서 먼저 우리가 천천히 앉히고 감쇠한 뒤 넘긴다 (순정은 엎드린 상태에서 붙고 RecoveryStand 로 일어섬).
+        if self.phase in (Phase.POLICY, Phase.STANDING_UP):
+            self.sit_down()
+        hold = False
         stop = threading.Event()
         def holder():
             while not stop.is_set():

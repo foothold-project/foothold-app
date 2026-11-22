@@ -129,7 +129,8 @@ def test_arrow_start_returns_to_factory_gait(rig, arrow, gait, call):
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = (arrow, 'start'); run.tick()
     assert run.phase is Phase.HIGH and sdk.calls[-4:] == ['select_mode:mcf', 'check_mode', 'recovery_stand', call]
-    assert not any(kp == 0 for _, kp, _ in sdk.sent)   # 감쇠 없이 서 있는 채로 넘김
+    assert np.allclose(sdk.sent[-1][0], np.zeros(12)) and sdk.sent[-1][1] == 0   # 천천히 앉힌 뒤 감쇠하고 넘김
+    assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp > 0)
     assert run.events[-1].code == 'FACTORY_GAIT' and run.events[-1].data['gait'] == gait
 
 
@@ -205,3 +206,11 @@ def test_sit_first_option_stands_down_before_release(rig):
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock, sit_first=True)
     sdk.keys = ('up', 'start'); run.tick()
     assert sdk.calls[:3] == ['check_mode', 'stand_down', 'release_mode']
+
+
+def test_l2a_in_policy_sits_down_then_damps(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ('L2', 'A'); run.tick()
+    assert run.phase is Phase.DAMPING and [e.code for e in run.events][-2:] == ['SIT_DOWN', 'DAMPING']
+    assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp > 0)
