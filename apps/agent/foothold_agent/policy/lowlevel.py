@@ -115,6 +115,7 @@ class LowLevelRunner:
         self.cmd = np.zeros(3, np.float32)
         self._ame2_held = False
         self.stop_trace = None   # 명령이 0 이 된 순간부터 2 초: 발 힘 · 기울기 · 관절 (lead 11/22 14:16 · 멈출 때 마지막 발 비교용)
+        self.start_trace = None  # 서 있다가 명령이 처음 들어간 순간부터 2 초 · 50 Hz (lead 11/22 16:47 · 「팍 튀어나감」 견주기)
         self.fall_since = None
         self.events: list[Event] = []
         self.sent = 0
@@ -289,6 +290,7 @@ class LowLevelRunner:
         app_vel = self.app.velocity() if self.app is not None else None
         if app_vel is not None and not remote_active(s['remote']):
             goal = command_from_app(app_vel)   # 리모컨이 중립일 때만 앱 속도. 0.3 초 끊기면 None → 0 으로 감속
+        still = not np.abs(self.cmd).max() > .05
         for i in range(3):   # 시뮬과 같은 명령 변화 상한
             slowing = abs(goal[i]) < abs(self.cmd[i]) or self.cmd[i] * goal[i] < 0
             lim = (SLEW_DOWN if slowing else SLEW_UP)[i] * dt
@@ -303,6 +305,20 @@ class LowLevelRunner:
         target = np.clip(joint_targets(action), DEFAULT_POSE - TARGET_SPAN, DEFAULT_POSE + TARGET_SPAN)
         self.target = target
         self._send(target, KP, KD)
+        self._trace_start(still, goal, s)
+
+    def _trace_start(self, still, goal, s):
+        if self.start_trace is None and still and np.abs(goal).max() > .05:
+            self.start_trace = {'t0': self.clock(), 'rows': []}
+        if self.start_trace is not None:
+            r, ff = s['remote'], getattr(self.sdk, 'foot_force', lambda: [])()
+            r3 = lambda v: [round(float(x), 3) for x in v]
+            # t · 막대 원값 (lx ly rx) · 한도 전 목표 · 한도 뒤 명령 (정책 입력) · 몸 각속도 · 중력 · 관절 목표 · 발 힘
+            self.start_trace['rows'].append([round(self.clock() - self.start_trace['t0'], 3), r3((r.lx, r.ly, r.rx)), r3(goal), r3(self.cmd),
+                                             r3(s['gyro']), r3(s['grav']), r3(self.target), list(ff)])
+            if self.clock() - self.start_trace['t0'] >= 2.:
+                self.emit('START_TRACE', **self.start_trace)
+                self.start_trace = None
 
     def _trace_stop(self, goal, s):
         moving = bool(np.abs(self.cmd).max() > .05)

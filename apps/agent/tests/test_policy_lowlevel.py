@@ -301,3 +301,20 @@ def test_applink_udp_loopback_only():
         assert app.velocity() == (.2, 0., 0.) and app.take_mode() == 'start' and app.take_mode() is None
     finally:
         app.close()
+
+
+def test_start_trace_two_seconds_from_first_command(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    for _ in range(10): clock.t += .02; run.tick()                 # 서 있음 · 기록 없음
+    assert run.start_trace is None
+    fwd = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., .4) + bytes(14)
+    orig = sdk.low_state
+    sdk.low_state = lambda: orig()[:5] + (fwd,)
+    for _ in range(120): clock.t += .02; run.tick()
+    tr = [e for e in run.events if e.code == 'START_TRACE']
+    assert len(tr) == 1
+    rows = tr[0].data['rows']
+    assert rows[0][1][1] == .4 and np.isclose(rows[0][2][0], .6) and np.isclose(rows[0][3][0], .03)   # 막대 .4 → 목표 .6 → 한 틱 .03
+    assert rows[-1][0] >= 2. and len(rows[0]) == 8
