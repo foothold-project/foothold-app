@@ -45,6 +45,11 @@
       "title": "Locked",
       "type": "boolean"
     },
+    "password_must_change": {
+      "default": false,
+      "title": "Password Must Change",
+      "type": "boolean"
+    },
     "refresh_token": {
       "anyOf": [
         {
@@ -86,6 +91,7 @@
     "locked",
     "robot_ids",
     "created_at",
+    "password_must_change",
     "csrf_token",
     "access_token",
     "refresh_token"

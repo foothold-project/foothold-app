@@ -5,6 +5,9 @@
       FH_AGENT_TOKEN=<토큰> 을 주면 stack.json 대신 그 토큰으로 붙는다(화면에서 새로 등록한 로봇 확인용)
 
 계정 비밀번호·로봇 토큰은 실행할 때마다 새로 만들어 <폴더>/stack.json 에만 쓴다(커밋 금지 — 폴더는 runs/ 아래).
+팀 계정 (팀장 11/22): FH_ENV_FILE (기본 ~/.mai/foothold-env/foothold.env) 에 FH_ACCOUNT_ADMIN · FH_ACCOUNT_OPERATORS (쉼표) ·
+FH_ACCOUNT_DEFAULT_PASSWORD 가 있으면 그 계정들을 만든다 (첫 로그인 때 비밀번호 바꾸기 필수). 비밀번호는 stack.json 에 쓰지 않는다.
+없으면 예전처럼 kim · park · lee 를 임의 비밀번호로 만든다.
 Ctrl+C(또는 SIGTERM)로 uvicorn·PostgreSQL 까지 모두 끈다. 포트는 127.0.0.1 만.
 """
 import asyncio
@@ -18,6 +21,21 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
+
+
+def team_accounts():
+    """(총괄, [운영자], 기본 비밀번호) 또는 None. 값은 화면 · 로그에 내지 않는다."""
+    path = Path(os.environ.get('FH_ENV_FILE', Path.home() / '.mai/foothold-env/foothold.env'))
+    if not path.is_file():
+        return None
+    env = {}
+    for line in path.read_text().splitlines():
+        if '=' in line and not line.lstrip().startswith('#'):
+            k, v = line.split('=', 1)
+            env[k.strip()] = v.strip().strip('"').strip("'")
+    admin, operators, default = env.get('FH_ACCOUNT_ADMIN'), env.get('FH_ACCOUNT_OPERATORS', ''), env.get('FH_ACCOUNT_DEFAULT_PASSWORD')
+    operators = [x.strip() for x in operators.split(',') if x.strip()]
+    return (admin, operators, default) if admin and operators and default else None
 
 
 def server(folder: Path, port: int):
@@ -49,15 +67,24 @@ def server(folder: Path, port: int):
         os.environ['FH_MIGRATE_DATABASE_URL'] = url('fh_migrate')
         command.upgrade(Config(str(ROOT / 'apps/server/alembic.ini')), 'head')
 
-        pw = {k: secrets.token_urlsafe(12) for k in ('kim', 'park', 'lee')}
+        team = team_accounts()
         token = secrets.token_urlsafe(24)
         with DB(create_engine(url('fh_migrate'))) as db:
             org = Organization(name='개발 조직', settings={})
             db.add(org); db.flush()
-            users = {k: User(org_id=org.id, username=k, display_name=name, role=role, password_hash=hash_password(pw[k]), locked=False)
-                     for k, name, role in (('kim', '김총괄', 'ORG_ADMIN'), ('park', '박운영', 'OPERATOR'), ('lee', '이운영', 'OPERATOR'))}
+            if team:
+                admin, operators, default = team
+                rows = [(admin, '총괄', 'ORG_ADMIN')] + [(k, k, 'OPERATOR') for k in operators]
+                users = {k: User(org_id=org.id, username=k, display_name=name, role=role, password_hash=hash_password(default),
+                                 locked=False, password_must_change=True) for k, name, role in rows}
+                pw, owner = {'from': 'FH_ENV_FILE (첫 로그인 때 바꿈)'}, operators[0]
+            else:
+                pw = {k: secrets.token_urlsafe(12) for k in ('kim', 'park', 'lee')}
+                users = {k: User(org_id=org.id, username=k, display_name=name, role=role, password_hash=hash_password(pw[k]), locked=False)
+                         for k, name, role in (('kim', '김총괄', 'ORG_ADMIN'), ('park', '박운영', 'OPERATOR'), ('lee', '이운영', 'OPERATOR'))}
+                owner = 'park'
             db.add_all(users.values()); db.flush()
-            robot = Robot(org_id=org.id, name='Go2-7', model='unitree_go2', owner_user_id=users['park'].id, agent_token_hash=digest(token))
+            robot = Robot(org_id=org.id, name='Go2-7', model='unitree_go2', owner_user_id=users[owner].id, agent_token_hash=digest(token))
             db.add(robot); db.commit()
             stack = {'org': str(org.id), 'robot': str(robot.id), 'agent_token': token, 'passwords': pw, 'base': f'http://127.0.0.1:{port}'}
         (folder / 'stack.json').write_text(json.dumps(stack, ensure_ascii=False, indent=1))

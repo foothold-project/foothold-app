@@ -11,7 +11,7 @@ import { fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const LEE: User = { id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', locked: false, robot_ids: ['r-a'], created_at: '2026-10-19T00:00:00Z' };
+const LEE: User = { id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', locked: false, password_must_change: false, robot_ids: ['r-a'], created_at: '2026-10-19T00:00:00Z' };
 const at = (floor_id: string | null) => ({ floor_id, map_version_id: null, x: 1, y: 2, yaw: 0, confidence: 1, updated_at: '2026-11-18T00:00:00Z' });
 let RA: RobotSummary;
 const robotA = (loc: RobotSummary['location']): RobotSummary => ({ id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name }, simulation: false, server_drive_allowed: false,

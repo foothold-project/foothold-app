@@ -118,7 +118,8 @@ def user_object(db, user):
     robots = db.scalars(select(Robot.id).where(Robot.org_id == user.org_id,
                           Robot.owner_user_id == user.id, Robot.archived_at.is_(None))).all()
     return C.User(id=user.id, username=user.username, display_name=user.display_name,
-                  role=user.role, locked=user.locked, robot_ids=robots, created_at=user.created_at)
+                  role=user.role, locked=user.locked, robot_ids=robots, created_at=user.created_at,
+                  password_must_change=user.password_must_change)
 
 
 
@@ -402,6 +403,7 @@ def create_app(settings: Settings | None = None):
             session.last_seen_at = now()
         return user, session
 
+    # password_must_change 는 막지 않는다 (팀장 11/22 11:33 「처음은 들어가게 하고 팝업으로 권유」): 화면이 바꾸기를 권한다.
     def identity(request: Request, db: DB):
         return authenticate(request, db)
 
@@ -555,7 +557,10 @@ def create_app(settings: Settings | None = None):
             event(db, user.org_id, 'PASSWORD_CHANGE_FAILED', user.id, severity='WARN')
             db.commit()
             fail(403, 'FORBIDDEN', '현재 비밀번호를 확인하세요.')
+        if body.new_password == body.current_password:
+            fail(422, 'VALIDATION', '새 비밀번호가 지금 비밀번호와 같습니다.')
         user.password_hash = hash_password(body.new_password)
+        user.password_must_change = False
         revoke_user_sessions(db, user,clock=issuer.clock)
         event(db, user.org_id, 'PASSWORD_CHANGED', user.id)
 
@@ -571,7 +576,7 @@ def create_app(settings: Settings | None = None):
         actor = auth[0]
         authorize(actor, 'A')
         user = User(org_id=actor.org_id, username=body.username, display_name=body.display_name,
-                    role=body.role, password_hash=hash_password(body.temp_password))
+                    role=body.role, password_hash=hash_password(body.temp_password), password_must_change=True)
         db.add(user)
         db.flush()
         event(db, actor.org_id, 'USER_CREATED', actor.id, {'user_id': str(user.id), 'role': user.role})

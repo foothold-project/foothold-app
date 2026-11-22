@@ -718,6 +718,7 @@ export interface LoginResponse {
   locked: boolean;
   robot_ids: string[];
   created_at: string;
+  password_must_change: boolean;
   csrf_token: string | null;
   access_token: string | null;
   refresh_token: string | null;
@@ -2473,6 +2474,7 @@ export interface User {
   locked: boolean;
   robot_ids: string[];
   created_at: string;
+  password_must_change: boolean;
 }
 
 export interface UserCreate {
