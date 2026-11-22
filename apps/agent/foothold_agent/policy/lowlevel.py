@@ -94,6 +94,7 @@ class LowLevelRunner:
         self.kp, self.kd = KP, KD
         self.last_action = np.zeros(12, np.float32)
         self.cmd = np.zeros(3, np.float32)
+        self.stop_trace = None   # 명령이 0 이 된 순간부터 2 초: 발 힘 · 기울기 · 관절 (lead 11/22 14:16 · 멈출 때 마지막 발 비교용)
         self.fall_since = None
         self.events: list[Event] = []
         self.sent = 0
@@ -231,6 +232,7 @@ class LowLevelRunner:
             lim = (SLEW_DOWN if slowing else SLEW_UP)[i] * dt
             self.cmd[i] += np.clip(goal[i] - self.cmd[i], -lim, lim)
         cmd = self.cmd.copy()
+        self._trace_stop(goal, s)
         obs = observation(s['gyro'], s['grav'], cmd, s['q'], s['dq'], self.last_action)
         feed = self.policy.inputs(obs, depth_frame if self.policy.depth_needed() else None)
         out = self.policy.run(feed)
@@ -239,6 +241,18 @@ class LowLevelRunner:
         target = np.clip(joint_targets(action), DEFAULT_POSE - TARGET_SPAN, DEFAULT_POSE + TARGET_SPAN)
         self.target = target
         self._send(target, KP, KD)
+
+    def _trace_stop(self, goal, s):
+        moving = bool(np.abs(self.cmd).max() > .05)
+        if self.stop_trace is None and moving and not np.abs(goal).max() > 1e-3:
+            self.stop_trace = {'t0': self.clock(), 'cmd0': [round(float(x), 3) for x in self.cmd], 'rows': []}
+        if self.stop_trace is not None:
+            ff = getattr(self.sdk, 'foot_force', lambda: [])()
+            self.stop_trace['rows'].append([round(self.clock() - self.stop_trace['t0'], 3), [round(float(x), 3) for x in s['grav']], list(ff),
+                                            [round(float(x), 3) for x in s['q']]])
+            if self.clock() - self.stop_trace['t0'] >= 2. or np.abs(goal).max() > 1e-3:
+                self.emit('STOP_TRACE', **self.stop_trace)
+                self.stop_trace = None
 
     def hold(self):
         """정책 사이 (200 Hz) 마지막 목표 다시 보내기."""

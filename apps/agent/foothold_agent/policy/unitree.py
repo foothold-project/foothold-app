@@ -49,6 +49,12 @@ class UnitreeSdk:
         return (stamp, tuple(s.imu_state.quaternion), tuple(s.imu_state.gyroscope),
                 np.array([ms[i].q for i in range(12)]), np.array([ms[i].dq for i in range(12)]), bytes(s.wireless_remote))
 
+    def foot_force(self):
+        """LowState.foot_force (SDK 순서 FR · FL · RR · RL · 원시 값 · 검증 안 된 값이라 정책 입력에는 안 씀)."""
+        with self._lock:
+            s = self._state
+        return [int(x) for x in s.foot_force] if s is not None else []
+
     def send(self, q, dq, kp, kd, tau):
         for i in range(12):
             m = self._cmd.motor_cmd[i]

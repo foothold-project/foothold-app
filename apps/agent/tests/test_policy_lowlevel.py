@@ -43,6 +43,7 @@ class FakeSdk:
         return 0 if self.select_ok else 7004
     def recovery_stand(self): self.calls.append('recovery_stand')
     def balance_stand(self): self.calls.append('balance_stand')
+    def foot_force(self): return [10, 20, 30, 40]
     def free_walk(self): self.calls.append('free_walk')
     def classic_walk(self, flag=True): self.calls.append(f'classic_walk:{flag}')
 
@@ -180,3 +181,18 @@ def test_command_slew_matches_sim(rig):
     sdk.low_state = (lambda f=sdk.low_state: (lambda r: r[:5] + (full,))(f()))
     run.tick()
     assert np.isclose(run.cmd[0], 1.5 / 50)                         # 한 틱 (20 ms) 에 0.03 m/s 만
+
+
+def test_stop_trace_two_seconds_after_command_release(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    import struct
+    fwd = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., 1.) + bytes(14)
+    orig = sdk.low_state
+    sdk.low_state = lambda: orig()[:5] + (fwd,)
+    for _ in range(20): clock.t += .02; run.tick()
+    sdk.low_state = orig
+    for _ in range(150): clock.t += .02; run.tick()
+    tr = [e for e in run.events if e.code == 'STOP_TRACE']
+    assert len(tr) == 1 and tr[0].data['cmd0'][0] > .05 and tr[0].data['rows'][-1][0] >= 2. and tr[0].data['rows'][0][2] == [10, 20, 30, 40]
