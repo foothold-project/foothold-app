@@ -31,6 +31,15 @@ MODEL_SHA256 = {
     'start-m15500_map_on.onnx': 'df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f',
     'start-m15500_map_off.onnx': 'be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41',
 }
+# 기록용 (opus-code-lx 11/22 16:50 · planner 검증): 정본 그래프 그대로 + 출력 est_raw · est ([1,51] · 16 번 = 전진 속도 추정, 보정 전 / 후).
+# 행동은 정본과 비트 같음 (시험 벡터 세 벌). 정본 대체가 아니라 START_TRACE 기록용. est 로 다시 보정하지 않는다.
+DEBUG_EST_FILES = {'reconstruction': 'start-m15500_map_on_debug_est.onnx', 'off': 'start-m15500_map_off_debug_est.onnx',
+                   'gt': 'start-m15500_map_on_debug_est.onnx'}
+DEBUG_EST_SHA256 = {
+    'start-m15500_map_on_debug_est.onnx': '1b9718d3558a5c2d8f2383546e3ac82e56a55164b2b5aa50b1e816e64438b31a',
+    'start-m15500_map_off_debug_est.onnx': 'd216f35cf56a90da9521c5d56f986be0b56dd439311b8917621a88002216c611',
+}
+EST_VX = 16   # est 51 칸 중 전진 속도 추정
 
 
 def projected_gravity(quat_wxyz) -> np.ndarray:
@@ -82,12 +91,13 @@ class StartMemory:
 class StartPolicy:
     """관측 → 입력 9 개 → ONNX → 행동 · GRU 상태. 깊이 프레임은 호출자가 준다 (60×60, 0~1, 미검출 1.0)."""
 
-    def __init__(self, folder: Path, mode: str = 'reconstruction', *, providers=('CPUExecutionProvider',), check_sha=True, threads=2):
+    def __init__(self, folder: Path, mode: str = 'reconstruction', *, providers=('CPUExecutionProvider',), check_sha=True, threads=2, debug_est: Path | None = None):
         import onnxruntime as ort
         if mode not in MODEL_FILES:
             raise ValueError(f'unknown START map mode: {mode}')
-        path = Path(folder) / MODEL_FILES[mode]
-        if check_sha and file_sha256(path) != MODEL_SHA256[path.name]:
+        files, shas = (DEBUG_EST_FILES, DEBUG_EST_SHA256) if debug_est else (MODEL_FILES, MODEL_SHA256)
+        path = Path(debug_est or folder) / files[mode]
+        if check_sha and file_sha256(path) != shas[path.name]:
             raise ValueError(f'{path.name} SHA-256 differs from the canon contract')
         self.mode = mode
         # 스레드 수를 정해 둔다: 자동이면 Jetson (15 W · CPU 0-3 만 켜짐) 에서 꺼진 코어에 묶으려다 실패해 p95 42 ms.

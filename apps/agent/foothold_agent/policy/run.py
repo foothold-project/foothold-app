@@ -29,6 +29,7 @@ def main(argv=None):
     ap.add_argument('--seconds', type=float, default=0, help='0 = until Ctrl+C')
     ap.add_argument('--status', type=float, default=1.0, help='상태 한 줄 간격 (초) · 0 = 끔')
     ap.add_argument('--stand-only', action='store_true', help='일어선 뒤 정책 없이 기본 자세만 유지 (첫 실기 시험)')
+    ap.add_argument('--debug-est', type=Path, help='기록용 ONNX 폴더 (행동은 정본과 같음 · START_TRACE 에 전진 속도 추정 칸)')
     ap.add_argument('--app-port', type=int, default=0, help='앱 명령 받기 (127.0.0.1 UDP 포트 · 0 = 끔 · 리모컨 우선 · 실기 미확인)')
     ap.add_argument('--sit-first', action='store_true', help='넘겨받기 전에 StandDown 으로 앉히기 (기본: 지금 자세 그대로 넘겨받음)')
     a = ap.parse_args(argv)
@@ -43,7 +44,7 @@ def main(argv=None):
         from .applink import AppLink
         app = AppLink(a.app_port)
     sdk = UnitreeSdk(a.nic)
-    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first, app=app,
+    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode, debug_est=a.debug_est), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first, app=app,
                             on_event=lambda e: print(json.dumps({'t': round(e.t, 3), 'code': e.code, **e.data}, ensure_ascii=False), flush=True))
     runner.emit('RUNNER_READY', live=a.live, mode=a.mode, app_port=a.app_port or None)
     t0, k = time.monotonic(), 0

@@ -46,3 +46,22 @@ def test_vectors_through_python_runner(mode):
     from foothold_agent.policy.bench import vector_check
     result = vector_check(Path(BUNDLE), mode)
     assert result['pass'], result
+
+
+DEBUG_EST = os.environ.get('FH_START_DEBUG_EST')
+
+
+@pytest.mark.skipif(not (BUNDLE and DEBUG_EST), reason='FH_START_SRC · FH_START_DEBUG_EST 둘 다 있어야 함')
+@pytest.mark.parametrize('mode', ['reconstruction', 'gt', 'off'])
+def test_debug_est_onnx_actions_equal_canon(mode):
+    pytest.importorskip('onnxruntime')
+    vec = np.load(Path(DEBUG_EST) / f'test_vectors_flat20_{mode}.npz')
+    canon, debug = start.StartPolicy(Path(BUNDLE), mode), start.StartPolicy(Path(BUNDLE), mode, debug_est=Path(DEBUG_EST))
+    names = [i.name for i in canon.session.get_inputs()]
+    assert [i.name for i in debug.session.get_inputs()] == names
+    for k in range(20):
+        feed = {n: vec[f'step{k:02d}_{n}'] for n in names}
+        a = canon.session.run(None, feed)
+        b = debug.session.run(None, feed)
+        assert all(np.array_equal(x, y) for x, y in zip(a, b[:4]))      # 정본 출력 넷 비트 같음
+        assert b[4].shape == (1, 51) and b[5].shape == (1, 51)          # est_raw · est

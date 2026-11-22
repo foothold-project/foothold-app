@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .start import DEFAULT_POSE, KD, KP, POLICY_FROM_SDK, SDK_FROM_POLICY, joint_targets, observation, projected_gravity
+from .start import EST_VX, DEFAULT_POSE, KD, KP, POLICY_FROM_SDK, SDK_FROM_POLICY, joint_targets, observation, projected_gravity
 
 STAND_KP, STAND_KD = 60., 5.
 DAMP_KD = 3.
@@ -115,6 +115,7 @@ class LowLevelRunner:
         self.cmd = np.zeros(3, np.float32)
         self._ame2_held = False
         self.stop_trace = None   # 명령이 0 이 된 순간부터 2 초: 발 힘 · 기울기 · 관절 (lead 11/22 14:16 · 멈출 때 마지막 발 비교용)
+        self.last_out = {}
         self.start_trace = None  # 서 있다가 명령이 처음 들어간 순간부터 2 초 · 50 Hz (lead 11/22 16:47 · 「팍 튀어나감」 견주기)
         self.fall_since = None
         self.events: list[Event] = []
@@ -300,6 +301,7 @@ class LowLevelRunner:
         obs = observation(s['gyro'], s['grav'], cmd, s['q'], s['dq'], self.last_action)
         feed = self.policy.inputs(obs, depth_frame if self.policy.depth_needed() else None)
         out = self.policy.run(feed)
+        self.last_out = out
         action = out['action'].reshape(12).astype(np.float32)
         self.last_action = action
         target = np.clip(joint_targets(action), DEFAULT_POSE - TARGET_SPAN, DEFAULT_POSE + TARGET_SPAN)
@@ -313,9 +315,10 @@ class LowLevelRunner:
         if self.start_trace is not None:
             r, ff = s['remote'], getattr(self.sdk, 'foot_force', lambda: [])()
             r3 = lambda v: [round(float(x), 3) for x in v]
-            # t · 막대 원값 (lx ly rx) · 한도 전 목표 · 한도 뒤 명령 (정책 입력) · 몸 각속도 · 중력 · 관절 목표 · 발 힘
+            # t · 막대 원값 (lx ly rx) · 한도 전 목표 · 한도 뒤 명령 (정책 입력) · 몸 각속도 · 중력 · 관절 목표 · 발 힘 · 전진 속도 추정 (보정 전 · 후, 기록용 ONNX 일 때만, 아니면 null)
+            est = [round(float(np.asarray(self.last_out[k]).reshape(-1)[EST_VX]), 4) if k in self.last_out else None for k in ('est_raw', 'est')]
             self.start_trace['rows'].append([round(self.clock() - self.start_trace['t0'], 3), r3((r.lx, r.ly, r.rx)), r3(goal), r3(self.cmd),
-                                             r3(s['gyro']), r3(s['grav']), r3(self.target), list(ff)])
+                                             r3(s['gyro']), r3(s['grav']), r3(self.target), list(ff), est])
             if self.clock() - self.start_trace['t0'] >= 2.:
                 self.emit('START_TRACE', **self.start_trace)
                 self.start_trace = None

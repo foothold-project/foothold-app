@@ -317,4 +317,19 @@ def test_start_trace_two_seconds_from_first_command(rig):
     assert len(tr) == 1
     rows = tr[0].data['rows']
     assert rows[0][1][1] == .4 and np.isclose(rows[0][2][0], .6) and np.isclose(rows[0][3][0], .03)   # 막대 .4 → 목표 .6 → 한 틱 .03
-    assert rows[-1][0] >= 2. and len(rows[0]) == 8
+    assert rows[-1][0] >= 2. and len(rows[0]) == 9 and rows[0][8] == [None, None]   # 정본 ONNX 는 추정 출력 없음
+
+
+def test_start_trace_records_est_from_debug_onnx(rig):
+    clock, sdk = rig
+    class EstPolicy(FakePolicy):
+        def run(self, feed):
+            est = np.zeros((1, 51), np.float32); est[0, 16] = .25
+            return {'action': np.zeros((1, 12), np.float32), 'est_raw': est + .01, 'est': est}
+    run = LowLevelRunner(sdk, EstPolicy(), live=False, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    fwd = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., .4) + bytes(14)
+    orig = sdk.low_state
+    sdk.low_state = lambda: orig()[:5] + (fwd,)
+    for _ in range(3): clock.t += .02; run.tick()
+    assert run.start_trace['rows'][0][8] == [.26, .25]
