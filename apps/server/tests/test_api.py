@@ -238,7 +238,7 @@ def test_password_change_invalidates_sessions(client):
 
 
 
-def test_created_account_must_change_password_first(client):
+def test_created_account_is_asked_to_change_password(client):
     headers = csrf(client)
     created = client.post(P + '/users', json={'username': 'first', 'display_name': '처음', 'role': 'OPERATOR',
         'temp_password': 'fake-temp'}, headers=headers)
@@ -247,9 +247,8 @@ def test_created_account_must_change_password_first(client):
     result = login(client, 'first', password='fake-temp')
     assert result.status_code == 200 and result.json()['password_must_change'] is True
     first = {'X-FH-CSRF': result.json()['csrf_token']}
-    assert client.get(P + '/me').status_code == 200
-    blocked = client.get(P + '/robots')
-    assert blocked.status_code == 403 and blocked.json()['error']['code'] == 'PASSWORD_CHANGE_REQUIRED'
+    assert client.get(P + '/me').json()['password_must_change'] is True
+    assert client.get(P + '/robots').status_code == 200   # 권유일 뿐 막지 않는다
     same = client.post(P + '/me/password', headers=first, json={'current_password': 'fake-temp', 'new_password': 'fake-temp'})
     assert same.status_code == 422
     assert client.post(P + '/me/password', headers=first,

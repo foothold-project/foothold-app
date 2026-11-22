@@ -403,15 +403,9 @@ def create_app(settings: Settings | None = None):
             session.last_seen_at = now()
         return user, session
 
-    # 첫 로그인 비밀번호 바꾸기 전에 쓸 수 있는 길: 세션 확인 · 로그아웃 · 내 정보 읽기 · 비밀번호 바꾸기만.
-    MUST_CHANGE_OPEN = frozenset({('GET', '/auth/session'), ('POST', '/auth/logout'), ('GET', '/me'), ('POST', '/me/password')})
-
+    # password_must_change 는 막지 않는다 (팀장 11/22 11:33 「처음은 들어가게 하고 팝업으로 권유」): 화면이 바꾸기를 권한다.
     def identity(request: Request, db: DB):
-        user, session = authenticate(request, db)
-        path = request.url.path.removeprefix('/api/v1')
-        if user.password_must_change and (request.method, path) not in MUST_CHANGE_OPEN:
-            fail(403, 'PASSWORD_CHANGE_REQUIRED', '처음 로그인했습니다. 비밀번호를 바꾼 뒤 쓰세요.')
-        return user, session
+        return authenticate(request, db)
 
     def upload_identity(request: Request):
         # Read-only, short-lived authentication: no transaction/connection lives

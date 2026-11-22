@@ -19,7 +19,7 @@ const toUser = (u: ApiUser): User => ({ id: u.id, name: u.display_name, role: u.
 
 /** cancel = 이 로그인 세션에 묶인 취소 신호(화면 요청에 넘김) — 세션이 끝나면 거둬, 늦게 온 답(앞 세션의 401 등)이 다음 세션의 인증을 건드리지 않게.
  *  fresh = 지금 robots 를 요청한 시각(now()) — 더 늦게 요청한 목록만 덮어쓴다. stale = 마지막 다시 받기가 실패(다시 성공하면 거둠 — 폰 홈 STOP 숨김을 막는다) */
-type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'password'; name: string } | { at: 'app'; user: User; robots: Robot[]; fresh: number; n: number; cancel: AbortSignal; note?: string; stale?: boolean };
+type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; fresh: number; n: number; cancel: AbortSignal; note?: string; stale?: boolean; askPassword?: boolean };
 
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' }), fh = useTheme()[1] ? 'fh light' : 'fh';   // 로그인 전 화면도 고른 테마
@@ -30,14 +30,14 @@ export function Root() {
   useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; clearPlans(); } }, [st.at]);   // 남겨 둔 지도·임무 편집·저장 요청도
   const enter = async () => {
     const raw = await api.me();
-    // 임시 · 기본 비밀번호로 만든 계정은 첫 로그인 때 바꿔야 한다 — 서버도 그 전에는 다른 요청을 403 으로 막는다
-    if (raw.password_must_change) { live.current?.abort(); live.current = null; setSt({ at: 'password', name: raw.display_name }); return; }
+    // 임시 · 기본 비밀번호로 만든 계정: 들어가게 하고 바꾸기를 권한다 (팀장 11/22 11:33 · 막지 않음)
+    const askPassword = raw.password_must_change;
     const me = toUser(raw);
     const fresh = now(), robots = toRobots(await api.robots(listScope(me)));
     setServerData(me, robots);
     live.current?.abort();
     const g = live.current = new AbortController();
-    setSt((s) => ({ at: 'app', user: me, robots, fresh, n: (s.at === 'app' ? s.n : 0) + 1, cancel: g.signal }));
+    setSt((s) => ({ at: 'app', user: me, robots, fresh, n: (s.at === 'app' ? s.n : 0) + 1, cancel: g.signal, askPassword }));
   };
   /** 목록 다시 받기 — 이 로그인 세션(사용자·n)에 묶는다: 세션이 바뀌었거나 더 늦게 요청한 목록이 이미 왔으면 버린다 */
   const reload = (user: User, session: string, cancel: AbortSignal) => {
@@ -78,12 +78,15 @@ export function Root() {
 
   if (st.at === 'wait') return <div className={fh}><p className="lv-note" style={{ padding: 16 }} role="status">불러오는 중…</p></div>;
   if (st.at === 'login') return <Login note={st.note} enter={enter} />;
-  if (st.at === 'password') return <FirstPassword name={st.name} logout={logout} />;
   // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
   // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
   const refresh = () => { reload(st.user, `${st.user.id}-${st.n}`, st.cancel).catch(() => {}); };
-  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} />;
+  const later = () => setSt((s) => (s.at === 'app' ? { ...s, askPassword: false } : s));
+  return <>
+    <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} />
+    {st.askPassword && <FirstPassword name={st.user.name} later={later} />}
+  </>;
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
@@ -112,9 +115,9 @@ function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
 
 export const FIRST_PW_DONE = '비밀번호를 바꿨습니다. 새 비밀번호로 다시 로그인하세요.';
 
-/** 첫 로그인 비밀번호 바꾸기 — 바꾸면 서버가 모든 세션을 끝내므로 로그인 화면으로 */
-function FirstPassword({ name, logout }: { name: string; logout: () => void }) {
-  const [msg, setMsg] = useState<string>(), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh';
+/** 첫 로그인 비밀번호 바꾸기 권유 (팝업 · 「나중에」 로 닫음). 바꾸면 서버가 모든 세션을 끝내므로 로그인 화면으로 */
+function FirstPassword({ name, later }: { name: string; later: () => void }) {
+  const [msg, setMsg] = useState<string>(), [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
@@ -126,16 +129,18 @@ function FirstPassword({ name, logout }: { name: string; logout: () => void }) {
     try { await api.password({ current_password: cur, new_password: next }); expireAuth(FIRST_PW_DONE); }
     catch (err) { setMsg((err as ApiFail).message); setBusy(false); }
   };
-  return <div className={fh}><main className="fh-login" aria-label="비밀번호 바꾸기">
-    <form onSubmit={submit} noValidate>
-      <BrandLogo kind="primary" h={40} />
-      <div className="fh-field"><h2>처음 로그인 · 비밀번호 바꾸기</h2><span className="lbl">{name} 님, 처음 받은 비밀번호를 바꿔야 쓸 수 있습니다</span></div>
+  return <div className="fh-pick" role="dialog" aria-modal="true" aria-label="비밀번호 바꾸기"
+    style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,.45)' }}>
+    <form className="lv-card fh-form" onSubmit={submit} noValidate style={{ width: 'min(420px, calc(100vw - 32px))' }}>
+      <h2>처음 로그인 · 비밀번호를 바꾸세요</h2>
+      <span className="lbl">{name} 님, 처음 받은 비밀번호 그대로입니다. 지금 바꾸는 것을 권합니다.</span>
       <label className="fh-field"><span className="lbl">지금 비밀번호</span><input className="inp" name="current" type="password" autoComplete="current-password" autoFocus maxLength={1024} /></label>
       <label className="fh-field"><span className="lbl">새 비밀번호</span><input className="inp" name="next" type="password" autoComplete="new-password" maxLength={1024} /></label>
       <label className="fh-field"><span className="lbl">새 비밀번호 다시</span><input className="inp" name="again" type="password" autoComplete="new-password" maxLength={1024} /></label>
       {msg && <p className="fh-msg" role="alert">{msg}</p>}
-      <button type="submit" className="btn pri" disabled={busy}>{busy ? '바꾸는 중…' : '비밀번호 바꾸기'}</button>
-      <button type="button" className="btn" onClick={logout} disabled={busy}>로그아웃</button>
+      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>{busy ? '바꾸는 중…' : '비밀번호 바꾸기'}</button>
+        <button type="button" className="btn" onClick={later} disabled={busy}>나중에</button></div>
+      <span className="lbl">바꾸면 모든 기기에서 로그아웃되고 새 비밀번호로 다시 로그인합니다.</span>
     </form>
-  </main></div>;
+  </div>;
 }
