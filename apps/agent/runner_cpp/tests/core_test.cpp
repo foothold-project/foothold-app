@@ -16,8 +16,9 @@ int main(){
  Joints a{};a.fill(100);auto q=joint_targets(a);
  check(close(q[0],default_pose[0]+1.6f),"target span after clip");
  check(close(joint_targets(a,false)[0],default_pose[0]+4.25f),"action clip17 scale0.25");
- check(remote_want(Remote{0,0,1,0,0},1.2f)==Vec3{1.2f,0,0},"fwd max");
+ check(remote_want(Remote{0,0,1,0,0},1.2)==Wanted{1.2,0,0},"fwd max");
  check(close(remote_want(Remote{0,0,.5f,0,0})[0],.375f),"quadratic forward");
+ check(shape_command({.05, .6, .15}).mark == Mark::none, "exact gap boundary is zero");
  check(shape_command({1.5f,.8f,1.5f}).command==Vec3{.6f,.5f,.6f},"fast diagonal preserves side");
  check(shape_command({.1f,.4f,0}).command==Vec3{.3f,.4f,0},"diagonal gap raises x");
  check(shape_command({.1f,0,.4f}).command==Vec3{0,0,.4f},"turn gap largest axis");

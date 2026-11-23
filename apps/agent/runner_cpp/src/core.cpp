@@ -37,10 +37,10 @@ Remote parse_remote(const std::array<std::uint8_t,40>& b) {
     };
     return {std::uint16_t(b[2]|(std::uint16_t(b[3])<<8)),f(4),f(20),f(8),f(12)};
 }
-Vec3 remote_want(const Remote& r,float top) {
+Wanted remote_want(const Remote& r, double top) {
     auto lin=[](double v){v=std::clamp(v,-1.,1.);return std::abs(v)<.05?0.:v;};
     const double ly=lin(r.ly),x=ly*std::abs(ly);
-    return {float(x*(x>=0?double(top):1.3)),float(lin(-r.lx)*.8),float(lin(-r.rx)*1.5)};
+    return {x * (x >= 0 ? top : 1.3), lin(-r.lx) * .8, lin(-r.rx) * 1.5};
 }
 bool remote_active(const Remote& r) {
     return r.keys || std::max({std::abs(r.lx),std::abs(r.ly),std::abs(r.rx)})>=.05;
@@ -48,16 +48,16 @@ bool remote_active(const Remote& r) {
 const char* mark_name(Mark m) {
     switch(m){case Mark::clip:return "clip";case Mark::gap:return "gap";case Mark::interp:return "interp";default:return "none";}
 }
-Shaped shape_command(const Vec3& want,float top) {
+Shaped shape_command(const Wanted& want, double top) {
     // Match Python's double arithmetic around float32 command boundaries.
-    double v[3];for(int i=0;i<3;++i)v[i]=std::abs(double(want[i]))<=.05?0.:want[i];
+    double v[3];for(int i=0;i<3;++i)v[i]=std::abs(want[i])<=.05?0.:want[i];
     Mark mark=Mark::none;
     if(.05<std::abs(v[0]) && std::abs(v[0])<.3-1e-4 && v[1]!=0){v[0]=std::copysign(.3,v[0]);mark=Mark::gap;}
     else if(.05<std::abs(v[0]) && std::abs(v[0])<.3-1e-4 && v[2]!=0){
         int k=0;for(int i=1;i<3;++i)if(std::abs(v[i])>std::abs(v[k]))k=i;
         for(int i=0;i<3;++i){if(i!=k)v[i]=0.;}mark=Mark::gap;
     }
-    double x=std::min(std::clamp(v[0],-1.3,1.5),double(top));
+    double x=std::min(std::clamp(v[0],-1.3,1.5),top);
     if(std::abs(x)>.6 && std::abs(v[1])>=.2){x=std::copysign(.6,x);mark=Mark::clip;}
     const double ax=std::abs(x),e=1e-4;
     const double ycap=x==0?.8:(.3-e<=ax && ax<=.6+e)?.5:ax>.6+e?0.:.8;

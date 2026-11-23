@@ -4,6 +4,7 @@
 
 namespace foothold {
 using Vec3 = std::array<float, 3>;
+using Wanted = std::array<double, 3>;
 using Quat = std::array<float, 4>;
 using Joints = std::array<float, 12>;
 using Obs = std::array<float, 45>;
@@ -22,9 +23,9 @@ Vec3 gravity(const Quat&);
 Obs observation(const Vec3&,const Vec3&,const Vec3&,const Joints&,const Joints&,const Joints&);
 Joints joint_targets(const Joints&, bool bounded=true);
 Remote parse_remote(const std::array<std::uint8_t,40>&);
-Vec3 remote_want(const Remote&,float fwd_max=1.5f);
+Wanted remote_want(const Remote&, double fwd_max = 1.5);
 bool remote_active(const Remote&);
-Shaped shape_command(const Vec3&,float fwd_max=1.5f);
+Shaped shape_command(const Wanted&, double fwd_max = 1.5);
 void slew_command(Vec3& current,const Vec3& goal);
 const char* mark_name(Mark);
 struct Inputs {
