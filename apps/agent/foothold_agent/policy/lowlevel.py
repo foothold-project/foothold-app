@@ -114,10 +114,13 @@ def command_from_remote(r: Remote) -> np.ndarray:
 
 
 def remote_want(r: Remote):
-    """막대가 바라는 값 (자르기 전)."""
+    """막대가 바라는 값 (자르기 전). 막대 → 속도는 제곱 곡선 (팀장 11/23 11:15 · 나 안): 1/3 → 0.17, 2/3 → 0.67, 끝 → 1.5 m/s.
+    저속을 세밀하게 쓰고 끝에서만 학습 끝 값에 닿는다 (11/22 밖 「팍 튀어나감」 · 비례였을 때 1/3 = 0.5 m/s)."""
     def unit(v):
         v = float(np.clip(v, -1, 1))
-        return 0. if abs(v) < STICK_DEADBAND else v   # 막대 중립 떨림은 0 (11/22 실기: 멈춤 기록이 88 번 새로 시작됨)
+        if abs(v) < STICK_DEADBAND:   # 막대 중립 떨림은 0 (11/22 실기: 멈춤 기록이 88 번 새로 시작됨)
+            return 0.
+        return v * abs(v)
     fx, fy, fz = unit(r.ly), unit(-r.lx), unit(-r.rx)
     return fx * (CAPS['vx'][1] if fx >= 0 else -CAPS['vx'][0]), fy * CAPS['vy'][1], fz * CAPS['wz'][1]
 

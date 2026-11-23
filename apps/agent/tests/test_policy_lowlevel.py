@@ -350,15 +350,15 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     tw = TraceWriter(tmp_path, 'start')
     run = LowLevelRunner(sdk, EstPolicy(), live=False, clock=clock, trace=tw)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
-    fwd = b'\x55\x51' + struct.pack('<H5f', 0, -1., 0., 0., 0., .4) + bytes(14)   # 앞 0.4 + 옆 끝
+    fwd = b'\x55\x51' + struct.pack('<H5f', 0, -1., 0., 0., 0., .6) + bytes(14)   # 앞 0.6 (곡선 → 0.54) + 옆 끝
     orig = sdk.low_state
     sdk.low_state = lambda: orig()[:5] + (fwd,)
     for _ in range(5): clock.t += .02; run.tick()
     tw.close()
     rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r]   # 사건 줄은 따로
     r = rows[0]
-    assert len(rows) == 5 and r['phase'] == 'policy' and r['stick'][1] == .4
-    assert np.allclose(r['want'], [.6, .8, 0.]) and np.allclose(r['goal'], [.6, .5, 0.]) and r['shape'] == 'clip'
+    assert len(rows) == 5 and r['phase'] == 'policy' and np.isclose(r['stick'][1], .6)
+    assert np.allclose(r['want'], [.54, .8, 0.], atol=1e-3) and np.allclose(r['goal'], [.54, .5, 0.], atol=1e-3) and r['shape'] == 'clip'
     assert np.isclose(r['cmd'][0], .03) and len(r['target']) == 12
     assert r['tau'][0] == 3 and r['temp'][0] == 43 and r['est_vx'] == [.26, .25] and r['foot'] == [10, 20, 30, 40]
 
@@ -494,3 +494,12 @@ def test_autostart_unit_and_env_files():
     env = (root / 'runner.env.example').read_text()
     assert 'WantedBy=default.target' in unit and 'KillSignal=SIGTERM' in unit and 'Restart=on-failure' in unit
     assert '--armed-by-remote' in env and '--stop-mode sit' in env and '--trace-dir' in env and '--seconds' not in env
+
+
+
+def test_stick_curve_is_quadratic_and_reaches_training_edge():
+    vx = lambda ly: float(command_from_remote(parse_remote(remote(ly=ly)))[0])
+    assert np.isclose(vx(1 / 3), 1.5 / 9, atol=1e-3) and np.isclose(vx(2 / 3), 1.5 * 4 / 9, atol=1e-3)
+    assert np.isclose(vx(1.), 1.5) and np.isclose(vx(-1.), -1.3) and vx(.04) == 0.
+    wz = float(command_from_remote(parse_remote(remote(rx=-.5)))[2])
+    assert np.isclose(wz, .25 * 1.5)                                     # 회전도 같은 곡선
