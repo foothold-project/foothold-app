@@ -17,6 +17,11 @@ def r4(v):
     return None if v is None else [round(float(x), 4) for x in v]
 
 
+# 실행기가 저수준 (START) 인 동안만 있는 파일. 순정 기록 (factory_record) 은 이 파일이 있으면 DDS 구독까지 끄고 쉰다
+# (팀장 11/23 14:43: START 중 순정 기록 76 % CPU · 정책 주기 0.02 초가 85 번 0.03 초 넘음 → 인터넷 없이 Jetson 안에서 바로 끄고 켬).
+START_FLAG = Path('/tmp/foothold-start-active')
+
+
 class TraceWriter:
     def __init__(self, folder: Path, name: str, *, max_total_bytes=MAX_TOTAL_BYTES, max_file_bytes=MAX_FILE_BYTES, on_full=lambda: None):
         self.folder, self.name = Path(folder), name

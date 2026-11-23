@@ -571,3 +571,19 @@ def test_fwd_top_caps_stick_and_shape(monkeypatch):
     assert np.isclose(ll.remote_want(ll.Remote(frozenset(), 0., 1., 0., 0.))[0], 1.2)
     assert np.isclose(ll.shape_command(9., 0., 0.)[0][0], 1.2)
     assert np.isclose(ll.shape_command(-9., 0., 0.)[0][0], -1.3)
+
+
+def test_factory_record_pauses_when_start_flag(monkeypatch, tmp_path):
+    """팀장 11/23 14:43: START 중 순정 기록은 쉰다 (파일 닫고 3 으로 끝 · systemd 가 다시 띄워 기다림)."""
+    import types
+    from foothold_agent.policy import factory_record as fr
+    flag = tmp_path / 'start-active'
+    monkeypatch.setattr(fr, 'START_FLAG', flag)
+
+    class Fake:
+        def __init__(self, nic): pass
+        def snapshot(self):
+            flag.touch()   # 첫 줄 뒤 START 로 넘어감
+            return None, 0., None
+    monkeypatch.setattr(fr, 'ReadOnlyState', Fake)
+    assert fr.main(['--nic', 'x', '--out', str(tmp_path), '--seconds', '2']) == 3

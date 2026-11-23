@@ -18,7 +18,7 @@ import numpy as np
 
 from .lowlevel import parse_remote
 from .start import POLICY_FROM_SDK, projected_gravity
-from .trace import TraceWriter, r4
+from .trace import START_FLAG, TraceWriter, r4
 
 HZ = 50
 
@@ -70,12 +70,19 @@ def main(argv=None):
     ap.add_argument('--label', default='factory', help='sport · classic 처럼 순서표 줄 이름')
     ap.add_argument('--seconds', type=float, default=0, help='0 = Ctrl+C 까지')
     a = ap.parse_args(argv)
+    if START_FLAG.exists():   # START 중: DDS 구독도 만들지 않고 순정으로 돌아올 때까지 기다림 (CPU 0 에 가깝게)
+        print(json.dumps({'code': 'FACTORY_RECORD_PAUSED', 'why': 'start active'}), flush=True)
+        while START_FLAG.exists():
+            time.sleep(.5)
     st = ReadOnlyState(a.nic)
     tw = TraceWriter(a.out, f'factory-{a.label}', on_full=lambda: print(json.dumps({'code': 'TRACE_FULL'}), flush=True))
     print(json.dumps({'code': 'FACTORY_RECORD_READY', 'label': a.label, 'file': str(tw.path)}), flush=True)
-    t0, k = time.monotonic(), 0
+    t0, k, paused = time.monotonic(), 0, False
     try:
         while not a.seconds or time.monotonic() - t0 < a.seconds:
+            if k % 10 == 0 and START_FLAG.exists():   # START 로 넘어감: 파일을 닫고 끝냄 → systemd 가 다시 띄워 위에서 기다림
+                paused = True
+                break
             low, low_t, sport = st.snapshot()
             if low is not None:
                 tw.write(row(low, low_t, sport, a.label, time.monotonic()))
@@ -87,8 +94,8 @@ def main(argv=None):
         pass
     finally:
         tw.close()
-        print(json.dumps({'code': 'FACTORY_RECORD_EXIT', 'rows': tw.rows}), flush=True)
-    return 0
+        print(json.dumps({'code': 'FACTORY_RECORD_EXIT', 'rows': tw.rows, 'paused': paused}), flush=True)
+    return 3 if paused else 0   # 3 = START 로 쉼 (단위 파일 Restart=on-failure 가 다시 띄움)
 
 
 if __name__ == '__main__':

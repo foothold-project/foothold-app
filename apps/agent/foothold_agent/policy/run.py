@@ -61,9 +61,18 @@ def main(argv=None):
     if a.trace_dir:
         from .trace import TraceWriter
         trace = TraceWriter(a.trace_dir, 'start', on_full=lambda: print(json.dumps({'code': 'TRACE_FULL'}), flush=True))
+    from .trace import START_FLAG
+    START_FLAG.unlink(missing_ok=True)   # 실행기는 순정 (HIGH) 으로 시작한다
+
+    def _on_event(e):
+        print(json.dumps({'t': round(e.t, 3), 'code': e.code, **e.data}, ensure_ascii=False), flush=True)
+        if e.code == 'MODE_LOW':
+            START_FLAG.touch()   # START: 순정 기록은 쉼
+        elif e.code == 'MODE_HIGH':
+            START_FLAG.unlink(missing_ok=True)   # 순정으로 돌아옴: 순정 기록 다시 (MODE_HIGH_FAILED 면 순정이 아니므로 그대로 쉼)
     sdk = UnitreeSdk(a.nic)
     runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode, debug_est=a.debug_est), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first, app=app, trace=trace, stop_mode=a.stop_mode,
-                            on_event=lambda e: print(json.dumps({'t': round(e.t, 3), 'code': e.code, **e.data}, ensure_ascii=False), flush=True))
+                            on_event=_on_event)
     def _term(signum, frame):   # kill (SIGTERM) 도 Ctrl+C 와 같이 엎드린 뒤 순정으로 끝낸다
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _term)
