@@ -73,7 +73,7 @@ def test_remote_bytes_and_command_caps():
     ((0., .8, 0.), (0., .8, 0.), 'none'),          # 옆만 0.8
     ((0., 0., 1.5), (0., 0., 1.5), 'none'),        # 제자리 회전 1.5
     ((-1.3, 0., 0.), (-1.3, 0., 0.), 'none'),      # 뒤 1.3
-    ((.29, .6, 0.), (0., .6, 0.), 'gap'),          # 틈: 큰 축 하나 (옆걸음)
+    ((.29, .6, 0.), (.3, .5, 0.), 'gap'),          # 틈 대각선: 전진 0.3 으로 올림 · 옆 0.5
     ((.2, 0., .9), (0., 0., .9), 'gap'),           # 틈: 제자리 회전
     ((.29, 0., 0.), (.29, 0., 0.), 'none'),        # 전진만은 틈 아님
     ((.31, .8, 0.), (.31, .5, 0.), 'clip'),        # 0.3 위 옆 0.5
@@ -351,7 +351,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     tw = TraceWriter(tmp_path, 'start')
     run = LowLevelRunner(sdk, EstPolicy(), live=False, clock=clock, trace=tw)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
-    fwd = b'\x55\x51' + struct.pack('<H5f', 0, -1., 0., 0., 0., .6) + bytes(14)   # 앞 0.6 (곡선 → 0.54) + 옆 끝
+    fwd = b'\x55\x51' + struct.pack('<H5f', 0, -1., 0., 0., 0., .6) + bytes(14)   # 앞 0.6 (곡선 → 0.54) + 옆 끝 (비례 0.8)
     orig = sdk.low_state
     sdk.low_state = lambda: orig()[:5] + (fwd,)
     for _ in range(5): clock.t += .02; run.tick()
@@ -504,7 +504,7 @@ def test_stick_curve_is_quadratic_and_reaches_training_edge():
     assert np.isclose(vx(1 / 3), 1.5 / 9, atol=1e-3) and np.isclose(vx(2 / 3), 1.5 * 4 / 9, atol=1e-3)
     assert np.isclose(vx(1.), 1.5) and np.isclose(vx(-1.), -1.3) and vx(.04) == 0.
     wz = float(command_from_remote(parse_remote(remote(rx=-.5)))[2])
-    assert np.isclose(wz, .25 * 1.5)                                     # 회전도 같은 곡선
+    assert np.isclose(wz, .5 * 1.5)                                      # 회전 · 옆은 비례
 
 
 def test_depth_health_summary():

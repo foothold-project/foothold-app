@@ -37,7 +37,7 @@ SETTLE_MAX_S, SETTLE_TILT, SETTLE_DQ, SETTLE_FOOT = 1.5, math.sin(math.radians(3
 STOP_MODES = ('sit', 'settle', 'stand')   # sit = 지금 (바로 엎드림) · settle = (나) · stand = (가) 서 있는 채 순정 넘김
 LIVENESS_S = 1.0   # LowState 가 이만큼 끊기면 엎드린 뒤 순정 (팀장 11/22 결정 11). 그 전까지는 마지막 목표를 잡고 기다림
 # 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
-SLEW_UP, SLEW_DOWN = (.5, .3, 1.2), (1.2, 1.25, 3.)   # 가속 낮춤 (팀장 11/23 11:39: 붙자마자 전진이 미친 듯 튀어나감 · 1.5 → 0.5 m/s², 0 → 1.0 m/s 에 2 초)   # 전진 감속 1.2 /s 를 늘 (planner 11/23 09:55 · 시뮬 3.3~3.8 cm). 시뮬 keyboard-ramp.js 는 아직 3.75 (맞춰야 함)
+SLEW_UP, SLEW_DOWN = (.5, .5, 2.4), (1.2, 1.25, 3.)   # 가속 낮춤 (팀장 11/23 11:39: 붙자마자 전진이 미친 듯 튀어나감 · 1.5 → 0.5 m/s², 0 → 1.0 m/s 에 2 초)   # 전진 감속 1.2 /s 를 늘 (planner 11/23 09:55 · 시뮬 3.3~3.8 cm). 시뮬 keyboard-ramp.js 는 아직 3.75 (맞춰야 함)
 SIT_WAIT_S = 3.0
 RECOVER_WAIT_S = 3.0
 # 저수준에서 천천히 앉히기: 엎드린 관절 각 (정책 순서, 시뮬 recovery-stand.js fold 와 같음) · 2 초 보간
@@ -80,7 +80,12 @@ def shape_command(vx, vy, wz):
     want = [float(vx), float(vy), float(wz)]
     v = [0. if abs(x) <= GAP else x for x in want]
     mark = 'none'
-    if GAP < abs(v[0]) < .3 - 1e-4 and (v[1] or v[2]):
+    if GAP < abs(v[0]) < .3 - 1e-4 and v[1]:
+        # 대각선: 전진을 지우지 않고 학습 diag (vx 0.3~0.6) 끝으로 올린다 (팀장 11/23 11:51: 대각선이 옆 걸음으로 잠김)
+        v[0] = math.copysign(.3, v[0])
+        mark = 'gap'
+    elif GAP < abs(v[0]) < .3 - 1e-4 and v[2]:
+        # 걸으며 회전 틈: 큰 축 하나 (막대가 살짝 앞으로 밀린 제자리 회전이 걷기로 바뀌지 않게)
         k = max(range(3), key=lambda i: abs(v[i]))
         v = [x if i == k else 0. for i, x in enumerate(v)]
         mark = 'gap'
@@ -121,7 +126,10 @@ def remote_want(r: Remote):
         if abs(v) < STICK_DEADBAND:   # 막대 중립 떨림은 0 (11/22 실기: 멈춤 기록이 88 번 새로 시작됨)
             return 0.
         return v * abs(v)
-    fx, fy, fz = unit(r.ly), unit(-r.lx), unit(-r.rx)
+    def lin(v):
+        v = float(np.clip(v, -1, 1))
+        return 0. if abs(v) < STICK_DEADBAND else v
+    fx, fy, fz = unit(r.ly), lin(-r.lx), lin(-r.rx)   # 곡선은 전진만 (옆 · 회전은 어제처럼 비례 · 팀장 11/23 11:51)
     return fx * (CAPS['vx'][1] if fx >= 0 else -CAPS['vx'][0]), fy * CAPS['vy'][1], fz * CAPS['wz'][1]
 
 
