@@ -217,7 +217,9 @@ def test_command_slew_matches_sim(rig):
     full = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., 1.) + bytes(14)   # 왼쪽 막대 끝까지 앞
     sdk.low_state = (lambda f=sdk.low_state: (lambda r: r[:5] + (full,))(f()))
     run.tick()
-    assert np.isclose(run.cmd[0], lowlevel.SLEW_UP[0] / 50)          # 한 틱 (20 ms) 에 가속 상한만큼만 (0.5 m/s² → 0.01)
+    assert np.isclose(run.cmd[0], .1)                                 # 첫 틱은 학습 띠 끝 0.1 로 (그 아래는 건너뜀)
+    run.tick()
+    assert np.isclose(run.cmd[0], .1 + lowlevel.SLEW_UP[0] / 50)      # 그 뒤는 가속 상한 (0.5 m/s² → 0.01 / 틱)
     assert lowlevel.SLEW_UP[0] == .5
     assert lowlevel.SLEW_DOWN[0] == 1.2                             # 감속은 늘 1.2 /s
 
@@ -294,17 +296,17 @@ def test_app_velocity_drives_policy_but_remote_wins(rig):
     app = AppLink(clock=clock)
     run = LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock, app=app)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
-    app.feed(_pkt(1, vx=9.))                               # 상한 1.5 로 잘림 · 가감속 1 틱 0.03
+    app.feed(_pkt(1, vx=9.))                               # 상한 1.5 로 잘림 · 첫 틱은 띠 끝 0.1
     run.tick()
-    assert np.isclose(run.cmd[0], lowlevel.SLEW_UP[0] / 50)
+    assert np.isclose(run.cmd[0], .1)
     sdk.keys = ('X',)                                      # 리모컨을 만지면 앱 속도 무시 → 감속
     app.feed(_pkt(2, vx=9.)); run.tick()
-    assert run.cmd[0] == 0.                                # 0.01 은 감속 한 틱 (0.024) 안에서 0
+    assert run.cmd[0] == 0.                                # 0.1 - 0.024 = 0.076 은 띠 안 → 바로 0
     sdk.keys = ()
     base = float(run.cmd[0])
     for i in range(5):
         app.feed(_pkt(3 + i, vx=.5)); run.tick()
-    assert np.isclose(run.cmd[0], base + 5 * lowlevel.SLEW_UP[0] / 50)    # 리모컨을 놓으면 다시 앱 속도로 가속
+    assert np.isclose(run.cmd[0], max(base, .1) + 4 * lowlevel.SLEW_UP[0] / 50) or np.isclose(run.cmd[0], base + 5 * lowlevel.SLEW_UP[0] / 50)    # 리모컨을 놓으면 다시 앱 속도로 가속
     clock.t += APP_TIMEOUT_S + .01                         # 앱 끊김 → 0 으로 감속
     before = run.cmd[0]; run.tick()
     assert run.cmd[0] < before
@@ -362,7 +364,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     r = rows[0]
     assert len(rows) == 5 and r['phase'] == 'policy' and np.isclose(r['stick'][1], .6)
     assert np.allclose(r['want'], [.54, .8, 0.], atol=1e-3) and np.allclose(r['goal'], [.54, .5, 0.], atol=1e-3) and r['shape'] == 'clip'
-    assert np.isclose(r['cmd'][0], lowlevel.SLEW_UP[0] / 50) and len(r['target']) == 12
+    assert np.isclose(r['cmd'][0], .1) and len(r['target']) == 12
     assert abs(r['wall'] - __import__('time').time()) < 60                       # 폰 측정 표시와 맞출 벽시계
     assert r['tau'][0] == 3 and r['temp'][0] == 43 and r['est_vx'] == [.26, .25] and r['foot'] == [10, 20, 30, 40]
 
@@ -539,3 +541,24 @@ def test_classic_walk_retried_until_accepted(rig):
     run.back_to_factory('classic')
     gait = [e for e in run.events if e.code == 'FACTORY_GAIT'][-1]
     assert sdk.calls.count('classic_walk') == 3 and "'classic': [-1, -1, 0]" in gait.data['result']
+
+
+
+def test_command_skips_untrained_small_band(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    side = b'\x55\x51' + struct.pack('<H5f', 0, -1., 0., 0., 0., 0.) + bytes(14)   # 옆 끝
+    orig = sdk.low_state
+    sdk.low_state = lambda: orig()[:5] + (side,)
+    run.tick()
+    assert np.isclose(run.cmd[1], .1)                                     # 첫 틱에 학습 띠 끝 (0.1) 으로
+    run.tick()
+    assert np.isclose(run.cmd[1], .1 + lowlevel.SLEW_UP[1] / 50)          # 그 뒤는 가속 상한대로
+    sdk.low_state = orig
+    for _ in range(20): run.tick()
+    assert run.cmd[1] == 0.                                               # 멈출 때 띠 안에 머물지 않음
+    back = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., -1.) + bytes(14)
+    sdk.low_state = lambda: orig()[:5] + (back,)
+    run.tick()
+    assert np.isclose(run.cmd[0], -.2)                                    # 후진은 0.2 부터

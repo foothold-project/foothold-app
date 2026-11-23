@@ -35,6 +35,8 @@ FALL_GRAV_Z, FALL_HOLD_S = -.5, .5
 CAPS = {'vx': (-1.3, 1.5), 'vy': (-.8, .8), 'wz': (-1.5, 1.5)}   # 축 하나만 쓸 때의 끝. 섞을 때는 shape_command
 SETTLE_MAX_S, SETTLE_TILT, SETTLE_DQ, SETTLE_FOOT = 1.5, math.sin(math.radians(3.)), .2, .6   # (나) 멈춘 뒤 정렬 대기 조건
 STOP_MODES = ('sit', 'settle', 'stand')   # sit = 지금 (바로 엎드림) · settle = (나) · stand = (가) 서 있는 채 순정 넘김
+# 학습 명령 띠의 아래 끝 (E2 plan: forward [0.1, 1.5] · reverse [-1.3, -0.2] · side [0.1, 0.8] · walk wz [0.1, 1.0])
+FLOOR_POS, FLOOR_NEG = (.1, .1, .1), (.2, .1, .1)
 LIVENESS_S = 1.0   # LowState 가 이만큼 끊기면 엎드린 뒤 순정 (팀장 11/22 결정 11). 그 전까지는 마지막 목표를 잡고 기다림
 # 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
 SLEW_UP, SLEW_DOWN = (.5, .5, 2.4), (1.2, 1.25, 3.)   # 가속 낮춤 (팀장 11/23 11:39: 붙자마자 전진이 미친 듯 튀어나감 · 1.5 → 0.5 m/s², 0 → 1.0 m/s 에 2 초)   # 전진 감속 1.2 /s 를 늘 (planner 11/23 09:55 · 시뮬 3.3~3.8 cm). 시뮬 keyboard-ramp.js 는 아직 3.75 (맞춰야 함)
@@ -385,6 +387,15 @@ class LowLevelRunner:
             slowing = abs(goal[i]) < abs(self.cmd[i]) or self.cmd[i] * goal[i] < 0
             lim = (self.slew_down if slowing else SLEW_UP)[i] * dt
             self.cmd[i] += np.clip(goal[i] - self.cmd[i], -lim, lim)
+            # 학습에 없는 아주 작은 명령 띠를 건너뛴다 (팀장 11/23 12:09: 옆 걸음이 「기를 모으다가」 들어감 ·
+            # 기록: 옆 0.01 → 0.31 을 0.6 초 동안 올리는 사이 몸만 옆으로 4° 기울고 발이 늦게 나감).
+            # 출발: 목표가 띠 위인데 명령이 띠 안이면 띠 끝으로 바로. 멈춤: 목표 0 인데 명령이 띠 안이면 바로 0.
+            floor = (FLOOR_POS if goal[i] > 0 or (goal[i] == 0 and self.cmd[i] > 0) else FLOOR_NEG)[i]
+            c = float(self.cmd[i])
+            if abs(goal[i]) >= floor and abs(c) < floor and c * goal[i] >= 0:
+                self.cmd[i] = math.copysign(floor, goal[i])
+            elif goal[i] == 0 and 0 < abs(c) < floor:
+                self.cmd[i] = 0.
         cmd = self.cmd.copy()
         self._trace_stop(goal, s)
         obs = observation(s['gyro'], s['grav'], cmd, s['q'], s['dq'], self.last_action)

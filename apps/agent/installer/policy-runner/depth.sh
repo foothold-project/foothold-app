@@ -3,8 +3,8 @@
 source /opt/ros/humble/setup.bash
 export ROS_LOCALHOST_ONLY=1
 ros2 launch realsense2_camera rs_launch.py enable_color:=false enable_infra1:=false enable_infra2:=false \
-  depth_module.depth_profile:=640x480x30 > "$HOME/foothold-policy-1122/depth-camera.log" 2>&1 &
+  depth_module.depth_profile:=640x480x30 initial_reset:=false > "$HOME/foothold-policy-1122/depth-camera.log" 2>&1 &
 CAM=$!
 trap 'kill -INT $CAM 2>/dev/null; wait $CAM' EXIT INT TERM
 cd "$HOME/foothold-policy-1122/run"
-PYTHONPATH="$HOME/foothold-policy-1122/run" python3 -m foothold_agent.policy.depth_health --out ../trace
+PYTHONPATH="$HOME/foothold-policy-1122/run:$PYTHONPATH" python3 -m foothold_agent.policy.depth_health --out ../trace
