@@ -36,10 +36,13 @@ def main(argv=None):
     ap.add_argument('--debug-est', type=Path, help='기록용 ONNX 폴더 (행동은 정본과 같음 · START_TRACE 에 전진 속도 추정 칸)')
     ap.add_argument('--trace-dir', type=Path, help='START 가 켜진 동안 50 Hz 기록 폴더 (팀장 결정 9 · 기본 끔)')
     ap.add_argument('--app-port', type=int, default=0, help='앱 명령 받기 (127.0.0.1 UDP 포트 · 0 = 끔 · 리모컨 우선 · 실기 미확인)')
+    ap.add_argument('--fwd-max', type=float, default=1.5, help='전진 상한 m/s (막대 끝 = 이 값 · 1.5 넘지 못함)')
     ap.add_argument('--stop-mode', default='sit', choices=['sit', 'settle', 'stand'],
                     help='멈춰 내려놓는 길: sit 바로 엎드림 (기본 · 11/22 실기 확인) · settle 정렬 대기 (최대 1.5 초) 뒤 엎드림 (못 맞춰도 엎드림) · stand 서 있는 채 순정 BalanceStand → StandDown (실기 미확인)')
     ap.add_argument('--sit-first', action='store_true', help='넘겨받기 전에 StandDown 으로 앉히기 (기본: 지금 자세 그대로 넘겨받음)')
     a = ap.parse_args(argv)
+    from . import lowlevel
+    lowlevel.FWD_TOP = min(max(a.fwd_max, 0.), lowlevel.CAPS['vx'][1])
     if a.live and a.armed_by_remote:
         # 사람의 확인 = 리모컨 위 + start (실행기는 그 전까지 순정 상태에서 아무것도 보내지 않음 · test_dry_run · test_l2b_in_factory_mode)
         if os.environ.get('FH_GO2_DIRECT_ENABLED') != '1' or os.environ.get('FH_GO2_DIRECT_NIC') != a.nic:

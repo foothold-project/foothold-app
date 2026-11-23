@@ -33,6 +33,7 @@ CMD_HZ, POLICY_HZ = 200, 50
 STALE_S = .05
 FALL_GRAV_Z, FALL_HOLD_S = -.5, .5
 CAPS = {'vx': (-1.3, 1.5), 'vy': (-.8, .8), 'wz': (-1.5, 1.5)}   # 축 하나만 쓸 때의 끝. 섞을 때는 shape_command
+FWD_TOP = CAPS['vx'][1]   # 실기 전진 상한 (run.py --fwd-max · 팀장 11/23 13:54 (가): 1.34~1.43 에서 FL 다리 포화로 두 번 넘어질 뻔 → 1.2). 막대 끝 = 이 값
 SETTLE_MAX_S, SETTLE_TILT, SETTLE_DQ, SETTLE_FOOT = 1.5, math.sin(math.radians(3.)), .2, .6   # (나) 멈춘 뒤 정렬 대기 조건
 STOP_MODES = ('sit', 'settle', 'stand')   # sit = 지금 (바로 엎드림) · settle = (나) · stand = (가) 서 있는 채 순정 넘김
 # 학습 명령 띠의 아래 끝 (E2 plan: forward [0.1, 1.5] · reverse [-1.3, -0.2] · side [0.1, 0.8] · walk wz [0.1, 1.0])
@@ -91,7 +92,7 @@ def shape_command(vx, vy, wz):
         k = max(range(3), key=lambda i: abs(v[i]))
         v = [x if i == k else 0. for i, x in enumerate(v)]
         mark = 'gap'
-    x = min(max(v[0], CAPS['vx'][0]), CAPS['vx'][1])
+    x = min(max(v[0], CAPS['vx'][0]), CAPS['vx'][1], FWD_TOP)
     if abs(x) > .6 and abs(v[1]) >= .2:
         # 빠른 대각선: 옆을 지우지 않고 전진을 학습 diag 끝 (0.6) 으로 줄여 방향을 지킨다 (팀장 11/23 12:00: 대각선이 아예 안 됨 ·
         # 막대를 끝까지 비스듬히 밀면 전진 1.4 에 옆 0 이 되던 것)
@@ -137,7 +138,7 @@ def remote_want(r: Remote):
         v = float(np.clip(v, -1, 1))
         return 0. if abs(v) < STICK_DEADBAND else v
     fx, fy, fz = unit(r.ly), lin(-r.lx), lin(-r.rx)   # 곡선은 전진만 (옆 · 회전은 어제처럼 비례 · 팀장 11/23 11:51)
-    return fx * (CAPS['vx'][1] if fx >= 0 else -CAPS['vx'][0]), fy * CAPS['vy'][1], fz * CAPS['wz'][1]
+    return fx * (FWD_TOP if fx >= 0 else -CAPS['vx'][0]), fy * CAPS['vy'][1], fz * CAPS['wz'][1]
 
 
 def remote_active(r: Remote) -> bool:

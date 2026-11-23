@@ -562,3 +562,12 @@ def test_command_skips_untrained_small_band(rig):
     sdk.low_state = lambda: orig()[:5] + (back,)
     run.tick()
     assert np.isclose(run.cmd[0], -.2)                                    # 후진은 0.2 부터
+
+
+def test_fwd_top_caps_stick_and_shape(monkeypatch):
+    """팀장 11/23 13:54 (가): 실기 전진 상한 1.2 · 막대 끝이 1.2 · 앱 명령도 1.2 로 잘림."""
+    from foothold_agent.policy import lowlevel as ll
+    monkeypatch.setattr(ll, 'FWD_TOP', 1.2)
+    assert np.isclose(ll.remote_want(ll.Remote(frozenset(), 0., 1., 0., 0.))[0], 1.2)
+    assert np.isclose(ll.shape_command(9., 0., 0.)[0][0], 1.2)
+    assert np.isclose(ll.shape_command(-9., 0., 0.)[0][0], -1.3)
