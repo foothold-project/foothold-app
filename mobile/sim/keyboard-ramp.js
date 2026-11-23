@@ -30,7 +30,7 @@ export function createKeyboardRamp(config) {
 
 // Final body-velocity command limit for sticks, keys and goal runner.
 // Units: m/s² and rad/s². STOP/lock bypass this ramp and clear its history.
-export const START_COMMAND_SLEW = Object.freeze({ up: [1.5, 0.5, 2.4], down: [3.75, 1.25, 3.0] });
+export const START_COMMAND_SLEW = Object.freeze({ up: [1.5, 0.5, 2.4], down: [1.2, 1.25, 3.0] });
 export function slewCommand(previous, target, dt, slew) {
   return target.map((goal, i) => {
     const from = previous[i] ?? 0;
