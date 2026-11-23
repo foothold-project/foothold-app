@@ -53,12 +53,13 @@ struct FakeRobot final : Robot {
 struct FakePolicy final : PolicyExecutor {
     float next_action = 1;
     int calls = 0;
-    bool delayed = false;
+    bool delayed = false, last_mask = true;
     Outputs result;
     void submit(const Inputs& in) override {
         require(in.obs[33] == (calls == 0 || in.first_after_reset ? 0 : 1),
                 "previous action missing from observation");
         ++calls;
+        last_mask = in.map_mask;
         result.action.fill(next_action);
     }
     Inference poll(Outputs& out) override {
@@ -70,6 +71,8 @@ struct FakePolicy final : PolicyExecutor {
 
 struct Events final : Observer {
     std::vector<Event> seen;
+    int samples = 0;
+    void sample(const Sample&) override { ++samples; }
     void event(Tick, Event event, EventInfo) override { seen.push_back(event); }
     bool ordered(std::initializer_list<Event> sequence) const {
         auto cursor = seen.begin();
@@ -269,6 +272,27 @@ int main() {
                 "fold gains differ from Python");
         live.wait(3500ms);
         require(live.runner.phase() == Phase::policy, "fold did not continue through stand and gain blend");
+    }
+    {
+        Rig dry(false, MapMode::automatic);
+        dry.enter();
+        dry.policy.delayed = true;
+        dry.wait(20ms);
+        require(dry.policy.calls == 1 && dry.policy.last_mask, "camera missing must use mask");
+        Depth frame{};
+        frame.fill(.75f);
+        dry.depth = &frame;
+        dry.tick();
+        dry.policy.delayed = false;
+        dry.tick();
+        require(dry.events.samples == 0, "previous mask episode published a late result");
+        dry.wait(20ms);
+        require(!dry.policy.last_mask && dry.events.samples == 1, "camera recovery must unmask");
+        dry.depth = nullptr;
+        dry.wait(20ms);
+        require(dry.policy.last_mask && dry.runner.phase() == Phase::policy,
+                "camera loss must mask without leaving automatic mode");
+        require(dry.robot.calls == 0 && dry.robot.writes == 0, "automatic dry-run accessed robot");
     }
     {
         Rig live(true);

@@ -52,3 +52,11 @@ python apps/agent/runner_cpp/tests/vector_replay.py \
 기본 앉기 경로, 리모컨 진입 및 리모컨 기반 명령을 이식했다. Python의 앱 UDP 제어, 선택형 `settle`·`stand` 종료 경로, 디버그 추정 ONNX는 이번 실행기에서 지원하지 않는다. 정본 ONNX에는 추정 전진 속도 출력이 없어 기록의 `est_vx` 값은 `[null,null]`이다. ORT 및 DDS 라이브러리 내부 할당은 별도 측정 대상이다.
 
 운영 서비스와 배포 파일은 이 변경의 범위 밖이다. 시험 종료 시 실행기 프로세스가 스스로 종료된다. 코드가 반영된 뒤 되돌려야 하면 기능 커밋을 revert하고 기존 Python 실행기로 확인한다.
+
+## Map-mask 후보 검증
+
+`FOOTHOLD_WITH_MAPMASK=ON`이면 `nlohmann_json` 3.10 이상을 사용한다. 모델 폴더의 `start_onnx.json`을 읽고 `foothold-start-onnx/2` 형식, 모델 SHA-256, 텐서 이름·자료형·모양을 확인한다. 같은 빌드에서 정본 3의 `contract.json`도 확인한다. 정본 모델의 고정 SHA는 계속 적용한다.
+
+후보 폴더는 기본값으로 `--mode auto`를 선택한다. 유효한 깊이 프레임이 있으면 `map_mask=0`, 없거나 소켓의 프레임이 만료되면 `map_mask=1`과 미검출값 1.0을 넣는다. 전환 때 이력·GRU·깊이 링을 새로 시작하고, 전환 전에 제출된 추론 결과는 폐기한다. `--mode off`로 마스크를 고정할 수 있다. `--pose-height`(m), `--pose-roll`(rad)의 기본값은 모두 0이다. 후보를 지정한 `--live` 실행은 진입점에서 거부한다.
+
+검증하려면 CMake에 `-DFOOTHOLD_VECTOR_BUNDLE="$canon_dir"`, `-DFOOTHOLD_MAPMASK_BUNDLE="$candidate_dir"`를 지정한다. 후보 대조용 Python에는 NumPy와 ONNX Runtime이 필요하다. 시험은 같은 후보 모델의 C++/Python 출력 다섯 개에 허용치 `1e-4`를 적용하고, 후보와 정본 3의 행동 차이는 별도로 출력한다. 후보는 정본으로 확정되기 전의 실험 모델이다.

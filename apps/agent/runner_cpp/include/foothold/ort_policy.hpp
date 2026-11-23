@@ -11,6 +11,7 @@ class OrtPolicy final : public Policy {
 public:
     OrtPolicy(const std::filesystem::path& bundle, MapMode mode);
     ~OrtPolicy() override;
+    bool mapmask_contract() const;
     void infer(const Inputs&, Outputs&) override;
 
 private:

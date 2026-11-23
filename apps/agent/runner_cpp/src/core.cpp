@@ -82,16 +82,26 @@ void slew_command(Vec3& current,const Vec3& goal) {
     }
 }
 void Memory::reset(){step_=0;initialized_=false;inputs_=Inputs{};captured_.fill(0);}
-bool Memory::depth_needed()const{return mode_==MapMode::reconstruction && (!initialized_ || step_%5==0);}
+bool Memory::update_map(bool depth_available) {
+    if (mode_ != MapMode::automatic || depth_enabled_ == depth_available) return false;
+    depth_enabled_ = depth_available;
+    reset();
+    return true;
+}
+bool Memory::depth_needed()const{return depth_enabled_ && (!initialized_ || step_%5==0);}
 const Inputs& Memory::prepare(const Obs& obs,const Depth* frame,const HeightMap* gt) {
-    if(mode_==MapMode::reconstruction && !initialized_ && !frame)
+    if(depth_enabled_ && !initialized_ && !frame)
         throw std::invalid_argument("reconstruction needs the first depth frame");
     inputs_.obs=obs;
     if(!initialized_)for(int i=0;i<10;++i)std::copy(obs.begin(),obs.end(),inputs_.hist.begin()+45*i);
     else {std::copy_backward(inputs_.hist.begin(),inputs_.hist.begin()+405,inputs_.hist.end());std::copy(obs.begin(),obs.end(),inputs_.hist.begin());}
     inputs_.depth_tick=step_%5==0;inputs_.first_after_reset=step_==0;inputs_.use_gt=mode_==MapMode::gt;
     inputs_.gt_map=inputs_.use_gt && gt?*gt:HeightMap{};
-    if(mode_==MapMode::reconstruction){
+    inputs_.pose = pose_;
+    inputs_.map_mask = !depth_enabled_;
+    if (mode_ == MapMode::automatic && !depth_enabled_ && !initialized_)
+        inputs_.depth2.fill(1.f);
+    if(depth_enabled_){
         if(!initialized_){captured_=*frame;std::copy(frame->begin(),frame->end(),inputs_.depth2.begin());std::copy(frame->begin(),frame->end(),inputs_.depth2.begin()+3600);}
         else if(inputs_.depth_tick){std::copy_n(inputs_.depth2.begin(),3600,inputs_.depth2.begin()+3600);std::copy(captured_.begin(),captured_.end(),inputs_.depth2.begin());}
         if(frame && inputs_.depth_tick && step_!=0)captured_=*frame;

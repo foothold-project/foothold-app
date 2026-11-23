@@ -40,6 +40,7 @@ const char* event_name(Event event) {
     case Event::stand_fold: return "STAND_FOLD";
     case Event::stand_refused: return "STAND_REFUSED";
     case Event::policy_start: return "POLICY_START";
+    case Event::map_changed: return "MAP_CHANGED";
     case Event::sit_down: return "SIT_DOWN";
     case Event::damping: return "DAMPING";
     case Event::liveness_lost: return "LIVENESS_LOST";
@@ -60,11 +61,11 @@ const char* event_name(Event event) {
 }
 
 Runner::Runner(Robot& robot, PolicyExecutor& policy, Observer& observer, Options options)
-    : robot_(robot), policy_(policy), observer_(observer), options_(options), memory_(options.map) {
+    : robot_(robot), policy_(policy), observer_(observer), options_(options), memory_(options.map, options.pose) {
     if (!std::isfinite(options_.fwd_max)) throw std::invalid_argument("fwd_max must be finite");
     options_.fwd_max = std::clamp(options_.fwd_max, 0., 1.5);
-    if (options_.live && options_.map == MapMode::gt)
-        throw std::invalid_argument("ground truth map mode is for replay");
+    if (options_.live && (options_.map == MapMode::gt || options_.map == MapMode::automatic))
+        throw std::invalid_argument("unsupported live map mode");
 }
 
 void Runner::send(const Joints& q, float position_gain, float velocity_gain) {
@@ -152,7 +153,8 @@ void Runner::interpolate(Tick now, Tick scheduled, bool standing) {
         next_policy_ = scheduled + 20ms;
         fall_since_.reset();
         phase_ = Phase::policy;
-        observer_.event(now, Event::policy_start, {options_.map == MapMode::off ? "off" : "reconstruction"});
+        observer_.event(now, Event::policy_start, {options_.map == MapMode::automatic ? "auto" :
+                                           options_.map == MapMode::off ? "off" : "reconstruction"});
     } else if (!standing && elapsed >= 2.) {
         damp(now, "sat down");
         if (return_after_sit_) {
@@ -425,6 +427,12 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         return;
     }
     if (phase_ == Phase::policy) {
+        if (memory_.update_map(frame != nullptr)) {
+            // Old-map results are discarded before the next episode can consume them.
+            pending_sample_.reset();
+            last_action_.fill(0);
+            observer_.event(now, Event::map_changed, {frame ? "on" : "off"});
+        }
         collect(now);
         if (phase_ == Phase::policy) infer(now, scheduled, state, grav, q, frame);
         if (phase_ == Phase::policy) send(target_, kp, kd);

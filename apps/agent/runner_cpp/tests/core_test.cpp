@@ -40,5 +40,20 @@ int main(){
  Memory off(MapMode::off);check(off.prepare(obs,&f).depth2[0]==0 && !off.depth_needed(),"off depth zero");
  Memory gt(MapMode::gt);HeightMap map{};map.fill(.31f);
  check(gt.prepare(obs,nullptr,&map).use_gt && gt.prepare(obs,nullptr,&map).gt_map[0]==.31f,"GT benchmark input");
+ Memory automatic(MapMode::automatic,{.02f,.1f});
+ const auto& masked=automatic.prepare(obs);
+ check(masked.map_mask && masked.first_after_reset && masked.depth2.front()==1.f &&
+       masked.depth2.back()==1.f && masked.pose==Pose{.02f,.1f},"missing camera feed");
+ automatic.advance(h,h);
+ check(automatic.update_map(true) && automatic.depth_needed(),"camera recovery resets episode");
+ const auto& enabled=automatic.prepare(obs,&f);
+ check(!enabled.map_mask && enabled.first_after_reset && enabled.h_prop[0]==0.f &&
+       enabled.depth2.front()==f.front() && enabled.depth2.back()==f.back(),"fresh map starts from actual depth");
+ automatic.advance(h,h);
+ check(!automatic.update_map(true) && !automatic.depth_needed(),"fresh camera does not keep resetting");
+ check(automatic.update_map(false),"camera loss resets episode");
+ const auto& lost=automatic.prepare(obs);
+ check(lost.map_mask && lost.first_after_reset && lost.h_terr.front()==0.f &&
+       lost.depth2.front()==1.f,"camera loss switches to masked missing-depth feed");
  std::cout<<"PASS core contract\n";
 }

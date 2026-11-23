@@ -13,6 +13,7 @@
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
@@ -37,7 +38,7 @@ struct Config {
 };
 
 const char* usage = "foothold_start --folder BUNDLE [--nic NIC | --benchmark] "
-    "[--mode off|reconstruction] [--depth-socket PATH] [--seconds N] [--status N] [--trace-dir DIR] "
+    "[--mode off|reconstruction|auto] [--depth-socket PATH] [--pose-height M] [--pose-roll RAD] [--seconds N] [--status N] [--trace-dir DIR] "
     "[--cpu-range FIRST-LAST] [--rt-priority N] [--mlock] [--fwd-max N] "
     "[--stand-only] [--live --armed-by-remote]";
 
@@ -58,6 +59,7 @@ int integer(std::string_view value, int max) {
 
 Config parse(int argc, char** argv) {
     Config config;
+    bool explicit_mode = false, explicit_pose = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view option(argv[i]);
         auto value = [&]() -> std::string_view {
@@ -69,7 +71,17 @@ Config parse(int argc, char** argv) {
         else if (option == "--depth-socket") config.depth_socket = value();
         else if (option == "--nic") config.nic = value();
         else if (option == "--sport-mode") config.factory_mode = value();
-        else if (option == "--mode") config.runner.map = parse_map_mode(value());
+        else if (option == "--mode") {
+            config.runner.map = parse_map_mode(value());
+            explicit_mode = true;
+        } else if (option == "--pose-height" || option == "--pose-roll") {
+            const auto index = option == "--pose-height" ? 0 : 1;
+            const auto pose = number(value());
+            if (std::abs(pose) > std::numeric_limits<float>::max())
+                throw std::invalid_argument("pose exceeds float32 range");
+            config.runner.pose[index] = static_cast<float>(pose);
+            explicit_pose = true;
+        }
         else if (option == "--seconds") config.seconds = number(value());
         else if (option == "--status") config.status = number(value());
         else if (option == "--fwd-max") config.runner.fwd_max = number(value());
@@ -91,12 +103,17 @@ Config parse(int argc, char** argv) {
         config.cpu_first > config.cpu_last || config.seconds < 0 || config.seconds > 7 * 86400 ||
         config.status < 0 || config.status > 86400 || (config.status > 0 && config.status < 0.05))
         throw std::invalid_argument(usage);
+    const bool mapmask = std::filesystem::exists(config.bundle / "start_onnx.json");
+    if (!explicit_mode && mapmask) config.runner.map = MapMode::automatic;
+    if (config.runner.live && (mapmask || config.runner.map == MapMode::automatic))
+        throw std::invalid_argument("experimental map-mask is restricted to dry-run");
+    if (explicit_pose && !mapmask) throw std::invalid_argument("pose requires the map-mask contract");
     if (config.runner.map == MapMode::gt)
         throw std::invalid_argument("gt is vector-replay only");
     if (config.runner.map == MapMode::reconstruction && !config.benchmark && config.depth_socket.empty())
         throw std::invalid_argument("reconstruction requires --depth-socket");
     if (config.runner.map == MapMode::off && !config.depth_socket.empty())
-        throw std::invalid_argument("--depth-socket requires reconstruction");
+        throw std::invalid_argument("--depth-socket requires reconstruction or auto mode");
     if (config.benchmark && config.runner.stand_only)
         throw std::invalid_argument("benchmark requires policy inference");
     if (config.runner.live) {
@@ -264,10 +281,13 @@ int main(int argc, char** argv) {
         auto* receiver = depth ? &*depth : nullptr;
         pin(config);
         OrtPolicy policy(config.bundle, config.runner.map);
+        if (config.runner.live && policy.mapmask_contract())
+            throw std::invalid_argument("experimental map-mask is restricted to dry-run");
         Inputs warm_input{};
         Outputs warm_output{};
         warm_input.first_after_reset = true;
         warm_input.depth_tick = true;
+        warm_input.pose = config.runner.pose;
         policy.infer(warm_input, warm_output);
         PolicyWorker worker(policy, config.priority > 1 ? config.priority - 1 : config.priority);
         std::cout << "{\"policy_sched_fifo\":" << (worker.realtime() ? "true" : "false") << "}\n";

@@ -12,7 +12,7 @@ enum class Phase { high, acquiring, folding, standing, policy, sitting, damping,
 enum class RobotMode { low, factory, unknown };
 enum class Gait { none, free_walk, classic };
 enum class Event {
-    mode_low, stand_fold, stand_refused, policy_start, sit_down, damping, liveness_lost, depth_lost, robot_fall,
+    mode_low, stand_fold, stand_refused, policy_start, map_changed, sit_down, damping, liveness_lost, depth_lost, robot_fall,
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
     inference_failed, ame2_unavailable
@@ -31,6 +31,7 @@ struct Outputs {
     Joints action{};
     std::array<float, 128> h_prop{}, h_terr{};
     HeightMap recon{};
+    std::array<float, 51> est{};
 };
 
 class Robot {
@@ -85,6 +86,7 @@ struct Options {
     MapMode map = MapMode::off;
     double fwd_max = 1.5;
     bool stand_only = false;
+    Pose pose{};
 };
 
 // One caller owns the state machine and every command. No holder can race a mode change.

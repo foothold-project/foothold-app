@@ -93,7 +93,7 @@ std::string line(const Row& row) {
         out << ",\"event\":\"" << event_name(row.event) << '"';
         if (row.event == Event::damping)
             out << ",\"reason\":\"" << row.info.text << '"';
-        if (row.event == Event::policy_start)
+        if (row.event == Event::policy_start || row.event == Event::map_changed)
             out << ",\"mode\":\"" << row.info.text << '"';
         if (row.event == Event::stand_fold)
             out << ",\"sec\":" << row.info.value;

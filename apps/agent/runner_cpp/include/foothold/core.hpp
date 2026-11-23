@@ -8,13 +8,14 @@ using Wanted = std::array<double, 3>;
 using Quat = std::array<float, 4>;
 using Joints = std::array<float, 12>;
 using Obs = std::array<float, 45>;
+using Pose = std::array<float, 2>;
 using Depth = std::array<float, 3600>;
 using HeightMap = std::array<float, 512>;
 constexpr Joints default_pose{.1f,-.1f,.1f,-.1f,.8f,.8f,1,1,-1.5f,-1.5f,-1.5f,-1.5f};
 constexpr Joints sit_pose{0,0,0,0,1.2f,1.2f,1.2f,1.2f,-2.7f,-2.7f,-2.7f,-2.7f};
 constexpr float kp=25.f, kd=.5f, target_span=1.6f;
 enum class Mark { none, clip, gap, interp };
-enum class MapMode { off, reconstruction, gt };
+enum class MapMode { off, reconstruction, gt, automatic };
 struct Remote { std::uint16_t keys{}; float lx{}, ly{}, rx{}, ry{}; };
 struct Shaped { Vec3 command{}; Mark mark{}; };
 Joints to_policy(const Joints&);
@@ -34,12 +35,14 @@ struct Inputs {
     std::array<float,7200> depth2{};
     std::array<float,128> h_prop{},h_terr{};
     HeightMap gt_map{};
-    bool depth_tick{}, first_after_reset{}, use_gt{};
+    Pose pose{};
+    bool depth_tick{}, first_after_reset{}, use_gt{}, map_mask{true};
 };
 class Memory {
 public:
-    explicit Memory(MapMode mode):mode_(mode){}
+    explicit Memory(MapMode mode, Pose pose = {}) : mode_(mode), pose_(pose), depth_enabled_(mode == MapMode::reconstruction) {}
     void reset();
+    bool update_map(bool depth_available);
     bool depth_needed()const;
     const Inputs& prepare(const Obs&,const Depth* frame=nullptr,const HeightMap* gt=nullptr);
     void advance(const std::array<float,128>&,const std::array<float,128>&);
@@ -47,7 +50,8 @@ public:
 private:
     MapMode mode_;
     std::uint64_t step_{};
-    bool initialized_{};
+    Pose pose_;
+    bool initialized_{}, depth_enabled_;
     Inputs inputs_{};
     Depth captured_{};
 };
