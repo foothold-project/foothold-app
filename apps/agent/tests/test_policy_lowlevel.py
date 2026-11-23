@@ -424,13 +424,21 @@ def test_settle_mode_waits_then_sits_when_balanced(rig):
     assert 'STAND_HANDOVER' not in codes
 
 
-def test_settle_mode_times_out_to_stand_handover(rig):
+def test_settle_mode_times_out_then_sits_never_stand(rig):
     clock, sdk, run = _policy_rig(rig, 'settle', [5, 40, 40, 40])     # 한 발에 무게가 안 실림
     sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
     codes = [e.code for e in run.events]
     to = run.events[codes.index('SETTLE_TIMEOUT')]
     assert to.data['seconds'] >= lowlevel.SETTLE_MAX_S
-    assert codes[codes.index('SETTLE_TIMEOUT') + 1] == 'STAND_HANDOVER' and 'SIT_DOWN' not in codes
+    assert codes[codes.index('SETTLE_TIMEOUT') + 1] == 'SIT_DOWN'                       # 못 맞춰도 엎드림 (15:18 확인 길)
+    assert 'STAND_HANDOVER' not in codes and 'select_mode:mcf' not in sdk.calls[-3:] and 'balance_stand' not in sdk.calls
+    assert run.phase is Phase.DAMPING
+
+
+def test_stand_handover_reports_gap(rig):
+    clock, sdk, run = _policy_rig(rig, 'stand', [20, 20, 20, 20])
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
+    codes = [e.code for e in run.events]
     gap = run.events[codes.index('HANDOVER_GAP')].data
     assert gap['attached'] is True and gap['ms'] is not None and gap['ms'] >= 0
     assert sdk.calls[-2:] == ['balance_stand', 'stand_down'] and run.phase is Phase.HIGH

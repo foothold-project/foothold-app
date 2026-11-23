@@ -400,12 +400,14 @@ class LowLevelRunner:
 
     def lower(self, *, lie=True) -> bool:
         """멈춘 뒤 내려놓기. 돌려줌: True = 이미 순정에 넘김 (가 · stand) · False = 우리가 엎드려 감쇠함 (부르는 쪽이 to_high).
-        sit: 바로 엎드림. settle (나): 명령 0 으로 정책을 계속 돌리며 정렬을 기다렸다가 엎드림, 못 맞추면 (가).
+        sit: 바로 엎드림. settle (나): 명령 0 으로 정책을 계속 돌리며 정렬을 기다렸다가 엎드림, 못 맞춰도 엎드림 (sit · 15:18 확인 길).
+        settle 은 stand 로 가지 않는다 (팀장 11/23 10:04: 모터 긁힘 소리 다시 나면 안 됨 · stand 는 매단 시험 뒤에만 고르는 옵션).
         stand (가): 서 있는 채 순정 넘김 → BalanceStand (순정이 발을 굴러 중심을 맞춤) → lie 면 StandDown."""
         if self.phase is not Phase.POLICY or self.stop_mode == 'sit':
             self.sit_down()
             return False
-        if self.stop_mode == 'settle' and self.settle():
+        if self.stop_mode == 'settle':
+            self.settle()   # 맞추든 못 맞추든 엎드림
             self.sit_down()
             return False
         return self.stand_handover(lie=lie)
