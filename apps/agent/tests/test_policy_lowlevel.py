@@ -44,8 +44,8 @@ class FakeSdk:
     def recovery_stand(self): self.calls.append('recovery_stand')
     def balance_stand(self): self.calls.append('balance_stand')
     def foot_force(self): return [10, 20, 30, 40]
-    def free_walk(self): self.calls.append('free_walk')
-    def classic_walk(self, flag=True): self.calls.append(f'classic_walk:{flag}')
+    def free_walk(self): self.calls.append('free_walk'); return 0
+    def classic_walk(self, flag=True): self.calls.append(f'classic_walk:{flag}'); return 0
 
 
 class FakePolicy:
@@ -215,7 +215,8 @@ def test_command_slew_matches_sim(rig):
     full = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., 1.) + bytes(14)   # 왼쪽 막대 끝까지 앞
     sdk.low_state = (lambda f=sdk.low_state: (lambda r: r[:5] + (full,))(f()))
     run.tick()
-    assert np.isclose(run.cmd[0], 1.5 / 50)                         # 한 틱 (20 ms) 에 0.03 m/s 만
+    assert np.isclose(run.cmd[0], lowlevel.SLEW_UP[0] / 50)          # 한 틱 (20 ms) 에 가속 상한만큼만 (0.5 m/s² → 0.01)
+    assert lowlevel.SLEW_UP[0] == .5
     assert lowlevel.SLEW_DOWN[0] == 1.2                             # 감속은 늘 1.2 /s
 
 
@@ -293,15 +294,15 @@ def test_app_velocity_drives_policy_but_remote_wins(rig):
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
     app.feed(_pkt(1, vx=9.))                               # 상한 1.5 로 잘림 · 가감속 1 틱 0.03
     run.tick()
-    assert np.isclose(run.cmd[0], 1.5 / 50)
+    assert np.isclose(run.cmd[0], lowlevel.SLEW_UP[0] / 50)
     sdk.keys = ('X',)                                      # 리모컨을 만지면 앱 속도 무시 → 감속
     app.feed(_pkt(2, vx=9.)); run.tick()
-    assert np.isclose(run.cmd[0], 1.5 / 50 - 1.2 / 50)    # 감속 1.2 /s 한 틱만큼
+    assert run.cmd[0] == 0.                                # 0.01 은 감속 한 틱 (0.024) 안에서 0
     sdk.keys = ()
     base = float(run.cmd[0])
     for i in range(5):
         app.feed(_pkt(3 + i, vx=.5)); run.tick()
-    assert np.isclose(run.cmd[0], base + 5 * 1.5 / 50)    # 리모컨을 놓으면 다시 앱 속도로 가속
+    assert np.isclose(run.cmd[0], base + 5 * lowlevel.SLEW_UP[0] / 50)    # 리모컨을 놓으면 다시 앱 속도로 가속
     clock.t += APP_TIMEOUT_S + .01                         # 앱 끊김 → 0 으로 감속
     before = run.cmd[0]; run.tick()
     assert run.cmd[0] < before
@@ -359,7 +360,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     r = rows[0]
     assert len(rows) == 5 and r['phase'] == 'policy' and np.isclose(r['stick'][1], .6)
     assert np.allclose(r['want'], [.54, .8, 0.], atol=1e-3) and np.allclose(r['goal'], [.54, .5, 0.], atol=1e-3) and r['shape'] == 'clip'
-    assert np.isclose(r['cmd'][0], .03) and len(r['target']) == 12
+    assert np.isclose(r['cmd'][0], lowlevel.SLEW_UP[0] / 50) and len(r['target']) == 12
     assert abs(r['wall'] - __import__('time').time()) < 60                       # 폰 측정 표시와 맞출 벽시계
     assert r['tau'][0] == 3 and r['temp'][0] == 43 and r['est_vx'] == [.26, .25] and r['foot'] == [10, 20, 30, 40]
 
@@ -510,3 +511,29 @@ def test_depth_health_summary():
     from foothold_agent.policy.depth_health import summarize
     r = summarize([0., .033, .066, .2], [[640, 480]] * 3, [.01, .03], 1000., carried=1)
     assert r['frames'] == 3 and r['max_gap_ms'] == 134.0 and r['size'] == [640, 480] and r['zero_frac'] == .02
+
+
+
+def test_l2a_lie_then_l2a_again_stands_back_into_start(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    run.tick()
+    sdk.keys = ('L2', 'A'); run.tick()                                    # 앉힘
+    assert run.phase is Phase.DAMPING
+    run.tick()                                                             # 아직 누르고 있음 → 다시 서지 않음
+    assert run.phase is Phase.DAMPING
+    sdk.keys = (); run.tick()                                              # 놓음
+    sdk.keys = ('L2', 'A'); run.tick()                                     # 다시 누름 → 일어나 START
+    assert run.phase is Phase.POLICY and [e.code for e in run.events].count('POLICY_START') == 2
+
+
+def test_classic_walk_retried_until_accepted(rig):
+    clock, sdk, run = _policy_rig(rig, 'sit', [20, 20, 20, 20])
+    answers = iter([-1, -1, 0])
+    def classic(flag=True):
+        sdk.calls.append('classic_walk'); return next(answers)
+    sdk.classic_walk = classic
+    run.back_to_factory('classic')
+    gait = [e for e in run.events if e.code == 'FACTORY_GAIT'][-1]
+    assert sdk.calls.count('classic_walk') == 3 and "'classic': [-1, -1, 0]" in gait.data['result']

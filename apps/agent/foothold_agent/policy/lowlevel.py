@@ -37,7 +37,7 @@ SETTLE_MAX_S, SETTLE_TILT, SETTLE_DQ, SETTLE_FOOT = 1.5, math.sin(math.radians(3
 STOP_MODES = ('sit', 'settle', 'stand')   # sit = 지금 (바로 엎드림) · settle = (나) · stand = (가) 서 있는 채 순정 넘김
 LIVENESS_S = 1.0   # LowState 가 이만큼 끊기면 엎드린 뒤 순정 (팀장 11/22 결정 11). 그 전까지는 마지막 목표를 잡고 기다림
 # 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
-SLEW_UP, SLEW_DOWN = (1.5, .5, 2.4), (1.2, 1.25, 3.)   # 전진 감속 1.2 /s 를 늘 (planner 11/23 09:55 · 시뮬 3.3~3.8 cm). 시뮬 keyboard-ramp.js 는 아직 3.75 (맞춰야 함)
+SLEW_UP, SLEW_DOWN = (.5, .3, 1.2), (1.2, 1.25, 3.)   # 가속 낮춤 (팀장 11/23 11:39: 붙자마자 전진이 미친 듯 튀어나감 · 1.5 → 0.5 m/s², 0 → 1.0 m/s 에 2 초)   # 전진 감속 1.2 /s 를 늘 (planner 11/23 09:55 · 시뮬 3.3~3.8 cm). 시뮬 keyboard-ramp.js 는 아직 3.75 (맞춰야 함)
 SIT_WAIT_S = 3.0
 RECOVER_WAIT_S = 3.0
 # 저수준에서 천천히 앉히기: 엎드린 관절 각 (정책 순서, 시뮬 recovery-stand.js fold 와 같음) · 2 초 보간
@@ -171,6 +171,7 @@ class LowLevelRunner:
         self.last_action = np.zeros(12, np.float32)
         self.cmd = np.zeros(3, np.float32)
         self._ame2_held = False
+        self._l2a_latched = False
         self.stop_trace = None   # 명령이 0 이 된 순간부터 2 초: 발 힘 · 기울기 · 관절 (lead 11/22 14:16 · 멈출 때 마지막 발 비교용)
         self.last_out = {}
         self.fall_since = None
@@ -281,7 +282,16 @@ class LowLevelRunner:
             self.emit('ROBOT_FALL', grav_z=float(s['grav'][2]))
             self.recover()
             return s
-        if self.phase in (Phase.POLICY, Phase.STANDING_UP) and {'L2', 'A'} <= keys:
+        l2a = {'L2', 'A'} <= keys
+        if not l2a:
+            self._l2a_latched = False   # 놓은 뒤에만 다음 L2 + A 를 받는다 (앉히자마자 다시 서지 않게)
+        if self.phase is Phase.DAMPING and l2a and not self._l2a_latched:
+            # 저수준으로 엎드린 상태에서 L2 + A = 다시 일어서 START (순정의 L2 + A 처럼 · 팀장 11/23 11:39)
+            self._l2a_latched = True
+            self.start_policy(s)
+            return s
+        if self.phase in (Phase.POLICY, Phase.STANDING_UP) and l2a and not self._l2a_latched:
+            self._l2a_latched = True
             self.lower()   # 저수준일 때 L2 + A = 천천히 앉아 감쇠 (stop_mode 에 따라 정렬 대기 · 서서 넘김) (순정의 L2 + A 엎드리기와 같은 뜻 · 팀장 11/22 14:46)
             return s
         if self.phase in (Phase.HIGH, Phase.DAMPING) and {'up', 'start'} <= keys:
@@ -559,5 +569,13 @@ class LowLevelRunner:
             codes['recovery_stand'] = self.sdk.recovery_stand()
             # 11/22 14:26 실기: RecoveryStand 직후 바로 보행 전환을 보내면 무시되고 기본 sport 로 남음 → 다 선 뒤 (3 초) 보낸다
             time.sleep(RECOVER_WAIT_S)
-            codes[gait] = self.sdk.free_walk() if gait == 'free_walk' else self.sdk.classic_walk(True)
+            # 11/23 11:35 실기: ClassicWalk 가 -1 로 돌아와 sport 로 남음 → 0 이 올 때까지 1 초 간격 3 번 (결과는 모두 남김)
+            tries = []
+            for _ in range(3):
+                code = self.sdk.free_walk() if gait == 'free_walk' else self.sdk.classic_walk(True)
+                tries.append(code[0] if isinstance(code, tuple) else code)
+                if tries[-1] == 0:
+                    break
+                time.sleep(1.)
+            codes[gait] = tries
         self.emit('FACTORY_GAIT', gait=gait, result=str(codes))
