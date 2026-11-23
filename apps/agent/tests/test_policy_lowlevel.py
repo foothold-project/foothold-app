@@ -504,3 +504,9 @@ def test_stick_curve_is_quadratic_and_reaches_training_edge():
     assert np.isclose(vx(1.), 1.5) and np.isclose(vx(-1.), -1.3) and vx(.04) == 0.
     wz = float(command_from_remote(parse_remote(remote(rx=-.5)))[2])
     assert np.isclose(wz, .25 * 1.5)                                     # 회전도 같은 곡선
+
+
+def test_depth_health_summary():
+    from foothold_agent.policy.depth_health import summarize
+    r = summarize([0., .033, .066, .2], [[640, 480]] * 3, [.01, .03], 1000., carried=1)
+    assert r['frames'] == 3 and r['max_gap_ms'] == 134.0 and r['size'] == [640, 480] and r['zero_frac'] == .02
