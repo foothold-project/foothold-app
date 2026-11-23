@@ -18,7 +18,7 @@ import numpy as np
 
 from .lowlevel import parse_remote
 from .start import POLICY_FROM_SDK, projected_gravity
-from .trace import START_FLAG, TraceWriter, r4
+from .trace import START_FLAG, TraceWriter, pin_cpus, r4
 
 HZ = 50
 
@@ -70,6 +70,7 @@ def main(argv=None):
     ap.add_argument('--label', default='factory', help='sport · classic 처럼 순서표 줄 이름')
     ap.add_argument('--seconds', type=float, default=0, help='0 = Ctrl+C 까지')
     a = ap.parse_args(argv)
+    pin_cpus(range(0, 4))   # MAXN 이면 실행기 코어 (4~7) 를 비워 둠
     if START_FLAG.exists():   # START 중: DDS 구독도 만들지 않고 순정으로 돌아올 때까지 기다림 (CPU 0 에 가깝게)
         print(json.dumps({'code': 'FACTORY_RECORD_PAUSED', 'why': 'start active'}), flush=True)
         while START_FLAG.exists():

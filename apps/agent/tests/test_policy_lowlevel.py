@@ -587,3 +587,42 @@ def test_factory_record_pauses_when_start_flag(monkeypatch, tmp_path):
             return None, 0., None
     monkeypatch.setattr(fr, 'ReadOnlyState', Fake)
     assert fr.main(['--nic', 'x', '--out', str(tmp_path), '--seconds', '2']) == 3
+
+
+def test_threaded_trace_writer_and_period_stats(tmp_path):
+    """팀장 11/23 16:06: 기록 쓰기는 별도 스레드 · 정책 주기 통계."""
+    import json as _j
+    from foothold_agent.policy.trace import ThreadedTraceWriter, pin_cpus
+    from foothold_agent.policy.run import PeriodStats
+    tw = ThreadedTraceWriter(tmp_path, 'start')
+    for i in range(120):
+        tw.write({'t': i})
+    tw.close()
+    lines = tw.path.read_text().splitlines()
+    assert len(lines) == 120 and _j.loads(lines[-1])['t'] == 119 and tw.rows == 120
+    ps = PeriodStats()
+    for i, t in enumerate([0, .02, .04, .10, .12]):
+        ps.mark(t, True)
+    s = ps.summary()
+    assert s['dt_n'] == 4 and s['dt_over30'] == 1 and abs(s['dt_max'] - 60.) < 1e-6
+    ps.mark(.2, False)   # 순정으로 나가면 간격을 잇지 않음
+    ps.mark(.5, True)
+    assert ps.summary()['dt_n'] == 4
+    assert pin_cpus(range(0, 64)) is None or len(pin_cpus(range(0, 64))) >= 1
+
+
+def test_run_main_dry_smoke(monkeypatch, tmp_path, capsys):
+    """run.main 이 새 장치 (스레드 기록 · 코어 묶기 · 주기 통계) 와 함께 dry-run 으로 돌고 끝난다 (송신 0)."""
+    import sys as _s, types, json as _j
+    from foothold_agent.policy import run as R
+    from foothold_agent.policy import trace as T
+    monkeypatch.setattr(T, 'START_FLAG', tmp_path / 'flag')
+    class Clock: t = 0.
+    fake_mod = types.ModuleType('foothold_agent.policy.unitree')
+    fake_mod.UnitreeSdk = lambda nic: FakeSdk(Clock())
+    monkeypatch.setitem(_s.modules, 'foothold_agent.policy.unitree', fake_mod)
+    monkeypatch.setattr(R, 'StartPolicy', lambda folder, mode, debug_est=None: FakePolicy())
+    assert R.main(['--folder', str(tmp_path), '--nic', 'x', '--seconds', '.3', '--status', '.1', '--trace-dir', str(tmp_path / 'tr')]) == 0
+    out = [_j.loads(l) for l in capsys.readouterr().out.splitlines() if l.startswith('{')]
+    assert any(o.get('code') == 'RUNNER_READY' and 'cpus' in o for o in out)
+    assert any(o.get('code') == 'RUNNER_EXIT' and o['sent'] == 0 for o in out)

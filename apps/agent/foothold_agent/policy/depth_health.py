@@ -26,6 +26,8 @@ def main(argv=None):
     ap.add_argument('--out', required=True, type=Path)
     ap.add_argument('--topic', default=TOPIC)
     a = ap.parse_args(argv)
+    from .trace import pin_cpus
+    pin_cpus(range(0, 4))   # MAXN 이면 실행기 코어 (4~7) 를 비워 둠
     import numpy as np
     import rclpy
     from rclpy.qos import qos_profile_sensor_data

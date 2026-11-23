@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 import json
+import os
+import queue
+import threading
 import time
 from pathlib import Path
 
@@ -63,3 +66,68 @@ class TraceWriter:
         if self.fh is not None:
             self.fh.close()
             self.fh = None
+
+
+class ThreadedTraceWriter:
+    """TraceWriter 를 별도 스레드에서 쓴다 (팀장 11/23 16:06: 기록 쓰기를 제어 반복에서 뺌). 제어 반복은 줄을 큐에 넣기만 한다.
+    TraceWriter 와 같은 꼴 (write · flush · close · rows · path)."""
+    def __init__(self, *args, **kw):
+        self.inner = TraceWriter(*args, **kw)
+        self.q = queue.SimpleQueue()
+        self.th = threading.Thread(target=self._run, name='trace-writer', daemon=True)
+        self.th.start()
+
+    def _run(self):
+        n = 0
+        while True:
+            row = self.q.get()
+            if row is None:
+                break
+            if row == 'flush':
+                self.inner.flush()
+                continue
+            self.inner.write(row)
+            n += 1
+            if n % 50 == 0:
+                self.inner.flush()
+        self.inner.close()
+
+    def write(self, row: dict):
+        self.q.put(row)
+        return True
+
+    def flush(self):
+        self.q.put('flush')
+
+    def close(self):
+        if self.th.is_alive():
+            self.q.put(None)
+            self.th.join(timeout=5.)
+
+    @property
+    def rows(self):
+        return self.inner.rows
+
+    @property
+    def path(self):
+        return self.inner.path
+
+
+def pin_cpus(cpus):
+    """가능한 코어만 골라 이 프로세스를 묶는다 (MAXN 8 코어면 실행기 4~7 · 나머지 0~3). 없는 코어면 그대로 둠."""
+    try:
+        online = os.sched_getaffinity(0) | set(range(os.cpu_count() or 0))
+        want = {c for c in cpus if c in online}
+        avail = set()
+        for c in want:
+            try:
+                if open(f'/sys/devices/system/cpu/cpu{c}/online').read().strip() != '1':
+                    continue
+            except OSError:
+                pass   # cpu0 은 online 파일이 없을 수 있음
+            avail.add(c)
+        if avail and avail != os.sched_getaffinity(0):
+            os.sched_setaffinity(0, avail)
+        return sorted(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return None

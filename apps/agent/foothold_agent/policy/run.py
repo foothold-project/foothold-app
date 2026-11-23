@@ -20,6 +20,26 @@ from .lowlevel import CMD_HZ, POLICY_HZ, LowLevelRunner, Phase
 from .start import StartPolicy
 
 
+class PeriodStats:
+    """START 동안 정책 틱 간격 (ms) · 상태 줄에 p99 · 최대 · 30 ms 넘은 누적 횟수 (lead 11/23 14:51: 학습 지연 DR 0~15 ms)."""
+    def __init__(self, window=250):
+        self.window, self.dts, self.last, self.over30, self.n, self.resyncs = window, [], None, 0, 0, 0
+
+    def mark(self, now, in_policy):
+        if in_policy and self.last is not None:
+            dt = (now - self.last) * 1e3
+            self.dts = (self.dts + [dt])[-self.window:]
+            self.n += 1
+            self.over30 += dt > 30.
+        self.last = now if in_policy else None
+
+    def summary(self):
+        if not self.dts:
+            return {}
+        d = sorted(self.dts)
+        return {'dt_p99': round(d[min(len(d) - 1, int(len(d) * .99))], 1), 'dt_max': round(d[-1], 1), 'dt_over30': self.over30, 'dt_n': self.n, 'resync': self.resyncs}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--folder', required=True, type=Path)
@@ -59,39 +79,50 @@ def main(argv=None):
         app = AppLink(a.app_port)
     trace = None
     if a.trace_dir:
-        from .trace import TraceWriter
-        trace = TraceWriter(a.trace_dir, 'start', on_full=lambda: print(json.dumps({'code': 'TRACE_FULL'}), flush=True))
-    from .trace import START_FLAG
+        from .trace import ThreadedTraceWriter
+        trace = ThreadedTraceWriter(a.trace_dir, 'start', on_full=lambda: print(json.dumps({'code': 'TRACE_FULL'}), flush=True))
+    import gc
+    from .trace import START_FLAG, pin_cpus
     START_FLAG.unlink(missing_ok=True)   # 실행기는 순정 (HIGH) 으로 시작한다
+    cpus = pin_cpus(range(4, 8))   # 팀장 11/23 16:06: MAXN 8 코어면 실행기 전용 4~7 (카메라 · 기록은 0~3) · 15W (0~3 만) 면 그대로
 
     def _on_event(e):
         print(json.dumps({'t': round(e.t, 3), 'code': e.code, **e.data}, ensure_ascii=False), flush=True)
         if e.code == 'MODE_LOW':
             START_FLAG.touch()   # START: 순정 기록은 쉼
+            gc.collect(); gc.disable()   # START 동안 Python 메모리 정리가 제어 반복 사이에 끼지 않게
         elif e.code == 'MODE_HIGH':
             START_FLAG.unlink(missing_ok=True)   # 순정으로 돌아옴: 순정 기록 다시 (MODE_HIGH_FAILED 면 순정이 아니므로 그대로 쉼)
+            gc.enable(); gc.collect()
     sdk = UnitreeSdk(a.nic)
     runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode, debug_est=a.debug_est), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first, app=app, trace=trace, stop_mode=a.stop_mode,
                             on_event=_on_event)
     def _term(signum, frame):   # kill (SIGTERM) 도 Ctrl+C 와 같이 엎드린 뒤 순정으로 끝낸다
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _term)
-    runner.emit('RUNNER_READY', live=a.live, armed='remote' if a.armed_by_remote else ('marker' if a.live else None), mode=a.mode, app_port=a.app_port or None)
+    runner.emit('RUNNER_READY', cpus=cpus, live=a.live, armed='remote' if a.armed_by_remote else ('marker' if a.live else None), mode=a.mode, app_port=a.app_port or None)
     t0, k = time.monotonic(), 0
     per = CMD_HZ // POLICY_HZ
+    pt = PeriodStats()
     try:
         while not a.seconds or time.monotonic() - t0 < a.seconds:
             if k % per == 0:
+                pt.mark(time.monotonic(), runner.phase is Phase.POLICY)
                 s = runner.tick()
                 if a.status and k % int(a.status * CMD_HZ) == 0:
                     print(json.dumps({'status': runner.phase.value, 'stale': bool(s['stale']), 'grav_z': round(float(s['grav'][2]), 3),
                                       'keys': sorted(s['remote'].keys), 'lx': round(s['remote'].lx, 2), 'ly': round(s['remote'].ly, 2),
-                                      'rx': round(s['remote'].rx, 2), 'cmd': [round(float(x), 2) for x in runner.cmd], 'act_max': round(float(abs(runner.last_action).max()), 2), 'pitch_x': round(float(s['grav'][0]), 3), 'roll_y': round(float(s['grav'][1]), 3), 'sent': runner.sent, 'app': app is not None and app.velocity() is not None}, ensure_ascii=False), flush=True)
+                                      'rx': round(s['remote'].rx, 2), 'cmd': [round(float(x), 2) for x in runner.cmd], 'act_max': round(float(abs(runner.last_action).max()), 2), 'pitch_x': round(float(s['grav'][0]), 3), 'roll_y': round(float(s['grav'][1]), 3), 'sent': runner.sent, 'app': app is not None and app.velocity() is not None, **pt.summary()}, ensure_ascii=False), flush=True)
                     if trace is not None:
                         trace.flush()
             else:
                 runner.hold()
             k += 1
+            lag = time.monotonic() - (t0 + k / CMD_HZ)
+            if lag > 2. / CMD_HZ:
+                # 늦으면 밀린 틱을 몰아 돌리지 않고 지금 시각에 다시 맞춘다 (몰아 돌리면 정책이 같은 상태로 연달아 두 번 돈다)
+                t0 += lag
+                pt.resyncs += 1
             time.sleep(max(0., t0 + k / CMD_HZ - time.monotonic()))
     except KeyboardInterrupt:
         pass
