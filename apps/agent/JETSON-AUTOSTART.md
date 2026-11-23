@@ -27,9 +27,9 @@
 |---|---|---|
 | 순정 (선 채) → 위 + start | `tick` → `start_policy` (326) → `to_low` (201): CheckMode 로 이름을 읽고 ReleaseMode 를 반복 → 지금 관절 각에서 기본 자세로 2.5 초 | 선 채로 넘겨받음 · 앉지 않음 |
 | START → ← / → + start | `tick` (294) → `back_to_factory` (519) → `lower` (401) → stop-mode sit → `sit_down` (501) 2 초 → 감쇠 → `to_high` (SelectMode mcf · CheckMode 확인) → RecoveryStand → 3 초 뒤 free walk · classic | 2 초 엎드렸다가 순정이 일으켜 세움 (11/22 밖에서 세 번 · 긁힘 없음) |
-| 11/22 14:46 긁힘 길 | `stand_handover` (444): 우리가 선 채 목표를 잡은 동안 SelectMode → 순정과 겹침 | `--stop-mode stand` 일 때만 · 기본 아님 |
+| 서 있는 채 넘김 (실기 미확인) | `stand_handover` (444): 선 채 목표를 잡은 채 SelectMode → 붙으면 놓음 → BalanceStand | `--stop-mode stand` 일 때만 · 기본 아님 |
 
-다른 점: sit 길에서는 SelectMode 를 보낼 때 우리가 이미 감쇠해 손을 놓았다. stand 길에서는 SelectMode 를 보내는 동안 우리가 계속 목표를 보낸다. 그래서 순정과 겹칠 수 있다.
+11/22 14:27~14:46 의 소리 (팀장 「앉았다 일어날 때 · 앉을 때 모터 갈리는 소리」) 는 잡은 채 넘긴 판 (holding True · live-4e · 4f) 에서 났다. 그 판은 순정이 붙은 뒤 선 몸에 RecoveryStand 를 보내, 순정이 스스로 앉았다 일어났다. 소리가 우리와 순정이 겹쳐서인지, 순정의 그 동작에서인지는 가리지 못했다 (미확인). 새 stand 길은 RecoveryStand 대신 BalanceStand 를 쓴다 (실기 0 회).
 
 ## 1 초 끊김 (LIVENESS_S)
 

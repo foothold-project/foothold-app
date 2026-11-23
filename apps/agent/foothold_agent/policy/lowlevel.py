@@ -401,7 +401,7 @@ class LowLevelRunner:
     def lower(self, *, lie=True) -> bool:
         """멈춘 뒤 내려놓기. 돌려줌: True = 이미 순정에 넘김 (가 · stand) · False = 우리가 엎드려 감쇠함 (부르는 쪽이 to_high).
         sit: 바로 엎드림. settle (나): 명령 0 으로 정책을 계속 돌리며 정렬을 기다렸다가 엎드림, 못 맞춰도 엎드림 (sit · 15:18 확인 길).
-        settle 은 stand 로 가지 않는다 (팀장 11/23 10:04: 모터 긁힘 소리 다시 나면 안 됨 · stand 는 매단 시험 뒤에만 고르는 옵션).
+        settle 은 stand 로 가지 않는다 (팀장 11/23 10:04: 모터 소리 다시 나면 안 됨 · stand 는 팀장이 고를 때만).
         stand (가): 서 있는 채 순정 넘김 → BalanceStand (순정이 발을 굴러 중심을 맞춤) → lie 면 StandDown."""
         if self.phase is not Phase.POLICY or self.stop_mode == 'sit':
             self.sit_down()
@@ -444,7 +444,7 @@ class LowLevelRunner:
     def stand_handover(self, *, lie=True) -> bool:
         """(가) 서 있는 채 순정 넘김. 순정이 붙을 때까지 마지막 정책 목표를 200 Hz 로 잡고 (뒤 스레드), 붙은 것을 보면 바로 놓는다.
         HANDOVER_GAP: 우리 마지막 LowCmd 부터 순정이 붙은 것을 본 때까지 (ms, 이 PC 의 시계). 순정 첫 제어까지의 실제 틈은 펌웨어 안이라 미확인.
-        11/22 14:46 실기: 선 채로 잡은 채 넘길 때 SelectMode 가 2~3 초 막히는 동안 긁히는 소리가 났다 (그래서 기본은 sit)."""
+        11/22 14:27~14:46 의 잡은 채 넘긴 판은 붙은 뒤 RecoveryStand 를 보냈고 그때 갈리는 소리가 났다 (원인 미확인). 이 길은 BalanceStand 를 쓴다 · 실기 0 회 · 기본은 sit."""
         hold_q = self.target.copy()
         stop, last = threading.Event(), [time.monotonic()]
         def holder():
@@ -521,7 +521,7 @@ class LowLevelRunner:
         11/22 14:25 실기: 감쇠부터 하면 SelectMode 가 1~3 초 걸리는 동안 선 채로 힘이 빠져 몸이 뒤집혔다.
         그래서 순정이 붙을 때까지 기본 자세를 200 Hz 로 계속 잡고 (뒤 스레드), 붙은 것을 확인하면 바로 놓는다.
         끝내 안 붙으면 그때 감쇠."""
-        # 11/22 14:46 실기: 선 채로 자세를 잡은 채 넘기면 SelectMode 가 2~3 초 막혀 있는 동안 순정과 겹쳐 긁히는 소리.
+        # 11/22 14:27~14:46 실기: 잡은 채 넘긴 판에서 순정이 붙은 뒤 RecoveryStand 로 앉았다 일어설 때 갈리는 소리 (원인 미확인: 겹침인지 순정 동작인지).
         # 그래서 먼저 우리가 천천히 앉히고 감쇠한 뒤 넘긴다 (순정은 엎드린 상태에서 붙고 RecoveryStand 로 일어섬).
         if self.phase in (Phase.POLICY, Phase.STANDING_UP) and self.lower(lie=False):
             # (가) 이미 서 있는 채 순정에 붙음 (BalanceStand) → RecoveryStand 없이 보행만
