@@ -1,0 +1,9 @@
+# BuildKit: build context for server.Dockerfile only (repo root). Send only what it copies.
+**
+!apps/server/**
+!apps/contracts/**
+!apps/simmgr/worlds/**
+!deploy/local/init_db.py
+**/.venv
+**/__pycache__
+**/node_modules

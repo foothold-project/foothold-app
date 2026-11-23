@@ -169,6 +169,11 @@ Jetson의 현재 주소가 예약 주소로 거부되면 주소를 임의 변경
 
 ## 자동 시작 켜기·끄기와 기록
 
+자동 시작은 **기본 꺼짐 (opt-in)** 이다. 설치 · 수동 실행은 사용자 서비스를 등록하지 않는다.
+켜면 부팅 · 로그인 때 사람 없이 DDS 참가와 서버 연결이 생긴다 (11/19 22:16 실제로 떠 로봇 명령을 낼 수 있었음).
+팀장이 정한 경우에만 켜고, 현장 작업이 끝나면 끈다. 켜져 있는지는
+`systemctl --user is-enabled foothold-robot.service` 로 본다 (`enabled` 면 켜짐).
+
 ```sh
 sh "${HOME:?}/foothold-robot/enable-autostart.sh"
 sh "${HOME:?}/foothold-robot/disable-autostart.sh"
