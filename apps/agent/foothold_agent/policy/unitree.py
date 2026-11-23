@@ -49,6 +49,12 @@ class UnitreeSdk:
         return (stamp, tuple(s.imu_state.quaternion), tuple(s.imu_state.gyroscope),
                 np.array([ms[i].q for i in range(12)]), np.array([ms[i].dq for i in range(12)]), bytes(s.wireless_remote))
 
+    def motor_tau(self):
+        """LowState.motor_state[i].tau_est (SDK 순서 · 기록용)."""
+        with self._lock:
+            s = self._state
+        return [float(s.motor_state[i].tau_est) for i in range(12)] if s is not None else None
+
     def foot_force(self):
         """LowState.foot_force (SDK 순서 FR · FL · RR · RL · 원시 값 · 검증 안 된 값이라 정책 입력에는 안 씀)."""
         with self._lock:

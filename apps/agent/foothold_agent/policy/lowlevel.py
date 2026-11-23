@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .trace import r4
 from .start import EST_VX, DEFAULT_POSE, KD, KP, POLICY_FROM_SDK, SDK_FROM_POLICY, joint_targets, observation, projected_gravity
 
 STAND_KP, STAND_KD = 60., 5.
@@ -30,7 +31,8 @@ STAND_SEC, BLEND_SEC = 2.5, 1.0
 CMD_HZ, POLICY_HZ = 200, 50
 STALE_S = .05
 FALL_GRAV_Z, FALL_HOLD_S = -.5, .5
-CAPS = {'vx': (-1.3, 1.5), 'vy': (-.5, .5), 'wz': (-1.2, 1.2)}
+CAPS = {'vx': (-1.3, 1.5), 'vy': (-.8, .8), 'wz': (-1.5, 1.5)}   # 축 하나만 쓸 때의 끝. 섞을 때는 shape_command
+LIVENESS_S = 1.0   # LowState 가 이만큼 끊기면 엎드린 뒤 순정 (팀장 11/22 결정 11). 그 전까지는 마지막 목표를 잡고 기다림
 # 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
 SLEW_UP, SLEW_DOWN = (1.5, .5, 2.4), (3.75, 1.25, 3.)
 SIT_WAIT_S = 3.0
@@ -64,14 +66,55 @@ def parse_remote(raw: bytes) -> Remote:
     return Remote(frozenset(k for i, k in enumerate(KEYS) if bits >> i & 1), lx, ly, rx, ry)
 
 
+GAP = .05   # 이 안의 축은 0 으로 본다 (막대 죽은 띠와 같음)
+
+
+def shape_command(vx, vy, wz):
+    """학습에 있던 명령 꼴만 남긴다 (팀장 11/22 결정 10 · lead 11/23 09:41 정본 표 · planner plan 811~840 · mixed_core.py 286~327).
+    전진 (0, 1.5] · 뒤 [-1.3, 0) · 제자리 회전 |wz| 1.5 · 옆: vx 0 이면 0.8, 0.3 ≤ |vx| ≤ 0.6 이면 0.5, 0.6 위 0 ·
+    회전: vx 0 · vy 0 이면 1.5, vx < 0 또는 vy ≠ 0 이면 0.6, 0.3 ≤ vx ≤ 1.2 이면 1.0, 1.2 위 0 ·
+    학습에 없는 틈 (0.05 < |vx| < 0.3 에 다른 축 섞임) 은 가장 큰 축 하나만 남김. 돌려줌: (명령 3, 표지 none · clip · gap)."""
+    want = [float(vx), float(vy), float(wz)]
+    v = [0. if abs(x) <= GAP else x for x in want]
+    mark = 'none'
+    if GAP < abs(v[0]) < .3 - 1e-4 and (v[1] or v[2]):
+        k = max(range(3), key=lambda i: abs(v[i]))
+        v = [x if i == k else 0. for i, x in enumerate(v)]
+        mark = 'gap'
+    x = min(max(v[0], CAPS['vx'][0]), CAPS['vx'][1])
+    ax = abs(x)
+    e = 1e-4   # 막대 float32 반올림 (0.4 × 1.5 = 0.6000000238) 이 경계를 넘지 않게
+    ycap = .8 if x == 0 else .5 if .3 - e <= ax <= .6 + e else 0. if ax > .6 + e else .8
+    y = min(max(v[1], -ycap), ycap)
+    if x == 0 and y == 0:
+        zcap = 1.5
+    elif x < 0 or y != 0:
+        zcap = .6
+    elif .3 - e <= x <= 1.2 + e:
+        zcap = 1.
+    elif x > 1.2 + e:
+        zcap = 0.
+    else:
+        zcap = 1.5   # 틈에서 vx 하나만 남은 경우 (wz 는 이미 0)
+    z = min(max(v[2], -zcap), zcap)
+    out = [x, y, z]
+    if mark == 'none' and any(abs(a - b) > 1e-6 for a, b in zip(out, v)):
+        mark = 'clip'
+    return np.array(out, np.float32), mark
+
+
 def command_from_remote(r: Remote) -> np.ndarray:
-    """왼 막대 앞뒤 · 좌우 = vx · vy, 오른 막대 좌우 = wz (시뮬 손 조종과 같은 뜻). 막대 끝 = 학습 상한."""
-    def axis(v, lo, hi):
+    """왼 막대 앞뒤 · 좌우 = vx · vy, 오른 막대 좌우 = wz (시뮬 손 조종과 같은 뜻). 막대 끝 = 축 하나만 쓸 때의 학습 끝, 섞으면 shape_command 가 자름."""
+    return shape_command(*remote_want(r))[0]
+
+
+def remote_want(r: Remote):
+    """막대가 바라는 값 (자르기 전)."""
+    def unit(v):
         v = float(np.clip(v, -1, 1))
-        if abs(v) < STICK_DEADBAND:   # 막대 중립 떨림은 0 (11/22 실기: 멈춤 기록이 88 번 새로 시작됨)
-            return 0.
-        return v * hi if v >= 0 else -v * lo
-    return np.array([axis(r.ly, *CAPS['vx']), axis(-r.lx, *CAPS['vy']), axis(-r.rx, *CAPS['wz'])], np.float32)
+        return 0. if abs(v) < STICK_DEADBAND else v   # 막대 중립 떨림은 0 (11/22 실기: 멈춤 기록이 88 번 새로 시작됨)
+    fx, fy, fz = unit(r.ly), unit(-r.lx), unit(-r.rx)
+    return fx * (CAPS['vx'][1] if fx >= 0 else -CAPS['vx'][0]), fy * CAPS['vy'][1], fz * CAPS['wz'][1]
 
 
 def remote_active(r: Remote) -> bool:
@@ -80,8 +123,8 @@ def remote_active(r: Remote) -> bool:
 
 
 def command_from_app(vel) -> np.ndarray:
-    """앱 속도를 리모컨과 같은 학습 상한으로 자른다."""
-    return np.array([np.clip(v, -CAPS[k][0], CAPS[k][1]) for v, k in zip(vel, ('vx', 'vy', 'wz'))], np.float32)
+    """앱 속도를 리모컨과 같은 학습 꼴로 자른다."""
+    return shape_command(*vel)[0]
 
 
 class Phase(enum.Enum):
@@ -104,9 +147,11 @@ class LowLevelRunner:
        low_state() -> (stamp_s, quat_wxyz, gyro, q_sdk[12], dq_sdk[12], remote_bytes) · send(q, dq, kp, kd, tau) (SDK 순서 12 개씩) ·
        stand_down() · release_mode() · check_mode() -> str · select_mode(name) · recovery_stand() · balance_stand()"""
 
-    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False, sit_first=False, app=None):
+    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False, sit_first=False, app=None, trace=None):
         self.sdk, self.policy, self.live, self.clock, self.on_event = sdk, policy, live, clock, on_event
         self.app = app   # applink.AppLink 또는 None (앱 명령 끔)
+        self.trace = trace   # trace.TraceWriter 또는 None · START 가 켜진 동안 50 Hz 한 줄씩
+        self.stale_since = None
         self.sport_mode, self.stand_only, self.sit_first = sport_mode, stand_only, sit_first   # stand_only: 일어선 뒤 정책 없이 기본 자세만 (첫 실기 · 관절 순서 확인)
         self.phase = Phase.HIGH
         self.target = DEFAULT_POSE.copy()
@@ -116,7 +161,6 @@ class LowLevelRunner:
         self._ame2_held = False
         self.stop_trace = None   # 명령이 0 이 된 순간부터 2 초: 발 힘 · 기울기 · 관절 (lead 11/22 14:16 · 멈출 때 마지막 발 비교용)
         self.last_out = {}
-        self.start_trace = None  # 서 있다가 명령이 처음 들어간 순간부터 2 초 · 50 Hz (lead 11/22 16:47 · 「팍 튀어나감」 견주기)
         self.fall_since = None
         self.events: list[Event] = []
         self.sent = 0
@@ -209,8 +253,15 @@ class LowLevelRunner:
                 self.damp('remote L2+B')
             return s
         if s['stale'] and self.phase in (Phase.STANDING_UP, Phase.POLICY):
-            self.damp('low_state stale')
+            # 짧게 끊기면 마지막 목표를 잡고 기다린다 (hold 가 200 Hz 로 다시 보냄). LIVENESS_S 넘으면 엎드린 뒤 순정 (팀장 결정 11).
+            self.stale_since = self.stale_since or self.clock()
+            if self.clock() - self.stale_since >= LIVENESS_S:
+                self.emit('LIVENESS_LOST', seconds=round(self.clock() - self.stale_since, 2))
+                self.stale_since = None
+                self.sit_down(blind=True)
+                self.to_high()
             return s
+        self.stale_since = None
         if self.phase is Phase.POLICY and self.fallen(s):
             self.damp('fall')
             self.emit('ROBOT_FALL', grav_z=float(s['grav'][2]))
@@ -287,11 +338,12 @@ class LowLevelRunner:
         if self.stand_only:
             self._send(DEFAULT_POSE, KP, KD)
             return
-        goal, dt = command_from_remote(s['remote']), 1. / POLICY_HZ
+        want, dt = remote_want(s['remote']), 1. / POLICY_HZ
         app_vel = self.app.velocity() if self.app is not None else None
         if app_vel is not None and not remote_active(s['remote']):
-            goal = command_from_app(app_vel)   # 리모컨이 중립일 때만 앱 속도. 0.3 초 끊기면 None → 0 으로 감속
-        still = not np.abs(self.cmd).max() > .05
+            want = app_vel   # 리모컨이 중립일 때만 앱 속도. 0.3 초 끊기면 None → 0 으로 감속
+        goal, self.shape_mark = shape_command(*want)
+        self.want = want
         for i in range(3):   # 시뮬과 같은 명령 변화 상한
             slowing = abs(goal[i]) < abs(self.cmd[i]) or self.cmd[i] * goal[i] < 0
             lim = (SLEW_DOWN if slowing else SLEW_UP)[i] * dt
@@ -307,21 +359,21 @@ class LowLevelRunner:
         target = np.clip(joint_targets(action), DEFAULT_POSE - TARGET_SPAN, DEFAULT_POSE + TARGET_SPAN)
         self.target = target
         self._send(target, KP, KD)
-        self._trace_start(still, goal, s)
+        if self.trace is not None:
+            self.trace.write(self.trace_row(s, goal))
 
-    def _trace_start(self, still, goal, s):
-        if self.start_trace is None and still and np.abs(goal).max() > .05:
-            self.start_trace = {'t0': self.clock(), 'rows': []}
-        if self.start_trace is not None:
-            r, ff = s['remote'], getattr(self.sdk, 'foot_force', lambda: [])()
-            r3 = lambda v: [round(float(x), 3) for x in v]
-            # t · 막대 원값 (lx ly rx) · 한도 전 목표 · 한도 뒤 명령 (정책 입력) · 몸 각속도 · 중력 · 관절 목표 · 발 힘 · 전진 속도 추정 (보정 전 · 후, 기록용 ONNX 일 때만, 아니면 null)
-            est = [round(float(np.asarray(self.last_out[k]).reshape(-1)[EST_VX]), 4) if k in self.last_out else None for k in ('est_raw', 'est')]
-            self.start_trace['rows'].append([round(self.clock() - self.start_trace['t0'], 3), r3((r.lx, r.ly, r.rx)), r3(goal), r3(self.cmd),
-                                             r3(s['gyro']), r3(s['grav']), r3(self.target), list(ff), est])
-            if self.clock() - self.start_trace['t0'] >= 2.:
-                self.emit('START_TRACE', **self.start_trace)
-                self.start_trace = None
+    def trace_row(self, s, goal=None):
+        """기록 한 줄 (정책 순서 관절). 순정 읽기 전용 기록도 같은 꼴 (goal · cmd · target · est 는 null)."""
+        r = s['remote']
+        tau = getattr(self.sdk, 'motor_tau', lambda: None)()
+        est = [round(float(np.asarray(self.last_out[k]).reshape(-1)[EST_VX]), 4) if k in self.last_out else None for k in ('est_raw', 'est')]
+        low = self.phase is Phase.POLICY
+        return {'t': round(self.clock(), 4), 'phase': self.phase.value, 'stick': r4((r.lx, r.ly, r.rx)), 'keys': sorted(r.keys),
+                'want': r4(getattr(self, 'want', None)) if low else None, 'shape': getattr(self, 'shape_mark', None) if low else None,
+                'goal': r4(goal) if low else None, 'cmd': r4(self.cmd) if low else None, 'target': r4(self.target) if low else None,
+                'q': r4(s['q']), 'dq': r4(s['dq']), 'tau': r4(np.asarray(tau)[POLICY_FROM_SDK]) if tau is not None else None,
+                'foot': list(getattr(self.sdk, 'foot_force', lambda: [])()), 'gyro': r4(s['gyro']), 'grav': r4(s['grav']),
+                'est_vx': est if low else None}
 
     def _trace_stop(self, goal, s):
         moving = bool(np.abs(self.cmd).max() > .05)
@@ -335,6 +387,13 @@ class LowLevelRunner:
                 self.emit('STOP_TRACE', **self.stop_trace)
                 self.stop_trace = None
 
+    def shutdown(self):
+        """끝날 때도 선 채 감쇠하지 않는다 (11/22 20:27 실기: 선 채 감쇠 → 주저앉음). 천천히 엎드린 뒤 순정 (팀장 결정 11)."""
+        if self.phase in (Phase.POLICY, Phase.STANDING_UP):
+            self.emit('EXIT_SIT_DOWN')
+            self.sit_down()
+            self.to_high()
+
     def hold(self):
         """정책 사이 (200 Hz) 마지막 목표 다시 보내기."""
         if self.phase is Phase.POLICY:
@@ -347,8 +406,9 @@ class LowLevelRunner:
         self.emit('ROBOT_FALL_RECOVERY_STAND')
         self.phase = Phase.HIGH
 
-    def sit_down(self):
-        """지금 자세에서 엎드린 자세로 2 초 보간 → 감쇠. 서 있는 채로 감쇠하면 다리가 이상하게 접힌다 (11/22 실기)."""
+    def sit_down(self, blind=False):
+        """지금 자세에서 엎드린 자세로 2 초 보간 → 감쇠. 서 있는 채로 감쇠하면 다리가 이상하게 접힌다 (11/22 실기).
+        blind: LowState 가 끊긴 채로 (마지막으로 받은 관절 각에서) 끝까지 보간한다 (생존 신호 끊김 · 팀장 결정 11)."""
         s0, t0 = self.read(), self.clock()
         start = s0['q'].copy()
         self.phase = Phase.STANDING_UP   # 보간 중 (L2 + B · 끊김이면 감쇠)
@@ -356,7 +416,7 @@ class LowLevelRunner:
         while True:
             a = min(1., (self.clock() - t0) / SIT_SEC)
             st = self.read()
-            if {'L2', 'B'} <= st['remote'].keys or st['stale']:
+            if {'L2', 'B'} <= st['remote'].keys or (st['stale'] and not blind):
                 break
             self._send(start + (SIT_POSE - start) * (a * a * (3 - 2 * a)), KP, KD)
             if a >= 1.:

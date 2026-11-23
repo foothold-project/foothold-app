@@ -66,7 +66,32 @@ def rig(monkeypatch):
 def test_remote_bytes_and_command_caps():
     r = parse_remote(remote('up', 'start', ly=1., lx=-1., rx=1.))
     assert {'up', 'start'} <= r.keys and 'B' not in r.keys
-    assert np.allclose(command_from_remote(r), [1.5, .5, -1.2])
+    assert np.allclose(command_from_remote(r), [1.5, 0., 0.])      # 전진 1.5 위 옆 · 회전은 학습에 없음 → 0
+
+
+@pytest.mark.parametrize('want,got,mark', [
+    ((0., .8, 0.), (0., .8, 0.), 'none'),          # 옆만 0.8
+    ((0., 0., 1.5), (0., 0., 1.5), 'none'),        # 제자리 회전 1.5
+    ((-1.3, 0., 0.), (-1.3, 0., 0.), 'none'),      # 뒤 1.3
+    ((.29, .6, 0.), (0., .6, 0.), 'gap'),          # 틈: 큰 축 하나 (옆걸음)
+    ((.2, 0., .9), (0., 0., .9), 'gap'),           # 틈: 제자리 회전
+    ((.29, 0., 0.), (.29, 0., 0.), 'none'),        # 전진만은 틈 아님
+    ((.31, .8, 0.), (.31, .5, 0.), 'clip'),        # 0.3 위 옆 0.5
+    ((.59, .8, 0.), (.59, .5, 0.), 'clip'),
+    ((.61, .8, 0.), (.61, 0., 0.), 'clip'),        # 0.6 위 옆 0
+    ((.31, 0., 1.5), (.31, 0., 1.), 'clip'),       # 걸으며 회전 1.0
+    ((1.19, 0., 1.5), (1.19, 0., 1.), 'clip'),
+    ((1.21, 0., 1.), (1.21, 0., 0.), 'clip'),      # 1.2 위 회전 0
+    ((-.5, 0., 1.), (-.5, 0., .6), 'clip'),        # 뒤 + 회전 0.6
+    ((0., .5, 1.), (0., .5, .6), 'clip'),          # 옆 + 회전 0.6
+    ((.04, .03, 0.), (0., 0., 0.), 'none'),        # 죽은 띠
+    ((3., 0., 0.), (1.5, 0., 0.), 'clip'),
+])
+def test_shape_command_training_table(want, got, mark):
+    from foothold_agent.policy.lowlevel import shape_command, command_from_app
+    out, m = shape_command(*want)
+    assert np.allclose(out, got) and m == mark
+    assert np.allclose(command_from_app(want), got)
 
 
 def test_dry_run_never_touches_robot(rig):
@@ -105,7 +130,13 @@ def test_l2_b_damps_and_stale_state_damps(rig):
     orig = sdk.low_state
     sdk.low_state = lambda: (clock.t - 1.,) + orig()[1:]
     run2.tick()
-    assert run2.phase is Phase.DAMPING and run2.events[-1].data['reason'] == 'low_state stale'
+    assert run2.phase is Phase.POLICY                                     # 짧은 끊김: 마지막 목표를 잡고 기다림
+    clock.t += lowlevel.LIVENESS_S + .1
+    run2.tick()                                                            # 1 초 넘게 끊김: 엎드린 뒤 순정
+    codes = [e.code for e in run2.events]
+    assert codes[:3] == ['LIVENESS_LOST', 'SIT_DOWN', 'DAMPING'] and run2.phase is Phase.HIGH and 'MODE_HIGH' in codes
+    sit = [q for q, kp, kd in sdk.sent if kp == lowlevel.KP]
+    assert np.allclose(sit[-1], lowlevel.SIT_POSE[SDK_FROM_POLICY], atol=1e-3)   # 끊긴 채로도 끝까지 엎드림
 
 
 def test_fall_damps_switches_high_and_recovery_stands(rig):
@@ -303,33 +334,68 @@ def test_applink_udp_loopback_only():
         app.close()
 
 
-def test_start_trace_two_seconds_from_first_command(rig):
+def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
+    import json as js
+    from foothold_agent.policy.trace import TraceWriter
     clock, sdk = rig
-    run = LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock)
-    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
-    for _ in range(10): clock.t += .02; run.tick()                 # 서 있음 · 기록 없음
-    assert run.start_trace is None
-    fwd = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., .4) + bytes(14)
-    orig = sdk.low_state
-    sdk.low_state = lambda: orig()[:5] + (fwd,)
-    for _ in range(120): clock.t += .02; run.tick()
-    tr = [e for e in run.events if e.code == 'START_TRACE']
-    assert len(tr) == 1
-    rows = tr[0].data['rows']
-    assert rows[0][1][1] == .4 and np.isclose(rows[0][2][0], .6) and np.isclose(rows[0][3][0], .03)   # 막대 .4 → 목표 .6 → 한 틱 .03
-    assert rows[-1][0] >= 2. and len(rows[0]) == 9 and rows[0][8] == [None, None]   # 정본 ONNX 는 추정 출력 없음
-
-
-def test_start_trace_records_est_from_debug_onnx(rig):
-    clock, sdk = rig
+    sdk.motor_tau = lambda: list(range(12))
     class EstPolicy(FakePolicy):
         def run(self, feed):
             est = np.zeros((1, 51), np.float32); est[0, 16] = .25
             return {'action': np.zeros((1, 12), np.float32), 'est_raw': est + .01, 'est': est}
-    run = LowLevelRunner(sdk, EstPolicy(), live=False, clock=clock)
+    tw = TraceWriter(tmp_path, 'start')
+    run = LowLevelRunner(sdk, EstPolicy(), live=False, clock=clock, trace=tw)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
-    fwd = b'\x55\x51' + struct.pack('<H5f', 0, 0., 0., 0., 0., .4) + bytes(14)
+    fwd = b'\x55\x51' + struct.pack('<H5f', 0, -1., 0., 0., 0., .4) + bytes(14)   # 앞 0.4 + 옆 끝
     orig = sdk.low_state
     sdk.low_state = lambda: orig()[:5] + (fwd,)
-    for _ in range(3): clock.t += .02; run.tick()
-    assert run.start_trace['rows'][0][8] == [.26, .25]
+    for _ in range(5): clock.t += .02; run.tick()
+    tw.close()
+    rows = [js.loads(l) for l in tw.path.read_text().splitlines()]
+    r = rows[0]
+    assert len(rows) == 5 and r['phase'] == 'policy' and r['stick'][1] == .4
+    assert np.allclose(r['want'], [.6, .8, 0.]) and np.allclose(r['goal'], [.6, .5, 0.]) and r['shape'] == 'clip'
+    assert np.isclose(r['cmd'][0], .03) and len(r['target']) == 12
+    assert r['tau'][0] == 3 and r['est_vx'] == [.26, .25] and r['foot'] == [10, 20, 30, 40]
+
+
+def test_trace_stops_at_disk_cap_without_deleting(tmp_path):
+    from foothold_agent.policy.trace import TraceWriter
+    (tmp_path / 'old.jsonl').write_bytes(b'x' * 900)
+    full = []
+    tw = TraceWriter(tmp_path, 'start', max_total_bytes=1000, max_file_bytes=40, on_full=lambda: full.append(1))
+    for i in range(30):
+        tw.write({'i': i})
+    assert full == [1] and (tmp_path / 'old.jsonl').exists() and tw.total <= 1000
+    assert len(list(tmp_path.glob('start-*.jsonl'))) >= 2                # 파일 나눔
+
+
+def test_shutdown_sits_down_before_factory(rig):
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    run.tick()
+    run.shutdown()
+    codes = [e.code for e in run.events]
+    i = codes.index('EXIT_SIT_DOWN')
+    assert codes[i:i + 3] == ['EXIT_SIT_DOWN', 'SIT_DOWN', 'DAMPING'] and run.phase is Phase.HIGH and codes[-1] == 'MODE_HIGH'
+    assert run.events[i + 2].data == {'reason': 'sat down'}                 # 감쇠는 엎드린 뒤에만
+    high = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock); n = len(sdk.sent)
+    high.shutdown()
+    assert len(sdk.sent) == n and high.events == []                         # 순정이면 아무것도 안 보냄
+
+
+def test_factory_record_row_is_read_only_and_same_shape():
+    from types import SimpleNamespace as NS
+    from foothold_agent.policy import factory_record
+    import ast
+    names = {a.name for n in ast.walk(ast.parse(open(factory_record.__file__).read())) if isinstance(n, ast.ImportFrom) for a in n.names}
+    assert not names & {'ChannelPublisher', 'SportClient', 'MotionSwitcherClient', 'UnitreeSdk'}   # 명령을 보낼 길이 없음
+    m = [NS(q=i * .1, dq=0., tau_est=float(i)) for i in range(12)]
+    low = NS(motor_state=m, wireless_remote=remote(ly=.5), foot_force=[1, 2, 3, 4],
+             imu_state=NS(gyroscope=[0, 0, .1], quaternion=[1, 0, 0, 0]))
+    sport = NS(mode=3, gait_type=1, body_height=.32, velocity=[.5, 0, 0], yaw_speed=0.)
+    r = factory_record.row(low, 99.98, sport, 'classic', 100.)
+    assert r['phase'] == 'factory' and r['label'] == 'classic' and r['stick'][1] == .5 and r['tau'][0] == 3.   # 정책 순서 (FL hip = SDK 3)
+    assert r['sport'] == {'mode': 3, 'gait': 1, 'height': .32, 'vel': [.5, 0., 0.], 'yaw_speed': 0.} and r['stale'] is False
+    assert set(r) >= {'q', 'dq', 'tau', 'foot', 'gyro', 'grav', 'want', 'shape', 'goal', 'cmd', 'target', 'est_vx'}
