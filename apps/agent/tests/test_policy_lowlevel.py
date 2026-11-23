@@ -665,3 +665,11 @@ def test_transition_rows_recorded_without_changing_motion(rig, tmp_path):
     rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r]
     assert any(r['phase'] == 'standing_up' and r['target'] for r in rows)
     assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp == lowlevel.KP)
+
+
+def test_depth_health_latency_fields():
+    """팀장 11/23 21:03: 깊이 찍힘 → 받기 지연을 1 초마다 p50 · p95 · 최대로."""
+    from foothold_agent.policy.depth_health import summarize
+    r = summarize([0., .033, .066], [[640, 480]], [.1], 0., lat_ms=[40., 50., 60., 45.])
+    assert r['lat_ms_p50'] == 50. and r['lat_ms_max'] == 60. and r['frames'] == 3
+    assert 'lat_ms_p50' not in summarize([0., .033], [[640, 480]], [.1], 0.)
