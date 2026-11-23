@@ -27,6 +27,7 @@ struct FakeRobot final : Robot {
     bool factory = true, attach_on_select = true, acknowledge_select = true;
     int writes = 0, calls = 0, recovery = 0, gaits = 0;
     float position_gain = 0, velocity_gain = 0;
+    Joints last_target{};
 
     RobotMode check_mode() override {
         ++calls;
@@ -40,9 +41,10 @@ struct FakeRobot final : Robot {
     }
     void recovery_stand() override { ++calls; ++recovery; }
     bool select_gait(Gait) override { ++calls; ++gaits; return true; }
-    void send(const Joints&, float p, float d) override {
+    void send(const Joints& q, float p, float d) override {
         require(!factory, "LowCmd and factory control overlapped");
         ++writes;
+        last_target = q;
         position_gain = p;
         velocity_gain = d;
     }
@@ -122,14 +124,15 @@ int main() {
         require(dry.runner.phase() == Phase::damping, "L2+A must latch while held");
         dry.tick();
         dry.tick(lie);
-        dry.wait(3500ms);
+        dry.wait(4500ms);
+        require(dry.runner.phase() == Phase::policy, "resting recovery did not return to policy");
         dry.tick(emergency);
         require(dry.runner.phase() == Phase::damping, "L2+B did not preempt inference");
         dry.tick(classic);
         require(dry.runner.phase() == Phase::high, "factory gait return failed");
         require(dry.robot.calls == 0 && dry.robot.writes == 0, "dry-run accessed a write path");
         require(dry.events.ordered({Event::mode_low, Event::policy_start, Event::sit_down,
-                                    Event::damping, Event::policy_start, Event::damping,
+                                    Event::damping, Event::stand_fold, Event::policy_start, Event::damping,
                                     Event::factory_handover, Event::mode_high, Event::factory_gait}),
                 "remote event order differs from Python");
     }
@@ -243,6 +246,29 @@ int main() {
         require(dry.events.ordered({Event::depth_lost, Event::sit_down, Event::damping,
                                     Event::mode_high}), "depth loss must leave reconstruction safely");
         require(dry.robot.calls == 0 && dry.robot.writes == 0, "depth loss accessed robot in dry-run");
+    }
+    {
+        Rig live(true);
+        live.enter();
+        live.tick(lie);
+        live.wait(2s, lie);
+        live.tick();
+        live.state.orientation = {0.8660254f, 0.5f, 0, 0};
+        const auto before_refusal = live.robot.writes;
+        live.tick(lie);
+        require(live.runner.phase() == Phase::damping && live.events.seen.back() == Event::stand_refused,
+                "60 degree tilt must refuse standing up");
+        require(live.robot.writes == before_refusal, "tilt refusal sent a command");
+        live.tick();
+        live.state.orientation = {1, 0, 0, 0};
+        live.state.q.fill(0);
+        live.tick(lie);
+        live.wait(1s);
+        require(live.robot.last_target == to_sdk(sit_pose), "one-second fold must reach SIT_POSE");
+        require(live.robot.position_gain == 60 && live.robot.velocity_gain == 5,
+                "fold gains differ from Python");
+        live.wait(3500ms);
+        require(live.runner.phase() == Phase::policy, "fold did not continue through stand and gain blend");
     }
     {
         Rig live(true);

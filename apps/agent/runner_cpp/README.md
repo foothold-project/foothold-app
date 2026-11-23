@@ -1,6 +1,6 @@
 > 분류: 앱 · 에이전트 · 실행기
 > 작성: Codex 세션 (오흥재 지시, app-code) · 2026-11-23
-> 근거: foothold-app #473 · Python PR #472의 `c24155bb9fe29aa19cdb37336ea86bb295a4db2a` · start-m15500 정책 계약
+> 근거: foothold-app #473 · Python PR #472의 `c24155bb9fe29aa19cdb37336ea86bb295a4db2a` · 재기립 보완 `16f2dd6f` · start-m15500 정책 계약
 > 요지: C++ 실행기 빌드, 행위 대조, 송신 없는 검증 절차
 > 상태: 검증용 · 실기 송신 및 운영 전환은 별도 승인
 
@@ -8,7 +8,7 @@
 
 제어 스레드는 LowState를 읽고 리모컨·생존 신호·모드 우선순위를 판정하며 5 ms 간격으로 LowCmd를 처리한다. ONNX 추론은 별도 스레드에서 20 ms마다 요청한다. 추론이 늦으면 마지막 목표를 유지하며 밀린 요청을 몰아 실행하지 않는다. 앉기나 감쇠로 전환하기 전에 걸린 추론의 결과는 폐기한다. 기록 스레드는 고정 크기 링을 비우고 이벤트와 50 Hz 정책 표본을 JSONL로 기록한다. 파일당 50 MB, 폴더당 2 GB에서 제한하고 이전 기록은 보존한다.
 
-순정에서 진입할 때는 신선한 LowState와 리모컨 위 + Start가 필요하다. 제어를 되돌릴 때 마지막 감쇠 이후 LowCmd를 중단하고, MotionSwitcher가 요청한 모드를 확인한 후에 순정 복귀를 기록한다. dry-run은 LowState만 구독하며 LowCmd 발행자와 MotionSwitcher·SportClient를 생성하지 않는다. 운영 START 표시 파일은 live 모드에서만 바뀐다.
+순정에서 진입할 때는 신선한 LowState와 리모컨 위 + Start가 필요하다. 감쇠 상태에서 다시 설 때는 1초 동안 접은 자세로 다리를 모은 뒤 일어선다. 몸 기울기가 25°를 넘으면 재기립을 거부한다. 제어를 되돌릴 때 마지막 감쇠 이후 LowCmd를 중단하고, MotionSwitcher가 요청한 모드를 확인한 후에 순정 복귀를 기록한다. dry-run은 LowState만 구독하며 LowCmd 발행자와 MotionSwitcher·SportClient를 생성하지 않는다. 운영 START 표시 파일은 live 모드에서만 바뀐다.
 
 ## 빌드와 시험
 

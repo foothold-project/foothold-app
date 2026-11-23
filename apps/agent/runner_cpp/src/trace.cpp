@@ -25,6 +25,7 @@ const char* phase_name(Phase phase) {
     switch (phase) {
     case Phase::high: return "high";
     case Phase::acquiring: return "acquiring";
+    case Phase::folding:
     case Phase::standing: return "standing_up";
     case Phase::policy: return "policy";
     case Phase::sitting: return "sitting";
@@ -94,6 +95,12 @@ std::string line(const Row& row) {
             out << ",\"reason\":\"" << row.info.text << '"';
         if (row.event == Event::policy_start)
             out << ",\"mode\":\"" << row.info.text << '"';
+        if (row.event == Event::stand_fold)
+            out << ",\"sec\":" << row.info.value;
+        if (row.event == Event::stand_refused)
+            out << ",\"reason\":\"" << row.info.text << "\",\"tilt_deg\":"
+                << std::round(row.info.value * 10) / 10;
+
         if (row.event == Event::liveness_lost)
             out << ",\"seconds\":" << row.info.value;
         if (row.event == Event::robot_fall)

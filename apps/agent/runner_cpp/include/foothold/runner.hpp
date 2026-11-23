@@ -8,11 +8,11 @@
 namespace foothold {
 
 using Tick = std::chrono::steady_clock::time_point;
-enum class Phase { high, acquiring, standing, policy, sitting, damping, returning, recovering };
+enum class Phase { high, acquiring, folding, standing, policy, sitting, damping, returning, recovering };
 enum class RobotMode { low, factory, unknown };
 enum class Gait { none, free_walk, classic };
 enum class Event {
-    mode_low, policy_start, sit_down, damping, liveness_lost, depth_lost, robot_fall,
+    mode_low, stand_fold, stand_refused, policy_start, sit_down, damping, liveness_lost, depth_lost, robot_fall,
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
     inference_failed, ame2_unavailable
@@ -101,7 +101,7 @@ public:
 private:
     void send(const Joints&, float position_gain, float velocity_gain);
     void damp(Tick, const char* reason);
-    void start(Tick, const Joints&);
+    void start(Tick, const Joints&, const Vec3& gravity);
     void sit(Tick, const Joints&, bool blind);
     void acquire(Tick, const Joints&);
     void return_to_factory(Tick);
@@ -110,6 +110,7 @@ private:
     void recover_gait(Tick);
     void collect(Tick);
     void infer(Tick, Tick, const LowState&, const Vec3&, const Joints&, const Depth*);
+    void fold(Tick);
     void interpolate(Tick, Tick, bool standing);
 
     Robot& robot_;
@@ -119,7 +120,7 @@ private:
     Memory memory_;
     Phase phase_ = Phase::high;
     Gait gait_ = Gait::none;
-    bool fall_recovery_ = false, return_after_sit_ = false, blind_sit_ = false;
+    bool restand_ = false, fall_recovery_ = false, return_after_sit_ = false, blind_sit_ = false;
     bool lie_latched_ = false, ame2_latched_ = false;
     bool shutdown_ = false, stopped_ = false, confirm_return_ = false;
     int attempts_ = 0;

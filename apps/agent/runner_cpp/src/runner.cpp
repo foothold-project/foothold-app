@@ -20,6 +20,14 @@ constexpr int left_button = 1 << 15;
 bool pressed(std::uint16_t keys, int mask) { return (keys & mask) == mask; }
 double seconds(Tick::duration span) { return std::chrono::duration<double>(span).count(); }
 
+Joints blend_pose(const Joints& from, const Joints& to, double fraction) {
+    const auto smooth = static_cast<float>(fraction * fraction * (3 - 2 * fraction));
+    Joints pose{};
+    for (std::size_t i = 0; i < pose.size(); ++i)
+        pose[i] = from[i] + (to[i] - from[i]) * smooth;
+    return pose;
+}
+
 template<class Range>
 bool finite(const Range& values) {
     return std::all_of(values.begin(), values.end(), [](float v) { return std::isfinite(v); });
@@ -29,6 +37,8 @@ bool finite(const Range& values) {
 const char* event_name(Event event) {
     switch (event) {
     case Event::mode_low: return "MODE_LOW";
+    case Event::stand_fold: return "STAND_FOLD";
+    case Event::stand_refused: return "STAND_REFUSED";
     case Event::policy_start: return "POLICY_START";
     case Event::sit_down: return "SIT_DOWN";
     case Event::damping: return "DAMPING";
@@ -69,7 +79,16 @@ void Runner::damp(Tick now, const char* reason) {
     observer_.event(now, Event::damping, {reason});
 }
 
-void Runner::start(Tick now, const Joints& q) {
+void Runner::start(Tick now, const Joints& q, const Vec3& grav) {
+    restand_ = phase_ == Phase::damping;
+    if (restand_) {
+        constexpr double degrees_per_radian = 57.29577951308232;
+        const auto tilt = std::acos(std::clamp(-double(grav[2]), -1., 1.)) * degrees_per_radian;
+        if (tilt > 25.) {
+            observer_.event(now, Event::stand_refused, {"tilted", tilt});
+            return;
+        }
+    }
     pending_sample_.reset();
     return_after_sit_ = false;
     phase_ = Phase::acquiring;
@@ -89,7 +108,8 @@ void Runner::acquire(Tick now, const Joints& q) {
         observer_.event(now, Event::mode_low);
         from_ = q;
         started_ = now;
-        phase_ = Phase::standing;
+        phase_ = restand_ ? Phase::folding : Phase::standing;
+        if (restand_) observer_.event(now, Event::stand_fold, {nullptr, 1.});
     } else if (now >= deadline_) {
         phase_ = Phase::high;
         observer_.event(now, Event::mode_low_failed);
@@ -107,14 +127,20 @@ void Runner::sit(Tick now, const Joints& q, bool blind) {
     observer_.event(now, Event::sit_down);
 }
 
+void Runner::fold(Tick now) {
+    const auto fraction = std::clamp(seconds(now - started_), 0., 1.);
+    send(blend_pose(from_, sit_pose, fraction), 60, 5);
+    if (fraction < 1.) return;
+    from_ = sit_pose;
+    started_ = now;
+    phase_ = Phase::standing;
+}
+
 void Runner::interpolate(Tick now, Tick scheduled, bool standing) {
     const auto elapsed = seconds(now - started_);
     const auto fraction = std::clamp(elapsed / (standing ? 2.5 : 2.0), 0., 1.);
-    const auto smooth = float(fraction * fraction * (3 - 2 * fraction));
     const auto& destination = standing ? default_pose : sit_pose;
-    Joints pose{};
-    for (std::size_t i = 0; i < pose.size(); ++i)
-        pose[i] = from_[i] + (destination[i] - from_[i]) * smooth;
+    const auto pose = blend_pose(from_, destination, fraction);
     const auto blend = float(std::clamp(elapsed - 2.5, 0., 1.));
     send(pose, standing ? 60 + (kp - 60) * blend : kp,
          standing ? 5 + (kd - 5) * blend : kd);
@@ -257,7 +283,8 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     const auto keys = state.remote.keys;
     const bool emergency = pressed(keys, l2_button | b_button);
     const bool lie = pressed(keys, l2_button | a_button);
-    const bool active = phase_ == Phase::standing || phase_ == Phase::policy;
+    const bool standing_up = phase_ == Phase::folding || phase_ == Phase::standing;
+    const bool active = standing_up || phase_ == Phase::policy;
     const auto q = to_policy(state.q);
     const auto grav = gravity(state.orientation);
     const bool stale = state.stamp == Tick{} || now - state.stamp > 50ms;
@@ -280,7 +307,9 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     if (shutdown_ && phase_ == Phase::high) { stopped_ = true; return; }
 
     if ((active || phase_ == Phase::sitting) && (emergency || invalid)) {
-        damp(now, emergency ? "remote L2+B" : "invalid LowState");
+        const auto* reason = phase_ == Phase::folding ? "fold interrupted" :
+                             emergency ? "remote L2+B" : "invalid LowState";
+        damp(now, reason);
         if (return_after_sit_ || shutdown_) return_to_factory(now);
         return;
     }
@@ -318,8 +347,8 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         if (phase_ == Phase::high || phase_ == Phase::damping) return;
     }
 
-    if (phase_ == Phase::standing && stale) {
-        damp(now, "stand-up interrupted");
+    if (standing_up && stale) {
+        damp(now, phase_ == Phase::folding ? "fold interrupted" : "stand-up interrupted");
         return;
     }
     if (phase_ == Phase::policy && stale) {
@@ -359,12 +388,12 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
 
     if (lie && !lie_latched_) {
         lie_latched_ = true;
-        if (phase_ == Phase::damping) { start(now, q); return; }
+        if (phase_ == Phase::damping) { start(now, q, grav); return; }
         if (active) { sit(now, q, false); return; }
     }
     if ((phase_ == Phase::high || phase_ == Phase::damping) &&
         pressed(keys, start_button | up_button)) {
-        start(now, q);
+        start(now, q, grav);
         return;
     }
     if (pressed(keys, start_button | down_button)) {
@@ -386,6 +415,10 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
             }
             return;
         }
+    }
+    if (phase_ == Phase::folding) {
+        fold(now);
+        return;
     }
     if (phase_ == Phase::standing) {
         interpolate(now, scheduled, true);
