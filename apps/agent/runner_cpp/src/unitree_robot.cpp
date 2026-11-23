@@ -146,7 +146,8 @@ void UnitreeRobot::send(const Joints& q, float kp, float kd) {
         motor.tau() = 0;
     }
     impl_->cmd.crc() = low_cmd_crc(impl_->cmd);
-    if (impl_->publisher->Write(impl_->cmd)) ++impl_->sent;
+    if (!impl_->publisher->Write(impl_->cmd)) throw std::runtime_error("LowCmd write failed");
+    ++impl_->sent;
 }
 std::uint64_t UnitreeRobot::writes() const { return impl_->sent; }
 

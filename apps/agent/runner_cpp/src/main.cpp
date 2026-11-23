@@ -11,6 +11,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -172,6 +173,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
     PeriodStats policy_period, control_period;
     std::optional<Tick> previous_tick, previous_policy;
     std::uint64_t resyncs = 0;
+    std::exception_ptr control_failure;
     bool saw_state = false, benchmark_armed = false, benchmark_in_policy = false;
     Depth synthetic_depth;
     synthetic_depth.fill(1.f);
@@ -190,7 +192,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
         if (!saw_state && now - begin >= 10s)
             throw std::runtime_error("no LowState received in ten seconds");
         const auto* depth = depth_receiver ? depth_receiver->latest(now) : replay_depth;
-        const bool shutdown = interrupted || now >= end;
+        const bool shutdown = interrupted || now >= end || control_failure;
         if (config.benchmark) {
             // Only simulate the local arming input. Dry-run never opens write clients.
             state.remote = {};
@@ -203,7 +205,14 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
         if (previous_tick) control_period.mark(now - *previous_tick);
         previous_tick = now;
         const auto steps = runner.policy_steps();
-        runner.tick(now, state, depth, shutdown, next);
+        try {
+            runner.tick(now, state, depth, shutdown, next);
+        } catch (...) {
+            if (!config.runner.live || control_failure) throw;
+            // If the SDK throws after takeover, give the state machine the
+            // same opportunity to sit and restore factory mode as SIGTERM.
+            control_failure = std::current_exception();
+        }
         if (runner.policy_steps() != steps) {
             if (previous_policy) policy_period.mark(now - *previous_policy);
             previous_policy = now;
@@ -234,6 +243,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
     trace.status(std::chrono::steady_clock::now(), runner.phase(), runner.commands(), writes(),
                  policy_period, control_period, resyncs);
     trace.close();
+    if (control_failure) std::rethrow_exception(control_failure);
     if (runner.phase() != Phase::high || (config.benchmark && policy_period.count == 0)) return 1;
     return trace.failed() || trace.dropped() ? 1 : 0;
 }
