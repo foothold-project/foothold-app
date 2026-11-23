@@ -471,3 +471,24 @@ def test_unknown_stop_mode_rejected(rig):
     clock, sdk = rig
     with pytest.raises(ValueError):
         LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock, stop_mode='jump')
+
+
+
+def test_armed_by_remote_needs_enabled_env_and_matching_nic(monkeypatch):
+    from foothold_agent.policy import run as runmod
+    monkeypatch.delenv('FH_GO2_DIRECT_ENABLED', raising=False)
+    args = ['--folder', '/nonexistent', '--nic', 'enP8p1s0', '--live', '--armed-by-remote']
+    with pytest.raises(PermissionError):
+        runmod.main(args)
+    monkeypatch.setenv('FH_GO2_DIRECT_ENABLED', '1'); monkeypatch.setenv('FH_GO2_DIRECT_NIC', 'eth9')
+    with pytest.raises(PermissionError):
+        runmod.main(args)                                                  # NIC 가 다르면 거부
+
+
+def test_autostart_unit_and_env_files():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / 'installer' / 'policy-runner'
+    unit = (root / 'foothold-policy.service').read_text()
+    env = (root / 'runner.env.example').read_text()
+    assert 'WantedBy=default.target' in unit and 'KillSignal=SIGTERM' in unit and 'Restart=on-failure' in unit
+    assert '--armed-by-remote' in env and '--stop-mode sit' in env and '--trace-dir' in env and '--seconds' not in env

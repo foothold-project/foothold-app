@@ -26,6 +26,9 @@ def main(argv=None):
     ap.add_argument('--nic', required=True)
     ap.add_argument('--mode', default='off', choices=['off'])
     ap.add_argument('--live', action='store_true')
+    ap.add_argument('--armed-by-remote', action='store_true',
+                    help='자동 시작용 (팀장 11/23 10:11): 승인 표식 없이 --live. 순정 상태로 기다리고, 리모컨 위 + start 를 사람이 눌러야 저수준 송신 시작. '
+                         'FH_GO2_DIRECT_ENABLED=1 · FH_GO2_DIRECT_NIC 가 --nic 와 같아야 함')
     ap.add_argument('--sport-mode', default='mcf', help="고수준 복귀 이름 (기본 mcf · 11/22 실기 확인 · 시작할 때 CheckMode 로 읽은 이름이 우선)")
     ap.add_argument('--seconds', type=float, default=0, help='0 = 끄기 전까지 (기본 · 팀장 결정 11: 시간 상한 대신 생존 신호)')
     ap.add_argument('--status', type=float, default=1.0, help='상태 한 줄 간격 (초) · 0 = 끔')
@@ -37,7 +40,11 @@ def main(argv=None):
                     help='멈춰 내려놓는 길: sit 바로 엎드림 (기본 · 11/22 실기 확인) · settle 정렬 대기 (최대 1.5 초) 뒤 엎드림 (못 맞춰도 엎드림) · stand 서 있는 채 순정 BalanceStand → StandDown (실기 미확인)')
     ap.add_argument('--sit-first', action='store_true', help='넘겨받기 전에 StandDown 으로 앉히기 (기본: 지금 자세 그대로 넘겨받음)')
     a = ap.parse_args(argv)
-    if a.live:
+    if a.live and a.armed_by_remote:
+        # 사람의 확인 = 리모컨 위 + start (실행기는 그 전까지 순정 상태에서 아무것도 보내지 않음 · test_dry_run · test_l2b_in_factory_mode)
+        if os.environ.get('FH_GO2_DIRECT_ENABLED') != '1' or os.environ.get('FH_GO2_DIRECT_NIC') != a.nic:
+            raise PermissionError('armed-by-remote needs FH_GO2_DIRECT_ENABLED=1 and FH_GO2_DIRECT_NIC equal to --nic')
+    elif a.live:
         from foothold_agent.go2_direct.approval import validate
         approval = validate(os.environ)   # 사람 · 0600 · 30 분 표식 없으면 여기서 멈춘다
         if approval.nic != a.nic:
@@ -57,7 +64,7 @@ def main(argv=None):
     def _term(signum, frame):   # kill (SIGTERM) 도 Ctrl+C 와 같이 엎드린 뒤 순정으로 끝낸다
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _term)
-    runner.emit('RUNNER_READY', live=a.live, mode=a.mode, app_port=a.app_port or None)
+    runner.emit('RUNNER_READY', live=a.live, armed='remote' if a.armed_by_remote else ('marker' if a.live else None), mode=a.mode, app_port=a.app_port or None)
     t0, k = time.monotonic(), 0
     per = CMD_HZ // POLICY_HZ
     try:
