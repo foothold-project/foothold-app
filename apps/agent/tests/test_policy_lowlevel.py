@@ -77,6 +77,7 @@ def test_remote_bytes_and_command_caps():
     ((.2, 0., .9), (0., 0., .9), 'gap'),           # 틈: 제자리 회전
     ((.29, 0., 0.), (.29, 0., 0.), 'none'),        # 전진만은 틈 아님
     ((.31, .8, 0.), (.31, .5, 0.), 'clip'),        # 0.3 위 옆 0.5
+    ((.45, .1, 0.), (.45, .1, 0.), 'interp'),      # 안쪽 보간 구간 표시만
     ((.59, .8, 0.), (.59, .5, 0.), 'clip'),
     ((.61, .8, 0.), (.61, 0., 0.), 'clip'),        # 0.6 위 옆 0
     ((.31, 0., 1.5), (.31, 0., 1.), 'clip'),       # 걸으며 회전 1.0
@@ -215,6 +216,7 @@ def test_command_slew_matches_sim(rig):
     sdk.low_state = (lambda f=sdk.low_state: (lambda r: r[:5] + (full,))(f()))
     run.tick()
     assert np.isclose(run.cmd[0], 1.5 / 50)                         # 한 틱 (20 ms) 에 0.03 m/s 만
+    assert lowlevel.SLEW_DOWN[0] == 1.2                             # 감속은 늘 1.2 /s
 
 
 def test_stop_trace_two_seconds_after_command_release(rig):
@@ -294,11 +296,12 @@ def test_app_velocity_drives_policy_but_remote_wins(rig):
     assert np.isclose(run.cmd[0], 1.5 / 50)
     sdk.keys = ('X',)                                      # 리모컨을 만지면 앱 속도 무시 → 감속
     app.feed(_pkt(2, vx=9.)); run.tick()
-    assert run.cmd[0] == 0.                                # 감속 한도 안에서 0 까지
+    assert np.isclose(run.cmd[0], 1.5 / 50 - 1.2 / 50)    # 감속 1.2 /s 한 틱만큼
     sdk.keys = ()
+    base = float(run.cmd[0])
     for i in range(5):
         app.feed(_pkt(3 + i, vx=.5)); run.tick()
-    assert np.isclose(run.cmd[0], 5 * 1.5 / 50)
+    assert np.isclose(run.cmd[0], base + 5 * 1.5 / 50)    # 리모컨을 놓으면 다시 앱 속도로 가속
     clock.t += APP_TIMEOUT_S + .01                         # 앱 끊김 → 0 으로 감속
     before = run.cmd[0]; run.tick()
     assert run.cmd[0] < before
@@ -351,7 +354,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     sdk.low_state = lambda: orig()[:5] + (fwd,)
     for _ in range(5): clock.t += .02; run.tick()
     tw.close()
-    rows = [js.loads(l) for l in tw.path.read_text().splitlines()]
+    rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r]   # 사건 줄은 따로
     r = rows[0]
     assert len(rows) == 5 and r['phase'] == 'policy' and r['stick'][1] == .4
     assert np.allclose(r['want'], [.6, .8, 0.]) and np.allclose(r['goal'], [.6, .5, 0.]) and r['shape'] == 'clip'
@@ -399,3 +402,64 @@ def test_factory_record_row_is_read_only_and_same_shape():
     assert r['phase'] == 'factory' and r['label'] == 'classic' and r['stick'][1] == .5 and r['tau'][0] == 3.   # 정책 순서 (FL hip = SDK 3)
     assert r['sport'] == {'mode': 3, 'gait': 1, 'height': .32, 'vel': [.5, 0., 0.], 'yaw_speed': 0.} and r['stale'] is False
     assert set(r) >= {'q', 'dq', 'tau', 'foot', 'gyro', 'grav', 'want', 'shape', 'goal', 'cmd', 'target', 'est_vx'}
+
+
+
+def _policy_rig(rig, mode, feet):
+    clock, sdk = rig
+    sdk.foot_force = lambda: feet
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock, stop_mode=mode)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    run.tick()
+    return clock, sdk, run
+
+
+def test_settle_mode_waits_then_sits_when_balanced(rig):
+    clock, sdk, run = _policy_rig(rig, 'settle', [20, 21, 19, 20])
+    assert run.slew_down[0] == 1.2
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
+    codes = [e.code for e in run.events]
+    i = codes.index('SETTLE_WAIT')
+    assert codes[i:i + 4] == ['SETTLE_WAIT', 'SETTLE_OK', 'SIT_DOWN', 'DAMPING'] and run.phase is Phase.DAMPING
+    assert 'STAND_HANDOVER' not in codes
+
+
+def test_settle_mode_times_out_to_stand_handover(rig):
+    clock, sdk, run = _policy_rig(rig, 'settle', [5, 40, 40, 40])     # 한 발에 무게가 안 실림
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
+    codes = [e.code for e in run.events]
+    to = run.events[codes.index('SETTLE_TIMEOUT')]
+    assert to.data['seconds'] >= lowlevel.SETTLE_MAX_S
+    assert codes[codes.index('SETTLE_TIMEOUT') + 1] == 'STAND_HANDOVER' and 'SIT_DOWN' not in codes
+    gap = run.events[codes.index('HANDOVER_GAP')].data
+    assert gap['attached'] is True and gap['ms'] is not None and gap['ms'] >= 0
+    assert sdk.calls[-2:] == ['balance_stand', 'stand_down'] and run.phase is Phase.HIGH
+
+
+def test_stand_mode_holds_last_target_until_factory_attaches(rig):
+    clock, sdk, run = _policy_rig(rig, 'stand', [20, 20, 20, 20])
+    target = run.target.copy()
+    n = len(sdk.sent)
+    run.back_to_factory('classic')
+    held = [q for q, kp, kd in sdk.sent[n:]]
+    assert held and all(np.allclose(q, target[SDK_FROM_POLICY]) for q in held)      # 놓기 전까지 마지막 목표 그대로
+    assert 'recovery_stand' not in sdk.calls and sdk.calls[-1] == 'classic_walk:True'  # 서 있는 채 → 보행만
+    assert 'balance_stand' in sdk.calls and 'stand_down' not in sdk.calls
+
+
+def test_stop_events_land_in_trace(rig, tmp_path):
+    import json as js
+    from foothold_agent.policy.trace import TraceWriter
+    clock, sdk = rig
+    tw = TraceWriter(tmp_path, 'start')
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock, trace=tw, stop_mode='stand')
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    run.tick(); run.shutdown(); tw.close()
+    ev = [js.loads(l).get('event') for l in tw.path.read_text().splitlines()]
+    assert {'POLICY_START', 'EXIT_SIT_DOWN', 'STAND_HANDOVER', 'HANDOVER_GAP', 'MODE_HIGH'} <= set(ev)
+
+
+def test_unknown_stop_mode_rejected(rig):
+    clock, sdk = rig
+    with pytest.raises(ValueError):
+        LowLevelRunner(sdk, FakePolicy(), live=False, clock=clock, stop_mode='jump')

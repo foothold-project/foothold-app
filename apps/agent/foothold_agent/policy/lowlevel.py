@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import enum
+import math
 import struct
 import threading
 import time
@@ -32,9 +33,11 @@ CMD_HZ, POLICY_HZ = 200, 50
 STALE_S = .05
 FALL_GRAV_Z, FALL_HOLD_S = -.5, .5
 CAPS = {'vx': (-1.3, 1.5), 'vy': (-.8, .8), 'wz': (-1.5, 1.5)}   # 축 하나만 쓸 때의 끝. 섞을 때는 shape_command
+SETTLE_MAX_S, SETTLE_TILT, SETTLE_DQ, SETTLE_FOOT = 1.5, math.sin(math.radians(3.)), .2, .6   # (나) 멈춘 뒤 정렬 대기 조건
+STOP_MODES = ('sit', 'settle', 'stand')   # sit = 지금 (바로 엎드림) · settle = (나) · stand = (가) 서 있는 채 순정 넘김
 LIVENESS_S = 1.0   # LowState 가 이만큼 끊기면 엎드린 뒤 순정 (팀장 11/22 결정 11). 그 전까지는 마지막 목표를 잡고 기다림
 # 명령 변화 상한 (단위/초, vx · vy · wz): 시뮬 mobile/sim/keyboard-ramp.js START_COMMAND_SLEW 와 같음. 막대를 갑자기 밀어도 이만큼씩만.
-SLEW_UP, SLEW_DOWN = (1.5, .5, 2.4), (3.75, 1.25, 3.)
+SLEW_UP, SLEW_DOWN = (1.5, .5, 2.4), (1.2, 1.25, 3.)   # 전진 감속 1.2 /s 를 늘 (planner 11/23 09:55 · 시뮬 3.3~3.8 cm). 시뮬 keyboard-ramp.js 는 아직 3.75 (맞춰야 함)
 SIT_WAIT_S = 3.0
 RECOVER_WAIT_S = 3.0
 # 저수준에서 천천히 앉히기: 엎드린 관절 각 (정책 순서, 시뮬 recovery-stand.js fold 와 같음) · 2 초 보간
@@ -100,6 +103,8 @@ def shape_command(vx, vy, wz):
     out = [x, y, z]
     if mark == 'none' and any(abs(a - b) > 1e-6 for a, b in zip(out, v)):
         mark = 'clip'
+    if mark == 'none' and .3 - e <= ax <= .6 + e and 0 < abs(y) < .2:
+        mark = 'interp'   # 학습 diag vy [0.2, 0.5] 안쪽 보간 구간 (값은 그대로 · 표시만 · planner 09:55)
     return np.array(out, np.float32), mark
 
 
@@ -147,10 +152,14 @@ class LowLevelRunner:
        low_state() -> (stamp_s, quat_wxyz, gyro, q_sdk[12], dq_sdk[12], remote_bytes) · send(q, dq, kp, kd, tau) (SDK 순서 12 개씩) ·
        stand_down() · release_mode() · check_mode() -> str · select_mode(name) · recovery_stand() · balance_stand()"""
 
-    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False, sit_first=False, app=None, trace=None):
+    def __init__(self, sdk, policy, *, live: bool, clock=time.monotonic, on_event=lambda e: None, sport_mode='mcf', stand_only=False, sit_first=False, app=None, trace=None, stop_mode='sit'):
         self.sdk, self.policy, self.live, self.clock, self.on_event = sdk, policy, live, clock, on_event
         self.app = app   # applink.AppLink 또는 None (앱 명령 끔)
         self.trace = trace   # trace.TraceWriter 또는 None · START 가 켜진 동안 50 Hz 한 줄씩
+        if stop_mode not in STOP_MODES:
+            raise ValueError(f'stop_mode must be one of {STOP_MODES}')
+        self.stop_mode = stop_mode   # 멈춰 엎드릴 때 · 순정 넘길 때 어떤 길로 (팀장 11/23 09:52 문제 · 선택 표지)
+        self.slew_down = SLEW_DOWN
         self.stale_since = None
         self.sport_mode, self.stand_only, self.sit_first = sport_mode, stand_only, sit_first   # stand_only: 일어선 뒤 정책 없이 기본 자세만 (첫 실기 · 관절 순서 확인)
         self.phase = Phase.HIGH
@@ -170,6 +179,8 @@ class LowLevelRunner:
         e = Event(self.clock(), code, data)
         self.events.append(e)
         self.on_event(e)
+        if self.trace is not None:   # 넘김 순간 · 모드 전환도 같은 기록에 (한 줄 event 칸)
+            self.trace.write({'t': round(e.t, 4), 'event': code, **data})
 
     # ── 송신 (dry-run 이면 세기만) ──
     def _send(self, q_policy, kp, kd):
@@ -268,7 +279,7 @@ class LowLevelRunner:
             self.recover()
             return s
         if self.phase in (Phase.POLICY, Phase.STANDING_UP) and {'L2', 'A'} <= keys:
-            self.sit_down()   # 저수준일 때 L2 + A = 천천히 앉아 감쇠 (순정의 L2 + A 엎드리기와 같은 뜻 · 팀장 11/22 14:46)
+            self.lower()   # 저수준일 때 L2 + A = 천천히 앉아 감쇠 (stop_mode 에 따라 정렬 대기 · 서서 넘김) (순정의 L2 + A 엎드리기와 같은 뜻 · 팀장 11/22 14:46)
             return s
         if self.phase in (Phase.HIGH, Phase.DAMPING) and {'up', 'start'} <= keys:
             self.start_policy(s)
@@ -300,7 +311,7 @@ class LowLevelRunner:
         if mode == 'damp' and low:
             self.damp('app')
         elif mode == 'sit' and low:
-            self.sit_down()
+            self.lower()
         elif mode == 'start' and self.phase in (Phase.HIGH, Phase.DAMPING):
             self.emit('APP_MODE', mode=mode)
             self.start_policy(s)
@@ -334,19 +345,19 @@ class LowLevelRunner:
         self.phase = Phase.POLICY
         self.emit('POLICY_START', mode=self.policy.mode)
 
-    def policy_step(self, s, depth_frame):
+    def policy_step(self, s, depth_frame, force_zero=False):
         if self.stand_only:
             self._send(DEFAULT_POSE, KP, KD)
             return
-        want, dt = remote_want(s['remote']), 1. / POLICY_HZ
+        want, dt = (0., 0., 0.) if force_zero else remote_want(s['remote']), 1. / POLICY_HZ
         app_vel = self.app.velocity() if self.app is not None else None
-        if app_vel is not None and not remote_active(s['remote']):
+        if app_vel is not None and not remote_active(s['remote']) and not force_zero:
             want = app_vel   # 리모컨이 중립일 때만 앱 속도. 0.3 초 끊기면 None → 0 으로 감속
         goal, self.shape_mark = shape_command(*want)
         self.want = want
         for i in range(3):   # 시뮬과 같은 명령 변화 상한
             slowing = abs(goal[i]) < abs(self.cmd[i]) or self.cmd[i] * goal[i] < 0
-            lim = (SLEW_DOWN if slowing else SLEW_UP)[i] * dt
+            lim = (self.slew_down if slowing else SLEW_UP)[i] * dt
             self.cmd[i] += np.clip(goal[i] - self.cmd[i], -lim, lim)
         cmd = self.cmd.copy()
         self._trace_stop(goal, s)
@@ -387,12 +398,91 @@ class LowLevelRunner:
                 self.emit('STOP_TRACE', **self.stop_trace)
                 self.stop_trace = None
 
+    def lower(self, *, lie=True) -> bool:
+        """멈춘 뒤 내려놓기. 돌려줌: True = 이미 순정에 넘김 (가 · stand) · False = 우리가 엎드려 감쇠함 (부르는 쪽이 to_high).
+        sit: 바로 엎드림. settle (나): 명령 0 으로 정책을 계속 돌리며 정렬을 기다렸다가 엎드림, 못 맞추면 (가).
+        stand (가): 서 있는 채 순정 넘김 → BalanceStand (순정이 발을 굴러 중심을 맞춤) → lie 면 StandDown."""
+        if self.phase is not Phase.POLICY or self.stop_mode == 'sit':
+            self.sit_down()
+            return False
+        if self.stop_mode == 'settle' and self.settle():
+            self.sit_down()
+            return False
+        return self.stand_handover(lie=lie)
+
+    def settled(self, s) -> bool:
+        ff = [float(x) for x in getattr(self.sdk, 'foot_force', lambda: [])()]
+        feet = len(ff) == 4 and min(ff) > 0 and min(ff) / (sum(ff) / 4) >= SETTLE_FOOT
+        tilt = max(abs(float(s['grav'][0])), abs(float(s['grav'][1]))) <= SETTLE_TILT
+        return feet and tilt and float(np.abs(s['dq']).max()) <= SETTLE_DQ and not np.abs(self.cmd).max() > 1e-3
+
+    def settle(self) -> bool:
+        """(나) 명령 0 · 감속 1.2 /s 로 정책을 계속 돌리며 발 힘 넷 고름 · 기울기 3° 안 · 관절 속도 작음을 기다림 (최대 1.5 초, 명령이 0 이 된 뒤부터)."""
+        self.emit('SETTLE_WAIT')
+        t_zero = None
+        while True:
+            s = self.read()
+            if {'L2', 'B'} <= s['remote'].keys or s['stale']:
+                self.emit('SETTLE_ABORT', reason='L2+B' if not s['stale'] else 'stale')
+                return True   # 엎드림 길로 (sit_down 이 다시 확인해 감쇠)
+            self.policy_step(s, None, force_zero=True)
+            if not np.abs(self.cmd).max() > 1e-3:
+                t_zero = t_zero or self.clock()
+                if self.settled(s):
+                    self.emit('SETTLE_OK', seconds=round(self.clock() - t_zero, 3))
+                    return True
+                if self.clock() - t_zero >= SETTLE_MAX_S:
+                    self.emit('SETTLE_TIMEOUT', seconds=round(self.clock() - t_zero, 3))
+                    return False
+            for _ in range(CMD_HZ // POLICY_HZ - 1):
+                time.sleep(1. / CMD_HZ)
+                self.hold()
+            time.sleep(1. / CMD_HZ)
+
+    def stand_handover(self, *, lie=True) -> bool:
+        """(가) 서 있는 채 순정 넘김. 순정이 붙을 때까지 마지막 정책 목표를 200 Hz 로 잡고 (뒤 스레드), 붙은 것을 보면 바로 놓는다.
+        HANDOVER_GAP: 우리 마지막 LowCmd 부터 순정이 붙은 것을 본 때까지 (ms, 이 PC 의 시계). 순정 첫 제어까지의 실제 틈은 펌웨어 안이라 미확인.
+        11/22 14:46 실기: 선 채로 잡은 채 넘길 때 SelectMode 가 2~3 초 막히는 동안 긁히는 소리가 났다 (그래서 기본은 sit)."""
+        hold_q = self.target.copy()
+        stop, last = threading.Event(), [time.monotonic()]
+        def holder():
+            while not stop.is_set():
+                self._send(hold_q, KP, KD)
+                last[0] = time.monotonic()
+                time.sleep(1. / CMD_HZ)
+        th = threading.Thread(target=holder, daemon=True) if self.live else None
+        if th:
+            th.start()
+        self.emit('STAND_HANDOVER', lie=lie)
+        seen = []
+        def selected():
+            seen.append(time.monotonic())
+            stop.set()
+        try:
+            ok = self.to_high(on_selected=selected)
+        finally:
+            stop.set()
+            if th:
+                th.join(1.)
+        self.emit('HANDOVER_GAP', ms=round((seen[0] - last[0]) * 1e3, 1) if seen else None, attached=ok)
+        if not ok:
+            self.damp('factory mode did not attach (stand)')
+            return True
+        codes = {}
+        if self.live:
+            codes['balance_stand'] = self.sdk.balance_stand()
+            if lie:
+                time.sleep(RECOVER_WAIT_S)
+                codes['stand_down'] = self.sdk.stand_down()
+        self.emit('FACTORY_STAND', result=str(codes))
+        return True
+
     def shutdown(self):
         """끝날 때도 선 채 감쇠하지 않는다 (11/22 20:27 실기: 선 채 감쇠 → 주저앉음). 천천히 엎드린 뒤 순정 (팀장 결정 11)."""
         if self.phase in (Phase.POLICY, Phase.STANDING_UP):
             self.emit('EXIT_SIT_DOWN')
-            self.sit_down()
-            self.to_high()
+            if not self.lower():
+                self.to_high()
 
     def hold(self):
         """정책 사이 (200 Hz) 마지막 목표 다시 보내기."""
@@ -431,8 +521,13 @@ class LowLevelRunner:
         끝내 안 붙으면 그때 감쇠."""
         # 11/22 14:46 실기: 선 채로 자세를 잡은 채 넘기면 SelectMode 가 2~3 초 막혀 있는 동안 순정과 겹쳐 긁히는 소리.
         # 그래서 먼저 우리가 천천히 앉히고 감쇠한 뒤 넘긴다 (순정은 엎드린 상태에서 붙고 RecoveryStand 로 일어섬).
-        if self.phase in (Phase.POLICY, Phase.STANDING_UP):
-            self.sit_down()
+        if self.phase in (Phase.POLICY, Phase.STANDING_UP) and self.lower(lie=False):
+            # (가) 이미 서 있는 채 순정에 붙음 (BalanceStand) → RecoveryStand 없이 보행만
+            if self.phase is Phase.HIGH and self.live:
+                time.sleep(1.)
+                code = self.sdk.free_walk() if gait == 'free_walk' else self.sdk.classic_walk(True)
+                self.emit('FACTORY_GAIT', gait=gait, result=str({gait: code}))
+            return
         hold = False
         stop = threading.Event()
         def holder():

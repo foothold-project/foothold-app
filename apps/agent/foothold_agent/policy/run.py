@@ -33,6 +33,8 @@ def main(argv=None):
     ap.add_argument('--debug-est', type=Path, help='기록용 ONNX 폴더 (행동은 정본과 같음 · START_TRACE 에 전진 속도 추정 칸)')
     ap.add_argument('--trace-dir', type=Path, help='START 가 켜진 동안 50 Hz 기록 폴더 (팀장 결정 9 · 기본 끔)')
     ap.add_argument('--app-port', type=int, default=0, help='앱 명령 받기 (127.0.0.1 UDP 포트 · 0 = 끔 · 리모컨 우선 · 실기 미확인)')
+    ap.add_argument('--stop-mode', default='sit', choices=['sit', 'settle', 'stand'],
+                    help='멈춰 내려놓는 길: sit 바로 엎드림 (기본 · 11/22 실기 확인) · settle 감속 1.2 + 정렬 대기 뒤 엎드림, 못 맞추면 stand · stand 서 있는 채 순정 BalanceStand → StandDown (실기 미확인)')
     ap.add_argument('--sit-first', action='store_true', help='넘겨받기 전에 StandDown 으로 앉히기 (기본: 지금 자세 그대로 넘겨받음)')
     a = ap.parse_args(argv)
     if a.live:
@@ -50,7 +52,7 @@ def main(argv=None):
         from .trace import TraceWriter
         trace = TraceWriter(a.trace_dir, 'start', on_full=lambda: print(json.dumps({'code': 'TRACE_FULL'}), flush=True))
     sdk = UnitreeSdk(a.nic)
-    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode, debug_est=a.debug_est), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first, app=app, trace=trace,
+    runner = LowLevelRunner(sdk, StartPolicy(a.folder, a.mode, debug_est=a.debug_est), live=a.live, sport_mode=a.sport_mode, stand_only=a.stand_only, sit_first=a.sit_first, app=app, trace=trace, stop_mode=a.stop_mode,
                             on_event=lambda e: print(json.dumps({'t': round(e.t, 3), 'code': e.code, **e.data}, ensure_ascii=False), flush=True))
     def _term(signum, frame):   # kill (SIGTERM) 도 Ctrl+C 와 같이 엎드린 뒤 순정으로 끝낸다
         raise KeyboardInterrupt
