@@ -66,7 +66,7 @@ def rig(monkeypatch):
 def test_remote_bytes_and_command_caps():
     r = parse_remote(remote('up', 'start', ly=1., lx=-1., rx=1.))
     assert {'up', 'start'} <= r.keys and 'B' not in r.keys
-    assert np.allclose(command_from_remote(r), [1.5, 0., 0.])      # 전진 1.5 위 옆 · 회전은 학습에 없음 → 0
+    assert np.allclose(command_from_remote(r), [.6, .5, -.6])      # 끝까지 비스듬히 + 회전: 대각선 diag 끝 (0.6 · 0.5) · 옆이 있으면 회전 0.6
 
 
 @pytest.mark.parametrize('want,got,mark', [
@@ -79,7 +79,9 @@ def test_remote_bytes_and_command_caps():
     ((.31, .8, 0.), (.31, .5, 0.), 'clip'),        # 0.3 위 옆 0.5
     ((.45, .1, 0.), (.45, .1, 0.), 'interp'),      # 안쪽 보간 구간 표시만
     ((.59, .8, 0.), (.59, .5, 0.), 'clip'),
-    ((.61, .8, 0.), (.61, 0., 0.), 'clip'),        # 0.6 위 옆 0
+    ((.61, .8, 0.), (.6, .5, 0.), 'clip'),         # 빠른 대각선: 전진을 0.6 으로 줄이고 옆 0.5
+    ((1.4, .6, 0.), (.6, .5, 0.), 'clip'),         # 막대 끝 비스듬히
+    ((.9, .1, 0.), (.9, 0., 0.), 'clip'),          # 옆이 작으면 (0.2 아래) 직진
     ((.31, 0., 1.5), (.31, 0., 1.), 'clip'),       # 걸으며 회전 1.0
     ((1.19, 0., 1.5), (1.19, 0., 1.), 'clip'),
     ((1.21, 0., 1.), (1.21, 0., 0.), 'clip'),      # 1.2 위 회전 0

@@ -90,6 +90,11 @@ def shape_command(vx, vy, wz):
         v = [x if i == k else 0. for i, x in enumerate(v)]
         mark = 'gap'
     x = min(max(v[0], CAPS['vx'][0]), CAPS['vx'][1])
+    if abs(x) > .6 and abs(v[1]) >= .2:
+        # 빠른 대각선: 옆을 지우지 않고 전진을 학습 diag 끝 (0.6) 으로 줄여 방향을 지킨다 (팀장 11/23 12:00: 대각선이 아예 안 됨 ·
+        # 막대를 끝까지 비스듬히 밀면 전진 1.4 에 옆 0 이 되던 것)
+        x = math.copysign(.6, x)
+        mark = 'clip'
     ax = abs(x)
     e = 1e-4   # 막대 float32 반올림 (0.4 × 1.5 = 0.6000000238) 이 경계를 넘지 않게
     ycap = .8 if x == 0 else .5 if .3 - e <= ax <= .6 + e else 0. if ax > .6 + e else .8
