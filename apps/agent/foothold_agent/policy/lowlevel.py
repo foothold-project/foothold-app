@@ -46,6 +46,9 @@ RECOVER_WAIT_S = 3.0
 # 저수준에서 천천히 앉히기: 엎드린 관절 각 (정책 순서, 시뮬 recovery-stand.js fold 와 같음) · 2 초 보간
 SIT_POSE = np.array([0, 0, 0, 0, 1.2, 1.2, 1.2, 1.2, -2.7, -2.7, -2.7, -2.7], np.float32)
 SIT_SEC = 2.0
+# 엎드린 채 다시 설 때: 먼저 다리를 몸 밑으로 모은 뒤 (FOLD_SEC) 선다. 몸이 이만큼 넘게 기울었으면 서지 않는다
+# (팀장 11/23 17:30: 네 발을 고르게 모으지 못한 채 앉은 뒤 L2 + A 로 바로 세우자 뒤집힘 · Unitree go2_stand_example 도 접은 자세를 거쳐 선다)
+FOLD_SEC, RESTAND_MAX_TILT_DEG = 1.0, 25.
 STICK_DEADBAND = .05   # RecoveryStand 가 다 서는 시간 (보행 전환은 그 뒤)   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
 # 사람 확인 전 안전 상한: 관절 목표는 기본 자세에서 이만큼만 (rad). 정책 action clip 17 × 0.25 = 4.25 보다 좁다.
 TARGET_SPAN = 1.6
@@ -353,9 +356,29 @@ class LowLevelRunner:
         return True
 
     def start_policy(self, s):
+        from_lying = self.phase is Phase.DAMPING   # 저수준에서 엎드려 힘 빠진 상태 (앉힘 · 감쇠 뒤)
+        if from_lying:
+            tilt = math.degrees(math.acos(max(-1., min(1., -float(s['grav'][2])))))
+            if tilt > RESTAND_MAX_TILT_DEG:
+                self.emit('STAND_REFUSED', reason='tilted', tilt_deg=round(tilt, 1))   # 옆으로 누웠거나 뒤집힘: 사람이 바로 놓은 뒤 다시
+                return
         self.to_low()
         self.phase = Phase.STANDING_UP
         start, t0 = s['q'].copy(), self.clock()
+        if from_lying:
+            # 1 단계: 엎드린 채 다리를 몸 밑 접은 자세 (SIT_POSE) 로 모음. 엉덩이 좌우 · 앞뒤 어긋남을 먼저 바로잡는다
+            self.emit('STAND_FOLD', sec=FOLD_SEC)
+            while True:
+                a = min(1., (self.clock() - t0) / FOLD_SEC)
+                st = self.read()
+                if {'L2', 'B'} <= st['remote'].keys or st['stale']:
+                    self.damp('fold interrupted')
+                    return
+                self._send(start + (SIT_POSE - start) * (a * a * (3 - 2 * a)), STAND_KP, STAND_KD)
+                if a >= 1.:
+                    break
+                time.sleep(1. / CMD_HZ)
+            start, t0 = SIT_POSE.astype(np.float64).copy(), self.clock()
         while self.phase is Phase.STANDING_UP:
             a = min(1., (self.clock() - t0) / STAND_SEC)
             st = self.read()

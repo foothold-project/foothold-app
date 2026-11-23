@@ -626,3 +626,27 @@ def test_run_main_dry_smoke(monkeypatch, tmp_path, capsys):
     out = [_j.loads(l) for l in capsys.readouterr().out.splitlines() if l.startswith('{')]
     assert any(o.get('code') == 'RUNNER_READY' and 'cpus' in o for o in out)
     assert any(o.get('code') == 'RUNNER_EXIT' and o['sent'] == 0 for o in out)
+
+
+def test_restand_from_lying_folds_first_and_refuses_when_tilted(rig):
+    """팀장 11/23 17:30: 엎드린 채 다시 설 때 다리를 먼저 모으고 · 기울어 있으면 서지 않음."""
+    from foothold_agent.policy.lowlevel import SIT_POSE
+    clock, sdk = rig
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = (); run.tick()
+    assert run.phase is Phase.DAMPING
+    n0 = len(sdk.sent)
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
+    codes = [e.code for e in run.events]
+    assert 'STAND_FOLD' in codes and run.phase is Phase.POLICY
+    sent = [q for q, kp, kd in sdk.sent[n0:]]
+    assert min(np.abs(np.sort(q) - np.sort(SIT_POSE)).max() for q in sent) < 1e-3   # 접은 자세를 거쳐 섬 (SDK 순서라 값 모음으로 비교)
+    # 옆으로 누운 채 (60° 기울기) 면 서지 않는다
+    run.tick()
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = (); run.tick()
+    assert run.phase is Phase.DAMPING
+    import math as _m
+    sdk.quat = (_m.cos(_m.radians(30)), _m.sin(_m.radians(30)), 0., 0.)
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
+    assert run.phase is Phase.DAMPING and run.events[-1].code == 'STAND_REFUSED'
