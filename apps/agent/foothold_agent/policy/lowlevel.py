@@ -183,7 +183,7 @@ class LowLevelRunner:
         self.events.append(e)
         self.on_event(e)
         if self.trace is not None:   # 넘김 순간 · 모드 전환도 같은 기록에 (한 줄 event 칸)
-            self.trace.write({'t': round(e.t, 4), 'event': code, **data})
+            self.trace.write({'t': round(e.t, 4), 'wall': round(time.time(), 3), 'event': code, **data})
 
     # ── 송신 (dry-run 이면 세기만) ──
     def _send(self, q_policy, kp, kd):
@@ -383,7 +383,7 @@ class LowLevelRunner:
         temp = getattr(self.sdk, 'motor_temp', lambda: None)()
         est = [round(float(np.asarray(self.last_out[k]).reshape(-1)[EST_VX]), 4) if k in self.last_out else None for k in ('est_raw', 'est')]
         low = self.phase is Phase.POLICY
-        return {'t': round(self.clock(), 4), 'phase': self.phase.value, 'stick': r4((r.lx, r.ly, r.rx)), 'keys': sorted(r.keys),
+        return {'t': round(self.clock(), 4), 'wall': round(time.time(), 3), 'phase': self.phase.value, 'stick': r4((r.lx, r.ly, r.rx)), 'keys': sorted(r.keys),
                 'want': r4(getattr(self, 'want', None)) if low else None, 'shape': getattr(self, 'shape_mark', None) if low else None,
                 'goal': r4(goal) if low else None, 'cmd': r4(self.cmd) if low else None, 'target': r4(self.target) if low else None,
                 'q': r4(s['q']), 'dq': r4(s['dq']), 'tau': r4(np.asarray(tau)[POLICY_FROM_SDK]) if tau is not None else None,

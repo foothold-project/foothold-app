@@ -360,6 +360,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     assert len(rows) == 5 and r['phase'] == 'policy' and np.isclose(r['stick'][1], .6)
     assert np.allclose(r['want'], [.54, .8, 0.], atol=1e-3) and np.allclose(r['goal'], [.54, .5, 0.], atol=1e-3) and r['shape'] == 'clip'
     assert np.isclose(r['cmd'][0], .03) and len(r['target']) == 12
+    assert abs(r['wall'] - __import__('time').time()) < 60                       # 폰 측정 표시와 맞출 벽시계
     assert r['tau'][0] == 3 and r['temp'][0] == 43 and r['est_vx'] == [.26, .25] and r['foot'] == [10, 20, 30, 40]
 
 

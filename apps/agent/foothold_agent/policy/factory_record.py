@@ -49,7 +49,7 @@ def row(low, low_t, sport, label, now):
     ms = low.motor_state
     sdk = lambda f: np.array([f(ms[i]) for i in range(12)])[POLICY_FROM_SDK]
     r = parse_remote(bytes(low.wireless_remote))
-    out = {'t': round(now, 4), 'phase': 'factory', 'label': label, 'stale': now - low_t > .05,
+    out = {'t': round(now, 4), 'wall': round(time.time(), 3), 'phase': 'factory', 'label': label, 'stale': now - low_t > .05,
            'stick': r4((r.lx, r.ly, r.rx)), 'keys': sorted(r.keys), 'want': None, 'shape': None, 'goal': None, 'cmd': None, 'target': None,
            'q': r4(sdk(lambda m: m.q)), 'dq': r4(sdk(lambda m: m.dq)), 'tau': r4(sdk(lambda m: m.tau_est)),
            'temp': [int(x) for x in sdk(lambda m: m.temperature)],
