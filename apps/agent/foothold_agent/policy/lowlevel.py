@@ -49,22 +49,6 @@ SIT_SEC = 2.0
 # 엎드린 채 다시 설 때: 먼저 다리를 몸 밑으로 모은 뒤 (FOLD_SEC) 선다. 몸이 이만큼 넘게 기울었으면 서지 않는다
 # (팀장 11/23 17:30: 네 발을 고르게 모으지 못한 채 앉은 뒤 L2 + A 로 바로 세우자 뒤집힘 · Unitree go2_stand_example 도 접은 자세를 거쳐 선다)
 FOLD_SEC, RESTAND_MAX_TILT_DEG = 1.0, 25.
-# 앉고 설 때 머리 (라이다) 가 바닥에 닿지 않게 앞뒤 다리 시차 (팀장 11/23 17:40: 순정은 안 닿는데 우리는 닿음).
-# 앉을 때 뒷다리가 먼저 · 설 때 앞다리가 먼저 움직여 몸이 머리 쪽으로 숙지 않게 한다. 앞다리 = 정책 순서 FL · FR
-FRONT = np.array([1, 1, 0, 0] * 3, bool)
-STAGE_LAG = .25
-
-
-def _ease(a):
-    a = min(1., max(0., a))
-    return a * a * (3 - 2 * a)
-
-
-def staged_pose(start, goal, a, front_first):
-    """start → goal 보간 (0 ≤ a ≤ 1). front_first 면 앞다리가 먼저 (서기), 아니면 뒷다리가 먼저 (앉기)."""
-    early, late = _ease(a / (1 - STAGE_LAG)), _ease((a - STAGE_LAG) / (1 - STAGE_LAG))
-    w = np.where(FRONT, early if front_first else late, late if front_first else early)
-    return start + (goal - start) * w
 STICK_DEADBAND = .05   # RecoveryStand 가 다 서는 시간 (보행 전환은 그 뒤)   # StandDown 이 앉기를 마칠 때까지 (11/22: 기다리지 않으면 선 채로 넘겨 받음)
 # 사람 확인 전 안전 상한: 관절 목표는 기본 자세에서 이만큼만 (rad). 정책 action clip 17 × 0.25 = 4.25 보다 좁다.
 TARGET_SPAN = 1.6
@@ -403,7 +387,7 @@ class LowLevelRunner:
                 return
             blend = min(1., max(0., (self.clock() - t0 - STAND_SEC) / BLEND_SEC))
             kp, kd = STAND_KP + (KP - STAND_KP) * blend, STAND_KD + (KD - STAND_KD) * blend
-            self._send(staged_pose(start, DEFAULT_POSE, a, front_first=True), kp, kd)
+            self._send(start + (DEFAULT_POSE - start) * (a * a * (3 - 2 * a)), kp, kd)
             if blend >= 1.:
                 break
             time.sleep(1. / CMD_HZ)
@@ -589,7 +573,7 @@ class LowLevelRunner:
             st = self.read()
             if {'L2', 'B'} <= st['remote'].keys or (st['stale'] and not blind):
                 break
-            self._send(staged_pose(start, SIT_POSE, a, front_first=False), STAND_KP, STAND_KD)   # 앉을 때도 설 때와 같은 세기 (kp 25 면 짐이 실린 앞다리가 먼저 처짐)
+            self._send(start + (SIT_POSE - start) * (a * a * (3 - 2 * a)), KP, KD)
             if a >= 1.:
                 break
             time.sleep(1. / CMD_HZ)

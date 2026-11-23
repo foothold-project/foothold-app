@@ -138,7 +138,7 @@ def test_l2_b_damps_and_stale_state_damps(rig):
     run2.tick()                                                            # 1 초 넘게 끊김: 엎드린 뒤 순정
     codes = [e.code for e in run2.events]
     assert codes[:3] == ['LIVENESS_LOST', 'SIT_DOWN', 'DAMPING'] and run2.phase is Phase.HIGH and 'MODE_HIGH' in codes
-    sit = [q for q, kp, kd in sdk.sent if kp == lowlevel.STAND_KP]   # 앉기는 설 때와 같은 세기 (팀장 11/23 17:40)
+    sit = [q for q, kp, kd in sdk.sent if kp == lowlevel.KP]
     assert np.allclose(sit[-1], lowlevel.SIT_POSE[SDK_FROM_POLICY], atol=1e-3)   # 끊긴 채로도 끝까지 엎드림
 
 
@@ -650,16 +650,3 @@ def test_restand_from_lying_folds_first_and_refuses_when_tilted(rig):
     sdk.quat = (_m.cos(_m.radians(30)), _m.sin(_m.radians(30)), 0., 0.)
     sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
     assert run.phase is Phase.DAMPING and run.events[-1].code == 'STAND_REFUSED'
-
-
-def test_staged_pose_keeps_nose_up():
-    """팀장 11/23 17:40: 앉을 때 뒷다리 먼저 · 설 때 앞다리 먼저 (라이다가 바닥에 닿지 않게)."""
-    from foothold_agent.policy.lowlevel import staged_pose, SIT_POSE, DEFAULT_POSE, FRONT
-    sit = staged_pose(DEFAULT_POSE, SIT_POSE, .4, front_first=False)
-    prog = (sit - DEFAULT_POSE) / (SIT_POSE - DEFAULT_POSE + 1e-9)
-    assert prog[~FRONT][4:].min() > prog[FRONT][4:].max()                 # 뒷다리가 더 많이 내려감 (thigh · calf)
-    up = staged_pose(SIT_POSE, DEFAULT_POSE, .4, front_first=True)
-    prog = (up - SIT_POSE) / (DEFAULT_POSE - SIT_POSE + 1e-9)
-    assert prog[FRONT][4:].min() > prog[~FRONT][4:].max()                 # 앞다리가 먼저 일어섬
-    assert np.allclose(staged_pose(DEFAULT_POSE, SIT_POSE, 1., False), SIT_POSE)
-    assert np.allclose(staged_pose(DEFAULT_POSE, SIT_POSE, 0., False), DEFAULT_POSE)
