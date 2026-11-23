@@ -374,7 +374,9 @@ class LowLevelRunner:
                 if {'L2', 'B'} <= st['remote'].keys or st['stale']:
                     self.damp('fold interrupted')
                     return
-                self._send(start + (SIT_POSE - start) * (a * a * (3 - 2 * a)), STAND_KP, STAND_KD)
+                tgt = start + (SIT_POSE - start) * (a * a * (3 - 2 * a))
+                self._send(tgt, STAND_KP, STAND_KD)
+                self._trace_transition(st, tgt)
                 if a >= 1.:
                     break
                 time.sleep(1. / CMD_HZ)
@@ -387,7 +389,9 @@ class LowLevelRunner:
                 return
             blend = min(1., max(0., (self.clock() - t0 - STAND_SEC) / BLEND_SEC))
             kp, kd = STAND_KP + (KP - STAND_KP) * blend, STAND_KD + (KD - STAND_KD) * blend
-            self._send(start + (DEFAULT_POSE - start) * (a * a * (3 - 2 * a)), kp, kd)
+            tgt = start + (DEFAULT_POSE - start) * (a * a * (3 - 2 * a))
+            self._send(tgt, kp, kd)
+            self._trace_transition(st, tgt)
             if blend >= 1.:
                 break
             time.sleep(1. / CMD_HZ)
@@ -448,6 +452,16 @@ class LowLevelRunner:
                 'temp': [int(x) for x in np.asarray(temp)[POLICY_FROM_SDK]] if temp is not None else None,
                 'foot': list(getattr(self.sdk, 'foot_force', lambda: [])()), 'gyro': r4(s['gyro']), 'grav': r4(s['grav']),
                 'est_vx': est if low else None}
+
+    def _trace_transition(self, st, target):
+        """앉기 · 다리 모으기 · 일어서기 동안에도 50 Hz 기록. 동작은 바꾸지 않는다 (팀장 11/23 18:00: 라이다가 닿는 순간 몸 기울기를 먼저 숫자로)."""
+        if self.trace is None:
+            return
+        self._tt = getattr(self, '_tt', 0) + 1
+        if self._tt % (CMD_HZ // POLICY_HZ) == 0:
+            row = self.trace_row(st)
+            row['target'] = r4(target)
+            self.trace.write(row)
 
     def _trace_stop(self, goal, s):
         moving = bool(np.abs(self.cmd).max() > .05)
@@ -573,7 +587,9 @@ class LowLevelRunner:
             st = self.read()
             if {'L2', 'B'} <= st['remote'].keys or (st['stale'] and not blind):
                 break
-            self._send(start + (SIT_POSE - start) * (a * a * (3 - 2 * a)), KP, KD)
+            tgt = start + (SIT_POSE - start) * (a * a * (3 - 2 * a))
+            self._send(tgt, KP, KD)
+            self._trace_transition(st, tgt)
             if a >= 1.:
                 break
             time.sleep(1. / CMD_HZ)

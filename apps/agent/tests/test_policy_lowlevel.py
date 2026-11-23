@@ -360,7 +360,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     sdk.low_state = lambda: orig()[:5] + (fwd,)
     for _ in range(5): clock.t += .02; run.tick()
     tw.close()
-    rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r]   # 사건 줄은 따로
+    rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r and r.get('phase') == 'policy']   # 사건 줄 · 앉기 · 서기 기록은 따로
     r = rows[0]
     assert len(rows) == 5 and r['phase'] == 'policy' and np.isclose(r['stick'][1], .6)
     assert np.allclose(r['want'], [.54, .8, 0.], atol=1e-3) and np.allclose(r['goal'], [.54, .5, 0.], atol=1e-3) and r['shape'] == 'clip'
@@ -650,3 +650,18 @@ def test_restand_from_lying_folds_first_and_refuses_when_tilted(rig):
     sdk.quat = (_m.cos(_m.radians(30)), _m.sin(_m.radians(30)), 0., 0.)
     sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
     assert run.phase is Phase.DAMPING and run.events[-1].code == 'STAND_REFUSED'
+
+
+def test_transition_rows_recorded_without_changing_motion(rig, tmp_path):
+    """팀장 11/23 18:00: 앉기 · 모으기 · 서기 동안도 기록 (동작은 그대로 · SIT_POSE 보간)."""
+    import json as js
+    from foothold_agent.policy.trace import TraceWriter
+    clock, sdk = rig
+    tw = TraceWriter(tmp_path, 'start')
+    run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock, trace=tw)
+    sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ()
+    sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
+    tw.close()
+    rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r]
+    assert any(r['phase'] == 'standing_up' and r['target'] for r in rows)
+    assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp == lowlevel.KP)
