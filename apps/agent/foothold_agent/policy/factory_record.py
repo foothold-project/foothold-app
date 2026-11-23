@@ -52,12 +52,13 @@ def row(low, low_t, sport, label, now):
     out = {'t': round(now, 4), 'phase': 'factory', 'label': label, 'stale': now - low_t > .05,
            'stick': r4((r.lx, r.ly, r.rx)), 'keys': sorted(r.keys), 'want': None, 'shape': None, 'goal': None, 'cmd': None, 'target': None,
            'q': r4(sdk(lambda m: m.q)), 'dq': r4(sdk(lambda m: m.dq)), 'tau': r4(sdk(lambda m: m.tau_est)),
+           'temp': [int(x) for x in sdk(lambda m: m.temperature)],
            'foot': [int(x) for x in low.foot_force], 'gyro': r4(low.imu_state.gyroscope),
            'grav': r4(projected_gravity(tuple(low.imu_state.quaternion))), 'est_vx': None, 'sport': None}
     if sport is not None:
         g = lambda k: getattr(sport, k, None)   # SDK IDL SportModeState_ 칸 (없으면 null)
         num = lambda v, f=float: None if v is None else round(f(v), 4)
-        out['sport'] = {'mode': num(g('mode'), int), 'gait': num(g('gait_type'), int), 'height': num(g('body_height')),
+        out['sport'] = {'mode': num(g('mode'), int), 'gait': num(g('gait_type'), int), 'err': num(g('error_code'), int), 'height': num(g('body_height')),
                         'vel': r4(g('velocity')), 'yaw_speed': num(g('yaw_speed'))}
     return out
 

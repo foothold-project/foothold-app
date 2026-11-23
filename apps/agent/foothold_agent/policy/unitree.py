@@ -55,6 +55,12 @@ class UnitreeSdk:
             s = self._state
         return [float(s.motor_state[i].tau_est) for i in range(12)] if s is not None else None
 
+    def motor_temp(self):
+        """LowState.motor_state[i].temperature (SDK 순서 · °C · 11/23 뒤 엉덩이 과열 뒤 기록에 넣음)."""
+        with self._lock:
+            s = self._state
+        return [int(s.motor_state[i].temperature) for i in range(12)] if s is not None else None
+
     def foot_force(self):
         """LowState.foot_force (SDK 순서 FR · FL · RR · RL · 원시 값 · 검증 안 된 값이라 정책 입력에는 안 씀)."""
         with self._lock:

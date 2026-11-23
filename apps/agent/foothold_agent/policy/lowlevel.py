@@ -377,12 +377,14 @@ class LowLevelRunner:
         """기록 한 줄 (정책 순서 관절). 순정 읽기 전용 기록도 같은 꼴 (goal · cmd · target · est 는 null)."""
         r = s['remote']
         tau = getattr(self.sdk, 'motor_tau', lambda: None)()
+        temp = getattr(self.sdk, 'motor_temp', lambda: None)()
         est = [round(float(np.asarray(self.last_out[k]).reshape(-1)[EST_VX]), 4) if k in self.last_out else None for k in ('est_raw', 'est')]
         low = self.phase is Phase.POLICY
         return {'t': round(self.clock(), 4), 'phase': self.phase.value, 'stick': r4((r.lx, r.ly, r.rx)), 'keys': sorted(r.keys),
                 'want': r4(getattr(self, 'want', None)) if low else None, 'shape': getattr(self, 'shape_mark', None) if low else None,
                 'goal': r4(goal) if low else None, 'cmd': r4(self.cmd) if low else None, 'target': r4(self.target) if low else None,
                 'q': r4(s['q']), 'dq': r4(s['dq']), 'tau': r4(np.asarray(tau)[POLICY_FROM_SDK]) if tau is not None else None,
+                'temp': [int(x) for x in np.asarray(temp)[POLICY_FROM_SDK]] if temp is not None else None,
                 'foot': list(getattr(self.sdk, 'foot_force', lambda: [])()), 'gyro': r4(s['gyro']), 'grav': r4(s['grav']),
                 'est_vx': est if low else None}
 

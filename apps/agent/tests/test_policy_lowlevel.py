@@ -342,6 +342,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     from foothold_agent.policy.trace import TraceWriter
     clock, sdk = rig
     sdk.motor_tau = lambda: list(range(12))
+    sdk.motor_temp = lambda: [40 + i for i in range(12)]
     class EstPolicy(FakePolicy):
         def run(self, feed):
             est = np.zeros((1, 51), np.float32); est[0, 16] = .25
@@ -359,7 +360,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     assert len(rows) == 5 and r['phase'] == 'policy' and r['stick'][1] == .4
     assert np.allclose(r['want'], [.6, .8, 0.]) and np.allclose(r['goal'], [.6, .5, 0.]) and r['shape'] == 'clip'
     assert np.isclose(r['cmd'][0], .03) and len(r['target']) == 12
-    assert r['tau'][0] == 3 and r['est_vx'] == [.26, .25] and r['foot'] == [10, 20, 30, 40]
+    assert r['tau'][0] == 3 and r['temp'][0] == 43 and r['est_vx'] == [.26, .25] and r['foot'] == [10, 20, 30, 40]
 
 
 def test_trace_stops_at_disk_cap_without_deleting(tmp_path):
@@ -394,13 +395,14 @@ def test_factory_record_row_is_read_only_and_same_shape():
     import ast
     names = {a.name for n in ast.walk(ast.parse(open(factory_record.__file__).read())) if isinstance(n, ast.ImportFrom) for a in n.names}
     assert not names & {'ChannelPublisher', 'SportClient', 'MotionSwitcherClient', 'UnitreeSdk'}   # 명령을 보낼 길이 없음
-    m = [NS(q=i * .1, dq=0., tau_est=float(i)) for i in range(12)]
+    m = [NS(q=i * .1, dq=0., tau_est=float(i), temperature=30 + i) for i in range(12)]
     low = NS(motor_state=m, wireless_remote=remote(ly=.5), foot_force=[1, 2, 3, 4],
              imu_state=NS(gyroscope=[0, 0, .1], quaternion=[1, 0, 0, 0]))
-    sport = NS(mode=3, gait_type=1, body_height=.32, velocity=[.5, 0, 0], yaw_speed=0.)
+    sport = NS(mode=3, gait_type=1, error_code=2010, body_height=.32, velocity=[.5, 0, 0], yaw_speed=0.)
     r = factory_record.row(low, 99.98, sport, 'classic', 100.)
     assert r['phase'] == 'factory' and r['label'] == 'classic' and r['stick'][1] == .5 and r['tau'][0] == 3.   # 정책 순서 (FL hip = SDK 3)
-    assert r['sport'] == {'mode': 3, 'gait': 1, 'height': .32, 'vel': [.5, 0., 0.], 'yaw_speed': 0.} and r['stale'] is False
+    assert r['sport'] == {'mode': 3, 'gait': 1, 'err': 2010, 'height': .32, 'vel': [.5, 0., 0.], 'yaw_speed': 0.} and r['stale'] is False
+    assert r['temp'][0] == 33 and len(r['temp']) == 12                                          # 정책 순서 (FL hip = SDK 3)
     assert set(r) >= {'q', 'dq', 'tau', 'foot', 'gyro', 'grav', 'want', 'shape', 'goal', 'cmd', 'target', 'est_vx'}
 
 
