@@ -138,8 +138,9 @@ def test_l2_b_damps_and_stale_state_damps(rig):
     run2.tick()                                                            # 1 초 넘게 끊김: 엎드린 뒤 순정
     codes = [e.code for e in run2.events]
     assert codes[:3] == ['LIVENESS_LOST', 'SIT_DOWN', 'DAMPING'] and run2.phase is Phase.HIGH and 'MODE_HIGH' in codes
-    sit = [q for q, kp, kd in sdk.sent if kp == lowlevel.STAND_KP]   # 앉기는 설 때와 같은 세기 (팀장 11/23 17:40)
-    assert np.allclose(sit[-1], lowlevel.SIT_POSE[SDK_FROM_POLICY], atol=1e-3)   # 끊긴 채로도 끝까지 엎드림
+    i = max(i for i, (q, kp, kd) in enumerate(sdk.sent) if kp == 0 and kd == lowlevel.DAMP_KD)   # 끊긴 채로도 끝까지 감쇠처럼 내려앉음 (팀장 11/23 17:50)
+    ramp = [kp for q, kp, kd in sdk.sent[:i] if 0 < kp < lowlevel.KP]
+    assert ramp and ramp == sorted(ramp, reverse=True)                     # kp 가 줄어들며 내려앉음
 
 
 def test_fall_damps_switches_high_and_recovery_stands(rig):
@@ -164,7 +165,7 @@ def test_arrow_start_returns_to_factory_gait(rig, arrow, gait, call):
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = (arrow, 'start'); run.tick()
     assert run.phase is Phase.HIGH and sdk.calls[-4:] == ['select_mode:mcf', 'check_mode', 'recovery_stand', call]
     assert np.allclose(sdk.sent[-1][0], np.zeros(12)) and sdk.sent[-1][1] == 0   # 천천히 앉힌 뒤 감쇠하고 넘김
-    assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp > 0)
+    assert any(0 < kp < lowlevel.KP for q, kp, _ in sdk.sent)   # 감쇠처럼 kp 를 줄이며 내려앉음 (팀장 11/23 17:50)
     assert run.events[-1].code == 'FACTORY_GAIT' and run.events[-1].data['gait'] == gait
 
 
@@ -251,7 +252,7 @@ def test_l2a_in_policy_sits_down_then_damps(rig):
     run = LowLevelRunner(sdk, FakePolicy(), live=True, clock=clock)
     sdk.keys = ('up', 'start'); run.tick(); sdk.keys = ('L2', 'A'); run.tick()
     assert run.phase is Phase.DAMPING and [e.code for e in run.events][-2:] == ['SIT_DOWN', 'DAMPING']
-    assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp > 0)
+    assert any(0 < kp < lowlevel.KP for q, kp, _ in sdk.sent)   # 감쇠처럼 kp 를 줄이며 내려앉음 (팀장 11/23 17:50)
 
 
 def test_stick_deadband_zeroes_jitter():
@@ -360,7 +361,7 @@ def test_trace_writes_every_policy_tick_with_est(rig, tmp_path):
     sdk.low_state = lambda: orig()[:5] + (fwd,)
     for _ in range(5): clock.t += .02; run.tick()
     tw.close()
-    rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r]   # 사건 줄은 따로
+    rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r and r.get('phase') == 'policy']   # 사건 줄 · 앉기 · 서기 기록은 따로
     r = rows[0]
     assert len(rows) == 5 and r['phase'] == 'policy' and np.isclose(r['stick'][1], .6)
     assert np.allclose(r['want'], [.54, .8, 0.], atol=1e-3) and np.allclose(r['goal'], [.54, .5, 0.], atol=1e-3) and r['shape'] == 'clip'
@@ -651,15 +652,3 @@ def test_restand_from_lying_folds_first_and_refuses_when_tilted(rig):
     sdk.keys = ('L2', 'A'); run.tick(); sdk.keys = ()
     assert run.phase is Phase.DAMPING and run.events[-1].code == 'STAND_REFUSED'
 
-
-def test_staged_pose_keeps_nose_up():
-    """팀장 11/23 17:40: 앉을 때 뒷다리 먼저 · 설 때 앞다리 먼저 (라이다가 바닥에 닿지 않게)."""
-    from foothold_agent.policy.lowlevel import staged_pose, SIT_POSE, DEFAULT_POSE, FRONT
-    sit = staged_pose(DEFAULT_POSE, SIT_POSE, .4, front_first=False)
-    prog = (sit - DEFAULT_POSE) / (SIT_POSE - DEFAULT_POSE + 1e-9)
-    assert prog[~FRONT][4:].min() > prog[FRONT][4:].max()                 # 뒷다리가 더 많이 내려감 (thigh · calf)
-    up = staged_pose(SIT_POSE, DEFAULT_POSE, .4, front_first=True)
-    prog = (up - SIT_POSE) / (DEFAULT_POSE - SIT_POSE + 1e-9)
-    assert prog[FRONT][4:].min() > prog[~FRONT][4:].max()                 # 앞다리가 먼저 일어섬
-    assert np.allclose(staged_pose(DEFAULT_POSE, SIT_POSE, 1., False), SIT_POSE)
-    assert np.allclose(staged_pose(DEFAULT_POSE, SIT_POSE, 0., False), DEFAULT_POSE)
