@@ -1,0 +1,7 @@
+# 켠 뒤 점검 한 번 (읽기만 · DDS 안 씀 · 로봇 명령 없음) → trace/boot-check-<시각>.txt · boot-check-last.txt
+[Unit]
+Description=FOOTHOLD boot check (read only)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'f=%h/foothold-policy-1122/trace/boot-check-$(date +%%Y%%m%%d-%%H%%M%%S).txt; /usr/bin/nice -n 10 /bin/bash %h/foothold-policy-1122/boot-check.sh > "$f" 2>&1; cp "$f" %h/foothold-policy-1122/trace/boot-check-last.txt'
