@@ -20,11 +20,25 @@ constexpr int left_button = 1 << 15;
 bool pressed(std::uint16_t keys, int mask) { return (keys & mask) == mask; }
 double seconds(Tick::duration span) { return std::chrono::duration<double>(span).count(); }
 
-Joints blend_pose(const Joints& from, const Joints& to, double fraction) {
-    const auto smooth = static_cast<float>(fraction * fraction * (3 - 2 * fraction));
+using Window = std::array<double, 2>;
+using Windows = std::array<Window, 4>;
+
+// Policy order: front hips, rear hips, thighs, calves.
+constexpr Windows sit_windows{{{.5, 1.}, {.25, 1.}, {0., .97}, {0., .95}}};
+constexpr Windows stand_windows{{{0., .95}, {.28, .92}, {.42, .98}, {.46, 1.}}};
+constexpr Windows fold_windows{{{0., 1.}, {0., 1.}, {0., 1.}, {0., 1.}}};
+
+Joints blend_pose(const Joints& from, const Joints& to, double fraction, const Windows& windows) {
     Joints pose{};
-    for (std::size_t i = 0; i < pose.size(); ++i)
-        pose[i] = from[i] + (to[i] - from[i]) * smooth;
+    for (std::size_t i = 0; i < pose.size(); ++i) {
+        const auto& [lo, hi] = windows[i < 4 ? i / 2 : 1 + i / 4];
+        if (fraction >= hi) {
+            pose[i] = to[i];
+        } else {
+            const auto x = std::max(0., (fraction - lo) / (hi - lo));
+            pose[i] = static_cast<float>(from[i] + (double(to[i]) - from[i]) * (x * x * (3 - 2 * x)));
+        }
+    }
     return pose;
 }
 
@@ -127,23 +141,31 @@ void Runner::sit(Tick now, const Joints& q, bool blind) {
     observer_.event(now, Event::sit_down);
 }
 
-void Runner::fold(Tick now) {
+void Runner::send_transition(Tick now, const LowState& state, const Vec3& grav,
+                             const Joints& pose, float position_gain, float velocity_gain) {
+    send(pose, position_gain, velocity_gain);
+    // Commands run at 200 Hz. Record every fourth successful transition command.
+    if (++transition_ticks_ % 4 == 0)
+        observer_.sample({now, state, grav, {}, {}, {}, Mark::none, pose, phase_});
+}
+
+void Runner::fold(Tick now, const LowState& state, const Vec3& grav) {
     const auto fraction = std::clamp(seconds(now - started_), 0., 1.);
-    send(blend_pose(from_, sit_pose, fraction), 60, 5);
+    send_transition(now, state, grav, blend_pose(from_, sit_pose, fraction, fold_windows), 60, 5);
     if (fraction < 1.) return;
     from_ = sit_pose;
     started_ = now;
     phase_ = Phase::standing;
 }
 
-void Runner::interpolate(Tick now, Tick scheduled, bool standing) {
+void Runner::interpolate(Tick now, Tick scheduled, const LowState& state, const Vec3& grav,
+                         bool standing) {
     const auto elapsed = seconds(now - started_);
     const auto fraction = std::clamp(elapsed / (standing ? 2.5 : 2.0), 0., 1.);
     const auto& destination = standing ? default_pose : sit_pose;
-    const auto pose = blend_pose(from_, destination, fraction);
-    const auto blend = float(std::clamp(elapsed - 2.5, 0., 1.));
-    send(pose, standing ? 60 + (kp - 60) * blend : kp,
-         standing ? 5 + (kd - 5) * blend : kd);
+    const auto pose = blend_pose(from_, destination, fraction, standing ? stand_windows : sit_windows);
+    const auto blend = standing ? float(std::clamp(elapsed - 2.5, 0., 1.)) : 0.f;
+    send_transition(now, state, grav, pose, 60 + (kp - 60) * blend, 5 + (kd - 5) * blend);
     if (standing && elapsed >= 3.5) {
         memory_.reset();
         last_action_.fill(0);
@@ -319,7 +341,7 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
             if (return_after_sit_ || shutdown_) return_to_factory(now);
         } else {
             if (shutdown_) return_after_sit_ = true;
-            interpolate(now, scheduled, false);
+            interpolate(now, scheduled, state, grav, false);
         }
         return;
     }
@@ -417,11 +439,11 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         }
     }
     if (phase_ == Phase::folding) {
-        fold(now);
+        fold(now, state, grav);
         return;
     }
     if (phase_ == Phase::standing) {
-        interpolate(now, scheduled, true);
+        interpolate(now, scheduled, state, grav, true);
         return;
     }
     if (phase_ == Phase::policy) {

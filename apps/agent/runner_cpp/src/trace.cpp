@@ -112,16 +112,22 @@ std::string line(const Row& row) {
         return out.str();
     }
     const auto& s = row.state;
-    out << std::setprecision(4) << ",\"phase\":\"policy\",\"stick\":";
+    const bool policy = row.phase == Phase::policy;
+    out << std::setprecision(4) << ",\"phase\":\"" << (policy ? "policy" : "standing_up")
+        << "\",\"stick\":";
     array(out, Vec3{s.remote.lx, s.remote.ly, s.remote.rx});
     out << ",\"keys\":";
     keys(out, s.remote.keys);
-    out << ",\"want\":";
-    array(out, row.want);
-    out << ",\"shape\":\"" << mark_name(row.shape) << "\",\"goal\":";
-    array(out, row.goal);
-    out << ",\"cmd\":";
-    array(out, row.command);
+    if (policy) {
+        out << ",\"want\":";
+        array(out, row.want);
+        out << ",\"shape\":\"" << mark_name(row.shape) << "\",\"goal\":";
+        array(out, row.goal);
+        out << ",\"cmd\":";
+        array(out, row.command);
+    } else {
+        out << ",\"want\":null,\"shape\":null,\"goal\":null,\"cmd\":null";
+    }
     out << ",\"target\":";
     array(out, row.target);
     out << ",\"q\":";
@@ -138,7 +144,7 @@ std::string line(const Row& row) {
     array(out, s.gyro);
     out << ",\"grav\":";
     array(out, row.grav);
-    out << ",\"est_vx\":[null,null]}\n";
+    out << (policy ? ",\"est_vx\":[null,null]}\n" : ",\"est_vx\":null}\n");
     return out.str();
 }
 }
@@ -329,6 +335,7 @@ void Trace::sample(const Sample& sample) {
     row.command = sample.command;
     row.shape = sample.shape;
     row.target = sample.target;
+    row.phase = sample.phase;
     impl_->push(row);
 }
 

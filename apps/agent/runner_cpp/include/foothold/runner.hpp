@@ -66,6 +66,7 @@ struct Sample {
     Vec3 goal, command;
     Mark shape;
     const Joints& target;
+    Phase phase = Phase::policy;
 };
 
 struct EventInfo {
@@ -110,8 +111,9 @@ private:
     void recover_gait(Tick);
     void collect(Tick);
     void infer(Tick, Tick, const LowState&, const Vec3&, const Joints&, const Depth*);
-    void fold(Tick);
-    void interpolate(Tick, Tick, bool standing);
+    void send_transition(Tick, const LowState&, const Vec3& gravity, const Joints&, float kp, float kd);
+    void fold(Tick, const LowState&, const Vec3& gravity);
+    void interpolate(Tick, Tick, const LowState&, const Vec3& gravity, bool standing);
 
     Robot& robot_;
     PolicyExecutor& policy_;
@@ -139,6 +141,7 @@ private:
     bool inference_pending_ = false;
     Outputs outputs_{};
     std::uint64_t commands_ = 0, policy_steps_ = 0;
+    unsigned transition_ticks_ = 0;
 };
 
 }

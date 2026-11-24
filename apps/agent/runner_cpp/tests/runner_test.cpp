@@ -70,6 +70,8 @@ struct FakePolicy final : PolicyExecutor {
 
 struct Events final : Observer {
     std::vector<Event> seen;
+    std::vector<Tick> samples;
+    void sample(const Sample& sample) override { samples.push_back(sample.time); }
     void event(Tick, Event event, EventInfo) override { seen.push_back(event); }
     bool ordered(std::initializer_list<Event> sequence) const {
         auto cursor = seen.begin();
@@ -112,6 +114,34 @@ struct Rig {
 }
 
 int main() {
+    {
+        Rig live(true);
+        live.tick(start);
+        live.wait(1s);
+        const auto standing = to_policy(live.robot.last_target);
+        require(standing[0] != sit_pose[0] && standing[4] == sit_pose[4],
+                "stand must move the front hips before the thighs");
+        require(live.events.samples.size() == 50, "stand must record at 50 Hz");
+        for (std::size_t i = 1; i < live.events.samples.size(); ++i)
+            require(live.events.samples[i] - live.events.samples[i - 1] == 20ms,
+                    "stand record interval must be 20 ms");
+        live.wait(2500ms);
+        live.state.q = to_sdk(default_pose);
+        live.tick(lie);
+        live.events.samples.clear();
+        live.wait(400ms);
+        const auto sitting = to_policy(live.robot.last_target);
+        require(sitting[0] == default_pose[0] && sitting[4] != default_pose[4],
+                "sit must move the thighs before the front hips");
+        require(live.robot.position_gain == 60 && live.robot.velocity_gain == 5,
+                "sit gains must match Python");
+        require(live.events.samples.size() == 20, "sit must record at 50 Hz");
+        live.tick(emergency);
+        require(live.robot.position_gain == 0 && live.robot.velocity_gain == 3,
+                "emergency must override sit gains");
+        live.wait(40ms);
+        require(live.events.samples.size() == 20, "interrupted sit must stop recording transition targets");
+    }
     {
         Rig dry(false);
         dry.tick(emergency);

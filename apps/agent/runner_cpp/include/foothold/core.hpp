@@ -11,7 +11,8 @@ using Obs = std::array<float, 45>;
 using Depth = std::array<float, 3600>;
 using HeightMap = std::array<float, 512>;
 constexpr Joints default_pose{.1f,-.1f,.1f,-.1f,.8f,.8f,1,1,-1.5f,-1.5f,-1.5f,-1.5f};
-constexpr Joints sit_pose{0,0,0,0,1.2f,1.2f,1.2f,1.2f,-2.7f,-2.7f,-2.7f,-2.7f};
+constexpr Joints sit_pose{.06f, -.06f, .34f, -.34f, 1.24f, 1.24f, 1.29f, 1.29f,
+                          -2.78f, -2.78f, -2.82f, -2.82f};
 constexpr float kp=25.f, kd=.5f, target_span=1.6f;
 enum class Mark { none, clip, gap, interp };
 enum class MapMode { off, reconstruction, gt };
