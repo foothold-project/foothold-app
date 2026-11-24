@@ -138,7 +138,7 @@ def test_l2_b_damps_and_stale_state_damps(rig):
     run2.tick()                                                            # 1 초 넘게 끊김: 엎드린 뒤 순정
     codes = [e.code for e in run2.events]
     assert codes[:3] == ['LIVENESS_LOST', 'SIT_DOWN', 'DAMPING'] and run2.phase is Phase.HIGH and 'MODE_HIGH' in codes
-    sit = [q for q, kp, kd in sdk.sent if kp == lowlevel.KP]
+    sit = [q for q, kp, kd in sdk.sent if kp == lowlevel.STAND_KP]
     assert np.allclose(sit[-1], lowlevel.SIT_POSE[SDK_FROM_POLICY], atol=1e-3)   # 끊긴 채로도 끝까지 엎드림
 
 
@@ -664,7 +664,7 @@ def test_transition_rows_recorded_without_changing_motion(rig, tmp_path):
     tw.close()
     rows = [r for r in map(js.loads, tw.path.read_text().splitlines()) if 'event' not in r]
     assert any(r['phase'] == 'standing_up' and r['target'] for r in rows)
-    assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp == lowlevel.KP)
+    assert any(np.allclose(q, lowlevel.SIT_POSE[SDK_FROM_POLICY]) for q, kp, _ in sdk.sent if kp == lowlevel.STAND_KP)   # 앉기는 서기와 같은 버팀 (11/24 13:14)
 
 
 def test_depth_health_latency_fields():

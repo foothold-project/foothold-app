@@ -601,7 +601,7 @@ class LowLevelRunner:
             if {'L2', 'B'} <= st['remote'].keys or (st['stale'] and not blind):
                 break
             tgt = staged(start, SIT_POSE, a, SIT_WIN)   # Classic 순서 (허벅지 · 종아리 먼저 → 뒷다리 엉덩이 벌림)
-            self._send(tgt, KP, KD)
+            self._send(tgt, STAND_KP, STAND_KD)   # 서기와 같은 버팀 (11/24 13:14 실기: kp 25 로는 걸은 뒤 안쪽으로 들어간 FR 이 무게를 못 버텨 꺾이며 오른쪽으로 넘어짐)
             self._trace_transition(st, tgt)
             if a >= 1.:
                 break
