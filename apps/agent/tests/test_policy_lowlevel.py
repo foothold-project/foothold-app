@@ -705,3 +705,13 @@ def test_jetson_temp_is_number_or_none():
     from foothold_agent.policy.run import jetson_temp
     t = jetson_temp()
     assert t is None or -40 < t < 150
+
+
+def test_body_height_kinematic_matches_factory_scale():
+    """팀장 11/24 13:49: 우리 모드에서도 몸 높이. Classic 실측 선 자세 ≈ 순정 0.32 · 앉은 자세 ≈ 0.08 (± 2 cm)."""
+    from foothold_agent.policy.start import body_height
+    stand = [.02, -.02, .08, -.08, .67, .67, .66, .66, -1.36, -1.36, -1.35, -1.35]
+    sit = [.06, -.06, .34, -.34, 1.24, 1.24, 1.29, 1.29, -2.78, -2.78, -2.82, -2.82]
+    assert abs(body_height(stand, (0, 0, -1)) - .323) < .02
+    assert abs(body_height(sit, (0, 0, -1)) - .082) < .02
+    assert body_height(stand, (0, 0, 0)) is None

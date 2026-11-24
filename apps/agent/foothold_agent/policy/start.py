@@ -40,6 +40,30 @@ DEBUG_EST_SHA256 = {
     'start-m15500_map_off_debug_est.onnx': 'd216f35cf56a90da9521c5d56f986be0b56dd439311b8917621a88002216c611',
 }
 EST_VX = 16   # est 51 칸 중 전진 속도 추정
+EST_V = slice(16, 19)   # est 의 v3 = 몸 속도 추정 (전진 · 옆 · 위아래 · 몸 기준)
+
+# 운동학 몸 높이 (팀장 11/24 13:49: 우리 모드에서도 몸 높이). 허벅지 · 종아리 0.213 m · 엉덩이 자리 (Go2 URDF) · 발 반지름.
+# 순정 body_height 와 대조 (11/24 11:45~12:09 순정 378 표본): 차 평균 +0.013 · 표준편차 0.009 m → 0.013 을 빼서 맞춤.
+_LEG, _HIP_X, _HIP_Y, _THIGH_Y, _FOOT_R, _H_BIAS = .213, (.1934, .1934, -.1934, -.1934), (.0465, -.0465, .0465, -.0465), (.0955, -.0955, .0955, -.0955), .022, .013
+
+
+def body_height(q, grav):
+    """바닥에서 몸 (엉덩이 높이 평면) 까지 높이 (m). 정책 순서 관절 · 몸 기준 중력. 가장 낮은 발 셋 (디딘 발) 평균."""
+    q = np.asarray(q, np.float64)
+    up = -np.asarray(grav, np.float64)
+    n = np.linalg.norm(up)
+    if n < .5:
+        return None
+    up /= n
+    hs = []
+    for l in range(4):
+        h, t, c = q[l], q[4 + l], q[8 + l]
+        x = -_LEG * np.sin(t) - _LEG * np.sin(t + c)
+        z = -_LEG * np.cos(t) - _LEG * np.cos(t + c)
+        y = _THIGH_Y[l] * np.cos(h) - z * np.sin(h)
+        zz = _THIGH_Y[l] * np.sin(h) + z * np.cos(h)
+        hs.append(-np.dot((_HIP_X[l] + x, _HIP_Y[l] + y, zz), up) + _FOOT_R)
+    return round(float(np.mean(sorted(hs, reverse=True)[:3])) - _H_BIAS, 4)
 
 
 def projected_gravity(quat_wxyz) -> np.ndarray:
