@@ -6,6 +6,8 @@
 
 namespace foothold {
 
+inline constexpr auto depth_freshness = std::chrono::milliseconds(250);
+
 // One datagram: CLOCK_MONOTONIC nanoseconds (u64), followed by 3600 float32s.
 // The socket directory is private to the runner's Unix user.
 class DepthReceiver {
@@ -14,7 +16,7 @@ public:
     ~DepthReceiver();
     DepthReceiver(const DepthReceiver&) = delete;
     DepthReceiver& operator=(const DepthReceiver&) = delete;
-    const Depth* latest(Tick now);
+    const Depth* latest(Tick now, Tick* stamp = nullptr);
 
 private:
     std::filesystem::path path_;

@@ -52,3 +52,23 @@ python apps/agent/runner_cpp/tests/vector_replay.py \
 기본 앉기 경로, 리모컨 진입 및 리모컨 기반 명령을 이식했다. Python의 앱 UDP 제어, 선택형 `settle`·`stand` 종료 경로, 디버그 추정 ONNX는 이번 실행기에서 지원하지 않는다. 정본 ONNX에는 추정 전진 속도 출력이 없어 기록의 `est_vx` 값은 `[null,null]`이다. ORT 및 DDS 라이브러리 내부 할당은 별도 측정 대상이다.
 
 운영 서비스와 배포 파일은 이 변경의 범위 밖이다. 시험 종료 시 실행기 프로세스가 스스로 종료된다. 코드가 반영된 뒤 되돌려야 하면 기능 커밋을 revert하고 기존 Python 실행기로 확인한다.
+
+## 제어·감각·기록 통신 코어 배치
+
+세 역할을 나누려면 `--control-cpus`, `--sensing-cpus`, `--io-cpus`를 함께 지정한다. 각각 한 코어 또는 연속 범위이며 시작 프로세스가 허용받은 코어 안에 있어야 한다. 세 범위는 겹칠 수 없다. 지정하지 않으면 기존 `--cpu-range`를 사용한다.
+
+| 역할 | 배치 | 스케줄러 |
+|---|---|---|
+| 제어 | 200 Hz 상태 머신과 명령 호출 | `--rt-priority`의 FIFO 우선순위 |
+| 감각 | 정책 추론 작업 스레드, ORT 내부 스레드, 사용 시 깊이 소켓 수신 | 정책 작업 스레드는 `--sensing-rt-priority`, 기본값은 제어보다 한 단계 아래. 내부 작업 및 깊이 수신은 일반 스케줄링 |
+| 기록 통신 | JSONL 기록 스레드와 DDS 초기화로 생기는 SDK 스레드 | 일반 스케줄링 |
+
+예를 들어 전 코어 0–7을 쓸 수 있는 별도 시험에서 제어 4, 감각 5–7, 기록 통신 0–3을 지정하려면 아래처럼 실행한다.
+
+```sh
+"$build_dir/foothold_start" --folder "$policy_bundle" --benchmark --seconds 30 \
+  --control-cpus 4 --sensing-cpus 5-7 --io-cpus 0-3 \
+  --rt-priority 40 --sensing-rt-priority 30
+```
+
+시작 로그의 각 `role` 행은 커널에서 읽은 CPU 목록·스케줄링 정책·우선순위, 그리고 요청값을 출력한다. 실행 중에는 스레드 TID를 찾아 `chrt -p TID`와 `taskset -pc TID`로 대조할 수 있다. FIFO 권한 부족 시 dry-run은 실제 적용된 정책을 기록한다. live 실행은 정책 또는 제어 실시간 설정이 실패하면 시작을 중단한다.

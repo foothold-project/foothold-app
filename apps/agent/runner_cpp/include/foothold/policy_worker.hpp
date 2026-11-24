@@ -3,6 +3,7 @@
 #include "foothold/runner.hpp"
 
 #include <memory>
+#include <pthread.h>
 
 namespace foothold {
 
@@ -13,6 +14,7 @@ public:
     void submit(const Inputs&) override;
     Inference poll(Outputs&) override;
     bool realtime() const;
+    pthread_t thread() const;
 
 private:
     struct Impl;

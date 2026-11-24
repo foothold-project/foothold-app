@@ -1,4 +1,5 @@
 #include "foothold/trace.hpp"
+#include "foothold/thread_schedule.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -198,7 +199,10 @@ struct Trace::Impl {
             const auto ns = Wall::now().time_since_epoch().count();
             stem = folder / ("start-" + std::to_string(ns) + "-" + std::to_string(getpid()));
         }
-        writer = std::thread([this] { drain(); });
+        writer = std::thread([this] {
+            name_thread("fh-record");
+            drain();
+        });
     }
 
     void push(const Row& row) {
@@ -350,6 +354,8 @@ void Trace::status(Tick now, Phase phase, std::uint64_t commands, std::uint64_t 
     row.resyncs = resyncs;
     impl_->push(row);
 }
+
+pthread_t Trace::thread() const { return impl_->writer.native_handle(); }
 
 void Trace::close() {
     impl_->done.store(true, std::memory_order_release);

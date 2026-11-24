@@ -53,7 +53,8 @@ endif()
 
 if(FOOTHOLD_WITH_ORT)
     find_package(Threads REQUIRED)
-    add_executable(foothold_start src/main.cpp src/trace.cpp src/policy_worker.cpp src/depth_receiver.cpp)
+    add_executable(foothold_start src/main.cpp src/trace.cpp src/policy_worker.cpp src/depth_receiver.cpp
+        src/thread_schedule.cpp src/depth_sampler.cpp)
     target_link_libraries(foothold_start PRIVATE foothold_ort Threads::Threads)
     target_compile_options(foothold_start PRIVATE -Wall -Wextra -Wpedantic)
     if(BUILD_TESTING AND FOOTHOLD_VECTOR_BUNDLE AND NOT CMAKE_CROSSCOMPILING)
@@ -61,6 +62,10 @@ if(FOOTHOLD_WITH_ORT)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/runner_cli.py"
             "$<TARGET_FILE:foothold_start>" "${FOOTHOLD_VECTOR_BUNDLE}")
         set_tests_properties(runner_cli_dry_run PROPERTIES TIMEOUT 25)
+        add_test(NAME runner_schedule COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/runner_schedule.py"
+            "$<TARGET_FILE:foothold_start>" "${FOOTHOLD_VECTOR_BUNDLE}")
+        set_tests_properties(runner_schedule PROPERTIES TIMEOUT 25 SKIP_RETURN_CODE 77)
     endif()
     if(FOOTHOLD_WITH_UNITREE)
         target_compile_definitions(foothold_start PRIVATE FOOTHOLD_UNITREE)

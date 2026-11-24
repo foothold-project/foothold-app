@@ -1,7 +1,9 @@
 #include "foothold/depth_receiver.hpp"
+#include "foothold/depth_sampler.hpp"
 #include "foothold/ort_policy.hpp"
 #include "foothold/policy_worker.hpp"
 #include "foothold/trace.hpp"
+#include "foothold/thread_schedule.hpp"
 #ifdef FOOTHOLD_UNITREE
 #include "foothold/unitree_robot.hpp"
 #endif
@@ -32,13 +34,17 @@ struct Config {
     std::string nic, factory_mode = "mcf";
     Options runner;
     bool benchmark = false, armed = false, lock_memory = false;
-    int priority = 0, cpu_first = 4, cpu_last = 7;
+    int priority = 0;
+    CpuRange cpus{4, 7};
+    std::optional<CpuRange> control_cpus, sensing_cpus, io_cpus;
+    std::optional<int> sensing_priority;
     double seconds = 0, status = 1;
 };
 
 const char* usage = "foothold_start --folder BUNDLE [--nic NIC | --benchmark] "
     "[--mode off|reconstruction] [--depth-socket PATH] [--seconds N] [--status N] [--trace-dir DIR] "
-    "[--cpu-range FIRST-LAST] [--rt-priority N] [--mlock] [--fwd-max N] "
+    "[--cpu-range FIRST-LAST | --control-cpus CPUSET --sensing-cpus CPUSET --io-cpus CPUSET] "
+    "[--rt-priority N] [--sensing-rt-priority N] [--mlock] [--fwd-max N] "
     "[--stand-only] [--live --armed-by-remote]";
 
 double number(std::string_view value) {
@@ -56,8 +62,17 @@ int integer(std::string_view value, int max) {
     return static_cast<int>(converted);
 }
 
+CpuRange cpu_range(std::string_view value) {
+    const auto dash = value.find('-');
+    const int first = integer(value.substr(0, dash), CPU_SETSIZE - 1);
+    const int last = dash == value.npos ? first : integer(value.substr(dash + 1), CPU_SETSIZE - 1);
+    if (first > last) throw std::invalid_argument("reversed CPU range");
+    return {first, last};
+}
+
 Config parse(int argc, char** argv) {
     Config config;
+    bool legacy_cpus = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view option(argv[i]);
         auto value = [&]() -> std::string_view {
@@ -74,12 +89,13 @@ Config parse(int argc, char** argv) {
         else if (option == "--status") config.status = number(value());
         else if (option == "--fwd-max") config.runner.fwd_max = number(value());
         else if (option == "--rt-priority") config.priority = integer(value(), 99);
+        else if (option == "--sensing-rt-priority") config.sensing_priority = integer(value(), 99);
+        else if (option == "--control-cpus") config.control_cpus = cpu_range(value());
+        else if (option == "--sensing-cpus") config.sensing_cpus = cpu_range(value());
+        else if (option == "--io-cpus") config.io_cpus = cpu_range(value());
         else if (option == "--cpu-range") {
-            const auto range = value();
-            const auto dash = range.find('-');
-            if (dash == range.npos) throw std::invalid_argument("expected CPU range FIRST-LAST");
-            config.cpu_first = integer(range.substr(0, dash), CPU_SETSIZE - 1);
-            config.cpu_last = integer(range.substr(dash + 1), CPU_SETSIZE - 1);
+            config.cpus = cpu_range(value());
+            legacy_cpus = true;
         } else if (option == "--benchmark") config.benchmark = true;
         else if (option == "--armed-by-remote") config.armed = true;
         else if (option == "--stand-only") config.runner.stand_only = true;
@@ -88,9 +104,15 @@ Config parse(int argc, char** argv) {
         else throw std::invalid_argument("unknown argument: " + std::string(option));
     }
     if (config.bundle.empty() || (config.nic.empty() && !config.benchmark) ||
-        config.cpu_first > config.cpu_last || config.seconds < 0 || config.seconds > 7 * 86400 ||
+        config.seconds < 0 || config.seconds > 7 * 86400 ||
         config.status < 0 || config.status > 86400 || (config.status > 0 && config.status < 0.05))
         throw std::invalid_argument(usage);
+    const bool split = config.control_cpus || config.sensing_cpus || config.io_cpus;
+    if (split && (legacy_cpus || !config.control_cpus || !config.sensing_cpus || !config.io_cpus))
+        throw std::invalid_argument("specify all three CPU partitions together, without --cpu-range");
+    if (config.sensing_priority && (!split || *config.sensing_priority >= config.priority ||
+                                    (config.runner.live && *config.sensing_priority == 0)))
+        throw std::invalid_argument("sensing priority requires CPU partitions and must be below control");
     if (config.runner.map == MapMode::gt)
         throw std::invalid_argument("gt is vector-replay only");
     if (config.runner.map == MapMode::reconstruction && !config.benchmark && config.depth_socket.empty())
@@ -127,23 +149,36 @@ private:
     [[noreturn]] static RobotMode forbidden() { throw std::logic_error("dry-run called a robot write path"); }
 };
 
-void pin(const Config& config) {
-    cpu_set_t available, desired;
-    CPU_ZERO(&available);
-    CPU_ZERO(&desired);
-    if (sched_getaffinity(0, sizeof(available), &available) == -1)
-        throw std::runtime_error("cannot read CPU affinity");
-    std::string selected;
-    for (int cpu = config.cpu_first; cpu <= config.cpu_last; ++cpu) {
-        if (!CPU_ISSET(cpu, &available)) continue;
-        CPU_SET(cpu, &desired);
-        if (!selected.empty()) selected += ',';
-        selected += std::to_string(cpu);
+struct Layout {
+    cpu_set_t control, sensing, io;
+    bool split;
+};
+
+Layout layout_for(const Config& config) {
+    const auto allowed = allowed_cpus();
+    if (!config.control_cpus) {
+        const auto runner = select_cpus(allowed, config.cpus, false);
+        return {runner, runner, allowed, false};
     }
-    if (selected.empty()) throw std::runtime_error("no requested CPUs available in current affinity");
-    if (sched_setaffinity(0, sizeof(desired), &desired) == -1)
-        throw std::runtime_error("cannot set CPU affinity");
-    std::cout << "{\"runner_cpus\":[" << selected << "]}\n";
+    const Layout layout{select_cpus(allowed, *config.control_cpus, true),
+                        select_cpus(allowed, *config.sensing_cpus, true),
+                        select_cpus(allowed, *config.io_cpus, true), true};
+    if (overlaps(layout.control, layout.sensing) || overlaps(layout.control, layout.io) ||
+        overlaps(layout.sensing, layout.io))
+        throw std::invalid_argument("CPU partitions must not overlap");
+    return layout;
+}
+
+void report_runner_cpus(const cpu_set_t& cpus) {
+    std::cout << "{\"runner_cpus\":[";
+    bool first = true;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+        if (!CPU_ISSET(cpu, &cpus)) continue;
+        if (!first) std::cout << ',';
+        first = false;
+        std::cout << cpu;
+    }
+    std::cout << "]}\n";
 }
 
 bool realtime(const Config& config) {
@@ -153,10 +188,8 @@ bool realtime(const Config& config) {
         if (!locked) std::cerr << "mlockall: " << std::strerror(errno) << '\n';
     }
     if (config.priority) {
-        sched_param params{};
-        params.sched_priority = config.priority;
-        fifo = sched_setscheduler(0, SCHED_FIFO, &params) == 0;
-        if (!fifo) std::cerr << "SCHED_FIFO: " << std::strerror(errno) << '\n';
+        fifo = set_fifo(config.priority);
+        if (!fifo) std::cerr << "unable to apply control SCHED_FIFO\n";
     }
     std::cout << "{\"mlock\":" << (locked ? "true" : "false")
               << ",\"sched_fifo\":" << (fifo ? "true" : "false") << "}\n";
@@ -167,8 +200,9 @@ Tick::duration interval(double seconds) {
     return std::chrono::duration_cast<Tick::duration>(std::chrono::duration<double>(seconds));
 }
 
-template<class Read, class Writes>
-int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace, DepthReceiver* depth_receiver, Read read, Writes writes) {
+template<class DepthRead, class Read, class Writes>
+int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace,
+        DepthRead read_depth, Read read, Writes writes) {
     Runner runner(robot, policy, trace, config.runner);
     PeriodStats policy_period, control_period;
     std::optional<Tick> previous_tick, previous_policy;
@@ -191,7 +225,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
         saw_state = saw_state || state.stamp != Tick{};
         if (!saw_state && now - begin >= 10s)
             throw std::runtime_error("no LowState received in ten seconds");
-        const auto* depth = depth_receiver ? depth_receiver->latest(now) : replay_depth;
+        const auto* depth = config.depth_socket.empty() ? replay_depth : read_depth(now);
         const bool shutdown = interrupted || now >= end || control_failure;
         if (config.benchmark) {
             // Only simulate the local arming input. Dry-run never opens write clients.
@@ -256,37 +290,60 @@ int main(int argc, char** argv) {
             return 0;
         }
         const auto config = parse(argc, argv);
+        const auto layout = layout_for(config);
+        if (layout.split) {
+            normal_thread();
+            pin_thread(layout.io);
+        }
         std::signal(SIGTERM, request_stop);
         std::signal(SIGINT, request_stop);
         Trace trace(config.trace, config.runner.live);
+        pin_thread(layout.sensing);
         std::optional<DepthReceiver> depth;
-        if (!config.depth_socket.empty()) depth.emplace(config.depth_socket);
-        auto* receiver = depth ? &*depth : nullptr;
-        pin(config);
+        std::optional<DepthSampler> sampler;
+        if (!config.depth_socket.empty()) {
+            if (layout.split) sampler.emplace(config.depth_socket);
+            else depth.emplace(config.depth_socket);
+        }
+        const auto read_depth = [&](Tick now) {
+            return sampler ? sampler->latest(now) : depth->latest(now);
+        };
         OrtPolicy policy(config.bundle, config.runner.map);
         Inputs warm_input{};
         Outputs warm_output{};
         warm_input.first_after_reset = true;
         warm_input.depth_tick = true;
         policy.infer(warm_input, warm_output);
-        PolicyWorker worker(policy, config.priority > 1 ? config.priority - 1 : config.priority);
+        const auto sensing_priority = config.sensing_priority.value_or(
+            config.priority > 1 ? config.priority - 1 : config.priority);
+        PolicyWorker worker(policy, sensing_priority);
         std::cout << "{\"policy_sched_fifo\":" << (worker.realtime() ? "true" : "false") << "}\n";
         if (config.runner.live && !worker.realtime())
             throw std::runtime_error("live inference real-time setup failed");
-        if (!config.nic.empty()) {
-#ifdef FOOTHOLD_UNITREE
-            UnitreeRobot robot(config.nic, config.runner.live, config.factory_mode);
+        const auto start_control = [&] {
+            pin_thread(layout.control);
+            name_thread("fh-control");
+            report_runner_cpus(layout.control);
             if (!realtime(config) && config.runner.live)
                 throw std::runtime_error("live real-time setup failed");
-            return run(config, robot, worker, trace, receiver, [&](Tick) { return robot.read(); },
+            report_schedule("control", pthread_self(), config.priority);
+            report_schedule("sensing", worker.thread(), sensing_priority);
+            report_schedule("record", trace.thread(), 0);
+        };
+        if (!config.nic.empty()) {
+#ifdef FOOTHOLD_UNITREE
+            if (layout.split) pin_thread(layout.io);
+            UnitreeRobot robot(config.nic, config.runner.live, config.factory_mode);
+            start_control();
+            return run(config, robot, worker, trace, read_depth, [&](Tick) { return robot.read(); },
                        [&] { return robot.writes(); });
 #else
             throw std::invalid_argument("binary was built without the Unitree SDK");
 #endif
         }
-        realtime(config);
+        start_control();
         DryRobot robot;
-        return run(config, robot, worker, trace, receiver,
+        return run(config, robot, worker, trace, read_depth,
                    [](Tick now) {
                        LowState state;
                        state.stamp = now;

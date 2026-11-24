@@ -1,8 +1,8 @@
 #include "foothold/policy_worker.hpp"
+#include "foothold/thread_schedule.hpp"
 
 #include <atomic>
 #include <cerrno>
-#include <sched.h>
 #include <semaphore.h>
 #include <stdexcept>
 #include <system_error>
@@ -51,11 +51,8 @@ struct PolicyWorker::Impl {
     }
 
     void run(int priority) noexcept {
-        if (priority > 0) {
-            sched_param params{};
-            params.sched_priority = priority;
-            fifo = sched_setscheduler(0, SCHED_FIFO, &params) == 0;
-        }
+        name_thread("fh-sensing");
+        fifo = set_fifo(priority);
         started.post();
         while (request.wait() && !stop.load(std::memory_order_acquire)) {
             if (task.load(std::memory_order_acquire) != Task::submitted) continue;
@@ -73,6 +70,7 @@ PolicyWorker::PolicyWorker(Policy& policy, int priority)
     : impl_(std::make_unique<Impl>(policy, priority)) {}
 PolicyWorker::~PolicyWorker() = default;
 bool PolicyWorker::realtime() const { return impl_->fifo; }
+pthread_t PolicyWorker::thread() const { return impl_->worker.native_handle(); }
 
 void PolicyWorker::submit(const Inputs& inputs) {
     if (impl_->task.load(std::memory_order_acquire) != Task::idle)

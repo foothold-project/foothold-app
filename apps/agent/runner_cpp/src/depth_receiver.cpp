@@ -49,19 +49,21 @@ DepthReceiver::~DepthReceiver() {
     unlink(path_.c_str());
 }
 
-const Depth* DepthReceiver::latest(Tick now) {
+const Depth* DepthReceiver::latest(Tick now, Tick* frame_stamp) {
     Packet packet;
     const auto size = recv(fd_, &packet, sizeof(packet), MSG_TRUNC);
     if (size == sizeof(packet) && packet.nanoseconds > 0) {
         const Tick stamp{std::chrono::nanoseconds(packet.nanoseconds)};
-        if (stamp > last_ && stamp <= now && now - stamp <= 250ms &&
+        if (stamp > last_ && stamp <= now && now - stamp <= depth_freshness &&
             std::all_of(packet.depths.begin(), packet.depths.end(),
                         [](float value) { return std::isfinite(value) && value >= 0 && value <= 1; })) {
             last_ = stamp;
             values_ = packet.depths;
         }
     }
-    return last_ != Tick{} && now - last_ <= 250ms ? &values_ : nullptr;
+    if (last_ == Tick{} || now - last_ > depth_freshness) return nullptr;
+    if (frame_stamp) *frame_stamp = last_;
+    return &values_;
 }
 
 }
