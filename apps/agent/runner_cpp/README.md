@@ -49,7 +49,9 @@ python apps/agent/runner_cpp/tests/vector_replay.py \
 
 ## 적용 범위와 되돌림
 
-기본 앉기 경로, 리모컨 진입 및 리모컨 기반 명령을 이식했다. Python의 앱 UDP 제어, 선택형 `settle`·`stand` 종료 경로, 디버그 추정 ONNX는 이번 실행기에서 지원하지 않는다. 정본 ONNX에는 추정 전진 속도 출력이 없어 기록의 `est_vx` 값은 `[null,null]`이다. ORT 및 DDS 라이브러리 내부 할당은 별도 측정 대상이다.
+Classic 관절별 앉기·서기와 리모컨 진입을 지원한다. 앉기·다리 모으기·일어서기 중 실제 목표를 50 Hz로 기록한다. 표본에는 `h_kin`과 `bat`가, 상태 줄에는 `bat`와 `jetson_c`가 들어간다.
+
+`--debug-est "$debug_bundle"`을 지정하면 별도 SHA-256 계약으로 검증한 기록용 ONNX를 사용해 정책 표본에 `est_vx`와 `est_v`를 기록한다. 같은 인자를 `vector_replay.py`에 추가하면 정본 행동과 Python 추정값을 대조한다. 기본 ONNX의 추정값은 `est_vx=[null,null]`, `est_v=null`이다. 현재 지원 범위는 리모컨 제어와 기본 앉기 종료 경로다.
 
 운영 서비스와 배포 파일은 이 변경의 범위 밖이다. 시험 종료 시 실행기 프로세스가 스스로 종료된다. 코드가 반영된 뒤 되돌려야 하면 기능 커밋을 revert하고 기존 Python 실행기로 확인한다.
 

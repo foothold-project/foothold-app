@@ -30,7 +30,7 @@ volatile std::sig_atomic_t interrupted = 0;
 void request_stop(int) { interrupted = 1; }
 
 struct Config {
-    std::filesystem::path bundle, trace, depth_socket;
+    std::filesystem::path bundle, trace, depth_socket, debug_est;
     std::string nic, factory_mode = "mcf";
     Options runner;
     bool benchmark = false, armed = false, lock_memory = false;
@@ -42,7 +42,7 @@ struct Config {
 };
 
 const char* usage = "foothold_start --folder BUNDLE [--nic NIC | --benchmark] "
-    "[--mode off|reconstruction] [--depth-socket PATH] [--seconds N] [--status N] [--trace-dir DIR] "
+    "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--seconds N] [--status N] [--trace-dir DIR] "
     "[--cpu-range FIRST-LAST | --control-cpus CPUSET --sensing-cpus CPUSET --io-cpus CPUSET] "
     "[--rt-priority N] [--sensing-rt-priority N] [--mlock] [--fwd-max N] "
     "[--stand-only] [--live --armed-by-remote]";
@@ -80,6 +80,7 @@ Config parse(int argc, char** argv) {
             return argv[i];
         };
         if (option == "--folder") config.bundle = value();
+        else if (option == "--debug-est") config.debug_est = value();
         else if (option == "--trace-dir") config.trace = value();
         else if (option == "--depth-socket") config.depth_socket = value();
         else if (option == "--nic") config.nic = value();
@@ -208,6 +209,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
     std::optional<Tick> previous_tick, previous_policy;
     std::uint64_t resyncs = 0;
     std::exception_ptr control_failure;
+    LowState state;
     bool saw_state = false, benchmark_armed = false, benchmark_in_policy = false;
     Depth synthetic_depth;
     synthetic_depth.fill(1.f);
@@ -221,7 +223,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
     while (!runner.stopped()) {
         std::this_thread::sleep_until(next);
         const auto now = std::chrono::steady_clock::now();
-        auto state = read(now);
+        state = read(now);
         saw_state = saw_state || state.stamp != Tick{};
         if (!saw_state && now - begin >= 10s)
             throw std::runtime_error("no LowState received in ten seconds");
@@ -269,13 +271,13 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
             ++resyncs;
         }
         if (now >= next_status) {
-            trace.status(now, runner.phase(), runner.commands(), writes(), policy_period, control_period, resyncs);
+            trace.status(now, runner.phase(), runner.commands(), writes(), policy_period, control_period, resyncs, state.battery);
             next_status = now + status_interval;
         }
     }
 
     trace.status(std::chrono::steady_clock::now(), runner.phase(), runner.commands(), writes(),
-                 policy_period, control_period, resyncs);
+                 policy_period, control_period, resyncs, state.battery);
     trace.close();
     if (control_failure) std::rethrow_exception(control_failure);
     if (runner.phase() != Phase::high || (config.benchmark && policy_period.count == 0)) return 1;
@@ -308,7 +310,7 @@ int main(int argc, char** argv) {
         const auto read_depth = [&](Tick now) {
             return sampler ? sampler->latest(now) : depth->latest(now);
         };
-        OrtPolicy policy(config.bundle, config.runner.map);
+        OrtPolicy policy(config.bundle, config.runner.map, config.debug_est);
         Inputs warm_input{};
         Outputs warm_output{};
         warm_input.first_after_reset = true;

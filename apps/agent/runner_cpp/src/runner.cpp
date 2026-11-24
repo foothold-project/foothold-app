@@ -268,7 +268,8 @@ void Runner::collect(Tick now) {
     last_action_ = outputs_.action;
     target_ = joint_targets(last_action_);
     observer_.sample({sample.time, sample.state, sample.gravity, sample.want,
-                      sample.shaped.command, command_, sample.shaped.mark, target_});
+                      sample.shaped.command, command_, sample.shaped.mark, target_,
+                      Phase::policy, outputs_.estimate});
 }
 
 void Runner::infer(Tick now, Tick scheduled, const LowState& state, const Vec3& grav,

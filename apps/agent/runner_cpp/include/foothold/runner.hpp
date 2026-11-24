@@ -19,6 +19,11 @@ enum class Event {
 };
 const char* event_name(Event event);
 
+struct Battery {
+    float soc, voltage, current;
+    std::array<int, 2> bq_ntc, mcu_ntc;
+};
+
 struct LowState {
     Tick stamp{};
     Quat orientation{1, 0, 0, 0};
@@ -26,11 +31,18 @@ struct LowState {
     Joints q{}, dq{}, tau{}, temperature{};
     std::array<float, 4> foot{};
     Remote remote;
+    std::optional<Battery> battery;
 };
+struct Estimate {
+    float raw_vx;
+    Vec3 velocity;
+};
+
 struct Outputs {
     Joints action{};
     std::array<float, 128> h_prop{}, h_terr{};
     HeightMap recon{};
+    std::optional<Estimate> estimate;
 };
 
 class Robot {
@@ -67,6 +79,7 @@ struct Sample {
     Mark shape;
     const Joints& target;
     Phase phase = Phase::policy;
+    std::optional<Estimate> estimate = std::nullopt;
 };
 
 struct EventInfo {

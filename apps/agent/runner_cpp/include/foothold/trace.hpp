@@ -28,7 +28,8 @@ public:
     void event(Tick, Event, EventInfo) override;
     void sample(const Sample&) override;
     void status(Tick, Phase, std::uint64_t commands, std::uint64_t writes,
-                const PeriodStats& policy, const PeriodStats& control, std::uint64_t resyncs);
+                const PeriodStats& policy, const PeriodStats& control, std::uint64_t resyncs,
+                const std::optional<Battery>& battery);
     pthread_t thread() const;
     void close();
     bool failed() const;

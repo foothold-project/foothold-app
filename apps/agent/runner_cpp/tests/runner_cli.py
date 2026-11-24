@@ -32,9 +32,21 @@ def check(executable, bundle):
         if events != expected:
             raise ValueError(f"unexpected recorded events: {events}")
         samples = [row for row in records if row.get("phase") == "policy"]
-        keys = set("t wall phase stick keys want shape goal cmd target q dq tau temp foot gyro grav est_vx".split())
+        keys = set("t wall phase stick keys want shape goal cmd target q dq tau temp foot gyro grav est_vx est_v h_kin bat".split())
         if len(samples) < 50 or any(row.keys() != keys for row in samples):
             raise ValueError("incomplete policy trace")
+        if any(row["est_v"] is not None or row["est_vx"] != [None, None] or
+               row["bat"] is not None or not 0.2 < row["h_kin"] < 0.5 for row in samples):
+            raise ValueError("invalid synthetic telemetry or canonical model estimates")
+        if status["bat"] is not None or (status["jetson_c"] is not None and
+                                          not -40 < status["jetson_c"] < 150):
+            raise ValueError(f"invalid status telemetry: {status}")
+        transitions = [row for row in records if row.get("phase") == "standing_up"]
+        if not 250 <= len(transitions) <= 280 or any(
+            row.keys() != keys or row["est_vx"] is not None or row["est_v"] is not None or
+            row["cmd"] is not None or len(row["target"]) != 12 for row in transitions
+        ):
+            raise ValueError("invalid transition trace")
 
 
 if __name__ == "__main__":

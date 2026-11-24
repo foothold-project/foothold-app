@@ -88,6 +88,9 @@ struct UnitreeRobot::Impl {
             state.temperature[i] = motor.temperature();
         }
         std::copy(msg.foot_force().begin(), msg.foot_force().end(), state.foot.begin());
+        const auto& bms = msg.bms_state();
+        state.battery = Battery{static_cast<float>(bms.soc()), msg.power_v(), msg.power_a(),
+                                {bms.bq_ntc()[0], bms.bq_ntc()[1]}, {bms.mcu_ntc()[0], bms.mcu_ntc()[1]}};
         std::lock_guard lock(mutex);
         latest = state;
     }

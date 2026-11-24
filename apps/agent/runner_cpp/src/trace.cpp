@@ -49,6 +49,7 @@ struct Row {
     Wanted want;
     Mark shape;
     Joints target;
+    std::optional<Estimate> estimate;
     Phase phase;
     std::uint64_t commands, writes, n_policy, n_control, late_policy, late_control, resyncs;
     double p99_policy, max_policy, recent_p99, recent_max, p99_control, max_control;
@@ -65,6 +66,73 @@ void array(std::ostream& out, const Range& values) {
         else out << "null";
     }
     out << ']';
+}
+
+template<class Number>
+void ranged(std::ostream& out, Number value, double lo, double hi) {
+    if (lo <= value && value <= hi) out << value;
+    else out << "null";
+}
+
+std::string battery_json(const std::optional<Battery>& battery) {
+    if (!battery) return "null";
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(2) << "{\"soc\":";
+    ranged(out, battery->soc, 0, 100);
+    out << ",\"v\":";
+    ranged(out, battery->voltage, .01, 100);
+    out << ",\"a\":";
+    ranged(out, battery->current, -200, 200);
+    const auto temperatures = [&](const char* name, const std::array<int, 2>& values) {
+        out << ",\"" << name << "\":[";
+        ranged(out, values[0], -40, 150);
+        out << ',';
+        ranged(out, values[1], -40, 150);
+        out << ']';
+    };
+    temperatures("bq_c", battery->bq_ntc);
+    temperatures("mcu_c", battery->mcu_ntc);
+    out << '}';
+    return out.str();
+}
+
+std::optional<double> jetson_temperature() {
+    std::optional<double> best;
+    std::error_code error;
+    for (std::filesystem::directory_iterator it("/sys/devices/virtual/thermal", error), end;
+         !error && it != end; it.increment(error)) {
+        if (it->path().filename().string().rfind("thermal_zone", 0) != 0) continue;
+        std::ifstream input(it->path() / "temp");
+        int millidegrees;
+        if (!(input >> millidegrees) || millidegrees <= -40000 || millidegrees >= 150000) continue;
+        const auto temp = millidegrees / 1000.;
+        best = best ? std::max(*best, temp) : temp;
+    }
+    if (best) return std::round(*best * 10) / 10;
+    return std::nullopt;
+}
+
+// Go2 foot positions projected along the measured up vector.
+std::optional<double> body_height(const Joints& q, const Vec3& gravity) {
+    constexpr double leg = .213, foot_radius = .022, bias = .013;
+    constexpr std::array<double, 4> hip_x{.1934, .1934, -.1934, -.1934};
+    constexpr std::array<double, 4> hip_y{.0465, -.0465, .0465, -.0465};
+    constexpr std::array<double, 4> thigh_y{.0955, -.0955, .0955, -.0955};
+    const auto length = std::hypot(double(gravity[0]), double(gravity[1]), double(gravity[2]));
+    if (!std::isfinite(length) || length < .5) return std::nullopt;
+    std::array<double, 4> heights{};
+    for (std::size_t i = 0; i < heights.size(); ++i) {
+        const double h = q[i], t = q[4 + i], c = q[8 + i];
+        const auto x = -leg * (std::sin(t) + std::sin(t + c));
+        const auto z = -leg * (std::cos(t) + std::cos(t + c));
+        const auto y = thigh_y[i] * std::cos(h) - z * std::sin(h);
+        const auto zz = thigh_y[i] * std::sin(h) + z * std::cos(h);
+        heights[i] = ((hip_x[i] + x) * gravity[0] + (hip_y[i] + y) * gravity[1] +
+                      zz * gravity[2]) / length + foot_radius;
+        if (!std::isfinite(heights[i])) return std::nullopt;
+    }
+    std::sort(heights.begin(), heights.end());
+    return (heights[1] + heights[2] + heights[3]) / 3 - bias;
 }
 
 void keys(std::ostream& out, std::uint16_t value) {
@@ -131,7 +199,8 @@ std::string line(const Row& row) {
     out << ",\"target\":";
     array(out, row.target);
     out << ",\"q\":";
-    array(out, to_policy(s.q));
+    const auto q = to_policy(s.q);
+    array(out, q);
     out << ",\"dq\":";
     array(out, to_policy(s.dq));
     out << ",\"tau\":";
@@ -144,7 +213,17 @@ std::string line(const Row& row) {
     array(out, s.gyro);
     out << ",\"grav\":";
     array(out, row.grav);
-    out << (policy ? ",\"est_vx\":[null,null]}\n" : ",\"est_vx\":null}\n");
+    out << ",\"est_vx\":";
+    if (!policy) out << "null";
+    else if (row.estimate) array(out, std::array<float, 2>{row.estimate->raw_vx, row.estimate->velocity[0]});
+    else out << "[null,null]";
+    out << ",\"est_v\":";
+    if (policy && row.estimate) array(out, row.estimate->velocity);
+    else out << "null";
+    out << ",\"h_kin\":";
+    if (const auto height = body_height(q, row.grav)) out << *height;
+    else out << "null";
+    out << ",\"bat\":" << battery_json(s.battery) << "}\n";
     return out.str();
 }
 }
@@ -236,7 +315,11 @@ struct Trace::Impl {
                       << ",\"dt_p99\":" << row.recent_p99 << ",\"dt_max\":" << row.recent_max
                       << ",\"dt_over30\":" << row.late_policy << ",\"dt_n\":" << row.n_policy
                       << ",\"resync\":" << row.resyncs << ",\"trace_drops\":" << drops.load()
-                      << ",\"trace_error\":" << (error.load() ? "true" : "false") << "}\n" << std::flush;
+                      << ",\"trace_error\":" << (error.load() ? "true" : "false")
+                      << ",\"bat\":" << battery_json(row.state.battery) << ",\"jetson_c\":";
+            if (const auto temp = jetson_temperature()) std::cout << *temp;
+            else std::cout << "null";
+            std::cout << "}\n" << std::flush;
             return;
         }
         if (row.kind == Kind::event)
@@ -336,15 +419,18 @@ void Trace::sample(const Sample& sample) {
     row.shape = sample.shape;
     row.target = sample.target;
     row.phase = sample.phase;
+    row.estimate = sample.estimate;
     impl_->push(row);
 }
 
 void Trace::status(Tick now, Phase phase, std::uint64_t commands, std::uint64_t writes,
-                   const PeriodStats& policy, const PeriodStats& control, std::uint64_t resyncs) {
+                   const PeriodStats& policy, const PeriodStats& control, std::uint64_t resyncs,
+                   const std::optional<Battery>& battery) {
     Row row{};
     row.kind = Kind::status;
     row.time = now;
     row.phase = phase;
+    row.state.battery = battery;
     row.commands = commands;
     row.writes = writes;
     row.n_policy = policy.count;

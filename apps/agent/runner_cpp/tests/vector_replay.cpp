@@ -15,9 +15,9 @@ void read(T& values) {
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 3) throw std::invalid_argument("usage: vector_replay BUNDLE MODE");
+        if (argc != 3 && argc != 4) throw std::invalid_argument("usage: vector_replay BUNDLE MODE [DEBUG_EST]");
         const auto mode = parse_map_mode(argv[2]);
-        OrtPolicy policy(argv[1], mode);
+        OrtPolicy policy(argv[1], mode, argc == 4 ? argv[3] : "");
         Memory memory(mode);
         Obs obs;
         Depth depth;
@@ -32,6 +32,11 @@ int main(int argc, char** argv) {
                                         mode == MapMode::gt ? &gt : nullptr), out);
             memory.advance(out.h_prop, out.h_terr);
             std::cout.write(reinterpret_cast<const char*>(out.action.data()), sizeof out.action);
+            if (argc == 4) {
+                const auto& est = out.estimate.value();
+                const std::array<float, 4> values{est.raw_vx, est.velocity[0], est.velocity[1], est.velocity[2]};
+                std::cout.write(reinterpret_cast<const char*>(values.data()), sizeof values);
+            }
         }
         if (std::cin.peek() != EOF || !std::cout.flush())
             throw std::runtime_error("unexpected replay stream length");

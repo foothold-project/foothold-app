@@ -15,7 +15,7 @@ def flat(value):
         yield value
 
 
-def replay(executable, folder, mode, python_reference):
+def replay(executable, folder, mode, python_reference, debug_est=None):
     document = json.loads((folder / f"test_vectors_flat20_{mode}.json").read_text())
     steps = document["inputs"]
     if len(steps) != 20 or len(document["expected"]) != len(steps):
@@ -46,7 +46,7 @@ def replay(executable, folder, mode, python_reference):
     print(f"{mode}: 20 steps, action_max_err={worst:.9g}", flush=True)
     if worst > min(1e-4, document["tolerance"]):
         raise ValueError(f"{mode}: policy mismatch")
-    if python_reference:
+    if python_reference or debug_est:
         from foothold_agent.policy.start import StartPolicy
 
         policy = StartPolicy(folder, mode)
@@ -59,12 +59,37 @@ def replay(executable, folder, mode, python_reference):
         if not math.isfinite(direct) or direct > 1e-4:
             raise ValueError(f"{mode}: C++ and Python differ")
 
+    if debug_est:
+        result = subprocess.run([str(executable), str(folder), mode, str(debug_est)], input=request,
+                                stdout=subprocess.PIPE, check=True)
+        if len(result.stdout) != 20 * 16 * 4:
+            raise ValueError(f"{mode}: invalid C++ debug output length {len(result.stdout)}")
+        rows = list(struct.iter_unpack("<16f", result.stdout))
+        debug_policy = StartPolicy(folder, mode, debug_est=debug_est)
+        outputs = [debug_policy.run(debug_policy.inputs(step["obs45"], depth, step["gt_map"]))
+                   for step, depth in zip(steps, frames)]
+        debug_actions = [value for row in rows for value in row[:12]]
+        estimates = [value for row in rows for value in row[12:]]
+        ref_estimates = [float(value) for out in outputs for value in
+                         (out["est_raw"].ravel()[16], *out["est"].ravel()[16:19])]
+        ref_actions = [float(value) for out in outputs for value in out["action"].ravel()]
+        if not all(map(math.isfinite, (*debug_actions, *estimates, *ref_actions, *ref_estimates))):
+            raise ValueError(f"{mode}: nonfinite debug output")
+        action_error = max(abs(a - b) for a, b in zip(debug_actions, actual))
+        reference_error = max(abs(a - b) for a, b in zip(debug_actions, ref_actions))
+        estimate_error = max(abs(a - b) for a, b in zip(estimates, ref_estimates))
+        print(f"{mode}: debug_action_vs_canon={action_error:.9g}, "
+              f"debug_action_vs_python={reference_error:.9g}, est_vs_python={estimate_error:.9g}", flush=True)
+        if max(action_error, reference_error, estimate_error) > 1e-4:
+            raise ValueError(f"{mode}: debug model parity failed")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("executable", type=Path)
     parser.add_argument("folder", type=Path)
     parser.add_argument("--python-reference", action="store_true")
+    parser.add_argument("--debug-est", type=Path, help="Check the debug bundle against Python")
     args = parser.parse_args()
     for current_mode in ("off", "reconstruction", "gt"):
-        replay(args.executable.resolve(), args.folder, current_mode, args.python_reference)
+        replay(args.executable.resolve(), args.folder, current_mode, args.python_reference, args.debug_est)

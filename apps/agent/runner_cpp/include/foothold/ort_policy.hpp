@@ -9,7 +9,8 @@ namespace foothold {
 
 class OrtPolicy final : public Policy {
 public:
-    OrtPolicy(const std::filesystem::path& bundle, MapMode mode);
+    OrtPolicy(const std::filesystem::path& bundle, MapMode mode,
+              const std::filesystem::path& debug_est = {});
     ~OrtPolicy() override;
     void infer(const Inputs&, Outputs&) override;
 
