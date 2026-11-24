@@ -50,6 +50,24 @@ struct FakeRobot final : Robot {
     }
 };
 
+struct FakeModes final : ModeExecutor {
+    explicit FakeModes(FakeRobot& robot) : robot(robot) {}
+    FakeRobot& robot;
+    std::optional<ModeRequest> pending;
+    bool delayed = false;
+    std::optional<ModeCall> delayed_call;
+    void submit(ModeRequest request) override {
+        require(!pending, "overlapping mode RPCs");
+        pending = request;
+    }
+    std::optional<ModeResult> poll() override {
+        if (!pending || delayed || pending->call == delayed_call) return std::nullopt;
+        const auto request = *pending;
+        pending.reset();
+        return execute_mode(robot, request);
+    }
+};
+
 struct FakePolicy final : PolicyExecutor {
     float next_action = 1;
     int calls = 0;
@@ -86,6 +104,7 @@ struct Events final : Observer {
 
 struct Rig {
     FakeRobot robot;
+    FakeModes modes{robot};
     FakePolicy policy;
     Events events;
     Runner runner;
@@ -93,7 +112,7 @@ struct Rig {
     Tick time{};
     const Depth* depth = nullptr;
 
-    explicit Rig(bool live, MapMode mode = MapMode::off) : runner(robot, policy, events, {live, mode}) {
+    explicit Rig(bool live, MapMode mode = MapMode::off) : runner(robot, policy, events, {live, mode}, &modes) {
         state.q = to_sdk(sit_pose);
     }
     void tick(int keys = 0, bool fresh = true, bool shutdown = false) {
@@ -114,6 +133,51 @@ struct Rig {
 }
 
 int main() {
+    {
+        Rig live(true);
+        live.modes.delayed = true;
+        live.tick(start);
+        live.wait(150ms);
+        require(live.runner.phase() == Phase::acquiring && live.robot.calls == 0 && live.robot.writes == 0,
+                "pending acquire must leave the command loop responsive without writing");
+        live.tick(emergency);
+        live.modes.delayed = false;
+        live.tick();
+        require(live.runner.phase() == Phase::high && live.robot.factory && live.robot.calls == 1 &&
+                    live.robot.writes == 0,
+                "emergency during mode check must prevent release even after the button is released");
+    }
+    {
+        Rig live(true);
+        live.modes.delayed_call = ModeCall::release_factory;
+        live.tick(start);
+        live.wait(150ms);
+        require(live.runner.phase() == Phase::acquiring && live.robot.writes == 0,
+                "pending release must prevent pose writes");
+        live.tick(emergency);
+        live.modes.delayed_call.reset();
+        live.tick();
+        require(live.runner.phase() == Phase::returning && live.robot.position_gain == 0,
+                "emergency during release must damp and restore factory mode");
+        live.wait(1s);
+        require(live.runner.phase() == Phase::high && live.robot.factory,
+                "interrupted acquire did not restore factory mode");
+    }
+    {
+        Rig live(true);
+        live.enter();
+        live.tick(emergency);
+        live.modes.delayed = true;
+        const auto before = live.robot.writes;
+        live.tick(0, true, true);
+        live.wait(150ms);
+        require(live.runner.phase() == Phase::returning && !live.runner.stopped() && live.robot.writes == before,
+                "shutdown must wait without writing while factory selection is pending");
+        live.modes.delayed = false;
+        live.tick();
+        live.wait(1s);
+        require(live.runner.stopped() && live.robot.factory, "shutdown must confirm factory mode");
+    }
     {
         Rig live(true);
         live.tick(start);

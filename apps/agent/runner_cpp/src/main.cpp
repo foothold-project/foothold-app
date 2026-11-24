@@ -2,6 +2,7 @@
 #include "foothold/depth_sampler.hpp"
 #include "foothold/ort_policy.hpp"
 #include "foothold/policy_worker.hpp"
+#include "foothold/mode_worker.hpp"
 #include "foothold/trace.hpp"
 #include "foothold/thread_schedule.hpp"
 #ifdef FOOTHOLD_UNITREE
@@ -30,7 +31,7 @@ volatile std::sig_atomic_t interrupted = 0;
 void request_stop(int) { interrupted = 1; }
 
 struct Config {
-    std::filesystem::path bundle, trace, depth_socket, debug_est;
+    std::filesystem::path bundle, trace, depth_socket, debug_est, status_log;
     std::string nic, factory_mode = "mcf";
     Options runner;
     bool benchmark = false, armed = false, lock_memory = false;
@@ -42,10 +43,10 @@ struct Config {
 };
 
 const char* usage = "foothold_start --folder BUNDLE [--nic NIC | --benchmark] "
-    "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--seconds N] [--status N] [--trace-dir DIR] "
+    "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--seconds N] [--status N] [--status-log FILE] [--trace-dir DIR] "
     "[--cpu-range FIRST-LAST | --control-cpus CPUSET --sensing-cpus CPUSET --io-cpus CPUSET] "
     "[--rt-priority N] [--sensing-rt-priority N] [--mlock] [--fwd-max N] "
-    "[--stand-only] [--live --armed-by-remote]";
+    "[--stand-only] [--stop-mode sit] [--live --armed-by-remote]";
 
 double number(std::string_view value) {
     std::size_t end = 0;
@@ -84,9 +85,12 @@ Config parse(int argc, char** argv) {
         else if (option == "--trace-dir") config.trace = value();
         else if (option == "--depth-socket") config.depth_socket = value();
         else if (option == "--nic") config.nic = value();
-        else if (option == "--sport-mode") config.factory_mode = value();
+        else if (option == "--stop-mode") {
+            if (value() != "sit") throw std::invalid_argument("C++ runner supports only --stop-mode sit");
+        } else if (option == "--sport-mode") config.factory_mode = value();
         else if (option == "--mode") config.runner.map = parse_map_mode(value());
         else if (option == "--seconds") config.seconds = number(value());
+        else if (option == "--status-log") config.status_log = value();
         else if (option == "--status") config.status = number(value());
         else if (option == "--fwd-max") config.runner.fwd_max = number(value());
         else if (option == "--rt-priority") config.priority = integer(value(), 99);
@@ -203,8 +207,8 @@ Tick::duration interval(double seconds) {
 
 template<class DepthRead, class Read, class Writes>
 int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace,
-        DepthRead read_depth, Read read, Writes writes) {
-    Runner runner(robot, policy, trace, config.runner);
+        DepthRead read_depth, Read read, Writes writes, ModeExecutor* modes = nullptr) {
+    Runner runner(robot, policy, trace, config.runner, modes);
     PeriodStats policy_period, control_period;
     std::optional<Tick> previous_tick, previous_policy;
     std::uint64_t resyncs = 0;
@@ -224,7 +228,10 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
         std::this_thread::sleep_until(next);
         const auto now = std::chrono::steady_clock::now();
         state = read(now);
-        saw_state = saw_state || state.stamp != Tick{};
+        if (!saw_state && state.stamp != Tick{}) {
+            saw_state = true;
+            trace.event(now, Event::runner_ready, {});
+        }
         if (!saw_state && now - begin >= 10s)
             throw std::runtime_error("no LowState received in ten seconds");
         const auto* depth = config.depth_socket.empty() ? replay_depth : read_depth(now);
@@ -299,7 +306,7 @@ int main(int argc, char** argv) {
         }
         std::signal(SIGTERM, request_stop);
         std::signal(SIGINT, request_stop);
-        Trace trace(config.trace, config.runner.live);
+        Trace trace(config.trace, config.runner.live, config.status_log);
         pin_thread(layout.sensing);
         std::optional<DepthReceiver> depth;
         std::optional<DepthSampler> sampler;
@@ -336,9 +343,11 @@ int main(int argc, char** argv) {
 #ifdef FOOTHOLD_UNITREE
             if (layout.split) pin_thread(layout.io);
             UnitreeRobot robot(config.nic, config.runner.live, config.factory_mode);
+            std::optional<ModeWorker> modes;
+            if (config.runner.live) modes.emplace(robot);
             start_control();
             return run(config, robot, worker, trace, read_depth, [&](Tick) { return robot.read(); },
-                       [&] { return robot.writes(); });
+                       [&] { return robot.writes(); }, modes ? &*modes : nullptr);
 #else
             throw std::invalid_argument("binary was built without the Unitree SDK");
 #endif

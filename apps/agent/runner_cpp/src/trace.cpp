@@ -4,13 +4,13 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
-#include <unistd.h>
 
 using namespace std::chrono_literals;
 
@@ -77,7 +77,7 @@ void ranged(std::ostream& out, Number value, double lo, double hi) {
 std::string battery_json(const std::optional<Battery>& battery) {
     if (!battery) return "null";
     std::ostringstream out;
-    out << std::fixed << std::setprecision(2) << "{\"soc\":";
+    out << std::fixed << std::setprecision(2) << "{\"soc\": ";
     ranged(out, battery->soc, 0, 100);
     out << ",\"v\":";
     ranged(out, battery->voltage, .01, 100);
@@ -164,6 +164,8 @@ std::string line(const Row& row) {
             out << ",\"reason\":\"" << row.info.text << '"';
         if (row.event == Event::policy_start)
             out << ",\"mode\":\"" << row.info.text << '"';
+        if (row.event == Event::mode_rpc)
+            out << ",\"operation\":\"" << row.info.text << "\",\"duration_ms\":" << row.info.value;
         if (row.event == Event::stand_fold)
             out << ",\"sec\":" << row.info.value;
         if (row.event == Event::stand_refused)
@@ -268,7 +270,7 @@ struct Trace::Impl {
     std::atomic<unsigned int> marker{0};
     std::atomic<std::uint64_t> drops{0};
     std::atomic<bool> done{false}, error{false};
-    const std::filesystem::path folder;
+    const std::filesystem::path folder, status_log;
     const bool live;
     std::filesystem::path stem;
     std::uint64_t total = 0, size = 0, index = 0, rows = 0;
@@ -276,13 +278,18 @@ struct Trace::Impl {
     std::ofstream file;
     std::thread writer;
 
-    Impl(std::filesystem::path path, bool live) : folder(std::move(path)), live(live) {
+    Impl(std::filesystem::path path, bool live, std::filesystem::path log)
+        : folder(std::move(path)), status_log(std::move(log)), live(live) {
         if (!folder.empty()) {
             std::filesystem::create_directories(folder);
             for (const auto& entry : std::filesystem::directory_iterator(folder))
                 if (entry.is_regular_file() && entry.path().extension() == ".jsonl") total += entry.file_size();
-            const auto ns = Wall::now().time_since_epoch().count();
-            stem = folder / ("start-" + std::to_string(ns) + "-" + std::to_string(getpid()));
+            const auto timestamp = Wall::to_time_t(Wall::now());
+            std::tm local{};
+            if (!localtime_r(&timestamp, &local)) throw std::runtime_error("trace timestamp failed");
+            std::ostringstream name;
+            name << "start-" << std::put_time(&local, "%Y%m%d-%H%M%S");
+            stem = folder / name.str();
         }
         writer = std::thread([this] {
             name_thread("fh-record");
@@ -303,8 +310,9 @@ struct Trace::Impl {
 
     void output(const Row& row) {
         if (row.kind == Kind::status) {
-            std::cout << "{\"status\":\"" << phase_name(row.phase) << "\",\"commands\":" << row.commands
-                      << ",\"lowcmd_writes\":" << row.writes << ",\"policy_period_count\":" << row.n_policy
+            std::ostringstream status;
+            status << "{\"status\":\"" << phase_name(row.phase) << "\",\"commands\":" << row.commands
+                      << ",\"sent\":" << row.writes << ",\"lowcmd_writes\":" << row.writes << ",\"policy_period_count\":" << row.n_policy
                       << ",\"policy_period_p99_ms\":" << row.p99_policy
                       << ",\"policy_period_max_ms\":" << row.max_policy
                       << ",\"policy_period_over_30_ms\":" << row.late_policy
@@ -317,9 +325,17 @@ struct Trace::Impl {
                       << ",\"resync\":" << row.resyncs << ",\"trace_drops\":" << drops.load()
                       << ",\"trace_error\":" << (error.load() ? "true" : "false")
                       << ",\"bat\":" << battery_json(row.state.battery) << ",\"jetson_c\":";
-            if (const auto temp = jetson_temperature()) std::cout << *temp;
-            else std::cout << "null";
-            std::cout << "}\n" << std::flush;
+            if (const auto temp = jetson_temperature()) status << *temp;
+            else status << "null";
+            status << "}\n";
+            const auto message = status.str();
+            std::cout << message << std::flush;
+            if (!status_log.empty()) {
+                std::ofstream log(status_log, std::ios::app);
+                log << message;
+                log.close();
+                if (!log) log_failure("status log write failed");
+            }
             return;
         }
         if (row.kind == Kind::event)
@@ -332,17 +348,20 @@ struct Trace::Impl {
             std::cout << "{\"code\":\"TRACE_FULL\"}\n" << std::flush;
             return;
         }
-        if (!file.is_open() || size + jsonl.size() > file_limit) {
+        while (!file.is_open() || size + jsonl.size() > file_limit) {
             if (file.is_open()) file.close();
             std::ostringstream suffix;
             suffix << '-' << std::setw(3) << std::setfill('0') << index++ << ".jsonl";
-            file.open(stem.string() + suffix.str(), std::ios::binary);
-            size = 0;
+            file.open(stem.string() + suffix.str(), std::ios::binary | std::ios::app);
+            if (!file) return log_failure("trace open failed");
+            const auto end = file.tellp();
+            if (end < 0) return log_failure("trace size unavailable");
+            size = static_cast<std::uint64_t>(end);
         }
         file << jsonl;
         size += jsonl.size();
         total += jsonl.size();
-        if (++rows % 50 == 0) file.flush();
+        if (++rows % 50 == 0 || row.kind == Kind::event) file.flush();
         if (!file) log_failure("trace write failed");
     }
 
@@ -388,8 +407,8 @@ struct Trace::Impl {
     }
 };
 
-Trace::Trace(std::filesystem::path directory, bool live)
-    : impl_(std::make_unique<Impl>(std::move(directory), live)) {}
+Trace::Trace(std::filesystem::path directory, bool live, std::filesystem::path status_log)
+    : impl_(std::make_unique<Impl>(std::move(directory), live, std::move(status_log))) {}
 Trace::~Trace() { close(); }
 void Trace::event(Tick now, Event event, EventInfo info) {
     if (impl_->live) {

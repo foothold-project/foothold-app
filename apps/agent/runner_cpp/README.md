@@ -41,6 +41,8 @@ python apps/agent/runner_cpp/tests/vector_replay.py \
   --benchmark --mode off --seconds 30 --cpu-range 0-3 --trace-dir "$trace_dir"
 ```
 
+기록 파일명은 Python과 같은 `start-YYYYmmdd-HHMMSS-NNN.jsonl`이다. `--status-log FILE`을 지정하면 상태 JSON 줄을 표준 출력과 파일에 함께 기록한다. 서비스에서는 기존 `trace/`와 `live-auto.log`를 사용한다.
+
 위 모드는 합성 LowState로 가동한다. SDK 포함 빌드에 `--nic "$state_interface"`를 더하면 실제 LowState를 수신하고 같은 로컬 진입 조건을 재현한다. 필요한 코어와 기존 프로세스 부하는 장비 담당자가 확인한 값을 쓴다. `--rt-priority`와 `--mlock`은 실제 적용 결과를 상태 줄에 남긴다. 권한이 없으면 해당 결과가 `false`로 표시된다.
 
 `dt_p99`와 `dt_max`는 Python과 같은 최근 250개 정책 간격, `dt_n`과 `dt_over30`은 누적이다. 종료 줄의 `policy_period_p99_ms`는 0.1 ms 폭으로 올림한 누적 p99, `policy_period_max_ms`는 누적 최대다. `lowcmd_writes`가 모든 상태 줄에서 0이어야 한다. 벤치마크가 측정 시간 전에 정책에서 이탈하거나 기록이 떨어지면 프로세스가 실패로 끝난다.
@@ -51,7 +53,7 @@ python apps/agent/runner_cpp/tests/vector_replay.py \
 
 Classic 관절별 앉기·서기와 리모컨 진입을 지원한다. 앉기·다리 모으기·일어서기 중 실제 목표를 50 Hz로 기록한다. 표본에는 `h_kin`과 `bat`가, 상태 줄에는 `bat`와 `jetson_c`가 들어간다.
 
-`--debug-est "$debug_bundle"`을 지정하면 별도 SHA-256 계약으로 검증한 기록용 ONNX를 사용해 정책 표본에 `est_vx`와 `est_v`를 기록한다. 같은 인자를 `vector_replay.py`에 추가하면 정본 행동과 Python 추정값을 대조한다. 기본 ONNX의 추정값은 `est_vx=[null,null]`, `est_v=null`이다. 현재 지원 범위는 리모컨 제어와 기본 앉기 종료 경로다.
+`--debug-est "$debug_bundle"`을 지정하면 별도 SHA-256 계약으로 검증한 기록용 ONNX를 사용해 정책 표본에 `est_vx`와 `est_v`를 기록한다. 같은 인자를 `vector_replay.py`에 추가하면 정본 행동과 Python 추정값을 대조한다. 기본 ONNX의 추정값은 `est_vx=[null,null]`, `est_v=null`이다. 리모컨으로 제어한다. 멈춤은 Python과 같은 즉시 앉기이고 명시 인자는 `--stop-mode sit`이다.
 
 운영 서비스와 배포 파일은 이 변경의 범위 밖이다. 시험 종료 시 실행기 프로세스가 스스로 종료된다. 코드가 반영된 뒤 되돌려야 하면 기능 커밋을 revert하고 기존 Python 실행기로 확인한다.
 
@@ -63,7 +65,7 @@ Classic 관절별 앉기·서기와 리모컨 진입을 지원한다. 앉기·�
 |---|---|---|
 | 제어 | 200 Hz 상태 머신과 명령 호출 | `--rt-priority`의 FIFO 우선순위 |
 | 감각 | 정책 추론 작업 스레드, ORT 내부 스레드, 사용 시 깊이 소켓 수신 | 정책 작업 스레드는 `--sensing-rt-priority`, 기본값은 제어보다 한 단계 아래. 내부 작업 및 깊이 수신은 일반 스케줄링 |
-| 기록 통신 | JSONL 기록 스레드와 DDS 초기화로 생기는 SDK 스레드 | 일반 스케줄링 |
+| 기록 통신 | JSONL·상태 기록, 모드 전환 RPC, DDS 초기화로 생기는 SDK 스레드 | 일반 스케줄링 |
 
 예를 들어 전 코어 0–7을 쓸 수 있는 별도 시험에서 제어 4, 감각 5–7, 기록 통신 0–3을 지정하려면 아래처럼 실행한다.
 

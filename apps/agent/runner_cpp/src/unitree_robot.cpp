@@ -47,8 +47,8 @@ struct UnitreeRobot::Impl {
     std::unique_ptr<unitree::robot::go2::SportClient> sport;
     std::string factory_mode;
     std::uint64_t sent = 0;
-    bool owned = false, selecting = false;
-    std::atomic<bool> emergency{false};
+    bool selecting = false;
+    std::atomic<bool> owned{false}, emergency{false};
     ChannelSubscriber<LowState_> subscriber{"rt/lowstate"};
 
     Impl(const std::string& nic, bool live, std::string mode) : factory_mode(std::move(mode)) {
@@ -138,7 +138,7 @@ bool UnitreeRobot::select_gait(Gait gait) {
     return gait == Gait::classic && impl_->sport->ClassicWalk(true) == 0;
 }
 void UnitreeRobot::send(const Joints& q, float kp, float kd) {
-    if (!impl_->publisher || !impl_->owned ||
+    if (!impl_->publisher || !impl_->owned.load(std::memory_order_acquire) ||
         (kp > 0 && impl_->emergency.load(std::memory_order_acquire))) return;
     for (std::size_t i = 0; i < q.size(); ++i) {
         auto& motor = impl_->cmd.motor_cmd()[i];

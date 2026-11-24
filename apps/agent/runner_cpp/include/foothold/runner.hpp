@@ -15,7 +15,7 @@ enum class Event {
     mode_low, stand_fold, stand_refused, policy_start, sit_down, damping, liveness_lost, depth_lost, robot_fall,
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
-    inference_failed, ame2_unavailable
+    inference_failed, ame2_unavailable, runner_ready, mode_rpc
 };
 const char* event_name(Event event);
 
@@ -55,6 +55,28 @@ public:
     virtual bool select_gait(Gait) = 0;
     virtual void send(const Joints& q_sdk, float kp, float kd) = 0;
 };
+enum class ModeCall { check_acquire, release_factory, select_factory, confirm_factory, recovery_stand, select_gait };
+
+struct ModeRequest {
+    ModeCall call;
+    Gait gait = Gait::none;
+};
+
+struct ModeResult {
+    RobotMode mode = RobotMode::unknown;
+    bool succeeded = false;
+    double duration_ms = 0;
+};
+
+ModeResult execute_mode(Robot&, ModeRequest);
+
+class ModeExecutor {
+public:
+    virtual ~ModeExecutor() = default;
+    virtual void submit(ModeRequest) = 0;
+    virtual std::optional<ModeResult> poll() = 0;
+};
+
 class Policy {
 public:
     virtual ~Policy() = default;
@@ -104,7 +126,7 @@ struct Options {
 // One caller owns the state machine and every command. No holder can race a mode change.
 class Runner {
 public:
-    Runner(Robot&, PolicyExecutor&, Observer&, Options = {});
+    Runner(Robot&, PolicyExecutor&, Observer&, Options = {}, ModeExecutor* = nullptr);
     void tick(Tick, const LowState&, const Depth* = nullptr, bool shutdown = false,
               std::optional<Tick> scheduled = std::nullopt);
     Phase phase() const { return phase_; }
@@ -117,7 +139,8 @@ private:
     void damp(Tick, const char* reason);
     void start(Tick, const Joints&, const Vec3& gravity);
     void sit(Tick, const Joints&, bool blind);
-    void acquire(Tick, const Joints&);
+    void acquire(Tick, const Joints&, bool interrupted = false);
+    std::optional<ModeResult> mode_step(Tick, ModeCall, Gait = Gait::none);
     void return_to_factory(Tick);
     void advance_return(Tick);
     void complete_return(Tick);
@@ -132,12 +155,15 @@ private:
     PolicyExecutor& policy_;
     Observer& observer_;
     Options options_;
+    ModeExecutor* modes_;
+    std::optional<ModeCall> mode_pending_;
     Memory memory_;
     Phase phase_ = Phase::high;
     Gait gait_ = Gait::none;
     bool restand_ = false, fall_recovery_ = false, return_after_sit_ = false, blind_sit_ = false;
     bool lie_latched_ = false, ame2_latched_ = false;
     bool shutdown_ = false, stopped_ = false, confirm_return_ = false;
+    bool abort_acquire_ = false, recovery_stand_pending_ = false;
     int attempts_ = 0;
     Tick started_{}, deadline_{}, next_attempt_{}, next_policy_{};
     std::optional<Tick> stale_since_, fall_since_;

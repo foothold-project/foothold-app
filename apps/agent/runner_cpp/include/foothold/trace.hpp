@@ -23,7 +23,7 @@ private:
 
 class Trace final : public Observer {
 public:
-    Trace(std::filesystem::path directory, bool live);
+    Trace(std::filesystem::path directory, bool live, std::filesystem::path status_log = {});
     ~Trace() override;
     void event(Tick, Event, EventInfo) override;
     void sample(const Sample&) override;

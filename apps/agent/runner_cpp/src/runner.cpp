@@ -42,6 +42,18 @@ Joints blend_pose(const Joints& from, const Joints& to, double fraction, const W
     return pose;
 }
 
+const char* mode_name(ModeCall call) {
+    switch (call) {
+    case ModeCall::check_acquire: return "check_acquire";
+    case ModeCall::release_factory: return "release_factory";
+    case ModeCall::select_factory: return "select_factory";
+    case ModeCall::confirm_factory: return "confirm_factory";
+    case ModeCall::recovery_stand: return "recovery_stand";
+    case ModeCall::select_gait: return "select_gait";
+    }
+    return "unknown";
+}
+
 template<class Range>
 bool finite(const Range& values) {
     return std::all_of(values.begin(), values.end(), [](float v) { return std::isfinite(v); });
@@ -50,6 +62,8 @@ bool finite(const Range& values) {
 
 const char* event_name(Event event) {
     switch (event) {
+    case Event::mode_rpc: return "MODE_RPC";
+    case Event::runner_ready: return "RUNNER_READY";
     case Event::mode_low: return "MODE_LOW";
     case Event::stand_fold: return "STAND_FOLD";
     case Event::stand_refused: return "STAND_REFUSED";
@@ -73,8 +87,38 @@ const char* event_name(Event event) {
     return "UNKNOWN";
 }
 
-Runner::Runner(Robot& robot, PolicyExecutor& policy, Observer& observer, Options options)
-    : robot_(robot), policy_(policy), observer_(observer), options_(options), memory_(options.map) {
+ModeResult execute_mode(Robot& robot, ModeRequest request) {
+    const auto started = std::chrono::steady_clock::now();
+    ModeResult result;
+    switch (request.call) {
+    case ModeCall::check_acquire:
+    case ModeCall::confirm_factory:
+        result.mode = robot.check_mode();
+        break;
+    case ModeCall::release_factory:
+        robot.release_mode();
+        result.mode = robot.check_mode();
+        break;
+    case ModeCall::select_factory:
+        result.succeeded = robot.select_mode();
+        if (!result.succeeded) result.mode = robot.check_mode();
+        break;
+    case ModeCall::recovery_stand:
+        robot.recovery_stand();
+        result.succeeded = true;
+        break;
+    case ModeCall::select_gait:
+        result.succeeded = robot.select_gait(request.gait);
+        break;
+    }
+    result.duration_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started).count();
+    return result;
+}
+
+Runner::Runner(Robot& robot, PolicyExecutor& policy, Observer& observer, Options options, ModeExecutor* modes)
+    : robot_(robot), policy_(policy), observer_(observer), options_(options), modes_(modes), memory_(options.map) {
+    if (options_.live && !modes_) throw std::invalid_argument("live runner requires a mode executor");
     if (!std::isfinite(options_.fwd_max)) throw std::invalid_argument("fwd_max must be finite");
     options_.fwd_max = std::clamp(options_.fwd_max, 0., 1.5);
     if (options_.live && options_.map == MapMode::gt)
@@ -106,27 +150,56 @@ void Runner::start(Tick now, const Joints& q, const Vec3& grav) {
     pending_sample_.reset();
     return_after_sit_ = false;
     phase_ = Phase::acquiring;
+    abort_acquire_ = false;
     deadline_ = now + 10s;
     next_attempt_ = now;
     acquire(now, q);
 }
 
-void Runner::acquire(Tick now, const Joints& q) {
-    if (now < next_attempt_) return;
-    auto mode = options_.live ? robot_.check_mode() : RobotMode::low;
-    if (mode == RobotMode::factory && now < deadline_) {
-        robot_.release_mode();
-        mode = robot_.check_mode();
+std::optional<ModeResult> Runner::mode_step(Tick now, ModeCall call, Gait gait) {
+    if (!mode_pending_) {
+        modes_->submit({call, gait});
+        mode_pending_ = call;
     }
-    if (mode == RobotMode::low) {
+    if (*mode_pending_ != call) throw std::logic_error("unexpected pending mode operation");
+    auto result = modes_->poll();
+    if (result) {
+        mode_pending_.reset();
+        observer_.event(now, Event::mode_rpc, {mode_name(call), result->duration_ms});
+    }
+    return result;
+}
+
+void Runner::acquire(Tick now, const Joints& q, bool interrupted) {
+    abort_acquire_ |= interrupted || now >= deadline_;
+    if (!mode_pending_ && abort_acquire_) {
+        observer_.event(now, Event::mode_low_failed);
+        return_to_factory(now);
+        return;
+    }
+    if (now < next_attempt_) return;
+    const auto operation = mode_pending_.value_or(ModeCall::check_acquire);
+    auto result = options_.live ? mode_step(now, operation)
+                                : std::optional<ModeResult>{ModeResult{RobotMode::low}};
+    if (result && result->mode == RobotMode::factory && !abort_acquire_ &&
+        operation == ModeCall::check_acquire)
+        result = mode_step(now, ModeCall::release_factory);
+    if (!result) return;
+    if (result->mode == RobotMode::low) {
         observer_.event(now, Event::mode_low);
+        if (abort_acquire_) {
+            damp(now, "acquire interrupted");
+            return_to_factory(now);
+            return;
+        }
         from_ = q;
         started_ = now;
         phase_ = restand_ ? Phase::folding : Phase::standing;
         if (restand_) observer_.event(now, Event::stand_fold, {nullptr, 1.});
-    } else if (now >= deadline_) {
-        phase_ = Phase::high;
+    } else if (abort_acquire_) {
         observer_.event(now, Event::mode_low_failed);
+        if (result->mode == RobotMode::factory) complete_return(now);
+        else return_to_factory(now);
     } else {
         next_attempt_ = now + 500ms;
     }
@@ -194,11 +267,20 @@ void Runner::return_to_factory(Tick now) {
 
 void Runner::advance_return(Tick now) {
     if (now < next_attempt_) return;
-    if (!options_.live || (confirm_return_ && robot_.check_mode() == RobotMode::factory)) {
+    if (!options_.live) {
         complete_return(now);
         return;
     }
-    if (confirm_return_) observer_.event(now, Event::mode_high_retry);
+    if (confirm_return_) {
+        const auto result = mode_step(now, ModeCall::confirm_factory);
+        if (!result) return;
+        if (result->mode == RobotMode::factory) {
+            complete_return(now);
+            return;
+        }
+        confirm_return_ = false;
+        observer_.event(now, Event::mode_high_retry);
+    }
     if (attempts_ >= 5) {
         observer_.event(now, Event::mode_high_failed);
         phase_ = Phase::damping;
@@ -208,8 +290,8 @@ void Runner::advance_return(Tick now) {
         if (shutdown_) stopped_ = true;
         return;
     }
+    if (!mode_step(now, ModeCall::select_factory)) return;
     ++attempts_;
-    if (!robot_.select_mode()) robot_.check_mode();
     confirm_return_ = true;
     next_attempt_ = now + 1s;
 }
@@ -222,26 +304,43 @@ void Runner::complete_return(Tick now) {
         stopped_ = true;
         return;
     }
-    if (fall_recovery_ || gait_ != Gait::none) {
-        if (options_.live) robot_.recovery_stand();
-        if (fall_recovery_) observer_.event(now, Event::robot_fall_recovery_stand);
-    }
-    fall_recovery_ = false;
-    if (gait_ == Gait::none) return;
-    if (options_.live) {
+    if (options_.live && (fall_recovery_ || gait_ != Gait::none)) {
         phase_ = Phase::recovering;
+        recovery_stand_pending_ = true;
         attempts_ = 0;
-        next_attempt_ = now + 3s;
-    } else {
+        next_attempt_ = now;
+        recover_gait(now);
+        return;
+    }
+    if (fall_recovery_) observer_.event(now, Event::robot_fall_recovery_stand);
+    fall_recovery_ = false;
+    if (gait_ != Gait::none) {
         observer_.event(now, Event::factory_gait);
         gait_ = Gait::none;
     }
 }
 
 void Runner::recover_gait(Tick now) {
+    if (shutdown_) {
+        if (mode_pending_ && !mode_step(now, *mode_pending_, gait_)) return;
+        stopped_ = true;
+        return;
+    }
     if (now < next_attempt_) return;
+    if (recovery_stand_pending_) {
+        const auto result = mode_step(now, ModeCall::recovery_stand);
+        if (!result) return;
+        recovery_stand_pending_ = false;
+        if (fall_recovery_ && result->succeeded) observer_.event(now, Event::robot_fall_recovery_stand);
+        fall_recovery_ = false;
+        if (gait_ == Gait::none) phase_ = Phase::high;
+        else next_attempt_ = now + 3s;
+        return;
+    }
+    const auto result = mode_step(now, ModeCall::select_gait, gait_);
+    if (!result) return;
     ++attempts_;
-    if (robot_.select_gait(gait_) || attempts_ == 3) {
+    if (result->succeeded || attempts_ == 3) {
         phase_ = Phase::high;
         gait_ = Gait::none;
         observer_.event(now, Event::factory_gait);
@@ -323,8 +422,12 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         return;
     }
     if (phase_ == Phase::recovering) {
-        if (shutdown_) { stopped_ = true; return; }
         recover_gait(now);
+        return;
+    }
+    if (phase_ == Phase::acquiring) {
+        acquire(now, q, shutdown_ || emergency || stale || invalid ||
+                        (options_.map == MapMode::reconstruction && !frame));
         return;
     }
     if (shutdown_ && phase_ == Phase::high) { stopped_ = true; return; }
@@ -351,7 +454,7 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
             observer_.event(now, Event::exit_sit_down);
             return_after_sit_ = true;
             sit(now, q, stale);
-        } else if (phase_ == Phase::damping || phase_ == Phase::acquiring) {
+        } else if (phase_ == Phase::damping) {
             return_to_factory(now);
         }
         return;
@@ -386,16 +489,7 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         return;
     }
     stale_since_.reset();
-    if (stale || invalid) {
-        if (phase_ == Phase::acquiring) {
-            if (now >= deadline_) return_to_factory(now);
-        }
-        return;
-    }
-    if (phase_ == Phase::acquiring) {
-        acquire(now, q);
-        return;
-    }
+    if (stale || invalid) return;
     if (phase_ == Phase::policy && grav[2] > -.5f) {
         if (!fall_since_) fall_since_ = now;
         if (now - *fall_since_ >= 500ms) {
