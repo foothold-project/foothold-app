@@ -19,6 +19,7 @@ echo "== 상태 줄 (배터리 · Jetson 온도 · 주기)"; grep -a '"status"' 
 import sys,json; d=json.loads(sys.stdin.read()); print({k:d.get(k) for k in ('status','bat','jetson_c','dt_p99','dt_max','dt_over30','sent')})"
 echo "== 순정 기록 칸 (bat · h_kin · temp)"; f=$(ls -t $D/trace/factory-auto-*.jsonl | head -1); tail -1 $f | python3 -c "
 import sys,json; d=json.loads(sys.stdin.read()); print('h_kin',d.get('h_kin'),'순정 height',(d.get('sport') or {}).get('height'),'bat',d.get('bat'),'모터 최고',max(d.get('temp') or [0]))"
+echo "== D435i USB"; grep -o "Device USB type: [0-9.]*" $(ls -t $D/trace/depth-camera-*.log | head -1) | head -1
 echo "== 디스크"; df -h / | tail -1
 echo "== 유선 (Go2 ↔ Jetson · DDS 안 씀)"; systemctl --user is-active foothold-link-health; cat $D/trace/link-health-status.json 2>/dev/null
 echo "== 판정 (한 줄씩 OK / FAIL)"
@@ -29,4 +30,5 @@ ok "MAXN" 'nvpmodel -q 2>/dev/null | grep -q MAXN'
 for s in foothold-policy foothold-depth foothold-factory-record foothold-link-health; do ok "서비스 $s" "systemctl --user is-active --quiet $s"; done
 ok "깊이 28 장/초 이상 · 지연 20~60 ms" 'python3 -c "import json,sys;d=json.load(open(\"$D/trace/depth-health-status.json\"));l=d.get(\"lat_ms_p50\") or 0;sys.exit(0 if (d.get(\"frames\") or 0)>=28 and 20<=l<=60 else 1)"'
 ok "유선 패킷 500/초 이상 · Go2 ping" 'python3 -c "import json,sys;d=json.load(open(\"$D/trace/link-health-status.json\"));sys.exit(0 if d.get(\"rx_per_s\",0)>=500 and d.get(\"go2_ping\") is True else 1)"'
+ok "D435i USB 3 (2.1 이면 접촉 확인)" 'grep -q "Device USB type: 3" $(ls -t $D/trace/depth-camera-*.log | head -1)'
 ok "배터리 기록" 'grep -a "\"status\"" $D/live-auto.log | tail -1 | grep -q "\"soc\": [0-9]"'
