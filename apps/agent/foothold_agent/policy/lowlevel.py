@@ -43,9 +43,22 @@ LIVENESS_S = 1.0   # LowState 가 이만큼 끊기면 엎드린 뒤 순정 (팀�
 SLEW_UP, SLEW_DOWN = (.5, .5, 2.4), (1.2, 1.25, 3.)   # 가속 낮춤 (팀장 11/23 11:39: 붙자마자 전진이 미친 듯 튀어나감 · 1.5 → 0.5 m/s², 0 → 1.0 m/s 에 2 초)   # 전진 감속 1.2 /s 를 늘 (planner 11/23 09:55 · 시뮬 3.3~3.8 cm). 시뮬 keyboard-ramp.js 는 아직 3.75 (맞춰야 함)
 SIT_WAIT_S = 3.0
 RECOVER_WAIT_S = 3.0
-# 저수준에서 천천히 앉히기: 엎드린 관절 각 (정책 순서, 시뮬 recovery-stand.js fold 와 같음) · 2 초 보간
-SIT_POSE = np.array([0, 0, 0, 0, 1.2, 1.2, 1.2, 1.2, -2.7, -2.7, -2.7, -2.7], np.float32)
-SIT_SEC = 2.0
+# 저수준에서 천천히 앉히기 · 서기: Classic L2 + A 실측 (팀장 11/24 11:24~11:42 · 앉기 11 · 서기 11 회 · trace-1124/PHASES-1124.json).
+# 엎드린 끝 자세 = Classic 평균 (뒷다리 엉덩이를 0.34 벌려 앉음 · 회차 편차 최대 0.023). 이전 값은 시뮬 fold (0 · 1.2 · -2.7).
+SIT_POSE = np.array([.06, -.06, .34, -.34, 1.24, 1.24, 1.29, 1.29, -2.78, -2.78, -2.82, -2.82], np.float32)
+SIT_SEC = 2.0   # Classic 엎드리기 1.9 초
+# 관절마다 움직이는 창 (전체 시간에 대한 비율 [시작, 끝]) · 정책 순서 hip FL FR RL RR · thigh × 4 · calf × 4.
+# 앉기: 허벅지 · 종아리가 바로 접히기 시작 · 뒷다리 엉덩이는 1/4 뒤부터 벌림 · 앞다리 엉덩이는 절반 뒤.
+SIT_WIN = np.array([[.5, 1.]] * 2 + [[.25, 1.]] * 2 + [[0., .97]] * 4 + [[0., .95]] * 4)
+# 서기: 앞다리 엉덩이 먼저 → 뒷다리 엉덩이 (0.28) → 허벅지 (0.42) · 종아리 (0.46) 가 함께 펴서 끝 (Classic 1.16 초 · 우리는 STAND_SEC 에 늘림)
+STAND_WIN = np.array([[0., .95]] * 2 + [[.28, .92]] * 2 + [[.42, .98]] * 4 + [[.46, 1.]] * 4)
+
+
+def staged(start, end, a, win):
+    """관절마다 자기 창 [시작, 끝] 안에서만 부드럽게 (smoothstep) 옮김. a = 0..1 (전체 진행). a = 1 이면 정확히 end."""
+    lo, hi = win[:, 0], win[:, 1]
+    x = np.clip((a - lo) / (hi - lo), 0., 1.)
+    return start + (end - start) * (x * x * (3 - 2 * x))
 # 엎드린 채 다시 설 때: 먼저 다리를 몸 밑으로 모은 뒤 (FOLD_SEC) 선다. 몸이 이만큼 넘게 기울었으면 서지 않는다
 # (팀장 11/23 17:30: 네 발을 고르게 모으지 못한 채 앉은 뒤 L2 + A 로 바로 세우자 뒤집힘 · Unitree go2_stand_example 도 접은 자세를 거쳐 선다)
 FOLD_SEC, RESTAND_MAX_TILT_DEG = 1.0, 25.
@@ -389,7 +402,7 @@ class LowLevelRunner:
                 return
             blend = min(1., max(0., (self.clock() - t0 - STAND_SEC) / BLEND_SEC))
             kp, kd = STAND_KP + (KP - STAND_KP) * blend, STAND_KD + (KD - STAND_KD) * blend
-            tgt = start + (DEFAULT_POSE - start) * (a * a * (3 - 2 * a))
+            tgt = staged(start, DEFAULT_POSE, a, STAND_WIN)   # Classic 순서 (엉덩이 먼저 → 허벅지 · 종아리)
             self._send(tgt, kp, kd)
             self._trace_transition(st, tgt)
             if blend >= 1.:
@@ -576,7 +589,7 @@ class LowLevelRunner:
         self.phase = Phase.HIGH
 
     def sit_down(self, blind=False):
-        """지금 자세에서 엎드린 자세로 2 초 보간 → 감쇠. 서 있는 채로 감쇠하면 다리가 이상하게 접힌다 (11/22 실기).
+        """지금 자세에서 엎드린 자세로 2 초 보간 (관절마다 Classic 순서) → 감쇠. 서 있는 채로 감쇠하면 다리가 이상하게 접힌다 (11/22 실기).
         blind: LowState 가 끊긴 채로 (마지막으로 받은 관절 각에서) 끝까지 보간한다 (생존 신호 끊김 · 팀장 결정 11)."""
         s0, t0 = self.read(), self.clock()
         start = s0['q'].copy()
@@ -587,7 +600,7 @@ class LowLevelRunner:
             st = self.read()
             if {'L2', 'B'} <= st['remote'].keys or (st['stale'] and not blind):
                 break
-            tgt = start + (SIT_POSE - start) * (a * a * (3 - 2 * a))
+            tgt = staged(start, SIT_POSE, a, SIT_WIN)   # Classic 순서 (허벅지 · 종아리 먼저 → 뒷다리 엉덩이 벌림)
             self._send(tgt, KP, KD)
             self._trace_transition(st, tgt)
             if a >= 1.:

@@ -673,3 +673,19 @@ def test_depth_health_latency_fields():
     r = summarize([0., .033, .066], [[640, 480]], [.1], 0., lat_ms=[40., 50., 60., 45.])
     assert r['lat_ms_p50'] == 50. and r['lat_ms_max'] == 60. and r['frames'] == 3
     assert 'lat_ms_p50' not in summarize([0., .033], [[640, 480]], [.1], 0.)
+
+
+def test_staged_sit_stand_follows_classic_order():
+    """팀장 11/24: 앉기 · 서기를 Classic 실측 순서로 (서기 = 엉덩이 먼저 → 허벅지 · 종아리 · 앉기 = 허벅지 · 종아리 먼저 → 뒷다리 엉덩이 벌림)."""
+    from foothold_agent.policy.lowlevel import SIT_POSE, SIT_WIN, STAND_WIN, staged
+    from foothold_agent.policy.start import DEFAULT_POSE
+    up = lambda a: staged(SIT_POSE.astype(np.float64), DEFAULT_POSE, a, STAND_WIN)
+    assert np.allclose(up(0.), SIT_POSE) and np.allclose(up(1.), DEFAULT_POSE)
+    mid = up(.3)
+    assert not np.allclose(mid[:2], SIT_POSE[:2])          # 앞다리 엉덩이는 이미 움직임
+    assert np.allclose(mid[4:], SIT_POSE[4:])              # 허벅지 · 종아리는 아직
+    down = lambda a: staged(DEFAULT_POSE.astype(np.float64), SIT_POSE, a, SIT_WIN)
+    assert np.allclose(down(1.), SIT_POSE)
+    m = down(.2)
+    assert np.allclose(m[:4], DEFAULT_POSE[:4]) and not np.allclose(m[4:], DEFAULT_POSE[4:])
+    assert np.all(SIT_POSE[2] > 0) and SIT_POSE[3] < 0     # 뒷다리 엉덩이는 바깥으로 벌림 (왼 + · 오른 -)
