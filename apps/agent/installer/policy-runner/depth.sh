@@ -11,6 +11,7 @@ for _ in $(seq 90); do
   sleep 1
 done
 TRACE="$HOME/foothold-policy-1122/trace"
+rm -f "$TRACE/depth-health-status.json"   # 앞 실행의 상태 파일을 「이미 들어옴」 으로 잘못 읽지 않게 (12:24:44 실행이 13 초 만에 다시 켜짐)
 taskset -c 0-3 ros2 launch realsense2_camera rs_launch.py enable_color:=false enable_infra1:=false enable_infra2:=false \
   depth_module.depth_profile:=640x480x30 initial_reset:=false > "$TRACE/depth-camera-$(date +%Y%m%d-%H%M%S).log" 2>&1 &
 CAM=$!
