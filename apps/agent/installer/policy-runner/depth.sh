@@ -19,7 +19,13 @@ CAM=$!
 cd "$HOME/foothold-policy-1122/run"
 PYTHONPATH="$HOME/foothold-policy-1122/run:$PYTHONPATH" python3 -m foothold_agent.policy.depth_health --out ../trace &
 HEALTH=$!
-trap 'kill -INT $HEALTH $CAM 2>/dev/null; wait $HEALTH $CAM' EXIT INT TERM
+# 끝낼 때: INT → 5 초 기다림 → 아직 살아 있으면 KILL (11/24 16:27 USB 카메라가 죽어 INT 에 안 끝나 wait 에서 멈춘 채 다시 켜지지 않음)
+stop_children() {
+  kill -INT $HEALTH $CAM 2>/dev/null
+  for _ in 1 2 3 4 5; do kill -0 $HEALTH 2>/dev/null || kill -0 $CAM 2>/dev/null || return 0; sleep 1; done
+  pkill -KILL -P $CAM 2>/dev/null; kill -KILL $HEALTH $CAM 2>/dev/null; return 0
+}
+trap stop_children EXIT INT TERM
 seen=0; zero=0; t=0
 while kill -0 $HEALTH 2>/dev/null && kill -0 $CAM 2>/dev/null; do
   sleep 1; t=$((t + 1))
