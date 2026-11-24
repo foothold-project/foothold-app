@@ -464,7 +464,7 @@ class LowLevelRunner:
                 'q': r4(s['q']), 'dq': r4(s['dq']), 'tau': r4(np.asarray(tau)[POLICY_FROM_SDK]) if tau is not None else None,
                 'temp': [int(x) for x in np.asarray(temp)[POLICY_FROM_SDK]] if temp is not None else None,
                 'foot': list(getattr(self.sdk, 'foot_force', lambda: [])()), 'gyro': r4(s['gyro']), 'grav': r4(s['grav']),
-                'est_vx': est if low else None}
+                'est_vx': est if low else None, 'bat': getattr(self.sdk, 'battery', lambda: None)()}
 
     def _trace_transition(self, st, target):
         """앉기 · 다리 모으기 · 일어서기 동안에도 50 Hz 기록. 동작은 바꾸지 않는다 (팀장 11/23 18:00: 라이다가 닿는 순간 몸 기울기를 먼저 숫자로)."""

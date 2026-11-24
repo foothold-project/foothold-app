@@ -689,3 +689,19 @@ def test_staged_sit_stand_follows_classic_order():
     m = down(.2)
     assert np.allclose(m[:4], DEFAULT_POSE[:4]) and not np.allclose(m[4:], DEFAULT_POSE[4:])
     assert np.all(SIT_POSE[2] > 0) and SIT_POSE[3] < 0     # 뒷다리 엉덩이는 바깥으로 벌림 (왼 + · 오른 -)
+
+
+def test_battery_of_reads_lowstate_fields():
+    """팀장 11/24: 배터리 (잔량 % · 전압 · 전류) 도 기록. 칸이 없거나 터무니없으면 None."""
+    from types import SimpleNamespace as NS
+    from foothold_agent.policy.unitree import battery_of
+    assert battery_of(None) is None
+    assert battery_of(NS(bms_state=NS(soc=87, bq_ntc=[31, 32], mcu_ntc=[35, 36]), power_v=31.25, power_a=-3.5)) == \
+        {'soc': 87.0, 'v': 31.25, 'a': -3.5, 'bq_c': [31.0, 32.0], 'mcu_c': [35.0, 36.0]}
+    assert battery_of(NS(bms_state=NS(soc=250, bq_ntc=[200]), power_v=0, power_a=None)) == {'soc': None, 'v': None, 'a': None, 'bq_c': [None], 'mcu_c': []}
+
+
+def test_jetson_temp_is_number_or_none():
+    from foothold_agent.policy.run import jetson_temp
+    t = jetson_temp()
+    assert t is None or -40 < t < 150

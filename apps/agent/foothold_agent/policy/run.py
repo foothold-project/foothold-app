@@ -40,6 +40,19 @@ class PeriodStats:
         return {'dt_p99': round(d[min(len(d) - 1, int(len(d) * .99))], 1), 'dt_max': round(d[-1], 1), 'dt_over30': self.over30, 'dt_n': self.n, 'resync': self.resyncs}
 
 
+
+def jetson_temp():
+    """Jetson 온도 구역 중 가장 높은 값 (°C · 상태 줄마다 · 팀장 11/24 13:44). 읽을 수 없으면 None."""
+    best = None
+    for f in Path('/sys/devices/virtual/thermal').glob('thermal_zone*/temp'):
+        try:
+            v = int(f.read_text().strip()) / 1000
+        except (OSError, ValueError):
+            continue
+        if -40 < v < 150:
+            best = v if best is None else max(best, v)
+    return None if best is None else round(best, 1)
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--folder', required=True, type=Path)
@@ -112,7 +125,7 @@ def main(argv=None):
                 if a.status and k % int(a.status * CMD_HZ) == 0:
                     print(json.dumps({'status': runner.phase.value, 'stale': bool(s['stale']), 'grav_z': round(float(s['grav'][2]), 3),
                                       'keys': sorted(s['remote'].keys), 'lx': round(s['remote'].lx, 2), 'ly': round(s['remote'].ly, 2),
-                                      'rx': round(s['remote'].rx, 2), 'cmd': [round(float(x), 2) for x in runner.cmd], 'act_max': round(float(abs(runner.last_action).max()), 2), 'pitch_x': round(float(s['grav'][0]), 3), 'roll_y': round(float(s['grav'][1]), 3), 'sent': runner.sent, 'app': app is not None and app.velocity() is not None, **pt.summary()}, ensure_ascii=False), flush=True)
+                                      'rx': round(s['remote'].rx, 2), 'cmd': [round(float(x), 2) for x in runner.cmd], 'act_max': round(float(abs(runner.last_action).max()), 2), 'pitch_x': round(float(s['grav'][0]), 3), 'roll_y': round(float(s['grav'][1]), 3), 'sent': runner.sent, 'app': app is not None and app.velocity() is not None, 'bat': getattr(sdk, 'battery', lambda: None)(), 'jetson_c': jetson_temp(), **pt.summary()}, ensure_ascii=False), flush=True)
                     if trace is not None:
                         trace.flush()
             else:

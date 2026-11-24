@@ -61,6 +61,12 @@ class UnitreeSdk:
             s = self._state
         return [int(s.motor_state[i].temperature) for i in range(12)] if s is not None else None
 
+    def battery(self):
+        """LowState.bms_state.soc (%) · bq_ntc · mcu_ntc (°C) · power_v (V) · power_a (A) · 기록용 (팀장 11/24 13:44 · 앱 표시는 go2_readonly 가 같은 LowState 에서 따로 읽음)."""
+        with self._lock:
+            s = self._state
+        return battery_of(s)
+
     def foot_force(self):
         """LowState.foot_force (SDK 순서 FR · FL · RR · RL · 원시 값 · 검증 안 된 값이라 정책 입력에는 안 씀)."""
         with self._lock:
@@ -98,3 +104,15 @@ class UnitreeSdk:
 
     def select_mode(self, name):
         return self.switcher.SelectMode(name)
+
+
+def battery_of(low):
+    """LowState 하나에서 배터리 세 값. 칸이 없거나 이상하면 None."""
+    if low is None:
+        return None
+    bms = getattr(low, 'bms_state', None)
+    num = lambda v, lo, hi: round(float(v), 2) if isinstance(v, (int, float)) and lo <= float(v) <= hi else None
+    temps = lambda k: [num(x, -40, 150) for x in (getattr(bms, k, None) or [])]
+    return {'soc': num(getattr(bms, 'soc', None), 0, 100), 'v': num(getattr(low, 'power_v', None), .01, 100),
+            'a': num(getattr(low, 'power_a', None), -200, 200),
+            'bq_c': temps('bq_ntc'), 'mcu_c': temps('mcu_ntc')}   # 배터리 셀 쪽 · 보호회로 쪽 온도 (°C)

@@ -18,6 +18,7 @@ import numpy as np
 
 from .lowlevel import parse_remote
 from .start import POLICY_FROM_SDK, projected_gravity
+from .unitree import battery_of
 from .trace import START_FLAG, TraceWriter, pin_cpus, r4
 
 HZ = 50
@@ -54,7 +55,7 @@ def row(low, low_t, sport, label, now):
            'q': r4(sdk(lambda m: m.q)), 'dq': r4(sdk(lambda m: m.dq)), 'tau': r4(sdk(lambda m: m.tau_est)),
            'temp': [int(x) for x in sdk(lambda m: m.temperature)],
            'foot': [int(x) for x in low.foot_force], 'gyro': r4(low.imu_state.gyroscope),
-           'grav': r4(projected_gravity(tuple(low.imu_state.quaternion))), 'est_vx': None, 'sport': None}
+           'grav': r4(projected_gravity(tuple(low.imu_state.quaternion))), 'est_vx': None, 'sport': None, 'bat': battery_of(low)}
     if sport is not None:
         g = lambda k: getattr(sport, k, None)   # SDK IDL SportModeState_ 칸 (없으면 null)
         num = lambda v, f=float: None if v is None else round(f(v), 4)
