@@ -17,7 +17,7 @@ using namespace std::chrono_literals;
 namespace foothold {
 namespace {
 constexpr std::uint64_t file_limit = 50'000'000;
-constexpr std::uint64_t total_limit = 2'000'000'000;
+constexpr std::uint64_t total_limit = 4'000'000'000;  // 11/25 팀장: 4 GB · 2 GB 에서 ai-lx01 자동 백업 (trace_backup.py)
 constexpr auto active_flag = "/tmp/foothold-start-active";
 using Wall = std::chrono::system_clock;
 using Ms = std::chrono::duration<double, std::milli>;

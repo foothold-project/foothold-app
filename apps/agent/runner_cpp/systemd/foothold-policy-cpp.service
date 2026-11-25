@@ -1,0 +1,19 @@
+[Unit]
+Description=Foothold START C++ policy runner
+
+[Service]
+Type=exec
+WorkingDirectory=%h/foothold-runner-cpp/<설치 폴더>
+EnvironmentFile=%h/foothold-policy-1122/runner.env
+Environment=LD_LIBRARY_PATH=%h/foothold-runner-cpp/cd93f0d139e7/deps
+ExecCondition=/usr/bin/test ! -e /tmp/foothold-start-active
+ExecCondition=/bin/sh -c 'test "$$(systemctl --user show --property=ActiveState --value foothold-policy.service)" = inactive'
+ExecStart=%h/foothold-runner-cpp/<설치 폴더>/foothold_start --folder %h/foothold-policy-1122/policy/start-m15500-app --debug-est %h/foothold-policy-1122/policy/start-m15500-debug-est --mode off --nic ${FH_GO2_DIRECT_NIC} --live --armed-by-remote --fwd-max 1.2 --status 5 --control-cpus 4 --sensing-cpus 5-7 --io-cpus 0-3 --rt-priority 40 --sensing-rt-priority 30 --mlock --stop-mode sit --trace-dir %h/foothold-policy-1122/trace --status-log %h/foothold-policy-1122/live-auto.log
+LimitRTPRIO=50
+LimitMEMLOCK=2052100096
+Restart=no
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
