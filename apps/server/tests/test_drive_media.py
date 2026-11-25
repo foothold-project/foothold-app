@@ -44,6 +44,31 @@ def upload(client,rid,header,points=None,token=None):
         json={'header':header,'points':None if points is None else base64.b64encode(points).decode()})
 
 
+@pytest.mark.parametrize('edge', [None, 'AP8='])
+def test_lidar_optional_edges_and_legacy_header_relay_unchanged(trial, seeded, edge):
+    rid = seeded['robots']['mine']
+    header = frame(rid, 'lidar')
+    header.update(count=2, byte_length=24)
+    if edge is not None:
+        header['edge_u8'] = edge
+    payload = struct.pack('<ffffff', 1., 2., 3., 4., 5., 6.)
+    with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/lidar', headers=app_token(trial)) as viewer:
+        receive(viewer, 'media.status')
+        assert upload(trial, rid, header, payload).status_code == 202
+        got = receive(viewer, 'media.points')
+        assert got.get('edge_u8') == edge
+        assert ('edge_u8' in got) == (edge is not None)
+        assert got['count'] == 2 and got['byte_length'] == 24
+        assert viewer.receive_bytes() == payload
+
+
+@pytest.mark.parametrize('edge', [None, 'AAAA', '!!!', '/x=='])
+def test_lidar_relay_rejects_invalid_edge_length_or_base64(trial, seeded, edge):
+    rid = seeded['robots']['mine']
+    header = dict(frame(rid, 'lidar'), edge_u8=edge)
+    assert upload(trial, rid, header, struct.pack('<fff', 1., 2., 3.)).status_code == 400
+
+
 @pytest.mark.parametrize('enabled,listed', [(True, False), (False, True)])
 def test_media_follows_server_drive_permission(drive_trial, seeded, monkeypatch, enabled, listed):
     client = drive_trial
