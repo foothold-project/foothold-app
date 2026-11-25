@@ -25,7 +25,8 @@ const centers = (cells: Iterable<readonly [number, number, number]>, n: number) 
   for (const [a, b, c] of cells) { xyz[i++] = (a + 0.5) * RES; xyz[i++] = (b + 0.5) * RES; xyz[i++] = (c + 0.5) * RES; }
   return xyz;
 };
-const tilePatch = (t: MappingGridTile): Patch => ({ key: `${t.x},${t.y}`, seq: t.tile_seq, x0: t.x * TILE * RES, y0: t.y * TILE * RES, w: TILE, h: TILE, cells: t.cells });
+/** key 에 세션·판을 넣음 — 판이 바뀌면 같은 좌표·tile_seq 여도 그림 캐시를 다시 칠함(RV-485) */
+const tilePatch = (sid: string) => (t: MappingGridTile): Patch => ({ key: `${sid}/${t.revision}/${t.x},${t.y}`, seq: t.tile_seq, x0: t.x * TILE * RES, y0: t.y * TILE * RES, w: TILE, h: TILE, cells: t.cells });
 
 /** 진행 중 그림: p = 1초마다 받는 진행 자료(같은 세션·판이면 이어 쌓고, 바뀌면 비움). 조각은 update_seq 가 늘 때마다 tiles API 로 따라간다 */
 export function useSlamLive(robot: string, p: MappingProgress | null): SlamPic {
@@ -52,7 +53,7 @@ export function useSlamLive(robot: string, p: MappingProgress | null): SlamPic {
     const pose = p.odom && (!p.odom.provider || !p.source || p.odom.provider === p.source) ? poseOf(p.odom) : s.pose;
     if (pose?.x !== s.pose?.x || pose?.y !== s.pose?.y || pose?.z !== s.pose?.z || pose?.yaw !== s.pose?.yaw) { s.pose = pose; dv = true; }
     const emit = () => setPic({ xyz: dv ? centers(s.vox.values(), s.vox.size) : pic.xyz, n: s.vox.size, ver: dv ? ++s.ver : s.ver,
-      patches: [...s.tiles.values()].map(tilePatch), tver: dt ? ++s.tver : s.tver, pose: s.pose, gap: s.gap });
+      patches: [...s.tiles.values()].map(tilePatch(s.sid)), tver: dt ? ++s.tver : s.tver, pose: s.pose, gap: s.gap });
     if (dv || dt) emit();
     if (p.update_seq != null && p.update_seq > s.seen) { s.seen = p.update_seq; void pull(); }
   }, [p]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -62,7 +63,7 @@ export function useSlamLive(robot: string, p: MappingProgress | null): SlamPic {
     const s = st.current, gen = s.gen, { sid, rev } = s, signal = s.ac.signal;
     if (s.busy) { s.again = true; return; }
     s.busy = true;
-    const show = () => setPic((o) => ({ ...o, patches: [...s.tiles.values()].map(tilePatch), tver: ++s.tver }));
+    const show = () => setPic((o) => ({ ...o, patches: [...s.tiles.values()].map(tilePatch(sid)), tver: ++s.tver }));
     try {
       do {
         s.again = false;
@@ -123,6 +124,8 @@ function SlamGrid({ pic }: { pic: SlamPic }) {
     if (!cv || !g) return;
     const dpr = window.devicePixelRatio || 1, W = Math.round(cv.clientWidth * dpr) || cv.width, H = Math.round(cv.clientHeight * dpr) || cv.height, r = pic.pose;
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const keep = new Set(pic.patches.map((q) => q.key));   // 그릴 게 없어 아래에서 돌아가도(판 바뀐 직후 조각 0개) 지난 그림은 먼저 버림
+    for (const key of cache.current.keys()) if (!keep.has(key)) cache.current.delete(key);
     g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = `rgb(${RGB[0].join(',')})`; g.fillRect(0, 0, W, H);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const q of pic.patches) { x0 = Math.min(x0, q.x0); y0 = Math.min(y0, q.y0); x1 = Math.max(x1, q.x0 + q.w * RES); y1 = Math.max(y1, q.y0 + q.h * RES); }
@@ -131,9 +134,7 @@ function SlamGrid({ pic }: { pic: SlamPic }) {
     const k = Math.min(W / (x1 - x0 + 1), H / (y1 - y0 + 1)), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     const X = (x: number) => W / 2 + (x - cx) * k, Y = (y: number) => H / 2 - (y - cy) * k;
     g.imageSmoothingEnabled = false;
-    const keep = new Set<string>();
     for (const q of pic.patches) {
-      keep.add(q.key);
       let c = cache.current.get(q.key);
       if (!c || c.seq !== q.seq) {
         const img = document.createElement('canvas'), ig = (img.width = q.w, img.height = q.h, img.getContext('2d'));
@@ -145,7 +146,6 @@ function SlamGrid({ pic }: { pic: SlamPic }) {
       }
       g.drawImage(c.img, X(q.x0), Y(q.y0 + q.h * RES), q.w * RES * k, q.h * RES * k);
     }
-    for (const key of cache.current.keys()) if (!keep.has(key)) cache.current.delete(key);
     if (r) {   // 로봇: 앞을 가리키는 화살표(occmap.tsx 와 같은 모양·색)
       const st = getComputedStyle(cv), s = 9 * dpr;
       g.save(); g.translate(X(r.x), Y(r.y)); g.rotate(-r.yaw);
