@@ -69,6 +69,87 @@ and sets `truncated` when further voxels exist. Only `lidar_link` is emitted,
 with `map_version_id=null` and `pose=null`: label it **L1 sensor frame**, not map
 accumulation. No verified TF/map transform is implemented here.
 
+## Optional lidar edge strengths
+
+`FH_LIDAR_EDGE_ENABLED=1` opts in; **default is `0` (off)**. Set it in the
+connection program's launch environment (hardware uses its supplied environment;
+ROS conversion children inherit the launch environment), then restart through
+the normal authorized procedure. There are no new package dependencies: this
+uses the already supported NumPy, and omits the extension if NumPy is absent.
+It does not run in the control/safety loop: hardware uses the existing lidar
+observation worker; ROS uses its existing lidar conversion child.
+
+Deploy the server with the updated `MediaPointCloudHeader` contract **before**
+enabling this flag on any agent. Older servers reject unknown fields and would
+reject the whole scan. Keep agents off during server rollout or rollback. The
+old web accepts headers without the field, and ignores the optional field when
+present; drawing edge strengths is a subsequent web task.
+
+Both server upload and direct `/phone/media/ws` use the same optional JSON
+header field, without changing `version=media/1`, `encoding=xyz_f32le`, the XYZ
+binary message, message ordering, frame, or point count:
+
+```json
+{"count":2,"byte_length":24,"encoding":"xyz_f32le","edge_u8":"AP8="}
+```
+
+This is a header fragment; all existing required binding/frame fields still
+apply. `edge_u8` is canonical standard base64 of **exactly `count` uint8 bytes**,
+in the order of the XYZ triples in the following binary message. Byte 0 means
+unmarked; byte 255 means edge. This implementation emits only 0/255; consumers
+may treat any positive value as a strength. It describes only that scan and must
+be cleared with it. Absent means no edge information; it is not an all-zero
+classification. Null, malformed/noncanonical base64 and decoded lengths unequal
+to `count` are rejected by the server contract. Maximum encoded length is 5,336
+characters for 4,000 points. Empty scans omit the field (the contract also accepts
+an empty string with `count=0`). No second binary message or extra bytes are added.
+
+The calculation uses **the emitted points after the existing filtering and
+sampling**, including the odom path and raw sensor fallback. It quantizes them
+into 0.2 m cells and sums count, coordinate and quadratic moments from 27
+neighbor cells. The smallest covariance eigenvalue divided by its trace exceeds
+0.02 near folds where two faces meet. It requires eight neighbors and a second
+eigenvalue greater than 0.0001 m² to avoid calling single points/lines edges.
+This detects floor–wall seams, box face joins and tabletop rims while leaving
+single planar floors, walls and ramps unmarked, including their sampled outer
+boundaries. Sorting cell keys and a fixed 27 lookups avoid an all-pairs neighbor
+search, scan-order assumptions and any map accumulation. Working arrays are
+bounded by 4,000 points/cells (O(n) memory, O(n log n) work).
+Recording and mapping callers of the shared XYZ converter remain unannotated;
+only the media publication opts in, so those callers do not spend this budget.
+
+This is local surface variation for display, not object recognition. Marks form
+a band up to 0.4 m around a seam, and depend on sampling/cell alignment. Sparse
+or single-face silhouettes can remain unmarked; noise, curved surfaces or nearby
+separate faces can produce marks. No missing geometry is reconstructed.
+
+**Budget:** at most 4,000 emitted points and 30 ms of edge work per scan at the
+existing maximum 2 Hz. An empty/oversized input, missing NumPy, failed computation
+or exceeded budget omits `edge_u8` and sends the original header/XYZ. Time is
+checked between neighbor steps and after eigensolving, so an individual NumPy
+operation or OS descheduling can exceed 30 ms before the result is discarded;
+this is not a real-time CPU reservation. The first optional NumPy import is
+outside the per-scan timer and happens only in the observation worker. Nothing
+changes the original PointCloud2 admission or existing conversion bounds.
+
+Local measurement (Intel i7-10750H, x86_64, Python 3.12.3, NumPy 1.26.4;
+100 synthetic scans per case, other tests running concurrently): floor+wall
+4,000 points p50/p95/max **2.233/3.142/3.936 ms**, 0 skipped; sparse 4,000 points
+**9.252/24.256/33.717 ms**, 1 skipped. These measure edge work only, excluding
+original cloud conversion, network and the first import. Reproduce from repo root:
+
+```sh
+PYTHONPATH=apps/agent python apps/agent/tools/benchmark_lidar_edges.py --iterations 100
+```
+
+These are PC measurements, not Orin NX or concurrent walking-runner validation.
+Jetson, physical robot, ROS/Gazebo and real phone display remain untested.
+Disable with `FH_LIDAR_EDGE_ENABLED=0` to restore identical headers and XYZ; for
+code rollback revert the feature commit and keep the flag off before rolling
+the server back. No deploy/restart or hardware connection is part of these tests.
+
+## External camera
+
 External camera is enabled only when the existing simmgr bootstrap's verified
 `SimulationBinding` matches the launcher-provided `FloorBindings` (robot, native
 run UUID, generation, epoch and registered maps), and the world is `warehouse`.

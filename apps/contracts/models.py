@@ -2968,9 +2968,21 @@ class MediaPointCloudHeader(MediaHeader):
     truncated: bool = Field(strict=True)
     encoding: Literal['xyz_f32le']
     byte_length: int = Field(ge=0, le=48000, strict=True)
+    edge_u8: str = Field(default=None, max_length=5336, strict=True,
+                         exclude_if=lambda v: v is None,
+                         description='Optional canonical base64 of count uint8 edge strengths, in XYZ order; 0 means no edge, 255 means edge.')
+
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('edge_u8'))
 
     @model_validator(mode='after')
     def point_layout(self):
+        if self.edge_u8 is not None:
+            try:
+                edges = base64.b64decode(self.edge_u8, validate=True)
+            except (ValueError, binascii.Error) as error:
+                raise ValueError('invalid edge_u8 base64') from error
+            if len(edges) != self.count or base64.b64encode(edges).decode('ascii') != self.edge_u8:
+                raise ValueError('edge_u8 requires canonical base64 of count bytes')
         if self.byte_length != self.count * 12:
             raise ValueError('XYZ float32 LE requires byte_length = count * 12')
         if self.frame == 'map' and (self.map_version_id is None or self.pose is None):

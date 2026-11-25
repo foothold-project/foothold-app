@@ -26,6 +26,13 @@
           "title": "Count",
           "type": "integer"
         },
+        "edge_u8": {
+          "default": null,
+          "description": "Optional canonical base64 of count uint8 edge strengths, in XYZ order; 0 means no edge, 255 means edge.",
+          "maxLength": 5336,
+          "title": "Edge U8",
+          "type": "string"
+        },
         "encoding": {
           "const": "xyz_f32le",
           "title": "Encoding",

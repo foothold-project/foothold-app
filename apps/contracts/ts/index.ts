@@ -1130,6 +1130,8 @@ export interface MediaPointCloudHeader {
   truncated: boolean;
   encoding: "xyz_f32le";
   byte_length: number;
+  /** Optional canonical base64 of count uint8 edge strengths, in XYZ order; 0 means no edge, 255 means edge. */
+  edge_u8?: string;
 }
 
 export interface MediaPose {

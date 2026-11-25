@@ -7,6 +7,7 @@ import struct
 import time
 
 from foothold_agent.camera.stream import jpeg_size
+from .edges import annotate
 
 MAX_CLOUD_BYTES = 2_000_000
 MAX_INPUT_POINTS = 100_000
@@ -63,9 +64,9 @@ def points(cloud):
             seen.add(cell)
             output.append(xyz)
     payload = b''.join(struct.pack('<fff', *xyz) for xyz in output)
-    return dict(frame='lidar_link', map_version_id=None, pose=None,
+    return annotate(dict(frame='lidar_link', map_version_id=None, pose=None,
                 count=len(output), truncated=truncated, encoding='xyz_f32le',
-                byte_length=len(payload)), payload
+                byte_length=len(payload)), payload)
 
 
 def convert(channel, item):

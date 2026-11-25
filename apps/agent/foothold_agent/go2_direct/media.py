@@ -26,6 +26,7 @@ from .identity import expected_serial
 from .record import Recorder
 from foothold_agent.mapping.inputs import DEFAULT_TOPIC, RAW_TOPIC
 from foothold_agent.mapping.poses import Poses, media_pose
+from foothold_agent.media.edges import annotate, enabled as edges_enabled
 
 MAX_INPUT_BYTES = 2_000_000
 MAX_INPUT_POINTS = 100_000
@@ -88,7 +89,7 @@ def video(data):
     raise ValueError('camera output exceeds bounds')
 
 
-def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')):
+def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar'), edge_enabled=False):
     data, width, height, step, row_step, big, fields, frame = raw
     if (frame not in frames or
             any(type(x) is not int for x in (width, height, step, row_step)) or
@@ -116,8 +117,9 @@ def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')
         if any(abs(x)>10000 for x in xyz):
             raise ValueError('point range exceeded')
         output.extend(struct.pack('<fff', *xyz))
-    return dict(t='media.points', source='l1', frame='lidar_link', map_version_id=None, pose=None,
-        count=len(output)//12, truncated=stride>1, encoding='xyz_f32le', byte_length=len(output)), bytes(output)
+    return annotate(dict(t='media.points', source='l1', frame='lidar_link', map_version_id=None, pose=None,
+        count=len(output)//12, truncated=stride>1, encoding='xyz_f32le', byte_length=len(output)),
+        bytes(output), edge_enabled=edge_enabled)
 
 
 class Source:
@@ -295,7 +297,7 @@ class Source:
                 received, data, stamp = deskew
                 pose = self.poses.nearest(received, stamp)
                 if pose is not None and 0 <= self.now()-received <= 1:
-                    header, payload = points(data, frames=('odom',))
+                    header, payload = points(data, frames=('odom',), edge_enabled=edges_enabled(self.env))
                     header.update(frame='odom', pose=media_pose(pose))
                     self.publish('lidar', received, (header, payload))
                     self.last_odom_points = self.now()
@@ -305,7 +307,7 @@ class Source:
             pass
         try:
             if raw is not None and self.now()-self.last_odom_points >= 3:
-                self.publish('lidar', raw[0], points(raw[1]))
+                self.publish('lidar', raw[0], points(raw[1], edge_enabled=edges_enabled(self.env)))
                 self.next_lidar_publish = self.now()+.5
         except (ValueError, TypeError, OverflowError):
             pass
