@@ -1,4 +1,4 @@
-"""Built-in SLAM phases; retain legacy rows and refuse a lossy downgrade."""
+"""Mapping pipeline phases; retain legacy rows and refuse a lossy downgrade."""
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg

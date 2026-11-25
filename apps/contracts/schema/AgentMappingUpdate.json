@@ -179,8 +179,17 @@
           "title": "Frame Id",
           "type": "string"
         },
+        "provider": {
+          "default": "point_lio",
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
         "source": {
-          "default": "/uslam/frontend/odom",
+          "default": "/aft_mapped_to_init",
           "maxLength": 160,
           "minLength": 1,
           "title": "Source",
@@ -387,19 +396,6 @@
           "default": null,
           "title": "Last Data At"
         },
-        "robot_ack_at": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Robot Ack At"
-        },
         "save_ack_at": {
           "anyOf": [
             {
@@ -464,6 +460,19 @@
           ],
           "default": null,
           "title": "Server Received At"
+        },
+        "slam_ack_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slam Ack At"
         },
         "start_ack_at": {
           "anyOf": [
@@ -648,6 +657,22 @@
       "default": null,
       "title": "Error Code"
     },
+    "final_source": {
+      "anyOf": [
+        {
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Final Source"
+    },
     "floor_id": {
       "format": "uuid",
       "title": "Floor Id",
@@ -708,7 +733,7 @@
             "START_REQUESTED",
             "STARTED",
             "SAVE_REQUESTED",
-            "ROBOT_SAVED",
+            "SLAM_SAVED",
             "UNKNOWN",
             "FAILED"
           ],
@@ -720,6 +745,19 @@
       ],
       "default": null,
       "title": "Phase"
+    },
+    "pipeline": {
+      "anyOf": [
+        {
+          "const": "point_lio+glim",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pipeline"
     },
     "point_count": {
       "default": 0,
@@ -766,11 +804,16 @@
       "default": null,
       "title": "Revision"
     },
-    "robot_save": {
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "slam_save": {
       "anyOf": [
         {
           "enum": [
-            "ROBOT_SAVED",
+            "SLAM_SAVED",
             "UNKNOWN",
             "FAILED"
           ],
@@ -781,17 +824,15 @@
         }
       ],
       "default": null,
-      "title": "Robot Save"
-    },
-    "session_id": {
-      "format": "uuid",
-      "title": "Session Id",
-      "type": "string"
+      "title": "Slam Save"
     },
     "source": {
       "anyOf": [
         {
-          "const": "unitree_uslam",
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
           "type": "string"
         },
         {

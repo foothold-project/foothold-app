@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from typing import Annotated
 
 from apps.contracts import models as C
-from apps.contracts.mapping_sources import mapping_adapter
+from apps.contracts.mapping_sources import DEFAULT_FINAL_SOURCE, mapping_adapter
 from .models import Building, Floor, MappingSession, MappingTile, Robot, Site, User, now
 from .maps import upload_work
 from .voxel_files import MAX_BYTES, PointCloudError, convert
@@ -111,7 +111,8 @@ class Mapping:
         peer = self.realtime.agents.get(rid)
         if not self.connected(rid):
             self.fail(409, 'ROBOT_OFFLINE', '노트북 연결 프로그램을 먼저 연결해 주세요.')
-        extra = dict(source=row.progress['source'], command_id=row.progress['command_id'],
+        extra = dict(source=row.progress['source'], pipeline='point_lio+glim',
+            final_source=row.progress['final_source'], command_id=row.progress['command_id'],
             requested_at=row.progress['times']['server_received_at'], revision=row.progress['revision']) if builtin(row) else {}
         body = C.AgentMappingCommand(op=op, session_id=row.id, floor_id=row.floor_id, **extra).model_dump(mode='json')
         # Preserve start→save ordering if both are queued before the first send.
@@ -141,25 +142,36 @@ class Mapping:
             owner_scope(db, row.org_id, row.robot_id, user, self.fail, row.floor_id)
             if builtin(row):
                 previous = row.progress or {}
-                adapter = mapping_adapter(previous.get('source'))
-                if msg.odom and not adapter.accepts_odom(msg.odom.source):
-                    return
                 if (msg.command_id is None or str(msg.command_id) != previous.get('command_id')
                         or msg.update_seq is None or msg.update_seq <= previous.get('update_seq', 0)
                         or msg.revision is None or msg.revision < previous.get('revision', 1)):
                     return
+                source = msg.source or previous['source']
+                new_revision = msg.revision is not None and msg.revision > previous.get('revision', 1)
+                changed_source = source != previous['source']
+                adapter = mapping_adapter(source)
+                if adapter is None:
+                    self.fail(409, 'MAPPING_SOURCE_CONFLICT', '지도 출처를 확인해 주세요.')
+                if changed_source and (not new_revision or mapping_adapter(previous['source']).role == 'final' or adapter.role != 'final'):
+                    self.fail(409, 'MAPPING_SOURCE_CONFLICT', '같은 지도 판의 출처를 섞거나 이전 출처로 돌아갈 수 없습니다.')
+                if changed_source and (not msg.voxels or not msg.voxels.reset or not msg.odom or msg.odom.provider != source):
+                    self.fail(409, 'MAPPING_SOURCE_CONFLICT', '새 지도 판의 전체 재구축·위치를 함께 확인해 주세요.')
+                if msg.odom and not adapter.accepts_odom(msg.odom.source):
+                    return
+                if msg.odom and msg.odom.provider != source:
+                    self.fail(409, 'MAPPING_SOURCE_CONFLICT', '위치와 지도 판의 출처를 맞춰 주세요.')
                 if row.status == 'SAVED':
                     # A late robot acknowledgement updates only its separate
                     # outcome; immutable map artifacts and SAVED never regress.
-                    outcome = 'ROBOT_SAVED' if msg.phase == 'ROBOT_SAVED' else msg.robot_save
+                    outcome = 'SLAM_SAVED' if msg.phase == 'SLAM_SAVED' else msg.slam_save
                     if outcome is None or msg.revision != previous['revision']:
                         return
-                    if previous.get('robot_save') == 'ROBOT_SAVED' and outcome != 'ROBOT_SAVED':
+                    if previous.get('slam_save') == 'SLAM_SAVED' and outcome != 'SLAM_SAVED':
                         return
-                    row.progress = {**previous, 'robot_save': outcome, 'phase': outcome, 'update_seq': msg.update_seq}
-                    if outcome == 'ROBOT_SAVED':
+                    row.progress = {**previous, 'slam_save': outcome, 'phase': outcome, 'update_seq': msg.update_seq}
+                    if outcome == 'SLAM_SAVED' and mapping_adapter(previous['source']).role == 'final':
                         row.progress = {**row.progress, 'reason': None}
-                    if outcome == 'ROBOT_SAVED' and not (row.progress.get('times') or {}).get('save_ack_at'):
+                    if outcome == 'SLAM_SAVED' and not (row.progress.get('times') or {}).get('save_ack_at'):
                         server_time(row, 'save_ack_at')
                     db.commit()
                     return
@@ -167,14 +179,14 @@ class Mapping:
                 if save_requested and msg.status in ('STARTING', 'RUNNING'):
                     return
                 allowed = {'STARTING': ('START_REQUESTED',), 'RUNNING': ('STARTED',),
-                    'SAVING': ('SAVE_REQUESTED',), 'FINALIZING': ('ROBOT_SAVED',),
+                    'SAVING': ('SAVE_REQUESTED',), 'FINALIZING': ('SLAM_SAVED',),
                     'UNKNOWN': ('UNKNOWN',), 'FAILED': ('FAILED',)}
                 if msg.phase not in allowed.get(msg.status, ()):
                     return
                 if msg.status in ('SAVING', 'FINALIZING') and not save_requested:
                     return
                 if msg.voxels and (msg.voxels.revision != msg.revision
-                        or msg.voxels.seq != msg.update_seq
+                        or (not new_revision and previous.get('voxels') and msg.voxels.seq <= previous['voxels']['seq'])
                         or ((previous.get('voxels') is None or msg.revision > previous.get('revision', 1)) and not msg.voxels.reset)):
                     return
                 tiles = msg.tiles or []
@@ -185,7 +197,6 @@ class Mapping:
                     MappingTile.org_id == row.org_id).limit(1))
                 prior_frame = next((previous[k]['frame_id'] for k in ('voxels', 'grid', 'odom') if previous.get(k)),
                     anchor.frame_id if anchor else None)
-                new_revision = msg.revision > previous.get('revision', 1)
                 if len(set(frames)) > 1 or (not new_revision and prior_frame and frames and prior_frame != frames[0]) or (msg.grid and msg.grid.revision != msg.revision):
                     return
                 heights = [tile.floor_z for tile in tiles]
@@ -220,12 +231,12 @@ class Mapping:
                         exclude={'server_received_at', 'start_requested_at', 'save_requested_at', 'command_forwarded_at',
                             'start_forwarded_at', 'save_forwarded_at', 'start_ack_at', 'save_ack_at', 'saved_at'}))
                 received = now().isoformat()
-                if msg.phase in ('STARTED', 'ROBOT_SAVED'):
+                if msg.phase in ('STARTED', 'SLAM_SAVED'):
                     times.setdefault('start_ack_at' if msg.phase == 'STARTED' else 'save_ack_at', received)
                 if msg.voxels or msg.grid or msg.odom or tiles:
                     times.setdefault('first_data_at', received)
                     times['last_data_at'] = received
-                row.progress = {**previous, **supplied, 'times': times}
+                row.progress = {**previous, **supplied, 'source': source, 'times': times}
                 row.status = msg.status
                 db.commit()
                 return
@@ -294,7 +305,8 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
             status='STARTING' if mapping_adapter(body.source) else 'RUNNING',
             progress=dict(source=body.source, name=body.name))
         if builtin(row):
-            row.progress = {**row.progress, 'command_id': str(uuid4()), 'phase': 'START_REQUESTED', 'revision': 1}
+            row.progress = {**row.progress, 'pipeline': 'point_lio+glim', 'final_source': DEFAULT_FINAL_SOURCE,
+                'command_id': str(uuid4()), 'phase': 'START_REQUESTED', 'revision': 1}
             server_time(row, 'server_received_at')
             server_time(row, 'start_requested_at')
         db.add(row)
@@ -470,5 +482,5 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
                 fail(422, 'INVALID_POINT_CLOUD', '파일 길이가 본문과 다릅니다.')
             return await upload_work(slot, process, fail)
 
-    from .uslam_storage import install as install_bundles
+    from .mapping_storage import install as install_bundles
     install_bundles(app, DB, Identity, factory, settings, fail, event, lock_organization, mapping)

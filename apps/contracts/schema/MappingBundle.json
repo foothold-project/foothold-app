@@ -80,6 +80,98 @@
       "title": "MappingGrid",
       "type": "object"
     },
+    "MappingOdom": {
+      "additionalProperties": false,
+      "properties": {
+        "display_stamp": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Stamp"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "provider": {
+          "default": "point_lio",
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "source": {
+          "default": "/aft_mapped_to_init",
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "stamp": {
+          "$ref": "#/$defs/MappingStamp"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "frame_id",
+        "stamp",
+        "x",
+        "y",
+        "z",
+        "yaw"
+      ],
+      "title": "MappingOdom",
+      "type": "object"
+    },
+    "MappingStamp": {
+      "additionalProperties": false,
+      "properties": {
+        "nanosec": {
+          "maximum": 999999999,
+          "minimum": 0,
+          "title": "Nanosec",
+          "type": "integer"
+        },
+        "sec": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Sec",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sec",
+        "nanosec"
+      ],
+      "title": "MappingStamp",
+      "type": "object"
+    },
     "MappingTimes": {
       "additionalProperties": false,
       "properties": {
@@ -148,19 +240,6 @@
           "default": null,
           "title": "Last Data At"
         },
-        "robot_ack_at": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Robot Ack At"
-        },
         "save_ack_at": {
           "anyOf": [
             {
@@ -226,6 +305,19 @@
           "default": null,
           "title": "Server Received At"
         },
+        "slam_ack_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slam Ack At"
+        },
         "start_ack_at": {
           "anyOf": [
             {
@@ -283,6 +375,17 @@
     "grid": {
       "$ref": "#/$defs/MappingGrid"
     },
+    "odom": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MappingOdom"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "resolution": {
       "const": 0.05,
       "default": 0.05,
@@ -295,18 +398,27 @@
       "title": "Revision",
       "type": "integer"
     },
-    "robot_save": {
-      "enum": [
-        "ROBOT_SAVED",
-        "UNKNOWN",
-        "FAILED"
-      ],
-      "title": "Robot Save",
-      "type": "string"
-    },
     "session_id": {
       "format": "uuid",
       "title": "Session Id",
+      "type": "string"
+    },
+    "slam_save": {
+      "enum": [
+        "SLAM_SAVED",
+        "UNKNOWN",
+        "FAILED"
+      ],
+      "title": "Slam Save",
+      "type": "string"
+    },
+    "source": {
+      "default": "glim",
+      "enum": [
+        "point_lio",
+        "glim"
+      ],
+      "title": "Source",
       "type": "string"
     },
     "times": {
@@ -355,7 +467,7 @@
     "frame_id",
     "voxels",
     "grid",
-    "robot_save"
+    "slam_save"
   ],
   "title": "MappingBundle",
   "type": "object"

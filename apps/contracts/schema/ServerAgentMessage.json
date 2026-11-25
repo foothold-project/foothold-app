@@ -265,6 +265,22 @@
           "default": null,
           "title": "Command Id"
         },
+        "final_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "point_lio",
+                "glim"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Final Source"
+        },
         "floor_id": {
           "format": "uuid",
           "title": "Floor Id",
@@ -278,6 +294,19 @@
           ],
           "title": "Op",
           "type": "string"
+        },
+        "pipeline": {
+          "anyOf": [
+            {
+              "const": "point_lio+glim",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pipeline"
         },
         "requested_at": {
           "anyOf": [
@@ -313,7 +342,10 @@
         "source": {
           "anyOf": [
             {
-              "const": "unitree_uslam",
+              "enum": [
+                "point_lio",
+                "glim"
+              ],
               "type": "string"
             },
             {

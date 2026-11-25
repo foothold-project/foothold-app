@@ -165,7 +165,7 @@ def version_object(row, floor, upload, db):
     # which points at the terrain's current revision. Edits/rollbacks reuse it.
     from .voxel_links import voxel_summary, same_annotation_raster
     terrain_spec = upload.metadata_json.get('terrain_spec') if row.provenance == 'SIMULATION' else None
-    bundle = upload.metadata_json.get('uslam_bundle')
+    bundle = upload.metadata_json.get('slam_bundle')
     bundle_link = None
     if bundle:
         anchor = db.get(MapVersion, UUID(bundle['map_version_id']))
@@ -178,7 +178,7 @@ def version_object(row, floor, upload, db):
         image_sha256=row.image_sha256.hex(), width=row.width, height=row.height, resolution=row.resolution,
         origin=(row.origin_x, row.origin_y, row.origin_yaw), features=row.features, reason=row.reason,
         source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, voxel_map=voxel_summary(db, row, upload),
-        uslam_bundle=bundle_link, created_by=row.created_by, created_at=row.created_at)
+        slam_bundle=bundle_link, created_by=row.created_by, created_at=row.created_at)
 
 
 def bounded_features(row, fail):

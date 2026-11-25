@@ -18,7 +18,10 @@
     "source": {
       "anyOf": [
         {
-          "const": "unitree_uslam",
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
           "type": "string"
         },
         {
@@ -26,7 +29,7 @@
           "type": "string"
         }
       ],
-      "default": "unitree_uslam",
+      "default": "point_lio",
       "title": "Source"
     }
   },

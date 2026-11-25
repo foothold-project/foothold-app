@@ -47,8 +47,17 @@
       "title": "Frame Id",
       "type": "string"
     },
+    "provider": {
+      "default": "point_lio",
+      "enum": [
+        "point_lio",
+        "glim"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
     "source": {
-      "default": "/uslam/frontend/odom",
+      "default": "/aft_mapped_to_init",
       "maxLength": 160,
       "minLength": 1,
       "title": "Source",

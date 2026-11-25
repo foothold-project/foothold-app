@@ -68,19 +68,6 @@
       "default": null,
       "title": "Last Data At"
     },
-    "robot_ack_at": {
-      "anyOf": [
-        {
-          "format": "date-time",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Robot Ack At"
-    },
     "save_ack_at": {
       "anyOf": [
         {
@@ -145,6 +132,19 @@
       ],
       "default": null,
       "title": "Server Received At"
+    },
+    "slam_ack_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Slam Ack At"
     },
     "start_ack_at": {
       "anyOf": [

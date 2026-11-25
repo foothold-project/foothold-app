@@ -1,0 +1,41 @@
+# SLAM pipeline server/agent contract
+
+The mapping pipeline is Point-LIO live + GLIM final. Unitree built-in SLAM commands and subscriptions are not used by this mapping path. This server never executes robot commands or systemd; the agent implements the lifecycle behind a local switch that is disabled by default.
+
+## Sources and service lifecycle
+
+`apps/contracts/mapping_sources.py` owns source assumptions. MappingSource is point_lio/glim; legacy retains the old PCD protocol only for compatibility. Point-LIO defaults: registered scan `/cloud_registered`, pose `/aft_mapped_to_init`, user service `foothold-pointlio`. GLIM: final cloud/pose topics are deliberately unset pending investigation; service `foothold-glim`. Configurable environment names are FH_MAPPING_POINT_LIO_CLOUD_TOPIC / ODOM_TOPIC / SERVICE and FH_MAPPING_GLIM_CLOUD_TOPIC / ODOM_TOPIC / SERVICE (each full name repeats the prefix). FH_MAPPING_SERVICE_CONTROL_ENABLED defaults false; only the explicit value true enables the adapter switch. Agent installation and approval are separate from this server PR.
+
+Start means the agent starts both configured `systemd --user` services. Save means obtain GLIM final data, compute and upload the 5 cm voxel/grid pair, then stop both services. No guessed GLIM topic or save method is provided. Registered Point-LIO scans may support ray tracing only with the matching timestamped sensor origin and pose; do not ray trace an accumulated cloud with the current pose. The server stores agent-computed cells and does not calculate rays.
+
+## Commands and revision transitions
+
+POST /robots/{robot}/slam/start defaults source=point_lio; supply floor_id and one name. Only the authenticated robot owner starts/saves. Commands preserve op/session_id/floor_id and add pipeline=point_lio+glim, source, final_source=glim, command_id, requested_at, revision. Never replay start on reconnect. Movement approval/leases are independent.
+
+One session owns the pipeline; ownership binds to session_id, not source. progress.source is constant within each revision. Live revisions use point_lio; once GLIM rebuild completes, a newer revision switches atomically to source=glim, a reset voxel chunk in its frame and GLIM odom. Clear all old voxel/grid/tile/pose state on revision changes. Same-revision source mixing and glim to point_lio rollback return 409. A failed final rebuild keeps the last Point-LIO revision with a reason. Global update_seq increases across the entire session; voxel seq increases independently within its revision.
+
+Status/phase: STARTING/START_REQUESTED, RUNNING/STARTED, SAVING/SAVE_REQUESTED, FINALIZING/SLAM_SAVED, UNKNOWN/UNKNOWN, FAILED/FAILED. Only server bundle persistence creates SAVED. `slam_save` is SLAM_SAVED / UNKNOWN / FAILED and describes the GLIM save outcome separately from file persistence. Matching late acknowledgements may update this outcome without replacing artifacts. Bundle source must equal the last accepted revision source; Point-LIO received-only fallback cannot claim SLAM_SAVED final geometry.
+
+## Live observations and recovery
+
+POST /agent/robots/{robot}/slam/{session}/progress accepts JSON up to 65,536 bytes. WebSocket slam.update has the same limit; other frames retain 4 KiB. Echo command_id, revision, monotonic update_seq and source. Voxel delta: revision, seq, reset, frame_id, resolution=.05, integer XYZ added/removed (at most 2,000 changed cells); cell lower corner = index*.05 metres. First chunk/new revision requires reset. Split byte-bounded chunks, oldest pending change first.
+
+`tiles` has at most four MappingGridTile entries per report: revision, tile_seq per coordinate, x/y tile coordinates, frame_id, floor_z, size=64, resolution=.05, exactly 4,096 uncompressed row-major cells from bottom left (0 unknown/1 free/2 occupied). Tile lower left = [x*3.2,y*3.2] metres. x/y=-3125..3124, at most 4,096 retained tiles/session. SQL retains newest tile_seq; a new revision discards old tiles. Whole grid snapshots remain compatible under the same report byte limit.
+
+GET /robots/{robot}/slam/{session}/tiles?revision=R&cursor=0&since=0 returns four tiles, update_seq and opaque next_cursor. Follow cursors until null. Catch up changes during the read with cursor=0 and since=the first page update_seq of the prior pass; compare per-tile sequence numbers. Revision mismatch is 409; clear and restart. Browser places tiles, with no map calculation.
+
+MappingOdom is provider, source topic, frame_id, raw stamp={sec,nanosec}, XYZ/yaw and optional display_stamp. The selected adapter validates its configurable topic. Pose must match its revision source/frame; no odometry substitution or cross-device latency inference. Geometry and storage have no hard-coded frame names.
+
+## Paired persistence and optional terrain
+
+POST /agent/robots/{robot}/slam/{session}/bundle accepts MappingBundle JSON up to 50 MiB: session_id, source, revision, frame_id, resolution=.05, at most 500,000 XYZ voxels, complete grid with at most 4,000,000 cells and dimensions <=4096, optional matching odom, slam_save and times. Grid includes origin=[x,y,0], floor_z, frame_id, resolution, dimensions and row-major states. Both artifacts share source/revision/frame. Hash covers geometry, source and contents; acknowledgement state is separate. Retry identical contents; conflicting hash/revision/source is 409.
+
+With an operator save_requested_at, UNKNOWN status/phase still accepts received data with slam_save=UNKNOWN. Reason says SLAM 저장 확인 안 됨 · 받은 범위만 보관했습니다, manifest completeness=RECEIVED_ONLY; this does not claim a complete final map. Without save_requested_at it is 409. SAVED means both files and DB snapshot committed. Cancel, changed owner/token/base are rechecked after receiving/encoding, before publication.
+
+Authenticated GET /robots/{robot}/slam/{session}/bundle returns manifest and optional terrain link; /bundle/voxels is little-endian int32 XYZ triples, /bundle/grid is one state byte/cell. MapVersion.slam_bundle links source session/robot/map, source/revision and save/completeness snapshot for historical reopening. Same-annotation-raster checks guard inherited links.
+
+The existing CELL=.1 terrain converter remains unchanged. Terrain generation follows the paired save in a separate transaction; failure keeps both maps SAVED. Session linkage records the generated floor/map, native-to-terrain translation and crop/geometry warnings. It is a standalone environment, not an exact same-raster mission twin. Identical bundle retry can retry terrain without replacing maps.
+
+MappingTimes preserves UTC server receipt, start/save request, forwarding, agent receipt/publication, SLAM acknowledgement, first/last data and saved timestamps; start/save forwarding/ack are retained separately. Agent cannot override server times. Diagnostics exclude credentials, addresses and raw point contents. Raw source stamps are not used to infer latency.
+
+Hardware installation, service startup/stop, Point-LIO input timing/frame transforms, GLIM topics/save method and actual simulation execution remain unverified. No remote host, robot or simulator was contacted.

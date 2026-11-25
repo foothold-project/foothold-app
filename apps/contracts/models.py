@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BeforeValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
 from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED, MAX_TURN_RATE
-from .mapping_sources import DEFAULT_MAPPING_SOURCE, DEFAULT_ODOM_SOURCE, MappingSource
+from .mapping_sources import DEFAULT_MAPPING_SOURCE, DEFAULT_FINAL_SOURCE, DEFAULT_ODOM_SOURCE, MappingSource, mapping_adapter
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -1096,6 +1096,12 @@ class MappingStart(Contract):
     source: MappingSource | Literal['legacy'] = DEFAULT_MAPPING_SOURCE
     name: str = Field(default='로봇이 만든 지도', min_length=1, max_length=40)
 
+    @model_validator(mode='after')
+    def live_source(self):
+        if self.source != 'legacy' and mapping_adapter(self.source).role != 'live':
+            raise ValueError('A mapping session starts with a live source')
+        return self
+
 
 class MappingAction(Contract):
     session_id: UUID
@@ -1112,7 +1118,7 @@ class MappingPreview(Contract):
 MAPPING_REPORT_BYTES = 65536
 MAPPING_DELTA_CELLS = 2000
 MAPPING_BUNDLE_BYTES = 50 * 1024 * 1024
-MappingPhase = Literal['START_REQUESTED', 'STARTED', 'SAVE_REQUESTED', 'ROBOT_SAVED', 'UNKNOWN', 'FAILED']
+MappingPhase = Literal['START_REQUESTED', 'STARTED', 'SAVE_REQUESTED', 'SLAM_SAVED', 'UNKNOWN', 'FAILED']
 MappingIndex = Annotated[int, Field(strict=True, ge=-200000, le=200000)]
 MappingCell = tuple[MappingIndex, MappingIndex, MappingIndex]
 
@@ -1129,7 +1135,7 @@ class MappingTimes(Contract):
     save_ack_at: UTCDateTime | None = None
     agent_received_at: UTCDateTime | None = None
     command_published_at: UTCDateTime | None = None
-    robot_ack_at: UTCDateTime | None = None
+    slam_ack_at: UTCDateTime | None = None
     first_data_at: UTCDateTime | None = None
     last_data_at: UTCDateTime | None = None
     saved_at: UTCDateTime | None = None
@@ -1202,6 +1208,7 @@ class MappingTilePage(Contract):
 class MappingOdom(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     source: str = Field(default=DEFAULT_ODOM_SOURCE, min_length=1, max_length=160)
+    provider: MappingSource = DEFAULT_MAPPING_SOURCE
     frame_id: str = Field(min_length=1, max_length=80)
     stamp: MappingStamp
     display_stamp: UTCDateTime | None = None
@@ -1215,18 +1222,24 @@ class MappingBundle(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     """Final agent-computed pair; both artifacts share revision and frame, no server projection."""
     session_id: UUID
+    source: MappingSource = DEFAULT_FINAL_SOURCE
+    odom: MappingOdom | None = None
     revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
     frame_id: str = Field(min_length=1, max_length=80)
     resolution: Literal[0.05] = 0.05
     voxels: list[MappingCell] = Field(min_length=1, max_length=500_000)
     grid: MappingGrid
-    robot_save: Literal['ROBOT_SAVED', 'UNKNOWN', 'FAILED']
+    slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED']
     times: MappingTimes | None = None
 
     @model_validator(mode='after')
     def pair(self):
         if self.grid.revision != self.revision or self.grid.frame_id != self.frame_id:
             raise ValueError('Both maps must share revision and frame')
+        if self.odom and self.odom.frame_id != self.frame_id:
+            raise ValueError('Final pose must share the final map frame')
+        if mapping_adapter(self.source).role != 'final' and self.slam_save == 'SLAM_SAVED':
+            raise ValueError('Only the configured final provider can confirm a final save')
         return self
 
 
@@ -1244,6 +1257,8 @@ class MappingProgress(Contract):
     map_version_id: UUID | None = None
     terrain_id: str | None = Field(default=None, max_length=100)
     source: MappingSource | Literal['legacy'] | None = None
+    pipeline: Literal['point_lio+glim'] | None = None
+    final_source: MappingSource | None = None
     name: str | None = Field(default=None, max_length=40)
     phase: MappingPhase | None = None
     command_id: UUID | None = None
@@ -1254,7 +1269,7 @@ class MappingProgress(Contract):
     tiles: list[MappingGridTile] | None = Field(default=None, max_length=4)
     odom: MappingOdom | None = None
     times: MappingTimes | None = None
-    robot_save: Literal['ROBOT_SAVED', 'UNKNOWN', 'FAILED'] | None = None
+    slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED'] | None = None
     terrain_status: Literal['PENDING', 'READY', 'FAILED'] | None = None
 
 
@@ -1269,6 +1284,8 @@ class AgentMappingCommand(Contract):
     session_id: UUID
     floor_id: UUID
     source: MappingSource | Literal['legacy'] | None = Field(default=None, exclude_if=lambda v: v is None)
+    final_source: MappingSource | None = Field(default=None, exclude_if=lambda v: v is None)
+    pipeline: Literal['point_lio+glim'] | None = Field(default=None, exclude_if=lambda v: v is None)
     command_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     requested_at: UTCDateTime | None = Field(default=None, exclude_if=lambda v: v is None)
     revision: int | None = Field(default=None, ge=1, exclude_if=lambda v: v is None)
@@ -1775,18 +1792,19 @@ class MapVersionCreate(Contract):
 class MappingBundleLink(Contract):
     """Immutable source pair; session endpoints expose later robot/terrain outcomes."""
     session_id: UUID
+    source: MappingSource
     robot_id: UUID
     map_version_id: UUID
     revision: int = Field(ge=1)
     resolution: Literal[0.05] = .05
-    robot_save: Literal['ROBOT_SAVED', 'UNKNOWN', 'FAILED']
-    completeness: Literal['RECEIVED_ONLY', 'ROBOT_CONFIRMED']
+    slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED']
+    completeness: Literal['RECEIVED_ONLY', 'SLAM_CONFIRMED']
 
 
 class MapVersion(Contract):
-    uslam_bundle: MappingBundleLink | None = Field(default=None, exclude_if=lambda value: value is None)
+    slam_bundle: MappingBundleLink | None = Field(default=None, exclude_if=lambda value: value is None)
     voxel_map: VoxelMapSummary | None = Field(default=None, exclude_if=lambda value: value is None)
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'uslam_bundle'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
     upload_id: UUID

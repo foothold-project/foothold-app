@@ -356,6 +356,17 @@
           "title": "Resolution",
           "type": "number"
         },
+        "slam_bundle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingBundleLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "source": {
           "enum": [
             "IMPORT",
@@ -392,17 +403,6 @@
           "format": "uuid",
           "title": "Upload Id",
           "type": "string"
-        },
-        "uslam_bundle": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MappingBundleLink"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "voxel_map": {
           "anyOf": [
@@ -571,7 +571,7 @@
         "completeness": {
           "enum": [
             "RECEIVED_ONLY",
-            "ROBOT_CONFIRMED"
+            "SLAM_CONFIRMED"
           ],
           "title": "Completeness",
           "type": "string"
@@ -597,28 +597,37 @@
           "title": "Robot Id",
           "type": "string"
         },
-        "robot_save": {
-          "enum": [
-            "ROBOT_SAVED",
-            "UNKNOWN",
-            "FAILED"
-          ],
-          "title": "Robot Save",
-          "type": "string"
-        },
         "session_id": {
           "format": "uuid",
           "title": "Session Id",
+          "type": "string"
+        },
+        "slam_save": {
+          "enum": [
+            "SLAM_SAVED",
+            "UNKNOWN",
+            "FAILED"
+          ],
+          "title": "Slam Save",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
+          "title": "Source",
           "type": "string"
         }
       },
       "required": [
         "session_id",
+        "source",
         "robot_id",
         "map_version_id",
         "revision",
         "resolution",
-        "robot_save",
+        "slam_save",
         "completeness"
       ],
       "title": "MappingBundleLink",
