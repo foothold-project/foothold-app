@@ -1,12 +1,10 @@
 """Built-in SLAM contract/state/pair persistence with synthetic data, no robot."""
-import asyncio
 import copy
 import json
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from apps.contracts import models as C
@@ -109,6 +107,11 @@ def test_pair_roundtrip_retries_hash_and_cancel(setup):
     assert saved['status'] == 'SAVED' and saved['robot_save'] == 'UNKNOWN'
     assert saved['terrain_status'] == 'READY' and saved['terrain_id']
     assert saved['times']['saved_at'] and saved['times']['save_requested_at']
+    # Reopening by a historical map version discovers its pair without local browser state.
+    version_response = http.get(P + f'/map-versions/{saved["map_version_id"]}', headers=headers)
+    assert version_response.status_code == 200, version_response.text
+    assert version_response.json()['uslam_bundle']['session_id'] == sid
+    assert version_response.json()['uslam_bundle']['robot_id'] == rid
     assert post_bundle(s, body).json() == saved
     changed = copy.deepcopy(body)
     changed['grid']['cells'][0] = 2
@@ -221,8 +224,11 @@ def test_limits_and_legacy_compatibility(setup):
     body = bundle(sid)
     body['grid']['revision'] = 2
     assert post_bundle(s, body).status_code == 422
-    with pytest.raises(ValidationError):
-        C.MappingOdom(source='/utlidar/robot_odom', frame_id='map', stamp=dict(sec=123, nanosec=456), x=0,y=0,z=0,yaw=0)
+    # Geometry contracts are provider-neutral; the selected source adapter
+    # still rejects odometry from another source for this live session.
+    report(s, action(s, 'save', sid).json(), update_seq=1, status='SAVING', phase='SAVE_REQUESTED',
+        odom=dict(source='/utlidar/robot_odom', frame_id='map', stamp=dict(sec=123, nanosec=456), x=0,y=0,z=0,yaw=0))
+    assert current(s)['odom'] is None
 
 
 def test_tiles_persist_paginate_catchup_and_reset(setup):

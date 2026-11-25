@@ -64,10 +64,11 @@
     "source": {
       "anyOf": [
         {
-          "enum": [
-            "unitree_uslam",
-            "legacy"
-          ],
+          "const": "unitree_uslam",
+          "type": "string"
+        },
+        {
+          "const": "legacy",
           "type": "string"
         },
         {

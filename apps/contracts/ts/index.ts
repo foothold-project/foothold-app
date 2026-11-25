@@ -837,6 +837,7 @@ export interface MapUpload {
 }
 
 export interface MapVersion {
+  uslam_bundle?: MappingBundleLink | null;
   voxel_map?: VoxelMapSummary | null;
   provenance?: "HUMAN" | "SIMULATION";
   terrain_spec?: TerrainSpec | null;
@@ -902,6 +903,16 @@ export interface MappingBundle {
   times?: MappingTimes | null;
 }
 
+export interface MappingBundleLink {
+  session_id: string;
+  robot_id: string;
+  map_version_id: string;
+  revision: number;
+  resolution: 0.05;
+  robot_save: "ROBOT_SAVED" | "UNKNOWN" | "FAILED";
+  completeness: "RECEIVED_ONLY" | "ROBOT_CONFIRMED";
+}
+
 export interface MappingGrid {
   revision: number;
   resolution?: 0.05;
@@ -926,7 +937,7 @@ export interface MappingGridTile {
 }
 
 export interface MappingOdom {
-  source?: "/uslam/frontend/odom";
+  source?: string;
   frame_id: string;
   stamp: MappingStamp;
   display_stamp?: string | null;

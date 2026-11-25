@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select
 from typing import Annotated
 
 from apps.contracts import models as C
+from apps.contracts.mapping_sources import mapping_adapter
 from .models import Building, Floor, MappingSession, MappingTile, Robot, Site, User, now
 from .maps import upload_work
 from .voxel_files import MAX_BYTES, PointCloudError, convert
@@ -18,7 +19,7 @@ ACTIVE = ('STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'FAILED')
 
 
 def builtin(row):
-    return (row.progress or {}).get('source') == 'unitree_uslam'
+    return mapping_adapter((row.progress or {}).get('source')) is not None
 
 
 def server_time(row, key):
@@ -110,7 +111,7 @@ class Mapping:
         peer = self.realtime.agents.get(rid)
         if not self.connected(rid):
             self.fail(409, 'ROBOT_OFFLINE', '노트북 연결 프로그램을 먼저 연결해 주세요.')
-        extra = dict(source='unitree_uslam', command_id=row.progress['command_id'],
+        extra = dict(source=row.progress['source'], command_id=row.progress['command_id'],
             requested_at=row.progress['times']['server_received_at'], revision=row.progress['revision']) if builtin(row) else {}
         body = C.AgentMappingCommand(op=op, session_id=row.id, floor_id=row.floor_id, **extra).model_dump(mode='json')
         # Preserve start→save ordering if both are queued before the first send.
@@ -140,6 +141,9 @@ class Mapping:
             owner_scope(db, row.org_id, row.robot_id, user, self.fail, row.floor_id)
             if builtin(row):
                 previous = row.progress or {}
+                adapter = mapping_adapter(previous.get('source'))
+                if msg.odom and not adapter.accepts_odom(msg.odom.source):
+                    return
                 if (msg.command_id is None or str(msg.command_id) != previous.get('command_id')
                         or msg.update_seq is None or msg.update_seq <= previous.get('update_seq', 0)
                         or msg.revision is None or msg.revision < previous.get('revision', 1)):
@@ -287,7 +291,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
             fail(409, 'ROBOT_OFFLINE', '노트북 연결 프로그램을 먼저 연결해 주세요.')
         row = MappingSession(id=uuid4(), org_id=settings.org_id, robot_id=robot_id,
             floor_id=floor.id, owner_id=auth[0].id, base_version_id=floor.approved_version_id,
-            status='STARTING' if body.source == 'unitree_uslam' else 'RUNNING',
+            status='STARTING' if mapping_adapter(body.source) else 'RUNNING',
             progress=dict(source=body.source, name=body.name))
         if builtin(row):
             row.progress = {**row.progress, 'command_id': str(uuid4()), 'phase': 'START_REQUESTED', 'revision': 1}

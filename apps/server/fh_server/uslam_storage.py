@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from apps.contracts import models as C
 from .map_files import gray_png, sha256, yaml_bytes
 from .maps import ensure_space, refresh_connectors, upload_work
-from .models import Floor, MappingSession, MapVersion, Upload, User
+from .models import MappingSession, MapVersion, Upload, User
 from .terrains import save_terrain
 from .voxel_files import convert
 from .voxel_links import twin_proof
@@ -50,6 +50,7 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     folder = Path('maps') / str(floor.id) / str(identifier)
     grid = bundle.grid
     manifest = dict(schema='fh_uslam_bundle/1', name=row.progress['name'], session_id=str(row.id),
+        robot_id=str(row.robot_id), map_version_id=str(identifier),
         **fingerprint, sha256=digest, voxels_path=str(folder / 'uslam-voxels.bin'),
         grid_path=str(folder / 'uslam-grid.bin'), voxel_count=len(cells) // RECORD.size,
         floor_z=grid.floor_z, axis='XYZ', source_translation=[0, 0, 0], robot_save=bundle.robot_save,

@@ -393,6 +393,17 @@
           "title": "Upload Id",
           "type": "string"
         },
+        "uslam_bundle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingBundleLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "voxel_map": {
           "anyOf": [
             {
@@ -551,6 +562,66 @@
         }
       },
       "title": "MapZone",
+      "type": "object"
+    },
+    "MappingBundleLink": {
+      "additionalProperties": false,
+      "description": "Immutable source pair; session endpoints expose later robot/terrain outcomes.",
+      "properties": {
+        "completeness": {
+          "enum": [
+            "RECEIVED_ONLY",
+            "ROBOT_CONFIRMED"
+          ],
+          "title": "Completeness",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "resolution": {
+          "const": 0.05,
+          "default": 0.05,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "robot_id": {
+          "format": "uuid",
+          "title": "Robot Id",
+          "type": "string"
+        },
+        "robot_save": {
+          "enum": [
+            "ROBOT_SAVED",
+            "UNKNOWN",
+            "FAILED"
+          ],
+          "title": "Robot Save",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "robot_id",
+        "map_version_id",
+        "revision",
+        "resolution",
+        "robot_save",
+        "completeness"
+      ],
+      "title": "MappingBundleLink",
       "type": "object"
     },
     "TerrainBox": {

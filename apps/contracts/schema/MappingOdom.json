@@ -48,8 +48,9 @@
       "type": "string"
     },
     "source": {
-      "const": "/uslam/frontend/odom",
       "default": "/uslam/frontend/odom",
+      "maxLength": 160,
+      "minLength": 1,
       "title": "Source",
       "type": "string"
     },

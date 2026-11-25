@@ -569,10 +569,11 @@
         "source": {
           "anyOf": [
             {
-              "enum": [
-                "unitree_uslam",
-                "legacy"
-              ],
+              "const": "unitree_uslam",
+              "type": "string"
+            },
+            {
+              "const": "legacy",
               "type": "string"
             },
             {
@@ -2095,8 +2096,9 @@
           "type": "string"
         },
         "source": {
-          "const": "/uslam/frontend/odom",
           "default": "/uslam/frontend/odom",
+          "maxLength": 160,
+          "minLength": 1,
           "title": "Source",
           "type": "string"
         },

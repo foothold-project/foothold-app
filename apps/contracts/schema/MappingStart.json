@@ -16,13 +16,18 @@
       "type": "string"
     },
     "source": {
-      "default": "unitree_uslam",
-      "enum": [
-        "unitree_uslam",
-        "legacy"
+      "anyOf": [
+        {
+          "const": "unitree_uslam",
+          "type": "string"
+        },
+        {
+          "const": "legacy",
+          "type": "string"
+        }
       ],
-      "title": "Source",
-      "type": "string"
+      "default": "unitree_uslam",
+      "title": "Source"
     }
   },
   "required": [

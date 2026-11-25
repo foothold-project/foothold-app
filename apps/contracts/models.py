@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BeforeValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
 from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED, MAX_TURN_RATE
+from .mapping_sources import DEFAULT_MAPPING_SOURCE, DEFAULT_ODOM_SOURCE, MappingSource
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -1092,7 +1093,7 @@ class AgentPhoneRevokeAck(AgentInput):
 
 class MappingStart(Contract):
     floor_id: UUID
-    source: Literal['unitree_uslam', 'legacy'] = 'unitree_uslam'
+    source: MappingSource | Literal['legacy'] = DEFAULT_MAPPING_SOURCE
     name: str = Field(default='로봇이 만든 지도', min_length=1, max_length=40)
 
 
@@ -1200,7 +1201,7 @@ class MappingTilePage(Contract):
 
 class MappingOdom(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
-    source: Literal['/uslam/frontend/odom'] = '/uslam/frontend/odom'
+    source: str = Field(default=DEFAULT_ODOM_SOURCE, min_length=1, max_length=160)
     frame_id: str = Field(min_length=1, max_length=80)
     stamp: MappingStamp
     display_stamp: UTCDateTime | None = None
@@ -1242,7 +1243,7 @@ class MappingProgress(Contract):
     preview: MappingPreview | None = None
     map_version_id: UUID | None = None
     terrain_id: str | None = Field(default=None, max_length=100)
-    source: Literal['unitree_uslam', 'legacy'] | None = None
+    source: MappingSource | Literal['legacy'] | None = None
     name: str | None = Field(default=None, max_length=40)
     phase: MappingPhase | None = None
     command_id: UUID | None = None
@@ -1267,7 +1268,7 @@ class AgentMappingCommand(Contract):
     op: Literal['start', 'save', 'cancel']
     session_id: UUID
     floor_id: UUID
-    source: Literal['unitree_uslam', 'legacy'] | None = Field(default=None, exclude_if=lambda v: v is None)
+    source: MappingSource | Literal['legacy'] | None = Field(default=None, exclude_if=lambda v: v is None)
     command_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     requested_at: UTCDateTime | None = Field(default=None, exclude_if=lambda v: v is None)
     revision: int | None = Field(default=None, ge=1, exclude_if=lambda v: v is None)
@@ -1771,9 +1772,21 @@ class MapVersionCreate(Contract):
     reason: ApprovalText = Field(min_length=1, max_length=2000, pattern=r'\S')
 
 
+class MappingBundleLink(Contract):
+    """Immutable source pair; session endpoints expose later robot/terrain outcomes."""
+    session_id: UUID
+    robot_id: UUID
+    map_version_id: UUID
+    revision: int = Field(ge=1)
+    resolution: Literal[0.05] = .05
+    robot_save: Literal['ROBOT_SAVED', 'UNKNOWN', 'FAILED']
+    completeness: Literal['RECEIVED_ONLY', 'ROBOT_CONFIRMED']
+
+
 class MapVersion(Contract):
+    uslam_bundle: MappingBundleLink | None = Field(default=None, exclude_if=lambda value: value is None)
     voxel_map: VoxelMapSummary | None = Field(default=None, exclude_if=lambda value: value is None)
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'uslam_bundle'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
     upload_id: UUID
