@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import shutil
 import subprocess
 import sys
 import threading
@@ -64,14 +65,13 @@ def test_reference_fixture_matches_web_and_projection_never_clears():
         projection.add(frame['points'], frame['pose'], budget_ms=float('inf'))
     assert grid.L.min() < -10 and grid.L.max() == 40
     assert projection.L.min() == 0 and projection.L.max() == 40
-    compiled = os.environ.get('FH_OCCGRID_JS')
-    if compiled:
+    if shutil.which('node'):   # 웹에서 지운 occgrid.ts 를 옮겨 둔 fixture(RB-SLAM-WEB3)
         actual = json.loads(subprocess.check_output(['node', str(FIXTURES/'occgrid_reference.cjs'),
-            compiled, str(FIXTURES/'slam_room.json')]))
+            str(FIXTURES/'slam_room.json')]))
         assert actual['c0'] == grid.c0 and actual['r0'] == grid.r0
         assert base64.b64decode(actual['L']) == grid.L.tobytes()
     else:
-        # Golden generated from the exact web fixture; separate opt-in live TS comparison.
+        # Golden generated from the same reference fixture; used when node is not installed.
         golden = json.loads((FIXTURES/'slam_room_golden.json').read_text())
         import hashlib
         assert hashlib.sha256(grid.L.tobytes()).hexdigest() == golden['sha256']

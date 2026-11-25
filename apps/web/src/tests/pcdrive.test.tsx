@@ -347,111 +347,64 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(w.of('stop').length).toBe(0);
   });
 
-  // RB-SLAM-GRID-WEB(11-20): 쌓는 라이다(odom)면 지도 칸 = 걸으며 만드는 2D 격자(빈 바닥·벽·모름), 라이다 칸은 그대로, lidar_link 면 층 지도 — 버리는 때는 쌓은 점과 같음
-  it('쌓는 라이다면 지도 칸이 걸으며 만드는 지도로 자라고, epoch·lidar_link 에 버린다', () => {
+  // 11-25 RB-SLAM-WEB3: 브라우저에서 지도를 쌓거나 계산하지 않음 — 지도 칸은 늘 그 층 승인 지도(서버), 라이다 칸은 받은 한 판만
+  it('odom 라이다여도 지도 칸은 층 지도 그대로(걸으며 만드는 지도 없음), 라이다 칸은 받은 한 판만', () => {
     mount('u-park'); serve('r7');
     const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
-    const scan = (seq: number, pts: number[], p: object = {}) => act(() => {
+    const tile = (id: string) => $(`[aria-label="조종 보기 4칸"] [data-tile="${id}"]`)!;
+    act(() => { lid.open(); });
+    for (const [seq, pts] of [[1, [2.025, 0.025, 0.3, 1.025, 1.025, 0]], [2, [3, 0, 0.3]]] as const) act(() => {
       lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le', frame: 'odom', map_version_id: null,
-        pose: { x: 0, y: 0, z: 0.3, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false, ...p });
+        pose: { x: 0, y: 0, z: 0.3, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false });
       lid.onmessage?.({ data: new Float32Array(pts).buffer } as never);
     });
-    const tile = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"]')!, occ = () => tile().querySelector<HTMLElement>('[data-occ-map]');
-    act(() => { lid.open(); });
-    expect(occ()).toBeNull();
-    for (let s = 1; s <= 3; s++) scan(s, [2.025, 0.025, 0.3, 1.025, 1.025, 0]);   // 벽 점 하나 + 바닥 점 하나
-    expect(tile().textContent).toContain('지도 — 걸으며 만드는 중');
-    expect(occ()!.dataset.occWall).toBe('1');
-    expect(Number(occ()!.dataset.occMap)).toBeGreaterThan(40);
-    expect($('[aria-label="조종 보기 4칸"] [data-tile="lidar"] [data-lidar-map]')).toBeTruthy();   // 라이다 칸은 그대로
-    expect(box.textContent).not.toMatch(/SLAM|odom|로그오즈/i);
-    act(() => { tile().querySelector<HTMLElement>('[data-occ-wipe]')!.click(); });
-    expect(occ()!.dataset.occMap).toBe('0');   // «처음부터 다시» = 화면만
-    scan(4, [2.025, 0.025, 0.3]);
-    expect(occ()!.dataset.occWall).toBe('1');
-    scan(1, [5, 5, 0], { epoch: 2 });   // 로봇이 새로 시작 = 새 격자
-    expect(occ()!.dataset.occWall).toBe('0');
-    scan(2, [1, 0, 0], { epoch: 2, frame: 'lidar_link', pose: null });
-    expect(occ()).toBeNull();
-    expect(tile().querySelector('.pd-floor')).toBeTruthy();
-    expect(tile().textContent).not.toContain('걸으며');
+    expect(tile('map').querySelector('.pd-floor')).toBeTruthy();
+    expect(tile('map').querySelector('[data-occ-map]')).toBeNull();
+    expect(tile('map').textContent).not.toContain('걸으며');
+    expect(tile('lidar').querySelector<HTMLElement>('[data-lidar-map]')!.dataset.lidarMap).toBe('1');   // 앞 판(2점)을 쌓지 않음
+    expect(box.querySelector('[data-lm-wipe], [data-occ-wipe]')).toBeNull();   // «처음부터 다시» 없음
   });
 
-  it('약속 위반으로 버린 뒤 같은 epoch 로 다시 붙으면 옛 벽 없이 새 격자(RV-438 ①)', () => {
-    mount('u-park'); serve('r7');
-    const sock = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
-    const scan = (lid: FakeWS, seq: number, pts: number[], p: object = {}) => act(() => {
-      lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le', frame: 'odom', map_version_id: null,
-        pose: { x: 0, y: 0, z: 0.3, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false, ...p });
-      lid.onmessage?.({ data: new Float32Array(pts).buffer } as never);
-    });
-    const occ = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"] [data-occ-map]');
-    let lid = sock();
-    act(() => { lid.open(); });
-    scan(lid, 1, [2.025, 0.025, 0.3]);
-    expect(occ()!.dataset.occWall).toBe('1');
-    scan(lid, 2, [1, 1, 0.3], { robot: 'r3' });   // 남의 로봇 자료 = 약속 위반 → 닫고 그림을 버림
-    expect(occ()).toBeNull();
-    tick(RETRY_MS); lid = sock();
-    act(() => { lid.open(); });
-    scan(lid, 3, [0.025, 2.025, 0.3]);   // 같은 epoch 1 — 새 벽 하나만
-    expect(occ()!.dataset.occWall).toBe('1');
-  });
-
-  // RV-443 ③·④: 머리 받은 뒤 본문 오기 전 «처음부터 다시» → 그 머리로 본문을 쓰지 않음 · epoch 바뀐 뒤 늦게 온 옛 epoch 판은 버림(연결은 그대로)
+  // RV-443 ④: epoch 바뀐 뒤 늦게 온 옛 epoch 판은 버림(연결은 그대로)
   const occScan = (lid: FakeWS, seq: number, pts: number[], p: object = {}, body = true) => act(() => {
     lid.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 71, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le', frame: 'odom', map_version_id: null,
       pose: { x: 0, y: 0, z: 0.3, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false, ...p });
     if (body) lid.onmessage?.({ data: new Float32Array(pts).buffer } as never);
   });
-  const occBody = (lid: FakeWS, pts: number[]) => act(() => { lid.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
-  it('머리 받은 뒤 본문 오기 전에 «처음부터 다시» 하면 그 판은 버린다(RV-443 ③)', () => {
+  const P1 = [0.025, 2.025, 0.3], P2 = [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3], P3 = [...P2, 1, 1, 0.3];
+  const lidarN = () => $('[aria-label="조종 보기 4칸"] [data-tile="lidar"] [data-lidar-map]')?.getAttribute('data-lidar-map');
+  it('epoch 가 바뀐 뒤 늦게 온 옛 epoch 판은 지금 라이다 그림을 덮지 않는다(RV-443 ④)', () => {
     mount('u-park'); serve('r7');
     const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
-    const tile = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"]')!, occ = () => tile().querySelector<HTMLElement>('[data-occ-map]');
     act(() => { lid.open(); });
-    occScan(lid, 1, [0.025, 2.025, 0.3]);
-    occScan(lid, 2, [2.025, 0.025, 0.3], {}, false);   // 머리만
-    act(() => { tile().querySelector<HTMLElement>('[data-occ-wipe]')!.click(); });
-    occBody(lid, [2.025, 0.025, 0.3]);   // 지우기 전에 머리가 온 판의 본문
-    occScan(lid, 3, [-2.025, 0.025, 0.3]);
-    expect(occ()!.dataset.occWall).toBe('1');   // 새 판 벽 하나만
-    expect(lid.readyState).not.toBe(3);   // 약속 위반 아님 — 연결 그대로
-  });
-  it('epoch 가 바뀐 뒤 늦게 온 옛 epoch 판은 지금 지도를 덮지 않는다(RV-443 ④)', () => {
-    mount('u-park'); serve('r7');
-    const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
-    const tile = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"]')!, occ = () => tile().querySelector<HTMLElement>('[data-occ-map]');
-    act(() => { lid.open(); });
-    occScan(lid, 5, [0.025, 2.025, 0.3]);
-    occScan(lid, 1, [2.025, 0.025, 0.3], { epoch: 14 });   // 로봇이 새로 시작
-    expect(occ()!.dataset.occWall).toBe('1');
-    occScan(lid, 6, [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3]);   // 늦게 온 71 판(벽 2개)
+    occScan(lid, 5, P3);
+    occScan(lid, 1, P1, { epoch: 14 });   // 로봇이 새로 시작
+    expect(lidarN()).toBe('1');
+    occScan(lid, 6, P2);   // 늦게 온 71 판(2점)
     act(() => { lid.recv({ t: 'media.status', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 71, episode_id: null, reason: 'No fresh source sample within 1 second' }); });
-    expect(occ()!.dataset.occWall).toBe('1');   // 14 판 벽 그대로
-    expect(tile().textContent).not.toContain(NO_SIGNAL.lidar);
-    occScan(lid, 2, [-2.025, 0.025, 0.3], { epoch: 14 });   // 14 는 순번 그대로 이어짐
-    expect(occ()!.dataset.occWall).toBe('2');
+    expect(lidarN()).toBe('1');   // 14 판 그대로
+    expect($('[aria-label="조종 보기 4칸"] [data-tile="lidar"]')!.textContent).not.toContain(NO_SIGNAL.lidar);
+    occScan(lid, 2, P3, { epoch: 14 });   // 14 는 순번 그대로 이어짐
+    expect(lidarN()).toBe('3');
     expect(lid.readyState).not.toBe(3);
   });
 
-  it('칸을 숨겼다 다시 열어도 지난 epoch 기록은 이어진다 — 늦은 71 판이 14 지도를 덮지 않음(RV-450 ②)', () => {
+  it('칸을 숨겼다 다시 열어도 지난 epoch 기록은 이어진다 — 늦은 71 판이 14 그림을 덮지 않음(RV-450 ②)', () => {
     mount('u-park'); serve('r7');
     const sock = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
-    const occ = () => $('[aria-label="조종 보기 4칸"] [data-tile="map"] [data-occ-map]');
     let lid = sock();
     act(() => { lid.open(); });
-    occScan(lid, 5, [0.025, 2.025, 0.3]);
-    occScan(lid, 1, [2.025, 0.025, 0.3], { epoch: 14 });   // 71 → 14
-    click($('[aria-label="조종 보기 4칸"] [data-tile="rgb"] .qh')!); click($('.qpip')!);   // 지도·라이다 칸 숨김 = 라이다 소켓 닫음
+    occScan(lid, 5, P1);
+    occScan(lid, 1, P1, { epoch: 14 });   // 71 → 14
+    click($('[aria-label="조종 보기 4칸"] [data-tile="rgb"] .qh')!); click($('.qpip')!);   // 라이다 칸 숨김 = 라이다 소켓 닫음
     click($('.qpip')!);   // 다시 보임 = 새 소켓
     lid = sock();
     act(() => { lid.open(); });
-    const walls: string[] = [];
-    occScan(lid, 2, [2.025, 0.025, 0.3], { epoch: 14 }); walls.push(occ()!.dataset.occWall!);
-    occScan(lid, 6, [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3]); walls.push(occ()!.dataset.occWall!);   // 늦게 온 71 판(벽 2개)
-    occScan(lid, 3, [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3], { epoch: 14 }); walls.push(occ()!.dataset.occWall!);
-    expect(walls).toEqual(['1', '1', '3']);
+    const ns: (string | null | undefined)[] = [];
+    occScan(lid, 2, P1, { epoch: 14 }); ns.push(lidarN());
+    occScan(lid, 6, P2); ns.push(lidarN());   // 늦게 온 71 판(2점)
+    occScan(lid, 3, P3, { epoch: 14 }); ns.push(lidarN());
+    expect(ns).toEqual(['1', '1', '3']);
     expect(lid.readyState).not.toBe(3);
   });
 
@@ -476,36 +429,34 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     }
   });
 
-  it('지도·라이다 칸이 모두 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
+  it('라이다 칸이 안 보이면 라이다 소켓을 닫고, 다시 보이면 연다', () => {
     mount('u-park'); serve('r7');
     const open = () => FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).length;
     expect(open()).toBe(1);
     click($('[aria-label="조종 보기 4칸"] [data-tile="rgb"] .qh')!);   // 카메라 크게
-    expect(open()).toBe(1);   // 지도·라이다는 작은 칸으로 보임
+    expect(open()).toBe(1);   // 라이다는 작은 칸으로 보임
     click($('.qpip')!);   // 작은 칸 숨김 = 카메라만
     expect(open()).toBe(0);
     click($('.qpip')!);
     expect(open()).toBe(1);
   });
 
-  // RV-435 ②·①: PC 큰 칸 오른쪽 위는 작은 칸이 가림 — «마지막 그림 · N초 전»은 큰 칸 머리줄에, 작은 칸은 그대로 칸 안. 기체 확인 영구 오류면 그림·쌓은 지도를 지움
+  // RV-435 ②·①: PC 큰 칸 오른쪽 위는 작은 칸이 가림 — «마지막 그림 · N초 전»은 큰 칸 머리줄에, 작은 칸은 그대로 칸 안. 기체 확인 영구 오류면 그림을 지움
   const lidarSock = () => FakeWS.all.filter((x) => x.url.endsWith('/robots/r7/drive-media/lidar')).pop()!;
   const odom = (seq: number, pts: number[]) => act(() => { const l = lidarSock(); l.recv({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1',
     encoding: 'xyz_f32le', frame: 'odom', map_version_id: null, pose: { x: 0, y: 0, z: 0, yaw: 0 }, count: pts.length / 3, byte_length: pts.length * 4, truncated: false });
     l.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
   const tile = (id: string) => $(`[aria-label="조종 보기 4칸"] [data-tile="${id}"]`)!;
-  it('큰 지도 칸의 «마지막 그림 · N초 전»은 칸 머리줄에(작은 칸에 가리지 않게), 작은 라이다 칸은 칸 안 그대로', () => {
+  it('큰 라이다 칸의 «마지막 그림 · N초 전»은 칸 머리줄에(작은 칸에 가리지 않게), 작은 라이다 칸은 칸 안 그대로 · 지도 칸엔 없음', () => {
     mount('u-park'); serve('r7');
     act(() => lidarSock().open()); odom(1, [1, 2, 0.5, -1, 0, 0]);
-    expect(tile('map').querySelector('[data-feed-held]')).toBeNull();
     tick(2100);
-    expect(tile('map').querySelector('.qh [data-feed-held]')!.textContent).toBe('마지막 그림 · 2초 전 · 2초 넘게 새 자료가 없습니다');
-    expect(tile('map').querySelector('.qb [data-feed-held]')).toBeNull();   // 큰 칸 안 오른쪽 위에는 두지 않음
+    expect(tile('map').querySelector('[data-feed-held]')).toBeNull();   // 지도 칸 = 층 지도(라이다와 무관)
     expect(tile('lidar').querySelector('.qh [data-feed-held]')).toBeNull();
-    expect(tile('lidar').querySelector('.qb [data-feed-held]')!.textContent).toContain('마지막 그림 · 2초 전');   // 작은 칸은 지금처럼
-    click(tile('lidar').querySelector('.qh')!);   // 라이다를 크게 → 머리줄로, 작아진 지도 칸은 칸 안
-    expect(tile('lidar').querySelector('.qh [data-feed-held]')).not.toBeNull(); expect(tile('lidar').querySelector('.qb [data-feed-held]')).toBeNull();
-    expect(tile('map').querySelector('.qh [data-feed-held]')).toBeNull();   // 작아진 지도 칸 머리줄엔 없음
+    expect(tile('lidar').querySelector('.qb [data-feed-held]')!.textContent).toContain('마지막 그림 · 2초 전');   // 작은 칸은 칸 안
+    click(tile('lidar').querySelector('.qh')!);   // 라이다를 크게 → 머리줄로
+    expect(tile('lidar').querySelector('.qh [data-feed-held]')!.textContent).toBe('마지막 그림 · 2초 전 · 2초 넘게 새 자료가 없습니다');
+    expect(tile('lidar').querySelector('.qb [data-feed-held]')).toBeNull();   // 큰 칸 안 오른쪽 위에는 두지 않음
   });
 
   // 11-25 RB-SLAM-WEB2: «로봇 지도»(Unitree 내장 지도) 고르기 없앰 — 큰 라이다 칸도 우리 라이다 그림만, 로봇 지도 자료 연결 없음
@@ -521,7 +472,8 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
   it('큰 칸 머리줄 «마지막 그림»은 보통 보기에선 전체화면 단추 자리, 전체화면에선 작은 칸 자리를 비워 둔다', async () => {
     mount('u-park'); serve('r7'); fullscreen();
     act(() => lidarSock().open()); odom(1, [1, 2, 0.5, -1, 0, 0]); tick(2100);
-    const h = () => tile('map').querySelector<HTMLElement>('.qh [data-feed-held]')!;
+    click(tile('lidar').querySelector('.qh')!);   // 라이다 크게
+    const h = () => tile('lidar').querySelector<HTMLElement>('.qh [data-feed-held]')!;
     expect(quadCss.replace(/\s+/g, '')).toContain('.qfs-bar{position:absolute;z-index:5;top:9px;right:44px;');   // HELD_GAP 은 이 자리 기준(바뀌면 다시 잴 것)
     expect(h().style.marginRight).toBe(HELD_GAP);
     await act(async () => { btn('전체화면').click(); });
@@ -530,14 +482,14 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(h().style.marginRight).toMatch(/^0(px)?$/);
   });
 
-  it('기체 확인 영구 오류면 세 칸 화면도 카메라·라이다 구독을 놓고 쌓은 지도를 지운다', () => {
+  it('기체 확인 영구 오류면 세 칸 화면도 카메라·라이다 구독을 놓고 라이다 그림을 지운다', () => {
     mount('u-park'); serve('r7');
     const lid = lidarSock(), rgb = FakeWS.all.filter((x) => x.url.endsWith('/robots/r7/drive-media/rgb')).pop()!;
     act(() => lid.open()); odom(1, [1, 2, 0.5, -1, 0, 0]);
-    expect(tile('map').querySelector('[data-occ-map]')).not.toBeNull();
+    expect(lidarN()).toBe('2');
     act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: IDENTITY_FAULT_LABEL, state: 'ERROR' }] } as Partial<ScreenState>));
     expect(lid.readyState).toBe(3); expect(rgb.readyState).toBe(3);
-    expect(tile('map').querySelector('[data-occ-map]')).toBeNull();   // 쌓던 것이 없어 층 지도로
+    expect(lidarN()).not.toBe('2');
     expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
     expect(tile('lidar').textContent).toContain(`${NO_SIGNAL.lidar} — ${BODY_FAULT}`);
   });

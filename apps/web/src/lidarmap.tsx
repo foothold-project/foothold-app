@@ -1,7 +1,7 @@
-// 조종 화면 «쌓이는 라이다» 지도(11-13 RB-MAP-VIEW-WEB): drivemedia.ts 가 쌓아 둔 점을 위에서 본 그림으로(x 오른쪽·y 위 — 지도 만들기 창 그림과 같은 방향).
+// 조종 화면 라이다 칸(11-13 RB-MAP-VIEW-WEB): drivemedia.ts 가 준 한 판의 점을 위에서 본 그림으로(11-25 RB-SLAM-WEB3: 판을 쌓지 않음)(x 오른쪽·y 위 — 지도 만들기 창 그림과 같은 방향).
 // 11-19 RB-LIDAR-3D: 기본은 3D(lidar3d.tsx), «위에서» 단추로 이 그림. WebGL 이 없으면 이 그림만.
-// 색 = 바닥부터 높이(3D 와 같은 색표 — lidar3d.tsx, 같은 자리에 겹치면 높은 점이 위 — 벽이 바닥에 묻히지 않게), 로봇 화살표 + 지나온 길. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
-// 11-20 RB-UNITREE-LOOK-WEB: 쌓을 때는 높은 점도 남기고(3D 용), 이 그림만 로봇보다 CEIL_M 넘게 높은 점(천장)을 숨긴다 — 천장이 바닥 그림을 덮지 않게.
+// 색 = 바닥부터 높이(3D 와 같은 색표 — lidar3d.tsx, 같은 자리에 겹치면 높은 점이 위 — 벽이 바닥에 묻히지 않게), 로봇 화살표. 바뀐 때만 0.5초에 한 번 다시 그림(끌기·확대는 화면 한 장에 한 번). 그림만 — 명령 0.
+// 11-20 RB-UNITREE-LOOK-WEB: 3D 는 높은 점도 그리고, 이 그림만 로봇보다 CEIL_M 넘게 높은 점(천장)을 숨긴다 — 천장이 바닥 그림을 덮지 않게.
 import { useEffect, useRef, useState } from 'react';
 import { CEIL_M, CELL_M, driveFeedHeld, type DriveFeed } from './drivemedia';
 import { FLOOR_DZ, HeightLegend, Lidar3D, levelOf, rgbOf, type Look } from './lidar3d';
@@ -17,12 +17,11 @@ const LUT = Uint32Array.from({ length: 64 }, (_, i) => { const [r, g, b] = rgbOf
  *  look = 3D 를 점(라이다)·상자(«상자» 보기)로, pick = «보기» 줄에 «상자»도(PC 4칸 — 같은 3D 그림에서 모양만 바꿈), go2 = 3D 속 Go2 관절각·기울기(lidar3d.tsx — 11-20 RB-UNITREE-LOOK-FIX) */
 export function LidarMap({ feed, empty, small = false, start = '3d', tag = true, look = 'points', pick = false, go2 = null }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top'; tag?: boolean; look?: Look; pick?: boolean; go2?: Pose }) {
   const [mode, setMode] = useState<'3d' | 'box' | 'top'>(start), [no3d, setNo3d] = useState(false), is3d = mode !== 'top' && !no3d;
-  return <div style={{ position: 'absolute', inset: 0 }} data-lidar-map={feed.n} data-path={feed.path.length / 2} data-lm-mode={is3d ? '3d' : 'top'}>
+  return <div style={{ position: 'absolute', inset: 0 }} data-lidar-map={feed.n} data-lm-mode={is3d ? '3d' : 'top'}>
     {is3d ? <Lidar3D feed={feed} small={small} look={mode === 'box' ? 'boxes' : look} go2={go2} onFail={() => setNo3d(true)} /> : <TopView feed={feed} small={small} />}
     {!small && <div className="fh-row" style={{ position: 'absolute', left: 8, top: 8, flexWrap: 'wrap' }}>
       {!no3d && <div className="fh-row" role="group" aria-label="보기">{(pick ? ['3d', 'box', 'top'] as const : ['3d', 'top'] as const).map((m) =>
         <button key={m} type="button" className="btn" aria-pressed={mode === m} data-lm-view={m} onClick={() => setMode(m)}>{m === '3d' ? '3D' : m === 'box' ? '상자' : '위에서'}</button>)}</div>}
-      {(feed.frame as string) === 'odom' && <button type="button" className="btn" data-lm-wipe onClick={() => feed.wipe()}>처음부터 다시</button>}
     </div>}
     {no3d && !small && <div className="qd-legend" role="status" style={{ right: 'auto', left: 8, top: 52, bottom: 'auto' }} data-lm-no3d>이 브라우저는 3D 를 그릴 수 없어 위에서 본 그림으로 보입니다</div>}
     {empty && (feed.n ? tag && <HeldTag text={driveFeedHeld(feed)} /> : <QEmpty text={empty} />)}
@@ -62,9 +61,6 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
         for (let b = 0; b < r; b++) for (let a = 0; a < r; a++) { const q = (w + b) * W + u + a; if (zi >= top[q]) { top[q] = zi + 1; px[q] = col; } }
       }
       g.setTransform(1, 0, 0, 1, 0, 0); g.putImageData(img, 0, 0);
-      g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 2 * dpr; g.beginPath();
-      for (let i = 0; i < c.path.length; i += 2) { if (i) g.lineTo(X(c.path[i]), Y(c.path[i + 1])); else g.moveTo(X(c.path[i]), Y(c.path[i + 1])); }
-      g.stroke();
       if (c.pose) {   // 로봇: 앞을 가리키는 화살표
         const s = 9 * dpr, t = -c.pose.yaw;   // 화면 y 는 아래로
         g.save(); g.translate(X(c.pose.x), Y(c.pose.y)); g.rotate(t);

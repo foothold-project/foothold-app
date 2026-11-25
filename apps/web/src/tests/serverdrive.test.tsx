@@ -513,7 +513,7 @@ describe('서버 경유 카메라·라이다', () => {
     expect(media()).toBeGreaterThan(n); expect(mediaSock('rgb')).not.toBe(rgb);
   });
 
-  it('상태 소켓이 끊기면 장치 표를 다시 받을 때까지 세 채널을 닫되, 받은 그림·쌓은 지도는 «마지막 그림»으로 남긴다(RV-442)', () => {
+  it('상태 소켓이 끊기면 장치 표를 다시 받을 때까지 세 채널을 닫되, 받은 그림은 «마지막 그림»으로 남긴다(RV-442)', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
     const rgb = mediaSock('rgb'), lid = mediaSock('lidar');
     act(() => { rgb.open(); lid.open(); rgb.recv(video()); });
@@ -527,8 +527,8 @@ describe('서버 경유 카메라·라이다', () => {
     act(() => push('r7'));   // 오류 없는 표 — 다시 연다
     const lid2 = mediaSock('lidar');
     expect(mediaSock('rgb')).not.toBe(rgb); expect(lid2).not.toBe(lid);
-    act(() => lid2.open()); scan(lid2, head(2, 1), [3, 0, 0.5]);   // 같은 epoch — 쌓은 지도를 이어 쌓는다
-    ch('lidar'); expect(map()!.dataset.lidarMap).toBe('3');
+    act(() => lid2.open()); scan(lid2, head(2, 1), [3, 0, 0.5]);   // 같은 epoch — 새 판 하나만(쌓지 않음, 11-25 RB-SLAM-WEB3)
+    ch('lidar'); expect(map()!.dataset.lidarMap).toBe('1');
   });
 
   // RV-445 ①: MAC 자리표시 기체번호 실기(agent setup/storage.py mac_serial)는 go2-identity 가 표에 실제로 있고 MISSING·영구 오류가 아닐 때만 연다 — 빈 표는 «아직 모름»
@@ -617,14 +617,14 @@ describe('서버 경유 카메라·라이다', () => {
     expect(held()).toContain('마지막 그림 · 0초 전'); expect(held()).toContain('연결이 끊겼습니다');
   });
 
-  // 11-13 RB-MAP-VIEW-WEB: frame 'odom'(이미 로봇이 처음 켜진 곳 기준 + pose) = 쌓는 지도, lidar_link = 지금처럼 한 장씩
+  // 11-13 RB-MAP-VIEW-WEB: frame 'odom'(이미 로봇이 처음 켜진 곳 기준 + pose). 11-25 RB-SLAM-WEB3: odom 도 lidar_link 처럼 받은 한 판만(브라우저에서 쌓지 않음)
   const head = (seq: number, count: number, p: object = {}) => ({ t: 'media.points', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 1, episode_id: null, seq, source: 'l1', encoding: 'xyz_f32le',
     frame: 'odom', map_version_id: null, pose: { x: 0, y: 0, z: 0, yaw: 0 }, count, byte_length: count * 12, truncated: false, ...p });
   const scan = (lid: FakeWS, h: object, pts: number[]) => act(() => { lid.recv(h); lid.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
   const map = () => $('[data-sd-full] [data-lidar-map]');
 
   // RV-448 ①: 중계기는 머리·본문을 따로 보낸다 — 머리만 받고 끊긴 판은 아직 그리지 않은 판이라, 다시 붙어 같은 순번으로 오면 그린다
-  it('RV-448 ①: 라이다 머리 뒤 끊기면 같은 순번 재전송 본문을 받아 쌓는다', () => {
+  it('RV-448 ①: 라이다 머리 뒤 끊기면 같은 순번 재전송 본문을 받아 그린다', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
     let lid = mediaSock('lidar');
     act(() => lid.open()); scan(lid, head(4, 1), [1, 0, 0.5]);
@@ -632,12 +632,12 @@ describe('서버 경유 카메라·라이다', () => {
     act(() => push('r7', { connection: 'OFFLINE', devices: [] }));
     tick(500); act(() => push('r7', { connection: 'ONLINE' }));
     lid = mediaSock('lidar');
-    act(() => lid.open()); scan(lid, head(5, 1), [3, 0, 0.5]);
+    act(() => lid.open()); scan(lid, head(5, 1, { count: 2, byte_length: 24 }), [3, 0, 0.5, 4, 0, 0.5]);
     expect(lid.readyState).not.toBe(3); expect(map()!.dataset.lidarMap).toBe('2');
   });
 
   // RV-448 ③: 같은 순번 재전송이어도 모양 검사가 먼저 — odom 판에 필수 pose 가 없으면 약속 위반(닫고 그림 지움)
-  it('RV-448 ③: 같은 순번 odom 판에 pose 가 없으면 소켓을 닫고 쌓은 그림을 지운다', () => {
+  it('RV-448 ③: 같은 순번 odom 판에 pose 가 없으면 소켓을 닫고 그림을 지운다', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
     const lid = mediaSock('lidar');
     act(() => lid.open()); scan(lid, head(5, 1), [1, 0, 0.5]);
@@ -646,59 +646,46 @@ describe('서버 경유 카메라·라이다', () => {
     expect(lid.readyState).toBe(3); expect(map()?.dataset.lidarMap ?? '0').toBe('0');
   });
 
-  it('odom 라이다는 쌓는다: 같은 5 cm 칸은 한 번만, 로봇 위치·지나온 길, 조종 화면이 지도로 열리고 조작부·STOP 이 함께, «처음부터 다시»는 화면만 지움', () => {
+  it('odom 라이다는 받은 한 판만(쌓지 않음): 조종 화면이 라이다로 열리고 조작부·STOP 이 함께, «처음부터 다시» 단추 없음', () => {
     ready();
     const lid = mediaSock('lidar');
     act(() => { lid.open(); });
     scan(lid, head(1, 2), [1, 2, 0.5, -1, 0, 0]);
-    view();   // 쌓는 라이다가 오면 조종 화면은 지도부터
+    view();   // odom 라이다가 오면 조종 화면은 라이다부터
     expect($('[data-sd-full] [data-sd-ch="lidar"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(map()!.dataset.lidarMap).toBe('2');
-    scan(lid, head(2, 3, { pose: { x: 1, y: 0, z: 0, yaw: 0.5 } }), [1.01, 2.01, 0.51, 3, 3, 0, 4, 4, 9]);   // 첫 점 = 같은 칸, 끝 점 = 천장(11-20 RB-UNITREE-LOOK-WEB: 3D 누적엔 넣고 위에서 본 그림에서만 숨김)
-    expect(map()!.dataset.lidarMap).toBe('4');
-    expect(map()!.dataset.path).toBe('2');
-    // 11-20 RB-UNITREE-LOOK-FIX B: 큰 화면 고르기 «상자» = 같은 쌓인 점(jsdom 은 WebGL 없어 위에서 본 그림), 다시 «라이다»
+    scan(lid, head(2, 3, { pose: { x: 1, y: 0, z: 0, yaw: 0.5 } }), [1.01, 2.01, 0.51, 3, 3, 0, 4, 4, 9]);
+    expect(map()!.dataset.lidarMap).toBe('3');   // 앞 판 2점을 더하지 않음
+    expect(map()!.hasAttribute('data-path')).toBe(false);
+    // 11-20 RB-UNITREE-LOOK-FIX B: 큰 화면 고르기 «상자» = 같은 점(jsdom 은 WebGL 없어 위에서 본 그림), 다시 «라이다»
     click($('[data-sd-full] [data-sd-ch="box"]')!);
-    expect($('[data-sd-full] [data-sd-ch="box"]')!.getAttribute('aria-pressed')).toBe('true'); expect(map()!.dataset.lidarMap).toBe('4');
+    expect($('[data-sd-full] [data-sd-ch="box"]')!.getAttribute('aria-pressed')).toBe('true'); expect(map()!.dataset.lidarMap).toBe('3');
     click($('[data-sd-full] [data-sd-ch="lidar"]')!);
-    // 지도를 보면서 바로 조종: 같은 화면에 조작부 8개·STOP, 키도 그대로
     expect(document.querySelectorAll('[data-sd-full] [data-sd-move]').length).toBe(8);
     expect($('[data-sd-full] [data-sd-stop="full"]')).toBeTruthy();
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
     expect($('[data-sd-full]')!.textContent).not.toMatch(/odom|SLAM|deskew/i);
-    const sent = w.sent.length;
-    click($('[data-lm-wipe]')!);
-    expect(map()!.dataset.lidarMap).toBe('0');
-    expect(w.sent.slice(sent).every((m) => m.t === 'cmd')).toBe(true);   // 화면만 지움 — 서버·로봇에 새 요청 없음(50 ms 조종 박동뿐)
-    scan(lid, head(3, 1), [1, 2, 0.5]);
+    expect($('[data-lm-wipe]')).toBeNull();
+    scan(lid, head(1, 1, { epoch: 2 }), [7, 7, 0]);   // 로봇이 새로 시작(epoch)
     expect(map()!.dataset.lidarMap).toBe('1');
-    // 로봇이 새로 시작하면(epoch) 기준 자리가 달라지므로 쌓은 것을 버린다
-    scan(lid, head(1, 1, { epoch: 2 }), [7, 7, 0]);
-    expect(map()!.dataset.lidarMap).toBe('1');
-    // pose 없는 odom 은 약속 위반
-    scan(lid, head(2, 1, { epoch: 2, pose: null }), [8, 8, 0]);
+    scan(lid, head(2, 1, { epoch: 2, pose: null }), [8, 8, 0]);   // pose 없는 odom 은 약속 위반
     expect(lid.readyState).toBe(3);
   });
 
-  // RV-435 ③: 점 0개 odom 판은 «마지막 점 받은 시각»을 바꾸지 않는다 — 옛 점이 남아 있으면 «마지막 그림 · N초 전» 그대로
-  it('점을 받은 뒤 오래됨 표시가 뜨면, 점 0개 odom 판이 와도 표시가 남고 N초가 계속 는다', () => {
+  // 점 0개 판도 받은 한 판 그대로(옛 판을 남겨 쌓지 않음) — 다음 판이 오면 그 판
+  it('점 0개 odom 판은 빈 판으로, 다음 판은 그 판만', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
     const lid = mediaSock('lidar');
     act(() => { lid.open(); });
     scan(lid, head(1, 2), [1, 2, 0.5, -1, 0, 0]);
-    view();
-    expect(held()).toBeNull();
-    tick(2100);
-    expect(held()).toContain('마지막 그림 · 2초 전');
+    view(); ch('lidar');
     scan(lid, head(2, 0, { pose: { x: 0.5, y: 0, z: 0, yaw: 0 } }), []);
-    expect(map()!.dataset.lidarMap).toBe('2'); expect(held()).toContain('마지막 그림 · 2초 전');
-    tick(1000);
-    expect(held()).toContain('마지막 그림 · 3초 전');
-    scan(lid, head(3, 1), [5, 5, 0]);   // 점이 오면 표시 없이 새 그림
-    expect(map()!.dataset.lidarMap).toBe('3'); expect(held()).toBeNull();
+    expect(map()!.dataset.lidarMap).toBe('0');
+    scan(lid, head(3, 1), [5, 5, 0]);
+    expect(map()!.dataset.lidarMap).toBe('1'); expect(held()).toBeNull();
   });
 
-  // RV-440 ②: odom 점 판 바로 뒤 다음 epoch 상태 판이 렌더 전에 오면(쌓은 지도를 버림) 갱신 함수가 비운 지도를 읽어 예외가 나면 안 된다
+  // RV-440 ②: odom 점 판 바로 뒤 다음 epoch 상태 판이 렌더 전에 오면(그림을 버림) 갱신 함수가 비운 그림을 읽어 예외가 나면 안 된다
   it('odom 점 판 직후 렌더 전에 다음 epoch 판이 와도 예외 없이 빈 판으로', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
     const lid = mediaSock('lidar');

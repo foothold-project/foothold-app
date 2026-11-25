@@ -169,7 +169,7 @@ function SlamGrid({ pic }: { pic: SlamPic }) {
 /** 3D 상자: 받은 칸 가운데를 lidar3d «상자» 보기에 그대로(5 cm 상자 = 칸 하나) */
 function SlamBoxes({ pic, fail }: { pic: SlamPic; fail: () => void }) {
   const feed = useMemo<DriveFeed>(() => ({ state: 'live', why: '', at: 0, seq: pic.ver, img: '', xyz: pic.xyz, n: pic.n, frame: 'map', truncated: false, ver: pic.ver,
-    range: null, pose: pic.pose, path: [], grid: null, wipe: () => {} }), [pic.ver]);   // eslint-disable-line react-hooks/exhaustive-deps
+    range: null, pose: pic.pose }), [pic.ver]);   // eslint-disable-line react-hooks/exhaustive-deps
   return <Lidar3D feed={feed} small={false} look="boxes" ratio={1} onFail={fail} />;
 }
 

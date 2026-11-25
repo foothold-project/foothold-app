@@ -8,10 +8,9 @@ import { api, type ApiFail } from './api';
 import { rt, type Live } from './rt';
 import { holderText } from './drive';
 import { Chip, LINK, type Ctx } from './screens';
-import { TRIAL, DriveView, stacked, useServerDrive } from './serverdrive';
+import { TRIAL, DriveView, useServerDrive } from './serverdrive';
 import { driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import { LidarMap } from './lidarmap';
-import { OccMap } from './occmap';
 import { Quad, type QTile } from './quad';
 import { STALLED } from './simdrive';
 import { MakeMap } from './screens/mapmake';
@@ -96,8 +95,8 @@ function RightCol({ c, r, trial }: { c: Ctx; r: Robot; trial: ReactNode }) {
 /** 세 칸 조종 화면. back = 목록으로. floorMap = 고른 층 지도(fleet FleetMap — 로봇 위치 점) */
 export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () => void; floorMap: ReactNode }) {
   const d = useServerDrive(c, r), { l, s, mine } = d;
-  // 라이다 하나를 지도 칸(쌓이는 지도)·라이다 칸(3D)이 같이 본다 — 둘 다 안 보이면(카메라·뎁스만) 구독을 놓는다(RV-397 4)
-  const [wantLidar, setWantLidar] = useState(true), lidar = useDriveFeed(r.id, 'lidar', wantLidar), stack = stacked(lidar);
+  // 라이다 칸이 안 보이면 구독을 놓는다(RV-397 4). 지도 칸 = 그 층 승인 지도만(11-25 RB-SLAM-WEB3 — 브라우저 지도 계산 없음, 지도 만들기는 지도 탭)
+  const [wantLidar, setWantLidar] = useState(true), lidar = useDriveFeed(r.id, 'lidar', wantLidar);
   const ago = s ? (rt.now() - l.stateAt) / 1000 : null, a = s?.applied ?? null;
   const fresh = !!s && rt.now() - l.stateAt < REPORT_STALE_MS, pose = go2Pose(s, fresh), temps = go2Temps(s, fresh, ago ?? 0), motion = useGo2Motion(s?.robot_info, pose);
   const [tags, setTags] = useState(true);
@@ -108,7 +107,7 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const why = !s?.latched ? '' : d.stalled ? STALLED : d.refused || (l.stop ? '정지 요청으로 잠겼습니다.' : '로봇이 정지 잠금을 알렸습니다 — 잠금 해제 전에 현장을 확인하세요.');
   const lidarText = driveFeedText(lidar, 'lidar'), held = driveFeedHeld(lidar).replace('\n', ' · ');   // 큰 칸이면 머리줄에(RV-435 ②)
   const tiles: QTile[] = [
-    { id: 'map', label: stack ? '지도 — 걸으며 만드는 중' : '지도', held: stack ? held : '', body: (z) => (stack ? <OccMap small={z === 'thumb'} feed={lidar} empty={lidarText} /> : <div className="pd-floor">{floorMap}</div>) },
+    { id: 'map', label: '지도', body: () => <div className="pd-floor">{floorMap}</div> },
     { id: 'rgb', label: '카메라', body: (z) => <Feed robot={r.id} ch="rgb" big={z === 'big'} /> },
     { id: 'lidar', label: '라이다', held, body: (z) => z === 'big' ? <LidarMap feed={lidar} empty={lidarText} tag={false} pick go2={pose} />   // 11-25 RB-SLAM-WEB2: «로봇 지도»(Unitree 내장 지도) 고르기 없앰
       : <LidarMap small={z === 'thumb'} feed={lidar} empty={lidarText} tag pick go2={pose} /> },   // pick: «보기» 줄 3D(점)·상자·위에서(11-20 RB-UNITREE-LOOK-FIX — 4칸 틀 그대로)
@@ -155,7 +154,7 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
       </section>
       <section className="pd-mid" aria-label="지도·카메라·라이다·뎁스">
         <Quad label="조종 보기 4칸" first="map" tiles={tiles} fs={<>{d.stopNote}{d.stop(true)}</>} onLeave={() => d.zero()}
-          onShown={(ids) => setWantLidar(ids.includes('map') || ids.includes('lidar'))} />
+          onShown={(ids) => setWantLidar(ids.includes('lidar'))} />
       </section>
       <RightCol c={c} r={r} trial={d.trial} />
     </div>
