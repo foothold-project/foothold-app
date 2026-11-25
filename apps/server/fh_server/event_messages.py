@@ -21,6 +21,7 @@ TEMPLATES = {
     'ACTION_MOVING': '{robot} 정지가 확인되지 않아 동작 요청을 거절했습니다.',
     'POSTURE_NOT_ALLOWED': '{robot} 실기 조종 승인과 조종권을 확인할 수 없어 자세 요청을 거절했습니다.',
     'POSTURE_MOVING': '{robot} 정지가 확인되지 않아 자세 요청을 거절했습니다.',
+    'LOWLEVEL_UNSUPPORTED': '{robot} 저수준 (START) 제어 중이라 실행기에 없는 동작 · 자세 요청을 거절했습니다.',
     'TERRAIN_ARCHIVED': '{person}님이 지형 {place}을(를) 휴지통으로 옮겼습니다.',
     'TERRAIN_RESTORED': '{person}님이 지형 {place}을(를) 되살렸습니다.',
     'SITE_RESTORED': '{person}님이 장소 {place}을(를) 되살렸습니다.',
