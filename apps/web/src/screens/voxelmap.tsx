@@ -4,6 +4,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { MapVersion, VoxelCells, VoxelMapImport, VoxelMapSummary } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
+import { LEGEND_BG, TOP_M } from '../heightcolor';
 import { terrainAsk } from './terrain';
 import './voxel3d.css';
 
@@ -14,11 +15,6 @@ export const voxelOf = (v?: MapVersion | null): VoxelMapSummary | null => {
   const x = v?.voxel_map;
   return x && typeof x.terrain_id === 'string' && Number.isInteger(x.voxel_count) && Array.isArray(x.origin) && x.origin.length === 3 ? x : null;
 };
-
-/** 높이색 띠(11-20 RB-UNITREE-LOOK-WEB — Unitree 앱 저장 지도 보기처럼: 바닥 초록 → 노랑·주황 → 빨강·분홍, 높을수록). 이 화면 전용 값(토큰 아님) */
-export const Z_TOP = 2;   // 이 높이(m) 이상은 맨 끝 색. ponytail: 영상에서 m 경계를 역산 못 함 — 실기 지도와 나란히 보고 조정
-export const hueAt = (z: number) => (120 - 150 * Math.max(0, Math.min(1, z / Z_TOP)) + 360) % 360;   // HSL 색상각 120°(초록) → −30°(=330° 분홍)
-const BAND = `linear-gradient(to right, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hueAt(t * Z_TOP)} 100% 50%) ${t * 100}%`).join(', ')})`;
 
 /** «시뮬 지형 수정하기» — 지형 화면을 열고 그 지형을 고른다 */
 export const TerrainLink = ({ id }: { id: string }) =>
@@ -148,6 +144,6 @@ export function VoxelView({ v, cancel }: { v: MapVersion; cancel?: AbortSignal }
         {!!c.total && <progress max={c.total} value={c.got} aria-label="3D 지도 받기" />}</p>}
       {c.err && <div className="fh-row"><p className="fh-msg" role="alert">3D 지도를 다 받지 못했습니다({c.got.toLocaleString('ko-KR')}칸까지). {c.err}</p><button type="button" className="btn" onClick={c.again}>이어 받기</button></div>}
     </div>
-    {!empty && <div className="vx-legend" aria-label="높이 범례" data-voxel-legend><b>높이</b><span>바닥 0 m</span><span className="vx-band" style={{ background: BAND }} aria-hidden="true" /><span>{Z_TOP} m 이상</span><span aria-hidden="true">· 끌어서 돌리기 · 휠로 확대</span></div>}
+    {!empty && <div className="vx-legend" aria-label="높이 범례" data-voxel-legend><b>높이</b><span>바닥 0 m</span><span className="vx-band" style={{ background: LEGEND_BG }} aria-hidden="true" /><span>{TOP_M} m 이상</span><span aria-hidden="true">· 끌어서 돌리기 · 휠로 확대</span></div>}
   </div>;
 }

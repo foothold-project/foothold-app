@@ -7,7 +7,7 @@ import type { MapVersion, RobotSummary, SiteTree, Terrain as ServerTerrain, User
 import { Root } from '../session';
 import { api } from '../api';
 import { Terrain, terrainAsk } from '../screens/terrain';
-import { hueAt } from '../screens/voxelmap';
+import { BANDS, HEX, LEGEND_BG, levelOf } from '../heightcolor';
 import { centerOf, type Props } from '../screens/voxel3d';
 import { kept } from '../screens/mapedit';
 import { clearPlans } from '../screens/missions';
@@ -219,6 +219,8 @@ describe('3D 로 보기', () => {
     expect(last?.pages.reduce((a, p) => a + p.length, 0)).toBe(45000);
     expect($('[data-voxel-loading]')).toBeNull();
     expect($('[data-voxel-legend]')!.textContent).toContain('높이바닥 0 m2 m 이상· 끌어서 돌리기 · 휠로 확대');
+    const band = $<HTMLElement>('.vx-band')!.style.background;   // 지도 탭 범례 = 라이다 범례(HeightLegend)와 같은 막대
+    expect(band).toContain('linear-gradient'); expect(band).toBe(Object.assign(document.createElement('i').style, { background: LEGEND_BG }).background);
     expect($('[data-voxel-toggle]')!.textContent).toBe('지도 보기');
     await click($('[data-voxel-toggle]'));
     expect($('[data-voxel-view]')).toBeNull();
@@ -298,8 +300,11 @@ describe('3D 표시·지형 수정하기 길', () => {
 });
 
 describe('높이색·좌표', () => {
-  it('바닥 초록(120°) → 1 m 주황 쪽(45°) → 2 m 이상 분홍(330°), 음수는 바닥색', () => {
-    expect([hueAt(-1), hueAt(0), hueAt(1), hueAt(2), hueAt(5)]).toEqual([120, 120, 45, 330, 330]);
+  it('저장 지도도 라이다와 같은 표(Z=0 = 바닥): 바닥·0.3·0.75·1.2 m 다른 색, 음수는 바닥색, 2 m 이상 끝 색', () => {
+    const at = (z: number) => HEX[levelOf(z, 0)];
+    expect(new Set([0, 0.3, 0.75, 1.2].map(at)).size).toBe(4);
+    expect([at(-1), at(0.05), at(5)]).toEqual([BANDS[0][1], BANDS[0][1], BANDS[BANDS.length - 1][1]]);
+    expect(LEGEND_BG.startsWith('linear-gradient(to right, #6b7894 0% 5%')).toBe(true);
   });
   it('칸 중심 = origin + (index + .5) × 0.1', () => {
     const [x, y, z] = centerOf([-5, -4, 0], 0.1, [0, 10, -1]);

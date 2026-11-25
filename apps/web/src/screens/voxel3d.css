@@ -1,4 +1,4 @@
-/* 3D 지도 보기·올리기(voxelmap.tsx·voxel3d.tsx). 틀·단추·글은 기존 토큰·클래스, 높이색 띠만 이 화면 전용 값(voxelmap.tsx hueAt) */
+/* 3D 지도 보기·올리기(voxelmap.tsx·voxel3d.tsx). 틀·단추·글은 기존 토큰·클래스, 높이색 띠는 heightcolor.ts 표 */
 .vx{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
 .vx-3d{flex:1;min-height:0;position:relative;outline-offset:-2px;background:var(--bg)}
 .vx-3d:focus-visible{outline:2px solid var(--accent)}

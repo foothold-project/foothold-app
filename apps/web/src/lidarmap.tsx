@@ -4,14 +4,15 @@
 // 11-20 RB-UNITREE-LOOK-WEB: 3D 는 높은 점도 그리고, 이 그림만 로봇보다 CEIL_M 넘게 높은 점(천장)을 숨긴다 — 천장이 바닥 그림을 덮지 않게.
 import { useEffect, useRef, useState } from 'react';
 import { CEIL_M, CELL_M, driveFeedHeld, type DriveFeed } from './drivemedia';
-import { FLOOR_DZ, HeightLegend, Lidar3D, levelOf, rgbOf, type Look } from './lidar3d';
+import { N, levelOf } from './heightcolor';
+import { FLOOR_DZ, HeightLegend, Lidar3D, rgbOf, type Look } from './lidar3d';
 import type { Pose } from './go2model';
 import { QEmpty } from './quad';
 
 /** 처음 보이는 범위(로봇 둘레 ±m) · 확대 한계(화면 px / m) */
 const SPAN_M = 6, K_MIN = 4, K_MAX = 400;
 /** 높이 색표(3D 와 같음 → 화소 ABGR) — 점마다 글자 색을 만들지 않게 */
-const LUT = Uint32Array.from({ length: 64 }, (_, i) => { const [r, g, b] = rgbOf(i); return (0xff000000 | (b << 16) | (g << 8) | r) >>> 0; });
+const LUT = Uint32Array.from({ length: N }, (_, i) => { const [r, g, b] = rgbOf(i); return (0xff000000 | (b << 16) | (g << 8) | r) >>> 0; });
 
 /** small = 작은 칸(단추·범례 없이 보기만), start = 처음 보기(지도 칸은 위에서), tag = false 면 «마지막 그림» 표시를 칸 머리줄이 대신 띄움(PC 4칸 큰 칸).
  *  look = 3D 를 점(라이다)·상자(«상자» 보기)로, pick = «보기» 줄에 «상자»도(PC 4칸 — 같은 3D 그림에서 모양만 바꿈), go2 = 3D 속 Go2 관절각·기울기(lidar3d.tsx — 11-20 RB-UNITREE-LOOK-FIX) */

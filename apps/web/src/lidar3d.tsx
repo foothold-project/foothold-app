@@ -1,6 +1,6 @@
 // 조종 화면 라이다 칸 3D(11-19 RB-LIDAR-3D · 11-20 RB-UNITREE-LOOK-WEB = Unitree 앱 조종 화면처럼): drivemedia 가 준 xyz 를 그대로(frame map·odom = 그 기준 자리, lidar_link = 센서가 원점) three 로 그린다.
 // look = 'points'(라이다 — 작은 점 그대로, 11-20 RB-UNITREE-LOOK-FIX 로 되돌림) · 'boxes'(«상자» 보기 — 점 하나 = 5 cm 상자(CELL_M), InstancedMesh, 면 무늬로 가장자리 선).
-// 색 = 둘 다 바닥부터 높이(청록 → 초록 → 노랑 → 주황 → 자홍 → 분홍). look 이 바뀌어도 WebGL 은 그대로(묶음만 바꿈).
+// 색 = 둘 다 바닥부터 높이(heightcolor.ts 한 표 — 바닥 회남색, 0.1~1.2 m 촘촘히, 11-25 RB-LIDAR-COLOR). look 이 바뀌어도 WebGL 은 그대로(묶음만 바꿈).
 // 반투명 회색 Go2(go2model.tsx 메시, 못 받으면 상자 그림)를 로봇 자리에 — go2 = 받은 관절각·기울기(go2Pose, 2 Hz 판마다 따라 움직임), 없으면 선 자세 + «자세 정보 없음». 기본 시점 = 로봇 뒤 위에서 따라가기(로봇이 돌면 같이 돎). 끌기·휠로 손대면 그 시점 그대로(자리만 따라감), 옮기면 따라가기도 끔 — «로봇 뒤에서 보기» 하나로 되돌림.
 // 궤적 선은 그리지 않는다(Unitree 앱과 같음 — 위에서 본 그림에만). 받은 판이 바뀔 때만 버퍼를 다시 채우고, 그리기는 바뀐 때만(끌기·판·크기). 탭이 숨었거나 칸이 화면 밖·크기 0 이면 멈추고, 돌아오면 최신 판으로 한 번. 그림만 — 명령 0.
 // 닫을 때 WebGL 문맥을 바로 놓는다(forceContextLoss) — 3D↔위에서를 여러 번 바꿔도 문맥이 쌓여 다른 3D 그림이 꺼지지 않게.
@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CELL_M, type DriveFeed, type Pose } from './drivemedia';
 import { go2Body, loadGo2, type Pose as Go2Pose } from './go2model';
+import { HEX, LEGEND_BG, N, TOP_M, levelOf } from './heightcolor';
 
 /** 그릴 상자 상한(작은 칸 · 폰 크기 칸 · 큰 칸) — 넘으면 고르게 솎는다. 칸의 짧은 변이 SMALL_PX 미만이면 작은 칸(폰 직결 작은 창 포함), PHONE_PX 미만이면 폰 크기(runs/qa-rb-unitree-look-web 측정표) */
 export const CAP_SMALL = 20_000, CAP_PHONE = 60_000, CAP_BIG = 200_000, SMALL_PX = 180, PHONE_PX = 500;
@@ -18,44 +19,27 @@ export const capFor = (small: boolean, w: number, h: number) => (small || Math.m
 /** 나눠 그리기: 묶음 하나 = BLOCK 상자(행렬 1 MB). 한 프레임에 채우기 SLICE_MS ms · GPU 로 올리는 묶음 BLOCK_UP 개까지(runs/qa-rb-unitree-look-fix 측정표)
  *  ponytail: 고정 예산 — 느린 기기에서 한 묶음이 SLICE_MS 를 넘으면 BLOCK 을 줄인다 */
 export const BLOCK = 16_384, SLICE_MS = 8, BLOCK_UP = 2;
-/** 바닥 = 로봇 z + FLOOR_DZ(m — 실제 바닥과 어긋나면 이 값을 고친다). 색 = 바닥부터 0 ~ TOP_M, 넘으면 끝 색(분홍).
- *  ponytail: TOP_M·색 경계는 Unitree 영상에서 m 로 역산 못 함(범례·척도 없음) — 실기에서 같은 벽을 나란히 보고 조정 */
-export const FLOOR_DZ = -0.3, TOP_M = 2.0;
-/** 색표 = Unitree 조종 화면(영상 A) 순서: 바닥 청록 → 초록 → 노랑 → 주황 → 보라·자홍 → 진한 분홍 */
-export const STOPS = ['#19e3c8', '#3fe065', '#e9ee2e', '#f7a21f', '#c43be3', '#ff2d8c'];
-const N = 64;
-/** 높이 단계별 색(three 선형 RGB) */
-const LUT = (() => {
-  const t = new Float32Array(N * 3), cs = STOPS.map((s) => new THREE.Color(s)), c = new THREE.Color();
-  for (let i = 0; i < N; i++) { const u = (i / (N - 1)) * (cs.length - 1), a = Math.min(cs.length - 2, Math.floor(u)); c.lerpColors(cs[a], cs[a + 1], u - a).toArray(t, i * 3); }
-  return t;
-})();
-/** 점(라이다 칸·위에서 본 그림) 색표 = 영상 B·저장 지도 점과 같은 hueAt(초록 → 노랑·주황 → 빨강·분홍) — 11-20 RB-UNITREE-LOOK-FIX ①. 상자는 위 LUT(영상 A).
- *  hueAt 은 screens/voxelmap.tsx hueAt 과 같은 식(가져오면 voxelmap → … → lidarmap → lidar3d 순환 import 라 옮겨 씀 — 바꿀 땐 둘 다) */
-const hueAt = (z: number) => (120 - 150 * Math.max(0, Math.min(1, z / TOP_M)) + 360) % 360;
-let lutB: Float32Array | null = null;
-const LUT_B = () => lutB ??= (() => {
-  const t = new Float32Array(N * 3), c = new THREE.Color();
-  for (let i = 0; i < N; i++) c.setHSL(hueAt((i / (N - 1)) * TOP_M) / 360, 0.75, 0.5).toArray(t, i * 3);
-  return t;
-})();
-/** 바닥(floor)부터 높이 z → 색 단계 0..N-1 */
-export const levelOf = (z: number, floor: number) => Math.max(0, Math.min(N - 1, Math.round(((z - floor) / TOP_M) * (N - 1))));
+/** 바닥 = 로봇 z + FLOOR_DZ(m). 로봇 z = frame odom 판의 pose z(agent: rt/utlidar/robot_odom, 없으면 sport position — 몸통 자리, 선 Go2 ≈ 바닥 위 0.3 m),
+ *  frame lidar_link(pose 없음)면 센서 원점 0. agent 지도 만들기의 floor_z(첫 pose z − 0.3, SLAM-MAPPING.md)와 같은 값. 엎드리면 몸통이 내려가 바닥 색이 위로 밀린다.
+ *  ponytail: 상수 하나 — 실기에서 바닥 색이 바닥 띠(heightcolor BANDS 첫 줄)에 안 들어오면 이 값을 고친다 */
+export const FLOOR_DZ = -0.3;
+/** 높이 단계별 색(three 선형 RGB) — 점·상자 같은 표(heightcolor.ts) */
+export const LUT = (() => { const t = new Float32Array(N * 3), c = new THREE.Color(); HEX.forEach((h, i) => c.set(h).toArray(t, i * 3)); return t; })();
 /** 그 단계 색(sRGB 0..255) — 위에서 본 그림(2D 화소)용 */
-export const rgbOf = (k: number) => { const c = new THREE.Color().fromArray(LUT_B(), k * 3).convertLinearToSRGB(); return [c.r, c.g, c.b].map((v) => Math.round(v * 255)); };
+export const rgbOf = (k: number) => [1, 3, 5].map((i) => parseInt(HEX[k].slice(i, i + 2), 16));
 
 /** 버퍼 채우기: n 개 중 cap 이하로 고르게 솎아 솎은 순번 [from, to) 만 버퍼 앞에서부터 채운다. [채운 수, 앞 내용과 달라졌나]
  *  box = 상자(5 cm 칸 가운데 자리 — 상자 하나당 16칸 행렬의 이동 자리 12·13·14), 아니면 점(받은 자리 그대로 x·y·z) */
 export function fillRange(mat: Float32Array, col: Float32Array, xyz: Float32Array, n: number, cap: number, floor: number, from: number, to: number, box = true): [number, boolean] {
   const step = Math.max(1, Math.ceil(n / cap)), s = CELL_M, end = Math.min(to, cap, Math.ceil(n / step)), w = box ? 16 : 3, at = box ? 12 : 0;
   const snap = (u: number) => (box ? Math.fround((Math.floor(u / s) + 0.5) * s) : u);   // 버퍼(f32)와 같은 값으로 비교
-  let m = 0, diff = false; const L = box ? LUT : LUT_B();
+  let m = 0, diff = false;
   for (let j = from; j < end; j++, m++) {
     const i = j * step, z = xyz[i * 3 + 2], k = levelOf(z, floor) * 3, o = m * w + at;
     const x = snap(xyz[i * 3]), y = snap(xyz[i * 3 + 1]), h = snap(z);
-    if (mat[o] !== x || mat[o + 1] !== y || mat[o + 2] !== h || col[m * 3] !== L[k] || col[m * 3 + 1] !== L[k + 1] || col[m * 3 + 2] !== L[k + 2]) diff = true;
+    if (mat[o] !== x || mat[o + 1] !== y || mat[o + 2] !== h || col[m * 3] !== LUT[k] || col[m * 3 + 1] !== LUT[k + 1] || col[m * 3 + 2] !== LUT[k + 2]) diff = true;
     mat[o] = x; mat[o + 1] = y; mat[o + 2] = h;
-    col[m * 3] = L[k]; col[m * 3 + 1] = L[k + 1]; col[m * 3 + 2] = L[k + 2];
+    col[m * 3] = LUT[k]; col[m * 3 + 1] = LUT[k + 1]; col[m * 3 + 2] = LUT[k + 2];
   }
   return [m, diff];
 }
@@ -78,10 +62,10 @@ export const robotOf = (f: DriveFeed): Pose | null => f.pose ?? (f.frame === 'li
 /** 3인칭 시점: 로봇 뒤 BACK m · 위 UP m 에서 로봇 앞 AHEAD m 를 본다 */
 const BACK = 2.6, UP = 1.6, AHEAD = 1.5;
 
-/** 색 범례(작게) — «바닥 → 높음» */
+/** 색 범례(작게) — «바닥 · 1 m · 2 m+», 점·상자 같은 막대 */
 export const HeightLegend = ({ style, look = 'points' }: { style?: CSSProperties; look?: Look }) => <div className="qd-legend" aria-label="높이 색 범례" data-height-legend={look} style={style}>
-  <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${look === 'boxes' ? STOPS.join(',') : [0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hueAt(t * TOP_M)} 75% 50%)`).join(',')})` }} />
-  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>바닥</span><span>높음</span></div>
+  <div style={{ height: 8, borderRadius: 2, background: LEGEND_BG }} />
+  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>바닥</span><span>1 m</span><span>{TOP_M} m+</span></div>
 </div>;
 
 type Mode = 'chase' | 'follow' | 'free';

@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MapVersion, VoxelCells } from '../../../contracts/ts';
-import { hueAt, voxelOf } from './voxelmap';
+import { HEX, levelOf } from '../heightcolor';
+import { voxelOf } from './voxelmap';
 
 export type Props = { v: MapVersion; pages: VoxelCells['cells'][]; n: number };
 
@@ -14,6 +15,8 @@ export const centerOf = (o: [number, number, number], s: number, [i, j, k]: [num
 
 /** 점 크기(CSS px) — 확대해도 그대로(Unitree 저장 지도 보기처럼 작은 점) */
 const DOT_PX = 1.5;
+/** 높이 단계별 색(three 선형 RGB) — 라이다 3D 와 같은 표(heightcolor.ts) */
+const LIN = HEX.map((h) => new THREE.Color(h).toArray() as [number, number, number]);
 /** 어두운 고정 바탕·격자 선 = frame.css .fh 어두운 테마 --bg·--line 값 */
 const DARK = { bg: '#0B0E11', line: '#26313A' };
 
@@ -75,12 +78,12 @@ export default function Voxel3D({ v, pages, n }: Props) {
   useEffect(() => {
     const r = rig.current;
     if (!r) return;
-    const c = new THREE.Color(), pos = r.geo.attributes.position as THREE.BufferAttribute, col = r.geo.attributes.color as THREE.BufferAttribute;
+    const pos = r.geo.attributes.position as THREE.BufferAttribute, col = r.geo.attributes.color as THREE.BufferAttribute;
     let i = r.count, hi = r.top;
     for (; r.drawn < pages.length; r.drawn++) for (const cell of pages[r.drawn]) {
       if (i >= total) break;   // 요약 수보다 많이 오면 버림(자리 없음)
       const [x, y, z] = centerOf(o, s, cell);
-      pos.setXYZ(i, x, y, z); c.setHSL(hueAt(z) / 360, 0.75, 0.5); col.setXYZ(i, c.r, c.g, c.b); i++;
+      pos.setXYZ(i, x, y, z); col.setXYZ(i, ...LIN[levelOf(z, 0)]); i++;   // Z=0 = 서버가 추정한 바닥(apps/server/VOXEL-MAPS.md)
       hi = Math.max(hi, z + s / 2);
     }
     r.count = i; r.top = hi;
