@@ -1,4 +1,5 @@
 #include "foothold/runner.hpp"
+#include "foothold/moves_dog_sit.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,7 @@ constexpr int start_button = 1 << 2;
 constexpr int l2_button = 1 << 5;
 constexpr int a_button = 1 << 8;
 constexpr int b_button = 1 << 9;
+constexpr int y_button = 1 << 11;
 constexpr int up_button = 1 << 12;
 constexpr int right_button = 1 << 13;
 constexpr int down_button = 1 << 14;
@@ -40,6 +42,33 @@ Joints blend_pose(const Joints& from, const Joints& to, double fraction, const W
         }
     }
     return pose;
+}
+
+// L2+Y dog sit timing in seconds. Recorded segments play at their original speed.
+constexpr double dog_blend = .3;      // current pose -> first recorded row
+constexpr double dog_settle = .5;     // last rise row -> default_pose
+constexpr double dog_gain_ramp = 1.;  // transition gains -> policy gains, as at the end of stand-up
+
+Joints lerp(const Joints& from, const Joints& to, double fraction) {
+    Joints pose{};
+    for (std::size_t i = 0; i < pose.size(); ++i)
+        pose[i] = static_cast<float>(from[i] + (double(to[i]) - from[i]) * fraction);
+    return pose;
+}
+
+double smoothstep(double x) {
+    x = std::clamp(x, 0., 1.);
+    return x * x * (3 - 2 * x);
+}
+
+// Linear interpolation of a 50 Hz recording at any time; holds the ends outside it.
+Joints play(const MoveFrame* first, std::size_t count, double t) {
+    const auto* last = first + count - 1;
+    if (t <= first->t) return first->q;
+    if (t >= last->t) return last->q;
+    const auto* next = std::upper_bound(first, last, t, [](double v, const MoveFrame& f) { return v < f.t; });
+    const auto* prev = next - 1;
+    return lerp(prev->q, next->q, (t - prev->t) / (next->t - prev->t));
 }
 
 const char* mode_name(ModeCall call) {
@@ -83,6 +112,8 @@ const char* event_name(Event event) {
     case Event::exit_sit_down: return "EXIT_SIT_DOWN";
     case Event::inference_failed: return "INFERENCE_FAILED";
     case Event::ame2_unavailable: return "AME2_UNAVAILABLE";
+    case Event::dog_sit: return "DOG_SIT";
+    case Event::dog_rise: return "DOG_RISE";
     }
     return "UNKNOWN";
 }
@@ -244,20 +275,49 @@ void Runner::interpolate(Tick now, Tick scheduled, const LowState& state, const 
     const auto blend = standing ? float(std::clamp(elapsed - 2.5, 0., 1.)) : 0.f;
     send_transition(now, state, grav, pose, 60 + (kp - 60) * blend, 5 + (kd - 5) * blend);
     if (standing && elapsed >= 3.5) {
-        memory_.reset();
-        last_action_.fill(0);
-        command_.fill(0);
-        target_ = default_pose;
-        next_policy_ = scheduled + 20ms;
-        fall_since_.reset();
-        phase_ = Phase::policy;
-        observer_.event(now, Event::policy_start, {options_.map == MapMode::off ? "off" : "reconstruction"});
+        enter_policy(now, scheduled);
     } else if (!standing && elapsed >= 2.) {
         damp(now, "sat down");
         if (return_after_sit_) {
             if (gait_ != Gait::none) observer_.event(now, Event::factory_handover, {gait_ == Gait::free_walk ? "free_walk" : "classic"});
             return_to_factory(now);
         }
+    }
+}
+
+void Runner::enter_policy(Tick now, Tick scheduled) {
+    memory_.reset();
+    last_action_.fill(0);
+    command_.fill(0);
+    target_ = default_pose;
+    next_policy_ = scheduled + 20ms;
+    fall_since_.reset();
+    phase_ = Phase::policy;
+    observer_.event(now, Event::policy_start, {options_.map == MapMode::off ? "off" : "reconstruction"});
+}
+
+// L2+Y: blend to the recorded sit, play it, hold. On rise: blend, play the recorded rise,
+// settle to default_pose, ramp to policy gains, then resume the policy.
+void Runner::dog_sit(Tick now, Tick scheduled, const LowState& state, const Vec3& grav) {
+    const auto* move = dog_rising_ ? dog_rise.data() : dog_sit_down.data();
+    const auto count = dog_rising_ ? dog_rise.size() : dog_sit_down.size();
+    const double played = dog_blend + move[count - 1].t;
+    const auto t = seconds(now - started_);
+    Joints pose;
+    double gain = 0;
+    if (t < dog_blend) {
+        pose = lerp(from_, move[0].q, smoothstep(t / dog_blend));
+    } else if (!dog_rising_ || t < played) {
+        pose = play(move, count, t - dog_blend);
+    } else {
+        const auto settle = t - played;
+        pose = lerp(move[count - 1].q, default_pose, smoothstep(settle / dog_settle));
+        gain = std::clamp((settle - dog_settle) / dog_gain_ramp, 0., 1.);
+    }
+    send_transition(now, state, grav, pose, float(60 + (kp - 60) * gain), float(5 + (kd - 5) * gain));
+    if (dog_rising_ && t >= played + dog_settle + dog_gain_ramp) {
+        dog_rising_ = false;
+        enter_policy(now, scheduled);
     }
 }
 
@@ -409,13 +469,15 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     const auto keys = state.remote.keys;
     const bool emergency = pressed(keys, l2_button | b_button);
     const bool lie = pressed(keys, l2_button | a_button);
+    const bool dog = pressed(keys, l2_button | y_button);
     const bool standing_up = phase_ == Phase::folding || phase_ == Phase::standing;
-    const bool active = standing_up || phase_ == Phase::policy;
+    const bool active = standing_up || phase_ == Phase::policy || phase_ == Phase::dog_sitting;
     const auto q = to_policy(state.q);
     const auto grav = gravity(state.orientation);
     const bool stale = state.stamp == Tick{} || now - state.stamp > 50ms;
     const bool invalid = !finite(q) || !finite(grav);
     if (!lie) lie_latched_ = false;
+    if (!dog) dog_latched_ = false;
 
     // The worker may finish after a safety transition. Drain that result without
     // applying it before submitting work from a new policy session.
@@ -477,6 +539,10 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         if (phase_ == Phase::high || phase_ == Phase::damping) return;
     }
 
+    if (phase_ == Phase::dog_sitting && stale) {
+        damp(now, "dog sit interrupted by stale LowState");
+        return;
+    }
     if (standing_up && stale) {
         damp(now, phase_ == Phase::folding ? "fold interrupted" : "stand-up interrupted");
         return;
@@ -512,6 +578,24 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         if (phase_ == Phase::damping) { start(now, q, grav); return; }
         // While standing up, L2+A is ignored (L2+B still damps). Sit only from policy.
         if (phase_ == Phase::policy) { sit(now, q, false); return; }
+    }
+    if (dog && !dog_latched_) {
+        dog_latched_ = true;
+        // Sit only from policy; rise only once the sit holds. Presses during motion are dropped.
+        const bool holding = phase_ == Phase::dog_sitting && !dog_rising_ &&
+                             seconds(now - started_) >= dog_blend + dog_sit_down.back().t;
+        if (phase_ == Phase::policy || holding) {
+            pending_sample_.reset();
+            dog_rising_ = holding;
+            phase_ = Phase::dog_sitting;
+            from_ = q;
+            started_ = now;
+            observer_.event(now, holding ? Event::dog_rise : Event::dog_sit);
+        }
+    }
+    if (phase_ == Phase::dog_sitting) {
+        dog_sit(now, scheduled, state, grav);
+        return;
     }
     if ((phase_ == Phase::high || phase_ == Phase::damping) &&
         pressed(keys, start_button | up_button)) {

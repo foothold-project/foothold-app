@@ -30,6 +30,7 @@ const char* phase_name(Phase phase) {
     case Phase::standing: return "standing_up";
     case Phase::policy: return "policy";
     case Phase::sitting: return "sitting";
+    case Phase::dog_sitting: return "dog_sitting";
     case Phase::damping: return "damping";
     case Phase::returning: return "returning";
     case Phase::recovering: return "recovering";

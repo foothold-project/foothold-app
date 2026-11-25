@@ -8,14 +8,14 @@
 namespace foothold {
 
 using Tick = std::chrono::steady_clock::time_point;
-enum class Phase { high, acquiring, folding, standing, policy, sitting, damping, returning, recovering };
+enum class Phase { high, acquiring, folding, standing, policy, sitting, dog_sitting, damping, returning, recovering };
 enum class RobotMode { low, factory, unknown };
 enum class Gait { none, free_walk, classic };
 enum class Event {
     mode_low, stand_fold, stand_refused, policy_start, sit_down, damping, liveness_lost, depth_lost, robot_fall,
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
-    inference_failed, ame2_unavailable, runner_ready, mode_rpc
+    inference_failed, ame2_unavailable, runner_ready, mode_rpc, dog_sit, dog_rise
 };
 const char* event_name(Event event);
 
@@ -150,6 +150,8 @@ private:
     void send_transition(Tick, const LowState&, const Vec3& gravity, const Joints&, float kp, float kd);
     void fold(Tick, const LowState&, const Vec3& gravity);
     void interpolate(Tick, Tick, const LowState&, const Vec3& gravity, bool standing);
+    void enter_policy(Tick, Tick scheduled);
+    void dog_sit(Tick, Tick, const LowState&, const Vec3& gravity);
 
     Robot& robot_;
     PolicyExecutor& policy_;
@@ -161,7 +163,7 @@ private:
     Phase phase_ = Phase::high;
     Gait gait_ = Gait::none;
     bool restand_ = false, fall_recovery_ = false, return_after_sit_ = false, blind_sit_ = false;
-    bool lie_latched_ = false, ame2_latched_ = false;
+    bool lie_latched_ = false, ame2_latched_ = false, dog_latched_ = false, dog_rising_ = false;
     bool shutdown_ = false, stopped_ = false, confirm_return_ = false;
     bool abort_acquire_ = false, recovery_stand_pending_ = false;
     int attempts_ = 0;

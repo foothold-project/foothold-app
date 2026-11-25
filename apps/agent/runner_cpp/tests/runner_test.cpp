@@ -1,3 +1,4 @@
+#include "foothold/moves_dog_sit.hpp"
 #include "foothold/runner.hpp"
 
 #include <algorithm>
@@ -15,6 +16,13 @@ constexpr auto start = (1 << 12) | (1 << 2);
 constexpr auto lie = (1 << 5) | (1 << 8);
 constexpr auto emergency = (1 << 5) | (1 << 9);
 constexpr auto classic = (1 << 13) | (1 << 2);
+constexpr auto dog = (1 << 5) | (1 << 11);
+
+float distance(const Joints& a, const Joints& b) {
+    float gap = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) gap = std::max(gap, std::abs(a[i] - b[i]));
+    return gap;
+}
 
 void require(bool valid, std::string_view message) {
     if (!valid) {
@@ -410,5 +418,90 @@ int main() {
         live.wait(25ms);
         require(live.runner.phase() == Phase::damping, "nonfinite inference was used");
         require(live.robot.position_gain == 0, "nonfinite inference left position gain on");
+    }
+
+    {
+        // L2+Y dog sit: no jump on entry, reach and hold the recorded pose, rise back to policy.
+        Rig live(true);
+        live.enter();
+        auto current = default_pose;
+        current[4] += .03f;
+        live.state.q = to_sdk(current);
+        live.tick(dog);
+        require(live.runner.phase() == Phase::dog_sitting && live.events.seen.back() == Event::dog_sit,
+                "L2+Y from policy must start the dog sit");
+        require(distance(to_policy(live.robot.last_target), current) < .05f,
+                "first dog sit command must start at the current pose");
+        require(live.robot.position_gain == 60 && live.robot.velocity_gain == 5, "dog sit gains");
+        live.wait(1s, dog);
+        live.wait(2s);
+        require(live.runner.phase() == Phase::dog_sitting, "dog sit must hold");
+        require(distance(to_policy(live.robot.last_target), dog_sit_down.back().q) < 1e-5f,
+                "dog sit must hold the final recorded pose");
+        require(live.robot.position_gain == 60 && live.robot.velocity_gain == 5, "dog sit hold gains");
+        live.state.q = to_sdk(dog_sit_down.back().q);
+        live.tick(dog);
+        require(live.events.seen.back() == Event::dog_rise, "second L2+Y must rise");
+        require(distance(to_policy(live.robot.last_target), dog_sit_down.back().q) < .05f,
+                "rise must start at the current pose");
+        live.wait(2s);
+        require(live.runner.phase() == Phase::dog_sitting, "rise must finish its gain blend before policy");
+        live.wait(1500ms);
+        require(live.runner.phase() == Phase::policy &&
+                    live.events.ordered({Event::dog_sit, Event::dog_rise, Event::policy_start}),
+                "rise must return to policy");
+        require(live.robot.position_gain == kp && live.robot.velocity_gain == kd, "policy gains after rise");
+    }
+    {
+        // L2+Y outside policy is ignored: factory, damping, standing up.
+        Rig live(true);
+        live.tick(dog);
+        require(live.runner.phase() == Phase::high, "L2+Y in factory must be ignored");
+        live.enter();
+        live.tick(emergency);
+        live.tick(dog);
+        require(live.runner.phase() == Phase::damping, "L2+Y while damping must be ignored");
+        live.tick();
+        live.tick(start);
+        live.wait(200ms);
+        live.tick(dog);
+        live.wait(50ms);
+        require(live.runner.phase() == Phase::standing, "L2+Y while standing up must be ignored");
+        require(std::count(live.events.seen.begin(), live.events.seen.end(), Event::dog_sit) == 0,
+                "no dog sit outside policy");
+    }
+    {
+        // L2+A and start+right are ignored while dog sitting. L2+B damps.
+        Rig live(true);
+        live.enter();
+        live.tick(dog);
+        live.wait(500ms);
+        live.tick(lie);
+        live.tick(classic);
+        live.wait(50ms);
+        require(live.runner.phase() == Phase::dog_sitting, "L2+A and start+right must be ignored while dog sitting");
+        live.tick(emergency);
+        require(live.runner.phase() == Phase::damping && live.robot.position_gain == 0 &&
+                    live.robot.velocity_gain == 3, "L2+B during dog sit must damp");
+    }
+    {
+        Rig live(true);
+        live.enter();
+        live.tick(dog);
+        live.wait(2s);
+        live.wait(60ms, 0, false);
+        require(live.runner.phase() == Phase::damping && live.robot.position_gain == 0,
+                "stale LowState during dog sit must damp");
+    }
+    {
+        Rig live(true);
+        live.enter();
+        live.tick(dog);
+        live.wait(2s);
+        live.tick(0, true, true);
+        live.wait(3s);
+        require(live.runner.stopped() && live.robot.factory, "shutdown during dog sit must return to factory");
+        require(live.events.ordered({Event::dog_sit, Event::exit_sit_down, Event::sit_down, Event::damping,
+                                     Event::mode_high}), "shutdown during dog sit must lie down first");
     }
 }
