@@ -159,10 +159,31 @@ class Scenario:
     events: tuple = field(default=())
 
 
-def load(path):
+def load(path, floors=None):
     import yaml  # optional dependency: foothold-agent[demo]
     with open(path, encoding='utf-8') as fh:
-        return parse(yaml.safe_load(fh))
+        doc = yaml.safe_load(fh)
+    return parse(bind_floors(doc, floors) if floors else doc)
+
+
+def bind_floors(doc, floors):
+    """Put one server's floor/map ids into the scenario's site.floors.
+
+    The scenario describes the site; which server ids it lands on belongs to
+    the registration config (config.floors), so one scenario file can run
+    against a local stack and a real server. Ids are still checked by parse().
+    """
+    entries = doc.get('site', {}).get('floors') if isinstance(doc, dict) and isinstance(doc.get('site'), dict) else None
+    entries = entries if isinstance(entries, list) else []
+    known = {f.get('id') for f in entries if isinstance(f, dict)}
+    unknown = sorted(set(floors) - known)
+    if unknown:
+        raise ScenarioError([f'floors: {unknown} not in site.floors'])
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get('id') in floors:
+            entry.update(floor_id=floors[entry['id']]['floor_id'],
+                         map_version_id=floors[entry['id']]['map_version_id'])
+    return doc
 
 
 def parse(doc):

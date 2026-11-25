@@ -10,6 +10,8 @@ be pointed at this runner by mistake. Token values are never logged.
     url: wss://server.example/api/v1/agent/ws
     robots:
       go2-a: {token_file: /home/USER/.config/foothold-demo/go2-a.token}
+    floors:            # optional: server ids for the scenario's site.floors
+      f1: {floor_id: <uuid>, map_version_id: <uuid>}
 """
 import os
 
@@ -25,6 +27,18 @@ def load(path, robot_ids):
     with open(path, encoding='utf-8') as fh:
         doc = yaml.safe_load(fh)
     return parse(doc, robot_ids, base=os.path.dirname(os.path.abspath(path)))
+
+
+def floors(path):
+    """Scenario floor id -> {floor_id, map_version_id} from the config, or {}."""
+    import yaml
+    with open(path, encoding='utf-8') as fh:
+        doc = yaml.safe_load(fh)
+    value = doc.get('floors', {}) if isinstance(doc, dict) else {}
+    if not isinstance(value, dict) or not all(
+            isinstance(v, dict) and set(v) == {'floor_id', 'map_version_id'} for v in value.values()):
+        raise ConfigError('floors must map scenario floor id -> {floor_id, map_version_id}')
+    return value
 
 
 def parse(doc, robot_ids, *, base='.'):

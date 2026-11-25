@@ -93,3 +93,18 @@ def test_drain_override_and_next_day_marks():
     s = sc.parse(copy.deepcopy(doc))
     assert s.robots[0].drain_pct_per_h == {**DRAIN_PCT_PER_H, 'walk': 50}
     assert s.robots[0].schedule[-1].at_s == (29.5 - 6) * 3600
+
+
+def test_config_floors_replace_placeholder_ids(tmp_path):
+    from foothold_agent.demo import config
+    floor, version = '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'
+    path = tmp_path / 'demo.yaml'
+    path.write_text(f'{{"demo": true, "floors": {{"f1": {{"floor_id": "{floor}", "map_version_id": "{version}"}}}}}}')
+    scenario = sc.load(EXAMPLE, config.floors(path))
+    assert [(f.floor_id, f.map_version_id) for f in scenario.floors.values()] == [(floor, version)]
+    with pytest.raises(sc.ScenarioError, match='not in site.floors'):
+        sc.load(EXAMPLE, {'f9': {'floor_id': floor, 'map_version_id': version}})
+    assert 'floor_id must be a UUID' in problems(sc.bind_floors(example(), {'f1': {'floor_id': 'x', 'map_version_id': version}}))
+    path.write_text('{"demo": true, "floors": {"f1": {"floor_id": "x"}}}')
+    with pytest.raises(config.ConfigError, match='floors'):
+        config.floors(path)

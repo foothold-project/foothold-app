@@ -41,7 +41,7 @@ def _index(args):
 def _run(args):
     from . import config, replay, scenario as sc
     from .adapter import Fleet, run
-    scenario = sc.load(args.scenario)
+    scenario = sc.load(args.scenario, config.floors(args.config))
     settings = config.load(args.config, [r.id for r in scenario.robots])
     library = replay.load(args.replay)
 
