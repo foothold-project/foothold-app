@@ -1,0 +1,12 @@
+# Go2 본체 ↔ Jetson 유선 상태 기록 (1 초 · 패킷 수 · ping · DDS 에 붙지 않음 · 로봇 명령 없음)
+[Unit]
+Description=FOOTHOLD Go2 wired link health log
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/taskset -c 0-3 /usr/bin/nice -n 10 %h/foothold-policy-1122/link-health.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

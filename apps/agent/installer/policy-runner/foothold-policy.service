@@ -1,0 +1,23 @@
+# Jetson 저수준 정책 실행기 자동 시작 (사용자 단위 · 팀장 11/23 10:11).
+# 부팅 → 화면 자동 로그인 (gdm3 AutomaticLogin) → default.target → 실행기 시작 → 순정 상태로 기다림.
+# 리모컨 위 + start 를 사람이 눌러야 저수준 송신이 시작된다. 끌 때 (systemctl --user stop) 는 SIGTERM → 엎드린 뒤 순정.
+# 놓기: ~/.config/systemd/user/ 에 복사 · 켜기는 팀장 확인 뒤 `systemctl --user enable --now foothold-policy.service`
+[Unit]
+Description=FOOTHOLD START low-level policy runner (waits in factory mode)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/foothold-policy-1122/run
+EnvironmentFile=%h/foothold-policy-1122/runner.env
+Environment=PYTHONPATH=%h/foothold-policy-1122/pylib:%h/foothold-policy-1122/run
+ExecStart=/usr/bin/python3 -m foothold_agent.policy.run $RUNNER_ARGS
+StandardOutput=append:%h/foothold-policy-1122/live-auto.log
+StandardError=append:%h/foothold-policy-1122/live-auto.log
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

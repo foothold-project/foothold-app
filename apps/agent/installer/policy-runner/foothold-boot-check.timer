@@ -1,0 +1,10 @@
+# 부팅 3 분 뒤 켠 뒤 점검 한 번 (서비스 · 시계 · 깊이가 다 뜬 뒤)
+[Unit]
+Description=FOOTHOLD boot check 3 min after boot
+
+[Timer]
+OnBootSec=180
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

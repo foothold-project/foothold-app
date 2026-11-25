@@ -1,0 +1,18 @@
+# 순정 · START 를 가리지 않는 읽기 전용 50 Hz 관절 기록 (팀장 11/23 11:05). 구독만 · 명령 없음.
+# 부팅 → 화면 자동 로그인 → 시작. 파일은 켤 때마다 새로 (trace/factory-auto-<시각>-NNN.jsonl) · 폴더 2 GB 넘으면 멈춤.
+[Unit]
+Description=FOOTHOLD read-only joint recorder (factory and START)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/foothold-policy-1122/run
+Environment=PYTHONPATH=%h/foothold-policy-1122/pylib:%h/foothold-policy-1122/run
+ExecStart=/usr/bin/python3 -m foothold_agent.policy.factory_record --nic enP8p1s0 --out ../trace --label auto
+StandardOutput=append:%h/foothold-policy-1122/factory-record-auto.log
+StandardError=append:%h/foothold-policy-1122/factory-record-auto.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

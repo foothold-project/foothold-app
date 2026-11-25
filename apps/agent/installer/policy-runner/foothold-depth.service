@@ -1,0 +1,14 @@
+# D435i 깊이 켜기 + 1 초마다 받은 장 수 · 가장 긴 틈 기록 (구독만 · 로봇 명령 없음). 켜는 것은 팀장 확인 뒤.
+[Unit]
+Description=FOOTHOLD D435i depth health log
+
+[Service]
+Type=simple
+ExecStart=%h/foothold-policy-1122/depth.sh
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
