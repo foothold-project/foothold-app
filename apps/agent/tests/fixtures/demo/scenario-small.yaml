@@ -1,0 +1,101 @@
+# Demo scenario v0 (contract demo-scenario-contract-v0 D/F/G/H). Small test site.
+# floor_id / map_version_id must be the server's real ids when run against a server;
+# the values below are placeholders for tests.
+version: 0
+name: small-warehouse
+start: "2026-11-26T06:00:00+09:00"
+duration_h: 12
+seed: 7
+pose_confidence: 0.95
+
+site:
+  floors:
+    - id: f1
+      floor_id: 00000000-0000-4000-8000-0000000000f1
+      map_version_id: 00000000-0000-4000-8000-0000000000a1
+  waypoints:
+    - {id: dock_a, floor: f1, x: 1, y: 1}
+    - {id: dock_b, floor: f1, x: 1, y: 3}
+    - {id: hub, floor: f1, x: 5, y: 2}
+    - {id: aisle1_s, floor: f1, x: 5, y: 10}
+    - {id: aisle1_n, floor: f1, x: 25, y: 10}
+    - {id: aisle2_s, floor: f1, x: 5, y: 16}
+    - {id: aisle2_n, floor: f1, x: 25, y: 16}
+    - {id: gate, floor: f1, x: 28, y: 2}
+  paths:
+    - [dock_a, hub]
+    - [dock_b, hub]
+    - [hub, aisle1_s]
+    - [aisle1_s, aisle1_n]
+    - [aisle1_s, aisle2_s]
+    - [aisle2_s, aisle2_n]
+    - [aisle1_n, aisle2_n]
+    - [hub, gate]
+    - [gate, aisle1_n]
+  chargers:
+    # charge_pct_per_h is a scenario value: charging was not measurable
+    # (Go2 X does not charge while powered on).
+    - {id: ch_a, waypoint: dock_a, yaw: 0.0, slots: 1, charge_pct_per_h: 60}
+    - {id: ch_b, waypoint: dock_b, yaw: 0.0, slots: 1, charge_pct_per_h: 60}
+  zones:
+    - id: z_pick
+      floor: f1
+      rect: [10, 8, 20, 12]
+      crowd:
+        - {hours: "08:00-09:00", level: 0.5, kinds: [person]}
+    - id: z_dock_lane
+      floor: f1
+      rect: [26, 0, 30, 12]
+
+robots:
+  - id: go2-a
+    model: go2
+    start: dock_a
+    home_charger: ch_a
+    battery: {soc: 90, reserve: 10}
+    speed_mps: {patrol: 0.8, transit: 1.0}
+    schedule:
+      - {at: "08:00", mission: patrol_a}
+      - {at: "10:00", mission: patrol_b}
+      - {at: "14:00", mission: patrol_a}
+  - id: go2-b
+    model: go2
+    start: dock_b
+    home_charger: ch_b
+    battery: {soc: 85, reserve: 10}
+    speed_mps: {patrol: 0.8, transit: 1.0}
+    schedule:
+      - {at: "08:30", mission: patrol_b}
+      - {at: "11:00", mission: patrol_a}
+      - {at: "15:00", mission: patrol_b}
+
+missions:
+  - id: patrol_a
+    steps:
+      - {goto: aisle1_s}
+      - {goto: aisle1_n}
+      - {action: photo, duration_s: 30}
+      - {goto: aisle2_n}
+      - {goto: aisle2_s}
+      - {wait: 20}
+      - {goto: hub}
+  - id: patrol_b
+    steps:
+      - {goto: gate}
+      - {action: inspect, duration_s: 60}
+      - {goto: aisle1_n}
+      - {goto: aisle1_s}
+      - {goto: hub}
+
+charge_rotation:
+  - {robot: go2-a, charger: ch_a, at: "08:04", until_soc: 95}
+  - {robot: go2-b, charger: ch_b, at: "09:30", until_soc: 95}
+  - {robot: go2-a, charger: ch_a, at: "12:00", duration_min: 60}
+  - {robot: go2-b, charger: ch_b, at: "13:00", duration_min: 60}
+
+events:
+  - {id: conflict-a, kind: path_conflict, robot: go2-a, at: "08:01", delay_min: 2}
+  - {id: confirm-b, kind: wait_confirm, robot: go2-b, at: "08:31", delay_min: 3}
+  - {id: slow-b, kind: duration, robot: go2-a, mission: patrol_b, at: "09:50", extra_min: 5}
+  - {id: forklift, kind: crowd, zone: z_dock_lane, at: "10:00", duration_min: 4, level: 1.0, kinds: [forklift]}
+  - {id: fault-b, kind: fault, robot: go2-b, at: "11:01", recover_min: 30, fail_code: NAV_UNAVAILABLE}
