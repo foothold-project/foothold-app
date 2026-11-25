@@ -252,3 +252,23 @@ def test_failed_rpc_requests_stop_on_the_existing_independent_lane():
     assert sink.check_watchdog()
     assert ('StopMove', ()) in emergency.calls
     assert sink.error is None
+
+
+def test_start_active_blocks_sport_actions_and_drive_but_not_read_only(tmp_path, monkeypatch):
+    # 팀장 11/25 20:50: START 저수준 제어 중에는 이 프로그램이 순정 동작 · 걷기를 보내지 않는다 (조종 권한 하나).
+    from foothold_agent.policy import trace
+    flag = tmp_path / 'foothold-start-active'
+    monkeypatch.setattr(trace, 'START_FLAG', flag)
+    _, sink, normal, _, session, _, measured, frame = rig(0)
+    normal.Hello = lambda: pytest.fail('must not invoke during START')
+    normal.CheckMode = lambda: (0, {'name': 'normal', 'form': '0'})
+    flag.touch()
+    send(frame, 'Hello')
+    sink.drain(); sink.drain()
+    assert sink.actions.result['status'] == 'REJECTED' and sink.actions.result['code'] == 'START_ACTIVE'
+    assert sink.movement_reason(neutral=True).startswith('START 저수준 제어 중')
+    send(frame, 'CheckMode', request_id='read')
+    sink.drain(); sink.drain()
+    assert sink.actions.result['status'] == 'SUCCEEDED'
+    flag.unlink()
+    assert sink.movement_reason(neutral=True) is None or 'START' not in sink.movement_reason(neutral=True)

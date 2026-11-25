@@ -69,7 +69,9 @@ class Actions:
     def reason(self, lease, action, confirmed):
         s = self.sink
         sample = s._posture_sample()
-        return ('NOT_AUTHORIZED' if not s.posture_authorized(lease) else
+        from .sink import start_active
+        return ('START_ACTIVE' if start_active() and action not in ('CheckMode', 'AutoRecoveryGet') else
+                'NOT_AUTHORIZED' if not s.posture_authorized(lease) else
                 'STALE_STATE' if sample.get('sequence', -1) < 0 else
                 'MOVING' if s.pending != (0., 0., 0.) or s._ramp_velocity != (0., 0., 0.) or not sample['still'] else
                 'CONFIRM_REQUIRED' if action in DANGEROUS and confirmed is not True else
@@ -79,6 +81,7 @@ class Actions:
 
     def request(self, request_id, action, params, lease, confirmed=False, *, moving=False):
         s = self.sink
+        from .sink import start_active
         with s._lock:
             if not isinstance(action, str) or action not in ACTIONS or not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
                 return False
@@ -88,7 +91,7 @@ class Actions:
                 reason = ('BUSY' if self.job is not None or self.inflight or s._posture is not None else
                           'DUPLICATE' if (lease, request_id) in self.seen else
                           'BUSY' if self.executing is not None else
-                          'MOVING' if moving else self.reason(lease, action, confirmed))
+                          'START_ACTIVE' if moving and start_active() else 'MOVING' if moving else self.reason(lease, action, confirmed))
             except (ValueError, TypeError):
                 reason, args = 'INVALID_ARGUMENTS', ()
             if reason:
