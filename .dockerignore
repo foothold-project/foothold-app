@@ -5,6 +5,9 @@
 !apps/server/**
 !apps/contracts/
 !apps/contracts/**
+!apps/simmgr/
+!apps/simmgr/worlds/
+!apps/simmgr/worlds/**
 !apps/web/
 !apps/web/package.json
 !apps/web/package-lock.json

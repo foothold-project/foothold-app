@@ -29,6 +29,11 @@ JS·JSON·정적 자료 import에 필요해서 읽기 전용으로 연결한다.
 `node_modules`는 컨테이너 전용 volume에 저장하며 시작할 때 `npm ci --ignore-scripts`로
 lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build server`로 다시 빌드한다.
 
+서버 이미지에는 `apps/server`·`apps/contracts`·`apps/simmgr/worlds`와 Docker 진입점이 들어간다.
+정적 월드 카탈로그는 migration 0028과 기존 warehouse 지도 등록 복구가 읽으므로,
+시뮬 프로세스를 실행하지 않아도 필요하다. `worlds.json`이 참조하는 YAML·PNG·메타데이터·시나리오를
+빠뜨리지 않도록 `worlds` 디렉터리를 복사하고 `.dockerignore`에서도 허용한다.
+
 ## 환경 변수와 포트
 
 `.env`는 Git에서 제외된다. 실제 계정·비밀번호·서버 주소를 예제에 옮기지 않는다.
@@ -89,6 +94,20 @@ docker compose up --build
 `FH_SIM_MANAGER_URL`·`FH_SIM_AUTH_FILE`·`FH_PHONE_PASS_KEYS`를 전달하지 않고
 로봇 설치 프로그램·서버 경유 조종을 끈다. 로그인 후 로봇이 없는 초기 조직이 정상이다.
 운영 배포 설정과 서버에는 이 구성을 적용하지 않는다.
+
+Docker 없이 서버 이미지의 저장소 경로 누락을 검사하려면 Python 3.12 가상환경에서
+`apps/server/requirements-test.txt`를 설치한 뒤 다음을 실행한다.
+
+```sh
+FH_TEST_PORT_RANGE=15432:15439 python -m pytest -q docker/test_local.py
+```
+
+`pgserver` wheel의 임시 PostgreSQL을 사용하며 시스템 DB에 연결하지 않는다.
+회귀 시험은 `docker/server.Dockerfile`의 COPY 항목만 임시 폴더에 옮긴 뒤
+격리된 Python 프로세스에서 Alembic `upgrade head`를 실행하고 DB 버전을 확인한다.
+같은 폴더에서 warehouse 지도 등록 복구도 확인한다. 호스트 저장소의 import 경로와
+`PYTHONPATH`는 자식 프로세스에서 사용하지 않는다. Docker의 `.dockerignore` 필터링이나
+RUN·컨테이너 환경을 재현하는 시험은 아니므로 실제 이미지 확인은 별도로 필요하다.
 
 이 구성의 첫 제출에서는 Docker 미설치 PC에서 YAML·경로·명령·기존 시험만 확인했다.
 **이미지 빌드, `docker compose up`, 컨테이너 간 프록시·WS, 브라우저 로그인·HMR은 아직 확인하지 않았다.**
