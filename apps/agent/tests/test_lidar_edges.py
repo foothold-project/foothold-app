@@ -12,7 +12,7 @@ import pytest
 from foothold_agent.media import edges
 from foothold_agent.media.processing import points as ros_points
 from foothold_agent.media.transport import MediaTransport
-from foothold_agent.go2_direct.media import points as sdk_points, Source
+from foothold_agent.go2_direct.media import points as sdk_points, Source, approved_publisher
 
 
 def room():
@@ -145,6 +145,47 @@ def test_sdk_source_uses_own_environment_for_raw_and_odom(monkeypatch):
     assert source.sample('lidar')[1]['frame'] == 'odom'
     assert 'edge_u8' in source.sample('lidar')[1]
     source.close()
+
+
+@pytest.mark.parametrize('switch', [None, '0', '1', 'true', 'invalid'])
+@pytest.mark.parametrize('frame', ['lidar_link', 'odom'])
+def test_approved_publisher_respects_edge_environment(monkeypatch, switch, frame):
+    unlimited(monkeypatch)
+    if switch is None:
+        monkeypatch.delenv('FH_LIDAR_EDGE_ENABLED', raising=False)
+    else:
+        monkeypatch.setenv('FH_LIDAR_EDGE_ENABLED', switch)
+    monkeypatch.setenv('FH_USLAM', '1')
+    subscriptions = NS(state=NS(), cloud_bus=object())
+    publisher = approved_publisher(NS(robot_id='fake', link=None), None,
+                                   subscriptions, NS(lidar=lambda _: None), lambda: True)
+    source = publisher.source
+    source.now = lambda: 1.
+    xyz = room()
+    try:
+        assert source.env['FH_USLAM'] == '0'
+        assert source.slam_upload is None
+        assert source.depth_source is None
+        if frame == 'odom':
+            source.deskew_cloud = (1., raw(xyz, frame), 1)
+            monkeypatch.setattr(source.poses, 'nearest', lambda *_:
+                                (1., 1, (0., 0., 0.), (1., 0., 0., 0.)))
+        else:
+            source.raw_cloud = (1., raw(xyz))
+            source.last_odom_points = float('-inf')
+        source.publish_clouds()
+        _, header, payload = source.sample('lidar')
+        assert header['frame'] == frame
+        assert payload == xyz.tobytes()
+        if switch == '1':
+            strengths = base64.b64decode(header['edge_u8'], validate=True)
+            assert len(strengths) == header['count']
+            assert any(strengths)
+        else:
+            assert 'edge_u8' not in header
+    finally:
+        source.close()
+        publisher.executor.shutdown(wait=True)
 
 
 def test_direct_transport_sends_extension_in_same_json_xyz_pair(monkeypatch):

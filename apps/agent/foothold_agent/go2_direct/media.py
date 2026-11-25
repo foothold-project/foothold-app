@@ -604,7 +604,8 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link, approval=approval)
 
     # Setup's DepthPublisher already owns /drive-media/depth across approvals.
-    env = {'FH_USLAM': '0'}  # mapping uses the independent Point-LIO/GLIM pipeline
+    env = {'FH_USLAM': '0',  # mapping uses the independent Point-LIO/GLIM pipeline
+           'FH_LIDAR_EDGE_ENABLED': os.environ.get('FH_LIDAR_EDGE_ENABLED', '0')}
     return Publisher(config, env, subscriptions, channels=('rgb', 'lidar'),
         source_factory=lambda config, env, channel: Source(config, env, channel,
             factory=observation, recorder=recorder, enabled=enabled, include_depth=False, authorize=authorize))
