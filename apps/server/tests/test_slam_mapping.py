@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace as NS
 from uuid import uuid4
 
 import pytest
@@ -101,6 +102,84 @@ def test_start_ack_sequence_revision_and_motion_independence(setup):
     rt.agents[rid] = Peer(socket=None, last_rx=rt.clock())
     assert not rt.mapping.command_allowed(rid, command)
     assert rt.agents[rid].queue.empty()
+
+
+@pytest.fixture
+def agent_mapper(tmp_path,monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]/'agent'))
+    from foothold_agent.mapping.onboard import OnboardRuntime
+    from foothold_agent.link.client import Settings
+    mapper=OnboardRuntime(NS(connected=True,link_lost=False,reconnect_required=False),NS(),
+        Settings('wss://example.invalid/api/v1/agent/ws','fake'),str(uuid4()),
+        {'FH_MAPPING_POINT_LIO_FRAME':'world_map','FH_MAPPING_CACHE_DIR':str(tmp_path)},
+        request=lambda *args:{'accepted':True})
+    # Drive progress through the actual HTTP endpoint explicitly; no fake HTTP
+    # acknowledgement may clear reset/tiles before the server receives them.
+    yield mapper
+    mapper.close();mapper.io.shutdown(wait=True)
+
+
+def test_agent_pose_z_drift_second_report_is_persisted(setup,agent_mapper):
+    pytest.importorskip('numpy',reason='agent SLAM extra required for pose/cloud integration')
+    from apps.agent.tests.test_slam_mapping import cloud, pose, FRONTEND, CLOUD
+    s=setup
+    initial=start(s)
+    mapper=agent_mapper
+    try:
+        mapper.command(next(x for x in s[5].queue._queue if x.get('t')=='slam'))
+        mapper.step()
+        mapper.services.status='STARTED'
+        reports=[]
+        for stamp,z in ((1,.3),(2,.301)):
+            sample=pose(stamp=stamp,frame='world_map');sample.pose.pose.position.z=z
+            mapper.receive(FRONTEND,sample)
+            mapper.receive(CLOUD,cloud([[stamp,0,.3]],stamp=stamp,frame='world_map'))
+            mapper.step()
+            body,_,_=mapper.report_body()
+            reports.append(body)
+            assert body['grid']['floor_z']==0 and body['tiles']
+            assert all(tile['floor_z']==0 for tile in body['tiles'])
+            response=report(s,initial,**{k:v for k,v in body.items() if k!='t'})
+            assert response.status_code==202,response.text
+            saved=current(s)
+            assert saved['update_seq']==body['update_seq']
+            assert saved['odom']['z']==z
+            mapper.reset=False
+        assert mapper.core.last_pose[2]==.301
+        assert reports[1]['update_seq']>reports[0]['update_seq']
+        assert [40,0,6] in current(s)['voxels']['added']
+        http,headers,_,rid,_,_,_=s
+        tiles=http.get(P+f'/robots/{rid}/slam/{initial["session_id"]}/tiles?revision=1',headers=headers).json()['tiles']
+        assert tiles and all(t['floor_z']==0 for t in tiles)
+        assert any(t['tile_seq']>=2 for t in tiles)
+    finally:
+        mapper.close();mapper.io.shutdown(wait=True)
+
+
+@pytest.mark.parametrize('save_first',[False,True])
+def test_cancel_dispatch_has_fresh_id_and_agent_becomes_cancelled(setup,agent_mapper,save_first):
+    s=setup;initial=start(s)
+    mapper=agent_mapper
+    def deliver(op):
+        frame=next(x for x in reversed(s[5].queue._queue) if x.get('t')=='slam' and x['op']==op)
+        mapper.command(frame);mapper.step()
+        return frame
+    try:
+        started=deliver('start')
+        ids={started['command_id']}
+        if save_first:
+            saved=action(s,'save',initial['session_id']).json()
+            ids.add(deliver('save')['command_id'])
+            assert saved['command_id']!=started['command_id']
+        response=action(s,'cancel',initial['session_id'])
+        assert response.status_code==200,response.text
+        cancelled=deliver('cancel')
+        assert cancelled['command_id'] not in ids
+        assert response.json()['command_id']==cancelled['command_id']
+        assert current(s)['status']=='CANCELLED'
+        assert mapper.core.status=='CANCELLED' and mapper.phase=='UNKNOWN'
+    finally:
+        mapper.close();mapper.io.shutdown(wait=True)
 
 
 def test_pair_roundtrip_retries_hash_and_cancel(setup):

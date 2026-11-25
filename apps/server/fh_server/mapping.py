@@ -391,6 +391,8 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
             fail(409, 'MAPPING_STATE_CONFLICT', '이미 저장한 지도입니다.')
         row.status = 'CANCELLED'
         row.progress = {**(row.progress or {}), 'error_code': None, 'reason': None}
+        if builtin(row):
+            row.progress = {**row.progress, 'command_id': str(uuid4())}
         db.commit()
         mapping.pending = {key: value for key, value in mapping.pending.items() if key[1] != str(row.id)}
         if mapping.connected(robot_id):
