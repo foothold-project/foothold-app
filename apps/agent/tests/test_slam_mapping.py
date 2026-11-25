@@ -18,16 +18,18 @@ import pytest
 from foothold_agent.link.client import Settings
 from foothold_agent.mapping.grid import OccGrid
 from foothold_agent.mapping.world import WorldAccumulator
-from foothold_agent.mapping.uslam_control import Control
 from foothold_agent.mapping.onboard import OnboardRuntime
-from foothold_agent.mapping.inputs import FRONTEND, CLOUD, MAP
+from foothold_agent.slam_source import Source
+FRONTEND,CLOUD,MAP='rt/aft_mapped_to_init','rt/cloud_registered','rt/glim/final_cloud'
+FINAL_POSE='rt/glim/final_odom'
 
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 
 
 def command(op='start', previous=None):
-    return dict(t='slam', op=op, source='unitree_uslam', session_id=(previous or {}).get('session_id', str(uuid4())),
+    return dict(t='slam', op=op, source='point_lio', session_id=(previous or {}).get('session_id', str(uuid4())),
+                pipeline='point_lio+glim',final_source='glim',
                 floor_id=(previous or {}).get('floor_id', str(uuid4())), command_id=str(uuid4()),
                 revision=1, requested_at='2026-11-25T00:00:00Z')
 
@@ -45,13 +47,16 @@ def pose(stamp=1, frame='map'):
 
 
 def runtime(tmp_path, **kwargs):
+    env=kwargs.pop('env',{'FH_MAPPING_POINT_LIO_FRAME':'map','FH_MAPPING_GLIM_FRAME':'map',
+        'FH_MAPPING_GLIM_CLOUD_TOPIC':'/glim/final_cloud','FH_MAPPING_GLIM_ODOM_TOPIC':'/glim/final_odom'})
+    env['FH_MAPPING_CACHE_DIR']=str(tmp_path)
     return OnboardRuntime(NS(connected=True, link_lost=False, reconnect_required=False), NS(),
         Settings('wss://example.invalid/api/v1/agent/ws', 'fake'), str(uuid4()),
-        {'FH_MAPPING_CACHE_DIR':str(tmp_path)}, request=lambda *args: {'accepted':True}, **kwargs)
+        env, request=lambda *args: {'accepted':True}, **kwargs)
 
 
 def test_reference_fixture_matches_web_and_projection_never_clears():
-    fixture = json.loads((FIXTURES/'uslam_room.json').read_text())
+    fixture = json.loads((FIXTURES/'slam_room.json').read_text())
     grid = OccGrid(fixture['size'], mode='scan')
     projection = OccGrid(fixture['size'])
     for frame in fixture['frames']:
@@ -62,12 +67,12 @@ def test_reference_fixture_matches_web_and_projection_never_clears():
     compiled = os.environ.get('FH_OCCGRID_JS')
     if compiled:
         actual = json.loads(subprocess.check_output(['node', str(FIXTURES/'occgrid_reference.cjs'),
-            compiled, str(FIXTURES/'uslam_room.json')]))
+            compiled, str(FIXTURES/'slam_room.json')]))
         assert actual['c0'] == grid.c0 and actual['r0'] == grid.r0
         assert base64.b64decode(actual['L']) == grid.L.tobytes()
     else:
         # Golden generated from the exact web fixture; separate opt-in live TS comparison.
-        golden = json.loads((FIXTURES/'uslam_room_golden.json').read_text())
+        golden = json.loads((FIXTURES/'slam_room_golden.json').read_text())
         import hashlib
         assert hashlib.sha256(grid.L.tobytes()).hexdigest() == golden['sha256']
 
@@ -94,64 +99,17 @@ def test_point_cap_and_time_budget_are_bounded():
     assert len(core.cells) <= 100 and core.truncated
 
 
-def test_control_disabled_allowlist_single_flight_no_replay_and_timeout():
-    clock, writes = NS(t=0.), []
-    control = Control(writes.append, now=lambda: clock.t)
-    assert not control.request('mapping/start', 'disabled') and writes == []
-    control.enabled = lambda: True
-    assert not control.request('guess/rpc', 'bad')
-    assert control.request('mapping/start', 'one')
-    assert not control.request('mapping/stop', 'two')
-    clock.t = 11
-    assert control.tick() == 'UNKNOWN'
-    control.disconnect()
-    assert not control.request('mapping/start', 'one') and writes == ['mapping/start']
 
 
-def test_control_exact_fresh_ack_only():
-    clock = NS(t=1.)
-    control = Control(lambda _:None, enabled=lambda: True, now=lambda:clock.t,
-        acknowledgments={'mapping/start':'VERIFIED_START'})
-    assert control.request('mapping/start','one')
-    clock.t = 2.
-    control.on_log('VERIFIED_START', .5)
-    control.on_log('prefix VERIFIED_START', 1.5)
-    assert control.status == 'WAITING'
-    control.on_log('VERIFIED_START', 1.5)
-    assert control.status == 'ACKNOWLEDGED'
 
 
-def test_dds_boundary_response_first_default_no_writer_and_exact_allowlist(monkeypatch):
-    from foothold_agent.go2_direct.uslam_commands import CommandChannel
-    calls = []
-    class Reader:
-        def __init__(self,*args): calls.append('reader')
-        def Init(self,*args): calls.append('read_init')
-        def Close(self): calls.append('read_close')
-    class Writer:
-        def __init__(self,*args): calls.append('writer')
-        def Init(self): calls.append('write_init')
-        def Write(self,msg): calls.append(msg.data)
-        def Close(self): calls.append('write_close')
-    monkeypatch.setitem(sys.modules,'unitree_sdk2py.core.channel',NS(ChannelSubscriber=Reader,ChannelPublisher=Writer))
-    monkeypatch.setitem(sys.modules,'unitree_sdk2py.idl.std_msgs.msg.dds_',NS(String_=lambda **kw:NS(**kw)))
-    enabled=NS(value=False)
-    bridge=CommandChannel(lambda _:None,lambda:enabled.value)
-    bridge.open()
-    with pytest.raises(PermissionError): bridge.publish('mapping/start')
-    assert calls == ['reader','read_init']
-    enabled.value=True
-    with pytest.raises(PermissionError): bridge.publish('other')
-    bridge.publish('mapping/start')
-    assert calls == ['reader','read_init','writer','write_init','mapping/start']
-    bridge.close()
 
 
 def test_runtime_synchronized_frontend_only_bad_frame_stamp_and_no_replay(tmp_path):
     rt=runtime(tmp_path)
     rt.online=True
     start=command();rt.command(start);rt.step()
-    assert rt.phase=='UNKNOWN' and rt.control.status=='DISABLED'
+    assert rt.phase=='UNKNOWN' and rt.services.status=='DISABLED'
     for msg in (pose(frame='odom'),pose()):
         rt.receive(FRONTEND,msg);rt.step()
     rt.receive(CLOUD,cloud(frame='odom'));rt.step()
@@ -163,20 +121,10 @@ def test_runtime_synchronized_frontend_only_bad_frame_stamp_and_no_replay(tmp_pa
     assert rt.core.version==version
     rt.suspend();rt.online=True
     rt.command(start);rt.step()
-    assert rt.core.version==version and len(rt.control.seen)==1
+    assert rt.core.version==version and len(rt.seen)==1
     rt.io.shutdown(wait=True)
 
 
-def test_old_start_ack_cannot_confirm_save(tmp_path):
-    rt=runtime(tmp_path,command_allowed=lambda:True)
-    rt.env['FH_USLAM_COMMANDS']='1'
-    rt.bridge=NS(publish=lambda _:None)
-    rt.online=True
-    start=command();rt.command(start);rt.step()
-    assert rt.control.pending=='mapping/start'
-    rt.command(command('save',start));rt.step()
-    assert rt.phase=='UNKNOWN' and rt.control.pending is None
-    rt.io.shutdown(wait=True)
 
 
 def test_save_freezes_one_pair_and_retries_same_bytes(tmp_path):
@@ -211,7 +159,7 @@ def test_save_freezes_one_pair_and_retries_same_bytes(tmp_path):
     rt.step()
     assert rt.core.status=='SAVED' and calls[0]==calls[1]
     body=json.loads(calls[0])
-    assert body['grid']['resolution']==.05 and body['robot_save']=='UNKNOWN'
+    assert body['grid']['resolution']==.05 and body['slam_save']=='UNKNOWN'
     assert (tmp_path/(start['session_id']+'.bundle.json')).read_bytes()==calls[0]
     rt.io.shutdown(wait=True)
 
@@ -254,65 +202,6 @@ def test_tiles_negative_origin_coalescing_ack_and_oldest_first():
     assert key not in tiles.pending and tiles.pending
 
 
-def test_setup_observes_without_motion_approval_and_closes_on_identity_change(monkeypatch):
-    from foothold_agent.setup import runtime as setup
-    from foothold_agent.setup.view import Status
-    from foothold_agent.link.client import Client
-    from test_setup_pairing import credentials, NIC_VALUE, low, sport
-
-    async def scenario():
-        stop=asyncio.Event();made=[];received=[];state={};changed=NS(value=False)
-        inputs=setup.Inputs()
-        def pulse():
-            n=state.get('n',0)+1;state['n']=n
-            inputs.lowstate(low(n,sn=(9,9) if changed.value else (1234,5678)))
-            inputs.sportmodestate(sport(n))
-            state['pulse']=asyncio.get_running_loop().call_later(.01,pulse)
-        async def background():
-            await asyncio.Future()
-        class FakeClient(Client):
-            async def run(self):
-                state['client']=self
-                self._emit(self.session.connect())
-                while not stop.is_set():
-                    self._emit(self.session.receive({'t':'ping'}))
-                    await asyncio.sleep(.02)
-        class Media:
-            def __init__(self,enabled):
-                self.enabled=enabled;self.closed=False
-                self.source=NS(close=lambda:setattr(self,'closed',True))
-            async def run(self): await asyncio.Future()
-        def observation(*args):
-            item=Media(args[-1]);made.append(item);return item
-        def mapping(observer, *args, enabled, **kwargs):
-            state['mapping_enabled']=enabled
-            observer.mapping=NS(command=received.append,close=lambda:None)
-            return asyncio.create_task(background())
-        def forbidden(*args,**kw):
-            raise AssertionError('observation must not construct motion objects')
-        recorder=NS(notice='',stopped=threading.Event(),start=lambda:None,close=lambda:None)
-        monkeypatch.setattr(setup,'observation_publisher',observation)
-        import foothold_agent.mapping.runtime as mapping_module
-        monkeypatch.setattr(mapping_module,'attach',mapping)
-        pulse()
-        task=asyncio.create_task(setup.run(credentials(),NIC_VALUE,inputs,NS(cloud_bus=NS()),
-            ready=True,check_nic=lambda:True,status=Status(),stop=stop,client_factory=FakeClient,
-            connect=forbidden,sink_factory=forbidden,media_factory=forbidden,
-            recorder_factory=lambda *a,**k:recorder))
-        try:
-            async with asyncio.timeout(3):
-                while not made: await asyncio.sleep(.01)
-            client=state['client']
-            assert client.sink.active is None and state['mapping_enabled']()
-            client.session.receive(command())
-            assert received and client.session.core.latch
-            changed.value=True
-            async with asyncio.timeout(3):
-                while not made[0].closed: await asyncio.sleep(.01)
-            assert not made[0].enabled() and not state['mapping_enabled']()
-        finally:
-            stop.set();state['pulse'].cancel();await asyncio.wait_for(task,3)
-    asyncio.run(scenario())
 
 
 def test_large_cloud_and_bundle_encoding_leave_control_loop_runnable(tmp_path):
@@ -343,7 +232,7 @@ def test_large_cloud_and_bundle_encoding_leave_control_loop_runnable(tmp_path):
 
 def test_progress_and_bundle_validate_against_server_contract(tmp_path):
     from apps.contracts import models as contracts
-    draft=os.environ.get('FH_USLAM_CONTRACT_MODULE')
+    draft=os.environ.get('FH_SLAM_CONTRACT_MODULE')
     if draft:
         import importlib.util
         registry=Path(draft).with_name('mapping_sources.py')
@@ -369,7 +258,7 @@ def test_progress_and_bundle_validate_against_server_contract(tmp_path):
     assert rt.source.source in ADAPTERS
     assert ADAPTERS[rt.source.source].accepts_odom(body['odom']['source'])
     contracts.MappingBundle.model_validate(dict(session_id=rt.core.session_id,revision=rt.revision,
-        frame_id=rt.frame,resolution=.05,voxels=list(rt.core.cells),grid=rt.grid_body(),robot_save='UNKNOWN'))
+        frame_id=rt.frame,resolution=.05,voxels=list(rt.core.cells),grid=rt.grid_body(),source=rt.source.source,slam_save='UNKNOWN'))
     rt.io.shutdown(wait=True)
 
 
@@ -401,21 +290,141 @@ def test_full_map_rebuild_is_chunked_complete_and_replaces_old_revision(tmp_path
     rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud([[-1,0,.3]]));rt.step()
     old_revision=rt.revision
     points=np.column_stack((np.arange(10000)*.051,np.zeros(10000),np.full(10000,.3)))
-    rt.receive(MAP,cloud(points));rt.step()
+    rt.command(command('save',dict(session_id=rt.core.session_id,floor_id=rt.core.floor_id)));rt.step()
+    rt.final.frame='corrected_world'
+    rt.receive(FINAL_POSE,pose(frame='corrected_world'));rt.receive(MAP,cloud(points,frame='corrected_world'));rt.step()
     assert rt.rebuild is not None and rt.revision==old_revision
-    for _ in range(10):
+    for _ in range(30):
         if rt.rebuild is None: break
         rt.step()
     assert rt.rebuild is None and rt.revision==old_revision+1
     assert len(rt.core.cells)==10000 and (-20,0,6) not in rt.core.cells
     assert rt.core.grid.mode=='projection' and not (rt.core.grid.L < 0).any()
     assert rt.reset and len(rt.changes)==10000
+    assert rt.source.source=='glim' and rt.frame=='corrected_world'
+    assert rt.last_odom['provider']=='glim' and rt.last_odom['frame_id']=='corrected_world'
+    revision=rt.revision
+    rt.receive(FRONTEND,pose(stamp=2));rt.receive(CLOUD,cloud(stamp=2));rt.step()
+    assert rt.revision==revision and rt.source.source=='glim' and len(rt.core.cells)==10000
     rt.io.shutdown(wait=True)
 
 
+def wait_for(check,timeout=3):
+    deadline=time.monotonic()+timeout
+    while not check() and time.monotonic()<deadline:time.sleep(.005)
+    assert check()
+
+
+def test_service_switch_default_off_and_names_allowlist():
+    from foothold_agent.mapping.services import Services
+    calls=[]
+    services=Services({},lambda:True,run=lambda *args:calls.append(args))
+    assert not services.start() and calls==[] and services.thread is None
+    with pytest.raises(ValueError):Services({'FH_MAPPING_POINT_LIO_SERVICE':'ssh'},lambda:True)
+    services.close()
+
+
+def test_services_stop_only_units_started_by_this_session():
+    from foothold_agent.mapping.services import Services
+    calls=[];active={'foothold-pointlio'}
+    def run(action,name):
+        calls.append((action,name))
+        if action=='is-active':return 0 if name in active else 3
+        if action=='start':active.add(name)
+        if action=='stop':active.discard(name)
+        return 0
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    assert services.start()
+    wait_for(lambda:services.status=='STARTED')
+    assert services.owned=={'foothold-glim'}
+    services.stop();wait_for(lambda:not services.owned)
+    assert active=={'foothold-pointlio'}
+    assert ('stop','foothold-pointlio') not in calls
+    services.close();services.thread.join(1)
+
+
+def test_hung_service_start_never_holds_stop_and_cancel_cleans_owned_units():
+    from foothold_agent.mapping.services import Services
+    from foothold_agent.go2_direct.server import DriveSession
+    entered,release=threading.Event(),threading.Event();calls=[]
+    def run(action,name):
+        calls.append((action,name))
+        if action=='is-active':return 3
+        if action=='start':entered.set();release.wait(3)
+        return 0
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    assert services.start() and entered.wait(1)
+    feedback=NS(telemetry=lambda:{},sample=lambda:None,posture_snapshot=lambda:dict(state='UNKNOWN',mode=None))
+    session=DriveSession(feedback);session.connect()
+    before=time.monotonic();effects=session.receive({'t':'stop','stop_ref':1})
+    assert time.monotonic()-before<.1 and any(c.kind=='stop' for c in effects.motion)
+    services.stop();release.set();wait_for(lambda:services.status=='STOPPED')
+    assert not services.owned and ('start','foothold-glim') not in calls
+    services.close();services.thread.join(1)
+
+
+def test_disconnect_closes_readers_then_stops_owned_services_without_restart(tmp_path):
+    clock=NS(t=0.);enabled=NS(value=True);calls=[];closed=[]
+    def run(action,name):
+        calls.append((action,name));return 3 if action=='is-active' else 0
+    rt=runtime(tmp_path,now=lambda:clock.t,enabled=lambda:enabled.value,service_run=run)
+    rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
+    rt.channel=NS(cloud_bus=NS(subscribe=lambda topic,*a,**k:NS(Close=lambda:closed.append(topic))))
+    rt.online=True
+    thread=threading.Thread(target=rt.worker,daemon=True);thread.start()
+    start=command();rt.command(start)
+    wait_for(lambda:rt.services.status=='STARTED')
+    enabled.value=False
+    wait_for(lambda:bool(closed))
+    clock.t=11
+    wait_for(lambda:not rt.services.owned)
+    enabled.value=True;rt.online=True;rt.command(start)
+    time.sleep(.08)
+    assert len([c for c in calls if c[0]=='start'])==2
+    assert all('/uslam/' not in topic for topic in closed)
+    rt.close();thread.join(1);rt.io.shutdown(wait=True)
+
+
+def test_missing_frame_and_unapproved_glim_final_are_visible_reasons(tmp_path):
+    rt=runtime(tmp_path,env={});rt.online=True
+    start=command();rt.command(start);rt.step()
+    assert rt.report_body()[0]['error_code']=='MAPPING_FRAME_REQUIRED'
+    assert rt.services.thread is None
+    rt.command(command('save',start));rt.step()
+    assert rt.report_body()[0]['error_code']=='GLIM_FINAL_CONFIGURATION_REQUIRED'
+    rejected={**command(),'source':'unitree_uslam'}
+    rt.command(rejected)
+    assert not rt.commands
+    rt.close();rt.io.shutdown(wait=True)
+
+
+def test_mapping_command_is_received_without_movement_approval():
+    from foothold_agent.setup.runtime import GatedSession
+    from foothold_agent.go2_direct.feedback import Feedback
+    gate=NS(inputs=object(),allowed=lambda:False)
+    session=GatedSession(Feedback('1234-5678'),gate)
+    received=[];session.mapping=NS(command=received.append)
+    effects=session.receive(command())
+    assert len(received)==1 and effects.motion==() and session.core.latch
+
+
+def test_cancel_stops_owned_services_and_duplicate_start_never_restarts(tmp_path):
+    calls=[]
+    def run(action,name):
+        calls.append((action,name));return 3 if action=='is-active' else 0
+    rt=runtime(tmp_path,service_run=run);rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true';rt.online=True
+    start=command();rt.command(start);rt.step()
+    wait_for(lambda:rt.services.status=='STARTED')
+    rt.command(command('cancel',start));rt.step()
+    wait_for(lambda:not rt.services.owned)
+    rt.command(start);rt.step()
+    assert len([c for c in calls if c[0]=='start'])==2 and rt.core.status=='CANCELLED'
+    rt.close();rt.io.shutdown(wait=True)
+
+
 def test_runtime_uses_source_adapter_topics_and_world_frame(tmp_path):
-    from foothold_agent.go2_direct.uslam_source import UnitreeSource
-    source=UnitreeSource({'FH_USLAM_FRAME':'synthetic_world'})
+    from foothold_agent.slam_source import Source
+    source=Source({'FH_MAPPING_POINT_LIO_FRAME':'synthetic_world'})
     source.cloud_topic,source.map_topic,source.odom_topic='synthetic/cloud','synthetic/full','synthetic/pose'
     rt=runtime(tmp_path,source=source);rt.online=True
     rt.command(command());rt.step()

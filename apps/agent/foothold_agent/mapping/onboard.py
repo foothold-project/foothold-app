@@ -1,6 +1,6 @@
 """Observation-only onboard mapping worker; transport callbacks only retain samples.
 
-All decoding, DDS initialization/publication, grid work and HTTP occur off the
+All decoding, DDS subscription, service lifecycle, grid work and HTTP occur off the
 control event loop. No SportClient or output sink is constructed here.
 """
 import asyncio
@@ -16,10 +16,10 @@ from itertools import islice
 import time
 from uuid import UUID
 
-from foothold_agent.go2_direct.uslam_source import UnitreeSource
+from foothold_agent.slam_source import Source, SOURCES
 from .poses import timestamp
 from .runtime import MappingRuntime
-from .uslam_control import Control
+from .services import Services
 from .world import WorldAccumulator
 from .tiles import Tiles
 
@@ -47,55 +47,47 @@ def encode(body):
 
 
 class OnboardRuntime(MappingRuntime):
-    def __init__(self, *args, command_allowed=lambda: False, source=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.source = source or UnitreeSource(self.env)
-        self.frame = self.source.frame
-        self.mode = self.source.input_mode
-        if self.mode not in ('projection', 'scan'):
-            raise ValueError('invalid USLAM input mode')
-        self.core = WorldAccumulator(mode=self.mode, frame=self.frame, max_points=500000, now=self.now)
-        self.pending_samples = {}
-        self.pose_history = deque(maxlen=64)
-        self.input_stamps = {}
-        self.handles = []
-        self.bridge = None
-        self.command_allowed = command_allowed
-        self.control = Control(self.publish, enabled=self.can_publish, now=self.now,
-            acknowledgments=self.source.acknowledgments)
-        self.phase = 'UNKNOWN'
-        self.command_id = None
-        self.revision = 1
-        self.update_seq = self.voxel_seq = 0
-        self.sent_cells = set()
-        self.changes = OrderedDict()
-        self.change_seq = 0
-        self.reset = True
-        self.tiles = Tiles()
-        self.times = {}
-        self.last_odom = None
-        self.final_received = False
-        self.save_requested = None
-        self.frozen = None
-        self.rebuild = None
-        self.next_rebuild = None
-        self.save_failed = False
-        self.confirmed_report = None
-        self.was_enabled = False
+    def __init__(self,*args,command_allowed=lambda:False,source=None,service_run=None,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.live=source or Source(self.env,'point_lio')
+        self.final=Source(self.env,'glim')
+        self.source=self.live
+        self.frame=self.live.frame or 'unconfigured'
+        self.mode=self.live.input_mode
+        self.core=WorldAccumulator(mode=self.mode,frame=self.frame,max_points=500000,now=self.now)
+        self.pending_samples={}
+        self.pose_histories={key:deque(maxlen=64) for key in SOURCES}
+        self.input_stamps={}
+        self.handles=[]
+        self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run)
+        self.seen=set()
+        self.phase='UNKNOWN'
+        self.command_id=None
+        self.revision=1
+        self.update_seq=self.voxel_seq=0
+        self.sent_cells=set()
+        self.changes=OrderedDict()
+        self.change_seq=0
+        self.reset=True
+        self.tiles=Tiles()
+        self.times={}
+        self.last_odom=None
+        self.final_received=False
+        self.save_requested=None
+        self.frozen=self.rebuild=self.next_rebuild=None
+        self.save_failed=False
+        self.confirmed_report=None
+        self.was_enabled=False
+        self.disconnected_since=None
 
-    def can_publish(self):
-        return (not self.stopping.is_set() and self.enabled() and self.online
-                and self.source.commands_enabled() and self.command_allowed())
-
-    def publish(self, value):
-        if self.bridge is None:
-            raise PermissionError('response reader unavailable')
-        self.bridge.publish(value)
+    def close(self):
+        self.services.close()
+        super().close()
 
     def command(self, frame):
         if self.stopping.is_set() or not self.enabled():
             return
-        if frame.get('source') != self.source.source:
+        if frame.get('source') not in SOURCES:
             return
         try:
             frame = dict(frame)
@@ -103,6 +95,10 @@ class OnboardRuntime(MappingRuntime):
                 frame[name] = str(UUID(frame[name]))
             requested = datetime.fromisoformat(frame['requested_at'].replace('Z', '+00:00'))
             if requested.tzinfo is None or frame['op'] not in ('start', 'save', 'cancel'):
+                return
+            if frame['op']=='start' and frame['source']!='point_lio':
+                return
+            if frame.get('pipeline','point_lio+glim')!='point_lio+glim' or frame.get('final_source','glim')!='glim':
                 return
             if type(frame['revision']) is not int or not 1 <= frame['revision'] < 2**53:
                 return
@@ -115,7 +111,7 @@ class OnboardRuntime(MappingRuntime):
             return
         # Retain one reference per topic, never copy/parse a cloud on DDS lane.
         try:
-            if topic in (self.source.cloud_topic, self.source.map_topic) and len(message.data) > 16_000_000:
+            if topic in (self.live.cloud_topic,self.final.cloud_topic) and len(message.data)>16_000_000:
                 self.dropped(topic, 'input_bytes')
                 return
             with self.lock:
@@ -123,163 +119,152 @@ class OnboardRuntime(MappingRuntime):
         except (AttributeError, TypeError):
             self.dropped(topic, 'malformed_sample')
 
-    def on_log(self, message):
-        try:
-            if isinstance(message.data, str) and len(message.data) <= 4096:
-                self.receive('log', message)
-        except AttributeError:
-            pass
-
     def dropped(self, topic, reason):
         LOG.warning('USLAM dropped topic=%s reason=%s monotonic=%.6f utc=%s', topic, reason, self.now(), utc())
 
     def suspend(self):
         super().suspend()
-        self.control.disconnect()
+        if self.disconnected_since is None:
+            self.disconnected_since=self.now()
         with self.lock:
             self.pending_samples.clear()
-        self.pose_history.clear()
-        self.rebuild = None
-        self.next_rebuild = None
+        for history in self.pose_histories.values():
+            history.clear()
+        self.rebuild=self.next_rebuild=None
+        if self.core.session_id and self.core.status not in ('SAVED','CANCELLED'):
+            self.phase,self.core.status='UNKNOWN','UNKNOWN'
 
     def acquire(self):
         from functools import partial
         try:
-            for topic in (self.source.odom_topic, self.source.cloud_topic, self.source.map_topic):
-                handle = self.channel.cloud_bus.subscribe(topic, partial(self.receive, topic), odometry=topic == self.source.odom_topic)
-                self.handles.append(handle)
-            self.bridge = self.source.command_channel(self.on_log, self.can_publish)
-            self.bridge.open()
+            for source in (self.live,self.final):
+                if not source.configured:
+                    continue
+                for topic,is_pose in ((source.odom_topic,True),(source.cloud_topic,False)):
+                    handle=self.channel.cloud_bus.subscribe(topic,partial(self.receive,topic),odometry=is_pose)
+                    self.handles.append(handle)
         except Exception:
-            self.dropped('readers', 'reader_unavailable')
+            self.dropped('readers','reader_unavailable')
             self.release_readers()
 
     def release_readers(self):
-        if self.bridge is not None:
-            self.bridge.close()
-            self.bridge = None
         for handle in self.handles:
-            try:
-                handle.Close()
-            except Exception:
-                pass
+            try: handle.Close()
+            except Exception: pass
         self.handles.clear()
 
-    def handle_command(self, frame):
-        op, sid = frame['op'], frame['session_id']
-        if frame['command_id'] in self.control.seen:
+    def handle_command(self,frame):
+        op,sid=frame['op'],frame['session_id']
+        if frame['command_id'] in self.seen or len(self.seen)>=4096:
             return
-        if op != 'start' and (sid != self.core.session_id or frame['floor_id'] != self.core.floor_id):
+        if op!='start' and (sid!=self.core.session_id or frame['floor_id']!=self.core.floor_id):
             return
-        if op == 'start':
-            if self.core.session_id == sid:
-                return  # same session never restarts the robot, even under a new command UUID
-            if self.core.session_id is not None:
-                self.core.status = 'CANCELLED'
-            self.control.disconnect()
-            simple = {k: frame[k] for k in ('t', 'op', 'session_id', 'floor_id')}
-            if not self.core.command(simple):
+        self.seen.add(frame['command_id'])
+        LOG.warning('SLAM command_received op=%s monotonic=%.6f utc=%s',op,self.now(),utc())
+        if op=='start':
+            if self.core.session_id==sid:
                 return
-            self.revision, self.update_seq, self.voxel_seq = frame['revision'], 0, 0
-            self.sent_cells, self.reset, self.final_received = set(), True, False
+            self.core.status='CANCELLED'
+            self.source=self.live
+            self.frame=self.live.frame or 'unconfigured'
+            self.core=WorldAccumulator(mode=self.live.input_mode,frame=self.frame,max_points=500000,now=self.now)
+            if not self.core.command({k:frame[k] for k in ('t','op','session_id','floor_id')}):
+                return
+            self.revision,self.update_seq,self.voxel_seq=frame['revision'],0,0
+            self.sent_cells,self.reset,self.final_received=set(),True,False
             self.changes.clear()
-            self.tiles = Tiles()
-            self.times, self.last_odom = {}, None
-            self.frozen, self.save_requested, self.save_failed = None, None, False
-            self.confirmed_report = None
-            self.rebuild = None
-            self.next_rebuild = None
-            self.pose_history.clear()
-            self.input_stamps.clear()
-            with self.lock:
-                self.pending_samples.clear()
-            self.phase, self.core.status = 'START_REQUESTED', 'STARTING'
-        elif op == 'cancel':
-            self.core.status = 'CANCELLED'
-            self.rebuild = None
-            self.next_rebuild = None
-            self.control.disconnect()  # local cancellation cannot claim a robot stop
-            self.control.seen.add(frame['command_id'])
+            self.tiles=Tiles()
+            self.times,self.last_odom={},None
+            self.frozen=self.save_requested=self.rebuild=self.next_rebuild=None
+            self.save_failed=False
+            self.confirmed_report=None
+            self.phase,self.core.status='START_REQUESTED','STARTING'
+            if not self.live.configured:
+                self.problem('MAPPING_FRAME_REQUIRED','Point-LIO 토픽과 지도 좌표 설정을 확인해 주세요.')
+            elif not self.services.start():
+                self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
+        elif op=='cancel':
+            self.core.status='CANCELLED'
+            self.phase='UNKNOWN'
+            self.rebuild=self.next_rebuild=None
+            self.services.stop()
             return
         elif self.frozen is not None:
-            self.save_failed = False  # retry identical frozen bundle; never replay DDS stop
-            self.command_id = frame['command_id']
-            return
-        self.command_id = frame['command_id']
-        self.times['agent_received_at'] = utc()
-        if op == 'save':
-            self.phase, self.core.status = 'SAVE_REQUESTED', 'SAVING'
-            self.save_requested, self.final_received = self.now(), False
-            self.times.pop('robot_ack_at', None)
-            if self.control.pending is not None:
-                self.control.disconnect()  # an old start reply cannot acknowledge stop
-                self.control.seen.add(self.command_id)
-                self.phase, self.core.status = 'UNKNOWN', 'UNKNOWN'
-                return
-        if not self.control.request(self.source.start_command if op == 'start' else self.source.stop_command, self.command_id):
-            self.phase, self.core.status = 'UNKNOWN', 'UNKNOWN'
-        elif self.control.published_at is not None:
-            self.times['command_published_at'] = utc()
-        self.next_report = float('-inf')
+            self.save_failed=False
+            self.phase,self.core.status='SAVE_REQUESTED','SAVING'
+        else:
+            self.save_requested=self.now()
+            self.final_received=False
+            self.phase,self.core.status='SAVE_REQUESTED','SAVING'
+            if not self.final.configured or not self.final.final_verified:
+                self.problem('GLIM_FINAL_CONFIGURATION_REQUIRED','GLIM 최종 지도 규격과 좌표 설정 확인이 필요합니다. 받은 범위만 저장할 수 있습니다.')
+        self.command_id=frame['command_id']
+        self.times['agent_received_at']=utc()
+        self.next_report=float('-inf')
 
-    def consume_samples(self, samples):
+    def problem(self,code,reason):
+        self.phase,self.core.status='UNKNOWN','UNKNOWN'
+        self.core.error_code,self.core.reason=code,reason
+
+    def consume_samples(self,samples):
         import numpy as np
-        if 'log' in samples:
-            received, message = samples['log']
-            self.control.on_log(message.data, received)
-        if self.source.odom_topic in samples:
-            received, message = samples[self.source.odom_topic]
-            try:
-                if not 0 <= self.now()-received <= .5:
-                    raise ValueError('stale_pose')
-                stamp = timestamp(message.header.stamp)
-                position,quaternion,body = self.source.decode_pose(message)
-                if self.pose_history and stamp <= self.pose_history[-1][1]:
-                    raise ValueError('stamp')
-                self.pose_history.append((received,stamp,position,quaternion))
-                self.last_odom = body
-            except (ValueError, AttributeError, TypeError, OverflowError):
-                self.dropped(self.source.odom_topic, 'invalid_frame_stamp_pose')
-        for topic in (self.source.cloud_topic,self.source.map_topic):
-            if topic not in samples or self.core.session_id is None or self.core.status in ('SAVED', 'CANCELLED') or self.frozen:
+        for source in (self.live,self.final):
+            history=self.pose_histories[source.source]
+            if source.odom_topic in samples:
+                received,message=samples[source.odom_topic]
+                try:
+                    if not 0<=self.now()-received<=.5:
+                        raise ValueError('stale_pose')
+                    stamp=timestamp(message.header.stamp)
+                    position,quaternion,body=source.decode_pose(message)
+                    if history and stamp<=history[-1][1]:
+                        raise ValueError('non_increasing_stamp')
+                    history.append((received,stamp,position,quaternion,body))
+                    if self.source.source==source.source:
+                        self.last_odom=body
+                except (ValueError,AttributeError,TypeError,OverflowError):
+                    self.dropped(source.odom_topic,'invalid_frame_stamp_pose')
+                    self.core.error_code,self.core.reason='SLAM_INPUT_REJECTED','지도 위치 자료의 시각과 좌표 설정을 확인해 주세요.'
+            topic=source.cloud_topic
+            if (topic not in samples or not self.core.session_id or self.core.status in ('SAVED','CANCELLED')
+                    or self.frozen or source is self.live and self.source is self.final
+                    or source is self.final and self.save_requested is None):
                 continue
-            received, message = samples[topic]
+            received,message=samples[topic]
             try:
-                if not 0 <= self.now()-received <= .5 or message.header.frame_id != self.frame:
+                if not source.configured or message.header.frame_id!=source.frame or not 0<=self.now()-received<=.5:
                     raise ValueError('frame_or_age')
-                stamp = timestamp(message.header.stamp)
-                if stamp <= self.input_stamps.get(topic, 0):
+                stamp=timestamp(message.header.stamp)
+                if stamp<=self.input_stamps.get(topic,0):
                     raise ValueError('non_increasing_stamp')
-                poses = [p for p in self.pose_history if 0 <= self.now()-p[0] <= .5 and abs(p[1]-stamp) <= 250_000_000]
+                poses=[pose for pose in history if 0<=self.now()-pose[0]<=.5 and abs(pose[1]-stamp)<=250000000]
                 if not poses:
-                    # A final full map is history, but still needs a valid same-frame
-                    # height reference. Never invent a robot_odom fallback.
-                    raise ValueError('missing_synchronized_frontend_pose')
-                pose = min(poses, key=lambda p: abs(p[1]-stamp))
-                if topic == self.source.map_topic:
-                    candidate = dict(message=message, received=received, stamp=stamp, pose=pose, offset=0)
-                    if self.rebuild is not None:
-                        self.next_rebuild = candidate
-                    else:
-                        self.rebuild = candidate
-                    self.input_stamps[topic] = stamp
+                    raise ValueError('missing_synchronized_pose')
+                pose=min(poses,key=lambda pose:abs(pose[1]-stamp))
+                if source is self.final:
+                    candidate=dict(message=message,received=received,stamp=stamp,pose=pose,source=source,offset=0)
+                    if self.rebuild is None: self.rebuild=candidate
+                    else: self.next_rebuild=candidate
+                    self.input_stamps[topic]=stamp
                     continue
-                header,payload = self.source.decode_cloud(message,max_points=self.core.cap,deadline=self.now()+.015,now=self.now)
-                result = self.core.add_world(np.frombuffer(payload, dtype='<f4').reshape(-1,3), pose[2], pose[3],
-                    stamp=stamp,frame=self.frame)
-                self.core.truncated |= header['truncated']
-                self.input_stamps[topic] = stamp
+                header,payload=source.decode_cloud(message,max_points=self.core.cap)
+                result=self.core.add_world(np.frombuffer(payload,dtype='<f4').reshape(-1,3),pose[2],pose[3],
+                    stamp=stamp,frame=source.frame)
+                self.core.truncated|=header['truncated']
+                if self.core.error_code=='SLAM_INPUT_REJECTED':
+                    self.core.error_code=self.core.reason=None
+                self.input_stamps[topic]=stamp
                 self.tiles.changed(self.core.grid)
-                self.change_seq += 1
-                for key in self.core.added:
-                    self.changes[key] = True, self.change_seq
-                at = utc()
-                self.times.setdefault('first_data_at', at)
-                self.times['last_data_at'] = at
-                LOG.warning('USLAM cloud topic=%s stamp=%d points=%d bytes=%d version=%d elapsed_ms=%.3f truncated=%s monotonic=%.6f utc=%s',
-                    topic, stamp, header['count'], len(payload), self.core.version, result['elapsed_ms'], self.core.truncated, self.now(), at)
-            except (ValueError, AttributeError, TypeError, OverflowError):
-                self.dropped(topic, 'invalid_frame_stamp_or_pose')
+                self.change_seq+=1
+                for key in self.core.added: self.changes[key]=True,self.change_seq
+                at=utc()
+                self.times.setdefault('first_data_at',at)
+                self.times['last_data_at']=at
+                LOG.warning('SLAM data source=%s stamp=%d points=%d bytes=%d elapsed_ms=%.3f monotonic=%.6f utc=%s',
+                    source.source,stamp,header['count'],len(payload),result['elapsed_ms'],self.now(),at)
+            except (ValueError,AttributeError,TypeError,OverflowError):
+                self.dropped(topic,'invalid_frame_stamp_or_pose')
+                self.core.error_code,self.core.reason='SLAM_INPUT_REJECTED','지도 점과 위치의 시각·좌표 설정을 확인해 주세요.'
 
     def rebuild_step(self):
         """Build full snapshots offscreen in bounded chunks; publish one new revision."""
@@ -288,19 +273,23 @@ class OnboardRuntime(MappingRuntime):
         if pending is None:
             return
         if 'core' not in pending:
-            pending['core'] = WorldAccumulator(mode='projection',frame=self.frame,
-                max_points=500000,cap=2048,budget_ms=100,now=self.now)
+            pending['core'] = WorldAccumulator(mode='projection',frame=pending['source'].frame,
+                max_points=500000,cap=512,budget_ms=100,now=self.now)
         message, pose, core = pending['message'], pending['pose'], pending['core']
         offset = pending['offset']
         try:
-            _,payload = self.source.decode_cloud(message,max_points=500000,sample_start=offset,sample_limit=2048)
+            _,payload = pending['source'].decode_cloud(message,max_points=500000,sample_start=offset,sample_limit=512)
             core.add_world(np.frombuffer(payload,dtype='<f4').reshape(-1,3),pose[2],pose[3],
-                stamp=offset+1,frame=self.frame)
-            pending['offset'] += 2048
+                stamp=offset+1,frame=pending['source'].frame,complete_chunk=True)
+            pending['offset'] += 512
             count = message.width * message.height
             if pending['offset'] < min(count,500000):
                 return
             self.core.cells, self.core.grid = core.cells, core.grid
+            self.source=pending['source']
+            self.frame=self.source.frame
+            self.core.frame=self.frame
+            self.last_odom=pose[4]
             self.core.last_pose, self.core.robot = core.last_pose, core.robot
             self.core.last_cloud_stamp = pending['stamp']
             self.core.truncated = core.truncated or count > 500000
@@ -315,10 +304,12 @@ class OnboardRuntime(MappingRuntime):
             at = utc()
             self.times.setdefault('first_data_at',at)
             self.times['last_data_at'] = at
-            LOG.warning('USLAM full_map points=%d bytes=%d revision=%d truncated=%s monotonic=%.6f utc=%s',
+            self.times['slam_ack_at']=utc() if self.final.final_verified else None
+            LOG.warning('SLAM full_map points=%d bytes=%d revision=%d truncated=%s monotonic=%.6f utc=%s',
                 count,len(message.data),self.revision,self.core.truncated,self.now(),at)
         except (ValueError,AttributeError,TypeError,OverflowError):
-            self.dropped(self.source.map_topic,'invalid_full_map')
+            self.dropped(self.final.map_topic,'invalid_full_map')
+            self.problem('GLIM_REBUILD_FAILED','GLIM 최종 지도를 읽지 못했습니다. 마지막 실시간 지도를 유지합니다.')
         self.rebuild, self.next_rebuild = self.next_rebuild, None
 
     def grid_body(self, *, crop=False, max_cells=None):
@@ -346,15 +337,17 @@ class OnboardRuntime(MappingRuntime):
         removed = [key for key, (present, _) in pending if not present]
         self.voxel_seq += 1
         body = dict(t='slam.update', source=self.source.source, session_id=self.core.session_id, floor_id=self.core.floor_id,
+            pipeline='point_lio+glim',final_source='glim',
             status=self.core.status, phase=self.phase, command_id=self.command_id, revision=self.revision,
             update_seq=self.update_seq, point_count=len(self.core.cells), elapsed_s=max(0,self.now()-self.core.started),
             times=dict(self.times), odom=self.last_odom,
+            error_code=self.core.error_code,reason=self.core.reason,
             voxels=dict(revision=self.revision, seq=self.voxel_seq, reset=self.reset, resolution=.05,
                         frame_id=self.frame, added=added, removed=removed))
         grid = self.grid_body(crop=True, max_cells=4000)
         if grid is not None:
             body['grid'] = grid
-        if self.core.truncated:
+        if self.core.truncated and not self.core.error_code:
             body.update(error_code='MAPPING_PARTIAL', reason='계산 한도 안에서 받은 자료입니다. 최종 지도와 좌표 보정은 실기 확인이 필요합니다.')
         body['tiles'] = [dict(revision=self.revision, tile_seq=t['version'], x=t['tx'], y=t['ty'],
             frame_id=self.frame, floor_z=(self.core.last_pose[2]-.3 if self.core.last_pose else 0),
@@ -388,23 +381,28 @@ class OnboardRuntime(MappingRuntime):
             self.handle_command(frame)
         self.consume_samples(samples)
         self.rebuild_step()
-        status = self.control.tick()
-        if status == 'ACKNOWLEDGED' and self.core.status not in ('SAVED', 'CANCELLED', 'FAILED'):
-            self.times.setdefault('robot_ack_at', utc())
-            if self.save_requested is None:
-                self.phase, self.core.status = 'STARTED', 'RUNNING'
-            else:
-                self.phase, self.core.status = 'ROBOT_SAVED', 'FINALIZING'
-        elif status in ('UNKNOWN', 'DISABLED') and self.core.status not in ('SAVED','CANCELLED','FAILED'):
-            self.phase, self.core.status = 'UNKNOWN', 'UNKNOWN'
+        if self.phase=='START_REQUESTED' and self.services.status in ('UNKNOWN','STOPPED'):
+            self.problem('MAPPING_SERVICES_FAILED','지도 서비스를 시작하지 못했습니다. 설치 설정을 확인해 주세요.')
+        if self.phase=='START_REQUESTED' and self.now()-self.core.started>10:
+            self.problem('MAPPING_SERVICES_TIMEOUT','지도 서비스 시작을 확인하지 못했습니다. 설치 설정을 확인해 주세요.')
+            self.services.stop()
+        if (self.save_requested is None and self.core.cells and self.services.status=='STARTED'
+                and self.core.status not in ('SAVED','CANCELLED','FAILED')):
+            self.phase,self.core.status='STARTED','RUNNING'
+        elif self.save_requested is not None and self.core.status not in ('SAVED','CANCELLED','FAILED'):
+            if self.final_received and self.final.final_verified:
+                self.phase,self.core.status='SLAM_SAVED','FINALIZING'
+            elif self.now()-self.save_requested>=10:
+                self.problem('GLIM_FINAL_UNCONFIRMED','GLIM 최종 저장 확인이 안 되어 받은 범위만 저장합니다.')
         if self.save_future is not None and self.save_future.done():
             future, self.save_future = self.save_future, None
             try:
                 future.result()
                 if self.core.session_id == self.save_session and self.core.status != 'CANCELLED':
                     self.core.status = 'SAVED'
+                    self.services.stop()
                     self.times['saved_at'] = utc()
-                    LOG.warning('USLAM saved monotonic=%.6f utc=%s', self.now(), self.times['saved_at'])
+                    LOG.warning('SLAM saved monotonic=%.6f utc=%s', self.now(), self.times['saved_at'])
             except Exception:
                 if self.core.session_id == self.save_session and self.core.status != 'CANCELLED':
                     self.save_failed = True
@@ -413,11 +411,11 @@ class OnboardRuntime(MappingRuntime):
                 and self.rebuild is None
                 and self.source.map_topic not in self.pending_samples
                 and self.core.status not in ('SAVED','CANCELLED') and self.core.cells
-                and (self.final_received and self.phase == 'ROBOT_SAVED' or self.now()-self.save_requested >= 10)):
+                and (self.final_received and self.final.final_verified or self.now()-self.save_requested>=10)):
             if self.frozen is None:
                 body = dict(session_id=self.core.session_id, revision=self.revision, frame_id=self.frame,
                     resolution=.05, voxels=list(self.core.cells), grid=self.grid_body(),
-                    robot_save=('ROBOT_SAVED' if self.phase == 'ROBOT_SAVED' and self.final_received
+                    source=self.source.source,odom=self.last_odom,slam_save=('SLAM_SAVED' if self.final.final_verified and self.final_received
                                 and not self.core.truncated else 'UNKNOWN'), times=dict(self.times))
                 self.frozen = encode(body)
                 if len(self.frozen) > 50 * 1024 * 1024:
@@ -471,11 +469,14 @@ class OnboardRuntime(MappingRuntime):
             while not self.stopping.wait(.02):
                 enabled = self.enabled()
                 if not enabled:
+                    if self.disconnected_since is not None and self.now()-self.disconnected_since>=10:
+                        self.services.stop()
                     if self.was_enabled:
                         self.suspend()
                         self.release_readers()
                     self.was_enabled = False
                     continue
+                self.disconnected_since=None
                 if not self.was_enabled or not self.handles and self.now() >= getattr(self, 'next_acquire', 0):
                     self.acquire()
                     self.next_acquire = self.now()+1
@@ -487,6 +488,7 @@ class OnboardRuntime(MappingRuntime):
                     self.dropped('worker', 'mapping_failed')
         finally:
             self.release_readers()
+            self.services.close()
 
     async def run(self):
         self.thread = threading.Thread(target=self.worker, name='uslam-observe', daemon=True)

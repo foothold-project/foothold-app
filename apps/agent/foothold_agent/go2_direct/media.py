@@ -122,13 +122,11 @@ def points(raw, *, max_points=MAX_POINTS, frames=('lidar_link', 'utlidar_lidar')
 
 class Source:
     def __init__(self, config, env, channel, *, factory=sdk.observation, now=time.monotonic,
-                 recorder=None, enabled=lambda: True, include_depth=True, authorize=sdk.authorize_observation,
-                 slam_only=False):
+                 recorder=None, enabled=lambda: True, include_depth=True, authorize=sdk.authorize_observation):
         self.config, self.env, self.channel = config, env, channel
         self.factory, self.now = factory, now
         self.enabled = enabled
         self.authorize = authorize
-        self.slam_only = slam_only
         self.slam_upload = None  # bound by the hardware publisher when enabled
         self.recorder = recorder if recorder is not None else Recorder(env)
         self.owns_recorder = recorder is None
@@ -160,7 +158,7 @@ class Source:
             self.depth_source.start()
         self.threads = [threading.Thread(target=self.observe, args=(name, fn),
                                        daemon=True, name='go2-observe-'+name)
-            for name, fn in (() if self.slam_only else (('rgb', self.camera), ('lidar', self.lidar)))]
+            for name, fn in (('rgb', self.camera), ('lidar', self.lidar))]
         if self.slam_upload is not None:
             for channel in uslam.TOPICS:
                 reader = uslam.Reader(self, channel)
@@ -415,7 +413,7 @@ class Publisher:
                 and env.get('FH_USLAM', '1') != '0'):
             self.source.slam_upload = self.upload
         # A stalled depth HTTP request must not occupy RGB/lidar's workers.
-        self.executor = ThreadPoolExecutor(max_workers=max(1, len(self.channels)), thread_name_prefix='go2-media-upload')
+        self.executor = ThreadPoolExecutor(max_workers=len(self.channels), thread_name_prefix='go2-media-upload')
         self.opener = build_opener(ProxyHandler({}))
         self.last_lidar_upload = None
 
@@ -531,10 +529,7 @@ class Publisher:
         try:
             self.source.start()
             tasks = [asyncio.create_task(self.stream(channel)) for channel in self.channels]
-            if tasks:
-                await asyncio.gather(*tasks)
-            else:
-                await asyncio.Future()  # DDS-only observation workers own their HTTP lanes
+            await asyncio.gather(*tasks)
         except Exception as error:
             reason = 'identity' if isinstance(error, PermissionError) else 'source'
             logging.getLogger(__name__).warning('GO2_MEDIA start_failed reason=%s', reason)
@@ -547,7 +542,7 @@ class Publisher:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-def approved_publisher(credentials, approval, subscriptions, recorder, enabled, *, observation_only=False):
+def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
     """Desktop observations reuse the existing approved DDS participant/NIC.
 
     No file-based manual approval, new participant or motion client is opened.
@@ -566,10 +561,9 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled, 
                 or not channel._started or channel.nic != approval.nic
                 or approval.nic not in {name for _, name in socket.if_nameindex()}):
             raise PermissionError('approved observation channel required')
-        if not observation_only:
-            validate_value(dict(v=1, purpose='go2-field-motion', nic=approval.nic,
-                                robot_serial=approval.robot_serial, expires_at=approval.expires_at),
-                           approval.nic, clock_skew_s=SERVER_CLOCK_SKEW_S)
+        validate_value(dict(v=1, purpose='go2-field-motion', nic=approval.nic,
+                            robot_serial=approval.robot_serial, expires_at=approval.expires_at),
+                       approval.nic, clock_skew_s=SERVER_CLOCK_SKEW_S)
         if identity is None:
             # Preserve the serial/manual-trial verifier unchanged.
             if getattr(credentials, 'identity_source', None) == 'mac':
@@ -608,14 +602,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled, 
     config = SimpleNamespace(robot=credentials.robot_id, link=credentials.link, approval=approval)
 
     # Setup's DepthPublisher already owns /drive-media/depth across approvals.
-    env = {'FH_USLAM': os.environ.get('FH_USLAM', '1') if observation_only else '0',
-           'FH_USLAM_FRONTEND_ONLY': '1'}
-    return Publisher(config, env, subscriptions, channels=() if observation_only else ('rgb', 'lidar'),
+    env = {'FH_USLAM': '0'}  # mapping uses the independent Point-LIO/GLIM pipeline
+    return Publisher(config, env, subscriptions, channels=('rgb', 'lidar'),
         source_factory=lambda config, env, channel: Source(config, env, channel,
-            factory=observation, recorder=Recorder({'FH_RECORD': '0'}) if observation_only else recorder,
-            enabled=enabled, include_depth=False, authorize=authorize, slam_only=observation_only))
-
-
-def observation_publisher(credentials, approval, subscriptions, recorder, enabled):
-    """Confirmed body observations, independent of motion approval/lock epochs."""
-    return approved_publisher(credentials, approval, subscriptions, recorder, enabled, observation_only=True)
+            factory=observation, recorder=recorder, enabled=enabled, include_depth=False, authorize=authorize))

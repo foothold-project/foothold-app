@@ -27,7 +27,7 @@ class WorldAccumulator(Accumulator):
             self.truncated = False
         return accepted
 
-    def add_world(self, xyz, position, quaternion, *, stamp, frame, replace=False):
+    def add_world(self, xyz, position, quaternion, *, stamp, frame, replace=False, complete_chunk=False):
         import numpy as np
         if frame != self.frame or type(stamp) is not int or stamp <= 0:
             raise ValueError('invalid world frame or stamp')
@@ -55,7 +55,7 @@ class WorldAccumulator(Accumulator):
         self.truncated = self.truncated or step > 1
         processed = 0
         for i, point in enumerate(sample):
-            if i % 64 == 0 and (self.now() - started) * 1000 > self.budget_ms / 2:
+            if not complete_chunk and i % 64 == 0 and (self.now() - started) * 1000 > self.budget_ms / 2:
                 self.truncated = True
                 break
             key = tuple(math.floor(float(v) / .05) for v in point)
@@ -66,7 +66,7 @@ class WorldAccumulator(Accumulator):
                 self.cells[key] = tuple((v + .5) * .05 for v in key)
                 added.add(key)
             processed += 1
-        self.grid.add(sample[:processed], position, cap=self.cap, budget_ms=self.budget_ms / 2)
+        self.grid.add(sample[:processed],position,cap=self.cap,budget_ms=float('inf') if complete_chunk else self.budget_ms/2)
         self.truncated |= self.grid.truncated
         self.version += 1
         self.added = added if old is None else self.cells.keys() - old.keys()

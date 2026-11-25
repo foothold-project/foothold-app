@@ -17,6 +17,7 @@ from uuid import UUID
 from .core import Accumulator
 from foothold_agent.mapping.inputs import DEFAULT_TOPIC
 from .poses import Poses
+from foothold_agent.slam_source import SOURCES
 
 
 class TransferError(RuntimeError):
@@ -321,7 +322,7 @@ class MappingRouter:
         self.legacy_task = None
 
     def command(self, frame):
-        if frame.get('source') == 'unitree_uslam':
+        if frame.get('source') in SOURCES:
             self.onboard.command(frame)
         elif frame.get('source') in (None, 'legacy'):
             if self.legacy_task is None:

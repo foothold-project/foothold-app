@@ -1,6 +1,6 @@
 """Synthetic CPU timing only, no DDS initialization or network access.
 
-PYTHONPATH=apps/agent python3 apps/agent/tools/benchmark_uslam.py
+PYTHONPATH=apps/agent python3 apps/agent/tools/benchmark_slam.py
 """
 import json
 import platform

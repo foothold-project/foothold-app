@@ -10,7 +10,8 @@ import time
 from time import process_time
 
 from foothold_agent.go2_direct.approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
-from foothold_agent.go2_direct.media import approved_publisher, observation_publisher
+from foothold_agent.go2_direct.media import approved_publisher
+from foothold_agent.slam_source import SOURCES
 from foothold_agent.go2_direct.record import Recorder
 from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.readonly import Measurements
@@ -236,7 +237,7 @@ class GatedSession(DriveSession):
                     and frame.get('t') == 'stop' and server_cause(frame) in ('unknown', 'user_stop')):
                 self.operator_stop = True  # retain priority without creating output or a STOP acknowledgement
             return super().receive(frame) if isinstance(frame, dict) and (
-                frame.get('t') == 'ping' or frame.get('t') == 'slam' and frame.get('source') == 'unitree_uslam') else self.tick()
+                frame.get('t') == 'ping' or frame.get('t') == 'slam' and frame.get('source') in SOURCES) else self.tick()
         return super().receive(frame)
 
     def disconnect(self):
@@ -486,7 +487,6 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
     recorder = recorder_factory(os.environ, status=status)
     media = media_task = media_epoch = None
     mapping_task = None
-    observation_media = observation_task = None
     retired_media = []
     if depth_source is not None:
         depth_source.recorder = recorder
@@ -567,21 +567,6 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                         credentials.robot_id, os.environ, **options)
                 except Exception:
                     pass
-            if hasattr(subscriptions, 'cloud_bus'):
-                if observation_media is not None and not observation_enabled():
-                    observation_media.source.close()
-                    observation_media = None
-                    if observation_task is not None:
-                        observation_task.cancel()
-                        retired_media.append(observation_task)
-                        observation_task = None
-                if observation_media is None and observation_enabled():
-                    try:
-                        observation_media = observation_publisher(credentials,
-                            Approval(nic.name, observed_serial, 0), subscriptions, recorder, observation_enabled)
-                        observation_task = asyncio.create_task(observation_media.run())
-                    except Exception:
-                        logging.getLogger(__name__).warning('GO2_USLAM observation_start_failed')
             # Observations follow an approval epoch but are never part of the
             # control health/lifetime task set. Close signals only; no SDK join.
             if gate.active is not media_epoch:
@@ -673,11 +658,6 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 status.update(record_notice='기록 멈춤: 연결 종료')
             if media is not None:
                 media.source.close()
-            if observation_media is not None:
-                observation_media.source.close()
-            if observation_task is not None:
-                observation_task.cancel()
-                retired_media.append(observation_task)
             mapper = getattr(session, 'mapping', None)
             if mapper is not None:
                 mapper.close()
