@@ -137,16 +137,17 @@ bool UnitreeRobot::select_gait(Gait gait) {
     if (gait == Gait::free_walk) return impl_->sport->FreeWalk() == 0;
     return gait == Gait::classic && impl_->sport->ClassicWalk(true) == 0;
 }
-void UnitreeRobot::send(const Joints& q, float kp, float kd) {
+void UnitreeRobot::send(const Joints& q, float kp, float kd) { send_ff(q, Joints{}, Joints{}, kp, kd); }
+void UnitreeRobot::send_ff(const Joints& q, const Joints& dq, const Joints& tau, float kp, float kd) {
     if (!impl_->publisher || !impl_->owned.load(std::memory_order_acquire) ||
         (kp > 0 && impl_->emergency.load(std::memory_order_acquire))) return;
     for (std::size_t i = 0; i < q.size(); ++i) {
         auto& motor = impl_->cmd.motor_cmd()[i];
         motor.q() = q[i];
-        motor.dq() = 0;
+        motor.dq() = dq[i];
         motor.kp() = kp;
         motor.kd() = kd;
-        motor.tau() = 0;
+        motor.tau() = kp > 0 ? tau[i] : 0.f;  // damping (kp 0) never carries feed-forward torque
     }
     impl_->cmd.crc() = low_cmd_crc(impl_->cmd);
     if (!impl_->publisher->Write(impl_->cmd)) throw std::runtime_error("LowCmd write failed");

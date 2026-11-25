@@ -17,6 +17,8 @@ constexpr auto lie = (1 << 5) | (1 << 8);
 constexpr auto emergency = (1 << 5) | (1 << 9);
 constexpr auto classic = (1 << 13) | (1 << 2);
 constexpr auto dog = (1 << 0) | (1 << 9);  // R1+B, as the factory Sit Down
+constexpr auto stretch = (1 << 4) | (1 << 8);  // R2+A
+constexpr auto love = (1 << 4) | (1 << 11);    // R2+Y
 
 float distance(const Joints& a, const Joints& b) {
     float gap = 0;
@@ -55,7 +57,13 @@ struct FakeRobot final : Robot {
         last_target = q;
         position_gain = p;
         velocity_gain = d;
+        last_tau = Joints{};
     }
+    void send_ff(const Joints& q, const Joints&, const Joints& tau, float p, float d) override {
+        send(q, p, d);
+        last_tau = tau;
+    }
+    Joints last_tau{};
 };
 
 struct FakeModes final : ModeExecutor {
@@ -463,6 +471,51 @@ int main() {
                     live.events.ordered({Event::dog_sit, Event::dog_rise, Event::policy_start}),
                 "rise must return to policy");
         require(live.robot.position_gain == kp && live.robot.velocity_gain == kd, "policy gains after rise");
+    }
+    {
+        // Factory torque is fed forward during the dog sit, scaled and clamped.
+        Rig live(true);
+        live.enter();
+        live.tick(dog);
+        live.wait(700ms, dog);
+        require(live.runner.phase() == Phase::dog_sitting, "dog sit running");
+        float peak = 0;
+        for (const auto x : live.robot.last_tau) peak = std::max(peak, std::abs(x));
+        require(peak > .5f && peak <= 35.f, "dog sit must feed recorded torque forward within limits");
+    }
+    {
+        // R2+A stretch: from policy only, replays the recording, returns to policy with no torque left.
+        Rig live(true);
+        live.enter();
+        live.tick(stretch);
+        require(live.runner.phase() == Phase::moving && live.events.seen.back() == Event::factory_move,
+                "R2+A from policy must start the stretch");
+        live.tick(emergency | stretch);
+        require(live.runner.phase() == Phase::damping, "L2+B must damp during a factory move");
+        live.tick();
+        live.tick(start);
+        live.wait(3500ms);
+        require(live.runner.phase() == Phase::policy, "restand after damp");
+        live.tick(stretch);
+        live.wait(2s, stretch);
+        require(live.runner.phase() == Phase::moving, "stretch keeps running while the key is held");
+        live.wait(5s);
+        require(live.runner.phase() == Phase::policy && live.events.ordered({Event::factory_move, Event::policy_start}),
+                "stretch must return to policy");
+        require(live.robot.position_gain == kp && live.robot.velocity_gain == kd, "policy gains after stretch");
+        for (const auto x : live.robot.last_tau) require(x == 0, "no feed-forward torque after the move");
+    }
+    {
+        // A sideways tip during a move damps and hands over to factory recovery.
+        Rig live(true);
+        live.enter();
+        live.tick(love);
+        live.wait(1s);
+        live.state.orientation = {0.8660254f, 0.5f, 0, 0};
+        live.wait(400ms);
+        require(live.events.ordered({Event::factory_move, Event::move_fall, Event::robot_fall}),
+                "tip during a factory move must report a fall");
+        require(live.runner.phase() != Phase::moving && live.robot.position_gain == 0, "fall must damp");
     }
     {
         // R1+B outside policy is ignored: factory, damping, standing up.
