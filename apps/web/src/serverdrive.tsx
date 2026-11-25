@@ -151,7 +151,7 @@ function trapTab(e: KeyEv<HTMLElement>) {
   e.preventDefault(); f[e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : (i + 1) % f.length].focus();
 }
 const CH_NAME: Record<DriveCh, string> = { rgb: '카메라', lidar: '라이다', depth: '뎁스' };
-/** 조종 화면 큰 화면 고르기 — 채널 셋 + «상자»(라이다 쌓인 자료를 5 cm 상자로, 11-20 RB-UNITREE-LOOK-FIX) */
+/** 조종 화면 큰 화면 고르기 — 채널 셋 + «상자»(라이다 받은 판을 5 cm 상자로, 11-20 RB-UNITREE-LOOK-FIX) */
 type Big = DriveCh | 'box';
 const BIG_NAME: Record<Big, string> = { ...CH_NAME, box: '상자' };
 /** 뎁스 색(계약: OpenCV TURBO 역방향 — 가까움 빨강 → 멀리 파랑), 범례용 띠 */
@@ -179,8 +179,6 @@ export const keepDrive = (c: Pick<Ctx, 'user' | 'phone' | 'cancel'>, r: Robot) =
   const b = r.serverDriveBlocked;
   return ids.has(r.id) && b?.length === 1 && b[0] === 'AGENT_OFFLINE' && canDrive(c, { ...r, serverDrive: true });
 };
-/** 쌓이는 지도로 그릴 라이다인가(계약 frame 'odom' — 로봇이 처음 켜진 곳 기준 좌표 + pose) */
-export const stacked = (f: DriveFeed) => (f.frame as string) === 'odom';
 
 /** 조종 논리 하나(조종권·키·누름 단추·deadman 0·STOP·잠금 해제·자세) — 작은 패널(ServerDrive)과 PC 로봇 탭 세 칸 화면(pcdrive.tsx)이 같이 쓴다.
  *  한 화면에 하나만 붙인다(키·조종권이 하나). esc = Esc 를 눌렀을 때(패널의 전체화면 닫기) */
@@ -408,7 +406,7 @@ export function ServerDrive({ c, r, inline }: { c: Pick<Ctx, 'user'>; r: Robot; 
     {unlock}
     {!full && inline && pad}
     {!full && control}
-    <button type="button" className="btn pri" data-sd-open onClick={open(stacked(feeds.lidar) ? 'lidar' : 'rgb')}>조종 화면 열기 — 카메라·라이다·조작부</button>
+    <button type="button" className="btn pri" data-sd-open onClick={open((feeds.lidar.frame as string) === 'odom' ? 'lidar' : 'rgb')}>조종 화면 열기 — 카메라·라이다·조작부</button>
     {notes}
     {full && <div role="dialog" aria-modal="true" aria-label={`${BIG_NAME[full]} 전체화면`} data-sd-full ref={dlg} onKeyDown={trapTab}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)', overflow: 'hidden' }}>

@@ -207,7 +207,7 @@ function FleetMap({ robots, sel, cancel }: { robots: Robot[]; sel?: string; canc
       : places.length > 1 && <div className="fh-row" role="group" aria-label="층">{places.map((p) => <button key={p.floor.id} type="button" className="btn" aria-pressed={p === cur} onClick={() => setPick(p.floor.id)}>
       {many ? `${p.building.name} ${p.floor.name}` : p.floor.name}</button>)}</div>}
     {cur?.floor.approved_version_id ? <Marked key={cur.floor.approved_version_id} id={cur.floor.approved_version_id} robots={robots} sel={sel} cancel={cancel} />
-      : cur ? <p className="lv-note">아직 지도가 없습니다.</p>
+      : cur ? <p className="lv-note">아직 지도가 없습니다. 지도 탭에서 지도를 만들어 주세요.</p>
       : t.tree && <p className="lv-note">등록된 층이 없습니다. 지도 탭에서 장소·층을 만들면 여기에 보입니다.</p>}
     {t.err && <div className="fh-row"><p className="fh-msg" role="alert">층 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
     {!t.tree && !t.err && <p className="lv-note" role="status">층 목록을 불러오는 중…</p>}

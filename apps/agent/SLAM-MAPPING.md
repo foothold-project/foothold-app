@@ -70,14 +70,13 @@ tile·grid·bundle의 `floor_z`는 revision의 첫 유효 scan에 대응하는 p
 ## 검사와 남은 범위
 
 ```sh
-npm exec --yes --package=typescript@5.7.3 -- tsc apps/web/src/occgrid.ts --target ES2020 --module commonjs --outDir /tmp/slam-reference
-FH_OCCGRID_JS=/tmp/slam-reference/occgrid.js PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_slam_mapping.py
+PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_slam_mapping.py   # node 가 있으면 fixtures/occgrid_reference.cjs(옛 웹 occgrid.ts 사본)와 Int8 격자 대조
 PYTHONPATH=apps/agent python3 apps/agent/tools/benchmark_slam.py
 PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests
 PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_raw_recording.py
 ```
 
-계약 통합 전에는 PR #476의 models.py·mapping_sources.py를 같은 임시 폴더에 추출하고 `FH_SLAM_CONTRACT_MODULE`을 지정한다. 모의 시험은 실제 웹 코드와 전체 Int8 격자 동등성, 음수 좌표, 최종 판 교체, tile 분할/재시도, 기본 서비스 발행 0, 소유한 서비스만 종료, 느린 서비스/HTTP/계산 중 STOP을 검사한다. 실제 DDS나 systemctl은 실행하지 않는다.
+계약 통합 전에는 PR #476의 models.py·mapping_sources.py를 같은 임시 폴더에 추출하고 `FH_SLAM_CONTRACT_MODULE`을 지정한다. 모의 시험은 옛 웹 occgrid.ts 사본(fixtures/occgrid_reference.cjs)과 전체 Int8 격자 동등성, 음수 좌표, 최종 판 교체, tile 분할/재시도, 기본 서비스 발행 0, 소유한 서비스만 종료, 느린 서비스/HTTP/계산 중 STOP을 검사한다. 실제 DDS나 systemctl은 실행하지 않는다.
 
 이 PC(Intel i7-10750H, x86_64, Python 3.12.3, NumPy 1.26.4)의 공통 계산기 측정: 합성 10만 점 ×50판, 8,000점 상한·30 ms 예산. 투영 p50/p95/max 30.214/30.469/30.699 ms, 광선 31.377/32.819/41.487 ms(전체 시험과 동시 실행). Jetson 측정이 아니다. 통합 커밋 fe63f145의 agent·카메라 전체는 3,592 통과·기존 실패 12개·10 건너뜀이며, 새 지도·서비스·구형 명령 호환 시험은 27개 통과했다. 기존 실패는 웹 코드 추출의 bumpInputs 누락(phone 7개·speed 5개)으로 변경 전 소스에서도 재현했고 이 PR에서 고치지 않았다. 정확한 검사 명령·커밋은 PR 본문에 기록한다.
 
