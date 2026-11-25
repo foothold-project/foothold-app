@@ -76,6 +76,7 @@ def test_start_ack_sequence_revision_and_motion_independence(setup):
     assert current(s)['status'] == 'RUNNING'
     assert current(s)['voxels']['added'] == [[-1, 2, 3]]
     assert current(s)['times']['first_data_at']
+    assert current(s)['times']['start_ack_at']
     report(s, initial, status='FAILED', phase='FAILED', voxels=delta)  # duplicate seq ignored
     assert current(s)['status'] == 'RUNNING'
     report(s, initial, update_seq=2, revision=2, voxels={**delta, 'seq': 2, 'revision': 2, 'reset': False})
@@ -125,6 +126,12 @@ def test_pair_roundtrip_retries_hash_and_cancel(setup):
         assert version.resolution == .05 and version.origin_x == -2
         image = db.get(Upload, version.upload_id)
         assert image.metadata_json['uslam_bundle']['frame_id'] == 'uslam_map'
+    # Late stop acknowledgement does not replace either saved artifact.
+    report(s, save, status='FINALIZING', phase='ROBOT_SAVED', update_seq=10)
+    late = current(s)
+    assert late['status'] == 'SAVED' and late['robot_save'] == 'ROBOT_SAVED'
+    assert late['map_version_id'] == saved['map_version_id'] and late['times']['save_ack_at']
+    assert post_bundle(s, {**body, 'robot_save': 'ROBOT_SAVED'}).json()['map_version_id'] == saved['map_version_id']
     next_session = start(s)['session_id']
     action(s, 'save', next_session)
     action(s, 'cancel', next_session)
@@ -241,6 +248,8 @@ def test_tiles_persist_paginate_catchup_and_reset(setup):
     assert delta['tiles'][1]['tile_seq'] == 2 and delta['tiles'][1]['cells'][0] == 2
     report(s, initial, update_seq=4, tiles=[tile(0, 1, 0)])
     assert http.get(url, headers=headers, params={'revision': 1, 'since': 2}).json()['tiles'][1]['cells'][0] == 2
+    report(s, initial, update_seq=5, tiles=[{**tile(0, 3), 'frame_id': 'wrong'}])
+    assert current(s)['update_seq'] == 4
     # Durable recovery uses a fresh Mapping object, no in-memory tile cache.
     from apps.server.fh_server.mapping import Mapping
     replacement = Mapping(rt, rt.mapping.fail)
@@ -252,3 +261,58 @@ def test_tiles_persist_paginate_catchup_and_reset(setup):
     assert [t['x'] for t in fresh['tiles']] == [7]
     assert http.get(url, headers=auth(http, 'two'), params={'revision': 2}).status_code == 403
     assert not rt.field_approved(rid)
+
+
+def test_bundle_rechecks_rotated_token_and_changed_base(setup, monkeypatch):
+    from apps.server.fh_server.models import Floor
+    from apps.server.fh_server.security import digest
+    s = setup
+    initial = start(s)
+    sid = initial['session_id']
+    action(s, 'save', sid)
+    original = uslam_storage.encode
+    def rotate(bundle):
+        result = original(bundle)
+        with Session(s[-1]) as db:
+            db.get(Robot, s[3]).agent_token_hash = digest('replacement-test-token')
+            db.commit()
+        return result
+    with monkeypatch.context() as patch:
+        patch.setattr(uslam_storage, 'encode', rotate)
+        assert post_bundle(s, bundle(sid)).status_code == 403
+    with Session(s[-1]) as db:
+        db.get(Robot, s[3]).agent_token_hash = digest('mapping-token')
+        db.commit()
+    assert post_bundle(s, bundle(sid)).status_code == 201
+    second = start(s)['session_id']
+    action(s, 'save', second)
+    with Session(s[-1]) as db:
+        db.get(Floor, s[2]).approved_version_id = None
+        db.commit()
+    assert post_bundle(s, bundle(second)).status_code == 409
+
+
+def test_cross_robot_and_organization_progress_rejected(setup, seeded):
+    s = setup
+    initial = start(s)
+    http, headers, floor, rid, _, _, _ = s
+    foreign = str(seeded['robots']['foreign'])
+    assert http.post(P + f'/robots/{foreign}/slam/start', headers=headers,
+        json={'floor_id': floor}).status_code == 404
+    assert http.post(P + f'/agent/robots/{rid}/slam/{initial["session_id"]}/progress',
+        headers={'authorization': 'Bearer ' + foreign}, json={}).status_code == 403
+
+
+def test_unknown_save_can_preserve_pair_and_accept_late_ack(setup):
+    s = setup
+    initial = start(s)
+    sid = initial['session_id']
+    save = action(s, 'save', sid).json()
+    report(s, save, status='UNKNOWN', phase='UNKNOWN', update_seq=1)
+    assert current(s)['status'] == 'UNKNOWN'
+    report(s, save, status='RUNNING', phase='STARTED', update_seq=2)
+    assert current(s)['status'] == 'UNKNOWN'
+    response = post_bundle(s, bundle(sid))
+    assert response.status_code == 201 and response.json()['robot_save'] == 'UNKNOWN'
+    report(s, save, status='FINALIZING', phase='ROBOT_SAVED', update_seq=3)
+    assert current(s)['status'] == 'SAVED' and current(s)['robot_save'] == 'ROBOT_SAVED'

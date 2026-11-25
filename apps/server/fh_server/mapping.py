@@ -1,4 +1,4 @@
-"""Operator-owned read-only acquisition. No robot output, leases or simulator calls."""
+"""Owner-authorized SLAM sessions and observation uploads, independent of movement leases."""
 import asyncio
 import json
 from pathlib import Path
@@ -95,10 +95,14 @@ class Mapping:
             return False
 
     def forwarded(self, rid, body):
+        from .api import lock_organization
         with self.realtime.run_factory() as db:
+            lock_organization(db, self.realtime.settings.org_id)
             row = db.get(MappingSession, UUID(body['session_id']))
             if row and row.org_id == self.realtime.settings.org_id and str(row.robot_id) == rid:
                 server_time(row, 'command_forwarded_at')
+                if body['op'] in ('start', 'save'):
+                    server_time(row, body['op'] + '_forwarded_at')
                 db.commit()
 
     def dispatch(self, row, op):
@@ -122,7 +126,7 @@ class Mapping:
         self.realtime.put(peer, body)
 
     def report(self, rid, msg):
-        if len(msg.model_dump_json().encode()) > 65536:
+        if len(msg.model_dump_json(exclude_unset=True).encode()) > C.MAPPING_REPORT_BYTES:
             return
         from .api import lock_organization
         with self.realtime.run_factory() as db:
@@ -130,7 +134,7 @@ class Mapping:
             row = db.get(MappingSession, msg.session_id)
             if (row is None or row.org_id != self.realtime.settings.org_id
                     or str(row.robot_id) != rid or row.floor_id != msg.floor_id
-                    or row.status in ('SAVED', 'CANCELLED') or msg.status == 'SAVED'):
+                    or row.status == 'CANCELLED' or msg.status == 'SAVED'):
                 return
             user = db.get(User, row.owner_id)
             owner_scope(db, row.org_id, row.robot_id, user, self.fail, row.floor_id)
@@ -140,14 +144,28 @@ class Mapping:
                         or msg.update_seq is None or msg.update_seq <= previous.get('update_seq', 0)
                         or msg.revision is None or msg.revision < previous.get('revision', 1)):
                     return
-                if row.status in ('SAVING', 'FINALIZING') and msg.status in ('STARTING', 'RUNNING'):
+                if row.status == 'SAVED':
+                    # A late robot acknowledgement updates only its separate
+                    # outcome; immutable map artifacts and SAVED never regress.
+                    outcome = 'ROBOT_SAVED' if msg.phase == 'ROBOT_SAVED' else msg.robot_save
+                    if outcome is None or msg.revision != previous['revision']:
+                        return
+                    if previous.get('robot_save') == 'ROBOT_SAVED' and outcome != 'ROBOT_SAVED':
+                        return
+                    row.progress = {**previous, 'robot_save': outcome, 'phase': outcome, 'update_seq': msg.update_seq}
+                    if outcome == 'ROBOT_SAVED' and not (row.progress.get('times') or {}).get('save_ack_at'):
+                        server_time(row, 'save_ack_at')
+                    db.commit()
+                    return
+                save_requested = (previous.get('times') or {}).get('save_requested_at') is not None
+                if save_requested and msg.status in ('STARTING', 'RUNNING'):
                     return
                 allowed = {'STARTING': ('START_REQUESTED',), 'RUNNING': ('STARTED',),
                     'SAVING': ('SAVE_REQUESTED',), 'FINALIZING': ('ROBOT_SAVED',),
                     'UNKNOWN': ('UNKNOWN',), 'FAILED': ('FAILED',)}
                 if msg.phase not in allowed.get(msg.status, ()):
                     return
-                if msg.status in ('SAVING', 'FINALIZING') and previous.get('phase') not in ('SAVE_REQUESTED', 'ROBOT_SAVED'):
+                if msg.status in ('SAVING', 'FINALIZING') and not save_requested:
                     return
                 if msg.voxels and (msg.voxels.revision != msg.revision
                         or msg.voxels.seq != msg.update_seq
@@ -157,9 +175,17 @@ class Mapping:
                 if any(tile.revision != msg.revision for tile in tiles):
                     return
                 frames = [item.frame_id for item in (msg.voxels, msg.grid, msg.odom, *tiles) if item is not None]
-                prior_frame = next((previous[k]['frame_id'] for k in ('voxels', 'grid', 'odom') if previous.get(k)), None)
+                anchor = db.scalar(select(MappingTile).where(MappingTile.session_id == row.id,
+                    MappingTile.org_id == row.org_id).limit(1))
+                prior_frame = next((previous[k]['frame_id'] for k in ('voxels', 'grid', 'odom') if previous.get(k)),
+                    anchor.frame_id if anchor else None)
                 new_revision = msg.revision > previous.get('revision', 1)
                 if len(set(frames)) > 1 or (not new_revision and prior_frame and frames and prior_frame != frames[0]) or (msg.grid and msg.grid.revision != msg.revision):
+                    return
+                heights = [tile.floor_z for tile in tiles]
+                if msg.grid:
+                    heights.append(msg.grid.floor_z)
+                if (len(set(heights)) > 1 or (not new_revision and anchor and heights and anchor.floor_z != heights[0])):
                     return
                 if new_revision:
                     db.execute(delete(MappingTile).where(MappingTile.session_id == row.id,
@@ -185,14 +211,19 @@ class Mapping:
                 times = dict(previous.get('times') or {})
                 if msg.times:
                     times.update(msg.times.model_dump(mode='json', exclude_none=True,
-                        exclude={'server_received_at', 'start_requested_at', 'save_requested_at', 'command_forwarded_at', 'saved_at'}))
+                        exclude={'server_received_at', 'start_requested_at', 'save_requested_at', 'command_forwarded_at',
+                            'start_forwarded_at', 'save_forwarded_at', 'start_ack_at', 'save_ack_at', 'saved_at'}))
                 received = now().isoformat()
+                if msg.phase in ('STARTED', 'ROBOT_SAVED'):
+                    times.setdefault('start_ack_at' if msg.phase == 'STARTED' else 'save_ack_at', received)
                 if msg.voxels or msg.grid or msg.odom or tiles:
                     times.setdefault('first_data_at', received)
                     times['last_data_at'] = received
                 row.progress = {**previous, **supplied, 'times': times}
                 row.status = msg.status
                 db.commit()
+                return
+            if row.status == 'SAVED':
                 return
             # The REST request owns SAVING; late RUNNING may never resurrect it.
             if msg.status == 'RUNNING' and row.status != 'RUNNING':

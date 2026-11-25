@@ -1122,6 +1122,10 @@ class MappingTimes(Contract):
     start_requested_at: UTCDateTime | None = None
     save_requested_at: UTCDateTime | None = None
     command_forwarded_at: UTCDateTime | None = None
+    start_forwarded_at: UTCDateTime | None = None
+    save_forwarded_at: UTCDateTime | None = None
+    start_ack_at: UTCDateTime | None = None
+    save_ack_at: UTCDateTime | None = None
     agent_received_at: UTCDateTime | None = None
     command_published_at: UTCDateTime | None = None
     robot_ack_at: UTCDateTime | None = None

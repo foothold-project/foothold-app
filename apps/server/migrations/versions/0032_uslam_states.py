@@ -37,6 +37,11 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("""DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM mapping_tiles LIMIT 1) THEN
+            RAISE EXCEPTION 'Retire live SLAM tiles before downgrade';
+        END IF;
+    END $$""")
     # The check constraint rejects rows in new states atomically: never erase evidence.
     states("'RUNNING','SAVING','SAVED','FAILED','CANCELLED'", "'RUNNING','SAVING','FAILED'")
     op.drop_table('mapping_tiles')

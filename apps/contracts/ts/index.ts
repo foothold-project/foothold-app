@@ -994,6 +994,10 @@ export interface MappingTimes {
   start_requested_at?: string | null;
   save_requested_at?: string | null;
   command_forwarded_at?: string | null;
+  start_forwarded_at?: string | null;
+  save_forwarded_at?: string | null;
+  start_ack_at?: string | null;
+  save_ack_at?: string | null;
   agent_received_at?: string | null;
   command_published_at?: string | null;
   robot_ack_at?: string | null;

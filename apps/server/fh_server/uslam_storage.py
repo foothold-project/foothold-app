@@ -30,8 +30,7 @@ def encode(bundle):
     png = gray_png(grid.width, grid.height, pixels)
     metadata = grid.model_dump(mode='json', exclude={'cells'})
     fingerprint = dict(revision=bundle.revision, frame_id=bundle.frame_id, resolution=.05,
-        grid=metadata, voxels_sha256=sha256(cells).hex(), grid_sha256=sha256(raster).hex(),
-        robot_save=bundle.robot_save)
+        grid=metadata, voxels_sha256=sha256(cells).hex(), grid_sha256=sha256(raster).hex())
     digest = sha256(json.dumps(fingerprint, sort_keys=True, separators=(',', ':')).encode()).hex()
     return cells, raster, png, fingerprint, digest
 
@@ -53,7 +52,7 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     manifest = dict(schema='fh_uslam_bundle/1', name=row.progress['name'], session_id=str(row.id),
         **fingerprint, sha256=digest, voxels_path=str(folder / 'uslam-voxels.bin'),
         grid_path=str(folder / 'uslam-grid.bin'), voxel_count=len(cells) // RECORD.size,
-        floor_z=grid.floor_z, axis='XYZ', source_translation=[0, 0, 0])
+        floor_z=grid.floor_z, axis='XYZ', source_translation=[0, 0, 0], robot_save=bundle.robot_save)
     metadata = dict(resolution=.05, origin=list(grid.origin), negate=0, occupied_thresh=.65,
         free_thresh=.2, uslam_bundle=manifest)
     artifacts = {'uslam-voxels.bin': cells, 'uslam-grid.bin': raster, 'image.png': png,
@@ -84,7 +83,8 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     times = dict(row.progress.get('times') or {})
     if bundle.times:
         times.update(bundle.times.model_dump(mode='json', exclude_none=True,
-            exclude={'server_received_at', 'start_requested_at', 'save_requested_at', 'command_forwarded_at', 'saved_at'}))
+            exclude={'server_received_at', 'start_requested_at', 'save_requested_at', 'command_forwarded_at',
+                'start_forwarded_at', 'save_forwarded_at', 'start_ack_at', 'save_ack_at', 'saved_at'}))
     from .models import now
     received = now().isoformat()
     times.setdefault('first_data_at', received)
@@ -118,8 +118,8 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
         _, floor = owner_scope(db, settings.org_id, robot_id, user, fail, row.floor_id)
         if row.status != 'SAVED':
             if (not (row.progress.get('times') or {}).get('save_requested_at')
-                    or row.status not in ('SAVING', 'FINALIZING', 'FAILED')
-                    or row.progress.get('phase') not in ('SAVE_REQUESTED', 'ROBOT_SAVED', 'FAILED')):
+                    or row.status not in ('SAVING', 'FINALIZING', 'FAILED', 'UNKNOWN')
+                    or row.progress.get('phase') not in ('SAVE_REQUESTED', 'ROBOT_SAVED', 'FAILED', 'UNKNOWN')):
                 fail(409, 'MAPPING_STATE_CONFLICT', '지도 저장을 먼저 요청해 주세요.')
             if floor.approved_version_id != row.base_version_id:
                 fail(409, 'STALE', '층의 지도 판이 바뀌었습니다.')
@@ -207,13 +207,18 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
                     if row.status != 'SAVED':
                         publish(db, row, user, floor, bundle, encoded, root, fail, event, created)
                         db.commit()
+                    elif bundle.robot_save == 'ROBOT_SAVED' and row.progress.get('robot_save') != 'ROBOT_SAVED':
+                        row.progress = {**row.progress, 'robot_save': 'ROBOT_SAVED', 'phase': 'ROBOT_SAVED'}
+                        from .mapping import server_time
+                        server_time(row, 'save_ack_at')
+                        db.commit()
             except BaseException as exc:
                 for path in created:
                     path.unlink(missing_ok=True)
                 with factory() as db:
                     lock_organization(db, settings.org_id)
                     row = db.get(MappingSession, session_id)
-                    if row and row.org_id == settings.org_id and row.status in ('SAVING', 'FINALIZING'):
+                    if row and row.org_id == settings.org_id and row.status in ('SAVING', 'FINALIZING', 'UNKNOWN'):
                         row.status = 'FAILED'
                         row.progress = {**row.progress, 'error_code': 'MAPPING_SAVE_FAILED',
                             'reason': '지도를 저장하지 못했습니다. 같은 판으로 다시 저장해 주세요.'}
