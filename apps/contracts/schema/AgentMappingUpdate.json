@@ -1,5 +1,231 @@
 {
   "$defs": {
+    "MappingGrid": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "type": "integer"
+          },
+          "maxItems": 4000000,
+          "title": "Cells",
+          "type": "array"
+        },
+        "floor_z": {
+          "title": "Floor Z",
+          "type": "number"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "origin": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "resolution": {
+          "const": 0.05,
+          "default": 0.05,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "frame_id",
+        "origin",
+        "floor_z",
+        "width",
+        "height",
+        "cells"
+      ],
+      "title": "MappingGrid",
+      "type": "object"
+    },
+    "MappingGridTile": {
+      "additionalProperties": false,
+      "description": "64x64 world-aligned cells, lower left at (x*3.2,y*3.2).",
+      "properties": {
+        "cells": {
+          "items": {
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "type": "integer"
+          },
+          "maxItems": 4096,
+          "minItems": 4096,
+          "title": "Cells",
+          "type": "array"
+        },
+        "floor_z": {
+          "title": "Floor Z",
+          "type": "number"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "resolution": {
+          "const": 0.05,
+          "default": 0.05,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "size": {
+          "const": 64,
+          "default": 64,
+          "title": "Size",
+          "type": "integer"
+        },
+        "tile_seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Tile Seq",
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 3124,
+          "minimum": -3125,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 3124,
+          "minimum": -3125,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "tile_seq",
+        "x",
+        "y",
+        "frame_id",
+        "floor_z",
+        "cells"
+      ],
+      "title": "MappingGridTile",
+      "type": "object"
+    },
+    "MappingOdom": {
+      "additionalProperties": false,
+      "properties": {
+        "display_stamp": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Stamp"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "provider": {
+          "default": "point_lio",
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "source": {
+          "default": "/aft_mapped_to_init",
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "stamp": {
+          "$ref": "#/$defs/MappingStamp"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "frame_id",
+        "stamp",
+        "x",
+        "y",
+        "z",
+        "yaw"
+      ],
+      "title": "MappingOdom",
+      "type": "object"
+    },
     "MappingPreview": {
       "additionalProperties": false,
       "properties": {
@@ -78,12 +304,332 @@
       ],
       "title": "MappingPreview",
       "type": "object"
+    },
+    "MappingStamp": {
+      "additionalProperties": false,
+      "properties": {
+        "nanosec": {
+          "maximum": 999999999,
+          "minimum": 0,
+          "title": "Nanosec",
+          "type": "integer"
+        },
+        "sec": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Sec",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sec",
+        "nanosec"
+      ],
+      "title": "MappingStamp",
+      "type": "object"
+    },
+    "MappingTimes": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_received_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Received At"
+        },
+        "command_forwarded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command Forwarded At"
+        },
+        "command_published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command Published At"
+        },
+        "first_data_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Data At"
+        },
+        "last_data_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Data At"
+        },
+        "save_ack_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Save Ack At"
+        },
+        "save_forwarded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Save Forwarded At"
+        },
+        "save_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Save Requested At"
+        },
+        "saved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved At"
+        },
+        "server_received_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Received At"
+        },
+        "slam_ack_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slam Ack At"
+        },
+        "start_ack_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Ack At"
+        },
+        "start_forwarded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Forwarded At"
+        },
+        "start_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Requested At"
+        }
+      },
+      "title": "MappingTimes",
+      "type": "object"
+    },
+    "MappingVoxels": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "items": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "maximum": 200000,
+                "minimum": -200000,
+                "type": "integer"
+              },
+              {
+                "maximum": 200000,
+                "minimum": -200000,
+                "type": "integer"
+              },
+              {
+                "maximum": 200000,
+                "minimum": -200000,
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "maxItems": 2000,
+          "title": "Added",
+          "type": "array"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "removed": {
+          "items": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "maximum": 200000,
+                "minimum": -200000,
+                "type": "integer"
+              },
+              {
+                "maximum": 200000,
+                "minimum": -200000,
+                "type": "integer"
+              },
+              {
+                "maximum": 200000,
+                "minimum": -200000,
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "maxItems": 2000,
+          "title": "Removed",
+          "type": "array"
+        },
+        "reset": {
+          "default": false,
+          "title": "Reset",
+          "type": "boolean"
+        },
+        "resolution": {
+          "const": 0.05,
+          "default": 0.05,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "seq",
+        "frame_id"
+      ],
+      "title": "MappingVoxels",
+      "type": "object"
     }
   },
   "$id": "fh-app/1/AgentMappingUpdate",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Command Id"
+    },
     "distance_m": {
       "default": 0,
       "maximum": 1000000,
@@ -111,10 +657,34 @@
       "default": null,
       "title": "Error Code"
     },
+    "final_source": {
+      "anyOf": [
+        {
+          "const": "glim",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Final Source"
+    },
     "floor_id": {
       "format": "uuid",
       "title": "Floor Id",
       "type": "string"
+    },
+    "grid": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MappingGrid"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "map_version_id": {
       "anyOf": [
@@ -128,6 +698,63 @@
       ],
       "default": null,
       "title": "Map Version Id"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "odom": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MappingOdom"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "phase": {
+      "anyOf": [
+        {
+          "enum": [
+            "START_REQUESTED",
+            "STARTED",
+            "SAVE_REQUESTED",
+            "SLAM_SAVED",
+            "UNKNOWN",
+            "FAILED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Phase"
+    },
+    "pipeline": {
+      "anyOf": [
+        {
+          "const": "point_lio+glim",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pipeline"
     },
     "point_count": {
       "default": 0,
@@ -160,15 +787,69 @@
       "default": null,
       "title": "Reason"
     },
+    "revision": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
     "session_id": {
       "format": "uuid",
       "title": "Session Id",
       "type": "string"
     },
+    "slam_save": {
+      "anyOf": [
+        {
+          "enum": [
+            "SLAM_SAVED",
+            "UNKNOWN",
+            "FAILED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Slam Save"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "legacy",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
+    },
     "status": {
       "enum": [
+        "STARTING",
         "RUNNING",
         "SAVING",
+        "FINALIZING",
+        "UNKNOWN",
         "SAVED",
         "FAILED",
         "CANCELLED"
@@ -194,6 +875,75 @@
       ],
       "default": null,
       "title": "Terrain Id"
+    },
+    "terrain_status": {
+      "anyOf": [
+        {
+          "enum": [
+            "PENDING",
+            "READY",
+            "FAILED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Terrain Status"
+    },
+    "tiles": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/MappingGridTile"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tiles"
+    },
+    "times": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MappingTimes"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "update_seq": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Update Seq"
+    },
+    "voxels": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MappingVoxels"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

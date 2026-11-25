@@ -1,6 +1,7 @@
 """Same placeholder boundary in SQL predicates, database migration and confirm."""
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.schema import CreateIndex
@@ -55,7 +56,7 @@ def test_mac_index_upgrade_downgrade_and_duplicate_downgrade_failure(monkeypatch
                     conn.execute(text("INSERT INTO robots(org_id,name,model,agent_token_hash,serial) VALUES (:org,'other real','unitree_go2',decode('03','hex'),'4294901759-17')"), {'org':org})
             with pytest.raises(IntegrityError): command.downgrade(config, '0030')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0031'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == ScriptDirectory.from_config(config).get_current_head()
                 assert conn.scalar(text("SELECT count(*) FROM robots WHERE serial='4294901760-17'")) == 2
             # Failed transactional downgrade leaves the new index usable.
             command.upgrade(config, 'head')

@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "MappingStamp": {
+      "additionalProperties": false,
+      "properties": {
+        "nanosec": {
+          "maximum": 999999999,
+          "minimum": 0,
+          "title": "Nanosec",
+          "type": "integer"
+        },
+        "sec": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Sec",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sec",
+        "nanosec"
+      ],
+      "title": "MappingStamp",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MappingOdom",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "display_stamp": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Display Stamp"
+    },
+    "frame_id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Frame Id",
+      "type": "string"
+    },
+    "provider": {
+      "default": "point_lio",
+      "enum": [
+        "point_lio",
+        "glim"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "source": {
+      "default": "/aft_mapped_to_init",
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "stamp": {
+      "$ref": "#/$defs/MappingStamp"
+    },
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "title": "Yaw",
+      "type": "number"
+    },
+    "z": {
+      "title": "Z",
+      "type": "number"
+    }
+  },
+  "required": [
+    "frame_id",
+    "stamp",
+    "x",
+    "y",
+    "z",
+    "yaw"
+  ],
+  "title": "MappingOdom",
+  "type": "object"
+}

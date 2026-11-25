@@ -61,7 +61,13 @@ class Feedback:
         if value is not None:
             value.remote = self.remote
             value.stop_feedback = lambda: self.stop_snapshot(value)
+            value.stop_feedback_reason = self.stop_failure_reason
             value.latest_sport_sequence = self.latest_sport_sequence
+
+    def stop_failure_reason(self):
+        """Fixed diagnostic vocabulary; never include a robot identity."""
+        with self._lock:
+            return '기체' if self._fault else '만료'
 
     def latest_sport_sequence(self):
         """Last accepted SportModeState, even when LowState has aged out."""

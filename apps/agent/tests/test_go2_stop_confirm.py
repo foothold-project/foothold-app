@@ -112,7 +112,9 @@ def test_repeated_generation_is_bounded_on_both_lanes(confirmed):
         assert counts == [1, 1]
     else:
         assert all(4 <= count <= 6 for count in counts)
-    assert sum(method == 'Move' for method, _ in normal.calls) == 100
+    # Standing now holds the entire output after the first per-lane STOP;
+    # without measured confirmation the existing zero stream is unchanged.
+    assert sum(method == 'Move' for method, _ in normal.calls) == (1 if confirmed else 100)
     assert sink.error is None
 
 
