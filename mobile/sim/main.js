@@ -930,7 +930,9 @@ async function main() {
   };
 
   // ── 따라가기: 기존 돌리기. 탑뷰: 끌어 이동·가리킨 곳 확대, 중심은 프레임 사이 보존.
-  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0, topX: null, topY: null };
+  // 따라가기 기본 = 팀장이 11/22 04:40 화면에서 맞춘 값 (몸통 중심에서 뒤로 1.10 m · 위로 0.40 m · 내려다보는 각 약 20°).
+  // Go2 순정 앱처럼 엉덩이 뒤 위에서 앞을 본다. 사용자가 돌리기 · 끌기 · 확대로 바꾼 값은 그대로.
+  const view = { yaw: 0, pitch: Math.atan2(0.40, 1.10), dist: Math.hypot(0.40, 1.10), topH: 1, topRot: 0, topX: null, topY: null };
   let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
   let startPicking = false, startPickReason = '', startPickEpoch = 0, startPickBusy = false;
   const cancelStartPick = () => {
@@ -1090,6 +1092,15 @@ async function main() {
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
+  // 따라가기 카메라는 몸통 방향 (yaw) 만 따른다 (11/22 팀장 · 카메라가 돌던 문제). 몸통 앞 축을 바닥에 내려 잰 방향이라 roll · pitch 가 섞이지 않고,
+  // 몸통 위 축이 60° 넘게 누우면 (넘어짐 · 뒤집힘) 방향을 마지막 값에 고정한다 — 쓰러질 때 카메라가 돌지 않게.
+  let camYaw = null;
+  const followYaw = () => {
+    const [w, x, y, z] = [d.qpos[3], d.qpos[4], d.qpos[5], d.qpos[6]];
+    const upright = 1 - 2 * (x * x + y * y) >= 0.5, hx = 1 - 2 * (y * y + z * z), hy = 2 * (x * y + w * z);
+    if (camYaw === null || (upright && Math.hypot(hx, hy) > 1e-3)) camYaw = Math.atan2(hy, hx);
+    return camYaw;
+  };
   const timingUI = () => {
     const timing = clock.stats;
     st.stepsBehind = timing.drops;
@@ -1200,8 +1211,10 @@ async function main() {
       camera.near = 0.1; // Roof-free assets; the whole site stays inside the orthographic frustum.
     } else {
       renderer.setViewport(0, 0, innerWidth, innerHeight); vp = [0, 0, innerWidth, innerHeight];
-      const a = yawOf() + view.yaw, h = view.dist * Math.cos(view.pitch);
-      camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx, by, bz);
+      const a = followYaw() + view.yaw, h = view.dist * Math.cos(view.pitch);
+      // 가까이 붙을수록 몸 앞쪽 (최대 1.2 m) 을 본다 — 멀리 빼면 예전처럼 몸을 본다 (11/22 팀장 맞춤과 같은 셈)
+      const ahead = clamp(1.6 - view.dist, 0, 1.2);
+      camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx + Math.cos(a) * ahead, by + Math.sin(a) * ahead, bz);
       camera.near = 0.05;
     }
     robotLocator.visible = top;
