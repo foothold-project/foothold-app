@@ -1,5 +1,11 @@
 """Entrypoint regression checks using a disposable PostgreSQL, without Docker."""
 import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+from textwrap import dedent
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -14,6 +20,83 @@ from apps.server.fh_server.api import Settings, create_app
 from apps.server.fh_server.models import User
 from apps.server.fh_server.security import verify_password
 from apps.server.tests.postgres import temporary_postgres
+
+
+@pytest.fixture
+def server_image_tree(tmp_path):
+    """Stage only the Dockerfile's COPY inputs, never the host import tree.
+
+    This checks packaged source paths without building an image. It does not
+    implement Docker's build-context filtering or execute RUN instructions.
+    Reject COPY syntax we cannot stage rather than silently weakening the test.
+    """
+    repository = Path(__file__).resolve().parents[1]
+    tree = tmp_path / 'workspace'
+    tree.mkdir()
+    for line in (repository / 'docker/server.Dockerfile').read_text().splitlines():
+        parts = shlex.split(line, comments=True)
+        if not parts or parts[0].upper() != 'COPY':
+            continue
+        sources, destination = parts[1:-1], parts[-1]
+        assert sources and not destination.startswith('/')
+        assert all(not source.startswith(('/', '-', '[')) and
+                   not any(char in source for char in '*?') for source in sources)
+        for source in sources:
+            original = repository / source
+            target = tree / destination
+            assert original.resolve().is_relative_to(repository)
+            assert target.resolve().is_relative_to(tree)
+            if original.is_dir():
+                shutil.copytree(original, target, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns('__pycache__', '*.pyc',
+                                                             '.venv*', 'node_modules', 'dist'))
+            else:
+                if destination.endswith('/'):
+                    target /= original.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(original, target)
+    return tree
+
+
+def test_image_tree_upgrade_head_and_repository_registration(server_image_tree, tmp_path):
+    # A fresh interpreter and -I prevent pytest's sys.path/PYTHONPATH from
+    # supplying missing repository files. Alembic adds only its staged root.
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith('FH_') and key not in ('PYTHONPATH', 'PYTHONHOME')}
+    env['FH_FILES_ROOT'] = str(tmp_path / 'files')
+    with temporary_postgres() as urls:
+        env['FH_MIGRATE_DATABASE_URL'] = urls['migrate']
+        result = subprocess.run(
+            [sys.executable, '-I', '-m', 'alembic', '-c', 'apps/server/alembic.ini',
+             'upgrade', 'head'], cwd=server_image_tree, env=env,
+            capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
+        # Check the runtime's second reader too; this never starts a simulator.
+        result = subprocess.run([sys.executable, '-I', '-c', dedent('''
+            import os
+            from pathlib import Path
+            import sys
+            sys.path.insert(0, str(Path.cwd()))
+
+            from alembic.config import Config
+            from alembic.script import ScriptDirectory
+            from sqlalchemy import create_engine, text
+            from apps.server.fh_server import floor_maps
+
+            assert Path(floor_maps.__file__).is_relative_to(Path.cwd())
+            meta, width, height = floor_maps.repository_registration('warehouse')
+            assert meta['connected_gt']['world_id'] == 'warehouse'
+            assert width > 0 and height > 0
+            heads = ScriptDirectory.from_config(Config('apps/server/alembic.ini')).get_heads()
+            engine = create_engine(os.environ['FH_MIGRATE_DATABASE_URL'])
+            try:
+                with engine.connect() as connection:
+                    assert set(connection.scalars(text('SELECT version_num FROM alembic_version'))) == set(heads)
+            finally:
+                engine.dispose()
+            ''')],
+            cwd=server_image_tree, env=env, capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.fixture
