@@ -26,7 +26,8 @@
           "type": "string"
         }
       ],
-      "default": "point_lio",
+      "default": "legacy",
+      "description": "Omitted source preserves legacy four-key commands; send point_lio explicitly for the Point-LIO/GLIM pipeline.",
       "title": "Source"
     }
   },

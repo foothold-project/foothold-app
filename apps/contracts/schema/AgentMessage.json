@@ -455,6 +455,17 @@
           ],
           "default": null
         },
+        "last_report_rejection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingReportRejection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "map_version_id": {
           "anyOf": [
             {
@@ -620,6 +631,7 @@
             "FINALIZING",
             "UNKNOWN",
             "SAVED",
+            "RECEIVED_ONLY",
             "FAILED",
             "CANCELLED"
           ],
@@ -651,7 +663,8 @@
               "enum": [
                 "PENDING",
                 "READY",
-                "FAILED"
+                "FAILED",
+                "SKIPPED_UNCONFIRMED_SAVE"
               ],
               "type": "string"
             },
@@ -2248,6 +2261,33 @@
         "path"
       ],
       "title": "MappingPreview",
+      "type": "object"
+    },
+    "MappingReportRejection": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 80,
+          "title": "Code",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 200,
+          "title": "Reason",
+          "type": "string"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "reason",
+        "received_at"
+      ],
+      "title": "MappingReportRejection",
       "type": "object"
     },
     "MappingStamp": {

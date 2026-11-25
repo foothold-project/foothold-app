@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from apps.contracts import models as C
-from apps.server.fh_server.models import MappingSession, Robot, Upload, MapVersion
+from apps.server.fh_server.models import Approval, Floor, MappingSession, Robot, Upload, MapVersion
 from apps.server.fh_server.realtime import Peer
 from apps.server.fh_server import mapping_storage
 from .test_maps import P, auth, maps  # noqa: F401
@@ -19,7 +19,7 @@ def start(s):
     http, headers, floor, rid, rt, peer, _ = s
     peer.last_rx = rt.clock()
     response = http.post(P + f'/robots/{rid}/slam/start', headers=headers,
-                         json={'floor_id': floor, 'name': '시험 방'})
+                         json={'floor_id': floor, 'name': '시험 방', 'source': 'point_lio'})
     assert response.status_code == 202, response.text
     return response.json()
 
@@ -52,6 +52,19 @@ def report(s, initial, **changes):
 def current(s):
     http, headers, _, rid, _, _, _ = s
     return http.get(P + f'/robots/{rid}/slam', headers=headers).json()
+
+
+def confirmed_bundle(s, save, monkeypatch):
+    monkeypatch.setenv('FH_MAPPING_GLIM_ODOM_TOPIC', '/configured/final_pose')
+    pose = dict(provider='glim', source='/configured/final_pose', frame_id='world_map',
+        stamp=dict(sec=123, nanosec=456), x=0, y=0, z=0, yaw=0)
+    reset = dict(revision=2, seq=1, reset=True, frame_id='world_map', added=[[0, 0, 0]])
+    assert report(s, save, source='glim', revision=2, update_seq=1, status='FINALIZING',
+        phase='SLAM_SAVED', voxels=reset, odom=pose).status_code == 202
+    body = bundle(save['session_id'])
+    body.update(source='glim', revision=2, slam_save='SLAM_SAVED', odom=pose)
+    body['grid']['revision'] = 2
+    return body
 
 
 def test_start_ack_sequence_revision_and_motion_independence(setup):
@@ -104,8 +117,8 @@ def test_pair_roundtrip_retries_hash_and_cancel(setup):
     response = post_bundle(s, body)
     assert response.status_code == 201, response.text
     saved = response.json()
-    assert saved['status'] == 'SAVED' and saved['slam_save'] == 'UNKNOWN'
-    assert saved['terrain_status'] == 'READY' and saved['terrain_id']
+    assert saved['status'] == 'RECEIVED_ONLY' and saved['slam_save'] == 'UNKNOWN'
+    assert saved['terrain_status'] == 'SKIPPED_UNCONFIRMED_SAVE' and saved['terrain_id'] is None
     assert saved['times']['saved_at'] and saved['times']['save_requested_at']
     # Reopening by a historical map version discovers its pair without local browser state.
     version_response = http.get(P + f'/map-versions/{saved["map_version_id"]}', headers=headers)
@@ -120,19 +133,24 @@ def test_pair_roundtrip_retries_hash_and_cancel(setup):
     manifest = http.get(prefix, headers=headers).json()
     assert manifest['bundle']['name'] == '시험 방'
     assert manifest['bundle']['resolution'] == .05
-    assert manifest['terrain']['source_translation']
+    assert manifest['terrain_id'] is None and 'terrain' not in manifest
     assert http.get(prefix + '/grid', headers=headers).content == bytes(body['grid']['cells'])
     assert len(http.get(prefix + '/voxels', headers=headers).content) == len(set(body['voxels'])) * 12
     assert http.get(prefix, headers=auth(http, 'two')).status_code == 403
     with Session(engine) as db:
         version = db.get(MapVersion, saved['map_version_id'])
         assert version.resolution == .05 and version.origin_x == -2
+        assert version.status == 'PENDING'
+        assert db.get(Floor, s[2]).approved_version_id is None
         image = db.get(Upload, version.upload_id)
         assert image.metadata_json['slam_bundle']['frame_id'] == 'world_map'
+        from apps.server.fh_server.voxel_links import same_annotation_raster
+        assert not same_annotation_raster(version, version, image)  # execution/inheritance still requires approval
     # Late stop acknowledgement does not replace either saved artifact.
     report(s, save, status='FINALIZING', phase='SLAM_SAVED', update_seq=10)
     late = current(s)
-    assert late['status'] == 'SAVED' and late['slam_save'] == 'SLAM_SAVED'
+    assert late['status'] == 'RECEIVED_ONLY' and late['slam_save'] == 'SLAM_SAVED'
+    assert late['terrain_status'] == 'SKIPPED_UNCONFIRMED_SAVE' and late['terrain_id'] is None
     assert late['map_version_id'] == saved['map_version_id'] and late['times']['save_ack_at']
     assert post_bundle(s, body).json()['map_version_id'] == saved['map_version_id']
     next_session = start(s)['session_id']
@@ -144,8 +162,8 @@ def test_pair_roundtrip_retries_hash_and_cancel(setup):
 def test_one_artifact_failure_pins_pair_and_optional_terrain_failure(setup, monkeypatch):
     s = setup
     sid = start(s)['session_id']
-    action(s, 'save', sid)
-    body = bundle(sid)
+    save = action(s, 'save', sid).json()
+    body = confirmed_bundle(s, save, monkeypatch)
     original = Path.open
     def broken(path, *args, **kwargs):
         if path.name == 'slam-grid.bin' and args and args[0] == 'xb':
@@ -171,6 +189,13 @@ def test_one_artifact_failure_pins_pair_and_optional_terrain_failure(setup, monk
     retried = post_bundle(s, body)
     assert retried.json()['map_version_id'] == response.json()['map_version_id']
     assert retried.json()['terrain_status'] == 'READY'
+    http, headers, floor, rid, _, _, _ = s
+    result = http.get(P + f'/robots/{rid}/slam/{sid}/bundle', headers=headers).json()
+    assert result['bundle']['completeness'] == 'SLAM_CONFIRMED'
+    assert result['terrain']['source_translation']
+    with Session(s[-1]) as db:
+        version = db.get(MapVersion, response.json()['map_version_id'])
+        assert version.status == 'APPROVED' and str(db.get(Floor, floor).approved_version_id) == str(version.id)
 
 
 def test_cancel_and_token_rotation_during_bundle_processing(setup, monkeypatch):
@@ -275,7 +300,8 @@ def test_bundle_rechecks_rotated_token_and_changed_base(setup, monkeypatch):
     s = setup
     initial = start(s)
     sid = initial['session_id']
-    action(s, 'save', sid)
+    save = action(s, 'save', sid).json()
+    body = confirmed_bundle(s, save, monkeypatch)
     original = mapping_storage.encode
     def rotate(bundle):
         result = original(bundle)
@@ -285,11 +311,11 @@ def test_bundle_rechecks_rotated_token_and_changed_base(setup, monkeypatch):
         return result
     with monkeypatch.context() as patch:
         patch.setattr(mapping_storage, 'encode', rotate)
-        assert post_bundle(s, bundle(sid)).status_code == 403
+        assert post_bundle(s, body).status_code == 403
     with Session(s[-1]) as db:
         db.get(Robot, s[3]).agent_token_hash = digest('mapping-token')
         db.commit()
-    assert post_bundle(s, bundle(sid)).status_code == 201
+    assert post_bundle(s, body).status_code == 201
     second = start(s)['session_id']
     action(s, 'save', second)
     with Session(s[-1]) as db:
@@ -326,8 +352,90 @@ def test_unknown_save_can_preserve_pair_and_accept_late_ack(setup):
     with Session(s[-1]) as db:
         assert db.get(MappingSession, sid).result['bundle']['completeness'] == 'RECEIVED_ONLY'
     report(s, save, status='FINALIZING', phase='SLAM_SAVED', update_seq=4)
-    assert current(s)['status'] == 'SAVED' and current(s)['slam_save'] == 'SLAM_SAVED'
+    assert current(s)['status'] == 'RECEIVED_ONLY' and current(s)['slam_save'] == 'SLAM_SAVED'
     assert '받은 범위' in current(s)['reason']
+
+
+@pytest.mark.parametrize('outcome', ['UNKNOWN', 'FAILED'])
+def test_unconfirmed_pair_keeps_previous_approved_map_and_never_converts_terrain(setup, monkeypatch, outcome):
+    from sqlalchemy import select
+    from .test_mapping import start as legacy_start, upload as legacy_upload
+    s = setup
+    old_sid = legacy_start(s).json()['session_id']
+    action(s, 'save', old_sid)
+    old_map = legacy_upload(s, old_sid).json()['map']['id']
+    initial = start(s)
+    save = action(s, 'save', initial['session_id']).json()
+    assert report(s, save, status=outcome, phase=outcome, update_seq=1).status_code == 202
+    body = bundle(initial['session_id'])
+    body['slam_save'] = outcome
+    calls = []
+    monkeypatch.setattr(mapping_storage, 'convert', lambda *args: calls.append(args))
+    first = post_bundle(s, body)
+    assert first.status_code == 201, first.text
+    saved = first.json()
+    assert saved['status'] == 'RECEIVED_ONLY' and saved['slam_save'] == outcome
+    assert saved['terrain_status'] == 'SKIPPED_UNCONFIRMED_SAVE' and saved['terrain_id'] is None
+    assert '받은 범위' in saved['reason']
+    assert post_bundle(s, body).json() == saved
+    with Session(s[-1]) as db:
+        assert str(db.get(Floor, s[2]).approved_version_id) == old_map
+        assert db.get(MapVersion, old_map).status == 'APPROVED'
+        assert db.get(MapVersion, saved['map_version_id']).status == 'PENDING'
+        approval = db.scalar(select(Approval).where(Approval.target_id == saved['map_version_id']))
+        assert approval.status == 'PENDING'
+    # Stored pairs remain terminal and immutable despite late reports/actions.
+    assert action(s, 'save', initial['session_id']).json()['status'] == 'RECEIVED_ONLY'
+    assert action(s, 'cancel', initial['session_id']).status_code == 409
+    assert report(s, save, status='FINALIZING', phase='SLAM_SAVED', update_seq=2).status_code == 202
+    assert current(s)['status'] == 'RECEIVED_ONLY'
+    assert not calls
+    assert start(s)['status'] == 'STARTING'  # received data does not hold the active-session index
+
+
+def test_late_confirmed_bundle_retry_cannot_promote_received_geometry(setup, monkeypatch):
+    s = setup
+    initial = start(s)
+    save = action(s, 'save', initial['session_id']).json()
+    body = confirmed_bundle(s, save, monkeypatch)
+    body['slam_save'] = 'UNKNOWN'
+    calls = []
+    monkeypatch.setattr(mapping_storage, 'convert', lambda *args: calls.append(args))
+    first = post_bundle(s, body).json()
+    body['slam_save'] = 'SLAM_SAVED'
+    retry = post_bundle(s, body)
+    assert retry.status_code == 201, retry.text
+    assert retry.json()['status'] == 'RECEIVED_ONLY' and retry.json()['slam_save'] == 'SLAM_SAVED'
+    assert retry.json()['terrain_status'] == 'SKIPPED_UNCONFIRMED_SAVE'
+    assert retry.json()['map_version_id'] == first['map_version_id'] and not calls
+    http, headers, _, rid, _, _, _ = s
+    stored = http.get(P + f'/robots/{rid}/slam/{initial["session_id"]}/bundle', headers=headers).json()
+    assert stored['bundle']['slam_save'] == 'UNKNOWN' and stored['bundle']['completeness'] == 'RECEIVED_ONLY'
+    with Session(s[-1]) as db:
+        assert db.get(Floor, s[2]).approved_version_id is None
+        assert db.get(MapVersion, first['map_version_id']).status == 'PENDING'
+
+
+@pytest.mark.parametrize('source', [None, 'legacy', 'point_lio'])
+def test_start_source_compatibility_dispatches_only_explicit_pipeline(setup, source):
+    from .test_mapping import upload as legacy_upload
+    s = setup
+    http, headers, floor, rid, _, peer, _ = s
+    request = {'floor_id': floor}
+    if source is not None:
+        request['source'] = source
+    response = http.post(P + f'/robots/{rid}/slam/start', headers=headers, json=request)
+    assert response.status_code == 202, response.text
+    initial = response.json()
+    frame = next(x for x in peer.queue._queue if x.get('t') == 'slam')
+    if source == 'point_lio':
+        assert initial['status'] == 'STARTING' and frame['pipeline'] == 'point_lio+glim'
+    else:
+        assert initial['status'] == 'RUNNING' and initial['source'] == 'legacy'
+        assert frame == dict(t='slam', op='start', session_id=initial['session_id'], floor_id=floor)
+        action(s, 'save', initial['session_id'])
+        assert all(set(x) == {'t', 'op', 'session_id', 'floor_id'} for x in peer.queue._queue if x.get('t') == 'slam')
+        assert legacy_upload(s, initial['session_id']).status_code == 201
 
 
 def test_only_mapping_websocket_frames_get_larger_budget(setup):

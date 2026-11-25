@@ -169,7 +169,10 @@ def version_object(row, floor, upload, db):
     bundle_link = None
     if bundle:
         anchor = db.get(MapVersion, UUID(bundle['map_version_id']))
-        if same_annotation_raster(row, anchor, upload):
+        # A received-only pending snapshot may expose its own immutable pair
+        # for review; inherited links and execution proofs still require approval.
+        own_receipt = bundle.get('completeness') == 'RECEIVED_ONLY' and anchor is not None and row.id == anchor.id
+        if same_annotation_raster(row, anchor, upload, allow_pending=own_receipt):
             bundle_link = C.MappingBundleLink.model_validate({key: bundle[key]
                 for key in C.MappingBundleLink.model_fields})
     return C.MapVersion(upload_id=row.upload_id, id=row.id, floor_id=row.floor_id, number=row.number, base_version_id=row.base_version_id,
