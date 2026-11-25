@@ -2,7 +2,7 @@
 import threading
 import time
 import pytest
-from foothold_agent.go2_direct.actions import ACTIONS, FLAGS, DANGEROUS, arguments
+from foothold_agent.go2_direct.actions import ACTIONS, FLAGS, DANGEROUS, LOWLEVEL, arguments
 from foothold_agent.go2_direct.sdk import SportBoundary
 from foothold_agent.go2_direct.approval import Approval
 from test_go2_posture import rig
@@ -254,21 +254,78 @@ def test_failed_rpc_requests_stop_on_the_existing_independent_lane():
     assert sink.error is None
 
 
-def test_start_active_blocks_sport_actions_and_drive_but_not_read_only(tmp_path, monkeypatch):
-    # 팀장 11/25 20:50: START 저수준 제어 중에는 이 프로그램이 순정 동작 · 걷기를 보내지 않는다 (조종 권한 하나).
+def start_rig(tmp_path, monkeypatch, port=None):
     from foothold_agent.policy import trace
     flag = tmp_path / 'foothold-start-active'
     monkeypatch.setattr(trace, 'START_FLAG', flag)
-    _, sink, normal, _, session, _, measured, frame = rig(0)
-    normal.Hello = lambda: pytest.fail('must not invoke during START')
-    normal.CheckMode = lambda: (0, {'name': 'normal', 'form': '0'})
+    if port is None: monkeypatch.delenv('FH_START_MOVE_PORT', raising=False)
+    else: monkeypatch.setenv('FH_START_MOVE_PORT', str(port))
+    r = rig(0)
+    for name in ACTIONS:
+        setattr(r[2], name, lambda *a, name=name: pytest.fail(f'{name} must not invoke during START'))
     flag.touch()
-    send(frame, 'Hello')
-    sink.drain(); sink.drain()
-    assert sink.actions.result['status'] == 'REJECTED' and sink.actions.result['code'] == 'START_ACTIVE'
+    return flag, r
+
+
+def test_start_active_blocks_sport_actions_and_drive(tmp_path, monkeypatch):
+    # 팀장 11/25 20:50: START 저수준 제어 중에는 이 프로그램이 순정 동작 · 걷기를 보내지 않는다 (조종 권한 하나).
+    # 팀장 11/26 08:01: 그중 실행기 동작 (LOWLEVEL) 만 실행기로 넘기고, 나머지 (조회 포함) 는 LOWLEVEL_UNSUPPORTED.
+    flag, (_, sink, normal, _, session, _, measured, frame) = start_rig(tmp_path, monkeypatch)
+    for i, action in enumerate(sorted(ACTIONS - set(LOWLEVEL))):
+        send(frame, action, request_id=f'r{i}')
+        sink.drain(); sink.drain()
+        assert sink.actions.result['status'] == 'REJECTED' and sink.actions.result['code'] == 'LOWLEVEL_UNSUPPORTED', action
     assert sink.movement_reason(neutral=True).startswith('START 저수준 제어 중')
-    send(frame, 'CheckMode', request_id='read')
-    sink.drain(); sink.drain()
-    assert sink.actions.result['status'] == 'SUCCEEDED'
+    assert session._state()['control'] == 'LOWLEVEL'
     flag.unlink()
+    assert session._state()['control'] == 'FACTORY'
     assert sink.movement_reason(neutral=True) is None or 'START' not in sink.movement_reason(neutral=True)
+
+
+def test_start_lowlevel_actions_without_runner_port_are_not_connected(tmp_path, monkeypatch):
+    _, (_, sink, _, _, _, _, _, frame) = start_rig(tmp_path, monkeypatch)
+    for i, action in enumerate(sorted(LOWLEVEL)):
+        send(frame, action, request_id=f'r{i}')
+        sink.drain()
+        assert (sink.actions.result['status'], sink.actions.result['code']) == ('REJECTED', 'RUNNER_NOT_CONNECTED'), action
+    assert sink.actions.job is None and not sink.actions.busy
+
+
+def test_start_lowlevel_actions_go_to_runner_as_remote_keys(tmp_path, monkeypatch):
+    import json, socket
+    rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); rx.bind(('127.0.0.1', 0)); rx.settimeout(1.)
+    try:
+        _, (_, sink, _, _, _, _, _, frame) = start_rig(tmp_path, monkeypatch, rx.getsockname()[1])
+        seqs = []
+        for i, action in enumerate(sorted(LOWLEVEL)):
+            send(frame, action, request_id=f'r{i}')
+            assert (sink.actions.result['status'], sink.actions.result['code']) == ('SUCCEEDED', 'RUNNER_SENT'), action
+            msg = json.loads(rx.recv(512))
+            assert msg['key'] == LOWLEVEL[action] and msg['action'] == action and msg['request_id'] == f'r{i}'
+            seqs.append(msg['seq'])
+        assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+        assert sink.actions.job is None
+        # 같은 요청 다시 · 위험 동작 확인 없음 · 조종권 없음은 보내지 않는다
+        send(frame, 'Sit', request_id='r0'); assert sink.actions.result['code'] == 'DUPLICATE'
+        send(frame, 'Damp', request_id='d', confirmed=False); assert sink.actions.result['code'] == 'CONFIRM_REQUIRED'
+        send(frame, 'Sit', request_id='x', lease_id='other'); assert sink.actions.result['code'] == 'NOT_AUTHORIZED'
+        rx.settimeout(.05)
+        with pytest.raises(socket.timeout): rx.recv(512)
+    finally:
+        rx.close()
+
+
+def test_start_posture_lie_down_goes_to_runner_and_stand_up_is_grey(tmp_path, monkeypatch):
+    import json, socket
+    rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); rx.bind(('127.0.0.1', 0)); rx.settimeout(1.)
+    try:
+        _, (_, sink, _, _, _, _, _, frame) = start_rig(tmp_path, monkeypatch, rx.getsockname()[1])
+        frame('posture', request_id='up', lease_id='fake-lease', action='stand_up')
+        assert (sink.posture_result['status'], sink.posture_result['code']) == ('REJECTED', 'LOWLEVEL_UNSUPPORTED')
+        frame('posture', request_id='down', lease_id='fake-lease', action='stand_down')
+        assert (sink.posture_result['status'], sink.posture_result['code']) == ('SUCCEEDED', 'RUNNER_SENT')
+        assert json.loads(rx.recv(512))['key'] == 'L2+A'
+        assert sink._posture is None
+    finally:
+        rx.close()
+

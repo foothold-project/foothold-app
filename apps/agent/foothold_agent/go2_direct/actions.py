@@ -4,12 +4,21 @@ No SDK imports here. RPC timeout is configured by SportBoundary (.10 s); the
 watcher also cancels jobs while a broken/blocked SDK is still in flight. A zero
 return is SDK acceptance, never evidence that the physical motion completed.
 """
+import json
 import math
+import os
+import socket
+import time
 from collections import deque
 
 ACTIONS = frozenset('Damp BalanceStand StopMove StandUp StandDown RecoveryStand Euler Sit RiseSit SpeedLevel Hello Stretch Content Dance1 Dance2 SwitchJoystick Pose Scrape FrontFlip FrontJump FrontPounce Heart StaticWalk TrotRun EconomicGait LeftFlip BackFlip HandStand FreeWalk FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet AutoRecoveryGet SwitchAvoidMode CheckMode SelectMode'.split())
 FLAGS = frozenset('SwitchJoystick Pose HandStand FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet'.split())
 DANGEROUS = frozenset('FrontFlip LeftFlip BackFlip FrontJump FrontPounce HandStand WalkUpright FreeJump FreeBound Damp'.split())
+# 저수준 (START) 제어 중 받는 동작 → START 실행기 리모컨 키. apps/contracts LowlevelAction 과 같아야 한다
+# (팀장 11/26 08:01 · 동작표 action-table-1126 「저수준」 열). 나머지는 LOWLEVEL_UNSUPPORTED. 실행기 쪽 규약: runner_cpp/APP-MOVES.md
+LOWLEVEL = {'Sit': 'R1+B', 'RiseSit': 'R1+B', 'StandDown': 'L2+A', 'Stretch': 'R2+A',
+            'Hello': 'R2+B', 'Heart': 'R2+Y', 'Damp': 'L2+B'}
+RUNNER_PORT_ENV = 'FH_START_MOVE_PORT'
 TIMEOUT_S = 2.
 # Firmware does not report action completion. Bound the accepted-motion wait
 # generously, then resume ordinary STOP retries. StandUp/StandDown retain their
@@ -23,6 +32,19 @@ SDK_REASONS = {
     3203: 'UNSUPPORTED', 3204: 'SDK_ARGUMENTS', 3205: 'SDK_AUTHORITY',
     3206: 'SDK_AUTHORITY', 3207: 'SDK_BUSY',
 }
+
+
+def runner_send(action, request_id, env=os.environ):
+    """START 실행기에 키 한 번을 loopback UDP 한 묶음으로 넘긴다. 포트를 안 정했으면 False (아직 연결 안 됨).
+    seq 는 CLOCK_MONOTONIC ns: 늘어나는 번호이자 보낸 시각 (같은 기기라 실행기가 0.5 초 넘은 묶음을 버린다)."""
+    port = env.get(RUNNER_PORT_ENV, '')
+    if not port.isdigit() or not 1024 <= int(port) <= 65535:
+        return False
+    body = json.dumps(dict(seq=time.monotonic_ns(), key=LOWLEVEL[action], action=action,
+                           request_id=request_id), separators=(',', ':')).encode()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.sendto(body, ('127.0.0.1', int(port)))
+    return True
 
 
 def arguments(action, params):
@@ -70,7 +92,8 @@ class Actions:
         s = self.sink
         sample = s._posture_sample()
         from .sink import start_active
-        return ('START_ACTIVE' if start_active() and action not in ('CheckMode', 'AutoRecoveryGet') else
+        # 순정 SDK 호출은 START 중 하나도 나가지 않는다. START 중 새 요청은 request() 의 실행기 길로 간다.
+        return ('START_ACTIVE' if start_active() else
                 'NOT_AUTHORIZED' if not s.posture_authorized(lease) else
                 'STALE_STATE' if sample.get('sequence', -1) < 0 else
                 'MOVING' if s.pending != (0., 0., 0.) or s._ramp_velocity != (0., 0., 0.) or not sample['still'] else
@@ -78,6 +101,26 @@ class Actions:
                 'STANDING_REQUIRED' if action in DANGEROUS and sample['state'] != 'STANDING' else
                 'STANDING_REQUIRED' if s._lying_or_sitting(sample)
                     and (action in EXECUTION_MAX_S or action == 'StopMove') else None)
+
+    def runner(self, request_id, action, lease, confirmed):
+        """START 중 요청 하나: (status, code). 실행기는 리모컨 키와 같은 조건 (정책 중 · 앉아 있는 중) 에서만 시작한다.
+        SDK 자세 · 정지 판정은 순정 상태 보고가 없어 쓰지 않는다. 보냄은 실행기 접수도 동작 완료도 아니다."""
+        s = self.sink
+        reason = ('LOWLEVEL_UNSUPPORTED' if action not in LOWLEVEL else
+                  'BUSY' if self.job is not None or self.inflight or self.executing is not None or s._posture is not None else
+                  'DUPLICATE' if (lease, request_id) in self.seen else
+                  'NOT_AUTHORIZED' if not s.posture_authorized(lease) else
+                  'CONFIRM_REQUIRED' if action in DANGEROUS and confirmed is not True else None)
+        if reason:
+            return 'REJECTED', reason
+        try:
+            sent = runner_send(action, request_id)
+        except OSError:
+            return 'FAILED', 'RUNNER_SEND_FAILED'
+        if not sent:
+            return 'REJECTED', 'RUNNER_NOT_CONNECTED'
+        self.seen.append((lease, request_id))
+        return 'SUCCEEDED', 'RUNNER_SENT'
 
     def request(self, request_id, action, params, lease, confirmed=False, *, moving=False):
         s = self.sink
@@ -88,10 +131,14 @@ class Actions:
             try:
                 args = arguments(action, params)
                 if type(confirmed) is not bool: raise ValueError('boolean confirmation required')
+                if start_active():
+                    # START 중에는 순정 SDK 일감을 만들지 않는다. moving 은 START 자체로 참이 되므로 보지 않는다.
+                    self.report(request_id, action, *self.runner(request_id, action, lease, confirmed))
+                    return False
                 reason = ('BUSY' if self.job is not None or self.inflight or s._posture is not None else
                           'DUPLICATE' if (lease, request_id) in self.seen else
                           'BUSY' if self.executing is not None else
-                          'START_ACTIVE' if moving and start_active() else 'MOVING' if moving else self.reason(lease, action, confirmed))
+                          'MOVING' if moving else self.reason(lease, action, confirmed))
             except (ValueError, TypeError):
                 reason, args = 'INVALID_ARGUMENTS', ()
             if reason:

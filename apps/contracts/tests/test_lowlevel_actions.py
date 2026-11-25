@@ -46,3 +46,8 @@ def test_state_carries_optional_control():
     assert 'control' in C.ScreenState.model_fields and 'control' in C.AgentState.model_fields
     schema = json.loads((Path(C.__file__).parent / 'schema' / 'ScreenState.json').read_text())
     assert 'control' not in schema.get('required', [])
+
+
+def test_agent_mirror_matches_contract():
+    from apps.agent.foothold_agent.go2_direct import actions
+    assert set(actions.LOWLEVEL) == LOWLEVEL and LOWLEVEL <= actions.ACTIONS

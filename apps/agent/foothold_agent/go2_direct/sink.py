@@ -232,6 +232,12 @@ class Go2Sink:
     def request_posture(self, request_id, action, lease):
         """Queue one reviewed action; SDK I/O stays on the normal output worker."""
         with self._lock:
+            if start_active():
+                # START 중 엎드리기는 실행기 L2+A 로 (동작표 「저수준」 켬). 일어서기는 실행기에 없어 회색.
+                status, code = (self.actions.runner(request_id, 'StandDown', lease, False) if action == 'stand_down'
+                                else ('REJECTED', 'LOWLEVEL_UNSUPPORTED'))
+                self.posture_result = dict(request_id=request_id, action=action, status=status, code=code, sdk_code=None)
+                return False
             sample = self._posture_sample()
             reason = ('BUSY' if self._posture is not None or self.actions.busy else
                 'NOT_AUTHORIZED' if not self.posture_authorized(lease) else
