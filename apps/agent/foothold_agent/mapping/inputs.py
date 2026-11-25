@@ -7,10 +7,7 @@ RAW_TOPIC = 'rt/utlidar/cloud'
 DEFAULT_TOPIC = 'rt/utlidar/cloud_deskewed'
 ODOM_TOPIC = 'rt/utlidar/robot_odom'
 
-CLOUD = 'rt/uslam/frontend/cloud_world_ds'
-MAP = 'rt/uslam/cloud_map'
-FRONTEND = 'rt/uslam/frontend/odom'
-LOCALIZATION = 'rt/uslam/localization/odom'
+from foothold_agent.go2_direct.uslam_source import CLOUD, MAP, FRONTEND, LOCALIZATION
 
 
 class Handle:

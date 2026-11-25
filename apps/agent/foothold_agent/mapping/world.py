@@ -7,7 +7,7 @@ from .grid import OccGrid
 
 
 class WorldAccumulator(Accumulator):
-    def __init__(self, *, mode='projection', frame='map', budget_ms=30, cap=8000, **kwargs):
+    def __init__(self, *, frame, mode='projection', budget_ms=30, cap=8000, **kwargs):
         super().__init__(**kwargs)
         if not 1 <= cap <= 100000 or not 1 <= budget_ms <= 100:
             raise ValueError('invalid calculation limit')

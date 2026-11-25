@@ -13,11 +13,10 @@ import os
 import threading
 import tempfile
 from itertools import islice
-import re
 import time
 from uuid import UUID
 
-from .inputs import CLOUD, MAP, FRONTEND
+from foothold_agent.go2_direct.uslam_source import UnitreeSource
 from .poses import timestamp
 from .runtime import MappingRuntime
 from .uslam_control import Control
@@ -48,13 +47,11 @@ def encode(body):
 
 
 class OnboardRuntime(MappingRuntime):
-    def __init__(self, *args, command_allowed=lambda: False, **kwargs):
+    def __init__(self, *args, command_allowed=lambda: False, source=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.frame = self.env.get('FH_USLAM_FRAME', 'map')
-        self.child_frame = self.env.get('FH_USLAM_CHILD_FRAME', 'base_link')
-        if any(not re.fullmatch(r'[A-Za-z0-9_/-]{1,80}', value) for value in (self.frame, self.child_frame)):
-            raise ValueError('invalid observation frame configuration')
-        self.mode = self.env.get('FH_USLAM_INPUT', 'projection')
+        self.source = source or UnitreeSource(self.env)
+        self.frame = self.source.frame
+        self.mode = self.source.input_mode
         if self.mode not in ('projection', 'scan'):
             raise ValueError('invalid USLAM input mode')
         self.core = WorldAccumulator(mode=self.mode, frame=self.frame, max_points=500000, now=self.now)
@@ -65,9 +62,7 @@ class OnboardRuntime(MappingRuntime):
         self.bridge = None
         self.command_allowed = command_allowed
         self.control = Control(self.publish, enabled=self.can_publish, now=self.now,
-            acknowledgments={k: v for k, v in (
-                ('mapping/start', self.env.get('FH_USLAM_START_ACK')),
-                ('mapping/stop', self.env.get('FH_USLAM_STOP_ACK'))) if v})
+            acknowledgments=self.source.acknowledgments)
         self.phase = 'UNKNOWN'
         self.command_id = None
         self.revision = 1
@@ -90,7 +85,7 @@ class OnboardRuntime(MappingRuntime):
 
     def can_publish(self):
         return (not self.stopping.is_set() and self.enabled() and self.online
-                and self.env.get('FH_USLAM_COMMANDS') == '1' and self.command_allowed())
+                and self.source.commands_enabled() and self.command_allowed())
 
     def publish(self, value):
         if self.bridge is None:
@@ -100,7 +95,7 @@ class OnboardRuntime(MappingRuntime):
     def command(self, frame):
         if self.stopping.is_set() or not self.enabled():
             return
-        if frame.get('source') != 'unitree_uslam':
+        if frame.get('source') != self.source.source:
             return
         try:
             frame = dict(frame)
@@ -120,7 +115,7 @@ class OnboardRuntime(MappingRuntime):
             return
         # Retain one reference per topic, never copy/parse a cloud on DDS lane.
         try:
-            if topic in (CLOUD, MAP) and len(message.data) > 16_000_000:
+            if topic in (self.source.cloud_topic, self.source.map_topic) and len(message.data) > 16_000_000:
                 self.dropped(topic, 'input_bytes')
                 return
             with self.lock:
@@ -149,12 +144,11 @@ class OnboardRuntime(MappingRuntime):
 
     def acquire(self):
         from functools import partial
-        from foothold_agent.go2_direct.uslam_commands import CommandChannel
         try:
-            for topic in (FRONTEND, CLOUD, MAP):
-                handle = self.channel.cloud_bus.subscribe(topic, partial(self.receive, topic), odometry=topic == FRONTEND)
+            for topic in (self.source.odom_topic, self.source.cloud_topic, self.source.map_topic):
+                handle = self.channel.cloud_bus.subscribe(topic, partial(self.receive, topic), odometry=topic == self.source.odom_topic)
                 self.handles.append(handle)
-            self.bridge = CommandChannel(self.on_log, self.can_publish)
+            self.bridge = self.source.command_channel(self.on_log, self.can_publish)
             self.bridge.open()
         except Exception:
             self.dropped('readers', 'reader_unavailable')
@@ -222,7 +216,7 @@ class OnboardRuntime(MappingRuntime):
                 self.control.seen.add(self.command_id)
                 self.phase, self.core.status = 'UNKNOWN', 'UNKNOWN'
                 return
-        if not self.control.request('mapping/start' if op == 'start' else 'mapping/stop', self.command_id):
+        if not self.control.request(self.source.start_command if op == 'start' else self.source.stop_command, self.command_id):
             self.phase, self.core.status = 'UNKNOWN', 'UNKNOWN'
         elif self.control.published_at is not None:
             self.times['command_published_at'] = utc()
@@ -230,28 +224,23 @@ class OnboardRuntime(MappingRuntime):
 
     def consume_samples(self, samples):
         import numpy as np
-        from foothold_agent.go2_direct.uslam import cloud, odometry
         if 'log' in samples:
             received, message = samples['log']
             self.control.on_log(message.data, received)
-        if FRONTEND in samples:
-            received, message = samples[FRONTEND]
+        if self.source.odom_topic in samples:
+            received, message = samples[self.source.odom_topic]
             try:
                 if not 0 <= self.now()-received <= .5:
                     raise ValueError('stale_pose')
                 stamp = timestamp(message.header.stamp)
-                if message.header.frame_id != self.frame or message.child_frame_id != self.child_frame:
-                    raise ValueError('frame')
-                header, _ = odometry(message, FRONTEND)
-                p, q = message.pose.pose.position, message.pose.pose.orientation
+                position,quaternion,body = self.source.decode_pose(message)
                 if self.pose_history and stamp <= self.pose_history[-1][1]:
                     raise ValueError('stamp')
-                self.pose_history.append((received, stamp, (p.x,p.y,p.z), (q.w,q.x,q.y,q.z)))
-                self.last_odom = dict(source='/uslam/frontend/odom', frame_id=self.frame,
-                    stamp=dict(sec=message.header.stamp.sec, nanosec=message.header.stamp.nanosec), **header['pose'])
+                self.pose_history.append((received,stamp,position,quaternion))
+                self.last_odom = body
             except (ValueError, AttributeError, TypeError, OverflowError):
-                self.dropped(FRONTEND, 'invalid_frame_stamp_pose')
-        for topic in (CLOUD, MAP):
+                self.dropped(self.source.odom_topic, 'invalid_frame_stamp_pose')
+        for topic in (self.source.cloud_topic,self.source.map_topic):
             if topic not in samples or self.core.session_id is None or self.core.status in ('SAVED', 'CANCELLED') or self.frozen:
                 continue
             received, message = samples[topic]
@@ -267,17 +256,17 @@ class OnboardRuntime(MappingRuntime):
                     # height reference. Never invent a robot_odom fallback.
                     raise ValueError('missing_synchronized_frontend_pose')
                 pose = min(poses, key=lambda p: abs(p[1]-stamp))
-                if topic == MAP:
+                if topic == self.source.map_topic:
                     candidate = dict(message=message, received=received, stamp=stamp, pose=pose, offset=0)
                     if self.rebuild is not None:
                         self.next_rebuild = candidate
                     else:
                         self.rebuild = candidate
-                    self.input_stamps[MAP] = stamp
+                    self.input_stamps[topic] = stamp
                     continue
-                header, payload = cloud(message, max_points=self.core.cap, deadline=self.now()+.015, now=self.now)
+                header,payload = self.source.decode_cloud(message,max_points=self.core.cap,deadline=self.now()+.015,now=self.now)
                 result = self.core.add_world(np.frombuffer(payload, dtype='<f4').reshape(-1,3), pose[2], pose[3],
-                    stamp=stamp, frame=self.frame, replace=topic == MAP)
+                    stamp=stamp,frame=self.frame)
                 self.core.truncated |= header['truncated']
                 self.input_stamps[topic] = stamp
                 self.tiles.changed(self.core.grid)
@@ -295,7 +284,6 @@ class OnboardRuntime(MappingRuntime):
     def rebuild_step(self):
         """Build full snapshots offscreen in bounded chunks; publish one new revision."""
         import numpy as np
-        from foothold_agent.go2_direct.uslam import cloud
         pending = self.rebuild
         if pending is None:
             return
@@ -305,7 +293,7 @@ class OnboardRuntime(MappingRuntime):
         message, pose, core = pending['message'], pending['pose'], pending['core']
         offset = pending['offset']
         try:
-            _, payload = cloud(message, max_points=500000, sample_start=offset, sample_limit=2048)
+            _,payload = self.source.decode_cloud(message,max_points=500000,sample_start=offset,sample_limit=2048)
             core.add_world(np.frombuffer(payload,dtype='<f4').reshape(-1,3),pose[2],pose[3],
                 stamp=offset+1,frame=self.frame)
             pending['offset'] += 2048
@@ -330,7 +318,7 @@ class OnboardRuntime(MappingRuntime):
             LOG.warning('USLAM full_map points=%d bytes=%d revision=%d truncated=%s monotonic=%.6f utc=%s',
                 count,len(message.data),self.revision,self.core.truncated,self.now(),at)
         except (ValueError,AttributeError,TypeError,OverflowError):
-            self.dropped(MAP,'invalid_full_map')
+            self.dropped(self.source.map_topic,'invalid_full_map')
         self.rebuild, self.next_rebuild = self.next_rebuild, None
 
     def grid_body(self, *, crop=False, max_cells=None):
@@ -357,7 +345,7 @@ class OnboardRuntime(MappingRuntime):
         added = [key for key, (present, _) in pending if present]
         removed = [key for key, (present, _) in pending if not present]
         self.voxel_seq += 1
-        body = dict(t='slam.update', source='unitree_uslam', session_id=self.core.session_id, floor_id=self.core.floor_id,
+        body = dict(t='slam.update', source=self.source.source, session_id=self.core.session_id, floor_id=self.core.floor_id,
             status=self.core.status, phase=self.phase, command_id=self.command_id, revision=self.revision,
             update_seq=self.update_seq, point_count=len(self.core.cells), elapsed_s=max(0,self.now()-self.core.started),
             times=dict(self.times), odom=self.last_odom,
@@ -423,7 +411,7 @@ class OnboardRuntime(MappingRuntime):
                     self.core.status, self.phase = 'FAILED', 'FAILED'
         if (self.save_requested is not None and self.save_future is None and not self.save_failed
                 and self.rebuild is None
-                and MAP not in self.pending_samples
+                and self.source.map_topic not in self.pending_samples
                 and self.core.status not in ('SAVED','CANCELLED') and self.core.cells
                 and (self.final_received and self.phase == 'ROBOT_SAVED' or self.now()-self.save_requested >= 10)):
             if self.frozen is None:

@@ -4,6 +4,8 @@
 
 ## 입력과 계산
 
+Unitree의 토픽·기본 frame·pose 출처·String 형식·명령/응답 설정은 `go2_direct/uslam_source.py::UnitreeSource` 한 곳에 둔다. source 이름 `unitree_uslam`은 서버의 `apps/contracts/mapping_sources.py` registry와 대조한다. 순수 `WorldAccumulator`는 frame을 명시적으로 받고, 계산·tile·bundle은 임의의 world frame에서 점과 대응 pose를 처리한다. 합성 어댑터의 다른 토픽·frame도 같은 계산기를 통과하는 시험을 둔다. Point-LIO·GLIM 자체 구현은 이 PR 범위 밖이며 향후 어댑터와 registry를 추가할 때 geometry/bundle 필드 모양을 바꿀 필요가 없다.
+
 - 지도 점은 `rt/uslam/frontend/cloud_world_ds`, 위치는 `rt/uslam/frontend/odom`만 받는다. world 점을 pose로 다시 회전하거나 이동시키지 않는다. `FH_USLAM_FRAME` 기본값은 `map`, `FH_USLAM_CHILD_FRAME` 기본값은 `base_link`이며 실제 표본과 일치하는 값을 명시해야 한다. 잘못된 frame, stamp, 좌표·방향, 250 ms를 넘는 점/pose 차이, 500 ms를 넘는 수신 자료는 거절한다. sport/robot_odom 대체는 없다.
 - `WorldAccumulator`는 기존 `Accumulator`의 세션·PCD 저장 구조를 재사용한다. 칸은 `floor(XYZ / .05)`, 중심은 `(index + .5) * .05`다. 음수 칸도 같은 규칙이다. 실시간 입력은 최대 8,000점으로 고르게 솎고, 해석 예산 15 ms와 계산 예산 30 ms를 둔다. 예산은 작은 묶음마다 확인하므로 운영체제 스케줄링을 포함한 실시간 보장은 아니다.
 - 2D는 처음 위치를 가운데로 하는 2,000×2,000칸(100 m 사방), 5 cm, 행 우선·아래에서 위로 쌓는다. `FH_USLAM_INPUT` 기본값 `projection`은 장애물만 투영하고 나머지는 모름이다. `scan`은 현 scan과 센서 원점이 확인된 입력에서만 선택한다. 이때 웹 `occgrid.ts`와 같은 바닥 -0.3 m, 장애물 +0.15 m, 천장 +1 m, 10 m 광선, 로그오즈 -4/+22, 포화 ±40, 표시 문턱 -10/15를 쓴다. 한 판에서는 벽이 빈 곳보다 우선한다.
@@ -37,10 +39,10 @@ FH_OCCGRID_JS=/tmp/uslam-reference/occgrid.js PYTHONPATH=apps/agent:. python3 -m
 PYTHONPATH=apps/agent python3 apps/agent/tools/benchmark_uslam.py
 ```
 
-서버 계약 통합 전에는 PR #476의 `apps/contracts/models.py`를 임시 파일로 추출하고 `FH_USLAM_CONTRACT_MODULE`에 그 파일을 지정하여 실제 진행/tile/원본 stamp/bundle 검증을 실행할 수 있다. 기본 golden도 실제 웹 코드와 같은 공통 자료에서 생성한 값이다.
+서버 계약 통합 전에는 PR #476의 `apps/contracts/models.py`와 `mapping_sources.py`를 같은 임시 폴더로 추출하고 `FH_USLAM_CONTRACT_MODULE`에 models 파일을 지정하여 실제 진행/tile/원본 stamp/bundle·출처 registry 검증을 실행할 수 있다. 기본 golden도 실제 웹 코드와 같은 공통 자료에서 생성한 값이다.
 
 2026-11-25 이 PC(Intel i7-10750H, x86_64, Python 3.12.3, NumPy 1.26.4)에서 합성 10만 점을 50판 계산한 결과: 투영 p50 27.422 / p95 29.254 / 최대 29.724 ms, 광선 p50 28.528 / p95 31.356 / 최대 40.031 ms. 실시간 점 상한 8,000·계산 예산 30 ms, 전체 시험과 동시 실행한 측정이며 Jetson 수치가 아니다.
 
-전체 시험 최종 회차는 3,497 통과·12 실패·10 건너뜀이다. 실패는 기준 `origin/dev`에도 있는 `bumpInputs` 추출 누락(phone 7개·speed 5개)이며 변경 전 소스 사본에서도 재현했다. 앞선 회차의 정책 인계 간격 -0.1 ms 실패(`test_stand_handover_reports_gap`)도 변경 전 사본에서 재현했으나 최종 전체 회차에서는 통과했다. 기대값이나 정책 코드는 고치지 않았다. 이후 최종 tile 전송 대기 보완은 새 지도 시험 16개로 다시 검사하며 결과는 PR 본문에 기록한다.
+전체 시험의 실패는 기준 `origin/dev`에도 있는 `bumpInputs` 추출 누락(phone 7개·speed 5개)이며 변경 전 소스 사본에서도 재현했다. 앞선 회차의 정책 인계 간격 -0.1 ms 실패(`test_stand_handover_reports_gap`)도 변경 전 사본에서 재현했고 회차에 따라 통과했다. 기대값이나 정책 코드는 고치지 않았다. 최종 커밋의 전체 시험과 지도 시험 결과는 PR 본문에 기록한다.
 
 실기에서 남은 확인은 펌웨어 명령·성공 로그, frame/child frame, scan과 누적 지도 구분, 센서 원점·바닥 높이, 전체 지도·응답 순서, loop closure, Jetson 계산/STOP 지연·메모리이다. 배포·실폰·실로봇·Gazebo·원격 서버 접속 검사는 하지 않았다. 되돌리기는 이 agent 변경 커밋을 revert하고 이전 agent를 기존 배포 절차로 복구한다. 서버/지도 원물은 삭제하지 않는다.

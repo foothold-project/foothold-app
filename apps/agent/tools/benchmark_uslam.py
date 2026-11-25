@@ -16,11 +16,11 @@ def main():
     points=rng.uniform([-8,-8,-.1],[8,8,1.5],(100000,3)).astype('float32')
     results={}
     for mode in ('projection','scan'):
-        core=WorldAccumulator(mode=mode)
+        core=WorldAccumulator(mode=mode,frame='synthetic_world')
         durations=[]
         for stamp in range(1,51):
             start=time.perf_counter()
-            core.add_world(points,[0,0,.3],[1,0,0,0],stamp=stamp,frame='map')
+            core.add_world(points,[0,0,.3],[1,0,0,0],stamp=stamp,frame='synthetic_world')
             durations.append((time.perf_counter()-start)*1000)
         results[mode]=dict(input_points=len(points),point_cap=core.cap,budget_ms=core.budget_ms,
             p50_ms=round(float(np.percentile(durations,50)),3),p95_ms=round(float(np.percentile(durations,95)),3),

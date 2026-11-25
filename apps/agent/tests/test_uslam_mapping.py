@@ -73,7 +73,7 @@ def test_reference_fixture_matches_web_and_projection_never_clears():
 
 
 def test_world_cells_delta_rebuild_negative_and_no_pose_transform():
-    core = WorldAccumulator(budget_ms=100)
+    core = WorldAccumulator(frame='map',budget_ms=100)
     assert core.command({k:v for k,v in command().items() if k in ('t','op','session_id','floor_id')})
     core.add_world([[-.01,0,.3],[-.02,0,.3],[1.01,0,.3]], [0,0,.3], [1,0,0,0], stamp=1, frame='map')
     assert set(core.cells) == {(-1,0,6),(20,0,6)}
@@ -89,7 +89,7 @@ def test_point_cap_and_time_budget_are_bounded():
     def now():
         tick.t += .001
         return tick.t
-    core = WorldAccumulator(cap=100, now=now, budget_ms=10)
+    core = WorldAccumulator(frame='map',cap=100,now=now,budget_ms=10)
     core.add_world(np.tile([[1.,0.,.3]], (1000000,1)), [0,0,.3], [1,0,0,0], stamp=1, frame='map')
     assert len(core.cells) <= 100 and core.truncated
 
@@ -346,6 +346,12 @@ def test_progress_and_bundle_validate_against_server_contract(tmp_path):
     draft=os.environ.get('FH_USLAM_CONTRACT_MODULE')
     if draft:
         import importlib.util
+        registry=Path(draft).with_name('mapping_sources.py')
+        if registry.exists():
+            registry_spec=importlib.util.spec_from_file_location('apps.contracts.mapping_sources',registry)
+            registry_module=importlib.util.module_from_spec(registry_spec)
+            sys.modules[registry_spec.name]=registry_module
+            registry_spec.loader.exec_module(registry_module)
         spec=importlib.util.spec_from_file_location('apps.contracts._uslam_draft',draft)
         contracts=importlib.util.module_from_spec(spec)
         sys.modules[spec.name]=contracts
@@ -359,6 +365,9 @@ def test_progress_and_bundle_validate_against_server_contract(tmp_path):
     body,_,_=rt.report_body()
     contracts.AgentMappingUpdate.model_validate(body)
     assert body['odom']['stamp']=={'sec':1,'nanosec':0} and body['tiles']
+    from apps.contracts.mapping_sources import ADAPTERS
+    assert rt.source.source in ADAPTERS
+    assert ADAPTERS[rt.source.source].accepts_odom(body['odom']['source'])
     contracts.MappingBundle.model_validate(dict(session_id=rt.core.session_id,revision=rt.revision,
         frame_id=rt.frame,resolution=.05,voxels=list(rt.core.cells),grid=rt.grid_body(),robot_save='UNKNOWN'))
     rt.io.shutdown(wait=True)
@@ -401,4 +410,19 @@ def test_full_map_rebuild_is_chunked_complete_and_replaces_old_revision(tmp_path
     assert len(rt.core.cells)==10000 and (-20,0,6) not in rt.core.cells
     assert rt.core.grid.mode=='projection' and not (rt.core.grid.L < 0).any()
     assert rt.reset and len(rt.changes)==10000
+    rt.io.shutdown(wait=True)
+
+
+def test_runtime_uses_source_adapter_topics_and_world_frame(tmp_path):
+    from foothold_agent.go2_direct.uslam_source import UnitreeSource
+    source=UnitreeSource({'FH_USLAM_FRAME':'synthetic_world'})
+    source.cloud_topic,source.map_topic,source.odom_topic='synthetic/cloud','synthetic/full','synthetic/pose'
+    rt=runtime(tmp_path,source=source);rt.online=True
+    rt.command(command());rt.step()
+    rt.receive(source.odom_topic,pose(frame='synthetic_world'))
+    rt.receive(source.cloud_topic,cloud(frame='synthetic_world'))
+    rt.step()
+    assert rt.core.cells and rt.core.frame=='synthetic_world'
+    assert rt.last_odom['frame_id']=='synthetic_world'
+    assert rt.report_body()[0]['voxels']['frame_id']=='synthetic_world'
     rt.io.shutdown(wait=True)

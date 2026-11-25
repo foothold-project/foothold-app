@@ -2,9 +2,9 @@
 import logging
 import time
 from datetime import datetime, timezone
+from foothold_agent.go2_direct.uslam_source import ALLOWED
 
 LOG = logging.getLogger(__name__)
-ALLOWED = frozenset(('mapping/start', 'mapping/stop'))
 
 
 class Control:
