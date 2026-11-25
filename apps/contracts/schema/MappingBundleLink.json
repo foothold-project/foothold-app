@@ -1,0 +1,71 @@
+{
+  "$id": "fh-app/1/MappingBundleLink",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Immutable source pair; session endpoints expose later robot/terrain outcomes.",
+  "properties": {
+    "completeness": {
+      "enum": [
+        "RECEIVED_ONLY",
+        "SLAM_CONFIRMED"
+      ],
+      "title": "Completeness",
+      "type": "string"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "resolution": {
+      "const": 0.05,
+      "default": 0.05,
+      "title": "Resolution",
+      "type": "number"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "slam_save": {
+      "enum": [
+        "SLAM_SAVED",
+        "UNKNOWN",
+        "FAILED"
+      ],
+      "title": "Slam Save",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "point_lio",
+        "glim"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "source",
+    "robot_id",
+    "map_version_id",
+    "revision",
+    "resolution",
+    "slam_save",
+    "completeness"
+  ],
+  "title": "MappingBundleLink",
+  "type": "object"
+}

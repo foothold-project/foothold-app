@@ -1,0 +1,25 @@
+{
+  "$id": "fh-app/1/MappingStamp",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "nanosec": {
+      "maximum": 999999999,
+      "minimum": 0,
+      "title": "Nanosec",
+      "type": "integer"
+    },
+    "sec": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Sec",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sec",
+    "nanosec"
+  ],
+  "title": "MappingStamp",
+  "type": "object"
+}

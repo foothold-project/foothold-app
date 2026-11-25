@@ -1,0 +1,82 @@
+{
+  "$id": "fh-app/1/MappingGrid",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cells": {
+      "items": {
+        "enum": [
+          0,
+          1,
+          2
+        ],
+        "type": "integer"
+      },
+      "maxItems": 4000000,
+      "title": "Cells",
+      "type": "array"
+    },
+    "floor_z": {
+      "title": "Floor Z",
+      "type": "number"
+    },
+    "frame_id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Frame Id",
+      "type": "string"
+    },
+    "height": {
+      "maximum": 4096,
+      "minimum": 1,
+      "title": "Height",
+      "type": "integer"
+    },
+    "origin": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Origin",
+      "type": "array"
+    },
+    "resolution": {
+      "const": 0.05,
+      "default": 0.05,
+      "title": "Resolution",
+      "type": "number"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "width": {
+      "maximum": 4096,
+      "minimum": 1,
+      "title": "Width",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "revision",
+    "frame_id",
+    "origin",
+    "floor_z",
+    "width",
+    "height",
+    "cells"
+  ],
+  "title": "MappingGrid",
+  "type": "object"
+}

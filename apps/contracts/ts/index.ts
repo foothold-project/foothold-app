@@ -107,12 +107,18 @@ export interface AgentMappingCommand {
   op: "start" | "save" | "cancel";
   session_id: string;
   floor_id: string;
+  source?: "point_lio" | "glim" | "legacy" | null;
+  final_source?: "glim" | null;
+  pipeline?: "point_lio+glim" | null;
+  command_id?: string | null;
+  requested_at?: string | null;
+  revision?: number | null;
 }
 
 export interface AgentMappingUpdate {
   session_id: string;
   floor_id: string;
-  status: "RUNNING" | "SAVING" | "SAVED" | "FAILED" | "CANCELLED";
+  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "FAILED" | "CANCELLED";
   distance_m?: number;
   point_count?: number;
   elapsed_s?: number;
@@ -121,6 +127,21 @@ export interface AgentMappingUpdate {
   preview?: MappingPreview | null;
   map_version_id?: string | null;
   terrain_id?: string | null;
+  source?: "point_lio" | "glim" | "legacy" | null;
+  pipeline?: "point_lio+glim" | null;
+  final_source?: "glim" | null;
+  name?: string | null;
+  phase?: "START_REQUESTED" | "STARTED" | "SAVE_REQUESTED" | "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
+  command_id?: string | null;
+  revision?: number | null;
+  update_seq?: number | null;
+  voxels?: MappingVoxels | null;
+  grid?: MappingGrid | null;
+  tiles?: MappingGridTile[] | null;
+  odom?: MappingOdom | null;
+  times?: MappingTimes | null;
+  slam_save?: "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
+  terrain_status?: "PENDING" | "READY" | "FAILED" | null;
   t?: "slam.update";
 }
 
@@ -820,6 +841,7 @@ export interface MapUpload {
 }
 
 export interface MapVersion {
+  slam_bundle?: MappingBundleLink | null;
   voxel_map?: VoxelMapSummary | null;
   provenance?: "HUMAN" | "SIMULATION";
   terrain_spec?: TerrainSpec | null;
@@ -874,6 +896,65 @@ export interface MappingAction {
   session_id: string;
 }
 
+export interface MappingBundle {
+  session_id: string;
+  source?: "point_lio" | "glim";
+  odom?: MappingOdom | null;
+  revision: number;
+  frame_id: string;
+  resolution?: 0.05;
+  voxels: [number, number, number][];
+  grid: MappingGrid;
+  slam_save: "SLAM_SAVED" | "UNKNOWN" | "FAILED";
+  times?: MappingTimes | null;
+}
+
+export interface MappingBundleLink {
+  session_id: string;
+  source: "point_lio" | "glim";
+  robot_id: string;
+  map_version_id: string;
+  revision: number;
+  resolution: 0.05;
+  slam_save: "SLAM_SAVED" | "UNKNOWN" | "FAILED";
+  completeness: "RECEIVED_ONLY" | "SLAM_CONFIRMED";
+}
+
+export interface MappingGrid {
+  revision: number;
+  resolution?: 0.05;
+  frame_id: string;
+  origin: [number, number, number];
+  floor_z: number;
+  width: number;
+  height: number;
+  cells: (0 | 1 | 2)[];
+}
+
+export interface MappingGridTile {
+  revision: number;
+  tile_seq: number;
+  x: number;
+  y: number;
+  resolution?: 0.05;
+  size?: 64;
+  frame_id: string;
+  floor_z: number;
+  cells: (0 | 1 | 2)[];
+}
+
+export interface MappingOdom {
+  source?: string;
+  provider?: "point_lio" | "glim";
+  frame_id: string;
+  stamp: MappingStamp;
+  display_stamp?: string | null;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
 export interface MappingPreview {
   resolution: number;
   cells: [number, number][];
@@ -884,7 +965,7 @@ export interface MappingPreview {
 export interface MappingProgress {
   session_id: string;
   floor_id: string;
-  status: "RUNNING" | "SAVING" | "SAVED" | "FAILED" | "CANCELLED";
+  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "FAILED" | "CANCELLED";
   distance_m?: number;
   point_count?: number;
   elapsed_s?: number;
@@ -893,10 +974,67 @@ export interface MappingProgress {
   preview?: MappingPreview | null;
   map_version_id?: string | null;
   terrain_id?: string | null;
+  source?: "point_lio" | "glim" | "legacy" | null;
+  pipeline?: "point_lio+glim" | null;
+  final_source?: "glim" | null;
+  name?: string | null;
+  phase?: "START_REQUESTED" | "STARTED" | "SAVE_REQUESTED" | "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
+  command_id?: string | null;
+  revision?: number | null;
+  update_seq?: number | null;
+  voxels?: MappingVoxels | null;
+  grid?: MappingGrid | null;
+  tiles?: MappingGridTile[] | null;
+  odom?: MappingOdom | null;
+  times?: MappingTimes | null;
+  slam_save?: "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
+  terrain_status?: "PENDING" | "READY" | "FAILED" | null;
+}
+
+export interface MappingStamp {
+  sec: number;
+  nanosec: number;
 }
 
 export interface MappingStart {
   floor_id: string;
+  source?: "point_lio" | "legacy";
+  name?: string;
+}
+
+export interface MappingTilePage {
+  session_id: string;
+  revision: number;
+  update_seq: number;
+  tiles: MappingGridTile[];
+  next_cursor: number | null;
+}
+
+export interface MappingTimes {
+  server_received_at?: string | null;
+  start_requested_at?: string | null;
+  save_requested_at?: string | null;
+  command_forwarded_at?: string | null;
+  start_forwarded_at?: string | null;
+  save_forwarded_at?: string | null;
+  start_ack_at?: string | null;
+  save_ack_at?: string | null;
+  agent_received_at?: string | null;
+  command_published_at?: string | null;
+  slam_ack_at?: string | null;
+  first_data_at?: string | null;
+  last_data_at?: string | null;
+  saved_at?: string | null;
+}
+
+export interface MappingVoxels {
+  revision: number;
+  seq: number;
+  reset?: boolean;
+  resolution?: 0.05;
+  frame_id: string;
+  added?: [number, number, number][];
+  removed?: [number, number, number][];
 }
 
 export interface MePatch {

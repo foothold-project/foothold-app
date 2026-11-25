@@ -3,6 +3,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Command Id"
+    },
+    "final_source": {
+      "anyOf": [
+        {
+          "const": "glim",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Final Source"
+    },
     "floor_id": {
       "format": "uuid",
       "title": "Floor Id",
@@ -17,10 +43,69 @@
       "title": "Op",
       "type": "string"
     },
+    "pipeline": {
+      "anyOf": [
+        {
+          "const": "point_lio+glim",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pipeline"
+    },
+    "requested_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested At"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
     "session_id": {
       "format": "uuid",
       "title": "Session Id",
       "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "enum": [
+            "point_lio",
+            "glim"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "legacy",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
     },
     "t": {
       "const": "slam",

@@ -7,6 +7,27 @@
       "format": "uuid",
       "title": "Floor Id",
       "type": "string"
+    },
+    "name": {
+      "default": "로봇이 만든 지도",
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "const": "point_lio",
+          "type": "string"
+        },
+        {
+          "const": "legacy",
+          "type": "string"
+        }
+      ],
+      "default": "point_lio",
+      "title": "Source"
     }
   },
   "required": [

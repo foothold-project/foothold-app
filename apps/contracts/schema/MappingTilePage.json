@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "MappingGridTile": {
+      "additionalProperties": false,
+      "description": "64x64 world-aligned cells, lower left at (x*3.2,y*3.2).",
+      "properties": {
+        "cells": {
+          "items": {
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "type": "integer"
+          },
+          "maxItems": 4096,
+          "minItems": 4096,
+          "title": "Cells",
+          "type": "array"
+        },
+        "floor_z": {
+          "title": "Floor Z",
+          "type": "number"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "resolution": {
+          "const": 0.05,
+          "default": 0.05,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "size": {
+          "const": 64,
+          "default": 64,
+          "title": "Size",
+          "type": "integer"
+        },
+        "tile_seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Tile Seq",
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 3124,
+          "minimum": -3125,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 3124,
+          "minimum": -3125,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "tile_seq",
+        "x",
+        "y",
+        "frame_id",
+        "floor_z",
+        "cells"
+      ],
+      "title": "MappingGridTile",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MappingTilePage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "title": "Revision",
+      "type": "integer"
+    },
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "tiles": {
+      "items": {
+        "$ref": "#/$defs/MappingGridTile"
+      },
+      "maxItems": 4,
+      "title": "Tiles",
+      "type": "array"
+    },
+    "update_seq": {
+      "title": "Update Seq",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "session_id",
+    "revision",
+    "update_seq",
+    "tiles",
+    "next_cursor"
+  ],
+  "title": "MappingTilePage",
+  "type": "object"
+}

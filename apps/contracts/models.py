@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BeforeValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
 from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED, MAX_TURN_RATE
+from .mapping_sources import DEFAULT_MAPPING_SOURCE, DEFAULT_FINAL_SOURCE, DEFAULT_ODOM_SOURCE, MappingSource, LiveMappingSource, FinalMappingSource, mapping_adapter
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -1092,6 +1093,14 @@ class AgentPhoneRevokeAck(AgentInput):
 
 class MappingStart(Contract):
     floor_id: UUID
+    source: LiveMappingSource | Literal['legacy'] = DEFAULT_MAPPING_SOURCE
+    name: str = Field(default='로봇이 만든 지도', min_length=1, max_length=40)
+
+    @model_validator(mode='after')
+    def live_source(self):
+        if self.source != 'legacy' and mapping_adapter(self.source).role != 'live':
+            raise ValueError('A mapping session starts with a live source')
+        return self
 
 
 class MappingAction(Contract):
@@ -1106,11 +1115,139 @@ class MappingPreview(Contract):
     path: list[tuple[float, float]] = Field(max_length=256)
 
 
+MAPPING_REPORT_BYTES = 65536
+MAPPING_DELTA_CELLS = 2000
+MAPPING_BUNDLE_BYTES = 50 * 1024 * 1024
+MappingPhase = Literal['START_REQUESTED', 'STARTED', 'SAVE_REQUESTED', 'SLAM_SAVED', 'UNKNOWN', 'FAILED']
+MappingIndex = Annotated[int, Field(strict=True, ge=-200000, le=200000)]
+MappingCell = tuple[MappingIndex, MappingIndex, MappingIndex]
+
+
+class MappingTimes(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    server_received_at: UTCDateTime | None = None
+    start_requested_at: UTCDateTime | None = None
+    save_requested_at: UTCDateTime | None = None
+    command_forwarded_at: UTCDateTime | None = None
+    start_forwarded_at: UTCDateTime | None = None
+    save_forwarded_at: UTCDateTime | None = None
+    start_ack_at: UTCDateTime | None = None
+    save_ack_at: UTCDateTime | None = None
+    agent_received_at: UTCDateTime | None = None
+    command_published_at: UTCDateTime | None = None
+    slam_ack_at: UTCDateTime | None = None
+    first_data_at: UTCDateTime | None = None
+    last_data_at: UTCDateTime | None = None
+    saved_at: UTCDateTime | None = None
+
+
+class MappingVoxels(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    """Cell lower corner = index * .05 in frame; reset replaces the revision."""
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    seq: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    reset: bool = False
+    resolution: Literal[0.05] = 0.05
+    frame_id: str = Field(min_length=1, max_length=80)
+    added: list[MappingCell] = Field(default_factory=list, max_length=MAPPING_DELTA_CELLS)
+    removed: list[MappingCell] = Field(default_factory=list, max_length=MAPPING_DELTA_CELLS)
+
+    @model_validator(mode='after')
+    def bounded(self):
+        if len(self.added) + len(self.removed) > MAPPING_DELTA_CELLS:
+            raise ValueError('At most 2000 changed voxel cells')
+        return self
+
+
+class MappingGrid(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    """Snapshot row-major from bottom left; 0 unknown / 1 free / 2 occupied."""
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    resolution: Literal[0.05] = 0.05
+    frame_id: str = Field(min_length=1, max_length=80)
+    origin: tuple[float, float, float]
+    floor_z: float
+    width: int = Field(ge=1, le=4096, strict=True)
+    height: int = Field(ge=1, le=4096, strict=True)
+    cells: list[Literal[0, 1, 2]] = Field(max_length=4_000_000)
+
+    @model_validator(mode='after')
+    def shape(self):
+        if len(self.cells) != self.width * self.height or self.origin[2] != 0:
+            raise ValueError('Grid length must match dimensions; world axes require zero origin yaw')
+        return self
+
+
+class MappingStamp(Contract):
+    sec: int = Field(strict=True, ge=0, le=MAX_SAFE_INTEGER)
+    nanosec: int = Field(strict=True, ge=0, le=999999999)
+
+
+class MappingGridTile(Contract):
+    """64x64 world-aligned cells, lower left at (x*3.2,y*3.2)."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    tile_seq: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    x: int = Field(ge=-3125, le=3124, strict=True)
+    y: int = Field(ge=-3125, le=3124, strict=True)
+    resolution: Literal[0.05] = .05
+    size: Literal[64] = 64
+    frame_id: str = Field(min_length=1, max_length=80)
+    floor_z: float
+    cells: list[Literal[0, 1, 2]] = Field(min_length=4096, max_length=4096)
+
+
+class MappingTilePage(Contract):
+    session_id: UUID
+    revision: int
+    update_seq: int
+    tiles: list[MappingGridTile] = Field(max_length=4)
+    next_cursor: int | None
+
+
+class MappingOdom(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    source: str = Field(default=DEFAULT_ODOM_SOURCE, min_length=1, max_length=160)
+    provider: MappingSource = DEFAULT_MAPPING_SOURCE
+    frame_id: str = Field(min_length=1, max_length=80)
+    stamp: MappingStamp
+    display_stamp: UTCDateTime | None = None
+    x: float
+    y: float
+    z: float
+    yaw: float
+
+
+class MappingBundle(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    """Final agent-computed pair; both artifacts share revision and frame, no server projection."""
+    session_id: UUID
+    source: MappingSource = DEFAULT_FINAL_SOURCE
+    odom: MappingOdom | None = None
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    frame_id: str = Field(min_length=1, max_length=80)
+    resolution: Literal[0.05] = 0.05
+    voxels: list[MappingCell] = Field(min_length=1, max_length=500_000)
+    grid: MappingGrid
+    slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED']
+    times: MappingTimes | None = None
+
+    @model_validator(mode='after')
+    def pair(self):
+        if self.grid.revision != self.revision or self.grid.frame_id != self.frame_id:
+            raise ValueError('Both maps must share revision and frame')
+        if self.odom and self.odom.frame_id != self.frame_id:
+            raise ValueError('Final pose must share the final map frame')
+        if mapping_adapter(self.source).role != 'final' and self.slam_save == 'SLAM_SAVED':
+            raise ValueError('Only the configured final provider can confirm a final save')
+        return self
+
+
 class MappingProgress(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     session_id: UUID
     floor_id: UUID
-    status: Literal['RUNNING', 'SAVING', 'SAVED', 'FAILED', 'CANCELLED']
+    status: Literal['STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'SAVED', 'FAILED', 'CANCELLED']
     distance_m: float = Field(default=0, ge=0, le=1000000)
     point_count: int = Field(default=0, ge=0, le=5000000)
     elapsed_s: float = Field(default=0, ge=0, le=1000000000)
@@ -1119,6 +1256,21 @@ class MappingProgress(Contract):
     preview: MappingPreview | None = None
     map_version_id: UUID | None = None
     terrain_id: str | None = Field(default=None, max_length=100)
+    source: MappingSource | Literal['legacy'] | None = None
+    pipeline: Literal['point_lio+glim'] | None = None
+    final_source: FinalMappingSource | None = None
+    name: str | None = Field(default=None, max_length=40)
+    phase: MappingPhase | None = None
+    command_id: UUID | None = None
+    revision: int | None = Field(default=None, ge=1, le=MAX_SAFE_INTEGER)
+    update_seq: int | None = Field(default=None, ge=1, le=MAX_SAFE_INTEGER)
+    voxels: MappingVoxels | None = None
+    grid: MappingGrid | None = None
+    tiles: list[MappingGridTile] | None = Field(default=None, max_length=4)
+    odom: MappingOdom | None = None
+    times: MappingTimes | None = None
+    slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED'] | None = None
+    terrain_status: Literal['PENDING', 'READY', 'FAILED'] | None = None
 
 
 class AgentMappingUpdate(MappingProgress):
@@ -1131,6 +1283,12 @@ class AgentMappingCommand(Contract):
     op: Literal['start', 'save', 'cancel']
     session_id: UUID
     floor_id: UUID
+    source: MappingSource | Literal['legacy'] | None = Field(default=None, exclude_if=lambda v: v is None)
+    final_source: FinalMappingSource | None = Field(default=None, exclude_if=lambda v: v is None)
+    pipeline: Literal['point_lio+glim'] | None = Field(default=None, exclude_if=lambda v: v is None)
+    command_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    requested_at: UTCDateTime | None = Field(default=None, exclude_if=lambda v: v is None)
+    revision: int | None = Field(default=None, ge=1, exclude_if=lambda v: v is None)
 
 AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck | AgentMappingUpdate,
                          Field(discriminator='t')]
@@ -1631,9 +1789,22 @@ class MapVersionCreate(Contract):
     reason: ApprovalText = Field(min_length=1, max_length=2000, pattern=r'\S')
 
 
+class MappingBundleLink(Contract):
+    """Immutable source pair; session endpoints expose later robot/terrain outcomes."""
+    session_id: UUID
+    source: MappingSource
+    robot_id: UUID
+    map_version_id: UUID
+    revision: int = Field(ge=1)
+    resolution: Literal[0.05] = .05
+    slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED']
+    completeness: Literal['RECEIVED_ONLY', 'SLAM_CONFIRMED']
+
+
 class MapVersion(Contract):
+    slam_bundle: MappingBundleLink | None = Field(default=None, exclude_if=lambda value: value is None)
     voxel_map: VoxelMapSummary | None = Field(default=None, exclude_if=lambda value: value is None)
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
     upload_id: UUID

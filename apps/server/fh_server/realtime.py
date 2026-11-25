@@ -1306,6 +1306,10 @@ class Realtime:
 
     async def send_body(self, peer, body, delivery=None):
         async with peer.send_lock:
+            if body.get('t') == 'slam':
+                rid = next((key for key, value in self.agents.items() if value is peer), None)
+                if not await self.read(self.mapping.authorized, rid, body):
+                    return False
             if self.blocked_agent_control(peer, body):
                 return False
             if body.get('t') == 'field_approval':
@@ -1324,6 +1328,7 @@ class Realtime:
             if body.get('t') == 'slam':
                 rid = next((key for key, value in self.agents.items() if value is peer), None)
                 self.mapping.consume(rid, body)
+                await self.read(self.mapping.forwarded, rid, body)
             return True
 
     async def replies(self, peer):
@@ -1382,15 +1387,22 @@ class Realtime:
         raw = packet.get('text')
         if agent and raw is None:
             return None  # binary relay is not implemented
-        if raw is None or len(raw.encode('utf-8')) > MAX_FRAME:
+        size = len(raw.encode('utf-8')) if raw is not None else 0
+        if raw is None or size > (C.MAPPING_REPORT_BYTES if agent else MAX_FRAME):
             await ws.close(code=1009 if raw is not None else 1003)
             raise WebSocketDisconnect(1009)
         try:
             data = json.loads(raw)
             if not isinstance(data, dict):
                 raise ValueError()
+            if size > MAX_FRAME and data.get('t') != 'slam.update':
+                await ws.close(code=1009)
+                raise WebSocketDisconnect(1009)
             return data
         except (ValueError, RecursionError):
+            if size > MAX_FRAME:
+                await ws.close(code=1009)
+                raise WebSocketDisconnect(1009)
             if agent:
                 return None
             await ws.close(code=1007)

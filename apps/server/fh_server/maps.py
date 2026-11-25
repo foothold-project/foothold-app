@@ -163,14 +163,22 @@ def refresh_connectors(db, floor):
 def version_object(row, floor, upload, db):
     # The immutable upload belongs to this snapshot, unlike Floor.terrain_id
     # which points at the terrain's current revision. Edits/rollbacks reuse it.
-    from .voxel_links import voxel_summary
+    from .voxel_links import voxel_summary, same_annotation_raster
     terrain_spec = upload.metadata_json.get('terrain_spec') if row.provenance == 'SIMULATION' else None
+    bundle = upload.metadata_json.get('slam_bundle')
+    bundle_link = None
+    if bundle:
+        anchor = db.get(MapVersion, UUID(bundle['map_version_id']))
+        if same_annotation_raster(row, anchor, upload):
+            bundle_link = C.MappingBundleLink.model_validate({key: bundle[key]
+                for key in C.MappingBundleLink.model_fields})
     return C.MapVersion(upload_id=row.upload_id, id=row.id, floor_id=row.floor_id, number=row.number, base_version_id=row.base_version_id,
         copied_from_id=row.copied_from_id,
         status='SUPERSEDED' if row.status == 'APPROVED' and floor.approved_version_id != row.id else row.status,
         image_sha256=row.image_sha256.hex(), width=row.width, height=row.height, resolution=row.resolution,
         origin=(row.origin_x, row.origin_y, row.origin_yaw), features=row.features, reason=row.reason,
-        source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, voxel_map=voxel_summary(db, row, upload), created_by=row.created_by, created_at=row.created_at)
+        source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, voxel_map=voxel_summary(db, row, upload),
+        slam_bundle=bundle_link, created_by=row.created_by, created_at=row.created_at)
 
 
 def bounded_features(row, fail):

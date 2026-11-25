@@ -24,7 +24,7 @@ def require_unused(db, org_id, fail, *, floor=None, scenario=None):
     if floor is not None:
         # Historical 0027 invokes this helper before 0030 creates its table.
         if inspect(db.connection()).has_table('mapping_sessions') and db.scalar(select(MappingSession.id).where(MappingSession.org_id == org_id,
-                MappingSession.floor_id == floor.id, MappingSession.status.in_(('RUNNING', 'SAVING', 'FAILED'))).limit(1)):
+                MappingSession.floor_id == floor.id, MappingSession.status.in_(('STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'FAILED'))).limit(1)):
             fail(409, 'RESOURCE_IN_USE', '이 층의 지도를 만들고 있습니다. 먼저 저장하거나 취소해 주세요.')
         versions = versions.where(floor.id == any_(ScenarioVersion.floor_ids))
         if db.scalar(select(Robot.id).where(Robot.org_id == org_id, Robot.archived_at.is_(None),
