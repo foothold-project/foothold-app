@@ -235,6 +235,7 @@ export interface AgentState {
   posture_result?: PostureResult | null;
   action_result?: ActionResult | null;
   robot_info?: Go2RobotInfo | null;
+  control?: "FACTORY" | "LOWLEVEL" | null;
   controller?: string | null;
   controller_device?: string | null;
   controller_connected?: boolean;
@@ -1611,6 +1612,7 @@ export interface PhoneState {
   posture_result?: PostureResult | null;
   action_result?: ActionResult | null;
   robot_info?: Go2RobotInfo | null;
+  control?: "FACTORY" | "LOWLEVEL" | null;
   controller: string | null;
   controller_device: string | null;
   controller_connected: boolean;
@@ -2250,6 +2252,7 @@ export interface ScreenState {
   posture?: PostureState | null;
   posture_result?: PostureResult | null;
   action_result?: ActionResult | null;
+  control?: "FACTORY" | "LOWLEVEL" | null;
   robot_info?: Go2RobotInfo | null;
   slam_pose?: SlamPoseFrame | null;
   phone_relay?: PhoneRelayState | null;
@@ -2748,4 +2751,6 @@ export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus
 export type MediaChannel = "rgb" | "external" | "lidar" | "depth";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
+export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp";
+export type ControlMode = "FACTORY" | "LOWLEVEL";
 export type PairingPollResult = PairingWaiting | PairingPaired;

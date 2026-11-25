@@ -1362,6 +1362,22 @@
       "title": "Connection",
       "type": "string"
     },
+    "control": {
+      "anyOf": [
+        {
+          "enum": [
+            "FACTORY",
+            "LOWLEVEL"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Control"
+    },
     "devices": {
       "items": {
         "$ref": "#/$defs/Device"

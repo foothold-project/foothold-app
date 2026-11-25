@@ -719,6 +719,13 @@ class ScreenPing(ScreenEnvelope):
 # Experimental Go2 high-level requests; SDK success is not physical completion.
 Go2ActionName = Literal['Damp', 'BalanceStand', 'StopMove', 'StandUp', 'StandDown', 'RecoveryStand', 'Euler', 'Sit', 'RiseSit', 'SpeedLevel', 'Hello', 'Stretch', 'Content', 'Dance1', 'Dance2', 'SwitchJoystick', 'Pose', 'Scrape', 'FrontFlip', 'FrontJump', 'FrontPounce', 'Heart', 'StaticWalk', 'TrotRun', 'EconomicGait', 'LeftFlip', 'BackFlip', 'HandStand', 'FreeWalk', 'FreeBound', 'FreeJump', 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet', 'AutoRecoveryGet', 'SwitchAvoidMode', 'CheckMode', 'SelectMode']
 
+# 저수준 (START · AME-2) 제어 중에도 누를 수 있는 동작 (팀장 11/26 08:01 · 동작표 action-table-1126 「저수준」 열 「켬」).
+# 화면 · 서버 · 에이전트 · 음성이 이 목록 하나를 본다. 순정 (FACTORY) 에서는 Go2ActionName 전부.
+# 인사 (Greet · 리모컨 L1+A) 는 SDK 이름이 아직 없어 (동작표 3 절 3) 여기 없다.
+LowlevelAction = Literal['Sit', 'RiseSit', 'StandDown', 'Stretch', 'Hello', 'Heart', 'Damp']
+# 누가 다리를 쥐고 있나: FACTORY 순정 sport 서비스 · LOWLEVEL START 실행기 (/tmp/foothold-start-active)
+ControlMode = Literal['FACTORY', 'LOWLEVEL']
+
 
 class Go2ActionParams(Contract):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False, json_schema_serialization_defaults_required=False)
@@ -904,6 +911,7 @@ class AgentState(AgentInput):
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
+    control: ControlMode | None = None
     controller: UUID | None = None
     controller_device: UUID | None = None
     controller_connected: bool = False
@@ -1454,10 +1462,11 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
+    control: ControlMode | None = None
     robot_info: Go2RobotInfo | None = None
     slam_pose: 'SlamPoseFrame | None' = Field(default=None, exclude_if=lambda v: v is None)
     phone_relay: PhoneRelayState | None = None
@@ -3397,6 +3406,7 @@ TOP.update(SlamMessage=SlamMessage, MediaMessage=MediaMessage, MediaChannel=Medi
 REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})
 
 TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
+TOP.update(LowlevelAction=LowlevelAction, ControlMode=ControlMode)
 
 REQUEST_MODELS.update({StopRequest, PhoneStop})
 
