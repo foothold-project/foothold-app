@@ -3,8 +3,7 @@ import base64
 import binascii
 import json
 
-from sqlalchemy import delete, select, tuple_
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import delete, select, text, tuple_
 
 from apps.contracts import models as C
 from .models import MappingVoxel, MappingVoxelState, now
@@ -41,9 +40,17 @@ def accumulate(db, row, delta, new_revision, fail):
     reset = new_revision or delta.reset
     desired = {cell: False for cell in delta.removed}
     desired.update({cell: True for cell in delta.added})  # same-cell add wins
+    # Join one coordinate relation instead of expanding a tuple IN into thousands
+    # of bitmap OR/recheck predicates. Keep the session PK usable at full capacity.
     existing = {} if reset or not desired else {
-        (r.x, r.y, r.z): r.present for r in db.scalars(select(MappingVoxel).where(
-            *scope(MappingVoxel, row), tuple_(MappingVoxel.x, MappingVoxel.y, MappingVoxel.z).in_(desired)))}
+        (r.x, r.y, r.z): r.present for r in db.execute(text('''
+            SELECT v.x, v.y, v.z, v.present
+            FROM unnest(CAST(:xs AS integer[]), CAST(:ys AS integer[]),
+                        CAST(:zs AS integer[])) AS wanted(x,y,z)
+            JOIN mapping_voxels v ON v.session_id=:session_id AND v.org_id=:org_id
+                AND v.x=wanted.x AND v.y=wanted.y AND v.z=wanted.z
+            '''), dict(session_id=row.id, org_id=row.org_id,
+                xs=[c[0] for c in desired], ys=[c[1] for c in desired], zs=[c[2] for c in desired]))}
     count = 0 if reset else state.cell_count
     changes = []
     for cell, present in desired.items():
@@ -51,17 +58,24 @@ def accumulate(db, row, delta, new_revision, fail):
         if before == present:
             continue
         count += 1 if present else -1
-        changes.append(dict(org_id=row.org_id, session_id=row.id, x=cell[0], y=cell[1], z=cell[2],
-            seq=delta.seq, present=present))
+        changes.append((*cell, present))
     if count > C.MAPPING_VOXEL_CELLS:
         rejection(db, row, fail, 'MAPPING_VOXEL_LIMIT',
             '실시간 지도는 최대 500,000칸까지 보관할 수 있습니다.')
     if reset:
         db.execute(delete(MappingVoxel).where(*scope(MappingVoxel, row)))
     if changes:
-        statement = insert(MappingVoxel).values(changes)
-        db.execute(statement.on_conflict_do_update(index_elements=['session_id', 'x', 'y', 'z'],
-            set_={'seq': statement.excluded.seq, 'present': statement.excluded.present}))
+        # Bind arrays for writes too, avoiding compilation of 14,000 individual
+        # parameters for a full chunk. Only actual changes advance each cell seq.
+        db.execute(text('''INSERT INTO mapping_voxels(org_id,session_id,x,y,z,seq,present)
+            SELECT :org_id, :session_id, x, y, z, :seq, present
+            FROM unnest(CAST(:xs AS integer[]), CAST(:ys AS integer[]),
+                CAST(:zs AS integer[]), CAST(:present AS boolean[])) AS changed(x,y,z,present)
+            ON CONFLICT (session_id,x,y,z) DO UPDATE
+            SET seq=excluded.seq, present=excluded.present'''),
+            dict(org_id=row.org_id, session_id=row.id, seq=delta.seq,
+                xs=[c[0] for c in changes], ys=[c[1] for c in changes],
+                zs=[c[2] for c in changes], present=[c[3] for c in changes]))
     if state is None:
         state = MappingVoxelState(org_id=row.org_id, session_id=row.id)
         db.add(state)
