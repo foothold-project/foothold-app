@@ -184,7 +184,7 @@ std::string line(const Row& row) {
     }
     const auto& s = row.state;
     const bool policy = row.phase == Phase::policy;
-    out << std::setprecision(4) << ",\"phase\":\"" << (policy ? "policy" : "standing_up")
+    out << std::setprecision(4) << ",\"phase\":\"" << phase_name(row.phase)
         << "\",\"stick\":";
     array(out, Vec3{s.remote.lx, s.remote.ly, s.remote.rx});
     out << ",\"keys\":";

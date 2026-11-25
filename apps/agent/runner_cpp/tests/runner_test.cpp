@@ -16,7 +16,7 @@ constexpr auto start = (1 << 12) | (1 << 2);
 constexpr auto lie = (1 << 5) | (1 << 8);
 constexpr auto emergency = (1 << 5) | (1 << 9);
 constexpr auto classic = (1 << 13) | (1 << 2);
-constexpr auto dog = (1 << 5) | (1 << 11);
+constexpr auto dog = (1 << 0) | (1 << 9);  // R1+B, as the factory Sit Down
 
 float distance(const Joints& a, const Joints& b) {
     float gap = 0;
@@ -421,7 +421,7 @@ int main() {
     }
 
     {
-        // L2+Y dog sit: no jump on entry, reach and hold the recorded pose, rise back to policy.
+        // R1+B dog sit: no jump on entry, reach and hold the recorded pose, rise back to policy.
         Rig live(true);
         live.enter();
         auto current = default_pose;
@@ -429,10 +429,22 @@ int main() {
         live.state.q = to_sdk(current);
         live.tick(dog);
         require(live.runner.phase() == Phase::dog_sitting && live.events.seen.back() == Event::dog_sit,
-                "L2+Y from policy must start the dog sit");
+                "R1+B from policy must start the dog sit");
         require(distance(to_policy(live.robot.last_target), current) < .05f,
                 "first dog sit command must start at the current pose");
         require(live.robot.position_gain == 60 && live.robot.velocity_gain == 5, "dog sit gains");
+        // First diagonal tap: FL and RR lift (thigh up, calf folded), FR and RL stay planted.
+        live.wait(65ms, dog);
+        const auto tap = to_policy(live.robot.last_target);
+        require(tap[4] > current[4] + .1f && tap[7] > current[7] + .1f && tap[8] < current[8] - .2f &&
+                    tap[11] < current[11] - .2f, "FL and RR must lift in the first tap");
+        require(std::abs(tap[5] - current[5]) < 1e-4f && std::abs(tap[6] - current[6]) < 1e-4f &&
+                    std::abs(tap[9] - current[9]) < 1e-4f, "FR and RL must stay planted in the first tap");
+        live.wait(160ms);
+        const auto second = to_policy(live.robot.last_target);
+        require(second[5] > dog_sit_down.front().q[5] + .1f && second[6] > dog_sit_down.front().q[6] + .1f &&
+                    std::abs(second[4] - dog_sit_down.front().q[4]) < 1e-4f,
+                "second tap lifts FR and RL after FL and RR landed on the factory stance");
         live.wait(1s, dog);
         live.wait(2s);
         require(live.runner.phase() == Phase::dog_sitting, "dog sit must hold");
@@ -441,7 +453,7 @@ int main() {
         require(live.robot.position_gain == 60 && live.robot.velocity_gain == 5, "dog sit hold gains");
         live.state.q = to_sdk(dog_sit_down.back().q);
         live.tick(dog);
-        require(live.events.seen.back() == Event::dog_rise, "second L2+Y must rise");
+        require(live.events.seen.back() == Event::dog_rise, "second R1+B must rise");
         require(distance(to_policy(live.robot.last_target), dog_sit_down.back().q) < .05f,
                 "rise must start at the current pose");
         live.wait(2s);
@@ -453,20 +465,20 @@ int main() {
         require(live.robot.position_gain == kp && live.robot.velocity_gain == kd, "policy gains after rise");
     }
     {
-        // L2+Y outside policy is ignored: factory, damping, standing up.
+        // R1+B outside policy is ignored: factory, damping, standing up.
         Rig live(true);
         live.tick(dog);
-        require(live.runner.phase() == Phase::high, "L2+Y in factory must be ignored");
+        require(live.runner.phase() == Phase::high, "R1+B in factory must be ignored");
         live.enter();
         live.tick(emergency);
         live.tick(dog);
-        require(live.runner.phase() == Phase::damping, "L2+Y while damping must be ignored");
+        require(live.runner.phase() == Phase::damping, "R1+B while damping must be ignored");
         live.tick();
         live.tick(start);
         live.wait(200ms);
         live.tick(dog);
         live.wait(50ms);
-        require(live.runner.phase() == Phase::standing, "L2+Y while standing up must be ignored");
+        require(live.runner.phase() == Phase::standing, "R1+B while standing up must be ignored");
         require(std::count(live.events.seen.begin(), live.events.seen.end(), Event::dog_sit) == 0,
                 "no dog sit outside policy");
     }

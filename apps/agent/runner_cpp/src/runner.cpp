@@ -9,11 +9,11 @@ using namespace std::chrono_literals;
 
 namespace foothold {
 namespace {
+constexpr int r1_button = 1 << 0;
 constexpr int start_button = 1 << 2;
 constexpr int l2_button = 1 << 5;
 constexpr int a_button = 1 << 8;
 constexpr int b_button = 1 << 9;
-constexpr int y_button = 1 << 11;
 constexpr int up_button = 1 << 12;
 constexpr int right_button = 1 << 13;
 constexpr int down_button = 1 << 14;
@@ -44,10 +44,36 @@ Joints blend_pose(const Joints& from, const Joints& to, double fraction, const W
     return pose;
 }
 
-// L2+Y dog sit timing in seconds. Recorded segments play at their original speed.
-constexpr double dog_blend = .3;      // current pose -> first recorded row
+// R1+B dog sit timing in seconds (same key as the factory Sit Down). Recorded segments play
+// at their original speed. Before the sit, the feet step to the factory stance in two diagonal
+// taps (FL+RR, then FR+RL), as the factory controller does (11/26 factory trace 06:27:27).
+constexpr double dog_tap = .14;       // one diagonal pair: lift and place
+constexpr double dog_tap_gap = .02;   // pause before the second pair
+constexpr double dog_align = .46;     // taps done and settled -> first recorded sit row
+constexpr double dog_tap_thigh = .23; // swing lift at mid tap (factory trace)
+constexpr double dog_tap_calf = .42;
+constexpr double dog_blend = .3;      // held sit pose -> first recorded rise row
 constexpr double dog_settle = .5;     // last rise row -> default_pose
 constexpr double dog_gain_ramp = 1.;  // transition gains -> policy gains, as at the end of stand-up
+
+Joints lerp(const Joints& from, const Joints& to, double fraction);
+double smoothstep(double x);
+
+// Two diagonal taps from the current stance to the first recorded sit row. Policy joint order:
+// hip, thigh, calf, each FL FR RL RR.
+Joints dog_taps(const Joints& from, const Joints& to, double t) {
+    Joints pose = from;
+    for (std::size_t leg = 0; leg < 4; ++leg) {
+        const double begin = (leg == 0 || leg == 3) ? 0. : dog_tap + dog_tap_gap;
+        const double x = std::clamp((t - begin) / dog_tap, 0., 1.);
+        const double lift = std::sin(3.14159265358979 * x);
+        for (std::size_t j = leg; j < pose.size(); j += 4)
+            pose[j] = static_cast<float>(from[j] + (double(to[j]) - from[j]) * smoothstep(x));
+        pose[4 + leg] = static_cast<float>(pose[4 + leg] + dog_tap_thigh * lift);
+        pose[8 + leg] = static_cast<float>(pose[8 + leg] - dog_tap_calf * lift);
+    }
+    return pose;
+}
 
 Joints lerp(const Joints& from, const Joints& to, double fraction) {
     Joints pose{};
@@ -296,19 +322,20 @@ void Runner::enter_policy(Tick now, Tick scheduled) {
     observer_.event(now, Event::policy_start, {options_.map == MapMode::off ? "off" : "reconstruction"});
 }
 
-// L2+Y: blend to the recorded sit, play it, hold. On rise: blend, play the recorded rise,
+// R1+B: tap the feet to the factory stance, play the recorded sit, hold. On rise: blend, play the recorded rise,
 // settle to default_pose, ramp to policy gains, then resume the policy.
 void Runner::dog_sit(Tick now, Tick scheduled, const LowState& state, const Vec3& grav) {
     const auto* move = dog_rising_ ? dog_rise.data() : dog_sit_down.data();
     const auto count = dog_rising_ ? dog_rise.size() : dog_sit_down.size();
-    const double played = dog_blend + move[count - 1].t;
+    const double lead = dog_rising_ ? dog_blend : dog_align;
+    const double played = lead + move[count - 1].t;
     const auto t = seconds(now - started_);
     Joints pose;
     double gain = 0;
-    if (t < dog_blend) {
-        pose = lerp(from_, move[0].q, smoothstep(t / dog_blend));
+    if (t < lead) {
+        pose = dog_rising_ ? lerp(from_, move[0].q, smoothstep(t / dog_blend)) : dog_taps(from_, move[0].q, t);
     } else if (!dog_rising_ || t < played) {
-        pose = play(move, count, t - dog_blend);
+        pose = play(move, count, t - lead);
     } else {
         const auto settle = t - played;
         pose = lerp(move[count - 1].q, default_pose, smoothstep(settle / dog_settle));
@@ -469,7 +496,7 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     const auto keys = state.remote.keys;
     const bool emergency = pressed(keys, l2_button | b_button);
     const bool lie = pressed(keys, l2_button | a_button);
-    const bool dog = pressed(keys, l2_button | y_button);
+    const bool dog = pressed(keys, r1_button | b_button);
     const bool standing_up = phase_ == Phase::folding || phase_ == Phase::standing;
     const bool active = standing_up || phase_ == Phase::policy || phase_ == Phase::dog_sitting;
     const auto q = to_policy(state.q);
@@ -583,7 +610,7 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         dog_latched_ = true;
         // Sit only from policy; rise only once the sit holds. Presses during motion are dropped.
         const bool holding = phase_ == Phase::dog_sitting && !dog_rising_ &&
-                             seconds(now - started_) >= dog_blend + dog_sit_down.back().t;
+                             seconds(now - started_) >= dog_align + dog_sit_down.back().t;
         if (phase_ == Phase::policy || holding) {
             pending_sample_.reset();
             dog_rising_ = holding;
