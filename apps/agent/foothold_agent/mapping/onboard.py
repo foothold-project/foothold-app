@@ -120,7 +120,7 @@ class OnboardRuntime(MappingRuntime):
             self.dropped(topic, 'malformed_sample')
 
     def dropped(self, topic, reason):
-        LOG.warning('USLAM dropped topic=%s reason=%s monotonic=%.6f utc=%s', topic, reason, self.now(), utc())
+        LOG.warning('SLAM dropped topic=%s reason=%s monotonic=%.6f utc=%s', topic, reason, self.now(), utc())
 
     def suspend(self):
         super().suspend()
@@ -220,7 +220,7 @@ class OnboardRuntime(MappingRuntime):
                     if history and stamp<=history[-1][1]:
                         raise ValueError('non_increasing_stamp')
                     history.append((received,stamp,position,quaternion,body))
-                    if self.source.source==source.source:
+                    if self.source.source==source.source and not (source is self.final and self.final_received):
                         self.last_odom=body
                 except (ValueError,AttributeError,TypeError,OverflowError):
                     self.dropped(source.odom_topic,'invalid_frame_stamp_pose')
@@ -228,7 +228,7 @@ class OnboardRuntime(MappingRuntime):
             topic=source.cloud_topic
             if (topic not in samples or not self.core.session_id or self.core.status in ('SAVED','CANCELLED')
                     or self.frozen or source is self.live and self.source is self.final
-                    or source is self.final and self.save_requested is None):
+                    or source is self.final and (self.save_requested is None or self.final_received)):
                 continue
             received,message=samples[topic]
             try:
@@ -251,7 +251,7 @@ class OnboardRuntime(MappingRuntime):
                 result=self.core.add_world(np.frombuffer(payload,dtype='<f4').reshape(-1,3),pose[2],pose[3],
                     stamp=stamp,frame=source.frame)
                 self.core.truncated|=header['truncated']
-                if self.core.error_code=='SLAM_INPUT_REJECTED':
+                if self.core.error_code in ('SLAM_INPUT_REJECTED','SLAM_DATA_UNAVAILABLE'):
                     self.core.error_code=self.core.reason=None
                 self.input_stamps[topic]=stamp
                 self.tiles.changed(self.core.grid)
@@ -384,8 +384,11 @@ class OnboardRuntime(MappingRuntime):
         if self.phase=='START_REQUESTED' and self.services.status in ('UNKNOWN','STOPPED'):
             self.problem('MAPPING_SERVICES_FAILED','지도 서비스를 시작하지 못했습니다. 설치 설정을 확인해 주세요.')
         if self.phase=='START_REQUESTED' and self.now()-self.core.started>10:
-            self.problem('MAPPING_SERVICES_TIMEOUT','지도 서비스 시작을 확인하지 못했습니다. 설치 설정을 확인해 주세요.')
-            self.services.stop()
+            if self.services.status=='STARTED':
+                self.problem('SLAM_DATA_UNAVAILABLE','지도 서비스는 시작됐지만 지도 점과 대응 위치를 받지 못했습니다.')
+            else:
+                self.problem('MAPPING_SERVICES_TIMEOUT','지도 서비스 시작을 확인하지 못했습니다. 설치 설정을 확인해 주세요.')
+                self.services.stop()
         if (self.save_requested is None and self.core.cells and self.services.status=='STARTED'
                 and self.core.status not in ('SAVED','CANCELLED','FAILED')):
             self.phase,self.core.status='STARTED','RUNNING'
@@ -491,7 +494,7 @@ class OnboardRuntime(MappingRuntime):
             self.services.close()
 
     async def run(self):
-        self.thread = threading.Thread(target=self.worker, name='uslam-observe', daemon=True)
+        self.thread = threading.Thread(target=self.worker, name='slam-observe', daemon=True)
         self.thread.start()
         try:
             while True:

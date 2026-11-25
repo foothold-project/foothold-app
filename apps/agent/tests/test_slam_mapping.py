@@ -241,7 +241,7 @@ def test_progress_and_bundle_validate_against_server_contract(tmp_path):
             registry_module=importlib.util.module_from_spec(registry_spec)
             sys.modules[registry_spec.name]=registry_module
             registry_spec.loader.exec_module(registry_module)
-        spec=importlib.util.spec_from_file_location('apps.contracts._uslam_draft',draft)
+        spec=importlib.util.spec_from_file_location('apps.contracts._slam_draft',draft)
         contracts=importlib.util.module_from_spec(spec)
         sys.modules[spec.name]=contracts
         spec.loader.exec_module(contracts)
@@ -306,6 +306,11 @@ def test_full_map_rebuild_is_chunked_complete_and_replaces_old_revision(tmp_path
     revision=rt.revision
     rt.receive(FRONTEND,pose(stamp=2));rt.receive(CLOUD,cloud(stamp=2));rt.step()
     assert rt.revision==revision and rt.source.source=='glim' and len(rt.core.cells)==10000
+    late_pose=pose(stamp=3,frame='corrected_world');late_pose.pose.pose.position.x=1.
+    rt.receive(FINAL_POSE,late_pose)
+    rt.receive(MAP,cloud(stamp=3,frame='corrected_world'));rt.step()
+    assert rt.rebuild is None and rt.revision==revision and len(rt.core.cells)==10000
+    assert rt.last_odom['x']==0.
     rt.io.shutdown(wait=True)
 
 
