@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { PHONE_PORT_RANGE, phonePorts } from './src/phoneTransport';
 import { phoneProxy, tunnelGuard, tunnelOrigin } from './tunnel';
 
-// 새 웹 앱 개발 서버는 127.0.0.1:5180 만(운영 앱·기존 ui 개발 서버 5181·5182 와 겹치지 않게).
+// 기본 개발 주소는 127.0.0.1:5180. Docker 안에서만 FH_WEB_HOST=0.0.0.0을 준다.
 // /api(실시간 WS /api/v1/ws 포함) → 로컬 관제 서버(apps/server README 의 uvicorn 127.0.0.1:8810). 운영 포트(8453·8792)는 쓰지 않는다.
 // 다른 로컬 서버면 FH_API=http://127.0.0.1:<포트>. Host 를 바꾸지 않아(changeOrigin 없음) 서버의 Origin 검사가 이 화면 출처와 맞는다
 export default defineConfig(({ mode, command, isPreview }) => {
@@ -17,7 +17,7 @@ export default defineConfig(({ mode, command, isPreview }) => {
     base: './',
     cacheDir: env.FH_TUNNEL === '1' ? '../../tmp/phone-tunnel/vite' : undefined,
     define: { 'import.meta.env.FH_PHONE_PORT_RANGE': JSON.stringify(env.FH_PHONE_PORT_RANGE ?? PHONE_PORT_RANGE) },
-    server: { host: '127.0.0.1', port: 5180, strictPort: true,
+    server: { host: env.FH_WEB_HOST || '127.0.0.1', port: 5180, strictPort: true,
       allowedHosts: [],
       fs: { allow: ['.', '../../mobile/sim'] },   // 앱 안 시뮬 지도 목록·위에서 본 사진(simdrive.tsx)
       proxy: devTunnel ? { '/api': proxy['/api'] } : proxy },
