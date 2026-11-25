@@ -27,12 +27,22 @@ export const FLOOR_DZ = -0.3;
 export const LUT = (() => { const t = new Float32Array(N * 3), c = new THREE.Color(); HEX.forEach((h, i) => c.set(h).toArray(t, i * 3)); return t; })();
 /** 그 단계 색(sRGB 0..255) — 위에서 본 그림(2D 화소)용 */
 export const rgbOf = (k: number) => [1, 3, 5].map((i) => parseInt(HEX[k].slice(i, i + 2), 16));
+/** 모서리 점(feed.edge 양수, 11-25 RB-LIDAR-EDGEWEB) — 높이 색은 그대로 두고:
+ *  점·위에서 본 그림 = 큰 점(EDGE_PX, 보통 1.5)을 테두리 색(ringOf — 칸 글자색: 다크 밝음·라이트 어두움)으로 먼저 깔고 가운데에 보통 점 = 테두리 두른 점,
+ *  상자 = EDGE_SCALE 배 상자를 높이 색에서 흰색 쪽으로 EDGE_LIFT 만큼 밝게(상자는 면 무늬 선이 있어 밝은 바탕에서도 보임).
+ *  ponytail: 고정 값 — 실기 화면에서 모서리가 너무 굵거나 묻히면 이 셋을 고친다 */
+export const EDGE_LIFT = 0.5, EDGE_PX = 4.5, EDGE_SCALE = 1.6;
+export const EDGE_LUT = LUT.map((v) => v + (1 - v) * EDGE_LIFT);
+/** 테두리 색 = 그 칸의 글자색(테마 따라 바뀜, 못 읽으면 흰색) */
+export const ringOf = (el: Element) => new THREE.Color().setStyle(getComputedStyle(el).color || '#ffffff');
+/** 5 cm 칸 가운데(버퍼 f32 와 같은 값) */
+const cellOf = (u: number) => Math.fround((Math.floor(u / CELL_M) + 0.5) * CELL_M);
 
 /** 버퍼 채우기: n 개 중 cap 이하로 고르게 솎아 솎은 순번 [from, to) 만 버퍼 앞에서부터 채운다. [채운 수, 앞 내용과 달라졌나]
  *  box = 상자(5 cm 칸 가운데 자리 — 상자 하나당 16칸 행렬의 이동 자리 12·13·14), 아니면 점(받은 자리 그대로 x·y·z) */
 export function fillRange(mat: Float32Array, col: Float32Array, xyz: Float32Array, n: number, cap: number, floor: number, from: number, to: number, box = true): [number, boolean] {
-  const step = Math.max(1, Math.ceil(n / cap)), s = CELL_M, end = Math.min(to, cap, Math.ceil(n / step)), w = box ? 16 : 3, at = box ? 12 : 0;
-  const snap = (u: number) => (box ? Math.fround((Math.floor(u / s) + 0.5) * s) : u);   // 버퍼(f32)와 같은 값으로 비교
+  const step = Math.max(1, Math.ceil(n / cap)), end = Math.min(to, cap, Math.ceil(n / step)), w = box ? 16 : 3, at = box ? 12 : 0;
+  const snap = (u: number) => (box ? cellOf(u) : u);   // 버퍼(f32)와 같은 값으로 비교
   let m = 0, diff = false;
   for (let j = from; j < end; j++, m++) {
     const i = j * step, z = xyz[i * 3 + 2], k = levelOf(z, floor) * 3, o = m * w + at;
@@ -42,6 +52,19 @@ export function fillRange(mat: Float32Array, col: Float32Array, xyz: Float32Arra
     col[m * 3] = LUT[k]; col[m * 3 + 1] = LUT[k + 1]; col[m * 3 + 2] = LUT[k + 2];
   }
   return [m, diff];
+}
+/** 모서리 층 채우기: edge[i] 가 양수인 점만 앞에서부터(BLOCK 까지 — 라이다 한 판은 4000 점 이하), 자리는 fillRange 와 같고
+ *  색은 ring(선형 RGB — 점의 테두리 색) 또는 없으면 EDGE_LUT(상자 — 밝힌 높이 색). 채운 수 */
+export function fillEdges(mat: Float32Array, col: Float32Array, xyz: Float32Array, n: number, edge: Uint8Array, floor: number, box: boolean, ring?: ArrayLike<number>) {
+  const w = box ? 16 : 3, at = box ? 12 : 0;
+  let m = 0;
+  for (let i = 0; i < Math.min(n, edge.length) && m < BLOCK; i++) {
+    if (!edge[i]) continue;
+    const o = m * w + at, k = levelOf(xyz[i * 3 + 2], floor) * 3;
+    for (let a = 0; a < 3; a++) { mat[o + a] = box ? cellOf(xyz[i * 3 + a]) : xyz[i * 3 + a]; col[m * 3 + a] = ring ? ring[a] : EDGE_LUT[k + a]; }
+    m++;
+  }
+  return m;
 }
 /** 한 버퍼에 다 채우기(채운 수) */
 export const fillBoxes = (mat: Float32Array, col: Float32Array, xyz: Float32Array, n: number, cap: number, floor: number) => fillRange(mat, col, xyz, n, cap, floor, 0, cap)[0];
@@ -62,10 +85,12 @@ export const robotOf = (f: DriveFeed): Pose | null => f.pose ?? (f.frame === 'li
 /** 3인칭 시점: 로봇 뒤 BACK m · 위 UP m 에서 로봇 앞 AHEAD m 를 본다 */
 const BACK = 2.6, UP = 1.6, AHEAD = 1.5;
 
-/** 색 범례(작게) — «바닥 · 1 m · 2 m+», 점·상자 같은 막대 */
-export const HeightLegend = ({ style, look = 'points' }: { style?: CSSProperties; look?: Look }) => <div className="qd-legend" aria-label="높이 색 범례" data-height-legend={look} style={style}>
+/** 색 범례(작게) — «바닥 · 1 m · 2 m+», 점·상자 같은 막대. edge = 이 판에 모서리 정보가 있으면 «모서리» 한 줄(범례 바탕은 다크·라이트 모두 어두운 반투명 — quad.css) */
+export const HeightLegend = ({ style, look = 'points', edge = false }: { style?: CSSProperties; look?: Look; edge?: boolean }) => <div className="qd-legend" aria-label="높이 색 범례" data-height-legend={look} style={style}>
   <div style={{ height: 8, borderRadius: 2, background: LEGEND_BG }} />
   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>바닥</span><span>1 m</span><span>{TOP_M} m+</span></div>
+  {edge && <div data-edge-legend style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+    <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: HEX[20], boxShadow: '0 0 0 2px currentColor' }} /><span>모서리 — 테두리·크게</span></div>}
 </div>;
 
 type Mode = 'chase' | 'follow' | 'free';
@@ -115,26 +140,39 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     // BLOCK 개씩 묶음. 상자 행렬은 InstancedMesh 가 단위 행렬로 깔아 두고, 판마다 이동 자리만 채운다
     const mat = new THREE.MeshLambertMaterial({ map: edgeTexture('rgba(0,0,0,0.35)') }), cube = new THREE.BoxGeometry(CELL_M, CELL_M, CELL_M);
     const dot = new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: false, vertexColors: true });   // 저장 지도 점(voxel3d DOT_PX)과 같은 작은 점
+    // 모서리 층(RB-LIDAR-EDGEWEB): 같은 재질 종류로 큰 점·큰 상자 한 묶음 — 큰 점(테두리 색)을 먼저 그려 가운데는 보통 점(높이 색)이 덮는다 = 테두리 두른 점
+    const bigDot = new THREE.PointsMaterial({ size: EDGE_PX, sizeAttenuation: false, vertexColors: true }), bigCube = new THREE.BoxGeometry(CELL_M * EDGE_SCALE, CELL_M * EDGE_SCALE, CELL_M * EDGE_SCALE);
     const boxes = new THREE.Group(), blocks: Blk[] = [];
-    const block = (): Blk => {
+    const make = (big = false): Blk => {
       let b: Blk;
       if (kind === 'boxes') {
         // 생성자는 칸마다 setMatrixAt(단위 행렬)을 돌아 한 묶음에 수십 ms — 0 칸으로 만들고 단위 행렬 틀을 복사해 끼운다(RV-460 1)
-        const m = new THREE.InstancedMesh(cube, mat, 0), mc = new THREE.InstancedBufferAttribute(new Float32Array(BLOCK * 3), 3).setUsage(THREE.DynamicDrawUsage);
+        const m = new THREE.InstancedMesh(big ? bigCube : cube, mat, 0), mc = new THREE.InstancedBufferAttribute(new Float32Array(BLOCK * 3), 3).setUsage(THREE.DynamicDrawUsage);
         m.instanceMatrix = new THREE.InstancedBufferAttribute(unit().slice(), 16).setUsage(THREE.DynamicDrawUsage); m.instanceColor = mc;
         b = { o: m, pos: m.instanceMatrix.array as Float32Array, col: mc.array as Float32Array, k: 0, set(k) { b.k = m.count = k; m.instanceMatrix.needsUpdate = true; mc.needsUpdate = true; }, free: () => m.dispose() };
       } else {
         const geo = new THREE.BufferGeometry(), pa = new THREE.BufferAttribute(new Float32Array(BLOCK * 3), 3).setUsage(THREE.DynamicDrawUsage), ca = new THREE.BufferAttribute(new Float32Array(BLOCK * 3), 3).setUsage(THREE.DynamicDrawUsage);
         geo.setAttribute('position', pa); geo.setAttribute('color', ca); geo.setDrawRange(0, 0);
-        b = { o: new THREE.Points(geo, dot), pos: pa.array as Float32Array, col: ca.array as Float32Array, k: 0, set(k) { b.k = k; geo.setDrawRange(0, k); pa.needsUpdate = true; ca.needsUpdate = true; }, free: () => geo.dispose() };
+        b = { o: new THREE.Points(geo, big ? bigDot : dot), pos: pa.array as Float32Array, col: ca.array as Float32Array, k: 0, set(k) { b.k = k; geo.setDrawRange(0, k); pa.needsUpdate = true; ca.needsUpdate = true; }, free: () => geo.dispose() };
       }
       b.o.frustumCulled = false;   // 판마다 범위가 바뀐다
       // 경계구를 고정 — 없으면 three 가 첫 그리기(정렬)에서 칸·점마다 돌아 경계구를 계산해 주 스레드를 막는다(RV-460 1)
       const all = new THREE.Sphere(new THREE.Vector3(), Infinity);
       if (b.o instanceof THREE.InstancedMesh) b.o.boundingSphere = all; else (b.o as THREE.Points).geometry.boundingSphere = all;
-      blocks.push(b); boxes.add(b.o);
       return b;
     };
+    const block = () => { const b = make(); blocks.push(b); boxes.add(b.o); return b; };
+    /** 모서리 층: 판·모양이 바뀔 때 한 번에 채운다(한 판 ≤ 4000 점). 모서리가 있을 때만 장면에 넣는다 */
+    let rim: Blk | null = null;
+    const edges = () => {
+      const c = cur.current, e = c.edge, r = robotOf(c);
+      if (e && !rim) { rim = make(true); rim.o.renderOrder = -1; }
+      if (!rim) return;
+      rim.set(e ? fillEdges(rim.pos, rim.col, c.xyz, c.n, e, (r?.z ?? 0) + FLOOR_DZ, kind === 'boxes', kind === 'boxes' ? undefined : ringOf(el).toArray()) : 0);
+      if (rim.k) scene.add(rim.o); else scene.remove(rim.o);
+      el.dataset.l3Edges = String(rim.k);
+    };
+    const unrim = () => { if (rim) { scene.remove(rim.o); rim.free(); rim = null; } delete el.dataset.l3Edges; };
     const grid = new THREE.GridHelper(40, 40, 0x8a94a6, 0x8a94a6);   // 1 m 칸
     grid.rotation.x = Math.PI / 2;
     for (const m of [grid.material].flat()) { m.transparent = true; m.opacity = 0.18; m.depthWrite = false; }
@@ -193,7 +231,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     const load = () => {
       const c = cur.current, r = robotOf(c), z0 = r?.z ?? 0;
       v.ver = c.ver;
-      refill();
+      edges(); refill();
       bot.visible = !!r;
       if (r) {
         bot.position.set(r.x, r.y, r.z); bot.rotation.z = r.yaw;
@@ -242,7 +280,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
       if (k === kind) return;
       kind = k; label(k);
       for (const b of blocks.splice(0)) { boxes.remove(b.o); b.free(); }
-      block(); prepare(); refill();
+      unrim(); block(); edges(); prepare(); refill();
     };
     // 처음 열기도 나눠서(RV-460 1): ① 위 WebGL 만들기 ② Go2·첫 묶음·크기 맞추기 ③ 셰이더 준비·첫 시점·첫 판 — 사이사이에 STOP·조종 입력이 끼어든다
     const steps = [() => { if (!bot.children.length) dress(null); if (!blocks.length) block(); fit(); }, () => { prepare(); again.current(); load(); }];
@@ -251,14 +289,14 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     st = window.setTimeout(next, 0);
     return () => {
       live = false; clearTimeout(st); if (p.raf) cancelAnimationFrame(p.raf); clearInterval(t); ro?.disconnect(); io?.disconnect(); document.removeEventListener('visibilitychange', vis); orbit.dispose();
-      cube.dispose(); blocks.forEach((b) => b.free()); mat.map?.dispose(); mat.dispose(); dot.dispose(); skin.dispose(); bot.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+      cube.dispose(); bigCube.dispose(); blocks.forEach((b) => b.free()); unrim(); mat.map?.dispose(); mat.dispose(); dot.dispose(); bigDot.dispose(); skin.dispose(); bot.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       grid.dispose(); g.dispose(); g.forceContextLoss(); canvas.remove();
     };
   }
   useEffect(() => { first.current = look; relook.current(look); }, [look]);
   useEffect(() => stance.current(), [go2]);
   return <div ref={host} style={{ position: 'absolute', inset: 0 }} data-lidar3d={feed.n} data-l3-view={mode} data-l3-look={look}>
-    {legend && <HeightLegend look={look} />}
+    {legend && <HeightLegend look={look} edge={!!feed.edge} />}
     {!small && !go2 && robotOf(feed) && <div className="qd-legend" role="status" data-l3-nopose style={{ bottom: 46 }}>자세 정보 없음 — 서 있는 모양으로 보입니다</div>}
     {mode !== 'chase' && !small && <button type="button" className="btn" data-l3-follow style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={() => again.current()}>로봇 뒤에서 보기</button>}
   </div>;

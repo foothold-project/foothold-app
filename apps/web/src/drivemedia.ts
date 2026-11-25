@@ -5,7 +5,7 @@
 // 11-20 RB-FEED-HOLD-LAST: 한 번 받은 그림은 잠깐 끊겨도(오래됨·연결 끊김·로봇이 못 보냄·탭 숨김) 남겨 두고 «마지막 그림 · N초 전» 을 띄운다 —
 // 로봇 바뀜·화면 나감·epoch 바뀜·약속 위반(남의 로봇 자료 등)·기체 확인 영구 오류(RV-435 ①)면 버린다. 관측 전용 — 조종·STOP·조종권과 무관. 끊기면 2 s 뒤 다시(화면이 보이고 칸이 떠 있는 동안만)
 import { useEffect, useRef, useState } from 'react';
-import { STALE_MS, pointsBody, pointsHeader, reasonText, type Feed } from './media';
+import { STALE_MS, pointsBody, pointsEdge, pointsHeader, reasonText, type Feed } from './media';
 import type { Device, MediaPointCloudHeader } from '../../contracts/ts';
 import { useLive } from './rt';
 import { ROBOTS } from './fake';
@@ -92,7 +92,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
         if (!xyz || !h || ((h.frame as string) === 'odom' && !poseOf(h.pose))) return again('bad', '받은 자료가 media/1 약속과 다릅니다');
         if (h.epoch === ep.epoch) top = h.seq;   // 본문까지 받아야 그 순번을 본 것(RV-448 ①) — 지난 epoch 판은 지금 순번을 바꾸지 않음
         if (dup) return;   // 이미 그린 판·버린 판
-        return put({ state: 'live', why: '', at: performance.now(), seq: h.seq, frame: h.frame, truncated: h.truncated, xyz, n: h.count, pose: (h.frame as string) === 'odom' ? poseOf(h.pose) : null, ver: ++ver });   // 받은 한 판
+        return put({ state: 'live', why: '', at: performance.now(), seq: h.seq, frame: h.frame, truncated: h.truncated, xyz, n: h.count, edge: pointsEdge(h), pose: (h.frame as string) === 'odom' ? poseOf(h.pose) : null, ver: ++ver });   // 받은 한 판
       }
       let m: Record<string, unknown>;
       try { m = JSON.parse(data); } catch { return again('bad', '받은 자료를 읽지 못했습니다'); }

@@ -83,7 +83,8 @@ export function Cloud3D({ small, big, feed: given, empty: none = '' }: { small: 
       for (let i = 0; i < c.n; i += step) {
         const z = c.xyz[i * 3 + 2], [u, w] = proj(c.xyz[i * 3], c.xyz[i * 3 + 1], z);
         if (u < 0 || w < 0 || u > W || w > H) continue;
-        g.fillStyle = `hsl(${hue(z)} 80% 60%)`; g.fillRect(u - r / 2, w - r / 2, r, r);
+        const e = c.edge?.[i] ? 2.5 : 1;   // 모서리 점(RB-LIDAR-EDGEWEB) = 더 밝고 크게
+        g.fillStyle = `hsl(${hue(z)} 80% ${e > 1 ? 82 : 60}%)`; g.fillRect(u - r * e / 2, w - r * e / 2, r * e, r * e);
       }
       const [u, w] = proj(0, 0, 0), [u2, w2] = proj(0.6, 0, 0);   // 센서 원점 + 앞(x) 방향
       g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(u, w, 4, 0, 7); g.moveTo(u, w); g.lineTo(u2, w2); g.stroke();
