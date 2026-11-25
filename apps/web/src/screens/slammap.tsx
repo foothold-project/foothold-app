@@ -18,40 +18,56 @@ export type Patch = { key: string; seq: number; x0: number; y0: number; w: numbe
 export type SlamPic = { xyz: Float32Array; n: number; ver: number; patches: Patch[]; tver: number; pose: Pose | null; gap: boolean };
 const blank = (): SlamPic => ({ xyz: new Float32Array(0), n: 0, ver: 0, patches: [], tver: 0, pose: null, gap: false });
 const poseOf = (o?: MappingOdom | null): Pose | null => (o ? { x: o.x, y: o.y, z: o.z, yaw: o.yaw } : null);
-/** 칸 번호 → 칸 가운데(m) */
-const centers = (cells: Iterable<readonly [number, number, number]>, n: number) => {
-  const xyz = new Float32Array(n * 3);
-  let i = 0;
-  for (const [a, b, c] of cells) { xyz[i++] = (a + 0.5) * RES; xyz[i++] = (b + 0.5) * RES; xyz[i++] = (c + 0.5) * RES; }
-  return xyz;
-};
 /** key 에 세션·판을 넣음 — 판이 바뀌면 같은 좌표·tile_seq 여도 그림 캐시를 다시 칠함(RV-485) */
 const tilePatch = (sid: string) => (t: MappingGridTile): Patch => ({ key: `${sid}/${t.revision}/${t.x},${t.y}`, seq: t.tile_seq, x0: t.x * TILE * RES, y0: t.y * TILE * RES, w: TILE, h: TILE, cells: t.cells });
 
-/** 3D 칸 하나의 마지막 상태(계약: 칸마다 마지막으로 바뀐 seq — 더 새 seq 만 덮는다). on=false = 지워진 칸 */
-type Cell = { c: readonly [number, number, number]; seq: number; on: boolean };
+/** 지금 있는 3D 칸만(RV-490: 지운 칸은 빼고 보관하지 않음 — 크기 ≤ 점유 칸). 자리 i = keys[i]·seq[i]·xyz[3i..3i+2](칸 가운데 m).
+ *  지우면 끝 자리를 그 자리로 옮김 — 그릴 때 전체를 다시 만들지 않는다. seq = 칸마다 마지막으로 바뀐 seq(같거나 더 새 것만 덮음) */
+export class VoxSet {
+  idx = new Map<string, number>(); keys: string[] = []; seq: number[] = []; xyz = new Float32Array(0);
+  get n() { return this.keys.length; }
+  clear() { this.idx.clear(); this.keys = []; this.seq = []; }
+  put(c: readonly [number, number, number], seq: number, on: boolean) {
+    const k = c.join(), i = this.idx.get(k);
+    if (i != null && seq < this.seq[i]) return;
+    if (!on) {
+      if (i == null) return;
+      const j = this.keys.length - 1, lk = this.keys[j];
+      if (i !== j) { this.keys[i] = lk; this.seq[i] = this.seq[j]; this.xyz.copyWithin(i * 3, j * 3, j * 3 + 3); this.idx.set(lk, i); }
+      this.idx.delete(k); this.keys.pop(); this.seq.pop();
+      return;
+    }
+    if (i != null) { this.seq[i] = seq; return; }
+    const j = this.keys.length;
+    if (this.xyz.length < j * 3 + 3) { const b = new Float32Array(Math.max(3072, this.xyz.length * 2)); b.set(this.xyz); this.xyz = b; }
+    this.idx.set(k, j); this.keys.push(k); this.seq.push(seq);
+    this.xyz[j * 3] = (c[0] + 0.5) * RES; this.xyz[j * 3 + 1] = (c[1] + 0.5) * RES; this.xyz[j * 3 + 2] = (c[2] + 0.5) * RES;
+  }
+}
 /** 3D 를 다시 그리는 간격(ms) — 쪽마다 전부 다시 놓지 않게(끝 쪽은 늘 그림) */
 const SHOW_MS = 250;
 
 /** 진행 중 그림: p = 1초마다 받는 진행 자료(세션·판이 바뀌면 비움). 조각은 update_seq 가 늘 때마다 tiles API 로,
  *  3D 칸은 voxels API(cursor) 로만 채운다 — p.voxels(마지막 증분 하나)는 «새로 왔음» 신호로만 쓰고 직접 놓지 않는다(한 길).
- *  link = 진행 조회가 끊겼다 다시 이어질 때마다 늘리는 값 — 바뀌면 3D 를 처음부터(since=0) 다시 받는다 */
+ *  link = 진행 조회가 끊겼다 다시 이어질 때마다 늘리는 값 — 바뀌면 받던 3D 회차를 버리고(늦은 응답 무시) 처음부터(since=0) 새 회차 */
 export function useSlamLive(robot: string, p: MappingProgress | null, link = 0): SlamPic {
   const [pic, setPic] = useState(blank);
   const st = useRef({ gen: 0, sid: '', rev: 0, seen: -1, since: 0, busy: false, again: false, gap: false, ver: 0, tver: 0, pose: null as Pose | null,
-    vseen: -1, vsince: 0, vbusy: false, vagain: false, vredo: false, link, xyz: new Float32Array(0), n: 0,
-    vox: new Map<string, Cell>(), tiles: new Map<string, MappingGridTile>(), ac: new AbortController() });
-  useEffect(() => () => st.current.ac.abort(), []);
+    vseen: -1, vsince: 0, vbusy: false, vagain: false, vgen: 0, link, xyz: new Float32Array(0), n: 0,
+    vox: new VoxSet(), tiles: new Map<string, MappingGridTile>(), ac: new AbortController(), vac: new AbortController() });
+  useEffect(() => () => { st.current.ac.abort(); st.current.vac.abort(); }, []);
   useEffect(() => {
     const s = st.current, rev = p?.revision;
     if (!p || !rev) return;
     let dv = false, dt = false, fresh = false;
+    /** 받던 3D 회차를 끝냄 — 늦게 온 응답·오류는 vgen 이 달라 버려진다(RV-490: 공유 since 를 바꾸지 않음) */
+    const vstop = () => { s.vac.abort(); s.vac = new AbortController(); s.vgen++; Object.assign(s, { vbusy: false, vagain: false, vsince: 0 }); fresh = true; };
     if (p.session_id !== s.sid || rev !== s.rev) {   // 새 세션·새 판 = 지난 칸·조각·위치를 다 비움(계약: revision 바뀌면 처음부터)
-      s.ac.abort(); s.ac = new AbortController(); s.gen++;
-      Object.assign(s, { sid: p.session_id, rev, seen: -1, since: 0, busy: false, again: false, gap: false, pose: null, vseen: -1, vsince: 0, vbusy: false, vagain: false, vredo: false, link, xyz: new Float32Array(0), n: 0 });
-      s.vox.clear(); s.tiles.clear(); dv = dt = fresh = true;
+      s.ac.abort(); s.ac = new AbortController(); s.gen++; vstop();
+      Object.assign(s, { sid: p.session_id, rev, seen: -1, since: 0, busy: false, again: false, gap: false, pose: null, vseen: -1, link, xyz: new Float32Array(0), n: 0 });
+      s.vox.clear(); s.tiles.clear(); dv = dt = true;
     }
-    if (link !== s.link) { s.link = link; s.vsince = 0; s.vredo = true; fresh = true; }   // 다시 연결 = 3D 처음부터(받는 동안은 지난 그림 유지, 첫 쪽 reset 에서 한 번 비움)
+    if (link !== s.link) { s.link = link; vstop(); }   // 다시 연결 = 새 회차로 3D 처음부터(받는 동안은 지난 그림 유지, 첫 쪽 reset 에서 한 번 비움)
     const pose = p.odom && (!p.odom.provider || !p.source || p.odom.provider === p.source) ? poseOf(p.odom) : s.pose;
     if (pose?.x !== s.pose?.x || pose?.y !== s.pose?.y || pose?.z !== s.pose?.z || pose?.yaw !== s.pose?.yaw) { s.pose = pose; dv = true; }
     if (dv || dt) setPic({ xyz: s.xyz, n: s.n, ver: dv ? ++s.ver : s.ver, patches: [...s.tiles.values()].map(tilePatch(s.sid)), tver: dt ? ++s.tver : s.tver, pose: s.pose, gap: s.gap });
@@ -62,9 +78,10 @@ export function useSlamLive(robot: string, p: MappingProgress | null, link = 0):
 
   /** 3D 칸 받기(한 번에 하나, SLAM-CONTRACT.md voxels «Recovery»): since 부터 cursor 를 null 까지 그대로 따라가고(reset 이면 첫 쪽에서 한 번만 비움),
    *  다음 since = 이번 첫 쪽 seq. 쪽을 받는 사이 seq 가 늘었거나 새 신호가 왔으면 한 번 더. 칸마다 seq 로 더 새 것만 덮는다.
-   *  409 판 바뀜 = 칸을 비우고 다음 진행 자료의 새 판으로 · 그 밖 409·422·끊김·서버 오류 = 다음 신호에 since=0 처음부터 · RESET_REQUIRED = 서버가 못 줌(gap) */
+   *  회차의 판·since 는 회차 지역 값(cursor 가 거기에 묶임 — RV-490). 다시 연결·판 바뀜은 vstop 이 회차를 버린다(vgen).
+   *  409 판 바뀜 = 칸을 비우고 다음 진행 자료의 새 판으로 · 그 밖 409·422·끊김·서버 오류 = since=0 처음부터(받는 사이 신호가 왔으면 바로, 아니면 다음 신호에) · RESET_REQUIRED = 서버가 못 줌(gap) */
   async function pullVox() {
-    const s = st.current, gen = s.gen, { sid, rev } = s, signal = s.ac.signal;
+    const s = st.current, vgen = s.vgen, { sid, rev } = s, signal = s.vac.signal;
     if (s.vbusy) { s.vagain = true; return; }
     s.vbusy = true;
     let at = -Infinity;
@@ -72,38 +89,36 @@ export function useSlamLive(robot: string, p: MappingProgress | null, link = 0):
       const t = performance.now();
       if (!now && t - at < SHOW_MS) return;
       at = t;
-      const on = [...s.vox.values()].filter((v) => v.on).map((v) => v.c);
-      s.xyz = centers(on, on.length); s.n = on.length;
+      s.xyz = s.vox.xyz; s.n = s.vox.n;
       setPic((o) => ({ ...o, xyz: s.xyz, n: s.n, ver: ++s.ver, gap: s.gap }));
     };
     try {
       do {
-        s.vagain = false; s.vredo = false;
-        let cursor: string | null = null, base = -1, top = -1;
-        do {
-          const pg: MappingVoxelPage = await api.slamVoxels(robot, sid, rev, s.vsince, cursor, signal);
-          if (gen !== s.gen) return;
-          if (pg.session_id !== sid || pg.revision !== rev) throw new ApiFail(409, 'MAPPING_REVISION_CONFLICT', '');
-          if (base < 0) { base = pg.seq; if (pg.reset) s.vox.clear(); }   // reset 은 그 한 번(pass) 시작에만 비움 — 쪽마다 비우지 않음
-          top = Math.max(top, pg.seq);
-          for (const [list, on] of [[pg.removed, false], [pg.added, true]] as const)
-            for (const ch of list ?? []) {
-              const k = ch.cell.join(), o = s.vox.get(k);
-              if (!o || ch.seq >= o.seq) s.vox.set(k, { c: ch.cell, seq: ch.seq, on });
-            }
-          cursor = pg.next_cursor;
-          show(cursor == null);
-        } while (cursor != null);
-        s.gap = false;
-        if (s.vredo) { s.vsince = 0; s.vagain = true; }   // 받는 사이 다시 연결됨 — 처음부터 한 번 더
-        else { s.vsince = base; if (top > base) s.vagain = true; }   // 받는 사이 바뀐 것 — 첫 쪽 seq 부터 한 번 더
+        s.vagain = false;
+        const since = s.vsince;
+        try {
+          let cursor: string | null = null, base = -1, top = -1;
+          do {
+            const pg: MappingVoxelPage = await api.slamVoxels(robot, sid, rev, since, cursor, signal);
+            if (vgen !== s.vgen) return;
+            if (pg.session_id !== sid || pg.revision !== rev) throw new ApiFail(409, 'MAPPING_REVISION_CONFLICT', '');
+            if (base < 0) { base = pg.seq; if (pg.reset) s.vox.clear(); }   // reset 은 그 한 번(pass) 시작에만 비움 — 쪽마다 비우지 않음
+            top = Math.max(top, pg.seq);
+            for (const ch of pg.removed ?? []) s.vox.put(ch.cell, ch.seq, false);
+            for (const ch of pg.added ?? []) s.vox.put(ch.cell, ch.seq, true);
+            cursor = pg.next_cursor;
+            show(cursor == null);
+          } while (cursor != null);
+          s.gap = false;
+          s.vsince = base; if (top > base) s.vagain = true;   // 받는 사이 바뀐 것 — 첫 쪽 seq 부터 한 번 더
+        } catch (e) {
+          const f = e as ApiFail;
+          if (vgen !== s.vgen || f.code === 'CANCELED') return;
+          s.vsince = 0; s.vseen = -1;   // 처음부터(화면에 남은 칸은 그 첫 쪽 reset 때 비움)
+          if (f.code === 'MAPPING_REVISION_CONFLICT' || f.code === 'MAPPING_VOXELS_RESET_REQUIRED') { s.vagain = false; s.vox.clear(); s.gap = f.code === 'MAPPING_VOXELS_RESET_REQUIRED'; show(true); }
+        }
       } while (s.vagain);
-    } catch (e) {
-      const f = e as ApiFail;
-      if (gen !== s.gen || f.code === 'CANCELED') return;
-      s.vsince = 0; s.vseen = -1;   // 다음 진행 자료에서 처음부터(화면에 남은 칸은 그 첫 쪽 reset 때 비움)
-      if (f.code === 'MAPPING_REVISION_CONFLICT' || f.code === 'MAPPING_VOXELS_RESET_REQUIRED') { s.vox.clear(); s.gap = f.code === 'MAPPING_VOXELS_RESET_REQUIRED'; show(true); }
-    } finally { if (gen === s.gen) s.vbusy = false; }
+    } finally { if (vgen === s.vgen) s.vbusy = false; }
   }
 
   /** 조각 따라가기(한 번에 하나): cursor=0 부터 null 까지, 다음 번 since = 이번 첫 쪽의 update_seq. 409(판 바뀜)면 조각을 비우고 다음 진행 자료의 새 판으로 */
