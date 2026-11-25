@@ -1092,6 +1092,8 @@ class AgentPhoneRevokeAck(AgentInput):
 
 class MappingStart(Contract):
     floor_id: UUID
+    source: Literal['unitree_uslam', 'legacy'] = 'unitree_uslam'
+    name: str = Field(default='로봇이 만든 지도', min_length=1, max_length=40)
 
 
 class MappingAction(Contract):
@@ -1106,11 +1108,98 @@ class MappingPreview(Contract):
     path: list[tuple[float, float]] = Field(max_length=256)
 
 
+MAPPING_REPORT_BYTES = 65536
+MAPPING_DELTA_CELLS = 2000
+MAPPING_BUNDLE_BYTES = 50 * 1024 * 1024
+MappingPhase = Literal['START_REQUESTED', 'STARTED', 'SAVE_REQUESTED', 'ROBOT_SAVED', 'UNKNOWN', 'FAILED']
+MappingIndex = Annotated[int, Field(strict=True, ge=-200000, le=200000)]
+MappingCell = tuple[MappingIndex, MappingIndex, MappingIndex]
+
+
+class MappingTimes(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    server_received_at: UTCDateTime | None = None
+    command_forwarded_at: UTCDateTime | None = None
+    agent_received_at: UTCDateTime | None = None
+    command_published_at: UTCDateTime | None = None
+    robot_ack_at: UTCDateTime | None = None
+    first_data_at: UTCDateTime | None = None
+    last_data_at: UTCDateTime | None = None
+    saved_at: UTCDateTime | None = None
+
+
+class MappingVoxels(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    """Cell lower corner = index * .05 in frame; reset replaces the revision."""
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    seq: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    reset: bool = False
+    resolution: Literal[0.05] = 0.05
+    frame_id: str = Field(min_length=1, max_length=80)
+    added: list[MappingCell] = Field(default_factory=list, max_length=MAPPING_DELTA_CELLS)
+    removed: list[MappingCell] = Field(default_factory=list, max_length=MAPPING_DELTA_CELLS)
+
+    @model_validator(mode='after')
+    def bounded(self):
+        if len(self.added) + len(self.removed) > MAPPING_DELTA_CELLS:
+            raise ValueError('At most 2000 changed voxel cells')
+        return self
+
+
+class MappingGrid(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    """Snapshot row-major from bottom left; 0 unknown / 1 free / 2 occupied."""
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    resolution: Literal[0.05] = 0.05
+    frame_id: str = Field(min_length=1, max_length=80)
+    origin: tuple[float, float, float]
+    floor_z: float
+    width: int = Field(ge=1, le=4096, strict=True)
+    height: int = Field(ge=1, le=4096, strict=True)
+    cells: list[Literal[0, 1, 2]] = Field(max_length=4_000_000)
+
+    @model_validator(mode='after')
+    def shape(self):
+        if len(self.cells) != self.width * self.height or self.origin[2] != 0:
+            raise ValueError('Grid length must match dimensions; world axes require zero origin yaw')
+        return self
+
+
+class MappingOdom(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    source: Literal['/uslam/frontend/odom'] = '/uslam/frontend/odom'
+    frame_id: str = Field(min_length=1, max_length=80)
+    stamp: UTCDateTime
+    x: float
+    y: float
+    z: float
+    yaw: float
+
+
+class MappingBundle(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    """Final agent-computed pair; both artifacts share revision and frame, no server projection."""
+    session_id: UUID
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    frame_id: str = Field(min_length=1, max_length=80)
+    resolution: Literal[0.05] = 0.05
+    voxels: list[MappingCell] = Field(min_length=1, max_length=500_000)
+    grid: MappingGrid
+    robot_save: Literal['ROBOT_SAVED', 'UNKNOWN', 'FAILED']
+    times: MappingTimes | None = None
+
+    @model_validator(mode='after')
+    def pair(self):
+        if self.grid.revision != self.revision or self.grid.frame_id != self.frame_id:
+            raise ValueError('Both maps must share revision and frame')
+        return self
+
+
 class MappingProgress(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     session_id: UUID
     floor_id: UUID
-    status: Literal['RUNNING', 'SAVING', 'SAVED', 'FAILED', 'CANCELLED']
+    status: Literal['STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'SAVED', 'FAILED', 'CANCELLED']
     distance_m: float = Field(default=0, ge=0, le=1000000)
     point_count: int = Field(default=0, ge=0, le=5000000)
     elapsed_s: float = Field(default=0, ge=0, le=1000000000)
@@ -1119,6 +1208,18 @@ class MappingProgress(Contract):
     preview: MappingPreview | None = None
     map_version_id: UUID | None = None
     terrain_id: str | None = Field(default=None, max_length=100)
+    source: Literal['unitree_uslam', 'legacy'] | None = None
+    name: str | None = Field(default=None, max_length=40)
+    phase: MappingPhase | None = None
+    command_id: UUID | None = None
+    revision: int | None = Field(default=None, ge=1, le=MAX_SAFE_INTEGER)
+    update_seq: int | None = Field(default=None, ge=1, le=MAX_SAFE_INTEGER)
+    voxels: MappingVoxels | None = None
+    grid: MappingGrid | None = None
+    odom: MappingOdom | None = None
+    times: MappingTimes | None = None
+    robot_save: Literal['ROBOT_SAVED', 'UNKNOWN', 'FAILED'] | None = None
+    terrain_status: Literal['PENDING', 'READY', 'FAILED'] | None = None
 
 
 class AgentMappingUpdate(MappingProgress):
@@ -1131,6 +1232,10 @@ class AgentMappingCommand(Contract):
     op: Literal['start', 'save', 'cancel']
     session_id: UUID
     floor_id: UUID
+    source: Literal['unitree_uslam', 'legacy'] | None = Field(default=None, exclude_if=lambda v: v is None)
+    command_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    requested_at: UTCDateTime | None = Field(default=None, exclude_if=lambda v: v is None)
+    revision: int | None = Field(default=None, ge=1, exclude_if=lambda v: v is None)
 
 AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck | AgentMappingUpdate,
                          Field(discriminator='t')]

@@ -107,12 +107,16 @@ export interface AgentMappingCommand {
   op: "start" | "save" | "cancel";
   session_id: string;
   floor_id: string;
+  source?: "unitree_uslam" | "legacy" | null;
+  command_id?: string | null;
+  requested_at?: string | null;
+  revision?: number | null;
 }
 
 export interface AgentMappingUpdate {
   session_id: string;
   floor_id: string;
-  status: "RUNNING" | "SAVING" | "SAVED" | "FAILED" | "CANCELLED";
+  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "FAILED" | "CANCELLED";
   distance_m?: number;
   point_count?: number;
   elapsed_s?: number;
@@ -121,6 +125,18 @@ export interface AgentMappingUpdate {
   preview?: MappingPreview | null;
   map_version_id?: string | null;
   terrain_id?: string | null;
+  source?: "unitree_uslam" | "legacy" | null;
+  name?: string | null;
+  phase?: "START_REQUESTED" | "STARTED" | "SAVE_REQUESTED" | "ROBOT_SAVED" | "UNKNOWN" | "FAILED" | null;
+  command_id?: string | null;
+  revision?: number | null;
+  update_seq?: number | null;
+  voxels?: MappingVoxels | null;
+  grid?: MappingGrid | null;
+  odom?: MappingOdom | null;
+  times?: MappingTimes | null;
+  robot_save?: "ROBOT_SAVED" | "UNKNOWN" | "FAILED" | null;
+  terrain_status?: "PENDING" | "READY" | "FAILED" | null;
   t?: "slam.update";
 }
 
@@ -874,6 +890,38 @@ export interface MappingAction {
   session_id: string;
 }
 
+export interface MappingBundle {
+  session_id: string;
+  revision: number;
+  frame_id: string;
+  resolution?: 0.05;
+  voxels: [number, number, number][];
+  grid: MappingGrid;
+  robot_save: "ROBOT_SAVED" | "UNKNOWN" | "FAILED";
+  times?: MappingTimes | null;
+}
+
+export interface MappingGrid {
+  revision: number;
+  resolution?: 0.05;
+  frame_id: string;
+  origin: [number, number, number];
+  floor_z: number;
+  width: number;
+  height: number;
+  cells: (0 | 1 | 2)[];
+}
+
+export interface MappingOdom {
+  source?: "/uslam/frontend/odom";
+  frame_id: string;
+  stamp: string;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
 export interface MappingPreview {
   resolution: number;
   cells: [number, number][];
@@ -884,7 +932,7 @@ export interface MappingPreview {
 export interface MappingProgress {
   session_id: string;
   floor_id: string;
-  status: "RUNNING" | "SAVING" | "SAVED" | "FAILED" | "CANCELLED";
+  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "FAILED" | "CANCELLED";
   distance_m?: number;
   point_count?: number;
   elapsed_s?: number;
@@ -893,10 +941,45 @@ export interface MappingProgress {
   preview?: MappingPreview | null;
   map_version_id?: string | null;
   terrain_id?: string | null;
+  source?: "unitree_uslam" | "legacy" | null;
+  name?: string | null;
+  phase?: "START_REQUESTED" | "STARTED" | "SAVE_REQUESTED" | "ROBOT_SAVED" | "UNKNOWN" | "FAILED" | null;
+  command_id?: string | null;
+  revision?: number | null;
+  update_seq?: number | null;
+  voxels?: MappingVoxels | null;
+  grid?: MappingGrid | null;
+  odom?: MappingOdom | null;
+  times?: MappingTimes | null;
+  robot_save?: "ROBOT_SAVED" | "UNKNOWN" | "FAILED" | null;
+  terrain_status?: "PENDING" | "READY" | "FAILED" | null;
 }
 
 export interface MappingStart {
   floor_id: string;
+  source?: "unitree_uslam" | "legacy";
+  name?: string;
+}
+
+export interface MappingTimes {
+  server_received_at?: string | null;
+  command_forwarded_at?: string | null;
+  agent_received_at?: string | null;
+  command_published_at?: string | null;
+  robot_ack_at?: string | null;
+  first_data_at?: string | null;
+  last_data_at?: string | null;
+  saved_at?: string | null;
+}
+
+export interface MappingVoxels {
+  revision: number;
+  seq: number;
+  reset?: boolean;
+  resolution?: 0.05;
+  frame_id: string;
+  added?: [number, number, number][];
+  removed?: [number, number, number][];
 }
 
 export interface MePatch {

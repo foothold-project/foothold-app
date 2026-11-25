@@ -1,0 +1,50 @@
+{
+  "$id": "fh-app/1/MappingOdom",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "frame_id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Frame Id",
+      "type": "string"
+    },
+    "source": {
+      "const": "/uslam/frontend/odom",
+      "default": "/uslam/frontend/odom",
+      "title": "Source",
+      "type": "string"
+    },
+    "stamp": {
+      "format": "date-time",
+      "title": "Stamp",
+      "type": "string"
+    },
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "title": "Yaw",
+      "type": "number"
+    },
+    "z": {
+      "title": "Z",
+      "type": "number"
+    }
+  },
+  "required": [
+    "frame_id",
+    "stamp",
+    "x",
+    "y",
+    "z",
+    "yaw"
+  ],
+  "title": "MappingOdom",
+  "type": "object"
+}

@@ -1,0 +1,13 @@
+# Built-in SLAM server/agent contract
+
+`POST /robots/{robot}/slam/start` defaults to `source: unitree_uslam`; `legacy` retains the old PCD acquisition path. Name is provided once on start. Only the authenticated robot owner may start/save; observation upload authenticates the robot independently of motion approval. No server endpoint grants a motion lease or enables DDS output.
+
+`slam` commands retain op/session_id/floor_id. Built-in commands also carry source, command_id, requested_at and revision. Do not replay start on reconnect. Echo command_id and phase in progress. Phases: START_REQUESTED, STARTED, SAVE_REQUESTED, ROBOT_SAVED, UNKNOWN, FAILED. Server starts in STARTING, accepts RUNNING only with STARTED, and owns SAVING/FINALIZING/SAVED. Timeout/ambiguous robot responses remain UNKNOWN.
+
+Progress POST: `/agent/robots/{robot}/slam/{session}/progress`, JSON at most 65,536 bytes. Built-in progress requires monotonic update_seq, revision and current command_id. Voxel updates carry revision/seq/reset/frame_id, fixed .05 resolution and added/removed integer XYZ cell indices (at most 2,000 total changes). Lower corner = index × .05 metres, world axes, no server translation. First update/new revision requires reset. Grid snapshots are row-major from bottom left, states 0 unknown/1 free/2 occupied, .05 resolution, origin [x,y,0], width/height, floor_z, frame_id and revision. Progress transport byte limit still applies; send large final grids through bundle endpoint. Odom source is exclusively /uslam/frontend/odom and carries frame_id, stamp, XYZ/yaw. No odom substitution.
+
+Final upload: `POST /agent/robots/{robot}/slam/{session}/bundle`, MappingBundle JSON at most 50 MiB, at most 500,000 XYZ voxels and 4,000,000 grid cells (dimensions ≤4096). revision/frame must match across both results. robot_save is ROBOT_SAVED/UNKNOWN/FAILED independently of server storage success. Retry identical contents/revision after failure; a conflicting revision/hash is rejected. SAVED means both artifacts committed. Terrain generation follows separately; terrain failure leaves both maps SAVED.
+
+MappingTimes uses UTC timestamps for server_received_at, command_forwarded_at, agent_received_at, command_published_at, robot_ack_at, first_data_at, last_data_at and saved_at. Server-owned timestamps cannot be overwritten by agent reports. Logs/diagnostics contain timestamps/counts/status only, never credentials, addresses or point contents. Cross-device clock differences are not reported as measured latency.
+
+The legacy global terrain CELL=.1 remains unchanged; bundle storage preserves .05 cell indices and the supplied 2D grid. Actual firmware/DDS command support, sensor frames and on-robot save behavior require a separately approved hardware test.

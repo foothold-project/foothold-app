@@ -1,0 +1,284 @@
+{
+  "$defs": {
+    "MappingGrid": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "type": "integer"
+          },
+          "maxItems": 4000000,
+          "title": "Cells",
+          "type": "array"
+        },
+        "floor_z": {
+          "title": "Floor Z",
+          "type": "number"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "origin": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "resolution": {
+          "const": 0.05,
+          "default": 0.05,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "frame_id",
+        "origin",
+        "floor_z",
+        "width",
+        "height",
+        "cells"
+      ],
+      "title": "MappingGrid",
+      "type": "object"
+    },
+    "MappingTimes": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_received_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Received At"
+        },
+        "command_forwarded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command Forwarded At"
+        },
+        "command_published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command Published At"
+        },
+        "first_data_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Data At"
+        },
+        "last_data_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Data At"
+        },
+        "robot_ack_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Robot Ack At"
+        },
+        "saved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved At"
+        },
+        "server_received_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Received At"
+        }
+      },
+      "title": "MappingTimes",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MappingBundle",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "frame_id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Frame Id",
+      "type": "string"
+    },
+    "grid": {
+      "$ref": "#/$defs/MappingGrid"
+    },
+    "resolution": {
+      "const": 0.05,
+      "default": 0.05,
+      "title": "Resolution",
+      "type": "number"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "robot_save": {
+      "enum": [
+        "ROBOT_SAVED",
+        "UNKNOWN",
+        "FAILED"
+      ],
+      "title": "Robot Save",
+      "type": "string"
+    },
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "times": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MappingTimes"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "voxels": {
+      "items": {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+          {
+            "maximum": 200000,
+            "minimum": -200000,
+            "type": "integer"
+          },
+          {
+            "maximum": 200000,
+            "minimum": -200000,
+            "type": "integer"
+          },
+          {
+            "maximum": 200000,
+            "minimum": -200000,
+            "type": "integer"
+          }
+        ],
+        "type": "array"
+      },
+      "maxItems": 500000,
+      "minItems": 1,
+      "title": "Voxels",
+      "type": "array"
+    }
+  },
+  "required": [
+    "session_id",
+    "revision",
+    "frame_id",
+    "voxels",
+    "grid",
+    "robot_save"
+  ],
+  "title": "MappingBundle",
+  "type": "object"
+}

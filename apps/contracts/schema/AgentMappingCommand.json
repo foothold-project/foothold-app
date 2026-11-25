@@ -3,6 +3,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Command Id"
+    },
     "floor_id": {
       "format": "uuid",
       "title": "Floor Id",
@@ -17,10 +30,52 @@
       "title": "Op",
       "type": "string"
     },
+    "requested_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested At"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
     "session_id": {
       "format": "uuid",
       "title": "Session Id",
       "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "enum": [
+            "unitree_uslam",
+            "legacy"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
     },
     "t": {
       "const": "slam",
