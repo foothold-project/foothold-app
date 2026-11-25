@@ -930,7 +930,9 @@ async function main() {
   };
 
   // ── 따라가기: 기존 돌리기. 탑뷰: 끌어 이동·가리킨 곳 확대, 중심은 프레임 사이 보존.
-  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0, topX: null, topY: null };
+  // 따라가기 기본 = 팀장이 11/22 04:40 화면에서 맞춘 값 (몸통 중심에서 뒤로 1.10 m · 위로 0.40 m · 내려다보는 각 약 20°).
+  // Go2 순정 앱처럼 엉덩이 뒤 위에서 앞을 본다. 사용자가 돌리기 · 끌기 · 확대로 바꾼 값은 그대로.
+  const view = { yaw: 0, pitch: Math.atan2(0.40, 1.10), dist: Math.hypot(0.40, 1.10), topH: 1, topRot: 0, topX: null, topY: null };
   let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
   let startPicking = false, startPickReason = '', startPickEpoch = 0, startPickBusy = false;
   const cancelStartPick = () => {
