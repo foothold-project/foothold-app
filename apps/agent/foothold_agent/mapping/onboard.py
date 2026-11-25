@@ -18,7 +18,7 @@ from uuid import UUID
 
 from foothold_agent.slam_source import Source, SOURCES
 from .poses import timestamp
-from .runtime import MappingRuntime
+from .runtime import MappingRuntime,TransferError
 from .services import Services
 from .world import WorldAccumulator
 from .tiles import Tiles
@@ -59,7 +59,7 @@ class OnboardRuntime(MappingRuntime):
         self.pose_histories={key:deque(maxlen=64) for key in SOURCES}
         self.input_stamps={}
         self.handles=[]
-        self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run)
+        self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run,now=self.now)
         self.seen=set()
         self.phase='UNKNOWN'
         self.command_id=None
@@ -79,6 +79,7 @@ class OnboardRuntime(MappingRuntime):
         self.confirmed_report=None
         self.was_enabled=False
         self.disconnected_since=None
+        self.not_before=float('-inf')
 
     def close(self):
         self.services.close()
@@ -104,10 +105,14 @@ class OnboardRuntime(MappingRuntime):
                 return
         except (KeyError, TypeError, ValueError, AttributeError):
             return
+        frame['_received_monotonic'],frame['_received_utc']=self.now(),utc()
+        if (frame['op']=='cancel' and frame['session_id']==self.core.session_id
+                and frame['floor_id']==self.core.floor_id):
+            self.services.stop()
         super().command(frame)
 
     def receive(self, topic, message):
-        if self.stopping.is_set() or not self.enabled():
+        if self.stopping.is_set() or not self.enabled() or self.core.status in ('SAVED','CANCELLED'):
             return
         # Retain one reference per topic, never copy/parse a cloud on DDS lane.
         try:
@@ -160,7 +165,7 @@ class OnboardRuntime(MappingRuntime):
         if op!='start' and (sid!=self.core.session_id or frame['floor_id']!=self.core.floor_id):
             return
         self.seen.add(frame['command_id'])
-        LOG.warning('SLAM command_received op=%s monotonic=%.6f utc=%s',op,self.now(),utc())
+        LOG.warning('SLAM command_received op=%s monotonic=%.6f utc=%s',op,frame['_received_monotonic'],frame['_received_utc'])
         if op=='start':
             if self.core.session_id==sid:
                 return
@@ -168,6 +173,10 @@ class OnboardRuntime(MappingRuntime):
             self.source=self.live
             self.frame=self.live.frame or 'unconfigured'
             self.core=WorldAccumulator(mode=self.live.input_mode,frame=self.frame,max_points=500000,now=self.now)
+            self.not_before=frame['_received_monotonic']
+            self.input_stamps.clear()
+            for history in self.pose_histories.values():
+                history.clear()
             if not self.core.command({k:frame[k] for k in ('t','op','session_id','floor_id')}):
                 return
             self.revision,self.update_seq,self.voxel_seq=frame['revision'],0,0
@@ -193,13 +202,13 @@ class OnboardRuntime(MappingRuntime):
             self.save_failed=False
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
         else:
-            self.save_requested=self.now()
+            self.save_requested=frame['_received_monotonic']
             self.final_received=False
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
             if not self.final.configured or not self.final.final_verified:
                 self.problem('GLIM_FINAL_CONFIGURATION_REQUIRED','GLIM 최종 지도 규격과 좌표 설정 확인이 필요합니다. 받은 범위만 저장할 수 있습니다.')
         self.command_id=frame['command_id']
-        self.times['agent_received_at']=utc()
+        self.times['agent_received_at']=frame['_received_utc']
         self.next_report=float('-inf')
 
     def problem(self,code,reason):
@@ -210,10 +219,12 @@ class OnboardRuntime(MappingRuntime):
         import numpy as np
         for source in (self.live,self.final):
             history=self.pose_histories[source.source]
+            ready_at=self.services.ready_at
             if source.odom_topic in samples:
                 received,message=samples[source.odom_topic]
                 try:
-                    if not 0<=self.now()-received<=.5:
+                    if (not 0<=self.now()-received<=.5 or self.services.status=='STARTING'
+                            or ready_at is not None and received<ready_at):
                         raise ValueError('stale_pose')
                     stamp=timestamp(message.header.stamp)
                     position,quaternion,body=source.decode_pose(message)
@@ -232,17 +243,24 @@ class OnboardRuntime(MappingRuntime):
                 continue
             received,message=samples[topic]
             try:
+                if received<self.not_before:
+                    continue
                 if not source.configured or message.header.frame_id!=source.frame or not 0<=self.now()-received<=.5:
                     raise ValueError('frame_or_age')
+                if self.services.status=='STARTING' or ready_at is not None and received<ready_at:
+                    continue
                 stamp=timestamp(message.header.stamp)
                 if stamp<=self.input_stamps.get(topic,0):
                     raise ValueError('non_increasing_stamp')
-                poses=[pose for pose in history if 0<=self.now()-pose[0]<=.5 and abs(pose[1]-stamp)<=250000000]
+                poses=[pose for pose in history if 0<=self.now()-pose[0]<=.5 and abs(pose[1]-stamp)<=250000000
+                       and (ready_at is None or pose[0]>=ready_at)]
                 if not poses:
                     raise ValueError('missing_synchronized_pose')
                 pose=min(poses,key=lambda pose:abs(pose[1]-stamp))
                 if source is self.final:
                     candidate=dict(message=message,received=received,stamp=stamp,pose=pose,source=source,offset=0)
+                    LOG.warning('SLAM final_received source=%s stamp=%d points=%d bytes=%d received_monotonic=%.6f utc=%s',
+                        source.source,stamp,message.width*message.height,len(message.data),received,utc())
                     if self.rebuild is None: self.rebuild=candidate
                     else: self.next_rebuild=candidate
                     self.input_stamps[topic]=stamp
@@ -260,18 +278,18 @@ class OnboardRuntime(MappingRuntime):
                 at=utc()
                 self.times.setdefault('first_data_at',at)
                 self.times['last_data_at']=at
-                LOG.warning('SLAM data source=%s stamp=%d points=%d bytes=%d elapsed_ms=%.3f monotonic=%.6f utc=%s',
-                    source.source,stamp,header['count'],len(payload),result['elapsed_ms'],self.now(),at)
+                LOG.warning('SLAM data source=%s stamp=%d points=%d bytes=%d elapsed_ms=%.3f received_monotonic=%.6f monotonic=%.6f utc=%s',
+                    source.source,stamp,header['count'],len(payload),result['elapsed_ms'],received,self.now(),at)
             except (ValueError,AttributeError,TypeError,OverflowError):
                 self.dropped(topic,'invalid_frame_stamp_or_pose')
                 self.core.error_code,self.core.reason='SLAM_INPUT_REJECTED','지도 점과 위치의 시각·좌표 설정을 확인해 주세요.'
 
     def rebuild_step(self):
         """Build full snapshots offscreen in bounded chunks; publish one new revision."""
-        import numpy as np
         pending = self.rebuild
         if pending is None:
             return
+        import numpy as np
         if 'core' not in pending:
             pending['core'] = WorldAccumulator(mode='projection',frame=pending['source'].frame,
                 max_points=500000,cap=512,budget_ms=100,now=self.now)
@@ -344,14 +362,14 @@ class OnboardRuntime(MappingRuntime):
             error_code=self.core.error_code,reason=self.core.reason,
             voxels=dict(revision=self.revision, seq=self.voxel_seq, reset=self.reset, resolution=.05,
                         frame_id=self.frame, added=added, removed=removed))
-        grid = self.grid_body(crop=True, max_cells=4000)
+        grid = self.grid_body(crop=True,max_cells=4000) if self.core.grid.ready and self.core.status!='FAILED' else None
         if grid is not None:
             body['grid'] = grid
         if self.core.truncated and not self.core.error_code:
             body.update(error_code='MAPPING_PARTIAL', reason='계산 한도 안에서 받은 자료입니다. 최종 지도와 좌표 보정은 실기 확인이 필요합니다.')
         body['tiles'] = [dict(revision=self.revision, tile_seq=t['version'], x=t['tx'], y=t['ty'],
             frame_id=self.frame, floor_z=(self.core.last_pose[2]-.3 if self.core.last_pose else 0),
-            resolution=.05, size=64, cells=t['cells']) for t in self.tiles.take(self.core.grid)]
+            resolution=.05, size=64, cells=t['cells']) for t in (self.tiles.take(self.core.grid) if self.core.status!='FAILED' else [])]
         return body, added, removed
 
     def store_bundle(self, data, session):
@@ -369,17 +387,22 @@ class OnboardRuntime(MappingRuntime):
                 os.unlink(temporary)
             except FileNotFoundError:
                 pass
-        return self.request(session, 'bundle', data)
+        try:
+            return self.request(session,'bundle',data)
+        finally:
+            if self.core.session_id==session:
+                self.services.stop()
 
     def step(self):
-        if self.stopping.is_set():
+        if self.stopping.is_set() or not self.enabled():
             return
         with self.lock:
             commands, self.commands = self.commands, deque(maxlen=8)
             samples, self.pending_samples = self.pending_samples, {}
         for frame in commands:
             self.handle_command(frame)
-        self.consume_samples(samples)
+        if samples:
+            self.consume_samples(samples)
         self.rebuild_step()
         if self.phase=='START_REQUESTED' and self.services.status in ('UNKNOWN','STOPPED'):
             self.problem('MAPPING_SERVICES_FAILED','지도 서비스를 시작하지 못했습니다. 설치 설정을 확인해 주세요.')
@@ -406,10 +429,14 @@ class OnboardRuntime(MappingRuntime):
                     self.services.stop()
                     self.times['saved_at'] = utc()
                     LOG.warning('SLAM saved monotonic=%.6f utc=%s', self.now(), self.times['saved_at'])
-            except Exception:
+            except Exception as error:
                 if self.core.session_id == self.save_session and self.core.status != 'CANCELLED':
                     self.save_failed = True
-                    self.core.status, self.phase = 'FAILED', 'FAILED'
+                    self.core.fail(error.code,error.reason) if isinstance(error,TransferError) else self.core.fail(
+                        'MAPPING_SAVE_FAILED','지도 묶음을 저장하지 못했습니다. 같은 자료로 다시 저장해 주세요.')
+                    self.phase='FAILED'
+                    self.services.stop()
+                    self.dropped('bundle','upload_failed')
         if (self.save_requested is not None and self.save_future is None and not self.save_failed
                 and self.rebuild is None
                 and self.source.map_topic not in self.pending_samples
@@ -446,7 +473,8 @@ class OnboardRuntime(MappingRuntime):
                             self.changes.pop(key)
             except Exception:
                 pass  # regenerate from last acknowledged set
-        if self.online and self.core.session_id and self.now() >= self.next_report and self.report_future is None:
+        if (self.online and self.core.session_id and self.core.status not in ('SAVED','CANCELLED')
+                and self.now()>=self.next_report and self.report_future is None):
             body, added, removed = self.report_body()
             data = encode(body)
             # Keep the oldest tiles; defer later tiles before shrinking changes.
@@ -467,13 +495,17 @@ class OnboardRuntime(MappingRuntime):
                 self.report_future = self.io.submit(self.request, self.core.session_id, 'progress', data)
             self.next_report = self.now()+.25
 
+    def cleanup_disconnected(self):
+        if (self.disconnected_since is not None and self.now()-self.disconnected_since>=10
+                and (self.services.owned or self.services.pending or self.services.status=='STARTING')):
+            self.services.stop()
+
     def worker(self):
         try:
             while not self.stopping.wait(.02):
                 enabled = self.enabled()
                 if not enabled:
-                    if self.disconnected_since is not None and self.now()-self.disconnected_since>=10:
-                        self.services.stop()
+                    self.cleanup_disconnected()
                     if self.was_enabled:
                         self.suspend()
                         self.release_readers()
@@ -488,6 +520,9 @@ class OnboardRuntime(MappingRuntime):
                     self.step()
                 except Exception:
                     self.phase, self.core.status = 'FAILED', 'FAILED'
+                    self.core.error_code,self.core.reason='MAPPING_FAILED','지도 계산 구성요소와 입력 자료를 확인해 주세요.'
+                    self.save_failed=True
+                    self.services.stop()
                     self.dropped('worker', 'mapping_failed')
         finally:
             self.release_readers()
@@ -502,6 +537,8 @@ class OnboardRuntime(MappingRuntime):
                                  and not self.observer.reconnect_required)
                 if self.online and not connected:
                     self.suspend()
+                if not connected:
+                    self.cleanup_disconnected()
                 self.online = connected
                 await asyncio.sleep(.02)
         finally:

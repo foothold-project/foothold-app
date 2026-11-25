@@ -10,8 +10,9 @@ LOG=logging.getLogger(__name__)
 
 
 class Services:
-    def __init__(self,env,allowed,*,run=None):
+    def __init__(self,env,allowed,*,run=None,now=time.monotonic):
         self.env,self.allowed=env,allowed
+        self.now,self.ready_at=now,None
         self.names=tuple(env.get(key,default).removesuffix('.service') for key,default in (
             ('FH_MAPPING_POINT_LIO_SERVICE','foothold-pointlio'),('FH_MAPPING_GLIM_SERVICE','foothold-glim')))
         if len(set(self.names))!=2 or any(not re.fullmatch(r'foothold-[A-Za-z0-9_-]{1,64}(?:\.service)?',n) for n in self.names):
@@ -38,6 +39,7 @@ class Services:
         if self.pending or self.status=='STARTING':
             return False
         self.pending=True
+        self.ready_at=None
         self.stop_requested=False
         self.status='STARTING'
         LOG.warning('SLAM_SERVICE event=start_requested monotonic=%.6f utc=%s',time.monotonic(),datetime.now(timezone.utc).isoformat())
@@ -51,6 +53,7 @@ class Services:
             self.thread.start()
 
     def stop(self):
+        self.pending=False
         self.stop_requested=True
         if self.thread is not None:
             self.wake.set()
@@ -66,7 +69,7 @@ class Services:
                     self.owned.discard(name)
             except Exception:
                 pass
-        self.status='STOPPED' if not self.owned else 'UNKNOWN'
+        self.status=('STARTING' if self.pending else 'STOPPED') if not self.owned else 'UNKNOWN'
         if not self.owned:
             self.stop_requested=False
         LOG.warning('SLAM_SERVICE event=cleanup remaining=%d monotonic=%.6f utc=%s',len(self.owned),time.monotonic(),datetime.now(timezone.utc).isoformat())
@@ -75,6 +78,11 @@ class Services:
         while True:
             self.wake.wait(1)
             self.wake.clear()
+            if self.pending and self.owned:
+                self.cleanup()  # a new session must not inherit our old SLAM graph
+                if self.owned:
+                    self.pending=False
+                    self.stop_requested=True
             if self.pending:
                 self.pending=False
                 try:
@@ -83,9 +91,12 @@ class Services:
                             raise PermissionError('mapping observation unavailable')
                         if self.run('is-active',name)==0:
                             continue  # pre-existing services never become ours
+                        if self.stop_requested or not self.allowed():
+                            raise PermissionError('mapping service start canceled')
                         self.owned.add(name)  # cleanup even if start times out after taking effect
                         if self.run('start',name)!=0:
                             raise OSError('mapping service start failed')
+                    self.ready_at=self.now()
                     self.status='STARTED'
                     LOG.warning('SLAM_SERVICE event=started owned=%d monotonic=%.6f utc=%s',len(self.owned),time.monotonic(),datetime.now(timezone.utc).isoformat())
                 except Exception:

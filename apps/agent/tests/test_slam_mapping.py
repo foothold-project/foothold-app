@@ -122,6 +122,9 @@ def test_runtime_synchronized_frontend_only_bad_frame_stamp_and_no_replay(tmp_pa
     rt.suspend();rt.online=True
     rt.command(start);rt.step()
     assert rt.core.version==version and len(rt.seen)==1
+    second=command();rt.command(second);rt.step()
+    rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
+    assert rt.core.session_id==second['session_id'] and rt.core.version==1 and rt.core.cells
     rt.io.shutdown(wait=True)
 
 
@@ -150,6 +153,7 @@ def test_save_freezes_one_pair_and_retries_same_bytes(tmp_path):
     while not rt.save_future.done() and time.monotonic()<deadline: time.sleep(.01)
     rt.step()
     assert rt.save_failed
+    assert rt.report_body()[0]['error_code']=='MAPPING_SAVE_FAILED'
     rt.command(command('save',start));rt.step()
     deadline=time.monotonic()+10
     while rt.save_future is None and time.monotonic()<deadline:
@@ -299,6 +303,7 @@ def test_full_map_rebuild_is_chunked_complete_and_replaces_old_revision(tmp_path
         rt.step()
     assert rt.rebuild is None and rt.revision==old_revision+1
     assert len(rt.core.cells)==10000 and (-20,0,6) not in rt.core.cells
+    assert rt.core.truncated  # 3D spans 510 m; the bounded 2D window is 100 m
     assert rt.core.grid.mode=='projection' and not (rt.core.grid.L < 0).any()
     assert rt.reset and len(rt.changes)==10000
     assert rt.source.source=='glim' and rt.frame=='corrected_world'
@@ -425,6 +430,116 @@ def test_cancel_stops_owned_services_and_duplicate_start_never_restarts(tmp_path
     rt.command(start);rt.step()
     assert len([c for c in calls if c[0]=='start'])==2 and rt.core.status=='CANCELLED'
     rt.close();rt.io.shutdown(wait=True)
+
+
+def test_cancel_before_service_worker_takes_job_performs_no_start():
+    from foothold_agent.mapping.services import Services
+    calls=[]
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=lambda *a:calls.append(a))
+    services.launch=lambda:None
+    assert services.start() and services.pending
+    services.stop();services.close();services.worker()
+    assert not services.pending and calls==[] and services.status=='STOPPED'
+
+
+def test_samples_received_before_service_start_completion_are_not_accumulated(tmp_path):
+    clock=NS(t=10.2)
+    rt=runtime(tmp_path,now=lambda:clock.t);rt.online=True
+    rt.command(command());rt.step()
+    rt.services.status='STARTED';rt.services.ready_at=10.1
+    rt.consume_samples({FRONTEND:(10.,pose()),CLOUD:(10.,cloud())})
+    assert not rt.core.cells
+    rt.receive(FRONTEND,pose(stamp=2));rt.receive(CLOUD,cloud(stamp=2));rt.step()
+    assert rt.core.cells and rt.core.status=='RUNNING'
+    rt.close();rt.io.shutdown(wait=True)
+
+
+def test_new_service_job_resets_previously_owned_graph_before_start():
+    from foothold_agent.mapping.services import Services
+    calls=[];active=set()
+    def run(action,name):
+        calls.append((action,name))
+        if action=='is-active':return 0 if name in active else 3
+        if action=='start':active.add(name)
+        if action=='stop':active.discard(name)
+        return 0
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    services.start();wait_for(lambda:services.status=='STARTED')
+    boundary=len(calls)
+    services.start();wait_for(lambda:services.status=='STARTED' and len(calls)>boundary)
+    following=calls[boundary:]
+    assert [action for action,_ in following[:2]]==['stop','stop']
+    assert len([c for c in following if c[0]=='start'])==2
+    services.close();services.thread.join(1)
+
+
+def test_cancel_while_service_state_query_hangs_never_starts_unit():
+    from foothold_agent.mapping.services import Services
+    entered,release=threading.Event(),threading.Event();calls=[]
+    def run(action,name):
+        calls.append((action,name))
+        if action=='is-active':entered.set();release.wait(2);return 3
+        return 0
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    services.start();assert entered.wait(1)
+    services.stop();release.set();wait_for(lambda:services.status=='STOPPED')
+    assert all(action!='start' for action,_ in calls)
+    services.close();services.thread.join(1)
+
+
+def test_attaching_observer_and_empty_status_never_imports_numpy_on_control_loop(tmp_path,monkeypatch):
+    import builtins
+    original=builtins.__import__
+    def guarded(name,*args,**kwargs):
+        assert name!='numpy','numpy must initialize on the calculation worker'
+        return original(name,*args,**kwargs)
+    monkeypatch.setattr(builtins,'__import__',guarded)
+    rt=runtime(tmp_path,env={})
+    assert rt.core.grid._L is None
+    rt.command(command());rt.step()
+    assert rt.report_body()[0]['error_code']=='MAPPING_FRAME_REQUIRED'
+    assert rt.core.grid._L is None
+    rt.close();rt.io.shutdown(wait=True)
+
+
+def test_time_cut_keeps_points_spread_across_the_entire_scan():
+    clock=NS(t=0.)
+    def now():clock.t+=.001;return clock.t
+    core=WorldAccumulator(frame='world',cap=256,budget_ms=6,now=now)
+    points=np.column_stack((np.linspace(-8,8,256),np.zeros(256),np.full(256,.3)))
+    core.add_world(points,[0,0,.3],[1,0,0,0],stamp=1,frame='world')
+    assert core.truncated and min(k[0] for k in core.cells)<-150 and max(k[0] for k in core.cells)>150
+
+
+def test_world_bounds_match_the_contract_tile_coordinate_range():
+    core=WorldAccumulator(frame='world')
+    with pytest.raises(ValueError):
+        core.add_world([[10000,0,.3]],[0,0,.3],[1,0,0,0],stamp=1,frame='world')
+    core.add_world([[-10000,0,.3]],[-10000,0,.3],[1,0,0,0],stamp=2,frame='world')
+    assert set(core.cells)=={(-200000,0,6)}
+
+
+def test_router_keeps_old_four_key_pcd_and_new_pipeline_commands_separate():
+    from foothold_agent.mapping.runtime import MappingRouter
+    from foothold_agent.mapping.core import Accumulator
+    async def scenario():
+        router=MappingRouter(NS(connected=True,link_lost=False,reconnect_required=False),NS(),
+            Settings('wss://example.invalid/api/v1/agent/ws','fake'),str(uuid4()),{},
+            enabled=lambda:True,command_allowed=lambda:True)
+        for mapper in (router.legacy,router.onboard):
+            mapper.online=True;mapper.request=lambda *args:{'accepted':True}
+        old={k:v for k,v in command().items() if k in ('t','op','session_id','floor_id')}
+        router.command(old);router.legacy.step()
+        assert type(router.legacy.core) is Accumulator and router.legacy.core.session_id==old['session_id']
+        router.legacy.core.add([[1,0,.3]],[0,0,.3],[1,0,0,0],stamp=1,frame='odom')
+        assert b'DATA binary\n' in router.legacy.core.pcd()
+        new=command();router.command(new);router.onboard.step()
+        assert router.onboard.core.session_id==new['session_id'] and router.legacy.core.session_id==old['session_id']
+        assert router.onboard.services.thread is None
+        router.close();router.legacy_task.cancel()
+        await asyncio.gather(router.legacy_task,return_exceptions=True)
+        router.legacy.io.shutdown(wait=True);router.onboard.io.shutdown(wait=True)
+    asyncio.run(scenario())
 
 
 def test_runtime_uses_source_adapter_topics_and_world_frame(tmp_path):

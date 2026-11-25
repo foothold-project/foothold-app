@@ -17,16 +17,22 @@ def cell_state(value):
 
 class OccGrid:
     def __init__(self, size=GRID_N, *, mode='projection', now=time.monotonic):
-        import numpy as np
         if mode not in ('projection', 'scan') or not 1 <= size <= GRID_N:
             raise ValueError('invalid grid configuration')
         self.size, self.mode, self.now = size, mode, now
-        self.L = np.zeros(size * size, dtype=np.int8)
+        self._L = None
         self.c0 = self.r0 = 0
         self.ready = False
         self.cursor = 0
         self.truncated = False
         self.dirty = set()
+
+    @property
+    def L(self):
+        if self._L is None:
+            import numpy as np
+            self._L=np.zeros(self.size*self.size,dtype=np.int8)
+        return self._L
 
     def at(self, x, y):
         c, r = math.floor(x / GRID_RES) - self.c0, math.floor(y / GRID_RES) - self.r0
@@ -34,6 +40,7 @@ class OccGrid:
 
     def add(self, points, pose, cap=GRID_PTS, budget_ms=20):
         import numpy as np
+        L=self.L
         if cap < 1 or budget_ms <= 0:
             raise ValueError('invalid grid budget')
         points = np.asarray(points, dtype=np.float32)
@@ -43,6 +50,7 @@ class OccGrid:
             self.ready = True
         sc, sr = math.floor(px / GRID_RES) - self.c0, math.floor(py / GRID_RES) - self.r0
         if not 0 <= sc < self.size or not 0 <= sr < self.size:
+            self.truncated=True
             return 0
         step = max(1, math.ceil(len(points) / cap))
         m = math.ceil(len(points) / step)
@@ -50,6 +58,7 @@ class OccGrid:
         q = self.cursor % m if m else 0
         ps = q % passes if passes else 0
         start, touched, processed = self.now(), {}, 0
+        clipped=False
         hit_z = float(np.float32(pz + FLOOR_DZ + OBST_DZ))
         for j in range(m):
             if j & 7 == 7 and (self.now() - start) * 1000 > budget_ms:
@@ -65,15 +74,16 @@ class OccGrid:
                     or self.mode == 'scan' and (x-px)**2 + (y-py)**2 > RANGE_M**2):
                 continue
             ec, er = math.floor(x / GRID_RES) - self.c0, math.floor(y / GRID_RES) - self.r0
+            clipped |= not (0<=ec<self.size and 0<=er<self.size)
             hit = 2 if z >= hit_z else 1
             if self.mode == 'projection':
                 if hit == 2 and 0 <= ec < self.size and 0 <= er < self.size:
                     index = er * self.size + ec
                     if index not in touched:
                         touched[index] = True
-                        old_state = cell_state(int(self.L[index]))
-                        self.L[index] = min(L_LIM, int(self.L[index]) + L_OCC)
-                        if cell_state(int(self.L[index])) != old_state:
+                        old_state = cell_state(int(L[index]))
+                        L[index] = min(L_LIM, int(L[index]) + L_OCC)
+                        if cell_state(int(L[index])) != old_state:
                             self.dirty.add(index)
                 continue
             c, r = sc, sr
@@ -84,15 +94,15 @@ class OccGrid:
                 index = r * self.size + c
                 value = hit if last else 1
                 previous = touched.get(index)
-                old_state = cell_state(int(self.L[index]))
+                old_state = cell_state(int(L[index]))
                 if previous is None:
-                    old = int(self.L[index])
+                    old = int(L[index])
                     touched[index] = old, value
-                    self.L[index] = max(-L_LIM, min(L_LIM, old + (L_OCC if value == 2 else L_FREE)))
+                    L[index] = max(-L_LIM, min(L_LIM, old + (L_OCC if value == 2 else L_FREE)))
                 elif value > previous[1]:
                     touched[index] = previous[0], value
-                    self.L[index] = min(L_LIM, previous[0] + L_OCC)
-                if cell_state(int(self.L[index])) != old_state:
+                    L[index] = min(L_LIM, previous[0] + L_OCC)
+                if cell_state(int(L[index])) != old_state:
                     self.dirty.add(index)
                 if last:
                     break
@@ -103,7 +113,7 @@ class OccGrid:
                 if e2 <= dc:
                     e += dc
                     r += ir
-        self.truncated = processed < m or step > 1
+        self.truncated = processed < m or step > 1 or clipped
         return processed
 
     def metadata(self):

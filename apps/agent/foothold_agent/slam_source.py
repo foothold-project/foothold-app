@@ -49,7 +49,7 @@ class Source:
         if not all(type(v) in (int,float) and math.isfinite(v) for v in (*position,*quaternion)):
             raise ValueError('invalid source pose')
         norm=math.hypot(*quaternion)
-        if not .9<=norm<=1.1 or any(abs(v)>10000 for v in position):
+        if not .9<=norm<=1.1 or any(v< -10000 or v>=10000 for v in position):
             raise ValueError('invalid source pose')
         w,x,y,z=(v/norm for v in quaternion)
         body=dict(source=self.odom_name,provider=self.source,frame_id=self.frame,

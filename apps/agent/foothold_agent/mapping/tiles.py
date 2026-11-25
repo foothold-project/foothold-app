@@ -21,6 +21,8 @@ class Tiles:
             self.pending[key] = version  # updating an existing key preserves its place
 
     def take(self, grid, limit=4):
+        if not self.pending:
+            return []
         import numpy as np
         bodies = []
         for (tx, ty), version in list(self.pending.items())[:limit]:

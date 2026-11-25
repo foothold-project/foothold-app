@@ -35,14 +35,17 @@ class WorldAccumulator(Accumulator):
             raise ValueError('non_increasing_stamp')
         cloud = np.asarray(xyz, dtype=np.float32)
         if (cloud.ndim != 2 or cloud.shape[1] != 3 or len(cloud) > 1_400_000
-                or len(position) != 3 or not all(math.isfinite(v) and abs(v) <= 10000 for v in position)):
+                or len(position) != 3 or not all(math.isfinite(v) and -10000<=v<10000 for v in position)):
             raise ValueError('invalid world input')
         r = rotation(quaternion)
         started = self.now()
         step = max(1, math.ceil(len(cloud) / self.cap))
         sample = cloud[::step]
         sample = sample[np.isfinite(sample).all(axis=1)]
-        if sample.size and np.max(np.abs(sample)) > 10000:
+        if not complete_chunk and len(sample)>64:
+            passes=math.ceil(len(sample)/64)
+            sample=sample[[i for p in range(passes) for i in range(p,len(sample),passes)]]
+        if sample.size and (np.max(sample)>=10000 or np.min(sample)<-10000):
             raise ValueError('coordinate_out_of_range')
         old = self.cells if replace else None
         if replace:
