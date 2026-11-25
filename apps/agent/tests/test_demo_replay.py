@@ -102,3 +102,16 @@ def test_clip_choice_follows_the_last_reported_temperature():
     player = replay.Player(library)
     player.advance('walk', 0)
     assert player.advance('stand', 0.1)['joint_temp'] == [50] * 12  # hot after a walk
+
+
+def test_same_activity_continues_the_same_recording():
+    library = replay.index([FIXTURE], clip_s=5.0, min_clip_s=2.0)
+    walks = library['clips']['walk']
+    assert len(walks) >= 3
+    player = replay.Player(library)
+    player.advance('walk', 0)
+    first = player.clip
+    for _ in range(int(first['seconds'] * 10) + 2):
+        player.advance('walk', 0.1)
+    assert player.clip is not first and player.clip['file'] == first['file']
+    assert 0 <= player.clip['t0'] - (first['t0'] + first['seconds']) <= 0.5

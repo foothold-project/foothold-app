@@ -132,6 +132,15 @@ class Player:
 
     def _choose(self, kind):
         kind, clips = self._clips(kind)
+        if self.clip is not None and kind == self.kind:
+            # Same activity goes on: continue the same recording, so its real
+            # heating / cooling trend carries on instead of restarting a clip.
+            end = self.clip['t0'] + self.clip['seconds']
+            following = next((c for c in clips if c['file'] == self.clip['file']
+                              and 0 <= c['t0'] - end <= 0.5), None)
+            if following is not None:
+                self.clip, self.pos = following, 0.0
+                return
         if self.last_temp is None:
             index = self.offset % len(clips)
         else:
