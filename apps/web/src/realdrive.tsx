@@ -47,8 +47,8 @@ export function RealDrive() {
   // 큰 화면 = 라이다는 새 점(2초 안)을 받는 동안만. 대기·멈춤·끊김이면 큰 화면 = 카메라 — 한 번 받다가 멈추면 다시 와도 저절로 돌아가지 않는다(깜빡임 0, 작은 창을 눌러 돌아감)
   // 두 칸·3D 그림은 늘 같은 자리에 두고 class(크기·자리)만 바꾼다 — 다시 만들면 WebGL 생성으로 명령 주기가 끊기고(RV-449 ②) 1회 토큰이 닫힌다
   const hasMedia = !!s.robot?.agent_address, lf = useFeed('lidar', hasMedia), rf = useFeed('rgb', false);
-  // 새 판이 와도 그 판의 점이 0개(또는 FEW 미만)면 빈 라이다 — «라이다 기다리는 중», 큰 화면 = 카메라(2초 규칙과 같은 길, RV-454 2). 누적 n 이 아니라 최근 판(last, RV-455 2)
-  const fresh = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOk = fresh && (lf.last ?? 0) >= FEW, lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
+  // 새 판이 와도 그 판의 점이 0개(또는 FEW 미만)면 빈 라이다 — «라이다 기다리는 중», 큰 화면 = 카메라(2초 규칙과 같은 길, RV-454 2). n = 받은 한 판(쌓지 않음)
+  const fresh = hasMedia && lf.state === 'live' && !feedText(lf, 'lidar'), lidarOk = fresh && lf.n >= FEW, lidarOn = hasMedia && (lf.state === 'live' || lf.state === 'wait');
   const [pick, setPick] = useState<'lidar' | 'rgb'>('lidar'), main = lidarOk && pick === 'lidar' ? 'lidar' : 'rgb', [no3d, setNo3d] = useState(false), [info, setInfo] = useState(false), [look, setLook] = useState<Look>('points');
   const had = useRef(false);
   useEffect(() => { if (lidarOk) had.current = true; else if (had.current) setPick('rgb'); }, [lidarOk]);

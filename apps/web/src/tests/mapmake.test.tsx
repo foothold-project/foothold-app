@@ -10,6 +10,7 @@ import { clearPlans } from '../screens/missions';
 import { kept } from '../screens/mapedit';
 import { RECEIVED_TEXT, SLOW_START_S, SLOW_TEXT, STALE_TEXT } from '../screens/mapmake';
 import { FakeWS, state } from './fakeWs';
+import { FakeVox } from './fakeVox';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -65,11 +66,16 @@ const signedIn = (me: User, online: boolean, slam: () => MappingProgress | null,
   'GET /map-versions/v2': { status: 200, body: V2 }, 'GET /map-versions/v3': { status: 200, body: V3 },
   'GET /floors/f1/map-versions': { status: 200, body: { items: [V2], next_cursor: null } },
   'GET /scenarios': { status: 200, body: { items: [], next_cursor: null } },
-  'GET /robots/r-a/slam': () => ({ status: 200, body: slam() }),
+  'GET /robots/r-a/slam': () => ({ status: 200, body: fed(slam()) }),
   [`GET /robots/r-a/slam/${SID}/tiles`]: page([tile(0, 0)], null),
+  [`GET /robots/r-a/slam/${SID}/voxels`]: (_b?: unknown, q?: URLSearchParams) => { fed(slam()); return VS.reply(q!); },
   ...more,
 });
 
+/** 가짜 서버 3D 칸 저장 — 진행 자료에 실린 agent 보고(voxels)를 받은 대로 쌓는다(웹은 voxels API 로만 3D 를 받음, 11-25 RB-SLAM-WEB4) */
+let VS = new FakeVox(SID);
+const fed = (x: MappingProgress | null) => { if (x?.voxels && x.session_id === SID) VS.report(x.voxels); return x; };
+const voxQ = () => calls.filter((c) => c.path === `/robots/r-a/slam/${SID}/voxels`).map((c) => c.q);
 let root: ReactRoot | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
@@ -84,7 +90,7 @@ async function open() {
 }
 /** 실시간 연결로 로봇 상태(연결됨/끊김)를 받는다 — 화면의 «연결됨»은 실시간 state 만 믿는다 */
 const live = async (online: boolean) => { act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: online ? 'ONLINE' : 'OFFLINE' })); }); await flush(); };
-beforeEach(() => { vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null); });
+beforeEach(() => { VS = new FakeVox(SID); vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null); });
 afterEach(() => { allowed = false; act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
@@ -281,7 +287,7 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
   const tiles = () => calls.filter((c) => c.path === `/robots/r-a/slam/${SID}/tiles`).map((c) => c.q);
   const shown = () => [$('[data-slam-boxes]')!.dataset.slamBoxes, $('canvas[data-slam-tiles]')?.dataset.slamTiles];
 
-  it('2D 조각: cursor 를 null 까지 따라가고, 다음 번은 첫 쪽 update_seq 이후만 · 3D 는 증분(removed 지우고 added 놓기)', async () => {
+  it('2D 조각: cursor 를 null 까지 따라가고, 다음 번은 첫 쪽 update_seq 이후만 · 3D 는 voxels API(since 이어 받기, 조회 사이 지나간 증분도 빠짐없이)', async () => {
     let now = prog('RUNNING');
     serve(signedIn(LEE, true, () => now, {
       [`GET /robots/r-a/slam/${SID}/tiles`]: (_b, q) => q!.get('cursor') === '0' && q!.get('since') === '0' ? page([tile(0, 0), tile(1, 0), tile(0, 1), tile(1, 1)], 99)
@@ -295,9 +301,12 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
     expect(tiles().slice(2)).toEqual(['revision=1&cursor=0&since=3']);   // 첫 쪽 update_seq(3) 이후 바뀐 것만
     expect(shown()).toEqual(['4', '6']);   // 칸 5 − 2 + 1, 조각 (0,0) 은 새 판 번호로 바뀌고 (3,3) 추가
     expect($('[data-gap]')).toBeNull();
-    now = prog('RUNNING', { update_seq: 7, voxels: vox(3, { added: [[8, 8, 8]] }) });   // seq 2 를 못 받음
+    VS.report(vox(2, { added: [[9, 9, 9]], removed: [[2, 0, 1]] }));   // 조회 사이에 지나간 증분(진행 자료엔 안 보임)
+    now = prog('RUNNING', { update_seq: 7, voxels: vox(3, { added: [[8, 8, 8]] }) });
     await wait(1100); await flush();
-    expect($('[data-gap]')).toBeTruthy();
+    expect(shown()[0]).toBe('5');   // 4 + 9,9,9 − 2,0,1 + 8,8,8 — 놓친 seq 2 도 서버에서 받음
+    expect($('[data-gap]')).toBeNull();
+    expect(voxQ().slice(-1)[0]).toBe('revision=1&since=1');   // 앞 번 첫 쪽 seq 이후만
     expect(calls.some((c) => /occ|grid/i.test(c.path))).toBe(false);
   });
 
@@ -317,6 +326,25 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
     expect(tiles().slice(-1)[0]).toBe('revision=2&cursor=0&since=0');
     expect(shown()).toEqual(['2', '1']);
     expect($('[data-saving]')).toBeTruthy();
+  });
+
+  it('진행 조회가 끊겼다 이어지면 3D 를 처음부터(since=0) 받아, 끊긴 동안 reset 된 옛 칸이 남지 않음 (RB-SLAM-WEB4)', async () => {
+    let now = prog('RUNNING'), down = false;
+    serve(signedIn(LEE, true, () => now, { 'GET /robots/r-a/slam': () => (down ? err(503, 'UNAVAILABLE', '잠시 뒤') : { status: 200, body: fed(now) }) }));
+    await open(); await openMake();
+    expect(shown()[0]).toBe('5');
+    now = prog('RUNNING', { update_seq: 4, voxels: vox(1, { added: [[7, 7, 7]] }) });
+    await wait(1100); await flush();
+    expect(voxQ().slice(-1)[0]).toBe('revision=1&since=0');
+    expect(shown()[0]).toBe('6');
+    down = true;
+    await wait(1100); await flush();
+    expect(dlg().textContent).toContain('진행 상황을 받지 못했습니다.');
+    VS.report(vox(2, { reset: true, added: [[1, 1, 1]] }));   // 끊긴 동안 판 안 reset
+    now = prog('RUNNING', { update_seq: 5, voxels: vox(2, { reset: true, added: [[1, 1, 1]] }) }); down = false;
+    await wait(1100); await flush();
+    expect(voxQ().slice(-1)[0]).toBe('revision=1&since=0');
+    expect(shown()[0]).toBe('1');
   });
 
   it('RECEIVED_ONLY: 창을 닫지 않고 «받은 범위만 — 저장 확인 안 됨» + 서버가 받지 않은 자료 이유, «받은 지도 보기»로 그 판', async () => {

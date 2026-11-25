@@ -35,29 +35,30 @@ const savedText = (p: MappingProgress) => (p.terrain_id || p.terrain_status === 
   : p.terrain_status === 'FAILED' ? '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 만들지 못했습니다.' : '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 이어서 만듭니다.');
 
 /** 지도 칸(가로 640:400) — 받은 2D 조각·3D 칸·로봇 위치(screens/slammap.tsx) */
-function MapBox({ robot, p }: { robot: string; p: MappingProgress }) {
-  const pic = useSlamLive(robot, p);
+function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; link: number }) {
+  const pic = useSlamLive(robot, p, link);
   return <>
     <div style={{ position: 'relative', aspectRatio: '640 / 400', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }} data-make-mapbox>
       <SlamView pic={pic} empty="아직 받은 지도가 없습니다." /></div>
     <div className="mx-sum" aria-label="진행" data-progress={p.status}>
       <span><b>{pic.n.toLocaleString('ko-KR')}</b>받은 3D 칸</span><span><b>{pic.patches.length.toLocaleString('ko-KR')}</b>받은 2D 조각</span></div>
-    {pic.gap && <p className="lv-note" data-gap>3D 는 창을 연 뒤 받은 부분만 보일 수 있습니다. 저장한 뒤 다시 열면 전부 보입니다.</p>}
+    {pic.gap && <p className="lv-note" data-gap>이 세션의 3D 칸은 서버에서 처음부터 받을 수 없습니다. 저장한 뒤 다시 열면 전부 보입니다.</p>}
   </>;
 }
 
 /** 창 «로봇으로 지도 만들기» 안 — 창이 열릴 때만 그린다(닫으면 언마운트 = 조회 멈춤). made = 이 층에 새 지도가 저장됨(그 판 id, 알림 글).
  *  approved·list = 이 층 지금 승인 판 id·받은 판 목록(받는 중 null) — 지난 SAVED(이미 반영·그 뒤 바뀜)를 다시 알리지 않게.
- *  bare = 로봇 고르기·조종 패널 없이(PC 로봇 탭 세 칸 화면 오른쪽 칸 — 로봇은 robots[0] 하나, 조종은 그 화면이 이미 붙임). 흐름·서버 길은 같다 */
-export function MakeMap({ floor, user, robots, places, cancel, made, approved, list, bare }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string, text: string) => void;
-  approved: string | null; list: MapVersion[] | null; bare?: boolean }) {
+ *  지도 만들기는 지도 탭에서만(11-25 RB-SLAM-WEB4 — 조종 화면 오른쪽 칸 «지도 만들기» 없앰) */
+export function MakeMap({ floor, user, robots, places, cancel, made, approved, list }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string, text: string) => void;
+  approved: string | null; list: MapVersion[] | null }) {
   const mine = makers(user, robots);
   const [rid, setRid] = useState(() => (mine.find((r) => r.online) ?? mine[0])?.id ?? ''), robot = mine.find((r) => r.id === rid);
   const [prog, setProg] = useState<MappingProgress | null | undefined>(), [n, setN] = useState(0), [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null), [poll, setPoll] = useState(''), [ask, setAsk] = useState(false), [stale, setStale] = useState(false);
+  const [link, setLink] = useState(0), lost = useRef(false);   // 조회가 끊겼다 이어지면 link+1 — 3D 칸을 처음부터 다시 받는다(slammap)
   const madeRef = useRef(made); madeRef.current = made;
   const startAt = useRef({ sid: '', t: 0 });   // 이 화면이 그 세션의 «시작하는 중»을 처음 본 때(서버·이 PC 시계 차이를 섞지 않게 이 PC 시계만)
-  const phone = usePhone(), drive = !!robot && canDrive({ user, phone }, robot), how = drive ? (bare ? '이 화면의 조종 단추나 키보드로' : '이 창의 조종 단추나 키보드로') : '폰 조종 화면으로';
+  const phone = usePhone(), drive = !!robot && canDrive({ user, phone }, robot), how = drive ? '이 창의 조종 단추나 키보드로' : '폰 조종 화면으로';
   // 1초마다 조회(진행 중인 동안만). 언마운트·로봇 바꿈은 AbortSignal 로 진행 중 요청까지 거둔다
   useEffect(() => {
     if (!rid) return;
@@ -69,11 +70,12 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
         const x = (await api.slam(rid, ac.signal)) ?? null;
         if (ac.signal.aborted) return;
         setProg(x); setPoll('');
+        if (lost.current) { lost.current = false; setLink((k) => k + 1); }
         if (x && LIVE.has(x.status)) t = setTimeout(go, 1000);
       } catch (e) {
         const f = e as ApiFail;
         if (f.code === 'CANCELED' || ac.signal.aborted) return;
-        setPoll(`진행 상황을 받지 못했습니다. ${f.message}`);
+        setPoll(`진행 상황을 받지 못했습니다. ${f.message}`); lost.current = true;
         if (f.status === 0 || f.status >= 500) t = setTimeout(go, 1000);   // 4xx(권한 등)는 다시 묻지 않는다
       }
     };
@@ -115,9 +117,9 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
   const asked = !!p?.times?.save_requested_at, stuck = p?.status === 'FAILED' || p?.status === 'UNKNOWN';
   const rej = p?.last_report_rejection ?? got?.last_report_rejection;
   return <div className="fh-form" style={{ gap: 10 }} data-make-map>
-    {!bare && <label className="fh-field"><span>로봇</span>
+    <label className="fh-field"><span>로봇</span>
       <select className="inp" value={rid} disabled={busy || (here && !stuck)} onChange={(e) => { setRid(e.target.value); setProg(undefined); setMsg(null); setStale(false); }}>
-        {mine.map((r) => <option key={r.id} value={r.id}>{r.name}{r.online ? '' : ' (연결 안 됨)'}</option>)}</select></label>}
+        {mine.map((r) => <option key={r.id} value={r.id}>{r.name}{r.online ? '' : ' (연결 안 됨)'}</option>)}</select></label>
     {prog === undefined && !poll && <p className="lv-note" role="status">진행 상황을 확인하는 중…</p>}
     {open && !here && <p className="fh-msg" role="status" data-elsewhere>이 로봇은 {elsewhere ? `«${elsewhere.building.name} ${elsewhere.floor.name}»` : '다른 층'}에서 지도를 만드는 중입니다. 그 층에서 저장하거나 취소하세요.</p>}
     {prog !== undefined && !open && <>
@@ -130,8 +132,8 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
     {p && <>
       {/* 왼쪽 실시간 지도·진행, 오른쪽 조종(좁으면 아래로) — 지도를 보면서 스크롤 없이 STOP·조종 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ flex: '1.4 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}><MapBox robot={rid} p={p} /></div>
-        {p.status === 'RUNNING' && drive && !bare && <div data-make-drive style={{ flex: '1 1 300px', minWidth: 0 }}><ServerDrive c={{ user }} r={robot!} inline /></div>}
+        <div style={{ flex: '1.4 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}><MapBox robot={rid} p={p} link={link} /></div>
+        {p.status === 'RUNNING' && drive && <div data-make-drive style={{ flex: '1 1 300px', minWidth: 0 }}><ServerDrive c={{ user }} r={robot!} inline /></div>}
       </div>
       {p.status === 'STARTING' && <p className="lv-note" role="status" data-starting>시작하는 중… 로봇이 지도 기능을 켜고 있습니다.</p>}
       {slow && <p className="fh-msg" role="alert" data-slow>{SLOW_TEXT}</p>}
