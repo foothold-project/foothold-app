@@ -251,6 +251,7 @@ function onState(s: ScreenState) {
   // 화면에 보이는 값이 바뀔 때만 다시 그림(10 Hz 그대로 그리지 않음)
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
     && (p.safety_reason ?? null) === (s.safety_reason ?? null)
+    && (p.control ?? null) === (s.control ?? null)   // 순정 · 저수준 (단추 끄기 · contracts ControlMode)
     && p.latency_ms === s.latency_ms
     && JSON.stringify(p.response_health ?? null) === JSON.stringify(s.response_health ?? null)
     && shown(p) === shown(s)

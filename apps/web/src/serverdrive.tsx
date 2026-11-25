@@ -97,6 +97,9 @@ const POSE_WHY: Record<string, string> = {
   FEEDBACK_UNAVAILABLE: '로봇이 자세를 알려 주지 않습니다. 현장에서 로봇을 확인하세요.',
   TIMEOUT: '시간 안에 끝나지 않았습니다. 현장에서 로봇을 확인하세요.', SDK_REJECTED: '로봇이 동작을 받지 않았습니다. 잠시 뒤 다시 누르세요.',
   STOOD_NOT_WALKABLE: '로봇은 섰지만 걷기 허용 상태가 아닙니다. 현장에서 로봇 상태를 확인하세요.',
+  LOWLEVEL_UNSUPPORTED: '저수준 (START) 제어 중에는 엎드리기만 쓸 수 있습니다.',
+  RUNNER_NOT_CONNECTED: 'START 실행기와 아직 연결되지 않았습니다. 리모컨 L2+A 로 엎드리세요.',
+  RUNNER_SEND_FAILED: 'START 실행기에 보내지 못했습니다. 리모컨 L2+A 로 엎드리세요.',
 };
 /** 20초(POSE_WAIT_MS) 안에 최종 결과가 없을 때 */
 export const POSE_LOST = '로봇에서 결과를 받지 못했습니다. 현장에서 로봇을 확인하세요.';
@@ -285,6 +288,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   useEffect(() => { if (l.notice) setAsked(null); }, [l.notice]);
   useEffect(() => {
     if (!pose || !res || res.request_id === pose.prev || res.action !== POSE[pose.k].act || res.status === 'RUNNING') return;
+    // 저수준: 실행기에 보냄은 자세 완료가 아니다 (전원 꺼도 된다고 쓰지 않음)
+    if (res.status === 'SUCCEEDED' && res.code === 'RUNNER_SENT') { setPose(null); setPoseMsg('START 실행기에 보냈습니다. 현장에서 로봇을 확인하세요.'); return; }
     setPose(null); setPoseMsg(res.status === 'SUCCEEDED' ? POSE[pose.k].done : `${POSE[pose.k].fail} — ${poseWhy(res.code)}`);
   }, [pose, res?.request_id, res?.status]);
   useEffect(() => { if (!mine) setPose(null); }, [mine]);
@@ -350,7 +355,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
   const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
   const poseRow = mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>
-    {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE'}
+    {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE' || k === 'up' && s?.control === 'LOWLEVEL'}
       onClick={() => askPose(k)}>{POSE[k].name}</button>)}
     <span className="lbl">{POWER_HINT}</span>
     {(shifting || poseMsg || lost) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg || lost}</span>}
