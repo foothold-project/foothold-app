@@ -734,13 +734,14 @@ class FileDeletion(Tenant, Base):
 class MappingSession(Tenant, Base):
     __tablename__ = 'mapping_sessions'
     __table_args__ = (
+        UniqueConstraint('org_id', 'id'),
         ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
         ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['org_id', 'owner_id'], ['users.org_id', 'users.id']),
         ForeignKeyConstraint(['org_id', 'base_version_id'], ['map_versions.org_id', 'map_versions.id'], ondelete='CASCADE'),
-        CheckConstraint("status IN ('RUNNING','SAVING','SAVED','FAILED','CANCELLED')", name='mapping_status'),
+        CheckConstraint("status IN ('STARTING','RUNNING','SAVING','FINALIZING','UNKNOWN','SAVED','FAILED','CANCELLED')", name='mapping_status'),
         Index('mapping_one_active_robot', 'robot_id', unique=True,
-              postgresql_where=text("status IN ('RUNNING','SAVING','FAILED')")),
+              postgresql_where=text("status IN ('STARTING','RUNNING','SAVING','FINALIZING','UNKNOWN','FAILED')")),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
     robot_id: Mapped[UUID] = mapped_column(PGUUID)
@@ -751,3 +752,21 @@ class MappingSession(Tenant, Base):
     progress: Mapped[dict | None] = mapped_column(JSONB)
     result: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class MappingTile(Tenant, Base):
+    __tablename__ = 'mapping_tiles'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'session_id'], ['mapping_sessions.org_id', 'mapping_sessions.id'], ondelete='CASCADE'),
+        CheckConstraint('octet_length(cells) = 4096', name='mapping_tile_size'),
+        CheckConstraint('tile_seq > 0 AND revision > 0', name='mapping_tile_revision'),
+    )
+    session_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    x: Mapped[int] = mapped_column(Integer, primary_key=True)
+    y: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision: Mapped[int] = mapped_column(BigInteger)
+    tile_seq: Mapped[int] = mapped_column(BigInteger)
+    update_seq: Mapped[int] = mapped_column(BigInteger)
+    frame_id: Mapped[str] = mapped_column(Text)
+    floor_z: Mapped[float] = mapped_column(Float)
+    cells: Mapped[bytes] = mapped_column(LargeBinary)

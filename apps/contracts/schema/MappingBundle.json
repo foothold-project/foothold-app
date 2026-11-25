@@ -161,6 +161,19 @@
           "default": null,
           "title": "Robot Ack At"
         },
+        "save_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Save Requested At"
+        },
         "saved_at": {
           "anyOf": [
             {
@@ -186,6 +199,19 @@
           ],
           "default": null,
           "title": "Server Received At"
+        },
+        "start_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Requested At"
         }
       },
       "title": "MappingTimes",

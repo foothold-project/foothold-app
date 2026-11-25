@@ -1119,6 +1119,8 @@ MappingCell = tuple[MappingIndex, MappingIndex, MappingIndex]
 class MappingTimes(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     server_received_at: UTCDateTime | None = None
+    start_requested_at: UTCDateTime | None = None
+    save_requested_at: UTCDateTime | None = None
     command_forwarded_at: UTCDateTime | None = None
     agent_received_at: UTCDateTime | None = None
     command_published_at: UTCDateTime | None = None
@@ -1165,11 +1167,39 @@ class MappingGrid(Contract):
         return self
 
 
+class MappingStamp(Contract):
+    sec: int = Field(strict=True, ge=0, le=MAX_SAFE_INTEGER)
+    nanosec: int = Field(strict=True, ge=0, le=999999999)
+
+
+class MappingGridTile(Contract):
+    """64x64 world-aligned cells, lower left at (x*3.2,y*3.2)."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    tile_seq: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    x: int = Field(ge=-3125, le=3124, strict=True)
+    y: int = Field(ge=-3125, le=3124, strict=True)
+    resolution: Literal[0.05] = .05
+    size: Literal[64] = 64
+    frame_id: str = Field(min_length=1, max_length=80)
+    floor_z: float
+    cells: list[Literal[0, 1, 2]] = Field(min_length=4096, max_length=4096)
+
+
+class MappingTilePage(Contract):
+    session_id: UUID
+    revision: int
+    update_seq: int
+    tiles: list[MappingGridTile] = Field(max_length=4)
+    next_cursor: int | None
+
+
 class MappingOdom(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     source: Literal['/uslam/frontend/odom'] = '/uslam/frontend/odom'
     frame_id: str = Field(min_length=1, max_length=80)
-    stamp: UTCDateTime
+    stamp: MappingStamp
+    display_stamp: UTCDateTime | None = None
     x: float
     y: float
     z: float
@@ -1216,6 +1246,7 @@ class MappingProgress(Contract):
     update_seq: int | None = Field(default=None, ge=1, le=MAX_SAFE_INTEGER)
     voxels: MappingVoxels | None = None
     grid: MappingGrid | None = None
+    tiles: list[MappingGridTile] | None = Field(default=None, max_length=4)
     odom: MappingOdom | None = None
     times: MappingTimes | None = None
     robot_save: Literal['ROBOT_SAVED', 'UNKNOWN', 'FAILED'] | None = None

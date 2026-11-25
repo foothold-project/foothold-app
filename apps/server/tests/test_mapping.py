@@ -36,7 +36,7 @@ def setup(maps, seeded):
 def start(s):
     http, headers, floor, rid, rt, peer, _ = s
     peer.last_rx = rt.clock()
-    return http.post(P+f'/robots/{rid}/slam/start', headers=headers, json={'floor_id': floor})
+    return http.post(P+f'/robots/{rid}/slam/start', headers=headers, json={'floor_id': floor, 'source': 'legacy'})
 
 
 def action(s, op, sid):

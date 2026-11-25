@@ -632,6 +632,22 @@
           "default": null,
           "title": "Terrain Status"
         },
+        "tiles": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MappingGridTile"
+              },
+              "maxItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tiles"
+        },
         "times": {
           "anyOf": [
             {
@@ -1979,9 +1995,99 @@
       "title": "MappingGrid",
       "type": "object"
     },
+    "MappingGridTile": {
+      "additionalProperties": false,
+      "description": "64x64 world-aligned cells, lower left at (x*3.2,y*3.2).",
+      "properties": {
+        "cells": {
+          "items": {
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "type": "integer"
+          },
+          "maxItems": 4096,
+          "minItems": 4096,
+          "title": "Cells",
+          "type": "array"
+        },
+        "floor_z": {
+          "title": "Floor Z",
+          "type": "number"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "resolution": {
+          "const": 0.05,
+          "default": 0.05,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "size": {
+          "const": 64,
+          "default": 64,
+          "title": "Size",
+          "type": "integer"
+        },
+        "tile_seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Tile Seq",
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 3124,
+          "minimum": -3125,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 3124,
+          "minimum": -3125,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "tile_seq",
+        "x",
+        "y",
+        "frame_id",
+        "floor_z",
+        "cells"
+      ],
+      "title": "MappingGridTile",
+      "type": "object"
+    },
     "MappingOdom": {
       "additionalProperties": false,
       "properties": {
+        "display_stamp": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Stamp"
+        },
         "frame_id": {
           "maxLength": 80,
           "minLength": 1,
@@ -1995,9 +2101,7 @@
           "type": "string"
         },
         "stamp": {
-          "format": "date-time",
-          "title": "Stamp",
-          "type": "string"
+          "$ref": "#/$defs/MappingStamp"
         },
         "x": {
           "title": "X",
@@ -2106,6 +2210,29 @@
       "title": "MappingPreview",
       "type": "object"
     },
+    "MappingStamp": {
+      "additionalProperties": false,
+      "properties": {
+        "nanosec": {
+          "maximum": 999999999,
+          "minimum": 0,
+          "title": "Nanosec",
+          "type": "integer"
+        },
+        "sec": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Sec",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sec",
+        "nanosec"
+      ],
+      "title": "MappingStamp",
+      "type": "object"
+    },
     "MappingTimes": {
       "additionalProperties": false,
       "properties": {
@@ -2187,6 +2314,19 @@
           "default": null,
           "title": "Robot Ack At"
         },
+        "save_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Save Requested At"
+        },
         "saved_at": {
           "anyOf": [
             {
@@ -2212,6 +2352,19 @@
           ],
           "default": null,
           "title": "Server Received At"
+        },
+        "start_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Requested At"
         }
       },
       "title": "MappingTimes",

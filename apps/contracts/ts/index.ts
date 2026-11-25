@@ -133,6 +133,7 @@ export interface AgentMappingUpdate {
   update_seq?: number | null;
   voxels?: MappingVoxels | null;
   grid?: MappingGrid | null;
+  tiles?: MappingGridTile[] | null;
   odom?: MappingOdom | null;
   times?: MappingTimes | null;
   robot_save?: "ROBOT_SAVED" | "UNKNOWN" | "FAILED" | null;
@@ -912,10 +913,23 @@ export interface MappingGrid {
   cells: (0 | 1 | 2)[];
 }
 
+export interface MappingGridTile {
+  revision: number;
+  tile_seq: number;
+  x: number;
+  y: number;
+  resolution?: 0.05;
+  size?: 64;
+  frame_id: string;
+  floor_z: number;
+  cells: (0 | 1 | 2)[];
+}
+
 export interface MappingOdom {
   source?: "/uslam/frontend/odom";
   frame_id: string;
-  stamp: string;
+  stamp: MappingStamp;
+  display_stamp?: string | null;
   x: number;
   y: number;
   z: number;
@@ -949,10 +963,16 @@ export interface MappingProgress {
   update_seq?: number | null;
   voxels?: MappingVoxels | null;
   grid?: MappingGrid | null;
+  tiles?: MappingGridTile[] | null;
   odom?: MappingOdom | null;
   times?: MappingTimes | null;
   robot_save?: "ROBOT_SAVED" | "UNKNOWN" | "FAILED" | null;
   terrain_status?: "PENDING" | "READY" | "FAILED" | null;
+}
+
+export interface MappingStamp {
+  sec: number;
+  nanosec: number;
 }
 
 export interface MappingStart {
@@ -961,8 +981,18 @@ export interface MappingStart {
   name?: string;
 }
 
+export interface MappingTilePage {
+  session_id: string;
+  revision: number;
+  update_seq: number;
+  tiles: MappingGridTile[];
+  next_cursor: number | null;
+}
+
 export interface MappingTimes {
   server_received_at?: string | null;
+  start_requested_at?: string | null;
+  save_requested_at?: string | null;
   command_forwarded_at?: string | null;
   agent_received_at?: string | null;
   command_published_at?: string | null;
