@@ -11,6 +11,7 @@ from time import process_time
 
 from foothold_agent.go2_direct.approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
 from foothold_agent.go2_direct.media import approved_publisher
+from foothold_agent.slam_source import SOURCES
 from foothold_agent.go2_direct.record import Recorder
 from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.readonly import Measurements
@@ -235,7 +236,8 @@ class GatedSession(DriveSession):
             if (self.connected and not self.reconnect_required and isinstance(frame, dict)
                     and frame.get('t') == 'stop' and server_cause(frame) in ('unknown', 'user_stop')):
                 self.operator_stop = True  # retain priority without creating output or a STOP acknowledgement
-            return super().receive(frame) if isinstance(frame, dict) and frame.get('t') == 'ping' else self.tick()
+            return super().receive(frame) if isinstance(frame, dict) and (
+                frame.get('t') == 'ping' or frame.get('t') == 'slam' and frame.get('source') in SOURCES) else self.tick()
         return super().receive(frame)
 
     def disconnect(self):
@@ -458,6 +460,7 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
               client_factory=Client, connect=connect_approved, sink_factory=Go2Sink, remember=None,
               depth_source=None, media_factory=approved_publisher, recorder_factory=Recorder,
               mapping_factory=None):
+    builtin_mapping = mapping_factory is None
     if mapping_factory is None:
         from foothold_agent.mapping.runtime import attach as mapping_factory
     identity = inputs.mac_identity
@@ -496,6 +499,16 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
     next_nic = 0.
     healthy = False
     failure = None
+    observed_serial = identity.serial if identity is not None else credentials.robot_serial
+
+    def observation_enabled():
+        # Fresh confirmed body and authenticated connection; no movement lease,
+        # output client, unlock or field-motion approval is created by this path.
+        try:
+            return bool(ready and nic_valid and inputs.identity() == observed_serial
+                        and session.connected and not session.link_lost and not session.reconnect_required)
+        except (ValueError, PermissionError):
+            return False
     try:
         while not stop.is_set() and not network.done():
             stamp = time.monotonic()
@@ -545,12 +558,24 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                         connect, approval, credentials.robot_serial, subscriptions))
             if session.identity_gate is not None:
                 session.identity_gate.poll(client)
+            if mapping_task is None and observation_enabled() and (builtin_mapping or gate.active is not None):
+                try:
+                    options = dict(enabled=observation_enabled if builtin_mapping else lambda: gate.active is not None)
+                    if builtin_mapping:
+                        options['command_allowed'] = lambda: gate.active is not None and gate.valid()
+                    mapping_task = mapping_factory(session, subscriptions, credentials.link,
+                        credentials.robot_id, os.environ, **options)
+                except Exception:
+                    pass
             # Observations follow an approval epoch but are never part of the
             # control health/lifetime task set. Close signals only; no SDK join.
             if gate.active is not media_epoch:
                 mapper = getattr(session, 'mapping', None)
                 if mapper is not None and media_epoch is not None:
-                    mapper.suspend()
+                    # Existing legacy scans retain their approval lifetime;
+                    # onboard observations keep the confirmed-body scope.
+                    suspend = getattr(mapper, 'suspend_motion', None) or mapper.suspend
+                    suspend()
                 if media is not None:
                     media.source.close()
                     media = None
@@ -560,15 +585,6 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                     media_task = None
                 media_epoch = gate.active
                 if media_epoch is not None:
-                    if mapping_task is None:
-                        try:
-                            # Retain this robot's in-memory map across approval
-                            # epochs; disabled mapping cannot acquire or upload.
-                            mapping_task = mapping_factory(session, subscriptions, credentials.link,
-                                credentials.robot_id, os.environ,
-                                enabled=lambda: gate.active is not None)
-                        except Exception:
-                            pass  # mapping startup never changes motion lifetime
                     try:
                         recorder.start()
                         approval = Approval(nic.name, identity.serial if identity is not None
