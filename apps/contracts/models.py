@@ -1093,7 +1093,8 @@ class AgentPhoneRevokeAck(AgentInput):
 
 class MappingStart(Contract):
     floor_id: UUID
-    source: LiveMappingSource | Literal['legacy'] = DEFAULT_MAPPING_SOURCE
+    source: LiveMappingSource | Literal['legacy'] = Field(default='legacy',
+        description='Omitted source preserves legacy four-key commands; send point_lio explicitly for the Point-LIO/GLIM pipeline.')
     name: str = Field(default='로봇이 만든 지도', min_length=1, max_length=40)
 
     @model_validator(mode='after')
@@ -1243,11 +1244,17 @@ class MappingBundle(Contract):
         return self
 
 
+class MappingReportRejection(Contract):
+    code: str = Field(max_length=80)
+    reason: str = Field(max_length=200)
+    received_at: UTCDateTime
+
+
 class MappingProgress(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     session_id: UUID
     floor_id: UUID
-    status: Literal['STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'SAVED', 'FAILED', 'CANCELLED']
+    status: Literal['STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'SAVED', 'RECEIVED_ONLY', 'FAILED', 'CANCELLED']
     distance_m: float = Field(default=0, ge=0, le=1000000)
     point_count: int = Field(default=0, ge=0, le=5000000)
     elapsed_s: float = Field(default=0, ge=0, le=1000000000)
@@ -1270,7 +1277,8 @@ class MappingProgress(Contract):
     odom: MappingOdom | None = None
     times: MappingTimes | None = None
     slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED'] | None = None
-    terrain_status: Literal['PENDING', 'READY', 'FAILED'] | None = None
+    terrain_status: Literal['PENDING', 'READY', 'FAILED', 'SKIPPED_UNCONFIRMED_SAVE'] | None = None
+    last_report_rejection: MappingReportRejection | None = None
 
 
 class AgentMappingUpdate(MappingProgress):

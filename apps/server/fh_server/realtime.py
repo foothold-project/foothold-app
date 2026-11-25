@@ -2161,7 +2161,12 @@ class Realtime:
                     self.accept_ping(peer, msg.ping_id)
                 elif msg.t == 'slam.update':
                     if getattr(self, 'mapping', None) is not None:
-                        await self.read(self.mapping.report, rid, msg)
+                        try:
+                            await self.read(self.mapping.report, rid, msg)
+                        except self.api_error as exc:
+                            if exc.status not in (403, 409):
+                                raise
+                            await self.read(self.mapping.reject_report, rid, msg, exc)
                 elif msg.t == 'phone.revoke.ack':
                     self.queue_phone_ack(rid,peer,msg.seq)
                 elif msg.t in ('event', 'run.update') and (msg.t == 'run.update'

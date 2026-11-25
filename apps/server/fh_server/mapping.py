@@ -16,6 +16,7 @@ from .voxel_files import MAX_BYTES, PointCloudError, convert
 from .voxel_maps import publish_cloud
 
 ACTIVE = ('STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'FAILED')
+PERSISTED = ('SAVED', 'RECEIVED_ONLY')
 
 
 def builtin(row):
@@ -89,7 +90,7 @@ class Mapping:
             with self.realtime.run_factory() as db:
                 row = db.get(MappingSession, UUID(body['session_id']))
                 if (row is None or row.org_id != self.realtime.settings.org_id or str(row.robot_id) != rid
-                        or (row.status == 'CANCELLED') != (body['op'] == 'cancel') or row.status == 'SAVED'):
+                        or (row.status == 'CANCELLED') != (body['op'] == 'cancel') or row.status in PERSISTED):
                     return False
                 key = (rid, body['session_id'], body['floor_id'], body['op'])
                 owner_scope(db, row.org_id, row.robot_id,
@@ -132,6 +133,23 @@ class Mapping:
         self.command_actors[key] = actor_id if actor_id is not None else row.owner_id
         self.realtime.put(peer, body)
 
+    def reject_report(self, rid, msg, error):
+        """Retain the last WS rejection, once per consecutive code/reason pair."""
+        from .api import lock_organization
+        with self.realtime.run_factory() as db:
+            lock_organization(db, self.realtime.settings.org_id)
+            row = db.get(MappingSession, msg.session_id)
+            if (row is None or row.org_id != self.realtime.settings.org_id
+                    or str(row.robot_id) != rid or row.floor_id != msg.floor_id):
+                return
+            previous = row.progress or {}
+            last = previous.get('last_report_rejection') or {}
+            if (last.get('code'), last.get('reason')) == (error.code, error.message):
+                return
+            row.progress = {**previous, 'last_report_rejection': dict(
+                code=error.code, reason=error.message, received_at=now().isoformat())}
+            db.commit()
+
     def report(self, rid, msg):
         if len(msg.model_dump_json(exclude_unset=True).encode()) > C.MAPPING_REPORT_BYTES:
             return
@@ -141,7 +159,7 @@ class Mapping:
             row = db.get(MappingSession, msg.session_id)
             if (row is None or row.org_id != self.realtime.settings.org_id
                     or str(row.robot_id) != rid or row.floor_id != msg.floor_id
-                    or row.status == 'CANCELLED' or msg.status == 'SAVED'):
+                    or row.status == 'CANCELLED' or msg.status in PERSISTED):
                 return
             user = db.get(User, row.owner_id)
             owner_scope(db, row.org_id, row.robot_id, user, self.fail, row.floor_id)
@@ -167,7 +185,7 @@ class Mapping:
                     self.fail(409, 'MAPPING_SOURCE_CONFLICT', '위치와 지도 판의 출처를 맞춰 주세요.')
                 if msg.odom and not adapter.accepts_odom(msg.odom.source):
                     return
-                if row.status == 'SAVED':
+                if row.status in PERSISTED:
                     # A late robot acknowledgement updates only its separate
                     # outcome; immutable map artifacts and SAVED never regress.
                     outcome = 'SLAM_SAVED' if msg.phase == 'SLAM_SAVED' else msg.slam_save
@@ -176,7 +194,7 @@ class Mapping:
                     if previous.get('slam_save') == 'SLAM_SAVED' and outcome != 'SLAM_SAVED':
                         return
                     row.progress = {**previous, 'slam_save': outcome, 'phase': outcome, 'update_seq': msg.update_seq}
-                    if outcome == 'SLAM_SAVED' and mapping_adapter(previous['source']).role == 'final':
+                    if row.status == 'SAVED' and outcome == 'SLAM_SAVED' and mapping_adapter(previous['source']).role == 'final':
                         row.progress = {**row.progress, 'reason': None}
                     if outcome == 'SLAM_SAVED' and not (row.progress.get('times') or {}).get('save_ack_at'):
                         server_time(row, 'save_ack_at')
@@ -231,7 +249,7 @@ class Mapping:
                     current.update_seq = msg.update_seq
                     current.frame_id, current.floor_z, current.cells = tile.frame_id, tile.floor_z, bytes(tile.cells)
                 supplied = msg.model_dump(mode='json', exclude_unset=True,
-                    exclude={'t', 'map_version_id', 'terrain_id', 'terrain_status', 'source', 'pipeline', 'final_source', 'name', 'times'})
+                    exclude={'t', 'map_version_id', 'terrain_id', 'terrain_status', 'last_report_rejection', 'source', 'pipeline', 'final_source', 'name', 'times'})
                 times = dict(previous.get('times') or {})
                 if msg.times:
                     times.update(msg.times.model_dump(mode='json', exclude_none=True,
@@ -247,7 +265,7 @@ class Mapping:
                 row.status = msg.status
                 db.commit()
                 return
-            if row.status == 'SAVED':
+            if row.status in PERSISTED:
                 return
             # The REST request owns SAVING; late RUNNING may never resurrect it.
             if msg.status == 'RUNNING' and row.status != 'RUNNING':
@@ -257,7 +275,9 @@ class Mapping:
             if msg.status == 'CANCELLED':
                 return  # cancellation is owned by the requesting operator
             row.status = msg.status
-            body = msg.model_dump(mode='json', exclude={'t', 'map_version_id', 'terrain_id'})
+            body = msg.model_dump(mode='json', exclude={'t', 'map_version_id', 'terrain_id', 'last_report_rejection'})
+            if (row.progress or {}).get('last_report_rejection'):
+                body['last_report_rejection'] = row.progress['last_report_rejection']
             row.progress = body
             db.commit()
 
@@ -345,7 +365,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
     async def save(robot_id: UUID, body: C.MappingAction, db: DB, auth: Identity):
         lock_organization(db, settings.org_id)
         row = selected(db, robot_id, body.session_id, auth[0])
-        if row.status == 'SAVED':
+        if row.status in PERSISTED:
             return progress(row)
         if row.status == 'CANCELLED':
             fail(409, 'MAPPING_STATE_CONFLICT', '취소한 지도입니다. 새로 시작해 주세요.')
@@ -367,7 +387,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
     async def cancel(robot_id: UUID, body: C.MappingAction, db: DB, auth: Identity):
         lock_organization(db, settings.org_id)
         row = selected(db, robot_id, body.session_id, auth[0], bind_owner=False)
-        if row.status == 'SAVED':
+        if row.status in PERSISTED:
             fail(409, 'MAPPING_STATE_CONFLICT', '이미 저장한 지도입니다.')
         row.status = 'CANCELLED'
         row.progress = {**(row.progress or {}), 'error_code': None, 'reason': None}

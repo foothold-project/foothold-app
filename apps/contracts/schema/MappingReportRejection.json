@@ -1,0 +1,29 @@
+{
+  "$id": "fh-app/1/MappingReportRejection",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "maxLength": 80,
+      "title": "Code",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 200,
+      "title": "Reason",
+      "type": "string"
+    },
+    "received_at": {
+      "format": "date-time",
+      "title": "Received At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "reason",
+    "received_at"
+  ],
+  "title": "MappingReportRejection",
+  "type": "object"
+}

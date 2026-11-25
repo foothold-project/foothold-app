@@ -48,6 +48,7 @@ def write_artifacts(root, folder, artifacts, created):
 
 def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     cells, raster, png, fingerprint, digest = encoded
+    confirmed = bundle.slam_save == 'SLAM_SAVED'
     identifier = uuid4()
     folder = Path('maps') / str(floor.id) / str(identifier)
     grid = bundle.grid
@@ -71,7 +72,8 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     db.flush()
     number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
     version = MapVersion(id=identifier, org_id=row.org_id, floor_id=floor.id, number=number,
-        provenance='HUMAN', base_version_id=row.base_version_id, upload_id=image.id, status='APPROVED',
+        provenance='HUMAN', base_version_id=row.base_version_id, upload_id=image.id,
+        status='APPROVED' if confirmed else 'PENDING',
         image_path=image.image_path, image_sha256=image.png_sha256, width=grid.width, height=grid.height,
         resolution=.05, origin_x=grid.origin[0], origin_y=grid.origin[1], origin_yaw=0,
         features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []}, source='SLAM',
@@ -79,11 +81,15 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
             else 'SLAM 저장 미확인 · 받은 범위의 5 cm 3D·2D 지도 묶음 보관'), created_by=user.id)
     db.add(version)
     db.flush()
-    floor.approved_version_id = identifier
-    refresh_connectors(db, floor)
-    event(db, row.org_id, 'MAP_VERSION_APPROVED', user.id,
-        {'floor_id': str(floor.id), 'map_version_id': str(identifier), 'number': number}, category='APPROVAL')
-    row.status = 'SAVED'
+    if confirmed:
+        floor.approved_version_id = identifier
+        refresh_connectors(db, floor)
+        event(db, row.org_id, 'MAP_VERSION_APPROVED', user.id,
+            {'floor_id': str(floor.id), 'map_version_id': str(identifier), 'number': number}, category='APPROVAL')
+    else:
+        from .approvals import request_map
+        request_map(db, user, version)
+    row.status = 'SAVED' if confirmed else 'RECEIVED_ONLY'
     row.result = dict(bundle=manifest, map_version_id=str(identifier), terrain_id=None)
     times = dict(row.progress.get('times') or {})
     if bundle.times:
@@ -95,7 +101,7 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     times.setdefault('first_data_at', received)
     times['last_data_at'] = received
     row.progress = {**row.progress, 'slam_save': bundle.slam_save, 'phase': bundle.slam_save,
-        'terrain_status': 'PENDING', 'times': times,
+        'terrain_status': 'PENDING' if confirmed else 'SKIPPED_UNCONFIRMED_SAVE', 'times': times,
         'point_count': len(cells) // RECORD.size, 'error_code': None,
         'reason': None if bundle.slam_save == 'SLAM_SAVED' else 'SLAM 저장 확인 안 됨 · 받은 범위만 보관했습니다.'}
     if bundle.odom:
@@ -113,7 +119,7 @@ def point_cloud(cells):
 
 
 def install(app, DB, Identity, factory, settings, fail, event, lock_organization, mapping):
-    from .mapping import builtin, owner_scope, progress
+    from .mapping import PERSISTED, builtin, owner_scope, progress
     root = Path(settings.files_root).resolve()
     slot, body_slot = asyncio.Semaphore(1), asyncio.Semaphore(1)
 
@@ -124,7 +130,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
             fail(409, 'MAPPING_SESSION_MISMATCH', '지도 만들기 작업을 확인해 주세요.')
         user = db.get(User, row.owner_id)
         _, floor = owner_scope(db, settings.org_id, robot_id, user, fail, row.floor_id)
-        if row.status != 'SAVED':
+        if row.status not in PERSISTED:
             if (not (row.progress.get('times') or {}).get('save_requested_at')
                     or row.status not in ('SAVING', 'FINALIZING', 'FAILED', 'UNKNOWN')
                     or row.progress.get('phase') not in ('SAVE_REQUESTED', 'SLAM_SAVED', 'FAILED', 'UNKNOWN')):
@@ -139,6 +145,8 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
             with factory() as db:
                 lock_organization(db, settings.org_id)
                 row, user, _ = selected(db, robot_id, session_id)
+                if row.status != 'SAVED' or row.result['bundle']['completeness'] != 'SLAM_CONFIRMED':
+                    return
                 if row.progress.get('terrain_status') == 'READY':
                     return
                 terrain_id = 'slam-' + uuid4().hex[:26]
@@ -210,21 +218,23 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
                         fail(409, 'MAPPING_REVISION_CONFLICT', '지도 판을 확인해 주세요.')
                     if bundle.source != row.progress.get('source'):
                         fail(409, 'MAPPING_SOURCE_CONFLICT', '마지막 지도 판과 같은 출처로 저장해 주세요.')
-                    if row.status != 'SAVED':
+                    if row.status not in PERSISTED:
                         row.result = dict(bundle=dict(sha256=encoded[-1], revision=bundle.revision), map_version_id=None)
                         db.commit()
                 with factory() as db:
                     lock_organization(db, settings.org_id)
                     app.state.realtime.agent_auth(request.headers)
                     row, user, floor = selected(db, robot_id, session_id)
-                    if row.status != 'SAVED':
+                    if row.status not in PERSISTED:
                         publish(db, row, user, floor, bundle, encoded, root, fail, event, created)
                         db.commit()
                     elif bundle.slam_save == 'SLAM_SAVED' and row.progress.get('slam_save') != 'SLAM_SAVED':
-                        row.progress = {**row.progress, 'slam_save': 'SLAM_SAVED', 'phase': 'SLAM_SAVED', 'reason': None}
+                        row.progress = {**row.progress, 'slam_save': 'SLAM_SAVED', 'phase': 'SLAM_SAVED',
+                            'reason': None if row.status == 'SAVED' else row.progress.get('reason')}
                         from .mapping import server_time
                         server_time(row, 'save_ack_at')
                         db.commit()
+                    generate_terrain = row.status == 'SAVED' and row.result['bundle']['completeness'] == 'SLAM_CONFIRMED'
             except BaseException as exc:
                 for path in created:
                     path.unlink(missing_ok=True)
@@ -239,7 +249,8 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
                 if isinstance(exc, OSError):
                     fail(503, 'FILE_STORAGE_ERROR', '지도를 저장하지 못했습니다.')
                 raise
-            terrain(robot_id, session_id, encoded[0])
+            if generate_terrain:
+                terrain(robot_id, session_id, encoded[0])
             with factory() as db:
                 return progress(selected(db, robot_id, session_id)[0])
         async with body_slot:
@@ -259,7 +270,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
     def manifest(robot_id: UUID, session_id: UUID, response: Response, db: DB, auth: Identity):
         owner_scope(db, settings.org_id, robot_id, auth[0], fail)
         row, _, _ = selected(db, robot_id, session_id)
-        if row.status != 'SAVED':
+        if row.status not in PERSISTED:
             fail(409, 'MAPPING_STATE_CONFLICT', '지도 저장을 기다려 주세요.')
         response.headers['Cache-Control'] = 'private, no-store'
         return row.result
@@ -268,7 +279,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
     def artifact(robot_id: UUID, session_id: UUID, kind: str, db: DB, auth: Identity):
         owner_scope(db, settings.org_id, robot_id, auth[0], fail)
         row, _, _ = selected(db, robot_id, session_id)
-        if row.status != 'SAVED' or kind not in ('voxels', 'grid'):
+        if row.status not in PERSISTED or kind not in ('voxels', 'grid'):
             fail(404, 'NOT_FOUND', '저장된 지도 자료를 찾을 수 없습니다.')
         bundle = row.result['bundle']
         path = (root / bundle[kind + '_path']).resolve()

@@ -118,7 +118,7 @@ export interface AgentMappingCommand {
 export interface AgentMappingUpdate {
   session_id: string;
   floor_id: string;
-  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "FAILED" | "CANCELLED";
+  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "RECEIVED_ONLY" | "FAILED" | "CANCELLED";
   distance_m?: number;
   point_count?: number;
   elapsed_s?: number;
@@ -141,7 +141,8 @@ export interface AgentMappingUpdate {
   odom?: MappingOdom | null;
   times?: MappingTimes | null;
   slam_save?: "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
-  terrain_status?: "PENDING" | "READY" | "FAILED" | null;
+  terrain_status?: "PENDING" | "READY" | "FAILED" | "SKIPPED_UNCONFIRMED_SAVE" | null;
+  last_report_rejection?: MappingReportRejection | null;
   t?: "slam.update";
 }
 
@@ -965,7 +966,7 @@ export interface MappingPreview {
 export interface MappingProgress {
   session_id: string;
   floor_id: string;
-  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "FAILED" | "CANCELLED";
+  status: "STARTING" | "RUNNING" | "SAVING" | "FINALIZING" | "UNKNOWN" | "SAVED" | "RECEIVED_ONLY" | "FAILED" | "CANCELLED";
   distance_m?: number;
   point_count?: number;
   elapsed_s?: number;
@@ -988,7 +989,14 @@ export interface MappingProgress {
   odom?: MappingOdom | null;
   times?: MappingTimes | null;
   slam_save?: "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
-  terrain_status?: "PENDING" | "READY" | "FAILED" | null;
+  terrain_status?: "PENDING" | "READY" | "FAILED" | "SKIPPED_UNCONFIRMED_SAVE" | null;
+  last_report_rejection?: MappingReportRejection | null;
+}
+
+export interface MappingReportRejection {
+  code: string;
+  reason: string;
+  received_at: string;
 }
 
 export interface MappingStamp {
@@ -998,6 +1006,7 @@ export interface MappingStamp {
 
 export interface MappingStart {
   floor_id: string;
+  /** Omitted source preserves legacy four-key commands; send point_lio explicitly for the Point-LIO/GLIM pipeline. */
   source?: "point_lio" | "legacy";
   name?: string;
 }
