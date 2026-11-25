@@ -509,15 +509,16 @@ int main() {
         for (const auto x : live.robot.last_tau) require(x == 0, "no feed-forward torque after the move");
     }
     {
-        // Shake hands: full recorded torque and hip Kp 100 (11/26 07:31 fell left at half torque).
+        // Shake hands: full recorded torque and Kp 100 on every joint (11/26 07:31 fell left, 07:43 leaned 8 to 11 deg).
         Rig live(true);
         live.enter();
         live.tick((1 << 4) | (1 << 9));
         live.wait(1500ms);
         require(live.runner.phase() == Phase::moving && live.robot.hip_gain == 100 &&
-                    live.robot.position_gain == 60, "shake must stiffen hips only");
+                    live.robot.position_gain == 100, "shake must hold the stance at Kp 100");
         live.wait(6s);
-        require(live.runner.phase() == Phase::policy && live.robot.hip_gain == kp, "shake must return to policy gains");
+        require(live.runner.phase() == Phase::policy && live.robot.hip_gain == kp &&
+                    live.robot.position_gain == kp, "shake must return to policy gains");
     }
     {
         // A sideways tip during a move damps and hands over to factory recovery.
