@@ -115,6 +115,7 @@ class Go2Sink:
         self._emergency = threading.Lock()
         self._closed = threading.Event()
         self._stop_requested = threading.Event()
+        self._emergency_force_pending = False
         self._threads = []
         self.pending = ZERO
         self._ramp_velocity = ZERO
@@ -140,6 +141,7 @@ class Go2Sink:
         self._posture_stop_only = False
         self.posture_result = None
         self.stop_feedback = None
+        self.stop_feedback_reason = lambda: '만료'
         self._hold_reason = None
         self.remote = None
         self._last_remote_activity = float('-inf')
@@ -150,6 +152,7 @@ class Go2Sink:
         self._stop_attempts = {}
         self._resting_lanes = set()
         self._resting_stop_state = None
+        self._held_stop_generation = None
         self._motion_inflight = False
         self._last_motion_sequence = -1
         self._stop_diagnostics = {}
@@ -643,6 +646,36 @@ class Go2Sink:
             return '엎드림이라 정지 명령 생략' if state == 'LYING' else '앉음이라 정지 명령 생략'
         return None
 
+    def _standing_stop_ready(self, sample, measured):
+        # The measured provider binds BOTH DDS topics to this robot and STOP
+        # generation. Posture alone (or a successful RPC) cannot prove a hold.
+        return (measured and self._standing(sample) and sample['still']
+                and not self._motion_inflight
+                and sample.get('sequence', -1) > self._last_motion_sequence)
+
+    def _held_stop_notice(self, sample, generation, ready, force, held):
+        # Caller owns the memory lock; both lanes share one transition record.
+        previous = self._held_stop_generation
+        reason = None
+        if previous is not None:
+            if previous != generation or force:
+                reason = '새 STOP'
+            elif not ready:
+                if self._motion_inflight or (sample.get('sequence', -1) >= 0 and
+                        sample['sequence'] <= self._last_motion_sequence):
+                    reason = 'RPC 이후 표본 없음'
+                elif sample.get('sequence', -1) >= 0 and not sample['still']:
+                    reason = '움직임'
+                else:
+                    reason = self.stop_feedback_reason()
+        if reason is not None:
+            self._held_stop_generation = None
+            return ('GO2_STOP_RESUMED', f'{reason} — 정지 명령 다시 보냄')
+        if held and previous is None:
+            self._held_stop_generation = generation
+            return ('GO2_STOP_HELD', '정지 확인 — 정지 명령 반복 멈춤')
+        return None
+
     def _movement_rpc(self, client, method, args, *, movement_epoch=None):
         motion = method == 'Move' and args != ZERO
         with self._lock:
@@ -693,14 +726,32 @@ class Go2Sink:
             sample = self._posture_sample()
             resting = self._resting_for_stop(sample)
             notice = self._resting_stop_notice(sample)
+            previous = self._stop_attempts.get(lane)
+            ready = self._standing_stop_ready(sample, measured)
+            if self._standing(sample):
+                # Still DDS captured during motion must not suppress retries
+                # after a held lane has sent its first compensating STOP.
+                measured = ready
+            # Every new STOP generation and explicit emergency/force still
+            # sends once on each lane before stationary standing can hold it.
+            held = (ready and not force and previous is not None and previous[0] == generation)
             if resting:
+                # A fresh low posture continues the existing skip policy; it
+                # does not resume RPC output just because standing ended.
+                self._held_stop_generation = None
+                held_notice = None
+            else:
+                held_notice = self._held_stop_notice(sample, generation, ready, force, held)
+            if resting or held:
                 self._resting_lanes.add(lane)
             else:
                 resume = lane in self._resting_lanes
                 self._resting_lanes.discard(lane)
         if notice is not None:
             logging.getLogger('foothold_agent.go2_direct.stop_rpc').warning('GO2_STOP_SKIPPED %s', notice)
-        if resting:
+        if held_notice is not None:
+            logging.getLogger('foothold_agent.go2_direct.stop_rpc').warning('%s %s', *held_notice)
+        if resting or held:
             return
         previous = self._stop_attempts.get(lane)
         send_stop = (force or resume or previous is None or previous[0] != generation or
@@ -810,13 +861,20 @@ class Go2Sink:
                 self._operator_stop = True
                 self._wait_operator_neutral = True
                 self.actions.cancel()
+        with self._lock:
+            if force or not retry:
+                # A busy emergency RPC cannot consume a NEW explicit request.
+                # Carry its force through the event-driven retry after return.
+                self._emergency_force_pending = True
         if not self._emergency.acquire(blocking=False):
-            if not retry:
+            if force or not retry:
                 self._stop_requested.set()
             return
         try:
             with self._lock:
                 self._hold(preserve=True)
+                force = force or self._emergency_force_pending
+                self._emergency_force_pending = False
             try:
                 self._stop_output(self.emergency_client, force=force)
             except BaseException as error:
@@ -827,15 +885,20 @@ class Go2Sink:
 
     def check_watchdog(self):
         self.actions.poll()
-        previous = self._stop_attempts.get('emergency')
-        retry = (previous is not None and self.latched and
-                 self.now()-previous[1] >= STOP_RETRY_S and
-                 not self._measured_stop(self.generation) and
-                 self.actions.executing is None)
         with self.lock_log.after_unlock() as emit, self._lock:
+            sample = self._posture_sample()
+            measured = self._measured_stop(self.generation)
+            standing_ready = self._standing_stop_ready(sample, measured)
+            if self._standing(sample):
+                measured = standing_ready
+            previous = self._stop_attempts.get('emergency')
+            retry = (previous is not None and self.latched and
+                     self.now()-previous[1] >= STOP_RETRY_S and
+                     not measured and self.actions.executing is None)
             # A suppressed lane has no RPC deadline. Re-evaluate it on the
             # next watchdog tick so newly observed motion stops immediately.
-            retry = self.latched and (retry or "emergency" in self._resting_lanes)
+            retry = self.latched and (retry or "emergency" in self._resting_lanes or
+                                     standing_ready)
             expired = self._expired(self.now())
             if expired and self.actions.executing is not None:
                 self.actions.cancel('WATCHDOG')
