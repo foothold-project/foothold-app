@@ -19,10 +19,7 @@
     "final_source": {
       "anyOf": [
         {
-          "enum": [
-            "point_lio",
-            "glim"
-          ],
+          "const": "glim",
           "type": "string"
         },
         {

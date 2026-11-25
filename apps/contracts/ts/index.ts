@@ -108,7 +108,7 @@ export interface AgentMappingCommand {
   session_id: string;
   floor_id: string;
   source?: "point_lio" | "glim" | "legacy" | null;
-  final_source?: "point_lio" | "glim" | null;
+  final_source?: "glim" | null;
   pipeline?: "point_lio+glim" | null;
   command_id?: string | null;
   requested_at?: string | null;
@@ -129,7 +129,7 @@ export interface AgentMappingUpdate {
   terrain_id?: string | null;
   source?: "point_lio" | "glim" | "legacy" | null;
   pipeline?: "point_lio+glim" | null;
-  final_source?: "point_lio" | "glim" | null;
+  final_source?: "glim" | null;
   name?: string | null;
   phase?: "START_REQUESTED" | "STARTED" | "SAVE_REQUESTED" | "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
   command_id?: string | null;
@@ -976,7 +976,7 @@ export interface MappingProgress {
   terrain_id?: string | null;
   source?: "point_lio" | "glim" | "legacy" | null;
   pipeline?: "point_lio+glim" | null;
-  final_source?: "point_lio" | "glim" | null;
+  final_source?: "glim" | null;
   name?: string | null;
   phase?: "START_REQUESTED" | "STARTED" | "SAVE_REQUESTED" | "SLAM_SAVED" | "UNKNOWN" | "FAILED" | null;
   command_id?: string | null;
@@ -998,7 +998,7 @@ export interface MappingStamp {
 
 export interface MappingStart {
   floor_id: string;
-  source?: "point_lio" | "glim" | "legacy";
+  source?: "point_lio" | "legacy";
   name?: string;
 }
 

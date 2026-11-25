@@ -8,6 +8,8 @@ import os
 from typing import Literal
 
 MappingSource = Literal['point_lio', 'glim']
+LiveMappingSource = Literal['point_lio']
+FinalMappingSource = Literal['glim']
 DEFAULT_MAPPING_SOURCE: MappingSource = 'point_lio'
 DEFAULT_FINAL_SOURCE: MappingSource = 'glim'
 

@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BeforeValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
 from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED, MAX_TURN_RATE
-from .mapping_sources import DEFAULT_MAPPING_SOURCE, DEFAULT_FINAL_SOURCE, DEFAULT_ODOM_SOURCE, MappingSource, mapping_adapter
+from .mapping_sources import DEFAULT_MAPPING_SOURCE, DEFAULT_FINAL_SOURCE, DEFAULT_ODOM_SOURCE, MappingSource, LiveMappingSource, FinalMappingSource, mapping_adapter
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -1093,7 +1093,7 @@ class AgentPhoneRevokeAck(AgentInput):
 
 class MappingStart(Contract):
     floor_id: UUID
-    source: MappingSource | Literal['legacy'] = DEFAULT_MAPPING_SOURCE
+    source: LiveMappingSource | Literal['legacy'] = DEFAULT_MAPPING_SOURCE
     name: str = Field(default='로봇이 만든 지도', min_length=1, max_length=40)
 
     @model_validator(mode='after')
@@ -1258,7 +1258,7 @@ class MappingProgress(Contract):
     terrain_id: str | None = Field(default=None, max_length=100)
     source: MappingSource | Literal['legacy'] | None = None
     pipeline: Literal['point_lio+glim'] | None = None
-    final_source: MappingSource | None = None
+    final_source: FinalMappingSource | None = None
     name: str | None = Field(default=None, max_length=40)
     phase: MappingPhase | None = None
     command_id: UUID | None = None
@@ -1284,7 +1284,7 @@ class AgentMappingCommand(Contract):
     session_id: UUID
     floor_id: UUID
     source: MappingSource | Literal['legacy'] | None = Field(default=None, exclude_if=lambda v: v is None)
-    final_source: MappingSource | None = Field(default=None, exclude_if=lambda v: v is None)
+    final_source: FinalMappingSource | None = Field(default=None, exclude_if=lambda v: v is None)
     pipeline: Literal['point_lio+glim'] | None = Field(default=None, exclude_if=lambda v: v is None)
     command_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     requested_at: UTCDateTime | None = Field(default=None, exclude_if=lambda v: v is None)

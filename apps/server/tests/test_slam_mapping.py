@@ -353,12 +353,14 @@ def test_pipeline_handoff_is_atomic_and_irreversible(setup, monkeypatch):
     s = setup
     initial = start(s)
     sid = initial['session_id']
-    save = action(s, 'save', sid).json()
-    assert save['pipeline'] == 'point_lio+glim' and save['final_source'] == 'glim'
     monkeypatch.setenv('FH_MAPPING_GLIM_ODOM_TOPIC', '/configured/final_pose')
     pose = dict(provider='glim', source='/configured/final_pose', frame_id='corrected_map',
                 stamp=dict(sec=123, nanosec=456), x=0, y=0, z=0, yaw=0)
     reset = dict(revision=2, seq=1, reset=True, frame_id='corrected_map', added=[[0,0,0]])
+    assert report(s, initial, source='glim', revision=2, update_seq=1, voxels=reset, odom=pose).status_code == 409
+    assert current(s)['source'] == 'point_lio' and current(s)['revision'] == 1
+    save = action(s, 'save', sid).json()
+    assert save['pipeline'] == 'point_lio+glim' and save['final_source'] == 'glim'
     assert report(s, save, source='glim', status='FINALIZING', phase='SLAM_SAVED', update_seq=1).status_code == 409
     assert current(s)['source'] == 'point_lio' and current(s)['revision'] == 1
     assert report(s, save, source='glim', revision=2, status='FINALIZING', phase='SLAM_SAVED',
@@ -366,6 +368,8 @@ def test_pipeline_handoff_is_atomic_and_irreversible(setup, monkeypatch):
     final = current(s)
     assert final['source'] == 'glim' and final['revision'] == 2
     assert final['odom']['provider'] == 'glim' and final['odom']['stamp'] == pose['stamp']
+    assert report(s, save, source='glim', revision=2, status='FINALIZING', phase='SLAM_SAVED',
+        update_seq=11, odom={**pose, 'provider': 'point_lio', 'source': '/aft_mapped_to_init'}).status_code == 409
     assert report(s, save, source='point_lio', revision=3, status='UNKNOWN', phase='UNKNOWN', update_seq=11).status_code == 409
     body = bundle(sid)
     body.update(source='glim', revision=2, frame_id='corrected_map', odom=pose, slam_save='SLAM_SAVED')
@@ -386,3 +390,5 @@ def test_source_defaults_config_and_disabled_service_control(setup, monkeypatch)
     http, headers, floor, rid, _, _, _ = setup
     assert http.post(P+f'/robots/{rid}/slam/start', headers=headers,
         json={'floor_id': floor, 'source': 'unitree_uslam'}).status_code == 400
+    assert http.post(P+f'/robots/{rid}/slam/start', headers=headers,
+        json={'floor_id': floor, 'source': 'glim'}).status_code == 400

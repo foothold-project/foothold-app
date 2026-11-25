@@ -154,12 +154,14 @@ class Mapping:
                     self.fail(409, 'MAPPING_SOURCE_CONFLICT', '지도 출처를 확인해 주세요.')
                 if changed_source and (not new_revision or mapping_adapter(previous['source']).role == 'final' or adapter.role != 'final'):
                     self.fail(409, 'MAPPING_SOURCE_CONFLICT', '같은 지도 판의 출처를 섞거나 이전 출처로 돌아갈 수 없습니다.')
+                if changed_source and not (previous.get('times') or {}).get('save_requested_at'):
+                    self.fail(409, 'MAPPING_SOURCE_CONFLICT', '저장 요청 뒤에 최종 지도로 바꿔 주세요.')
                 if changed_source and (not msg.voxels or not msg.voxels.reset or not msg.odom or msg.odom.provider != source):
                     self.fail(409, 'MAPPING_SOURCE_CONFLICT', '새 지도 판의 전체 재구축·위치를 함께 확인해 주세요.')
-                if msg.odom and not adapter.accepts_odom(msg.odom.source):
-                    return
                 if msg.odom and msg.odom.provider != source:
                     self.fail(409, 'MAPPING_SOURCE_CONFLICT', '위치와 지도 판의 출처를 맞춰 주세요.')
+                if msg.odom and not adapter.accepts_odom(msg.odom.source):
+                    return
                 if row.status == 'SAVED':
                     # A late robot acknowledgement updates only its separate
                     # outcome; immutable map artifacts and SAVED never regress.
@@ -224,7 +226,7 @@ class Mapping:
                     current.update_seq = msg.update_seq
                     current.frame_id, current.floor_z, current.cells = tile.frame_id, tile.floor_z, bytes(tile.cells)
                 supplied = msg.model_dump(mode='json', exclude_unset=True,
-                    exclude={'t', 'map_version_id', 'terrain_id', 'terrain_status', 'source', 'name', 'times'})
+                    exclude={'t', 'map_version_id', 'terrain_id', 'terrain_status', 'source', 'pipeline', 'final_source', 'name', 'times'})
                 times = dict(previous.get('times') or {})
                 if msg.times:
                     times.update(msg.times.model_dump(mode='json', exclude_none=True,
