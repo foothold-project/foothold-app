@@ -20,11 +20,13 @@ mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
 for (const f of readdirSync(join(src, 'assets/unitree_go2/assets'))) if (f.endsWith('.obj')) mj.FS.writeFile(`/go2/assets/${f}`, readFileSync(join(src, 'assets/unitree_go2/assets', f)));
 mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.xml')));
 mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
+// 개발용 비교만: AME-2 JS f32 는 앱에서 걷어냄 (팀장 11/22) · 외부 내보내기 폴더의 파일 이름
+const AME2_F32 = { file: 'ame2_actor.f32', manifest: 'ame2_actor.json' };
 const policies = new Map();
 for (const id of ['nvidia-demo', 'ame2-demo']) {
   const adapter = getPolicyAdapter(id), root = id === 'nvidia-demo' ? src : ame;
-  const b = readFileSync(join(root, adapter.network.file));
-  policies.set(id, adapter.loadPolicy(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), adapter.network.manifest ? JSON.parse(readFileSync(join(root, adapter.network.manifest))) : undefined));
+  const network = adapter.network ?? AME2_F32, b = readFileSync(join(root, network.file));
+  policies.set(id, adapter.loadPolicy(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), network.manifest ? JSON.parse(readFileSync(join(root, network.manifest))) : undefined));
 }
 function world(id) {
   const dir = new URL(`../sim/assets/${id}/`, import.meta.url), map = JSON.parse(readFileSync(new URL('map.json', dir)));

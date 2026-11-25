@@ -1,4 +1,4 @@
-// m13000 export contract. External models/vectors are never part of the bundle source.
+// m15500 (canon 3) export contract; inputs/outputs same as m13000. External models/vectors are never part of the bundle source.
 import { MODE_COMMAND_CAPS } from './manual-settings.js';
 import { START_KEYBOARD_RAMP, START_COMMAND_SLEW } from './keyboard-ramp.js';
 import { makeStartDemoMap } from './start-demo-sensors.js';
@@ -8,11 +8,11 @@ const joints = ['hip', 'thigh', 'calf'].flatMap((p) => ['FL', 'FR', 'RL', 'RR'].
 const defaults = Float64Array.of(.1, -.1, .1, -.1, .8, .8, 1, 1, -1.5, -1.5, -1.5, -1.5);
 const tensor = (name, dims, type = 'float32') => ({ name, dims, type });
 export const START_DEMO_ONNX = {
-  file: 'start-m13000_map_on.onnx',
-  files: { gt: 'start-m13000_map_on.onnx', reconstruction: 'start-m13000_map_on.onnx', off: 'start-m13000_map_off.onnx' },
+  file: 'start-m15500_map_on.onnx',
+  files: { gt: 'start-m15500_map_on.onnx', reconstruction: 'start-m15500_map_on.onnx', off: 'start-m15500_map_off.onnx' },
   sha256: {
-    'start-m13000_map_on.onnx': '4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93',
-    'start-m13000_map_off.onnx': '8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f',
+    'start-m15500_map_on.onnx': 'df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f',
+    'start-m15500_map_off.onnx': 'be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41',
   },
   inputs: [tensor('obs45', [1,45]), tensor('hist', [1,10,45]), tensor('depth2', [1,2,60,60]),
     tensor('h_prop', [1,128]), tensor('h_terr', [1,128]), tensor('depth_tick', [1], 'bool'),
@@ -67,7 +67,11 @@ export function makeStartDemoMode(makeTerrainSampler) {
     makeDepthScanner: makeStartDepthWorker,
     map(s) { s.mapping.set(sensorSample(s,'map',() => s.heightScanner(s.d.qpos,s.mapping))); return s.mapping; },
     depth(s) { return sensorSample(s,'depth',() => s.depthScanner(s.d.qpos)); },
-    prepare(s, mem) { if (!mem.depth2) return this.depth(s); },
+    // Depth reaches the action only through reconstruction. In gt/off the ONNX
+    // ignores depth2 for action and h_prop (m15500 vectors, zero depth: same
+    // action within 1e-5), so skip the 3600-ray capture and feed zeros.
+    usesDepth(s) { return s.startMapMode === 'reconstruction'; },
+    prepare(s, mem) { if (!mem.depth2 && this.usesDepth(s)) return this.depth(s); },
     observe(s, cmd, mem) {
       const obs = s.observation;
       obs.set(s.angB, 0); obs.set(s.grav, 3); obs.set(cmd, 6);
@@ -77,7 +81,8 @@ export function makeStartDemoMode(makeTerrainSampler) {
       }
       mem.hist = startDemoHistory(mem.hist, obs);
       const tick = mem.step % 5 === 0;
-      if (tick) {
+      if (!this.usesDepth(s)) mem.depth2 ??= new Float32Array(7200);
+      else if (tick) {
         if (!mem.depth2) {
           const frame = this.depth(s).slice();
           mem.depth2 = new Float32Array(7200); mem.depth2.set(frame); mem.depth2.set(frame, 3600); mem.captured = frame;

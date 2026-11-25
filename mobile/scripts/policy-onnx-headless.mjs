@@ -79,7 +79,7 @@ try {
     return p;
   };
   for (const id of ['nvidia-demo', 'ame2-demo']) {
-    const model = id === 'nvidia-demo' ? 'policy_v2.onnx' : 'ame2-demo.onnx';
+    const model = id === 'nvidia-demo' ? 'policy_v2.onnx' : 'ame2-m27001.onnx';
     // Hold real session.run; prove synchronous cancellation before releasing it.
     for (const event of (manualOnly ? ['manual'] : ['stop', 'blur', 'visibilitychange', 'pagehide', 'reset', 'manual'])) {
       console.log(`${id} lifecycle ${event}`);

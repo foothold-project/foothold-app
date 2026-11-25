@@ -1,5 +1,5 @@
 // Required external assets; nothing is downloaded and no vectors/models are bundled.
-// FH_START_SRC, FH_AME2_SRC, FH_AME2_F32_SRC, POLICY_ORT_NODE, FH_ORT_WEB,
+// FH_START_SRC, FH_AME2_SRC, POLICY_ORT_NODE, FH_ORT_WEB,
 // FH_PLAYWRIGHT; optional FH_CHROME and POLICY_VECTOR_REPORT.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -8,11 +8,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join, extname, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getPolicyAdapter } from '../sim/policy-adapters.js';
-import { loadAme2Policy } from '../sim/ame2-network.js';
 import { loadOnnxPolicy, withPolicyState, selectOnnxPolicy } from '../sim/policy-onnx.js';
 import { loadWorkerPolicy } from '../sim/policy-worker-client.js';
-import { checkPolicyVectors, checkF32Vectors } from '../sim/policy-vector-check.js';
-const required = ['FH_START_SRC', 'FH_AME2_SRC', 'FH_AME2_F32_SRC', 'POLICY_ORT_NODE', 'FH_ORT_WEB', 'FH_PLAYWRIGHT'];
+import { checkPolicyVectors } from '../sim/policy-vector-check.js';
+const required = ['FH_START_SRC', 'FH_AME2_SRC', 'POLICY_ORT_NODE', 'FH_ORT_WEB', 'FH_PLAYWRIGHT'];
 for (const name of required) assert.ok(process.env[name], `${name} is required: set the external asset/dependency path; no SKIP`);
 const read = (p) => readFileSync(p), json = (p) => JSON.parse(read(p));
 const hash = (b) => createHash('sha256').update(b).digest('hex');
@@ -23,8 +22,8 @@ const ame2 = getPolicyAdapter('ame2-demo').onnx;
 const cases = ['reconstruction', 'gt', 'off'].map((mode) => ({ name: `start/${mode}`, root: process.env.FH_START_SRC,
   tv: json(join(process.env.FH_START_SRC, `test_vectors_flat20_${mode}.json`)), contract: start }));
 cases.push({ name: 'ame2/gt', root: process.env.FH_AME2_SRC, tv: json(join(process.env.FH_AME2_SRC, 'test_vectors_flat20.json')), contract: ame2 });
-const approved = { 'start-m13000_map_on.onnx': '4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93',
-  'start-m13000_map_off.onnx': '8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f', [ame2.file]: ame2.sha256[ame2.file] };
+const approved = { 'start-m15500_map_on.onnx': 'df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f',
+  'start-m15500_map_off.onnx': 'be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41', [ame2.file]: ame2.sha256[ame2.file] };
 for (const c of cases) {
   assert.equal(c.tv.steps, 20); assert.ok(c.tv.tolerance <= 1e-4);
   const [file, sha] = Object.entries(c.tv.onnx)[0];
@@ -37,10 +36,8 @@ for (const c of cases) {
     assert.equal(spec.type ?? 'float32', c.tv.input_types[spec.name] === 'tensor(bool)' ? 'bool' : 'float32');
   }
 }
-const f32buf = read(join(process.env.FH_AME2_F32_SRC, 'ame2_actor.f32'));
-assert.equal(hash(f32buf), getPolicyAdapter('ame2-demo').network.sha256);
-const manifest = json(join(process.env.FH_AME2_F32_SRC, 'ame2_actor.json'));
-const f32 = loadAme2Policy(arrayBuffer(f32buf), manifest);
+// AME-2 JS f32 예비 파일은 걷어냄 (팀장 11/22 03:26 · ONNX 만): 어댑터에 예비가 없어야 한다.
+assert.equal(getPolicyAdapter('ame2-demo').network, null);
 // A delayed result must not survive cancellation/reset or consume hidden state.
 const stateContract = { inputs: [{ name: 'h', dims: [1] }], outputs: [{ name: 'next', dims: [1] }], state: [{ in: 'h', out: 'next' }] };
 let release;
@@ -61,17 +58,14 @@ assert.equal(await client([true]), null); transport.onmessage({ data: { type: 'r
 await client.dispose();
 let reason = '';
 const unavailable = { backend: 'wasm', fetchModel: async () => ({ ok: false, status: 404 }), notify: (text) => { reason = text; } };
-assert.equal(await selectOnnxPolicy(getPolicyAdapter('ame2-demo'), f32, unavailable), f32);
-assert.match(reason, /AME-2 · JS f32 되돌림 중 · ONNX 파일 없음/);
 await assert.rejects(selectOnnxPolicy(getPolicyAdapter('ame2-demo'), null, unavailable), /ONNX 사용 불가/);
 assert.match(reason, /AME-2 · 정책 잠금 · ONNX 파일 없음/);
 const ort = await import(pathToFileURL(resolve(process.env.POLICY_ORT_NODE)));
-const result = { node: {}, browser: {}, worker: {}, ame2F32: {}, versions: { node: process.version } };
+const result = { node: {}, browser: {}, worker: {}, versions: { node: process.version } };
 for (const c of cases) {
   result.node[c.name] = await checkPolicyVectors(await loadOnnxPolicy(ort, c.model, c.contract, 'cpu'), c.contract, c.tv);
   console.log('Node', c.name, JSON.stringify(result.node[c.name]));
 }
-result.ame2F32.node = checkF32Vectors(f32, cases.at(-1).tv);
 const simRoot = resolve('mobile/sim'), ortRoot = resolve(process.env.FH_ORT_WEB);
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -104,10 +98,6 @@ try {
     result.browser[c.name] = row.main; result.worker[c.name] = row.worker;
     console.log('Browser+Worker', c.name, JSON.stringify(row));
   }
-  result.ame2F32.browser = await page.evaluate(async ({ weights, manifest, tv }) => {
-    const { loadAme2Policy } = await import('/ame2-network.js'); const { checkF32Vectors } = await import('/policy-vector-check.js');
-    return checkF32Vectors(loadAme2Policy(Uint8Array.from(atob(weights), (c) => c.charCodeAt(0)).buffer, manifest), tv);
-  }, { weights: f32buf.toString('base64'), manifest, tv: cases.at(-1).tv });
   if (process.env.POLICY_VECTOR_REPORT) writeFileSync(process.env.POLICY_VECTOR_REPORT, JSON.stringify(result, null, 2));
   console.log('Policy vector PASS', JSON.stringify(result));
 } finally { await browser?.close(); await new Promise((r) => server.close(r)); }

@@ -27,7 +27,7 @@ mj.FS.writeFile('/go2/go2.xml', readFileSync(join(process.env.FH_SIM_SRC, 'asset
 const bytes = readFileSync(join(process.env.AME2_EXPORT, 'ame2_actor.f32'));
 const f32 = adapter.loadPolicy(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), JSON.parse(readFileSync(join(process.env.AME2_EXPORT, 'ame2_actor.json'))));
 const ort = await import(pathToFileURL(resolve(process.env.FH_ORT_WEB, 'dist/ort.wasm.min.mjs'))); ort.env.wasm.numThreads = 1;
-const onnx = await loadAme2OnnxPolicy(ort, readFileSync(join(process.env.FH_AME2_SRC, 'ame2-demo.onnx')), 'wasm');
+const onnx = await loadAme2OnnxPolicy(ort, readFileSync(join(process.env.FH_AME2_SRC, 'ame2-m27001.onnx')), 'wasm');
 const maps = ['flat', ...JSON.parse(readFileSync(new URL('../sim/maps.json', import.meta.url))).map((m) => m.id)]
   .filter((id) => !process.env.ONLY_MAPS || process.env.ONLY_MAPS.split(',').includes(id));
 const records = [];

@@ -73,12 +73,14 @@ for (const id of maps) {
     report.poses.push({ id, poses: poses.length, cellsPerPose: 377, integrationMaxAbs, rooflessMaxAbs }); console.log('Poses PASS', JSON.stringify(report.poses.at(-1))); save();
   } finally { scan.dispose(); reference.dispose(); old.dispose(); d.delete(); m.delete(); }
 }
+// 개발용 비교만: AME-2 JS f32 는 앱에서 걷어냄 (팀장 11/22) · 외부 내보내기 폴더의 파일 이름
+const AME2_F32 = { file: 'ame2_actor.f32', manifest: 'ame2_actor.json' };
 const ort = await import(pathToFileURL(resolve(process.env.FH_ORT_WEB, 'dist/ort.wasm.min.mjs'))); ort.env.wasm.numThreads = 1;
 for (const mode of ['ame2-demo', 'foothold-v2']) for (const backend of ['f32', 'wasm']) {
   const current = getPolicyAdapter(mode), root = mode === 'ame2-demo' ? process.env.AME2_EXPORT : process.env.FH_SIM_SRC;
-  const bytes = readFileSync(join(root, current.network.file));
+  const network = current.network ?? AME2_F32, bytes = readFileSync(join(root, network.file));
   const policy = backend === 'f32'
-    ? current.loadPolicy(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), mode === 'ame2-demo' ? JSON.parse(readFileSync(join(root, current.network.manifest))) : undefined)
+    ? current.loadPolicy(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), mode === 'ame2-demo' ? JSON.parse(readFileSync(join(root, network.manifest))) : undefined)
     : await loadOnnxPolicy(ort, readFileSync(join(mode === 'ame2-demo' ? process.env.AME2_EXPORT : process.env.FH_POLICY_ONNX_SRC, current.onnx.file)), current.onnx, 'wasm');
   try {
     for (const id of mode === 'ame2-demo' ? maps : ['warehouse', 'factory-inspection', 'element-course']) {

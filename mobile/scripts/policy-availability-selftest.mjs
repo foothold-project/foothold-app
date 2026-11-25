@@ -1,5 +1,6 @@
 // sync-web first; headless, ephemeral loopback port, no checkout changes.
-// The f32 fixture reverses only the constant changed by ab997e0.
+// The f32 fixture reverses only the constant changed by ab997e0. AME-2 has no JS f32 fallback since 11/22
+// (owner): a stray ame2_actor.f32 is ignored and AME-2 needs its ONNX under either default.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ const server = createServer((req, res) => {
   }
   const name = parts.join('/');
   const file = resolve(root, name);
-  const missing = (name === 'sim/ame2-demo.onnx' && ['f32-only', 'neither'].includes(assets))
+  const missing = (name === 'sim/ame2-m27001.onnx' && ['f32-only', 'neither'].includes(assets))
     || (['sim/ame2_actor.f32', 'sim/ame2_actor.json'].includes(name) && ['onnx-only', 'neither'].includes(assets));
   if (!file.startsWith(root + sep) || missing) { res.writeHead(404).end(); return; }
   try {
@@ -42,7 +43,7 @@ try {
     try {
       await page.goto(url);
       await page.waitForFunction(() => window.__sim?.ready);
-      const available = backend === 'f32' ? ['f32-only', 'both'].includes(assets) : assets !== 'neither';
+      const available = ['onnx-only', 'both'].includes(assets);
       const option = page.locator('#policySelect option[value="ame2-demo"]');
       assert.equal(await option.isDisabled(), !available, `${backend}/${assets}: selector`);
       if (available) {
@@ -50,11 +51,8 @@ try {
         await page.selectOption('#policySelect', 'ame2-demo');
         await page.waitForFunction(() => window.__sim?.ready && __sim.sim.adapterId === 'ame2-demo');
         const engine = await page.locator('#policyEngine').textContent();
-        if (backend === 'wasm' && assets !== 'f32-only') assert.match(engine, /ONNX WASM/);
-        else {
-          assert.match(engine, /JS f32/);
-          if (backend === 'wasm') assert.match(engine, /JS f32 되돌림 중 · ONNX 파일 없음/);
-        }
+        assert.match(engine, /ONNX WASM/);
+        assert.doesNotMatch(engine, /JS f32/);
         assert.ok(await page.locator('#policyEngine').isVisible());
         assert.equal(await page.evaluate(() => __sim.err), null);
         await page.click('#go');

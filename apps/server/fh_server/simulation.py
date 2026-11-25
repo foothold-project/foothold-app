@@ -15,7 +15,9 @@ from sqlalchemy import select
 from .floor_maps import approved_bindings
 from apps.contracts import models as C
 from apps.contracts.simulation_ports import allowed_ports, extra_ports_from_env
-from .models import Building, Floor, Robot
+from .models import Building, Event, Floor, Robot
+from .event_messages import render
+from .notifications import append_for_event
 from . import phone_pass
 from .security import digest, token
 
@@ -129,6 +131,19 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             if on_error is not None:
                 on_error(error.code)
             fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.', error.detail)
+
+    @app.post('/api/v1/simulation/falls', status_code=204)
+    def fall(body: C.FallReport, auth: Identity, db: DB):
+        """브라우저 시뮬의 넘어짐 · 일어서기 기록 → SAFETY 사건 + 알림. 로봇 행이 없는 시뮬이라 robot_id 없음."""
+        user = auth[0]
+        authorize(user, 'O')
+        code = {'FALL': 'ROBOT_FALL', 'RECOVERED': 'ROBOT_FALL_RECOVERED', 'FAILED': 'ROBOT_FALL_FAILED'}[body.phase]
+        data = {**body.model_dump(mode='json'), 'reason': body.cause, 'count': body.attempts, 'simulation': True}
+        row = Event(org_id=user.org_id, category='SAFETY', code=code, user_id=user.id, data=data,
+                    severity='INFO' if body.phase == 'RECOVERED' else 'ERROR')
+        render(db, row)
+        db.add(row)
+        append_for_event(db, row)
 
     @app.get('/api/v1/simulation/worlds', response_model=C.SimCatalog)
     def worlds(auth: Identity, db: DB):

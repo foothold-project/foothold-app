@@ -103,10 +103,14 @@
   body:has(#replayPanel:not([hidden])) #goalNote { top: auto; bottom: calc(var(--edge) + 80px + env(safe-area-inset-bottom)); }
   body:has(#replayPanel:not([hidden])) #modeCaps { display: none; }
   [hidden] { display: none !important; }
+#fallNote.alert{color:#ffd54f}
 </style>
 </head>
 <body class="stopped">
 <output id="policyEngine" role="status" style="position:fixed;bottom:4px;left:8px;z-index:20;max-width:90vw;background:#182028;color:#fff;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
+<output id="fallNote" role="status" style="position:fixed;bottom:52px;right:8px;z-index:20;max-width:90vw;background:#182028;color:#cfd8dc;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
+<output id="headingHoldNote" role="status" hidden style="position:fixed;bottom:28px;right:8px;z-index:20;background:#182028;color:#ffd54f;padding:3px 7px;font:12px sans-serif;pointer-events:none">방향 유지 켬</output>
+<output id="simRate" role="status" hidden style="position:fixed;bottom:4px;right:8px;z-index:20;background:#182028;color:#fff;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
 <output id="simSlow" role="status" hidden style="position:fixed;bottom:28px;left:8px;z-index:20;background:#182028;color:#ffd54f;padding:3px 7px;font:12px sans-serif;pointer-events:none"></output>
 <button id="home" type="button" aria-label="시작 화면"><svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8M5.5 9.5V21h13V9.5"/></svg></button>
 <button id="stop" type="button" aria-label="정지" aria-pressed="true"><svg viewBox="0 0 72 72"><path class="oct" d="M23 3h26l20 20v26L49 69H23L3 49V23z"/><rect class="bar" x="17" y="31" width="38" height="10" rx="2"/></svg></button>
@@ -133,6 +137,8 @@
   <select id="policySelect" aria-label="시뮬 정책"></select>
   <label id="startMapLabel" for="startMapSelect" hidden>start 지도</label>
   <select id="startMapSelect" aria-label="start 지도" hidden><option value="gt">정답</option><option value="reconstruction">복원</option><option value="off">끔</option></select>
+  <button id="fallTest" type="button" hidden title="로봇을 그 자리에서 뒤집어 넘어짐 판정과 일어서기를 시험합니다">넘어뜨려 보기 (시험)</button>
+  <label id="headingHoldLabel"><input type="checkbox" id="headingHold"> 직진 방향 유지</label>
   <p id="policyReason" role="status"></p>
   <select id="scenarioSelect" aria-label="시나리오 선택"></select>
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>

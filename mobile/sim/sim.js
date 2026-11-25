@@ -116,7 +116,8 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
       const infer = () => {
         if (gen !== generation) return null;
         inputs ??= adapter.observe(s, command, candidate);
-        return policy(...inputs);
+        const ti = performance.now();   // 배속 표시용: 추론 왕복만 (깊이 · 관측은 policyMs 에서 뺀 나머지)
+        return Promise.resolve(policy(...inputs)).then((r) => { s.inferMs = performance.now() - ti; return r; });
       };
       // Initial depth is required before observation. Later captures happen in
       // commit, after inference acceptance. Neither changes the 20 ms budget.
@@ -157,15 +158,28 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     };
     return committed?.then ? committed.then(advance) : advance();
   }
+  let gains = null;   // RecoveryStand 대역 동안만 다른 PD (recovery-stand.js), 평소는 정책 값
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;
-    const applied = actionDelay ? actionDelay.apply(tgt) : tgt;
+    const applied = gains ? tgt : actionDelay ? actionDelay.apply(tgt) : tgt;
+    const kp = gains?.kp ?? KP, kd = gains?.kd ?? KD;
     for (let i = 0; i < 12; i++) {
-      const torque = KP * (applied[i] - q[7 + i]) - KD * v[6 + i];
+      const torque = kp * (applied[i] - q[7 + i]) - kd * v[6 + i];
       u[i] = adapter.torque(torque, v[6 + i], I2M[i]);
     }
     mj.mj_step(m, d);
   };
+  s.jointsPolicyOrder = () => M2I.map((j) => d.qpos[7 + j]);
+  // 정책 없이 정해진 관절 목표 (정책 순서) 로 정책 1 틱만큼 물리 진행. 정책 기억은 resumePolicy 에서 비운다.
+  s.recoverStep = (target, recoveryGains) => {
+    s.cancelPolicyStep();
+    for (let i = 0; i < 12; i++) tgt[i] = target[I2M[i]];
+    gains = recoveryGains;
+    try { for (let k = 0; k < DECIM; k++) s.physStep(); } finally { gains = null; }
+    s.t += POLICY_DT; state();
+    return true;
+  };
+  s.resumePolicy = () => s.clearPolicyState();
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
   s.dispose = () => { s.cancelPolicyStep(); s.depthScanner?.dispose(); sampleHeight.dispose(); walkSurface.dispose(); d.delete(); m.delete(); };
   s.reset();

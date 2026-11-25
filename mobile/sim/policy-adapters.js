@@ -80,7 +80,7 @@ export function createPolicyModeAdapters() {
   };
   const ame2DemoMode = makeAme2Adapter(makeTerrainSampler);
   ame2DemoMode.onnx = {
-    file: 'ame2-demo.onnx', sha256: '830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6',
+    file: 'ame2-m27001.onnx', sha256: '2f7a8b18e8a3cc89ab5975836fff4870165df5c5bb8102ac823b56fe75b472ce',
     inputs: [{ name: 'prop', dims: [1, 49], type: 'float32' }, { name: 'mapping', dims: [1, 29, 13, 3], type: 'float32' }],
     outputs: [{ name: 'action', dims: [1, 12], type: 'float32' }, { name: 'gaze_r', dims: [1, 2], type: 'float32' }],
     action: 'action', state: [],

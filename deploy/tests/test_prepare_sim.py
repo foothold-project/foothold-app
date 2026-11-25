@@ -76,42 +76,25 @@ def test_hash_and_mujoco_version_mismatch_keep_web(bundle, capsys, name, content
     assert capsys.readouterr().err.count("WARNING:") == 1
 
 
-@pytest.mark.parametrize("name", ["ame2_actor.f32", "ame2_actor.json"])
-def test_wrong_ame2_sha_omits_entire_simulator(bundle, monkeypatch, capsys, name):
+def test_ame2_f32_fallback_never_published(bundle):
+    """Owner 2026-11-22: AME-2 is ONNX only; a stray m14999 export is not copied."""
     source, private, dist = bundle
-    digest = hashlib.sha256(b"fixture actor").hexdigest()
-    monkeypatch.setattr(prepare_sim, "AME2_SHA", {file: digest for file in prepare_sim.AME2_SHA})
-    for file in prepare_sim.AME2_SHA:
-        (private / file).write_bytes(b"fixture actor")
-    (private / name).write_bytes(b"different incorrect content")
-    assert not prepare_sim.package(*bundle)
-    assert not (dist / "sim").exists()
-    assert capsys.readouterr().err.count("WARNING:") == 1
-
-
-def test_complete_ame2_pair_verified_and_incomplete_pair_omitted(bundle, monkeypatch):
-    source, private, dist = bundle
-    names = {"ame2_actor.f32": b"actor", "ame2_actor.json": b"{}"}
-    monkeypatch.setattr(prepare_sim, "AME2_SHA", {n: hashlib.sha256(v).hexdigest() for n, v in names.items()})
-    for name, value in names.items():
-        (private / name).write_bytes(value)
-    prepare_sim.package(*bundle)
-    assert (dist / "sim/ame2_actor.f32").read_bytes() == b"actor"
-    (private / "ame2_actor.json").unlink()
-    prepare_sim.package(*bundle)
-    assert not (dist / "sim/ame2_actor.f32").exists()
+    (private / "ame2_actor.f32").write_bytes(b"old actor")
+    (private / "ame2_actor.json").write_bytes(b"{}")
+    assert prepare_sim.package(*bundle)
+    assert not (dist / "sim/ame2_actor.f32").exists() and not (dist / "sim/ame2_actor.json").exists()
 
 
 def test_onnx_hashes_match_provenance_and_browser_contract():
     root = Path(__file__).resolve().parents[2]
     adapters = (root / "mobile/sim/policy-adapters.js").read_text()
-    for name, document in (("ame2-demo.onnx", "AME2-PROVENANCE.md"),
+    for name, document in (("ame2-m27001.onnx", "AME2-PROVENANCE.md"),
                            ("policy_v2.onnx", "POLICY-PROVENANCE.md")):
         digest = prepare_sim.ONNX_SHA[name]
         assert digest in (root / "docs" / document).read_text()
         assert digest in adapters
     start = (root / "mobile/sim/start-demo-adapter.js").read_text()
-    for name in ("start-m13000_map_on.onnx", "start-m13000_map_off.onnx"):
+    for name in ("start-m15500_map_on.onnx", "start-m15500_map_off.onnx"):
         assert prepare_sim.ONNX_SHA[name] in start
         assert prepare_sim.ONNX_SHA[name] in (root / "docs/POLICY-PROVENANCE.md").read_text()
     lock = json.loads((root / "mobile/package-lock.json").read_text())

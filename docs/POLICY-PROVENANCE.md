@@ -1,8 +1,25 @@
 # MVP foothold-v2 → policy_v2.f32 출처 기록
 
-## start-demo (m13000)
+## start-demo (m15500 · 정본 3 · 2026-11-21 부터)
 
-`start-m13000-app/CONTRACT.md` 및 `contract.json`의 m13000 ONNX 두 파일을 그대로 사용한다. 원본 checkpoint SHA-256은 `20365a2c6d70f94f65f1114471f7df198e56d86db6d02d89cea43c666b95e768`이며, checkpoint 재내보내기는 수행하지 않았다.
+lead 11/21 지시로 앱 START 하위 보행을 m13000 에서 정본 3 `start-m15500` 으로 바꾼다. 묶음은 foothold-go2 `release/policies/start-m15500/` (planner-lx 11/17 `CONTRACT-start-m15500.md` · `contract.json`). 원본 checkpoint 는 EX-42 E1F `model_250.pt`, SHA-256 `13caeb4ae52dd41ab3c2d23f9e6e34801a2414aa811c3efd4b38895e9ce29df6` 이다. 재내보내기는 하지 않았다.
+
+| 파일 | bytes | SHA-256 |
+|---|---:|---|
+| `start-m15500_map_on.onnx` | 5816755 | `df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f` |
+| `start-m15500_map_off.onnx` | 5826586 | `be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41` |
+
+- 입출력: 계약 `app_onnx` 의 입력 9 · 출력 4 (이름 · 순서 · 모양 · 자료형) 가 `start-demo-adapter.js` 의 `START_DEMO_ONNX` 와 같다 (2026-11-21 대조). 앱 실행기 · 상태 되먹임 · 이력 순서는 바꾸지 않았다.
+- 계약이 적은 다른 점 (앱 할 일 없음): 지각 가중치는 학습 평균 판, actor 앞 전진 속도 추정 보정 (b = 0.010 m/s) 은 ONNX 안에 들어 있다. 앱이 보정을 따로 하면 두 번 걸린다.
+- 원본 대비 같은 출력 (계약 `parity.json` 인용 · CPU): PyTorch 대 ORT 합성 입력 최대 차 1.05e-5 (기준 3e-5), Kit 기록 입력 9 경우 × 20 스텝 7.48e-6 (기준 1e-4). 후자는 m6000 이 몬 입력이라 m15500 자기 주행이 아니다.
+- 앱 쪽 확인 (2026-11-21 · Node 24.22.2 · onnxruntime-web 1.31.1 WASM · ai-lx01): 평지 20 스텝 벡터 행동 최대 차 reconstruction 3.76e-6 · gt 2.20e-6 · off 2.47e-6 (기준 1e-4). MuJoCo 평지에서 서기 2 초 → 전진 0.5 m/s 6 초 → 서기 2 초를 지도 켬 (복원 · 정답) · 끔 세 가지로 한 번씩 돌려 앞으로 3.16 · 3.17 · 3.18 m 갔고 몸통 높이 최저 0.30 m 로 넘어지지 않았다. Chrome 브라우저 · Worker 대조와 실기는 미확인.
+- 명령 학습 범위가 넓어졌다 (옆 0.1~0.8 · 제자리 회전 0.15~1.5 · 걸으며 회전 vx 0.3~1.2). 앱 모드 상한은 이번에 바꾸지 않았다.
+
+아래 m13000 기록은 이전 판의 출처로 남긴다.
+
+## start-demo (m13000 · 2026-11-21 까지)
+
+`start-m13000-app/CONTRACT.md` 및 `contract.json`의 m13000 ONNX 두 파일을 그대로 사용했다. 원본 checkpoint SHA-256은 `20365a2c6d70f94f65f1114471f7df198e56d86db6d02d89cea43c666b95e768`이며, checkpoint 재내보내기는 수행하지 않았다.
 
 | 파일 | bytes | SHA-256 |
 |---|---:|---|

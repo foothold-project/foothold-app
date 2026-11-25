@@ -22,12 +22,12 @@ export function startDemoVectorInputs(tv) {
       const error = Math.max(...recorded[name].map((x,i) => Math.abs(x-built[index][i])));
       // Export vectors retain a diagnostic map even when use_gt=false. The
       // app contract disables it with zeros; report that ignored-field delta.
-      const unusedMap = name === 'gt_map' && !built[7][0];
+      const unusedMap = (name === 'gt_map' && !built[7][0]) || (name === 'depth2' && tv.map_mode !== 'reconstruction');
       const effectiveError = unusedMap ? Math.max(...built[index].map(Math.abs)) : error;
       if (effectiveError > 1e-6) throw new Error(`start ${tv.map_mode} step ${k} ${name} ${effectiveError}`);
       if (index === 0) maxObs = Math.max(maxObs,error);
       else if (index === 1) maxHist = Math.max(maxHist,error);
-      else if (index === 2) maxDepth = Math.max(maxDepth,error);
+      else if (index === 2) maxDepth = Math.max(maxDepth,effectiveError);
       else { maxMap = Math.max(maxMap,effectiveError); if (unusedMap) unusedRecordedMapDiff = Math.max(unusedRecordedMapDiff,error); }
     }
     for (const index of [5,6,7]) if (Boolean(built[index][0]) !== Boolean(recorded[mode.onnx.inputs[index].name][0])) throw new Error('start flag differs from recording');

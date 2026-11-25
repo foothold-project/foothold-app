@@ -153,6 +153,9 @@ TEMPLATES = {
     'APPROVAL_DECIDED': '{person}님이 {other}님의 {kind} 요청을 {decision}했습니다.',
     'EMERGENCY_RUN': "{person}님이 결재 없이 '{scenario}'를 긴급 실행했습니다. 이유: {reason}.",
     'BATTERY_LOW': '{robot} 배터리가 부족합니다. 남은 배터리: {battery} %.',
+    'ROBOT_FALL': '{robot}{subject} 넘어졌습니다 ({reason}). 일어서기를 시작합니다.',
+    'ROBOT_FALL_RECOVERED': '{robot}{subject} 다시 섰습니다. 일어서기 시도 {count}번.',
+    'ROBOT_FALL_FAILED': '{robot}{subject} 일어서지 못했습니다. 일어서기 시도 {count}번. 현장 확인이 필요합니다.',
 }
 
 # Known agent event semantics override the previous all-agent LINK category.
@@ -162,7 +165,7 @@ CATEGORIES = {
     **dict.fromkeys(('STOP_PRESSED', 'BATTERY_LOW', 'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT',
                     'EXECUTOR_STALLED', 'PROTOCOL_MISMATCH', 'TRANSPORT_BACKPRESSURE',
                     'STOP_GEN_EXHAUSTED', 'LEASE_INVALID', 'BRIDGE_STATE_INVALID',
-                    'HISTORY_STORAGE_BLOCKED'), 'SAFETY'),
+                    'HISTORY_STORAGE_BLOCKED', 'ROBOT_FALL', 'ROBOT_FALL_RECOVERED', 'ROBOT_FALL_FAILED'), 'SAFETY'),
 }
 
 # Robot diagnostics and run observations only; human/account/approval actions
@@ -174,6 +177,7 @@ AGENT_CODES = frozenset({
     'TRANSPORT_BACKPRESSURE', 'STOP_GEN_EXHAUSTED', 'LEASE_INVALID', 'BRIDGE_STATE_INVALID',
     'HISTORY_STORAGE_BLOCKED', 'LINK_BUFFER_DROPPED', 'SERVER_CLOSED', 'SERVER_RETRY',
     'RUN_SERVER_CMD_IGNORED', 'RUN_COMPLETED', 'RUN_FAILED', 'ROUTE_DEVIATION', 'LINK_LOST', 'BATTERY_LOW',
+    'ROBOT_FALL', 'ROBOT_FALL_RECOVERED', 'ROBOT_FALL_FAILED',
 })
 
 

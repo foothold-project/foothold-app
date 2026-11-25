@@ -22,6 +22,7 @@ import { createKeyboardRamp, slewCommand } from './keyboard-ramp.js';
 import { startDemoMapMode } from './start-demo-adapter.js';
 import { createReplayReader, readAlign, replayRequirement } from './go2-replay.js';
 import { loadCustomTerrain } from './terrain/index.js';
+import { FALL, RECOVERY_GAINS, createFallDetector, createRecoveryStand } from './recovery-stand.js';
 import { loadZoneGrid, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneLimit, zoneQuads, ZONE_STOP } from './zones.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
@@ -246,17 +247,11 @@ async function preparePolicies() {
   const startOption = Array.from(choice.options).find((x) => x.value === start.id);
   startOption.disabled = !startAvailable;
   if (!startAvailable) startOption.textContent = `${start.label} · ONNX 파일 없음`;
-  const [onnxAvailable, weightsAvailable, manifest] = await Promise.all([
-    exists(ame2.onnx.file), exists(ame2.network.file), json(ame2.network.manifest).catch(() => null),
-  ]);
-  const f32Available = weightsAvailable && manifest?.schema === 'ame2-f32-v1';
-  const backend = backendFor(ame2);
-  const available = backend === 'f32' ? f32Available
-    : ['wasm', 'webgpu'].includes(backend) && (onnxAvailable || f32Available);
+  // AME-2 는 ONNX 만 (JS f32 예비 없음 · 팀장 11/22).
+  const onnxAvailable = await exists(ame2.onnx.file);
+  const available = ['wasm', 'webgpu'].includes(backendFor(ame2)) && onnxAvailable;
   if (option) option.disabled = !available;
-  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정'
-    : backend === 'f32' ? 'AME-2 · JS f32 파일 또는 배치표 없음' : 'AME-2 · ONNX와 JS f32 파일 없음';
-  // A URL selecting AME-2 stays on that mode: its own optional f32 can recover.
+  reason.textContent = available ? 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정' : 'AME-2 · ONNX 파일 없음';
   if (readonly) {
     reason.textContent = replayReason || '실기 보기 전용';
     if (replayReason) throw new Error(replayReason);
@@ -930,7 +925,9 @@ async function main() {
   };
 
   // ── 따라가기: 기존 돌리기. 탑뷰: 끌어 이동·가리킨 곳 확대, 중심은 프레임 사이 보존.
-  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0, topX: null, topY: null };
+  // 따라가기 기본 = 팀장이 11/22 04:40 화면에서 맞춘 값 (몸통 중심에서 뒤로 1.10 m · 위로 0.40 m, 내려다보는 각 20°).
+  // 예전 기본 (뒤 1.7 m · 위 0.75 m) 보다 가까워 벽을 등지고 시작해도 벽 너머로 덜 간다. 사용자가 돌리기 · 끌기 · 확대로 바꾼 값은 그대로.
+  const view = { yaw: 0, pitch: Math.atan2(0.40, 1.10), dist: Math.hypot(0.40, 1.10), topH: 1, topRot: 0, topX: null, topY: null };
   let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
   let startPicking = false, startPickReason = '', startPickEpoch = 0, startPickBusy = false;
   const cancelStartPick = () => {
@@ -980,7 +977,7 @@ async function main() {
   locatorPart(new THREE.ShapeGeometry(arrow), 0xffffff, 4).scale.setScalar(.78);
   robotLocator.visible = false;
   const zoom = (k, x, y, toX = x, toY = y) => {
-    if (!top) { view.dist = clamp(view.dist * k, 0.8, 8); return; }
+    if (!top) { view.dist = clamp(view.dist * k, 0.4, 8); return; }
     const before = pointAt(x, y);
     view.topH = clamp(view.topH * k, 0.08, 3);
     const after = pointAt(toX, toY), f = topFit();
@@ -1036,7 +1033,7 @@ async function main() {
     else { startPicking = true; startPickReason = ''; $('topCenter').setAttribute('aria-pressed', 'true'); }
   };
 
-  $('reset').onclick = () => { lock(); lastCmd = neutral(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
+  $('reset').onclick = () => { fall?.clear(); lock(); lastCmd = neutral(); sim.reset(); sim.hold(0.5); clock?.reset(); pin = null; floorTick(d.qpos[2]); };   // 주소로 고른 시작점으로 다시 세우기 = STOP 잠금 — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera;
     cancelStartPick();
@@ -1077,6 +1074,8 @@ async function main() {
 
   // Fixed policy dt/decimation; keep debt through inference, bounded catch-up.
   let frames = 0, fps = 0, fpsT = performance.now();
+  // 실제 배속 = 1 초 동안 진행한 시뮬 시간 / 벽시계. 결정 = 관측 · 깊이 · 추론 왕복, 추론 = Worker 왕복만.
+  let rateSteps = 0, decideMs = 0, inferMs = 0, decided = 0;
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
     timing: () => clock.stats,
     start: () => ({ xy: start.slice(0, 2), yaw: start[2], floor: floors[startFloor]?.id ?? null, floorIndex: startFloor,
@@ -1090,6 +1089,15 @@ async function main() {
     settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
+  // 따라가기 카메라는 몸통 방향 (yaw) 만 따른다. 몸통 앞 축을 바닥에 내려 잰 방향이라 roll · pitch 가 섞이지 않고,
+  // 몸통 위 축이 60° 넘게 누우면 (넘어짐 · 뒤집힘) 방향을 마지막 값에 고정한다 — 쓰러질 때 카메라가 돌지 않게.
+  let camYaw = null;
+  const followYaw = () => {
+    const [w, x, y, z] = [d.qpos[3], d.qpos[4], d.qpos[5], d.qpos[6]];
+    const upright = 1 - 2 * (x * x + y * y) >= 0.5, hx = 1 - 2 * (y * y + z * z), hy = 2 * (x * y + w * z);
+    if (camYaw === null || (upright && Math.hypot(hx, hy) > 1e-3)) camYaw = Math.atan2(hy, hx);
+    return camYaw;
+  };
   const timingUI = () => {
     const timing = clock.stats;
     st.stepsBehind = timing.drops;
@@ -1097,6 +1105,92 @@ async function main() {
     $('simSlow').textContent = timing.dropped > 0 ? `시뮬 느림 · 처리 한도 초과 ${timing.dropped.toFixed(2)}초` : '시뮬 느림 · 밀린 시간 처리 중';
   };
   let skipLockedDecision = false;
+  // 넘어짐 판정 → RecoveryStand 대역 (시뮬) → 정책 재개. 판정 식 · 값은 recovery-stand.js FALL, 화면 왼쪽 위 줄에 늘 표시.
+  // 넘어질 때마다 재현 조건 (시각 · 지도 · 위치 · 방향 · 직전 2 초 명령 · 정책 · 지도 모드) 을 window.__sim.falls 와 콘솔에 남긴다.
+  const fall = readonly ? null : (() => {
+    const detector = createFallDetector(POLICY_DT), recovery = createRecoveryStand({ dt: POLICY_DT, standPose: adapter.action.defaultPose });
+    const recent = [], falls = (st.falls = []);
+    // 넘어짐은 긴급 기록: 앱 서버에서 연 시뮬이면 서버 SAFETY 사건 + 알림 (POST /simulation/falls). 실패해도 시뮬은 멈추지 않고 기록에 남긴다.
+    const report = (phase, r) => {
+      if (from !== 'web' && from !== 'server') { r.server = '서버 없음 (단독 시뮬)'; return; }
+      const peak = [0, 1, 2].map((i) => r.cmdLast2s.reduce((a, c) => (Math.abs(c.cmd[i]) > Math.abs(a) ? c.cmd[i] : a), 0));
+      const body = { phase, cause: r.cause, map: String(r.map).slice(0, 64), policy: r.policy, start_map: r.startMap, pos: r.pos, yaw: r.yaw,
+        grav_z: r.gravZ, height: r.height, attempts: r.attemptsUsed ?? 0, cmd_last: (r.cmdLast2s.at(-1)?.cmd ?? [0, 0, 0]).slice(0, 4), cmd_peak: peak, sim_t: r.simT };
+      fetch('/api/v1/auth/session', { credentials: 'same-origin' }).then((s) => (s.ok ? s.json() : Promise.reject(new Error(`세션 ${s.status}`))))
+        .then((s) => fetch('/api/v1/simulation/falls', { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-FH-CSRF': s.csrf_token ?? '' }, body: JSON.stringify(body) }))
+        .then((res) => { r.server = { ...(r.server ?? {}), [phase]: res.ok ? '보냄' : `실패 ${res.status}` }; },
+          (e) => { r.server = { ...(r.server ?? {}), [phase]: `실패 ${e.message}` }; });
+    };
+    let testFlip = false;
+    // 시험: 그 자리에서 배가 위로 뒤집는다 (몸을 0.3 m 띄우고 속도 0). 「시작」 상태에서만.
+    $('fallTest').hidden = false;
+    $('fallTest').onclick = () => {
+      $('fallTest').blur();
+      if (stopped || recovery.state !== 'idle') return;
+      const q = d.qpos, yaw = yawOf();
+      // 몸 x 축으로 180° 돈 자세 = yaw 회전 · roll π
+      q[3] = 0; q[4] = Math.cos(yaw / 2); q[5] = Math.sin(yaw / 2); q[6] = 0; q[2] += 0.3;
+      d.qvel.fill(0); sim.cancelPolicyStep(); testFlip = true;
+    };
+    let last = { gravZ: -1, height: 0, bad: false }, doneAt = -Infinity;
+    const ground = () => { const g = map.heightAt?.(d.qpos[0], d.qpos[1]); return Number.isFinite(g) ? g : map.floor_z; };
+    const measure = () => ({ gravZ: sim.grav[2], height: d.qpos[2] - ground() });
+    const upright = (m) => m.gravZ < -0.9 && m.height > 0.25;
+    const show = () => {
+      const r = recovery.state, el = $('fallNote');
+      el.textContent = r === 'active' ? `RecoveryStand 대역 (시뮬) · 시도 ${recovery.attempt}/${recovery.attempts}`
+        : r === 'failed' ? `RecoveryStand 대역 실패 (${recovery.attempts}번) · 멈춤 · 다시 세우기 단추`
+        : performance.now() - doneAt < 3000 ? '일어섬 · 정책 재개'
+        : `넘어짐 판정 중력z ${last.gravZ.toFixed(2)} (> ${FALL.gravZ}) · 높이 ${last.height.toFixed(2)} m (< ${FALL.height}) · ${FALL.holdSec} 초`;
+      el.classList.toggle('alert', r !== 'idle' || last.bad);
+    };
+    return {
+      get active() { return recovery.state === 'active' || recovery.state === 'failed'; },
+      // 정책 대신 한 틱. 실패면 그 자리 관절 각을 붙잡고 버틴다 (정책을 다시 돌리지 않음).
+      tick() {
+        const m = measure(), current = sim.jointsPolicyOrder(), record = falls.at(-1);
+        const target = recovery.step(current, m.gravZ, sim.grav[1], upright(m));
+        record.attemptsUsed = recovery.attempt;
+        if (recovery.state === 'failed' && !record.failedAt) { record.failedAt = +sim.t.toFixed(2); report('FAILED', record); }
+        if (recovery.state === 'done') {
+          record.recoveredAt = +sim.t.toFixed(2); report('RECOVERED', record);
+          recovery.stop(); detector.reset(); sim.resumePolicy(); lastCmd = neutral(); doneAt = performance.now();
+          return sim.step();
+        }
+        return sim.recoverStep(target ?? current, RECOVERY_GAINS);
+      },
+      observe() {
+        if (recent.push({ t: +sim.t.toFixed(2), cmd: sim.cmd.map((x) => +x.toFixed(2)) }) > Math.round(2 / POLICY_DT)) recent.shift();
+        const state = detector.update(...Object.values(measure()));
+        last = state;
+        if (recovery.state === 'idle' && !stopped && state.fallen) {
+          const record = { at: new Date().toISOString(), simT: +sim.t.toFixed(2), map: id, policy: adapter.id, startMap: adapter.depth ? sim.startMapMode : null,
+            pos: Array.from(d.qpos.slice(0, 3), (x) => +x.toFixed(2)), yaw: +Math.atan2(Math.sin(yawOf()), Math.cos(yawOf())).toFixed(2), gravZ: +state.gravZ.toFixed(2), height: +state.height.toFixed(2),
+            cmdLast2s: recent.slice(), headingHold: $('headingHold').checked, scenario: runner.active || patrol.active, cause: testFlip ? '시험 단추' : '주행 중' };
+          testFlip = false;
+          falls.push(record); console.info('[fall]', JSON.stringify(record)); report('FALL', record);
+          recovery.start();
+        }
+        show();
+      },
+      clear() { recovery.stop(); detector.reset(); show(); },
+    };
+  })();
+  // 직진 방향 유지 (기본 끔 · 팀장 11/22 02:39). 손 조종에서 앞뒤 · 옆 명령이 있고 회전 명령이 0 일 때만,
+  // 그 순간 방향을 붙잡고 wz = clamp(HOLD_K × 방향 오차, ±HOLD_MAX) 를 넣는다. 회전 명령 · 멈춤 · 정지 · 시나리오에서는 놓는다.
+  // 정책의 좌우 쏠림을 가리지 않도록 켰을 때 화면에 「방향 유지 켬」 을 띄운다.
+  const HOLD_K = 1.0, HOLD_MAX = 0.3;
+  let holdYaw = null;
+  $('headingHold').checked = false;
+  $('headingHold').onchange = () => { holdYaw = null; $('headingHoldNote').hidden = !$('headingHold').checked; $('headingHold').blur(); };   // 초점을 놓아야 조종 키가 먹는다 (field())
+  const headingHold = (cmd) => {
+    const moving = Math.abs(cmd[0]) > 0.05 || Math.abs(cmd[1]) > 0.05;
+    if (!$('headingHold').checked || adapter.command.kind !== 'body_velocity' || stopped || !moving || Math.abs(cmd[2]) > 1e-3) { holdYaw = null; return cmd; }
+    const yaw = yawOf(); holdYaw ??= yaw;
+    const err = Math.atan2(Math.sin(holdYaw - yaw), Math.cos(holdYaw - yaw));
+    return [cmd[0], cmd[1], Math.min(HOLD_MAX, Math.max(-HOLD_MAX, HOLD_K * err))];
+  };
   // 손 조종: 접근 금지 구역(몸체 여유 포함)으로 들어가는 이동 명령은 0 — 제자리 회전·멀어지는 방향은 그대로
   const zoneHand = (axes, speed) => {
     if (!map.zones) return axes;
@@ -1134,7 +1228,7 @@ async function main() {
       } else if (adapter.command.kind === 'nearby_goal') {
         const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped ? [0, 0, 0] : zoneHand(goalAxes, 1.2), POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
-      } else sim.cmd = stopped ? neutral() : zoneHand(joy.slice());
+      } else sim.cmd = stopped ? neutral() : zoneHand(headingHold(joy.slice()));
       // 감속 구역: 속도 명령을 받는 조종(손 조종·시나리오·찍은 곳 가기)만 그 칸의 상한으로 줄인다. 위치 목표 모델은 줄일 수 없어 안내만(zoneUI)
       if (map.zones && adapter.command.kind === 'body_velocity' && !stopped) sim.cmd = capCommand(sim.cmd, zoneSpeed(map.zones, map, d.qpos[0], d.qpos[1]).cap);
       // All start hand/goal commands share one ramp. STOP remains immediate.
@@ -1152,8 +1246,8 @@ async function main() {
     },
     // Only skip the decision whose prepare locked/reset the clock. Subsequent
     // STOP ticks retain the mode's existing zero-input policy/physics behavior.
-    step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return sim.step(); },
-    onStep: () => { st.steps++; timingUI(); },
+    step: () => { if (skipLockedDecision) { skipLockedDecision = false; return false; } return fall?.active ? fall.tick() : sim.step(); },
+    onStep: () => { fall?.observe(); st.steps++; decided++; decideMs += sim.policyMs ?? 0; inferMs += sim.inferMs ?? 0; timingUI(); },
     onError: (e) => {
       lock(); st.err = String(e);
       if (adapter.fallback === null) { ready = st.ready = false; ui(); }
@@ -1200,8 +1294,10 @@ async function main() {
       camera.near = 0.1; // Roof-free assets; the whole site stays inside the orthographic frustum.
     } else {
       renderer.setViewport(0, 0, innerWidth, innerHeight); vp = [0, 0, innerWidth, innerHeight];
-      const a = yawOf() + view.yaw, h = view.dist * Math.cos(view.pitch);
-      camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx, by, bz);
+      const a = followYaw() + view.yaw, h = view.dist * Math.cos(view.pitch);
+      // 가까이 붙을수록 몸 앞쪽 (최대 1.2 m) 을 본다 — 멀리 빼면 예전처럼 몸을 본다
+      const ahead = clamp(1.6 - view.dist, 0, 1.2);
+      camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx + Math.cos(a) * ahead, by + Math.sin(a) * ahead, bz);
       camera.near = 0.05;
     }
     robotLocator.visible = top;
@@ -1211,7 +1307,14 @@ async function main() {
     renderer.render(scene, camera);
     lastDrawAt = performance.now();
     frames++;
-    if (now - fpsT > 1000) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
+    if (now - fpsT > 1000) {
+      const running = ready && !readonly && !document.hidden && !(adapter.stop.pause && stopped);
+      st.rate = running ? (st.steps - rateSteps) * POLICY_DT * 1000 / (now - fpsT) : null;
+      st.decideMs = decided ? decideMs / decided : null; st.inferMs = decided && sim.inferMs !== undefined ? inferMs / decided : null;
+      $('simRate').hidden = st.rate === null;
+      if (st.rate !== null) $('simRate').textContent = `배속 ${st.rate.toFixed(2)}×` + (st.decideMs === null ? '' : ` · 결정 ${st.decideMs.toFixed(1)} ms`) + (st.inferMs === null ? '' : ` (추론 ${st.inferMs.toFixed(1)})`);
+      fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; rateSteps = st.steps; decideMs = inferMs = decided = 0;
+    }
     $('stickL').classList.toggle('out', !inRange(sim.cmd)); $('keys').classList.toggle('out', !inRange(sim.cmd));
     requestAnimationFrame(frame);
   }
