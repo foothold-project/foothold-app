@@ -118,20 +118,24 @@ struct MoveSpec {
     std::size_t count;
     bool hold;            // dog sit: hold the last row until the next press
     float fall_gz;        // gravity z above this for move_fall_hold = fall (recorded range + margin)
+    double tau_scale;     // fraction of the recorded torque fed forward
+    float hip_kp;         // hip position gain (thigh and calf stay at Kp 60)
 };
 
 template <std::size_t N, std::size_t M>
 constexpr MoveSpec spec(const char* name, const std::array<MoveRow, N>* taps, const std::array<MoveRow, M>& body,
-                        bool hold, float fall_gz) {
-    return {name, taps ? taps->data() : nullptr, taps ? N : 0, body.data(), M, hold, fall_gz};
+                        bool hold, float fall_gz, double tau_scale = move_tau_scale, float hip_kp = 60) {
+    return {name, taps ? taps->data() : nullptr, taps ? N : 0, body.data(), M, hold, fall_gz, tau_scale, hip_kp};
 }
 
 MoveSpec move_spec(Move move) {
     switch (move) {
     case Move::dog_sit: return spec("DOG_SIT", &dog_taps, dog_sit_down, true, -.35f);
-    case Move::dog_rise: return spec<1>("DOG_RISE", nullptr, dog_rise, false, -.35f);
+    // 11/26 07:31: half torque let the FL hip sag under the 3-leg shake (fell left twice) and the
+    // rise roll 0.21 while the front feet stepped. These two use full recorded torque and hip Kp 100.
+    case Move::dog_rise: return spec<1>("DOG_RISE", nullptr, dog_rise, false, -.35f, 1., 100);
     case Move::stretch: return spec("STRETCH", &dog_taps, stretch_body, false, -.5f);
-    case Move::shake_hands: return spec("SHAKE_HANDS", &dog_taps, shake_body, false, -.5f);
+    case Move::shake_hands: return spec("SHAKE_HANDS", &dog_taps, shake_body, false, -.5f, 1., 100);
     case Move::love: return spec("LOVE", &dog_taps, love_body, false, .55f);
     case Move::greet: return spec("GREET", &dog_taps, greet_body, false, .55f);
     }
@@ -408,9 +412,11 @@ void Runner::run_move(Tick now, Tick scheduled, const LowState& state, const Vec
         frame.tau = lerp(spec.body[spec.count - 1].tau, Joints{}, smoothstep(settle / dog_settle));
         gain = std::clamp((settle - dog_settle) / dog_gain_ramp, 0., 1.);
     }
-    const auto tau = scaled_tau(frame.tau, move_tau_scale * (1 - gain));
+    const auto tau = scaled_tau(frame.tau, spec.tau_scale * (1 - gain));
     const auto position_gain = float(60 + (kp - 60) * gain), velocity_gain = float(5 + (kd - 5) * gain);
-    if (options_.live) robot_.send_ff(to_sdk(frame.q), to_sdk(frame.dq), to_sdk(tau), position_gain, velocity_gain);
+    const auto hip_gain = float(spec.hip_kp + (kp - spec.hip_kp) * gain);
+    if (options_.live)
+        robot_.send_ff(to_sdk(frame.q), to_sdk(frame.dq), to_sdk(tau), position_gain, velocity_gain, hip_gain);
     ++commands_;
     if (++transition_ticks_ % 4 == 0)
         observer_.sample({now, state, grav, {}, {}, {}, Mark::none, frame.q, phase_});

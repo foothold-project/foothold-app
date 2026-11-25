@@ -18,7 +18,8 @@ public:
     void recovery_stand() override;
     bool select_gait(Gait) override;
     void send(const Joints& q_sdk, float kp, float kd) override;
-    void send_ff(const Joints& q_sdk, const Joints& dq_sdk, const Joints& tau_sdk, float kp, float kd) override;
+    void send_ff(const Joints& q_sdk, const Joints& dq_sdk, const Joints& tau_sdk, float kp, float kd,
+                 float hip_kp) override;
     std::uint64_t writes() const;
 
 private:

@@ -57,9 +57,12 @@ public:
     virtual bool select_gait(Gait) = 0;
     virtual void send(const Joints& q_sdk, float kp, float kd) = 0;
     // Position + velocity targets with a torque feed-forward (factory move replay).
-    virtual void send_ff(const Joints& q_sdk, const Joints& dq_sdk, const Joints& tau_sdk, float kp, float kd) {
+    // hip_kp applies to the four hip joints (SDK indices 0, 3, 6, 9).
+    virtual void send_ff(const Joints& q_sdk, const Joints& dq_sdk, const Joints& tau_sdk, float kp, float kd,
+                         float hip_kp) {
         (void)dq_sdk;
         (void)tau_sdk;
+        (void)hip_kp;
         send(q_sdk, kp, kd);
     }
 };

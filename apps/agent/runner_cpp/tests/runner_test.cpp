@@ -58,12 +58,15 @@ struct FakeRobot final : Robot {
         position_gain = p;
         velocity_gain = d;
         last_tau = Joints{};
+        hip_gain = p;
     }
-    void send_ff(const Joints& q, const Joints&, const Joints& tau, float p, float d) override {
+    void send_ff(const Joints& q, const Joints&, const Joints& tau, float p, float d, float hip) override {
         send(q, p, d);
         last_tau = tau;
+        hip_gain = hip;
     }
     Joints last_tau{};
+    float hip_gain = 0;
 };
 
 struct FakeModes final : ModeExecutor {
@@ -504,6 +507,17 @@ int main() {
                 "stretch must return to policy");
         require(live.robot.position_gain == kp && live.robot.velocity_gain == kd, "policy gains after stretch");
         for (const auto x : live.robot.last_tau) require(x == 0, "no feed-forward torque after the move");
+    }
+    {
+        // Shake hands: full recorded torque and hip Kp 100 (11/26 07:31 fell left at half torque).
+        Rig live(true);
+        live.enter();
+        live.tick((1 << 4) | (1 << 9));
+        live.wait(1500ms);
+        require(live.runner.phase() == Phase::moving && live.robot.hip_gain == 100 &&
+                    live.robot.position_gain == 60, "shake must stiffen hips only");
+        live.wait(6s);
+        require(live.runner.phase() == Phase::policy && live.robot.hip_gain == kp, "shake must return to policy gains");
     }
     {
         // A sideways tip during a move damps and hands over to factory recovery.
