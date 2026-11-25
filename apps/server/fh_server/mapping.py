@@ -1,11 +1,14 @@
 """Owner-authorized SLAM sessions and observation uploads, independent of movement leases."""
 import asyncio
+from contextlib import contextmanager
 import json
 from pathlib import Path
+from threading import Event
+from time import monotonic
 from uuid import UUID, uuid4
 
 from fastapi import Query, Request, Response
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event as sql_event, func, select
 from typing import Annotated
 
 from apps.contracts import models as C
@@ -18,6 +21,38 @@ from . import mapping_voxels
 
 ACTIVE = ('STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'FAILED')
 PERSISTED = ('SAVED', 'RECEIVED_ONLY')
+
+
+@contextmanager
+def report_transaction(factory, deadline, cancelled):
+    """Bound SQL and flush/commit too: cancelling to_thread cannot stop its worker."""
+    def remaining_ms():
+        remaining = deadline - monotonic()
+        if remaining <= 0 or (cancelled is not None and cancelled.is_set()):
+            raise TimeoutError('Mapping report database deadline exceeded')
+        return max(1, int(remaining * 1000))
+
+    with factory() as db:
+        connection = db.connection()
+
+        def bound_statement(conn, cursor, statement, parameters, context, executemany):
+            # LOCAL resets at rollback/commit and cannot leak to a pooled session.
+            cursor.execute(f'SET LOCAL statement_timeout = {remaining_ms()}')
+
+        def before_commit(session):
+            # before_commit precedes SQLAlchemy's automatic flush. Check again
+            # after flushing so a slow flush cannot publish an expired report.
+            session.flush()
+            connection.exec_driver_sql(f'SET LOCAL statement_timeout = {remaining_ms()}')
+
+        sql_event.listen(connection, 'before_cursor_execute', bound_statement)
+        sql_event.listen(db, 'before_commit', before_commit)
+        try:
+            remaining_ms()
+            yield db
+        finally:
+            sql_event.remove(db, 'before_commit', before_commit)
+            sql_event.remove(connection, 'before_cursor_execute', bound_statement)
 
 
 def builtin(row):
@@ -151,11 +186,15 @@ class Mapping:
                 code=error.code, reason=error.message, received_at=now().isoformat())}
             db.commit()
 
-    def report(self, rid, msg):
+    def report(self, rid, msg, *, deadline=None, cancelled=None):
+        from .realtime import DB_READ_TIMEOUT
+        # Leave time for rollback and delivery before the outer read expires.
+        deadline = min(deadline if deadline is not None else float('inf'),
+            monotonic() + DB_READ_TIMEOUT * .75)
         if len(msg.model_dump_json(exclude_unset=True).encode()) > C.MAPPING_REPORT_BYTES:
             return
         from .api import lock_organization
-        with self.realtime.run_factory() as db:
+        with report_transaction(self.realtime.run_factory, deadline, cancelled) as db:
             lock_organization(db, self.realtime.settings.org_id)
             row = db.get(MappingSession, msg.session_id)
             if (row is None or row.org_id != self.realtime.settings.org_id
@@ -434,10 +473,15 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
             fail(422, 'VALIDATION', '지도 진행 자료 형식을 확인해 주세요.')
         if msg.session_id != session_id:
             fail(409, 'MAPPING_SESSION_MISMATCH', '지도 만들기 작업을 확인해 주세요.')
+        from .realtime import DB_READ_TIMEOUT
+        deadline, cancelled = monotonic() + DB_READ_TIMEOUT * .75, Event()
         def receive_report():
             app.state.realtime.agent_auth(request.headers)
-            mapping.report(rid, msg)
-        await app.state.realtime.read(receive_report)
+            mapping.report(rid, msg, deadline=deadline, cancelled=cancelled)
+        try:
+            await app.state.realtime.read(receive_report)
+        finally:
+            cancelled.set()
         return {'accepted': True}
 
     @app.post('/api/v1/agent/robots/{robot_id}/slam/{session_id}/point-cloud',

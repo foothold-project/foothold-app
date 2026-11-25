@@ -1,14 +1,17 @@
 """Live recovery uses persisted latest states; no robots or listening HTTP ports."""
 from alembic import command
 from alembic.config import Config
+from threading import Event
+from time import perf_counter, sleep
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from apps.contracts import models as C
 from apps.server.fh_server.api import Settings, create_app
+from apps.server.fh_server import mapping_voxels
 from apps.server.fh_server.models import MappingSession, MappingVoxel, MappingVoxelState, Robot, User
 from .conftest import CONFIG
 from .test_maps import P, auth, maps  # noqa: F401
@@ -196,6 +199,135 @@ def test_occupied_limit_real_500000_cells_is_atomic_and_records_reason(setup):
     with Session(engine) as db:
         assert db.scalar(select(func.count()).select_from(MappingVoxel)) == 1
         assert db.get(MappingVoxelState, initial['session_id']).cell_count == 1
+
+
+def test_full_session_2000_cell_reports_stay_below_one_second(setup):
+    s = setup
+    initial = start(s)
+    assert report(s, initial, voxels=delta(reset=True)).status_code == 202
+    with s[-1].begin() as conn:
+        conn.execute(text('''INSERT INTO mapping_voxels(org_id,session_id,x,y,z,seq,present)
+            SELECT org_id,id,i/1000,i%1000,0,1,true FROM mapping_sessions,
+            generate_series(0,499999) i WHERE id=:id'''), {'id': initial['session_id']})
+        conn.execute(text('UPDATE mapping_voxel_states SET cell_count=500000 WHERE session_id=:id'),
+            {'id': initial['session_id']})
+    existing = [(i // 1000, i % 1000, 0) for i in range(2000)]
+    fresh = [(1000 + i // 1000, i % 1000, 0) for i in range(2000)]
+    cases = [
+        ('existing', delta(2, added=existing), 202, 500000),
+        ('overflow', delta(3, added=fresh), 409, 500000),
+        ('removed', delta(4, removed=existing), 202, 498000),
+        ('new', delta(5, added=fresh), 202, 500000),
+    ]
+    for label, change, status, count in cases:
+        began = perf_counter()
+        response = report(s, initial, update_seq=change['seq'], voxels=change)
+        elapsed = perf_counter() - began
+        print(f'500000-cell session / 2000 {label}: {elapsed:.3f}s')
+        assert response.status_code == status, response.text
+        assert elapsed < 1.0, (label, elapsed)
+        with Session(s[-1]) as db:
+            state = db.get(MappingVoxelState, initial['session_id'])
+            assert state.cell_count == count
+            assert state.seq == (2 if label == 'overflow' else change['seq'])
+            rows = db.scalars(select(MappingVoxel).where(MappingVoxel.x < 2)).all()
+            assert len(rows) == 2000
+            assert all(row.seq == (4 if label in ('removed', 'new') else 1) for row in rows)
+            assert all(row.present == (label not in ('removed', 'new')) for row in rows)
+
+
+def test_http_timeout_cannot_commit_in_background_and_retry_succeeds(setup, monkeypatch):
+    s = setup
+    initial = start(s)
+    assert report(s, initial, voxels=delta(reset=True, added=[(1, 2, 3)])).status_code == 202
+    before = current(s)
+    changed, release, finished = Event(), Event(), Event()
+    accumulate, receive = mapping_voxels.accumulate, s[4].mapping.report
+
+    def paused_accumulate(*args):
+        result = accumulate(*args)
+        changed.set()  # geometry SQL has executed while the organization lock is held
+        assert release.wait(5)
+        return result
+
+    def receive_until_finished(*args, **kwargs):
+        try:
+            return receive(*args, **kwargs)
+        finally:
+            finished.set()
+
+    change = delta(2, removed=[(1, 2, 3)], added=[(4, 5, 6)])
+    with monkeypatch.context() as patch:
+        patch.setattr('apps.server.fh_server.realtime.DB_READ_TIMEOUT', .4)
+        patch.setattr(mapping_voxels, 'accumulate', paused_accumulate)
+        patch.setattr(s[4].mapping, 'report', receive_until_finished)
+        try:
+            with pytest.raises(TimeoutError):
+                report(s, initial, update_seq=2, voxels=change)
+            assert changed.is_set()
+        finally:
+            release.set()
+            assert finished.wait(3)
+    assert current(s) == before
+    assert cells(get(s, initial).json()) == {(1, 2, 3): 1}
+    with s[-1].begin() as conn:
+        conn.execute(text("SET LOCAL lock_timeout = '200ms'"))
+        conn.execute(text('SELECT id FROM organizations FOR NO KEY UPDATE'))
+    assert report(s, initial, update_seq=2, voxels=change).status_code == 202
+    assert cells(get(s, initial, since=1).json()) == {(4, 5, 6): 2}
+    assert cells(get(s, initial, since=1).json(), 'removed') == {(1, 2, 3): 2}
+
+
+def test_slow_sql_is_cancelled_and_rolls_back_geometry_and_progress(setup, monkeypatch):
+    s = setup
+    initial = start(s)
+    assert report(s, initial, voxels=delta(reset=True, added=[(1, 2, 3)])).status_code == 202
+    before = current(s)
+    accumulate = mapping_voxels.accumulate
+
+    def slow_accumulate(db, *args):
+        result = accumulate(db, *args)
+        db.execute(text('SELECT pg_sleep(2)'))
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr('apps.server.fh_server.realtime.DB_READ_TIMEOUT', .4)
+        patch.setattr(mapping_voxels, 'accumulate', slow_accumulate)
+        began = perf_counter()
+        response = report(s, initial, update_seq=2, voxels=delta(2, added=[(4, 5, 6)]))
+        assert response.status_code == 500
+        assert perf_counter() - began < .4
+    assert current(s) == before
+    assert cells(get(s, initial).json()) == {(1, 2, 3): 1}
+    with s[4].run_factory() as db:
+        assert db.scalar(text('SHOW statement_timeout')) == '2s'
+
+
+def test_worker_deadline_rechecks_after_flush_before_commit(setup, monkeypatch):
+    s = setup
+    initial = start(s)
+    assert report(s, initial, voxels=delta(reset=True, added=[(1, 2, 3)])).status_code == 202
+    before = current(s)
+    rt = s[4]
+    msg = C.AgentMappingUpdate.model_validate(dict(t='slam.update',
+        session_id=initial['session_id'], floor_id=s[2], command_id=initial['command_id'],
+        status='RUNNING', phase='STARTED', revision=1, update_seq=2,
+        voxels=delta(2, removed=[(1, 2, 3)], added=[(4, 5, 6)])))
+
+    def slow_flush(db, context):
+        if db.bind is rt.run_engine and any(isinstance(row, MappingSession) for row in db.dirty):
+            sleep(.4)  # all geometry and progress SQL succeeded, but COMMIT has not run
+
+    event.listen(Session, 'after_flush', slow_flush)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr('apps.server.fh_server.realtime.DB_READ_TIMEOUT', .4)
+            with pytest.raises(TimeoutError):
+                rt.mapping.report(s[3], msg)
+    finally:
+        event.remove(Session, 'after_flush', slow_flush)
+    assert current(s) == before
+    assert cells(get(s, initial).json()) == {(1, 2, 3): 1}
 
 
 def test_migration_preserves_history_and_refuses_lossy_downgrade(setup, seeded, monkeypatch):
