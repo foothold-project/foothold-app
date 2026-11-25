@@ -8,8 +8,13 @@ import { QEmpty } from './quad';
 /** 처음 보이는 범위(로봇 둘레 ±m) · 확대 한계(화면 px / m) */
 const SPAN_M = 6, K_MIN = 4, K_MAX = 400;
 /** 칸 색(화소 ABGR): 모름 회색 · 빈 바닥 흰색 · 벽 검정 */
-const RGB = [[158, 158, 158], [255, 255, 255], [20, 20, 26]], COL = Uint32Array.from(RGB, ([r, g, b]) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0);
+export const RGB = [[158, 158, 158], [255, 255, 255], [20, 20, 26]], COL = Uint32Array.from(RGB, ([r, g, b]) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0);
 const css = (c: number[]) => `rgb(${c.join(',')})`;
+/** 칸 색 범례(빈 바닥·벽·물건·아직 못 본 곳) — 지도 만들기(screens/slammap.tsx)도 같은 것 */
+export const OccLegend = () => <div className="qd-legend" aria-label="지도 범례" data-occ-legend>
+  {(['빈 바닥', '벽·물건', '아직 못 본 곳'] as const).map((t, i) =>
+    <span key={t} style={{ marginRight: 8, whiteSpace: 'nowrap' }}><i style={{ display: 'inline-block', width: 9, height: 9, marginRight: 3, verticalAlign: -1, background: css(RGB[(i + 1) % 3]), border: '1px solid rgba(255,255,255,.5)' }} />{t}</span>)}
+</div>;
 
 /** small = 작은 칸(그림만 — 단추·범례 없음) */
 export function OccMap({ feed, empty, small = false }: { feed: DriveFeed; empty: string; small?: boolean }) {
@@ -91,9 +96,6 @@ export function OccMap({ feed, empty, small = false }: { feed: DriveFeed; empty:
       <button type="button" className="btn" data-occ-wipe onClick={() => feed.wipe()}>처음부터 다시</button></div>}
     {free && !small && <button type="button" className="btn" data-occ-back style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={back}>로봇 위치로</button>}
     {empty && (known ? <div className="qd-legend" role="status" style={{ right: 'auto', left: 8, top: 52, bottom: 'auto' }}>{empty}</div> : <QEmpty text={empty} />)}
-    {!small && <div className="qd-legend" aria-label="지도 범례" data-occ-legend>
-      {(['빈 바닥', '벽·물건', '아직 못 본 곳'] as const).map((t, i) =>
-        <span key={t} style={{ marginRight: 8, whiteSpace: 'nowrap' }}><i style={{ display: 'inline-block', width: 9, height: 9, marginRight: 3, verticalAlign: -1, background: css(RGB[(i + 1) % 3]), border: '1px solid rgba(255,255,255,.5)' }} />{t}</span>)}
-    </div>}
+    {!small && <OccLegend />}
   </div>;
 }

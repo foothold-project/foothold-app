@@ -508,14 +508,13 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(tile('map').querySelector('.qh [data-feed-held]')).toBeNull();   // 작아진 지도 칸 머리줄엔 없음
   });
 
-  // RV-461 1: PC 기본 조종 화면도 큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기(서버 경유 화면과 같게) — 작은 칸엔 없음
-  it('큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기, 작은 칸엔 없음', () => {
+  // 11-25 RB-SLAM-WEB2: «로봇 지도»(Unitree 내장 지도) 고르기 없앰 — 큰 라이다 칸도 우리 라이다 그림만, 로봇 지도 자료 연결 없음
+  it('큰 라이다 칸에 «우리 지도 / 로봇 지도» 고르기가 없다(로봇 지도 자료도 받지 않음)', () => {
     mount('u-park'); serve('r7');
-    expect(tile('lidar').querySelector('[data-pick]')).toBeNull();
     click(tile('lidar').querySelector('.qh')!);
-    expect(tile('lidar').querySelector('[data-pick="ours"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(tile('lidar').querySelector('[data-lidar-map]')).not.toBeNull();
-    expect((tile('lidar').querySelector('[data-pick="robot"]') as HTMLButtonElement).disabled).toBe(true);   // 로봇 지도 점이 오기 전
+    expect(tile('lidar').querySelector('[data-pick]')).toBeNull();
+    expect(FakeWS.all.some((w) => /drive-media\/slam/.test(w.url))).toBe(false);
   });
 
   // RV-440 ③: 1440×900 실측에서 보통 보기는 «전체화면» 단추(.qfs-bar right 44px)가, 전체화면은 첫 작은 칸(--tw)이 머리줄 표시를 가렸다 — 그 자리를 비워 둔다

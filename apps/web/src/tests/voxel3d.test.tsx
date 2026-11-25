@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it } from 'vitest';
-import '../serverdrive';   // 앱처럼 조종 화면 쪽을 먼저 — voxelmap ↔ slamview 순환 import 에서 voxel3d 를 맨 먼저 부르면 hueAt 이 아직 없다(앱은 voxel3d 를 동적 import)
+import '../serverdrive';   // 앱처럼 조종 화면 쪽을 먼저(앱은 voxel3d 를 동적 import)
 import Voxel3D, { type Props } from '../screens/voxel3d';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
