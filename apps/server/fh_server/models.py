@@ -754,6 +754,38 @@ class MappingSession(Tenant, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class MappingVoxelState(Tenant, Base):
+    __tablename__ = 'mapping_voxel_states'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'session_id'], ['mapping_sessions.org_id', 'mapping_sessions.id'], ondelete='CASCADE'),
+        CheckConstraint('revision > 0 AND seq > 0 AND reset_seq > 0 AND reset_seq <= seq', name='mapping_voxel_state_seq'),
+        CheckConstraint('cell_count >= 0 AND cell_count <= 500000', name='mapping_voxel_count'),
+    )
+    session_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    revision: Mapped[int] = mapped_column(BigInteger)
+    seq: Mapped[int] = mapped_column(BigInteger)
+    reset_seq: Mapped[int] = mapped_column(BigInteger)
+    frame_id: Mapped[str] = mapped_column(Text)
+    cell_count: Mapped[int] = mapped_column(Integer)
+
+
+class MappingVoxel(Tenant, Base):
+    """Current occupied cells and removal tombstones since the latest reset."""
+    __tablename__ = 'mapping_voxels'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'session_id'], ['mapping_sessions.org_id', 'mapping_sessions.id'], ondelete='CASCADE'),
+        CheckConstraint('seq > 0', name='mapping_voxel_seq'),
+        CheckConstraint('x BETWEEN -200000 AND 200000 AND y BETWEEN -200000 AND 200000 AND z BETWEEN -200000 AND 200000', name='mapping_voxel_coordinates'),
+        Index('mapping_voxel_changes', 'org_id', 'session_id', 'seq'),
+    )
+    session_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    x: Mapped[int] = mapped_column(Integer, primary_key=True)
+    y: Mapped[int] = mapped_column(Integer, primary_key=True)
+    z: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seq: Mapped[int] = mapped_column(BigInteger)
+    present: Mapped[bool] = mapped_column(Boolean)
+
+
 class MappingTile(Tenant, Base):
     __tablename__ = 'mapping_tiles'
     __table_args__ = (

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from apps.contracts import models as C
 from apps.server.fh_server.api import Settings, create_app
 from apps.server.fh_server.models import MappingSession, Robot, User, now
 from apps.server.fh_server.security import digest
@@ -35,7 +36,7 @@ def mapping_wire(seeded, tmp_path):
         engine.dispose()
 
 
-@pytest.mark.parametrize('rejection', ['source', 'owner', 'locked', 'legacy_owner'])
+@pytest.mark.parametrize('rejection', ['source', 'owner', 'locked', 'legacy_owner', 'voxel_limit'])
 def test_rejected_slam_report_keeps_agent_control_stop_and_state(mapping_wire, seeded, monkeypatch, rejection):
     http, headers, floor, rid, engine = mapping_wire
     rt = http.app.state.realtime
@@ -63,6 +64,10 @@ def test_rejected_slam_report_keeps_agent_control_stop_and_state(mapping_wire, s
         if rejection == 'source':
             message['odom'] = dict(provider='glim', source='/synthetic/pose', frame_id='world_map',
                 stamp=dict(sec=123, nanosec=456), x=0, y=0, z=0, yaw=0)
+        elif rejection == 'voxel_limit':
+            monkeypatch.setattr(C, 'MAPPING_VOXEL_CELLS', 1)
+            message['voxels'] = dict(revision=1, seq=1, reset=True, frame_id='world_map',
+                added=[[0, 0, 0], [1, 0, 0]])
         else:
             with Session(engine) as db:
                 if rejection == 'locked':
@@ -70,14 +75,19 @@ def test_rejected_slam_report_keeps_agent_control_stop_and_state(mapping_wire, s
                 else:
                     db.get(Robot, rid).owner_user_id = seeded['users']['two']
                 db.commit()
-        expected_code = 'MAPPING_SOURCE_CONFLICT' if rejection == 'source' else 'MAPPING_OWNER_ONLY'
+        expected_code = ('MAPPING_SOURCE_CONFLICT' if rejection == 'source' else
+            'MAPPING_VOXEL_LIMIT' if rejection == 'voxel_limit' else 'MAPPING_OWNER_ONLY')
         # REST continues to expose the actual policy rejection to its caller.
         denied = http.post(P + f'/agent/robots/{rid}/slam/{initial["session_id"]}/progress',
             headers={'authorization': 'Bearer synthetic-mapping-ws'}, json=message)
-        assert denied.status_code == (409 if rejection == 'source' else 403)
+        assert denied.status_code == (409 if rejection in ('source', 'voxel_limit') else 403)
         assert denied.json()['error']['code'] == expected_code
         with Session(engine) as db:
-            assert not db.get(MappingSession, initial['session_id']).progress.get('last_report_rejection')
+            diagnostic = db.get(MappingSession, initial['session_id']).progress.get('last_report_rejection')
+            if rejection == 'voxel_limit':
+                assert diagnostic['code'] == expected_code
+            else:
+                assert not diagnostic
         ag.send_json(message)
         assert recorded.wait(3), 'WS report rejection was not persisted'
         with Session(engine) as db:

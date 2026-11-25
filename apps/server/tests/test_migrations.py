@@ -76,6 +76,7 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
             command.upgrade(config, 'head')
             expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'assignments', 'idempotency_receipts', 'phone_passes', 'phone_revocations', 'phone_revocation_batches', 'phone_pass_denials', 'alembic_version', 'runs', 'run_steps', 'run_reports', 'run_report_rejections', 'agent_plan_maps', 'photos', 'pairings', 'pairing_rates', 'file_deletions', 'terrains', 'mapping_sessions'}
             expected.add('mapping_tiles')
+            expected.update({'mapping_voxel_states', 'mapping_voxels'})
             assert set(inspect(engine).get_table_names()) == expected
             command.downgrade(config, 'base')
             assert set(inspect(engine).get_table_names()) == {'alembic_version'}

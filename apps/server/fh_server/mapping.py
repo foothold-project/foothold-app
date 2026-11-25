@@ -14,6 +14,7 @@ from .models import Building, Floor, MappingSession, MappingTile, Robot, Site, U
 from .maps import upload_work
 from .voxel_files import MAX_BYTES, PointCloudError, convert
 from .voxel_maps import publish_cloud
+from . import mapping_voxels
 
 ACTIVE = ('STARTING', 'RUNNING', 'SAVING', 'FINALIZING', 'UNKNOWN', 'FAILED')
 PERSISTED = ('SAVED', 'RECEIVED_ONLY')
@@ -229,6 +230,8 @@ class Mapping:
                     heights.append(msg.grid.floor_z)
                 if (len(set(heights)) > 1 or (not new_revision and anchor and heights and anchor.floor_z != heights[0])):
                     return
+                if not mapping_voxels.accumulate(db, row, msg.voxels, new_revision, self.fail):
+                    return
                 if new_revision:
                     db.execute(delete(MappingTile).where(MappingTile.session_id == row.id,
                         MappingTile.org_id == row.org_id))
@@ -360,6 +363,18 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
             tiles=[C.MappingGridTile(revision=r.revision, tile_seq=r.tile_seq, x=r.x, y=r.y,
                 frame_id=r.frame_id, floor_z=r.floor_z, cells=list(r.cells)) for r in rows[:4]],
             next_cursor=(rows[3].x + 3125) * 6250 + rows[3].y + 3126 if len(rows) > 4 else None)
+
+    @app.get('/api/v1/robots/{robot_id}/slam/{session_id}/voxels', response_model=C.MappingVoxelPage)
+    def voxels(robot_id: UUID, session_id: UUID, response: Response, db: DB, auth: Identity,
+               revision: Annotated[int, Query(ge=1, le=C.MAX_SAFE_INTEGER)],
+               since: Annotated[int, Query(ge=0, le=C.MAX_SAFE_INTEGER)] = 0,
+               cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None):
+        lock_organization(db, settings.org_id)
+        row = selected(db, robot_id, session_id, auth[0], bind_owner=False)
+        if revision != (row.progress or {}).get('revision'):
+            fail(409, 'MAPPING_REVISION_CONFLICT', '지도 판이 바뀌었습니다. 처음부터 다시 받아 주세요.')
+        response.headers['Cache-Control'] = 'private, no-store'
+        return mapping_voxels.page(db, row, revision, since, cursor, fail)
 
     @app.post('/api/v1/robots/{robot_id}/slam/save', status_code=202, response_model=C.MappingProgress)
     async def save(robot_id: UUID, body: C.MappingAction, db: DB, auth: Identity):

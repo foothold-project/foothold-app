@@ -1036,6 +1036,24 @@ export interface MappingTimes {
   saved_at?: string | null;
 }
 
+export interface MappingVoxelChange {
+  cell: [number, number, number];
+  seq: number;
+}
+
+export interface MappingVoxelPage {
+  session_id: string;
+  revision: number;
+  seq: number;
+  reset: boolean;
+  reset_seq: number;
+  resolution: 0.05;
+  frame_id: string | null;
+  added: MappingVoxelChange[];
+  removed: MappingVoxelChange[];
+  next_cursor: string | null;
+}
+
 export interface MappingVoxels {
   revision: number;
   seq: number;

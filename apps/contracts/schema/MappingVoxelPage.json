@@ -1,0 +1,137 @@
+{
+  "$defs": {
+    "MappingVoxelChange": {
+      "additionalProperties": false,
+      "properties": {
+        "cell": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "maximum": 200000,
+              "minimum": -200000,
+              "type": "integer"
+            },
+            {
+              "maximum": 200000,
+              "minimum": -200000,
+              "type": "integer"
+            },
+            {
+              "maximum": 200000,
+              "minimum": -200000,
+              "type": "integer"
+            }
+          ],
+          "title": "Cell",
+          "type": "array"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cell",
+        "seq"
+      ],
+      "title": "MappingVoxelChange",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MappingVoxelPage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Latest cell states, not an event log; since uses revision-local voxel seq.",
+  "properties": {
+    "added": {
+      "items": {
+        "$ref": "#/$defs/MappingVoxelChange"
+      },
+      "maxItems": 512,
+      "title": "Added",
+      "type": "array"
+    },
+    "frame_id": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Frame Id"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "removed": {
+      "items": {
+        "$ref": "#/$defs/MappingVoxelChange"
+      },
+      "maxItems": 512,
+      "title": "Removed",
+      "type": "array"
+    },
+    "reset": {
+      "title": "Reset",
+      "type": "boolean"
+    },
+    "reset_seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Reset Seq",
+      "type": "integer"
+    },
+    "resolution": {
+      "const": 0.05,
+      "default": 0.05,
+      "title": "Resolution",
+      "type": "number"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "revision",
+    "seq",
+    "reset",
+    "reset_seq",
+    "resolution",
+    "frame_id",
+    "added",
+    "removed",
+    "next_cursor"
+  ],
+  "title": "MappingVoxelPage",
+  "type": "object"
+}

@@ -1118,6 +1118,9 @@ class MappingPreview(Contract):
 
 MAPPING_REPORT_BYTES = 65536
 MAPPING_DELTA_CELLS = 2000
+MAPPING_VOXEL_CELLS = 500_000
+MAPPING_VOXEL_PAGE_CELLS = 512
+MAPPING_VOXEL_PAGE_BYTES = 65_536
 MAPPING_BUNDLE_BYTES = 50 * 1024 * 1024
 MappingPhase = Literal['START_REQUESTED', 'STARTED', 'SAVE_REQUESTED', 'SLAM_SAVED', 'UNKNOWN', 'FAILED']
 MappingIndex = Annotated[int, Field(strict=True, ge=-200000, le=200000)]
@@ -1157,6 +1160,33 @@ class MappingVoxels(Contract):
     def bounded(self):
         if len(self.added) + len(self.removed) > MAPPING_DELTA_CELLS:
             raise ValueError('At most 2000 changed voxel cells')
+        return self
+
+
+class MappingVoxelChange(Contract):
+    cell: MappingCell
+    seq: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+
+
+class MappingVoxelPage(Contract):
+    """Latest cell states, not an event log; since uses revision-local voxel seq."""
+    session_id: UUID
+    revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    seq: int = Field(ge=0, le=MAX_SAFE_INTEGER, strict=True)
+    reset: bool
+    reset_seq: int = Field(ge=0, le=MAX_SAFE_INTEGER, strict=True)
+    resolution: Literal[0.05] = 0.05
+    frame_id: str | None = Field(max_length=80)
+    added: list[MappingVoxelChange] = Field(max_length=MAPPING_VOXEL_PAGE_CELLS)
+    removed: list[MappingVoxelChange] = Field(max_length=MAPPING_VOXEL_PAGE_CELLS)
+    next_cursor: str | None = Field(max_length=1024)
+
+    @model_validator(mode='after')
+    def bounded(self):
+        if len(self.added) + len(self.removed) > MAPPING_VOXEL_PAGE_CELLS:
+            raise ValueError('Voxel page exceeds cell limit')
+        if len(self.model_dump_json().encode()) > MAPPING_VOXEL_PAGE_BYTES:
+            raise ValueError('Voxel page exceeds byte limit')
         return self
 
 
@@ -1228,7 +1258,7 @@ class MappingBundle(Contract):
     revision: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
     frame_id: str = Field(min_length=1, max_length=80)
     resolution: Literal[0.05] = 0.05
-    voxels: list[MappingCell] = Field(min_length=1, max_length=500_000)
+    voxels: list[MappingCell] = Field(min_length=1, max_length=MAPPING_VOXEL_CELLS)
     grid: MappingGrid
     slam_save: Literal['SLAM_SAVED', 'UNKNOWN', 'FAILED']
     times: MappingTimes | None = None
