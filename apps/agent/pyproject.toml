@@ -14,6 +14,7 @@ slam = ["numpy==1.26.4"]
 test = ["pytest>=7"]
 setup = ["websockets==15.0.1", "qrcode==8.2"]
 link = ["websockets==15.0.1"]
+demo = ["PyYAML==6.0.1", "websockets==15.0.1"]
 discovery = ["zeroconf==0.148.0"]
 depth = ["cyclonedds==0.10.2", "numpy==1.26.4", "opencv-python==4.10.0.84"]
 go2-readonly = [
