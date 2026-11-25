@@ -226,9 +226,46 @@ int main() {
         require(dry.runner.phase() == Phase::high, "factory gait return failed");
         require(dry.robot.calls == 0 && dry.robot.writes == 0, "dry-run accessed a write path");
         require(dry.events.ordered({Event::mode_low, Event::policy_start, Event::sit_down,
-                                    Event::damping, Event::stand_fold, Event::policy_start, Event::damping,
+                                    Event::damping, Event::policy_start, Event::damping,
                                     Event::factory_handover, Event::mode_high, Event::factory_gait}),
                 "remote event order differs from Python");
+    }
+    {
+        // 11/25 real robot: L2+A from a sitting pose must stand at once, and a second
+        // L2+A while standing up must not sit it back down.
+        Rig dry(false);
+        dry.enter();
+        dry.tick(lie);
+        dry.wait(2s, lie);
+        require(dry.runner.phase() == Phase::damping, "L2+A sit did not reach damping");
+        dry.state.q = to_sdk(sit_pose);
+        dry.tick();
+        const auto folds = std::count(dry.events.seen.begin(), dry.events.seen.end(), Event::stand_fold);
+        dry.tick(lie);
+        dry.wait(100ms, lie);
+        require(std::count(dry.events.seen.begin(), dry.events.seen.end(), Event::stand_fold) == folds, "sitting restand must skip the fold");
+        dry.tick();
+        dry.tick(lie);
+        dry.wait(100ms, lie);
+        require(dry.runner.phase() != Phase::sitting && dry.runner.phase() != Phase::damping,
+                "L2+A while standing up must be ignored");
+        dry.tick();
+        dry.wait(4500ms);
+        require(dry.runner.phase() == Phase::policy, "sitting restand did not reach policy");
+    }
+    {
+        Rig dry(false);
+        dry.enter();
+        dry.tick(lie);
+        dry.wait(2s, lie);
+        auto flat = sit_pose;
+        for (std::size_t i = 8; i < 12; ++i) flat[i] = -1.f;  // calves stretched: lying flat
+        dry.state.q = to_sdk(flat);
+        dry.tick();
+        dry.tick(lie);
+        dry.wait(100ms, lie);
+        require(std::count(dry.events.seen.begin(), dry.events.seen.end(), Event::stand_fold) == 1,
+                "restand from a flat pose must fold first");
     }
     {
         Rig live(true);

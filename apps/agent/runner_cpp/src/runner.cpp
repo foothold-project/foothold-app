@@ -194,8 +194,12 @@ void Runner::acquire(Tick now, const Joints& q, bool interrupted) {
         }
         from_ = q;
         started_ = now;
-        phase_ = restand_ ? Phase::folding : Phase::standing;
-        if (restand_) observer_.event(now, Event::stand_fold, {nullptr, 1.});
+        // Already sitting (L2+A sit): stand straight up. Fold only from a flat damped pose.
+        float sit_gap = 0.f;
+        for (std::size_t i = 0; i < q.size(); ++i) sit_gap = std::max(sit_gap, std::abs(q[i] - sit_pose[i]));
+        const bool fold = restand_ && sit_gap > .25f;
+        phase_ = fold ? Phase::folding : Phase::standing;
+        if (fold) observer_.event(now, Event::stand_fold, {nullptr, 1.});
     } else if (abort_acquire_) {
         observer_.event(now, Event::mode_low_failed);
         if (result->mode == RobotMode::factory) complete_return(now);
@@ -506,7 +510,8 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     if (lie && !lie_latched_) {
         lie_latched_ = true;
         if (phase_ == Phase::damping) { start(now, q, grav); return; }
-        if (active) { sit(now, q, false); return; }
+        // While standing up, L2+A is ignored (L2+B still damps). Sit only from policy.
+        if (phase_ == Phase::policy) { sit(now, q, false); return; }
     }
     if ((phase_ == Phase::high || phase_ == Phase::damping) &&
         pressed(keys, start_button | up_button)) {
