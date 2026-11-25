@@ -39,6 +39,7 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             await asyncio.sleep(.02)
         clients = sdk.connect(env, observed_serial=feedback.serial, channel=channel)
         sink = Go2Sink(*clients, phone_watchdog=True)
+        sink.posture_feedback = feedback.posture_snapshot
         feedback.sink = sink
         sink.start_threads()
         phone_sink = PhoneSink(sink)
