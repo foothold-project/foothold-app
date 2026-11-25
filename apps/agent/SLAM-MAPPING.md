@@ -30,6 +30,27 @@ ROS 토픽은 기존 관측 DDS participant에서 `rt/` 이름으로 받는다. 
 
 `foothold-robot`·`foothold-policy-cpp`·`foothold-depth`는 두 설정 어디에 넣어도 초기화 오류로 기록하고 거부한다(`.service` 접미사 포함). 서비스 조회·시작·종료는 수행하지 않는다.
 
+## 선택적 라이다·IMU 원본 녹화
+
+`point_lio` 새 세션에만 적용한다. `FH_MAPPING_RAW_RECORD_ENABLED=true`와 기존 서비스 조작 설정이 모두 켜져 있고, 이 agent가 두 지도 서비스를 시작해 소유한 것을 확인한 뒤 녹화를 시작한다. 이미 실행 중이던 서비스가 하나라도 있으면 `services_not_owned`로 건너뛴다. 기본 꺼짐이며 구형 PCD 경로는 적용 대상이 아니다. ROS 2와 `rosbag2` sqlite3 플러그인, `taskset`, `nice`가 agent 실행 환경에서 사용 가능해야 한다. ROS overlay·도메인·RMW 설정도 실행 환경을 그대로 상속한다.
+
+| 설정 | 기본값 / 의미 |
+|---|---|
+| `FH_MAPPING_RAW_RECORD_ENABLED` | `false`; 명시적 `true`일 때만 시도 |
+| `FH_MAPPING_RAW_CLOUD_TOPIC` | `/utlidar/cloud`; 원본 LiDAR ROS 토픽 |
+| `FH_MAPPING_RAW_IMU_TOPIC` | `/utlidar/imu`; 원본 IMU ROS 토픽 |
+| `FH_MAPPING_RAW_RECORD_DIR` | `~/foothold-slam/sessions`; 세션별 `map-<session UUID>/raw/`에 sqlite3 rosbag, 옆 `recorder.log`에 recorder 출력 |
+
+안전 기준은 고정으로 **한 세션 2 GB(2,000,000,000 bytes)**, 시작 전 **남은 공간 10 GB(10,000,000,000 bytes) 이상**이다. 부족하면 세션 폴더를 만들지 않고 건너뛴다. bag·sidecar·recorder 로그의 파일 크기를 전용 스레드에서 250 ms마다 합산하고 상한에 도달하면 녹화만 멈춘다. 검사 간격 동안의 쓰기와 SIGINT 후 sqlite3 정리 때문에 최종 크기는 2 GB를 조금 넘을 수 있다. 디스크 하드 쿼터가 아니다. 같은 세션 폴더가 이미 있으면 덮어쓰지 않고 `session_path_exists`로 건너뛴다.
+
+`ros2 bag record --storage sqlite3`는 별도 프로세스 그룹에서 CPU 0–3·nice 10으로 실행한다. 저장 요청·취소·관측 인증/기체 확인/연결 조건 상실·세션 교체·agent 정상 종료에서 우리가 시작한 그룹에만 SIGINT를 보낸다. 연결 조건 상실 때 녹화는 즉시 종료 요청하며 지도 서비스의 기존 10초 유예와 별개다. 종료 정리와 `wait`도 전용 스레드에서 수행하며 느린 flush 동안 다음 녹화를 시작하지 않는다. agent 비동기 작업 종료에서는 이벤트 루프를 막지 않고 최대 10초간 녹화 작업자 정리를 기다린다. SIGINT가 지연되면 `sigint_flush_pending`을 로그로 알리고 강제 종료하지 않는다. 10초 넘게 끝나지 않는 recorder, agent 프로세스 강제 종료나 전원 차단은 정상 종료를 보장하지 않는다.
+
+녹화 실패·상한·공간 부족이 지도 상태나 서비스 생명주기를 바꾸지는 않는다. 기존 progress `reason`(최대 200자)에 녹화 상태·사유·현재 bytes를 덧붙이고, `SLAM_RAW` 로그에는 session_id·경로·bytes·상태를 남긴다. 진행 중 크기는 약 10초마다, 종료 때 최종 크기를 기록한다. bundle 계약을 확장하지 않으며 원본을 서버로 업로드하지 않는다. 녹화가 끝나도 지도 세션이 진행 중이면 상태가 계속 보인다.
+
+**자동 삭제는 하지 않는다.** 저장 성공·취소·실패에도 원본 폴더는 보존한다. 로컬 목록·크기는 `du -sh ~/foothold-slam/sessions/map-*/`로 확인할 수 있다(저장 위치를 바꿨으면 해당 경로 사용). 재처리는 로그의 session_id·경로와 bag 안의 metadata를 기준으로 별도 승인된 절차에서 진행하며, 실제 센서 토픽에 임의 재생하지 않는다.
+
+되돌릴 때는 다음 실행의 `FH_MAPPING_RAW_RECORD_ENABLED=false`로 녹화를 끄거나 이 변경 커밋을 revert한 agent를 기존 배포 절차로 적용한다. 실행 중인 세션은 먼저 저장/취소 또는 agent 정상 종료로 SIGINT 정리를 거친다. 기존 녹화 폴더는 그대로 보존한다.
+
 ## 5 cm 계산과 전달
 
 `WorldAccumulator`는 기존 세션/저장 core를 확장한다. 칸 = `floor(XYZ/.05)`, 중심 = `(index+.5)*.05`이며 음수 좌표도 같다. live는 판당 최대 8,000점으로 고르게 솎고 30 ms 계산 예산을 작은 묶음마다 확인한다. 운영체제 스케줄링까지 포함한 실시간 보장은 아니다.
@@ -53,6 +74,7 @@ npm exec --yes --package=typescript@5.7.3 -- tsc apps/web/src/occgrid.ts --targe
 FH_OCCGRID_JS=/tmp/slam-reference/occgrid.js PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_slam_mapping.py
 PYTHONPATH=apps/agent python3 apps/agent/tools/benchmark_slam.py
 PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests
+PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_raw_recording.py
 ```
 
 계약 통합 전에는 PR #476의 models.py·mapping_sources.py를 같은 임시 폴더에 추출하고 `FH_SLAM_CONTRACT_MODULE`을 지정한다. 모의 시험은 실제 웹 코드와 전체 Int8 격자 동등성, 음수 좌표, 최종 판 교체, tile 분할/재시도, 기본 서비스 발행 0, 소유한 서비스만 종료, 느린 서비스/HTTP/계산 중 STOP을 검사한다. 실제 DDS나 systemctl은 실행하지 않는다.
