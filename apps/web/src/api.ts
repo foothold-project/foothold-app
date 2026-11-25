@@ -1,10 +1,14 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFeatures, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, RobotInstallerInfo, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport, MappingProgress } from '../../contracts/ts';
+import type { Action, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, ExternalCameraViewRequest, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFeatures, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PairingClaimed, PasswordChange, RobotInstallerInfo, PhonePassRequest, PhonePassResponse, RobotOwnerCandidate, RobotPatch, RobotSummary, RunHistory, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, Terrain, TerrainWrite, TrashItem, TrashList, User, UserCreate, UserPatch, VoxelCells, VoxelMapImport, MappingProgress, MappingStart, MappingTilePage, MappingBundleLink, MappingGrid, MappingOdom } from '../../contracts/ts';
 
 // 구역 지키기 1차(RB-ZONE-WEB 11-12) — 타입은 계약 생성물 그대로(정본 apps/server/ZONES.md)
 export type { ScenarioMapUpdate as MapUpdate, ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
 import type { ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
+
+/** 저장된 지도 묶음 설명(서버 mapping_storage.py manifest — 계약 생성 타입 없음, 웹이 쓰는 칸만) */
+export type SlamManifest = Pick<MappingBundleLink, 'session_id' | 'source' | 'revision' | 'slam_save' | 'completeness'> & {
+  voxel_count: number; floor_z: number; grid: Omit<MappingGrid, 'cells'>; odom: MappingOdom | null };
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -179,8 +183,16 @@ export const api = {
   simTwin: (id: string, cancel?: AbortSignal) => call<SimTwin>('GET', `/map-versions/${encodeURIComponent(id)}/simulation-twin`, undefined, { cancel, ms: 10_000 }),
   /** 로봇으로 지도 만들기(apps/server/MAPPING.md) — 담당 운영자만(남은 403 MAPPING_OWNER_ONLY). 진행은 1초마다 slam() 으로(없으면 null) */
   slam: (robot: string, cancel?: AbortSignal) => call<MappingProgress | null>('GET', `/robots/${encodeURIComponent(robot)}/slam`, undefined, { cancel, ms: 10_000 }),
-  slamDo: (robot: string, op: 'start' | 'save' | 'cancel', body: { floor_id: string } | { session_id: string }, cancel?: AbortSignal) =>
+  slamDo: (robot: string, op: 'start' | 'save' | 'cancel', body: MappingStart | { session_id: string }, cancel?: AbortSignal) =>
     call<MappingProgress>('POST', `/robots/${encodeURIComponent(robot)}/slam/${op}`, body, { cancel, ms: 20_000 }),
+  /** 진행 중 2D 조각(apps/server/SLAM-CONTRACT.md tiles) — 한 쪽 4조각, next_cursor null = 끝. 판(revision)이 바뀌었으면 409 */
+  slamTiles: (robot: string, session: string, revision: number, cursor: number, since: number, cancel?: AbortSignal) =>
+    call<MappingTilePage>('GET', `/robots/${encodeURIComponent(robot)}/slam/${encodeURIComponent(session)}/tiles?revision=${revision}&cursor=${cursor}&since=${since}`, undefined, { cancel, ms: 10_000 }),
+  /** 저장된 지도 묶음 설명(manifest) · 3D 칸(int32 LE x·y·z) · 2D 격자(칸마다 1바이트) — 담당 운영자만 */
+  slamBundle: (robot: string, session: string, cancel?: AbortSignal) =>
+    call<{ bundle: SlamManifest; map_version_id: string; terrain_id: string | null }>('GET', `/robots/${encodeURIComponent(robot)}/slam/${encodeURIComponent(session)}/bundle`, undefined, { cancel, ms: MAP_READ_MS }),
+  slamBundleFile: (robot: string, session: string, kind: 'voxels' | 'grid', cancel?: AbortSignal) =>
+    call<Blob>('GET', `/robots/${encodeURIComponent(robot)}/slam/${encodeURIComponent(session)}/bundle/${kind}`, undefined, { cancel, file: true, ms: MAP_READ_MS }),
   /** 이 구역들로 저장하면 동선이 겹치는 시나리오(읽기 전용 — 저장하지 않음) */
   zoneOverlaps: (floor: string, features: MapFeatures, cancel?: AbortSignal) => call<ZoneOverlaps>('POST', `/floors/${encodeURIComponent(floor)}/zone-overlaps`, { features }, { cancel, ms: MAP_READ_MS }),
   /** 시나리오를 최신 지도 판으로(본문 없음). 이미 최신이면 새 저장 없이 그대로, 사람이 고쳐야 하면 409 + detail.map_update */

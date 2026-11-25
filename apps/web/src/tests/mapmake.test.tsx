@@ -1,5 +1,6 @@
-// RB-SLAM-WEB 지도 탭 «지도 만들기»(apps/server/MAPPING.md) — 가짜 서버 응답으로: 담당 아님 숨김, 연결 안 됨 막힘, 1초 조회, 저장 성공 뒤 새 판 선택,
-// FAILED 다시 저장·STALE, 창 닫으면 조회 멈춤, 다른 층 세션 안내. 화면 글에 «SLAM» 없음.
+// RB-SLAM-WEB 지도 탭 «지도 만들기»(apps/server/MAPPING.md → 11-25 RB-SLAM-WEB2 apps/server/SLAM-CONTRACT.md) — 가짜 서버 응답으로: 담당 아님 숨김, 연결 안 됨 막힘,
+// source=point_lio 시작, 1초 조회, 2D 조각 cursor 따라가기·판 바뀜·409, 3D 칸 증분, 받은 범위만(RECEIVED_ONLY), 시작이 오래 걸림 안내, 취소,
+// 저장 성공 뒤 새 판 선택, FAILED 다시 저장·STALE, 창 닫으면 조회 멈춤, 다른 층 세션 안내. 화면 글에 «SLAM» 없음.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +8,7 @@ import type { MappingProgress, MapVersion, RobotSummary, SiteTree, User } from '
 import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
 import { kept } from '../screens/mapedit';
-import { STALE_TEXT } from '../screens/mapmake';
+import { RECEIVED_TEXT, SLOW_START_S, SLOW_TEXT, STALE_TEXT } from '../screens/mapmake';
 import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,21 +26,28 @@ const ver = (id: string, number: number, p: Partial<MapVersion> = {}): MapVersio
   width: 100, height: 80, resolution: 0.05, origin: [-1, -2, 0], features: EMPTY, reason: `이유 ${number}`, source: 'IMPORT', created_by: KIM.id, created_at: '2026-10-20T05:00:00Z', ...p });
 const V2 = ver('v2', 2), V3 = ver('v3', 3, { source: 'SLAM', base_version_id: 'v2', reason: '로봇으로 만든 지도', created_at: '2026-11-12T05:00:00Z' });
 const SID = '11111111-1111-4111-8111-111111111111';
-const PREVIEW = { resolution: 0.1, cells: [[0, 0], [1, 0], [2, 0], [0, 5], [10, 5]] as [number, number][], robot: [0.5, 0.2, 0.3] as [number, number, number], path: [[0, 0], [0.5, 0.2]] as [number, number][] };
-const prog = (status: MappingProgress['status'], p: Partial<MappingProgress> = {}): MappingProgress => ({ session_id: SID, floor_id: 'f1', status, distance_m: 12.34, point_count: 4567, elapsed_s: 75, preview: PREVIEW, ...p });
+/** 진행 자료(Point-LIO 판 1): 첫 3D 증분(reset, 5칸)·로봇 위치 */
+const CELLS: [number, number, number][] = [[0, 0, 0], [1, 0, 0], [2, 0, 1], [0, 5, 2], [10, 5, 3]];
+const vox = (seq: number, p: Partial<NonNullable<MappingProgress['voxels']>> = {}) => ({ revision: 1, seq, frame_id: 'map', resolution: 0.05 as const, ...p });
+const ODOM = { provider: 'point_lio' as const, source: '/aft_mapped_to_init', frame_id: 'map', stamp: { sec: 1, nanosec: 0 }, x: 0.5, y: 0.2, z: 0.3, yaw: 0.1 };
+const prog = (status: MappingProgress['status'], p: Partial<MappingProgress> = {}): MappingProgress => ({ session_id: SID, floor_id: 'f1', status, source: 'point_lio', pipeline: 'point_lio+glim',
+  revision: 1, update_seq: 3, voxels: vox(0, { reset: true, added: CELLS }), odom: ODOM, ...p });
+/** 2D 조각(64×64칸, 벽 한 칸) */
+const tile = (x: number, y: number, tile_seq = 1, revision = 1) => ({ revision, tile_seq, x, y, frame_id: 'map', floor_z: 0, resolution: 0.05, size: 64, cells: Array.from({ length: 4096 }, (_, i) => (i === 0 ? 2 : 1)) });
+const page = (tiles: unknown[], next_cursor: number | null, update_seq = 3, revision = 1) => ({ status: 200, body: { session_id: SID, revision, update_seq, tiles, next_cursor } });
 const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
 
-type Reply = { status: number; body?: unknown };
-type Route = Reply | ((body?: unknown) => Reply);
-type Call = { method: string; path: string; body?: unknown };
+type Reply = { status: number; body?: unknown; raw?: ArrayBuffer };
+type Route = Reply | ((body?: unknown, q?: URLSearchParams) => Reply);
+type Call = { method: string; path: string; body?: unknown; q: string };
 let calls: Call[] = [];
 function serve(routes: Record<string, Route>) {
   calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
-    const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '').split('?')[0], body = init.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ method, path, body });
-    const hit = routes[`${method} ${path}`], rep = typeof hit === 'function' ? hit(body) : hit ?? err(404, 'NOT_FOUND', '없음');
-    return new Response(rep.status === 204 ? null : JSON.stringify(rep.body ?? null), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
+    const method = init.method ?? 'GET', [path, q = ''] = url.replace(/^\/api\/v1/, '').split('?'), body = init.body ? JSON.parse(String(init.body)) : undefined;
+    calls.push({ method, path, body, q });
+    const hit = routes[`${method} ${path}`], rep = typeof hit === 'function' ? hit(body, new URLSearchParams(q)) : hit ?? err(404, 'NOT_FOUND', '없음');
+    return new Response(rep.raw ?? (rep.status === 204 ? null : JSON.stringify(rep.body ?? null)), { status: rep.status, headers: { 'Content-Type': rep.raw ? 'application/octet-stream' : 'application/json' } });
   });
 }
 /** slam = GET /robots/r-a/slam 이 돌려줄 값(함수면 부를 때마다) */
@@ -58,6 +66,7 @@ const signedIn = (me: User, online: boolean, slam: () => MappingProgress | null,
   'GET /floors/f1/map-versions': { status: 200, body: { items: [V2], next_cursor: null } },
   'GET /scenarios': { status: 200, body: { items: [], next_cursor: null } },
   'GET /robots/r-a/slam': () => ({ status: 200, body: slam() }),
+  [`GET /robots/r-a/slam/${SID}/tiles`]: page([tile(0, 0)], null),
   ...more,
 });
 
@@ -119,23 +128,25 @@ describe('지도 만들기 — 보이는 조건', () => {
     serve(signedIn(LEE, false, () => null)); await open(); await live(false); await openMake();
     expect(dlg().querySelector('select')!.textContent).toContain('Go2-A (연결 안 됨)');
     expect($('[data-offline]')!.textContent).toBe('로봇이 연결되어 있지 않습니다.');
-    expect(btn('시작', dlg())!.disabled).toBe(true);
+    expect(btn('지도 만들기', dlg())!.disabled).toBe(true);
     expect(posts()).toEqual([]);
   });
 });
 
 describe('지도 만들기 — 진행', () => {
-  it('시작 = POST start {floor_id}, 뒤로 1초마다 조회 + 위에서 본 그림·거리·점 수·시간, 화면 글에 SLAM 없음', async () => {
+  it('«지도 만들기» = POST start {floor_id, source: point_lio}, 뒤로 1초마다 조회 + 받은 3D 칸·2D 조각·로봇, 화면 글에 SLAM 없음', async () => {
     let now: MappingProgress | null = null;
     serve(signedIn(LEE, true, () => now, { 'POST /robots/r-a/slam/start': () => { now = prog('RUNNING'); return { status: 202, body: now }; } }));
     await open(); await live(true); await openMake();
     expect(gets().length).toBe(1);   // 열 때 한 번(진행 중 세션이 있으면 이어서)
-    await click(btn('시작', dlg()));
-    expect(posts().map((c) => [c.path, c.body])).toEqual([['/robots/r-a/slam/start', { floor_id: 'f1' }]]);
-    expect($('canvas[data-preview]')!.dataset.preview).toBe('5');
-    expect($('[data-progress]')!.textContent).toContain('12.3 m');
-    expect($('[data-progress]')!.textContent).toContain('4,567');
-    expect($('[data-progress]')!.textContent).toContain('1분 15초');
+    await click(btn('지도 만들기', dlg()));
+    expect(posts().map((c) => [c.path, c.body])).toEqual([['/robots/r-a/slam/start', { floor_id: 'f1', source: 'point_lio' }]]);
+    expect($('[data-slam-boxes]')!.dataset.slamBoxes).toBe('5');
+    expect($('canvas[data-slam-tiles]')!.dataset.slamTiles).toBe('1');
+    expect($('canvas[data-slam-robot]')).toBeTruthy();
+    expect($('[data-progress]')!.textContent).toContain('5받은 3D 칸');
+    expect($('[data-progress]')!.textContent).toContain('1받은 2D 조각');
+    expect($('[data-gap]')).toBeNull();
     expect(dlg().textContent).toContain('폰 조종 화면으로 로봇을 천천히 움직이세요');
     const n = gets().length;
     await wait(1100); await flush();
@@ -164,7 +175,7 @@ describe('지도 만들기 — 진행', () => {
     expect(row.querySelector('[data-slam-chip]')!.textContent).toBe('로봇으로 만든 지도');
     // 다시 열면 이미 알린 SAVED 는 다시 알리지 않고 새로 시작할 수 있다
     await openMake();
-    expect(btn('시작', dlg())).toBeTruthy();
+    expect(btn('지도 만들기', dlg())).toBeTruthy();
   });
 
   /** 시험마다 다른 세션(완료 알림은 세션마다 한 번 — 화면 메모리) */
@@ -188,10 +199,10 @@ describe('지도 만들기 — 진행', () => {
     await open(); await openMake();
     await click(btn('지도 저장', dlg()));
     await click($('[aria-label="로봇으로 지도 만들기 닫기"]'));
-    now = prog('SAVED', { map_version_id: 'v3' }); s.saved = true;
+    now = prog('SAVED', { map_version_id: 'v3', terrain_id: 't-1' }); s.saved = true;
     await click($('[data-floor="f2"]'));
     await openMake();
-    expect(btn('시작', dlg())).toBeTruthy();   // 2층에서는 1층 저장을 알리지 않는다
+    expect(btn('지도 만들기', dlg())).toBeTruthy();   // 2층에서는 1층 저장을 알리지 않는다
     expect(box.textContent).not.toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
     await click($('[aria-label="로봇으로 지도 만들기 닫기"]'));
     await click($('[data-floor="f1"]'));
@@ -204,7 +215,7 @@ describe('지도 만들기 — 진행', () => {
     const s = { saved: false };
     let now: MappingProgress | null = prog('RUNNING');
     // 저장이 빨리 끝나 다음 조회부터 SAVED(SAVING 을 한 번도 못 봄)
-    serve(savedServer(() => now, () => { now = prog('SAVED', { map_version_id: 'v3' }); s.saved = true; throw new TypeError('network'); }, s));
+    serve(savedServer(() => now, () => { now = prog('SAVED', { map_version_id: 'v3', terrain_id: 't-1' }); s.saved = true; throw new TypeError('network'); }, s));
     await open(); await openMake();
     await click(btn('지도 저장', dlg())); await flush();
     madeV3();
@@ -212,14 +223,14 @@ describe('지도 만들기 — 진행', () => {
 
   it('지난 SAVED(그 뒤 지도가 바뀌어 v3 가 지난 저장)는 다시 알리지 않는다', async () => {
     const prog = mine('44444444-4444-4444-8444-444444444444');
-    serve(signedIn(LEE, true, () => prog('SAVED', { map_version_id: 'v3' }), {
+    serve(signedIn(LEE, true, () => prog('SAVED', { map_version_id: 'v3', terrain_id: 't-1' }), {
       'GET /sites': { status: 200, body: tree('v4') },
       'GET /map-versions/v4': { status: 200, body: ver('v4', 4) },
       'GET /floors/f1/map-versions': { status: 200, body: { items: [ver('v4', 4), { ...V3, status: 'SUPERSEDED' }], next_cursor: null } },
     }));
     await open(); await openMake(); await flush();
     expect(box.textContent).not.toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
-    expect(btn('시작', dlg())).toBeTruthy();
+    expect(btn('지도 만들기', dlg())).toBeTruthy();
   });
 
   it('FAILED: 쉬운 이유 + «다시 저장»(FAILED 에서 save), LINK_LOST 는 정해진 문구, 409 STALE 이면 취소하고 다시 시작 안내', async () => {
@@ -262,7 +273,114 @@ describe('지도 만들기 — 진행', () => {
     serve(signedIn(LEE, true, () => prog('RUNNING', { floor_id: 'f2' })));
     await open(); await openMake();
     expect($('[data-elsewhere]')!.textContent).toContain('«본동 2층»');
-    expect(btn('시작', dlg())).toBeUndefined();
+    expect(btn('지도 만들기', dlg())).toBeUndefined();
+  });
+});
+
+describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우저 계산 없음)', () => {
+  const tiles = () => calls.filter((c) => c.path === `/robots/r-a/slam/${SID}/tiles`).map((c) => c.q);
+  const shown = () => [$('[data-slam-boxes]')!.dataset.slamBoxes, $('canvas[data-slam-tiles]')?.dataset.slamTiles];
+
+  it('2D 조각: cursor 를 null 까지 따라가고, 다음 번은 첫 쪽 update_seq 이후만 · 3D 는 증분(removed 지우고 added 놓기)', async () => {
+    let now = prog('RUNNING');
+    serve(signedIn(LEE, true, () => now, {
+      [`GET /robots/r-a/slam/${SID}/tiles`]: (_b, q) => q!.get('cursor') === '0' && q!.get('since') === '0' ? page([tile(0, 0), tile(1, 0), tile(0, 1), tile(1, 1)], 99)
+        : q!.get('cursor') === '99' ? page([tile(2, 0)], null, 4) : page([tile(0, 0, 2), tile(3, 3)], null, 5),
+    }));
+    await open(); await openMake();
+    expect(tiles()).toEqual(['revision=1&cursor=0&since=0', 'revision=1&cursor=99&since=0']);
+    expect(shown()).toEqual(['5', '5']);
+    now = prog('RUNNING', { update_seq: 6, voxels: vox(1, { added: [[7, 7, 7]], removed: [[0, 0, 0], [1, 0, 0]] }) });
+    await wait(1100); await flush();
+    expect(tiles().slice(2)).toEqual(['revision=1&cursor=0&since=3']);   // 첫 쪽 update_seq(3) 이후 바뀐 것만
+    expect(shown()).toEqual(['4', '6']);   // 칸 5 − 2 + 1, 조각 (0,0) 은 새 판 번호로 바뀌고 (3,3) 추가
+    expect($('[data-gap]')).toBeNull();
+    now = prog('RUNNING', { update_seq: 7, voxels: vox(3, { added: [[8, 8, 8]] }) });   // seq 2 를 못 받음
+    await wait(1100); await flush();
+    expect($('[data-gap]')).toBeTruthy();
+    expect(calls.some((c) => /occ|grid/i.test(c.path))).toBe(false);
+  });
+
+  it('판(revision)이 바뀌면 3D·2D 를 비우고 새 판을 처음부터 · 조각 409(판 바뀜)면 조각을 비운다', async () => {
+    let now = prog('RUNNING'), conflict = false;
+    serve(signedIn(LEE, true, () => now, {
+      [`GET /robots/r-a/slam/${SID}/tiles`]: (_b, q) => (q!.get('revision') === '2' ? page([tile(5, 5, 1, 2)], null, 9, 2)
+        : conflict ? err(409, 'MAPPING_REVISION_CONFLICT', '지도 판이 바뀌었습니다.') : page([tile(0, 0), tile(1, 0)], null)),
+    }));
+    await open(); await openMake();
+    expect(shown()).toEqual(['5', '2']);
+    conflict = true; now = prog('RUNNING', { update_seq: 8, voxels: null });
+    await wait(1100); await flush();
+    expect(shown()).toEqual(['5', '0']);
+    now = prog('SAVING', { revision: 2, update_seq: 9, source: 'glim', voxels: vox(0, { revision: 2, reset: true, added: [[1, 1, 1], [2, 2, 2]] }), odom: { ...ODOM, provider: 'glim' } });
+    await wait(1100); await flush();
+    expect(tiles().slice(-1)[0]).toBe('revision=2&cursor=0&since=0');
+    expect(shown()).toEqual(['2', '1']);
+    expect($('[data-saving]')).toBeTruthy();
+  });
+
+  it('RECEIVED_ONLY: 창을 닫지 않고 «받은 범위만 — 저장 확인 안 됨» + 서버가 받지 않은 자료 이유, «받은 지도 보기»로 그 판', async () => {
+    const V9 = ver('v9', 9, { source: 'SLAM', status: 'PENDING', reason: 'SLAM 저장 미확인 · 받은 범위' });
+    serve(signedIn(LEE, true, () => prog('RECEIVED_ONLY', { session_id: '55555555-5555-4555-8555-555555555555', map_version_id: 'v9', terrain_status: 'SKIPPED_UNCONFIRMED_SAVE',
+      last_report_rejection: { code: 'MAPPING_SOURCE_CONFLICT', reason: '지도 출처를 확인해 주세요.', received_at: '2026-11-25T01:00:00Z' } }), {
+      'GET /floors/f1/map-versions': { status: 200, body: { items: [V9, V2], next_cursor: null } }, 'GET /map-versions/v9': { status: 200, body: V9 },
+    }));
+    await open(); await openMake(); await flush();
+    expect($('[data-received]')!.textContent).toContain(RECEIVED_TEXT);
+    expect($('[data-rejected]')!.textContent).toContain('지도 출처를 확인해 주세요.');
+    expect(btn('지도 만들기', dlg())).toBeTruthy();   // 끝난 세션 — 새로 시작할 수 있다
+    await click(btn('받은 지도 보기', dlg()));
+    expect($('dialog[open][aria-labelledby]')?.textContent ?? '').not.toContain('로봇으로 지도 만들기');
+    expect(box.textContent).toContain(RECEIVED_TEXT);
+    expect($('[data-save="v9"] button')!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('시작 중이 오래 가면 로봇 프로그램 업데이트 안내, 취소 = POST cancel {session_id} → 취소됨', async () => {
+    let now: MappingProgress = prog('STARTING', { voxels: null, odom: null, update_seq: 0 });
+    serve(signedIn(LEE, true, () => now, { 'POST /robots/r-a/slam/cancel': (b) => { expect(b).toEqual({ session_id: SID }); now = prog('CANCELLED'); return { status: 200, body: now }; } }));
+    await open(); await openMake();
+    expect($('[data-starting]')).toBeTruthy();
+    expect($('[data-slow]')).toBeNull();
+    expect(btn('지도 저장', dlg())).toBeUndefined();
+    const t0 = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(t0 + (SLOW_START_S + 1) * 1000);
+    await wait(1100); await flush();
+    expect($('[data-slow]')!.textContent).toBe(SLOW_TEXT);
+    await click(btn('취소', dlg())); await click(btn('취소하기', dlg()));
+    expect(dlg().textContent).toContain('지도 만들기를 취소했습니다.');
+    expect(btn('지도 만들기', dlg())).toBeTruthy();
+  });
+});
+
+describe('로봇으로 만든 지도 다시 열기(bundle voxels·grid)', () => {
+  const B = { session_id: SID, source: 'glim' as const, robot_id: 'r-a', map_version_id: 'v3', revision: 2, resolution: 0.05 as const, slam_save: 'SLAM_SAVED' as const, completeness: 'SLAM_CONFIRMED' as const };
+  const V3B = { ...V3, slam_bundle: B };
+  const manifest = (voxel_count: number) => ({ status: 200, body: { map_version_id: 'v3', terrain_id: null, bundle: { ...B, voxel_count, floor_z: -0.3, odom: ODOM,
+    grid: { revision: 2, resolution: 0.05, frame_id: 'map', origin: [-1, -2, 0], floor_z: -0.3, width: 4, height: 2 } } } });
+  const bytes = (a: ArrayLike<number>, T: typeof Int32Array | typeof Uint8Array) => new T(Array.from(a)).buffer as ArrayBuffer;
+  const server = (count: number) => signedIn(LEE, true, () => null, {
+    'GET /floors/f1/map-versions': { status: 200, body: { items: [V3B, V2], next_cursor: null } }, 'GET /map-versions/v3': { status: 200, body: V3B },
+    [`GET /robots/r-a/slam/${SID}/bundle`]: manifest(count),
+    [`GET /robots/r-a/slam/${SID}/bundle/voxels`]: { status: 200, raw: bytes([0, 0, 0, 1, 2, 3, -4, -5, 6], Int32Array) },
+    [`GET /robots/r-a/slam/${SID}/bundle/grid`]: { status: 200, raw: bytes([2, 1, 1, 0, 0, 1, 2, 2], Uint8Array) },
+  });
+  const view3d = async () => { await click($('[data-save="v3"] button')); await click($('[data-voxel-toggle]')); await flush(); };
+
+  it('담당 운영자: «3D 로 보기» = 저장 묶음의 3D 칸·2D 격자를 같은 그리기로(3D 를 못 그리는 브라우저면 위에서 보기)', async () => {
+    serve(server(3)); await open(); await view3d();
+    expect(calls.filter((c) => c.path.includes('/bundle')).map((c) => c.path).sort()).toEqual([`/robots/r-a/slam/${SID}/bundle`, `/robots/r-a/slam/${SID}/bundle/grid`, `/robots/r-a/slam/${SID}/bundle/voxels`]);
+    expect($('[data-slam-saved] [data-slam-boxes]')!.dataset.slamBoxes).toBe('3');
+    expect($('[data-slam-saved] canvas[data-slam-tiles]')!.dataset.slamTiles).toBe('1');
+    expect($('[data-slam-saved] [data-slam-pick="3d"]')!.hasAttribute('disabled')).toBe(true);   // jsdom 은 WebGL2 없음
+  });
+
+  it('칸 수와 파일 길이가 어긋나면 그리지 않고 알림 · 담당이 아니면 단추 없음', async () => {
+    serve(server(4)); await open(); await view3d();
+    expect($('[data-slam-saved] [role="alert"]')!.textContent).toContain('형식이 맞지 않습니다');
+    act(() => root?.unmount()); root = null; box.remove();
+    serve({ ...server(3), 'GET /me': { status: 200, body: PARK } }); await open();
+    await click($('[data-save="v3"] button'));
+    expect($('[data-voxel-toggle]')).toBeNull();
   });
 });
 
@@ -273,14 +391,14 @@ describe('지도 만들기 — 창 안에서 조종(11-13 RB-MAP-VIEW-WEB)', () 
     serve(signedIn(LEE, true, () => now, { 'POST /robots/r-a/slam/start': () => { now = prog('RUNNING'); return { status: 202, body: now }; },
       'POST /robots/r-a/slam/save': () => { now = prog('SAVING'); return { status: 202, body: now }; } }));
     await open(); await live(true); await openMake();
-    expect(dlg().textContent).toContain('시작한 뒤 이 창의 조종 단추나 키보드로 로봇을 움직이고');
+    expect(dlg().textContent).toContain('«지도 만들기»를 누른 뒤 이 창의 조종 단추나 키보드로 로봇을 움직이고');
     expect($('[data-make-drive]')).toBeNull();   // 시작 전에는 조종 없음
-    await click(btn('시작', dlg()));
+    await click(btn('지도 만들기', dlg()));
     const d = $('[data-make-drive] [data-server-drive]')!;
-    expect($('canvas[data-preview]')!.dataset.preview).toBe('5');
+    expect($('[data-slam-boxes]')!.dataset.slamBoxes).toBe('5');
     expect(d.querySelector('[data-sd-stop="panel"]')).toBeTruthy();
     expect(btn('조종 시작', d)).toBeTruthy();
-    expect(dlg().textContent).toContain('그리는 중 — 이 창의 조종 단추나 키보드로 로봇을 천천히 움직이세요.');
+    expect(dlg().textContent).toContain('만드는 중 — 이 창의 조종 단추나 키보드로 로봇을 천천히 움직이세요.');
     expect(dlg().textContent).not.toMatch(/SLAM|odom|deskew/i);
     await click(btn('지도 저장', dlg()));
     expect($('[data-saving]')).toBeTruthy();

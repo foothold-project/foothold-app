@@ -17,7 +17,8 @@ import { MissionAdmin, ScenList, ScenarioEdit, SimOpen, keptPlan, useScenarios }
 import { simAt, twinOf } from '../simstart';
 import { TrashLink, trashFail, type TrashKind } from './trash';
 import { TerrainLink, VoxelUpload, VoxelView, voxelOf } from './voxelmap';
-import { MADE, MakeMap, makers } from './mapmake';
+import { MakeMap, makers } from './mapmake';
+import { SlamSavedView } from './slammap';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
 /** 시뮬 층 이름이 ROS 층 ID 그대로(서버가 floor_name 없이 넣은 창고 «f1» 등)면 사람이 읽는 이름으로 */
@@ -503,7 +504,9 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
   const start = () => { if (editing || !now) return; if (kept.d && kept.d.floor !== p.floor.id) setDrop(true); else begin(); };
   const fz = v?.features;
   // 3D 지도(RB-VOXEL-VIEW): 3D 파일에서 만든 판이면 «3D 로 보기»·«시뮬 지형 수정하기». vu = 올리기 창에서 3D 파일 고름(총괄만 — 서버 권한)
-  const vox = voxelOf(v), [d3, setD3] = useState(false), [vu, setVu] = useState(false), [vbusy, setVbusy] = useState(false), on3d = d3 && !!vox && !editing && !cmp;
+  // 로봇으로 만든 지도(RB-SLAM-WEB2): 저장 묶음(slam_bundle)이 있고 내가 그 로봇의 담당 운영자면 «3D 로 보기» = 저장된 3D 칸·2D 격자(서버 묶음 — 담당 운영자만 받음)
+  const sb = v?.slam_bundle && makers(user, robots).some((r) => r.id === v.slam_bundle!.robot_id) ? v.slam_bundle : null;
+  const vox = voxelOf(v), [d3, setD3] = useState(false), [vu, setVu] = useState(false), [vbusy, setVbusy] = useState(false), on3d = d3 && (!!vox || !!sb) && !editing && !cmp;
   // 시뮬 탭(SIM-PAIR 11-09): 편집·새 지도 올리기·되돌리기 없음(지형 판은 «지형 만들기» 저장만 바꾼다), 짝 없는 시뮬 층은 안내.
   // 실기 장소 층(RB-SCEN-SIMTAB 11-11)은 지도 편집·올리기가 지도 탭 — 짝 없음 안내 대신 «시뮬 열기» 이유(«실기만»)
   const real = purposeOf(p.site) === 'REAL', bad = sim && !real && !!list && !err && lone(p.floor, now ?? undefined);
@@ -521,7 +524,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
       {drop && !editing && <div className="fh-row" role="group" aria-label="확인" data-drop><span>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).</span>
         <button type="button" className="btn pri" onClick={() => { kept.d = null; setDrop(false); begin(); }}>버리고 편집</button>
         <button type="button" className="btn" onClick={() => setDrop(false)}>취소</button></div>}
-      {vox && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
+      {(vox || sb) && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
       {editing && <span className="mx-tag mx-edit" data-editing>▲ 편집 중</span>}
       <span className="fh-grow" />
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
@@ -539,7 +542,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
       <div className="mx-map">
         {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
-          : v && on3d ? <VoxelView key={v.id} v={v} cancel={cancel} />
+          : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
           : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
           : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.</p>
             <div className="fh-row"><button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button>
@@ -590,7 +593,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
     </Pop>}
     {!editing && canMake && <Pop open={mk} close={() => setMk(false)} label="로봇으로 지도 만들기">
       {mk && <MakeMap floor={p.floor.id} approved={approved} list={list} user={user} robots={robots} places={places} cancel={cancel}
-        made={(id) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text: MADE, ok: true }); setN(n + 1); again(); }} />}
+        made={(id, text) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text, ok: true }); setN(n + 1); again(); }} />}
     </Pop>}
     {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
       {undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}

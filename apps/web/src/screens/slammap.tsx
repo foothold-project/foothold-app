@@ -1,0 +1,195 @@
+// 지도 만들기 그림(RB-SLAM-WEB2 11-25, 계약 apps/server/SLAM-CONTRACT.md): Jetson 이 계산해 보낸 5 cm 칸을 받은 대로 놓기만 한다 — 브라우저 점군 누적·격자 계산 없음.
+// 2D = 서버 tiles(64×64칸 조각) — cursor 를 끝까지 따라가고, 다음 번은 첫 쪽 update_seq 이후 바뀐 조각만. 판(revision)이 바뀌면(409 포함) 비우고 처음부터.
+// 3D = 진행 자료 voxels 증분(reset 이면 비움, removed 지우고 added 놓기)을 lidar3d «상자» 보기로. 로봇 = 진행 자료 odom.
+// 저장된 지도 = bundle 의 voxels(int32 LE x·y·z)·grid(칸마다 1바이트)를 같은 그리기로. 그림만 — 명령 0.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MappingGridTile, MappingOdom, MappingProgress } from '../../../contracts/ts';
+import { ApiFail, api } from '../api';
+import type { DriveFeed, Pose } from '../drivemedia';
+import { Lidar3D } from '../lidar3d';
+import { COL, OccLegend, RGB } from '../occmap';
+import { QEmpty } from '../quad';
+
+/** 칸(m) · 조각 한 변 칸 수 */
+export const RES = 0.05, TILE = 64;
+/** 2D 한 장: 왼쪽 아래 (x0,y0) m, w×h 칸, 아래 줄부터 행 우선 0 모름·1 빈 곳·2 벽. key·seq = 그림 캐시(같은 key 의 seq 가 바뀔 때만 다시 칠함) */
+export type Patch = { key: string; seq: number; x0: number; y0: number; w: number; h: number; cells: ArrayLike<number> };
+/** 그릴 것: 3D 칸 가운데(xyz, n 개, ver = 3D·로봇이 바뀔 때마다)·2D 조각(tver = 바뀔 때마다)·로봇. gap = 3D 증분 일부를 못 받음(창을 늦게 열었거나 조회 사이에 지나감) */
+export type SlamPic = { xyz: Float32Array; n: number; ver: number; patches: Patch[]; tver: number; pose: Pose | null; gap: boolean };
+const blank = (): SlamPic => ({ xyz: new Float32Array(0), n: 0, ver: 0, patches: [], tver: 0, pose: null, gap: false });
+const poseOf = (o?: MappingOdom | null): Pose | null => (o ? { x: o.x, y: o.y, z: o.z, yaw: o.yaw } : null);
+/** 칸 번호 → 칸 가운데(m) */
+const centers = (cells: Iterable<readonly [number, number, number]>, n: number) => {
+  const xyz = new Float32Array(n * 3);
+  let i = 0;
+  for (const [a, b, c] of cells) { xyz[i++] = (a + 0.5) * RES; xyz[i++] = (b + 0.5) * RES; xyz[i++] = (c + 0.5) * RES; }
+  return xyz;
+};
+const tilePatch = (t: MappingGridTile): Patch => ({ key: `${t.x},${t.y}`, seq: t.tile_seq, x0: t.x * TILE * RES, y0: t.y * TILE * RES, w: TILE, h: TILE, cells: t.cells });
+
+/** 진행 중 그림: p = 1초마다 받는 진행 자료(같은 세션·판이면 이어 쌓고, 바뀌면 비움). 조각은 update_seq 가 늘 때마다 tiles API 로 따라간다 */
+export function useSlamLive(robot: string, p: MappingProgress | null): SlamPic {
+  const [pic, setPic] = useState(blank);
+  const st = useRef({ gen: 0, sid: '', rev: 0, seq: -1, seen: -1, since: 0, busy: false, again: false, gap: false, ver: 0, tver: 0, pose: null as Pose | null,
+    vox: new Map<string, [number, number, number]>(), tiles: new Map<string, MappingGridTile>(), ac: new AbortController() });
+  useEffect(() => () => st.current.ac.abort(), []);
+  useEffect(() => {
+    const s = st.current, rev = p?.revision;
+    if (!p || !rev) return;
+    let dv = false, dt = false;
+    if (p.session_id !== s.sid || rev !== s.rev) {   // 새 세션·새 판 = 지난 칸·조각·위치를 다 비움(계약: revision 바뀌면 처음부터)
+      s.ac.abort(); s.ac = new AbortController(); s.gen++;
+      Object.assign(s, { sid: p.session_id, rev, seq: -1, seen: -1, since: 0, busy: false, again: false, gap: false, pose: null });
+      s.vox.clear(); s.tiles.clear(); dv = dt = true;
+    }
+    const v = p.voxels;
+    if (v && v.revision === rev && v.seq > s.seq) {
+      if (v.reset) { s.vox.clear(); s.gap = false; } else if (s.seq < 0 || v.seq !== s.seq + 1) s.gap = true;
+      for (const c of v.removed ?? []) s.vox.delete(c.join());
+      for (const c of v.added ?? []) s.vox.set(c.join(), c);
+      s.seq = v.seq; dv = true;
+    }
+    const pose = p.odom && (!p.odom.provider || !p.source || p.odom.provider === p.source) ? poseOf(p.odom) : s.pose;
+    if (pose?.x !== s.pose?.x || pose?.y !== s.pose?.y || pose?.z !== s.pose?.z || pose?.yaw !== s.pose?.yaw) { s.pose = pose; dv = true; }
+    const emit = () => setPic({ xyz: dv ? centers(s.vox.values(), s.vox.size) : pic.xyz, n: s.vox.size, ver: dv ? ++s.ver : s.ver,
+      patches: [...s.tiles.values()].map(tilePatch), tver: dt ? ++s.tver : s.tver, pose: s.pose, gap: s.gap });
+    if (dv || dt) emit();
+    if (p.update_seq != null && p.update_seq > s.seen) { s.seen = p.update_seq; void pull(); }
+  }, [p]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** 조각 따라가기(한 번에 하나): cursor=0 부터 null 까지, 다음 번 since = 이번 첫 쪽의 update_seq. 409(판 바뀜)면 조각을 비우고 다음 진행 자료의 새 판으로 */
+  async function pull() {
+    const s = st.current, gen = s.gen, { sid, rev } = s, signal = s.ac.signal;
+    if (s.busy) { s.again = true; return; }
+    s.busy = true;
+    const show = () => setPic((o) => ({ ...o, patches: [...s.tiles.values()].map(tilePatch), tver: ++s.tver }));
+    try {
+      do {
+        s.again = false;
+        let cursor: number | null = 0, first = -1;
+        while (cursor != null) {
+          const pg = await api.slamTiles(robot, sid, rev, cursor, s.since, signal);
+          if (gen !== s.gen) return;
+          if (first < 0) first = pg.update_seq;
+          let got = false;
+          for (const t of pg.tiles ?? []) {
+            const k = `${t.x},${t.y}`, o = s.tiles.get(k);
+            if (t.revision === rev && Array.isArray(t.cells) && t.cells.length === TILE * TILE && (!o || t.tile_seq > o.tile_seq)) { s.tiles.set(k, t); got = true; }
+          }
+          if (got) show();
+          cursor = pg.next_cursor;
+        }
+        s.since = first;
+      } while (s.again && s.seen > s.since);
+    } catch (e) {
+      if (gen !== s.gen || (e as ApiFail).code === 'CANCELED') return;
+      if ((e as ApiFail).status === 409) { s.tiles.clear(); s.since = 0; show(); }
+      s.seen = -1;   // 다음 진행 자료에서 다시(끊김·서버 오류 포함 — 화면에 남은 조각은 그대로)
+    } finally { if (gen === s.gen) s.busy = false; }
+  }
+  return pic;
+}
+
+/** 저장된 지도 묶음(bundle) — 담당 운영자만(남은 403). 받는 중 null */
+export function useSlamSaved(robot: string, session: string, cancel?: AbortSignal): { pic: SlamPic | null; err: string } {
+  const [r, setR] = useState<{ pic: SlamPic | null; err: string }>({ pic: null, err: '' });
+  useEffect(() => {
+    const ac = new AbortController(), off = () => ac.abort();
+    cancel?.addEventListener('abort', off);
+    (async () => {
+      try {
+        const [m, vb, gb] = await Promise.all([api.slamBundle(robot, session, ac.signal), api.slamBundleFile(robot, session, 'voxels', ac.signal), api.slamBundleFile(robot, session, 'grid', ac.signal)]);
+        const b = m?.bundle, g = b?.grid, [vx, gr] = await Promise.all([vb.arrayBuffer(), gb.arrayBuffer()]);
+        if (!b || !g || !Number.isInteger(b.voxel_count) || vx.byteLength !== b.voxel_count * 12 || gr.byteLength !== g.width * g.height) throw new ApiFail(0, 'BAD_SHAPE', '받은 지도 자료 형식이 맞지 않습니다.');
+        const dv = new DataView(vx), n = b.voxel_count, xyz = new Float32Array(n * 3);
+        for (let i = 0; i < n * 3; i++) xyz[i] = (dv.getInt32(i * 4, true) + 0.5) * RES;
+        setR({ err: '', pic: { xyz, n, ver: 1, tver: 1, gap: false, pose: poseOf(b.odom),
+          patches: [{ key: 'grid', seq: 0, x0: g.origin[0], y0: g.origin[1], w: g.width, h: g.height, cells: new Uint8Array(gr) }] } });
+      } catch (e) {
+        const f = e as ApiFail;
+        if (f.code !== 'CANCELED' && !ac.signal.aborted) setR({ pic: null, err: f.message });
+      }
+    })();
+    return () => { ac.abort(); cancel?.removeEventListener('abort', off); };
+  }, [robot, session]);   // eslint-disable-line react-hooks/exhaustive-deps
+  return r;
+}
+
+/** 위에서 본 2D: 조각을 제자리에 놓기만(조각마다 칸 그림을 한 번 칠해 두고 늘이기). 받은 조각·로봇이 다 들어오게 맞춤 */
+function SlamGrid({ pic }: { pic: SlamPic }) {
+  const ref = useRef<HTMLCanvasElement>(null), cache = useRef(new Map<string, { seq: number; img: HTMLCanvasElement }>()), draw = useRef(() => {});
+  draw.current = () => {
+    const cv = ref.current, g = cv?.getContext?.('2d');
+    if (!cv || !g) return;
+    const dpr = window.devicePixelRatio || 1, W = Math.round(cv.clientWidth * dpr) || cv.width, H = Math.round(cv.clientHeight * dpr) || cv.height, r = pic.pose;
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = `rgb(${RGB[0].join(',')})`; g.fillRect(0, 0, W, H);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const q of pic.patches) { x0 = Math.min(x0, q.x0); y0 = Math.min(y0, q.y0); x1 = Math.max(x1, q.x0 + q.w * RES); y1 = Math.max(y1, q.y0 + q.h * RES); }
+    if (r) { x0 = Math.min(x0, r.x - 1); y0 = Math.min(y0, r.y - 1); x1 = Math.max(x1, r.x + 1); y1 = Math.max(y1, r.y + 1); }
+    if (!(x1 > x0)) return;
+    const k = Math.min(W / (x1 - x0 + 1), H / (y1 - y0 + 1)), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const X = (x: number) => W / 2 + (x - cx) * k, Y = (y: number) => H / 2 - (y - cy) * k;
+    g.imageSmoothingEnabled = false;
+    const keep = new Set<string>();
+    for (const q of pic.patches) {
+      keep.add(q.key);
+      let c = cache.current.get(q.key);
+      if (!c || c.seq !== q.seq) {
+        const img = document.createElement('canvas'), ig = (img.width = q.w, img.height = q.h, img.getContext('2d'));
+        if (!ig) continue;
+        const d = ig.createImageData(q.w, q.h), px = new Uint32Array(d.data.buffer);
+        for (let y = 0; y < q.h; y++) for (let x = 0, o = (q.h - 1 - y) * q.w, b = y * q.w; x < q.w; x++) px[o + x] = COL[q.cells[b + x]] ?? COL[0];   // 아래 줄부터 → 그림은 위 줄부터
+        ig.putImageData(d, 0, 0);
+        cache.current.set(q.key, c = { seq: q.seq, img });
+      }
+      g.drawImage(c.img, X(q.x0), Y(q.y0 + q.h * RES), q.w * RES * k, q.h * RES * k);
+    }
+    for (const key of cache.current.keys()) if (!keep.has(key)) cache.current.delete(key);
+    if (r) {   // 로봇: 앞을 가리키는 화살표(occmap.tsx 와 같은 모양·색)
+      const st = getComputedStyle(cv), s = 9 * dpr;
+      g.save(); g.translate(X(r.x), Y(r.y)); g.rotate(-r.yaw);
+      g.fillStyle = st.getPropertyValue('--warn').trim() || '#e90'; g.strokeStyle = '#fff'; g.lineWidth = dpr;
+      g.beginPath(); g.moveTo(s * 1.6, 0); g.lineTo(-s, s * 0.9); g.lineTo(-s * 0.4, 0); g.lineTo(-s, -s * 0.9); g.closePath(); g.fill(); g.stroke(); g.restore();
+    }
+  };
+  useEffect(() => draw.current(), [pic.tver, pic.pose]);
+  useEffect(() => {
+    const ro = typeof ResizeObserver === 'undefined' || !ref.current ? null : new ResizeObserver(() => draw.current());
+    if (ro && ref.current) ro.observe(ref.current);
+    return () => ro?.disconnect();
+  }, []);
+  return <div style={{ position: 'absolute', inset: 0 }}>
+    <canvas ref={ref} width={640} height={400} role="img" aria-label="위에서 본 지도" data-slam-tiles={pic.patches.length} data-slam-robot={pic.pose ? '' : undefined}
+      style={{ display: 'block', width: '100%', height: '100%' }} />
+    <OccLegend />
+  </div>;
+}
+
+/** 3D 상자: 받은 칸 가운데를 lidar3d «상자» 보기에 그대로(5 cm 상자 = 칸 하나) */
+function SlamBoxes({ pic, fail }: { pic: SlamPic; fail: () => void }) {
+  const feed = useMemo<DriveFeed>(() => ({ state: 'live', why: '', at: 0, seq: pic.ver, img: '', xyz: pic.xyz, n: pic.n, frame: 'map', truncated: false, ver: pic.ver,
+    range: null, pose: pic.pose, path: [], grid: null, wipe: () => {} }), [pic.ver]);   // eslint-disable-line react-hooks/exhaustive-deps
+  return <Lidar3D feed={feed} small={false} look="boxes" ratio={1} onFail={fail} />;
+}
+
+/** 지도 칸(부모 크기를 채움): «위에서 2D» / «3D 상자» 고르기 + 그 그림(first3d = 3D 로 시작). 아무것도 안 왔으면 안내만 */
+export function SlamView({ pic, empty, first3d = false }: { pic: SlamPic; empty: string; first3d?: boolean }) {
+  const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d;
+  const any = pic.n > 0 || pic.patches.length > 0;
+  return <div style={{ position: 'absolute', inset: 0, background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
+    {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} />}
+    {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
+      <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
+      <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={no3d || !pic.n} title={no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : undefined} onClick={() => setD3(true)}>3D 상자</button>
+    </div>}
+  </div>;
+}
+
+/** 저장된 «로봇으로 만든 지도» 다시 열기 — 같은 그리기 */
+export function SlamSavedView({ robot, session, cancel }: { robot: string; session: string; cancel?: AbortSignal }) {
+  const { pic, err } = useSlamSaved(robot, session, cancel);
+  return <div className="vx" data-slam-saved>
+    {pic ? <SlamView pic={pic} empty="이 지도에는 받은 칸이 없습니다." first3d /> : <p className={err ? 'fh-msg mx-center' : 'lv-note mx-center'} role={err ? 'alert' : 'status'}>{err ? `지도 자료를 받지 못했습니다. ${err}` : '지도 자료를 받는 중…'}</p>}
+  </div>;
+}
