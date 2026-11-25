@@ -80,6 +80,7 @@ class Mapping:
         key = (rid, body.get('session_id'), body.get('floor_id'), body.get('op'))
         self.pending.pop(key, None)
         self.command_peers.pop(key, None)
+        self.command_actors.pop(key, None)
 
     def authorized(self, rid, body):
         if not self.command_allowed(rid, body):
@@ -90,7 +91,9 @@ class Mapping:
                 if (row is None or row.org_id != self.realtime.settings.org_id or str(row.robot_id) != rid
                         or (row.status == 'CANCELLED') != (body['op'] == 'cancel') or row.status == 'SAVED'):
                     return False
-                owner_scope(db, row.org_id, row.robot_id, db.get(User, row.owner_id), self.fail, row.floor_id)
+                key = (rid, body['session_id'], body['floor_id'], body['op'])
+                owner_scope(db, row.org_id, row.robot_id,
+                    db.get(User, self.command_actors[key]), self.fail, row.floor_id)
                 return True
         except Exception:
             return False
@@ -106,7 +109,7 @@ class Mapping:
                     server_time(row, body['op'] + '_forwarded_at')
                 db.commit()
 
-    def dispatch(self, row, op):
+    def dispatch(self, row, op, *, actor_id=None):
         rid = str(row.robot_id)
         peer = self.realtime.agents.get(rid)
         if not self.connected(rid):
@@ -125,6 +128,8 @@ class Mapping:
         self.pending[key] = body
         self.command_peers = {key: value for key, value in self.command_peers.items() if key in self.pending}
         self.command_peers[key] = peer
+        self.command_actors = {key: value for key, value in self.command_actors.items() if key in self.pending}
+        self.command_actors[key] = actor_id if actor_id is not None else row.owner_id
         self.realtime.put(peer, body)
 
     def report(self, rid, msg):
@@ -261,6 +266,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
     mapping = Mapping(app.state.realtime, fail)
     mapping.pending = {}
     mapping.command_peers = {}
+    mapping.command_actors = {}
     app.state.mapping = mapping
     app.state.realtime.mapping = mapping
     slot, body_slot = asyncio.Semaphore(1), asyncio.Semaphore(1)
@@ -368,7 +374,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
         db.commit()
         mapping.pending = {key: value for key, value in mapping.pending.items() if key[1] != str(row.id)}
         if mapping.connected(robot_id):
-            mapping.dispatch(row, 'cancel')
+            mapping.dispatch(row, 'cancel', actor_id=auth[0].id)
         return progress(row)
 
     @app.post('/api/v1/agent/robots/{robot_id}/slam/{session_id}/progress', status_code=202)

@@ -392,3 +392,24 @@ def test_source_defaults_config_and_disabled_service_control(setup, monkeypatch)
         json={'floor_id': floor, 'source': 'unitree_uslam'}).status_code == 400
     assert http.post(P+f'/robots/{rid}/slam/start', headers=headers,
         json={'floor_id': floor, 'source': 'glim'}).status_code == 400
+
+
+def test_current_assignee_cancel_uses_requesting_actor(setup, seeded):
+    s = setup
+    initial = start(s)
+    http, _, _, rid, rt, peer, engine = s
+    with Session(engine) as db:
+        db.get(Robot, rid).owner_user_id = seeded['users']['two']
+        db.commit()
+    response = http.post(P+f'/robots/{rid}/slam/cancel', headers=auth(http, 'two'),
+                         json={'session_id': initial['session_id']})
+    assert response.status_code == 200
+    cancel = next(x for x in peer.queue._queue if x.get('op') == 'cancel')
+    sent = []
+    class Socket:
+        async def send_json(self, body):
+            sent.append(body)
+    peer.socket = Socket()
+    assert http.portal.call(rt.send_body, peer, cancel)
+    assert sent == [cancel]
+    assert post_bundle(s, bundle(initial['session_id'])).status_code == 403
