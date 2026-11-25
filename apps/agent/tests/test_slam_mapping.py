@@ -139,6 +139,7 @@ def test_save_freezes_one_pair_and_retries_same_bytes(tmp_path):
             assert not rt.changes and not rt.tiles.pending
             calls.append(data)
             if len(calls)==1: raise OSError('fake timeout')
+            return {'session_id':session,'status':'RECEIVED_ONLY'}
         return {'accepted':True}
     rt.request=request
     rt.online=True
@@ -153,6 +154,7 @@ def test_save_freezes_one_pair_and_retries_same_bytes(tmp_path):
     while not rt.save_future.done() and time.monotonic()<deadline: time.sleep(.01)
     rt.step()
     assert rt.save_failed
+    assert (tmp_path/(start['session_id']+'.bundle.json')).read_bytes()==calls[0]
     assert rt.report_body()[0]['error_code']=='MAPPING_SAVE_FAILED'
     rt.command(command('save',start));rt.step()
     deadline=time.monotonic()+10
@@ -164,7 +166,7 @@ def test_save_freezes_one_pair_and_retries_same_bytes(tmp_path):
     assert rt.core.status=='SAVED' and calls[0]==calls[1]
     body=json.loads(calls[0])
     assert body['grid']['resolution']==.05 and body['slam_save']=='UNKNOWN'
-    assert (tmp_path/(start['session_id']+'.bundle.json')).read_bytes()==calls[0]
+    assert not (tmp_path/(start['session_id']+'.bundle.json')).exists()
     rt.io.shutdown(wait=True)
 
 
@@ -555,3 +557,127 @@ def test_runtime_uses_source_adapter_topics_and_world_frame(tmp_path):
     assert rt.last_odom['frame_id']=='synthetic_world'
     assert rt.report_body()[0]['voxels']['frame_id']=='synthetic_world'
     rt.io.shutdown(wait=True)
+
+
+def test_floor_z_stays_fixed_with_moving_pose_and_resets_for_each_revision(tmp_path):
+    rt=runtime(tmp_path);rt.online=True
+    start=command();rt.command(start);rt.step()
+    try:
+        for stamp,z in ((1,.4),(2,.401),(3,.2)):
+            sample=pose(stamp=stamp);sample.pose.pose.position.z=z
+            rt.receive(FRONTEND,sample);rt.receive(CLOUD,cloud([[stamp,0,.4]],stamp=stamp));rt.step()
+            body,_,_=rt.report_body()
+            assert rt.core.last_pose[2]==z
+            assert body['grid']['floor_z']==.4-.3
+            assert body['tiles'] and all(t['floor_z']==.4-.3 for t in body['tiles'])
+        rt.command(command('save',start));rt.step()
+        final_pose=pose(stamp=4);final_pose.pose.pose.position.z=.8
+        rt.receive(FINAL_POSE,final_pose);rt.receive(MAP,cloud([[1,0,.8]],stamp=4));rt.step()
+        assert rt.revision==2
+        assert rt.grid_body()['floor_z']==.8-.3
+        assert all(t['floor_z']==.8-.3 for t in rt.report_body()[0]['tiles'])
+        rt.command(command());rt.step()
+        assert rt.core.floor_z is None
+        rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
+        assert rt.grid_body()['floor_z']==0.
+    finally:
+        rt.close();rt.io.shutdown(wait=True)
+
+
+@pytest.mark.parametrize('status',['SAVED','RECEIVED_ONLY'])
+def test_bundle_confirmed_receipt_removes_only_its_session_file(tmp_path,status):
+    rt=runtime(tmp_path);sid=str(uuid4())
+    other=tmp_path/(str(uuid4())+'.bundle.json');other.write_bytes(b'keep')
+    rt.request=lambda *args:{'session_id':sid,'status':status}
+    try:
+        assert rt.store_bundle(b'{}',sid,threading.Event())['status']==status
+        assert not (tmp_path/(sid+'.bundle.json')).exists()
+        assert other.read_bytes()==b'keep'
+    finally:
+        rt.close();rt.io.shutdown(wait=True)
+
+
+@pytest.mark.parametrize('response',[{'accepted':True},{'status':'SAVING'},
+    {'status':'SAVED','session_id':str(uuid4())}])
+def test_unconfirmed_bundle_receipt_retains_retry_file(tmp_path,response):
+    from foothold_agent.mapping.runtime import TransferError
+    rt=runtime(tmp_path);sid=str(uuid4())
+    rt.request=lambda *args:response
+    try:
+        with pytest.raises(TransferError,match='수신 확인'):
+            rt.store_bundle(b'{}',sid,threading.Event())
+        assert (tmp_path/(sid+'.bundle.json')).read_bytes()==b'{}'
+    finally:
+        rt.close();rt.io.shutdown(wait=True)
+
+
+@pytest.mark.parametrize('stage',['cached','writing','uploading'])
+def test_cancel_removes_only_its_bundle_even_during_store(tmp_path,monkeypatch,stage):
+    rt=runtime(tmp_path);rt.online=True
+    start=command();rt.command(start);rt.step()
+    sid=start['session_id'];path=tmp_path/(sid+'.bundle.json')
+    other=tmp_path/(str(uuid4())+'.bundle.json');other.write_bytes(b'keep')
+    cancelled=rt.bundle_cancelled
+    entered,release=threading.Event(),threading.Event()
+    def request(*args):
+        entered.set();assert release.wait(3)
+        raise OSError('cancelled upload')
+    future=None
+    try:
+        if stage=='cached':
+            path.write_bytes(b'{}')
+        else:
+            rt.request=request
+            if stage=='writing':
+                replace=os.replace
+                def delayed_replace(*args):
+                    entered.set();assert release.wait(3)
+                    return replace(*args)
+                monkeypatch.setattr(os,'replace',delayed_replace)
+            future=rt.io.submit(rt.store_bundle,b'{}',sid,cancelled)
+            assert entered.wait(1)
+        rt.command(command('cancel',start));rt.step()
+        assert rt.core.status=='CANCELLED' and cancelled.is_set()
+        assert not path.exists()
+        # Replacing the current session must not lose the old upload's cancel flag.
+        rt.command(command());rt.step()
+        assert not rt.bundle_cancelled.is_set()
+        release.set()
+        if future is not None:
+            if stage=='uploading':
+                with pytest.raises(OSError):future.result(timeout=3)
+            else:
+                future.result(timeout=3)
+        assert not path.exists() and other.read_bytes()==b'keep'
+    finally:
+        release.set();rt.close();rt.io.shutdown(wait=True)
+
+
+@pytest.mark.parametrize('key',['FH_MAPPING_POINT_LIO_SERVICE','FH_MAPPING_GLIM_SERVICE'])
+@pytest.mark.parametrize('name',['foothold-robot','foothold-policy-cpp','foothold-depth'])
+@pytest.mark.parametrize('suffix',['','.service','.service.service'])
+def test_mapping_services_reject_control_units_before_any_operation(key,name,suffix,caplog):
+    from foothold_agent.mapping.services import Services
+    calls=[]
+    with pytest.raises(ValueError,match='allowlist'):
+        Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true',key:name+suffix},
+            lambda:True,run=lambda *args:calls.append(args))
+    assert calls==[]
+    assert 'invalid_mapping_service_allowlist' in caplog.text
+
+
+@pytest.mark.parametrize('truncated',[False,True])
+def test_verified_glim_progress_and_bundle_agree_when_truncated(tmp_path,truncated):
+    rt=runtime(tmp_path);rt.online=True;rt.final.final_verified=True
+    start=command();rt.command(start);rt.step()
+    try:
+        rt.command(command('save',start));rt.step()
+        points=[[1,0,.3],[200,0,.3]] if truncated else [[1,0,.3]]
+        rt.receive(FINAL_POSE,pose());rt.receive(MAP,cloud(points));rt.step()
+        assert rt.final_received and rt.core.truncated==truncated
+        body=rt.report_body()[0]
+        assert body['phase']==('UNKNOWN' if truncated else 'SLAM_SAVED')
+        assert body['status']==('UNKNOWN' if truncated else 'FINALIZING')
+        assert json.loads(rt.frozen)['slam_save']==('UNKNOWN' if truncated else 'SLAM_SAVED')
+    finally:
+        rt.close();rt.io.shutdown(wait=True)

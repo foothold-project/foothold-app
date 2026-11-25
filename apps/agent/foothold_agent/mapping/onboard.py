@@ -75,6 +75,7 @@ class OnboardRuntime(MappingRuntime):
         self.final_received=False
         self.save_requested=None
         self.frozen=self.rebuild=self.next_rebuild=None
+        self.bundle_cancelled=threading.Event()
         self.save_failed=False
         self.confirmed_report=None
         self.was_enabled=False
@@ -185,6 +186,7 @@ class OnboardRuntime(MappingRuntime):
             self.tiles=Tiles()
             self.times,self.last_odom={},None
             self.frozen=self.save_requested=self.rebuild=self.next_rebuild=None
+            self.bundle_cancelled=threading.Event()
             self.save_failed=False
             self.confirmed_report=None
             self.phase,self.core.status='START_REQUESTED','STARTING'
@@ -194,6 +196,8 @@ class OnboardRuntime(MappingRuntime):
                 self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
         elif op=='cancel':
             self.core.status='CANCELLED'
+            self.bundle_cancelled.set()
+            self.remove_bundle(sid)
             self.phase='UNKNOWN'
             self.rebuild=self.next_rebuild=None
             self.services.stop()
@@ -309,6 +313,7 @@ class OnboardRuntime(MappingRuntime):
             self.core.frame=self.frame
             self.last_odom=pose[4]
             self.core.last_pose, self.core.robot = core.last_pose, core.robot
+            self.core.floor_z = core.floor_z
             self.core.last_cloud_stamp = pending['stamp']
             self.core.truncated = core.truncated or count > 500000
             self.core.version += 1
@@ -345,7 +350,7 @@ class OnboardRuntime(MappingRuntime):
         if max_cells is not None and w * h > max_cells:
             return None
         return dict(revision=self.revision, resolution=.05, frame_id=self.frame,
-            origin=[(grid.c0+c)*.05, (grid.r0+r)*.05, 0], floor_z=(self.core.last_pose[2]-.3 if self.core.last_pose else 0),
+            origin=[(grid.c0+c)*.05, (grid.r0+r)*.05, 0], floor_z=self.core.floor_z if self.core.floor_z is not None else 0,
             width=w, height=h, cells=states[r:r+h,c:c+w].ravel().tolist())
 
     def report_body(self):
@@ -368,11 +373,19 @@ class OnboardRuntime(MappingRuntime):
         if self.core.truncated and not self.core.error_code:
             body.update(error_code='MAPPING_PARTIAL', reason='계산 한도 안에서 받은 자료입니다. 최종 지도와 좌표 보정은 실기 확인이 필요합니다.')
         body['tiles'] = [dict(revision=self.revision, tile_seq=t['version'], x=t['tx'], y=t['ty'],
-            frame_id=self.frame, floor_z=(self.core.last_pose[2]-.3 if self.core.last_pose else 0),
+            frame_id=self.frame, floor_z=self.core.floor_z if self.core.floor_z is not None else 0,
             resolution=.05, size=64, cells=t['cells']) for t in (self.tiles.take(self.core.grid) if self.core.status!='FAILED' else [])]
         return body, added, removed
 
-    def store_bundle(self, data, session):
+    def remove_bundle(self, session):
+        try:
+            (self.folder / (session + '.bundle.json')).unlink(missing_ok=True)
+        except OSError:
+            self.dropped('bundle', 'cache_cleanup_failed')
+
+    def store_bundle(self, data, session, cancelled):
+        if cancelled.is_set():
+            return
         self.folder.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self.folder / (session + '.bundle.json')
         fd, temporary = tempfile.mkstemp(prefix=session+'.', suffix='.tmp', dir=self.folder)
@@ -388,8 +401,18 @@ class OnboardRuntime(MappingRuntime):
             except FileNotFoundError:
                 pass
         try:
-            return self.request(session,'bundle',data)
+            if cancelled.is_set():
+                return
+            response = self.request(session,'bundle',data)
+            if (not isinstance(response, dict) or response.get('session_id') != session
+                    or response.get('status') not in ('SAVED', 'RECEIVED_ONLY')):
+                raise TransferError('MAPPING_SAVE_UNCONFIRMED','지도 묶음 수신 확인이 안 되어 다시 저장해야 합니다.')
+            self.remove_bundle(session)
+            return response
         finally:
+            # Cancel may run before the atomic file replacement or during HTTP.
+            if cancelled.is_set():
+                self.remove_bundle(session)
             if self.core.session_id==session:
                 self.services.stop()
 
@@ -416,8 +439,10 @@ class OnboardRuntime(MappingRuntime):
                 and self.core.status not in ('SAVED','CANCELLED','FAILED')):
             self.phase,self.core.status='STARTED','RUNNING'
         elif self.save_requested is not None and self.core.status not in ('SAVED','CANCELLED','FAILED'):
-            if self.final_received and self.final.final_verified:
+            if self.final_received and self.final.final_verified and not self.core.truncated:
                 self.phase,self.core.status='SLAM_SAVED','FINALIZING'
+            elif self.final_received and self.final.final_verified and self.core.truncated:
+                self.problem('MAPPING_PARTIAL','계산 한도로 잘린 최종 지도입니다. 받은 범위만 저장합니다.')
             elif self.now()-self.save_requested>=10:
                 self.problem('GLIM_FINAL_UNCONFIRMED','GLIM 최종 저장 확인이 안 되어 받은 범위만 저장합니다.')
         if self.save_future is not None and self.save_future.done():
@@ -456,7 +481,7 @@ class OnboardRuntime(MappingRuntime):
             if (not self.changes and not self.tiles.pending
                     and self.confirmed_report == (self.core.session_id,self.revision,self.command_id)):
                 self.save_session = self.core.session_id
-                self.save_future = self.io.submit(self.store_bundle, self.frozen, self.save_session)
+                self.save_future = self.io.submit(self.store_bundle, self.frozen, self.save_session, self.bundle_cancelled)
         if self.report_future is not None and self.report_future.done():
             future, self.report_future = self.report_future, None
             try:

@@ -16,6 +16,7 @@ class WorldAccumulator(Accumulator):
         self.grid = OccGrid(mode=mode, now=self.now)
         self.added, self.removed = set(), set()
         self.truncated = False
+        self.floor_z = None  # One height anchor for every report in this revision.
 
     def command(self, frame):
         previous = self.session_id
@@ -25,6 +26,7 @@ class WorldAccumulator(Accumulator):
             self.grid = OccGrid(mode=self.mode, now=self.now)
             self.added, self.removed = set(), set()
             self.truncated = False
+            self.floor_z = None
         return accepted
 
     def add_world(self, xyz, position, quaternion, *, stamp, frame, replace=False, complete_chunk=False):
@@ -76,6 +78,8 @@ class WorldAccumulator(Accumulator):
         self.removed = set() if old is None else old.keys() - self.cells.keys()
         self.robot = [float(position[0]), float(position[1]), math.atan2(r[1, 0], r[0, 0])]
         self.last_pose = tuple(position)
+        if self.floor_z is None:
+            self.floor_z = float(position[2]) - .3
         self.last_cloud_stamp = stamp
         return dict(version=self.version, added_count=len(self.added), removed_count=len(self.removed),
                     truncated=self.truncated, elapsed_ms=(self.now()-started)*1000)

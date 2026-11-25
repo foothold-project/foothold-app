@@ -15,7 +15,9 @@ class Services:
         self.now,self.ready_at=now,None
         self.names=tuple(env.get(key,default).removesuffix('.service') for key,default in (
             ('FH_MAPPING_POINT_LIO_SERVICE','foothold-pointlio'),('FH_MAPPING_GLIM_SERVICE','foothold-glim')))
-        if len(set(self.names))!=2 or any(not re.fullmatch(r'foothold-[A-Za-z0-9_-]{1,64}(?:\.service)?',n) for n in self.names):
+        forbidden = {'foothold-robot', 'foothold-policy-cpp', 'foothold-depth'}
+        if len(set(self.names))!=2 or any(n in forbidden or not re.fullmatch(r'foothold-[A-Za-z0-9_-]{1,64}',n) for n in self.names):
+            LOG.error('SLAM_SERVICE event=invalid_configuration reason=invalid_mapping_service_allowlist')
             raise ValueError('invalid mapping service allowlist')
         self.run=run or self.systemctl
         self.owned=set()
