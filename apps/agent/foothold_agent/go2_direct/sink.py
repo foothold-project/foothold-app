@@ -54,6 +54,13 @@ def server_velocity(value):
     return tuple(value)
 
 
+def start_active():
+    """START 실행기가 저수준으로 로봇을 쥐고 있으면 참 (실행기가 /tmp/foothold-start-active 를 만든다).
+    그동안 이 프로그램은 순정 걷기 · 동작을 보내지 않는다: 조종 권한은 한 번에 하나 (팀장 11/25 20:50)."""
+    from ..policy.trace import START_FLAG
+    return START_FLAG.exists()
+
+
 class OutputError(RuntimeError):
     pass
 
@@ -182,6 +189,8 @@ class Go2Sink:
             active = self._remote_active()
             if self._operator_stop:
                 return '비상정지가 걸려 있습니다'
+            if start_active():
+                return 'START 저수준 제어 중이라 화면 조종 · 순정 동작은 멈춰 있습니다 (리모컨 L2+A 앉기 · start+좌/우 로 순정 넘김)'
             if active:
                 return '리모컨으로 조종 중이라 화면 조종은 멈춰 있습니다'
             if self._wait_operator_neutral:
