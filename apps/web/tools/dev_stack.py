@@ -4,10 +4,13 @@
   python apps/web/tools/dev_stack.py agent <폴더>           apps/agent Client + 가짜 브리지(메모리 sink) — 끄면 «로봇 끊김»
       FH_AGENT_TOKEN=<토큰> 을 주면 stack.json 대신 그 토큰으로 붙는다(화면에서 새로 등록한 로봇 확인용)
   server ... --demo-robots go2-a,go2-b [--demo-floors f1]
-      데모 로봇(시나리오 로봇 id 마다 1 대·토큰 1 개)과 층마다 빈 지도(승인 판)를 더 만들고
-      <폴더>/demo/demo.yaml(데모 등록 설정: 토큰 파일 경로·층 id) 을 쓴다. 토큰 값은 <폴더>/demo/*.token 에만.
+      서버가 뜬 뒤 아래 demo 와 같은 일을 kim(총괄)·park(운영) 계정으로 한다
+  python apps/web/tools/dev_stack.py demo <폴더> <서버 주소> --demo-robots go2-a,go2-b [--demo-floors f1]
+      이미 떠 있는 로컬 서버(Docker 등)에 데모 로봇을 실기와 같은 연결 코드 길(pairing)로 1 대·토큰 1 개씩 등록하고
+      층마다 빈 지도(승인 판)를 만든 뒤 <폴더>/demo/demo.yaml(토큰 파일 경로·층 id) 을 쓴다.
+      총괄 계정은 환경 변수 FH_DEMO_ADMIN_USER · FH_DEMO_ADMIN_PASSWORD 로만 받고, 운영 계정 demo-operator 를 새로 만든다.
+      토큰·비밀번호 값은 <폴더>/demo/ 의 0600 파일에만 쓰고 화면에 내지 않는다.
       python -m foothold_agent.demo run <시나리오> --config <폴더>/demo/demo.yaml --replay <재생 자료>
-
 계정 비밀번호·로봇 토큰은 실행할 때마다 새로 만들어 <폴더>/stack.json 에만 쓴다(커밋 금지 — 폴더는 runs/ 아래).
 Ctrl+C(또는 SIGTERM)로 uvicorn·PostgreSQL 까지 모두 끈다. 포트는 127.0.0.1 만.
 """
@@ -38,34 +41,73 @@ def _api(base, method, path, body=None, token=None, content_type='application/js
         return json.loads(response.read() or b'null')
 
 
-def demo_site(base, password, floors, folder):
-    """서버 API 로(화면과 같은 길) 데모 현장·층·빈 지도 승인 판을 만들고 층별 id 를 돌려준다"""
+def _secret(path, value):
+    path.touch(0o600); path.chmod(0o600); path.write_text(value)
+
+
+def _wait(base):
     import time
     import urllib.error
     for _ in range(100):
         try:
             _api(base, 'GET', '/api/v1/auth/session')
         except urllib.error.HTTPError:
-            break      # 401 = 서버가 응답한다
+            return     # 401 = 서버가 응답한다
         except OSError:
             time.sleep(0.2)
-    token = _api(base, 'POST', '/api/v1/auth/login', dict(username='kim', password=password, client='app'))['access_token']
-    site = _api(base, 'POST', '/api/v1/sites', dict(name='데모 현장'), token)
-    building = _api(base, 'POST', f'/api/v1/sites/{site["id"]}/buildings', dict(name='데모 창고'), token)
+    raise SystemExit(f'서버 응답 없음: {base}')
+
+
+def _login(base, username, password):
+    return _api(base, 'POST', '/api/v1/auth/login', dict(username=username, password=password, client='app'))['access_token']
+
+
+def demo_register(base, admin, robots, floors, folder, operator=None):
+    """서버 API 로만(화면·실기와 같은 길) 데모 로봇·현장·층·빈 지도 승인 판을 만들고 demo.yaml 을 쓴다.
+
+    로봇은 실기처럼 연결 코드로 등록한다: 기체 쪽 pairing/start → 운영자 claim·confirm → 기체 쪽 poll 로 토큰.
+    일련번호는 MAC 대체 범위(0xFFFF0000..)라 실기 일련번호와 겹치지 않고, 이름 앞 «데모» 로 구분한다
+    (서버에 데모 표시 칸은 아직 없다).
+    """
+    demo = folder / 'demo'
+    demo.mkdir(parents=True, exist_ok=True)
+    _wait(base)
+    admin_token = _login(base, *admin)
+    if operator is None:
+        operator = ('demo-operator', secrets.token_urlsafe(12))
+        _api(base, 'POST', '/api/v1/users', dict(username=operator[0], display_name='데모 운영', role='OPERATOR',
+                                                  temp_password=operator[1]), admin_token)
+        _secret(demo / 'operator.json', json.dumps(dict(username=operator[0], password=operator[1])))
+    op_token = _login(base, *operator)
+    url, ids = None, {}
+    for i, rid in enumerate(robots):
+        started = _api(base, 'POST', '/api/v1/pairing/start',
+                       dict(model='unitree_go2', robot_serial=f'{0xFFFF0000 + i}-{secrets.randbelow(2 ** 32)}'))
+        _api(base, 'POST', '/api/v1/pairing/claim', dict(code=started['code']), op_token)
+        robot = _api(base, 'POST', f'/api/v1/pairing/{started["pairing_id"]}/confirm', dict(name=f'데모 {rid}'), op_token)
+        paired = _api(base, 'POST', f'/api/v1/pairing/{started["pairing_id"]}/poll', dict(poll_secret=started['poll_secret']))
+        _secret(demo / f'{rid}.token', paired['agent_token'])
+        url, ids[rid] = paired['agent_ws_url'], str(robot['id'])
+    site = _api(base, 'POST', '/api/v1/sites', dict(name='데모 현장'), admin_token)
+    building = _api(base, 'POST', f'/api/v1/sites/{site["id"]}/buildings', dict(name='데모 창고'), admin_token)
     width, height, resolution = DEMO_MAP
     pgm = f'P5 {width} {height} 255\n'.encode() + bytes([254]) * (width * height)
-    result = {}
+    floor_ids = {}
     for level, key in enumerate(floors, 1):
-        floor = _api(base, 'POST', f'/api/v1/buildings/{building["id"]}/floors', dict(name=f'데모 {key}', level=level), token)
-        image = _api(base, 'POST', '/api/v1/uploads', pgm, token, 'image/x-portable-graymap')['upload_id']
+        floor = _api(base, 'POST', f'/api/v1/buildings/{building["id"]}/floors', dict(name=f'데모 {key}', level=level), admin_token)
+        image = _api(base, 'POST', '/api/v1/uploads', pgm, admin_token, 'image/x-portable-graymap')['upload_id']
         meta = (f'image: {key}.pgm\nresolution: {resolution}\norigin: [0.0, 0.0, 0.0]\n'
                 'negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n').encode()
-        upload = _api(base, 'POST', f'/api/v1/uploads?image={image}', meta, token, 'text/yaml')['upload_id']
+        upload = _api(base, 'POST', f'/api/v1/uploads?image={image}', meta, admin_token, 'text/yaml')['upload_id']
         version = _api(base, 'POST', f'/api/v1/floors/{floor["id"]}/map-versions',
                        dict(base_version_id=None, image=upload, reason='데모 빈 지도',
-                            features=dict(zones=[], waypoints=[], connectors=[], edits=[])), token)
-        result[key] = dict(floor_id=str(floor['id']), map_version_id=str(version['id']))
-    return result
+                            features=dict(zones=[], waypoints=[], connectors=[], edits=[])), admin_token)
+        floor_ids[key] = dict(floor_id=str(floor['id']), map_version_id=str(version['id']))
+    # JSON 은 YAML 이기도 하다(서버 venv 에 yaml 이 없어도 쓴다). 토큰 값은 넣지 않는다.
+    (demo / 'demo.yaml').write_text(json.dumps(dict(
+        demo=True, url=url, robots={rid: dict(token_file=f'{rid}.token') for rid in robots},
+        floors=floor_ids, robot_ids=ids), ensure_ascii=False, indent=1))
+    print(f'데모 로봇 {len(robots)} 대·층 {len(floor_ids)} 개 · 설정 {demo / "demo.yaml"}', flush=True)
 
 
 def server(folder: Path, port: int, demo_robots=(), demo_floors=('f1',)):
@@ -106,14 +148,8 @@ def server(folder: Path, port: int, demo_robots=(), demo_floors=('f1',)):
                      for k, name, role in (('kim', '김총괄', 'ORG_ADMIN'), ('park', '박운영', 'OPERATOR'), ('lee', '이운영', 'OPERATOR'))}
             db.add_all(users.values()); db.flush()
             robot = Robot(org_id=org.id, name='Go2-7', model='unitree_go2', owner_user_id=users['park'].id, agent_token_hash=digest(token))
-            db.add(robot)
-            # 데모 로봇: 실기와 같은 «등록된 로봇 + 토큰 1 개». 이름 앞 «데모» 로만 구분(서버 데모 표시 칸은 아직 없다)
-            demo_tokens = {rid: secrets.token_urlsafe(24) for rid in demo_robots}
-            demo_rows = {rid: Robot(org_id=org.id, name=f'데모 {rid}', model='unitree_go2', owner_user_id=users['park'].id,
-                                    agent_token_hash=digest(t)) for rid, t in demo_tokens.items()}
-            db.add_all(demo_rows.values()); db.commit()
-            stack = {'org': str(org.id), 'robot': str(robot.id), 'agent_token': token, 'passwords': pw, 'base': f'http://127.0.0.1:{port}',
-                     'demo_robots': {rid: str(r.id) for rid, r in demo_rows.items()}}
+            db.add(robot); db.commit()
+            stack = {'org': str(org.id), 'robot': str(robot.id), 'agent_token': token, 'passwords': pw, 'base': f'http://127.0.0.1:{port}'}
         (folder / 'stack.json').write_text(json.dumps(stack, ensure_ascii=False, indent=1))
         (folder / 'stack.json').chmod(0o600)
 
@@ -122,17 +158,7 @@ def server(folder: Path, port: int, demo_robots=(), demo_floors=('f1',)):
         uv = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.server.fh_server.main:app', '--host', '127.0.0.1', '--port', str(port),
                                '--ws-max-size', '4096', '--workers', '1', '--no-proxy-headers'], cwd=ROOT, env=env)
         if demo_robots:
-            demo = folder / 'demo'
-            demo.mkdir(exist_ok=True)
-            for rid, t in demo_tokens.items():
-                path = demo / f'{rid}.token'
-                path.touch(0o600); path.chmod(0o600); path.write_text(t)
-            floors = demo_site(stack['base'], pw['kim'], demo_floors, folder)
-            # JSON 은 YAML 이기도 하다(서버 venv 에 yaml 이 없어도 쓴다). 토큰 값은 넣지 않는다.
-            (demo / 'demo.yaml').write_text(json.dumps(dict(
-                demo=True, url=stack['base'].replace('http', 'ws', 1) + '/api/v1/agent/ws',
-                robots={rid: dict(token_file=f'{rid}.token') for rid in demo_robots}, floors=floors), ensure_ascii=False, indent=1))
-            print(f'데모 로봇 {len(demo_robots)} 대·층 {len(floors)} 개 · 설정 {demo / "demo.yaml"}', flush=True)
+            demo_register(stack['base'], ('kim', pw['kim']), demo_robots, demo_floors, folder, operator=('park', pw['park']))
         print(f'서버 {stack["base"]} — 계정·토큰은 {folder / "stack.json"}', flush=True)
         uv.wait()
     except KeyboardInterrupt:
@@ -204,5 +230,10 @@ if __name__ == '__main__':
     mode, folder = args[0], Path(args[1]).resolve()
     if mode == 'server':
         server(folder, int(args[2]) if len(args) > 2 else 8880, **options)
+    elif mode == 'demo':
+        admin = (os.environ.get('FH_DEMO_ADMIN_USER', ''), os.environ.get('FH_DEMO_ADMIN_PASSWORD', ''))
+        if not all(admin) or not options.get('demo_robots'):
+            raise SystemExit('FH_DEMO_ADMIN_USER · FH_DEMO_ADMIN_PASSWORD 와 --demo-robots 가 필요하다')
+        demo_register(args[2].rstrip('/'), admin, options['demo_robots'], options.get('demo_floors', ('f1',)), folder)
     else:
         agent(folder)
