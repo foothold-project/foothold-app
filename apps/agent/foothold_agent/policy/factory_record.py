@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from .lowlevel import parse_remote
+from .fall_watch import FallWatch
 from .start import POLICY_FROM_SDK, body_height, projected_gravity
 from .unitree import battery_of
 from .trace import START_FLAG, TraceWriter, pin_cpus, r4
@@ -81,6 +82,7 @@ def main(argv=None):
     tw = TraceWriter(a.out, f'factory-{a.label}', on_full=lambda: print(json.dumps({'code': 'TRACE_FULL'}), flush=True))
     print(json.dumps({'code': 'FACTORY_RECORD_READY', 'label': a.label, 'file': str(tw.path)}), flush=True)
     t0, k, paused = time.monotonic(), 0, False
+    falls = FallWatch()
     try:
         while not a.seconds or time.monotonic() - t0 < a.seconds:
             if k % 10 == 0 and START_FLAG.exists():   # START 로 넘어감: 파일을 닫고 끝냄 → systemd 가 다시 띄워 위에서 기다림
@@ -88,7 +90,12 @@ def main(argv=None):
                 break
             low, low_t, sport = st.snapshot()
             if low is not None:
-                tw.write(row(low, low_t, sport, a.label, time.monotonic()))
+                r = row(low, low_t, sport, a.label, time.monotonic())
+                tw.write(r)
+                ev = falls.update(r['grav'], r['t'], (r.get('sport') or {}).get('err'))
+                if ev:   # 이벤트는 기록 파일과 journal 에 같이 남김 (기록 탭 · 클립 계약이 읽음)
+                    tw.write({'t': r['t'], 'wall': r['wall'], 'event': ev})
+                    print(json.dumps(ev), flush=True)
             k += 1
             if k % HZ == 0:
                 tw.flush()
