@@ -52,7 +52,8 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     manifest = dict(schema='fh_uslam_bundle/1', name=row.progress['name'], session_id=str(row.id),
         **fingerprint, sha256=digest, voxels_path=str(folder / 'uslam-voxels.bin'),
         grid_path=str(folder / 'uslam-grid.bin'), voxel_count=len(cells) // RECORD.size,
-        floor_z=grid.floor_z, axis='XYZ', source_translation=[0, 0, 0], robot_save=bundle.robot_save)
+        floor_z=grid.floor_z, axis='XYZ', source_translation=[0, 0, 0], robot_save=bundle.robot_save,
+        completeness='RECEIVED_ONLY' if bundle.robot_save != 'ROBOT_SAVED' else 'ROBOT_CONFIRMED')
     metadata = dict(resolution=.05, origin=list(grid.origin), negate=0, occupied_thresh=.65,
         free_thresh=.2, uslam_bundle=manifest)
     artifacts = {'uslam-voxels.bin': cells, 'uslam-grid.bin': raster, 'image.png': png,
@@ -71,7 +72,8 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
         image_path=image.image_path, image_sha256=image.png_sha256, width=grid.width, height=grid.height,
         resolution=.05, origin_x=grid.origin[0], origin_y=grid.origin[1], origin_yaw=0,
         features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []}, source='SLAM',
-        reason='내장 SLAM 5 cm 3D·2D 지도 묶음 저장', created_by=user.id)
+        reason=('내장 SLAM 5 cm 3D·2D 지도 묶음 저장' if bundle.robot_save == 'ROBOT_SAVED'
+            else '로봇 쪽 저장 미확인 · 받은 범위의 5 cm 3D·2D 지도 묶음 보관'), created_by=user.id)
     db.add(version)
     db.flush()
     floor.approved_version_id = identifier
@@ -91,7 +93,8 @@ def publish(db, row, user, floor, bundle, encoded, root, fail, event, created):
     times['last_data_at'] = received
     row.progress = {**row.progress, 'robot_save': bundle.robot_save, 'phase': bundle.robot_save,
         'terrain_status': 'PENDING', 'times': times,
-        'point_count': len(cells) // RECORD.size, 'error_code': None, 'reason': None}
+        'point_count': len(cells) // RECORD.size, 'error_code': None,
+        'reason': None if bundle.robot_save == 'ROBOT_SAVED' else '로봇 쪽 저장 확인 안 됨 · 받은 범위만 보관했습니다.'}
     from .mapping import server_time
     server_time(row, 'saved_at')
 
@@ -208,7 +211,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
                         publish(db, row, user, floor, bundle, encoded, root, fail, event, created)
                         db.commit()
                     elif bundle.robot_save == 'ROBOT_SAVED' and row.progress.get('robot_save') != 'ROBOT_SAVED':
-                        row.progress = {**row.progress, 'robot_save': 'ROBOT_SAVED', 'phase': 'ROBOT_SAVED'}
+                        row.progress = {**row.progress, 'robot_save': 'ROBOT_SAVED', 'phase': 'ROBOT_SAVED', 'reason': None}
                         from .mapping import server_time
                         server_time(row, 'save_ack_at')
                         db.commit()

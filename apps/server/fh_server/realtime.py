@@ -1400,6 +1400,9 @@ class Realtime:
                 raise WebSocketDisconnect(1009)
             return data
         except (ValueError, RecursionError):
+            if size > MAX_FRAME:
+                await ws.close(code=1009)
+                raise WebSocketDisconnect(1009)
             if agent:
                 return None
             await ws.close(code=1007)

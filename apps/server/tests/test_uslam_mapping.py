@@ -307,12 +307,37 @@ def test_unknown_save_can_preserve_pair_and_accept_late_ack(setup):
     s = setup
     initial = start(s)
     sid = initial['session_id']
+    report(s, initial, status='UNKNOWN', phase='UNKNOWN', update_seq=1)
+    assert post_bundle(s, bundle(sid)).status_code == 409
     save = action(s, 'save', sid).json()
-    report(s, save, status='UNKNOWN', phase='UNKNOWN', update_seq=1)
+    report(s, save, status='UNKNOWN', phase='UNKNOWN', update_seq=2)
     assert current(s)['status'] == 'UNKNOWN'
-    report(s, save, status='RUNNING', phase='STARTED', update_seq=2)
+    report(s, save, status='RUNNING', phase='STARTED', update_seq=3)
     assert current(s)['status'] == 'UNKNOWN'
     response = post_bundle(s, bundle(sid))
     assert response.status_code == 201 and response.json()['robot_save'] == 'UNKNOWN'
-    report(s, save, status='FINALIZING', phase='ROBOT_SAVED', update_seq=3)
+    assert '받은 범위' in response.json()['reason']
+    with Session(s[-1]) as db:
+        assert db.get(MappingSession, sid).result['bundle']['completeness'] == 'RECEIVED_ONLY'
+    report(s, save, status='FINALIZING', phase='ROBOT_SAVED', update_seq=4)
     assert current(s)['status'] == 'SAVED' and current(s)['robot_save'] == 'ROBOT_SAVED'
+    assert current(s)['reason'] is None
+
+
+def test_only_mapping_websocket_frames_get_larger_budget(setup):
+    from starlette.websockets import WebSocketDisconnect
+    http, _, _, _, rt, _, _ = setup
+    class Socket:
+        def __init__(self, raw):
+            self.raw, self.code = raw, None
+        async def receive(self):
+            return {'type': 'websocket.receive', 'text': self.raw}
+        async def close(self, code):
+            self.code = code
+    for raw in ('x' * 4097, json.dumps('x' * 4097), json.dumps({'t': 'ping', 'pad': 'x'*4097})):
+        socket = Socket(raw)
+        with pytest.raises(WebSocketDisconnect):
+            http.portal.call(lambda: rt.receive(socket, agent=True))
+        assert socket.code == 1009
+    socket = Socket(json.dumps({'t': 'slam.update', 'pad': 'x'*4097}))
+    assert http.portal.call(lambda: rt.receive(socket, agent=True))['t'] == 'slam.update'

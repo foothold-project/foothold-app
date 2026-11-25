@@ -153,6 +153,8 @@ class Mapping:
                     if previous.get('robot_save') == 'ROBOT_SAVED' and outcome != 'ROBOT_SAVED':
                         return
                     row.progress = {**previous, 'robot_save': outcome, 'phase': outcome, 'update_seq': msg.update_seq}
+                    if outcome == 'ROBOT_SAVED':
+                        row.progress = {**row.progress, 'reason': None}
                     if outcome == 'ROBOT_SAVED' and not (row.progress.get('times') or {}).get('save_ack_at'):
                         server_time(row, 'save_ack_at')
                     db.commit()
