@@ -1,0 +1,7 @@
+# 설치 (ai-lx01): cp trace_backup.py ~/.local/share/foothold/ ; cp trace-backup.service ~/.config/systemd/user/foothold-trace-backup.service ; cp trace-backup.timer ~/.config/systemd/user/foothold-trace-backup.timer ; systemctl --user enable --now foothold-trace-backup.timer
+[Unit]
+Description=Go2 X Jetson START trace: 2 GB 넘으면 ai-lx01 로 백업 · 확인 · Jetson archive 로 옮김 (apps/agent/tools/trace_backup.py)
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/share/foothold/trace_backup.py
+Nice=10

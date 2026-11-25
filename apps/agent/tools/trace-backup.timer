@@ -1,0 +1,7 @@
+[Unit]
+Description=Go2 X Jetson START trace backup check every 10 min
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=10min
+[Install]
+WantedBy=timers.target
