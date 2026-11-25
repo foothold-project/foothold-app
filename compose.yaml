@@ -1,0 +1,73 @@
+name: foothold-local
+
+services:
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: ${FH_DB_USER:-local_admin}
+      POSTGRES_DB: ${FH_DB_NAME:-foothold_local}
+      POSTGRES_PASSWORD: ${FH_DB_PASSWORD:?로컬 .env에 FH_DB_PASSWORD를 채우세요}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    environment:
+      FH_DATABASE_URL: ${FH_DATABASE_URL:?로컬 .env의 FH_DATABASE_URL을 확인하세요}
+      FH_DB_USER: ${FH_DB_USER:-local_admin}
+      FH_DB_NAME: ${FH_DB_NAME:-foothold_local}
+      FH_DB_PASSWORD: ${FH_DB_PASSWORD:?로컬 .env에 FH_DB_PASSWORD를 채우세요}
+      FH_ORG_ID: ${FH_ORG_ID:?로컬 .env의 FH_ORG_ID를 확인하세요}
+      FH_ORG_NAME: ${FH_ORG_NAME:-로컬 개발 조직}
+      FH_BOOTSTRAP_USERNAME: ${FH_BOOTSTRAP_USERNAME:-local-admin}
+      FH_BOOTSTRAP_DISPLAY_NAME: ${FH_BOOTSTRAP_DISPLAY_NAME:-로컬 총괄}
+      FH_BOOTSTRAP_PASSWORD: ${FH_BOOTSTRAP_PASSWORD:?로컬 .env에 FH_BOOTSTRAP_PASSWORD를 채우세요}
+      FH_WS_ORIGIN: ${FH_WS_ORIGIN:-http://localhost:5180}
+      FH_FILES_ROOT: ${FH_FILES_ROOT:-/var/lib/foothold/files}
+      FH_ROBOT_INSTALLER_ENABLED: '0'
+      FH_SERVER_DRIVE_ENABLED: '0'
+      FH_API_HOST: 0.0.0.0
+    ports:
+      - '127.0.0.1:${FH_API_PORT:-8810}:8810'
+    volumes:
+      - files:${FH_FILES_ROOT:-/var/lib/foothold/files}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8810/openapi.json", timeout=2)']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    environment:
+      FH_API: http://server:8810
+      FH_WEB_HOST: 0.0.0.0
+    ports:
+      - '127.0.0.1:${FH_WEB_PORT:-5180}:5180'
+    volumes:
+      - ./apps/web:/workspace/apps/web
+      - web_node_modules:/workspace/apps/web/node_modules
+      - ./apps/contracts:/workspace/apps/contracts:ro
+      # 현재 웹이 import하는 JS·JSON·정적 지도 자료; 시뮬 프로세스는 실행하지 않는다.
+      - ./mobile/sim:/workspace/mobile/sim:ro
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  database:
+  files:
+  web_node_modules:
