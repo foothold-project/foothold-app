@@ -8,6 +8,7 @@ import math
 import re
 import struct
 import threading
+import time
 
 from .identity import expected_serial
 from foothold_agent.mapping.inputs import CLOUD, MAP, FRONTEND, LOCALIZATION
@@ -46,7 +47,8 @@ def frame_id(value):
     return value
 
 
-def cloud(message):
+def cloud(message, *, max_points=MAX_POINTS, deadline=None, now=time.monotonic,
+          sample_start=0, sample_limit=None):
     width, height, step, row = message.width, message.height, message.point_step, message.row_step
     if (any(type(n) is not int for n in (width, height, step, row))
             or min(width, height, step) < 1 or row < width * step
@@ -81,11 +83,23 @@ def cloud(message):
     except TypeError:
         buffered = False
     count = width * height
-    take = min(MAX_POINTS, count)
+    take = min(max_points, count)
     layout = [axes[axis] for axis in 'xyz']
     payload = bytearray()
-    for sample in range(take):
-        index = sample * count // take
+    passes = math.ceil(take / 64)
+    q = ps = 0
+    end_sample = take if sample_limit is None else min(take, sample_start + sample_limit)
+    for sample in range(sample_start, end_sample):
+        if deadline is not None and sample % 64 == 0 and now() >= deadline:
+            break
+        selected = sample
+        if deadline is not None:
+            selected = q
+            q += passes
+            if q >= take:
+                ps = ps + 1 if ps + 1 < passes else 0
+                q = ps
+        index = selected * count // take
         y, x = divmod(index, width)
         at = y * row + x * step
         if buffered:
@@ -102,7 +116,7 @@ def cloud(message):
         raise InvalidSample('no_finite_points')
     return dict(t='media.slam_points', source=CLOUD, frame=frame_id(message.header.frame_id),
                 count=len(payload)//12, encoding='xyz_f32le', byte_length=len(payload),
-                truncated=take < count), bytes(payload)
+                truncated=take < count or len(payload)//12 < take), bytes(payload)
 
 
 def odometry(message, topic):
@@ -205,6 +219,8 @@ class Reader:
                     self.rejected(MAP, 'reader_unavailable')
             subscribed = False
             for topic in TOPICS[self.channel]:
+                if source.env.get('FH_USLAM_FRONTEND_ONLY') == '1' and topic == LOCALIZATION:
+                    continue
                 try:
                     handle = source.channel.cloud_bus.subscribe(topic, partial(self.receive, topic),
                                                                odometry=topic != CLOUD)

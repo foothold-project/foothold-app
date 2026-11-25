@@ -123,10 +123,10 @@ class MappingRuntime:
     def http(self, session, suffix, data):
         request = Request(self.base + session + '/' + suffix, data=data, method='POST', headers={
             'Authorization': 'Bearer ' + self.settings.token,
-            'Content-Type': 'application/json' if suffix == 'progress' else 'application/octet-stream'})
+            'Content-Type': 'application/json' if suffix in ('progress', 'bundle') else 'application/octet-stream'})
         opener = build_opener(ProxyHandler({}))
         try:
-            with opener.open(request, timeout=60 if suffix == 'point-cloud' else 2) as response:
+            with opener.open(request, timeout=60 if suffix in ('point-cloud', 'bundle') else 2) as response:
                 return json.loads(response.read(2_000_000))
         except HTTPError as error:
             try:
@@ -292,13 +292,59 @@ class MappingRuntime:
             self.io.shutdown(wait=False, cancel_futures=True)
 
 
-def attach(observer, channel, settings, robot, env, *, enabled=lambda: True):
+def attach(observer, channel, settings, robot, env, *, enabled=None, command_allowed=lambda: False):
     """Return background task, never changes the control task graph's health."""
     if not hasattr(channel, 'cloud') or not hasattr(channel, 'add_sport_listener'):
         return None  # observation-less adapters retain their existing control lifetime
     try:
-        mapper = MappingRuntime(observer, channel, settings, robot, env, enabled=enabled)
+        mapper = MappingRouter(observer, channel, settings, robot, env, enabled=enabled, command_allowed=command_allowed)
     except (ValueError, TypeError, AttributeError):
         return None  # a mapping configuration fault cannot stop physical control
     observer.mapping = mapper
     return asyncio.create_task(mapper.run())
+
+
+class MappingRouter:
+    """Keep old command shape/PCD path isolated from the onboard contract."""
+    def __init__(self, observer, channel, settings, robot, env, *, enabled, command_allowed):
+        from .onboard import OnboardRuntime
+        class View:
+            def __getattr__(self, name):
+                return getattr(observer, name)
+        self.observer = observer
+        legacy_enabled = (lambda: enabled() and command_allowed()) if enabled is not None else lambda: True
+        self.legacy = MappingRuntime(View(), channel, settings, robot, env, enabled=legacy_enabled)
+        # Standalone legacy observer has no confirmed-body callback. It cannot
+        # silently gain the new onboard observation/command scope.
+        self.onboard = OnboardRuntime(View(), channel, settings, robot, env,
+            enabled=enabled or (lambda: False), command_allowed=command_allowed)
+        self.legacy_task = None
+
+    def command(self, frame):
+        if frame.get('source') == 'unitree_uslam':
+            self.onboard.command(frame)
+        elif frame.get('source') in (None, 'legacy'):
+            if self.legacy_task is None:
+                self.legacy_task = asyncio.create_task(self.legacy.run())
+            self.legacy.command({k: frame[k] for k in ('t', 'op', 'session_id', 'floor_id') if k in frame})
+
+    def suspend(self):
+        self.legacy.suspend()
+        self.onboard.suspend()
+
+    def suspend_motion(self):
+        self.legacy.suspend()
+
+    def close(self):
+        self.legacy.close()
+        self.onboard.close()
+
+    async def run(self):
+        try:
+            await self.onboard.run()
+        finally:
+            self.close()
+            self.legacy.io.shutdown(wait=False, cancel_futures=True)
+            if self.legacy_task is not None:
+                self.legacy_task.cancel()
+                await asyncio.gather(self.legacy_task, return_exceptions=True)
