@@ -20,6 +20,7 @@ from foothold_agent.slam_source import Source, SOURCES
 from .poses import timestamp
 from .runtime import MappingRuntime,TransferError
 from .services import Services
+from .raw_recording import RawRecorder
 from .world import WorldAccumulator
 from .tiles import Tiles
 
@@ -60,6 +61,7 @@ class OnboardRuntime(MappingRuntime):
         self.input_stamps={}
         self.handles=[]
         self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run,now=self.now)
+        self.raw=RawRecorder(self.env,lambda:self.enabled() and self.online and not self.stopping.is_set(),self.services)
         self.seen=set()
         self.phase='UNKNOWN'
         self.command_id=None
@@ -83,6 +85,7 @@ class OnboardRuntime(MappingRuntime):
         self.not_before=float('-inf')
 
     def close(self):
+        self.raw.close()
         self.services.close()
         super().close()
 
@@ -110,6 +113,10 @@ class OnboardRuntime(MappingRuntime):
         if (frame['op']=='cancel' and frame['session_id']==self.core.session_id
                 and frame['floor_id']==self.core.floor_id):
             self.services.stop()
+            self.raw.stop('cancelled')
+        if (frame['op']=='save' and frame['session_id']==self.core.session_id
+                and frame['floor_id']==self.core.floor_id):
+            self.raw.stop('save_requested')
         super().command(frame)
 
     def receive(self, topic, message):
@@ -129,6 +136,7 @@ class OnboardRuntime(MappingRuntime):
         LOG.warning('SLAM dropped topic=%s reason=%s monotonic=%.6f utc=%s', topic, reason, self.now(), utc())
 
     def suspend(self):
+        self.raw.stop('observation_unavailable')
         super().suspend()
         if self.disconnected_since is None:
             self.disconnected_since=self.now()
@@ -170,6 +178,7 @@ class OnboardRuntime(MappingRuntime):
         if op=='start':
             if self.core.session_id==sid:
                 return
+            self.raw.stop('session_replaced')
             self.core.status='CANCELLED'
             self.source=self.live
             self.frame=self.live.frame or 'unconfigured'
@@ -192,9 +201,13 @@ class OnboardRuntime(MappingRuntime):
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
                 self.problem('MAPPING_FRAME_REQUIRED','Point-LIO 토픽과 지도 좌표 설정을 확인해 주세요.')
-            elif not self.services.start():
-                self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
+            else:
+                services_requested = self.services.start()
+                if not services_requested:
+                    self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
+                self.raw.start(sid, services_requested=services_requested)
         elif op=='cancel':
+            self.raw.stop('cancelled')
             self.core.status='CANCELLED'
             self.bundle_cancelled.set()
             self.remove_bundle(sid)
@@ -203,9 +216,11 @@ class OnboardRuntime(MappingRuntime):
             self.services.stop()
             return
         elif self.frozen is not None:
+            self.raw.stop('save_requested')
             self.save_failed=False
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
         else:
+            self.raw.stop('save_requested')
             self.save_requested=frame['_received_monotonic']
             self.final_received=False
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
@@ -375,6 +390,10 @@ class OnboardRuntime(MappingRuntime):
         body['tiles'] = [dict(revision=self.revision, tile_seq=t['version'], x=t['tx'], y=t['ty'],
             frame_id=self.frame, floor_z=self.core.floor_z if self.core.floor_z is not None else 0,
             resolution=.05, size=64, cells=t['cells']) for t in (self.tiles.take(self.core.grid) if self.core.status!='FAILED' else [])]
+        raw_reason = self.raw.reason(self.core.session_id)
+        if raw_reason:
+            reason = body.get('reason') or ''
+            body['reason'] = (reason[:max(0, 197-len(raw_reason))] + ' · ' + raw_reason).lstrip(' ·')
         return body, added, removed
 
     def remove_bundle(self, session):
@@ -414,6 +433,7 @@ class OnboardRuntime(MappingRuntime):
             if cancelled.is_set():
                 self.remove_bundle(session)
             if self.core.session_id==session:
+                self.raw.stop('session_ended')
                 self.services.stop()
 
     def step(self):
@@ -521,6 +541,8 @@ class OnboardRuntime(MappingRuntime):
             self.next_report = self.now()+.25
 
     def cleanup_disconnected(self):
+        if self.disconnected_since is not None:
+            self.raw.stop('observation_unavailable')
         if (self.disconnected_since is not None and self.now()-self.disconnected_since>=10
                 and (self.services.owned or self.services.pending or self.services.status=='STARTING')):
             self.services.stop()
@@ -544,12 +566,14 @@ class OnboardRuntime(MappingRuntime):
                 try:
                     self.step()
                 except Exception:
+                    self.raw.stop('mapping_failed')
                     self.phase, self.core.status = 'FAILED', 'FAILED'
                     self.core.error_code,self.core.reason='MAPPING_FAILED','지도 계산 구성요소와 입력 자료를 확인해 주세요.'
                     self.save_failed=True
                     self.services.stop()
                     self.dropped('worker', 'mapping_failed')
         finally:
+            self.raw.close()
             self.release_readers()
             self.services.close()
 
@@ -568,4 +592,8 @@ class OnboardRuntime(MappingRuntime):
                 await asyncio.sleep(.02)
         finally:
             self.close()
+            if self.raw.thread is not None:
+                # Give SIGINT/rosbag metadata flush a bounded shutdown window;
+                # joining in a helper thread leaves the control loop runnable.
+                await asyncio.to_thread(self.raw.thread.join, 10)
             self.io.shutdown(wait=False, cancel_futures=True)
