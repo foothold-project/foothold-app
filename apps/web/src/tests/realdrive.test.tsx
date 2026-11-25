@@ -82,7 +82,7 @@ function fakeLidar(lidar: () => Partial<Feed>) {
   const get = media.get.bind(media);
   let seen: unknown = null, key = '', out: ReturnType<typeof get> | null = null;
   vi.spyOn(media, 'get').mockImplementation(() => {
-    const f = get(), p = lidar(), k = `${p.state}:${p.at}:${p.n}:${p.last}`;
+    const f = get(), p = lidar(), k = `${p.state}:${p.at}:${p.n}`;
     if (f !== seen || k !== key) { seen = f; key = k; out = { ...f, lidar: { ...f.lidar, ...p } }; }
     return out!;
   });
@@ -98,7 +98,7 @@ async function mediaWs(ch: string) {
   expect(ws, `${ch} media 소켓 ${FakeWS.all.map((w) => w.url).join(' ')}`).toBeTruthy();
   return ws!;
 }
-const live = (p: Partial<Feed> = {}): Partial<Feed> => ({ state: 'live', why: '', at: Infinity, n: 500, last: 500, xyz: XYZ, frame: 'lidar_link', ver: 1, ...p });
+const live = (p: Partial<Feed> = {}): Partial<Feed> => ({ state: 'live', why: '', at: Infinity, n: 500, xyz: XYZ, frame: 'lidar_link', ver: 1, ...p });
 const ST = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
 /** id = 손가락(pointerId) — 두 손가락(멀티 터치)은 id 를 달리한다. jsdom 에 PointerEvent 가 없어 MouseEvent 에 pointerId 를 붙인다 */
 const ptr = (el: Element, type: string, x: number, y: number, id?: number, kind = 'touch') => act(() => {
@@ -364,7 +364,7 @@ describe('실기 직결 조종 화면 배치', () => {
 
   it('300 ms 마다 점 0개(또는 아주 적은) 새 판이 와도 빈 라이다는 큰 화면에 두지 않음 — «라이다 대기», 큰 화면 = 카메라 (RV-454 2)', async () => {
     let n = 0, at = performance.now();
-    fakeLidar(() => live({ at, n, last: n }));
+    fakeLidar(() => live({ at, n }));
     const a = await connected(MEDIA, { addr: true });
     const poke = async () => { at = performance.now(); act(() => a.recv(st())); await flush(); };   // 새 판(방금 받음)
     for (const k of [0, 3, 0]) {
@@ -391,7 +391,7 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(say('받은 자료가 media/1 약속과 달라 연결을 닫았습니다')).toBe('받은 자료가 약속과 달라 연결을 닫았습니다');
   });
 
-  it('지도 판(map) 누적: 6점 두 번 뒤 0점 판을 300 ms 마다 8번 받아도(누적 n=12) 최근 판 점 수로 «라이다 대기», 큰 화면 = 카메라 (RV-455 2)', async () => {
+  it('지도 판(map)도 받은 한 판만: 6점 두 번 뒤 0점 판을 300 ms 마다 8번 받으면 «라이다 대기», 큰 화면 = 카메라 (RV-455 2 · RB-SLAM-WEB4)', async () => {
     const a = await connected(MEDIA, { addr: MEDIA_AT });
     const ws = await mediaWs('lidar');
     let seq = 0;
@@ -402,15 +402,15 @@ describe('실기 직결 조종 화면 배치', () => {
     });
     const poke = async () => { act(() => a.recv(st())); await flush(); };
     frame(6); frame(6); await poke();
-    expect(media.get().lidar).toMatchObject({ n: 12, last: 6 });
+    expect(media.get().lidar).toMatchObject({ n: 6 });
     for (let i = 0; i < 8; i++) {
       frame(0); await poke();
-      expect(media.get().lidar).toMatchObject({ state: 'live', n: 12, last: 0 });
+      expect(media.get().lidar).toMatchObject({ state: 'live', n: 0 });
       expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
       expect(view('lidar').textContent).toContain('라이다 기다리는 중');
     }
     frame(500); await poke();
-    expect(media.get().lidar).toMatchObject({ last: 500 });
+    expect(media.get().lidar).toMatchObject({ n: 500 });
     expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('lidar');
   });
 

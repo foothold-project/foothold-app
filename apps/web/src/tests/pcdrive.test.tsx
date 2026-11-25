@@ -69,9 +69,13 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
   it('허용 로봇을 고르면 본문이 곧 세 칸 조종 화면 — 모달·«조종 화면 열기» 없음, «← 목록»으로 돌아가고 «조종 화면 열기»로 다시', () => {
     mount('u-park'); serve('r7');
     expect($('[data-pc-drive]')).not.toBeNull();
-    expect($('[data-pd-left]')).not.toBeNull(); expect($('[aria-label="조종 보기 4칸"]')).not.toBeNull(); expect($('[data-pd-make]')).not.toBeNull();
+    expect($('[data-pd-left]')).not.toBeNull(); expect($('[aria-label="조종 보기 4칸"]')).not.toBeNull();
     expect($('[data-sd-open]')).toBeNull(); expect($('[data-sd-full]')).toBeNull(); expect($('[role="dialog"][aria-modal="true"]')).toBeNull();
-    for (const sec of ['지도 만들기', '시나리오', '목표']) expect($(`.pd-right [aria-label="${sec}"]`)).not.toBeNull();
+    for (const sec of ['층', '시나리오', '목표']) expect($(`.pd-right [aria-label="${sec}"]`)).not.toBeNull();
+    // 11-25 RB-SLAM-WEB4: 지도 만들기는 지도 탭에서만 — 오른쪽 칸엔 안내 한 줄, 시작·저장 단추·진행 조회 없음
+    expect($('.pd-right [aria-label="지도 만들기"]')).toBeNull(); expect($('[data-pd-make]')).toBeNull(); expect($('[data-make-map]')).toBeNull();
+    expect([...box.querySelectorAll('button')].some((b) => /지도 만들기|지도 저장/.test(b.textContent ?? ''))).toBe(false);
+    expect($('[data-pd-make-note]')!.textContent).toBe('지도 탭에서 지도를 만들어 주세요.');
     expect($('.pd-right [aria-label="속도"]')).toBeNull();   // 속도 단계 칸 없앰(11-20)
     expect(box.textContent).not.toMatch(/SLAM|lease|epoch|odom/i);
     click($('[data-pd-back]')!);
@@ -101,7 +105,7 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect($('[data-pd-offline]')!.textContent).toBe('로봇 연결이 끊겼습니다 · 다시 연결되면 «조종 시작»을 다시 누르세요');
     act(() => { w.recv(lease('r7', null)); }); relist(drop(ON, ['AGENT_OFFLINE']));
     key('keyup', 'ArrowUp');
-    expect($('[data-pc-drive]')).not.toBeNull(); expect($('[data-pd-left]')).not.toBeNull(); expect($('[aria-label="조종 보기 4칸"]')).not.toBeNull(); expect($('[data-pd-make]')).not.toBeNull();
+    expect($('[data-pc-drive]')).not.toBeNull(); expect($('[data-pd-left]')).not.toBeNull(); expect($('[aria-label="조종 보기 4칸"]')).not.toBeNull(); expect($('[data-pd-make-note]')).not.toBeNull();
     expect($('[data-pd-noreport]')).not.toBeNull(); expect($('[data-pd-left]')!.hasAttribute('data-stale')).toBe(true);
     expect($('[data-pd-offline]')).not.toBeNull(); expect($('[data-pc-drive]')!.textContent).not.toMatch(/충전|전원/);   // 세 칸 화면 안은 까닭 추측 없음
     expect((btn('조종 시작') as HTMLButtonElement).disabled).toBe(true);

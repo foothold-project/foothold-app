@@ -1,9 +1,9 @@
 // PC 로봇 탭 «바로 조종» 세 칸 화면(RB-PC-DRIVE-3COL 11-19): 서버가 조종을 허용한 실기 로봇(canDrive)을 고르면 로봇 탭 본문이 곧 이 화면.
 // 맨 위 줄 = STOP(가장 크게)·조종 시작/끝내기·잠금 해제·연결 상태. 왼쪽 = 상태 글자(위) + Go2 3D(go2model.tsx — 실제 모양·관절 값·움직임 화살표, 글자와 안 겹침) + 자세 단추,
-// 가운데 = quad.tsx 4칸(지도·카메라·라이다·뎁스 — 처음은 큰 1 + 작은 3), 오른쪽 = 지도 만들기(mapmake 흐름 그대로)·속도·시나리오·목표.
+// 가운데 = quad.tsx 4칸(지도·카메라·라이다·뎁스 — 처음은 큰 1 + 작은 3), 오른쪽 = 층·시나리오·목표(지도 만들기는 지도 탭에서만 — 11-25 RB-SLAM-WEB4).
 // 조종 논리(조종권·키·deadman 0·STOP·잠금 해제·자세)는 serverdrive.tsx useServerDrive 하나 — 이 파일은 배치만, 새 명령 값·서버 길 없음.
 import { useEffect, useState, type ReactNode } from 'react';
-import type { MapVersion, Scenario } from '../../contracts/ts';
+import type { Scenario } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { rt, type Live } from './rt';
 import { holderText } from './drive';
@@ -13,7 +13,6 @@ import { driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh } from './driv
 import { LidarMap } from './lidarmap';
 import { Quad, type QTile } from './quad';
 import { STALLED } from './simdrive';
-import { MakeMap } from './screens/mapmake';
 import { floorsOf, purposeOf, useTree } from './screens/maps';
 import type { Robot } from './fake';
 import { Go2Figure, JOINTS, REPORT_STALE_MS, go2Pose, jointName, useGo2Motion } from './go2model';
@@ -44,35 +43,27 @@ function Feed({ robot, ch, big }: { robot: string; ch: Exclude<DriveCh, 'lidar'>
   return <DriveView f={useDriveFeed(robot, ch)} ch={ch} big={big} />;
 }
 
-/** 오른쪽 칸: 층 고르기 → 지도 만들기(mapmake 그대로) · 속도 · 시나리오(목록) · 목표 */
+/** 오른쪽 칸: 층 고르기(지도 만들기는 지도 탭 안내만) · 시나리오(목록) · 목표 */
 function RightCol({ c, r, trial }: { c: Ctx; r: Robot; trial: ReactNode }) {
   const t = useTree(c.cancel), places = floorsOf(t.tree).filter((p) => purposeOf(p.site) === 'REAL');
   const here = rt.get(r.id).state?.location?.floor_id ?? r.location?.floor_id ?? '';
   const [pick, setPick] = useState(''), p = places.find((x) => x.floor.id === pick) ?? places.find((x) => x.floor.id === here) ?? places[0];
-  const fid = p?.floor.id ?? '', [list, setList] = useState<MapVersion[] | null>(null), [scen, setScen] = useState<Scenario[] | null>(null), [scenErr, setScenErr] = useState('');
-  const [chosen, setChosen] = useState(''), [made, setMade] = useState(''), [n, setN] = useState(0);
+  const fid = p?.floor.id ?? '', [scen, setScen] = useState<Scenario[] | null>(null), [scenErr, setScenErr] = useState(''), [chosen, setChosen] = useState('');
   useEffect(() => {
-    setList(null); setScen(null); setScenErr(''); setChosen('');
+    setScen(null); setScenErr(''); setChosen('');
     if (!fid) return;
     const ac = new AbortController();
-    api.versions(fid, ac.signal).then(setList, () => setList([]));
     api.plans('scenarios', false, null, ac.signal, { mine: false, floor: fid }).then((x) => setScen(x.items), (e: ApiFail) => { if (e.code !== 'CANCELED') setScenErr(e.message); });
     return () => ac.abort();
-  }, [fid, n]);
+  }, [fid]);
   const many = new Set(places.map((x) => x.building.id)).size > 1;
   return <div className="pd-right">
     <section className="lv-card pd-sec" aria-label="층">
-      <label className="fh-row lbl">층<select className="fh-user fh-sel" aria-label="층" data-pd-floor value={fid} onChange={(e) => { setPick(e.target.value); setMade(''); }} disabled={!places.length}>
+      <label className="fh-row lbl">층<select className="fh-user fh-sel" aria-label="층" data-pd-floor value={fid} onChange={(e) => setPick(e.target.value)} disabled={!places.length}>
         {!places.length && <option value="">{t.tree ? '실기 층 없음' : '불러오는 중…'}</option>}
         {places.map((x) => <option key={x.floor.id} value={x.floor.id}>{many ? `${x.building.name} ${x.floor.name}` : `${x.site.name} · ${x.floor.name}`}</option>)}</select></label>
       {t.err && <p className="fh-msg" role="alert">층 목록을 받지 못했습니다. {t.err}</p>}
-    </section>
-    <section className="lv-card pd-sec" aria-label="지도 만들기" data-pd-make>
-      <h3>지도 만들기</h3>
-      {!p ? <p className="lv-note">지도 탭에서 실기 장소·층을 만들면 여기서 지도를 그릴 수 있습니다.</p>
-        : <MakeMap key={fid} bare floor={fid} user={c.user} robots={[r]} places={places} cancel={c.cancel} approved={p.floor.approved_version_id ?? null} list={list}
-          made={() => { setMade('새 지도를 저장했습니다. 지도 탭에서 확인·승인하세요.'); setN((k) => k + 1); c.refresh(); }} />}
-      {made && <p className="fh-msg ok" role="status">{made}</p>}
+      <p className="lv-note" data-pd-make-note>지도 탭에서 지도를 만들어 주세요.</p>
     </section>
     <section className="lv-card pd-sec" aria-label="시나리오" data-pd-scen>
       <h3>시나리오</h3>

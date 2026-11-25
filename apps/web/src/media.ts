@@ -9,8 +9,8 @@ import { phoneUrl } from './phoneTransport';
 export type MediaChannel = Exclude<AnyChannel, 'depth'>;
 
 export const CHANNELS: readonly MediaChannel[] = ['rgb', 'external', 'lidar'];
-/** 토큰 수명(에이전트 10 s) · 화면에 쌓아 두는 점 상한 · 이보다 오래 새 프레임이 없으면 «멈춤»(에이전트 NO_VIDEO 는 1 s) */
-export const TOKEN_MS = 10_000, MAX_POINTS = 50_000, STALE_MS = 2000;
+/** 토큰 수명(에이전트 10 s) · 이보다 오래 새 프레임이 없으면 «멈춤»(에이전트 NO_VIDEO 는 1 s) */
+export const TOKEN_MS = 10_000, STALE_MS = 2000;
 const POINT_MAX = 4000, ABS_M = 10_000;
 /** off 안 봄 · wait 기다림 · live 받는 중 · none 로봇이 못 보냄(reason) · lost 끊김 · expired 토큰 끝(다시 연결 필요) · bad 약속 위반으로 닫음 */
 export type FeedState = 'off' | 'wait' | 'live' | 'none' | 'lost' | 'expired' | 'bad';
@@ -18,10 +18,8 @@ export type Feed = {
   state: FeedState; why: string; at: number; seq: number;
   /** 영상: data URL */
   img: string;
-  /** 점군: xyz(LE float32 를 풀어 둔 것) n 개, frame·truncated, ver = 바뀔 때마다 +1 */
+  /** 점군: 받은 한 판의 xyz(LE float32 를 풀어 둔 것) n 개, frame·truncated, ver = 바뀔 때마다 +1. 판을 쌓지 않는다(11-25 RB-SLAM-WEB4 — 지도는 지도 탭) */
   xyz: Float32Array; n: number; frame: MediaPointCloudHeader['frame'] | ''; truncated: boolean; ver: number;
-  /** 최근 판 하나의 점 수(map 판은 n 이 누적이라 따로) — 직결 media 만 채운다 */
-  last?: number;
 };
 type Binding = Pick<PhoneMediaWelcome, 'robot' | 'epoch' | 'episode_id'>;
 
@@ -41,11 +39,11 @@ const EXPIRED = '영상 연결 권한(10초·1회)이 끝났습니다 — «영�
 const BAD = '받은 자료가 media/1 약속과 달라 연결을 닫았습니다';
 const HIDDEN = '화면을 숨겨 영상 연결을 닫았습니다 — «영상 다시 받기»로 다시 연결하세요';
 
-const blank = (state: FeedState = 'off', why = ''): Feed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, last: 0, frame: '', truncated: false, ver: 0 });
+const blank = (state: FeedState = 'off', why = ''): Feed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0 });
 let feeds: Record<MediaChannel, Feed> = { rgb: blank(), external: blank(), lidar: blank() };
 let offer: { w: PhoneMediaWelcome; address: string; at: number; used: Set<MediaChannel>; simulation: boolean } | null = null;
 const socks = new Map<MediaChannel, WebSocket>(), want = new Map<MediaChannel, number>();
-let pending: MediaPointCloudHeader | null = null, mapVer: string | null = null;
+let pending: MediaPointCloudHeader | null = null;
 /** 채널별 지금까지 받은 가장 큰 seq — 화면 비움·구독·결속이 바뀌어도 유지(README «across subscriptions and binding changes»). 부모 연결이 끝날 때(reset)만 지움 */
 let top: Record<MediaChannel, number> = { rgb: -1, external: -1, lidar: -1 };
 const subs = new Set<() => void>();
@@ -56,7 +54,7 @@ const same = (a: Binding, b: Binding) => a.robot === b.robot && a.epoch === b.ep
 
 /** 자리 비우기(그림·점 0) + 상태 */
 function clear(ch: MediaChannel, state: FeedState, why = '') {
-  if (ch === 'lidar') { pending = null; mapVer = null; }
+  if (ch === 'lidar') pending = null;
   feeds = { ...feeds, [ch]: { ...blank(state, why), ver: feeds[ch].ver + 1 } }; emit();
 }
 function shut(ch: MediaChannel, state: FeedState, why = '') {
@@ -102,16 +100,8 @@ function onFrame(ch: MediaChannel, data: unknown) {
     if (!h) return fail();
     const xyz = pointsBody(data, h);
     if (!xyz) return fail();
-    const f = feeds.lidar;
-    // 센서 기준(lidar_link)은 한 스캔만. 지도 기준(map)만 같은 지도 판 안에서 MAX_POINTS 까지 쌓는다(오래된 점부터 버림)
-    let all = xyz;
-    if (h.frame === 'map' && f.frame === 'map' && mapVer === h.map_version_id) {
-      const keep = Math.max(0, Math.min(f.n, MAX_POINTS - h.count));
-      all = new Float32Array((keep + h.count) * 3);
-      all.set(f.xyz.subarray((f.n - keep) * 3, f.n * 3)); all.set(xyz, keep * 3);
-    }
-    mapVer = h.frame === 'map' ? h.map_version_id : null;
-    return put('lidar', { state: 'live', why: '', at: now(), seq: h.seq, xyz: all, n: all.length / 3, last: h.count, frame: h.frame, truncated: h.truncated, ver: f.ver + 1 });
+    // 받은 한 판만 그린다 — frame(lidar_link·map) 과 관계없이 쌓지 않음(11-25 RB-SLAM-WEB4)
+    return put('lidar', { state: 'live', why: '', at: now(), seq: h.seq, xyz, n: h.count, frame: h.frame, truncated: h.truncated, ver: feeds.lidar.ver + 1 });
   }
   let m: Record<string, unknown>;
   try { m = JSON.parse(data); } catch { return fail(); }

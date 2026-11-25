@@ -1,7 +1,7 @@
 // 관측 media/1 수신(media.ts) — WebSocket 은 FakeWS(진짜 연결 0). 메시지 검사·points 짝 순서·토큰 일회·해지·capability 불가 이유.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PhoneMediaWelcome } from '../../../contracts/ts';
-import { BAD_WELCOME, MAX_POINTS, NO_MEDIA, TOKEN_MS, feedText, media, mediaWelcome, pointsBody, pointsHeader } from '../media';
+import { BAD_WELCOME, NO_MEDIA, TOKEN_MS, feedText, media, mediaWelcome, pointsBody, pointsHeader } from '../media';
 import { FakeWS } from './fakeWs';
 
 const R = '11111111-1111-4111-8111-111111111111', EP = '33333333-3333-4333-8333-333333333333', ADDR = 'ws://127.0.0.1:9433/phone/ws';
@@ -97,14 +97,15 @@ describe('media/1 수신', () => {
     expect(F().lidar).toMatchObject({ state: 'live', n: 1 });
   });
 
-  it('지도 기준(map)만 같은 판 안에서 쌓고 상한(5만)을 넘지 않으며, 판이 바뀌면 새로', () => {
+  it('지도 기준(map) 판도 쌓지 않고 받은 한 판만(같은 지도 판이어도) — 11-25 RB-SLAM-WEB4', () => {
     expect(pointsHeader(head(1, 4000))).not.toBeNull();
     want('lidar'); media.offer(welcome(), ADDR); openAll();
     const w = sock('lidar'), many = new Array(4000 * 3).fill(1);
     for (let i = 1; i <= 14; i++) { w.recv(head(i, 4000, { frame: 'map', map_version_id: 'v1' })); bin(w, xyz(...many)); }
-    expect(F().lidar.n).toBe(MAX_POINTS);
-    w.recv(head(15, 1, { frame: 'map', map_version_id: 'v2' })); bin(w, xyz(1, 2, 3));
-    expect(F().lidar.n).toBe(1);
+    expect(F().lidar.n).toBe(4000);
+    w.recv(head(15, 1, { frame: 'map', map_version_id: 'v1' })); bin(w, xyz(1, 2, 3));
+    expect(F().lidar).toMatchObject({ n: 1, frame: 'map' });
+    expect([...F().lidar.xyz]).toEqual([1, 2, 3]);
     expect(pointsBody(xyz(1, 2), head(1, 1) as never)).toBeNull();
   });
 
