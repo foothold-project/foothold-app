@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DriveFeed } from '../drivemedia';
-import { BLOCK, BLOCK_UP, CAP_BIG, CAP_PHONE, CAP_SMALL, Lidar3D, TOP_M, capFor, fillBoxes, fillRange } from '../lidar3d';
+import { BLOCK, BLOCK_UP, CAP_BIG, CAP_PHONE, CAP_SMALL, Lidar3D, capFor, fillBoxes, fillRange, rgbOf } from '../lidar3d';
+import { BANDS, HEX, LEGEND_BG, TOP_M, levelOf } from '../heightcolor';
 import { JOINTS, type Pose } from '../go2model';
 import { CEIL_M } from '../drivemedia';
 import { LidarMap } from '../lidarmap';
@@ -128,9 +129,11 @@ describe('라이다 칸 3D', () => {
     expect(gl.drawn).toBe(CAP_BIG);
   });
 
-  it('범례 «바닥 → 높음»(개발자 말 없음), 손으로 확대하면 «로봇 뒤에서 보기» 하나로 되돌림', () => {
+  it('범례 «바닥 · 1 m · 2 m+»(개발자 말 없음), 손으로 확대하면 «로봇 뒤에서 보기» 하나로 되돌림', () => {
     show(feed(3, 1));
-    expect($('[data-height-legend]')!.textContent).toBe('바닥높음');
+    expect($('[data-height-legend]')!.textContent).toBe('바닥1 m2 m+');
+    const band = ($('[data-height-legend] > div') as HTMLElement).style.background;   // 점·상자·지도 탭 같은 막대(LEGEND_BG)
+    expect(band).toContain('linear-gradient'); expect(band).toBe(Object.assign(document.createElement('i').style, { background: LEGEND_BG }).background);
     expect($('[data-l3-view]')!.dataset.l3View).toBe('chase');
     expect($('[data-l3-follow]')).toBeNull();
     act(() => { $('canvas')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true })); });
@@ -209,13 +212,28 @@ describe('라이다 칸 3D', () => {
     expect($('[data-lm-view="box"]')).toBeNull();   // pick 없으면(서버 경유 — 바깥 고르기가 «상자») 줄엔 3D·위에서만
   });
 
-  it('RB-UNITREE-LOOK-FIX ①: 점 색 = 영상 B·저장 지도(바닥 초록 → 위 빨강·분홍), 자리는 받은 그대로(5 cm 맞춤 없음)', () => {
-    const xyz = new Float32Array([0.013, 0, 0, 0.013, 0, TOP_M + 1]), pos = new Float32Array(6), col = new Float32Array(6);
-    expect(fillRange(pos, col, xyz, 2, 10, 0, 0, 2, false)).toEqual([2, true]);
-    expect(pos[0]).toBeCloseTo(0.013, 5);
-    const [r0, g0, b0, r1, g1, b1] = col;
-    expect(g0).toBeGreaterThan(r0 * 2); expect(g0).toBeGreaterThan(b0 * 2);   // 바닥 = 초록(청록 아님)
-    expect(r1).toBeGreaterThan(g1 * 2); expect(b1).toBeGreaterThan(g1);   // 위 = 분홍
+  it('RB-LIDAR-COLOR: 바닥·0.3·0.75·1.2 m 가 서로 다른 색, 점·상자·위에서 본 그림·범례가 같은 표, 자리는 받은 그대로(점은 5 cm 맞춤 없음)', () => {
+    const hs = [0, 0.3, 0.75, 1.2], floor = -0.3, xyz = new Float32Array(hs.flatMap((h) => [0.013, 0, floor + h + 0.01]));
+    const pts = [new Float32Array(12), new Float32Array(12)], box = [new Float32Array(64), new Float32Array(12)];
+    expect(fillRange(pts[0], pts[1], xyz, 4, 10, floor, 0, 4, false)).toEqual([4, true]);
+    fillRange(box[0], box[1], xyz, 4, 10, floor, 0, 4, true);
+    expect(pts[0][0]).toBeCloseTo(0.013, 5);
+    expect([...pts[1]]).toEqual([...box[1]]);   // 점 = 상자
+    const hex = hs.map((h) => HEX[levelOf(floor + h + 0.01, floor)]);
+    expect(new Set(hex).size).toBe(4);
+    expect(hex[0]).toBe(BANDS[0][1]);   // 바닥 띠
+    hs.forEach((_, i) => expect(rgbOf(levelOf(floor + hs[i] + 0.01, floor))).toEqual([1, 3, 5].map((j) => parseInt(hex[i].slice(j, j + 2), 16))));
+    BANDS.forEach(([, c]) => expect(LEGEND_BG).toContain(c));
+    expect([levelOf(floor - 1, floor), levelOf(floor + TOP_M + 1, floor)]).toEqual([0, HEX.length - 1]);   // 꺼진 점 = 바닥색, 높은 점 = 끝 색
+  });
+
+  it('RB-LIDAR-COLOR: 0.1~1.2 m 는 20 cm 이하 간격, 이웃 띠는 밝기(L*)가 15 이상 달라 다크·라이트 배경·색각 이상에서도 갈린다', () => {
+    const tops = BANDS.map(([t]) => t), inner = tops.filter((t) => t > 0.1 && t <= 1.2);
+    inner.forEach((t, i) => expect(t - (i ? inner[i - 1] : 0.1)).toBeLessThanOrEqual(0.2 + 1e-9));
+    const lin = (v: number) => (v <= 0.04045 * 255 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4);
+    const L = (h: string) => { const [r, g, b] = [1, 3, 5].map((j) => lin(parseInt(h.slice(j, j + 2), 16))), y = 0.2126 * r + 0.7152 * g + 0.0722 * b; return 116 * Math.cbrt(y) - 16; };
+    BANDS.slice(1).forEach(([, c], i) => expect(Math.abs(L(c) - L(BANDS[i][1]))).toBeGreaterThan(15));
+    BANDS.forEach(([, c]) => { expect(L(c)).toBeGreaterThan(35); expect(L(c)).toBeLessThan(85); });   // 검은·흰 배경 둘 다에서 보이게
   });
 
   it('RB-UNITREE-LOOK-FIX E: 받은 관절각이 바뀌면 3D 속 Go2 다리가 그 판에 바로 움직이고, 없으면 선 자세 + «자세 정보 없음»', () => {
