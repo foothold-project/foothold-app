@@ -1,7 +1,7 @@
 // 관측 media/1 수신(media.ts) — WebSocket 은 FakeWS(진짜 연결 0). 메시지 검사·points 짝 순서·토큰 일회·해지·capability 불가 이유.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PhoneMediaWelcome } from '../../../contracts/ts';
-import { BAD_WELCOME, NO_MEDIA, TOKEN_MS, feedText, media, mediaWelcome, pointsBody, pointsHeader } from '../media';
+import { BAD_WELCOME, NO_MEDIA, TOKEN_MS, feedText, media, mediaWelcome, pointsBody, pointsEdge, pointsHeader } from '../media';
 import { FakeWS } from './fakeWs';
 
 const R = '11111111-1111-4111-8111-111111111111', EP = '33333333-3333-4333-8333-333333333333', ADDR = 'ws://127.0.0.1:9433/phone/ws';
@@ -55,6 +55,22 @@ describe('media/1 수신', () => {
       const x = sock('rgb'); q += 10; x.recv(video(q)); expect(F().rgb.state).toBe('live'); x.recv(bad(q + 1));
       expect(F().rgb).toMatchObject({ state: 'bad', img: '' });
       expect(x.readyState).toBe(3);
+    }
+  });
+
+  it('RB-LIDAR-EDGEWEB: 머리의 선택 edge_u8 → 판의 edge(count 바이트) — 없음·깨짐·길이 다름이면 null 이고 판은 그대로 받는다(연결 유지)', () => {
+    expect([...pointsEdge({ count: 2, edge_u8: 'AP8=' })!]).toEqual([0, 255]);
+    for (const h of [{ count: 2 }, { count: 2, edge_u8: '/w==' }, { count: 2, edge_u8: '%%%%' }, { count: 2, edge_u8: null }, { count: 0, edge_u8: '' }])
+      expect(pointsEdge(h as never)).toBeNull();
+    want('lidar'); media.offer(welcome(), ADDR); openAll();
+    const w = sock('lidar');
+    w.recv(head(1, 2)); bin(w, xyz(1, 2, 3, 4, 5, 6));
+    expect(F().lidar.edge ?? null).toBeNull();   // 없으면 지금과 같음
+    w.recv(head(2, 2, { edge_u8: 'AP8=' })); bin(w, xyz(1, 2, 3, 4, 5, 6));
+    expect([...F().lidar.edge!]).toEqual([0, 255]);
+    for (const [q, bad] of [[3, '%%%%'], [4, '/w==']] as const) {   // 깨짐·길이 다름 = 표시만 없음
+      w.recv(head(q, 2, { edge_u8: bad })); bin(w, xyz(1, 2, 3, 4, 5, 6));
+      expect(F().lidar).toMatchObject({ state: 'live', n: 2, seq: q, edge: null }); expect(w.readyState).not.toBe(3);
     }
   });
 

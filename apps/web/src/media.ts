@@ -20,6 +20,8 @@ export type Feed = {
   img: string;
   /** 점군: 받은 한 판의 xyz(LE float32 를 풀어 둔 것) n 개, frame·truncated, ver = 바뀔 때마다 +1. 판을 쌓지 않는다(11-25 RB-SLAM-WEB4 — 지도는 지도 탭) */
   xyz: Float32Array; n: number; frame: MediaPointCloudHeader['frame'] | ''; truncated: boolean; ver: number;
+  /** 그 판의 모서리 세기(edge_u8 — xyz 와 같은 순서 n 개, 0 = 아님). 없음·깨짐이면 null/없음(11-25 RB-LIDAR-EDGEWEB — 계산은 agent, 웹은 표시만) */
+  edge?: Uint8Array | null;
 };
 type Binding = Pick<PhoneMediaWelcome, 'robot' | 'epoch' | 'episode_id'>;
 
@@ -91,6 +93,12 @@ export function pointsBody(buf: ArrayBuffer, h: Pick<MediaPointCloudHeader, 'cou
   return out;
 }
 
+/** 머리의 선택 edge_u8(agent media/README «Optional lidar edge strengths»: 표준 base64, count 바이트) → Uint8Array. 없음·깨짐·길이 다름이면 null — 판은 그대로 받고 모서리만 안 그림 */
+export function pointsEdge(h: Pick<MediaPointCloudHeader, 'count' | 'edge_u8'>): Uint8Array | null {
+  if (typeof h.edge_u8 !== 'string' || !h.count) return null;
+  try { const b = atob(h.edge_u8); return b.length === h.count ? Uint8Array.from(b, (c) => c.charCodeAt(0)) : null; } catch { return null; }
+}
+
 function onFrame(ch: MediaChannel, data: unknown) {
   const o = offer; if (!o) return;
   const fail = () => shut(ch, 'bad', BAD);
@@ -101,7 +109,7 @@ function onFrame(ch: MediaChannel, data: unknown) {
     const xyz = pointsBody(data, h);
     if (!xyz) return fail();
     // 받은 한 판만 그린다 — frame(lidar_link·map) 과 관계없이 쌓지 않음(11-25 RB-SLAM-WEB4)
-    return put('lidar', { state: 'live', why: '', at: now(), seq: h.seq, xyz, n: h.count, frame: h.frame, truncated: h.truncated, ver: feeds.lidar.ver + 1 });
+    return put('lidar', { state: 'live', why: '', at: now(), seq: h.seq, xyz, n: h.count, frame: h.frame, truncated: h.truncated, edge: pointsEdge(h), ver: feeds.lidar.ver + 1 });
   }
   let m: Record<string, unknown>;
   try { m = JSON.parse(data); } catch { return fail(); }

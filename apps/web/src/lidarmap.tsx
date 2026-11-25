@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CEIL_M, CELL_M, driveFeedHeld, type DriveFeed } from './drivemedia';
 import { N, levelOf } from './heightcolor';
-import { FLOOR_DZ, HeightLegend, Lidar3D, rgbOf, type Look } from './lidar3d';
+import { FLOOR_DZ, HeightLegend, Lidar3D, rgbOf, ringOf, type Look } from './lidar3d';
 import type { Pose } from './go2model';
 import { QEmpty } from './quad';
 
@@ -26,7 +26,7 @@ export function LidarMap({ feed, empty, small = false, start = '3d', tag = true,
     </div>}
     {no3d && !small && <div className="qd-legend" role="status" style={{ right: 'auto', left: 8, top: 52, bottom: 'auto' }} data-lm-no3d>이 브라우저는 3D 를 그릴 수 없어 위에서 본 그림으로 보입니다</div>}
     {empty && (feed.n ? tag && <HeldTag text={driveFeedHeld(feed)} /> : <QEmpty text={empty} />)}
-    {!small && !is3d && <HeightLegend />}
+    {!small && !is3d && <HeightLegend edge={!!feed.edge} />}
   </div>;
 }
 
@@ -60,6 +60,17 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
         if (u < 0 || w < 0 || u + r > W || w + r > H || z > ceil) continue;   // 천장 숨김 — 지금 로봇 높이 기준
         const zi = levelOf(z, z0 + FLOOR_DZ), col = LUT[zi];
         for (let b = 0; b < r; b++) for (let a = 0; a < r; a++) { const q = (w + b) * W + u + a; if (zi >= top[q]) { top[q] = zi + 1; px[q] = col; } }
+      }
+      // 모서리 점(feed.edge 양수, RB-LIDAR-EDGEWEB): 높이와 관계없이 맨 위에 — 테두리 색(3D 와 같음) 큰 네모를 먼저 다 깔고, 가운데에 그 높이 색(벽이 바닥 이음매를 덮지 않게)
+      const e = c.edge, R = Math.round(dpr) + 1;
+      if (e) {
+        const h = ringOf(el).getHex(), ring = (0xff000000 | ((h & 0xff) << 16) | (h & 0xff00) | ((h >>> 16) & 0xff)) >>> 0;   // sRGB → 화소 ABGR
+        for (const pass of [0, 1]) for (let i = 0; i < Math.min(c.n, e.length); i++) {
+          const z = c.xyz[i * 3 + 2];
+          if (!e[i] || z > ceil) continue;
+          const d = pass ? 0 : R, u = Math.floor(X(c.xyz[i * 3])) - d, w = Math.floor(Y(c.xyz[i * 3 + 1])) - d, col = pass ? LUT[levelOf(z, z0 + FLOOR_DZ)] : ring;
+          for (let b = 0; b < r + 2 * d; b++) for (let a = 0; a < r + 2 * d; a++) { const x = u + a, y = w + b; if (x >= 0 && y >= 0 && x < W && y < H) px[y * W + x] = col; }
+        }
       }
       g.setTransform(1, 0, 0, 1, 0, 0); g.putImageData(img, 0, 0);
       if (c.pose) {   // 로봇: 앞을 가리키는 화살표

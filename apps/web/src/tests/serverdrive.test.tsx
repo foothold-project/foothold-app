@@ -623,6 +623,17 @@ describe('서버 경유 카메라·라이다', () => {
   const scan = (lid: FakeWS, h: object, pts: number[]) => act(() => { lid.recv(h); lid.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
   const map = () => $('[data-sd-full] [data-lidar-map]');
 
+  it('RB-LIDAR-EDGEWEB: 서버 경유도 edge_u8 를 받아 범례에 «모서리» — 없거나 깨지면 범례 줄 없이 점은 그대로', () => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
+    const lid = mediaSock('lidar'), edge = () => $('[data-sd-full] [data-edge-legend]');
+    act(() => lid.open()); scan(lid, head(1, 2), [1, 0, 0.5, 2, 0, 0]);
+    expect(map()!.dataset.lidarMap).toBe('2'); expect(edge()).toBeNull();
+    scan(lid, head(2, 2, { edge_u8: 'AP8=' }), [1, 0, 0.5, 2, 0, 0]);
+    expect(edge()?.textContent).toContain('모서리');
+    scan(lid, head(3, 2, { edge_u8: '%%%%' }), [1, 0, 0.5, 2, 0, 0]);
+    expect(edge()).toBeNull(); expect(map()!.dataset.lidarMap).toBe('2'); expect(lid.readyState).not.toBe(3);
+  });
+
   // RV-448 ①: 중계기는 머리·본문을 따로 보낸다 — 머리만 받고 끊긴 판은 아직 그리지 않은 판이라, 다시 붙어 같은 순번으로 오면 그린다
   it('RV-448 ①: 라이다 머리 뒤 끊기면 같은 순번 재전송 본문을 받아 그린다', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');

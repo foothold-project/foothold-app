@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DriveFeed } from '../drivemedia';
-import { BLOCK, BLOCK_UP, CAP_BIG, CAP_PHONE, CAP_SMALL, Lidar3D, capFor, fillBoxes, fillRange, rgbOf } from '../lidar3d';
+import { BLOCK, BLOCK_UP, CAP_BIG, CAP_PHONE, CAP_SMALL, EDGE_LUT, EDGE_PX, EDGE_SCALE, LUT, Lidar3D, capFor, fillBoxes, fillEdges, fillRange, rgbOf } from '../lidar3d';
 import { BANDS, HEX, LEGEND_BG, TOP_M, levelOf } from '../heightcolor';
 import { JOINTS, type Pose } from '../go2model';
 import { CEIL_M } from '../drivemedia';
@@ -311,5 +311,52 @@ describe('라이다 칸 3D', () => {
     expect($('[data-lm-mode]')!.dataset.lmMode).toBe('top');
     expect($('[data-lm-no3d]')).toBeTruthy();
     expect($('[data-lm-view]')).toBeNull();
+  });
+});
+
+describe('RB-LIDAR-EDGEWEB 모서리 점', () => {
+  const withEdge = (n: number, ver: number, e: number[] | null, frame = 'odom') => ({ ...feed(n, ver, frame), edge: e && Uint8Array.from(e) }) as DriveFeed;
+
+  it('버퍼: 모서리(양수)만 채우고, 자리는 보통 점·상자와 같게 — 상자 색은 같은 높이 색을 더 밝게, 점 색은 테두리 색 · 점·상자는 더 크게', () => {
+    const floor = -0.3, xyz = new Float32Array([0.013, 0, floor + 0.01, 0.5, 0.5, floor + 0.3, 1, 1, floor + 0.75]), e = Uint8Array.of(0, 255, 7);
+    const p = [new Float32Array(9), new Float32Array(9)], b = [new Float32Array(48), new Float32Array(9)], q = [new Float32Array(9), new Float32Array(9)], r = [new Float32Array(48), new Float32Array(9)];
+    expect(fillEdges(p[0], p[1], xyz, 3, e, floor, false)).toBe(2);
+    expect(fillEdges(b[0], b[1], xyz, 3, e, floor, true)).toBe(2);
+    fillRange(q[0], q[1], xyz, 3, 10, floor, 0, 3, false); fillRange(r[0], r[1], xyz, 3, 10, floor, 0, 3, true);
+    expect([...p[0].slice(0, 6)]).toEqual([...q[0].slice(3, 9)]);   // 점 자리 = 받은 그대로(1·2번 점)
+    expect([b[0][12], b[0][13], b[0][14], b[0][28], b[0][29], b[0][30]]).toEqual([r[0][28], r[0][29], r[0][30], r[0][44], r[0][45], r[0][46]]);   // 상자 = 5 cm 칸 가운데
+    for (let m = 0; m < 2; m++) for (let a = 0; a < 3; a++) {   // 상자: 같은 높이 색보다 밝게(흰색 쪽)
+      expect(b[1][m * 3 + a]).toBeGreaterThanOrEqual(r[1][(m + 1) * 3 + a]); expect(b[1][m * 3 + a]).toBeLessThanOrEqual(1);
+    }
+    expect(b[1].slice(0, 3).reduce((x, y) => x + y)).toBeGreaterThan(r[1].slice(3, 6).reduce((x, y) => x + y) + 0.3);
+    expect(EDGE_LUT.length).toBe(LUT.length);
+    expect(fillEdges(p[0], p[1], xyz, 3, e, floor, false, [0.1, 0.2, 0.3])).toBe(2);   // 점: 테두리 색 그대로
+    expect([...p[1].slice(0, 6)].map((x) => +x.toFixed(4))).toEqual([0.1, 0.2, 0.3, 0.1, 0.2, 0.3]);
+    expect(EDGE_PX).toBeGreaterThan(1.5); expect(EDGE_SCALE).toBeGreaterThan(1);
+    expect(fillEdges(p[0], p[1], xyz, 3, Uint8Array.of(0, 0, 0), floor, false)).toBe(0);
+  });
+
+  it('3D 점·상자: edge 가 있으면 모서리 층(큰 점·큰 상자)을 더 그리고 범례 «모서리», 없으면 지금과 같음', () => {
+    act(() => root!.render(<LidarMap feed={withEdge(5, 1, null)} empty="" pick />)); act(() => { vi.advanceTimersByTime(600); });
+    expect(gl.drawn).toBe(5); expect(gl.pts).toBe(1); expect($('[data-lidar3d]')!.dataset.l3Edges).toBeUndefined(); expect($('[data-edge-legend]')).toBeNull();
+    act(() => root!.render(<LidarMap feed={withEdge(5, 2, [255, 0, 255, 0, 0])} empty="" pick />)); act(() => { vi.advanceTimersByTime(600); });
+    expect($('[data-lidar3d]')!.dataset.l3Edges).toBe('2'); expect(gl.drawn).toBe(7); expect(gl.pts).toBe(2);
+    expect($('[data-edge-legend]')!.textContent).toContain('모서리');
+    act(() => { $('[data-lm-view="box"]')!.click(); }); act(() => { vi.advanceTimersByTime(600); });
+    expect($('[data-lidar3d]')!.dataset.l3Edges).toBe('2'); expect(gl.drawn).toBe(7); expect(gl.inst).toBe(2); expect(gl.pts).toBe(0);
+    act(() => root!.render(<LidarMap feed={withEdge(5, 3, [0, 0, 0, 0, 0])} empty="" pick />)); act(() => { vi.advanceTimersByTime(600); });
+    expect(gl.drawn).toBe(5); expect(gl.inst).toBe(1);   // 모서리 0 개면 층을 장면에서 뺀다
+    act(() => root!.render(<LidarMap feed={withEdge(5, 4, null)} empty="" pick />)); act(() => { vi.advanceTimersByTime(600); });
+    expect(gl.drawn).toBe(5); expect($('[data-edge-legend]')).toBeNull();
+  });
+
+  it('위에서 본 그림: 모서리 점은 테두리를 둘러 더 크게 맨 위에, 범례 «모서리» — 없으면 그대로', () => {
+    const painted = fake2d(), pts = (e: number[] | null, ver: number) => ({ ...withEdge(2, ver, e, 'lidar_link'), xyz: new Float32Array([0, 0, -0.29, 1, 0, -0.29]) }) as DriveFeed;
+    show(pts(null, 1), { start: 'top' });
+    const k0 = painted();
+    expect($('[data-edge-legend]')).toBeNull();
+    act(() => root!.render(<LidarMap feed={pts([255, 0], 2)} empty="" start="top" />)); act(() => { vi.advanceTimersByTime(600); });
+    expect(painted()).toBeGreaterThan(k0);
+    expect($('[data-edge-legend]')).toBeTruthy();
   });
 });
