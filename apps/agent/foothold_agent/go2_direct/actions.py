@@ -73,7 +73,9 @@ class Actions:
                 'STALE_STATE' if sample.get('sequence', -1) < 0 else
                 'MOVING' if s.pending != (0., 0., 0.) or s._ramp_velocity != (0., 0., 0.) or not sample['still'] else
                 'CONFIRM_REQUIRED' if action in DANGEROUS and confirmed is not True else
-                'STANDING_REQUIRED' if action in DANGEROUS and sample['state'] != 'STANDING' else None)
+                'STANDING_REQUIRED' if action in DANGEROUS and sample['state'] != 'STANDING' else
+                'STANDING_REQUIRED' if s._lying_or_sitting(sample)
+                    and (action in EXECUTION_MAX_S or action == 'StopMove') else None)
 
     def request(self, request_id, action, params, lease, confirmed=False, *, moving=False):
         s = self.sink
@@ -177,6 +179,7 @@ class Actions:
                 return
             self.inflight = True
         code, mode, enabled, failure = None, None, None, None
+        motion = False
         try:
             rpc = getattr(s.client, job['action'])
             # Lookup may initialize an SDK wrapper; STOP during it cancels the call.
@@ -187,6 +190,9 @@ class Actions:
                 if reason:
                     self.cancel(reason)
                     return
+                motion = job['action'] in EXECUTION_MAX_S or job['action'] in ('StandUp', 'StandDown')
+                if motion:
+                    s._motion_inflight = True
             value = rpc(*job['args'])
             if job['action'] in ('CheckMode', 'AutoRecoveryGet'):
                 code, data = value
@@ -207,6 +213,8 @@ class Actions:
             failure = 'SDK_ERROR'
         finally:
             with s._lock:
+                if motion:
+                    s._motion_returned()
                 self.inflight = False
                 self.poll()
                 if self.job is job:

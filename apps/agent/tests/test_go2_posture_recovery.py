@@ -20,7 +20,7 @@ def test_v2_lying_state_does_not_gate_posture_or_stand_up(motion_state):
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5, 0., 0.])
     assert session.core.intent == sink.pending == ZERO
     request(frame); sink.drain()
-    assert normal.calls == [('StopMove', ()), ('StandUp', ())]
+    assert normal.calls == [('StandUp', ())]
     measured(6, error_code=motion_state); sink.drain()
     assert normal.calls[-1] == ('BalanceStand', ())
     assert session.connected and sink.error is None
