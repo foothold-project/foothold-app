@@ -61,6 +61,8 @@ def configure_dump(rt,tmp_path):
 
 
 def own_services(rt):
+    rt.services_requested=True
+    rt.services.ready_at=rt.now()
     rt.services.status='STARTED'
     rt.services.owned=set(rt.services.names)
 
@@ -478,10 +480,10 @@ def test_cancel_before_service_worker_takes_job_performs_no_start():
 
 
 def test_samples_received_before_service_start_completion_are_not_accumulated(tmp_path):
-    clock=NS(t=10.2)
+    clock=NS(t=10.)
     rt=runtime(tmp_path,now=lambda:clock.t);rt.online=True
     rt.command(command());rt.step()
-    rt.services.status='STARTED';rt.services.ready_at=10.1
+    own_services(rt);rt.services.ready_at=10.1;clock.t=10.2
     rt.consume_samples({FRONTEND:(10.,pose()),CLOUD:(10.,cloud())})
     assert not rt.core.cells
     rt.receive(FRONTEND,pose(stamp=2));rt.receive(CLOUD,cloud(stamp=2));rt.step()
@@ -548,6 +550,97 @@ def test_failed_stop_keeps_live_processing_and_replacement_responsive_then_recov
         failing.value=False;release.set();rt.close()
         if rt.services.thread:rt.services.thread.join(3)
         rt.io.shutdown(wait=True)
+
+
+@pytest.mark.parametrize('configured',[False,True],ids=['default-10s','dump-configured'])
+@pytest.mark.parametrize('seed_stale_cells',[False,True],ids=['input-fence','upload-fence'])
+def test_failed_replacement_start_cannot_collect_or_upload_previous_graph(tmp_path,configured,seed_stale_cells):
+    clock=NS(t=0.);sent=[]
+    def run(action,name):
+        return 1 if action=='stop' else 3 if action=='is-active' else 0
+    rt=runtime(tmp_path,now=lambda:clock.t,service_run=run);rt.online=True
+    rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
+    if configured:configure_dump(rt,tmp_path)
+    def request(sid,suffix,data):
+        if suffix=='bundle':
+            sent.append((sid,json.loads(data)))
+            return {'session_id':sid,'status':'RECEIVED_ONLY'}
+        return {'accepted':True}
+    rt.request=request
+    def step():
+        rt.step()
+        for future in (rt.report_future,rt.save_future):
+            if future is not None:future.result(timeout=3)
+    try:
+        first=command();rt.command(first);step()
+        wait_for(lambda:rt.services.status=='STARTED')
+        rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());step()
+        assert rt.core.cells and rt.last_odom is not None
+        rt.services.stop();wait_for(lambda:rt.services.status=='UNKNOWN')
+        clock.t=1.
+        second=command();rt.command(second);step()
+        wait_for(lambda:rt.services.status=='UNKNOWN' and not rt.services.pending)
+        step()
+        assert rt.core.error_code=='MAPPING_SERVICES_FAILED' and rt.services.ready_at is None
+        rt.receive(FRONTEND,pose(stamp=2));rt.receive(FINAL_POSE,pose(stamp=2))
+        rt.receive(CLOUD,cloud(stamp=2));step()
+        assert not rt.core.cells and rt.last_odom is None
+        assert all(not history for history in rt.pose_histories.values())
+        assert rt.core.error_code=='MAPPING_SERVICES_FAILED'
+        if seed_stale_cells:
+            # Exercise the second guard independently of the input guard.
+            rt.core.add_world([[1,0,.3]],[0,0,.3],[1,0,0,0],stamp=2,frame='map')
+        rt.command(command('save',second));step()
+        for second_elapsed in range(1,31):
+            clock.t=1.+second_elapsed
+            rt.receive(FRONTEND,pose(stamp=second_elapsed+2))
+            rt.receive(CLOUD,cloud(stamp=second_elapsed+2));step()
+        assert sent==[] and rt.frozen is None and rt.save_future is None
+        assert rt.core.status!='SAVED' and not list(tmp_path.glob('*.bundle.json'))
+        if not seed_stale_cells:assert not rt.core.cells
+    finally:
+        rt.close()
+        if rt.services.thread:rt.services.thread.join(3)
+        rt.io.shutdown(wait=True)
+
+
+def test_unaccepted_start_cannot_inherit_previous_pending_start_readiness(tmp_path):
+    clock=NS(t=0.)
+    rt=runtime(tmp_path,now=lambda:clock.t);rt.online=True
+    rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
+    rt.services.launch=lambda:None
+    try:
+        rt.command(command());rt.step()
+        assert rt.services.pending
+        clock.t=1.;rt.command(command());rt.step()
+        assert not rt.services_requested
+        # Completion of A's pending job must not grant B input/upload rights.
+        rt.services.status='STARTED';rt.services.ready_at=clock.t
+        rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
+        assert not rt.core.cells and rt.last_odom is None and not rt.session_services_ready()
+    finally:
+        rt.close();rt.io.shutdown(wait=True)
+
+
+@pytest.mark.parametrize('failure',['returncode','exception'])
+def test_repeated_stop_failure_warnings_are_throttled_without_delaying_recovery(caplog,failure):
+    from foothold_agent.mapping.services import Services
+    clock=NS(t=0.);recover=NS(value=False);calls=[]
+    def run(action,name):
+        calls.append((action,name))
+        if recover.value:return 0
+        if failure=='exception':raise OSError('fake unavailable user bus')
+        return 1
+    services=Services({},lambda:True,run=run,now=lambda:clock.t)
+    services.owned=set(services.names)
+    services.stop()
+    for second in range(31):
+        clock.t=float(second);services.cleanup()
+    warnings=[record for record in caplog.records if 'event=stop_failed' in record.message]
+    cleanups=[record for record in caplog.records if 'event=cleanup' in record.message]
+    assert len(warnings)==4 and len(cleanups)==2 and len(calls)==62
+    recover.value=True;clock.t=31.;services.cleanup()
+    assert not services.owned and services.status=='STOPPED' and not services.stop_failures
 
 
 def test_cancel_while_service_state_query_hangs_never_starts_unit():
