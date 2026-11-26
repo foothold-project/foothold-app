@@ -17,9 +17,11 @@ enum class Event {
     mode_low, stand_fold, stand_refused, policy_start, sit_down, damping, liveness_lost, depth_lost, robot_fall,
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
-    inference_failed, ame2_unavailable, runner_ready, mode_rpc, dog_sit, dog_rise, factory_move, move_fall
+    inference_failed, ame2_unavailable, runner_ready, mode_rpc, dog_sit, dog_rise, factory_move, move_fall,
+    app_key, app_drop
 };
 const char* event_name(Event event);
+const char* phase_name(Phase phase);
 
 struct Battery {
     float soc, voltage, current;
@@ -34,6 +36,9 @@ struct LowState {
     std::array<float, 4> foot{};
     Remote remote;
     std::optional<Battery> battery;
+    // App velocity from the local channel (app_input.hpp). Used in place of the stick only
+    // while the physical remote is neutral; expires like a deadman.
+    std::optional<Wanted> app_want;
 };
 struct Estimate {
     float raw_vx;
@@ -141,6 +146,7 @@ public:
     void tick(Tick, const LowState&, const Depth* = nullptr, bool shutdown = false,
               std::optional<Tick> scheduled = std::nullopt);
     Phase phase() const { return phase_; }
+    Move move() const { return move_; }
     bool stopped() const { return stopped_; }
     std::uint64_t commands() const { return commands_; }
     std::uint64_t policy_steps() const { return policy_steps_; }

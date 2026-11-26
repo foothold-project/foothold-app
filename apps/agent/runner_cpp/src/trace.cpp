@@ -22,23 +22,6 @@ constexpr auto active_flag = "/tmp/foothold-start-active";
 using Wall = std::chrono::system_clock;
 using Ms = std::chrono::duration<double, std::milli>;
 
-const char* phase_name(Phase phase) {
-    switch (phase) {
-    case Phase::high: return "high";
-    case Phase::acquiring: return "acquiring";
-    case Phase::folding:
-    case Phase::standing: return "standing_up";
-    case Phase::policy: return "policy";
-    case Phase::sitting: return "sitting";
-    case Phase::dog_sitting: return "dog_sitting";
-    case Phase::moving: return "moving";
-    case Phase::damping: return "damping";
-    case Phase::returning: return "returning";
-    case Phase::recovering: return "recovering";
-    }
-    return "unknown";
-}
-
 enum class Kind { event, sample, status };
 struct Row {
     Kind kind;
@@ -180,6 +163,10 @@ std::string line(const Row& row) {
             out << ",\"grav_z\":" << row.info.value;
         if (row.event == Event::factory_handover)
             out << ",\"gait\":\"" << row.info.text << "\",\"holding\":false";
+        if (row.event == Event::app_key)
+            out << ",\"key\":\"" << row.info.text << "\",\"started\":" << (row.info.value ? "true" : "false");
+        if (row.event == Event::app_drop)
+            out << ",\"reason\":\"" << row.info.text << "\",\"dropped\":" << row.info.value;
         out << "}\n";
         return out.str();
     }

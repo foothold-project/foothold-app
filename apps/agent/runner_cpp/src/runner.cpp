@@ -200,8 +200,27 @@ const char* event_name(Event event) {
     case Event::dog_rise: return "DOG_RISE";
     case Event::factory_move: return "FACTORY_MOVE";
     case Event::move_fall: return "MOVE_FALL";
+    case Event::app_key: return "APP_KEY";
+    case Event::app_drop: return "APP_DROP";
     }
     return "UNKNOWN";
+}
+
+const char* phase_name(Phase phase) {
+    switch (phase) {
+    case Phase::high: return "high";
+    case Phase::acquiring: return "acquiring";
+    case Phase::folding:
+    case Phase::standing: return "standing_up";
+    case Phase::policy: return "policy";
+    case Phase::sitting: return "sitting";
+    case Phase::dog_sitting: return "dog_sitting";
+    case Phase::moving: return "moving";
+    case Phase::damping: return "damping";
+    case Phase::returning: return "returning";
+    case Phase::recovering: return "recovering";
+    }
+    return "unknown";
 }
 
 ModeResult execute_mode(Robot& robot, ModeRequest request) {
@@ -547,7 +566,8 @@ void Runner::infer(Tick now, Tick scheduled, const LowState& state, const Vec3& 
     next_policy_ += 20ms;
     if (next_policy_ <= scheduled) next_policy_ = scheduled + 20ms;
     if (inference_pending_) return;
-    const auto want = remote_want(state.remote, options_.fwd_max);
+    const auto want = state.app_want && !remote_active(state.remote) ? *state.app_want
+                                                                     : remote_want(state.remote, options_.fwd_max);
     const auto shaped = shape_command(want, options_.fwd_max);
     slew_command(command_, shaped.command);
     const auto dq = to_policy(state.dq);

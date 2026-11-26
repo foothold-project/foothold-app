@@ -1,3 +1,4 @@
+#include "foothold/app_input.hpp"
 #include "foothold/moves_dog_sit.hpp"
 #include "foothold/runner.hpp"
 
@@ -108,7 +109,13 @@ struct FakePolicy final : PolicyExecutor {
 struct Events final : Observer {
     std::vector<Event> seen;
     std::vector<Tick> samples;
-    void sample(const Sample& sample) override { samples.push_back(sample.time); }
+    Wanted last_want{};
+    Vec3 last_command{};
+    void sample(const Sample& sample) override {
+        samples.push_back(sample.time);
+        last_want = sample.want;
+        last_command = sample.command;
+    }
     void event(Tick, Event event, EventInfo) override { seen.push_back(event); }
     bool ordered(std::initializer_list<Event> sequence) const {
         auto cursor = seen.begin();
@@ -148,7 +155,36 @@ struct Rig {
         wait(3500ms);
         require(runner.phase() == Phase::policy, "stand and blend did not enter policy");
     }
+    // One control tick with the app channel, in the same order as main.cpp.
+    std::vector<AppAck> app_tick(AppInput& app, std::vector<std::string> packets = {}, int keys = 0, float ly = 0) {
+        time += 5ms;
+        state.stamp = time;
+        state.remote.keys = keys;
+        state.remote.ly = ly;
+        for (const auto& packet : packets) app.receive(time, packet, 40000);
+        app.apply(time, state);
+        const auto phase = runner.phase();
+        const auto move = runner.move();
+        runner.tick(time, state, depth);
+        return app.settle(time, phase, move, runner.phase(), runner.move());
+    }
+    std::int64_t seq(std::chrono::nanoseconds back = {}) const {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>((time + 5ms - back).time_since_epoch()).count();
+    }
+    std::string key(const char* name, const char* action, const char* id, std::chrono::nanoseconds back = {}) const {
+        return "{\"seq\":" + std::to_string(seq(back)) + ",\"key\":\"" + name + "\",\"action\":\"" + action +
+               "\",\"request_id\":\"" + id + "\"}";
+    }
+    std::string velocity(double vx, double vy = 0, double wz = 0) const {
+        return "{\"seq\":" + std::to_string(seq()) + ",\"vx\":" + std::to_string(vx) + ",\"vy\":" +
+               std::to_string(vy) + ",\"wz\":" + std::to_string(wz) + "}";
+    }
 };
+
+bool acked(const std::vector<AppAck>& acks, const char* result, const char* reason = nullptr) {
+    return acks.size() == 1 && std::string_view(acks[0].result) == result &&
+           (reason ? acks[0].reason && std::string_view(acks[0].reason) == reason : !acks[0].reason);
+}
 }
 
 int main() {
@@ -583,5 +619,117 @@ int main() {
         require(live.runner.stopped() && live.robot.factory, "shutdown during dog sit must return to factory");
         require(live.events.ordered({Event::dog_sit, Event::exit_sit_down, Event::sit_down, Event::damping,
                                      Event::mode_high}), "shutdown during dog sit must lie down first");
+    }
+
+    // App input (APP-MOVES.md): the same handling as the physical remote.
+    {
+        // App key outside policy is ignored by the runner's own guard; from policy it starts the move.
+        Rig live(true);
+        AppInput app(live.events);
+        require(acked(live.app_tick(app, {live.key("R1+B", "Sit", "a")}), "IGNORED", "phase") &&
+                    live.runner.phase() == Phase::high,
+                "app R1+B in factory must be ignored");
+        live.tick(start);
+        live.wait(3500ms);
+        require(live.runner.phase() == Phase::policy, "policy");
+        const auto acks = live.app_tick(app, {live.key("R1+B", "Sit", "b")});
+        require(acked(acks, "STARTED") && acks[0].request_id == "b" && std::string_view(acks[0].phase) == "dog_sitting",
+                "app R1+B from policy must start the dog sit and ack STARTED");
+        require(live.events.seen.back() == Event::app_key || live.events.ordered({Event::dog_sit, Event::app_key}),
+                "app key must be traced");
+        // The key is pressed for one tick only: a repeat during the move is dropped like a remote press.
+        require(acked(live.app_tick(app, {live.key("R1+B", "RiseSit", "c")}), "IGNORED", "phase"),
+                "app R1+B during the sit-down motion must be ignored");
+        for (int i = 0; i < 400; ++i) live.app_tick(app);
+        require(acked(live.app_tick(app, {live.key("R1+B", "RiseSit", "d")}), "STARTED") &&
+                    live.runner.move() == Move::dog_rise,
+                "app R1+B while holding the dog sit must rise");
+    }
+    {
+        // App velocity reaches the policy command through the same shaping and slew as the stick,
+        // and expires to zero 0.3 s after the last packet.
+        Rig live(true);
+        AppInput app(live.events);
+        live.enter();
+        for (int i = 0; i < 300; ++i) {
+            const auto acks = live.app_tick(app, i % 4 == 0 ? std::vector<std::string>{live.velocity(.6)}
+                                                            : std::vector<std::string>{});
+            if (i % 4 == 0) require(acked(acks, "ACCEPTED") && std::string_view(acks[0].phase) == "policy",
+                                    "velocity packet must be accepted in policy");
+        }
+        require(live.events.last_want[0] == .6 && std::abs(live.events.last_command[0] - .6f) < 1e-4f,
+                "app velocity must reach the policy command");
+        for (int i = 0; i < 56; ++i) live.app_tick(app);  // 0.295 s after the last packet (sent 15 ms before)
+        require(live.events.last_want[0] == .6, "app velocity must hold inside the deadman window");
+        for (int i = 0; i < 6; ++i) live.app_tick(app);
+        require(live.events.last_want[0] == 0, "app velocity must expire to zero after 0.3 s");
+        for (int i = 0; i < 200; ++i) live.app_tick(app);
+        require(live.events.last_command[0] == 0, "policy command must slew to zero after expiry");
+        // Out-of-range values are clamped to what the stick can ask for.
+        for (int i = 0; i < 10; ++i) live.app_tick(app, {live.velocity(1.9, -1.0, 2.5)});
+        require(live.events.last_want == Wanted{1.5, -.8, 1.5}, "app velocity must be clamped to the stick range");
+    }
+    {
+        // Physical remote wins: a stick or any key drops app velocity and keys (ack IGNORED remote).
+        Rig live(true);
+        AppInput app(live.events);
+        live.enter();
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {live.velocity(.6)});
+        const auto acks = live.app_tick(app, {live.velocity(.6)}, 0, .5f);
+        require(acked(acks, "IGNORED", "remote") && acks[0].remote, "app velocity under a physical stick must be ignored");
+        for (int i = 0; i < 4; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == .375, "physical stick must drive the policy, not the app");
+        live.app_tick(app);
+        live.app_tick(app);
+        live.app_tick(app);
+        live.app_tick(app);
+        require(live.events.last_want[0] == 0, "app velocity cleared by the physical stick must not come back");
+        constexpr int r2 = 1 << 4;
+        require(acked(live.app_tick(app, {live.key("R2+A", "Stretch", "s")}, r2), "IGNORED", "remote") &&
+                    live.runner.phase() == Phase::policy,
+                "app key while a physical key is held must be ignored");
+        require(acked(live.app_tick(app, {live.key("R2+A", "Stretch", "s2")}, 0, .5f), "IGNORED", "remote") &&
+                    live.runner.phase() == Phase::policy,
+                "app key while the physical stick is deflected must be ignored");
+        // The app damp is the exception: it always passes.
+        require(acked(live.app_tick(app, {live.key("L2+B", "Damp", "d")}, 0, .5f), "STARTED") &&
+                    live.runner.phase() == Phase::damping,
+                "app L2+B must damp even under a physical stick");
+    }
+    {
+        // Physical L2+B wins over any app key in the same tick; an app damp beats an app move in one batch.
+        Rig live(true);
+        AppInput app(live.events);
+        live.enter();
+        live.app_tick(app, {live.key("R2+A", "Stretch", "s")}, emergency);
+        require(live.runner.phase() == Phase::damping, "physical L2+B must damp over an app key");
+        Rig other(true);
+        AppInput second(other.events);
+        other.enter();
+        const auto acks = other.app_tick(second, {other.key("R2+A", "Stretch", "s"), other.key("L2+B", "Damp", "d", -1ns)});
+        require(other.runner.phase() == Phase::damping && acks.size() == 2 &&
+                    std::string_view(acks[0].reason) == "busy" && std::string_view(acks[1].result) == "STARTED",
+                "app damp must win over another app key in the same tick");
+    }
+    {
+        // Malformed, stale, replayed and future packets are dropped without an ack and change nothing.
+        Rig live(true);
+        AppInput app(live.events);
+        live.enter();
+        const auto fresh = live.key("R2+A", "Stretch", "x");
+        std::vector<std::string> bad{
+            live.key("R2+A", "Stretch", "old", 600ms), live.key("R2+A", "Stretch", "future", -50ms),
+            live.key("R2+A", "Sit", "wrong-action"), live.key("L2+X", "Damp", "bad-key"),
+            "{\"seq\":1,\"vx\":0.5}", "not json", "{\"seq\":-5,\"vx\":0,\"vy\":0,\"wz\":0}",
+            "{\"seq\":" + std::to_string(live.seq()) + ",\"vx\":NaN,\"vy\":0,\"wz\":0}",
+            std::string(600, ' '),
+        };
+        require(live.app_tick(app, bad).empty() && live.runner.phase() == Phase::policy && app.dropped() == bad.size(),
+                "bad packets must be dropped");
+        require(std::count(live.events.seen.begin(), live.events.seen.end(), Event::app_drop) == 1,
+                "drop events are rate limited");
+        const auto acks = live.app_tick(app, {fresh, fresh});
+        require(acks.size() == 1 && acked(acks, "STARTED") && app.dropped() == bad.size() + 1,
+                "fresh packet must start once and its replay must be dropped");
     }
 }
