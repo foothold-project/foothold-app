@@ -1641,8 +1641,10 @@ class Realtime:
             action=msg.action, params=msg.params, confirmed=msg.confirmed).model_dump(mode='json')
         if self.blocked_agent_control(peer, body):
             raise LeaseError('ACTION_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
-        if peer.state.get('control') == 'LOWLEVEL' and msg.action not in get_args(C.LowlevelAction):
+        if peer.state.get('control') == 'LOWLEVEL' and msg.action not in get_args(C.LowlevelAction) + get_args(C.LowlevelQuery):
             raise LeaseError('LOWLEVEL_UNSUPPORTED', '저수준 제어 중에는 이 동작을 쓸 수 없습니다.')
+        if peer.state.get('control') != 'LOWLEVEL' and msg.action in get_args(C.FactoryUnsupportedAction):
+            raise LeaseError('FACTORY_UNSUPPORTED', '이 동작은 START 저수준 제어 중에만 쓸 수 있습니다.')
         if (not 0 <= self.clock()-peer.state_received_at <= .5 or peer.state.get('applied') != [0, 0, 0]
                 or peer.server_drive_axes != (0, 0, 0)):
             raise LeaseError('ACTION_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')

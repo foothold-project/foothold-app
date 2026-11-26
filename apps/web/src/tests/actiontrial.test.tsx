@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Live } from '../rt';
-import { ActionTrial, ACTION_NAMES, DANGEROUS, LOWLEVEL, actionResultText } from '../screens/actiontrial';
+import { ActionTrial, ACTION_NAMES, DANGEROUS, LOWLEVEL, LOWLEVEL_QUERY, actionResultText } from '../screens/actiontrial';
 import { ROBOTS } from './fixtures';
 import { state } from './fakeWs';
 
@@ -85,12 +85,14 @@ it('submits Euler defaults and no confirmation for an ordinary one-shot action',
 });
 
 it('저수준 (START) 중에는 동작표 「저수준」 켬 일곱 개만 켜고 나머지는 꺼서 눌러도 보내지 않음 · 순정은 전부', () => {
-  expect([...LOWLEVEL].sort()).toEqual(['Damp', 'Heart', 'Hello', 'RiseSit', 'Sit', 'StandDown', 'Stretch']);
+  expect([...LOWLEVEL].sort()).toEqual(['Damp', 'Greet', 'Heart', 'Hello', 'RiseSit', 'Sit', 'StandDown', 'Stretch']);
+  expect([ACTION_NAMES.Hello, ACTION_NAMES.Greet]).toEqual(['악수', '인사']);
   // 저수준 중 순정 자세 보고는 없을 수 있다: 서 있음 판정 없이도 비상 힘 빼기 (Damp) 는 켬
   mock.live.state = state('r7', { posture: { state: 'UNKNOWN', mode: null }, control: 'LOWLEVEL' }); render();
   expect(box.querySelector('[data-lowlevel]')).not.toBeNull();
-  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(button(name).disabled).toBe(!LOWLEVEL.has(name));
-  for (const name of ['Scrape', 'FrontFlip', 'RecoveryStand', 'CheckMode', 'StandUp']) click(button(name));
+  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(button(name).disabled).toBe(!LOWLEVEL.has(name) && !LOWLEVEL_QUERY.has(name));
+  expect([...LOWLEVEL_QUERY].sort()).toEqual(['AutoRecoveryGet', 'CheckMode']);
+  for (const name of ['Scrape', 'FrontFlip', 'RecoveryStand', 'StandUp', 'SpeedLevel']) click(button(name));
   expect(mock.action).not.toHaveBeenCalled();
   click(button('Stretch'));
   expect(mock.action.mock.calls.map((c) => c[1])).toEqual(['Stretch']);
@@ -103,5 +105,7 @@ it('저수준 (START) 중에는 동작표 「저수준」 켬 일곱 개만 켜�
   act(() => { mock.now += 6000; vi.advanceTimersByTime(6000); }); mock.live.stateAt = mock.now;
   mock.live.state = state('r7', { posture: { state: 'STANDING', mode: 1 }, control: 'FACTORY' }); render();
   expect(box.querySelector('[data-lowlevel]')).toBeNull();
-  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(button(name).disabled).toBe(name === 'SelectMode');
+  // 순정: 인사 (Greet) 는 SDK 번호가 없어 회색 · 눌러도 안 감
+  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(button(name).disabled).toBe(name === 'SelectMode' || name === 'Greet');
+  mock.action.mockReset(); click(button('Greet')); expect(mock.action).not.toHaveBeenCalled();
 });

@@ -102,14 +102,17 @@ def test_lowlevel_control_allows_only_contract_list(relay, control):
     from typing import get_args
     realtime, rid, peer, actor, msg, records = prepared(relay)
     peer.state['control'] = control
-    allowed = set(get_args(C.LowlevelAction))
-    for name in ('Hello', 'Sit', 'Scrape', 'FrontFlip', 'CheckMode', 'RecoveryStand'):
+    allowed = set(get_args(C.LowlevelAction)) | set(get_args(C.LowlevelQuery))
+    for name in ('Hello', 'Sit', 'Greet', 'Scrape', 'FrontFlip', 'CheckMode', 'AutoRecoveryGet', 'RecoveryStand'):
         while not peer.queue.empty(): peer.queue.get_nowait()
         req = C.ScreenAction(t='action', id='r-' + name, robot=rid, lease_id=msg.lease_id, action=name,
                              confirmed=name == 'FrontFlip')
         if control == 'LOWLEVEL' and name not in allowed:
             with pytest.raises(LeaseError) as e: realtime.send_action(rid, actor, req)
             assert e.value.code == 'LOWLEVEL_UNSUPPORTED' and peer.queue.empty()
+        elif control != 'LOWLEVEL' and name == 'Greet':
+            with pytest.raises(LeaseError) as e: realtime.send_action(rid, actor, req)
+            assert e.value.code == 'FACTORY_UNSUPPORTED' and peer.queue.empty()
         else:
             realtime.send_action(rid, actor, req)
             assert peer.queue._queue[-1]['action'] == name

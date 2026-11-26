@@ -991,7 +991,7 @@ describe('로봇 응답 느림과 왕복 시간', () => {
     expect(text).toContain('최근 5회 중앙값 시간 초과 포함');
     expect(text).toContain('로봇 컴퓨터↔서버: 27 ms');
     expect(text).toContain('서버↔이 화면: 42 ms');
-    expect($('[data-action-result]')!.textContent).toContain('인사: 실패');
+    expect($('[data-action-result]')!.textContent).toContain('악수: 실패');
     expect($('[data-action-result]')!.textContent).toContain('SDK 73');
     expect(FakeWS.all.filter((x) => x.url.endsWith('/api/v1/ws'))).toHaveLength(1);
     act(() => push('r7', { response_health: { slow: false, timeout_count: 0, last_timeout_at: '2026-11-18T09:45:03Z',
