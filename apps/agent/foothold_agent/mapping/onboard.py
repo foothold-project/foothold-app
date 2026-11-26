@@ -62,6 +62,7 @@ class OnboardRuntime(MappingRuntime):
         self.input_stamps={}
         self.handles=[]
         self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run,now=self.now)
+        self.services_requested=False
         self.raw=RawRecorder(self.env,lambda:self.enabled() and self.online and not self.stopping.is_set(),self.services)
         self.seen=set()
         self.phase='UNKNOWN'
@@ -209,6 +210,7 @@ class OnboardRuntime(MappingRuntime):
             self.confirmed_report=None
             self.dump=None
             self.dump_eligible=self.dump_failed=False
+            self.services_requested=False
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
                 self.problem('MAPPING_FRAME_REQUIRED','Point-LIO 토픽과 지도 좌표 설정을 확인해 주세요.')
@@ -225,6 +227,7 @@ class OnboardRuntime(MappingRuntime):
                         self.dump=None
                         self.dropped('dump','session_prepare_failed')
                 services_requested = self.services.start()
+                self.services_requested=services_requested
                 if not services_requested:
                     self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
                 self.raw.start(sid, services_requested=services_requested)
@@ -260,6 +263,8 @@ class OnboardRuntime(MappingRuntime):
         self.core.error_code,self.core.reason=code,reason
 
     def consume_samples(self,samples):
+        if not self.session_services_ready():
+            return
         import numpy as np
         for source in (self.live,self.final):
             history=self.pose_histories[source.source]
@@ -390,6 +395,12 @@ class OnboardRuntime(MappingRuntime):
 
     def services_stopped(self):
         return not self.services.owned and not self.services.pending and self.services.status!='STARTING'
+
+    def session_services_ready(self):
+        # ready_at survives stop failure for this session's bounded fallback,
+        # but an unaccepted/replaced start must never inherit an older graph.
+        return (self.services.status=='DISABLED' or self.services_requested
+            and self.services.ready_at is not None and self.services.ready_at>=self.not_before)
 
     def grid_body(self, *, crop=False, max_cells=None):
         import numpy as np
@@ -528,6 +539,7 @@ class OnboardRuntime(MappingRuntime):
                     self.services.stop()
                     self.dropped('bundle','upload_failed')
         if (self.save_requested is not None and self.save_future is None and not self.save_failed
+                and self.session_services_ready()
                 and self.rebuild is None
                 and self.source.map_topic not in self.pending_samples
                 and self.core.status not in ('SAVED','CANCELLED') and self.core.cells

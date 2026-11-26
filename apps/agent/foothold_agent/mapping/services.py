@@ -27,6 +27,7 @@ class Services:
         self.closed=False
         self.wake=threading.Event()
         self.thread=None
+        self.stop_failures={}
 
     @staticmethod
     def systemctl(action,name):
@@ -65,19 +66,32 @@ class Services:
         self.stop()
 
     def cleanup(self):
+        report=False
         for name in tuple(self.owned):
             try:
                 result=self.run('stop',name)
                 if result==0:
                     self.owned.discard(name)
+                    self.stop_failures.pop(name,None)
+                    report=True
                 else:
-                    LOG.warning('SLAM_SERVICE event=stop_failed service=%s returncode=%s',name,result)
+                    report=self.stop_failed(name,('returncode',result)) or report
             except Exception as error:
-                LOG.warning('SLAM_SERVICE event=stop_failed service=%s exception=%s',name,type(error).__name__)
+                report=self.stop_failed(name,('exception',type(error).__name__)) or report
         self.status=('STARTING' if self.pending else 'STOPPED') if not self.owned else 'UNKNOWN'
         if not self.owned:
             self.stop_requested=False
-        LOG.warning('SLAM_SERVICE event=cleanup remaining=%d monotonic=%.6f utc=%s',len(self.owned),time.monotonic(),datetime.now(timezone.utc).isoformat())
+        if report or not self.owned:
+            LOG.warning('SLAM_SERVICE event=cleanup remaining=%d monotonic=%.6f utc=%s',len(self.owned),time.monotonic(),datetime.now(timezone.utc).isoformat())
+
+    def stop_failed(self,name,failure):
+        previous=self.stop_failures.get(name)
+        at=self.now()
+        if previous is not None and previous[0]==failure and at-previous[1]<30:
+            return False
+        self.stop_failures[name]=failure,at
+        LOG.warning('SLAM_SERVICE event=stop_failed service=%s %s=%s',name,*failure)
+        return True
 
     def worker(self):
         while True:
