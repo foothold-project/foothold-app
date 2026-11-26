@@ -24,12 +24,14 @@ export function lidarToBase(xyz: Float32Array, n: number): Float32Array {
   return out;
 }
 
-/** 같은 판은 한 번만 변환(판 객체가 열쇠 — 두 번 적용 없음) */
-const done = new WeakMap<DriveFeed, DriveFeed>();
+/** 같은 판은 한 번만 변환 — 열쇠는 원본 xyz 배열(RV-507: 호출부가 매 렌더 새 feed 객체를 만들어도, 3D·2D 가 같이 그려도 한 번). 바꾼 배열도 자기 자신으로 넣어 두 번 적용 없음 */
+const done = new WeakMap<Float32Array, Float32Array>();
 /** raw 판이면 xyz 를 몸 좌표로 바꾼 판, 그 밖은 받은 판 그대로 */
 export function inBase(f: DriveFeed): DriveFeed {
   if (f.frame !== RAW_FRAME) return f;
-  let b = done.get(f);
-  if (!b) { b = { ...f, xyz: lidarToBase(f.xyz, Math.min(f.n, Math.floor(f.xyz.length / 3))) }; done.set(f, b); done.set(b, b); }   // 바꾼 판을 다시 넣어도 그대로
-  return b;
+  const m = Math.min(f.n, Math.floor(f.xyz.length / 3));
+  let b = done.get(f.xyz);
+  if (b === f.xyz) return f;   // 이미 바꾼 판을 다시 넣음
+  if (!b || b.length !== m * 3) { b = lidarToBase(f.xyz, m); done.set(f.xyz, b); done.set(b, b); }
+  return { ...f, xyz: b };
 }

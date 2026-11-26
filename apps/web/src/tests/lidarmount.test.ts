@@ -40,9 +40,20 @@ describe('lidarmount', () => {
   it('같은 raw 판은 한 번만 변환(두 번 적용 없음), 받은 배열은 그대로', () => {
     const f = feed('lidar_link', NEAR), before = f.xyz.slice();
     const a = inBase(f), b = inBase(f);
-    expect(b).toBe(a);
+    expect(b.xyz).toBe(a.xyz);
     expect(inBase(a)).toBe(a);   // 바꾼 판(frame 은 여전히 lidar_link)을 다시 넣어도 그대로
     expect(f.xyz).toEqual(before);
+  });
+
+  it('RV-507: 같은 xyz 를 가진 새 feed 객체를 여러 번 넣어도 변환 1회 — 같은 결과 배열, 같은 바이트', () => {
+    const xyz = new Float32Array(NEAR), first = inBase({ ...feed('lidar_link', []), xyz, n: 5 });
+    const bytes = new Uint8Array(lidarToBase(xyz, 5).buffer);
+    for (let i = 0; i < 5; i++) {
+      const g = inBase({ ...feed('lidar_link', []), xyz, n: 5, ver: 1 });   // realdrive.tsx 처럼 매 렌더 { ...lf } 새 객체
+      expect(g.xyz).toBe(first.xyz);
+      expect(new Uint8Array(g.xyz.buffer)).toEqual(bytes);
+    }
+    expect(Array.from(xyz)).toEqual(Array.from(new Float32Array(NEAR)));   // 받은 배열은 그대로
   });
 
   it('odom·map·처음 보는 frame 은 받은 판 그대로(같은 객체·같은 바이트)', () => {

@@ -8,6 +8,7 @@ import { BANDS, HEX, LEGEND_BG, TOP_M, levelOf } from '../heightcolor';
 import { JOINTS, type Pose } from '../go2model';
 import { CEIL_M } from '../drivemedia';
 import { LidarMap } from '../lidarmap';
+import { lidarToBase } from '../lidarmount';
 
 const gl = { ok: true, renders: 0, alive: 0, drawn: -1, up: 0, inst: 0, pts: 0, snap: '' };
 type Inst = { rotation: { x: number; y: number }; isInstancedMesh?: boolean; isPoints?: boolean; count: number; instanceMatrix: { version: number }; geometry: { drawRange: { count: number }; attributes: { position: { version: number } } } };
@@ -57,7 +58,8 @@ function fake2d() {
   const g = { createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }), putImageData: (img: ImageData) => { put.push(img.data.slice()); },
     setTransform: noop, beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop, save: noop, restore: noop, translate: noop, rotate: noop, closePath: noop, fill: noop };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(g as unknown as CanvasRenderingContext2D);
-  return () => { const d = put[put.length - 1]; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) k++; return k; };   // 마지막 그림의 칠한 화소 수
+  return Object.assign(() => { const d = put[put.length - 1]; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) k++; return k; }, {   // 마지막 그림의 칠한 화소 수
+    first: () => { const i = put[put.length - 1].findIndex((v, j) => j % 4 === 3 && v > 0) >> 2; return [i % 800, Math.floor(i / 800)]; } });   // 처음 칠한 화소 [열, 줄](폭 800 — clientWidth 가짜)
 }
 
 describe('라이다 칸 3D', () => {
@@ -358,5 +360,25 @@ describe('RB-LIDAR-EDGEWEB 모서리 점', () => {
     act(() => root!.render(<LidarMap feed={pts([255, 0], 2)} empty="" start="top" />)); act(() => { vi.advanceTimersByTime(600); });
     expect(painted()).toBeGreaterThan(k0);
     expect($('[data-edge-legend]')).toBeTruthy();
+  });
+});
+
+describe('RB-LIDAR-RAW-MOUNT-2D 위에서 본 그림도 몸 좌표', () => {
+  // 한 점·pose 없음 → 화면 가운데(400,250)가 원점, k = 500/12 px/m. 점 네모의 왼쪽 위 = (floor(400 + x·k), floor(250 − y·k))
+  const k = 500 / 12, one = (frame: string, ver: number) => ({ ...feed(1, ver, frame), xyz: new Float32Array([1, 0, 0]), pose: null }) as DriveFeed;
+  const spot = (x: number, y: number) => [Math.floor(400 + x * k), Math.floor(250 - y * k)];
+  it('raw(lidar_link) 판은 장착 보정 1회 — 센서 원점이 몸 앞 0.28 m', () => {
+    const p = fake2d(), b = lidarToBase(new Float32Array([1, 0, 0]), 1);
+    show(one('lidar_link', 1), { start: 'top' });
+    expect(p.first()).toEqual(spot(b[0], b[1]));
+    expect(p.first()).not.toEqual(spot(1, 0));   // 센서 좌표 그대로가 아님
+    show({ ...one('lidar_link', 2), xyz: new Float32Array([0, 0, 0]) } as DriveFeed, { start: 'top' });
+    act(() => { vi.advanceTimersByTime(600); });   // 새 판은 0.5초 그리기에서
+    expect(p.first()).toEqual(spot(0.28215980529785156, 1.0244548320770264e-07));
+  });
+  it('odom 판은 받은 좌표 그대로', () => {
+    const p = fake2d();
+    show(one('odom', 1), { start: 'top' });
+    expect(p.first()).toEqual(spot(1, 0));
   });
 });
