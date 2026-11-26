@@ -147,6 +147,8 @@ class ServerSink:
         self.sink, self.session = sink, session
         sink.select_source('server')
         session.movement_gate = sink.movement_reason
+        session.automatic_stop_gate = lambda: sink.automatic_stop_allowed(session)
+        sink.automatic_stop_allowed(session)
         if session.operator_stop:
             sink.apply(MotionCommand('stop'), source='server', operator_stop=True)
         session.posture_sink = sink
@@ -230,9 +232,9 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             ready = feedback.consume(client)
             if gate is not None:
                 gate.poll(client)
-            if healthy and not ready:
+            if healthy and not feedback.healthy():
                 client._emit(session.feedback_lost())
-            healthy = ready
+            healthy = feedback.healthy()
             session.update_devices(devices(feedback.telemetry(), session.now()))
             await asyncio.sleep(.02)
         for task in tasks:

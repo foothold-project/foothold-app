@@ -62,9 +62,9 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             if time.monotonic() >= deadline:
                 raise PermissionError('field approval expired')
             ready = feedback.consume(hub)
-            if not ready and healthy:
+            if not feedback.healthy() and healthy:
                 hub.stop()  # sensor expiry/invalidity locks before Core's 1 s stale gate
-            healthy = ready
+            healthy = feedback.healthy()
             hub.update_display()
             if reporting is not None:
                 reporting.update()

@@ -20,6 +20,7 @@ ZERO = (0., 0., 0.)
 DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 STOP_RETRY_S = .20
+QUIET_STOP_MAX_S = 1.0  # receipt-to-dispatch bound; an already running SDK RPC cannot be cancelled
 SERVER_RAMP_S = 2.0
 SERVER_BRAKE_S = .30
 SERVER_AXIS_MAX = (1.5, 1., MAX_TURN_RATE)
@@ -155,6 +156,11 @@ class Go2Sink:
         self._wait_operator_neutral = False
         self._operator_stop = False
         self._ordinary_hold = True
+        self._app_control = None  # None preserves standalone adapter behavior
+        self._release_until = None
+        self._release_sent = set()
+        self._release_inflight = set()
+        self._release_last = {}
         # Each independent lane owns its own RPC history, never the other lock.
         self._stop_attempts = {}
         self._resting_lanes = set()
@@ -168,6 +174,24 @@ class Go2Sink:
         self._last_timeout_at = None
         from .actions import Actions
         self.actions = Actions(self)
+
+    def automatic_stop_allowed(self, session):
+        """Owning-loop lease observation; workers only read the memory snapshot."""
+        active = bool(session.connected and session.lease_confirmed and session.lease_id
+                      and not session.link_lost and not session.reconnect_required)
+        with self._lock:
+            previous = self._app_control
+            self._app_control = active
+            if active != previous:
+                self._release_until = None
+                if not active and previous is True:
+                    self._hold()
+                    self._release_until = self.now()+QUIET_STOP_MAX_S
+                    self._release_sent.clear()
+                    self._release_last.clear()
+                    self._stop_requested.set()
+                logging.getLogger(__name__).warning('GO2_QUIET %s', '조용히 끝' if active else '조용히 시작')
+            return session.operator_stop or (active and not self._remote_active())
 
     def _remote_active(self):
         # Caller owns the memory lock. A takeover invalidates even commands
@@ -192,6 +216,8 @@ class Go2Sink:
             if start_active():
                 return 'START 저수준 제어 중이라 화면 조종 · 순정 동작은 멈춰 있습니다 (리모컨 L2+A 앉기 · start+좌/우 로 순정 넘김)'
             if active:
+                if self.remote.state_active():
+                    return '리모컨 동작 중이라 화면 조종은 멈춰 있습니다'
                 return '리모컨으로 조종 중이라 화면 조종은 멈춰 있습니다'
             if self._wait_operator_neutral:
                 if not neutral or self.latched:
@@ -201,6 +227,15 @@ class Go2Sink:
 
     def movement_trial_blocked(self, action):
         from .actions import EXECUTION_MAX_S
+        if action == 'RiseSit':
+            with self._lock:
+                sample = self._posture_sample()
+                # A settled remote state is not a live handset command. Keep
+                # actual handset activity and explicit emergency STOP priority.
+                if (sample.get('sitting_settled', False) and sample['still']
+                        and not self._operator_stop and not start_active()
+                        and (self.remote is None or self.remote.snapshot(include_state=False)[0] is not True)):
+                    return False
         moves = isinstance(action, str) and (action in EXECUTION_MAX_S or
                                               action in ('StopMove', 'StandDown', 'StandUp'))
         return moves and bool(self.movement_reason())
@@ -404,6 +439,8 @@ class Go2Sink:
         self.lock_evidence['watchdog_input'] = None
 
     def _expired(self, stamp):
+        if self._app_control is False and not self._operator_stop:
+            return False
         if ((self._remote_active() or self._wait_operator_neutral) and not self._operator_stop
                 and not self.actions.busy and self._posture is None):
             # No lower-priority stream owns movement or needs a deadman STOP.
@@ -433,6 +470,8 @@ class Go2Sink:
                 if operator_stop:
                     self._operator_stop = True
                     self._wait_operator_neutral = True
+                if self._app_control is False and not self._operator_stop:
+                    return  # a release window is created only by a lease falling edge
                 # Unclassified adapter calls retain their conservative STOP output.
                 self._ordinary_hold = operator_stop is False
                 action_hold = self.actions.stop(getattr(command, 'stop_generation', None), source=source)
@@ -685,13 +724,18 @@ class Go2Sink:
             return ('GO2_STOP_HELD', '정지 확인 — 정지 명령 반복 멈춤')
         return None
 
-    def _movement_rpc(self, client, method, args, *, movement_epoch=None):
+    def _movement_rpc(self, client, method, args, *, movement_epoch=None, release=False):
         motion = method == 'Move' and args != ZERO
         with self._lock:
             active = self._remote_active()
             activity_before = self._last_remote_activity
             emergency = self._operator_stop
-            if not emergency and active:
+            if release and not emergency and (self._app_control is not False or
+                    self._release_until is None or self.now() >= self._release_until):
+                return
+            if not emergency and active and not release:
+                return
+            if not emergency and not release and self._app_control is False:
                 return
             if movement_epoch is not None and (self.latched or self._closed.is_set()
                     or self._wait_operator_neutral or movement_epoch != (self.generation, activity_before)):
@@ -719,7 +763,50 @@ class Go2Sink:
             if motion:
                 self._motion_returned()
 
+    def _release_output(self, client):
+        """One release STOP on each existing lane; retries share one deadline."""
+        lane = 'normal' if client is self.client else 'emergency'
+        with self._lock:
+            if self._release_until is None or lane in self._release_inflight:
+                return
+            generation = self.generation
+            sample = self._posture_sample()
+            confirmed = (len(self._release_sent) == 2 and self._measured_stop(generation)
+                         and not self._motion_inflight
+                         and sample.get('sequence', -1) > self._last_motion_sequence)
+            if confirmed or self.now() >= self._release_until:
+                self._release_until = None  # sticky completion: #479 cannot restart it
+                return
+            if self.now()-self._release_last.get(lane, float('-inf')) < STOP_RETRY_S:
+                return
+            self._release_inflight.add(lane)
+            self._release_last[lane] = self.now()
+            self._release_sent.add(lane)
+        try:
+            stop_only = (self._lying_or_sitting(sample) or sample['state'] == 'TRANSITIONING'
+                         or sample.get('standing_locked', False) or
+                         (sample['state'] == 'STANDING' and not self._walkable(sample)))
+            methods = [('StopMove', ())] if stop_only else [('Move', ZERO), ('StopMove', ())]
+            for method, args in methods:
+                try:
+                    self._movement_rpc(client, method, args, release=True)
+                except (OSError, RuntimeError) as error:
+                    with self._lock:
+                        if isinstance(error, PermissionError) or self._operator_stop:
+                            raise
+                    # A failed automatic release must not promote itself to an
+                    # unbounded explicit emergency STOP. Retain the same window.
+                    logging.getLogger(__name__).warning('GO2_RELEASE_OUTPUT_FAILED method=%s code=%s',
+                        method, getattr(error, 'sdk_code', None))
+        finally:
+            with self._lock:
+                self._release_inflight.discard(lane)
+
     def _stop_output(self, client, *, force=False):
+        with self._lock:
+            releasing = self._app_control is False and not self._operator_stop
+        if releasing:
+            return self._release_output(client)
         first = None
         with self._lock:
             if self._remote_active() and not self._operator_stop:
@@ -908,6 +995,8 @@ class Go2Sink:
             # next watchdog tick so newly observed motion stops immediately.
             retry = self.latched and (retry or "emergency" in self._resting_lanes or
                                      standing_ready)
+            retry = retry or (self._app_control is False and self._release_until is not None
+                             and self.now()-self._release_last.get('emergency', float('-inf')) >= STOP_RETRY_S)
             expired = self._expired(self.now())
             if expired and self.actions.executing is not None:
                 self.actions.cancel('WATCHDOG')
@@ -934,6 +1023,11 @@ class Go2Sink:
                 raise RuntimeError('offline test mode cannot start live workers')
             if self._threads or self._closed.is_set():
                 raise RuntimeError('output workers cannot be restarted')
+            if self.source is None and self._phone_watchdog and self._app_control is None:
+                # Phone runtime starts workers before constructing its Hub.
+                # No source/lease has been bound in that startup interval.
+                self._app_control = False
+                logging.getLogger(__name__).warning('GO2_QUIET 조용히 시작')
             def worker(action, wake, normal_output):
                 while not self._closed.is_set():
                     try:

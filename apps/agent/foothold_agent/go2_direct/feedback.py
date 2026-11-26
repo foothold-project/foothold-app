@@ -13,7 +13,7 @@ import time
 
 from foothold_agent.go2_readonly.state import State, attitude, integer, number
 from foothold_agent.safety.core import SCHEMA
-from .remote import RemoteActivity
+from .remote import RemoteActivity, REMOTE_MOTION_STATES
 from .sink import FEEDBACK_MAX_AGE_S
 
 STILL_VZ_MAX_M_S = .06  # ponytail: 실측 정지 분포 보고 조정 (현장 승인).
@@ -184,6 +184,7 @@ class Feedback:
                                generation=generation, velocity=velocity, yaw=float(yaw),
                                mode=mode, error=error, progress=progress, height=height)
             self.lock_evidence['sport'] = self._sport
+            self.remote.observe_state(error, received)
             self.state.sportmodestate(message)
 
     def take_drops(self):
@@ -218,7 +219,8 @@ class Feedback:
             tilt = None if None in angles else max(abs(x) for x in angles)
             error_ok = (sport['error'] == 0 or (evidence.get('server_source') and
                         sport['error'] in evidence['accepted_errors']))
-            fields = cls._posture_failures(sport, tilt, error_ok)
+            fields = ([] if sport['error'] in REMOTE_MOTION_STATES else
+                      cls._posture_failures(sport, tilt, error_ok))
         return ','.join(fields) or 'none'
 
     def sample(self, *, record_failure=False):
@@ -259,7 +261,8 @@ class Feedback:
             accepted = error != 0 and self.error_allowed(error)
             snapshot['status_code'] = dict(raw=error,
                 level='ACCEPTED' if accepted else 'ERROR' if error else 'OK',
-                reason='EXPLICIT_SERVER_ALLOWLIST' if accepted else None)
+                reason=('REMOTE_MOTION_STATE' if error in REMOTE_MOTION_STATES else
+                        'EXPLICIT_SERVER_ALLOWLIST') if accepted else None)
         return snapshot
 
     def _journal_posture(self, sport):
@@ -272,11 +275,27 @@ class Feedback:
             # Numeric diagnostics only: no identity, address, token or SDK text.
             # Called on the reporting loop, outside the DDS/cache lock.
             logging.getLogger(__name__).warning(
+                'GO2_POSTURE 리모컨 상태값 mode=%d motion_state=%d height_m=%.2f'
+                if sport['error'] in REMOTE_MOTION_STATES else
                 'GO2_POSTURE mode=%d motion_state=%d height_m=%.2f', *value, height)
 
     def error_allowed(self, error):
-        """Shared display/readiness policy; only an explicit server list applies."""
-        return error == 0 or (error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')
+        """Measured remote states are healthy observations, never walk permission."""
+        return (error == 0 or error in REMOTE_MOTION_STATES or
+                (error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server'))
+
+    def healthy(self):
+        """Fresh remote operations are healthy feedback, not walking readiness."""
+        sample = self.sample()
+        if sample is None:
+            return False
+        low, sport = sample
+        angles = low['attitude'].values()
+        tilt = None if None in angles else max(abs(x) for x in angles)
+        # DDS can advance between consume() and this check. Inspect that fresh
+        # sample instead of treating an unconsumed sequence as a receipt loss.
+        return sport['error'] in REMOTE_MOTION_STATES or not self._posture_failures(
+            sport, tilt, self.error_allowed(sport['error']))
 
     def posture_snapshot(self):
         """Fresh identity-bound posture, never inferred from an RPC return code.
@@ -311,7 +330,7 @@ class Feedback:
             result['state'] = 'LYING'
         elif safe and sport['mode'] in (0, 1, 3) and number(sport['height'], .20, .50):
             result['state'] = 'STANDING'
-            result['walkable'] = self.error_allowed(sport['error'])
+            result['walkable'] = self.error_allowed(sport['error']) and sport['error'] not in REMOTE_MOTION_STATES
         elif (sport['mode'] == 8 or
                 (sport['mode'] in (0, 1, 3, 5) and number(sport['progress']) and sport['progress'] != 0)):
             result['state'] = 'TRANSITIONING'
@@ -334,17 +353,19 @@ class Feedback:
         tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
         # Unitree's documented ordinary stand/balance/locomotion modes only.
         # No mode switch or stand-up is issued. Unknown modes/errors stay closed.
-        ready = (sport['mode'] in (0, 1, 3) and self.error_allowed(sport['error']) and
+        motion_error_ok = self.error_allowed(sport['error']) and sport['error'] not in REMOTE_MOTION_STATES
+        ready = (sport['mode'] in (0, 1, 3) and motion_error_ok and
                  number(sport['progress']) and sport['progress'] == 0 and
                  number(sport['height'], .20, .50) and tilt is not None and tilt < math.pi/3)
         self._consumed_failure = ('none' if ready else ','.join(
-            self._posture_failures(sport, tilt, self.error_allowed(sport['error']))))
+            self._posture_failures(sport, tilt, motion_error_ok)))
         self.lock_evidence['feedback_failed'] = self._consumed_failure
         still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
                  and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
         generation, latched = self.sink.feedback_context()
         posture = self._posture(sample)
-        posture_stopped = posture['state'] == 'LYING' or posture['standing_locked']
+        posture_stopped = (posture['state'] == 'LYING' or posture['standing_locked']
+                           or posture['sitting_settled'])
         confirmed = ((ready or posture_stopped) and still and low['generation'] == sport['generation'] and self.sink.confirm_stopped(
             generation=sport['generation'], sequence=sport['sequence'],
             received_at=sport['received'], stationary=True))

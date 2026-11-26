@@ -23,6 +23,8 @@ class Go2Hub(Hub):
         self.feedback = feedback
         super().__init__(*args, **kwargs)
         self.session.movement_gate = self.sink.sink.movement_reason
+        self.session.automatic_stop_gate = lambda: self.sink.sink.automatic_stop_allowed(self.session)
+        self.sink.sink.automatic_stop_allowed(self.session)
 
     def update_display(self):
         from .reporting import devices
