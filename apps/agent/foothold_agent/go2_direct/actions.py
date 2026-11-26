@@ -148,9 +148,12 @@ class Actions:
                 self.report(request_id, action, 'REJECTED', reason)
                 return False
             self.seen.append((lease, request_id))
-            s._hold()
-            s._posture_stop_only = True
-            self.job = dict(request_id=request_id, action=action, args=args,
+            # START 중 조회는 묻기만 한다. 로봇은 실행기가 쥐고 있으니 순정 정지를 앞에 보내지 않는다 (app-lx 안 · 팀장 확인 전).
+            quiet = start_active() and action in LOWLEVEL_QUERY
+            if not quiet:
+                s._hold()
+                s._posture_stop_only = True
+            self.job = dict(request_id=request_id, action=action, args=args, quiet=quiet,
                             lease=lease, confirmed=confirmed, deadline=s.now()+TIMEOUT_S)
             self.report(request_id, action, 'RUNNING', 'STARTED')
             return True
@@ -189,7 +192,8 @@ class Actions:
             if self.job is not None:
                 job, self.job = self.job, None
                 self.report(job['request_id'], job['action'], 'FAILED', reason)
-                self.sink._stop_requested.set()
+                if not job.get('quiet'):
+                    self.sink._stop_requested.set()
 
     def poll(self):
         with self.sink._lock:
@@ -274,7 +278,7 @@ class Actions:
                     self.job = None
                     valid = type(code) is int
                     ok = valid and code == 0 and failure is None
-                    if not ok:
+                    if not ok and not job.get('quiet'):
                         s._urgent = True
                         s._stop_requested.set()
                     elif job['action'] in EXECUTION_MAX_S:

@@ -279,7 +279,7 @@ def test_start_active_blocks_sport_actions_and_drive(tmp_path, monkeypatch):
     assert sink.movement_reason(neutral=True).startswith('START 저수준 제어 중')
     assert session._state()['control'] == 'LOWLEVEL'
     normal.CheckMode = lambda: (0, {'name': 'normal', 'form': '0'})
-    normal.StopMove = lambda: 0   # #498 부터 조회 앞 안전 정지가 순정 StopMove 로 나감 (미확인 위험 · 보고에 적음)
+    # app-lx 안 (팀장 확인 전): START 중 조회는 묻기만 한다. 앞에 순정 StopMove 를 보내지 않는다 (start_rig 가 StopMove 도 막음).
     send(frame, 'CheckMode', request_id='read')
     sink.drain(); sink.drain()
     assert (sink.actions.result['status'], sink.actions.result['code']) == ('SUCCEEDED', 'SDK_ACCEPTED')
