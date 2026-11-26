@@ -600,9 +600,9 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                 if gate.active.sink.error is not None:
                     raise RuntimeError('motion output failed') from gate.active.sink.error
                 fresh = inputs.feedback.consume(client)
-                if healthy and not fresh:
+                if healthy and not inputs.feedback.healthy():
                     client._emit(session.feedback_lost())
-                healthy = fresh
+                healthy = inputs.feedback.healthy()
             else:
                 healthy = False
             try:

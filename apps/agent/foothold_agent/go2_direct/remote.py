@@ -4,6 +4,11 @@ import os
 import struct
 import threading
 
+# 공식 정의 없음, 실측 근거: RS-REMOTE-STOP / RS-REMOTE-STATES.
+# 2010 followed Classic; 1002 followed L2+A; 1001/2006 followed handset use.
+# These are SportModeState.error_code values, NOT sport RPC API identifiers.
+REMOTE_MOTION_STATES = frozenset((1001, 1002, 2006, 2010))
+
 
 class RemoteActivity:
     def __init__(self, now, *, deadband, hold_s):
@@ -12,6 +17,16 @@ class RemoteActivity:
         self.now, self.deadband, self.hold_s = now, deadband, hold_s
         self._lock = threading.Lock()
         self._last_sample = self._last_activity = float('-inf')
+        self._state_received = float('-inf')
+        self._last_state_activity = float('-inf')
+        self._state_active = False
+
+    def observe_state(self, motion_state, received):
+        with self._lock:
+            self._state_received = received
+            self._state_active = motion_state in REMOTE_MOTION_STATES
+            if self._state_active:
+                self._last_state_activity = received
 
     @classmethod
     def configured(cls, now):
@@ -35,10 +50,17 @@ class RemoteActivity:
             if packet[2] or packet[3] or any(abs(axis) > self.deadband for axis in axes):
                 self._last_activity = received
 
-    def snapshot(self):
+    def snapshot(self, *, include_state=True):
         """Unknown/active/idle and the most recent activity, even across a slow RPC."""
         with self._lock:
             stamp = self.now()
             active = (stamp - self._last_activity < self.hold_s
                       if 0 <= stamp - self._last_sample < self.hold_s else None)
-            return active, self._last_activity
+            if include_state and self._state_active and 0 <= stamp-self._state_received < self.hold_s:
+                active = True
+            return active, (max(self._last_activity, self._last_state_activity)
+                            if include_state else self._last_activity)
+
+    def state_active(self):
+        with self._lock:
+            return self._state_active and 0 <= self.now()-self._state_received < self.hold_s

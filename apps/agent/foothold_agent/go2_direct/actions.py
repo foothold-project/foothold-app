@@ -77,7 +77,8 @@ class Actions:
                 'CONFIRM_REQUIRED' if action in DANGEROUS and confirmed is not True else
                 'STANDING_REQUIRED' if action in DANGEROUS and sample['state'] != 'STANDING' else
                 'STANDING_REQUIRED' if s._lying_or_sitting(sample)
-                    and (action in EXECUTION_MAX_S or action == 'StopMove') else None)
+                    and (action in EXECUTION_MAX_S or action == 'StopMove')
+                    and not (action == 'RiseSit' and sample.get('sitting_settled', False)) else None)
 
     def request(self, request_id, action, params, lease, confirmed=False, *, moving=False):
         s = self.sink

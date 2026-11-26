@@ -85,6 +85,7 @@ class Session:
         }
         self.operator_stop = False
         self.movement_gate = None
+        self.automatic_stop_gate = None  # optional physical-output policy; Core/CAS stays unchanged
         self._devices = []
         self.update_devices(self.identity["devices"])
         self.lease_id = None
@@ -291,6 +292,7 @@ class Session:
         return result
 
     def _finish(self, actions=(), *, state=False):
+        automatic_stop = self.automatic_stop_gate() if self.automatic_stop_gate else True
         self._advance()
         if self.core.stop_gen > MAX_SEQ:
             if not self._generation_exhausted:
@@ -311,7 +313,7 @@ class Session:
                     self.ack_pending = False
                 self.last_report = self.now()
         # Preserve Core's existing safe STOP publication request; unlock is never retried.
-        if self.core.want_stop_pub() and not any(a.kind == "stop" for a in actions):
+        if automatic_stop and self.core.want_stop_pub() and not any(a.kind == "stop" for a in actions):
             actions = tuple(actions) + (MotionCommand("stop"),)
             self.core._safety_log.emit('stop_effect', 'core_wants_stop', _log_source(), stop_gen=self.core.stop_gen)
         actions = tuple(MotionCommand(a.kind, a.velocity, self.core.stop_gen)
