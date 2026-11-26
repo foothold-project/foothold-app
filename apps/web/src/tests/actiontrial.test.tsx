@@ -108,4 +108,5 @@ it('저수준 (START) 중에는 동작표 「저수준」 켬 일곱 개만 켜�
   // 순정: 인사 (Greet) 는 SDK 번호가 없어 회색 · 눌러도 안 감
   for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(button(name).disabled).toBe(name === 'SelectMode' || name === 'Greet');
   mock.action.mockReset(); click(button('Greet')); expect(mock.action).not.toHaveBeenCalled();
+  expect(button('Greet').title).toBe('순정 번호 확인 전'); expect(box.querySelector('[data-factory-off]')).not.toBeNull();
 });

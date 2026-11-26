@@ -93,10 +93,12 @@ export function ActionTrial({ robot: r, allowed, beforeSend = () => {} }: { robo
   };
   const buttons = (danger: boolean) => (Object.keys(ACTION_NAMES) as Name[]).filter((name) => DANGEROUS.has(name) === danger).map((name) =>
     <button key={name} type="button" className="btn" data-go2-action={name} disabled={!!reason || name === 'SelectMode' || off(name) || danger && !standing && !lowlevel}
+      title={off(name) ? (lowlevel ? '저수준 제어 중에는 쓸 수 없음' : '순정 번호 확인 전') : undefined}
       onClick={() => danger ? setConfirm(name) : send(name)}>{ACTION_NAMES[name]} <small>{name}</small></button>);
   return <details data-action-trial><summary>동작 시험</summary>
     <p className="lbl">실기 미검증 · 단추를 누른 결과로 지원 여부를 확인합니다. SDK 접수 성공은 실제 동작 완료 확인이 아닙니다.</p>
     {reason && <p className="fh-why" role="status">{reason}</p>}
+    {!lowlevel && <p className="fh-why" data-factory-off>인사는 순정 SDK 번호 확인 전이라 꺼 둡니다. 순정 리모컨 L1+A 와 START 에서는 됩니다.</p>}
     {lowlevel && <p className="fh-why" data-lowlevel>저수준 (START) 제어 중입니다. START 실행기 동작과 읽기 전용 조회만 누를 수 있고 나머지는 꺼 둡니다.</p>}
     <div className="fh-row" style={{ flexWrap: 'wrap' }}>
       {['roll', 'pitch', 'yaw'].map((name, i) => <label key={name}>{name} (rad)
