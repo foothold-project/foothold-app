@@ -219,8 +219,9 @@ class Feedback:
             tilt = None if None in angles else max(abs(x) for x in angles)
             error_ok = (sport['error'] == 0 or (evidence.get('server_source') and
                         sport['error'] in evidence['accepted_errors']))
-            fields = ([] if sport['error'] in REMOTE_MOTION_STATES else
-                      cls._posture_failures(sport, tilt, error_ok))
+            fields = cls._posture_failures(sport, tilt, error_ok)
+            if sport['error'] in REMOTE_MOTION_STATES:
+                fields = [field for field in fields if field == 'tilt']
         return ','.join(fields) or 'none'
 
     def sample(self, *, record_failure=False):
@@ -294,8 +295,10 @@ class Feedback:
         tilt = None if None in angles else max(abs(x) for x in angles)
         # DDS can advance between consume() and this check. Inspect that fresh
         # sample instead of treating an unconsumed sequence as a receipt loss.
-        return sport['error'] in REMOTE_MOTION_STATES or not self._posture_failures(
-            sport, tilt, self.error_allowed(sport['error']))
+        failures = self._posture_failures(sport, tilt, self.error_allowed(sport['error']))
+        if sport['error'] in REMOTE_MOTION_STATES:
+            failures = [field for field in failures if field == 'tilt']
+        return not failures
 
     def posture_snapshot(self):
         """Fresh identity-bound posture, never inferred from an RPC return code.

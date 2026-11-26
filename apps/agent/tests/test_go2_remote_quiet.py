@@ -1,4 +1,6 @@
 """Lease/remote-state boundary replay: fake SDK, no DDS or robot access."""
+import math
+
 import pytest
 
 from foothold_agent.go2_direct.feedback import Feedback
@@ -320,4 +322,148 @@ def test_phone_runtime_remote_state_is_healthy_but_unknown_and_stale_feedback_st
         finally:
             stop.set()
             await asyncio.wait_for(task, 3)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('code', sorted(REMOTE_MOTION_STATES))
+@pytest.mark.parametrize('rpy', [
+    None, [None, 0., 0.], [0., None, 0.],
+    [float('nan'), 0., 0.], [0., float('nan'), 0.],
+    [1.3, 0., 0.], [0., -1.3, 0.],
+    [math.pi/3, 0., 0.], [0., -math.pi/3, 0.],
+])
+def test_remote_state_keeps_tilt_and_attitude_failures_in_health_and_journal(code, rpy):
+    now, _, session, client = idle_rig()
+    message = low()
+    message.imu_state.rpy = rpy
+    session.feedback.lowstate(message)
+    session.feedback.sportmodestate(sport(error_code=code, mode=2, progress=.5, body_height=.1))
+    assert not session.feedback.consume(client)
+    assert not session.feedback.healthy()
+    assert Feedback.journal_readiness(now(), session.feedback.lock_evidence) == 'tilt'
+
+
+@pytest.mark.parametrize('code', sorted(REMOTE_MOTION_STATES))
+def test_remote_state_only_exempts_mode_error_height_progress_from_health_and_journal(code):
+    now, _, session, client = idle_rig()
+    sample(session.feedback, client, 1, error_code=code, mode=2, progress=None, body_height=None)
+    assert session.feedback.healthy()
+    assert Feedback.journal_readiness(now(), session.feedback.lock_evidence) == 'none'
+    assert not session.feedback._last_ready
+    now.value += .201
+    assert not session.feedback.healthy()
+    assert Feedback.journal_readiness(now(), session.feedback.lock_evidence) == 'low_stale,sport_stale'
+    session.feedback.lowstate(low(2, sn=(9999, 9999)))
+    assert not session.feedback.healthy()
+    assert 'identity_conflict' in Feedback.journal_readiness(now(), session.feedback.lock_evidence)
+
+
+@pytest.mark.parametrize('owned', [False, True])
+@pytest.mark.parametrize('lane', ['server', 'phone'])
+def test_remote_tilt_failure_reaches_live_runtime_stop_with_or_without_lease(
+        lane, owned, monkeypatch, physical_h):
+    import asyncio
+    import time
+    from types import SimpleNamespace as NS
+    from foothold_agent.go2_direct import runtime, server
+    h = physical_h
+    # Ticket deadlines and the live runtime must share one monotonic clock.
+    monkeypatch.setattr(h.verifier, 'now', time.monotonic)
+    monkeypatch.setattr(h.verifier, 'anchor_mono', time.monotonic())
+    observed, stop_calls = {}, []
+    normal, emergency = FakeSport(), FakeSport()
+
+    class Channel:
+        sequence, roll = 0, 0.
+        def subscribe(self, feedback):
+            self.feedback = feedback
+            self.emit()
+        def emit(self):
+            if hasattr(self, 'feedback'):
+                self.sequence += 1
+                message = low(self.sequence)
+                message.imu_state.rpy = [self.roll, 0., 0.]
+                self.feedback.lowstate(message)
+                self.feedback.sportmodestate(sport(self.sequence, error_code=2010))
+        def close(self):
+            pass
+
+    async def scenario():
+        channel, stop = Channel(), asyncio.Event()
+        original_hub = h.hub
+        config = NS(approval=NS(robot_serial='1234-5678', expires_at=time.time()+60),
+                    phone=NS(host='127.0.0.1', port=0, policy_name='test', policy_version='1'),
+                    verifier=h.verifier, link=None)
+
+        def observe(target, method):
+            original = getattr(target, method)
+            def called(**values):
+                stop_calls.append(values)
+                return original(**values)
+            monkeypatch.setattr(target, method, called)
+
+        class Phone:
+            def __init__(self, hub, *args, **kwargs):
+                observed['hub'], observed['session'] = hub, hub.session
+                h.hub = hub
+                observe(hub, 'stop')
+            async def run(self):
+                await stop.wait()
+            async def close(self):
+                pass
+
+        class LocalClient(Client):
+            def __init__(self, session, sink, settings):
+                super().__init__(session, sink, settings)
+                observed['client'], observed['session'] = self, session
+                observe(session, 'feedback_lost')
+            async def run(self):
+                self._emit(self.session.connect())
+                await stop.wait()
+
+        monkeypatch.setattr(runtime.sdk, 'connect', lambda *args, **kwargs: (normal, emergency))
+        if lane == 'phone':
+            task = asyncio.create_task(runtime.run(config, {}, stop=stop,
+                channel_factory=lambda env: channel, server_factory=Phone))
+        else:
+            config.link = Settings('ws://127.0.0.1/ws', 'fake-token')
+            task = asyncio.create_task(server.run(config, {}, stop=stop,
+                channel_factory=lambda env: channel, client_factory=LocalClient))
+
+        async def until(predicate):
+            async with asyncio.timeout(2):
+                while not predicate():
+                    channel.emit()
+                    await asyncio.sleep(.005)
+                    if task.done():
+                        task.result()
+
+        try:
+            await until(lambda: 'session' in observed and observed['session'].core.st is not None)
+            session = observed['session']
+            assert channel.feedback.healthy() and not stop_calls
+            if owned:
+                if lane == 'phone':
+                    peer, _, _ = h.connect()
+                    assert h.take(peer)['ok']
+                else:
+                    observed['client']._emit(session.receive(dict(
+                        t='lease', lease_id='fake-lease', holder_type='USER')))
+            assert session.lease_confirmed is owned
+            assert (session.lease_id is not None) is owned
+            stop_calls.clear()  # lease.take performs its own ordinary STOP
+            assert channel.feedback.healthy()
+            generation = session.core.stop_gen
+            channel.roll = 1.3
+            await until(lambda: bool(stop_calls))
+            assert len(stop_calls) == 1
+            assert not channel.feedback.healthy()
+            assert session.core.latch and session.core.stop_gen > generation
+            assert Feedback.journal_readiness(time.monotonic(), channel.feedback.lock_evidence) == 'tilt'
+        finally:
+            stop.set()
+            try:
+                await asyncio.wait_for(task, 3)
+            finally:
+                h.hub = original_hub
     asyncio.run(scenario())
