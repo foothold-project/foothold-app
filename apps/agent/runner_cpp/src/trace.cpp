@@ -30,6 +30,8 @@ const char* phase_name(Phase phase) {
     case Phase::standing: return "standing_up";
     case Phase::policy: return "policy";
     case Phase::sitting: return "sitting";
+    case Phase::dog_sitting: return "dog_sitting";
+    case Phase::moving: return "moving";
     case Phase::damping: return "damping";
     case Phase::returning: return "returning";
     case Phase::recovering: return "recovering";
@@ -183,7 +185,7 @@ std::string line(const Row& row) {
     }
     const auto& s = row.state;
     const bool policy = row.phase == Phase::policy;
-    out << std::setprecision(4) << ",\"phase\":\"" << (policy ? "policy" : "standing_up")
+    out << std::setprecision(4) << ",\"phase\":\"" << phase_name(row.phase)
         << "\",\"stick\":";
     array(out, Vec3{s.remote.lx, s.remote.ly, s.remote.rx});
     out << ",\"keys\":";

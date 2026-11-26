@@ -1,4 +1,5 @@
 #include "foothold/runner.hpp"
+#include "foothold/moves_dog_sit.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +9,10 @@ using namespace std::chrono_literals;
 
 namespace foothold {
 namespace {
+constexpr int r1_button = 1 << 0;
+constexpr int l1_button = 1 << 1;
+constexpr int r2_button = 1 << 4;
+constexpr int y_button = 1 << 11;
 constexpr int start_button = 1 << 2;
 constexpr int l2_button = 1 << 5;
 constexpr int a_button = 1 << 8;
@@ -40,6 +45,114 @@ Joints blend_pose(const Joints& from, const Joints& to, double fraction, const W
         }
     }
     return pose;
+}
+
+// R1+B dog sit timing in seconds (same key as the factory Sit Down). Recorded segments play
+// at their original speed. Before the sit, the feet step to the factory stance in two diagonal
+// taps (FL+RR, then FR+RL), as the factory controller does (11/26 factory trace 06:27:27).
+constexpr double dog_tap = .14;       // one diagonal pair: lift and place
+constexpr double dog_tap_gap = .02;   // pause before the second pair
+constexpr double dog_align = .46;     // taps done and settled -> first recorded sit row
+constexpr double dog_tap_thigh = .23; // swing lift at mid tap (factory trace)
+constexpr double dog_tap_calf = .42;
+constexpr double dog_blend = .3;      // held sit pose -> first recorded rise row
+// Recorded factory torque is fed forward at this fraction on top of Kp 60 / Kd 5 tracking of the
+// recorded q and dq (11/26: position-only replay could not lift a loaded foot). Start at half.
+constexpr double move_tau_scale = .5;
+constexpr float tau_limit_hip_thigh = 20.f, tau_limit_calf = 35.f;  // Go2 motor peaks 23.7 / 45.4 Nm
+constexpr auto move_fall_hold = std::chrono::milliseconds(300);
+constexpr double dog_settle = .5;     // last rise row -> default_pose
+constexpr double dog_gain_ramp = 1.;  // transition gains -> policy gains, as at the end of stand-up
+
+Joints lerp(const Joints& from, const Joints& to, double fraction);
+double smoothstep(double x);
+
+// Two diagonal taps from the current stance to the first recorded sit row. Policy joint order:
+// hip, thigh, calf, each FL FR RL RR.
+Joints tap_pose(const Joints& from, const Joints& to, double t) {
+    Joints pose = from;
+    for (std::size_t leg = 0; leg < 4; ++leg) {
+        const double begin = (leg == 0 || leg == 3) ? 0. : dog_tap + dog_tap_gap;
+        const double x = std::clamp((t - begin) / dog_tap, 0., 1.);
+        const double lift = std::sin(3.14159265358979 * x);
+        for (std::size_t j = leg; j < pose.size(); j += 4)
+            pose[j] = static_cast<float>(from[j] + (double(to[j]) - from[j]) * smoothstep(x));
+        pose[4 + leg] = static_cast<float>(pose[4 + leg] + dog_tap_thigh * lift);
+        pose[8 + leg] = static_cast<float>(pose[8 + leg] - dog_tap_calf * lift);
+    }
+    return pose;
+}
+
+Joints lerp(const Joints& from, const Joints& to, double fraction) {
+    Joints pose{};
+    for (std::size_t i = 0; i < pose.size(); ++i)
+        pose[i] = static_cast<float>(from[i] + (double(to[i]) - from[i]) * fraction);
+    return pose;
+}
+
+double smoothstep(double x) {
+    x = std::clamp(x, 0., 1.);
+    return x * x * (3 - 2 * x);
+}
+
+struct Frame {
+    Joints q, dq, tau;
+};
+
+// Linear interpolation of a 50 Hz recording at any time; holds the ends outside it.
+Frame play(const MoveRow* first, std::size_t count, double t) {
+    const auto* last = first + count - 1;
+    if (t <= first->t) return {first->q, first->dq, first->tau};
+    if (t >= last->t) return {last->q, Joints{}, last->tau};
+    const auto* next = std::upper_bound(first, last, t, [](double v, const MoveRow& f) { return v < f.t; });
+    const auto* prev = next - 1;
+    const double x = (t - prev->t) / (next->t - prev->t);
+    return {lerp(prev->q, next->q, x), lerp(prev->dq, next->dq, x), lerp(prev->tau, next->tau, x)};
+}
+
+struct MoveSpec {
+    const char* name;
+    const MoveRow* taps;  // factory tap torque for the lead-in (q is synthesized), or null for a blend
+    std::size_t tap_count;
+    const MoveRow* body;
+    std::size_t count;
+    bool hold;            // dog sit: hold the last row until the next press
+    float fall_gz;        // gravity z above this for move_fall_hold = fall (recorded range + margin)
+    double tau_scale;     // fraction of the recorded torque fed forward
+    float hip_kp;         // hip position gain
+    float leg_kp;         // thigh and calf position gain
+};
+
+template <std::size_t N, std::size_t M>
+constexpr MoveSpec spec(const char* name, const std::array<MoveRow, N>* taps, const std::array<MoveRow, M>& body,
+                        bool hold, float fall_gz, double tau_scale = move_tau_scale, float hip_kp = 60,
+                        float leg_kp = 60) {
+    return {name, taps ? taps->data() : nullptr, taps ? N : 0, body.data(), M, hold, fall_gz, tau_scale, hip_kp, leg_kp};
+}
+
+MoveSpec move_spec(Move move) {
+    switch (move) {
+    case Move::dog_sit: return spec("DOG_SIT", &dog_taps, dog_sit_down, true, -.35f);
+    // 11/26 07:31: half torque let the FL hip sag under the 3-leg shake (fell left twice) and the
+    // rise roll 0.21 while the front feet stepped. These two use full recorded torque and hip Kp 100.
+    case Move::dog_rise: return spec<1>("DOG_RISE", nullptr, dog_rise, false, -.35f, 1., 100);
+    case Move::stretch: return spec("STRETCH", &dog_taps, stretch_body, false, -.5f);
+    // 11/26 07:43: with hip Kp 100 it stayed up but leaned 8 to 11 deg (factory 1.6): the loaded left
+    // thigh and calf sagged 0.05 to 0.10 rad at Kp 60. The whole stance is held at Kp 100.
+    case Move::shake_hands: return spec("SHAKE_HANDS", &dog_taps, shake_body, false, -.5f, 1., 100, 100);
+    case Move::love: return spec("LOVE", &dog_taps, love_body, false, .55f);
+    case Move::greet: return spec("GREET", &dog_taps, greet_body, false, .55f);
+    }
+    return spec("DOG_SIT", &dog_taps, dog_sit_down, true, -.35f);
+}
+
+Joints scaled_tau(const Joints& tau, double scale) {
+    Joints out{};
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const float limit = i < 8 ? tau_limit_hip_thigh : tau_limit_calf;
+        out[i] = std::clamp(static_cast<float>(tau[i] * scale), -limit, limit);
+    }
+    return out;
 }
 
 const char* mode_name(ModeCall call) {
@@ -83,6 +196,10 @@ const char* event_name(Event event) {
     case Event::exit_sit_down: return "EXIT_SIT_DOWN";
     case Event::inference_failed: return "INFERENCE_FAILED";
     case Event::ame2_unavailable: return "AME2_UNAVAILABLE";
+    case Event::dog_sit: return "DOG_SIT";
+    case Event::dog_rise: return "DOG_RISE";
+    case Event::factory_move: return "FACTORY_MOVE";
+    case Event::move_fall: return "MOVE_FALL";
     }
     return "UNKNOWN";
 }
@@ -244,14 +361,7 @@ void Runner::interpolate(Tick now, Tick scheduled, const LowState& state, const 
     const auto blend = standing ? float(std::clamp(elapsed - 2.5, 0., 1.)) : 0.f;
     send_transition(now, state, grav, pose, 60 + (kp - 60) * blend, 5 + (kd - 5) * blend);
     if (standing && elapsed >= 3.5) {
-        memory_.reset();
-        last_action_.fill(0);
-        command_.fill(0);
-        target_ = default_pose;
-        next_policy_ = scheduled + 20ms;
-        fall_since_.reset();
-        phase_ = Phase::policy;
-        observer_.event(now, Event::policy_start, {options_.map == MapMode::off ? "off" : "reconstruction"});
+        enter_policy(now, scheduled);
     } else if (!standing && elapsed >= 2.) {
         damp(now, "sat down");
         if (return_after_sit_) {
@@ -259,6 +369,62 @@ void Runner::interpolate(Tick now, Tick scheduled, const LowState& state, const 
             return_to_factory(now);
         }
     }
+}
+
+void Runner::enter_policy(Tick now, Tick scheduled) {
+    memory_.reset();
+    last_action_.fill(0);
+    command_.fill(0);
+    target_ = default_pose;
+    next_policy_ = scheduled + 20ms;
+    fall_since_.reset();
+    phase_ = Phase::policy;
+    observer_.event(now, Event::policy_start, {options_.map == MapMode::off ? "off" : "reconstruction"});
+}
+
+// Factory move replay (same keys as the factory remote). From policy: two diagonal taps to the
+// recorded first row (q synthesized, factory tap torque fed forward), then the recorded q / dq with
+// scaled recorded torque. Dog sit holds its last row; R1+B again plays the recorded rise. Every
+// other move (and the rise) settles to default_pose, ramps to policy gains and resumes the policy.
+void Runner::begin_move(Tick now, Move move, const Joints& q) {
+    pending_sample_.reset();
+    fall_since_.reset();
+    move_ = move;
+    phase_ = (move == Move::dog_sit || move == Move::dog_rise) ? Phase::dog_sitting : Phase::moving;
+    from_ = q;
+    started_ = now;
+    const auto event = move == Move::dog_sit ? Event::dog_sit : move == Move::dog_rise ? Event::dog_rise
+                                                                                        : Event::factory_move;
+    observer_.event(now, event, {move_spec(move).name, move_tau_scale});
+}
+
+void Runner::run_move(Tick now, Tick scheduled, const LowState& state, const Vec3& grav) {
+    const auto spec = move_spec(move_);
+    const double lead = spec.taps ? dog_align : dog_blend;
+    const double played = lead + spec.body[spec.count - 1].t;
+    const auto t = seconds(now - started_);
+    Frame frame{};
+    double gain = 0;
+    if (t < lead) {
+        frame.q = spec.taps ? tap_pose(from_, spec.body[0].q, t) : lerp(from_, spec.body[0].q, smoothstep(t / dog_blend));
+        if (spec.taps) frame.tau = play(spec.taps, spec.tap_count, t).tau;
+    } else if (spec.hold || t < played) {
+        frame = play(spec.body, spec.count, t - lead);
+    } else {
+        const auto settle = t - played;
+        frame.q = lerp(spec.body[spec.count - 1].q, default_pose, smoothstep(settle / dog_settle));
+        frame.tau = lerp(spec.body[spec.count - 1].tau, Joints{}, smoothstep(settle / dog_settle));
+        gain = std::clamp((settle - dog_settle) / dog_gain_ramp, 0., 1.);
+    }
+    const auto tau = scaled_tau(frame.tau, spec.tau_scale * (1 - gain));
+    const auto position_gain = float(spec.leg_kp + (kp - spec.leg_kp) * gain), velocity_gain = float(5 + (kd - 5) * gain);
+    const auto hip_gain = float(spec.hip_kp + (kp - spec.hip_kp) * gain);
+    if (options_.live)
+        robot_.send_ff(to_sdk(frame.q), to_sdk(frame.dq), to_sdk(tau), position_gain, velocity_gain, hip_gain);
+    ++commands_;
+    if (++transition_ticks_ % 4 == 0)
+        observer_.sample({now, state, grav, {}, {}, {}, Mark::none, frame.q, phase_});
+    if (!spec.hold && t >= played + dog_settle + dog_gain_ramp) enter_policy(now, scheduled);
 }
 
 void Runner::return_to_factory(Tick now) {
@@ -409,13 +575,24 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     const auto keys = state.remote.keys;
     const bool emergency = pressed(keys, l2_button | b_button);
     const bool lie = pressed(keys, l2_button | a_button);
+    // Factory remote keys. Each move key is exactly the factory combination (no other trigger held),
+    // so L2+B (damp) and L2+A (lie down) never start a move.
+    const auto only = [&](int mask) { return (keys & (mask | l2_button | l1_button | r1_button | r2_button)) == mask; };
+    std::optional<Move> move_key;
+    if (only(r1_button | b_button)) move_key = Move::dog_sit;
+    else if (only(r2_button | a_button)) move_key = Move::stretch;
+    else if (only(r2_button | b_button)) move_key = Move::shake_hands;
+    else if (only(r2_button | y_button)) move_key = Move::love;
+    else if (only(l1_button | a_button)) move_key = Move::greet;
     const bool standing_up = phase_ == Phase::folding || phase_ == Phase::standing;
-    const bool active = standing_up || phase_ == Phase::policy;
+    const bool moving = phase_ == Phase::dog_sitting || phase_ == Phase::moving;
+    const bool active = standing_up || phase_ == Phase::policy || moving;
     const auto q = to_policy(state.q);
     const auto grav = gravity(state.orientation);
     const bool stale = state.stamp == Tick{} || now - state.stamp > 50ms;
     const bool invalid = !finite(q) || !finite(grav);
     if (!lie) lie_latched_ = false;
+    if (!move_key) move_latched_ = false;
 
     // The worker may finish after a safety transition. Drain that result without
     // applying it before submitting work from a new policy session.
@@ -477,6 +654,10 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         if (phase_ == Phase::high || phase_ == Phase::damping) return;
     }
 
+    if (moving && stale) {
+        damp(now, "factory move interrupted by stale LowState");
+        return;
+    }
     if (standing_up && stale) {
         damp(now, phase_ == Phase::folding ? "fold interrupted" : "stand-up interrupted");
         return;
@@ -503,6 +684,16 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
             return_to_factory(now);
             return;
         }
+    } else if (moving && (grav[2] > move_spec(move_).fall_gz || std::abs(grav[1]) > .7f)) {
+        if (!fall_since_) fall_since_ = now;
+        if (now - *fall_since_ >= move_fall_hold) {
+            damp(now, "fall during factory move");
+            observer_.event(now, Event::move_fall, {move_spec(move_).name, grav[2]});
+            observer_.event(now, Event::robot_fall, {nullptr, grav[2]});
+            fall_recovery_ = true;
+            return_to_factory(now);
+            return;
+        }
     } else {
         fall_since_.reset();
     }
@@ -512,6 +703,18 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
         if (phase_ == Phase::damping) { start(now, q, grav); return; }
         // While standing up, L2+A is ignored (L2+B still damps). Sit only from policy.
         if (phase_ == Phase::policy) { sit(now, q, false); return; }
+    }
+    if (move_key && !move_latched_) {
+        move_latched_ = true;
+        // Moves start only from policy. R1+B rises from a held dog sit. Presses during motion are dropped.
+        const bool holding = phase_ == Phase::dog_sitting && move_ == Move::dog_sit &&
+                             seconds(now - started_) >= dog_align + dog_sit_down.back().t;
+        if (phase_ == Phase::policy) begin_move(now, *move_key, q);
+        else if (holding && *move_key == Move::dog_sit) begin_move(now, Move::dog_rise, q);
+    }
+    if (phase_ == Phase::dog_sitting || phase_ == Phase::moving) {
+        run_move(now, scheduled, state, grav);
+        return;
     }
     if ((phase_ == Phase::high || phase_ == Phase::damping) &&
         pressed(keys, start_button | up_button)) {
