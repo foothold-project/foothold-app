@@ -84,6 +84,7 @@ class OnboardRuntime(MappingRuntime):
         self.confirmed_report=None
         self.was_enabled=False
         self.disconnected_since=None
+        self.services_disconnected=False
         self.not_before=float('-inf')
         self.dump=None
         self.dump_eligible=False
@@ -211,6 +212,7 @@ class OnboardRuntime(MappingRuntime):
             self.dump=None
             self.dump_eligible=self.dump_failed=False
             self.services_requested=False
+            self.services_disconnected=False
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
                 self.problem('MAPPING_FRAME_REQUIRED','Point-LIO 토픽과 지도 좌표 설정을 확인해 주세요.')
@@ -251,7 +253,8 @@ class OnboardRuntime(MappingRuntime):
             self.raw.stop('save_requested')
             self.save_requested=frame['_received_monotonic']
             self.final_received=False
-            self.dump_eligible=bool(self.dump and self.session_services_ready() and self.services.status=='STARTED'
+            self.dump_eligible=bool(self.dump and not self.services_disconnected
+                and self.session_services_ready() and self.services.status=='STARTED'
                 and set(self.services.names)<=self.services.owned)
             self.services.stop()
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
@@ -266,7 +269,7 @@ class OnboardRuntime(MappingRuntime):
         self.core.error_code,self.core.reason=code,reason
 
     def consume_samples(self,samples):
-        if not self.session_services_ready():
+        if not self.session_receiving_ready():
             return
         import numpy as np
         for source in (self.live,self.final):
@@ -405,6 +408,13 @@ class OnboardRuntime(MappingRuntime):
         return (not self.services.control_enabled() or self.services_requested
             and self.services.ready_at is not None and self.services.ready_at>=self.not_before)
 
+    def session_receiving_ready(self):
+        # Historical readiness authorizes saving retained data, not new input
+        # after owned services stop or disconnect cleanup invalidates the run.
+        return (not self.services.control_enabled() or self.session_services_ready()
+            and not self.services_disconnected and self.services.status=='STARTED'
+            and set(self.services.names)<=self.services.owned)
+
     def grid_body(self, *, crop=False, max_cells=None):
         import numpy as np
         grid = self.core.grid
@@ -499,19 +509,22 @@ class OnboardRuntime(MappingRuntime):
             samples, self.pending_samples = self.pending_samples, {}
         for frame in commands:
             self.handle_command(frame)
+        if (self.services_disconnected and self.save_requested is None
+                and self.core.status not in ('SAVED','CANCELLED','FAILED')):
+            self.problem('MAPPING_SERVICES_DISCONNECTED','연결이 끊겨 지도 서비스 정지를 요청했습니다. 받은 자료를 저장하거나 새 세션으로 다시 시작해 주세요.')
         if samples:
             self.consume_samples(samples)
         self.dump_step()
         self.rebuild_step()
         if self.phase=='START_REQUESTED' and self.services.status in ('UNKNOWN','STOPPED'):
-            self.problem('MAPPING_SERVICES_FAILED','지도 서비스를 시작하지 못했습니다. 설치 설정을 확인해 주세요.')
+            self.problem('MAPPING_SERVICES_FAILED',self.services.start_error or '지도 서비스를 시작하지 못했습니다. 설치 설정을 확인해 주세요.')
         if self.phase=='START_REQUESTED' and self.now()-self.core.started>10:
             if self.services.status=='STARTED':
                 self.problem('SLAM_DATA_UNAVAILABLE','지도 서비스는 시작됐지만 지도 점과 대응 위치를 받지 못했습니다.')
             else:
                 self.problem('MAPPING_SERVICES_TIMEOUT','지도 서비스 시작을 확인하지 못했습니다. 설치 설정을 확인해 주세요.')
                 self.services.stop()
-        if (self.save_requested is None and self.core.cells and self.services.status=='STARTED'
+        if (self.save_requested is None and self.core.cells and self.session_receiving_ready() and self.services.status=='STARTED'
                 and self.core.status not in ('SAVED','CANCELLED','FAILED')):
             self.phase,self.core.status='STARTED','RUNNING'
         elif self.save_requested is not None and self.core.status not in ('SAVED','CANCELLED','FAILED'):
@@ -607,6 +620,8 @@ class OnboardRuntime(MappingRuntime):
             self.raw.stop('observation_unavailable')
         if (self.disconnected_since is not None and self.now()-self.disconnected_since>=10
                 and (self.services.owned or self.services.pending or self.services.status=='STARTING')):
+            if self.services.control_enabled():
+                self.services_disconnected=True
             self.services.stop()
 
     def worker(self):

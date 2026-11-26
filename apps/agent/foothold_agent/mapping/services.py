@@ -31,6 +31,7 @@ class Services:
         self.lock=threading.RLock()
         self.version=0
         self.starting=False
+        self.start_error=None
 
     @staticmethod
     def systemctl(action,name):
@@ -43,6 +44,7 @@ class Services:
 
     def start(self):
         with self.lock:
+            self.start_error=None
             if not self.control_enabled() or not self.allowed() or self.closed:
                 self.ready_at=None
                 self.stop()  # retain cleanup of the preceding session, even offline
@@ -125,8 +127,12 @@ class Services:
                     for name in self.names:
                         if not self.wanted(job):
                             raise PermissionError('mapping observation unavailable')
-                        if self.run('is-active',name)==0:
+                        active=self.run('is-active',name)
+                        if active==0:
+                            self.start_error='기존 지도 서비스가 이미 실행 중입니다. 실행 상태를 확인한 뒤 새로 시작해 주세요.'
                             raise PermissionError('pre-existing mapping service')
+                        if active!=3:
+                            raise OSError(f'mapping service state query failed: {active}')
                         if not self.wanted(job):
                             raise PermissionError('mapping service start canceled')
                         self.owned.add(name)  # cleanup even if start times out after taking effect
@@ -140,7 +146,8 @@ class Services:
                         self.ready_at=self.now()
                         self.status='STARTED'
                     LOG.warning('SLAM_SERVICE event=started owned=%d monotonic=%.6f utc=%s',len(self.owned),time.monotonic(),datetime.now(timezone.utc).isoformat())
-                except Exception:
+                except Exception as error:
+                    LOG.warning('SLAM_SERVICE event=start_failed reason=%s',error)
                     self.status='UNKNOWN'
                     self.stop_requested=True
                 finally:

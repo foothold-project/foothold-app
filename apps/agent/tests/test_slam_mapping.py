@@ -386,10 +386,56 @@ def test_preexisting_service_prevents_readiness_and_only_our_units_are_stopped(e
     assert services.start()
     wait_for(lambda:services.status=='STOPPED')
     assert services.ready_at is None
+    assert '기존 지도 서비스가 이미 실행 중' in services.start_error
     services.stop();wait_for(lambda:not services.owned)
     assert active=={existing}
     assert ('stop',existing) not in calls
     services.close();services.thread.join(1)
+
+
+@pytest.mark.parametrize('unavailable', ['foothold-pointlio', 'foothold-glim'])
+@pytest.mark.parametrize('returncode', [1, 2, 4, 5])
+def test_service_state_query_error_never_starts_or_owns_unavailable_unit(unavailable, returncode, caplog):
+    from foothold_agent.mapping.services import Services
+    calls=[];active=set()
+    def run(action,name):
+        calls.append((action,name))
+        if action=='is-active':return returncode if name==unavailable else 3
+        if action=='start':active.add(name)
+        if action=='stop':active.discard(name)
+        return 0
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    try:
+        assert services.start()
+        wait_for(lambda:services.status=='STOPPED' and not services.starting)
+        assert services.ready_at is None and not services.owned and not active
+        assert ('start',unavailable) not in calls and ('stop',unavailable) not in calls
+        assert f'mapping service state query failed: {returncode}' in caplog.text
+    finally:
+        services.close()
+        if services.thread:services.thread.join(1)
+
+
+def test_existing_service_start_failure_is_visible_in_progress(tmp_path):
+    calls=[]
+    def run(action,name):
+        calls.append((action,name))
+        return 0
+    rt=runtime(tmp_path,service_run=run)
+    rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
+    rt.online=True
+    try:
+        rt.command(command());rt.step()
+        wait_for(lambda:rt.services.status=='STOPPED' and not rt.services.starting)
+        rt.step()
+        body=rt.report_body()[0]
+        assert body['error_code']=='MAPPING_SERVICES_FAILED'
+        assert '기존 지도 서비스가 이미 실행 중' in body['reason']
+        assert not rt.services.owned and not any(action in ('start','stop') for action,_ in calls)
+    finally:
+        rt.close()
+        if rt.services.thread:rt.services.thread.join(1)
+        rt.io.shutdown(wait=True)
 
 
 def test_hung_service_start_never_holds_stop_and_cancel_cleans_owned_units():
