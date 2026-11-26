@@ -252,3 +252,17 @@ def test_p_per_hour_events_are_fixed_by_the_seed():
     assert times and times == [e.at_s for e in Simulation(two).events]
     doc['seed'] = 2
     assert times != [e.at_s for e in Simulation(sc.parse(doc)).events]
+
+
+def test_reassign_skips_robots_that_cannot_reach_the_mission():
+    # app-design 11/26 10:33: a fault on one site handed the mission to a robot on another map.
+    doc = base()
+    doc['site']['floors'].append({'id': 'f2', 'floor_id': '00000000-0000-4000-8000-0000000000f2',
+                                  'map_version_id': '00000000-0000-4000-8000-0000000000a2'})
+    doc['site']['waypoints'].append({'id': 'e1', 'floor': 'f2', 'x': 0, 'y': 0})
+    doc['site']['chargers'].append({'id': 'c3', 'waypoint': 'e1', 'slots': 1, 'charge_pct_per_h': 50})
+    doc['robots'].insert(1, robot('r3', 'e1', 'c3', soc=100))  # ahead of r2 in the tie order
+    doc['robots'][0]['schedule'] = [{'at': '01:00', 'mission': 'go_a'}]
+    doc['events'] = [{'id': 'dead', 'kind': 'fault', 'robot': 'r1', 'at': '00:30'}]
+    rows = items(run(doc))
+    assert 'r1/m0:go_a>r2' in rows and not any(r['robot'] == 'r3' for r in rows.values())

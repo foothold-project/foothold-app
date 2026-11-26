@@ -187,6 +187,20 @@ class Simulation:
             path.append(prev[path[-1]])
         return path[::-1]
 
+    def _reaches(self, robot, item):
+        """True when every place the item needs is on the robot's connected part of the graph."""
+        start = robot.node if robot.node is not None else robot.route[0]
+        seen, todo = {start}, [start]
+        while todo:
+            for nxt in self.graph[todo.pop()]:
+                if nxt not in seen:
+                    seen.add(nxt)
+                    todo.append(nxt)
+        goals = [step.target for step in self.scenario.missions[item.mission].steps if step.kind == 'goto'] if item.mission else []
+        if item.charger:
+            goals.append(self.scenario.chargers[item.charger].waypoint)
+        return all(g in seen for g in goals)
+
     def _route(self, robot, goal, speed):
         if robot.node is not None:
             route = self._path(robot.node, goal)[1:]
@@ -296,7 +310,7 @@ class Simulation:
     def _reassign(self, item, cause, eid):
         busy = lambda r: (r.item is not None, sum(1 for i in r.queue if i.planned_s <= self.now))
         candidates = [r for rid, r in self.robots.items() if rid != item.robot and r.state != FAULT
-                      and r.soc > r.spec.reserve_soc + 20]
+                      and r.soc > r.spec.reserve_soc + 20 and self._reaches(r, item)]
         if not candidates:
             self._log('dropped', item, cause=cause, event=eid)
             return
