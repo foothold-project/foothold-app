@@ -320,7 +320,10 @@
         "reason": {
           "anyOf": [
             {
-              "const": "EXPLICIT_SERVER_ALLOWLIST",
+              "enum": [
+                "EXPLICIT_SERVER_ALLOWLIST",
+                "REMOTE_MOTION_STATE"
+              ],
               "type": "string"
             },
             {

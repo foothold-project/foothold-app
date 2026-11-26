@@ -439,7 +439,7 @@ export interface Device {
 export interface DeviceStatusCode {
   raw: number;
   level: "OK" | "ACCEPTED" | "ERROR";
-  reason: "EXPLICIT_SERVER_ALLOWLIST" | null;
+  reason: "EXPLICIT_SERVER_ALLOWLIST" | "REMOTE_MOTION_STATE" | null;
 }
 
 export interface DurableAgentEvent {

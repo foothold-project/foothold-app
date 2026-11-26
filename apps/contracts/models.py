@@ -243,7 +243,8 @@ class CurrentRun(Contract):
 class DeviceStatusCode(Contract):
     raw: int = Field(strict=True, ge=0, le=0xFFFFFFFF)
     level: Literal['OK', 'ACCEPTED', 'ERROR']
-    reason: Literal['EXPLICIT_SERVER_ALLOWLIST'] | None
+    # REMOTE_MOTION_STATE: 리모컨이 순정 모드(Classic 등)로 움직이는 중 (#511·#512 에이전트가 보냄)
+    reason: Literal['EXPLICIT_SERVER_ALLOWLIST', 'REMOTE_MOTION_STATE'] | None
 
 
 class UnlockAxis(Contract):
