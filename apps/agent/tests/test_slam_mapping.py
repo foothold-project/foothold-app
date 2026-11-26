@@ -67,7 +67,7 @@ def own_services(rt):
     rt.services.owned=set(rt.services.names)
 
 
-def finish_dump(rt,points, *, z=.3, translation=(0,0,0)):
+def finish_dump(rt,points, *, z=.3, translation=(0,0,0), confirm_stopped=True):
     from foothold_agent.mapping.glim_dump import write_json
     path=rt.dump.path
     dump=path/'dump';dump.mkdir()
@@ -85,9 +85,10 @@ def finish_dump(rt,points, *, z=.3, translation=(0,0,0)):
         +'T_odom_lidar:\n'+identity+'T_world_lidar:\n'+identity+'v_world_imu: 0 0 0\n')
     (sub/'points_compact.bin').write_bytes(np.asarray(points,dtype='<f4').tobytes())
     for name in ('started.json','completed.json'):write_json(path/name,rt.dump.binding)
-    rt.services.owned.clear();rt.services.status='STOPPED'
-    assert not rt.dump.ready(stopped=True)
-    rt.dump.stable_since=rt.now()-2
+    if confirm_stopped:
+        rt.services.owned.clear();rt.services.status='STOPPED'
+        assert not rt.dump.ready(stopped=True)
+        rt.dump.stable_since=rt.now()-2
 
 
 def test_reference_fixture_matches_web_and_projection_never_clears():
@@ -371,9 +372,10 @@ def test_service_switch_default_off_and_names_allowlist():
     services.close()
 
 
-def test_services_stop_only_units_started_by_this_session():
+@pytest.mark.parametrize('existing',['foothold-pointlio','foothold-glim'])
+def test_preexisting_service_prevents_readiness_and_only_our_units_are_stopped(existing):
     from foothold_agent.mapping.services import Services
-    calls=[];active={'foothold-pointlio'}
+    calls=[];active={existing}
     def run(action,name):
         calls.append((action,name))
         if action=='is-active':return 0 if name in active else 3
@@ -382,11 +384,11 @@ def test_services_stop_only_units_started_by_this_session():
         return 0
     services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
     assert services.start()
-    wait_for(lambda:services.status=='STARTED')
-    assert services.owned=={'foothold-glim'}
+    wait_for(lambda:services.status=='STOPPED')
+    assert services.ready_at is None
     services.stop();wait_for(lambda:not services.owned)
-    assert active=={'foothold-pointlio'}
-    assert ('stop','foothold-pointlio') not in calls
+    assert active=={existing}
+    assert ('stop',existing) not in calls
     services.close();services.thread.join(1)
 
 
@@ -605,19 +607,33 @@ def test_failed_replacement_start_cannot_collect_or_upload_previous_graph(tmp_pa
 
 
 def test_unaccepted_start_cannot_inherit_previous_pending_start_readiness(tmp_path):
-    clock=NS(t=0.)
+    clock=NS(t=0.);sent=[]
     rt=runtime(tmp_path,now=lambda:clock.t);rt.online=True
     rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
     rt.services.launch=lambda:None
+    configure_dump(rt,tmp_path)
+    def request(sid,suffix,data):
+        if suffix=='bundle':sent.append(json.loads(data))
+        return {'session_id':sid,'status':'RECEIVED_ONLY'} if suffix=='bundle' else {'accepted':True}
+    rt.request=request
     try:
         rt.command(command());rt.step()
         assert rt.services.pending
-        clock.t=1.;rt.command(command());rt.step()
+        clock.t=1.;second=command();rt.command(second);rt.step()
         assert not rt.services_requested
         # Completion of A's pending job must not grant B input/upload rights.
         rt.services.status='STARTED';rt.services.ready_at=clock.t
+        rt.services.owned=set(rt.services.names)
         rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
         assert not rt.core.cells and rt.last_odom is None and not rt.session_services_ready()
+        rt.command(command('save',second));rt.step()
+        assert not rt.dump_eligible
+        finish_dump(rt,[[1,0,.3]])
+        clock.t=12.
+        for _ in range(8):
+            rt.step()
+            if rt.report_future:rt.report_future.result(timeout=3)
+        assert not rt.final_received and not rt.core.cells and not sent and rt.frozen is None
     finally:
         rt.close();rt.io.shutdown(wait=True)
 
