@@ -44,7 +44,8 @@
             "AutoRecoveryGet",
             "SwitchAvoidMode",
             "CheckMode",
-            "SelectMode"
+            "SelectMode",
+            "Greet"
           ],
           "title": "Action",
           "type": "string"
@@ -270,6 +271,22 @@
         },
         "battery": {
           "$ref": "#/$defs/AgentBattery"
+        },
+        "control": {
+          "anyOf": [
+            {
+              "enum": [
+                "FACTORY",
+                "LOWLEVEL"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Control"
         },
         "controller": {
           "anyOf": [

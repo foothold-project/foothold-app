@@ -1,0 +1,6 @@
+{
+  "$id": "fh-app/1/FactoryUnsupportedAction",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "const": "Greet",
+  "type": "string"
+}

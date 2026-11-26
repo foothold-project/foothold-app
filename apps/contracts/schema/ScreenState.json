@@ -44,7 +44,8 @@
             "AutoRecoveryGet",
             "SwitchAvoidMode",
             "CheckMode",
-            "SelectMode"
+            "SelectMode",
+            "Greet"
           ],
           "title": "Action",
           "type": "string"
@@ -1361,6 +1362,22 @@
       ],
       "title": "Connection",
       "type": "string"
+    },
+    "control": {
+      "anyOf": [
+        {
+          "enum": [
+            "FACTORY",
+            "LOWLEVEL"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Control"
     },
     "devices": {
       "items": {

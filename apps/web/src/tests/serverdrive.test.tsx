@@ -275,6 +275,17 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     expect($('[data-sd-posture]')).toBeNull();
   });
 
+  it('저수준 (START) 중: 일어서기는 꺼지고 눌러도 안 감 · 엎드리기는 보내고 «실행기에 보냈습니다» (전원 안내 아님)', () => {
+    ready(); view(); posture('UNKNOWN'); act(() => push('r7', { control: 'LOWLEVEL' }));
+    expect(pose('up').disabled).toBe(true); expect(pose('down').disabled).toBe(false);
+    click(pose('up')); expect(w.of('posture').length).toBe(0);
+    click(pose('down')); expect(w.of('posture').map((m) => m.action)).toEqual(['stand_down']);
+    result('q1', 'stand_down', 'SUCCEEDED', 'RUNNER_SENT');
+    expect(msg()).toBe('START 실행기에 보냈습니다. 현장에서 로봇을 확인하세요.');
+    act(() => push('r7', { control: 'FACTORY' }));
+    expect(pose('up').disabled).toBe(false);
+  });
+
   it('엎드리기: 실행 중 두 단추 잠금 + «엎드리는 중…» → 엎드리면 결과·안내, 이동 단추·키 잠금, STOP 은 살아 있음', () => {
     ready(); view(); posture('STANDING');
     expect(hold(['ArrowUp'])).toBe('1.5,0,0');
@@ -994,7 +1005,7 @@ describe('로봇 응답 느림과 왕복 시간', () => {
     expect(text).toContain('최근 5회 중앙값 시간 초과 포함');
     expect(text).toContain('로봇 컴퓨터↔서버: 27 ms');
     expect(text).toContain('서버↔이 화면: 42 ms');
-    expect($('[data-action-result]')!.textContent).toContain('인사: 실패');
+    expect($('[data-action-result]')!.textContent).toContain('악수: 실패');
     expect($('[data-action-result]')!.textContent).toContain('SDK 73');
     expect(FakeWS.all.filter((x) => x.url.endsWith('/api/v1/ws'))).toHaveLength(1);
     act(() => push('r7', { response_health: { slow: false, timeout_count: 0, last_timeout_at: '2026-11-18T09:45:03Z',

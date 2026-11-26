@@ -91,8 +91,8 @@ class SportBoundary:
         self._switcher = None
 
     def __getattr__(self, name):
-        from .actions import ACTIONS
-        if name not in ACTIONS or name == 'SelectMode':
+        from .actions import ACTIONS, NO_FACTORY
+        if name not in ACTIONS or name in NO_FACTORY or name == 'SelectMode':
             raise AttributeError(name)
         def call(*args):
             self._authorized()

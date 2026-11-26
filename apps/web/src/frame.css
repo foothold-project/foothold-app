@@ -86,8 +86,8 @@ button.nav{border:0;background:none;font-family:inherit;white-space:nowrap;curso
    viewport-fit=cover 라 노치·홈 막대 자리(safe-area)만큼 틀 안쪽을 비운다 — STOP·조이스틱이 그 아래로 가지 않게 */
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh.phone{box-sizing:border-box;padding:0 env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);overflow-x:clip;touch-action:manipulation}
-.fh button[disabled]{cursor:not-allowed}
-.fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}
+.fh button[disabled],.fh button[aria-disabled="true"]{cursor:not-allowed}
+.fh .btn:not(.pri)[disabled],.fh .btn:not(.pri)[aria-disabled="true"],.fh-list button[disabled]{opacity:.55}
 .fh-main:not(:has([aria-describedby="fh-soon"])) #fh-soon{display:none}   /* 준비 중 단추가 없는 탭에서는 숨김 */
 /* PC 는 창 높이 틀: 머리줄·띠·왼쪽 메뉴는 늘 보이고 본문만 스크롤 — 긴 화면에서도 «설정»이 첫 화면 안에. 낮은 창이면 메뉴도 스크롤 */
 .fh[data-layout="pc"]{height:100vh}

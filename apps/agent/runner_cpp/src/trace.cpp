@@ -22,21 +22,6 @@ constexpr auto active_flag = "/tmp/foothold-start-active";
 using Wall = std::chrono::system_clock;
 using Ms = std::chrono::duration<double, std::milli>;
 
-const char* phase_name(Phase phase) {
-    switch (phase) {
-    case Phase::high: return "high";
-    case Phase::acquiring: return "acquiring";
-    case Phase::folding:
-    case Phase::standing: return "standing_up";
-    case Phase::policy: return "policy";
-    case Phase::sitting: return "sitting";
-    case Phase::damping: return "damping";
-    case Phase::returning: return "returning";
-    case Phase::recovering: return "recovering";
-    }
-    return "unknown";
-}
-
 enum class Kind { event, sample, status };
 struct Row {
     Kind kind;
@@ -178,12 +163,18 @@ std::string line(const Row& row) {
             out << ",\"grav_z\":" << row.info.value;
         if (row.event == Event::factory_handover)
             out << ",\"gait\":\"" << row.info.text << "\",\"holding\":false";
+        if (row.event == Event::app_key)
+            out << ",\"key\":\"" << row.info.text << "\",\"started\":" << (row.info.value ? "true" : "false");
+        if (row.event == Event::handover_refused)
+            out << ",\"reason\":\"" << row.info.text << '"';
+        if (row.event == Event::app_drop)
+            out << ",\"reason\":\"" << row.info.text << "\",\"dropped\":" << row.info.value;
         out << "}\n";
         return out.str();
     }
     const auto& s = row.state;
     const bool policy = row.phase == Phase::policy;
-    out << std::setprecision(4) << ",\"phase\":\"" << (policy ? "policy" : "standing_up")
+    out << std::setprecision(4) << ",\"phase\":\"" << phase_name(row.phase)
         << "\",\"stick\":";
     array(out, Vec3{s.remote.lx, s.remote.ly, s.remote.rx});
     out << ",\"keys\":";

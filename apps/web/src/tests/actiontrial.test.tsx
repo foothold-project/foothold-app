@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Live } from '../rt';
-import { ActionTrial, ACTION_NAMES, DANGEROUS, actionResultText } from '../screens/actiontrial';
+import { ActionTrial, ACTION_NAMES, DANGEROUS, LOWLEVEL, LOWLEVEL_QUERY, actionResultText } from '../screens/actiontrial';
 import { ROBOTS } from './fixtures';
 import { state } from './fakeWs';
 
@@ -17,6 +17,7 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); box.remove(); vi.useRealTimers(); });
 const render = (allowed = true, sim = false) => act(() => root.render(<ActionTrial robot={{ ...ROBOTS[1], sim }} allowed={allowed} />));
+const grey = (b: HTMLButtonElement) => b.disabled || b.getAttribute('aria-disabled') === 'true';
 const button = (api: string) => box.querySelector<HTMLButtonElement>(`[data-go2-action="${api}"]`)!;
 const click = (el: HTMLElement) => act(() => el.click());
 
@@ -82,4 +83,32 @@ it('shows SDK result only for this request and preserves numeric rejection and r
 it('submits Euler defaults and no confirmation for an ordinary one-shot action', () => {
   render(); click(button('Euler'));
   expect(mock.action.mock.calls[0].slice(0, 4)).toEqual(['r7', 'Euler', { roll: 0, pitch: 0, yaw: 0 }, false]);
+});
+
+it('저수준 (START) 중에는 동작표 「저수준」 켬 일곱 개만 켜고 나머지는 꺼서 눌러도 보내지 않음 · 순정은 전부', () => {
+  expect([...LOWLEVEL].sort()).toEqual(['Damp', 'Greet', 'Heart', 'Hello', 'RiseSit', 'Sit', 'StandDown', 'Stretch']);
+  expect([ACTION_NAMES.Hello, ACTION_NAMES.Greet]).toEqual(['악수', '인사']);
+  // 저수준 중 순정 자세 보고는 없을 수 있다: 서 있음 판정 없이도 비상 힘 빼기 (Damp) 는 켬
+  mock.live.state = state('r7', { posture: { state: 'UNKNOWN', mode: null }, control: 'LOWLEVEL' }); render();
+  expect(box.querySelector('[data-lowlevel]')).not.toBeNull();
+  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(grey(button(name))).toBe(!LOWLEVEL.has(name) && !LOWLEVEL_QUERY.has(name));
+  expect([...LOWLEVEL_QUERY].sort()).toEqual(['AutoRecoveryGet', 'CheckMode']);
+  for (const name of ['Scrape', 'FrontFlip', 'RecoveryStand', 'StandUp', 'SpeedLevel']) click(button(name));
+  expect(mock.action).not.toHaveBeenCalled();
+  expect(box.querySelector('[data-off-why]')?.textContent).toContain('저수준 제어 중에는 쓸 수 없음');
+  click(button('Stretch'));
+  expect(mock.action.mock.calls.map((c) => c[1])).toEqual(['Stretch']);
+  mock.action.mockReset(); act(() => { mock.now += 6000; vi.advanceTimersByTime(6000); }); mock.live.stateAt = mock.now;
+  render(); click(button('Damp'));
+  click([...box.querySelectorAll('button')].find((b) => b.textContent === '위험을 확인했고 실행')!);
+  expect(mock.action.mock.calls.map((c) => c.slice(1, 4))).toEqual([['Damp', {}, true]]);
+  expect(actionResultText({ request_id: 'a', action: 'Scrape', status: 'REJECTED', code: 'LOWLEVEL_UNSUPPORTED', sdk_code: null, mode: null, enabled: null })).toContain('저수준 제어 중에는');
+  expect(actionResultText({ request_id: 'a', action: 'Sit', status: 'REJECTED', code: 'RUNNER_NOT_CONNECTED', sdk_code: null, mode: null, enabled: null })).toContain('연결되지 않았습니다');
+  act(() => { mock.now += 6000; vi.advanceTimersByTime(6000); }); mock.live.stateAt = mock.now;
+  mock.live.state = state('r7', { posture: { state: 'STANDING', mode: 1 }, control: 'FACTORY' }); render();
+  expect(box.querySelector('[data-lowlevel]')).toBeNull();
+  // 순정: 인사 (Greet) 는 SDK 번호가 없어 회색 · 눌러도 안 감
+  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(grey(button(name))).toBe(name === 'SelectMode' || name === 'Greet');
+  mock.action.mockReset(); click(button('Greet')); expect(mock.action).not.toHaveBeenCalled();
+  expect(box.querySelector('[data-off-why]')?.textContent).toContain('순정 번호 확인 전'); expect(box.querySelector('[data-factory-off]')).not.toBeNull();
 });
