@@ -1,5 +1,6 @@
 """Fake SDK observation paths are bounded and cannot hold control's event loop."""
 import asyncio
+import base64
 from datetime import datetime,timezone
 import json
 import struct
@@ -50,6 +51,87 @@ def test_bad_cloud_does_not_become_fake_points(change):
     elif change=='range': message.data=struct.pack('<fff',10001,0,0)
     else: message.point_step=True
     with pytest.raises(ValueError): points(raw(message))
+
+
+@pytest.mark.parametrize('frame', ['utlidar_lidar', 'odom'])
+@pytest.mark.parametrize('count', [4100, 10600])
+@pytest.mark.parametrize('setting,limit', [(None, 4000), ('1000', 1000), ('4000', 4000), ('20000', 20000)])
+def test_drive_lidar_limit_applies_to_raw_and_odom_with_identical_default_bytes(frame, count, setting, limit):
+    env = {} if setting is None else {'FH_DRIVE_LIDAR_MAX_POINTS': setting}
+    source = Source(NS(robot=str(uuid4())), env, None, now=lambda: 0.,
+                    include_depth=False, recorder=NS(lidar=lambda _: None))
+    message = cloud(count, frame=frame)
+    if frame == 'odom':
+        source.poses.nearest = lambda *_: (0., 1, (0., 0., 0.), (1., 0., 0., 0.))
+        source.deskewed(message)
+    else:
+        source.last_odom_points = float('-inf')
+        source.cloud(message)
+    try:
+        source.publish_clouds()
+        _, header, payload = source.sample('lidar')
+        stride = (count + limit - 1)//limit
+        expected = b''.join(message.data[i*12:(i+1)*12] for i in range(0, count, stride))
+        assert payload == expected
+        assert header['count'] == len(expected)//12
+        assert header['truncated'] is (limit < count)
+        MediaPointCloudHeader.model_validate(header).validate_payload(payload)
+        if limit == 20000:
+            assert header['count'] == count and payload == message.data
+    finally:
+        source.close()
+
+
+@pytest.mark.parametrize('setting', ['', 'bad', '1000.5', 'nan', '999', '20001', '-1', '0'])
+def test_invalid_drive_lidar_limit_warns_once_per_source_and_keeps_default(setting, caplog):
+    source = Source(NS(robot=str(uuid4())), {'FH_DRIVE_LIDAR_MAX_POINTS': setting}, None,
+                    now=lambda: 0., include_depth=False, recorder=NS(lidar=lambda _: None))
+    try:
+        assert source.max_points == 4000
+        source.last_odom_points = float('-inf')
+        source.cloud(cloud(10600))
+        source.publish_clouds()
+        assert source.sample('lidar')[1]['count'] == 3534
+        source.publish_clouds()
+        assert sum('invalid FH_DRIVE_LIDAR_MAX_POINTS' in m for m in caplog.messages) == 1
+    finally:
+        source.close()
+
+
+def test_drive_option_does_not_raise_phone_direct_lidar_limit(monkeypatch):
+    from foothold_agent.media.processing import points as phone_points
+    monkeypatch.setenv('FH_DRIVE_LIDAR_MAX_POINTS', '20000')
+    message = cloud(10600, frame='lidar_link')
+    message.data = b''.join(struct.pack('<fff', i*.2, 2., 3.) for i in range(10600))
+    header, payload = phone_points(raw(message))
+    assert header['count'] == 4000 and header['truncated'] is True
+    assert len(payload) == 48000
+    # The low-level helper used outside server-drive also keeps its default.
+    header, payload = points(raw(message))
+    assert header['count'] == 3534 and len(payload) == 3534*12
+
+
+def test_approved_publisher_forwards_drive_limit_and_uploads_full_frame(monkeypatch):
+    from foothold_agent.go2_direct.media import approved_publisher
+    from test_setup_pairing import credentials
+    monkeypatch.setenv('FH_DRIVE_LIDAR_MAX_POINTS', '20000')
+    pub = approved_publisher(credentials(), None, NS(state=NS(mac_identity=None)),
+                             NS(), lambda: False)
+    requests = []
+    pub.opener = NS(open=lambda request, **_: (requests.append(request) or
+        NS(status=202, read=lambda _: b'', close=lambda: None)))
+    try:
+        assert pub.source.max_points == 20000
+        header, payload = points(raw(cloud(20000)), max_points=pub.source.max_points)
+        header['edge_u8'] = base64.b64encode(bytes(20000)).decode()
+        pub.upload('lidar', header, payload)
+        body = json.loads(requests[0].data)
+        assert body['header']['count'] == 20000 and body['header']['truncated'] is False
+        assert base64.b64decode(body['points']) == payload
+        assert len(requests[0].data) > 320000
+    finally:
+        pub.source.close()
+        pub.executor.shutdown(wait=True)
 
 
 def test_sdk_camera_and_cloud_workers_are_independent_latest_only(monkeypatch):

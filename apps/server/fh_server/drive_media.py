@@ -24,6 +24,10 @@ SLAM_CHANNELS = ('slam', 'slam_pose')
 CHANNELS = ('rgb', 'lidar', 'depth', *SLAM_CHANNELS)
 SLAM_TTL = 2.5
 MAX_JSON = 90_000
+MAX_POINTS = 20_000
+MAX_POINT_BASE64 = 4*((MAX_POINTS*12+2)//3)
+# XYZ + optional edge_u8 (one byte/point), base64 encoded, plus bounded metadata.
+MAX_POINT_UPLOAD = MAX_POINT_BASE64 + 4*((MAX_POINTS+2)//3) + 8192
 
 
 def jpeg_dimensions(data):
@@ -145,11 +149,13 @@ class Relay:
             async with asyncio.timeout(1):
                 async for chunk in request.stream():
                     raw.extend(chunk)
-                    if len(raw) > 100_000:
+                    if len(raw) > (MAX_POINT_UPLOAD if channel == 'lidar' else 100_000):
                         raise HTTPException(413)
             body = json.loads(raw)
             if not isinstance(body, dict) or set(body) != {'header', 'points'}:
                 raise ValueError('observation envelope required')
+            if channel == 'lidar' and isinstance(body['points'], str) and len(body['points']) > MAX_POINT_BASE64:
+                raise HTTPException(413)
             adapter = SLAM_FRAME if channel in SLAM_CHANNELS else FRAME
             msg = adapter.validate_python(body['header'])
             key = rid, channel
@@ -168,7 +174,7 @@ class Relay:
                 if msg.t in ('media.points', 'media.slam_points'):
                     if msg.t == 'media.points' and msg.frame not in ('lidar_link', 'odom'):
                         raise ValueError('bounded hardware cloud frame required')
-                    if not isinstance(body['points'], str) or len(body['points']) > 64000:
+                    if not isinstance(body['points'], str) or len(body['points']) > (MAX_POINT_BASE64 if channel == 'lidar' else 64000):
                         raise ValueError('bounded hardware cloud frame required')
                     payload = base64.b64decode(body['points'], validate=True)
                     if base64.b64encode(payload).decode('ascii') != body['points']:

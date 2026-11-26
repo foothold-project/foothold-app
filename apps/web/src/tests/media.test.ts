@@ -25,6 +25,22 @@ beforeEach(() => { Object.defineProperty(document, 'visibilityState', { configur
 afterEach(() => { off.forEach((f) => f()); off = []; media.reset(); vi.restoreAllMocks(); });
 
 describe('media/1 수신', () => {
+  it.each(['lidar_link', 'odom'])('서버 경유 %s 는 20000점 전체를 풀고 직결은 4000점 상한을 유지한다', (frame) => {
+    const h = head(1, 20000, { frame, edge_u8: btoa('\xff'.repeat(20000)) });
+    expect(pointsHeader(h, true)).not.toBeNull();
+    expect(pointsHeader(h)).toBeNull();
+    expect(pointsHeader(head(1, 20001, { frame }), true)).toBeNull();
+    expect(pointsHeader(head(1, 20000, { frame, byte_length: 239988 }), true)).toBeNull();
+    const data = new Float32Array(60000).fill(1.25);
+    const decoded = pointsBody(data.buffer, h);
+    expect(decoded).toHaveLength(60000);
+    expect(decoded![59999]).toBe(1.25);
+    expect(pointsEdge(h)).toHaveLength(20000);
+    expect(pointsBody(data.buffer.slice(0, -12), h)).toBeNull();
+    expect(pointsHeader(head(1, 4000))).not.toBeNull();
+    expect(pointsHeader(head(1, 4001))).toBeNull();
+  });
+
   it('보는 칸이 있는 채널만 열고, hello 에 결속·채널·토큰 — 불가 채널은 열지 않고 reason 을 그대로(한국어)', () => {
     want('rgb'); want('external'); want('lidar');
     media.offer(welcome(), ADDR);

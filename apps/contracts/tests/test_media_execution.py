@@ -109,10 +109,11 @@ def test_point_payload_requires_exact_little_endian_xyz_and_verified_map_frame()
                     struct.pack('<fff', float('inf'), 0, 0), struct.pack('<fff', 10001, 0, 0)):
         with pytest.raises(ValueError):
             cloud.validate_payload(payload)
-    maximum = C.MediaPointCloudHeader(**{**POINTS, 'count': 4000, 'byte_length': 48000, 'truncated': True})
-    maximum.validate_payload(b'\x00' * 48000)
+    maximum = C.MediaPointCloudHeader(**{**POINTS, 'count': 20000, 'byte_length': 240000, 'truncated': False})
+    maximum.validate_payload(b'\x00' * 240000)
+    assert C.MediaLimits().point_max_count == 4000  # Phone-direct welcome is unchanged.
     C.MediaPointCloudHeader(**{**POINTS, 'count': 0, 'byte_length': 0}).validate_payload(b'')
-    for change in (dict(count=4001), dict(count=True), dict(byte_length=13), dict(encoding='xyz_f64le'),
+    for change in (dict(count=20001, byte_length=240012), dict(count=True), dict(byte_length=13), dict(encoding='xyz_f64le'),
                    dict(frame='map'), dict(map_version_id=U), dict(pose={'x': 0, 'y': 0, 'z': 0, 'yaw': 0})):
         with pytest.raises(ValidationError):
             C.MediaPointCloudHeader(**{**POINTS, **change})

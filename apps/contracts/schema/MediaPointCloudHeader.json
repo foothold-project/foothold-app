@@ -44,7 +44,7 @@
   "description": "One JSON header followed immediately by one binary message of count*12 bytes.",
   "properties": {
     "byte_length": {
-      "maximum": 48000,
+      "maximum": 240000,
       "minimum": 0,
       "title": "Byte Length",
       "type": "integer"
@@ -60,7 +60,7 @@
       "type": "string"
     },
     "count": {
-      "maximum": 4000,
+      "maximum": 20000,
       "minimum": 0,
       "title": "Count",
       "type": "integer"
@@ -68,7 +68,7 @@
     "edge_u8": {
       "default": null,
       "description": "Optional canonical base64 of count uint8 edge strengths, in XYZ order; 0 means no edge, 255 means edge.",
-      "maxLength": 5336,
+      "maxLength": 26668,
       "title": "Edge U8",
       "type": "string"
     },

@@ -2964,11 +2964,11 @@ class MediaPointCloudHeader(MediaHeader):
     frame: Literal['map', 'lidar_link', 'odom']
     map_version_id: UUID | None
     pose: MediaPose | None
-    count: int = Field(ge=0, le=4000, strict=True)
+    count: int = Field(ge=0, le=20000, strict=True)
     truncated: bool = Field(strict=True)
     encoding: Literal['xyz_f32le']
-    byte_length: int = Field(ge=0, le=48000, strict=True)
-    edge_u8: str = Field(default=None, max_length=5336, strict=True,
+    byte_length: int = Field(ge=0, le=240000, strict=True)
+    edge_u8: str = Field(default=None, max_length=26668, strict=True,
                          exclude_if=lambda v: v is None,
                          description='Optional canonical base64 of count uint8 edge strengths, in XYZ order; 0 means no edge, 255 means edge.')
 

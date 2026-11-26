@@ -44,6 +44,53 @@ def upload(client,rid,header,points=None,token=None):
         json={'header':header,'points':None if points is None else base64.b64encode(points).decode()})
 
 
+@pytest.mark.parametrize('cloud_frame', ['lidar_link', 'odom'])
+@pytest.mark.parametrize('edges', [False, True])
+def test_full_twenty_thousand_point_frame_reaches_viewer(trial, seeded, cloud_frame, edges):
+    rid = seeded['robots']['mine']
+    header = frame(rid, 'lidar')
+    header.update(count=20000, byte_length=240000, frame=cloud_frame,
+                  pose=dict(x=0., y=0., z=0., yaw=0.) if cloud_frame == 'odom' else None)
+    if edges:
+        header['edge_u8'] = base64.b64encode(bytes([255])*20000).decode()
+    payload = struct.pack('<fff', 1., 2., 3.)*20000
+    with trial.websocket_connect(f'/api/v1/robots/{rid}/drive-media/lidar', headers=app_token(trial)) as viewer:
+        receive(viewer, 'media.status')
+        assert upload(trial, rid, header, payload).status_code == 202
+        got = receive(viewer, 'media.points')
+        assert got['count'] == 20000 and got['byte_length'] == 240000
+        assert got.get('edge_u8') == header.get('edge_u8')
+        assert viewer.receive_bytes() == payload
+
+
+@pytest.mark.parametrize('declared', [1, 20000, 20001])
+def test_twenty_thousand_and_one_point_payload_returns_413(trial, seeded, declared):
+    rid = seeded['robots']['mine']
+    header = dict(frame(rid, 'lidar'), count=declared, byte_length=declared*12)
+    assert upload(trial, rid, header, bytes(20001*12)).status_code == 413
+
+
+@pytest.mark.parametrize('change', ['count', 'length', 'nan', 'range'])
+def test_large_frame_still_requires_strict_xyz_layout(trial, seeded, change):
+    rid = seeded['robots']['mine']
+    header = dict(frame(rid, 'lidar'), count=20000, byte_length=240000)
+    payload = bytes(240000)
+    if change == 'count': header['count'] = 19999
+    elif change == 'length': payload = payload[:-12]
+    elif change == 'nan': payload = struct.pack('<f', float('nan')) + payload[4:]
+    elif change == 'range': payload = struct.pack('<f', 10001.) + payload[4:]
+    assert upload(trial, rid, header, payload).status_code == 400
+
+
+def test_lidar_upload_bounds_entire_json_envelope(trial, seeded):
+    from apps.server.fh_server.drive_media import MAX_POINT_UPLOAD
+    rid = seeded['robots']['mine']
+    result = trial.post('/api/v1/agent/drive-media/lidar', headers={
+        'authorization': 'Bearer fake-test-'+str(rid), 'content-type': 'application/json'},
+        content=b' '*(MAX_POINT_UPLOAD+1))
+    assert result.status_code == 413
+
+
 @pytest.mark.parametrize('edge', [None, 'AP8='])
 def test_lidar_optional_edges_and_legacy_header_relay_unchanged(trial, seeded, edge):
     rid = seeded['robots']['mine']
