@@ -17,6 +17,7 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); box.remove(); vi.useRealTimers(); });
 const render = (allowed = true, sim = false) => act(() => root.render(<ActionTrial robot={{ ...ROBOTS[1], sim }} allowed={allowed} />));
+const grey = (b: HTMLButtonElement) => b.disabled || b.getAttribute('aria-disabled') === 'true';
 const button = (api: string) => box.querySelector<HTMLButtonElement>(`[data-go2-action="${api}"]`)!;
 const click = (el: HTMLElement) => act(() => el.click());
 
@@ -90,10 +91,11 @@ it('저수준 (START) 중에는 동작표 「저수준」 켬 일곱 개만 켜�
   // 저수준 중 순정 자세 보고는 없을 수 있다: 서 있음 판정 없이도 비상 힘 빼기 (Damp) 는 켬
   mock.live.state = state('r7', { posture: { state: 'UNKNOWN', mode: null }, control: 'LOWLEVEL' }); render();
   expect(box.querySelector('[data-lowlevel]')).not.toBeNull();
-  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(button(name).disabled).toBe(!LOWLEVEL.has(name) && !LOWLEVEL_QUERY.has(name));
+  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(grey(button(name))).toBe(!LOWLEVEL.has(name) && !LOWLEVEL_QUERY.has(name));
   expect([...LOWLEVEL_QUERY].sort()).toEqual(['AutoRecoveryGet', 'CheckMode']);
   for (const name of ['Scrape', 'FrontFlip', 'RecoveryStand', 'StandUp', 'SpeedLevel']) click(button(name));
   expect(mock.action).not.toHaveBeenCalled();
+  expect(box.querySelector('[data-off-why]')?.textContent).toContain('저수준 제어 중에는 쓸 수 없음');
   click(button('Stretch'));
   expect(mock.action.mock.calls.map((c) => c[1])).toEqual(['Stretch']);
   mock.action.mockReset(); act(() => { mock.now += 6000; vi.advanceTimersByTime(6000); }); mock.live.stateAt = mock.now;
@@ -106,7 +108,7 @@ it('저수준 (START) 중에는 동작표 「저수준」 켬 일곱 개만 켜�
   mock.live.state = state('r7', { posture: { state: 'STANDING', mode: 1 }, control: 'FACTORY' }); render();
   expect(box.querySelector('[data-lowlevel]')).toBeNull();
   // 순정: 인사 (Greet) 는 SDK 번호가 없어 회색 · 눌러도 안 감
-  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(button(name).disabled).toBe(name === 'SelectMode' || name === 'Greet');
+  for (const name of Object.keys(ACTION_NAMES) as (keyof typeof ACTION_NAMES)[]) expect(grey(button(name))).toBe(name === 'SelectMode' || name === 'Greet');
   mock.action.mockReset(); click(button('Greet')); expect(mock.action).not.toHaveBeenCalled();
-  expect(button('Greet').title).toBe('순정 번호 확인 전'); expect(box.querySelector('[data-factory-off]')).not.toBeNull();
+  expect(box.querySelector('[data-off-why]')?.textContent).toContain('순정 번호 확인 전'); expect(box.querySelector('[data-factory-off]')).not.toBeNull();
 });
