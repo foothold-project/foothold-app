@@ -25,18 +25,27 @@ class CloudBus:
     def __init__(self):
         self.lock = threading.RLock()
         self.topics = {}
+        self.types = {}
 
-    def subscribe(self, topic, callback, *, odometry=False):
+    def subscribe(self, topic, callback, *, odometry=False, pose_type=None):
         from unitree_sdk2py.core.channel import ChannelSubscriber
-        if odometry:
+        kind=pose_type or ('Odometry' if odometry else 'PointCloud2')
+        if kind=='PoseStamped':
+            from unitree_sdk2py.idl.geometry_msgs.msg.dds_ import PoseStamped_ as Message
+        elif kind=='Odometry':
             from unitree_sdk2py.idl.nav_msgs.msg.dds_ import Odometry_ as Message
-        else:
+        elif kind=='PointCloud2':
             from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_ as Message
+        else:
+            raise ValueError('unsupported observation type')
         with self.lock:
+            if topic in self.types and self.types[topic]!=kind:
+                raise ValueError('conflicting observation types')
             if topic not in self.topics:
                 sub = ChannelSubscriber(topic, Message)
                 callbacks = set()
                 self.topics[topic] = sub, callbacks
+                self.types[topic] = kind
                 def dispatch(message):
                     with self.lock:
                         listeners = tuple(callbacks)
@@ -49,6 +58,7 @@ class CloudBus:
                     sub.Init(dispatch, 0)
                 except BaseException:
                     self.topics.pop(topic, None)
+                    self.types.pop(topic, None)
                     sub.Close()
                     raise
             self.topics[topic][1].add(callback)
@@ -62,12 +72,14 @@ class CloudBus:
                 entry[1].discard(callback)
                 if not entry[1]:
                     sub, _ = self.topics.pop(topic)
+                    self.types.pop(topic, None)
         if sub:
             sub.Close()
 
     def close(self):
         with self.lock:
             entries, self.topics = self.topics, {}
+            self.types = {}
         for sub, _ in entries.values():
             try:
                 sub.Close()
