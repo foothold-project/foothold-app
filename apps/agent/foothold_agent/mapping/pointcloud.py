@@ -5,7 +5,7 @@ MAX_INPUT_BYTES=16_000_000
 FORMATS={1:'b',2:'B',3:'h',4:'H',5:'i',6:'I',7:'f',8:'d'}
 class InvalidSample(ValueError): pass
 
-def decode(message, *, max_points=8000, sample_start=0, sample_limit=None, **ignored):
+def decode(message, *, max_points=8000, sample_start=0, sample_limit=None, reject_nonfinite=False, **ignored):
     width, height, step, row = message.width, message.height, message.point_step, message.row_step
     if (any(type(n) is not int for n in (width, height, step, row))
             or min(width, height, step) < 1 or row < width * step
@@ -53,6 +53,8 @@ def decode(message, *, max_points=8000, sample_start=0, sample_limit=None, **ign
             point = tuple(reader.unpack(bytes(data[at + offset:at + offset + reader.size]))[0]
                           for offset, reader in layout)
         if not all(math.isfinite(v) for v in point):
+            if reject_nonfinite:
+                raise InvalidSample('non_finite_point')
             continue
         if any(abs(v) > 10000 for v in point):
             raise InvalidSample('coordinate_out_of_range')

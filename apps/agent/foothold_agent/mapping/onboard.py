@@ -20,6 +20,7 @@ from foothold_agent.slam_source import Source, SOURCES
 from .poses import timestamp
 from .runtime import MappingRuntime,TransferError
 from .services import Services
+from .health import PointLioHealth
 from .raw_recording import RawRecorder
 from .world import WorldAccumulator
 from .tiles import Tiles
@@ -61,7 +62,10 @@ class OnboardRuntime(MappingRuntime):
         self.pose_histories={key:deque(maxlen=64) for key in SOURCES}
         self.input_stamps={}
         self.handles=[]
-        self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run,now=self.now)
+        self.pointlio=PointLioHealth(self.live,self.now)
+        self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run,
+            now=self.now,fresh=self.pointlio.fresh)
+        self.services_fault=None
         self.services_requested=False
         self.raw=RawRecorder(self.env,lambda:self.enabled() and self.online and not self.stopping.is_set(),self.services)
         self.seen=set()
@@ -127,7 +131,8 @@ class OnboardRuntime(MappingRuntime):
         super().command(frame)
 
     def receive(self, topic, message):
-        if self.stopping.is_set() or not self.enabled() or self.core.status in ('SAVED','CANCELLED'):
+        if (self.stopping.is_set() or not self.enabled()
+                or self.core.status in ('SAVED','CANCELLED') and not self.services.control_enabled()):
             return
         # Retain one reference per topic, never copy/parse a cloud on DDS lane.
         try:
@@ -213,6 +218,7 @@ class OnboardRuntime(MappingRuntime):
             self.dump_eligible=self.dump_failed=False
             self.services_requested=False
             self.services_disconnected=False
+            self.services_fault=None
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
                 self.problem('MAPPING_FRAME_REQUIRED','Point-LIO 토픽과 지도 좌표 설정을 확인해 주세요.')
@@ -255,7 +261,7 @@ class OnboardRuntime(MappingRuntime):
             self.final_received=False
             self.dump_eligible=bool(self.dump and not self.services_disconnected
                 and self.session_services_ready() and self.services.status=='STARTED'
-                and set(self.services.names)<=self.services.owned)
+                and self.services.glim in self.services.owned)
             self.services.stop()
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
             if not self.dump_eligible:
@@ -412,8 +418,19 @@ class OnboardRuntime(MappingRuntime):
         # Historical readiness authorizes saving retained data, not new input
         # after owned services stop or disconnect cleanup invalidates the run.
         return (not self.services.control_enabled() or self.session_services_ready()
-            and not self.services_disconnected and self.services.status=='STARTED'
-            and set(self.services.names)<=self.services.owned)
+            and not self.services_disconnected and not self.services_fault
+            and self.services.receiving_ready())
+
+    def check_services_health(self):
+        if (self.services.control_enabled() and self.session_services_ready()
+                and self.save_requested is None and not self.services_disconnected
+                and self.core.status not in ('SAVED','CANCELLED','FAILED')
+                and not self.services.receiving_ready()):
+            self.services_fault=self.services_fault or self.services.start_error or self.pointlio.error or (
+                '실시간 위치와 점 자료가 끊겼습니다. 받은 자료를 저장하거나 새로 시작해 주세요.')
+        if self.services_fault and self.save_requested is None and self.core.status not in ('SAVED','CANCELLED','FAILED'):
+            self.raw.stop('pointlio_or_glim_unavailable')
+            self.problem('MAPPING_SERVICES_UNAVAILABLE',self.services_fault)
 
     def grid_body(self, *, crop=False, max_cells=None):
         import numpy as np
@@ -507,8 +524,12 @@ class OnboardRuntime(MappingRuntime):
         with self.lock:
             commands, self.commands = self.commands, deque(maxlen=8)
             samples, self.pending_samples = self.pending_samples, {}
+        if self.services.control_enabled():
+            self.check_services_health()
+            self.pointlio.update(samples)
         for frame in commands:
             self.handle_command(frame)
+        self.check_services_health()
         if (self.services_disconnected and self.save_requested is None
                 and self.core.status not in ('SAVED','CANCELLED','FAILED')):
             self.problem('MAPPING_SERVICES_DISCONNECTED','연결이 끊겨 지도 서비스 정지를 요청했습니다. 받은 자료를 저장하거나 새 세션으로 다시 시작해 주세요.')
@@ -628,7 +649,7 @@ class OnboardRuntime(MappingRuntime):
         try:
             while not self.stopping.wait(.02):
                 enabled = self.enabled()
-                if not enabled:
+                if not enabled or self.services.control_enabled() and not self.online:
                     self.cleanup_disconnected()
                     if self.was_enabled:
                         self.suspend()

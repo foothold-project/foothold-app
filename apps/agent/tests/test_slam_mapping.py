@@ -47,13 +47,32 @@ def pose(stamp=1, frame='map'):
               pose=NS(pose=NS(position=NS(x=0.,y=0.,z=.3), orientation=NS(w=1.,x=0.,y=0.,z=0.))))
 
 
+def service_fake(run):
+    """Always-on Point-LIO plus a stateful GLIM for lifecycle-only tests."""
+    active=set()
+    def call(action,name):
+        result=run(action,name)
+        if action=='is-active' and result==3:
+            return 0 if name=='foothold-pointlio' or name in active else 3
+        if result==0 and action=='start':active.add(name)
+        if result==0 and action=='stop':active.discard(name)
+        return result
+    return call
+
+
 def runtime(tmp_path, **kwargs):
+    real_health=kwargs.pop('real_health',False)
+    if 'service_run' in kwargs and not real_health:
+        kwargs['service_run']=service_fake(kwargs['service_run'])
     env=kwargs.pop('env',{'FH_MAPPING_POINT_LIO_FRAME':'map','FH_MAPPING_GLIM_FRAME':'map',
         'FH_MAPPING_GLIM_CLOUD_TOPIC':'/glim/final_cloud','FH_MAPPING_GLIM_ODOM_TOPIC':'/glim/final_odom'})
     env['FH_MAPPING_CACHE_DIR']=str(tmp_path)
-    return OnboardRuntime(NS(connected=True, link_lost=False, reconnect_required=False), NS(),
+    rt=OnboardRuntime(NS(connected=True, link_lost=False, reconnect_required=False), NS(),
         Settings('wss://example.invalid/api/v1/agent/ws', 'fake'), str(uuid4()),
         env, request=lambda *args: {'accepted':True}, **kwargs)
+    if not real_health:
+        rt.services.fresh=lambda:True  # lifecycle tests inject continuously healthy input
+    return rt
 
 
 def configure_dump(rt,tmp_path):
@@ -64,7 +83,8 @@ def own_services(rt):
     rt.services_requested=True
     rt.services.ready_at=rt.now()
     rt.services.status='STARTED'
-    rt.services.owned=set(rt.services.names)
+    rt.services.owned={rt.services.glim}
+    rt.services.pointlio_active=True
 
 
 def finish_dump(rt,points, *, z=.3, translation=(0,0,0), confirm_stopped=True):
@@ -372,7 +392,7 @@ def test_service_switch_default_off_and_names_allowlist():
     services.close()
 
 
-@pytest.mark.parametrize('existing',['foothold-pointlio','foothold-glim'])
+@pytest.mark.parametrize('existing',['foothold-glim'])
 def test_preexisting_service_prevents_readiness_and_only_our_units_are_stopped(existing):
     from foothold_agent.mapping.services import Services
     calls=[];active={existing}
@@ -382,7 +402,7 @@ def test_preexisting_service_prevents_readiness_and_only_our_units_are_stopped(e
         if action=='start':active.add(name)
         if action=='stop':active.discard(name)
         return 0
-    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=service_fake(run),fresh=lambda:True)
     assert services.start()
     wait_for(lambda:services.status=='STOPPED')
     assert services.ready_at is None
@@ -404,7 +424,7 @@ def test_service_state_query_error_never_starts_or_owns_unavailable_unit(unavail
         if action=='start':active.add(name)
         if action=='stop':active.discard(name)
         return 0
-    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=service_fake(run),fresh=lambda:True)
     try:
         assert services.start()
         wait_for(lambda:services.status=='STOPPED' and not services.starting)
@@ -447,14 +467,14 @@ def test_hung_service_start_never_holds_stop_and_cancel_cleans_owned_units():
         if action=='is-active':return 3
         if action=='start':entered.set();release.wait(3)
         return 0
-    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=service_fake(run),fresh=lambda:True)
     assert services.start() and entered.wait(1)
     feedback=NS(telemetry=lambda:{},sample=lambda:None,posture_snapshot=lambda:dict(state='UNKNOWN',mode=None))
     session=DriveSession(feedback);session.connect()
     before=time.monotonic();effects=session.receive({'t':'stop','stop_ref':1})
     assert time.monotonic()-before<.1 and any(c.kind=='stop' for c in effects.motion)
     services.stop();release.set();wait_for(lambda:services.status=='STOPPED')
-    assert not services.owned and ('start','foothold-glim') not in calls
+    assert not services.owned and ('stop','foothold-glim') in calls
     services.close();services.thread.join(1)
 
 
@@ -475,7 +495,7 @@ def test_disconnect_closes_readers_then_stops_owned_services_without_restart(tmp
     wait_for(lambda:not rt.services.owned)
     enabled.value=True;rt.online=True;rt.command(start)
     time.sleep(.08)
-    assert len([c for c in calls if c[0]=='start'])==2
+    assert len([c for c in calls if c[0]=='start'])==1
     assert all('/uslam/' not in topic for topic in closed)
     rt.close();thread.join(1);rt.io.shutdown(wait=True)
 
@@ -513,7 +533,7 @@ def test_cancel_stops_owned_services_and_duplicate_start_never_restarts(tmp_path
     rt.command(command('cancel',start));rt.step()
     wait_for(lambda:not rt.services.owned)
     rt.command(start);rt.step()
-    assert len([c for c in calls if c[0]=='start'])==2 and rt.core.status=='CANCELLED'
+    assert len([c for c in calls if c[0]=='start'])==1 and rt.core.status=='CANCELLED'
     rt.close();rt.io.shutdown(wait=True)
 
 
@@ -548,13 +568,13 @@ def test_new_service_job_resets_previously_owned_graph_before_start():
         if action=='start':active.add(name)
         if action=='stop':active.discard(name)
         return 0
-    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=service_fake(run),fresh=lambda:True)
     services.start();wait_for(lambda:services.status=='STARTED')
     boundary=len(calls)
     services.start();wait_for(lambda:services.status=='STARTED' and len(calls)>boundary)
     following=calls[boundary:]
-    assert [action for action,_ in following[:2]]==['stop','stop']
-    assert len([c for c in following if c[0]=='start'])==2
+    assert following[0]==('stop','foothold-glim')
+    assert len([c for c in following if c[0]=='start'])==1
     services.close();services.thread.join(1)
 
 
@@ -586,14 +606,14 @@ def test_failed_stop_keeps_live_processing_and_replacement_responsive_then_recov
         wait_for(lambda:rt.services.status=='UNKNOWN' and not rt.services.pending)
         rt.step()
         assert rt.core.error_code=='MAPPING_SERVICES_FAILED'
-        assert len([c for c in calls if c[0]=='start'])==2  # never reuse an unclean graph
+        assert len([c for c in calls if c[0]=='start'])==1  # never reuse an unclean graph
         failing.value=False;rt.services.wake.set()
         wait_for(lambda:rt.services.status=='STOPPED')
         recovered=command();rt.command(recovered);rt.step()
         wait_for(lambda:rt.services.status=='STARTED')
         rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
         assert rt.core.session_id==recovered['session_id'] and rt.core.status=='RUNNING'
-        assert rt.core.cells and len([c for c in calls if c[0]=='start'])==4
+        assert rt.core.cells and len([c for c in calls if c[0]=='start'])==2
     finally:
         failing.value=False;release.set();rt.close()
         if rt.services.thread:rt.services.thread.join(3)
@@ -669,7 +689,7 @@ def test_unaccepted_start_cannot_inherit_previous_pending_start_readiness(tmp_pa
         assert not rt.services_requested
         # Completion of A's pending job must not grant B input/upload rights.
         rt.services.status='STARTED';rt.services.ready_at=clock.t
-        rt.services.owned=set(rt.services.names)
+        rt.services.owned={rt.services.glim}
         rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
         assert not rt.core.cells and rt.last_odom is None and not rt.session_services_ready()
         rt.command(command('save',second));rt.step()
@@ -694,13 +714,13 @@ def test_repeated_stop_failure_warnings_are_throttled_without_delaying_recovery(
         if failure=='exception':raise OSError('fake unavailable user bus')
         return 1
     services=Services({},lambda:True,run=run,now=lambda:clock.t)
-    services.owned=set(services.names)
+    services.owned={services.glim}
     services.stop()
     for second in range(31):
         clock.t=float(second);services.cleanup()
     warnings=[record for record in caplog.records if 'event=stop_failed' in record.message]
     cleanups=[record for record in caplog.records if 'event=cleanup' in record.message]
-    assert len(warnings)==4 and len(cleanups)==2 and len(calls)==62
+    assert len(warnings)==2 and len(cleanups)==2 and len(calls)==31
     recover.value=True;clock.t=31.;services.cleanup()
     assert not services.owned and services.status=='STOPPED' and not services.stop_failures
 
@@ -712,7 +732,7 @@ def test_cancel_while_service_state_query_hangs_never_starts_unit():
         calls.append((action,name))
         if action=='is-active':entered.set();release.wait(2);return 3
         return 0
-    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=run)
+    services=Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED':'true'},lambda:True,run=service_fake(run),fresh=lambda:True)
     services.start();assert entered.wait(1)
     services.stop();release.set();wait_for(lambda:services.status=='STOPPED')
     assert all(action!='start' for action,_ in calls)
