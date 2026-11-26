@@ -507,7 +507,9 @@ class OnboardRuntime(MappingRuntime):
                 self.problem('MAPPING_PARTIAL','계산 한도로 잘린 최종 지도입니다. 받은 범위만 저장합니다.')
             elif self.save_timed_out() and self.rebuild is None:
                 self.dump_failed=True
-                self.problem('GLIM_FINAL_UNCONFIRMED','GLIM 최종 저장 확인이 안 되어 받은 범위만 저장합니다.')
+                reason=('지도 서비스 정지를 확인하지 못했습니다. GLIM 최종 저장은 미확인으로 두고 받은 범위만 저장합니다.'
+                    if not self.services_stopped() else 'GLIM 최종 저장 확인이 안 되어 받은 범위만 저장합니다.')
+                self.problem('GLIM_FINAL_UNCONFIRMED',reason)
         if self.save_future is not None and self.save_future.done():
             future, self.save_future = self.save_future, None
             try:
@@ -529,7 +531,8 @@ class OnboardRuntime(MappingRuntime):
                 and self.rebuild is None
                 and self.source.map_topic not in self.pending_samples
                 and self.core.status not in ('SAVED','CANCELLED') and self.core.cells
-                and self.services_stopped()
+                # Stop confirmation gates verified dump reads, not the bounded
+                # UNKNOWN fallback: a broken user bus must not strand the save.
                 and (self.final_received or self.save_timed_out())):
             if self.frozen is None:
                 body = dict(session_id=self.core.session_id, revision=self.revision, frame_id=self.frame,

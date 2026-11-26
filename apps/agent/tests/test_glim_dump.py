@@ -173,6 +173,59 @@ def test_timeout_persists_received_only_and_old_topic_flag_cannot_confirm(tmp_pa
     finally:close(rt)
 
 
+@pytest.mark.parametrize('configured',[False,True],ids=['default-10s','dump-timeout'])
+@pytest.mark.parametrize('failure',['returncode','exception'])
+def test_persistent_stop_failure_uploads_unknown_once_within_timeout(tmp_path,caplog,configured,failure):
+    clock=NS(t=0.);sent=[];reports=[];stops=[]
+    def run(action,name):
+        assert action=='stop'
+        stops.append(name)
+        if failure=='exception':raise OSError('fake unavailable user bus')
+        return 1
+    rt=runtime(tmp_path,now=lambda:clock.t,service_run=run);rt.online=True
+    rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
+    rt.services.launch=lambda:None  # drive failed cleanup deterministically, no systemctl
+    if configured:configure_dump(rt,tmp_path)
+    def request(sid,suffix,data):
+        body=json.loads(data)
+        if suffix=='bundle':
+            sent.append((clock.t,body))
+            return {'session_id':sid,'status':'RECEIVED_ONLY'}
+        reports.append(body)
+        return {'accepted':True}
+    rt.request=request
+    def step():
+        rt.step()
+        for future in (rt.report_future,rt.save_future):
+            if future is not None:future.result(timeout=3)
+    try:
+        start=command();rt.command(start);step();own_services(rt);rt.services.pending=False
+        rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud([[-1,0,.3]]));step()
+        if configured:
+            # Even a complete bound receipt may not bypass failed service stop.
+            finish_dump(rt,[[1,0,.3]]);own_services(rt)
+        rt.command(command('save',start));step()
+        limit=rt.dump_timeout if configured else 10
+        assert rt.dump_eligible==configured
+        for second in range(1001):
+            clock.t=float(second)
+            rt.services.cleanup()
+            step()
+            if second<limit:assert not sent and rt.frozen is None
+            if second==limit:
+                frozen=rt.frozen
+                assert json.loads(frozen)['slam_save']=='UNKNOWN'
+        assert len(sent)==1 and limit<=sent[0][0]<=limit+3
+        assert sent[0][1]['slam_save']=='UNKNOWN' and sent[0][1]['source']=='point_lio'
+        assert sent[0][1]['voxels']==[[-20,0,6]] and rt.revision==1
+        assert rt.frozen==frozen and not rt.final_received
+        assert all(body['phase']!='SLAM_SAVED' for body in reports)
+        assert rt.services.status=='UNKNOWN' and rt.services.owned==set(rt.services.names)
+        assert rt.services.stop_requested and stops and 'event=stop_failed' in caplog.text
+        assert any(body['error_code']=='GLIM_FINAL_UNCONFIRMED' and '정지' in body['reason'] for body in reports)
+    finally:close(rt)
+
+
 @pytest.mark.parametrize('op',['cancel','start'])
 def test_cancel_and_session_replacement_fence_old_dump(tmp_path,op):
     rt,clock,start=start_dump(tmp_path)

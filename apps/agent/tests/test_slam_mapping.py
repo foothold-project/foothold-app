@@ -508,6 +508,48 @@ def test_new_service_job_resets_previously_owned_graph_before_start():
     services.close();services.thread.join(1)
 
 
+def test_failed_stop_keeps_live_processing_and_replacement_responsive_then_recovers(tmp_path):
+    entered,release=threading.Event(),threading.Event();calls=[]
+    failing=NS(value=True)
+    def run(action,name):
+        calls.append((action,name))
+        if action=='is-active':return 3
+        if action=='stop' and failing.value:
+            entered.set();release.wait(3);return 1
+        return 0
+    rt=runtime(tmp_path,service_run=run);rt.online=True
+    rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
+    try:
+        start=command();rt.command(start);rt.step()
+        wait_for(lambda:rt.services.status=='STARTED')
+        rt.services.stop();assert entered.wait(1)
+        # The service lane is blocked in fake stop while the observation lane
+        # still accepts synchronized Point-LIO input and a replacement command.
+        rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud())
+        before=time.monotonic();rt.step()
+        assert time.monotonic()-before<.5 and rt.core.cells
+        replacement=command();rt.command(replacement)
+        before=time.monotonic();rt.step()
+        assert time.monotonic()-before<.5 and rt.core.session_id==replacement['session_id']
+        assert not rt.core.cells
+        release.set()
+        wait_for(lambda:rt.services.status=='UNKNOWN' and not rt.services.pending)
+        rt.step()
+        assert rt.core.error_code=='MAPPING_SERVICES_FAILED'
+        assert len([c for c in calls if c[0]=='start'])==2  # never reuse an unclean graph
+        failing.value=False;rt.services.wake.set()
+        wait_for(lambda:rt.services.status=='STOPPED')
+        recovered=command();rt.command(recovered);rt.step()
+        wait_for(lambda:rt.services.status=='STARTED')
+        rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
+        assert rt.core.session_id==recovered['session_id'] and rt.core.status=='RUNNING'
+        assert rt.core.cells and len([c for c in calls if c[0]=='start'])==4
+    finally:
+        failing.value=False;release.set();rt.close()
+        if rt.services.thread:rt.services.thread.join(3)
+        rt.io.shutdown(wait=True)
+
+
 def test_cancel_while_service_state_query_hangs_never_starts_unit():
     from foothold_agent.mapping.services import Services
     entered,release=threading.Event(),threading.Event();calls=[]
