@@ -23,6 +23,7 @@ from .services import Services
 from .raw_recording import RawRecorder
 from .world import WorldAccumulator
 from .tiles import Tiles
+from .glim_dump import DumpSession
 
 LOG = logging.getLogger(__name__)
 
@@ -76,13 +77,17 @@ class OnboardRuntime(MappingRuntime):
         self.last_odom=None
         self.final_received=False
         self.save_requested=None
-        self.frozen=self.rebuild=self.next_rebuild=None
+        self.frozen=self.rebuild=None
         self.bundle_cancelled=threading.Event()
         self.save_failed=False
         self.confirmed_report=None
         self.was_enabled=False
         self.disconnected_since=None
         self.not_before=float('-inf')
+        self.dump=None
+        self.dump_eligible=False
+        self.dump_failed=False
+        self.dump_timeout=180.
 
     def close(self):
         self.raw.close()
@@ -144,7 +149,7 @@ class OnboardRuntime(MappingRuntime):
             self.pending_samples.clear()
         for history in self.pose_histories.values():
             history.clear()
-        self.rebuild=self.next_rebuild=None
+        self.rebuild=None
         if self.core.session_id and self.core.status not in ('SAVED','CANCELLED'):
             self.phase,self.core.status='UNKNOWN','UNKNOWN'
 
@@ -154,8 +159,12 @@ class OnboardRuntime(MappingRuntime):
             for source in (self.live,self.final):
                 if not source.configured:
                     continue
-                for topic,is_pose in ((source.odom_topic,True),(source.cloud_topic,False)):
-                    handle=self.channel.cloud_bus.subscribe(topic,partial(self.receive,topic),odometry=is_pose)
+                topics=[(source.odom_topic,True)]
+                if source is self.live:
+                    topics.append((source.cloud_topic,False))
+                for topic,is_pose in topics:
+                    handle=self.channel.cloud_bus.subscribe(topic,partial(self.receive,topic),
+                        **({'pose_type':source.pose_type} if is_pose else {}))
                     self.handles.append(handle)
         except Exception:
             self.dropped('readers','reader_unavailable')
@@ -194,14 +203,27 @@ class OnboardRuntime(MappingRuntime):
             self.changes.clear()
             self.tiles=Tiles()
             self.times,self.last_odom={},None
-            self.frozen=self.save_requested=self.rebuild=self.next_rebuild=None
+            self.frozen=self.save_requested=self.rebuild=None
             self.bundle_cancelled=threading.Event()
             self.save_failed=False
             self.confirmed_report=None
+            self.dump=None
+            self.dump_eligible=self.dump_failed=False
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
                 self.problem('MAPPING_FRAME_REQUIRED','Point-LIO 토픽과 지도 좌표 설정을 확인해 주세요.')
             else:
+                root=self.env.get('FH_MAPPING_GLIM_DUMP_ROOT','')
+                if root and self.final.configured:
+                    try:
+                        self.dump_timeout=float(self.env.get('FH_MAPPING_GLIM_DUMP_TIMEOUT_S','180'))
+                        if not math.isfinite(self.dump_timeout) or not 10<=self.dump_timeout<=600:
+                            raise ValueError('invalid dump timeout')
+                        self.dump=DumpSession(root,sid,self.revision+1,self.final.frame,now=self.now)
+                        self.dump.prepare()
+                    except (OSError,ValueError):
+                        self.dump=None
+                        self.dropped('dump','session_prepare_failed')
                 services_requested = self.services.start()
                 if not services_requested:
                     self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
@@ -212,7 +234,7 @@ class OnboardRuntime(MappingRuntime):
             self.bundle_cancelled.set()
             self.remove_bundle(sid)
             self.phase='UNKNOWN'
-            self.rebuild=self.next_rebuild=None
+            self.rebuild=None
             self.services.stop()
             return
         elif self.frozen is not None:
@@ -223,8 +245,11 @@ class OnboardRuntime(MappingRuntime):
             self.raw.stop('save_requested')
             self.save_requested=frame['_received_monotonic']
             self.final_received=False
+            self.dump_eligible=bool(self.dump and self.services.status=='STARTED'
+                and set(self.services.names)<=self.services.owned)
+            self.services.stop()
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
-            if not self.final.configured or not self.final.final_verified:
+            if not self.dump_eligible:
                 self.problem('GLIM_FINAL_CONFIGURATION_REQUIRED','GLIM 최종 지도 규격과 좌표 설정 확인이 필요합니다. 받은 범위만 저장할 수 있습니다.')
         self.command_id=frame['command_id']
         self.times['agent_received_at']=frame['_received_utc']
@@ -258,7 +283,7 @@ class OnboardRuntime(MappingRuntime):
             topic=source.cloud_topic
             if (topic not in samples or not self.core.session_id or self.core.status in ('SAVED','CANCELLED')
                     or self.frozen or source is self.live and self.source is self.final
-                    or source is self.final and (self.save_requested is None or self.final_received)):
+                    or source is self.final or self.save_requested is not None):
                 continue
             received,message=samples[topic]
             try:
@@ -276,14 +301,6 @@ class OnboardRuntime(MappingRuntime):
                 if not poses:
                     raise ValueError('missing_synchronized_pose')
                 pose=min(poses,key=lambda pose:abs(pose[1]-stamp))
-                if source is self.final:
-                    candidate=dict(message=message,received=received,stamp=stamp,pose=pose,source=source,offset=0)
-                    LOG.warning('SLAM final_received source=%s stamp=%d points=%d bytes=%d received_monotonic=%.6f utc=%s',
-                        source.source,stamp,message.width*message.height,len(message.data),received,utc())
-                    if self.rebuild is None: self.rebuild=candidate
-                    else: self.next_rebuild=candidate
-                    self.input_stamps[topic]=stamp
-                    continue
                 header,payload=source.decode_cloud(message,max_points=self.core.cap)
                 result=self.core.add_world(np.frombuffer(payload,dtype='<f4').reshape(-1,3),pose[2],pose[3],
                     stamp=stamp,frame=source.frame)
@@ -303,52 +320,76 @@ class OnboardRuntime(MappingRuntime):
                 self.dropped(topic,'invalid_frame_stamp_or_pose')
                 self.core.error_code,self.core.reason='SLAM_INPUT_REJECTED','지도 점과 위치의 시각·좌표 설정을 확인해 주세요.'
 
+    def dump_step(self):
+        if (self.save_requested is None or not self.dump_eligible or self.dump_failed
+                or self.final_received or self.rebuild is not None or self.frozen is not None
+                or self.core.status in ('SAVED','CANCELLED','FAILED')):
+            return
+        try:
+            if self.dump.ready(stopped=self.services.status=='STOPPED' and not self.services.owned):
+                self.rebuild=dict(chunks=iter(self.dump.chunks(self.final)),
+                    core=WorldAccumulator(mode='projection',frame=self.final.frame,
+                        max_points=500000,cap=512,budget_ms=100,now=self.now),offset=0)
+        except (OSError,ValueError,KeyError,TypeError):
+            self.dump_failed=True
+            self.problem('GLIM_DUMP_UNCONFIRMED','GLIM 저장 파일의 세션과 완료를 확인하지 못했습니다. 받은 범위만 저장합니다.')
+
     def rebuild_step(self):
-        """Build full snapshots offscreen in bounded chunks; publish one new revision."""
+        """Read the verified dump offscreen; switch only after the final check."""
         pending = self.rebuild
         if pending is None:
             return
-        import numpy as np
-        if 'core' not in pending:
-            pending['core'] = WorldAccumulator(mode='projection',frame=pending['source'].frame,
-                max_points=500000,cap=512,budget_ms=100,now=self.now)
-        message, pose, core = pending['message'], pending['pose'], pending['core']
-        offset = pending['offset']
+        core=pending['core']
         try:
-            _,payload = pending['source'].decode_cloud(message,max_points=500000,sample_start=offset,sample_limit=512)
-            core.add_world(np.frombuffer(payload,dtype='<f4').reshape(-1,3),pose[2],pose[3],
-                stamp=offset+1,frame=pending['source'].frame,complete_chunk=True)
-            pending['offset'] += 512
-            count = message.width * message.height
-            if pending['offset'] < min(count,500000):
+            try:
+                points,pose=next(pending['chunks'])
+            except StopIteration:
+                points=None
+            if points is not None:
+                pending['pose']=pose
+                pending['offset']+=1
+                core.add_world(points,pose[0],pose[1],stamp=pending['offset'],
+                    frame=self.final.frame,complete_chunk=True)
                 return
+            if not core.cells:
+                raise ValueError('empty final map')
+            pose=pending['pose']
             self.core.cells, self.core.grid = core.cells, core.grid
-            self.source=pending['source']
+            self.source=self.final
             self.frame=self.source.frame
             self.core.frame=self.frame
-            self.last_odom=pose[4]
+            self.last_odom=pose[2]
             self.core.last_pose, self.core.robot = core.last_pose, core.robot
             self.core.floor_z = core.floor_z
-            self.core.last_cloud_stamp = pending['stamp']
-            self.core.truncated = core.truncated or count > 500000
+            self.core.last_cloud_stamp = pose[3]
+            self.core.truncated = core.truncated
+            self.core.error_code=self.core.reason=None
             self.core.version += 1
-            self.revision += 1
+            self.revision = self.dump.binding['revision']
             self.reset, self.sent_cells = True, set()
             self.tiles = Tiles()
             self.tiles.changed(core.grid)
             self.change_seq += 1
             self.changes = OrderedDict((key,(True,self.change_seq)) for key in core.cells)
-            self.final_received = self.save_requested is not None and pending['received'] >= self.save_requested
+            self.final_received = True
             at = utc()
             self.times.setdefault('first_data_at',at)
             self.times['last_data_at'] = at
-            self.times['slam_ack_at']=utc() if self.final.final_verified else None
-            LOG.warning('SLAM full_map points=%d bytes=%d revision=%d truncated=%s monotonic=%.6f utc=%s',
-                count,len(message.data),self.revision,self.core.truncated,self.now(),at)
-        except (ValueError,AttributeError,TypeError,OverflowError):
+            self.times['slam_ack_at']=utc()
+            LOG.warning('SLAM dump_completed revision=%d truncated=%s monotonic=%.6f utc=%s',
+                self.revision,self.core.truncated,self.now(),at)
+        except (OSError,ValueError,AttributeError,TypeError,OverflowError,KeyError,StopIteration):
+            self.dump_failed=True
             self.dropped(self.final.map_topic,'invalid_full_map')
             self.problem('GLIM_REBUILD_FAILED','GLIM 최종 지도를 읽지 못했습니다. 마지막 실시간 지도를 유지합니다.')
-        self.rebuild, self.next_rebuild = self.next_rebuild, None
+        self.rebuild=None
+
+    def save_timed_out(self):
+        timeout=self.dump_timeout if self.dump_eligible else 10
+        return self.save_requested is not None and self.now()-self.save_requested>=timeout
+
+    def services_stopped(self):
+        return not self.services.owned and not self.services.pending and self.services.status!='STARTING'
 
     def grid_body(self, *, crop=False, max_cells=None):
         import numpy as np
@@ -446,6 +487,7 @@ class OnboardRuntime(MappingRuntime):
             self.handle_command(frame)
         if samples:
             self.consume_samples(samples)
+        self.dump_step()
         self.rebuild_step()
         if self.phase=='START_REQUESTED' and self.services.status in ('UNKNOWN','STOPPED'):
             self.problem('MAPPING_SERVICES_FAILED','지도 서비스를 시작하지 못했습니다. 설치 설정을 확인해 주세요.')
@@ -459,11 +501,12 @@ class OnboardRuntime(MappingRuntime):
                 and self.core.status not in ('SAVED','CANCELLED','FAILED')):
             self.phase,self.core.status='STARTED','RUNNING'
         elif self.save_requested is not None and self.core.status not in ('SAVED','CANCELLED','FAILED'):
-            if self.final_received and self.final.final_verified and not self.core.truncated:
+            if self.final_received and not self.core.truncated:
                 self.phase,self.core.status='SLAM_SAVED','FINALIZING'
-            elif self.final_received and self.final.final_verified and self.core.truncated:
+            elif self.final_received and self.core.truncated:
                 self.problem('MAPPING_PARTIAL','계산 한도로 잘린 최종 지도입니다. 받은 범위만 저장합니다.')
-            elif self.now()-self.save_requested>=10:
+            elif self.save_timed_out() and self.rebuild is None:
+                self.dump_failed=True
                 self.problem('GLIM_FINAL_UNCONFIRMED','GLIM 최종 저장 확인이 안 되어 받은 범위만 저장합니다.')
         if self.save_future is not None and self.save_future.done():
             future, self.save_future = self.save_future, None
@@ -486,11 +529,12 @@ class OnboardRuntime(MappingRuntime):
                 and self.rebuild is None
                 and self.source.map_topic not in self.pending_samples
                 and self.core.status not in ('SAVED','CANCELLED') and self.core.cells
-                and (self.final_received and self.final.final_verified or self.now()-self.save_requested>=10)):
+                and self.services_stopped()
+                and (self.final_received or self.save_timed_out())):
             if self.frozen is None:
                 body = dict(session_id=self.core.session_id, revision=self.revision, frame_id=self.frame,
                     resolution=.05, voxels=list(self.core.cells), grid=self.grid_body(),
-                    source=self.source.source,odom=self.last_odom,slam_save=('SLAM_SAVED' if self.final.final_verified and self.final_received
+                    source=self.source.source,odom=self.last_odom,slam_save=('SLAM_SAVED' if self.final_received
                                 and not self.core.truncated else 'UNKNOWN'), times=dict(self.times))
                 self.frozen = encode(body)
                 if len(self.frozen) > 50 * 1024 * 1024:

@@ -56,6 +56,38 @@ def runtime(tmp_path, **kwargs):
         env, request=lambda *args: {'accepted':True}, **kwargs)
 
 
+def configure_dump(rt,tmp_path):
+    rt.env['FH_MAPPING_GLIM_DUMP_ROOT']=str(tmp_path/'dumps')
+
+
+def own_services(rt):
+    rt.services.status='STARTED'
+    rt.services.owned=set(rt.services.names)
+
+
+def finish_dump(rt,points, *, z=.3, translation=(0,0,0)):
+    from foothold_agent.mapping.glim_dump import write_json
+    path=rt.dump.path
+    dump=path/'dump';dump.mkdir()
+    (dump/'config').mkdir();(dump/'config'/'config.json').write_text('{}')
+    (dump/'graph.txt').write_text('num_submaps: 1\nnum_all_frames: 1\nnum_matching_cost_factors: 0\n')
+    for name in ('graph.bin','values.bin'):(dump/name).write_bytes(b'fake serialized graph')
+    for name in ('traj_imu.txt','traj_lidar.txt','odom_imu.txt','odom_lidar.txt'):
+        (dump/name).write_text(f'4.000000000 0 0 {z} 0 0 0 1\n')
+    sub=dump/'000000';sub.mkdir()
+    x,y,tz=translation
+    identity='1 0 0 0\n0 1 0 0\n0 0 1 0\n0 0 0 1\n'
+    (sub/'data.txt').write_text(f'id: 0\nT_world_origin: \n1 0 0 {x}\n0 1 0 {y}\n0 0 1 {tz}\n0 0 0 1\n'
+        +'T_origin_endpoint_L:\n'+identity+'T_origin_endpoint_R:\n'+identity+'T_lidar_imu:\n'+identity
+        +'imu_bias: 0 0 0 0 0 0\nframe_id: 0\nnum_frames: 1\nframe_0\nid: 0\nstamp: 4.000000000\n'
+        +'T_odom_lidar:\n'+identity+'T_world_lidar:\n'+identity+'v_world_imu: 0 0 0\n')
+    (sub/'points_compact.bin').write_bytes(np.asarray(points,dtype='<f4').tobytes())
+    for name in ('started.json','completed.json'):write_json(path/name,rt.dump.binding)
+    rt.services.owned.clear();rt.services.status='STOPPED'
+    assert not rt.dump.ready(stopped=True)
+    rt.dump.stable_since=rt.now()-2
+
+
 def test_reference_fixture_matches_web_and_projection_never_clears():
     fixture = json.loads((FIXTURES/'slam_room.json').read_text())
     grid = OccGrid(fixture['size'], mode='scan')
@@ -292,13 +324,14 @@ def test_progress_splits_byte_limit_and_acknowledges_only_sent_oldest_changes(tm
 
 def test_full_map_rebuild_is_chunked_complete_and_replaces_old_revision(tmp_path):
     rt=runtime(tmp_path);rt.online=True
+    configure_dump(rt,tmp_path)
     rt.command(command());rt.step()
+    own_services(rt)
     rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud([[-1,0,.3]]));rt.step()
     old_revision=rt.revision
     points=np.column_stack((np.arange(10000)*.051,np.zeros(10000),np.full(10000,.3)))
     rt.command(command('save',dict(session_id=rt.core.session_id,floor_id=rt.core.floor_id)));rt.step()
-    rt.final.frame='corrected_world'
-    rt.receive(FINAL_POSE,pose(frame='corrected_world'));rt.receive(MAP,cloud(points,frame='corrected_world'));rt.step()
+    finish_dump(rt,points);rt.step()
     assert rt.rebuild is not None and rt.revision==old_revision
     for _ in range(30):
         if rt.rebuild is None: break
@@ -308,8 +341,8 @@ def test_full_map_rebuild_is_chunked_complete_and_replaces_old_revision(tmp_path
     assert rt.core.truncated  # 3D spans 510 m; the bounded 2D window is 100 m
     assert rt.core.grid.mode=='projection' and not (rt.core.grid.L < 0).any()
     assert rt.reset and len(rt.changes)==10000
-    assert rt.source.source=='glim' and rt.frame=='corrected_world'
-    assert rt.last_odom['provider']=='glim' and rt.last_odom['frame_id']=='corrected_world'
+    assert rt.source.source=='glim' and rt.frame=='map'
+    assert rt.last_odom['provider']=='glim' and rt.last_odom['frame_id']=='map'
     revision=rt.revision
     rt.receive(FRONTEND,pose(stamp=2));rt.receive(CLOUD,cloud(stamp=2));rt.step()
     assert rt.revision==revision and rt.source.source=='glim' and len(rt.core.cells)==10000
@@ -561,7 +594,9 @@ def test_runtime_uses_source_adapter_topics_and_world_frame(tmp_path):
 
 def test_floor_z_stays_fixed_with_moving_pose_and_resets_for_each_revision(tmp_path):
     rt=runtime(tmp_path);rt.online=True
+    configure_dump(rt,tmp_path)
     start=command();rt.command(start);rt.step()
+    own_services(rt)
     try:
         for stamp,z in ((1,.4),(2,.401),(3,.2)):
             sample=pose(stamp=stamp);sample.pose.pose.position.z=z
@@ -571,8 +606,8 @@ def test_floor_z_stays_fixed_with_moving_pose_and_resets_for_each_revision(tmp_p
             assert body['grid']['floor_z']==.4-.3
             assert body['tiles'] and all(t['floor_z']==.4-.3 for t in body['tiles'])
         rt.command(command('save',start));rt.step()
-        final_pose=pose(stamp=4);final_pose.pose.pose.position.z=.8
-        rt.receive(FINAL_POSE,final_pose);rt.receive(MAP,cloud([[1,0,.8]],stamp=4));rt.step()
+        finish_dump(rt,[[1,0,.8]],z=.8)
+        rt.step();rt.step()
         assert rt.revision==2
         assert rt.grid_body()['floor_z']==.8-.3
         assert all(t['floor_z']==.8-.3 for t in rt.report_body()[0]['tiles'])
@@ -668,12 +703,14 @@ def test_mapping_services_reject_control_units_before_any_operation(key,name,suf
 
 @pytest.mark.parametrize('truncated',[False,True])
 def test_verified_glim_progress_and_bundle_agree_when_truncated(tmp_path,truncated):
-    rt=runtime(tmp_path);rt.online=True;rt.final.final_verified=True
+    rt=runtime(tmp_path);rt.online=True
+    configure_dump(rt,tmp_path)
     start=command();rt.command(start);rt.step()
+    own_services(rt)
     try:
         rt.command(command('save',start));rt.step()
         points=[[1,0,.3],[200,0,.3]] if truncated else [[1,0,.3]]
-        rt.receive(FINAL_POSE,pose());rt.receive(MAP,cloud(points));rt.step()
+        finish_dump(rt,points);rt.step();rt.step()
         assert rt.final_received and rt.core.truncated==truncated
         body=rt.report_body()[0]
         assert body['phase']==('UNKNOWN' if truncated else 'SLAM_SAVED')

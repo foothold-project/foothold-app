@@ -21,6 +21,11 @@ class Source:
         self.odom_name=env.get(prefix+'ODOM_TOPIC','/aft_mapped_to_init' if source=='point_lio' else '')
         self.frame=env.get(prefix+'FRAME','')
         self.child_frame=env.get(prefix+'CHILD_FRAME','')
+        self.pose_type=env.get(prefix+'POSE_TYPE','Odometry')
+        if self.pose_type not in ('Odometry','PoseStamped'):
+            raise ValueError('unsupported source pose type')
+        if self.pose_type=='PoseStamped' and self.child_frame:
+            raise ValueError('PoseStamped has no child frame')
         for frame in (self.frame,self.child_frame):
             if frame and not re.fullmatch(r'[A-Za-z0-9_/-]{1,80}',frame):
                 raise ValueError('invalid configured world frame')
@@ -30,7 +35,6 @@ class Source:
         self.configured=bool(self.frame and self.cloud_topic and self.odom_topic)
         # Registration does not prove the body origin equals the lidar origin.
         self.input_mode=('scan' if source=='point_lio' and env.get('FH_MAPPING_POINT_LIO_SENSOR_ORIGIN_VERIFIED','').lower()=='true' else 'projection')
-        self.final_verified=source=='glim' and env.get('FH_MAPPING_GLIM_FINAL_TOPIC_VERIFIED','').lower()=='true'
 
     @staticmethod
     def decode_cloud(message,**kwargs):
@@ -44,7 +48,8 @@ class Source:
             raise ValueError('world frame configuration required')
         if self.child_frame and message.child_frame_id!=self.child_frame:
             raise ValueError('child frame mismatch')
-        p,q=message.pose.pose.position,message.pose.pose.orientation
+        pose=message.pose.pose if self.pose_type=='Odometry' else message.pose
+        p,q=pose.position,pose.orientation
         position,quaternion=(p.x,p.y,p.z),(q.w,q.x,q.y,q.z)
         if not all(type(v) in (int,float) and math.isfinite(v) for v in (*position,*quaternion)):
             raise ValueError('invalid source pose')
