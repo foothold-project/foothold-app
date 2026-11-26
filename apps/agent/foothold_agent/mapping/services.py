@@ -67,10 +67,13 @@ class Services:
     def cleanup(self):
         for name in tuple(self.owned):
             try:
-                if self.run('stop',name)==0:
+                result=self.run('stop',name)
+                if result==0:
                     self.owned.discard(name)
-            except Exception:
-                pass
+                else:
+                    LOG.warning('SLAM_SERVICE event=stop_failed service=%s returncode=%s',name,result)
+            except Exception as error:
+                LOG.warning('SLAM_SERVICE event=stop_failed service=%s exception=%s',name,type(error).__name__)
         self.status=('STARTING' if self.pending else 'STOPPED') if not self.owned else 'UNKNOWN'
         if not self.owned:
             self.stop_requested=False

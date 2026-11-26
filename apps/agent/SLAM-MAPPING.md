@@ -54,7 +54,9 @@ TimeoutStopSec=180
 
 래퍼는 agent가 start 때 만든 `request.json`을 읽고 세션별 `<session UUID>-r<final revision>/dump`를 ROS `dump_path` parameter로 추가한다. GLIM의 `dump_on_unload`는 **false**로 두어 destructor의 별도 `/tmp/dump` 저장을 끈다. 실행 전 `started.json`, 종료 신호를 전달한 child가 **exit 0**으로 끝난 뒤에만 `completed.json`을 원자적으로 쓴다. 두 영수증과 request는 세션·최종 revision·frame·무작위 nonce가 같아야 한다. 기존 세션 폴더·이미 실행한 request는 재사용/덮어쓰기하지 않으며 자동 삭제하지 않는다. agent 재시작 후 진행 중 세션의 자동 복원은 지원하지 않는다. 다음 새 세션은 새 UUID 폴더를 쓴다.
 
-save는 이 agent가 두 서비스를 시작해 소유했고 시작 완료한 세션에서만 dump 완료를 수용한다. 기존에 떠 있던 서비스를 임의로 종료하거나 그 dump를 확인된 지도로 쓰지 않는다. 종료 요청은 기존 전용 서비스 스레드로 전달한다. 두 소유 서비스의 stop 성공을 확인하기 전에는 bundle을 업로드하지 않는다. 5초 systemctl 호출이 종료를 기다리다 timeout 나면 서비스 스레드가 정리를 재시도하며, stop이 확인되지 않으면 업로드도 보류한다.
+save는 이 agent가 두 서비스를 시작해 소유했고 시작 완료한 세션에서만 dump 완료를 수용한다. 기존에 떠 있던 서비스를 임의로 종료하거나 그 dump를 확인된 지도로 쓰지 않는다. 종료 요청은 기존 전용 서비스 스레드로 전달한다. 두 소유 서비스의 stop 성공 확인은 검증된 dump를 읽어 `SLAM_SAVED`로 판정할 때 필수다. 5초 systemctl 호출이 실패하거나 timeout 나면 서비스 스레드가 정리를 재시도한다. stop이 확인되지 않아도 저장 대기 상한(유효한 dump 설정/소유가 없으면 10초, 있으면 `FH_MAPPING_GLIM_DUMP_TIMEOUT_S`) 뒤에는 마지막 Point-LIO 자료를 `slam_save=UNKNOWN`으로 동결하고 업로드한다. stop 실패는 `SLAM_SERVICE event=stop_failed` 로그·서비스 `UNKNOWN` 상태·저장 progress 사유에 남기며, 확인 없는 `SLAM_SAVED`는 만들지 않는다.
+
+dump 폴더는 자동 삭제하지 않는다. `du -sh ~/foothold-slam/final-dumps/*/`로 크기를 확인하고, 해당 세션의 서비스 종료·저장/재처리 필요 여부를 확인한 뒤 보관이 끝난 세션 UUID-revision 폴더만 수동으로 삭제한다(설정한 dump root 사용).
 
 근거는 설치된 wrapper 1.2.2 커밋 [`4d4ec524`](https://github.com/koide3/glim_ros2/blob/4d4ec524ccf1b02aa09b0af2af767ecc54343798/src/glim_rosnode.cpp#L19-L24)의 shutdown → wait → save, GLIM 커밋 [`1a197c99`의 GlobalMapping::save](https://github.com/koide3/glim/blob/1a197c999e4865f5cab7c9cd25474128413ebbca/src/glim/mapping/global_mapping.cpp#L546-L635)와 [SubMap::save](https://github.com/koide3/glim/blob/1a197c999e4865f5cab7c9cd25474128413ebbca/src/glim/mapping/sub_map.cpp#L24-L63)다. `graph.txt`의 submap/frame 수, 연속된 6자리 submap 폴더, 완전한 `data.txt`, graph/values, 설정, trajectory를 검사한다. [`gtsam_points::save_compact`](https://github.com/koide3/gtsam_points/blob/8e94654558dfbe7ddb0341de300daaf17e25ee02/src/gtsam_points/types/point_cloud.cpp#L162-L175)의 `points_compact.bin`은 native float XYZ 12 bytes/점이다. 이 reader는 Jetson/x86의 little-endian float32 형식만 지원하며 일반 `points.bin`이나 PCD를 추측해 읽지 않는다. gtsam_points commit은 로컬 r25 설치 기록의 1.2.2 `8e94654558dfbe7ddb0341de300daaf17e25ee02`와 같은 공식 소스를 읽었다. rs-slam-r25가 실제 바이너리 산출물도 이 형식과 대조해야 한다.
 
@@ -64,7 +66,7 @@ save는 이 agent가 두 서비스를 시작해 소유했고 시작 완료한 �
 
 시작은 서버가 해당 운영자의 로봇 세션에 보낸 명령, 현재 기체 확인·인증 관측 연결·로컬 기본 꺼짐 설정을 거친다. 이동 승인·조종권·잠금 해제는 필요하지 않으며 새 권한을 만들지 않는다. systemctl은 별도 daemon에서 제한된 인자 배열과 5초 호출 timeout으로 실행한다. 조종/STOP 이벤트 루프는 기다리지 않는다.
 
-서비스 이름은 설정된 두 `foothold-*` user unit으로 제한한다. 이 agent가 소유하지 않은 기존 실행 서비스는 소유하거나 끄지 않는다. 우리가 시작한 것만 저장/취소/종료 때 끈다. 새 세션은 이전에 소유한 그래프를 정리한 뒤 시작하며 시작 완료 전에 받은 자료는 누적하지 않는다. 연결/기체 확인 조건이 사라지면 reader를 닫고 10초 뒤 소유한 서비스를 끈다. 이 정리 요청은 DDS 작업자가 지연돼도 별도 관측 감시에서 수행한다. 재접속은 시작을 재전송하지 않는다. 서비스 상태 조회/시작 중 취소도 처리한다. systemd unit 설치와 agent 강제 종료에 대한 supervisor 결합은 이 PR에서 실기 검증하지 않았다.
+서비스 이름은 설정된 두 `foothold-*` user unit으로 제한한다. 이 agent가 소유하지 않은 기존 실행 서비스는 소유하거나 끄지 않는다. 우리가 시작한 것만 저장/취소/종료 때 끈다. 새 세션은 이전에 소유한 그래프를 정리한 뒤 시작하며 시작 완료 전에 받은 자료는 누적하지 않는다. stop 재시도는 별도 서비스 스레드에서만 실행해 Point-LIO 자료 처리와 명령 처리를 기다리게 하지 않는다. 이전 그래프를 정리하지 못한 새 세션은 시작 실패를 표시하고, 정지 복구 후 새 세션 명령으로 다시 시작한다. 연결/기체 확인 조건이 사라지면 reader를 닫고 10초 뒤 소유한 서비스를 끈다. 이 정리 요청은 DDS 작업자가 지연돼도 별도 관측 감시에서 수행한다. 재접속은 시작을 재전송하지 않는다. 서비스 상태 조회/시작 중 취소도 처리한다. systemd unit 설치와 agent 강제 종료에 대한 supervisor 결합은 이 PR에서 실기 검증하지 않았다.
 
 `foothold-robot`·`foothold-policy-cpp`·`foothold-depth`는 두 설정 어디에 넣어도 초기화 오류로 기록하고 거부한다(`.service` 접미사 포함). 서비스 조회·시작·종료는 수행하지 않는다.
 
