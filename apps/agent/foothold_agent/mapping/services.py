@@ -28,6 +28,9 @@ class Services:
         self.wake=threading.Event()
         self.thread=None
         self.stop_failures={}
+        self.lock=threading.RLock()
+        self.version=0
+        self.starting=False
 
     @staticmethod
     def systemctl(action,name):
@@ -35,20 +38,28 @@ class Services:
             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5,check=False)
         return result.returncode
 
+    def control_enabled(self):
+        return self.env.get('FH_MAPPING_SERVICE_CONTROL_ENABLED','').lower()=='true'
+
     def start(self):
-        if self.env.get('FH_MAPPING_SERVICE_CONTROL_ENABLED','').lower()!='true' or not self.allowed() or self.closed:
-            self.status='DISABLED'
-            return False
-        if self.pending or self.status=='STARTING':
-            return False
-        self.pending=True
-        self.ready_at=None
-        self.stop_requested=False
-        self.status='STARTING'
-        LOG.warning('SLAM_SERVICE event=start_requested monotonic=%.6f utc=%s',time.monotonic(),datetime.now(timezone.utc).isoformat())
-        self.launch()
-        self.wake.set()
-        return True
+        with self.lock:
+            if not self.control_enabled() or not self.allowed() or self.closed:
+                self.ready_at=None
+                self.stop()  # retain cleanup of the preceding session, even offline
+                self.status='UNKNOWN' if self.control_enabled() else 'DISABLED'
+                return False
+            if self.pending or self.starting or self.status=='STARTING':
+                self.stop()  # the replacement must not leave the older job running
+                return False
+            self.version+=1
+            self.pending=True
+            self.ready_at=None
+            self.stop_requested=False
+            self.status='STARTING'
+            LOG.warning('SLAM_SERVICE event=start_requested monotonic=%.6f utc=%s',time.monotonic(),datetime.now(timezone.utc).isoformat())
+            self.launch()
+            self.wake.set()
+            return True
 
     def launch(self):
         if self.thread is None:
@@ -56,10 +67,12 @@ class Services:
             self.thread.start()
 
     def stop(self):
-        self.pending=False
-        self.stop_requested=True
-        if self.thread is not None:
-            self.wake.set()
+        with self.lock:
+            self.version+=1
+            self.pending=False
+            self.stop_requested=True
+            if self.thread is not None:
+                self.wake.set()
 
     def close(self):
         self.closed=True
@@ -78,9 +91,10 @@ class Services:
                     report=self.stop_failed(name,('returncode',result)) or report
             except Exception as error:
                 report=self.stop_failed(name,('exception',type(error).__name__)) or report
-        self.status=('STARTING' if self.pending else 'STOPPED') if not self.owned else 'UNKNOWN'
-        if not self.owned:
-            self.stop_requested=False
+        with self.lock:
+            self.status=('STARTING' if self.pending or self.starting else 'STOPPED') if not self.owned else 'UNKNOWN'
+            if not self.owned:
+                self.stop_requested=False
         if report or not self.owned:
             LOG.warning('SLAM_SERVICE event=cleanup remaining=%d monotonic=%.6f utc=%s',len(self.owned),time.monotonic(),datetime.now(timezone.utc).isoformat())
 
@@ -97,31 +111,45 @@ class Services:
         while True:
             self.wake.wait(1)
             self.wake.clear()
-            if self.pending and self.owned:
-                self.cleanup()  # a new session must not inherit our old SLAM graph
-                if self.owned:
+            with self.lock:
+                job=self.version if self.pending else None
+                if job is not None:
                     self.pending=False
-                    self.stop_requested=True
-            if self.pending:
-                self.pending=False
+                    self.starting=True
+            if job is not None:
                 try:
+                    if self.owned:
+                        self.cleanup()  # never inherit the preceding SLAM graph
+                        if self.owned:
+                            raise OSError('previous mapping services still owned')
                     for name in self.names:
-                        if self.stop_requested or not self.allowed():
+                        if not self.wanted(job):
                             raise PermissionError('mapping observation unavailable')
                         if self.run('is-active',name)==0:
-                            continue  # pre-existing services never become ours
-                        if self.stop_requested or not self.allowed():
+                            raise PermissionError('pre-existing mapping service')
+                        if not self.wanted(job):
                             raise PermissionError('mapping service start canceled')
                         self.owned.add(name)  # cleanup even if start times out after taking effect
                         if self.run('start',name)!=0:
                             raise OSError('mapping service start failed')
-                    self.ready_at=self.now()
-                    self.status='STARTED'
+                    # stop/save/replacement during the last blocking call must
+                    # not publish readiness. stop() shares this commit lock.
+                    with self.lock:
+                        if not self.wanted(job):
+                            raise PermissionError('mapping service start canceled')
+                        self.ready_at=self.now()
+                        self.status='STARTED'
                     LOG.warning('SLAM_SERVICE event=started owned=%d monotonic=%.6f utc=%s',len(self.owned),time.monotonic(),datetime.now(timezone.utc).isoformat())
                 except Exception:
                     self.status='UNKNOWN'
                     self.stop_requested=True
+                finally:
+                    with self.lock:
+                        self.starting=False
             if self.stop_requested:
                 self.cleanup()
             if self.closed:
                 return
+
+    def wanted(self,job):
+        return self.version==job and not self.closed and self.allowed()

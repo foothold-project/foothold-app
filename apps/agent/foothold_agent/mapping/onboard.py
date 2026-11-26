@@ -229,7 +229,10 @@ class OnboardRuntime(MappingRuntime):
                 services_requested = self.services.start()
                 self.services_requested=services_requested
                 if not services_requested:
-                    self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
+                    if self.services.control_enabled():
+                        self.problem('MAPPING_SERVICES_FAILED','지도 서비스를 시작하지 못했습니다. 설치 설정과 관측 연결을 확인해 주세요.')
+                    else:
+                        self.problem('MAPPING_SERVICES_DISABLED','지도 서비스 실행 설정이 꺼져 있습니다. 설치 설정을 확인해 주세요.')
                 self.raw.start(sid, services_requested=services_requested)
         elif op=='cancel':
             self.raw.stop('cancelled')
@@ -248,7 +251,7 @@ class OnboardRuntime(MappingRuntime):
             self.raw.stop('save_requested')
             self.save_requested=frame['_received_monotonic']
             self.final_received=False
-            self.dump_eligible=bool(self.dump and self.services.status=='STARTED'
+            self.dump_eligible=bool(self.dump and self.session_services_ready() and self.services.status=='STARTED'
                 and set(self.services.names)<=self.services.owned)
             self.services.stop()
             self.phase,self.core.status='SAVE_REQUESTED','SAVING'
@@ -399,7 +402,7 @@ class OnboardRuntime(MappingRuntime):
     def session_services_ready(self):
         # ready_at survives stop failure for this session's bounded fallback,
         # but an unaccepted/replaced start must never inherit an older graph.
-        return (self.services.status=='DISABLED' or self.services_requested
+        return (not self.services.control_enabled() or self.services_requested
             and self.services.ready_at is not None and self.services.ready_at>=self.not_before)
 
     def grid_body(self, *, crop=False, max_cells=None):
