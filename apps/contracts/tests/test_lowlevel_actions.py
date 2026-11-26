@@ -7,8 +7,8 @@ import pytest
 from apps.contracts import models as C
 
 LOWLEVEL = set(get_args(C.LowlevelAction))
-# 동작표 action-table-1126 1 절에서 「저수준」 열이 「켬」 인 줄의 SDK 이름 (인사 Greet 는 SDK 이름 없음)
-TABLE_ON = {'Sit', 'RiseSit', 'StandDown', 'Stretch', 'Hello', 'Heart', 'Damp'}
+# 동작표 action-table-1126 1 절에서 「저수준」 열이 「켬」 인 줄의 SDK 이름 + Greet (SDK 번호 없음 · 팀장 11/26 10:17)
+TABLE_ON = {'Sit', 'RiseSit', 'StandDown', 'Stretch', 'Hello', 'Heart', 'Damp', 'Greet'}
 TABLE = Path('/home/jay/data/overnight-1122/briefs/action-table-1126.md')
 
 
@@ -23,6 +23,10 @@ def test_list_matches_table_and_is_closed_action_subset():
 def test_generated_schema_is_the_same_list():
     schema = json.loads((Path(C.__file__).parent / 'schema' / 'LowlevelAction.json').read_text())
     assert set(schema['enum']) == LOWLEVEL
+    off = json.loads((Path(C.__file__).parent / 'schema' / 'FactoryUnsupportedAction.json').read_text())
+    assert off.get('enum', [off.get('const')]) == ['Greet'] and 'Greet' in LOWLEVEL   # 값 하나는 const
+    query = json.loads((Path(C.__file__).parent / 'schema' / 'LowlevelQuery.json').read_text())
+    assert query['enum'] == ['CheckMode', 'AutoRecoveryGet'] and not set(query['enum']) & LOWLEVEL
     control = json.loads((Path(C.__file__).parent / 'schema' / 'ControlMode.json').read_text())
     assert control['enum'] == ['FACTORY', 'LOWLEVEL']
 
@@ -38,8 +42,9 @@ def test_list_matches_table_file():
         sdk = re.findall(r'[A-Za-z]+', cells[6])
         hit = [w for w in sdk if w in names]
         (on.update(hit) if hit else unnamed.append(cells[0]))
-    assert on == LOWLEVEL
+    # SDK 번호가 없는 켬 줄은 인사 하나 = Greet (순정에서 안 됨)
     assert unnamed == ['Greet (인사)']
+    assert on | {'Greet'} == LOWLEVEL and set(get_args(C.FactoryUnsupportedAction)) == {'Greet'}
 
 
 def test_state_carries_optional_control():
@@ -51,3 +56,5 @@ def test_state_carries_optional_control():
 def test_agent_mirror_matches_contract():
     from apps.agent.foothold_agent.go2_direct import actions
     assert set(actions.LOWLEVEL) == LOWLEVEL and LOWLEVEL <= actions.ACTIONS
+    assert actions.NO_FACTORY == set(get_args(C.FactoryUnsupportedAction)) and actions.LOWLEVEL['Greet'] == 'L1+A'
+    assert actions.LOWLEVEL_QUERY == set(get_args(C.LowlevelQuery))

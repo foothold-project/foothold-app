@@ -23,7 +23,7 @@ export interface ActionOption {
 
 export interface ActionResult {
   request_id: string;
-  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode";
+  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode" | "Greet";
   status: "RUNNING" | "SUCCEEDED" | "REJECTED" | "FAILED";
   code: string;
   sdk_code: number | null;
@@ -32,7 +32,7 @@ export interface ActionResult {
 }
 
 export interface AgentAction {
-  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode";
+  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode" | "Greet";
   params: Go2ActionParams;
   confirmed: boolean;
   t: "action";
@@ -651,7 +651,7 @@ export interface Go2ActionParams {
 }
 
 export interface Go2ActionRequest {
-  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode";
+  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode" | "Greet";
   params: Go2ActionParams;
   confirmed: boolean;
 }
@@ -2141,7 +2141,7 @@ export interface ScenarioWrite {
 }
 
 export interface ScreenAction {
-  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode";
+  action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode" | "Greet";
   params?: Go2ActionParams;
   confirmed?: boolean;
   id: string;
@@ -2751,6 +2751,8 @@ export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus
 export type MediaChannel = "rgb" | "external" | "lidar" | "depth";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
-export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp";
+export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp" | "Greet";
 export type ControlMode = "FACTORY" | "LOWLEVEL";
+export type FactoryUnsupportedAction = "Greet";
+export type LowlevelQuery = "CheckMode" | "AutoRecoveryGet";
 export type PairingPollResult = PairingWaiting | PairingPaired;

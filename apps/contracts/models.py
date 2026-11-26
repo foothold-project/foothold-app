@@ -717,12 +717,16 @@ class ScreenPing(ScreenEnvelope):
 
 
 # Experimental Go2 high-level requests; SDK success is not physical completion.
-Go2ActionName = Literal['Damp', 'BalanceStand', 'StopMove', 'StandUp', 'StandDown', 'RecoveryStand', 'Euler', 'Sit', 'RiseSit', 'SpeedLevel', 'Hello', 'Stretch', 'Content', 'Dance1', 'Dance2', 'SwitchJoystick', 'Pose', 'Scrape', 'FrontFlip', 'FrontJump', 'FrontPounce', 'Heart', 'StaticWalk', 'TrotRun', 'EconomicGait', 'LeftFlip', 'BackFlip', 'HandStand', 'FreeWalk', 'FreeBound', 'FreeJump', 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet', 'AutoRecoveryGet', 'SwitchAvoidMode', 'CheckMode', 'SelectMode']
+Go2ActionName = Literal['Damp', 'BalanceStand', 'StopMove', 'StandUp', 'StandDown', 'RecoveryStand', 'Euler', 'Sit', 'RiseSit', 'SpeedLevel', 'Hello', 'Stretch', 'Content', 'Dance1', 'Dance2', 'SwitchJoystick', 'Pose', 'Scrape', 'FrontFlip', 'FrontJump', 'FrontPounce', 'Heart', 'StaticWalk', 'TrotRun', 'EconomicGait', 'LeftFlip', 'BackFlip', 'HandStand', 'FreeWalk', 'FreeBound', 'FreeJump', 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet', 'AutoRecoveryGet', 'SwitchAvoidMode', 'CheckMode', 'SelectMode', 'Greet']
 
 # 저수준 (START · AME-2) 제어 중에도 누를 수 있는 동작 (팀장 11/26 08:01 · 동작표 action-table-1126 「저수준」 열 「켬」).
 # 화면 · 서버 · 에이전트 · 음성이 이 목록 하나를 본다. 순정 (FACTORY) 에서는 Go2ActionName 전부.
-# 인사 (Greet · 리모컨 L1+A) 는 SDK 이름이 아직 없어 (동작표 3 절 3) 여기 없다.
-LowlevelAction = Literal['Sit', 'RiseSit', 'StandDown', 'Stretch', 'Hello', 'Heart', 'Damp']
+# Greet (인사 · 리모컨 L1+A · 팀장 11/26 10:17) 는 순정 SDK 번호가 없어 START 실행기에서만 된다 (순정에서는 FACTORY_UNSUPPORTED).
+LowlevelAction = Literal['Sit', 'RiseSit', 'StandDown', 'Stretch', 'Hello', 'Heart', 'Damp', 'Greet']
+# 순정 (FACTORY) 에서 안 되는 동작: SDK 번호를 모름 → FACTORY_UNSUPPORTED (화면은 회색)
+FactoryUnsupportedAction = Literal['Greet']
+# 저수준 중에도 켜는 읽기 전용 순정 SDK 조회 (팀장 11/26 10:19 · #498 그대로). 실행기 키가 아니다
+LowlevelQuery = Literal['CheckMode', 'AutoRecoveryGet']
 # 누가 다리를 쥐고 있나: FACTORY 순정 sport 서비스 · LOWLEVEL START 실행기 (/tmp/foothold-start-active)
 ControlMode = Literal['FACTORY', 'LOWLEVEL']
 
@@ -3406,7 +3410,7 @@ TOP.update(SlamMessage=SlamMessage, MediaMessage=MediaMessage, MediaChannel=Medi
 REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})
 
 TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
-TOP.update(LowlevelAction=LowlevelAction, ControlMode=ControlMode)
+TOP.update(LowlevelAction=LowlevelAction, ControlMode=ControlMode, FactoryUnsupportedAction=FactoryUnsupportedAction, LowlevelQuery=LowlevelQuery)
 
 REQUEST_MODELS.update({StopRequest, PhoneStop})
 
