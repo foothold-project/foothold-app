@@ -38,6 +38,7 @@ class Feedback:
         self._low = self._sport = None
         self._sequence = 0
         self._consumed = -1
+        self._consumed_low = None
         self._last_ready = False
         self._drops = Counter()
         self.lock_evidence = {'accepted_errors': self.accept_error_codes}
@@ -278,6 +279,78 @@ class Feedback:
         """Shared display/readiness policy; only an explicit server list applies."""
         return error == 0 or (error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')
 
+    def _start_sample(self):
+        """START + 실행기 길: (LowState, 실행기 상태) 둘 다 신선할 때만. 순정 SportModeState 는 START 중 쓰지 않는다.
+        실행기 상태는 실행기가 앱 묶음에 돌려준 응답 (runner_link · 0.2 초 안). 없으면 None (닫힌 쪽)."""
+        sink = self.sink
+        runner = getattr(sink, 'runner', None)
+        if runner is None:
+            return None
+        status = runner.status()
+        with self._lock:
+            low = self._low
+            if (status is None or self._fault or low is None
+                    or not 0 <= self.now()-low['received'] <= FEEDBACK_MAX_AGE_S):
+                return None
+            return deepcopy(low), status
+
+    def _start_mode(self):
+        from .sink import start_active
+        return getattr(self.sink, 'runner', None) is not None and start_active()
+
+    def _start_posture(self, sample):
+        result = dict(state='UNKNOWN', mode=None, still=False, sequence=-1, sitting_settled=False,
+                      standing_locked=False, walkable=False, motion_state=None, height=None)
+        if sample is None:
+            return result
+        low, status = sample
+        angles = low['attitude']
+        tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
+        upright = tilt is not None and tilt < math.pi/3
+        phase = status['phase']
+        with self._lock:
+            result['sequence'] = self._sequence
+        result['still'] = low['still']
+        # 실행기 phase 가 자세의 근거: policy = 서서 걷기 가능 · damping = 엎드려 힘 뺌 · 그 밖은 바뀌는 중
+        result['state'] = ('STANDING' if phase == 'policy' and upright else
+                           'LYING' if phase == 'damping' else 'TRANSITIONING')
+        result['walkable'] = phase == 'policy' and upright
+        return result
+
+    def _start_consume(self, hub):
+        sample = self._start_sample()
+        if sample is None:
+            self.lock_evidence['feedback_failed'] = 'start_runner_or_low_stale'
+            return False
+        low, status = sample
+        if low['tick'] == self._consumed_low:
+            return self._last_ready   # 같은 LowState 로는 Core 시각을 새로 하지 않는다
+        self._consumed_low = low['tick']
+        posture = self._start_posture(sample)
+        ready = posture['walkable']
+        still = low['still']
+        self._consumed_failure = 'none' if ready else 'start_phase_' + status['phase']
+        self.lock_evidence['feedback_failed'] = self._consumed_failure
+        generation, latched = self.sink.feedback_context()
+        with self._lock:
+            self._sequence += 1
+            sequence = self._sequence
+        confirmed = (ready and still and low['generation'] == generation and self.sink.confirm_stopped(
+            generation=generation, sequence=sequence, received_at=low['received'], stationary=True))
+        self._last_ready = ready
+        angles = low['attitude']
+        tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
+        checks = [(axis, value, .05, 'rad/s') for axis, value in zip(('gyro_x', 'gyro_y', 'gyro_z'), low['gyro'] or ())]
+        checks += [(f'joint_{i}', value, .10, 'rad/s') for i, value in enumerate(low['dq'] or ())]
+        violations = [dict(axis=axis, value=value, limit=limit, unit=unit)
+                      for axis, value, limit, unit in checks if abs(value) > limit]
+        hub.on_robot_state(dict(schema=SCHEMA, episode=0, sim_t=None,
+            still_violations=violations,
+            stop_requested=bool(latched and confirmed), reset_in_progress=False, policy_running=ready,
+            body_still=still, fallen=None if tilt is None else tilt >= math.pi/3,
+            tilt_deg=None if tilt is None else math.degrees(tilt), z=None, vx=None, vy=None, wz=None))
+        return ready
+
     def posture_snapshot(self):
         """Fresh identity-bound posture, never inferred from an RPC return code.
 
@@ -285,6 +358,8 @@ class Feedback:
         recoveryStand, 0 idle/default stand, 1 balanceStand, 3 locomotion.
         Height/progress/attitude disambiguate incomplete stand transitions.
         """
+        if self._start_mode():
+            return self._start_posture(self._start_sample())
         return self._posture(self.sample())
 
     def _posture(self, sample):
@@ -322,6 +397,8 @@ class Feedback:
         return result
 
     def consume(self, hub):
+        if self._start_mode():
+            return self._start_consume(hub)
         sample = self.sample(record_failure=True)
         if sample is None:
             return False

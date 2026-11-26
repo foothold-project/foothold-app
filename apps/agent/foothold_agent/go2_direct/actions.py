@@ -4,11 +4,7 @@ No SDK imports here. RPC timeout is configured by SportBoundary (.10 s); the
 watcher also cancels jobs while a broken/blocked SDK is still in flight. A zero
 return is SDK acceptance, never evidence that the physical motion completed.
 """
-import json
 import math
-import os
-import socket
-import time
 from collections import deque
 
 ACTIONS = frozenset('Damp BalanceStand StopMove StandUp StandDown RecoveryStand Euler Sit RiseSit SpeedLevel Hello Stretch Content Dance1 Dance2 SwitchJoystick Pose Scrape FrontFlip FrontJump FrontPounce Heart StaticWalk TrotRun EconomicGait LeftFlip BackFlip HandStand FreeWalk FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet AutoRecoveryGet SwitchAvoidMode CheckMode SelectMode Greet'.split())
@@ -22,7 +18,6 @@ LOWLEVEL = {'Sit': 'R1+B', 'RiseSit': 'R1+B', 'StandDown': 'L2+A', 'Stretch': 'R
             'Hello': 'R2+B', 'Heart': 'R2+Y', 'Damp': 'L2+B', 'Greet': 'L1+A'}
 # START 중에도 순정 SDK 로 보내는 읽기 전용 조회 (apps/contracts LowlevelQuery · 팀장 11/26 10:19 · #498)
 LOWLEVEL_QUERY = frozenset({'CheckMode', 'AutoRecoveryGet'})
-RUNNER_PORT_ENV = 'FH_START_MOVE_PORT'
 TIMEOUT_S = 2.
 # Firmware does not report action completion. Bound the accepted-motion wait
 # generously, then resume ordinary STOP retries. StandUp/StandDown retain their
@@ -36,19 +31,6 @@ SDK_REASONS = {
     3203: 'UNSUPPORTED', 3204: 'SDK_ARGUMENTS', 3205: 'SDK_AUTHORITY',
     3206: 'SDK_AUTHORITY', 3207: 'SDK_BUSY',
 }
-
-
-def runner_send(action, request_id, env=os.environ):
-    """START 실행기에 키 한 번을 loopback UDP 한 묶음으로 넘긴다. 포트를 안 정했으면 False (아직 연결 안 됨).
-    seq 는 CLOCK_MONOTONIC ns: 늘어나는 번호이자 보낸 시각 (같은 기기라 실행기가 0.5 초 넘은 묶음을 버린다)."""
-    port = env.get(RUNNER_PORT_ENV, '')
-    if not port.isdigit() or not 1024 <= int(port) <= 65535:
-        return False
-    body = json.dumps(dict(seq=time.monotonic_ns(), key=LOWLEVEL[action], action=action,
-                           request_id=request_id), separators=(',', ':')).encode()
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.sendto(body, ('127.0.0.1', int(port)))
-    return True
 
 
 def arguments(action, params):
@@ -118,14 +100,29 @@ class Actions:
                   'CONFIRM_REQUIRED' if action in DANGEROUS and confirmed is not True else None)
         if reason:
             return 'REJECTED', reason
+        if s.runner is None:   # FH_START_MOVE_PORT 를 정하지 않음
+            return 'REJECTED', 'RUNNER_NOT_CONNECTED'
         try:
-            sent = runner_send(action, request_id)
+            s.runner.key(LOWLEVEL[action], action, request_id)
         except OSError:
             return 'FAILED', 'RUNNER_SEND_FAILED'
-        if not sent:
-            return 'REJECTED', 'RUNNER_NOT_CONNECTED'
         self.seen.append((lease, request_id))
         return 'SUCCEEDED', 'RUNNER_SENT'
+
+    def runner_acks(self):
+        """실행기 응답이 오면 RUNNER_SENT 를 RUNNER_STARTED · RUNNER_IGNORED_<까닭> 으로 바꾼다.
+        STARTED 는 실행기가 그 키로 상태를 바꿨다는 뜻 (동작 완료 아님). 응답이 없으면 RUNNER_SENT 그대로."""
+        s = self.sink
+        if s.runner is None:
+            return
+        for ack in s.runner.take_acks():
+            started = ack['result'] == 'STARTED'
+            code = 'RUNNER_STARTED' if started else 'RUNNER_IGNORED_' + (ack['reason'] or 'phase').upper()
+            with s._lock:
+                for holder, name in ((self, 'result'), (s, 'posture_result')):
+                    result = getattr(holder, name)
+                    if result and result['request_id'] == ack['request_id'] and result['code'] == 'RUNNER_SENT':
+                        setattr(holder, name, dict(result, status='SUCCEEDED' if started else 'REJECTED', code=code))
 
     def request(self, request_id, action, params, lease, confirmed=False, *, moving=False):
         s = self.sink

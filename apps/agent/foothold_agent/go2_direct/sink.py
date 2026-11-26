@@ -167,6 +167,9 @@ class Go2Sink:
         self._stop_timeouts = deque(maxlen=256)
         self._last_timeout_at = None
         from .actions import Actions
+        from .runner_link import RunnerLink
+        # START 실행기 앱 입력 길 (FH_START_MOVE_PORT 없으면 None · APP-MOVES.md)
+        self.runner = RunnerLink.configured(now=now)
         self.actions = Actions(self)
 
     def _remote_active(self):
@@ -190,7 +193,10 @@ class Go2Sink:
             if self._operator_stop:
                 return '비상정지가 걸려 있습니다'
             if start_active():
-                return 'START 저수준 제어 중이라 화면 조종 · 순정 동작은 멈춰 있습니다 (리모컨 L2+A 앉기 · start+좌/우 로 순정 넘김)'
+                if self.runner is None:
+                    return 'START 저수준 제어 중이라 화면 조종 · 순정 동작은 멈춰 있습니다 (리모컨 L2+A 앉기 · start+좌/우 로 순정 넘김)'
+                if self.runner.status() is None:
+                    return 'START 실행기 응답이 없어 화면 조종은 멈춰 있습니다 (리모컨으로 조종하세요)'
             if active:
                 return '리모컨으로 조종 중이라 화면 조종은 멈춰 있습니다'
             if self._wait_operator_neutral:
@@ -725,7 +731,24 @@ class Go2Sink:
             if motion:
                 self._motion_returned()
 
+    def _start_route(self):
+        """START 이고 실행기 길이 있으면 참: 순정 SDK 이동 · 정지 RPC 를 보내지 않고 실행기로만 낸다."""
+        return self.runner is not None and start_active()
+
+    def _runner_output(self, velocity, movement_epoch=None):
+        # Move RPC 와 같은 관문: 리모컨 · 잠금 · 새 STOP 세대 · 손 떼기 대기면 0.
+        with self._lock:
+            ok = (velocity != ZERO and not self._remote_active() and not self.latched
+                  and not self._closed.is_set() and not self._wait_operator_neutral
+                  and movement_epoch == (self.generation, self._last_remote_activity))
+        self.runner.poll()
+        self.runner.velocity(velocity if ok else ZERO)
+
     def _stop_output(self, client, *, force=False):
+        if self._start_route():
+            # START 중 정지 = 실행기 속도 0 (실행기가 감속해 제자리에 선다 · 엎드리지 않음).
+            self._runner_output(ZERO)
+            return
         first = None
         with self._lock:
             if self._remote_active() and not self._operator_stop:
@@ -841,12 +864,17 @@ class Go2Sink:
                 self._ramp_at = (stamp,) * 3
                 self._urgent = False
             try:
-                if urgent or self.latched:
+                if self._start_route():
+                    # START: 순정 SDK 이동 · 정지 대신 실행기에 속도 (0 포함). 같은 관문을 지난 값만 나간다.
+                    moving = not urgent and self._posture is None and not self.actions.busy and self._walkable()
+                    self._runner_output(velocity if moving else ZERO, movement_epoch)
+                elif urgent or self.latched:
                     self._stop_output(self.client)
                 elif self._posture is None and not self.actions.busy and self._walkable():
                     self._movement_rpc(self.client, 'Move', velocity, movement_epoch=movement_epoch)
                 self._posture_step()
                 self.actions.step()
+                self.actions.runner_acks()
                 # An in-flight SDK call cannot be cancelled. Compensate on its
                 # own lane immediately after return if STOP/close raced it.
                 with self.lock_log.after_unlock() as emit, self._lock:
@@ -974,6 +1002,8 @@ class Go2Sink:
         self.emergency_stop(force=True)
         for thread in self._threads:
             thread.join(timeout=.25)
+        if self.runner is not None:
+            self.runner.close()
         if any(t.is_alive() for t in self._threads):
             self._fail(OutputError('SDK worker did not stop; process isolation required'))
             raise OutputError('SDK worker did not stop')
