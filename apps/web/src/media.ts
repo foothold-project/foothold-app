@@ -11,7 +11,7 @@ export type MediaChannel = Exclude<AnyChannel, 'depth'>;
 export const CHANNELS: readonly MediaChannel[] = ['rgb', 'external', 'lidar'];
 /** 토큰 수명(에이전트 10 s) · 이보다 오래 새 프레임이 없으면 «멈춤»(에이전트 NO_VIDEO 는 1 s) */
 export const TOKEN_MS = 10_000, STALE_MS = 2000;
-const POINT_MAX = 4000, ABS_M = 10_000;
+const POINT_MAX = 4000, DRIVE_POINT_MAX = 20_000, ABS_M = 10_000;
 /** off 안 봄 · wait 기다림 · live 받는 중 · none 로봇이 못 보냄(reason) · lost 끊김 · expired 토큰 끝(다시 연결 필요) · bad 약속 위반으로 닫음 */
 export type FeedState = 'off' | 'wait' | 'live' | 'none' | 'lost' | 'expired' | 'bad';
 export type Feed = {
@@ -75,10 +75,10 @@ export function mediaWelcome(v: unknown): PhoneMediaWelcome | null {
 }
 
 /** 점군 머리(JSON) 검사 — 맞으면 그 머리, 아니면 null */
-export function pointsHeader(m: Record<string, unknown>, odom = false): MediaPointCloudHeader | null {
-  const n = m.count;   // odom = 서버 경유(drivemedia.ts)만 받는 «로봇이 처음 켜진 곳 기준» 좌표(11-13 RB-MAP-VIEW)
-  return m.channel === 'lidar' && m.source === 'l1' && m.encoding === 'xyz_f32le' && (m.frame === 'map' || m.frame === 'lidar_link' || (odom && m.frame === 'odom'))
-    && typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= POINT_MAX && m.byte_length === n * 12 && typeof m.truncated === 'boolean'
+export function pointsHeader(m: Record<string, unknown>, serverDrive = false): MediaPointCloudHeader | null {
+  const n = m.count;   // 서버 경유는 raw·odom 모두 20000점, 전화 직결은 기존 4000점 상한
+  return m.channel === 'lidar' && m.source === 'l1' && m.encoding === 'xyz_f32le' && (m.frame === 'map' || m.frame === 'lidar_link' || (serverDrive && m.frame === 'odom'))
+    && typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= (serverDrive ? DRIVE_POINT_MAX : POINT_MAX) && m.byte_length === n * 12 && typeof m.truncated === 'boolean'
     && Number.isInteger(m.seq) ? m as unknown as MediaPointCloudHeader : null;
 }
 /** 바이너리 → xyz(LE float32). 길이·유한·좌표 범위가 어긋나면 null(그 스캔을 받지 않음) */

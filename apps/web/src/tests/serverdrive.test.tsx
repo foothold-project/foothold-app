@@ -623,6 +623,20 @@ describe('서버 경유 카메라·라이다', () => {
   const scan = (lid: FakeWS, h: object, pts: number[]) => act(() => { lid.recv(h); lid.onmessage?.({ data: new Float32Array(pts).buffer } as never); });
   const map = () => $('[data-sd-full] [data-lidar-map]');
 
+  it.each(['lidar_link', 'odom'])('서버 경유 %s 20000점 전체를 받고 다음 판으로 교체하며 20001점은 거부한다', (frame) => {
+    mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
+    const lid = mediaSock('lidar');
+    act(() => lid.open());
+    scan(lid, head(1, 20000, { frame, pose: frame === 'odom' ? { x: 0, y: 0, z: 0, yaw: 0 } : null }), new Array(60000).fill(1));
+    expect(map()!.dataset.lidarMap).toBe('20000');
+    expect(lid.readyState).not.toBe(3);
+    scan(lid, head(2, 1, { frame, pose: frame === 'odom' ? { x: 0, y: 0, z: 0, yaw: 0 } : null }), [1, 0, 0]);
+    expect(map()!.dataset.lidarMap).toBe('1');
+    act(() => lid.recv(head(3, 20001, { frame })));
+    expect(lid.readyState).toBe(3);
+    expect(map()?.dataset.lidarMap ?? '0').toBe('0');
+  });
+
   it('RB-LIDAR-EDGEWEB: 서버 경유도 edge_u8 를 받아 범례에 «모서리» — 없거나 깨지면 범례 줄 없이 점은 그대로', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7')); view(); ch('lidar');
     const lid = mediaSock('lidar'), edge = () => $('[data-sd-full] [data-edge-legend]');

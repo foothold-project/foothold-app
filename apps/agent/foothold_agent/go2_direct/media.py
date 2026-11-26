@@ -31,6 +31,21 @@ from foothold_agent.media.edges import annotate, enabled as edges_enabled
 MAX_INPUT_BYTES = 2_000_000
 MAX_INPUT_POINTS = 100_000
 MAX_POINTS = 4000
+MAX_DRIVE_POINTS = 20_000
+MAX_DRIVE_BODY = 4*((MAX_DRIVE_POINTS*12+2)//3) + 4*((MAX_DRIVE_POINTS+2)//3) + 8192
+
+
+def drive_max_points(env):
+    value = env.get('FH_DRIVE_LIDAR_MAX_POINTS', str(MAX_POINTS))
+    try:
+        count = int(value)
+        if 1000 <= count <= MAX_DRIVE_POINTS:
+            return count
+    except (ValueError, TypeError, OverflowError):
+        pass
+    logging.getLogger(__name__).warning(
+        'GO2_MEDIA invalid FH_DRIVE_LIDAR_MAX_POINTS; using 4000 (allowed 1000..20000)')
+    return MAX_POINTS
 
 
 def dimensions(data):
@@ -126,6 +141,7 @@ class Source:
     def __init__(self, config, env, channel, *, factory=sdk.observation, now=time.monotonic,
                  recorder=None, enabled=lambda: True, include_depth=True, authorize=sdk.authorize_observation):
         self.config, self.env, self.channel = config, env, channel
+        self.max_points = drive_max_points(env)
         self.factory, self.now = factory, now
         self.enabled = enabled
         self.authorize = authorize
@@ -297,7 +313,7 @@ class Source:
                 received, data, stamp = deskew
                 pose = self.poses.nearest(received, stamp)
                 if pose is not None and 0 <= self.now()-received <= 1:
-                    header, payload = points(data, frames=('odom',), edge_enabled=edges_enabled(self.env))
+                    header, payload = points(data, max_points=self.max_points, frames=('odom',), edge_enabled=edges_enabled(self.env))
                     header.update(frame='odom', pose=media_pose(pose))
                     self.publish('lidar', received, (header, payload))
                     self.last_odom_points = self.now()
@@ -307,7 +323,7 @@ class Source:
             pass
         try:
             if raw is not None and self.now()-self.last_odom_points >= 3:
-                self.publish('lidar', raw[0], points(raw[1], edge_enabled=edges_enabled(self.env)))
+                self.publish('lidar', raw[0], points(raw[1], max_points=self.max_points, edge_enabled=edges_enabled(self.env)))
                 self.next_lidar_publish = self.now()+.5
         except (ValueError, TypeError, OverflowError):
             pass
@@ -428,7 +444,7 @@ class Publisher:
         # HTTP avoids raising the deployment's 4096-byte control WS limit.
         body = json.dumps({'header':header, 'points':None if payload is None else
             base64.b64encode(payload).decode('ascii')}, allow_nan=False).encode()
-        if len(body) > 100_000:
+        if len(body) > (MAX_DRIVE_BODY if channel == 'lidar' else 100_000):
             raise ValueError('observation body exceeds bound')
         request = Request(self.url(channel), data=body, method='POST', headers={
             'Authorization':'Bearer '+self.config.link.token,'Content-Type':'application/json',
@@ -605,6 +621,7 @@ def approved_publisher(credentials, approval, subscriptions, recorder, enabled):
 
     # Setup's DepthPublisher already owns /drive-media/depth across approvals.
     env = {'FH_USLAM': '0',  # mapping uses the independent Point-LIO/GLIM pipeline
+           'FH_DRIVE_LIDAR_MAX_POINTS': os.environ.get('FH_DRIVE_LIDAR_MAX_POINTS', str(MAX_POINTS)),
            'FH_LIDAR_EDGE_ENABLED': os.environ.get('FH_LIDAR_EDGE_ENABLED', '0')}
     return Publisher(config, env, subscriptions, channels=('rgb', 'lidar'),
         source_factory=lambda config, env, channel: Source(config, env, channel,
