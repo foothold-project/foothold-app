@@ -1,13 +1,282 @@
 """Session ownership across link/start/stop/save transitions, using fakes only."""
 import json
+import asyncio
 import threading
+import time
 from collections import Counter
 from types import SimpleNamespace as NS
 
 import pytest
 
 from test_slam_mapping import (runtime, command, pose, cloud, configure_dump,
-    finish_dump, wait_for, FRONTEND, CLOUD, FINAL_POSE)
+    finish_dump, wait_for, service_fake, FRONTEND, CLOUD, FINAL_POSE)
+
+
+def always_on_runtime(tmp_path):
+    """Real freshness/decoding with a fake service manager and clock."""
+    clock=NS(t=0.)
+    active={'foothold-pointlio'}
+    calls=[]
+    def run(action,name):
+        calls.append((action,name))
+        if action=='is-active':return 0 if name in active else 3
+        if action=='start':active.add(name)
+        if action=='stop':active.discard(name)
+        return 0
+    rt=runtime(tmp_path,now=lambda:clock.t,service_run=run,real_health=True)
+    rt.env['FH_MAPPING_SERVICE_CONTROL_ENABLED']='true'
+    rt.online=True
+    return rt,clock,active,calls
+
+
+def prime(rt,stamp=1):
+    rt.receive(FRONTEND,pose(stamp=stamp))
+    rt.receive(CLOUD,cloud(stamp=stamp))
+    drain(rt)
+
+
+def close_runtime(rt):
+    rt.close()
+    if rt.thread:rt.thread.join(3)
+    if rt.services.thread:rt.services.thread.join(3)
+    rt.io.shutdown(wait=True)
+
+
+def assert_pointlio_read_only(calls):
+    assert all(action=='is-active' for action,name in calls if name=='foothold-pointlio')
+
+
+@pytest.mark.parametrize('preflight',['healthy','off','missing-pose','missing-cloud','stale','existing-glim'])
+def test_always_on_pointlio_start_conditions(tmp_path,preflight):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    try:
+        if preflight!='missing-pose':rt.receive(FRONTEND,pose())
+        if preflight!='missing-cloud':rt.receive(CLOUD,cloud())
+        drain(rt)
+        assert not rt.core.cells and rt.last_odom is None
+        if preflight=='off':active.remove('foothold-pointlio')
+        if preflight=='stale':clock.t=1.
+        if preflight=='existing-glim':active.add('foothold-glim')
+        rt.command(command());drain(rt)
+        wait_for(lambda:not rt.services.pending and not rt.services.starting)
+        if preflight=='healthy':
+            assert rt.services.status=='STARTED'
+            assert rt.services.owned=={'foothold-glim'}
+            prime(rt,2)
+            assert rt.core.cells and rt.last_odom is not None
+        else:
+            drain(rt)
+            assert rt.services.ready_at is None and not rt.services.owned
+            assert not rt.core.cells and rt.last_odom is None
+            assert rt.core.error_code=='MAPPING_SERVICES_FAILED'
+            assert ('start','foothold-glim') not in calls
+            assert rt.core.reason
+        assert_pointlio_read_only(calls)
+    finally:
+        close_runtime(rt)
+
+
+@pytest.mark.parametrize('ending',['save','cancel','disconnect','close'])
+def test_always_on_pointlio_survives_every_session_ending(tmp_path,ending):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    try:
+        prime(rt)
+        start=command();rt.command(start);drain(rt)
+        wait_for(lambda:rt.services.status=='STARTED')
+        prime(rt,2)
+        assert rt.core.cells
+        if ending=='disconnect':
+            rt.suspend();clock.t=10.;rt.cleanup_disconnected()
+        elif ending=='close':rt.close()
+        else:
+            rt.command(command(ending,start));drain(rt)
+        wait_for(lambda:not rt.services.owned)
+        assert active=={'foothold-pointlio'}
+        assert_pointlio_read_only(calls)
+    finally:
+        close_runtime(rt)
+
+
+@pytest.mark.parametrize('failure',['stale','nan-pose','jump','nan-cloud','glim-off','pointlio-off'])
+def test_pointlio_or_glim_fault_fences_all_input_and_retains_single_fallback(tmp_path,failure):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    uploads=[]
+    def request(sid,suffix,data):
+        if suffix=='bundle':uploads.append(json.loads(data))
+        return {'session_id':sid,'status':'RECEIVED_ONLY'} if suffix=='bundle' else {'accepted':True}
+    rt.request=request
+    try:
+        prime(rt)
+        start=command();rt.command(start);drain(rt)
+        wait_for(lambda:rt.services.status=='STARTED')
+        prime(rt,2)
+        before=dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps)
+        if failure=='stale':clock.t=.6
+        elif failure.endswith('-off'):
+            active.remove('foothold-glim' if failure=='glim-off' else 'foothold-pointlio')
+            rt.services.wake.set()
+            wait_for(lambda:rt.services.status=='UNKNOWN')
+        else:
+            msg=pose(stamp=3)
+            if failure=='nan-pose':msg.pose.pose.position.x=float('nan')
+            if failure=='jump':msg.pose.pose.position.x=3.
+            rt.receive(FRONTEND,msg)
+            rt.receive(CLOUD,cloud(points=((float('nan'),0,.3),(9,0,.3)) if failure=='nan-cloud' else ((9,0,.3),),stamp=3))
+        drain(rt)
+        assert_input_blocked(rt,4)
+        assert before==(dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps))
+        assert rt.core.error_code=='MAPPING_SERVICES_UNAVAILABLE'
+        # Fresh data cannot silently attach this failed session to a new graph.
+        prime(rt,5)
+        assert before==(dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps))
+        rt.command(command('save',start));drain(rt)
+        wait_for(lambda:not rt.services.owned)
+        clock.t+=11
+        for _ in range(12):drain(rt)
+        assert len(uploads)==1 and uploads[0]['slam_save']=='UNKNOWN'
+        assert {tuple(cell) for cell in uploads[0]['voxels']}==set(before[0])
+        assert_pointlio_read_only(calls)
+    finally:
+        close_runtime(rt)
+
+
+def test_server_link_only_disconnect_keeps_deadline_with_observation_enabled(tmp_path):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    closed=[]
+    rt.channel=NS(cloud_bus=NS(subscribe=lambda topic,*a,**k:NS(Close=lambda:closed.append(topic))))
+    prime(rt)
+    async def check():
+        task=asyncio.create_task(rt.run())
+        try:
+            await asyncio.sleep(.05)
+            rt.command(command())
+            for _ in range(200):
+                if rt.services.status=='STARTED':break
+                await asyncio.sleep(.005)
+            assert rt.services.status=='STARTED'
+            rt.observer.connected=False
+            for _ in range(200):
+                if rt.disconnected_since is not None and closed:break
+                await asyncio.sleep(.005)
+            assert rt.enabled() and rt.disconnected_since==0. and closed
+            clock.t=9.
+            await asyncio.sleep(.06)
+            assert rt.disconnected_since==0. and rt.services.owned=={'foothold-glim'}
+            clock.t=10.
+            for _ in range(200):
+                if not rt.services.owned:break
+                await asyncio.sleep(.005)
+            assert not rt.services.owned and rt.services_disconnected
+            assert active=={'foothold-pointlio'}
+            assert_pointlio_read_only(calls)
+        finally:
+            task.cancel()
+            await asyncio.gather(task,return_exceptions=True)
+    try:
+        asyncio.run(check())
+    finally:
+        close_runtime(rt)
+
+
+def test_service_origin_is_preserved_when_session_starts_far_from_zero(tmp_path):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    def at_offset(stamp):
+        msg=pose(stamp=stamp)
+        msg.pose.pose.position.x=123.
+        msg.pose.pose.position.y=-78.
+        rt.receive(FRONTEND,msg)
+        rt.receive(CLOUD,cloud(points=((124.,-78.,.3),),stamp=stamp))
+        drain(rt)
+    try:
+        at_offset(1)
+        rt.command(command());drain(rt)
+        wait_for(lambda:rt.services.status=='STARTED')
+        at_offset(2)
+        assert set(rt.core.cells)=={(2480,-1560,6)}
+        assert rt.last_odom['x']==123. and rt.last_odom['y']==-78.
+        grid=rt.grid_body()
+        assert grid['origin'][:2]==[73.,-128.]
+        assert rt.core.grid.at(124.,-78.)>=0
+        assert_pointlio_read_only(calls)
+    finally:
+        close_runtime(rt)
+
+
+def test_slow_periodic_query_does_not_block_mapping_or_cancel(tmp_path):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    entered,release=threading.Event(),threading.Event()
+    original=rt.services.run
+    def slow(action,name):
+        if action=='is-active' and name==rt.services.glim:
+            entered.set()
+            assert release.wait(3)
+        return original(action,name)
+    try:
+        prime(rt)
+        start=command();rt.command(start);drain(rt)
+        wait_for(lambda:rt.services.status=='STARTED')
+        rt.services.run=slow
+        rt.services.wake.set()
+        assert entered.wait(1)
+        before=time.monotonic()
+        prime(rt,2)
+        rt.command(command('cancel',start));drain(rt)
+        assert time.monotonic()-before<.2 and rt.core.status=='CANCELLED'
+        release.set()
+        wait_for(lambda:not rt.services.owned)
+        assert_pointlio_read_only(calls)
+    finally:
+        release.set()
+        close_runtime(rt)
+
+
+@pytest.mark.parametrize('failure',['stale','off'])
+def test_pointlio_must_still_be_healthy_after_glim_start_returns(tmp_path,failure):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    entered,release=threading.Event(),threading.Event()
+    original=rt.services.run
+    def slow(action,name):
+        if action=='start':
+            entered.set()
+            assert release.wait(3)
+        return original(action,name)
+    rt.services.run=slow
+    try:
+        prime(rt)
+        rt.command(command());drain(rt)
+        assert entered.wait(1)
+        if failure=='stale':clock.t=1.
+        else:active.remove('foothold-pointlio')
+        release.set()
+        wait_for(lambda:rt.services.status=='STOPPED' and not rt.services.starting)
+        assert rt.services.ready_at is None and not rt.services.owned
+        assert not rt.session_services_ready()
+        assert_pointlio_read_only(calls)
+    finally:
+        release.set()
+        close_runtime(rt)
+
+
+def test_separately_received_healthy_pair_allows_new_session_after_input_fault(tmp_path):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    try:
+        prime(rt)
+        rt.command(command());drain(rt)
+        wait_for(lambda:rt.services.status=='STARTED')
+        prime(rt,2)
+        msg=pose(stamp=3);msg.pose.pose.position.x=float('nan')
+        rt.receive(FRONTEND,msg);drain(rt)
+        assert rt.services_fault and not rt.session_receiving_ready()
+        rt.receive(FRONTEND,pose(stamp=4));drain(rt)
+        rt.receive(CLOUD,cloud(stamp=4));drain(rt)
+        assert rt.pointlio.fresh() and not rt.session_receiving_ready()
+        rt.command(command());drain(rt)
+        wait_for(lambda:rt.services.status=='STARTED' and not rt.services.starting)
+        prime(rt,5)
+        assert rt.session_receiving_ready() and rt.core.cells
+        assert_pointlio_read_only(calls)
+    finally:
+        close_runtime(rt)
 
 
 def drain(rt):
@@ -95,7 +364,7 @@ def test_rv505_disconnect_cleanup_reconnect_only_saves_our_previous_points(tmp_p
         for _ in range(4):
             drain(rt)
         assert len(uploads) == 1
-        assert len([call for call in calls if call[0] == 'start']) == 2
+        assert len([call for call in calls if call[0] == 'start']) == 1
         # A fresh authorized session is required to resume collecting.
         rt.command(command()); drain(rt)
         wait_for(lambda: rt.services.status == 'STARTED' and not rt.services.starting)
@@ -123,7 +392,7 @@ def test_started_history_without_current_owned_running_services_rejects_input(tm
         assert rt.core.cells
         rt.services.status = status
         if missing:
-            rt.services.owned.discard(rt.services.names[0])
+            rt.services.owned.discard(rt.services.glim)
         assert rt.session_services_ready()
         assert_input_blocked(rt, 2)
     finally:
@@ -206,9 +475,11 @@ def test_two_session_lifecycle_invariants(tmp_path, online, stop, start, save):
     uploads, reports = [], []
     reached_started = set()
     request_checks = []
+    service_calls = []
     active = set()
 
     def run(action, name):
+        service_calls.append((action,name))
         if action == 'is-active':
             return 0 if name in active else 3
         if action == 'start':
@@ -342,6 +613,7 @@ def test_two_session_lifecycle_invariants(tmp_path, online, stop, start, save):
                 assert checked_sid in reached_started
             if (body.get('slam_save') == 'SLAM_SAVED' or body.get('phase') == 'SLAM_SAVED'):
                 assert checked_sid in reached_started and stop == 'ok' and not owned
+        assert_pointlio_read_only(service_calls)
     finally:
         phase.value = 'recovering'; start_release.set(); stop_release.set()
         rt.close()
@@ -363,7 +635,7 @@ def test_save_during_replacement_cleanup_cannot_be_cleared_by_successful_stop():
             assert release.wait(3)
         return 3 if action == 'is-active' else 0
 
-    services = Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED': 'true'}, lambda: True, run=run)
+    services = Services({'FH_MAPPING_SERVICE_CONTROL_ENABLED': 'true'}, lambda: True, run=service_fake(run),fresh=lambda:True)
     try:
         assert services.start()
         wait_for(lambda: services.status == 'STARTED' and not services.starting)
@@ -372,7 +644,7 @@ def test_save_during_replacement_cleanup_cannot_be_cleared_by_successful_stop():
         release.set()
         wait_for(lambda: services.status == 'STOPPED' and not services.starting)
         assert services.ready_at is None and not services.owned
-        assert len([call for call in calls if call[0] == 'start']) == 2
+        assert len([call for call in calls if call[0] == 'start']) == 1
     finally:
         release.set(); services.close()
         if services.thread:

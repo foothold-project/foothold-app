@@ -220,7 +220,7 @@ def test_persistent_stop_failure_uploads_unknown_once_within_timeout(tmp_path,ca
         assert sent[0][1]['voxels']==[[-20,0,6]] and rt.revision==1
         assert rt.frozen==frozen and not rt.final_received
         assert all(body['phase']!='SLAM_SAVED' for body in reports)
-        assert rt.services.status=='UNKNOWN' and rt.services.owned==set(rt.services.names)
+        assert rt.services.status=='UNKNOWN' and rt.services.owned=={rt.services.glim}
         assert rt.services.stop_requested and stops and 'event=stop_failed' in caplog.text
         assert any(body['error_code']=='GLIM_FINAL_UNCONFIRMED' and '정지' in body['reason'] for body in reports)
     finally:close(rt)

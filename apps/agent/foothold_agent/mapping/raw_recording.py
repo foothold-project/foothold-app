@@ -138,8 +138,7 @@ class RawRecorder:
         if not self.wanted(job) or not self.allowed():
             self.publish(job, 'STOPPED', 'observation_unavailable')
             return
-        if (self.services.status != 'STARTED'
-                or set(self.services.names) != self.services.owned):
+        if not self.services.receiving_ready():
             self.publish(job, 'SKIPPED', 'services_not_owned')
             return
         process, path, size = None, None, 0
@@ -188,7 +187,7 @@ class RawRecorder:
                 if not self.allowed():
                     status, cause = 'STOPPED', 'observation_unavailable'
                     break
-                if self.services.status != 'STARTED':
+                if not self.services.receiving_ready():
                     status, cause = 'STOPPED', 'services_ended'
                     break
                 # Progress reads the size without walking disk on the mapping lane.

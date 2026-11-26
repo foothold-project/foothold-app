@@ -10,7 +10,7 @@ LOG=logging.getLogger(__name__)
 
 
 class Services:
-    def __init__(self,env,allowed,*,run=None,now=time.monotonic):
+    def __init__(self,env,allowed,*,run=None,now=time.monotonic,fresh=lambda:False):
         self.env,self.allowed=env,allowed
         self.now,self.ready_at=now,None
         self.names=tuple(env.get(key,default).removesuffix('.service') for key,default in (
@@ -20,6 +20,9 @@ class Services:
             LOG.error('SLAM_SERVICE event=invalid_configuration reason=invalid_mapping_service_allowlist')
             raise ValueError('invalid mapping service allowlist')
         self.run=run or self.systemctl
+        self.pointlio,self.glim=self.names
+        self.fresh=fresh
+        self.pointlio_active=False
         self.owned=set()
         self.status='IDLE'
         self.pending=False
@@ -41,6 +44,37 @@ class Services:
 
     def control_enabled(self):
         return self.env.get('FH_MAPPING_SERVICE_CONTROL_ENABLED','').lower()=='true'
+
+    def pointlio_ready(self):
+        return self.pointlio_active and self.fresh()
+
+    def receiving_ready(self):
+        return self.status=='STARTED' and self.glim in self.owned and self.pointlio_ready()
+
+    def check_pointlio(self):
+        active=self.run('is-active',self.pointlio)
+        self.pointlio_active=active==0
+        if active!=0:
+            self.start_error='실시간 위치가 꺼져 있습니다. 실행 상태를 확인해 주세요.'
+            raise OSError(f'mapping service state query failed: {active}')
+        if not self.fresh():
+            self.start_error='실시간 위치와 점 자료가 끊겼습니다. 센서 상태를 확인해 주세요.'
+            raise OSError('Point-LIO data unavailable')
+
+    def monitor(self):
+        """Blocking queries belong exclusively to the service worker."""
+        with self.lock:
+            job=self.version
+        try:
+            self.check_pointlio()
+            if self.run('is-active',self.glim)!=0:
+                self.start_error='지도 기록이 꺼졌습니다. 받은 자료를 저장하거나 새로 시작해 주세요.'
+                raise OSError('owned GLIM service unavailable')
+        except Exception:
+            with self.lock:
+                if self.version==job and self.status=='STARTED':
+                    self.status='UNKNOWN'
+                    self.start_error=self.start_error or '지도 서비스 상태를 확인하지 못했습니다.'
 
     def start(self):
         with self.lock:
@@ -124,7 +158,8 @@ class Services:
                         self.cleanup()  # never inherit the preceding SLAM graph
                         if self.owned:
                             raise OSError('previous mapping services still owned')
-                    for name in self.names:
+                    self.check_pointlio()
+                    for name in (self.glim,):
                         if not self.wanted(job):
                             raise PermissionError('mapping observation unavailable')
                         active=self.run('is-active',name)
@@ -140,6 +175,7 @@ class Services:
                             raise OSError('mapping service start failed')
                     # stop/save/replacement during the last blocking call must
                     # not publish readiness. stop() shares this commit lock.
+                    self.check_pointlio()
                     with self.lock:
                         if not self.wanted(job):
                             raise PermissionError('mapping service start canceled')
@@ -155,6 +191,8 @@ class Services:
                         self.starting=False
             if self.stop_requested:
                 self.cleanup()
+            elif self.status=='STARTED':
+                self.monitor()
             if self.closed:
                 return
 

@@ -58,7 +58,8 @@ class ProcessLane:
 def recorder(tmp_path):
     lane = ProcessLane()
     services = NS(status='STARTED', names=('foothold-pointlio', 'foothold-glim'),
-                  owned={'foothold-pointlio', 'foothold-glim'})
+                  owned={'foothold-glim'}, pointlio_ok=True)
+    services.receiving_ready=lambda:services.status=='STARTED' and 'foothold-glim' in services.owned and services.pointlio_ok
     allowed = NS(value=True)
     rec = RawRecorder({'FH_MAPPING_RAW_RECORD_ENABLED':'true',
                        'FH_MAPPING_RAW_RECORD_DIR':str(tmp_path)}, lambda:allowed.value,
@@ -126,7 +127,7 @@ def test_cap_stops_only_recorder_and_does_not_restart(recorder):
     count.value = MAX_BYTES
     wait_for(lambda:rec.snapshot()['status']=='LIMIT')
     assert rec.snapshot()['bytes']==MAX_BYTES and len(lane.signals)==1
-    assert rec.services.status=='STARTED' and len(rec.services.owned)==2
+    assert rec.services.status=='STARTED' and len(rec.services.owned)==1
     time.sleep(.03)
     assert len(lane.calls)==1
 
@@ -162,6 +163,21 @@ def test_existing_services_are_never_enough_to_start_a_bag(recorder, owned):
     assert rec.snapshot()['cause']=='services_not_owned' and not lane.calls and not lane.signals
 
 
+@pytest.mark.parametrize('when',['before-start','recording'])
+def test_pointlio_health_is_required_for_raw_recording(recorder,when):
+    rec,lane,_=recorder
+    if when=='before-start':rec.services.pointlio_ok=False
+    rec.start(str(uuid4()))
+    if when=='recording':
+        wait_for(lambda:rec.snapshot()['status']=='RECORDING')
+        rec.services.pointlio_ok=False
+        wait_for(lambda:rec.snapshot()['status']=='STOPPED')
+        assert len(lane.signals)==1 and rec.snapshot()['cause']=='services_ended'
+    else:
+        wait_for(lambda:rec.snapshot()['status']=='SKIPPED')
+        assert rec.snapshot()['cause']=='services_not_owned' and not lane.calls
+
+
 def test_cancel_during_service_start_never_launches(recorder):
     rec, lane, _ = recorder
     rec.services.status = 'STARTING'
@@ -192,7 +208,7 @@ def test_failures_are_contained(recorder, stage):
         wait_for(lambda:bool(lane.processes))
         lane.processes[0].returncode = 1
     wait_for(lambda:rec.snapshot()['status']=='FAILED')
-    assert rec.services.status=='STARTED' and len(rec.services.owned)==2
+    assert rec.services.status=='STARTED' and len(rec.services.owned)==1
     if stage=='size':assert lane.signals
 
 
