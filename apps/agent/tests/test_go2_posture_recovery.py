@@ -198,7 +198,8 @@ def test_stood_diagnostic_journal_cannot_own_stop_memory_lock(monkeypatch):
         frame('stop', stop_ref=20)
         sink.check_watchdog()
         assert time.monotonic()-before < .1
-        assert emergency.calls == [('StopMove', ())]
+        # 선 뒤 서 있는 로봇의 정지는 Move(0) 부터 (11/26 Sport 모드 정지 실패 뒤)
+        assert emergency.calls == [('Move', (0., 0., 0.)), ('StopMove', ())]
     finally:
         release.set(); worker.join(1)
     assert not worker.is_alive()

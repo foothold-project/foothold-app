@@ -138,6 +138,17 @@ def test_standing_stop_rejection_remains_fatal():
     assert normal.calls[:2] == [('Move', ZERO), ('StopMove', ())]
 
 
+def test_standing_stop_sends_move_zero_after_action_in_sport_like_state():
+    # 11/26 실기 (Sport 모드): 순정 동작 뒤 남은 _posture_stop_only 로 StopMove 만 나가 로봇이 계속 걸었다.
+    _, sink, normal, emergency, _, _, measured, frame = rig(0)
+    sink._posture_stop_only = True   # 끝난 순정 동작이 남긴 값 (잠금 해제 전)
+    measured(0, error_code=100, velocity=(.4, 0., 0.))   # 서서 걷는 중 · 0 이 아닌 운동 상태
+    frame('stop', stop_ref=30)
+    sink.drain(); sink.emergency_stop()
+    for client in (normal, emergency):
+        assert client.calls[:2] == [('Move', ZERO), ('StopMove', ())]
+
+
 def test_stand_up_waits_for_measurements_then_balance_then_fresh_confirmation():
     _, sink, normal, _, session, _, measured, frame = rig()
     request(frame)
