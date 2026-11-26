@@ -854,9 +854,12 @@ class Go2Sink:
                      (not measured and self.now()-previous[1] >= STOP_RETRY_S))
         if quiet and measured and not send_stop:
             return
+        # 서 있거나 걷는 로봇의 정지는 언제나 Move(0) 부터 (11/26 Sport 모드 실기: 동작 뒤 남은
+        # _posture_stop_only 로 StopMove 만 나가 로봇이 계속 걸음). StopMove 만은 낮은 자세 · 자세 바꾸는 중 ·
+        # 관절 잠금 · 서지 않은 상태에서 끝난 동작 뒤뿐. 걸을 수 없는 운동 상태의 Move(0) 거절은 _call 이 넘긴다.
         stop_only = (self._lying_or_sitting(sample) or sample['state'] == 'TRANSITIONING' or
-            sample.get('standing_locked', False) or self._posture_stop_only or
-            (sample['state'] == 'STANDING' and not self._walkable(sample)))
+            sample.get('standing_locked', False) or self._posture is not None or
+            (self._posture_stop_only and sample['state'] != 'STANDING'))
         for method, args in ([('StopMove', ())] if stop_only else [('Move', ZERO), ('StopMove', ())]):
             if method == 'StopMove':
                 if not send_stop and first is None:
