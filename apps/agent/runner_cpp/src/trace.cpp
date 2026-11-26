@@ -165,6 +165,8 @@ std::string line(const Row& row) {
             out << ",\"gait\":\"" << row.info.text << "\",\"holding\":false";
         if (row.event == Event::app_key)
             out << ",\"key\":\"" << row.info.text << "\",\"started\":" << (row.info.value ? "true" : "false");
+        if (row.event == Event::handover_refused)
+            out << ",\"reason\":\"" << row.info.text << '"';
         if (row.event == Event::app_drop)
             out << ",\"reason\":\"" << row.info.text << "\",\"dropped\":" << row.info.value;
         out << "}\n";

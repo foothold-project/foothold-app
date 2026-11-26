@@ -61,6 +61,13 @@ constexpr double dog_blend = .3;      // held sit pose -> first recorded rise ro
 constexpr double move_tau_scale = .5;
 constexpr float tau_limit_hip_thigh = 20.f, tau_limit_calf = 35.f;  // Go2 motor peaks 23.7 / 45.4 Nm
 constexpr auto move_fall_hold = std::chrono::milliseconds(300);
+// start+left/right from policy hands over to factory only when the robot is stopped (팀장 11/26):
+// policy command at zero, estimated speed and body rotation near zero, all held this long.
+// Values to tune on the real robot.
+constexpr auto handover_still_hold = std::chrono::seconds(1);
+constexpr float handover_command_max = .02f;  // |slewed policy command| per axis (m/s, rad/s)
+constexpr float handover_speed_max = .10f;    // |estimated body velocity| x, y (m/s) when --debug-est is loaded
+constexpr float handover_gyro_max = .30f;     // |gyro| per axis (rad/s)
 constexpr double dog_settle = .5;     // last rise row -> default_pose
 constexpr double dog_gain_ramp = 1.;  // transition gains -> policy gains, as at the end of stand-up
 
@@ -202,6 +209,7 @@ const char* event_name(Event event) {
     case Event::move_fall: return "MOVE_FALL";
     case Event::app_key: return "APP_KEY";
     case Event::app_drop: return "APP_DROP";
+    case Event::handover_refused: return "HANDOVER_REFUSED";
     }
     return "UNKNOWN";
 }
@@ -613,6 +621,19 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     const bool invalid = !finite(q) || !finite(grav);
     if (!lie) lie_latched_ = false;
     if (!move_key) move_latched_ = false;
+    const bool handover_key = pressed(keys, start_button | left_button) || pressed(keys, start_button | right_button);
+    if (!handover_key) handover_latched_ = false;
+    refusal_ = nullptr;
+    // Stopped = command, estimated speed and rotation near zero, continuously (policy only).
+    const auto small = [](const auto& values, std::size_t n, float limit) {
+        for (std::size_t i = 0; i < n; ++i) if (!(std::abs(values[i]) <= limit)) return false;
+        return true;
+    };
+    const bool still_now = phase_ == Phase::policy && small(command_, 3, handover_command_max) &&
+                           small(state.gyro, 3, handover_gyro_max) &&
+                           (!outputs_.estimate || small(outputs_.estimate->velocity, 2, handover_speed_max));
+    if (!still_now) still_since_.reset();
+    else if (!still_since_) still_since_ = now;
 
     // The worker may finish after a safety transition. Drain that result without
     // applying it before submitting work from a new policy session.
@@ -749,7 +770,13 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     }
     ame2_latched_ = false;
     if (phase_ == Phase::policy || phase_ == Phase::damping) {
-        if (pressed(keys, start_button | left_button) || pressed(keys, start_button | right_button)) {
+        if (handover_key && phase_ == Phase::policy &&
+            (handover_latched_ || !still_since_ || now - *still_since_ < handover_still_hold)) {
+            // Not stopped: ignore this press (release and press again once stopped). Policy keeps running below.
+            if (!handover_latched_) observer_.event(now, Event::handover_refused, {"not_stopped"});
+            handover_latched_ = true;
+            refusal_ = "not_stopped";
+        } else if (handover_key) {
             gait_ = pressed(keys, left_button) ? Gait::free_walk : Gait::classic;
             if (phase_ == Phase::policy) {
                 return_after_sit_ = true;

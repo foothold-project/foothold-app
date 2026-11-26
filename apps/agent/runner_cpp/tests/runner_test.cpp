@@ -166,7 +166,7 @@ struct Rig {
         const auto phase = runner.phase();
         const auto move = runner.move();
         runner.tick(time, state, depth);
-        return app.settle(time, phase, move, runner.phase(), runner.move());
+        return app.settle(time, phase, move, runner.phase(), runner.move(), runner.refusal());
     }
     std::int64_t seq(std::chrono::nanoseconds back = {}) const {
         return std::chrono::duration_cast<std::chrono::nanoseconds>((time + 5ms - back).time_since_epoch()).count();
@@ -619,6 +619,56 @@ int main() {
         require(live.runner.stopped() && live.robot.factory, "shutdown during dog sit must return to factory");
         require(live.events.ordered({Event::dog_sit, Event::exit_sit_down, Event::sit_down, Event::damping,
                                      Event::mode_high}), "shutdown during dog sit must lie down first");
+    }
+
+    {
+        // start+right from policy hands over only after the robot has been stopped for 1 s.
+        Rig live(true);
+        live.enter();
+        live.tick(classic);
+        require(live.runner.phase() == Phase::policy && live.runner.refusal() &&
+                    std::string_view(live.runner.refusal()) == "not_stopped" &&
+                    live.events.seen.back() == Event::handover_refused,
+                "handover right after entering policy must be refused");
+        live.wait(1500ms, classic);
+        require(live.runner.phase() == Phase::policy, "a refused press held on must not hand over later");
+        live.tick();
+        // Walking (stick forward): command is not zero, so still refused even after a long wait.
+        live.state.remote.ly = .5f;
+        for (int i = 0; i < 300; ++i) { live.time += 5ms; live.state.stamp = live.time; live.runner.tick(live.time, live.state); }
+        live.state.remote.keys = classic;
+        live.time += 5ms; live.state.stamp = live.time; live.runner.tick(live.time, live.state);
+        require(live.runner.phase() == Phase::policy, "handover while walking must be refused");
+        live.state.remote.ly = 0;
+        live.tick();
+        // Release the stick: the command slews to zero (~0.3 s), then must stay still for 1 s.
+        live.wait(1100ms);
+        live.tick(classic);
+        require(live.runner.phase() == Phase::policy, "handover before 1 s of stillness must be refused");
+        live.tick();
+        live.wait(500ms);
+        live.tick(classic);
+        require(live.runner.phase() == Phase::sitting && !live.runner.refusal(),
+                "handover after 1 s stopped must lie down and return to factory");
+        live.wait(4s);
+        require(live.robot.factory, "handover must reach factory mode");
+    }
+    {
+        // App START+RIGHT (ClassicWalk): same stillness gate, ack IGNORED not_stopped, then STARTED.
+        Rig live(true);
+        AppInput app(live.events);
+        live.enter();
+        require(acked(live.app_tick(app, {live.key("START+RIGHT", "ClassicWalk", "c1")}), "IGNORED", "not_stopped") &&
+                    live.runner.phase() == Phase::policy,
+                "app handover right after policy must be ignored with not_stopped");
+        for (int i = 0; i < 100; ++i) live.app_tick(app, i % 4 == 0 ? std::vector<std::string>{live.velocity(.6)}
+                                                                     : std::vector<std::string>{});
+        require(acked(live.app_tick(app, {live.key("START+RIGHT", "ClassicWalk", "c2")}), "IGNORED", "not_stopped"),
+                "app handover while the app drives must be ignored");
+        for (int i = 0; i < 400; ++i) live.app_tick(app);
+        require(acked(live.app_tick(app, {live.key("START+LEFT", "FreeWalk", "f")}), "STARTED") &&
+                    live.runner.phase() == Phase::sitting,
+                "app handover after the deadman stop and 1 s still must start");
     }
 
     // App input (APP-MOVES.md): the same handling as the physical remote.

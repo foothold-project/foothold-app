@@ -18,7 +18,7 @@ enum class Event {
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
     inference_failed, ame2_unavailable, runner_ready, mode_rpc, dog_sit, dog_rise, factory_move, move_fall,
-    app_key, app_drop
+    app_key, app_drop, handover_refused
 };
 const char* event_name(Event event);
 const char* phase_name(Phase phase);
@@ -147,6 +147,8 @@ public:
               std::optional<Tick> scheduled = std::nullopt);
     Phase phase() const { return phase_; }
     Move move() const { return move_; }
+    // Why the last tick refused a key (static string) or nullptr. Read right after tick().
+    const char* refusal() const { return refusal_; }
     bool stopped() const { return stopped_; }
     std::uint64_t commands() const { return commands_; }
     std::uint64_t policy_steps() const { return policy_steps_; }
@@ -181,7 +183,9 @@ private:
     Phase phase_ = Phase::high;
     Gait gait_ = Gait::none;
     bool restand_ = false, fall_recovery_ = false, return_after_sit_ = false, blind_sit_ = false;
-    bool lie_latched_ = false, ame2_latched_ = false, move_latched_ = false;
+    bool lie_latched_ = false, ame2_latched_ = false, move_latched_ = false, handover_latched_ = false;
+    const char* refusal_ = nullptr;
+    std::optional<Tick> still_since_;
     Move move_ = Move::dog_sit;
     bool shutdown_ = false, stopped_ = false, confirm_return_ = false;
     bool abort_acquire_ = false, recovery_stand_pending_ = false;

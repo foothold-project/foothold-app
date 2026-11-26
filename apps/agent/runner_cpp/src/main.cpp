@@ -274,7 +274,8 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
             // same opportunity to sit and restore factory mode as SIGTERM.
             control_failure = std::current_exception();
         }
-        if (app) app->reply(app_input.settle(now, phase_before, move_before, runner.phase(), runner.move()));
+        if (app) app->reply(app_input.settle(now, phase_before, move_before, runner.phase(), runner.move(),
+                                                    runner.refusal()));
         if (runner.policy_steps() != steps) {
             if (previous_policy) policy_period.mark(now - *previous_policy);
             previous_policy = now;

@@ -11,7 +11,7 @@ namespace foothold {
 namespace {
 // Same bits as runner.cpp (Unitree wireless_remote key bits).
 constexpr std::uint16_t r1 = 1 << 0, l1 = 1 << 1, r2 = 1 << 4, l2 = 1 << 5;
-constexpr std::uint16_t a = 1 << 8, b = 1 << 9, y = 1 << 11;
+constexpr std::uint16_t a = 1 << 8, b = 1 << 9, y = 1 << 11, start = 1 << 2, right = 1 << 13, left = 1 << 15;
 constexpr std::uint16_t damp_keys = l2 | b;
 
 struct KeyName {
@@ -21,11 +21,13 @@ struct KeyName {
 constexpr KeyName key_table[]{
     {"R1+B", r1 | b}, {"L2+A", l2 | a}, {"R2+A", r2 | a}, {"R2+B", r2 | b},
     {"R2+Y", r2 | y}, {"L1+A", l1 | a}, {"L2+B", damp_keys},
+    {"START+LEFT", start | left}, {"START+RIGHT", start | right},  // factory handover (only when stopped)
 };
 // App action -> key (apps/agent foothold_agent/go2_direct/actions.py LOWLEVEL).
 constexpr std::pair<const char*, const char*> action_table[]{
     {"Sit", "R1+B"}, {"RiseSit", "R1+B"}, {"StandDown", "L2+A"}, {"Stretch", "R2+A"},
     {"Hello", "R2+B"}, {"Heart", "R2+Y"}, {"Damp", "L2+B"}, {"Greet", "L1+A"},
+    {"FreeWalk", "START+LEFT"}, {"ClassicWalk", "START+RIGHT"},
 };
 
 constexpr unsigned f_seq = 1, f_key = 2, f_action = 4, f_request = 8, f_vx = 16, f_vy = 32, f_wz = 64;
@@ -209,7 +211,8 @@ void AppInput::apply(Tick now, LowState& state) {
     }
 }
 
-std::vector<AppAck> AppInput::settle(Tick now, Phase before, Move before_move, Phase after, Move after_move) {
+std::vector<AppAck> AppInput::settle(Tick now, Phase before, Move before_move, Phase after, Move after_move,
+                                     const char* refusal) {
     std::vector<AppAck> acks;
     acks.reserve(pending_.size());
     const bool changed = after != before || after_move != before_move;
@@ -223,7 +226,7 @@ std::vector<AppAck> AppInput::settle(Tick now, Phase before, Move before_move, P
         } else {
             const bool started = entry.applied && changed;
             ack.result = started ? "STARTED" : "IGNORED";
-            ack.reason = started ? nullptr : entry.applied ? "phase" : entry.ignored;
+            ack.reason = started ? nullptr : entry.applied ? (refusal ? refusal : "phase") : entry.ignored;
             observer_.event(now, Event::app_key, {entry.packet.key, started ? 1. : 0.});
         }
         acks.push_back(std::move(ack));

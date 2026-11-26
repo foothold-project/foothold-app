@@ -51,7 +51,9 @@ public:
     // Before Runner::tick: OR one app key into this tick's keys, set the app velocity.
     void apply(Tick now, LowState& state);
     // After Runner::tick: results for every packet received since the last settle.
-    std::vector<AppAck> settle(Tick now, Phase before, Move before_move, Phase after, Move after_move);
+    // `refusal` is Runner::refusal() (e.g. not_stopped for a factory handover while moving).
+    std::vector<AppAck> settle(Tick now, Phase before, Move before_move, Phase after, Move after_move,
+                               const char* refusal = nullptr);
     std::uint64_t dropped() const { return dropped_; }
 
 private:
