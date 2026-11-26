@@ -1,4 +1,4 @@
-// 조종 화면 라이다 칸 3D(11-19 RB-LIDAR-3D · 11-20 RB-UNITREE-LOOK-WEB = Unitree 앱 조종 화면처럼): drivemedia 가 준 xyz 를 그대로(frame map·odom = 그 기준 자리, lidar_link = 센서가 원점) three 로 그린다.
+// 조종 화면 라이다 칸 3D(11-19 RB-LIDAR-3D · 11-20 RB-UNITREE-LOOK-WEB = Unitree 앱 조종 화면처럼): drivemedia 가 준 xyz 를 그대로(frame map·odom = 그 기준 자리) three 로 그린다. lidar_link(raw 센서 좌표)만 lidarmount.ts 로 몸(base_link) 좌표로 한 번 바꿔 그린다(11-26 RB-LIDAR-RAW-MOUNT).
 // look = 'points'(라이다 — 작은 점 그대로, 11-20 RB-UNITREE-LOOK-FIX 로 되돌림) · 'boxes'(«상자» 보기 — 점 하나 = 5 cm 상자(CELL_M), InstancedMesh, 면 무늬로 가장자리 선).
 // 색 = 둘 다 바닥부터 높이(heightcolor.ts 한 표 — 바닥 회남색, 0.1~1.2 m 촘촘히, 11-25 RB-LIDAR-COLOR). look 이 바뀌어도 WebGL 은 그대로(묶음만 바꿈).
 // 반투명 회색 Go2(go2model.tsx 메시, 못 받으면 상자 그림)를 로봇 자리에 — go2 = 받은 관절각·기울기(go2Pose, 2 Hz 판마다 따라 움직임), 없으면 선 자세 + «자세 정보 없음». 기본 시점 = 로봇 뒤 위에서 따라가기(로봇이 돌면 같이 돎). 끌기·휠로 손대면 그 시점 그대로(자리만 따라감), 옮기면 따라가기도 끔 — «로봇 뒤에서 보기» 하나로 되돌림.
@@ -12,6 +12,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CELL_M, type DriveFeed, type Pose } from './drivemedia';
 import { go2Body, loadGo2, type Pose as Go2Pose } from './go2model';
 import { HEX, LEGEND_BG, N, TOP_M, levelOf } from './heightcolor';
+import { inBase } from './lidarmount';
 
 /** 그릴 상자 상한(작은 칸 · 폰 크기 칸 · 큰 칸) — 넘으면 고르게 솎는다. 칸의 짧은 변이 SMALL_PX 미만이면 작은 칸(폰 직결 작은 창 포함), PHONE_PX 미만이면 폰 크기(runs/qa-rb-unitree-look-web 측정표) */
 export const CAP_SMALL = 20_000, CAP_PHONE = 60_000, CAP_BIG = 200_000, SMALL_PX = 180, PHONE_PX = 500;
@@ -20,7 +21,7 @@ export const capFor = (small: boolean, w: number, h: number) => (small || Math.m
  *  ponytail: 고정 예산 — 느린 기기에서 한 묶음이 SLICE_MS 를 넘으면 BLOCK 을 줄인다 */
 export const BLOCK = 16_384, SLICE_MS = 8, BLOCK_UP = 2;
 /** 바닥 = 로봇 z + FLOOR_DZ(m). 로봇 z = frame odom 판의 pose z(agent: rt/utlidar/robot_odom, 없으면 sport position — 몸통 자리, 선 Go2 ≈ 바닥 위 0.3 m),
- *  frame lidar_link(pose 없음)면 센서 원점 0. agent 지도 만들기의 floor_z(첫 pose z − 0.3, SLAM-MAPPING.md)와 같은 값. 엎드리면 몸통이 내려가 바닥 색이 위로 밀린다.
+ *  frame lidar_link(pose 없음)면 점을 몸 좌표로 바꾼 뒤라 몸(base_link) 원점 0. agent 지도 만들기의 floor_z(첫 pose z − 0.3, SLAM-MAPPING.md)와 같은 값. 엎드리면 몸통이 내려가 바닥 색이 위로 밀린다.
  *  ponytail: 상수 하나 — 실기에서 바닥 색이 바닥 띠(heightcolor BANDS 첫 줄)에 안 들어오면 이 값을 고친다 */
 export const FLOOR_DZ = -0.3;
 /** 높이 단계별 색(three 선형 RGB) — 점·상자 같은 표(heightcolor.ts) */
@@ -80,7 +81,7 @@ export function edgeTexture(line = 'rgba(0,0,0,0.55)') {
   return t;
 }
 
-/** 로봇 자리: pose 가 있으면 그것, lidar_link(센서 기준 한 장)면 원점, 그 밖(pose 없는 map)은 모름 */
+/** 로봇 자리: pose 가 있으면 그것, lidar_link(몸 좌표로 바꾼 한 장 — inBase)면 몸 원점, 그 밖(pose 없는 map)은 모름 */
 export const robotOf = (f: DriveFeed): Pose | null => f.pose ?? (f.frame === 'lidar_link' ? { x: 0, y: 0, z: 0, yaw: 0 } : null);
 /** 3인칭 시점: 로봇 뒤 BACK m · 위 UP m 에서 로봇 앞 AHEAD m 를 본다 */
 const BACK = 2.6, UP = 1.6, AHEAD = 1.5;
@@ -108,7 +109,7 @@ type Blk = { o: THREE.Object3D; pos: Float32Array; col: Float32Array; k: number;
  *  legend = 칸 안 색 범례(작은 칸이 아니면 기본으로) */
 export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look = 'points', go2 = null }: { feed: DriveFeed; small: boolean; onFail: () => void; ratio?: number; legend?: boolean; look?: Look; go2?: Go2Pose }) {
   const host = useRef<HTMLDivElement>(null), cur = useRef(feed), joints = useRef(go2), [mode, setMode] = useState<Mode>('chase'), again = useRef(() => {}), first = useRef(look), relook = useRef((_: Look) => {}), stance = useRef(() => {});
-  cur.current = feed; joints.current = go2;
+  cur.current = inBase(feed); joints.current = go2;   // raw 판만 몸 좌표로(판마다 1회)
   useEffect(() => {
     // 처음 열기를 더 잘게(RV-466 2 — 성능 기록: 누른 작업 하나에 React 반영 + WebGL 문맥 + three 초기화 + Go2 입히기가 몰려 STOP 이 늦음).
     // ⓪ 누른 작업 = 칸만 ① 문맥(getContext) ② three 가 부를 확장(첫 getExtension 은 GPU 와 동기 왕복) ③ 렌더러·장면(setup) — 사이사이에 STOP·조종 입력이 끼어든다. WebGL2 자체가 없으면 곧바로 위에서 본 그림
