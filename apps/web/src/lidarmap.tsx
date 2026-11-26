@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CEIL_M, CELL_M, driveFeedHeld, type DriveFeed } from './drivemedia';
 import { N, levelOf } from './heightcolor';
 import { FLOOR_DZ, HeightLegend, Lidar3D, rgbOf, ringOf, type Look } from './lidar3d';
+import { inBase } from './lidarmount';
 import type { Pose } from './go2model';
 import { QEmpty } from './quad';
 
@@ -39,7 +40,7 @@ export function HeldTag({ text }: { text: string }) {
 function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
   const cv = useRef<HTMLCanvasElement>(null), cur = useRef(feed), sm = useRef(small), [free, setFree] = useState(false);
   const view = useRef({ x: 0, y: 0, k: 0, follow: true, ver: -1, w: 0, h: 0, frame: feed.frame }), redraw = useRef(() => {});
-  cur.current = feed; sm.current = small;   // 칸 크기가 바뀌면 끌기·휠도 새 값으로
+  cur.current = inBase(feed); sm.current = small;   // raw(lidar_link) 판만 몸 좌표로(3D 와 같은 inBase·같은 캐시 — 판마다 1회, 11-26 RB-LIDAR-RAW-MOUNT-2D) · 칸 크기가 바뀌면 끌기·휠도 새 값으로
   useEffect(() => {
     const el = cv.current!, v = view.current;
     let img: ImageData | null = null, top = new Uint8Array(0);   // top = 그 화소에 이미 그린 높이 단계 + 1
