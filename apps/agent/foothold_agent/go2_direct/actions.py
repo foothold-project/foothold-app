@@ -11,19 +11,23 @@ import socket
 import time
 from collections import deque
 
-ACTIONS = frozenset('Damp BalanceStand StopMove StandUp StandDown RecoveryStand Euler Sit RiseSit SpeedLevel Hello Stretch Content Dance1 Dance2 SwitchJoystick Pose Scrape FrontFlip FrontJump FrontPounce Heart StaticWalk TrotRun EconomicGait LeftFlip BackFlip HandStand FreeWalk FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet AutoRecoveryGet SwitchAvoidMode CheckMode SelectMode'.split())
+ACTIONS = frozenset('Damp BalanceStand StopMove StandUp StandDown RecoveryStand Euler Sit RiseSit SpeedLevel Hello Stretch Content Dance1 Dance2 SwitchJoystick Pose Scrape FrontFlip FrontJump FrontPounce Heart StaticWalk TrotRun EconomicGait LeftFlip BackFlip HandStand FreeWalk FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet AutoRecoveryGet SwitchAvoidMode CheckMode SelectMode Greet'.split())
+# 순정 SDK 번호가 없는 동작: START 실행기에서만 (순정에서는 FACTORY_UNSUPPORTED · 번호를 지어내지 않음)
+NO_FACTORY = frozenset({'Greet'})
 FLAGS = frozenset('SwitchJoystick Pose HandStand FreeBound FreeJump FreeAvoid ClassicWalk WalkUpright CrossStep AutoRecoverySet'.split())
 DANGEROUS = frozenset('FrontFlip LeftFlip BackFlip FrontJump FrontPounce HandStand WalkUpright FreeJump FreeBound Damp'.split())
 # 저수준 (START) 제어 중 받는 동작 → START 실행기 리모컨 키. apps/contracts LowlevelAction 과 같아야 한다
 # (팀장 11/26 08:01 · 동작표 action-table-1126 「저수준」 열). 나머지는 LOWLEVEL_UNSUPPORTED. 실행기 쪽 규약: runner_cpp/APP-MOVES.md
 LOWLEVEL = {'Sit': 'R1+B', 'RiseSit': 'R1+B', 'StandDown': 'L2+A', 'Stretch': 'R2+A',
-            'Hello': 'R2+B', 'Heart': 'R2+Y', 'Damp': 'L2+B'}
+            'Hello': 'R2+B', 'Heart': 'R2+Y', 'Damp': 'L2+B', 'Greet': 'L1+A'}
+# START 중에도 순정 SDK 로 보내는 읽기 전용 조회 (apps/contracts LowlevelQuery · 팀장 11/26 10:19 · #498)
+LOWLEVEL_QUERY = frozenset({'CheckMode', 'AutoRecoveryGet'})
 RUNNER_PORT_ENV = 'FH_START_MOVE_PORT'
 TIMEOUT_S = 2.
 # Firmware does not report action completion. Bound the accepted-motion wait
 # generously, then resume ordinary STOP retries. StandUp/StandDown retain their
 # existing posture/STOP behavior; configuration/read-only RPCs never defer STOP.
-EXECUTION_MAX_S = {action: 60. for action in ACTIONS - frozenset(
+EXECUTION_MAX_S = {action: 60. for action in ACTIONS - NO_FACTORY - frozenset(
     'StandUp StandDown StopMove SpeedLevel SwitchJoystick AutoRecoverySet AutoRecoveryGet SwitchAvoidMode CheckMode SelectMode'.split())}
 # Unitree SDK pinned rpc/internal.py; unknown firmware codes stay SDK_REJECTED.
 SDK_REASONS = {
@@ -92,8 +96,9 @@ class Actions:
         s = self.sink
         sample = s._posture_sample()
         from .sink import start_active
-        # 순정 SDK 호출은 START 중 하나도 나가지 않는다. START 중 새 요청은 request() 의 실행기 길로 간다.
-        return ('START_ACTIVE' if start_active() else
+        # START 중 순정 SDK 로는 읽기 전용 조회만. 나머지 새 요청은 request() 의 실행기 길로 간다.
+        return ('START_ACTIVE' if start_active() and action not in LOWLEVEL_QUERY else
+                'FACTORY_UNSUPPORTED' if action in NO_FACTORY else
                 'NOT_AUTHORIZED' if not s.posture_authorized(lease) else
                 'STALE_STATE' if sample.get('sequence', -1) < 0 else
                 'MOVING' if s.pending != (0., 0., 0.) or s._ramp_velocity != (0., 0., 0.) or not sample['still'] else
@@ -131,11 +136,12 @@ class Actions:
             try:
                 args = arguments(action, params)
                 if type(confirmed) is not bool: raise ValueError('boolean confirmation required')
-                if start_active():
+                if start_active() and action not in LOWLEVEL_QUERY:
                     # START 중에는 순정 SDK 일감을 만들지 않는다. moving 은 START 자체로 참이 되므로 보지 않는다.
                     self.report(request_id, action, *self.runner(request_id, action, lease, confirmed))
                     return False
-                reason = ('BUSY' if self.job is not None or self.inflight or s._posture is not None else
+                reason = ('FACTORY_UNSUPPORTED' if action in NO_FACTORY else
+                          'BUSY' if self.job is not None or self.inflight or s._posture is not None else
                           'DUPLICATE' if (lease, request_id) in self.seen else
                           'BUSY' if self.executing is not None else
                           'MOVING' if moving else self.reason(lease, action, confirmed))

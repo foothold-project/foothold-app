@@ -1,6 +1,6 @@
 > 분류: 규약 안 · 연결 프로그램 → START C++ 실행기 앱 동작 넘김 (실행기 쪽은 아직 코드 없음)
 > 작성: Claude 세션 (오흥재 지시, app-lx) · 2026-11-26
-> 근거: 팀장 11/26 08:01 「저수준 열」 · 동작표 action-table-1126 · `foothold_agent/go2_direct/actions.py` `LOWLEVEL` · `runner_send` · `apps/contracts` `LowlevelAction` · 실행기 `src/runner.cpp` 리모컨 키 판정 (feat/runner-dog-sit-1126-app-lx)
+> 근거: 팀장 11/26 08:01 「저수준 열」 · 10:17 Greet 추가 · 동작표 action-table-1126 · `foothold_agent/go2_direct/actions.py` `LOWLEVEL` · `runner_send` · `apps/contracts` `LowlevelAction` · 실행기 `src/runner.cpp` 리모컨 키 판정 (feat/runner-dog-sit-1126-app-lx)
 > 요지: 앱 동작 하나 = 리모컨 키 한 번. 연결 프로그램이 127.0.0.1 UDP 로 `{seq, key, action, request_id}` 를 보내고, 실행기는 그 키를 리모컨 키와 같은 판정으로 한 번 누른 것처럼 다룬다
 > 상태: 연결 프로그램 쪽만 있음 (가짜 수신 소켓 시험만). 실행기 수신 · 응답은 미구현 · 실기 0 회. `FH_START_MOVE_PORT` 를 정하기 전에는 앱 단추가 `RUNNER_NOT_CONNECTED` 로 거부됨
 
@@ -10,13 +10,14 @@
 
 - START 표시 파일 `/tmp/foothold-start-active` 가 있으면 상태에 `control: LOWLEVEL`, 없으면 `FACTORY` 를 싣는다. 화면은 이 칸으로 단추를 끈다.
 - START 중 앱 동작 요청:
-  - `LowlevelAction` 밖 (조회 포함) → `REJECTED` · `LOWLEVEL_UNSUPPORTED`
+  - 읽기 전용 조회 `LowlevelQuery` (CheckMode · AutoRecoveryGet) → 전처럼 순정 SDK 조회로 (실행기 키 아님 · 팀장 11/26 10:19)
+  - `LowlevelAction` · `LowlevelQuery` 밖 → `REJECTED` · `LOWLEVEL_UNSUPPORTED`
   - 안 → 조종권 · 중복 · 위험 확인 (Damp) 만 본 뒤 `runner_send`. 순정 SDK 자세 · 정지 판정은 START 중 순정 상태 보고가 없어 보지 않는다 (실행기가 판정)
   - `FH_START_MOVE_PORT` 없음 → `REJECTED` · `RUNNER_NOT_CONNECTED`
   - 보냄 → `SUCCEEDED` · `RUNNER_SENT`. 실행기 접수도 동작 완료도 아니다
   - 소켓 오류 → `FAILED` · `RUNNER_SEND_FAILED`
 - 자세 단추: 엎드리기 (`stand_down`) 는 `StandDown` 과 같이 `L2+A` 로, 일어서기 (`stand_up`) 는 `LOWLEVEL_UNSUPPORTED`.
-- 순정 SDK 호출은 START 중 하나도 나가지 않는다 (#498 그대로, 조회도 막음).
+- 순정 SDK 호출은 START 중 읽기 전용 조회 밖에는 나가지 않는다 (#498 그대로).
 
 ## 묶음
 
@@ -29,7 +30,7 @@
 | 칸 | 뜻 |
 |---|---|
 | `seq` | 연결 프로그램의 CLOCK_MONOTONIC ns. 늘어나는 번호이자 보낸 시각 |
-| `key` | 리모컨 키 이름. 아래 표의 일곱 값만 |
+| `key` | 리모컨 키 이름. 아래 표의 값만 |
 | `action` | 앱 동작 이름 (기록용) |
 | `request_id` | 앱 요청 번호 (기록 · 이후 응답용) |
 
@@ -39,11 +40,12 @@
 | RiseSit | R1+B | 개 앉기를 다 버틴 뒤면 다시 서기 |
 | StandDown | L2+A | 정책 중이면 엎드림 · 감쇠 중이면 다시 섬 |
 | Stretch | R2+A | 정책 중이면 기지개 |
-| Hello | R2+B | 정책 중이면 악수 |
+| Hello | R2+B | 정책 중이면 악수 (화면 이름 「악수」) |
+| Greet | L1+A | 정책 중이면 인사 (팀장 11/26 10:17 · 순정 SDK 번호 없음) |
 | Heart | R2+Y | 정책 중이면 하트 |
 | Damp | L2+B | 바로 감쇠 (비상) |
 
-Sit 과 RiseSit 은 같은 키다. 실행기는 지금 상태로 어느 쪽인지 정한다 (리모컨과 같음). 앱이 Sit 을 보냈는데 실행기가 앉아 버티는 중이면 다시 서기가 된다. 받아들일 수 없으면 RiseSit 에 대해서만 다시 서기를 허용하는 검사를 실행기에 둘지 팀장 확인이 필요하다.
+앱 동작 여덟 개, 키는 일곱 가지다. Sit 과 RiseSit 은 같은 키다. 실행기는 지금 상태로 어느 쪽인지 정한다 (리모컨과 같음). 앱이 Sit 을 보냈는데 실행기가 앉아 버티는 중이면 다시 서기가 된다. 받아들일 수 없으면 RiseSit 에 대해서만 다시 서기를 허용하는 검사를 실행기에 둘지 팀장 확인이 필요하다.
 
 ## 실행기 쪽에 만들 것 (안 · 이 브랜치에서는 고치지 않음)
 
@@ -63,5 +65,5 @@ Sit 과 RiseSit 은 같은 키다. 실행기는 지금 상태로 어느 쪽인�
 ## 정할 것
 
 - `FH_START_MOVE_PORT` 값과 자동 시작 (systemd) 에 넣을지
-- 인사 (Greet · L1+A): 앱 동작 이름이 없다 (`Go2ActionName` 은 SDK 이름이고 인사의 SDK 번호가 확인 전). 이름을 정하면 `LowlevelAction` · `LOWLEVEL` · 위 표에 같이 더한다
+- 인사 (Greet) 의 순정 SDK 번호: 모름. 정해지기 전까지 순정에서는 `FACTORY_UNSUPPORTED` (화면 회색 · 서버 · 에이전트 모두 거부)
 - AME-2 실행기도 같은 표시 파일 · 같은 묶음을 쓸지 (지금은 START 표시 파일만 봄)

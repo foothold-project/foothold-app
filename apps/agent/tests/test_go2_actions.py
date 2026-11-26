@@ -2,7 +2,7 @@
 import threading
 import time
 import pytest
-from foothold_agent.go2_direct.actions import ACTIONS, FLAGS, DANGEROUS, LOWLEVEL, arguments
+from foothold_agent.go2_direct.actions import ACTIONS, FLAGS, DANGEROUS, LOWLEVEL, LOWLEVEL_QUERY, NO_FACTORY, arguments
 from foothold_agent.go2_direct.sdk import SportBoundary
 from foothold_agent.go2_direct.approval import Approval
 from test_go2_posture import rig
@@ -17,7 +17,7 @@ def send(frame, action='Hello', **kw):
           params=kw.pop('params', params(action)), lease_id=kw.pop('lease_id', 'fake-lease'), confirmed=kw.pop('confirmed', action in DANGEROUS), **kw)
 
 
-@pytest.mark.parametrize('action', sorted(ACTIONS))
+@pytest.mark.parametrize('action', sorted(ACTIONS - NO_FACTORY))
 def test_each_mapping_is_exactly_one_call_and_never_repeated(action):
     _, sink, normal, _, session, _, measured, frame = rig(0)
     calls = []
@@ -121,7 +121,7 @@ def test_failures_keep_numeric_sdk_code_and_do_not_expose_exception(result, code
     assert session.connected
 
 
-@pytest.mark.parametrize('action', sorted(ACTIONS - {'SelectMode', 'StopMove', 'CheckMode'}))
+@pytest.mark.parametrize('action', sorted(ACTIONS - NO_FACTORY - {'SelectMode', 'StopMove', 'CheckMode'}))
 def test_boundary_approval_covers_every_highlevel_action(action):
     clock, _, normal, _, _, _, _, _ = rig(0)
     boundary = SportBoundary(normal, Approval('fake', 'fake-serial', 1100), now=clock, wall=clock)
@@ -269,14 +269,20 @@ def start_rig(tmp_path, monkeypatch, port=None):
 
 def test_start_active_blocks_sport_actions_and_drive(tmp_path, monkeypatch):
     # 팀장 11/25 20:50: START 저수준 제어 중에는 이 프로그램이 순정 동작 · 걷기를 보내지 않는다 (조종 권한 하나).
-    # 팀장 11/26 08:01: 그중 실행기 동작 (LOWLEVEL) 만 실행기로 넘기고, 나머지 (조회 포함) 는 LOWLEVEL_UNSUPPORTED.
+    # 팀장 11/26 08:01: 그중 실행기 동작 (LOWLEVEL) 만 실행기로 넘기고, 나머지는 LOWLEVEL_UNSUPPORTED.
+    # 팀장 11/26 10:19: 읽기 전용 조회 (LOWLEVEL_QUERY) 는 #498 처럼 순정 SDK 로.
     flag, (_, sink, normal, _, session, _, measured, frame) = start_rig(tmp_path, monkeypatch)
-    for i, action in enumerate(sorted(ACTIONS - set(LOWLEVEL))):
+    for i, action in enumerate(sorted(ACTIONS - set(LOWLEVEL) - LOWLEVEL_QUERY)):
         send(frame, action, request_id=f'r{i}')
         sink.drain(); sink.drain()
         assert sink.actions.result['status'] == 'REJECTED' and sink.actions.result['code'] == 'LOWLEVEL_UNSUPPORTED', action
     assert sink.movement_reason(neutral=True).startswith('START 저수준 제어 중')
     assert session._state()['control'] == 'LOWLEVEL'
+    normal.CheckMode = lambda: (0, {'name': 'normal', 'form': '0'})
+    normal.StopMove = lambda: 0   # #498 부터 조회 앞 안전 정지가 순정 StopMove 로 나감 (미확인 위험 · 보고에 적음)
+    send(frame, 'CheckMode', request_id='read')
+    sink.drain(); sink.drain()
+    assert (sink.actions.result['status'], sink.actions.result['code']) == ('SUCCEEDED', 'SDK_ACCEPTED')
     flag.unlink()
     assert session._state()['control'] == 'FACTORY'
     assert sink.movement_reason(neutral=True) is None or 'START' not in sink.movement_reason(neutral=True)
@@ -329,3 +335,16 @@ def test_start_posture_lie_down_goes_to_runner_and_stand_up_is_grey(tmp_path, mo
     finally:
         rx.close()
 
+
+
+def test_greet_has_no_factory_sdk_call(tmp_path, monkeypatch):
+    # 팀장 11/26 10:17: 인사 (Greet) 는 순정 SDK 번호가 없다. 순정에서는 번호를 지어내지 않고 거부한다.
+    from foothold_agent.policy import trace
+    monkeypatch.setattr(trace, 'START_FLAG', tmp_path / 'foothold-start-active')
+    clock, sink, normal, _, _, _, _, frame = rig(0)
+    normal.Greet = lambda: pytest.fail('no factory Greet')
+    send(frame, 'Greet'); sink.drain(); sink.drain()
+    assert (sink.actions.result['status'], sink.actions.result['code']) == ('REJECTED', 'FACTORY_UNSUPPORTED')
+    assert sink.actions.job is None
+    boundary = SportBoundary(normal, Approval('fake', 'fake-serial', 1100), now=clock, wall=clock)
+    with pytest.raises(AttributeError): boundary.Greet
