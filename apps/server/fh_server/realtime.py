@@ -1229,6 +1229,8 @@ class Realtime:
                         record = self.arbiter.robots.get(rid)
                         if record is not None and record.holder is not None and record.holder.actor is not None:
                             body['user_id'] = record.holder.actor.user  # names the server-path relay
+                            if record.holder.actor.display_name:
+                                body['display_name'] = record.holder.actor.display_name[:64]  # display only
                     peer = self.agents.get(rid)
                     if peer:
                         # DB provenance plus explicit per-robot manual trial only.

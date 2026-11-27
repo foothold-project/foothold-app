@@ -201,7 +201,7 @@ class Observer:
         return self.phone.receive(self.relay, json.dumps(
             {'t': kind, 'id': 'server-%d' % self.relay_seq, 'robot': self.phone.robot, **body}))
 
-    def _relay_peer(self, user):
+    def _relay_peer(self, user, name=...):
         from foothold_agent.executor.scenario_run import ServerRelay
         from .hub import Peer
         h = self.phone
@@ -215,6 +215,8 @@ class Observer:
         c = h.runs.current
         if not (h.runs.active and c['peer'] is self.relay):
             p.user = user  # keep the starter's identity while its run lives
+        if name is not ...:
+            p.name = name  # display only: the person behind the relay, from the server unlock
         return p
 
     def _relay_release(self):
@@ -254,7 +256,8 @@ class Observer:
                 return
         except ValueError:
             return
-        self._relay_peer(user)
+        name = f.get('display_name')
+        self._relay_peer(user, name if isinstance(name, str) and 1 <= len(name) <= 64 else None)
         if self._relay_control() is not None:
             return
         try:

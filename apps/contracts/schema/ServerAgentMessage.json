@@ -770,6 +770,20 @@
     "AgentUnlock": {
       "additionalProperties": false,
       "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
         "lease_id": {
           "format": "uuid",
           "title": "Lease Id",

@@ -8,6 +8,12 @@
       "title": "Device",
       "type": "string"
     },
+    "display_name": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
     "id": {
       "maxLength": 128,
       "minLength": 1,

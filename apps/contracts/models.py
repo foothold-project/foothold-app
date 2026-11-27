@@ -1538,9 +1538,11 @@ class AgentStop(Contract):
 
 
 class AgentUnlock(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields("user_id"))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields("user_id", "display_name"))
     # 서버가 확인한 조종권 주인 (11/28). 데모 Hub 가 서버 lease 를 조종자로 올릴 때 이름으로 쓴다.
     user_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    # 그 사람의 표시 이름 (11/28 웹 시뮬 탭). PhoneState.holder_name 으로 보인다. 모르면 생략.
+    display_name: str | None = Field(default=None, min_length=1, max_length=64, exclude_if=lambda v: v is None)
     t: Literal['unlock'] = 'unlock'
     lease_id: UUID
     stop_gen: Sequence
@@ -2788,6 +2790,8 @@ class PhoneHello(PhoneEnvelope):
     proto: Literal['fh-phone/1']
     ticket: str = Field(min_length=1, max_length=2048)
     device: UUID
+    # 다른 화면에 보일 조종자 이름 (11/28, 선택). 표시용일 뿐 권한 판단에 쓰지 않는다.
+    display_name: str = omitted(min_length=1, max_length=64)
 
 
 class PhoneLease(PhoneEnvelope):
@@ -2983,9 +2987,15 @@ class RunResumeDetail(Contract):
                               description='256 bit 이상 난수. 원래/재바인딩된 실행 연결에만 반환하며 기록·보기 연결에는 금지한다.')
 
 
+PhoneHolderType = Literal['USER', 'RUN']
+
+
 class PhoneReply(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('detail'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('detail', 'holder_type', 'holder_name'))
     detail: RunResumeDetail | None = None
+    # LEASE_HELD 거절에만 (11/28): 누가 쥐었는지. PhoneState 의 같은 두 칸과 같은 뜻.
+    holder_type: PhoneHolderType | None = Field(default=None, exclude_if=lambda v: v is None)
+    holder_name: str | None = Field(default=None, max_length=64, exclude_if=lambda v: v is None)
     t: Literal['reply']
     id: str
     ok: bool
@@ -3080,6 +3090,10 @@ class PhoneState(AgentState):
     sim_time_s: float | None
     sim_wall_delta_s: float | None
     simulation: bool
+    # 누가 Hub 를 쥐었나 (11/28 웹 시뮬 탭). USER: 폰 직결 조종자 또는 서버 중계 뒤의 사람.
+    # RUN: 예약 실행이 쥔 RUN lease (이름 null). null: 아무도 안 쥠. 이름은 폰 hello · 서버 unlock 이 준 것, 모르면 null.
+    holder_type: PhoneHolderType | None
+    holder_name: str | None = Field(max_length=64)
 
 
 class PhoneStateUpload(Contract):

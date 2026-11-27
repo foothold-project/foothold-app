@@ -79,6 +79,35 @@
         }
       ]
     },
+    "holder_name": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Holder Name"
+    },
+    "holder_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "USER",
+            "RUN"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Holder Type"
+    },
     "id": {
       "title": "Id",
       "type": "string"

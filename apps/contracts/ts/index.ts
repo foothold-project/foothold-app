@@ -312,6 +312,7 @@ export interface AgentTokenResponse {
 
 export interface AgentUnlock {
   user_id?: string | null;
+  display_name?: string | null;
   t: "unlock";
   lease_id: string;
   stop_gen: number;
@@ -1490,6 +1491,7 @@ export interface PhoneHello {
   t: "hello";
   ticket: string;
   device: string;
+  display_name?: string;
 }
 
 export interface PhoneLease {
@@ -1615,6 +1617,8 @@ export interface PhoneRelayState {
 
 export interface PhoneReply {
   detail?: RunResumeDetail | null;
+  holder_type?: "USER" | "RUN" | null;
+  holder_name?: string | null;
   t: "reply";
   id: string;
   ok: boolean;
@@ -1757,6 +1761,8 @@ export interface PhoneState {
   sim_time_s: number | null;
   sim_wall_delta_s: number | null;
   simulation: boolean;
+  holder_type: "USER" | "RUN" | null;
+  holder_name: string | null;
 }
 
 export interface PhoneStateUpload {
