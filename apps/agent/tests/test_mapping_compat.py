@@ -170,6 +170,28 @@ def test_new_session_clears_diagnostic_receipts_position_and_rates(tmp_path):
         close_runtime(rt)
 
 
+@pytest.mark.parametrize('coordinate,expected', [(30000., 'POSITION_OUT_OF_RANGE'), (float('nan'), 'INVALID_DATA')])
+def test_first_bad_pose_after_session_reset_keeps_precise_fault(tmp_path, coordinate, expected):
+    rt = runtime(tmp_path, now=lambda: 0.)
+    try:
+        rt.command(command())
+        rt.step()
+        sample = pose()
+        sample.pose.pose.position.x = coordinate
+        rt.receive(FRONTEND, sample)  # no cloud in this session yet
+        rt.step()
+        status = rt.sources_body()['point_lio']
+        assert status['reason_code'] == expected and not status['fresh']
+        assert status['position_valid'] is False
+        rt.command(command())
+        rt.step()
+        status = rt.sources_body()['point_lio']
+        assert status['reason_code'] == 'MISSING_DATA'
+        assert status['position_m'] is status['position_valid'] is None
+    finally:
+        close_runtime(rt)
+
+
 def large_fake_subscription(source, nic, callback):
     """Simulate Cyclone's sequence[uint8] C unpack/list conversion in child."""
     stop = threading.Event()
