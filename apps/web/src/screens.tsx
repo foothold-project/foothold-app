@@ -8,6 +8,7 @@ import { rt, useRt, withLive } from './rt';
 import { Approvals } from './screens/approvals';
 import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
+import { MissionTab } from './screens/missiontab';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
 import { ScenarioPick } from './screens/missions';
@@ -228,4 +229,4 @@ const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 �
 /** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
 export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, missions: Maps, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, missions: MissionTab, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };

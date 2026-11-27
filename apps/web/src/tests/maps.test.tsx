@@ -1391,7 +1391,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     await click(btn('나가기', card('확인'))); await hashed();
     expect(canvas()).toBeNull();
     expect(kept.d).toBeNull();                                           // 나가기로 버린 편집은 남기지 않음
-    expect(sent('GET', '/scenarios/s9').length).toBeGreaterThan(0);   // 나가기 뒤에야 그 시나리오의 층을 찾는다
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');   // 나가기 뒤에야 임무 탭으로 열림(W2)
   });
   it('REVIEW-260 B1: 다른 층에 남은 저장 안 한 편집이 있으면 새 편집 전에 묻는다(취소 = 남김, 버리고 편집 = 비움)', async () => {
     serve(editSrv());
@@ -2234,12 +2234,13 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
       expect(['+ 장소', '+ 건물', '+ 층'].every((t) => btn(t, card('장소')))).toBe(true);
     });
   });
-  it('옛 시나리오 주소가 시뮬 장소의 시나리오면 시뮬 탭으로 넘긴다', async () => {
+  it('옛 시나리오 주소는 시뮬 장소의 시나리오여도 임무 탭으로 연다(W2)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty,
       'GET /scenarios/sc9': { status: 200, body: { id: 'sc9', name: '언덕 순찰', floor_ids: ['f9'], waypoints: [] } } }));
     await open('#/mission/sc9');
     await flush();
-    expect(location.hash).toBe('#/sim');
+    expect(location.hash).toBe('#/missions');
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');
   });
   it('저장 안 한 편집 중 다른 탭 주소 → 떠나던 탭(시뮬)으로 되돌리고 묻는다', async () => {
     serve(signedIn(KIM));
