@@ -441,10 +441,13 @@ export const rt = {
   },
   /** 걷기 모드 바꾸기(contracts ScreenGait) · 조종권자만. done(null) = 서버 접수, done(글, 코드) = 거절(지금 서버는 GAIT_UNSUPPORTED 501).
    *  로봇이 한 결과는 state.gait_result 로 온다 */
-  gait(id: string, gait: ScreenGait['gait'], done: (why: string | null, code?: string) => void) {
+  gait(id: string, gait: ScreenGait['gait'], done: (why: string | null, code?: string) => void): string | null {
     const l = get(id);
-    if (!l.lease) return done(say(), 'NO_LEASE');
-    send({ t: 'gait', robot: id, lease_id: l.lease, gait }, (r) => done(r.ok ? null : say(r.error), r.ok ? undefined : r.error?.code));
+    if (!l.lease) { done(say(), 'NO_LEASE'); return null; }
+    // 돌려주는 id = 보낸 메시지 id. 로봇 결과 gait_result.request_id 와 짝짓는다(자세 명령처럼 서버가 메시지 id 를 request_id 로 넘김)
+    const rid = crypto.randomUUID();
+    send({ t: 'gait', robot: id, lease_id: l.lease, gait }, (r) => done(r.ok ? null : say(r.error), r.ok ? undefined : r.error?.code), rid);
+    return rid;
   },
   action(id: string, action: ScreenAction['action'], params: ScreenAction['params'], confirmed: boolean, done: (why: string | null, id?: string) => void) {
     const l = get(id);

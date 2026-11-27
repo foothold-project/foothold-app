@@ -119,19 +119,22 @@ describe('걷기 모드 칸 (PC 서버 경유 조종)', () => {
     expect(sent()).toHaveLength(1);
     expect(msg()).toContain('바꾸는 중');
     expect(gb('classic').getAttribute('aria-pressed')).toBe('true');   // 결과 전 바뀜 표시 없음
-    result('g1', 'start', 'RUNNING', 'STARTED');
+    const id1 = String(sent()[0].id);
+    result('other', 'start', 'SUCCEEDED', 'CONFIRMED');   // 같은 모드 이름이라도 다른 요청의 결과는 내 결과가 아님
+    expect(msg()).toContain('바꾸는 중');
+    result(id1, 'start', 'RUNNING', 'STARTED');
     expect(msg()).toContain('바꾸는 중'); expect(msg()).not.toContain('바꿨');
     shift(3); expect(sent()).toHaveLength(1);   // 바꾸는 중에는 또 보내지 않음
-    push('r7', { gait: { gait: 'start', available: ['classic', 'start'] } }); result('g1', 'start', 'SUCCEEDED', 'CONFIRMED');
+    push('r7', { gait: { gait: 'start', available: ['classic', 'start'] } }); result(id1, 'start', 'SUCCEEDED', 'CONFIRMED');
     expect(msg()).toBe('START 모드로 바꿨습니다.');
     expect(gb('start').getAttribute('aria-pressed')).toBe('true');
     click(gb('classic'));
-    result('g2', 'classic', 'REJECTED', 'GAIT_MOVING');
+    result(String(sent()[1].id), 'classic', 'REJECTED', 'GAIT_MOVING');
     expect(msg()).toBe(gaitWhy('GAIT_MOVING'));
     expect(msg()).toContain('멈춘 뒤');
     expect(gb('start').getAttribute('aria-pressed')).toBe('true');
     click(gb('classic'));
-    result('g3', 'classic', 'FAILED', 'GAIT_SOMETHING_NEW');
+    result(String(sent()[2].id), 'classic', 'FAILED', 'GAIT_SOMETHING_NEW');
     expect(msg()).toContain('GAIT_SOMETHING_NEW');
   });
 
@@ -167,6 +170,24 @@ describe('걷기 모드 칸 (PC 서버 경유 조종)', () => {
     key('keydown', 'Digit3'); key('keyup', 'Digit3');
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', shiftKey: true, ctrlKey: true, bubbles: true, cancelable: true })); });
     expect(sent()).toHaveLength(0);
+  });
+
+  // 검토 3: STOP 을 보낸 뒤 로봇의 잠금 보고(state latched · 새 stop_gen)가 오기 전 틈에도 모드 키는 나가지 않는다
+  it('STOP 직후 잠금 보고 전에 Shift+2 를 눌러도 보내지 않음 · 잠금 해제 뒤에는 다시 보냄', () => {
+    gaitMode = 'ok'; readyPc({ gait: 'classic', available: ['classic', 'sport', 'start'] });
+    const prev = w.auto!;
+    w.auto = (m: Msg) => { if (m.t === 'stop') { w.recv({ t: 'reply', id: m.id, ok: true }); return; } prev(m); };   // 서버는 받았지만 로봇 잠금 보고는 아직
+    key('keydown', 'Space'); key('keyup', 'Space');
+    expect(w.of('stop')).toHaveLength(1);
+    shift(2);
+    expect(sent()).toHaveLength(0);
+    expect(msg()).toContain('정지');
+    push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 });   // 로봇 잠금 보고
+    shift(2); expect(sent()).toHaveLength(0);
+    w.auto = prev;
+    click(btn('② 잠금 해제')); tick(100);
+    shift(2);
+    expect(sent().map((m) => m.gait)).toEqual(['sport']);
   });
 
   // reviewer G1: 잠금 중 · 서버 끊김 검사가 각각 따로 지켜지는지

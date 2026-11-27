@@ -36,14 +36,16 @@ const LOST = '로봇에서 결과를 받지 못했습니다. 모드가 바뀌었
 export function useGait(id: string, moving: () => boolean) {
   const l = useLive(id), s = l.state, link = rt.link().at, mine = !!l.lease;
   const cur = s?.gait?.gait ?? null, avail = s?.gait?.available ?? null, res = s?.gait_result ?? null;
-  // ask = 내가 보낸 바꾸기(결과까지), prev = 보낼 때 보이던 앞 결과(같은 것을 내 결과로 읽지 않게)
-  const [ask, setAsk] = useState<{ g: GaitName; prev: string | null } | null>(null), [msg, setMsg] = useState('');
+  // ask = 내가 보낸 바꾸기(결과까지), rid = 보낸 메시지 id(결과 gait_result.request_id 와 짝)
+  const [ask, setAsk] = useState<{ g: GaitName; rid: string } | null>(null), [msg, setMsg] = useState('');
   const off = (g: GaitName) => !!avail && !avail.includes(g);
   /** 보내지 않을 까닭(없으면 '') */
   const block = (g: GaitName) => !mine ? '조종 시작 뒤 바꿀 수 있습니다.'
     : link !== 'open' ? '서버 연결이 끊겨 바꿀 수 없습니다.'
     : s?.connection !== 'ONLINE' ? '로봇 연결이 끊겨 바꿀 수 없습니다.'
     : s.latched !== false ? WHY.GAIT_LATCHED
+    // 이 화면이 STOP 을 보낸 뒤 로봇 잠금 보고(새 stop_gen)가 오기 전 틈도 막는다. 조종권이 바뀌면(rev) 그 STOP 은 지난 것
+    : l.stop && !l.stop.latched && l.stop.rev === l.rev && (s.stop_gen ?? -1) <= l.stop.g0 ? '정지 요청을 처리하는 중입니다. 로봇이 멈춘 것을 확인한 뒤 바꾸세요.'
     : ask ? WHY.GAIT_BUSY
     : moving() ? WHY.GAIT_MOVING
     : off(g) ? `${NAME[g]}: 이 로봇에서 지금 쓸 수 없는 모드입니다.`
@@ -51,11 +53,13 @@ export function useGait(id: string, moving: () => boolean) {
   const press = (g: GaitName) => {
     const no = block(g);
     if (no) return setMsg(no);
-    setMsg(''); setAsk({ g, prev: res?.request_id ?? null });
-    rt.gait(id, g, (bad, code) => { if (bad) { setAsk(null); setMsg(code && WHY[code] ? WHY[code] : bad); } });
+    setMsg('');
+    let failed = false;
+    const rid = rt.gait(id, g, (bad, code) => { if (bad) { failed = true; setAsk(null); setMsg(code && WHY[code] ? WHY[code] : bad); } });
+    if (rid && !failed) setAsk({ g, rid });
   };
   useEffect(() => {
-    if (!ask || !res || res.request_id === ask.prev || res.gait !== ask.g || res.status === 'RUNNING') return;
+    if (!ask || !res || res.request_id !== ask.rid || res.status === 'RUNNING') return;
     setAsk(null); setMsg(res.status === 'SUCCEEDED' ? `${NAME[res.gait]} 모드로 바꿨습니다.` : gaitWhy(res.code));
   }, [ask, res?.request_id, res?.status]);
   useEffect(() => { if (!ask) return; const t = setTimeout(() => { setAsk(null); setMsg(LOST); }, GAIT_WAIT_MS); return () => clearTimeout(t); }, [ask]);
