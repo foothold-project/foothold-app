@@ -387,6 +387,7 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
     {!sim && b.floors.some((f) => f.approved_version_id && voxelOf(vers[f.approved_version_id])) && <span className="lv-chip" data-voxel-chip title="3D 지도 파일에서 만든 지도 · 시뮬 지형 연결됨">3D</span>}</small>; };
   const thumb = (b: MapBuilding) => { const id = picFloor(b)?.approved_version_id; return <Thumb key={id ?? ''} id={id} v={id ? vers[id] : undefined} />; };
   const shown = places.filter(hit), sites = t.tree?.items.filter((s) => shown.some((p) => p.site.id === s.id)) ?? [];
+  const none = !!t.tree && !sim && !places.length;   // 지도 0 개(U11-04 빈 화면)
   return <section className="mx" aria-label="지도 고르기">
     <div className="mx-scroll"><div className="mx-choose">
       <h2>{sim ? '어느 지도로 시뮬할까요?' : '어느 지도에서 일할까요?'}</h2>
@@ -395,8 +396,9 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
       <Note m={note} />
       <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
         {sim ? <button type="button" className="btn" onClick={() => make('fix')}>장소 고치기</button>
-          : <>{maker && <button type="button" className="btn pri" data-make-robot onClick={() => make('robot')}>+ 지도 만들기</button>}
-            <button type="button" className={`btn${maker ? '' : ' pri'}`} data-make-file onClick={() => make('file')}>+ 파일 올리기</button>
+          // 지도 0 개면 빈 칸(아래)의 단추와 같은 위 단추는 숨긴다. 칠한 단추는 STOP 말고 하나(U11-04 검수)
+          : <>{maker && !none && <button type="button" className="btn pri" data-make-robot onClick={() => make('robot')}>+ 지도 만들기</button>}
+            {(maker || !none) && <button type="button" className={`btn${maker ? '' : ' pri'}`} data-make-file onClick={() => make('file')}>+ 파일 올리기</button>}
             {!inApp() && <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>}</>}</div>
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
@@ -404,7 +406,7 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
       {/* 시뮬 탭: 실기 카드는 보이되 시뮬로 쓸 지도(시뮬 장소·3D 실기)가 하나도 없으면 안내 — 판을 아직 못 받은 층(null)은 모름이라 안내 안 함 */}
       {t.tree && sim && places.every((p) => runOf(p, vers) === 'real') && <p className="lv-note" data-empty>서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.</p>}
       {/* 지도 0 개(U11-04 빈 화면 · u11_7): 아이콘 · 한 줄 까닭 · 다음 할 일 하나(담당 실기가 있으면 로봇으로 그리기, 없으면 파일 올리기) */}
-      {t.tree && !sim && !places.length && <Empty kind="map" title="아직 지도가 없습니다" card={false}
+      {none && <Empty kind="map" title="아직 지도가 없습니다" card={false}
         why={maker ? '담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.' : '지도 파일(그림 · yaml)을 올리면 여기에 보입니다.'}>
         {maker ? <button type="button" className="btn pri" onClick={() => make('robot')}>+ 지도 만들기</button>
           : <button type="button" className="btn pri" onClick={() => make('file')}>+ 파일 올리기</button>}</Empty>}

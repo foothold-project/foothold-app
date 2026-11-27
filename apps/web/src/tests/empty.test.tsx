@@ -81,6 +81,26 @@ describe('지도 없음', () => {
     expect(r.title).toBe('아직 지도가 없습니다');
     expect(r.acts).toEqual(['+ 파일 올리기']);
   });
+  // 칠한 단추는 STOP 말고 하나(검수 07:47): 지도 0 개면 빈 칸 단추와 같은 위 단추를 숨기고, 1 개 이상이면 위 단추 그대로
+  const filled = () => [...box.querySelectorAll<HTMLElement>('main .btn.pri')].map((b) => b.textContent);
+  it('지도 0 개(담당 실기 없음): 위 «+ 파일 올리기» 없음 · 칠한 단추는 빈 칸 것 하나 · «+ 지형 만들기» 그대로', async () => {
+    serve(KIM, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
+    expect($('[data-make-file]')).toBeNull();
+    expect(filled()).toEqual(['+ 파일 올리기']);
+    expect($('[data-empty="map"] .btn.pri')!.textContent).toBe('+ 파일 올리기');
+    expect($('[data-terrain-enter]')).toBeTruthy();
+  });
+  it('지도 0 개(담당 실기 있음): 위 «+ 지도 만들기» 없음 · 위 «+ 파일 올리기»는 칠하지 않은 채 남음', async () => {
+    serve({ ...LEE, robot_ids: ['r-a'] }, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
+    expect($('[data-make-robot]')).toBeNull();
+    expect($('[data-make-file]')!.classList.contains('pri')).toBe(false);
+    expect(filled()).toEqual(['+ 지도 만들기']);
+  });
+  it('지도 1 개 이상: 위 «+ 파일 올리기» 그대로(칠함) · 빈 칸 없음', async () => {
+    serve(KIM, [RA]); await open('#/map');
+    expect($('[data-empty="map"]')).toBeNull();
+    expect($('[data-make-file]')!.classList.contains('pri')).toBe(true);
+  });
   it('고른 층에 지도가 없으면: 아이콘 · 한 줄 까닭 · «새 지도 올리기…» 하나(«지도 만들기»는 ··· 메뉴)', async () => {
     serve(KIM, [RA]); await open('#/map');
     const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
