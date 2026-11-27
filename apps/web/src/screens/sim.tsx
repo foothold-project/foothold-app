@@ -149,7 +149,7 @@ function SimView({ admin }: { admin: boolean }) {
         {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('A·← / D·→', '제자리 회전', !running)}{key('Q/E', '옆걸음', (can.left || can.right) && !running, running || can.left || can.right ? '' : SIDE_OFF)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
-        <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만 — 이 시뮬은 키·시나리오로</span>
+        <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만. 이 시뮬은 키·시나리오로</span>
       </div>}
     </section>
     <SimQuad fm={fm} hasMap={hasMap} mine={mine} />

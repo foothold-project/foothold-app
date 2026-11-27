@@ -69,8 +69,8 @@ function Arrows({ on }: { on: Partial<Record<keyof typeof ARROW, boolean>> }) {
 const blockedNames = (a: ReturnType<typeof allowed>) => [!a.back && '후진', !(a.left || a.right) && '옆걸음', !a.spin && '제자리 회전'].filter(Boolean).join('·');
 /** 막힌 방향 입력 안내(limits 가 0 으로 자른 이유 — 자르기는 phone.ts velocity). 폰 조이스틱·PC 키보드가 같이 쓴다 */
 export function blockNote([f, t, y]: [number, number, number], can: ReturnType<typeof allowed>, out: { vx: number; vy: number } | null, dead = DEAD) {
-  return f < -dead && !can.back ? '후진은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
-    : (y > dead && !can.left) || (y < -dead && !can.right) ? '옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
+  return f < -dead && !can.back ? '후진은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨'
+    : (y > dead && !can.left) || (y < -dead && !can.right) ? '옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨'
     : t !== 0 && !can.spin && (!out || (out.vx === 0 && out.vy === 0)) ? SPIN : '';
 }
 export const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
@@ -223,7 +223,7 @@ function ScenarioBar({ s, r, started }: { s: Sim; r: SimRobot; started: () => vo
   </div>;
 }
 
-export const EXP = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+export const EXP = '시뮬 시험용 · 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
 const SPIN = '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.';
 /** 직결 조종 화면(10-26 사용자 «쓸데없는 거 다 빼줘» — 참고 Unitree 앱 구도): 영상이 화면 전체(cover). 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약 하나,
  *  오른쪽 위 STOP(App 머리줄 — 시뮬 조종 중에는 STOP 만 남아 영상 위에 뜬다, 메뉴·띠·시트가 덮지 못함), 아래 두 구석 조이스틱, 왼쪽 조이스틱 옆 메뉴 단추 하나

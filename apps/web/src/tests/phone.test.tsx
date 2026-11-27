@@ -313,7 +313,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
     expect($('[data-sim-exp]')).toBeNull();   // 10-26: 영상 위에서 빼고 메뉴 안 한 줄
     await click($('[data-sim-menu]'));
-    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 · 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
     expect(exp.textContent).toBe('시험용 · 넘어질 수 있음');   // 긴 문장은 aria·설정 시트
     expect(exp.getAttribute('aria-label')).toBe(full);
     expect(exp.closest('.dv-menu')).toBeTruthy();
@@ -435,7 +435,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     expect(arrows('전후')).toBe('up+ down- left- right-');
     const left = stick('전후');
     ptr(left, 'pointerdown', 0, 50); await wait(80);
-    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨');
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨');
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     ptr(left, 'pointermove', 100, 50); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vy: 0 });

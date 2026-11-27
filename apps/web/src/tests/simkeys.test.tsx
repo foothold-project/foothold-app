@@ -199,7 +199,9 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0, wz: 0.5 });
     await key('keyup', 'ArrowLeft'); await key('keydown', 'KeyQ');
     const side = await lastCmd(); expect(side).toMatchObject({ vx: 0, vy: 0 }); expect(Math.abs(side.wz as number)).toBeLessThan(0.01);   // NUDGE(문턱 아래) — 돌지 않음
-    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨');
+    expect($('[data-sim-keys]')!.textContent).toContain('MuJoCo(«시뮬 열기») 만. 이 시뮬은 키·시나리오로');
+    expect(box.textContent).not.toContain('\u2014');   // 시뮬 안내 글에 긴 줄표 없음
     const off = [...box.querySelectorAll('[data-sim-keys] [data-key-off]')].find((x) => x.textContent!.includes('옆걸음'))!;
     expect(off.textContent).toContain('Q/E 옆걸음(막힘 · 로봇 한계 옆 0 m/s)');
     await key('keyup', 'KeyQ');
