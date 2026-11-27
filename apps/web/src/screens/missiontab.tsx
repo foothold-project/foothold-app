@@ -205,7 +205,10 @@ const Guess = ({ e }: { e: Estimate }) => (e.estimate_source === 'TABLE_UNMEASUR
 
 /** 일정 칸 상태: 시작 · 마감(오늘) · 로봇 · 걷기 모드 → 가용 · 예상 · 일정 추가 · 오늘 일정(겹침 표시) */
 function usePlan(x: Scenario | undefined, cancel?: AbortSignal) {
-  const [[start, end], setTimes] = useState(firstTimes), past = start < nowHm(), ok = start < end && !past;
+  // 지금 시각은 분마다 다시 잰다(폼을 열어 둔 채 시각이 지나도 «지난 시각»이 걸리게)
+  const [nowM, setNowM] = useState(nowHm);
+  useEffect(() => { const t = setInterval(() => setNowM(nowHm()), 60_000); return () => clearInterval(t); }, []);
+  const [[start, end], setTimes] = useState(firstTimes), past = start < nowM, ok = start < end && !past;
   const [rid, setRid] = useState(''), [gait, setGait] = useState<Gait | ''>('');
   const [avail, setAvail] = useState<RobotAvailability[] | null>(null), [availErr, setAvailErr] = useState('');
   const [estAt, setEstAt] = useState<{ key: string; e: Estimate | null; err: string } | null>(null);
@@ -250,7 +253,7 @@ function usePlan(x: Scenario | undefined, cancel?: AbortSignal) {
             setClash(ids); setMsg({ text: '같은 로봇의 다른 일정과 겹칩니다. 오늘 일정에 표시한 막대를 피해 시각이나 로봇을 바꾸세요.' }); setDn((k) => k + 1); }
           else setMsg({ text: `일정에 넣지 못했습니다. ${e.message}` }); });
   };
-  return { start, end, ok, past, late, setStart: (v: string) => setTimes([v, end]), setEnd: (v: string) => setTimes([start, v]), rid, setRid, gait, setGait,
+  return { start, end, ok, past, nowM, late, setStart: (v: string) => setTimes([v, end]), setEnd: (v: string) => setTimes([start, v]), rid, setRid, gait, setGait,
     avail, availErr, est, estErr, slots, dayErr, clash, msg, busy, add, again: () => setDn((k) => k + 1) };
 }
 type Plan = ReturnType<typeof usePlan>;
@@ -263,7 +266,8 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
     const r = robots.find((y) => y.id === a.robot_id);   // 연결 전 / 끊김은 관제 칩과 같은 판정(robotStatus)
     return r && !r.online ? robotStatus(r).text : STATE.OFFLINE;
   };
-  const can = !!x && !x.archived_at && !!p.rid && !!p.gait && p.ok && !p.late && !p.busy;
+  // 예상이 있어야 마감 넘음을 볼 수 있다 · 예상 전 · 오류면 넣지 않는다
+  const can = !!x && !x.archived_at && !!p.rid && !!p.gait && p.ok && !!p.est && !p.late && !p.busy;
   const e = p.est;
   return <aside className="mt-card mt-side" aria-label="일정에 추가">
     <p className="lbl">일정에 추가</p>
@@ -272,7 +276,7 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
       <label className="mt-box"><span className="lbl">시작</span><input className="mt-time" type="time" step={600} data-start value={p.start} onChange={(ev) => ev.target.value && p.setStart(ev.target.value)} /></label>
       <label className="mt-box"><span className="lbl">마감</span><input className="mt-time" type="time" step={600} data-end value={p.end} onChange={(ev) => ev.target.value && p.setEnd(ev.target.value)} /></label>
     </div>
-    {p.past ? <p className="fh-msg" role="alert" data-past>지난 시각은 고를 수 없습니다. 지금({nowHm()}) 뒤로 시작을 고르세요.</p>
+    {p.past ? <p className="fh-msg" role="alert" data-past>지난 시각은 고를 수 없습니다. 지금({p.nowM}) 뒤로 시작을 고르세요.</p>
       : !p.ok && <p className="fh-msg" role="alert">마감은 시작보다 뒤여야 합니다.</p>}
     <h3>이 시간에 쓸 수 있는 로봇</h3>
     {p.avail && !!p.avail.length && <ul className="mt-robots" aria-label="로봇">{p.avail.map((a) => { const free = a.state === 'FREE' || a.state === 'CHARGING';
@@ -300,7 +304,8 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
       <button type="button" className="btn pri" disabled={!can} aria-describedby={can ? undefined : 'mt-why'} data-schedule-add onClick={p.add}>{p.busy ? '넣는 중…' : '일정에 추가'}</button>
     </div>
     {p.msg && <p className={`fh-msg${p.msg.ok ? ' ok' : ''}`} role={p.msg.ok ? 'status' : 'alert'} data-add-msg>{p.msg.text}</p>}
-    {!can && !p.busy && <p id="mt-why" className="lv-note">임무 · 시각 · 로봇 · 걷기 모드를 고르면 일정에 넣을 수 있습니다.</p>}
+    {!can && !p.busy && <p id="mt-why" className="lv-note" data-add-why>{x && p.rid && p.gait && p.ok && !p.est
+      ? '예상을 받은 뒤에 넣을 수 있습니다(마감 넘음을 확인해야 함).' : '임무 · 시각 · 로봇 · 걷기 모드를 고르면 일정에 넣을 수 있습니다.'}</p>}
     <p id="mt-why-run" className="lv-note">모의 실행은 다음 단계에서 붙습니다.</p>
   </aside>;
 }

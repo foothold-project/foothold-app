@@ -35,7 +35,7 @@ const slot = (id: string, robot_id: string, kind: ScheduleSlot['kind'], h0: numb
 const AV = (robot_id: string, robot_name: string, state: RobotAvailability['state'], battery_pct: number | null, x: Partial<RobotAvailability> = {}): RobotAvailability =>
   ({ robot_id, robot_name, state, busy_until: null, busy_slot_id: null, busy_label: null, battery_pct, demo: false, sim: false, location_label: null, ...x });
 const EST: Estimate = { length_m: 1280, walk_s: 1260, task_s: 360, eta: at(14, 27), margin_s: 180, end_battery_pct: 54.4, estimate_source: 'TABLE_UNMEASURED' };
-let srv: { slots: ScheduleSlot[]; avail: RobotAvailability[]; est: Estimate; conflict: string[] | null };
+let srv: { slots: ScheduleSlot[]; avail: RobotAvailability[]; est: Estimate | null; conflict: string[] | null };   // est null = 예상 오류(503)
 const fresh = () => { srv = { slots: [slot('sl1', 'r1', 'CONFIRMED', 9, 0, 10, 0), slot('sl2', 'r2', 'DRAFT', 13, 0, 13, 30), slot('sl3', 'r1', 'BATTERY_SWAP', 15, 0, 15, 20, null)],
   avail: [AV('r1', 'K-01', 'FREE', 86), AV('r2', '시뮬 Go2', 'FREE', null, { sim: true })], est: EST, conflict: null }; };
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -48,7 +48,7 @@ function serve() {
     const fail = (status: number, code: string, detail = {}) => new Response(JSON.stringify({ error: { code, message: code === 'SCHEDULE_CONFLICT' ? '같은 로봇의 다른 일정과 겹칩니다.' : '오류', detail } }), { status });
     if (path === '/schedule') return ok({ day: new URLSearchParams(qs).get('day'), tz: new URLSearchParams(qs).get('tz'), slots: srv.slots });
     if (path === '/robots/availability') return ok({ items: srv.avail });
-    if (method === 'POST' && path === '/estimates') return ok(srv.est);
+    if (method === 'POST' && path === '/estimates') return srv.est ? ok(srv.est) : fail(503, 'UNAVAILABLE');
     if (method === 'POST' && path === '/schedule/slots') {
       if (srv.conflict) return fail(409, 'SCHEDULE_CONFLICT', { slot_ids: srv.conflict });
       const x = { ...body, id: 'new1', scenario_version: body.scenario_version ?? null, assignment_id: null, memo: '', created_by: 'u-kim', created_at: at(0) } as ScheduleSlot;
@@ -99,7 +99,7 @@ const click = async (e: Element | null) => { expect(e).toBeTruthy(); act(() => (
 
 describe('임무 탭(W2)', () => {
   // 시계: 오늘 08:05(지난 시각 · 처음 값 판정이 돌리는 때에 따라 바뀌지 않게). 타이머는 진짜 그대로
-  beforeEach(() => { const d = new Date(); d.setHours(8, 5, 0, 0); vi.useFakeTimers({ toFake: ['Date'], now: d }); });
+  beforeEach(() => { const d = new Date(); d.setHours(8, 5, 0, 0); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'], now: d }); });
   afterEach(() => { vi.useRealTimers(); });
   it('주소 · 메뉴: #/missions 와 옛 #/mission 은 임무 탭, oldScenario 는 고를 id', () => {
     expect(tabFromHash('#/missions', false)).toBe('missions');
@@ -259,6 +259,31 @@ describe('임무 탭(W2)', () => {
     expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);
     await setTime('start', '08:30');
     expect($('[data-past]')).toBeNull();
+  });
+
+  it('예상이 없으면(오기 전 · 오류) 마감 넘음을 볼 수 없어 넣지 않는다 · 까닭 한 줄', async () => {
+    await mount('#/missions');
+    srv.est = null;
+    await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
+    expect($('[data-est-why]')!.textContent).toContain('예상을 받지 못했습니다');
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);
+    expect($('[data-add-why]')!.textContent).toContain('예상');
+    srv.est = { ...EST, eta: at(8, 50) };
+    await click($('[data-mode="Classic"]'));
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(false);
+  });
+
+  it('폼을 열어 둔 채 시각이 지나면(분마다 다시 잼) 그 시작은 «지난 시각»으로 막힌다', async () => {
+    await mount('#/missions');
+    await setTime('start', '08:10'); await setTime('end', '09:00');
+    srv.est = { ...EST, eta: at(8, 37) };
+    await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
+    expect($('[data-past]')).toBeNull();
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(false);
+    act(() => { vi.advanceTimersByTime(6 * 60_000); });   // 08:11
+    await flush();
+    expect($('[data-past]')).toBeTruthy();
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);
   });
 
   it('AME-2 는 확정 일정에 못 넣어(서버 GAIT_NOT_READY) 흐리게 «준비 중», 고를 수 없음', async () => {
