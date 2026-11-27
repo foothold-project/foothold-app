@@ -459,6 +459,37 @@ int main() {
         require(dry.robot.calls == 0 && dry.robot.writes == 0, "depth loss accessed robot in dry-run");
     }
     {
+        // Invalid share rule: a frame with more than 40 % cells at 1.0 counts as no frame.
+        Rig dry(false, MapMode::reconstruction);
+        Depth holes{};
+        std::fill(holes.begin(), holes.begin() + 1477, 1.f);  // 41 %
+        dry.depth = &holes;
+        dry.tick(start);
+        require(dry.runner.phase() == Phase::high, "reconstruction armed on an invalid frame");
+        Depth frame{};
+        std::fill(frame.begin(), frame.begin() + 1440, 1.f);  // exactly 40 % is still used
+        dry.depth = &frame;
+        dry.enter();
+        dry.wait(40ms);
+        require(dry.runner.phase() == Phase::policy, "40 % invalid frame must arm reconstruction");
+        const auto seen = [&](Event e) {
+            return std::find(dry.events.seen.begin(), dry.events.seen.end(), e) != dry.events.seen.end();
+        };
+        const int ticks = dry.policy.depth_ticks;
+        dry.depth = &holes;
+        dry.wait(900ms);
+        require(dry.policy.depth_ticks == ticks + 1 && !seen(Event::depth_stale),
+                "invalid frames must hold the map like a gap");
+        dry.wait(200ms);
+        require(seen(Event::depth_stale), "invalid frames must run the gap clock");
+        dry.depth = &frame;
+        dry.wait(300ms);
+        require(dry.policy.depth_ticks >= ticks + 3, "valid frames must resume ticks");
+        dry.depth = &holes;
+        dry.wait(3100ms);
+        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "3 s of invalid frames must sit");
+    }
+    {
         Rig live(true);
         live.enter();
         live.tick(lie);

@@ -146,6 +146,10 @@ struct Options {
     // Without a new frame the policy holds h_terr (no depth tick). From depth_slow_after the
     // command goal is zero (slow to a stop); from depth_sit_after the runner sits (DEPTH_LOST).
     std::chrono::milliseconds depth_slow_after{1000}, depth_sit_after{3000};
+    // A frame whose share of invalid cells (1.0 after the 60x60 resize) is above this is
+    // ignored: no tick, and the gap clock keeps running (lead-lx 11/27 17:52, sim: 0.4 holds,
+    // 0.8 drops balance-beam survival below 1/3).
+    float depth_max_invalid = 0.4f;
     double fwd_max = 1.5;
     bool stand_only = false;
 };

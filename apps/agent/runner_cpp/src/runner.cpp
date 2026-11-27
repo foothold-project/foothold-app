@@ -610,8 +610,18 @@ void Runner::infer(Tick now, Tick scheduled, const LowState& state, const Vec3& 
     collect(now);
 }
 
+// Share of cells at the invalid value (1.0: no return, out of image, or beyond 3 m).
+static float invalid_share(const Depth& depth) {
+    std::size_t invalid = 0;
+    for (const float value : depth) invalid += value >= 1.f;
+    return float(invalid) / float(depth.size());
+}
+
 void Runner::tick(Tick now, const LowState& state, DepthFrame depth, bool shutdown,
                   std::optional<Tick> scheduled_slot) {
+    if (depth.values && options_.map == MapMode::reconstruction &&
+        invalid_share(*depth.values) > options_.depth_max_invalid)
+        depth.values = nullptr;
     const Depth* frame = depth.values;
     if (frame && depth.stamp > depth_seen_) {
         depth_seen_ = depth.stamp;

@@ -44,7 +44,7 @@ struct Config {
 };
 
 const char* usage = "foothold_start --folder BUNDLE [--nic NIC | --benchmark] "
-    "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--depth-slow-ms N] [--depth-sit-ms N] [--seconds N] [--status N] [--status-log FILE] [--trace-dir DIR] "
+    "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--depth-slow-ms N] [--depth-sit-ms N] [--depth-max-invalid F] [--seconds N] [--status N] [--status-log FILE] [--trace-dir DIR] "
     "[--cpu-range FIRST-LAST | --control-cpus CPUSET --sensing-cpus CPUSET --io-cpus CPUSET] "
     "[--rt-priority N] [--sensing-rt-priority N] [--mlock] [--fwd-max N] "
     "[--stand-only] [--stop-mode sit] [--app-port PORT] [--live --armed-by-remote]";
@@ -95,6 +95,7 @@ Config parse(int argc, char** argv) {
         else if (option == "--status") config.status = number(value());
         else if (option == "--fwd-max") config.runner.fwd_max = number(value());
         else if (option == "--depth-slow-ms") config.runner.depth_slow_after = std::chrono::milliseconds(integer(value(), 60000));
+        else if (option == "--depth-max-invalid") config.runner.depth_max_invalid = static_cast<float>(number(value()));
         else if (option == "--depth-sit-ms") config.runner.depth_sit_after = std::chrono::milliseconds(integer(value(), 60000));
         else if (option == "--rt-priority") config.priority = integer(value(), 99);
         else if (option == "--sensing-rt-priority") config.sensing_priority = integer(value(), 99);
@@ -130,6 +131,8 @@ Config parse(int argc, char** argv) {
         throw std::invalid_argument("reconstruction requires --depth-socket");
     if (config.runner.depth_slow_after.count() <= 0 || config.runner.depth_sit_after <= config.runner.depth_slow_after)
         throw std::invalid_argument("--depth-slow-ms must be positive and below --depth-sit-ms");
+    if (!(config.runner.depth_max_invalid >= 0 && config.runner.depth_max_invalid <= 1))
+        throw std::invalid_argument("--depth-max-invalid must be within 0-1");
     if (config.runner.map == MapMode::off && !config.depth_socket.empty())
         throw std::invalid_argument("--depth-socket requires reconstruction");
     if (config.benchmark && config.runner.stand_only)
@@ -232,7 +235,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
     LowState state;
     bool saw_state = false, benchmark_armed = false, benchmark_in_policy = false;
     Depth synthetic_depth;
-    synthetic_depth.fill(1.f);
+    synthetic_depth.fill(.5f);  // valid cells: an all-1.0 frame would be ignored as invalid
     const auto* replay_depth = config.runner.map == MapMode::reconstruction ? &synthetic_depth : nullptr;
     auto next = std::chrono::steady_clock::now();
     const auto begin = next;
