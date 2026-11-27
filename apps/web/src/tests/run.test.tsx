@@ -344,7 +344,7 @@ describe('시나리오 실행 — 비밀값 위치·다른 화면', () => {
   it('다른 화면이 건 실행: 이어서 단추 없음·이유, 일시정지만 취소 가능(권한 거절이면 이유), 일시정지·이어서 프레임 0', async () => {
     const a = await launch('phone');
     await ready(a, runOf(OTHER));
-    expect(visible()).toContain('다른 화면에서 실행 중입니다 · 멈추려면 STOP.');
+    expect(visible()).toContain('다른 화면에서 실행 중입니다 · 일시정지는 임무를 건 화면에서 · 바로 멈추려면 STOP.');
     expect(btn('일시정지')).toBeUndefined(); expect(btn('취소')).toBeUndefined();
     const paused = runOf(OTHER, { status: 'PAUSED', wait_reason: 'LINK_LOST' });
     await ready(a, paused);
@@ -399,10 +399,10 @@ describe('시나리오 실행 — PC 총괄 시뮬', () => {
     expect(calls.some((c) => c.method === 'POST' && /stop/i.test(c.path))).toBe(false);
   });
 
-  it('PC: 다른 화면 실행 안내는 «시뮬 정지»로(QA R5), 단추 0', async () => {
+  it('PC: 다른 화면 실행 안내는 폰과 같은 문구(07:30 · 일시정지는 건 화면 · 바로 멈추려면 STOP), 단추 0', async () => {
     const a = await launch('pc');
     await ready(a, runOf(OTHER));
-    expect(visible()).toContain('다른 화면에서 실행 중입니다 · 멈추려면 «시뮬 정지».');
+    expect(visible()).toContain('다른 화면에서 실행 중입니다 · 일시정지는 임무를 건 화면에서 · 바로 멈추려면 STOP.');
     expect($('[data-run-acts]')).toBeNull();
     expect($<HTMLButtonElement>('[data-sim-stop-btn]')!.disabled).toBe(false);
   });

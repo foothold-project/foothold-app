@@ -103,7 +103,7 @@ function SimView({ admin }: { admin: boolean }) {
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
-  const run = runView(s, true), running = runMoving(l.run);
+  const run = runView(s), running = runMoving(l.run);
   const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s)].filter(Boolean) as string[];
   const close = async () => { if (sim.get().link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]); sim.reset(); };
   const key = (k: string, t: string, on = true) => <span className="lbl" data-key-off={on ? undefined : ''} style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}{on ? '' : '(막힘)'}</span>;
