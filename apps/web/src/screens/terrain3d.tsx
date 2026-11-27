@@ -75,7 +75,7 @@ function palette(el: Element) {
     return col;
   };
   const panel = c('--panel', '#181d26'), accent = c('--accent', '#3ec7b4'), warn = c('--warn', '#d9a441');
-  return { bg: c('--bg', '#12161d'), panel, base: c('--panel2', '#1f2530'), line: c('--line', '#2b3240'), text: c('--text', '#e9e7e1'), accent,
+  return { bg: c('--bg', '#12161d'), panel, base: c('--panel2', '#1f2530'), line: c('--line', '#2b3240'), muted: c('--muted', '#9aa7b3'), text: c('--text', '#e9e7e1'), accent,
     bad: c('--bad', '#e56d5e'), warn, solid: accent.clone().lerp(panel, 0.45), ramp: accent.clone().lerp(panel, 0.65), hole: new THREE.Color('#0b0d10') };
 }
 type Pal = ReturnType<typeof palette>;
@@ -95,7 +95,8 @@ function world(spec: Spec, sel: What | null, state: Props['state'], p: Pal) {
   };
   add(new THREE.BoxGeometry(W, H, 0.1).translate(0, 0, -0.55), lam(p.base));
   add(floorOf([W, H], spec.items.filter((it, i) => it.kind === 'gap' && state[i] !== 'bad')), lam(p.panel), g, p.line);
-  const grid = new THREE.GridHelper(Math.max(W, H), Math.max(W, H), p.line, p.line);   // 1 m 칸
+  const gl = p.line.clone().lerp(p.muted, 0.5);   // 격자 = --line 과 --muted 사이(밝은 판에서 --line 만으로는 흰 바닥 위에 안 보임)
+  const grid = new THREE.GridHelper(Math.max(W, H), Math.max(W, H), gl, gl);   // 1 m 칸
   grid.rotation.x = Math.PI / 2; grid.position.z = 0.002;
   (grid.material as THREE.Material).transparent = true; (grid.material as THREE.Material).opacity = 0.5;
   if (W <= 30 && H <= 30) g.add(grid);
