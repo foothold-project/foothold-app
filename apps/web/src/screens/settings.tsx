@@ -42,6 +42,9 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
   const admin = c.user.role === 'ORG_ADMIN', [tab, setTab] = useState<Tab>('acct'), org = useOrg(c.cancel), list = useRef<HTMLDivElement>(null);
   const TABS = GROUPS.flatMap(([, ts]) => ts.filter((t) => admin || !t[2]).map(([id, name]) => [id, name] as [Tab, string]));
   // 탭 목록 키(WAI-ARIA tabs): ←/→ 앞뒤(끝에서 돌아감), Home/End 처음·끝 — 고르면서 초점도 옮긴다
+  // 고른 항목을 보이는 곳으로(좁은 화면 가로 한 줄에서 밖에 있던 항목). 처음 열 때는 밀지 않는다
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } document.getElementById(`st-t-${tab}`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }, [tab]);
   const key = (e: KeyboardEvent) => {
     const i = TABS.findIndex(([id]) => id === tab), n = TABS.length;
     const j = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (i + 1) % n : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (i + n - 1) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;

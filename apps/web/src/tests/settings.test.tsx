@@ -717,6 +717,22 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
     await click($<HTMLButtonElement>('button[data-theme-pick]')!);   // 머리 메뉴: 밝음 → 기기 설정 따름
     expect(radios().map((r) => r.checked)).toEqual([false, false, true]);
   });
+  it('묶음을 고르면 그 항목을 보이는 곳으로 밀어 줌(좁은 화면 가로 한 줄), 처음 열 때는 밀지 않음', async () => {
+    const seen: string[] = [];
+    const args: unknown[] = [];
+    const spy = vi.fn(function (this: Element, o?: unknown) { seen.push(this.textContent ?? ''); args.push(o); });
+    Element.prototype.scrollIntoView = spy as unknown as Element['scrollIntoView'];
+    serve(signedIn(KIM));
+    await open();
+    expect(spy).not.toHaveBeenCalled();
+    await click(tabs().find((t) => t.textContent === '시스템'));
+    expect(seen).toEqual(['시스템']);
+    expect(args[0]).toEqual({ block: 'nearest', inline: 'nearest' });
+    act(() => { tabs()[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })); });
+    act(() => { tabs()[tabs().length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })); });
+    expect(seen[seen.length - 1]).toBe('계정');
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
   it('서버 값이 없는 칸은 항목 + 까닭 한 줄만, 켜고 끄는 척하는 단추 · 칸 없음', async () => {
     serve(signedIn(KIM));
     await open();
