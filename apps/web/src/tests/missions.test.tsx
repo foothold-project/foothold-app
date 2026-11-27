@@ -1638,7 +1638,7 @@ describe('시뮬 시나리오', () => {
     serve(KIM);
     await open('#/map');
     expect($('[data-building]')).toBeNull();
-    expect(text()).toContain('등록된 지도가 없습니다. «+ 지도 만들기»로 담당 실기 로봇이 돌아다니며 그리거나, «+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.');
+    expect(text()).toContain('아직 지도가 없습니다');   // U11-04 빈 화면
     act(() => root?.unmount()); root = null;
     seed(); serve(KIM);
     await open('#/map'); await scen();

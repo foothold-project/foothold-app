@@ -7,6 +7,7 @@ import { ApiFail, api } from '../api';
 import { idleSim, myRobots, simName, type Robot, type Tone } from '../fake';
 import { Chip, Line, inApp, type Ctx } from '../screens';
 import './history.css';
+import { Empty } from '../empty';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
 const KINDS: [Ev['category'] | '', string][] = [['', '전체'], ['RUN', '임무'], ['ROUTE', '이탈'], ['LINK', '연결'], ['LEASE', '조종권'], ['APPROVAL', '결재'], ['SAFETY', '안전'], ['ACCOUNT', '계정']];
@@ -233,7 +234,10 @@ export function History(c: HistoryCtx) {
     <Table items={ev.items} who={who} label="사건" />
     {ev.err && <p className="fh-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
     {ev.busy && <p className="lv-note" role="status">기록을 불러오는 중…</p>}
-    {!ev.busy && !ev.err && !ev.items.length && <p className="lv-note">{c.phone && c.robot ? '이 로봇의 기록이 아직 없습니다.' : filtered ? '조건에 맞는 기록이 없습니다.' : '아직 기록이 없습니다.'}</p>}
+    {!ev.busy && !ev.err && !ev.items.length && (c.phone && c.robot || filtered ? <p className="lv-note">{c.phone && c.robot ? '이 로봇의 기록이 아직 없습니다.' : '조건에 맞는 기록이 없습니다.'}</p>
+      // 기록 0 건(U11-04 빈 화면): 아이콘 · 한 줄 까닭 · 다음 할 일 하나. 폰에는 지도 탭이 없어 조종 화면으로
+      : <Empty kind="records" title="아직 기록이 없습니다" why="임무를 실행하거나 알림이 생기면 여기에 시간 순서로 남습니다." card={false}>
+        {c.phone ? <a className="btn pri" href="#/drive">조종 화면으로</a> : <a className="btn pri" href="#/map">지도 탭에서 시나리오 실행</a>}</Empty>)}
     {!ev.busy && (ev.next || (ev.err && ev.err !== BAD_DAY)) && <div className="fh-row"><button type="button" className="btn" onClick={ev.more}>{ev.err ? '다시 시도' : '더 보기'}</button></div>}
   </section>;
 }

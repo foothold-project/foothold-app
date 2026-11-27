@@ -84,7 +84,7 @@ describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
   it('등급을 고르면 빈 목록 문구는 «조건에 맞는 기록이 없습니다»', async () => {
     serve();
     await open();
-    expect(box.textContent).toContain('아직 기록이 없습니다.');
+    expect(box.textContent).toContain('아직 기록이 없습니다');
     await click(btn('■위험', card('등급')));
     expect(box.textContent).toContain('조건에 맞는 기록이 없습니다.');
   });

@@ -3,6 +3,7 @@
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 PENDING 판은 «저장 기록»에 «적용 안 됨»으로 보인다. 화면 글에는 «판»을 쓰지 않는다(11-04 — 저장 시각·만든 사람으로 부름).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
 import { Map3D, modelOf } from './map3d';
+import { Empty } from '../empty';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, Scenario, SiteTree } from '../../../contracts/ts';
@@ -401,8 +402,12 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}>{thumb(b)}<b>{b.name}</b>{facts(s, b)}</button>)}</div></section>)}
       {/* 시뮬 탭: 실기 카드는 보이되 시뮬로 쓸 지도(시뮬 장소·3D 실기)가 하나도 없으면 안내 — 판을 아직 못 받은 층(null)은 모름이라 안내 안 함 */}
-      {t.tree && (sim ? places.every((p) => runOf(p, vers) === 'real') : !places.length) && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
-        : '등록된 지도가 없습니다. «+ 지도 만들기»로 담당 실기 로봇이 돌아다니며 그리거나, «+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.'}</p>}
+      {t.tree && sim && places.every((p) => runOf(p, vers) === 'real') && <p className="lv-note" data-empty>서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.</p>}
+      {/* 지도 0 개(U11-04 빈 화면 · u11_7): 아이콘 · 한 줄 까닭 · 다음 할 일 하나(담당 실기가 있으면 로봇으로 그리기, 없으면 파일 올리기) */}
+      {t.tree && !sim && !places.length && <Empty kind="map" title="아직 지도가 없습니다" card={false}
+        why={maker ? '담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.' : '지도 파일(그림 · yaml)을 올리면 여기에 보입니다.'}>
+        {maker ? <button type="button" className="btn pri" onClick={() => make('robot')}>+ 지도 만들기</button>
+          : <button type="button" className="btn pri" onClick={() => make('file')}>+ 파일 올리기</button>}</Empty>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
       {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
@@ -551,9 +556,10 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
           : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={() => { setM3(false); setDone({ text: '이 층은 3D 모형이 없습니다.' }); }} />
           : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
           : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
-          : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.</p>
-            <div className="fh-row"><button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button>
-              {canMake && <button type="button" className="btn" data-make-open onClick={() => mkBtn()}>지도 만들기</button>}</div></div>)}
+          : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center">
+            {/* 층에 지도 0 개(U11-04 빈 화면): 다음 할 일 하나 = 올리기. «지도 만들기»는 ··· 메뉴에 그대로 */}
+            <Empty kind="floor" title="이 층에 아직 지도가 없습니다" why="지도 파일(그림 · yaml)을 올리면 이 층 지도가 됩니다." card={false}>
+              <button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button></Empty></div>)}
         <div className="mx-over">
           {done && <Note m={done} />}
           {bad && v && LONE}
