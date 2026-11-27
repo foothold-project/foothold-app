@@ -58,12 +58,19 @@ const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy();
 const rows = () => [...card('사건').querySelectorAll('tbody tr')];
 
 describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
-  it('등급 단추 전체 · 오류 · 주의 · 정보 → severity 요청 매개변수, 분류와 함께, 전체면 뺌', async () => {
+  it('줄 등급 알약: ERROR = ■위험 · WARN = ▲주의 · INFO = ⓘ정보(옅은 알약), INFO 로 저장된 실패 코드는 ▲주의', async () => {
+    serve({ 'GET /events': list([ev('1'), ev('2', { severity: 'WARN' }), ev('3', { severity: 'INFO', code: 'RUN_DONE' }), ev('4', { severity: 'INFO', code: 'STOP_CONFIRM_FAILED' }), ev('5', { severity: 'INFO', code: 'PHONE_LEASE_TIMEOUT' })]) });
+    await open();
+    const pills = rows().map((r) => r.querySelector('.hs-sev')!);
+    expect(pills.map((x) => x.textContent)).toEqual(['■위험', '▲주의', 'ⓘ정보', '▲주의', '▲주의']);
+    expect(pills.map((x) => x.getAttribute('data-tone'))).toEqual(['bad', 'warn', 'info', 'warn', 'warn']);
+  });
+  it('등급 단추 전체 · 위험 · 주의 · 정보 → severity 요청 매개변수, 분류와 함께, 전체면 뺌', async () => {
     serve({ 'GET /events': list([ev('1', { severity: 'INFO', message: '서버가 준 행' })]) });
     await open();
     const g = card('등급');
-    expect([...g.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['전체', '■오류', '▲주의', '정보']);
-    for (const [name, code] of [['■오류', 'ERROR'], ['▲주의', 'WARN'], ['정보', 'INFO']]) {
+    expect([...g.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['전체', '■위험', '▲주의', 'ⓘ정보']);
+    for (const [name, code] of [['■위험', 'ERROR'], ['▲주의', 'WARN'], ['ⓘ정보', 'INFO']]) {
       await click(btn(name, g));
       expect(lastQuery()).toEqual({ severity: code });
       expect(btn(name, g)!.getAttribute('aria-pressed')).toBe('true');
@@ -78,7 +85,7 @@ describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
     serve();
     await open();
     expect(box.textContent).toContain('아직 기록이 없습니다.');
-    await click(btn('■오류', card('등급')));
+    await click(btn('■위험', card('등급')));
     expect(box.textContent).toContain('조건에 맞는 기록이 없습니다.');
   });
   it('주의를 고르면 정보로 저장된 실패 기록은 정보에 있다고 알림(줄 표시 ▲와 서버 등급이 다른 경우)', async () => {
@@ -87,7 +94,7 @@ describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
     expect($('[data-grade-note]')).toBeNull();
     await click(btn('▲주의', card('등급')));
     expect($('[data-grade-note]')!.textContent).toContain('정보');
-    await click(btn('정보', card('등급')));
+    await click(btn('ⓘ정보', card('등급')));
     expect($('[data-grade-note]')).toBeNull();
   });
   it('내보내기도 지금 등급 그대로', async () => {
@@ -98,6 +105,37 @@ describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
     await click(btn('▲주의', card('등급')));
     await click(btn('내보내기'));
     expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ severity: 'WARN' });
+  });
+});
+
+describe('기간 빠른 단추(오늘 · 7 일 · 30 일)', () => {
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const back = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
+  const range = (a: string, b: string) => ({ from: new Date(`${a}T00:00:00`).toISOString(), to: new Date(`${b}T23:59:59.999`).toISOString() });
+  it('누르면 오늘 포함 n 일 = 현지 0 시 ~ 오늘 끝, 날짜 칸에도 그 날짜, 눌린 단추 하나', async () => {
+    serve();
+    await open();
+    const g = card('기간');
+    expect([...g.querySelectorAll('button:not([aria-label$="달력"])')].map((b) => b.textContent)).toEqual(['오늘', '7 일', '30 일']);
+    for (const [name, n] of [['오늘', 0], ['7 일', 6], ['30 일', 29]] as const) {
+      await click(btn(name, g));
+      expect(lastQuery()).toEqual(range(back(n), back(0)));
+      expect($<HTMLInputElement>('[aria-label="기간 시작"]')!.value).toBe(back(n).replace(/-/g, '/'));
+      expect($<HTMLInputElement>('[aria-label="기간 끝"]')!.value).toBe(back(0).replace(/-/g, '/'));
+      expect([...g.querySelectorAll('button[aria-pressed="true"]')].map((b) => b.textContent)).toEqual([name]);
+    }
+  });
+  it('날짜 칸을 직접 고치면 빠른 단추 눌림이 풀림, 분류 · 등급과 함께 요청', async () => {
+    serve();
+    await open();
+    await click(btn('7 일', card('기간')));
+    await click(btn('▲주의', card('등급')));
+    expect(lastQuery()).toEqual({ severity: 'WARN', ...range(back(6), back(0)) });
+    const start = $<HTMLInputElement>('[aria-label="기간 시작"]')!;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(start, '2026/10/01'); start.dispatchEvent(new Event('input', { bubbles: true })); });
+    await flush();
+    expect(card('기간').querySelector('button[aria-pressed="true"]')).toBeNull();
+    expect(lastQuery()).toEqual({ severity: 'WARN', ...range('2026-10-01', back(0)) });
   });
 });
 
