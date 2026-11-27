@@ -362,7 +362,7 @@ def test_factory_catalogue_imports_all_floors_and_presets(seeded, tmp_path):
             assert len(changed) == len(prepared)
         with Session(engine) as db, db.begin():
             assert sync_worlds(db, seeded['org'], seeded['users']['admin'], SOURCE, tmp_path) == []
-            floors = list(db.scalars(select(Floor).where(Floor.sim_floor_id.in_(['f1', 'f2']))))
+            floors = list(db.scalars(select(Floor).where(Floor.sim_floor_id.in_(['f1', 'f2', 'l1', 'l2', 'l3']))))
             assert len(floors) == len(prepared)
             assert any(f.sim_floor_id == 'f2' and f.floor_z == 2 for f in floors)
     finally:
