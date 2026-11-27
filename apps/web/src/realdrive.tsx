@@ -66,7 +66,7 @@ export function RealDrive() {
   const go2 = go2Pose(open && st ? { connection: 'ONLINE', robot_info: st.robot_info } as Parameters<typeof go2Pose>[0] : null, performance.now() - l.stAt < REPORT_STALE_MS);
   const lidarBig = main === 'lidar', lidarFeed = { ...lf, range: null, pose: null };
   const lidarText = !hasMedia ? '라이다 화면 없음 · 이 연결은 카메라만 보입니다' : lidarOk ? '' : fresh || lf.state === 'wait' || lf.state === 'off' ? '라이다 기다리는 중'
-    : lf.state === 'live' ? '라이다 신호 없음 — 2초 넘게 새 점이 오지 않습니다' : `라이다 신호 없음 — ${why(lf, 'lidar')}`;
+    : lf.state === 'live' ? '라이다 신호 없음 · 2초 넘게 새 점이 오지 않습니다' : `라이다 신호 없음 · ${why(lf, 'lidar')}`;
   const rgbText = media.has('rgb') ? why(rf, 'rgb') : '';   // 옛 카메라 경로 글은 Video 그대로
   useEffect(() => () => sim.axes([0, 0]), []);
   useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [live]);   // 움직일 수 없게 되면 입력 0(다시 눌러야)

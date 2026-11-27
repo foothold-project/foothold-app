@@ -21,10 +21,12 @@ const st = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: RID, robot
   posture: 'STAND', velocity: [0, 0, 0], echo: null, wall_time_ms: Date.now(), simulation: false, ...p });
 
 type Reply = { status: number; body?: unknown } | 'down';
+type StopReply = 'down' | 'hang' | { status: number; message: string };
 let stopDown: boolean | string[] = false;   // HTTP 대체 정지도 닿지 않음(true = 서버 전체가 꺼짐, 배열 = 그 로봇들만)
+let stopReply: Record<string, StopReply> = {};   // 로봇마다 HTTP 대체 정지 답(있으면 stopDown 보다 먼저)
 let calls: string[] = [], pass: Reply = { status: 200, body: { token: 'pass-secret', exp: Math.floor(Date.now() / 1000) + 600, kid: 'k1' } };
 function serve(p: Reply = { status: 200, body: { token: 'pass-secret', exp: Math.floor(Date.now() / 1000) + 600, kid: 'k1' } }) {
-  calls = []; pass = p; stopDown = false;
+  calls = []; pass = p; stopDown = false; stopReply = {};
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const key = `${init.method ?? 'GET'} ${url.replace(/^\/api\/v1/, '').split('?')[0]}`;
     calls.push(key);
@@ -32,6 +34,10 @@ function serve(p: Reply = { status: 200, body: { token: 'pass-secret', exp: Math
       if (pass === 'down') throw new TypeError('Failed to fetch');
       return new Response(JSON.stringify(pass.body), { status: pass.status, headers: { 'Content-Type': 'application/json' } });
     }
+    const sr = key.match(/^POST \/robots\/([^/]+)\/stop$/)?.[1], how = sr ? stopReply[sr] : undefined;
+    if (how === 'down') throw new TypeError('Failed to fetch');
+    if (how === 'hang') return new Promise<Response>(() => {});
+    if (how) return new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: how.message, detail: {} } }), { status: how.status, headers: { 'Content-Type': 'application/json' } });
     if (/^POST \/robots\/[^/]+\/stop$/.test(key) && (stopDown === true || (Array.isArray(stopDown) && stopDown.some((id) => key === `POST /robots/${id}/stop`)))) throw new TypeError('Failed to fetch');
     if (/^POST \/robots\/[^/]+\/stop$/.test(key)) return new Response('{}', { status: 202, headers: { 'Content-Type': 'application/json' } });   // HTTP 대체 정지(실시간만 끊긴 경우)
     if (key === 'GET /simulation/robots') return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -387,7 +393,9 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).sort()).toEqual(['POST /robots/r1/stop', 'POST /robots/r3/stop']);
     // 폰 말풍선 줄이기: 같은 결과는 로봇 이름만 나열해 한 줄
     const bands = [...box.querySelectorAll('[data-stop-band]')].map((x) => x.textContent ?? '');
-    expect(bands).toEqual(['▲ Go2-3 · Go2-1 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 현장에서 직접 멈추세요.']);
+    // 사유가 같으면 한 번만 짧게 뒤에
+    expect(bands).toHaveLength(1);
+    expect(bands[0]).toMatch(/^▲ Go2-3 · Go2-1 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다\. 현장에서 직접 멈추세요\. 사유: [^·]+$/);
     expect(box.textContent).not.toMatch(/서버가 받았습니다|정지 잠금|정지 요청됨/);
   });
 
@@ -400,10 +408,99 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     await wait(50);
     const bands = [...box.querySelectorAll('[data-stop-band]')].map((x) => x.textContent ?? '');
     expect(bands).toHaveLength(2);
-    expect(bands).toContain('▲ Go2-1 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 현장에서 직접 멈추세요.');
+    expect(bands.some((t) => t.startsWith('▲ Go2-1 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 현장에서 직접 멈추세요.'))).toBe(true);
+    // 접수된 Go2-3 은 따로 짧게. 서버가 끊겨 보낼 때 상태를 모르던 로봇이라 관제와 같은 «상태 모름 · 정지가 닿지 않을 수 있음»
     const ok = bands.find((t) => t.includes('Go2-3'))!;
-    expect(ok).toContain('대체 경로');
+    expect(ok).toBe('▲ Go2-3 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요.');
     expect(ok).not.toContain('Go2-1');
+  });
+
+  it('S1: 서버 끊김 + 대체 경로 거절(403) → «보내지 못했습니다 · 현장에서 직접 멈추세요» 묶음 줄(failed), 사유가 로봇마다 다르면 로봇별로 짧게', async () => {
+    serve();
+    await home();
+    await cut();
+    stopReply = { r3: { status: 403, message: '권한 없음' }, r1: { status: 404, message: '로봇 없음' } };
+    await click($('[data-stop]'));
+    await wait(50);
+    const g = $('[data-stop-group="failed"]')!;
+    expect(g.textContent).toBe('▲ Go2-3 · Go2-1 정지 요청을 보내지 못했습니다. 현장에서 직접 멈추세요. 사유: Go2-3 권한 없음 · Go2-1 로봇 없음');
+    expect([...box.querySelectorAll('[data-stop-band]')]).toHaveLength(1);
+  });
+
+  it('보내는 중(대체 경로 답 전) → «■ Go2-3 · Go2-1 정지 요청을 보내는 중입니다.» 한 줄', async () => {
+    serve();
+    await home();
+    await cut();
+    stopReply = { r3: 'hang', r1: 'hang' };
+    await click($('[data-stop]'));
+    expect($('[data-stop-group="sending"]')!.textContent).toBe('■ Go2-3 · Go2-1 정지 요청을 보내는 중입니다.');
+    expect([...box.querySelectorAll('[data-stop-band]')]).toHaveLength(1);
+  });
+
+  it('Sonnet 중간 1: 보낼 때 끊겨 있던 로봇이 대체 경로로 접수되면 «대체 경로» 대신 관제와 같은 «아직 닿지 않음» 줄, 긴 줄표 없음', async () => {
+    serve();
+    await home();
+    await cut();
+    stopReply = { r3: 'down' };   // r1(연결 끊김)만 대체 경로로 접수
+    await click($('[data-stop]'));
+    await wait(50);
+    const bands = [...box.querySelectorAll('[data-stop-band]')].map((x) => x.textContent ?? '');
+    const r1 = bands.find((t) => t.includes('Go2-1'))!;
+    expect(r1).toMatch(/정지가 아직 닿지 않음|정지가 닿지 않을 수 있음/);
+    expect(r1).not.toContain('대체 경로');
+    for (const t of bands) expect(t).not.toContain('—');
+  });
+
+  it('S2: 0 대에서 «닿을 길 없음» 뒤 로봇이 생겨 STOP 하면 그 줄은 없어진다', async () => {
+    serve();
+    await home([]);
+    await cut();
+    await click($('[data-stop]'));
+    expect($('[data-stop-none]')).toBeTruthy();
+    act(() => { root!.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />); });
+    await flush();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect($('[data-stop-none]')).toBeNull();
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).length).toBe(2);
+  });
+
+  it('M6: 총괄 폰 · 남의 시뮬이 섞인 목록 → 서버 끊김 STOP 은 정지 가능한(내) 로봇에만', async () => {
+    serve();
+    const mine = { id: 'sa', name: '시뮬 A', owner: 'u-kim', ownerName: '김OO', battery: null, online: true, seenAt: '', status: 'IDLE', sim: true } as unknown as (typeof ROBOTS)[number];
+    const other = { ...mine, id: 'sb', name: '시뮬 B', owner: 'u-lee', ownerName: '이OO' };
+    window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.5-dev');
+    location.hash = '#/drive';
+    box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-kim')} robots={[mine, other]} />); });
+    await flush();
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c))).toEqual(['POST /robots/sa/stop']);
+  });
+
+  it('Q1: 폰에서 내 시뮬이 떠 있고 서버가 끊긴 채 대상 없이 STOP → 내 시뮬(sim.stop)과 정지 가능한 실기(대체 경로) 둘 다', async () => {
+    serve();
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 'sim-x' } as ReturnType<typeof sim.live>);
+    const simStop = vi.spyOn(sim, 'stop').mockImplementation(() => undefined);
+    await home();
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(simStop).toHaveBeenCalledTimes(1);
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).sort()).toEqual(['POST /robots/r1/stop', 'POST /robots/r3/stop']);
+  });
+
+  it('Q1: 시뮬 조종 화면 안(대상 = 시뮬)의 STOP 은 서버가 끊겨도 시뮬만', async () => {
+    serve();
+    const a = await connected();   // 직결 조종 화면(머리 = STOP 만)
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(a.of('stop')).toHaveLength(1);
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c))).toEqual([]);
   });
 
   it('조종 화면(STOP 이 떠 있는 머리)에서 띠 글이 STOP 아래로 가리지 않게 오른쪽 여백', async () => {

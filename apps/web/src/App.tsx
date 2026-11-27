@@ -45,16 +45,29 @@ function stopText(r: Robot, l: Live) {
   return st.applied && st.applied.every((v) => v === 0) ? `■ ${r.name} 정지 잠금 — 로봇이 잠금과 멈춤 출력을 알렸습니다.` : `▲ ${r.name} 정지 잠금 — 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.`;
 }
 
-/** 서버 끊김 폰 STOP(d2) 결과: 보내는 중 · 보내지 못함 · 접수 확인 못함은 로봇 이름만 나열해 한 줄, 그 밖(접수 · 로봇 확인)은 로봇마다 기존 한 줄 */
-function groupStops(rs: Robot[], live: (id: string) => Live) {
-  const by = (p: string) => rs.filter((r) => live(r.id).stop?.phase === p).map((r) => r.name).join(' · ');
+/** 서버 끊김 폰 STOP(d2) 결과를 같은 결과끼리 한 줄로(로봇 이름만 나열 · 폰 말풍선 줄이기). 사유가 같으면 한 번, 다르면 로봇별로 짧게 뒤에.
+ *  대체 경로로 접수됐지만 보낼 때 끊겨 있던 로봇(off)은 관제와 같은 «아직 닿지 않음 · 상태 모름» 줄. 로봇이 정지 뒤 상태를 알린 로봇은 기존 한 줄(stopText) */
+function groupStops(rs: Robot[], live: (id: string) => Live, off: string[], now: (r: Robot) => Robot) {
+  const of = (p: string) => rs.filter((r) => live(r.id).stop?.phase === p);
+  const names = (l: Robot[]) => l.map((r) => r.name).join(' · ');
+  const why = (l: Robot[]) => { const w = l.map((r) => (live(r.id).stop?.why ?? '').trim());
+    if (w.every((x) => !x)) return ''; if (w.every((x) => x === w[0])) return ` 사유: ${w[0]}`;
+    return ` 사유: ${l.map((r, i) => (w[i] ? `${r.name} ${w[i]}` : '')).filter(Boolean).join(' · ')}`; };
   const line = (k: string, t: string) => <span key={`stop-g-${k}`} data-stop-band data-stop-group={k}>{t}</span>;
-  const sending = by('sending'), failed = by('failed'), unsure = by('unsure');
+  const sending = of('sending'), failed = of('failed'), unsure = of('unsure');
+  // 대체 경로 접수인데 로봇 확인 전: 보낼 때 끊겨 있었으면 «아직 닿지 않음», 아니면 «정지 요청됨(대체 경로)»
+  const fb = of('fallback').filter((r) => { const l = live(r.id); return !(l.state && l.stateAt > (l.stop?.at ?? 0)); });
+  const away = fb.filter((r) => off.includes(r.id) && !now(r).online), lostOnes = away.filter((r) => lost(now(r))), unknown = away.filter((r) => !lost(now(r)));
+  const fbOk = fb.filter((r) => !away.includes(r));
+  const done = new Set([...sending, ...failed, ...unsure, ...fb].map((r) => r.id));
   return [
-    sending && line('sending', `■ ${sending} 정지 요청을 보내는 중입니다.`),
-    failed && line('failed', `▲ ${failed} 정지 요청을 보내지 못했습니다. 현장에서 직접 멈추세요.`),
-    unsure && line('unsure', `▲ ${unsure} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 현장에서 직접 멈추세요.`),
-    ...rs.filter((r) => !['sending', 'failed', 'unsure'].includes(live(r.id).stop?.phase ?? '')).map((r) => <span key={`stop-${r.id}`} data-stop-band>{stopText(r, live(r.id))}</span>),
+    sending.length && line('sending', `■ ${names(sending)} 정지 요청을 보내는 중입니다.`),
+    failed.length && line('failed', `▲ ${names(failed)} 정지 요청을 보내지 못했습니다. 현장에서 직접 멈추세요.${why(failed)}`),
+    unsure.length && line('unsure', `▲ ${names(unsure)} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 현장에서 직접 멈추세요.${why(unsure)}`),
+    lostOnes.length && <span key="stop-g-lost" data-stop-band data-stop-group="lost" data-stop-lost={lostOnes.map((r) => r.id).join(' ')}>▲ {lostStop({ ...lostOnes[0], name: names(lostOnes) })}.</span>,
+    unknown.length && <span key="stop-g-unknown" data-stop-band data-stop-group="unknown" data-stop-unsure={unknown.map((r) => r.id).join(' ')}>▲ {unsureStop({ ...unknown[0], name: names(unknown) })}.</span>,
+    fbOk.length && line('fallback', `■ ${names(fbOk)} 정지 요청됨(대체 경로) · 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`),
+    ...rs.filter((r) => !done.has(r.id)).map((r) => <span key={`stop-${r.id}`} data-stop-band>{stopText(r, live(r.id))}</span>),
   ].filter(Boolean);
 }
 
@@ -255,13 +268,19 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 서버 실시간이 끊긴 STOP(d2 11-28 · B1~B3): 대상이 정해지지 않았으면 고르기 창 대신 정지할 수 있는 로봇 모두에 기존 정지(rt.stop · HTTP 대체 경로 포함)를 보내고
   // 결과는 로봇마다 한 줄(stopText). 보낼 로봇이 하나도 없을 때만 «로봇에 닿을 길 없음» 한 줄(via none) · 서버가 다시 붙으면 «보내지 못했음» 으로 바꿔 닫을 때까지 둔다
   // grouped = 서버 끊김 폰 STOP 결과를 같은 결과끼리 한 줄로(로봇 이름만 나열 · 폰 말풍선 줄이기)
-  const [grouped, setGrouped] = useState(false);
+  const [grouped, setGrouped] = useState(false), [offAt, setOffAt] = useState<string[]>([]);   // offAt = 보낼 때 끊겨 있던 로봇
+  /** 서버 끊김 폰 STOP: 정지 가능한 로봇 모두에 기존 정지(rt.stop · HTTP 대체 포함), 결과는 묶음 줄 */
+  const haltDown = (rs: Robot[]) => { halt(rs); setGrouped(true); setOffAt(rs.filter((r) => !r.online).map((r) => r.id)); };
   const [noWay, setNoWay] = useState<'' | 'down' | 'back'>(''), down = net.at !== 'open' && net.at !== 'connecting' && net.at !== 'idle';
   useEffect(() => { if (!down && noWay === 'down') setNoWay('back'); }, [down]);
-  const stop = () => { if (toSim) { setNoWay(''); return sim.stop(); }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
+  const stop = () => {
+    // Q1(11-28): 폰 · 서버 끊김 · 대상 없음 · 시뮬 화면 밖에서 내 시뮬이 떠 있으면 내 시뮬(sim.stop · 직결이면 직결 먼저)과 정지 가능한 실기(B1) 둘 다
+    const real = stops.filter((r) => !r.sim);
+    if (toSim && phone && down && !target && !simOpen && real.length) { sim.stop(); haltDown(real); setSimStop(true); return; }
+    if (toSim) { setNoWay(''); return sim.stop(); }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
     if (!canStop) return;
     if (phone && down && !target) {   // 관제 탭(PC)은 W1 의 «모두 정지» 고르기 그대로
-      if (stops.length) { halt(stops); setGrouped(true); return; } setStopped([]); setChoose(null); setNoWay('down'); return; }
+      if (stops.length) { haltDown(stops); return; } setStopped([]); setChoose(null); setNoWay('down'); return; }
     if (!target && choose === ALL && allN) return halt(every, true);
     const r = target ?? stops.find((x) => x.id === choose); if (r) halt([r]); else setChoose(allN ? ALL : stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
@@ -356,7 +375,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       noWay === 'down' && <span key="none" data-stop-none>▲ 로봇에 닿을 길 없음 · 현장에서 멈추세요. 서버 연결이 끊겼고 이 폰은 로봇과 직결되어 있지 않아 정지 명령을 보내지 못했습니다.</span>,
       noWay === 'back' && <span key="none" data-stop-none data-stop-none-back>▲ 서버 다시 연결됨 · 앞선 정지는 보내지 못했음 · 로봇 상태를 확인하세요. <button type="button" className="btn" onClick={() => setNoWay('')}>닫기</button></span>,
       // A2: 관제에서 보낸 정지(한 대 · 모두)가 보낼 때 붙지 않은 로봇이고 서버가 받았으면(sent) «아직 닿지 않음 · 상태 모름». 보내는 중 · 대체 경로 · 실패 · 불확실, 정지 뒤 끊김은 기존 글 그대로
-      ...(grouped ? groupStops(stopped, (id) => rt.get(id)) : []),
+      ...(grouped ? groupStops(stopped, (id) => rt.get(id), offAt, (r) => pool.find((x) => x.id === r.id) ?? r) : []),
       ...(grouped ? [] : stopped).map((r) => { const s = rt.get(r.id).stop, now = pool.find((x) => x.id === r.id) ?? r;
         return ctlOff.includes(r.id) && !now.online && s?.phase === 'sent' ? lost(now) ? <span key={`stop-${r.id}`} data-stop-band data-stop-lost={r.id}>▲ {lostStop(r)}.</span>
           : <span key={`stop-${r.id}`} data-stop-band data-stop-unsure={r.id}>▲ {unsureStop(r)}.</span>
