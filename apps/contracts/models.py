@@ -797,7 +797,56 @@ class ScreenGait(ScreenRobot):
     gait: GaitName
 
 
-ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait,
+# 임무 실행 서버 길 (팀장 11/28 05:09 · 05:14). 화면 -> 서버 -> 에이전트 실시간 메시지.
+# 실기와 데모 (시뮬) 로봇이 같은 메시지 · 같은 관문을 탄다. 시뮬이라 다른 것은 지금 있는 안전 차이
+#   (현장 승인 · 서버 조종 켬 · 총괄 실기 금지는 실기에만) 뿐이다.
+# 이름 · 필드는 폰 직결 PhoneRunStart · PhoneRunControl 과 같게 둔다 (웹이 같은 단추로 붙게).
+# 다른 점: assignment_id 필수 (데모도 배정 · 일정 칸에서 시작) · 모든 op 에 lease_id · screen_id 필수 ·
+#   resume_token 없음 (서버 상태는 구독자 모두에게 가므로 비밀을 싣지 않는다. 같은 화면 증명은
+#   서버가 조종권 lease 와 사용자로 한다) · op 'return' 없음.
+# 서버 관문: 담당 · 조종권 lease 일치 (USER) · 인증 0.5 초 안 · 담당 변경 중 아님 · 소유 확실,
+#   실기는 더해 서버 조종 켬 · 현장 승인 · 총괄 (ADMIN) 실기 조종 금지. 정지 · 반납 · 승인 바뀜 ·
+#   조종권 바뀜 뒤 큐에 남은 run.start · run.control 은 보내지 않는다. start · resume 은 멈춰 있을 때만 (RUN_MOVING).
+#
+# 거절이 오는 두 길:
+#   동기 ScreenReply (ok=false, 서버가 막음): 기존 lease · 권한 코드 (LEASE_MISMATCH · ADMIN_NO_REAL_CONTROL ·
+#     NOT_ROBOT_OWNER 등), RUN_NOT_ALLOWED (관문), RUN_MOVING, RUN_ASSIGNMENT_INVALID (배정이 ACTIVE 가 아님 ·
+#     로봇 · 시나리오 판이 다름)
+#   비동기 run_result (status REJECTED, 에이전트 실행 기계가 막음): 폰 직결 reply 와 같은 코드
+#     (FORBIDDEN · NOT_CONTROLLER · RUN_ACTIVE · RUN_NOT_FOUND · RUN_OWNER_MISMATCH · RUN_STATE_CONFLICT ·
+#     RESUME_REJECTED · NAV_UNAVAILABLE · PLAN_UNAVAILABLE · RECORDING_UNAVAILABLE · RUN_CONFLICT),
+#     RUN_UNSUPPORTED (실행 기계가 없는 에이전트), VALIDATION (폰 프레임 검사 실패).
+#     resume 은 같은 화면 비밀 증명이 서버 길에 없어 지금은 늘 RESUME_REJECTED (증명 방식은 다음 결정).
+#     서버 길 요청자는 Hub 조종자가 아니라 지금 실행 기계는 start 를 NOT_CONTROLLER (실기는 FORBIDDEN) 로 막는다.
+#   성공은 status SUCCEEDED · code OK.
+# run_result.code 는 열린 문자열. request_id 는 화면이 보낸 ScreenEnvelope.id 를 그대로 쓴다.
+# 실행 진행 (상태 · 지점) 은 ScreenState.run (에이전트 reported_run) 으로 본다.
+RunControlOp = Literal['pause', 'resume', 'abort']
+RunRelayRejectCode = Literal['RUN_NOT_ALLOWED', 'RUN_MOVING', 'RUN_ASSIGNMENT_INVALID', 'RUN_UNSUPPORTED']
+
+
+class ScreenRunStart(ScreenRobot):
+    t: Literal['run.start']
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID
+
+
+class ScreenRunControl(ScreenRobot):
+    t: Literal['run.control']
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    op: RunControlOp
+
+
+ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait
+                          | ScreenRunStart | ScreenRunControl,
                           Field(discriminator='t')]
 
 
@@ -921,6 +970,15 @@ class GaitResult(Contract):
     sdk_code: StrictInt | None
 
 
+class RunCommandResult(Contract):
+    request_id: str = Field(min_length=1, max_length=128)
+    op: Literal['start', 'pause', 'resume', 'abort']
+    run_id: UUID
+    status: Literal['SUCCEEDED', 'REJECTED']
+    # 'OK' 또는 실행 기계 RunRejectCode · 서버 길 RunRelayRejectCode 거절 코드. 새 코드로 상태 프레임이 버려지지 않게 열어 둔다.
+    code: str = Field(max_length=64)
+
+
 class PostureResult(Contract):
     request_id: str = Field(min_length=1, max_length=128)
     action: Literal['stand_up', 'stand_down']
@@ -962,6 +1020,7 @@ class AgentState(AgentInput):
     posture_result: PostureResult | None = None
     gait: GaitState | None = Field(default=None, exclude_if=lambda value: value is None)
     gait_result: GaitResult | None = Field(default=None, exclude_if=lambda value: value is None)
+    run_result: RunCommandResult | None = Field(default=None, exclude_if=lambda value: value is None)
     action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     control: ControlMode | None = None
@@ -1519,9 +1578,35 @@ class AgentGait(Contract):
     gait: GaitName
 
 
+class AgentRunStart(Contract):
+    """ScreenRunStart 를 서버가 확인한 뒤 넘긴 꼴. user_id 는 서버가 인증한 요청자."""
+    t: Literal['run.start'] = 'run.start'
+    request_id: str = Field(min_length=1, max_length=128)
+    user_id: UUID
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID
+
+
+class AgentRunControl(Contract):
+    t: Literal['run.control'] = 'run.control'
+    request_id: str = Field(min_length=1, max_length=128)
+    user_id: UUID
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    op: RunControlOp
+
+
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait
+    | AgentRunStart | AgentRunControl, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1568,11 +1653,13 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control', 'gait', 'gait_result'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control', 'gait', 'gait_result', 'run', 'run_result'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     gait: GaitState | None = None
     gait_result: GaitResult | None = None
+    run: 'RunSnapshot | None' = None
+    run_result: RunCommandResult | None = None
     action_result: ActionResult | None = None
     control: ControlMode | None = None
     robot_info: Go2RobotInfo | None = None

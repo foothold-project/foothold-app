@@ -21,6 +21,15 @@ from .steps import ExecutionSupport, StepRunner
 TERMINAL = {'COMPLETED', 'FAILED', 'CANCELED'}
 
 
+class ServerRelay:
+    """서버 길 run.start · run.control 의 요청자 (11/28). Hub 소켓 peer 가 아니라 Hub 조종자 (owner) 가
+    될 수 없다: 같은 handle 의 기존 관문 (FORBIDDEN · NOT_CONTROLLER · RUN_OWNER_MISMATCH) 이 그대로 막는다."""
+    def __init__(self, user):
+        self.user, self.device, self.surface = user, None, 'server'
+        self.run_cancel = False  # no signed run-cancel claim on this path
+        self.run_start_reply = None
+
+
 class ScenarioRun:
     def __init__(self, hub, *, nav=None, source=None, journal=None, context=None,
                  arrival=None, run_pause_timeout_s=600, nav_timeout_s=120,
@@ -81,13 +90,16 @@ class ScenarioRun:
             return None
         return deepcopy({k: self.current[k] for k in ('run_id', 'status', 'step', 'progress', 'wait_reason', 'fail_code')})
 
+    def _peer(self, peer):
+        return peer if isinstance(peer, ServerRelay) else self.hub.peers[peer]
+
     @staticmethod
     def identity(peer):
         return peer.user, peer.device, peer.surface
 
     def owns(self, peer, frame, *, token=False):
         c = self.current
-        if c is None or self.identity(self.hub.peers[peer]) != c['identity'] or frame.get('screen_id') != c['screen_id']:
+        if c is None or self.identity(self._peer(peer)) != c['identity'] or frame.get('screen_id') != c['screen_id']:
             return False
         if token:
             supplied = hashlib.sha256(frame.get('resume_token', '').encode()).digest()
@@ -235,7 +247,7 @@ class ScenarioRun:
                     return 'RUN_OWNER_MISMATCH', None
                 # Token is never stored plaintext. Retry detail is available only
                 # from Hub's per-connection response cache below.
-                return None, deepcopy(h.peers[peer].run_start_reply)
+                return None, deepcopy(self._peer(peer).run_start_reply)
             if self.active:
                 return 'RUN_ACTIVE', None
             if len(self.starts) >= 4096:
@@ -256,14 +268,14 @@ class ScenarioRun:
             detail = dict(run_id=f['run_id'], screen_id=f['screen_id'], resume_token=token)
             self.current = c = dict(run_id=f['run_id'], status='QUEUED', step=0,
                 progress={'done': 0, 'total': 0}, wait_reason=None, fail_code=None,
-                identity=self.identity(h.peers[peer]), peer=peer, screen_id=f['screen_id'],
+                identity=self.identity(self._peer(peer)), peer=peer, screen_id=f['screen_id'],
                 token_hash=hashlib.sha256(token.encode()).digest(),
                 request=request, pause_deadline=None, plan=None, end=None, ending=False)
             self.performer = self.execution = None
-            h.peers[peer].run_start_reply = deepcopy(detail)
+            self._peer(peer).run_start_reply = deepcopy(detail)
             self.starts[f['run_id']] = deepcopy(request)
             self._promote(peer)
-            p = h.peers[peer]
+            p = self._peer(peer)
             c['start_data'] = {k: f[k] for k in ('run_id', 'scenario_id', 'scenario_version', 'floor_id', 'map_version_id')} | dict(user_id=p.user, device_id=p.device, surface=p.surface, screen_id=f['screen_id'], simulation=True)
             c['status'] = 'PREPARING'
             try:
@@ -275,12 +287,12 @@ class ScenarioRun:
             return 'RUN_NOT_FOUND', None
         op = f['op']
         if c['status'] in TERMINAL:
-            if op == 'abort' and c['status'] == 'CANCELED' and (peer is c['peer'] or h.peers[peer].run_cancel):
+            if op == 'abort' and c['status'] == 'CANCELED' and (peer is c['peer'] or self._peer(peer).run_cancel):
                 return None, None
             return 'RUN_STATE_CONFLICT', None
         if op == 'abort':
-            owner = peer is c['peer'] and self.identity(h.peers[peer]) == c['identity']
-            if not owner and not (c['status'] == 'PAUSED' and h.peers[peer].run_cancel):
+            owner = peer is c['peer'] and self.identity(self._peer(peer)) == c['identity']
+            if not owner and not (c['status'] == 'PAUSED' and self._peer(peer).run_cancel):
                 return 'FORBIDDEN', None
             self._halt('CANCELED', 'OPERATOR_ABORT')
             return None, None
@@ -304,7 +316,7 @@ class ScenarioRun:
             return 'RESUME_REJECTED', None
         token = secrets.token_urlsafe(32)
         c['token_hash'] = hashlib.sha256(token.encode()).digest()
-        h.peers[peer].run_start_reply = None  # rotated proof is never exposed by start replay
+        self._peer(peer).run_start_reply = None  # rotated proof is never exposed by start replay
         self._promote(peer)
         if self.execution is not None:
             if self.performer is not None:

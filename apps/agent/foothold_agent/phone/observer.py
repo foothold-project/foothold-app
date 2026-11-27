@@ -8,7 +8,7 @@ from copy import deepcopy
 from foothold_agent.link.session import Session, Effects, MAX_BUFFER, SAFETY_EVENTS
 from foothold_agent.link.history import History
 from foothold_agent.safety.lock_log import server_cause
-from .tickets import json_object
+from .tickets import json_object, uuid
 from .protocol import sequence
 
 
@@ -40,6 +40,7 @@ class Observer:
         self._replay = []
         self.server_stop_ref = 0
         self._rgb_unavailable_since = None
+        self.run_result = None
 
     @property
     def run(self):
@@ -62,7 +63,7 @@ class Observer:
                 'controller': identity[0], 'controller_device': identity[1],
                 'controller_connected': owner is not None,
                 'controller_since': self._controller_since,
-                'reported_run': self.phone.runs.snapshot()}
+                'reported_run': self.phone.runs.snapshot(), 'run_result': self.run_result}
 
     def _finish(self):
         messages = ()
@@ -171,9 +172,43 @@ class Observer:
                     journal.ack(f['agent_instance_id'], f['report_seq'])
             elif f.get('t') == 'run.report_rejected' and self.connected:
                 self._report_rejected(f)
+            elif f.get('t') in ('run.start', 'run.control') and self.connected:
+                self._relay_run(f)
             elif f.get('t') == 'ping':
                 self.last_ping = self.now()
-        return self.tick()  # lease/cmd/unlock/run.* never reach the real Session
+        return self.tick()  # lease/cmd/unlock never reach the real Session; run.* only via _relay_run
+
+    def _relay_run(self, f):
+        """Server run.* -> the phone frame -> the SAME ScenarioRun.handle. Never a Hub controller."""
+        import json
+        from foothold_agent.executor.scenario_run import ServerRelay
+        from .protocol import frame as phone_frame
+        request_id = f.get('request_id')
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            return
+        op = 'start' if f['t'] == 'run.start' else f.get('op')
+        body = {k: v for k, v in f.items() if k not in ('request_id', 'user_id')}
+        body.update(id=request_id, robot=self.phone.robot)
+        answer = dict(request_id=request_id, op=op if op in ('start', 'pause', 'resume', 'abort') else 'start',
+                      run_id=f.get('run_id'), status='REJECTED', code='VALIDATION')
+        if op == 'resume':
+            body['resume_token'] = '-'  # shape check only; the value is never used (refused below)
+        try:
+            checked = phone_frame(json.dumps(body), self.phone.robot)
+            user = f.get('user_id')
+            if op not in ('start', 'pause', 'resume', 'abort') or 'resume_token' in f or uuid(user) != user:
+                raise ValueError('VALIDATION')
+        except (ValueError, TypeError, OverflowError, RecursionError):
+            self.run_result = answer if isinstance(answer['run_id'], str) else None
+            return
+        if op == 'resume':
+            # Same-screen resume needs the phone's secret proof, which never travels via server
+            # state. Until a server-path proof is decided, resume is refused here, not guessed.
+            self.run_result = {**answer, 'code': 'RESUME_REJECTED'}
+            return
+        self.phone.runs.expire()
+        code, _ = self.phone.runs.handle(ServerRelay(user), checked)  # resume secret stays local
+        self.run_result = {**answer, 'status': 'REJECTED' if code else 'SUCCEEDED', 'code': code or 'OK'}
 
     def _report_rejected(self, f):
         journal, runs = self.phone.runs.journal, self.phone.runs
