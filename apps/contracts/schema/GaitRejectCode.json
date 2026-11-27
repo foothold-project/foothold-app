@@ -1,0 +1,17 @@
+{
+  "$id": "fh-app/1/GaitRejectCode",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "GAIT_MOVING",
+    "GAIT_NOT_STANDING",
+    "GAIT_NOT_READY",
+    "GAIT_LATCHED",
+    "GAIT_BUSY",
+    "GAIT_UNSUPPORTED",
+    "GAIT_CANCELLED",
+    "GAIT_LEASE_LOST",
+    "GAIT_TIMEOUT",
+    "GAIT_SDK_ERROR"
+  ],
+  "type": "string"
+}

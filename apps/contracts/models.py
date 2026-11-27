@@ -773,10 +773,22 @@ class ScreenPosture(ScreenRobot):
 
 
 # 걷기 모드 (팀장 11/28 04:02 · app-design-lx 04:04 합의). 멈춰 있을 때만 받는다.
-# classic · sport: 순정 고수준, start: 우리 정책, ame2: student 정책 (받기 전까지 GAIT_NOT_READY 로 거절)
+# classic: 순정 Classic 걷기, sport: 순정 기본 걷기 (Sport, free_walk 와 다름) -> control FACTORY
+# start: 우리 START 정책, ame2: student 정책 (ONNX 받기 전까지 GAIT_NOT_READY) -> control LOWLEVEL
+# gait.gait 와 control 이 어긋나면 화면은 control 을 믿고 gait 는 모름으로 그린다 (control 이 실제 출력 주인).
+#
+# 거절이 오는 두 길:
+#   동기 ScreenReply (ok=false, 서버가 막음): LEASE_MISMATCH 등 기존 lease · 권한 코드, GAIT_UNSUPPORTED,
+#     GAIT_LATCHED (정지 잠김), GAIT_MOVING (서버가 아는 속도 명령이 0 이 아님)
+#   비동기 gait_result (status REJECTED · FAILED, 에이전트가 막음): GAIT_MOVING (실측 속도),
+#     GAIT_NOT_STANDING, GAIT_NOT_READY, GAIT_BUSY (다른 전환 중), GAIT_CANCELLED (STOP · lease 전환으로 취소),
+#     GAIT_LEASE_LOST, GAIT_TIMEOUT, GAIT_SDK_ERROR. 성공은 status SUCCEEDED · code OK.
+# gait_result.code 는 열린 문자열이다: 모르는 code 가 와도 상태 프레임 전체를 버리지 않는다.
+# request_id 는 화면이 보낸 ScreenGait.id (ScreenEnvelope.id) 를 그대로 쓴다.
 GaitName = Literal['classic', 'sport', 'start', 'ame2']
-GaitRejectCode = Literal['GAIT_MOVING', 'GAIT_NOT_STANDING', 'GAIT_NOT_READY', 'GAIT_LATCHED',
-                         'GAIT_NO_LEASE', 'GAIT_BUSY', 'GAIT_UNSUPPORTED']
+GAIT_ORDER = ('classic', 'sport', 'start', 'ame2')
+GaitRejectCode = Literal['GAIT_MOVING', 'GAIT_NOT_STANDING', 'GAIT_NOT_READY', 'GAIT_LATCHED', 'GAIT_BUSY',
+                         'GAIT_UNSUPPORTED', 'GAIT_CANCELLED', 'GAIT_LEASE_LOST', 'GAIT_TIMEOUT', 'GAIT_SDK_ERROR']
 
 
 class ScreenGait(ScreenRobot):
@@ -890,14 +902,23 @@ class PostureState(Contract):
 
 class GaitState(Contract):
     gait: GaitName | None
-    available: list[GaitName]
+    # 지금 고를 수 있는 모드. 겹치지 않고 GAIT_ORDER 순서.
+    available: list[GaitName] = Field(max_length=4)
+
+    @model_validator(mode='after')
+    def ordered_unique(self):
+        if list(self.available) != [g for g in GAIT_ORDER if g in self.available]:
+            raise ValueError('available must be unique and in GAIT_ORDER')
+        return self
 
 
 class GaitResult(Contract):
     request_id: str = Field(min_length=1, max_length=128)
     gait: GaitName
     status: Literal['RUNNING', 'SUCCEEDED', 'REJECTED', 'FAILED']
-    code: GaitRejectCode | Literal['OK', 'TIMEOUT', 'SDK_ERROR']
+    # GaitRejectCode · 'OK' 가 정해진 값이지만, 새 코드 하나로 상태 프레임이 버려지지 않게 열어 둔다.
+    code: str = Field(max_length=64)
+    sdk_code: StrictInt | None
 
 
 class PostureResult(Contract):
@@ -3493,6 +3514,7 @@ TOP.update(SlamMessage=SlamMessage, MediaMessage=MediaMessage, MediaChannel=Medi
 REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})
 
 TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
+TOP.update(GaitName=GaitName, GaitRejectCode=GaitRejectCode)
 TOP.update(LowlevelAction=LowlevelAction, ControlMode=ControlMode, FactoryUnsupportedAction=FactoryUnsupportedAction, LowlevelQuery=LowlevelQuery)
 
 REQUEST_MODELS.update({StopRequest, PhoneStop})

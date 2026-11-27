@@ -656,7 +656,8 @@ export interface GaitResult {
   request_id: string;
   gait: "classic" | "sport" | "start" | "ame2";
   status: "RUNNING" | "SUCCEEDED" | "REJECTED" | "FAILED";
-  code: "GAIT_MOVING" | "GAIT_NOT_STANDING" | "GAIT_NOT_READY" | "GAIT_LATCHED" | "GAIT_NO_LEASE" | "GAIT_BUSY" | "GAIT_UNSUPPORTED" | "OK" | "TIMEOUT" | "SDK_ERROR";
+  code: string;
+  sdk_code: number | null;
 }
 
 export interface GaitState {
@@ -2830,6 +2831,8 @@ export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus
 export type MediaChannel = "rgb" | "external" | "lidar" | "depth";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
+export type GaitName = "classic" | "sport" | "start" | "ame2";
+export type GaitRejectCode = "GAIT_MOVING" | "GAIT_NOT_STANDING" | "GAIT_NOT_READY" | "GAIT_LATCHED" | "GAIT_BUSY" | "GAIT_UNSUPPORTED" | "GAIT_CANCELLED" | "GAIT_LEASE_LOST" | "GAIT_TIMEOUT" | "GAIT_SDK_ERROR";
 export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp" | "Greet";
 export type ControlMode = "FACTORY" | "LOWLEVEL";
 export type FactoryUnsupportedAction = "Greet";

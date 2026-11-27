@@ -771,29 +771,9 @@
       "additionalProperties": false,
       "properties": {
         "code": {
-          "anyOf": [
-            {
-              "enum": [
-                "GAIT_MOVING",
-                "GAIT_NOT_STANDING",
-                "GAIT_NOT_READY",
-                "GAIT_LATCHED",
-                "GAIT_NO_LEASE",
-                "GAIT_BUSY",
-                "GAIT_UNSUPPORTED"
-              ],
-              "type": "string"
-            },
-            {
-              "enum": [
-                "OK",
-                "TIMEOUT",
-                "SDK_ERROR"
-              ],
-              "type": "string"
-            }
-          ],
-          "title": "Code"
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
         },
         "gait": {
           "enum": [
@@ -811,6 +791,17 @@
           "title": "Request Id",
           "type": "string"
         },
+        "sdk_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sdk Code"
+        },
         "status": {
           "enum": [
             "RUNNING",
@@ -826,7 +817,8 @@
         "request_id",
         "gait",
         "status",
-        "code"
+        "code",
+        "sdk_code"
       ],
       "title": "GaitResult",
       "type": "object"
@@ -844,6 +836,7 @@
             ],
             "type": "string"
           },
+          "maxItems": 4,
           "title": "Available",
           "type": "array"
         },

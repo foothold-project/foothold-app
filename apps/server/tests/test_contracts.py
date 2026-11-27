@@ -89,6 +89,11 @@ def test_gait_mode_messages_accept_four_gaits_only():
         assert isinstance(agent.validate_python({'t': 'gait', 'request_id': 'r1', 'lease_id': str(uuid4()), 'gait': gait}), C.AgentGait)
     with pytest.raises(ValidationError):
         screen.validate_python({'t': 'gait', 'id': 'g1', 'robot': str(uuid4()), 'lease_id': str(uuid4()), 'gait': 'free_walk'})
+    # 모르는 code 하나로 상태 프레임이 버려지면 안 된다 (열린 문자열 · 64 자 상한)
+    assert C.GaitResult(request_id='r1', gait='ame2', status='REJECTED', code='GAIT_SOMETHING_NEW', sdk_code=None).sdk_code is None
     with pytest.raises(ValidationError):
-        C.GaitResult(request_id='r1', gait='ame2', status='REJECTED', code='MOVING')
-    assert C.GaitResult(request_id='r1', gait='ame2', status='REJECTED', code='GAIT_NOT_READY').code == 'GAIT_NOT_READY'
+        C.GaitResult(request_id='r1', gait='ame2', status='REJECTED', code='x' * 65, sdk_code=None)
+    assert C.GaitState(gait='classic', available=['classic', 'start']).available == ['classic', 'start']
+    for bad in (['start', 'classic'], ['classic', 'classic']):
+        with pytest.raises(ValidationError):
+            C.GaitState(gait=None, available=bad)

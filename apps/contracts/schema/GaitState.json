@@ -13,6 +13,7 @@
         ],
         "type": "string"
       },
+      "maxItems": 4,
       "title": "Available",
       "type": "array"
     },
