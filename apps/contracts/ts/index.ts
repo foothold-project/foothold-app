@@ -2304,6 +2304,9 @@ export interface ScheduleSlot {
   memo: string;
   created_by: string;
   created_at: string;
+  run_state: "STARTING" | "STARTED" | "DONE" | "FAILED" | "SKIPPED" | "MISSED" | null;
+  run_id: string | null;
+  run_code: string | null;
 }
 
 export interface ScheduleSlotCreate {

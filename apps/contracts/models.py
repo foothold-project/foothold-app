@@ -2680,6 +2680,11 @@ class AssignmentList(Contract):
 
 # 일정 · 가용 · 예상 (app-design-lx 11/28 합의). 구간은 [start, end) 반열린 구간이다.
 ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
+# 예약 실행 상태. STARTING 은 서버가 칸을 잡고 시작 중 (다시 켜면 MISSED SCHEDULER_RESTARTED).
+# SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · REAL_RUN_FORBIDDEN · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
+#   MULTI_FLOOR · SAFETY_STOP. MISSED 까닭: ROBOT_OFFLINE · WINDOW_PASSED · SCHEDULER_RESTARTED · SERVER_BUSY.
+# FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED.
+ScheduleRunState = Literal['STARTING', 'STARTED', 'DONE', 'FAILED', 'SKIPPED', 'MISSED']
 AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE']
 EstimateSource = Literal['MEASURED', 'TABLE_UNMEASURED']
 
@@ -2719,6 +2724,10 @@ class ScheduleSlot(Contract):
     memo: str
     created_by: UUID
     created_at: UTCDateTime
+    # 예약 실행 (11/28). null = 아직 시각 전 · 실행 대상 아님. code 는 까닭 · 실패 코드 (열린 문자열).
+    run_state: ScheduleRunState | None = None
+    run_id: UUID | None = None
+    run_code: str | None = Field(default=None, max_length=64)
 
 
 class ScheduleSlotPatch(Contract):

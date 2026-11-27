@@ -1,0 +1,265 @@
+"""일정 칸 예약 실행 (11/28): CONFIRMED 칸의 시작 시각에 서버가 #537 과 같은 run.start 를 에이전트에 보낸다.
+
+- 요청자는 서버 (칸을 만든 사람 이름으로). 관문은 사람 요청과 같다 (blocked_agent_control · 배정 확인).
+- 예약 실행의 조종권은 기존 RUN holder lease 다 (Arbiter.begin(actor=None) -> STOP 확인 뒤 'RUN:<run_id>').
+  사람 USER lease · 요청 · 넘김이 있으면 기다리지 않고 SKIPPED LEASE_HELD.
+- 실기는 FORBIDDEN 그대로 (SKIPPED REAL_RUN_FORBIDDEN). 로봇이 끊겨 있으면 MISSED ROBOT_OFFLINE.
+- 한 칸은 한 번만: run_state IS NULL 인 줄만 FOR UPDATE SKIP LOCKED 로 잡고 같은 트랜잭션에서 STARTING 으로
+  바꾼다. run_id 는 칸에서 정해지는 uuid5 이고 유일 키다. 다시 켜져 STARTING 으로 남은 칸은 시작 시한
+  (START_TIMEOUT_S + 10 초) 이 지나면 보내지 않고 MISSED SCHEDULER_RESTARTED.
+- 에이전트 소켓은 한 프로세스 메모리에 있다 (realtime). 서버는 한 프로세스로 돈다는 전제.
+- 시계는 clock 으로 바꿔 끼운다 (시험).
+- 자동 잠금 해제: STOP 확인 뒤 lease 를 받은 다음 서버가 unlock 을 보낸다. safety_reason 이 있으면 SKIPPED
+  SAFETY_STOP 으로 손대지 않는다 (사람 STOP 뒤 자동 재개 금지 규칙은 아래 «정한 것» 참고).
+"""
+import asyncio
+import logging
+from datetime import timedelta, timezone
+from uuid import UUID, uuid5
+
+from sqlalchemy import select
+
+from apps.contracts import models as C
+from .event_messages import render
+from .leases import Effect
+from .models import Assignment, Event, Robot, ScenarioVersion, ScheduleSlot, now
+
+log = logging.getLogger(__name__)
+NAMESPACE = UUID('5d7c4c8e-62a5-4f0e-9a51-1f0d2e8b7c11')
+START_TIMEOUT_S = 20
+STALE_STARTING = timedelta(seconds=START_TIMEOUT_S + 10)
+TERMINAL = {'COMPLETED': 'DONE', 'FAILED': 'FAILED', 'CANCELED': 'FAILED', 'ABORTED': 'FAILED'}
+
+
+def run_id_for(slot_id):
+    return uuid5(NAMESPACE, 'run:' + str(slot_id))
+
+
+def screen_id_for(slot_id):
+    return uuid5(NAMESPACE, 'screen:' + str(slot_id))
+
+
+def request_id_for(slot_id):
+    return 'schedule:' + str(slot_id)
+
+
+def note(db, org_id, row, code, **data):
+    db.add(render(db, Event(org_id=org_id, category='RUN', code=code, user_id=row.created_by,
+        robot_id=row.robot_id, data={'slot_id': str(row.id), 'run_id': str(row.run_id) if row.run_id else None,
+                                     'action': data.get('reason'), **data})))
+
+
+def settle(db, org_id, row, state, code=None):
+    row.run_state, row.run_code = state, code
+    note(db, org_id, row, {'STARTED': 'SCHEDULE_RUN_STARTED', 'DONE': 'SCHEDULE_RUN_DONE',
+                           'FAILED': 'SCHEDULE_RUN_FAILED', 'SKIPPED': 'SCHEDULE_RUN_SKIPPED',
+                           'MISSED': 'SCHEDULE_RUN_MISSED'}[state], reason=code)
+
+
+def claim_due(factory, org_id, at):
+    """Claim due CONFIRMED slots exactly once. Returns start requests for slots left STARTING."""
+    claimed = []
+    with factory() as db, db.begin():
+        # A STARTING slot older than any live start (START_TIMEOUT_S) lost its process: never re-sent.
+        for row in db.scalars(select(ScheduleSlot).where(ScheduleSlot.org_id == org_id,
+                ScheduleSlot.run_state == 'STARTING', ScheduleSlot.run_at < at - STALE_STARTING)
+                .with_for_update(skip_locked=True)):
+            settle(db, org_id, row, 'MISSED', 'SCHEDULER_RESTARTED')
+        rows = db.scalars(select(ScheduleSlot).where(ScheduleSlot.org_id == org_id,
+            ScheduleSlot.kind == 'CONFIRMED', ScheduleSlot.run_state.is_(None), ScheduleSlot.start_at <= at)
+            .order_by(ScheduleSlot.start_at, ScheduleSlot.id).with_for_update(skip_locked=True)).all()
+        for row in rows:
+            row.run_at, row.run_id, row.run_state = at, run_id_for(row.id), 'STARTING'
+            if row.end_at <= at:
+                settle(db, org_id, row, 'MISSED', 'WINDOW_PASSED')
+                continue
+            robot = db.scalar(select(Robot).where(Robot.org_id == org_id, Robot.id == row.robot_id))
+            if robot is None or robot.archived_at is not None:
+                settle(db, org_id, row, 'MISSED', 'ROBOT_OFFLINE')
+                continue
+            if robot.simulation is not True:
+                settle(db, org_id, row, 'SKIPPED', 'REAL_RUN_FORBIDDEN')
+                continue
+            if row.assignment_id is None:
+                settle(db, org_id, row, 'SKIPPED', 'NO_ASSIGNMENT')
+                continue
+            assignment = db.scalar(select(Assignment).where(Assignment.org_id == org_id,
+                                                            Assignment.id == row.assignment_id))
+            version = assignment and db.scalar(select(ScenarioVersion).where(
+                ScenarioVersion.org_id == org_id, ScenarioVersion.id == assignment.scenario_version_id))
+            if (assignment is None or assignment.status != 'ACTIVE' or assignment.robot_id != row.robot_id
+                    or version is None or version.scenario_id != row.scenario_id
+                    or version.number != row.scenario_version):
+                settle(db, org_id, row, 'SKIPPED', 'ASSIGNMENT_INVALID')
+                continue
+            if len(version.floor_ids) != 1 or len(version.map_version_ids) != 1:
+                settle(db, org_id, row, 'SKIPPED', 'MULTI_FLOOR')
+                continue
+            row.run_state = 'STARTING'
+            claimed.append(dict(slot_id=row.id, robot_id=str(row.robot_id), run_id=row.run_id,
+                user_id=row.created_by, assignment_id=row.assignment_id, scenario_id=row.scenario_id,
+                scenario_version=row.scenario_version, floor_id=version.floor_ids[0],
+                map_version_id=version.map_version_ids[0]))
+    return claimed
+
+
+def write(factory, org_id, outcomes):
+    """outcomes: [(slot_id, state, code)] for slots this process owns (STARTING/STARTED)."""
+    with factory() as db, db.begin():
+        for slot_id, state, code in outcomes:
+            row = db.scalar(select(ScheduleSlot).where(ScheduleSlot.org_id == org_id, ScheduleSlot.id == slot_id)
+                            .with_for_update())
+            if row is None or row.run_state not in ('STARTING', 'STARTED') or row.run_state == state:
+                continue
+            settle(db, org_id, row, state, code)
+            if state in ('DONE', 'FAILED') and row.run_state != 'STARTING':
+                following = db.scalar(select(ScheduleSlot).where(ScheduleSlot.org_id == org_id,
+                    ScheduleSlot.robot_id == row.robot_id, ScheduleSlot.start_at >= row.end_at)
+                    .order_by(ScheduleSlot.start_at).limit(1))
+                if following is not None and following.kind == 'BATTERY_SWAP':
+                    # This unit records only; nothing is started for a battery swap slot.
+                    note(db, org_id, following, 'SCHEDULE_BATTERY_SWAP_NEXT', after_slot_id=str(row.id))
+
+
+def started(factory, org_id):
+    with factory() as db:
+        return [dict(slot_id=r.id, robot_id=str(r.robot_id), run_id=str(r.run_id)) for r in db.scalars(
+            select(ScheduleSlot).where(ScheduleSlot.org_id == org_id, ScheduleSlot.run_state == 'STARTED'))]
+
+
+class Scheduler:
+    def __init__(self, realtime, factory, org_id, *, clock=None):
+        self.rt, self.factory, self.org_id = realtime, factory, org_id
+        self.clock = clock or (lambda: now().astimezone(timezone.utc))
+        self.pending = {}   # slot_id -> start state machine (memory only; restart = MISSED)
+
+    async def tick(self):
+        at = self.clock()
+        claimed = await asyncio.to_thread(claim_due, self.factory, self.org_id, at)
+        outcomes = []
+        for item in claimed:
+            outcomes += self.begin(item, at)
+        for slot_id, p in list(self.pending.items()):
+            outcomes += self.step(slot_id, p, at)
+        for item in await asyncio.to_thread(started, self.factory, self.org_id):
+            outcomes += self.watch(item)
+        if outcomes:
+            await asyncio.to_thread(write, self.factory, self.org_id, outcomes)
+
+    # -- start state machine (GRANT -> UNLOCK -> RESULT) --
+
+    def begin(self, item, at):
+        rt, rid, slot_id = self.rt, item['robot_id'], item['slot_id']
+        peer = rt.agents.get(rid)
+        if peer is None or peer.closing or rt.clock() - peer.auth_checked > .5:
+            return [(slot_id, 'MISSED', 'ROBOT_OFFLINE')]
+        if not peer.simulation:
+            return [(slot_id, 'SKIPPED', 'REAL_RUN_FORBIDDEN')]
+        if rt.owner_uncertain or getattr(rt, 'failed', False):
+            return [(slot_id, 'MISSED', 'SERVER_BUSY')]
+        r = rt.arbiter.robot(rid)
+        if (r.holder and r.holder.holder_type == 'USER') or r.request or r.transfer:
+            return [(slot_id, 'SKIPPED', 'LEASE_HELD')]  # a person holds or is getting control: never wait
+        reported = peer.state.get('reported_run')
+        if r.holder or (reported and reported.get('status') not in TERMINAL) or rid in rt.scheduled_runs:
+            return [(slot_id, 'SKIPPED', 'RUN_ACTIVE')]
+        if peer.state.get('safety_reason') is not None:
+            return [(slot_id, 'SKIPPED', 'SAFETY_STOP')]
+        rt.apply(rt.arbiter.begin(rid, None, op=None, cause='scheduled_run'))  # lease null first, then STOP
+        rt.scheduled_runs[rid] = {'run_id': str(item['run_id']), 'slot_id': str(slot_id)}
+        self.pending[slot_id] = dict(item, phase='GRANT', lease=None,
+                                     deadline=at + timedelta(seconds=START_TIMEOUT_S))
+        return [(slot_id, 'STARTING', None)]
+
+    def _end(self, slot_id, p, state, code):
+        self.pending.pop(slot_id, None)
+        rt, rid = self.rt, p['robot_id']
+        if state != 'STARTED':
+            self._release(rid, p.get('lease'))
+        return [(slot_id, state, code)]
+
+    def _release(self, rid, lease):
+        rt = self.rt
+        holder = rt.arbiter.robot(rid).holder
+        transfer = rt.arbiter.robot(rid).transfer
+        if (holder and holder.holder_type == 'RUN' and (lease is None or holder.lease_id == lease)) or (
+                transfer and transfer.actor is None and lease is None):
+            rt.apply(rt.arbiter.revoke(rid, op=None, cause='run_finished'))
+        rt.scheduled_runs.pop(rid, None)
+
+    def step(self, slot_id, p, at):
+        rt, rid = self.rt, p['robot_id']
+        peer = rt.agents.get(rid)
+        if peer is None or peer.closing:
+            return self._end(slot_id, p, 'FAILED', 'ROBOT_OFFLINE')
+        if at >= p['deadline']:
+            return self._end(slot_id, p, 'FAILED', 'START_TIMEOUT')
+        r = rt.arbiter.robot(rid)
+        holder = r.holder
+        if p['phase'] == 'GRANT':
+            if holder and holder.holder_type == 'RUN' and holder.actor is None:
+                p['lease'], p['phase'] = holder.lease_id, 'UNLOCK'
+                # Server-side unlock for the RUN holder; same frame shape as a person's unlock.
+                rt.apply([Effect('agent', rid, {'t': 'unlock', 'lease_id': holder.lease_id,
+                    'stop_gen': r.stop_gen, 'user_id': str(p['user_id'])})])
+                return []
+            if holder is not None:
+                return self._end(slot_id, p, 'SKIPPED', 'LEASE_HELD')
+            if r.transfer is None:
+                return self._end(slot_id, p, 'FAILED', 'STOP_CONFIRM_FAILED')
+            return []
+        if holder is None or holder.lease_id != p['lease']:
+            return self._end(slot_id, p, 'FAILED', 'LEASE_LOST')
+        if p['phase'] == 'UNLOCK':
+            fresh = 0 <= rt.clock() - peer.state_received_at <= .5
+            if fresh and peer.state.get('latched') is False and peer.state.get('applied') == [0, 0, 0]:
+                body = C.AgentRunStart(request_id=request_id_for(slot_id), user_id=p['user_id'],
+                    lease_id=p['lease'], run_id=p['run_id'], screen_id=screen_id_for(slot_id),
+                    scenario_id=p['scenario_id'], scenario_version=p['scenario_version'], floor_id=p['floor_id'],
+                    map_version_id=p['map_version_id'], assignment_id=p['assignment_id']).model_dump(mode='json')
+                if rt.blocked_agent_control(peer, body):
+                    return self._end(slot_id, p, 'SKIPPED', 'RUN_NOT_ALLOWED')
+                rt.put(peer, body)
+                p['phase'] = 'RESULT'
+            return []
+        result = peer.state.get('run_result') or {}
+        if result.get('request_id') != request_id_for(slot_id):
+            return []
+        if result.get('status') == 'SUCCEEDED':
+            return self._end(slot_id, p, 'STARTED', None)
+        return self._end(slot_id, p, 'FAILED', str(result.get('code') or 'REJECTED')[:64])
+
+    # -- STARTED: finish when the agent reports the run terminal --
+
+    def watch(self, item):
+        rt, rid = self.rt, item['robot_id']
+        if item['slot_id'] in self.pending:
+            return []
+        peer = rt.agents.get(rid)
+        run = None
+        if peer is not None:
+            reported = peer.state.get('reported_run')
+            if reported and reported.get('run_id') == item['run_id']:
+                run = reported
+        projected = rt.runs.get(rid)
+        if run is None and projected and str(projected.get('run_id')) == item['run_id']:
+            run = projected
+        if not run or run.get('status') not in TERMINAL:
+            return []
+        state = TERMINAL[run['status']]
+        code = None if state == 'DONE' else str(run.get('fail_code') or run['status'])[:64]
+        holder = rt.arbiter.robot(rid).holder
+        if holder and holder.holder_type == 'RUN' and holder.actor is None:
+            rt.apply(rt.arbiter.revoke(rid, op=None, cause='run_finished'))
+        rt.scheduled_runs.pop(rid, None)
+        return [(item['slot_id'], state, code)]
+
+
+async def watch(app):
+    scheduler = app.state.scheduler
+    while True:
+        await asyncio.sleep(1)
+        try:
+            await scheduler.tick()
+        except Exception:
+            log.warning('Schedule runner tick failed; retrying', exc_info=True)

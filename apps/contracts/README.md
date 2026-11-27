@@ -467,6 +467,12 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
   PATCH 로 바꿀 수 있는 것은 로봇 · 시각 · 종류 · 걷기 모드뿐이다. 시나리오 · 메모 · 배정을 바꾸려면 칸을 지우고 새로 넣는다 (의도, 바뀐 시나리오가 같은 칸 id 로 남지 않게).
 - `ame2` 처럼 준비 안 된 걷기 모드는 `CONFIRMED` 칸이 될 수 없다 (409 `GAIT_NOT_READY`). 초안은 된다.
 - 일정 사건 (`SCHEDULE_SLOT_*`) 의 갈래는 `RUN` (임무).
+- 예약 실행 (11/28): `CONFIRMED` 칸의 시작 시각에 서버가 칸 만든 사람 이름으로 #537 과 같은 `run.start` 를 보낸다.
+  조종권은 기존 RUN holder lease (`holder_type` `RUN:<run_id>`, STOP 확인 뒤), 에이전트는 그 lease 로 그 run 하나만 시작한다.
+  `run_state`: null → `STARTING` → `STARTED` (`run_id`) → `DONE` | `FAILED`, 또는 `SKIPPED` | `MISSED`, 까닭은 `run_code`.
+  사람 USER lease · 요청 · 넘김이 있으면 기다리지 않고 `SKIPPED LEASE_HELD`. 실기는 `SKIPPED REAL_RUN_FORBIDDEN`. 끊긴 로봇은 `MISSED ROBOT_OFFLINE`.
+  한 칸은 한 번만 (run_state 가 비었을 때만 잡음 · `run_id` 유일). 실행이 걸린 칸은 PATCH · DELETE 409 `SCHEDULE_SLOT_RUN`.
+  다음 칸이 `BATTERY_SWAP` 이면 사건 `SCHEDULE_BATTERY_SWAP_NEXT` 만 남긴다 (시작하지 않음). 사건 `SCHEDULE_RUN_*`.
 - 권한은 배정과 같다. 조직 사용자는 모두 읽고, 바꾸기는 총괄 또는 그 로봇 담당만. 다른 로봇으로 옮기면 두 로봇 모두 권한이 있어야 한다.
 - 가용 `state`: 기간과 겹치는 칸이 있으면 `BUSY` (끝이 가장 늦은 칸을 `busy_*` 로), 없으면 연결이 끊긴 로봇은 `OFFLINE`, 그 외 `FREE`.
   `CHARGING` 은 서버에 충전 신호가 없어 지금은 내지 않는다. `demo` 는 서버에 그런 로봇 필드가 없어 항상 false, `sim` 은 `Robot.simulation`.

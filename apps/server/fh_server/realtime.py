@@ -284,6 +284,7 @@ class Realtime:
         self.deleted_robots = set()
         self.deleted_at = {}
         self.runs: dict[str, dict] = {}  # executor persistence is a later task
+        self.scheduled_runs: dict[str, dict] = {}  # robot -> {'run_id', 'slot_id'} while a schedule slot holds RUN
         self.audit = FairAuditQueue(self)
         self.audit_engine = create_engine(settings.database_url, pool_size=1, max_overflow=0,
                                          connect_args={'options': '-c lock_timeout=1000 -c statement_timeout=2000'})
@@ -1231,14 +1232,18 @@ class Realtime:
                             body['user_id'] = record.holder.actor.user  # names the server-path relay
                             if record.holder.actor.display_name:
                                 body['display_name'] = record.holder.actor.display_name[:64]  # display only
+                    if body['t'] == 'lease' and body.get('lease_id') is None:
+                        self.__dict__.get('scheduled_runs', {}).pop(rid, None)  # a released RUN lease never comes back
                     peer = self.agents.get(rid)
                     if peer:
                         # DB provenance plus explicit per-robot manual trial only.
                         if self.blocked_agent_control(peer, body):
                             continue
                         if body['t'] == 'lease' and body['holder_type'] == 'RUN':
-                            self.runs[rid]['lease_id'] = body['lease_id']
-                            body['holder_type'] = 'RUN:' + self.runs[rid]['run_id']
+                            # A schedule slot's RUN holder names the slot's run; otherwise the paused run.
+                            run = self.scheduled_runs.get(rid) or self.runs[rid]
+                            run['lease_id'] = body['lease_id']
+                            body['holder_type'] = 'RUN:' + run['run_id']
                         if body['t'] in ('cmd', 'unlock', 'posture', 'action') or (body['t'] == 'lease' and body['lease_id'] is not None):
                             if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
                                 continue
@@ -1307,7 +1312,11 @@ class Realtime:
             return not (peer.actor is None and rid not in self.robot_changes
                 and not self.owner_uncertain and self.clock()-peer.auth_checked <= .5
                 and (peer.simulation or (peer.server_drive and self.field_approved(rid)))
-                and holder and holder.holder_type == 'USER' and holder.lease_id == body.get('lease_id'))
+                and holder and holder.lease_id == body.get('lease_id')
+                and (holder.holder_type == 'USER' or (
+                    # 예약 실행 (11/28): 칸이 잡은 RUN lease 로 그 칸의 run.start 만.
+                    holder.holder_type == 'RUN' and holder.actor is None and body.get('t') == 'run.start'
+                    and (self.__dict__.get('scheduled_runs', {}).get(rid) or {}).get('run_id') == str(body.get('run_id')))))
         if body.get('t') in ('posture', 'action'):
             rid = next((key for key, value in self.agents.items() if value is peer), None)
             record = self.arbiter.robots.get(rid)
@@ -1604,6 +1613,8 @@ class Realtime:
                             peer.run_tasks.add(task := asyncio.create_task(self.start_run(peer, rid, actor, msg, mark)))
                             task.add_done_callback(peer.run_tasks.discard)
                             continue
+                        elif msg.t == 'run.control' and self.schedule_pause(rid, actor, msg):
+                            pass
                         elif msg.t == 'run.control':
                             self.send_run(rid, actor, msg)
                         elif msg.t == 'gait':
@@ -1718,6 +1729,20 @@ class Realtime:
             raise LeaseError('RUN_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
         if enqueue:
             self.put(peer, body)
+
+    def schedule_pause(self, rid, actor, msg):
+        """Pause of a schedule slot's run (11/28, web #542): release the RUN lease. The agent's relay lets
+        go of the Hub (zero, latched) and the run stays PAUSED. A person then takes a USER lease and resumes
+        with it (#537); the RUN lease is never taken again. Moves toward safety, so the RUN lease id the
+        screen never sees is not asked for; the O_OWN check already ran."""
+        record = self.arbiter.robot(rid)
+        holder, scheduled = record.holder, self.scheduled_runs.get(rid)
+        if not (msg.op == 'pause' and scheduled and scheduled['run_id'] == str(msg.run_id)
+                and holder and holder.holder_type == 'RUN' and holder.actor is None):
+            return False
+        self.apply(self.arbiter.revoke(rid, op=None, cause='run_paused')
+                   + [self.arbiter.audit(rid, 'RUN_PAUSE_TAKEOVER', actor)])
+        return True
 
     async def start_run(self, peer, rid, actor, msg, mark):
         try:

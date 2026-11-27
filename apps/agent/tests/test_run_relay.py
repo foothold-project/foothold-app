@@ -234,3 +234,45 @@ def test_server_drive_session_without_run_machine_reports_unsupported():
     assert session._state()['run_result'] == dict(request_id='req-9', op='start', run_id=run,
                                                   status='REJECTED', code='RUN_UNSUPPORTED')
     assert session.core.out == before
+
+
+def test_schedule_run_lease_starts_only_its_own_run(cloud):
+    """A schedule slot's 'RUN:<run_id>' lease (11/28) unlocks the demo Hub and starts only that run."""
+    r = cloud
+    free_phone(r)
+    r.run_id = uid()
+    r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + r.run_id})
+    r.state(True)
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': 0, 'user_id': r.user})
+    r.state(False)
+    assert isinstance(r.hub.owner, ServerRelay) and not r.hub.session.core.latch
+    other = r.run_id
+    r.run_id = uid()
+    assert send_run(r, 'run.start')['code'] == 'NOT_CONTROLLER'  # another run id
+    r.run_id = other
+    got = send_run(r, 'run.start')
+    assert (got['status'], got['code']) == ('SUCCEEDED', 'OK')
+    assert wait_moving(r) == 'MOVING'
+    assert send_run(r, 'run.control', op='pause')['code'] == 'NOT_CONTROLLER'  # the slot lease only starts
+    r.observer.receive({'t': 'lease', 'lease_id': None, 'holder_type': None})
+    assert r.hub.owner is None and r.runs.snapshot()['status'] == 'PAUSED'
+
+
+def test_schedule_run_paused_by_lease_loss_resumes_with_person_lease(cloud):
+    """Pause of a schedule run: RUN lease released -> relay lets go (zero, latched); a person's USER
+    lease then resumes the same run (#537 resume proof). The RUN lease is not needed again."""
+    r = cloud
+    free_phone(r)
+    r.run_id = uid()
+    r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + r.run_id})
+    r.state(True)
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': 0, 'user_id': r.user})
+    r.state(False)
+    assert send_run(r, 'run.start')['code'] == 'OK' and wait_moving(r) == 'MOVING'
+    r.observer.receive({'t': 'lease', 'lease_id': None, 'holder_type': None})
+    assert r.hub.owner is None and r.hub.session.core.latch and not any(r.hub.session.core.out)
+    assert r.runs.snapshot()['status'] == 'PAUSED'
+    person = uid()
+    server_control(r, person)
+    got = send_run(r, 'run.control', lease=person, op='resume')
+    assert (got['status'], got['code']) == ('SUCCEEDED', 'OK'), got

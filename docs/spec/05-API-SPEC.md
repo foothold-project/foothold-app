@@ -572,6 +572,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.23 | 2026-11-28 | 일정 칸 예약 실행: CONFIRMED 칸 시각에 서버가 §6.5 `run.start` 를 같은 관문으로 보냄 (RUN holder lease · 칸 run_state · 한 번만). 자세한 것은 `apps/contracts/README.md` «일정» |
 | 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
 | 0.21 | 2026-11-28 | 팀장 05:09 · 05:14: §6.5 실행 명령을 화면 → 서버 → 에이전트 실시간 길 (`run.start` · `run.control`) 로, 데모도 같은 길, 서버 길 이어 가기 증명, 폰 직결은 서버 장애 때 정지 · 끝 길 |
 | 0.19 | 2026-10-25 | ADR-003 ⑤ 후속 계약(§13.10): 고정 시나리오 자료 참조·직결 run 프레임·단일 층·3초 감시 제안·같은 화면 재개·에이전트 보고/영속 기록·구현 분할. 현재 미구현과 제품 결정을 구분 |
