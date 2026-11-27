@@ -138,7 +138,9 @@ def test_hello_identity_matches_contract_shape():
     assert hello['robot_model'] == 'unitree_go2'
     caps = hello['execution_capabilities']
     assert caps['contract'] == 'scenario/2'
-    assert {a['key']: a['state'] for a in caps['actions']} == {'wait': 'SUPPORTED', 'photo.rgb': 'UNAVAILABLE'}
+    # No step executor on this path: advertise nothing as SUPPORTED until run execution exists.
+    assert caps['actions'] and not any(a['state'] == 'SUPPORTED' for a in caps['actions'])
+    assert all(a['reason'] for a in caps['actions'])
     state = session._state()
     assert state['mode'] == 'FREE' and state['latched'] is True
     try:

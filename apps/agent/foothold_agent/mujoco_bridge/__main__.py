@@ -14,7 +14,6 @@ from pathlib import Path
 import shutil
 import signal
 
-from foothold_agent.executor.steps import ExecutionSupport
 from foothold_agent.link.client import Client, Settings
 from foothold_agent.link.session import Session
 from .node import MujocoNode
@@ -33,10 +32,15 @@ def child_command(env):
             '--battery-drain', env.get('FH_SIM_BATTERY_DRAIN', '0.0139')]
 
 
+UNAVAILABLE = 'MuJoCo bridge has no scenario step executor yet'
+
+
 def identity(now):
-    # Same capability source as ros_bridge's run path without camera/uploader.
+    # This Session-only path has no step executor, so nothing is SUPPORTED
+    # (same keys as ros_bridge's ExecutionSupport, never a false claim).
+    actions = [dict(key=key, state='UNAVAILABLE', reason=UNAVAILABLE) for key in ('wait', 'photo.rgb')]
     return {'agent_version': VERSION, 'robot_model': 'unitree_go2', 'firmware': None,
-            'execution_capabilities': ExecutionSupport(now=now).hello()}
+            'execution_capabilities': dict(contract='scenario/2', revision=1, actions=actions)}
 
 
 async def run(settings, command):
