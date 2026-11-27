@@ -1,14 +1,15 @@
 // RB-SLAM-WEB 지도 탭 «지도 만들기»(apps/server/MAPPING.md → 11-25 RB-SLAM-WEB2 apps/server/SLAM-CONTRACT.md) — 가짜 서버 응답으로: 담당 아님 숨김, 연결 안 됨 막힘,
 // source=point_lio 시작, 1초 조회, 2D 조각 cursor 따라가기·판 바뀜·409, 3D 칸 증분, 받은 범위만(RECEIVED_ONLY), 시작이 오래 걸림 안내, 취소,
 // 저장 성공 뒤 새 판 선택, FAILED 다시 저장·STALE, 창 닫으면 조회 멈춤, 다른 층 세션 안내. 화면 글에 «SLAM» 없음.
+// 11-27 RB-MAP-LIVE-WEB: Point-LIO·GLIM 상태 두 줄(이유 코드·단계), GLIM 미리보기 겹침·토글(기준 다르면 따로), 옛 서버 그대로.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MappingProgress, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
+import type { MappingGlimStatus, MappingPointLioStatus, MappingProgress, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
 import { kept } from '../screens/mapedit';
-import { RECEIVED_TEXT, SLOW_START_S, SLOW_TEXT, STALE_TEXT } from '../screens/mapmake';
+import { BEFORE, GLIM_STAGE, LIO_WHY, RECEIVED_TEXT, SLOW_START_S, SLOW_TEXT, STALE_TEXT } from '../screens/mapmake';
 import { FakeWS, state } from './fakeWs';
 import { FakeVox } from './fakeVox';
 
@@ -400,6 +401,9 @@ describe('로봇으로 만든 지도 다시 열기(bundle voxels·grid)', () => 
     expect($('[data-slam-saved] [data-slam-boxes]')!.dataset.slamBoxes).toBe('3');
     expect($('[data-slam-saved] canvas[data-slam-tiles]')!.dataset.slamTiles).toBe('1');
     expect($('[data-slam-saved] [data-slam-pick="3d"]')!.hasAttribute('disabled')).toBe(true);   // jsdom 은 WebGL2 없음
+    // RB-MAP-LIVE-WEB: 저장 지도 보기는 겹침·고르기 단추·상태 줄 없음(SlamView 선택 prop 를 주지 않음 = 그대로)
+    expect($('[data-slam-saved] canvas[data-over-cells]')).toBeNull();
+    expect($('[data-layer]')).toBeNull(); expect($('[data-sources]')).toBeNull();
   });
 
   it('칸 수와 파일 길이가 어긋나면 그리지 않고 알림 · 담당이 아니면 단추 없음', async () => {
@@ -451,5 +455,115 @@ describe('지도 만들기 — 창 안에서 조종(11-13 RB-MAP-VIEW-WEB)', () 
       expect($('[data-make-drive]')).toBeNull();
       act(() => root?.unmount()); root = null; box.remove();
     }
+  });
+});
+
+describe('지도 만들기 — Point-LIO·GLIM 상태와 GLIM 미리보기(11-27 RB-MAP-LIVE-WEB)', () => {
+  const PL: MappingPointLioStatus = { active: true, fresh: true, pose_age_s: 0.1, cloud_age_s: 0.08, position_valid: true, reason_code: null, reason: null, position_m: [1.234, -2.345, 0.3], pose_hz: 10, cloud_hz: 10 };
+  const GL: MappingGlimStatus = { stage: 'RECEIVING', data_age_s: 0.4, processed_chunks: null, gpu: null, reason: null };
+  const src = (pl: Partial<MappingPointLioStatus> = {}, gl: Partial<MappingGlimStatus> = {}) => ({ sources: { reported_at: '2026-11-27T06:00:00Z', point_lio: { ...PL, ...pl }, glim: { ...GL, ...gl } } });
+  const GP = (frame_id: string, cells: [number, number, number][] = [[-5, 16, 1], [0, 0, 0], [3, 2, 1]]) => ({ glim_preview: { source: 'glim' as const, seq: 1, frame_id, stamp: { sec: 42, nanosec: 0 }, resolution: 0.25 as const, cells } });
+  const line = (k: string) => $(`[data-src="${k}"]`)!;
+  const shown = async (x: MappingProgress) => { serve(signedIn(LEE, true, () => x)); await open(); await live(true); await openMake(); };
+  const again = () => { act(() => root?.unmount()); root = null; box.remove(); };
+
+  it('시작 전: 두 줄 모두 «지도 만들기를 누르면 켜집니다»(노랑)', async () => {
+    serve(signedIn(LEE, true, () => null)); await open(); await live(true); await openMake();
+    for (const k of ['point_lio', 'glim']) { expect(line(k).textContent).toContain(BEFORE); expect(line(k).dataset.lamp).toBe('warn'); }
+  });
+
+  it('정상: «실시간 위치 정상 · 0.1초 전 · 10Hz» + 위치 x,y m(초록) · GLIM 받는 중 + 마지막 자료 나이', async () => {
+    await shown(prog('RUNNING', src()));
+    expect(line('point_lio').dataset.lamp).toBe('ok');
+    expect(line('point_lio').textContent).toBe('● Point-LIO 실시간 위치 정상 · 0.1초 전 · 10Hz · x 1.23 · y -2.35 m');
+    expect(line('glim').dataset.lamp).toBe('ok');
+    expect(line('glim').textContent).toContain('받는 중 · 마지막 자료 0.4초 전');
+    expect(box.textContent).not.toMatch(/SLAM/);
+  });
+
+  it('이유 코드마다 쉬운 한국어(빨강) · 켜는 중의 자료 없음은 기다림(노랑)', async () => {
+    expect(LIO_WHY.POSITION_OUT_OF_RANGE).toBe('위치가 비정상적으로 멀리 튀었습니다(발산)');
+    expect(LIO_WHY.MISSING_DATA).toBe('위치 자료가 들어오지 않습니다');
+    const codes = ['POSITION_OUT_OF_RANGE', 'MISSING_DATA', 'POSITION_JUMP', 'STAMP_REGRESSION', 'FRAME_MISMATCH', 'STAMP_SKEW', 'STALE', 'INVALID_DATA'] as const;
+    for (const code of codes) {
+      let x = prog('RUNNING', src({ fresh: false, position_valid: code === 'POSITION_OUT_OF_RANGE' ? false : true, reason_code: code, reason: 'raw', pose_age_s: 3.2 }));
+      serve(signedIn(LEE, true, () => x)); await open(); await live(true); await openMake();
+      expect(line('point_lio').dataset.lamp).toBe('bad');
+      expect(line('point_lio').textContent).toContain(`${LIO_WHY[code]} · 3.2초 전`);
+      expect(line('point_lio').textContent).not.toContain('raw');
+      again();
+    }
+    await shown(prog('STARTING', src({ fresh: false, active: null, reason_code: 'MISSING_DATA', pose_age_s: null, position_m: null }, { stage: 'STARTING', data_age_s: null })));
+    expect(line('point_lio').dataset.lamp).toBe('warn');
+    expect(line('point_lio').textContent).toBe('● Point-LIO 기다리는 중');
+    expect(line('glim').textContent).toBe('● GLIM 켜는 중');
+  });
+
+  it('GLIM 단계 글: 꺼짐·켜는 중·받는 중·저장 중(처리 조각)·모름, 만드는 중 꺼짐은 빨강', async () => {
+    expect(GLIM_STAGE).toEqual({ OFF: '꺼짐', STARTING: '켜는 중', RECEIVING: '받는 중', SAVING: '저장 중', UNKNOWN: '상태를 알 수 없습니다' });
+    await shown(prog('RUNNING', src({}, { stage: 'OFF', data_age_s: 75, reason: 'GLIM 이 응답하지 않습니다' })));
+    expect(line('glim').dataset.lamp).toBe('bad');
+    expect(line('glim').textContent).toBe('● GLIM 꺼짐 · 마지막 자료 1분 전 · GLIM 이 응답하지 않습니다');
+    again();
+    await shown(prog('SAVING', src({}, { stage: 'SAVING', data_age_s: 1.5, processed_chunks: 1200 })));
+    expect(line('glim').dataset.lamp).toBe('warn');
+    expect(line('glim').textContent).toBe('● GLIM 저장 중 · 마지막 자료 1.5초 전 · 1,200조각 처리');
+  });
+
+  it('시작이 거절돼도(FAILED) 두 줄로 원인이 보인다', async () => {
+    await shown(prog('FAILED', { error_code: 'START_REJECTED', reason: '지도 기능을 켜지 못했습니다.', ...src({ fresh: false, position_valid: false, reason_code: 'POSITION_OUT_OF_RANGE' }, { stage: 'OFF', data_age_s: null }) }));
+    expect($('[data-failed]')!.textContent).toBe('지도 기능을 켜지 못했습니다.');
+    expect(line('point_lio').textContent).toContain('발산');
+    expect(line('glim').dataset.lamp).toBe('bad');
+  });
+
+  it('옛 서버(sources·glim_preview 없음): 상태 줄·겹침 단추 없이 지금 화면 그대로', async () => {
+    await shown(prog('RUNNING'));
+    expect($('[data-sources]')).toBeNull(); expect($('[data-layer]')).toBeNull(); expect($('[data-glim-preview]')).toBeNull();
+    expect($('canvas[data-slam-tiles]')!.dataset.slamTiles).toBe('1');
+    expect($('canvas[data-over-cells]')).toBeNull();
+    expect(dlg().textContent).toContain('만드는 중');
+  });
+
+  it('같은 기준(frame_id)이면 Point-LIO 위에 GLIM 칸을 겹치고, 두 단추로 각각 켜고 끈다(기본 둘 다) · «GLIM 미리보기, 저장 전»', async () => {
+    await shown(prog('RUNNING', { ...src(), ...GP('map') }));   // 시험 Point-LIO 그림 frame = map
+    const cv = () => $('canvas[data-slam-tiles]')!, on = (k: string) => $(`[data-layer="${k}"]`)!.getAttribute('aria-pressed');
+    expect($('[data-glim-preview]')!.dataset.glimPreview).toBe('over');
+    expect($('[data-glim-preview]')!.textContent).toContain('GLIM 미리보기, 저장 전');
+    expect($('[data-glim-preview]')!.textContent).not.toContain('좌표 맞춤 전');
+    expect([on('point_lio'), on('glim'), cv().dataset.slamTiles, cv().dataset.overCells]).toEqual(['true', 'true', '1', '3']);
+    await click($('[data-layer="glim"]'));
+    expect([on('glim'), cv().dataset.slamTiles, cv().dataset.overCells]).toEqual(['false', '1', undefined]);
+    await click($('[data-layer="glim"]')); await click($('[data-layer="point_lio"]'));
+    expect([on('point_lio'), cv().dataset.slamTiles, cv().dataset.overCells]).toEqual(['false', '0', '3']);
+    expect($('[data-slam-pick="3d"]')!.hasAttribute('disabled')).toBe(true);   // Point-LIO 를 끄면 3D 상자도 막음
+    expect(cv().hasAttribute('data-slam-robot')).toBe(true);   // 같은 기준이라 로봇 위치는 그대로
+    await click($('[data-layer="glim"]'));
+    expect($('[data-slam-view]')!.textContent).toContain('보이게 고른 지도에 아직 받은 칸이 없습니다.');
+  });
+
+  it('기준이 다르면(glim_map ≠ Point-LIO) 겹치지 않고 «좌표 맞춤 전» + 하나만 보기: 기본 Point-LIO, GLIM 을 누르면 GLIM 만(로봇 화살표 뺌)', async () => {
+    await shown(prog('RUNNING', { ...src(), ...GP('glim_map') }));
+    const cv = () => $('canvas[data-slam-tiles]')!, on = (k: string) => $(`[data-layer="${k}"]`)!.getAttribute('aria-pressed');
+    expect($('[data-glim-preview]')!.dataset.glimPreview).toBe('apart');
+    expect($('[data-glim-preview]')!.textContent).toContain('GLIM 미리보기, 저장 전 · 좌표 맞춤 전이라 겹치지 않고 따로 봅니다');
+    expect([on('point_lio'), on('glim'), cv().dataset.slamTiles, cv().dataset.overCells]).toEqual(['true', 'false', '1', undefined]);
+    await click($('[data-layer="glim"]'));
+    expect([on('point_lio'), on('glim'), cv().dataset.slamTiles, cv().dataset.overCells]).toEqual(['false', 'true', '0', '3']);
+    expect(cv().hasAttribute('data-slam-robot')).toBe(false);
+    await click($('[data-layer="point_lio"]'));
+    expect([on('point_lio'), on('glim'), cv().dataset.slamTiles, cv().dataset.overCells]).toEqual(['true', 'false', '1', undefined]);
+    expect(cv().hasAttribute('data-slam-robot')).toBe(true);
+  });
+
+  it('그리기: GLIM 칸은 0.25 m 칸 하나마다 사각형, Point-LIO 를 끄면 조각은 그리지 않는다', async () => {
+    const ops: string[] = [];
+    const ctx = { setTransform() {}, fillRect: () => ops.push('rect'), drawImage: () => ops.push('tile'), save() {}, restore() {}, translate() {}, rotate() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, stroke() {},
+      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {}, imageSmoothingEnabled: true, globalAlpha: 1, fillStyle: '', strokeStyle: '', lineWidth: 1 };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+    await shown(prog('RUNNING', { ...src(), ...GP('map') }));
+    expect(ops.filter((o) => o === 'tile').length).toBeGreaterThan(0);
+    ops.length = 0; await click($('[data-layer="point_lio"]'));
+    expect(ops).toEqual(['rect', 'rect', 'rect', 'rect']);   // 배경 + GLIM 3칸, 조각 없음
   });
 });

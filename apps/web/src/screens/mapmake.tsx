@@ -3,8 +3,9 @@
 // 11-13 RB-MAP-VIEW-WEB: 그리는 동안(RUNNING) 서버가 이 PC 조종을 허용한 로봇이면(fleet 와 같은 canDrive) 창 안에 같은 조종 패널(ServerDrive — STOP 포함)을 붙인다. 아니면 폰 조종 화면.
 // 시작·저장·취소는 POST /robots/{id}/slam/{start|save|cancel}, 진행은 1초마다 GET /robots/{id}/slam(창이 열려 있는 동안만 — 닫거나 층을 바꿔도 서버 세션은 계속).
 // 그림은 screens/slammap.tsx — Jetson 이 보낸 2D 조각·3D 칸을 놓기만(브라우저 계산 없음). 화면 글에 «SLAM» 을 쓰지 않는다. 이 파일은 주행 명령을 만들지 않는다.
-import { useEffect, useRef, useState } from 'react';
-import type { MapVersion, MappingProgress } from '../../../contracts/ts';
+// 11-27 RB-MAP-LIVE-WEB: 지도 위에 Point-LIO·GLIM 상태 두 줄(progress.sources), GLIM 미리보기(glim_preview 0.25 m)는 Point-LIO 그림과 같은 기준일 때만 겹침 — 저장 완료 표시 아님.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MapVersion, MappingProgress, MappingSources } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Robot, User } from '../fake';
 import { Note, type Msg, type Place } from './maps';
@@ -34,12 +35,62 @@ const actFail = (e: ApiFail) => (e.code === 'STALE' ? STALE_TEXT : e.code === 'R
 const savedText = (p: MappingProgress) => (p.terrain_id || p.terrain_status === 'READY' ? MADE
   : p.terrain_status === 'FAILED' ? '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 만들지 못했습니다.' : '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 이어서 만듭니다.');
 
-/** 지도 칸(가로 640:400) — 받은 2D 조각·3D 칸·로봇 위치(screens/slammap.tsx) */
+/** Point-LIO 이상 이유(sources.point_lio.reason_code) — 쉬운 말로 */
+export const LIO_WHY: Record<string, string> = {
+  POSITION_OUT_OF_RANGE: '위치가 비정상적으로 멀리 튀었습니다(발산)', MISSING_DATA: '위치 자료가 들어오지 않습니다',
+  POSITION_JUMP: '위치가 한 번에 너무 크게 바뀌었습니다', STAMP_REGRESSION: '자료 시각이 거꾸로 갔습니다',
+  FRAME_MISMATCH: '위치 기준이 정해진 것과 다릅니다', STAMP_SKEW: '자료 시각이 로봇 시계와 어긋났습니다',
+  STALE: '위치 자료가 끊겼습니다', INVALID_DATA: '받은 위치 자료가 올바르지 않습니다',
+};
+export const GLIM_STAGE: Record<string, string> = { OFF: '꺼짐', STARTING: '켜는 중', RECEIVING: '받는 중', SAVING: '저장 중', UNKNOWN: '상태를 알 수 없습니다' };
+export const BEFORE = '지도 만들기를 누르면 켜집니다';
+const LAMP = { ok: 'var(--ok)', warn: 'var(--warn)', bad: 'var(--bad)' } as const;
+type Lamp = keyof typeof LAMP;
+const ago = (s: number | null | undefined) => (s == null ? '' : s < 60 ? `${s.toFixed(1)}초 전` : `${Math.round(s / 60)}분 전`);
+const and = (...t: (string | false | null | undefined)[]) => t.filter(Boolean).join(' · ');
+
+/** 한 줄: 점(초록 정상·노랑 기다림·빨강 이상) + 이름 + 글(+ 작은 덧말) */
+const Line = ({ k, name, lamp, text, more }: { k: string; name: string; lamp: Lamp; text: string; more?: string }) =>
+  <p className="lv-note" data-src={k} data-lamp={lamp} style={{ color: 'var(--text)' }}>
+    <i aria-hidden="true" style={{ fontStyle: 'normal', color: LAMP[lamp] }}>●</i> <b>{name}</b> {text}{more && <span style={{ color: 'var(--muted)' }}> · {more}</span>}</p>;
+
+/** Point-LIO·GLIM 상태 두 줄. st = 세션 상태(null = 아직 시작 전). 세션 중인데 sources 가 없으면(옛 서버) 그리지 않는다 */
+function Sources({ st, s }: { st: MappingProgress['status'] | null; s?: MappingSources | null }) {
+  if (!st) return <div data-sources="before"><Line k="point_lio" name="Point-LIO" lamp="warn" text={BEFORE} /><Line k="glim" name="GLIM" lamp="warn" text={BEFORE} /></div>;
+  if (!s) return null;
+  const pl = s.point_lio, g = s.glim, code = pl.reason_code;
+  const waiting = st === 'STARTING' || st === 'SAVING' || st === 'FINALIZING';   // 켜는 중·저장 중엔 자료가 없는 게 이상이 아니다
+  const [lamp, text]: [Lamp, string] = pl.fresh && pl.position_valid !== false && !code ? ['ok', and('실시간 위치 정상', ago(pl.pose_age_s), `${pl.pose_hz}Hz`)]
+    : code && !(waiting && (code === 'MISSING_DATA' || code === 'STALE')) ? ['bad', and(LIO_WHY[code] ?? pl.reason ?? '위치 자료에 문제가 있습니다', ago(pl.pose_age_s))]
+    : ['warn', and('기다리는 중', ago(pl.pose_age_s))];
+  const at = pl.position_m && `x ${pl.position_m[0].toFixed(2)} · y ${pl.position_m[1].toFixed(2)} m`;
+  const gl: Lamp = g.stage === 'RECEIVING' ? 'ok' : g.stage === 'UNKNOWN' || (g.stage === 'OFF' && (st === 'RUNNING' || st === 'FAILED')) ? 'bad' : 'warn';
+  return <div data-sources={st}>
+    <Line k="point_lio" name="Point-LIO" lamp={lamp} text={text} more={at || undefined} />
+    <Line k="glim" name="GLIM" lamp={gl} text={and(GLIM_STAGE[g.stage] ?? g.stage, g.data_age_s != null && `마지막 자료 ${ago(g.data_age_s)}`,
+      g.stage === 'SAVING' && g.processed_chunks != null && `${g.processed_chunks.toLocaleString('ko-KR')}조각 처리`)} more={g.reason || undefined} />
+  </div>;
+}
+
+/** 지도 칸(가로 640:400) — 받은 2D 조각·3D 칸·로봇 위치(screens/slammap.tsx) + GLIM 미리보기(glim_preview, 0.25 m 칸).
+ *  Point-LIO 그림과 같은 기준(frame_id)일 때만 겹친다. 다르면 겹치지 않고 둘 중 하나만 보기(로봇 화살표도 Point-LIO 기준이라 GLIM 만 볼 땐 뺌) */
 function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; link: number }) {
   const pic = useSlamLive(robot, p, link);
+  const [lio, setLio] = useState(true), [gl, setGl] = useState(true);
+  const gp = p.glim_preview, base = p.tiles?.[0]?.frame_id ?? p.voxels?.frame_id ?? p.grid?.frame_id ?? p.odom?.frame_id;
+  const same = !!gp && gp.frame_id === base, only = !same && gl && !lio;   // only = 기준이 달라 GLIM 만 보는 중
+  const onLio = same ? lio : !only, onGl = same ? gl : only, hide = !onLio;
+  const over = gp && onGl ? { cells: gp.cells, res: gp.resolution ?? 0.25 } : null;
+  const shown = useMemo(() => (only ? { ...pic, pose: null } : pic), [pic, only]);
+  const pick = (to: 'lio' | 'gl') => (same ? (to === 'lio' ? setLio((v) => !v) : setGl((v) => !v)) : (setLio(to === 'lio'), setGl(to === 'gl')));
   return <>
     <div style={{ position: 'relative', aspectRatio: '640 / 400', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }} data-make-mapbox>
-      <SlamView pic={pic} empty="아직 받은 지도가 없습니다." /></div>
+      <SlamView pic={shown} over={over} hideBase={hide} empty={hide ? '보이게 고른 지도에 아직 받은 칸이 없습니다.' : '아직 받은 지도가 없습니다.'} /></div>
+    {gp && <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center' }} data-glim-preview={same ? 'over' : 'apart'}>
+      <span role="group" aria-label="겹쳐 보기 고르기" className="fh-row">
+        <button type="button" className="btn" aria-pressed={onLio} data-layer="point_lio" onClick={() => pick('lio')}>Point-LIO</button>
+        <button type="button" className="btn" aria-pressed={onGl} data-layer="glim" onClick={() => pick('gl')}>GLIM</button></span>
+      <span className="lv-note">GLIM 미리보기, 저장 전{same ? '' : ' · 좌표 맞춤 전이라 겹치지 않고 따로 봅니다'}</span></div>}
     <div className="mx-sum" aria-label="진행" data-progress={p.status}>
       <span><b>{pic.n.toLocaleString('ko-KR')}</b>받은 3D 칸</span><span><b>{pic.patches.length.toLocaleString('ko-KR')}</b>받은 2D 조각</span></div>
     {pic.gap && <p className="lv-note" data-gap>이 세션의 3D 칸은 서버에서 처음부터 받을 수 없습니다. 저장한 뒤 다시 열면 전부 보입니다.</p>}
@@ -125,6 +176,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
     {prog !== undefined && !open && <>
       {got && <div className="fh-row" role="status" data-received><p className="fh-msg fh-grow">{RECEIVED_TEXT}</p>
         {got.map_version_id && <button type="button" className="btn" onClick={() => madeRef.current(got.map_version_id!, RECEIVED_TEXT)}>받은 지도 보기</button>}</div>}
+      <Sources st={null} />
       <p className="lv-note">로봇이 돌아다니며 이 층 지도를 그립니다. «지도 만들기»를 누른 뒤 {how} 로봇을 움직이고, 다 돌면 «지도 저장»을 누릅니다.</p>
       {robot && !robot.online && <p className="fh-msg" role="alert" data-offline>{OFF}</p>}
       <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !robot?.online} onClick={() => act('start')}>지도 만들기</button></div>
@@ -132,7 +184,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
     {p && <>
       {/* 왼쪽 실시간 지도·진행, 오른쪽 조종(좁으면 아래로) — 지도를 보면서 스크롤 없이 STOP·조종 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ flex: '1.4 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}><MapBox robot={rid} p={p} link={link} /></div>
+        <div style={{ flex: '1.4 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}><Sources st={p.status} s={p.sources} /><MapBox robot={rid} p={p} link={link} /></div>
         {p.status === 'RUNNING' && drive && <div data-make-drive style={{ flex: '1 1 300px', minWidth: 0 }}><ServerDrive c={{ user }} r={robot!} inline /></div>}
       </div>
       {p.status === 'STARTING' && <p className="lv-note" role="status" data-starting>시작하는 중… 로봇이 지도 기능을 켜고 있습니다.</p>}
