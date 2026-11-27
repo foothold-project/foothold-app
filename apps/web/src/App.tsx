@@ -240,7 +240,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 결과는 로봇마다 한 줄(stopText). 보낼 로봇이 하나도 없을 때만 «로봇에 닿을 길 없음» 한 줄(via none) · 서버가 다시 붙으면 «보내지 못했음» 으로 바꿔 닫을 때까지 둔다
   const [noWay, setNoWay] = useState<'' | 'down' | 'back'>(''), down = net.at !== 'open' && net.at !== 'connecting' && net.at !== 'idle';
   useEffect(() => { if (!down && noWay === 'down') setNoWay('back'); }, [down]);
-  const stop = () => { if (toSim) { setNoWay(''); return sim.stop(); }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
+  const stop = () => { if (toSim) { setNoWay(''); return sim.stop(); }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
     if (!canStop) return;
     if (phone && down && !target) {   // 관제 탭(PC)은 W1 의 «모두 정지» 고르기 그대로
       if (stops.length) return halt(stops); setStopped([]); setChoose(null); setNoWay('down'); return; }
