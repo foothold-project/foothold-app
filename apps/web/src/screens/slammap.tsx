@@ -14,8 +14,9 @@ import { QEmpty } from '../quad';
 export const RES = 0.05, TILE = 64;
 /** 2D 한 장: 왼쪽 아래 (x0,y0) m, w×h 칸, 아래 줄부터 행 우선 0 모름·1 빈 곳·2 벽. key·seq = 그림 캐시(같은 key 의 seq 가 바뀔 때만 다시 칠함) */
 export type Patch = { key: string; seq: number; x0: number; y0: number; w: number; h: number; cells: ArrayLike<number> };
-/** 그릴 것: 3D 칸 가운데(xyz, n 개, ver = 3D·로봇이 바뀔 때마다)·2D 조각(tver = 바뀔 때마다)·로봇. gap = 서버가 이 세션 3D 를 처음부터 줄 수 없음(MAPPING_VOXELS_RESET_REQUIRED) */
-export type SlamPic = { xyz: Float32Array; n: number; ver: number; patches: Patch[]; tver: number; pose: Pose | null; gap: boolean };
+/** 그릴 것: 3D 칸 가운데(xyz, n 개, ver = 3D·로봇이 바뀔 때마다)·2D 조각(tver = 바뀔 때마다)·로봇. gap = 서버가 이 세션 3D 를 처음부터 줄 수 없음(MAPPING_VOXELS_RESET_REQUIRED).
+ *  sid·rev·frame = 지금 들어 있는 그림의 세션·판·기준(진행 중 그림만 — 겹침은 이 값이 미리보기와 같을 때만, RV-519) */
+export type SlamPic = { xyz: Float32Array; n: number; ver: number; patches: Patch[]; tver: number; pose: Pose | null; gap: boolean; sid?: string; rev?: number; frame?: string | null };
 const blank = (): SlamPic => ({ xyz: new Float32Array(0), n: 0, ver: 0, patches: [], tver: 0, pose: null, gap: false });
 const poseOf = (o?: MappingOdom | null): Pose | null => (o ? { x: o.x, y: o.y, z: o.z, yaw: o.yaw } : null);
 /** key 에 세션·판을 넣음 — 판이 바뀌면 같은 좌표·tile_seq 여도 그림 캐시를 다시 칠함(RV-485) */
@@ -53,13 +54,15 @@ const SHOW_MS = 250;
 export function useSlamLive(robot: string, p: MappingProgress | null, link = 0): SlamPic {
   const [pic, setPic] = useState(blank);
   const st = useRef({ gen: 0, sid: '', rev: 0, seen: -1, since: 0, busy: false, again: false, gap: false, ver: 0, tver: 0, pose: null as Pose | null,
-    vseen: -1, vsince: 0, vbusy: false, vagain: false, vgen: 0, link, xyz: new Float32Array(0), n: 0,
+    vseen: -1, vsince: 0, vbusy: false, vagain: false, vgen: 0, link, xyz: new Float32Array(0), n: 0, frame: null as string | null,
     vox: new VoxSet(), tiles: new Map<string, MappingGridTile>(), ac: new AbortController(), vac: new AbortController() });
   useEffect(() => () => { st.current.ac.abort(); st.current.vac.abort(); }, []);
+  /** 그려진 그림의 기준 = 받은 2D 조각의 frame, 조각이 없으면 진행 자료의 기준 */
+  const frameOf = () => st.current.tiles.values().next().value?.frame_id ?? st.current.frame;
   useEffect(() => {
     const s = st.current, rev = p?.revision;
     if (!p || !rev) return;
-    let dv = false, dt = false, fresh = false;
+    let dv = false, dt = false, dm = false, fresh = false;
     /** 받던 3D 회차를 끝냄 — 늦게 온 응답·오류는 vgen 이 달라 버려진다(RV-490: 공유 since 를 바꾸지 않음) */
     const vstop = () => { s.vac.abort(); s.vac = new AbortController(); s.vgen++; Object.assign(s, { vbusy: false, vagain: false, vsince: 0 }); fresh = true; };
     if (p.session_id !== s.sid || rev !== s.rev) {   // 새 세션·새 판 = 지난 칸·조각·위치를 다 비움(계약: revision 바뀌면 처음부터)
@@ -67,10 +70,13 @@ export function useSlamLive(robot: string, p: MappingProgress | null, link = 0):
       Object.assign(s, { sid: p.session_id, rev, seen: -1, since: 0, busy: false, again: false, gap: false, pose: null, vseen: -1, link, xyz: new Float32Array(0), n: 0 });
       s.vox.clear(); s.tiles.clear(); dv = dt = true;
     }
+    const fr = p.tiles?.[0]?.frame_id ?? p.voxels?.frame_id ?? p.grid?.frame_id ?? p.odom?.frame_id ?? null;
+    if (fr !== s.frame) { s.frame = fr; dm = true; }
     if (link !== s.link) { s.link = link; vstop(); }   // 다시 연결 = 새 회차로 3D 처음부터(받는 동안은 지난 그림 유지, 첫 쪽 reset 에서 한 번 비움)
     const pose = p.odom && (!p.odom.provider || !p.source || p.odom.provider === p.source) ? poseOf(p.odom) : s.pose;
     if (pose?.x !== s.pose?.x || pose?.y !== s.pose?.y || pose?.z !== s.pose?.z || pose?.yaw !== s.pose?.yaw) { s.pose = pose; dv = true; }
-    if (dv || dt) setPic({ xyz: s.xyz, n: s.n, ver: dv ? ++s.ver : s.ver, patches: [...s.tiles.values()].map(tilePatch(s.sid)), tver: dt ? ++s.tver : s.tver, pose: s.pose, gap: s.gap });
+    if (dv || dt || dm) setPic({ xyz: s.xyz, n: s.n, ver: dv ? ++s.ver : s.ver, patches: [...s.tiles.values()].map(tilePatch(s.sid)), tver: dt ? ++s.tver : s.tver, pose: s.pose, gap: s.gap,
+      sid: s.sid, rev: s.rev, frame: frameOf() });
     const sig = p.voxels?.revision === rev ? p.voxels.seq : 0;   // «새로 왔음» 신호
     if (fresh || sig > s.vseen) { s.vseen = Math.max(s.vseen, sig); void pullVox(); }
     if (p.update_seq != null && p.update_seq > s.seen) { s.seen = p.update_seq; void pull(); }
@@ -126,7 +132,7 @@ export function useSlamLive(robot: string, p: MappingProgress | null, link = 0):
     const s = st.current, gen = s.gen, { sid, rev } = s, signal = s.ac.signal;
     if (s.busy) { s.again = true; return; }
     s.busy = true;
-    const show = () => setPic((o) => ({ ...o, patches: [...s.tiles.values()].map(tilePatch(sid)), tver: ++s.tver }));
+    const show = () => setPic((o) => ({ ...o, patches: [...s.tiles.values()].map(tilePatch(sid)), tver: ++s.tver, frame: frameOf() }));
     try {
       do {
         s.again = false;
@@ -181,6 +187,17 @@ export function useSlamSaved(robot: string, session: string, cancel?: AbortSigna
 
 /** 겹쳐 그릴 다른 칸(지도 만들기의 GLIM 미리보기): 칸 번호 [x,y,z] × res m — 위에서 본 2D 에만, 같은 좌표라고 확인된 것만 넘긴다 */
 export type Over = { cells: readonly (readonly [number, number, number])[]; res: number };
+/** 계약 MappingGlimPreview: 칸 [x,y,z] 정수 |v| ≤ 40000, 1024칸까지, 해상도 양수 */
+export const OVER_MAX = 1024;
+const okCell = (c: unknown) => Array.isArray(c) && c.length === 3 && c.every((v) => Number.isInteger(v) && Math.abs(v) <= 40000);
+/** 받은 겹칠 칸에서 잘못된 칸만 빼고 OVER_MAX 칸까지(RV-519 — 한 칸이 틀려도 아래 Point-LIO 그림을 지우지 않게). 해상도가 틀리면 겹치지 않음 */
+export function cleanOver(o?: Over | null): Over | null {
+  const res = o?.res;
+  if (!o || !Array.isArray(o.cells) || typeof res !== 'number' || !Number.isFinite(res) || res <= 0) return null;
+  const cells: Over['cells'][number][] = [];
+  for (const c of o.cells) { if (cells.length >= OVER_MAX) break; if (okCell(c)) cells.push(c); }
+  return { cells, res };
+}
 
 /** 위에서 본 2D: 조각을 제자리에 놓기만(조각마다 칸 그림을 한 번 칠해 두고 늘이기). 받은 조각·겹친 칸·로봇이 다 들어오게 맞춤. hideBase = 조각은 빼고 겹친 칸만 */
 function SlamGrid({ pic, over, hideBase = false }: { pic: SlamPic; over?: Over | null; hideBase?: boolean }) {
@@ -248,7 +265,8 @@ function SlamBoxes({ pic, fail }: { pic: SlamPic; fail: () => void }) {
 
 /** 지도 칸(부모 크기를 채움): «위에서 2D» / «3D 상자» 고르기 + 그 그림(first3d = 3D 로 시작). 아무것도 안 왔으면 안내만.
  *  over·hideBase = 2D 에 겹칠 칸·조각 숨김(지도 만들기 GLIM 미리보기 — 안 주면 그대로). 조각을 숨기면 3D 상자도 막는다 */
-export function SlamView({ pic, empty, first3d = false, over, hideBase = false }: { pic: SlamPic; empty: string; first3d?: boolean; over?: Over | null; hideBase?: boolean }) {
+export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = false }: { pic: SlamPic; empty: string; first3d?: boolean; over?: Over | null; hideBase?: boolean }) {
+  const over = useMemo(() => cleanOver(raw), [raw]);
   const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d && !hideBase;
   const any = (!hideBase && (pic.n > 0 || pic.patches.length > 0)) || !!over?.cells.length;
   return <div style={{ position: 'absolute', inset: 0, background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
