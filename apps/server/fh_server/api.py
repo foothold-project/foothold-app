@@ -72,11 +72,6 @@ def fail(status, code, message, detail=None):
     raise APIError(status, code, message, detail)
 
 
-# 운영 결정 2026-11-28: 총괄(ORG_ADMIN)은 가장 상위 계정이라 실기 조종·정지도 된다. authorize 는 더는
-# 이 코드를 내지 않는다. 옛 클라이언트·realtime 의 분기 이름으로만 남긴다.
-ADMIN_NO_REAL_CONTROL = '총괄 계정은 실기 로봇을 조종하거나 정지할 수 없습니다. 담당 운영자 폰에서 하세요.'
-
-
 def authorize(user: User, permission: str, robot: Robot | None = None):
     """One A/O policy, used on every request (no cached role/ownership claims)."""
     if robot is not None and (robot.org_id != user.org_id or getattr(robot, 'archived_at', None)):
@@ -694,9 +689,7 @@ def create_app(settings: Settings | None = None):
             authorize(user, 'ROBOT_READ', row)
             authorize(user, 'ROBOT_STOP', row)
             authorize(user, 'O_OWN' if body.purpose == 'control' else 'ROBOT_READ', row)
-        except APIError as exc:
-            if exc.code == 'ADMIN_NO_REAL_CONTROL':
-                raise
+        except APIError:
             issuer.deny(db, user, 404, 'NOT_FOUND')
         response.headers['Cache-Control'] = 'no-store'
         return issuer.issue(db, user, row, body)
