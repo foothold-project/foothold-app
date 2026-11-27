@@ -60,14 +60,35 @@ describe('U11-02 회색 단추 까닭 한 줄', () => {
     expect(box.querySelector('[data-trash-busy]')).toBeNull();
   });
   const me = (role: 'ORG_ADMIN' | 'OPERATOR') => ({ id: 'u', username: 'u', display_name: '시험', role, locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' });
-  it('지형: 운영자는 저장이 회색이고 그 옆에 «총괄 계정만» 한 줄이 보인다(마우스 올림 없이도)', async () => {
+  it('지형: 운영자는 저장이 회색이고, 까닭은 이미 보이는 «총괄 계정만» 안내 한 줄로만 (같은 말 두 번 없음)', async () => {
     vi.spyOn(api, 'terrains').mockResolvedValue([]);
     vi.spyOn(api, 'me').mockResolvedValue(me('OPERATOR') as never);
     await render(<Terrain />); await flush();
     const save = box.querySelector<HTMLButtonElement>('[data-terrain-save]')!;
     expect(save.disabled).toBe(true);
+    expect(box.querySelector('[data-terrain-save-why]')).toBeNull();
+    const note = document.getElementById(save.getAttribute('aria-describedby') ?? '');
+    expect(note?.textContent).toContain('서버 저장과 휴지통은 총괄 계정만 사용할 수 있습니다');
+    expect(box.textContent!.split('총괄 계정만').length - 1).toBe(1);
+  });
+  it('지형: 운영자도 서버 목록을 받기 전에는 «서버 목록을 받는 중»이 단추 옆에', async () => {
+    vi.spyOn(api, 'terrains').mockReturnValue(new Promise(() => {}));
+    vi.spyOn(api, 'me').mockResolvedValue(me('OPERATOR') as never);
+    await render(<Terrain />); await flush();
     const why = box.querySelector('[data-terrain-save-why]');
-    expect(why?.textContent).toBe('총괄 계정만 서버에 저장할 수 있습니다');
+    expect(why?.textContent).toBe('서버 목록을 받는 중입니다');
+    expect(box.querySelector('[data-terrain-save]')!.getAttribute('aria-describedby')).toBe(why?.id);
+  });
+  it('지형: 총괄이 오류 있는 지형을 고르면 «오류를 고친 뒤» 까닭은 단추 옆에 그대로', async () => {
+    vi.spyOn(api, 'terrains').mockResolvedValue([]);
+    vi.spyOn(api, 'me').mockResolvedValue(me('ORG_ADMIN') as never);
+    await render(<Terrain />); await flush();
+    const name = box.querySelector<HTMLInputElement>('input.inp')!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, ''); name.dispatchEvent(new Event('input', { bubbles: true })); });
+    const save = box.querySelector<HTMLButtonElement>('[data-terrain-save]')!;
+    expect(save.disabled).toBe(true);
+    const why = box.querySelector('[data-terrain-save-why]');
+    expect(why?.textContent).toBe('오류를 고친 뒤 저장할 수 있습니다');
     expect(save.getAttribute('aria-describedby')).toBe(why?.id);
   });
   it('지형: 서버 목록을 받기 전에는 «서버 목록을 받는 중», 총괄이 받은 뒤에는 까닭 줄 없음', async () => {
