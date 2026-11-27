@@ -195,3 +195,79 @@ def test_every_stair_step_has_at_least_1_4_m_headroom():
     worst = min(headroom, key=headroom.get)
     assert headroom[worst] >= 1.4, (worst, headroom[worst])
 
+
+
+CLEARANCE_M = 0.25  # nav2 팽창 반경 자리 (검수 #528 P1 제안 값)
+
+
+def eroded_free(floor_id, radius_m=CLEARANCE_M):
+    """free 칸을 원판 반경 radius_m 로 깎는다. 몸 중심이 갈 수 있는 칸만 남는다."""
+    free = np.array(Image.open(OUT / 'maps' / f'{floor_id}.png')) == FREE
+    r = int(round(radius_m / META['resolution']))
+    padded = np.pad(free, r, constant_values=False)
+    out = np.ones_like(free)
+    h, w = free.shape
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx * dx + dy * dy <= r * r:
+                out &= padded[r + dy:r + dy + h, r + dx:r + dx + w]
+    return out
+
+
+def components(mask):
+    """4 이웃 연결 덩어리 번호 (0 = 막힘)."""
+    from collections import deque
+    labels = np.zeros(mask.shape, dtype=np.int32)
+    h, w = mask.shape
+    n = 0
+    for sy, sx in zip(*np.nonzero(mask)):
+        if labels[sy, sx]:
+            continue
+        n += 1
+        labels[sy, sx] = n
+        queue = deque([(sy, sx)])
+        while queue:
+            y, x = queue.popleft()
+            for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+                if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not labels[ny, nx]:
+                    labels[ny, nx] = n
+                    queue.append((ny, nx))
+    return labels
+
+
+def pixel(x, y):
+    res, (ox, oy, _) = META['resolution'], META['origin']
+    return META['size_pixels'][1] - 1 - math.floor((y - oy) / res), math.floor((x - ox) / res)
+
+
+def floor_targets(fid):
+    """층마다 몸 중심이 닿아야 할 자리: 지점 · 스폰 · 계단 발치 (첫 단 한 디딤 앞) · 계단 도착."""
+    catalogue = json.loads((WORLDS / 'worlds.json').read_text())['worlds']
+    floor = next(f for f in LAYOUT['floors'] if f['floor_id'] == fid)
+    targets = {p['id']: p['xy'] for p in floor['points']}
+    targets['spawn'] = catalogue[f'plant_a/{fid}']['spawn_xyyaw'][:2]
+    for stair in [s for f in LAYOUT['floors'] for s in f['stairs']]:
+        if stair['from'] == fid:
+            x, y = stair['start']
+            fx, fy = direction(stair['yaw'])
+            targets[stair['id'] + '_foot'] = (x - stair['tread'] * fx, y - stair['tread'] * fy)
+        if stair['to'] == fid:
+            targets[stair['id'] + '_arrive'] = stair['arrive']['xy']
+    return targets
+
+
+@pytest.mark.parametrize('fid', [f['floor_id'] for f in LAYOUT['floors']])
+def test_points_spawn_and_stairs_reachable_with_body_clearance(fid):
+    labels = components(eroded_free(fid))
+    where = {name: labels[pixel(*xy)] for name, xy in floor_targets(fid).items()}
+    blocked = sorted(n for n, v in where.items() if v == 0)
+    assert not blocked, (fid, '여유 0.25 m 안 됨', blocked)
+    assert len(set(where.values())) == 1, (fid, '한 덩어리가 아님', where)
+
+
+def test_clearance_check_detects_a_wall_across_the_corridor():
+    # 깎기 · 덩어리 셈이 실제로 끊김을 잡는지: 가운데를 세로로 막으면 두 덩어리.
+    mask = np.ones((40, 40), dtype=bool)
+    mask[:, 19:21] = False
+    labels = components(mask)
+    assert labels[5, 5] and labels[5, 35] and labels[5, 5] != labels[5, 35]

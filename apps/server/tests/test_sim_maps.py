@@ -367,3 +367,14 @@ def test_factory_catalogue_imports_all_floors_and_presets(seeded, tmp_path):
             assert any(f.sim_floor_id == 'f2' and f.floor_z == 2 for f in floors)
     finally:
         engine.dispose()
+
+
+def test_plant_a_is_a_listed_world_but_floor_context_still_refuses_it():
+    # 검수 #528 P4: 목록에는 보이되, FloorContext 계약 (v5_building · warehouse) 을 넓히기 전에는 시작할 수 없다.
+    from pydantic import ValidationError
+    from apps.contracts import models as C
+    from apps.server.fh_server.sim_maps import supported_world_ids
+    assert 'plant_a' in supported_world_ids()
+    assert 'plant_a' not in C.FloorContext.model_fields['world_id'].annotation.__args__
+    with pytest.raises(ValidationError):
+        C.FloorContext.model_validate(dict(world_id='plant_a'))

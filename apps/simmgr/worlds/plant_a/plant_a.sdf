@@ -2186,18 +2186,18 @@
         </visual>
       </link>
       <link name="l2_MCC-2">
-        <pose>18 7 4.475 0 0 0</pose>
+        <pose>16.8 7 4.475 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>6 0.8 2.2</size>
+              <size>3.6 0.8 2.2</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>6 0.8 2.2</size>
+              <size>3.6 0.8 2.2</size>
             </box>
           </geometry>
           <material>
