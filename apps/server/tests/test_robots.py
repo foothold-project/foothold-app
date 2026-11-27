@@ -176,7 +176,7 @@ def test_assignment_recalls_disconnected_phone_without_server_lease(client, seed
         assert str(jti) in [j for item in packet['items'] for j in item['jtis']]
 
 
-def test_assignment_change_preserves_admin_subscription_but_denies_real_control(client, seeded, rt):
+def test_assignment_change_preserves_admin_subscription_and_phone_direct_gate(client, seeded, rt):
     admin = app_token(client, 'admin')
     rid = seeded['robots']['mine']
     with DBSession(client.app.state.engine) as db:
@@ -185,12 +185,12 @@ def test_assignment_change_preserves_admin_subscription_but_denies_real_control(
     with agent(client, seeded, direct=True) as ag, screen(client, admin) as ws:
         assert reply(ws, send(ws, 'sub', robots=[str(rid)], streams=['state']))['ok']
         denied = reply(ws, send(ws, 'lease.take', rid))
-        assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        assert denied['error']['code'] == 'PHONE_DIRECT_REQUIRED'  # 총괄도 같은 안전 관문
         assert client.patch(P + '/robots/' + str(rid), headers=app_token(client),
             json={'owner_user_id': str(seeded['users']['two'])}).status_code == 200
         # Let both policy and delivery watchers pass the changed row boundary.
         assert receive(ws, 'state')['robot'] == str(rid)
         denied = reply(ws, send(ws, 'cmd', rid, lease_id=str(uuid4()), seq=0, axes=[0, 0, 0]))
-        assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        assert denied['error']['code'] == 'PHONE_DIRECT_REQUIRED'
         assert rt.arbiter.robot(str(rid)).holder is None
         assert all(str(rid) in peer.subscriptions for peer in rt.screens.values())

@@ -161,7 +161,7 @@
 - 현장 안전 확인 없음 — 담당·연결·전체 스위치로 관문. 사람의 세 항목 체크와 승인·해제는 사용하지 않는다. 이전 POST/DELETE는 담당 권한 확인 뒤410이며 상태를 바꾸지 않는다.
 - `RobotSummary.robot_serial`은 총괄도 읽는다. 호환 필드 `field_approval_expires_at`은 항상 null이며 DB의 옛 값은 권한으로 쓰지 않는다. DB 열을 지우거나 이관하지 않는다.
 - 서버 경유 실기 수동 조종은 전체 스위치 AND 담당 있음 AND 페어링 기체번호 있음 AND 인증된 실기 agent 연결이 모두 필요하다. `FH_SERVER_DRIVE_ENABLED=1`은 전체 스위치이며, env가 없을 때만 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 거부한다. 목록의 `server_drive_allowed`도 이 조건으로 정한다.
-- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
+- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄도 운영자와 같은 관문을 받는다(팀장 11/28 「총괄은 모든 권한」으로 `ADMIN_NO_REAL_CONTROL` 폐지). 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
 - 연결 중 서버는 `{t:"field_approval",expires_at:UTC|null}` 표식을 자동 발급하고60초마다 갱신한다. 한 표식은30분 이하이며, 연결이 살아 있는 동안 자동 관문에 총 시간 제한은 없다. 최종 발신 때 현재 peer·담당·전체 스위치·500ms 이내 인증 확인·연결 생존을 다시 검사한다. 연결이 끊기거나 확인이 오래되면 갱신하지 않는다. `FIELD_APPROVAL_EXPIRED` 사건은 더 만들지 않으며 옛 기록은 읽을 수 있다.
 - 노트북은 기존 nic·serial·최대1800초·벽시계/단조시계 만료 검사를 유지한다. 같은 유효 연결의 정상 표식 갱신은 조종권·잠금 상태를 유지하며, 끊김·만료·검사 실패는 STOP·잠금·조종권 회수다. 연결 끊기·담당 변경·재연결도 진행 중 조종을 끝내며, 재연결 뒤 자동 표식을 받아도 조종권·잠금 해제는 복원하지 않는다. 다시 취득·STOP 확인·명시 잠금 해제가 필요하다. 안전 STOP·lease-null 경로는 그대로다.
 - 배포 담당이 할 일: 기존0022 DB 이관 적용 확인(이번 추가 이관 없음), 서버·새 연결 프로그램의 호환 및 비밀 전달 경로 확인, 필요한 경우 전체 스위치 설정, 별도 승인된 절차로 재시작·통합 검증. 이 구현 작업은 운영 env·서버·실기·시뮬을 건드리지 않는다.
@@ -890,7 +890,7 @@ URL·쿠키·로그·감사 사건·DB에 토큰/서명을 넣지 않는다. 화
 - `surface` 기본값은 `phone`이다. PC 시뮬 화면은 반드시 `pc`를 요청한다.
   `pc`는 로봇의 서버 `simulation` 값이 정확히 `True`가 아니면 control·view 모두
   403 `WEB_SIM_ONLY`다. PR #95 총괄 실기 출입증 403 `ADMIN_NO_REAL_CONTROL`은
-  기존 권한 검사에서 그대로 유지한다. 서버가 허용해도 에이전트는 서명된 `surface`와
+  팀장 11/28 결정으로 폐지했다(총괄도 실기 출입증 발급, `WEB_SIM_ONLY`는 총괄에게도 적용). 서버가 허용해도 에이전트는 서명된 `surface`와
   **자기 기동 때 명시한 simulation 설정**을 다시 확인한다. PC는 hello·조종권·조종을
   거부하며 STOP·조종권 반납은 이 관문으로 막지 않는다. 직결 `run.*`는 아직 지원하지
   않아 실행되지 않는다(ADR-003 ⑤ 후속). PC도 같은 Session·deadman 0.3 s를 쓴다.
@@ -1476,8 +1476,8 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
   `run_cancel=true`를 검증한다. 서버는 발급 때 현재 조직·로봇 담당/총괄 권한을 확인한다.
   원 실행 화면은 기존 권한으로도 취소할 수 있다. 이 안전 축소 요청에는 lease 취득,
   screen_id·resume_token·unlock·중립을 요구하지 않으며 RUN_ACTIVE로 막지 않는다.
-  다른 화면의 pause/resume·조종권 획득은 허용하지 않는다. 실기의 PC 연결 금지와
-  총괄의 실기 조종 금지는 유지한다(실기 취소는 phone의 view+취소 권한으로만).
+  다른 화면의 pause/resume·조종권 획득은 허용하지 않는다. 실기의 PC 연결 금지는
+  유지한다(실기 취소는 phone의 view+취소 권한으로만). 총괄의 실기 조종 금지는 11/28 폐지.
   에이전트 적용 뒤 `CANCELED`, `fail_code=OPERATOR_ABORT`와 0·목표 취소·잠금 유지,
   RUN holder/활성 실행 해제·서버 기록을 한 종료 전이로 처리한다. 종료 후에는 RUN_ACTIVE로
   새 run_id를 막지 않지만 STOP 확인·명시 해제·중립 등 새 실행의 안전 관문은 필요하다.
@@ -1583,8 +1583,8 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 ### 13.11 총괄 정지 요청과 상태 요약 (ADR-002, FIX-1029)
 
 전체 스위치가 꺼진 실기(`simulation != true`)의 서버 WS 조종권·명령·잠금 해제·STOP 및 REST
-`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·담당·연결을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
-기존 `ADMIN_NO_REAL_CONTROL`을 받는다. 서버의 시작·끊김·기록 장애에 따른 내부 제어
+`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·담당·연결을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자와 총괄 모두
+`PHONE_DIRECT_REQUIRED`를 받는다(팀장 11/28, `ADMIN_NO_REAL_CONTROL` 폐지). 서버의 시작·끊김·기록 장애에 따른 내부 제어
 발신도 전체 스위치가 꺼진 실기로 보내지 않는다. 시뮬의 기존 중계 경로와 에이전트의 구형 수신 STOP 방어는 유지한다.
 
 총괄은 `POST /api/v1/robots/{robot_id}/stop-requests`에 `{request_id: UUID}`를 보낸다.
