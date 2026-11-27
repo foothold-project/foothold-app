@@ -433,7 +433,7 @@ describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
     expect(card('알림에서 연 기록').textContent).toContain('알림이 가리킨 계정 사건');
     expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['전체']);
     expect($('[aria-label="로봇 없음"]')).toBeNull();
-    expect($('[data-stop]')).toBeNull();   // 로봇 0대 · 정지할 로봇 없음(총괄도 같음)
+    expect($('[data-stop]')).toBeNull();   // 예외는 정지할 로봇이 없을 때만(로봇 0대). 총괄도 로봇이 있으면 STOP
   });
   it('폰: 담당 로봇 0대면 로봇 필터 없이 서버가 주는 내 기록, 알림 링크도', async () => {
     serve(signedIn(PARK, { ...none,

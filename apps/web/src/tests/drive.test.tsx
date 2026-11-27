@@ -1908,6 +1908,17 @@ describe('총괄 · 실기도 조종·STOP(11/28), 시뮬은 그대로', () => {
     expect(w.of('lease.take')).toHaveLength(0);
   });
 
+  // #547 검토 5: 실기와 남이 띄운 시뮬이 함께 있으면 실기만 후보(남의 시뮬은 빠짐) · PC · 폰 같음
+  for (const phone of [false, true]) it(`${phone ? '폰' : 'PC'} 총괄 + 실기 둘 + 남이 띄운 시뮬: STOP 고르기는 실기만, 남의 시뮬로 정지 안 보냄`, () => {
+    const OTHER: Robot = { ...SIM, id: 's9', name: '남의 시뮬', owner: 'u-lee' };
+    mount(phone, ADMIN, phone ? '#/drive' : '#/mission', [ROBOTS[0], ROBOTS[1], OTHER]);
+    serve(KIM, 'r3', 'r7', 's9');
+    click($('[data-stop]'));
+    const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    expect([...pick.options].map((o) => o.value)).toEqual(['', 'r3', 'r7']);
+    expect(w.of('stop').map((m) => m.robot)).not.toContain('s9');
+  });
+
   it('PC 다른 탭: STOP 고르기는 실기 + 내 시뮬, 실기만 있어도 STOP', () => {
     mount(false, ADMIN, '#/mission', MIX);
     serve(KIM, 'r7', 's1');
