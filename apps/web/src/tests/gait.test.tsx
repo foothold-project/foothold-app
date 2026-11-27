@@ -27,7 +27,7 @@ beforeEach(() => {
   settingsMock = vi.spyOn(api, 'settings').mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
 });
 afterEach(() => {
-  act(() => root?.unmount()); settingsMock.mockRestore(); simTune(null); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
+  act(() => root?.unmount()); settingsMock.mockRestore(); vi.restoreAllMocks(); simTune(null); root = null; box?.remove(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
 
 /** PC: 로봇 탭 + 서버 경유 작은 패널(serverdrive.test 와 같은 붙임) */
@@ -169,6 +169,30 @@ describe('걷기 모드 칸 (PC 서버 경유 조종)', () => {
     expect(sent()).toHaveLength(0);
   });
 
+  // reviewer G1: 잠금 중 · 서버 끊김 검사가 각각 따로 지켜지는지
+  it('정지 잠금 중(latched)이면 보내지 않고 까닭 한 줄', () => {
+    gaitMode = 'ok'; readyPc();
+    push('r7', { latched: true });
+    shift(3);
+    expect(sent()).toHaveLength(0);
+    expect(msg()).toBe(gaitWhy('GAIT_LATCHED'));
+  });
+  // 실제로 소켓이 닫히면 rt 가 조종권부터 비워 «조종 시작 뒤» 가 먼저 나온다. 이 검사는 조종권이 남은 채 link 가 open 이 아닌 틈을 막는 두 번째 겹 · rt.link 를 바꿔 따로 본다
+  it('서버 연결이 open 이 아니면(link · 조종권은 남음) 보내지 않고 까닭 한 줄', () => {
+    gaitMode = 'ok'; readyPc();
+    vi.spyOn(rt, 'link').mockReturnValue({ at: 'lost' });
+    push('r7', { latency_ms: 41 });   // 다른 값으로 다시 그림(같은 state 는 rt 가 거른다)
+    shift(3);
+    expect(sent()).toHaveLength(0);
+    expect(msg()).toBe('서버 연결이 끊겨 바꿀 수 없습니다.');
+  });
+  // reviewer G2: 키를 누르고 있어 생긴 반복(e.repeat)은 새 누름이 아님
+  it('PC: 키 반복(e.repeat) Shift+3 은 보내지 않음', () => {
+    gaitMode = 'ok'; readyPc();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', shiftKey: true, repeat: true, bubbles: true, cancelable: true })); });
+    expect(sent()).toHaveLength(0);
+  });
+
   it('조종권 없이는 보내지 않음(rt.gait 도)', () => {
     gaitMode = 'ok'; mountPc(); serve(rtSock()); click(fleetRow(box, 'Go2-7')); push('r7', { gait: AVAIL });
     shift(3);
@@ -203,5 +227,15 @@ describe('걷기 모드 칸 (폰 조종)', () => {
     shift(3);
     expect(sent().map((m) => m.gait)).toEqual(['start']);
     expect(msg()).toContain('바꾸는 중');
+  });
+  it('키 반복(e.repeat) Shift+3 은 보내지 않음 · 새로 누르면 보냄 (reviewer G2)', () => {
+    gaitMode = 'ok'; mountPhone(); serve(FakeWS.last);
+    click(btn('조종 시작')); click(btn('잠금 해제')); tick(100);
+    push('r7', { gait: AVAIL });
+    click(btn('정책'));
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', shiftKey: true, repeat: true, bubbles: true, cancelable: true })); });
+    expect(sent()).toHaveLength(0);
+    shift(3);
+    expect(sent().map((m) => m.gait)).toEqual(['start']);
   });
 });
