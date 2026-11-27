@@ -179,8 +179,11 @@ export function useSlamSaved(robot: string, session: string, cancel?: AbortSigna
   return r;
 }
 
-/** 위에서 본 2D: 조각을 제자리에 놓기만(조각마다 칸 그림을 한 번 칠해 두고 늘이기). 받은 조각·로봇이 다 들어오게 맞춤 */
-function SlamGrid({ pic }: { pic: SlamPic }) {
+/** 겹쳐 그릴 다른 칸(지도 만들기의 GLIM 미리보기): 칸 번호 [x,y,z] × res m — 위에서 본 2D 에만, 같은 좌표라고 확인된 것만 넘긴다 */
+export type Over = { cells: readonly (readonly [number, number, number])[]; res: number };
+
+/** 위에서 본 2D: 조각을 제자리에 놓기만(조각마다 칸 그림을 한 번 칠해 두고 늘이기). 받은 조각·겹친 칸·로봇이 다 들어오게 맞춤. hideBase = 조각은 빼고 겹친 칸만 */
+function SlamGrid({ pic, over, hideBase = false }: { pic: SlamPic; over?: Over | null; hideBase?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null), cache = useRef(new Map<string, { seq: number; img: HTMLCanvasElement }>()), draw = useRef(() => {});
   draw.current = () => {
     const cv = ref.current, g = cv?.getContext?.('2d');
@@ -191,13 +194,15 @@ function SlamGrid({ pic }: { pic: SlamPic }) {
     for (const key of cache.current.keys()) if (!keep.has(key)) cache.current.delete(key);
     g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = `rgb(${RGB[0].join(',')})`; g.fillRect(0, 0, W, H);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const q of pic.patches) { x0 = Math.min(x0, q.x0); y0 = Math.min(y0, q.y0); x1 = Math.max(x1, q.x0 + q.w * RES); y1 = Math.max(y1, q.y0 + q.h * RES); }
+    const base = hideBase ? [] : pic.patches, oc = over?.cells ?? [], or = over?.res ?? 0;
+    for (const [i, j] of oc) { x0 = Math.min(x0, i * or); y0 = Math.min(y0, j * or); x1 = Math.max(x1, (i + 1) * or); y1 = Math.max(y1, (j + 1) * or); }
+    for (const q of base) { x0 = Math.min(x0, q.x0); y0 = Math.min(y0, q.y0); x1 = Math.max(x1, q.x0 + q.w * RES); y1 = Math.max(y1, q.y0 + q.h * RES); }
     if (r) { x0 = Math.min(x0, r.x - 1); y0 = Math.min(y0, r.y - 1); x1 = Math.max(x1, r.x + 1); y1 = Math.max(y1, r.y + 1); }
     if (!(x1 > x0)) return;
     const k = Math.min(W / (x1 - x0 + 1), H / (y1 - y0 + 1)), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     const X = (x: number) => W / 2 + (x - cx) * k, Y = (y: number) => H / 2 - (y - cy) * k;
     g.imageSmoothingEnabled = false;
-    for (const q of pic.patches) {
+    for (const q of base) {
       let c = cache.current.get(q.key);
       if (!c || c.seq !== q.seq) {
         const img = document.createElement('canvas'), ig = (img.width = q.w, img.height = q.h, img.getContext('2d'));
@@ -209,6 +214,11 @@ function SlamGrid({ pic }: { pic: SlamPic }) {
       }
       g.drawImage(c.img, X(q.x0), Y(q.y0 + q.h * RES), q.w * RES * k, q.h * RES * k);
     }
+    if (oc.length) {   // 겹친 칸: 강조색 반투명(아래 조각이 비쳐 보이게)
+      g.save(); g.globalAlpha = 0.55; g.fillStyle = getComputedStyle(cv).getPropertyValue('--accent').trim() || '#36c';
+      for (const [i, j] of oc) g.fillRect(X(i * or), Y((j + 1) * or), Math.max(1, or * k), Math.max(1, or * k));
+      g.restore();
+    }
     if (r) {   // 로봇: 앞을 가리키는 화살표(occmap.tsx 와 같은 모양·색)
       const st = getComputedStyle(cv), s = 9 * dpr;
       g.save(); g.translate(X(r.x), Y(r.y)); g.rotate(-r.yaw);
@@ -216,14 +226,14 @@ function SlamGrid({ pic }: { pic: SlamPic }) {
       g.beginPath(); g.moveTo(s * 1.6, 0); g.lineTo(-s, s * 0.9); g.lineTo(-s * 0.4, 0); g.lineTo(-s, -s * 0.9); g.closePath(); g.fill(); g.stroke(); g.restore();
     }
   };
-  useEffect(() => draw.current(), [pic.tver, pic.pose]);
+  useEffect(() => draw.current(), [pic.tver, pic.pose, over, hideBase]);
   useEffect(() => {
     const ro = typeof ResizeObserver === 'undefined' || !ref.current ? null : new ResizeObserver(() => draw.current());
     if (ro && ref.current) ro.observe(ref.current);
     return () => ro?.disconnect();
   }, []);
   return <div style={{ position: 'absolute', inset: 0 }}>
-    <canvas ref={ref} width={640} height={400} role="img" aria-label="위에서 본 지도" data-slam-tiles={pic.patches.length} data-slam-robot={pic.pose ? '' : undefined}
+    <canvas ref={ref} width={640} height={400} role="img" aria-label="위에서 본 지도" data-slam-tiles={hideBase ? 0 : pic.patches.length} data-over-cells={over ? over.cells.length : undefined} data-slam-robot={pic.pose ? '' : undefined}
       style={{ display: 'block', width: '100%', height: '100%' }} />
     <OccLegend />
   </div>;
@@ -236,15 +246,16 @@ function SlamBoxes({ pic, fail }: { pic: SlamPic; fail: () => void }) {
   return <Lidar3D feed={feed} small={false} look="boxes" ratio={1} onFail={fail} />;
 }
 
-/** 지도 칸(부모 크기를 채움): «위에서 2D» / «3D 상자» 고르기 + 그 그림(first3d = 3D 로 시작). 아무것도 안 왔으면 안내만 */
-export function SlamView({ pic, empty, first3d = false }: { pic: SlamPic; empty: string; first3d?: boolean }) {
-  const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d;
-  const any = pic.n > 0 || pic.patches.length > 0;
+/** 지도 칸(부모 크기를 채움): «위에서 2D» / «3D 상자» 고르기 + 그 그림(first3d = 3D 로 시작). 아무것도 안 왔으면 안내만.
+ *  over·hideBase = 2D 에 겹칠 칸·조각 숨김(지도 만들기 GLIM 미리보기 — 안 주면 그대로). 조각을 숨기면 3D 상자도 막는다 */
+export function SlamView({ pic, empty, first3d = false, over, hideBase = false }: { pic: SlamPic; empty: string; first3d?: boolean; over?: Over | null; hideBase?: boolean }) {
+  const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d && !hideBase;
+  const any = (!hideBase && (pic.n > 0 || pic.patches.length > 0)) || !!over?.cells.length;
   return <div style={{ position: 'absolute', inset: 0, background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
-    {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} />}
+    {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
     {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
       <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
-      <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={no3d || !pic.n} title={no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : undefined} onClick={() => setD3(true)}>3D 상자</button>
+      <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={no3d || !pic.n || hideBase} title={no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : undefined} onClick={() => setD3(true)}>3D 상자</button>
     </div>}
   </div>;
 }
