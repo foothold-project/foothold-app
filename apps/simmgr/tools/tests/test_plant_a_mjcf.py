@@ -146,3 +146,30 @@ def test_every_route_leg_keeps_its_square_clear():
                         for dy in offsets:
                             assert cell(x + dx, y + dy) == 254, (fid, route['id'], x + dx, y + dy)
                 prev = (p['x'], p['y'])
+
+
+TURN_RADIUS = 0.38  # Go2 (약 0.70 x 0.31 m) 제자리 돌기 반경 (검수 #540 L1)
+
+
+def test_every_turning_point_has_038_m_free_radius():
+    import base64
+    bad = []
+    for fid in FLOORS:
+        mapping = read(f'map-{fid}.json')
+        px = np.frombuffer(base64.b64decode(mapping['px']), dtype=np.uint8).reshape(mapping['h'], mapping['w'])
+        res, (ox, oy, _) = mapping['res'], mapping['origin']
+        for route in read(f'scenarios-{fid}.json'):
+            pts = [tuple(mapping['spawn_xyyaw'][:2])] + [(p['x'], p['y']) for p in route['points']]
+            for i in range(1, len(pts) - 1):
+                (ax, ay), (bx, by), (cx, cy) = pts[i - 1], pts[i], pts[i + 1]
+                turn = abs(math.remainder(math.atan2(cy - by, cx - bx) - math.atan2(by - ay, bx - ax), math.tau))
+                if turn < 1e-3:
+                    continue
+                cols = np.arange(math.floor((bx - TURN_RADIUS - ox) / res), math.ceil((bx + TURN_RADIUS - ox) / res) + 1)
+                rows = np.arange(math.floor((by - TURN_RADIUS - oy) / res), math.ceil((by + TURN_RADIUS - oy) / res) + 1)
+                xx, yy = np.meshgrid(ox + (cols + .5) * res, oy + (rows + .5) * res)
+                near = np.hypot(xx - bx, yy - by) <= TURN_RADIUS
+                cc, rr = np.meshgrid(cols, mapping['h'] - 1 - rows)
+                if not (px[rr[near], cc[near]] == 254).all():
+                    bad.append((fid, i, (bx, by)))
+    assert not bad, bad

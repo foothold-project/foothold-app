@@ -108,9 +108,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 apps/simmgr/tools/collision_map.py \
 쓰며, origin의 셋째 값은 **yaw=0**이다. `floor_z`는 `metadata.json`에 별도로 기록한다.
 world SHA-256, collision 의존 파일 SHA-256과 묶음 해시, upstream SHA, 생성기 판·소스 해시,
 픽셀 크기·미터 크기·장애물 높이 구간·좌표 변환·층별 PNG 해시를 기록한다.
+`generator_sha256` 은 그 지도를 만들 때의 생성기(collision_map.py) 해시다. 기록일 뿐이고 지금 생성기와 대조하는 코드는 없다.
+생성기가 바뀌어도 다시 만들지 않은 월드는 옛 값을 그대로 적고 있다.
 
-정적 모델의 중첩 pose/link/collision pose와 양수 mesh scale을 적용한다. geometry는 box와
-로컬 OBJ mesh만 지원한다. include·이름 참조 frame·외부 URI·그 밖의 geometry는 오류로
+정적 모델의 중첩 pose/link/collision pose와 양수 mesh scale을 적용한다. geometry는 box ·
+cylinder(64 각 닫힌 기둥으로 래스터) · 로컬 OBJ mesh만 지원한다. include·이름 참조 frame·외부 URI·그 밖의 geometry는 오류로
 중단한다. COLLADA 입력은 AWS의 Z_UP/triangle/matrix 형식만 변환한다.
 
 ## 지도 판정과 한계

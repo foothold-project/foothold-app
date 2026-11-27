@@ -47,6 +47,7 @@ MOBILE = ROOT / 'mobile/sim'
 # 앱 시뮬 시나리오 다리 둘레 사각 반폭. 0.35 = mobile/scripts/scenario-selftest.mjs 값, 안 되는 층만
 # 0.25 (#528 nav2 팽창 반경 자리) 로 내리고 시나리오 clearance_m 에 적는다.
 ROUTE_HALVES = (0.35, 0.25)
+TURN_RADIUS = 0.38  # 꺾는 점 빈 반경: Go2 (약 0.70 x 0.31 m) 제자리 돌기 (검수 #540 L1)
 SPAWN_BASE = 0.4  # factory_zone 과 같은 floor_z 위 몸통 기준 높이
 RESOLUTION = 0.05
 MARGIN = 1.0
@@ -546,6 +547,34 @@ def route(pixels, meta, start, points, half):
                 i = j
         result.append(target)
         here = target
+
+    def roomy(x, y):
+        # 가운데가 (x, y) 에서 TURN_RADIUS 안인 칸이 모두 free.
+        span = math.ceil(TURN_RADIUS / res) + 1
+        r0, c0 = cell(x, y)
+        rr, cc = np.mgrid[r0 - span:r0 + span + 1, c0 - span:c0 + span + 1]
+        near = np.hypot(ox + (cc + .5) * res - x, oy + (h - rr - .5) * res - y) <= TURN_RADIUS
+        rr, cc = rr[near], cc[near]
+        return bool(((rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)).all() and (pixels[rr, cc] == 254).all())
+
+    # A* 가 더한 꺾는 점이 좁으면(벽 · 장비 모서리) 0.6 m 안에서 가장 가까운, 넓고 앞뒤 다리가 보이는 자리로 옮긴다.
+    fixed = set(map(tuple, points))
+    for i in range(len(result) - 1):
+        x, y = result[i]
+        if (x, y) in fixed or roomy(x, y):
+            continue
+        before = result[i - 1] if i else tuple(start)
+        after = result[i + 1]
+        best = None
+        for dx in np.arange(-0.6, 0.6 + 1e-9, res):
+            for dy in np.arange(-0.6, 0.6 + 1e-9, res):
+                d = math.hypot(dx, dy)
+                c = (round(x + dx, 4), round(y + dy, 4))
+                if d <= 0.6 and (best is None or d < best[0]) and roomy(*c) and visible(before, c) and visible(c, after):
+                    best = (d, c)
+        if best is None:
+            raise ValueError(f'turn point {(x, y)} has no {TURN_RADIUS} m free radius nearby')
+        result[i] = best[1]
     return [dict(x=x, y=y) for x, y in result]
 
 
