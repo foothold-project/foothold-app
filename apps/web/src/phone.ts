@@ -166,6 +166,8 @@ const ERR: Record<string, string> = {
   MAP_VERSION_MISMATCH: '시나리오의 지도 판이 로봇 지도와 달라 실행하지 않았습니다.', FLOOR_TRANSITION_UNSUPPORTED: '여러 층을 지나는 시나리오는 아직 실행할 수 없습니다.',
   PLAN_UNAVAILABLE: '시나리오 자료를 받지 못해 실행하지 않았습니다.', MAP_PROOF_UNAVAILABLE: '이 지도로는 시나리오를 실행할 수 없습니다 — 지도 원본을 증명할 수 없는 판입니다(사람이 고친 판 등).',
 };
+/** 예약 실행(RUN)이 시뮬 Hub 를 쥠(#537 state.holder_type). 이때 lease.take 는 에이전트가 늘 LEASE_HELD 로 거절한다(agent phone/hub.py lease.take · owner 가 다른 peer) */
+export const runHolds = (l: Link | null | undefined) => l?.st?.holder_type === 'RUN';
 /** LEASE_HELD 거절의 조종자(#537 holder_type · holder_name, 그 reply 에만 실림). 이름은 표시용 · 모르면 이름 없이 한 줄 */
 function heldText(r: PhoneReply) {
   const who = r.holder_name?.trim();

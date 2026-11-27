@@ -4,10 +4,10 @@ import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, useFeed } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, RUN_END, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
-import { inputGen, metaCut, rt, runSay, useLive } from './rt';
+import { inputGen, metaCut } from './rt';
 import { Chip, inApp } from './screens';
 import { typing, useStopPress } from './App';
 import { simName, type Tone } from './fake';
@@ -332,7 +332,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
   ].filter(Boolean) : [
-    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
+    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종 시작</button>,
     open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>{moving ? '새 출입증으로 다시 연결(실행 일시정지)' : '새 출입증으로 다시 연결'}</button>,
@@ -439,19 +439,14 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
   </aside>;
 }
 
-/** LEASE_HELD + RUN(예약 임무가 Hub 를 쥠) 일 때만: 일시정지(팀장 05:09 «모든 기기에서 일시정지», #537 계약 그대로 rt.run pause).
- *  결과 전 «보내는 중…», 거절은 코드 문구 한 줄, 성공은 서버 state.run 이 PAUSED 로 바뀐 뒤에만. 서버 조종권이 이 화면에 없으면 보내지 않고 한 줄 */
+/** 예약 임무(RUN)가 Hub 를 쥐면(state.holder_type 또는 LEASE_HELD 답) 회색 «일시정지» + 까닭 한 줄(08:04). 이 화면이 건 실행이면 실행 칸 것을 쓰므로 없음.
+ *  주인 일시정지 계약(app-lx)이 오면 시험 먼저 쓰고 여기서 보내기를 켠다 */
 export function HeldRun() {
-  const s = useSim(), id = s.robot?.robot_id ?? '', l = useLive(id), r = l.state?.run, q = l.runReq?.op === 'pause' ? l.runReq : null;
-  const [miss, setMiss] = useState(false);
-  if (s.link?.held !== 'RUN') return null;
-  const paused = !!q && q.phase === 'done' && r?.run_id === q.run_id && r.status === 'PAUSED';
-  const busy = !!q && !paused && q.phase !== 'rejected';
-  const say = miss ? '이 화면에는 그 임무의 조종권이 없어 일시정지를 보내지 못했습니다 · 임무를 건 화면에서 일시정지하세요.'
-    : q?.phase === 'rejected' ? runSay(q.code ?? '', short(id)) : busy ? '보내는 중…' : paused ? '임무를 일시정지했습니다. «조종 시작»을 다시 누르세요.' : '';
-  const send = () => { setMiss(!(r && !RUN_END.includes(r.status) && rt.run(id, 'pause', { run_id: r.run_id }))); };
+  const s = useSim(), l = s.link;
+  // 예약 실행이 쥐면 이 화면은 조종 시작(정해진 LEASE_HELD) · 일시정지(run.control 은 실행 주인 lease · screen 만 받음, 주인 일시정지 계약 전) 둘 다 못 한다 · 보내지 않고 회색 + 까닭
+  if (!l || (l.held !== 'RUN' && !runHolds(l)) || sim.runMine(l.run)) return null;
   return <div className="fh-row" style={{ flexWrap: 'wrap' }} data-held-run>
-    {!paused && <button type="button" className="btn pri" disabled={busy} onClick={send}>일시정지</button>}
-    {say && <p className={q?.phase === 'rejected' || miss ? 'fh-msg' : 'lv-note'} role={q?.phase === 'rejected' || miss ? 'alert' : 'status'} data-run-say>{say}</p>}
+    <button type="button" className="btn" disabled>일시정지</button>
+    <p className="lv-note" role="status" data-run-say>예약 임무가 조종 중이라 이 화면에서는 조종 시작 · 일시정지를 할 수 없습니다 (예약 임무 일시정지는 서버 준비 중).</p>
   </div>;
 }

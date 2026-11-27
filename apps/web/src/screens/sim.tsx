@@ -3,7 +3,7 @@
 // 키보드는 이 화면(시뮬 로봇 직결)에만 붙는다 — 실기 로봇 화면에는 없다(ADR-003 §4.2). «시뮬 정지»는 sim.stop()(폰 직결 STOP 과 같은 경로).
 // 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
 import { useEffect, useRef, useState } from 'react';
-import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
+import { allowed, runHolds, runMoving, sim, useSim, velocity, type Sim } from '../phone';
 import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { useStopPress } from '../App';
@@ -129,7 +129,7 @@ function SimView({ admin }: { admin: boolean }) {
         {run.dev}
       </div>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
-        {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>}
+        {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종 시작</button>}
         {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>}
         {open && mine && <button type="button" className="btn" disabled={l.busy === 'release'} onClick={() => sim.release()}>조종권 반납</button>}
         {l.at === 'closed' && l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}

@@ -368,22 +368,22 @@ describe('시뮬 탭 hello 의 내 이름 (#537 a8cac9f2 PhoneHello.display_name
   });
 });
 
-describe('시뮬 탭 LEASE_HELD + RUN 화면 (#537 · 07:09)', () => {
-  it('«조종 시작» 이 RUN 에 막히면 탭 안에 그 한 줄과 «일시정지» 단추 · USER 면 단추 없음', async () => {
+describe('시뮬 탭 RUN 이 쥐면 (#537 state.holder_type · 08:04)', () => {
+  it('«조종 시작» · «일시정지» 둘 다 회색 + 까닭 한 줄 · 칠한 단추 없음 · RUN 이 놓으면 «조종 시작» 다시 켜짐', async () => {
     serve(); await mount();
     await launch();
     const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
     act(() => a.open()); await flush();
     await recv(a, welcome); await recv(a, phoneState({ holder_type: 'RUN', holder_name: null }));
+    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect(($('[data-sim-view] [data-held-run] button') as HTMLButtonElement).disabled).toBe(true);
+    expect($('[data-sim-view] [data-held-run] [data-run-say]')!.textContent).toBe('예약 임무가 조종 중이라 이 화면에서는 조종 시작 · 일시정지를 할 수 없습니다 (예약 임무 일시정지는 서버 준비 중).');
+    expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-view] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
     await click(btn('조종 시작'));
-    const take = a.sent.filter((m) => m.t === 'lease.take');
-    await recv(a, { t: 'reply', id: take[0].id, ok: false, error: { code: 'LEASE_HELD', message: '', detail: {} }, holder_type: 'RUN', holder_name: null });
-    expect([...box.querySelectorAll('[data-sim-view] .fh-why')].map((p) => p.textContent)).toContain('예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.');
-    expect($('[data-sim-view] [data-held-run] button')!.textContent).toBe('일시정지');
-    await click(btn('조종 시작'));
-    const t2 = a.sent.filter((m) => m.t === 'lease.take');
-    expect($('[data-held-run]')).toBeNull();   // 다시 누르면 비움
-    await recv(a, { t: 'reply', id: t2[1].id, ok: false, error: { code: 'LEASE_HELD', message: '', detail: {} }, holder_type: 'USER', holder_name: '박OO' });
+    expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);   // 정해진 거절(LEASE_HELD)을 보내지 않음
+    await recv(a, phoneState({ holder_type: null, holder_name: null }));
+    expect(btn('조종 시작')!.disabled).toBe(false);
     expect($('[data-held-run]')).toBeNull();
   });
 });
+
