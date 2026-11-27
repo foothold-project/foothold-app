@@ -106,7 +106,7 @@ function SimView({ admin }: { admin: boolean }) {
   const run = runView(s, true), running = runMoving(l.run);
   const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s)].filter(Boolean) as string[];
   const close = async () => { if (sim.get().link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]); sim.reset(); };
-  const key = (k: string, t: string, on = true, why = '') => <span className="lbl" data-key-off={on ? undefined : ''} style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}{on ? '' : `(막힘${why && ` · ${why}`})`}</span>;
+  const key = (k: string, t: string, on = true, why = '') => <span className="lbl" data-key-off={on ? undefined : ''}><span style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}</span>{on ? '' : `(막힘${why && ` · ${why}`})`}</span>;
   return <>
     <section className="lv-card" style={{ flexBasis: '100%', position: 'sticky', top: 0, zIndex: 1 }} aria-label="시뮬 로봇" data-sim-view>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
