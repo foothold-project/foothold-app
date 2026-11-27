@@ -27,4 +27,9 @@ describe('시뮬 지도 칸이 비었을 때', () => {
     expect(bridge).toContain('--muted:var(--ink-2);');
     for (const theme of ['dark', 'light']) expect(ratio(token(theme, 'ink-2'), token(theme, 'paper-2')), theme).toBeGreaterThanOrEqual(4.5);
   });
+  it('영상 위 3D 칸(점군 · 라이다)의 빈 글은 어두운 바탕(#05080A) 위 4.5:1 이상, 어두움 판 --ink-2 값으로 두 테마 같게', () => {
+    const ink = token('dark', 'ink-2');
+    expect(flat).toContain(`[data-cloud]>.qd-empty,[data-lidar-map]>.qd-empty{color:${ink}}`);
+    expect(ratio(ink, '#05080A')).toBeGreaterThanOrEqual(4.5);
+  });
 });
