@@ -6,7 +6,7 @@
   "imported": "2026-11-28",
   "schema": "foothold_building/1",
   "inputs": {
-    "plant_a.json": "c37298cb7e80524c4ab5519e43cb22bfac621cc4015f65dc0a92f1bce96415dc"
+    "plant_a.json": "6b80ca1aac9b4620f05d022220ec8faa067dc0642f0b999c2f7d4f8fe95dfaf0"
   },
   "copy": "layout.json (입력 바이트 그대로)",
   "generator": "apps/simmgr/tools/import_building.py",

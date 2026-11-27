@@ -42,7 +42,17 @@
     <geom name="l1_C-2" group="1" type="box" size="1.3 0.9 0.9" pos="33 3 0.9" quat="1 0 0 0" />
     <geom name="l1_T-1_c0" group="1" type="cylinder" size="1.6 1.5" pos="11 16 1.5" quat="1 0 0 0" />
     <geom name="l1_T-2_c0" group="1" type="cylinder" size="1.6 1.5" pos="17 16 1.5" quat="1 0 0 0" />
-    <geom name="l1_l1-shelf" group="1" type="box" size="0.5 4 1.1" pos="34.8 15 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c0" group="1" type="box" size="0.03 0.03 1.1" pos="34.33 11.03 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c1" group="1" type="box" size="0.03 0.03 1.1" pos="35.27 11.03 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c2" group="1" type="box" size="0.03 0.03 1.1" pos="34.33 13.015 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c3" group="1" type="box" size="0.03 0.03 1.1" pos="35.27 13.015 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c4" group="1" type="box" size="0.03 0.03 1.1" pos="34.33 15 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c5" group="1" type="box" size="0.03 0.03 1.1" pos="35.27 15 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c6" group="1" type="box" size="0.03 0.03 1.1" pos="34.33 16.985 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c7" group="1" type="box" size="0.03 0.03 1.1" pos="35.27 16.985 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c8" group="1" type="box" size="0.03 0.03 1.1" pos="34.33 18.97 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c9" group="1" type="box" size="0.03 0.03 1.1" pos="35.27 18.97 1.1" quat="1 0 0 0" />
+    <geom name="l1_l1-shelf_c10" group="1" type="box" size="0.44 3.94 1.1" pos="34.8 15 1.1" quat="1 0 0 0" />
     <geom name="l1_l1-bench" group="1" type="box" size="2 0.45 0.45" pos="27 18.8 0.45" quat="1 0 0 0" />
     <geom name="st-1-2_f0_s0" group="1" type="box" size="0.7 0.15 0.0625" pos="1.3 11.35 0.0625" quat="1 0 0 0" />
     <geom name="st-1-2_f0_s1" group="1" type="box" size="0.7 0.15 0.125" pos="1.3 11.65 0.125" quat="1 0 0 0" />
@@ -203,7 +213,31 @@
     <geom name="l3-core-w_0" group="1" type="box" size="0.15 5.15 1.6" pos="0 15 8.35" quat="1 0 0 0" />
     <geom name="l3-core-n_0" group="1" type="box" size="3.15 0.15 1.6" pos="3 20 8.35" quat="1 0 0 0" />
     <geom name="l3_cover_l3-core-roof_0" group="1" type="box" size="3 5 0.0875" pos="3 15 10.0375" quat="1 0 0 0" />
-    <geom name="l3_l3-hdr" group="1" type="box" size="14 0.3 0.5" pos="20 7 7.25" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c0" group="1" type="box" size="13.94 0.255 0.255" pos="20 7 7.45" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c1" group="1" type="box" size="0.03 0.295 0.295" pos="6.03 7 7.45" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c2" group="1" type="box" size="0.03 0.295 0.295" pos="33.97 7 7.45" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c3" group="1" type="box" size="0.05 0.05 0.1925" pos="6.4 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c4" group="1" type="box" size="0.07 0.3 0.03" pos="6.4 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c5" group="1" type="box" size="0.05 0.05 0.1925" pos="9.12 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c6" group="1" type="box" size="0.07 0.3 0.03" pos="9.12 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c7" group="1" type="box" size="0.05 0.05 0.1925" pos="11.84 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c8" group="1" type="box" size="0.07 0.3 0.03" pos="11.84 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c9" group="1" type="box" size="0.05 0.05 0.1925" pos="14.56 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c10" group="1" type="box" size="0.07 0.3 0.03" pos="14.56 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c11" group="1" type="box" size="0.05 0.05 0.1925" pos="17.28 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c12" group="1" type="box" size="0.07 0.3 0.03" pos="17.28 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c13" group="1" type="box" size="0.05 0.05 0.1925" pos="20 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c14" group="1" type="box" size="0.07 0.3 0.03" pos="20 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c15" group="1" type="box" size="0.05 0.05 0.1925" pos="22.72 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c16" group="1" type="box" size="0.07 0.3 0.03" pos="22.72 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c17" group="1" type="box" size="0.05 0.05 0.1925" pos="25.44 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c18" group="1" type="box" size="0.07 0.3 0.03" pos="25.44 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c19" group="1" type="box" size="0.05 0.05 0.1925" pos="28.16 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c20" group="1" type="box" size="0.07 0.3 0.03" pos="28.16 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c21" group="1" type="box" size="0.05 0.05 0.1925" pos="30.88 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c22" group="1" type="box" size="0.07 0.3 0.03" pos="30.88 7 7.165" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c23" group="1" type="box" size="0.05 0.05 0.1925" pos="33.6 7 6.9425" quat="1 0 0 0" />
+    <geom name="l3_l3-hdr_c24" group="1" type="box" size="0.07 0.3 0.03" pos="33.6 7 7.165" quat="1 0 0 0" />
     <geom name="l3_V-301" group="1" type="box" size="0.4 0.4 0.7" pos="12 6.3 7.45" quat="1 0 0 0" />
     <geom name="l3_V-302" group="1" type="box" size="0.4 0.4 0.7" pos="24 6.3 7.45" quat="1 0 0 0" />
     <geom name="l3_l3-fan-1" group="1" type="box" size="1.5 1.5 0.8" pos="14 15 7.55" quat="1 0 0 0" />

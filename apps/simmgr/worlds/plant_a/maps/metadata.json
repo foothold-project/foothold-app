@@ -1,10 +1,10 @@
 {
   "generator_version": "collision-map/1",
   "generator_sha256": "4288be2a0cf2732280e9a1162408949f636741e6e56c7359fe22635825c9bb14",
-  "world_sha256": "0b3fd9e72fb90add40828c8c4401454f931440df416443de563dcadf8313ecfe",
-  "dependency_sha256": "a48bd554da4abf983deb88e2fa9eb0c3e04f4643c80920efeb4f2ec1036c94d3",
+  "world_sha256": "33e7aae0fb5f32c47673769861db0bd66a9e0606600062650c68fa25596de784",
+  "dependency_sha256": "01d68acaa2422d0b676b575cdd854ac56818492303e88fa56f2aacd6d0b848ae",
   "dependencies": {
-    "plant_a.sdf": "0b3fd9e72fb90add40828c8c4401454f931440df416443de563dcadf8313ecfe"
+    "plant_a.sdf": "33e7aae0fb5f32c47673769861db0bd66a9e0606600062650c68fa25596de784"
   },
   "resolution": 0.05,
   "origin": [
@@ -38,10 +38,10 @@
       "floor_z": 0.0,
       "image": "l1.png",
       "yaml": "l1.yaml",
-      "image_sha256": "5c9253f4b5e26233a0eb1e84881f0a4fda6bd7f12852d12052d850e17902ec74",
+      "image_sha256": "e743f75a0c7f58e5d3417a2bf687884c068f396f87b6331547f9f307af0d7b9a",
       "counts": {
-        "occupied": 55328,
-        "free": 241560,
+        "occupied": 54664,
+        "free": 242224,
         "unknown": 37512
       }
     },
@@ -60,10 +60,10 @@
       "floor_z": 6.75,
       "image": "l3.png",
       "yaml": "l3.yaml",
-      "image_sha256": "c071beaf9165ffc0e031860435bcd73b0cb49b19783473c0a216673ac423be94",
+      "image_sha256": "93eef3762ae847dfa466dcd19d20aea5ce2b6a16135d6fbd42f616e3f96fafb8",
       "counts": {
-        "occupied": 35892,
-        "free": 257436,
+        "occupied": 34888,
+        "free": 258440,
         "unknown": 41072
       }
     }

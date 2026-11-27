@@ -1089,19 +1089,239 @@
           </material>
         </visual>
       </link>
-      <link name="l1_l1-shelf">
-        <pose>34.8 15 1.1 0 0 0</pose>
+      <link name="l1_l1-shelf_c0">
+        <pose>34.33 11.03 1.1 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1 8 2.2</size>
+              <size>0.06 0.06 2.2</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1 8 2.2</size>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c1">
+        <pose>35.27 11.03 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c2">
+        <pose>34.33 13.015 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c3">
+        <pose>35.27 13.015 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c4">
+        <pose>34.33 15 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c5">
+        <pose>35.27 15 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c6">
+        <pose>34.33 16.985 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c7">
+        <pose>35.27 16.985 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c8">
+        <pose>34.33 18.97 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c9">
+        <pose>35.27 18.97 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.06 2.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.60 0.45 0.30 1</ambient>
+            <diffuse>0.60 0.45 0.30 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l1_l1-shelf_c10">
+        <pose>34.8 15 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.88 7.88 2.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.88 7.88 2.2</size>
             </box>
           </geometry>
           <material>
@@ -4631,19 +4851,547 @@
           </material>
         </visual>
       </link>
-      <link name="l3_l3-hdr">
-        <pose>20 7 7.25 0 0 0</pose>
+      <link name="l3_l3-hdr_c0">
+        <pose>20 7 7.45 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>28 0.6 1</size>
+              <size>27.88 0.51 0.51</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>28 0.6 1</size>
+              <size>27.88 0.51 0.51</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c1">
+        <pose>6.03 7 7.45 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.59 0.59</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.59 0.59</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c2">
+        <pose>33.97 7 7.45 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.06 0.59 0.59</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.06 0.59 0.59</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c3">
+        <pose>6.4 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c4">
+        <pose>6.4 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c5">
+        <pose>9.12 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c6">
+        <pose>9.12 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c7">
+        <pose>11.84 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c8">
+        <pose>11.84 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c9">
+        <pose>14.56 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c10">
+        <pose>14.56 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c11">
+        <pose>17.28 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c12">
+        <pose>17.28 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c13">
+        <pose>20 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c14">
+        <pose>20 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c15">
+        <pose>22.72 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c16">
+        <pose>22.72 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c17">
+        <pose>25.44 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c18">
+        <pose>25.44 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c19">
+        <pose>28.16 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c20">
+        <pose>28.16 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c21">
+        <pose>30.88 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c22">
+        <pose>30.88 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c23">
+        <pose>33.6 7 6.9425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.1 0.1 0.385</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.78 0.55 0.20 1</ambient>
+            <diffuse>0.78 0.55 0.20 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_l3-hdr_c24">
+        <pose>33.6 7 7.165 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.14 0.6 0.06</size>
             </box>
           </geometry>
           <material>
