@@ -65,8 +65,8 @@ html:has(.fh.light .dv.ph),.fh.light:has(.dv.ph){background:var(--bg)}
 .dv-hud .dv-note{background:rgba(8,11,14,.66);color:#E6EBEF}   /* 영상 칸 위 안내 — 판 색은 .dv-line 값 그대로 */
 .dv-hud .dv-views{flex-direction:row;align-self:flex-end;gap:6px}
 .dv-hud .dv-views .btn{min-width:56px;min-height:44px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
-/* 영상 위 판의 보통 단추(«조종 끝내기» 등): 판 색과 글자를 함께 고정 — 밝음 .btn 바탕 위에 영상 판 흰 글자가 얹히지 않게 */
-.dv-hud .btn:not(.pri){background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+/* 밝음 · 영상 위 판의 보통 단추(«조종 끝내기» 등): 판 색과 글자를 함께 고정(밝음 .btn 바탕 위에 영상 판 흰 글자가 얹히지 않게). 어두움은 기존 .btn 값 그대로 */
+.fh.light .dv-hud .btn:not(.pri){background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 .dv.ph .dv-mini{width:100px;height:70px;right:12px;bottom:144px}
 .dv-stick{position:absolute;bottom:12px;width:120px;height:120px;border-radius:50%;border:1.5px solid rgba(230,235,239,.45);background:rgba(8,11,14,.5);display:grid;place-items:center;touch-action:none;user-select:none}
 .dv-stick.v{left:12px}.dv-stick.h{right:12px}

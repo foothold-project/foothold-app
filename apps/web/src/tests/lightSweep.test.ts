@@ -1,6 +1,9 @@
 // 밝은 판 · 어두운 판(u11): 로봇 · 지도 · 기록 · 설정 · 휴지통 · 결재 탭 화면 파일에 직접 색(#hex · rgb() · hsl())을 쓰지 않는다 — 색은 토큰(var(--…)).
 // 주석은 보지 않는다(이슈 번호 #252 등). 남겨 두는 직접 색은 아래 표에 까닭과 함께만.
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { DelX } from '../screens/mapedit';
 
 const FILES = import.meta.glob(['../screens/{fleet,maps,mapedit,mapmake,mapdiff,slammap,mapscen,terrain,terrain3d,voxel3d,voxelmap,history,settings,trash,approvals}.{tsx,css}'],
   { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
@@ -34,6 +37,12 @@ describe('밝은 판 · 직접 색 없음', () => {
       });
     }
     expect(bad).toEqual([]);
+  });
+  it('L4: 지도 편집 지우기 손잡이 바탕 = --bad-strong(흰 X 와 두 테마 대비 6.5:1) · --bad 로 되돌리면 실패', () => {
+    const html = renderToStaticMarkup(createElement('svg', null, createElement(DelX, { at: [10, 20], r: 8, k: 'z1', label: '지우기' })));
+    const fill = html.match(/<circle[^>]*style="([^"]*)"/)![1];
+    expect(fill).toContain('fill:var(--bad-strong)');
+    expect(fill).not.toMatch(/fill:var\(--bad\)/);
   });
   it('지도 경유점 번호 글자 = --on-accent(어두움 --accent 위 흰 글자는 대비가 낮다)', () => {
     const src = FILES['../screens/maps.tsx'];

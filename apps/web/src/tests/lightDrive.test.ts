@@ -46,7 +46,9 @@ describe('폰 조종 화면 · 밝은 판', () => {
     expect(ratio(hex('#161c26'), hex('#FFFFFF'))).toBeGreaterThanOrEqual(4.5);   // ui/public/brand tokens 밝음 --ink / --card
   });
   it('영상 있음: 어두운 scrim 판 그대로 · 하얀 프레임 위에서도 판 글자 4.5:1 이상, 밝음 조이스틱도 .66', () => {
-    const r = rule(drive, '.dv-hud .btn:not(.pri)')!;
+    // 이 scrim 단추 규칙은 밝음에만(어두움 «조종 끝내기» 는 #546 전 .btn 어두운 값 그대로 · 07:41 L 검수)
+    expect(rule(drive, '.dv-hud .btn:not(.pri)')).toBeNull();
+    const r = rule(drive, '.fh.light .dv-hud .btn:not(.pri)')!;
     expect(r).toMatch(/background:rgba\(8,11,14,\.66\)/); expect(r).toMatch(/color:#E6EBEF/);
     expect(ratio(hex('#E6EBEF'), over([8, 11, 14], 0.66, WHITE))).toBeGreaterThanOrEqual(4.5);
     const a = Number(rule(drive, V + ' .dv-stick')!.match(/background:rgba\(8,11,14,(\.\d+)\)/)![1]);
