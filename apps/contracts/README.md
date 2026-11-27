@@ -27,6 +27,22 @@ TS는 타입 선언이며 런타임 검증기가 아니다. bigint 사건 ID는 
 모든 시각은 시간대가 있어야 하며 응답은 UTC `Z`로 정규화한다. UUID는 TS에서 string이다.
 웹 새로고침 뒤 CSRF 획득 응답은 `SessionInfo`이며 서버 README의 `/auth/session`을 따른다.
 
+## 기록 · 사건 영상 · 관절 기록 재생 (u07)
+
+자세한 경로 · 권한은 API 명세 §8.1. 타입은 `EventClip` · `EventClipList` · `JointLogFrame` ·
+`JointLogBase` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` · `ClipStatus` · `RecordsNotBuiltCode`.
+
+- 영상은 서버가 만든다. 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`, `clip_window`).
+  넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null.
+- 위험(`ERROR`)은 늘 영상, 주의(`WARN`)는 고른 때만, 정보(`INFO`)는 기록만 (`clip_wanted`).
+  규칙에 어긋난 고르기는 검증 오류다.
+- 시뮬과 실기는 같은 기록 · 알림 · 영상을 만든다.
+- `EventClip.url` 은 `READY` 일 때만, `NOT_BUILT` · `FAILED` 는 `reason` 이 있다. `NOT_BUILT` 는 `clip_id` 가 null.
+- `JointLogFrame.t` 는 `JointLogReplay.start_at` 부터 초, `q` 는 `joint_names` 순서 rad, `gait` 는 열린 문자열.
+  재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹에서 한다.
+- 지금 서버: `mark-now` 는 실제 사건 행을 남기고 영상 상태는 `NOT_BUILT`. 영상 목록 · 영상 하나 · 관절 기록은
+  501 `CLIP_PIPELINE_NOT_BUILT` · `JOINT_LOG_NOT_BUILT` 와 한 줄 글.
+
 ## 에이전트 실시간 판 (W4-B 조정 결정)
 
 화면 `fh-rt/1`은 유지한다. agent hello는 `fh-agent/2`이며 state.stop_ref가 필수다.

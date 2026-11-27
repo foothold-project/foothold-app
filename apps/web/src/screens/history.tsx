@@ -263,7 +263,8 @@ const trouble = (e: Ev) => e.severity === 'ERROR' || e.severity === 'WARN' || FA
  *  없거나 범위 밖(404)이면 칸을 숨긴다(U9 — 지어내지 않음), 못 받으면 접지 않고 보인다 */
 export function RecentEvents({ robot, cancel }: { robot: string; cancel?: AbortSignal }) {
   const ev = useEvents({ ...NONE, robot }, cancel, 5);
-  if (ev.err && ev.err.status !== 404) return <Line k="최근 사건"><span className="fh-msg" role="alert">최근 사건을 받지 못했습니다. {ev.err.message}</span></Line>;
+  if (ev.err && ev.err.status !== 404) return <Line k="최근 사건"><span className="fh-msg" role="alert">최근 사건을 받지 못했습니다. {ev.err.message}</span>
+    {!ev.busy && <button type="button" className="btn" onClick={ev.more}>다시 시도</button>}</Line>;
   if (!ev.items.length) return null;
   // 잇달아 같은 문제(코드·문장 같음)는 한 줄로 묶는다(«10/30 17:27~17:30 · 안전 · 4번») — 서버 기록은 그대로, 표시만 — 낱낱은 아래 «최근 사건»에 그대로
   // 목록은 서버가 받은 순서라 늦게 온 사건의 표시 시각(stamp)은 뒤섞일 수 있다 — 범위는 묶인 것의 최소~최대
@@ -320,7 +321,7 @@ export function Bell({ cancel }: { cancel?: AbortSignal }) {
     <summary aria-label={list ? `알림 안 읽음 ${unread}건` : '알림'}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" /></svg>{unread > 0 && <span className="fh-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}</summary>
     <div className="card" style={{ whiteSpace: 'normal', width: 'min(360px, 80vw)', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="알림 목록">
       <div className="fh-row"><b className="fh-grow">알림</b><button type="button" className="btn" disabled={!unread} onClick={() => read({ all: true })}>모두 읽음</button></div>
-      {err && <p className="fh-msg" role="alert">{err}</p>}
+      {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => get.current()}>다시 시도</button></div>}
       {list && !list.items.length && <p className="lv-note">알림이 없습니다.</p>}
       {!list && !err && <p className="lv-note" role="status">알림을 불러오는 중…</p>}
       {!!list?.items.length && <ul className="fh-list">{list.items.map((x) => <li key={x.id}><button type="button" onClick={() => open(x)} data-unread={!x.read_at || undefined}>
