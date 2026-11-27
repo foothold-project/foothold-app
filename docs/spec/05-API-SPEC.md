@@ -110,7 +110,7 @@
 | POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
 | POST | `/robots/{id}/floor` | 현재 층 사람 입력 `{floor_id}` | A, O(내) |
-| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true}`. 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
+| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true, delivered}` (`StopAccepted`. delivered=false 는 지금 연결된 에이전트가 없어 보낼 길이 없다는 뜻이고 정지 여부가 아니다. 다시 붙으면 정지를 먼저 보냄. 계약 README). 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
 
 **관제·조종 고르기의 로봇 범위**
 - PC 관제·조종 고르기: 총괄·운영 관리자 모두 `scope=all` 로 전체 로봇을 받는다. 운영 관리자 화면은 자기 담당을 먼저 놓는다(서버 목록은 만든 순서이고, 순서는 화면이 정함).
