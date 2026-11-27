@@ -1,5 +1,5 @@
 """Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 6, 7, 8."""
-from datetime import timezone
+from datetime import date, timezone
 import base64
 import binascii
 import math
@@ -2592,6 +2592,101 @@ class AssignmentList(Contract):
     next_cursor: str | None
 
 
+# 일정 · 가용 · 예상 (app-design-lx 11/28 합의). 구간은 [start, end) 반열린 구간이다.
+ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
+AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE']
+EstimateSource = Literal['MEASURED', 'TABLE_UNMEASURED']
+
+
+class ScheduleSlotCreate(Contract):
+    robot_id: UUID
+    scenario_id: UUID | None = None
+    scenario_version: int | None = Field(default=None, ge=1, le=2147483647)
+    gait: GaitName | None = None
+    start: UTCDateTime
+    end: UTCDateTime
+    kind: ScheduleKind
+    assignment_id: UUID | None = None
+    memo: ApprovalText = Field(default='', max_length=2000)
+
+    @model_validator(mode='after')
+    def slot_shape(self):
+        if self.end <= self.start:
+            raise ValueError('end must be after start')
+        if (self.scenario_id is None) != (self.scenario_version is None):
+            raise ValueError('scenario_id and scenario_version go together')
+        if self.scenario_id is None and self.kind != 'BATTERY_SWAP':
+            raise ValueError('only BATTERY_SWAP may omit scenario')
+        return self
+
+
+class ScheduleSlot(Contract):
+    id: UUID
+    robot_id: UUID
+    scenario_id: UUID | None
+    scenario_version: int | None
+    gait: GaitName | None
+    start: UTCDateTime
+    end: UTCDateTime
+    kind: ScheduleKind
+    assignment_id: UUID | None
+    memo: str
+    created_by: UUID
+    created_at: UTCDateTime
+
+
+class ScheduleSlotPatch(Contract):
+    # 생략은 그대로 두고 null 은 거부한다. 시작 · 끝 순서와 시나리오 유무는 합친 값으로 서버가 다시 검사한다.
+    robot_id: UUID = omitted()
+    start: UTCDateTime = omitted()
+    end: UTCDateTime = omitted()
+    kind: ScheduleKind = omitted()
+    gait: GaitName = omitted()
+
+
+class ScheduleDay(Contract):
+    day: date
+    tz: str
+    slots: list[ScheduleSlot]
+
+
+class RobotAvailability(Contract):
+    robot_id: UUID
+    robot_name: str
+    state: AvailabilityState
+    busy_until: UTCDateTime | None
+    busy_slot_id: UUID | None
+    busy_label: str | None
+    battery_pct: float | None = Field(ge=0, le=100)
+    demo: bool
+    sim: bool
+    location_label: str | None
+
+
+class RobotAvailabilityList(Contract):
+    items: list[RobotAvailability]
+
+
+class EstimateRequest(Contract):
+    scenario_id: UUID
+    scenario_version: int | None = Field(default=None, ge=1, le=2147483647)
+    robot_id: UUID
+    gait: GaitName
+    start: UTCDateTime | None = None
+    # 이미 넣은 칸을 다시 예상할 때 그 칸 자신은 「다음 칸」 에서 뺀다.
+    exclude_slot_id: UUID | None = None
+
+
+class Estimate(Contract):
+    length_m: float = Field(ge=0)
+    walk_s: float = Field(ge=0)
+    task_s: float = Field(ge=0)
+    eta: UTCDateTime
+    margin_s: float | None
+    end_battery_pct: float | None
+    estimate_source: EstimateSource
+
+
 # FH-SPEC-05 §13: phone -> robot, never routed through the control server.
 PhoneRobotID = Annotated[str, Field(pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                                     description='소문자 하이픈 UUID 표준형만 허용한다.',
@@ -3533,6 +3628,8 @@ REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadat
 
 TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
 TOP.update(GaitName=GaitName, GaitRejectCode=GaitRejectCode)
+TOP.update(ScheduleKind=ScheduleKind, AvailabilityState=AvailabilityState, EstimateSource=EstimateSource)
+REQUEST_MODELS.update({ScheduleSlotCreate, ScheduleSlotPatch, EstimateRequest})
 TOP.update(LowlevelAction=LowlevelAction, ControlMode=ControlMode, FactoryUnsupportedAction=FactoryUnsupportedAction, LowlevelQuery=LowlevelQuery)
 
 REQUEST_MODELS.update({StopRequest, PhoneStop})

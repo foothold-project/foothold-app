@@ -1,0 +1,103 @@
+{
+  "$id": "fh-app/1/ScheduleSlotCreate",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assignment_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assignment Id"
+    },
+    "end": {
+      "format": "date-time",
+      "title": "End",
+      "type": "string"
+    },
+    "gait": {
+      "anyOf": [
+        {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gait"
+    },
+    "kind": {
+      "enum": [
+        "CONFIRMED",
+        "DRAFT",
+        "BATTERY_SWAP"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "memo": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Memo",
+      "type": "string"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenario Id"
+    },
+    "scenario_version": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenario Version"
+    },
+    "start": {
+      "format": "date-time",
+      "title": "Start",
+      "type": "string"
+    }
+  },
+  "required": [
+    "robot_id",
+    "start",
+    "end",
+    "kind"
+  ],
+  "title": "ScheduleSlotCreate",
+  "type": "object"
+}

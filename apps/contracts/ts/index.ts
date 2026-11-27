@@ -484,6 +484,25 @@ export interface ErrorBody {
   detail: Record<string, unknown>;
 }
 
+export interface Estimate {
+  length_m: number;
+  walk_s: number;
+  task_s: number;
+  eta: string;
+  margin_s: number | null;
+  end_battery_pct: number | null;
+  estimate_source: "MEASURED" | "TABLE_UNMEASURED";
+}
+
+export interface EstimateRequest {
+  scenario_id: string;
+  scenario_version?: number | null;
+  robot_id: string;
+  gait: "classic" | "sport" | "start" | "ame2";
+  start?: string | null;
+  exclude_slot_id?: string | null;
+}
+
 export interface Event {
   id: string;
   at: string;
@@ -1876,6 +1895,23 @@ export interface RefreshRequest {
   refresh_token: string;
 }
 
+export interface RobotAvailability {
+  robot_id: string;
+  robot_name: string;
+  state: "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
+  busy_until: string | null;
+  busy_slot_id: string | null;
+  busy_label: string | null;
+  battery_pct: number | null;
+  demo: boolean;
+  sim: boolean;
+  location_label: string | null;
+}
+
+export interface RobotAvailabilityList {
+  items: RobotAvailability[];
+}
+
 export interface RobotCreate {
   name: string;
   owner_user_id?: string | null;
@@ -2208,6 +2244,47 @@ export interface ScenarioWrite {
   waypoints: ScenarioWaypoint[];
   finish?: ScenarioFinish;
   notes?: string;
+}
+
+export interface ScheduleDay {
+  day: string;
+  tz: string;
+  slots: ScheduleSlot[];
+}
+
+export interface ScheduleSlot {
+  id: string;
+  robot_id: string;
+  scenario_id: string | null;
+  scenario_version: number | null;
+  gait: "classic" | "sport" | "start" | "ame2" | null;
+  start: string;
+  end: string;
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  assignment_id: string | null;
+  memo: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ScheduleSlotCreate {
+  robot_id: string;
+  scenario_id?: string | null;
+  scenario_version?: number | null;
+  gait?: "classic" | "sport" | "start" | "ame2" | null;
+  start: string;
+  end: string;
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  assignment_id?: string | null;
+  memo?: string;
+}
+
+export interface ScheduleSlotPatch {
+  robot_id?: string;
+  start?: string;
+  end?: string;
+  kind?: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  gait?: "classic" | "sport" | "start" | "ame2";
 }
 
 export interface ScreenAction {
@@ -2835,6 +2912,9 @@ export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" |
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
 export type GaitName = "classic" | "sport" | "start" | "ame2";
 export type GaitRejectCode = "GAIT_MOVING" | "GAIT_NOT_STANDING" | "GAIT_NOT_READY" | "GAIT_LATCHED" | "GAIT_BUSY" | "GAIT_UNSUPPORTED" | "GAIT_CANCELLED" | "GAIT_LEASE_LOST" | "GAIT_TIMEOUT" | "GAIT_SDK_ERROR";
+export type ScheduleKind = "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+export type AvailabilityState = "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
+export type EstimateSource = "MEASURED" | "TABLE_UNMEASURED";
 export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp" | "Greet";
 export type ControlMode = "FACTORY" | "LOWLEVEL";
 export type FactoryUnsupportedAction = "Greet";

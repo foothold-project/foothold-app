@@ -1,0 +1,9 @@
+{
+  "$id": "fh-app/1/EstimateSource",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "MEASURED",
+    "TABLE_UNMEASURED"
+  ],
+  "type": "string"
+}
