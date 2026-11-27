@@ -47,3 +47,23 @@ def test_stop_reports_not_delivered_when_agent_offline_and_reconnect_stops_first
     # agent() asserts the first frames on reconnect are lease-null then stop.
     with agent(client, seeded):
         pass
+
+
+def test_stop_not_delivered_when_connected_agent_cannot_take_it(client, seeded, rt, monkeypatch):
+    # A connected peer is not enough: a closing queue or a blocked control path
+    # must report delivered=false (review #536, peer-presence mutation).
+    headers = app_token(client)
+    rid = seeded['robots']['mine']
+    with agent(client, seeded):
+        peer = rt.agents[str(rid)]
+        peer.closing = True
+        try:
+            response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
+            assert response.status_code == 202
+            assert response.json() == {'requested': True, 'delivered': False}
+        finally:
+            peer.closing = False
+        monkeypatch.setattr(rt, 'blocked_agent_control', lambda peer, body: body.get('t') == 'stop')
+        response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
+        assert response.status_code == 202
+        assert response.json() == {'requested': True, 'delivered': False}

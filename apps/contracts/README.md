@@ -44,7 +44,7 @@ AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 
 정지 접수 `POST /robots/{id}/stop` 202 본문은 `StopAccepted {requested: true, delivered}`이고,
 화면 `stop`의 성공 `ScreenReply`에도 같은 뜻의 `delivered`가 붙는다(다른 회신에는 없다).
-`delivered=true`는 그 순간 정지가 연결된 에이전트 대기열에 들어갔다는 뜻이다.
+`delivered=true`는 그 순간 정지가 연결된 에이전트 대기열에 들어갔다는 뜻이다. 소켓으로 실제 보냈다는 보증은 아니다 (대기열에 넣은 직후 끊기면 다시 붙을 때 서버가 정지를 먼저 보낸다).
 `delivered=false`는 로봇이 멈췄다는 뜻도, 안 멈췄다는 뜻도 아니다. 에이전트 연결이 없거나
 막혀 서버가 지금 보낼 길이 없다는 뜻이다. 정지 감사 기록은 그대로 남고, 에이전트가 다시 붙으면
 서버가 다른 명령보다 먼저 정지를 보낸다. 물리 정지 확인은 이 칸이 아니라 기존 `stop_requested`·
