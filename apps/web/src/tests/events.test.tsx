@@ -181,7 +181,7 @@ describe('기록 탭 — 서버 목록 그대로', () => {
   it('빈 목록 문구: 필터 없음 / 필터 있음', async () => {
     serve(signedIn(KIM));
     await open('#/history');
-    expect(card('기록').textContent).toContain('아직 기록이 없습니다.');
+    expect(card('기록').textContent).toContain('아직 기록이 없습니다');
     await click(btn('결재'));
     expect(card('기록').textContent).toContain('조건에 맞는 기록이 없습니다.');
   });
@@ -444,7 +444,7 @@ describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
     }));
     await open('#/history?event_id=3', true);
     expect(lastQuery()).toEqual({});
-    expect(card('기록').textContent).toContain('아직 기록이 없습니다.');
+    expect(card('기록').textContent).toContain('아직 기록이 없습니다');
     expect(card('기록').textContent).not.toContain('이 로봇의');
     expect(card('알림에서 연 기록').textContent).toContain('박운영님이 비밀번호를 바꿨습니다.');
     stopOk();

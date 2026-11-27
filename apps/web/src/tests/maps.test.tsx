@@ -414,7 +414,8 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 운영 관리자에게도 «지도 만들기»·«파일 올리기»로 만들라는 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('등록된 지도가 없습니다. «+ 지도 만들기»로 담당 실기 로봇이 돌아다니며 그리거나, «+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.');
+    expect($('[data-empty="map"]')!.textContent).toContain('아직 지도가 없습니다담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.');   // U11-04 빈 화면
+    expect([...$('[data-empty="map"]')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['+ 지도 만들기']);
     expect(card('지도 고르기').textContent).not.toMatch(/SLAM/);
     expect(btn('+ 파일 올리기')!.disabled).toBe(false);
     await click(btn('+ 파일 올리기'));
@@ -436,7 +437,8 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 안내(총괄은 «+ 파일 올리기»로 만들기)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect(card('지도 고르기').textContent).toContain('«+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.');
+    expect($('[data-empty="map"]')!.textContent).toContain('지도 파일(그림 · yaml)을 올리면 여기에 보입니다.');
+    expect([...$('[data-empty="map"]')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['+ 파일 올리기']);
   });
 });
 
@@ -482,7 +484,7 @@ describe('지도 탭 — 보기', () => {
     serve(signedIn(LEE));
     await open('#/map');
     await click(floorBtn('2층'));
-    expect(card('지도 보기').textContent).toContain('아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.');
+    expect(card('지도 보기').textContent).toContain('이 층에 아직 지도가 없습니다지도 파일(그림 · yaml)을 올리면 이 층 지도가 됩니다.');
     expect(img()).toBeNull();
   });
   it('그림을 못 받으면 칸 안 글 + 다시 불러오기(새 요청), STOP 은 그대로', async () => {
