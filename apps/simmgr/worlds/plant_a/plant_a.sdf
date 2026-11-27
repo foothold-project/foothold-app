@@ -733,6 +733,28 @@
           </material>
         </visual>
       </link>
+      <link name="l1-st-mid_0">
+        <pose>2.1 13.3 1.425 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.2 4.4 2.85</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.2 4.4 2.85</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.82 0.81 0.78 1</ambient>
+            <diffuse>0.82 0.81 0.78 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
       <link name="l1_l1-desk">
         <pose>2 6.5 0.5 0 0 0</pose>
         <collision name="c">
@@ -998,18 +1020,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s1">
-        <pose>1.3 11.65 0.1875 0 0 0</pose>
+        <pose>1.3 11.65 0.125 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.25</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.25</size>
             </box>
           </geometry>
           <material>
@@ -1020,18 +1042,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s2">
-        <pose>1.3 11.95 0.3125 0 0 0</pose>
+        <pose>1.3 11.95 0.1875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.375</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.375</size>
             </box>
           </geometry>
           <material>
@@ -1042,18 +1064,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s3">
-        <pose>1.3 12.25 0.4375 0 0 0</pose>
+        <pose>1.3 12.25 0.25 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.5</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.5</size>
             </box>
           </geometry>
           <material>
@@ -1064,18 +1086,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s4">
-        <pose>1.3 12.55 0.5625 0 0 0</pose>
+        <pose>1.3 12.55 0.3125 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.625</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.625</size>
             </box>
           </geometry>
           <material>
@@ -1086,18 +1108,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s5">
-        <pose>1.3 12.85 0.6875 0 0 0</pose>
+        <pose>1.3 12.85 0.375 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.75</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.75</size>
             </box>
           </geometry>
           <material>
@@ -1108,18 +1130,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s6">
-        <pose>1.3 13.15 0.8125 0 0 0</pose>
+        <pose>1.3 13.15 0.4375 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.875</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.875</size>
             </box>
           </geometry>
           <material>
@@ -1130,18 +1152,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s7">
-        <pose>1.3 13.45 0.9375 0 0 0</pose>
+        <pose>1.3 13.45 0.5 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1</size>
             </box>
           </geometry>
           <material>
@@ -1152,18 +1174,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s8">
-        <pose>1.3 13.75 1.0625 0 0 0</pose>
+        <pose>1.3 13.75 0.5625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.125</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.125</size>
             </box>
           </geometry>
           <material>
@@ -1174,18 +1196,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s9">
-        <pose>1.3 14.05 1.1875 0 0 0</pose>
+        <pose>1.3 14.05 0.625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.25</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.25</size>
             </box>
           </geometry>
           <material>
@@ -1196,18 +1218,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s10">
-        <pose>1.3 14.35 1.3125 0 0 0</pose>
+        <pose>1.3 14.35 0.6875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.375</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.375</size>
             </box>
           </geometry>
           <material>
@@ -1218,18 +1240,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s11">
-        <pose>1.3 14.65 1.4375 0 0 0</pose>
+        <pose>1.3 14.65 0.75 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.5</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.5</size>
             </box>
           </geometry>
           <material>
@@ -1240,18 +1262,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s12">
-        <pose>1.3 14.95 1.5625 0 0 0</pose>
+        <pose>1.3 14.95 0.8125 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.625</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.625</size>
             </box>
           </geometry>
           <material>
@@ -1262,18 +1284,18 @@
         </visual>
       </link>
       <link name="st-1-2_f0_s13">
-        <pose>1.3 15.25 1.6875 0 0 0</pose>
+        <pose>1.3 15.25 0.875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.75</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.75</size>
             </box>
           </geometry>
           <material>
@@ -1284,18 +1306,18 @@
         </visual>
       </link>
       <link name="st-1-2_land0">
-        <pose>2.1 16.1 1.6875 0 0 0</pose>
+        <pose>2.1 16.1 0.875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>3 1.4 0.125</size>
+              <size>3 1.4 1.75</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>3 1.4 0.125</size>
+              <size>3 1.4 1.75</size>
             </box>
           </geometry>
           <material>
@@ -1306,18 +1328,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s0">
-        <pose>2.9 15.25 1.8125 0 0 0</pose>
+        <pose>2.9 15.25 0.9375 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.875</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.875</size>
             </box>
           </geometry>
           <material>
@@ -1328,18 +1350,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s1">
-        <pose>2.9 14.95 1.9375 0 0 0</pose>
+        <pose>2.9 14.95 1 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2</size>
             </box>
           </geometry>
           <material>
@@ -1350,18 +1372,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s2">
-        <pose>2.9 14.65 2.0625 0 0 0</pose>
+        <pose>2.9 14.65 1.0625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.125</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.125</size>
             </box>
           </geometry>
           <material>
@@ -1372,18 +1394,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s3">
-        <pose>2.9 14.35 2.1875 0 0 0</pose>
+        <pose>2.9 14.35 1.125 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.25</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.25</size>
             </box>
           </geometry>
           <material>
@@ -1394,18 +1416,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s4">
-        <pose>2.9 14.05 2.3125 0 0 0</pose>
+        <pose>2.9 14.05 1.1875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.375</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.375</size>
             </box>
           </geometry>
           <material>
@@ -1416,18 +1438,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s5">
-        <pose>2.9 13.75 2.4375 0 0 0</pose>
+        <pose>2.9 13.75 1.25 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.5</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.5</size>
             </box>
           </geometry>
           <material>
@@ -1438,18 +1460,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s6">
-        <pose>2.9 13.45 2.5625 0 0 0</pose>
+        <pose>2.9 13.45 1.3125 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.625</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.625</size>
             </box>
           </geometry>
           <material>
@@ -1460,18 +1482,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s7">
-        <pose>2.9 13.15 2.6875 0 0 0</pose>
+        <pose>2.9 13.15 1.375 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.75</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.75</size>
             </box>
           </geometry>
           <material>
@@ -1482,18 +1504,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s8">
-        <pose>2.9 12.85 2.8125 0 0 0</pose>
+        <pose>2.9 12.85 1.4375 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.875</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 2.875</size>
             </box>
           </geometry>
           <material>
@@ -1504,18 +1526,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s9">
-        <pose>2.9 12.55 2.9375 0 0 0</pose>
+        <pose>2.9 12.55 1.5 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3</size>
             </box>
           </geometry>
           <material>
@@ -1526,18 +1548,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s10">
-        <pose>2.9 12.25 3.0625 0 0 0</pose>
+        <pose>2.9 12.25 1.5625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3.125</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3.125</size>
             </box>
           </geometry>
           <material>
@@ -1548,18 +1570,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s11">
-        <pose>2.9 11.95 3.1875 0 0 0</pose>
+        <pose>2.9 11.95 1.625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3.25</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3.25</size>
             </box>
           </geometry>
           <material>
@@ -1570,18 +1592,18 @@
         </visual>
       </link>
       <link name="st-1-2_f1_s12">
-        <pose>2.9 11.65 3.3125 0 0 0</pose>
+        <pose>2.9 11.65 1.6875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3.375</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 3.375</size>
             </box>
           </geometry>
           <material>
@@ -2075,6 +2097,28 @@
           </material>
         </visual>
       </link>
+      <link name="l2-st-mid_0">
+        <pose>2.1 13.3 4.8 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.2 4.4 2.85</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.2 4.4 2.85</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.82 0.81 0.78 1</ambient>
+            <diffuse>0.82 0.81 0.78 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
       <link name="l2_l2-cons">
         <pose>7 1.2 3.925 0 0 0</pose>
         <collision name="c">
@@ -2274,18 +2318,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s1">
-        <pose>1.3 11.65 3.5625 0 0 0</pose>
+        <pose>1.3 11.65 3.5 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.25</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.25</size>
             </box>
           </geometry>
           <material>
@@ -2296,18 +2340,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s2">
-        <pose>1.3 11.95 3.6875 0 0 0</pose>
+        <pose>1.3 11.95 3.5625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.375</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.375</size>
             </box>
           </geometry>
           <material>
@@ -2318,18 +2362,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s3">
-        <pose>1.3 12.25 3.8125 0 0 0</pose>
+        <pose>1.3 12.25 3.625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.5</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.5</size>
             </box>
           </geometry>
           <material>
@@ -2340,18 +2384,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s4">
-        <pose>1.3 12.55 3.9375 0 0 0</pose>
+        <pose>1.3 12.55 3.6875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.625</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.625</size>
             </box>
           </geometry>
           <material>
@@ -2362,18 +2406,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s5">
-        <pose>1.3 12.85 4.0625 0 0 0</pose>
+        <pose>1.3 12.85 3.75 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.75</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.75</size>
             </box>
           </geometry>
           <material>
@@ -2384,18 +2428,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s6">
-        <pose>1.3 13.15 4.1875 0 0 0</pose>
+        <pose>1.3 13.15 3.8125 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.875</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 0.875</size>
             </box>
           </geometry>
           <material>
@@ -2406,18 +2450,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s7">
-        <pose>1.3 13.45 4.3125 0 0 0</pose>
+        <pose>1.3 13.45 3.875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1</size>
             </box>
           </geometry>
           <material>
@@ -2428,18 +2472,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s8">
-        <pose>1.3 13.75 4.4375 0 0 0</pose>
+        <pose>1.3 13.75 3.9375 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.125</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.125</size>
             </box>
           </geometry>
           <material>
@@ -2450,18 +2494,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s9">
-        <pose>1.3 14.05 4.5625 0 0 0</pose>
+        <pose>1.3 14.05 4 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.25</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.25</size>
             </box>
           </geometry>
           <material>
@@ -2472,18 +2516,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s10">
-        <pose>1.3 14.35 4.6875 0 0 0</pose>
+        <pose>1.3 14.35 4.0625 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.375</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.375</size>
             </box>
           </geometry>
           <material>
@@ -2494,18 +2538,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s11">
-        <pose>1.3 14.65 4.8125 0 0 0</pose>
+        <pose>1.3 14.65 4.125 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.5</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.5</size>
             </box>
           </geometry>
           <material>
@@ -2516,18 +2560,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s12">
-        <pose>1.3 14.95 4.9375 0 0 0</pose>
+        <pose>1.3 14.95 4.1875 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.625</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.625</size>
             </box>
           </geometry>
           <material>
@@ -2538,18 +2582,18 @@
         </visual>
       </link>
       <link name="st-2-3_f0_s13">
-        <pose>1.3 15.25 5.0625 0 0 0</pose>
+        <pose>1.3 15.25 4.25 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.75</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>1.4 0.3 0.125</size>
+              <size>1.4 0.3 1.75</size>
             </box>
           </geometry>
           <material>
@@ -3149,6 +3193,72 @@
           <material>
             <ambient>0.82 0.81 0.78 1</ambient>
             <diffuse>0.82 0.81 0.78 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3-core-w_0">
+        <pose>0 15 8.35 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.3 10.3 3.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>0.3 10.3 3.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.82 0.81 0.78 1</ambient>
+            <diffuse>0.82 0.81 0.78 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3-core-n_0">
+        <pose>3 20 8.35 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>6.3 0.3 3.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>6.3 0.3 3.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.82 0.81 0.78 1</ambient>
+            <diffuse>0.82 0.81 0.78 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_cover_l3-core-roof_0">
+        <pose>3 15 10.0375 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>6 10 0.175</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <box>
+              <size>6 10 0.175</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.62 0.62 0.60 1</ambient>
+            <diffuse>0.62 0.62 0.60 1</diffuse>
             <specular>0.1 0.1 0.1 1</specular>
           </material>
         </visual>

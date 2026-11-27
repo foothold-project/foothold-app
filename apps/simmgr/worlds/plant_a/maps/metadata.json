@@ -1,10 +1,10 @@
 {
   "generator_version": "collision-map/1",
   "generator_sha256": "b02389779320b8f9c34f3ae46500d80829d67a55b7b960392f674d5eaef21e01",
-  "world_sha256": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
-  "dependency_sha256": "f965418ec02178efa57b3744be5bc954d94720ee97269a138571ff0078511d78",
+  "world_sha256": "d2ec9a503e56bcfce9cfec89899fa247066ac64d35cb79a9df3733b94224befe",
+  "dependency_sha256": "202c4b2876f3799b8874a66dea263c884e3bc11b1791f1589dd232810f71f50f",
   "dependencies": {
-    "plant_a.sdf": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94"
+    "plant_a.sdf": "d2ec9a503e56bcfce9cfec89899fa247066ac64d35cb79a9df3733b94224befe"
   },
   "resolution": 0.05,
   "origin": [
@@ -38,10 +38,10 @@
       "floor_z": 0.0,
       "image": "l1.png",
       "yaml": "l1.yaml",
-      "image_sha256": "c4e99540379eb217d3ea061cc510f6c5bbad6f49a75a9ae2a9003d412da50739",
+      "image_sha256": "25d46578891be905876369905f3060346b50c0a313e02cb7015231324b2cfdbb",
       "counts": {
-        "occupied": 54360,
-        "free": 242528,
+        "occupied": 60312,
+        "free": 236576,
         "unknown": 37512
       }
     },
@@ -49,11 +49,11 @@
       "floor_z": 3.375,
       "image": "l2.png",
       "yaml": "l2.yaml",
-      "image_sha256": "e85767b90bdd534ff1f8a846b4a6cf8911c8be92209dc7c632c93e3c339f2bf3",
+      "image_sha256": "b5cdfb58ce7936ac4d00830acb4d6269d695e81e9598287fc521c968839ccd4e",
       "counts": {
-        "occupied": 61770,
-        "free": 231558,
-        "unknown": 41072
+        "occupied": 63758,
+        "free": 229687,
+        "unknown": 40955
       }
     },
     "l3": {
@@ -68,5 +68,5 @@
       }
     }
   },
-  "upstream_revision": "app-design-lx-layout-2026-11-28-rev2"
+  "upstream_revision": "plant_a-rev3"
 }

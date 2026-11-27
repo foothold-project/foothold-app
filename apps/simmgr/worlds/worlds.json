@@ -895,7 +895,7 @@
       "name": "공정동 A · 초안",
       "floor_name": "1층 · 펌프 · 압축기",
       "level": 1,
-      "description": "app-design-lx 배치 JSON 생성 3층 실내 정적 월드. 실제 실행 미검증.",
+      "description": "공정동 A 배치 JSON rev 3 생성 3층 실내 정적 월드. 실제 실행 미검증.",
       "floor_z": 0.0,
       "spawn_xyyaw": [
         4.0,
@@ -914,9 +914,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l1.json",
       "sha256": {
-        "world": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
+        "world": "d2ec9a503e56bcfce9cfec89899fa247066ac64d35cb79a9df3733b94224befe",
         "map": "da13daf3f42a0bdbbca6bd1a7753ac8d3a3ed9130d2726c2d623b76844381aaa",
-        "metadata": "5acbdb2d02e2068ea8a0b72892316367afd18136d040c8c33e3ac8e5b2e22815"
+        "metadata": "ab6ae2dd08a2d6932e62deb74620a5c30d226f08ae778237216cf3abc232b237"
       },
       "mesh_sha256": {}
     },
@@ -927,7 +927,7 @@
       "name": "공정동 A · 초안",
       "floor_name": "2층 · 관제 · 전기",
       "level": 2,
-      "description": "app-design-lx 배치 JSON 생성 3층 실내 정적 월드. 실제 실행 미검증.",
+      "description": "공정동 A 배치 JSON rev 3 생성 3층 실내 정적 월드. 실제 실행 미검증.",
       "floor_z": 3.375,
       "spawn_xyyaw": [
         2.9,
@@ -946,9 +946,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l2.json",
       "sha256": {
-        "world": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
+        "world": "d2ec9a503e56bcfce9cfec89899fa247066ac64d35cb79a9df3733b94224befe",
         "map": "1e25218e008c2b1b19fcc3527b0dfdb9dcf83ee114621ccc75915526dff2555a",
-        "metadata": "5acbdb2d02e2068ea8a0b72892316367afd18136d040c8c33e3ac8e5b2e22815"
+        "metadata": "ab6ae2dd08a2d6932e62deb74620a5c30d226f08ae778237216cf3abc232b237"
       },
       "mesh_sha256": {}
     },
@@ -959,7 +959,7 @@
       "name": "공정동 A · 초안",
       "floor_name": "3층 · 옥상 밸브",
       "level": 3,
-      "description": "app-design-lx 배치 JSON 생성 3층 실내 정적 월드. 실제 실행 미검증.",
+      "description": "공정동 A 배치 JSON rev 3 생성 3층 실내 정적 월드. 실제 실행 미검증.",
       "floor_z": 6.75,
       "spawn_xyyaw": [
         2.9,
@@ -978,9 +978,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l3.json",
       "sha256": {
-        "world": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
+        "world": "d2ec9a503e56bcfce9cfec89899fa247066ac64d35cb79a9df3733b94224befe",
         "map": "edab836dcc3c2f99a74b0aab9b6e32fc57b65d00d6c646b3ac5a2022239f965d",
-        "metadata": "5acbdb2d02e2068ea8a0b72892316367afd18136d040c8c33e3ac8e5b2e22815"
+        "metadata": "ab6ae2dd08a2d6932e62deb74620a5c30d226f08ae778237216cf3abc232b237"
       },
       "mesh_sha256": {}
     }

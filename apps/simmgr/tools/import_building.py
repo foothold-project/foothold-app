@@ -1,6 +1,7 @@
 """foothold_building/1 배치 JSON -> 정적 SDF 1.9 월드 · 층별 지도 · 시나리오 · 목록 항목.
 
 사용: python3 -m apps.simmgr.tools.import_building LAYOUT.json
+입력은 rev 2 이상(계단 lane_gap · arrive 필수). rev 1 배치는 오류로 멈춘다.
 입력 JSON 은 자료로만 읽는다. 모든 형상은 static box 이고 메쉬·텍스처·외부 URI 가 없다.
 같은 입력이면 같은 바이트를 낸다. Gazebo/ROS 실행·다운로드 없음.
 
@@ -9,10 +10,14 @@
 - 벽: a->b 중심선, 두께 t, 높이 h, 양 끝을 t/2 늘려 모서리를 닫는다. 문은 s(=a 에서 문 가운데까지
   거리) · w · h 로 틈을 내고, 문 높이 위는 상인방 상자로 남긴다.
 - 장애물: box [cx, cy, w(x), d(y), h] + yaw, 층 바닥에서 시작.
-- 계단: 디딤 한 단마다 상자(두께 step_h). 첫 줄은 start(첫 단 앞 모서리 가운데)에서 yaw 방향으로
+- 계단: 디딤 한 단마다 상자. 상자는 단 윗면에서 계단이 시작하는 층 바닥(floor_z)까지 채운 통짜라
+  단 밑이 지도에서 막힌다(계단참도 같음). 단, 상자 가운데가 그 층 바닥판 구멍 위면(아래층 계단 위)
+  두께 step_h 로만 두어 아래층 계단의 머리 공간을 막지 않는다. 첫 줄은 start(첫 단 앞 모서리 가운데)에서 yaw 방향으로
   오르고, 줄 사이마다 계단참(두 줄 폭 전체, 깊이 landing_d)을 둔다. 마지막 줄 뒤에는 계단참이 없고
   마지막 단 윗면 = 도착 층 floor_z 로 위층 바닥에 바로 닿는다. U_right/U_left 는 다음 줄을
   오른쪽/왼쪽 줄로 옮겨 반대 방향으로 오른다. 줄 사이 틈은 lane_gap(필수).
+- 덮개: covers [{id, poly, z, t}] 는 그 층 바닥 기준 아랫면 z, 두께 t 인 판(계단실 지붕 등).
+  poly 는 바닥판처럼 직사각형으로 나눈다.
 - 도착: arrive {floor_id, xy}. 위층 스폰은 arrive xy 와 teleport yaw.
 - 지붕: roof=true 인 층은 바로 위 층 바닥판이 천장이어야 한다(floor_z+ceil_h = 위층 바닥판 밑면).
   roof=false 인 꼭대기 층은 천장이 없고 외벽 높이(난간)를 그대로 쓴다.
@@ -22,6 +27,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import warnings
 import xml.etree.ElementTree as ET
 
 from .collision_map import generate
@@ -229,8 +235,14 @@ def add_walls(world, floor):
 
 def add_stairs(world, stair, floor, to_floor):
     z0 = floor['floor_z']
+    if 'lane_gap' not in stair or 'arrive' not in stair:
+        raise ValueError(f'rev 2 이상 배치 필요: 계단 {stair["id"]} 에 lane_gap · arrive 가 없다')
     h, tread, width = stair['step_h'], stair['tread'], stair['width']
     gap = stair['lane_gap']
+    if any(abs(a - b) > 1e-9 for a, b in zip(stair['arrive']['xy'], stair['teleport']['xyyaw'][:2])):
+        warnings.warn(f'계단 {stair["id"]}: teleport xy {stair["teleport"]["xyyaw"][:2]} 와 '
+                      f'arrive xy {stair["arrive"]["xy"]} 가 다르다. 위층 스폰은 arrive xy 를 쓴다')
+    holes = [hole['poly'] for hole in floor['slab']['holes']]
     total = sum(stair['flights'])
     if abs(z0 + total * h - to_floor['floor_z']) > 1e-6:
         raise ValueError(f'stair {stair["id"]} rise does not reach {to_floor["floor_id"]}')
@@ -244,8 +256,11 @@ def add_stairs(world, stair, floor, to_floor):
     second = turn * (width + gap)  # 둘째 줄 가로 중심
     span_lo, span_hi = min(0, second) - width / 2, max(0, second) + width / 2
 
-    def at(along, lateral, z):
-        return (sx + fx * along + rx * lateral, sy + fy * along + ry * lateral, z)
+    def solid(name, along, lateral, top, size, kind):
+        x, y = sx + fx * along + rx * lateral, sy + fy * along + ry * lateral
+        # 바닥판 위면 층 바닥까지 통짜, 구멍 위(아래층 계단 위)면 한 단 두께.
+        bottom = top - h if any(inside(hole, x, y) for hole in holes) else z0
+        world.box(name, (x, y, (top + bottom) / 2), (*size, top - bottom), yaw, kind)
 
     along, count = 0.0, 0
     for k, steps in enumerate(stair['flights']):
@@ -254,14 +269,13 @@ def add_stairs(world, stair, floor, to_floor):
         for i in range(steps):
             count += 1
             centre = along + sign * (i + 0.5) * tread
-            world.box(f'{stair["id"]}_f{k}_s{i}', at(centre, lateral, z0 + count * h - h / 2),
-                      (tread, width, h), yaw, 'stair')
+            solid(f'{stair["id"]}_f{k}_s{i}', centre, lateral, z0 + count * h, (tread, width), 'stair')
         along += sign * steps * tread
         if k == len(stair['flights']) - 1:
             break  # 마지막 줄은 위층 바닥에 바로 닿는다
         landing = along + sign * stair['landing_d'] / 2
-        world.box(f'{stair["id"]}_land{k}', at(landing, (span_lo + span_hi) / 2, z0 + count * h - h / 2),
-                  (stair['landing_d'], span_hi - span_lo, h), yaw, 'landing')
+        solid(f'{stair["id"]}_land{k}', landing, (span_lo + span_hi) / 2, z0 + count * h,
+              (stair['landing_d'], span_hi - span_lo), 'landing')
 
 
 def build(layout_path, out):
@@ -269,6 +283,8 @@ def build(layout_path, out):
     data = json.loads(layout_path.read_text())
     if data.get('schema') != 'foothold_building/1' or data.get('units') != 'm':
         raise ValueError('expected foothold_building/1 in metres')
+    if data.get('rev', 1) < 2:
+        raise ValueError('rev 2 이상 배치 필요 (계단 lane_gap · arrive)')
     world_id = data['building_id']
     floors = data['floors']
     by_id = {f['floor_id']: f for f in floors}
@@ -297,6 +313,12 @@ def build(layout_path, out):
             world.box(f'{floor["floor_id"]}_slab_{i}', ((x0 + x1) / 2, (y0 + y1) / 2, z0 - t / 2),
                       (x1 - x0, y1 - y0, t), 0.0, 'slab')
         add_walls(world, floor)
+        for cover in floor.get('covers', []):
+            bottom = z0 + cover['z']
+            for i, (x0, y0, x1, y1) in enumerate(slab_rectangles(cover['poly'], [])):
+                world.box(f'{floor["floor_id"]}_cover_{cover["id"]}_{i}',
+                          ((x0 + x1) / 2, (y0 + y1) / 2, bottom + cover['t'] / 2),
+                          (x1 - x0, y1 - y0, cover['t']), 0.0, 'slab')
         for obstacle in floor['obstacles']:
             cx, cy, w, d, h = obstacle['box']
             world.box(f'{floor["floor_id"]}_{obstacle["id"]}', (cx, cy, z0 + h / 2), (w, d, h),
@@ -313,22 +335,22 @@ def register(layout_path, out=None):
     layout_path = Path(layout_path)
     raw = layout_path.read_bytes()
     data = json.loads(raw)
-    world_id = data['building_id']
+    world_id, rev = data['building_id'], data.get('rev', 1)
     out = Path(out) if out else WORLDS / world_id
     out.mkdir(parents=True, exist_ok=True)
     # 시험·재생성이 저장소 밖 원본 없이 돌도록 입력을 바이트 그대로 둔다.
     (out / 'layout.json').write_bytes(raw)
     write_json(out / 'sources.json', dict(
-        revision=f'app-design-lx-layout-2026-11-28-rev{data.get("rev", 1)}', author='app-design-lx 세션', draft=True,
+        revision=f'{world_id}-rev{rev}', author='app-design-lx 세션', draft=True,
         generated=True, imported='2026-11-28', schema=data['schema'],
-        inputs={'plant_a.json': hashlib.sha256(raw).hexdigest()},
+        inputs={f'{world_id}.json': hashlib.sha256(raw).hexdigest()},
         copy='layout.json (입력 바이트 그대로)',
         generator='apps/simmgr/tools/import_building.py',
-        conversion='모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, '
-                   '계단 단마다 상자 + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음.'))
+        conversion=f'모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, 덮개 판(covers), '
+                   '계단 단마다 통짜 상자(구멍 위는 한 단 두께) + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음.'))
     (out / 'NOTICE').write_text(
         f'{data["name"]} ({world_id}) · 초안\n'
-        '출처: app-design-lx 세션 배치 JSON (2026-11-28, schema foothold_building/1).\n'
+        f'출처: app-design-lx 세션 배치 JSON rev {rev} (schema foothold_building/1).\n'
         '생성: apps/simmgr/tools/import_building.py 가 JSON 에서 만든 정적 상자 월드. 원본 메쉬·텍스처 없음.\n'
         '입력 해시는 sources.json, 입력 사본은 layout.json.\n'
         '실행 · 보행 · 계단 오르기 · Gazebo/MuJoCo · 센서 미검증. 층 이동은 첫 판 순간 이동(teleport) 전제.\n')
@@ -357,7 +379,7 @@ def register(layout_path, out=None):
         catalogue['worlds'][f'{world_id}/{fid}'] = dict(
             world_id=world_id, floor_id=fid, building_id=world_id, name=data['name'] + ' · 초안',
             floor_name=floor['name'], level=level,
-            description='app-design-lx 배치 JSON 생성 3층 실내 정적 월드. 실제 실행 미검증.',
+            description=f'{data["name"]} 배치 JSON rev {rev} 생성 {len(data["floors"])}층 실내 정적 월드. 실제 실행 미검증.',
             floor_z=floor['floor_z'], spawn_xyyaw=list(spawn),
             spawn_z=round(floor['floor_z'] + SPAWN_BASE, 6), spawn_source=source,
             world=rel(f'{world_id}.sdf'), gt_map=rel(f'maps/{fid}.yaml'), map_metadata=rel('maps/metadata.json'),
