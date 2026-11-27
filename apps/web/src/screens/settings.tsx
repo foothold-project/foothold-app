@@ -45,11 +45,16 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
   // 고른 항목을 보이는 곳으로(좁은 화면 가로 한 줄에서 밖에 있던 항목). 처음 열 때는 밀지 않는다
   const first = useRef(true);
   useEffect(() => { if (first.current) { first.current = false; return; } document.getElementById(`st-t-${tab}`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }, [tab]);
+  // 운영자의 화살표 · Home · End 는 «총괄만» 항목을 건너뛴다 (누르면 열리기는 함)
+  const KEYS = GROUPS.flatMap(([, ts]) => ts.filter((t) => admin || !t[3]).map(([id]) => id as Tab));
   const key = (e: KeyboardEvent) => {
-    const i = TABS.findIndex(([id]) => id === tab), n = TABS.length;
-    const j = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (i + 1) % n : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (i + n - 1) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
-    if (j < 0) return;
-    e.preventDefault(); setTab(TABS[j][0]); list.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[j]?.focus();
+    // 눌러서 연 «총괄만» 항목에서도 화면 순서대로 앞뒤를 찾는다
+    const at = (id: Tab) => TABS.findIndex(([t]) => t === id), p = at(tab);
+    const after = KEYS.filter((id) => at(id) > p), before = KEYS.filter((id) => at(id) < p);
+    const to = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? after[0] ?? KEYS[0] : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? before[before.length - 1] ?? KEYS[KEYS.length - 1]
+      : e.key === 'Home' ? KEYS[0] : e.key === 'End' ? KEYS[KEYS.length - 1] : null;
+    if (!to) return;
+    e.preventDefault(); setTab(to); document.getElementById(`st-t-${to}`)?.focus();
   };
   const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>;
   const card = (p: Omit<CardProps, 'org' | 'admin' | 'cancel'>) => <OrgCard org={org} admin={admin} cancel={c.cancel} {...p} />;

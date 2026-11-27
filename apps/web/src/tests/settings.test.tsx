@@ -717,6 +717,27 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
     await click($<HTMLButtonElement>('button[data-theme-pick]')!);   // 머리 메뉴: 밝음 → 기기 설정 따름
     expect(radios().map((r) => r.checked)).toEqual([false, false, true]);
   });
+  it('운영자가 화살표로 옮겨 다닐 때 총괄만 항목(사용자와 권한 · 데모 로봇 표시)은 건너뛴다', async () => {
+    serve(signedIn(LEE));
+    await open();
+    const sel = () => tabs().find((t) => t.getAttribute('aria-selected') === 'true')?.textContent;
+    const press = (k: string) => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+    await click(tabs().find((t) => t.textContent === '표시'));
+    (tabs().find((t) => t.textContent === '표시') as HTMLElement).focus();
+    press('ArrowRight'); expect(sel()).toBe('시스템'); expect(document.activeElement?.textContent).toBe('시스템');
+    press('ArrowLeft'); expect(sel()).toBe('표시'); expect(document.activeElement?.textContent).toBe('표시');
+    press('Home'); expect(sel()).toBe('계정');
+    press('ArrowRight'); expect(sel()).toBe('현장 연결');
+    const seen: string[] = [];
+    for (let i = 0; i < 12; i++) { press('ArrowRight'); seen.push(sel() ?? ''); }
+    expect(seen).not.toContain('데모 로봇 표시'); expect(seen).not.toContain('사용자와 권한');
+    press('End'); expect(sel()).toBe('시스템');
+    // 눌러서 연 데모 로봇 표시에서도 화면 순서대로 앞뒤
+    await click(tabs().find((t) => t.textContent === '데모 로봇 표시')); (tabs().find((t) => t.textContent === '데모 로봇 표시') as HTMLElement).focus();
+    press('ArrowRight'); expect(sel()).toBe('시스템');
+    await click(tabs().find((t) => t.textContent === '데모 로봇 표시')); (tabs().find((t) => t.textContent === '데모 로봇 표시') as HTMLElement).focus();
+    press('ArrowLeft'); expect(sel()).toBe('표시');
+  });
   it('묶음을 고르면 그 항목을 보이는 곳으로 밀어 줌(좁은 화면 가로 한 줄), 처음 열 때는 밀지 않음', async () => {
     const seen: string[] = [];
     const args: unknown[] = [];
