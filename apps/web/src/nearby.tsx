@@ -13,10 +13,10 @@ export type Scan = { scanning: boolean; items: Found[]; problems: string[] };
 
 const VIA = { mdns: 'Wi-Fi', addr: 'Wi-Fi', ble: '블루투스' } as const;
 export const PROBLEM: Record<string, string> = {
-  'wifi-no-internet': 'Wi-Fi 에 인터넷 없음 — 로봇 연결은 Wi-Fi, 서버는 모바일 데이터로 합니다.',
-  'wifi-off': 'Wi-Fi 가 꺼져 있거나 연결되지 않았습니다 — 로봇과 같은 Wi-Fi(또는 Go2 핫스팟)에 연결하세요.',
-  'other-subnet': '폰과 노트북(로봇)이 같은 Wi-Fi 에 있어야 합니다 — 폰 Wi-Fi 와 로봇 주소의 망이 달라 연결하지 않았습니다.',
-  'bt-off': '블루투스가 꺼져 있습니다 — 켜면 Go2 를 블루투스로도 찾습니다.',
+  'wifi-no-internet': 'Wi-Fi 에 인터넷 없음 · 로봇 연결은 Wi-Fi, 서버는 모바일 데이터로 합니다.',
+  'wifi-off': 'Wi-Fi 가 꺼져 있거나 연결되지 않았습니다 · 로봇과 같은 Wi-Fi(또는 Go2 핫스팟)에 연결하세요.',
+  'other-subnet': '폰과 노트북(로봇)이 같은 Wi-Fi 에 있어야 합니다 · 폰 Wi-Fi 와 로봇 주소의 망이 달라 연결하지 않았습니다.',
+  'bt-off': '블루투스가 꺼져 있습니다 · 켜면 Go2 를 블루투스로도 찾습니다.',
   'bt-perm': '블루투스 찾기 권한이 거부되어 Wi-Fi 로만 찾았습니다. 설정 › 앱 › FOOTHOLD › 권한에서 «주변 기기»(Android 11 이하는 «위치»)를 허용하세요.',
   'loc-off': 'Android 11 이하에서는 위치(GPS)를 켜야 블루투스 찾기가 됩니다.',
   'bt-fail': '블루투스 찾기를 시작하지 못했습니다. 잠시 뒤 «다시 찾기»를 누르세요.',
@@ -56,13 +56,13 @@ export function merge(items: Found[]): Found[] {
 
 /** 항목을 눌렀을 때 안내. 폰에서 쓸 연결 등록 API 는 아직 없다(POST /robots 는 총괄 등록이고, 받은 에이전트 토큰을 로봇에 넣는 길이 없음) */
 export function detail(f: Found, robots: Robot[]): string {
-  if (f.via !== 'mdns') return 'Go2 발견 — FOOTHOLD 에이전트가 아직 없음(설치 필요). 로봇 온보드 컴퓨터에 에이전트를 설치·실행하면 Wi-Fi 에서 «에이전트 발견»으로 보입니다.';
-  if (f.mode === 'discovery-only') return '찾기 시험 신호 — 실제 연결 아님. 등록·연결하지 않습니다.';
-  if (f.mode === 'go2-readonly') return `상태 전용 에이전트: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} — 로봇 쪽 8자리 현장 코드를 넣으면 배터리·자세만 읽습니다(조종·등록·STOP 없음).`;
+  if (f.via !== 'mdns') return 'Go2 발견 · FOOTHOLD 에이전트가 아직 없음(설치 필요). 로봇 온보드 컴퓨터에 에이전트를 설치·실행하면 Wi-Fi 에서 «에이전트 발견»으로 보입니다.';
+  if (f.mode === 'discovery-only') return '찾기 시험 신호 · 실제 연결 아님. 등록·연결하지 않습니다.';
+  if (f.mode === 'go2-readonly') return `상태 전용 에이전트: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} · 로봇 쪽 8자리 현장 코드를 넣으면 배터리·자세만 읽습니다(조종·등록·STOP 없음).`;
   const mine = f.rid && robots.find((r) => r.id === f.rid);
   if (mine) return `이미 내 조직에 등록된 로봇입니다(${mine.name}). «연결»을 누르면 서버에서 출입증을 받아 이 로봇에 직접 연결합니다(실기 미검증).`;
-  if (realTarget(f)) return `에이전트 발견: ${f.name} ${f.host}:${f.port ?? ''} — 내 로봇 목록에 없습니다. «연결»을 누르면 서버가 등록·담당을 확인합니다.`;
-  return `에이전트 발견: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} — 연결 등록은 서버 준비 중입니다.`;
+  if (realTarget(f)) return `에이전트 발견: ${f.name} ${f.host}:${f.port ?? ''} · 내 로봇 목록에 없습니다. «연결»을 누르면 서버가 등록·담당을 확인합니다.`;
+  return `에이전트 발견: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} · 연결 등록은 서버 준비 중입니다.`;
 }
 
 /** «연결»할 수 있는 실기 후보: 로봇 ID 를 알린 인증 WS 에이전트(agent=ws://<찾은 주소>:<포트>/phone/ws). 앱(Go2Link)이 주소·망을 다시 확인한다 */
@@ -94,7 +94,7 @@ function RealLink({ s, status }: { s: Sim; status: () => void }) {
 
 function status(f: Found, robots: Robot[]) {
   if (f.via !== 'mdns') return f.via === 'ble' ? `에이전트 없음${f.rssi != null ? ` · 신호 ${f.rssi} dBm` : ''}` : '에이전트 없음 · 기본 주소 응답';
-  if (f.mode === 'discovery-only') return '찾기 시험 신호 — 실제 연결 아님';
+  if (f.mode === 'discovery-only') return '찾기 시험 신호 · 실제 연결 아님';
   if (f.mode === 'go2-readonly') return '상태 전용 에이전트';
   return f.rid && robots.some((r) => r.id === f.rid) ? '에이전트 발견 · 내 조직 로봇' : '에이전트 발견';
 }
@@ -115,8 +115,8 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
   if (s.real && s.step !== 'drive') return <RealLink s={s} status={() => { const r = s.real!, u = manualUrl(r.host); sim.reset(); if (u) setView({ name: r.name, url: u }); }} />;
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="주변 로봇 찾기" data-nearby-scan={seq}>
     <div className="fh-row"><h2 className="fh-grow">주변 로봇 찾기</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
-    {!scan && old ? <p className="fh-why" role="status" data-nearby="old">이 앱 판은 주변 찾기를 지원하지 않습니다 — FOOTHOLD 앱을 1.2.3-dev 이상으로 업데이트하세요.</p>
-      : <p className="lv-note" role="status" data-nearby={busy ? 'scanning' : 'done'}>{busy ? `찾는 중… (Wi-Fi·블루투스, 약 10초)${items.length ? ` — ${items.length}대 찾음` : ''}` : items.length ? `${items.length}대 찾았습니다.` : '찾은 로봇이 없습니다.'}</p>}
+    {!scan && old ? <p className="fh-why" role="status" data-nearby="old">이 앱 판은 주변 찾기를 지원하지 않습니다 · FOOTHOLD 앱을 1.2.3-dev 이상으로 업데이트하세요.</p>
+      : <p className="lv-note" role="status" data-nearby={busy ? 'scanning' : 'done'}>{busy ? `찾는 중… (Wi-Fi·블루투스, 약 10초)${items.length ? ` · ${items.length}대 찾음` : ''}` : items.length ? `${items.length}대 찾았습니다.` : '찾은 로봇이 없습니다.'}</p>}
     {scan?.problems.map((p) => PROBLEM[p] && <p key={p} className="fh-why" data-nearby-problem={p}>{PROBLEM[p]}</p>)}
     {items.length > 0 && <ul className="dv-cards">{items.map((f) => <li key={f.key} className="card dv-card">
       <button type="button" className="btn" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start' }} aria-expanded={open === f.key} onClick={() => setOpen(open === f.key ? null : f.key)}>
@@ -127,7 +127,7 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
       {open === f.key && f.mode === 'go2-readonly' && f.agent && <button type="button" className="btn pri" onClick={() => setView({ name: f.name, url: f.agent! })}>상태 보기</button>}
       {open === f.key && realTarget(f) && <>
         <button type="button" className="btn pri" disabled={!!sim.live()} aria-describedby={sim.live() ? 'real-one' : undefined} data-real-connect onClick={() => sim.real(realTarget(f)!, f.rid!)}>연결 · 실기 미검증</button>
-        {sim.live() && <span id="real-one" className="fh-why">폰 한 대는 로봇 한 대만 — 지금 연결된 로봇(시뮬 포함)을 먼저 끝내세요.</span>}</>}
+        {sim.live() && <span id="real-one" className="fh-why">폰 한 대는 로봇 한 대만 · 지금 연결된 로봇(시뮬 포함)을 먼저 끝내세요.</span>}</>}
     </li>)}</ul>}
     <button type="button" className="btn pri" disabled={busy && !old} onClick={() => setSeq((n) => n + 1)}>다시 찾기</button>
     <form className="fh-row" onSubmit={(e) => { e.preventDefault(); if (typed) setView({ name: `Go2 ${ip.trim()}`, url: typed }); }}>

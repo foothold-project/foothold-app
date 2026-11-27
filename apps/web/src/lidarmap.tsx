@@ -103,7 +103,7 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
   }, []);
   const back = () => { view.current.follow = true; setFree(false); redraw.current(); };
   return <>
-    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none', cursor: small ? undefined : 'grab' }} aria-label={`라이다로 그린 지도 — 위에서 본 그림${small ? '' : '(끌어서 옮기고 휠로 확대)'}`} />
+    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none', cursor: small ? undefined : 'grab' }} aria-label={`라이다로 그린 지도 · 위에서 본 그림${small ? '' : '(끌어서 옮기고 휠로 확대)'}`} />
     {free && !small && <button type="button" className="btn" data-lm-back style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={back}>로봇 위치로</button>}
   </>;
 }
