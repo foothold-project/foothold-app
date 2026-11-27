@@ -895,7 +895,7 @@
       "name": "공정동 A · 초안",
       "floor_name": "1층 · 펌프 · 압축기",
       "level": 1,
-      "description": "공정동 A 배치 JSON rev 3c · MCC-2 x 15~18.6 (전기실 문 앞 비움) 생성 3층 실내 정적 월드. 실제 실행 미검증.",
+      "description": "공정동 A 배치 JSON rev 6 · 충돌을 그림과 같게 (팀장 05:12 · 결정 d8): 배관 받침 l2-rack-1/2 · 배관대 l1-pipe-p 는 collision = 기둥 상자 + z0 위 덩어리 (아래 트임), 탱크 T-1/2 는 collision = 원기둥. collision 이 있으면 box 대신 충돌로 쓰고 box · kind 는 그림용. 계단 밑 막힘은 그대로 생성 3층 실내 정적 월드. 실제 실행 미검증.",
       "floor_z": 0.0,
       "spawn_xyyaw": [
         4.0,
@@ -914,9 +914,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l1.json",
       "sha256": {
-        "world": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4",
+        "world": "0b3fd9e72fb90add40828c8c4401454f931440df416443de563dcadf8313ecfe",
         "map": "da13daf3f42a0bdbbca6bd1a7753ac8d3a3ed9130d2726c2d623b76844381aaa",
-        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b"
+        "metadata": "eeb383bab415592cedf0f73a9a134a1172f62fb1d79a01b64ce707114bef0a6b"
       },
       "mesh_sha256": {}
     },
@@ -927,7 +927,7 @@
       "name": "공정동 A · 초안",
       "floor_name": "2층 · 관제 · 전기",
       "level": 2,
-      "description": "공정동 A 배치 JSON rev 3c · MCC-2 x 15~18.6 (전기실 문 앞 비움) 생성 3층 실내 정적 월드. 실제 실행 미검증.",
+      "description": "공정동 A 배치 JSON rev 6 · 충돌을 그림과 같게 (팀장 05:12 · 결정 d8): 배관 받침 l2-rack-1/2 · 배관대 l1-pipe-p 는 collision = 기둥 상자 + z0 위 덩어리 (아래 트임), 탱크 T-1/2 는 collision = 원기둥. collision 이 있으면 box 대신 충돌로 쓰고 box · kind 는 그림용. 계단 밑 막힘은 그대로 생성 3층 실내 정적 월드. 실제 실행 미검증.",
       "floor_z": 3.375,
       "spawn_xyyaw": [
         2.9,
@@ -946,9 +946,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l2.json",
       "sha256": {
-        "world": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4",
+        "world": "0b3fd9e72fb90add40828c8c4401454f931440df416443de563dcadf8313ecfe",
         "map": "1e25218e008c2b1b19fcc3527b0dfdb9dcf83ee114621ccc75915526dff2555a",
-        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b"
+        "metadata": "eeb383bab415592cedf0f73a9a134a1172f62fb1d79a01b64ce707114bef0a6b"
       },
       "mesh_sha256": {}
     },
@@ -959,7 +959,7 @@
       "name": "공정동 A · 초안",
       "floor_name": "3층 · 옥상 밸브",
       "level": 3,
-      "description": "공정동 A 배치 JSON rev 3c · MCC-2 x 15~18.6 (전기실 문 앞 비움) 생성 3층 실내 정적 월드. 실제 실행 미검증.",
+      "description": "공정동 A 배치 JSON rev 6 · 충돌을 그림과 같게 (팀장 05:12 · 결정 d8): 배관 받침 l2-rack-1/2 · 배관대 l1-pipe-p 는 collision = 기둥 상자 + z0 위 덩어리 (아래 트임), 탱크 T-1/2 는 collision = 원기둥. collision 이 있으면 box 대신 충돌로 쓰고 box · kind 는 그림용. 계단 밑 막힘은 그대로 생성 3층 실내 정적 월드. 실제 실행 미검증.",
       "floor_z": 6.75,
       "spawn_xyyaw": [
         2.9,
@@ -978,9 +978,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l3.json",
       "sha256": {
-        "world": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4",
+        "world": "0b3fd9e72fb90add40828c8c4401454f931440df416443de563dcadf8313ecfe",
         "map": "edab836dcc3c2f99a74b0aab9b6e32fc57b65d00d6c646b3ac5a2022239f965d",
-        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b"
+        "metadata": "eeb383bab415592cedf0f73a9a134a1172f62fb1d79a01b64ce707114bef0a6b"
       },
       "mesh_sha256": {}
     }

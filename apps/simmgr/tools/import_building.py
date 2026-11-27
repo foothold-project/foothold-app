@@ -2,14 +2,17 @@
 
 사용: python3 -m apps.simmgr.tools.import_building LAYOUT.json
 입력은 rev 2 이상(계단 lane_gap · arrive 필수). rev 1 배치는 오류로 멈춘다.
-입력 JSON 은 자료로만 읽는다. 모든 형상은 static box 이고 메쉬·텍스처·외부 URI 가 없다.
+입력 JSON 은 자료로만 읽는다. 모든 형상은 static box · cylinder 이고 메쉬·텍스처·외부 URI 가 없다.
+같은 모양 목록에서 SDF(build) 와 앱 시뮬 MJCF · 장면(mobile_assets) 이 나온다.
 같은 입력이면 같은 바이트를 낸다. Gazebo/ROS 실행·다운로드 없음.
 
 규칙
 - 층 바닥판: 윗면 = floor_z, 두께 slab.t. poly 에서 holes 를 뺀 직교 다각형을 직사각형으로 나눈다.
 - 벽: a->b 중심선, 두께 t, 높이 h, 양 끝을 t/2 늘려 모서리를 닫는다. 문은 s(=a 에서 문 가운데까지
   거리) · w · h 로 틈을 내고, 문 높이 위는 상인방 상자로 남긴다.
-- 장애물: box [cx, cy, w(x), d(y), h] + yaw, 층 바닥에서 시작.
+- 장애물: box [cx, cy, w(x), d(y), h] + yaw, 층 바닥에서 시작. collision 배열(rev 6)이 있으면 box 대신
+  그 원소가 충돌이자 그림: {box: [cx, cy, w, d, h], z0?, yaw?} 상자 · {cyl: [cx, cy, r, h], z0?} 원기둥.
+  z0 = 층 바닥에서 띄운 높이(m). 원기둥은 SDF <cylinder> · MJCF cylinder.
 - 계단: 디딤 한 단마다 상자. 상자는 단 윗면에서 계단이 시작하는 층 바닥(floor_z)까지 채운 통짜라
   단 밑이 지도에서 막힌다(계단참도 같음). 단, 상자 가운데가 그 층 바닥판 구멍 위면(아래층 계단 위)
   두께 step_h 로만 두어 아래층 계단의 머리 공간을 막지 않는다. 첫 줄은 start(첫 단 앞 모서리 가운데)에서 yaw 방향으로
@@ -36,7 +39,7 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import minimum_filter
 
-from .collision_map import generate
+from .collision_map import CYLINDER_SECTIONS, generate
 
 ROOT = Path(__file__).resolve().parents[3]
 WORLDS = ROOT / 'apps/simmgr/worlds'
@@ -164,7 +167,9 @@ class World:
         ET.SubElement(sun, 'direction').text = '-0.45 0.4 -0.75'
         self.model = None
         self.names = set()
-        self.boxes = []  # (이름, 가운데, 크기, yaw, 종류) · SDF 와 MJCF 가 같은 목록을 쓴다
+        # (모양, 이름, 가운데, 크기, yaw, 종류) · SDF 와 MJCF 가 같은 목록을 쓴다.
+        # 크기: box = (x, y, z) 전체 길이, cylinder = (반지름, 높이).
+        self.shapes = []
 
     def lamp(self, name, x, y, z):
         light = ET.SubElement(self.world, 'light', type='point', name=name)
@@ -181,23 +186,35 @@ class World:
         ET.SubElement(self.model, 'static').text = 'true'
 
     def box(self, name, centre, size, yaw=0.0, kind='wall'):
-        if name in self.names:
-            raise ValueError(f'duplicate link name {name}')
-        if min(size) <= 1e-9:
-            raise ValueError(f'empty box {name}')
-        self.names.add(name)
         k = quarter(yaw)
         if k is not None:
             # 직각 회전은 크기 축을 바꾼 yaw 0 상자로 쓴다(지도·충돌이 축에 정확히 맞게).
             size = (size[1], size[0], size[2]) if k % 2 else tuple(size)
             yaw = 0.0
-        self.boxes.append((name, tuple(centre), tuple(size), yaw, kind))
+        self.link('box', name, centre, size, yaw, kind)
+
+    def cylinder(self, name, centre, radius, height, kind):
+        self.link('cylinder', name, centre, (radius, height), 0.0, kind)
+
+    def link(self, shape, name, centre, size, yaw, kind):
+        if name in self.names:
+            raise ValueError(f'duplicate link name {name}')
+        if not all(math.isfinite(v) for v in (*centre, *size, yaw)):
+            raise ValueError(f'non-finite {shape} {name}')
+        if min(size) <= 1e-9:
+            raise ValueError(f'empty {shape} {name}')
+        self.names.add(name)
+        self.shapes.append((shape, name, tuple(centre), tuple(size), yaw, kind))
         link = ET.SubElement(self.model, 'link', name=name)
         ET.SubElement(link, 'pose').text = ' '.join(num(v) for v in (*centre, 0, 0, yaw))
         for tag in ('collision', 'visual'):
             part = ET.SubElement(link, tag, name=tag[0])
-            geometry = ET.SubElement(ET.SubElement(part, 'geometry'), 'box')
-            ET.SubElement(geometry, 'size').text = ' '.join(num(v) for v in size)
+            geometry = ET.SubElement(ET.SubElement(part, 'geometry'), shape)
+            if shape == 'box':
+                ET.SubElement(geometry, 'size').text = ' '.join(num(v) for v in size)
+            else:
+                ET.SubElement(geometry, 'radius').text = num(size[0])
+                ET.SubElement(geometry, 'length').text = num(size[1])
             if tag == 'visual':
                 material = ET.SubElement(part, 'material')
                 colour = COLORS.get(kind, COLORS['cabinet'])
@@ -290,6 +307,34 @@ def add_stairs(world, stair, floor, to_floor):
               (stair['landing_d'], span_hi - span_lo), 'landing')
 
 
+def add_collision(world, floor, obstacle):
+    """장애물 collision 배열(rev 6): 있으면 box 대신 이것이 충돌이자 그림이다(box · kind 는 배치 그림용, kind 는 색).
+    원소 {box: [cx, cy, w, d, h], z0?, yaw?} 또는 {cyl: [cx, cy, r, h], z0?}. 좌표는 층 좌표, z0 = 층 바닥에서 띄운 m."""
+    z0 = floor['floor_z']
+    items = obstacle['collision']
+    if not isinstance(items, list) or not items:
+        raise ValueError(f'obstacle {obstacle["id"]}: collision must be a nonempty list')
+    for j, item in enumerate(items):
+        name = f'{floor["floor_id"]}_{obstacle["id"]}_c{j}'
+        if not isinstance(item, dict) or len({'box', 'cyl'} & set(item)) != 1 or set(item) - {'box', 'cyl', 'z0', 'yaw'}:
+            raise ValueError(f'{name}: collision item needs exactly one of box/cyl (+ z0, yaw)')
+        lift = item.get('z0', 0.0)
+        if not isinstance(lift, (int, float)) or not math.isfinite(lift) or lift < 0:
+            raise ValueError(f'{name}: z0 must be finite and >= 0')
+        if 'box' in item:
+            if len(item['box']) != 5:
+                raise ValueError(f'{name}: box needs [cx, cy, w, d, h]')
+            cx, cy, w, d, h = item['box']
+            world.box(name, (cx, cy, z0 + lift + h / 2), (w, d, h), item.get('yaw', 0.0), obstacle['kind'])
+        else:
+            if len(item['cyl']) != 4 or 'yaw' in item:
+                raise ValueError(f'{name}: cyl needs [cx, cy, r, h] and no yaw')
+            cx, cy, r, h = item['cyl']
+            if r <= 0 or h <= 0:
+                raise ValueError(f'{name}: cylinder r, h must be positive')
+            world.cylinder(name, (cx, cy, z0 + lift + h / 2), r, h, obstacle['kind'])
+
+
 def compose(layout_path):
     """배치 JSON -> (자료, World). SDF · MJCF · 앱 장면이 모두 이 상자 목록에서 나온다."""
     layout_path = Path(layout_path)
@@ -332,6 +377,9 @@ def compose(layout_path):
                           ((x0 + x1) / 2, (y0 + y1) / 2, bottom + cover['t'] / 2),
                           (x1 - x0, y1 - y0, cover['t']), 0.0, 'slab')
         for obstacle in floor['obstacles']:
+            if 'collision' in obstacle:
+                add_collision(world, floor, obstacle)
+                continue
             cx, cy, w, d, h = obstacle['box']
             world.box(f'{floor["floor_id"]}_{obstacle["id"]}', (cx, cy, z0 + h / 2), (w, d, h),
                       obstacle.get('yaw', 0.0), obstacle['kind'])
@@ -365,12 +413,13 @@ def spawns(data):
 
 
 def mjcf(world, model):
-    """World 상자 목록 -> MuJoCo 정적 geom(box, group 1). 크기는 반폭, quat = w x y z."""
+    """World 모양 목록 -> MuJoCo 정적 geom(box · cylinder, group 1). box 크기는 반폭, cylinder 는 (r, 반높이), quat = w x y z."""
     root = ET.Element('mujoco', model=model)
     body = ET.SubElement(root, 'worldbody')
-    for name, centre, size, yaw, kind in world.boxes:
-        ET.SubElement(body, 'geom', name=name, group='1', type='box',
-                      size=' '.join(num(v / 2) for v in size), pos=' '.join(num(v) for v in centre),
+    for shape, name, centre, size, yaw, kind in world.shapes:
+        half = [v / 2 for v in size] if shape == 'box' else [size[0], size[1] / 2]
+        ET.SubElement(body, 'geom', name=name, group='1', type=shape,
+                      size=' '.join(num(v) for v in half), pos=' '.join(num(v) for v in centre),
                       quat=' '.join(num(v) for v in (math.cos(yaw / 2), 0, 0, math.sin(yaw / 2))))
     ET.indent(root)
     return ET.ElementTree(root)
@@ -385,11 +434,34 @@ def box_mesh(centre, size, yaw):
     return vertices, faces
 
 
-def batch(boxes):
-    """상자를 색마다 한 메시로(폰 그리기 횟수 줄이기). mobile/scripts/factory-one.py batch 와 같은 꼴."""
+def cylinder_mesh(centre, radius, height):
+    """collision_map 과 같은 CYLINDER_SECTIONS 각 기둥(위 · 아래 뚜껑 포함)."""
+    n = CYLINDER_SECTIONS
+    a = np.arange(n) * 2 * math.pi / n
+    ring = np.stack([np.cos(a) * radius, np.sin(a) * radius], axis=1)
+    vertices = np.concatenate([np.c_[ring, np.full(n, -height / 2)], np.c_[ring, np.full(n, height / 2)],
+                               [[0, 0, -height / 2], [0, 0, height / 2]]]) + centre
+    faces = []
+    for i in range(n):
+        j = (i + 1) % n
+        faces += [[i, j, n + j], [i, n + j, n + i], [2 * n, j, i], [2 * n + 1, n + i, n + j]]
+    return vertices, np.array(faces)
+
+
+def mesh_of(shape, centre, size, yaw):
+    return box_mesh(centre, size, yaw) if shape == 'box' else cylinder_mesh(centre, *size)
+
+
+def zspan(shape, centre, size):
+    h = size[2] if shape == 'box' else size[1]
+    return centre[2] - h / 2, centre[2] + h / 2
+
+
+def batch(shapes):
+    """모양을 색마다 한 메시로(폰 그리기 횟수 줄이기). mobile/scripts/factory-one.py batch 와 같은 꼴."""
     groups = {}
-    for name, centre, size, yaw, kind in boxes:
-        groups.setdefault(COLORS.get(kind, COLORS['cabinet']), []).append(box_mesh(centre, size, yaw))
+    for shape, name, centre, size, yaw, kind in shapes:
+        groups.setdefault(COLORS.get(kind, COLORS['cabinet']), []).append(mesh_of(shape, centre, size, yaw))
     scene = dict(meshes={}, models=[])
     for i, (colour, parts) in enumerate(sorted(groups.items())):
         vv, ff, offset = [], [], 0
@@ -491,7 +563,7 @@ def mobile_assets(layout_path, out, target):
         (target / name).write_text(json.dumps(value, ensure_ascii=False, separators=(',', ':')) + '\n')
 
     mjcf(world, mobile_id).write(target / f'{mobile_id}.xml', encoding='utf-8', xml_declaration=True)
-    scene = batch(world.boxes)
+    scene = batch(world.shapes)
     write('scene.json', scene)
     meta = json.loads((Path(out) / 'maps/metadata.json').read_text())
     starts = spawns(data)
@@ -507,8 +579,8 @@ def mobile_assets(layout_path, out, target):
                                       spawn_z=round(z + SPAWN_BASE, 6),
                                       px=base64.b64encode(pixels.tobytes()).decode()))
         # 위에서 본 사진만 층으로 자른다(그 층 바닥판 ~ 바닥 위 1.8 m). 실제 장면은 모든 층.
-        sliced = [b for b in world.boxes
-                  if b[1][2] - b[2][2] / 2 <= z + 1.8 and b[1][2] + b[2][2] / 2 >= z - .21]
+        sliced = [s for s in world.shapes
+                  if zspan(s[0], s[2], s[3])[0] <= z + 1.8 and zspan(s[0], s[2], s[3])[1] >= z - .21]
         write(f'scene-{fid}.json', batch(sliced))
         short = floor['name'].split(' · ')[0]
         for half in ROUTE_HALVES:
@@ -534,9 +606,10 @@ def mobile_assets(layout_path, out, target):
         draft=True, source=f'{world_id}/layout.json',
         source_sha256=digest(Path(layout_path)), sdf_sha256=digest(Path(out) / f'{world_id}.sdf'),
         generator='apps/simmgr/tools/import_building.py mobile_assets',
-        geoms=len(world.boxes), triangles=12 * len(world.boxes), meshes=len(scene['meshes']),
+        geoms=len(world.shapes), triangles=sum(len(mesh_of(*s[:1], *s[2:5])[1]) for s in world.shapes),
+        meshes=len(scene['meshes']),
         models=len(scene['models']), scene_bytes=(target / 'scene.json').stat().st_size,
-        physics='SDF 와 같은 상자 목록 · 모든 geom 정적 box · 층 높이 그대로 한 월드 · 계단 통짜 상자',
+        physics='SDF 와 같은 모양 목록 · 정적 box/cylinder geom · 층 높이 그대로 한 월드 · 계단 통짜 상자',
         floor_z_semantics='top.json floors.z: 몸 높이 반열린 띠 [아래, 위) · 위층 floor_z 에서 바뀜',
         readiness='draft; MuJoCo 컴파일 · 바닥 광선만 시험; 계단 보행 · 폰 FPS 미확인'))
     return floors
@@ -557,7 +630,8 @@ def register(layout_path, out=None):
         inputs={f'{world_id}.json': hashlib.sha256(raw).hexdigest()},
         copy='layout.json (입력 바이트 그대로)',
         generator='apps/simmgr/tools/import_building.py',
-        conversion=f'모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, 덮개 판(covers), '
+        conversion=f'모든 형상 static box · cylinder. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw '
+                   '(collision 배열이 있으면 그 상자 · z0 · 원기둥), 덮개 판(covers), '
                    '계단 단마다 통짜 상자(구멍 위는 한 단 두께) + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음.'))
     (out / 'NOTICE').write_text(
         f'{data["name"]} ({world_id}) · 초안\n'

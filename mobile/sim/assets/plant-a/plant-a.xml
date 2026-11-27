@@ -31,11 +31,17 @@
     <geom name="l1_P-101" group="1" type="box" size="0.8 0.5 0.6" pos="12 2.6 0.6" quat="1 0 0 0" />
     <geom name="l1_P-102" group="1" type="box" size="0.8 0.5 0.6" pos="17 2.6 0.6" quat="1 0 0 0" />
     <geom name="l1_P-103" group="1" type="box" size="0.8 0.5 0.6" pos="21 2.6 0.6" quat="1 0 0 0" />
-    <geom name="l1_l1-pipe-p" group="1" type="box" size="7.5 0.2 1.3" pos="16 0.6 1.3" quat="1 0 0 0" />
+    <geom name="l1_l1-pipe-p_c0" group="1" type="box" size="0.05 0.05 1.085" pos="8.9 0.6 1.085" quat="1 0 0 0" />
+    <geom name="l1_l1-pipe-p_c1" group="1" type="box" size="0.05 0.05 1.085" pos="11.74 0.6 1.085" quat="1 0 0 0" />
+    <geom name="l1_l1-pipe-p_c2" group="1" type="box" size="0.05 0.05 1.085" pos="14.58 0.6 1.085" quat="1 0 0 0" />
+    <geom name="l1_l1-pipe-p_c3" group="1" type="box" size="0.05 0.05 1.085" pos="17.42 0.6 1.085" quat="1 0 0 0" />
+    <geom name="l1_l1-pipe-p_c4" group="1" type="box" size="0.05 0.05 1.085" pos="20.26 0.6 1.085" quat="1 0 0 0" />
+    <geom name="l1_l1-pipe-p_c5" group="1" type="box" size="0.05 0.05 1.085" pos="23.1 0.6 1.085" quat="1 0 0 0" />
+    <geom name="l1_l1-pipe-p_c6" group="1" type="box" size="7.5 0.2 0.215" pos="16 0.6 2.385" quat="1 0 0 0" />
     <geom name="l1_C-1" group="1" type="box" size="1.3 0.9 0.9" pos="28 3 0.9" quat="1 0 0 0" />
     <geom name="l1_C-2" group="1" type="box" size="1.3 0.9 0.9" pos="33 3 0.9" quat="1 0 0 0" />
-    <geom name="l1_T-1" group="1" type="box" size="1.6 1.6 1.5" pos="11 16 1.5" quat="1 0 0 0" />
-    <geom name="l1_T-2" group="1" type="box" size="1.6 1.6 1.5" pos="17 16 1.5" quat="1 0 0 0" />
+    <geom name="l1_T-1_c0" group="1" type="cylinder" size="1.6 1.5" pos="11 16 1.5" quat="1 0 0 0" />
+    <geom name="l1_T-2_c0" group="1" type="cylinder" size="1.6 1.5" pos="17 16 1.5" quat="1 0 0 0" />
     <geom name="l1_l1-shelf" group="1" type="box" size="0.5 4 1.1" pos="34.8 15 1.1" quat="1 0 0 0" />
     <geom name="l1_l1-bench" group="1" type="box" size="2 0.45 0.45" pos="27 18.8 0.45" quat="1 0 0 0" />
     <geom name="st-1-2_f0_s0" group="1" type="box" size="0.7 0.15 0.0625" pos="1.3 11.35 0.0625" quat="1 0 0 0" />
@@ -95,8 +101,64 @@
     <geom name="l2_MCC-2" group="1" type="box" size="1.8 0.4 1.1" pos="16.8 7 4.475" quat="1 0 0 0" />
     <geom name="l2_BAT-1" group="1" type="box" size="4 0.5 0.9" pos="31 1.2 4.275" quat="1 0 0 0" />
     <geom name="l2_BAT-2" group="1" type="box" size="4 0.5 0.9" pos="31 6.6 4.275" quat="1 0 0 0" />
-    <geom name="l2_l2-rack-1" group="1" type="box" size="13 0.4 1.4" pos="21 13 4.775" quat="1 0 0 0" />
-    <geom name="l2_l2-rack-2" group="1" type="box" size="13 0.4 1.4" pos="21 18 4.775" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c0" group="1" type="box" size="0.03 0.03 0.81" pos="8.03 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c1" group="1" type="box" size="0.03 0.03 0.81" pos="8.03 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c2" group="1" type="box" size="0.03 0.03 0.81" pos="10.0254 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c3" group="1" type="box" size="0.03 0.03 0.81" pos="10.0254 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c4" group="1" type="box" size="0.03 0.03 0.81" pos="12.0208 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c5" group="1" type="box" size="0.03 0.03 0.81" pos="12.0208 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c6" group="1" type="box" size="0.03 0.03 0.81" pos="14.0162 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c7" group="1" type="box" size="0.03 0.03 0.81" pos="14.0162 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c8" group="1" type="box" size="0.03 0.03 0.81" pos="16.0115 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c9" group="1" type="box" size="0.03 0.03 0.81" pos="16.0115 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c10" group="1" type="box" size="0.03 0.03 0.81" pos="18.0069 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c11" group="1" type="box" size="0.03 0.03 0.81" pos="18.0069 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c12" group="1" type="box" size="0.03 0.03 0.81" pos="20.0023 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c13" group="1" type="box" size="0.03 0.03 0.81" pos="20.0023 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c14" group="1" type="box" size="0.03 0.03 0.81" pos="21.9977 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c15" group="1" type="box" size="0.03 0.03 0.81" pos="21.9977 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c16" group="1" type="box" size="0.03 0.03 0.81" pos="23.9931 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c17" group="1" type="box" size="0.03 0.03 0.81" pos="23.9931 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c18" group="1" type="box" size="0.03 0.03 0.81" pos="25.9885 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c19" group="1" type="box" size="0.03 0.03 0.81" pos="25.9885 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c20" group="1" type="box" size="0.03 0.03 0.81" pos="27.9838 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c21" group="1" type="box" size="0.03 0.03 0.81" pos="27.9838 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c22" group="1" type="box" size="0.03 0.03 0.81" pos="29.9792 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c23" group="1" type="box" size="0.03 0.03 0.81" pos="29.9792 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c24" group="1" type="box" size="0.03 0.03 0.81" pos="31.9746 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c25" group="1" type="box" size="0.03 0.03 0.81" pos="31.9746 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c26" group="1" type="box" size="0.03 0.03 0.81" pos="33.97 12.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c27" group="1" type="box" size="0.03 0.03 0.81" pos="33.97 13.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-1_c28" group="1" type="box" size="13 0.4 0.59" pos="21 13 5.585" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c0" group="1" type="box" size="0.03 0.03 0.81" pos="8.03 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c1" group="1" type="box" size="0.03 0.03 0.81" pos="8.03 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c2" group="1" type="box" size="0.03 0.03 0.81" pos="10.0254 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c3" group="1" type="box" size="0.03 0.03 0.81" pos="10.0254 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c4" group="1" type="box" size="0.03 0.03 0.81" pos="12.0208 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c5" group="1" type="box" size="0.03 0.03 0.81" pos="12.0208 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c6" group="1" type="box" size="0.03 0.03 0.81" pos="14.0162 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c7" group="1" type="box" size="0.03 0.03 0.81" pos="14.0162 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c8" group="1" type="box" size="0.03 0.03 0.81" pos="16.0115 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c9" group="1" type="box" size="0.03 0.03 0.81" pos="16.0115 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c10" group="1" type="box" size="0.03 0.03 0.81" pos="18.0069 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c11" group="1" type="box" size="0.03 0.03 0.81" pos="18.0069 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c12" group="1" type="box" size="0.03 0.03 0.81" pos="20.0023 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c13" group="1" type="box" size="0.03 0.03 0.81" pos="20.0023 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c14" group="1" type="box" size="0.03 0.03 0.81" pos="21.9977 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c15" group="1" type="box" size="0.03 0.03 0.81" pos="21.9977 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c16" group="1" type="box" size="0.03 0.03 0.81" pos="23.9931 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c17" group="1" type="box" size="0.03 0.03 0.81" pos="23.9931 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c18" group="1" type="box" size="0.03 0.03 0.81" pos="25.9885 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c19" group="1" type="box" size="0.03 0.03 0.81" pos="25.9885 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c20" group="1" type="box" size="0.03 0.03 0.81" pos="27.9838 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c21" group="1" type="box" size="0.03 0.03 0.81" pos="27.9838 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c22" group="1" type="box" size="0.03 0.03 0.81" pos="29.9792 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c23" group="1" type="box" size="0.03 0.03 0.81" pos="29.9792 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c24" group="1" type="box" size="0.03 0.03 0.81" pos="31.9746 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c25" group="1" type="box" size="0.03 0.03 0.81" pos="31.9746 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c26" group="1" type="box" size="0.03 0.03 0.81" pos="33.97 17.63 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c27" group="1" type="box" size="0.03 0.03 0.81" pos="33.97 18.37 4.185" quat="1 0 0 0" />
+    <geom name="l2_l2-rack-2_c28" group="1" type="box" size="13 0.4 0.59" pos="21 18 5.585" quat="1 0 0 0" />
     <geom name="st-2-3_f0_s0" group="1" type="box" size="0.7 0.15 0.0625" pos="1.3 11.35 3.4375" quat="1 0 0 0" />
     <geom name="st-2-3_f0_s1" group="1" type="box" size="0.7 0.15 0.125" pos="1.3 11.65 3.5" quat="1 0 0 0" />
     <geom name="st-2-3_f0_s2" group="1" type="box" size="0.7 0.15 0.1875" pos="1.3 11.95 3.5625" quat="1 0 0 0" />

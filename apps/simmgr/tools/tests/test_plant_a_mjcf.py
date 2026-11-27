@@ -36,23 +36,31 @@ def test_mobile_assets_regenerate_byte_identical(tmp_path):
 
 
 def sdf_boxes():
+    """SDF link 이름 -> (모양, pose, MJCF 꼴 반크기)."""
     result = {}
     for link in ET.parse(OUT / 'plant_a.sdf').getroot().iter('link'):
         pose = [float(v) for v in link.findtext('pose').split()]
-        size = [float(v) for v in link.findtext('collision/geometry/box/size').split()]
-        result[link.get('name')] = (pose, size)
+        shape = link.find('collision/geometry')[0]
+        if shape.tag == 'box':
+            half = [float(v) / 2 for v in shape.findtext('size').split()]
+        else:
+            half = [float(shape.findtext('radius')), float(shape.findtext('length')) / 2]
+        result[link.get('name')] = (shape.tag, pose, half)
     return result
 
 
-def test_every_mjcf_geom_is_the_sdf_collision_box():
+def test_every_mjcf_geom_is_the_sdf_collision_shape():
     sdf = sdf_boxes()
     geoms = list(ET.parse(TARGET / 'plant-a.xml').getroot().find('worldbody'))
     assert len(geoms) == len(sdf) == sum(1 for _ in ET.parse(OUT / 'plant_a.sdf').getroot().iter('collision'))
     assert {g.get('name') for g in geoms} == set(sdf)
+    # 배치 rev 6: 탱크 둘은 원기둥, 선반 · 배관대는 기둥 + 띄운 덩어리.
+    assert sorted(n for n, (shape, _, _) in sdf.items() if shape == 'cylinder') == ['l1_T-1_c0', 'l1_T-2_c0']
+    assert sum(n.startswith(('l2_l2-rack-', 'l1_l1-pipe-p_')) for n in sdf) == 29 * 2 + 7
     for g in geoms:
-        assert g.tag == 'geom' and g.get('type') == 'box' and g.get('group') == '1'
-        pose, size = sdf[g.get('name')]
-        assert [2 * float(v) for v in g.get('size').split()] == pytest.approx(size, abs=1e-6)
+        shape, pose, half = sdf[g.get('name')]
+        assert g.tag == 'geom' and g.get('type') == shape and g.get('group') == '1'
+        assert [float(v) for v in g.get('size').split()] == pytest.approx(half, abs=1e-6)
         assert [float(v) for v in g.get('pos').split()] == pytest.approx(pose[:3], abs=1e-6)
         yaw = pose[5]
         assert [float(v) for v in g.get('quat').split()] == pytest.approx(

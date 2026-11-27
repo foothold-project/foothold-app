@@ -1,5 +1,5 @@
 공정동 A (plant_a) · 초안
-출처: app-design-lx 세션 배치 JSON rev 3c · MCC-2 x 15~18.6 (전기실 문 앞 비움) (schema foothold_building/1).
+출처: app-design-lx 세션 배치 JSON rev 6 · 충돌을 그림과 같게 (팀장 05:12 · 결정 d8): 배관 받침 l2-rack-1/2 · 배관대 l1-pipe-p 는 collision = 기둥 상자 + z0 위 덩어리 (아래 트임), 탱크 T-1/2 는 collision = 원기둥. collision 이 있으면 box 대신 충돌로 쓰고 box · kind 는 그림용. 계단 밑 막힘은 그대로 (schema foothold_building/1).
 생성: apps/simmgr/tools/import_building.py 가 JSON 에서 만든 정적 상자 월드. 원본 메쉬·텍스처 없음.
 입력 해시는 sources.json, 입력 사본은 layout.json.
 실행 · 보행 · 계단 오르기 · Gazebo/MuJoCo · 센서 미검증. 층 이동은 첫 판 순간 이동(teleport) 전제.

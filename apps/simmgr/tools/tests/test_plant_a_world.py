@@ -64,12 +64,17 @@ def test_l2_stair_hole_is_not_free_floor():
 
 
 def boxes(sdf):
-    """SDF link 이름 -> (가운데 xyz, 크기 xyz). 모든 상자는 yaw 0 으로 쓰인다."""
+    """SDF link 이름 -> (가운데 xyz, 크기 xyz). 모든 상자는 yaw 0 으로 쓰인다. 원기둥(rev 6 탱크)은 감싸는 상자."""
     result = {}
     for link in ET.parse(sdf).getroot().iter('link'):
         pose = [float(v) for v in link.findtext('pose').split()]
         assert pose[3:] == [0, 0, 0], link.get('name')
-        size = [float(v) for v in link.findtext('collision/geometry/box/size').split()]
+        cylinder = link.find('collision/geometry/cylinder')
+        if cylinder is not None:
+            r = float(cylinder.findtext('radius'))
+            size = [2 * r, 2 * r, float(cylinder.findtext('length'))]
+        else:
+            size = [float(v) for v in link.findtext('collision/geometry/box/size').split()]
         result[link.get('name')] = (pose[:3], size)
     return result
 
