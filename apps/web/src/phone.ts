@@ -520,7 +520,7 @@ export const sim = {
       if (ra > 0) S.retryAt = now() + ra * 1000;
       // 403 WEB_SIM_ONLY = 서버가 이 로봇에 웹 시뮬 출입증을 주지 않음(simulation 꺼짐). 서버 문구 그대로, 화면은 «다시 연결»을 내지 않는다(code 403)
       if (e instanceof ApiFail && e.status === 403 && e.code === 'WEB_SIM_ONLY') return setLink({ at: 'closed', code: 403, why: e.message });
-      const plain = S.real && e instanceof ApiFail ? e.code === 'ADMIN_NO_REAL_CONTROL' ? e.message : ra > 0 ? `요청이 많습니다 — ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
+      const plain = S.real && e instanceof ApiFail ? ra > 0 ? `요청이 많습니다 — ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
       setLink({ at: 'closed', why: plain ?? `출입증을 받지 못했습니다. ${message(e)}` });
       return;
     }

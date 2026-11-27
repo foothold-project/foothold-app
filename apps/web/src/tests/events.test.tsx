@@ -10,7 +10,6 @@ import { tabFromHash } from '../menu';
 import { NOTE_MS } from '../api';
 import { BELL_MS, stamp, when } from '../screens/history';
 import { FakeWS } from './fakeWs';
-import { adminNoStop } from './adminStop';
 import { fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,7 +88,6 @@ const rows = () => [...card('사건').querySelectorAll('tbody tr')].map((l) => l
 const alertText = () => [...box.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ');
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 */
 const stopOk = () => {
-  if (adminNoStop(box)) return true;
   const s = $<HTMLButtonElement>('[data-stop]');
   expect(s).toBeTruthy();
   expect(s!.disabled).toBe(false);
@@ -97,7 +95,7 @@ const stopOk = () => {
 };
 /** STOP 을 실제로 눌러 정지 요청이 실시간 연결로 나가는지까지(R2). PC 기록 탭처럼 대상이 없으면 «정지할 로봇 고르기»에서 로봇을 골라 정지 */
 const stopSends = async () => {
-  if (stopOk()) return;
+  stopOk();
   act(() => FakeWS.last.open());
   await click($('[data-stop]'));
   const pick = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
@@ -435,7 +433,7 @@ describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
     expect(card('알림에서 연 기록').textContent).toContain('알림이 가리킨 계정 사건');
     expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['전체']);
     expect($('[aria-label="로봇 없음"]')).toBeNull();
-    stopOk();
+    expect($('[data-stop]')).toBeNull();   // 로봇 0대 · 정지할 로봇 없음(총괄도 같음)
   });
   it('폰: 담당 로봇 0대면 로봇 필터 없이 서버가 주는 내 기록, 알림 링크도', async () => {
     serve(signedIn(PARK, { ...none,
