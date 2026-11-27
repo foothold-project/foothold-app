@@ -348,7 +348,7 @@ describe('시나리오 실행 — 비밀값 위치·다른 화면', () => {
     await recv(a, phoneState({ ...held, latched: false, run: runOf(OTHER), holder_type: 'USER', holder_name: '박OO' }));
     expect(visible()).toContain('다른 화면 (박OO)에서 실행 중입니다 · 일시정지는 조종권을 가진 그 화면에서 · 바로 멈추려면 STOP.');
     await recv(a, phoneState({ ...held, latched: false, run: runOf(OTHER), holder_type: 'RUN', holder_name: null }));
-    expect(visible()).toContain('예약 임무가 실행 중입니다 · 이 화면에서는 일시정지할 수 없습니다 (서버 준비 중) · 바로 멈추려면 STOP.');
+    expect(visible()).toContain('예약 임무가 실행 중입니다 · 이 화면에서는 일시정지할 수 없습니다 · 바로 멈추려면 STOP.');
     expect(visible()).not.toContain('일시정지는 조종권을 가진 그 화면에서');
     expect(btn('일시정지')).toBeUndefined(); expect(btn('취소')).toBeUndefined();
     const paused = runOf(OTHER, { status: 'PAUSED', wait_reason: 'LINK_LOST' });
@@ -389,7 +389,9 @@ describe('시나리오 실행 — PC 총괄 시뮬', () => {
     expect(runBox.querySelector('[data-sim-scn]')).toBeTruthy();
     expect([...runBox.querySelectorAll('button')].map((b) => b.textContent)).not.toContain('조종권 반납');
     // 실행 중 키 안내(QA R4): 막힘 + 움직이는 키 4개 줄긋기, Space(STOP)는 그대로
-    expect($('[data-sim-keys]')!.textContent).toContain('실행 중 — 키 조종 막힘');
+    expect($('[data-sim-keys]')!.textContent).toContain('실행 중 · 키 조종 막힘');   // 줄표 없음(N3)
+    expect($('[data-sim-tapnote]')!.textContent).toBe('지도 찍어서 이동은 MuJoCo(«시뮬 열기»)만 · 이 시뮬은 키 · 시나리오로');
+    expect(box.textContent).not.toMatch(/—|서버 준비 중|RUN_NOT_ALLOWED/);   // 줄표 · 개발자 말 · 코드 노출 없음(N3 · N4)
     expect(box.querySelectorAll('[data-sim-keys] [data-key-off]')).toHaveLength(4);
     expect($('[data-sim-keys]')!.textContent).toContain('Space 정지');
     expect($('[data-sim-stop-same]')!.textContent).toBe('머리줄 STOP 도 이 시뮬을 멈춥니다');   // 총괄(QA R5)
@@ -411,7 +413,7 @@ describe('시나리오 실행 — PC 총괄 시뮬', () => {
     await recv(a, phoneState({ ...held, latched: false, run: runOf(OTHER), holder_type: 'USER', holder_name: '박OO' }));
     expect(visible()).toContain('다른 화면 (박OO)에서 실행 중입니다 · 일시정지는 조종권을 가진 그 화면에서 · 바로 멈추려면 «시뮬 정지».');
     await recv(a, phoneState({ ...held, latched: false, run: runOf(OTHER), holder_type: 'RUN', holder_name: null }));
-    expect(visible()).toContain('예약 임무가 실행 중입니다 · 이 화면에서는 일시정지할 수 없습니다 (서버 준비 중) · 바로 멈추려면 «시뮬 정지».');
+    expect(visible()).toContain('예약 임무가 실행 중입니다 · 이 화면에서는 일시정지할 수 없습니다 · 바로 멈추려면 «시뮬 정지».');
     expect(visible()).not.toContain('일시정지는 조종권을 가진 그 화면에서');
     expect($('[data-run-acts]')).toBeNull();
     expect($<HTMLButtonElement>('[data-sim-stop-btn]')!.disabled).toBe(false);

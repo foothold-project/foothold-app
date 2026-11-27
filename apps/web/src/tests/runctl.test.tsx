@@ -102,7 +102,7 @@ describe('임무 실행 단추', () => {
     const w = mount({ own: true, r: run('MOVING'), robot: { ...R, sim: false } });
     expect(box.querySelector('[data-run-main]')).toBeNull();
     expect(btns()).toEqual([]);
-    expect($('[data-run-gate]')!.textContent).toBe('실기는 화면에서 임무 실행을 아직 받지 않습니다 (RUN_NOT_ALLOWED · 현장 승인 · 서버 조종 켬 전). 멈추려면 STOP.');
+    expect($('[data-run-gate]')!.textContent).toBe('실기는 아직 화면에서 임무를 실행할 수 없습니다 · 현장 승인과 서버 조종이 켜진 뒤에 됩니다. 멈추려면 STOP.');   // 코드 이름 노출 없음(N4)
     expect(runMsgs(w)).toEqual([]);
   });
   it('일시정지 → «이어 가기» · run.control resume', () => {
