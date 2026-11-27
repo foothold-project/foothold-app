@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "RobotAvailability": {
+      "additionalProperties": false,
+      "properties": {
+        "battery_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Battery Pct"
+        },
+        "busy_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Busy Label"
+        },
+        "busy_slot_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Busy Slot Id"
+        },
+        "busy_until": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Busy Until"
+        },
+        "demo": {
+          "title": "Demo",
+          "type": "boolean"
+        },
+        "location_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Location Label"
+        },
+        "robot_id": {
+          "format": "uuid",
+          "title": "Robot Id",
+          "type": "string"
+        },
+        "robot_name": {
+          "title": "Robot Name",
+          "type": "string"
+        },
+        "sim": {
+          "title": "Sim",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "FREE",
+            "BUSY",
+            "CHARGING",
+            "OFFLINE"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "robot_id",
+        "robot_name",
+        "state",
+        "busy_until",
+        "busy_slot_id",
+        "busy_label",
+        "battery_pct",
+        "demo",
+        "sim",
+        "location_label"
+      ],
+      "title": "RobotAvailability",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/RobotAvailabilityList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/RobotAvailability"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "RobotAvailabilityList",
+  "type": "object"
+}

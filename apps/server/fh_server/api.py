@@ -639,6 +639,10 @@ def create_app(settings: Settings | None = None):
             event(db, actor.org_id, 'SESSION_REVOKED', actor.id,
                   {'session_id': str(session_id)})
 
+    # /robots/{robot_id} 보다 먼저 등록해야 /robots/availability 가 로봇 id 로 읽히지 않는다.
+    from . import schedule
+    schedule.install(app, DB, Identity, fail)
+
     @app.get(prefix + '/robots', response_model=C.RobotList)
     def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] = 'mine',
                limit: Limit = 50, cursor: str | None = None):

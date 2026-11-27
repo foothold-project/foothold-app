@@ -314,6 +314,57 @@
       "title": "ScreenCmd",
       "type": "object"
     },
+    "ScreenGait": {
+      "additionalProperties": false,
+      "properties": {
+        "gait": {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "title": "Gait",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot": {
+          "format": "uuid",
+          "title": "Robot",
+          "type": "string"
+        },
+        "t": {
+          "const": "gait",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "lease_id",
+        "gait"
+      ],
+      "title": "ScreenGait",
+      "type": "object"
+    },
     "ScreenLease": {
       "additionalProperties": false,
       "properties": {
@@ -584,6 +635,7 @@
     "mapping": {
       "action": "#/$defs/ScreenAction",
       "cmd": "#/$defs/ScreenCmd",
+      "gait": "#/$defs/ScreenGait",
       "hidden": "#/$defs/ScreenLease",
       "lease.cancel": "#/$defs/ScreenLease",
       "lease.release": "#/$defs/ScreenLease",
@@ -622,6 +674,9 @@
     },
     {
       "$ref": "#/$defs/ScreenAction"
+    },
+    {
+      "$ref": "#/$defs/ScreenGait"
     }
   ]
 }
