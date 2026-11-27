@@ -174,11 +174,10 @@ describe('역할 전환', () => {
   });
 });
 
-// 10-25: 총괄은 실기 STOP 이 없다 — 실기만 있는 목록이면 총괄 화면에 STOP 0개(상태 띠는 그대로). 운영 관리자는 그대로 1개
+// 11/28: 총괄도 실기 STOP(서버 #544) · 모든 역할 모든 탭에 STOP 1개 + 상태 띠(예전 «총괄·실기만 0개» 예외 없음)
 describe('STOP 상시 표시', () => {
-  const one = (phone: boolean, where: string, admin = false) => {
+  const one = (phone: boolean, where: string) => {
     const s = $$('[aria-label="비상 정지"]');
-    if (admin) { expect(s, where).toHaveLength(0); expect($('[data-band][role="status"]'), where).not.toBeNull(); return; }
     expect(s, where).toHaveLength(1);
     expect(s[0].closest('header'), where).not.toBeNull();
     expect($('header').lastElementChild, where).toBe(s[0]);
@@ -186,13 +185,13 @@ describe('STOP 상시 표시', () => {
     expect(parseInt(s[0].style.minHeight), where).toBeGreaterThanOrEqual(phone ? 64 : 44);
     expect($('[data-band][role="status"]'), where).not.toBeNull();
   };
-  for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개'} + 상태 띠 자리`, () => {
+  for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP 1개 + 상태 띠 자리`, () => {
     mount(false, u.id);
-    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id, u.role === 'ORG_ADMIN'); }
+    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id); }
   });
-  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개(64px)'} + 상태 띠 자리`, () => {
+  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP 1개(64px) + 상태 띠 자리`, () => {
     mount(true, u.id);
-    eachPhoneScreen(u.id, (where) => one(true, where, u.role === 'ORG_ADMIN'));
+    eachPhoneScreen(u.id, (where) => one(true, where));
   });
   it('STOP 을 누르면 실시간 연결로 보내고, 서버가 받으면 띠에 «정지 요청됨»', () => {
     mount(false, 'u-lee');

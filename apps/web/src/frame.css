@@ -258,3 +258,13 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .pair-cols form.fh-row{align-items:flex-end}
 .pair-cols [data-pair-code]{width:9em;letter-spacing:.2em}
 .pair-pc .pair-one{max-width:30rem}
+/* 붙이기 단계 막대(U2-01): 세 칸 중 지난 · 지금 칸을 채움 + «n / 3» */
+.pair-steps{display:inline-flex;align-items:center;gap:4px;margin-left:10px}
+.pair-steps i{width:22px;height:4px;border-radius:2px;background:var(--line)}
+.pair-steps i[data-on]{background:var(--accent)}
+.pair-steps b{margin-left:6px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* 확인 칸(u2_2): 이름 · 값 두 줄 */
+.pair-check{display:grid;gap:6px;margin:0}
+.pair-check>div{display:flex;gap:12px;align-items:baseline}
+.pair-check dt{min-width:5em;color:var(--muted);font-size:13px}
+.pair-check dd{margin:0;font-weight:700;overflow-wrap:anywhere}

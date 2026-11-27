@@ -1089,7 +1089,7 @@ PNG SHA·좌표·크기·월드/층을 대조하여 `map_proofs`를 준다. HUMA
 `FH_SERVER_DRIVE_ENABLED=1`은 전체 스위치를 켠다. 이 env가 없을 때만 기존
 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 읽으며, 명시0은 목록보다 우선해 닫는다.
 wildcard는 거부한다. 담당 넘기기·연결 끊기·재연결은 STOP·잠금·조종권 회수로
-이어지고 자동 표식은 조종을 재개하지 않는다. 총괄의 `ADMIN_NO_REAL_CONTROL`은 유지한다.
+이어지고 자동 표식은 조종을 재개하지 않는다. 총괄의 `ADMIN_NO_REAL_CONTROL`은 팀장 11/28 「총괄은 모든 권한」으로 폐지했다. 총괄도 실기 조종·정지·로봇 붙이기를 하고, 위 안전 관문은 총괄에게도 같다.
 
 격리 PostgreSQL·가짜 WS 검증과 변이 시험:
 

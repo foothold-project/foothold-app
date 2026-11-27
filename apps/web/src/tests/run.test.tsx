@@ -1,6 +1,6 @@
 // 시나리오 실행 화면(05 §13.10 «웹/폰 화면» 행) — fetch = 가짜 서버, WebSocket = 가짜 에이전트(FakeWS). 실제 시뮬·Nav2 기동 0.
 // 통과 기준: 능력 알림 있을 때만 실행, 상태별 쉬운 말, 일시정지/이어서/취소, 이어서 비밀값은 이 화면 메모리에만, 다른 화면 이어서 없음,
-// 실행 중 수동 조종 0(cmd 송신 0)·STOP/시뮬 정지 늘 보이고 눌림, 총괄 화면 실기 STOP 0.
+// 실행 중 수동 조종 0(cmd 송신 0)·STOP/시뮬 정지 늘 보이고 눌림. 총괄도 실기 STOP(11/28).
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
