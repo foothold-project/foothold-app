@@ -5,7 +5,7 @@
 // 11-20 RB-PHONE-DIRECT-LOOK(참고 = Unitree 앱 «느낌»만): 큰 화면 = 라이다 3D(lidar3d.tsx) 또는 카메라, 왼쪽 위 작은 창 = 다른 쪽(눌러 바꿈).
 // 위 얇은 줄(나가기·상태 알약) · 오른쪽 접히는 안내 카드 · 아래 가운데 반투명 띠(조종 시작·잠금 해제·다시 연결) · 아래 양 끝 조이스틱. 모양·자리만 — 명령·조종권 흐름 그대로
 import { useEffect, useRef, useState } from 'react';
-import { RESULT, UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
+import { RESULT, SAFE_NOTICE, UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
 import { Stick } from './drive';
 import { inputGen } from './rt';
 import { Notes, Video, stopText, useSlot, useTick, why } from './simdrive';
@@ -92,8 +92,9 @@ export function RealDrive() {
     leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     l.at === 'closed' && l.why,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
+    SAFE_NOTICE.includes(l.notice) && l.notice,   // 정지 확인 실패 · 다른 사람 조종 중(등급 2 · 검수 #548 R1)
   ].filter(Boolean) as string[];
-  const rest = [l.notice, mine && l.clipped && CLIP].filter(Boolean) as string[];   // 확인 · 알림(등급 3~5) = 한 칸
+  const rest = [!SAFE_NOTICE.includes(l.notice) && l.notice, mine && l.clipped && CLIP].filter(Boolean) as string[];   // 확인 · 알림(등급 3~5) = 한 칸
   const slot = useSlot(safe, rest, [Object.values(RESULT).includes(l.notice) ? l.notice : '', mine && l.clipped ? CLIP : ''].filter(Boolean));   // 확인 2 초
   const acts = [
     leaving === 'fail' && <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,

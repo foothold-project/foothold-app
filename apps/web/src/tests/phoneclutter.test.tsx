@@ -200,6 +200,26 @@ describe('시뮬 조종 화면 · 한 사실은 한 곳 · 힌트', () => {
     expect($('[data-notes-more]')!.textContent).toBe('+1 더 보기');
   });
 
+  // 접힌 채(펼치지 않고) 보이는 글. 연결 끊김 · 정지 확인 실패 · 다른 사람 조종 중 = 등급 2(결정 1-4) → «+N» 뒤로 숨지 않는다(검수 #548 R1)
+  const RUN = { t: 'run.update', run_id: 'r-1', status: 'RUNNING', step: 1, progress: { done: 1, total: 3 }, wait_reason: null, fail_code: null };
+  it('실행 중 화면 연결이 끊기면 «화면 연결이 끊겼습니다» 줄이 접힌 채 보인다(실행 안내 뒤 «+N» 에 숨지 않음)', async () => {
+    const a = await simDrive();
+    act(() => a.recv(RUN)); await flush();
+    act(() => a.drop(1006)); await flush();
+    expect($('[data-notes-more][aria-expanded="true"]')).toBeNull();
+    expect(slot('[data-sim-card]').some((t) => t.startsWith('화면 연결이 끊겼습니다'))).toBe(true);
+  });
+  it.each([['LEASE_HELD', '다른 사람이 조종 중입니다.'], ['STOP_CONFIRM_FAILED', '로봇 정지를 확인하지 못해 조종권을 받지 못했습니다.']])('조종 시작 거절 %s 는 실행 안내가 있어도 접힌 채 보인다', async (code, text) => {
+    const a = await simDrive();
+    act(() => a.recv({ ...RUN, status: 'FAILED', fail_code: 'LOCALIZATION_LOST' })); await flush();
+    a.auto = ((m: Msg) => (['lease.take', 'hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
+    await click(btn('조종 시작'));   // 답은 보낸 뒤 따로(같은 틱 답이면 take() 가 안내를 비움)
+    const q = a.of('lease.take').pop()!;
+    act(() => a.recv({ t: 'reply', id: q.id, ok: false, error: { code, message: '' } })); await flush();
+    expect($('[data-notes-more][aria-expanded="true"]')).toBeNull();
+    expect(slot('[data-sim-card]')).toContain(text);
+    expect($('[data-notes-more]')).toBeTruthy();   // 접힌 칸은 실제로 있음(시험이 펼친 상태를 보는 것이 아님)
+  });
   it('영상 자리 글에 내부 규약 이름(media/1)이 보이지 않는다(실기와 같은 거르기)', async () => {
     await simDrive();
     const stage = $('[data-sim-drive] .dv-stage')!.textContent!;

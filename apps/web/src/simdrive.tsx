@@ -4,7 +4,7 @@ import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, RESULT, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, RESULT, RUN_END, SAFE_NOTICE, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { inputGen, metaCut } from './rt';
@@ -36,6 +36,8 @@ export const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSe
 /** on 인 동안 1 s 마다 다시 그림(경과·남은 시간) */
 /** 폰 알림 칸(PHONE-CLUTTER 11-28 1-2 · 1-4 · 결정 (가)): 안전 글(safe = 정지 · 반납 · 출입증 · 끊김 까닭 등 등급 1 · 2)은 모두 맨 위에 두고 접지 않는다.
  *  임무 · 확인 · 힌트(rest = 등급 3~5)는 그 아래 한 칸, 나머지는 «+N» 을 눌러 펼친다. brief 에 든 글(확인)은 2 초 뒤 뺀다(사라졌다 다시 오면 처음부터) */
+/** run.tsx runView 의 «화면 연결이 끊겼습니다 …» 줄(실행 안내 중 등급 2) */
+const linkLost = (t: string) => t.startsWith('화면 연결이 끊겼습니다');
 export function useSlot(safe: string[], rest: string[], brief: string[] = []) {
   const [gone, setGone] = useState<string[]>([]), [open, setOpen] = useState(false), timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const all = [...safe, ...rest], key = all.filter((t) => brief.includes(t)).join('\n');
@@ -363,11 +365,13 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
       : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
     // 영상 자리 글을 안내 줄로 옮긴 것(알림 아님) · 영상 칸처럼 늘 보임
     hideCam && (cam === 'rgb' && !media.has('rgb') ? (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam] : relink(cam) && why(media.get()[cam], cam)),
+    ...run.notes.filter(linkLost),   // 실행 중 화면 연결 끊김(등급 2 · 다시 연결하는 동안 끊겼다는 유일한 안내 · 검수 #548 R1)
+    SAFE_NOTICE.includes(l.notice) && l.notice,
   ].filter(Boolean) as string[];
   const rest = [   // 임무 · 확인 · 힌트(등급 3~5) = 한 칸
-    ...run.notes,
+    ...run.notes.filter((t) => !linkLost(t)),
     timeNotice(runtimeLeft),
-    l.notice,
+    !SAFE_NOTICE.includes(l.notice) && l.notice,
     unsupported,
     fm.notice,
     !unsupported && mine && clipNote && `명령 범위 조정 — 허용 범위로 잘랐습니다.${smooth || !can.spin ? '' : ' 끝까지 밀어야 움직입니다.'}`,
