@@ -102,3 +102,55 @@ describe('U11-02 회색 단추 까닭 한 줄', () => {
     expect(box.querySelector('[data-terrain-save-why]')).toBeNull();
   });
 });
+
+describe('why3 (#560 · #562 검수 후속)', () => {
+  const me2 = (role: string) => ({ id: 'u1', username: 'u1', display_name: '김OO', role, must_change_password: false });
+  it('W9 지형: 서버 사본이 휴지통에 있으면 저장이 회색이고 «휴지통에서 되돌린 뒤» 까닭이 단추 옆에', async () => {
+    const spec = { schema: 'fh_custom_terrain/1', id: 'ter-w9', name: '옛 지형', size: [10, 8], spawn: [0, 0, 0], items: [] };
+    localStorage.setItem('fh.customTerrain.ter-w9', JSON.stringify(spec)); localStorage.setItem('fh.customTerrainLast', 'ter-w9');
+    vi.spyOn(api, 'terrains').mockResolvedValue([{ spec, version: 1, floor_id: null, map_version_id: null, archived_at: '2026-11-27T05:00:00Z', updated_at: '2026-11-27T05:00:00Z' }] as never);
+    vi.spyOn(api, 'me').mockResolvedValue(me2('ORG_ADMIN') as never);
+    await render(<Terrain />); await flush();
+    const save = box.querySelector<HTMLButtonElement>('[data-terrain-save]')!;
+    expect(save.disabled).toBe(true);
+    const why = box.querySelector('[data-terrain-save-why]');
+    expect(why?.textContent).toBe('휴지통에서 되돌린 뒤 저장할 수 있습니다');
+    expect(save.getAttribute('aria-describedby')).toBe(why?.id);
+  });
+  it('저장된 지도 «다시 시도»: 누르면 옛 오류 줄을 지우고 «다시 받는 중…», 또 실패하면 새 오류 줄', async () => {
+    let n = 0, no: (e: unknown) => void = () => {};
+    vi.spyOn(api, 'slamBundle').mockImplementation(() => (++n === 1 ? Promise.reject(new ApiFail(500, 'INTERNAL', '첫 오류')) : new Promise((_, r) => { no = r; })));
+    vi.spyOn(api, 'slamBundleFile').mockImplementation(() => new Promise(() => {}));
+    await render(<SlamSavedView robot="r-a" session="s1" />); await flush();
+    expect(box.querySelector('[role="alert"]')?.textContent).toContain('첫 오류');
+    await act(async () => { btn('다시 시도')!.click(); }); await flush();
+    expect(box.querySelector('[role="alert"]')).toBeNull();
+    expect(box.querySelector('[role="status"]')?.textContent).toBe('지도 자료를 다시 받는 중…');
+    await act(async () => { no(new ApiFail(503, 'UNAVAILABLE', '둘째 오류')); }); await flush();
+    expect(box.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(box.querySelector('[role="alert"]')?.textContent).toContain('둘째 오류');
+    expect(box.querySelector('[role="alert"]')?.textContent).not.toContain('첫 오류');
+  });
+  it('처음 받는 동안은 «받는 중…» (다시가 아님)', async () => {
+    vi.spyOn(api, 'slamBundle').mockImplementation(() => new Promise(() => {}));
+    vi.spyOn(api, 'slamBundleFile').mockImplementation(() => new Promise(() => {}));
+    await render(<SlamSavedView robot="r-a" session="s1" />); await flush();
+    expect(box.querySelector('[role="status"]')?.textContent).toBe('지도 자료를 받는 중…');
+  });
+  it('L2 저장된 지도의 3D 칸이 0 이면 3D 상자 까닭 = «이 지도에는 3D 칸이 없습니다» (아직 받는 중이 아님)', async () => {
+    vi.spyOn(api, 'slamBundle').mockResolvedValue({ bundle: { voxel_count: 0, grid: { width: 2, height: 2, origin: [0, 0] }, odom: null } } as never);
+    vi.spyOn(api, 'slamBundleFile').mockImplementation((_r, _s, k) => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(k === 'grid' ? 4 : 0)) } as never));
+    await render(<SlamSavedView robot="r-a" session="s1" />); await flush();
+    expect(box.querySelector('[data-slam-3d-why]')?.textContent).toBe('이 지도에는 3D 칸이 없습니다');
+    expect(box.querySelector<HTMLButtonElement>('[data-slam-pick="3d"]')!.disabled).toBe(true);
+    // L1: 단추 묶음도 오른쪽 끝 정렬 = 오른쪽 끝에 붙는 까닭 글이 «3D 상자» 바로 아래(폰 412 사진에서 단추는 왼쪽 · 글은 오른쪽으로 벌어졌음)
+    expect(box.querySelector<HTMLElement>('[aria-label="지도 보기 고르기"]')!.style.justifyContent).toBe('flex-end');
+  });
+  it('휴지통 줄의 «지운 사람 · 시각» 은 좁은 폰에서 세로로 꺾이지 않게 최소 너비', async () => {
+    vi.spyOn(api, 'trash').mockResolvedValue({ items: [{ kind: 'scenario', id: 't2', name: '야간 순찰', archived_at: '2026-11-26T09:00:00Z', deleted_by: { id: 'u', display_name: '김총괄' }, parent_name: '2층' }] } as never);
+    await render(<Trash />); await flush();
+    const who = box.querySelector<HTMLElement>('[data-trash-who]')!;
+    expect(who.textContent).toContain('김총괄 · ');
+    expect(who.style.minWidth).not.toBe('');
+  });
+});
