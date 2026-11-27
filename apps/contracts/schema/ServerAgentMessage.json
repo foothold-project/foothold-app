@@ -163,6 +163,46 @@
       "title": "AgentFieldApproval",
       "type": "object"
     },
+    "AgentGait": {
+      "additionalProperties": false,
+      "properties": {
+        "gait": {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "title": "Gait",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "gait",
+          "default": "gait",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "request_id",
+        "lease_id",
+        "gait"
+      ],
+      "title": "AgentGait",
+      "type": "object"
+    },
     "AgentLease": {
       "additionalProperties": false,
       "properties": {
@@ -898,6 +938,7 @@
       "action": "#/$defs/AgentAction",
       "cmd": "#/$defs/AgentCommand",
       "field_approval": "#/$defs/AgentFieldApproval",
+      "gait": "#/$defs/AgentGait",
       "lease": "#/$defs/AgentLease",
       "phone.revoke": "#/$defs/AgentPhoneRevoke",
       "ping": "#/$defs/AgentServerPing",
@@ -950,6 +991,9 @@
     },
     {
       "$ref": "#/$defs/AgentAction"
+    },
+    {
+      "$ref": "#/$defs/AgentGait"
     }
   ]
 }
