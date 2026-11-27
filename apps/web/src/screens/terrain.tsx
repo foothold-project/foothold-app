@@ -261,6 +261,9 @@ export function Terrain() {
   const server = remote.find((t) => t.spec.id === spec.id);
   const conflict = conflicted === spec.id || (!!server && bases.current[spec.id] !== undefined && server.version > bases.current[spec.id]);
   const synced = !!server && !server.archived_at && !conflict && fingerprint(server.spec) === fingerprint(spec);
+  // 저장이 회색인 까닭 한 줄 (폰에는 마우스 올림이 없다). 처리 중은 단추 글자 «저장 중…» 이 알린다
+  const saveWhy = !ready ? '서버 목록을 받는 중입니다' : !admin ? '총괄 계정만 서버에 저장할 수 있습니다'
+    : errors.length ? '오류를 고친 뒤 저장할 수 있습니다' : server?.archived_at ? '휴지통에서 되돌린 뒤 저장할 수 있습니다' : '';
   const fontPx = 13 * px, hPos = (it: At, r: number) => ({ cx: it.x + r * Math.cos(it.yaw), cy: -(it.y + r * Math.sin(it.yaw)) });
   /** 고른 것의 돌림 손잡이 */
   const handle = (what: number | 'spawn', r: number) => { const o = poseOf(what), c = hPos(o, r); return <g data-terrain-turn>
@@ -316,7 +319,8 @@ export function Terrain() {
         <button key={v} type="button" className="btn" aria-pressed={view === v} data-terrain-view={v} onClick={() => setView(v)}>{t}</button>)}</span>
       <span className="fh-grow" />
       <span className="mx-tag" data-terrain-status>{synced ? '서버 저장됨' : '서버 저장 안 됨'}</span>
-      <button type="button" className="btn" data-terrain-save disabled={!admin || !ready || busy || !!errors.length || !!server?.archived_at} title={admin ? '지형과 위에서 본 지도를 서버에 저장합니다' : '총괄 계정만 서버에 저장할 수 있습니다'} onClick={() => storeServer(spec)}>{busy ? '저장 중…' : '저장'}</button>
+      <button type="button" className="btn" data-terrain-save disabled={!admin || !ready || busy || !!errors.length || !!server?.archived_at} title={admin ? '지형과 위에서 본 지도를 서버에 저장합니다' : '총괄 계정만 서버에 저장할 수 있습니다'} aria-describedby={saveWhy ? 'tr-save-why' : undefined} onClick={() => storeServer(spec)}>{busy ? '저장 중…' : '저장'}</button>
+      {saveWhy && <span className="lbl" id="tr-save-why" data-terrain-save-why>{saveWhy}</span>}
       {!synced && (conflict || (!!server && !bases.current[spec.id])) && <button type="button" className="btn" disabled={!admin || busy || !!errors.length} onClick={() => { const copy = { ...spec, id: newId() }; open(copy); save(copy); void storeServer(copy); }}>새 지형으로 저장</button>}
       <span className="mx-tag" data-terrain-count>{errors.length ? `오류 ${errors.length}` : '오류 없음'}{warnings.length ? ` · 경고 ${warnings.length}` : ''}</span>
       {errors.length
