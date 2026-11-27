@@ -112,7 +112,7 @@ export function MissionTab(c: Pick<Ctx, 'user' | 'robots' | 'cancel'>) {
         {err && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={() => setN((x) => x + 1)}>다시 시도</button></div>}
       </aside>
       <RouteMap x={cur} places={places} cancel={c.cancel} est={plan.est} />
-      <Side x={cur} robots={c.robots} p={plan} run={<Runs x={cur} robots={c.robots} cancel={c.cancel} />} />
+      <Side x={cur} robots={c.robots} p={plan} run={<Runs x={cur} robots={c.robots} user={c.user} cancel={c.cancel} />} />
     </div>
     <Day robots={c.robots} p={plan} names={(id) => list.find((x) => x.id === id)?.name} />
   </section>;
@@ -313,20 +313,53 @@ function Side({ x, robots, p, run }: { x?: Scenario; robots: Robot[]; p: Plan; r
   </aside>;
 }
 
-/** 지금 실행: 이 임무가 ACTIVE 로 배정된 내 로봇마다 실행 칸(05 §6.5 서버 길). 실행 칸이 그 로봇의 조종권을 쥐고 있다(탭을 떠나면 돌려줌) */
-function Runs({ x, robots, cancel }: { x?: Scenario; robots: Robot[]; cancel?: AbortSignal }) {
+/** 지금 실행: 이 임무가 ACTIVE 로 배정된 내 로봇마다 실행 칸(05 §6.5 서버 길). 실행 칸이 그 로봇의 조종권을 쥐고 있다(탭을 떠나면 돌려줌).
+ *  위에 «로봇에 배정»(POST /assignments · 멱등 key): 담당 로봇(총괄은 조직 로봇)만. 성공은 서버 답 뒤에만, 생기면 그 로봇 실행 칸이 바로 나온다 */
+function Runs({ x, robots, user, cancel }: { x?: Scenario; robots: Robot[]; user: Ctx['user']; cancel?: AbortSignal }) {
   const [all, setAll] = useState<Assignment[] | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
+  const [pick, setPick] = useState(''), [key, setKey] = useState(''), [busy, setBusy] = useState(false), [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => {
     let live = true; setErr('');
-    api.assignments(null, cancel).then((l) => { if (live) setAll(l.filter((a) => a.status === 'ACTIVE')); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
+    api.assignments(null, cancel).then((l) => { if (live) setAll(l.filter((a) => a.status === 'ACTIVE' || a.status === 'PENDING')); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
     return () => { live = false; };
   }, [n]);
+  useEffect(() => { setMsg(null); setKey(''); }, [x?.id]);
   if (!x) return null;
-  const mine = all?.filter((a) => a.scenario_id === x.id && robots.some((r) => r.id === a.robot_id)) ?? [];
+  const here = all?.filter((a) => a.scenario_id === x.id && robots.some((r) => r.id === a.robot_id)) ?? [];
+  const mine = here.filter((a) => a.status === 'ACTIVE'), waiting = here.filter((a) => a.status === 'PENDING');
+  const may = (r: Robot) => user.role === 'ORG_ADMIN' || r.owner === user.id;
+  const free = all ? robots.filter((r) => may(r) && !here.some((a) => a.robot_id === r.id)) : [];
+  const rid = free.some((r) => r.id === pick) ? pick : free[0]?.id ?? '';
+  const assign = () => {
+    const r = robots.find((y) => y.id === rid);
+    if (!r || busy) return;
+    const k = key || crypto.randomUUID();   // 답을 못 받은 시도를 다시 보내면 같은 key(서버가 첫 결과를 돌려줌 · 두 번 배정 안 됨)
+    setKey(k); setBusy(true); setMsg(null);
+    api.assign({ scenario_id: x.id, scenario_version: x.version, robot_id: r.id }, k, cancel).then((a) => {
+      setBusy(false); setKey('');
+      setAll((l) => [...(l ?? []).filter((y) => y.id !== a.id), a]);
+      setMsg({ ok: true, text: a.status === 'PENDING' ? `${r.name} 배정을 요청했습니다. 결재를 기다립니다.` : `${r.name} 에 배정했습니다.` });
+    }, (e: ApiFail) => {
+      setBusy(false);
+      if (e.code === 'CANCELED') return;
+      if (e.said) setKey('');   // 서버가 답한 거절 = 이 시도 끝. 답을 못 받았으면 key 를 그대로 둔다
+      setMsg({ ok: false, text: e.said ? `배정하지 못했습니다. ${e.message} (${e.code})` : `배정 요청의 답을 받지 못했습니다. ${e.message} 다시 누르면 같은 요청으로 보냅니다.` });
+    });
+  };
   return <section className="mt-run" aria-label="지금 실행" data-run-list>
+    <div className="mr" data-assign>
+      <p className="lbl">로봇에 배정</p>
+      {all && (free.length
+        ? <div className="mr-row"><select className="fh-user" aria-label="배정할 로봇" value={rid} disabled={busy} onChange={(e) => { setPick(e.target.value); setKey(''); setMsg(null); }}>
+          {free.map((r) => <option key={r.id} value={r.id}>{r.name}{r.sim ? ' (시뮬)' : ''}</option>)}</select>
+          <button type="button" className="btn" disabled={busy} onClick={assign}>{busy ? '배정하는 중…' : '배정'}</button></div>
+        : <p className="mr-gate"><span>{robots.some(may) ? '이 임무는 배정할 수 있는 로봇에 모두 배정되어 있습니다.' : '배정은 담당 로봇에만 할 수 있습니다. 이 계정이 맡은 로봇이 없습니다.'}</span></p>)}
+      {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'} data-assign-msg>{msg.text}</p>}
+    </div>
     <p className="lbl">지금 실행</p>
     {mine.map((a) => <RunCtl key={a.id} robot={robots.find((r) => r.id === a.robot_id)!} scen={x} assign={a} watch />)}
-    {all && !mine.length && <p className="lv-note">이 임무가 배정된 로봇이 없습니다. 배정을 요청해 결재를 받으면 여기서 실행합니다.</p>}
+    {waiting.map((a) => <p key={a.id} className="lv-note" data-assign-wait>{robots.find((r) => r.id === a.robot_id)?.name} · 배정 결재를 기다립니다.</p>)}
+    {all && !mine.length && !waiting.length && <p className="lv-note">이 임무가 배정된 로봇이 없습니다. 위에서 로봇에 배정하면 여기서 실행합니다.</p>}
     {!all && !err && <p className="lv-note" role="status">배정을 불러오는 중…</p>}
     {err && <div className="fh-row"><p className="fh-msg" role="alert">배정을 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={() => setN((k) => k + 1)}>다시 시도</button></div>}
   </section>;

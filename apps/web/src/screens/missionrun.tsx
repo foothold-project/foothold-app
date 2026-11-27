@@ -61,7 +61,7 @@ export function RunCtl({ robot, scen, assign, watch = false }: { robot: Robot; s
     : l.holder ? <span>다른 실행이 조종권을 쥐고 있습니다. 끝나거나 멈춘 뒤 다시 보세요.</span>
     : <><span>실행 단추는 조종권이 있어야 보냅니다.</span><button type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => rt.take(robot.id)}>조종권 잡기</button></>;
   else if (l.state?.latched) gate = <><span>로봇이 정지 잠금 상태입니다.</span><button type="button" className="btn pri" onClick={() => rt.unlock(robot.id)}>잠금 해제</button></>;
-  else if (!on && assign === null) gate = <span>이 로봇에 이 임무의 승인된 배정이 없습니다. 배정을 요청해 결재를 받은 뒤 실행할 수 있습니다.</span>;
+  else if (!on && assign === null) gate = <span>이 로봇에 이 임무의 배정이 없습니다. PC 임무 탭에서 로봇에 배정하세요.</span>;
   else if (!on && !ref) gate = <span role="status">배정 · 지도 판을 확인하는 중…</span>;
 
   const say = q?.phase === 'rejected' ? runSay(q.code ?? '', robot.name) : busy ? '보내는 중…' : q?.phase === 'done' ? OK[q.op] : '';

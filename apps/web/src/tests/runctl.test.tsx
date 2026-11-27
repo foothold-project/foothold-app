@@ -137,7 +137,7 @@ describe('임무 실행 단추', () => {
   it('이 로봇에 이 임무의 ACTIVE 배정이 없으면 까닭 한 줄 · 실행 단추 없음', () => {
     const w = mount({ own: true, assign: null });
     expect(btn('실행')).toBeUndefined();
-    expect($('[data-run-gate]')!.textContent).toContain('승인된 배정이 없습니다');
+    expect($('[data-run-gate]')!.textContent).toContain('이 로봇에 이 임무의 배정이 없습니다. PC 임무 탭에서 로봇에 배정하세요.');
     expect(runMsgs(w)).toEqual([]);
   });
   it('조종권을 잃으면(다른 사람에게 넘어감) 보내지 않고 «조종권 요청»으로', () => {
