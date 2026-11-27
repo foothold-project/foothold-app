@@ -445,6 +445,17 @@
           "title": "Floor Id",
           "type": "string"
         },
+        "glim_preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingGlimPreview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "grid": {
           "anyOf": [
             {
@@ -623,6 +634,17 @@
           ],
           "default": null,
           "title": "Source"
+        },
+        "sources": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingSources"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "status": {
           "enum": [
@@ -1978,6 +2000,148 @@
       "type": "object"
     },
     "JsonValue": {},
+    "MappingGlimPreview": {
+      "additionalProperties": false,
+      "description": "Independent coarse cumulative snapshot, never final-save evidence or Point-LIO cells.",
+      "properties": {
+        "cells": {
+          "items": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "maximum": 40000,
+                "minimum": -40000,
+                "type": "integer"
+              },
+              {
+                "maximum": 40000,
+                "minimum": -40000,
+                "type": "integer"
+              },
+              {
+                "maximum": 40000,
+                "minimum": -40000,
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "maxItems": 1024,
+          "title": "Cells",
+          "type": "array"
+        },
+        "frame_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "resolution": {
+          "const": 0.25,
+          "default": 0.25,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "source": {
+          "const": "glim",
+          "default": "glim",
+          "title": "Source",
+          "type": "string"
+        },
+        "stamp": {
+          "$ref": "#/$defs/MappingStamp"
+        }
+      },
+      "required": [
+        "seq",
+        "frame_id",
+        "stamp",
+        "cells"
+      ],
+      "title": "MappingGlimPreview",
+      "type": "object"
+    },
+    "MappingGlimStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "data_age_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Age S"
+        },
+        "gpu": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Null when the provider exposes no verified GPU evidence.",
+          "title": "Gpu"
+        },
+        "processed_chunks": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Processed Chunks"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "stage": {
+          "enum": [
+            "OFF",
+            "STARTING",
+            "RECEIVING",
+            "SAVING",
+            "UNKNOWN"
+          ],
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "data_age_s",
+        "processed_chunks",
+        "gpu"
+      ],
+      "title": "MappingGlimStatus",
+      "type": "object"
+    },
     "MappingGrid": {
       "additionalProperties": false,
       "properties": {
@@ -2204,6 +2368,147 @@
       "title": "MappingOdom",
       "type": "object"
     },
+    "MappingPointLioStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Active"
+        },
+        "cloud_age_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cloud Age S"
+        },
+        "cloud_hz": {
+          "description": "Cloud callbacks received in the preceding 1 second, capped at 4096.",
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Cloud Hz",
+          "type": "number"
+        },
+        "fresh": {
+          "title": "Fresh",
+          "type": "boolean"
+        },
+        "pose_age_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pose Age S"
+        },
+        "pose_hz": {
+          "description": "Pose callbacks received in the preceding 1 second, capped at 4096.",
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Pose Hz",
+          "type": "number"
+        },
+        "position_m": {
+          "anyOf": [
+            {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Native Point-LIO origin x/y/z in metres, rounded to 2 decimals; may include rejected finite coordinates.",
+          "title": "Position M"
+        },
+        "position_valid": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Position Valid"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "MISSING_DATA",
+                "STALE",
+                "POSITION_OUT_OF_RANGE",
+                "POSITION_JUMP",
+                "STAMP_REGRESSION",
+                "FRAME_MISMATCH",
+                "STAMP_SKEW",
+                "INVALID_DATA"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason Code"
+        }
+      },
+      "required": [
+        "active",
+        "fresh",
+        "pose_age_s",
+        "cloud_age_s",
+        "position_valid",
+        "reason_code",
+        "reason",
+        "position_m",
+        "pose_hz",
+        "cloud_hz"
+      ],
+      "title": "MappingPointLioStatus",
+      "type": "object"
+    },
     "MappingPreview": {
       "additionalProperties": false,
       "properties": {
@@ -2308,6 +2613,36 @@
         "received_at"
       ],
       "title": "MappingReportRejection",
+      "type": "object"
+    },
+    "MappingSources": {
+      "additionalProperties": false,
+      "properties": {
+        "glim": {
+          "$ref": "#/$defs/MappingGlimStatus"
+        },
+        "point_lio": {
+          "$ref": "#/$defs/MappingPointLioStatus"
+        },
+        "reported_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reported At"
+        }
+      },
+      "required": [
+        "point_lio",
+        "glim"
+      ],
+      "title": "MappingSources",
       "type": "object"
     },
     "MappingStamp": {

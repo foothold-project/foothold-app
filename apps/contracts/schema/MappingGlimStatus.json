@@ -1,0 +1,76 @@
+{
+  "$id": "fh-app/1/MappingGlimStatus",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data_age_s": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Data Age S"
+    },
+    "gpu": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Null when the provider exposes no verified GPU evidence.",
+      "title": "Gpu"
+    },
+    "processed_chunks": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Processed Chunks"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "stage": {
+      "enum": [
+        "OFF",
+        "STARTING",
+        "RECEIVING",
+        "SAVING",
+        "UNKNOWN"
+      ],
+      "title": "Stage",
+      "type": "string"
+    }
+  },
+  "required": [
+    "stage",
+    "data_age_s",
+    "processed_chunks",
+    "gpu"
+  ],
+  "title": "MappingGlimStatus",
+  "type": "object"
+}
