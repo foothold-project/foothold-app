@@ -229,7 +229,8 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     const refill = () => { if (p.b >= 0) p.again = true; else p.b = 0; if (!p.raf) pump(); };
     const fit = () => {
       v.w = el.clientWidth; v.h = el.clientHeight; if (!v.w || !v.h) return;
-      setNarrow(v.w < 260);   // 폰 작은 창(최대 220 px)에는 시점 단추를 두지 않는다 g.setSize(v.w, v.h, false); cam.aspect = v.w / v.h; cam.updateProjectionMatrix();
+      g.setSize(v.w, v.h, false); cam.aspect = v.w / v.h; cam.updateProjectionMatrix();
+      setNarrow(v.w < 260);   // 폰 작은 창(최대 220 px)에는 시점 단추를 두지 않는다
       const cap = capFor(small, v.w, v.h);   // 칸이 작은 칸↔폰↔PC 크기로 바뀌면 그 크기의 상한으로 다시
       if (cap !== p.cap) { p.cap = cap; if (v.ver >= 0) refill(); }
     };
