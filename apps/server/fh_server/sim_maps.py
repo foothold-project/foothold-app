@@ -130,8 +130,9 @@ def load_model(root, entry, metadata, width, height):
     """Optional per-floor GLB: declared path + sha256.model, checked before DB writes.
 
     Returns (bytes, None) to attach, (None, None) when nothing is declared or the
-    file is absent (GLBs are not committed), or (None, reason) when a present
-    file fails a check: the floor then stays 2D only and the sync records why.
+    file is absent (GLBs are not committed), or (None, {reason, sha256}) when a
+    present file fails a check: the floor then drops to 2D only and the sync
+    records why.
     A malformed declaration or a path outside the catalogue fails the sync.
     """
     name = entry.get('model')
@@ -145,14 +146,15 @@ def load_model(root, entry, metadata, width, height):
     except FileNotFoundError:
         return None, None
     if not path.is_file() or path.stat().st_size > MAX_MODEL:
-        return None, 'not a file or larger than 64 MiB'
+        return None, {'reason': 'not a file or larger than 64 MiB', 'sha256': None}
     data = path.read_bytes()
-    if sha256(data).hex() != digest:
-        return None, 'sha256 differs from worlds.json'
+    actual = sha256(data).hex()
+    if actual != digest:
+        return None, {'reason': 'sha256 differs from worlds.json', 'sha256': actual}
     try:
         check_model_frame(data, entry['floor_id'], entry['floor_z'], metadata, width, height)
     except (ValueError, KeyError, IndexError, TypeError, struct.error, json.JSONDecodeError) as error:
-        return None, str(error) or type(error).__name__
+        return None, {'reason': str(error) or type(error).__name__, 'sha256': actual}
     return data, None
 
 
@@ -401,11 +403,7 @@ def sync_worlds(db, org_id, actor_id, folder, files_root):
             changed.append(str(version.id))
         attach_model(version, entry.get('model_glb'), files_root)
         if entry.get('model_rejected'):
-            # The floor keeps 2D only (or its earlier accepted model); record why.
-            db.add(Event(org_id=org_id, category='ACCOUNT', code='SIM_MODEL_REJECTED', user_id=actor.id,
-                message='시뮬 월드 3D 모형을 검사에서 거절해 붙이지 않았습니다.',
-                data={'world_id': world_id, 'floor_id': str(floor.id), 'map_version_id': str(version.id),
-                      'model': entry.get('model'), 'reason': entry['model_rejected']}))
+            reject_model(db, actor, world_id, floor, version, entry)
         # Existing historical images must not silently roll back a newer approval.
         if floor.approved_version_id == version.id:
             sync_presets(db, actor, world_id, floor, version, presets)
@@ -428,6 +426,26 @@ def attach_model(version, data, files_root):
         raise ValueError('Static model storage collision')
     destination.write_bytes(data)
     version.model_path, version.model_sha256 = str(path), digest
+
+
+def reject_model(db, actor, world_id, floor, version, entry):
+    """A model that fails its check is detached: 2D only beats a mismatched 3D view.
+
+    One event per (version, reason, rejected file sha); repeated syncs add none.
+    """
+    rejected = entry['model_rejected']
+    detached = version.model_sha256.hex() if version.model_sha256 is not None else None
+    if detached is not None:
+        version.model_path = version.model_sha256 = None
+    key = {'map_version_id': str(version.id), 'reason': rejected['reason'], 'sha256': rejected['sha256']}
+    seen = db.scalar(select(Event.id).where(Event.org_id == actor.org_id, Event.code == 'SIM_MODEL_REJECTED',
+        Event.data.contains(key)).limit(1))
+    if seen is None or detached is not None:
+        db.add(Event(org_id=actor.org_id, category='ACCOUNT', code='SIM_MODEL_REJECTED', user_id=actor.id,
+            message='시뮬 월드 3D 모형을 검사에서 거절해 붙이지 않았습니다.' if detached is None
+                else '시뮬 월드 3D 모형을 검사에서 거절해 이전 모형을 떼고 2D 로 되돌렸습니다.',
+            data={**key, 'world_id': world_id, 'floor_id': str(floor.id), 'model': entry.get('model'),
+                  'detached_sha256': detached}))
 
 
 def sync_presets(db, actor, world_id, floor, version, presets):

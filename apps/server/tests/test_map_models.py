@@ -39,15 +39,14 @@ def world_folder(tmp_path):
     return make_folder(tmp_path / 'worlds')
 
 
-def glb(tag=b'synthetic', at=(30.0, 0.0, -4.0), node='l1_floor', parent=False):
+def glb(tag=b'synthetic', at=(30.0, 0.0, -4.0), node='l1_floor', parent=None):
     """Tiny GLB: one asymmetric 2 x 1 x 0.5 m box node named `node`, glTF translation `at`."""
     lo, hi = [-1.0, -0.175, -0.25], [1.0, 0.0, 0.25]
     points = [(x, y, z) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
     binary = b''.join(struct.pack('<3f', *p) for p in points)
     nodes = [{'name': node, 'mesh': 0, 'translation': list(at)}]
-    if parent:  # same placement through a parent transform
-        nodes = [{'name': node, 'mesh': 0, 'translation': [0, 0, 0]},
-                 {'name': 'group', 'children': [0], 'translation': list(at)}]
+    if parent is not None:  # child at `at`, under a parent node with TRS `parent`
+        nodes = [{'name': node, 'mesh': 0, 'translation': list(at)}, {'name': 'group', 'children': [0], **parent}]
     gltf = {'asset': {'version': '2.0'}, 'extras': tag.decode(), 'scenes': [{'nodes': [len(nodes) - 1]}],
             'nodes': nodes, 'meshes': [{'primitives': [{'attributes': {'POSITION': 0}}]}],
             'accessors': [{'bufferView': 0, 'componentType': 5126, 'count': 8, 'type': 'VEC3', 'min': lo, 'max': hi}],
@@ -131,12 +130,54 @@ def test_declared_but_absent_file_keeps_2d_only(maps, seeded, world_folder):
     assert approved(http, headers)['model_sha256'] is None
 
 
-def test_parent_transform_is_applied(maps, seeded, world_folder):
+HALF = 2 ** -.5
+
+
+@pytest.mark.parametrize('child, parent', [
+    # Child alone is glTF (-30, 0, 4) = world (-30, -4): outside. With the parent: (30, 0, -4) = world (30, 4).
+    ((-30.0, 0.0, 4.0), {'translation': [60.0, 0.0, -8.0]}),
+    # +90 deg about glTF +Y maps (4, 0, 30) to (30, 0, -4); child alone is world (4, -30): outside.
+    ((4.0, 0.0, 30.0), {'rotation': [0.0, HALF, 0.0, HALF]}),
+])
+def test_parent_transform_is_applied(maps, seeded, world_folder, child, parent):
     http, headers, files = maps
-    data = glb(parent=True)
+    alone = glb(at=child)
+    declare(world_folder, alone)
+    sync(http, seeded, world_folder, files)
+    assert approved(http, headers)['model_sha256'] is None  # the child alone is off the map
+    data = glb(at=child, parent=parent)
     declare(world_folder, data)
     sync(http, seeded, world_folder, files)
     assert approved(http, headers)['model_sha256'] == hashlib.sha256(data).hexdigest()
+
+
+def rejections(http):
+    with Session(http.app.state.engine) as db:
+        return list(db.scalars(select(Event).where(Event.code == 'SIM_MODEL_REJECTED').order_by(Event.at)))
+
+
+def test_rejected_resync_detaches_earlier_model_and_records_once(maps, seeded, world_folder):
+    # A model that no longer matches is worse than 2D only: detach it, say why, once per cause.
+    http, headers, files = maps
+    good = glb()
+    declare(world_folder, good)
+    sync(http, seeded, world_folder, files)
+    assert approved(http, headers)['model_sha256'] == hashlib.sha256(good).hexdigest()
+    flipped = glb(at=(30.0, 0.0, 4.0))
+    declare(world_folder, flipped)
+    for _ in range(2):  # the same rejection again leaves no second event
+        assert sync(http, seeded, world_folder, files) == []
+        version = approved(http, headers)
+        assert version['model_sha256'] is None and version['model_floor_z'] is None
+        assert http.get(P + f'/map-versions/{version["id"]}/model', headers=headers).status_code == 404
+    event, = rejections(http)
+    assert event.data['sha256'] == hashlib.sha256(flipped).hexdigest()
+    assert event.data['detached_sha256'] == hashlib.sha256(good).hexdigest()
+    # A different rejected file is a new cause and is recorded.
+    declare(world_folder, glb(b'other', at=(30.0, 0.0, 4.0)))
+    sync(http, seeded, world_folder, files)
+    first, second = rejections(http)
+    assert second.data['sha256'] != first.data['sha256'] and second.data['detached_sha256'] is None
 
 
 def test_model_floor_z_read_by_uuid_equals_catalogue_floor_z(maps, seeded, tmp_path):
