@@ -369,15 +369,17 @@ describe('시뮬 탭 hello 의 내 이름 (#537 a8cac9f2 PhoneHello.display_name
 });
 
 describe('시뮬 탭 RUN 이 쥐면 (#537 state.holder_type · 08:04)', () => {
-  it('«조종 시작» · «일시정지» 둘 다 회색 + 까닭 한 줄 · 칠한 단추 없음 · RUN 이 놓으면 «조종 시작» 다시 켜짐', async () => {
+  it('«조종 시작» 회색 + 까닭 한 줄 · 일시정지 못 함은 실행 칸 한 곳 · 칠한 단추 없음 · RUN 이 놓으면 «조종 시작» 다시 켜짐', async () => {
     serve(); await mount();
     await launch();
     const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
     act(() => a.open()); await flush();
-    await recv(a, welcome); await recv(a, phoneState({ holder_type: 'RUN', holder_name: null }));
+    await recv(a, welcome); await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
     expect(btn('조종 시작')!.disabled).toBe(true);
-    expect(($('[data-sim-view] [data-held-run] button') as HTMLButtonElement).disabled).toBe(true);
-    expect($('[data-sim-view] [data-held-run] [data-run-say]')!.textContent).toBe('예약 임무가 조종 중이라 이 화면에서는 조종 시작 · 일시정지를 할 수 없습니다 (예약 임무 일시정지는 서버 준비 중).');
+    expect($('[data-sim-view] [data-held-run] button')).toBeNull();
+    expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
+    expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
+    expect($('[data-sim-view] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
     expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-view] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
     await click(btn('조종 시작'));
     expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);   // 정해진 거절(LEASE_HELD)을 보내지 않음

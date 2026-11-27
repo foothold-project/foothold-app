@@ -210,10 +210,10 @@ describe('시뮬 탭 LEASE_HELD 조종자 표시 (#537 a8cac9f2 holder_type · h
     sim.clear();
     expect(await held({ holder_type: 'USER', holder_name: '  ' })).toBe('다른 사람이 다른 화면에서 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
   });
-  it('RUN: «예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.» (이름이 와도 쓰지 않음)', async () => {
-    expect(await held({ holder_type: 'RUN', holder_name: null })).toBe('예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.');
+  it('RUN: «예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.» (이름이 와도 쓰지 않음)', async () => {
+    expect(await held({ holder_type: 'RUN', holder_name: null })).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
     sim.clear();
-    expect(await held({ holder_type: 'RUN', holder_name: '박OO' })).toBe('예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.');
+    expect(await held({ holder_type: 'RUN', holder_name: '박OO' })).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
   });
   it('holder_type null · 칸 없음(옛 에이전트): 기존 한 줄 «다른 사람이 조종 중입니다.»', async () => {
     expect(await held({ holder_type: null, holder_name: '박OO' })).toBe('다른 사람이 조종 중입니다.');
@@ -236,17 +236,14 @@ describe('시뮬 탭 LEASE_HELD 조종자 표시 (#537 a8cac9f2 holder_type · h
   });
 });
 
-describe('시뮬 탭 RUN 이 쥐면 회색 «일시정지» + 까닭 한 줄 (08:04 · 예약 임무 일시정지 계약 전이라 보내지 않음)', () => {
+describe('시뮬 탭 RUN 이 쥐면 «조종 시작» 회색의 까닭 한 줄 (08:14 · 일시정지 못 함은 실행 칸 한 곳에만)', () => {
   const SIM_ID = 'r7';
-  const WHY = '예약 임무가 조종 중이라 이 화면에서는 조종 시작 · 일시정지를 할 수 없습니다 (예약 임무 일시정지는 서버 준비 중).';
-  let unwatch: (() => void) | null = null;
-  afterEach(() => { unwatch?.(); unwatch = null; });
-  /** 서버 실시간(rt) 먼저 + 시뮬 직결. st = state.holder_type, take = LEASE_HELD 답의 holder_type(undefined 면 조종 시작을 누르지 않음). own = 이 화면이 서버 조종권을 쥠 */
-  const held = async (st: 'USER' | 'RUN' | null, p: { own?: boolean; take?: 'USER' | 'RUN' | null } = {}) => {
+  const WHY = '예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.';
+  /** 서버 실시간(rt) 먼저 + 시뮬 직결. st = state.holder_type, take = LEASE_HELD 답의 holder_type(undefined 면 조종 시작을 누르지 않음) */
+  const held = async (st: 'USER' | 'RUN' | null, p: { take?: 'USER' | 'RUN' | null } = {}) => {
     rt.connect([SIM_ID]);
     const w = FakeWS.last;
     act(() => { w.open(); w.recv(state(SIM_ID, { latched: false, run: run('MOVING') })); });
-    if (p.own) { unwatch = rt.watch(SIM_ID); act(() => { w.recv(lease(SIM_ID, { id: 'u-lee', name: '이OO' }, LEASE)); }); }
     vi.spyOn(api, 'phonePass').mockResolvedValue({ token: 'fake', exp: 9999999999, kid: 'fake' });
     await sim.attach({ robot_id: SIM_ID, generation: 1, agent_address: 'ws://127.0.0.1:9481/phone/ws', remaining_s: null } as SimRobot);
     const a = FakeWS.last; a.auto = null;
@@ -259,38 +256,27 @@ describe('시뮬 탭 RUN 이 쥐면 회색 «일시정지» + 까닭 한 줄 (08
     act(() => { root = createRoot(box); root.render(<HeldRun />); });
     return { w, a };
   };
-  const reset = () => { act(() => root?.unmount()); root = null; unwatch?.(); unwatch = null; sim.clear(); rt.disconnect(); };
-  const ctl = (w: FakeWS) => w.sent.filter((m) => m.t === 'run.control');
-  it('state.holder_type RUN 이면 회색 «일시정지»(칠하지 않음) + 까닭 한 줄 · USER · null 이면 없음', async () => {
-    await held('RUN');
-    expect(btns()).toEqual(['일시정지']);
-    expect(btn('일시정지')!.disabled).toBe(true);
-    expect(btn('일시정지')!.className).toBe('btn');
+  const reset = () => { act(() => root?.unmount()); root = null; sim.clear(); rt.disconnect(); };
+  it('state.holder_type RUN 이면 까닭 한 줄만(단추 없음 · run.control 0) · USER · null 이면 없음', async () => {
+    const { w } = await held('RUN');
+    expect(btns()).toEqual([]);
     expect(said()).toBe(WHY);
+    expect(w.sent.filter((m) => m.t === 'run.control')).toEqual([]);
     reset();
     await held('USER');
-    expect(btns()).toEqual([]);
     expect(said()).toBe('');
     reset();
     await held(null);
-    expect(btns()).toEqual([]);
+    expect(said()).toBe('');
   });
-  it('LEASE_HELD 답이 RUN 이어도 같은 회색 단추 · 까닭 (state 에 holder 가 없는 에이전트)', async () => {
-    await held(null, { take: 'RUN' });
-    expect(btn('일시정지')!.disabled).toBe(true);
-    expect(said()).toBe(WHY);
-    reset();
-    await held(null, { take: 'USER' });
-    expect(btns()).toEqual([]);
-  });
-  it('이 화면이 서버 조종권을 쥐어도 run.control 을 보내지 않음 (주인 일시정지 계약 전)', async () => {
-    const { w } = await held('RUN', { own: true });
-    act(() => btn('일시정지')!.click());
-    expect(ctl(w)).toEqual([]);
-    expect(said()).toBe(WHY);
+  it('LEASE_HELD + RUN 답이 이미 같은 말을 띄웠으면 여기는 비움 (한 사실 한 곳)', async () => {
+    await held('RUN', { take: 'RUN' });
+    expect(sim.get().link!.notice).toBe(WHY);
+    expect(said()).toBe('');
   });
   it('이 화면이 건 실행이면(runMine) 없음 · 실행 칸의 일시정지를 쓴다', async () => {
     const { a } = await held('RUN');
+    expect(said()).toBe(WHY);
     act(() => { a.recv({ t: 'state', robot: SIM_ID, latched: false, stop_gen: 1, applied: [0, 0, 0], lease_id: null, holder_type: 'USER', holder_name: null }); });
     act(() => { sim.take(); });
     act(() => { a.recv({ t: 'reply', id: last(a.of('lease.take')).id, ok: true, lease_id: 'PL-1' }); });
@@ -298,6 +284,6 @@ describe('시뮬 탭 RUN 이 쥐면 회색 «일시정지» + 까닭 한 줄 (08
     const st = last(a.of('run.start'));
     act(() => { a.recv({ t: 'reply', id: st.id, ok: true, detail: { run_id: st.run_id, resume_token: 'tok' } }); });
     act(() => { a.recv({ t: 'state', robot: SIM_ID, latched: false, stop_gen: 1, applied: [0, 0, 0], lease_id: null, holder_type: 'RUN', holder_name: null, run: { ...run('MOVING'), run_id: st.run_id } }); });
-    expect(btns()).toEqual([]);
+    expect(said()).toBe('');
   });
 });

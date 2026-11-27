@@ -4,7 +4,7 @@ import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, useFeed } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, RUN_END, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, HELD_RUN, RUN_END, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { inputGen, metaCut } from './rt';
@@ -439,14 +439,10 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
   </aside>;
 }
 
-/** 예약 임무(RUN)가 Hub 를 쥐면(state.holder_type 또는 LEASE_HELD 답) 회색 «일시정지» + 까닭 한 줄(08:04). 이 화면이 건 실행이면 실행 칸 것을 쓰므로 없음.
- *  주인 일시정지 계약(app-lx)이 오면 시험 먼저 쓰고 여기서 보내기를 켠다 */
+/** 예약 임무(RUN)가 Hub 를 쥐어 «조종 시작» 이 회색인 까닭 한 줄(08:14). 일시정지를 못 하는 것은 실행 칸(runView) 한 곳에만 쓴다.
+ *  LEASE_HELD + RUN 답이 같은 말을 이미 띄웠거나 이 화면이 건 실행이면 없음. 주인 일시정지 계약(app-lx)이 오면 시험 먼저 쓰고 실행 칸에서 켠다 */
 export function HeldRun() {
-  const s = useSim(), l = s.link;
-  // 예약 실행이 쥐면 이 화면은 조종 시작(정해진 LEASE_HELD) · 일시정지(run.control 은 실행 주인 lease · screen 만 받음, 주인 일시정지 계약 전) 둘 다 못 한다 · 보내지 않고 회색 + 까닭
-  if (!l || (l.held !== 'RUN' && !runHolds(l)) || sim.runMine(l.run)) return null;
-  return <div className="fh-row" style={{ flexWrap: 'wrap' }} data-held-run>
-    <button type="button" className="btn" disabled>일시정지</button>
-    <p className="lv-note" role="status" data-run-say>예약 임무가 조종 중이라 이 화면에서는 조종 시작 · 일시정지를 할 수 없습니다 (예약 임무 일시정지는 서버 준비 중).</p>
-  </div>;
+  const l = useSim().link;
+  if (!l || !runHolds(l) || l.notice === HELD_RUN || sim.runMine(l.run)) return null;
+  return <p className="lv-note" role="status" data-held-run data-run-say>{HELD_RUN}</p>;
 }

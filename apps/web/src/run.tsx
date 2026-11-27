@@ -93,7 +93,8 @@ export function runView(s: Sim, pc = false): { notes: string[]; acts: JSX.Elemen
       : l.st?.latched !== false ? '이어가려면 STOP 을 확인한 뒤 «잠금 해제»를 누르세요.' : '손을 뗀 채 «이어서»를 누르면 남은 지점부터 다시 갑니다.'),
     open && paused && !mine && '다른 화면에서 건 실행입니다 · 이어서는 그 화면에서만 할 수 있습니다. 취소는 로봇 담당자·총괄만 됩니다.',
     open && runMoving(r) && (mine ? '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종 시작» → «잠금 해제».'
-      : `다른 화면에서 실행 중입니다 · 조종권을 잡으면 일시정지할 수 있습니다 · 바로 멈추려면 ${pc ? '«시뮬 정지»' : 'STOP'}.`),   // R4: USER 조종권을 쥔 화면이면 어디서나 일시정지(#537)
+      : `${l.st?.holder_type === 'RUN' ? '예약 임무가 실행 중입니다 · 이 화면에서는 일시정지할 수 없습니다 (서버 준비 중)'
+        : `다른 화면${l.st?.holder_name?.trim() ? ` (${l.st.holder_name.trim()})` : ''}에서 실행 중입니다 · 일시정지는 조종권을 가진 그 화면에서`} · 바로 멈추려면 ${pc ? '«시뮬 정지»' : 'STOP'}.`),   // R4(08:14): 주인(#537 state.holder_type · holder_name) 별 한 줄
   ].filter(Boolean) as string[];
   const acts = !open ? [] : end ? [b('close', '닫기', () => sim.dismiss(r.run_id), false, false)]
     : paused ? [mine && !record && l.lease && l.st?.latched === false && b('resume', '이어서', () => sim.runControl('resume'), true), b('abort', '취소', () => sim.runControl('abort'))].filter(Boolean) as JSX.Element[]
