@@ -12,7 +12,7 @@ import { useTheme } from '../theme';
 import './voxel3d.css';
 
 /** 계약 TS 에 model_sha256 이 들어오기 전 임시 모양(계약 PR 이 들어오면 MapVersion 그대로) */
-export type WithModel = MapVersion & { model_sha256?: string | null };
+export type WithModel = MapVersion & { model_sha256?: string | null; model_floor_z?: number | null };
 export const modelOf = (v?: MapVersion | null) => (v as WithModel | null | undefined)?.model_sha256 || null;
 
 type P3 = [number, number, number];
@@ -46,12 +46,13 @@ export function robotMark(l: { x: number; y: number; yaw?: number | null }, floo
   return { at: [l.x, l.y, floorZ], tip: l.yaw == null ? null : [l.x + Math.cos(l.yaw), l.y + Math.sin(l.yaw), floorZ] };
 }
 
-/** 바닥 윗면 높이(world z). 이 층의 «<floor_id>_floor» 노드(안의 메시 포함) 윗면, 없으면 모형 맨 아래.
- *  한 GLB 에 여러 층 바닥이 있어도 고른 층만 본다 */
-export function floorTop(scene: THREE.Object3D, floorId: string) {
+/** 바닥 윗면 높이(world z) = 판의 model_floor_z(계약: 그 층 바닥 world z). 없으면 모형 맨 아래.
+ *  GLB 노드 이름으로 찾지 않는다(실서버 floor_id 는 UUID) */
+export function floorZ(scene: THREE.Object3D, v: MapVersion) {
+  const z = (v as WithModel).model_floor_z;
+  if (z != null) return z;
   scene.updateMatrixWorld(true);
-  const node = scene.getObjectByName(`${floorId}_floor`);
-  return node ? new THREE.Box3().setFromObject(node).max.y : new THREE.Box3().setFromObject(scene).min.y;
+  return new THREE.Box3().setFromObject(scene).min.y;
 }
 
 /** 이 판 위에 좌표가 있는 로봇만(다른 판 · 좌표 없음은 빠짐) */
@@ -102,7 +103,7 @@ export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; 
         el.prepend(canvas);
         const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
         cam.up.set(0, 0, 1);
-        const z = floorTop(g.scene, v.floor_id);   // 무리에 넣기 전(glTF 좌표의 y = world z)
+        const z = floorZ(g.scene, v);   // 무리에 넣기 전(glTF 좌표의 y = world z)
         const model = worldGroup(); model.add(g.scene); scene.add(model);
         const box = new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
         const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8580, 1.6), sun = new THREE.DirectionalLight(0xffffff, 1.4);

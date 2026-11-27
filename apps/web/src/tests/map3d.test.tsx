@@ -9,7 +9,7 @@ import { kept } from '../screens/mapedit';
 import { clearPlans } from '../screens/missions';
 import * as THREE from 'three';
 import { api, expireAuth } from '../api';
-import { floorTop, gltfToWorld, modelBytes, onBoard, resetModels, robotMark, worldGroup, worldToGltf } from '../screens/map3d';
+import { floorZ, gltfToWorld, modelBytes, onBoard, resetModels, robotMark, worldGroup, worldToGltf } from '../screens/map3d';
 import { FakeWS } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -82,24 +82,23 @@ describe('glTF → 지도 좌표', () => {
     expect(worldToGltf([28, 3, 0])).toEqual([28, 0, -3]);
     expect(gltfToWorld(worldToGltf([7, 3.2, 3.375]))).toEqual([7, 3.2, 3.375]);
   });
-  it('그리기의 모형 무리도 같은 변환 · 바닥 높이 = «_floor» 메시 윗면(2층 3.375)', () => {
+  it('그리기의 모형 무리도 같은 변환', () => {
     const g = worldGroup(); g.updateMatrixWorld(true);
     for (const p of [[28, 0, -3], [14, 3.375, -15.5]] as [number, number, number][]) {
       const w = new THREE.Vector3(...p).applyMatrix4(g.matrixWorld);
       expect([w.x, w.y, w.z].map((x) => +x.toFixed(6) + 0)).toEqual(gltfToWorld(p));
     }
-    const scene = new THREE.Group(), slab = new THREE.Mesh(new THREE.BoxGeometry(36, 0.175, 20)); slab.name = 'l2_floor'; slab.position.set(18, 3.2875, -10);
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 3.2, 1)); wall.name = 'l2_wall'; wall.position.set(1, 1, -1); scene.add(slab, wall);
-    expect(floorTop(scene, 'l2')).toBeCloseTo(3.375, 6);
   });
-  it('세 층 바닥이 든 모형: 고른 층(<floor_id>_floor) 의 윗면, 그 노드가 없으면 모형 맨 아래', () => {
+  it('바닥 높이 = 판의 model_floor_z (실서버 floor_id 는 UUID 라 노드 이름으로 찾지 않음), 없으면 모형 맨 아래', () => {
     const scene = new THREE.Group();
     for (const [id, top] of [['l1', 0], ['l2', 3.375], ['l3', 6.75]] as const) {
       const slab = new THREE.Mesh(new THREE.BoxGeometry(36, 0.175, 20)); slab.name = `${id}_floor`; slab.position.set(18, top - 0.0875, -10); scene.add(slab);
     }
-    expect(floorTop(scene, 'l2')).toBeCloseTo(3.375, 6);
-    expect(floorTop(scene, 'l1')).toBeCloseTo(0, 6);
-    expect(floorTop(scene, 'b9')).toBeCloseTo(-0.175, 6);
+    const uuid = '3f1c2a9e-7b4d-4e21-9a0c-5d6e7f809a1b';
+    expect(floorZ(scene, ver('v9', 1, { floor_id: uuid, model_floor_z: 3.375 } as Partial<MapVersion>))).toBe(3.375);
+    expect(floorZ(scene, ver('v9', 1, { floor_id: uuid, model_floor_z: 0 } as Partial<MapVersion>))).toBe(0);
+    expect(floorZ(scene, ver('v9', 1, { floor_id: uuid, model_floor_z: null } as Partial<MapVersion>))).toBeCloseTo(-0.175, 6);
+    expect(floorZ(scene, ver('v9', 1, { floor_id: 'l3' }))).toBeCloseTo(-0.175, 6);   // 이름이 맞아도 노드는 보지 않음
   });
 });
 
