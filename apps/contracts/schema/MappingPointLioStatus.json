@@ -1,0 +1,143 @@
+{
+  "$id": "fh-app/1/MappingPointLioStatus",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "active": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Active"
+    },
+    "cloud_age_s": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Cloud Age S"
+    },
+    "cloud_hz": {
+      "description": "Cloud callbacks received in the preceding 1 second, capped at 4096.",
+      "maximum": 4096,
+      "minimum": 0,
+      "title": "Cloud Hz",
+      "type": "number"
+    },
+    "fresh": {
+      "title": "Fresh",
+      "type": "boolean"
+    },
+    "pose_age_s": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Pose Age S"
+    },
+    "pose_hz": {
+      "description": "Pose callbacks received in the preceding 1 second, capped at 4096.",
+      "maximum": 4096,
+      "minimum": 0,
+      "title": "Pose Hz",
+      "type": "number"
+    },
+    "position_m": {
+      "anyOf": [
+        {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Native Point-LIO origin x/y/z in metres, rounded to 2 decimals; may include rejected finite coordinates.",
+      "title": "Position M"
+    },
+    "position_valid": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Position Valid"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "reason_code": {
+      "anyOf": [
+        {
+          "enum": [
+            "MISSING_DATA",
+            "STALE",
+            "POSITION_OUT_OF_RANGE",
+            "POSITION_JUMP",
+            "STAMP_REGRESSION",
+            "FRAME_MISMATCH",
+            "STAMP_SKEW",
+            "INVALID_DATA"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason Code"
+    }
+  },
+  "required": [
+    "active",
+    "fresh",
+    "pose_age_s",
+    "cloud_age_s",
+    "position_valid",
+    "reason_code",
+    "reason",
+    "position_m",
+    "pose_hz",
+    "cloud_hz"
+  ],
+  "title": "MappingPointLioStatus",
+  "type": "object"
+}

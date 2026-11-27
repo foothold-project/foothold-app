@@ -21,6 +21,7 @@ from .poses import timestamp
 from .runtime import MappingRuntime,TransferError
 from .services import Services
 from .health import PointLioHealth, FRESH_SECONDS, MAX_POSITION_JUMP_M
+from .live import GlimLive
 from .raw_recording import RawRecorder
 from .world import WorldAccumulator
 from .tiles import Tiles
@@ -66,6 +67,9 @@ class OnboardRuntime(MappingRuntime):
         self.input_stamps={}
         self.handles=[]
         self.pointlio=PointLioHealth(self.live,self.now)
+        self.glim_live=GlimLive(self.final,self.now)
+        self.sample_receipts={topic:deque(maxlen=4096) for topic in (self.live.odom_topic,self.live.cloud_topic)}
+        self.next_glim_receive=self.next_glim_report=float('-inf')
         self.services=Services(self.env,self.local_recording_allowed,run=service_run,
             now=self.now,fresh=self.pointlio.fresh)
         self.services_fault=None
@@ -145,7 +149,14 @@ class OnboardRuntime(MappingRuntime):
                 self.dropped(topic, 'input_bytes')
                 return
             with self.lock:
-                self.pending_samples[topic] = self.now(), message
+                at=self.now()
+                if topic in self.sample_receipts:
+                    self.sample_receipts[topic].append(at)
+                if topic==self.final.cloud_topic:
+                    if at<self.next_glim_receive:
+                        return
+                    self.next_glim_receive=at+1
+                self.pending_samples[topic] = at, message
         except (AttributeError, TypeError):
             self.dropped(topic, 'malformed_sample')
 
@@ -185,8 +196,7 @@ class OnboardRuntime(MappingRuntime):
                 if not source.configured:
                     continue
                 topics=[(source.odom_topic,True)]
-                if source is self.live:
-                    topics.append((source.cloud_topic,False))
+                topics.append((source.cloud_topic,False))
                 for topic,is_pose in topics:
                     handle=self.channel.cloud_bus.subscribe(topic,partial(self.receive,topic),
                         **({'pose_type':source.pose_type} if is_pose else {}))
@@ -240,6 +250,8 @@ class OnboardRuntime(MappingRuntime):
             self.services_requested=False
             self.services_disconnected=False
             self.services_fault=None
+            self.glim_live=GlimLive(self.final,self.now)
+            self.next_glim_receive=self.next_glim_report=float('-inf')
             self.input_wait_since=None
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
@@ -503,10 +515,14 @@ class OnboardRuntime(MappingRuntime):
             pipeline='point_lio+glim',final_source='glim',
             status=self.core.status, phase=self.phase, command_id=self.command_id, revision=self.revision,
             update_seq=self.update_seq, point_count=len(self.core.cells), elapsed_s=max(0,self.now()-self.core.started),
-            times=dict(self.times), odom=self.last_odom,
+            times=dict(self.times), odom=self.last_odom, sources=self.sources_body(),
             error_code=self.core.error_code,reason=self.core.reason,
             voxels=dict(revision=self.revision, seq=self.voxel_seq, reset=self.reset, resolution=.05,
                         frame_id=self.frame, added=added, removed=removed))
+        if self.glim_live.preview is None:
+            body['glim_preview']=None
+        elif self.now()>=self.next_glim_report:
+            body['glim_preview']=self.glim_live.preview
         grid = self.grid_body(crop=True,max_cells=4000) if self.core.grid.ready and self.core.status!='FAILED' else None
         if grid is not None:
             body['grid'] = grid
@@ -520,6 +536,19 @@ class OnboardRuntime(MappingRuntime):
             reason = body.get('reason') or ''
             body['reason'] = (reason[:max(0, 197-len(raw_reason))] + ' · ' + raw_reason).lstrip(' ·')
         return body, added, removed
+
+    def sources_body(self):
+        at=self.now()
+        with self.lock:
+            rates={topic:sum(0<=at-received<1 for received in receipts)
+                   for topic,receipts in self.sample_receipts.items()}
+        # Service active is unknown when queries are disabled; DDS traffic is
+        # independent evidence and must not be presented as an is-active result.
+        active=self.services.pointlio_active if self.services.control_enabled() and self.services.pointlio_checked else None
+        return dict(point_lio=self.pointlio.snapshot(active,rates[self.live.odom_topic],rates[self.live.cloud_topic]),
+            glim=self.glim_live.snapshot(self.services,
+                saving=self.save_requested is not None and self.core.status not in ('SAVED','CANCELLED','FAILED'),
+                processed_chunks=self.rebuild['offset'] if self.rebuild is not None else None))
 
     def remove_bundle(self, session):
         try:
@@ -589,10 +618,15 @@ class OnboardRuntime(MappingRuntime):
                 pass  # A failed request leaves the report pending for retry.
         if self.services.control_enabled():
             self.check_services_health()
-            self.pointlio.update(samples)
+        self.pointlio.update(samples)
         for frame in commands:
             self.handle_command(frame)
         self.check_services_health()
+        if (self.core.session_id and self.core.status not in ('SAVED','CANCELLED','FAILED')
+                and not self.remote_terminal and self.save_requested is None
+                and self.services.status=='STARTED' and self.services.glim in self.services.owned
+                and not self.services_disconnected and self.services.ready_at is not None):
+            self.glim_live.update(samples,max(self.not_before,self.services.ready_at))
         if (self.services_disconnected and self.save_requested is None
                 and self.core.status not in ('SAVED','CANCELLED','FAILED')):
             self.problem('MAPPING_SERVICES_DISCONNECTED','연결이 끊겨 지도 서비스 정지를 요청했습니다. 받은 자료를 저장하거나 새 세션으로 다시 시작해 주세요.')
@@ -700,6 +734,8 @@ class OnboardRuntime(MappingRuntime):
                 changes = [(key, self.changes[key]) for key in (*added, *removed)]
                 self.report_changes = added, removed, self.revision, self.core.session_id, tiles, changes, self.command_id
                 self.report_future = self.io.submit(self.request, self.core.session_id, 'progress', data)
+                if body.get('glim_preview') is not None:
+                    self.next_glim_report=self.now()+1
             self.next_report = self.now()+.25
 
     def cleanup_disconnected(self):

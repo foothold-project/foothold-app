@@ -125,6 +125,8 @@ export interface AgentMappingUpdate {
   error_code?: string | null;
   reason?: string | null;
   preview?: MappingPreview | null;
+  sources?: MappingSources | null;
+  glim_preview?: MappingGlimPreview | null;
   map_version_id?: string | null;
   terrain_id?: string | null;
   source?: "point_lio" | "glim" | "legacy" | null;
@@ -922,6 +924,24 @@ export interface MappingBundleLink {
   completeness: "RECEIVED_ONLY" | "SLAM_CONFIRMED";
 }
 
+export interface MappingGlimPreview {
+  source?: "glim";
+  seq: number;
+  frame_id: string;
+  stamp: MappingStamp;
+  resolution?: 0.25;
+  cells: [number, number, number][];
+}
+
+export interface MappingGlimStatus {
+  stage: "OFF" | "STARTING" | "RECEIVING" | "SAVING" | "UNKNOWN";
+  data_age_s: number | null;
+  processed_chunks: number | null;
+  /** Null when the provider exposes no verified GPU evidence. */
+  gpu: boolean | null;
+  reason?: string | null;
+}
+
 export interface MappingGrid {
   revision: number;
   resolution?: 0.05;
@@ -957,6 +977,22 @@ export interface MappingOdom {
   yaw: number;
 }
 
+export interface MappingPointLioStatus {
+  active: boolean | null;
+  fresh: boolean;
+  pose_age_s: number | null;
+  cloud_age_s: number | null;
+  position_valid: boolean | null;
+  reason_code: "MISSING_DATA" | "STALE" | "POSITION_OUT_OF_RANGE" | "POSITION_JUMP" | "STAMP_REGRESSION" | "FRAME_MISMATCH" | "STAMP_SKEW" | "INVALID_DATA" | null;
+  reason: string | null;
+  /** Native Point-LIO origin x/y/z in metres, rounded to 2 decimals; may include rejected finite coordinates. */
+  position_m: [number, number, number] | null;
+  /** Pose callbacks received in the preceding 1 second, capped at 4096. */
+  pose_hz: number;
+  /** Cloud callbacks received in the preceding 1 second, capped at 4096. */
+  cloud_hz: number;
+}
+
 export interface MappingPreview {
   resolution: number;
   cells: [number, number][];
@@ -974,6 +1010,8 @@ export interface MappingProgress {
   error_code?: string | null;
   reason?: string | null;
   preview?: MappingPreview | null;
+  sources?: MappingSources | null;
+  glim_preview?: MappingGlimPreview | null;
   map_version_id?: string | null;
   terrain_id?: string | null;
   source?: "point_lio" | "glim" | "legacy" | null;
@@ -998,6 +1036,12 @@ export interface MappingReportRejection {
   code: string;
   reason: string;
   received_at: string;
+}
+
+export interface MappingSources {
+  point_lio: MappingPointLioStatus;
+  glim: MappingGlimStatus;
+  reported_at?: string | null;
 }
 
 export interface MappingStamp {

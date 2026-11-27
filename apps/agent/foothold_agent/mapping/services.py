@@ -23,6 +23,7 @@ class Services:
         self.pointlio,self.glim=self.names
         self.fresh=fresh
         self.pointlio_active=False
+        self.pointlio_checked=False
         self.pointlio_was_down=False
         self.pointlio_restarted=False
         self.pointlio_identity=None
@@ -86,6 +87,7 @@ class Services:
     def check_pointlio(self):
         active=self.run('is-active',self.pointlio)
         self.pointlio_active=active==0
+        self.pointlio_checked=True
         if active!=0:
             self.start_error='실시간 위치가 꺼져 있습니다. 실행 상태를 확인해 주세요.'
             raise OSError(f'mapping service state query failed: {active}')
@@ -111,6 +113,7 @@ class Services:
                 if self.version!=job or self.status!='STARTED':
                     return
                 self.pointlio_active=active
+                self.pointlio_checked=True
                 if not active:
                     self.pointlio_was_down=True
                 elif self.pointlio_was_down or identity!=self.pointlio_identity:

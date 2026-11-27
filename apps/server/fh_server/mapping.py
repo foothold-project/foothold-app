@@ -96,7 +96,23 @@ def progress(row):
     elif row.result:
         body.update(map_version_id=row.result['map']['id'], terrain_id=row.result['voxels']['terrain_id'],
                     point_count=row.result['voxels']['point_count'])
-    return C.MappingProgress.model_validate(body)
+    result = C.MappingProgress.model_validate(body)
+    if result.sources and result.sources.reported_at:
+        age = max(0, (now()-result.sources.reported_at).total_seconds())
+        point = result.sources.point_lio
+        for key in ('pose_age_s', 'cloud_age_s'):
+            value = getattr(point, key)
+            if value is not None:
+                setattr(point, key, round(value+age, 3))
+        if result.sources.glim.data_age_s is not None:
+            result.sources.glim.data_age_s = round(result.sources.glim.data_age_s+age, 3)
+        if any(value is not None and value > .5 for value in (point.pose_age_s, point.cloud_age_s)):
+            point.fresh = False
+            if point.reason_code is None:
+                point.reason_code, point.reason = 'STALE', '위치 또는 점 자료가 끊겼습니다.'
+        if age >= 1:
+            point.pose_hz = point.cloud_hz = 0
+    return result
 
 
 class Mapping:
@@ -298,6 +314,8 @@ class Mapping:
                         exclude={'server_received_at', 'start_requested_at', 'save_requested_at', 'command_forwarded_at',
                             'start_forwarded_at', 'save_forwarded_at', 'start_ack_at', 'save_ack_at', 'saved_at'}))
                 received = now().isoformat()
+                if supplied.get('sources') is not None:
+                    supplied['sources']['reported_at'] = received
                 if msg.phase in ('STARTED', 'SLAM_SAVED'):
                     times.setdefault('start_ack_at' if msg.phase == 'STARTED' else 'save_ack_at', received)
                 if msg.voxels or msg.grid or msg.odom or tiles:

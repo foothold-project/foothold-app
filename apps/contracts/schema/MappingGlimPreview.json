@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "MappingStamp": {
+      "additionalProperties": false,
+      "properties": {
+        "nanosec": {
+          "maximum": 999999999,
+          "minimum": 0,
+          "title": "Nanosec",
+          "type": "integer"
+        },
+        "sec": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Sec",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sec",
+        "nanosec"
+      ],
+      "title": "MappingStamp",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MappingGlimPreview",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Independent coarse cumulative snapshot, never final-save evidence or Point-LIO cells.",
+  "properties": {
+    "cells": {
+      "items": {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+          {
+            "maximum": 40000,
+            "minimum": -40000,
+            "type": "integer"
+          },
+          {
+            "maximum": 40000,
+            "minimum": -40000,
+            "type": "integer"
+          },
+          {
+            "maximum": 40000,
+            "minimum": -40000,
+            "type": "integer"
+          }
+        ],
+        "type": "array"
+      },
+      "maxItems": 1024,
+      "title": "Cells",
+      "type": "array"
+    },
+    "frame_id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Frame Id",
+      "type": "string"
+    },
+    "resolution": {
+      "const": 0.25,
+      "default": 0.25,
+      "title": "Resolution",
+      "type": "number"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "source": {
+      "const": "glim",
+      "default": "glim",
+      "title": "Source",
+      "type": "string"
+    },
+    "stamp": {
+      "$ref": "#/$defs/MappingStamp"
+    }
+  },
+  "required": [
+    "seq",
+    "frame_id",
+    "stamp",
+    "cells"
+  ],
+  "title": "MappingGlimPreview",
+  "type": "object"
+}

@@ -1293,6 +1293,50 @@ class MappingReportRejection(Contract):
     received_at: UTCDateTime
 
 
+class MappingPointLioStatus(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    active: bool | None
+    fresh: bool
+    pose_age_s: float | None = Field(ge=0)
+    cloud_age_s: float | None = Field(ge=0)
+    position_valid: bool | None
+    reason_code: Literal['MISSING_DATA', 'STALE', 'POSITION_OUT_OF_RANGE', 'POSITION_JUMP',
+                         'STAMP_REGRESSION', 'FRAME_MISMATCH', 'STAMP_SKEW', 'INVALID_DATA'] | None
+    reason: str | None = Field(max_length=200)
+    position_m: tuple[float, float, float] | None = Field(description='Native Point-LIO origin x/y/z in metres, rounded to 2 decimals; may include rejected finite coordinates.')
+    pose_hz: float = Field(ge=0, le=4096, description='Pose callbacks received in the preceding 1 second, capped at 4096.')
+    cloud_hz: float = Field(ge=0, le=4096, description='Cloud callbacks received in the preceding 1 second, capped at 4096.')
+
+
+class MappingGlimStatus(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    stage: Literal['OFF', 'STARTING', 'RECEIVING', 'SAVING', 'UNKNOWN']
+    data_age_s: float | None = Field(ge=0)
+    processed_chunks: int | None = Field(ge=0, le=MAX_SAFE_INTEGER)
+    gpu: bool | None = Field(description='Null when the provider exposes no verified GPU evidence.')
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class MappingSources(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    point_lio: MappingPointLioStatus
+    glim: MappingGlimStatus
+    reported_at: UTCDateTime | None = None  # server receipt; GET ages grow without new reports
+
+
+class MappingGlimPreview(Contract):
+    """Independent coarse cumulative snapshot, never final-save evidence or Point-LIO cells."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    source: Literal['glim'] = 'glim'
+    seq: int = Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)
+    frame_id: str = Field(min_length=1, max_length=80)
+    stamp: MappingStamp
+    resolution: Literal[0.25] = .25
+    cells: list[tuple[Annotated[int, Field(ge=-40000, le=40000, strict=True)],
+                      Annotated[int, Field(ge=-40000, le=40000, strict=True)],
+                      Annotated[int, Field(ge=-40000, le=40000, strict=True)]]] = Field(max_length=1024)
+
+
 class MappingProgress(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     session_id: UUID
@@ -1304,6 +1348,8 @@ class MappingProgress(Contract):
     error_code: str | None = Field(default=None, max_length=80)
     reason: str | None = Field(default=None, max_length=200)
     preview: MappingPreview | None = None
+    sources: MappingSources | None = None
+    glim_preview: MappingGlimPreview | None = None
     map_version_id: UUID | None = None
     terrain_id: str | None = Field(default=None, max_length=100)
     source: MappingSource | Literal['legacy'] | None = None
