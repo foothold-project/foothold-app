@@ -500,6 +500,7 @@ export interface EstimateRequest {
   robot_id: string;
   gait: "classic" | "sport" | "start" | "ame2";
   start?: string | null;
+  exclude_slot_id?: string | null;
 }
 
 export interface Event {
