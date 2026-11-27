@@ -41,13 +41,13 @@ export function told(m: string) {
   return x ? { text: `${x[1]}: ${AGENT_EVENT[x[2]] ?? '기타 사건'}`, code: x[2] } : null;
 }
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
-/** 심각도 = 기호 + 글(색만으로 구분 0). 색은 심각도에만 쓴다 — 분류는 회색 글(11-11 A안: 줄마다 알약 둘이 서던 것 정리).
- *  INFO 는 «정상»의 증거가 아니다: 서버는 심각도 없이 온 로봇 audit 을 INFO 로 저장한다(realtime.py — STOP_CONFIRM_FAILED 등). 그래서 INFO 는 표시 없음(정상이라고도 쓰지 않음), 실패류 코드면 «주의» */
-const SEV: Record<string, [Tone, string, string]> = { WARN: ['warn', '▲', '주의'], ERROR: ['bad', '■', '오류'] };
+/** 등급 알약 = 기호 + 글(색만으로 구분 0): ■위험 · ▲주의 · ⓘ정보(옅은 알약, U8-10 시안 낱말). 분류는 회색 글.
+ *  INFO 는 «정상»의 증거가 아니다: 서버는 심각도 없이 온 audit 을 INFO 로 저장한다(STOP_CONFIRM_FAILED · PHONE_LEASE_TIMEOUT 등). 실패류 코드면 «주의» */
+const SEV: Record<string, [Tone | 'info', string, string]> = { WARN: ['warn', '▲', '주의'], ERROR: ['bad', '■', '위험'], INFO: ['info', 'ⓘ', '정보'] };
 const FAILED = /_(FAILED|REJECTED|DENIED|TIMEOUT)$/;
 const Sev = ({ e }: { e: Ev }) => {
-  const x = e.severity === 'INFO' ? (FAILED.test(e.code ?? '') ? SEV.WARN : null) : SEV[e.severity] ?? ['off', '?', '알 수 없음'];
-  return x && <span className="hs-sev" data-tone={x[0]}><span aria-hidden="true">{x[1]}</span><span>{x[2]}</span></span>;
+  const x = e.severity === 'INFO' && FAILED.test(e.code ?? '') ? SEV.WARN : SEV[e.severity] ?? ['off', '?', '알 수 없음'];
+  return <span className="hs-sev" data-tone={x[0]}><span aria-hidden="true">{x[1]}</span><span>{x[2]}</span></span>;
 };
 /** 분류: 작은 회색 글(색 없음 — 빨강은 오류·정지만 뜻하게) */
 const Kind = ({ e }: { e: Ev }) => <span className="hs-kind" data-kind={e.category}>{KIND_NAME[e.category] ?? '기타'}</span>;
@@ -83,8 +83,14 @@ const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
 };
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd — 그날 0시부터 끝까지, 브라우저 시간대) */
-type Filter = { category: string; robot: string; from: string; to: string };
-const NONE: Filter = { category: '', robot: '', from: '', to: '' };
+type Filter = { category: string; severity: string; robot: string; from: string; to: string };
+const NONE: Filter = { category: '', severity: '', robot: '', from: '', to: '' };
+/** 등급 거르기(U8-10): 서버 severity 그대로 넘긴다. 이름 · 기호는 줄의 심각도 표시(SEV)와 같게, INFO 는 «정보» */
+const GRADES: [string, string, string][] = [['', '', '전체'], ['ERROR', SEV.ERROR[1], SEV.ERROR[2]], ['WARN', SEV.WARN[1], SEV.WARN[2]], ['INFO', SEV.INFO[1], SEV.INFO[2]]];
+/** 현지 오늘에서 n 일 전 yyyy-mm-dd */
+const back = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toLocaleDateString('sv'); };
+/** 기간 빠른 단추: 오늘 포함 n 일(0 = 오늘만) */
+const QUICK: [string, number][] = [['오늘', 0], ['7 일', 6], ['30 일', 29]];
 /** 날짜 칸 값 + 시각 → ISO. 서버가 못 읽는 날짜(날짜 칸이 받는 다섯 자리 연도 등)는 null — toISOString 의 RangeError 를 렌더까지 올리지 않는다 */
 function iso(day: string, time: string) {
   const d = /^\d{4}-\d\d-\d\d$/.test(day) ? new Date(`${day}T${time}`) : null;
@@ -96,6 +102,7 @@ function params(f: Filter) {
   const q = new URLSearchParams(), from = f.from && iso(f.from, '00:00:00'), to = f.to && iso(f.to, '23:59:59.999');
   if (from === null || to === null) return null;
   if (f.category) q.set('category', f.category);
+  if (f.severity) q.set('severity', f.severity);
   if (f.robot) q.set('robot_id', f.robot);
   if (from) q.set('from', from);
   if (to) q.set('to', to);
@@ -203,11 +210,17 @@ export function History(c: HistoryCtx) {
     {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} who={who} close={() => c.go('history')} />}
     {!c.phone && <>
       <div className="fh-row" role="group" aria-label="분류">{KINDS.map(([k, name]) => <button key={name} type="button" className="btn" aria-pressed={f.category === k} onClick={() => set({ category: k })}>{name}</button>)}</div>
+      <div className="fh-row" role="group" aria-label="등급"><span className="lbl">등급</span>{GRADES.map(([k, mark, name]) => <button key={name} type="button" className="btn" aria-pressed={f.severity === k} onClick={() => set({ severity: k })}>{mark && <span aria-hidden="true">{mark}</span>}{name}</button>)}</div>
+      {/* 줄의 ▲주의 는 서버가 INFO 로 저장한 실패 코드도 포함한다(Sev). 서버 거르기는 저장된 등급 그대로라 그 줄은 «정보» 에 있다 */}
+      {f.severity === 'WARN' && <p className="lv-note" data-grade-note>정보로 저장된 실패 기록(▲)은 «정보» 에서 보입니다.</p>}
       <div className="fh-row">
         {/* 로봇 거르기: 내 로봇 + 끝낸 시뮬 슬롯(지난 시뮬 기록 — 운영 관리자는 그 슬롯에서 한 내 행동만 서버가 보여 줌) */}
         <label className="fh-row"><span className="lbl">로봇</span><select className="fh-user" value={f.robot} onChange={(e) => set({ robot: e.target.value })}>
           <option value="">전체</option>{[...myRobots(c.user, c.robots), ...(c.user.role === 'ORG_ADMIN' ? [] : c.robots.filter(idleSim))].map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
         <span className="fh-row" role="group" aria-label="기간"><span className="lbl">기간</span>
+          {/* 날짜 칸에도 같은 날짜를 써서 칸과 필터가 늘 같다. 눌림은 칸 글자에서 나오므로 칸을 고치면 풀린다 */}
+          {QUICK.map(([name, n]) => { const a = back(n), b = back(0), on = days.from === a.replace(/-/g, '/') && days.to === b.replace(/-/g, '/');
+            return <button key={name} type="button" className="btn" aria-pressed={on} onClick={() => { setDays({ from: a.replace(/-/g, '/'), to: b.replace(/-/g, '/') }); setLeft({ from: false, to: false }); set({ from: a, to: b }); }}>{name}</button>; })}
           <DayBox name="기간 시작" text={days.from} bad={shown.includes('from') || late} max={f.to} put={put('from')} leave={() => setLeft((o) => ({ ...o, from: true }))} />
           <span aria-hidden="true">~</span>
           <DayBox name="기간 끝" text={days.to} bad={shown.includes('to') || late} min={f.from} put={put('to')} leave={() => setLeft((o) => ({ ...o, to: true }))} /></span>
