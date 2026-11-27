@@ -3,7 +3,7 @@
 // 타일 영상 칸: 로봇별 영상 흐름이 화면에 없어 3D Go2 를 지금 상태대로 그린다(팀장 규칙 · 로봇 보고 자세가 있으면 그대로, 없으면 상태로: 임무·조종 중 = 걷기, 잠금·오류·끊김 = 엎드림, 그 밖 = 서 있음).
 // 뒤집기 = Go2 정면 상태(관절 온도·자세 값, U5-11), 시뮬 로봇은 정면 상태만(U5-12). 값이 없는 칸은 접는다 · 지어낸 숫자 0.
 // 총괄·운영 관리자 같은 틀, 운영 관리자는 «내 로봇» 거르기가 기본(U5-16). 경보 한 장(U5-19)은 받은 로봇 상태·주의 코드에서.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { Location, MapVersion } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
 import { lost, ownerName, robotStatus, type Robot, type Tone } from '../fake';
@@ -18,6 +18,15 @@ import '../pcdrive.css';
 import './control.css';
 
 const RANK: Record<Tone, number> = { bad: 0, warn: 1, ok: 2, off: 3 };
+/** 관제 타일에서 고른 로봇 id. App 의 STOP 이 읽는다(D1: 고른 로봇이 있으면 한 번 누름으로 그 로봇). 관제 탭을 떠나면 비운다 */
+let pickedId = '';
+const pickSubs = new Set<() => void>();
+export const controlPick = {
+  get: () => pickedId,
+  set(id: string) { if (id === pickedId) return; pickedId = id; pickSubs.forEach((f) => f()); },
+  sub(f: () => void) { pickSubs.add(f); return () => { pickSubs.delete(f); }; },
+};
+export const useControlPick = () => useSyncExternalStore(controlPick.sub, controlPick.get);
 /** 서버 주의 코드 중 상태 칩이 이미 말하지 않는 것(끊김·잠금·오류·칩과 같은 글은 뺌). 한 번도 연결된 적 없는 로봇의 OFFLINE 은 칩 «연결 전»이 말한다 */
 const rest = (x: Robot) => attn(x, ['OFFLINE', 'STOP_LATCHED', 'ERROR']).split(' · ').filter((a) => a && a !== robotStatus(x).text);
 /** 주의가 필요한 로봇 = 상태가 빨강·주황이거나, 칩이 말하지 않는 서버 주의 코드가 남음. 연결 전(칩 회색)만이면 경고 아님 */
@@ -184,7 +193,8 @@ export function Control(c: Ctx) {
   useRt();
   const me = c.user.id, admin = c.user.role === 'ORG_ADMIN';
   const [view, setView] = useState<'tiles' | 'map'>('tiles'), [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine');
-  const [sel, setSel] = useState(''), [allFront, setAllFront] = useState(false), [flipped, setFlipped] = useState<Set<string>>(new Set());
+  const sel = useControlPick(), setSel = controlPick.set, [allFront, setAllFront] = useState(false), [flipped, setFlipped] = useState<Set<string>>(new Set());
+  useEffect(() => () => controlPick.set(''), []);
   const t = useTree(c.cancel), places = useMemo(() => floorsOf(t.tree), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
   const tiles = order(list), alerts = tiles.filter(needs);
@@ -201,6 +211,10 @@ export function Control(c: Ctx) {
     ['경고', alerts.length, <path d="M12 4l9 16H3zM12 10v4M12 17v.5" />, alerts.length ? 'bad' : undefined],
   ];
   const top = alerts[0];
+  // 층 목록 세 갈래(작은 지도 · 지도 보기 같은 꼴): 받음 → 지도, 실패 → 다시 시도, 받는 중. 받기 전에 «등록된 층이 없습니다»를 보이지 않는다(REVIEW-PR529 C1)
+  const floors = (map: ReactNode) => t.tree ? map
+    : t.err ? <div className="fh-row"><p className="fh-msg" role="alert">층 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>
+    : <p className="lv-note" role="status">층 목록을 불러오는 중…</p>;
   return <div className="ct" data-view={view}>
     <div className="ct-bar-top">
       <div className="ct-seg" role="group" aria-label="보기">
@@ -221,13 +235,11 @@ export function Control(c: Ctx) {
         {!tiles.length && <p className="lv-note">{scope === 'mine' ? '내 로봇이 없습니다. «모두»를 누르면 보이는 모든 로봇을 봅니다.' : '보이는 로봇이 없습니다.'}</p>}
         {tiles.map((x) => <Tile key={x.id} x={x} sel={x.id === sel} front={front(x)} sim={!!x.sim} pick={() => setSel(x.id)} open={() => open(x.id)} flip={() => flip(x.id)} />)}
       </section>
-        : <section className="lv-card ct-bigmap" aria-label="지도 보기"><Guard><SmallMap robots={tiles} sel={sel} places={places} cancel={c.cancel} big /></Guard></section>}
+        : <section className="lv-card ct-bigmap" aria-label="지도 보기"><Guard>{floors(<SmallMap robots={tiles} sel={sel} places={places} cancel={c.cancel} big />)}</Guard></section>}
       <aside className="ct-side">
         {view === 'tiles' ? <section className="lv-card ct-small" aria-label="작은 지도">
           <div className="fh-row"><h2 className="fh-grow">작은 지도</h2><span className="lbl">점 = 로봇 · 고리 = 고른 로봇</span></div>
-          <Guard>{t.tree ? <SmallMap robots={tiles} sel={sel} places={places} cancel={c.cancel} />
-            : t.err ? <div className="fh-row"><p className="fh-msg" role="alert">층 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>
-            : <p className="lv-note" role="status">층 목록을 불러오는 중…</p>}</Guard>
+          <Guard>{floors(<SmallMap robots={tiles} sel={sel} places={places} cancel={c.cancel} />)}</Guard>
           {picked ? <div className="fh-row" data-picked><b className="fh-grow">{picked.name}</b><button type="button" className="btn" onClick={() => open(picked.id)}>로봇 탭에서 보기</button></div>
             : <p className="lv-note">타일을 한 번 누르면 지도에서 강조, 두 번 누르면 로봇 탭이 열립니다.</p>}
         </section>

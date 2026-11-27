@@ -228,4 +228,5 @@ const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 �
 /** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
 export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, missions: Maps, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
+/** missions 는 tabFromHash 가 지도 탭으로 바꿔 열리지 않는다(임무 탭 #530 전까지) */
+export const BODY: Record<Exclude<TabId, 'missions'>, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };

@@ -6,6 +6,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, actOf, lastly, order } from '../screens/control';
+import { api } from '../api';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -205,5 +206,66 @@ describe('관제 탭', () => {
     expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(1);
     expect($('[aria-label="최근 경고"] [data-alert-at]')).toBeNull();
     expect($('[aria-label="최근 경고"]').textContent).not.toContain('미확인');
+  });
+
+  // C1(REVIEW-PR529): 지도 보기도 타일 보기 작은 지도와 같은 세 갈래(받는 중 · 실패 + 다시 시도 · 정말 0 층)
+  const mapView = () => { act(() => { $$('[aria-label="보기"] button')[1].click(); }); return $('[aria-label="지도 보기"]'); };
+  it('지도 보기: 층 목록을 받는 중이면 «불러오는 중», «등록된 층이 없습니다» 아님', () => {
+    vi.spyOn(api, 'sites').mockReturnValue(new Promise(() => {}));
+    mount('u-kim', TWENTY); feed(TWENTY);
+    const v = mapView();
+    expect(v.textContent).toContain('층 목록을 불러오는 중');
+    expect(v.textContent).not.toContain('등록된 층이 없습니다');
+  });
+  it('지도 보기: 층 목록을 받지 못하면 실패 글 + 다시 시도(누르면 다시 받음)', async () => {
+    const sites = vi.spyOn(api, 'sites').mockRejectedValue({ code: 'NETWORK', message: '서버에 닿지 못했습니다.' });
+    mount('u-kim', TWENTY); feed(TWENTY);
+    await act(async () => {});
+    const v = mapView();
+    expect(v.textContent).toContain('층 목록을 받지 못했습니다');
+    expect(v.textContent).not.toContain('등록된 층이 없습니다');
+    const n = sites.mock.calls.length;
+    await act(async () => { [...v.querySelectorAll('button')].find((b) => b.textContent === '다시 시도')!.click(); });
+    expect(sites.mock.calls.length).toBe(n + 1);
+  });
+  it('지도 보기: 정말 0 층이면 «등록된 층이 없습니다»', async () => {
+    vi.spyOn(api, 'sites').mockResolvedValue({ items: [] } as never);
+    mount('u-kim', TWENTY); feed(TWENTY);
+    await act(async () => {});
+    expect(mapView().textContent).toContain('등록된 층이 없습니다');
+  });
+
+  // C2 · D1(app-design-lx 05:12 결정): 관제 탭 STOP 은 고른 타일 로봇을 한 번에 · 고른 것이 없으면 첫 누름 = 고르기, 맨 위 «모두 정지 (N 대)»
+  const stopBtn = () => $('[aria-label="비상 정지"]');
+  const press = (b: HTMLElement) => act(() => { b.click(); });
+  it('관제 STOP: 타일에서 고른 로봇이 있으면 한 번 누름으로 그 로봇만 정지(로봇 탭의 ctx.robot 이 다른 로봇이어도)', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    act(() => { tile('g6').click(); });   // 관제에서 고름(이OO 로봇) · ctx.robot 은 목록 첫 로봇(g0) 그대로
+    press(stopBtn());
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['g6']);
+    expect($('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+  });
+  it('관제 STOP: 고른 로봇이 없으면 첫 누름은 고르기(보냄 0) · 맨 위 «모두 정지 (N 대)» · 같은 자리 두 번째 누름이면 연결된 정지 가능 로봇 전부', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));   // 이OO 로봇 10 대 중 g4 끊김
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    const first = pick.querySelector('select')!.options[0];
+    expect(first.textContent).toBe('모두 정지 (9 대)');   // 이 사람이 세울 수 있는 연결된 로봇(담당 이OO 10 대 · 끊긴 g4 뺌)
+    expect(first.selected).toBe(true);
+    press(stopBtn());
+    const sent = FakeWS.last.of('stop').map((m) => m.robot);
+    expect(new Set(sent)).toEqual(new Set(T.filter((r) => r.owner === 'u-lee' && r.online).map((r) => r.id)));
+    expect(sent).toHaveLength(9);
+    expect($$('[data-stop-band]')).toHaveLength(9);
+  });
+  it('관제 STOP: 고르기의 정지 단추에 초점 · Enter(키보드 누름)로 모두 정지를 바로 보냄', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    press(stopBtn());
+    const go = $('[aria-label="정지할 로봇 고르기"] button.fh-stop');
+    expect(document.activeElement).toBe(go);
+    act(() => { go.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })); });   // Enter 로 누른 단추 = detail 0 click
+    expect(FakeWS.last.of('stop')).toHaveLength(10);   // 이OO 로봇 10 대 모두 연결
   });
 });
