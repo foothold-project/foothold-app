@@ -1,7 +1,7 @@
 // 관제 탭(W1 · U5 · 시안 u5_1_tiles · u5_3_map · u5_4_flipped · u5_5_alarm · u5_6_operator). 화면만: 새 API 0, 명령·STOP·조종권 경로 0.
 // 모든 로봇을 같은 크기 타일로(U5-05) · 경고 타일이 맨 앞 + 테두리 색(U5-09). 한 번 누름 = 작은 지도에서 강조(U5-08), 두 번 = 로봇 탭(U5-07). 타일 ↔ 지도 보기(U5-02).
 // 타일 영상 칸: 로봇별 영상 흐름이 화면에 없어 3D Go2 를 지금 상태대로 그린다(팀장 규칙 · 로봇 보고 자세가 있으면 그대로, 없으면 상태로: 임무·조종 중 = 걷기, 잠금·오류·끊김 = 엎드림, 그 밖 = 서 있음).
-// 뒤집기 = Go2 정면 상태(관절 온도·자세 값, U5-11), 시뮬 로봇은 정면 상태만(U5-12). 값이 없으면 «미확인» · 지어낸 숫자 0.
+// 뒤집기 = Go2 정면 상태(관절 온도·자세 값, U5-11), 시뮬 로봇은 정면 상태만(U5-12). 값이 없는 칸은 접는다 · 지어낸 숫자 0.
 // 총괄·운영 관리자 같은 틀, 운영 관리자는 «내 로봇» 거르기가 기본(U5-16). 경보 한 장(U5-19)은 받은 로봇 상태·주의 코드에서.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Location, MapVersion } from '../../../contracts/ts';
@@ -18,17 +18,19 @@ import '../pcdrive.css';
 import './control.css';
 
 const RANK: Record<Tone, number> = { bad: 0, warn: 1, ok: 2, off: 3 };
-/** 주의가 필요한 로봇 = 상태가 빨강·주황이거나 서버 주의 코드가 있음(로봇 탭 경보와 같은 판정) */
-export const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || !!x.attention?.length; };
+/** 서버 주의 코드 중 상태 칩이 이미 말하지 않는 것(끊김·잠금·오류·칩과 같은 글은 뺌). 한 번도 연결된 적 없는 로봇의 OFFLINE 은 칩 «연결 전»이 말한다 */
+const rest = (x: Robot) => attn(x, ['OFFLINE', 'STOP_LATCHED', 'ERROR']).split(' · ').filter((a) => a && a !== robotStatus(x).text);
+/** 주의가 필요한 로봇 = 상태가 빨강·주황이거나, 칩이 말하지 않는 서버 주의 코드가 남음. 연결 전(칩 회색)만이면 경고 아님 */
+export const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || rest(x).length > 0; };
 /** 경고 타일 맨 앞(빨강 → 주황 → 주의 코드만), 그 밖은 받은 순서 그대로 */
 export function order(list: Robot[]) {
   const k = (x: Robot) => (needs(x) ? Math.min(RANK[robotStatus(x).tone], 1.5) : 9);
   return list.map((x, i) => [x, i] as const).sort((a, b) => k(a[0]) - k(b[0]) || a[1] - b[1]).map(([x]) => x);
 }
-/** 경고 한 줄: 주의 코드 글, 없으면 상태 글 */
-const why = (x: Robot) => attn(x) || robotStatus(x).text;
-/** 타일 머리표 덧말: 상태 칩이 이미 말하는 것(끊김·잠금·오류·칩과 같은 글)은 빼고 남은 주의 코드만. 한 타일에서 같은 낱말은 한 번 */
-export const flagNote = (x: Robot) => attn(x, ['OFFLINE', 'STOP_LATCHED', 'ERROR']).split(' · ').filter((a) => a && a !== robotStatus(x).text).join(' · ');
+/** 경고 한 줄: 칩이 말하지 않는 주의 코드 글, 없으면 상태 글(needs 인 로봇에만 쓴다) */
+const why = (x: Robot) => rest(x).join(' · ') || robotStatus(x).text;
+/** 타일 머리표 덧말: 남은 주의 코드만. 한 타일에서 같은 낱말은 한 번 */
+export const flagNote = (x: Robot) => rest(x).join(' · ');
 /** 끊긴 로봇(서버 실시간 끊김 또는 한 번 받은 로봇의 연결 끊김): 값은 마지막 값 */
 export const isLost = (x: Robot) => x.unknown === 'link' || lost(x);
 /** 마지막 값 표시: 끊긴 로봇이면 «마지막 값 · HH:MM»(시각을 모르면 null = 미확인), 아니면 값 그대로 */
@@ -108,7 +110,7 @@ function Tile({ x, sel, front, sim, pick, open, flip }: { x: Robot; sel: boolean
       {sim ? <span className="ct-badge ct-face">시뮬 · 정면 상태만</span>
         : <button type="button" className="ct-badge ct-face ct-flip" aria-pressed={front} data-flip onClick={(e) => { e.stopPropagation(); flip(); }} onDoubleClick={(e) => e.stopPropagation()}>
           {front ? '동작 보기' : '정면 상태'}</button>}
-      {front && <span className="ct-badge ct-temp" data-temp-badge>{hot != null ? `최고 관절 온도 ${Math.round(hot)}°C` : '관절 온도 미확인'}</span>}
+      {front && hot != null && <span className="ct-badge ct-temp" data-temp-badge>최고 관절 온도 {Math.round(hot)}°C</span>}   {/* 관절 온도는 값이 있을 때만 */}
     </div>
     <div className="ct-head">
       <button type="button" className="ct-name" aria-pressed={sel} onClick={(e) => { e.stopPropagation(); pick(); }}><b>{x.name}</b></button>
@@ -121,20 +123,20 @@ function Tile({ x, sel, front, sim, pick, open, flip }: { x: Robot; sel: boolean
       <span className="fh-grow">{m ? m.name : '임무 없음'}</span>{m && m.total > 0 && <span className="lbl mono">할 일 {m.done}/{m.total}</span>}
     </div>
     <div className="ct-bar" aria-hidden="true"><i style={{ width: m && m.total ? `${Math.min(100, (m.done / m.total) * 100)}%` : 0 }} /></div>
-    <div className="ct-line" data-place>
+    {place && <div className="ct-line" data-place>
       <span className="ct-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z" /><circle cx="12" cy="10" r="2" /></svg></span>
-      <span>{place ?? '위치 미확인'}</span>
-    </div>
+      <span>{place}</span>
+    </div>}
     <div className="ct-facts">
-      {/* 연결은 위 상태 칩이 말한다(같은 낱말 한 번). 끊긴 로봇 값은 «마지막 값 · HH:MM», 시각을 모르면 미확인 */}
+      {/* 연결은 위 상태 칩이 말한다(같은 낱말 한 번). 값이 없는 칸은 칸째 접는다(«미확인» 반복이 진짜 끊김을 묻지 않게). 끊긴 로봇 값은 «마지막 값 · HH:MM», 시각을 모르면 접음 */}
       <Fact k="배터리" v={lastly(x, x.battery != null ? pct(x.battery) : null, x.seenAt)} />
       <Fact k="관절 최고" v={hot != null ? `${Math.round(hot)}°C` : null} />
       <Fact k="담당" v={ownerName(x)} />
     </div>
   </article>;
 }
-const Fact = ({ k, v, tone }: { k: string; v: string | null; tone?: Tone }) => <div className="ct-fact" data-fact={k} data-tone={tone} data-last={v?.startsWith('마지막') || undefined}>
-  <b className="mono">{v ?? '미확인'}</b><span className="lbl">{k}</span></div>;
+const Fact = ({ k, v, tone }: { k: string; v: string | null; tone?: Tone }) => (v == null ? null : <div className="ct-fact" data-fact={k} data-tone={tone} data-last={v.startsWith('마지막') || undefined}>
+  <b className="mono">{v}</b><span className="lbl">{k}</span></div>);
 
 /** 작은 지도(같은 GET /sites · /map-versions/{id}) · 판이 같은 위치만 점으로, 고른 로봇은 고리. 층은 고른 로봇이 있는 층 */
 function SmallMap({ robots, sel, places, cancel, big }: { robots: Robot[]; sel: string; places: Place[]; cancel?: AbortSignal; big?: boolean }) {
@@ -243,7 +245,7 @@ export function Control(c: Ctx) {
           {!alerts.length ? <p className="lv-note">주의가 필요한 로봇이 없습니다.</p>
             : alerts.length === 1 ? <p className="lv-note">다른 경고가 없습니다.</p>
             : <ul className="fh-list">{alerts.slice(1).map((x) => <li key={x.id} data-alert={x.id}><button type="button" onClick={() => setSel(x.id)} onDoubleClick={() => open(x.id)}>
-              <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="fh-grow lbl">{why(x)}</span><span className="lbl mono" data-alert-at>받은 시각 {x.seenAt || '미확인'}</span></button></li>)}</ul>}
+              <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="fh-grow lbl">{why(x)}</span>{x.seenAt && <span className="lbl mono" data-alert-at>받은 시각 {x.seenAt}</span>}</button></li>)}</ul>}
         </section>
       </aside>
     </div>
