@@ -4,7 +4,7 @@ import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, useFeed } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, RESULT, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { inputGen, metaCut } from './rt';
@@ -34,6 +34,27 @@ export function canDrive() {
 export const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSelectElement;   // 글 입력칸·고르기 칸에 초점이면 조종 키 무시
 
 /** on 인 동안 1 s 마다 다시 그림(경과·남은 시간) */
+/** 확인 글(PHONE-CLUTTER 11-28 1-4 등급 4): brief 에 든 글은 2 초 뒤 알림 칸에서 뺀다. 사라졌다 다시 오면 처음부터. 그 밖의 글(정지 줄 포함)은 수명 없음 */
+export function useBrief(notes: string[], brief: string[]) {
+  const [gone, setGone] = useState<string[]>([]), timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const key = notes.filter((t) => brief.includes(t)).join('\n');
+  useEffect(() => {
+    for (const t of notes) if (brief.includes(t) && !timers.current.has(t)) timers.current.set(t, setTimeout(() => setGone((g) => [...g, t]), 2000));
+    for (const [t, id] of timers.current) if (!notes.includes(t) || !brief.includes(t)) { clearTimeout(id); timers.current.delete(t); setGone((g) => g.filter((x) => x !== t)); }
+  }, [key]);
+  useEffect(() => () => { for (const id of timers.current.values()) clearTimeout(id); }, []);
+  return notes.filter((t) => !gone.includes(t));
+}
+/** 힌트(PHONE-CLUTTER 1-4 등급 5): 이 화면에서 처음 한 번 3 초. 그 뒤 같은 글은 다시 띄우지 않는다 */
+export function useHint(text: string) {
+  const [done, setDone] = useState<string[]>([]), started = useRef(new Set<string>());
+  useEffect(() => {
+    if (!text || started.current.has(text)) return;
+    started.current.add(text);
+    setTimeout(() => setDone((d) => [...d, text]), 3000);
+  }, [text]);
+  return !!text && !done.includes(text);
+}
 export function useTick(on: boolean) {
   const [, t] = useState(0);
   useEffect(() => { if (!on) return; const i = setInterval(() => t((n) => n + 1), 1000); return () => clearInterval(i); }, [on]);
@@ -316,8 +337,6 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
     leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     l.at === 'closed' && l.why,
     ...run.notes,
-    r.state === 'STOPPING' && '시뮬을 정리하는 중…',
-    r.state === 'STARTING' && '시뮬을 띄우는 중…',
     timeNotice(runtimeLeft),
     l.notice,
     unsupported,
@@ -327,7 +346,9 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
       : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
     hideCam && (cam === 'rgb' && !media.has('rgb') ? (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam] : relink(cam) && feedText(media.get()[cam], cam)),
   ].filter(Boolean) as string[];
-  const said = notes.length > 0 && notes.every((t) => shut.includes(t));   // 닫을 때 보이던 안내뿐이면 숨김(새 안내가 하나라도 생기면 다시 보임)
+  const said = notes.length > 0 && notes.every((t) => shut.includes(t));
+  const shown = useBrief(notes, Object.values(RESULT).includes(l.notice) ? [l.notice] : []);   // 조종권 넘김 결과 = 확인 2 초
+  const hint = useHint(cam === 'external' ? orbitWhy || orbitNote : '');   // 닫을 때 보이던 안내뿐이면 숨김(새 안내가 하나라도 생기면 다시 보임)
   const acts = leaving ? leaving === 'fail' && [
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
@@ -355,7 +376,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
       <div className="dv-cams" role="group" aria-label="영상 고르기">
         {(['external', 'rgb'] as const).map((c) => <button key={c} type="button" aria-pressed={cam === c} data-cam-pick={c} onClick={() => setCam(c)}>{c === 'external' ? '외부' : 'RGB'}</button>)}
       </div>
-      {cam === 'external' && (orbitWhy || orbitNote) && !hideCam && !(big && hasMap && mini) && <p className="dv-orbit-why" data-orbit-why>{orbitWhy || orbitNote}</p>}
+      {cam === 'external' && (orbitWhy || orbitNote) && hint && !hideCam && !(big && hasMap && mini) && <p className="dv-orbit-why" data-orbit-why>{orbitWhy || orbitNote}</p>}
       <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
         시뮬 · {state && <>{state} · </>}<span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
       </div>
@@ -395,7 +416,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {run.dev}
       </Sheet>}
       {(notes.length > 0 && !said || !!acts && acts.length > 0) && <div className="dv-act" data-sim-card data-bare={said || notes.length === 0 || undefined}>
-        {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t">{notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}</div>
+        {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t">{shown.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}</div>
           <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes)}>{ICON.close}</button></div>}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
       </div>}

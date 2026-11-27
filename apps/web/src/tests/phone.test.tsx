@@ -862,7 +862,7 @@ it.each(['STARTING', 'STOPPING'] as const)('목록의 %s를 전환 안내로 표
   await launch();
   mine = mine.map((r) => ({ ...r, state }));
   await act(() => sim.load());
-  expect(box.textContent).toContain(state === 'STARTING' ? '시뮬을 띄우는 중…' : '시뮬을 정리하는 중…');
+  expect($('[data-sim-pill]')!.textContent).toContain(state === 'STARTING' ? '띄우는 중' : '정리 중');   // 11-28 PHONE-CLUTTER 1-5: 상태 낱말은 칩에만(알림 칸 «시뮬을 띄우는 중…» 은 뺌)
   expect(box.textContent).not.toContain('관리자에 연결하지 못했습니다');
   expect($('[data-stop]')).toBeTruthy();
   await click($('[data-sim-menu]'));

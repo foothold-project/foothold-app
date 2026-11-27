@@ -5,10 +5,10 @@
 // 11-20 RB-PHONE-DIRECT-LOOK(참고 = Unitree 앱 «느낌»만): 큰 화면 = 라이다 3D(lidar3d.tsx) 또는 카메라, 왼쪽 위 작은 창 = 다른 쪽(눌러 바꿈).
 // 위 얇은 줄(나가기·상태 알약) · 오른쪽 접히는 안내 카드 · 아래 가운데 반투명 띠(조종 시작·잠금 해제·다시 연결) · 아래 양 끝 조이스틱. 모양·자리만 — 명령·조종권 흐름 그대로
 import { useEffect, useRef, useState } from 'react';
-import { UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
+import { RESULT, UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
 import { Stick } from './drive';
 import { inputGen } from './rt';
-import { Video, stopText, useTick } from './simdrive';
+import { Video, stopText, useBrief, useTick } from './simdrive';
 import { feedText, media, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { Lidar3D, type Look } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
@@ -16,6 +16,7 @@ import { REPORT_STALE_MS, go2Pose } from './go2model';
 import type { Tone } from './fake';
 import './realdrive.css';
 
+const CLIP = '명령 범위 조정 · 로봇이 허용한 명령으로 잘랐습니다.';
 /** 화면 글에서 내부 규약명(media/1)·영문 원문 괄호를 뺀다(RV-449 ⑤) — media.ts 문구는 그대로 두고 이 화면에서만 */
 export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').replace(/media\/1\s*/g, '');
 /** 에이전트가 알린 사유 한 줄(RV-454 3·RV-455 3·RV-456 2). 알려진 사유(media reasonText «한국어 (원문)»)는 한국어 쪽만,
@@ -103,9 +104,10 @@ export function RealDrive() {
     leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     l.at === 'closed' && l.why,
     l.notice,
-    mine && l.clipped && '명령 범위 조정 — 로봇이 허용한 명령으로 잘랐습니다.',
+    mine && l.clipped && CLIP,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
   ].filter(Boolean) as string[];
+  const shown = useBrief(notes, [Object.values(RESULT).includes(l.notice) ? l.notice : '', mine && l.clipped ? CLIP : ''].filter(Boolean));   // 확인 2 초
   const acts = [
     leaving === 'fail' && <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     !leaving && open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
@@ -132,7 +134,7 @@ export function RealDrive() {
         <div className="dv-top" aria-label="상태" data-tone={lock.tone} data-real-pill>실기 · 미검증 · {lock.text} · {real.name}{typeof soc === 'number' && ` · 배터리 ${Math.round(soc)}%`}</div>
         {/* 안전 글(반납 실패·출입증·끊김 이유·미검증·현장 비상 정지 수단)은 접어도 늘 위에 — 넘치면 카드 안 스크롤(접히는 실효 상한이 맨 아래) */}
         <div className="rd-card" data-real-card>
-          {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
+          {shown.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
           <p className="dv-note" role="note" data-real-unverified>{UNVERIFIED}</p>
           {range && <>
             <button type="button" className="rd-card-h" aria-expanded={info} data-real-info onClick={() => setInfo(!info)}>
