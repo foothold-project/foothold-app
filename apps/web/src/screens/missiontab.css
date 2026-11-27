@@ -94,3 +94,10 @@
 .mt-bar[data-conflict]{z-index:2;outline:2px solid var(--bad);outline-offset:1px}
 .mt-seg button:disabled{opacity:.5;cursor:not-allowed}
 .mt-soon{display:block;font-size:10px;font-weight:500;color:var(--muted)}
+/* 지금 실행(missionrun.tsx RunCtl) · 폰 시나리오 시트도 같은 틀 */
+.mt-run{display:flex;flex-direction:column;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.mt-run>.lbl{margin:0}
+.mr{display:flex;flex-direction:column;gap:6px}
+.mr-head{display:flex;align-items:center;gap:8px}
+.mr-row,.mr-gate{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0}
+.mr-gate>span{flex:1 1 100%;color:var(--muted);font-size:13px}

@@ -7,7 +7,8 @@ import { createPortal } from 'react-dom';
 import type { Action, MapFloor, MapVersion, Terrain, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type MapUpdate, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
-import { KIND as DEVICE, soon, type Ctx } from '../screens';
+import { KIND as DEVICE, type Ctx } from '../screens';
+import { RunCtl, useAssign } from './missionrun';
 import { rt, useRt } from '../rt';
 import { MapFrame, MapImage } from '../mapframe';
 import { Note, RUN, Shapes, canon, floorsOf, isVersion, purposeOf, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place, type Run } from './maps';
@@ -107,6 +108,7 @@ export function ScenarioPick({ robot, cancel }: Pick<Ctx, 'robot' | 'cancel'>) {
   }, [n]);
   const where = (x: Scenario) => real.find((p) => x.floor_ids.includes(p.floor.id));
   const list = t.tree && all ? all.filter((x) => (here ? x.floor_ids.includes(here.floor.id) : !!where(x))) : null, chosen = list?.find((x) => x.id === pick);
+  const assign = useAssign(robot.id, chosen?.id, cancel);
   return <>
     <h2>시나리오 고르기</h2>
     {t.tree && <p className="lv-note" data-scen-where>{here ? `${here.site.name} › ${here.building.name} › ${here.floor.name}의 시나리오입니다.` : '로봇이 있는 층을 아직 모릅니다 — 실기 장소의 시나리오를 모두 보여 줍니다. 로봇이 있는 층의 시나리오를 고르세요.'}</p>}
@@ -114,8 +116,8 @@ export function ScenarioPick({ robot, cancel }: Pick<Ctx, 'robot' | 'cancel'>) {
       return <li key={x.id}><button type="button" aria-pressed={pick === x.id} data-scen-pick={x.id} onClick={() => setPick(x.id)}>
         <b>{x.name}</b><span className="fh-grow" /><span className="lbl">{w ? `${w.building.name} ${w.floor.name} · ` : ''}지점 {x.waypoints.length}</span></button></li>; })}</ul>}
     {list && !list.length && <p className="lv-note">{here ? '이 층에는 시나리오가 없습니다.' : '실기 장소에 시나리오가 없습니다.'} 시나리오는 PC «시뮬» 탭에서 만듭니다.</p>}
-    <div className="fh-row"><button type="button" className="btn pri" aria-label={`${chosen ? chosen.name : '고른 시나리오'} 실행(준비 중)`} {...soon}>▶ 실행(준비 중)</button></div>
-    <p className="lv-note">실기 시나리오 실행은 준비 중입니다. 지금은 고르기만 됩니다.</p>
+    {/* 실행 · 일시정지 · 이어 가기 · 취소(05 §6.5 서버 길). 이 시트는 조종 화면 안이라 조종권은 조종 화면 것을 그대로 쓴다(watch 안 함) */}
+    {chosen ? <RunCtl robot={robot} scen={chosen} assign={assign} /> : list && !!list.length && <p className="lv-note" data-run-pick>시나리오를 고르면 실행할 수 있습니다.</p>}
     {!list && !err && !t.err && <p className="lv-note" role="status">시나리오를 불러오는 중…</p>}
     {(err || t.err) && <div className="fh-row"><p className="fh-msg" role="alert">시나리오를 받지 못했습니다. {err || t.err}</p>
       <button type="button" className="btn" onClick={() => { if (err) setN((x) => x + 1); if (t.err) t.again(); }}>다시 시도</button></div>}

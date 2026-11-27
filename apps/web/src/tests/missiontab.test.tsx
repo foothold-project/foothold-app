@@ -67,6 +67,8 @@ function serve() {
     if (m) { const x = ALL.find((s) => s.id === m[1]); return x ? ok(x) : new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 }); }
     if (method === 'POST' && path === '/scenarios/preview') return ok({ reachable: true, points: [], segments: [], floor_ids: ['f1'], map_version_ids: ['v1'], required_devices: [], est_distance_m: 3, distance_note: '' });
     if (path === '/actions') return ok([]);
+    if (path === '/assignments') return ok({ items: [{ id: 'as1', robot_id: 'r2', scenario_id: 's1', scenario_version: 1, status: 'ACTIVE' }, { id: 'as2', robot_id: 'r1', scenario_id: 's1', scenario_version: 1, status: 'REMOVED' },
+      { id: 'as3', robot_id: 'r1', scenario_id: 's2', scenario_version: 1, status: 'ACTIVE' }], next_cursor: null });
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 });
   });
 }
@@ -110,6 +112,14 @@ describe('임무 탭(W2)', () => {
     expect(oldScenario('#/map')).toBeNull();
   });
 
+  it('지금 실행(W1 runctl): 고른 임무가 ACTIVE 로 배정된 로봇만 실행 칸 · 조종권 없으면 «조종권 잡기»로 이음 · 다른 임무를 고르면 그 임무의 로봇', async () => {
+    await mount('#/missions');
+    const ids = () => $$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl);
+    expect(ids()).toEqual(['r2']);   // s1: r2 ACTIVE · r1 REMOVED 는 빠짐
+    expect($('[data-run-ctl="r2"]')!.textContent).toContain('조종권 잡기');
+    await click($('[data-mission="s2"]'));
+    expect(ids()).toEqual(['r1']);
+  });
   it('탭 열림: 세 칸(목록 · 지도 · 일정 칸) + 오늘 일정, 첫 임무를 펼쳐 할 일 번호와 끝 동작', async () => {
     await mount('#/missions');
     expect($('h1')!.textContent).toBe('임무');
