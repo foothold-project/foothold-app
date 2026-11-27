@@ -572,6 +572,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
 | 0.21 | 2026-11-28 | 팀장 05:09 · 05:14: §6.5 실행 명령을 화면 → 서버 → 에이전트 실시간 길 (`run.start` · `run.control`) 로, 데모도 같은 길, 서버 길 이어 가기 증명, 폰 직결은 서버 장애 때 정지 · 끝 길 |
 | 0.19 | 2026-10-25 | ADR-003 ⑤ 후속 계약(§13.10): 고정 시나리오 자료 참조·직결 run 프레임·단일 층·3초 감시 제안·같은 화면 재개·에이전트 보고/영속 기록·구현 분할. 현재 미구현과 제품 결정을 구분 |
 | 0.1 | 2026-10-19 | 최초 작성 |
@@ -828,6 +829,7 @@ state는 §10과 같은 이름·뜻의 `battery:{soc,voltage?}`, `pose:{floor_id
 |---|---|
 | `robot`, `controller`, `controller_device` | 로봇·현재 조종자 사용자·기기 UUID. 예약 중에도 사용자/기기를 보이며 없으면 null |
 | `controller_connected`, `lease_id` | 살아 있는 조종자 연결 여부. lease_id는 그 연결에만 보이고 나머지는 null. 예약은 연결/lease가 아님 |
+| `holder_type`, `holder_name` | 누가 Hub 를 쥐었나 (11/28, 필수 · null 가능). `USER`: 폰 직결 조종자 (이름은 hello 의 선택 `display_name`) 또는 서버 중계 뒤의 사람 (이름은 서버 `unlock.display_name`). `RUN`: 예약 실행의 RUN lease, 이름 null. 아무도 없으면 둘 다 null, 이름을 모르면 null. `LEASE_HELD` 거절 reply 에도 같은 두 칸 |
 | `stop_ref` | **폰 state에 한해** Hub가 생성한 로컬 STOP 확인 카운터다. 폰의 요청 ID나 서버의 ref가 아니다. Observer가 서버에 보내는 §10.5 stop_ref는 서버의 마지막 유효 ref만 돌려주며 없거나 서버가 재접속하면 0이다 |
 | `stop_requested`, `posture:{z,tilt_deg,fallen,body_still}`, `velocity:[vx,vy,wz]` | 신선한 로컬 bridge 피드백. 오래되면 각 값 null |
 | `echo:{id,client_time_ms,agent_time_ms}|null` | 마지막 앱 ping의 ID·폰 시각·에이전트 수신 UTC ms. 폰이 수신 시 RTT를 계산하며 서로 다른 시계의 단방향 지연으로 추정하지 않음 |

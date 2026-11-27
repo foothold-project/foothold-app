@@ -17,6 +17,9 @@ from .test_server_drive_flag_stop import relay
 from .test_realtime import app_token, hello, receive, reply, screen, send, state, take
 
 
+ONE_NAME = 'one'  # conftest display_name
+
+
 def start_fields(**kw):
     return dict(lease_id=str(uuid4()), run_id=str(uuid4()), screen_id=str(uuid4()),
                 scenario_id=str(uuid4()), scenario_version=1, floor_id=str(uuid4()),
@@ -117,7 +120,9 @@ def test_owner_run_start_and_control_reach_agent_and_result_returns(trial, seede
             lease = take(ws, ag, rid)
             assert reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
             # The unlock names the server-verified holder (the demo Hub's relay controller).
-            assert receive(ag, 'unlock')['user_id'] == str(seeded['users']['one'])
+            unlock = receive(ag, 'unlock')
+            assert unlock['user_id'] == str(seeded['users']['one'])
+            assert unlock['display_name'] == ONE_NAME  # the relay shows the person behind it (web sim tab)
             run_id, screen_id = str(uuid4()), str(uuid4())
             ag.send_json(state(3, stop_ref=ag.stop_ref))  # fresh, still measurement
             ident = send(ws, 'run.start', rid, lease_id=lease, run_id=run_id, screen_id=screen_id, **good)

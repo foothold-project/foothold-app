@@ -1544,6 +1544,33 @@
       ],
       "default": null
     },
+    "holder_name": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Holder Name"
+    },
+    "holder_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "USER",
+            "RUN"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Holder Type"
+    },
     "latched": {
       "title": "Latched",
       "type": "boolean"
@@ -1826,7 +1853,9 @@
     "wall_time_ms",
     "sim_time_s",
     "sim_wall_delta_s",
-    "simulation"
+    "simulation",
+    "holder_type",
+    "holder_name"
   ],
   "title": "PhoneState",
   "type": "object"

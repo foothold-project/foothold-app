@@ -75,6 +75,13 @@ readiness와 동일하게 맞는 nonzero만 `level=ACCEPTED`,
 상세 접수/복구·HTTP STOP 최초 인증 예외는 서버 README를 따른다.
 
 
+## 조종자 표시 (11/28 웹 시뮬 탭)
+
+`PhoneState.holder_type` (`USER` | `RUN` | null) · `holder_name` (string | null) 은 필수 칸이다. `PhoneReply` 의
+`LEASE_HELD` 거절에도 같은 두 칸이 실린다 (다른 reply 에는 없음). 폰 직결 조종자는 USER 와 `PhoneHello.display_name`
+(선택), 서버 중계는 그 뒤의 사람과 서버가 `AgentUnlock.display_name` 으로 내려 준 이름, 예약 실행의 RUN lease 는
+RUN 과 null. 이름은 표시용이며 권한 판단에 쓰지 않는다. 모르면 null.
+
 ## 지도 (S3a)
 
 `SiteTree`, `MapVersionCreate`/`MapVersion`/`MapVersionList`, `MapFeatures`,
