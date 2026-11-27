@@ -37,7 +37,7 @@ def test_authenticated_owner_posture_relay_and_measured_result(trial, seeded):
 
 @pytest.mark.parametrize('username', ['admin', 'two'])
 def test_non_owner_denied_and_admin_passes_owner_gate_for_posture(trial, seeded, username):
-    # 팀장 11/28: 총괄은 소유 관문을 지나고 다음 관문(연결 없음)에 걸린다.
+    # 운영 결정 2026-11-28: 총괄은 소유 관문을 지나고 다음 관문(연결 없음)에 걸린다.
     rid = seeded['robots']['mine']
     headers = app_token(trial, username)
     with screen(trial, headers) as ws:

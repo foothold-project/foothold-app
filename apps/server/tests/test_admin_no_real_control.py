@@ -1,4 +1,4 @@
-"""팀장 11/28: 총괄(ORG_ADMIN)은 실기도 조종·정지한다. 담당 아닌 운영자는 여전히 거절,
+"""운영 결정 2026-11-28: 총괄(ORG_ADMIN)은 실기도 조종·정지한다. 담당 아닌 운영자는 여전히 거절,
 안전 관문(현장 폰 직접 · 정지 잠김 · 조종권 하나)은 총괄에게도 그대로다."""
 import asyncio
 import time
@@ -178,7 +178,7 @@ def test_live_control_revocation_preserves_only_authorized_subscriptions(client,
         assert not denied['ok']
 
 
-def test_real_admin_assignments_retained_robot_settings_readonly(maps, seeded):
+def test_real_admin_assignments_and_robot_settings_keep_owner(maps, seeded):
     http, headers, _ = maps
     value, _, _, _ = scenario(http, headers)
     result = assignment(http, headers, value, seeded['robots']['mine'])
@@ -187,7 +187,9 @@ def test_real_admin_assignments_retained_robot_settings_readonly(maps, seeded):
     rid = seeded['robots']['mine']
     result = http.patch(f'/api/v1/robots/{rid}', headers=headers,
         json={'name': '관리 유지'})
-    assert result.status_code == 403, result.text
+    # 운영 결정 2026-11-28: 총괄은 남이 담당하는 실기 설정도 바꾼다. 담당은 그대로.
+    assert result.status_code == 200, result.text
+    assert result.json()['owner']['id'] == str(seeded['users']['one'])
 
 
 def test_restart_retains_legacy_pass_metadata_and_allows_new_admin_control(seeded):

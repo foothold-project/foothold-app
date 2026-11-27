@@ -41,13 +41,16 @@ def test_robot_crud_roles_owner_validation_one_time_token_and_audit(client, seed
         assert raw not in repr([e.data for e in changes])
     assert client.patch(path, headers=operator, json={'name': None}).status_code == 400
     assert client.patch(path, headers=operator, json={'owner_user_id': None}).status_code == 400
-    assert client.delete(path, headers=admin).status_code == 403
-    assert client.delete(path, headers=operator).status_code == 204
-    assert client.get(path, headers=admin).status_code == 404
+    assert client.delete(path, headers=app_token(client, 'two')).status_code == 403
+    # 운영 결정 2026-11-28: 총괄은 남이 담당하는 실기도 지운다. 기록에는 총괄과 원래 담당이 남는다.
+    assert client.delete(path, headers=admin).status_code == 204
+    assert client.get(path, headers=operator).status_code == 404
     with DBSession(client.app.state.engine) as db:
         row = db.get(Robot, UUID(created['id']))
         assert row.archived_at and row.agent_token_hash != digest(raw)
-        assert db.scalar(select(Event).where(Event.robot_id == row.id, Event.code == 'ROBOT_ARCHIVED'))
+        archived = db.scalar(select(Event).where(Event.robot_id == row.id, Event.code == 'ROBOT_ARCHIVED'))
+        assert archived.user_id == seeded['users']['admin']
+        assert archived.data['owner_user_id'] == str(seeded['users']['one'])
     with pytest.raises(WebSocketDisconnect) as error:
         with client.websocket_connect('wss://testserver/api/v1/agent/ws',
                 headers={'authorization': 'Bearer ' + raw}):

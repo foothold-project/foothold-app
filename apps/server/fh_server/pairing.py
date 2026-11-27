@@ -80,7 +80,7 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
 
     def operator(auth):
         user = auth[0]
-        # 팀장 11/28: 총괄도 로봇을 붙인다 (끊기 · 관리는 뒤의 ROBOT_WRITE 관문).
+        # 운영 결정 2026-11-28: 총괄도 로봇을 붙이고 끊는다 (뒤의 ROBOT_WRITE 관문).
         if user.role not in ('OPERATOR', 'ORG_ADMIN'):
             fail(403, 'FORBIDDEN', '담당 운영자나 총괄만 로봇을 연결할 수 있습니다.')
         return user

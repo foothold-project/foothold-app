@@ -158,7 +158,7 @@ def test_account_and_assignment_writes_create_durable_revocations(pc, seeded, ac
         result = pc.post('/api/v1/auth/logout', headers=pc.pass_headers)
     elif action == 'owner':
         pc.pass_headers = csrf(pc, 'admin')
-        assert issue(pc, seeded, purpose='view').status_code == 200  # 팀장 11/28: 총괄도 실기 통행증
+        assert issue(pc, seeded, purpose='view').status_code == 200  # 운영 결정 2026-11-28: 총괄도 실기 통행증
         pc.pass_headers = csrf(pc, 'one')
         result = pc.patch('/api/v1/robots/' + str(seeded['robots']['mine']), headers=pc.pass_headers,
                           json={'owner_user_id': str(seeded['users']['two'])})

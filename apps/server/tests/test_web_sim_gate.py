@@ -1,4 +1,4 @@
-"""PC passes cannot target hardware, for admins too (팀장 11/28: 총괄도 실기 조종)."""
+"""PC passes cannot target hardware, for admins too (운영 결정 2026-11-28: 총괄도 실기 조종)."""
 import base64
 import json
 from uuid import uuid4

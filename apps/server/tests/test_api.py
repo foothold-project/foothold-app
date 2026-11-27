@@ -123,7 +123,7 @@ def test_operator_summary_scope_and_cross_org_404(client, seeded):
 
 
 def test_robot_list_default_scope_follows_role(client, seeded):
-    # 팀장 11/28: 총괄은 가장 상위 계정. scope 를 안 주면 조직 전체, 운영자는 mine.
+    # 운영 결정 2026-11-28: 총괄은 가장 상위 계정. scope 를 안 주면 조직 전체, 운영자는 mine.
     org_robots = {str(seeded['robots'][x]) for x in ('mine', 'theirs')}
     login(client)
     assert [r['id'] for r in client.get(P + '/robots').json()['items']] == [str(seeded['robots']['mine'])]

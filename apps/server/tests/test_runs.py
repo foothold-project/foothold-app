@@ -259,7 +259,7 @@ def test_signed_cancel_scope_and_real_admin_pass_allowed_pc_still_blocked(pc, se
     with Session(pc.app.state.engine) as db:
         db.get(Robot, seeded['robots']['mine']).simulation = False
         db.commit()
-    # 팀장 11/28: 총괄도 실기 출입증을 받는다. PC 화면의 실기 금지(WEB_SIM_ONLY)는 그대로.
+    # 운영 결정 2026-11-28: 총괄도 실기 출입증을 받는다. PC 화면의 실기 금지(WEB_SIM_ONLY)는 그대로.
     assert issue(pc, seeded, purpose='control').status_code == 200
     assert issue(pc, seeded, purpose='view').status_code == 200
     response = pc.post(f"{P}/robots/{seeded['robots']['mine']}/phone-pass", headers=pc.pass_headers,

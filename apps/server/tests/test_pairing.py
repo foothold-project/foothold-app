@@ -110,15 +110,19 @@ def test_start_ip_rate_and_pending_cap(client, monkeypatch):
     assert client.post(P + '/pairing/start', json=body).json()['error']['code'] == 'PAIRING_RATE_LIMIT'
 
 
-def test_real_owner_management_admin_denial_transfer_clears_approval(client, seeded):
+def test_real_owner_management_admin_rights_transfer_clears_approval(client, seeded):
     own, other, admin = app_token(client), app_token(client, 'two'), app_token(client, 'admin')
     robot, credential, _ = paired(client, own)
     path = P + '/robots/' + robot['id']
-    for method, suffix, data in [('patch', '', {'name': 'no'}), ('delete', '', None),
-            ('post', '/agent-token', None), ('delete', '/connection', None),
-            ('post', '/field-approval', {'checks': CHECKS}), ('delete', '/field-approval', None)]:
+    # 운영 결정 2026-11-28: 총괄도 남이 담당하는 실기를 관리한다. 담당은 그대로고, 막힌 길은 담당과 같다.
+    renamed = client.patch(path, headers=admin, json={'name': '총괄 이름'})
+    assert renamed.status_code == 200 and renamed.json()['owner']['id'] == str(seeded['users']['one'])
+    for method, suffix, data, code in [('post', '/agent-token', None, 403),
+            ('post', '/field-approval', {'checks': CHECKS}, 410), ('delete', '/field-approval', None, 410)]:
         assert client.request(method, path + suffix, headers=admin,
-            **({'json': data} if data else {})).status_code == 403
+            **({'json': data} if data else {})).status_code == code
+        assert client.request(method, path + suffix, headers=own,
+            **({'json': data} if data else {})).status_code == code
     assert client.post(P + '/robots', headers=admin, json={'name': 'no'}).status_code == 403
     assert client.post(path + '/agent-token', headers=own).status_code == 403
     assert client.patch(path, headers=other, json={'name': 'no'}).status_code == 403
@@ -136,6 +140,11 @@ def test_real_owner_management_admin_denial_transfer_clears_approval(client, see
     assert client.delete(path + '/connection', headers=other).status_code == 204
     with DBSession(client.app.state.engine) as db:
         assert db.get(Robot, UUID(robot['id'])).agent_token_hash != digest(credential['agent_token'])
+    assert client.delete(path + '/connection', headers=admin).status_code == 204
+    with DBSession(client.app.state.engine) as db:
+        cut = db.scalars(select(Event).where(Event.robot_id == UUID(robot['id']),
+            Event.code == 'ROBOT_DISCONNECTED', Event.user_id == seeded['users']['admin'])).one()
+        assert cut.data['owner_user_id'] == str(seeded['users']['two'])
     assert client.delete(path, headers=other).status_code == 204
 
 
@@ -239,9 +248,12 @@ def test_final_send_gate_cannot_leak_queued_command(trial, seeded):
         trial.portal.call(verify)
 
 
+@pytest.mark.parametrize('actor', ['one', 'admin'])
 @pytest.mark.parametrize('operation', ['transfer', 'disconnect'])
-def test_owner_actions_stop_active_control(trial, seeded, operation):
+def test_owner_actions_stop_active_control(trial, seeded, operation, actor):
+    # 운영 결정 2026-11-28: 총괄이 해도 담당과 같은 규칙. 넘기기 · 끊기는 조종권 회수 · 정지가 먼저.
     own = app_token(trial)
+    acting = own if actor == 'one' else app_token(trial, 'admin')
     rid = str(seeded['robots']['mine'])
     path = P + '/robots/' + rid
     rt = trial.app.state.realtime
@@ -253,10 +265,10 @@ def test_owner_actions_stop_active_control(trial, seeded, operation):
             take(ws, ag, rid)
             before = rt.arbiter.robot(rid).stop_ref
             if operation == 'transfer':
-                assert trial.patch(path, headers=own, json={
+                assert trial.patch(path, headers=acting, json={
                     'owner_user_id': str(seeded['users']['two'])}).status_code == 200
             else:
-                assert trial.delete(path + '/connection', headers=own).status_code == 204
+                assert trial.delete(path + '/connection', headers=acting).status_code == 204
             receive(ag, 'lease', predicate=lambda m: m['lease_id'] is None)
             receive(ag, 'stop')
             record = rt.arbiter.robot(rid)
@@ -266,6 +278,29 @@ def test_owner_actions_stop_active_control(trial, seeded, operation):
                 assert not rt.field_approved(rid)
             with DBSession(trial.app.state.engine) as db:
                 assert db.get(Robot, UUID(rid)).field_approval_expires_at is None
+
+
+@pytest.mark.parametrize('actor', ['one', 'admin'])
+def test_delete_during_control_is_refused_or_stops_first(trial, seeded, actor):
+    # 운영 결정 2026-11-28: 총괄도 담당과 같은 규칙. 조종권이 살아 있으면 409, 지우기 시작과 함께
+    # 안전 관문이 조종권을 먼저 거둬 간 경우에만 지워지고 그때도 정지 잠김이 남는다.
+    own = app_token(trial)
+    acting = own if actor == 'one' else app_token(trial, 'admin')
+    rid = str(seeded['robots']['mine'])
+    rt = trial.app.state.realtime
+    with trial.websocket_connect(P + '/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + rid}) as ag:
+        ag.send_json(hello()); receive(ag, 'stop')
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        with screen(trial, own) as ws:
+            take(ws, ag, rid)
+            result = trial.delete(P + '/robots/' + rid, headers=acting)
+            record = rt.arbiter.robot(rid)
+            assert result.status_code in (409, 204), result.text
+            if result.status_code == 409:
+                assert record.holder is not None
+            else:
+                assert record.holder is None and record.latched
 
 
 def test_retired_endpoints_cannot_change_automatic_gate(trial, seeded):
@@ -333,7 +368,7 @@ def test_another_operator_cannot_repair_existing_serial(client):
 
 
 def test_admin_pairs_new_and_repairs_operator_robot_with_events(client, seeded):
-    # 팀장 11/28: 총괄도 로봇을 붙인다. 기록에는 총괄이 한 것으로 남는다.
+    # 운영 결정 2026-11-28: 총괄도 로봇을 붙인다. 기록에는 총괄이 한 것으로 남는다.
     own, admin = app_token(client), app_token(client, 'admin')
     robot, _, _ = paired(client, admin, name='총괄 기체', serial='2222-3333')
     assert robot['owner']['id'] == str(seeded['users']['admin'])

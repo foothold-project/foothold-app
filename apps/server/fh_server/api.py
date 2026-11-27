@@ -72,7 +72,7 @@ def fail(status, code, message, detail=None):
     raise APIError(status, code, message, detail)
 
 
-# 팀장 11/28: 총괄(ORG_ADMIN)은 가장 상위 계정이라 실기 조종·정지도 된다. authorize 는 더는
+# 운영 결정 2026-11-28: 총괄(ORG_ADMIN)은 가장 상위 계정이라 실기 조종·정지도 된다. authorize 는 더는
 # 이 코드를 내지 않는다. 옛 클라이언트·realtime 의 분기 이름으로만 남긴다.
 ADMIN_NO_REAL_CONTROL = '총괄 계정은 실기 로봇을 조종하거나 정지할 수 없습니다. 담당 운영자 폰에서 하세요.'
 
@@ -85,7 +85,7 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
     owns = user.role == 'ORG_ADMIN' or (robot is not None and robot.owner_user_id == user.id)
     # A/ROBOT_READ manage/view the full fleet. O_OWN is motion authority only;
     # assignments and robot configuration must not use it as a management gate.
-    # ORG_ADMIN holds O_OWN/ROBOT_STOP on real robots too (팀장 11/28). Safety
+    # ORG_ADMIN holds O_OWN/ROBOT_STOP on real robots too (운영 결정 2026-11-28). Safety
     # gates (drive setting, field approval, STOP latch, single lease) stay elsewhere.
     if permission == 'ROBOT_READ' and not owns:
         fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
@@ -96,11 +96,9 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         'A': user.role == 'ORG_ADMIN',
         'O': valid_role,
         'ROBOT_WRITE': (user.role == 'ORG_ADMIN' if robot is not None and getattr(robot, 'simulation', False) is True
-                        # 총괄이 붙인 실기는 총괄 담당이라 그 로봇은 총괄도 관리한다 (11/28).
-                        else valid_role and robot is not None and robot.owner_user_id == user.id),
-        'ROBOT_ASSIGN_UNOWNED': (user.role == 'ORG_ADMIN' and robot is not None
-                                and getattr(robot, 'simulation', False) is not True
-                                and robot.owner_user_id is None),
+                        # 운영 결정 2026-11-28: 총괄은 남이 담당하거나 담당 없는 실기도 관리한다.
+                        else robot is not None and (user.role == 'ORG_ADMIN' or (
+                            user.role == 'OPERATOR' and robot.owner_user_id == user.id))),
         'ROBOT_SUMMARY': valid_role and robot is not None,
         'ROBOT_READ': valid_role and robot is not None and owns,
         'O_OWN': valid_role and robot is not None and owns,
@@ -646,7 +644,7 @@ def create_app(settings: Settings | None = None):
                limit: Limit = 50, cursor: str | None = None):
         user = auth[0]
         authorize(user, 'O')
-        if scope is None:  # 팀장 11/28: 총괄 기본은 조직 전체, 운영자는 mine.
+        if scope is None:  # 운영 결정 2026-11-28: 총괄 기본은 조직 전체, 운영자는 mine.
             scope = 'all' if user.role == 'ORG_ADMIN' else 'mine'
         query = select(Robot).where(Robot.org_id == user.org_id, Robot.archived_at.is_(None))
         if scope == 'mine':
@@ -709,6 +707,8 @@ def create_app(settings: Settings | None = None):
             fail(400, 'VALIDATION', '담당 운영 관리자를 확인하세요.')
 
     def robot_event(db, user, row, code, data):
+        # 한 사람(user_id)과 그때 담당을 함께 남긴다. 총괄이 남의 로봇을 다뤄도 원래 담당이 보인다.
+        data = {'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None, **data}
         db.add(render(db, Event(org_id=user.org_id, robot_id=row.id, user_id=user.id,
             category='ACCOUNT', severity='INFO', code=code, data=data)))
 
@@ -721,12 +721,7 @@ def create_app(settings: Settings | None = None):
         user = auth[0]
         rt, rid = app.state.realtime, str(robot_id)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
-        if user.role == 'ORG_ADMIN' and not row.simulation and row.owner_user_id is None:
-            authorize(user, 'ROBOT_ASSIGN_UNOWNED', row)
-            if body.model_fields_set != {'owner_user_id'} or body.owner_user_id is None:
-                fail(403, 'FORBIDDEN', '담당 없는 실기는 운영 담당 지정만 할 수 있습니다.')
-        else:
-            authorize(user, 'ROBOT_WRITE', row)
+        authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set

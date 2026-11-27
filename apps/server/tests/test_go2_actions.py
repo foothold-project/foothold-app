@@ -47,7 +47,7 @@ def test_action_owner_relay_result_and_individual_audit(trial, seeded):
 
 @pytest.mark.parametrize('user', ['admin', 'two'])
 def test_nonowner_action_rejected(trial, seeded, user):
-    # 팀장 11/28: 총괄은 소유 관문을 지나고 다음 관문(연결 없음)에 걸린다.
+    # 운영 결정 2026-11-28: 총괄은 소유 관문을 지나고 다음 관문(연결 없음)에 걸린다.
     with screen(trial, app_token(trial, user)) as ws:
         ident = send(ws, 'action', seeded['robots']['mine'], lease_id=str(uuid4()), action='Hello')
         code = reply(ws, ident)['error']['code']

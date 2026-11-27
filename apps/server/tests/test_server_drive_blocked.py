@@ -80,5 +80,5 @@ def test_reason_snapshot_with_real_gate_does_not_change_admin_control(trial, see
             assert summary['server_drive_allowed'] is True
             assert summary['server_drive_blocked'] == []
         assert trial.get(path, headers=other).json()['server_drive_blocked'] is None
-        # 팀장 11/28: 총괄도 실기를 정지한다.
+        # 운영 결정 2026-11-28: 총괄도 실기를 정지한다.
         assert trial.post(path + '/stop', headers=admin).status_code == 202
