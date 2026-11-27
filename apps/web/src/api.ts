@@ -168,6 +168,8 @@ export const api = {
   version: (id: string, cancel?: AbortSignal) => call<MapVersion>('GET', `/map-versions/${encodeURIComponent(id)}`, undefined, { cancel, ms: MAP_READ_MS }),
   /** 판 그림(png) 주소 — <image> 가 쿠키로 바로 받는다(큰 그림을 JS 메모리로 옮기지 않음) */
   imageUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/image`,
+  /** 판 3D 모형(model/gltf-binary · ETag = model_sha256). 없으면 404 MODEL_NOT_FOUND */
+  modelUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/model`,
   /** 원시 본문 올리기 두 단계: 그림(type = image/png·image/x-portable-graymap) → 그 ID 로 yaml(text/yaml). 둘째 응답 ID 가 판 저장의 image */
   upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type, ms: MAP_WRITE_MS }),
   /** 3D 지도 파일(.pcd·.ply) 하나 → 승인 지도 판 + 연결된 시뮬 지형(총괄, REAL 장소 HUMAN 층 — apps/server/VOXEL-MAPS.md). 본문 = 파일 바이트(이름·경로는 보내지 않음).
