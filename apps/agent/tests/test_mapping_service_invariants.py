@@ -19,6 +19,7 @@ def always_on_runtime(tmp_path):
     calls=[]
     def run(action,name):
         calls.append((action,name))
+        if action=='show':return 'InvocationID='+'1'*32+'\n'
         if action=='is-active':return 0 if name in active else 3
         if action=='start':active.add(name)
         if action=='stop':active.discard(name)
@@ -43,7 +44,7 @@ def close_runtime(rt):
 
 
 def assert_pointlio_read_only(calls):
-    assert all(action=='is-active' for action,name in calls if name=='foothold-pointlio')
+    assert all(action in ('is-active','show') for action,name in calls if name=='foothold-pointlio')
 
 
 @pytest.mark.parametrize('preflight',['healthy','off','missing-pose','missing-cloud','stale','existing-glim'])

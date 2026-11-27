@@ -199,7 +199,7 @@ class Mapping:
             row = db.get(MappingSession, msg.session_id)
             if (row is None or row.org_id != self.realtime.settings.org_id
                     or str(row.robot_id) != rid or row.floor_id != msg.floor_id
-                    or row.status == 'CANCELLED' or msg.status in PERSISTED):
+                    or row.status in ('CANCELLED', 'FAILED') or msg.status in PERSISTED):
                 return
             user = db.get(User, row.owner_id)
             owner_scope(db, row.org_id, row.robot_id, user, self.fail, row.floor_id)
@@ -478,11 +478,19 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
         def receive_report():
             app.state.realtime.agent_auth(request.headers)
             mapping.report(rid, msg, deadline=deadline, cancelled=cancelled)
+            # Read after reporting so an offline cancel (with a new command ID)
+            # is returned even when the stale progress was intentionally ignored.
+            with report_transaction(app.state.realtime.run_factory, deadline, cancelled) as db:
+                row = db.get(MappingSession, session_id)
+                if (row is not None and row.org_id == settings.org_id
+                        and str(row.robot_id) == rid and row.floor_id == msg.floor_id
+                        and row.status in ('CANCELLED', 'FAILED', *PERSISTED)):
+                    return row.status
         try:
-            await app.state.realtime.read(receive_report)
+            status = await app.state.realtime.read(receive_report)
         finally:
             cancelled.set()
-        return {'accepted': True}
+        return {'accepted': True, **({'status': status} if status else {})}
 
     @app.post('/api/v1/agent/robots/{robot_id}/slam/{session_id}/point-cloud',
               status_code=201, response_model=C.VoxelMapImport)

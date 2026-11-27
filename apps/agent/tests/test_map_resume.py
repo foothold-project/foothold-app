@@ -1,7 +1,10 @@
 """Reconnect and Point-LIO continuity using fake clocks, DDS, services and bags."""
 import asyncio
 import json
+import math
+import subprocess
 import threading
+from concurrent.futures import Future
 from types import SimpleNamespace as NS
 
 import pytest
@@ -13,6 +16,7 @@ from test_mapping_service_invariants import (
 )
 from test_raw_recording import ProcessLane
 from test_slam_mapping import FRONTEND, CLOUD, pose, cloud, command, wait_for, configure_dump
+from foothold_agent.mapping.services import Services
 
 
 def begin(rt):
@@ -307,3 +311,141 @@ def test_setup_mapping_permission_survives_server_disconnect_but_not_body_loss(m
         finally:
             stop.set();await asyncio.wait_for(task,3)
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('failure',['invocation','restart-count','pid','query-error','missing-identity'])
+def test_fast_pointlio_restart_or_unknown_identity_never_attaches_rotated_frame(tmp_path,failure):
+    rt,clock,active,calls=always_on_runtime(tmp_path)
+    original=rt.services.run
+    baseline='NRestarts=0\nMainPID=42\n' if failure in ('restart-count','pid') else 'InvocationID='+'1'*32+'\n'
+    state=NS(output=baseline,error=False)
+    lanes=[]
+    def run(action,name):
+        if action=='show':
+            lanes.append(threading.current_thread().name)
+            if state.error:raise subprocess.TimeoutExpired('systemctl',5)
+            return state.output
+        return original(action,name)
+    rt.services.run=run
+    lane=record(rt,tmp_path)
+    try:
+        begin(rt)
+        wait_for(lambda:rt.raw.snapshot()['status']=='RECORDING')
+        before=dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps)
+        if failure=='invocation':state.output='InvocationID='+'2'*32+'\n'
+        elif failure=='restart-count':state.output='NRestarts=1\nMainPID=42\n'
+        elif failure=='pid':state.output='NRestarts=0\nMainPID=43\n'
+        elif failure=='query-error':state.error=True
+        else:state.output='InvocationID=\n'
+        # is-active never observes downtime, and the new origin is within 2m.
+        assert rt.services.pointlio in active
+        rt.services.wake.set()
+        wait_for(lambda:rt.services.pointlio_restarted or rt.services.status=='UNKNOWN')
+        clock.t=.1
+        msg=pose(stamp=3)
+        msg.pose.pose.position.x=.1
+        msg.pose.pose.orientation.w=msg.pose.pose.orientation.z=math.sqrt(.5)
+        rt.receive(FRONTEND,msg);rt.receive(CLOUD,cloud(points=((9,0,.3),),stamp=3));drain(rt)
+        assert rt.core.error_code=='MAPPING_SERVICES_UNAVAILABLE' and rt.services_fault
+        assert '받은 자료를 저장하거나 새로 시작' in rt.core.reason
+        assert (dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps))==before
+        wait_for(lambda:not rt.services.owned and rt.raw.snapshot()['status']=='STOPPED')
+        assert lane.signals and lanes and set(lanes)=={'slam-services'}
+        assert_pointlio_read_only(calls)
+    finally:
+        close_runtime(rt)
+        if rt.raw.thread:rt.raw.thread.join(2)
+
+
+@pytest.mark.parametrize('output', ['', 'InvocationID=bad\n', 'InvocationID='+'0'*32+'\n',
+    'InvocationID=\nNRestarts=0\nMainPID=0\n', 'NRestarts=-1\nMainPID=42\n'])
+def test_unknown_pointlio_identity_prevents_start(tmp_path,output):
+    rt,_,_,calls=always_on_runtime(tmp_path)
+    original=rt.services.run
+    rt.services.run=lambda action,name:output if action=='show' else original(action,name)
+    try:
+        prime(rt);rt.command(command());drain(rt)
+        wait_for(lambda:not rt.services.starting and not rt.services.pending)
+        drain(rt)
+        assert rt.services.ready_at is None and not rt.services.owned and not rt.core.cells
+        assert rt.core.error_code=='MAPPING_SERVICES_FAILED'
+        assert ('start',rt.services.glim) not in calls
+    finally:
+        close_runtime(rt)
+
+
+def test_pointlio_identity_systemctl_query_is_bounded_and_checks_exit(monkeypatch):
+    calls=[]
+    result=NS(returncode=0,stdout='InvocationID='+'a'*32+'\n')
+    def run(args,**kwargs):
+        calls.append((args,kwargs))
+        return result
+    monkeypatch.setattr(subprocess,'run',run)
+    assert Services.systemctl('show','foothold-pointlio')==result.stdout
+    args,kwargs=calls[-1]
+    assert args==['systemctl','--user','show','-p','InvocationID','-p','NRestarts','-p','MainPID','foothold-pointlio']
+    assert kwargs['timeout']==5 and kwargs['stdin']==subprocess.DEVNULL
+    result.returncode=1
+    with pytest.raises(OSError):Services.systemctl('show','foothold-pointlio')
+
+
+@pytest.mark.parametrize('status',['CANCELLED','SAVED','RECEIVED_ONLY','FAILED'])
+def test_terminal_progress_reply_stops_services_recording_and_all_accumulation(tmp_path,status):
+    rt,clock,_,calls=always_on_runtime(tmp_path)
+    lane=record(rt,tmp_path)
+    reports=[]
+    terminal=NS(value=False)
+    def request(sid,suffix,data):
+        reports.append((sid,suffix))
+        return {'accepted':True,**({'status':status} if terminal.value else {})}
+    rt.request=request
+    try:
+        initial=begin(rt)
+        wait_for(lambda:rt.raw.snapshot()['status']=='RECORDING')
+        drain(rt)
+        rt.connection(False)
+        clock.t=.1;prime(rt,3)
+        before=dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps)
+        terminal.value=True
+        rt.connection(True);drain(rt)  # first progress after reconnect
+        count=len(reports)
+        rt.receive(FRONTEND,pose(stamp=4));rt.receive(CLOUD,cloud(points=((9,0,.3),),stamp=4))
+        drain(rt)
+        assert rt.core.status==('SAVED' if status=='RECEIVED_ONLY' else status)
+        assert rt.remote_terminal and rt.bundle_cancelled.is_set()
+        wait_for(lambda:not rt.services.owned and rt.raw.snapshot()['status']=='STOPPED')
+        assert ('stop',rt.services.glim) in calls and lane.signals
+        for i in range(5,8):
+            clock.t+=.3;prime(rt,i)
+        rt.command(command('save',initial));drain(rt)
+        assert (dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps))==before
+        assert len(reports)==count and rt.save_requested is None
+        # A new session remains possible; an old session response cannot end it.
+        prime(rt,8)
+        rt.command(command());drain(rt)
+        wait_for(lambda:rt.services.status=='STARTED')
+        assert not rt.remote_terminal
+        rt.finish_remote_report({'status':status},initial['session_id'])
+        assert not rt.remote_terminal and not rt.bundle_cancelled.is_set()
+    finally:
+        close_runtime(rt)
+        if rt.raw.thread:rt.raw.thread.join(2)
+
+
+def test_terminal_reply_finishing_during_step_is_not_acknowledged_and_lost(tmp_path):
+    rt,_,_,_=always_on_runtime(tmp_path)
+    try:
+        begin(rt);drain(rt)
+        future=Future()
+        rt.report_future=future
+        # Complete HTTP after the early response check but before the ack block.
+        original=rt.dump_step
+        def complete():
+            future.set_result({'accepted':True,'status':'CANCELLED'})
+            original()
+        rt.dump_step=complete
+        rt.step()
+        assert rt.core.status=='CANCELLED' and rt.remote_terminal
+        assert rt.report_future is None and rt.confirmed_report is None
+    finally:
+        close_runtime(rt)

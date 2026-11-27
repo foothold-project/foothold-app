@@ -52,6 +52,7 @@ def service_fake(run):
     active=set()
     def call(action,name):
         result=run(action,name)
+        if action=='show':return 'InvocationID='+'1'*32+'\n'
         if action=='is-active' and result==3:
             return 0 if name=='foothold-pointlio' or name in active else 3
         if result==0 and action=='start':active.add(name)
