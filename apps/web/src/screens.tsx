@@ -19,6 +19,7 @@ import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
 import { AdminFleet, OperatorRobot, realDash } from './screens/fleet';
 import { AddRobot, AssignOwner } from './pairing';
+import { Control } from './screens/control';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
@@ -227,4 +228,4 @@ const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 �
 /** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
 export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, missions: Maps, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
