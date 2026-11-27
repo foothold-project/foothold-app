@@ -15,6 +15,7 @@ import tempfile
 from itertools import islice
 import time
 from uuid import UUID
+from urllib.error import HTTPError
 
 from foothold_agent.slam_source import Source, SOURCES
 from .poses import timestamp
@@ -22,6 +23,7 @@ from .runtime import MappingRuntime,TransferError
 from .services import Services
 from .health import PointLioHealth, FRESH_SECONDS, MAX_POSITION_JUMP_M
 from .live import GlimLive
+from .glim_preview import GlimPreviewProcess
 from .raw_recording import RawRecorder
 from .world import WorldAccumulator
 from .tiles import Tiles
@@ -68,8 +70,10 @@ class OnboardRuntime(MappingRuntime):
         self.handles=[]
         self.pointlio=PointLioHealth(self.live,self.now,self.env)
         self.glim_live=GlimLive(self.final,self.now)
+        self.glim_preview=GlimPreviewProcess(self.env,self.now)
+        self.legacy_report_sessions=set()
         self.sample_receipts={topic:deque(maxlen=4096) for topic in (self.live.odom_topic,self.live.cloud_topic)}
-        self.next_glim_receive=self.next_glim_report=float('-inf')
+        self.next_glim_report=float('-inf')
         self.services=Services(self.env,self.local_recording_allowed,run=service_run,
             now=self.now,fresh=self.pointlio.fresh)
         self.services_fault=None
@@ -105,6 +109,7 @@ class OnboardRuntime(MappingRuntime):
         self.dump_timeout=180.
 
     def close(self):
+        self.glim_preview.close()
         self.raw.close()
         self.services.close()
         super().close()
@@ -140,22 +145,22 @@ class OnboardRuntime(MappingRuntime):
         super().command(frame)
 
     def receive(self, topic, message):
+        # GLIM clouds must never be deserialized/decoded on the agent's DDS
+        # participant, including when misrouted by an in-process caller.
+        if topic == self.final.cloud_topic:
+            return
         if (self.stopping.is_set() or not self.local_enabled()
                 or self.core.status in ('SAVED','CANCELLED') and not self.services.control_enabled()):
             return
         # Retain one reference per topic, never copy/parse a cloud on DDS lane.
         try:
-            if topic in (self.live.cloud_topic,self.final.cloud_topic) and len(message.data)>16_000_000:
+            if topic==self.live.cloud_topic and len(message.data)>16_000_000:
                 self.dropped(topic, 'input_bytes')
                 return
             with self.lock:
                 at=self.now()
                 if topic in self.sample_receipts:
                     self.sample_receipts[topic].append(at)
-                if topic==self.final.cloud_topic:
-                    if at<self.next_glim_receive:
-                        return
-                    self.next_glim_receive=at+1
                 self.pending_samples[topic] = at, message
         except (AttributeError, TypeError):
             self.dropped(topic, 'malformed_sample')
@@ -196,7 +201,8 @@ class OnboardRuntime(MappingRuntime):
                 if not source.configured:
                     continue
                 topics=[(source.odom_topic,True)]
-                topics.append((source.cloud_topic,False))
+                if source is self.live:
+                    topics.append((source.cloud_topic,False))
                 for topic,is_pose in topics:
                     handle=self.channel.cloud_bus.subscribe(topic,partial(self.receive,topic),
                         **({'pose_type':source.pose_type} if is_pose else {}))
@@ -204,8 +210,16 @@ class OnboardRuntime(MappingRuntime):
         except Exception:
             self.dropped('readers','reader_unavailable')
             self.release_readers()
+        if self.final.configured:
+            nic=getattr(self.channel,'dds_name',None) or getattr(self.channel,'nic',None)
+            nic=nic or getattr(getattr(self.channel,'approval',None),'nic',None)
+            try:
+                self.glim_preview.start(nic)
+            except Exception:
+                self.glim_preview.reason='GLIM 미리보기 작업자를 시작하지 못했습니다.'
 
     def release_readers(self):
+        self.glim_preview.close()
         for handle in self.handles:
             try: handle.Close()
             except Exception: pass
@@ -230,6 +244,10 @@ class OnboardRuntime(MappingRuntime):
             self.frame=self.live.frame or 'unconfigured'
             self.core=WorldAccumulator(mode=self.live.input_mode,frame=self.frame,max_points=500000,now=self.now)
             self.not_before=frame['_received_monotonic']
+            self.pointlio.reset_session()
+            with self.lock:
+                for receipts in self.sample_receipts.values():
+                    receipts.clear()
             self.input_stamps.clear()
             for history in self.pose_histories.values():
                 history.clear()
@@ -251,7 +269,7 @@ class OnboardRuntime(MappingRuntime):
             self.services_disconnected=False
             self.services_fault=None
             self.glim_live=GlimLive(self.final,self.now)
-            self.next_glim_receive=self.next_glim_report=float('-inf')
+            self.next_glim_report=float('-inf')
             self.input_wait_since=None
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
@@ -520,10 +538,11 @@ class OnboardRuntime(MappingRuntime):
             error_code=self.core.error_code,reason=self.core.reason,
             voxels=dict(revision=self.revision, seq=self.voxel_seq, reset=self.reset, resolution=.05,
                         frame_id=self.frame, added=added, removed=removed))
-        if self.glim_live.preview is None:
-            body['glim_preview']=None
-        elif self.now()>=self.next_glim_report:
+        if self.glim_live.preview is not None and self.now()>=self.next_glim_report:
             body['glim_preview']=self.glim_live.preview
+        if self.core.session_id in self.legacy_report_sessions:
+            body.pop('sources',None)
+            body.pop('glim_preview',None)
         grid = self.grid_body(crop=True,max_cells=4000) if self.core.grid.ready and self.core.status!='FAILED' else None
         if grid is not None:
             body['grid'] = grid
@@ -546,10 +565,34 @@ class OnboardRuntime(MappingRuntime):
         # Service active is unknown when queries are disabled; DDS traffic is
         # independent evidence and must not be presented as an is-active result.
         active=self.services.pointlio_active if self.services.control_enabled() and self.services.pointlio_checked else None
-        return dict(point_lio=self.pointlio.snapshot(active,rates[self.live.odom_topic],rates[self.live.cloud_topic]),
-            glim=self.glim_live.snapshot(self.services,
+        glim=self.glim_live.snapshot(self.services,
                 saving=self.save_requested is not None and self.core.status not in ('SAVED','CANCELLED','FAILED'),
-                processed_chunks=self.rebuild['offset'] if self.rebuild is not None else None))
+                processed_chunks=self.rebuild['offset'] if self.rebuild is not None else None)
+        if self.glim_preview.reason:
+            glim['reason']=self.glim_preview.reason
+            if glim['stage']=='RECEIVING':
+                glim['stage']='UNKNOWN'
+        return dict(point_lio=self.pointlio.snapshot(active,rates[self.live.odom_topic],rates[self.live.cloud_topic]),glim=glim)
+
+    def report_progress(self, session, data):
+        body=json.loads(data)
+        if session in self.legacy_report_sessions:
+            body.pop('sources',None)
+            body.pop('glim_preview',None)
+            data=encode(body)
+        try:
+            return self.request(session,'progress',data)
+        except (TransferError,HTTPError) as error:
+            status=error.code if isinstance(error,HTTPError) else error.status
+            if status!=422 or not any(key in body for key in ('sources','glim_preview')):
+                raise
+            # One downgrade per session. Preserve the exact seq/delta/tiles so
+            # only successful retries acknowledge progress and unblock saving.
+            self.legacy_report_sessions.add(session)
+            LOG.warning('SLAM progress rejected status=422 session=%s; retry without sources/glim_preview for this session',session)
+            body.pop('sources',None)
+            body.pop('glim_preview',None)
+            return self.request(session,'progress',encode(body))
 
     def remove_bundle(self, session):
         try:
@@ -628,6 +671,11 @@ class OnboardRuntime(MappingRuntime):
                 and self.services.status=='STARTED' and self.services.glim in self.services.owned
                 and not self.services_disconnected and self.services.ready_at is not None):
             self.glim_live.update(samples,max(self.not_before,self.services.ready_at))
+            self.glim_preview.poll(self.glim_live,max(self.not_before,self.services.ready_at))
+        else:
+            # Still drain/monitor the child while idle or saving, but never
+            # attach those previews to a session that is not receiving.
+            self.glim_preview.poll(self.glim_live,float('inf'))
         if (self.services_disconnected and self.save_requested is None
                 and self.core.status not in ('SAVED','CANCELLED','FAILED')):
             self.problem('MAPPING_SERVICES_DISCONNECTED','연결이 끊겨 지도 서비스 정지를 요청했습니다. 받은 자료를 저장하거나 새 세션으로 다시 시작해 주세요.')
@@ -734,7 +782,7 @@ class OnboardRuntime(MappingRuntime):
                 tiles = [dict(tx=t['x'], ty=t['y'], version=t['tile_seq']) for t in body['tiles']]
                 changes = [(key, self.changes[key]) for key in (*added, *removed)]
                 self.report_changes = added, removed, self.revision, self.core.session_id, tiles, changes, self.command_id
-                self.report_future = self.io.submit(self.request, self.core.session_id, 'progress', data)
+                self.report_future = self.io.submit(self.report_progress, self.core.session_id, data)
                 if body.get('glim_preview') is not None:
                     self.next_glim_report=self.now()+1
             self.next_report = self.now()+.25

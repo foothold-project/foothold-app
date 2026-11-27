@@ -6,7 +6,7 @@ import pytest
 from foothold_agent.mapping.health import CLOUD_FRESH_SECONDS, PointLioHealth
 from foothold_agent.slam_source import Source
 from test_mapping_service_invariants import always_on_runtime, close_runtime, drain, prime, wait_for
-from test_slam_mapping import CLOUD, FRONTEND, cloud, command, pose
+from test_slam_mapping import CLOUD, FRONTEND, cloud, command, pose, runtime
 
 
 def stamped(factory, seconds):
@@ -88,7 +88,11 @@ def test_three_hz_cloud_with_1200ms_gap_and_2700hz_pose_starts_and_waits_after_l
             drain(rt)
             status = rt.sources_body()['point_lio']
             if tick <= 10440:
-                assert status['fresh'] and status['reason_code'] is None
+                assert rt.pointlio.fresh()  # preflight cadence is unchanged across start
+                if 4050 < tick < 5040:
+                    assert status['reason_code'] == 'MISSING_DATA' and not status['fresh']
+                else:
+                    assert status['fresh'] and status['reason_code'] is None
                 assert rt.input_wait_since is None
             if tick == 4050:  # Latest cloud already 833 ms old at start.
                 rt.command(command())
@@ -127,5 +131,50 @@ def test_world_accumulator_uses_pose_nearest_cloud_instead_of_latest(tmp_path):
         assert rt.pointlio.fresh() and rt.core.error_code is None
         assert rt.core.last_pose == (.1, 0., .3)
         assert rt.last_odom['x'] == .8
+    finally:
+        close_runtime(rt)
+
+
+def test_accumulation_rejects_poses_outside_250ms_even_in_extended_history(tmp_path):
+    clock = NS(t=0.)
+    rt = runtime(tmp_path, now=lambda: clock.t)
+    try:
+        rt.command(command())
+        rt.step()
+        # Exercise the accumulation guard itself, independent of health's
+        # separate ±250 ms preflight check (which could mask this regression).
+        rt.consume_samples({FRONTEND: (clock.t, stamped(pose, 0.))})
+        clock.t = .8
+        latest = stamped(pose, .8)
+        latest.pose.pose.position.x = .8
+        rt.consume_samples({FRONTEND: (clock.t, latest)})
+        assert len(rt.pose_histories['point_lio']) == 2
+        # Both receipts are in the 2 s history; stamp gaps are 300/500 ms.
+        rt.consume_samples({CLOUD: (clock.t, stamped(cloud, .3))})
+        assert rt.core.error_code == 'SLAM_INPUT_REJECTED'
+        assert not rt.core.cells and rt.core.last_pose is None
+        assert CLOUD not in rt.input_stamps and not rt.tiles.pending
+    finally:
+        close_runtime(rt)
+
+
+def test_accumulation_chooses_nearest_of_two_poses_inside_250ms(tmp_path):
+    clock = NS(t=.1)
+    rt = runtime(tmp_path, now=lambda: clock.t)
+    try:
+        rt.command(command())
+        rt.step()
+        nearest = stamped(pose, .1)
+        nearest.pose.pose.position.x = .1
+        rt.consume_samples({FRONTEND: (clock.t, nearest)})
+        clock.t = .3
+        latest = stamped(pose, .3)
+        latest.pose.pose.position.x = .3
+        rt.consume_samples({FRONTEND: (clock.t, latest)})
+        # Both are eligible (20/180 ms); picking merely the latest is wrong.
+        rt.consume_samples({CLOUD: (clock.t, stamped(cloud, .12))})
+        assert rt.core.cells and rt.core.error_code != 'SLAM_INPUT_REJECTED'
+        assert rt.core.last_pose == (.1, 0., .3)
+        assert rt.last_odom['x'] == .3
     finally:
         close_runtime(rt)

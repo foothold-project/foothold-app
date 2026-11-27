@@ -21,8 +21,9 @@ from foothold_agent.slam_source import SOURCES
 
 
 class TransferError(RuntimeError):
-    def __init__(self, code, reason):
+    def __init__(self, code, reason, *, status=None):
         self.code, self.reason = code, reason
+        self.status = status
         super().__init__(reason)
 
 
@@ -142,10 +143,10 @@ class MappingRuntime:
                         and any('가' <= char <= '힣' for char in reason)):
                     if code == 'INVALID_POINT_CLOUD':
                         reason = '지도 자료를 읽을 수 없습니다. 연결 프로그램을 확인한 뒤 다시 저장하거나 취소해 주세요.'
-                    raise TransferError(code, reason) from None
+                    raise TransferError(code, reason, status=error.code) from None
             except (ValueError, AttributeError, TypeError):
                 pass
-            raise TransferError('MAPPING_SAVE_FAILED', '지도를 저장하지 못했습니다. 연결을 확인한 뒤 다시 저장해 주세요.') from None
+            raise TransferError('MAPPING_SAVE_FAILED', '지도를 저장하지 못했습니다. 연결을 확인한 뒤 다시 저장해 주세요.', status=error.code) from None
 
     def save(self, session, data):
         self.folder.mkdir(parents=True, exist_ok=True, mode=0o700)
