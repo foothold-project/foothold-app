@@ -21,9 +21,10 @@ const st = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: RID, robot
   posture: 'STAND', velocity: [0, 0, 0], echo: null, wall_time_ms: Date.now(), simulation: false, ...p });
 
 type Reply = { status: number; body?: unknown } | 'down';
+let stopDown = false;   // HTTP 대체 정지도 닿지 않음(서버 전체가 꺼짐)
 let calls: string[] = [], pass: Reply = { status: 200, body: { token: 'pass-secret', exp: Math.floor(Date.now() / 1000) + 600, kid: 'k1' } };
 function serve(p: Reply = { status: 200, body: { token: 'pass-secret', exp: Math.floor(Date.now() / 1000) + 600, kid: 'k1' } }) {
-  calls = []; pass = p;
+  calls = []; pass = p; stopDown = false;
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const key = `${init.method ?? 'GET'} ${url.replace(/^\/api\/v1/, '').split('?')[0]}`;
     calls.push(key);
@@ -31,6 +32,8 @@ function serve(p: Reply = { status: 200, body: { token: 'pass-secret', exp: Math
       if (pass === 'down') throw new TypeError('Failed to fetch');
       return new Response(JSON.stringify(pass.body), { status: pass.status, headers: { 'Content-Type': 'application/json' } });
     }
+    if (/^POST \/robots\/[^/]+\/stop$/.test(key) && stopDown) throw new TypeError('Failed to fetch');
+    if (/^POST \/robots\/[^/]+\/stop$/.test(key)) return new Response('{}', { status: 202, headers: { 'Content-Type': 'application/json' } });   // HTTP 대체 정지(실시간만 끊긴 경우)
     if (key === 'GET /simulation/robots') return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404, headers: { 'Content-Type': 'application/json' } });
   });
@@ -336,12 +339,12 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     expect($('[data-link-band]')).toBeTruthy(); };
   const greyStops = () => [...box.querySelectorAll<HTMLButtonElement>('.fh-stop')].filter((b) => b.disabled);
   /** 직결 없이 폰 로봇 연결 화면 */
-  async function home() {
+  async function home(robots = ROBOTS, hash = '#/drive') {
     window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.5-dev');
-    location.hash = '#/drive';
+    location.hash = hash;
     box = document.createElement('div'); document.body.append(box);
-    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />); });
+    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={robots} />); });
     await flush();
   }
 
@@ -360,9 +363,9 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     expect(calls.filter((c) => c.includes('/stop'))).toEqual([]);
   });
 
-  it('서버 끊김 + 직결 없음 → STOP 은 눌리고(회색 아님) «로봇에 닿을 길 없음 · 현장에서 멈추세요» 한 줄, 성공 문구 없음', async () => {
+  it('서버 끊김 + 직결 없음 + 정지할 로봇도 없음 → STOP 은 눌리고(회색 아님) «로봇에 닿을 길 없음 · 현장에서 멈추세요» 한 줄, 성공 문구 없음', async () => {
     serve();
-    await home();
+    await home([]);
     await cut();
     const stop = $('[data-stop]') as HTMLButtonElement;
     expect(stop).toBeTruthy(); expect(stop.disabled).toBe(false);
@@ -372,6 +375,80 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     expect(line?.textContent).toContain('로봇에 닿을 길 없음');
     expect(line?.textContent).toContain('현장에서 멈추세요');
     expect(box.textContent).not.toMatch(/보냈습니다|정지 요청됨|정지 잠금/);
+  });
+
+  it('서버 전체가 꺼짐(WS · HTTP 모두) + 대상 없음 → 로봇마다 정지를 시도하고 결과는 로봇마다 «현장에서 … 멈추세요» 한 줄, 성공 문구 없음', async () => {
+    serve();
+    await home();
+    await cut();
+    stopDown = true;
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).sort()).toEqual(['POST /robots/r1/stop', 'POST /robots/r3/stop']);
+    const bands = [...box.querySelectorAll('[data-stop-band]')].map((x) => x.textContent ?? '');
+    expect(bands).toHaveLength(2);
+    for (const t of bands) expect(t).toContain('현장에서 로봇을 직접 멈추세요');
+    expect(box.textContent).not.toMatch(/서버가 받았습니다|정지 잠금/);
+  });
+
+  it('B2 · B3: 닿을 길 없음 뒤 서버가 다시 붙으면 «보내지 못했음» 으로 바꿔 닫을 때까지 두고, 직결 정지를 보내면 그 줄을 거둔다', async () => {
+    serve();
+    await home([]);
+    await cut();
+    await click($('[data-stop]'));
+    expect($('[data-stop-none]')!.textContent).toContain('로봇에 닿을 길 없음');
+    // 다시 연결 → 새 서버 소켓 열림
+    await click([...box.querySelectorAll('button')].find((b) => b.textContent === '다시 연결')!);
+    const w = server().filter((x) => x.readyState === 0).pop()!;
+    act(() => w.open()); await flush();
+    expect($('[data-link-band]')).toBeNull();
+    const back = $('[data-stop-none]')!;
+    expect(back.textContent).toContain('서버 다시 연결됨 · 앞선 정지는 보내지 못했음 · 로봇 상태를 확인하세요');
+    await click(back.querySelector('button'));
+    expect($('[data-stop-none]')).toBeNull();
+  });
+
+  it('B2: 닿을 길 없음 줄이 있어도 직결로 정지(toSim)를 보내면 그 줄을 거둔다', async () => {
+    serve();
+    await home([]);
+    await cut();
+    await click($('[data-stop]'));
+    expect($('[data-stop-none]')).toBeTruthy();
+    // 같은 화면에서 주변 로봇 직결
+    await click(btn('+ 로봇 연결하기'));
+    await click(btn('주변 로봇 찾기'));
+    const seq = $('[data-nearby-scan]')!.getAttribute('data-nearby-scan');
+    act(() => { window.dispatchEvent(new CustomEvent('fh-nearby', { detail: { seq, scanning: false, items: [found], problems: [] } })); });
+    await flush();
+    await click([...box.querySelectorAll('.dv-card button')].find((b) => b.textContent?.includes('GO2-friday')));
+    await click($('[data-real-connect]'));
+    await relay({ port: 40123 });
+    const a = agents()[0]; a.auto = auto;
+    act(() => a.open()); await flush();
+    act(() => a.recv(welcome)); await flush();
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    expect($('[data-stop-none]')).toBeNull();
+  });
+
+  it('실시간(WS)만 끊기고 HTTP 는 살아 있음 + 대상 없음 → 정지 가능한 로봇마다 HTTP 대체 정지(api.stop), «닿을 길 없음» 은 쓰지 않음(B1)', async () => {
+    serve();
+    await home();
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    const stops = calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).sort();
+    expect(stops).toEqual(['POST /robots/r1/stop', 'POST /robots/r3/stop']);
+    expect($('[data-stop-none]')).toBeNull();
+  });
+
+  it('서버 끊김 + 대상이 정해진 화면(그 로봇 조종 화면) → 그 로봇에만 기존 정지(rt.stop · HTTP 대체), 다른 로봇으로 새지 않음', async () => {
+    serve();
+    await home(ROBOTS, '#/drive/r3');
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c))).toEqual(['POST /robots/r3/stop']);
   });
 
   it('서버 살아 있음 + 직결 없음 → 지금 그대로(정지할 로봇 고르기)', async () => {
