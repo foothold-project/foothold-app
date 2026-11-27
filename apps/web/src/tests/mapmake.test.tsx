@@ -434,7 +434,7 @@ describe('지도 만들기 — 창 안에서 조종(11-13 RB-MAP-VIEW-WEB)', () 
     expect($('[data-slam-boxes]')!.dataset.slamBoxes).toBe('5');
     expect(d.querySelector('[data-sd-stop="panel"]')).toBeTruthy();
     expect(btn('조종 시작', d)).toBeTruthy();
-    expect(dlg().textContent).toContain('만드는 중 — 이 창의 조종 단추나 키보드로 로봇을 천천히 움직이세요.');
+    expect(dlg().textContent).toContain('만드는 중 · 이 창의 조종 단추나 키보드로 로봇을 천천히 움직이세요.');
     expect(dlg().textContent).not.toMatch(/SLAM|odom|deskew/i);
     await click(btn('지도 저장', dlg()));
     expect($('[data-saving]')).toBeTruthy();

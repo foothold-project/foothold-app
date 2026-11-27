@@ -57,7 +57,7 @@ const Said = ({ e }: { e: Ev }) => { const t = told(e.message);
 /** 사진 사건: PHOTO_STORED = 썸네일(누르면 원본 크기), 못 받으면 글로. PHOTO_STORE_FAILED = 사진 없음(성공처럼 보이지 않게). 이미지는 늦게 받아도 표·STOP 을 막지 않는다 */
 function Photo({ e }: { e: Ev }) {
   const [big, setBig] = useState(false), [bad, setBad] = useState(false), id = e.data?.photo_id;
-  if (e.code === 'PHOTO_STORE_FAILED') return <span className="fh-why" data-photo="failed">사진 저장 실패 — 사진 없음</span>;
+  if (e.code === 'PHOTO_STORE_FAILED') return <span className="fh-why" data-photo="failed">사진 저장 실패 · 사진 없음</span>;
   if (e.code !== 'PHOTO_STORED') return null;
   if (typeof id !== 'string' || !id || bad) return <span className="fh-why" data-photo="bad">사진을 불러오지 못함</span>;
   return <button type="button" className="hs-photo" data-photo={big ? 'big' : 'thumb'} aria-label={big ? '사진 작게 보기' : '사진 원본 보기'} aria-expanded={big} onClick={() => setBig(!big)}>

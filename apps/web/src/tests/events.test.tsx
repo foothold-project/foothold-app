@@ -819,7 +819,7 @@ describe('사진 사건(VQ-F1)', () => {
     expect(a.textContent).toContain('사진을 불러오지 못함');
     // 실패 행: 사진 없음 + ●오류(성공처럼 보이지 않음)
     expect(b.querySelector('img')).toBeNull();
-    expect(b.querySelector('[data-photo="failed"]')!.textContent).toBe('사진 저장 실패 — 사진 없음');
+    expect(b.querySelector('[data-photo="failed"]')!.textContent).toBe('사진 저장 실패 · 사진 없음');
     expect(b.querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('bad');
     expect(c.querySelector('[data-photo]')).toBeNull();   // 다른 사건엔 사진 칸 없음
     stopOk();
