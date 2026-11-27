@@ -108,6 +108,8 @@ class Session:
         self.last_report = float("-inf")
         self._telemetry = None
         self.unlock_refused = None
+        # 걷기 모드: 이 기본 Session (gazebo ros_bridge · mujoco_bridge) 은 바꿀 길이 없다. 받은 척하지 않는다.
+        self.gait_result = None
         self._still_axes = []
         self.ack_pending = False
         self._messages = History(MAX_BUFFER - 1, lambda m: m.get('code') in SAFETY_EVENTS or m.get('t') == 'run.update'
@@ -238,7 +240,9 @@ class Session:
                 "latched": self.core.latch, "stop_gen": self._generation(),
                 "safety_reason": "OUTPUT_STALLED" if self._output_stall_locked and self.core.latch else None,
                 "unlock_refused": deepcopy(self.unlock_refused),
-                "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
+                "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE",
+                **({"gait": {"gait": None, "available": []}, "gait_result": deepcopy(self.gait_result)}
+                   if self.gait_result is not None else {})}
 
     def _sync_output_hold(self):
         """Serialize watchdog observations before accepting input or reporting state."""
@@ -562,6 +566,14 @@ class Session:
                 self.unlock_refused = dict(reason=reason, at=datetime.now(timezone.utc).isoformat(),
                                            axes=deepcopy(violations))
                 self.core._safety_log.emit('resume_rejected', 'session_unlock_gate', _log_source(), stop_gen=self.core.stop_gen)
+        elif kind == "gait":
+            request_id, gait = frame.get("request_id"), frame.get("gait")
+            if (isinstance(request_id, str) and 1 <= len(request_id) <= 128
+                    and gait in ("classic", "sport", "start", "ame2")):
+                owned = (self.lease_confirmed and self.holder_type == "USER"
+                         and frame.get("lease_id") == self.lease_id)
+                self.gait_result = dict(request_id=request_id, gait=gait, status="REJECTED",
+                                        code="GAIT_UNSUPPORTED" if owned else "GAIT_LEASE_LOST", sdk_code=None)
         elif kind == "cmd":
             seq = frame.get("seq")
             if (self.lease_confirmed and self.holder_type == "USER"

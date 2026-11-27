@@ -177,6 +177,8 @@ class Go2Sink:
         # START 실행기 앱 입력 길 (FH_START_MOVE_PORT 없으면 None · APP-MOVES.md)
         self.runner = RunnerLink.configured(now=now)
         self.actions = Actions(self)
+        from .gait import Gait
+        self.gait = Gait(self)   # 걷기 모드 (gait.py) · 결과는 gait_result
 
     def automatic_stop_allowed(self, session):
         """Owning-loop lease observation; workers only read the memory snapshot."""
@@ -264,6 +266,11 @@ class Go2Sink:
         if action == 'stand_up':
             return sample['state'] == 'LYING' or sample.get('standing_locked', False)
         return action == 'stand_down' and cls._standing(sample)
+
+    @property
+    def gait_result(self):
+        with self._lock:
+            return self.gait.refresh()
 
     @property
     def posture_busy(self):

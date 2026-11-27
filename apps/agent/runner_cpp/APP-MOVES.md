@@ -92,3 +92,4 @@ Sit 과 RiseSit 은 같은 키라 실행기가 지금 상태로 어느 쪽인지
 - START 중 화면의 비상 정지를 속도 0 (지금) 으로 둘지, 엎드리기 (L2+A) 로 할지
 - 리모컨 우선 규칙 (지금: 리모컨이 중립이 아니면 앱 버림, 앱 Damp 만 예외)
 - AME-2 실행기도 같은 표시 파일 · 같은 묶음을 쓸지
+- 걷기 모드 (계약 #525 `gait`, 연결 프로그램 `go2_direct/gait.py`): START 중 `classic` 은 위 `ClassicWalk` 키 (START+RIGHT) 로 보낸다. 실행기에 아직 없는 것: 순정 기본 걸음 (`sport`) 으로 넘기는 키 (앉기 · 순정 모드 선택 · 다시 서기 · 걸음 선택 없음), 순정 중 START 정책 시작 키 (START+UP 은 키표에 없음), AME-2 (START+DOWN 은 지금 `ame2_unavailable`). 그때까지 연결 프로그램은 `GAIT_UNSUPPORTED` · `GAIT_NOT_READY` 로 답한다
