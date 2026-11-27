@@ -8,6 +8,7 @@ import { idleSim, myRobots, simName, type Robot, type Tone } from '../fake';
 import { Chip, Line, inApp, type Ctx } from '../screens';
 import './history.css';
 import { Empty } from '../empty';
+import { Clip, MarkNow } from './records';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
 const KINDS: [Ev['category'] | '', string][] = [['', '전체'], ['RUN', '임무'], ['ROUTE', '이탈'], ['LINK', '연결'], ['LEASE', '조종권'], ['APPROVAL', '결재'], ['SAFETY', '안전'], ['ACCOUNT', '계정']];
@@ -74,7 +75,7 @@ const Table = ({ items, who, label }: { items: Ev[]; who: (e: Ev) => string; lab
   <table className="hs-table" aria-label={label} hidden={!items.length}>
     <thead><tr><th scope="col">시각</th><th scope="col">종류</th><th scope="col">상태</th><th scope="col">내용</th><th scope="col">로봇·사람</th></tr></thead>
     <tbody>{items.map((e) => { const w = who(e);
-      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /></td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
+      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /><Clip e={e} /></td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
   </table></div>;
 /** 사건의 로봇·사람 이름 — 화면이 아는 것만(로봇 목록·나·담당자). 모르면 빈 글 */
 const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
@@ -162,7 +163,7 @@ function useEvents(f: Filter, cancel: AbortSignal | undefined, limit: number) {
     }, (e: ApiFail) => { if (n !== seq.current || e.code === 'CANCELED') return; setErr(e); setBusy(false); });   // 더 받기 실패면 받은 목록·cursor 그대로(다시 시도)
   };
   useEffect(() => { load(); }, [key]);
-  return { items, next, busy, err, more: () => load(next ?? undefined) };
+  return { items, next, busy, err, more: () => load(next ?? undefined), again: () => load() };
 }
 
 /** 기록 탭에 필요한 것만 — 로봇이 0대여도 계정·내 행동 기록과 알림 링크는 연다(LG-01·05) */
@@ -226,6 +227,7 @@ export function History(c: HistoryCtx) {
           <span aria-hidden="true">~</span>
           <DayBox name="기간 끝" text={days.to} bad={shown.includes('to') || late} min={f.from} put={put('to')} leave={() => setLeft((o) => ({ ...o, to: true }))} /></span>
         <span className="fh-grow" />
+        <MarkNow c={c} done={ev.again} />
         <button type="button" className="btn" disabled={saving} onClick={save}>{saving ? '내보내는 중…' : '내보내기'}</button>
       </div>
       {dayErr && <p id="hs-day-err" className="fh-msg" role="alert">{dayErr} 고칠 때까지 기간은 이전 값 그대로입니다.</p>}
