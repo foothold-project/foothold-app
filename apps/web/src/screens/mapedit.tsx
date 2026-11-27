@@ -528,7 +528,7 @@ export function Glyph({ f, k }: { f: MapFeatures; k: string }) {
 export function DelX({ at: [x, y], r, k, label }: { at: P; r: number; k: string; label: string }) {
   const d = r * 0.45;
   return <g data-del={k} role="button" aria-label={label} style={{ cursor: 'pointer' }}>
-    <circle cx={x} cy={y} r={r} style={{ fill: 'var(--bad)', stroke: '#FFFFFF', strokeWidth: 1.5 }} vectorEffect="non-scaling-stroke" />
+    <circle cx={x} cy={y} r={r} style={{ fill: 'var(--bad-strong)', stroke: '#FFFFFF', strokeWidth: 1.5 }} vectorEffect="non-scaling-stroke" />
     <path d={`M${x - d} ${y - d}L${x + d} ${y + d}M${x + d} ${y - d}L${x - d} ${y + d}`} style={{ stroke: '#FFFFFF', strokeWidth: 2, pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />
     <title>{label}</title></g>;
 }

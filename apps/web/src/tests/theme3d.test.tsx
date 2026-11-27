@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import frameCss from '../frame.css?raw';
 import Voxel3D, { type Props as VoxelProps } from '../screens/voxel3d';
-import type { Spec } from '../screens/terrain';
+import type { Props as TerrainProps } from '../screens/terrain3d';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const gl: { scene: THREE.Scene | null } = { scene: null };
@@ -58,12 +58,15 @@ describe('3D 장면 색 = 테마 토큰', () => {
 
   it('지형 3D(terrain3d): 바탕 = --bg, 밝음으로 바꾸면 다시 칠함', async () => {
     const Real = (await import('../screens/terrain3d')).default;
-    const spec: Spec = { schema: 'fh_custom_terrain/1', id: 't-a', name: '시험', size: [12, 12], spawn: [-5, 0, 0], items: [] } as Spec;
+    const spec = { schema: 'fh_custom_terrain/1', id: 't-a', name: '시험', size: [12, 12], spawn: [-5, 0, 0], items: [] } as unknown as TerrainProps['spec'];
     show(<Real spec={spec} sel={null} tool="select" state={[]} onSel={() => {}} onPose={() => {}} onFloor={() => {}} onKeyDown={() => {}} />);
     await flush();
     expect(box.querySelector('[data-terrain-3d-failed]')).toBeNull();
     expect(hex(gl.scene!.background)).toBe(DARK['--bg'].toUpperCase());
+    const mid = (t: Record<string, string>) => `#${new THREE.Color(t['--line']).lerp(new THREE.Color(t['--muted']), 0.5).getHexString().toUpperCase()}`;
+    expect(gridHex(gl.scene!)).toBe(mid(DARK));   // 격자 = --line 과 --muted 사이(밝은 판 흰 바닥 위에서도 보이게)
     theme('light'); await flush();
     expect(hex(gl.scene!.background)).toBe(LIGHT['--bg'].toUpperCase());
+    expect(gridHex(gl.scene!)).toBe(mid(LIGHT));
   });
 });

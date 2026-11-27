@@ -77,7 +77,7 @@ function RightCol({ c, r, trial }: { c: Ctx; r: Robot; trial: ReactNode }) {
     </section>
     <section className="lv-card pd-sec" aria-label="목표" data-pd-goal>
       <h3>목표</h3>
-      <button type="button" className="btn" disabled>지도에서 목표 찍기 — 준비 중</button>
+      <button type="button" className="btn" disabled>지도에서 목표 찍기 · 준비 중</button>
     </section>
     {trial}
   </div>;
