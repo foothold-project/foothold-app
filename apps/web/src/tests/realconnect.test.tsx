@@ -326,3 +326,61 @@ describe('실기 직결 조종 — 새로 누른 입력만', () => {
     gap.mockRestore();
   });
 });
+
+// 결정 d2(11-28): 서버가 끊긴 폰의 STOP. 정지 단추는 회색이 아니다. 직결(welcome)이 살아 있으면 직결로 바로(via agent),
+// 직결도 없으면 눌리되 «로봇에 닿을 길 없음 · 현장에서 멈추세요» 한 줄(성공처럼 보이지 않게). 서버가 살아 있으면 그대로
+describe('서버 끊긴 폰의 STOP(d2)', () => {
+  const server = () => FakeWS.all.filter((w) => !w.url.startsWith('ws://127.0.0.1:40123/'));
+  /** 서버 실시간을 열었다가 끊음(연결 끊김 띠까지) */
+  const cut = async () => { for (const w of server()) { act(() => w.open()); } await flush(); for (const w of server()) act(() => w.drop(1006)); await flush();
+    expect($('[data-link-band]')).toBeTruthy(); };
+  const greyStops = () => [...box.querySelectorAll<HTMLButtonElement>('.fh-stop')].filter((b) => b.disabled);
+  /** 직결 없이 폰 로봇 연결 화면 */
+  async function home() {
+    window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.5-dev');
+    location.hash = '#/drive';
+    box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />); });
+    await flush();
+  }
+
+  it('서버 끊김 + 실기 직결 있음 → STOP 은 직결 {t:stop} 한 번(via agent), 띠는 직결로 보냈다고 알림', async () => {
+    serve();
+    const a = await connected();
+    await cut();
+    expect($('[data-stop]')).toBeTruthy();
+    expect(greyStops()).toEqual([]);
+    const before = server().reduce((n, w) => n + w.of('stop').length, 0);
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    expect(sim.get().stop?.via).toBe('agent');
+    expect(server().reduce((n, w) => n + w.of('stop').length, 0)).toBe(before);
+    expect(box.textContent).toContain('직결');
+    expect(calls.filter((c) => c.includes('/stop'))).toEqual([]);
+  });
+
+  it('서버 끊김 + 직결 없음 → STOP 은 눌리고(회색 아님) «로봇에 닿을 길 없음 · 현장에서 멈추세요» 한 줄, 성공 문구 없음', async () => {
+    serve();
+    await home();
+    await cut();
+    const stop = $('[data-stop]') as HTMLButtonElement;
+    expect(stop).toBeTruthy(); expect(stop.disabled).toBe(false);
+    await click(stop);
+    expect(greyStops()).toEqual([]);   // 고를 수 없는 회색 «정지» 창이 뜨지 않는다
+    const line = $('[data-stop-none]');
+    expect(line?.textContent).toContain('로봇에 닿을 길 없음');
+    expect(line?.textContent).toContain('현장에서 멈추세요');
+    expect(box.textContent).not.toMatch(/보냈습니다|정지 요청됨|정지 잠금/);
+  });
+
+  it('서버 살아 있음 + 직결 없음 → 지금 그대로(정지할 로봇 고르기)', async () => {
+    serve();
+    await home();
+    for (const w of server()) act(() => w.open());
+    await flush();
+    await click($('[data-stop]'));
+    expect($('[aria-label="정지할 로봇 고르기"]')).toBeTruthy();
+    expect($('[data-stop-none]')).toBeNull();
+  });
+});

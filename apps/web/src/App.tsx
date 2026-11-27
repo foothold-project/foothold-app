@@ -215,9 +215,13 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     if (open && robot && seen.current?.[0] === robot.id && seen.current[1] < done) go('drive');
     seen.current = robot ? [robot.id, done] : null;
   });
-  const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
+  const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); setNoWay(false); };
+  // 서버가 끊기고 직결도 없으면(d2 11-28) 고를 로봇을 물어도 보낼 길이 없다. 회색 «정지» 창 대신 눌린 즉시 한 줄(via none). 서버가 돌아오면 거둔다
+  const [noWay, setNoWay] = useState(false), down = net.at !== 'open' && net.at !== 'connecting' && net.at !== 'idle';
+  useEffect(() => { if (!down) setNoWay(false); }, [down]);
   const stop = () => { if (toSim) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
     if (!canStop) return;
+    if (down && !target) { setChoose(null); setNoWay(true); return; }
     const r = target ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
   // 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
@@ -295,6 +299,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
       (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
         {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,
+      noWay && <span key="none" data-stop-none>▲ 로봇에 닿을 길 없음 · 현장에서 멈추세요. 서버 연결이 끊겼고 이 폰은 로봇과 직결되어 있지 않아 정지 명령을 보내지 못했습니다.</span>,
       stopped && <span key="stop" data-stop-band>{stopText(stopped, rt.get(stopped.id))}</span>,
       ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
     ].filter(Boolean)}</div>
