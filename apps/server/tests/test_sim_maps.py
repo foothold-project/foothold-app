@@ -448,3 +448,15 @@ def test_plant_a_start_relays_three_bindings_and_spawn_floor(maps, seeded, plant
         assert [b['ros_floor_id'] for b in relay.sent[0]['map_bindings']] == ['l1', 'l2', 'l3']
         assert sim.app.state.manager.world == 'plant_a'
         assert http.delete('/api/v1/simulation/robots/'+rid, headers=headers).status_code == 204
+
+
+def test_floor_z_table_matches_world_catalogue():
+    # 검수 #532 F1: 서버 층 높이 표가 worlds.json floor_z 와 칸마다 같다 (월드 다시 만들면 여기서 잡힘).
+    from apps.server.fh_server.floor_maps import FLOOR_Z
+    from apps.server.fh_server.sim_maps import WORLD_FOLDER
+    catalogue = json.loads((WORLD_FOLDER / 'worlds.json').read_text())['worlds']
+    for (world_id, floor_id), z in FLOOR_Z.items():
+        key = f'{world_id}/{floor_id}'
+        if key in catalogue:
+            assert catalogue[key]['floor_z'] == z, key
+    assert all(f'plant_a/{f}' in catalogue for f in ('l1', 'l2', 'l3'))
