@@ -58,6 +58,7 @@ export function Trash(c: Pick<Ctx, 'cancel'>) {
         <button type="button" className="btn" autoFocus onClick={() => setAsk(null)}>취소</button></div>
     </div>}
     <Note m={msg} />
+    {busy && <p className="lv-note" role="status" data-trash-busy>처리하는 중… 끝나면 단추가 다시 켜집니다.</p>}
     <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }} aria-label="휴지통 목록">{(items ?? []).map((x) => <li key={`${x.kind}-${x.id}`} className="fh-row" style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--panel2)' }} data-trash-item={x.id}>
       <span className="lbl">{KIND[x.kind]}</span>
       <b style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{x.name}</b>

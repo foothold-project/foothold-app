@@ -161,7 +161,7 @@ export function useSlamLive(robot: string, p: MappingProgress | null, link = 0):
 }
 
 /** 저장된 지도 묶음(bundle) — 담당 운영자만(남은 403). 받는 중 null */
-export function useSlamSaved(robot: string, session: string, cancel?: AbortSignal): { pic: SlamPic | null; err: string } {
+export function useSlamSaved(robot: string, session: string, cancel?: AbortSignal, again = 0): { pic: SlamPic | null; err: string } {
   const [r, setR] = useState<{ pic: SlamPic | null; err: string }>({ pic: null, err: '' });
   useEffect(() => {
     const ac = new AbortController(), off = () => ac.abort();
@@ -181,7 +181,7 @@ export function useSlamSaved(robot: string, session: string, cancel?: AbortSigna
       }
     })();
     return () => { ac.abort(); cancel?.removeEventListener('abort', off); };
-  }, [robot, session]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [robot, session, again]);   // eslint-disable-line react-hooks/exhaustive-deps
   return r;
 }
 
@@ -280,8 +280,10 @@ export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = fa
 
 /** 저장된 «로봇으로 만든 지도» 다시 열기 — 같은 그리기 */
 export function SlamSavedView({ robot, session, cancel }: { robot: string; session: string; cancel?: AbortSignal }) {
-  const { pic, err } = useSlamSaved(robot, session, cancel);
+  const [n, setN] = useState(0), { pic, err } = useSlamSaved(robot, session, cancel, n);
   return <div className="vx" data-slam-saved>
-    {pic ? <SlamView pic={pic} empty="이 지도에는 받은 칸이 없습니다." first3d /> : <p className={err ? 'fh-msg mx-center' : 'lv-note mx-center'} role={err ? 'alert' : 'status'}>{err ? `지도 자료를 받지 못했습니다. ${err}` : '지도 자료를 받는 중…'}</p>}
+    {pic ? <SlamView pic={pic} empty="이 지도에는 받은 칸이 없습니다." first3d />
+      : err ? <div className="mx-center"><p className="fh-msg" role="alert">지도 자료를 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>
+      : <p className="lv-note mx-center" role="status">지도 자료를 받는 중…</p>}
   </div>;
 }
