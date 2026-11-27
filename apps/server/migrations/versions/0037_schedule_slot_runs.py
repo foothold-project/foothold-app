@@ -1,8 +1,8 @@
 """일정 칸 예약 실행 상태 (11/28). 칸 하나는 한 번만 시작된다: run_state 가 비어 있을 때만 잡고, run_id 는 유일."""
 from alembic import op
 
-revision = '0036'
-down_revision = '0035'
+revision = '0037'
+down_revision = '0036'
 branch_labels = None
 depends_on = None
 
