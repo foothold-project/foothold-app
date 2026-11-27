@@ -66,11 +66,16 @@ describe('로봇 0대', () => {
     expect(r.why).toBe('운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다.');   // 메뉴에 없는 «시뮬» 탭을 가리키지 않음(#542 U0-01 · #559 N2)
     expect(($('[data-empty="robots"] a') as HTMLAnchorElement).getAttribute('href')).toBe('#/sim');
   });
-  it('운영자: 아이콘 · 한 줄 까닭 · 다음 할 일은 «+ 새 로봇 추가» 하나(칸 안에 다른 단추 없음)', async () => {
+  it('운영자: 아이콘 · 한 줄 까닭 · 칠한 주 행동은 «+ 새 로봇 추가» 하나 + 칠하지 않은 보조 링크 «시뮬 탭 열기»(#542 U0-01 · #559 N2 · 08:27)', async () => {
     serve(LEE, []); await open('#/fleet');
     const r = empty('robots');
     expect(r.title).toBe('담당 로봇이 없습니다');
-    expect(r.acts).toEqual(['+ 새 로봇 추가']);
+    expect(r.acts).toEqual(['+ 새 로봇 추가', '시뮬 탭 열기']);
+    expect([...r.e.querySelectorAll('.btn.pri')].map((x) => x.textContent)).toEqual(['+ 새 로봇 추가']);   // 칠한 단추 하나
+    const sim = r.e.querySelector<HTMLAnchorElement>('a[href="#/sim"]')!;
+    expect(sim.textContent).toBe('시뮬 탭 열기');
+    expect(sim.className).toBe('btn');
+    expect(r.why).toBe('연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬 탭 열기»에서 띄웁니다.');
     expect($('[data-pair-start]')).toBeTruthy();
   });
 });
