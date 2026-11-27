@@ -404,6 +404,15 @@ function openCamera(token: string | null) {
 const message = (e: unknown) => (e instanceof ApiFail ? e.message : '요청을 처리하지 못했습니다.');
 const notCreated = (e: ApiFail) => e.status === 503 && e.code === 'SIM_UNAVAILABLE'
   && e.detail?.reason === 'resources_low' && e.detail.start_not_created === true;
+/** 목록 받기 실패 한 줄. «서버 연결을 확인» 은 서버에 닿지 못했을 때만(fetch TypeError · api 가 status 0 으로 바꾼 것).
+ *  닿았는데 거절 · 오류면 코드 + 까닭 한 줄(401 로그인 · 403 권한 · 5xx 서버 오류). 서버 본문은 붙이지 않는다 */
+function listFail(what: string, e: unknown) {
+  const status = e instanceof ApiFail ? e.status : 0;
+  if (e instanceof TypeError || status === 0) return `${what}을 받지 못했습니다 · 서버 연결을 확인한 뒤 다시 여세요.`;
+  const why = status === 401 ? '로그인이 끝났습니다. 다시 로그인하세요.' : status === 403 ? '이 목록을 볼 권한이 없습니다.'
+    : status >= 500 ? '서버 오류입니다. 잠시 뒤 다시 여세요.' : '요청을 처리하지 못했습니다. 다시 여세요.';
+  return `${what}을 받지 못했습니다 (${status}) · ${why}`;
+}
 /** 서버가 증명한 시작 전 거부만 다시 띄우기 안내를 준다. */
 function simulationMessage(e: unknown): string | undefined {
   if (!(e instanceof ApiFail)) return;
@@ -439,8 +448,8 @@ export const sim = {
       return true;
     }
     const managerError = r.status === 'fulfilled' ? r.value.manager_error ?? null : 'SIM_UNAVAILABLE';
-    const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? '시뮬 월드 목록을 받지 못했습니다 · 서버 연결을 확인한 뒤 다시 여세요.'
-      : r.status === 'rejected' ? simulationMessage(r.reason) ?? `내 시뮬 로봇 목록을 받지 못했습니다. ${message(r.reason)}`
+    const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? listFail('시뮬 월드 목록', c.reason)
+      : r.status === 'rejected' ? simulationMessage(r.reason) ?? listFail('내 시뮬 로봇 목록', r.reason)
       : managerError === 'SIM_DISABLED' ? '시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.'
       : managerError ? '시뮬 관리자에 연결하지 못했습니다. 관리자가 켜져 있는지와 연결을 확인한 뒤 정리하세요.' : '';
     // 목록 오류만 지운다 — 띄우기 거부·정리 확인 실패 문구는 남김

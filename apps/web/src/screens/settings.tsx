@@ -1,12 +1,13 @@
-// 설정 탭(02 F-ST-01·02, 03 UX §5) — [공통 | 실기 | 시뮬 | 계정] 탭(11-02 설정 개편, 미리보기 runs/settings-preview). 조직 값은 서버(05 §8)가 범위·교차 검사,
+// 설정 탭(02 F-ST-01·02, 03 UX §5). 묶음은 시안 u9 배치(U9-04, 11-28): 나 · 현장 · 로봇과 안전 · 화면과 조작 · 기기. 조직 값은 서버(05 §8)가 범위·교차 검사,
 // 고치기는 총괄만(운영 관리자는 보기만). 계정 관리(05 §2 /users)·시뮬 로봇 이름(05 §3)은 총괄에게만 보인다(01 AU-04: 권한 없는 기능은 숨김).
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { OrgSettings, OrgSettingsPatch, RobotSummary, Session, User as ApiUser } from '../../../contracts/ts';
 import { api, expireAuth, type ApiFail } from '../api';
 import { ROLE_NAME, robotName, type Role, type User } from '../fake';
 import orgSettingsSchema from '../../../contracts/schema/OrgSettings.json';
 import { REAL_CAPS as phoneCaps, simTune } from '../phone';
 import { Chip, type Ctx } from '../screens';
+import { THEMES, setThemePref, useTheme } from '../theme';
 import './settings.css';
 
 const REAL_CAPS = { ...phoneCaps, real_max_wz: orgSettingsSchema.properties.real_max_wz.maximum };
@@ -16,23 +17,44 @@ type Msg = { text: string; ok?: boolean } | null;
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
 const Note = ({ msg }: { msg: Msg }) => (msg ? <p style={WRAP} className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p> : null);
 
-const TABS = [['common', '공통'], ['real', '실기'], ['sim', '시뮬'], ['acct', '계정']] as const;
-type Tab = (typeof TABS)[number][0];
+/** 설정 묶음(U9-04 시안 u9_1~u9_9 배치): [묶음 이름, [id, 이름, 총괄에게만 보임?, «총괄만» 표시?][]] */
+const GROUPS = [
+  ['나', [['acct', '계정']]],
+  ['현장', [['users', '사용자와 권한', true, true], ['net', '현장 연결'], ['crowd', '현장 혼잡 시간']]],
+  ['로봇과 안전', [['robot', '로봇'], ['safety', '안전'], ['alert', '알림'], ['clip', '기록과 클립']]],
+  ['화면과 조작', [['ctl', '조작'], ['view', '표시'], ['demo', '데모 로봇 표시', false, true]]],
+  ['기기', [['sys', '시스템']]],
+] as const satisfies readonly (readonly [string, readonly (readonly [string, string, boolean?, boolean?])[]])[];
+type Tab = (typeof GROUPS)[number][1][number][0];
+/** 서버 값이 아직 없는 항목: 이름 + 까닭 한 줄. 켜고 끄는 척하는 칸은 두지 않는다 */
+const Later = ({ items, label }: { label: string; items: [string, string][] }) => <section className="lv-card" aria-label={label}>
+  {(items.length > 1 || items[0][0] !== label) && <h2>{label}</h2>}
+  {items.map(([name, why]) => <div key={name} className="st-later" data-later><b>{name}</b><span className="st-note" data-why>{why}</span></div>)}
+</section>;
 
 /** 시뮬 탭에서 고를 모델: 등록부(mobile/sim/policy-modes.js) 정식 id·이름. go2-demo 는 명령·물리 없는 보기 전용이라 고칠 값이 없어 뺀다.
  *  등록부에 실기로 도는 모델이 없어 실기 탭은 «공통»만 보인다 */
 export const SIM_MODELS = [['nvidia-demo', 'nvidia'], ['ame2-demo', 'AME-2'], ['start-demo', 'start']] as const;
 
 /** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다. 고른 탭은 화면 상태(주소 #해시 아님).
- *  네 묶음은 늘 그려 두고 hidden 으로만 숨긴다 — 탭을 바꿔도 쓰던 칸·한 번만 보이는 임시 비밀번호가 사라지지 않게 */
+ *  묶음은 늘 그려 두고 hidden 으로만 숨긴다. 탭을 바꿔도 쓰던 칸·한 번만 보이는 임시 비밀번호가 사라지지 않게 */
 export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) {
-  const admin = c.user.role === 'ORG_ADMIN', [tab, setTab] = useState<Tab>('common'), org = useOrg(c.cancel), list = useRef<HTMLDivElement>(null);
+  const admin = c.user.role === 'ORG_ADMIN', [tab, setTab] = useState<Tab>('acct'), org = useOrg(c.cancel), list = useRef<HTMLDivElement>(null);
+  const TABS = GROUPS.flatMap(([, ts]) => ts.filter((t) => admin || !t[2]).map(([id, name]) => [id, name] as [Tab, string]));
   // 탭 목록 키(WAI-ARIA tabs): ←/→ 앞뒤(끝에서 돌아감), Home/End 처음·끝 — 고르면서 초점도 옮긴다
+  // 고른 항목을 보이는 곳으로(좁은 화면 가로 한 줄에서 밖에 있던 항목). 처음 열 때는 밀지 않는다
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } document.getElementById(`st-t-${tab}`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }, [tab]);
+  // 운영자의 화살표 · Home · End 는 «총괄만» 항목을 건너뛴다 (누르면 열리기는 함)
+  const KEYS = GROUPS.flatMap(([, ts]) => ts.filter((t) => admin || !t[3]).map(([id]) => id as Tab));
   const key = (e: KeyboardEvent) => {
-    const i = TABS.findIndex(([id]) => id === tab), n = TABS.length;
-    const j = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i + n - 1) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
-    if (j < 0) return;
-    e.preventDefault(); setTab(TABS[j][0]); list.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[j]?.focus();
+    // 눌러서 연 «총괄만» 항목에서도 화면 순서대로 앞뒤를 찾는다
+    const at = (id: Tab) => TABS.findIndex(([t]) => t === id), p = at(tab);
+    const after = KEYS.filter((id) => at(id) > p), before = KEYS.filter((id) => at(id) < p);
+    const to = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? after[0] ?? KEYS[0] : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? before[before.length - 1] ?? KEYS[KEYS.length - 1]
+      : e.key === 'Home' ? KEYS[0] : e.key === 'End' ? KEYS[KEYS.length - 1] : null;
+    if (!to) return;
+    e.preventDefault(); setTab(to); document.getElementById(`st-t-${to}`)?.focus();
   };
   const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>;
   const card = (p: Omit<CardProps, 'org' | 'admin' | 'cancel'>) => <OrgCard org={org} admin={admin} cancel={c.cancel} {...p} />;
@@ -46,18 +68,31 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
   </div>;
   const modelName = SIM_MODELS.find(([id]) => id === model)?.[1];
   return <div className="st">
-    <div className="st-tabs" role="tablist" aria-label="설정 묶음" ref={list} onKeyDown={key}>
-      {TABS.map(([id, name]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}>{name}</button>)}
+    <div className="st-tabs st-side" role="tablist" aria-label="설정 묶음" aria-orientation="vertical" ref={list} onKeyDown={key}>
+      {GROUPS.map(([g, ts]) => <Fragment key={g}><span className="st-group" aria-hidden="true" data-st-group>{g}</span>
+        {ts.filter((t) => admin || !t[2]).map(([id, name, , only]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} data-only={only || undefined} title={only ? '총괄만' : undefined}>{name}</button>)}
+      </Fragment>)}
     </div>
+    <div className="st-body">
     <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
     {org.err && <p className="fh-msg" role="alert">{org.err}</p>}
-    {panel('common', card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON }))}
-    {panel('real', <>
+    {panel('acct', <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />)}
+    {admin && panel('users', <Accounts me={c.user} cancel={c.cancel} />)}
+    {panel('net', <Later label="현장 연결" items={[
+      ['현장 네트워크 목록', '현장 네트워크를 저장하는 서버 값이 아직 없어 목록을 보일 수 없습니다. 연결 상태는 위쪽 줄에서 봅니다.'],
+      ['현장 확인 자동 통과', '로봇을 처음 연결할 때 현장 승인을 켜고 끄는 설정은 서버 권한 결정을 기다립니다.']]} />)}
+    {panel('crowd', <Later label="현장 혼잡 시간" items={[
+      ['혼잡 시간', '사람이 많은 시간을 저장하는 서버 값이 아직 없습니다.'],
+      ['중복 점검 기준', '같은 곳을 다시 점검하는 기준(시안 기본 4 시간)을 저장하는 서버 값이 아직 없습니다.']]} />)}
+    {panel('robot', <>
+      {card({ id: 'lease', label: '조종권·연결', fields: LEASE })}
+      {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
+    </>)}
+    {panel('safety', <>
       <div className="st-modelbar">
         <div className="st-tabs" role="group" aria-label="실기 값을 고칠 모델"><button type="button" aria-pressed="true">공통</button></div>
         <p className="st-note">실기에서 도는 모델이 하나뿐이라 모델별 값 없음</p>
       </div>
-      {card({ id: 'lease', label: '조종권·연결', fields: LEASE })}
       {card({ id: 'speed', label: '속도 제한', bad: '실기 미검증', confirm: true, note: '로봇 쪽 상한보다 높게 넣어도 로봇 상한까지만. 0은 그 축을 끕니다. 폰 막대 끝은 실효 상한이며, 서버 경유 고정 명령이 상한을 넘으면 비활성·STOP 거절합니다.', fields: REAL, top: <RealTable /> })}
       <section className="lv-card st-fixed" aria-label="고정 안전값">
         <h2>고정 안전값</h2>
@@ -68,7 +103,12 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
         <span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></span>
       </section>
     </>)}
-    {panel('sim', <>
+    {panel('alert', <>
+      {card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON })}
+      <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />
+    </>)}
+    {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '사건 클립은 서버 클립 기능이 생긴 뒤 보관 기간을 여기서 바꿉니다.']]} />)}
+    {panel('ctl', <>
       <div className="st-modelbar">
         <div className="st-tabs" role="group" aria-label="값을 고칠 모델">
           {[['', '공통'] as const, ...SIM_MODELS].map(([id, name]) => <button key={id} type="button" aria-pressed={model === id} onClick={() => pickModel(id)}>{name}</button>)}
@@ -77,13 +117,27 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
       </div>
       {simCards('')}
       {SIM_MODELS.filter(([id]) => opened.includes(id)).map(([id]) => simCards(id))}
-      {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
     </>)}
-    {panel('acct', <>
-      <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />
-      {admin && <Accounts me={c.user} cancel={c.cancel} />}
+    {panel('view', <>
+      <ThemeCard />
+      <Later label="언어" items={[['언어', '화면 글을 바꾸는 기능은 아직 없습니다. 지금은 한국어만 씁니다.']]} />
     </>)}
+    {panel('demo', <Later label="데모 로봇 표시 (총괄만)" items={[['데모 로봇에 «데모» 표시', '켜고 끄는 값은 서버 권한 결정을 기다립니다. 정해지면 총괄만 바꿀 수 있습니다.']]} />)}
+    {panel('sys', <Later label="시스템" items={[['서버 · 앱 정보', '서버 주소 · 버전 · 점검 결과를 주는 서버 값이 아직 없습니다.']]} />)}
+    </div>
   </div>;
+}
+
+/** 화면 밝기(U9-03): 머리 메뉴 밝기 단추와 같은 값(theme.tsx). 어느 쪽에서 바꿔도 둘 다 바뀐다 */
+function ThemeCard() {
+  const [p] = useTheme();
+  return <section className="lv-card" aria-label="화면 밝기">
+    <h2>화면 밝기</h2>
+    <div className="st-theme" role="radiogroup" aria-label="화면 밝기 고르기">
+      {THEMES.map(([v, name]) => <label key={v} className="st-sw"><span>{name}</span><input type="radio" name="st-theme" value={v} checked={p === v} onChange={() => setThemePref(v)} /></label>)}
+    </div>
+    <p className="st-note">이 기기에만 기억합니다. 왼쪽 메뉴(폰은 «⋯ 더 보기»)의 밝기와 같은 값입니다.</p>
+  </section>;
 }
 
 /** 고정표는 조직 상한으로 늘리거나 비례 조정하지 않는다. */

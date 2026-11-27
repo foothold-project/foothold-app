@@ -24,12 +24,34 @@ let root: Root | null = null, box: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); sim.clear(); });
 
 const LIST_FAIL = '시뮬 월드 목록을 받지 못했습니다 · 서버 연결을 확인한 뒤 다시 여세요.';
+/** 목록 실패 한 줄(검토 N1): «서버 연결을 확인» 은 서버에 닿지 못했을 때만. 닿았는데 거절 · 오류면 코드 + 까닭 한 줄. 서버 본문(«없음» 등)은 붙이지 않음 */
+const WHY: [string, Reply, string][] = [
+  ['서버에 닿지 않음(TypeError)', 'down', '을 받지 못했습니다 · 서버 연결을 확인한 뒤 다시 여세요.'],
+  ['401', err(401, 'AUTH_REQUIRED', '없음'), '을 받지 못했습니다 (401) · 로그인이 끝났습니다. 다시 로그인하세요.'],
+  ['403', err(403, 'FORBIDDEN', '없음'), '을 받지 못했습니다 (403) · 이 목록을 볼 권한이 없습니다.'],
+  ['500', err(500, 'INTERNAL_ERROR', '없음'), '을 받지 못했습니다 (500) · 서버 오류입니다. 잠시 뒤 다시 여세요.'],
+  ['502', err(502, 'BAD_GATEWAY', '없음'), '을 받지 못했습니다 (502) · 서버 오류입니다. 잠시 뒤 다시 여세요.'],
+  ['404 그 밖', err(404, 'NOT_FOUND', '없음'), '을 받지 못했습니다 (404) · 요청을 처리하지 못했습니다. 다시 여세요.'],
+];
 describe('시뮬 월드 목록을 받지 못함 = 까닭 + 다음 할 일 한 줄', () => {
-  for (const [how, rep] of [['서버에 닿지 않음', 'down'], ['서버가 오류를 돌려줌(본문 «없음»)', err(404, 'NOT_FOUND', '없음')]] as const) it(how, async () => {
+  for (const [how, rep, tail] of WHY) it(how, async () => {
     serve(rep);
     await act(async () => { await sim.load(); });
-    expect(sim.get().err).toBe(LIST_FAIL);
+    expect(sim.get().err).toBe(`시뮬 월드 목록${tail}`);
     expect(sim.get().err).not.toContain('없음');
+  });
+});
+describe('내 시뮬 로봇 목록을 받지 못함 = 같은 꼴', () => {
+  for (const [how, rep, tail] of WHY) it(how, async () => {
+    serve({ status: 200, body: WORLDS }, rep);
+    await act(async () => { await sim.load(); });
+    expect(sim.get().err).toBe(`내 시뮬 로봇 목록${tail}`);
+    expect(sim.get().err).not.toContain('없음');
+  });
+  it('시뮬 관리자가 증명한 까닭(SIM_UNAVAILABLE · manager_unreachable)은 그 문구가 먼저', async () => {
+    serve({ status: 200, body: WORLDS }, { status: 503, body: { error: { code: 'SIM_UNAVAILABLE', message: 'x', detail: { reason: 'manager_unreachable' } } } });
+    await act(async () => { await sim.load(); });
+    expect(sim.get().err).toBe('시뮬 관리자가 꺼져 있습니다. 관리자를 다시 켠 뒤 정리하세요.');
   });
 });
 
