@@ -5,6 +5,7 @@ import type { Action, Assignment, AssignmentCreate, ApiError, Approval, Approval
 // 구역 지키기 1차(RB-ZONE-WEB 11-12) — 타입은 계약 생성물 그대로(정본 apps/server/ZONES.md)
 export type { ScenarioMapUpdate as MapUpdate, ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
 import type { ZoneGrid, MapSimulationTwin as SimTwin, ZoneOverlaps } from '../../contracts/ts';
+import type { Estimate, EstimateRequest, RobotAvailabilityList, ScheduleDay, ScheduleSlot, ScheduleSlotCreate } from '../../contracts/ts';
 
 /** 저장된 지도 묶음 설명(서버 mapping_storage.py manifest — 계약 생성 타입 없음, 웹이 쓰는 칸만) */
 export type SlamManifest = Pick<MappingBundleLink, 'session_id' | 'source' | 'revision' | 'slam_save' | 'completeness'> & {
@@ -242,6 +243,12 @@ export const api = {
   runHistory: (id: string, cancel?: AbortSignal) => call<RunHistory>('GET', `/runs/${encodeURIComponent(id)}/history`, undefined, { cancel }),
   /** 저장 없이 경로 미리보기(지점별 갈 수 있음·이유, 층 연결점, 직선 거리) */
   preview: (p: ScenarioWrite, cancel?: AbortSignal) => call<ScenarioPreview>('POST', '/scenarios/preview', p, { cancel }),
+  // 임무 탭 일정(#531): 하루 일정 · 일정 칸 만들기/지우기 · 기간 가용 · 예상. 같은 로봇 일정과 겹치면 409 SCHEDULE_CONFLICT(detail.slot_ids)
+  schedule: (day: string, tz: string, cancel?: AbortSignal) => call<ScheduleDay>('GET', `/schedule?day=${encodeURIComponent(day)}&tz=${encodeURIComponent(tz)}`, undefined, { cancel }),
+  addSlot: (p: ScheduleSlotCreate, key: string, cancel?: AbortSignal) => call<ScheduleSlot>('POST', '/schedule/slots', p, { cancel, key }),
+  dropSlot: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/schedule/slots/${encodeURIComponent(id)}`, undefined, { cancel }),
+  availability: (start: string, end: string, cancel?: AbortSignal) => call<RobotAvailabilityList>('GET', `/robots/availability?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, undefined, { cancel }),
+  estimate: (p: EstimateRequest, cancel?: AbortSignal) => call<Estimate>('POST', '/estimates', p, { cancel }),
   // 배정(05 §6.4, S5b). 총괄 = 바로 ACTIVE, 운영 관리자 = PENDING + 시나리오 배정 결재. 남의 로봇 403, 없음 404, 같은 로봇·판이 ACTIVE·PENDING 이면 409 ASSIGNMENT_EXISTS, 보관 시나리오 422
   /** robot 없음 = 조직 전체(서버에 시나리오 거르기가 없어 부른 쪽이 scenario_id 로 거른다). archived = 휴지통·삭제된 시나리오의 배정 이력까지(§5.1 — scenario_id·판 null) */
   assignments: (robot: string | null, cancel?: AbortSignal, archived = false) => pages<Assignment>(`/assignments?${robot ? `robot_id=${encodeURIComponent(robot)}&` : ''}${archived ? 'archived=true' : ''}`.replace(/[?&]$/, ''), cancel),

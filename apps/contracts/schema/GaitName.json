@@ -1,0 +1,11 @@
+{
+  "$id": "fh-app/1/GaitName",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "classic",
+    "sport",
+    "start",
+    "ame2"
+  ],
+  "type": "string"
+}

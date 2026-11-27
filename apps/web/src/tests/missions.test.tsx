@@ -206,6 +206,8 @@ const btn = (t: string, from: ParentNode = box) => btns(from).find((b) => b.text
 const aria = (l: string) => $<HTMLButtonElement>(`button[aria-label="${l}"]`) ?? undefined;
 const card = (label: string) => $(`[aria-label="${label}"]`)!;
 const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
+/** 시뮬 탭은 메뉴에서 숨김(U0-01) · 주소로 연다 */
+const toSim = async () => { act(() => { location.hash = '#/sim'; }); await flush(); };
 const setVal = async (el: HTMLInputElement | HTMLSelectElement, v: string) => {
   act(() => { Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!.call(el, v); el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); });
   await flush();
@@ -478,6 +480,7 @@ describe('시나리오 휴지통(05 §5.1, 11-02)', () => {
     // 휴지통 것은 옛 주소·알림 링크(#/mission/<id>)로 열면 읽기 전용 + «복원»
     act(() => root?.unmount()); box.remove(); clearPlans();
     await open('#/mission/s2');
+    await click($('[data-edit-mission]'));   // 옛 주소 = 임무 탭에서 그 임무를 고름(W2) → «열기»
     expect($('[data-readonly]')!.textContent).toContain('휴지통에 있는 시나리오입니다.');
     await click(btn('복원'));
     expect(last(writes())).toBe('POST /trash/scenario/s2/restore');
@@ -958,7 +961,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2 · 1층 순찰 · 1층');   // 접혀도 무엇을 보는지 — 이름·층 한 줄(SCENARIO-TAB-PICKER)
     expect(point(0).closest('[hidden]')).toBeTruthy(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);   // 접기 = 숨김(unmount 아님, #235 B2)
-    await click($('nav a[href="#/fleet"]')); await click($('nav a[href="#/sim"]'));   // 다른 탭에 갔다 와도(같은 시나리오가 다시 열림) 접은 그대로
+    await click($('nav a[href="#/fleet"]')); await toSim();   // 다른 탭에 갔다 와도(같은 시나리오가 다시 열림) 접은 그대로
     expect(fold().getAttribute('aria-expanded')).toBe('false');
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('true');
@@ -1045,7 +1048,7 @@ describe('검토 반영(PR #38 B1~B6)', () => {
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions']);
     await click($('nav a[href="#/fleet"]'));
-    await click($('nav a[href="#/sim"]'));
+    await toSim();
     expect(name().value).toBe('느린 새 임무');
     expect(saveBtn().disabled).toBe(true); expect(name().closest('fieldset')!.disabled).toBe(true);
     await click(saveBtn());
@@ -1188,7 +1191,7 @@ describe('저장 안 한 편집', () => {
     await click(row('m1'));
     await setVal(name(), '쓰던 이름');
     await click($('nav a[href="#/fleet"]'));
-    await click($('nav a[href="#/sim"]'));
+    await toSim();
     expect(row('m1').textContent).toContain('저장 안 한 편집');
     expect(name().value).toBe('쓰던 이름');
     expect(text()).toContain('저장하지 않은 편집을 이어서 씁니다.');
@@ -1655,14 +1658,16 @@ describe('시뮬 시나리오', () => {
     expect(writes()).toEqual(['PUT /scenarios/s1']);   // 시뮬 탭에서 실기 지도 시나리오 편집 = 같은 저장 요청
     expect(last(sent('PUT', '/scenarios/s1'))!.body).toMatchObject({ name: '1층 순찰 고침' });
   });
-  it('RB-SCEN-SIMTAB 옛 주소 #/mission/<id> = 시뮬 탭 그 시나리오(편집), #/mission 만이면 지도 탭(시나리오 창 없음 — RB-MAP-NO-SCEN)', async () => {
+  it('옛 주소 #/mission/<id> = 임무 탭에서 그 시나리오를 고름(«편집»으로 엶), #/mission 만이면 임무 탭(W2)', async () => {
     seed(); serve(KIM);
     await open('#/mission/s1'); await settle();
-    expect(location.hash).toBe('#/sim');
+    expect(location.hash).toBe('#/missions');
+    await click($('[data-edit-mission]')); await settle();
     expect(name().value).toBe('1층 순찰');
     act(() => root?.unmount()); root = null; clearPlans();
     seed(); serve(KIM);
     await open('#/mission');
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');
     expect($('[data-plan]')).toBeNull(); expect($('[data-name]')).toBeNull();
   });
   it('RB-SCEN-SIMTAB 시뮬 탭 표시 셋: 실기만(시뮬 지형 없는 실기 지도) = «시뮬에서 실행» 막고 이유 한 줄 · 실기·시뮬(3D 지도로 만든 그 판) = 지형으로 실행 · 시뮬만(시뮬 장소)', async () => {

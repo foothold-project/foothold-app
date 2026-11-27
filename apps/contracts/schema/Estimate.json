@@ -1,0 +1,68 @@
+{
+  "$id": "fh-app/1/Estimate",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "end_battery_pct": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "End Battery Pct"
+    },
+    "estimate_source": {
+      "enum": [
+        "MEASURED",
+        "TABLE_UNMEASURED"
+      ],
+      "title": "Estimate Source",
+      "type": "string"
+    },
+    "eta": {
+      "format": "date-time",
+      "title": "Eta",
+      "type": "string"
+    },
+    "length_m": {
+      "minimum": 0,
+      "title": "Length M",
+      "type": "number"
+    },
+    "margin_s": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Margin S"
+    },
+    "task_s": {
+      "minimum": 0,
+      "title": "Task S",
+      "type": "number"
+    },
+    "walk_s": {
+      "minimum": 0,
+      "title": "Walk S",
+      "type": "number"
+    }
+  },
+  "required": [
+    "length_m",
+    "walk_s",
+    "task_s",
+    "eta",
+    "margin_s",
+    "end_battery_pct",
+    "estimate_source"
+  ],
+  "title": "Estimate",
+  "type": "object"
+}
