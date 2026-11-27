@@ -27,7 +27,7 @@ const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const tiles = () => $$('[aria-label="로봇 타일"] article');
 const tile = (id: string) => $(`article[data-robot="${id}"]`);
-const fact = (id: string, k: string) => tile(id).querySelector(`[data-fact="${k}"] b`)!.textContent;
+const fact = (id: string, k: string) => tile(id).querySelector(`[data-fact="${k}"] b`)?.textContent ?? null;   // 값이 없는 칸은 접힘 = null
 
 /** 20대: 15번 = 정지 잠금(끊김 · 빨강), 9번 = 배터리 낮음(주황) · 받은 순서로는 뒤쪽, 2번 = 시뮬, 나머지 = 이OO·박OO 번갈아 임무 중·대기 */
 const TWENTY: Robot[] = Array.from({ length: 20 }, (_, i) => ({
@@ -51,12 +51,14 @@ describe('관제 탭', () => {
     expect($$('[aria-label="최근 경고"] [data-alert]').map((e) => e.dataset.alert)).toEqual(['g9']);   // 경보 카드에 나온 맨 앞 경고는 최근 경고에서 뺀다
   });
 
-  it('값이 없으면 «미확인» · 온도·배터리·위치를 지어내지 않는다', () => {
+  it('값이 없는 칸은 칸째 접음(«미확인» 글자 반복 없음) · 온도·배터리·위치를 지어내지 않는다', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
-    expect(fact('g3', '관절 최고')).toBe('미확인');
+    expect(fact('g3', '관절 최고')).toBeNull();
+    expect(tile('g3').querySelector('[data-fact="관절 최고"]')).toBeNull();
     expect(fact('g3', '배터리')).toBe('70%');
-    expect(fact('g4', '배터리')).toBe('미확인');
-    expect(tile('g3').querySelector('[data-place]')!.textContent).toBe('위치 미확인');
+    expect(fact('g4', '배터리')).toBeNull();
+    expect(tile('g3').querySelector('[data-place]')).toBeNull();
+    expect(tiles().some((t) => t.textContent!.includes('미확인'))).toBe(false);   // 동작 보기 면에는 «미확인» 글자가 한 번도 없다
     expect(tile('g3').querySelector('[data-mission]')!.textContent).toBe('임무 없음');
     expect(tile('g5').querySelector('[data-mission]')!.textContent).toContain('할 일 1/4');
   });
@@ -67,6 +69,8 @@ describe('관제 탭', () => {
     feed(TWENTY, { g3: { robot_info: { source: 'GO2_DDS', attitude: { roll: 0, pitch: 0 }, error_code: 0, fallen: false, fallen_source: 'imu_tilt_estimate',
       temperature: { joints, battery: [], imu: null, body: [], age_s: 0.1 } }, location: { floor_id: 'f1', map_version_id: 'v1', x: 1.25, y: 2, yaw: 0, confidence: 1, updated_at: '' } } });
     expect(fact('g3', '관절 최고')).toBe('61°C');
+    act(() => { tile('g3').querySelector<HTMLElement>('[data-flip]')!.click(); });
+    expect(tile('g3').querySelector('[data-temp-badge]')!.textContent).toBe('최고 관절 온도 61°C');
     expect(tile('g3').querySelector('[data-place]')!.textContent).toBe('위치 1.3, 2.0 m');
   });
 
@@ -87,7 +91,7 @@ describe('관제 탭', () => {
     expect(tile('g3').querySelector('.ct-video')!.getAttribute('data-face')).toBe('live');
     act(() => { tile('g3').querySelector<HTMLElement>('[data-flip]')!.click(); });
     expect(tile('g3').querySelector('.ct-video')!.getAttribute('data-face')).toBe('front');
-    expect(tile('g3').querySelector('[data-temp-badge]')!.textContent).toBe('관절 온도 미확인');
+    expect(tile('g3').querySelector('[data-temp-badge]')).toBeNull();   // 관절 온도는 값이 있을 때만
     expect(tile('g3').dataset.sel).toBeUndefined();   // 뒤집기 단추는 고르기가 아님
     expect(tile('g2').querySelector('[data-flip]')).toBeNull();
     expect(tile('g2').querySelector('.ct-video')!.getAttribute('data-face')).toBe('front');
@@ -135,10 +139,10 @@ describe('관제 탭', () => {
     expect(order([a, d, c, b]).map((x) => x.id)).toEqual(['g15', 'g9', 'g3', 'g5']);
   });
 
-  it('끊긴 로봇 값은 «마지막 값 · HH:MM», 시각을 모르면 미확인', () => {
+  it('끊긴 로봇 값은 «마지막 값 · HH:MM», 시각을 모르면 칸을 접음', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect(fact('g15', '배터리')).toBe('마지막 70% · 14:05');
-    expect(fact('g15', '관절 최고')).toBe('미확인');
+    expect(fact('g15', '관절 최고')).toBeNull();
     expect(fact('g3', '배터리')).toBe('70%');   // 연결 중이면 그대로
     const gone = { ...TWENTY[15], unknown: 'link' as const };
     expect(lastly(gone, '70%', '')).toBeNull();

@@ -45,7 +45,7 @@
 .ct-head{display:flex;align-items:center;gap:6px;min-width:0;padding:2px 4px 0}
 .ct-name{padding:0;border:0;background:none;color:inherit;font:inherit;font-size:18px;cursor:pointer}
 .ct-tile[data-tone="bad"] .ct-name{color:var(--bad)}
-.ct-tag{padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font-size:11px;color:var(--muted)}
+.ct-tag{padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font-size:12px;color:var(--muted)}
 .ct-line{display:flex;align-items:center;gap:6px;min-width:0;padding:0 4px;font-size:14px}
 .ct-line>span:not(.ct-ico):not(.lbl){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ct-ico svg{display:block;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;color:var(--muted)}
@@ -54,7 +54,7 @@
 .ct-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:0 4px}
 .ct-fact{display:flex;align-items:baseline;gap:6px;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
 .ct-fact b{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ct-fact .lbl{font-size:11px;white-space:nowrap}
+.ct-fact .lbl{font-size:12px;white-space:nowrap}   /* 작은 라벨 12 px 이상(UX 평가 1128) · 색은 --muted(어두움 8.1:1 · 밝음 6.4:1 이상) */
 .ct-fact[data-last]{grid-column:1/-1}   /* 끊긴 로봇의 «마지막 값 · HH:MM» 은 한 줄 전체 */
 .ct-fact[data-tone="ok"] b{color:var(--ok)}
 .ct-fact[data-tone="bad"] b{color:var(--bad)}
