@@ -92,3 +92,5 @@
 .mt-legend i[data-kind="BATTERY_SWAP"],.mt-bar[data-kind="BATTERY_SWAP"]{background:var(--line2);color:var(--muted)}
 .mt-bar{position:absolute;top:7px;bottom:7px;z-index:1;display:flex;align-items:center;min-width:4px;padding:0 8px;overflow:hidden;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;text-overflow:ellipsis}
 .mt-bar[data-conflict]{z-index:2;outline:2px solid var(--bad);outline-offset:1px}
+.mt-seg button:disabled{opacity:.5;cursor:not-allowed}
+.mt-soon{display:block;font-size:10px;font-weight:500;color:var(--muted)}

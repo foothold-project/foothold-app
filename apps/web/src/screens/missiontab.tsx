@@ -28,12 +28,17 @@ const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 /** 오늘 HH:MM → ISO */
 const isoAt = (hm: string) => { const [h, m] = hm.split(':').map(Number), d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
 const hm = (iso: string) => { const d = new Date(iso); return `${two(d.getHours())}:${two(d.getMinutes())}`; };
-/** 처음 시작 = 지금에서 10분 단위 올림, 마감 = 30분 뒤(사용자가 바꾸는 입력의 처음 값) */
-const firstTimes = () => { const d = new Date(); d.setSeconds(0, 0); d.setMinutes(Math.ceil((d.getMinutes() + 1) / 10) * 10); const e = new Date(d.getTime() + 30 * 60_000);
-  return e.getDate() !== d.getDate() ? ['23:20', '23:50'] : [hm(d.toISOString()), hm(e.toISOString())]; };
+/** 지금 HH:MM */
+const nowHm = () => hm(new Date().toISOString());
+/** 처음 시작 = 다음 30분 칸, 마감 = 30분 뒤(사용자가 바꾸는 입력의 처음 값). 오늘 안에 칸이 없으면 23:30~23:59(지난 시각 한 줄이 막는다) */
+const firstTimes = () => { const n = new Date(), d = new Date(n); d.setSeconds(0, 0); d.setMinutes(Math.floor(n.getMinutes() / 30) * 30 + 30);
+  if (d.getDate() !== n.getDate()) return ['23:30', '23:59'];
+  const e = new Date(d.getTime() + 30 * 60_000); return [hm(d.toISOString()), e.getDate() !== d.getDate() ? '23:59' : hm(e.toISOString())]; };
 const mins = (s: number) => Math.round(s / 60);
-/** 오늘 일정 눈금(시) */
-const HOURS = Array.from({ length: 13 }, (_, i) => 8 + i);
+/** 오늘 일정 기본 눈금 08~20시. 그 밖 일정이 있으면 그 일정까지 넓힌다 */
+const DAY_FROM = 8, DAY_TO = 20;
+/** 오늘 0시부터 잰 시(0~24로 자름 · 어제 시작 · 내일 끝인 칸도 오늘 안에 그린다) */
+const hourOf = (iso: string) => { const d = new Date(iso), m = new Date(); m.setHours(0, 0, 0, 0); return Math.min(24, Math.max(0, (d.getTime() - m.getTime()) / 3_600_000)); };
 
 type P = [number, number];
 const I = (d: ReactNode) => <svg className="mt-i" viewBox="0 0 24 24" aria-hidden="true">{d}</svg>;
@@ -200,12 +205,13 @@ const Guess = ({ e }: { e: Estimate }) => (e.estimate_source === 'TABLE_UNMEASUR
 
 /** 일정 칸 상태: 시작 · 마감(오늘) · 로봇 · 걷기 모드 → 가용 · 예상 · 일정 추가 · 오늘 일정(겹침 표시) */
 function usePlan(x: Scenario | undefined, cancel?: AbortSignal) {
-  const [[start, end], setTimes] = useState(firstTimes), ok = start < end;
+  const [[start, end], setTimes] = useState(firstTimes), past = start < nowHm(), ok = start < end && !past;
   const [rid, setRid] = useState(''), [gait, setGait] = useState<Gait | ''>('');
   const [avail, setAvail] = useState<RobotAvailability[] | null>(null), [availErr, setAvailErr] = useState('');
   const [estAt, setEstAt] = useState<{ key: string; e: Estimate | null; err: string } | null>(null);
   const [slots, setSlots] = useState<ScheduleSlot[] | null>(null), [dayErr, setDayErr] = useState(''), [dn, setDn] = useState(0);
   const [clash, setClash] = useState<string[]>([]), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
+  const [made, setMade] = useState<{ key: string; id: string } | null>(null);   // 방금 넣은 칸 · 넣은 뒤 예상은 이 칸을 빼고 다시 받는다(exclude_slot_id)
   useEffect(() => {
     if (!ok) return;
     let live = true;
@@ -221,26 +227,30 @@ function usePlan(x: Scenario | undefined, cancel?: AbortSignal) {
     api.schedule(today(), zone(), cancel).then((r) => { if (live) setSlots(r.slots); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setDayErr(e.message); });
     return () => { live = false; };
   }, [dn]);
-  const key = x && rid && gait && ok ? `${x.id}:${x.number}:${rid}:${gait}:${start}` : '';
+  const base = x && rid && gait && ok ? `${x.id}:${x.number}:${rid}:${gait}:${start}:${end}` : '';
+  const skip = made && made.key === base ? made.id : null, key = base && `${base}:${skip ?? ''}`;
   useEffect(() => {
     if (!key || !x || !gait) return;
     let live = true;
-    api.estimate({ scenario_id: x.id, scenario_version: x.number, robot_id: rid, gait, start: isoAt(start) }, cancel)
+    api.estimate({ scenario_id: x.id, scenario_version: x.number, robot_id: rid, gait, start: isoAt(start), ...(skip && { exclude_slot_id: skip }) }, cancel)
       .then((e) => { if (live) setEstAt({ key, e, err: '' }); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setEstAt({ key, e: null, err: e.message }); });
     return () => { live = false; };
   }, [key]);
   const est = estAt && estAt.key === key ? estAt.e : null, estErr = estAt && estAt.key === key ? estAt.err : '';
+  // 예상 끝이 고른 마감보다 늦으면 넣지 않는다(일정 칸이 실제보다 짧아짐).
+  const late = !!est && hourOf(est.eta) * 60 > Number(end.slice(0, 2)) * 60 + Number(end.slice(3));
   const add = () => {
-    if (!x || !rid || !gait || !ok) return;
+    if (!x || !rid || !gait || !ok || late) return;
     setBusy(true); setMsg(null);
+    const at = base;
     api.addSlot({ robot_id: rid, scenario_id: x.id, scenario_version: x.number, gait, start: isoAt(start), end: isoAt(end), kind: 'CONFIRMED' }, crypto.randomUUID(), cancel)
-      .then(() => { setBusy(false); setClash([]); setMsg({ text: `일정에 넣었습니다 (${start}~${end}).`, ok: true }); setDn((k) => k + 1); },
+      .then((r) => { setBusy(false); setClash([]); setMade({ key: at, id: r.id }); setMsg({ text: `일정에 넣었습니다 (${start}~${end}).`, ok: true }); setDn((k) => k + 1); },
         (e: ApiFail) => { if (e.code === 'CANCELED') return; setBusy(false);
           if (e.code === 'SCHEDULE_CONFLICT') { const ids = Array.isArray(e.detail?.slot_ids) ? (e.detail!.slot_ids as unknown[]).filter((v): v is string => typeof v === 'string') : [];
             setClash(ids); setMsg({ text: '같은 로봇의 다른 일정과 겹칩니다. 오늘 일정에 표시한 막대를 피해 시각이나 로봇을 바꾸세요.' }); setDn((k) => k + 1); }
           else setMsg({ text: `일정에 넣지 못했습니다. ${e.message}` }); });
   };
-  return { start, end, ok, setStart: (v: string) => setTimes([v, end]), setEnd: (v: string) => setTimes([start, v]), rid, setRid, gait, setGait,
+  return { start, end, ok, past, late, setStart: (v: string) => setTimes([v, end]), setEnd: (v: string) => setTimes([start, v]), rid, setRid, gait, setGait,
     avail, availErr, est, estErr, slots, dayErr, clash, msg, busy, add, again: () => setDn((k) => k + 1) };
 }
 type Plan = ReturnType<typeof usePlan>;
@@ -253,7 +263,7 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
     const r = robots.find((y) => y.id === a.robot_id);   // 연결 전 / 끊김은 관제 칩과 같은 판정(robotStatus)
     return r && !r.online ? robotStatus(r).text : STATE.OFFLINE;
   };
-  const can = !!x && !x.archived_at && !!p.rid && !!p.gait && p.ok && !p.busy;
+  const can = !!x && !x.archived_at && !!p.rid && !!p.gait && p.ok && !p.late && !p.busy;
   const e = p.est;
   return <aside className="mt-card mt-side" aria-label="일정에 추가">
     <p className="lbl">일정에 추가</p>
@@ -262,7 +272,8 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
       <label className="mt-box"><span className="lbl">시작</span><input className="mt-time" type="time" step={600} data-start value={p.start} onChange={(ev) => ev.target.value && p.setStart(ev.target.value)} /></label>
       <label className="mt-box"><span className="lbl">마감</span><input className="mt-time" type="time" step={600} data-end value={p.end} onChange={(ev) => ev.target.value && p.setEnd(ev.target.value)} /></label>
     </div>
-    {!p.ok && <p className="fh-msg" role="alert">마감은 시작보다 뒤여야 합니다.</p>}
+    {p.past ? <p className="fh-msg" role="alert" data-past>지난 시각은 고를 수 없습니다. 지금({nowHm()}) 뒤로 시작을 고르세요.</p>
+      : !p.ok && <p className="fh-msg" role="alert">마감은 시작보다 뒤여야 합니다.</p>}
     <h3>이 시간에 쓸 수 있는 로봇</h3>
     {p.avail && !!p.avail.length && <ul className="mt-robots" aria-label="로봇">{p.avail.map((a) => { const free = a.state === 'FREE' || a.state === 'CHARGING';
       return <li key={a.robot_id}><button type="button" aria-pressed={p.rid === a.robot_id} data-robot={a.robot_id} data-state={a.state} disabled={!free} onClick={() => p.setRid(p.rid === a.robot_id ? '' : a.robot_id)}>
@@ -272,13 +283,17 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
     {!p.avail && !p.availErr && p.ok && <p className="lv-note" role="status">로봇 일정을 불러오는 중…</p>}
     {p.availErr && <div className="fh-row"><p className="fh-msg" role="alert">로봇 일정을 받지 못했습니다. {p.availErr}</p><button type="button" className="btn" onClick={p.again}>다시 시도</button></div>}
     <h3>걷기 모드</h3>
-    <div className="mt-seg" role="group" aria-label="걷기 모드">{MODES.map(([t, g]) => <button key={g} type="button" aria-pressed={p.gait === g} data-mode={t} onClick={() => p.setGait(p.gait === g ? '' : g)}>{t}</button>)}</div>
+    {/* AME-2 는 서버가 확정 일정을 거절한다(GAIT_NOT_READY) · 흐리게 «준비 중» */}
+    <div className="mt-seg" role="group" aria-label="걷기 모드">{MODES.map(([t, g]) => g === 'ame2'
+      ? <button key={g} type="button" disabled data-mode={t} title="AME-2 는 아직 일정에 넣을 수 없습니다">{t}<small className="mt-soon">준비 중</small></button>
+      : <button key={g} type="button" aria-pressed={p.gait === g} data-mode={t} onClick={() => p.setGait(p.gait === g ? '' : g)}>{t}</button>)}</div>
     <p className="lv-note">예상과 일정에만 씁니다. 로봇에 보내지 않습니다.</p>
     <dl className="mt-est" aria-label="예상">
       <div><dt>예상 끝</dt><dd><b data-est="eta">{e ? hm(e.eta) : '—'}</b>{e && <Guess e={e} />}</dd></div>
       <div><dt>여유</dt><dd><b data-est="margin" className={e?.margin_s != null && e.margin_s < 0 ? 'mt-bad' : undefined}>{!e ? '—' : e.margin_s == null ? '마감 없음' : e.margin_s < 0 ? '겹침' : `${mins(e.margin_s)}분`}</b>{e && e.margin_s != null && e.margin_s >= 0 && <Guess e={e} />}</dd></div>
       <div><dt>종료 시 배터리</dt><dd><b data-est="battery">{e && e.end_battery_pct != null ? `${Math.round(e.end_battery_pct)}%` : '—'}</b>{e && e.end_battery_pct != null && <Guess e={e} />}</dd></div>
     </dl>
+    {p.late && e && <p className="fh-msg mt-bad" role="alert" data-late>마감 넘음 · 예상 끝 {hm(e.eta)}</p>}
     {!e && <p className="lv-note" data-est-why>{p.estErr ? `예상을 받지 못했습니다. ${p.estErr}` : x ? '로봇과 걷기 모드를 고르면 예상이 나옵니다.' : '임무를 고르세요.'}</p>}
     <div className="mt-acts">
       <button type="button" className="btn" disabled aria-describedby="mt-why-run" data-rehearse>{ICON.play}모의 실행</button>
@@ -294,18 +309,20 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
 function Day({ robots, p, names }: { robots: Robot[]; p: Plan; names: (id: string) => string | undefined }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 60_000); return () => clearInterval(t); }, []);
-  const span = HOURS[HOURS.length - 1] - HOURS[0], pos = (d: Date) => (d.getHours() + d.getMinutes() / 60 - HOURS[0]) / span;
-  const at = pos(now), slots = p.slots ?? [];
+  const slots = p.slots ?? [];
+  // 눈금 = 08~20, 그 밖 일정이 있으면 그 일정까지(«일정 N건» = 그린 막대 수)
+  const lo = Math.floor(Math.min(DAY_FROM, ...slots.map((x) => hourOf(x.start)))), hi = Math.ceil(Math.max(DAY_TO, ...slots.map((x) => hourOf(x.end))));
+  const HOURS = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i), span = hi - lo;
+  const pos = (iso: string) => (hourOf(iso) - lo) / span, at = pos(now.toISOString());
   // 줄 = 받은 로봇 + 일정에만 있는 로봇(가용 목록의 이름)
   const rows = [...robots.map((r) => ({ id: r.id, name: r.name })), ...[...new Set(slots.map((x) => x.robot_id))].filter((id) => !robots.some((r) => r.id === id))
     .map((id) => ({ id, name: p.avail?.find((a) => a.robot_id === id)?.robot_name ?? '다른 로봇' }))];
-  const bar = (x: ScheduleSlot) => { const a = Math.max(0, pos(new Date(x.start))), b = Math.min(1, pos(new Date(x.end)));
-    if (b <= 0 || a >= 1 || b <= a) return null;
+  const bar = (x: ScheduleSlot) => { const a = pos(x.start), b = Math.max(a, pos(x.end));
     const label = x.kind === 'BATTERY_SWAP' ? KIND.BATTERY_SWAP : (x.scenario_id && names(x.scenario_id)) || '임무';
     return <span key={x.id} className="mt-bar" data-slot={x.id} data-kind={x.kind} data-conflict={p.clash.includes(x.id) || undefined}
       style={{ left: `${a * 100}%`, width: `${(b - a) * 100}%` }} title={`${label} · ${hm(x.start)}~${hm(x.end)} · ${KIND[x.kind]}`}>{label}</span>; };
   return <section className="mt-card mt-day" aria-label="오늘 일정">
-    <div className="mt-head"><h2>오늘 일정</h2><span className="lbl">로봇 {rows.length}대 · 일정 {slots.length}건</span><span className="fh-grow" />
+    <div className="mt-head"><h2>오늘 일정</h2><span className="lbl">로봇 {rows.length}대 · <span data-day-count>일정 {slots.length}건</span></span><span className="fh-grow" />
       <span className="mt-legend" data-legend>{(Object.keys(KIND) as ScheduleSlot['kind'][]).map((k) => <span key={k}><i data-kind={k} aria-hidden="true" />{KIND[k]}</span>)}</span></div>
     <div className="mt-grid">
       <div className="mt-axis" aria-hidden="true"><span /><div className="mt-track">{HOURS.map((x, i) => <span key={x} style={{ left: `${(i / (HOURS.length - 1)) * 100}%` }}>{two(x)}</span>)}</div></div>

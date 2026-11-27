@@ -1,7 +1,7 @@
 // 임무 탭(W2 · U6-01 · U6-03 · U6-05): 탭 열림 · 옛 주소 → 임무 탭에서 그 임무 고름 · 계약 없는 칸은 «준비 중»(숫자 없음) · 금지 구역 겹침 · 미리 확인 · 편집(목록 ↔ 노드) · 편집 중 떠날 때 확인
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Estimate, MapVersion, Mission, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
 import { App } from '../App';
 import { leaving, oldScenario, tabFromHash } from '../menu';
@@ -98,6 +98,9 @@ const picked = () => $$('[data-mission][aria-pressed="true"]').map((b) => b.data
 const click = async (e: Element | null) => { expect(e).toBeTruthy(); act(() => (e as HTMLElement).click()); await flush(); };
 
 describe('임무 탭(W2)', () => {
+  // 시계: 오늘 08:05(지난 시각 · 처음 값 판정이 돌리는 때에 따라 바뀌지 않게). 타이머는 진짜 그대로
+  beforeEach(() => { const d = new Date(); d.setHours(8, 5, 0, 0); vi.useFakeTimers({ toFake: ['Date'], now: d }); });
+  afterEach(() => { vi.useRealTimers(); });
   it('주소 · 메뉴: #/missions 와 옛 #/mission 은 임무 탭, oldScenario 는 고를 id', () => {
     expect(tabFromHash('#/missions', false)).toBe('missions');
     expect(tabFromHash('#/mission', false)).toBe('missions');
@@ -211,6 +214,7 @@ describe('임무 탭(W2)', () => {
     expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);   // 로봇 · 걷기 모드 전
     expect($<HTMLButtonElement>('[data-rehearse]')!.disabled).toBe(true);
     await setTime('end', '11:00'); await setTime('start', '10:30');
+    srv.est = { ...EST, eta: at(10, 57) };
     await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
     srv.conflict = ['sl1'];
     await click($('[data-schedule-add]'));
@@ -225,6 +229,43 @@ describe('임무 탭(W2)', () => {
     expect($('[data-slot="new1"]')).toBeTruthy();
     expect($('[data-slot="sl1"]')!.dataset.conflict).toBeUndefined();
     expect($('[data-add-msg]')!.textContent).toContain('일정에 넣었습니다');
+    // 넣은 뒤 예상을 다시 받는다 · 방금 넣은 칸은 빼고(자기 칸과 겹침으로 나오지 않게)
+    expect(last(calls.filter((c) => c.path === '/estimates'))!.body).toMatchObject({ robot_id: 'r1', gait: 'start', exclude_slot_id: 'new1' });
+  });
+
+  it('마감 넘음: 예상 끝이 고른 마감보다 늦으면 빨간 한 줄 «마감 넘음 · 예상 끝 HH:MM» + 일정에 추가 막음, 안이면 풀림', async () => {
+    await mount('#/missions');
+    await setTime('end', '10:30'); await setTime('start', '10:00');
+    srv.est = { ...EST, eta: at(10, 50), margin_s: null };
+    await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
+    expect($('[data-late]')!.textContent).toBe('마감 넘음 · 예상 끝 10:50');
+    expect($('[data-late]')!.className).toContain('mt-bad');
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);
+    srv.est = { ...EST, eta: at(10, 25), margin_s: null };
+    await click($('[data-mode="Classic"]'));
+    expect($('[data-late]')).toBeNull();
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(false);
+  });
+
+  it('지난 시각: 처음 값은 다음 30분 칸, 지금보다 이른 시작은 한 줄 + 일정에 추가 막음', async () => {
+    await mount('#/missions');
+    expect($<HTMLInputElement>('[data-start]')!.value).toBe('08:30');
+    expect($<HTMLInputElement>('[data-end]')!.value).toBe('09:00');
+    await setTime('start', '07:00');
+    srv.est = { ...EST, eta: at(7, 27) };
+    await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
+    expect($('[data-past]')!.textContent).toContain('지난 시각');
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);
+    await setTime('start', '08:30');
+    expect($('[data-past]')).toBeNull();
+  });
+
+  it('AME-2 는 확정 일정에 못 넣어(서버 GAIT_NOT_READY) 흐리게 «준비 중», 고를 수 없음', async () => {
+    await mount('#/missions');
+    const b = $<HTMLButtonElement>('[data-mode="AME-2"]')!;
+    expect(b.disabled).toBe(true);
+    expect(b.textContent).toContain('준비 중');
+    for (const t of ['Classic', 'Sport', 'START']) expect($<HTMLButtonElement>(`[data-mode="${t}"]`)!.disabled).toBe(false);
   });
 
   it('오늘 일정(GET /schedule?day=&tz=): 로봇 줄마다 막대 · kind 별 모양 · 범례 한 줄 · 막대 이름은 임무 이름(배터리 교체는 그 말)', async () => {
@@ -240,6 +281,17 @@ describe('임무 탭(W2)', () => {
     expect(bar('sl1').textContent).toBe('가스 점검'); expect(bar('sl3').textContent).toBe('배터리 교체');
     expect(parseFloat(bar('sl1').style.left)).toBeCloseTo((1 / 12) * 100, 1);   // 09:00 = 08~20 눈금의 1/12
     expect($('[data-legend]')!.textContent).toBe('확정작성 중배터리 교체');
+  });
+
+  it('오늘 일정 칸 밖: 08~20 밖 일정이 있으면 눈금을 그 일정까지 넓혀 «일정 N건» 과 그린 막대 수가 같다', async () => {
+    fresh();
+    srv.slots = [...srv.slots, slot('late', 'r1', 'CONFIRMED', 21, 0, 21, 40), slot('early', 'r2', 'DRAFT', 6, 30, 7, 0)];
+    await mount('#/missions');
+    expect($('[data-day-count]')!.textContent).toBe('일정 5건');
+    expect($$('[data-slot]').length).toBe(5);
+    for (const b of $$('[data-slot]')) { const l = parseFloat(b.style.left), w = parseFloat(b.style.width); expect(l).toBeGreaterThanOrEqual(0); expect(l + w).toBeLessThanOrEqual(100.001); }
+    const ticks = $$('.mt-axis .mt-track span').map((x) => x.textContent);
+    expect(ticks[0]).toBe('06'); expect(last(ticks)).toBe('22');
   });
 
   it('지도: 경로 · 지점 번호 · 금지 구역 겹침(같은 구역 칸 판정) · 길이 · 미리 확인 한 줄, 지도 위 글자 둘까지', async () => {
