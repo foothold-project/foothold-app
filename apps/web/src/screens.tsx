@@ -84,7 +84,7 @@ export function EmptyFleet({ user, cancel, dash, robots, refresh }: { user: User
   if (user.role !== 'ORG_ADMIN') return <Pair user={user} mine={[]} refresh={refresh} cancel={cancel}>
     {(add) => <Empty kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.">{add}</Empty>}</Pair>;
   return <><Kpi user={user} d={d} err={err} />
-    <Empty kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></Empty>
+    <Empty kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></Empty>
     <MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
 

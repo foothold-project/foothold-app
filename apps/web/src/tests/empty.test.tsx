@@ -63,6 +63,7 @@ describe('로봇 0대', () => {
     const r = empty('robots');
     expect(r.title).toBe('등록된 로봇이 없습니다');
     expect(r.acts).toEqual(['시뮬 탭 열기']);
+    expect(r.why).toBe('운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다.');   // 메뉴에 없는 «시뮬» 탭을 가리키지 않음(#542 U0-01 · #559 N2)
     expect(($('[data-empty="robots"] a') as HTMLAnchorElement).getAttribute('href')).toBe('#/sim');
   });
   it('운영자: 아이콘 · 한 줄 까닭 · 다음 할 일은 «+ 새 로봇 추가» 하나(칸 안에 다른 단추 없음)', async () => {
