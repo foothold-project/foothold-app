@@ -1905,9 +1905,17 @@ class MappingBundleLink(Contract):
 class MapVersion(Contract):
     slam_bundle: MappingBundleLink | None = Field(default=None, exclude_if=lambda value: value is None)
     voxel_map: VoxelMapSummary | None = Field(default=None, exclude_if=lambda value: value is None)
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle', 'model_sha256', 'model_floor_z'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
+    # One indoor 3D model (GLB) of this version's floor, served by GET .../model
+    # with ETag = this hex sha256. null: no 3D, clients show the 2D map only.
+    # glTF (x,y,z) -> world (x,-z,y); world (x,y,z) is glTF (x,z,-y). Metres,
+    # map world origin. See contracts README.
+    model_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    # World z (m) of this floor's top face for placing markers on the model;
+    # null exactly when model_sha256 is null.
+    model_floor_z: float | None = None
     upload_id: UUID
     id: UUID
     floor_id: UUID
