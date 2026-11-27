@@ -121,7 +121,7 @@ export function SimPick({ make }: { make?: boolean }) {
   };
   const [x0, y0, x1, y1] = meta?.bounds ?? [0, 0, 1, 1], k = Math.max(x1 - x0, y1 - y0) * 0.016;
   const acts = <>
-    <button type="button" className="btn" disabled={!start} onClick={reset} data-sim-home>기본 위치로</button>
+    <button type="button" className="btn" disabled={!start} aria-describedby={start ? undefined : 'sim-start-note'} onClick={reset} data-sim-home>기본 위치로</button>
     {make && <a className="btn" href="#/terrain" style={{ textDecoration: 'none', color: 'var(--text)' }} data-terrain-enter>지형 만들기</a>}
     <a className="btn pri dv-grow" href={openUrl(map.id, floors.length > 1 ? floor.id : '', start)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
   </>;
@@ -134,7 +134,7 @@ export function SimPick({ make }: { make?: boolean }) {
       {home && <Mark x={home[0]} y={home[1]} yaw={home[2]} k={k} />}
       {start && <Mark x={start[0]} y={start[1]} yaw={home?.[2] ?? 0} k={k} pick />}
     </svg>}
-    <p className="lv-note" data-sim-start>{start ? `시작 위치: 고른 곳 (x ${start[0].toFixed(2)} m, y ${start[1].toFixed(2)} m) · 흰 고리 = 기본 시작 지점` : '시작 위치: 기본 시작 지점(흰 고리) · 지도를 눌러 바꿀 수 있습니다'}</p>
+    <p className="lv-note" id="sim-start-note" data-sim-start>{start ? `시작 위치: 고른 곳 (x ${start[0].toFixed(2)} m, y ${start[1].toFixed(2)} m) · 흰 고리 = 기본 시작 지점` : '시작 위치: 기본 시작 지점(흰 고리) · 지도를 눌러 바꿀 수 있습니다'}</p>
     {why && <p className="fh-why" role="status" data-sim-why>{why}</p>}
     <div className="fh-row">{acts}</div>
     {old > 0 && <p className="lv-note" data-old-bt>이 브라우저에만 있는 옛 임무 {old}개</p>}

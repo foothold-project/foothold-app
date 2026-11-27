@@ -279,7 +279,8 @@ export function Terrain() {
       <Menu label="내 지형" title="조직의 서버 지형과 이 브라우저의 임시본">
         <button type="button" className="btn" data-terrain-new onClick={(e) => { open(blank()); shut(e); }}>+ 새 지형</button>
         <p className="lv-note">서버 지형 · 저장할 때마다 위에서 본 지도도 만듭니다.</p>
-        <button type="button" className="btn" disabled={busy} onClick={() => serverTask(async () => {
+        {busy && <p className="lv-note" role="status" id="tr-busy" data-terrain-busy>서버와 주고받는 중… 끝나면 단추가 다시 켜집니다.</p>}
+        <button type="button" className="btn" disabled={busy} aria-describedby={busy ? 'tr-busy' : undefined} onClick={() => serverTask(async () => {
           const [rows, me] = await Promise.all([api.terrains(cancel.current?.signal), api.me(cancel.current?.signal)]);
           if (cancel.current?.signal.aborted) return;
           acceptRows(rows); setAdmin(me.role === 'ORG_ADMIN');
@@ -324,7 +325,7 @@ export function Terrain() {
       <button type="button" className="btn" data-terrain-save disabled={!admin || !ready || busy || !!errors.length || !!server?.archived_at} title={admin ? '지형과 위에서 본 지도를 서버에 저장합니다' : '총괄 계정만 서버에 저장할 수 있습니다'} aria-describedby={onlyAdmin ? 'tr-admin-note' : saveWhy ? 'tr-save-why' : undefined} onClick={() => storeServer(spec)}>{busy ? '저장 중…' : '저장'}</button>
       {saveWhy && !onlyAdmin && <span className="lbl" id="tr-save-why" data-terrain-save-why>{saveWhy}</span>}
       {!synced && (conflict || (!!server && !bases.current[spec.id])) && <button type="button" className="btn" disabled={!admin || busy || !!errors.length} onClick={() => { const copy = { ...spec, id: newId() }; open(copy); save(copy); void storeServer(copy); }}>새 지형으로 저장</button>}
-      <span className="mx-tag" data-terrain-count>{errors.length ? `오류 ${errors.length}` : '오류 없음'}{warnings.length ? ` · 경고 ${warnings.length}` : ''}</span>
+      {(errors.length > 0 || warnings.length > 0) && <span className="mx-tag" data-terrain-count>{[errors.length && `오류 ${errors.length}`, warnings.length && `경고 ${warnings.length}`].filter(Boolean).join(' · ')}</span>}
       {errors.length
         ? <button type="button" className="btn pri" disabled title="오류를 고쳐야 열 수 있습니다" data-terrain-open>시뮬로 열기</button>
         : <a className="btn pri" href={terrainUrl(spec.id)} data-terrain-open onClick={(e) => { if (!save(spec, bases.current[spec.id])) { e.preventDefault(); setFailed(true); }
