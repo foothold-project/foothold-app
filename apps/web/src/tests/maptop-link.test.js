@@ -19,7 +19,7 @@ describe('연결 대조', () => {
       found.set(key, id);
       const top = JSON.parse(read(`mobile/sim/assets/${id}/top.json`).toString());
       const floor = top.floors?.find((f) => f.image_sha256 === sha(png));
-      if (key.startsWith('factory_zone/')) expect(floor?.id).toBe(key.split('/')[1]);
+      if (key.startsWith('factory_zone/') || key.startsWith('plant_a/')) expect(floor?.id).toBe(key.split('/')[1]);
       const map = JSON.parse(read(`mobile/sim/assets/${id}/${floor ? floor.map_file : 'map.json'}`).toString());
       const plate = floor ? floor.map : top.map;
       expect(topOf({ provenance: 'SIMULATION', image_sha256: sha(png), origin: map.origin, resolution: map.res, width: map.w, height: map.h })?.href).toContain(`/mobile/sim/assets/${id}/${floor ? floor.top : 'top.png'}`);
@@ -31,7 +31,8 @@ describe('연결 대조', () => {
       expect(pngSize(read(`mobile/sim/assets/${id}/${floor ? floor.top : 'top.png'}`))).toEqual([Math.round((x1 - x0) * 24), Math.round((y1 - y0) * 24)]);
     }
     expect(Object.fromEntries(found)).toEqual({ 'warehouse/f1': 'warehouse', 'factory_inspection/f1': 'factory-inspection', 'factory_inspection_alt1/f1': 'factory-inspection-alt1',
-      'factory_zone/f1': 'factory-zone', 'factory_zone/f2': 'factory-zone', 'element_course/f1': 'element-course', 'collapsed_house_v2/f1': 'collapsed-house-v2' });
+      'factory_zone/f1': 'factory-zone', 'factory_zone/f2': 'factory-zone', 'element_course/f1': 'element-course', 'collapsed_house_v2/f1': 'collapsed-house-v2',
+      'plant_a/l1': 'plant-a', 'plant_a/l2': 'plant-a', 'plant_a/l3': 'plant-a' });
 
   });
   it('공장은 한 지도이며 층별 판·사진·시나리오를 보존한다', () => {
@@ -56,8 +57,28 @@ describe('연결 대조', () => {
       expect(pngSize(read(dir + f.top))).toEqual(top.px);
     }
     expect(pngSize(read(dir + 'top.png'))).toEqual(top.px);
-    for (const { id } of maps.filter((m) => m.id !== 'factory-zone')) {
+    for (const { id } of maps.filter((m) => m.id !== 'factory-zone' && m.id !== 'plant-a')) {
       expect(JSON.parse(read(`mobile/sim/assets/${id}/top.json`).toString()).floors).toBeUndefined();
+    }
+  });
+  it('공정동 A 는 한 지도이며 세 층(l1~l3) 판·사진·시나리오를 층마다 잇는다', () => {
+    const maps = JSON.parse(read('mobile/sim/maps.json').toString());
+    expect(maps.filter((m) => m.id.startsWith('plant-a')).map((m) => m.id)).toEqual(['plant-a']);
+    const dir = 'mobile/sim/assets/plant-a/', top = JSON.parse(read(dir + 'top.json').toString());
+    expect(top.floors.map((f) => [f.id, f.name, f.top])).toEqual([['l1', '1층', 'top-l1.png'], ['l2', '2층', 'top-l2.png'], ['l3', '3층', 'top-l3.png']]);
+    const meta = JSON.parse(read('apps/simmgr/worlds/plant_a/maps/metadata.json').toString());
+    for (const f of top.floors) {
+      const png = read(`apps/simmgr/worlds/plant_a/maps/${f.id}.png`), map = JSON.parse(read(dir + f.map_file).toString());
+      expect(sha(png)).toBe(f.image_sha256);
+      expect(SIM_TOP.get(f.image_sha256)).toBe('plant-a');
+      expect(JSON.stringify(meta)).toContain(f.image_sha256);
+      expect(topOf({ provenance: 'SIMULATION', image_sha256: f.image_sha256, origin: map.origin, resolution: map.res, width: map.w, height: map.h })?.href).toContain(`/mobile/sim/assets/plant-a/${f.top}`);
+      expect(map.floor_id).toBe(f.id); expect(map.floor_z).toBe(f.floor_z);
+      expect(Buffer.from(map.px, 'base64').length).toBe(f.map.w * f.map.h);
+      const scenarios = JSON.parse(read(dir + f.scenarios_file).toString());
+      expect(scenarios.length).toBeGreaterThan(0);
+      expect(scenarios.every((s) => s.floor_id === f.id)).toBe(true);
+      expect(pngSize(read(dir + f.top))).toEqual(top.px);
     }
   });
 
