@@ -86,7 +86,7 @@ export function EmptyFleet({ user, cancel, dash, robots, refresh }: { user: User
     <MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
 
-/** PC 웹 운영 관리자의 «새 로봇 추가»(폰과 같은 화면 — pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄은 실기를 연결하지 않아 없음
+/** PC 웹 운영 관리자의 «새 로봇 추가»(폰과 같은 화면 · pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄은 실기를 연결하지 않아 없음
  *  children 이 함수면 «+ 새 로봇 추가» 단추를 받아 그 칸 안에 둔다(빈 화면의 다음 할 일 하나) */
 export function Pair({ user, mine, refresh, cancel, children }: { user: User; mine: string[]; refresh: () => void; cancel?: AbortSignal; children: ReactNode | ((add: ReactNode) => ReactNode) }) {
   const [on, setOn] = useState(false), fn = typeof children === 'function';
