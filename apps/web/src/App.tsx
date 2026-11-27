@@ -181,6 +181,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const cantPick = ctl && ctlSel && !ctlPick ? pool.find((r) => r.id === ctlSel) : undefined;
   // 후속 1: 화면의 실기 중 이 계정이 못 세우는 것(총괄 = 실기 STOP 없음, 10-25). 있으면 라벨을 실제 대상대로 · 그 수를 한 줄로. 0 대면 줄 없음
   const realOff = ctl ? pool.filter((r) => !r.sim && !mayStop(r) && (r.online || lost(r) || r.unknown === 'link' || r.unknown === 'wait')) : [];
+  // t21 · 07:09: 연결 전 로봇(상태 보고 0 · 마지막 상태 없음, 구독 밖 요약 로봇은 아님)은 모두 정지 수에 넣지 않고 그 수만 한 줄로. 총괄도 같음
+  const pre = ctl ? pool.filter((r) => !r.online && !r.unknown && !lost(r)) : [];
   const simOnly = !!realOff.length && every.every((r) => r.sim), allName = simOnly ? '내 시뮬 모두 정지' : realOff.length ? '멈출 수 있는 로봇 모두 정지' : '모두 정지';
   // 떠 있거나 띄우는 중인 내 시뮬(sim.live())이 있으면 STOP·Space 는 그 슬롯으로 — 폰 조종 화면, PC 로봇 탭에서 고른 정지 가능한 로봇은 예외(그 로봇)
   const toSim = !open && !!sim.live() && (ctl ? !target && !stops.length : phone || !target || !canStop);   // 관제는 고르기(D1) · 정지 가능 로봇이 하나도 없을 때만 시뮬로 바로
@@ -321,6 +323,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <button type="button" className="fh-stop" disabled={!choose} ref={pickBtn} {...pickPress} {...pickKeys}>정지</button>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
       {!!realOff.length && <span style={LINE} data-cant-real>실기 로봇 {realOff.length} 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요</span>}
+      {choose === ALL && !!pre.length && <span style={LINE} data-stop-pre>연결 전 로봇 {pre.length} 대 · 정지를 보낼 수 없음</span>}
       {choose === ALL && cut.map((r) => <span key={r.id} style={LINE} data-stop-lost={r.id}>▲ {lostStop(r)}</span>)}
       {choose === ALL && unsure.map((r) => <span key={r.id} style={LINE} data-stop-unsure={r.id}>▲ {unsureStop(r)}</span>)}
     </div> : <div className="fh-pick" role="alertdialog" aria-label="멈출 로봇 없음" data-no-stop>
