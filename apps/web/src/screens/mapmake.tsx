@@ -216,6 +216,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
     {rej && <p className="lv-note" data-rejected>로봇이 보낸 자료 일부를 서버가 받지 않았습니다: {rej.reason}</p>}
     {isStale && !msg && p?.status !== 'FAILED' && <p className="fh-msg" role="alert">{STALE_TEXT}</p>}
     <Note m={msg} />
+    {busy && <p className="lv-note" role="status" data-make-busy>요청을 보내는 중… 답이 오면 단추가 다시 켜집니다.</p>}
     {poll && <p className="fh-msg" role="alert">{poll}</p>}
   </div>;
 }
