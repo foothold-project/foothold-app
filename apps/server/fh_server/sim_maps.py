@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import struct
 from pathlib import Path
 from uuid import UUID, uuid5
 
@@ -122,6 +123,100 @@ def local_file(root, path):
     return result
 
 
+MAX_MODEL = 64 * 1024 * 1024
+
+
+def load_model(root, entry, metadata, width, height):
+    """Optional per-floor GLB: declared path + sha256.model, checked before DB writes.
+
+    Returns (bytes, None) to attach, (None, None) when nothing is declared or the
+    file is absent (GLBs are not committed), or (None, reason) when a present
+    file fails a check: the floor then stays 2D only and the sync records why.
+    A malformed declaration or a path outside the catalogue fails the sync.
+    """
+    name = entry.get('model')
+    if name is None:
+        return None, None
+    digest = entry.get('sha256', {}).get('model')
+    if not isinstance(name, str) or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+        raise ValueError('World model needs a path and lowercase hex sha256.model')
+    try:
+        path = local_file(root, name)
+    except FileNotFoundError:
+        return None, None
+    if not path.is_file() or path.stat().st_size > MAX_MODEL:
+        return None, 'not a file or larger than 64 MiB'
+    data = path.read_bytes()
+    if sha256(data).hex() != digest:
+        return None, 'sha256 differs from worlds.json'
+    try:
+        check_model_frame(data, entry['floor_id'], entry['floor_z'], metadata, width, height)
+    except (ValueError, KeyError, IndexError, TypeError, struct.error, json.JSONDecodeError) as error:
+        return None, str(error) or type(error).__name__
+    return data, None
+
+
+def check_model_frame(data, floor_id, floor_z, metadata, width, height):
+    """The `<floor>_floor` node, glTF Y-up mapped to world (x, -z, y), lies in the map
+    and its top face is the catalogue floor_z (within 1 cm).
+
+    Uses only the GLB JSON chunk (node transforms + POSITION accessor min/max),
+    so a flipped y sign lands outside the asymmetric map extent and is refused.
+    """
+    if data[:4] != b'glTF' or struct.unpack_from('<I', data, 4)[0] != 2:
+        raise ValueError('not a glTF 2 binary')
+    length, kind = struct.unpack_from('<II', data, 12)
+    if kind != 0x4E4F534A:
+        raise ValueError('first GLB chunk is not JSON')
+    gltf = json.loads(data[20:20 + length])
+    nodes = gltf['nodes']
+    found = [i for i, node in enumerate(nodes) if node.get('name') == floor_id + '_floor']
+    if len(found) != 1 or 'mesh' not in nodes[found[0]]:
+        raise ValueError(f'needs exactly one mesh node {floor_id}_floor')
+    parent = {child: i for i, node in enumerate(nodes) for child in node.get('children', [])}
+    matrix, index, depth = node_matrix(nodes[found[0]]), found[0], 0
+    while index in parent and depth < len(nodes):
+        index, depth = parent[index], depth + 1
+        matrix = multiply(node_matrix(nodes[index]), matrix)
+    low, high = [], []
+    for primitive in gltf['meshes'][nodes[found[0]]['mesh']]['primitives']:
+        accessor = gltf['accessors'][primitive['attributes']['POSITION']]
+        low.append(accessor['min']); high.append(accessor['max'])
+    lo = [min(v[k] for v in low) for k in range(3)]
+    hi = [max(v[k] for v in high) for k in range(3)]
+    corners = [(a, b, c) for a in (lo[0], hi[0]) for b in (lo[1], hi[1]) for c in (lo[2], hi[2])]
+    ox, oy, yaw = metadata['origin']
+    resolution = metadata['resolution']
+    eps, top = 1e-6, -math.inf
+    for corner in corners:
+        gx, gy, gz = (sum(matrix[r][c] * v for c, v in enumerate((*corner, 1.0))) for r in range(3))
+        top = max(top, gy)
+        wx, wy = gx - ox, -gz - oy  # glTF (x, y, z) -> world (x, -z, y), then map frame
+        mx, my = math.cos(yaw) * wx + math.sin(yaw) * wy, -math.sin(yaw) * wx + math.cos(yaw) * wy
+        if not (-eps <= mx <= width * resolution + eps and -eps <= my <= height * resolution + eps):
+            raise ValueError(f'{floor_id}_floor lies outside the map extent (check the y sign)')
+    if not abs(top - floor_z) <= .01:
+        raise ValueError(f'{floor_id}_floor top {top:.4f} m differs from floor_z {floor_z} m')
+
+
+def node_matrix(node):
+    if 'matrix' in node:
+        m = [float(v) for v in node['matrix']]
+        return [[m[c * 4 + r] for c in range(4)] for r in range(4)]  # column-major
+    tx, ty, tz = node.get('translation', (0, 0, 0))
+    x, y, z, w = node.get('rotation', (0, 0, 0, 1))
+    sx, sy, sz = node.get('scale', (1, 1, 1))
+    rotation = [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]]
+    return [[rotation[r][0] * sx, rotation[r][1] * sy, rotation[r][2] * sz, t]
+            for r, t in enumerate((tx, ty, tz))] + [[0, 0, 0, 1]]
+
+
+def multiply(a, b):
+    return [[sum(a[r][k] * b[k][c] for k in range(4)) for c in range(4)] for r in range(4)]
+
+
 def check_clearance(png, metadata, scenarios, clearance=.5):
     """Distance to occupied/unknown cell *area*, including the grid boundary."""
     width, height, pixels = gray_pixels(png)
@@ -190,6 +285,8 @@ def load_worlds(folder):
         if len({s['id'] for s in scenarios}) != len(scenarios):
             raise ValueError('Duplicate preset scenario')
         check_clearance(png, metadata, scenarios)
+        model, rejected = load_model(root, entry, metadata, width, height)
+        entry = dict(entry, model_glb=model, model_rejected=rejected)
         result.append((entry, metadata, png, width, height, scenarios))
     return result
 
@@ -226,7 +323,9 @@ def load_connected_worlds(root, catalog):
         metadata['connected_gt'] = dict(world_id='v5_building', ros_building_id=entry['building_id'],
             ros_floor_id=floor, ros_map_version=raw['map_version'], source_pgm_sha256=sha256(pgm).hex(),
             sha256=sha256(png).hex(), source='SIMULATION')
-        entry.update(name='연결 건물', floor_name='1층' if floor == 'l1' else '2층', level=1 if floor == 'l1' else 2)
+        model, rejected = load_model(root, entry, metadata, width, height)
+        entry.update(name='연결 건물', floor_name='1층' if floor == 'l1' else '2층', level=1 if floor == 'l1' else 2,
+                     model_glb=model, model_rejected=rejected)
         result.append((entry, metadata, png, width, height, []))
     return result
 
@@ -300,12 +399,35 @@ def sync_worlds(db, org_id, actor_id, folder, files_root):
                 message='시뮬 월드 지도를 결재 없이 승인 등록했습니다.',
                 data={'world_id': world_id, 'floor_id': str(floor.id), 'map_version_id': str(version.id), 'provenance': 'SIMULATION'}))
             changed.append(str(version.id))
+        attach_model(version, entry.get('model_glb'), files_root)
+        if entry.get('model_rejected'):
+            # The floor keeps 2D only (or its earlier accepted model); record why.
+            db.add(Event(org_id=org_id, category='ACCOUNT', code='SIM_MODEL_REJECTED', user_id=actor.id,
+                message='시뮬 월드 3D 모형을 검사에서 거절해 붙이지 않았습니다.',
+                data={'world_id': world_id, 'floor_id': str(floor.id), 'map_version_id': str(version.id),
+                      'model': entry.get('model'), 'reason': entry['model_rejected']}))
         # Existing historical images must not silently roll back a newer approval.
         if floor.approved_version_id == version.id:
             sync_presets(db, actor, world_id, floor, version, presets)
     archive_removed_worlds(db, world_ids, org_id=org_id)
     db.flush()
     return changed
+
+
+def attach_model(version, data, files_root):
+    """Content-addressed GLB copy; the version keeps the last declared model."""
+    if data is None:
+        return
+    digest = sha256(data)
+    if version.model_sha256 == digest:
+        return
+    path = Path('maps/simulation') / str(version.floor_id) / (digest.hex() + '.glb')
+    destination = Path(files_root) / path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.read_bytes() != data:
+        raise ValueError('Static model storage collision')
+    destination.write_bytes(data)
+    version.model_path, version.model_sha256 = str(path), digest
 
 
 def sync_presets(db, actor, world_id, floor, version, presets):

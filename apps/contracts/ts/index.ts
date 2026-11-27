@@ -849,6 +849,8 @@ export interface MapVersion {
   voxel_map?: VoxelMapSummary | null;
   provenance?: "HUMAN" | "SIMULATION";
   terrain_spec?: TerrainSpec | null;
+  model_sha256?: string | null;
+  model_floor_z?: number | null;
   upload_id: string;
   id: string;
   floor_id: string;

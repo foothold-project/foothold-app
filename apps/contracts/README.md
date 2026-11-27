@@ -244,6 +244,33 @@ unlock·새 중립을 거쳐 새 실행한다. 구체 원칙은 [05 §13.10.5](.
 422 MAP_VERSION_MISMATCH=보관 이미지와 증명 불일치다. 최신 판/일반 사용자 URL로 우회하지
 않는다. 이미지 API는 2a 미구현이며 검증된 로컬 사본으로 대체해도 증명은 필수다.
 
+`MapVersion.model_sha256`은 그 지도 판 층의 실내 3D 모형(GLB) 하나의 실제 바이트 SHA-256(소문자
+hex)이다. null이면 3D 모형이 없고 클라이언트는 2D 지도만 보인다. `MapVersion.model_floor_z`는 그
+층 바닥 윗면의 world z(m)이고 시뮬 층은 worlds.json `floor_z`다(공정동 A 0 · 3.375 · 6.75).
+`model_sha256`이 null이면 이 칸도 null이다. 모형은 `GET /api/v1/map-versions/{id}/model`로 받는다.
+인증·소유 검사는 같은 판의 `/image`와 같고, 200=`model/gltf-binary`·`Cache-Control: private,
+no-store`·`ETag: "<model_sha256>"`, 401=인증 실패, 404=없는 판/다른 조직(`/image`와 같은 응답)이거나
+모형 없음(`MODEL_NOT_FOUND`), 503 `FILE_STORAGE_ERROR`=기록된 모형 파일이 서버 저장소에 없음이다.
+
+클라이언트가 기대는 규약. GLB는 +Y가 위, 단위는 미터, 원점은 지도 world 원점이다.
+glTF (x,y,z) → world (x,−z,y). 거꾸로 world (x,y,z) 는 glTF (x,z,−y). 서버는 바이트를 바꾸지 않고
+변환은 클라이언트가 한 번 한다. 로봇 위치 x, y(world 미터)는 그대로 얹으며 2D 이미지의
+origin/resolution 픽셀 변환은 거치지 않는다. 한 판의 모형은 그 층 하나뿐이다. 표식 높이는
+`model_floor_z`가 있으면 그 값, 없으면 모형 맨 아래다. 클라이언트는 GLB 노드 이름을 찾지 않는다
+(MapVersion의 floor_id는 UUID라 층 키와 맞지 않는다).
+
+만드는 쪽 규약(서버 동기화 검사에만 쓴다). 시뮬 월드는 `apps/simmgr/worlds/worlds.json` 층 항목의
+`model`(카탈로그 폴더 기준 경로, 공정동 A는 `plant_a_<층>_real.glb` 꼴)과 `sha256.model`로
+선언한다. GLB 안에는 바닥 노드 `<층 키>_floor`(sim 층 이름, 예 `l1_floor`·`l2_floor`·`l3_floor`)가
+하나 있어야 한다. GLB는 저장소에 넣지 않으며(`**/models/`는 무시 목록) 선언만 있고 파일이 없으면
+조용히 2D만 등록한다. 파일이 있으면 동기화가 DB 쓰기 전에 크기(64 MiB 이하)·SHA-256·glTF 2 머리를
+보고, 바닥 노드의 경계 상자(노드 변환 포함, POSITION min/max)를 world로 바꾸어 (1) 그 층 지도
+범위(origin·resolution·크기) 안에 드는지, (2) 윗면 world z가 `floor_z`와 1 cm 안인지 본다. 지도
+범위는 원점에 대칭이 아니라 y 부호가 뒤집힌 모형은 범위 밖으로 나가 거절된다. 검사에 실패하면
+모형을 붙이지 않고(이전에 붙은 모형은 그대로) 2D 지도는 정상 등록하며 `SIM_MODEL_REJECTED`
+사건에 까닭을 남긴다. 통과하면 서버 파일 저장소에 내용 주소로 복사해 그 층의 같은 이미지 판에
+붙인다. 선언 형식 오류나 카탈로그 밖 경로는 동기화 전체를 거부한다.
+
 계약 집중 시험은 다음과 같다. 기존 안전 셀프테스트의 기대값은 변경하지 않는다.
 
 ```sh

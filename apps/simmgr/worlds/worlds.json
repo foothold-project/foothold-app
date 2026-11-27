@@ -906,6 +906,7 @@
       "spawn_source": "layout JSON spawn",
       "world": "plant_a/plant_a.sdf",
       "gt_map": "plant_a/maps/l1.yaml",
+      "model": "plant_a/models/plant_a_l1_real.glb",
       "map_metadata": "plant_a/maps/metadata.json",
       "ledger_key": "plant_a/l1",
       "height_source": "static_sdf_collision",
@@ -916,7 +917,8 @@
       "sha256": {
         "world": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4",
         "map": "da13daf3f42a0bdbbca6bd1a7753ac8d3a3ed9130d2726c2d623b76844381aaa",
-        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b"
+        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b",
+        "model": "c96cfa1a17cb376331eca53ba912c486e6aeb5ebbed7892abe90acb01b9aee84"
       },
       "mesh_sha256": {}
     },
@@ -938,6 +940,7 @@
       "spawn_source": "layout JSON stairs st-1-2 arrive xy + teleport yaw",
       "world": "plant_a/plant_a.sdf",
       "gt_map": "plant_a/maps/l2.yaml",
+      "model": "plant_a/models/plant_a_l2_real.glb",
       "map_metadata": "plant_a/maps/metadata.json",
       "ledger_key": "plant_a/l2",
       "height_source": "static_sdf_collision",
@@ -948,7 +951,8 @@
       "sha256": {
         "world": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4",
         "map": "1e25218e008c2b1b19fcc3527b0dfdb9dcf83ee114621ccc75915526dff2555a",
-        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b"
+        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b",
+        "model": "ba8f793fceb375b1e9c478c25b172f42b30134a3d1bb4aa209102f40ab1081ed"
       },
       "mesh_sha256": {}
     },
@@ -970,6 +974,7 @@
       "spawn_source": "layout JSON stairs st-2-3 arrive xy + teleport yaw",
       "world": "plant_a/plant_a.sdf",
       "gt_map": "plant_a/maps/l3.yaml",
+      "model": "plant_a/models/plant_a_l3_real.glb",
       "map_metadata": "plant_a/maps/metadata.json",
       "ledger_key": "plant_a/l3",
       "height_source": "static_sdf_collision",
@@ -980,7 +985,8 @@
       "sha256": {
         "world": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4",
         "map": "edab836dcc3c2f99a74b0aab9b6e32fc57b65d00d6c646b3ac5a2022239f965d",
-        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b"
+        "metadata": "944c8073d653a8a70fa40d1a92a855a58866b98c921bd3e2c430b92818f8d51b",
+        "model": "e6bef567ea66612ebc4ffcccc6fb5c27ee09085771f5d000ade4a3a86091202e"
       },
       "mesh_sha256": {}
     }
