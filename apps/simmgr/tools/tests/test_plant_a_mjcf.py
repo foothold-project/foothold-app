@@ -54,8 +54,11 @@ def test_every_mjcf_geom_is_the_sdf_collision_shape():
     geoms = list(ET.parse(TARGET / 'plant-a.xml').getroot().find('worldbody'))
     assert len(geoms) == len(sdf) == sum(1 for _ in ET.parse(OUT / 'plant_a.sdf').getroot().iter('collision'))
     assert {g.get('name') for g in geoms} == set(sdf)
-    # 배치 rev 6: 탱크 둘은 원기둥, 선반 · 배관대는 기둥 + 띄운 덩어리.
-    assert sorted(n for n, (shape, _, _) in sdf.items() if shape == 'cylinder') == ['l1_T-1_c0', 'l1_T-2_c0']
+    # 배치 rev 6~7b: 탱크 둘은 원기둥, 밸브 둘은 원기둥 셋(몸통 · 보닛 · z0 1.3 핸들) + 가로관 상자,
+    # 선반 · 배관대는 기둥 + 띄운 덩어리.
+    assert sorted(n for n, (shape, _, _) in sdf.items() if shape == 'cylinder') == [
+        'l1_T-1_c0', 'l1_T-2_c0', *[f'l3_V-30{k}_c{j}' for k in (1, 2) for j in (0, 2, 3)]]
+    assert sdf['l3_V-301_c3'][1][2] == pytest.approx(6.75 + 1.3 + 0.05)  # 핸들 z0 1.3 · h 0.1
     assert sum(n.startswith(('l2_l2-rack-', 'l1_l1-pipe-p_')) for n in sdf) == 29 * 2 + 7
     for g in geoms:
         shape, pose, half = sdf[g.get('name')]

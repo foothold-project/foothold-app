@@ -5401,19 +5401,43 @@
           </material>
         </visual>
       </link>
-      <link name="l3_V-301">
-        <pose>12 6.3 7.45 0 0 0</pose>
+      <link name="l3_V-301_c0">
+        <pose>12 6.3 7.025 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.55</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.55</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.75 0.20 0.18 1</ambient>
+            <diffuse>0.75 0.20 0.18 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_V-301_c1">
+        <pose>12 6.3 7.07 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>0.8 0.8 1.4</size>
+              <size>0.74 0.44 0.44</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>0.8 0.8 1.4</size>
+              <size>0.74 0.44 0.44</size>
             </box>
           </geometry>
           <material>
@@ -5423,20 +5447,140 @@
           </material>
         </visual>
       </link>
-      <link name="l3_V-302">
-        <pose>24 6.3 7.45 0 0 0</pose>
+      <link name="l3_V-301_c2">
+        <pose>12 6.3 7.275 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>1.05</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>1.05</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.75 0.20 0.18 1</ambient>
+            <diffuse>0.75 0.20 0.18 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_V-301_c3">
+        <pose>12 6.3 8.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <cylinder>
+              <radius>0.375</radius>
+              <length>0.1</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <cylinder>
+              <radius>0.375</radius>
+              <length>0.1</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.75 0.20 0.18 1</ambient>
+            <diffuse>0.75 0.20 0.18 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_V-302_c0">
+        <pose>24 6.3 7.025 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.55</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.55</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.75 0.20 0.18 1</ambient>
+            <diffuse>0.75 0.20 0.18 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_V-302_c1">
+        <pose>24 6.3 7.07 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>0.8 0.8 1.4</size>
+              <size>0.74 0.44 0.44</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>0.8 0.8 1.4</size>
+              <size>0.74 0.44 0.44</size>
             </box>
+          </geometry>
+          <material>
+            <ambient>0.75 0.20 0.18 1</ambient>
+            <diffuse>0.75 0.20 0.18 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_V-302_c2">
+        <pose>24 6.3 7.275 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>1.05</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>1.05</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.75 0.20 0.18 1</ambient>
+            <diffuse>0.75 0.20 0.18 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="l3_V-302_c3">
+        <pose>24 6.3 8.1 0 0 0</pose>
+        <collision name="c">
+          <geometry>
+            <cylinder>
+              <radius>0.375</radius>
+              <length>0.1</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <cylinder>
+              <radius>0.375</radius>
+              <length>0.1</length>
+            </cylinder>
           </geometry>
           <material>
             <ambient>0.75 0.20 0.18 1</ambient>

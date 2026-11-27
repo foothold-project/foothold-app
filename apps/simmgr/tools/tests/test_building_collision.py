@@ -26,6 +26,9 @@ LAYOUT = {
                 {'box': [3.0, 3.0, 2.0, 0.4, 0.3], 'z0': 1.0}]},
             {'id': 'tank', 'kind': 'tank', 'box': [7.0, 3.0, 1.6, 1.6, 1.5], 'yaw': 0.0,
              'collision': [{'cyl': [7.0, 3.0, 0.8, 1.5]}]},
+            # 밸브: 가는 보닛 원기둥 + 1.3 m 위 넓은 핸들 원기둥(z0).
+            {'id': 'valve', 'kind': 'valve', 'box': [5.0, 1.5, 0.8, 0.8, 1.4], 'yaw': 0.0, 'collision': [
+                {'cyl': [5.0, 1.5, 0.1, 1.3]}, {'cyl': [5.0, 1.5, 0.4, 0.1], 'z0': 1.3}]},
         ],
     }],
 }
@@ -121,3 +124,14 @@ def test_bad_collision_entries_are_refused(tmp_path):
         (tmp_path / 'layout.json').write_text(json.dumps(layout))
         with pytest.raises(ValueError):
             import_building.build(tmp_path / 'layout.json', tmp_path)
+
+
+def test_raised_cylinder_with_z0_leaves_floor_under_it_free(toy):
+    px = pixels(toy)
+    assert at(px, 5.0, 1.5) == OCCUPIED  # 보닛
+    ring = [(5.0 + d * math.cos(a), 1.5 + d * math.sin(a)) for d in (0.22, 0.3, 0.35) for a in np.linspace(0, 6.2, 12)]
+    assert all(at(px, x, y) == FREE for x, y in ring)  # 핸들(1.3 m 위) 밑은 트임
+    sdf = sdf_shapes(toy / 'toy.sdf')
+    assert sdf['l1_valve_c1'] == ('cylinder', [5, 1.5, 1.35, 0, 0, 0], [0.4, 0.1])
+    g = {g.get('name'): g for g in ET.parse(toy / 'mobile/toy.xml').getroot().find('worldbody')}['l1_valve_c1']
+    assert (g.get('type'), g.get('pos'), g.get('size')) == ('cylinder', '5 1.5 1.35', '0.4 0.05')
