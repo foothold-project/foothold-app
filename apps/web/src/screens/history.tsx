@@ -83,8 +83,10 @@ const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
 };
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd — 그날 0시부터 끝까지, 브라우저 시간대) */
-type Filter = { category: string; robot: string; from: string; to: string };
-const NONE: Filter = { category: '', robot: '', from: '', to: '' };
+type Filter = { category: string; severity: string; robot: string; from: string; to: string };
+const NONE: Filter = { category: '', severity: '', robot: '', from: '', to: '' };
+/** 등급 거르기(U8-10): 서버 severity 그대로 넘긴다. 이름 · 기호는 줄의 심각도 표시(SEV)와 같게, INFO 는 «정보» */
+const GRADES: [string, string, string][] = [['', '', '전체'], ['ERROR', SEV.ERROR[1], SEV.ERROR[2]], ['WARN', SEV.WARN[1], SEV.WARN[2]], ['INFO', '', '정보']];
 /** 날짜 칸 값 + 시각 → ISO. 서버가 못 읽는 날짜(날짜 칸이 받는 다섯 자리 연도 등)는 null — toISOString 의 RangeError 를 렌더까지 올리지 않는다 */
 function iso(day: string, time: string) {
   const d = /^\d{4}-\d\d-\d\d$/.test(day) ? new Date(`${day}T${time}`) : null;
@@ -96,6 +98,7 @@ function params(f: Filter) {
   const q = new URLSearchParams(), from = f.from && iso(f.from, '00:00:00'), to = f.to && iso(f.to, '23:59:59.999');
   if (from === null || to === null) return null;
   if (f.category) q.set('category', f.category);
+  if (f.severity) q.set('severity', f.severity);
   if (f.robot) q.set('robot_id', f.robot);
   if (from) q.set('from', from);
   if (to) q.set('to', to);
@@ -203,6 +206,9 @@ export function History(c: HistoryCtx) {
     {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} who={who} close={() => c.go('history')} />}
     {!c.phone && <>
       <div className="fh-row" role="group" aria-label="분류">{KINDS.map(([k, name]) => <button key={name} type="button" className="btn" aria-pressed={f.category === k} onClick={() => set({ category: k })}>{name}</button>)}</div>
+      <div className="fh-row" role="group" aria-label="등급"><span className="lbl">등급</span>{GRADES.map(([k, mark, name]) => <button key={name} type="button" className="btn" aria-pressed={f.severity === k} onClick={() => set({ severity: k })}>{mark && <span aria-hidden="true">{mark}</span>}{name}</button>)}</div>
+      {/* 줄의 ▲주의 는 서버가 INFO 로 저장한 실패 코드도 포함한다(Sev). 서버 거르기는 저장된 등급 그대로라 그 줄은 «정보» 에 있다 */}
+      {f.severity === 'WARN' && <p className="lv-note" data-grade-note>정보로 저장된 실패 기록(▲)은 «정보» 에서 보입니다.</p>}
       <div className="fh-row">
         {/* 로봇 거르기: 내 로봇 + 끝낸 시뮬 슬롯(지난 시뮬 기록 — 운영 관리자는 그 슬롯에서 한 내 행동만 서버가 보여 줌) */}
         <label className="fh-row"><span className="lbl">로봇</span><select className="fh-user" value={f.robot} onChange={(e) => set({ robot: e.target.value })}>
