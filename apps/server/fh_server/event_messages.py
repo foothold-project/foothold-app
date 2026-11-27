@@ -61,6 +61,7 @@ TEMPLATES = {
     'SCHEDULE_RUN_SKIPPED': '{person}님의 일정 임무를 {robot}에서 건너뛰었습니다 ({reason}).',
     'SCHEDULE_RUN_MISSED': '{person}님의 일정 임무를 {robot}에서 놓쳤습니다 ({reason}).',
     'SCHEDULE_BATTERY_SWAP_NEXT': '{robot} 다음 일정은 배터리 교체입니다.',
+    'SCHEDULE_RUN_LATE_REPORT': '{person}님의 일정 임무 보고가 늦게 왔습니다 ({reason}). 일정 상태는 그대로 둡니다.',
     'SIM_ROBOT_START_STALE': '{person}님의 이전 시뮬 시작 응답을 거부했습니다. {compensation}',
     'SIM_ROBOT_START_REJECTED': '{person}님의 시뮬 시작 요청이 생성 전에 거부되어 슬롯을 해제했습니다.',
     'SIM_ROBOT_REMOVE_STALE': '{person}님의 이전 시뮬 종료 요청을 현재 세대에서 거부했습니다.',

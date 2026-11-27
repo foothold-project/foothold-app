@@ -407,3 +407,59 @@ def test_pause_releases_run_lease_then_person_resumes_with_own_lease(demo, seede
             assert rt.arbiter.robot(rid).holder.holder_type == 'USER'  # the person keeps control
             assert not any(f.get('t') == 'lease' and str(f.get('holder_type', '')).startswith('RUN')
                            for f in agent.seen[before:])
+
+
+def started_slot(seeded, good, minutes=30):
+    """A slot this or an earlier server process already STARTED (run_id set)."""
+    slot_id = add_slot(seeded, good, minutes=minutes)
+    engine = create_engine(seeded['urls']['migrate'])
+    with DBSession(engine) as db:
+        row = db.get(ScheduleSlot, slot_id)
+        row.run_state, row.run_id, row.run_at = 'STARTED', S.run_id_for(slot_id), T0 + timedelta(minutes=2)
+        db.commit()
+    engine.dispose()
+    return slot_id
+
+
+def late_events(seeded, slot_id):
+    engine = create_engine(seeded['urls']['migrate'])
+    with DBSession(engine) as db:
+        rows = [(e.code, e.data.get('status')) for e in db.scalars(select(Event).where(
+            Event.code == 'SCHEDULE_RUN_LATE_REPORT')) if e.data.get('slot_id') == str(slot_id)]
+    engine.dispose()
+    return rows
+
+
+def test_started_slot_without_report_past_end_fails_report_lost_then_late_report_is_only_noted(demo, seeded):
+    """11/28: a STARTED slot is not kept forever. Past end_at with no agent report -> FAILED RUN_REPORT_LOST
+    (with an event). A report that arrives later is recorded only; the slot state never changes again."""
+    client, sched, clock = demo
+    slot_id = started_slot(seeded, synthetic_assignment(seeded))
+    clock[0] = T0 + timedelta(minutes=31)  # before end_at + nothing: still STARTED
+    run_ticks(client, sched, None, 2)
+    assert slot_row(seeded, slot_id)['state'] == 'STARTED'
+    clock[0] = T0 + timedelta(minutes=33, seconds=1)  # past end_at (T0+32m) + grace, no agent, no report
+    run_ticks(client, sched, None, 2)
+    assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('FAILED', 'RUN_REPORT_LOST')
+    assert 'SCHEDULE_RUN_FAILED' in codes(seeded)
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        agent.run = dict(run_id=str(S.run_id_for(slot_id)), status='COMPLETED', step=0,
+                         progress={'done': 1, 'total': 1}, wait_reason=None, fail_code=None)
+        run_ticks(client, sched, agent, 4)
+    assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('FAILED', 'RUN_REPORT_LOST')
+    assert late_events(seeded, slot_id) == [('SCHEDULE_RUN_LATE_REPORT', 'COMPLETED')]  # once
+
+
+def test_started_slot_still_reported_running_past_end_stays_started(demo, seeded):
+    client, sched, clock = demo
+    slot_id = started_slot(seeded, synthetic_assignment(seeded))
+    clock[0] = T0 + timedelta(minutes=40)
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        agent.run = dict(run_id=str(S.run_id_for(slot_id)), status='MOVING', step=0,
+                         progress={'done': 0, 'total': 1}, wait_reason=None, fail_code=None)
+        run_ticks(client, sched, agent, 4)
+        assert slot_row(seeded, slot_id)['state'] == 'STARTED'  # the agent still reports it

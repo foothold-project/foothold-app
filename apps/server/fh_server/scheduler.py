@@ -9,6 +9,8 @@
   (START_TIMEOUT_S + 10 초) 이 지나면 보내지 않고 MISSED SCHEDULER_RESTARTED.
 - 에이전트 소켓은 한 프로세스 메모리에 있다 (realtime). 서버는 한 프로세스로 돈다는 전제.
 - 시계는 clock 으로 바꿔 끼운다 (시험).
+- STARTED 칸은 끝없이 두지 않는다: end_at + 60 초가 지나고 이 프로세스가 60 초 넘게 보고를 못 보면 FAILED
+  RUN_REPORT_LOST (사건). 그 뒤 늦게 온 끝 보고는 SCHEDULE_RUN_LATE_REPORT 사건만 남기고 칸은 그대로.
 - 자동 잠금 해제: STOP 확인 뒤 lease 를 받은 다음 서버가 unlock 을 보낸다. safety_reason 이 있으면 SKIPPED
   SAFETY_STOP 으로 손대지 않는다 (사람 STOP 뒤 자동 재개 금지 규칙은 아래 «정한 것» 참고).
 """
@@ -28,6 +30,8 @@ log = logging.getLogger(__name__)
 NAMESPACE = UUID('5d7c4c8e-62a5-4f0e-9a51-1f0d2e8b7c11')
 START_TIMEOUT_S = 20
 STALE_STARTING = timedelta(seconds=START_TIMEOUT_S + 10)
+REPORT_GRACE = timedelta(seconds=60)  # no report for this long (after end_at) means lost
+LATE_WINDOW = timedelta(days=1)  # how long a RUN_REPORT_LOST slot still notes a late report
 TERMINAL = {'COMPLETED': 'DONE', 'FAILED': 'FAILED', 'CANCELED': 'FAILED', 'ABORTED': 'FAILED'}
 
 
@@ -109,6 +113,14 @@ def write(factory, org_id, outcomes):
         for slot_id, state, code in outcomes:
             row = db.scalar(select(ScheduleSlot).where(ScheduleSlot.org_id == org_id, ScheduleSlot.id == slot_id)
                             .with_for_update())
+            if state == 'LATE':
+                # A report after RUN_REPORT_LOST: record it once, never change the slot state again.
+                if row is not None and row.run_code == 'RUN_REPORT_LOST' and not any(
+                        e.data.get('slot_id') == str(row.id) for e in db.scalars(select(Event).where(
+                            Event.org_id == org_id, Event.code == 'SCHEDULE_RUN_LATE_REPORT',
+                            Event.robot_id == row.robot_id))):
+                    note(db, org_id, row, 'SCHEDULE_RUN_LATE_REPORT', status=code, reason=code)
+                continue
             if row is None or row.run_state not in ('STARTING', 'STARTED') or row.run_state == state:
                 continue
             settle(db, org_id, row, state, code)
@@ -121,10 +133,14 @@ def write(factory, org_id, outcomes):
                     note(db, org_id, following, 'SCHEDULE_BATTERY_SWAP_NEXT', after_slot_id=str(row.id))
 
 
-def started(factory, org_id):
+def started(factory, org_id, at):
+    """STARTED slots, plus RUN_REPORT_LOST slots of the last day whose late report may still arrive."""
     with factory() as db:
-        return [dict(slot_id=r.id, robot_id=str(r.robot_id), run_id=str(r.run_id)) for r in db.scalars(
-            select(ScheduleSlot).where(ScheduleSlot.org_id == org_id, ScheduleSlot.run_state == 'STARTED'))]
+        return [dict(slot_id=r.id, robot_id=str(r.robot_id), run_id=str(r.run_id), end_at=r.end_at,
+                     lost=r.run_state == 'FAILED') for r in db.scalars(
+            select(ScheduleSlot).where(ScheduleSlot.org_id == org_id, (ScheduleSlot.run_state == 'STARTED') | (
+                (ScheduleSlot.run_state == 'FAILED') & (ScheduleSlot.run_code == 'RUN_REPORT_LOST')
+                & (ScheduleSlot.end_at > at - LATE_WINDOW))))]
 
 
 class Scheduler:
@@ -132,6 +148,7 @@ class Scheduler:
         self.rt, self.factory, self.org_id = realtime, factory, org_id
         self.clock = clock or (lambda: now().astimezone(timezone.utc))
         self.pending = {}   # slot_id -> start state machine (memory only; restart = MISSED)
+        self.reported = {}  # slot_id -> last time a report (or, after a restart, the first look) was seen
 
     async def tick(self):
         at = self.clock()
@@ -141,8 +158,8 @@ class Scheduler:
             outcomes += self.begin(item, at)
         for slot_id, p in list(self.pending.items()):
             outcomes += self.step(slot_id, p, at)
-        for item in await asyncio.to_thread(started, self.factory, self.org_id):
-            outcomes += self.watch(item)
+        for item in await asyncio.to_thread(started, self.factory, self.org_id, at):
+            outcomes += self.watch(item, at)
         if outcomes:
             await asyncio.to_thread(write, self.factory, self.org_id, outcomes)
 
@@ -178,8 +195,10 @@ class Scheduler:
             self._release(rid, p.get('lease'))
         return [(slot_id, state, code)]
 
-    def _release(self, rid, lease):
+    def _release(self, rid, lease, run_id=None):
         rt = self.rt
+        if run_id is not None and (rt.scheduled_runs.get(rid) or {}).get('run_id') != run_id:
+            return  # the RUN lease now belongs to someone else
         holder = rt.arbiter.robot(rid).holder
         transfer = rt.arbiter.robot(rid).transfer
         if (holder and holder.holder_type == 'RUN' and (lease is None or holder.lease_id == lease)) or (
@@ -231,7 +250,7 @@ class Scheduler:
 
     # -- STARTED: finish when the agent reports the run terminal --
 
-    def watch(self, item):
+    def watch(self, item, at):
         rt, rid = self.rt, item['robot_id']
         if item['slot_id'] in self.pending:
             return []
@@ -244,6 +263,16 @@ class Scheduler:
         projected = rt.runs.get(rid)
         if run is None and projected and str(projected.get('run_id')) == item['run_id']:
             run = projected
+        if item['lost']:
+            return [(item['slot_id'], 'LATE', run['status'])] if run and run.get('status') in TERMINAL else []
+        seen = self.reported.setdefault(item['slot_id'], at)
+        if run:
+            self.reported[item['slot_id']] = at
+        elif at >= item['end_at'] + REPORT_GRACE and at - seen >= REPORT_GRACE:
+            # No agent report past the slot's end (and for a grace this process watched): not STARTED forever.
+            self.reported.pop(item['slot_id'], None)
+            self._release(rid, None, item['run_id'])
+            return [(item['slot_id'], 'FAILED', 'RUN_REPORT_LOST')]
         if not run or run.get('status') not in TERMINAL:
             return []
         state = TERMINAL[run['status']]
@@ -252,6 +281,7 @@ class Scheduler:
         if holder and holder.holder_type == 'RUN' and holder.actor is None:
             rt.apply(rt.arbiter.revoke(rid, op=None, cause='run_finished'))
         rt.scheduled_runs.pop(rid, None)
+        self.reported.pop(item['slot_id'], None)
         return [(item['slot_id'], state, code)]
 
 

@@ -2683,7 +2683,8 @@ ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
 # 예약 실행 상태. STARTING 은 서버가 칸을 잡고 시작 중 (다시 켜면 MISSED SCHEDULER_RESTARTED).
 # SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · REAL_RUN_FORBIDDEN · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
 #   MULTI_FLOOR · SAFETY_STOP. MISSED 까닭: ROBOT_OFFLINE · WINDOW_PASSED · SCHEDULER_RESTARTED · SERVER_BUSY.
-# FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED.
+# FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED ·
+#   RUN_REPORT_LOST (end_at + 60 초 넘게 보고 없음, 늦은 보고는 SCHEDULE_RUN_LATE_REPORT 사건만).
 ScheduleRunState = Literal['STARTING', 'STARTED', 'DONE', 'FAILED', 'SKIPPED', 'MISSED']
 AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE']
 EstimateSource = Literal['MEASURED', 'TABLE_UNMEASURED']

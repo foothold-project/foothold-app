@@ -473,6 +473,7 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
   사람 USER lease · 요청 · 넘김이 있으면 기다리지 않고 `SKIPPED LEASE_HELD`. 실기는 `SKIPPED REAL_RUN_FORBIDDEN`. 끊긴 로봇은 `MISSED ROBOT_OFFLINE`.
   한 칸은 한 번만 (run_state 가 비었을 때만 잡음 · `run_id` 유일). 실행이 걸린 칸은 PATCH · DELETE 409 `SCHEDULE_SLOT_RUN`.
   다음 칸이 `BATTERY_SWAP` 이면 사건 `SCHEDULE_BATTERY_SWAP_NEXT` 만 남긴다 (시작하지 않음). 사건 `SCHEDULE_RUN_*`.
+  `STARTED` 칸은 `end_at` + 60 초가 지나도록 에이전트 보고가 없으면 `FAILED RUN_REPORT_LOST`. 늦게 온 보고는 `SCHEDULE_RUN_LATE_REPORT` 사건만 남기고 칸 상태는 그대로.
 - 권한은 배정과 같다. 조직 사용자는 모두 읽고, 바꾸기는 총괄 또는 그 로봇 담당만. 다른 로봇으로 옮기면 두 로봇 모두 권한이 있어야 한다.
 - 가용 `state`: 기간과 겹치는 칸이 있으면 `BUSY` (끝이 가장 늦은 칸을 `busy_*` 로), 없으면 연결이 끊긴 로봇은 `OFFLINE`, 그 외 `FREE`.
   `CHARGING` 은 서버에 충전 신호가 없어 지금은 내지 않는다. `demo` 는 서버에 그런 로봇 필드가 없어 항상 false, `sim` 은 `Robot.simulation`.
