@@ -101,7 +101,7 @@
 
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
-| GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본 `mine`). `all` = 조직의 전체 로봇 | 로그인 |
+| GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본: 운영자 `mine` · 총괄 `all`, 팀장 11/28). `all` = 조직의 전체 로봇 | 로그인 |
 | POST | `/robots` | 실기 직접 등록 폐지 →403 `PAIRING_REQUIRED`; §3.1 사용 | 없음 |
 | GET | `/robots/{id}` | 상세(장치 목록·담당자·현재 실행·현재 층). 담당 밖 운영 관리자에게는 로봇 요약 객체만 200 | 로그인 |
 | GET | `/robots/{id}/owner-candidates` | 넘길 수 있는 같은 조직의 활성(잠금·보관 제외) OPERATOR, 본인 제외. `{items:[{user_id,display_name}],next_cursor}`, 이름순(동명은 user_id순), 기존 `limit/cursor`. 시뮬은 기존 ROBOT_WRITE 판정 후409 `SIM_ROBOT_MANAGED`, 없는 로봇404 | 실기 O(내), 담당 밖·총괄403 |

@@ -640,10 +640,12 @@ def create_app(settings: Settings | None = None):
                   {'session_id': str(session_id)})
 
     @app.get(prefix + '/robots', response_model=C.RobotList)
-    def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] = 'mine',
+    def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] | None = None,
                limit: Limit = 50, cursor: str | None = None):
         user = auth[0]
         authorize(user, 'O')
+        if scope is None:  # 팀장 11/28: 총괄 기본은 조직 전체, 운영자는 mine.
+            scope = 'all' if user.role == 'ORG_ADMIN' else 'mine'
         query = select(Robot).where(Robot.org_id == user.org_id, Robot.archived_at.is_(None))
         if scope == 'mine':
             query = query.where(Robot.owner_user_id == user.id)
