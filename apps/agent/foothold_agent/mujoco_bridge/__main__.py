@@ -1,0 +1,90 @@
+"""MuJoCo simulation agent: ros_bridge's non-phone Session path with MujocoNode.
+
+Environment (fail-closed, no defaults for credentials):
+  FOOTHOLD_AGENT_WS_URL, FOOTHOLD_AGENT_TOKEN  same as every agent (link.client.Settings)
+  FH_SIM_SRC                                   MuJoCo wasm / policy / Go2 assets for the child
+  FH_SIM_MAP (collapsed-house-v2), FH_SIM_SEED (0), FH_SIM_NODE (node)
+  FH_SIM_BATTERY_START (100), FH_SIM_BATTERY_DRAIN (%/s of sim time, 0.0139)
+  FH_SIM_STATE_LOG (optional JSON-lines tap of child states for validation tools)
+"""
+
+import asyncio
+import os
+from pathlib import Path
+import shutil
+import signal
+
+from foothold_agent.executor.steps import ExecutionSupport
+from foothold_agent.link.client import Client, Settings
+from foothold_agent.link.session import Session
+from .node import MujocoNode
+
+CHILD = Path(__file__).resolve().parents[3] / 'simagent' / 'child.mjs'  # apps/simagent
+VERSION = 'mujoco-bridge/0.1.0'
+
+
+def child_command(env):
+    node = shutil.which(env.get('FH_SIM_NODE', 'node'))
+    if node is None or not env.get('FH_SIM_SRC'):
+        raise ValueError('set FH_SIM_SRC and a Node 22+ executable (FH_SIM_NODE)')
+    return [node, str(CHILD), '--map', env.get('FH_SIM_MAP', 'collapsed-house-v2'),
+            '--seed', env.get('FH_SIM_SEED', '0'),
+            '--battery-start', env.get('FH_SIM_BATTERY_START', '100'),
+            '--battery-drain', env.get('FH_SIM_BATTERY_DRAIN', '0.0139')]
+
+
+def identity(now):
+    # Same capability source as ros_bridge's run path without camera/uploader.
+    return {'agent_version': VERSION, 'robot_model': 'unitree_go2', 'firmware': None,
+            'execution_capabilities': ExecutionSupport(now=now).hello()}
+
+
+async def run(settings, command):
+    bridge = MujocoNode(command, cwd=str(CHILD.parent), state_log=os.environ.get('FH_SIM_STATE_LOG'))
+    client = None
+    tasks = []
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop.set)
+    try:
+        def on_state(raw):
+            if client is not None:
+                client.on_robot_state(raw)
+
+        def on_telemetry(snapshot):
+            if client is not None:
+                client.update_telemetry(snapshot)
+
+        def on_devices(devices):
+            if client is not None:
+                client.update_devices(devices)
+
+        sink = await bridge.start(on_state, on_telemetry=on_telemetry, on_devices=on_devices)
+        session = Session(identity=identity(loop.time))  # always starts latched
+        client = Client(session, sink, settings)
+        client.update_telemetry(bridge.inputs.telemetry.snapshot())
+        client.update_devices(bridge.inputs.device_observations())
+        tasks = [asyncio.create_task(client.run()), asyncio.create_task(bridge.wait_failure()),
+                 asyncio.create_task(stop.wait())]
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            bridge.close()
+        finally:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.remove_signal_handler(sig)
+
+
+def main():
+    settings = Settings.from_env()  # never echoes URL/token
+    asyncio.run(run(settings, child_command(os.environ)))
+
+
+if __name__ == '__main__':
+    main()
