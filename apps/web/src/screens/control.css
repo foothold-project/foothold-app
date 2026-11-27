@@ -53,6 +53,7 @@
 .ct-fact{display:flex;align-items:baseline;gap:6px;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
 .ct-fact b{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ct-fact .lbl{font-size:11px;white-space:nowrap}
+.ct-fact[data-last]{grid-column:1/-1}   /* 끊긴 로봇의 «마지막 값 · HH:MM» 은 한 줄 전체 */
 .ct-fact[data-tone="ok"] b{color:var(--ok)}
 .ct-fact[data-tone="bad"] b{color:var(--bad)}
 

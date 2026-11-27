@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
-import { actOf, order } from '../screens/control';
+import { EmptyControl, actOf, lastly, order } from '../screens/control';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -45,10 +45,10 @@ describe('관제 탭', () => {
     expect($('[aria-label="로봇 타일"]').dataset.count).toBe('20');
     expect(tiles().slice(0, 2).map((t) => t.dataset.robot)).toEqual(['g15', 'g9']);
     expect(tile('g15').dataset.tone).toBe('bad'); expect(tile('g9').dataset.tone).toBe('warn'); expect(tile('g3').dataset.tone).toBeUndefined();
-    expect(tile('g15').querySelector('[data-warn-flag]')!.textContent).toContain('경고');
+    expect(tile('g15').querySelector('[data-warn-flag]')!.textContent).toBe('경고');
     expect($('[aria-label="요약"] [data-sum="경고"] b').textContent).toBe('2');
     expect($('[aria-label="경보"] h2').textContent).toContain('K-16');   // 경보 한 장 = 맨 앞 경고(U5-19)
-    expect($$('[aria-label="최근 경고"] [data-alert]').map((e) => e.dataset.alert)).toEqual(['g15', 'g9']);
+    expect($$('[aria-label="최근 경고"] [data-alert]').map((e) => e.dataset.alert)).toEqual(['g9']);   // 경보 카드에 나온 맨 앞 경고는 최근 경고에서 뺀다
   });
 
   it('값이 없으면 «미확인» · 온도·배터리·위치를 지어내지 않는다', () => {
@@ -96,10 +96,14 @@ describe('관제 탭', () => {
     expect(tiles().every((t) => t.querySelector('.ct-video')!.getAttribute('data-face') === 'front')).toBe(true);
   });
 
-  it('3D 는 지금 동작대로: 임무 중 = 걷기, 잠금·끊김 = 엎드림, 대기 = 서 있음(보고 자세가 오면 그 자세)', () => {
+  it('3D 는 지금 동작대로: 임무 중 = 걷기, 잠금·오류 = 엎드림, 대기 = 서 있음, 끊김 = 마지막 자세 모름(보고 자세가 오면 그 자세)', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect(tile('g5').querySelector('.ct-fig')!.getAttribute('data-act')).toBe('walk');
-    expect(tile('g15').querySelector('.ct-fig')!.getAttribute('data-act')).toBe('lie');
+    expect(tile('g15').querySelector('.ct-fig')!.getAttribute('data-act')).toBe('lost');
+    expect(tile('g15').querySelector('.ct-fig')!.hasAttribute('data-dim')).toBe(true);
+    expect(tile('g15').querySelector('[data-act-text]')!.textContent).toBe('마지막 자세 모름');
+    expect(actOf({ ...TWENTY[3], status: 'STOP_LATCHED' }, false)).toBe('lie');   // 연결 중 잠금은 그대로 엎드림
+    expect(actOf({ ...TWENTY[3], status: 'ERROR' }, false)).toBe('lie');
     expect(tile('g3').querySelector('.ct-fig')!.getAttribute('data-act')).toBe('stand');
     const r = TWENTY[3];
     expect(actOf(r, true)).toBe('report');
@@ -123,11 +127,52 @@ describe('관제 탭', () => {
     expect(tiles().every((t) => TWENTY.find((r) => r.id === t.dataset.robot)!.owner === 'u-lee')).toBe(true);
     act(() => { $$('[aria-label="범위"] button')[0].click(); });
     expect(tiles()).toHaveLength(20);
-    expect(fact('g1', '연결')).toBe('연결 확인 중');   // 남의 로봇은 요약만 · 상태를 단정하지 않음
+    expect(tile('g1').querySelector('.lv-chip')!.textContent).toContain('확인 안 됨');   // 남의 로봇은 요약만 · 상태를 단정하지 않음
   });
 
   it('order: 경고 먼저, 나머지는 받은 순서', () => {
     const a = TWENTY[3], b = TWENTY[15], c = TWENTY[5], d = TWENTY[9];
     expect(order([a, d, c, b]).map((x) => x.id)).toEqual(['g15', 'g9', 'g3', 'g5']);
+  });
+
+  it('끊긴 로봇 값은 «마지막 값 · HH:MM», 시각을 모르면 미확인', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect(fact('g15', '배터리')).toBe('마지막 70% · 14:05');
+    expect(fact('g15', '관절 최고')).toBe('미확인');
+    expect(fact('g3', '배터리')).toBe('70%');   // 연결 중이면 그대로
+    const gone = { ...TWENTY[15], unknown: 'link' as const };
+    expect(lastly(gone, '70%', '')).toBeNull();
+    expect(lastly(gone, '위치 1.0, 2.0 m', '2026-11-28T05:06:07')).toMatch(/^마지막 위치 1\.0, 2\.0 m · \d\d:\d\d$/);
+  });
+
+  it('한 타일에서 같은 낱말은 한 번 · 연결 사실 칸 없음 · 경보 카드와 최근 경고가 겹치지 않음', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect(tile('g15').textContent!.split('끊김').length - 1).toBe(1);
+    expect(tile('g15').querySelector('[data-fact="연결"]')).toBeNull();
+    expect(tile('g9').textContent!.split('배터리 낮음').length - 1).toBe(1);
+    expect($('[aria-label="경보"] p').textContent).not.toContain('끊김');
+    expect($$('[aria-label="최근 경고"] [data-alert]').some((e) => e.dataset.alert === 'g15')).toBe(false);
+  });
+
+  it('최근 경고 시각 칸 = «받은 시각»(발생 시각 필드 없음)', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect($('[aria-label="최근 경고"] [data-alert-at]').textContent).toMatch(/^받은 시각 /);
+  });
+
+  it('로봇 0대 관제 빈 화면: 한 줄 + 로봇 탭 링크', () => {
+    box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<EmptyControl />); });
+    expect($('[data-empty-control] p').textContent).toContain('관제할 로봇이 없습니다');
+    expect($('[data-empty-control] a').getAttribute('href')).toBe('#/fleet');
+  });
+
+  it('타일 키보드: Enter = 로봇 탭(초점 받음), 안쪽 단추의 Enter 는 그 단추 몫', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect(tile('g7').tabIndex).toBe(0);
+    act(() => { tile('g7').querySelector<HTMLElement>('[data-flip]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect($('h1').textContent).toBe('관제');
+    act(() => { tile('g7').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect($('h1').textContent).toBe('로봇');
+    expect(location.hash).toBe('#/fleet');
   });
 });
