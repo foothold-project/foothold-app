@@ -175,7 +175,7 @@ export function closeText(code: number) {
     : code === 1013 ? '로봇이 지금 연결을 받을 수 없습니다. 잠시 뒤 다시 연결하세요.'
     : code === 1012 || code === 1007 || code === 1003 || code === 1009 ? '로봇이 잘못된 메시지로 보고 연결을 닫았습니다.'
     : '로봇 연결이 끊겼습니다.';
-  return `${t}(${code}) 로봇은 입력이 끊기면 스스로 멈춥니다.`;
+  return `${t.replace(/\.$/, '')} (${code}). 로봇은 입력이 끊기면 스스로 멈춥니다.`;   // «끊겼습니다 (1006). 로봇은 …»
 }
 
 function send(m: Record<string, unknown>, wait?: (ok: boolean, r?: PhoneReply) => void) {

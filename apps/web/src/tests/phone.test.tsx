@@ -730,7 +730,7 @@ describe('시뮬 직결 실패', () => {
     await wait(80);
     act(() => a.drop(1006)); await flush();
     const text = $('[data-sim-drive]')!.textContent!;
-    expect(text).toContain('로봇 연결이 끊겼습니다.(1006)');
+    expect(text).toContain('로봇 연결이 끊겼습니다 (1006). 로봇은 입력이 끊기면 스스로 멈춥니다.');   // 마침표 뒤 띄어쓰기(코드는 마침표 앞 괄호)
     expect(text).toContain('연결 끊김');
     expect(text).not.toContain('조종 중(나)');   // 끊긴 뒤 지난 state 로 조종자라 쓰지 않음
     expect(btn('조종 시작')).toBeUndefined();
