@@ -78,3 +78,17 @@ def test_r5_check_detects_extra_generated_files(tmp_path, monkeypatch, extra, ca
     monkeypatch.setattr(sys, 'argv', ['generate.py'])
     assert generate.main() == 0
     assert not old.exists()
+
+
+def test_gait_mode_messages_accept_four_gaits_only():
+    from pydantic import TypeAdapter
+    from uuid import uuid4
+    screen, agent = TypeAdapter(C.ScreenMessage), TypeAdapter(C.ServerAgentMessage)
+    for gait in ('classic', 'sport', 'start', 'ame2'):
+        assert screen.validate_python({'t': 'gait', 'id': 'g1', 'robot': str(uuid4()), 'lease_id': str(uuid4()), 'gait': gait}).gait == gait
+        assert isinstance(agent.validate_python({'t': 'gait', 'request_id': 'r1', 'lease_id': str(uuid4()), 'gait': gait}), C.AgentGait)
+    with pytest.raises(ValidationError):
+        screen.validate_python({'t': 'gait', 'id': 'g1', 'robot': str(uuid4()), 'lease_id': str(uuid4()), 'gait': 'free_walk'})
+    with pytest.raises(ValidationError):
+        C.GaitResult(request_id='r1', gait='ame2', status='REJECTED', code='MOVING')
+    assert C.GaitResult(request_id='r1', gait='ame2', status='REJECTED', code='GAIT_NOT_READY').code == 'GAIT_NOT_READY'

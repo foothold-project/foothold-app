@@ -1,0 +1,66 @@
+{
+  "$id": "fh-app/1/GaitResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "GAIT_MOVING",
+            "GAIT_NOT_STANDING",
+            "GAIT_NOT_READY",
+            "GAIT_LATCHED",
+            "GAIT_NO_LEASE",
+            "GAIT_BUSY",
+            "GAIT_UNSUPPORTED"
+          ],
+          "type": "string"
+        },
+        {
+          "enum": [
+            "OK",
+            "TIMEOUT",
+            "SDK_ERROR"
+          ],
+          "type": "string"
+        }
+      ],
+      "title": "Code"
+    },
+    "gait": {
+      "enum": [
+        "classic",
+        "sport",
+        "start",
+        "ame2"
+      ],
+      "title": "Gait",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "RUNNING",
+        "SUCCEEDED",
+        "REJECTED",
+        "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "gait",
+    "status",
+    "code"
+  ],
+  "title": "GaitResult",
+  "type": "object"
+}

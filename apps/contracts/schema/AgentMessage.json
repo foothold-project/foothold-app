@@ -1178,6 +1178,28 @@
           "default": null,
           "title": "Devices Changed"
         },
+        "gait": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GaitState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "gait_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GaitResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "latched": {
           "title": "Latched",
           "type": "boolean"
@@ -1653,6 +1675,111 @@
         "confirmed_sim_t"
       ],
       "title": "FloorContext",
+      "type": "object"
+    },
+    "GaitResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "GAIT_MOVING",
+                "GAIT_NOT_STANDING",
+                "GAIT_NOT_READY",
+                "GAIT_LATCHED",
+                "GAIT_NO_LEASE",
+                "GAIT_BUSY",
+                "GAIT_UNSUPPORTED"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "OK",
+                "TIMEOUT",
+                "SDK_ERROR"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "gait": {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "title": "Gait",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "RUNNING",
+            "SUCCEEDED",
+            "REJECTED",
+            "FAILED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "gait",
+        "status",
+        "code"
+      ],
+      "title": "GaitResult",
+      "type": "object"
+    },
+    "GaitState": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "items": {
+            "enum": [
+              "classic",
+              "sport",
+              "start",
+              "ame2"
+            ],
+            "type": "string"
+          },
+          "title": "Available",
+          "type": "array"
+        },
+        "gait": {
+          "anyOf": [
+            {
+              "enum": [
+                "classic",
+                "sport",
+                "start",
+                "ame2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gait"
+        }
+      },
+      "required": [
+        "gait",
+        "available"
+      ],
+      "title": "GaitState",
       "type": "object"
     },
     "Go2Attitude": {

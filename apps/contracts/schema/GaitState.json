@@ -1,0 +1,43 @@
+{
+  "$id": "fh-app/1/GaitState",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "available": {
+      "items": {
+        "enum": [
+          "classic",
+          "sport",
+          "start",
+          "ame2"
+        ],
+        "type": "string"
+      },
+      "title": "Available",
+      "type": "array"
+    },
+    "gait": {
+      "anyOf": [
+        {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Gait"
+    }
+  },
+  "required": [
+    "gait",
+    "available"
+  ],
+  "title": "GaitState",
+  "type": "object"
+}

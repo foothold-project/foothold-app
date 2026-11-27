@@ -772,7 +772,20 @@ class ScreenPosture(ScreenRobot):
     action: Literal['stand_up', 'stand_down']
 
 
-ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction,
+# 걷기 모드 (팀장 11/28 04:02 · app-design-lx 04:04 합의). 멈춰 있을 때만 받는다.
+# classic · sport: 순정 고수준, start: 우리 정책, ame2: student 정책 (받기 전까지 GAIT_NOT_READY 로 거절)
+GaitName = Literal['classic', 'sport', 'start', 'ame2']
+GaitRejectCode = Literal['GAIT_MOVING', 'GAIT_NOT_STANDING', 'GAIT_NOT_READY', 'GAIT_LATCHED',
+                         'GAIT_NO_LEASE', 'GAIT_BUSY', 'GAIT_UNSUPPORTED']
+
+
+class ScreenGait(ScreenRobot):
+    t: Literal['gait']
+    lease_id: UUID
+    gait: GaitName
+
+
+ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait,
                           Field(discriminator='t')]
 
 
@@ -875,6 +888,18 @@ class PostureState(Contract):
     mode: Annotated[int, Field(ge=0, le=255, strict=True)] | None
 
 
+class GaitState(Contract):
+    gait: GaitName | None
+    available: list[GaitName]
+
+
+class GaitResult(Contract):
+    request_id: str = Field(min_length=1, max_length=128)
+    gait: GaitName
+    status: Literal['RUNNING', 'SUCCEEDED', 'REJECTED', 'FAILED']
+    code: GaitRejectCode | Literal['OK', 'TIMEOUT', 'SDK_ERROR']
+
+
 class PostureResult(Contract):
     request_id: str = Field(min_length=1, max_length=128)
     action: Literal['stand_up', 'stand_down']
@@ -914,6 +939,8 @@ class AgentState(AgentInput):
     response_health: RobotResponseHealth | None = None
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
+    gait: GaitState | None = Field(default=None, exclude_if=lambda value: value is None)
+    gait_result: GaitResult | None = Field(default=None, exclude_if=lambda value: value is None)
     action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     control: ControlMode | None = None
@@ -1464,9 +1491,16 @@ class AgentPosture(Contract):
     action: Literal['stand_up', 'stand_down']
 
 
+class AgentGait(Contract):
+    t: Literal['gait'] = 'gait'
+    request_id: str = Field(min_length=1, max_length=128)
+    lease_id: UUID
+    gait: GaitName
+
+
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1513,9 +1547,11 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control', 'gait', 'gait_result'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
+    gait: GaitState | None = None
+    gait_result: GaitResult | None = None
     action_result: ActionResult | None = None
     control: ControlMode | None = None
     robot_info: Go2RobotInfo | None = None
