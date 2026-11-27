@@ -128,19 +128,45 @@ def test_only_422_enables_compatibility(tmp_path, status):
         close_runtime(rt)
 
 
-def test_422_retry_failure_stays_legacy_without_repeated_downgrade(tmp_path, caplog):
+@pytest.mark.parametrize('retry_status', [422, 500, None])
+def test_422_retry_failure_retries_original_fields_on_next_report(tmp_path, caplog, retry_status):
     rt = runtime(tmp_path)
     attempts = []
     def request(sid, op, data):
         attempts.append(json.loads(data))
-        raise TransferError('MAPPING_FAILED', '시험 실패', status=422)
+        raise TransferError('MAPPING_FAILED', '시험 실패', status=422 if len(attempts) % 2 else retry_status)
     rt.request = request
     try:
         for _ in range(2):
             with pytest.raises(TransferError):
                 rt.report_progress('session', b'{"sources":{},"glim_preview":{}}')
-        assert attempts == [{'sources': {}, 'glim_preview': {}}, {}, {}]
-        assert len([r for r in caplog.records if 'progress rejected status=422' in r.message]) == 1
+        assert attempts == [{'sources': {}, 'glim_preview': {}}, {}]*2
+        assert not rt.legacy_report_sessions
+        assert len([r for r in caplog.records if 'progress rejected status=422' in r.message]) == 2
+    finally:
+        close_runtime(rt)
+
+
+def test_422_retry_success_commits_only_that_session(tmp_path):
+    rt = runtime(tmp_path)
+    attempts = []
+    def request(sid, op, data):
+        attempts.append((sid, json.loads(data)))
+        if len(attempts) == 1:
+            assert not rt.legacy_report_sessions
+            raise TransferError('MAPPING_FAILED', '시험 실패', status=422)
+        if len(attempts) == 2:
+            assert not rt.legacy_report_sessions
+        return {'accepted': True}
+    rt.request = request
+    original = b'{"update_seq":7,"sources":{},"glim_preview":{},"voxels":[[1,2,3]]}'
+    try:
+        assert rt.report_progress('old', original) == {'accepted': True}
+        assert rt.legacy_report_sessions == {'old'}
+        rt.report_progress('old', original)
+        rt.report_progress('new', original)
+        assert attempts[1][1] == attempts[2][1] == {'update_seq': 7, 'voxels': [[1, 2, 3]]}
+        assert attempts[0][1] == attempts[3][1] == json.loads(original)
     finally:
         close_runtime(rt)
 

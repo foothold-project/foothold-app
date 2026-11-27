@@ -586,13 +586,14 @@ class OnboardRuntime(MappingRuntime):
             status=error.code if isinstance(error,HTTPError) else error.status
             if status!=422 or not any(key in body for key in ('sources','glim_preview')):
                 raise
-            # One downgrade per session. Preserve the exact seq/delta/tiles so
+            # Commit the downgrade only after the retry succeeds. Preserve seq/delta/tiles so
             # only successful retries acknowledge progress and unblock saving.
-            self.legacy_report_sessions.add(session)
-            LOG.warning('SLAM progress rejected status=422 session=%s; retry without sources/glim_preview for this session',session)
+            LOG.warning('SLAM progress rejected status=422 session=%s; retry without sources/glim_preview',session)
             body.pop('sources',None)
             body.pop('glim_preview',None)
-            return self.request(session,'progress',encode(body))
+            result=self.request(session,'progress',encode(body))
+            self.legacy_report_sessions.add(session)
+            return result
 
     def remove_bundle(self, session):
         try:
