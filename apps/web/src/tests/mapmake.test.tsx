@@ -663,4 +663,43 @@ describe('지도 만들기 — 받은 상태·미리보기 모양 검사(RV-519)
       expect(box.textContent).not.toContain('아직 받은 칸이 없습니다');
     }
   });
+
+  // RV-521: 초록은 세 좌표 모두 유한수 · 점군 나이도 유한 ≥0 일 때만
+  it('정상 상태는 0Hz 포함 «실시간 위치 정상»(초록)', () => {
+    for (const pose_hz of [0, 10, 4096]) expect(html({ point_lio: { ...PL, pose_hz }, glim: GL })).toContain('실시간 위치 정상');
+  });
+  for (const position_m of [[1, 2], [1, 2, 'bad'], [1, 2, null], [1, 2, Number.NaN]]) {
+    it(`위치 [${position_m.map(String).join(",")}] → 초록 아님, «기다리는 중»(노랑)`, () => {
+      const h = html({ point_lio: { ...PL, position_m }, glim: GL });
+      expect(h).not.toContain('실시간 위치 정상'); expect(h).toContain('data-src="point_lio" data-lamp="warn"');
+    });
+  }
+  for (const cloud_age_s of [-3, Number.NaN]) {
+    it(`점군 나이 ${cloud_age_s} → 초록 아님, «기다리는 중»(노랑)`, () => {
+      const h = html({ point_lio: { ...PL, cloud_age_s }, glim: GL });
+      expect(h).not.toContain('실시간 위치 정상'); expect(h).toContain('data-src="point_lio" data-lamp="warn"');
+    });
+  }
+  it('같은 frame 정상 미리보기는 겹치고, 미리보기가 사라지면 Point-LIO 로 돌아간다', async () => {
+    tiles(() => 'map', () => 1); noVox(); mount();
+    const p = live(1, 'map');
+    await draw(<MapBox robot="r" p={p} link={0} />);
+    expect(box.querySelector('[data-glim-preview="over"]')).not.toBeNull();
+    await act(async () => { box.querySelector<HTMLButtonElement>('[data-layer="point_lio"]')!.click(); });
+    expect(box.querySelector('canvas')!.dataset.slamTiles).toBe('0');
+    await draw(<MapBox robot="r" p={{ ...p, glim_preview: null }} link={0} />);
+    expect(box.querySelector('canvas')!.dataset.slamTiles).toBe('1');
+  });
+  it('실제 조각 frame 이 진행 보고의 voxel frame 보다 우선', async () => {
+    tiles(() => 'map', () => 1); noVox(); mount();
+    await draw(<MapBox robot="r" p={live(1, 'voxel', { frame_id: 'map', resolution: 0.25, cells: [[1, 0, 0]] })} link={0} />);
+    expect(box.querySelector('[data-glim-preview="over"]')).not.toBeNull();
+  });
+  it('조각이 없어도 진행 보고 frame 이 같으면 GLIM 미리보기를 겹친다', async () => {
+    vi.spyOn(api, 'slamTiles').mockImplementation(async (_r, sid, revision) => ({ session_id: sid, revision, update_seq: 1, next_cursor: null, tiles: [] }) as never);
+    noVox(); mount();
+    await draw(<MapBox robot="r" p={live(1, 'map')} link={0} />);
+    expect(box.querySelector('[data-glim-preview="over"]')).not.toBeNull();
+    expect(box.querySelector('canvas')).not.toBeNull();
+  });
 });

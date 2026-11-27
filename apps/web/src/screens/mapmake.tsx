@@ -67,9 +67,10 @@ export function Sources({ st, s }: { st: MappingProgress['status'] | null; s?: M
   // 한쪽이 없거나 모양이 틀려도(옛·고장 보고) 예외 없이 «기다리는 중» — 초록 «정상»은 신선·위치 유효·이유 없음·나이·위치·Hz 가 모두 맞을 때만
   const pl = obj(obj(s)?.point_lio) ?? {}, g = obj(obj(s)?.glim) ?? {}, code = str(pl.reason_code);
   const waiting = st === 'STARTING' || st === 'SAVING' || st === 'FINALIZING';   // 켜는 중·저장 중엔 자료가 없는 게 이상이 아니다
-  const pa = age(pl.pose_age_s), hz = age(pl.pose_hz), pos = Array.isArray(pl.position_m) ? [num(pl.position_m[0]), num(pl.position_m[1])] : null;
+  const pa = age(pl.pose_age_s), hz = age(pl.pose_hz), pos = Array.isArray(pl.position_m) ? pl.position_m.map(num) : null;
   const at = pos && pos[0] != null && pos[1] != null ? `x ${pos[0].toFixed(2)} · y ${pos[1].toFixed(2)} m` : null;
-  const [lamp, text]: [Lamp, string] = pl.fresh === true && pl.position_valid === true && !code && pa != null && at && hz != null ? ['ok', and('실시간 위치 정상', ago(pa), `${hz}Hz`)]
+  const xyz = pos?.length === 3 && pos.every((v) => v != null);   // RV-521: 세 좌표 모두 유한수 · 점군 나이도 유한 ≥0 이어야 초록
+  const [lamp, text]: [Lamp, string] = pl.fresh === true && pl.position_valid === true && !code && pa != null && age(pl.cloud_age_s) != null && xyz && at && hz != null ? ['ok', and('실시간 위치 정상', ago(pa), `${hz}Hz`)]
     : code && !(waiting && (code === 'MISSING_DATA' || code === 'STALE')) ? ['bad', and(word(LIO_WHY, code) ?? str(pl.reason) ?? '위치 자료에 문제가 있습니다', ago(pa))]
     : ['warn', and('기다리는 중', ago(pa))];
   const stage = str(g.stage), ga = age(g.data_age_s), chunks = age(g.processed_chunks);
