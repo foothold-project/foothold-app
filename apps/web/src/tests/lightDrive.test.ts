@@ -26,18 +26,31 @@ describe('폰 조종 화면 · 밝은 판', () => {
     expect(rule(drive, '.dv-stage')).toContain('background:#05080A');
     expect(rule(drive, 'html:has(.dv.ph),.fh:has(.dv.ph)')).toBe('background:#05080A');
   });
-  it('영상 위 판의 보통 단추(«조종 끝내기»)는 판 색 + 밝은 글자를 함께 · 글자 대비 4.5:1 이상(밝은 바탕 위에서도)', () => {
-    const r = rule(drive, '.dv-hud .btn:not(.pri)');
-    expect(r).toMatch(/background:rgba\(8,11,14,\.66\)/);
-    expect(r).toMatch(/color:#E6EBEF/);
-    const light = token(frame, /\.fh\.light\{[^}]*\}/, '--panel2')!;   // 영상 없을 때 밝음 바탕
-    const plate = over([8, 11, 14], 0.66, light);
-    expect(ratio(hex('#E6EBEF'), plate)).toBeGreaterThanOrEqual(4.5);
+  // 영상 있음 · 없음을 가르는 조건: 영상 칸 안에 실제 그림(img · canvas · video)이 있는가. 없으면 «영상 준비 중» 글만 있는 div
+  const NV = '.fh.light .dv-stage:not(:has(img,canvas,video))', V = '.fh.light .dv-stage:has(img,canvas,video)';
+  const WHITE = [255, 255, 255];   // 영상 있음의 가장 나쁜 경우 = 하얀 영상 프레임
+  it('영상 없음(밝음): 판 · 단추 · 조이스틱은 «지도 없음» 칸과 같은 결 — 바탕 --panel · 가는 선 --line2 · 글자 --text, 어두운 scrim 없음', () => {
+    for (const sel of [' .dv-hud .dv-line', ' .dv-hud .dv-note', ' .dv-hud .btn:not(.pri)', ' .dv-sheets .btn', ' .dv-stick']) {
+      const r = rule(drive, NV + sel);
+      expect(r, sel).toMatch(/background:var\(--panel\)/);
+      expect(r, sel).toMatch(/border(-color)?:[^;]*var\(--line2\)/);
+      expect(r, sel).not.toMatch(/rgba\(8,11,14/);
+    }
+    expect(rule(drive, NV + ' .dv-hud .btn:not(.pri)')).toMatch(/color:var\(--text\)/);
+    expect(rule(drive, NV + ' .dv-stick>i')).toMatch(/background:var\(--line2\)/);   // 손잡이만 조금 진하게
+    expect(rule(drive, NV + ' .dv-stick>span')).toMatch(/color:var\(--text\)/);
   });
-  it('밝음: 조이스틱 글자(«전후» · «회전»)도 밝은 영상 칸 위에서 4.5:1 이상', () => {
-    const light = token(frame, /\.fh\.light\{[^}]*\}/, '--panel2')!;
-    const a = Number((rule(drive, '.fh.light .dv-stick') ?? '').match(/background:rgba\(8,11,14,(\.\d+)\)/)?.[1] ?? rule(drive, '.dv-stick')!.match(/background:rgba\(8,11,14,(\.\d+)\)/)![1]);
-    expect(ratio(hex('#E6EBEF'), over([8, 11, 14], a, light))).toBeGreaterThanOrEqual(4.5);
+  it('영상 없음(밝음) 글자 대비 4.5:1 이상 — --text / --panel (frame 값 · 공식 토큰 ink / card 둘 다)', () => {
+    const fr = /\.fh\.light\{[^}]*\}/;
+    expect(ratio(token(frame, fr, '--text')!, token(frame, fr, '--panel')!)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(hex('#161c26'), hex('#FFFFFF'))).toBeGreaterThanOrEqual(4.5);   // ui/public/brand tokens 밝음 --ink / --card
+  });
+  it('영상 있음: 어두운 scrim 판 그대로 · 하얀 프레임 위에서도 판 글자 4.5:1 이상, 밝음 조이스틱도 .66', () => {
+    const r = rule(drive, '.dv-hud .btn:not(.pri)')!;
+    expect(r).toMatch(/background:rgba\(8,11,14,\.66\)/); expect(r).toMatch(/color:#E6EBEF/);
+    expect(ratio(hex('#E6EBEF'), over([8, 11, 14], 0.66, WHITE))).toBeGreaterThanOrEqual(4.5);
+    const a = Number(rule(drive, V + ' .dv-stick')!.match(/background:rgba\(8,11,14,(\.\d+)\)/)![1]);
+    expect(ratio(hex('#E6EBEF'), over([8, 11, 14], a, WHITE))).toBeGreaterThanOrEqual(4.5);
   });
   it('STOP: 채움 · 글자는 두 테마 같은 고정 쌍, 대비 4.5:1 이상(테마가 STOP 채움을 덮지 않음)', () => {
     const r = rule(frame, '.fh-stop')!;

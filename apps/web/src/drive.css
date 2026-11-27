@@ -38,7 +38,18 @@ html:has(.fh.light .dv.ph),.fh.light:has(.dv.ph){background:var(--bg)}
 .fh.light .dv-stage{background:var(--panel2)}
 .fh.light .dv-video{background:var(--panel2);color:var(--muted)}
 .fh.light .dv-mini{background:var(--panel);border-color:var(--line2)}
-.fh.light .dv-stick{background:rgba(8,11,14,.66)}   /* 밝은 칸 위: .5 면 글자 3.3:1 → 영상 판 값 .66 (5.7:1) */
+/* 밝음 · 영상 없음(영상 칸에 img · canvas · video 가 없음): 판 · 단추 · 조이스틱을 «지도 없음» 칸과 같은 결로 — 종이 바탕 · 가는 선 · 먹 글자(관제 색조: 색을 줄이고 가는 선) */
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .dv-line{background:var(--panel);border:1px solid var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .dv-note{background:var(--panel);border:1px solid var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .fh-why{color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .btn:not(.pri){background:var(--panel);border-color:var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-sheets .btn{background:var(--panel);border-color:var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-stick{background:var(--panel);border:1px solid var(--line2)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-stick>i{background:var(--line2)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-stick>span{color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-arrows{stroke:var(--text)}
+/* 밝음 · 영상 있음: 어두운 scrim 판 그대로. 조이스틱만 판 값 .66(하얀 프레임 위 .5 면 글자 3.1:1 → 5.4:1) */
+.fh.light .dv-stage:has(img,canvas,video) .dv-stick{background:rgba(8,11,14,.66)}
 .dv.ph .dv-stage{border-radius:0}
 .dv.ph>:not(.dv-body){margin:0 8px 8px}
 /* 조종 화면: 조이스틱을 길게 눌러도 글자 선택·돋보기·길게 누르기 메뉴·끌기 그림자가 없게(iOS Safari 는 -webkit- 만 먹음). 입력란만 예외 */
