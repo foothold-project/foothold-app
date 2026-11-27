@@ -379,7 +379,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
       lidar: { available: true, reason: 'Ready', token: tok('l') } } } as ReturnType<typeof welcome>);
     await drive(a);
     expect($('[data-cam-pick="external"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');   // 11-28: 영문 원문 괄호는 실기처럼 뺌
+    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 · 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');   // 11-28: 영문 원문 괄호는 실기처럼 뺌
     expect(box.querySelector('.dv-stage img[alt="RGB 영상"]')).toBeNull();
     expect($('[data-orbit-why]')!.textContent).toBe('외부 카메라를 받는 중일 때만 시점을 옮길 수 있습니다');
     expect($('.dv-stage [data-orbit]')).toBeNull();   // 못 옮기면 끌기 처리 자체를 붙이지 않음

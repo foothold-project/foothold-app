@@ -179,11 +179,11 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     await recv(a, { t: 'event', code: 'RUN_WAYPOINT_ARRIVED', data: { run_id: OTHER, idx: 2, mission_name: '남의 실행' } });
     expect(visible()).not.toContain('남의 실행');
     for (const [p, t] of [
-      [{ status: 'FAILED', fail_code: 'NAV_TIMEOUT' }, '시나리오 실패 — 정해진 시간 안에 지점에 닿지 못했습니다.'],
-      [{ status: 'FAILED', fail_code: 'SOMETHING_NEW' }, '시나리오 실패 — 실행을 마치지 못했습니다(알 수 없는 이유 SOMETHING_NEW).'],   // 모르는 코드는 지어내지 않고 그대로
-      [{ status: 'CANCELED', fail_code: 'PAUSE_TIMEOUT' }, '시나리오 취소됨 — 일시정지가 10분을 넘어 자동으로 취소됐습니다.'],
-      [{ status: 'CANCELED', fail_code: 'OPERATOR_ABORT' }, '시나리오 취소됨 — 사람이 취소했습니다.'],
-      [{ status: 'COMPLETED', progress: { done: 3, total: 3 } }, '시나리오를 마쳤습니다 — 지점 3/3'],
+      [{ status: 'FAILED', fail_code: 'NAV_TIMEOUT' }, '시나리오 실패 · 정해진 시간 안에 지점에 닿지 못했습니다.'],
+      [{ status: 'FAILED', fail_code: 'SOMETHING_NEW' }, '시나리오 실패 · 실행을 마치지 못했습니다(알 수 없는 이유 SOMETHING_NEW).'],   // 모르는 코드는 지어내지 않고 그대로
+      [{ status: 'CANCELED', fail_code: 'PAUSE_TIMEOUT' }, '시나리오 취소됨 · 일시정지가 10분을 넘어 자동으로 취소됐습니다.'],
+      [{ status: 'CANCELED', fail_code: 'OPERATOR_ABORT' }, '시나리오 취소됨 · 사람이 취소했습니다.'],
+      [{ status: 'COMPLETED', progress: { done: 3, total: 3 } }, '시나리오를 마쳤습니다 · 지점 3/3'],
     ] as const) {
       await upd(p);
       expect(visible()).toContain(t);
@@ -206,7 +206,7 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     for (const [p, says, next] of [
       [{ status: 'FAILED', fail_code: 'RECORDING_REJECTED', progress: { done: 1, total: 3 } }, '서버가 실행 기록을 거부해 멈췄습니다', '이 실행은 이어갈 수 없고 새 실행만 할 수 있습니다. 시뮬을 «끝내기» 한 뒤 다시 띄우면(에이전트 재시작)'],
       [{ status: 'FAILED', fail_code: 'NAV_TIMEOUT' }, '정해진 시간 안에 지점에 닿지 못했습니다.', '길이 막혔는지 확인한 뒤 새로 실행하세요.'],
-      [{ status: 'CANCELED', fail_code: 'PAUSE_TIMEOUT' }, '자동으로 취소됐습니다', '이어갈 수 없습니다 — 다시 하려면 새로 실행하세요.'],
+      [{ status: 'CANCELED', fail_code: 'PAUSE_TIMEOUT' }, '자동으로 취소됐습니다', '이어갈 수 없습니다 · 다시 하려면 새로 실행하세요.'],
       [{ status: 'FAILED', fail_code: 'MAP_VERSION_MISMATCH' }, '시나리오 지도 판이 로봇 지도와 다릅니다.', '이 지도로는 이 시나리오를 실행할 수 없습니다.'],
       [{ status: 'FAILED', fail_code: 'SOMETHING_NEW' }, '알 수 없는 이유 SOMETHING_NEW', '로봇 상태를 확인한 뒤 새로 실행하세요.'],
     ] as const) {
@@ -303,7 +303,7 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     const { run_id } = await startPhone(a) as unknown as { run_id: string };
     await recv(a, phoneState({ ...held, latched: false, run: runOf(run_id) }));
     act(() => a.drop(1006)); await flush();
-    expect(visible()).toContain('화면 연결이 끊겼습니다 — 로봇은 스스로 멈추고 실행은 일시정지됩니다. 다시 연결한 뒤 이 화면에서 이어갈 수 있습니다.');
+    expect(visible()).toContain('화면 연결이 끊겼습니다 · 로봇은 스스로 멈추고 실행은 일시정지됩니다. 다시 연결한 뒤 이 화면에서 이어갈 수 있습니다.');
     const b = await connectAgain();
     const lost = runOf(run_id, { status: 'PAUSED', wait_reason: 'LINK_LOST' });
     await ready(b, lost);
@@ -346,11 +346,11 @@ describe('시나리오 실행 — 비밀값 위치·다른 화면', () => {
   it('다른 화면이 건 실행: 이어서 단추 없음·이유, 일시정지만 취소 가능(권한 거절이면 이유), 일시정지·이어서 프레임 0', async () => {
     const a = await launch('phone');
     await ready(a, runOf(OTHER));
-    expect(visible()).toContain('다른 화면에서 실행 중입니다 — 멈추려면 STOP.');
+    expect(visible()).toContain('다른 화면에서 실행 중입니다 · 멈추려면 STOP.');
     expect(btn('일시정지')).toBeUndefined(); expect(btn('취소')).toBeUndefined();
     const paused = runOf(OTHER, { status: 'PAUSED', wait_reason: 'LINK_LOST' });
     await ready(a, paused);
-    expect(visible()).toContain('다른 화면에서 건 실행입니다 — 이어서는 그 화면에서만 할 수 있습니다.');
+    expect(visible()).toContain('다른 화면에서 건 실행입니다 · 이어서는 그 화면에서만 할 수 있습니다.');
     expect(btn('이어서')).toBeUndefined();
     a.auto = ((m: Msg) => (m.t === 'run.control' ? { ok: false, error: { code: 'FORBIDDEN', message: '', detail: {} } } : auto!(m))) as FakeWS['auto'];
     await click(btn('취소'));
@@ -404,7 +404,7 @@ describe('시나리오 실행 — PC 총괄 시뮬', () => {
   it('PC: 다른 화면 실행 안내는 «시뮬 정지»로(QA R5), 단추 0', async () => {
     const a = await launch('pc');
     await ready(a, runOf(OTHER));
-    expect(visible()).toContain('다른 화면에서 실행 중입니다 — 멈추려면 «시뮬 정지».');
+    expect(visible()).toContain('다른 화면에서 실행 중입니다 · 멈추려면 «시뮬 정지».');
     expect($('[data-run-acts]')).toBeNull();
     expect($<HTMLButtonElement>('[data-sim-stop-btn]')!.disabled).toBe(false);
   });

@@ -24,7 +24,7 @@ export const STALE_TEXT = '다른 사람이 이 층 지도를 바꿨습니다. �
 const LINK_LOST = '연결이 끊겨 지도 기록은 로봇에서 계속합니다';
 export const MADE = '로봇으로 만든 지도와 시뮬 지형을 만들었습니다.';
 export const SLOW_TEXT = '로봇 프로그램이 새 지도 기능을 아직 지원하지 않을 수 있습니다(로봇 프로그램 업데이트 필요).';
-export const RECEIVED_TEXT = '받은 범위만 보관했습니다 — 저장 확인 안 됨. 시뮬 지형은 만들지 않았고, 이 지도는 승인을 기다립니다.';
+export const RECEIVED_TEXT = '받은 범위만 보관했습니다 · 저장 확인 안 됨. 시뮬 지형은 만들지 않았고, 이 지도는 승인을 기다립니다.';
 
 /** 이 사람이 지도를 만들 수 있는 로봇 = 내가 담당 운영자인 실기 로봇(총괄·남의 로봇은 서버도 403 MAPPING_OWNER_ONLY) */
 export const makers = (u: User, robots: Robot[]) => (u.role === 'OPERATOR' ? robots.filter((r) => r.owner === u.id && !r.sim) : []);
@@ -201,7 +201,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
       </div>
       {p.status === 'STARTING' && <p className="lv-note" role="status" data-starting>시작하는 중… 로봇이 지도 기능을 켜고 있습니다.</p>}
       {slow && <p className="fh-msg" role="alert" data-slow>{SLOW_TEXT}</p>}
-      {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">만드는 중 — {how} 로봇을 천천히 움직이세요.</p>}
+      {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">만드는 중 · {how} 로봇을 천천히 움직이세요.</p>}
       {(p.status === 'SAVING' || p.status === 'FINALIZING') && <p className="lv-note" role="status" data-saving>지도를 저장하는 중… 마무리까지 시간이 걸릴 수 있습니다.</p>}
       {p.status === 'UNKNOWN' && <p className="fh-msg" role="alert" data-unknown>{p.error_code === 'LINK_LOST' ? LINK_LOST : p.reason || '로봇 상태를 확인하지 못했습니다. 저장하거나 취소하세요.'}</p>}
       {p.status === 'FAILED' && <p className="fh-msg" role="alert" data-failed>{failText(p)}</p>}

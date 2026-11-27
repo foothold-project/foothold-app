@@ -174,12 +174,12 @@ describe('시뮬 조종 화면 · 한 사실은 한 곳 · 힌트', () => {
   it('임무 · 확인 · 힌트(등급 3~5)는 한 칸, 나머지는 «+N» 뒤 · 펼치면 모두', async () => {
     const a = await simDrive();
     act(() => a.recv({ t: 'run.update', run_id: 'r-1', status: 'FAILED', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: 'LOCALIZATION_LOST' })); await flush();
-    expect(slot('[data-sim-card]')).toEqual(['시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.']);
+    expect(slot('[data-sim-card]')).toEqual(['시나리오 실패 · 로봇이 지도 위 자기 위치를 잃었습니다.']);
     const more = $('[data-notes-more]')!;
     expect(more.textContent).toBe('+1 더 보기');
     // 안내 줄과 같은 줄 오른쪽 끝(한 줄 = data-notes-row 안에 안내 다음)
     const row = more.closest('[data-notes-row]')!;
-    expect(row.firstElementChild!.textContent).toBe('시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.');
+    expect(row.firstElementChild!.textContent).toBe('시나리오 실패 · 로봇이 지도 위 자기 위치를 잃었습니다.');
     expect(row.lastElementChild).toBe(more);
     await click(more);
     expect(slot('[data-sim-card]')).toHaveLength(2);
@@ -196,7 +196,7 @@ describe('시뮬 조종 화면 · 한 사실은 한 곳 · 힌트', () => {
     const shown = slot('[data-sim-card]');
     expect(shown).toHaveLength(2);
     expect(shown[0]).toMatch(/^■ /);
-    expect(shown[1]).toBe('시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.');
+    expect(shown[1]).toBe('시나리오 실패 · 로봇이 지도 위 자기 위치를 잃었습니다.');
     expect($('[data-notes-more]')!.textContent).toBe('+1 더 보기');
   });
 

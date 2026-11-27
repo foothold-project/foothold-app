@@ -1444,7 +1444,7 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     expect(saveBtn().closest('.mx-bar')).toBeTruthy();
     expect(card('단계 창').querySelector('.mx-pick [data-side="scen"]')!.textContent).toBe('시나리오 1');            // 창 맨 위 제목 = 시나리오만(RB-SIM-NO-MAPEL)
     expect(card('단계 창').querySelector('[data-side="map"], [aria-label="오른쪽 창"]')).toBeNull();
-    expect($('.mx-bar [data-locked]')!.getAttribute('aria-label')).toBe('지도: 본관 › 본동 › 1층 (잠김 — 시나리오를 닫으면 지도를 바꿀 수 있습니다)');
+    expect($('.mx-bar [data-locked]')!.getAttribute('aria-label')).toBe('지도: 본관 › 본동 › 1층 (잠김 · 시나리오를 닫으면 지도를 바꿀 수 있습니다)');
     expect(card('단계 창').contains(name())).toBe(true);
     await click($('[data-back]'));
     await click(row('s1'));

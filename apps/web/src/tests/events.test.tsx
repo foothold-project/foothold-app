@@ -127,7 +127,7 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     expect([...card('사건').querySelectorAll('th')].map((t) => t.textContent)).toEqual(['시각', '종류', '상태', '내용', '로봇·사람']);
     const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => [...r.children].map((td) => td.textContent));
     expect(a.slice(1)).toEqual(['안전', '▲주의', '사건 2 문장', 'Go2-A · 김총괄']);
-    expect(b.slice(1)).toEqual(['계정', '', '사건 1 문장', '—']);   // INFO = 표시 없음(색은 주의·오류에만, 11-11 A안)
+    expect(b.slice(1)).toEqual(['계정', 'ⓘ정보', '사건 1 문장', '—']);   // INFO = 옅은 ⓘ정보 알약(U8-10 시안, 11-28 조정 결정)
     expect(card('사건').querySelector('[data-kind="SAFETY"]')!.textContent).toBe('안전');
   });
   it('INFO 는 «정상»이라 단정하지 않음 — 서버가 INFO 로 저장한 실패 코드(정지 확인 실패 등)는 ▲주의', async () => {
@@ -819,7 +819,7 @@ describe('사진 사건(VQ-F1)', () => {
     expect(a.textContent).toContain('사진을 불러오지 못함');
     // 실패 행: 사진 없음 + ●오류(성공처럼 보이지 않음)
     expect(b.querySelector('img')).toBeNull();
-    expect(b.querySelector('[data-photo="failed"]')!.textContent).toBe('사진 저장 실패 — 사진 없음');
+    expect(b.querySelector('[data-photo="failed"]')!.textContent).toBe('사진 저장 실패 · 사진 없음');
     expect(b.querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('bad');
     expect(c.querySelector('[data-photo]')).toBeNull();   // 다른 사건엔 사진 칸 없음
     stopOk();

@@ -168,7 +168,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
   const floorName = (f: SpawnFloor) => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : f === 'l2' ? '2층' : '3층');
   const l = s.link, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
   useTick(!!wait);
-  const msg = s.err && <p className="fh-why" role="status" data-sim-msg>{s.err}</p>;
+  const msg = s.err && <p className="fh-why" role="status" data-sim-msg style={{ wordBreak: 'keep-all' }}>{s.err}</p>;
   const stop = stopText(s);
   const cleanup = s.cleanup.filter((r) => r.owner_id === me);
   // 새로고침·나가기 뒤 다시 들어가기 — 새 연결이라 조종권·잠금 해제는 처음부터(자동 재개 없음)
@@ -195,7 +195,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
       <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span></div>
       <div className="fh-row">{r !== resume && <button type="button" className="btn pri" onClick={() => sim.attach(r)}>{view ? '보기' : '직접 연결'}</button>}<button type="button" className="btn" onClick={() => sim.end(r)}>{r.state === 'ERROR' ? '정리' : '끝내기'}</button></div></li>)}</ul>}
     {!only && <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }} data-sim-engine><legend>시뮬</legend>
-      <ul className="fh-list" aria-label="시뮬 고르기">{([['mujoco', 'MuJoCo', '이 기기에서 계산'], ['gazebo', 'Gazebo', gz ? '서버에서 계산' : '서버에서 계산 · 준비 중']] as const).map(([id, name, note]) =>
+      <ul className="fh-list" aria-label="시뮬 고르기">{([['mujoco', 'MuJoCo', '이 기기에서 계산'], ['gazebo', 'Gazebo', gz ? '서버에서 계산' : `서버에서 계산 · ${!s.worldsOk ? '월드 목록을 받지 못해' : s.managerError ? '시뮬 관리자에 닿지 않아' : '서버에 띄울 월드가 없어'} 지금 고를 수 없음`]] as const).map(([id, name, note]) =>
         <li key={id}><label className="fh-row">
           <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}

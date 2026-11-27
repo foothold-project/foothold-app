@@ -334,6 +334,8 @@ class MapVersion(Tenant, Base):
         UniqueConstraint('floor_id', 'number'),
         CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','CANCELED','SUPERSEDED')", name='map_version_status'),
         CheckConstraint("source IN ('SLAM','EDIT','ROLLBACK','IMPORT')", name='map_version_source'),
+        CheckConstraint('(model_path IS NULL) = (model_sha256 IS NULL) AND (model_sha256 IS NULL OR length(model_sha256) = 32)',
+                        name='map_version_model'),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     floor_id: Mapped[UUID] = mapped_column(PGUUID)
@@ -353,6 +355,9 @@ class MapVersion(Tenant, Base):
     features: Mapped[dict] = mapped_column(JSONB)
     reason: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(Text)
+    # Optional indoor 3D model (GLB); display only, attachable after insert.
+    model_path: Mapped[str | None] = mapped_column(Text)
+    model_sha256: Mapped[bytes | None] = mapped_column(LargeBinary)
     created_by: Mapped[UUID] = mapped_column(PGUUID)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
 
