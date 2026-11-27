@@ -15,6 +15,7 @@ import raw from './mapcases.json?raw';
 import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
+import { keptMission } from '../screens/missiontab';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -2303,7 +2304,7 @@ describe('구역 지키기 — 지도 편집', () => {
     await click(btn('저장', $('.mx-bar')!)); await save('이름만');
     expect(body().features.zones.map((x) => Object.keys(x).sort().join())).toEqual(['id,name,polygon,type', 'id,name,polygon,type']);
   });
-  it('저장 전 겹침: 창에 시나리오 이름·겹친 꼴, «아니요» = 저장 안 하고 편집 계속, «예» = 저장한 뒤 시뮬 탭 첫 시나리오로', async () => {
+  it('저장 전 겹침: 창에 시나리오 이름·겹친 꼴, «아니요» = 저장 안 하고 편집 계속, «예» = 저장한 뒤 임무 탭에서 첫 시나리오를 고름(W2)', async () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits() }));
     await startEdit();
     await tool('접근 금지'); await drag(1, 1, 2, 0);
@@ -2318,7 +2319,8 @@ describe('구역 지키기 — 지도 편집', () => {
     await click(btn('저장', $('.mx-bar')!)); await save();
     await click($('[data-overlap-yes]')); await hashed();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
-    expect(location.hash).toBe('#/sim'); expect(keptPlan.sel).toBe('s9');
+    expect(location.hash).toBe('#/missions'); expect(keptMission.sel).toBe('s9');
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');
   });
   it('겹침 검사 실패: 저장을 막지 않고 «겹침을 확인하지 못했습니다» — «계속 편집» 또는 «그래도 저장»', async () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': err(500, 'INTERNAL', '서버 오류') }));
