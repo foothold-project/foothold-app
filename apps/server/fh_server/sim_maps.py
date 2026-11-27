@@ -179,12 +179,13 @@ def load_worlds(folder):
                 or not math.isfinite(entry['floor_z']) or generated['size_pixels'] != [width, height]
                 or generated['origin'] != metadata['origin'] or generated['resolution'] != metadata['resolution']):
             raise ValueError('Static map metadata does not match image/YAML/floor')
-        if key == ('warehouse', 'f1'):
+        if key in (('warehouse', 'f1'), ('plant_a', 'l1'), ('plant_a', 'l2'), ('plant_a', 'l3')):
             _, _, pixels = gray_pixels(png)
             pgm = f'P5\n{width} {height}\n255\n'.encode() + pixels
             metadata['connected_gt'] = dict(world_id=entry['world_id'], ros_building_id=entry['building_id'],
-                ros_floor_id='f1', ros_map_version='gt-20261012', source_pgm_sha256=sha256(pgm).hex(),
-                sha256=sha256(png).hex(), source='SIMULATION')
+                ros_floor_id=entry['floor_id'],
+                ros_map_version='gt-20261012' if key[0] == 'warehouse' else 'gt-20261128',
+                source_pgm_sha256=sha256(pgm).hex(), sha256=sha256(png).hex(), source='SIMULATION')
         scenarios = json.loads(local_file(root, entry['scenarios']).read_text()) if entry.get('scenarios') else []
         if len({s['id'] for s in scenarios}) != len(scenarios):
             raise ValueError('Duplicate preset scenario')
