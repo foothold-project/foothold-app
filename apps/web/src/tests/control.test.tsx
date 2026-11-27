@@ -8,6 +8,7 @@ import { FakeWS, state } from './fakeWs';
 import { EmptyControl, actOf, lastly, order } from '../screens/control';
 import { api } from '../api';
 import { sim } from '../phone';
+import { rt } from '../rt';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -325,5 +326,83 @@ describe('관제 탭', () => {
     expect(document.activeElement).toBe(go);
     act(() => { go.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })); });   // Enter 로 누른 단추 = detail 0 click
     expect(FakeWS.last.of('stop')).toHaveLength(10);   // 이OO 로봇 10 대 모두 연결
+  });
+
+  // Sonnet 검토 fb668832 (05:38): A1 링크 끊김 · 첫 state 전 · A2 한 대 끊김 · A3 시뮬 결과 띠 · A4 초점 · A5 거르기
+  const UNSURE = '상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요';
+  const LOST = '연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요';
+  const SIM = { robot_id: 'sx', generation: 1, owner_id: 'u-lee', world_id: 'w', simulation: true, state: 'RUNNING', agent_address: '' } as never;
+  it('A1: 첫 state 전(wait)이어도 정지 가능 로봇은 모두 정지에 들고, 그 줄은 «상태 모름»으로 따로', () => {
+    mount('u-lee', TWENTY); act(() => { FakeWS.last.open(); });   // 구독은 됐지만 state 0
+    const halt = vi.spyOn(rt, 'stop');
+    press(stopBtn());
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    expect(pick.querySelector('select')!.options[0].textContent).toBe('모두 정지 (10 대 · 상태 모름 10)');
+    expect(pick.querySelectorAll('[data-stop-unsure]')).toHaveLength(10);
+    expect(pick.querySelector('[data-stop-unsure="g0"]')!.textContent).toContain(`K-01 ${UNSURE}`);
+    press(stopBtn());
+    expect(halt).toHaveBeenCalledTimes(10);
+    const b = $$('[data-stop-band]').find((x) => x.textContent!.includes('K-01'))!;
+    expect(b.textContent).toContain(UNSURE);
+  });
+  it('A1 · A3: 실시간 링크가 거부(denied)되고 내 시뮬이 떠 있어도 첫 누름은 고르기(시뮬 직행 아님) · 모두 정지에 로봇 + 시뮬 · 띠에 시뮬 결과 한 줄', () => {
+    vi.spyOn(sim, 'live').mockReturnValue(SIM);
+    const simStop = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-lee', TWENTY); feed(TWENTY);
+    act(() => { FakeWS.last.drop(4403); });
+    const halt = vi.spyOn(rt, 'stop').mockImplementation(() => {});
+    press(stopBtn());
+    expect(simStop).not.toHaveBeenCalled();
+    expect($('[aria-label="정지할 로봇 고르기"] select').querySelector('option')!.textContent).toBe('모두 정지 (11 대 · 상태 모름 10)');
+    const real = sim.get();
+    vi.spyOn(sim, 'get').mockReturnValue({ ...real, step: 'drive', stop: { at: 1, via: 'none' } });
+    press(stopBtn());
+    expect(simStop).toHaveBeenCalledTimes(1);
+    expect(halt).toHaveBeenCalledTimes(10);
+    expect($('[data-sim-stop-band]').textContent).toContain('정지 명령을 보낼 길이 없습니다');
+  });
+  it('A2: 타일에서 끊긴 로봇 한 대를 골라 정지해도 «정지 요청됨»처럼 보이지 않는다', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));
+    mount('u-lee', T); feed(T);
+    act(() => { tile('g4').click(); });
+    press(stopBtn());
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['g4']);
+    const b = $$('[data-stop-band]').find((x) => x.textContent!.includes('K-05'))!;
+    expect(b.dataset.stopLost).toBe('g4');
+    expect(b.textContent).toContain(`K-05 ${LOST}`);
+  });
+  it('A4: 고르기에서 다른 로봇을 골랐다가 «모두 정지»로 되돌리면 정지 단추에 초점', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    press(stopBtn());
+    const sel = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
+    const pickVal = (v: string) => act(() => { sel.focus(); sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    pickVal('g0');
+    expect(document.activeElement).toBe(sel);
+    pickVal(sel.options[0].value);   // 모두 정지
+    expect(document.activeElement).toBe($('[aria-label="정지할 로봇 고르기"] button.fh-stop'));
+  });
+  it('A5: 거르기를 바꾸면 아직 보이는 고름도 비운다(STOP 한 번 = 고르기)', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    act(() => { $$('[aria-label="범위"] button')[0].click(); });   // 모두
+    act(() => { tile('g6').click(); });                           // 이OO 로봇 = «내 로봇»에서도 보임
+    act(() => { $$('[aria-label="범위"] button')[1].click(); });
+    expect(tile('g6')).not.toBeNull();
+    press(stopBtn());
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    expect($('[aria-label="정지할 로봇 고르기"]')).not.toBeNull();
+  });
+
+  it('A1: 정지 가능 로봇이 있으면(구독 밖 남의 로봇뿐이어도) 내 시뮬로 바로 가지 않고 고르기 · 모두 정지 = 내 시뮬', () => {
+    vi.spyOn(sim, 'live').mockReturnValue(SIM);
+    const simStop = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    const P = TWENTY.filter((r) => r.owner === 'u-park').slice(0, 3);   // 이OO 담당 0 대 · 남의 로봇은 요약만(구독 밖)
+    mount('u-lee', P); feed(P);
+    act(() => { $$('[aria-label="범위"] button')[0].click(); });
+    press(stopBtn());
+    expect(simStop).not.toHaveBeenCalled();
+    expect($('[aria-label="정지할 로봇 고르기"] select').querySelector('option')!.textContent).toBe('모두 정지 (1 대)');
+    press(stopBtn());
+    expect(simStop).toHaveBeenCalledTimes(1);
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
   });
 });
