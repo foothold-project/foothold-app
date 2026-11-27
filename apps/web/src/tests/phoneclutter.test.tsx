@@ -112,6 +112,14 @@ describe('실기 직결 조종 화면 · 알림 수명', () => {
     expect($('[data-notes-more]')).toBeNull();
   });
 
+  it('큰 화면 가운데 글(영상 없음 등)은 알림 카드 · 작은 창 · STOP 을 피한 자리(겹침 실측은 하네스 사진 · 사각형 재기)', async () => {
+    const css = (await import('../realdrive.css?raw')).default;
+    // 가로: 작은 창(왼쪽) · 카드(오른쪽) · 조이스틱(아래)을 뺀 빈 자리 가운데
+    expect(css).toMatch(/@media \(max-height:480px\)\{[^@]*\.rd-view\.big \.dv-video,\.rd-view\.big>\.qd-empty\{[^}]*padding:[^}]*\}/);
+    // 세로: 카드 아래 · 큰 화면 아래쪽
+    expect(css).toMatch(/@media \(orientation:portrait\)\{[^@]*\.rd-view\.big \.dv-video,\.rd-view\.big>\.qd-empty\{[^}]*align-items:end/);
+  });
+
   it('로봇 이름은 칩에만(로봇 한 대 · 화면에 이름표 없음)', async () => {
     await real();
     const drive = $('[data-real-drive]')!;
