@@ -66,7 +66,7 @@ class OnboardRuntime(MappingRuntime):
         self.pose_histories={key:deque(maxlen=64) for key in SOURCES}
         self.input_stamps={}
         self.handles=[]
-        self.pointlio=PointLioHealth(self.live,self.now)
+        self.pointlio=PointLioHealth(self.live,self.now,self.env)
         self.glim_live=GlimLive(self.final,self.now)
         self.sample_receipts={topic:deque(maxlen=4096) for topic in (self.live.odom_topic,self.live.cloud_topic)}
         self.next_glim_receive=self.next_glim_report=float('-inf')
@@ -340,14 +340,16 @@ class OnboardRuntime(MappingRuntime):
             try:
                 if received<self.not_before:
                     continue
-                if not source.configured or message.header.frame_id!=source.frame or not 0<=self.now()-received<=.5:
+                if (not source.configured or message.header.frame_id!=source.frame
+                        or not 0<=self.now()-received<=self.pointlio.cloud_fresh_seconds):
                     raise ValueError('frame_or_age')
                 if self.services.status=='STARTING' or ready_at is not None and received<ready_at:
                     continue
                 stamp=timestamp(message.header.stamp)
                 if stamp<=self.input_stamps.get(topic,0):
                     raise ValueError('non_increasing_stamp')
-                poses=[pose for pose in history if 0<=self.now()-pose[0]<=.5 and abs(pose[1]-stamp)<=250000000
+                poses=[pose for pose in history if 0<=self.now()-pose[0]<=self.pointlio.cloud_fresh_seconds+FRESH_SECONDS
+                       and abs(pose[1]-stamp)<=250000000
                        and (ready_at is None or pose[0]>=ready_at)]
                 if not poses:
                     raise ValueError('missing_synchronized_pose')
@@ -467,8 +469,7 @@ class OnboardRuntime(MappingRuntime):
                     '지도 기록이 꺼졌습니다. 받은 자료를 저장하거나 새로 시작해 주세요.')
             elif not self.services.receiving_ready():
                 if self.input_wait_since is None:
-                    receipts=[item[0] for item in self.pointlio.state[:2] if item is not None]
-                    self.input_wait_since=min(self.now(),min(receipts)+FRESH_SECONDS) if receipts else self.now()
+                    self.input_wait_since=min(self.now(),self.pointlio.expires_at())
                 self.problem('MAPPING_INPUT_WAITING','위치 자료를 기다리는 중')
             elif self.input_wait_since is not None:
                 pose=self.pointlio.state[0]
