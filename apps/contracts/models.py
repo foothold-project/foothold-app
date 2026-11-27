@@ -168,6 +168,10 @@ class Battery(Contract):
     updated_at: UTCDateTime
 
 
+# Sim worlds whose observations carry a floor context; the only world-to-floor table.
+SIM_WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',)}
+
+
 class FloorContext(Contract):
     """Observation identity; compare the entire token before using asynchronous map results.
 
@@ -179,10 +183,10 @@ class FloorContext(Contract):
     run_id: str = Field(min_length=1, max_length=128)
     epoch: int = Field(ge=0, strict=True)
     floor_rev: int = Field(ge=0, strict=True)
-    world_id: Literal['v5_building', 'warehouse']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse']
     building_id: UUID
-    spawn_floor_id: Literal['l1', 'l2', 'f1']
-    current_floor_id: Literal['l1', 'l2', 'f1'] | None
+    spawn_floor_id: Literal['l1', 'l2', 'l3', 'f1']
+    current_floor_id: Literal['l1', 'l2', 'l3', 'f1'] | None
     floor_id: UUID | None
     map_version_id: UUID | None
     sha256: str | None = Field(pattern=r'^[0-9a-f]{64}$')
@@ -194,12 +198,11 @@ class FloorContext(Contract):
 
     @model_validator(mode='after')
     def coherent_floor(self):
-        if self.world_id == 'warehouse':
-            if (self.spawn_floor_id != 'f1' or self.current_floor_id != 'f1'
-                    or self.floor_state != 'on_floor'):
-                raise ValueError('static world has one fixed floor')
-        elif self.spawn_floor_id == 'f1' or self.current_floor_id == 'f1':
-            raise ValueError('connected building floors are l1/l2')
+        floors = SIM_WORLD_FLOORS[self.world_id]
+        if self.spawn_floor_id not in floors or self.current_floor_id not in (*floors, None):
+            raise ValueError('floor does not belong to world')
+        if self.world_id == 'warehouse' and (self.current_floor_id != 'f1' or self.floor_state != 'on_floor'):
+            raise ValueError('static world has one fixed floor')
         if (self.floor_state == 'on_floor') != (self.current_floor_id is not None):
             raise ValueError('current_floor_id is present exactly when on_floor')
         ready = self.map_version_id is not None
@@ -1959,9 +1962,17 @@ class MappingBundleLink(Contract):
 class MapVersion(Contract):
     slam_bundle: MappingBundleLink | None = Field(default=None, exclude_if=lambda value: value is None)
     voxel_map: VoxelMapSummary | None = Field(default=None, exclude_if=lambda value: value is None)
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle', 'model_sha256', 'model_floor_z'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
+    # One indoor 3D model (GLB) of this version's floor, served by GET .../model
+    # with ETag = this hex sha256. null: no 3D, clients show the 2D map only.
+    # glTF (x,y,z) -> world (x,-z,y); world (x,y,z) is glTF (x,z,-y). Metres,
+    # map world origin. See contracts README.
+    model_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    # World z (m) of this floor's top face for placing markers on the model;
+    # null exactly when model_sha256 is null.
+    model_floor_z: float | None = None
     upload_id: UUID
     id: UUID
     floor_id: UUID
@@ -3251,7 +3262,7 @@ class SimWorld(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields('map_id', 'floors', 'spawn_floor_ids'))
     map_id: UUID | None = None
     floors: list[SimWorldFloor] = Field(default_factory=list)
-    spawn_floor_ids: list[Literal['l1', 'l2']] = Field(default_factory=list)
+    spawn_floor_ids: list[Literal['l1', 'l2', 'l3']] = Field(default_factory=list)
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=40)
     description: str = Field(default='', max_length=200)
@@ -3259,20 +3270,27 @@ class SimWorld(Contract):
 
 class SimWorldStart(Contract):
     world_id: str = Field(min_length=1, max_length=128)
-    spawn_floor_id: Literal['l1', 'l2'] | None = None
+    spawn_floor_id: Literal['l1', 'l2', 'l3'] | None = None
 
     @model_validator(mode='after')
     def normalize_building(self):
-        if self.world_id in ('v5_building/l1', 'v5_building/l2'):
-            floor = self.world_id.rsplit('/', 1)[1]
+        # Connected multi-floor worlds (v5_building, plant_a) start as one world plus a spawn floor.
+        world, _, floor = self.world_id.partition('/')
+        floors = SIM_WORLD_FLOORS.get(world, ())
+        if len(floors) > 1 and floor:
+            if floor not in floors:
+                raise ValueError('spawn floor does not belong to world')
             if self.spawn_floor_id is not None and self.spawn_floor_id != floor:
                 raise ValueError('conflicting spawn floor alias')
-            self.world_id, self.spawn_floor_id = 'v5_building', floor
-        if self.world_id == 'v5_building':
+            self.world_id, self.spawn_floor_id = world, floor
+        floors = SIM_WORLD_FLOORS.get(self.world_id, ())
+        if len(floors) > 1:
             if self.spawn_floor_id is None:
                 self.spawn_floor_id = 'l1'
+            elif self.spawn_floor_id not in floors:
+                raise ValueError('spawn floor does not belong to world')
         elif self.spawn_floor_id is not None:
-            raise ValueError('spawn floor selection requires v5_building')
+            raise ValueError('spawn floor selection requires a connected building')
         return self
 
 
@@ -3287,10 +3305,10 @@ class SimRemove(Contract):
 
 class SimMapBinding(Contract):
     """Server-verified canonical GT registration; PNG and PGM hashes are distinct."""
-    world_id: Literal['v5_building', 'warehouse']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse']
     building_id: UUID
     ros_building_id: str = Field(min_length=1, max_length=64)
-    ros_floor_id: Literal['l1', 'l2', 'f1']
+    ros_floor_id: Literal['l1', 'l2', 'l3', 'f1']
     ros_map_version: str = Field(min_length=1, max_length=64)
     floor_id: UUID
     map_version_id: UUID
@@ -3304,13 +3322,13 @@ class SimMapBinding(Contract):
 
     @model_validator(mode='after')
     def world_floor(self):
-        if (self.world_id == 'warehouse') != (self.ros_floor_id == 'f1'):
+        if self.ros_floor_id not in SIM_WORLD_FLOORS[self.world_id]:
             raise ValueError('floor does not belong to world')
         return self
 
 
 class SimProvision(SimStartRequest):
-    map_bindings: list[SimMapBinding] = Field(default_factory=list, max_length=2)
+    map_bindings: list[SimMapBinding] = Field(default_factory=list, max_length=3)
     generation: int = Field(ge=1, le=9223372036854775807)
     owner_id: UUID
     org_id: UUID
@@ -3343,7 +3361,7 @@ class SimCleanupSlot(Contract):
 
 class SimRobot(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields('spawn_floor_id'))
-    spawn_floor_id: Literal['l1', 'l2'] | None = None
+    spawn_floor_id: Literal['l1', 'l2', 'l3'] | None = None
     generation: int = Field(ge=1, le=9223372036854775807)
     robot_id: UUID
     owner_id: UUID

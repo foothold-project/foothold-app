@@ -628,10 +628,10 @@ export interface FloorContext {
   run_id: string;
   epoch: number;
   floor_rev: number;
-  world_id: "v5_building" | "warehouse";
+  world_id: "v5_building" | "plant_a" | "warehouse";
   building_id: string;
-  spawn_floor_id: "l1" | "l2" | "f1";
-  current_floor_id: "l1" | "l2" | "f1" | null;
+  spawn_floor_id: "l1" | "l2" | "l3" | "f1";
+  current_floor_id: "l1" | "l2" | "l3" | "f1" | null;
   floor_id: string | null;
   map_version_id: string | null;
   sha256: string | null;
@@ -871,6 +871,8 @@ export interface MapVersion {
   voxel_map?: VoxelMapSummary | null;
   provenance?: "HUMAN" | "SIMULATION";
   terrain_spec?: TerrainSpec | null;
+  model_sha256?: string | null;
+  model_floor_z?: number | null;
   upload_id: string;
   id: string;
   floor_id: string;
@@ -2434,10 +2436,10 @@ export interface SimFailureDetail {
 }
 
 export interface SimMapBinding {
-  world_id: "v5_building" | "warehouse";
+  world_id: "v5_building" | "plant_a" | "warehouse";
   building_id: string;
   ros_building_id: string;
-  ros_floor_id: "l1" | "l2" | "f1";
+  ros_floor_id: "l1" | "l2" | "l3" | "f1";
   ros_map_version: string;
   floor_id: string;
   map_version_id: string;
@@ -2452,7 +2454,7 @@ export interface SimMapBinding {
 
 export interface SimProvision {
   world_id: string;
-  spawn_floor_id?: "l1" | "l2" | null;
+  spawn_floor_id?: "l1" | "l2" | "l3" | null;
   robot_id: string;
   map_bindings?: SimMapBinding[];
   generation: number;
@@ -2476,7 +2478,7 @@ export interface SimRemove {
 }
 
 export interface SimRobot {
-  spawn_floor_id?: "l1" | "l2" | null;
+  spawn_floor_id?: "l1" | "l2" | "l3" | null;
   generation: number;
   robot_id: string;
   owner_id: string;
@@ -2502,14 +2504,14 @@ export interface SimRobotList {
 
 export interface SimStartRequest {
   world_id: string;
-  spawn_floor_id?: "l1" | "l2" | null;
+  spawn_floor_id?: "l1" | "l2" | "l3" | null;
   robot_id: string;
 }
 
 export interface SimWorld {
   map_id?: string | null;
   floors?: SimWorldFloor[];
-  spawn_floor_ids?: ("l1" | "l2")[];
+  spawn_floor_ids?: ("l1" | "l2" | "l3")[];
   id: string;
   name: string;
   description: string;
@@ -2525,7 +2527,7 @@ export interface SimWorldFloor {
 
 export interface SimWorldStart {
   world_id: string;
-  spawn_floor_id?: "l1" | "l2" | null;
+  spawn_floor_id?: "l1" | "l2" | "l3" | null;
 }
 
 export interface SiteCreate {

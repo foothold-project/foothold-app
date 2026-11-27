@@ -32,3 +32,6 @@ mobile/android/app/src/*/res/raw/
 .env
 .env.*
 !.env.example
+
+# 시뮬 월드 실내 3D 모형(GLB)은 저장소에 넣지 않는다 (배포 때 놓는다)
+apps/simmgr/worlds/**/models/

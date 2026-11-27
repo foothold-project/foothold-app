@@ -93,11 +93,15 @@ def create_app(settings, launcher=None):
     def worlds(org_id: str):
         items = []
         for w in settings.worlds.values():
-            if w.id.startswith('v5_building/'):
-                if any(item['id'] == 'v5_building' for item in items):
+            # Connected multi-floor worlds are one world plus spawn floors (contract table).
+            world, _, floor = w.id.partition('/')
+            floors = C.SIM_WORLD_FLOORS.get(world, ())
+            if len(floors) > 1 and floor in floors:
+                if any(item['id'] == world for item in items):
                     continue
-                items.append(dict(id='v5_building', name='연결 건물', description=w.description,
-                    spawn_floor_ids=[f for f in ('l1', 'l2') if 'v5_building/' + f in settings.worlds]))
+                items.append(dict(id=world, name='연결 건물' if world == 'v5_building' else w.name,
+                    description=w.description,
+                    spawn_floor_ids=[f for f in floors if world + '/' + f in settings.worlds]))
             else:
                 items.append(dict(id=w.id, name=w.name, description=w.description))
         return dict(worlds=items,
