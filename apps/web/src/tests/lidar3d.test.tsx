@@ -382,3 +382,64 @@ describe('RB-LIDAR-RAW-MOUNT-2D 위에서 본 그림도 몸 좌표', () => {
     expect(p.first()).toEqual(spot(1, 0));
   });
 });
+
+describe('U1-08 시점 단추 셋(따라 · 위 · 3D) · 폰 실기 조종 라이다 칸(Lidar3D 바로)', () => {
+  const put = (f: DriveFeed) => { act(() => { root!.render(<Lidar3D feed={f} small={false} onFail={() => {}} />); }); act(() => { vi.advanceTimersByTime(5); }); };
+  const at = (x: number, ver: number) => ({ ...feed(3, ver), pose: { x, y: 2, z: 0, yaw: 0 } }) as DriveFeed;
+  const nums = (k: string) => $('[data-lidar3d]')!.dataset[k]!.split(',').map(Number);
+  const views = () => box.querySelector('[role="group"][aria-label="시점"]');
+  const pressed = () => [...views()!.querySelectorAll('[aria-pressed="true"]')].map((b) => b.textContent);
+  const press = (t: string) => act(() => { [...views()!.querySelectorAll('button')].find((b) => b.textContent === t)!.click(); });
+  it('단추 셋, 처음은 «따라» 눌림 · 옛 «로봇 뒤에서 보기» 단추 없음', () => {
+    put(at(1, 1));
+    expect([...views()!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['따라', '위', '3D']);
+    expect(pressed()).toEqual(['따라']);
+    expect($('[data-l3-follow]')).toBeNull();
+  });
+  it('«위» = 로봇 바로 위에서 내려다봄, 로봇이 움직이면 같이 옮김', () => {
+    put(at(1, 1));
+    press('위');
+    expect($('[data-l3-view]')!.dataset.l3View).toBe('top');
+    expect(pressed()).toEqual(['위']);
+    const [dx, dy, dz] = nums('l3Cam');
+    expect(Math.hypot(dx, dy)).toBeLessThan(0.1);
+    expect(dz).toBeGreaterThan(5);
+    expect(nums('l3At').slice(0, 2)).toEqual([1, 2]);
+    put(at(4, 2)); act(() => { vi.advanceTimersByTime(600); });
+    expect(nums('l3At').slice(0, 2)).toEqual([4, 2]);
+    expect($('[data-l3-view]')!.dataset.l3View).toBe('top');
+  });
+  it('«3D» = 비스듬히 위에서 로봇을 봄, 그 자리에 머묾(로봇을 따라가지 않음) · «따라» 로 되돌림', () => {
+    put(at(1, 1));
+    press('3D');
+    expect(pressed()).toEqual(['3D']);
+    expect($('[data-l3-view]')!.dataset.l3View).toBe('free');
+    const [dx, dy, dz] = nums('l3Cam');
+    expect(Math.hypot(dx, dy)).toBeGreaterThan(3);
+    expect(dz).toBeGreaterThan(3);
+    expect(nums('l3At').slice(0, 2)).toEqual([1, 2]);
+    put(at(4, 2)); act(() => { vi.advanceTimersByTime(600); });
+    expect(nums('l3At').slice(0, 2)).toEqual([1, 2]);
+    press('따라');
+    expect(pressed()).toEqual(['따라']);
+    expect($('[data-l3-view]')!.dataset.l3View).toBe('chase');
+    expect(nums('l3At')[0]).toBeGreaterThan(4);   // 로봇 앞쪽을 봄
+  });
+  it('따라 보는 중 손으로 확대해도 «따라» 그대로 눌림(자리만 따라감)', () => {
+    put(at(1, 1));
+    act(() => { $('canvas')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true })); });
+    expect($('[data-l3-view]')!.dataset.l3View).toBe('follow');
+    expect(pressed()).toEqual(['따라']);
+    expect($('[data-l3-follow]')).toBeNull();   // 옛 되돌림 단추를 함께 두지 않음
+  });
+  it('작은 칸(폭 260 px 미만, 폰 작은 창)에는 단추 없음', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200);
+    put(at(1, 1));
+    expect(views()).toBeNull();
+  });
+  it('PC · 서버 조종의 LidarMap 은 «보기» 줄이 따로 있어 시점 단추 셋을 넣지 않음', () => {
+    show(feed(3, 1));
+    expect(views()).toBeNull();
+    expect($('[data-lm-view="top"]')).toBeTruthy();
+  });
+});

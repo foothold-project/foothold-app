@@ -85,6 +85,8 @@ export function edgeTexture(line = 'rgba(0,0,0,0.55)') {
 export const robotOf = (f: DriveFeed): Pose | null => f.pose ?? (f.frame === 'lidar_link' ? { x: 0, y: 0, z: 0, yaw: 0 } : null);
 /** 3인칭 시점: 로봇 뒤 BACK m · 위 UP m 에서 로봇 앞 AHEAD m 를 본다 */
 const BACK = 2.6, UP = 1.6, AHEAD = 1.5;
+/** «위» 높이 · «3D» 비스듬히 보는 거리(m) */
+const TOP_H = 12, ISO = 5;
 
 /** 색 범례(작게) — «바닥 · 1 m · 2 m+», 점·상자 같은 막대. edge = 이 판에 모서리 정보가 있으면 «모서리» 한 줄(범례 바탕은 다크·라이트 모두 어두운 반투명 — quad.css) */
 export const HeightLegend = ({ style, look = 'points', edge = false }: { style?: CSSProperties; look?: Look; edge?: boolean }) => <div className="qd-legend" aria-label="높이 색 범례" data-height-legend={look} style={style}>
@@ -94,7 +96,10 @@ export const HeightLegend = ({ style, look = 'points', edge = false }: { style?:
     <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: HEX[20], boxShadow: '0 0 0 2px currentColor' }} /><span>모서리 · 테두리·크게</span></div>}
 </div>;
 
-type Mode = 'chase' | 'follow' | 'free';
+/** chase = 로봇 뒤에서 앞을, follow = 따라 보다 손댄 시점 그대로 자리만 따라감, top = 로봇 바로 위에서 내려다봄(따라감), free = 그 자리에 머묾 */
+type Mode = 'chase' | 'follow' | 'free' | 'top';
+/** 시점 단추 셋(U1-08): 이름 · 눌림으로 보일 모드 */
+const VIEWS: [string, Mode[]][] = [['따라', ['chase', 'follow']], ['위', ['top']], ['3D', ['free']]];
 export type Look = 'points' | 'boxes';
 /** three 가 만들 때(init)·무늬 첫 올리기(이방성)에 부르는 확장 — 문맥 다음 작업에서 미리 불러 둔다(RV-466 2 성능 기록) */
 const EXTS = ['EXT_color_buffer_float', 'WEBGL_clip_cull_distance', 'OES_texture_float_linear', 'EXT_color_buffer_half_float', 'WEBGL_multisampled_render_to_texture', 'WEBGL_render_shared_exponent', 'EXT_texture_filter_anisotropic'];
@@ -106,9 +111,9 @@ const samePose = (a: Go2Pose, b: Go2Pose) => a === b || (!!a && !!b && a.q.every
 /** 묶음 하나(상자 InstancedMesh 또는 점 Points): pos·col = 채울 버퍼, k = 그리는 수, set = 수 바꾸고 GPU 로 다시 올림 표시 */
 type Blk = { o: THREE.Object3D; pos: Float32Array; col: Float32Array; k: number; set: (k: number) => void; free: () => void };
 /** ratio = 그리는 픽셀 비율 상한(기본 2 — 그대로). 실기 직결 조종은 1: 큰 화면 교환 때 다시 그리는 비용이 조종 명령 주기를 막지 않게(RV-455 1).
- *  legend = 칸 안 색 범례(작은 칸이 아니면 기본으로) */
-export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look = 'points', go2 = null }: { feed: DriveFeed; small: boolean; onFail: () => void; ratio?: number; legend?: boolean; look?: Look; go2?: Go2Pose }) {
-  const host = useRef<HTMLDivElement>(null), cur = useRef(feed), joints = useRef(go2), [mode, setMode] = useState<Mode>('chase'), again = useRef(() => {}), first = useRef(look), relook = useRef((_: Look) => {}), stance = useRef(() => {});
+ *  legend = 칸 안 색 범례(작은 칸이 아니면 기본으로). views = 시점 단추 셋(따라 · 위 · 3D, U1-08) — 「보기」 줄이 따로 있는 LidarMap · 저장 지도는 끄고 옛 «로봇 뒤에서 보기» 하나 */
+export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look = 'points', go2 = null, views = true }: { feed: DriveFeed; small: boolean; onFail: () => void; ratio?: number; legend?: boolean; look?: Look; go2?: Go2Pose; views?: boolean }) {
+  const host = useRef<HTMLDivElement>(null), cur = useRef(feed), joints = useRef(go2), [mode, setMode] = useState<Mode>('chase'), again = useRef(() => {}), aim = useRef((_: 'top' | 'free') => {}), [narrow, setNarrow] = useState(false), first = useRef(look), relook = useRef((_: Look) => {}), stance = useRef(() => {});
   cur.current = inBase(feed); joints.current = go2;   // raw 판만 몸 좌표로(판마다 1회)
   useEffect(() => {
     // 처음 열기를 더 잘게(RV-466 2 — 성능 기록: 누른 작업 하나에 React 반영 + WebGL 문맥 + three 초기화 + Go2 입히기가 몰려 STOP 이 늦음).
@@ -197,6 +202,8 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     const draw = () => {
       if (off() || !ready) { v.dirty = true; return; }   // 안 보이면 미룸
       v.dirty = false; g.render(scene, cam);
+      const r1 = (n: number) => Math.round(n * 10) / 10;   // 지금 시점(보는 곳 · 보는 곳에서 카메라까지) — 시험 · 사진 확인용
+      el.dataset.l3At = [orbit.target.x, orbit.target.y, orbit.target.z].map(r1).join(); el.dataset.l3Cam = [cam.position.x - orbit.target.x, cam.position.y - orbit.target.y, cam.position.z - orbit.target.z].map(r1).join();
     };
     // 나눠 채우기: p.b = 다음에 채울 묶음, p.again = 도는 중에 판·상한이 바뀜(끝나면 처음부터 한 번 더 — 바뀐 묶음만 올라간다)
     const p = { cap: 0, b: -1, again: false, raf: 0 };
@@ -221,7 +228,8 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     };
     const refill = () => { if (p.b >= 0) p.again = true; else p.b = 0; if (!p.raf) pump(); };
     const fit = () => {
-      v.w = el.clientWidth; v.h = el.clientHeight; if (!v.w || !v.h) return; g.setSize(v.w, v.h, false); cam.aspect = v.w / v.h; cam.updateProjectionMatrix();
+      v.w = el.clientWidth; v.h = el.clientHeight; if (!v.w || !v.h) return;
+      setNarrow(v.w < 260);   // 폰 작은 창(최대 220 px)에는 시점 단추를 두지 않는다 g.setSize(v.w, v.h, false); cam.aspect = v.w / v.h; cam.updateProjectionMatrix();
       const cap = capFor(small, v.w, v.h);   // 칸이 작은 칸↔폰↔PC 크기로 바뀌면 그 크기의 상한으로 다시
       if (cap !== p.cap) { p.cap = cap; if (v.ver >= 0) refill(); }
     };
@@ -237,7 +245,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
       if (r) {
         bot.position.set(r.x, r.y, r.z); bot.rotation.z = r.yaw;
         if (!v.drag && v.mode === 'chase') chase(r);
-        else if (!v.drag && v.mode === 'follow' && v.last) { v.at.set(r.x, r.y, r.z).sub(v.last); orbit.target.add(v.at); cam.position.add(v.at); orbit.update(); }
+        else if (!v.drag && (v.mode === 'follow' || v.mode === 'top') && v.last) { v.at.set(r.x, r.y, r.z).sub(v.last); orbit.target.add(v.at); cam.position.add(v.at); orbit.update(); }
         (v.last ??= new THREE.Vector3()).set(r.x, r.y, r.z);
       }
       grid.position.set(Math.round(r?.x ?? 0), Math.round(r?.y ?? 0), z0 + FLOOR_DZ);
@@ -250,6 +258,13 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
       else if (v.mode === 'chase') go('follow');
     });
     again.current = () => { go('chase'); const r = robotOf(cur.current); if (r) chase(r); else { orbit.target.set(AHEAD, 0, 0); cam.position.set(-BACK, 0, UP); orbit.update(); } draw(); };
+    aim.current = (m) => {   // «위» = 로봇 바로 위(앞쪽이 화면 위), «3D» = 로봇 왼쪽 뒤 위에서 비스듬히. 로봇 자세가 없으면 원점 기준
+      go(m); const r = robotOf(cur.current) ?? { x: 0, y: 0, z: 0, yaw: 0 }, c = Math.cos(r.yaw), s = Math.sin(r.yaw);
+      orbit.target.set(r.x, r.y, r.z);
+      if (m === 'top') cam.position.set(r.x - c * 0.01, r.y - s * 0.01, r.z + TOP_H);
+      else cam.position.set(r.x - (c - s) * ISO * 0.7, r.y - (s + c) * ISO * 0.7, r.z + ISO);
+      orbit.update(); draw();
+    };
     const tick = () => {
       const size = el.clientWidth !== v.w || el.clientHeight !== v.h;
       if (size) fit();
@@ -299,6 +314,9 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
   return <div ref={host} style={{ position: 'absolute', inset: 0 }} data-lidar3d={feed.n} data-l3-view={mode} data-l3-look={look}>
     {legend && <HeightLegend look={look} edge={!!feed.edge} />}
     {!small && !go2 && robotOf(feed) && <div className="qd-legend" role="status" data-l3-nopose style={{ bottom: 46 }}>자세 정보 없음 · 서 있는 모양으로 보입니다</div>}
-    {mode !== 'chase' && !small && <button type="button" className="btn" data-l3-follow style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={() => again.current()}>로봇 뒤에서 보기</button>}
+    {views && !small && !narrow && <div className="fh-row" role="group" aria-label="시점" data-l3-views style={{ position: 'absolute', left: 8, bottom: 8 }}>
+      {VIEWS.map(([name, on]) => <button key={name} type="button" className="btn" aria-pressed={on.includes(mode)}
+        onClick={() => (name === '따라' ? again.current() : aim.current(name === '위' ? 'top' : 'free'))}>{name}</button>)}</div>}
+    {!views && mode !== 'chase' && !small && <button type="button" className="btn" data-l3-follow style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={() => again.current()}>로봇 뒤에서 보기</button>}
   </div>;
 }
