@@ -2,14 +2,17 @@
 
 사용: python3 -m apps.simmgr.tools.import_building LAYOUT.json
 입력은 rev 2 이상(계단 lane_gap · arrive 필수). rev 1 배치는 오류로 멈춘다.
-입력 JSON 은 자료로만 읽는다. 모든 형상은 static box 이고 메쉬·텍스처·외부 URI 가 없다.
+입력 JSON 은 자료로만 읽는다. 모든 형상은 static box · cylinder 이고 메쉬·텍스처·외부 URI 가 없다.
+같은 모양 목록에서 SDF(build) 와 앱 시뮬 MJCF · 장면(mobile_assets) 이 나온다.
 같은 입력이면 같은 바이트를 낸다. Gazebo/ROS 실행·다운로드 없음.
 
 규칙
 - 층 바닥판: 윗면 = floor_z, 두께 slab.t. poly 에서 holes 를 뺀 직교 다각형을 직사각형으로 나눈다.
 - 벽: a->b 중심선, 두께 t, 높이 h, 양 끝을 t/2 늘려 모서리를 닫는다. 문은 s(=a 에서 문 가운데까지
   거리) · w · h 로 틈을 내고, 문 높이 위는 상인방 상자로 남긴다.
-- 장애물: box [cx, cy, w(x), d(y), h] + yaw, 층 바닥에서 시작.
+- 장애물: box [cx, cy, w(x), d(y), h] + yaw, 층 바닥에서 시작. collision 배열(rev 6)이 있으면 box 대신
+  그 원소가 충돌이자 그림: {box: [cx, cy, w, d, h], z0?, yaw?} 상자 · {cyl: [cx, cy, r, h], z0?} 원기둥.
+  z0 = 층 바닥에서 띄운 높이(m). 원기둥은 SDF <cylinder> · MJCF cylinder.
 - 계단: 디딤 한 단마다 상자. 상자는 단 윗면에서 계단이 시작하는 층 바닥(floor_z)까지 채운 통짜라
   단 밑이 지도에서 막힌다(계단참도 같음). 단, 상자 가운데가 그 층 바닥판 구멍 위면(아래층 계단 위)
   두께 step_h 로만 두어 아래층 계단의 머리 공간을 막지 않는다. 첫 줄은 start(첫 단 앞 모서리 가운데)에서 yaw 방향으로
@@ -23,17 +26,28 @@
   roof=false 인 꼭대기 층은 천장이 없고 외벽 높이(난간)를 그대로 쓴다.
 """
 import argparse
+import base64
 import hashlib
+import heapq
 import json
 import math
 from pathlib import Path
 import warnings
 import xml.etree.ElementTree as ET
 
-from .collision_map import generate
+import numpy as np
+from PIL import Image
+from scipy.ndimage import minimum_filter
+
+from .collision_map import CYLINDER_SECTIONS, generate
 
 ROOT = Path(__file__).resolve().parents[3]
 WORLDS = ROOT / 'apps/simmgr/worlds'
+MOBILE = ROOT / 'mobile/sim'
+# 앱 시뮬 시나리오 다리 둘레 사각 반폭. 0.35 = mobile/scripts/scenario-selftest.mjs 값, 안 되는 층만
+# 0.25 (#528 nav2 팽창 반경 자리) 로 내리고 시나리오 clearance_m 에 적는다.
+ROUTE_HALVES = (0.35, 0.25)
+TURN_RADIUS = 0.38  # 꺾는 점 빈 반경: Go2 (약 0.70 x 0.31 m) 제자리 돌기 (검수 #540 L1)
 SPAWN_BASE = 0.4  # factory_zone 과 같은 floor_z 위 몸통 기준 높이
 RESOLUTION = 0.05
 MARGIN = 1.0
@@ -154,6 +168,9 @@ class World:
         ET.SubElement(sun, 'direction').text = '-0.45 0.4 -0.75'
         self.model = None
         self.names = set()
+        # (모양, 이름, 가운데, 크기, yaw, 종류) · SDF 와 MJCF 가 같은 목록을 쓴다.
+        # 크기: box = (x, y, z) 전체 길이, cylinder = (반지름, 높이).
+        self.shapes = []
 
     def lamp(self, name, x, y, z):
         light = ET.SubElement(self.world, 'light', type='point', name=name)
@@ -170,22 +187,35 @@ class World:
         ET.SubElement(self.model, 'static').text = 'true'
 
     def box(self, name, centre, size, yaw=0.0, kind='wall'):
-        if name in self.names:
-            raise ValueError(f'duplicate link name {name}')
-        if min(size) <= 1e-9:
-            raise ValueError(f'empty box {name}')
-        self.names.add(name)
         k = quarter(yaw)
         if k is not None:
             # 직각 회전은 크기 축을 바꾼 yaw 0 상자로 쓴다(지도·충돌이 축에 정확히 맞게).
             size = (size[1], size[0], size[2]) if k % 2 else tuple(size)
             yaw = 0.0
+        self.link('box', name, centre, size, yaw, kind)
+
+    def cylinder(self, name, centre, radius, height, kind):
+        self.link('cylinder', name, centre, (radius, height), 0.0, kind)
+
+    def link(self, shape, name, centre, size, yaw, kind):
+        if name in self.names:
+            raise ValueError(f'duplicate link name {name}')
+        if not all(math.isfinite(v) for v in (*centre, *size, yaw)):
+            raise ValueError(f'non-finite {shape} {name}')
+        if min(size) <= 1e-9:
+            raise ValueError(f'empty {shape} {name}')
+        self.names.add(name)
+        self.shapes.append((shape, name, tuple(centre), tuple(size), yaw, kind))
         link = ET.SubElement(self.model, 'link', name=name)
         ET.SubElement(link, 'pose').text = ' '.join(num(v) for v in (*centre, 0, 0, yaw))
         for tag in ('collision', 'visual'):
             part = ET.SubElement(link, tag, name=tag[0])
-            geometry = ET.SubElement(ET.SubElement(part, 'geometry'), 'box')
-            ET.SubElement(geometry, 'size').text = ' '.join(num(v) for v in size)
+            geometry = ET.SubElement(ET.SubElement(part, 'geometry'), shape)
+            if shape == 'box':
+                ET.SubElement(geometry, 'size').text = ' '.join(num(v) for v in size)
+            else:
+                ET.SubElement(geometry, 'radius').text = num(size[0])
+                ET.SubElement(geometry, 'length').text = num(size[1])
             if tag == 'visual':
                 material = ET.SubElement(part, 'material')
                 colour = COLORS.get(kind, COLORS['cabinet'])
@@ -278,7 +308,36 @@ def add_stairs(world, stair, floor, to_floor):
               (stair['landing_d'], span_hi - span_lo), 'landing')
 
 
-def build(layout_path, out):
+def add_collision(world, floor, obstacle):
+    """장애물 collision 배열(rev 6): 있으면 box 대신 이것이 충돌이자 그림이다(box · kind 는 배치 그림용, kind 는 색).
+    원소 {box: [cx, cy, w, d, h], z0?, yaw?} 또는 {cyl: [cx, cy, r, h], z0?}. 좌표는 층 좌표, z0 = 층 바닥에서 띄운 m."""
+    z0 = floor['floor_z']
+    items = obstacle['collision']
+    if not isinstance(items, list) or not items:
+        raise ValueError(f'obstacle {obstacle["id"]}: collision must be a nonempty list')
+    for j, item in enumerate(items):
+        name = f'{floor["floor_id"]}_{obstacle["id"]}_c{j}'
+        if not isinstance(item, dict) or len({'box', 'cyl'} & set(item)) != 1 or set(item) - {'box', 'cyl', 'z0', 'yaw'}:
+            raise ValueError(f'{name}: collision item needs exactly one of box/cyl (+ z0, yaw)')
+        lift = item.get('z0', 0.0)
+        if not isinstance(lift, (int, float)) or not math.isfinite(lift) or lift < 0:
+            raise ValueError(f'{name}: z0 must be finite and >= 0')
+        if 'box' in item:
+            if len(item['box']) != 5:
+                raise ValueError(f'{name}: box needs [cx, cy, w, d, h]')
+            cx, cy, w, d, h = item['box']
+            world.box(name, (cx, cy, z0 + lift + h / 2), (w, d, h), item.get('yaw', 0.0), obstacle['kind'])
+        else:
+            if len(item['cyl']) != 4 or 'yaw' in item:
+                raise ValueError(f'{name}: cyl needs [cx, cy, r, h] and no yaw')
+            cx, cy, r, h = item['cyl']
+            if r <= 0 or h <= 0:
+                raise ValueError(f'{name}: cylinder r, h must be positive')
+            world.cylinder(name, (cx, cy, z0 + lift + h / 2), r, h, obstacle['kind'])
+
+
+def compose(layout_path):
+    """배치 JSON -> (자료, World). SDF · MJCF · 앱 장면이 모두 이 상자 목록에서 나온다."""
     layout_path = Path(layout_path)
     data = json.loads(layout_path.read_text())
     if data.get('schema') != 'foothold_building/1' or data.get('units') != 'm':
@@ -297,7 +356,6 @@ def build(layout_path, out):
                 raise ValueError(f'roof of {floor["floor_id"]} must be the slab of the floor above')
         elif above is not None:
             raise ValueError('only the top floor may be open to the sky')
-    out.mkdir(parents=True, exist_ok=True)
     world = World(world_id)
     for floor in floors:
         for room in floor['rooms']:
@@ -320,6 +378,9 @@ def build(layout_path, out):
                           ((x0 + x1) / 2, (y0 + y1) / 2, bottom + cover['t'] / 2),
                           (x1 - x0, y1 - y0, cover['t']), 0.0, 'slab')
         for obstacle in floor['obstacles']:
+            if 'collision' in obstacle:
+                add_collision(world, floor, obstacle)
+                continue
             cx, cy, w, d, h = obstacle['box']
             world.box(f'{floor["floor_id"]}_{obstacle["id"]}', (cx, cy, z0 + h / 2), (w, d, h),
                       obstacle.get('yaw', 0.0), obstacle['kind'])
@@ -327,8 +388,260 @@ def build(layout_path, out):
             if stair['from'] != floor['floor_id']:
                 raise ValueError('stair listed on a floor it does not start from')
             add_stairs(world, stair, floor, by_id[stair['to']])
-    world.write(out / f'{world_id}.sdf')
+    return data, world
+
+
+def build(layout_path, out):
+    data, world = compose(layout_path)
+    out.mkdir(parents=True, exist_ok=True)
+    world.write(out / f'{data["building_id"]}.sdf')
     return data
+
+
+def spawns(data):
+    """층마다 (스폰 xyyaw, 출처). 시작 층은 JSON spawn, 나머지는 그 층에 닿는 계단 arrive xy + teleport yaw."""
+    arrivals = {s['arrive']['floor_id']: (s['id'], [*s['arrive']['xy'], s['teleport']['xyyaw'][2]])
+                for f in data['floors'] for s in f['stairs']}
+    result = {}
+    for floor in data['floors']:
+        fid = floor['floor_id']
+        if data['spawn']['floor_id'] == fid:
+            result[fid] = (list(data['spawn']['xyyaw']), 'layout JSON spawn')
+        else:
+            stair_id, spawn = arrivals[fid]
+            result[fid] = (list(spawn), f'layout JSON stairs {stair_id} arrive xy + teleport yaw')
+    return result
+
+
+def mjcf(world, model):
+    """World 모양 목록 -> MuJoCo 정적 geom(box · cylinder, group 1). box 크기는 반폭, cylinder 는 (r, 반높이), quat = w x y z."""
+    root = ET.Element('mujoco', model=model)
+    body = ET.SubElement(root, 'worldbody')
+    for shape, name, centre, size, yaw, kind in world.shapes:
+        half = [v / 2 for v in size] if shape == 'box' else [size[0], size[1] / 2]
+        ET.SubElement(body, 'geom', name=name, group='1', type=shape,
+                      size=' '.join(num(v) for v in half), pos=' '.join(num(v) for v in centre),
+                      quat=' '.join(num(v) for v in (math.cos(yaw / 2), 0, 0, math.sin(yaw / 2))))
+    ET.indent(root)
+    return ET.ElementTree(root)
+
+
+def box_mesh(centre, size, yaw):
+    corners = np.array([[sx, sy, sz] for sx in (-.5, .5) for sy in (-.5, .5) for sz in (-.5, .5)]) * size
+    c, s = math.cos(yaw), math.sin(yaw)
+    vertices = corners @ np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]]) + centre
+    faces = np.array([[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1],
+                      [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]])
+    return vertices, faces
+
+
+def cylinder_mesh(centre, radius, height):
+    """collision_map 과 같은 CYLINDER_SECTIONS 각 기둥(위 · 아래 뚜껑 포함)."""
+    n = CYLINDER_SECTIONS
+    a = np.arange(n) * 2 * math.pi / n
+    ring = np.stack([np.cos(a) * radius, np.sin(a) * radius], axis=1)
+    vertices = np.concatenate([np.c_[ring, np.full(n, -height / 2)], np.c_[ring, np.full(n, height / 2)],
+                               [[0, 0, -height / 2], [0, 0, height / 2]]]) + centre
+    faces = []
+    for i in range(n):
+        j = (i + 1) % n
+        faces += [[i, j, n + j], [i, n + j, n + i], [2 * n, j, i], [2 * n + 1, n + i, n + j]]
+    return vertices, np.array(faces)
+
+
+def mesh_of(shape, centre, size, yaw):
+    return box_mesh(centre, size, yaw) if shape == 'box' else cylinder_mesh(centre, *size)
+
+
+def zspan(shape, centre, size):
+    h = size[2] if shape == 'box' else size[1]
+    return centre[2] - h / 2, centre[2] + h / 2
+
+
+def batch(shapes):
+    """모양을 색마다 한 메시로(폰 그리기 횟수 줄이기). mobile/scripts/factory-one.py batch 와 같은 꼴."""
+    groups = {}
+    for shape, name, centre, size, yaw, kind in shapes:
+        groups.setdefault(COLORS.get(kind, COLORS['cabinet']), []).append(mesh_of(shape, centre, size, yaw))
+    scene = dict(meshes={}, models=[])
+    for i, (colour, parts) in enumerate(sorted(groups.items())):
+        vv, ff, offset = [], [], 0
+        for v, f in parts:
+            vv.append(v); ff.append(f + offset); offset += len(v)
+        v, index = np.unique(np.round(np.concatenate(vv), 6), axis=0, return_inverse=True)
+        f = index.reshape(-1)[np.concatenate(ff)]
+        key = f'color-{i}'
+        scene['meshes'][key] = dict(p=[float(num(x)) for x in v.flatten()], i=f.flatten().tolist())
+        scene['models'].append(dict(name=key, mesh=key, pos=[0, 0, 0], quat=[1, 0, 0, 0],
+                                    color=[float(x) for x in colour.split()]))
+    return scene
+
+
+def route(pixels, meta, start, points, half):
+    """스폰에서 배치 지점을 순서대로 잇는 곧은 다리 목록.
+
+    다리마다 둘레 half 사각이 free 칸 안. A*(4 이웃) 뒤 보이는 데까지 줄인다. 배치 지점은 그대로 남기고 사이에 꺾는 점을 더한다.
+    """
+    res = meta['resolution']
+    ox, oy, _ = meta['origin']
+    h, w = pixels.shape
+    r = round(half / res)
+    safe = minimum_filter(pixels == 254, size=2 * r + 1, mode='constant', cval=False)
+
+    def cell(x, y):
+        return h - 1 - math.floor((y - oy) / res), math.floor((x - ox) / res)
+
+    def centre(rc):
+        return round(ox + (rc[1] + .5) * res, 4), round(oy + (h - rc[0] - .5) * res, 4)
+
+    offsets = np.arange(-half, half + 1e-3, res)
+
+    def visible(a, b):
+        # scenario-selftest 와 같은 표본: 반 칸 간격, 둘레 사각 한 칸 간격.
+        n = max(1, math.ceil(math.dist(a, b) / (res / 2)))
+        k = np.arange(n + 1) / n
+        x = (a[0] + (b[0] - a[0]) * k)[:, None, None] + offsets[None, :, None]
+        y = (a[1] + (b[1] - a[1]) * k)[:, None, None] + offsets[None, None, :]
+        rr = h - 1 - np.floor((y - oy) / res).astype(int)
+        cc = np.floor((x - ox) / res).astype(int)
+        rr, cc = np.broadcast_arrays(rr, cc)
+        inside_ = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
+        return bool(inside_.all() and (pixels[rr, cc] == 254).all())
+
+    def astar(a, b):
+        queue, cost, prev = [(0, a)], {a: 0}, {}
+        while queue:
+            _, cur = heapq.heappop(queue)
+            if cur == b:
+                path = [b]
+                while path[-1] != a:
+                    path.append(prev[path[-1]])
+                return path[::-1]
+            for dr, dc in ((0, 1), (1, 0), (0, -1), (-1, 0)):
+                nxt = (cur[0] + dr, cur[1] + dc)
+                if 0 <= nxt[0] < h and 0 <= nxt[1] < w and safe[nxt] and cost[cur] + 1 < cost.get(nxt, math.inf):
+                    cost[nxt] = cost[cur] + 1; prev[nxt] = cur
+                    heapq.heappush(queue, (cost[nxt] + abs(nxt[0] - b[0]) + abs(nxt[1] - b[1]), nxt))
+        raise ValueError(f'no clear route to {centre(b)}')
+
+    result, here = [], tuple(start)
+    for target in points:
+        target = tuple(target)
+        if target == here:
+            continue  # 길이 0 다리 없음(앱 시나리오 표본이 0 으로 나뉜다). 스폰 자리 지점은 이미 지났다.
+        for xy in (here, target):
+            if not visible(xy, xy):
+                raise ValueError(f'route point {xy} lacks {half} m clearance')
+        if not visible(here, target):
+            # 셀 중심을 잇는 길: 출발 · 도착 자리는 실제 좌표로 바꿔 두고 보이는 데까지 건너뛴다.
+            path = [here] + [centre(rc) for rc in astar(cell(*here), cell(*target))[1:-1]] + [target]
+            i = 0
+            while i < len(path) - 1:
+                j = len(path) - 1
+                while j > i + 1 and not visible(path[i], path[j]):
+                    j -= 1
+                if not visible(path[i], path[j]):
+                    raise ValueError(f'route leg {path[i]} -> {path[j]} not clear')
+                if j < len(path) - 1:
+                    result.append(path[j])
+                i = j
+        result.append(target)
+        here = target
+
+    def roomy(x, y):
+        # 가운데가 (x, y) 에서 TURN_RADIUS 안인 칸이 모두 free.
+        span = math.ceil(TURN_RADIUS / res) + 1
+        r0, c0 = cell(x, y)
+        rr, cc = np.mgrid[r0 - span:r0 + span + 1, c0 - span:c0 + span + 1]
+        near = np.hypot(ox + (cc + .5) * res - x, oy + (h - rr - .5) * res - y) <= TURN_RADIUS
+        rr, cc = rr[near], cc[near]
+        return bool(((rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)).all() and (pixels[rr, cc] == 254).all())
+
+    # A* 가 더한 꺾는 점이 좁으면(벽 · 장비 모서리) 0.6 m 안에서 가장 가까운, 넓고 앞뒤 다리가 보이는 자리로 옮긴다.
+    fixed = set(map(tuple, points))
+    for i in range(len(result) - 1):
+        x, y = result[i]
+        if (x, y) in fixed or roomy(x, y):
+            continue
+        before = result[i - 1] if i else tuple(start)
+        after = result[i + 1]
+        best = None
+        for dx in np.arange(-0.6, 0.6 + 1e-9, res):
+            for dy in np.arange(-0.6, 0.6 + 1e-9, res):
+                d = math.hypot(dx, dy)
+                c = (round(x + dx, 4), round(y + dy, 4))
+                if d <= 0.6 and (best is None or d < best[0]) and roomy(*c) and visible(before, c) and visible(c, after):
+                    best = (d, c)
+        if best is None:
+            raise ValueError(f'turn point {(x, y)} has no {TURN_RADIUS} m free radius nearby')
+        result[i] = best[1]
+    return [dict(x=x, y=y) for x, y in result]
+
+
+def mobile_assets(layout_path, out, target):
+    """앱 시뮬(mobile/sim) 월드 한 벌: <id>.xml · scene(-층).json · map(-층).json · scenarios(-층).json ·
+    top.json floors · metadata.json. out 은 지도(maps/) 가 이미 있는 서버 월드 폴더.
+    top.png · top-<층>.png 와 top.json bounds/px/map 은 mobile/scripts/make-top.mjs 가 채운다."""
+    data, world = compose(layout_path)
+    world_id = data['building_id']
+    mobile_id = world_id.replace('_', '-')
+    target = Path(target)
+    target.mkdir(parents=True, exist_ok=True)
+
+    def write(name, value):
+        (target / name).write_text(json.dumps(value, ensure_ascii=False, separators=(',', ':')) + '\n')
+
+    mjcf(world, mobile_id).write(target / f'{mobile_id}.xml', encoding='utf-8', xml_declaration=True)
+    scene = batch(world.shapes)
+    write('scene.json', scene)
+    meta = json.loads((Path(out) / 'maps/metadata.json').read_text())
+    starts = spawns(data)
+    floors = []
+    for index, floor in enumerate(data['floors']):
+        fid, z = floor['floor_id'], floor['floor_z']
+        above = data['floors'][index + 1]['floor_z'] if index + 1 < len(data['floors']) else z + 6
+        band = [-1 if index == 0 else z, above]
+        pixels = np.array(Image.open(Path(out) / 'maps' / f'{fid}.png'))
+        grid = dict(origin=meta['origin'], res=meta['resolution'], w=pixels.shape[1], h=pixels.shape[0])
+        spawn = starts[fid][0]
+        write(f'map-{fid}.json', dict(**grid, floor_id=fid, floor_z=z, spawn_xyyaw=spawn,
+                                      spawn_z=round(z + SPAWN_BASE, 6),
+                                      px=base64.b64encode(pixels.tobytes()).decode()))
+        # 위에서 본 사진만 층으로 자른다(그 층 바닥판 ~ 바닥 위 1.8 m). 실제 장면은 모든 층.
+        sliced = [s for s in world.shapes
+                  if zspan(s[0], s[2], s[3])[0] <= z + 1.8 and zspan(s[0], s[2], s[3])[1] >= z - .21]
+        write(f'scene-{fid}.json', batch(sliced))
+        short = floor['name'].split(' · ')[0]
+        for half in ROUTE_HALVES:
+            try:
+                points = route(pixels, meta, spawn[:2], [p['xy'] for p in floor['points']], half)
+                break
+            except ValueError:
+                if half == ROUTE_HALVES[-1]:
+                    raise
+        write(f'scenarios-{fid}.json', [dict(
+            id=f'{fid}-inspection', floor_id=fid, name=f'{short} · {data["name"]} 점검 순회 · 초안',
+            clearance_m=half, points=points)])
+        floors.append(dict(id=fid, name=short, z=band, top=f'top-{fid}.png', map=grid,
+                           image_sha256=meta['floors'][fid]['image_sha256'], map_file=f'map-{fid}.json',
+                           scenarios_file=f'scenarios-{fid}.json', floor_z=z, spawn_xyyaw=spawn))
+    first = data['floors'][0]['floor_id']
+    (target / 'map.json').write_bytes((target / f'map-{first}.json').read_bytes())
+    (target / 'scenarios.json').write_bytes((target / f'scenarios-{first}.json').read_bytes())
+    top = target / 'top.json'
+    previous = json.loads(top.read_text()) if top.exists() else {}
+    write('top.json', {**{k: v for k, v in previous.items() if k != 'floors'}, 'floors': floors})
+    write('metadata.json', dict(
+        draft=True, source=f'{world_id}/layout.json',
+        source_sha256=digest(Path(layout_path)), sdf_sha256=digest(Path(out) / f'{world_id}.sdf'),
+        generator='apps/simmgr/tools/import_building.py mobile_assets',
+        geoms=len(world.shapes), triangles=sum(len(mesh_of(*s[:1], *s[2:5])[1]) for s in world.shapes),
+        meshes=len(scene['meshes']),
+        models=len(scene['models']), scene_bytes=(target / 'scene.json').stat().st_size,
+        physics='SDF 와 같은 모양 목록 · 정적 box/cylinder geom · 층 높이 그대로 한 월드 · 계단 통짜 상자',
+        floor_z_semantics='top.json floors.z: 몸 높이 반열린 띠 [아래, 위) · 위층 floor_z 에서 바뀜',
+        readiness='draft; MuJoCo 컴파일 · 바닥 광선만 시험; 계단 보행 · 폰 FPS 미확인'))
+    return floors
 
 
 def register(layout_path, out=None):
@@ -346,7 +659,8 @@ def register(layout_path, out=None):
         inputs={f'{world_id}.json': hashlib.sha256(raw).hexdigest()},
         copy='layout.json (입력 바이트 그대로)',
         generator='apps/simmgr/tools/import_building.py',
-        conversion=f'모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, 덮개 판(covers), '
+        conversion=f'모든 형상 static box · cylinder. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw '
+                   '(collision 배열이 있으면 그 상자 · z0 · 원기둥), 덮개 판(covers), '
                    '계단 단마다 통짜 상자(구멍 위는 한 단 두께) + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음.'))
     (out / 'NOTICE').write_text(
         f'{data["name"]} ({world_id}) · 초안\n'
@@ -361,8 +675,7 @@ def register(layout_path, out=None):
     generate(out / f'{world_id}.sdf', out / 'maps', floors, resolution=RESOLUTION, bounds=bounds)
     catalogue_path = WORLDS / 'worlds.json'
     catalogue = json.loads(catalogue_path.read_text())
-    arrivals = {s['arrive']['floor_id']: (s['id'], [*s['arrive']['xy'], s['teleport']['xyyaw'][2]])
-                 for f in data['floors'] for s in f['stairs']}
+    starts = spawns(data)
     for level, floor in enumerate(data['floors'], 1):
         fid = floor['floor_id']
         points = [dict(x=p['xy'][0], y=p['xy'][1], yaw=p['yaw'],
@@ -370,11 +683,7 @@ def register(layout_path, out=None):
         scenarios = [dict(id=f'{fid}-inspection', name=f'{data["name"]} {floor["name"].split(" · ")[0]} 점검 순회 · 초안',
                           finish='RETURN_TO_START', waypoints=points)]
         write_json(out / f'scenarios-{fid}.json', scenarios)
-        if data['spawn']['floor_id'] == fid:
-            spawn, source = data['spawn']['xyyaw'], 'layout JSON spawn'
-        else:
-            stair_id, spawn = arrivals[fid]
-            source = f'layout JSON stairs {stair_id} arrive xy + teleport yaw'
+        spawn, source = starts[fid]
         rel = lambda p: f'{world_id}/{p}'
         catalogue['worlds'][f'{world_id}/{fid}'] = dict(
             world_id=world_id, floor_id=fid, building_id=world_id, name=data['name'] + ' · 초안',
@@ -391,6 +700,13 @@ def register(layout_path, out=None):
                         metadata=digest(out / 'maps/metadata.json')),
             mesh_sha256={})
     write_json(catalogue_path, catalogue)
+    mobile_id = world_id.replace('_', '-')
+    mobile_assets(out / 'layout.json', out, MOBILE / 'assets' / mobile_id)
+    maps_path = MOBILE / 'maps.json'
+    maps = json.loads(maps_path.read_text())
+    if not any(m['id'] == mobile_id for m in maps):
+        maps.append(dict(id=mobile_id, name=data['name'] + ' · 초안'))
+        write_json(maps_path, maps)
 
 
 if __name__ == '__main__':
