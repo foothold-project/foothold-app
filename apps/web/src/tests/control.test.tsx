@@ -471,6 +471,7 @@ describe('관제 탭', () => {
   });
 
   // t21 (#529 재검 낮음 셋)
+  // N4: t21-1 · R2 는 «다시 붙음 = 정지 확인» 을 전제로 한다. 근거: 다시 붙은 로봇은 잠긴 채 시작하고(SF-02), 서버는 받아 둔 정지를 먼저 보낸다(#536)
   it('t21-1: 끊긴 채 보낸 정지가 다시 붙어 확인된 뒤 또 끊기면 «아직 닿지 않음» 줄을 다시 띄우지 않는다(다음 STOP 전까지)', () => {
     const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));
     mount('u-lee', T); feed(T);
@@ -486,6 +487,17 @@ describe('관제 탭', () => {
     expect(b.textContent).not.toContain(LOST);
     press(stopBtn());   // 다음 STOP(끊긴 채) = 다시 «아직 닿지 않음»
     expect($('[data-stop-band][data-stop-lost="g4"]')).not.toBeNull();
+  });
+  it('R2: 끊긴 두 대를 모두 정지 · 한 대만 다시 붙으면 다른 한 대는 «아직 닿지 않음» 그대로', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' || r.id === 'g6' ? { ...r, online: false } : r));   // 이OO 로봇 K-05 · K-07 끊김
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    press(stopBtn());   // 모두 정지
+    expect($('[data-stop-band][data-stop-lost="g4"]')).not.toBeNull();
+    expect($('[data-stop-band][data-stop-lost="g6"]')).not.toBeNull();
+    act(() => { FakeWS.last.recv(state('g4', { stop_gen: 2 })); });   // K-05 만 다시 붙음
+    expect($('[data-stop-band][data-stop-lost="g4"]')).toBeNull();
+    expect($('[data-stop-band][data-stop-lost="g6"]')!.textContent).toContain(`K-07 ${LOST}`);
   });
   it('t21-2: 모두 정지 라벨 전체 · 총괄(실기 + 내 시뮬) = «내 시뮬 모두 정지», 일반 = «모두 정지» · 셋째 라벨 «멈출 수 있는 로봇 모두 정지»는 두 계정 어느 쪽에서도 나오지 않음', () => {
     const R: Robot[] = [
