@@ -389,7 +389,7 @@ def test_pointlio_identity_systemctl_query_is_bounded_and_checks_exit(monkeypatc
     with pytest.raises(OSError):Services.systemctl('show','foothold-pointlio')
 
 
-@pytest.mark.parametrize('status',['CANCELLED','SAVED','RECEIVED_ONLY','FAILED'])
+@pytest.mark.parametrize('status',['CANCELLED','SAVED','RECEIVED_ONLY'])
 def test_terminal_progress_reply_stops_services_recording_and_all_accumulation(tmp_path,status):
     rt,clock,_,calls=always_on_runtime(tmp_path)
     lane=record(rt,tmp_path)
@@ -430,6 +430,39 @@ def test_terminal_progress_reply_stops_services_recording_and_all_accumulation(t
     finally:
         close_runtime(rt)
         if rt.raw.thread:rt.raw.thread.join(2)
+
+
+def test_failed_progress_reply_preserves_frozen_bundle_for_save_retry(tmp_path):
+    rt,clock,_,_=always_on_runtime(tmp_path)
+    uploads=[]
+    replies=[]
+    def request(sid,suffix,data):
+        if suffix=='bundle':
+            uploads.append(data)
+            return {'accepted':True} if len(uploads)==1 else {'session_id':sid,'status':'RECEIVED_ONLY'}
+        response={'accepted':True,**({'status':'FAILED'} if json.loads(data)['status']=='FAILED' else {})}
+        replies.append(response)
+        return response
+    rt.request=request
+    try:
+        initial=begin(rt)
+        rt.command(command('save',initial));drain(rt)
+        clock.t=11.
+        wait_for(lambda:(rt.step(),rt.save_failed)[1])
+        assert len(uploads)==1 and rt.core.status=='FAILED'
+        frozen=rt.frozen
+        path=tmp_path/(initial['session_id']+'.bundle.json')
+        clock.t+=1
+        wait_for(lambda:(rt.step(),{'accepted':True,'status':'FAILED'} in replies)[1])
+        if rt.report_future:rt.report_future.result(3)
+        rt.step()
+        assert not rt.remote_terminal and not rt.bundle_cancelled.is_set()
+        assert rt.frozen==frozen==uploads[0] and path.read_bytes()==frozen
+        rt.command(command('save',initial))
+        wait_for(lambda:(rt.step(),rt.core.status=='SAVED')[1])
+        assert uploads==[frozen,frozen] and not path.exists()
+    finally:
+        close_runtime(rt)
 
 
 def test_terminal_reply_finishing_during_step_is_not_acknowledged_and_lost(tmp_path):
