@@ -14,7 +14,7 @@ import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const R: Robot = { id: 'r1', name: 'K-01', owner: 'u-lee', ownerName: '이OO', battery: 80, online: true, seenAt: '14:05:20', status: 'IDLE' };
+const R: Robot = { id: 'r1', name: 'K-01', owner: 'u-lee', ownerName: '이OO', battery: 80, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true };   // N1: 실행 단추는 시뮬에만
 const SC = { id: 'sc1', name: '1층 순찰', version: 3, latest_version: 3, floor_ids: ['f1'], map_version_ids: ['mv1'], waypoints: [] } as unknown as Scenario;
 const AS = { id: 'as1', robot_id: 'r1', scenario_id: 'sc1', scenario_version: 3, status: 'ACTIVE' } as unknown as Assignment;
 const LEASE = 'L-1';
@@ -25,10 +25,10 @@ beforeEach(() => { FakeWS.all = []; vi.stubGlobal('WebSocket', FakeWS); });
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); sim.clear(); rt.disconnect(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 /** 화면 하나 + 연결 열기. own = 내 조종권(lease) 받음, latched = 잠김 */
-function mount(p: { own?: boolean; latched?: boolean; assign?: Assignment | null; r?: RunSnapshot | null; holder?: { id: string; name: string } | null } = {}) {
+function mount(p: { own?: boolean; latched?: boolean; assign?: Assignment | null; r?: RunSnapshot | null; holder?: { id: string; name: string } | null; robot?: Robot } = {}) {
   rt.connect(['r1']);
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<RunCtl robot={R} scen={SC} assign={p.assign === undefined ? AS : p.assign} watch />); });
+  act(() => { root = createRoot(box); root.render(<RunCtl robot={p.robot ?? R} scen={SC} assign={p.assign === undefined ? AS : p.assign} watch />); });
   const w = FakeWS.last;
   act(() => { w.open(); w.recv(state('r1', { latched: p.latched ?? false, run: p.r ?? null })); });
   if (p.own) act(() => { w.recv(lease('r1', { id: 'u-lee', name: '이OO' }, LEASE)); });
@@ -86,6 +86,23 @@ describe('임무 실행 단추', () => {
     click('일시정지');
     expect(w.of('run.control')[0]).toMatchObject({ robot: 'r1', op: 'pause', run_id: 'run-x', lease_id: LEASE });
     expect(w.of('run.control')[0].screen_id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+  it('R3: 일시정지에 run_result SUCCEEDED 가 와도 state.run 이 PAUSED 가 아니면 «보내는 중…» 그대로 · 성공 문구 없음', () => {
+    const w = mount({ own: true, r: run('MOVING') });
+    click('일시정지');
+    const m = w.of('run.control')[0];
+    act(() => { w.recv(state('r1', { latched: false, run: run('MOVING'), run_result: { request_id: m.id, op: 'pause', run_id: 'run-x', status: 'SUCCEEDED', code: 'OK' } })); });
+    expect(said()).toBe('보내는 중…');
+    expect(said()).not.toContain('일시정지했습니다');
+    act(() => { w.recv(state('r1', { latched: false, run: run('PAUSED'), run_result: { request_id: m.id, op: 'pause', run_id: 'run-x', status: 'SUCCEEDED', code: 'OK' } })); });
+    expect(said()).toBe('임무를 일시정지했습니다.');
+  });
+  it('N1: 실기 로봇은 실행 단추 없이 까닭 한 줄(서버 #537 RUN_NOT_ALLOWED: 현장 승인 · 서버 조종 켬 전) · 실행 명령 0', () => {
+    const w = mount({ own: true, r: run('MOVING'), robot: { ...R, sim: false } });
+    expect(box.querySelector('[data-run-main]')).toBeNull();
+    expect(btns()).toEqual([]);
+    expect($('[data-run-gate]')!.textContent).toBe('실기는 화면에서 임무 실행을 아직 받지 않습니다 (RUN_NOT_ALLOWED · 현장 승인 · 서버 조종 켬 전). 멈추려면 STOP.');
+    expect(runMsgs(w)).toEqual([]);
   });
   it('일시정지 → «이어 가기» · run.control resume', () => {
     const w = mount({ own: true, r: run('PAUSED') });

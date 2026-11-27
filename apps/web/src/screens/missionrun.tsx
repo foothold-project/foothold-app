@@ -56,7 +56,9 @@ export function RunCtl({ robot, scen, assign, watch = false }: { robot: Robot; s
 
   // 앞 단계: 조종권 · 잠금 해제 · 배정. 단추를 회색으로 두지 않고 그다음 할 일로 잇는다
   let gate: JSX.Element | null = null;
-  if (!l.lease) gate = l.holder && l.holder.type === 'USER'
+  // N1: 실기는 서버가 현장 승인 · 서버 조종 켬 전에는 run.start · run.control 을 RUN_NOT_ALLOWED 로 거절(#537 blocked_agent_control). 단추 대신 까닭 한 줄
+  if (!robot.sim) gate = <span>실기는 화면에서 임무 실행을 아직 받지 않습니다 (RUN_NOT_ALLOWED · 현장 승인 · 서버 조종 켬 전). 멈추려면 STOP.</span>;
+  else if (!l.lease) gate = l.holder && l.holder.type === 'USER'
     ? <><span>{l.holder.name} 님이 조종 중입니다.</span><button type="button" className="btn" disabled={!!l.outgoing} onClick={() => rt.request(robot.id)}>조종권 요청</button></>
     : l.holder ? <span>다른 실행이 조종권을 쥐고 있습니다. 끝나거나 멈춘 뒤 다시 보세요.</span>
     : <><span>실행 단추는 조종권이 있어야 보냅니다.</span><button type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => rt.take(robot.id)}>조종권 잡기</button></>;

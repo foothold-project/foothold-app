@@ -69,8 +69,8 @@ export function startBlock(s: Sim, sc: Scenario | undefined, floors: SimWorldFlo
 }
 export const startFloor = (sc: Scenario, floors: SimWorldFloor[]) => floors.find((x) => x.floor_id === sc.floor_ids[0])!;
 
-/** 실행 안내 줄·진행 막대·단추·개발자 정보. 화면마다 자기 틀(폰 dv-act·PC 실행 칸)에 넣는다. 폰 · PC 문구 같음 */
-export function runView(s: Sim): { notes: string[]; acts: JSX.Element[]; bar: JSX.Element | null; dev: JSX.Element | null; label: string } {
+/** 실행 안내 줄·진행 막대·단추·개발자 정보. 화면마다 자기 틀(폰 dv-act·PC 실행 칸)에 넣는다. pc = PC «시뮬» 탭(멈춤 단추 이름이 «시뮬 정지», ADR-003) */
+export function runView(s: Sim, pc = false): { notes: string[]; acts: JSX.Element[]; bar: JSX.Element | null; dev: JSX.Element | null; label: string } {
   const l = s.link, r = l?.run;
   if (!l || !r || sim.dismissed(r.run_id)) return { notes: [], acts: [], bar: null, dev: null, label: '' };
   const mine = sim.runMine(r), end = RUN_END.includes(r.status), paused = r.status === 'PAUSED', open = l.at === 'open', busy = l.busy === 'run';
@@ -93,7 +93,7 @@ export function runView(s: Sim): { notes: string[]; acts: JSX.Element[]; bar: JS
       : l.st?.latched !== false ? '이어가려면 STOP 을 확인한 뒤 «잠금 해제»를 누르세요.' : '손을 뗀 채 «이어서»를 누르면 남은 지점부터 다시 갑니다.'),
     open && paused && !mine && '다른 화면에서 건 실행입니다 · 이어서는 그 화면에서만 할 수 있습니다. 취소는 로봇 담당자·총괄만 됩니다.',
     open && runMoving(r) && (mine ? '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종 시작» → «잠금 해제».'
-      : '다른 화면에서 실행 중입니다 · 일시정지는 임무를 건 화면에서 · 바로 멈추려면 STOP.'),   // 폰 · PC 같음(07:30) · STOP 은 늘 있음
+      : `다른 화면에서 실행 중입니다 · 조종권을 잡으면 일시정지할 수 있습니다 · 바로 멈추려면 ${pc ? '«시뮬 정지»' : 'STOP'}.`),   // R4: USER 조종권을 쥔 화면이면 어디서나 일시정지(#537)
   ].filter(Boolean) as string[];
   const acts = !open ? [] : end ? [b('close', '닫기', () => sim.dismiss(r.run_id), false, false)]
     : paused ? [mine && !record && l.lease && l.st?.latched === false && b('resume', '이어서', () => sim.runControl('resume'), true), b('abort', '취소', () => sim.runControl('abort'))].filter(Boolean) as JSX.Element[]
