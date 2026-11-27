@@ -159,6 +159,13 @@ describe('관제 탭', () => {
     expect($('[aria-label="최근 경고"] [data-alert-at]').textContent).toMatch(/^받은 시각 /);
   });
 
+  it('App: 로봇 0대면 관제 탭은 로봇 탭 빈 화면이 아니라 관제 빈 화면', () => {
+    mount('u-kim', []);
+    expect($('h1').textContent).toBe('관제');
+    expect($('[data-empty-control]')).not.toBeNull();
+    expect($('[aria-label="요약"]')).toBeNull();
+  });
+
   it('로봇 0대 관제 빈 화면: 한 줄 + 로봇 탭 링크', () => {
     box = document.createElement('div'); document.body.append(box);
     act(() => { root = createRoot(box); root.render(<EmptyControl />); });

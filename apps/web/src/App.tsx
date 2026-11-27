@@ -22,6 +22,7 @@ import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
 import { keptPlan } from './screens/missions';
 import { Settings } from './screens/settings';
+import { EmptyControl } from './screens/control';
 import { SimTab } from './screens/sim';
 import { Terrain } from './screens/terrain';
 import { Trash } from './screens/trash';
@@ -305,7 +306,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
         : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
-        : tab === 'fleet' || tab === 'control' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
+        : tab === 'control' ? <EmptyControl />   // 로봇 0대 관제 = 한 줄 + 로봇 탭 링크
+        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
         : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재

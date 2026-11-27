@@ -159,7 +159,8 @@ function Marked({ id, title, robots, sel, cancel, big }: { id: string; title: st
   const r = Math.max(v.width, v.height) / (big ? 90 : 60);
   return <div className="ct-mapbox">
     <MapFrame {...fit} photo={v} role="img" aria-label={`${title} 지도 · 로봇 ${on.length}대 표시`} data-map data-small-map style={{ display: 'block', width: '100%', height: big ? '68vh' : 240, borderRadius: 8 }}>
-      <MapImage id={v.id} width={v.width} height={v.height} />
+      {/* 벽 = 중간 회색 토큰(두 테마 모두 덩어리가 무겁지 않게 · 지도 탭 지우개·벽 색과 같은 결) */}
+      <MapImage id={v.id} width={v.width} height={v.height} tint="var(--muted)" />
       <Shapes v={v} f={v.features} />
       {on.map(({ x, l }) => {
         const [px, py] = toPixel(v, l.x, l.y), c = x.online ? TONE_COLOR[robotStatus(x).tone] : TONE_COLOR.off, me = x.id === sel;
