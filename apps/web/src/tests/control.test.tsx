@@ -186,4 +186,24 @@ describe('관제 탭', () => {
     expect($('h1').textContent).toBe('로봇');
     expect(location.hash).toBe('#/fleet');
   });
+
+  it('한 번도 연결된 적 없는 로봇(연결 전)은 경고가 아니다: 테두리·머리표·경고 수·경보 카드·최근 경고 없음, «연결 끊김» 글자 없음', () => {
+    const pre: Robot[] = ['p1', 'p2'].map((id, i) => ({ id, name: `Go2-${i + 7}`, owner: 'u-park', ownerName: '박OO', battery: null, online: false, seenAt: '', status: null, attention: ['OFFLINE'] }));
+    mount('u-kim', pre); feed(pre);
+    expect(tiles()).toHaveLength(2);
+    expect(tiles().every((t) => t.dataset.tone === undefined && !t.querySelector('[data-warn-flag]'))).toBe(true);
+    expect($('[aria-label="요약"] [data-sum="경고"] b').textContent).toBe('0');
+    expect($('[aria-label="경보"]')).toBeNull();
+    expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(0);
+    expect($('main').textContent).not.toContain('연결 끊김');
+    expect($('main').textContent).not.toContain('미확인');
+  });
+
+  it('받은 시각이 없으면 최근 경고의 시각 칸을 접는다', () => {
+    const gone: Robot[] = ['q1', 'q2'].map((id, i) => ({ id, name: `Q-${i}`, owner: 'u-park', ownerName: '박OO', battery: 40, online: false, seenAt: '', status: 'RUNNING' }));
+    mount('u-kim', gone); feed(gone);
+    expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(1);
+    expect($('[aria-label="최근 경고"] [data-alert-at]')).toBeNull();
+    expect($('[aria-label="최근 경고"]').textContent).not.toContain('미확인');
+  });
 });

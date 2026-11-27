@@ -18,17 +18,19 @@ import '../pcdrive.css';
 import './control.css';
 
 const RANK: Record<Tone, number> = { bad: 0, warn: 1, ok: 2, off: 3 };
-/** 주의가 필요한 로봇 = 상태가 빨강·주황이거나 서버 주의 코드가 있음(로봇 탭 경보와 같은 판정) */
-export const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || !!x.attention?.length; };
+/** 서버 주의 코드 중 상태 칩이 이미 말하지 않는 것(끊김·잠금·오류·칩과 같은 글은 뺌). 한 번도 연결된 적 없는 로봇의 OFFLINE 은 칩 «연결 전»이 말한다 */
+const rest = (x: Robot) => attn(x, ['OFFLINE', 'STOP_LATCHED', 'ERROR']).split(' · ').filter((a) => a && a !== robotStatus(x).text);
+/** 주의가 필요한 로봇 = 상태가 빨강·주황이거나, 칩이 말하지 않는 서버 주의 코드가 남음. 연결 전(칩 회색)만이면 경고 아님 */
+export const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || rest(x).length > 0; };
 /** 경고 타일 맨 앞(빨강 → 주황 → 주의 코드만), 그 밖은 받은 순서 그대로 */
 export function order(list: Robot[]) {
   const k = (x: Robot) => (needs(x) ? Math.min(RANK[robotStatus(x).tone], 1.5) : 9);
   return list.map((x, i) => [x, i] as const).sort((a, b) => k(a[0]) - k(b[0]) || a[1] - b[1]).map(([x]) => x);
 }
-/** 경고 한 줄: 주의 코드 글, 없으면 상태 글 */
-const why = (x: Robot) => attn(x) || robotStatus(x).text;
-/** 타일 머리표 덧말: 상태 칩이 이미 말하는 것(끊김·잠금·오류·칩과 같은 글)은 빼고 남은 주의 코드만. 한 타일에서 같은 낱말은 한 번 */
-export const flagNote = (x: Robot) => attn(x, ['OFFLINE', 'STOP_LATCHED', 'ERROR']).split(' · ').filter((a) => a && a !== robotStatus(x).text).join(' · ');
+/** 경고 한 줄: 칩이 말하지 않는 주의 코드 글, 없으면 상태 글(needs 인 로봇에만 쓴다) */
+const why = (x: Robot) => rest(x).join(' · ') || robotStatus(x).text;
+/** 타일 머리표 덧말: 남은 주의 코드만. 한 타일에서 같은 낱말은 한 번 */
+export const flagNote = (x: Robot) => rest(x).join(' · ');
 /** 끊긴 로봇(서버 실시간 끊김 또는 한 번 받은 로봇의 연결 끊김): 값은 마지막 값 */
 export const isLost = (x: Robot) => x.unknown === 'link' || lost(x);
 /** 마지막 값 표시: 끊긴 로봇이면 «마지막 값 · HH:MM»(시각을 모르면 null = 미확인), 아니면 값 그대로 */
@@ -243,7 +245,7 @@ export function Control(c: Ctx) {
           {!alerts.length ? <p className="lv-note">주의가 필요한 로봇이 없습니다.</p>
             : alerts.length === 1 ? <p className="lv-note">다른 경고가 없습니다.</p>
             : <ul className="fh-list">{alerts.slice(1).map((x) => <li key={x.id} data-alert={x.id}><button type="button" onClick={() => setSel(x.id)} onDoubleClick={() => open(x.id)}>
-              <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="fh-grow lbl">{why(x)}</span><span className="lbl mono" data-alert-at>받은 시각 {x.seenAt || '미확인'}</span></button></li>)}</ul>}
+              <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="fh-grow lbl">{why(x)}</span>{x.seenAt && <span className="lbl mono" data-alert-at>받은 시각 {x.seenAt}</span>}</button></li>)}</ul>}
         </section>
       </aside>
     </div>
