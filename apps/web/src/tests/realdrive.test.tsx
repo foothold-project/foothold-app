@@ -120,7 +120,7 @@ describe('실기 직결 조종 화면 배치', () => {
     expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
     expect(view('lidar').className).toContain('pip');
     expect(view('lidar').hasAttribute('data-off')).toBe(true);
-    expect(view('lidar').textContent).toBe('라이다 화면 없음 — 이 연결은 카메라만 보입니다');
+    expect(view('lidar').textContent).toBe('라이다 화면 없음 · 이 연결은 카메라만 보입니다');
     expect($('[data-real-swap]')).toBeNull();
     expect($('[data-lidar3d]')).toBeNull();
     expect(want.mock.calls.filter(([ch]) => ch === 'lidar')).toEqual([]);
