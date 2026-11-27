@@ -17,7 +17,7 @@ enum class Event {
     mode_low, stand_fold, stand_refused, policy_start, sit_down, damping, liveness_lost, depth_lost, robot_fall,
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
-    inference_failed, ame2_unavailable, runner_ready, mode_rpc, dog_sit, dog_rise, factory_move, move_fall,
+    inference_failed, ame2_unavailable, depth_stale, runner_ready, mode_rpc, dog_sit, dog_rise, factory_move, move_fall,
     app_key, app_drop, handover_refused
 };
 const char* event_name(Event event);
@@ -132,9 +132,27 @@ public:
     virtual void sample(const Sample&) {}
 };
 
+// A depth frame with its capture time (CLOCK_MONOTONIC). values is nullptr when the
+// reader has nothing fresh; stamp is then ignored.
+// invalid is the share of cells with no return or outside the image (sent by the bridge;
+// far values beyond 3 m are also 1.0 in values but are not invalid).
+struct DepthFrame {
+    const Depth* values = nullptr;
+    Tick stamp{};
+    float invalid = 0;
+};
+
 struct Options {
     bool live = false;
     MapMode map = MapMode::off;
+    // Reconstruction depth gap rule (lead-lx 11/27 20:02: slow 1 s, sit 2 s; sim evidence only, real values after G4).
+    // Without a new frame the policy holds h_terr (no depth tick). From depth_slow_after the
+    // command goal is zero (slow to a stop); from depth_sit_after the runner sits (DEPTH_LOST).
+    std::chrono::milliseconds depth_slow_after{1000}, depth_sit_after{2000};
+    // A frame whose invalid share (no return or outside the image, DepthFrame::invalid) is above this is
+    // ignored: no tick, and the gap clock keeps running (lead-lx 11/27 17:52, sim: 0.4 holds,
+    // 0.8 drops balance-beam survival below 1/3).
+    float depth_max_invalid = 0.4f;
     double fwd_max = 1.5;
     bool stand_only = false;
 };
@@ -143,8 +161,13 @@ struct Options {
 class Runner {
 public:
     Runner(Robot&, PolicyExecutor&, Observer&, Options = {}, ModeExecutor* = nullptr);
-    void tick(Tick, const LowState&, const Depth* = nullptr, bool shutdown = false,
+    void tick(Tick, const LowState&, DepthFrame, bool shutdown = false,
               std::optional<Tick> scheduled = std::nullopt);
+    // A frame passed here counts as captured at `now` (replay and tests).
+    void tick(Tick now, const LowState& state, const Depth* frame = nullptr, bool shutdown = false,
+              std::optional<Tick> scheduled = std::nullopt) {
+        tick(now, state, DepthFrame{frame, now}, shutdown, scheduled);
+    }
     Phase phase() const { return phase_; }
     Move move() const { return move_; }
     // Why the last tick refused a key (static string) or nullptr. Read right after tick().
@@ -165,7 +188,7 @@ private:
     void complete_return(Tick);
     void recover_gait(Tick);
     void collect(Tick);
-    void infer(Tick, Tick, const LowState&, const Vec3&, const Joints&, const Depth*);
+    void infer(Tick, Tick, const LowState&, const Vec3&, const Joints&, DepthFrame);
     void send_transition(Tick, const LowState&, const Vec3& gravity, const Joints&, float kp, float kd);
     void fold(Tick, const LowState&, const Vec3& gravity);
     void interpolate(Tick, Tick, const LowState&, const Vec3& gravity, bool standing);
@@ -192,6 +215,8 @@ private:
     int attempts_ = 0;
     Tick started_{}, deadline_{}, next_attempt_{}, next_policy_{};
     std::optional<Tick> stale_since_, fall_since_;
+    Tick depth_seen_{}, depth_used_{};
+    bool depth_slowed_ = false;
     Joints from_{}, target_ = default_pose, last_action_{};
     Vec3 command_{};
     struct PendingSample {

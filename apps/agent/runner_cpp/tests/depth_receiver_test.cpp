@@ -17,9 +17,10 @@ void require(bool pass, const char* message) {
     std::exit(1);
 }
 
-struct Packet {
+struct [[gnu::packed]] Packet {
     std::int64_t stamp;
     Depth depth;
+    float invalid;
 };
 }
 
@@ -37,8 +38,9 @@ int main() {
         require(path.native().size() < sizeof(address.sun_path), "test path too long");
         std::memcpy(address.sun_path, path.c_str(), path.native().size() + 1);
         const auto now = std::chrono::steady_clock::now();
-        auto send = [&](Tick stamp, float value, std::size_t size = sizeof(Packet)) {
+        auto send = [&](Tick stamp, float value, std::size_t size = sizeof(Packet), float invalid = .125f) {
             Packet packet{};
+            packet.invalid = invalid;
             packet.stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(stamp.time_since_epoch()).count();
             packet.depth.fill(value);
             require(sendto(fd, &packet, size, 0, reinterpret_cast<const sockaddr*>(&address),
@@ -52,8 +54,14 @@ int main() {
         require(!receiver.latest(now), "truncated frame was accepted");
         send(now - 1ms, 1.1f);
         require(!receiver.latest(now), "out of range frame was accepted");
+        send(now - 1ms, .5f, sizeof(Packet), 1.5f);
+        require(!receiver.latest(now), "out of range invalid share was accepted");
+        send(now - 1ms, .5f, sizeof(Packet) - sizeof(float));
+        require(!receiver.latest(now), "frame without invalid share was accepted");
         send(now - 1ms, .25f);
-        require(receiver.latest(now) && receiver.latest(now)->front() == .25f, "valid frame missing");
+        float invalid = -1;
+        require(receiver.latest(now, nullptr, &invalid) && receiver.latest(now)->front() == .25f, "valid frame missing");
+        require(invalid == .125f, "invalid share not carried");
         send(now - 2ms, .75f);
         require(receiver.latest(now)->front() == .25f, "older frame replaced recent frame");
         require(!receiver.latest(now + 250ms), "expired frame was reused");

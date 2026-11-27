@@ -34,6 +34,18 @@ def test_depth_resample_covers_raw_and_normalizes():
     assert out.shape == (60, 60) and np.isclose(out[30, 30], (1.6 - .2) / 2.8)
     assert out[30, 0] == 1.0          # 왼쪽 미검출 띠 → 1.0
     assert out.max() <= 1 and out.min() >= 0
+    missing = raw.invalid
+    assert 0 < missing < .5
+    frame[:, 120:] = 5000  # 5 m: 1.0 in the policy input, but a real return
+    assert raw(frame).min() == 1.0 and raw.invalid == missing
+
+
+def test_depth_matches_training_near_limit():
+    # 학습 (amp3-1126 depth_aug.py): 0.3 m 미만 · 미검출 · 3 m 넘음 = 1.0, 그 밖 (d - 0.2) / 2.8
+    raw = depth.DepthResampler(387.12, 387.12, 319.64, 242.06, 640, 480)
+    for mm, want, missing in ((100, 1., 1.), (250, 1., 1.), (350, .15 / 2.8, 0.), (3500, 1., 0.), (0, 1., 1.)):
+        out = raw(np.full((480, 640), mm, np.uint16))
+        assert np.allclose(out, want, atol=1e-6) and raw.invalid == missing, mm
 
 
 BUNDLE = os.environ.get('FH_START_SRC')

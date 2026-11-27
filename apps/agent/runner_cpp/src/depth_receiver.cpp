@@ -15,11 +15,12 @@ using namespace std::chrono_literals;
 
 namespace foothold {
 namespace {
-struct Packet {
+struct [[gnu::packed]] Packet {
     std::int64_t nanoseconds;
     Depth depths;
+    float invalid;
 };
-static_assert(sizeof(Packet) == 8 + 3600 * sizeof(float));
+static_assert(sizeof(Packet) == 8 + 3600 * sizeof(float) + sizeof(float));
 
 int bind_depth(const std::filesystem::path& path) {
     const auto parent = path.parent_path();
@@ -49,20 +50,24 @@ DepthReceiver::~DepthReceiver() {
     unlink(path_.c_str());
 }
 
-const Depth* DepthReceiver::latest(Tick now, Tick* frame_stamp) {
+const Depth* DepthReceiver::latest(Tick now, Tick* frame_stamp, float* invalid) {
     Packet packet;
     const auto size = recv(fd_, &packet, sizeof(packet), MSG_TRUNC);
     if (size == sizeof(packet) && packet.nanoseconds > 0) {
         const Tick stamp{std::chrono::nanoseconds(packet.nanoseconds)};
+        const float share = packet.invalid;
         if (stamp > last_ && stamp <= now && now - stamp <= depth_freshness &&
+            std::isfinite(share) && share >= 0 && share <= 1 &&
             std::all_of(packet.depths.begin(), packet.depths.end(),
                         [](float value) { return std::isfinite(value) && value >= 0 && value <= 1; })) {
             last_ = stamp;
             values_ = packet.depths;
+            invalid_ = share;
         }
     }
     if (last_ == Tick{} || now - last_ > depth_freshness) return nullptr;
     if (frame_stamp) *frame_stamp = last_;
+    if (invalid) *invalid = invalid_;
     return &values_;
 }
 

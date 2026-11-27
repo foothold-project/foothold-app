@@ -55,7 +55,7 @@ def main():
         source = np.ndarray((height, width), dtype=">u2" if message.is_bigendian else "<u2",
                             buffer=message.data, strides=(message.step, 2))
         depth = resampler(source).astype("<f4", copy=False)
-        packet = struct.pack("<Q", observed) + depth.tobytes()
+        packet = struct.pack("<Q", observed) + depth.tobytes() + struct.pack("<f", resampler.invalid)
         try:
             destination.sendto(packet, args.socket)
         except (BlockingIOError, FileNotFoundError, ConnectionRefusedError):

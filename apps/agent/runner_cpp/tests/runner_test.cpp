@@ -90,13 +90,14 @@ struct FakeModes final : ModeExecutor {
 
 struct FakePolicy final : PolicyExecutor {
     float next_action = 1;
-    int calls = 0;
+    int calls = 0, depth_ticks = 0;
     bool delayed = false;
     Outputs result;
     void submit(const Inputs& in) override {
         require(in.obs[33] == (calls == 0 || in.first_after_reset ? 0 : 1),
                 "previous action missing from observation");
         ++calls;
+        if (in.depth_tick) ++depth_ticks;
         result.action.fill(next_action);
     }
     Inference poll(Outputs& out) override {
@@ -137,6 +138,7 @@ struct Rig {
     LowState state;
     Tick time{};
     const Depth* depth = nullptr;
+    float invalid = 0;
 
     explicit Rig(bool live, MapMode mode = MapMode::off) : runner(robot, policy, events, {live, mode}, &modes) {
         state.q = to_sdk(sit_pose);
@@ -145,7 +147,7 @@ struct Rig {
         time += 5ms;
         if (fresh) state.stamp = time;
         state.remote.keys = keys;
-        runner.tick(time, state, depth, shutdown);
+        runner.tick(time, state, DepthFrame{depth, time, invalid}, shutdown);
     }
     void wait(std::chrono::milliseconds duration, int keys = 0, bool fresh = true) {
         for (int i = 0; i < duration / 5ms; ++i) tick(keys, fresh);
@@ -426,12 +428,67 @@ int main() {
         dry.depth = &frame;
         dry.enter();
         dry.wait(40ms);
+        // Depth gap rule: hold the map (no tick), slow to a stop after 1 s, sit after 2 s.
+        const auto seen = [&](Event e) {
+            return std::find(dry.events.seen.begin(), dry.events.seen.end(), e) != dry.events.seen.end();
+        };
+        const int ticks = dry.policy.depth_ticks, calls = dry.policy.calls;
         dry.depth = nullptr;
-        dry.tick();
+        dry.state.remote.ly = 1;
+        dry.wait(900ms);
+        require(dry.runner.phase() == Phase::policy && !seen(Event::depth_lost) && !seen(Event::depth_stale),
+                "short depth gap must keep the policy running");
+        require(dry.policy.calls > calls + 40, "policy stopped during a short depth gap");
+        require(dry.policy.depth_ticks == ticks + 1, "depth tick without a new frame (only the pending frame may enter)");
+        require(dry.events.last_command[0] > .2f, "forward command did not build up during a short gap");
+        dry.wait(200ms);
+        require(dry.runner.phase() == Phase::policy && seen(Event::depth_stale), "1 s depth gap must report DEPTH_STALE");
+        dry.wait(700ms);  // 1.8 s into the gap: still before the 2 s sit
+        require(dry.events.last_want[0] == 0 && dry.events.last_command[0] == 0, "1 s depth gap must slow to a stop");
+        dry.depth = &frame;
+        dry.wait(300ms);  // the first new frame enters depth2 one slot later (training delay)
+        require(dry.policy.depth_ticks >= ticks + 3 && dry.events.last_want[0] > 0, "fresh depth must resume ticks and command");
+        dry.depth = nullptr;
+        dry.state.remote.ly = 0;
+        dry.wait(1900ms);
+        require(dry.runner.phase() == Phase::policy && !seen(Event::depth_lost), "sat before the 2 s depth limit");
+        dry.wait(200ms);
+        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "2 s depth gap must sit");
         dry.wait(2s);
         require(dry.events.ordered({Event::depth_lost, Event::sit_down, Event::damping,
                                     Event::mode_high}), "depth loss must leave reconstruction safely");
         require(dry.robot.calls == 0 && dry.robot.writes == 0, "depth loss accessed robot in dry-run");
+    }
+    {
+        // Invalid share rule: more than 40 % missing cells (sent by the bridge) counts as no frame.
+        // Far cells are also 1.0 in the policy input but do not count as missing.
+        Rig dry(false, MapMode::reconstruction);
+        Depth far{};
+        far.fill(1.f);
+        dry.depth = &far;
+        dry.invalid = .41f;
+        dry.tick(start);
+        require(dry.runner.phase() == Phase::high, "reconstruction armed on an invalid frame");
+        dry.invalid = .4f;  // exactly 40 % is still used, and an all-far frame is a real frame
+        dry.enter();
+        dry.wait(40ms);
+        require(dry.runner.phase() == Phase::policy, "40 % missing, all-far frame must arm reconstruction");
+        const auto seen = [&](Event e) {
+            return std::find(dry.events.seen.begin(), dry.events.seen.end(), e) != dry.events.seen.end();
+        };
+        const int ticks = dry.policy.depth_ticks;
+        dry.invalid = .41f;
+        dry.wait(900ms);
+        require(dry.policy.depth_ticks == ticks + 1 && !seen(Event::depth_stale),
+                "invalid frames must hold the map like a gap");
+        dry.wait(200ms);
+        require(seen(Event::depth_stale), "invalid frames must run the gap clock");
+        dry.invalid = 0;
+        dry.wait(300ms);
+        require(dry.policy.depth_ticks >= ticks + 3, "valid frames must resume ticks");
+        dry.invalid = .41f;
+        dry.wait(2100ms);
+        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "2 s of invalid frames must sit");
     }
     {
         Rig live(true);

@@ -44,7 +44,7 @@ struct Config {
 };
 
 const char* usage = "foothold_start --folder BUNDLE [--nic NIC | --benchmark] "
-    "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--seconds N] [--status N] [--status-log FILE] [--trace-dir DIR] "
+    "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--depth-slow-ms N] [--depth-sit-ms N] [--depth-max-invalid F] [--seconds N] [--status N] [--status-log FILE] [--trace-dir DIR] "
     "[--cpu-range FIRST-LAST | --control-cpus CPUSET --sensing-cpus CPUSET --io-cpus CPUSET] "
     "[--rt-priority N] [--sensing-rt-priority N] [--mlock] [--fwd-max N] "
     "[--stand-only] [--stop-mode sit] [--app-port PORT] [--live --armed-by-remote]";
@@ -94,6 +94,9 @@ Config parse(int argc, char** argv) {
         else if (option == "--status-log") config.status_log = value();
         else if (option == "--status") config.status = number(value());
         else if (option == "--fwd-max") config.runner.fwd_max = number(value());
+        else if (option == "--depth-slow-ms") config.runner.depth_slow_after = std::chrono::milliseconds(integer(value(), 60000));
+        else if (option == "--depth-max-invalid") config.runner.depth_max_invalid = static_cast<float>(number(value()));
+        else if (option == "--depth-sit-ms") config.runner.depth_sit_after = std::chrono::milliseconds(integer(value(), 60000));
         else if (option == "--rt-priority") config.priority = integer(value(), 99);
         else if (option == "--sensing-rt-priority") config.sensing_priority = integer(value(), 99);
         else if (option == "--control-cpus") config.control_cpus = cpu_range(value());
@@ -126,6 +129,10 @@ Config parse(int argc, char** argv) {
         throw std::invalid_argument("gt is vector-replay only");
     if (config.runner.map == MapMode::reconstruction && !config.benchmark && config.depth_socket.empty())
         throw std::invalid_argument("reconstruction requires --depth-socket");
+    if (config.runner.depth_slow_after.count() <= 0 || config.runner.depth_sit_after <= config.runner.depth_slow_after)
+        throw std::invalid_argument("--depth-slow-ms must be positive and below --depth-sit-ms");
+    if (!(config.runner.depth_max_invalid >= 0 && config.runner.depth_max_invalid <= 1))
+        throw std::invalid_argument("--depth-max-invalid must be within 0-1");
     if (config.runner.map == MapMode::off && !config.depth_socket.empty())
         throw std::invalid_argument("--depth-socket requires reconstruction");
     if (config.benchmark && config.runner.stand_only)
@@ -246,13 +253,13 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
         }
         if (!saw_state && now - begin >= 10s)
             throw std::runtime_error("no LowState received in ten seconds");
-        const auto* depth = config.depth_socket.empty() ? replay_depth : read_depth(now);
+        const DepthFrame depth = config.depth_socket.empty() ? DepthFrame{replay_depth, now} : read_depth(now);
         const bool shutdown = interrupted || now >= end || control_failure;
         if (config.benchmark) {
             // Only simulate the local arming input. Dry-run never opens write clients.
             state.remote = {};
             if (!benchmark_armed && state.stamp != Tick{} && now - state.stamp <= 50ms && !shutdown &&
-                (config.runner.map != MapMode::reconstruction || depth)) {
+                (config.runner.map != MapMode::reconstruction || depth.values)) {
                 state.remote.keys = (1 << 12) | (1 << 2);
                 benchmark_armed = true;
             }
@@ -335,7 +342,10 @@ int main(int argc, char** argv) {
             else depth.emplace(config.depth_socket);
         }
         const auto read_depth = [&](Tick now) {
-            return sampler ? sampler->latest(now) : depth->latest(now);
+            DepthFrame frame;
+            frame.values = sampler ? sampler->latest(now, &frame.stamp, &frame.invalid)
+                                   : depth->latest(now, &frame.stamp, &frame.invalid);
+            return frame;
         };
         OrtPolicy policy(config.bundle, config.runner.map, config.debug_est);
         Inputs warm_input{};
