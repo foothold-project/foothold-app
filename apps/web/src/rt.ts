@@ -71,6 +71,7 @@ const RUN_TEXT: Record<string, string> = {
   RUN_NOT_ALLOWED: '{robot} 조종권 · 현장 승인을 확인할 수 없어 임무 실행 요청을 거절했습니다.',
   RUN_MOVING: '{robot} 정지가 확인되지 않아 임무 시작 · 이어 가기 요청을 거절했습니다.',
   RUN_ASSIGNMENT_INVALID: '{robot} 승인된 배정이 아니어서 임무 시작 요청을 거절했습니다.',
+  RUN_STOPPED: '{robot} 배정 확인 중 정지가 눌려 임무 시작 요청을 거절했습니다.',
 };
 export const runSay = (code: string, robot: string) => RUN_TEXT[code]?.replace('{robot}', robot) ?? TEXT[code] ?? `${robot} 실행 요청 거절 (${code}). 서버 기록에서 까닭을 확인하세요.`;
 const say = (e?: ErrorBody | null) => (e && (TEXT[e.code] ?? e.message)) || '요청을 처리하지 못했습니다. 잠시 뒤 다시 누르세요.';

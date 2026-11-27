@@ -109,6 +109,12 @@ describe('임무 실행 단추', () => {
     expect(said()).toBe('K-01 정지가 확인되지 않아 임무 시작 · 이어 가기 요청을 거절했습니다.');
     expect(btn('실행')!.disabled).toBe(false);
   });
+  it('서버 답 거절 RUN_STOPPED(#537 e45b6b5c: 배정 확인 중 STOP)도 서버 문구 틀 그대로', () => {
+    const w = mount({ own: true });
+    w.auto = (m: Msg) => (m.t === 'run.start' ? fail('RUN_STOPPED') : { ok: true });
+    click('실행');
+    expect(said()).toBe('K-01 배정 확인 중 정지가 눌려 임무 시작 요청을 거절했습니다.');
+  });
   it('로봇 결과 REJECTED(state.run_result) 도 코드 문구 · 모르는 코드는 코드 그대로 + 한 줄', () => {
     const w = mount({ own: true });
     click('실행');
