@@ -811,7 +811,7 @@ class ScreenGait(ScreenRobot):
 # 거절이 오는 두 길:
 #   동기 ScreenReply (ok=false, 서버가 막음): 기존 lease · 권한 코드 (LEASE_MISMATCH · ADMIN_NO_REAL_CONTROL ·
 #     NOT_ROBOT_OWNER 등), RUN_NOT_ALLOWED (관문), RUN_MOVING, RUN_ASSIGNMENT_INVALID (배정이 ACTIVE 가 아님 ·
-#     로봇 · 시나리오 판이 다름)
+#     로봇 · 시나리오 판이 다름), RUN_STOPPED (배정 확인 중 STOP 이 와서 큐에 넣지 않음)
 #   비동기 run_result (status REJECTED, 에이전트 실행 기계가 막음): 폰 직결 reply 와 같은 코드
 #     (FORBIDDEN · NOT_CONTROLLER · RUN_ACTIVE · RUN_NOT_FOUND · RUN_OWNER_MISMATCH · RUN_STATE_CONFLICT ·
 #     RESUME_REJECTED · NAV_UNAVAILABLE · PLAN_UNAVAILABLE · RECORDING_UNAVAILABLE · RUN_CONFLICT),
@@ -826,7 +826,7 @@ class ScreenGait(ScreenRobot):
 # run_result.code 는 열린 문자열. request_id 는 화면이 보낸 ScreenEnvelope.id 를 그대로 쓴다.
 # 실행 진행 (상태 · 지점) 은 ScreenState.run (에이전트 reported_run) 으로 본다.
 RunControlOp = Literal['pause', 'resume', 'abort']
-RunRelayRejectCode = Literal['RUN_NOT_ALLOWED', 'RUN_MOVING', 'RUN_ASSIGNMENT_INVALID', 'RUN_UNSUPPORTED']
+RunRelayRejectCode = Literal['RUN_NOT_ALLOWED', 'RUN_MOVING', 'RUN_ASSIGNMENT_INVALID', 'RUN_STOPPED', 'RUN_UNSUPPORTED']
 
 
 class ScreenRunStart(ScreenRobot):

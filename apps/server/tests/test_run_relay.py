@@ -241,3 +241,36 @@ def test_queued_run_cannot_survive_stop_or_authority_change(relay, transition, o
         assert not any(m.get('t', '').startswith('run.') for m in peer.queue._queue)
     else:
         assert realtime.blocked_agent_control(peer, body)
+
+
+def test_stop_during_assignment_read_rejects_run_stopped(trial, seeded):
+    """검수 J1: 배정 DB 읽기 도중 STOP 이면 run.start 는 큐에 들어가지 않고 RUN_STOPPED."""
+    rid = seeded['robots']['mine']
+    owner = app_token(trial)
+    good = synthetic_assignment(seeded)
+    rt = trial.app.state.realtime
+    original = rt.read
+
+    async def read_with_stop(fn, *args):
+        if fn is R.run_assignment_valid:
+            holder = rt.arbiter.robot(str(rid)).holder
+            rt.apply(rt.arbiter.stop(str(rid), holder.actor))  # STOP lands mid-read; holder/lease stay
+        return await original(fn, *args)
+
+    with trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        receive(ag, 'lease'); receive(ag, 'stop'); receive(ag, 'field_approval')
+        with screen(trial, owner) as ws:
+            lease = take(ws, ag, rid)
+            assert reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
+            receive(ag, 'unlock')
+            ag.send_json(state(3, stop_ref=ag.stop_ref))
+            rt.read = read_with_stop
+            ident = send(ws, 'run.start', rid, lease_id=lease, run_id=str(uuid4()), screen_id=str(uuid4()), **good)
+            answer = reply(ws, ident)
+            rt.read = original
+            assert answer['ok'] is False and answer['error']['code'] == 'RUN_STOPPED'
+            receive(ag, 'stop')
+            with pytest.raises(BaseException):
+                receive(ag, 'run.start', timeout=.3)

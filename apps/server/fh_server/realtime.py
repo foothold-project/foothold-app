@@ -1597,7 +1597,9 @@ class Realtime:
                         elif msg.t == 'run.start':
                             # 배정 확인은 DB 라 따로 돈다. 이 화면의 STOP 처리를 막지 않는다.
                             self.send_run(rid, actor, msg, enqueue=False)  # fast reject; nothing queued yet
-                            peer.run_tasks.add(task := asyncio.create_task(self.start_run(peer, rid, actor, msg)))
+                            record = self.arbiter.robot(rid)
+                            mark = (record.stop_ref, record.stop_gen)  # a STOP during the DB read changes it
+                            peer.run_tasks.add(task := asyncio.create_task(self.start_run(peer, rid, actor, msg, mark)))
                             task.add_done_callback(peer.run_tasks.discard)
                             continue
                         elif msg.t == 'run.control':
@@ -1715,9 +1717,13 @@ class Realtime:
         if enqueue:
             self.put(peer, body)
 
-    async def start_run(self, peer, rid, actor, msg):
+    async def start_run(self, peer, rid, actor, msg, mark):
         try:
             valid = await self.read(run_assignment_valid, self.factory, self.settings.org_id, rid, msg)
+            record = self.arbiter.robot(rid)
+            if (record.stop_ref, record.stop_gen) != mark:
+                # STOP keeps holder/lease and applied stays zero, so the gates alone would pass.
+                raise LeaseError('RUN_STOPPED', '정지가 눌려 임무 시작을 취소했습니다. 다시 누르세요.')
             if not valid:
                 raise LeaseError('RUN_ASSIGNMENT_INVALID', '이 로봇에 승인된 배정 (시나리오 판 · 층 · 지도 판) 이 아닙니다.')
             # Authority can change during the read: every gate again before enqueue.
