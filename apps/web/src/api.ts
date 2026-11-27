@@ -44,14 +44,18 @@ let authLost = (_why?: string) => {};
 /** 로그인·세션 확인 밖의 요청이 401 이면 부른다 — 화면은 로그인으로. why = 로그인 화면에 보일 이유(없으면 기본 문구) */
 export const onAuthLost = (f: (why?: string) => void) => { authLost = f; };
 /** 로그인이 끝났다(401·실시간 4401·비밀번호 변경) — CSRF 를 버리고 화면은 로그인으로 */
-export const expireAuth = (why?: string) => { csrf = null; authLost(why); };
+const ended = new Set<() => void>();
+/** 로그인 세션이 끝날 때(만료 · 로그아웃) 비울 것(받아 둔 3D 모형 등) */
+export const onAuthEnd = (f: () => void) => { ended.add(f); };
+const endAuth = () => { csrf = null; ended.forEach((f) => f()); };
+export const expireAuth = (why?: string) => { endAuth(); authLost(why); };
 /** 지금 로그인 세션 표식(CSRF 값) — 늦게 온 답이 같은 로그인 세션의 것인지 견줄 때만. 화면·로그에 내지 않는다 */
 export const authMark = () => csrf;
 
 /** ms = 답을 기다리는 한도(넘으면 끊고 TIMEOUT), cancel = 부른 쪽이 거둠(세션이 끝남 등 — CANCELED, 401 이어도 로그인 정리 안 함).
  *  file = 성공 본문을 JSON 대신 Blob 으로(CSV 내려받기 — 실패 본문은 그대로 오류 JSON). raw = 본문을 JSON 대신 이 Content-Type 의 원시 바이트로(지도 올리기) */
-type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean; raw?: string; match?: number; key?: string };   // match = If-Match 판(임무·시나리오 PUT, §1.3), key = Idempotency-Key(같은 시도 재전송엔 같은 키)
-async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file, raw, match, key }: Opt = {}): Promise<T> {
+type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean; bin?: boolean; raw?: string; match?: number; key?: string };   // bin = 성공 본문을 ArrayBuffer 로(3D 모형 GLB)   // match = If-Match 판(임무·시나리오 PUT, §1.3), key = Idempotency-Key(같은 시도 재전송엔 같은 키)
+async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file, bin, raw, match, key }: Opt = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = raw ?? 'application/json';
   if (match !== undefined) headers['If-Match'] = `"${match}"`;
@@ -69,6 +73,7 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
     // 성공 본문을 받다 끊기거나(헤더 뒤 단절·받는 중 마감) 깨졌으면 실패(null 성공으로 넘기지 않음 — 쓰기면 처리됐을 수 있다).
     // 빈 성공 본문은 null 그대로, 실패 응답의 본문은 못 읽어도 상태 코드로. 204 도 아래 취소 검사를 거친다(늦게 끝난 쓰기)
     if (file && res.ok) data = await res.blob().catch(() => { throw lost(); });
+    else if (bin && res.ok) data = await res.arrayBuffer().catch(() => { throw lost(); });
     else if (res.status !== 204) {
       const text = await res.text().catch(() => { if (res.ok) throw lost(); return ''; });
       try { data = text ? JSON.parse(text) : null; } catch { if (res.ok) throw new ApiFail(0, 'BAD_BODY', BROKEN); data = null; }
@@ -104,7 +109,7 @@ export const api = {
   },
   /** 새로고침·새 탭: 쿠키로 CSRF 다시 받기. 401 = 로그인 안 됨 */
   async session() { const r = await call<SessionInfo>('GET', '/auth/session'); csrf = r.csrf_token; return r; },
-  async logout() { await call<void>('POST', '/auth/logout'); csrf = null; },
+  async logout() { await call<void>('POST', '/auth/logout'); endAuth(); },
   me: (cancel?: AbortSignal) => call<User>('GET', '/me', undefined, { cancel }),
   /** 화면은 listScope(fake.ts): 운영 관리자 mine, 총괄 all(ADR-003 결정 2) */
   robots: (scope: 'mine' | 'all', cancel?: AbortSignal) => pages<RobotSummary>(`/robots?scope=${scope}`, cancel),
@@ -170,6 +175,8 @@ export const api = {
   imageUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/image`,
   /** 판 3D 모형(model/gltf-binary · ETag = model_sha256). 없으면 404 MODEL_NOT_FOUND */
   modelUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/model`,
+  /** 판 3D 모형 바이트. call 의 401(로그인 정리)·시간 한도·거둠을 그대로 */
+  model: (id: string, cancel?: AbortSignal) => call<ArrayBuffer>('GET', `/map-versions/${encodeURIComponent(id)}/model`, undefined, { cancel, bin: true, ms: MAP_READ_MS }),
   /** 원시 본문 올리기 두 단계: 그림(type = image/png·image/x-portable-graymap) → 그 ID 로 yaml(text/yaml). 둘째 응답 ID 가 판 저장의 image */
   upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type, ms: MAP_WRITE_MS }),
   /** 3D 지도 파일(.pcd·.ply) 하나 → 승인 지도 판 + 연결된 시뮬 지형(총괄, REAL 장소 HUMAN 층 — apps/server/VOXEL-MAPS.md). 본문 = 파일 바이트(이름·경로는 보내지 않음).

@@ -8,7 +8,8 @@ import { Root } from '../session';
 import { kept } from '../screens/mapedit';
 import { clearPlans } from '../screens/missions';
 import * as THREE from 'three';
-import { floorTop, gltfToWorld, resetModels, worldGroup, worldToGltf } from '../screens/map3d';
+import { api, expireAuth } from '../api';
+import { floorTop, gltfToWorld, modelBytes, onBoard, resetModels, robotMark, worldGroup, worldToGltf } from '../screens/map3d';
 import { FakeWS } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,7 +90,27 @@ describe('glTF → 지도 좌표', () => {
     }
     const scene = new THREE.Group(), slab = new THREE.Mesh(new THREE.BoxGeometry(36, 0.175, 20)); slab.name = 'l2_floor'; slab.position.set(18, 3.2875, -10);
     const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 3.2, 1)); wall.name = 'l2_wall'; wall.position.set(1, 1, -1); scene.add(slab, wall);
-    expect(floorTop(scene)).toBeCloseTo(3.375, 6);
+    expect(floorTop(scene, 'l2')).toBeCloseTo(3.375, 6);
+  });
+  it('세 층 바닥이 든 모형: 고른 층(<floor_id>_floor) 의 윗면, 그 노드가 없으면 모형 맨 아래', () => {
+    const scene = new THREE.Group();
+    for (const [id, top] of [['l1', 0], ['l2', 3.375], ['l3', 6.75]] as const) {
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(36, 0.175, 20)); slab.name = `${id}_floor`; slab.position.set(18, top - 0.0875, -10); scene.add(slab);
+    }
+    expect(floorTop(scene, 'l2')).toBeCloseTo(3.375, 6);
+    expect(floorTop(scene, 'l1')).toBeCloseTo(0, 6);
+    expect(floorTop(scene, 'b9')).toBeCloseTo(-0.175, 6);
+  });
+});
+
+describe('3D 에 얹는 로봇 거르기', () => {
+  it('이 판(map_version_id) 위치가 있는 로봇만 · 다른 판 · 좌표 없음은 빠짐', () => {
+    type R = { id: string; l: Parameters<typeof onBoard>[2] extends (x: never) => infer L ? L : never };
+    const at = (id: string, l: object | null) => ({ id, l }) as R;
+    const list: R[] = [at('a', { map_version_id: 'v2', x: 1, y: 2, yaw: 0.5 }), at('b', { map_version_id: 'v1', x: 1, y: 2 }), at('c', { map_version_id: 'v2', x: null, y: 2 }), at('d', null)];
+    const got = onBoard(list, 'v2', (x) => x.l);
+    expect(got.map((g) => g.x.id)).toEqual(['a']);
+    expect(got[0].l).toEqual({ x: 1, y: 2, yaw: 0.5 });
   });
 });
 
@@ -119,5 +140,78 @@ describe('지도 탭 층 지도판 «2D / 3D»', () => {
     expect($('[data-map]')).toBeTruthy();
     expect(pick('2D')!.getAttribute('aria-pressed')).toBe('true');
     expect(box.textContent).toContain('이 층은 3D 모형이 없습니다');
+  });
+});
+
+describe('3D 표식 위치(순수 함수)', () => {
+  it('로봇 = 지도 (x, y) · 층 바닥 높이, 방향 선 끝 = yaw 쪽 1 m. yaw 없으면 선 없음', () => {
+    const m = robotMark({ x: 10, y: 4, yaw: Math.PI / 2 }, 3.375);
+    expect(m.at).toEqual([10, 4, 3.375]);
+    expect(m.tip!.map((v) => +v.toFixed(6) + 0)).toEqual([10, 5, 3.375]);
+    expect(robotMark({ x: 22, y: 15.5, yaw: null }, 3.375)).toEqual({ at: [22, 15.5, 3.375], tip: null });
+  });
+});
+
+describe('3D 모형 받기 · 실패 경로', () => {
+  it('같은 로그인 세션 · 같은 sha 는 한 번, 세션이 바뀌면 다시 받음, 최근 3 개만 기억', async () => {
+    let mark = 'csrf-1';
+    serve({ 'GET /auth/session': () => ({ status: 200, body: { client: 'web', csrf_token: mark } }),
+      'POST /auth/logout': { status: 204 }, 'GET /map-versions/a/model': { status: 200, body: {} }, 'GET /map-versions/b/model': { status: 200, body: {} },
+      'GET /map-versions/c/model': { status: 200, body: {} }, 'GET /map-versions/d/model': { status: 200, body: {} } });
+    await api.session();
+    await modelBytes('a', SHA); await modelBytes('a', SHA);
+    expect(models()).toHaveLength(1);
+    mark = 'csrf-2'; await api.session();
+    await modelBytes('a', SHA);
+    expect(models()).toHaveLength(2);
+    mark = 'csrf-1'; await api.session();   // 같은 표식으로 돌아와도 바뀐 사이 버렸으니 다시 받음
+    await modelBytes('a', SHA);
+    expect(models()).toHaveLength(3);
+    expireAuth(); await api.session();   // 만료 · 로그아웃은 바로 비움
+    await modelBytes('a', SHA);
+    expect(models()).toHaveLength(4);
+    await api.logout(); await api.session();   // 로그아웃도
+    await modelBytes('a', SHA);
+    expect(models()).toHaveLength(5);
+    for (const id of ['b', 'c', 'd']) await modelBytes(id, SHA);
+    await modelBytes('a', SHA);   // 넷째 앞이라 밀려남
+    expect(models().map((c) => c.path)).toEqual(['/map-versions/a/model', '/map-versions/a/model', '/map-versions/a/model', '/map-versions/a/model', '/map-versions/a/model', '/map-versions/b/model', '/map-versions/c/model', '/map-versions/d/model', '/map-versions/a/model']);
+  });
+  it('500 → 실패 문구 + 다시 불러오기(다시 요청), 멈춰 있지 않음', async () => {
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': err(500, 'INTERNAL_ERROR', '서버 오류입니다.') })); await open();
+    await click(pick('3D'));
+    expect($('[data-map3d-bad]')!.textContent).toContain('3D 모형을 불러오지 못했습니다');
+    expect($('[data-map3d-bad]')!.textContent).toContain('서버 오류입니다');
+    expect($('[data-map3d-wait]')).toBeNull();
+    await click([...box.querySelectorAll('[data-map3d-bad] button')].find((b) => b.textContent === '다시 불러오기')!);
+    expect(models()).toHaveLength(2);
+  });
+  it('네트워크 끊김 → 연결 문구(500 과 다른 문구) · 2D 로 돌아가면 받던 요청을 거둠', async () => {
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': () => { throw new TypeError('down'); } })); await open();
+    await click(pick('3D'));
+    expect($('[data-map3d-bad]')!.textContent).toContain('서버에 연결하지 못했습니다');
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': () => new Promise<Reply>(() => {}) })); await open();
+    await click(pick('3D'));
+    const sig = models()[models().length - 1].signal!;
+    expect(sig.aborted).toBe(false);
+    await click(pick('2D'));
+    expect(sig.aborted).toBe(true);
+  });
+  it('받은 본문이 GLB 가 아니면(읽기 예외) 실패 문구, «불러오는 중» 에 멈추지 않음', async () => {
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': { status: 200, body: { not: 'glb' } } })); await open();
+    await click(pick('3D'));
+    await flush();
+    expect($('[data-map3d-wait]')).toBeNull();
+    expect($('[data-map3d-bad]')).toBeTruthy();
+  });
+  it('401 → 로그인 화면으로(세션 만료 처리, «네트워크 확인» 아님)', async () => {
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': err(401, 'UNAUTHENTICATED', '로그인이 필요합니다.') })); await open();
+    await click(pick('3D'));
+    expect(box.querySelector('input[type="password"]')).toBeTruthy();
+  });
+  it('3D 칸은 키 안내를 가진 보기(화살표로 옮기기)', async () => {
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': { status: 200, body: {} } })); await open();
+    await click(pick('3D'));
+    expect($('[data-map3d] [role="application"]')!.getAttribute('aria-label')).toContain('화살표');
   });
 });
