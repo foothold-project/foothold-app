@@ -498,12 +498,29 @@ describe('관제 탭', () => {
     press(stopBtn());
     expect($<HTMLSelectElement>('[aria-label="정지할 로봇 고르기"] select').options[0].textContent).toBe('내 시뮬 모두 정지 (1 대)');
     expect($('[data-cant-real]').textContent).toBe('실기 로봇 2 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요');
+    expect($('[data-stop-pre]').textContent).toBe('연결 전 로봇 1 대 · 정지를 보낼 수 없음');   // 총괄도 같은 줄(연결 전 실기 K-23)
     act(() => root?.unmount()); root = null;
     mount('u-lee', R); feed(R);
     act(() => { $$('[aria-label="범위"] button')[0].click(); });   // 모두(남의 실기 K-22 도 보임)
     press(stopBtn());
     expect($<HTMLSelectElement>('[aria-label="정지할 로봇 고르기"] select').options[0].textContent).toBe('모두 정지 (1 대)');   // 남의 실기 K-22 는 구독 밖 요약 로봇이라 수에서 빠짐(세울 수는 있는 계정)
     expect($('[data-cant-real]')).toBeNull();
+    expect($('[data-stop-pre]')).toBeNull();   // 이OO 에게 K-23 은 구독 밖 요약 로봇(연결 전으로 세지 않음)
+  });
+  it('t21-4: 연결 전 로봇이 0 대면 줄 없음(끊긴 로봇은 연결 전으로 세지 않음) · 모두 정지가 아닌 한 대를 고르면 줄 없음', () => {
+    const L = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));   // 끊김이 확인된(lost) 내 로봇 g4 = 연결 전이 아님
+    mount('u-lee', L); feed(L);
+    press(stopBtn());
+    expect($('[aria-label="정지할 로봇 고르기"] [data-stop-lost="g4"]')).not.toBeNull();
+    expect($('[aria-label="정지할 로봇 고르기"] [data-stop-pre]')).toBeNull();
+    act(() => root?.unmount()); root = null;
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false, status: null as never, mission: undefined } : r));
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    expect($('[data-stop-pre]')).not.toBeNull();
+    const sel = $<HTMLSelectElement>('[aria-label="정지할 로봇 고르기"] select');
+    act(() => { sel.value = sel.options[1].value; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect($('[data-stop-pre]')).toBeNull();
   });
   it('t21-3: 아직 연결 전인 로봇(상태 보고 0 · 마지막 상태 없음)은 모두 정지 수에서 빠지고 끊김 · 상태 모름 줄도 없다', () => {
     const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false, status: null as never, mission: undefined } : r));   // 이OO 로봇 g4 = 연결 전
@@ -513,6 +530,7 @@ describe('관제 탭', () => {
     expect(pick.querySelector('select')!.options[0].textContent).toBe('모두 정지 (9 대)');
     expect(pick.querySelector('[data-stop-lost="g4"]')).toBeNull();
     expect(pick.querySelector('[data-stop-unsure="g4"]')).toBeNull();
+    expect(pick.querySelector('[data-stop-pre]')!.textContent).toBe('연결 전 로봇 1 대 · 정지를 보낼 수 없음');
     press(stopBtn());
     expect(FakeWS.last.of('stop').map((m) => m.robot)).not.toContain('g4');
     expect(FakeWS.last.of('stop')).toHaveLength(9);
