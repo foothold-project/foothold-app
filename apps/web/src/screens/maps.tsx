@@ -507,7 +507,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
   // 3D 지도(RB-VOXEL-VIEW): 3D 파일에서 만든 판이면 «3D 로 보기»·«시뮬 지형 수정하기». vu = 올리기 창에서 3D 파일 고름(총괄만 — 서버 권한)
   // 로봇으로 만든 지도(RB-SLAM-WEB2): 저장 묶음(slam_bundle)이 있고 내가 그 로봇의 담당 운영자면 «3D 로 보기» = 저장된 3D 칸·2D 격자(서버 묶음 — 담당 운영자만 받음)
   const sb = v?.slam_bundle && makers(user, robots).some((r) => r.id === v.slam_bundle!.robot_id) ? v.slam_bundle : null;
-  // 실내 3D 모형(W3 MAP3D): 판에 model_sha256 이 있으면 «2D / 3D». 404 면 2D 로 + 한 줄
+  // 실내 3D 모형(W3 MAP3D): 판에 model_sha256 이 있으면 «2D / 3D»(null = 없음 · 거절 → 2D 만). 404 면 2D 로 + 서버 까닭 한 줄
   const model = modelOf(v), [m3, setM3] = useState(false), show3 = m3 && !!model && !editing && !cmp;
   const vox = voxelOf(v), [d3, setD3] = useState(false), [vu, setVu] = useState(false), [vbusy, setVbusy] = useState(false), on3d = d3 && (!!vox || !!sb) && !editing && !cmp;
   // 시뮬 탭(SIM-PAIR 11-09): 편집·새 지도 올리기·되돌리기 없음(지형 판은 «지형 만들기» 저장만 바꾼다), 짝 없는 시뮬 층은 안내.
@@ -548,7 +548,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
       <div className="mx-map">
         {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
-          : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={() => { setM3(false); setDone({ text: '이 층은 3D 모형이 없습니다.' }); }} />
+          : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={(why) => { setM3(false); setDone({ text: `${why || '이 층은 3D 모형이 없습니다.'} 2D 지도로 봅니다.` }); }} />
           : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
           : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
           : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.</p>

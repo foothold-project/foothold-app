@@ -11,9 +11,8 @@ import { robotStatus, type Robot, type Tone } from '../fake';
 import { useTheme } from '../theme';
 import './voxel3d.css';
 
-/** 계약 TS 에 model_sha256 이 들어오기 전 임시 모양(계약 PR 이 들어오면 MapVersion 그대로) */
-export type WithModel = MapVersion & { model_sha256?: string | null; model_floor_z?: number | null };
-export const modelOf = (v?: MapVersion | null) => (v as WithModel | null | undefined)?.model_sha256 || null;
+/** 판의 3D 모형 sha(계약 MapVersion.model_sha256). null = 모형 없음 · 거절됨 → 2D 만 */
+export const modelOf = (v?: MapVersion | null) => v?.model_sha256 || null;
 
 type P3 = [number, number, number];
 /** glTF(+Y 위) → 지도 world(z 위) */
@@ -49,8 +48,7 @@ export function robotMark(l: { x: number; y: number; yaw?: number | null }, floo
 /** 바닥 윗면 높이(world z) = 판의 model_floor_z(계약: 그 층 바닥 world z). 없으면 모형 맨 아래.
  *  GLB 노드 이름으로 찾지 않는다(실서버 floor_id 는 UUID) */
 export function floorZ(scene: THREE.Object3D, v: MapVersion) {
-  const z = (v as WithModel).model_floor_z;
-  if (z != null) return z;
+  if (v.model_floor_z != null) return v.model_floor_z;
   scene.updateMatrixWorld(true);
   return new THREE.Box3().setFromObject(scene).min.y;
 }
@@ -66,7 +64,8 @@ const whereOf = (x: Robot) => (x.unknown === 'summary' ? null : rt.get(x.id).sta
 
 type Rig = { draw: () => void; marks: THREE.Group; z: number; view: (top: boolean) => void; dispose: () => void };
 
-export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; missing: () => void }) {
+/** missing(까닭) = 404: 모형 없음 · 판 없음. 부르는 쪽이 2D 로 돌아가 그 까닭을 한 줄로 */
+export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; missing: (why: string) => void }) {
   const host = useRef<HTMLDivElement>(null), rig = useRef<Rig | null>(null);
   const [at, setAt] = useState<'wait' | 'ok' | 'bad' | 'nogl'>('wait'), [n, setN] = useState(0), [why, setWhy] = useState('');
   const [, light] = useTheme();
@@ -85,7 +84,7 @@ export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; 
         if (!live) return;
         const f = e instanceof ApiFail ? e : null;
         if (f?.code === 'CANCELED') return;
-        if (f?.status === 404) return missing();
+        if (f?.status === 404) return missing(f.message);
         setWhy(f?.message ?? ''); setAt('bad'); return;   // 401 은 call 이 로그인 정리까지
       }
       // 읽기 → 그리기. 어디서 예외가 나도 만든 것을 거두고 실패 문구(«불러오는 중» 에 멈추지 않음)
@@ -166,7 +165,7 @@ export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; 
     r.draw();
   }, [at, key, light, v.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div className="vx" data-map3d>
+  return <div className="vx" data-map3d data-floor-z={at === 'ok' && rig.current ? rig.current.z : undefined}>
     <div ref={host} className="vx-3d" tabIndex={0} role="application" aria-label="3D 실내 · 끌어 돌리기, 오른쪽 끌기 이동, 휠 확대, 칸을 누른 뒤 화살표로 옮기기">
       {at === 'ok' && <div className="vx-tools" role="group" aria-label="3D 시점">
         <button type="button" className="btn" onClick={() => rig.current?.view(true)}>위에서 보기</button>
