@@ -175,3 +175,39 @@ def test_estimate_math_on_known_path(maps, seeded):
     assert http.post(P + '/estimates', headers=admin, json={**body, 'gait': 'run'}).status_code == 400
     two = http.post(P + '/estimates', headers=auth(http, 'two'), json=body).json()
     assert two['end_battery_pct'] is None and two['task_s'] == 8.0
+
+
+def test_estimate_margin_excludes_own_slot_and_sees_running_slot(maps, seeded):
+    # 검수 E1: 넣은 칸을 그 시작으로 다시 예상하면 자기 칸은 빼야 하고, 시작 시각에 진행 중인 칸은 여유를 음수로 만든다.
+    http, admin, _ = maps
+    value = scenario(http, admin, points=((.1, .1), (1.3, 1.7)),
+        steps=(({'action': 'WAIT', 'params': {'seconds': 1}},), ({'action': 'PHOTO', 'params': {'camera': 'rgb'}},)),
+        waypoint_extra=[{'wait_s': 3}, {}])
+    mine = seeded['robots']['mine']
+    own = slot(http, admin, mine, '2026-12-02T00:00:00Z', '2026-12-02T00:01:00Z', value).json()
+    slot(http, admin, mine, '2026-12-02T00:05:00Z', '2026-12-02T00:06:00Z', value)
+    body = {'scenario_id': value['id'], 'robot_id': str(mine), 'gait': 'classic', 'start': '2026-12-02T00:00:00Z'}
+    mixed = http.post(P + '/estimates', headers=admin, json=body).json()
+    assert mixed['margin_s'] < 0  # 자기 칸이 진행 중으로 잡힘
+    alone = http.post(P + '/estimates', headers=admin, json={**body, 'exclude_slot_id': own['id']}).json()
+    assert abs(alone['margin_s'] - (300 - 13)) < 1e-6
+    running = http.post(P + '/estimates', headers=admin, json={**body, 'start': '2026-12-02T00:00:30Z'}).json()
+    assert running['margin_s'] < 0
+
+
+def test_ame2_cannot_be_confirmed_and_events_are_run_category(maps, seeded):
+    # 검수 E2 · E3: 준비 안 된 ame2 는 확정 칸이 못 되고 (초안은 됨), 일정 사건은 계정이 아니라 임무 갈래.
+    http, admin, _ = maps
+    value = scenario(http, admin)
+    mine = seeded['robots']['mine']
+    refused = slot(http, admin, mine, '2026-12-03T00:00:00Z', '2026-12-03T00:10:00Z', value, gait='ame2')
+    assert refused.status_code == 409 and refused.json()['error']['code'] == 'GAIT_NOT_READY'
+    draft = slot(http, admin, mine, '2026-12-03T00:00:00Z', '2026-12-03T00:10:00Z', value, kind='DRAFT', gait='ame2')
+    assert draft.status_code == 201, draft.text
+    promote = http.patch(P + f"/schedule/slots/{draft.json()['id']}", headers=admin, json={'kind': 'CONFIRMED'})
+    assert promote.status_code == 409 and promote.json()['error']['code'] == 'GAIT_NOT_READY'
+    engine = create_engine(seeded['urls']['app'])
+    with Session(engine) as db:
+        rows = db.scalars(select(Event).where(Event.code.like('SCHEDULE_SLOT_%'))).all()
+        assert rows and {r.category for r in rows} == {'RUN'}
+    engine.dispose()

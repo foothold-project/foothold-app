@@ -2662,6 +2662,8 @@ class EstimateRequest(Contract):
     robot_id: UUID
     gait: GaitName
     start: UTCDateTime | None = None
+    # 이미 넣은 칸을 다시 예상할 때 그 칸 자신은 「다음 칸」 에서 뺀다.
+    exclude_slot_id: UUID | None = None
 
 
 class Estimate(Contract):

@@ -457,11 +457,14 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
 - 같은 로봇에 겹치면 409 `SCHEDULE_CONFLICT`, `detail.slot_ids` 에 겹친 칸 id. 종류와 관계없이 모든 칸이 겹침 대상이다.
 - 시나리오가 없는 칸은 `BATTERY_SWAP` 만 된다. 시나리오 id 와 판 번호는 함께 오거나 함께 빠진다.
 - PATCH 는 생략은 그대로, null 은 거부한다 (`gait` 를 지우는 길은 아직 없다). 합친 값으로 순서 · 시나리오 규칙을 다시 본다.
+  PATCH 로 바꿀 수 있는 것은 로봇 · 시각 · 종류 · 걷기 모드뿐이다. 시나리오 · 메모 · 배정을 바꾸려면 칸을 지우고 새로 넣는다 (의도, 바뀐 시나리오가 같은 칸 id 로 남지 않게).
+- `ame2` 처럼 준비 안 된 걷기 모드는 `CONFIRMED` 칸이 될 수 없다 (409 `GAIT_NOT_READY`). 초안은 된다.
+- 일정 사건 (`SCHEDULE_SLOT_*`) 의 갈래는 `RUN` (임무).
 - 권한은 배정과 같다. 조직 사용자는 모두 읽고, 바꾸기는 총괄 또는 그 로봇 담당만. 다른 로봇으로 옮기면 두 로봇 모두 권한이 있어야 한다.
 - 가용 `state`: 기간과 겹치는 칸이 있으면 `BUSY` (끝이 가장 늦은 칸을 `busy_*` 로), 없으면 연결이 끊긴 로봇은 `OFFLINE`, 그 외 `FREE`.
   `CHARGING` 은 서버에 충전 신호가 없어 지금은 내지 않는다. `demo` 는 서버에 그런 로봇 필드가 없어 항상 false, `sim` 은 `Robot.simulation`.
   연결 · 배터리 · 위치는 로봇 요약과 같은 가림 규칙이라 담당 아닌 운영자에게는 `battery_pct` · `location_label` 이 null 이고 연결을 몰라 `OFFLINE` 대신 `FREE` 로 보일 수 있다.
 - 예상 `length_m` 은 시나리오 저장 때 지점 순서로 잰 `est_distance_m` (직선 · 연결점 경유, Nav2 아님).
   걷기 속도와 배터리 %/분은 `apps/server/fh_server/schedule.py` 의 미실측 추정 표 한 곳에 있고, 그래서 `estimate_source` 는 지금 항상 `TABLE_UNMEASURED` 다.
-  `task_s` 는 임무의 WAIT (지점 `wait_s` 가 덮음) · SENSOR_LOG 초, PHOTO · OPERATOR_CONFIRM 은 고정 표. `margin_s` 는 그 로봇의 `start` 이후 첫 칸 시작 빼기 `eta`, 없으면 null.
+  `task_s` 는 임무의 WAIT (지점 `wait_s` 가 덮음) · SENSOR_LOG 초, PHOTO · OPERATOR_CONFIRM 은 고정 표. `margin_s` 는 그 로봇에서 `start` 에 진행 중이거나 뒤에 오는 첫 칸 (`end > start`) 의 시작 빼기 `eta`, 없으면 null. 진행 중인 칸이 있으면 음수다. 이미 넣은 칸을 다시 예상할 때는 `exclude_slot_id` 로 그 칸을 뺀다.
   `end_battery_pct` 는 지금 배터리를 볼 수 있을 때만 값이 있다.

@@ -41,7 +41,7 @@ def slot_object(row):
 
 
 def record(db, user, row, code):
-    db.add(render(db, Event(org_id=user.org_id, category='ACCOUNT', code=code, user_id=user.id,
+    db.add(render(db, Event(org_id=user.org_id, category='RUN', code=code, user_id=user.id,
         robot_id=row.robot_id, data={'slot_id': str(row.id), 'kind': row.kind,
             'start': row.start_at.astimezone(timezone.utc).isoformat(),
             'end': row.end_at.astimezone(timezone.utc).isoformat(),
@@ -63,6 +63,15 @@ def lock_robots(db, user, ids, fail, *, creating):
             fail(403, 'FORBIDDEN', '담당 로봇의 일정만 바꿀 수 있습니다.')
         robots[robot_id] = robot
     return robots
+
+
+# 걷기 모드 계약 (#525): ame2 는 student 모델이 오기 전까지 「준비 안 됨」. 확정 칸은 못 되고 초안만 된다.
+GAITS_NOT_READY = frozenset({'ame2'})
+
+
+def require_gait_ready(kind, gait, fail):
+    if kind == 'CONFIRMED' and gait in GAITS_NOT_READY:
+        fail(409, 'GAIT_NOT_READY', '이 걷기 모드는 아직 준비 중이라 확정 일정에 넣을 수 없습니다.')
 
 
 def overlapping(db, org_id, robot_id, start, end, exclude=None):
@@ -145,6 +154,7 @@ def install(app, DB, Identity, fail):
         if body.assignment_id is not None and db.scalar(select(Assignment.id).where(
                 Assignment.org_id == user.org_id, Assignment.id == body.assignment_id)) is None:
             fail(404, 'NOT_FOUND', '배정을 찾을 수 없습니다.')
+        require_gait_ready(body.kind, body.gait, fail)
         lock_robots(db, user, [body.robot_id], fail, creating=True)
         require_free(db, user.org_id, body.robot_id, body.start, body.end, fail)
         row = ScheduleSlot(org_id=user.org_id, robot_id=body.robot_id, scenario_id=body.scenario_id,
@@ -184,6 +194,7 @@ def install(app, DB, Identity, fail):
             fail(400, 'VALIDATION', '끝 시각은 시작 시각보다 뒤여야 합니다.')
         if row.scenario_id is None and kind != 'BATTERY_SWAP':
             fail(400, 'VALIDATION', '시나리오 없는 일정은 배터리 교체만 됩니다.')
+        require_gait_ready(kind, values.get('gait', row.gait), fail)
         require_free(db, user.org_id, target, start, end, fail, exclude=row.id)
         row.robot_id, row.start_at, row.end_at, row.kind = target, start, end, kind
         if 'gait' in values:
@@ -270,8 +281,12 @@ def install(app, DB, Identity, fail):
         task_s = task_seconds(db, user.org_id, version, fail)
         start = body.start or now()
         eta = start + timedelta(seconds=walk_s + task_s)
-        following = db.scalar(select(ScheduleSlot.start_at).where(ScheduleSlot.org_id == user.org_id,
-            ScheduleSlot.robot_id == robot.id, ScheduleSlot.start_at >= start).order_by(ScheduleSlot.start_at).limit(1))
+        # 시작 시각에 진행 중인 칸도 본다 (end_at > start). 그런 칸이면 여유가 음수가 된다.
+        query = select(ScheduleSlot.start_at).where(ScheduleSlot.org_id == user.org_id,
+            ScheduleSlot.robot_id == robot.id, ScheduleSlot.end_at > start)
+        if body.exclude_slot_id is not None:
+            query = query.where(ScheduleSlot.id != body.exclude_slot_id)
+        following = db.scalar(query.order_by(ScheduleSlot.start_at).limit(1))
         summary = robot_objects(db, [robot], user, app.state.realtime)[0]
         end_battery = None
         if summary.battery is not None:
