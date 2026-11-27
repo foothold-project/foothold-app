@@ -37,10 +37,15 @@ def connected_source(meta, version, world_id):
     return source
 
 
+# Approved floor heights; plant_a mirrors simmgr/worlds/worlds.json.
+FLOOR_Z = {('warehouse', 'f1'): .034226, ('v5_building', 'l1'): 0.0, ('v5_building', 'l2'): 2.4,
+           ('plant_a', 'l1'): 0.0, ('plant_a', 'l2'): 3.375, ('plant_a', 'l3'): 6.75}
+
+
 def approved_bindings(db, org_id, world_id='v5_building'):
-    if world_id not in ('v5_building', 'warehouse'):
+    if world_id not in C.SIM_WORLD_FLOORS:
         raise ValueError('unsupported static world')
-    expected = {'f1'} if world_id == 'warehouse' else {'l1', 'l2'}
+    expected = set(C.SIM_WORLD_FLOORS[world_id])
     building = db.scalar(select(Building).where(Building.org_id == org_id,
         Building.sim_world_id == world_id, Building.archived_at.is_(None)))
     if building is None:
@@ -60,7 +65,7 @@ def approved_bindings(db, org_id, world_id='v5_building'):
         if (f.provenance != 'SIMULATION' or v is None or upload is None
                 or upload.provenance != 'SIMULATION' or v.source != 'IMPORT'
                 or source.get('world_id') != world_id or source.get('ros_floor_id') != f.sim_floor_id
-                or f.floor_z != (.034226 if world_id == 'warehouse' else 0.0 if f.sim_floor_id == 'l1' else 2.4)
+                or f.floor_z != FLOOR_Z[world_id, f.sim_floor_id]
                 or source.get('sha256') != v.image_sha256.hex()
                 or v.image_sha256 != upload.png_sha256 or (v.width, v.height) != (upload.width, upload.height)
                 or meta.get('resolution') != v.resolution
