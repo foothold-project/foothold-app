@@ -29,6 +29,8 @@ LAYOUT = {
             # 밸브: 가는 보닛 원기둥 + 1.3 m 위 넓은 핸들 원기둥(z0).
             {'id': 'valve', 'kind': 'valve', 'box': [5.0, 1.5, 0.8, 0.8, 1.4], 'yaw': 0.0, 'collision': [
                 {'cyl': [5.0, 1.5, 0.1, 1.3]}, {'cyl': [5.0, 1.5, 0.4, 0.1], 'z0': 1.3}]},
+            # yaw 30° 가늘고 긴 상자 (검수 #540 L3: yaw 부호 뒤집음을 잡는다).
+            {'id': 'skew', 'kind': 'cabinet', 'box': [8.5, 1.2, 1.6, 0.2, 0.5], 'yaw': math.pi / 6},
         ],
     }],
 }
@@ -135,3 +137,24 @@ def test_raised_cylinder_with_z0_leaves_floor_under_it_free(toy):
     assert sdf['l1_valve_c1'] == ('cylinder', [5, 1.5, 1.35, 0, 0, 0], [0.4, 0.1])
     g = {g.get('name'): g for g in ET.parse(toy / 'mobile/toy.xml').getroot().find('worldbody')}['l1_valve_c1']
     assert (g.get('type'), g.get('pos'), g.get('size')) == ('cylinder', '5 1.5 1.35', '0.4 0.05')
+
+
+def test_yawed_box_turns_the_same_way_in_sdf_mjcf_and_map(toy):
+    yaw = math.pi / 6
+    tip = (8.5 + 0.7 * math.cos(yaw), 1.2 + 0.7 * math.sin(yaw))     # 긴 축 위 (+30°)
+    mirror = (8.5 + 0.7 * math.cos(yaw), 1.2 - 0.7 * math.sin(yaw))  # 부호를 뒤집으면 여기
+    px = pixels(toy)
+    assert at(px, *tip) == OCCUPIED and at(px, *mirror) == FREE
+    pose = [float(v) for v in next(l for l in ET.parse(toy / 'toy.sdf').getroot().iter('link')
+                                   if l.get('name') == 'l1_skew').findtext('pose').split()]
+    assert pose == pytest.approx([8.5, 1.2, 0.25, 0, 0, yaw], abs=1e-6)
+    g = {g.get('name'): g for g in ET.parse(toy / 'mobile/toy.xml').getroot().find('worldbody')}['l1_skew']
+    assert [float(v) for v in g.get('quat').split()] == pytest.approx([math.cos(yaw / 2), 0, 0, math.sin(yaw / 2)], abs=1e-6)
+    mujoco = pytest.importorskip('mujoco')
+    model = mujoco.MjModel.from_xml_path(str(toy / 'mobile/toy.xml'))
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    geomid = np.zeros(1, dtype=np.int32)
+    down = lambda x, y: 2.0 - mujoco.mj_ray(model, data, np.array([x, y, 2.0]), np.array([0, 0, -1.0]), None, 1, -1, geomid)
+    assert down(*tip) == pytest.approx(0.5, abs=1e-6) and model.geom(geomid[0]).name == 'l1_skew'
+    assert down(*mirror) == pytest.approx(0.0, abs=1e-6)  # 바닥판 윗면
