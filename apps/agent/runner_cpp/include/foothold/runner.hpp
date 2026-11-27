@@ -134,9 +134,12 @@ public:
 
 // A depth frame with its capture time (CLOCK_MONOTONIC). values is nullptr when the
 // reader has nothing fresh; stamp is then ignored.
+// invalid is the share of cells with no return or outside the image (sent by the bridge;
+// far values beyond 3 m are also 1.0 in values but are not invalid).
 struct DepthFrame {
     const Depth* values = nullptr;
     Tick stamp{};
+    float invalid = 0;
 };
 
 struct Options {
@@ -146,7 +149,7 @@ struct Options {
     // Without a new frame the policy holds h_terr (no depth tick). From depth_slow_after the
     // command goal is zero (slow to a stop); from depth_sit_after the runner sits (DEPTH_LOST).
     std::chrono::milliseconds depth_slow_after{1000}, depth_sit_after{3000};
-    // A frame whose share of invalid cells (1.0 after the 60x60 resize) is above this is
+    // A frame whose invalid share (no return or outside the image, DepthFrame::invalid) is above this is
     // ignored: no tick, and the gap clock keeps running (lead-lx 11/27 17:52, sim: 0.4 holds,
     // 0.8 drops balance-beam survival below 1/3).
     float depth_max_invalid = 0.4f;

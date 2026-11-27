@@ -138,6 +138,7 @@ struct Rig {
     LowState state;
     Tick time{};
     const Depth* depth = nullptr;
+    float invalid = 0;
 
     explicit Rig(bool live, MapMode mode = MapMode::off) : runner(robot, policy, events, {live, mode}, &modes) {
         state.q = to_sdk(sit_pose);
@@ -146,7 +147,7 @@ struct Rig {
         time += 5ms;
         if (fresh) state.stamp = time;
         state.remote.keys = keys;
-        runner.tick(time, state, depth, shutdown);
+        runner.tick(time, state, DepthFrame{depth, time, invalid}, shutdown);
     }
     void wait(std::chrono::milliseconds duration, int keys = 0, bool fresh = true) {
         for (int i = 0; i < duration / 5ms; ++i) tick(keys, fresh);
@@ -459,33 +460,33 @@ int main() {
         require(dry.robot.calls == 0 && dry.robot.writes == 0, "depth loss accessed robot in dry-run");
     }
     {
-        // Invalid share rule: a frame with more than 40 % cells at 1.0 counts as no frame.
+        // Invalid share rule: more than 40 % missing cells (sent by the bridge) counts as no frame.
+        // Far cells are also 1.0 in the policy input but do not count as missing.
         Rig dry(false, MapMode::reconstruction);
-        Depth holes{};
-        std::fill(holes.begin(), holes.begin() + 1477, 1.f);  // 41 %
-        dry.depth = &holes;
+        Depth far{};
+        far.fill(1.f);
+        dry.depth = &far;
+        dry.invalid = .41f;
         dry.tick(start);
         require(dry.runner.phase() == Phase::high, "reconstruction armed on an invalid frame");
-        Depth frame{};
-        std::fill(frame.begin(), frame.begin() + 1440, 1.f);  // exactly 40 % is still used
-        dry.depth = &frame;
+        dry.invalid = .4f;  // exactly 40 % is still used, and an all-far frame is a real frame
         dry.enter();
         dry.wait(40ms);
-        require(dry.runner.phase() == Phase::policy, "40 % invalid frame must arm reconstruction");
+        require(dry.runner.phase() == Phase::policy, "40 % missing, all-far frame must arm reconstruction");
         const auto seen = [&](Event e) {
             return std::find(dry.events.seen.begin(), dry.events.seen.end(), e) != dry.events.seen.end();
         };
         const int ticks = dry.policy.depth_ticks;
-        dry.depth = &holes;
+        dry.invalid = .41f;
         dry.wait(900ms);
         require(dry.policy.depth_ticks == ticks + 1 && !seen(Event::depth_stale),
                 "invalid frames must hold the map like a gap");
         dry.wait(200ms);
         require(seen(Event::depth_stale), "invalid frames must run the gap clock");
-        dry.depth = &frame;
+        dry.invalid = 0;
         dry.wait(300ms);
         require(dry.policy.depth_ticks >= ticks + 3, "valid frames must resume ticks");
-        dry.depth = &holes;
+        dry.invalid = .41f;
         dry.wait(3100ms);
         require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "3 s of invalid frames must sit");
     }

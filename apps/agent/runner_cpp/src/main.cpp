@@ -235,7 +235,7 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
     LowState state;
     bool saw_state = false, benchmark_armed = false, benchmark_in_policy = false;
     Depth synthetic_depth;
-    synthetic_depth.fill(.5f);  // valid cells: an all-1.0 frame would be ignored as invalid
+    synthetic_depth.fill(1.f);
     const auto* replay_depth = config.runner.map == MapMode::reconstruction ? &synthetic_depth : nullptr;
     auto next = std::chrono::steady_clock::now();
     const auto begin = next;
@@ -343,7 +343,8 @@ int main(int argc, char** argv) {
         }
         const auto read_depth = [&](Tick now) {
             DepthFrame frame;
-            frame.values = sampler ? sampler->latest(now, &frame.stamp) : depth->latest(now, &frame.stamp);
+            frame.values = sampler ? sampler->latest(now, &frame.stamp, &frame.invalid)
+                                   : depth->latest(now, &frame.stamp, &frame.invalid);
             return frame;
         };
         OrtPolicy policy(config.bundle, config.runner.map, config.debug_est);
