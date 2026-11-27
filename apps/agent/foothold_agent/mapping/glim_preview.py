@@ -1,7 +1,9 @@
 """Isolated GLIM DDS deserialization; only bounded JSON datagrams reach the agent."""
 import json
+import logging
 import multiprocessing
 import os
+import signal
 import socket
 import threading
 import time
@@ -11,6 +13,27 @@ from foothold_agent.slam_source import Source
 
 MAX_PACKET = 32768
 WAIT_SECONDS = 3
+MEMORY_EXIT = 70
+LIMIT_SETUP_EXIT = 71
+LOG = logging.getLogger(__name__)
+
+
+def preview_max_mb(env):
+    try:
+        value = int(env.get('FH_MAPPING_GLIM_PREVIEW_MAX_MB', '1536'))
+    except (TypeError, ValueError):
+        return 1536
+    return value if 256 <= value <= 4096 else 1536
+
+
+def limit_memory(env):
+    # Child only, before SDK import/deserialization. Fail closed on platforms
+    # that cannot provide both protections; the parent keeps mapping normally.
+    import resource
+    with open('/proc/self/oom_score_adj', 'w') as target:
+        target.write('1000')
+    limit = preview_max_mb(env)*1024*1024
+    resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
 
 
 def dds_subscribe(source, nic, callback):
@@ -34,6 +57,20 @@ def dds_subscribe(source, nic, callback):
 
 def preview_worker(output, env, nic, subscribe=dds_subscribe):
     """SDK callback, raw message and even rejected oversize decoding stay here."""
+    try:
+        limit_memory(env)
+    except Exception as error:
+        LOG.warning('GLIM preview disabled: memory limit setup failed (%s)', type(error).__name__)
+        output.close()
+        raise SystemExit(LIMIT_SETUP_EXIT)
+    previous_hook = threading.excepthook
+
+    def thread_error(args):
+        if issubclass(args.exc_type, MemoryError):
+            os._exit(MEMORY_EXIT)  # DDS thread failure must end the child too.
+        previous_hook(args)
+
+    threading.excepthook = thread_error
     source = Source(env, 'glim')
     live = GlimLive(source, time.monotonic)
     lock = threading.Lock()
@@ -69,6 +106,8 @@ def preview_worker(output, env, nic, subscribe=dds_subscribe):
                     except BlockingIOError:
                         pass  # Full socket drops the preview, never stalls DDS.
             time.sleep(.02)
+    except MemoryError:
+        os._exit(MEMORY_EXIT)  # No cleanup allocations or traceback at the cap.
     finally:
         if close is not None:
             close()
@@ -124,7 +163,12 @@ class GlimPreviewProcess:
         except ValueError:
             return  # Concurrent permission-loss cleanup has already reaped it.
         if not alive:
-            self.reason = 'GLIM 미리보기 작업자가 종료됐습니다.'
+            if process.exitcode in (MEMORY_EXIT, -getattr(signal, 'SIGKILL', 9)):
+                self.reason = 'GLIM 미리보기 메모리 상한으로 작업자가 종료됐습니다.'
+            elif process.exitcode == LIMIT_SETUP_EXIT:
+                self.reason = 'GLIM 미리보기 메모리 상한을 설정하지 못해 미리보기를 껐습니다.'
+            else:
+                self.reason = 'GLIM 미리보기 작업자가 종료됐습니다.'
             return
         # At most one small datagram per mapping tick, never a blocking recv.
         try:
