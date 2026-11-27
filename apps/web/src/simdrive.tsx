@@ -123,7 +123,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
   const floorName = (f: SpawnFloor) => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : f === 'l2' ? '2층' : '3층');
   const l = s.link, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
   useTick(!!wait);
-  const msg = s.err && <p className="fh-why" role="status" data-sim-msg>{s.err}</p>;
+  const msg = s.err && <p className="fh-why" role="status" data-sim-msg style={{ wordBreak: 'keep-all' }}>{s.err}</p>;
   const stop = stopText(s);
   const cleanup = s.cleanup.filter((r) => r.owner_id === me);
   // 새로고침·나가기 뒤 다시 들어가기 — 새 연결이라 조종권·잠금 해제는 처음부터(자동 재개 없음)

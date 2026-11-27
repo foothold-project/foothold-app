@@ -48,6 +48,9 @@ describe('Gazebo 를 못 고를 때 까닭 한 줄(t18)', () => {
     const { gz, note } = await launchPc();
     expect(gz.disabled).toBe(true);
     expect(note).toBe('서버에서 계산 · 월드 목록을 받지 못해 지금 고를 수 없음');
+    const line = box.querySelector<HTMLElement>('[data-sim-msg]')!;
+    expect(line.textContent).toBe(LIST_FAIL);
+    expect(line.style.wordBreak).toBe('keep-all');   // 좁은 폰에서 «여 / 세요» 처럼 낱말 가운데서 끊지 않게(이 줄만)
   });
   it('서버에 띄울 월드가 없음', async () => {
     serve({ status: 200, body: { worlds: [] } });
