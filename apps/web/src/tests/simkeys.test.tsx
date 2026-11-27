@@ -201,6 +201,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     const side = await lastCmd(); expect(side).toMatchObject({ vx: 0, vy: 0 }); expect(Math.abs(side.wz as number)).toBeLessThan(0.01);   // NUDGE(문턱 아래) — 돌지 않음
     expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨');
     expect($('[data-sim-keys]')!.textContent).toContain('MuJoCo(«시뮬 열기») 만. 이 시뮬은 키·시나리오로');
+    expect($('[data-sim-gait]')!.textContent).toBe('걷기 모드 바꾸기(Shift+1~4)는 실기 조종 화면만. 이 시뮬은 정책 go2-flat 하나로 걷습니다.');   // u03: 시뮬은 gait 경로 없음
     expect(box.textContent).not.toContain('\u2014');   // 시뮬 안내 글에 긴 줄표 없음
     const off = [...box.querySelectorAll('[data-sim-keys] [data-key-off]')].find((x) => x.textContent!.includes('옆걸음'))!;
     expect(off.textContent).toContain('Q/E 옆걸음(막힘 · 로봇 한계 옆 0 m/s)');

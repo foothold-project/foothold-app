@@ -13,6 +13,7 @@ import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo } from './serverdrive';
 import { api } from './api';
 import { STALLED, SimLaunch, field } from './simdrive';
+import { GAIT_KEYS, gaitKey, useGait } from './gait';
 import './drive.css';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
@@ -141,7 +142,7 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
   pose: () => <Later text="서기·앉기·넘어진 뒤 일으키기는 다음 단계에서 열립니다." buttons={['서기', '앉기', '일으키기']} />,
   scenario: (c) => <Scenario {...c} />,
   goal: () => <Later text="지도 위에 목표를 찍어 보내는 기능은 다음 단계에서 열립니다." />,
-  policy: () => <Later text="지금 보행 정책 표시와 바꾸기는 다음 단계에서 열립니다." />,
+  policy: () => <p className="dv-note" data-gait-wait>조종 시작 뒤 걷기 모드를 바꿀 수 있습니다. {GAIT_KEYS}</p>,   // 조종 중이면 Screen 이 걷기 모드 칸을 그린다(u03)
 };
 
 /** 물리 키(e.code) → 방향. 누른 키는 e.code 마다 누른 순간의 입력 세대로 적는다(rt inputGen) */
@@ -191,12 +192,16 @@ function Screen(c: Ctx) {
   /** 누른 순간의 세대 — 공백 검사를 먼저(공백 뒤 새 누름은 새 세대) */
   const now0 = () => { gen.tick(r.id); return sync(); };
   const nowRef = useRef(now0); nowRef.current = now0;
+  // 걷기 모드(u03): 누른 키 · 스틱 손가락이 있거나 로봇이 0 아닌 명령을 적용 중이면 «움직이는 중» · 보내지 않고 까닭
+  const gait = useGait(r.id, () => input.current.keys.size > 0 || input.current.sg.some((x) => x != null) || !!rt.get(r.id).state?.applied?.some((v) => v !== 0));
+  const gaitRef = useRef(gait.press); gaitRef.current = gait.press;
 
   // 키보드(F-TO-05). 요청 창이 떠 있어도 방향키는 조종
   useEffect(() => {
     const keys = input.current.keys;
     const down = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
+      const gk = gaitKey(e); if (gk) { if (!field(e.target) && !e.repeat) { e.preventDefault(); gaitRef.current(gk); } return; }   // Shift+1~4 걷기 모드 · 입력칸 초점이면 무시
       const k = KEY[e.code]; if (!k) return;
       if (field(e.target)) { if (!keys.has(e.code)) { keys.set(e.code, -1); sendRef.current(); } return; }   // 글 입력칸: 글자는 그대로, 조종은 아님. 뗄 때까지 앞 세대(0)
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
@@ -308,7 +313,7 @@ function Screen(c: Ctx) {
         {combo && mine && <span className="dv-back" role="status" data-combo-block>{COMBO_BLOCK}</span>}
         <div className="dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
           <button key={x.id} type="button" className="btn" aria-expanded={sheet === x.id} onClick={() => pick(sheet === x.id ? null : x.id)}>{x.label}</button>)}</div>
-        {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => pick(null)}>{SHEET[sheet](c)}</Sheet>}
+        {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => pick(null)}>{sheet === 'policy' && gait.row || SHEET[sheet](c)}</Sheet>}
       </div>
     </div>
     {r.mission && <div className="fh-row dv-run">

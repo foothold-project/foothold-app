@@ -1733,6 +1733,7 @@ describe('폰 조종 앱 틀', () => {
       expect(sheet.parentElement!.classList.contains('dv-stage')).toBe(true);
       expect(btn(s).getAttribute('aria-expanded')).toBe('true');
       if (s === '시나리오') expect(sheet.textContent).toContain('시나리오 고르기');   // 이 층 시나리오 고르기(screens/missions ScenarioPick — 목록·실행 비활성은 scenpick.test)
+      else if (s === '정책') expect(sheet.querySelectorAll('[data-gait]')).toHaveLength(4);   // 걷기 모드 칸(u03 · gait.test)
       else expect(sheet.textContent).toContain('준비 중');
       stopReachable();
     }

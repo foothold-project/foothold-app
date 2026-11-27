@@ -150,6 +150,7 @@ function SimView({ admin }: { admin: boolean }) {
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
         <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만. 이 시뮬은 키·시나리오로</span>
+        <span className="lbl" data-sim-gait>걷기 모드 바꾸기(Shift+1~4)는 실기 조종 화면만. 이 시뮬은 {w?.policy?.name ? `정책 ${w.policy.name}` : '정해진 정책'} 하나로 걷습니다.</span>{/* u03: 시뮬 직결에는 gait 경로가 없다 */}
       </div>}
     </section>
     <SimQuad fm={fm} hasMap={hasMap} mine={mine} />
