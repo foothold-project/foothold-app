@@ -238,6 +238,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     if (open && robot && seen.current?.[0] === robot.id && seen.current[1] < done) go('drive');
     seen.current = robot ? [robot.id, done] : null;
   });
+  // t21-1: 끊긴 채 보낸 정지는 그 로봇이 다시 붙으면(서버가 받아 둔 정지를 먼저 전함) 확인된 것. 다음 STOP 전까지 «아직 닿지 않음»을 다시 띄우지 않는다
+  useEffect(() => { if (ctlOff.some((id) => pool.find((r) => r.id === id)?.online)) setCtlOff(ctlOff.filter((id) => !pool.find((r) => r.id === id)?.online)); });
   const halt = (rs: Robot[], all = false) => { for (const r of rs) rt.stop(r.id); if (all && mySim) sim.stop(); setStopped(rs); setCtlOff(ctl ? rs.filter((r) => !r.online).map((r) => r.id) : []); setSimStop(all && !!mySim); setChoose(null); };   // 로봇마다 기존 정지(rt.stop) 그대로 · 시뮬은 기존 sim.stop
   const stop = () => { if (toSim) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
     if (!canStop) return;

@@ -469,4 +469,52 @@ describe('관제 탭', () => {
     expect(simStop).toHaveBeenCalledTimes(1);
     expect(FakeWS.last.of('stop')).toHaveLength(0);
   });
+
+  // t21 (#529 재검 낮음 셋)
+  it('t21-1: 끊긴 채 보낸 정지가 다시 붙어 확인된 뒤 또 끊기면 «아직 닿지 않음» 줄을 다시 띄우지 않는다(다음 STOP 전까지)', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));
+    mount('u-lee', T); feed(T);
+    act(() => { tile('g4').click(); });
+    press(stopBtn());
+    expect($('[data-stop-band][data-stop-lost="g4"]')).not.toBeNull();
+    act(() => { FakeWS.last.recv(state('g4', { stop_gen: 2 })); });   // 다시 붙음 · 정지 잠금 보고 = 확인
+    expect($('[data-stop-band][data-stop-lost="g4"]')).toBeNull();
+    act(() => { FakeWS.last.recv(state('g4', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });   // 두 번째 끊김
+    expect($('[data-stop-band][data-stop-lost="g4"]')).toBeNull();
+    expect($('[data-stop-band][data-stop-unsure="g4"]')).toBeNull();
+    const b = $$('[data-stop-band]').find((x) => x.textContent!.includes('K-05'))!;
+    expect(b.textContent).not.toContain(LOST);
+    press(stopBtn());   // 다음 STOP(끊긴 채) = 다시 «아직 닿지 않음»
+    expect($('[data-stop-band][data-stop-lost="g4"]')).not.toBeNull();
+  });
+  it('t21-2: 모두 정지 라벨 전체 · 총괄(실기 + 내 시뮬) = «내 시뮬 모두 정지», 일반 = «모두 정지» · 셋째 라벨 «멈출 수 있는 로봇 모두 정지»는 두 계정 어느 쪽에서도 나오지 않음', () => {
+    const R: Robot[] = [
+      { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },
+      { id: 'a2', name: 'K-22', owner: 'u-park', ownerName: '박OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },
+      { id: 's1', name: 'S-01', owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', sim: true },
+      { id: 'a3', name: 'K-23', owner: 'u-park', ownerName: '박OO', battery: null, online: false, seenAt: '', status: null as never },   // 연결 전 실기 = 못 세우는 수에도 안 듦(t21-3 과 같음)
+    ];
+    mount('u-kim', R); feed(R);
+    press(stopBtn());
+    expect($<HTMLSelectElement>('[aria-label="정지할 로봇 고르기"] select').options[0].textContent).toBe('내 시뮬 모두 정지 (1 대)');
+    expect($('[data-cant-real]').textContent).toBe('실기 로봇 2 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요');
+    act(() => root?.unmount()); root = null;
+    mount('u-lee', R); feed(R);
+    act(() => { $$('[aria-label="범위"] button')[0].click(); });   // 모두(남의 실기 K-22 도 보임)
+    press(stopBtn());
+    expect($<HTMLSelectElement>('[aria-label="정지할 로봇 고르기"] select').options[0].textContent).toBe('모두 정지 (1 대)');   // 남의 실기 K-22 는 구독 밖 요약 로봇이라 수에서 빠짐(세울 수는 있는 계정)
+    expect($('[data-cant-real]')).toBeNull();
+  });
+  it('t21-3: 아직 연결 전인 로봇(상태 보고 0 · 마지막 상태 없음)은 모두 정지 수에서 빠지고 끊김 · 상태 모름 줄도 없다', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false, status: null as never, mission: undefined } : r));   // 이OO 로봇 g4 = 연결 전
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    expect(pick.querySelector('select')!.options[0].textContent).toBe('모두 정지 (9 대)');
+    expect(pick.querySelector('[data-stop-lost="g4"]')).toBeNull();
+    expect(pick.querySelector('[data-stop-unsure="g4"]')).toBeNull();
+    press(stopBtn());
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).not.toContain('g4');
+    expect(FakeWS.last.of('stop')).toHaveLength(9);
+  });
 });
