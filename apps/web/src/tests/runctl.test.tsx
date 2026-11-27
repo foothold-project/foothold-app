@@ -170,3 +170,49 @@ describe('시뮬 탭과 lease 충돌 (#537: 서버 길이 데모 Hub 조종자)'
     expect('request' in sim).toBe(false);   // 시뮬 탭에는 넘겨받기(lease.request) 길이 없다 — 동작을 바꿀지는 결정 대기
   });
 });
+
+describe('시뮬 탭 LEASE_HELD 조종자 표시 (#537 a8cac9f2 holder_type · holder_name)', () => {
+  const held = async (extra: Record<string, unknown>) => {
+    vi.spyOn(api, 'phonePass').mockResolvedValue({ token: 'fake', exp: 9999999999, kid: 'fake' });
+    await sim.attach({ robot_id: 'r7', generation: 1, agent_address: 'ws://127.0.0.1:9481/phone/ws', remaining_s: null } as SimRobot);
+    const a = FakeWS.last;
+    a.auto = null;
+    act(() => { a.open(); a.recv({ t: 'hello', robot: 'r7', camera_token: null }); a.recv({ t: 'state', robot: 'r7', latched: true, stop_gen: 1, applied: [0, 0, 0], lease_id: null, holder_type: null, holder_name: null }); });
+    act(() => { sim.take(); });
+    act(() => { a.recv({ t: 'reply', id: a.of('lease.take')[0].id, ...fail('LEASE_HELD'), ...extra }); });
+    expect(sim.get().link!.lease).toBeNull();
+    return sim.get().link!.notice;
+  };
+  it('USER + 이름: «관제 화면에서 OO 님이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.»', async () => {
+    expect(await held({ holder_type: 'USER', holder_name: '박OO' })).toBe('관제 화면에서 박OO 님이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
+  });
+  it('USER + 이름 모름(null · 빈 글): 이름 없이 한 줄', async () => {
+    expect(await held({ holder_type: 'USER', holder_name: null })).toBe('관제 화면에서 다른 사람이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
+    sim.clear();
+    expect(await held({ holder_type: 'USER', holder_name: '  ' })).toBe('관제 화면에서 다른 사람이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
+  });
+  it('RUN: «예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.» (이름이 와도 쓰지 않음)', async () => {
+    expect(await held({ holder_type: 'RUN', holder_name: null })).toBe('예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.');
+    sim.clear();
+    expect(await held({ holder_type: 'RUN', holder_name: '박OO' })).toBe('예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.');
+  });
+  it('holder_type null · 칸 없음(옛 에이전트): 기존 한 줄 «다른 사람이 조종 중입니다.»', async () => {
+    expect(await held({ holder_type: null, holder_name: '박OO' })).toBe('다른 사람이 조종 중입니다.');
+    sim.clear();
+    expect(await held({})).toBe('다른 사람이 조종 중입니다.');
+  });
+  it('PhoneHello.display_name: sim.as(이름) 뒤 hello 에 1~64 자로 싣고, 비었으면 칸을 넣지 않는다', async () => {
+    vi.spyOn(api, 'phonePass').mockResolvedValue({ token: 'fake', exp: 9999999999, kid: 'fake' });
+    const hello = async (name: string) => {
+      sim.clear(); sim.as(name);
+      await sim.attach({ robot_id: 'r7', generation: 1, agent_address: 'ws://127.0.0.1:9481/phone/ws', remaining_s: null } as SimRobot);
+      const a = FakeWS.last; a.auto = null;
+      act(() => { a.open(); });
+      return a.of('hello')[0];
+    };
+    expect((await hello('이OO')).display_name).toBe('이OO');
+    expect((await hello(' 이OO ')).display_name).toBe('이OO');
+    expect((await hello('가'.repeat(70))).display_name).toBe('가'.repeat(64));
+    expect('display_name' in (await hello('   '))).toBe(false);
+  });
+});

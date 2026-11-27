@@ -149,6 +149,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 두 영상 채널은 조종 화면·작은 창이 바뀌는 사이에도 받는다(일회 토큰 — 받는 칸이 0 이 되면 닫혀 부모 연결을 다시 열어야 함). 구독은 안 함(App 다시 그림 0)
   useEffect(() => { if (!simUp) return; media.want('external', 1); media.want('rgb', 1); return () => { media.want('external', -1); media.want('rgb', -1); }; }, [simUp]);
   useEffect(() => () => sim.clear(), []);
+  useEffect(() => sim.as(user.name), [user.name]);   // 폰 · 시뮬 탭 hello.display_name(#537) · 받는 쪽 LEASE_HELD 안내의 «OO 님»
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
   useEffect(() => { if (robot) setRid(robot.id); }, [robot?.id]);
   const dash = useDash(cancel);   // 관제 칸과 결재 탭 배지가 같은 값(한 곳에서 받음)

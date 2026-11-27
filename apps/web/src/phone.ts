@@ -57,7 +57,7 @@ const runtimeUntil = (r: SimRobot) => typeof r.remaining_s === 'number' && Numbe
 const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400 SIM_CREDENTIAL_INVALID', '404 SIM_WORLD_NOT_FOUND', '404 SIM_SLOT_NOT_FOUND',
   '409 SIM_WORLD_BUSY', '409 SIM_OWNER_LIMIT', '409 SIM_NATIVE_SINGLE_ONLY', '409 SIM_ROBOT_LIMIT']);
 // gen = 연결 세대(close 마다), epoch = 화면 세션(clear 마다), cancel = 띄우는 중 STOP(POST 답이 오면 바로 정리), me = 내 사용자 id(총괄 목록은 조직 전체라 owner 로 내 것 판정)
-let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, lastSimPing = -Infinity, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '';
+let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, lastSimPing = -Infinity, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '', myName = '';   // myName = 로그인한 사람 이름(hello.display_name · 1~64 자, App 이 sim.as 로 넣음)
 let axes: Axes = [0, 0];   // [전후, 회전, 옆] -1..1, 조종 화면이 넣는다
 let lastCmd = Infinity;   // 마지막 cmd 를 보낸 때(단조) — 명령 틱 공백 검사
 let surface: 'pc' | undefined;   // PC «시뮬» 탭이 열려 있으면 'pc' — 출입증 요청에 싣는다(ADR-003 §6.2, 폰은 보내지 않음)
@@ -164,6 +164,13 @@ const ERR: Record<string, string> = {
   MAP_VERSION_MISMATCH: '시나리오의 지도 판이 로봇 지도와 달라 실행하지 않았습니다.', FLOOR_TRANSITION_UNSUPPORTED: '여러 층을 지나는 시나리오는 아직 실행할 수 없습니다.',
   PLAN_UNAVAILABLE: '시나리오 자료를 받지 못해 실행하지 않았습니다.', MAP_PROOF_UNAVAILABLE: '이 지도로는 시나리오를 실행할 수 없습니다 — 지도 원본을 증명할 수 없는 판입니다(사람이 고친 판 등).',
 };
+/** LEASE_HELD 거절의 조종자(#537 holder_type · holder_name, 그 reply 에만 실림). 이름은 표시용 · 모르면 이름 없이 한 줄 */
+function heldText(r: PhoneReply) {
+  const who = r.holder_name?.trim();
+  if (r.holder_type === 'RUN') return '예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.';
+  if (r.holder_type === 'USER') return `관제 화면에서 ${who ? `${who} 님이` : '다른 사람이'} 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.`;
+  return ERR.LEASE_HELD;
+}
 const RESULT: Record<string, string> = { ACCEPTED: '조종권을 넘겼습니다.', DECLINED: '조종권 요청을 거절했습니다.', TIMEOUT: '조종권 요청이 시간이 지나 거절됐습니다.', CANCELED: '조종권 요청이 취소됐습니다.' };
 /** 닫기 코드(§13.6) → 문구. 4401·4403 은 새 출입증 전 자동 재연결하지 않는다 */
 export function closeText(code: number) {
@@ -343,7 +350,7 @@ function onMsg(raw: string) {
   } else if (m.t === 'reply') {
     const r = m as unknown as PhoneReply, f = replies.get(r.id);
     replies.delete(r.id);
-    setLink({ busy: '', ...(r.lease_id ? { lease: r.lease_id } : {}), ...(r.ok ? {} : { notice: ERR[r.error?.code ?? ''] ?? `요청을 처리하지 못했습니다(${r.error?.code}).` }) });
+    setLink({ busy: '', ...(r.lease_id ? { lease: r.lease_id } : {}), ...(r.ok ? {} : { notice: r.error?.code === 'LEASE_HELD' ? heldText(r) : ERR[r.error?.code ?? ''] ?? `요청을 처리하지 못했습니다(${r.error?.code}).` }) });
     f?.(r.ok, r);   // 안내를 고쳐 쓸 수 있게 기본 안내 뒤에 부른다
   } else if (m.t === 'cmd.ack') {
     if (!!m.clipped !== l.clipped) setLink({ clipped: !!m.clipped });
@@ -491,6 +498,8 @@ export const sim = {
       : { step: 'pick', robot: null, slotBusy: false, stop: null, taken, err: `${S.busyWhy} ${more ? '띄우기를 다시 누르면 다른 슬롯을 시도합니다.' : '사용이 끝난 뒤 다시 누르세요.'}` });
   },
   /** 이미 떠 있는 내 시뮬 로봇에 다시 붙기 */
+  /** 내 이름(PhoneHello.display_name, 계약 1~64 자). 비면 hello 에 넣지 않는다 */
+  as(name: string) { myName = Array.from(name.trim()).slice(0, 64).join(''); },
   attach(r: SimRobot) { set({ robot: r, runtimeUntil: runtimeUntil(r), err: '', stop: null }); return sim.connect(); },
   /** 실기 연결(주변 찾기 «연결»): 앱 중계를 열고, 포트가 오면 출입증 → 직접 hello(connect). 1폰 1대 — 다른 로봇이 걸려 있으면 하지 않는다 */
   real(t: Real, robotId: string) {
@@ -530,7 +539,7 @@ export const sim = {
     ws = w; seq = 0; tick = 0; lastSimPing = -Infinity; lastCmd = Infinity;
     w.onopen = () => {
       if (ws !== w) return;
-      w.send(JSON.stringify({ t: 'hello', id: `p${++ids}`, robot: r.robot_id, proto: 'fh-phone/1', device: deviceId(), ticket }));
+      w.send(JSON.stringify({ t: 'hello', id: `p${++ids}`, robot: r.robot_id, proto: 'fh-phone/1', device: deviceId(), ticket, ...(myName && { display_name: myName }) }));
       timer = window.setInterval(beat, CMD_MS);
       document.addEventListener('visibilitychange', onHide);
     };

@@ -357,3 +357,13 @@ describe('PC «시뮬» 탭', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
 });
+
+describe('시뮬 탭 hello 의 내 이름 (#537 a8cac9f2 PhoneHello.display_name)', () => {
+  it('로그인한 사용자 이름을 hello.display_name 으로 보낸다(LEASE_HELD 를 받는 쪽이 «OO 님» 을 쓰게)', async () => {
+    serve(); await mount();
+    await launch();
+    const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
+    act(() => a.open()); await flush();
+    expect(a.sent.find((m) => m.t === 'hello')).toMatchObject({ t: 'hello', robot: S1, display_name: '이OO' });
+  });
+});
