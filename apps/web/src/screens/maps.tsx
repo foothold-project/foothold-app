@@ -207,8 +207,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const own = (s: MapSite) => purposeOf(s) === purpose;
   const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: t0.tree.items.filter((s) => sim || own(s)) } }), [t0.tree, t0.err]);
   const admin = c.user.role === 'ORG_ADMIN', places = useMemo(() => floorsOf(t.tree), [t.tree]), robots = c.robots ?? [];
-  const [finding, setFinding] = useState(() => keptPlan.find && !!keptPlan.sel), [addr] = useState(finding);   // 옛 #/mission/<id> — 그 시나리오의 층을 찾는 중
-  const [pick, setPick] = useState(() => kept.d?.floor ?? (finding ? '' : keptPlan.floor)), cur = places.find((p) => p.floor.id === pick);
+  const [pick, setPick] = useState(() => kept.d?.floor ?? keptPlan.floor), cur = places.find((p) => p.floor.id === pick);
   const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };
   const [madmin, setMadmin] = useState(() => keptPlan.kind === 'missions');
   const [all, setAll] = useState(false), multi = !!cur && cur.building.floors.length >= 2, whole = all && multi;   // 전체 = 건물 층 겹쳐 보기(보기만)
@@ -217,17 +216,6 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false), [make, setMake] = useState<Make>(''), [found, setFound] = useState<Msg>(null);
   const [intent, setIntent] = useState<Intent>(null), maker = !sim && makers(c.user, robots).length > 0;   // intent = 층을 열 때 바로 띄울 창
   const names = useNames(c.user, admin, c.cancel), vers = useVers(places, c.cancel);
-  // 옛 주소가 연 시나리오는 시뮬 탭에서 연다(RB-SCEN-SIMTAB 11-11 — 시나리오 편집은 시뮬 탭만). 고른 층·시나리오는 keptPlan 에 남아 거기서 열린다
-  useEffect(() => { if (!sim && addr && pick && keptPlan.sel) location.hash = '#/sim'; }, [pick]);
-  /** 지도 탭 → 시뮬 탭 그 층 시나리오 창(id = 열 시나리오, '' = 목록) */
-  const toSim = (floor: string, id: string) => { keptPlan.kind = 'scenarios'; keptPlan.floor = floor; keptPlan.sel = id || null; location.hash = '#/sim'; };
-  useEffect(() => {
-    if (!finding || !keptPlan.sel) return;
-    keptPlan.find = false;
-    api.plan('scenarios', keptPlan.sel, null, c.cancel).then((x) => { const sc = x as Scenario; const f = sc.floor_ids?.[0] ?? sc.waypoints?.[0]?.floor_id ?? ''; setPick(f); keptPlan.floor = f; setFinding(false); },
-      (e: ApiFail) => { if (e.code === 'CANCELED') return; setSel(null); setFinding(false); setPick(keptPlan.floor);
-        setFound({ text: e.status === 404 ? '주소의 시나리오를 찾을 수 없습니다. 지워졌을 수 있습니다 — «시뮬» 탭에서 지도를 고른 뒤 찾으세요.' : `주소의 시나리오를 받지 못했습니다. ${e.message}` }); });
-  }, []);
   const run = async (k: Kind, f: () => Promise<unknown>, ok: string, act?: NonNullable<Msg>['act']) => {
     setBusy(true); setMsg(null);
     try { await f(); setForm(null); setAsk(null); setMsg({ text: ok, ok: true, act }); t.again(); return true; }
@@ -327,7 +315,6 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   </>;
 
   if (madmin && sim) return <MissionAdmin user={c.user} robots={robots} cancel={c.cancel} back={() => setMadmin(false)} />;
-  if (finding) return <section className="mx" aria-label="지도 보기"><div className="mx-center"><p className="lv-note" role="status">주소의 시나리오를 찾는 중…</p></div></section>;
   if (whole && cur) return <AllFloors key={cur.building.id} b={cur.building} top={top} cancel={c.cancel} />;
   const shut0 = () => { setMake(''); setForm(null); setAsk(null); };
   const title = make === 'robot' ? '지도 만들기 — 어느 층에?' : make === 'file' ? '파일 올리기 — 어느 층에?' : sim ? '장소 고치기' : '이름 바꾸기·삭제';

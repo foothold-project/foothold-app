@@ -76,3 +76,19 @@
 .mt-now-wrap .mt-track{height:100%}
 .mt-now{position:absolute;top:-6px;bottom:0;width:2px;margin-left:-1px;background:var(--text)}
 .mt-now::before{content:"";position:absolute;top:-4px;left:-3px;width:8px;height:8px;border-radius:50%;background:var(--text)}
+
+/* 2 단계(#531 일정 · 가용 · 예상) */
+.mt-time{width:100%;min-width:0;padding:0;border:0;background:none;color:var(--text);font:inherit;font-size:18px;font-weight:700;color-scheme:inherit}
+.mt-dot[data-state="FREE"]{background:var(--ok)}
+.mt-dot[data-state="BUSY"],.mt-dot[data-state="CHARGING"]{background:var(--warn)}
+.mt-robots button:disabled{opacity:.55;cursor:not-allowed}
+.mt-guess{margin-left:4px;padding:0 5px;border:1px solid var(--line2);border-radius:5px;color:var(--muted);font-size:11px;font-weight:600;vertical-align:middle}
+.mt-est dd b{font-size:20px}
+.mt-legend{display:inline-flex;flex-wrap:wrap;gap:4px 14px;color:var(--muted);font-size:12px}
+.mt-legend>span{display:inline-flex;align-items:center;gap:6px}
+.mt-legend i{display:inline-block;width:18px;height:8px;border-radius:3px}
+.mt-legend i[data-kind="CONFIRMED"],.mt-bar[data-kind="CONFIRMED"]{background:var(--accent);color:var(--on-accent)}
+.mt-legend i[data-kind="DRAFT"],.mt-bar[data-kind="DRAFT"]{background:var(--acc-bg);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
+.mt-legend i[data-kind="BATTERY_SWAP"],.mt-bar[data-kind="BATTERY_SWAP"]{background:var(--line2);color:var(--muted)}
+.mt-bar{position:absolute;top:7px;bottom:7px;z-index:1;display:flex;align-items:center;min-width:4px;padding:0 8px;overflow:hidden;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap;text-overflow:ellipsis}
+.mt-bar[data-conflict]{z-index:2;outline:2px solid var(--bad);outline-offset:1px}

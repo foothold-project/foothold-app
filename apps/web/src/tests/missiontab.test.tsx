@@ -2,12 +2,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MapVersion, Mission, Scenario } from '../../../contracts/ts';
+import type { Estimate, MapVersion, Mission, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
 import { App } from '../App';
 import { leaving, oldScenario, tabFromHash } from '../menu';
 import { clearPlans } from '../screens/missions';
-import { WAIT, keptMission } from '../screens/missiontab';
+import { keptMission } from '../screens/missiontab';
 import { USERS, type Robot } from './fixtures';
+import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,13 +27,33 @@ const S2 = scen('s2', '가스 점검', [wp(0, 1), wp(1, 1)], { finish: { mode: '
 const S3 = scen('s3', '지난 임무', [wp(0, 0)], { archived_at: '2026-11-27T00:00:00Z' });
 const ALL = [S1, S2, S3];
 
-let calls: { method: string; path: string }[] = [];
+let calls: { method: string; path: string; q: URLSearchParams; body?: Record<string, unknown> }[] = [];
+/** 오늘 로컬 h:m 의 ISO */
+const at = (h: number, m = 0) => { const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
+const slot = (id: string, robot_id: string, kind: ScheduleSlot['kind'], h0: number, m0: number, h1: number, m1: number, scenario_id: string | null = 's2'): ScheduleSlot =>
+  ({ id, robot_id, scenario_id, scenario_version: scenario_id ? 1 : null, gait: null, start: at(h0, m0), end: at(h1, m1), kind, assignment_id: null, memo: '', created_by: 'u-kim', created_at: at(0) });
+const AV = (robot_id: string, robot_name: string, state: RobotAvailability['state'], battery_pct: number | null, x: Partial<RobotAvailability> = {}): RobotAvailability =>
+  ({ robot_id, robot_name, state, busy_until: null, busy_slot_id: null, busy_label: null, battery_pct, demo: false, sim: false, location_label: null, ...x });
+const EST: Estimate = { length_m: 1280, walk_s: 1260, task_s: 360, eta: at(14, 27), margin_s: 180, end_battery_pct: 54.4, estimate_source: 'TABLE_UNMEASURED' };
+let srv: { slots: ScheduleSlot[]; avail: RobotAvailability[]; est: Estimate; conflict: string[] | null };
+const fresh = () => { srv = { slots: [slot('sl1', 'r1', 'CONFIRMED', 9, 0, 10, 0), slot('sl2', 'r2', 'DRAFT', 13, 0, 13, 30), slot('sl3', 'r1', 'BATTERY_SWAP', 15, 0, 15, 20, null)],
+  avail: [AV('r1', 'K-01', 'FREE', 86), AV('r2', '시뮬 Go2', 'FREE', null, { sim: true })], est: EST, conflict: null }; };
+const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 function serve() {
   calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
-    const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '').split('?')[0];
-    calls.push({ method, path });
-    const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const method = init.method ?? 'GET', [path, qs = ''] = url.replace(/^\/api\/v1/, '').split('?');
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    calls.push({ method, path, q: new URLSearchParams(qs), body });
+    const fail = (status: number, code: string, detail = {}) => new Response(JSON.stringify({ error: { code, message: code === 'SCHEDULE_CONFLICT' ? '같은 로봇의 다른 일정과 겹칩니다.' : '오류', detail } }), { status });
+    if (path === '/schedule') return ok({ day: new URLSearchParams(qs).get('day'), tz: new URLSearchParams(qs).get('tz'), slots: srv.slots });
+    if (path === '/robots/availability') return ok({ items: srv.avail });
+    if (method === 'POST' && path === '/estimates') return ok(srv.est);
+    if (method === 'POST' && path === '/schedule/slots') {
+      if (srv.conflict) return fail(409, 'SCHEDULE_CONFLICT', { slot_ids: srv.conflict });
+      const x = { ...body, id: 'new1', scenario_version: body.scenario_version ?? null, assignment_id: null, memo: '', created_by: 'u-kim', created_at: at(0) } as ScheduleSlot;
+      srv.slots = [...srv.slots, x]; return new Response(JSON.stringify(x), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }
     if (path === '/sites') return ok({ items: [{ id: 'st', name: '공장', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 'st', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: 'v1', pending_count: 0 }] }] }], next_cursor: null });
     if (path === '/map-versions/v1') return ok(V1);
     if (path === '/map-versions/v1/zone-grid') {
@@ -53,20 +74,26 @@ function serve() {
 const ROBOTS: Robot[] = [
   { id: 'r1', name: 'K-01', owner: 'u-lee', ownerName: '이OO', battery: 86, online: true, seenAt: '14:00:00', status: 'IDLE' },
   { id: 'r2', name: '시뮬 Go2', owner: 'u-lee', ownerName: '이OO', battery: null, online: true, seenAt: '14:00:00', status: 'IDLE', sim: true },
+  { id: 'r3', name: 'K-03', owner: 'u-lee', ownerName: '이OO', battery: null, online: false, seenAt: '', status: null },   // 한 번도 연결된 적 없음
 ];
 let root: Root | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
 async function mount(hash: string) {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  if (!srv) fresh();
   serve();
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-kim')} robots={ROBOTS} />); });
   await flush(); await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); keptMission.sel = ''; leaving.ask = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); keptMission.sel = ''; fresh(); leaving.ask = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
+const last = <T,>(l: T[]) => l[l.length - 1];
+/** 시작 · 마감 칸에 HH:MM 넣기 */
+const setTime = async (k: 'start' | 'end', v: string) => { const inp = $<HTMLInputElement>(`[data-${k}]`)!;
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inp, v); inp.dispatchEvent(new Event('input', { bubbles: true })); }); await flush(); };
 const picked = () => $$('[data-mission][aria-pressed="true"]').map((b) => b.dataset.mission);
 const click = async (e: Element | null) => { expect(e).toBeTruthy(); act(() => (e as HTMLElement).click()); await flush(); };
 
@@ -126,26 +153,93 @@ describe('임무 탭(W2)', () => {
     expect(picked()).toEqual(['s2']);
   });
 
-  it('계약 없는 칸(일정 · 가용 · 예상 · 걷기+할 일)은 숫자를 지어내지 않고 «준비 중», 단추는 회색 + 까닭', async () => {
+  it('가용(GET /robots/availability · 고른 시작~마감): 서버 상태 그대로 · 바쁨은 까닭 + 못 고름 · 연결 전/끊김은 관제와 같은 판정 · 충전 중도 그림', async () => {
+    fresh();
+    srv.avail = [AV('r1', 'K-01', 'FREE', 86), AV('r2', '시뮬 Go2', 'BUSY', 74, { sim: true, busy_label: '가스 점검', busy_until: at(14, 30) }),
+      AV('r3', 'K-03', 'OFFLINE', null), AV('r4', 'K-04', 'CHARGING', 40)];
     await mount('#/missions');
-    for (const e of $$('[data-wait]')) expect(e.textContent).toBe('—');
-    expect($$('[data-wait]').length).toBe(5);   // 시작 · 마감 · 예상 끝 · 여유 · 종료 시 배터리
-    for (const e of $$('[data-wait-line]')) { expect(e.textContent).toContain(WAIT); expect(e.textContent).not.toMatch(/\d/); }
-    expect($('[data-walk-task]')!.textContent).toBe(WAIT);
-    for (const e of $$('[data-dur]')) expect(e.textContent).toBe('—');
-    expect($<HTMLButtonElement>('[data-rehearse]')!.disabled).toBe(true);
-    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);
-    expect($('#mt-why')!.textContent).toContain('준비되면');
-    // 오늘 일정: 로봇 줄 + 지금 선만, 막대 없음
-    expect($$('[data-day-robot]').map((e) => e.dataset.dayRobot)).toEqual(['r1', 'r2']);
-    expect($('[aria-label="오늘 일정"] [data-slot]')).toBeNull();
-    // 걷기 모드 넷은 고르기만 · 아무 요청도 나가지 않는다
-    const n = calls.length;
+    // 실시간 첫 값: r3 = 한 번도 연결된 적 없음(관제 탭과 같은 들어옴)
+    act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r1')); FakeWS.last.recv(state('r3', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
+    await flush();
+    const q = last(calls.filter((c) => c.path === '/robots/availability'))!.q;
+    expect(new Date(q.get('end')!).getTime() - new Date(q.get('start')!).getTime()).toBeGreaterThan(0);
+    const row = (id: string) => $<HTMLButtonElement>(`[data-robot="${id}"]`)!;
+    expect($$('[data-robot]').map((b) => b.dataset.robot)).toEqual(['r1', 'r2', 'r3', 'r4']);
+    expect(row('r1').disabled).toBe(false); expect(row('r1').textContent).toContain('비어 있음'); expect(row('r1').textContent).toContain('86%');
+    expect(row('r2').disabled).toBe(true); expect(row('r2').textContent).toContain('가스 점검'); expect(row('r2').textContent).toContain('14:30까지');
+    expect(row('r3').disabled).toBe(true); expect(row('r3').textContent).toContain('연결 전');   // 한 번도 연결된 적 없는 로봇(관제 칩과 같은 robotStatus)
+    expect(row('r4').disabled).toBe(false); expect(row('r4').textContent).toContain('충전 중');
+    // 시각을 바꾸면 그 시각으로 다시 묻는다
+    await setTime('end', '23:50'); await setTime('start', '09:30');
+    expect(new Date(last(calls.filter((c) => c.path === '/robots/availability'))!.q.get('start')!).getTime()).toBe(new Date(at(9, 30)).getTime());
+  });
+
+  it('예상(POST /estimates): 로봇 · 걷기 모드를 고르기 전엔 숫자 없음 · 고르면 예상 끝 · 여유 · 끝 배터리 · 걷기 + 할 일, 표 값이면 «추정», 여유 null = «마감 없음»', async () => {
+    await mount('#/missions');
+    for (const e of $$('[data-est]')) expect(e.textContent).toBe('—');
+    expect(calls.filter((c) => c.path === '/estimates')).toEqual([]);
+    expect($('[data-est-why]')!.textContent).toContain('로봇과 걷기 모드를 고르면');
+    await click($('[data-robot="r1"]'));
+    expect(calls.filter((c) => c.path === '/estimates')).toEqual([]);   // 걷기 모드도 골라야
     await click($('[data-mode="START"]'));
-    expect($('[data-mode="START"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect($$('[data-mode]').map((b) => b.dataset.mode)).toEqual(['Classic', 'Sport', 'START', 'AME-2']);
-    expect(calls.slice(n)).toEqual([]);
-    expect(calls.filter((c) => c.method !== 'GET' && c.path !== '/scenarios/preview')).toEqual([]);
+    const b = last(calls.filter((c) => c.path === '/estimates'))!.body!;
+    expect(b).toMatchObject({ scenario_id: 's1', scenario_version: 1, robot_id: 'r1', gait: 'start' });
+    expect(typeof b.start).toBe('string');
+    const hm = (iso: string) => new Date(iso).toTimeString().slice(0, 5);
+    expect($('[data-est="eta"]')!.textContent).toBe(hm(EST.eta));
+    expect($('[data-est="margin"]')!.textContent).toBe('3분');
+    expect($('[data-est="battery"]')!.textContent).toBe('54%');
+    expect($$('[data-guess]').length).toBeGreaterThan(0);
+    expect($('[data-walk-task]')!.textContent).toBe('21 + 6분추정');
+    expect($('[data-mission="s1"] [data-dur]')!.textContent).toBe('27분');
+    // 여유 null = 마감 없음 · 잰 값(MEASURED)은 «추정» 없음
+    srv.est = { ...EST, margin_s: null, estimate_source: 'MEASURED' };
+    await click($('[data-mode="Sport"]'));
+    expect($('[data-est="margin"]')!.textContent).toBe('마감 없음');
+    expect($$('[data-guess]')).toEqual([]);
+    // 여유가 음수 = 다음 일정과 겹침 · 크기는 쓰지 않는다(겹친 길이가 아님)
+    srv.est = { ...EST, margin_s: -300 };
+    await click($('[data-mode="Classic"]'));
+    expect($('[data-est="margin"]')!.textContent).toBe('겹침');
+    expect($('[data-est="margin"]')!.className).toContain('mt-bad');
+    // 걷기 모드는 예상 · 일정 본문에만 · 로봇 명령은 보내지 않는다
+    expect(calls.filter((c) => c.method !== 'GET' && !['/scenarios/preview', '/estimates'].includes(c.path))).toEqual([]);
+  });
+
+  it('일정에 추가(POST /schedule/slots): 본문 · 성공이면 오늘 일정에 막대, 409 SCHEDULE_CONFLICT 면 겹치는 막대 표시 + 한 줄 까닭 · 모의 실행은 회색', async () => {
+    await mount('#/missions');
+    expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);   // 로봇 · 걷기 모드 전
+    expect($<HTMLButtonElement>('[data-rehearse]')!.disabled).toBe(true);
+    await setTime('end', '11:00'); await setTime('start', '10:30');
+    await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
+    srv.conflict = ['sl1'];
+    await click($('[data-schedule-add]'));
+    expect($('[data-slot="sl1"]')!.dataset.conflict).toBe('true');
+    expect($('[data-slot="sl2"]')!.dataset.conflict).toBeUndefined();
+    expect($('[data-add-msg]')!.textContent).toContain('겹칩니다');
+    srv.conflict = null;
+    await click($('[data-schedule-add]'));
+    const b = last(calls.filter((c) => c.method === 'POST' && c.path === '/schedule/slots'))!.body!;
+    expect(b).toMatchObject({ robot_id: 'r1', scenario_id: 's1', scenario_version: 1, gait: 'start', kind: 'CONFIRMED' });
+    expect(new Date(String(b.end)).getTime()).toBeGreaterThan(new Date(String(b.start)).getTime());
+    expect($('[data-slot="new1"]')).toBeTruthy();
+    expect($('[data-slot="sl1"]')!.dataset.conflict).toBeUndefined();
+    expect($('[data-add-msg]')!.textContent).toContain('일정에 넣었습니다');
+  });
+
+  it('오늘 일정(GET /schedule?day=&tz=): 로봇 줄마다 막대 · kind 별 모양 · 범례 한 줄 · 막대 이름은 임무 이름(배터리 교체는 그 말)', async () => {
+    await mount('#/missions');
+    const q = calls.find((c) => c.path === '/schedule')!.q;
+    const d = new Date();
+    expect(q.get('day')).toBe(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    expect(q.get('tz')).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const bar = (id: string) => $(`[data-slot="${id}"]`)!;
+    expect(bar('sl1').closest('[data-day-robot]')!.getAttribute('data-day-robot')).toBe('r1');
+    expect(bar('sl2').closest('[data-day-robot]')!.getAttribute('data-day-robot')).toBe('r2');
+    expect([bar('sl1').dataset.kind, bar('sl2').dataset.kind, bar('sl3').dataset.kind]).toEqual(['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']);
+    expect(bar('sl1').textContent).toBe('가스 점검'); expect(bar('sl3').textContent).toBe('배터리 교체');
+    expect(parseFloat(bar('sl1').style.left)).toBeCloseTo((1 / 12) * 100, 1);   // 09:00 = 08~20 눈금의 1/12
+    expect($('[data-legend]')!.textContent).toBe('확정작성 중배터리 교체');
   });
 
   it('지도: 경로 · 지점 번호 · 금지 구역 겹침(같은 구역 칸 판정) · 길이 · 미리 확인 한 줄, 지도 위 글자 둘까지', async () => {
