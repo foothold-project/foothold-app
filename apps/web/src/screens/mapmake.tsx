@@ -46,7 +46,13 @@ export const GLIM_STAGE: Record<string, string> = { OFF: '꺼짐', STARTING: '�
 export const BEFORE = '지도 만들기를 누르면 켜집니다';
 const LAMP = { ok: 'var(--ok)', warn: 'var(--warn)', bad: 'var(--bad)' } as const;
 type Lamp = keyof typeof LAMP;
-const ago = (s: number | null | undefined) => (s == null ? '' : s < 60 ? `${s.toFixed(1)}초 전` : `${Math.round(s / 60)}분 전`);
+/** 받은 값 검사(RV-519 — 서버·로봇이 보낸 모양을 믿지 않음): 유한수만 · 나이는 0 이상만 · 글은 200자까지 · 객체만 */
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const age = (v: unknown) => { const n = num(v); return n != null && n >= 0 ? n : null; };
+const str = (v: unknown) => (typeof v === 'string' && v ? v.slice(0, 200) : null);
+const obj = <T,>(v: T | null | undefined): Partial<T> | null => (v && typeof v === 'object' ? v : null);
+const word = (m: Record<string, string>, k: unknown) => (typeof k === 'string' && Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null);
+const ago = (s: number | null) => (s == null ? '' : s < 60 ? `${s.toFixed(1)}초 전` : `${Math.round(s / 60)}분 전`);
 const and = (...t: (string | false | null | undefined)[]) => t.filter(Boolean).join(' · ');
 
 /** 한 줄: 점(초록 정상·노랑 기다림·빨강 이상) + 이름 + 글(+ 작은 덧말) */
@@ -55,32 +61,37 @@ const Line = ({ k, name, lamp, text, more }: { k: string; name: string; lamp: La
     <i aria-hidden="true" style={{ fontStyle: 'normal', color: LAMP[lamp] }}>●</i> <b>{name}</b> {text}{more && <span style={{ color: 'var(--muted)' }}> · {more}</span>}</p>;
 
 /** Point-LIO·GLIM 상태 두 줄. st = 세션 상태(null = 아직 시작 전). 세션 중인데 sources 가 없으면(옛 서버) 그리지 않는다 */
-function Sources({ st, s }: { st: MappingProgress['status'] | null; s?: MappingSources | null }) {
+export function Sources({ st, s }: { st: MappingProgress['status'] | null; s?: MappingSources | null }) {
   if (!st) return <div data-sources="before"><Line k="point_lio" name="Point-LIO" lamp="warn" text={BEFORE} /><Line k="glim" name="GLIM" lamp="warn" text={BEFORE} /></div>;
   if (!s) return null;
-  const pl = s.point_lio, g = s.glim, code = pl.reason_code;
+  // 한쪽이 없거나 모양이 틀려도(옛·고장 보고) 예외 없이 «기다리는 중» — 초록 «정상»은 신선·위치 유효·이유 없음·나이·위치·Hz 가 모두 맞을 때만
+  const pl = obj(obj(s)?.point_lio) ?? {}, g = obj(obj(s)?.glim) ?? {}, code = str(pl.reason_code);
   const waiting = st === 'STARTING' || st === 'SAVING' || st === 'FINALIZING';   // 켜는 중·저장 중엔 자료가 없는 게 이상이 아니다
-  const [lamp, text]: [Lamp, string] = pl.fresh && pl.position_valid !== false && !code ? ['ok', and('실시간 위치 정상', ago(pl.pose_age_s), `${pl.pose_hz}Hz`)]
-    : code && !(waiting && (code === 'MISSING_DATA' || code === 'STALE')) ? ['bad', and(LIO_WHY[code] ?? pl.reason ?? '위치 자료에 문제가 있습니다', ago(pl.pose_age_s))]
-    : ['warn', and('기다리는 중', ago(pl.pose_age_s))];
-  const at = pl.position_m && `x ${pl.position_m[0].toFixed(2)} · y ${pl.position_m[1].toFixed(2)} m`;
-  const gl: Lamp = g.stage === 'RECEIVING' ? 'ok' : g.stage === 'UNKNOWN' || (g.stage === 'OFF' && (st === 'RUNNING' || st === 'FAILED')) ? 'bad' : 'warn';
+  const pa = age(pl.pose_age_s), hz = age(pl.pose_hz), pos = Array.isArray(pl.position_m) ? [num(pl.position_m[0]), num(pl.position_m[1])] : null;
+  const at = pos && pos[0] != null && pos[1] != null ? `x ${pos[0].toFixed(2)} · y ${pos[1].toFixed(2)} m` : null;
+  const [lamp, text]: [Lamp, string] = pl.fresh === true && pl.position_valid === true && !code && pa != null && at && hz != null ? ['ok', and('실시간 위치 정상', ago(pa), `${hz}Hz`)]
+    : code && !(waiting && (code === 'MISSING_DATA' || code === 'STALE')) ? ['bad', and(word(LIO_WHY, code) ?? str(pl.reason) ?? '위치 자료에 문제가 있습니다', ago(pa))]
+    : ['warn', and('기다리는 중', ago(pa))];
+  const stage = str(g.stage), ga = age(g.data_age_s), chunks = age(g.processed_chunks);
+  const gl: Lamp = stage === 'RECEIVING' ? 'ok' : stage === 'UNKNOWN' || (stage === 'OFF' && (st === 'RUNNING' || st === 'FAILED')) ? 'bad' : 'warn';
   return <div data-sources={st}>
     <Line k="point_lio" name="Point-LIO" lamp={lamp} text={text} more={at || undefined} />
-    <Line k="glim" name="GLIM" lamp={gl} text={and(GLIM_STAGE[g.stage] ?? g.stage, g.data_age_s != null && `마지막 자료 ${ago(g.data_age_s)}`,
-      g.stage === 'SAVING' && g.processed_chunks != null && `${g.processed_chunks.toLocaleString('ko-KR')}조각 처리`)} more={g.reason || undefined} />
+    <Line k="glim" name="GLIM" lamp={gl} text={and(word(GLIM_STAGE, stage) ?? stage ?? '기다리는 중', ga != null && `마지막 자료 ${ago(ga)}`,
+      stage === 'SAVING' && chunks != null && `${chunks.toLocaleString('ko-KR')}조각 처리`)} more={str(g.reason) ?? undefined} />
   </div>;
 }
 
 /** 지도 칸(가로 640:400) — 받은 2D 조각·3D 칸·로봇 위치(screens/slammap.tsx) + GLIM 미리보기(glim_preview, 0.25 m 칸).
- *  Point-LIO 그림과 같은 기준(frame_id)일 때만 겹친다. 다르면 겹치지 않고 둘 중 하나만 보기(로봇 화살표도 Point-LIO 기준이라 GLIM 만 볼 땐 뺌) */
-function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; link: number }) {
+ *  지금 그려진 Point-LIO 그림의 세션·판·기준(frame_id)이 미리보기와 같을 때만 겹친다(판이 바뀌는 사이 지난 그림 위에 겹치지 않게 — RV-519).
+ *  다르면 겹치지 않고 둘 중 하나만 보기(로봇 화살표도 Point-LIO 기준이라 GLIM 만 볼 땐 뺌). 미리보기가 사라지면 Point-LIO 보기로 돌아감 */
+export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; link: number }) {
   const pic = useSlamLive(robot, p, link);
   const [lio, setLio] = useState(true), [gl, setGl] = useState(true);
-  const gp = p.glim_preview, base = p.tiles?.[0]?.frame_id ?? p.voxels?.frame_id ?? p.grid?.frame_id ?? p.odom?.frame_id;
-  const same = !!gp && gp.frame_id === base, only = !same && gl && !lio;   // only = 기준이 달라 GLIM 만 보는 중
+  const gp = obj(p.glim_preview);
+  const same = !!gp && pic.sid === p.session_id && pic.rev === p.revision && pic.frame != null && pic.frame === gp.frame_id;
+  const only = !!gp && !same && gl && !lio;   // only = 기준이 달라 GLIM 만 보는 중
   const onLio = same ? lio : !only, onGl = same ? gl : only, hide = !onLio;
-  const over = gp && onGl ? { cells: gp.cells, res: gp.resolution ?? 0.25 } : null;
+  const over = useMemo(() => (gp && onGl ? { cells: gp.cells ?? [], res: gp.resolution ?? 0.25 } : null), [gp, onGl]);   // 칸 검사·1024칸 상한은 SlamView(cleanOver)
   const shown = useMemo(() => (only ? { ...pic, pose: null } : pic), [pic, only]);
   const pick = (to: 'lio' | 'gl') => (same ? (to === 'lio' ? setLio((v) => !v) : setGl((v) => !v)) : (setLio(to === 'lio'), setGl(to === 'gl')));
   return <>

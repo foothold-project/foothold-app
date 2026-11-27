@@ -4,12 +4,16 @@
 // 11-27 RB-MAP-LIVE-WEB: Point-LIO·GLIM 상태 두 줄(이유 코드·단계), GLIM 미리보기 겹침·토글(기준 다르면 따로), 옛 서버 그대로.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MappingGlimStatus, MappingPointLioStatus, MappingProgress, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
+import type { MappingGlimStatus, MappingPointLioStatus, MappingProgress, MappingSources, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
 import { kept } from '../screens/mapedit';
-import { BEFORE, GLIM_STAGE, LIO_WHY, RECEIVED_TEXT, SLOW_START_S, SLOW_TEXT, STALE_TEXT } from '../screens/mapmake';
+import { BEFORE, GLIM_STAGE, LIO_WHY, MapBox, RECEIVED_TEXT, SLOW_START_S, SLOW_TEXT, STALE_TEXT, Sources } from '../screens/mapmake';
+import { OVER_MAX, SlamView } from '../screens/slammap';
+import { COL } from '../occmap';
+import { api } from '../api';
 import { FakeWS, state } from './fakeWs';
 import { FakeVox } from './fakeVox';
 
@@ -565,5 +569,98 @@ describe('지도 만들기 — Point-LIO·GLIM 상태와 GLIM 미리보기(11-27
     expect(ops.filter((o) => o === 'tile').length).toBeGreaterThan(0);
     ops.length = 0; await click($('[data-layer="point_lio"]'));
     expect(ops).toEqual(['rect', 'rect', 'rect', 'rect']);   // 배경 + GLIM 3칸, 조각 없음
+  });
+});
+
+describe('지도 만들기 — 받은 상태·미리보기 모양 검사(RV-519)', () => {
+  const PL: MappingPointLioStatus = { active: true, fresh: true, pose_age_s: 0.1, cloud_age_s: 0.1, position_valid: true, reason_code: null, reason: null, position_m: [1, 2, 3], pose_hz: 10, cloud_hz: 10 };
+  const GL: MappingGlimStatus = { stage: 'RECEIVING', data_age_s: 0.1, processed_chunks: null, gpu: null, reason: null };
+  const html = (s: unknown) => renderToStaticMarkup(<Sources st="RUNNING" s={s as MappingSources} />);
+  const mount = () => { box = document.createElement('div'); document.body.append(box); root = createRoot(box); };
+  const draw = async (el: React.ReactElement) => { await act(async () => { root!.render(el); }); };
+  const tiles = (frame: (rev: number) => string, fill: (rev: number) => number) => vi.spyOn(api, 'slamTiles').mockImplementation(async (_r, sid, revision) => ({ session_id: sid, revision, update_seq: 1, next_cursor: null,
+    tiles: [{ revision, tile_seq: 1, x: 0, y: 0, frame_id: frame(revision), floor_z: 0, cells: Array(4096).fill(fill(revision)) }] }) as never);
+  const noVox = () => vi.spyOn(api, 'slamVoxels').mockImplementation(async (_r, sid, revision) => ({ session_id: sid, revision, seq: 0, reset: true, reset_seq: 0, added: [], removed: [], next_cursor: null }) as never);
+  const live = (revision: number, frame: string, gp: unknown = { frame_id: frame, resolution: 0.25, cells: [[revision, 0, 0]] }) => ({ session_id: 'session', floor_id: 'floor', status: 'RUNNING', source: 'point_lio',
+    revision, update_seq: revision, voxels: { revision, seq: 1, frame_id: frame }, glim_preview: gp }) as unknown as MappingProgress;
+
+  it('sources 일부·null·잘못된 모양이어도 예외 없이 «기다리는 중»(노랑), 옛 서버(없음)는 그대로 안 그림', () => {
+    expect(html(undefined)).toBe(''); expect(html(null)).toBe('');
+    const lamp = (h: string, k: string) => new RegExp(`data-src="${k}" data-lamp="(\\w+)"`).exec(h)![1];
+    // [보낸 sources, Point-LIO 점, GLIM 점] — 없거나 틀린 쪽은 «기다리는 중»(노랑)
+    for (const [s, pl, gl] of [[{}, 'warn', 'warn'], ['x', 'warn', 'warn'], [{ point_lio: null, glim: GL }, 'warn', 'ok'], [{ point_lio: PL }, 'ok', 'warn'], [{ point_lio: PL, glim: null }, 'ok', 'warn'],
+      [{ point_lio: 'x', glim: 5 }, 'warn', 'warn'], [{ point_lio: { ...PL, position_m: [1] }, glim: GL }, 'warn', 'ok']] as const) {
+      let h = '';
+      expect(() => { h = html(s); }).not.toThrow();
+      expect([lamp(h, 'point_lio'), lamp(h, 'glim')]).toEqual([pl, gl]);
+      expect(h).toContain('기다리는 중'); expect(h).not.toContain('NaN');
+    }
+    expect(html({ point_lio: { ...PL, fresh: false, reason_code: 'constructor' }, glim: { ...GL, stage: 'toString' } })).toContain('위치 자료에 문제가 있습니다');
+  });
+
+  it('음수·NaN 나이, NaN 위치, position_valid 누락, fresh 만 있음 → 초록 «정상» 아님', () => {
+    const lamp = (h: string) => /data-src="point_lio" data-lamp="(\w+)"/.exec(h)![1];
+    expect(lamp(html({ point_lio: PL, glim: GL }))).toBe('ok');
+    for (const pl of [{ ...PL, pose_age_s: -3 }, { ...PL, pose_age_s: Number.NaN }, { ...PL, position_m: [Number.NaN, 2, 3] }, { ...PL, position_valid: undefined }, { ...PL, pose_hz: Number.NaN }, { fresh: true }]) {
+      const h = html({ point_lio: pl, glim: GL });
+      expect(lamp(h)).toBe('warn'); expect(h).not.toContain('실시간 위치 정상'); expect(h).not.toContain('NaN'); expect(h).not.toContain('-3.0초');
+    }
+  });
+
+  it('긴 이유 글은 200자까지, GLIM 칸은 1024칸까지만 그린다', async () => {
+    expect(html({ point_lio: { ...PL, fresh: false, reason_code: 'NEW_REASON', reason: 'x'.repeat(100000) }, glim: GL }).length).toBeLessThan(2000);
+    let rects = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ setTransform() {}, fillRect() { rects++; }, save() {}, restore() {}, imageSmoothingEnabled: false, globalAlpha: 1, fillStyle: '' } as never);
+    mount();
+    const pic = { xyz: new Float32Array(), n: 0, ver: 1, patches: [], tver: 1, pose: null, gap: false };
+    const cells = Array.from({ length: 50000 }, (_, i) => [i % 1000, Math.floor(i / 1000), 0] as [number, number, number]);
+    await draw(<SlamView pic={pic} over={{ cells, res: 0.25 }} empty="empty" />);
+    expect(rects).toBe(OVER_MAX + 1);   // 배경 + 1024칸
+    expect(box.querySelector('canvas')!.dataset.overCells).toBe(String(OVER_MAX));
+  });
+
+  it('잘못된 GLIM 칸(NaN·글자)·해상도는 그 칸만 빼고, Point-LIO 그림은 지우지 않는다', async () => {
+    let drawn = 0, rects = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ setTransform() {}, fillRect() { rects++; }, drawImage() { drawn++; }, save() {}, restore() {},
+      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {} } as never);
+    mount();
+    const pic = { xyz: new Float32Array(), n: 0, ver: 1, patches: [{ key: 'tile', seq: 1, x0: 0, y0: 0, w: 1, h: 1, cells: [1] }], tver: 1, pose: null, gap: false };
+    for (const [i, over] of [{ cells: [[NaN, 0, 0], [1, 1, 0]], res: 0.25 }, { cells: [['bad', 0, 0], [1, 1, 0], [1, 1], 7], res: 0.25 }, { cells: [[1, 1, 0]], res: NaN }, { cells: 'bad', res: 0.25 }].entries()) {
+      drawn = rects = 0;
+      await draw(<SlamView key={i} pic={pic} over={over as never} empty="empty" />);
+      expect(drawn).toBe(1);
+      expect(rects).toBe(Number.isNaN(over.res) || !Array.isArray(over.cells) ? 1 : 2);   // 배경 (+ 맞는 칸 하나)
+    }
+  });
+
+  it('판·frame 이 old→new 로 바뀌는 사이 지난 판 그림 위에 새 GLIM 칸을 겹치지 않는다', async () => {
+    const images = new Map<HTMLCanvasElement, number>(), frames: { base: number[]; overlays: number }[] = [];
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      const cv = this;
+      return { globalAlpha: 1, setTransform() {}, fillRect(this: { globalAlpha: number }) { if (this.globalAlpha === 0.55) frames[frames.length - 1].overlays++; else frames.push({ base: [], overlays: 0 }); },
+        createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData(d: ImageData) { images.set(cv, new Uint32Array(d.data.buffer)[0]); },
+        drawImage(img: HTMLCanvasElement) { frames[frames.length - 1].base.push(images.get(img)!); }, save() {}, restore(this: { globalAlpha: number }) { this.globalAlpha = 1; } } as never;
+    });
+    tiles((r) => (r === 1 ? 'old' : 'new'), (r) => r); noVox(); mount();
+    await draw(<MapBox robot="r" p={live(1, 'old')} link={0} />);
+    expect(frames.some((f) => f.base.includes(COL[1]) && f.overlays > 0)).toBe(true);
+    frames.length = 0;
+    await draw(<MapBox robot="r" p={live(2, 'new')} link={0} />);
+    expect(frames.some((f) => f.base.includes(COL[1]) && f.overlays > 0)).toBe(false);
+    expect(frames.some((f) => f.base.includes(COL[2]) && f.overlays > 0)).toBe(true);   // 새 판 조각이 오면 다시 겹침
+  });
+
+  it('GLIM 만 보다가 미리보기가 사라지면 Point-LIO 보기로 돌아간다(같은 기준·다른 기준 모두)', async () => {
+    tiles(() => 'map', () => 1); noVox(); mount();
+    for (const frame of ['map', 'glim_map']) {
+      const p = live(1, 'map', { frame_id: frame, resolution: 0.25, cells: [[1, 0, 0]] });
+      await draw(<MapBox key={frame} robot="r" p={p} link={0} />);
+      if (frame === 'map') await act(async () => { box.querySelector<HTMLButtonElement>('[data-layer="point_lio"]')!.click(); });
+      else await act(async () => { box.querySelector<HTMLButtonElement>('[data-layer="glim"]')!.click(); });
+      expect(box.querySelector('canvas')!.dataset.slamTiles).toBe('0');
+      await draw(<MapBox key={frame} robot="r" p={{ ...p, glim_preview: null }} link={0} />);
+      expect(box.querySelector('canvas')!.dataset.slamTiles).toBe('1');
+      expect(box.textContent).not.toContain('아직 받은 칸이 없습니다');
+    }
   });
 });
