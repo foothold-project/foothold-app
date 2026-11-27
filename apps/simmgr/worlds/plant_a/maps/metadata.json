@@ -1,10 +1,10 @@
 {
   "generator_version": "collision-map/1",
-  "generator_sha256": "b02389779320b8f9c34f3ae46500d80829d67a55b7b960392f674d5eaef21e01",
-  "world_sha256": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4",
-  "dependency_sha256": "1705503b29b162eb3e3b093732c65a64422ddc2ae6d0646ae9e5d9d23cd256c2",
+  "generator_sha256": "4288be2a0cf2732280e9a1162408949f636741e6e56c7359fe22635825c9bb14",
+  "world_sha256": "5ff76e8ae16de20357d512c40a59e83bb9f84974b9045b36b7e8f0f354bc0f0c",
+  "dependency_sha256": "901ea3efb5219d2cf2ba5e49384281486eccbab59bc7c0cdbc153f44dac52d94",
   "dependencies": {
-    "plant_a.sdf": "9f5b1df66efbd004c62958a3682373a23338bc34dbf8100b79df6360d35282e4"
+    "plant_a.sdf": "5ff76e8ae16de20357d512c40a59e83bb9f84974b9045b36b7e8f0f354bc0f0c"
   },
   "resolution": 0.05,
   "origin": [
@@ -38,10 +38,10 @@
       "floor_z": 0.0,
       "image": "l1.png",
       "yaml": "l1.yaml",
-      "image_sha256": "0769aeb37bbcc12c413b1ef7be03c557ac05ce880d7daddf5d464a91b2814737",
+      "image_sha256": "e743f75a0c7f58e5d3417a2bf687884c068f396f87b6331547f9f307af0d7b9a",
       "counts": {
-        "occupied": 60300,
-        "free": 236588,
+        "occupied": 54664,
+        "free": 242224,
         "unknown": 37512
       }
     },
@@ -49,10 +49,10 @@
       "floor_z": 3.375,
       "image": "l2.png",
       "yaml": "l2.yaml",
-      "image_sha256": "21b54d1dd5b19208fd4e044e713422360090dde4a2d2b253c6994dcecc6bf784",
+      "image_sha256": "7f13f624d68b79f07491ce6f6552589a5344251cdd1179ccd912b1679edf79d5",
       "counts": {
-        "occupied": 62870,
-        "free": 230563,
+        "occupied": 44486,
+        "free": 248947,
         "unknown": 40967
       }
     },
@@ -60,13 +60,13 @@
       "floor_z": 6.75,
       "image": "l3.png",
       "yaml": "l3.yaml",
-      "image_sha256": "c071beaf9165ffc0e031860435bcd73b0cb49b19783473c0a216673ac423be94",
+      "image_sha256": "88416e9c507d85cedfc268c9768e52fba8db27f9fa7dab269cdb2a0faa1f2f42",
       "counts": {
-        "occupied": 35892,
-        "free": 257436,
+        "occupied": 34640,
+        "free": 258688,
         "unknown": 41072
       }
     }
   },
-  "upstream_revision": "plant_a-rev3c \u00b7 MCC-2 x 15~18.6 (\uc804\uae30\uc2e4 \ubb38 \uc55e \ube44\uc6c0)"
+  "upstream_revision": "plant_a-rev7 \u00b7 \ucda9\ub3cc\uc744 \uadf8\ub9bc\uacfc \uac19\uac8c (\ud300\uc7a5 05:12 \u00b7 \uacb0\uc815 d8): \ubc30\uad00 \ubc1b\uce68 l2-rack-1/2 \u00b7 \ubc30\uad00\ub300 l1-pipe-p \u00b7 \uc120\ubc18 l1-shelf \ub294 collision = \uae30\ub465 \uc0c1\uc790 + \ub369\uc5b4\ub9ac, \ubc30\uad00 \ud5e4\ub354 l3-hdr \uc740 \uad00 \u00b7 \ud50c\ub79c\uc9c0 \u00b7 \ubc1b\uce68 \uae30\ub465 \u00b7 \uac00\ub85c\ub300, \ubc38\ube0c V-301/302 \ub294 \ubc1b\uce68 \u00b7 \ubab8\ud1b5 \uc6d0\uae30\ub465 + \uac00\ub85c\uad00 + \ubcf4\ub2db + \ud578\ub4e4, \ud0f1\ud06c T-1/2 \ub294 \uc6d0\uae30\ub465. collision \uc774 \uc788\uc73c\uba74 box \ub300\uc2e0 \ucda9\ub3cc\ub85c \uc4f0\uace0 box \u00b7 kind \ub294 \uadf8\ub9bc\uc6a9. \uacc4\ub2e8 \ubc11 \ub9c9\ud798\uc740 \uadf8\ub300\ub85c (\uadf8\ub9bc\uc5d0 \uac15\ud310)"
 }
