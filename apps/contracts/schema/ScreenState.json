@@ -44,7 +44,8 @@
             "AutoRecoveryGet",
             "SwitchAvoidMode",
             "CheckMode",
-            "SelectMode"
+            "SelectMode",
+            "Greet"
           ],
           "title": "Action",
           "type": "string"
@@ -212,7 +213,10 @@
         "reason": {
           "anyOf": [
             {
-              "const": "EXPLICIT_SERVER_ALLOWLIST",
+              "enum": [
+                "EXPLICIT_SERVER_ALLOWLIST",
+                "REMOTE_MOTION_STATE"
+              ],
               "type": "string"
             },
             {
@@ -1361,6 +1365,22 @@
       ],
       "title": "Connection",
       "type": "string"
+    },
+    "control": {
+      "anyOf": [
+        {
+          "enum": [
+            "FACTORY",
+            "LOWLEVEL"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Control"
     },
     "devices": {
       "items": {

@@ -136,6 +136,30 @@ def test_stop_confirmation_requires_new_measurement_then_explicit_unlock_and_new
     assert hold_for(now, sink, session, measured, frame, [1.5,0,0]) == pytest.approx((1.5,0,0))
 
 
+def test_stop_beats_held_joystick_until_unlock_and_neutral():
+    # 11/26 실기: 화면 조종 막대로 걷는 중 STOP. 막대를 계속 쥐고 있어도 STOP 이 이기고,
+    # 순정 동작이 남긴 _posture_stop_only 가 있어도 Move(0) 이 먼저 나가야 한다.
+    now, sink, normal, emergency, session, client, measured, frame = rig()
+    assert hold_for(now, sink, session, measured, frame, [1.5,0,0])[0] > 1.   # 걷는 중
+    sink._posture_stop_only = True
+    mark = len(normal.calls)
+    frame('stop', stop_ref=7)
+    for _ in range(20):   # 1 초 동안 막대를 앞으로 쥔 채
+        now.value += .05
+        measured()
+        frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[1.5,0,0])
+        sink.drain(); sink.check_watchdog()
+    after = normal.calls[mark:]
+    assert after[:2] == [('Move', (0.,0.,0.)), ('StopMove', ())]
+    assert all(v == (0.,0.,0.) for name, v in after + emergency.calls if name == 'Move')
+    assert sink.latched
+    frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
+    measured()
+    frame('cmd', lease_id='fake-lease', seq=session.last_seq+1, axes=[1.5,0,0])
+    sink.drain()
+    assert sink.pending == (0,0,0)   # 풀린 뒤에도 막대를 한 번 놓기 전에는 0
+
+
 def test_two_sources_and_run_cannot_drive_server_mode():
     _, sink, _, _, session, client, measured, frame = rig()
     with pytest.raises(ValueError):

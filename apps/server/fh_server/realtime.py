@@ -20,6 +20,7 @@ from types import SimpleNamespace, MappingProxyType
 from functools import lru_cache
 from collections.abc import Mapping
 from collections import OrderedDict, deque
+from typing import get_args
 
 from fastapi import Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -1624,7 +1625,7 @@ class Realtime:
             slam_pose=media.slam_pose(rid) if media else None,
             robot_info=state.get('robot_info'),
             posture=state.get('posture'), posture_result=state.get('posture_result'),
-            action_result=state.get('action_result'),
+            action_result=state.get('action_result'), control=state.get('control'),
             response_health=state.get('response_health'),
             phone_relay=phone_relay(self, rid),
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
@@ -1640,6 +1641,10 @@ class Realtime:
             action=msg.action, params=msg.params, confirmed=msg.confirmed).model_dump(mode='json')
         if self.blocked_agent_control(peer, body):
             raise LeaseError('ACTION_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
+        if peer.state.get('control') == 'LOWLEVEL' and msg.action not in get_args(C.LowlevelAction) + get_args(C.LowlevelQuery):
+            raise LeaseError('LOWLEVEL_UNSUPPORTED', '저수준 제어 중에는 이 동작을 쓸 수 없습니다.')
+        if peer.state.get('control') != 'LOWLEVEL' and msg.action in get_args(C.FactoryUnsupportedAction):
+            raise LeaseError('FACTORY_UNSUPPORTED', '이 동작은 START 저수준 제어 중에만 쓸 수 있습니다.')
         if (not 0 <= self.clock()-peer.state_received_at <= .5 or peer.state.get('applied') != [0, 0, 0]
                 or peer.server_drive_axes != (0, 0, 0)):
             raise LeaseError('ACTION_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
@@ -1660,6 +1665,8 @@ class Realtime:
             action=msg.action).model_dump(mode='json')
         if self.blocked_agent_control(peer, body):
             raise LeaseError('POSTURE_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
+        if peer.state.get('control') == 'LOWLEVEL' and msg.action != 'stand_down':
+            raise LeaseError('LOWLEVEL_UNSUPPORTED', '저수준 제어 중에는 엎드리기만 쓸 수 있습니다.')
         if (self.clock()-peer.state_received_at > .5 or peer.state.get('applied') != [0, 0, 0]
                 or peer.server_drive_axes != (0, 0, 0)):
             raise LeaseError('POSTURE_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
@@ -2250,6 +2257,7 @@ class Realtime:
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
         peer.state['action_result'] = data.get('action_result')
+        peer.state['control'] = data.get('control')
         peer.state['response_health'] = data.get('response_health')
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']

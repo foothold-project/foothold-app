@@ -44,7 +44,8 @@
         "AutoRecoveryGet",
         "SwitchAvoidMode",
         "CheckMode",
-        "SelectMode"
+        "SelectMode",
+        "Greet"
       ],
       "title": "Action",
       "type": "string"

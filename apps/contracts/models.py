@@ -243,7 +243,8 @@ class CurrentRun(Contract):
 class DeviceStatusCode(Contract):
     raw: int = Field(strict=True, ge=0, le=0xFFFFFFFF)
     level: Literal['OK', 'ACCEPTED', 'ERROR']
-    reason: Literal['EXPLICIT_SERVER_ALLOWLIST'] | None
+    # REMOTE_MOTION_STATE: 리모컨이 순정 모드(Classic 등)로 움직이는 중 (#511·#512 에이전트가 보냄)
+    reason: Literal['EXPLICIT_SERVER_ALLOWLIST', 'REMOTE_MOTION_STATE'] | None
 
 
 class UnlockAxis(Contract):
@@ -717,7 +718,18 @@ class ScreenPing(ScreenEnvelope):
 
 
 # Experimental Go2 high-level requests; SDK success is not physical completion.
-Go2ActionName = Literal['Damp', 'BalanceStand', 'StopMove', 'StandUp', 'StandDown', 'RecoveryStand', 'Euler', 'Sit', 'RiseSit', 'SpeedLevel', 'Hello', 'Stretch', 'Content', 'Dance1', 'Dance2', 'SwitchJoystick', 'Pose', 'Scrape', 'FrontFlip', 'FrontJump', 'FrontPounce', 'Heart', 'StaticWalk', 'TrotRun', 'EconomicGait', 'LeftFlip', 'BackFlip', 'HandStand', 'FreeWalk', 'FreeBound', 'FreeJump', 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet', 'AutoRecoveryGet', 'SwitchAvoidMode', 'CheckMode', 'SelectMode']
+Go2ActionName = Literal['Damp', 'BalanceStand', 'StopMove', 'StandUp', 'StandDown', 'RecoveryStand', 'Euler', 'Sit', 'RiseSit', 'SpeedLevel', 'Hello', 'Stretch', 'Content', 'Dance1', 'Dance2', 'SwitchJoystick', 'Pose', 'Scrape', 'FrontFlip', 'FrontJump', 'FrontPounce', 'Heart', 'StaticWalk', 'TrotRun', 'EconomicGait', 'LeftFlip', 'BackFlip', 'HandStand', 'FreeWalk', 'FreeBound', 'FreeJump', 'FreeAvoid', 'ClassicWalk', 'WalkUpright', 'CrossStep', 'AutoRecoverySet', 'AutoRecoveryGet', 'SwitchAvoidMode', 'CheckMode', 'SelectMode', 'Greet']
+
+# 저수준 (START · AME-2) 제어 중에도 누를 수 있는 동작 (팀장 11/26 08:01 · 동작표 action-table-1126 「저수준」 열 「켬」).
+# 화면 · 서버 · 에이전트 · 음성이 이 목록 하나를 본다. 순정 (FACTORY) 에서는 Go2ActionName 전부.
+# Greet (인사 · 리모컨 L1+A · 팀장 11/26 10:17) 는 순정 SDK 번호가 없어 START 실행기에서만 된다 (순정에서는 FACTORY_UNSUPPORTED).
+LowlevelAction = Literal['Sit', 'RiseSit', 'StandDown', 'Stretch', 'Hello', 'Heart', 'Damp', 'Greet']
+# 순정 (FACTORY) 에서 안 되는 동작: SDK 번호를 모름 → FACTORY_UNSUPPORTED (화면은 회색)
+FactoryUnsupportedAction = Literal['Greet']
+# 저수준 중에도 켜는 읽기 전용 순정 SDK 조회 (팀장 11/26 10:19 · #498 그대로). 실행기 키가 아니다
+LowlevelQuery = Literal['CheckMode', 'AutoRecoveryGet']
+# 누가 다리를 쥐고 있나: FACTORY 순정 sport 서비스 · LOWLEVEL START 실행기 (/tmp/foothold-start-active)
+ControlMode = Literal['FACTORY', 'LOWLEVEL']
 
 
 class Go2ActionParams(Contract):
@@ -904,6 +916,7 @@ class AgentState(AgentInput):
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
+    control: ControlMode | None = None
     controller: UUID | None = None
     controller_device: UUID | None = None
     controller_connected: bool = False
@@ -1454,10 +1467,11 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
+    control: ControlMode | None = None
     robot_info: Go2RobotInfo | None = None
     slam_pose: 'SlamPoseFrame | None' = Field(default=None, exclude_if=lambda v: v is None)
     phone_relay: PhoneRelayState | None = None
@@ -3397,6 +3411,7 @@ TOP.update(SlamMessage=SlamMessage, MediaMessage=MediaMessage, MediaChannel=Medi
 REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})
 
 TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
+TOP.update(LowlevelAction=LowlevelAction, ControlMode=ControlMode, FactoryUnsupportedAction=FactoryUnsupportedAction, LowlevelQuery=LowlevelQuery)
 
 REQUEST_MODELS.update({StopRequest, PhoneStop})
 

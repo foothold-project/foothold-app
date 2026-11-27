@@ -135,6 +135,9 @@ class DriveSession(Session):
             result['response_health'] = self.posture_sink.response_health()
         result['posture_result'] = None if self.posture_sink is None else self.posture_sink.posture_result
         result['action_result'] = None if self.posture_sink is None else self.posture_sink.actions.result
+        if self.posture_sink is not None:
+            from .sink import start_active
+            result['control'] = 'LOWLEVEL' if start_active() else 'FACTORY'
         # A zero request is not a measured stop. Arbiter grants wait for DDS.
         if not (self.core.st and self.core.st.get('stop_requested') is True
                 and self.feedback.sample() is not None):

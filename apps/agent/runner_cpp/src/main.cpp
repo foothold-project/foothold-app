@@ -1,3 +1,4 @@
+#include "foothold/app_socket.hpp"
 #include "foothold/depth_receiver.hpp"
 #include "foothold/depth_sampler.hpp"
 #include "foothold/ort_policy.hpp"
@@ -35,7 +36,7 @@ struct Config {
     std::string nic, factory_mode = "mcf";
     Options runner;
     bool benchmark = false, armed = false, lock_memory = false;
-    int priority = 0;
+    int priority = 0, app_port = 0;
     CpuRange cpus{4, 7};
     std::optional<CpuRange> control_cpus, sensing_cpus, io_cpus;
     std::optional<int> sensing_priority;
@@ -46,7 +47,7 @@ const char* usage = "foothold_start --folder BUNDLE [--nic NIC | --benchmark] "
     "[--mode off|reconstruction] [--debug-est DIR] [--depth-socket PATH] [--seconds N] [--status N] [--status-log FILE] [--trace-dir DIR] "
     "[--cpu-range FIRST-LAST | --control-cpus CPUSET --sensing-cpus CPUSET --io-cpus CPUSET] "
     "[--rt-priority N] [--sensing-rt-priority N] [--mlock] [--fwd-max N] "
-    "[--stand-only] [--stop-mode sit] [--live --armed-by-remote]";
+    "[--stand-only] [--stop-mode sit] [--app-port PORT] [--live --armed-by-remote]";
 
 double number(std::string_view value) {
     std::size_t end = 0;
@@ -104,6 +105,7 @@ Config parse(int argc, char** argv) {
         } else if (option == "--benchmark") config.benchmark = true;
         else if (option == "--armed-by-remote") config.armed = true;
         else if (option == "--stand-only") config.runner.stand_only = true;
+        else if (option == "--app-port") config.app_port = integer(value(), 65535);
         else if (option == "--mlock") config.lock_memory = true;
         else if (option == "--live") config.runner.live = true;
         else throw std::invalid_argument("unknown argument: " + std::string(option));
@@ -118,6 +120,8 @@ Config parse(int argc, char** argv) {
     if (config.sensing_priority && (!split || *config.sensing_priority >= config.priority ||
                                     (config.runner.live && *config.sensing_priority == 0)))
         throw std::invalid_argument("sensing priority requires CPU partitions and must be below control");
+    if (config.app_port != 0 && config.app_port < 1024)
+        throw std::invalid_argument("--app-port must be 0 (off) or 1024-65535");
     if (config.runner.map == MapMode::gt)
         throw std::invalid_argument("gt is vector-replay only");
     if (config.runner.map == MapMode::reconstruction && !config.benchmark && config.depth_socket.empty())
@@ -209,6 +213,14 @@ template<class DepthRead, class Read, class Writes>
 int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace,
         DepthRead read_depth, Read read, Writes writes, ModeExecutor* modes = nullptr) {
     Runner runner(robot, policy, trace, config.runner, modes);
+    // App input (APP-MOVES.md): off unless --app-port. Bound before the first tick so a bind
+    // failure stops the runner while it is still in factory mode.
+    std::optional<AppSocket> app;
+    AppInput app_input(trace, config.runner.fwd_max);
+    if (config.app_port) {
+        app.emplace(static_cast<std::uint16_t>(config.app_port));
+        std::cout << "{\"app_port\":" << app->port() << "}\n";
+    }
     PeriodStats policy_period, control_period;
     std::optional<Tick> previous_tick, previous_policy;
     std::uint64_t resyncs = 0;
@@ -245,9 +257,15 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
                 benchmark_armed = true;
             }
         }
+        if (app) {
+            app->poll(now, app_input);
+            app_input.apply(now, state);
+        }
         if (previous_tick) control_period.mark(now - *previous_tick);
         previous_tick = now;
         const auto steps = runner.policy_steps();
+        const auto phase_before = runner.phase();
+        const auto move_before = runner.move();
         try {
             runner.tick(now, state, depth, shutdown, next);
         } catch (...) {
@@ -256,6 +274,8 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
             // same opportunity to sit and restore factory mode as SIGTERM.
             control_failure = std::current_exception();
         }
+        if (app) app->reply(app_input.settle(now, phase_before, move_before, runner.phase(), runner.move(),
+                                                    runner.refusal()));
         if (runner.policy_steps() != steps) {
             if (previous_policy) policy_period.mark(now - *previous_policy);
             previous_policy = now;

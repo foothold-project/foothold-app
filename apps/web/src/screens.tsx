@@ -154,7 +154,7 @@ export const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', C
 const codeText = ({ status_code: c }: Device) => {
   if (c?.raw == null || c.level === 'OK') return null;
   const ok = c.level === 'ACCEPTED';
-  return <span className="lbl" data-status-code={ok ? 'ACCEPTED' : 'ERROR'}>{ok ? `허용된 상태 코드 ${c.raw}${c.reason === 'EXPLICIT_SERVER_ALLOWLIST' ? '(서버 명시 허용)' : ''}` : `상태 코드 ${c.raw}`}</span>;
+  return <span className="lbl" data-status-code={ok ? 'ACCEPTED' : 'ERROR'}>{ok ? `허용된 상태 코드 ${c.raw}${c.reason === 'EXPLICIT_SERVER_ALLOWLIST' ? '(서버 명시 허용)' : c.reason === 'REMOTE_MOTION_STATE' ? '(리모컨 순정 모드)' : ''}` : `상태 코드 ${c.raw}`}</span>;
 };
 const DEVICE: Record<Device['state'], { tone: Tone; text: string }> = { OK: { tone: 'ok', text: '정상' }, MISSING: { tone: 'warn', text: '연결 끊겨 확인 안 됨' }, ERROR: { tone: 'bad', text: '오류' } };
 const m = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} m`);
