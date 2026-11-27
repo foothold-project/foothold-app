@@ -362,8 +362,21 @@ def test_factory_catalogue_imports_all_floors_and_presets(seeded, tmp_path):
             assert len(changed) == len(prepared)
         with Session(engine) as db, db.begin():
             assert sync_worlds(db, seeded['org'], seeded['users']['admin'], SOURCE, tmp_path) == []
-            floors = list(db.scalars(select(Floor).where(Floor.sim_floor_id.in_(['f1', 'f2']))))
+            floors = list(db.scalars(select(Floor).where(Floor.sim_floor_id.in_(['f1', 'f2', 'l1', 'l2', 'l3']))))
             assert len(floors) == len(prepared)
             assert any(f.sim_floor_id == 'f2' and f.floor_z == 2 for f in floors)
     finally:
         engine.dispose()
+
+
+def test_plant_a_is_a_listed_world_but_floor_context_still_refuses_it():
+    # 검수 #528 P4: 목록에는 보이되, FloorContext 계약 (v5_building · warehouse) 을 넓히기 전에는 시작할 수 없다.
+    from pydantic import ValidationError
+    from apps.contracts import models as C
+    from apps.server.fh_server.sim_maps import supported_world_ids
+    assert 'plant_a' in supported_world_ids()
+    assert 'plant_a' not in C.FloorContext.model_fields['world_id'].annotation.__args__
+    with pytest.raises(ValidationError) as caught:
+        C.FloorContext.model_validate(dict(world_id='plant_a'))
+    # 필수 칸이 빠진 오류가 아니라 world_id 자체가 거절된 것인지 본다.
+    assert any(e['loc'] == ('world_id',) and e['type'] == 'literal_error' for e in caught.value.errors())

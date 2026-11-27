@@ -1,0 +1,14 @@
+{
+  "revision": "plant_a-rev3c · MCC-2 x 15~18.6 (전기실 문 앞 비움)",
+  "author": "app-design-lx 세션",
+  "draft": true,
+  "generated": true,
+  "imported": "2026-11-28",
+  "schema": "foothold_building/1",
+  "inputs": {
+    "plant_a.json": "41aafa109f415b1fa6bd903e4ff1e84be5c5fb751fc40b78d70e9df80a9b69aa"
+  },
+  "copy": "layout.json (입력 바이트 그대로)",
+  "generator": "apps/simmgr/tools/import_building.py",
+  "conversion": "모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, 덮개 판(covers), 계단 단마다 통짜 상자(구멍 위는 한 단 두께) + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음."
+}
