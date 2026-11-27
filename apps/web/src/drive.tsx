@@ -10,9 +10,9 @@ import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE } from './serverdrive';
+import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo } from './serverdrive';
 import { api } from './api';
-import { STALLED, SimLaunch } from './simdrive';
+import { STALLED, SimLaunch, field } from './simdrive';
 import './drive.css';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
@@ -147,6 +147,9 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 /** 물리 키(e.code) → 방향. 누른 키는 e.code 마다 누른 순간의 입력 세대로 적는다(rt inputGen) */
 const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r', KeyQ: 'sl', KeyE: 'sr' };
 const held = (keys: Map<string, number>, d: string) => [...keys.keys()].some((c) => KEY[c] === d);
+/** 누른 키(후진 제외, 따로 막음 안내) → 서버 명령표 낱말. 표에 없는 조합이면 0 + COMBO_BLOCK */
+const TOK = { f: 'up', l: 'rotl', r: 'rotr', sl: 'left', sr: 'right' } as const;
+const keyToks = (keys: Map<string, number>) => [...new Set([...keys.keys()].map((c) => TOK[KEY[c] as keyof typeof TOK]).filter(Boolean))];
 
 /** F-TO-02~05: 조종 화면 */
 function Screen(c: Ctx) {
@@ -156,7 +159,7 @@ function Screen(c: Ctx) {
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
-  const [back, setBack] = useState(false), [side, setSide] = useState(false);   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
+  const [back, setBack] = useState(false), [side, setSide] = useState(false), [combo, setCombo] = useState(false);   // combo = 표에 없는 키 조합을 누르는 중   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
   // 입력 세대(rt inputGen): 키(e.code)·스틱 손가락마다 누른 순간의 세대. 잠김·해제·조종권·시트/⋯·blur/숨김·STOP·설정·ready 가 바뀌면 +1.
   // 앞 세대에 누른 키·손가락이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 아직 닿은 손가락 중 가장 앞 세대(없으면 null)
@@ -195,18 +198,20 @@ function Screen(c: Ctx) {
     const down = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
       const k = KEY[e.code]; if (!k) return;
+      if (field(e.target)) { if (!keys.has(e.code)) { keys.set(e.code, -1); sendRef.current(); } return; }   // 글 입력칸: 글자는 그대로, 조종은 아님. 뗄 때까지 앞 세대(0)
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       if (!e.repeat) keys.set(e.code, nowRef.current());
       else if (!keys.has(e.code)) keys.set(e.code, -1);   // 반복은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (k === 'b') setBack(true);
       if (k === 'sl' || k === 'sr') setSide(true);
+      setCombo(unknownCombo(keyToks(keys)));
     };
     const up = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }
-      const k = KEY[e.code]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
+      const k = KEY[e.code]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); setCombo(unknownCombo(keyToks(keys))); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
     };
     // 창 밖에서 뗀 키는 keyup 이 안 온다 — 적은 키를 모두 지우고 세대 +1, 바로 0(앞 세대는 이미 무시되므로 지워도 안전, RV-426 ⑦⑨)
-    const blur = () => { keys.clear(); setBack(false); setSide(false); gen.bump(); sendRef.current(); };
+    const blur = () => { keys.clear(); setBack(false); setSide(false); setCombo(false); gen.bump(); sendRef.current(); };
     const hide = () => { if (document.visibilityState === 'hidden') blur(); };
     addEventListener('keydown', down, true); addEventListener('keyup', up, true); addEventListener('blur', blur); document.addEventListener('visibilitychange', hide);
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); removeEventListener('blur', blur); document.removeEventListener('visibilitychange', hide); };
@@ -299,7 +304,8 @@ function Screen(c: Ctx) {
         {mine && <><Stick label="전후" vertical on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
           <Stick label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[1] = v; }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
         {back && mine && <span className="dv-back" role="status">후진은 아직 지원하지 않습니다</span>}
-        {side && mine && real && ok && !permitted(TABLE.left, settings) && <span className="dv-back" role="status" data-side-block>{SIDE_BLOCK}</span>}
+        {side && mine && real && ok && !combo && !permitted(TABLE.left, settings) && <span className="dv-back" role="status" data-side-block>{SIDE_BLOCK}</span>}
+        {combo && mine && <span className="dv-back" role="status" data-combo-block>{COMBO_BLOCK}</span>}
         <div className="dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
           <button key={x.id} type="button" className="btn" aria-expanded={sheet === x.id} onClick={() => pick(sheet === x.id ? null : x.id)}>{x.label}</button>)}</div>
         {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => pick(null)}>{SHEET[sheet](c)}</Sheet>}

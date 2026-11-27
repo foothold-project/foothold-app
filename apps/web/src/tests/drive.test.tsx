@@ -13,7 +13,7 @@ import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, 
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
 import { ADMIN_REAL, driveBlock } from '../fake';
-import { MAX_TURN_RATE, SIDE_BLOCK } from '../serverdrive';
+import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK } from '../serverdrive';
 import { simTune } from '../phone';
 import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
@@ -2160,6 +2160,33 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain(SIDE_BLOCK);
     key('keyup', 'KeyQ'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
+  });
+
+  it('글 입력칸에 초점이면 조종 키(Q·W)는 명령 0 · 글자는 막지 않음, 입력칸에서 누른 키는 뗄 때까지 0', () => {
+    open();
+    const input = document.createElement('input'); input.setAttribute('data-go2-ip', ''); document.body.append(input); input.focus();
+    for (const c of ['KeyQ', 'KeyW']) {
+      const e = new KeyboardEvent('keydown', { code: c, bubbles: true, cancelable: true });
+      act(() => { input.dispatchEvent(e); }); tick(100);
+      expect(e.defaultPrevented).toBe(false);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+    }
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 입력칸에서 누른 Q·W 가 남아 있는 동안 0
+    key('keyup', 'KeyQ', input); key('keyup', 'KeyW', input); key('keyup', 'KeyD'); input.remove();
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'KeyD');
+  });
+  it('표에 없는 키 조합(W+Q · A+Q · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
+    open();
+    for (const [a, b] of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyA', 'KeyD']]) {
+      key('keydown', a); key('keydown', b); tick(100);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      expect(text()).toContain(COMBO_BLOCK);
+      key('keyup', b); key('keyup', a); tick(100);
+      expect(text()).not.toContain(COMBO_BLOCK);
+    }
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]); expect(text()).not.toContain(COMBO_BLOCK);
+    key('keyup', 'KeyW');
   });
 
   it('조직 상한·빠른 조종 끔이면 0, 표 값 밖 비례 값은 보내지 않음', () => {

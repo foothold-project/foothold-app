@@ -40,6 +40,8 @@ export const isSettings = (o: unknown): o is OrgSettings => fits(orgSettingsSche
 const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'rotl', ArrowLeft: 'rotl', KeyD: 'rotr', ArrowRight: 'rotr', KeyQ: 'left', KeyE: 'right' };
 /** 옆걸음(Q/E)이 조직 속도 설정(옆 상한·빠른 조종 끔)에 막혀 0 을 보낼 때 까닭 한 줄. 폰(drive.tsx)·PC 같은 문구 */
 export const SIDE_BLOCK = '옆걸음은 조직 속도 설정(옆 상한)이 허락하지 않아 입력을 0으로 보냅니다.';
+/** 표에 없는 키 조합(W+Q·A+Q·W+S·Q+E 등)은 0. 말없이 멈추지 않게 까닭 한 줄(폰·PC 같은 문구) */
+export const COMBO_BLOCK = '이 키 조합은 함께 보낼 수 없어 멈춤';
 export const MAX_TURN_RATE = orgSettingsSchema.properties.real_max_wz.maximum;
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
 export const TABLE: Record<string, [number, number, number]> = {
@@ -55,6 +57,8 @@ export function permitted(axes: [number, number, number], o: Partial<OrgSettings
 export const REAL_WAIT = '서버 경유 조종 허용·조직 속도 설정을 확인하는 중이라 입력을 0으로 보냅니다.';
 const id = (held: Iterable<Tok>) => [...held].sort().join('+');
 export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
+/** 누른 것이 있는데 표에 없는 조합인가 */
+export const unknownCombo = (held: Iterable<Tok>) => { const k = id(held); return k !== '' && !(k in TABLE); };
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
 const PAD: [Tok[], string, string][] = [
   [['rotl', 'up'], '↑+A', `앞+왼쪽 회전 최대 ${MAX_TURN_RATE} rad/s`], [['up'], 'W·↑', '앞 1.5'], [['rotr', 'up'], '↑+D', `앞+오른쪽 회전 최대 ${MAX_TURN_RATE} rad/s`],
@@ -263,6 +267,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       k.set(e.code, now());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
       const p = pressed();
+      if (readyRef.current && p && unknownCombo(p)) { changed(); setWhy(COMBO_BLOCK); return; }
       if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy(command(p)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.'); return; }
       if (readyRef.current) setWhy(''); changed();
     };

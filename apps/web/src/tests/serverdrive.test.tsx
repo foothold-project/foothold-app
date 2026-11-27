@@ -11,7 +11,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, SIDE_BLOCK, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, SIDE_BLOCK, COMBO_BLOCK, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
 import { BODY_CHECK, BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
 import { DriveView } from '../serverdrive';
@@ -120,6 +120,18 @@ describe('서버 경유 시험 조종 패널', () => {
     for (const k of [['ArrowDown', 'KeyA'], ['KeyQ', 'ArrowUp'], ['KeyA', 'KeyD'], ['ArrowLeft', 'ArrowRight'], ['KeyQ', 'KeyE'], ['KeyZ']]) expect(hold(k)).toBe('0,0,0');
     expect(lastAxes()).toBe('0,0,0');
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
+  });
+  it('표에 없는 키 조합(W+Q · A+Q · W+S · Q+E)은 0 + 까닭 한 줄, 표에 있는 키를 새로 누르면 사라짐', () => {
+    ready();
+    for (const ks of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyW', 'KeyS'], ['KeyQ', 'KeyE']]) {
+      ks.forEach((k) => key('keydown', k)); tick(60);
+      expect(lastAxes()).toBe('0,0,0');
+      expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);
+      [...ks].reverse().forEach((k) => key('keyup', k));
+    }
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    expect($('[data-sd-why]')).toBeNull();
+    key('keyup', 'KeyW');
   });
   it('d5 옆걸음: 조직 옆 상한(real_max_vy)이 표 값 1 을 허락하지 않으면 Q/E = 0 + 까닭 한 줄, 단추는 흐림 · 글 입력칸·창 밖이면 0', () => {
     ready(); view();
