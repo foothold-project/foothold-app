@@ -129,3 +129,28 @@ def test_simulation_session_rejects_honestly():
                                         code='GAIT_UNSUPPORTED', sdk_code=None)
     session.receive({'t': 'gait', 'request_id': 'h', 'lease_id': 'other', 'gait': 'sport'})
     assert session._state()['gait_result']['code'] == 'GAIT_LEASE_LOST'
+
+
+@pytest.mark.parametrize('route', ['factory', 'start', 'sim'])
+def test_gait_result_request_id_is_the_screen_message_id(tmp_path, monkeypatch, runner, route):
+    # 웹은 gait_result 를 자기가 보낸 ScreenGait.id 로 짝짓는다 (#545 검수 G3). 서버가 AgentGait.request_id = msg.id
+    # 로 넘기고 (서버 시험 test_owner_gait_relays...), 에이전트는 그 값을 그대로 결과에 쓴다.
+    screen_id = 'c0ffee00-0000-4000-8000-00000000abcd'
+    body = {'t': 'gait', 'request_id': screen_id, 'lease_id': 'fake-lease', 'gait': 'classic'}
+    if route == 'sim':
+        session = Session()
+        session.connect()
+        session.receive({'t': 'lease', 'lease_id': 'fake-lease', 'holder_type': 'USER'})
+        session.receive(body)
+        assert session._state()['gait_result']['request_id'] == screen_id
+        return
+    if route == 'factory':
+        _, sink, normal, _, session, _, _, frame = rig(0)
+        normal.ClassicWalk = lambda value: 0
+    else:
+        _, (_, sink, _, _, session, _, _, frame) = start_rig(tmp_path, monkeypatch, runner.port)
+    frame(**body)
+    sink.drain(); sink.drain()
+    assert session._state()['gait_result']['request_id'] == screen_id
+    if route == 'start':
+        assert runner.serve() and runner.keys[-1]['request_id'] == screen_id
