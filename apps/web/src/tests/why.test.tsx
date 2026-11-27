@@ -143,6 +143,8 @@ describe('why3 (#560 · #562 검수 후속)', () => {
     await render(<SlamSavedView robot="r-a" session="s1" />); await flush();
     expect(box.querySelector('[data-slam-3d-why]')?.textContent).toBe('이 지도에는 3D 칸이 없습니다');
     expect(box.querySelector<HTMLButtonElement>('[data-slam-pick="3d"]')!.disabled).toBe(true);
+    // L1: 단추 묶음도 오른쪽 끝 정렬 = 오른쪽 끝에 붙는 까닭 글이 «3D 상자» 바로 아래(폰 412 사진에서 단추는 왼쪽 · 글은 오른쪽으로 벌어졌음)
+    expect(box.querySelector<HTMLElement>('[aria-label="지도 보기 고르기"]')!.style.justifyContent).toBe('flex-end');
   });
   it('휴지통 줄의 «지운 사람 · 시각» 은 좁은 폰에서 세로로 꺾이지 않게 최소 너비', async () => {
     vi.spyOn(api, 'trash').mockResolvedValue({ items: [{ kind: 'scenario', id: 't2', name: '야간 순찰', archived_at: '2026-11-26T09:00:00Z', deleted_by: { id: 'u', display_name: '김총괄' }, parent_name: '2층' }] } as never);

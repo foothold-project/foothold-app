@@ -63,7 +63,7 @@ export function Trash(c: Pick<Ctx, 'cancel'>) {
       <span className="lbl">{KIND[x.kind]}</span>
       <b style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{x.name}</b>
       {x.parent_name && <span className="lbl">{x.parent_name} 안</span>}
-      <span className="lbl fh-grow" style={{ minWidth: 'min(100%, 12em)' }} data-trash-who>{x.deleted_by?.display_name ?? '지운 사람 모름'} · {when(x.archived_at)}</span>
+      <span className="lbl fh-grow" style={{ minWidth: 'min(100%, 24em)' }} data-trash-who>{x.deleted_by?.display_name ?? '지운 사람 모름'} · {when(x.archived_at)}</span>
       <button type="button" className="btn" disabled={busy} onClick={() => run(x, false)}>복원</button>
       <button type="button" className="btn" disabled={busy} onClick={() => { setAsk(x); setMsg(null); }}>완전 삭제</button>
     </li>)}</ul>

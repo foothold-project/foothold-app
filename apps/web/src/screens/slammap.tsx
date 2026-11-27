@@ -274,7 +274,7 @@ export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = fa
   const any = (!hideBase && (pic.n > 0 || pic.patches.length > 0)) || !!over?.cells.length;
   return <div style={{ position: 'absolute', inset: 0, background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
     {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
-    {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
+    {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1, justifyContent: 'flex-end' }}>
       <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
       <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={!!why3d} aria-describedby={why3d ? whyId : undefined} onClick={() => setD3(true)}>3D 상자</button>
       {why3d && <span style={{ flexBasis: '100%', display: 'flex', justifyContent: 'flex-end' }}><span className="lbl" id={whyId} data-slam-3d-why style={{ background: 'var(--panel)', padding: '2px 6px', borderRadius: 6 }}>{why3d}</span></span>}
