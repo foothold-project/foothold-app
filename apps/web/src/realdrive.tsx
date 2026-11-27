@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { RESULT, UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
 import { Stick } from './drive';
 import { inputGen } from './rt';
-import { More, Video, stopText, useSlot, useTick, why } from './simdrive';
+import { Notes, Video, stopText, useSlot, useTick, why } from './simdrive';
 import { feedText, media, useFeed, type Feed } from './media';
 import { Lidar3D, type Look } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
@@ -121,7 +121,7 @@ export function RealDrive() {
         <div className="dv-top" aria-label="상태" data-tone={lock.tone} data-real-pill>실기 · 미검증 · {lock.text} · {real.name}{typeof soc === 'number' && ` · 배터리 ${Math.round(soc)}%`}</div>
         {/* 안전 글(반납 실패·출입증·끊김 이유·미검증·현장 비상 정지 수단)은 접어도 늘 위에 — 넘치면 카드 안 스크롤(접히는 실효 상한이 맨 아래) */}
         <div className="rd-card" data-real-card>
-          {slot.show.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}<More n={slot.more} open={slot.open} toggle={slot.toggle} />
+          <Notes slot={slot} />
           <p className="dv-note" role="note" data-real-unverified>{UNVERIFIED}</p>
           {range && <>
             <button type="button" className="rd-card-h" aria-expanded={info} data-real-info onClick={() => setInfo(!info)}>

@@ -72,7 +72,11 @@ export const say = (t: string) => {
 export const why = (f: Feed, ch: MediaChannel, at?: number) => { const t = feedText(f, ch, at); return f.state === 'none' ? say(t) : plain(t); };
 /** 알림 칸 «+N»(접힌 등급 3~5 수) · 펼친 뒤 «접기» */
 export const More = ({ n, open, toggle }: { n: number; open: boolean; toggle: () => void }) => n > 0
-  ? <button type="button" className="dv-more" aria-expanded={open} aria-label={open ? '알림 접기' : `알림 ${n}개 더 보기`} data-notes-more onClick={toggle}>{open ? '접기' : `+${n}`}</button> : null;
+  ? <button type="button" className="dv-more" aria-expanded={open} aria-label={open ? '알림 접기' : `알림 ${n}개 더 보기`} data-notes-more onClick={toggle}>{open ? '접기' : `+${n} 더 보기`}</button> : null;
+/** 알림 칸 줄들: 마지막 줄 오른쪽 끝에 «+N 더 보기»(같은 줄 · 카드가 한 줄 짧아짐) */
+export const Notes = ({ slot }: { slot: ReturnType<typeof useSlot> }) => <>{slot.show.map((t, i) => i === slot.show.length - 1 && slot.more > 0
+  ? <div key={t} className="dv-note-row" data-notes-row><p className="dv-note" role="status">{t}</p><More n={slot.more} open={slot.open} toggle={slot.toggle} /></div>
+  : <p key={t} className="dv-note" role="status">{t}</p>)}</>;
 export function useTick(on: boolean) {
   const [, t] = useState(0);
   useEffect(() => { if (!on) return; const i = setInterval(() => t((n) => n + 1), 1000); return () => clearInterval(i); }, [on]);
@@ -439,7 +443,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {run.dev}
       </Sheet>}
       {(notes.length > 0 && !said || !!acts && acts.length > 0) && <div className="dv-act" data-sim-card data-bare={said || notes.length === 0 || undefined}>
-        {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t">{slot.show.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}<More n={slot.more} open={slot.open} toggle={slot.toggle} /></div>
+        {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t"><Notes slot={slot} /></div>
           <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes)}>{ICON.close}</button></div>}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
       </div>}

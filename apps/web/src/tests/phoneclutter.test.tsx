@@ -176,7 +176,11 @@ describe('시뮬 조종 화면 · 한 사실은 한 곳 · 힌트', () => {
     act(() => a.recv({ t: 'run.update', run_id: 'r-1', status: 'FAILED', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: 'LOCALIZATION_LOST' })); await flush();
     expect(slot('[data-sim-card]')).toEqual(['시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.']);
     const more = $('[data-notes-more]')!;
-    expect(more.textContent).toBe('+1');
+    expect(more.textContent).toBe('+1 더 보기');
+    // 안내 줄과 같은 줄 오른쪽 끝(한 줄 = data-notes-row 안에 안내 다음)
+    const row = more.closest('[data-notes-row]')!;
+    expect(row.firstElementChild!.textContent).toBe('시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.');
+    expect(row.lastElementChild).toBe(more);
     await click(more);
     expect(slot('[data-sim-card]')).toHaveLength(2);
     await click($('[data-notes-more]'));
@@ -193,7 +197,7 @@ describe('시뮬 조종 화면 · 한 사실은 한 곳 · 힌트', () => {
     expect(shown).toHaveLength(2);
     expect(shown[0]).toMatch(/^■ /);
     expect(shown[1]).toBe('시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.');
-    expect($('[data-notes-more]')!.textContent).toBe('+1');
+    expect($('[data-notes-more]')!.textContent).toBe('+1 더 보기');
   });
 
   it('영상 자리 글에 내부 규약 이름(media/1)이 보이지 않는다(실기와 같은 거르기)', async () => {
