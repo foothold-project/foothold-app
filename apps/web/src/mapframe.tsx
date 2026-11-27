@@ -44,6 +44,9 @@ export const SIM_TOP = new Map([
   ['d3daa2c7c767ce7d7d58b31c44c703b2d1b9f79b2179b9f908d96ba315641a2d', 'factory-zone'],   // factory_zone/f1
   ['a28e13e398c5984c5a315c12182593e4552324adb7bfec0fcef5438a73b2425d', 'factory-zone'],   // factory_zone/f2
   ['e36a96d7619a8a721e0a922f6a57491cf9d99c31f47de5995ff413ba25302955', 'element-course'],   // element_course/f1
+  ['e743f75a0c7f58e5d3417a2bf687884c068f396f87b6331547f9f307af0d7b9a', 'plant-a'],   // plant_a/l1
+  ['7f13f624d68b79f07491ce6f6552589a5344251cdd1179ccd912b1679edf79d5', 'plant-a'],   // plant_a/l2
+  ['88416e9c507d85cedfc268c9768e52fba8db27f9fa7dab269cdb2a0faa1f2f42', 'plant-a'],   // plant_a/l3
 ]);
 type TopGrid = { origin: number[]; res: number; w: number; h: number };
 type TopMeta = { bounds: [number, number, number, number]; map: TopGrid; floors?: { image_sha256: string; top: string; map: TopGrid }[] };

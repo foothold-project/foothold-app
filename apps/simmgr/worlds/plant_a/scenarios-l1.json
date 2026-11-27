@@ -1,0 +1,45 @@
+[
+  {
+    "id": "l1-inspection",
+    "name": "공정동 A 1층 점검 순회 · 초안",
+    "finish": "RETURN_TO_START",
+    "waypoints": [
+      {
+        "x": 4.0,
+        "y": 1.5,
+        "yaw": 1.5708,
+        "mission_name": "plant_a-l1-p0 · 정문 · 출발"
+      },
+      {
+        "x": 12.0,
+        "y": 4.2,
+        "yaw": -1.5708,
+        "mission_name": "plant_a-l1-p1 · P-101 펌프 온도"
+      },
+      {
+        "x": 17.0,
+        "y": 4.2,
+        "yaw": -1.5708,
+        "mission_name": "plant_a-l1-p2 · P-102 펌프 소리"
+      },
+      {
+        "x": 28.0,
+        "y": 5.0,
+        "yaw": -1.5708,
+        "mission_name": "plant_a-l1-p3 · C-1 압축기 압력계"
+      },
+      {
+        "x": 11.0,
+        "y": 13.4,
+        "yaw": 1.5708,
+        "mission_name": "plant_a-l1-p4 · T-1 탱크 주변 가스"
+      },
+      {
+        "x": 29.0,
+        "y": 14.0,
+        "yaw": 0.0,
+        "mission_name": "plant_a-l1-p5 · 작업장 정리 사진"
+      }
+    ]
+  }
+]

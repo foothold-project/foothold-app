@@ -1,6 +1,7 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent } from 'react';
-import type { PhoneWelcome, SimRobot } from '../../contracts/ts';
+import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
+type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, useFeed } from './media';
 import { useOrbit, viewBlock } from './extview';
 import { DEAD, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
@@ -113,7 +114,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
   const only = !view || inApp(), title = !only ? '시뮬 로봇 띄우기' : inApp() ? '시뮬(앱 안)' : '시뮬';
   const [engine, setEngine] = useState(savedEngine);
   const pickEngine = (e: Engine) => { try { localStorage.setItem(ENGINE_KEY, e); setEngine(e); } catch { setEngine('mujoco'); } };   // 저장 실패 = MuJoCo
-  const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
+  const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<SpawnFloor>('l1');
   useDeadline(!!s.robot?.expires_at);
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
@@ -122,7 +123,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
   const gz = worlds.length > 0 && s.worldsOk && !s.managerError, app = only || engine === 'mujoco' || !gz;
   // 시작 층: 고른 월드가 두 층 이상에서 띄울 수 있을 때만(하나뿐이면 표시·전송 0)
   const w0 = worlds.find((w) => w.id === world), spawns = w0?.spawn_floor_ids ?? [], from = spawns.length > 1 ? spawns.includes(spawn) ? spawn : spawns[0] : undefined;
-  const floorName = (f: 'l1' | 'l2') => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : '2층');
+  const floorName = (f: SpawnFloor) => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : f === 'l2' ? '2층' : '3층');
   const l = s.link, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
   useTick(!!wait);
   const msg = s.err && <p className="fh-why" role="status" data-sim-msg>{s.err}</p>;
