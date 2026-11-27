@@ -25,6 +25,7 @@ class Services:
         self.pointlio_active=False
         self.pointlio_was_down=False
         self.pointlio_restarted=False
+        self.pointlio_identity=None
         self.owned=set()
         self.status='IDLE'
         self.pending=False
@@ -40,6 +41,13 @@ class Services:
 
     @staticmethod
     def systemctl(action,name):
+        if action=='show':
+            result=subprocess.run(['systemctl','--user','show','-p','InvocationID','-p','NRestarts','-p','MainPID',name],
+                stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
+                timeout=5,check=False,text=True)
+            if result.returncode!=0:
+                raise OSError(f'mapping service identity query failed: {result.returncode}')
+            return result.stdout
         result=subprocess.run(['systemctl','--user',action,'--quiet',name],stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5,check=False)
         return result.returncode
@@ -48,7 +56,24 @@ class Services:
         return self.env.get('FH_MAPPING_SERVICE_CONTROL_ENABLED','').lower()=='true'
 
     def pointlio_ready(self):
-        return self.pointlio_active and self.fresh()
+        return self.pointlio_active and not self.pointlio_restarted and self.fresh()
+
+    def pointlio_run_identity(self):
+        try:
+            output=self.run('show',self.pointlio)
+            properties=dict(line.split('=',1) for line in output.splitlines() if '=' in line)
+            invocation=properties.get('InvocationID','')
+            if invocation:
+                if not re.fullmatch(r'[0-9a-fA-F]{32}',invocation) or int(invocation,16)==0:
+                    raise ValueError('invalid InvocationID')
+                return ('InvocationID',invocation.lower())
+            restarts,pid=properties.get('NRestarts',''),properties.get('MainPID','')
+            if not restarts.isdecimal() or not pid.isdecimal() or int(pid)<=0:
+                raise ValueError('missing Point-LIO run identity')
+            return ('NRestarts+MainPID',int(restarts),int(pid))
+        except Exception:
+            self.start_error='위치 계산의 실행 기준을 확인하지 못했습니다. 받은 자료를 저장하거나 새로 시작해 주세요.'
+            raise
 
     def receiving_ready(self):
         return self.status=='STARTED' and self.glim in self.owned and self.pointlio_ready()
@@ -67,6 +92,11 @@ class Services:
         if not self.fresh():
             self.start_error='실시간 위치와 점 자료가 끊겼습니다. 센서 상태를 확인해 주세요.'
             raise OSError('Point-LIO data unavailable')
+        identity=self.pointlio_run_identity()
+        if self.pointlio_identity is not None and identity!=self.pointlio_identity:
+            self.pointlio_restarted=True
+            raise OSError('Point-LIO restarted during mapping start')
+        self.pointlio_identity=identity
 
     def monitor(self):
         """Blocking queries belong exclusively to the service worker."""
@@ -76,13 +106,14 @@ class Services:
             # Fresh data is mandatory at start, but a running session may wait
             # for it without invalidating ownership of its GLIM process.
             active=self.run('is-active',self.pointlio)==0
+            identity=self.pointlio_run_identity() if active else None
             with self.lock:
                 if self.version!=job or self.status!='STARTED':
                     return
                 self.pointlio_active=active
                 if not active:
                     self.pointlio_was_down=True
-                elif self.pointlio_was_down:
+                elif self.pointlio_was_down or identity!=self.pointlio_identity:
                     self.pointlio_restarted=True
             if self.run('is-active',self.glim)!=0:
                 self.start_error='지도 기록이 꺼졌습니다. 받은 자료를 저장하거나 새로 시작해 주세요.'
@@ -106,6 +137,7 @@ class Services:
                 return False
             self.version+=1
             self.pointlio_was_down=self.pointlio_restarted=False
+            self.pointlio_identity=None
             self.pending=True
             self.ready_at=None
             self.stop_requested=False

@@ -89,6 +89,7 @@ class OnboardRuntime(MappingRuntime):
         self.bundle_cancelled=threading.Event()
         self.save_failed=False
         self.confirmed_report=None
+        self.remote_terminal=False
         self.was_enabled=False
         self.disconnected_since=None
         self.services_disconnected=False
@@ -206,6 +207,8 @@ class OnboardRuntime(MappingRuntime):
             return
         if op!='start' and (sid!=self.core.session_id or frame['floor_id']!=self.core.floor_id):
             return
+        if op!='start' and self.remote_terminal:
+            return
         self.seen.add(frame['command_id'])
         LOG.warning('SLAM command_received op=%s monotonic=%.6f utc=%s',op,frame['_received_monotonic'],frame['_received_utc'])
         if op=='start':
@@ -231,6 +234,7 @@ class OnboardRuntime(MappingRuntime):
             self.bundle_cancelled=threading.Event()
             self.save_failed=False
             self.confirmed_report=None
+            self.remote_terminal=False
             self.dump=None
             self.dump_eligible=self.dump_failed=False
             self.services_requested=False
@@ -435,9 +439,9 @@ class OnboardRuntime(MappingRuntime):
     def session_receiving_ready(self):
         # Historical readiness authorizes saving retained data, not new input
         # after owned services stop or disconnect cleanup invalidates the run.
-        return (not self.services.control_enabled() or self.session_services_ready()
+        return (not self.remote_terminal and (not self.services.control_enabled() or self.session_services_ready()
             and not self.services_disconnected and not self.services_fault
-            and self.services.receiving_ready())
+            and self.services.receiving_ready()))
 
     def check_services_health(self):
         if (self.services.control_enabled() and self.session_services_ready()
@@ -557,12 +561,32 @@ class OnboardRuntime(MappingRuntime):
                 self.raw.stop('session_ended')
                 self.services.stop()
 
+    def finish_remote_report(self,response,session):
+        if (session!=self.core.session_id or self.remote_terminal or not isinstance(response,dict)
+                or response.get('status') not in ('CANCELLED','SAVED','RECEIVED_ONLY','FAILED')):
+            return
+        self.remote_terminal=True
+        self.raw.stop('cancelled' if response['status']=='CANCELLED' else 'session_ended')
+        self.services.stop()
+        self.bundle_cancelled.set()
+        self.remove_bundle(session)
+        self.core.status='SAVED' if response['status']=='RECEIVED_ONLY' else response['status']
+        self.phase='FAILED' if self.core.status=='FAILED' else 'UNKNOWN'
+        self.save_requested=self.frozen=self.rebuild=None
+        self.save_failed=True
+        self.confirmed_report=None
+
     def step(self):
         if self.stopping.is_set() or not self.local_enabled():
             return
         with self.lock:
             commands, self.commands = self.commands, deque(maxlen=8)
             samples, self.pending_samples = self.pending_samples, {}
+        if self.report_future is not None and self.report_future.done():
+            try:
+                self.finish_remote_report(self.report_future.result(),self.report_changes[3])
+            except Exception:
+                pass  # A failed request leaves the report pending for retry.
         if self.services.control_enabled():
             self.check_services_health()
             self.pointlio.update(samples)
@@ -601,13 +625,13 @@ class OnboardRuntime(MappingRuntime):
             future, self.save_future = self.save_future, None
             try:
                 future.result()
-                if self.core.session_id == self.save_session and self.core.status != 'CANCELLED':
+                if self.core.session_id == self.save_session and self.core.status != 'CANCELLED' and not self.remote_terminal:
                     self.core.status = 'SAVED'
                     self.services.stop()
                     self.times['saved_at'] = utc()
                     LOG.warning('SLAM saved monotonic=%.6f utc=%s', self.now(), self.times['saved_at'])
             except Exception as error:
-                if self.core.session_id == self.save_session and self.core.status != 'CANCELLED':
+                if self.core.session_id == self.save_session and self.core.status != 'CANCELLED' and not self.remote_terminal:
                     self.save_failed = True
                     self.core.fail(error.code,error.reason) if isinstance(error,TransferError) else self.core.fail(
                         'MAPPING_SAVE_FAILED','지도 묶음을 저장하지 못했습니다. 같은 자료로 다시 저장해 주세요.')
@@ -640,9 +664,11 @@ class OnboardRuntime(MappingRuntime):
         if self.report_future is not None and self.report_future.done():
             future, self.report_future = self.report_future, None
             try:
-                future.result()
+                response=future.result()
                 added, removed, revision, session, tiles, changes, command_id = self.report_changes
-                if revision == self.revision and session == self.core.session_id and command_id == self.command_id:
+                self.finish_remote_report(response,session)
+                if (not self.remote_terminal and revision == self.revision
+                        and session == self.core.session_id and command_id == self.command_id):
                     self.confirmed_report = session,revision,command_id
                     self.sent_cells.update(added)
                     self.sent_cells.difference_update(removed)
@@ -654,6 +680,7 @@ class OnboardRuntime(MappingRuntime):
             except Exception:
                 pass  # regenerate from last acknowledged set
         if (self.online and self.core.session_id and self.core.status not in ('SAVED','CANCELLED')
+                and not self.remote_terminal
                 and self.now()>=self.next_report and self.report_future is None):
             body, added, removed = self.report_body()
             data = encode(body)
