@@ -284,3 +284,15 @@ export const api = {
 };
 /** 서버 외부 카메라 시점 중계가 있나 — 없으면 화면은 시점 끌기를 막고 이유를 보인다 */
 export const EXT_VIEW_RELAY = true;
+
+// 기록 · 클립 · 관절 재현(05 §8.1, 계약 RecordMark · EventClip · JointLogReplay). 보기 권한(ROBOT_READ), 못 보는 로봇은 404.
+// 영상 만들기 · 관절 기록 재생은 서버에 아직 없어 501(CLIP_PIPELINE_NOT_BUILT · JOINT_LOG_NOT_BUILT): 부른 쪽은 그 문장을 보이고 받은 척하지 않는다
+import type { EventClip, EventClipList, JointLogReplay, RecordMarkRequest, RecordMarkResult } from '../../contracts/ts';   // 이 덩어리만 쓰는 형(위 import 줄과 따로 둠)
+const robotPath = (robot: string) => `/robots/${encodeURIComponent(robot)}/records`;
+export const records = {
+  /** 201 = 사건 한 줄(RUN · RECORD_MARKED) + 클립(INFO · clip:false 면 null). clip 은 WARN 만 고를 수 있다(위험 · 정보는 빼고 보냄, 어긋나면 400) */
+  markNow: (robot: string, b: RecordMarkRequest, cancel?: AbortSignal) => call<RecordMarkResult>('POST', `${robotPath(robot)}/mark-now`, b, { cancel }),
+  clips: (robot: string, cancel?: AbortSignal) => call<EventClipList>('GET', `${robotPath(robot)}/clips`, undefined, { cancel }),
+  clip: (robot: string, id: string, cancel?: AbortSignal) => call<EventClip>('GET', `${robotPath(robot)}/clips/${encodeURIComponent(id)}`, undefined, { cancel }),
+  jointLog: (robot: string, event: string, cancel?: AbortSignal) => call<JointLogReplay>('GET', `${robotPath(robot)}/events/${encodeURIComponent(event)}/joint-log`, undefined, { cancel }),
+};
