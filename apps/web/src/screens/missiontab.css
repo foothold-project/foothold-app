@@ -1,0 +1,78 @@
+/* 임무 탭(screens/missiontab.tsx · 시연 판 u6_1) · 기존 색 토큰만(--panel·--panel2·--line·--line2·--accent·--acc-bg·--bad·--muted …, 값 수정 없음). 두 테마 모두 토큰이 바꿔 준다 */
+.fh-main>.mt{flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:16px}
+.fh-main>.mt-edit{flex:1 1 100%;min-width:0;height:calc(100vh - 170px);min-height:520px}
+.mt-i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.mt-card{min-width:0;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
+.mt-top{display:grid;gap:16px;grid-template-columns:minmax(260px,330px) minmax(0,1fr) minmax(300px,360px);align-items:stretch}
+@media (max-width:1280px){.mt-top{grid-template-columns:minmax(240px,300px) minmax(0,1fr)}.mt-side{grid-column:1/-1}}
+.mt-head{display:flex;align-items:center;gap:10px;min-width:0}
+.mt-head h2{margin:0;font-size:20px}
+.mt-new{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+
+/* 왼쪽 목록 */
+.mt-list{display:flex;flex-direction:column;gap:12px;padding:18px 16px;max-height:620px;overflow:auto}
+.mt-rows{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
+.mt-row{border:1px solid transparent;border-bottom-color:var(--line);border-radius:0}
+.mt-row[data-on]{border:1px solid var(--accent);border-radius:12px;background:var(--acc-bg)}
+.mt-pick{display:flex;align-items:center;gap:8px;width:100%;min-height:48px;padding:8px 12px;border:0;background:none;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.mt-pick b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-dur{margin-left:auto;color:var(--muted);font-size:13px}
+.mt-steps{display:flex;flex-direction:column;gap:8px;padding:0 12px 12px}
+.mt-steps ol{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.mt-steps li{display:flex;align-items:center;gap:8px;min-width:0;font-size:14px}
+.mt-steps li .lbl{margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-no{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);background:var(--panel2);font-size:12px;font-weight:700}
+.mt-job{font-weight:600}
+.mt-end{display:flex;align-items:center;gap:8px;margin:0;color:var(--muted);font-size:14px}
+
+/* 가운데 지도 */
+.mt-map{position:relative;overflow:hidden;min-height:500px;background:var(--panel2)}
+.mt-map>svg{position:absolute;inset:0}
+.mt-empty{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center}
+.mt-tags{position:absolute;z-index:2;left:14px;top:14px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 90px);pointer-events:none}
+.mt-tag{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);color:var(--text);font-size:13px;font-weight:600;white-space:nowrap}
+.mt-tag.bad{border-color:var(--bad);color:var(--bad);background:color-mix(in srgb,var(--panel),var(--bad-bg) 55%)}
+.mt-facts{position:absolute;z-index:2;left:14px;bottom:14px;display:flex;flex-wrap:wrap;gap:6px 22px;max-width:calc(100% - 28px);margin:0;padding:10px 16px;border:1px solid var(--line2);border-radius:12px;background:color-mix(in srgb,var(--panel) 92%,transparent)}
+.mt-facts div,.mt-est div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mt-facts dt,.mt-est dt{color:var(--muted);font-size:12px}
+.mt-facts dd,.mt-est dd{margin:0;font-size:20px;font-weight:700}
+.mt-facts dd small{margin-left:3px;color:var(--muted);font-size:12px;font-weight:600}
+.mt-facts dd[data-check],.mt-facts dd.mt-wait{font-size:14px}
+.mt-ok{color:var(--ok)}
+.mt-bad{color:var(--bad)}
+
+/* 오른쪽 칸 */
+.mt-side{display:flex;flex-direction:column;gap:10px;padding:18px 16px}
+.mt-side>.lbl{margin:0}
+.mt-side h2{margin:0 0 4px;font-size:20px}
+.mt-side h3{margin:6px 0 0;font-size:13px;font-weight:600;color:var(--muted)}
+.mt-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mt-box{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.mt-box b{font-size:18px}
+.mt-wait{margin:0;color:var(--muted);font-size:12px}
+.mt-robots{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none;max-height:180px;overflow:auto}
+.mt-robots button{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--text);font:inherit;font-size:14px;cursor:pointer}
+.mt-robots button[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
+.mt-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--muted)}
+.mt-dot[data-on]{background:var(--ok)}
+.mt-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:3px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.mt-seg button{min-height:34px;border:0;border-radius:8px;background:none;color:var(--muted);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.mt-seg button[aria-pressed="true"]{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line2)}
+.mt-est{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:4px 0 0}
+.mt-acts{display:grid;grid-template-columns:auto 1fr;gap:8px;margin-top:auto}
+.mt-acts .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px}
+
+/* 아래 오늘 일정 */
+.mt-day{display:flex;flex-direction:column;gap:10px;padding:16px 20px}
+.mt-grid{position:relative;display:flex;flex-direction:column}
+.mt-axis,.mt-line,.mt-now-wrap{display:grid;grid-template-columns:72px 1fr;align-items:center}
+.mt-axis{height:22px;color:var(--muted);font-size:12px}
+.mt-line{height:40px;border-top:1px solid var(--line)}
+.mt-line b{font-size:14px}
+.mt-track{position:relative;height:100%}
+.mt-axis .mt-track span{position:absolute;top:2px;transform:translateX(-50%)}
+.mt-line .mt-track i{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
+.mt-now-wrap{position:absolute;inset:22px 0 0 0;pointer-events:none}
+.mt-now-wrap .mt-track{height:100%}
+.mt-now{position:absolute;top:-6px;bottom:0;width:2px;margin-left:-1px;background:var(--text)}
+.mt-now::before{content:"";position:absolute;top:-4px;left:-3px;width:8px;height:8px;border-radius:50%;background:var(--text)}
