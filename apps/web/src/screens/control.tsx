@@ -198,6 +198,9 @@ export function Control(c: Ctx) {
   const t = useTree(c.cancel), places = useMemo(() => floorsOf(t.tree), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
   const tiles = order(list), alerts = tiles.filter(needs);
+  // R3: 거르기가 바뀌면 고름을 비운다 · 보이는 타일 밖 고름(지움 · 담당 바뀜)도 비운다. STOP 대상은 지금 보이는 타일 안에서만
+  const see = (s: 'all' | 'mine') => { if (s !== scope) setSel(''); setScope(s); };
+  useEffect(() => { if (sel && !list.some((x) => x.id === sel)) setSel(''); });
   const open = (id: string) => { c.pick(id); c.go('fleet'); };   // 로봇 탭이 그 로봇을 고른 채 열린다(U5-07)
   const front = (x: Robot) => !!x.sim || allFront !== flipped.has(x.id);
   const flip = (id: string) => setFlipped((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -226,8 +229,8 @@ export function Control(c: Ctx) {
       {view === 'tiles' && <button type="button" className="btn ct-flipall" aria-pressed={allFront} onClick={() => { setAllFront(!allFront); setFlipped(new Set()); }}>
         <Icon d={<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" />} />{allFront ? '동작 보기로 뒤집기' : '정면 상태로 뒤집기'}</button>}
       <div className="ct-seg" role="group" aria-label="범위">
-        <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>모두</button>
-        <button type="button" aria-pressed={scope === 'mine'} onClick={() => setScope('mine')}>내 로봇</button>
+        <button type="button" aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</button>
+        <button type="button" aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</button>
       </div>
     </div>
     <div className="ct-body">

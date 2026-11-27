@@ -7,6 +7,7 @@ import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, actOf, lastly, order } from '../screens/control';
 import { api } from '../api';
+import { sim } from '../phone';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -245,20 +246,77 @@ describe('관제 탭', () => {
     expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['g6']);
     expect($('[aria-label="정지할 로봇 고르기"]')).toBeNull();
   });
-  it('관제 STOP: 고른 로봇이 없으면 첫 누름은 고르기(보냄 0) · 맨 위 «모두 정지 (N 대)» · 같은 자리 두 번째 누름이면 연결된 정지 가능 로봇 전부', () => {
-    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));   // 이OO 로봇 10 대 중 g4 끊김
+  it('관제 STOP: 고른 로봇이 없으면 첫 누름은 고르기(보냄 0) · 맨 위 «모두 정지 (N 대 · 끊김 M)» · 같은 자리 두 번째 누름이면 정지 가능 로봇 전부(끊긴 로봇 포함, R1)', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));   // 이OO 로봇 10 대 중 g4(K-05 · 임무 중이던) 끊김
     mount('u-lee', T); feed(T);
     press(stopBtn());
     expect(FakeWS.last.of('stop')).toHaveLength(0);
     const pick = $('[aria-label="정지할 로봇 고르기"]');
     const first = pick.querySelector('select')!.options[0];
-    expect(first.textContent).toBe('모두 정지 (9 대)');   // 이 사람이 세울 수 있는 연결된 로봇(담당 이OO 10 대 · 끊긴 g4 뺌)
+    expect(first.textContent).toBe('모두 정지 (10 대 · 끊김 1)');
     expect(first.selected).toBe(true);
+    expect(pick.querySelector('[data-stop-lost="g4"]')!.textContent).toContain('K-05 연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요');
     press(stopBtn());
     const sent = FakeWS.last.of('stop').map((m) => m.robot);
-    expect(new Set(sent)).toEqual(new Set(T.filter((r) => r.owner === 'u-lee' && r.online).map((r) => r.id)));
-    expect(sent).toHaveLength(9);
-    expect($$('[data-stop-band]')).toHaveLength(9);
+    expect(new Set(sent)).toEqual(new Set(T.filter((r) => r.owner === 'u-lee').map((r) => r.id)));
+    expect(sent).toHaveLength(10);
+    const bands = $$('[data-stop-band]');
+    expect(bands).toHaveLength(10);
+    const lostBand = bands.find((b) => b.textContent!.includes('K-05'))!;   // 끊긴 로봇은 붙은 로봇과 같은 성공 표시가 아님
+    expect(lostBand.dataset.stopLost).toBe('g4');
+    expect(lostBand.textContent).toContain('K-05 연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요');
+  });
+  it('R3: «모두»에서 남의 로봇을 고른 뒤 «내 로봇»으로 되돌리면 고름이 비고, STOP 한 번은 숨은 로봇이 아니라 고르기', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    act(() => { $$('[aria-label="범위"] button')[0].click(); });   // 모두
+    act(() => { tile('g7').click(); });                           // 박OO 로봇
+    act(() => { $$('[aria-label="범위"] button')[1].click(); });   // 내 로봇 → g7 은 보이지 않음
+    press(stopBtn());
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    expect($('[aria-label="정지할 로봇 고르기"]')).not.toBeNull();
+  });
+  it('R2 · M5: 이 계정이 못 세우는 타일을 고르면 «고른 로봇 없음» 흐름(고르기 · 모두 정지 기본) + 맨 위 한 줄', () => {
+    const R: Robot[] = [
+      { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },   // 실기 = 총괄은 못 세움
+      { id: 's1', name: 'S-01', owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', sim: true },
+    ];
+    mount('u-kim', R); feed(R);
+    act(() => { tile('a1').click(); });
+    press(stopBtn());
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    expect(pick.querySelector('[data-cant-stop]')!.textContent).toBe('K-21 은 이 계정으로 정지할 수 없어 전체 정지를 엽니다');
+    const first = pick.querySelector('select')!.options[0];
+    expect(first.textContent).toBe('모두 정지 (1 대)');
+    expect(first.selected).toBe(true);
+    press(stopBtn());
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['s1']);
+  });
+  it('관제 · 내 시뮬이 떠 있고 고른 타일 없음: 첫 누름은 sim.stop 이 아니라 고르기 · 모두 정지에 내 시뮬 포함(Sonnet 3)', () => {
+    const live = vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 'sx', generation: 1, owner_id: 'u-lee', world_id: 'w', simulation: true, state: 'RUNNING', agent_address: '' } as never);
+    const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-lee', TWENTY); feed(TWENTY);
+    press(stopBtn());
+    expect(halt).not.toHaveBeenCalled();
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    expect($('[aria-label="정지할 로봇 고르기"] select').querySelector('option')!.textContent).toBe('모두 정지 (11 대)');   // 이OO 10 대 + 내 시뮬
+    press(stopBtn());
+    expect(halt).toHaveBeenCalledTimes(1);
+    expect(FakeWS.last.of('stop')).toHaveLength(10);
+    expect(live).toHaveBeenCalled();
+  });
+  it('Enter 를 누른 채 두면(키 반복) 고르기를 연 뒤 모두 정지가 곧바로 가지 않는다(Sonnet 5)', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    press(stopBtn());
+    const go = $('[aria-label="정지할 로봇 고르기"] button.fh-stop');
+    const key = (type: string, repeat: boolean) => act(() => { go.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', repeat, bubbles: true, cancelable: true })); });
+    const enterClick = () => act(() => { go.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })); });
+    key('keydown', true); enterClick();   // 반복 keydown 과 그 click
+    key('keydown', true); enterClick();
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    key('keyup', false);
+    key('keydown', false); enterClick();  // 손을 뗀 뒤 새 누름
+    expect(FakeWS.last.of('stop')).toHaveLength(10);
   });
   it('관제 STOP: 고르기의 정지 단추에 초점 · Enter(키보드 누름)로 모두 정지를 바로 보냄', () => {
     mount('u-lee', TWENTY); feed(TWENTY);
