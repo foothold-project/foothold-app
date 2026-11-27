@@ -22,6 +22,7 @@ import trimesh
 
 VERSION = 'collision-map/1'
 UNKNOWN, FREE, OCCUPIED = 205, 254, 0
+CYLINDER_SECTIONS = 64  # import_building 앱 장면 원기둥과 같은 각 수
 
 
 def pose_matrix(element):
@@ -75,6 +76,12 @@ def read_collisions(world_file):
                     if size.shape != (3,) or not np.isfinite(size).all() or (size <= 0).any():
                         raise ValueError('box dimensions must be finite and positive')
                     mesh = trimesh.creation.box(extents=size)
+                elif shape.tag == 'cylinder':
+                    # SDF cylinder = 로컬 z 축, 가운데 기준. 닫힌 64 각 기둥(원 안쪽 칸만 막힌다).
+                    radius, length = float(shape.findtext('radius', 'nan')), float(shape.findtext('length', 'nan'))
+                    if not (math.isfinite(radius) and math.isfinite(length) and radius > 0 and length > 0):
+                        raise ValueError('cylinder dimensions must be finite and positive')
+                    mesh = trimesh.creation.cylinder(radius=radius, height=length, sections=CYLINDER_SECTIONS)
                 elif shape.tag == 'mesh':
                     if shape.find('submesh') is not None:
                         raise ValueError('submesh selection is not supported')

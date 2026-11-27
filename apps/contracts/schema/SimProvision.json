@@ -57,6 +57,7 @@
           "enum": [
             "l1",
             "l2",
+            "l3",
             "f1"
           ],
           "title": "Ros Floor Id",
@@ -92,6 +93,7 @@
         "world_id": {
           "enum": [
             "v5_building",
+            "plant_a",
             "warehouse"
           ],
           "title": "World Id",
@@ -138,7 +140,7 @@
       "items": {
         "$ref": "#/$defs/SimMapBinding"
       },
-      "maxItems": 2,
+      "maxItems": 3,
       "title": "Map Bindings",
       "type": "array"
     },
@@ -162,7 +164,8 @@
         {
           "enum": [
             "l1",
-            "l2"
+            "l2",
+            "l3"
           ],
           "type": "string"
         },

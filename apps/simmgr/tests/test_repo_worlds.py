@@ -332,7 +332,8 @@ def test_repository_entrypoint_installs_assets_and_preserves_ledger_paths(repo, 
 
 
 @pytest.mark.parametrize('key', ['factory_inspection/f1', 'factory_inspection_alt1/f1',
-                                 'factory_zone/f1', 'factory_zone/f2', 'element_course/f1'])
+                                 'factory_zone/f1', 'factory_zone/f2', 'element_course/f1',
+                                 'plant_a/l1', 'plant_a/l2', 'plant_a/l3'])
 def test_factory_repository_closure_and_raster(key, tmp_path):
     """Verify all catalogue hashes and regenerate each floor without ROS/Gazebo."""
     script = r'''
@@ -356,7 +357,7 @@ collisions,_=read_collisions(w.world_file)
 px=raster_floor(collisions,[ox,oy,ox+width*res,oy+height*res],res,e['floor_z'])
 assert np.array_equal(px,np.array(Image.open(w.map_file.with_suffix('.png'))))
 x,y,_=e['spawn_xyyaw']; assert px[height-1-int((y-oy)/res),int((x-ox)/res)]==254
-assert e['floor_z']==(2.0 if key=='factory_zone/f2' else 0.0)
+assert e['floor_z']=={'factory_zone/f2':2.0,'plant_a/l2':3.375,'plant_a/l3':6.75}.get(key,0.0)
 print(key,'closure and raster verified')
 '''
     result = subprocess.run(['/usr/bin/python3', '-c', script, str(native_catalogue.REPO_WORLDS), key, str(tmp_path)],
