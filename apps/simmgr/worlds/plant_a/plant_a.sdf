@@ -734,18 +734,18 @@
         </visual>
       </link>
       <link name="l1-st-mid_0">
-        <pose>2.1 13.3 1.425 0 0 0</pose>
+        <pose>2.1 13.3 1.6 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>0.2 4.4 2.85</size>
+              <size>0.2 4.2 3.2</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>0.2 4.4 2.85</size>
+              <size>0.2 4.2 3.2</size>
             </box>
           </geometry>
           <material>
@@ -2098,18 +2098,18 @@
         </visual>
       </link>
       <link name="l2-st-mid_0">
-        <pose>2.1 13.3 4.8 0 0 0</pose>
+        <pose>2.1 13.3 4.975 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>0.2 4.4 2.85</size>
+              <size>0.2 4.2 3.2</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>0.2 4.4 2.85</size>
+              <size>0.2 4.2 3.2</size>
             </box>
           </geometry>
           <material>
@@ -3066,18 +3066,18 @@
         </visual>
       </link>
       <link name="l3-ext-n_0">
-        <pose>18 20 7.3 0 0 0</pose>
+        <pose>21 20 7.3 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>36.3 0.3 1.1</size>
+              <size>30.3 0.3 1.1</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>36.3 0.3 1.1</size>
+              <size>30.3 0.3 1.1</size>
             </box>
           </geometry>
           <material>
@@ -3088,18 +3088,18 @@
         </visual>
       </link>
       <link name="l3-ext-w_0">
-        <pose>0 10 7.3 0 0 0</pose>
+        <pose>0 5 7.3 0 0 0</pose>
         <collision name="c">
           <geometry>
             <box>
-              <size>0.3 20.3 1.1</size>
+              <size>0.3 10.3 1.1</size>
             </box>
           </geometry>
         </collision>
         <visual name="v">
           <geometry>
             <box>
-              <size>0.3 20.3 1.1</size>
+              <size>0.3 10.3 1.1</size>
             </box>
           </geometry>
           <material>

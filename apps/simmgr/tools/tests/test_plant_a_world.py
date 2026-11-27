@@ -170,3 +170,28 @@ def test_l3_cover_plate_is_in_sdf():
     for centre, size in plates:
         assert centre[2] - size[2] / 2 == pytest.approx(l3['floor_z'] + cover['z'])
         assert size[2] == pytest.approx(cover['t'])
+
+
+def stair_headroom(sdf):
+    """계단 단 상자마다 윗면에서 바로 위 가장 낮은 상자 밑면까지 거리(XY 가 넓이로 겹치는 상자만)."""
+    found = boxes(sdf)
+    result = {}
+    for name, (c, d) in found.items():
+        if '_f' not in name or not name.startswith('st-'):
+            continue
+        top = c[2] + d[2] / 2
+        lo = [c[0] - d[0] / 2, c[1] - d[1] / 2]; hi = [c[0] + d[0] / 2, c[1] + d[1] / 2]
+        above = [oc[2] - od[2] / 2 for other, (oc, od) in found.items()
+                 if other != name and oc[2] - od[2] / 2 > top - 1e-6
+                 and min(hi[0], oc[0] + od[0] / 2) - max(lo[0], oc[0] - od[0] / 2) > 1e-6
+                 and min(hi[1], oc[1] + od[1] / 2) - max(lo[1], oc[1] - od[1] / 2) > 1e-6]
+        result[name] = min(above) - top if above else math.inf
+    return result
+
+
+def test_every_stair_step_has_at_least_1_4_m_headroom():
+    headroom = stair_headroom(OUT / 'plant_a.sdf')
+    assert len(headroom) == 2 * 27
+    worst = min(headroom, key=headroom.get)
+    assert headroom[worst] >= 1.4, (worst, headroom[worst])
+

@@ -1,12 +1,12 @@
 {
-  "revision": "plant_a-rev3",
+  "revision": "plant_a-rev3b",
   "author": "app-design-lx 세션",
   "draft": true,
   "generated": true,
   "imported": "2026-11-28",
   "schema": "foothold_building/1",
   "inputs": {
-    "plant_a.json": "3ac09f2a639871f6dd61793378953f4e3fbc22e0076a3801591989263ea7fe38"
+    "plant_a.json": "41e6bf7b07629d5c2fd41e0f58b72e9f3e19140543ff0fcd950860defd3c470f"
   },
   "copy": "layout.json (입력 바이트 그대로)",
   "generator": "apps/simmgr/tools/import_building.py",

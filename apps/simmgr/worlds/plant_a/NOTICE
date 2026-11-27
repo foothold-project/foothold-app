@@ -1,5 +1,5 @@
 공정동 A (plant_a) · 초안
-출처: app-design-lx 세션 배치 JSON rev 3 (schema foothold_building/1).
+출처: app-design-lx 세션 배치 JSON rev 3b (schema foothold_building/1).
 생성: apps/simmgr/tools/import_building.py 가 JSON 에서 만든 정적 상자 월드. 원본 메쉬·텍스처 없음.
 입력 해시는 sources.json, 입력 사본은 layout.json.
 실행 · 보행 · 계단 오르기 · Gazebo/MuJoCo · 센서 미검증. 층 이동은 첫 판 순간 이동(teleport) 전제.

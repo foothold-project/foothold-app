@@ -335,7 +335,7 @@ def register(layout_path, out=None):
     layout_path = Path(layout_path)
     raw = layout_path.read_bytes()
     data = json.loads(raw)
-    world_id, rev = data['building_id'], data.get('rev', 1)
+    world_id, rev = data['building_id'], data.get('rev_note') or data.get('rev', 1)
     out = Path(out) if out else WORLDS / world_id
     out.mkdir(parents=True, exist_ok=True)
     # 시험·재생성이 저장소 밖 원본 없이 돌도록 입력을 바이트 그대로 둔다.
