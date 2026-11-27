@@ -66,7 +66,7 @@ function groupStops(rs: Robot[], live: (id: string) => Live, off: string[], now:
     unsure.length && line('unsure', `▲ ${names(unsure)} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 현장에서 직접 멈추세요.${why(unsure)}`),
     lostOnes.length && <span key="stop-g-lost" data-stop-band data-stop-group="lost" data-stop-lost={lostOnes.map((r) => r.id).join(' ')}>▲ {lostStop({ ...lostOnes[0], name: names(lostOnes) })}.</span>,
     unknown.length && <span key="stop-g-unknown" data-stop-band data-stop-group="unknown" data-stop-unsure={unknown.map((r) => r.id).join(' ')}>▲ {names(unknown)} 서버 접수 · 로봇 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요.</span>,
-    fbOk.length && line('fallback', `■ ${names(fbOk)} 정지 요청됨(대체 경로) · 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`),
+    fbOk.length && line('fallback', `■ ${names(fbOk)} 정지 요청됨(대체 경로) · 다시 연결됨 · 로봇의 정지 확인을 기다리는 중. 현장을 확인하세요.`),
     ...rs.filter((r) => !done.has(r.id)).map((r) => <span key={`stop-${r.id}`} data-stop-band>{stopText(r, live(r.id))}</span>),
   ].filter(Boolean);
 }

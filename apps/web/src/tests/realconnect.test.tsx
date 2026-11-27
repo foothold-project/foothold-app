@@ -481,7 +481,7 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
 
   it('접수 전에 다시 연결돼 온라인으로 확인된 로봇은 «정지 요청됨(대체 경로)» 줄(fbOk), 긴 줄표 없음', async () => {
     const bands = await acceptAfterReconnect([['r3', { connection: 'ONLINE', status: 'RUNNING' }]]);   // r1 은 state 없음
-    expect($('[data-stop-group="fallback"]')!.textContent).toBe('■ Go2-3 정지 요청됨(대체 경로) · 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.');
+    expect($('[data-stop-group="fallback"]')!.textContent).toBe('■ Go2-3 정지 요청됨(대체 경로) · 다시 연결됨 · 로봇의 정지 확인을 기다리는 중. 현장을 확인하세요.');
     expect($('[data-stop-group="unknown"]')!.textContent).toBe('▲ Go2-1 서버 접수 · 로봇 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요.');
     expect(bands).toHaveLength(2);
   });
