@@ -68,6 +68,25 @@ SIGSEGV(rc=-11)를 재현했고 수정본은 normal mismatch 없이 rc=0으로 �
 관측 한계다. 이는 로봇 없는 정적 월드 로드·물리 스텝 확인이며 실제 로봇 스폰·접촉·
 보행·센서·내비게이션 성공을 증명하지 않는다.
 
+## 공정동 A (plant_a)
+
+- 출처: app-design-lx 세션 배치 JSON rev 3b (`foothold_building/1`). 변환기는 rev 2 이상만 받는다(계단 lane_gap ·
+  arrive 필수, rev 1 은 오류). 입력 바이트 사본은 [layout.json](plant_a/layout.json), 해시는
+  [sources.json](plant_a/sources.json), 고지는 [NOTICE](plant_a/NOTICE).
+- 36 × 20 m, 세 층 `l1`·`l2`·`l3` (floor_z 0 · 3.375 · 6.75). 모든 형상은 static box. 층 바닥판 윗면 = floor_z,
+  벽은 문틈과 상인방. 계단은 층마다 같은 자리의 U 자 두 줄(14 + 13 단 × 12.5 cm, lane_gap 0.2 m)과 두 줄 사이
+  가운데 벽(h 3.2, y 11.3~15.3), 줄 사이 계단참 하나. 마지막 단 윗면이 위층 바닥에 바로 닿는다. 위층 구멍은 L 자.
+- 단 · 계단참 상자는 그 층 바닥까지 채운 통짜라 단 밑이 지도에서 막힌다. 아래층 계단 위(바닥판 구멍 위)에
+  놓인 상자만 한 단 두께로 두어 아래층 계단 머리 공간을 남긴다.
+- `l3`은 지붕 없이 1.1 m 외벽이 난간이고, 계단실은 벽 3.2 m 와 `covers` 판(바닥 기준 아랫면 z, 두께 t)으로 덮는다.
+- 스폰: `l1`은 JSON spawn, `l2`·`l3`은 계단 arrive xy 와 teleport yaw, spawn_z = floor_z + 0.4.
+  teleport xy 가 arrive xy 와 다르면 경고만 낸다. 시나리오는 층마다 JSON 지점 순서.
+- 실행 · 보행 · 계단 오르기 · 센서 미검증. 층 이동은 순간 이동 전제다.
+
+```sh
+python3 -m apps.simmgr.tools.import_building /path/to/plant_a.json   # SDF · 지도 · 시나리오 · worlds.json 항목
+```
+
 ## 재생성 (오프라인)
 
 패키지를 설치하지 않는다. 시스템 Python에 이미 있는 numpy/Pillow/trimesh를 사용한다.
@@ -89,9 +108,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 apps/simmgr/tools/collision_map.py \
 쓰며, origin의 셋째 값은 **yaw=0**이다. `floor_z`는 `metadata.json`에 별도로 기록한다.
 world SHA-256, collision 의존 파일 SHA-256과 묶음 해시, upstream SHA, 생성기 판·소스 해시,
 픽셀 크기·미터 크기·장애물 높이 구간·좌표 변환·층별 PNG 해시를 기록한다.
+`generator_sha256` 은 그 지도를 만들 때의 생성기(collision_map.py) 해시다. 기록일 뿐이고 지금 생성기와 대조하는 코드는 없다.
+생성기가 바뀌어도 다시 만들지 않은 월드는 옛 값을 그대로 적고 있다.
 
-정적 모델의 중첩 pose/link/collision pose와 양수 mesh scale을 적용한다. geometry는 box와
-로컬 OBJ mesh만 지원한다. include·이름 참조 frame·외부 URI·그 밖의 geometry는 오류로
+정적 모델의 중첩 pose/link/collision pose와 양수 mesh scale을 적용한다. geometry는 box ·
+cylinder(64 각 닫힌 기둥으로 래스터) · 로컬 OBJ mesh만 지원한다. include·이름 참조 frame·외부 URI·그 밖의 geometry는 오류로
 중단한다. COLLADA 입력은 AWS의 Z_UP/triangle/matrix 형식만 변환한다.
 
 ## 지도 판정과 한계
