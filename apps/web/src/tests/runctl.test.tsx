@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Assignment, RunSnapshot, Scenario, SimRobot } from '../../../contracts/ts';
 import { api } from '../api';
 import { sim } from '../phone';
-import { rt } from '../rt';
+import { rt, runSay } from '../rt';
+import { HeldRun, short } from '../simdrive';
 import { RunCtl } from '../screens/missionrun';
 import type { Robot } from '../fake';
 import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
@@ -183,13 +184,13 @@ describe('시뮬 탭 LEASE_HELD 조종자 표시 (#537 a8cac9f2 holder_type · h
     expect(sim.get().link!.lease).toBeNull();
     return sim.get().link!.notice;
   };
-  it('USER + 이름: «관제 화면에서 OO 님이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.»', async () => {
-    expect(await held({ holder_type: 'USER', holder_name: '박OO' })).toBe('관제 화면에서 박OO 님이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
+  it('USER + 이름: «OO 님이 다른 화면에서 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.» (어느 화면인지는 모름 · 07:09)', async () => {
+    expect(await held({ holder_type: 'USER', holder_name: '박OO' })).toBe('박OO 님이 다른 화면에서 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
   });
   it('USER + 이름 모름(null · 빈 글): 이름 없이 한 줄', async () => {
-    expect(await held({ holder_type: 'USER', holder_name: null })).toBe('관제 화면에서 다른 사람이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
+    expect(await held({ holder_type: 'USER', holder_name: null })).toBe('다른 사람이 다른 화면에서 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
     sim.clear();
-    expect(await held({ holder_type: 'USER', holder_name: '  ' })).toBe('관제 화면에서 다른 사람이 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
+    expect(await held({ holder_type: 'USER', holder_name: '  ' })).toBe('다른 사람이 다른 화면에서 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.');
   });
   it('RUN: «예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.» (이름이 와도 쓰지 않음)', async () => {
     expect(await held({ holder_type: 'RUN', holder_name: null })).toBe('예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.');
@@ -214,5 +215,66 @@ describe('시뮬 탭 LEASE_HELD 조종자 표시 (#537 a8cac9f2 holder_type · h
     expect((await hello(' 이OO ')).display_name).toBe('이OO');
     expect((await hello('가'.repeat(70))).display_name).toBe('가'.repeat(64));
     expect('display_name' in (await hello('   '))).toBe(false);
+  });
+});
+
+describe('시뮬 탭 RUN 이 쥐면 일시정지 (팀장 05:09 «모든 기기에서 일시정지» · #537 계약 그대로 rt.run pause)', () => {
+  const SIM_ID = 'r7';
+  let unwatch: (() => void) | null = null;
+  afterEach(() => { unwatch?.(); unwatch = null; });
+  /** 서버 실시간(rt) 먼저 + 시뮬 직결 LEASE_HELD(holder). own = 이 화면이 서버 조종권을 쥠(이 화면에서 건 실행) */
+  const held = async (holder: 'USER' | 'RUN' | null, p: { own?: boolean; r?: RunSnapshot | null } = {}) => {
+    rt.connect([SIM_ID]);
+    const w = FakeWS.last;
+    act(() => { w.open(); w.recv(state(SIM_ID, { latched: false, run: p.r === undefined ? run('MOVING') : p.r })); });
+    if (p.own) { unwatch = rt.watch(SIM_ID); act(() => { w.recv(lease(SIM_ID, { id: 'u-lee', name: '이OO' }, LEASE)); }); }   // 같은 화면의 실행 칸(RunCtl watch)이 서버 조종권을 쥔 경우
+    vi.spyOn(api, 'phonePass').mockResolvedValue({ token: 'fake', exp: 9999999999, kid: 'fake' });
+    await sim.attach({ robot_id: SIM_ID, generation: 1, agent_address: 'ws://127.0.0.1:9481/phone/ws', remaining_s: null } as SimRobot);
+    const a = FakeWS.last; a.auto = null;
+    act(() => { a.open(); a.recv({ t: 'hello', robot: SIM_ID, camera_token: null }); a.recv({ t: 'state', robot: SIM_ID, latched: true, stop_gen: 1, applied: [0, 0, 0], lease_id: null, holder_type: holder, holder_name: null }); });
+    act(() => { sim.take(); });
+    act(() => { a.recv({ t: 'reply', id: a.of('lease.take')[0].id, ...fail('LEASE_HELD'), holder_type: holder, holder_name: holder === 'USER' ? '박OO' : null }); });
+    box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<HeldRun />); });
+    return { w, a };
+  };
+  const ctl = (w: FakeWS) => w.sent.filter((m) => m.t === 'run.control');
+  it('LEASE_HELD + RUN 일 때만 «일시정지» · USER · null 이면 단추 없음', async () => {
+    await held('RUN', { own: true });
+    expect(btns()).toEqual(['일시정지']);
+    act(() => root?.unmount()); root = null; unwatch?.(); sim.clear(); rt.disconnect();
+    await held('USER', { own: true });
+    expect(btns()).toEqual([]);
+    act(() => root?.unmount()); root = null; unwatch?.(); sim.clear(); rt.disconnect();
+    await held(null, { own: true });
+    expect(btns()).toEqual([]);
+  });
+  it('누르면 rt.run pause(run.control · lease · run_id) · 결과 전 «보내는 중…» · run_result 성공만으로는 성공 아님 · state.run 이 PAUSED 가 된 뒤에만 성공 문구', async () => {
+    const { w } = await held('RUN', { own: true, r: run('MOVING', 'run-9') });
+    click('일시정지');
+    expect(ctl(w)).toHaveLength(1);
+    expect(ctl(w)[0]).toMatchObject({ t: 'run.control', op: 'pause', run_id: 'run-9', robot: SIM_ID, lease_id: LEASE });
+    expect(said()).toBe('보내는 중…');
+    expect(btn('일시정지')!.disabled).toBe(true);
+    const m = ctl(w)[0];
+    act(() => { w.recv(state(SIM_ID, { latched: false, run: run('MOVING', 'run-9'), run_result: { request_id: m.id, op: 'pause', run_id: 'run-9', status: 'SUCCEEDED', code: 'OK' } })); });
+    expect(said()).toBe('보내는 중…');
+    act(() => { w.recv(state(SIM_ID, { latched: false, run: run('PAUSED', 'run-9'), run_result: { request_id: m.id, op: 'pause', run_id: 'run-9', status: 'SUCCEEDED', code: 'OK' } })); });
+    expect(said()).toBe('임무를 일시정지했습니다. «조종 시작»을 다시 누르세요.');
+  });
+  it('REJECTED(서버 거절 · 로봇 결과) 는 코드 문구 한 줄', async () => {
+    const { w } = await held('RUN', { own: true });
+    w.auto = null;
+    click('일시정지');
+    act(() => { w.recv({ t: 'reply', id: ctl(w)[0].id, ...fail('RUN_NOT_ALLOWED') }); });
+    expect($('[data-run-say]')!.getAttribute('role')).toBe('alert');
+    expect(said()).toBe(runSay('RUN_NOT_ALLOWED', short(SIM_ID)));
+    expect(box.querySelectorAll('[data-run-say]')).toHaveLength(1);
+  });
+  it('이 화면에 서버 조종권이 없으면(다른 화면에서 건 실행) 보내지 않고 한 줄', async () => {
+    const { w } = await held('RUN');
+    click('일시정지');
+    expect(ctl(w)).toEqual([]);
+    expect(said()).toBe('이 화면에는 그 임무의 조종권이 없어 일시정지를 보내지 못했습니다 · 임무를 건 화면에서 일시정지하세요.');
   });
 });

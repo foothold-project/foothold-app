@@ -1618,3 +1618,15 @@ describe('직결 시뮬 조종 — 새로 누른 입력만(RB-SIMDRIVE-FRESH-PRE
     ptr(fwd, 'pointerup', 50, 0);
   });
 });
+
+describe('폰 시뮬 조종 LEASE_HELD + RUN (#537 · 07:09)', () => {
+  it('«조종 시작» 이 RUN 에 막히면 안내 칸에 그 한 줄과 «일시정지» 단추', async () => {
+    const a = await launch();
+    a.auto = ((m: Msg) => (['hello', 'cmd', 'ping', 'stop', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
+    await recv(a, phoneState({ holder_type: 'RUN', holder_name: null }));
+    await click(btn('조종 시작'));
+    await recv(a, { t: 'reply', id: last(a.sent.filter((m) => m.t === 'lease.take')).id, ok: false, error: { code: 'LEASE_HELD', message: '', detail: {} }, holder_type: 'RUN', holder_name: null });
+    expect([...box.querySelectorAll('[data-sim-card] .dv-note')].map((p) => p.textContent)).toContain('예약 임무가 조종 중입니다 · 일시정지하면 조종할 수 있습니다.');
+    expect($('[data-sim-card] [data-held-run] button')!.textContent).toBe('일시정지');
+  });
+});

@@ -7,7 +7,7 @@ import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
 import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { useStopPress } from '../App';
-import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
+import { EXP, HeldRun, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
@@ -117,6 +117,7 @@ function SimView({ admin }: { admin: boolean }) {
         <SimStop />
       </div>
       {notes.map((t) => <p key={t} className="fh-why" role="status">{t}</p>)}
+      <HeldRun />
       {/* 실행 칸(03 §5.2): 상태·지점 n/m·진행 막대·[일시정지][취소] 한 줄 → 실행 안내 → 시나리오 고르기·실행 → 개발자 정보. 조종권 단추는 그 아래 */}
       <div style={{ border: '1px solid var(--line2)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="시나리오" data-run-box>
         {run.notes.length > 0 && <div className="fh-row" style={{ flexWrap: 'wrap' }}>

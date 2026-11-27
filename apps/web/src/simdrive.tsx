@@ -6,7 +6,7 @@ import { useOrbit, viewBlock } from './extview';
 import { DEAD, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
-import { inputGen, metaCut } from './rt';
+import { inputGen, metaCut, rt, runSay, useLive } from './rt';
 import { Chip, inApp } from './screens';
 import { typing, useStopPress } from './App';
 import { simName, type Tone } from './fake';
@@ -397,6 +397,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t">{notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}</div>
           <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes)}>{ICON.close}</button></div>}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
+        <HeldRun />
       </div>}
       {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
         <b id="sim-ask-t">조종권 요청</b><p>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
@@ -435,4 +436,21 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
       <button type="button" className="btn" data-sim-pip-close onClick={() => sim.reset()}>닫기</button>
     </div>
   </aside>;
+}
+
+/** LEASE_HELD + RUN(예약 임무가 Hub 를 쥠) 일 때만: 일시정지(팀장 05:09 «모든 기기에서 일시정지», #537 계약 그대로 rt.run pause).
+ *  결과 전 «보내는 중…», 거절은 코드 문구 한 줄, 성공은 서버 state.run 이 PAUSED 로 바뀐 뒤에만. 서버 조종권이 이 화면에 없으면 보내지 않고 한 줄 */
+export function HeldRun() {
+  const s = useSim(), id = s.robot?.robot_id ?? '', l = useLive(id), r = l.state?.run, q = l.runReq?.op === 'pause' ? l.runReq : null;
+  const [miss, setMiss] = useState(false);
+  if (s.link?.held !== 'RUN') return null;
+  const paused = !!q && q.phase === 'done' && r?.run_id === q.run_id && r.status === 'PAUSED';
+  const busy = !!q && !paused && q.phase !== 'rejected';
+  const say = miss ? '이 화면에는 그 임무의 조종권이 없어 일시정지를 보내지 못했습니다 · 임무를 건 화면에서 일시정지하세요.'
+    : q?.phase === 'rejected' ? runSay(q.code ?? '', short(id)) : busy ? '보내는 중…' : paused ? '임무를 일시정지했습니다. «조종 시작»을 다시 누르세요.' : '';
+  const send = () => { setMiss(!(r && !RUN_END.includes(r.status) && rt.run(id, 'pause', { run_id: r.run_id }))); };
+  return <div className="fh-row" style={{ flexWrap: 'wrap' }} data-held-run>
+    {!paused && <button type="button" className="btn pri" disabled={busy} onClick={send}>일시정지</button>}
+    {say && <p className={q?.phase === 'rejected' || miss ? 'fh-msg' : 'lv-note'} role={q?.phase === 'rejected' || miss ? 'alert' : 'status'} data-run-say>{say}</p>}
+  </div>;
 }
