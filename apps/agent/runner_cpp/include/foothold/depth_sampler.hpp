@@ -12,7 +12,7 @@ class DepthSampler {
 public:
     explicit DepthSampler(const std::filesystem::path&);
     ~DepthSampler();
-    const Depth* latest(Tick now);
+    const Depth* latest(Tick now, Tick* stamp = nullptr);
 
 private:
     void receive();

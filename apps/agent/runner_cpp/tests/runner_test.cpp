@@ -90,13 +90,14 @@ struct FakeModes final : ModeExecutor {
 
 struct FakePolicy final : PolicyExecutor {
     float next_action = 1;
-    int calls = 0;
+    int calls = 0, depth_ticks = 0;
     bool delayed = false;
     Outputs result;
     void submit(const Inputs& in) override {
         require(in.obs[33] == (calls == 0 || in.first_after_reset ? 0 : 1),
                 "previous action missing from observation");
         ++calls;
+        if (in.depth_tick) ++depth_ticks;
         result.action.fill(next_action);
     }
     Inference poll(Outputs& out) override {
@@ -426,8 +427,32 @@ int main() {
         dry.depth = &frame;
         dry.enter();
         dry.wait(40ms);
+        // Depth gap rule: hold the map (no tick), slow to a stop after 1 s, sit after 3 s.
+        const auto seen = [&](Event e) {
+            return std::find(dry.events.seen.begin(), dry.events.seen.end(), e) != dry.events.seen.end();
+        };
+        const int ticks = dry.policy.depth_ticks, calls = dry.policy.calls;
         dry.depth = nullptr;
-        dry.tick();
+        dry.state.remote.ly = 1;
+        dry.wait(900ms);
+        require(dry.runner.phase() == Phase::policy && !seen(Event::depth_lost) && !seen(Event::depth_stale),
+                "short depth gap must keep the policy running");
+        require(dry.policy.calls > calls + 40, "policy stopped during a short depth gap");
+        require(dry.policy.depth_ticks == ticks + 1, "depth tick without a new frame (only the pending frame may enter)");
+        require(dry.events.last_command[0] > .2f, "forward command did not build up during a short gap");
+        dry.wait(200ms);
+        require(dry.runner.phase() == Phase::policy && seen(Event::depth_stale), "1 s depth gap must report DEPTH_STALE");
+        dry.wait(1s);
+        require(dry.events.last_want[0] == 0 && dry.events.last_command[0] == 0, "1 s depth gap must slow to a stop");
+        dry.depth = &frame;
+        dry.wait(300ms);  // the first new frame enters depth2 one slot later (training delay)
+        require(dry.policy.depth_ticks >= ticks + 3 && dry.events.last_want[0] > 0, "fresh depth must resume ticks and command");
+        dry.depth = nullptr;
+        dry.state.remote.ly = 0;
+        dry.wait(2900ms);
+        require(dry.runner.phase() == Phase::policy && !seen(Event::depth_lost), "sat before the 3 s depth limit");
+        dry.wait(200ms);
+        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "3 s depth gap must sit");
         dry.wait(2s);
         require(dry.events.ordered({Event::depth_lost, Event::sit_down, Event::damping,
                                     Event::mode_high}), "depth loss must leave reconstruction safely");

@@ -81,7 +81,7 @@ void slew_command(Vec3& current,const Vec3& goal) {
         else if(goal[i]==0 && 0<std::abs(c) && std::abs(c)<floor)current[i]=0;
     }
 }
-void Memory::reset(){step_=0;initialized_=false;inputs_=Inputs{};captured_.fill(0);}
+void Memory::reset(){step_=0;initialized_=false;pending_=false;inputs_=Inputs{};captured_.fill(0);}
 bool Memory::depth_needed()const{return mode_==MapMode::reconstruction && (!initialized_ || step_%5==0);}
 const Inputs& Memory::prepare(const Obs& obs,const Depth* frame,const HeightMap* gt) {
     if(mode_==MapMode::reconstruction && !initialized_ && !frame)
@@ -89,12 +89,16 @@ const Inputs& Memory::prepare(const Obs& obs,const Depth* frame,const HeightMap*
     inputs_.obs=obs;
     if(!initialized_)for(int i=0;i<10;++i)std::copy(obs.begin(),obs.end(),inputs_.hist.begin()+45*i);
     else {std::copy_backward(inputs_.hist.begin(),inputs_.hist.begin()+405,inputs_.hist.end());std::copy(obs.begin(),obs.end(),inputs_.hist.begin());}
-    inputs_.depth_tick=step_%5==0;inputs_.first_after_reset=step_==0;inputs_.use_gt=mode_==MapMode::gt;
+    const bool slot=step_%5==0;
+    inputs_.depth_tick=slot;inputs_.first_after_reset=step_==0;inputs_.use_gt=mode_==MapMode::gt;
     inputs_.gt_map=inputs_.use_gt && gt?*gt:HeightMap{};
     if(mode_==MapMode::reconstruction){
-        if(!initialized_){captured_=*frame;std::copy(frame->begin(),frame->end(),inputs_.depth2.begin());std::copy(frame->begin(),frame->end(),inputs_.depth2.begin()+3600);}
-        else if(inputs_.depth_tick){std::copy_n(inputs_.depth2.begin(),3600,inputs_.depth2.begin()+3600);std::copy(captured_.begin(),captured_.end(),inputs_.depth2.begin());}
-        if(frame && inputs_.depth_tick && step_!=0)captured_=*frame;
+        // Training: a tick means depth2 received a frame. The frame captured on one slot enters
+        // depth2 on the next slot; a slot with nothing pending holds (no tick, no shift).
+        if(!initialized_){captured_=*frame;pending_=true;std::copy(frame->begin(),frame->end(),inputs_.depth2.begin());std::copy(frame->begin(),frame->end(),inputs_.depth2.begin()+3600);}
+        else if(slot && pending_){std::copy_n(inputs_.depth2.begin(),3600,inputs_.depth2.begin()+3600);std::copy(captured_.begin(),captured_.end(),inputs_.depth2.begin());pending_=false;}
+        else if(slot)inputs_.depth_tick=false;
+        if(frame && slot && step_!=0){captured_=*frame;pending_=true;}
     }
     initialized_=true;return inputs_;
 }

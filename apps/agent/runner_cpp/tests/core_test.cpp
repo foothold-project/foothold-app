@@ -36,6 +36,13 @@ int main(){
   check(x.obs[0]==step+1 && x.hist[45]==step && x.h_prop[0]==.125f,"history and GRU feed back");
   check(x.depth2[0]==(step<10?.2f:.7f),"depth capture delayed one tick");
  }
+ // Hold. Slot 15 still ticks (frame captured on slot 10 is pending); slot 20 has nothing new.
+ auto run=[&](int from,int to,const Depth* at_last){const Inputs* x=nullptr;
+  for(int step=from;step<=to;step++){m.advance(h,h);x=&m.prepare(obs,step==to?at_last:nullptr);}return *x;};
+ auto h1=run(11,15,nullptr);check(h1.depth_tick && h1.depth2[0]==.9f && h1.depth2[3600]==.7f,"pending frame enters on the next slot");
+ auto h2=run(16,20,nullptr);check(!h2.depth_tick && h2.depth2[0]==.9f && h2.depth2[3600]==.7f,"no new frame holds depth2 without a tick");
+ f.fill(.4f);auto h3=run(21,25,&f);check(!h3.depth_tick && h3.depth2[0]==.9f,"frame after a hold waits one slot");
+ auto h4=run(26,30,nullptr);check(h4.depth_tick && h4.depth2[0]==.4f && h4.depth2[3600]==.9f,"held frame enters on the next slot");
  m.reset();check(m.step()==0 && m.depth_needed(),"reset all recurrent state");
  Memory off(MapMode::off);check(off.prepare(obs,&f).depth2[0]==0 && !off.depth_needed(),"off depth zero");
  Memory gt(MapMode::gt);HeightMap map{};map.fill(.31f);

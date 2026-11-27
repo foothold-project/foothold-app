@@ -28,13 +28,15 @@ void DepthSampler::receive() {
     }
 }
 
-const Depth* DepthSampler::latest(Tick now) {
+const Depth* DepthSampler::latest(Tick now, Tick* stamp) {
     std::unique_lock lock(mutex_, std::try_to_lock);
     if (lock.owns_lock() && received_ != copied_) {
         snapshot_ = incoming_;
         copied_ = received_;
     }
-    return copied_ != Tick{} && copied_ <= now && now - copied_ <= depth_freshness ? &snapshot_ : nullptr;
+    if (copied_ == Tick{} || copied_ > now || now - copied_ > depth_freshness) return nullptr;
+    if (stamp) *stamp = copied_;
+    return &snapshot_;
 }
 
 }

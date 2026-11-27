@@ -42,13 +42,16 @@ public:
     explicit Memory(MapMode mode):mode_(mode){}
     void reset();
     bool depth_needed()const;
+    // frame = a depth frame not given before (nullptr when none arrived). On a depth slot
+    // without a pending frame the slot holds: depth_tick stays false and depth2 is unchanged.
     const Inputs& prepare(const Obs&,const Depth* frame=nullptr,const HeightMap* gt=nullptr);
     void advance(const std::array<float,128>&,const std::array<float,128>&);
     std::uint64_t step()const{return step_;}
+    bool initialized()const{return initialized_;}
 private:
     MapMode mode_;
     std::uint64_t step_{};
-    bool initialized_{};
+    bool initialized_{}, pending_{};
     Inputs inputs_{};
     Depth captured_{};
 };

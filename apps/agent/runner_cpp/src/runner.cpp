@@ -203,6 +203,7 @@ const char* event_name(Event event) {
     case Event::exit_sit_down: return "EXIT_SIT_DOWN";
     case Event::inference_failed: return "INFERENCE_FAILED";
     case Event::ame2_unavailable: return "AME2_UNAVAILABLE";
+    case Event::depth_stale: return "DEPTH_STALE";
     case Event::dog_sit: return "DOG_SIT";
     case Event::dog_rise: return "DOG_RISE";
     case Event::factory_move: return "FACTORY_MOVE";
@@ -569,13 +570,25 @@ void Runner::collect(Tick now) {
 }
 
 void Runner::infer(Tick now, Tick scheduled, const LowState& state, const Vec3& grav,
-                   const Joints& q, const Depth* frame) {
+                   const Joints& q, DepthFrame depth) {
     if (scheduled < next_policy_ || options_.stand_only) return;
     next_policy_ += 20ms;
     if (next_policy_ <= scheduled) next_policy_ = scheduled + 20ms;
     if (inference_pending_) return;
-    const auto want = state.app_want && !remote_active(state.remote) ? *state.app_want
-                                                                     : remote_want(state.remote, options_.fwd_max);
+    const bool reconstruction = options_.map == MapMode::reconstruction;
+    // Memory gets a frame only when it was not given before (hold otherwise). The very first
+    // step after reset needs any fresh frame; without one the last target is held.
+    const Depth* frame = nullptr;
+    if (reconstruction && depth.values && (!memory_.initialized() || depth.stamp > depth_used_))
+        frame = depth.values;
+    if (reconstruction && !memory_.initialized() && !frame) return;
+    auto want = state.app_want && !remote_active(state.remote) ? *state.app_want
+                                                               : remote_want(state.remote, options_.fwd_max);
+    if (reconstruction && now - depth_seen_ >= options_.depth_slow_after) {
+        if (!depth_slowed_) observer_.event(now, Event::depth_stale, {nullptr, seconds(now - depth_seen_)});
+        depth_slowed_ = true;
+        want = {0, 0, 0};
+    }
     const auto shaped = shape_command(want, options_.fwd_max);
     slew_command(command_, shaped.command);
     const auto dq = to_policy(state.dq);
@@ -583,7 +596,9 @@ void Runner::infer(Tick now, Tick scheduled, const LowState& state, const Vec3& 
     try {
         if (!finite(obs) || (frame && !finite(*frame)))
             throw std::runtime_error("nonfinite policy input");
-        policy_.submit(memory_.prepare(obs, memory_.depth_needed() ? frame : nullptr));
+        const bool needed = memory_.depth_needed();
+        policy_.submit(memory_.prepare(obs, needed ? frame : nullptr));
+        if (needed && frame) depth_used_ = depth.stamp;
     } catch (const std::exception&) {
         observer_.event(now, Event::inference_failed);
         damp(now, "inference failed");
@@ -595,8 +610,13 @@ void Runner::infer(Tick now, Tick scheduled, const LowState& state, const Vec3& 
     collect(now);
 }
 
-void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shutdown,
+void Runner::tick(Tick now, const LowState& state, DepthFrame depth, bool shutdown,
                   std::optional<Tick> scheduled_slot) {
+    const Depth* frame = depth.values;
+    if (frame && depth.stamp > depth_seen_) {
+        depth_seen_ = depth.stamp;
+        depth_slowed_ = false;
+    }
     const auto scheduled = scheduled_slot.value_or(now);
     if (stopped_) return;
     shutdown_ = shutdown_ || shutdown;
@@ -683,9 +703,12 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     }
     if (emergency) return;
 
-    // Fresh depth is required to arm reconstruction. Loss during policy uses
-    // the same controlled sit and mode return as a lost LowState stream.
-    if (options_.map == MapMode::reconstruction && !frame) {
+    // Fresh depth is required to arm reconstruction. During policy a gap holds the map and
+    // slows to a stop (infer); only a gap past depth_sit_after, or loss in any other phase,
+    // uses the same controlled sit and mode return as a lost LowState stream.
+    const bool depth_gap_held = phase_ == Phase::policy && depth_seen_ != Tick{} &&
+                                now - depth_seen_ < options_.depth_sit_after;
+    if (options_.map == MapMode::reconstruction && !frame && !depth_gap_held) {
         if (active) {
             observer_.event(now, Event::depth_lost);
             return_after_sit_ = true;
@@ -798,7 +821,7 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     }
     if (phase_ == Phase::policy) {
         collect(now);
-        if (phase_ == Phase::policy) infer(now, scheduled, state, grav, q, frame);
+        if (phase_ == Phase::policy) infer(now, scheduled, state, grav, q, depth);
         if (phase_ == Phase::policy) send(target_, kp, kd);
     }
 }
