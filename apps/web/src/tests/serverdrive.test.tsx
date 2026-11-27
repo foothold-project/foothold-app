@@ -126,7 +126,7 @@ describe('서버 경유 시험 조종 패널', () => {
     for (const ks of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyW', 'KeyS'], ['KeyQ', 'KeyE']]) {
       ks.forEach((k) => key('keydown', k)); tick(60);
       expect(lastAxes()).toBe('0,0,0');
-      expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);
+      expect($('[data-sd-why]')!.textContent).toBe('이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.');   // 멈춤 확인 아님(입력 0 만)
       [...ks].reverse().forEach((k) => key('keyup', k));
     }
     key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0');

@@ -41,7 +41,7 @@ const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', Arro
 /** 옆걸음(Q/E)이 조직 속도 설정(옆 상한·빠른 조종 끔)에 막혀 0 을 보낼 때 까닭 한 줄. 폰(drive.tsx)·PC 같은 문구 */
 export const SIDE_BLOCK = '옆걸음은 조직 속도 설정(옆 상한)이 허락하지 않아 입력을 0으로 보냅니다.';
 /** 표에 없는 키 조합(W+Q·A+Q·W+S·Q+E 등)은 0. 말없이 멈추지 않게 까닭 한 줄(폰·PC 같은 문구) */
-export const COMBO_BLOCK = '이 키 조합은 함께 보낼 수 없어 멈춤';
+export const COMBO_BLOCK = '이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.';
 export const MAX_TURN_RATE = orgSettingsSchema.properties.real_max_wz.maximum;
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
 export const TABLE: Record<string, [number, number, number]> = {
