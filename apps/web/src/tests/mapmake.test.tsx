@@ -246,7 +246,7 @@ describe('지도 만들기 — 진행', () => {
       'POST /robots/r-a/slam/cancel': () => (now = prog('CANCELLED'), { status: 200, body: now }),
     }));
     await open(); await openMake();
-    expect($('[data-failed]')!.textContent).toBe('연결이 끊겨 그리기를 멈췄습니다. 지금까지 그린 것을 저장하거나 취소하세요.');
+    expect($('[data-failed]')!.textContent).toBe('연결이 끊겨 지도 기록은 로봇에서 계속합니다');
     await click(btn('다시 저장', dlg()));
     expect(posts().map((c) => c.path)).toEqual(['/robots/r-a/slam/save']);
     expect($('[data-failed]')!.textContent).toBe('점이 너무 적어 지도를 만들지 못했습니다.');

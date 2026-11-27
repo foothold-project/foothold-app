@@ -20,13 +20,15 @@ from foothold_agent.slam_source import Source, SOURCES
 from .poses import timestamp
 from .runtime import MappingRuntime,TransferError
 from .services import Services
-from .health import PointLioHealth
+from .health import PointLioHealth, FRESH_SECONDS, MAX_POSITION_JUMP_M
 from .raw_recording import RawRecorder
 from .world import WorldAccumulator
 from .tiles import Tiles
 from .glim_dump import DumpSession
 
 LOG = logging.getLogger(__name__)
+DISCONNECT_GRACE_SECONDS = 5 * 60
+POINTLIO_WAIT_SECONDS = 30
 
 
 def utc():
@@ -50,8 +52,9 @@ def encode(body):
 
 
 class OnboardRuntime(MappingRuntime):
-    def __init__(self,*args,command_allowed=lambda:False,source=None,service_run=None,**kwargs):
+    def __init__(self,*args,command_allowed=lambda:False,source=None,service_run=None,local_enabled=None,**kwargs):
         super().__init__(*args,**kwargs)
+        self.local_enabled=local_enabled or self.enabled
         self.live=source or Source(self.env,'point_lio')
         self.final=Source(self.env,'glim')
         self.source=self.live
@@ -63,11 +66,11 @@ class OnboardRuntime(MappingRuntime):
         self.input_stamps={}
         self.handles=[]
         self.pointlio=PointLioHealth(self.live,self.now)
-        self.services=Services(self.env,lambda:self.enabled() and self.online,run=service_run,
+        self.services=Services(self.env,self.local_recording_allowed,run=service_run,
             now=self.now,fresh=self.pointlio.fresh)
         self.services_fault=None
         self.services_requested=False
-        self.raw=RawRecorder(self.env,lambda:self.enabled() and self.online and not self.stopping.is_set(),self.services)
+        self.raw=RawRecorder(self.env,self.local_recording_allowed,self.services)
         self.seen=set()
         self.phase='UNKNOWN'
         self.command_id=None
@@ -89,6 +92,7 @@ class OnboardRuntime(MappingRuntime):
         self.was_enabled=False
         self.disconnected_since=None
         self.services_disconnected=False
+        self.input_wait_since=None
         self.not_before=float('-inf')
         self.dump=None
         self.dump_eligible=False
@@ -131,7 +135,7 @@ class OnboardRuntime(MappingRuntime):
         super().command(frame)
 
     def receive(self, topic, message):
-        if (self.stopping.is_set() or not self.enabled()
+        if (self.stopping.is_set() or not self.local_enabled()
                 or self.core.status in ('SAVED','CANCELLED') and not self.services.control_enabled()):
             return
         # Retain one reference per topic, never copy/parse a cloud on DDS lane.
@@ -148,11 +152,24 @@ class OnboardRuntime(MappingRuntime):
         LOG.warning('SLAM dropped topic=%s reason=%s monotonic=%.6f utc=%s', topic, reason, self.now(), utc())
 
     def suspend(self):
-        self.raw.stop('observation_unavailable')
-        super().suspend()
+        # A transport loss does not revoke local observation permission.
         if self.disconnected_since is None:
             self.disconnected_since=self.now()
+        self.online=False
+        self.next_report=float('-inf')
+
+    def local_recording_allowed(self):
+        return (not self.stopping.is_set() and self.local_enabled()
+            and (self.online or self.core.session_id is not None
+                and self.disconnected_since is not None and not self.services_disconnected
+                and self.now()-self.disconnected_since<DISCONNECT_GRACE_SECONDS))
+
+    def stop_observation(self):
+        self.raw.stop('observation_unavailable')
+        self.services_disconnected=True
+        self.services.stop()
         with self.lock:
+            self.commands.clear()
             self.pending_samples.clear()
         for history in self.pose_histories.values():
             history.clear()
@@ -219,6 +236,7 @@ class OnboardRuntime(MappingRuntime):
             self.services_requested=False
             self.services_disconnected=False
             self.services_fault=None
+            self.input_wait_since=None
             self.phase,self.core.status='START_REQUESTED','STARTING'
             if not self.live.configured:
                 self.problem('MAPPING_FRAME_REQUIRED','Point-LIO 토픽과 지도 좌표 설정을 확인해 주세요.')
@@ -259,7 +277,7 @@ class OnboardRuntime(MappingRuntime):
             self.raw.stop('save_requested')
             self.save_requested=frame['_received_monotonic']
             self.final_received=False
-            self.dump_eligible=bool(self.dump and not self.services_disconnected
+            self.dump_eligible=bool(self.dump and not self.services_disconnected and not self.services_fault
                 and self.session_services_ready() and self.services.status=='STARTED'
                 and self.services.glim in self.services.owned)
             self.services.stop()
@@ -424,12 +442,33 @@ class OnboardRuntime(MappingRuntime):
     def check_services_health(self):
         if (self.services.control_enabled() and self.session_services_ready()
                 and self.save_requested is None and not self.services_disconnected
-                and self.core.status not in ('SAVED','CANCELLED','FAILED')
-                and not self.services.receiving_ready()):
-            self.services_fault=self.services_fault or self.services.start_error or self.pointlio.error or (
-                '실시간 위치와 점 자료가 끊겼습니다. 받은 자료를 저장하거나 새로 시작해 주세요.')
+                and not self.services_fault
+                and self.core.session_id and self.core.status not in ('SAVED','CANCELLED','FAILED')):
+            if self.services.pointlio_restarted:
+                self.services_fault='위치 계산이 다시 시작되어 기준을 확인할 수 없습니다. 받은 자료를 저장하거나 새로 시작해 주세요.'
+            elif self.pointlio.error or self.services.status!='STARTED' or self.services.glim not in self.services.owned:
+                self.services_fault=self.services_fault or self.pointlio.error or self.services.start_error or (
+                    '지도 기록이 꺼졌습니다. 받은 자료를 저장하거나 새로 시작해 주세요.')
+            elif not self.services.receiving_ready():
+                if self.input_wait_since is None:
+                    receipts=[item[0] for item in self.pointlio.state[:2] if item is not None]
+                    self.input_wait_since=min(self.now(),min(receipts)+FRESH_SECONDS) if receipts else self.now()
+                self.problem('MAPPING_INPUT_WAITING','위치 자료를 기다리는 중')
+            elif self.input_wait_since is not None:
+                pose=self.pointlio.state[0]
+                if (pose is not None and self.core.last_pose is not None
+                        and math.dist(pose[2],self.core.last_pose)>MAX_POSITION_JUMP_M):
+                    self.services_fault='위치 기준이 바뀌었습니다. 받은 자료를 저장하거나 새로 시작해 주세요.'
+                else:
+                    self.input_wait_since=None
+                    self.core.error_code=self.core.reason=None
+                    self.phase,self.core.status=('STARTED','RUNNING') if self.core.cells else ('START_REQUESTED','STARTING')
+            if self.input_wait_since is not None and self.now()-self.input_wait_since>=POINTLIO_WAIT_SECONDS:
+                self.services_fault=self.services_fault or '위치 자료를 30초 동안 받지 못했습니다. 받은 자료를 저장하거나 새로 시작해 주세요.'
         if self.services_fault and self.save_requested is None and self.core.status not in ('SAVED','CANCELLED','FAILED'):
-            self.raw.stop('pointlio_or_glim_unavailable')
+            if self.core.error_code!='MAPPING_SERVICES_UNAVAILABLE':
+                self.raw.stop('pointlio_or_glim_unavailable')
+                self.services.stop()
             self.problem('MAPPING_SERVICES_UNAVAILABLE',self.services_fault)
 
     def grid_body(self, *, crop=False, max_cells=None):
@@ -519,7 +558,7 @@ class OnboardRuntime(MappingRuntime):
                 self.services.stop()
 
     def step(self):
-        if self.stopping.is_set() or not self.enabled():
+        if self.stopping.is_set() or not self.local_enabled():
             return
         with self.lock:
             commands, self.commands = self.commands, deque(maxlen=8)
@@ -637,26 +676,44 @@ class OnboardRuntime(MappingRuntime):
             self.next_report = self.now()+.25
 
     def cleanup_disconnected(self):
-        if self.disconnected_since is not None:
+        if (self.disconnected_since is not None
+                and self.now()-self.disconnected_since>=DISCONNECT_GRACE_SECONDS
+                and not self.services_disconnected):
             self.raw.stop('observation_unavailable')
-        if (self.disconnected_since is not None and self.now()-self.disconnected_since>=10
-                and (self.services.owned or self.services.pending or self.services.status=='STARTING')):
-            if self.services.control_enabled():
-                self.services_disconnected=True
+            self.services_disconnected=True
             self.services.stop()
+            with self.lock:
+                self.pending_samples.clear()
+            for history in self.pose_histories.values():
+                history.clear()
+            self.rebuild=None
+
+    def connection(self, connected):
+        if not connected:
+            self.suspend()
+            self.cleanup_disconnected()
+        else:
+            # Check the old deadline before forgetting it, even if no worker
+            # tick ran at the deadline itself.
+            self.cleanup_disconnected()
+            if not self.online:
+                self.next_report=float('-inf')
+            self.disconnected_since=None
+            self.online=True
 
     def worker(self):
         try:
             while not self.stopping.wait(.02):
-                enabled = self.enabled()
-                if not enabled or self.services.control_enabled() and not self.online:
-                    self.cleanup_disconnected()
+                enabled = self.local_enabled()
+                if not enabled:
                     if self.was_enabled:
-                        self.suspend()
+                        self.stop_observation()
                         self.release_readers()
                     self.was_enabled = False
                     continue
-                self.disconnected_since=None
+                self.cleanup_disconnected()
+                if not self.online and not self.local_recording_allowed():
+                    continue
                 if not self.was_enabled or not self.handles and self.now() >= getattr(self, 'next_acquire', 0):
                     self.acquire()
                     self.next_acquire = self.now()+1
@@ -682,11 +739,7 @@ class OnboardRuntime(MappingRuntime):
             while True:
                 connected = bool(self.enabled() and self.observer.connected and not self.observer.link_lost
                                  and not self.observer.reconnect_required)
-                if self.online and not connected:
-                    self.suspend()
-                if not connected:
-                    self.cleanup_disconnected()
-                self.online = connected
+                self.connection(connected)
                 await asyncio.sleep(.02)
         finally:
             self.close()

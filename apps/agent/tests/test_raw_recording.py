@@ -322,7 +322,10 @@ def test_onboard_integration_stops_raw_and_mapping_remains_independent(tmp_path,
         assert not any('raw' in k for k in body)
         if operation in ('save','cancel'):
             rt.command(command(operation,start))
-        elif operation=='disconnect':rt.suspend()
+        elif operation=='disconnect':
+            rt.suspend()
+            rt.disconnected_since=rt.now()-301
+            rt.cleanup_disconnected()
         else:rt.close()
         wait_for(lambda:rt.raw.snapshot()['status']=='STOPPED')
         assert len(lane.signals)==1 and rt.core.cells

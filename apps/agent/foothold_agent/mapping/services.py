@@ -23,6 +23,8 @@ class Services:
         self.pointlio,self.glim=self.names
         self.fresh=fresh
         self.pointlio_active=False
+        self.pointlio_was_down=False
+        self.pointlio_restarted=False
         self.owned=set()
         self.status='IDLE'
         self.pending=False
@@ -51,6 +53,11 @@ class Services:
     def receiving_ready(self):
         return self.status=='STARTED' and self.glim in self.owned and self.pointlio_ready()
 
+    def recording_ready(self):
+        # Raw sensor recording can span a short Point-LIO output gap. New
+        # accumulation still requires receiving_ready(), including freshness.
+        return self.status=='STARTED' and self.glim in self.owned and self.pointlio_active
+
     def check_pointlio(self):
         active=self.run('is-active',self.pointlio)
         self.pointlio_active=active==0
@@ -66,7 +73,17 @@ class Services:
         with self.lock:
             job=self.version
         try:
-            self.check_pointlio()
+            # Fresh data is mandatory at start, but a running session may wait
+            # for it without invalidating ownership of its GLIM process.
+            active=self.run('is-active',self.pointlio)==0
+            with self.lock:
+                if self.version!=job or self.status!='STARTED':
+                    return
+                self.pointlio_active=active
+                if not active:
+                    self.pointlio_was_down=True
+                elif self.pointlio_was_down:
+                    self.pointlio_restarted=True
             if self.run('is-active',self.glim)!=0:
                 self.start_error='지도 기록이 꺼졌습니다. 받은 자료를 저장하거나 새로 시작해 주세요.'
                 raise OSError('owned GLIM service unavailable')
@@ -88,6 +105,7 @@ class Services:
                 self.stop()  # the replacement must not leave the older job running
                 return False
             self.version+=1
+            self.pointlio_was_down=self.pointlio_restarted=False
             self.pending=True
             self.ready_at=None
             self.stop_requested=False
