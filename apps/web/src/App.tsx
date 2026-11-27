@@ -65,7 +65,7 @@ function groupStops(rs: Robot[], live: (id: string) => Live, off: string[], now:
     failed.length && line('failed', `▲ ${names(failed)} 정지 요청을 보내지 못했습니다. 현장에서 직접 멈추세요.${why(failed)}`),
     unsure.length && line('unsure', `▲ ${names(unsure)} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 현장에서 직접 멈추세요.${why(unsure)}`),
     lostOnes.length && <span key="stop-g-lost" data-stop-band data-stop-group="lost" data-stop-lost={lostOnes.map((r) => r.id).join(' ')}>▲ {lostStop({ ...lostOnes[0], name: names(lostOnes) })}.</span>,
-    unknown.length && <span key="stop-g-unknown" data-stop-band data-stop-group="unknown" data-stop-unsure={unknown.map((r) => r.id).join(' ')}>▲ {unsureStop({ ...unknown[0], name: names(unknown) })}.</span>,
+    unknown.length && <span key="stop-g-unknown" data-stop-band data-stop-group="unknown" data-stop-unsure={unknown.map((r) => r.id).join(' ')}>▲ {names(unknown)} 서버 접수 · 로봇 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요.</span>,
     fbOk.length && line('fallback', `■ ${names(fbOk)} 정지 요청됨(대체 경로) · 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`),
     ...rs.filter((r) => !done.has(r.id)).map((r) => <span key={`stop-${r.id}`} data-stop-band>{stopText(r, live(r.id))}</span>),
   ].filter(Boolean);
@@ -276,7 +276,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const stop = () => {
     // Q1(11-28): 폰 · 서버 끊김 · 대상 없음 · 시뮬 화면 밖에서 내 시뮬이 떠 있으면 내 시뮬(sim.stop · 직결이면 직결 먼저)과 정지 가능한 실기(B1) 둘 다
     const real = stops.filter((r) => !r.sim);
-    if (toSim && phone && down && !target && !simOpen && real.length) { sim.stop(); haltDown(real); setSimStop(true); return; }
+    if (toSim && phone && down && !target && !simOpen && real.length) { setSimStop(true); try { haltDown(real); } finally { sim.stop(); } return; }   // 실기 먼저 · 한쪽이 던져도 다른 쪽은 나간다
     if (toSim) { setNoWay(''); return sim.stop(); }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
     if (!canStop) return;
     if (phone && down && !target) {   // 관제 탭(PC)은 W1 의 «모두 정지» 고르기 그대로
