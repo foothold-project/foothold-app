@@ -293,12 +293,13 @@ class MappingRuntime:
             self.io.shutdown(wait=False, cancel_futures=True)
 
 
-def attach(observer, channel, settings, robot, env, *, enabled=None, command_allowed=lambda: False):
+def attach(observer, channel, settings, robot, env, *, enabled=None, local_enabled=None, command_allowed=lambda: False):
     """Return background task, never changes the control task graph's health."""
     if not hasattr(channel, 'cloud') or not hasattr(channel, 'add_sport_listener'):
         return None  # observation-less adapters retain their existing control lifetime
     try:
-        mapper = MappingRouter(observer, channel, settings, robot, env, enabled=enabled, command_allowed=command_allowed)
+        mapper = MappingRouter(observer, channel, settings, robot, env, enabled=enabled,
+            local_enabled=local_enabled, command_allowed=command_allowed)
     except (ValueError, TypeError, AttributeError):
         return None  # a mapping configuration fault cannot stop physical control
     observer.mapping = mapper
@@ -307,7 +308,7 @@ def attach(observer, channel, settings, robot, env, *, enabled=None, command_all
 
 class MappingRouter:
     """Keep old command shape/PCD path isolated from the onboard contract."""
-    def __init__(self, observer, channel, settings, robot, env, *, enabled, command_allowed):
+    def __init__(self, observer, channel, settings, robot, env, *, enabled, command_allowed, local_enabled=None):
         from .onboard import OnboardRuntime
         class View:
             def __getattr__(self, name):
@@ -318,7 +319,7 @@ class MappingRouter:
         # Standalone legacy observer has no confirmed-body callback. It cannot
         # silently gain the new onboard observation/command scope.
         self.onboard = OnboardRuntime(View(), channel, settings, robot, env,
-            enabled=enabled or (lambda: False), command_allowed=command_allowed)
+            enabled=enabled or (lambda: False), local_enabled=local_enabled, command_allowed=command_allowed)
         self.legacy_task = None
 
     def command(self, frame):

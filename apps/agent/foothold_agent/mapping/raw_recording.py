@@ -187,7 +187,7 @@ class RawRecorder:
                 if not self.allowed():
                     status, cause = 'STOPPED', 'observation_unavailable'
                     break
-                if not self.services.receiving_ready():
+                if not getattr(self.services,'recording_ready',self.services.receiving_ready)():
                     status, cause = 'STOPPED', 'services_ended'
                     break
                 # Progress reads the size without walking disk on the mapping lane.

@@ -509,6 +509,12 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
                         and session.connected and not session.link_lost and not session.reconnect_required)
         except (ValueError, PermissionError):
             return False
+
+    def mapping_observation_enabled():
+        try:
+            return bool(ready and nic_valid and inputs.identity() == observed_serial)
+        except (ValueError, PermissionError):
+            return False
     try:
         while not stop.is_set() and not network.done():
             stamp = time.monotonic()
@@ -561,6 +567,8 @@ async def run(credentials, nic, inputs, subscriptions, *, ready, check_nic, stat
             if mapping_task is None and observation_enabled() and (builtin_mapping or gate.active is not None):
                 try:
                     options = dict(enabled=observation_enabled if builtin_mapping else lambda: gate.active is not None)
+                    if builtin_mapping:
+                        options['local_enabled'] = mapping_observation_enabled
                     if builtin_mapping:
                         options['command_allowed'] = lambda: gate.active is not None and gate.valid()
                     mapping_task = mapping_factory(session, subscriptions, credentials.link,

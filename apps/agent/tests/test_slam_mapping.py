@@ -611,7 +611,7 @@ def test_failed_stop_keeps_live_processing_and_replacement_responsive_then_recov
         wait_for(lambda:rt.services.status=='STOPPED')
         recovered=command();rt.command(recovered);rt.step()
         wait_for(lambda:rt.services.status=='STARTED')
-        rt.receive(FRONTEND,pose());rt.receive(CLOUD,cloud());rt.step()
+        rt.receive(FRONTEND,pose(stamp=2));rt.receive(CLOUD,cloud(stamp=2));rt.step()
         assert rt.core.session_id==recovered['session_id'] and rt.core.status=='RUNNING'
         assert rt.core.cells and len([c for c in calls if c[0]=='start'])==2
     finally:

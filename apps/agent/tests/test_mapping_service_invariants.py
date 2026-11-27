@@ -86,7 +86,7 @@ def test_always_on_pointlio_survives_every_session_ending(tmp_path,ending):
         prime(rt,2)
         assert rt.core.cells
         if ending=='disconnect':
-            rt.suspend();clock.t=10.;rt.cleanup_disconnected()
+            rt.suspend();clock.t=301.;rt.cleanup_disconnected()
         elif ending=='close':rt.close()
         else:
             rt.command(command(ending,start));drain(rt)
@@ -115,7 +115,7 @@ def test_pointlio_or_glim_fault_fences_all_input_and_retains_single_fallback(tmp
         elif failure.endswith('-off'):
             active.remove('foothold-glim' if failure=='glim-off' else 'foothold-pointlio')
             rt.services.wake.set()
-            wait_for(lambda:rt.services.status=='UNKNOWN')
+            wait_for(lambda:rt.services.status=='UNKNOWN' if failure=='glim-off' else not rt.services.pointlio_active)
         else:
             msg=pose(stamp=3)
             if failure=='nan-pose':msg.pose.pose.position.x=float('nan')
@@ -123,6 +123,9 @@ def test_pointlio_or_glim_fault_fences_all_input_and_retains_single_fallback(tmp
             rt.receive(FRONTEND,msg)
             rt.receive(CLOUD,cloud(points=((float('nan'),0,.3),(9,0,.3)) if failure=='nan-cloud' else ((9,0,.3),),stamp=3))
         drain(rt)
+        if failure in ('stale','pointlio-off'):
+            assert rt.core.error_code=='MAPPING_INPUT_WAITING'
+            clock.t=31.;drain(rt)
         assert_input_blocked(rt,4)
         assert before==(dict(rt.core.cells),rt.last_odom,dict(rt.input_stamps))
         assert rt.core.error_code=='MAPPING_SERVICES_UNAVAILABLE'
@@ -142,6 +145,7 @@ def test_pointlio_or_glim_fault_fences_all_input_and_retains_single_fallback(tmp
 
 def test_server_link_only_disconnect_keeps_deadline_with_observation_enabled(tmp_path):
     rt,clock,active,calls=always_on_runtime(tmp_path)
+    rt.services.fresh=lambda:True  # This case isolates transport/service lifetime.
     closed=[]
     rt.channel=NS(cloud_bus=NS(subscribe=lambda topic,*a,**k:NS(Close=lambda:closed.append(topic))))
     prime(rt)
@@ -156,13 +160,13 @@ def test_server_link_only_disconnect_keeps_deadline_with_observation_enabled(tmp
             assert rt.services.status=='STARTED'
             rt.observer.connected=False
             for _ in range(200):
-                if rt.disconnected_since is not None and closed:break
+                if rt.disconnected_since is not None:break
                 await asyncio.sleep(.005)
-            assert rt.enabled() and rt.disconnected_since==0. and closed
-            clock.t=9.
+            assert rt.enabled() and rt.disconnected_since==0. and not closed
+            clock.t=299.
             await asyncio.sleep(.06)
             assert rt.disconnected_since==0. and rt.services.owned=={'foothold-glim'}
-            clock.t=10.
+            clock.t=301.
             for _ in range(200):
                 if not rt.services.owned:break
                 await asyncio.sleep(.005)
@@ -336,7 +340,7 @@ def test_rv505_disconnect_cleanup_reconnect_only_saves_our_previous_points(tmp_p
         own_cells, own_odom = dict(rt.core.cells), rt.last_odom
         assert len(own_cells) == 1 and own_odom is not None
         rt.online = False; rt.suspend()
-        clock.t = 12.; rt.cleanup_disconnected()
+        clock.t = 301.; rt.cleanup_disconnected()
         wait_for(lambda: rt.services.status == 'STOPPED' and not rt.services.owned)
         # Retain the upload authorization, while revoking new input.
         assert rt.session_services_ready()
@@ -565,7 +569,7 @@ def test_two_session_lifecycle_invariants(tmp_path, online, stop, start, save):
         if disconnected:
             phase.value = 'saving'
             rt.online = False; rt.suspend()
-            clock.t += 12; rt.cleanup_disconnected()
+            clock.t += 301; rt.cleanup_disconnected()
             assert stop_entered.wait(1)
             if stop != 'hang':
                 wait_for(lambda: rt.services.status == ('STOPPED' if stop == 'ok' else 'UNKNOWN'))
@@ -585,7 +589,7 @@ def test_two_session_lifecycle_invariants(tmp_path, online, stop, start, save):
             # A complete receipt/files still cannot certify a hanging/failed stop.
             finish_dump(rt, [[2, 0, .3]], confirm_stopped=False)
         for second_elapsed in range(1, 32):
-            clock.t = (13. if disconnected else 1.) + second_elapsed
+            clock.t = (302. if disconnected else 1.) + second_elapsed
             if not rt.session_receiving_ready():
                 assert_input_blocked(rt, second_elapsed + 4)
             samples(rt, second_elapsed + 3)
