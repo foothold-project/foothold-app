@@ -177,7 +177,7 @@ describe('임무 탭(W2)', () => {
     expect(new Date(last(calls.filter((c) => c.path === '/robots/availability'))!.q.get('start')!).getTime()).toBe(new Date(at(9, 30)).getTime());
   });
 
-  it('예상(POST /estimates): 로봇 · 걷기 모드를 고르기 전엔 숫자 없음 · 고르면 예상 끝 · 여유 · 끝 배터리 · 걷기 + 할 일, 표 값이면 «추정», 여유 null = «마감 없음»', async () => {
+  it('예상(POST /estimates): 로봇 · 걷기 모드를 고르기 전엔 숫자 없음 · 고르면 예상 끝 · 여유 · 끝 배터리 · 걷기 + 할 일, 표 값이면 «추정», 여유 null = «다음 일정 없음»', async () => {
     await mount('#/missions');
     for (const e of $$('[data-est]')) expect(e.textContent).toBe('—');
     expect(calls.filter((c) => c.path === '/estimates')).toEqual([]);
@@ -195,10 +195,11 @@ describe('임무 탭(W2)', () => {
     expect($$('[data-guess]').length).toBeGreaterThan(0);
     expect($('[data-walk-task]')!.textContent).toBe('21 + 6분추정');
     expect($('[data-mission="s1"] [data-dur]')!.textContent).toBe('27분');
-    // 여유 null = 마감 없음 · 잰 값(MEASURED)은 «추정» 없음
+    // 여유 = 같은 로봇의 다음 일정 시작 - 예상 끝(#531 margin_s). null = 다음 일정 없음 · 잰 값(MEASURED)은 «추정» 없음
     srv.est = { ...EST, margin_s: null, estimate_source: 'MEASURED' };
     await click($('[data-mode="Sport"]'));
-    expect($('[data-est="margin"]')!.textContent).toBe('마감 없음');
+    expect($('[data-est="margin"]')!.textContent).toBe('다음 일정 없음');
+    expect($('[data-est="margin"]')!.closest('div')!.querySelector('dt')!.textContent).toBe('다음 일정까지 여유');   // 무엇과 비교한 값인지(마감과 비교하는 «마감 넘음» 과 헷갈리지 않게)
     expect($$('[data-guess]')).toEqual([]);
     // 여유가 음수 = 다음 일정과 겹침 · 크기는 쓰지 않는다(겹친 길이가 아님)
     srv.est = { ...EST, margin_s: -300 };

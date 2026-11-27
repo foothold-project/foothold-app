@@ -290,7 +290,7 @@ function Side({ x, robots, p }: { x?: Scenario; robots: Robot[]; p: Plan }) {
     <p className="lv-note">예상과 일정에만 씁니다. 로봇에 보내지 않습니다.</p>
     <dl className="mt-est" aria-label="예상">
       <div><dt>예상 끝</dt><dd><b data-est="eta">{e ? hm(e.eta) : '—'}</b>{e && <Guess e={e} />}</dd></div>
-      <div><dt>여유</dt><dd><b data-est="margin" className={e?.margin_s != null && e.margin_s < 0 ? 'mt-bad' : undefined}>{!e ? '—' : e.margin_s == null ? '마감 없음' : e.margin_s < 0 ? '겹침' : `${mins(e.margin_s)}분`}</b>{e && e.margin_s != null && e.margin_s >= 0 && <Guess e={e} />}</dd></div>
+      <div><dt>다음 일정까지 여유</dt><dd><b data-est="margin" className={e?.margin_s != null && e.margin_s < 0 ? 'mt-bad' : undefined}>{!e ? '—' : e.margin_s == null ? '다음 일정 없음' : e.margin_s < 0 ? '겹침' : `${mins(e.margin_s)}분`}</b>{e && e.margin_s != null && e.margin_s >= 0 && <Guess e={e} />}</dd></div>
       <div><dt>종료 시 배터리</dt><dd><b data-est="battery">{e && e.end_battery_pct != null ? `${Math.round(e.end_battery_pct)}%` : '—'}</b>{e && e.end_battery_pct != null && <Guess e={e} />}</dd></div>
     </dl>
     {p.late && e && <p className="fh-msg mt-bad" role="alert" data-late>마감 넘음 · 예상 끝 {hm(e.eta)}</p>}
