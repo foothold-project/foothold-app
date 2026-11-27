@@ -231,7 +231,8 @@ def create_app(settings: Settings | None = None):
                     AND has_column_privilege(current_user, 'approvals', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'UPDATE')
                 OR EXISTS (SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = 'map_versions' AND column_name <> 'status'
+                    WHERE table_schema = 'public' AND table_name = 'map_versions'
+                    AND column_name NOT IN ('status', 'model_path', 'model_sha256')
                     AND has_column_privilege(current_user, 'map_versions', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'DELETE')
                 OR has_table_privilege(current_user, 'map_versions', 'TRUNCATE')

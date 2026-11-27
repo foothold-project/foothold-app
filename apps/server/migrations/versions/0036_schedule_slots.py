@@ -1,8 +1,8 @@
 """로봇 일정 칸. 같은 로봇 겹침은 서버가 로봇 행 잠금 아래에서 409 로 막는다."""
 from alembic import op
 
-revision = '0035'
-down_revision = '0034'
+revision = '0036'
+down_revision = '0035'
 branch_labels = None
 depends_on = None
 
