@@ -11,8 +11,9 @@
 
 /* 분류 = 작은 회색 글(색 없음), 심각도 = 기호+글을 그 색 글자로(테두리·채움 없음). 색은 심각도에만(11-11 A안) */
 .hs-kind{font-size:12px;color:var(--muted);white-space:nowrap}
-.hs-sev{display:inline-flex;align-items:baseline;gap:3px;font-size:13px;font-weight:700;white-space:nowrap;color:var(--muted)}
-.hs-sev[data-tone="warn"]{color:var(--warn)}.hs-sev[data-tone="bad"]{color:var(--bad)}
+/* 등급 알약: 테두리 + 옅은 바탕(글자 색과 같은 색을 얇게). 정보는 회색 */
+.hs-sev{display:inline-flex;align-items:baseline;gap:3px;padding:1px 7px;border:1px solid color-mix(in srgb,currentColor 45%,transparent);border-radius:999px;background:color-mix(in srgb,currentColor 10%,transparent);font-size:12px;font-weight:700;white-space:nowrap;color:var(--muted)}
+.hs-sev[data-tone="warn"]{color:var(--warn)}.hs-sev[data-tone="bad"]{color:var(--bad)}.hs-sev[data-tone="info"]{font-weight:600}
 /* 서랍 목록 한 줄: 위 심각도+문장, 아래 시각·분류 */
 .hs-item{display:flex;flex-direction:column;gap:2px;min-width:0}
 .hs-said{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;min-width:0;overflow-wrap:anywhere}

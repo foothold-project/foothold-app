@@ -79,9 +79,9 @@ const blank = (): Spec => ({ schema: 'fh_custom_terrain/1', id: newId(), name: '
 const KIND: Record<Kind, { name: string; make: () => Item; icon: ReactNode; hint: string }> = {
   box: { name: '상자', make: () => ({ kind: 'box', x: 0, y: 0, yaw: 0, sx: 1, sy: 1, h: 0.2 }), hint: '판을 눌러 상자를 놓습니다',
     icon: <rect x="5" y="5" width="14" height="14" rx="1" /> },
-  stairs: { name: '계단', make: () => ({ kind: 'stairs', x: 0, y: 0, yaw: 0, width: 1.2, steps: 5, rise: 0.12, run: 0.3 }), hint: '판을 눌러 계단을 놓습니다 — 화살표 쪽으로 올라갑니다',
+  stairs: { name: '계단', make: () => ({ kind: 'stairs', x: 0, y: 0, yaw: 0, width: 1.2, steps: 5, rise: 0.12, run: 0.3 }), hint: '판을 눌러 계단을 놓습니다 · 화살표 쪽으로 올라갑니다',
     icon: <path d="M3 20v-4h5v-4h5V8h5V4h3" /> },
-  ramp: { name: '경사', make: () => ({ kind: 'ramp', x: 0, y: 0, yaw: 0, length: 2, width: 1.2, h: 0.3 }), hint: '판을 눌러 경사를 놓습니다 — 화살표 쪽이 높습니다',
+  ramp: { name: '경사', make: () => ({ kind: 'ramp', x: 0, y: 0, yaw: 0, length: 2, width: 1.2, h: 0.3 }), hint: '판을 눌러 경사를 놓습니다 · 화살표 쪽이 높습니다',
     icon: <path d="M3 19L21 6v13z" /> },
   gap: { name: '틈', make: () => ({ kind: 'gap', x: 0, y: 0, yaw: 0, length: 0.4, width: 1.5 }), hint: '판을 눌러 바닥이 빠진 틈을 놓습니다',
     icon: <path d="M3 8h6v8H3M21 8h-6v8h6M11 4v2M11 10v2M11 16v2M13 4v2M13 10v2M13 16v2" /> },
@@ -350,7 +350,7 @@ export function Terrain() {
             onPose={(w, p) => (w === 'spawn' ? setPose(w, p) : setItem(w, p))} state={spec.items.map((_, i) => { const iss = issuesOf(i); return iss.some((x) => x.bad) ? 'bad' : iss.length ? 'warn' : undefined; })} />
         </Suspense>}
         {view === 'top' && <svg ref={svg} className="tr-board" data-tool={tool} viewBox={`${bounds[0]} ${-bounds[3]} ${bounds[2] - bounds[0]} ${bounds[3] - bounds[1]}`} tabIndex={0} role="application"
-          aria-label={`${spec.name} 위에서 본 판 — ${W}×${H} m`} data-terrain-board onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}>
+          aria-label={`${spec.name} 위에서 본 판 · ${W}×${H} m`} data-terrain-board onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}>
           <defs>
             <linearGradient id="tr-ramp"><stop offset="0" stopColor="var(--panel2)" /><stop offset="1" stopColor="color-mix(in srgb, var(--accent) 80%, var(--panel2))" /></linearGradient>
             <pattern id="tr-hatch" width={12 * px} height={12 * px} patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2={12 * px} stroke="var(--warn)" strokeWidth={3 * px} /></pattern>
@@ -386,7 +386,7 @@ export function Terrain() {
         <p className="mx-hint tr-hint" data-terrain-hint>{tool === 'select' || tool === 'spawn' ? (view === '3d' && tool === 'select' ? HINT3 : HINT[tool]) : KIND[tool].hint}</p>
       </div>
       <aside className="mx-pane tr-pane" aria-label="지형 내용">
-        {failed && <p className="fh-msg tr-pad" role="alert" data-terrain-failed>이 브라우저에 저장하지 못했습니다 — 저장 공간을 확인해 주세요. 저장되기 전에는 시뮬로 열 수 없습니다.</p>}
+        {failed && <p className="fh-msg tr-pad" role="alert" data-terrain-failed>이 브라우저에 저장하지 못했습니다 · 저장 공간을 확인해 주세요. 저장되기 전에는 시뮬로 열 수 없습니다.</p>}
         {general.length > 0 && <ul className="tr-general" aria-label="지형 전체 오류·경고">{general.map((g) => <li key={g.msg} className="fh-msg">✕ {g.msg}</li>)}</ul>}
         <div className="mx-head"><b className="fh-grow">{chosen ? `${(sel as number) + 1} · ${KIND[chosen.kind].name}` : sel === 'spawn' ? '시작 위치' : '고른 것 없음'}</b>
           {chosen && <button type="button" className="btn" data-terrain-del onClick={() => remove(sel as number)}>지우기</button>}</div>

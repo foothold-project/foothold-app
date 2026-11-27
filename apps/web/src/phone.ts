@@ -2,7 +2,7 @@
 // 띄우기·정리·출입증은 관제 서버 REST(api.ts), 조종·STOP·영상은 그 로봇 에이전트 폰 포트에 직접 WS — 서버 실시간(rt.ts) 조종 경로를 쓰지 않는다.
 // 조종권·잠금·deadman 판정은 에이전트. 폰은 요청만 보내고 state 로 확인한다: 자동 취득·자동 해제·자동 재연결 없음.
 import { useSyncExternalStore } from 'react';
-import type { OrgSettings, PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Scenario, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot, SimRobotList, SimWorldFloor } from '../../contracts/ts';
+import type { OrgSettings, PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Scenario, SimCatalog, SimCleanupSlot, SimFailureDetail, SimProvision, SimRobot, SimRobotList, SimWorldFloor } from '../../contracts/ts';
 import { ApiFail, api, authMark } from './api';
 import { media } from './media';
 import { phoneUrl } from './phoneTransport';
@@ -439,7 +439,7 @@ export const sim = {
       return true;
     }
     const managerError = r.status === 'fulfilled' ? r.value.manager_error ?? null : 'SIM_UNAVAILABLE';
-    const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? `시뮬 월드 목록을 받지 못했습니다. ${message(c.reason)}`
+    const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? '시뮬 월드 목록을 받지 못했습니다 · 서버 연결을 확인한 뒤 다시 여세요.'
       : r.status === 'rejected' ? simulationMessage(r.reason) ?? `내 시뮬 로봇 목록을 받지 못했습니다. ${message(r.reason)}`
       : managerError === 'SIM_DISABLED' ? '시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.'
       : managerError ? '시뮬 관리자에 연결하지 못했습니다. 관리자가 켜져 있는지와 연결을 확인한 뒤 정리하세요.' : '';
@@ -465,7 +465,7 @@ export const sim = {
    *  201 = ACTIVE → 바로 연결. §13.9 확실한 거부 목록 = 고르기로. SIM_SLOT_BUSY = «확인 중» + 목록으로 내 것인지(recheck).
    *  그 밖(답 없음·5xx·목록 밖 4xx) = 불확실(서버 STARTING 일 수 있음 — «확인 중», 정리는 DELETE).
    *  답 전에 화면 세션이 끝났으면(clear) 연결하지 않고, 같은 로그인 세션이면 생긴(또는 불확실한) 로봇만 DELETE 로 정리한다 */
-  async start(world: string, user = me, spawn_floor_id?: 'l1' | 'l2') {
+  async start(world: string, user = me, spawn_floor_id?: SimProvision['spawn_floor_id']) {
     const slots = S.catalog?.slots ?? [], slot = slots.find((x) => !S.taken.includes(x)) ?? slots[0];
     if (!slot) return set({ err: '띄울 수 있는 시뮬 슬롯이 없습니다.' });
     me = user; cancel = false;

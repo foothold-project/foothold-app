@@ -32,7 +32,7 @@ describe('parse·merge·detail', () => {
   it('누른 항목 안내: 내 조직 로봇 / 에이전트 발견(등록 준비 중) / Go2 만(설치 필요)', () => {
     const robots = [robot('r1', false)];
     expect(detail(agent('a', '10.0.0.2', 'r1'), robots)).toContain('이미 내 조직에 등록된 로봇입니다(로봇-r1)');
-    expect(detail(agent('a', '10.0.0.2'), robots)).toBe('에이전트 발견: go2-a 10.0.0.2:8765 — 연결 등록은 서버 준비 중입니다.');
+    expect(detail(agent('a', '10.0.0.2'), robots)).toBe('에이전트 발견: go2-a 10.0.0.2:8765 · 연결 등록은 서버 준비 중입니다.');
     expect(detail(ble('Go2_1'), robots)).toContain('FOOTHOLD 에이전트가 아직 없음(설치 필요)');
     expect(detail(addr('192.168.12.1'), robots)).toContain('FOOTHOLD 에이전트가 아직 없음(설치 필요)');
   });

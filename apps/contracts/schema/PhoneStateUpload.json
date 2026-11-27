@@ -634,6 +634,7 @@
               "enum": [
                 "l1",
                 "l2",
+                "l3",
                 "f1"
               ],
               "type": "string"
@@ -742,6 +743,7 @@
           "enum": [
             "l1",
             "l2",
+            "l3",
             "f1"
           ],
           "title": "Spawn Floor Id",
@@ -750,6 +752,7 @@
         "world_id": {
           "enum": [
             "v5_building",
+            "plant_a",
             "warehouse"
           ],
           "title": "World Id",

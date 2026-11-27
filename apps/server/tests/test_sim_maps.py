@@ -362,8 +362,101 @@ def test_factory_catalogue_imports_all_floors_and_presets(seeded, tmp_path):
             assert len(changed) == len(prepared)
         with Session(engine) as db, db.begin():
             assert sync_worlds(db, seeded['org'], seeded['users']['admin'], SOURCE, tmp_path) == []
-            floors = list(db.scalars(select(Floor).where(Floor.sim_floor_id.in_(['f1', 'f2']))))
+            floors = list(db.scalars(select(Floor).where(Floor.sim_floor_id.in_(['f1', 'f2', 'l1', 'l2', 'l3']))))
             assert len(floors) == len(prepared)
             assert any(f.sim_floor_id == 'f2' and f.floor_z == 2 for f in floors)
     finally:
         engine.dispose()
+
+
+@pytest.fixture
+def plant_a_folder(tmp_path):
+    root = tmp_path / 'plant_worlds'
+    shutil.copytree(SOURCE / 'plant_a', root / 'plant_a')
+    catalog = json.loads((SOURCE / 'worlds.json').read_text())
+    catalog['worlds'] = {k: v for k, v in catalog['worlds'].items() if k.startswith('plant_a/')}
+    (root / 'worlds.json').write_text(json.dumps(catalog))
+    return root
+
+
+def test_plant_a_floor_context_binds_three_floors_by_the_v5_rule(maps, seeded, plant_a_folder):
+    # 검수 #528 P4 뒤: FloorContext 가 plant_a 를 받으면 층 지도 짝 · 바인딩도 v5_building 과 같은 규칙.
+    from apps.contracts import models as C
+    from apps.server.fh_server.floor_maps import approved_bindings, matches_context
+    from apps.server.fh_server.sim_maps import supported_world_ids
+    assert 'plant_a' in supported_world_ids()
+    http, _, files = maps
+    with Session(http.app.state.engine) as db, db.begin():
+        assert len(sync_worlds(db, seeded['org'], seeded['users']['admin'], plant_a_folder, files)) == 3
+        bindings = approved_bindings(db, seeded['org'], 'plant_a')
+        assert [(b.world_id, b.ros_floor_id) for b in bindings] == [('plant_a', 'l1'), ('plant_a', 'l2'), ('plant_a', 'l3')]
+        assert len({b.floor_id for b in bindings}) == 3 and len({b.building_id for b in bindings}) == 1
+        assert all(b.source_pgm_sha256 != b.sha256 for b in bindings)
+        with pytest.raises(ValueError):
+            approved_bindings(db, UUID(int=99), 'plant_a')
+        l3 = bindings[2]
+        c = C.FloorContext(robot_id=UUID(int=10), generation=3, run_id='run', epoch=1, floor_rev=2,
+            world_id='plant_a', building_id=l3.building_id, spawn_floor_id='l1', current_floor_id='l3',
+            floor_id=l3.floor_id, map_version_id=l3.map_version_id, sha256=l3.sha256,
+            source_pgm_sha256=l3.source_pgm_sha256, source='gt_geometry', floor_state='on_floor',
+            reason='ok', confirmed_sim_t=1.).model_dump(mode='json')
+        assert matches_context(c, bindings)
+        assert not matches_context({**c, 'current_floor_id': 'l2'}, bindings)
+        v = db.get(MapVersion, l3.map_version_id)
+        with db.no_autoflush:
+            v.resolution = .1
+            with pytest.raises(ValueError, match='registration changed'):
+                approved_bindings(db, seeded['org'], 'plant_a')
+            v.resolution = .05
+
+
+def test_plant_a_start_relays_three_bindings_and_spawn_floor(maps, seeded, plant_a_folder, monkeypatch):
+    from copy import deepcopy
+    from uuid import uuid4
+    from apps.simmgr.api import create_app as manager_app
+    from apps.simmgr.config import Settings as ManagerSettings, Slot, World
+    from .test_simulation import LocalRelay
+    from .test_api import csrf
+    http, _, files = maps
+    for name in tuple(os.environ):
+        if name.startswith(('ROS_', 'RMW_', 'CYCLONEDDS_', 'FASTRTPS_', 'FASTDDS_')):
+            monkeypatch.delenv(name)
+    with Session(http.app.state.engine) as db, db.begin():
+        sync_worlds(db, seeded['org'], seeded['users']['admin'], plant_a_folder, files)
+    rid = str(uuid4())
+    slot = Slot(rid, str(seeded['org']), 'unused', 'unused.sqlite', 9433)
+    worlds = {f'plant_a/{f}': World(f'plant_a/{f}', Path('unused'), Path('unused'), '공정동 A')
+              for f in ('l1', 'l2', 'l3')}
+    config = ManagerSettings(worlds, {rid: slot}, 'x'*32)
+    monkeypatch.setattr('apps.simmgr.api.startup_preflight', lambda *_: {'resources_ok': True})
+    with TestClient(manager_app(config), client=('127.0.0.1', 9651)) as sim:
+        class Relay(LocalRelay):
+            sent = []
+            def request(self, method, path, body=None):
+                if method == 'POST':
+                    self.sent.append(deepcopy(body))
+                return super().request(method, path, body)
+        relay = Relay(sim, config.secret)
+        http.app.state.simmgr = relay
+        http.app.state.phone_pass_issuer.keys[rid] = ('test', {'test': b'x'*32})
+        headers = csrf(http, 'one')
+        result = http.post('/api/v1/simulation/robots', headers=headers,
+            json=dict(world_id='plant_a/l3', robot_id=rid))
+        assert result.status_code == 201, result.text
+        assert result.json()['world_id'] == 'plant_a' and result.json()['spawn_floor_id'] == 'l3'
+        assert relay.sent[0]['world_id'] == 'plant_a' and relay.sent[0]['spawn_floor_id'] == 'l3'
+        assert [b['ros_floor_id'] for b in relay.sent[0]['map_bindings']] == ['l1', 'l2', 'l3']
+        assert sim.app.state.manager.world == 'plant_a'
+        assert http.delete('/api/v1/simulation/robots/'+rid, headers=headers).status_code == 204
+
+
+def test_floor_z_table_matches_world_catalogue():
+    # 검수 #532 F1: 서버 층 높이 표가 worlds.json floor_z 와 칸마다 같다 (월드 다시 만들면 여기서 잡힘).
+    from apps.server.fh_server.floor_maps import FLOOR_Z
+    from apps.server.fh_server.sim_maps import WORLD_FOLDER
+    catalogue = json.loads((WORLD_FOLDER / 'worlds.json').read_text())['worlds']
+    for (world_id, floor_id), z in FLOOR_Z.items():
+        key = f'{world_id}/{floor_id}'
+        if key in catalogue:
+            assert catalogue[key]['floor_z'] == z, key
+    assert all(f'plant_a/{f}' in catalogue for f in ('l1', 'l2', 'l3'))
