@@ -111,7 +111,7 @@ const samePose = (a: Go2Pose, b: Go2Pose) => a === b || (!!a && !!b && a.q.every
 /** 묶음 하나(상자 InstancedMesh 또는 점 Points): pos·col = 채울 버퍼, k = 그리는 수, set = 수 바꾸고 GPU 로 다시 올림 표시 */
 type Blk = { o: THREE.Object3D; pos: Float32Array; col: Float32Array; k: number; set: (k: number) => void; free: () => void };
 /** ratio = 그리는 픽셀 비율 상한(기본 2 — 그대로). 실기 직결 조종은 1: 큰 화면 교환 때 다시 그리는 비용이 조종 명령 주기를 막지 않게(RV-455 1).
- *  legend = 칸 안 색 범례(작은 칸이 아니면 기본으로). views = 시점 단추 셋(따라 · 위 · 3D, U1-08) — 「보기」 줄이 따로 있는 LidarMap · 저장 지도는 끄고 옛 «로봇 뒤에서 보기» 하나 */
+ *  legend = 칸 안 색 범례(작은 칸이 아니면 기본으로). views = 시점 단추 셋(따라 · 위 · 3D, U1-08). 「보기」 줄이 따로 있는 LidarMap · 저장 지도는 끄고 옛 «로봇 뒤에서 보기» 하나 */
 export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look = 'points', go2 = null, views = true }: { feed: DriveFeed; small: boolean; onFail: () => void; ratio?: number; legend?: boolean; look?: Look; go2?: Go2Pose; views?: boolean }) {
   const host = useRef<HTMLDivElement>(null), cur = useRef(feed), joints = useRef(go2), [mode, setMode] = useState<Mode>('chase'), again = useRef(() => {}), aim = useRef((_: 'top' | 'free') => {}), [narrow, setNarrow] = useState(false), first = useRef(look), relook = useRef((_: Look) => {}), stance = useRef(() => {});
   cur.current = inBase(feed); joints.current = go2;   // raw 판만 몸 좌표로(판마다 1회)
@@ -202,7 +202,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     const draw = () => {
       if (off() || !ready) { v.dirty = true; return; }   // 안 보이면 미룸
       v.dirty = false; g.render(scene, cam);
-      const r1 = (n: number) => Math.round(n * 10) / 10;   // 지금 시점(보는 곳 · 보는 곳에서 카메라까지) — 시험 · 사진 확인용
+      const r1 = (n: number) => Math.round(n * 10) / 10;   // 지금 시점(보는 곳 · 보는 곳에서 카메라까지). 시험 · 사진 확인용
       el.dataset.l3At = [orbit.target.x, orbit.target.y, orbit.target.z].map(r1).join(); el.dataset.l3Cam = [cam.position.x - orbit.target.x, cam.position.y - orbit.target.y, cam.position.z - orbit.target.z].map(r1).join();
     };
     // 나눠 채우기: p.b = 다음에 채울 묶음, p.again = 도는 중에 판·상한이 바뀜(끝나면 처음부터 한 번 더 — 바뀐 묶음만 올라간다)
