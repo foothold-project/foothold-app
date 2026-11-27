@@ -11,6 +11,13 @@ from test_slam_mapping import runtime, command, cloud, pose, own_services, FRONT
 from test_mapping_service_invariants import always_on_runtime, close_runtime, drain, wait_for
 
 
+def preview(rt, message):
+    # Inject the bounded decoder result; production raw clouds only enter the
+    # child participant (covered with real spawn in test_mapping_compat.py).
+    rt.glim_live.update({MAP: (rt.now(), message)}, rt.not_before)
+    rt.glim_preview.reason = None
+
+
 @pytest.mark.parametrize('failure,code', [
     ('range', 'POSITION_OUT_OF_RANGE'), ('jump', 'POSITION_JUMP'),
     ('stamp', 'STAMP_REGRESSION'), ('frame', 'FRAME_MISMATCH'),
@@ -81,7 +88,8 @@ def test_start_refusal_report_contains_sources(tmp_path, failure, code):
         drain(rt)
         body = rt.report_body()[0]
         status = body['sources']['point_lio']
-        assert body['status'] == 'UNKNOWN' and status['reason_code'] == code
+        assert body['status'] == 'UNKNOWN' and status['reason_code'] == 'MISSING_DATA'
+        assert status['position_m'] is None and status['position_valid'] is None
         assert status['active'] == (failure != 'off')
         assert body['sources']['glim']['stage'] == 'UNKNOWN'
         assert C.AgentMappingUpdate.model_validate_json(json.dumps(body))
@@ -97,7 +105,7 @@ def test_glim_preview_subscription_stages_and_isolation(tmp_path):
         subscribed.append(topic) or NS(Close=lambda: None)))
     try:
         rt.acquire()
-        assert MAP in subscribed and FINAL_POSE in subscribed
+        assert MAP not in subscribed and FINAL_POSE in subscribed
         rt.command(command())
         rt.step()
         assert rt.sources_body()['glim']['stage'] == 'OFF'
@@ -107,7 +115,7 @@ def test_glim_preview_subscription_stages_and_isolation(tmp_path):
         rt.receive(FRONTEND, pose())
         rt.receive(CLOUD, cloud())
         # Distinct frame/coordinates are a separate preview, never the live pair.
-        rt.receive(MAP, cloud([[-1.01, 4.2, .3]], frame='map'))
+        preview(rt, cloud([[-1.01, 4.2, .3]], frame='map'))
         rt.step()
         body = rt.report_body()[0]
         assert body['sources']['glim']['stage'] == 'RECEIVING'
@@ -145,7 +153,7 @@ def test_glim_decode_and_send_once_a_second_report_budget_and_failed_retry(tmp_p
             clock.t = tick*.25
             rt.receive(FRONTEND, pose(stamp=tick+1))
             rt.receive(CLOUD, cloud(stamp=tick+1))
-            rt.receive(MAP, cloud([[i*9., i*9., i*9.] for i in range(1024)], stamp=tick+1))
+            preview(rt, cloud([[i*9., i*9., i*9.] for i in range(1024)], stamp=tick+1))
             rt.step()
             try:
                 rt.report_future.result(timeout=3)
@@ -191,7 +199,7 @@ def test_large_report_defers_existing_cells_without_losing_glim_or_diagnostics(t
         own_services(rt)
         rt.receive(FRONTEND, pose())
         rt.receive(CLOUD, cloud())
-        rt.receive(MAP, cloud([[i*9., i*9., i*9.] for i in range(1024)]))
+        preview(rt, cloud([[i*9., i*9., i*9.] for i in range(1024)]))
         rt.step()
         rt.changes = OrderedDict(((190000+i, -190000, 190000), (True, 1)) for i in range(2000))
         rt.online = True

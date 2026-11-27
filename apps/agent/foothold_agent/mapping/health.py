@@ -42,6 +42,12 @@ class PointLioHealth:
     def error(self):
         return self.state[2]
 
+    def reset_session(self):
+        # Keep independent preflight validation (and its freshness thresholds)
+        # for service start, but never display the previous session's location.
+        self.receipts = [None, None]
+        self.position = None
+
     def fresh(self, at=None):
         at = self.now() if at is None else at
         pose, cloud, error = self.state
@@ -125,11 +131,11 @@ class PointLioHealth:
         at = self.now()
         raw_ages = [None if received is None else at-received for received in self.receipts]
         ages = [None if age is None else round(max(0, age), 3) for age in raw_ages]
-        fresh = self.fresh(at)
-        code = self.reason_code
+        missing = any(age is None for age in raw_ages)
+        fresh = not missing and self.fresh(at)
+        code = 'MISSING_DATA' if missing else self.reason_code
         if code is None and not fresh:
-            code = ('MISSING_DATA' if any(age is None for age in raw_ages) else
-                    'STALE' if not 0 <= raw_ages[0] <= FRESH_SECONDS
+            code = ('STALE' if not 0 <= raw_ages[0] <= FRESH_SECONDS
                     or not 0 <= raw_ages[1] <= self.cloud_fresh_seconds else 'STAMP_SKEW')
         invalid = code in ('POSITION_OUT_OF_RANGE', 'POSITION_JUMP', 'STAMP_REGRESSION', 'FRAME_MISMATCH', 'INVALID_DATA')
         return dict(active=active, fresh=fresh, pose_age_s=ages[0], cloud_age_s=ages[1],

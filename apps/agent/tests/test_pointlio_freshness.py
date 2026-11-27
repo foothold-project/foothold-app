@@ -88,7 +88,11 @@ def test_three_hz_cloud_with_1200ms_gap_and_2700hz_pose_starts_and_waits_after_l
             drain(rt)
             status = rt.sources_body()['point_lio']
             if tick <= 10440:
-                assert status['fresh'] and status['reason_code'] is None
+                assert rt.pointlio.fresh()  # preflight cadence is unchanged across start
+                if 4050 < tick < 5040:
+                    assert status['reason_code'] == 'MISSING_DATA' and not status['fresh']
+                else:
+                    assert status['fresh'] and status['reason_code'] is None
                 assert rt.input_wait_since is None
             if tick == 4050:  # Latest cloud already 833 ms old at start.
                 rt.command(command())

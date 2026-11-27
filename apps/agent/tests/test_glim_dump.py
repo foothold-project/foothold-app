@@ -75,7 +75,7 @@ def test_runtime_subscribes_glim_pose_without_treating_map_topic_as_final(tmp_pa
     rt.acquire()
     assert (FRONTEND,{'pose_type':'Odometry'}) in calls
     assert (FINAL_POSE,{'pose_type':'PoseStamped'}) in calls
-    assert (MAP,{}) in calls  # coarse live preview; verified final still requires dump receipts
+    assert (MAP,{}) not in calls  # large map DDS decoding belongs to the child participant
     assert rt.source is rt.live and not rt.final_received
     close(rt)
 

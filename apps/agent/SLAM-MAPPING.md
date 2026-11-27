@@ -25,7 +25,11 @@
 | `FH_MAPPING_POINT_LIO_SENSOR_ORIGIN_VERIFIED` | 기본 꺼짐; 대응 pose가 해당 scan의 센서 원점임을 확인한 경우만 `true` |
 | `FH_MAPPING_GLIM_FINAL_TOPIC_VERIFIED` | 폐기: 설정해도 최종 저장을 확인하지 않음 |
 
-ROS 토픽은 기존 관측 DDS participant에서 `rt/` 이름으로 받는다. pose 구독은 설정한 DDS 타입을 사용하고 같은 토픽의 서로 다른 타입 등록을 거부한다. 별도 SDK 참여자·SportClient·출력 sink는 만들지 않는다. 실제 ROS 배포판/DDS 타입·도메인·QoS 호환은 실기 확인 대상이다. GLIM map 토픽은 주기적인 누적 자료이므로 최종 저장에는 구독하거나 사용하지 않는다.
+ROS 토픽은 `rt/` 이름으로 받는다. Point-LIO와 pose는 기존 관측 DDS participant를 쓰며 pose 구독은 설정한 DDS 타입을 사용하고 같은 토픽의 서로 다른 타입 등록을 거부한다. GLIM map 미리보기만 `spawn`으로 시작한 자식 프로세스가 같은 명시적 NIC·도메인 0의 읽기 전용 participant에서 구독·역직렬화·해석한다. SportClient·출력 sink는 만들지 않는다. 실제 ROS 배포판/DDS 타입·도메인·QoS 호환은 실기 확인 대상이다. GLIM map 토픽은 주기적인 누적 자료이므로 최종 저장 증거로 사용하지 않는다.
+
+`FH_MAPPING_GLIM_CLOUD_TOPIC`이 비어 있으면 미리보기 프로세스와 구독은 생기지 않는다(기본 꺼짐). 켜면 SDK의 큰 `sequence[uint8]` 역직렬화와 16 MB 입력 상한 검사도 자식 안에서 수행한다. 자식은 최대 1 Hz로 해석하고 25 cm 칸 최대 1,024개만 32 KiB 이하 JSON datagram으로 부모에 전달한다. 부모는 지도 작업자 tick마다 작은 datagram 하나만 비차단으로 읽고 원본 점군은 받지 않는다. 전달 공간이 차면 미리보기만 버린다. 자식은 Linux에서 nice 10을 사용한다. 자식 시작 실패·종료·3초 넘는 전달 지연은 GLIM 출처 줄의 사유로만 표시하며 Point-LIO 누적·UNKNOWN 대체 저장과 이동 제어에는 실패를 전파하지 않는다. 관측 종료 시 자식만 종료하고 별도 스레드에서 회수한다. 자식 강제 종료 뒤 자동 재시작은 하지 않으며 관측 reader를 다시 취득할 때 새로 시작한다.
+
+새 지도 세션마다 Point-LIO 표시용 수신 시각·위치·수신률을 비운다. 새 자료가 없으면 `MISSING_DATA`, 위치는 미확인이다. 서비스 시작 전 검증 기록과 RB-PL-FRESH의 위치 0.5초·점 기본 1.5초 신선도 판정은 별도로 유지한다.
 
 ## Jetson 적용 값과 종료 어댑터
 
@@ -111,6 +115,8 @@ GLIM dump는 512점씩 별도 공간에서 읽고 모든 점을 5 cm로 묶는�
 
 전달은 오래된 voxel 변경부터 최대 2,000개, 오래된 대기 tile부터 최대 4개씩 progress 64 KiB에 맞춰 나눈다. tile은 world 정렬 64×64칸, 원점 `[x*3.2,y*3.2]`, 0 모름/1 빈 곳/2 벽이다. 전송 확인된 항목만 지우고 새 revision에서는 이전 판을 비운다. 브라우저는 계산하지 않고 받은 칸을 배치한다.
 
+progress는 미리보기가 없으면 `glim_preview` 키 자체를 생략한다. 옛 서버가 확장 출처 필드가 있는 보고를 HTTP 422로 거절하면 session ID와 거절을 경고 한 줄에 남기고 같은 seq·voxel·tile을 `sources`·`glim_preview` 없이 즉시 재전송한다. 그 세션의 이후 보고도 두 필드를 빼며 새 세션에서는 다시 시도한다. 422 이외의 실패와 재전송 실패는 기존 미확인 자료 재시도 규칙을 따른다. 성공 확인 전 변경·tile을 지우거나 저장 완료로 진행하지 않는다. 기본 progress 간격 0.25초·64 KiB 상한은 유지한다.
+
 tile·grid·bundle의 `floor_z`는 revision의 첫 유효 scan에 대응하는 pose z에서 0.3 m를 뺀 값으로 고정한다. 뒤 pose의 z가 움직여도 바꾸지 않으며, GLIM 재구축을 새 revision으로 교체할 때 그 판의 기준으로 함께 교체한다.
 
 저장은 서비스 종료 → 세션 dump 완료/안정 확인 → 재구축 → 최종 tile·voxel 전송 확인 → bundle 업로드 순서다. dump 설정/소유가 없으면 10초, 설정한 세션은 기본 180초 뒤 확인 실패를 UNKNOWN으로 동결한다(진행 중인 재구축은 마친다). 서버가 UNKNOWN bundle을 받으면 `RECEIVED_ONLY`, 정상 GLIM 판의 `SLAM_SAVED` bundle을 보관하면 `SAVED`와 `SLAM_CONFIRMED`를 만든다. 재시도는 같은 바이트이고 서비스를 다시 시작하지 않는다. GLIM 확인과 파일 저장 성공은 별개이며 Point-LIO 자료로 `SLAM_SAVED`를 주장하지 않는다. 시뮬 지형 생성은 서버의 후속 작업이다.
@@ -125,6 +131,7 @@ PYTHONPATH=apps/agent python3 apps/agent/tools/benchmark_slam.py
 PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests
 PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_raw_recording.py
 PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_glim_dump.py
+PYTHONPATH=apps/agent:. python3 -m pytest apps/agent/tests/test_mapping_compat.py  # 옛 계약 1de74ed1·로컬 가짜 HTTP·16 MB 자식 부하/종료
 PYTHONPATH=. python3 -m pytest apps/server/tests/test_slam_*.py
 ```
 
