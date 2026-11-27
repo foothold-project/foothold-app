@@ -33,6 +33,12 @@
 /* 10-26 실폰: 영상 칸은 본문 끝까지(여백·모서리 없음). 노치·홈 막대 자리(.fh.phone safe-area 여백)와 페이지 바탕은 영상 칸 색으로 이어서
    화면 전체가 영상 칸처럼 보이게 — 조작부(조이스틱·STOP·단추)는 그대로 safe-area 안쪽 */
 html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
+/* 밝은 판(u11): 영상이 없을 때 영상 칸 · 페이지 바탕은 테마 바탕(어두운 고정색이면 밝음에서 화면 전체가 검게 보이고 영상 칸 밖 글자가 묻힌다). 영상 위 판은 아래 고정색 그대로 */
+html:has(.fh.light .dv.ph),.fh.light:has(.dv.ph){background:var(--bg)}
+.fh.light .dv-stage{background:var(--panel2)}
+.fh.light .dv-video{background:var(--panel2);color:var(--muted)}
+.fh.light .dv-mini{background:var(--panel);border-color:var(--line2)}
+.fh.light .dv-stick{background:rgba(8,11,14,.66)}   /* 밝은 칸 위: .5 면 글자 3.3:1 → 영상 판 값 .66 (5.7:1) */
 .dv.ph .dv-stage{border-radius:0}
 .dv.ph>:not(.dv-body){margin:0 8px 8px}
 /* 조종 화면: 조이스틱을 길게 눌러도 글자 선택·돋보기·길게 누르기 메뉴·끌기 그림자가 없게(iOS Safari 는 -webkit- 만 먹음). 입력란만 예외 */
@@ -48,6 +54,8 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-hud .dv-note{background:rgba(8,11,14,.66);color:#E6EBEF}   /* 영상 칸 위 안내 — 판 색은 .dv-line 값 그대로 */
 .dv-hud .dv-views{flex-direction:row;align-self:flex-end;gap:6px}
 .dv-hud .dv-views .btn{min-width:56px;min-height:44px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+/* 영상 위 판의 보통 단추(«조종 끝내기» 등): 판 색과 글자를 함께 고정 — 밝음 .btn 바탕 위에 영상 판 흰 글자가 얹히지 않게 */
+.dv-hud .btn:not(.pri){background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 .dv.ph .dv-mini{width:100px;height:70px;right:12px;bottom:144px}
 .dv-stick{position:absolute;bottom:12px;width:120px;height:120px;border-radius:50%;border:1.5px solid rgba(230,235,239,.45);background:rgba(8,11,14,.5);display:grid;place-items:center;touch-action:none;user-select:none}
 .dv-stick.v{left:12px}.dv-stick.h{right:12px}
