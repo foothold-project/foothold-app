@@ -130,13 +130,14 @@ describe('총괄 = 모든 권한: PC', () => {
 });
 
 describe('총괄 = 모든 권한: 폰', () => {
-  it('로봇 연결: 남 담당 실기 카드도 «연결» · 조종 화면에서 조종 시작 → 조종권 요청 · 남의 실기 관리는 2 차라 까닭 한 줄', () => {
+  it('로봇 연결: 남 담당 실기 카드도 «연결» · 조종 화면에서 조종 시작 → 조종권 요청 · 남의 실기 관리는 2 차라 까닭은 목록 머리 아래 한 번(카드 안 0)', () => {
     mount(true, KIM, '#/drive'); serve(KIM, 'r3', 'r7', 'ra');
     expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-7', 'Go2-A']);
     const card = [...box.querySelectorAll('.dv-card')].find((x) => x.textContent!.includes('Go2-7'))!;
     expect(card.querySelector('[data-why]')).toBeNull();
     expect(card.querySelector('details')).toBeNull();   // 관리(이름 · 끊기 · 지우기)는 2 차
-    expect(card.querySelector('[data-admin-later]')!.textContent).toBe(ADMIN_LATER);
+    expect(box.querySelectorAll('.dv-card [data-admin-later]')).toHaveLength(0);   // 한 사실은 한 곳
+    expect([...box.querySelectorAll('[aria-label="내 로봇"] [data-admin-later]')].map((x) => x.textContent)).toEqual([ADMIN_LATER]);
     const mine = [...box.querySelectorAll('.dv-card')].find((x) => x.textContent!.includes('Go2-A'))!;
     expect(mine.querySelector('details')).not.toBeNull();
     click([...card.querySelectorAll('button')].find((b) => b.textContent === '연결')!);

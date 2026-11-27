@@ -55,7 +55,7 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
 
 /** 총괄 = 모든 권한(팀장 11/28 · 서버 #544 1 차): 실기 조종 · STOP · 조종권 · 자세 · 로봇 붙이기도 된다. 남 담당 실기의 이름 · 지우기 · 끊기 · 키 재발급 · 담당 바꾸기는
  *  서버 2 차 전이라 아직 담당 운영 관리자만 · 그 자리에 이 한 줄 */
-export const ADMIN_LATER = '이 로봇의 이름 · 지우기 · 연결 끊기 · 키 재발급 · 담당 바꾸기는 아직 담당 운영 관리자만 합니다 (서버 준비 중).';
+export const ADMIN_LATER = '남이 담당하는 실기 로봇의 이름 · 지우기 · 연결 끊기 · 키 재발급 · 담당 바꾸기는 아직 담당 운영 관리자만 합니다 (서버 준비 중).';
 /** 쉬는 시뮬 슬롯: 서버는 끝낸(IDLE) 슬롯을 담당을 비운 채 /robots 에 남긴다(설계). 화면의 로봇(PC·폰 목록, 그래서 STOP 후보도)에서 뺀다. 담당 없는 실기는 그대로(총괄이 봐야 함) */
 export const idleSim = (r: Pick<Robot, 'sim' | 'owner'>) => !!r.sim && !r.owner;
 
