@@ -23,8 +23,8 @@ const ame2 = getPolicyAdapter('ame2-demo').onnx;
 const cases = ['reconstruction', 'gt', 'off'].map((mode) => ({ name: `start/${mode}`, root: process.env.FH_START_SRC,
   tv: json(join(process.env.FH_START_SRC, `test_vectors_flat20_${mode}.json`)), contract: start }));
 cases.push({ name: 'ame2/gt', root: process.env.FH_AME2_SRC, tv: json(join(process.env.FH_AME2_SRC, 'test_vectors_flat20.json')), contract: ame2 });
-const approved = { 'start-m13000_map_on.onnx': '4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93',
-  'start-m13000_map_off.onnx': '8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f', [ame2.file]: ame2.sha256[ame2.file] };
+const approved = { 'start-m15500_map_on.onnx': 'df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f',
+  'start-m15500_map_off.onnx': 'be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41', [ame2.file]: ame2.sha256[ame2.file] };
 for (const c of cases) {
   assert.equal(c.tv.steps, 20); assert.ok(c.tv.tolerance <= 1e-4);
   const [file, sha] = Object.entries(c.tv.onnx)[0];

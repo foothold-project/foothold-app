@@ -13,7 +13,7 @@ const server=createServer((req,res)=>{
   if(pathname==='/api/v1/org/settings'){settingsFetches++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify(defaults));return;}
   const [variant,...parts]=pathname.slice(1).split('/'),name=parts.join('/');
   const file=resolve(root,name);
-  if(!file.startsWith(root+sep)||(variant==='missing'&&name.includes('start-m13000_'))){res.writeHead(404).end();return;}
+  if(!file.startsWith(root+sep)||(variant==='missing'&&name.includes('start-m15500_'))){res.writeHead(404).end();return;}
   try{
     let body=readFileSync(file);
     if(name==='sim/main.js'&&variant==='js')body=body.toString().replace("const DEFAULT_POLICY_BACKEND = 'wasm';","const DEFAULT_POLICY_BACKEND = 'f32';");
