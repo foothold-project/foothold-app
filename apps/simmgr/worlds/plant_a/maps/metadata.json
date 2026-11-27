@@ -1,10 +1,10 @@
 {
   "generator_version": "collision-map/1",
   "generator_sha256": "b02389779320b8f9c34f3ae46500d80829d67a55b7b960392f674d5eaef21e01",
-  "world_sha256": "fa1251709d2c0bd6257c8b675d0da1e040e7e39372760c14c18e409dfea77cf6",
-  "dependency_sha256": "fea20cf572c3540fa67def808081811ec5fd1601ea9614984589024942573db5",
+  "world_sha256": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
+  "dependency_sha256": "f965418ec02178efa57b3744be5bc954d94720ee97269a138571ff0078511d78",
   "dependencies": {
-    "plant_a.sdf": "fa1251709d2c0bd6257c8b675d0da1e040e7e39372760c14c18e409dfea77cf6"
+    "plant_a.sdf": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94"
   },
   "resolution": 0.05,
   "origin": [
@@ -38,7 +38,7 @@
       "floor_z": 0.0,
       "image": "l1.png",
       "yaml": "l1.yaml",
-      "image_sha256": "395aa7d9b1040c0c079e9fde30bc12d00fbd75fe5a55b2336860c9e47304e040",
+      "image_sha256": "c4e99540379eb217d3ea061cc510f6c5bbad6f49a75a9ae2a9003d412da50739",
       "counts": {
         "occupied": 54360,
         "free": 242528,
@@ -49,24 +49,24 @@
       "floor_z": 3.375,
       "image": "l2.png",
       "yaml": "l2.yaml",
-      "image_sha256": "b1ee255d5cbcbcdc8525ee29e058f9e80b7c76e27b2dc8df6d4ca155ad48d40f",
+      "image_sha256": "e85767b90bdd534ff1f8a846b4a6cf8911c8be92209dc7c632c93e3c339f2bf3",
       "counts": {
         "occupied": 61770,
-        "free": 231430,
-        "unknown": 41200
+        "free": 231558,
+        "unknown": 41072
       }
     },
     "l3": {
       "floor_z": 6.75,
       "image": "l3.png",
       "yaml": "l3.yaml",
-      "image_sha256": "c5d6342a8314af0dd8d30a1eff472e2ac7802169a77c868df8b005041b77db3b",
+      "image_sha256": "c071beaf9165ffc0e031860435bcd73b0cb49b19783473c0a216673ac423be94",
       "counts": {
-        "occupied": 35964,
-        "free": 256308,
-        "unknown": 42128
+        "occupied": 35892,
+        "free": 257436,
+        "unknown": 41072
       }
     }
   },
-  "upstream_revision": "app-design-lx-layout-2026-11-28"
+  "upstream_revision": "app-design-lx-layout-2026-11-28-rev2"
 }

@@ -10,9 +10,10 @@
   거리) · w · h 로 틈을 내고, 문 높이 위는 상인방 상자로 남긴다.
 - 장애물: box [cx, cy, w(x), d(y), h] + yaw, 층 바닥에서 시작.
 - 계단: 디딤 한 단마다 상자(두께 step_h). 첫 줄은 start(첫 단 앞 모서리 가운데)에서 yaw 방향으로
-  오르고, 줄마다 끝에 계단참(두 줄 폭 전체, 깊이 landing_d)을 둔다. U_right/U_left 는 다음 줄을
-  오른쪽/왼쪽 줄로 옮겨 반대 방향으로 오른다. 줄 사이 틈 gap 은 입력에 없으면 0.2 m
-  (gen_building.py 주석 x 0.6~2.0 · 2.2~3.6). 마지막 계단참 윗면 = 도착 층 floor_z.
+  오르고, 줄 사이마다 계단참(두 줄 폭 전체, 깊이 landing_d)을 둔다. 마지막 줄 뒤에는 계단참이 없고
+  마지막 단 윗면 = 도착 층 floor_z 로 위층 바닥에 바로 닿는다. U_right/U_left 는 다음 줄을
+  오른쪽/왼쪽 줄로 옮겨 반대 방향으로 오른다. 줄 사이 틈은 lane_gap(필수).
+- 도착: arrive {floor_id, xy}. 위층 스폰은 arrive xy 와 teleport yaw.
 - 지붕: roof=true 인 층은 바로 위 층 바닥판이 천장이어야 한다(floor_z+ceil_h = 위층 바닥판 밑면).
   roof=false 인 꼭대기 층은 천장이 없고 외벽 높이(난간)를 그대로 쓴다.
 """
@@ -28,7 +29,6 @@ from .collision_map import generate
 ROOT = Path(__file__).resolve().parents[3]
 WORLDS = ROOT / 'apps/simmgr/worlds'
 SPAWN_BASE = 0.4  # factory_zone 과 같은 floor_z 위 몸통 기준 높이
-DEFAULT_GAP = 0.2
 RESOLUTION = 0.05
 MARGIN = 1.0
 COLORS = {
@@ -230,12 +230,12 @@ def add_walls(world, floor):
 def add_stairs(world, stair, floor, to_floor):
     z0 = floor['floor_z']
     h, tread, width = stair['step_h'], stair['tread'], stair['width']
-    gap = stair.get('gap', DEFAULT_GAP)
+    gap = stair['lane_gap']
     total = sum(stair['flights'])
     if abs(z0 + total * h - to_floor['floor_z']) > 1e-6:
         raise ValueError(f'stair {stair["id"]} rise does not reach {to_floor["floor_id"]}')
-    if stair['teleport']['floor_id'] != to_floor['floor_id']:
-        raise ValueError('teleport floor differs from stair destination')
+    if not stair['teleport']['floor_id'] == stair['arrive']['floor_id'] == to_floor['floor_id']:
+        raise ValueError('teleport/arrive floor differs from stair destination')
     turn = {'U_right': 1, 'U_left': -1}[stair['turn']]
     yaw = stair['yaw']
     fx, fy = direction(yaw)
@@ -257,6 +257,8 @@ def add_stairs(world, stair, floor, to_floor):
             world.box(f'{stair["id"]}_f{k}_s{i}', at(centre, lateral, z0 + count * h - h / 2),
                       (tread, width, h), yaw, 'stair')
         along += sign * steps * tread
+        if k == len(stair['flights']) - 1:
+            break  # 마지막 줄은 위층 바닥에 바로 닿는다
         landing = along + sign * stair['landing_d'] / 2
         world.box(f'{stair["id"]}_land{k}', at(landing, (span_lo + span_hi) / 2, z0 + count * h - h / 2),
                   (stair['landing_d'], span_hi - span_lo, h), yaw, 'landing')
@@ -317,14 +319,13 @@ def register(layout_path, out=None):
     # 시험·재생성이 저장소 밖 원본 없이 돌도록 입력을 바이트 그대로 둔다.
     (out / 'layout.json').write_bytes(raw)
     write_json(out / 'sources.json', dict(
-        revision='app-design-lx-layout-2026-11-28', author='app-design-lx 세션', draft=True,
+        revision=f'app-design-lx-layout-2026-11-28-rev{data.get("rev", 1)}', author='app-design-lx 세션', draft=True,
         generated=True, imported='2026-11-28', schema=data['schema'],
         inputs={'plant_a.json': hashlib.sha256(raw).hexdigest()},
         copy='layout.json (입력 바이트 그대로)',
         generator='apps/simmgr/tools/import_building.py',
-        stair_gap_m=DEFAULT_GAP, stair_gap_source='gen_building.py 주석 x 0.6~2.0 · 2.2~3.6',
         conversion='모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, '
-                   '계단 단마다 상자 + 줄 끝 계단참. 메쉬·텍스처 없음.'))
+                   '계단 단마다 상자 + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음.'))
     (out / 'NOTICE').write_text(
         f'{data["name"]} ({world_id}) · 초안\n'
         '출처: app-design-lx 세션 배치 JSON (2026-11-28, schema foothold_building/1).\n'
@@ -338,7 +339,7 @@ def register(layout_path, out=None):
     generate(out / f'{world_id}.sdf', out / 'maps', floors, resolution=RESOLUTION, bounds=bounds)
     catalogue_path = WORLDS / 'worlds.json'
     catalogue = json.loads(catalogue_path.read_text())
-    teleports = {s['teleport']['floor_id']: (s['id'], s['teleport']['xyyaw'])
+    arrivals = {s['arrive']['floor_id']: (s['id'], [*s['arrive']['xy'], s['teleport']['xyyaw'][2]])
                  for f in data['floors'] for s in f['stairs']}
     for level, floor in enumerate(data['floors'], 1):
         fid = floor['floor_id']
@@ -350,8 +351,8 @@ def register(layout_path, out=None):
         if data['spawn']['floor_id'] == fid:
             spawn, source = data['spawn']['xyyaw'], 'layout JSON spawn'
         else:
-            stair_id, spawn = teleports[fid]
-            source = f'layout JSON stairs {stair_id} teleport xyyaw'
+            stair_id, spawn = arrivals[fid]
+            source = f'layout JSON stairs {stair_id} arrive xy + teleport yaw'
         rel = lambda p: f'{world_id}/{p}'
         catalogue['worlds'][f'{world_id}/{fid}'] = dict(
             world_id=world_id, floor_id=fid, building_id=world_id, name=data['name'] + ' · 초안',

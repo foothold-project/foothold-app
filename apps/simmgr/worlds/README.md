@@ -70,13 +70,13 @@ SIGSEGV(rc=-11)를 재현했고 수정본은 normal mismatch 없이 rc=0으로 �
 
 ## 공정동 A (plant_a)
 
-- 출처: app-design-lx 세션 배치 JSON (2026-11-28, `foothold_building/1`). 입력 바이트 사본은
+- 출처: app-design-lx 세션 배치 JSON rev 2 (2026-11-28, `foothold_building/1`). 입력 바이트 사본은
   [layout.json](plant_a/layout.json), 해시는 [sources.json](plant_a/sources.json), 고지는 [NOTICE](plant_a/NOTICE).
 - 36 × 20 m, 세 층 `l1`·`l2`·`l3` (floor_z 0 · 3.375 · 6.75). 모든 형상은 static box. 층 바닥판 윗면 = floor_z,
-  벽은 문틈과 상인방, 계단은 단마다 상자(12.5 cm × 27 단)와 줄 끝 계단참. `l3`은 지붕 없이 1.1 m 외벽이 난간이다.
-- 스폰: `l1`은 JSON spawn, `l2`·`l3`은 계단 teleport xyyaw, spawn_z = floor_z + 0.4. 시나리오는 층마다 JSON 지점 순서.
-- 계단 줄 사이 틈 0.2 m는 JSON에 없어 gen_building.py 주석(x 0.6~2.0 · 2.2~3.6)에서 가져왔다. 마지막 줄 뒤에도
-  계단참을 두어 도착 층 바닥(teleport 자리)과 잇는다. 이 계단참은 위층 구멍 안의 free 영역으로 지도에 나온다.
+  벽은 문틈과 상인방. 계단은 층마다 같은 자리의 U 자 두 줄(14 + 13 단 × 12.5 cm, lane_gap 0.2 m)이고 줄 사이
+  계단참 하나, 마지막 단 윗면이 위층 바닥에 바로 닿는다. 위층 구멍은 L 자. `l3`은 지붕 없이 1.1 m 외벽이 난간이다.
+- 스폰: `l1`은 JSON spawn, `l2`·`l3`은 계단 arrive xy 와 teleport yaw, spawn_z = floor_z + 0.4.
+  시나리오는 층마다 JSON 지점 순서.
 - 실행 · 보행 · 계단 오르기 · 센서 미검증. 층 이동은 순간 이동 전제다.
 
 ```sh

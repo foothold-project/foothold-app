@@ -1,16 +1,14 @@
 {
-  "revision": "app-design-lx-layout-2026-11-28",
+  "revision": "app-design-lx-layout-2026-11-28-rev2",
   "author": "app-design-lx 세션",
   "draft": true,
   "generated": true,
   "imported": "2026-11-28",
   "schema": "foothold_building/1",
   "inputs": {
-    "plant_a.json": "82e5e5d29f5dcf31af2299242985d476d33a549fec11eaa2256cf78f00389934"
+    "plant_a.json": "9bbb5c578bb0b30f6fb06169fcd183be75fd86a46da6297e8670809a2f4e53a6"
   },
   "copy": "layout.json (입력 바이트 그대로)",
   "generator": "apps/simmgr/tools/import_building.py",
-  "stair_gap_m": 0.2,
-  "stair_gap_source": "gen_building.py 주석 x 0.6~2.0 · 2.2~3.6",
-  "conversion": "모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, 계단 단마다 상자 + 줄 끝 계단참. 메쉬·텍스처 없음."
+  "conversion": "모든 형상 static box. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw, 계단 단마다 상자 + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음."
 }

@@ -914,9 +914,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l1.json",
       "sha256": {
-        "world": "fa1251709d2c0bd6257c8b675d0da1e040e7e39372760c14c18e409dfea77cf6",
+        "world": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
         "map": "da13daf3f42a0bdbbca6bd1a7753ac8d3a3ed9130d2726c2d623b76844381aaa",
-        "metadata": "094540574fc8f0543d51c614cfa0c9654709960d0075a9e4c3edb3e1da42deb1"
+        "metadata": "5acbdb2d02e2068ea8a0b72892316367afd18136d040c8c33e3ac8e5b2e22815"
       },
       "mesh_sha256": {}
     },
@@ -931,11 +931,11 @@
       "floor_z": 3.375,
       "spawn_xyyaw": [
         2.9,
-        16.0,
+        10.9,
         -1.5708
       ],
       "spawn_z": 3.775,
-      "spawn_source": "layout JSON stairs st-1-2 teleport xyyaw",
+      "spawn_source": "layout JSON stairs st-1-2 arrive xy + teleport yaw",
       "world": "plant_a/plant_a.sdf",
       "gt_map": "plant_a/maps/l2.yaml",
       "map_metadata": "plant_a/maps/metadata.json",
@@ -946,9 +946,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l2.json",
       "sha256": {
-        "world": "fa1251709d2c0bd6257c8b675d0da1e040e7e39372760c14c18e409dfea77cf6",
+        "world": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
         "map": "1e25218e008c2b1b19fcc3527b0dfdb9dcf83ee114621ccc75915526dff2555a",
-        "metadata": "094540574fc8f0543d51c614cfa0c9654709960d0075a9e4c3edb3e1da42deb1"
+        "metadata": "5acbdb2d02e2068ea8a0b72892316367afd18136d040c8c33e3ac8e5b2e22815"
       },
       "mesh_sha256": {}
     },
@@ -963,11 +963,11 @@
       "floor_z": 6.75,
       "spawn_xyyaw": [
         2.9,
-        16.0,
+        10.9,
         -1.5708
       ],
       "spawn_z": 7.15,
-      "spawn_source": "layout JSON stairs st-2-3 teleport xyyaw",
+      "spawn_source": "layout JSON stairs st-2-3 arrive xy + teleport yaw",
       "world": "plant_a/plant_a.sdf",
       "gt_map": "plant_a/maps/l3.yaml",
       "map_metadata": "plant_a/maps/metadata.json",
@@ -978,9 +978,9 @@
       "notes": "실행 · 보행 · 계단 미검증. 층 이동은 순간 이동 전제. 서버 실행 adapter의 새 ID/floor binding 연결 필요.",
       "scenarios": "plant_a/scenarios-l3.json",
       "sha256": {
-        "world": "fa1251709d2c0bd6257c8b675d0da1e040e7e39372760c14c18e409dfea77cf6",
+        "world": "a38fb880bb35302f371fd51113458d82fd9c84e5ce4abc1d77bcd9677a297b94",
         "map": "edab836dcc3c2f99a74b0aab9b6e32fc57b65d00d6c646b3ac5a2022239f965d",
-        "metadata": "094540574fc8f0543d51c614cfa0c9654709960d0075a9e4c3edb3e1da42deb1"
+        "metadata": "5acbdb2d02e2068ea8a0b72892316367afd18136d040c8c33e3ac8e5b2e22815"
       },
       "mesh_sha256": {}
     }
