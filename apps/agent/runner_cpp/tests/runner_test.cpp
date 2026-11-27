@@ -428,7 +428,7 @@ int main() {
         dry.depth = &frame;
         dry.enter();
         dry.wait(40ms);
-        // Depth gap rule: hold the map (no tick), slow to a stop after 1 s, sit after 3 s.
+        // Depth gap rule: hold the map (no tick), slow to a stop after 1 s, sit after 2 s.
         const auto seen = [&](Event e) {
             return std::find(dry.events.seen.begin(), dry.events.seen.end(), e) != dry.events.seen.end();
         };
@@ -443,17 +443,17 @@ int main() {
         require(dry.events.last_command[0] > .2f, "forward command did not build up during a short gap");
         dry.wait(200ms);
         require(dry.runner.phase() == Phase::policy && seen(Event::depth_stale), "1 s depth gap must report DEPTH_STALE");
-        dry.wait(1s);
+        dry.wait(700ms);  // 1.8 s into the gap: still before the 2 s sit
         require(dry.events.last_want[0] == 0 && dry.events.last_command[0] == 0, "1 s depth gap must slow to a stop");
         dry.depth = &frame;
         dry.wait(300ms);  // the first new frame enters depth2 one slot later (training delay)
         require(dry.policy.depth_ticks >= ticks + 3 && dry.events.last_want[0] > 0, "fresh depth must resume ticks and command");
         dry.depth = nullptr;
         dry.state.remote.ly = 0;
-        dry.wait(2900ms);
-        require(dry.runner.phase() == Phase::policy && !seen(Event::depth_lost), "sat before the 3 s depth limit");
+        dry.wait(1900ms);
+        require(dry.runner.phase() == Phase::policy && !seen(Event::depth_lost), "sat before the 2 s depth limit");
         dry.wait(200ms);
-        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "3 s depth gap must sit");
+        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "2 s depth gap must sit");
         dry.wait(2s);
         require(dry.events.ordered({Event::depth_lost, Event::sit_down, Event::damping,
                                     Event::mode_high}), "depth loss must leave reconstruction safely");
@@ -487,8 +487,8 @@ int main() {
         dry.wait(300ms);
         require(dry.policy.depth_ticks >= ticks + 3, "valid frames must resume ticks");
         dry.invalid = .41f;
-        dry.wait(3100ms);
-        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "3 s of invalid frames must sit");
+        dry.wait(2100ms);
+        require(seen(Event::depth_lost) && dry.runner.phase() == Phase::sitting, "2 s of invalid frames must sit");
     }
     {
         Rig live(true);

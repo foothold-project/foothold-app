@@ -145,10 +145,10 @@ struct DepthFrame {
 struct Options {
     bool live = false;
     MapMode map = MapMode::off;
-    // Reconstruction depth gap rule (lead-lx draft 11/27, sim evidence only, real values after G4).
+    // Reconstruction depth gap rule (lead-lx 11/27 20:02: slow 1 s, sit 2 s; sim evidence only, real values after G4).
     // Without a new frame the policy holds h_terr (no depth tick). From depth_slow_after the
     // command goal is zero (slow to a stop); from depth_sit_after the runner sits (DEPTH_LOST).
-    std::chrono::milliseconds depth_slow_after{1000}, depth_sit_after{3000};
+    std::chrono::milliseconds depth_slow_after{1000}, depth_sit_after{2000};
     // A frame whose invalid share (no return or outside the image, DepthFrame::invalid) is above this is
     // ignored: no tick, and the gap clock keeps running (lead-lx 11/27 17:52, sim: 0.4 holds,
     // 0.8 drops balance-beam survival below 1/3).
