@@ -58,7 +58,9 @@ const click = async (el: Element | null | undefined) => { expect(el).toBeTruthy(
 const agents = () => FakeWS.all.filter((w) => w.url === 'ws://127.0.0.1:9481/phone/ws');
 const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush(); };
 /** 사람에게 보이는 글(개발자 정보 접힘 칸 뺌) */
-const visible = () => { const c = box.cloneNode(true) as HTMLElement; c.querySelectorAll('details').forEach((d) => d.remove()); return c.textContent ?? ''; };
+// 11-28 PHONE-CLUTTER 결정 (가): 시나리오 안내는 등급 3 이라 폰 알림 칸에 한 칸만, 나머지는 «+N» 뒤. 여기서는 접혀 있으면 펼친 뒤 본다(펼치면 모두 보임)
+const unfold = () => { const m = box.querySelector<HTMLElement>('[data-notes-more][aria-expanded="false"]'); if (m) act(() => { m.click(); }); };
+const visible = () => { unfold(); const c = box.cloneNode(true) as HTMLElement; c.querySelectorAll('details').forEach((d) => d.remove()); return c.textContent ?? ''; };
 /** 에이전트 흉내: 조종권 → lease, run.start → 이어서 비밀값, resume → 새 비밀값, 그 밖 → ok. hello·cmd·ping·stop 은 답 없음 */
 const auto = ((m: Msg) => m.t === 'lease.take' ? { lease_id: LEASE }
   : m.t === 'run.start' ? { detail: { run_id: m.run_id, screen_id: m.screen_id, resume_token: TOKEN } }

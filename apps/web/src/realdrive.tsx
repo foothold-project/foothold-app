@@ -8,8 +8,8 @@ import { useEffect, useRef, useState } from 'react';
 import { RESULT, UNVERIFIED, allowed, sim, tuned, useSim, useTuneSettings } from './phone';
 import { Stick } from './drive';
 import { inputGen } from './rt';
-import { Video, stopText, useBrief, useTick } from './simdrive';
-import { feedText, media, reasonText, useFeed, type Feed, type MediaChannel } from './media';
+import { More, Video, stopText, useSlot, useTick, why } from './simdrive';
+import { feedText, media, useFeed, type Feed } from './media';
 import { Lidar3D, type Look } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
 import { REPORT_STALE_MS, go2Pose } from './go2model';
@@ -17,19 +17,7 @@ import type { Tone } from './fake';
 import './realdrive.css';
 
 const CLIP = '명령 범위 조정 · 로봇이 허용한 명령으로 잘랐습니다.';
-/** 화면 글에서 내부 규약명(media/1)·영문 원문 괄호를 뺀다(RV-449 ⑤) — media.ts 문구는 그대로 두고 이 화면에서만 */
-export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').replace(/media\/1\s*/g, '');
-/** 에이전트가 알린 사유 한 줄(RV-454 3·RV-455 3·RV-456 2). 알려진 사유(media reasonText «한국어 (원문)»)는 한국어 쪽만,
- *  나머지는 plain 뒤 한글이 있고 영문·숫자·괄호(오류 코드 E_TIMEOUT·504·원문 괄호 등)가 하나도 없을 때만, 아니면 쉬운 말 한 줄. 빈 글만 빈 글(원문만인 사유를 빈 글로 넘기면 Video 가 원문을 낸다) */
-export const say = (t: string) => {
-  t = t.normalize('NFKC');   // 전각 숫자·괄호·영문(«（５０４）»)도 같은 검사로(RV-457 4)
-  const k = /^(.+?) \((.+)\)$/.exec(t);
-  if (k && reasonText(k[2]) === t) return k[1];
-  const p = plain(t);
-  return !t ? '' : /[가-힣]/.test(p) && !/[A-Za-z0-9()[\]]/.test(p) ? p : '로봇에서 영상을 받지 못하고 있습니다';
-};
-/** 이 화면의 영상·라이다 사유는 모두 여기를 지난다. 에이전트 글이 실리는 곳은 none(알림·사유)뿐 — 그 밖(끊김·만료·멈춤 «2초»·«10초·1회»)은 media.ts 의 앱 자체 글이라 plain 만 */
-export const why = (f: Feed, ch: MediaChannel, at?: number) => { const t = feedText(f, ch, at); return f.state === 'none' ? say(t) : plain(t); };
+export { plain, say, why } from './simdrive';
 /** 이보다 적은 점의 판은 빈 판 — 라이다 대기로 본다(RV-454 2). ponytail: 고정값, 실기 점 수를 보고 맞출 것 */
 const FEW = 10;
 
@@ -98,16 +86,15 @@ export function RealDrive() {
   const soc = st?.battery?.soc;
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
-  const notes = [
+  const safe = [   // 안전 글(등급 1 · 2)은 모두 맨 위 · 접지 않음(RV-449 ①)
     stopText(s),
     leaving === 'wait' && '조종권을 반납하고 나가는 중입니다…',
     leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     l.at === 'closed' && l.why,
-    l.notice,
-    mine && l.clipped && CLIP,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
   ].filter(Boolean) as string[];
-  const shown = useBrief(notes, [Object.values(RESULT).includes(l.notice) ? l.notice : '', mine && l.clipped ? CLIP : ''].filter(Boolean));   // 확인 2 초
+  const rest = [l.notice, mine && l.clipped && CLIP].filter(Boolean) as string[];   // 확인 · 알림(등급 3~5) = 한 칸
+  const slot = useSlot(safe, rest, [Object.values(RESULT).includes(l.notice) ? l.notice : '', mine && l.clipped ? CLIP : ''].filter(Boolean));   // 확인 2 초
   const acts = [
     leaving === 'fail' && <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     !leaving && open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
@@ -134,7 +121,7 @@ export function RealDrive() {
         <div className="dv-top" aria-label="상태" data-tone={lock.tone} data-real-pill>실기 · 미검증 · {lock.text} · {real.name}{typeof soc === 'number' && ` · 배터리 ${Math.round(soc)}%`}</div>
         {/* 안전 글(반납 실패·출입증·끊김 이유·미검증·현장 비상 정지 수단)은 접어도 늘 위에 — 넘치면 카드 안 스크롤(접히는 실효 상한이 맨 아래) */}
         <div className="rd-card" data-real-card>
-          {shown.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
+          {slot.show.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}<More n={slot.more} open={slot.open} toggle={slot.toggle} />
           <p className="dv-note" role="note" data-real-unverified>{UNVERIFIED}</p>
           {range && <>
             <button type="button" className="rd-card-h" aria-expanded={info} data-real-info onClick={() => setInfo(!info)}>

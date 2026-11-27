@@ -379,7 +379,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
       lidar: { available: true, reason: 'Ready', token: tok('l') } } } as ReturnType<typeof welcome>);
     await drive(a);
     expect($('[data-cam-pick="external"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
+    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');   // 11-28: 영문 원문 괄호는 실기처럼 뺌
     expect(box.querySelector('.dv-stage img[alt="RGB 영상"]')).toBeNull();
     expect($('[data-orbit-why]')!.textContent).toBe('외부 카메라를 받는 중일 때만 시점을 옮길 수 있습니다');
     expect($('.dv-stage [data-orbit]')).toBeNull();   // 못 옮기면 끌기 처리 자체를 붙이지 않음
@@ -503,7 +503,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     // 영상: 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello
     const [c] = cams();
     expect(c.url).toBe('ws://127.0.0.1:9481/phone/camera/ws');
-    expect($('[data-cam="external"]')!.textContent).toBe('이 로봇은 관측 영상(media/1)을 알리지 않습니다');   // 외부 카메라 없으면 이유(RGB 로 바꿔 끼우지 않음)
+    expect($('[data-cam="external"]')!.textContent).toBe('이 로봇은 관측 영상을 알리지 않습니다');   // 11-28: 내부 규약명(media/1) 뺌   // 외부 카메라 없으면 이유(RGB 로 바꿔 끼우지 않음)
     await click($('[data-cam-pick="rgb"]'));
     act(() => c.open());
     expect(c.sent[0]).toMatchObject({ t: 'camera.hello', robot: S1, token: 'cam-1' });

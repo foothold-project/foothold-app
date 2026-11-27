@@ -101,6 +101,17 @@ describe('실기 직결 조종 화면 · 알림 수명', () => {
     expect(slot('[data-real-card]')).toEqual([]);
   });
 
+  it('안전 글(정지 · 출입증)은 겹쳐도 모두 맨 위에 보이고 접지 않는다', async () => {
+    const a = await real({ exp: 30 });
+    await driving(a);
+    await click($('[data-stop]'));
+    const shown = slot('[data-real-card]');
+    expect(shown).toHaveLength(2);
+    expect(shown[0]).toMatch(/^■ 정지 요청/);
+    expect(shown[1]).toContain('출입증');
+    expect($('[data-notes-more]')).toBeNull();
+  });
+
   it('로봇 이름은 칩에만(로봇 한 대 · 화면에 이름표 없음)', async () => {
     await real();
     const drive = $('[data-real-drive]')!;
@@ -150,6 +161,38 @@ describe('시뮬 조종 화면 · 한 사실은 한 곳 · 힌트', () => {
     const word = state === 'STARTING' ? '띄우는 중' : '정리 중';
     expect($('[data-sim-pill]')!.textContent).toContain(word);
     expect(slot('[data-sim-card]').join(' ')).not.toMatch(/띄우는 중|정리하는 중/);
+  });
+
+  it('임무 · 확인 · 힌트(등급 3~5)는 한 칸, 나머지는 «+N» 뒤 · 펼치면 모두', async () => {
+    const a = await simDrive();
+    act(() => a.recv({ t: 'run.update', run_id: 'r-1', status: 'FAILED', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: 'LOCALIZATION_LOST' })); await flush();
+    expect(slot('[data-sim-card]')).toEqual(['시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.']);
+    const more = $('[data-notes-more]')!;
+    expect(more.textContent).toBe('+1');
+    await click(more);
+    expect(slot('[data-sim-card]')).toHaveLength(2);
+    await click($('[data-notes-more]'));
+    expect(slot('[data-sim-card]')).toHaveLength(1);
+  });
+
+  it('안전 글(정지 줄)이 있으면 그 아래 등급 3~5 한 칸', async () => {
+    const a = await simDrive();
+    act(() => a.recv({ t: 'state', robot: S1, pose: null, speed: 0, battery: { soc: 77 }, latched: true, stop_gen: 1, stop_ref: 0, applied: [0, 0, 0], mode: 'IDLE', robot_id: S1,
+      controller: null, controller_device: null, controller_connected: false, lease_id: null, stop_requested: false, posture: 'STAND', velocity: [0, 0, 0], echo: null, wall_time_ms: Date.now(), simulation: true })); await flush();
+    await click($('[data-stop]'));
+    act(() => a.recv({ t: 'run.update', run_id: 'r-1', status: 'FAILED', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: 'LOCALIZATION_LOST' })); await flush();
+    const shown = slot('[data-sim-card]');
+    expect(shown).toHaveLength(2);
+    expect(shown[0]).toMatch(/^■ /);
+    expect(shown[1]).toBe('시나리오 실패 — 로봇이 지도 위 자기 위치를 잃었습니다.');
+    expect($('[data-notes-more]')!.textContent).toBe('+1');
+  });
+
+  it('영상 자리 글에 내부 규약 이름(media/1)이 보이지 않는다(실기와 같은 거르기)', async () => {
+    await simDrive();
+    const stage = $('[data-sim-drive] .dv-stage')!.textContent!;
+    expect(stage).toContain('이 로봇은 관측 영상을 알리지 않습니다');
+    expect(stage).not.toContain('media/1');
   });
 
   it('힌트(외부 카메라 시점)는 처음 한 번 3 초', async () => {
