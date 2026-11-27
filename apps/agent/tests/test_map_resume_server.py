@@ -44,7 +44,7 @@ def test_server_accepts_same_session_progress_after_new_connection(setup,duratio
         rt.clock=original_clock
 
 
-@pytest.mark.parametrize('status',['CANCELLED','SAVED','RECEIVED_ONLY','FAILED'])
+@pytest.mark.parametrize('status',['CANCELLED','SAVED','RECEIVED_ONLY'])
 def test_terminal_server_session_returns_status_without_accepting_new_data(setup,status):
     s=setup
     _,_,_,rid,rt,_,engine=s
@@ -66,6 +66,72 @@ def test_terminal_server_session_returns_status_without_accepting_new_data(setup
     with Session(engine) as db:
         row=db.get(MappingSession,initial['session_id'])
         assert row.status==status and row.progress==before
+
+
+def test_failed_server_session_ignores_progress_without_terminal_status(setup):
+    s=setup
+    initial=start(s)
+    assert report(s,initial,status='FAILED',phase='FAILED').status_code==202
+    with Session(s[6]) as db:
+        before=dict(db.get(MappingSession,initial['session_id']).progress)
+    response=report(s,initial,update_seq=2,point_count=999)
+    assert response.status_code==202 and response.json()=={'accepted':True}
+    with Session(s[6]) as db:
+        row=db.get(MappingSession,initial['session_id'])
+        assert row.status=='FAILED' and row.progress==before
+
+
+def test_failed_save_progress_then_web_retry_uploads_same_bundle(setup,tmp_path):
+    import json
+    from test_mapping_service_invariants import always_on_runtime,prime,drain,close_runtime
+    from test_slam_mapping import wait_for
+    s=setup
+    http,_,_,rid,_,peer,_=s
+    initial=start(s)
+    agent,clock,_,_=always_on_runtime(tmp_path)
+    uploads=[]
+    reports=[]
+    def request(sid,suffix,data):
+        if suffix=='bundle':
+            uploads.append(data)
+            if len(uploads)==1:return {'accepted':True}  # Unconfirmed receipt requires retry.
+        response=http.post(f'/api/v1/agent/robots/{rid}/slam/{sid}/{suffix}',
+            headers={'authorization':'Bearer mapping-token'},json=json.loads(data))
+        assert response.status_code==(201 if suffix=='bundle' else 202),response.text
+        if suffix=='progress':reports.append((json.loads(data),response.json()))
+        return response.json()
+    agent.request=request
+    def deliver(op):
+        agent.command(next(frame for frame in reversed(peer.queue._queue)
+            if frame.get('t')=='slam' and frame['op']==op))
+    try:
+        prime(agent);deliver('start');drain(agent)
+        wait_for(lambda:agent.services.status=='STARTED')
+        prime(agent,2);drain(agent)
+        assert action(s,'save',initial['session_id']).status_code==202
+        deliver('save');drain(agent)
+        clock.t=11.
+        wait_for(lambda:(agent.step(),agent.save_failed)[1])
+        assert agent.core.status=='FAILED' and len(uploads)==1
+        frozen=agent.frozen
+        path=tmp_path/(initial['session_id']+'.bundle.json')
+        clock.t+=1
+        wait_for(lambda:(agent.step(),any(body['status']=='FAILED' for body,_ in reports))[1])
+        if agent.report_future:agent.report_future.result(3)
+        agent.step()
+        assert current(s)['status']=='FAILED'
+        assert reports[-1][1]=={'accepted':True}
+        assert not agent.remote_terminal and not agent.bundle_cancelled.is_set()
+        assert agent.frozen==frozen==path.read_bytes()
+        retry=action(s,'save',initial['session_id'])
+        assert retry.status_code==202 and retry.json()['status']=='SAVING'
+        deliver('save')
+        wait_for(lambda:(agent.step(),agent.core.status=='SAVED')[1],timeout=10)
+        saved=current(s)
+        assert uploads==[frozen,frozen] and not path.exists()
+        assert saved['status']=='RECEIVED_ONLY' and saved['map_version_id']
+    finally:
+        close_runtime(agent)
 
 
 def test_offline_web_cancel_stops_agent_glim_and_bag_on_first_reconnected_progress(setup,tmp_path):

@@ -484,7 +484,7 @@ def install(app, DB, Identity, factory, settings, fail, event, lock_organization
                 row = db.get(MappingSession, session_id)
                 if (row is not None and row.org_id == settings.org_id
                         and str(row.robot_id) == rid and row.floor_id == msg.floor_id
-                        and row.status in ('CANCELLED', 'FAILED', *PERSISTED)):
+                        and row.status in ('CANCELLED', *PERSISTED)):
                     return row.status
         try:
             status = await app.state.realtime.read(receive_report)

@@ -563,7 +563,7 @@ class OnboardRuntime(MappingRuntime):
 
     def finish_remote_report(self,response,session):
         if (session!=self.core.session_id or self.remote_terminal or not isinstance(response,dict)
-                or response.get('status') not in ('CANCELLED','SAVED','RECEIVED_ONLY','FAILED')):
+                or response.get('status') not in ('CANCELLED','SAVED','RECEIVED_ONLY')):
             return
         self.remote_terminal=True
         self.raw.stop('cancelled' if response['status']=='CANCELLED' else 'session_ended')
@@ -571,7 +571,7 @@ class OnboardRuntime(MappingRuntime):
         self.bundle_cancelled.set()
         self.remove_bundle(session)
         self.core.status='SAVED' if response['status']=='RECEIVED_ONLY' else response['status']
-        self.phase='FAILED' if self.core.status=='FAILED' else 'UNKNOWN'
+        self.phase='UNKNOWN'
         self.save_requested=self.frozen=self.rebuild=None
         self.save_failed=True
         self.confirmed_report=None
