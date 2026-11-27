@@ -2,7 +2,7 @@
 // 2D = 서버 tiles(64×64칸 조각) — cursor 를 끝까지 따라가고, 다음 번은 첫 쪽 update_seq 이후 바뀐 조각만. 판(revision)이 바뀌면(409 포함) 비우고 처음부터.
 // 3D = 서버 voxels API(판·since·cursor, 11-25 RB-SLAM-WEB4)로 빠짐없이 — 진행 자료의 마지막 증분은 «새로 왔음» 신호로만. lidar3d «상자» 보기로. 로봇 = 진행 자료 odom.
 // 저장된 지도 = bundle 의 voxels(int32 LE x·y·z)·grid(칸마다 1바이트)를 같은 그리기로. 그림만 — 명령 0.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { MappingGridTile, MappingOdom, MappingProgress, MappingVoxelPage } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { DriveFeed, Pose } from '../drivemedia';
@@ -267,13 +267,16 @@ function SlamBoxes({ pic, fail }: { pic: SlamPic; fail: () => void }) {
  *  over·hideBase = 2D 에 겹칠 칸·조각 숨김(지도 만들기 GLIM 미리보기 — 안 주면 그대로). 조각을 숨기면 3D 상자도 막는다 */
 export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = false }: { pic: SlamPic; empty: string; first3d?: boolean; over?: Over | null; hideBase?: boolean }) {
   const over = useMemo(() => cleanOver(raw), [raw]);
-  const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d && !hideBase;
+  const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d && !hideBase, whyId = useId();
+  // 3D 상자가 회색인 까닭 한 줄 (폰에는 마우스 올림이 없다)
+  const why3d = no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : !pic.n ? '3D 칸을 아직 받지 못했습니다' : hideBase ? '고친 지도 미리보기는 위에서만 봅니다' : '';
   const any = (!hideBase && (pic.n > 0 || pic.patches.length > 0)) || !!over?.cells.length;
   return <div style={{ position: 'absolute', inset: 0, background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
     {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
     {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
       <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
-      <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={no3d || !pic.n || hideBase} title={no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : undefined} onClick={() => setD3(true)}>3D 상자</button>
+      <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={!!why3d} aria-describedby={why3d ? whyId : undefined} onClick={() => setD3(true)}>3D 상자</button>
+      {why3d && <span style={{ flexBasis: '100%', display: 'flex', justifyContent: 'flex-end' }}><span className="lbl" id={whyId} data-slam-3d-why style={{ background: 'var(--panel)', padding: '2px 6px', borderRadius: 6 }}>{why3d}</span></span>}
     </div>}
   </div>;
 }

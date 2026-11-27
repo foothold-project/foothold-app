@@ -368,6 +368,18 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
     expect($('[data-save="v9"] button')!.getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('요청을 보내는 동안 회색인 단추 아래 «요청을 보내는 중» 한 줄, 답이 오면 사라짐 (U11-02)', async () => {
+    serve(signedIn(LEE, true, () => null));
+    await open(); await live(true); await openMake();
+    let done: (x: MappingProgress) => void = () => {};
+    vi.spyOn(api, 'slamDo').mockReturnValue(new Promise((r) => { done = r; }));
+    expect($('[data-make-busy]')).toBeNull();
+    act(() => btn('지도 만들기', dlg())!.click());
+    expect(btn('지도 만들기', dlg())!.disabled).toBe(true);
+    expect($('[data-make-busy]')!.textContent).toBe('요청을 보내는 중… 답이 오면 단추가 다시 켜집니다.');
+    await act(async () => { done(prog('RUNNING')); }); await flush();
+    expect($('[data-make-busy]')).toBeNull();
+  });
   it('시작 중이 오래 가면 로봇 프로그램 업데이트 안내, 취소 = POST cancel {session_id} → 취소됨', async () => {
     let now: MappingProgress = prog('STARTING', { voxels: null, odom: null, update_seq: 0 });
     serve(signedIn(LEE, true, () => now, { 'POST /robots/r-a/slam/cancel': (b) => { expect(b).toEqual({ session_id: SID }); now = prog('CANCELLED'); return { status: 200, body: now }; } }));
