@@ -1,4 +1,5 @@
-"""Admin management stays global; motion and STOP use trusted DB provenance."""
+"""팀장 11/28: 총괄(ORG_ADMIN)은 실기도 조종·정지한다. 담당 아닌 운영자는 여전히 거절,
+안전 관문(현장 폰 직접 · 정지 잠김 · 조종권 하나)은 총괄에게도 그대로다."""
 import asyncio
 import time
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session as DBSession
 
 from apps.server.fh_server.api import (
-    ADMIN_NO_REAL_CONTROL, APIError, Settings, authorize, create_app,
+    APIError, Settings, authorize, create_app,
 )
 from apps.server.fh_server.models import PhonePass, PhoneRevocation, Robot
 from apps.server.fh_server.realtime import policy_rights
@@ -23,19 +24,15 @@ from .test_realtime_review import run
 
 
 @pytest.mark.parametrize('simulation', [False, True, None, 'true', 1])
-def test_admin_control_requires_true_db_flag(simulation):
+def test_admin_control_any_db_flag_but_nonowner_operator_denied(simulation):
     user = SimpleNamespace(id=uuid4(), org_id=uuid4(), role='ORG_ADMIN')
     robot = SimpleNamespace(org_id=user.org_id, owner_user_id=uuid4(), simulation=simulation)
-    for permission in ('ROBOT_READ', 'ROBOT_SUMMARY', 'A'):
+    for permission in ('ROBOT_READ', 'ROBOT_SUMMARY', 'A', 'O_OWN', 'ROBOT_STOP'):
         authorize(user, permission, robot)
-    for permission in ('O_OWN', 'ROBOT_STOP'):
-        if simulation is True:
-            authorize(user, permission, robot)
-        else:
-            with pytest.raises(APIError) as error:
-                authorize(user, permission, robot)
-            assert (error.value.status, error.value.code, error.value.message) == (
-                403, 'ADMIN_NO_REAL_CONTROL', ADMIN_NO_REAL_CONTROL)
+    operator = SimpleNamespace(id=uuid4(), org_id=user.org_id, role='OPERATOR')
+    with pytest.raises(APIError) as error:
+        authorize(operator, 'O_OWN', robot)
+    assert (error.value.status, error.value.code) == (403, 'NOT_ROBOT_OWNER')
 
 
 def test_cached_acl_key_includes_simulation_and_preserves_management():
@@ -44,17 +41,18 @@ def test_cached_acl_key_includes_simulation_and_preserves_management():
     def rights(sim):
         return policy_rights(authorize, APIError, user, ((rid, org, None, owner, 'hash', sim),))[str(rid)]
     real, sim = rights(False), rights(True)
-    assert {'ROBOT_READ', 'ROBOT_SUMMARY', 'ADMIN_NO_REAL_CONTROL'} <= real
-    assert not {'O_OWN', 'ROBOT_STOP'} & real
+    assert {'ROBOT_READ', 'ROBOT_SUMMARY', 'O_OWN', 'ROBOT_STOP'} <= real
+    assert 'ADMIN_NO_REAL_CONTROL' not in real
     assert {'ROBOT_READ', 'ROBOT_SUMMARY', 'O_OWN', 'ROBOT_STOP'} <= sim
 
 
 @pytest.mark.parametrize('purpose', ['control', 'view'])
-def test_admin_pass_real_denied_sim_allowed(pc, seeded, purpose):
+def test_admin_pass_real_and_sim_allowed_nonowner_operator_denied(pc, seeded, purpose):
+    pc.pass_headers = csrf(pc, 'two')
+    if purpose == 'control':
+        assert issue(pc, seeded, purpose=purpose).status_code == 404
     pc.pass_headers = csrf(pc, 'admin')
-    denied = issue(pc, seeded, purpose=purpose)
-    assert denied.status_code == 403
-    assert denied.json()['error'] == dict(code='ADMIN_NO_REAL_CONTROL', message=ADMIN_NO_REAL_CONTROL, detail={})
+    assert issue(pc, seeded, purpose=purpose).status_code == 200
     with DBSession(pc.app.state.engine) as db:
         db.get(Robot, seeded['robots']['mine']).simulation = True
         db.commit()
@@ -63,7 +61,7 @@ def test_admin_pass_real_denied_sim_allowed(pc, seeded, purpose):
     assert issue(pc, seeded).status_code == 200
 
 
-def test_admin_real_ws_denials_and_live_read(client, seeded, rt):
+def test_admin_real_ws_keeps_phone_direct_gate_and_live_read(client, seeded, rt):
     rid = seeded['robots']['mine']
     headers = app_token(client, 'admin')
     operator = app_token(client)
@@ -80,16 +78,16 @@ def test_admin_real_ws_denials_and_live_read(client, seeded, rt):
             ('lease.respond', dict(request_id=str(uuid4()), accept=True)),
             ('cmd', dict(lease_id=str(uuid4()), seq=0, axes=[1, 0, 0])),
             ('unlock', dict(lease_id=str(uuid4()), stop_gen=1)), ('stop', {})]
+        # 총괄도 실기 서버 조종이 꺼진 로봇에는 같은 안전 관문(PHONE_DIRECT_REQUIRED)에 걸린다.
         for kind, fields in operations:
             result = reply(ws, send(ws, kind, rid, **fields))
-            assert result['error']['code'] == 'ADMIN_NO_REAL_CONTROL', result
-            assert result['error']['message'] == ADMIN_NO_REAL_CONTROL
+            assert result['error']['code'] == 'PHONE_DIRECT_REQUIRED', result
         assert rt.arbiter.robot(str(rid)).holder == holder
         assert rt.arbiter.robot(str(rid)).stop_ref == before
         assert reply(owner, send(owner, 'cmd', rid, lease_id=str(uuid4()), seq=0, axes=[0, 0, 0]))['error']['code'] == 'PHONE_DIRECT_REQUIRED'
         denied = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
         assert denied.status_code == 403
-        assert denied.json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        assert denied.json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
         assert reply(ws, send(ws, 'ping'))['ok']
         assert client.get(f'/api/v1/robots/{rid}', headers=headers).status_code == 200
         assert client.get('/api/v1/dashboard', headers=headers).status_code == 200
@@ -192,7 +190,7 @@ def test_real_admin_assignments_retained_robot_settings_readonly(maps, seeded):
     assert result.status_code == 403, result.text
 
 
-def test_restart_retains_legacy_pass_metadata_and_denies_new_admin_control(seeded):
+def test_restart_retains_legacy_pass_metadata_and_allows_new_admin_control(seeded):
     engine = create_engine(seeded['urls']['migrate'])
     current = int(time.time())
     tickets = []
@@ -216,7 +214,8 @@ def test_restart_retains_legacy_pass_metadata_and_denies_new_admin_control(seede
             headers = app_token(http, 'admin')
             result = http.post(f"/api/v1/robots/{seeded['robots']['mine']}/phone-pass",
                 headers=headers, json={'device': str(uuid4()), 'purpose': 'control'})
-            assert result.status_code == 403 and result.json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+            # 권한 관문을 지나 발급 단계까지 간다 (이 앱에는 발급 키가 없다).
+            assert result.json()['error']['code'] == 'PASS_KEY_MISSING', result.text
     finally:
         app.state.engine.dispose()
         engine.dispose()

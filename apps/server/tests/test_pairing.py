@@ -54,7 +54,6 @@ def test_pairing_one_use_claimant_only_and_no_secret_in_summary_or_db(client, se
     poll = {'poll_secret': pending['poll_secret']}
     assert client.post(path + '/poll', json=poll).json() == {'state': 'waiting'}
     assert client.post(path + '/poll', json={'poll_secret': 'wrong'}).status_code == 404
-    assert client.post(P + '/pairing/claim', headers=admin, json={'code': pending['code']}).status_code == 403
     claimed = client.post(P + '/pairing/claim', headers=own, json={'code': pending['code']})
     assert claimed.json()['robot_serial'] == '1234-5678'
     assert client.post(P + '/pairing/claim', headers=other, json={'code': pending['code']}).status_code == 404
@@ -331,6 +330,25 @@ def test_another_operator_cannot_repair_existing_serial(client):
     with DBSession(client.app.state.engine) as db:
         row = db.get(Robot, UUID(robot['id']))
         assert row.name == robot['name'] and row.agent_token_hash == digest(credential['agent_token'])
+
+
+def test_admin_pairs_new_and_repairs_operator_robot_with_events(client, seeded):
+    # 팀장 11/28: 총괄도 로봇을 붙인다. 기록에는 총괄이 한 것으로 남는다.
+    own, admin = app_token(client), app_token(client, 'admin')
+    robot, _, _ = paired(client, admin, name='총괄 기체', serial='2222-3333')
+    assert robot['owner']['id'] == str(seeded['users']['admin'])
+    path = P + '/robots/' + robot['id']
+    assert client.patch(path, headers=admin, json={'name': '총괄 이름'}).status_code == 200
+    moved = client.patch(path, headers=admin, json={'owner_user_id': str(seeded['users']['one'])})
+    assert moved.status_code == 200 and moved.json()['owner']['id'] == str(seeded['users']['one'])
+    theirs, old, _ = paired(client, own)
+    again, new, _ = paired(client, admin, name='총괄 재연결')
+    assert again['id'] == theirs['id'] and again['owner']['id'] == str(seeded['users']['one'])
+    assert new['agent_token'] != old['agent_token']
+    with DBSession(client.app.state.engine) as db:
+        by_admin = {(e.code, str(e.robot_id)) for e in db.scalars(select(Event).where(
+            Event.user_id == seeded['users']['admin']))}
+        assert {('ROBOT_CREATED', robot['id']), ('ROBOT_REPAIRED', theirs['id'])} <= by_admin
 
 
 def test_owner_can_repair_after_connection_is_revoked(client):

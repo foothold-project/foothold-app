@@ -244,7 +244,7 @@ def test_ws_commit_failure_never_acknowledged(scenario, monkeypatch):
     assert not stored(s, RunReport)
 
 
-def test_signed_cancel_scope_and_real_admin_stays_blocked(pc, seeded):
+def test_signed_cancel_scope_and_real_admin_pass_allowed_pc_still_blocked(pc, seeded):
     with Session(pc.app.state.engine) as db:
         db.get(Robot, seeded['robots']['mine']).simulation = True
         db.commit()
@@ -259,11 +259,12 @@ def test_signed_cancel_scope_and_real_admin_stays_blocked(pc, seeded):
     with Session(pc.app.state.engine) as db:
         db.get(Robot, seeded['robots']['mine']).simulation = False
         db.commit()
-    assert issue(pc, seeded, purpose='control').status_code == 403
-    assert issue(pc, seeded, purpose='view').status_code == 403
+    # 팀장 11/28: 총괄도 실기 출입증을 받는다. PC 화면의 실기 금지(WEB_SIM_ONLY)는 그대로.
+    assert issue(pc, seeded, purpose='control').status_code == 200
+    assert issue(pc, seeded, purpose='view').status_code == 200
     response = pc.post(f"{P}/robots/{seeded['robots']['mine']}/phone-pass", headers=pc.pass_headers,
         json={'purpose': 'view', 'device': str(uuid4()), 'surface': 'pc'})
-    assert response.status_code == 403
+    assert response.status_code == 403 and response.json()['error']['code'] == 'WEB_SIM_ONLY'
     pc.pass_headers = csrf(pc, 'two')
     assert issue(pc, seeded, purpose='view').status_code == 404
     assert issue(pc, seeded, robot='foreign', purpose='view').status_code == 404
