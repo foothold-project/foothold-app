@@ -242,7 +242,7 @@ describe('라이다 칸 3D', () => {
     const f = feed(3, 1), at = (go2: Pose) => act(() => root!.render(<Lidar3D feed={f} small={false} onFail={() => {}} go2={go2} />));
     at(null); act(() => { vi.advanceTimersByTime(600); });
     const stand = gl.snap;
-    expect($('[data-l3-nopose]')!.textContent).toBe('자세 정보 없음 — 서 있는 모양으로 보입니다');
+    expect($('[data-l3-nopose]')!.textContent).toBe('자세 정보 없음 · 서 있는 모양으로 보입니다');
     const pose = (v: number): Pose => ({ q: JOINTS.map(() => v), wxyz: [1, 0, 0, 0] });
     let r0 = gl.renders; at(pose(0.3));
     expect(gl.renders).toBe(r0 + 1); expect(gl.snap).not.toBe(stand); expect($('[data-l3-nopose]')).toBeNull();   // 2 Hz 판 기다리지 않음

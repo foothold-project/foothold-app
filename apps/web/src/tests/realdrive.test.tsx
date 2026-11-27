@@ -428,7 +428,7 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(say('JPEG decoder (Pillow) is unavailable')).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say(reasonText('JPEG decoder (Pillow) is unavailable'))).toBe('로봇 쪽 JPEG 해독기가 없어 영상을 보낼 수 없습니다');   // 알려진 것 = 쉬운 한국어
     expect(say(reasonText('RGB source is disabled'))).toBe('RGB 카메라가 꺼져 있습니다');
-    expect(why({ state: 'expired', why: '영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요' } as Feed, 'rgb')).toBe('영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요');   // 앱 자체 글은 why 가 say 를 거치지 않는다(RV-456 2)
+    expect(why({ state: 'expired', why: '영상 연결 권한(10초·1회)이 끝났습니다 · «영상 다시 받기»로 다시 연결하세요' } as Feed, 'rgb')).toBe('영상 연결 권한(10초·1회)이 끝났습니다 · «영상 다시 받기»로 다시 연결하세요');   // 앱 자체 글은 why 가 say 를 거치지 않는다(RV-456 2)
     expect(say('')).toBe('');
   });
 

@@ -150,7 +150,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
       <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span></div>
       <div className="fh-row">{r !== resume && <button type="button" className="btn pri" onClick={() => sim.attach(r)}>{view ? '보기' : '직접 연결'}</button>}<button type="button" className="btn" onClick={() => sim.end(r)}>{r.state === 'ERROR' ? '정리' : '끝내기'}</button></div></li>)}</ul>}
     {!only && <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }} data-sim-engine><legend>시뮬</legend>
-      <ul className="fh-list" aria-label="시뮬 고르기">{([['mujoco', 'MuJoCo', '이 기기에서 계산'], ['gazebo', 'Gazebo', gz ? '서버에서 계산' : '서버에서 계산 · 준비 중']] as const).map(([id, name, note]) =>
+      <ul className="fh-list" aria-label="시뮬 고르기">{([['mujoco', 'MuJoCo', '이 기기에서 계산'], ['gazebo', 'Gazebo', gz ? '서버에서 계산' : `서버에서 계산 · ${!s.worldsOk ? '월드 목록을 받지 못해' : s.managerError ? '시뮬 관리자에 닿지 않아' : '서버에 띄울 월드가 없어'} 지금 고를 수 없음`]] as const).map(([id, name, note]) =>
         <li key={id}><label className="fh-row">
           <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}

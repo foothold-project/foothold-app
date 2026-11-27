@@ -140,7 +140,7 @@ describe('탭 전환', () => {
     expect(cards.map((c) => [c.dataset.simCard, c.textContent])).toEqual(SIM_MAPS.map((m) => [m.id, m.name]));
     expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('warehouse');
     expect($('[data-sim-top] image').getAttribute('href')).toMatch(/mobile\/sim\/assets\/warehouse\/top\.png/);
-    expect($('[data-sim-top]').getAttribute('aria-label')).toBe('창고 위에서 본 모습 — 눌러 시작 위치 고르기');
+    expect($('[data-sim-top]').getAttribute('aria-label')).toBe('창고 위에서 본 모습 · 눌러 시작 위치 고르기');
     click(cards[0]);
     expect(localStorage.getItem('fh.simMap')).toBe('warehouse');
     expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=warehouse');

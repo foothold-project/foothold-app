@@ -18,7 +18,7 @@ export const treePoints = (t: Tree) => {
 /** validateTree 결과: '' = 통과. 시뮬은 지점 0개 시나리오를 받지 않으므로(scenario.js validateScenarios) 그 이유도 함께 */
 export function check(t: Tree) {
   try { BT.validateTree(t); } catch (e) { return (e as Error).message; }
-  return treePoints(t).length ? '' : '순찰 지점이 하나도 없습니다 — 시뮬은 지점 없는 임무를 받지 않습니다.';
+  return treePoints(t).length ? '' : '순찰 지점이 하나도 없습니다 · 시뮬은 지점 없는 임무를 받지 않습니다.';
 }
 
 const NO_SIM: Record<string, string> = { OPERATOR_CONFIRM: '운영자 확인', SENSOR_LOG: '센서 값 기록' };
@@ -30,13 +30,13 @@ export function scenarioTree(s: ScenarioWrite, missions: Mission[]): Tree | stri
     nodes.push({ type: 'goto', point: { x: w.x, y: w.y } });
     if (!w.mission_id) continue;
     const m = missions.find((x) => x.id === w.mission_id);
-    if (!m || m.latest_version !== w.mission_version) return `${i + 1}번 지점: 옛 판 임무 — 할 일을 다시 고른 뒤 저장하세요.`;
+    if (!m || m.latest_version !== w.mission_version) return `${i + 1}번 지점: 옛 판 임무 · 할 일을 다시 고른 뒤 저장하세요.`;
     for (const st of m.steps) {
       if (NO_SIM[st.action]) return `${i + 1}번 지점: «${NO_SIM[st.action]}»은 시뮬에서 실행할 수 없습니다.`;
       if (st.action === 'PHOTO') nodes.push({ type: 'photo' });
       if (st.action === 'WAIT') {
         const raw = w.wait_s ?? st.params?.seconds, sec = Number(raw);   // 지점 대기(wait_s)가 임무 판 값을 덮는다(서버 실행과 같게)
-        if (!(sec > 0 && sec <= BT.ACTION_SECONDS.wait)) return `${i + 1}번 지점: 대기 ${raw}초 — 시뮬은 한 번에 ${BT.ACTION_SECONDS.wait}초까지 기다립니다.`;
+        if (!(sec > 0 && sec <= BT.ACTION_SECONDS.wait)) return `${i + 1}번 지점: 대기 ${raw}초 · 시뮬은 한 번에 ${BT.ACTION_SECONDS.wait}초까지 기다립니다.`;
         nodes.push({ type: 'wait', seconds: sec });
       }
     }

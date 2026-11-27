@@ -88,7 +88,7 @@ describe('시점 보내기', () => {
     const { o, sent, notes, go, tick } = rig();
     o.set({ ...VIEW0, yaw: 0.1 });
     await go(0, fail(409, 'SIM_OBSERVER_UNAVAILABLE'));
-    expect(notes).toEqual([['시뮬 외부 카메라가 지금 시점 요청을 받지 못합니다 — 다시 끌면 다시 보냅니다', false]]);
+    expect(notes).toEqual([['시뮬 외부 카메라가 지금 시점 요청을 받지 못합니다 · 다시 끌면 다시 보냅니다', false]]);
     await tick(200); o.set({ ...VIEW0, yaw: 0.2 }); await tick(200);
     expect(sent).toEqual([['view', 0.1]]);   // 자동 재시도 없음
     o.end();
@@ -111,7 +111,7 @@ describe('시점 보내기', () => {
   });
 
   it('못 옮기는 이유: 중계 없음 → 외부 카메라 안 받는 중 → 회차 없음 순서, 중계는 켜짐', () => {
-    expect(viewBlock(live, false)).toBe('시점 이동 준비 중 — 서버 시점 중계가 아직 없습니다');
+    expect(viewBlock(live, false)).toBe('시점 이동 준비 중 · 서버 시점 중계가 아직 없습니다');
     expect(viewBlock(wait)).toBe('외부 카메라를 받는 중일 때만 시점을 옮길 수 있습니다');
     expect(viewBlock(live)).toBe('시뮬 회차 정보가 없어 시점을 옮길 수 없습니다');
   });
@@ -166,7 +166,7 @@ describe('useOrbit — 그림 끌기', () => {
     const el = mount();
     ev(el, 'pointerdown', 1, 100, 100); ev(el, 'pointermove', 1, 150, 110);
     await later(0);
-    expect(el.getAttribute('data-note')).toBe('담당자·회차가 바뀌어 시점 이동을 멈췄습니다 — 다시 연결하세요');
+    expect(el.getAttribute('data-note')).toBe('담당자·회차가 바뀌어 시점 이동을 멈췄습니다 · 다시 연결하세요');
     ev(el, 'pointerup', 1, 150, 110); ev(el, 'pointerdown', 1, 100, 100); ev(el, 'pointermove', 1, 190, 110);
     await later(VIEW_MS + 10);
     expect(send).toHaveBeenCalledTimes(1);
@@ -185,7 +185,7 @@ describe('useOrbit — 그림 끌기', () => {
     const el = mount();
     ev(el, 'pointerdown', 1, 100, 100); ev(el, 'pointermove', 1, 150, 110);
     await later(0);
-    expect(el.getAttribute('data-note')).toBe('시뮬 외부 카메라가 지금 시점 요청을 받지 못합니다 — 다시 끌면 다시 보냅니다');
+    expect(el.getAttribute('data-note')).toBe('시뮬 외부 카메라가 지금 시점 요청을 받지 못합니다 · 다시 끌면 다시 보냅니다');
     ev(el, 'pointerup', 1, 150, 110);
     await later(VIEW_MS + 10);
     ev(el, 'pointerdown', 1, 100, 100);

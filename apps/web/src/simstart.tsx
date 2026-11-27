@@ -34,14 +34,14 @@ const CLEARANCE = 0.45;
  *  칸 계산은 mobile/sim/lidar.js cell 과 같다(행 0 = 위쪽) */
 export function blocked(g: Grid, x: number, y: number) {
   const c = Math.floor((x - g.origin[0]) / g.res), r = g.h - 1 - Math.floor((y - g.origin[1]) / g.res);
-  if (c < 0 || r < 0 || c >= g.w || r >= g.h) return '지도 밖입니다 — 지도 안을 눌러 주세요.';
+  if (c < 0 || r < 0 || c >= g.w || r >= g.h) return '지도 밖입니다 · 지도 안을 눌러 주세요.';
   const v = g.px[r * g.w + c];
   if (v !== 254) return v === 205 ? '지도에 없는(모르는) 곳이라 시작할 수 없습니다.' : '벽·장애물 자리라 시작할 수 없습니다.';
   const k = Math.ceil(CLEARANCE / g.res);
   for (let dr = -k; dr <= k; dr++) for (let dc = -k; dc <= k; dc++) {
     const rr = r + dr, cc = c + dc;
     if (rr >= 0 && cc >= 0 && rr < g.h && cc < g.w && Math.hypot(dr, dc) * g.res <= CLEARANCE + 1e-9 && g.px[rr * g.w + cc] !== 254)
-      return `벽·물건에서 ${CLEARANCE} m 안이라 시작할 수 없습니다 — 조금 떨어진 곳을 눌러 주세요.`;
+      return `벽·물건에서 ${CLEARANCE} m 안이라 시작할 수 없습니다 · 조금 떨어진 곳을 눌러 주세요.`;
   }
   return '';
 }
@@ -56,14 +56,14 @@ const terrainMade = (v: MapVersion) => v.provenance === 'SIMULATION' && v.source
  *  같은 원본을 써도 서버가 쌍둥이 시뮬 판으로 인정하지 않는다(apps/server/VOXEL-MAPS.md «같은 시나리오와 실행 증명») */
 export const twinOf = (v?: MapVersion | null) => (v?.voxel_map && v.voxel_map.map_version_id === v.id ? v.voxel_map.terrain_id : null);
 /** 실기 장소 층 판이 시뮬에서 못 도는 이유(«실기만»), 돌면 '' */
-export const realOnly = (v?: MapVersion | null) => (twinOf(v) ? '' : v?.voxel_map ? '3D 지도로 만든 뒤 지도를 고쳐 시뮬 지형과 이어지지 않습니다 — 실기에서만 실행합니다.'
+export const realOnly = (v?: MapVersion | null) => (twinOf(v) ? '' : v?.voxel_map ? '3D 지도로 만든 뒤 지도를 고쳐 시뮬 지형과 이어지지 않습니다 · 실기에서만 실행합니다.'
   : '시뮬 지형이 없는 실기 지도라 실기에서만 실행합니다(3D 지도 파일로 만든 실기 지도만 시뮬에서도 실행).');
 export function simAt(f: MapFloor, v: MapVersion): { map: string; floor: string; terrain?: string } | string {
   const tw = twinOf(v);   // 실기 3D 지도 = 지도 좌표 그대로 그 지형(서버 voxel_files 원점 −가로/2·−세로/2 = 지형 틀)
   if (tw) return /^[a-z0-9-]{1,32}$/.test(tw) ? { map: 'custom', floor: '', terrain: tw } : '지형 id 형식이 시뮬과 맞지 않습니다.';
   if (f.terrain_id) return !/^[a-z0-9-]{1,32}$/.test(f.terrain_id) ? '지형 id 형식이 시뮬과 맞지 않습니다.'
     : terrainMade(v) ? { map: 'custom', floor: '', terrain: f.terrain_id }
-    : '이 지도 판은 «지형 만들기» 저장으로 만든 판이 아닙니다(사람이 올리거나 고친 판) — 시뮬과 좌표가 같은지 알 수 없어 실행하지 않습니다. «지형 만들기»에서 다시 저장하세요.';
+    : '이 지도 판은 «지형 만들기» 저장으로 만든 판이 아닙니다(사람이 올리거나 고친 판) · 시뮬과 좌표가 같은지 알 수 없어 실행하지 않습니다. «지형 만들기»에서 다시 저장하세요.';
   const map = topOf(v) && SIM_TOP.get(v.image_sha256);
   if (!map) return '이 층은 시뮬 세계·지형과 이어져 있지 않아 시뮬에서 실행할 수 없습니다(지도 좌표가 시뮬과 같은지 확인되지 않음).';
   const fl = META[dir(map, 'top.json')]?.floors;
@@ -115,7 +115,7 @@ export function SimPick({ make }: { make?: boolean }) {
     if (!meta) return;
     // 주소에 실리는 값(소수 2자리)으로 먼저 확정 — 검사·표시·주소가 모두 시뮬이 받는 그 점(REVIEW-265 B1: 반올림 전 통과·후 벽 0.45 m 안)
     const p = toWorld(e.currentTarget.getBoundingClientRect(), meta.bounds, e.clientX, e.clientY).map((v) => +v.toFixed(2)) as [number, number];
-    const no = grid ? blocked(grid, ...p) : '지도를 읽는 중입니다 — 잠시 뒤 다시 눌러 주세요.';
+    const no = grid ? blocked(grid, ...p) : '지도를 읽는 중입니다 · 잠시 뒤 다시 눌러 주세요.';
     setWhy(no);
     if (!no) setStart(p);
   };
@@ -129,12 +129,12 @@ export function SimPick({ make }: { make?: boolean }) {
     <BuiltinCards open={pickMap} on={map.id} />
     {floors.length > 1 && <div className="fh-row dv-floors" role="group" aria-label="층" data-sim-floor>{floors.map((f) =>
       <button key={f.id} type="button" className="btn" aria-pressed={f === floor} data-floor={f.id} onClick={() => { setFid(f.id); reset(); }}>{f.name}</button>)}</div>}
-    {meta && top && <svg className="dv-start-map"viewBox={`${x0} ${-y1} ${x1 - x0} ${y1 - y0}`} role="img" aria-label={`${map.name}${floor.name && ` ${floor.name}`} 위에서 본 모습 — 눌러 시작 위치 고르기`} onClick={press} data-sim-top={floor.top}>
+    {meta && top && <svg className="dv-start-map"viewBox={`${x0} ${-y1} ${x1 - x0} ${y1 - y0}`} role="img" aria-label={`${map.name}${floor.name && ` ${floor.name}`} 위에서 본 모습 · 눌러 시작 위치 고르기`} onClick={press} data-sim-top={floor.top}>
       <image href={top} x={x0} y={-y1} width={x1 - x0} height={y1 - y0} preserveAspectRatio="none" />
       {home && <Mark x={home[0]} y={home[1]} yaw={home[2]} k={k} />}
       {start && <Mark x={start[0]} y={start[1]} yaw={home?.[2] ?? 0} k={k} pick />}
     </svg>}
-    <p className="lv-note" data-sim-start>{start ? `시작 위치: 고른 곳 (x ${start[0].toFixed(2)} m, y ${start[1].toFixed(2)} m) · 흰 고리 = 기본 시작 지점` : '시작 위치: 기본 시작 지점(흰 고리) — 지도를 눌러 바꿀 수 있습니다'}</p>
+    <p className="lv-note" data-sim-start>{start ? `시작 위치: 고른 곳 (x ${start[0].toFixed(2)} m, y ${start[1].toFixed(2)} m) · 흰 고리 = 기본 시작 지점` : '시작 위치: 기본 시작 지점(흰 고리) · 지도를 눌러 바꿀 수 있습니다'}</p>
     {why && <p className="fh-why" role="status" data-sim-why>{why}</p>}
     <div className="fh-row">{acts}</div>
     {old > 0 && <p className="lv-note" data-old-bt>이 브라우저에만 있는 옛 임무 {old}개</p>}

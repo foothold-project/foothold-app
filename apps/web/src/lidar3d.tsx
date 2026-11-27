@@ -91,7 +91,7 @@ export const HeightLegend = ({ style, look = 'points', edge = false }: { style?:
   <div style={{ height: 8, borderRadius: 2, background: LEGEND_BG }} />
   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>바닥</span><span>1 m</span><span>{TOP_M} m+</span></div>
   {edge && <div data-edge-legend style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-    <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: HEX[20], boxShadow: '0 0 0 2px currentColor' }} /><span>모서리 — 테두리·크게</span></div>}
+    <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: HEX[20], boxShadow: '0 0 0 2px currentColor' }} /><span>모서리 · 테두리·크게</span></div>}
 </div>;
 
 type Mode = 'chase' | 'follow' | 'free';
@@ -130,7 +130,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
     const canvas = g.domElement;
     canvas.style.cssText = `display:block;width:100%;height:100%;touch-action:${small ? 'auto' : 'none'}`;
     canvas.setAttribute('role', 'img');
-    const label = (k: Look) => canvas.setAttribute('aria-label', `라이다 3D — 높이별 색 ${k === 'boxes' ? '상자' : '점'}${small ? '' : ' · 끌어서 돌리기, 휠·두 손가락 확대, 오른쪽 끌기·Shift+끌기 옮기기'}`);
+    const label = (k: Look) => canvas.setAttribute('aria-label', `라이다 3D · 높이별 색 ${k === 'boxes' ? '상자' : '점'}${small ? '' : ' · 끌어서 돌리기, 휠·두 손가락 확대, 오른쪽 끌기·Shift+끌기 옮기기'}`);
     let kind = first.current;
     label(kind);
     el.prepend(canvas);
@@ -298,7 +298,7 @@ export function Lidar3D({ feed, small, onFail, ratio = 2, legend = !small, look 
   useEffect(() => stance.current(), [go2]);
   return <div ref={host} style={{ position: 'absolute', inset: 0 }} data-lidar3d={feed.n} data-l3-view={mode} data-l3-look={look}>
     {legend && <HeightLegend look={look} edge={!!feed.edge} />}
-    {!small && !go2 && robotOf(feed) && <div className="qd-legend" role="status" data-l3-nopose style={{ bottom: 46 }}>자세 정보 없음 — 서 있는 모양으로 보입니다</div>}
+    {!small && !go2 && robotOf(feed) && <div className="qd-legend" role="status" data-l3-nopose style={{ bottom: 46 }}>자세 정보 없음 · 서 있는 모양으로 보입니다</div>}
     {mode !== 'chase' && !small && <button type="button" className="btn" data-l3-follow style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={() => again.current()}>로봇 뒤에서 보기</button>}
   </div>;
 }
