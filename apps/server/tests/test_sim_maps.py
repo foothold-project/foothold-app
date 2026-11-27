@@ -376,5 +376,7 @@ def test_plant_a_is_a_listed_world_but_floor_context_still_refuses_it():
     from apps.server.fh_server.sim_maps import supported_world_ids
     assert 'plant_a' in supported_world_ids()
     assert 'plant_a' not in C.FloorContext.model_fields['world_id'].annotation.__args__
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as caught:
         C.FloorContext.model_validate(dict(world_id='plant_a'))
+    # 필수 칸이 빠진 오류가 아니라 world_id 자체가 거절된 것인지 본다.
+    assert any(e['loc'] == ('world_id',) and e['type'] == 'literal_error' for e in caught.value.errors())
