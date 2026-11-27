@@ -815,10 +815,14 @@ class ScreenGait(ScreenRobot):
 #   비동기 run_result (status REJECTED, 에이전트 실행 기계가 막음): 폰 직결 reply 와 같은 코드
 #     (FORBIDDEN · NOT_CONTROLLER · RUN_ACTIVE · RUN_NOT_FOUND · RUN_OWNER_MISMATCH · RUN_STATE_CONFLICT ·
 #     RESUME_REJECTED · NAV_UNAVAILABLE · PLAN_UNAVAILABLE · RECORDING_UNAVAILABLE · RUN_CONFLICT),
-#     RUN_UNSUPPORTED (실행 기계가 없는 에이전트), VALIDATION (폰 프레임 검사 실패).
-#     resume 은 같은 화면 비밀 증명이 서버 길에 없어 지금은 늘 RESUME_REJECTED (증명 방식은 다음 결정).
-#     서버 길 요청자는 Hub 조종자가 아니라 지금 실행 기계는 start 를 NOT_CONTROLLER (실기는 FORBIDDEN) 로 막는다.
+#     RUN_UNSUPPORTED (실행 기계가 없는 에이전트), VALIDATION (폰 프레임 검사 실패),
+#     LEASE_HELD (폰 직결 조종자가 Hub 를 먼저 잡음), NOT_CONTROLLER (서버의 지금 USER lease 가 아님).
 #   성공은 status SUCCEEDED · code OK.
+# 데모 Hub 는 서버가 준 유효 USER lease (AgentLease · AgentUnlock.user_id) 를 Hub 조종자로 올린다 (11/28 05:09).
+#   먼저 잡은 쪽이 이긴다. 실기 Hub 에는 이 다리를 놓지 않고 실행 기계가 FORBIDDEN 으로 막는다 (팀장 결정 대기).
+# resume 증명: resume_token 대신 서버가 확인한 «그 로봇의 지금 USER lease 주인» (시작한 사용자이거나 lease 를
+#   넘겨받은 사용자). 잠김 (latched) 중이면 에이전트가 RESUME_REJECTED.
+# 폰 직결 run.* 는 그대로 남고, 서버가 죽었을 때 정지 · 끝 길이다.
 # run_result.code 는 열린 문자열. request_id 는 화면이 보낸 ScreenEnvelope.id 를 그대로 쓴다.
 # 실행 진행 (상태 · 지점) 은 ScreenState.run (에이전트 reported_run) 으로 본다.
 RunControlOp = Literal['pause', 'resume', 'abort']
@@ -1534,6 +1538,9 @@ class AgentStop(Contract):
 
 
 class AgentUnlock(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields("user_id"))
+    # 서버가 확인한 조종권 주인 (11/28). 데모 Hub 가 서버 lease 를 조종자로 올릴 때 이름으로 쓴다.
+    user_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     t: Literal['unlock'] = 'unlock'
     lease_id: UUID
     stop_gen: Sequence
@@ -2426,7 +2433,8 @@ class RunStarted(Contract):
     map_version_id: UUID
     user_id: UUID
     device_id: UUID
-    surface: Literal['phone', 'pc']
+    # 'server' = 화면 -> 서버 -> 에이전트 길 (11/28). device_id 는 로봇마다 정해진 중계 id.
+    surface: Literal['phone', 'pc', 'server']
     screen_id: UUID
     simulation: bool = Field(strict=True)
     map_proof: RunMapProof = omitted()

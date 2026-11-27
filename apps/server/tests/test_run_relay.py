@@ -115,11 +115,16 @@ def test_owner_run_start_and_control_reach_agent_and_result_returns(trial, seede
         receive(ag, 'lease'); receive(ag, 'stop'); receive(ag, 'field_approval')
         with screen(trial, owner) as ws, screen(trial, owner) as second:
             lease = take(ws, ag, rid)
+            assert reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
+            # The unlock names the server-verified holder (the demo Hub's relay controller).
+            assert receive(ag, 'unlock')['user_id'] == str(seeded['users']['one'])
             run_id, screen_id = str(uuid4()), str(uuid4())
             ag.send_json(state(3, stop_ref=ag.stop_ref))  # fresh, still measurement
             ident = send(ws, 'run.start', rid, lease_id=lease, run_id=run_id, screen_id=screen_id, **good)
             assert reply(ws, ident)['ok']
             body = receive(ag, 'run.start')
+            with pytest.raises(BaseException):  # exactly one run.start reaches the agent
+                receive(ag, 'run.start', timeout=.3)
             assert body == dict(t='run.start', request_id=ident, lease_id=lease, run_id=run_id,
                 screen_id=screen_id, user_id=str(seeded['users']['one']), **good)
             denied = reply(second, send(second, 'run.control', rid, lease_id=lease, run_id=run_id,

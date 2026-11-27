@@ -1225,6 +1225,10 @@ class Realtime:
                 if target == 'agent':
                     if effect.cause is not None:
                         body['cause'] = effect.cause
+                    if body['t'] == 'unlock':
+                        record = self.arbiter.robots.get(rid)
+                        if record is not None and record.holder is not None and record.holder.actor is not None:
+                            body['user_id'] = record.holder.actor.user  # names the server-path relay
                     peer = self.agents.get(rid)
                     if peer:
                         # DB provenance plus explicit per-robot manual trial only.
@@ -1592,7 +1596,7 @@ class Realtime:
                             self.send_posture(rid, actor, msg)
                         elif msg.t == 'run.start':
                             # 배정 확인은 DB 라 따로 돈다. 이 화면의 STOP 처리를 막지 않는다.
-                            self.send_run(rid, actor, msg)  # fast reject; nothing queued yet
+                            self.send_run(rid, actor, msg, enqueue=False)  # fast reject; nothing queued yet
                             peer.run_tasks.add(task := asyncio.create_task(self.start_run(peer, rid, actor, msg)))
                             task.add_done_callback(peer.run_tasks.discard)
                             continue

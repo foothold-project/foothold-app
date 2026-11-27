@@ -786,6 +786,19 @@
           "default": "unlock",
           "title": "T",
           "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
         }
       },
       "required": [

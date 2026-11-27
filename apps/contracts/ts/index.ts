@@ -311,6 +311,7 @@ export interface AgentTokenResponse {
 }
 
 export interface AgentUnlock {
+  user_id?: string | null;
   t: "unlock";
   lease_id: string;
   stop_gen: number;
@@ -606,7 +607,7 @@ export interface ExecutableRunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof: RunMapProof;
@@ -1909,7 +1910,7 @@ export interface ProvenRunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof: RunMapProof;
@@ -2154,7 +2155,7 @@ export interface RunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof?: RunMapProof;

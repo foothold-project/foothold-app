@@ -41,6 +41,11 @@ class Observer:
         self.server_stop_ref = 0
         self._rgb_unavailable_since = None
         self.run_result = None
+        self.relay = None  # ServerRelay key, registered in the Hub only when the server path is used
+        self.relay_seq = 0
+        self.server_lease = self.relay_lease = None
+        from uuid import uuid5, NAMESPACE_URL
+        self.relay_device = str(uuid5(NAMESPACE_URL, 'fh-server-relay:' + str(phone.robot)))
 
     @property
     def run(self):
@@ -116,6 +121,8 @@ class Observer:
         return Effects((), (hello, self._state()))
 
     def disconnect(self):
+        self._relay_release()  # server link loss is the relay's link loss
+        self.server_lease = self.relay_lease = None
         self.phone.runs.execution_disconnected()
         self.connected = False
         return Effects(())
@@ -174,41 +181,129 @@ class Observer:
                 self._report_rejected(f)
             elif f.get('t') in ('run.start', 'run.control') and self.connected:
                 self._relay_run(f)
+            elif f.get('t') == 'lease' and self.connected:
+                self._server_lease(f)
+            elif f.get('t') == 'unlock' and self.connected:
+                self._server_unlock(f)
             elif f.get('t') == 'ping':
                 self.last_ping = self.now()
-        return self.tick()  # lease/cmd/unlock never reach the real Session; run.* only via _relay_run
+                if self.relay is not None and self.relay in self.phone.peers:
+                    self.phone.peers[self.relay].last_ping = self.now()  # server link keeps the relay alive
+        return self.tick()  # cmd never reaches the Hub; lease/unlock/run.* only via the relay (simulation)
+
+    # ---- Server path (11/28 05:09): the server's USER lease is a Hub controller ----
+    # Only on a simulation Hub. A physical Hub never gets a server-driven unlock; its
+    # run machine keeps FORBIDDEN. A phone that holds the Hub first still wins.
+
+    def _hub(self, kind, **body):
+        import json
+        self.relay_seq += 1
+        return self.phone.receive(self.relay, json.dumps(
+            {'t': kind, 'id': 'server-%d' % self.relay_seq, 'robot': self.phone.robot, **body}))
+
+    def _relay_peer(self, user):
+        from foothold_agent.executor.scenario_run import ServerRelay
+        from .hub import Peer
+        h = self.phone
+        if self.relay is None:
+            self.relay = ServerRelay()
+        h.closing.pop(self.relay, None)  # an expired relay may register again
+        p = h.peers.get(self.relay)
+        if p is None:
+            p = h.peers[self.relay] = Peer(user=user, device=self.relay_device, purpose='control',
+                                           surface='server', deadline=float('inf'), last_ping=self.now())
+        c = h.runs.current
+        if not (h.runs.active and c['peer'] is self.relay):
+            p.user = user  # keep the starter's identity while its run lives
+        return p
+
+    def _relay_release(self):
+        h = self.phone
+        if self.relay is not None and self.relay in h.peers:
+            h.disconnect(self.relay, reserve=False)  # STOP/zero; an owned run pauses LINK_LOST
+
+    def _relay_control(self):
+        """Hub lease for the relay if the server lease is valid and no phone holds the Hub."""
+        from .hub import PhoneError
+        h = self.phone
+        if h.owner is self.relay and self.relay is not None:
+            return None
+        if h.owner is not None or h.reservation is not None:
+            return 'LEASE_HELD'
+        try:
+            reply = self._hub('lease.take')
+        except PhoneError as error:
+            return error.code
+        return None if reply.get('ok') else reply['error']['code']
+
+    def _server_lease(self, f):
+        lease = f.get('lease_id') if f.get('holder_type') == 'USER' else None
+        self.server_lease = lease if isinstance(lease, str) else None
+        if self.relay is not None and self.relay in self.phone.peers and self.phone.owner is self.relay:
+            if self.server_lease is None or lease != self.relay_lease:
+                self._relay_release()
+        self.relay_lease = self.server_lease
+
+    def _server_unlock(self, f):
+        from .hub import PhoneError
+        h = self.phone
+        user = f.get('user_id')
+        try:
+            if (h.simulation is not True or self.server_lease is None or f.get('lease_id') != self.server_lease
+                    or uuid(user) != user):
+                return
+        except ValueError:
+            return
+        self._relay_peer(user)
+        if self._relay_control() is not None:
+            return
+        try:
+            self._hub('unlock', lease_id=h.session.lease_id, stop_gen=h.session.core.stop_gen)
+        except PhoneError:
+            pass
 
     def _relay_run(self, f):
-        """Server run.* -> the phone frame -> the SAME ScenarioRun.handle. Never a Hub controller."""
+        """Server run.* -> the phone frame -> the SAME Hub.receive -> ScenarioRun.handle."""
         import json
-        from foothold_agent.executor.scenario_run import ServerRelay
+        from .hub import PhoneError
         from .protocol import frame as phone_frame
+        h = self.phone
         request_id = f.get('request_id')
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             return
         op = 'start' if f['t'] == 'run.start' else f.get('op')
-        body = {k: v for k, v in f.items() if k not in ('request_id', 'user_id')}
-        body.update(id=request_id, robot=self.phone.robot)
+        body = {k: v for k, v in f.items() if k not in ('request_id', 'user_id', 't')}
         answer = dict(request_id=request_id, op=op if op in ('start', 'pause', 'resume', 'abort') else 'start',
                       run_id=f.get('run_id'), status='REJECTED', code='VALIDATION')
+        def done(code):
+            self.run_result = {**answer, 'status': 'REJECTED' if code else 'SUCCEEDED', 'code': code or 'OK'}
         if op == 'resume':
-            body['resume_token'] = '-'  # shape check only; the value is never used (refused below)
+            body['resume_token'] = '-'  # shape only; the relay proof is the server lease (owns())
         try:
-            checked = phone_frame(json.dumps(body), self.phone.robot)
+            phone_frame(json.dumps({**body, 't': f['t'], 'id': request_id, 'robot': h.robot}), h.robot)
             user = f.get('user_id')
             if op not in ('start', 'pause', 'resume', 'abort') or 'resume_token' in f or uuid(user) != user:
                 raise ValueError('VALIDATION')
         except (ValueError, TypeError, OverflowError, RecursionError):
             self.run_result = answer if isinstance(answer['run_id'], str) else None
             return
-        if op == 'resume':
-            # Same-screen resume needs the phone's secret proof, which never travels via server
-            # state. Until a server-path proof is decided, resume is refused here, not guessed.
-            self.run_result = {**answer, 'code': 'RESUME_REJECTED'}
-            return
-        self.phone.runs.expire()
-        code, _ = self.phone.runs.handle(ServerRelay(user), checked)  # resume secret stays local
-        self.run_result = {**answer, 'status': 'REJECTED' if code else 'SUCCEEDED', 'code': code or 'OK'}
+        self._relay_peer(user)
+        self.relay.verified = f['lease_id'] == self.server_lease
+        if not self.relay.verified:
+            return done('NOT_CONTROLLER')  # not the server's current USER lease
+        try:
+            if h.simulation is True and op in ('start', 'resume') and h.owner is self.relay:
+                # Safety-reducing neutral from the relay itself: the run gate wants fresh ZERO.
+                self._hub('cmd', lease_id=h.session.lease_id, seq=h.session.last_seq + 1, vx=0, vy=0, wz=0)
+            if h.owner not in (None, self.relay) and op in ('start', 'pause', 'resume'):
+                return done('LEASE_HELD')  # a phone controller holds the Hub; it wins
+            body['lease_id'] = h.session.lease_id or f['lease_id']  # Hub-local lease
+            reply = self._hub(f['t'], **body)
+        except PhoneError as error:
+            return done(error.code)
+        finally:
+            self.relay.verified = False
+        done(None if reply.get('ok') else reply['error']['code'])
 
     def _report_rejected(self, f):
         journal, runs = self.phone.runs.journal, self.phone.runs
