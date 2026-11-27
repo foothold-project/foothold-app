@@ -452,10 +452,6 @@ describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
 });
 
 describe('CSV 내보내기', () => {
-  // Node 24 의 fetch Response.blob() 은 시험 환경(jsdom)의 Blob 을 돌려주는데 jsdom Blob 에는 text() 가 없다.
-  // 그래서 text() 가 없으면 jsdom FileReader 로 읽는다 (브라우저 · Node 22 처럼 text() 가 있으면 그대로)
-  const blobText = (b: Blob) => typeof b.text === 'function' ? b.text()
-    : new Promise<string>((ok, fail) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => fail(r.error); r.readAsText(b); });
   let saved: { href: string; download: string }[] = [];
   beforeEach(() => {
     saved = [];
@@ -471,7 +467,7 @@ describe('CSV 내보내기', () => {
     await click(btn('내보내기'));
     expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ category: 'ACCOUNT', robot_id: 'r-b' });
     expect(saved).toEqual([{ href: 'blob:csv', download: expect.stringMatching(/^기록-\d{4}-\d\d-\d\d\.csv$/) }]);
-    expect(await blobText((URL.createObjectURL as ReturnType<typeof vi.fn>).mock.calls[0][0] as Blob)).toContain('id,at\n2,x');   // 서버 본문 그대로
+    expect(await ((URL.createObjectURL as ReturnType<typeof vi.fn>).mock.calls[0][0] as Blob).text()).toContain('id,at\n2,x');   // 서버 본문 그대로
     expect(card('기록').textContent).toContain('CSV 파일로 내려받았습니다');
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv');   // 만든 URL 정리(R1)
   });
