@@ -14,10 +14,13 @@ import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import { SimPick } from './simstart';
 
-/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 실기 서버 경유(serverdrive.tsx)·mobile/sim 과 같은 배치(UIUX-1101): W/↑ 전진, S/↓ 후진, ←/→ 옆걸음, A/D 제자리 회전.
- *  Q/E 는 뺐다(옛 시뮬 옆걸음 — 실기에 없는 키). e.code(자판 자리)라 한글 입력 상태에서도 같다 */
+/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, A·← / D·→ 제자리 회전, Q/E 옆걸음, Space 정지(App).
+ *  실기 서버 경유(serverdrive.tsx·drive.tsx)와 같다. 옆걸음은 limits 가 vy 를 허락할 때만 나가고(phone.ts velocity), 아니면 0 + blockNote.
+ *  e.code(자판 자리)라 한글 입력 상태에서도 같다 */
 export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
-  KeyA: [1, 1], KeyD: [1, -1], ArrowLeft: [2, 1], ArrowRight: [2, -1] };
+  KeyA: [1, 1], ArrowLeft: [1, 1], KeyD: [1, -1], ArrowRight: [1, -1], KeyQ: [2, 1], KeyE: [2, -1] };
+/** 옆걸음 키 칩이 막혔을 때 까닭(limits 의 vy 가 0) */
+export const SIDE_OFF = '로봇 한계 옆 0 m/s';
 /** F-TO-05 키보드 전진 기본 0.6 m/s(시뮬은 조직 값 sim_key_vx — phone.ts tuned): 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 키 속도면 끝까지(최종 자르기는 velocity·에이전트) */
 export const KEY_VX = 0.6;
 export function forward(w: PhoneWelcome) {
@@ -67,8 +70,8 @@ function Arrows({ on }: { on: Partial<Record<keyof typeof ARROW, boolean>> }) {
 const blockedNames = (a: ReturnType<typeof allowed>) => [!a.back && '후진', !(a.left || a.right) && '옆걸음', !a.spin && '제자리 회전'].filter(Boolean).join('·');
 /** 막힌 방향 입력 안내(limits 가 0 으로 자른 이유 — 자르기는 phone.ts velocity). 폰 조이스틱·PC 키보드가 같이 쓴다 */
 export function blockNote([f, t, y]: [number, number, number], can: ReturnType<typeof allowed>, out: { vx: number; vy: number } | null, dead = DEAD) {
-  return f < -dead && !can.back ? '후진은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
-    : (y > dead && !can.left) || (y < -dead && !can.right) ? '옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
+  return f < -dead && !can.back ? '후진은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨'
+    : (y > dead && !can.left) || (y < -dead && !can.right) ? '옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨'
     : t !== 0 && !can.spin && (!out || (out.vx === 0 && out.vy === 0)) ? SPIN : '';
 }
 export const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
@@ -221,7 +224,7 @@ function ScenarioBar({ s, r, started }: { s: Sim; r: SimRobot; started: () => vo
   </div>;
 }
 
-export const EXP = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+export const EXP = '시뮬 시험용 · 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
 const SPIN = '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.';
 /** 직결 조종 화면(10-26 사용자 «쓸데없는 거 다 빼줘» — 참고 Unitree 앱 구도): 영상이 화면 전체(cover). 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약 하나,
  *  오른쪽 위 STOP(App 머리줄 — 시뮬 조종 중에는 STOP 만 남아 영상 위에 뜬다, 메뉴·띠·시트가 덮지 못함), 아래 두 구석 조이스틱, 왼쪽 조이스틱 옆 메뉴 단추 하나
@@ -405,7 +408,8 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
         <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick>
-        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A/D 회전{(can.left || can.right) && ' · ←/→ 옆'}</p></>}
+        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A·← D·→ 회전 · <span data-key-off={can.left || can.right ? undefined : ''} style={can.left || can.right ? undefined : { opacity: .55 }}
+          title={can.left || can.right ? undefined : SIDE_OFF}>Q/E 옆{can.left || can.right ? '' : '(막힘)'}</span></p></>}
       </div>
     </div></div>
   </section>;

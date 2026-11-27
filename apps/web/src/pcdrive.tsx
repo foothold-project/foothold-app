@@ -140,6 +140,7 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
           {!pose && <span className="pd-noreport" role="status" data-pd-noreport>로봇 보고 없음</span>}
         </div>
         {d.poseRow}
+        {d.gaitRow}
         {d.pad}
         {mine && <p className="lv-note">{d.hint}</p>}
       </section>

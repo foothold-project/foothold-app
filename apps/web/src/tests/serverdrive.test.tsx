@@ -11,7 +11,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, SIDE_BLOCK, COMBO_BLOCK, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
 import { BODY_CHECK, BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
 import { DriveView } from '../serverdrive';
@@ -105,22 +105,51 @@ describe('서버 경유 시험 조종 패널', () => {
     expect($('[data-server-drive]')).toBeNull();
   });
 
-  it('키: 화살표 = 이동, A/D = 제자리 회전, ↑+A/D — 표의 SI 값 그대로, 그 밖 조합·W 는 0', () => {
+  it('키(d5): W·↑ 전진 · S·↓ 후진 · A·← / D·→ 제자리 회전 · Q/E 옆걸음, ↑+A/D · 표의 SI 값 그대로, 그 밖 조합은 0', () => {
     ready();
     expect(document.body.textContent).toContain('누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다');   // 앞뒤·옆·회전 공통 안내(11-20)
-    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
-    expect(hold(['ArrowDown'])).toBe('-1.5,0,0');
-    expect(hold(['ArrowLeft'])).toBe('0,1,0');
-    expect(hold(['ArrowRight'])).toBe('0,-1,0');
-    expect(hold(['KeyA'])).toBe('0,0,2.5');
-    expect(hold(['KeyD'])).toBe('0,0,-2.5');
+    for (const k of ['ArrowUp', 'KeyW']) expect(hold([k])).toBe('1.5,0,0');
+    for (const k of ['ArrowDown', 'KeyS']) expect(hold([k])).toBe('-1.5,0,0');
+    for (const k of ['KeyA', 'ArrowLeft']) expect(hold([k])).toBe('0,0,2.5');
+    for (const k of ['KeyD', 'ArrowRight']) expect(hold([k])).toBe('0,0,-2.5');
+    expect(hold(['KeyQ'])).toBe('0,1,0');
+    expect(hold(['KeyE'])).toBe('0,-1,0');
     expect(hold(['ArrowUp', 'KeyA'])).toBe('1.5,0,2.5');
+    expect(hold(['KeyW', 'ArrowLeft'])).toBe('1.5,0,2.5');
     expect(hold(['KeyD', 'ArrowUp'])).toBe('1.5,0,-2.5');
-    for (const k of [['ArrowDown', 'KeyA'], ['ArrowLeft', 'ArrowUp'], ['KeyA', 'KeyD'], ['KeyW'], ['KeyS'], ['KeyQ']]) expect(hold(k)).toBe('0,0,0');
+    for (const k of [['ArrowDown', 'KeyA'], ['KeyQ', 'ArrowUp'], ['KeyA', 'KeyD'], ['ArrowLeft', 'ArrowRight'], ['KeyQ', 'KeyE'], ['KeyZ']]) expect(hold(k)).toBe('0,0,0');
     expect(lastAxes()).toBe('0,0,0');
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
   });
-
+  it('표에 없는 키 조합(W+Q · A+Q · W+S · Q+E)은 0 + 까닭 한 줄, 표에 있는 키를 새로 누르면 사라짐', () => {
+    ready();
+    for (const ks of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyW', 'KeyS'], ['KeyQ', 'KeyE']]) {
+      ks.forEach((k) => key('keydown', k)); tick(60);
+      expect(lastAxes()).toBe('0,0,0');
+      expect($('[data-sd-why]')!.textContent).toBe('이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.');   // 멈춤 확인 아님(입력 0 만)
+      [...ks].reverse().forEach((k) => key('keyup', k));
+    }
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    expect($('[data-sd-why]')).toBeNull();
+    key('keyup', 'KeyW');
+  });
+  it('d5 옆걸음: 조직 옆 상한(real_max_vy)이 표 값 1 을 허락하지 않으면 Q/E = 0 + 까닭 한 줄, 단추는 흐림 · 글 입력칸·창 밖이면 0', () => {
+    ready(); view();
+    expect($('[data-sd-move="left"]')!.textContent).toContain('Q');
+    expect($('[data-sd-move="right"]')!.textContent).toContain('E');
+    key('keydown', 'KeyQ'); tick(60); expect(lastAxes()).toBe('0,1,0');
+    act(() => { window.dispatchEvent(new Event('blur')); }); tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'KeyQ');
+    const input = document.createElement('input'); document.body.append(input); input.focus();
+    const typed = (type: string) => act(() => { input.dispatchEvent(new KeyboardEvent(type, { code: 'KeyE', bubbles: true, cancelable: true })); });
+    typed('keydown'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    typed('keyup'); input.remove();
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('true');
+    key('keydown', 'KeyQ'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')!.textContent).toBe(SIDE_BLOCK);
+    key('keyup', 'KeyQ');
+  });
   it('조직 상한을 넘는 단추·키는 0, 저장으로 낮추면 즉시 0이며 올려도 자동 재개 없음', () => {
     ready(); view();
     expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('false');
