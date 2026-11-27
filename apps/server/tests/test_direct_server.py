@@ -56,7 +56,7 @@ def test_real_legacy_ws_rest_and_generated_effects_never_relay(client, seeded, r
                 denied = reply(ws, send(ws, kind, rid, **fields))
                 assert not denied['ok'] and denied['error']['code'] == 'PHONE_DIRECT_REQUIRED'
         assert client.post(f'/api/v1/robots/{rid}/stop', headers=operator).json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
-        assert client.post(f'/api/v1/robots/{rid}/stop', headers=admin).json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        assert client.post(f'/api/v1/robots/{rid}/stop', headers=admin).json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
         async def assert_blocked():
             peer = rt.agents[str(rid)]
             # Covers bootstrap, disconnect and policy-generated effects too.
