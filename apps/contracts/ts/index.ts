@@ -196,6 +196,30 @@ export interface AgentPosture {
   action: "stand_up" | "stand_down";
 }
 
+export interface AgentRunControl {
+  t: "run.control";
+  request_id: string;
+  user_id: string;
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  op: "pause" | "resume" | "abort";
+}
+
+export interface AgentRunStart {
+  t: "run.start";
+  request_id: string;
+  user_id: string;
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  assignment_id: string;
+}
+
 export interface AgentRunUpdate {
   t: "run.update";
   run_id: string;
@@ -244,6 +268,7 @@ export interface AgentState {
   posture_result?: PostureResult | null;
   gait?: GaitState | null;
   gait_result?: GaitResult | null;
+  run_result?: RunCommandResult | null;
   action_result?: ActionResult | null;
   robot_info?: Go2RobotInfo | null;
   control?: "FACTORY" | "LOWLEVEL" | null;
@@ -286,6 +311,7 @@ export interface AgentTokenResponse {
 }
 
 export interface AgentUnlock {
+  user_id?: string | null;
   t: "unlock";
   lease_id: string;
   stop_gen: number;
@@ -581,7 +607,7 @@ export interface ExecutableRunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof: RunMapProof;
@@ -1697,6 +1723,7 @@ export interface PhoneState {
   posture_result?: PostureResult | null;
   gait?: GaitState | null;
   gait_result?: GaitResult | null;
+  run_result?: RunCommandResult | null;
   action_result?: ActionResult | null;
   robot_info?: Go2RobotInfo | null;
   control?: "FACTORY" | "LOWLEVEL" | null;
@@ -1883,7 +1910,7 @@ export interface ProvenRunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof: RunMapProof;
@@ -2000,6 +2027,14 @@ export interface RobotSummary {
   current_run: CurrentRun | null;
   devices: Device[];
   attention: string[];
+}
+
+export interface RunCommandResult {
+  request_id: string;
+  op: "start" | "pause" | "resume" | "abort";
+  run_id: string;
+  status: "SUCCEEDED" | "REJECTED";
+  code: string;
 }
 
 export interface RunCopy {
@@ -2120,7 +2155,7 @@ export interface RunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof?: RunMapProof;
@@ -2397,6 +2432,34 @@ export interface ScreenRobot {
   robot: string;
 }
 
+export interface ScreenRunControl {
+  id: string;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
+  robot: string;
+  t: "run.control";
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  op: "pause" | "resume" | "abort";
+}
+
+export interface ScreenRunStart {
+  id: string;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
+  robot: string;
+  t: "run.start";
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  assignment_id: string;
+}
+
 export interface ScreenServerPing {
   t: "ping";
   t_server: string;
@@ -2408,6 +2471,8 @@ export interface ScreenState {
   posture_result?: PostureResult | null;
   gait?: GaitState | null;
   gait_result?: GaitResult | null;
+  run?: RunSnapshot | null;
+  run_result?: RunCommandResult | null;
   action_result?: ActionResult | null;
   control?: "FACTORY" | "LOWLEVEL" | null;
   robot_info?: Go2RobotInfo | null;
@@ -2899,10 +2964,10 @@ export type RunFailCode = "NAV_GOAL_REJECTED" | "NAV_TIMEOUT" | "LOCALIZATION_LO
 export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN_CONFLICT" | "RUN_NOT_FOUND" | "RUN_STATE_CONFLICT" | "RUN_OWNER_MISMATCH" | "RESUME_REJECTED" | "UNSUPPORTED_OPERATION" | "RECORDING_UNAVAILABLE" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
 export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE";
 export type RunReportPermanentCode = "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RUN_REPORT_PLAN" | "RUN_REPORT_STATE" | "RUN_REPORT_STEP" | "RUN_REPORT_PROVENANCE" | "RUN_REPORT_CONFLICT" | "RUN_REPORT_INSTANCE" | "RUN_REPORT_ROBOT" | "RUN_REPORT_NOT_FOUND" | "RUN_REPORT_INVALID";
-export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait;
+export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait | ScreenRunStart | ScreenRunControl;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck | AgentMappingUpdate;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
-export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait;
+export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait | AgentRunStart | AgentRunControl;
 export type SlamMessage = SlamPointCloudHeader | SlamPoseFrame | SlamStatus;
 export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
 export type MediaChannel = "rgb" | "external" | "lidar" | "depth";

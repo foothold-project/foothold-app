@@ -21,6 +21,12 @@ from .steps import ExecutionSupport, StepRunner
 TERMINAL = {'COMPLETED', 'FAILED', 'CANCELED'}
 
 
+class ServerRelay:
+    """서버 길 요청자의 Hub peer 열쇠 (11/28). Observer 가 hub.peers 에 Peer(surface='server') 로 올린다.
+    verified 는 그 요청의 lease 가 서버가 준 지금 USER lease 와 같을 때만 참이다."""
+    verified = False
+
+
 class ScenarioRun:
     def __init__(self, hub, *, nav=None, source=None, journal=None, context=None,
                  arrival=None, run_pause_timeout_s=600, nav_timeout_s=120,
@@ -87,6 +93,10 @@ class ScenarioRun:
 
     def owns(self, peer, frame, *, token=False):
         c = self.current
+        if isinstance(peer, ServerRelay):
+            # Server-path proof (11/28 05:09): the server checked the requester owns the robot's
+            # current USER lease, and the Observer matched that lease. No resume secret on this path.
+            return c is not None and peer is c['peer'] and peer.verified
         if c is None or self.identity(self.hub.peers[peer]) != c['identity'] or frame.get('screen_id') != c['screen_id']:
             return False
         if token:
@@ -279,7 +289,8 @@ class ScenarioRun:
                 return None, None
             return 'RUN_STATE_CONFLICT', None
         if op == 'abort':
-            owner = peer is c['peer'] and self.identity(h.peers[peer]) == c['identity']
+            owner = (self.owns(peer, f) if isinstance(peer, ServerRelay)
+                     else peer is c['peer'] and self.identity(h.peers[peer]) == c['identity'])
             if not owner and not (c['status'] == 'PAUSED' and h.peers[peer].run_cancel):
                 return 'FORBIDDEN', None
             self._halt('CANCELED', 'OPERATOR_ABORT')
