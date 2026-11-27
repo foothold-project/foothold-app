@@ -13,7 +13,7 @@ import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, 
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
 import { ADMIN_REAL, driveBlock } from '../fake';
-import { MAX_TURN_RATE } from '../serverdrive';
+import { MAX_TURN_RATE, SIDE_BLOCK } from '../serverdrive';
 import { simTune } from '../phone';
 import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
@@ -2144,6 +2144,22 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     ptr(fwd, 'pointerup');
     key('keydown', 'KeyW'); key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([1.5, 0, -MAX_TURN_RATE]);   // 키도 같은 표
     key('keyup', 'KeyW'); key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+  });
+
+  it('d5 키: A·← / D·→ = 회전, Q/E = 옆걸음 표 값 ±1(조직 옆 상한이 허락할 때), Q+E·창 밖 = 0, 옆 상한 0 이면 0 + 까닭', () => {
+    open();
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    key('keyup', 'ArrowLeft'); key('keydown', 'ArrowRight'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'ArrowRight'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    key('keyup', 'KeyQ'); key('keydown', 'KeyE'); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 함께 누름 = 0
+    key('keyup', 'KeyQ'); key('keyup', 'KeyE'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    act(() => { window.dispatchEvent(new Event('blur')); }); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'KeyQ');
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain(SIDE_BLOCK);
+    key('keyup', 'KeyQ'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
   });
 
   it('조직 상한·빠른 조종 끔이면 0, 표 값 밖 비례 값은 보내지 않음', () => {

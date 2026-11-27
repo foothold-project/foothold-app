@@ -19,7 +19,7 @@ import { realCaps, simTune, useTuneSettings } from './phone';
 import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
 
-/** 누름 하나: up·down = 전후, left·right = 옆걸음, rotl·rotr = 제자리 회전(A·D) */
+/** 누름 하나: up·down = 전후(W·↑ / S·↓), left·right = 옆걸음(Q / E), rotl·rotr = 제자리 회전(A·← / D·→). 모든 조종 화면 한 배치(d5 · 11-28) */
 type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
 /** 계약 JSON 스키마 중 OrgSettings 가 쓰는 낱말만(type·required·properties·additionalProperties·anyOf·minimum·maximum). 모르는 type 은 거절 */
 type Schema = { type?: string; required?: string[]; properties?: Record<string, Schema>; additionalProperties?: boolean | Schema; anyOf?: Schema[]; minimum?: number; maximum?: number };
@@ -37,7 +37,9 @@ const fits = (f: Schema, v: unknown): boolean => {
 /** 조직 설정은 계약(OrgSettings 스키마) 전체로 검증된 객체만 «받음» — 본문 없는 200·배열·필수 칸 빠짐·모르는 칸·타입 틀림(real_max_vx: "0")·범위 밖·
  *  model_overrides 안쪽 타입 틀림은 못 받음과 같다(RV-424·425·426 ①). 선택 칸이 빠지면 서버 기본값과 같은 상한으로 본다(realCaps) */
 export const isSettings = (o: unknown): o is OrgSettings => fits(orgSettingsSchema as Schema, o);
-const KEY: Record<string, Tok> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'rotl', KeyD: 'rotr' };
+const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'rotl', ArrowLeft: 'rotl', KeyD: 'rotr', ArrowRight: 'rotr', KeyQ: 'left', KeyE: 'right' };
+/** 옆걸음(Q/E)이 조직 속도 설정(옆 상한·빠른 조종 끔)에 막혀 0 을 보낼 때 까닭 한 줄. 폰(drive.tsx)·PC 같은 문구 */
+export const SIDE_BLOCK = '옆걸음은 조직 속도 설정(옆 상한)이 허락하지 않아 입력을 0으로 보냅니다.';
 export const MAX_TURN_RATE = orgSettingsSchema.properties.real_max_wz.maximum;
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
 export const TABLE: Record<string, [number, number, number]> = {
@@ -55,9 +57,9 @@ const id = (held: Iterable<Tok>) => [...held].sort().join('+');
 export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
 const PAD: [Tok[], string, string][] = [
-  [['rotl', 'up'], '↑+A', `앞+왼쪽 회전 최대 ${MAX_TURN_RATE} rad/s`], [['up'], '↑', '앞 1.5'], [['rotr', 'up'], '↑+D', `앞+오른쪽 회전 최대 ${MAX_TURN_RATE} rad/s`],
-  [['left'], '←', '옆 왼쪽 1'], [['down'], '↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1'],
-  [['rotl'], 'A', `제자리 왼쪽 최대 ${MAX_TURN_RATE} rad/s`], [['rotr'], 'D', `제자리 오른쪽 최대 ${MAX_TURN_RATE} rad/s`],
+  [['rotl', 'up'], '↑+A', `앞+왼쪽 회전 최대 ${MAX_TURN_RATE} rad/s`], [['up'], 'W·↑', '앞 1.5'], [['rotr', 'up'], '↑+D', `앞+오른쪽 회전 최대 ${MAX_TURN_RATE} rad/s`],
+  [['left'], 'Q', '옆 왼쪽 1'], [['down'], 'S·↓', '뒤 1.5'], [['right'], 'E', '옆 오른쪽 1'],
+  [['rotl'], 'A·←', `제자리 왼쪽 최대 ${MAX_TURN_RATE} rad/s`], [['rotr'], 'D·→', `제자리 오른쪽 최대 ${MAX_TURN_RATE} rad/s`],
 ];
 export const TRIAL = '실기 · 서버 경유 시험 · 미검증';
 /** 입력 0 안내 — 화면이 보낸 0 일 뿐 로봇 정지 확인이 아니다(F-COM-01: 확인 없이 «멈췄습니다» 금지). 정지 확인은 stopLine 만 */
@@ -261,7 +263,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       k.set(e.code, now());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
       const p = pressed();
-      if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy('조직 속도 상한을 넘는 명령입니다.'); return; }
+      if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy(command(p)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.'); return; }
       if (readyRef.current) setWhy(''); changed();
     };
     const up = (e: KeyboardEvent) => { if (metaCut(e)) cut(); else if (keys.current.delete(e.code)) changed(); };

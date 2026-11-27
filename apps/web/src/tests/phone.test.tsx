@@ -182,15 +182,23 @@ describe('시뮬 조종 화면 — 컴퓨터 키(10-29 «컴퓨터는 화살표,
     expect(driveCss).not.toMatch(/(^|\})\s*\.dv-stick\{display:none/);
   });
 
-  it('↑·W 전진(키 기본 0.6 m/s)·A/D 회전(UIUX-1101: ←/→ 는 실기처럼 옆걸음), 떼면 0 · 수정키·입력칸 무시', async () => {
+  it('↑·W 전진(키 기본 0.6 m/s)·A·← / D·→ 회전(d5 · 옆걸음은 Q/E), 떼면 0 · 수정키·입력칸 무시', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
     expect($('[data-sim-keys]')!.textContent).toContain('회전');
+    expect($('[data-sim-keys] [data-key-off]')!.textContent).toContain('Q/E 옆');   // 로봇 한계 vy 0 · 회색 + 까닭
     await key('keydown', 'ArrowUp');
     expect((await cmd()).vx).toBeCloseTo(0.6, 5);
     expect($('[data-sim-vx]')!.textContent).toBe('0.60 m/s');
     await key('keydown', 'KeyA');
     expect(await cmd()).toMatchObject({ wz: 0.5 });
-    await key('keyup', 'KeyA'); await key('keyup', 'ArrowUp');
+    await key('keyup', 'KeyA'); await key('keydown', 'ArrowLeft');
+    expect(await cmd()).toMatchObject({ vy: 0, wz: 0.5 });   // ← = 회전(옆걸음 아님)
+    await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
+    expect(await cmd()).toMatchObject({ vy: 0, wz: -0.5 });
+    await key('keyup', 'ArrowRight'); await key('keydown', 'KeyQ');
+    expect(await cmd()).toMatchObject({ vy: 0 });   // 옆 한계 0 이면 0
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
+    await key('keyup', 'KeyQ'); await key('keyup', 'ArrowUp');
     expect(await cmd()).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     await key('keydown', 'KeyW', { ctrlKey: true });
     expect(await cmd()).toMatchObject({ vx: 0 });

@@ -1,6 +1,6 @@
 // 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
-// 영상·지도·시나리오 제어는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
+// 영상·지도·시나리오 제어는 자리만(가짜). 키보드(d5 한 배치): W·↑ 전진, A·← / D·→ 회전, Q / E 옆걸음(조직 옆 상한이 허락할 때), S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_REAL, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
@@ -10,7 +10,7 @@ import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { command, isSettings, permitted, REAL_WAIT, TABLE } from './serverdrive';
+import { command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE } from './serverdrive';
 import { api } from './api';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
@@ -27,9 +27,10 @@ const pct = (b: number | null) => (b == null ? '' : `${b}%`);
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
 /** 실기(서버 경유) 스틱 문턱: 서버는 명령표 값만 받으므로 비례 대신 켜짐/꺼짐(RB-PHONE-REAL-TABLE) */
 const ON_AT = 0.5;
-/** 실기: [전후, 회전] 스틱 → 서버 명령표(serverdrive TABLE) 값 [vx, vy, wz]. 표 밖·조직 상한 밖이면 0 */
-export function realAxes([f, w]: Axes, o: Parameters<typeof permitted>[1]) {
-  const cmd = command([...(f > ON_AT ? ['up' as const] : []), ...(w > ON_AT ? ['rotl' as const] : w < -ON_AT ? ['rotr' as const] : [])]);
+/** 실기: [전후, 회전] 스틱 + 옆(Q/E 키, + = 왼쪽) → 서버 명령표(serverdrive TABLE) 값 [vx, vy, wz]. 표 밖·조직 상한 밖이면 0 */
+export function realAxes([f, w]: Axes, o: Parameters<typeof permitted>[1], y = 0) {
+  const cmd = command([...(f > ON_AT ? ['up' as const] : []), ...(w > ON_AT ? ['rotl' as const] : w < -ON_AT ? ['rotr' as const] : []),
+    ...(y > ON_AT ? ['left' as const] : y < -ON_AT ? ['right' as const] : [])]);
   return permitted(cmd, o) ? cmd : TABLE[''];
 }
 /** 조종권 요청 창 단추는 마우스·터치로만(F-TO-04 규칙 4): 키보드로 생긴 click 은 detail 0 */
@@ -144,7 +145,7 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 };
 
 /** 물리 키(e.code) → 방향. 누른 키는 e.code 마다 누른 순간의 입력 세대로 적는다(rt inputGen) */
-const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
+const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r', KeyQ: 'sl', KeyE: 'sr' };
 const held = (keys: Map<string, number>, d: string) => [...keys.keys()].some((c) => KEY[c] === d);
 
 /** F-TO-02~05: 조종 화면 */
@@ -155,7 +156,7 @@ function Screen(c: Ctx) {
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
-  const [back, setBack] = useState(false);
+  const [back, setBack] = useState(false), [side, setSide] = useState(false);   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
   // 입력 세대(rt inputGen): 키(e.code)·스틱 손가락마다 누른 순간의 세대. 잠김·해제·조종권·시트/⋯·blur/숨김·STOP·설정·ready 가 바뀌면 +1.
   // 앞 세대에 누른 키·손가락이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 아직 닿은 손가락 중 가장 앞 세대(없으면 null)
@@ -164,7 +165,7 @@ function Screen(c: Ctx) {
   const readyRef = useRef(false);
   const sync = () => gen.sync(r.id, [settingsRef.current, readyRef.current]);
   /** 시트·⋯ 가 조이스틱을 가리면 입력을 0으로: 세대를 올려 바로 0을 보낸다 — 누르던 포인터·키는 떼고 새로 눌러야 쓴다 */
-  const neutral = () => { gen.bump(); setBack(false); send(); };
+  const neutral = () => { gen.bump(); setBack(false); setSide(false); send(); };
   const pick = (s: SheetId | null) => { neutral(); setSheet(s); };
   const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
   /** 지금 세대 입력만. 앞 세대 입력이 남아 있으면 null(→ 0) */
@@ -179,7 +180,8 @@ function Screen(c: Ctx) {
   const send = () => {
     if (!rt.get(r.id).lease) return;
     gen.tick(r.id);
-    const a = axes(), [vx, vy, wz] = a && real && gotRef.current && isSettings(settingsRef.current) ? realAxes(a, settingsRef.current) : TABLE[''];
+    const a = axes(), y = +held(input.current.keys, 'sl') - +held(input.current.keys, 'sr');
+    const [vx, vy, wz] = a && real && gotRef.current && isSettings(settingsRef.current) ? realAxes(a, settingsRef.current, y) : TABLE[''];
     rt.cmd(r.id, [vx, wz], vy, !a);
   };
   const sendRef = useRef(send); sendRef.current = send;
@@ -197,13 +199,14 @@ function Screen(c: Ctx) {
       if (!e.repeat) keys.set(e.code, nowRef.current());
       else if (!keys.has(e.code)) keys.set(e.code, -1);   // 반복은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (k === 'b') setBack(true);
+      if (k === 'sl' || k === 'sr') setSide(true);
     };
     const up = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }
-      const k = KEY[e.code]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
+      const k = KEY[e.code]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
     };
     // 창 밖에서 뗀 키는 keyup 이 안 온다 — 적은 키를 모두 지우고 세대 +1, 바로 0(앞 세대는 이미 무시되므로 지워도 안전, RV-426 ⑦⑨)
-    const blur = () => { keys.clear(); setBack(false); gen.bump(); sendRef.current(); };
+    const blur = () => { keys.clear(); setBack(false); setSide(false); gen.bump(); sendRef.current(); };
     const hide = () => { if (document.visibilityState === 'hidden') blur(); };
     addEventListener('keydown', down, true); addEventListener('keyup', up, true); addEventListener('blur', blur); document.addEventListener('visibilitychange', hide);
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); removeEventListener('blur', blur); document.removeEventListener('visibilitychange', hide); };
@@ -296,6 +299,7 @@ function Screen(c: Ctx) {
         {mine && <><Stick label="전후" vertical on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
           <Stick label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[1] = v; }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
         {back && mine && <span className="dv-back" role="status">후진은 아직 지원하지 않습니다</span>}
+        {side && mine && real && ok && !permitted(TABLE.left, settings) && <span className="dv-back" role="status" data-side-block>{SIDE_BLOCK}</span>}
         <div className="dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
           <button key={x.id} type="button" className="btn" aria-expanded={sheet === x.id} onClick={() => pick(sheet === x.id ? null : x.id)}>{x.label}</button>)}</div>
         {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => pick(null)}>{SHEET[sheet](c)}</Sheet>}
