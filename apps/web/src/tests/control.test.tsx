@@ -379,7 +379,7 @@ describe('관제 탭', () => {
     const R = SOME('g1', 'g2', 'g3', 'g4', 'g6', 'g7'); mount('u-kim', R); feed(R, { ...runs(['g1', 'g2']), g4: RUN('COMPLETED'), g6: RUN('CANCELED'), g7: RUN('PAUSED') });
     const face = (id: string) => tile(id).querySelector('.cv')!.getAttribute('data-face');
     const cam = (id: string) => JSON.parse(tile(id).querySelector('canvas')!.getAttribute('data-go2')!) as { yaw: number | string; dist: number };
-    expect(face('g1')).toBe('live'); expect(cam('g1')).toMatchObject({ yaw: 'back', dist: 1.95, up: 2.15 });   // 임무 중 뒤 높이 내려다봄(팀장 01:08 · 시안 u5_1)
+    expect(face('g1')).toBe('live'); expect(cam('g1')).toMatchObject({ yaw: 'back', dist: 1.0 });   // 임무 중 뒤 1 m(팀장 23:48)
     expect(face('g7')).toBe('live');   // 일시정지도 아직 그 임무 안
     expect(face('g2')).toBe('live'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
     for (const id of ['g3', 'g4', 'g6']) { expect(face(id)).toBe('front'); expect(cam(id)).toMatchObject({ yaw: 0, dist: 1.25 }); }

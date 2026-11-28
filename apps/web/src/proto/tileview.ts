@@ -33,19 +33,12 @@ export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlendin
 /** 따라가기 카메라 가림(K-08 이 건물 옆이라 뒤 2.1 m 카메라가 벽 안에 들어감): 로봇 머리 → 카메라로 광선 한 번, 현장 물체에 맞으면
  *  맞은 자리 0.15 m 앞으로 당긴다(머리에서 최소 0.6 m). 투명한 것(금지 구역 빨강)은 막지 않음. 돌려주는 값 = 머리 → 카메라 선 위 비율(1 = 그대로) */
 const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
-/** 정면 거리 1.25 m(시안 go2view). REAR_DIST = 로봇 탭 큰 무대의 뒤 거리(타일 뒤 시점은 아래 REAR_CAM) */
+/** 타일 카메라 거리: 임무 중 뒤 따라가기 1 m(팀장 23:48 «로봇 뒤 1 m» · 시안 data-go2 dist 2.1 에서 바꿈) · 정면 1.25 m(시안 go2view). 큰 무대 카메라도 이 값을 씀 */
 export const REAR_DIST = 1.0, FRONT_DIST = 1.25;
-/** 정면(임무 전 · 뒤집기) 시점: 몸통 높이(0.17 · 시안 go2view)를 1.25 m 앞 · 0.55 m 높이에서, 세로 화각 30° */
-export const BODY_AIM = 0.17, FRONT_FOV = 30;
-/** 임무 중 뒤 시점(팀장 01:08 · 시안 u5_1 타일): 로봇 뒤쪽 높은 곳에서 크게 내려다봄. 로봇은 타일 가운데 아래쪽에 타일 높이 약 1/3,
- *  앞 바닥 · 건물 · 탱크가 넓게 보인다. 로봇까지 내려다보는 각 ≈ 48°(atan(up / back)), 시선 가운데는 로봇 앞 ahead m 바닥(≈ 36°).
- *  데모 · 실기 · 시뮬 임무 모두 같은 값(현장이 없으면 같은 시선으로 점 바닥) */
-export const REAR_CAM = { back: 1.95, up: 2.15, ahead: 1.0, fov: 40 } as const;
-/** 카메라 자리 · 바라보는 점(로봇 몸 기준 · 로봇 앞 = +z) */
-type V3 = [number, number, number];
-export const camAt = (front: boolean): { pos: V3; aim: V3; fov: number } => (front
-  ? { pos: [0, 0.55, FRONT_DIST], aim: [0, BODY_AIM, 0], fov: FRONT_FOV }
-  : { pos: [0, REAR_CAM.up, -REAR_CAM.back], aim: [0, 0, REAR_CAM.ahead], fov: REAR_CAM.fov });
+/** 바라보는 높이(m): 점 바닥 · 정면 = 몸통(0.17 · 시안 go2view). 현장 위 뒤 1 m = SITE_AIM(00:53 사진: 0.17 이면 아래로 21° 라 화면이 로봇 앞 5 m 안 바닥만 · 흰 판처럼 보임 →
+ *  지평선이 화면 위쪽에 들어오게 올려 앞쪽 배관 · 건물이 보이게) */
+export const BODY_AIM = 0.17, SITE_AIM = 0.35;
+export const aimY = (l: Pick<TileLook, 'pose' | 'front'>) => (l.pose && !l.front ? SITE_AIM : BODY_AIM);
 /** 로봇 발밑 그림자(원 반지름 m · 앞뒤 늘림 · 진하기). 로봇 탭 무대도 같은 값 */
 export const SHADOW = { r: 0.22, sy: 1.5, opacity: 0.35 };
 /** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45).
@@ -194,10 +187,11 @@ class Tiles {
         ctx.drawImage(look.video, 0, 0, v.c.width, v.c.height); continue;   // 시뮬 영상이 오면 그것을 먼저
       }
       r.setPixelRatio(dpr); r.setSize(w, h, false);
-      // 시점: camAt(정면 = 시안 go2view 1.25 m · 뒤 = REAR_CAM 높이 내려다봄). 현장은 로봇 자리 · 방향의 반대로 옮겨 로봇이 늘 가운데
-      const ca = camAt(look.front);
-      this.cam.aspect = w / h; this.cam.fov = ca.fov; this.cam.updateProjectionMatrix();
-      this.cam.position.set(...ca.pos); this.cam.lookAt(...ca.aim);
+      // 시점: 시안 go2view (뒤 = yaw π · 2.1 m · 높이 0.55, 정면 = yaw 0 · 1.25 m). 현장은 로봇 자리 · 방향의 반대로 옮겨 로봇이 늘 가운데
+      const yaw = look.front ? 0 : Math.PI, dist = look.front ? FRONT_DIST : REAR_DIST;
+      this.cam.aspect = w / h; this.cam.updateProjectionMatrix();
+      const ty = aimY(look);
+      this.cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); this.cam.lookAt(0, ty, 0);
       // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
@@ -210,7 +204,7 @@ class Tiles {
         if (this.site && (!q || q.front !== look.front || Math.hypot(p.x - q.x, p.z - q.z) > 0.2 || Math.abs(Math.atan2(Math.sin(p.rot - q.rot), Math.cos(p.rot - q.rot))) > 0.2))
           v.ray = { x: p.x, z: p.z, rot: p.rot, front: look.front, k: camPull(this.world, this.cam.position) };
         const k = v.ray?.k ?? 1;
-        if (k < 1) { this.cam.position.sub(HEAD).multiplyScalar(k).add(HEAD); this.cam.lookAt(...ca.aim); }
+        if (k < 1) { this.cam.position.sub(HEAD).multiplyScalar(k).add(HEAD); this.cam.lookAt(0, ty, 0); }
       } else v.ray = undefined;
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
       this.gm.uniforms.off.value = p ? -p.travel : look.walk ? -this.t * 0.45 : 0;   // 자리가 있으면 실제로 간 거리만큼, 없으면 시안 걷기 흐름
