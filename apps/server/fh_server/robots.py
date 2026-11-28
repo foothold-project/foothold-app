@@ -197,6 +197,7 @@ def robot_objects(db, robots, user, realtime):
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
             server_drive_allowed=server_drive,
             server_drive_blocked=server_drive_blocked,
+            stop_relay=realtime.stop_relay(str(robot.id)) if full else None,
             robot_serial=robot.serial, field_approval_expires_at=approval,
             robot_info=state.get('robot_info'),
             phone_relay=phone_relay(realtime, str(robot.id)) if full else None,

@@ -19,7 +19,7 @@ def test_reasons_and_allowed_match_existing_conditions(simulation, switch, owned
     owner, org_id = uuid4(), uuid4()
     robot = SimpleNamespace(id=uuid4(), name='fake', model='unitree_go2', simulation=simulation,
         owner_user_id=owner if owned else None, serial=serial)
-    realtime = SimpleNamespace(agents={}, settings=SimpleNamespace(drive_enabled=lambda rid: switch),
+    realtime = SimpleNamespace(agents={}, settings=SimpleNamespace(drive_enabled=lambda rid: switch), stop_relay=lambda rid: 'NO_AGENT',
         field_approved=lambda rid: approved, arbiter=SimpleNamespace(robots={}))
     db = MagicMock()
     db.scalars.return_value = []

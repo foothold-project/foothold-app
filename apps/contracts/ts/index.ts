@@ -1987,6 +1987,8 @@ export interface RobotSummary {
   server_drive_allowed: boolean;
   /** 표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. */
   server_drive_blocked?: ("SWITCH_OFF" | "NO_OWNER" | "NO_SERIAL" | "AGENT_OFFLINE")[] | null;
+  /** 표시용. 서버가 지금 이 로봇의 연결된 에이전트로 STOP 을 넘기는지. 판단은 에이전트 접속 때 잡은 서버 스위치 값으로 하며 현장 승인·담당·기체번호와 무관하다. 전체 보기 가능한 사람에게만 값(시뮬 포함), 그 외 null. */
+  stop_relay?: "DELIVERS" | "BLOCKED_SWITCH_OFF" | "NO_AGENT" | null;
   robot_serial?: string | null;
   /** 폐기된 사람 현장 승인 호환 필드. 항상 null이며 자동 연결 관문은 server_drive_allowed를 쓴다. */
   field_approval_expires_at?: string | null;
