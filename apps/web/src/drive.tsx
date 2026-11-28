@@ -15,6 +15,7 @@ import { TakeoverAsk } from './screens/takeover';
 import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
+import type { OrgSettings } from '../../contracts/ts';
 import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, stickTok, useRestartAsk } from './robotact';
 import { actionResultText } from './screens/actiontrial';
 import { api } from './api';
@@ -76,6 +77,16 @@ export function endDrive(id: string, go: Ctx['go']) {
   if (l.lease) rt.release(id); else go('drive');
 }
 /** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
+/** 데모(목록 sim · demo true)의 웹 상한(app-lead 11-28 22:47 · OrgSettings sim_* · 서버는 시뮬 cmd 상한을 검사하지 않는다 · 실기 real_* 는 쓰지 않음).
+ *  방향은 실기 표 그대로, 크기는 시뮬 값: 앞 = min(sim_key_vx, sim_max_vx) · 옆 = sim_max_vy · 돌기 = sim_max_wz. 뒤 상한 칸이 없어 뒤는 0 + 까닭 */
+const SIM_DEF = { sim_max_vx: 1.5, sim_max_vy: 0.5, sim_max_wz: 1.2, sim_key_vx: 1.5 } as const;
+const simCap = (o: Partial<OrgSettings> | null, k: keyof typeof SIM_DEF) => { const v = o?.[k]; return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= SIM_DEF[k] ? v : SIM_DEF[k]; };
+export function demoCommand(t: Iterable<Tok>, o: Partial<OrgSettings> | null): [number, number, number] {
+  const [vx, vy, wz] = command(t);
+  return [vx > 0 ? Math.min(simCap(o, 'sim_key_vx'), simCap(o, 'sim_max_vx')) : vx, vy ? Math.sign(vy) * simCap(o, 'sim_max_vy') : 0, wz ? Math.sign(wz) * simCap(o, 'sim_max_wz') : 0];
+}
+const demoPermitted = ([vx, vy, wz]: [number, number, number], o: Partial<OrgSettings> | null) =>
+  vx >= 0 && vx <= simCap(o, 'sim_max_vx') && Math.abs(vy) <= simCap(o, 'sim_max_vy') && Math.abs(wz) <= simCap(o, 'sim_max_wz');
 export const REAL_STICK = '실기는 손잡이를 30 % 넘게 밀면 정해진 속도로 움직입니다. 한 손잡이는 큰 쪽 한 방향만 보냅니다.';
 export { REAL_WAIT };
 /** 설정을 모를 때 입력이 0 이 되는 순간만 뜨는 작은 알약(시안 밖 · 새로 그림 · app-lead 11-28 22:26). 10 초 넘게 모르면 위 띠 REAL_WAIT */
@@ -95,7 +106,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ct
   const s = useSim(), light = useTheme()[1];
   const [view, setView] = useState<'menu' | 'pair' | 'nearby' | null>(null), app = inApp();   // 운영 관리자 · 총괄 모두 붙임(11/28)
   const [simWant, setSimWant] = useState(false);   // 로봇 없음 화면(u13_4)의 «시뮬 로봇 띄우기» → 아래 시뮬 띄우기 칸
-  const live = c.robots.some((r) => !r.sim && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
+  const live = c.robots.some((r) => (!r.sim || r.demo === true) && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
   const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setView(app ? 'menu' : 'pair')} data-robot-connect>+ 로봇 연결하기</button>;
   const refresh = c.refresh ?? (() => {});
   // 폰 · 로봇 0대 · 시뮬도 고르기 단계에 아무것도 없으면 시안 u13_4. 시뮬을 띄우는 중 · 띄운 시뮬 · 정리할 자리가 있으면 그 칸이 보이는 옛 배치
@@ -129,11 +140,11 @@ function Card({ c, r, refresh }: { c: Pick<Ctx, 'user' | 'go' | 'cancel'>; r: Ro
   const why = driveBlock(c.user, r), id = `why-${r.id}`, l = rt.get(r.id), rel = l.releasing, own = !r.sim && r.owner === c.user.id;
   const [manage, setManage] = useState(false);
   return <li className="card dv-card">
-    <div className="fh-row"><b>{r.name}</b>{r.sim && <Chip tone="off" text="시뮬" />}<Chip {...robotStatus(r)} /><FallChip x={r} /><span className="mono">{pct(r.battery)}</span></div>
+    <div className="fh-row"><b>{r.name}</b>{r.sim && !r.demo && <Chip tone="off" text="시뮬" />}<Chip {...robotStatus(r)} /><FallChip x={r} /><span className="mono">{pct(r.battery)}</span></div>
     <span className="lbl">{holderText(l, c.user.id, r)}</span>
     {rel && <div className="fh-row" role="status" data-releasing><span className="fh-why">{rel.why ? `조종권 반납을 확인하지 못했습니다. ${rel.why}` : RELEASING}</span>
       {rel.why && <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button>}</div>}
-    {r.sim ? <span className="lbl" data-sim-card>시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 로봇에 직접 연결합니다.</span>   // 서버 경유 조종 화면으로 보내지 않는다
+    {r.sim && r.demo !== true ? <span className="lbl" data-sim-card>시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 로봇에 직접 연결합니다.</span>   // 서버 경유 조종 화면으로 보내지 않는다
       : <><button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기만' : '연결'}</button>
         {why && <span id={id} className="fh-why" data-why>{why}</span>}</>}
     {/* 담당 실기의 관리 메뉴. 총괄이 보는 남 담당 실기는 서버 2 차 전이라 열지 않는다(까닭은 목록 머리 아래 한 번) */}
@@ -165,7 +176,8 @@ const keyToks = (keys: Map<string, number>) => [...new Set([...keys.keys()].map(
 
 /** F-TO-02~05: 조종 화면 */
 function Screen(c: Ctx) {
-  const r = c.robot, me = c.user.id, l = useLive(r.id), mine = !!l.lease, link = rt.link().at, real = !!r.serverDrive && !r.sim;
+  const demo = !!c.robot.sim && c.robot.demo === true;   // 데모 = 실기처럼 서버 경유(목록 server_drive 는 늘 거짓 · app-lx 11-28 22:41)
+  const r = c.robot, me = c.user.id, l = useLive(r.id), mine = !!l.lease, link = rt.link().at, real = (!!r.serverDrive && !r.sim) || demo;
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
   // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 실기 입력은 0 — 서버가 상한 밖이라 거절·STOP 하지 않게
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
@@ -200,11 +212,12 @@ function Screen(c: Ctx) {
   };
   /** 손잡이 까닭 한 줄(PC 로봇 탭 useServerDrive stick 과 같은 순서): 표 밖 조합 · 옆 상한 · 그 밖 상한 */
   const [padWhy, setPadWhy] = useState('');
+  const cmdOf = (t: Iterable<Tok>) => (demo ? demoCommand(t, settingsRef.current) : command(t)), allow = (a: [number, number, number]) => (demo ? demoPermitted : permitted)(a, settingsRef.current);
   const [zero, setZero] = useState(false), [long, setLong] = useState(false);   // zero = 누르는데 설정을 몰라 0 을 보냄 · long = 10 초 넘게 모름
   const stickSay = () => {
     const t = toks();
     setPadWhy(!readyRef.current || !t || !(input.current.st[0].length || input.current.st[1].length) ? ''
-      : unknownCombo(t) ? COMBO_BLOCK : !permitted(command(t), settingsRef.current) ? (command(t)[1] ? SIDE_BLOCK : CAP_BLOCK) : '');
+      : unknownCombo(t) ? COMBO_BLOCK : !allow(cmdOf(t)) ? (cmdOf(t)[1] ? SIDE_BLOCK : CAP_BLOCK) : '');
   };
 
   /** 틱과 즉시 전송(놓음·blur·시트)이 같이 쓰는 한 길: 명령 공백(GAP_MS) 검사로 세대를 맞춘 뒤 보낸다(RV-426 ③⑨).
@@ -212,9 +225,9 @@ function Screen(c: Ctx) {
   const send = () => {
     if (!rt.get(r.id).lease) return;
     gen.tick(r.id);
-    const t = toks(), known = real && gotRef.current && isSettings(settingsRef.current), cmd = t && known ? command(t) : TABLE[''];
+    const t = toks(), known = real && gotRef.current && isSettings(settingsRef.current), cmd = t && known ? cmdOf(t) : TABLE[''];
     setZero(!known && !!t && t.length > 0);
-    const [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE[''];   // 표 밖 · 조직 상한 밖이면 0
+    const [vx, vy, wz] = allow(cmd) ? cmd : TABLE[''];   // 표 밖 · 조직 상한 밖이면 0
     rt.cmd(r.id, [vx, wz], vy, !t);
   };
   const sendRef = useRef(send); sendRef.current = send;
@@ -316,7 +329,7 @@ function Screen(c: Ctx) {
       <button type="button" className="g dk row u1-chip" aria-expanded={chip} aria-controls="u1-pane" onClick={() => setChip(!chip)} style={{ left: '12px', top: '12px', height: '44px', padding: '0 12px 0 7px', gap: '9px' }}>
         <span className="u1-ico"><Ic s={17}><path d="M4 13h11l3-3h2v4l-2 1H5z" /><path d="M6 15l-1 4M10 15v4M14 15v4M17 15l1 4" /></Ic>
           {mine && <span className="op"><Ic s={10}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></Ic></span>}</span>
-        <span className="chipnum">{r.name}</span>{r.sim && <span className="tag">시뮬</span>}
+        <span className="chipnum">{r.name}</span>{r.sim && !r.demo && <span className="tag">시뮬</span>}
         {r.battery != null && <span className="bat" style={{ marginLeft: 0, '--soc': `${Math.max(0, Math.min(100, r.battery))}%` } as CSSProperties}><i />{pct(r.battery)}</span>}
         <span className={`u1-st ${lock.tone}`}>{lock.text}</span>
         <Ic s={15}>{chip ? <path d="m6 15 6-6 6 6" /> : <path d="m6 9 6 6 6-6" />}</Ic>
@@ -363,8 +376,8 @@ function Screen(c: Ctx) {
       {ready && (real && ok ? ban('u1-info', REAL_STICK, { 'data-real-stick': true }) : long && ban('u1-info', REAL_WAIT, { 'data-real-wait': true }))}
       {actMsg && ban('u1-info', actMsg, { 'data-act-msg': true })}
       {padWhy && mine && ban('amb', padWhy, { 'data-stick-why': true })}
-      {back && mine && real && ok && !combo && !padWhy && !permitted(TABLE.down, settings) && ban('amb', CAP_BLOCK, { 'data-back-block': true })}
-      {side && mine && real && ok && !combo && !permitted(TABLE.left, settings) && ban('amb', SIDE_BLOCK, { 'data-side-block': true })}
+      {back && mine && real && ok && !combo && !padWhy && !allow(cmdOf(['down'])) && ban('amb', CAP_BLOCK, { 'data-back-block': true })}
+      {side && mine && real && ok && !combo && !allow(cmdOf(['left'])) && ban('amb', SIDE_BLOCK, { 'data-side-block': true })}
       {combo && mine && ban('amb', COMBO_BLOCK, { 'data-combo-block': true })}
       {/* 일시정지·중단 단추는 아직 없다 — 누를 수 없는 단추 대신 멈추는 길만(critique 11-10) */}
       {r.mission && <p className="ban u1-info dv-run"><span>시나리오: {r.mission}</span><span data-run-stop>멈추려면 STOP</span></p>}

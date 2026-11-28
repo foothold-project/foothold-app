@@ -2384,6 +2384,76 @@ describe('폰 실기 조종 = 서버 명령표', () => {
   });
 });
 
+// 폰 데모 로봇(목록 sim · demo true · app-lead 11-28 22:40 · reviewer 코드 전 판정 22:47): 데모 = 실기 → 서버 경유 u1 조종 화면.
+// 내 시뮬 슬롯(demo false)과 모름(undefined)은 지금처럼 simdrive 직결 길. 속도는 웹 상한(OrgSettings sim_* · 서버는 시뮬 cmd 상한을 검사하지 않는다)
+describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
+  const R7 = ROBOTS.find((r) => r.id === 'r7')!;
+  const robots = (demo: boolean | undefined) => ROBOTS.map((r) => (r.id === 'r7' ? { ...R7, sim: true, demo, serverDrive: false } : r));
+  const open = (demo: boolean | undefined, org: object = ORG) => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(org); } }) as never);
+    mount(true, 'u-park', '#/drive/r7', robots(demo)); serve(PARK, 'r7');
+  };
+  const press = (code: string) => { key('keydown', code); tick(200); const a = lastAxes(); key('keyup', code); tick(100); return a; };
+
+  it('demo true 면 #/drive/r7 이 u1 조종 화면 · 「시뮬」 꼬리표 없음', () => {
+    open(true);
+    expect($('.u1d')).not.toBeNull();
+    expect(location.hash).toBe('#/drive/r7');
+    expect($('.u1-chip .tag')).toBeNull();
+  });
+
+  it('demo false(내 시뮬) · undefined(모름)는 지금처럼 조종 화면을 열지 않음 · 카드는 직결 안내', () => {
+    for (const d of [false, undefined]) {
+      open(d);
+      expect($('.u1d')).toBeNull();
+      expect($('[data-sim-card]')).not.toBeNull();
+      act(() => root!.unmount()); root = null; box.remove();
+    }
+  });
+
+  it('로봇 연결 카드: 데모는 「연결」 단추 · 「시뮬」 칩 없음', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    mount(true, 'u-park', '#/drive', robots(true)); serve(PARK, 'r7');
+    const card = [...box.querySelectorAll('.dv-card')].find((c) => c.textContent!.includes('Go2-7'))!;
+    expect(card.querySelector('[data-sim-card]')).toBeNull();
+    expect([...card.querySelectorAll('button')].some((b) => b.textContent === '연결')).toBe(true);
+    expect(card.textContent).not.toContain('시뮬');
+  });
+
+  it('웹 상한(시뮬 값): 앞 1.5 · 돌기 1.2 · 옆 0.5 · 뒤는 0 + 까닭 — 실기 상한(real_*)은 쓰지 않음', () => {
+    open(true, { ...ORG, real_max_vx: 0.5, real_max_wz: 0.3, real_max_vy: 0 });
+    ready();
+    expect(press('KeyW')).toEqual([1.5, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 1.2]);
+    expect(press('KeyD')).toEqual([0, 0, -1.2]);
+    expect(press('ArrowLeft')).toEqual([0, 0.5, 0]);
+    key('keydown', 'KeyS'); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain(CAP_BLOCK);
+    key('keyup', 'KeyS');
+  });
+
+  it('웹 상한: 조직 sim_key_vx · sim_max_wz · sim_max_vy 를 따름(sim_max_vx 보다 큰 키 속도는 sim_max_vx)', () => {
+    open(true, { ...ORG, sim_max_vx: 1.0, sim_key_vx: 0.8, sim_max_wz: 0.6, sim_max_vy: 0.2 });
+    ready();
+    expect(press('KeyW')).toEqual([0.8, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0.6]);
+    expect(press('ArrowRight')).toEqual([0, -0.2, 0]);
+    act(() => root!.unmount()); root = null; box.remove();
+    open(true, { ...ORG, sim_max_vx: 0.6 });
+    ready();
+    expect(press('KeyW')).toEqual([0.6, 0, 0]);
+  });
+
+  it('데모 STOP 은 서버로(noServerStop 은 데모를 서버 정지 대상으로 봄)', () => {
+    open(true);
+    ready();
+    const n = w.of('stop').length;
+    click($('.fh-head .fh-stop')!);
+    expect(w.of('stop').length).toBe(n + 1);
+  });
+});
+
 // 설정 확인 알약(app-lead 11-28 22:26 · 시안 밖 · 새로 그림): 평소 숨김 · 입력이 0 이 되는 순간만 동작 줄 위 가운데 · 10 초 넘게 모르면 위 띠
 describe('설정 확인 중 알약', () => {
   const fwdEl = () => {
