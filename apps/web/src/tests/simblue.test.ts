@@ -10,7 +10,7 @@ describe('시뮬 파랑이 관제 타일 · 작은 지도에서도 보임', () =
   it('현장 위 시뮬 로봇 = 보통 섞기 · 진하기 바닥 0.35 이상(점 바닥은 로봇 탭과 같은 값) · 색은 토큰 그대로', () => {
     expect(SITE_SIM.a[0]).toBeGreaterThanOrEqual(0.35); expect(SITE_SIM.k[0] + SITE_SIM.k[1]).toBeGreaterThan(1.3);   // 03:23 c3: 테두리 밝게 · 몸은 비침
     expect(tileSrc).toContain('this.cyber.uniforms.site.value = ly.world ? 1 : 0; this.cyber.blending = ly.world ? THREE.NormalBlending : simLook(light).blend;');
-    expect(simLook(false).col).toBe(0x4c9bff); expect(simLook(true).col).toBe(0x2f6fe0);
+    expect(simLook(false).col).toBe(0x4c9bff); expect(simLook(true).col).toBe(0x4c9bff);
   });
   it('주소 ?siteSim=k0,k1,a0,a1,s 로 값 견주기 · 잘못된 값은 기본', () => {
     expect(SITE_SIM).toEqual(SITE_SIM_BASE);

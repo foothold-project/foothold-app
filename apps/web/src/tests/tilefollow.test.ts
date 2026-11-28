@@ -48,7 +48,7 @@ describe('tilePose', () => {
 describe('시뮬 칸 모습(시안 u5_1 K-08)', () => {
   it('어둠 = 더하기 섞기 파랑(시안 그대로) · 밝음 = 보통 섞기 예행 #2F6FE0(흰 바탕에서 보이게)', () => {
     expect(simLook(false)).toEqual({ blend: THREE.AdditiveBlending, col: 0x4c9bff });
-    expect(simLook(true)).toEqual({ blend: THREE.NormalBlending, col: 0x2f6fe0 });
+    expect(simLook(true)).toEqual({ blend: THREE.NormalBlending, col: 0x4c9bff });   // 03:53 밝은 판 3D 몸 = --u5-sim-vivid
   });
 });
 

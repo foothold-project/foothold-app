@@ -65,7 +65,8 @@ export const siteSimOf = (q: string): typeof SITE_SIM_BASE => {
   return v.length === 5 && v.every((x) => Number.isFinite(x) && x >= 0 && x <= 3) ? { k: [v[0], v[1]], a: [v[2], v[3]], s: v[4] } : SITE_SIM_BASE;
 };
 export const SITE_SIM = (() => { try { return siteSimOf(location.search || location.hash.split('?')[1] || ''); } catch { return SITE_SIM_BASE; } })();
-export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlending, col: 0x2f6fe0 } : { blend: THREE.AdditiveBlending, col: SIM });
+/** 시뮬 3D 파란 몸: 어둠 = 더하기 섞기 SIM · 밝음 = 보통 섞기 #4C9BFF(03:53 밝은 판 비글자 파랑 --u5-sim-vivid · 글은 #2F6FE0 그대로) */
+export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlending, col: 0x4c9bff } : { blend: THREE.AdditiveBlending, col: SIM });
 /** 따라가기 카메라 가림(K-08 이 건물 옆이라 뒤 2.1 m 카메라가 벽 안에 들어감): 로봇 머리 → 카메라로 광선 한 번, 현장 물체에 맞으면
  *  맞은 자리 0.15 m 앞으로 당긴다(머리에서 최소 0.6 m). 투명한 것(금지 구역 빨강)은 막지 않음. 돌려주는 값 = 머리 → 카메라 선 위 비율(1 = 그대로) */
 const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
