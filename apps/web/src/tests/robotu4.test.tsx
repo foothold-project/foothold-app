@@ -15,6 +15,9 @@ import { rt } from '../rt';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
 import u4src from '../screens/u4/robotu4.tsx?raw';
+import frameSrc from '../mapframe.tsx?raw';
+import { PLAN_DARK as PLAN_DARK_FRAME } from '../mapframe';
+import { PLAN_DARK as PLAN_DARK_U4 } from '../screens/u4/robotu4';
 import { WALK_MIN_SPEED } from '../proto/u5';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -927,7 +930,8 @@ describe('관절 경고 말풍선 · 마우스 온도 (시안 u4_2 · u4_4)', ()
 describe('어두운 판 지도 (리드 사진 00:30)', () => {
   it('서버 판 그림은 어두운 판에서 밝기를 --paper ~ 벽 회색으로 옮김 · 공장 그림은 그대로 · 칸 바탕 --paper', () => {
     expect(u4src).toContain("const dark = !light() && !!src && src !== fac;");
-    expect(u4src).toContain('tableValues="0.2745 0.0706"');   // R: 벽 0x46 → 바탕 0x12
+    expect(PLAN_DARK_U4).toBe(PLAN_DARK_FRAME);   // 거름 하나(mapframe) · 로봇 탭은 다시 내보냄
+    expect(frameSrc).toContain('tableValues="0.2745 0.0706"');   // R: 벽 0x46 → 바탕 0x12
     expect(u4src).toContain("filter: dark ? 'url(#u4-plan-d)' : undefined");
     expect(u4css).toContain('.u4.proto:not(.light) .mapv{background:#12161d}');
   });

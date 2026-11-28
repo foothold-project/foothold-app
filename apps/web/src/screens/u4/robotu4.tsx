@@ -139,8 +139,9 @@ const xy = (l: Board['loc']) => (l && l.x != null && l.y != null ? { x: l.x, y: 
 
 /** 지도 칸: 로봇이 있는 승인 지도 + 내 위치(가운데) + 임무 경로(끝낸 길 초록 · 남은 길 점선 · 지점 번호) + 같은 판의 다른 로봇. 시안처럼 3200 px 폭 그림 위에 그린다.
  *  그림 = 서버 판 그림(…/image). 그 그림을 못 받으면 판이 시안 공장 터와 같은 좌표계일 때만 시안 공장 지도, 아니면 그림 없이 점 · 경로만 */
-/** 서버 판 그림 어두운 판 색: 회색으로 뺀 밝기 0 (벽) → #464e56 · 1 (빈 곳) → --paper #12161d · 미확인 회색은 그 사이 */
-export const PLAN_DARK = <><feColorMatrix type="saturate" values="0" /><feComponentTransfer><feFuncR type="table" tableValues="0.2745 0.0706" /><feFuncG type="table" tableValues="0.3059 0.0863" /><feFuncB type="table" tableValues="0.3373 0.1137" /></feComponentTransfer></>;
+/** 서버 판 그림 어두운 판 색 = 지도 칸 공용(mapframe PLAN_DARK) 하나 · 로봇 탭 · 썸네일 · 장소 카드가 같은 값 */
+export { PLAN_DARK } from '../../mapframe';
+import { PLAN_DARK } from '../../mapframe';
 function MapView({ c, r, b, run, route, onFactory }: { c: Ctx; r: Robot; b: Board; run: Run | null; route: Route | null; onFactory: boolean }) {
   useRt();
   const { loc, v } = b, view = useRef<HTMLDivElement>(null), [box, setBox] = useState({ w: 816, h: 600 });
