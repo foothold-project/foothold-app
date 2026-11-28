@@ -69,11 +69,12 @@ describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
     expect(pills.map((x) => x.textContent)).toEqual(['■위험', '▲주의', 'ⓘ정보', '▲주의', '▲주의']);
     expect(pills.map((x) => x.getAttribute('data-tone'))).toEqual(['bad', 'warn', 'info', 'warn', 'warn']);
   });
-  it('등급 단추 전체 · 위험 · 주의 · 정보 → severity 요청 매개변수, 분류와 함께, 전체면 뺌', async () => {
+  it('등급 단추 위험 · 주의 · 정보(u8_1 세 칸) → severity 요청 매개변수, 분류와 함께, 고른 칸을 다시 누르면 뺌', async () => {
     serve({ 'GET /events': list([ev('1', { severity: 'INFO', message: '서버가 준 행' })]) });
     await open();
     const g = card('등급');
-    expect([...g.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['전체', '■위험', '▲주의', 'ⓘ정보']);
+    expect([...g.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['■위험', '▲주의', 'ⓘ정보']);
+    expect([...g.querySelectorAll('button')].every((b) => b.hasAttribute('data-on'))).toBe(true);   // 아무것도 안 고름 = 셋 다 켜짐
     for (const [name, code] of [['■위험', 'ERROR'], ['▲주의', 'WARN'], ['ⓘ정보', 'INFO']]) {
       await click(btn(name, g));
       expect(lastQuery()).toEqual({ severity: code });
@@ -82,8 +83,10 @@ describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
     }
     await click(btn('안전', card('분류')));
     expect(lastQuery()).toEqual({ category: 'SAFETY', severity: 'INFO' });
-    await click(btn('전체', g));
+    expect([...g.querySelectorAll('button')].map((b) => b.hasAttribute('data-on'))).toEqual([false, false, true]);
+    await click(btn('ⓘ정보', g));
     expect(lastQuery()).toEqual({ category: 'SAFETY' });
+    expect(btn('ⓘ정보', g)!.getAttribute('aria-pressed')).toBe('false');
   });
   it('등급을 고르면 빈 목록 문구는 «조건에 맞는 기록이 없습니다»', async () => {
     serve();
