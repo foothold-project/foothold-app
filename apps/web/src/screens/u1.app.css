@@ -123,7 +123,7 @@
 .u1d .u1-mmap .rt.done{stroke:rgba(24,160,126,.45)}
 .u1d .u1-mmap .wp{fill:#fff;stroke:#18a07e;stroke-width:2;vector-effect:non-scaling-stroke}.u1d .u1-mmap .wp.on{fill:#18a07e}
 .u1d .u1-mmap .me{fill:#fff;stroke:#18a07e;stroke-width:4;vector-effect:non-scaling-stroke}
-.u1d .u1-mmap .lbl{font-size:12px;font-weight:700;fill:currentColor;paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:3px}.u1d .u1-mmap .lbl .no{fill:#18a07e}
+.u1d .u1-mmap .lbl{font-weight:800;fill:#fff;paint-order:stroke;stroke:rgba(10,14,20,.7)}.proto.light.u1d .u1-mmap .lbl{fill:var(--ink);stroke:rgba(255,255,255,.9)}.u1d .u1-mmap .lbl .no{fill:#18a07e}
 /* 임무 화면(u1mission · 보이기만): 시안 u1_1 에는 동작 줄이 없다 · 바탕 지도는 영상 위 · 카드 넘기기 점(시안 .row 점 값) */
 .u1d[data-mission] .act{display:none}
 .u1d .u1-mmap{background:var(--bg)}

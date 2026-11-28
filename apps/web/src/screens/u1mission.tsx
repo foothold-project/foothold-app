@@ -2,7 +2,7 @@
 // (서버 로봇의 일시정지 · 이어 가기는 app-lx 총괄 take 계약 뒤 · 내 시뮬은 simdrive 의 sim.runControl 그대로).
 // 카드 이름 · 「오늘 n / m」 · 「예정 끝」 = 오늘 일정(GET /schedule)에서 이 로봇의 run_id 같은 칸 + 그 시나리오 판. 남은 거리는 서버 값이 없어 그리지 않는다.
 // 지도 판은 id 를 박지 않고 그 시나리오의 map_version_ids 에서 받는다(app-lx 가 새 판을 등록 중)
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Location, MapVersion, RunSnapshot, Scenario, ScenarioWaypoint, ScheduleSlot } from '../../../contracts/ts';
 import { api } from '../api';
 import type { Tone } from '../fake';
@@ -83,17 +83,23 @@ export function MissionMap({ m, run, pose }: { m: Mission | null; run: RunSnapsh
     api.version(mv, ac.signal).then((x) => { if (!ac.signal.aborted) setV(x); }, () => {});
     return () => ac.abort();
   }, [mv]);
+  // 판 그림 1 px 이 화면에서 몇 px 인가(slice). 점 · 글 크기를 화면 px 로 맞춘다(작은 판이 크게 늘어나도 글이 커지지 않게). 못 재면 1
+  const el = useRef<SVGSVGElement>(null), [k, setK] = useState(1);
+  useLayoutEffect(() => {
+    const b = el.current?.getBoundingClientRect();
+    if (v && b && b.width && b.height) setK(Math.max(b.width / v.width, b.height / v.height));
+  }, [v]);
   if (!m || !v) return null;
   const on = m.wps.map((w, i) => [w, i] as const).filter(([w]) => w.map_version_id === v.id);
   const pts = (l: typeof on) => l.map(([w]) => px(v, w.x, w.y).join(',')).join(' ');
   const now = on.find(([, i]) => i === run.step), me = pose && pose.map_version_id === v.id && pose.x != null && pose.y != null ? px(v, pose.x, pose.y) : null;
-  return <svg className="u1-mmap" viewBox={`0 0 ${v.width} ${v.height}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true" data-mission-map>
+  return <svg ref={el} className="u1-mmap" viewBox={`0 0 ${v.width} ${v.height}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true" data-mission-map>
     <MapImage id={v.id} width={v.width} height={v.height} />
     <polyline className="rt" points={pts(on)} />
     <polyline className="rt done" points={pts(on.filter(([, i]) => i <= run.step))} />
-    {on.map(([w, i]) => { const [x, y] = px(v, w.x, w.y); return <circle key={i} className={`wp${i < run.progress.done ? ' on' : ''}`} cx={x} cy={y} r={3} />; })}
-    {now && (() => { const [x, y] = px(v, now[0].x, now[0].y); return <text className="lbl" x={x + 6} y={y - 6} data-wp-now><tspan className="no">{now[1] + 1}</tspan>{now[0].name ?? ''}</text>; })()}
-    {me && <circle className="me" cx={me[0]} cy={me[1]} r={5} />}
+    {on.map(([w, i]) => { const [x, y] = px(v, w.x, w.y); return <circle key={i} className={`wp${i < run.progress.done ? ' on' : ''}`} cx={x} cy={y} r={5 / k} />; })}
+    {now && (() => { const [x, y] = px(v, now[0].x, now[0].y); return <text className="lbl" x={x + 10 / k} y={y - 10 / k} style={{ fontSize: `${13 / k}px`, strokeWidth: `${3 / k}px` }} data-wp-now><tspan className="no">{now[1] + 1}</tspan>{now[0].name ?? ''}</text>; })()}
+    {me && <circle className="me" cx={me[0]} cy={me[1]} r={9 / k} />}
   </svg>;
 }
 
