@@ -81,18 +81,22 @@ describe('로봇 0대', () => {
 });
 
 describe('지도 없음', () => {
-  it('지도(장소)가 하나도 없으면: 아이콘 · 한 줄 까닭 · 다음 할 일 하나(담당 실기 없음 = «+ 파일 올리기»)', async () => {
+  it('지도(장소)가 하나도 없으면: 시안 u11_7 그림 · 제목 · 글 · 「로봇 탭으로」 + 보조 단추(시안 밖 · 담당 실기 없음 = 「파일 올리기」)', async () => {
     serve(KIM, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
     const r = empty('map');
     expect(r.title).toBe('아직 지도가 없습니다');
-    expect(r.acts).toEqual(['파일 올리기']);   // 시안 u7 틀 안 빈 칸 · 다음 할 일 하나
+    expect(r.why).toBe('로봇을 조종해 한 바퀴 걸으면 지도가 만들어집니다.');
+    expect(r.acts).toEqual(['로봇 탭으로', '파일 올리기']);
+    expect(r.e.querySelector('a.btnp')!.getAttribute('href')).toBe('#/fleet');
+    expect(r.e.querySelector('[data-empty-act]')!.className).toBe('btns');   // 보조 단추는 칠하지 않음
+    expect(r.e.querySelector('svg.art')!.children.length).toBeGreaterThan(0);   // 시안 그림
   });
   // 칠한 단추는 STOP 말고 하나(검수 07:47): 지도 0 개면 빈 칸 단추와 같은 위 단추를 숨기고, 1 개 이상이면 위 단추 그대로
   const filled = () => [...box.querySelectorAll<HTMLElement>('main .btn.pri, [data-u7] .btnp')].map((b) => b.textContent);
   it('지도 0 개(담당 실기 없음): 위 «+ 파일 올리기» 없음 · 칠한 단추는 빈 칸 것 하나 · «+ 지형 만들기» 그대로', async () => {
     serve(KIM, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
     expect($('[data-make-file]')).toBeNull();
-    expect(filled()).toEqual(['새 지도 만들기', '파일 올리기']);   // 시안 u7_1 머리 btnp(담당 실기 없음 = 까닭 한 줄) + 빈 칸 다음 할 일
+    expect(filled()).toEqual(['새 지도 만들기', '로봇 탭으로']);   // 시안 u7_1 머리 btnp(담당 실기 없음 = 까닭 한 줄) + 시안 u11_7 빈 칸 단추
     expect($('[data-make-robot]')!.getAttribute('aria-disabled')).toBe('true');
     expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('파일 올리기');
   });
@@ -100,7 +104,8 @@ describe('지도 없음', () => {
     serve({ ...LEE, robot_ids: ['r-a'] }, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
     expect($('[data-make-robot]')!.getAttribute('aria-disabled')).toBeNull();
     expect($('[data-make-file]')).toBeNull();
-    expect(filled()).toEqual(['새 지도 만들기', '지도 만들기']);
+    expect(filled()).toEqual(['새 지도 만들기', '로봇 탭으로']);
+    expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('지도 만들기');
   });
   it('지도 1 개 이상: 위 «+ 파일 올리기» 그대로(칠함) · 빈 칸 없음', async () => {
     serve(KIM, [RA]); await open('#/map');
