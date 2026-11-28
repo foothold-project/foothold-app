@@ -530,11 +530,11 @@ describe('관제 탭', () => {
       const dot = (id: string) => $(`.u5 .mini .dotm[data-dot="${id}"]`);
       expect(dot('k3').classList.contains('sel')).toBe(true); expect(dot('k4').classList.contains('dim')).toBe(true);
       expect($('.u5 .mini .dotl.sel')!.textContent).toBe(EIGHT.find((r) => r.id === 'k3')!.name);
-      // 고른 로봇 쪽으로 2 배: k3 가 칸 가운데(가로 50% · 세로 125 px), k4(20 m 동쪽 = 그림 70 px = 작은 지도 8.75 px) 는 2 배 떨어져 17.5 → 18 px
-      expect($('.u5 .mini')!.dataset.zoom).toBe('2');
-      expect([dot('k3').style.left, dot('k3').style.top]).toEqual(['calc(50% + 0px)', '125px']);
-      expect(dot('k4').style.left).toBe('calc(50% + 18px)');
-      expect(($('.u5 .mini') as HTMLElement).style.backgroundSize).toBe('800px 500px');
+      // 고를 때도 확대 · 이동 없음(팀장 02:03): k4(20 m 동쪽 = 그림 70 px = 작은 지도 8.75 px) 는 k3 에서 1 배 그대로 9 px · 바탕 그림 크기 · 자리 그대로
+      expect($('.u5 .mini')!.dataset.zoom).toBeUndefined();
+      const px = (id: string) => { const m = /calc\(50% ([+-]) (-?\d+)px\)/.exec(dot(id).style.left)!; return (m[1] === '-' ? -1 : 1) * Number(m[2]); };
+      expect(Math.abs(px('k4') - px('k3') - 8.75)).toBeLessThanOrEqual(1);
+      expect(($('.u5 .mini') as HTMLElement).style.backgroundSize).toBe('');
       act(() => { $('.u5 .mini[data-to-map]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
       expect($('.u5 .big')!.getAttribute('data-focus')).toBe('k3');
     } finally { sites.mockRestore(); }
