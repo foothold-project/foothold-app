@@ -440,6 +440,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     const goTab = (id: string) => { const h = `#/${id}`; if (!leaving.ask) { away.current = null; setWant(h); } location.hash = h; };
     const u6 = tab === 'missions' && !simOpen;   // 임무 = 시안 u6
     const barTabs = [...PC_TABS.filter((t) => !t.hidden), PC_BOTTOM].map((t) => ({ id: t.id, label: labelOf(t, user.role) }));
+    const u8 = tab === 'history' && !simOpen;   // 기록 = 시안 u8 화면을 .proto 바로 아래(screens/historyu8.tsx), 폰은 옛 판
     setStage(stage);   // 끌기 좌표 도우미(stage.ts)가 이 무대 배율을 쓴다
     return <div className="fit" data-fit style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: light ? '#F6F7F6' : '#000000' }}>
       <div className={`proto${light ? ' light' : ''}`} data-layout="pc" data-scale={stage.s.toFixed(4)} style={{ position: 'absolute', left: 0, top: 0, width: STAGE_W, height: STAGE_H, transform: `translate(${stage.x}px,${stage.y}px) scale(${stage.s})`, transformOrigin: '0 0' }}>
@@ -453,6 +454,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
         : u6 ? <>
         <main className="fh-main" aria-label={title} style={{ display: 'contents' }}><Guard key={tab}><MissionsU6 key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} /></Guard></main>
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
+        : u8 ? <>
+        <main className="fh-main" aria-label={title} style={{ display: 'contents' }}><Guard key={tab}><History key={`history-${user.id}`} user={user} robots={withSlots} robot={robot} pick={setRid} go={go} phone={false} cancel={cancel} focus={focus} /></Guard></main>
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
         : bare ? <>{mainEl}
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
