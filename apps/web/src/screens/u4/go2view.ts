@@ -2,6 +2,7 @@
 // 바뀐 것: 걷기 관절은 시안의 기록 고리 대신 로봇이 보낸 실제 관절값(api.q, go2model JOINTS 순서 12개)을 쓴다. 값이 없으면 서 있는 모양 그대로(지어내지 않음).
 // 바닥 점 흐름은 api.drive = {v, turn, side} (로봇에 나간 명령 값). 모형 파일은 저장소 밖 자산 폴더(/proto-assets/, FH_ASSET_DIR)에서 읽는다.
 import * as THREE from 'three';
+import { applyWalk, loadWalk, type Walk } from '../../proto/site';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -15,6 +16,8 @@ export const STAND = ORDER.map((n) => (n.endsWith('hip') ? (n[1] === 'R' ? -0.1 
 export const DOWN = ORDER.map((n, i) => (n.endsWith('thigh') ? 1.36 : n.endsWith('calf') ? -2.72 : STAND[i]));
 /** 그릴 관절: 받은 관절값이 이긴다 · 없으면 posture LYING 이면 엎드림 · 그 밖은 서기(지어내지 않음) */
 export const poseQ = (q: number[] | null, down: boolean) => (q && q.length === 12 ? q : down ? DOWN : STAND);
+/** 다리 꼴: 받은 관절값(q) · 엎드림(down) · 관절값 없이 걷는 속도(walk = 관제 타일과 같은 시안 걷기 기록 applyWalk) · 서기(stand) */
+export const legMode = (q: number[] | null, down: boolean, walk: boolean) => (q && q.length === 12 ? 'q' : down ? 'down' : walk ? 'walk' : 'stand');
 type Joints = Record<string, { o: THREE.Object3D; r0: THREE.Euler }>;
 /** 받은 관절값(12개)으로 다리를 돌린 뒤 몸 · 발 가장 낮은 점을 바닥 y=0 에 붙인다(서기 · 엎드림 · 앉기 · 넘어짐 · 시뮬 · 데모 · 실기 같은 규칙).
  *  관절만 돌리고 몸 높이를 서 있을 때 그대로 두면 엎드릴 때 공중에 떠 앉는다(팀장 11-28 18:47) */
@@ -38,12 +41,12 @@ function cyberMat() {
 }
 
 export type Go2Opt = { pin?: boolean; orbit?: boolean; glow?: boolean; cyber?: boolean; hot?: Record<string, string>; pose?: 'down'; yaw?: number; dist?: number; floor?: number; src?: string };
-export type Go2Api = { q: number[] | null; /** 서버 posture LYING (q 없을 때만 씀) */ down: boolean; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
+export type Go2Api = { q: number[] | null; /** 서버 posture LYING (q 없을 때만 씀) */ down: boolean; /** 관절값 없이 서버 speed ≥ WALK_MIN_SPEED (q · down 이 이김) */ walk: boolean; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
 
 export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const w = canvas.clientWidth || 760, h = canvas.clientHeight || 900;
   let r: THREE.WebGLRenderer;
-  const api: Go2Api = { q: null, down: false, drive: null, setHot, dispose: () => {} };
+  const api: Go2Api = { q: null, down: false, walk: false, drive: null, setHot, dispose: () => {} };
   try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true }); }
   catch { api.fallback = true; return api; }   // WebGL 이 없는 PC: 캔버스만 빈 채로 (시안의 정면 그림은 자산이라 넣지 않음)
   r.setPixelRatio(Math.min(2, devicePixelRatio)); r.setSize(w, h, false);
@@ -88,7 +91,8 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.001; shadow.scale.set(1, 1.5, 1); scene.add(shadow);
 
   const joints: Joints = {};
-  let root: THREE.Object3D | null = null, posed = false, live = true;
+  let root: THREE.Object3D | null = null, posed = false, live = true, gait: Walk | null = null;
+  loadWalk().then((w: Walk | null) => { if (live) gait = w; });
   import('three/examples/jsm/loaders/GLTFLoader.js').then(({ GLTFLoader }) => new GLTFLoader().load(opt.src || GO2_GLB, (g) => {
     if (!live) return;
     root = g.scene; scene.add(root);
@@ -149,8 +153,11 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     if (d) { off -= d.v * dt * 0.75; gm.uniforms.off.value = off; grid.rotation.y -= d.turn * dt * 0.9; grid.position.x = ((grid.position.x - (d.side || 0) * dt * 0.75) + 2) % 4 - 2; }
     const q = api.q;
     // 관절값이 바뀐 때만 다시 놓는다(바닥 맞춤은 꼭짓점을 훑으므로 같은 배열이면 건너뜀)
-    const want = poseQ(q, api.down);
-    if (want !== lastQ && root && !posed) { applyQ(root, joints, want); lastQ = want; }
+    if (root && !posed && gait && legMode(q, api.down, api.walk) === 'walk') { applyWalk({ root, joints, top: 0 }, gait, t); lastQ = null; }
+    else {
+      const want = poseQ(q, api.down);
+      if (want !== lastQ && root && !posed) { applyQ(root, joints, want); lastQ = want; }
+    }
     ctl?.update(); r.render(scene, cam); raf = requestAnimationFrame(frame);
   }
   frame();
