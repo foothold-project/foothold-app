@@ -18,8 +18,6 @@
 .u9 .u9-legacy .st-scope{display:contents}
 .u9 .u9-legacy .st-body>*>*,.u9 .u9-legacy .st-scope>*{break-inside:avoid;margin-bottom:14px;display:block}
 .u9 .u9-legacy .st-modelbar{break-inside:avoid;margin-bottom:14px}
-/* 앱 frame.css 의 전역 .nav(왼쪽 주 메뉴 항목: flex 세로 · 가운데 · 11 px …)가 시안의 .pane.nav 에도 걸린다. 시안 값으로 되돌린다 */
-.u9 .pane.nav{display:block;align-items:normal;gap:normal;font-size:inherit;color:inherit;min-height:0;text-decoration:none}
 /* 사용자 고치기 창: 지금 판 계정 상세를 밝은 유리 위에. 앱 칸 · 단추는 앱 값, 여백만 되살린다 */
 .u9 .u9-edit{max-height:900px}
 .u9 .u9-edit .lv-card{background:none;border:0;box-shadow:none;padding:0;color:#1f2421;display:flex;flex-direction:column;gap:12px}
