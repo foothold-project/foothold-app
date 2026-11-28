@@ -7,7 +7,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = '0039'
-down_revision = '0035'
+down_revision = '0038'  # local integration: chain after 0038_pairing_offers
 branch_labels = None
 depends_on = None
 

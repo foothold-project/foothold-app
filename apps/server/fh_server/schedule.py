@@ -273,7 +273,7 @@ def install(app, DB, Identity, fail):
             items.append(C.RobotAvailability(robot_id=robot.id, robot_name=robot.name, state=state,
                 busy_until=slot.end_at if slot else None, busy_slot_id=slot.id if slot else None,
                 busy_label=label, battery_pct=summary.battery.soc if summary.battery else None,
-                demo=False, sim=robot.simulation is True,
+                demo=summary.demo is True, sim=robot.simulation is True,
                 location_label=places.get(summary.location.floor_id) if summary.location else None))
         return C.RobotAvailabilityList(items=items)
 

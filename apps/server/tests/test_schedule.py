@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from apps.server.fh_server.models import Event
 from .test_maps import P, auth, maps, tree, upload, save  # noqa: F401  (maps 는 fixture)
+from .test_simulation import simulation_context, clean_ros_environment, isolated_manager_startup  # noqa: F401
+from .test_api import csrf
 
 SEOUL_LATE = ('2026-11-28T14:30:00Z', '2026-11-28T15:30:00Z')  # 서울 28일 23:30 ~ 29일 00:30
 
@@ -147,6 +149,20 @@ def test_availability_states(maps, seeded):
         params={'start': '2026-12-02T01:00:00Z', 'end': '2026-12-02T01:00:00Z'}).status_code == 400
     assert http.get(P + '/robots/availability', headers=admin,
         params={'start': '2026-12-02T01:00:00', 'end': '2026-12-02T02:00:00Z'}).status_code == 400
+
+
+def test_availability_demo_follows_robot_summary(simulation_context, seeded):
+    client, sim, cfg, rid, launcher = simulation_context
+    headers = csrf(client, 'one')
+    started = client.post(P + '/simulation/robots', headers=headers, json={'world_id': 'test', 'robot_id': rid, 'demo': True})
+    assert started.status_code == 201, started.text
+    response = client.get(P + '/robots/availability', headers=headers,
+        params={'start': '2026-12-02T00:00:00Z', 'end': '2026-12-02T01:00:00Z'})
+    assert response.status_code == 200, response.text
+    items = {i['robot_id']: i for i in response.json()['items']}
+    assert (items[rid]['sim'], items[rid]['demo']) == (True, True)
+    real = str(seeded['robots']['mine'])
+    assert (items[real]['sim'], items[real]['demo']) == (False, False)
 
 
 def test_estimate_math_on_known_path(maps, seeded):
