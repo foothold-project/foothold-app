@@ -35,6 +35,7 @@ import { ThemeNav, ThemePick, useTheme } from './theme';
 import { BellFace, PcBar, STOP_FACE } from './proto/bar';
 import { setStage } from './stage';
 import { Control5 } from './proto/u5';
+import { EmptyRobots, PcAsk } from './proto/u11';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -450,12 +451,16 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : u6 ? <>
         <main className="fh-main" aria-label={title} style={{ display: 'contents' }}><Guard key={tab}><MissionsU6 key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} /></Guard></main>
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
+        : tab === 'control' && !ctx && !simOpen ? <><EmptyRobots control />   {/* 시안 u11_6: 로봇 0 대 관제 = 시안 빈 화면 */}
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
         : <div className={`fh ap-in old${light ? ' light' : ''}`}>
         <h1 className="ap-sr">{title}</h1>
         {pickEl}
         {bandEl}
         <div className="fh-body">{mainEl}</div>
       </div>}
+      {/* 시안 u11_1: 내가 조종 중인 로봇에 조종권 요청이 오면 어느 탭에서나 창(머리줄 STOP 은 창 위에 그대로) */}
+      <Guard quiet><PcAsk robots={pool} /></Guard>
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
     </div></div>;
   }

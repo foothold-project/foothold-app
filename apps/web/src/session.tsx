@@ -10,7 +10,7 @@ import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
-import { LoginFields, LoginFoot, type LoginBad } from './loginform';
+import { LoginFields, LoginFoot, PW_DONE, type LoginBad } from './loginform';
 
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
@@ -85,14 +85,14 @@ export function Root() {
 }
 
 function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter: () => Promise<void> }) {
-  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), [changed, setChanged] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
     const f = new FormData(e.currentTarget), id = String(f.get('username')).trim(), pw = String(f.get('password'));
     setTick((n) => n + 1);
     if (!id || !pw) { setBad(!id ? 'username' : 'password'); return setMsg('계정과 비밀번호를 입력하세요.'); }
-    setBusy(true); setMsg(undefined); setBad(null);
+    setBusy(true); setMsg(undefined); setBad(null); setChanged(false);
     try { await api.login(id, pw); await enter(); }
     catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
@@ -102,8 +102,9 @@ function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter
       <div className="lg-logo">FOOTHOLD</div>
       <h2>로그인</h2>
       <p className="lg-sub">총괄 · 운영자 계정으로 로그인합니다</p>
-      <div className="lg-fields"><LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} /></div>
-      <LoginFoot />
+      <div className="lg-fields">{changed && !msg && <p className="lg-ok" role="status" data-pw-changed><svg className="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></svg>{PW_DONE}</p>}
+        <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} /></div>
+      <LoginFoot done={() => { setMsg(undefined); setBad(null); setChanged(true); }} />
       <span className="lg-note">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
     </form>
   </main></div>;
