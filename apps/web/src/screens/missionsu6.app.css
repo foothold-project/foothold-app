@@ -70,3 +70,14 @@
 .proto.light.u6 .u6-legacy .btn{border-color:#DCE0DE}
 .u6 .u6-close{position:absolute;right:24px;top:76px;z-index:7}
 .u6 .band{z-index:6}
+/* 앱 머리줄(PcBar) .proto 안에 놓일 때: 바깥 .proto 가 화면 틀, 이 칸은 그 위를 덮는다(시안 좌표 그대로 · 머리줄 64 아래부터 칸) */
+.proto .proto.u6{position:absolute;inset:0;width:auto;height:auto;background:transparent}
+.proto .proto.u6{pointer-events:none}
+.proto .proto.u6>*{pointer-events:auto}
+/* 만들기(u6_3/4/5) 가운데 편집 칸: 지금 짜기 편집기(missions.css .mx)를 시안 칸 크기에 맞춰 넣는다 */
+.u6 .u6-editor{display:flex;flex-direction:column;overflow:hidden}
+.u6 .u6-editbar{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.u6 .u6-editbar .btns{height:34px;padding:0 12px;border-radius:10px;font-size:13px}
+.u6 .u6-editbody{position:relative;flex:1;min-height:0;overflow:hidden}
+.u6 .u6-editbody>*{height:100%}
+.u6 .wseg button{display:flex;align-items:center;gap:6px}

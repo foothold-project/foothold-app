@@ -29,6 +29,7 @@ import { Terrain } from './screens/terrain';
 import { Trash } from './screens/trash';
 import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
+import { BellFace, PcBar, STOP_FACE } from './proto/bar';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -321,7 +322,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
   // 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
   const stopKey = useRef(stop); stopKey.current = stop;
-  const pickPress = useStopPress(stop);
+  const pickPress = useStopPress(stop), barStop = useStopPress(stop);
   // Sonnet 5: Enter 를 누른 채 두면 키 반복 keydown · 그 click(detail 0)이 고르기를 연 뒤 곧바로 모두 정지로 가지 않게. 반복은 새 누름이 아니다
   const held = useRef(false), pickBtn = useRef<HTMLButtonElement>(null), bySpace = useRef(false);   // bySpace = 전역 Space 가 지금 누르는 click(#529 M3)
   // A4: 고르기가 «모두 정지»가 되면(처음 열림 · 다른 로봇에서 되돌림) 정지 단추에 초점. Enter 반복이 머리 STOP 으로 가지 않게
@@ -355,6 +356,85 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };
 
+  const pickEl = choose != null && !target && canStop && (here.length || allN ? <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
+      {cantPick && <span style={LINE} data-cant-stop>{cantPick.name} 은 이 계정으로 정지할 수 없어 {simOnly ? '내 시뮬 정지' : off ? '멈출 수 있는 로봇 정지' : '전체 정지'}를 엽니다</span>}
+      <span>어느 로봇을 정지할까요?</span>
+      <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
+        {!!allN && <option value={ALL}>{allName} ({allN} 대{cut.length ? ` · 끊김 ${cut.length}` : ''}{unsure.length ? ` · 상태 모름 ${unsure.length}` : ''})</option>}
+        {!choose && <option value="">로봇 고르기</option>}
+        {here.map((r) => <option key={r.id} value={r.id}>{r.name}{rt.get(r.id).lease ? ' (내가 조종 중)' : rt.get(r.id).releasing ? ' (반납 확인 중)' : ''}</option>)}</select>
+      <button type="button" className="fh-stop" disabled={!choose} ref={pickBtn} {...pickPress} {...pickKeys}>정지</button>
+      <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
+      {noSrv.map((r) => <span key={r.id} style={LINE} data-stop-noserver={r.id}>실기 {r.name} 는 서버 경유 조종이 꺼져 있을 수 있습니다 · 정지는 보내고 결과는 아래 띠에 보입니다. 닿지 않으면 현장 폰이나 현장에서 멈추세요</span>)}
+      {!!fieldOnly.length && <span style={LINE} data-phone-only>{fieldOnly.map((r) => r.name).join(' · ')} 은 서버 경유 정지가 꺼져 있어 여기서 멈출 수 없습니다 · 현장 폰에서 멈추세요</span>}
+      {!!realOff.length && <span style={LINE} data-cant-real>실기 로봇 {realOff.length} 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요</span>}
+      {choose === ALL && !!pre.length && <span style={LINE} data-stop-pre>연결 전 로봇 {pre.length} 대 · 정지를 보낼 수 없음</span>}
+      {choose === ALL && cut.map((r) => <span key={r.id} style={LINE} data-stop-lost={r.id}>▲ {lostStop(r)}</span>)}
+      {choose === ALL && unsure.map((r) => <span key={r.id} style={LINE} data-stop-unsure={r.id}>▲ {unsureStop(r)}</span>)}
+    </div> : <div className="fh-pick" role="alertdialog" aria-label="멈출 로봇 없음" data-no-stop>
+      <span>▲ 이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요.</span>
+      <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
+    </div>);
+  const bandEl = <div className="fh-band" role="status" data-band>{[
+      note && <span key="note">▲ {note}</span>,
+      gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
+      foreign && <span key="foreign" data-foreign>▲ {user.role === 'ORG_ADMIN' ? '목록에 없는 로봇입니다. 로봇 목록을 다시 받은 뒤 고르세요.' : '담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다.'} <button type="button" className="btn" onClick={() => setForeign(false)}>닫기</button></span>,
+      missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
+      (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
+        {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,
+      noWay === 'down' && <span key="none" data-stop-none>▲ 로봇에 닿을 길 없음 · 현장에서 멈추세요. 서버 연결이 끊겼고 이 폰은 로봇과 직결되어 있지 않아 정지 명령을 보내지 못했습니다.</span>,
+      noWay === 'back' && <span key="none" data-stop-none data-stop-none-back>▲ 서버 다시 연결됨 · 앞선 정지는 보내지 못했음 · 로봇 상태를 확인하세요. <button type="button" className="btn" onClick={() => setNoWay('')}>닫기</button></span>,
+      // A2: 관제에서 보낸 정지(한 대 · 모두)가 보낼 때 붙지 않은 로봇이고 서버가 받았으면(sent) «아직 닿지 않음 · 상태 모름». 보내는 중 · 대체 경로 · 실패 · 불확실, 정지 뒤 끊김은 기존 글 그대로
+      ...(grouped ? groupStops(stopped, (id) => rt.get(id), offAt, (r) => pool.find((x) => x.id === r.id) ?? r) : []),
+      ...(grouped ? [] : stopped).map((r) => { const s = rt.get(r.id).stop, now = pool.find((x) => x.id === r.id) ?? r;
+        if (relatch.includes(r.id) && now.online) return <span key={`stop-${r.id}`} data-stop-band data-stop-relatched={r.id}>■ {r.name} 다시 연결 · 잠긴 채 시작</span>;
+        return ctlOff.includes(r.id) && s?.phase === 'sent' ? lost(now) || now.online ? <span key={`stop-${r.id}`} data-stop-band data-stop-lost={r.id}>▲ {lostSent(r)}</span>
+          : <span key={`stop-${r.id}`} data-stop-band data-stop-unsure={r.id}>▲ {unsureStop(r)}.</span>
+          : <span key={`stop-${r.id}`} data-stop-band>{stopText(r, rt.get(r.id))}</span>; }),
+      // A3: 모두 정지에 센 내 시뮬의 결과(직결 · 정리 · 보낼 길 없음)
+      simStop && !!simStopText(sim.get()) && <span key="sim-stop" data-stop-band data-sim-stop-band>{simStopText(sim.get())}</span>,
+      ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
+    ].filter(Boolean)}</div>;
+  const mainEl = <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
+        : phone && scan && tab === 'drive' && !open ? <ScanPanel key={user.id} user={user} robots={pool} close={() => setScan(false)} cancel={cancel} />   // ⋯ 지도 스캔(u14_2)
+        : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
+        : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
+        : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' || tab === 'missions' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
+        : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
+        : tab === 'control' ? <EmptyControl />   // 로봇 0대 관제 = 한 줄 + 로봇 탭 링크
+        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh} />   // 로봇 0대여도 관제 요약·운영 관리자 표
+        : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
+        : tab === 'missions' ? <MissionTab key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />   // 로봇 0대여도 임무 목록·짜기
+        : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
+        : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
+        : tab === 'sim' ? <SimTab user={user} robots={robots} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
+        : tab === 'trash' ? <Trash key={`trash-${user.id}`} cancel={cancel} />   // 로봇 0대여도 휴지통
+        : none}</Guard>
+        <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>;
+  if (!phone) {
+    // PC = 시안 틀(.proto · proto/bar): 머리줄 .bar 그대로, 그 아래 STOP 결과 띠 · 정지 고르기는 모든 화면 위. 시안으로 옮긴 탭은 .proto 바로 아래 화면, 아직이면 옛 본문
+    const goTab = (id: string) => { const h = `#/${id}`; if (!leaving.ask) { away.current = null; setWant(h); } location.hash = h; };
+    const u6 = tab === 'missions' && !simOpen;   // 임무 = 시안 u6 화면을 .proto 바로 아래(screens/missionsu6.tsx), 폰은 옛 판
+    const barTabs = [...PC_TABS.filter((t) => !t.hidden), PC_BOTTOM].map((t) => ({ id: t.id, label: labelOf(t, user.role) }));
+    return <div className={`proto${light ? ' light' : ''}`} data-layout="pc">
+      <PcBar light={light} tabs={barTabs} cur={navTab} go={goTab} role={user.role} name={user.name} roleName={ROLE_NAME[user.role]} online={pool.filter((r) => r.online).length} net={net.at}
+        bell={<Guard quiet><Bell cancel={cancel} face={(n) => <BellFace unread={n} />} pop={`fh${light ? ' light' : ''}`} /></Guard>}
+        stop={(canStop || toSim) && <button type="button" className="allstop" aria-label="비상 정지" data-stop style={{ minHeight: 44 }} {...barStop}>{STOP_FACE}</button>}
+        approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
+        driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
+        menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
+      {u6 ? <>
+        <main className="fh-main" aria-label={title} style={{ display: 'contents' }}><Guard key={tab}><MissionsU6 key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} /></Guard></main>
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div>
+      </> : <div className={`fh ap-in old${light ? ' light' : ''}`}>
+        <h1 className="ap-sr">{title}</h1>
+        {pickEl}
+        {bandEl}
+        <div className="fh-body">{mainEl}</div>
+      </div>}
+      {!inApp() && <Guard quiet><SimWindow /></Guard>}
+    </div>;
+  }
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'} data-drive={open || simOpen ? '' : undefined}>
     {/* 시뮬 조종 화면(10-26): 머리줄은 STOP 만 — 영상 위 오른쪽 위에 뜬다(drive.css .fh-head[data-bare]). 시뮬 끝내기·연결 표시는 조종 화면 메뉴·알약으로 */}
     <header className="fh-head" data-bare={simOpen || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} /> : <>
@@ -386,64 +466,11 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           <button type="button" className="btn" onClick={() => go('drive')}>연결 화면</button></div>
       : <div className="fh-pick" role="status" data-ending>조종권을 반납하는 중입니다…</div>)}
     {/* 후보 0(운영 관리자 로봇 0대 등 — 모르면 STOP 은 보인다)이면 빈 고르기 대신 이 앱으로 멈출 것이 없다고 바로 알린다 */}
-    {choose != null && !target && canStop && (here.length || allN ? <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
-      {cantPick && <span style={LINE} data-cant-stop>{cantPick.name} 은 이 계정으로 정지할 수 없어 {simOnly ? '내 시뮬 정지' : off ? '멈출 수 있는 로봇 정지' : '전체 정지'}를 엽니다</span>}
-      <span>어느 로봇을 정지할까요?</span>
-      <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
-        {!!allN && <option value={ALL}>{allName} ({allN} 대{cut.length ? ` · 끊김 ${cut.length}` : ''}{unsure.length ? ` · 상태 모름 ${unsure.length}` : ''})</option>}
-        {!choose && <option value="">로봇 고르기</option>}
-        {here.map((r) => <option key={r.id} value={r.id}>{r.name}{rt.get(r.id).lease ? ' (내가 조종 중)' : rt.get(r.id).releasing ? ' (반납 확인 중)' : ''}</option>)}</select>
-      <button type="button" className="fh-stop" disabled={!choose} ref={pickBtn} {...pickPress} {...pickKeys}>정지</button>
-      <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
-      {noSrv.map((r) => <span key={r.id} style={LINE} data-stop-noserver={r.id}>실기 {r.name} 는 서버 경유 조종이 꺼져 있을 수 있습니다 · 정지는 보내고 결과는 아래 띠에 보입니다. 닿지 않으면 현장 폰이나 현장에서 멈추세요</span>)}
-      {!!fieldOnly.length && <span style={LINE} data-phone-only>{fieldOnly.map((r) => r.name).join(' · ')} 은 서버 경유 정지가 꺼져 있어 여기서 멈출 수 없습니다 · 현장 폰에서 멈추세요</span>}
-      {!!realOff.length && <span style={LINE} data-cant-real>실기 로봇 {realOff.length} 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요</span>}
-      {choose === ALL && !!pre.length && <span style={LINE} data-stop-pre>연결 전 로봇 {pre.length} 대 · 정지를 보낼 수 없음</span>}
-      {choose === ALL && cut.map((r) => <span key={r.id} style={LINE} data-stop-lost={r.id}>▲ {lostStop(r)}</span>)}
-      {choose === ALL && unsure.map((r) => <span key={r.id} style={LINE} data-stop-unsure={r.id}>▲ {unsureStop(r)}</span>)}
-    </div> : <div className="fh-pick" role="alertdialog" aria-label="멈출 로봇 없음" data-no-stop>
-      <span>▲ 이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요.</span>
-      <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
-    </div>)}
-    <div className="fh-band" role="status" data-band>{[
-      note && <span key="note">▲ {note}</span>,
-      gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
-      foreign && <span key="foreign" data-foreign>▲ {user.role === 'ORG_ADMIN' ? '목록에 없는 로봇입니다. 로봇 목록을 다시 받은 뒤 고르세요.' : '담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다.'} <button type="button" className="btn" onClick={() => setForeign(false)}>닫기</button></span>,
-      missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
-      (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
-        {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,
-      noWay === 'down' && <span key="none" data-stop-none>▲ 로봇에 닿을 길 없음 · 현장에서 멈추세요. 서버 연결이 끊겼고 이 폰은 로봇과 직결되어 있지 않아 정지 명령을 보내지 못했습니다.</span>,
-      noWay === 'back' && <span key="none" data-stop-none data-stop-none-back>▲ 서버 다시 연결됨 · 앞선 정지는 보내지 못했음 · 로봇 상태를 확인하세요. <button type="button" className="btn" onClick={() => setNoWay('')}>닫기</button></span>,
-      // A2: 관제에서 보낸 정지(한 대 · 모두)가 보낼 때 붙지 않은 로봇이고 서버가 받았으면(sent) «아직 닿지 않음 · 상태 모름». 보내는 중 · 대체 경로 · 실패 · 불확실, 정지 뒤 끊김은 기존 글 그대로
-      ...(grouped ? groupStops(stopped, (id) => rt.get(id), offAt, (r) => pool.find((x) => x.id === r.id) ?? r) : []),
-      ...(grouped ? [] : stopped).map((r) => { const s = rt.get(r.id).stop, now = pool.find((x) => x.id === r.id) ?? r;
-        if (relatch.includes(r.id) && now.online) return <span key={`stop-${r.id}`} data-stop-band data-stop-relatched={r.id}>■ {r.name} 다시 연결 · 잠긴 채 시작</span>;
-        return ctlOff.includes(r.id) && s?.phase === 'sent' ? lost(now) || now.online ? <span key={`stop-${r.id}`} data-stop-band data-stop-lost={r.id}>▲ {lostSent(r)}</span>
-          : <span key={`stop-${r.id}`} data-stop-band data-stop-unsure={r.id}>▲ {unsureStop(r)}.</span>
-          : <span key={`stop-${r.id}`} data-stop-band>{stopText(r, rt.get(r.id))}</span>; }),
-      // A3: 모두 정지에 센 내 시뮬의 결과(직결 · 정리 · 보낼 길 없음)
-      simStop && !!simStopText(sim.get()) && <span key="sim-stop" data-stop-band data-sim-stop-band>{simStopText(sim.get())}</span>,
-      ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
-    ].filter(Boolean)}</div>
+    {pickEl}
+    {bandEl}
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.filter((t) => !t.hidden).map((t) => link(t, 'nav'))}<span className="fh-grow" /><ThemeNav />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
-        : phone && scan && tab === 'drive' && !open ? <ScanPanel key={user.id} user={user} robots={pool} close={() => setScan(false)} cancel={cancel} />   // ⋯ 지도 스캔(u14_2)
-        : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
-        : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
-        : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' || tab === 'missions' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
-        : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
-        : tab === 'control' ? <EmptyControl />   // 로봇 0대 관제 = 한 줄 + 로봇 탭 링크
-        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh} />   // 로봇 0대여도 관제 요약·운영 관리자 표
-        : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
-        : tab === 'missions' ? phone ? <MissionTab key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />
-          : <MissionsU6 key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />   // PC = 시안 u6 1920 화면, 폰 = 지금 판   // 로봇 0대여도 임무 목록·짜기
-        : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
-        : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
-        : tab === 'sim' ? <SimTab user={user} robots={robots} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
-        : tab === 'trash' ? <Trash key={`trash-${user.id}`} cancel={cancel} />   // 로봇 0대여도 휴지통
-        : none}</Guard>
-        <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>
+      {mainEl}
     </div>
     {/* 서버 경유 실기 조종 중(open)이면 크게 보기는 막는다 — 실기 조종권을 반납하지 않은 채 화면을 바꾸지 않게. STOP·Space 대상은 위 규칙 그대로(실기 조종 화면 = 그 로봇) */}
     {simUp && small && <Guard quiet><SimPip cam={small} held={open} big={() => { setSmall(null); go('drive'); }} /></Guard>}

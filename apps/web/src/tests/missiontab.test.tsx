@@ -166,7 +166,7 @@ describe('임무 탭(W2)', () => {
   it('탭 열림: 세 칸(목록 · 지도 · 일정 칸) + 오늘 일정, 첫 임무를 펼쳐 할 일 번호와 끝 동작', async () => {
     await mount('#/missions');
     expect($('h1')!.textContent).toBe('임무');
-    expect($('nav a[aria-current="page"]')!.getAttribute('href')).toBe('#/missions');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]')!.getAttribute('data-href')).toBe('#/missions');
     expect($('[aria-label="임무 목록"]')).toBeTruthy(); expect($('[aria-label="임무 지도"]')).toBeTruthy();
     expect($('[aria-label="일정에 추가"]')).toBeTruthy(); expect($('[aria-label="오늘 일정"]')).toBeTruthy();
     expect($$('[data-mission]').map((b) => b.dataset.mission)).toEqual(['s1', 's2']);   // 휴지통 것은 목록 밖
@@ -408,10 +408,13 @@ describe('임무 탭(W2)', () => {
     await click($('[data-edit-mission]'));
     expect($('h1')!.textContent).toBe('임무');
     expect($('[aria-label="임무 편집"]')).toBeTruthy();
+    await flush();   // 편집기 본문(시나리오 받기) 뒤 이름 칸
     expect($<HTMLInputElement>('[data-name]')!.value).toBe('공정 순찰 A');
     await click($('[data-back-list]'));
     expect(picked()).toEqual(['s1']);
-    await click($('[data-new-mission]'));
+    await click($('[data-new-mission]'));   // 시안 u6_2: 새 임무 = 지도 · 로봇 · 걷기 모드 고르기 → «임무 만들기» = 빈 편집 칸
+    await click($('[data-setup-make]')); await flush();
+    expect($('[aria-label="임무 편집"]')).toBeTruthy();
     expect($<HTMLInputElement>('[data-name]')!.value).toBe('');
   });
 
