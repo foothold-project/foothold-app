@@ -23,7 +23,10 @@ function render(r: Robot, server = true, again = () => {}) {
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); });
 const steps = () => [...box.querySelectorAll<HTMLElement>('[data-check]')].map((li) => [li.dataset.check, li.dataset.state]);
 const why = (k: string) => box.querySelector(`[data-check="${k}"] [data-check-why]`)?.textContent ?? '';
-const head = () => box.querySelector('[data-check-head]')!.textContent;
+const head = () => box.querySelector('[data-check-head]')?.textContent ?? null;
+const fold = () => box.querySelector<HTMLDetailsElement>('details[data-readycheck]')!;
+/** 접힌 「자세히 점검」 펼치기(jsdom 은 summary 누름으로 열지 않아 open + toggle 을 직접) */
+const unfold = () => act(() => { fold().open = true; fold().dispatchEvent(new Event('toggle')); });
 
 describe('순서 점검 · 단계와 상태 셋', () => {
   it('일곱 단계 순서 · 다 받은 로봇: Wi-Fi · 걷기 정책만 서버에 값 없음, 나머지 확인됨', () => {
@@ -35,10 +38,21 @@ describe('순서 점검 · 단계와 상태 셋', () => {
     expect(why('power')).toBe('배터리 84 % · 관절 값 받음');
   });
 
-  it('막힌 단계가 없으면 머리 글은 막힘이 없다는 사실과 값 없는 단계 수만 · 조종을 허락하는 말 없음', () => {
+  it('처음엔 접힘(「자세히 점검 (7 단계)」), 막힌 단계가 없으면 접힌 줄은 아무것도 · 조종을 허락하는 말 없음', () => {
     render(robot());
-    expect(head()).toBe('막힌 단계가 없습니다 · 서버에 값 없는 단계 2 개');
+    expect(fold().open).toBe(false);
+    expect(fold().querySelector('summary')!.textContent).toBe('자세히 점검 (7 단계)');
+    expect(head()).toBeNull();
+    unfold();
     expect(box.textContent).not.toMatch(/조종 가능|준비됨|준비 완료|조종할 수 있/);
+  });
+
+  it('접힌 상태에서는 첫 막힘 한 줄만, 펼치면 그 한 줄은 빠지고 일곱 단계(첫 막힘 줄 표시)', () => {
+    render(robot({ devices: [OK_DEV![0], { ...OK_DEV![1], state: 'MISSING' }] }));
+    expect(head()).toBe('센서 막힘 · 라이다 없음');
+    unfold();
+    expect(head()).toBeNull();
+    expect(box.querySelector('[data-check="sensors"]')!.hasAttribute('data-first')).toBe(true);
   });
 
   it('서버 연결이 없으면 서버 막힘이 머리 글(첫 막힘), 그 뒤 단계도 각자 판정', () => {
@@ -111,7 +125,7 @@ describe('다시 점검', () => {
 });
 
 describe('운영 관리자 로봇 탭 자리', () => {
-  it('내 로봇이면 「조종 준비」 옆에 「순서 점검」, 남의 로봇(요약만)은 없음', async () => {
+  it('내 로봇이면 「조종 준비」 칸 맨 아래에 접힌 「자세히 점검」, 남의 로봇(요약만)은 없음', async () => {
     const { App } = await import('../App');
     const { ROBOTS, USERS } = await import('./fixtures');
     window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
@@ -120,11 +134,15 @@ describe('운영 관리자 로봇 탭 자리', () => {
     box = document.createElement('div'); document.body.append(box);
     act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[...mine, ...ROBOTS.filter((x) => x.owner !== 'u-park')]} />); });
     expect(box.querySelector('[aria-label="조종 준비"]')).not.toBeNull();
-    const card = box.querySelector('[aria-label="순서 점검"]')!;
-    expect(card).not.toBeNull();
-    expect(card.parentElement).toBe(box.querySelector('[aria-label="조종 준비"]')!.parentElement);
+    expect(box.querySelector('[aria-label="순서 점검"]')).toBeNull();   // 따로 칸이 아니라 「조종 준비」 칸 안 맨 아래 접힌 「자세히 점검」(한 사실은 한 곳)
+    const prep = box.querySelector('[aria-label="조종 준비"]')!, d = prep.querySelector('details[data-readycheck]')!;
+    expect(d).not.toBeNull();
+    expect(prep.lastElementChild!.contains(d)).toBe(true);
+    // 서버 단계는 같은 칸 1 단계 「서버 연결」 과 같은 값(이 화면의 실시간 연결). 시험에는 실시간 연결이 없어 둘 다 끊김
+    expect(prep.querySelector('[data-step="1"]')!.classList.contains('done')).toBe(false);
+    expect(d.querySelector<HTMLElement>('[data-check="server"]')!.dataset.state).toBe('blocked');
     const other = box.querySelector<HTMLButtonElement>('[aria-label="다른 로봇"] button')!;
     act(() => other.click());
-    expect(box.querySelector('[aria-label="순서 점검"]')).toBeNull();
+    expect(box.querySelector('details[data-readycheck]')).toBeNull();
   });
 });

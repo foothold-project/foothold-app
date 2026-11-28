@@ -9,3 +9,6 @@
 .ck-step[data-state="blocked"] .ck-state{color:var(--bad);font-weight:700}
 .ck-why{grid-column:2 / -1;grid-row:2;font-size:12px;overflow-wrap:anywhere}
 .ck-step[data-first]{background:var(--bad-bg)}
+.ck-box{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px}
+.ck-fold>.ck-steps{margin-top:8px}
+.ck-foot{align-items:center;margin-top:6px}

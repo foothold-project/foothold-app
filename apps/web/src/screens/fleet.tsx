@@ -169,6 +169,7 @@ function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
         : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.', undefined, 'fl-step-drive')}
     </ol>
     {!ok && !r.sim && <ActionTrial robot={r} allowed={false} />}
+    <ReadyCheck r={r} server={net} again={c.refresh} />
   </section>;
 }
 
@@ -347,7 +348,7 @@ function Operator(c: Ctx) {
       {/* 남의 로봇은 서버가 실시간 값을 감춘다 — 관측·로봇 상태·조종 준비 없이 요약 상세만 */}
       {own && <Observe key={r.id} c={c} r={r} />}
       {own && <Telemetry r={r} />}
-      <Side r={r}>{own && <Prepare key={r.id} c={c} r={r} guide={guide} />}{own && <ReadyCheck r={r} server={rt.link().at === 'open'} again={c.refresh} />}<Detail key={`${r.id}-${r.owner}`} {...c} solo /></Side>
+      <Side r={r}>{own && <Prepare key={r.id} c={c} r={r} guide={guide} />}<Detail key={`${r.id}-${r.owner}`} {...c} solo /></Side>
       {others.length > 0 && <details className="lv-card fh-fold fl-others" aria-label="다른 로봇" open={!own || undefined}>
         <summary>다른 로봇 {others.length}대 — 남의 로봇은 요약만</summary>
         <ul className="fh-list robots">{others.map((x) => <SummaryRow key={x.id} c={c} x={x} />)}</ul></details>}

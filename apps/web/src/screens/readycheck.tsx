@@ -1,7 +1,8 @@
-// 순서 점검(u2_4 · L66): Wi-Fi(Jetson) → 서버 → 로봇 프로그램 → 걷기 정책 → 몸통 → 센서 → 배터리 · 관절을 차례로 한 표에.
+// 순서 점검(u2_4 · L66) · 「조종 준비」 칸 안 접힌 「자세히 점검」: Wi-Fi(Jetson) → 서버 → 로봇 프로그램 → 걷기 정책 → 몸통 → 센서 → 배터리 · 관절을 차례로 한 표에.
 // 보기 전용이다. 단계마다 «확인됨 · 막힘(까닭) · 서버에 값 없음» 셋 중 하나만 쓰고, 조종을 허락하는 듯한 말은 쓰지 않는다(조종 가부는 조종 화면 판정이 정함).
 // 계약에 없는 값(로봇 쪽 Wi-Fi 이름 · 걷기 정책)은 «서버에 값 없음» 으로 두고 짓지 않는다. 로봇이 끊기면 마지막 값으로 «확인됨» 하지 않는다.
 // «다시 점검» 은 받는 값을 다시 받기만 한다(로봇 목록 다시 받기 · 로봇에 명령 없음).
+import { useState } from 'react';
 import type { Robot } from '../fake';
 import { pickInfo } from '../go2status';
 import './readycheck.css';
@@ -35,17 +36,21 @@ export function checks(r: Robot, server: boolean): Step[] {
   ] as [string, string, [State, string]][]).map(([key, name, [state, why]]) => ({ key, name, state, why }));
 }
 
+/** 「조종 준비」 칸 맨 아래 접힌 「자세히 점검 (7 단계)」. 접힌 동안은 첫 막힘 한 줄만(없으면 아무것도), 펼치면 일곱 단계 + 다시 점검 */
 export function ReadyCheck({ r, server, again }: { r: Robot; server: boolean; again: () => void }) {
-  const list = checks(r, server), first = list.find((s) => s.state === 'blocked'), none = list.filter((s) => s.state === 'none').length;
-  return <section className="lv-card ck-card" aria-label="순서 점검">
-    <div className="fh-row"><h2 className="fh-grow">순서 점검</h2><button type="button" className="btn" onClick={again}>다시 점검</button></div>
-    <p className={first ? 'fh-msg' : 'lv-note'} role="status" data-check-head>{first ? `${first.name} 막힘 · ${first.why}` : `막힌 단계가 없습니다 · 서버에 값 없는 단계 ${none} 개`}</p>
-    <ol className="ck-steps">{list.map((s) => <li key={s.key} className="ck-step" data-check={s.key} data-state={s.state} data-first={s === first || undefined}>
-      <span className="ck-mark" data-check-mark aria-hidden="true">{STATE[s.state][0]}</span>
-      <span className="ck-name">{s.name}</span>
-      <span className="ck-state" data-check-state>{STATE[s.state][1]}</span>
-      <span className="lbl ck-why" data-check-why>{s.why}</span>
-    </li>)}</ol>
-    <p className="lv-note">보기 전용입니다. 조종 가부는 조종 화면이 정합니다. «다시 점검» 은 서버 값을 다시 받기만 합니다.</p>
-  </section>;
+  const [open, setOpen] = useState(false), list = checks(r, server), first = list.find((s) => s.state === 'blocked');
+  return <div className="ck-box">
+    {!open && first && <p className="fh-msg" role="status" data-check-head>{first.name} 막힘 · {first.why}</p>}
+    <details className="fh-fold ck-fold" data-readycheck onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>자세히 점검 (7 단계)</summary>
+      <ol className="ck-steps">{list.map((s) => <li key={s.key} className="ck-step" data-check={s.key} data-state={s.state} data-first={s === first || undefined}>
+        <span className="ck-mark" data-check-mark aria-hidden="true">{STATE[s.state][0]}</span>
+        <span className="ck-name">{s.name}</span>
+        <span className="ck-state" data-check-state>{STATE[s.state][1]}</span>
+        <span className="lbl ck-why" data-check-why>{s.why}</span>
+      </li>)}</ol>
+      <div className="fh-row ck-foot"><p className="lv-note fh-grow">보기 전용입니다. 조종 가부는 조종 화면이 정합니다. «다시 점검» 은 서버 값을 다시 받기만 합니다.</p>
+        <button type="button" className="btn" onClick={again}>다시 점검</button></div>
+    </details>
+  </div>;
 }
