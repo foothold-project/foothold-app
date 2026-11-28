@@ -2,6 +2,7 @@
 // 칸 하나 = 그 로봇 한 대: 서버 위치가 있으면 시안 3D 현장을 그 로봇 자리 · 방향에 두고 뒤 1 m(또는 정면) 시점, 없으면 시안 타일 그대로 바닥 점 위의 로봇만.
 // 빛 · 바닥 점 · 핀 조명 · 그림자 · 시점 값은 시안 go2view.js 그대로. 걷기는 임무 · 조종 중일 때 시안 걷기 기록(go2_walk.json)을 튼다.
 import * as THREE from 'three';
+import { ground } from '../screens/u4/go2view';
 import { applyDown, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, toneSite, type Body, type Walk } from './site';
 
 export type TileLook = {
@@ -138,8 +139,7 @@ class Tiles {
         this.paint(b, look);
         if (look.walk && this.walk) { applyWalk(b, this.walk, this.t); b.root.position.y = 0.006 * Math.sin(this.t * 14); }
         else if (look.down) {   // 시안 pose 'down': 접은 뒤 다시 바닥에 붙이고 흔들지 않음
-          applyDown(b); b.root.position.y = 0; b.root.updateMatrixWorld(true);
-          b.root.position.y = -new THREE.Box3().setFromObject(b.root).min.y;
+          applyDown(b); ground(b.root);   // 로봇 탭과 같은 바닥 맞춤(꼭짓점 기준 최저점 y = 0 · 엎드릴 때 뜨지 않게)
         } else { applyRest(b); b.root.position.y = 0.003 * Math.sin(this.t * 2); }
       }
       r.setClearColor(0x000000, 0); r.clear();
