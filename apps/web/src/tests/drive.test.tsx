@@ -2923,4 +2923,37 @@ describe('폰 실기 조종 동작 일곱 · 다시 시작 (시안 u1 · PC 로�
     expect($('.u1d [data-restart-ask]')).toBeNull();
     expect(btn('다시 시작')).toBeUndefined();                            // 풀린 뒤 단추 없음
   });
+
+  // reviewer H1 (REVIEW-web-u4-simdrive-restart): 창 열림 상태는 연 때의 stop_gen 에 묶인다. 잠금 풀림 · stop_gen 바뀜 · 조종권 잃음이면 열림 자체를 닫음
+  it('[H1] 창을 연 뒤 다른 곳에서 풀림 → 새 STOP(stop_gen 2→3): 누르지 않았는데 창이 다시 뜨지 않고 unlock 0', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(btn('조종'));
+    act(() => push('r7', { latched: true, stop_gen: 2 }));
+    click(btn('다시 시작'));
+    expect($('.u1d [data-restart-ask]')).not.toBeNull();
+    act(() => push('r7', { latched: false }));                          // 다른 곳(PC · 다른 창)에서 풀림
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    act(() => push('r7', { latched: true, stop_gen: 3 }));              // 새 STOP
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+  });
+
+  it('[H1] 창이 열린 채 잠금이 그대로여도 stop_gen 이 바뀌면 창을 닫음 · 조종권을 잃었다 다시 받아도 창은 닫힌 채', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(btn('조종'));
+    click(btn('다시 시작'));
+    act(() => push('r7', { latched: true, stop_gen: 5 }));
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+    click(btn('다시 시작'));
+    recv(lease('r7', null));                                            // 조종권 잃음
+    recv(lease('r7', KIM, 'L9'));                                       // 다시 받음
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+    click(btn('다시 시작'));
+    click($('[data-restart-ask] button.dpri'));
+    expect(w.of('unlock')).toMatchObject([{ robot: 'r7', stop_gen: 5 }]);   // 연 때와 같은 세대일 때만 한 번
+  });
 });
