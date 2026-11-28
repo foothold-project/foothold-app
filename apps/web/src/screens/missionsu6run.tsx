@@ -13,6 +13,7 @@ import { floorName } from './maps';
 import { hm, MODES, type Plan, type Route } from './missiontab';
 import { IC, Ic, Pager, RouteStage, Why, type Fix } from './missionsu6';
 import { useRunGate } from './missionsu6pre';
+import { useRouteView } from './missionsu6map3d';
 import { result, stops, took } from './runreport';
 
 const DONE = ['COMPLETED', 'FAILED', 'CANCELED'];
@@ -34,11 +35,11 @@ function useSimRobot(robots: Robot[]) {
 
 /** 시뮬 로봇 한 대의 위치 점(그 층 · 그 지도 판일 때만) */
 function Dot({ robot, route }: { robot: Robot; route: Route }) {
-  const l = useLive(robot.id), at = l.state?.location ?? robot.location;
-  if (!route.v || !at || at.x == null || at.y == null || at.floor_id !== route.floor) return null;
-  const [x, y] = route.px({ x: at.x, y: at.y });
-  return <g data-sim-dot={robot.id}><circle cx={x} cy={y} r={route.r * 1.6} style={{ fill: 'rgba(76,155,255,.25)' }} />
-    <circle cx={x} cy={y} r={route.r * 0.8} style={{ fill: '#1d3b7a', stroke: '#4c9bff', strokeWidth: 2.5 }} vectorEffect="non-scaling-stroke" /></g>;
+  const l = useLive(robot.id), at = l.state?.location ?? robot.location, rv = useRouteView(route);   // 3D 겹이면 화면 투영 자리
+  if (!rv.v || !at || at.x == null || at.y == null || at.floor_id !== rv.floor) return null;
+  const [x, y] = rv.px({ x: at.x, y: at.y });
+  return <g data-sim-dot={robot.id}><circle cx={x} cy={y} r={rv.r * 1.6} style={{ fill: 'rgba(76,155,255,.25)' }} />
+    <circle cx={x} cy={y} r={rv.r * 0.8} style={{ fill: '#1d3b7a', stroke: '#4c9bff', strokeWidth: 2.5 }} vectorEffect="non-scaling-stroke" /></g>;
 }
 
 /** u6_6 모의 실행 중 */

@@ -12,10 +12,27 @@ import u6Css from '../screens/missionsu6.css?raw';
 import pcPvCss from '../proto/pc.pv.css?raw';
 import { ticks } from '../screens/missionsu6run';
 import { KINDS, kindLabel, kindOf } from '../screens/missionsu6edit';
+import { resetModels } from '../screens/map3d';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// 3D 지도 칸 시험만: WebGL · GLB 읽기를 가짜로(fake3.on). 그 밖은 진짜(jsdom 은 WebGL 이 없음)
+const fake3 = vi.hoisted(() => ({ on: false }));
+vi.mock('three', async (orig) => {
+  const t = await orig<typeof import('three')>();
+  class GL { domElement = document.createElement('canvas'); outputColorSpace = ''; shadowMap = { enabled: false, type: 0 }; setPixelRatio() {} setSize() {} dispose() {} forceContextLoss() {} render() {} }
+  return { ...t, WebGLRenderer: function (this: unknown, ...a: unknown[]) { return fake3.on ? new GL() : new (t.WebGLRenderer as unknown as new (...x: unknown[]) => object)(...a); } };
+});
+vi.mock('three/examples/jsm/loaders/GLTFLoader.js', async (orig) => {
+  const m = await orig<typeof import('three/examples/jsm/loaders/GLTFLoader.js')>();
+  const T = await import('three');
+  // glTF(+Y 위) 상자: 지도 x -1~4 · y -2~2 · 높이 0~1.4 (worldGroup 이 (x, y, z)gltf → (x, −z, y))
+  const scene = () => { const g = new T.Group(), b = new T.Mesh(new T.BoxGeometry(5, 1.4, 4), new T.MeshBasicMaterial()); b.position.set(1.5, 0.7, 0); g.add(b); return g; };
+  class L extends m.GLTFLoader { parseAsync(...a: Parameters<InstanceType<typeof m.GLTFLoader>['parseAsync']>) { return fake3.on ? Promise.resolve({ scene: scene() } as never) : super.parseAsync(...a); } }
+  return { ...m, GLTFLoader: L };
+});
 
 // 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 접근 금지 x 2~3
 const V1: MapVersion = { upload_id: 'up-v1', id: 'v1', floor_id: 'f1', number: 1, base_version_id: null, copied_from_id: null, status: 'APPROVED', image_sha256: 'ab'.repeat(32),
@@ -33,6 +50,8 @@ const S3 = scen('s3', '지난 임무', [wp(0, 0)], { archived_at: '2026-11-27T00
 const ALL = [S1, S2, S3];
 /** 둥근 차림 시험이 더하는 임무(다른 시험은 M1 만) */
 let moreJobs: Mission[] = [];
+/** 판 3D 모형(시험이 바꿈): null = 없음(model_sha256 null) · 'ok' = 받음 · '404' = 판엔 sha 가 있는데 모형 없음 */
+let model3: null | 'ok' | '404' = null;
 
 let calls: { method: string; path: string; q: URLSearchParams; body?: Record<string, unknown>; key?: string | null }[] = [];
 /** POST /assignments 답(시험이 바꿈). 기본 = 그 로봇 ACTIVE */
@@ -65,7 +84,9 @@ function serve() {
       srv.slots = [...srv.slots, x]; return new Response(JSON.stringify(x), { status: 201, headers: { 'Content-Type': 'application/json' } });
     }
     if (path === '/sites') return ok({ items: [{ id: 'st', name: '공장', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 'st', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: 'v1', pending_count: 0 }] }] }], next_cursor: null });
-    if (path === '/map-versions/v1') return ok(V1);
+    if (path === '/map-versions/v1') return ok(model3 ? { ...V1, model_sha256: 'cd'.repeat(32), model_floor_z: 0 } : V1);
+    if (path === '/map-versions/v1/model') return model3 === 'ok' ? new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'Content-Type': 'model/gltf-binary' } })
+      : new Response(JSON.stringify({ error: { code: 'MODEL_NOT_FOUND', message: '이 층은 3D 모형이 없습니다.', detail: {} } }), { status: 404 });
     if (path === '/map-versions/v1/zone-grid') {
       const cells = [];
       for (let r = 0; r < 80; r++) for (let c = 0; c < 100; c++) { const x = -1 + (c + 0.5) * 0.05; if (x >= 2 && x <= 3) cells.push({ index: r * 100 + c, no_go: true, slow: false, max_speed_mps: null }); }
@@ -114,7 +135,7 @@ const click = async (e: Element | null) => { expect(e).toBeTruthy(); act(() => (
 describe('임무 탭(W2)', () => {
   // 시계: 오늘 08:05(지난 시각 · 처음 값 판정이 돌리는 때에 따라 바뀌지 않게). 타이머는 진짜 그대로
   beforeEach(() => { const d = new Date(); d.setHours(8, 5, 0, 0); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'], now: d }); });
-  afterEach(() => { vi.useRealTimers(); moreJobs = []; });
+  afterEach(() => { vi.useRealTimers(); moreJobs = []; model3 = null; fake3.on = false; });
   it('주소 · 메뉴: #/missions 와 옛 #/mission 은 임무 탭, oldScenario 는 고를 id', () => {
     expect(tabFromHash('#/missions', false)).toBe('missions');
     expect(tabFromHash('#/mission', false)).toBe('missions');
@@ -341,6 +362,54 @@ describe('임무 탭(W2)', () => {
     await click($('[data-back-list]'));
     await click($('[data-edit-mission]')); await flush();
     expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+  });
+  describe('3D 지도 칸 (판에 모형)', () => {
+    const size = (w: number, h: number) => {
+      const a = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')!, b = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight')!;
+      Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => w });
+      Object.defineProperty(Element.prototype, 'clientHeight', { configurable: true, get: () => h });
+      return () => { Object.defineProperty(Element.prototype, 'clientWidth', a); Object.defineProperty(Element.prototype, 'clientHeight', b); };
+    };
+    const settle = async () => { for (let k = 0; k < 6; k++) { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); await flush(); } };
+    afterEach(() => { resetModels(); });
+    it('모형 없음(model_sha256 null): 지금 2D 그대로 · /model 을 묻지 않음', async () => {
+      await mount('#/missions'); await settle();
+      expect($('[data-mission-map]')).toBeTruthy();
+      expect($('[data-map3d]')).toBeNull(); expect($('[data-map3d-mission]')).toBeNull();
+      expect(calls.filter((c) => c.path.endsWith('/model'))).toEqual([]);
+    });
+    it('모형 404: 그 판은 2D 로 돌아감 · 까닭 줄 없이 2D 경로 · 지점이 그대로', async () => {
+      model3 = '404'; fake3.on = true;
+      await mount('#/missions'); await settle();
+      expect(calls.filter((c) => c.path === '/map-versions/v1/model').length).toBe(1);
+      expect($('[data-map3d]')).toBeNull(); expect($('[data-map3d-mission]')).toBeNull();
+      expect($('[data-mission-map]')).toBeTruthy(); expect($$('[data-pt]').length).toBe(2);
+      expect($('[aria-label="임무 지도"] [role="alert"]')).toBeNull();
+    });
+    it('모형 있음: 점토 3D 칸 위 겹(칸 px)에 경로 · 지점 · 누른 자리 = 바닥면 지도 좌표(새 지점이 그 자리)', async () => {
+      model3 = 'ok'; fake3.on = true;
+      const undo = size(976, 900);
+      try {
+        await mount('#/missions'); await settle();
+        expect($('[data-map3d-mission]')).toBeTruthy();
+        const svg = $('svg[data-map3d]')!;
+        expect(svg.getAttribute('viewBox')).toBe('0 0 976 900');
+        const c = (n: number) => { const e = $(`[data-pt="${n}"] circle:last-of-type`)!; return [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]; };
+        const [a, b] = [c(1), c(2)];
+        for (const p of [a, b]) { expect(p[0]).toBeGreaterThan(0); expect(p[0]).toBeLessThan(976); expect(p[1]).toBeGreaterThan(0); expect(p[1]).toBeLessThan(900); }
+        expect(b[0]).toBeGreaterThan(a[0]);   // 지점 2(x 3.5) 는 지점 1(x 0) 의 동쪽 = 화면 오른쪽
+        const seg = $('[data-seg="0"]')!;
+        expect([Number(seg.getAttribute('x1')), Number(seg.getAttribute('y1')), Number(seg.getAttribute('x2')), Number(seg.getAttribute('y2'))]).toEqual([...a, ...b]);
+        // 편집 지도: 지점 1 화면 자리 바로 옆 빈 곳을 누르면 둥근 메뉴 → 사진 → 새 지점이 지도 (0, 0) 근처
+        await click($('[data-edit-mission]')); await flush(); await click($('[data-look="map"]')); await settle();
+        const s2 = $('svg[data-map3d]')!, p1 = [Number($('[data-pt="1"] circle:last-of-type')!.getAttribute('cx')), Number($('[data-pt="1"] circle:last-of-type')!.getAttribute('cy'))];
+        await act(async () => { s2.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: p1[0], clientY: p1[1] })); });
+        expect($('[data-radial]')!.getAttribute('aria-label')).toBe('이 자리에 할 일');
+        await click($('[data-radial-kind="PHOTO"]'));
+        await click($('[data-look="list"]'));
+        expect($('[data-row="task"][data-row-i="2"]')!.textContent).toContain('(0.0, 0.0) m');
+      } finally { undo(); }
+    });
   });
   it('할 일 종류 대응표: steps 없음 = 이동 · PHOTO · WAIT 또는 wait_s · OPERATOR_CONFIRM · SENSOR_LOG · 모르는 action 은 「알 수 없는 일」(기록 아님)', () => {
     const m = (id: string, steps: Mission['steps']): Mission => ({ ...M1, id, steps });
