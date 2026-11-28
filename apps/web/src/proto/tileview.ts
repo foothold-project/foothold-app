@@ -23,6 +23,11 @@ export function follow(cur: Held | null, to: Pose, dt: number): Held {
   return { x, z, rot: cur.rot + d * k, travel: cur.travel + Math.hypot(x - cur.x, z - cur.z) };
 }
 const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c389 }, SIM = 0x4c9bff;
+/** 시뮬(cyber) 칸 모습. 시안 u5_1 K-08 = 어두운 바탕 · 파란 점 바닥 · 파란 결 로봇, 현장 질감판 없음(밝은 땅 위 더하기 섞기는 하얗게 날아감).
+ *  밝은 판: 흰 바탕에 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
+export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlending, col: 0x2f6fe0 } : { blend: THREE.AdditiveBlending, col: SIM });
+/** 칸 뒤 현장(질감판)을 그릴지: 자리 · 현장이 있고 시뮬 칸이 아닐 때만 */
+export const showSite = (pose: unknown, site: unknown, cyber: boolean) => !!(pose && site) && !cyber;
 
 let one: Tiles | null = null;
 export const tiles = () => (one ??= new Tiles());
@@ -106,7 +111,7 @@ class Tiles {
     this.drawn = now;
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.t += dt;
     const r = this.r!, b = this.body;
-    if (this.cyber) this.cyber.uniforms.t.value = this.t;
+    if (this.cyber) { const k = simLook(lightNow()); this.cyber.uniforms.t.value = this.t; this.cyber.blending = k.blend; this.cyber.uniforms.col.value.setHex(k.col); }
     // 밝은 판: 현장 재질 · 땅 쪽 빛을 밝음 1 흰 점토 결로(타일 바탕은 u5.css .proto.light .cv)
     const light = lightNow(); this.hemi.groundColor.setHex(light ? 0xc8cfcb : 0x0c0f14);
     // 밝은 판: 민트 · 파랑 테두리 빛은 흰 빛으로 바꿔(벽이 물들지 않게) 카메라 쪽 면을 밝히고, 하늘 빛을 올려 흰 점토가 검게 죽지 않게
@@ -129,7 +134,7 @@ class Tiles {
       // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
-      this.world.visible = !!(p && this.site);
+      this.world.visible = showSite(p, this.site, look.cyber);
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off); }
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
