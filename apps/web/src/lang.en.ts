@@ -107,7 +107,7 @@ export const EN: Record<string, string> = {
   '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종» → «다시 시작».': 'Manual driving is blocked while a run is going. To switch to manual, «Pause» → once the robot stops, «Drive» → «Restart».',
   '아직 이어갈 수 없습니다. 로봇의 목표 취소 확인을 기다렸다가 «조종» → «다시 시작» → 손을 뗀 뒤 다시 누르세요.': 'Cannot resume yet. Wait for the robot to confirm the goal was canceled, then «Drive» → «Restart» → let go and press again.',
   '조종 → 다시 시작 뒤 키보드로 움직입니다': 'Press Drive → Restart, then move with the keyboard',
-  '조종 시작': 'Start driving', '말하기': 'Talk', '옆걸음': 'Strafe', '화면': 'View', '모드': 'Mode', '앉기': 'Sit', '일어서기': 'Stand up', '엎드리기': 'Lie down', '기지개': 'Stretch', '악수': 'Shake', '하트': 'Heart', '인사': 'Hello',
+  '조종 시작': 'Start driving', '조종 받기': 'Take control', '말하기': 'Talk', '옆걸음': 'Strafe', '화면': 'View', '모드': 'Mode', '앉기': 'Sit', '일어서기': 'Stand up', '엎드리기': 'Lie down', '기지개': 'Stretch', '악수': 'Shake', '하트': 'Heart', '인사': 'Hello',
   '순정 확인 전': 'Stock app not checked', '흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).': 'Dimmed buttons are not ready yet (buttons disabled by permission show the reason next to them).',
   '나(총괄)': 'Me (Admin)', '이 로봇은 걷기 모드를 바꿀 수 없습니다 (로봇이 보낸 쓸 수 있는 모드 없음).': 'This robot cannot change walking mode (it reported no available modes).', '로봇 보기': 'Robot view',
   '더블클릭하면 크게 봅니다': 'Double-click to enlarge', '비상 정지 · 이 로봇': 'Emergency stop · this robot', '개': 'items', '층': 'Floor',

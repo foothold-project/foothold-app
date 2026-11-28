@@ -427,7 +427,7 @@ function Screen(c: Ctx) {
         : <button type="button" className="g dk btn u1-go" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} aria-describedby={why ? whyId : undefined} onClick={() => start()}>
           <Ic s={18}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></Ic>조종</button>}
       {mrun && mrun.status !== 'PAUSED' && l.holder?.type === 'RUN' && <button type="button" className="g dk btn" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} onClick={() => start()} data-u1-pause>일시정지</button>}
-      {mrun && mrun.status === 'PAUSED' && !l.holder && <button type="button" className="g btn u1-resume" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} onClick={() => start()} data-u1-resume-take>이어 가기</button>}
+      {mrun && mrun.status === 'PAUSED' && !l.holder && <button type="button" className="g btn u1-resume" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} onClick={() => start()} data-u1-resume-take>{r.sim ? '이어 가기' : '조종 받기'}</button>}   {/* 실기는 받은 뒤에도 화면에서 잇지 못함(runGate) → 하는 일(조종권 받기) 그대로 「조종 받기」 (검토 65d8fae1 짚을 것 1) */}
     </div>
     {/* 「다시 시작」(시안 u1_3 자리 · 정지 위 92 × 48) = 잠금 해제. PC 로봇 탭처럼 확인 창(u4_10 글)을 거친다 */}
     {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={restart.open}>

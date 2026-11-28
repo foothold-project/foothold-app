@@ -14,6 +14,7 @@ import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, 
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
 import { driveBlock } from '../fake';
+import { EN } from '../lang.en';
 import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, axesOf, stopLine } from '../serverdrive';
 import { simTune } from '../phone';
 import { CAP_BLOCK, DEMO_RULE, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL } from '../drive';
@@ -2634,13 +2635,25 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect(w.of('lease.take')).toHaveLength(1);
     expect(w.of('run.control')).toHaveLength(0);   // 조종권 없는 run.control 길은 쓰지 않음
   });
-  it('시안 u1_11 일시정지된 임무(조종권 쥔 사람 없음) 「이어 가기」 = 조종권 받기부터(조종과 같은 길) · run.control 은 아직 0', async () => {
+  it('시안 u1_11 일시정지된 임무(조종권 쥔 사람 없음) 받기 단추 = 조종권 받기부터(조종과 같은 길) · run.control 은 아직 0 · 실기 글 「조종 받기」 (65d8fae1 짚을 것 1)', async () => {
     await open({ ...RUN, status: 'PAUSED' });
     recv(lease('r7', null));
     expect($('[data-u1-pause]')).toBeNull();
+    expect($('[data-u1-resume-take]')!.textContent).toBe('조종 받기');   // 실기: 받은 뒤에도 화면에서 임무를 잇지 못함(띠 까닭) → 하는 일 그대로
+    expect(EN['조종 받기']).toBe('Take control');
     click($('[data-u1-resume-take]'));
     expect(w.of('lease.take')).toHaveLength(1);
     expect(w.of('run.control')).toHaveLength(0);
+  });
+  it('데모 · 일시정지된 임무(조종권 쥔 사람 없음) 받기 단추 글은 「이어 가기」 그대로 · 하는 일은 조종권 받기', async () => {
+    apis();
+    mount(true, 'u-park', '#/drive/r7', SD_ROBOTS.map((r) => (r.id === 'r7' ? { ...r, sim: true, demo: true } : r))); serve(PARK, 'r7');
+    recv(lease('r7', { id: null, name: '', type: 'RUN' })); act(() => push('r7', { run: { ...RUN, status: 'PAUSED' }, latched: false } as never));
+    recv(lease('r7', null));
+    await act(async () => {});
+    expect($('[data-u1-resume-take]')!.textContent).toBe('이어 가기');
+    click($('[data-u1-resume-take]'));
+    expect(w.of('lease.take')).toHaveLength(1); expect(w.of('run.control')).toHaveLength(0);
   });
   it('내 조종권 · 내 임무가 일시정지 · 잠금 풀림 · 시뮬(데모)이면 띠 「이어 가기」 = run.control resume 한 번 (PC RunCtl 과 같은 조건)', async () => {
     apis();
