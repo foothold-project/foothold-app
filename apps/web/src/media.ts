@@ -34,6 +34,8 @@ const WHY: Record<string, string> = {
   'No fresh source sample within 1 second': '1초 넘게 새 자료가 없습니다',
 };
 export const reasonText = (r: string) => (WHY[r] ? `${WHY[r]} (${r})` : r);
+/** 조종 칸 한 줄용: 알려진 사유는 한국어만 (원문 괄호 없음 · u4_1), 모르는 것은 원문 그대로 */
+export const reasonKo = (r: string) => WHY[r] ?? r;
 export const NO_MEDIA = '이 로봇은 관측 영상(media/1)을 알리지 않습니다';
 export const BAD_WELCOME = '로봇이 알린 관측 영상(media/1) 형식이 약속과 달라 받지 않습니다';
 const LOST = '영상 연결이 끊겼습니다. 조종·STOP 에는 영향이 없습니다';
