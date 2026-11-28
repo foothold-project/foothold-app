@@ -45,7 +45,7 @@
 .u4 .ctl .btn{position:relative;height:54px;flex-direction:row;gap:8px;padding:0 20px;font-size:14px;border-radius:16px}
 .u4 .ctl .drv{background:linear-gradient(180deg,rgba(0,195,137,.55),rgba(0,195,137,.40));border-color:rgba(0,195,137,.5)}
 .u4 .ctl .talk{border-radius:27px}
-.u4 .ctl .keys{position:relative;flex:1;height:54px;display:flex;align-items:center;justify-content:center;gap:18px;border-radius:16px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.u4 .ctl .keys{position:relative;flex:1;height:54px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:16px;font-size:12px;font-weight:600;white-space:nowrap}
 .u4 .ctl.dim .btn,.u4 .deck.dim{opacity:.35;pointer-events:none;filter:grayscale(1)}
 .u4 kbd{display:inline-flex;min-width:24px;height:24px;padding:0 6px;border-radius:7px;align-items:center;justify-content:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);font:700 11.5px Inter Tight,Noto Sans KR,Noto Sans CJK KR;margin-right:3px}
 .u4 .deck{position:absolute;left:0;right:0;bottom:0;top:682px;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);--js:150px}
@@ -121,7 +121,7 @@
 .proto.light .u4 .views .small{border-color:#DCE0DE;box-shadow:0 10px 24px rgba(31,36,33,.18)}
 /* 메인 칸 확대(시안 밖 · 새로 그림 · 같은 탭 시안 결): 무대(1920x1080) 안 fixed = 변환된 무대 틀 기준. 키 줄 · 손잡이 판은 아래에 떠 있고 정지는 그 위 오른쪽 */
 .u4 .right[data-u4-zoom]{z-index:6}
-.u4 .right[data-u4-zoom] .views{position:fixed;left:0;top:0;width:1920px;height:1080px;border-radius:0;border:0;z-index:6}
+.u4 .right[data-u4-zoom] .views{position:fixed;left:0;top:64px;width:1920px;height:1016px;border-radius:0;border:0;z-index:6}   /* 머리줄(모두 정지)은 그대로 보이게 그 아래 */
 .u4 .right[data-u4-zoom] .ctl{position:fixed;left:24px;right:24px;top:auto;bottom:256px;z-index:7}
 .u4 .right[data-u4-zoom] .deck{position:fixed;left:24px;right:24px;top:auto;bottom:24px;height:218px;z-index:7;background:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 .u4 .right[data-u4-zoom] .vstop,.u4 .right[data-u4-zoom] .vslot{bottom:330px;right:40px}
@@ -132,3 +132,8 @@
 .u4 .zback{position:absolute;left:24px;top:24px;z-index:3;height:40px;padding:0 14px 0 10px;border-radius:12px;display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;cursor:pointer}
 .u4 .zback small{font-size:11px;font-weight:600;opacity:.6;margin-left:4px}
 .proto.light .u4 .right[data-u4-zoom] .deck{background:rgba(255,255,255,.82);border-color:#DCE0DE}
+/* 밝은 판 지도 칸(흰 점토 결 그림) 위 다른 로봇 표: 밝음 1 글자 · 흰 테 */
+.proto.light .u4 .mapin [data-u4-other] text{fill:#1F2421;stroke:#FFFFFF;stroke-width:4px;paint-order:stroke}
+.proto.light .u4 .mapin [data-u4-other] circle{stroke:#FFFFFF}
+/* 키 줄에 「1~4 화면」 칩이 늘어 한 줄에 들도록: 조종 시작 단추는 줄바꿈 없이 */
+.u4 .ctl .btn{white-space:nowrap;padding:0 14px}
