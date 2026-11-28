@@ -227,3 +227,25 @@ def test_mujoco_map_name_drops_spawn_floor_and_uses_dashes():
     assert mujoco_map('plant_a/l1') == 'plant-a'
     assert mujoco_map('plant_a') == 'plant-a'
     assert mujoco_map('collapsed-house-v2') == 'collapsed-house-v2'
+
+
+def test_plant_a_server_map_bindings_reach_the_mujoco_agent(tmp_path):
+    """plant_a: the server's approved SIMULATION bindings must reach the agent env (server run.start path)."""
+    async def run():
+        cfg, launch = launcher(tmp_path, 'ready')
+        cfg = replace(cfg, worlds={'plant_a/l1': World('plant_a/l1', Path('/p/a'), Path('/p/b'))})
+        launch.settings = cfg
+        manager = Manager(cfg, launch)
+        slot = next(iter(cfg.slots.values()))
+        bindings = [dict(world_id='plant_a', ros_floor_id='l1', floor_id=str(uuid4()), map_version_id=str(uuid4()),
+                         image_sha256='a' * 64, source_pgm_sha256='b' * 64)]
+        seen = {}
+        original = launch.add
+        async def spy(s, credentials):
+            seen.update(credentials)
+            return await original(s, credentials)
+        launch.add = spy
+        await manager.add('plant_a', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1, 'l1', bindings)
+        assert list(seen['map_bindings']) == bindings
+        await manager.close()
+    asyncio.run(run())

@@ -122,7 +122,8 @@ class Manager:
                     or {b['ros_floor_id'] for b in map_bindings} != {'l1', 'l2'}):
                 raise SimError('SIM_VALIDATION', 400)
             world = replace(world, map_bindings=tuple(map_bindings))
-        if world_id == 'warehouse/f1':
+        if world_id == 'warehouse/f1' or (world_id == 'plant_a' and not self.launcher.real):
+            # plant_a on the local MuJoCo backend: the agent's server run.start needs these bindings.
             world = replace(world, map_bindings=tuple(map_bindings))
         if self.launcher.real and (not world.world_file.is_file() or not world.map_file.is_file()):
             raise SimError('SIM_ASSET_MISSING', 503)
