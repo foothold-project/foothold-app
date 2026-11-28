@@ -3,11 +3,16 @@
 import { describe, expect, it } from 'vitest';
 import pickSrc from '../screens/u7/pick.tsx?raw';
 import vxCss from '../screens/voxel3d.css?raw';
+import { farFor } from '../screens/map3d';
 
 describe('지도 탭 3D 미리 보기 칸을 가득 채움', () => {
   it('미리 보기 칸 = 세로 flex · Map3D 는 flex:1 로 칸 높이를 받음', () => {
     expect(pickSrc).toContain("<div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }} data-u7-preview>");
     expect(vxCss).toMatch(/\.vx\{flex:1;min-height:0/); expect(vxCss).toMatch(/\.vx-3d\{flex:1;min-height:0/);
     expect(vxCss).toMatch(/\.vx-3d>canvas\{display:block;width:100%;height:100%/);
+  });
+  it('먼 평면은 카메라 거리 + 모형 대각선보다 멀리(큰 공장 1 층 914 × 571 m · 카메라 약 626 m 에서 먼 쪽이 잘리지 않게) · 작은 판은 500', () => {
+    const diag = Math.hypot(914, 571);
+    expect(farFor(626, diag)).toBeGreaterThan(626 + diag); expect(farFor(10, 20)).toBe(500);
   });
 });

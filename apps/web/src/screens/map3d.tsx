@@ -59,6 +59,9 @@ export function floorZ(scene: THREE.Object3D, v: MapVersion) {
   return new THREE.Box3().setFromObject(scene).min.y;
 }
 
+/** 3D 카메라 먼 평면: 적어도 500 m, 바라볼 점까지 거리 + 모형 둘레 대각선(가장 먼 모서리까지)보다 길게 */
+export const farFor = (dist: number, diag: number) => Math.max(500, (dist + diag) * 1.2);
+
 /** 이 판 위에 좌표가 있는 로봇만(다른 판 · 좌표 없음은 빠짐) */
 export function onBoard<R>(robots: R[], vid: string, where: (x: R) => Partial<Pick<Location, 'map_version_id' | 'x' | 'y' | 'yaw'>> | null | undefined) {
   return robots.flatMap((x) => { const l = where(x); return l && l.map_version_id === vid && l.x != null && l.y != null ? [{ x, l: { x: l.x, y: l.y, yaw: l.yaw } }] : []; });
@@ -129,9 +132,12 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
           if (top) cam.position.set(c.x, c.y - 0.01, z + d * 1.1);
           else if (fc) { cam.fov = CLAY_CAM.fov; cam.updateProjectionMatrix(); const p = clayCam(fc.c, claySpan(fc.size)); cam.position.set(p.x, p.y, z + p.z); }   // 시안 u7_1 시점
           else cam.position.set(c.x - d * 0.2, c.y - d * 0.8, z + d * 0.7);
-          const t = fc && !top ? fc.c : c; orbit.target.set(t.x, t.y, z); orbit.update(); draw();
+          const t = fc && !top ? fc.c : c; orbit.target.set(t.x, t.y, z);
+          // 먼 평면: 큰 판(52 만 m² · 160 만 m²)은 카메라가 500 m 보다 멀어 모형 먼 쪽이 가로로 잘렸음 → 카메라 거리 + 모형 대각선까지
+          const far = farFor(cam.position.distanceTo(new THREE.Vector3(t.x, t.y, z)), Math.hypot(size.x, size.y)); cam.far = far; cam.near = Math.max(0.1, far / 20000); cam.updateProjectionMatrix();
+          orbit.update(); draw();
         };
-        orbit.addEventListener('change', draw);
+        orbit.addEventListener('change', () => { const f = farFor(cam.position.distanceTo(orbit.target), Math.hypot(size.x, size.y)); if (Math.abs(f - cam.far) > 1) { cam.far = f; cam.near = Math.max(0.1, f / 20000); cam.updateProjectionMatrix(); } draw(); });
         const fit = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; gl.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); draw(); };
         const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
         ro?.observe(el);
