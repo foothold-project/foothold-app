@@ -287,6 +287,22 @@ describe('폭 전환 뒤 고른 탭 기억', () => {
     expect(location.hash).toBe('#/fleet');
     expect($('main').getAttribute('aria-label')).toBe('로봇');
   });
+  it('폰 폭에서 주소로 기록을 고르면 PC 폭은 기록(기억한 설정보다 고름이 이김)', () => {
+    mount(false, 'u-lee', '#/settings');
+    resize(true);
+    act(() => { location.hash = '#/history'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    resize(false);
+    expect(location.hash).toBe('#/history');
+    expect($('main').getAttribute('aria-label')).toBe('기록');
+  });
+  it('PC 메뉴로 기록을 고르면 폰 폭은 기록(기억한 폰 조종 주소보다 고름이 이김)', () => {
+    mount(true, 'u-lee', '#/drive/r3');
+    resize(false);
+    expect(location.hash).toBe('#/fleet');
+    click($('nav[aria-label="주 메뉴"] a[href="#/history"]'));
+    resize(true);
+    expect($('main').getAttribute('aria-label')).toBe('기록');   // jsdom 은 a 누름의 주소 이동을 하지 않아 본문으로 본다
+  });
   it('총괄(터치 아닌 PC)은 좁아져도 PC 배치 그대로 — 설정 유지', () => {
     mount(false, 'u-kim', '#/settings');
     const mm = window.matchMedia;   // 폭만 좁아지고 터치는 아님
