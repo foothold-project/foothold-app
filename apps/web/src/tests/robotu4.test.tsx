@@ -281,3 +281,28 @@ describe('시뮬 로봇 = 시안 u4_8', () => {
     expect($('[data-u4-walk]')).not.toBeNull();
   });
 });
+
+describe('화면 맞춤 scale 아래 조이스틱', () => {
+  /** 무대가 k 배로 줄었을 때: css 크기 150 px 손잡이 판이 화면에는 150k px 로 보인다 */
+  function shrink(el: HTMLElement, k: number) {
+    Object.defineProperty(el, 'clientWidth', { configurable: true, value: 150 });
+    el.getBoundingClientRect = () => ({ left: 100, top: 100, width: 150 * k, height: 150 * k, right: 100 + 150 * k, bottom: 100 + 150 * k, x: 100, y: 100, toJSON() {} }) as DOMRect;
+  }
+  const ptr = (el: Element, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y, bubbles: true })); });
+  for (const k of [1, 0.5]) it(`scale ${k}: 손가락을 보이는 판 반지름 끝까지 밀면 손잡이는 css 로 끝까지(45 px) · 앞으로 명령`, () => {
+    mount('u-park'); serve('r7'); drive();
+    const L = $('[data-u4-stick="L"]')!; shrink(L, k);
+    const c = 100 + 75 * k;
+    ptr(L, 'pointerdown', c, c - 45 * k);
+    expect((L.querySelector('i') as HTMLElement).style.transform).toBe('translate(0px,-45px)');
+    tick(60); expect(Number(lastAxes()!.split(',')[0])).toBeGreaterThan(0);
+    ptr(L, 'pointerup', c, c - 45 * k);
+    expect((L.querySelector('i') as HTMLElement).style.transform).toBe('translate(0px,0px)');
+    tick(60); expect(lastAxes()).toBe('0,0,0');
+    const R = $('[data-u4-stick="R"]')!; shrink(R, k);
+    ptr(R, 'pointerdown', c + 20 * k, c);   // 반지름의 20/45 ≈ 0.44 > 0.3 → 오른쪽 돌기
+    expect((R.querySelector('i') as HTMLElement).style.transform).toBe('translate(20px,0px)');
+    tick(60); expect(Number(lastAxes()!.split(',')[2])).toBeLessThan(0);
+    ptr(R, 'pointerup', c, c);
+  });
+});

@@ -210,8 +210,9 @@ function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2A
 function Stick({ side, put, blocked }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[]) => void; blocked: (m: string) => void }) {
   const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]);
   const move = (e: PEv<HTMLDivElement>) => {
-    const el = e.currentTarget, b = el.getBoundingClientRect(), m = (el.clientWidth || b.width) * 0.3 || 1;
-    let x = (e.clientX - b.left - b.width / 2) / m, y = (e.clientY - b.top - b.height / 2) / m; const n = Math.hypot(x, y); if (n > 1) { x /= n; y /= n; }
+    // 화면 맞춤(PC 틀이 1920x1080 무대를 창에 맞춰 scale)에서도 맞게: 손가락 거리는 보이는 크기(b.width), 손잡이 이동은 css 크기(clientWidth)로
+    const el = e.currentTarget, b = el.getBoundingClientRect(), ms = b.width * 0.3 || 1, m = (el.clientWidth || b.width) * 0.3 || 1;
+    let x = (e.clientX - b.left - b.width / 2) / ms, y = (e.clientY - b.top - b.height / 2) / ms; const n = Math.hypot(x, y); if (n > 1) { x /= n; y /= n; }
     if (side === 'L') { if (y > 0.3) blocked('후진은 아직 지원하지 않습니다'); const v = Math.max(0, -y); setXy([0, -v * m]); put(e.pointerId, el, v > 0.3 ? ['up'] : []); }
     else { setXy([x * m, 0]); put(e.pointerId, el, x < -0.3 ? ['rotl'] : x > 0.3 ? ['rotr'] : []); }
   };

@@ -87,7 +87,8 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
     const down = (e: PointerEvent) => { if (sm.current || d || !v.k) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
     const move = (e: PointerEvent) => {
       if (!d || e.pointerId !== d.id) return;
-      v.x = d.vx - (e.clientX - d.x) / v.k; v.y = d.vy + (e.clientY - d.y) / v.k;
+      const z = el.getBoundingClientRect().width / (el.clientWidth || 1) || 1;   // 화면 맞춤 scale: 보이는 px → css px
+      v.x = d.vx - (e.clientX - d.x) / z / v.k; v.y = d.vy + (e.clientY - d.y) / z / v.k;
       if (v.follow) { v.follow = false; setFree(true); }
       soon();
     };
