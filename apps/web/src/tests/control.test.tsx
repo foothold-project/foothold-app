@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, actOf, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, facts, jointsNow, lying, order, tempLevel, wallGrid, walking } from '../proto/u5';
+import { WALK_MIN_SPEED, facts, jointsNow, lying, order, tempLevel, tileView, wallGrid, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -59,6 +59,10 @@ const EIGHT: Robot[] = Array.from({ length: 8 }, (_, i) => ({ id: `k${i + 1}`, n
 const temp = (joints: (number | null)[]) => ({ robot_info: { source: 'GO2_DDS', attitude: { roll: 0, pitch: 0 }, error_code: 0, fallen: false, fallen_source: 'imu_tilt_estimate',
   temperature: { joints, battery: [], imu: null, body: [], age_s: 0.1 } } });
 
+/** 진행 중인 임무(state.run) 한 건. 팀장 21:16: 임무 중 타일만 뒤 1 m 따라가기 + 현장 */
+const RUN = (status = 'MOVING') => ({ run: { run_id: 'r1', status, step: 0, wait_reason: null, fail_code: null, progress: { done: 2, total: 4 } } });
+const runs = (ids: string[], status = 'MOVING') => Object.fromEntries(ids.map((id) => [id, RUN(status)]));
+
 describe('관제 탭', () => {
   it('시안 칸 순서: 보기 · 첫 화면으로 · 수 여섯(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 대기 · 경고) · 뒤집기 · 데모 표시 · 범위, 그 아래 타일 벽 · 오른쪽 칸', async () => {
     dashOk({ robots_running: 7 });
@@ -83,7 +87,7 @@ describe('관제 탭', () => {
   });
 
   it('타일 한 장 = 시안 칸 그대로: 칸(뒤 1 m) · 이름 · 모드 · 임무 + 할 일 · 진행 막대 · 위치 · 배터리 · 온도 · 연결 · 조종', () => {
-    mount('u-kim', EIGHT); feed(EIGHT, { k1: { latency_ms: 38, gait: { gait: 'start' } } });
+    mount('u-kim', EIGHT); feed(EIGHT, { k1: { latency_ms: 38, gait: { gait: 'start' }, ...RUN() } });
     const t = tile('k1');
     expect([...t.children].map((e) => e.className)).toEqual(['cv', 'inf']);
     expect(t.querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
@@ -194,8 +198,8 @@ describe('관제 탭', () => {
   });
 
   // 팀장 20:49: 시뮬도 실기 · 데모와 같은 따라가기 카메라(뒤 1 m) · 같은 현장. 정면은 뒤집기일 때만(시안 K-08 «정면 보기» 글도 그때만)
-  it('뒤집기 = 정면 상태(관절 온도), 시뮬 로봇도 실기와 같은 뒤 1 m 시점 · 뒤집기는 고르기가 아님', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
+  it('뒤집기 = 정면 상태(관절 온도), 임무 중인 시뮬 로봇도 실기와 같은 뒤 1 m 시점 · 뒤집기는 고르기가 아님', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, runs(['g2', 'g3']));
     expect(tile('g3').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
     expect(tile('g2').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
     expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
@@ -207,6 +211,29 @@ describe('관제 탭', () => {
     expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('임무 중 · 정면 보기');
     expect($('.u5 .flipb').textContent).toBe('뒤 1 m 시점으로');
     expect(tile('g3').dataset.sel).toBeUndefined();
+  });
+
+  // 팀장 21:16: 임무 중(그 로봇에 진행 중인 run) = 뒤 1 m 따라가기 + 현장 glb · 임무 전(대기 · 정지 · 충전 · 임무 없음) = 초록 점 바닥 + 로봇을 정면에서 · 현장 없음. 시뮬 · Go2 X 도 같은 규칙
+  it('임무 있음 → 뒤 카메라 + 현장, 임무 없음 · 끝난 임무 → 정면 + 초록 바닥(현장 없음), 시뮬 · Go2 X 도 같음', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, { ...runs(['g1', 'g2']), g4: RUN('COMPLETED'), g6: RUN('CANCELED'), g7: RUN('PAUSED') });
+    const face = (id: string) => tile(id).querySelector('.cv')!.getAttribute('data-face');
+    const cam = (id: string) => JSON.parse(tile(id).querySelector('canvas')!.getAttribute('data-go2')!) as { yaw: number | string; dist: number };
+    expect(face('g1')).toBe('live'); expect(cam('g1')).toMatchObject({ yaw: 'back', dist: 2.1 });
+    expect(face('g7')).toBe('live');   // 일시정지도 아직 그 임무 안
+    expect(face('g2')).toBe('live'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
+    for (const id of ['g3', 'g4', 'g6']) { expect(face(id)).toBe('front'); expect(cam(id)).toMatchObject({ yaw: 0, dist: 1.25 }); }
+    expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('최고 관절 온도');
+    expect(tile('g3').querySelector('[data-cam]')).toBeNull();   // 임무 전 실기는 카메라 칸 대신 모형 정면
+    act(() => { FakeWS.last.recv(state('g2', { status: 'IDLE', run: null })); });
+    expect(face('g2')).toBe('front'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');
+    // 현장 판: 임무 중이면 서버 위치 그대로 현장 좌표, 임무 전이면 null(현장 glb · 가림 당김 없이 초록 바닥)
+    const loc = { floor_id: 'f1', map_version_id: 'v1', x: 1, y: 2, yaw: 0, confidence: 1, updated_at: '' }, boards = new Set(['v1']);
+    const on = { ...facts(TWENTY[1], 'u-kim', new Map()), onRun: true }, off = { ...on, onRun: false };
+    expect(tileView(on, false, loc, boards)).toEqual({ front: false, pose: { x: 1, z: -2, rot: Math.PI / 2 } });
+    expect(tileView(on, true, loc, boards)).toEqual({ front: true, pose: { x: 1, z: -2, rot: Math.PI / 2 } });   // 뒤집기 = 임무 중 로봇 정면 · 현장 그대로
+    expect(tileView(off, false, loc, boards)).toEqual({ front: true, pose: null });
+    // Go2 X(관절 · 자세를 보내는 실기) 도 임무가 없으면 정면 · 서 있음 / 앉음은 관절 그대로
+    expect(facts(TWENTY[3], 'u-kim', new Map()).onRun).toBe(false);
   });
 
   // 팀장 20:51: K-04 · 06 · 08 은 조종권을 쥔 채 0 축(속도 0)인데 다리가 걸었다 → 걷는 다리는 서버 속도(state.speed) 가 WALK_MIN_SPEED 이상일 때만
@@ -1065,7 +1092,7 @@ describe('관제 탭', () => {
     } finally { av.mockRestore(); sc.mockRestore(); }
   });
   it('실기 타일 카메라: 받은 영상(drive-media rgb)이 있으면 그 그림, 없으면 «카메라 신호 없음 · 까닭» · 시뮬 · 데모는 열지 않음', () => {
-    mount('u-kim', EIGHT); feed(EIGHT);
+    mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k8']));
     const sock = (id: string) => FakeWS.all.filter((w) => w.url.endsWith(`/api/v1/robots/${id}/drive-media/rgb`)).pop();
     expect(sock('k8')).toBeUndefined();   // 시뮬은 모형 그대로
     const k1 = sock('k1')!;
