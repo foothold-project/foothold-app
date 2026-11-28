@@ -468,6 +468,13 @@ describe('임무 탭(W2)', () => {
     await click($('[data-edit-mission]')); await flush();
     await click($('[data-look="node"]'));
     expect($$('[data-node]').map((e) => e.dataset.node)).toEqual(['start', '1', '2', 'end']);
+    // 시안 u6_4 작은 지도: 그림만 (확대 · 보기 · 축척 단추가 작은 칸에 겹치지 않게)
+    const mini = $('[aria-label="작은 지도"]')!;
+    expect(mini.querySelector('[data-mission-map]')).toBeTruthy();
+    expect(mini.querySelectorAll('button').length).toBe(0);
+    expect(mini.querySelector('[data-scale]')).toBeNull();
+    // 노드 카드 자리 글도 밝은 판에서 보이게 판별 칸(.u6-at)으로
+    expect($('[data-node="1"] .u6-at')!.style.color).toBe('');
     await click($('[data-node-job="m1"]'));
     expect($('[data-look="map"]')!.getAttribute('aria-pressed')).toBe('true');
     expect($('[data-pending]')!.textContent).toContain('게이지 읽기 고르는 중');
