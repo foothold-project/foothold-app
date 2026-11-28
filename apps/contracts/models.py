@@ -845,11 +845,21 @@ class ScreenRunStart(ScreenRobot):
 
 
 class ScreenRunControl(ScreenRobot):
+    # 11/28 (#542 R5): pause 만 lease_id 를 빼도 된다. 쥔 쪽이 RUN (예약 실행 · 다시 붙은 run) 이면 로봇 담당
+    # (O_OWN) 누구나 lease_id 없이 pause 한다 (RUN lease 를 풀고 run 은 PAUSED, 잠김은 그대로). 쥔 쪽이 USER 면
+    # 그 lease 를 쥔 화면만 (lease_id 맞춤) pause 한다. 다른 화면은 STOP (누구나) 또는 lease.request.
+    # resume · abort 는 lease_id 필수. 모든 pause 는 사건 RUN_PAUSE_REQUESTED (보낸 사람) 를 남긴다.
     t: Literal['run.control']
-    lease_id: UUID
+    lease_id: UUID | None = Field(default=None, json_schema_extra=lambda schema: schema.pop('default', None))
     run_id: UUID
     screen_id: UUID
     op: RunControlOp
+
+    @model_validator(mode='after')
+    def lease_unless_pause(self):
+        if self.lease_id is None and self.op != 'pause':
+            raise ValueError('lease_id is required except for pause')
+        return self
 
 
 ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait
@@ -2693,7 +2703,7 @@ class AssignmentList(Contract):
 ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
 # 예약 실행 상태. STARTING 은 서버가 칸을 잡고 시작 중 (다시 켜면 MISSED SCHEDULER_RESTARTED).
 # SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · REAL_RUN_FORBIDDEN · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
-#   MULTI_FLOOR · SAFETY_STOP. MISSED 까닭: ROBOT_OFFLINE · WINDOW_PASSED · SCHEDULER_RESTARTED · SERVER_BUSY.
+#   MULTI_FLOOR · STOP_LATCHED (로봇이 잠겨 있음, 사람만 푼다) · SAFETY_STOP. MISSED 까닭: ROBOT_OFFLINE · WINDOW_PASSED · SCHEDULER_RESTARTED · SERVER_BUSY.
 # FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED ·
 #   RUN_REPORT_LOST (end_at + 60 초 넘게 보고 없음, 늦은 보고는 SCHEDULE_RUN_LATE_REPORT 사건만).
 ScheduleRunState = Literal['STARTING', 'STARTED', 'DONE', 'FAILED', 'SKIPPED', 'MISSED']

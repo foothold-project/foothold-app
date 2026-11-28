@@ -38,16 +38,21 @@ def frames(ws, timeout=.05):
 
 class FakeAgent:
     """Answers like the demo Observer: STOP confirm, unlock, run.start result, run progress."""
-    def __init__(self, ws, *, result='OK', answer=True):
+    def __init__(self, ws, *, result='OK', answer=True, latched=False, stop_ref=0, extra=None):
+        # latched=False: the robot is unlatched at slot time. NOTE: the real server STOPs (latches) every
+        # agent on connect and on every lease release, so today nothing reaches this state; the fake skips
+        # the connect STOP to stand for «a person cleared the latch» (S1 open question in the PR).
         self.ws, self.result, self.answer = ws, result, answer
-        self.latched, self.gen, self.stop_ref = True, 1, 0
+        self.cleared = not latched
+        self.latched, self.gen, self.stop_ref = latched, 1, stop_ref
+        self.extra = extra or {}
         self.seen, self.run, self.run_result = [], None, None
 
     def state(self):
         body = dict(t='state', pose={'floor_id': None, 'x': None, 'y': None, 'yaw': None, 'confidence': None},
                     speed=None, battery={'soc': None}, latched=self.latched, stop_gen=self.gen,
                     stop_ref=self.stop_ref if self.latched else 0, applied=[0, 0, 0], mode='FREE',
-                    reported_run=self.run)
+                    reported_run=self.run, **self.extra)
         if self.run_result is not None:
             body['run_result'] = self.run_result
         self.ws.send_json(body)
@@ -56,7 +61,9 @@ class FakeAgent:
         for f in frames(self.ws):
             self.seen.append(f)
             t = f.get('t')
-            if t == 'stop':
+            if t == 'stop' and self.cleared and f.get('cause') == 'agent_connected':
+                self.stop_ref = f['stop_ref']  # stands for a person's later unlock (see __init__)
+            elif t == 'stop':
                 self.latched, self.stop_ref = True, f['stop_ref']
                 self.gen += 1
             elif t == 'unlock' and self.answer:
@@ -138,6 +145,8 @@ def agent_ws(client, seeded, robot='mine'):
 
 def run_ticks(client, sched, agent, n=20, until=None):
     for _ in range(n):
+        if agent is not None:
+            agent.pump()  # the server holds a fresh state before each tick (the real agent streams it)
         client.portal.call(sched.tick)
         if agent is not None:
             agent.pump()
@@ -198,6 +207,7 @@ def test_run_that_ends_badly_marks_failed(demo, seeded, end, code):
 def test_agent_rejection_marks_failed_and_releases_run_lease(demo, seeded):
     client, sched, clock = demo
     slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    add_slot(seeded, kind='BATTERY_SWAP', start=T0 + timedelta(minutes=32), minutes=10)
     clock[0] = T0 + timedelta(minutes=3)
     with agent_ws(client, seeded) as ws:
         ws.send_json(hello())
@@ -206,6 +216,8 @@ def test_agent_rejection_marks_failed_and_releases_run_lease(demo, seeded):
         assert slot_row(seeded, slot_id)['code'] == 'NAV_UNAVAILABLE'
         holder = client.app.state.realtime.arbiter.robot(str(seeded['robots']['mine'])).holder
         assert holder is None
+    # N1: a slot that never STARTED (STARTING -> FAILED) does not announce the next battery swap.
+    assert 'SCHEDULE_BATTERY_SWAP_NEXT' not in codes(seeded)
 
 
 def test_human_lease_skips_without_waiting(demo, seeded):
@@ -269,23 +281,6 @@ def test_draft_and_battery_slots_never_start(demo, seeded):
     clock[0] = T0 + timedelta(minutes=45)
     run_ticks(client, sched, None, 2)
     assert slot_row(seeded, draft)['state'] is None and slot_row(seeded, swap)['state'] is None
-
-
-def test_safety_latched_robot_is_skipped(demo, seeded):
-    client, sched, clock = demo
-    slot_id = add_slot(seeded, synthetic_assignment(seeded))
-    clock[0] = T0 + timedelta(minutes=3)
-    with agent_ws(client, seeded) as ws:
-        ws.send_json(hello())
-        agent = FakeAgent(ws)
-        agent.pump()
-        ws.send_json({**json.loads(json.dumps(dict(t='state', pose={'floor_id': None, 'x': None, 'y': None,
-            'yaw': None, 'confidence': None}, speed=None, battery={'soc': None}, latched=True, stop_gen=1,
-            stop_ref=0, applied=[0, 0, 0], mode='FREE'))), 'safety_reason': 'OUTPUT_STALLED'})
-        for _ in range(5):
-            frames(ws)
-        client.portal.call(sched.tick)
-        assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('SKIPPED', 'SAFETY_STOP')
 
 
 def test_start_timeout_fails_and_releases(demo, seeded):
@@ -463,3 +458,209 @@ def test_started_slot_still_reported_running_past_end_stays_started(demo, seeded
                          progress={'done': 0, 'total': 1}, wait_reason=None, fail_code=None)
         run_ticks(client, sched, agent, 4)
         assert slot_row(seeded, slot_id)['state'] == 'STARTED'  # the agent still reports it
+
+
+def sent(agent, *kinds):
+    return [f for f in agent.seen if f.get('t') in kinds]
+
+
+def events(seeded, code):
+    engine = create_engine(seeded['urls']['migrate'])
+    with DBSession(engine) as db:
+        rows = list(db.scalars(select(Event).where(Event.code == code).order_by(Event.at)))
+        out = [(e.user_id, e.data) for e in rows]
+    engine.dispose()
+    return out
+
+
+@pytest.mark.parametrize('case', ['person_stop', 'reconnect', 'safety'])
+def test_latched_robot_is_skipped_and_never_unlocked(demo, seeded, case):
+    """S1 (PRD SF-02 · ADR-003): only a person unlocks. A latched robot -> SKIPPED STOP_LATCHED whatever
+    stop_ref / safety_reason; no unlock, no run.start; pause/resume cannot get around it. The next slot
+    skips too while the latch stays; once a person clears it the following slot runs."""
+    client, sched, clock = demo
+    rid = str(seeded['robots']['mine'])
+    good = synthetic_assignment(seeded)
+    first = add_slot(seeded, good)
+    second = add_slot(seeded, good, start=T0 + timedelta(minutes=40), minutes=10)
+    third = add_slot(seeded, good, start=T0 + timedelta(minutes=60), minutes=10)
+    kw = dict(person_stop=dict(stop_ref=7), reconnect=dict(stop_ref=0),
+              safety=dict(stop_ref=0, extra={'safety_reason': 'OUTPUT_STALLED'}))[case]
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True, **kw)
+        clock[0] = T0 + timedelta(minutes=3)
+        run_ticks(client, sched, agent, 4)
+        assert (slot_row(seeded, first)['state'], slot_row(seeded, first)['code']) == ('SKIPPED', 'STOP_LATCHED')
+        assert sent(agent, 'unlock', 'run.start') == [] and agent.latched
+        with screen(client, app_token(client)) as sc:
+            for op in ('pause', 'resume'):
+                send(sc, 'run.control', rid, lease_id=str(uuid4()), run_id=str(S.run_id_for(first)),
+                     screen_id=str(uuid4()), op=op)
+            run_ticks(client, sched, agent, 3)
+        assert sent(agent, 'unlock', 'run.start') == [] and agent.latched
+        clock[0] = T0 + timedelta(minutes=41)
+        run_ticks(client, sched, agent, 4)
+        assert (slot_row(seeded, second)['state'], slot_row(seeded, second)['code']) == ('SKIPPED', 'STOP_LATCHED')
+        assert sent(agent, 'unlock', 'run.start') == [] and agent.latched
+        agent.latched, agent.extra = False, {}  # a person clears the latch (stand-in: see FakeAgent)
+        clock[0] = T0 + timedelta(minutes=61)
+        assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, third)['state'] == 'STARTED')
+    skipped = [d for _, d in events(seeded, 'SCHEDULE_RUN_SKIPPED')]
+    assert [d['slot_id'] for d in skipped] == [str(first), str(second)]  # one event line per slot
+    assert all(d['reason'] == 'STOP_LATCHED' for d in skipped)
+
+
+def test_person_stop_during_start_is_never_unlocked(demo, seeded):
+    """A person's STOP after the scheduler's own STOP/unlock but before run.start: no second unlock,
+    no run.start, SKIPPED STOP_LATCHED."""
+    client, sched, clock = demo
+    rid = str(seeded['robots']['mine'])
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    clock[0] = T0 + timedelta(minutes=3)
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        assert run_ticks(client, sched, agent, 20, until=lambda: sent(agent, 'unlock'))
+        assert sent(agent, 'run.start') == []
+        with screen(client, app_token(client)) as sc:
+            assert reply(sc, send(sc, 'stop', rid))['ok']
+            agent.pump()
+            run_ticks(client, sched, agent, 5)
+        assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('SKIPPED', 'STOP_LATCHED')
+        assert len(sent(agent, 'unlock')) == 1 and sent(agent, 'run.start') == [] and agent.latched
+
+
+def start_until_unlock(client, sched, seeded, agent, slot_id):
+    assert run_ticks(client, sched, agent, 20, until=lambda: sent(agent, 'unlock'))
+    assert sent(agent, 'run.start') == [] and not agent.latched
+    rt = client.app.state.realtime
+    rid = str(seeded['robots']['mine'])
+    holder = rt.arbiter.robot(rid).holder
+    assert holder.holder_type == 'RUN' and rt.scheduled_runs[rid]['run_id'] == str(S.run_id_for(slot_id))
+    return rt, rid, holder
+
+
+@pytest.mark.parametrize('gate', ['robot_changes', 'owner_uncertain', 'blocked_agent_control'])
+def test_gate_block_just_before_start_is_run_not_allowed(demo, seeded, gate):
+    """M9 · M12: the scheduler respects blocked_agent_control at the last moment."""
+    client, sched, clock = demo
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    clock[0] = T0 + timedelta(minutes=3)
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        rt, rid, _ = start_until_unlock(client, sched, seeded, agent, slot_id)
+        if gate == 'robot_changes':
+            rt.robot_changes.add(rid)
+        elif gate == 'owner_uncertain':
+            rt.owner_uncertain = True
+        else:
+            original = rt.blocked_agent_control
+            rt.blocked_agent_control = lambda peer, body: body.get('t') == 'run.start' or original(peer, body)
+        client.portal.call(sched.tick)
+        if gate == 'robot_changes':
+            rt.robot_changes.discard(rid)
+        elif gate == 'owner_uncertain':
+            rt.owner_uncertain = False
+        agent.pump()
+        assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('SKIPPED', 'RUN_NOT_ALLOWED')
+        assert sent(agent, 'run.start') == []
+
+
+def test_run_lease_gate_takes_only_its_own_run_start(demo, seeded):
+    """M9 · M10: with the slot's RUN lease, the server gate passes only run.start for that run id."""
+    client, sched, clock = demo
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    clock[0] = T0 + timedelta(minutes=3)
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        rt, rid, holder = start_until_unlock(client, sched, seeded, agent, slot_id)
+        peer = rt.agents[rid]
+        base = dict(request_id='x', user_id=str(seeded['users']['one']), lease_id=holder.lease_id,
+                    screen_id=str(uuid4()))
+        own = dict(base, t='run.start', run_id=str(S.run_id_for(slot_id)))
+        assert not rt.blocked_agent_control(peer, own)
+        assert rt.blocked_agent_control(peer, dict(own, run_id=str(uuid4())))  # another run id
+        for op in ('pause', 'resume', 'abort'):
+            assert rt.blocked_agent_control(peer, dict(base, t='run.control', run_id=own['run_id'], op=op))
+        assert rt.blocked_agent_control(peer, dict(own, lease_id=str(uuid4())))  # another lease
+
+
+# -- owner pause contract (#542 R5 · 05:09 every device) --
+
+def test_contract_pause_needs_no_lease_but_resume_and_abort_do():
+    from apps.contracts import models as C
+    from pydantic import ValidationError
+    common = dict(t='run.control', id='a', robot=str(uuid4()), run_id=str(uuid4()), screen_id=str(uuid4()))
+    assert C.ScreenRunControl.model_validate(dict(common, op='pause')).lease_id is None
+    C.ScreenRunControl.model_validate(dict(common, op='pause', lease_id=str(uuid4())))
+    for op in ('resume', 'abort'):
+        with pytest.raises(ValidationError):
+            C.ScreenRunControl.model_validate(dict(common, op=op))
+
+
+def scheduled_moving(client, sched, seeded, agent, slot_id):
+    assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, slot_id)['state'] == 'STARTED')
+    assert agent.run['status'] == 'MOVING'
+
+
+def test_owner_pauses_run_lease_without_lease_id_and_audit_names_them(demo, seeded):
+    client, sched, clock = demo
+    rid = str(seeded['robots']['mine'])
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    clock[0] = T0 + timedelta(minutes=3)
+    rt = client.app.state.realtime
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        scheduled_moving(client, sched, seeded, agent, slot_id)
+        run_id = str(S.run_id_for(slot_id))
+        with screen(client, app_token(client, 'two')) as other:  # not this robot's owner
+            denied = reply(other, send(other, 'run.control', rid, run_id=run_id, screen_id=str(uuid4()), op='pause'))
+            assert not denied['ok'] and rt.arbiter.robot(rid).holder.holder_type == 'RUN'
+        with screen(client, app_token(client)) as sc:
+            wrong = reply(sc, send(sc, 'run.control', rid, run_id=str(uuid4()), screen_id=str(uuid4()), op='pause'))
+            assert not wrong['ok']  # another run id: nothing happens
+            assert rt.arbiter.robot(rid).holder.holder_type == 'RUN'
+            ok = reply(sc, send(sc, 'run.control', rid, run_id=run_id, screen_id=str(uuid4()), op='pause'))
+            assert ok['ok'], ok
+            agent.pump()
+            assert rt.arbiter.robot(rid).holder is None and agent.latched and agent.run['status'] == 'PAUSED'
+            run_ticks(client, sched, agent, 3)
+            assert sent(agent, 'unlock')[-1:] == sent(agent, 'unlock')[:1]  # only the scheduler's own, once
+        assert agent.latched  # the latch stays: pause never clears it
+    rows = events(seeded, 'RUN_PAUSE_REQUESTED')
+    assert [(str(u), d['run_id'], d['holder_type']) for u, d in rows] == [(str(seeded['users']['one']), run_id, 'RUN')]
+
+
+def test_user_lease_pause_only_by_holder_and_audited(demo, seeded):
+    """USER holder: only that screen's lease pauses (lease_id required). Others use STOP or lease.request."""
+    client, sched, clock = demo
+    rid = str(seeded['robots']['mine'])
+    rt = client.app.state.realtime
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        agent.pump()
+        with screen(client, app_token(client)) as sc, screen(client, app_token(client)) as second:
+            assert reply(sc, send(sc, 'lease.take', rid))['ok']
+            for _ in range(10):
+                agent.pump()
+                if rt.arbiter.robot(rid).holder:
+                    break
+            lease = rt.arbiter.robot(rid).holder.lease_id
+            run_id = str(uuid4())
+            body = dict(run_id=run_id, screen_id=str(uuid4()), op='pause')
+            no_lease = reply(sc, send(sc, 'run.control', rid, **body))
+            assert no_lease['error']['code'] == 'LEASE_MISMATCH'  # a USER lease is named
+            other = reply(second, send(second, 'run.control', rid, lease_id=lease, **body))
+            assert other['error']['code'] == 'LEASE_MISMATCH'  # same person, another screen
+            ok = reply(sc, send(sc, 'run.control', rid, lease_id=lease, **body))
+            assert ok['ok'], ok
+            agent.pump()
+            assert sent(agent, 'run.control')[-1]['op'] == 'pause'
+            assert rt.arbiter.robot(rid).holder.holder_type == 'USER'  # the lease logic is unchanged
+    rows = events(seeded, 'RUN_PAUSE_REQUESTED')
+    assert [(str(u), d['run_id'], d['holder_type']) for u, d in rows] == [(str(seeded['users']['one']), run_id, 'USER')]

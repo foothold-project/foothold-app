@@ -1715,6 +1715,8 @@ class Realtime:
         self.put(peer, body)
 
     def send_run(self, rid, actor, msg, *, enqueue=True):
+        if msg.lease_id is None:  # only a RUN holder's pause goes without a lease id (schedule_pause)
+            raise LeaseError('LEASE_MISMATCH', '현재 연결의 조종권이 아닙니다.', 403)
         self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
         peer = self.agents[rid]
         fields = msg.model_dump(mode='json', exclude={'t', 'id', 'robot', 'proto'})
@@ -1729,6 +1731,8 @@ class Realtime:
             raise LeaseError('RUN_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
         if enqueue:
             self.put(peer, body)
+            if msg.t == 'run.control' and msg.op == 'pause':
+                self.apply([self.pause_audit(rid, actor, msg, 'USER')])
 
     def schedule_pause(self, rid, actor, msg):
         """Pause of a schedule slot's run (11/28, web #542): release the RUN lease. The agent's relay lets
@@ -1736,13 +1740,20 @@ class Realtime:
         with it (#537); the RUN lease is never taken again. Moves toward safety, so the RUN lease id the
         screen never sees is not asked for; the O_OWN check already ran."""
         record = self.arbiter.robot(rid)
-        holder, scheduled = record.holder, self.scheduled_runs.get(rid)
-        if not (msg.op == 'pause' and scheduled and scheduled['run_id'] == str(msg.run_id)
-                and holder and holder.holder_type == 'RUN' and holder.actor is None):
+        holder = record.holder
+        # Any RUN holder (a schedule slot's, or a reconnected run's reservation) whose run is this run id.
+        run = self.scheduled_runs.get(rid) or self.runs.get(rid) or {}
+        if not (msg.op == 'pause' and holder and holder.holder_type == 'RUN' and holder.actor is None
+                and str(run.get('run_id')) == str(msg.run_id) and run.get('lease_id') == holder.lease_id):
             return False
-        self.apply(self.arbiter.revoke(rid, op=None, cause='run_paused')
-                   + [self.arbiter.audit(rid, 'RUN_PAUSE_TAKEOVER', actor)])
+        self.apply(self.arbiter.revoke(rid, op=None, cause='run_paused') + [self.pause_audit(rid, actor, msg, 'RUN')])
         return True
+
+    def pause_audit(self, rid, actor, msg, holder_type):
+        # Every pause names who sent it (11/28 #542 R5). Events only; the lease log keeps its fixed ops.
+        return self.arbiter.effect('audit', rid, op='RUN_PAUSE_REQUESTED', user_id=actor.user,
+            session_id=actor.session, other_user_id=None,
+            data={'run_id': str(msg.run_id), 'holder_type': holder_type, 'connection': actor.connection})
 
     async def start_run(self, peer, rid, actor, msg, mark):
         try:

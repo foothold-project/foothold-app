@@ -11,8 +11,12 @@
 - 시계는 clock 으로 바꿔 끼운다 (시험).
 - STARTED 칸은 끝없이 두지 않는다: end_at + 60 초가 지나고 이 프로세스가 60 초 넘게 보고를 못 보면 FAILED
   RUN_REPORT_LOST (사건). 그 뒤 늦게 온 끝 보고는 SCHEDULE_RUN_LATE_REPORT 사건만 남기고 칸은 그대로.
-- 자동 잠금 해제: STOP 확인 뒤 lease 를 받은 다음 서버가 unlock 을 보낸다. safety_reason 이 있으면 SKIPPED
-  SAFETY_STOP 으로 손대지 않는다 (사람 STOP 뒤 자동 재개 금지 규칙은 아래 «정한 것» 참고).
+- 잠금은 사람만 푼다 (PRD SF-02 · ADR-003, 11/28 S1). 칸 시각에 로봇이 잠겨 있으면 (latched=True, 새 state
+  가 없음도 잠김으로 본다) stop_ref · safety_reason 과 상관없이 SKIPPED STOP_LATCHED, unlock 을 보내지 않는다.
+  잠금이 남아 있는 동안 다음 칸도 건너뛰고, 사람이 풀면 그다음 칸부터 돈다.
+  서버가 보내는 unlock 은 RUN lease 를 넘겨받을 때 서버가 스스로 낸 STOP (이미 풀려 있던 로봇) 만 푼다.
+  그 사이 사람 STOP 이 오면 (stop_ref 가 바뀜) unlock · run.start 없이 SKIPPED STOP_LATCHED.
+  PR #549 본문 «정한 것» 에 같은 규칙.
 """
 import asyncio
 import logging
@@ -123,8 +127,9 @@ def write(factory, org_id, outcomes):
                 continue
             if row is None or row.run_state not in ('STARTING', 'STARTED') or row.run_state == state:
                 continue
+            was = row.run_state
             settle(db, org_id, row, state, code)
-            if state in ('DONE', 'FAILED') and row.run_state != 'STARTING':
+            if state in ('DONE', 'FAILED') and was == 'STARTED':  # N1: read before settle
                 following = db.scalar(select(ScheduleSlot).where(ScheduleSlot.org_id == org_id,
                     ScheduleSlot.robot_id == row.robot_id, ScheduleSlot.start_at >= row.end_at)
                     .order_by(ScheduleSlot.start_at).limit(1))
@@ -180,11 +185,14 @@ class Scheduler:
         reported = peer.state.get('reported_run')
         if r.holder or (reported and reported.get('status') not in TERMINAL) or rid in rt.scheduled_runs:
             return [(slot_id, 'SKIPPED', 'RUN_ACTIVE')]
+        fresh = 0 <= rt.clock() - peer.state_received_at <= .5
+        if not fresh or peer.state.get('latched') is not False:
+            return [(slot_id, 'SKIPPED', 'STOP_LATCHED')]  # only a person unlocks (SF-02); never auto-resume
         if peer.state.get('safety_reason') is not None:
             return [(slot_id, 'SKIPPED', 'SAFETY_STOP')]
         rt.apply(rt.arbiter.begin(rid, None, op=None, cause='scheduled_run'))  # lease null first, then STOP
         rt.scheduled_runs[rid] = {'run_id': str(item['run_id']), 'slot_id': str(slot_id)}
-        self.pending[slot_id] = dict(item, phase='GRANT', lease=None,
+        self.pending[slot_id] = dict(item, phase='GRANT', lease=None, ref=r.stop_ref,  # our own STOP's ref
                                      deadline=at + timedelta(seconds=START_TIMEOUT_S))
         return [(slot_id, 'STARTING', None)]
 
@@ -215,6 +223,8 @@ class Scheduler:
             return self._end(slot_id, p, 'FAILED', 'START_TIMEOUT')
         r = rt.arbiter.robot(rid)
         holder = r.holder
+        if r.stop_ref != p['ref']:
+            return self._end(slot_id, p, 'SKIPPED', 'STOP_LATCHED')  # a person's STOP since ours: no unlock
         if p['phase'] == 'GRANT':
             if holder and holder.holder_type == 'RUN' and holder.actor is None:
                 p['lease'], p['phase'] = holder.lease_id, 'UNLOCK'

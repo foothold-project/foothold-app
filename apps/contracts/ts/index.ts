@@ -2449,7 +2449,7 @@ export interface ScreenRunControl {
   proto?: "fh-rt/1";
   robot: string;
   t: "run.control";
-  lease_id: string;
+  lease_id?: string | null;
   run_id: string;
   screen_id: string;
   op: "pause" | "resume" | "abort";
