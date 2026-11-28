@@ -1,7 +1,8 @@
 /* pc.css 를 .proto 로 감싼 사본(기계 생성). 값은 원본 그대로, 선택자 앞 .proto · body 와 :root 는 .proto 자체. 손으로 고치지 않는다 */
 @import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
 /* PC 공통 틀 · 1920×1080 · 어두운 바탕. 유리 값은 ui.css 그대로 쓰고 여기서는 배치만 */
-.proto{width:1920px;height:1080px;background:radial-gradient(1400px 700px at 50% -10%,#111312,#000000 70%);color:#ffffff;word-break:keep-all}
+/* PC 무대(App 의 .proto[data-layout=pc]) 와 그 안의 시안 화면만. 폰 시안 화면(u13 · u14)에는 닿지 않음 · :where 로 선택자 세기는 예전 .proto 그대로(화면별 덮개가 그대로 이김) */
+.proto:where([data-layout=pc]),.proto:where([data-layout=pc] .proto){width:1920px;height:1080px;background:radial-gradient(1400px 700px at 50% -10%,#111312,#000000 70%);color:#ffffff;word-break:keep-all}
 .proto{--line:rgba(255,255,255,.08);--mu2:#9aa19d;--pr3:#00c389}
 .proto .bar{position:absolute;left:0;right:0;top:0;height:64px;display:flex;align-items:center;gap:30px;padding:0 24px;border-bottom:1px solid var(--line);background:rgba(12,15,20,.6);backdrop-filter:blur(20px)}
 .proto .logo{font-weight:900;letter-spacing:.08em;font-size:16px}
