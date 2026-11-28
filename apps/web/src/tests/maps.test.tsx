@@ -2438,6 +2438,7 @@ describe('지도 탭 · 시안 u7', () => {
     await click($('[data-open-map]'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('시안 공장 터 큰 공장 1층');
     expect(card('지도 보기').querySelector('[data-map] [data-factory]')).not.toBeNull();
+    expect(card('지도 보기').querySelector('[data-scale]')).toBeNull();   // 공장 그림에 박힌 축척 하나만(시안 u7_3)
     expect($('[aria-label="보기·편집"]')).toBeNull();
     expect($('[data-demo-ro]')!.textContent).toBe(SIM_SAVE);
     expect(box.textContent).not.toContain('«편집»');
