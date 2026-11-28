@@ -384,6 +384,7 @@ function Screen(c: Ctx) {
   // Damping(시안 u1_3 · PC 로봇 탭 robotu4 damp 와 같은 규칙 · 같은 길): 내 조종 · 정지 잠금 · 서 있을 때. 한 번 = 안내, 3 초 안에 한 번 더 = Damp(확인됨).
   // 처음 값은 -Infinity: 0 이면 페이지를 연 뒤 3 초 안의 첫 누름이 바로 Damp 가 된다(performance.now 는 페이지 시작부터 셈)
   const [arm, setArm] = useState(-Infinity), dampOn = mine && online && l.state?.latched === true && l.state?.posture?.state !== 'LYING';
+  useEffect(() => { if (!dampOn) setArm(-Infinity); }, [dampOn]);   // 단추가 사라지면 한 번 누른 기록도 버림(다시 나타나 한 번에 Damp 가 나가지 않게 · 검토 낮음)
   const damp = () => {
     if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
     setArm(-Infinity); neutral(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
