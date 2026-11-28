@@ -317,6 +317,18 @@ export function tileBadge(f: TileFacts): Badge | null {
 /** 배지 점 색은 여기 한 곳(팀장 02:14): 임무 중 = 빨강(--u5-dot-red) · 충전 = 초록 · 시뮬 = 파랑 · 연결 전 = 하양(--u5-on), 나머지 = 배지 글 색 */
 export const badgeDot = (b: Badge): string =>
   b.key === 'run' || b.key === 'driving' ? 'var(--u5-dot-red)' : b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.key === 'pre' ? 'var(--u5-on)' : b.col;
+/** 머리 줄 수 칸 = 필터 갈래(팀장 02:21). 수와 필터가 같은 판정을 쓴다(수는 바뀌지 않음) */
+export type Group = '임무 중' | '충전' | '점검' | '연결 중' | '시뮬 대기' | '경고';
+export const GROUP: Record<Group, (f: TileFacts) => boolean> = {
+  '임무 중': (f) => f.x.status === 'RUNNING' && !f.lostNow,   // 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함)
+  '충전': (f) => f.charging,
+  '점검': (f) => f.job?.kind === 'maint',
+  '연결 중': (f) => !f.sim && (f.lostNow || (!f.x.online && f.x.unknown === 'wait')),
+  '시뮬 대기': (f) => f.sim && f.x.status !== 'RUNNING',
+  '경고': (f) => !!f.level,   // 타일 테두리가 경고인 로봇(시뮬 포함)
+};
+/** 고른 갈래 중 하나라도 맞으면 보임(여러 개 고름 = 합). 고른 것이 없으면 모두 */
+export const inGroups = (f: TileFacts, pick: readonly Group[]) => !pick.length || pick.some((g) => GROUP[g](f));
 function BadgeTag({ b }: { b: Badge }) {
   return <span className={`stb${b.pulse ? ' chk' : ''}`} style={{ color: b.col }} title={b.why} data-badge={b.key} data-pulse={b.pulse ? '1' : '0'} {...{ [`data-${b.key}`]: '' }}>{I(14, IC[b.icon])}{b.text}
     <i className={b.dim ? 'dim' : undefined} style={{ background: badgeDot(b) }}></i></span>;
@@ -475,6 +487,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   // 작은 지도 → 지도 보기(팀장 11-28 17:23 · 시안 밖): 작은 지도 칸 자리에서 큰 지도 자리로 자라며 넘어가고, 3D 첫 시점은 위에서 본 틀에서 시안 시점으로 내려앉음
   const [from, setFrom] = useState<DOMRect | null>(null), [focus, setFocus] = useState(''), [home, setHome] = useState(0);
   const toHome = () => { setFrom(null); setFocus(''); setHome((k) => k + 1); setView('map'); };   // 첫 화면으로 = 지도 보기 첫 시점(무리 가운데)
+  const [pick, setPick] = useState<Group[]>([]), flip = (g: Group) => setPick((p) => (p.includes(g) ? p.filter((x) => x !== g) : [...p, g]));
   const [view, setView] = useState<'tiles' | 'map'>('tiles'), [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine'), [front, setFront] = useState(false), [demo, setDemoNow] = useState(demoShown);
   const setDemo = (on: boolean) => { setDemoNow(on); keepDemo(on); };
   const sel = useControlPick();
@@ -490,43 +503,45 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const see = (s: 'all' | 'mine') => { if (s !== scope) controlPick.set(''); setScope(s); };
   const open = (id: string) => { c.pick(id); c.go('fleet'); };
   const n = (f: (x: TileFacts) => boolean) => all.filter(f).length;
-  const nLink = n((f) => !f.sim && (f.lostNow || (!f.x.online && f.x.unknown === 'wait'))), nSim = n((f) => f.sim && f.x.status !== 'RUNNING');
-  const wall = wallPick(all), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
+  const shown = all.filter((f) => inGroups(f, pick)), none = pick.length > 0 && !shown.length;   // 필터: 타일 · 작은 지도 · 지도 보기에만(수 · 경고 목록은 전체)
+  const wall = wallPick(shown), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
   const seg = (on: boolean, v: string, icon: ReactNode, go: () => void) => <span className={on ? 'on' : ''} data-v={v} role="button" tabIndex={0} aria-pressed={on} onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}>{I(16, icon)}{v}</span>;
   // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 수를 비우고 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
   const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
-  const cnt = (k: string, icon: ReactNode, v: number | null, red = false, src?: 'dashboard', none?: string) => <span className="cnt" style={red ? { color: 'var(--u5-red)' } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}>{I(16, icon, red ? 'var(--u5-red)' : undefined)}{`${k} `}<b style={red ? { color: 'var(--u5-red)' } : undefined}>{v ?? ''}</b></span>;
+  const cnt = (k: Group, icon: ReactNode, v: number | null, red = false, src?: 'dashboard', none?: string) => { const on = pick.includes(k); return <span className={on ? 'cnt on' : 'cnt'} style={red ? { color: 'var(--u5-red)' } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}
+    role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, red ? 'var(--u5-red)' : undefined)}{`${k} `}<b style={red ? { color: 'var(--u5-red)' } : undefined}>{v ?? ''}</b></span>; };
   return <main className="u5" data-view={view} aria-label="관제">
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
       <span className="pinf" role="button" tabIndex={0} data-home onClick={toHome} onKeyDown={(e) => { if (e.key === 'Enter') toHome(); }} style={{ cursor: 'pointer' }}><i></i>첫 화면으로</span><span className="sep"></span>
       {/* 임무 중 = 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함). 서버 요약의 robots_running 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
-      {cnt('임무 중', IC.flag, n((f) => f.x.status === 'RUNNING' && !f.lostNow))}
-      {cnt('충전', IC.bolt, av ? n((f) => f.charging) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
-      {cnt('점검', IC.wrench, av ? n((f) => f.job?.kind === 'maint') : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
+      {cnt('임무 중', IC.flag, n(GROUP['임무 중']))}
+      {cnt('충전', IC.bolt, av ? n(GROUP['충전']) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
+      {cnt('점검', IC.wrench, av ? n(GROUP['점검']) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
       {/* 시안 칸 줄 그대로 여섯 칸 · 0 이면 0. 서버에 없는 값은 수를 비우고 까닭은 title */}
-      {cnt('연결 중', IC.wifi, nLink)}
-      {cnt('시뮬 대기', IC.box, nSim)}
+      {cnt('연결 중', IC.wifi, n(GROUP['연결 중']))}
+      {cnt('시뮬 대기', IC.box, n(GROUP['시뮬 대기']))}
       {/* 경고 = 타일 테두리가 경고인 로봇(시뮬 포함). 서버 요약 robots_attention 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
-      {cnt('경고', IC.warn, n((f) => !!f.level), true)}
+      {cnt('경고', IC.warn, n(GROUP['경고']), true)}
       {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
       {/* 시안 밖 · 새로 그림: 타일은 8 칸까지(wallPick), 남은 로봇이 어디 있는지 한 줄 */}
-      {view === 'tiles' && all.length > wall.length && <span className="mu2" style={{ fontSize: '12.5px' }} data-wall-rest={all.length - wall.length}>{`타일 ${wall.length} 대 · 나머지 ${all.length - wall.length} 대는 지도 보기 · 로봇 탭`}</span>}
+      {view === 'tiles' && shown.length > wall.length && <span className="mu2" style={{ fontSize: '12.5px' }} data-wall-rest={shown.length - wall.length}>{`타일 ${wall.length} 대 · 나머지 ${shown.length - wall.length} 대는 지도 보기 · 로봇 탭`}</span>}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'var(--u5-ok-bg)', borderColor: 'var(--u5-ok-line)', color: 'var(--u5-ok)' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? `${REAR_LABEL} 시점으로` : '정면 상태로 뒤집기'}</span>}
         <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} data-demo-show onClick={() => setDemo(!demo)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDemo(!demo); } }}>데모 표시<i></i></span>
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
-    {view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
+    {none ? <div className="wall mu2" data-filter-empty style={{ placeItems: 'center', fontSize: '14px' }}>고른 상태의 로봇이 없습니다 · 머리 줄 칸을 다시 누르면 풀립니다</div>
+      : view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
       {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} /></ZoomBox>)}</div>
-      : <SiteView key={home} all={all} sel={sel} open={open} from={from} focus={focus} />}
+      : <SiteView key={home} all={shown} sel={sel} open={open} from={from} focus={focus} />}
     <div className="side">
       {view === 'tiles' ? <>
-        <Mini all={all} sel={sel} boards={boards} toMap={(r, id) => { setFrom(r); setFocus(id); setView('map'); }} />
+        <Mini all={shown} sel={sel} boards={boards} toMap={(r, id) => { setFrom(r); setFocus(id); setView('map'); }} />
         {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} />}
         {crit && !picked && <Alarm f={crit} stop={c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
         <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} seen={seen} /></>
-        : <MapSide all={all} sel={sel} open={open} />}
+        : <MapSide all={shown} sel={sel} open={open} />}
     </div>
   </main>;
 }

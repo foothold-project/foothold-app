@@ -93,6 +93,24 @@ describe('관제 탭', () => {
     expect($$('.u5 .side > .pane').map((e) => e.querySelector('.ttl')!.textContent)).toEqual(['작은 지도', '최근 경고']);
   });
 
+  it('머리 줄 필터(팀장 02:21): 수 칸을 누르면 그 상태만 타일 · 작은 지도에 · 여러 개 = 합 · 다시 누르면 풀림 · 수는 그대로 · 0 대면 빈 한 줄', async () => {
+    mount('u-kim', EIGHT); feed(EIGHT);
+    await act(async () => {});
+    const sum = (k: string) => $('[data-sum="' + k + '"]');
+    const press = (k: string) => act(() => { sum(k).click(); });
+    press('임무 중');
+    expect(sum('임무 중').classList.contains('on')).toBe(true); expect(sum('임무 중').getAttribute('aria-pressed')).toBe('true');
+    expect(tiles().length).toBe(6); expect(sum('임무 중').querySelector('b')!.textContent).toBe('6');   // 수는 그대로
+    press('시뮬 대기');
+    expect(tiles().length).toBe(7);   // 여러 개 = 합(임무 중 6 + 시뮬 대기 1)
+    press('임무 중'); press('시뮬 대기');
+    expect(tiles().length).toBe(8); expect(sum('임무 중').classList.contains('on')).toBe(false);
+    press('점검');   // 가용을 받지 못해 점검 0 대
+    expect(tiles().length).toBe(0); expect($('[data-filter-empty]').textContent).toContain('고른 상태의 로봇이 없습니다');
+    press('점검'); expect($('[data-filter-empty]')).toBeNull();
+    expect(u5Css).toContain('.u5 .cnt.on{border-color:currentColor}');
+    for (const w of ['<Mini all={shown}', '<SiteView key={home} all={shown}', '<MapSide all={shown}']) expect(u5Src).toContain(w);   // 작은 지도 · 지도 보기도 같은 목록
+  });
   it('타일 한 장 = 시안 칸 그대로: 칸(뒤 1 m) · 이름 · 모드 · 임무 + 할 일 · 진행 막대 · 위치 · 배터리 · 온도 · 연결 · 조종', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k1: { latency_ms: 38, gait: { gait: 'start' }, ...RUN() } });
     const t = tile('k1');
