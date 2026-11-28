@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STATUS_NAME } from '../fake';
 import { rt } from '../rt';
 import { TEX_LOOK, K, OX, OY, SITE_PX_H, SITE_PX_W, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
-import { follow, type Held } from './tileview';
+import { follow, robotLight, type Held } from './tileview';
 import { IC, ic, type TileFacts } from './u5';
 import { pickPress } from '../screens/control';
 
@@ -132,6 +132,8 @@ export function SiteView({ all, sel, open, from, focus, home, homeTick = 0 }: { 
     let site: THREE.Group | null = null, light: boolean | null = null;
     loadSite().then((s) => { if (live && s) { site = s; scene.add(s); light = null; } });
     // 밝은 판: 바탕 · 땅 · 격자 · 빛 · 현장 재질을 밝음 1 흰 점토 결로(시안 shared/map_large_factory_top.jpg). 판이 바뀌면 그때 다시 칠함
+    // 지도 위 로봇(over 장면) 빛: 밝은 판은 관제 타일 · 로봇 탭과 같은 로봇 라이팅(robotLight), 어둠 판은 현장과 같은 옛 값 그대로
+    const robotLit = (l: boolean) => { if (!l) return; const k = robotLight(true); hemis[1].color.setHex(k.sky); hemis[1].groundColor.setHex(k.ground); hemis[1].intensity = k.hemi; suns[1].intensity = k.key; rims[1].intensity = 0.05; };
     const shade = (l: boolean) => {
       if (site?.userData.tex) {   // 질감판: 자산 시험 화면(view.html LOOK) 의 바탕 · 하늘 빛 · 해 · 노출. 재질은 색 곱만(toneSite)
         const k = TEX_LOOK[l ? 'light' : 'dark'];
@@ -140,7 +142,7 @@ export function SiteView({ all, sel, open, from, focus, home, homeTick = 0 }: { 
         for (const h of hemis) { h.color.setHex(k.hemi[0]); h.groundColor.setHex(k.hemi[1]); h.intensity = k.hemi[2]; }
         for (const m of suns) m.intensity = k.sun;
         for (const m of rims) m.intensity = l ? 0.05 : 0.35;
-        toneSite(site, l); return;
+        toneSite(site, l); robotLit(l); return;
       }
       const bg = l ? 0xf6f7f6 : BG; r.setClearColor(bg, 1); (scene.fog as THREE.Fog).color.setHex(bg);
       (ground.material as THREE.MeshStandardMaterial).color.setHex(l ? 0xeef0ee : 0x0b0e12); gridM.color.setHex(l ? 0xc3cac5 : 0x2a3440);

@@ -31,6 +31,33 @@ const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c38
 /** 시뮬(cyber) 로봇 재질. 시뮬 칸도 실기 · 데모와 같은 현장 · 따라가기 카메라(팀장 20:49) · 파란 결은 로봇 · 테두리 · 이름표로만.
  *  밝은 판: 흰 땅 위에서 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
 /** 현장 위 시뮬 로봇: 밝기 = k0 + k1 · 테두리 몫, 진하기 = a0 + a1 · 테두리 몫(보통 섞기). 점 바닥(어두운 바탕)은 로봇 탭과 같은 더하기 값 그대로 */
+/** 로봇 라이팅을 판마다 따로(팀장 03:28 «어둠에 맞춘 라이팅이 밝은 판에 안 어울림»): 관제 타일(점 바닥) · 로봇 탭 · 지도 보기 로봇이 같이 씀.
+ *  어둠 = 옛 값 그대로. 밝음 = 하늘 빛을 낮춰 몸이 회색으로 뜨지 않게 · 주광을 올려 면을 세우고 · 테두리 빛은 흰 빛 조금 (둥근 그림자 원은 팀장 01:37 금지라 두지 않음 · 땅에 붙는 느낌은 LIGHT_FLOOR).
+ *  값 견주기: 주소 ?rl=hemi,key,rim,exp (밝음만 덮어씀) */
+export const ROBOT_LIGHT_DARK = { sky: 0xdfe8f0, ground: 0x0c0f14, hemi: 0.9, key: 2.2, rim: 1, exp: 1.05 };
+export const ROBOT_LIGHT_LIGHT_BASE = { sky: 0xffffff, ground: 0xc8cfcb, hemi: 1.1, key: 2.8, rim: 0.45, exp: 1.0 };
+export const robotLightOf = (q: string): typeof ROBOT_LIGHT_LIGHT_BASE => {
+  const v = (new URLSearchParams(q).get('rl') ?? '').split(',').map(Number);
+  return v.length === 4 && v.every((x) => Number.isFinite(x) && x >= 0 && x <= 8) ? { ...ROBOT_LIGHT_LIGHT_BASE, hemi: v[0], key: v[1], rim: v[2], exp: v[3] } : ROBOT_LIGHT_LIGHT_BASE;
+};
+const ROBOT_LIGHT_LIGHT = (() => { try { return robotLightOf(location.search || location.hash.split('?')[1] || ''); } catch { return ROBOT_LIGHT_LIGHT_BASE; } })();
+export const robotLight = (light: boolean): typeof ROBOT_LIGHT_DARK => (light ? ROBOT_LIGHT_LIGHT : ROBOT_LIGHT_DARK);
+/** 판 빛을 입힘: rims = [빛, 어둠 세기, 어둠 색] · 밝음이면 흰 빛 × rim 몫 */
+export function lightRobot(light: boolean, hemi: THREE.HemisphereLight, key: THREE.DirectionalLight, rims: [THREE.DirectionalLight, number, number][]) {
+  const k = robotLight(light);
+  hemi.color.setHex(k.sky); hemi.groundColor.setHex(k.ground); hemi.intensity = k.hemi; key.intensity = k.key;
+  for (const [l, base, c] of rims) { l.color.setHex(light ? 0xffffff : c); l.intensity = base * k.rim; }
+  return k;
+}
+/** 밝은 판 점 바닥 아래 회색 바닥(팀장 03:31 «로봇이 떠 보이지 않게»): 발밑이 짙은 회색(#5E6662 · 밝음 1 점검 색) · 점과 같은 꼴(1 - smoothstep(0.35, 1.9, 거리))로 흐려짐.
+ *  어둠 판은 끔(op 0). 관제 타일 · 로봇 탭이 같이 씀 */
+export const LIGHT_FLOOR = { col: 0x5e6662, op: 0.32 } as const;
+export function lightFloor() {
+  const m = new THREE.Mesh(new THREE.CircleGeometry(1.95, 64), new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { op: { value: 0 }, col: { value: new THREE.Color(LIGHT_FLOOR.col) } },
+    vertexShader: 'varying vec2 u; void main(){ u=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} ',
+    fragmentShader: 'uniform float op; uniform vec3 col; varying vec2 u; void main(){ float a=1.0-smoothstep(0.35,1.9,length(u)); gl_FragColor=vec4(col,op*a);} ' }));
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.0003; m.renderOrder = -2; m.name = 'light-floor'; return m;
+}
 export const SITE_SIM_BASE = { k: [0.45, 0.95], a: [0.4, 0.5], s: 0.5 };   // 03:23 실측 후보 c3(비침 · 줄무늬 · 어둠 밝기 차이 64)
 /** 값 견주기: 주소 ?siteSim=k0,k1,a0,a1,s (또는 #… ?siteSim=…). 숫자 다섯이 아니면 SITE_SIM_BASE */
 export const siteSimOf = (q: string): typeof SITE_SIM_BASE => {
@@ -96,7 +123,7 @@ class Tiles {
   world = new THREE.Group(); body: Body | null = null; walk: Walk | null = null; cyber: THREE.ShaderMaterial | null = null;
   /** 바닥 표시 [어두운 판, 밝은 판](밝은 판 = 밝음 1 색 · padanim PAD_LIGHT) */ pads: Record<'charge' | 'check', THREE.Group>[] | null = null;
   grid!: THREE.Points; gm!: THREE.ShaderMaterial; site: THREE.Group | null = null;
-  t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number, number][] = [];
+  t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; key!: THREE.DirectionalLight; floor!: THREE.Mesh; rims: [THREE.DirectionalLight, number, number][] = [];
 
   add(c: HTMLCanvasElement, look: () => TileLook) {
     const v: View = { c, look, at: null }; this.views.add(v); this.start();
@@ -117,7 +144,8 @@ class Tiles {
   private build() {
     const s = this.scene;
     this.hemi = new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9); s.add(this.hemi);
-    const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, 1.6); s.add(key);
+    const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, 1.6); s.add(key); this.key = key;
+    this.floor = lightFloor(); s.add(this.floor);
     const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); s.add(rim); this.rims.push([rim, 1.6, 0x00c389]);
     const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); s.add(rim2); this.rims.push([rim2, 0.8, 0x4c9bff]);
     // 바닥 점(시안 glow · floor 0.5)
@@ -172,10 +200,12 @@ class Tiles {
     const r = this.r!, b = this.body;
     if (this.cyber) { const k = simLook(lightNow()); this.cyber.uniforms.t.value = this.t; this.cyber.blending = k.blend; this.cyber.uniforms.col.value.setHex(k.col); }
     // 밝은 판: 현장 재질 · 땅 쪽 빛을 밝음 1 흰 점토 결로(타일 바탕은 u5.css .proto.light .cv)
-    const light = lightNow(); this.hemi.groundColor.setHex(light ? 0xc8cfcb : 0x0c0f14);
+    const light = lightNow();
+    // 현장 위(임무 중) 빛: 현장 점토가 검게 죽지 않게 하늘 빛을 올린 옛 값. 점 바닥 칸은 판마다 나눈 로봇 라이팅(lightRobot) · 칸마다 아래에서 고름
+    const siteLight = () => { this.hemi.color.setHex(0xdfe8f0); this.hemi.groundColor.setHex(light ? 0xc8cfcb : 0x0c0f14); this.hemi.intensity = light ? 2.4 : 0.9; this.key.intensity = 2.2;
+      for (const [l, k, c] of this.rims) { l.color.setHex(light ? 0xffffff : c); l.intensity = light ? k * 0.7 : k; } };
     // 밝은 판: 민트 · 파랑 테두리 빛은 흰 빛으로 바꿔(벽이 물들지 않게) 카메라 쪽 면을 밝히고, 하늘 빛을 올려 흰 점토가 검게 죽지 않게
-    this.hemi.intensity = light ? 2.4 : 0.9;
-    for (const [l, k, c] of this.rims) { l.color.setHex(light ? 0xffffff : c); l.intensity = light ? k * 0.7 : k; } if (this.site) toneSite(this.site, light);
+    if (this.site) toneSite(this.site, light);
     for (const v of this.views) {
       const w = v.c.clientWidth, h = v.c.clientHeight;
       if (!w || !h) continue;
@@ -213,7 +243,9 @@ class Tiles {
         poseBody(b, look, this.walk, this.t, this.keep);   // 엎드림은 로봇 탭과 같은 바닥 맞춤(go2view ground · 꼭짓점 기준 최저점 y = 0)
       }
       if (this.cyber) { this.cyber.uniforms.site.value = ly.world ? 1 : 0; this.cyber.blending = ly.world ? THREE.NormalBlending : simLook(light).blend; }
-      r.toneMappingExposure = ly.world ? TEX_LOOK[light ? 'light' : 'dark'].exp + 0.15 : 1.05;   // 현장 위: 지도 보기 질감판 노출(어둠 0.72 · 밝음 0.9)보다 조금 밝게(로봇이 묻히지 않게) · 점 바닥은 그대로
+      let rl = robotLight(light); if (ly.world) siteLight(); else rl = lightRobot(light, this.hemi, this.key, this.rims);
+      (this.floor.material as THREE.ShaderMaterial).uniforms.op.value = light && ly.dots ? LIGHT_FLOOR.op : 0;
+      r.toneMappingExposure = ly.world ? TEX_LOOK[light ? 'light' : 'dark'].exp + 0.15 : rl.exp;   // 현장 위: 지도 보기 질감판 노출(어둠 0.72 · 밝음 0.9)보다 조금 밝게(로봇이 묻히지 않게) · 점 바닥은 그대로
       r.setClearColor(0x000000, 0); r.clear();
       r.render(this.scene, this.cam);
       ctx.clearRect(0, 0, v.c.width, v.c.height); ctx.drawImage(r.domElement, 0, 0, v.c.width, v.c.height);

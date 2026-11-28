@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { padGroup, padTick } from '../../proto/padanim';
 import { applyWalk, loadWalk, type Walk } from '../../proto/site';
-import { feetUp, simLook } from '../../proto/tileview';
+import { LIGHT_FLOOR, feetUp, lightFloor, lightRobot, simLook } from '../../proto/tileview';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -86,10 +86,12 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const yaw = opt.yaw ?? 0.0, dist = opt.dist ?? 1.3;
   cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); cam.lookAt(0, 0.17, 0);
 
-  scene.add(new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9));
+  const hemi = new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9); scene.add(hemi);
   const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, 1.6); scene.add(key);
   const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); scene.add(rim);
   const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); scene.add(rim2);
+  const rims: [THREE.DirectionalLight, number, number][] = [[rim, 1.6, 0x00c389], [rim2, 0.8, 0x4c9bff]];
+  const floor = lightFloor(); scene.add(floor);   // 밝은 판 점 아래 회색 바닥(관제 타일과 같은 값)
 
   const pools: THREE.Object3D[] = [];   // 어두운 판 바닥 빛 웅덩이(밝은 판에서는 회색 원으로 보여 끔)
   const N = GRID_N, step = GRID_STEP, pts = new Float32Array(N * N * 3);
@@ -175,6 +177,8 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
       m.blending = opt.cyber ? sl.blend : l ? THREE.NormalBlending : dark.blend; m.uniforms.col.value.copy(opt.cyber ? new THREE.Color(sl.col) : l ? mint : dark.col); m.needsUpdate = true; });
     if (opt.cyber) { cm.blending = sl.blend; cm.uniforms.col.value.setHex(sl.col); cm.needsUpdate = true; }
     pools.forEach((o) => { o.visible = !l; });
+    const k = lightRobot(l, hemi, key, rims); r.toneMappingExposure = k.exp;   // 판마다 나눈 로봇 라이팅(어둠 = 옛 값)
+    (floor.material as THREE.ShaderMaterial).uniforms.op.value = l ? LIGHT_FLOOR.op : 0;   // 밝은 판 점 아래 회색 바닥
     padNow = null;   // 판이 바뀌면 바닥 표시 색도 다시
   };
   const clock = new THREE.Clock(); let t = 0.35, gpos = { x: 0, z: 0, th: 0 }, raf = 0, lastQ: number[] | null = null;
