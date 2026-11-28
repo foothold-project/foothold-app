@@ -71,10 +71,10 @@ export function tokStick(held: Iterable<Tok>, o: Partial<OrgSettings> | null, si
   const d = (a: Tok, b: Tok) => Number(k.includes(a)) - Number(k.includes(b));
   return [d('up', 'down'), d('left', 'right'), d('rotl', 'rotr')];
 }
-/** 보낼 [vx, vy, wz]: 시뮬 = stickVelocity(tokStick, teleopCaps(설정, 시뮬), deadzone(설정)) · 실기 = command. 표에 없는 조합은 둘 다 0 */
+/** 보낼 [vx, vy, wz]: 시뮬 = stickVelocity(tokStick, teleopCaps(설정, 시뮬), deadzone(설정)) · 조합 제한 없음 · 실기 = command(표에 없는 조합 0) */
 export function axesOf(held: Iterable<Tok>, o: Partial<OrgSettings> | null, sim: boolean, an?: TeleStick | null): [number, number, number] {
   if (!sim) return command(held);
-  if (unknownCombo(held)) return TABLE[''];
+  // 시뮬 · 데모는 표에 없는 조합(옆 + 돌기 · 앞 + 옆 …)도 막지 않음 — 팀장 결정: 축을 앱이 막지 않고 조합은 정책 몫(반대 키는 keyStick 이 0)
   const k = tokStick(held, o, true), m: TeleStick = an ? [an[0] || k[0], an[1] || k[1], an[2] || k[2]] : k;   // 손잡이가 민 축은 그 기울기(비례), 아니면 키 자리
   return stickVelocity(m, teleopCaps(asRec(o), true), deadzone(asRec(o))).map((v) => Math.round(v * 1e6) / 1e6 || 0) as [number, number, number];
 }
@@ -292,7 +292,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     if (was && id(was.t) === id(t)) { if (sim && an && was.an?.join() !== an.join()) { was.an = an; if (rt.get(r.id).lease) send(); } return; }   // 시뮬: 같은 방향이어도 기울기가 바뀌면 다시 보냄
     pads.current.set(p, { n: was ? was.n : now(), t, el, an });
     const q = pressed();   // 키와 같은 까닭 한 줄(손잡이 옆걸음 · 상한 · 표 밖 조합)
-    if (readyRef.current && q && unknownCombo(q)) setWhy(COMBO_BLOCK);
+    if (readyRef.current && q && !sim && unknownCombo(q)) setWhy(COMBO_BLOCK);
     else if (readyRef.current && q && !allowedAxes(axesOf(q, settingsRef.current, sim), settingsRef.current, sim)) setWhy(axesOf(q, settingsRef.current, sim)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.');
     else if (readyRef.current) setWhy('');
     changed();
@@ -323,7 +323,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       k.set(e.code, now());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
       const p = pressed();
-      if (readyRef.current && p && unknownCombo(p)) { changed(); setWhy(COMBO_BLOCK); return; }
+      if (readyRef.current && p && !sim && unknownCombo(p)) { changed(); setWhy(COMBO_BLOCK); return; }
       if (readyRef.current && p && !allowedAxes(axesOf(p, settingsRef.current, sim), settingsRef.current, sim)) { changed(); setWhy(axesOf(p, settingsRef.current, sim)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.'); return; }
       if (readyRef.current) setWhy(''); changed();
     };

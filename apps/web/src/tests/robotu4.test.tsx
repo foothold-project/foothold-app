@@ -942,7 +942,12 @@ describe('조종 한 식 (contracts teleop · 팀장 11-28 23:08)', () => {
     expect(axesOf(['down'], ORG, true)[0]).toBeCloseTo(-0.6, 6);
     expect(axesOf(['left'], ORG, true)).toEqual([0, 0.4, 0]);
     expect(axesOf(['rotr', 'up'], ORG, true)).toEqual(want(['forward', 'turn_right']));
-    expect(axesOf(['up', 'down'], ORG, true)).toEqual([0, 0, 0]);   // 표에 없는 조합 = 0
+    expect(axesOf(['up', 'down'], ORG, true)).toEqual([0, 0, 0]);   // 반대 키 = 0 (keyStick)
+    // 시뮬 · 데모는 표에 없는 조합도 막지 않음(팀장 결정 · 조합은 정책 몫): 옆 + 돌기 · 앞 + 옆 · 뒤 + 돌기
+    expect(axesOf(['left', 'rotl'], ORG, true)).toEqual([0, 0.4, 1]);
+    expect(axesOf(['up', 'right'], ORG, true)).toEqual([want(['forward'])[0], -0.4, 0]);
+    expect(axesOf(['down', 'rotr'], ORG, true)[2]).toBe(-1);
+    expect(axesOf(['left', 'rotl'], ORG, false)).toEqual([0, 0, 0]);   // 실기 = 표에 없는 조합 0 그대로
     expect(axesOf(['up'], ORG, false)).toEqual([1.5, 0, 0]);   // 실기 = 표 값
     // 화면 손잡이 기울기(비례): 민 축은 그 기울기 · 키보드와 같은 식
     expect(axesOf(['up'], ORG, true, [0.5, 0, 0])[0]).toBeCloseTo(0.25, 6);
