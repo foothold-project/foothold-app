@@ -5,7 +5,6 @@
 // 결재는 /approvals(screens/approvals.tsx — 탭 배지는 /dashboard approvals_pending), 나머지는 가짜.
 import { Component, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
-import { BrandLogo } from './BrandLogo';
 import { ADMIN_REAL, ROBOTS, ROLE_NAME, USERS, adminReal, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
@@ -107,6 +106,8 @@ const LINE = { flexBasis: '100%' };   // 고르기 창 안 한 줄(줄바꿈 칸
 /** 실시간 링크 끊김 · 첫 state 전 로봇 정지(A1): 닿았는지 화면이 모른다 */
 const unsureStop = (r: Robot) => `${r.name} 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요`;
 // #529 H2: 서버는 에이전트가 없으면 STOP 을 받아 두지 않는다. 나중에 전달된다고 약속하지 않는다. 다시 붙으면 로봇은 잠긴 채 시작(연결 STOP · SF-02)
+/** 시안 머리줄 «서버 정상»: 실시간 연결 상태 그대로 */
+const SERVER: Record<string, string> = { open: '서버 정상', connecting: '서버 연결 중', idle: '서버 연결 중', lost: '서버 연결 끊김', denied: '서버 연결 거부' };
 const LOST_TAIL = '다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
 const lostStop = (r: Robot) => `${r.name} 연결 끊김 · 정지를 보낼 수 없습니다. ${LOST_TAIL}`;
 const lostSent = (r: Robot) => `${r.name} 연결이 끊겨 정지를 보내지 못했습니다. ${LOST_TAIL}`;
@@ -116,10 +117,10 @@ const noServerStop = (r: Robot) => !r.sim && r.serverDrive !== true;
 /** 서버가 받은 정지(WS 접수 · 대체 경로). 거절 · 불확실 · 보내는 중이면 그 결과 글이 앞선다(r2 M2) */
 const taken = (l: Live) => l.stop?.phase === 'sent' || l.stop?.phase === 'fallback';
 
-export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
+export function Stop({ phone, onStop, label }: { phone: boolean; onStop: () => void; label?: string }) {
   return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} {...useStopPress(onStop)}>
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
-    <span className="fh-stop-t"><span>STOP</span>{!phone && <small>정지 요청</small>}</span>
+    {label ? <span className="fh-stop-t">{label}</span> : <span className="fh-stop-t"><span>STOP</span>{!phone && <small>정지 요청</small>}</span>}
   </button>;
 }
 
@@ -288,12 +289,14 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const Body = BODY[tab === 'missions' ? 'map' : tab];
   const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다.' : NO_ROBOT}</p></section>;
 
+  // 시안 .allstop 글(u5_1 「모두 정지」 · u5_2 「K-01 정지」): 관제는 고른 타일 · 없으면 모두, 그 밖은 정할 로봇이 있으면 그 이름. 누름 동작은 그대로
+  const stopLabel = ctl ? (ctlPick ? `${ctlPick.name} 정지` : '모두 정지') : target ? `${target.name} 정지` : '로봇 정지';
   const navTab = tab === 'terrain' ? 'map' : tab;   // 지형 만들기는 지도 탭 안 화면(11-19)
   const link = (t: Tab, cls: string) => {
     const badge = t.id === 'approval' ? dash.d?.approvals_pending ?? 0 : 0;   // 서버 수 그대로: 총괄 = 조직 전체 대기, 운영 관리자 = 내 대기 요청
     return <a key={t.id} className={`${cls}${t.id === navTab ? ' cur' : ''}`} href={`#/${t.id}`} aria-current={t.id === navTab ? 'page' : undefined}
       aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => { if (!leaving.ask) setWant(`#/${t.id}`); }}>
-      {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
+      {cls === 'tab' ? null : t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };
 
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'} data-drive={open || simOpen ? '' : undefined}>
@@ -302,22 +305,27 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {phone
         ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button>
           : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
-        : <><BrandLogo h={24} /><div className="fh-sep" /><h1>{title}</h1></>}
+        : <><span className="fh-logo-t" data-shell-logo>FOOTHOLD</span>
+          <nav className="fh-nav fh-tabs" aria-label="주 메뉴">{[...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => link(t, 'tab'))}</nav>
+          <h1 className="fh-sr">{title}</h1></>}
       <span className="fh-grow" />
-      {(() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
+      {!phone ? <div className="fh-rt" data-shell-right>
+        <span className="fh-live" data-slot="live"><i className="fh-livedot" aria-hidden="true" /><span data-live>로봇 {robots.filter((r) => r.online).length} 대 연결</span></span>
+        <span className="fh-mu2" data-slot="server" data-link={net.at === 'lost' || net.at === 'denied' ? net.at : undefined}><span data-server>{SERVER[net.at] ?? '서버 연결 중'}</span></span>
+        <span data-slot="bell"><Guard quiet><Bell cancel={cancel} /></Guard></span>
+        <details className="fh-who" data-slot="who"><summary><i data-av aria-hidden="true">나</i><span className="fh-me">{user.name} · {ROLE_NAME[user.role]}</span></summary>
+          <div className="card"><ThemeNav />{logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>
+      </div> : (() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
         const [cls, dot, t] = net.at === 'open' ? ['ok', '●', '연결'] : net.at === 'connecting' || net.at === 'idle' ? ['', '○', '연결 중'] : ['bad', '■', net.at === 'denied' ? '연결 거부' : '연결 끊김'];
         return <span className={`fh-dot${cls ? ` ${cls}` : ''}`} data-link={cls === 'bad' ? net.at : undefined} title={t}><i aria-hidden="true">{dot}</i><span className="fh-dot-t">{t}</span></span>;
       })()}
-      {!phone && <Guard quiet><Bell cancel={cancel} /></Guard>}
-      {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
-      {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
       {phone && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
         <div className="card">{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
           : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
           {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}
           <ThemePick /></div></details>}
-      {(canStop || toSim) && !calm && <Stop phone={phone} onStop={stop} />}
+      {(canStop || toSim) && !calm && <Stop phone={phone} onStop={stop} label={phone ? undefined : stopLabel} />}
     </>}</header>
     {open && robot && rel && (rel.why
       ? <div className="fh-pick" role="alertdialog" aria-label="조종권 반납 확인 못함" data-end-fail>
@@ -362,7 +370,6 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
     ].filter(Boolean)}</div>
     <div className="fh-body">
-      {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.filter((t) => !t.hidden).map((t) => link(t, 'nav'))}<span className="fh-grow" /><ThemeNav />{link(PC_BOTTOM, 'nav')}</nav>}
       <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
         : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음

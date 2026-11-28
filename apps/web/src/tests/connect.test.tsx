@@ -114,7 +114,7 @@ describe('로그인·세션', () => {
     await open();
     await login('kim', 'pw');
     expect(calls.find((c) => c.path === '/auth/login')!.body).toMatchObject({ username: 'kim', password: 'pw', client: 'web' });
-    expect($('.fh-me')!.textContent).toBe('김총괄(총괄)');
+    expect($('.fh-me')!.textContent).toBe('김총괄 · 총괄');
     expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=all');
     expect($('[aria-label="로봇 목록"]')!.textContent).toContain('Go2-A');
     act(() => btn('로그아웃')!.click());
@@ -127,7 +127,7 @@ describe('로그인·세션', () => {
     await open('#/settings');
     expect(calls.map((c) => c.path).slice(0, 3)).toEqual(['/auth/session', '/me', '/robots?scope=all&limit=100']);
     expect($('main[aria-label="로그인"]')).toBeNull();
-    expect($('.fh-me')!.textContent).toBe('김총괄(총괄)');
+    expect($('.fh-me')!.textContent).toBe('김총괄 · 총괄');
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '25');
     act(() => btn('저장')!.click());
     await flush();
@@ -163,7 +163,7 @@ describe('로그인·세션', () => {
     watch.observe(box, { childList: true, subtree: true, characterData: true });
     await login('lee', 'pw');
     watch.disconnect();
-    expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
+    expect($('.fh-me')!.textContent).toBe('이운영 · 운영 관리자');
     expect(fleetNames(box)).toEqual(['Go2-L']);
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.filter((t) => /김총괄|Go2-K/.test(t))).toEqual([]);
@@ -229,7 +229,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
 
       act(() => btn('로그아웃')!.click()); await flush();
       await login('kim', 'pw');
-      expect($('.fh-me')!.textContent).toBe('김총괄(총괄)');
+      expect($('.fh-me')!.textContent).toBe('김총괄 · 총괄');
       expect(names()).toEqual(['Go2-B', 'Go2-A']);
       act(() => { vi.advanceTimersByTime(LIST_MS * 2); }); await flush();   // 총괄은 주기 갱신 없음
       const m = scopes().length;
@@ -322,7 +322,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       await flush();
       expect(fleetNames(box)).toEqual(['Go2-박운영']);
       expect(MEM_ROBOTS.map((r) => r.name)).toEqual(['Go2-박운영']);
-      expect($('.fh-me')!.textContent).toBe('박운영(운영 관리자)');
+      expect($('.fh-me')!.textContent).toBe('박운영 · 운영 관리자');
     } finally { vi.useRealTimers(); }
   });
   it('[N5] 목록 갱신으로 내 담당이 된 로봇은 같은 소켓으로 다시 구독 → 상태를 받으면 조종 가능', async () => {
