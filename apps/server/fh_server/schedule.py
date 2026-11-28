@@ -37,7 +37,13 @@ def slot_object(row):
     return C.ScheduleSlot(id=row.id, robot_id=row.robot_id, scenario_id=row.scenario_id,
         scenario_version=row.scenario_version, gait=row.gait, start=row.start_at, end=row.end_at,
         kind=row.kind, assignment_id=row.assignment_id, memo=row.memo,
-        created_by=row.created_by, created_at=row.created_at)
+        created_by=row.created_by, created_at=row.created_at,
+        run_state=row.run_state, run_id=row.run_id, run_code=row.run_code, confirmed_by=row.confirmed_by)
+
+
+def require_not_run(row, fail):
+    if row.run_state is not None:
+        fail(409, 'SCHEDULE_SLOT_RUN', '예약 실행이 이미 걸린 일정은 바꾸거나 지울 수 없습니다.')
 
 
 def record(db, user, row, code):
@@ -159,7 +165,8 @@ def install(app, DB, Identity, fail):
         require_free(db, user.org_id, body.robot_id, body.start, body.end, fail)
         row = ScheduleSlot(org_id=user.org_id, robot_id=body.robot_id, scenario_id=body.scenario_id,
             scenario_version=body.scenario_version, gait=body.gait, start_at=body.start, end_at=body.end,
-            kind=body.kind, assignment_id=body.assignment_id, memo=body.memo, created_by=user.id)
+            kind=body.kind, assignment_id=body.assignment_id, memo=body.memo, created_by=user.id,
+            confirmed_by=user.id if body.kind == 'CONFIRMED' else None)
         db.add(row)
         db.flush()
         record(db, user, row, 'SCHEDULE_SLOT_CREATED')
@@ -188,6 +195,7 @@ def install(app, DB, Identity, fail):
             fail(404, 'NOT_FOUND', '일정을 찾을 수 없습니다.')
         if row.robot_id != original.robot_id:
             fail(409, 'VERSION_CONFLICT', '일정이 다른 로봇으로 옮겨졌습니다. 다시 불러오세요.')
+        require_not_run(row, fail)
         start, end = values.get('start', row.start_at), values.get('end', row.end_at)
         kind = values.get('kind', row.kind)
         if end <= start:
@@ -196,6 +204,8 @@ def install(app, DB, Identity, fail):
             fail(400, 'VALIDATION', '시나리오 없는 일정은 배터리 교체만 됩니다.')
         require_gait_ready(kind, values.get('gait', row.gait), fail)
         require_free(db, user.org_id, target, start, end, fail, exclude=row.id)
+        if kind != row.kind:  # who confirmed is who pre-pressed unlock (simulation scheduled run)
+            row.confirmed_by = user.id if kind == 'CONFIRMED' else None
         row.robot_id, row.start_at, row.end_at, row.kind = target, start, end, kind
         if 'gait' in values:
             row.gait = values['gait']
@@ -214,6 +224,7 @@ def install(app, DB, Identity, fail):
             return
         if row.robot_id != original.robot_id:
             fail(409, 'VERSION_CONFLICT', '일정이 다른 로봇으로 옮겨졌습니다. 다시 불러오세요.')
+        require_not_run(row, fail)
         record(db, user, row, 'SCHEDULE_SLOT_DELETED')
         db.delete(row)
 

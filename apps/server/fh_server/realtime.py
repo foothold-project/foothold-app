@@ -285,6 +285,7 @@ class Realtime:
         self.deleted_robots = set()
         self.deleted_at = {}
         self.runs: dict[str, dict] = {}  # executor persistence is a later task
+        self.scheduled_runs: dict[str, dict] = {}  # robot -> {'run_id', 'slot_id'} while a schedule slot holds RUN
         self.audit = FairAuditQueue(self)
         self.audit_engine = create_engine(settings.database_url, pool_size=1, max_overflow=0,
                                          connect_args={'options': '-c lock_timeout=1000 -c statement_timeout=2000'})
@@ -1238,14 +1239,20 @@ class Realtime:
                             body['user_id'] = record.holder.actor.user  # names the server-path relay
                             if record.holder.actor.display_name:
                                 body['display_name'] = record.holder.actor.display_name[:64]  # display only
+                    if body['t'] == 'lease' and body.get('lease_id') is None:
+                        self.__dict__.get('scheduled_runs', {}).pop(rid, None)  # a released RUN lease never comes back
+                    if body['t'] == 'stop':
+                        self.note_release_stop(rid, body, effect.cause)
                     peer = self.agents.get(rid)
                     if peer:
                         # DB provenance plus explicit per-robot manual trial only.
                         if self.blocked_agent_control(peer, body):
                             continue
                         if body['t'] == 'lease' and body['holder_type'] == 'RUN':
-                            self.runs[rid]['lease_id'] = body['lease_id']
-                            body['holder_type'] = 'RUN:' + self.runs[rid]['run_id']
+                            # A schedule slot's RUN holder names the slot's run; otherwise the paused run.
+                            run = self.scheduled_runs.get(rid) or self.runs[rid]
+                            run['lease_id'] = body['lease_id']
+                            body['holder_type'] = 'RUN:' + run['run_id']
                         if body['t'] in ('cmd', 'unlock', 'posture', 'action') or (body['t'] == 'lease' and body['lease_id'] is not None):
                             if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
                                 continue
@@ -1316,7 +1323,11 @@ class Realtime:
             return not (peer.actor is None and rid not in self.robot_changes
                 and not self.owner_uncertain and self.clock()-peer.auth_checked <= .5
                 and (peer.simulation or (peer.server_drive and self.field_approved(rid)))
-                and holder and holder.holder_type == 'USER' and holder.lease_id == body.get('lease_id'))
+                and holder and holder.lease_id == body.get('lease_id')
+                and (holder.holder_type == 'USER' or (
+                    # 예약 실행 (11/28): 칸이 잡은 RUN lease 로 그 칸의 run.start 만.
+                    holder.holder_type == 'RUN' and holder.actor is None and body.get('t') == 'run.start'
+                    and (self.__dict__.get('scheduled_runs', {}).get(rid) or {}).get('run_id') == str(body.get('run_id')))))
         if body.get('t') in ('posture', 'action'):
             rid = next((key for key, value in self.agents.items() if value is peer), None)
             record = self.arbiter.robots.get(rid)
@@ -1620,6 +1631,8 @@ class Realtime:
                             peer.run_tasks.add(task := asyncio.create_task(self.start_run(peer, rid, actor, msg, mark)))
                             task.add_done_callback(peer.run_tasks.discard)
                             continue
+                        elif msg.t == 'run.control' and self.schedule_pause(rid, actor, msg):
+                            pass
                         elif msg.t == 'run.control':
                             self.send_run(rid, actor, msg, reply_to=peer)  # replies after the final send
                             continue
@@ -1721,6 +1734,8 @@ class Realtime:
         self.put(peer, body)
 
     def send_run(self, rid, actor, msg, *, enqueue=True, reply_to=None):
+        if msg.lease_id is None:  # only a RUN holder's pause goes without a lease id (schedule_pause)
+            raise LeaseError('LEASE_MISMATCH', '현재 연결의 조종권이 아닙니다.', 403)
         self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
         peer = self.agents[rid]
         fields = msg.model_dump(mode='json', exclude={'t', 'id', 'robot', 'proto'})
@@ -1739,6 +1754,66 @@ class Realtime:
             self.put(peer, body)
             if peer.closing and peer.run_replies.get(body['request_id']) is reply_to:
                 self.run_delivered(peer, body, False, 'ROBOT_OFFLINE')  # the queue refused it
+            if msg.t == 'run.control' and msg.op == 'pause':
+                self.apply([self.pause_audit(rid, actor, msg, 'USER')])
+
+    # -- release latch (11/28 10:58, schedule pre-unlock): which latch may a confirmed slot clear? --
+    # Only one the server made by letting go of control (lease release · expiry · run end) right after a
+    # person had unlocked. Not a connect/restart latch (SF-02), a person's STOP, a STOP the agent took by
+    # itself (phone · sim stop: stop_gen moves without a server STOP) or a safety latch.
+    RELEASE_CAUSES = frozenset({'lease_release', 'lease_expired', 'run_finished'})
+
+    def note_release_stop(self, rid, body, cause):
+        peer = self.agents.get(rid)
+        self.__dict__.setdefault('release_latch', {})[rid] = {
+            'ref': body.get('stop_ref'), 'gen': None, 'cause': cause,
+            'ok': peer is not None and peer.state.get('latched') is False}  # was unlocked just before
+
+    def note_latch(self, rid, msg):
+        record = self.__dict__.get('release_latch', {}).get(rid)
+        if record is None:
+            return
+        if not msg.latched:
+            self.release_latch.pop(rid, None)  # the latch is gone (a person unlocked)
+        elif msg.stop_ref != record['ref']:
+            record['ok'] = False
+        elif record['gen'] is None:
+            record['gen'] = msg.stop_gen  # the agent confirmed this server STOP
+        elif msg.stop_gen != record['gen']:
+            record['ok'] = False  # the agent latched again by itself
+
+    def release_latched_only(self, rid):
+        return self.latest_latch_cause(rid) in self.RELEASE_CAUSES
+
+    def latest_latch_cause(self, rid):
+        """Cause of the server STOP that is still the robot's only latch since a person had unlocked, else None.
+        screen_disconnected (#537 M2) is reported but never pre-unlocked: a closed tab is not a release."""
+        peer, record = self.agents.get(rid), self.__dict__.get('release_latch', {}).get(rid)
+        ok = (peer is not None and record is not None and record['ok'] and record['gen'] is not None
+                and record['ref'] == self.arbiter.robot(rid).stop_ref and peer.state.get('latched') is True
+                and peer.state.get('stop_gen') == record['gen'] and peer.state.get('safety_reason') is None)
+        return record['cause'] if ok else None
+
+    def schedule_pause(self, rid, actor, msg):
+        """Pause of a schedule slot's run (11/28, web #542): release the RUN lease. The agent's relay lets
+        go of the Hub (zero, latched) and the run stays PAUSED. A person then takes a USER lease and resumes
+        with it (#537); the RUN lease is never taken again. Moves toward safety, so the RUN lease id the
+        screen never sees is not asked for; the O_OWN check already ran."""
+        record = self.arbiter.robot(rid)
+        holder = record.holder
+        # Any RUN holder (a schedule slot's, or a reconnected run's reservation) whose run is this run id.
+        run = self.scheduled_runs.get(rid) or self.runs.get(rid) or {}
+        if not (msg.op == 'pause' and holder and holder.holder_type == 'RUN' and holder.actor is None
+                and str(run.get('run_id')) == str(msg.run_id) and run.get('lease_id') == holder.lease_id):
+            return False
+        self.apply(self.arbiter.revoke(rid, op=None, cause='run_paused') + [self.pause_audit(rid, actor, msg, 'RUN')])
+        return True
+
+    def pause_audit(self, rid, actor, msg, holder_type):
+        # Every pause names who sent it (11/28 #542 R5). Events only; the lease log keeps its fixed ops.
+        return self.arbiter.effect('audit', rid, op='RUN_PAUSE_REQUESTED', user_id=actor.user,
+            session_id=actor.session, other_user_id=None,
+            data={'run_id': str(msg.run_id), 'holder_type': holder_type, 'connection': actor.connection})
 
     # -- run.* screen reply after the final send (Codex M3, 11/28) --
     # ok:true only once the agent socket took the frame; a frame the final gate drops, a STOP/lease purge or
@@ -2455,6 +2530,7 @@ class Realtime:
             'controller_connected', 'controller_since', 'reported_run', 'mode')})
         peer.state['phone_reported'] = 'reported_run' in msg.model_fields_set
         peer.state_received_at = self.clock()
+        self.note_latch(rid, msg)
         self.last_state_received[rid] = now()
         pending = self.arbiter.robot(rid).transfer
         if pending and pending.actor:

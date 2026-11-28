@@ -98,6 +98,16 @@ readiness와 동일하게 맞는 nonzero만 `level=ACCEPTED`,
 (선택), 서버 중계는 그 뒤의 사람과 서버가 `AgentUnlock.display_name` 으로 내려 준 이름, 예약 실행의 RUN lease 는
 RUN 과 null. 이름은 표시용이며 권한 판단에 쓰지 않는다. 모르면 null.
 
+## 실행 일시정지 `ScreenRunControl` (11/28 #542 R5)
+
+`lease_id` 는 `op: "pause"` 일 때만 빼도 된다 (resume · abort 는 필수, 없으면 검증 실패).
+
+- 쥔 쪽 RUN: 로봇 담당 (O_OWN) 누구나 `{t:"run.control", id, robot, run_id, screen_id, op:"pause"}` 를 보낸다.
+  run_id 는 RUN lease 의 run 이어야 한다. 서버가 RUN lease 를 풀고 (속도 0 · 잠김) run 은 PAUSED.
+- 쥔 쪽 USER: 그 lease 를 쥔 화면만 `lease_id` 를 실어 pause 한다. 다른 화면은 `LEASE_MISMATCH`, 멈추려면 STOP 또는 `lease.request`.
+- STOP 잠금이 우선이다. pause · resume 은 잠금을 풀지 않는다.
+- 모든 pause 는 사건 `RUN_PAUSE_REQUESTED` (user_id = 보낸 사람, `data.run_id` · `data.holder_type` · `data.connection`).
+
 ## 지도 (S3a)
 
 `SiteTree`, `MapVersionCreate`/`MapVersion`/`MapVersionList`, `MapFeatures`,
@@ -511,6 +521,24 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
   PATCH 로 바꿀 수 있는 것은 로봇 · 시각 · 종류 · 걷기 모드뿐이다. 시나리오 · 메모 · 배정을 바꾸려면 칸을 지우고 새로 넣는다 (의도, 바뀐 시나리오가 같은 칸 id 로 남지 않게).
 - `ame2` 처럼 준비 안 된 걷기 모드는 `CONFIRMED` 칸이 될 수 없다 (409 `GAIT_NOT_READY`). 초안은 된다.
 - 일정 사건 (`SCHEDULE_SLOT_*`) 의 갈래는 `RUN` (임무).
+- 예약 실행 (11/28): `CONFIRMED` 칸의 시작 시각에 서버가 칸 만든 사람 이름으로 #537 과 같은 `run.start` 를 보낸다.
+  조종권은 기존 RUN holder lease (`holder_type` `RUN:<run_id>`, STOP 확인 뒤), 에이전트는 그 lease 로 그 run 하나만 시작한다.
+  `run_state`: null → `STARTING` → `STARTED` (`run_id`) → `DONE` | `FAILED`, 또는 `SKIPPED` | `MISSED`, 까닭은 `run_code`.
+  사람 USER lease · 요청 · 넘김이 있으면 기다리지 않고 `SKIPPED LEASE_HELD`. 실기 칸은 시작하지 않는다 (`SKIPPED REAL_ROBOT_SCHEDULE_DISABLED`, 여는 곳은 서버 설정 `FH_SCHEDULE_REAL_ROBOTS` 하나 · 기본 꺼짐 · 실기 STOP 확인 뒤). 끊긴 로봇은 `MISSED ROBOT_OFFLINE`.
+  한 칸은 한 번만 (run_state 가 비었을 때만 잡음 · `run_id` 유일). 실행이 걸린 칸은 PATCH · DELETE 409 `SCHEDULE_SLOT_RUN`.
+  다음 칸이 `BATTERY_SWAP` 이면 사건 `SCHEDULE_BATTERY_SWAP_NEXT` 만 남긴다 (시작하지 않음). 사건 `SCHEDULE_RUN_*`.
+  잠금은 사람만 푼다 (SF-02): 칸 시각에 로봇이 잠겨 있으면 (새 state 가 없음 포함) `SKIPPED STOP_LATCHED`, unlock 을 보내지 않는다.
+  서버가 내는 unlock 은 RUN lease 를 넘겨받을 때 서버 스스로 낸 STOP 만 푼다. 그 사이 사람 STOP 이 오면 `SKIPPED STOP_LATCHED`.
+  예외 (①, 시뮬만): 칸을 CONFIRMED 로 만든 사람 (`confirmed_by`) 이 잠금 해제를 미리 누른 것으로 본다. 단 그 잠금이
+  «사람이 풀어 둔 로봇을 서버가 조종권을 놓으며 (lease 반납 · 만료 · run 끝) 잠근 것» 일 때만이다. 다시 붙음 · 재시작 ·
+  사람 STOP · 에이전트 스스로 잠금 (stop_gen 이 서버 STOP 없이 바뀜) · safety 잠금은 그대로 `STOP_LATCHED`.
+  조종 화면이 닫혀 서버가 조종권을 거둔 잠금 (cause `screen_disconnected`) 도 미리 풀지 않는다. 탭이 닫혔다고 사람이 놓았다는
+  확인은 아니기 때문이다. 이 잠금이 그대로면 칸은 `SKIPPED STOP_LATCHED_SCREEN_CLOSED` 이고 사건 `SCHEDULE_RUN_SKIPPED`
+  의 reason 도 같다. 일정 화면은 «조종 화면이 닫혀 잠김 · 풀어야 시작» 으로 보인다 (화면 줄은 이식 쪽).
+  해제는 그 사람 권한 (지금도 담당 또는 총괄, 잠기지 않은 계정) 으로 하고 사건 `SCHEDULE_PRE_UNLOCK` (user = 확정한 사람) 을 남긴다.
+  권한이 없거나 확정한 사람이 없으면 `SKIPPED CONFIRMER_NOT_ALLOWED`. `ScheduleSlot.confirmed_by` 는 만들 때 CONFIRMED 면 만든 사람,
+  PATCH 로 종류가 CONFIRMED 가 되면 그 사람, CONFIRMED 가 아니게 되면 null 이다.
+  `STARTED` 칸은 `end_at` + 60 초가 지나도록 에이전트 보고가 없으면 `FAILED RUN_REPORT_LOST`. 늦게 온 보고는 `SCHEDULE_RUN_LATE_REPORT` 사건만 남기고 칸 상태는 그대로.
 - 권한은 배정과 같다. 조직 사용자는 모두 읽고, 바꾸기는 총괄 또는 그 로봇 담당만. 다른 로봇으로 옮기면 두 로봇 모두 권한이 있어야 한다.
 - 가용 `state`: 기간과 겹치는 칸이 있으면 `BUSY` (끝이 가장 늦은 칸을 `busy_*` 로), 없으면 연결이 끊긴 로봇은 `OFFLINE`, 그 외 `FREE`.
   `CHARGING` 은 서버에 충전 신호가 없어 지금은 내지 않는다. `demo` 는 서버에 그런 로봇 필드가 없어 항상 false, `sim` 은 `Robot.simulation`.

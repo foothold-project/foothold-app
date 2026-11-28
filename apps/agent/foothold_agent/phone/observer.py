@@ -43,7 +43,7 @@ class Observer:
         self.run_result = None
         self.relay = None  # ServerRelay key, registered in the Hub only when the server path is used
         self.relay_seq = 0
-        self.server_lease = self.relay_lease = None
+        self.server_lease = self.relay_lease = self.server_run = None
         from uuid import uuid5, NAMESPACE_URL
         self.relay_device = str(uuid5(NAMESPACE_URL, 'fh-server-relay:' + str(phone.robot)))
 
@@ -122,7 +122,7 @@ class Observer:
 
     def disconnect(self):
         self._relay_release()  # server link loss is the relay's link loss
-        self.server_lease = self.relay_lease = None
+        self.server_lease = self.relay_lease = self.server_run = None
         self.phone.runs.execution_disconnected()
         self.connected = False
         return Effects(())
@@ -239,8 +239,13 @@ class Observer:
         return None if reply.get('ok') else reply['error']['code']
 
     def _server_lease(self, f):
-        lease = f.get('lease_id') if f.get('holder_type') == 'USER' else None
+        # USER: a person's server lease. 'RUN:<run_id>': a schedule slot's RUN lease (11/28), good only
+        # for starting that one run (see _relay_run).
+        kind = f.get('holder_type')
+        run = kind[4:] if isinstance(kind, str) and kind.startswith('RUN:') else None
+        lease = f.get('lease_id') if kind == 'USER' or run else None
         self.server_lease = lease if isinstance(lease, str) else None
+        self.server_run = run if self.server_lease else None
         if self.relay is not None and self.relay in self.phone.peers and self.phone.owner is self.relay:
             if self.server_lease is None or lease != self.relay_lease:
                 self._relay_release()
@@ -260,7 +265,9 @@ class Observer:
         if type(stop_gen) is not int or stop_gen != h.session._generation():
             return  # sent before a newer STOP (phone · sim · server): that STOP waits for a fresh unlock (H1)
         name = f.get('display_name')
-        self._relay_peer(user, name if isinstance(name, str) and 1 <= len(name) <= 64 else None)
+        run_holder = self.server_run is not None  # a schedule run's RUN lease: shown as RUN, no name
+        p = self._relay_peer(user, None if run_holder else name if isinstance(name, str) and 1 <= len(name) <= 64 else None)
+        p.run_holder = run_holder
         if self._relay_control() is not None:
             return
         try:
@@ -296,7 +303,8 @@ class Observer:
             self.run_result = answer if isinstance(answer['run_id'], str) else None
             return
         self._relay_peer(user)
-        self.relay.verified = f['lease_id'] == self.server_lease
+        self.relay.verified = f['lease_id'] == self.server_lease and (
+            self.server_run is None or (op == 'start' and f.get('run_id') == self.server_run))
         if not self.relay.verified:
             return done('NOT_CONTROLLER')  # not the server's current USER lease
         try:

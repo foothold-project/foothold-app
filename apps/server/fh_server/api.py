@@ -42,6 +42,8 @@ class Settings:
     server_drive_robots: frozenset[UUID] = frozenset()
     server_drive_enabled: bool | None = None
     robot_installer_enabled: bool = True
+    schedule_runner_enabled: bool = False  # 일정 칸 예약 실행 (from_env 기본 켬, 시험은 직접 tick)
+    schedule_real_robots: bool = False  # 실기 예약 실행 (①) 을 여는 한 곳. 실기 STOP 확인 뒤에만 켠다 (11/28 10:58)
 
     def drive_enabled(self, robot_id):
         return (self.server_drive_enabled if self.server_drive_enabled is not None
@@ -54,6 +56,8 @@ class Settings:
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
                    phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
                    robot_installer_enabled=os.environ.get('FH_ROBOT_INSTALLER_ENABLED', '1') == '1',
+                   schedule_runner_enabled=os.environ.get('FH_SCHEDULE_RUNNER', '1') == '1',
+                   schedule_real_robots=os.environ.get('FH_SCHEDULE_REAL_ROBOTS', '0') == '1',
                    simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
                    tunnel_origin=tunnel_origin(os.environ),
                    server_drive_enabled=(os.environ['FH_SERVER_DRIVE_ENABLED'] == '1'
@@ -284,13 +288,16 @@ def create_app(settings: Settings | None = None):
         trash_task = asyncio.create_task(trash_collector())
         denial_task = asyncio.create_task(denial_auditor())
         simulation_task = asyncio.create_task(simulation.watch(app))
+        schedule_task = asyncio.create_task(scheduler.watch(app) if settings.schedule_runner_enabled
+                                            else asyncio.sleep(0))
         try:
             yield
         finally:
             trash_task.cancel()
             denial_task.cancel()
             simulation_task.cancel()
-            await asyncio.gather(denial_task, simulation_task, trash_task, return_exceptions=True)
+            schedule_task.cancel()
+            await asyncio.gather(denial_task, simulation_task, trash_task, schedule_task, return_exceptions=True)
             await app.state.realtime.close()
             engine.dispose()
 
@@ -909,6 +916,9 @@ def create_app(settings: Settings | None = None):
     voxel_maps.install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, event, settings)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
+    from . import scheduler
+    app.state.scheduler = scheduler.Scheduler(app.state.realtime, factory, settings.org_id,
+                                              real_enabled=settings.schedule_real_robots)
     from . import mapping
     mapping.install(app, DB, Identity, factory, settings, fail, event, lock_organization)
     trash.install(app, DB, Identity, fail, authorize, event)

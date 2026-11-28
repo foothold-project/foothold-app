@@ -335,8 +335,18 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 `ScreenRunStart` · `ScreenRunControl`) 로 서버에 보내고, 서버가 관문을 확인해 에이전트 메시지
 `run.start` · `run.control` (`AgentRunStart` · `AgentRunControl`) 로 넘긴다. 결과는 에이전트 상태
 `run_result` 로 돌아와 화면 상태 `run_result` · `run` 으로 보인다. 필드는 폰 직결 프레임 (§13.10) 과
-같고, 다른 점은 `assignment_id` 필수 · 모든 op 에 `lease_id` · `screen_id` 필수 · `resume_token` 없음 ·
-`return` 없음이다.
+같고, 다른 점은 `assignment_id` 필수 · `screen_id` 필수 · `lease_id` 는 pause 말고 모든 op 에 필수 ·
+`resume_token` 없음 · `return` 없음이다.
+- 일시정지 (11/28 #542 R5, 팀장 05:09 모든 기기에서 멈추고 이어 가기). lease 규칙은 바꾸지 않는다.
+  - 쥔 쪽이 RUN (예약 실행 · 다시 붙은 run) 이면 그 로봇 담당 (O_OWN) 누구나 lease_id 없이 pause 한다.
+    `{"t":"run.control","id":"<요청>","robot":"<로봇>","run_id":"<그 run>","screen_id":"<화면>","op":"pause"}`
+    (필수 t · id · robot · run_id · screen_id · op, lease_id 는 생략 또는 무시). run_id 가 RUN lease 의 run 과 같아야 한다.
+    서버는 RUN lease 를 푼다 (lease null → STOP). 중계가 Hub 를 놓아 속도 0 · 잠김, run 은 PAUSED 로 남는다.
+    이어 가기는 사람이 USER lease 를 잡고 그 lease 로 resume (아래 «이어 가기 증명»). RUN lease 는 다시 잡지 않는다.
+  - 쥔 쪽이 USER 면 그 lease 를 쥔 화면 (같은 연결 · lease_id 맞춤) 만 pause 한다. 다른 화면 (같은 사람의 다른
+    기기 포함) 은 `LEASE_MISMATCH`. 그 화면이 멈추려면 STOP (누구나, 잠김) 또는 `lease.request` (넘겨받기) 를 쓴다.
+  - resume · abort 는 그대로 (lease_id 필수). STOP 잠금이 우선이다. pause 도 resume 도 잠금을 풀지 않는다.
+  - 모든 pause 는 사건 `RUN_PAUSE_REQUESTED` (보낸 사람 user_id · `data.run_id` · `data.holder_type` USER|RUN) 를 남긴다.
 - 서버 관문: 담당 (총괄은 담당과 같은 관문, 운영 결정 2026-11-28 · #544) · 조종권 USER lease 일치 · 에이전트 인증 0.5 s 안 · 담당 변경 중
   아님, 실기는 현장 승인 · 서버 조종 켬을 더한다. 시작은 ACTIVE 배정 (로봇 · 시나리오 판 · 층 · 지도 판) 이어야
   한다. 시작 · 이어 가기는 멈춰 있을 때만. 정지 · 반납 · 승인 · 조종권이 바뀌면 큐에 남은 `run.*` 는 보내지 않는다.
@@ -601,6 +611,10 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.27 | 2026-11-28 | 조종 화면이 닫혀 잠긴 칸은 `SKIPPED STOP_LATCHED_SCREEN_CLOSED` (미리 해제 대상 아님) |
+| 0.26 | 2026-11-28 | 10:58: 실기 칸 예약 실행 안 함 (`REAL_ROBOT_SCHEDULE_DISABLED`, 설정 하나 기본 꺼짐), 시뮬은 확정한 사람이 잠금 해제를 미리 누른 것으로 봄 (조종권을 놓으며 생긴 잠금만, `SCHEDULE_PRE_UNLOCK`). 자세한 것은 `apps/contracts/README.md` «일정» |
+| 0.25 | 2026-11-28 | #542 R5: §6.5 일시정지 · RUN 이 쥔 run 은 담당 누구나 lease_id 없이 pause, USER 는 쥔 화면만, 모든 pause 사건 `RUN_PAUSE_REQUESTED`. 예약 실행은 잠긴 로봇을 풀지 않음 (`SKIPPED STOP_LATCHED`) |
+| 0.24 | 2026-11-28 | 일정 칸 예약 실행: CONFIRMED 칸 시각에 서버가 §6.5 `run.start` 를 같은 관문으로 보냄 (RUN holder lease · 칸 run_state · 한 번만). 자세한 것은 `apps/contracts/README.md` «일정» |
 | 0.23 | 2026-11-28 | Codex 검토 (#537): `run.*` reply 는 보낸 뒤 · `RUN_NOT_DELIVERED`, 보내기 앞 배정 재확인, 데모 화면 끊김 즉시 회수, 늦은 unlock 의 `stop_gen` 확인 (§6.5) |
 | 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
 | 0.21 | 2026-11-28 | 팀장 05:09 · 05:14: §6.5 실행 명령을 화면 → 서버 → 에이전트 실시간 길 (`run.start` · `run.control`) 로, 데모도 같은 길, 서버 길 이어 가기 증명, 폰 직결은 서버 장애 때 정지 · 끝 길 |

@@ -238,6 +238,48 @@ def test_server_drive_session_without_run_machine_reports_unsupported():
     assert session.core.out == before
 
 
+def test_schedule_run_lease_starts_only_its_own_run(cloud):
+    """A schedule slot's 'RUN:<run_id>' lease (11/28) unlocks the demo Hub and starts only that run."""
+    r = cloud
+    free_phone(r)
+    r.run_id = uid()
+    r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + r.run_id})
+    r.state(True)
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': r.hub.session._generation(), 'user_id': r.user})
+    r.state(False)
+    assert isinstance(r.hub.owner, ServerRelay) and not r.hub.session.core.latch
+    other = r.run_id
+    r.run_id = uid()
+    assert send_run(r, 'run.start')['code'] == 'NOT_CONTROLLER'  # another run id
+    r.run_id = other
+    got = send_run(r, 'run.start')
+    assert (got['status'], got['code']) == ('SUCCEEDED', 'OK')
+    assert wait_moving(r) == 'MOVING'
+    assert send_run(r, 'run.control', op='pause')['code'] == 'NOT_CONTROLLER'  # the slot lease only starts
+    r.observer.receive({'t': 'lease', 'lease_id': None, 'holder_type': None})
+    assert r.hub.owner is None and r.runs.snapshot()['status'] == 'PAUSED'
+
+
+def test_schedule_run_paused_by_lease_loss_resumes_with_person_lease(cloud):
+    """Pause of a schedule run: RUN lease released -> relay lets go (zero, latched); a person's USER
+    lease then resumes the same run (#537 resume proof). The RUN lease is not needed again."""
+    r = cloud
+    free_phone(r)
+    r.run_id = uid()
+    r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + r.run_id})
+    r.state(True)
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': r.hub.session._generation(), 'user_id': r.user})
+    r.state(False)
+    assert send_run(r, 'run.start')['code'] == 'OK' and wait_moving(r) == 'MOVING'
+    r.observer.receive({'t': 'lease', 'lease_id': None, 'holder_type': None})
+    assert r.hub.owner is None and r.hub.session.core.latch and not any(r.hub.session.core.out)
+    assert r.runs.snapshot()['status'] == 'PAUSED'
+    person = uid()
+    server_control(r, person)
+    got = send_run(r, 'run.control', lease=person, op='resume')
+    assert (got['status'], got['code']) == ('SUCCEEDED', 'OK'), got
+
+
 def test_late_unlock_from_before_a_phone_stop_never_clears_it(cloud):
     """H1 (Codex 11/28): the server screen controls the demo Hub and presses unlock; before that unlock
     reaches the agent the phone STOPs. The late unlock carries the old stop_gen and must not clear the new STOP."""

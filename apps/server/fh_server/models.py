@@ -533,6 +533,11 @@ class ScheduleSlot(Tenant, Base):
         CheckConstraint('(scenario_id IS NULL) = (scenario_version IS NULL)', name='schedule_slot_scenario_pair'),
         CheckConstraint("scenario_id IS NOT NULL OR kind = 'BATTERY_SWAP'", name='schedule_slot_scenario_required'),
         Index('schedule_slots_robot_time', 'org_id', 'robot_id', 'start_at'),
+        CheckConstraint("run_state IS NULL OR run_state IN ('STARTING','STARTED','DONE','FAILED','SKIPPED','MISSED')",
+                        name='schedule_slot_run_state'),
+        CheckConstraint('(run_state IS NULL) = (run_at IS NULL)', name='schedule_slot_run_pair'),
+        UniqueConstraint('run_id', name='schedule_slot_run_id'),
+        Index('schedule_slots_due', 'org_id', 'start_at', postgresql_where=text('run_state IS NULL')),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
     robot_id: Mapped[UUID] = mapped_column(PGUUID)
@@ -546,6 +551,12 @@ class ScheduleSlot(Tenant, Base):
     memo: Mapped[str] = mapped_column(Text)
     created_by: Mapped[UUID] = mapped_column(PGUUID)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    # 예약 실행 (11/28): 시각 -> STARTING -> STARTED -> DONE | FAILED, 또는 SKIPPED | MISSED. 비어 있을 때만 잡는다.
+    run_state: Mapped[str | None] = mapped_column(Text)
+    run_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    run_code: Mapped[str | None] = mapped_column(Text)
+    run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by: Mapped[UUID | None] = mapped_column(PGUUID)  # who made it CONFIRMED (pre-unlock authority)
 
 
 class IdempotencyReceipt(Tenant, Base):

@@ -26,6 +26,7 @@ TEMPLATES = {
     'RUN_NOT_ALLOWED': '{robot} 조종권 · 현장 승인을 확인할 수 없어 임무 실행 요청을 거절했습니다.',
     'RUN_MOVING': '{robot} 정지가 확인되지 않아 임무 시작 · 이어 가기 요청을 거절했습니다.',
     'RUN_ASSIGNMENT_INVALID': '{robot} 승인된 배정이 아니어서 임무 시작 요청을 거절했습니다.',
+    'RUN_PAUSE_REQUESTED': '{person}님이 {robot} 임무를 일시정지했습니다.',
     'RUN_STOPPED': '{robot} 배정 확인 중 정지가 눌려 임무 시작 요청을 거절했습니다.',
     'LOWLEVEL_UNSUPPORTED': '{robot} 저수준 (START) 제어 중이라 실행기에 없는 동작 · 자세 요청을 거절했습니다.',
     'TERRAIN_ARCHIVED': '{person}님이 지형 {place}을(를) 휴지통으로 옮겼습니다.',
@@ -56,6 +57,14 @@ TEMPLATES = {
     'SCHEDULE_SLOT_CREATED': '{person}님이 {robot} 일정을 추가했습니다.',
     'SCHEDULE_SLOT_UPDATED': '{person}님이 {robot} 일정을 바꿨습니다.',
     'SCHEDULE_SLOT_DELETED': '{person}님이 {robot} 일정을 지웠습니다.',
+    'SCHEDULE_RUN_STARTED': '{person}님의 일정대로 {robot}{subject} 임무를 시작했습니다.',
+    'SCHEDULE_RUN_DONE': '{person}님의 일정 임무를 {robot}{subject} 마쳤습니다.',
+    'SCHEDULE_RUN_FAILED': '{person}님의 일정 임무가 {robot}에서 실패했습니다 ({reason}).',
+    'SCHEDULE_RUN_SKIPPED': '{person}님의 일정 임무를 {robot}에서 건너뛰었습니다 ({reason}).',
+    'SCHEDULE_RUN_MISSED': '{person}님의 일정 임무를 {robot}에서 놓쳤습니다 ({reason}).',
+    'SCHEDULE_BATTERY_SWAP_NEXT': '{robot} 다음 일정은 배터리 교체입니다.',
+    'SCHEDULE_PRE_UNLOCK': '{person}님이 확정한 일정대로 {robot} 잠금을 풀고 임무를 시작합니다.',
+    'SCHEDULE_RUN_LATE_REPORT': '{person}님의 일정 임무 보고가 늦게 왔습니다 ({reason}). 일정 상태는 그대로 둡니다.',
     'SIM_ROBOT_START_STALE': '{person}님의 이전 시뮬 시작 응답을 거부했습니다. {compensation}',
     'SIM_ROBOT_START_REJECTED': '{person}님의 시뮬 시작 요청이 생성 전에 거부되어 슬롯을 해제했습니다.',
     'SIM_ROBOT_REMOVE_STALE': '{person}님의 이전 시뮬 종료 요청을 현재 세대에서 거부했습니다.',
@@ -168,7 +177,7 @@ TEMPLATES = {
 
 # Known agent event semantics override the previous all-agent LINK category.
 CATEGORIES = {
-    **dict.fromkeys(('RUN_COMPLETED', 'RUN_FAILED', 'EMERGENCY_RUN'), 'RUN'),
+    **dict.fromkeys(('RUN_COMPLETED', 'RUN_FAILED', 'EMERGENCY_RUN', 'RUN_PAUSE_REQUESTED'), 'RUN'),
     'ROUTE_DEVIATION': 'ROUTE', 'LEASE_HANDOVER': 'LEASE',
     **dict.fromkeys(('STOP_PRESSED', 'BATTERY_LOW', 'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT',
                     'EXECUTOR_STALLED', 'PROTOCOL_MISMATCH', 'TRANSPORT_BACKPRESSURE',

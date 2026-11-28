@@ -2366,6 +2366,10 @@ export interface ScheduleSlot {
   memo: string;
   created_by: string;
   created_at: string;
+  run_state: "STARTING" | "STARTED" | "DONE" | "FAILED" | "SKIPPED" | "MISSED" | null;
+  run_id: string | null;
+  run_code: string | null;
+  confirmed_by: string | null;
 }
 
 export interface ScheduleSlotCreate {
@@ -2506,7 +2510,7 @@ export interface ScreenRunControl {
   proto?: "fh-rt/1";
   robot: string;
   t: "run.control";
-  lease_id: string;
+  lease_id?: string | null;
   run_id: string;
   screen_id: string;
   op: "pause" | "resume" | "abort";

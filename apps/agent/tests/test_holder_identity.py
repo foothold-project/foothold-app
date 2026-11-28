@@ -89,3 +89,18 @@ def test_contract_fields():
     assert C.PhoneState.model_fields['holder_type'].annotation is not None
     assert 'holder_name' in C.PhoneReply.model_fields and 'display_name' in C.AgentUnlock.model_fields
     assert 'display_name' in C.PhoneHello.model_fields
+
+
+def test_schedule_run_lease_is_run_without_name(cloud):
+    r = cloud
+    free_phone(r)
+    run_id = uid()
+    r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + run_id})
+    r.state(True)
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': r.hub.session._generation(), 'user_id': r.user,
+                        'display_name': '이름 있어도'})
+    r.state(False)
+    s = phone_state(r, r.peer)
+    assert (s['holder_type'], s['holder_name']) == ('RUN', None)
+
+
