@@ -114,11 +114,11 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> &
     </>)}
     {panel('alert', <>
       {card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON })}
-      <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />
+      {!c.only && <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />}
     </>)}
     {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '사건 클립은 서버 클립 기능이 생긴 뒤 보관 기간을 여기서 바꿉니다.']]} />)}
     {panel('ctl', <>
-      <ControlsGuide />
+      {!c.only && <ControlsGuide />}
       <div className="st-modelbar">
         <div className="st-tabs" role="group" aria-label="값을 고칠 모델">
           {[['', '공통'] as const, ...SIM_MODELS].map(([id, name]) => <button key={id} type="button" aria-pressed={model === id} onClick={() => pickModel(id)}>{name}</button>)}
@@ -440,7 +440,7 @@ export function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: bool
   const why = self ? SELF : null, noDel = self ? SELF : u.robot_ids.length ? HAS_ROBOTS : null;
   return <section className="lv-card" aria-label="계정 상세">
     <div className="fh-row"><h2 className="fh-grow" style={WRAP}>{u.display_name}</h2><span className="mono" style={WRAP}>{u.username}</span>{u.locked ? <Chip tone="bad" text="잠김" /> : <Chip tone="ok" text="사용 중" />}</div>
-    {self ? <p className="lv-note">내 이름은 위 «내 정보»에서 바꿉니다.</p> : <form className="fh-form" onSubmit={save} noValidate>
+    {self ? <p className="lv-note">내 이름은 «계정» 묶음의 「이름 바꾸기」에서 바꿉니다.</p> : <form className="fh-form" onSubmit={save} noValidate>
       <label className="fh-field"><span>이름</span><input className="inp" name="display_name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
       <label className="fh-field"><span>역할</span><select className="inp" name="role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
         <option value="OPERATOR">{ROLE_NAME.OPERATOR}</option><option value="ORG_ADMIN">{ROLE_NAME.ORG_ADMIN}</option></select></label>

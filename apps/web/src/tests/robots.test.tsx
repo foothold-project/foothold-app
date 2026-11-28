@@ -325,17 +325,22 @@ describe('상세 서랍 = GET /robots/{id}', () => {
 
 describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 등록·토큰 없음)', () => {
   const SIM = robot('s-1', '시뮬 실험', KIM, { simulation: true });
-  const pickRobot = (name: string) => click([...card('로봇').querySelectorAll('li button')].find((b) => b.textContent!.includes(name)));
+  /** 시안 u9 설정의 «로봇» 묶음(지금 판 칸 .u9-legacy)을 연다. 시뮬 로봇 칸은 그 안 section[aria-label=로봇] */
+  const robotPage = () => click($('#nav-robot'));
+  const sims = () => $('.u9-legacy section[aria-label="로봇"]')!;
+  const pickRobot = (name: string) => click([...sims().querySelectorAll('li button')].find((b) => b.textContent!.includes(name)));
   it('운영 관리자에게는 없음(권한 없는 기능 숨김)', async () => {
     serve(signedIn(LEE, [RA]));
     await open('#/settings');
-    expect($('[aria-label="로봇"]')).toBeNull();
+    await robotPage();
+    expect($('.u9-legacy section[aria-label="로봇"]')).toBeNull();
   });
   it('총괄: 시뮬 로봇만 목록, 실기 등록·토큰·지우기·담당 단추 없음 + 실기는 운영 관리자가 연결한다는 안내', async () => {
     serve(signedIn(KIM, [RA, SIM]));
     await open('#/settings');
-    expect(card('로봇').textContent).toContain('시뮬 로봇 (1)');
-    expect(card('로봇').textContent).not.toContain('Go2-A');
+    await robotPage();
+    expect(sims().textContent).toContain('시뮬 로봇 (1)');
+    expect(sims().textContent).not.toContain('Go2-A');
     expect($('[data-real-note]')!.textContent).toContain('새 로봇 추가');
     expect(btn('로봇 등록')).toBeUndefined();
     await pickRobot('시뮬 실험');
@@ -348,6 +353,7 @@ describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 �
     let rep: Reply = err(503, 'SERVER_BUSY', 'busy');
     serve(signedIn(KIM, [SIM], { 'PATCH /robots/s-1': () => rep }));
     await open('#/settings');
+    await robotPage();
     await pickRobot('시뮬 실험');
     const edit = card('로봇 설정'), form = edit.querySelector('form')!;
     await submit(form);
@@ -363,7 +369,7 @@ describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 �
     setVal(form.querySelector('input[name="name"]')!, '시뮬 셋');
     await submit(form);
     expect($('[aria-label="로봇 설정"]')).toBeNull();
-    expect(card('로봇').textContent).toContain(ROBOT_GONE);
+    expect(sims().textContent).toContain(ROBOT_GONE);
   });
 });
 

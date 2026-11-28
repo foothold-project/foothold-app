@@ -1,6 +1,6 @@
 /** 설정 탭 = 시안 u9 (proto/screens/u9_1 ~ u9_9). 화면 마크업은 시안 body 를 기계적으로 옮긴 것(태그 · class · 순서 · 글 그대로),
  *  시안 머리줄(.bar)은 앱 머리줄 몫이라 뺐다. 고정 글 자리만 서버 값으로 바꾸고, 서버에 값이 없는 자리는 「서버에 값 없음」 또는 까닭 한 줄 */
-import { useEffect, useState, type DependencyList, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DependencyList, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import '../proto/ui.pv.css';
 import '../proto/pc.pv.css';
 import '../proto/dark.pv.css';
@@ -19,11 +19,24 @@ export type Page = 'account' | 'users' | 'network' | 'crowd' | 'robot' | 'safety
 export function SettingsU9(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> & { logout?: () => void; initial?: Page; pw?: boolean }) {
   const admin = c.user.role === 'ORG_ADMIN', [page, setPage] = useState<Page>(c.initial ?? 'account'), [pw, setPw] = useState(!!c.pw), light = useTheme()[1];
   const at = page === 'demo' ? 'display' : page;
-  const ni = (id: string) => ({ className: at === id || (id === 'demo' && false) ? 'ni on' : 'ni', id: `nav-${id}`, role: 'tab', 'aria-selected': at === id, tabIndex: at === id ? 0 : -1,
+  // 고른 항목 = page(데모 로봇 표시는 표시 화면을 같이 쓰지만 항목은 따로 고른 것으로 보인다)
+  const ni = (id: string) => ({ className: page === id ? 'ni on' : 'ni', id: `nav-${id}`, role: 'tab', 'aria-selected': page === id, tabIndex: page === id ? 0 : -1,
     hidden: id === 'users' && !admin, onClick: () => setPage(id as Page) });
+  // 고른 항목을 보이는 곳으로(좁은 창). 처음 열 때는 밀지 않는다
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } document.getElementById(`nav-${page}`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }, [page]);
+  // 항목 목록 키(WAI-ARIA tabs): 화살표 앞뒤(끝에서 돌아감) · Home · End, 고르면서 초점도 옮긴다. 운영자는 «총괄만» 항목을 건너뛴다(누르면 열리기는 함)
+  const key = (e: KeyboardEvent) => {
+    const keys = PAGES.filter((id) => admin || !ADMIN_ONLY.includes(id)), p = PAGES.indexOf(page);
+    const after = keys.filter((id) => PAGES.indexOf(id) > p), before = keys.filter((id) => PAGES.indexOf(id) < p);
+    const to = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? after[0] ?? keys[0] : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? before[before.length - 1] ?? keys[keys.length - 1]
+      : e.key === 'Home' ? keys[0] : e.key === 'End' ? keys[keys.length - 1] : null;
+    if (!to) return;
+    e.preventDefault(); setPage(to); document.getElementById(`nav-${to}`)?.focus();
+  };
   return <div className={`proto u9${light ? ' light' : ''}`} data-u9={at}>
-    <Nav ni={ni} />
-    {at === 'account' && <Account user={c.user} admin={admin} cancel={c.cancel} logout={c.logout} openPw={() => setPw(true)} />}
+    <Nav ni={ni} onKey={key} />
+    {at === 'account' && <Account user={c.user} admin={admin} cancel={c.cancel} logout={c.logout} openPw={() => setPw(true)} setMe={c.setMe} />}
     {at === 'users' && admin && <Users me={c.user} cancel={c.cancel} />}
     {at === 'network' && <Network cancel={c.cancel} />}
     {at === 'alerts' && <Alerts cancel={c.cancel} />}
@@ -90,7 +103,8 @@ const Pager = ({ n, per, at, go }: { n: number; per: number; at: number; go: (i:
 /** 칸 안 한 줄 안내(빈 목록 · 서버 값 없음 까닭 · 오류) */
 const Why = ({ children, alert }: { children: ReactNode; alert?: boolean }) => <p className="mu2 u9-why" role={alert ? 'alert' : undefined} data-why>{children}</p>;
 
-export const Nav = ({ ni }: { ni: (id: string) => object }) => <div className="pane nav"><h5>나</h5>
+const PAGES: Page[] = ['account', 'users', 'network', 'crowd', 'robot', 'safety', 'alerts', 'clip', 'controls', 'display', 'demo', 'system'], ADMIN_ONLY: Page[] = ['users', 'demo'];
+export const Nav = ({ ni, onKey }: { ni: (id: string) => object; onKey?: (e: KeyboardEvent) => void }) => <div className="pane nav" onKeyDown={onKey}><h5>나</h5>
   <div {...ni('account')}><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></svg>계정</div><h5>현장</h5>
   <div {...ni('users')}><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><path d="M16 3.128a4 4 0 0 1 0 7.744" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><circle cx="9" cy="7" r="4" /></svg>사용자와 권한<span className="only">총괄만</span></div>
   <div {...ni('network')}><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>현장 연결</div>
@@ -104,7 +118,8 @@ export const Nav = ({ ni }: { ni: (id: string) => object }) => <div className="p
   <div {...ni('demo')}><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" /></svg>데모 로봇 표시<span className="only">총괄만</span></div><h5>기기</h5>
   <div {...ni('system')}><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" /></svg>시스템</div></div>;
 
-function Account({ user, admin, cancel, logout, openPw }: { user: User; admin: boolean; cancel?: AbortSignal; logout?: () => void; openPw: () => void }) {
+function Account({ user, admin, cancel, logout, openPw, setMe }: { user: User; admin: boolean; cancel?: AbortSignal; logout?: () => void; openPw: () => void; setMe: (u: ApiUser) => void }) {
+  const [naming, setNaming] = useState(false);
   const me = useLoad(() => api.me(cancel), [user.id]);
   const evs = useLoad(() => api.events(new URLSearchParams({ user_id: user.id, category: 'ACCOUNT', limit: '100' }), cancel), [user.id]);
   const mine = (evs.v?.items ?? []).filter((e) => e.code in ACT);
@@ -123,7 +138,8 @@ function Account({ user, admin, cancel, logout, openPw }: { user: User; admin: b
       <div>비밀번호<small data-u9-pw-at>{pwAt ? `${md(pwAt.at)} 에 바꿈` : evs.v || evs.err ? NO : ''}</small></div>
       <div className="r"><button type="button" className="btns sb" id="go-pw" onClick={openPw}><svg className="ic" viewBox="0 0 24 24" style={{width:"16px",height:"16px"}}><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></svg>비밀번호 바꾸기</button></div></div>
     <div className="rw"><svg className="ic" viewBox="0 0 24 24" style={{width:"20px",height:"20px"}}><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>
-      <div>이름 표시<small>다른 사람 화면에는 「{user.name}」 로 보입니다</small></div></div>
+      <div>이름 표시<small>다른 사람 화면에는 「{user.name}」 로 보입니다</small></div>
+      <div className="r"><button type="button" className="btns sb" id="go-name" onClick={() => setNaming(true)}>이름 바꾸기</button></div></div>
     <div className="rw"><svg className="ic" viewBox="0 0 24 24" style={{width:"20px",height:"20px"}}><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /></svg>
       <div>로그아웃<small>이 PC 에서만 로그아웃됩니다</small></div>
       <div className="r"><button type="button" className="btns sb" id="go-logout" onClick={logout} disabled={!logout}>로그아웃</button></div></div></div>
@@ -132,6 +148,7 @@ function Account({ user, admin, cancel, logout, openPw }: { user: User; admin: b
     {evs.err && <Why>{evs.err}</Why>}
     {evs.v && !mine.length && <Why>최근 활동이 없습니다.</Why>}
     {acts.map((e) => <div key={e.id} className="rw" style={{minHeight:"52px",fontSize:"14px"}} data-u9-act><span className="mu2" style={{width:"120px",fontWeight:600}}>{when(e.at, true, undefined, false)}</span>{ACT[e.code]}<span className="mu2" style={{marginLeft:"auto",fontWeight:600,fontSize:"13.5px"}}>{e.code === 'PASSWORD_CHANGED' ? '모든 기기에서 로그아웃됨' : ''}</span></div>)}</div>
+  {naming && <Rename user={user} setMe={setMe} cancel={cancel} close={() => setNaming(false)} />}
   {admin && <Devices cancel={cancel} pc={<><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z" /><path d="M20.054 15.987H3.946" /></svg></>} phone={<><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><rect width="14" height="20" x="5" y="2" rx="2" ry="2" /><path d="M12 18h.01" /></svg></>} />}
   </>;
 }
@@ -161,7 +178,7 @@ function Devices({ cancel, pc, phone }: { cancel?: AbortSignal; pc: ReactNode; p
 }
 
 function Users({ me, cancel }: { me: User; cancel?: AbortSignal }) {
-  const [n, setN] = useState(0), [at, setAt] = useState(0), [logAt, setLogAt] = useState(0), [adding, setAdding] = useState(false), [why, setWhy] = useState(''), [sel, setSel] = useState('');
+  const [n, setN] = useState(0), [at, setAt] = useState(0), [logAt, setLogAt] = useState(0), [adding, setAdding] = useState(false), [why, setWhy] = useState(''), [sel, setSel] = useState(''), [made, setMade] = useState('');   // made = 방금 만든 계정, 창을 닫으면 바로 고친다(지금 판처럼 만든 계정을 고름)
   const data = useLoad(async () => {
     const [users, robots] = await Promise.all([api.users(cancel), api.robots('all', cancel)]);
     const seen = await Promise.all(users.map(async (u) => (await api.sessions(u.id, cancel)).reduce((m, x) => (x.last_seen_at > m ? x.last_seen_at : m), '')));
@@ -178,8 +195,8 @@ function Users({ me, cancel }: { me: User; cancel?: AbortSignal }) {
     {data.err && <Why alert>{data.err}</Why>}
     <table className="tbl"><tbody>
       <tr><th>이름</th><th>역할</th><th>아이디</th><th>담당 로봇</th><th>마지막 접속</th><th /></tr>
-      {users.slice(at * 6, at * 6 + 6).map((u) => { const i = users.indexOf(u), last = data.v!.seen[i]; return <tr key={u.id} data-u9-user>
-        <td><button type="button" className="row" style={{gap:"12px"}} aria-label={`${u.display_name} 고치기`} onClick={() => { setSel(u.id); setWhy(''); }}><span className="av2">{initial(u.display_name)}</span>{u.display_name}</button></td><td><span className={u.role === 'ORG_ADMIN' ? 'rp lead' : 'rp'}>{ROLE[u.role]}</span></td><td className="m">{u.username}</td>
+      {users.slice(at * 6, at * 6 + 6).map((u) => { const i = users.indexOf(u), last = data.v!.seen[i]; return <tr key={u.id} data-u9-user aria-current={u.id === me.id || undefined}>
+        <td><button type="button" className="row" style={{gap:"12px"}} aria-label={`${u.display_name} 고치기`} onClick={() => { setSel(u.id); setWhy(''); }}><span className="av2">{initial(u.display_name)}</span>{u.display_name}</button></td><td><span className={u.role === 'ORG_ADMIN' ? 'rp lead' : 'rp'}>{ROLE[u.role]}</span>{u.locked && <span className="rp" data-u9-locked style={{marginLeft:"6px",color:"#ff4d4f",borderColor:"#ff4d4f"}}>잠김</span>}</td><td className="m">{u.username}</td>
         <td className="m">{u.robot_ids.length ? u.robot_ids.map((r) => data.v!.names[r] ?? r).join(' · ') : '없음'}</td><td className="m">{last ? ago(last) : NO}</td>
         <td style={{textAlign:"right"}}>{u.id !== me.id && <button type="button" className="btns sb" style={{display:"inline-flex"}} aria-disabled="true" onClick={() => setWhy(NO_TEMP)}><svg className="ic" viewBox="0 0 24 24" style={{width:"15px",height:"15px"}}><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></svg>임시 비밀번호</button>}</td></tr>; })}</tbody></table>
     {why ? <Why alert>{why}</Why>
@@ -202,9 +219,35 @@ function Users({ me, cancel }: { me: User; cancel?: AbortSignal }) {
     {log.err && <Why alert>{log.err}</Why>}
     {log.v && !changes.length && <Why>바꾼 기록이 없습니다.</Why>}
     {changes.slice(logAt * 3, logAt * 3 + 3).map((e) => <div key={e.id} className="rw" style={{minHeight:"48px",fontSize:"14px"}} data-u9-change><span className="mu2" style={{width:"130px",fontWeight:600}}>{when(e.at, false, undefined, false)}</span><span style={{width:"60px"}}>{(e.user_id && who[e.user_id]) ?? ''}</span><span style={{fontWeight:600}}>{e.message}</span></div>)}</div>
-  {adding && <AddUser cancel={cancel} close={() => setAdding(false)} done={() => setN(n + 1)} />}
+  {adding && <AddUser cancel={cancel} close={() => { setAdding(false); if (made) setSel(made); setMade(''); }} done={(id) => { setMade(id); setN(n + 1); }} />}
   {sel && users.some((u) => u.id === sel) && <EditUser u={users.find((u) => u.id === sel)!} self={sel === me.id} cancel={cancel} close={() => setSel('')}
     put={() => setN(n + 1)} gone={(t) => { setSel(''); setWhy(t); setN(n + 1); }} />}
+  </>;
+}
+
+/** 내 이름 바꾸기(시안 u9_1 「이름 표시」 줄에 단추만 더함, 창은 u9_2 꼴). PATCH /me 의 display_name 만 */
+function Rename({ user, setMe, close, cancel }: { user: User; setMe: (u: ApiUser) => void; close: () => void; cancel?: AbortSignal }) {
+  const [name, setName] = useState(user.name), [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const v = name.trim();
+    if (busy) return;
+    if (!v) return setMsg({ text: '이름을 입력하세요.' });
+    if (v === user.name) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
+    setBusy(true);
+    try { const u = await api.saveMe({ display_name: v }, cancel); setMe(u); setName(u.display_name); setMsg({ text: '이름을 바꿨습니다.', ok: true }); }
+    catch (err) { setMsg({ text: (err as ApiFail).message }); }
+    finally { setBusy(false); }
+  };
+  return <>
+  <div className="scrim" onClick={close} />
+  <form className="g modal" style={{width:"560px"}} role="dialog" aria-modal="true" aria-label="이름 바꾸기" onSubmit={submit} onKeyDown={(e) => { if (e.key === 'Escape') close(); }} noValidate>
+    <div className="row" style={{justifyContent:"space-between"}}><span className="ttl">이름 바꾸기</span></div>
+    <label style={{display:"block",marginTop:"22px"}}><div className="lab">내 이름</div><div className="inp"><input name="display_name" maxLength={128} value={name} autoFocus onChange={(e) => setName(e.target.value)} /></div></label>
+    {msg && <p role={msg.ok ? 'status' : 'alert'} style={{fontSize:"13px",color:msg.ok ? "#0e7f63" : "#b8361f",fontWeight:700,marginTop:"14px"}}>{msg.text}</p>}
+    <div style={{display:"flex",gap:"10px",marginTop:"22px"}}>
+      <button type="button" className="mbtn sec" style={{flex:1}} onClick={close}>닫기</button>
+      <button type="submit" className="btnp mbtn" style={{flex:1}} disabled={busy}>이름 저장</button></div></form>
   </>;
 }
 
@@ -214,12 +257,12 @@ function EditUser({ u, self, close, put, gone, cancel }: { u: ApiUser; self: boo
   <div className="scrim" onClick={close} />
   <div className="g modal u9-edit" style={{width:"640px"}} role="dialog" aria-modal="true" aria-label="사용자 고치기" onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
     <div className="row" style={{justifyContent:"space-between",marginBottom:"14px"}}><span className="ttl">사용자 고치기</span><button type="button" aria-label="닫기" onClick={close}>닫기</button></div>
-    <AccountDetail key={`${u.id}-${u.locked}`} u={u} self={self} put={put} gone={gone} cancel={cancel} /></div>
+    <AccountDetail key={u.id} u={u} self={self} put={put} gone={gone} cancel={cancel} /></div>
   </>;
 }
 
 /** 사용자 추가(시안에 창 그림이 없어 u9_2 비밀번호 창과 같은 꼴). 임시 비밀번호 12 자는 여기서 만들어 서버에 보내고 한 번만 보인다 */
-function AddUser({ close, done, cancel }: { close: () => void; done: () => void; cancel?: AbortSignal }) {
+function AddUser({ close, done, cancel }: { close: () => void; done: (id: string) => void; cancel?: AbortSignal }) {
   const [msg, setMsg] = useState(''), [busy, setBusy] = useState(false), [role, setRole] = useState<'OPERATOR' | 'ORG_ADMIN'>('OPERATOR'), [made, setMade] = useState<{ name: string; pw: string } | null>(null);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -228,7 +271,7 @@ function AddUser({ close, done, cancel }: { close: () => void; done: () => void;
     if (!username || !display_name) return setMsg('아이디와 이름을 입력하세요.');
     const pw = tempPassword();
     setBusy(true);
-    try { const u = await api.createUser({ username, display_name, role, temp_password: pw }, cancel); setMade({ name: `${u.display_name}(${u.username})`, pw }); done(); }
+    try { const u = await api.createUser({ username, display_name, role, temp_password: pw }, cancel); setMade({ name: `${u.display_name}(${u.username})`, pw }); done(u.id); }
     catch (err) { setMsg(failText(err, TAKEN)); }
     finally { setBusy(false); }
   };
