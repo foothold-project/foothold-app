@@ -1525,6 +1525,22 @@
         }
       ]
     },
+    "field_gate": {
+      "anyOf": [
+        {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Field Gate"
+    },
     "gait": {
       "anyOf": [
         {

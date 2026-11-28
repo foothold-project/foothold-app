@@ -69,6 +69,14 @@ AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 막힌다. 폰 직결·리모컨으로 멈춘다).
 `latched`는 제어 잠금(우리 출력이 멈춰 있음)일 뿐 물리 정지 확인이 아니다. 움직이던 기체가 실제로
 섰는지는 에이전트의 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. `delivered`도 `latched`도 그 증거를 대신하지 않는다.
+AgentState·PhoneState·ScreenState의 선택 필드 `field_gate`는 `OPEN | CLOSED | null`이다.
+현장 승인 관문이 있는 실기 에이전트(GatedSession)만 `gate.allowed()`로 채우고, 관문이 없거나
+모르면 null이다. 서버는 받은 값을 `ScreenState.field_gate`로 그대로 넘기며, 필드를 생략하는
+옛 에이전트·오래된 상태·오프라인 로봇은 null이다.
+`field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다.
+관문이 닫힌 에이전트는 STOP을 operator_stop으로만 기억하고 로봇 출력(StopMove 포함)을 내지 않는다.
+웹 문구: 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않았습니다. 리모컨으로 멈추세요」
+에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 다만 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 화면은 재연결 뒤 `latched` 와 `stop_ref` 로 이것을 안다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
 
 `AgentState`·`PhoneState`·`ScreenState`의 선택 `unlock_refused`는
 `{reason, at, axes}` 또는 null이다. `at`은 UTC 시각, `reason`은 `UnlockRefused`의
@@ -470,7 +478,9 @@ accepted state episode다(서버 sim DB ID와 혼용 금지). launch 바인딩�
 
 `RobotSummary.server_drive_blocked`는 선택·nullable 표시용 목록이다. 담당자와 총괄에게만
 실기의 `SWITCH_OFF`(서버 스위치), `NO_OWNER`(담당 없음), `NO_SERIAL`(기체번호 없음),
-`AGENT_OFFLINE`(기존 자동 연결 관문 불충족)을 전달한다. 허용이면 `[]`, 시뮬과 요약만
+`AGENT_OFFLINE`(기존 자동 연결 관문 불충족)을 전달한다. 서버 쪽 이유가 하나도 없는데 신선한
+에이전트 상태가 `field_gate=CLOSED`이면 `FIELD_GATE_CLOSED` 하나를 넣는다(이때 `server_drive_allowed`가
+참일 수 있다). 허용이면 `[]`, 시뮬과 요약만
 볼 수 있는 사용자에게는 `null`이다. 허용 판단은 기존 `server_drive_allowed`와 서버
 조종 관문을 그대로 쓰며, 옛 서버가 이유 필드를 생략하거나 `null`로 보내면 기존 안내를 쓴다.
 

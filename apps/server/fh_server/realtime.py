@@ -1720,7 +1720,7 @@ class Realtime:
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=link_rtt_ms,
             latched=state.get('latched'), safety_reason=state.get('safety_reason'),
-            unlock_refused=state.get('unlock_refused'), stop_gen=state.get('stop_gen'),
+            field_gate=state.get('field_gate'), unlock_refused=state.get('unlock_refused'), stop_gen=state.get('stop_gen'),
             applied=state.get('applied')).model_dump(mode='json')
 
     def send_action(self, rid, actor, msg):
@@ -2514,7 +2514,7 @@ class Realtime:
         if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
             return False
         data = msg.model_dump(mode='json')
-        peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'unlock_refused', 'stop_gen', 'applied')})
+        peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'field_gate', 'unlock_refused', 'stop_gen', 'applied')})
         peer.state['robot_info'] = data.get('robot_info')
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
