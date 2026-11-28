@@ -213,6 +213,37 @@ describe('폰 칩 · 펼침 칸 · 관절 온도 띠 (시안 u1_7 · u1_9 · u1_
   });
 });
 
+describe('폰 정지됨 Damping 두 번 누르기 (시안 u1_3 · PC 로봇 탭 u4_9 와 같은 길)', () => {
+  const damp = () => $<HTMLButtonElement>('[data-u1-damp]');
+  it('내 조종 · 정지 잠금이면 「Damping 힘 빼기」. 한 번 = 안내만(보냄 0), 3 초 안에 한 번 더 = Damp(확인됨) 한 번', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    expect(damp()).toBeNull();   // 조종권 없음
+    click(btn('조종'));
+    expect(damp().textContent).toBe('Damping힘 빼기');
+    click(damp());
+    expect(w.of('action')).toHaveLength(0);
+    expect($('[data-act-msg]').textContent).toBe('한 번 더 누르면 엎드려 힘을 뺍니다');
+    tick(3100);
+    click(damp());   // 3 초가 지나면 다시 처음 누름
+    expect(w.of('action')).toHaveLength(0);
+    tick(1000);
+    click(damp());
+    expect(w.of('action')).toMatchObject([{ robot: 'r7', action: 'Damp', params: {}, confirmed: true }]);
+  });
+  it('엎드림(LYING)이거나 잠금이 풀리면 Damping 단추 없음', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종'));
+    act(() => push('r7', { posture: { state: 'LYING' } as never }));
+    expect(damp()).toBeNull();
+    act(() => push('r7', { posture: { state: 'STANDING' } as never }));
+    expect(damp()).not.toBeNull();
+    unlock(); tick(100);
+    expect(damp()).toBeNull();
+  });
+});
+
 describe('조종 화면', () => {
   it('주소 #/drive/<로봇> 은 폰 조종, PC 에는 조종 탭이 없어 로봇 탭', () => {
     expect(tabFromHash('#/drive/r7', true)).toBe('drive');
