@@ -25,11 +25,13 @@ const CAM: Record<View, { at: [number, number]; dist: number; lens: number }> = 
   k01: { at: [(1720 - OX) / K, (976 - OY) / K], dist: 330, lens: 50 },
 };
 const EL = (37 * Math.PI) / 180, AZ = (-12 * Math.PI) / 180;
+/** 시안 그림 가로세로비(iso 6336×2688 · k01 2576×1093). 칸에는 시안처럼 «cover» 로 — 칸이 이보다 좁으면 높이를 맞추고 옆을 자른다 */
+export const PIC_ASPECT = 6336 / 2688;
 /** 카메라 자리 · 대상 · 세로 시야각(three 는 세로 fov). 시험이 시안 값과 맞춰 본다 */
 export function camOf(view: View, aspect: number) {
   const c = CAM[view], d = c.dist;
   const pos: [number, number, number] = [c.at[0] + Math.sin(AZ) * Math.cos(EL) * d, Math.sin(EL) * d, c.at[1] + Math.cos(AZ) * Math.cos(EL) * d];
-  const fov = (2 * Math.atan(18 / c.lens / Math.max(aspect, 0.1)) * 180) / Math.PI;
+  const fov = (2 * Math.atan(18 / c.lens / Math.max(aspect, PIC_ASPECT)) * 180) / Math.PI;
   return { pos, at: [c.at[0], 0, c.at[1]] as [number, number, number], fov };
 }
 /** 해 방향(빛 쪽 단위 벡터): Blender 해(기울기 50° · 방위 140°)를 three 좌표(x, z_b, -y_b)로 */

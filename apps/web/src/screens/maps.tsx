@@ -430,6 +430,7 @@ function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, e
   const [fid, setFid] = useState(''), floors = cur ? byLevel(cur.building.floors) : [];
   const fl = floors.find((f) => f.id === fid) ?? (cur && (picFloor(cur.building) ?? firstFloor(cur.building))), v = fl?.approved_version_id ? vers[fl.approved_version_id] : undefined;
   const maps = places.filter((p) => p.floor.approved_version_id).length;
+  const [no3, setNo3] = useState('');   // 미리 보기 3D(실제 현장 = 서버 모형)를 못 받은 판 → 그 판은 2D
   const none = !!t.tree && !places.length;
   const newMap = <Menu label={<>＋ 새 지도 만들기</>} title="새 지도 만들기" end className="mp-new">
     {/* 지도 0 개면 빈 칸(아래)의 단추와 같은 것은 숨긴다(U11-04 검수 · 칠한 단추 하나) */}
@@ -483,9 +484,10 @@ function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, e
         </section>
         {fl && <section className="lv-card mp-prev" aria-label="미리 보기">
           <div className="mp-pv">{v && demoBoard(cur.site, cur.building) ? <DemoSite3D key="site3d" preview />
+            : v && modelOf(v) && no3 !== v.id ? <Map3D key={v.id} v={v} robots={[]} still missing={() => setNo3(v.id)} />
             : v ? <MapView key={v.id} v={v} fill demo={demoBoard(cur.site, cur.building)} />
             : <div className="mx-center"><p className="lv-note">{fl.approved_version_id ? '지도를 불러오는 중…' : '이 층에 아직 지도가 없습니다. 지도를 열어 올리거나 로봇으로 그립니다.'}</p></div>}
-            {v && (demoBoard(cur.site, cur.building) ? <span className="mp-tag" data-tag3d><svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 }}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></svg>3D 보기 · 미리 보기</span>
+            {v && (demoBoard(cur.site, cur.building) || (modelOf(v) && no3 !== v.id) ? <span className="mp-tag" data-tag3d><svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 }}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></svg>3D 보기 · 미리 보기</span>
               : <span className="mp-tag">위에서 본 지도 · {meters(v).wh}{modelOf(v) ? ' · 3D 모형 있음' : ''}</span>)}</div>
           <div className="mp-pf"><div className="fh-row"><b className="mp-pt" data-prev-title>{cur.building.name} · {fl.name}</b>{v && <span className="lv-chip ok">{howMade(v)}</span>}</div>
             {v && <p className="mp-facts"><span>{meters(v).area}</span><span>{meters(v).wh}</span><span>{md(v.created_at)} · v{v.number}</span><span>금지 구역 {NOGO(v)}</span></p>}
