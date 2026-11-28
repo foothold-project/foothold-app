@@ -73,9 +73,9 @@ async function real({ exp = 600 } = {}) {
   return a;
 }
 async function driving(a: FakeWS) {
-  await click(btn('조종 시작'));
+  await click(btn('조종'));
   act(() => a.recv(st(MINE))); await flush();
-  await click(btn('잠금 해제'));
+  await click(btn('다시 시작')); await click($('[data-restart-go]'));
   act(() => a.recv(st({ ...MINE, latched: false }))); await flush();
 }
 
@@ -213,7 +213,7 @@ describe('시뮬 조종 화면 · 한 사실은 한 곳 · 힌트', () => {
     const a = await simDrive();
     act(() => a.recv({ ...RUN, status: 'FAILED', fail_code: 'LOCALIZATION_LOST' })); await flush();
     a.auto = ((m: Msg) => (['lease.take', 'hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
-    await click(btn('조종 시작'));   // 답은 보낸 뒤 따로(같은 틱 답이면 take() 가 안내를 비움)
+    await click(btn('조종'));   // 답은 보낸 뒤 따로(같은 틱 답이면 take() 가 안내를 비움)
     const q = a.of('lease.take').pop()!;
     act(() => a.recv({ t: 'reply', id: q.id, ok: false, error: { code, message: '' } })); await flush();
     expect($('[data-notes-more][aria-expanded="true"]')).toBeNull();

@@ -122,9 +122,9 @@ describe('실기 연결 흐름', () => {
     expect($('[data-real-range]')?.textContent).toContain('후진 없음');
     expect($('[data-stop]')).toBeTruthy();   // STOP 늘 보임
     act(() => a.recv(st())); await flush();
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }))); await flush();
-    await click(btn('잠금 해제'));
+    await click(btn('다시 시작')); await click($('[data-restart-go]'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }))); await flush();
     // 회전만(제자리) = wz 0, 앞 끝까지 = 1.5
     sim.axes([0, 1]); await wait(120);
@@ -302,9 +302,9 @@ describe('실기 직결 조종 — 새로 누른 입력만', () => {
     serve();
     const a = await connected();
     act(() => a.recv(st())); await flush();
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     act(() => a.recv(st(ST))); await flush();
-    await click(btn('잠금 해제'));
+    await click(btn('다시 시작')); await click($('[data-restart-go]'));
     act(() => a.recv(st({ ...ST, latched: false }))); await flush();
     return a;
   }
