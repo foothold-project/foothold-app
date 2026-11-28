@@ -36,7 +36,10 @@
 .u5 .bt::after{content:"";position:absolute;right:-4px;top:2.5px;width:2px;height:3px;border-radius:0 1px 1px 0;background:currentColor}
 .u5 .bt i{position:absolute;left:1.5px;top:1.5px;bottom:1.5px;border-radius:1px;background:currentColor;animation:fill 2.6s ease-in-out infinite}
 @keyframes fill{0%{width:var(--b0)}85%,100%{width:calc(100% - 3px)}}
-.u5 .stb.chk i{display:block;width:6px;height:6px;border-radius:50%;background:currentColor;animation:blink 1.6s ease-in-out infinite}
+/* 배지 점: 모든 배지 같은 틀(팀장 02:14) · 펄스는 .chk 만 · 흐린 점 = «연결 전» B 안 */
+.u5 .stb i{display:block;width:6px;height:6px;border-radius:50%;background:currentColor}
+.u5 .stb i.dim{opacity:.45}
+.u5 .stb.chk i{animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{50%{opacity:.25}}
 /* 움직임 줄이기 설정: 배터리 채움 · 점검 점 깜빡임을 멈춘 그림으로(시안 값은 위 그대로) */
 @media (prefers-reduced-motion:reduce){.u5 .bt i{animation:none;width:var(--b0)}.u5 .stb.chk i{animation:none}}
@@ -125,8 +128,8 @@
 /* ── 밝은 판(.proto.light) · 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」 ──
    바탕 #F6F7F6 · 칸 #FFFFFF · 글자 #1F2421 · 흐린 #5E6662 · 선 #DCE0DE · 강조 #18A07E · 강조 글자 #0E7F63 · 경고 #E04A2F · 경고 글자 #B8361F · 예행 #2F6FE0 · 주의(온도 채움) #D9A21F.
    어두운 판 글자색(흰 78 %)이 밝은 바탕에 남아 안 보이던 칸(수 칸 · 타일 줄 · 칩 · 모드)과 시안 어둠 색(#ff4d4f · #f2b705 · #00c389)을 바꾼다. 글자에는 온도 색을 쓰지 않는다 */
-.u5{--u5-red:#ff4d4f;--u5-amb:#f2b705;--u5-ok:#00c389;--u5-sim:#4C9BFF;--u5-ok-bg:rgba(0,195,137,.16);--u5-ok-line:rgba(0,195,137,.45)}
-.proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-sim:#2F6FE0;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
+.u5{--u5-red:#ff4d4f;--u5-amb:#f2b705;--u5-ok:#00c389;--u5-sim:#4C9BFF;--u5-on:#FFFFFF;--u5-dot-red:#FF4D4F;--u5-ok-bg:rgba(0,195,137,.16);--u5-ok-line:rgba(0,195,137,.45)}
+.proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-sim:#2F6FE0;--u5-on:#1F2421;--u5-dot-red:#E04A2F;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
 .proto.light .u5 .cnt,.proto.light .u5 .tgl,.proto.light .u5 .md,.proto.light .u5 .ln{color:#5E6662}
 .proto.light .u5 .cnt b{color:#1F2421}
 .proto.light .u5 .tgl i{background:#DCE0DE}
