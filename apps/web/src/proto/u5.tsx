@@ -147,7 +147,8 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const rs = s ? run : x.run ?? null, onRun = !!rs && !RUN_END.has(rs.status);
   // 걷기: speed 가 오면 speed(0 = 서 있음). 요약만 받는 로봇은 speed 칸 자체가 없어 임무 중 + RUNNING(일시정지 · 잠금 · 끊김 아님)이면 걷기(D1 · 조정 21:27)
   const noSpeed = s ? s.speed === undefined : x.unknown === 'summary';   // 첫 state 전(wait)은 모름 = 걷지 않음
-  const walk = noSpeed ? onRun && x.status === 'RUNNING' && rs?.status !== 'PAUSED' && !gone : walking(act, paused, s?.speed);
+  // 요약 로봇은 rt 가 online 을 false 로 덮어 끊김을 모름 → 서버 목록 attention OFFLINE 으로 끊김을 봄
+  const walk = noSpeed ? onRun && x.status === 'RUNNING' && rs?.status !== 'PAUSED' && !gone && !x.attention?.includes('OFFLINE') : walking(act, paused, s?.speed);
   const holder = x.holder ?? rt.get(x.id).holder;
   const who: [string, string] = holder ? [holder.id === me ? '나' : holder.name, holder.type === 'RUN' ? '임무' : '조종'] : [x.owner ? (x.owner === me ? '나' : ownerName(x)) : '없음', '담당자'];
   // 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기 모형 없으면 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. null 이면 % 만(지어내지 않음)
