@@ -708,7 +708,7 @@ class OrgSettings(Contract):
         'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m',
         'real_no_fast_server_drive', 'real_max_vx', 'real_max_vx_back',
         'real_max_vy', 'real_max_wz', 'model_overrides',
-        'show_demo_label', 'busy_hours', 'dup_inspect_min'))
+        'show_demo_label', 'busy_hours', 'dup_inspect_min', 'clip_retention_days'))
 
     battery_low_pct: int = Field(default=20, ge=5, le=50, strict=True)
     run_min_battery_pct: int = Field(default=30, ge=10, le=90, strict=True)
@@ -733,6 +733,7 @@ class OrgSettings(Contract):
     show_demo_label: bool = Field(default=True, strict=True, description="데모 로봇에 「데모」 표시. 끄면 표시만 숨긴다.")
     busy_hours: BusyHours = Field(default_factory=list, description="현장 혼잡 시간. PATCH 는 목록 전체를 바꾼다.")
     dup_inspect_min: int = Field(default=240, ge=30, le=1440, strict=True, description="같은 지점을 이 분 안에 다시 점검하면 겹침으로 알린다.")
+    clip_retention_days: int = Field(default=30, ge=1, le=365, strict=True, description="클립을 서버에 두는 날 수 1~365. 지금은 값만 두고 지우기는 하지 않는다.")
 
     @classmethod
     def from_stored(cls, settings):
@@ -794,6 +795,8 @@ class OrgSettingsPatch(Contract):
     show_demo_label: bool = omitted(strict=True)
     busy_hours: BusyHours = omitted()
     dup_inspect_min: int = omitted(ge=30, le=1440, strict=True)
+    # Range lives on OrgSettings: out-of-range is a merged-settings 422, not a 400 body error.
+    clip_retention_days: int = omitted(strict=True)
 
     @field_validator('model_overrides', mode='before')
     @classmethod

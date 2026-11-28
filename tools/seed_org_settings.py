@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""데모 서버 조직 설정을 시안 (u9_8 혼잡 시간 · 중복 점검 기준, u9_6 데모 표시) 값으로 PATCH 한다.
+"""데모 서버 조직 설정을 시안 (u9_8 혼잡 시간 · 중복 점검 기준, u9_6 데모 표시, u8_1 클립 보관 일수) 값으로 PATCH 한다.
 
 팀장 11/28 20:23 지시. DB 를 다시 만들지 않고 API 만 쓴다 (PATCH /api/v1/org/settings, 총괄 계정).
 값은 시안 html 에서 그대로 읽는다. 막대 자리 (left · width px) 를 06:00~22:00 = 1400 px 눈금으로 시각으로 바꾼다.
@@ -79,7 +79,13 @@ def from_proto(proto_dir):
     sw = re.search(r'<span class="sw( on)?"', pane)
     if not sw:
         raise SystemExit('u9_6: 데모 표시 스위치를 찾지 못했습니다.')
-    return {'show_demo_label': bool(sw[1]), 'busy_hours': parser.bands, 'dup_inspect_min': int(m[1]) * 60}
+    # u8_1 기록 목록 아래 글 「클립은 서버에 30 일 보관」
+    clips = (proto_dir.parent / 'u8' / 'u8_1_list.html').read_text(encoding='utf-8')
+    keep = re.search(r'클립은 서버에 (\d+) 일 보관', clips)
+    if not keep:
+        raise SystemExit('u8_1: 클립 보관 일수를 찾지 못했습니다.')
+    return {'show_demo_label': bool(sw[1]), 'busy_hours': parser.bands, 'dup_inspect_min': int(m[1]) * 60,
+            'clip_retention_days': int(keep[1])}
 
 
 def http(base, method, path, body=None, token=None):

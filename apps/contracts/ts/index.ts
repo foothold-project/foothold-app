@@ -1446,6 +1446,8 @@ export interface OrgSettings {
   busy_hours?: BusyHour[];
   /** 같은 지점을 이 분 안에 다시 점검하면 겹침으로 알린다. */
   dup_inspect_min?: number;
+  /** 클립을 서버에 두는 날 수 1~365. 지금은 값만 두고 지우기는 하지 않는다. */
+  clip_retention_days?: number;
 }
 
 export interface OrgSettingsPatch {
@@ -1472,6 +1474,7 @@ export interface OrgSettingsPatch {
   show_demo_label?: boolean;
   busy_hours?: BusyHour[];
   dup_inspect_min?: number;
+  clip_retention_days?: number;
 }
 
 export interface PairingClaim {

@@ -62,6 +62,10 @@
       "title": "Busy Hours",
       "type": "array"
     },
+    "clip_retention_days": {
+      "title": "Clip Retention Days",
+      "type": "integer"
+    },
     "deviation_m": {
       "maximum": 5,
       "minimum": 0.5,

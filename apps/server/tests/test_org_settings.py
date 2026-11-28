@@ -367,3 +367,26 @@ def test_seed_script_patches_through_app_login_bearer(client, seeded):
     assert {k: client.get(P).json()[k] for k in payload} == payload
     with pytest.raises(SystemExit):
         seed.seed(send, 'one', PASSWORD, payload)
+
+
+# app-lx 11/28 20:47: 클립 보관 일수 (지우기는 범위 밖)
+def test_clip_retention_default_admin_only_range_422_and_audit(client, seeded):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Event
+    operator = csrf(client, 'one')
+    assert client.get(P).json()['clip_retention_days'] == 30
+    assert client.patch(P, headers=operator, json={'clip_retention_days': 60}).status_code == 403
+    admin = csrf(client, 'admin')
+    for bad in (0, 366, -1):
+        assert client.patch(P, headers=admin, json={'clip_retention_days': bad}).status_code == 422
+    assert client.patch(P, headers=admin, json={'clip_retention_days': 1.5}).status_code in (400, 422)
+    assert client.get(P).json()['clip_retention_days'] == 30
+    for good in (1, 365, 60):
+        assert client.patch(P, headers=admin, json={'clip_retention_days': good}).json()['clip_retention_days'] == good
+    csrf(client, 'one')
+    assert client.get(P).json()['clip_retention_days'] == 60
+    with Session(client.app.state.engine) as db:
+        rows = list(db.scalars(select(Event).where(Event.code == 'ORG_SETTINGS_UPDATED').order_by(Event.id)))
+        assert [row.data for row in rows] == [{'clip_retention_days': v} for v in (1, 365, 60)]
+        assert all(row.user_id == seeded['users']['admin'] for row in rows)

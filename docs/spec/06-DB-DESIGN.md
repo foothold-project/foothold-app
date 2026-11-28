@@ -80,7 +80,7 @@ erDiagram
 |---|---|---|
 | id | uuid PK | |
 | name | text | |
-| settings | jsonb | 기준값: `battery_low_pct`(20), `run_min_battery_pct`(30), `deviation_m`(1.5), `lease_request_timeout_s`(10), `link_loss_wait_s`(30), `show_demo_label`(true), `busy_hours`([]), `dup_inspect_min`(240). 읽기·고치기는 [05 `/org/settings`](05-API-SPEC.md#8-기록알림) |
+| settings | jsonb | 기준값: `battery_low_pct`(20), `run_min_battery_pct`(30), `deviation_m`(1.5), `lease_request_timeout_s`(10), `link_loss_wait_s`(30), `show_demo_label`(true), `busy_hours`([]), `dup_inspect_min`(240), `clip_retention_days`(30). 읽기·고치기는 [05 `/org/settings`](05-API-SPEC.md#8-기록알림) |
 | created_at | timestamptz | |
 
 **users**
