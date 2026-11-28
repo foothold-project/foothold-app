@@ -1180,8 +1180,9 @@ class Realtime:
             return str(matches[0].id), matches[0].simulation is True
 
     def put(self, peer, body):
+        """참이면 큐에 들어갔다. 닫히는 중 · 큐 가득이면 거짓 (부르는 쪽이 ok 를 주지 않게, Codex pr550 M8)."""
         if peer.closing:
-            return
+            return False
         if peer.actor and 'robot' in body and body.get('t') != 'subscription.revoked':
             body = {'_delivery': body}
         if '_delivery' in body:
@@ -1194,7 +1195,7 @@ class Realtime:
         except asyncio.QueueFull:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
-            return
+            return False
         return True
 
     def stop_fast_server_drives(self, org_id, actor, *, settings=None):
@@ -1257,7 +1258,7 @@ class Realtime:
                             run = self.scheduled_runs.get(rid) or self.runs[rid]
                             run['lease_id'] = body['lease_id']
                             body['holder_type'] = 'RUN:' + run['run_id']
-                        if body['t'] in ('cmd', 'unlock', 'posture', 'action') or (body['t'] == 'lease' and body['lease_id'] is not None):
+                        if body['t'] in ('cmd', 'unlock', 'posture', 'action', 'gait') or (body['t'] == 'lease' and body['lease_id'] is not None):
                             if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
                                 continue
                         if body['t'] == 'cmd':
@@ -1271,7 +1272,7 @@ class Realtime:
                             retained = []
                             while not peer.queue.empty():
                                 item = peer.queue.get_nowait()
-                                if item.get('t') not in (('cmd', 'ping', 'streams', 'posture', 'action', 'run.start', 'run.control')
+                                if item.get('t') not in (('cmd', 'ping', 'streams', 'posture', 'action', 'run.start', 'run.control', 'gait')
                                         if body['t'] in ('stop', 'lease') else ('cmd', 'ping', 'streams')):
                                     retained.append(item)
                                 elif item.get('t') in ('run.start', 'run.control'):
@@ -1334,6 +1335,16 @@ class Realtime:
                     # 예약 실행 (11/28): 칸이 잡은 RUN lease 로 그 칸의 run.start 만.
                     holder.holder_type == 'RUN' and holder.actor is None and body.get('t') == 'run.start'
                     and (self.__dict__.get('scheduled_runs', {}).get(rid) or {}).get('run_id') == str(body.get('run_id')))))
+        if body.get('t') == 'gait':
+            # 걷기 모드: 자세와 같은 관문. 시뮬은 실기 시험 스위치 · 현장 승인 없이 받는다
+            # (바꿀 수 없으면 시뮬 에이전트가 GAIT_UNSUPPORTED 로 답한다). lease · 인증 · 주인 확인은 둘 다.
+            rid = next((key for key, value in self.agents.items() if value is peer), None)
+            record = self.arbiter.robots.get(rid)
+            holder = record.holder if record else None
+            return not (peer.actor is None and (peer.simulation or (peer.server_drive and self.field_approved(rid)))
+                and rid not in self.robot_changes
+                and not self.owner_uncertain and self.clock()-peer.auth_checked <= .5
+                and holder and holder.holder_type == 'USER' and holder.lease_id == body.get('lease_id'))
         if body.get('t') in ('posture', 'action'):
             rid = next((key for key, value in self.agents.items() if value is peer), None)
             record = self.arbiter.robots.get(rid)
@@ -1562,7 +1573,7 @@ class Realtime:
                     settings = self.cached_access(peer, robots, policy, safety=safe)
                     if msg.t in ('lease.take', 'lease.request') and rid in peer.revoked_robots:
                         raise LeaseError('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.')
-                    if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock', 'posture', 'action', 'run.start', 'run.control'):
+                    if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock', 'posture', 'action', 'run.start', 'run.control', 'gait'):
                         self.policy_controls.add(actor.session)
                     if (rid and msg.t != 'lease.cancel' and isinstance(self.audit, FairAuditQueue)
                             and not self.audit.admission_open(rid)):
@@ -1643,8 +1654,7 @@ class Realtime:
                             self.send_run(rid, actor, msg, reply_to=peer)  # replies after the final send
                             continue
                         elif msg.t == 'gait':
-                            # 계약만 먼저 (11/28). 에이전트 전달이 붙기 전에는 받은 척하지 않는다.
-                            raise LeaseError('GAIT_UNSUPPORTED', '걷기 모드 바꾸기는 아직 준비 중입니다.', 501)
+                            self.send_gait(rid, actor, msg)
                         elif msg.t == 'unlock':
                             self.apply(self.arbiter.unlock(rid, actor, str(msg.lease_id), msg.stop_gen))
                     self.put(peer, C.ScreenReply(id=msg.id, ok=True, delivered=(
@@ -1707,6 +1717,7 @@ class Realtime:
             robot_info=state.get('robot_info'),
             posture=state.get('posture'), posture_result=state.get('posture_result'),
             run=state.get('reported_run'), run_result=state.get('run_result'),
+            gait=state.get('gait'), gait_result=state.get('gait_result'),
             action_result=state.get('action_result'), control=state.get('control'),
             response_health=state.get('response_health'),
             phone_relay=phone_relay(self, rid),
@@ -1900,6 +1911,27 @@ class Realtime:
                 or peer.server_drive_axes != (0, 0, 0)):
             raise LeaseError('POSTURE_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
         self.put(peer, body)
+
+    def send_gait(self, rid, actor, msg):
+        # 멈춰 있을 때만 (속도 입력 0 · 에이전트 보고 0 · 0.5 초 안 상태). 실제 전환 여부는 에이전트의 gait_result.
+        self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
+        peer = self.agents[rid]
+        body = C.AgentGait(request_id=msg.id, lease_id=msg.lease_id, gait=msg.gait).model_dump(mode='json')
+        if self.blocked_agent_control(peer, body):
+            raise LeaseError('GAIT_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
+        if peer.state.get('latched') is not False:
+            raise LeaseError('GAIT_LATCHED', '정지 잠김을 푼 뒤 다시 누르세요.')
+        if (not 0 <= self.clock()-peer.state_received_at <= .5 or peer.state.get('applied') != [0, 0, 0]
+                or peer.server_drive_axes != (0, 0, 0)):
+            raise LeaseError('GAIT_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
+        if not self.queue_audit(Effect('audit', rid, dict(op='GO2_GAIT', at=now(), user_id=actor.user,
+                data=dict(request_id=msg.id, action=msg.gait)))):
+            raise LeaseError('SERVER_BUSY', '걷기 모드 기록 저장을 확인하세요.', 503)
+        # 기록 용량 변화가 lease 를 거둘 수 있어 넣기 직전에 다시 본다.
+        if self.blocked_agent_control(peer, body):
+            raise LeaseError('GAIT_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
+        if not self.put(peer, body):
+            raise LeaseError('ROBOT_OFFLINE', '로봇 연결이 끊겼습니다.', 503)
 
     async def screen_watch(self, peer):
         try:
@@ -2491,6 +2523,8 @@ class Realtime:
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
         peer.state['run_result'] = data.get('run_result')
+        peer.state['gait'] = data.get('gait')
+        peer.state['gait_result'] = data.get('gait_result')
         peer.state['action_result'] = data.get('action_result')
         peer.state['control'] = data.get('control')
         peer.state['response_health'] = data.get('response_health')
