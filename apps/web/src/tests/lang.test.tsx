@@ -30,6 +30,17 @@ describe('사전 · 규칙', () => {
     expect(en('운영자 A')).toBeNull();
     expect(en('K-01')).toBeNull();
   });
+  it('관제 · 로봇 탭 값 글: 관절 이름 두 꼴 · 단계 · 타일 · 분 · 건수', () => {
+    expect(en('위험 · 오른쪽 앞다리 엉덩이 71 °C')).toBe('Danger · Front-right hip 71 °C');
+    expect(en('앞 오른 엉덩이 71 °C · 경고')).toBe('Front-right hip 71 °C · Warning');
+    expect(en('왼쪽 뒷다리 무릎')).toBe('Rear-left knee');
+    expect(en('오른쪽 앞다리 엉덩이이 71 °C 입니다.')).toBe('Front-right hip is 71 °C.');
+    expect(en('K-01 타일')).toBe('K-01 tile');
+    expect(en('K-02 · 정지 잠금')).toBe('K-02 · stop latched');
+    expect(en('약 108 분')).toBe('about 108 min');
+    expect(en('알림 안 읽음 77건')).toBe('77 unread alerts');
+    expect(en('공정 C 배관 밑')).toBeNull();   // 서버가 준 자리 이름은 그대로
+  });
 });
 
 describe('그려진 글 바꾸기', () => {
