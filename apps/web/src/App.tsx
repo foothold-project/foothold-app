@@ -156,10 +156,11 @@ const taken = (l: Live) => l.stop?.phase === 'sent' || l.stop?.phase === 'fallba
 /** 서버 경유 정지가 꺼진 실기(SWITCH_OFF): 서버가 STOP 을 PHONE_DIRECT_REQUIRED 로 거절한다 · 현장 폰에서만 (Codex #535 M4) */
 const phoneOnly = (r: Robot) => !r.sim && !!r.serverDriveBlocked?.includes('SWITCH_OFF');
 
-export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
-  return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} {...useStopPress(onStop)}>
+/** place = 'screen': 폰 실기 조종 화면(시안 u1)의 화면 안 오른쪽 아래 정지(u1.app.css). 누름 · 대상 · 결과는 같고 자리 · 글만 다르다 */
+export function Stop({ phone, onStop, place }: { phone: boolean; onStop: () => void; place?: 'screen' }) {
+  return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop data-place={place} style={{ minHeight: place ? 68 : phone ? 64 : 44, minWidth: phone ? 92 : 120 }} {...useStopPress(onStop)}>
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
-    <span className="fh-stop-t"><span>STOP</span>{!phone && <small>정지 요청</small>}</span>
+    <span className="fh-stop-t"><span>{place ? '정지' : 'STOP'}</span>{!phone && <small>정지 요청</small>}</span>
   </button>;
 }
 
@@ -375,6 +376,18 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };
 
+  const u1 = phone && open;   // 폰 실기 조종 화면 = 시안 u1 틀(머리줄 없음 · 정지는 화면 안)
+  const dotEl = (() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
+        const [cls, dot, t] = net.at === 'open' ? ['ok', '●', '연결'] : net.at === 'connecting' || net.at === 'idle' ? ['', '○', '연결 중'] : ['bad', '■', net.at === 'denied' ? '연결 거부' : '연결 끊김'];
+        return <span className={`fh-dot${cls ? ` ${cls}` : ''}`} data-link={cls === 'bad' ? net.at : undefined} title={t}><i aria-hidden="true">{dot}</i><span className="fh-dot-t">{t}</span></span>;
+      })();
+  const moreEl = <details className="fh-more" ref={more}><summary aria-label="더 보기">⋯</summary>
+        <div className="card">{u1 && <button type="button" className="btn" disabled={!!rel} onClick={(e) => shut(e, () => robot && endDrive(robot.id, go))}>끝내기</button>}{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
+          : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
+          {tab === 'drive' && !simOpen && <ScanStart user={user} robots={open && robot ? [robot] : pool} label={PHONE_SCAN} start={() => { more.current?.removeAttribute('open'); setScan(true); }} />}
+          {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
+          {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}
+          <ThemePick /></div></details>;
   const pickEl = choose != null && !target && canStop && (here.length || allN ? <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
       {cantPick && <span style={LINE} data-cant-stop>{cantPick.name} 은 이 계정으로 정지할 수 없어 {simOnly ? '내 시뮬 정지' : off ? '멈출 수 있는 로봇 정지' : '전체 정지'}를 엽니다</span>}
       <span>어느 로봇을 정지할까요?</span>
@@ -478,26 +491,20 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   setStage(null);
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'} data-drive={open || simOpen ? '' : undefined}>
     {/* 시뮬 조종 화면(10-26): 머리줄은 STOP 만 — 영상 위 오른쪽 위에 뜬다(drive.css .fh-head[data-bare]). 시뮬 끝내기·연결 표시는 조종 화면 메뉴·알약으로 */}
-    <header className="fh-head" data-bare={simOpen || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} /> : <>
+    <header className="fh-head" data-bare={simOpen || undefined} data-u1={u1 || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} />
+      : u1 ? <>{/* 시안 u1: 머리줄 없이 오른쪽 위 상태 줄(연결 · ⋯) · 오른쪽 아래 정지. 끝내기는 ⋯ 맨 위 */}
+        <div className="u1-top">{dotEl}{moreEl}</div>
+        {(canStop || toSim) && <Stop phone place="screen" onStop={stop} />}</> : <>
       {phone
         ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button>
           : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
         : <><BrandLogo h={24} /><div className="fh-sep" /><h1>{title}</h1></>}
       <span className="fh-grow" />
-      {(() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
-        const [cls, dot, t] = net.at === 'open' ? ['ok', '●', '연결'] : net.at === 'connecting' || net.at === 'idle' ? ['', '○', '연결 중'] : ['bad', '■', net.at === 'denied' ? '연결 거부' : '연결 끊김'];
-        return <span className={`fh-dot${cls ? ` ${cls}` : ''}`} data-link={cls === 'bad' ? net.at : undefined} title={t}><i aria-hidden="true">{dot}</i><span className="fh-dot-t">{t}</span></span>;
-      })()}
+      {dotEl}
       {!phone && <Guard quiet><Bell cancel={cancel} /></Guard>}
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
-      {phone && <details className="fh-more" ref={more}><summary aria-label="더 보기">⋯</summary>
-        <div className="card">{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
-          : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
-          {tab === 'drive' && !simOpen && <ScanStart user={user} robots={open && robot ? [robot] : pool} label={PHONE_SCAN} start={() => { more.current?.removeAttribute('open'); setScan(true); }} />}
-          {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
-          {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}
-          <ThemePick /></div></details>}
+      {phone && moreEl}
       {(canStop || toSim) && !calm && <Stop phone={phone} onStop={stop} />}
     </>}</header>
     {open && robot && rel && (rel.why
