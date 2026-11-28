@@ -47,7 +47,7 @@ export const ic = I;
 
 // ── 서버 값 → 시안 글 ─────────────────────────────────────────
 const SIDE: Record<string, string> = { FL: '왼쪽 앞다리', FR: '오른쪽 앞다리', RL: '왼쪽 뒷다리', RR: '오른쪽 뒷다리' };
-const PART: Record<string, string> = { hip: '엉덩이', thigh: '허벅지', calf: '무릎' };
+const PART: Record<string, string> = { hip: '고관절', thigh: '허벅지', calf: '무릎' };
 /** 관절 이름(JOINTS 순서 · FL_calf_joint) → «왼쪽 앞다리 무릎» */
 export const jointName = (j: string) => { const [s, p] = j.split('_'); return `${SIDE[s] ?? s} ${PART[p] ?? p}`; };
 export type Level = 'crit' | 'bad' | 'warn' | null;

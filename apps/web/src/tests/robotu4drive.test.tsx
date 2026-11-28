@@ -397,8 +397,8 @@ describe('로봇 탭(시안 u4) 조종 논리 · 옛 세 칸 화면 시험 옮�
     // 새 표본(수신 시각이 바뀐 관절 보고)과 함께 온 온도 — rt 는 같은 표본이면 다시 그리지 않는다
     const hot = warm(0.5, { joints: JT.map((v, i) => (i === 0 ? 62 : v)) })!; hot.joints!.received_at = '2026-11-19T00:00:01Z';
     act(() => push('r7', { robot_info: hot }));
-    expect(temp().textContent).toBe('62 °C앞 오른 엉덩이'); expect(temp().className).toBe('g dk st bad warncell');
-    expect($('[data-u4-hot]')!.textContent).toBe('앞 오른 엉덩이 62 °C · 경고');
+    expect(temp().textContent).toBe('62 °C앞 오른 고관절'); expect(temp().className).toBe('g dk st bad warncell');
+    expect($('[data-u4-hot]')!.textContent).toBe('앞 오른 고관절 62 °C · 경고');
   });
 
   it('온도가 없거나 오래되면(3초 넘음) 칩 「없음」 · 3D 칸 흐림과 따로', () => {

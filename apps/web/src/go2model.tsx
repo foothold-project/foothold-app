@@ -229,7 +229,7 @@ export function spread(tags: { x: number; y: number; side: number; w: number; h:
   });
 }
 /** 그림 아래 줄의 관절 이름(앞 오른 종아리 등) */
-const LEG: Record<string, string> = { FR: '앞 오른', FL: '앞 왼', RR: '뒤 오른', RL: '뒤 왼' }, PART: Record<string, string> = { hip: '엉덩이', thigh: '허벅지', calf: '종아리' };
+const LEG: Record<string, string> = { FR: '앞 오른', FL: '앞 왼', RR: '뒤 오른', RL: '뒤 왼' }, PART: Record<string, string> = { hip: '고관절', thigh: '허벅지', calf: '종아리' };
 export const jointName = (n: string) => `${LEG[n.slice(0, 2)]} ${PART[n.split('_')[1]]}`;
 /** 자세를 놓고, 관절·화살표 끝을 화면 px 로. 관절 화살표 = 각속도 부호 × (돌림축이 카메라 쪽이면 +) — 오른손 법칙대로 + 는 보는 사람에게 반시계(↺) */
 function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number, view: View = HOME) {

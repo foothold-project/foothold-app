@@ -132,7 +132,7 @@ export const EN: Record<string, string> = {
 
 const LV: Record<string, string> = { 위험: 'Danger', 경고: 'Warning', 주의: 'Caution' };
 const SIDE: Record<string, string> = { '왼쪽 앞다리': 'Front-left', '오른쪽 앞다리': 'Front-right', '왼쪽 뒷다리': 'Rear-left', '오른쪽 뒷다리': 'Rear-right', '앞 왼': 'Front-left', '앞 오른': 'Front-right', '뒤 왼': 'Rear-left', '뒤 오른': 'Rear-right' };
-const PART: Record<string, string> = { 엉덩이: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
+const PART: Record<string, string> = { 고관절: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
 /** 관절 이름(proto/u5 jointName «오른쪽 앞다리 무릎» · go2model jointName «앞 오른 종아리») → «Front-right knee». 모르면 그대로 */
 const joint = (s: string) => { const g = /^(.+) (\S+)$/.exec(s); return g && SIDE[g[1]] && PART[g[2]] ? `${SIDE[g[1]]} ${PART[g[2]]}` : s; };
 
