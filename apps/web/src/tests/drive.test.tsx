@@ -16,7 +16,7 @@ import { STALLED } from '../simdrive';
 import { driveBlock } from '../fake';
 import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, stopLine } from '../serverdrive';
 import { simTune } from '../phone';
-import { CAP_BLOCK, REAL_STICK, REAL_WAIT } from '../drive';
+import { CAP_BLOCK, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL } from '../drive';
 import { ACTS, STANDUP_WHY, actWhy } from '../robotact';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
@@ -2362,9 +2362,58 @@ describe('폰 실기 조종 = 서버 명령표', () => {
   it('서버 경유 허용이 확인 안 된 로봇은 0 + 안내', () => {
     const { fwd, turn } = open(ROBOTS);
     expect(text()).not.toContain(REAL_STICK);
-    expect(text()).toContain(REAL_WAIT);
+    expect(text()).not.toContain(REAL_WAIT);                // 평소 숨김(시안 u1 에 없는 띠)
     fwdAt(fwd, 0.5); turnAt(turn, 1); tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);   // 입력이 0 이 되는 순간만 작은 알약
+  });
+});
+
+// 설정 확인 알약(app-lead 11-28 22:26 · 시안 밖 · 새로 그림): 평소 숨김 · 입력이 0 이 되는 순간만 동작 줄 위 가운데 · 10 초 넘게 모르면 위 띠
+describe('설정 확인 중 알약', () => {
+  const fwdEl = () => {
+    const fwd = $('[aria-label="이동 조이스틱"]');
+    fwd.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return fwd;
+  };
+  const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60, clientY: 0 })); });
+  const lift = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); });
+  const later = () => settingsMock.mockImplementation(() => new Promise(() => {}) as never);
+  const pill = () => $('[data-real-wait-pill]');
+
+  it('설정을 모르는 동안 평소엔 위 띠도 알약도 없음 · 누르면 알약(시안 밖 표시) · 떼면 사라짐', () => {
+    later(); mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    expect($('[data-real-wait]')).toBeNull();
+    expect(pill()).toBeNull();
+    const fwd = fwdEl(); press(fwd); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(pill()!.textContent).toBe('설정 확인 중 · 입력 0');
+    expect(pill()!.getAttribute('data-off-proto')).toBe('settings-pill');
+    expect($('[data-real-wait]')).toBeNull();
+    lift(fwd); tick(200);
+    expect(pill()).toBeNull();
+  });
+
+  it('키 W 로도 알약 · 10 초 넘게 모르면 알약 대신 위 띠(REAL_WAIT)', () => {
+    later(); mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    key('keydown', 'KeyW'); tick(200);
+    expect(pill()).not.toBeNull();
+    tick(9500); expect($('[data-real-wait]')).toBeNull();
+    tick(600);
+    expect($('[data-real-wait]')!.textContent).toBe(REAL_WAIT);
+    expect(pill()).toBeNull();
+    key('keyup', 'KeyW');
+  });
+
+  it('설정을 받으면 알약 없음 · 표 값', () => {
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const fwd = fwdEl(); press(fwd); tick(200);
+    expect(pill()).toBeNull();
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+  });
+
+  it('알약 자리: 동작 줄 위 가운데 · 11.5px 한 줄', () => {
+    expect(u1AppCss).toMatch(/\.u1d \.u1-pill\{position:absolute;left:50%;bottom:84px;transform:translateX\(-50%\);[^}]*font-size:11\.5px;[^}]*white-space:nowrap/);
   });
 });
 
@@ -2387,7 +2436,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     fwdAt(fwd, 0.6); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(cmds().some((m) => (m.axes as number[]).some((v) => v !== 0))).toBe(false);
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={off.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true, serverDriveBlocked: [] } : r))} />));   // 목록 갱신
     tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 설정을 받아 입력 세대가 바뀜 — 갱신 전에 누른 손가락은 떼고 다시
@@ -2407,7 +2456,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     const fwd = sticks();
     fwdAt(fwd, 1); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
     await act(async () => { answer({ ...ORG, real_no_fast_server_drive: true }); });
     tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 빠른 조종 끔: 전진은 상한 밖
@@ -2473,7 +2522,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
       await act(async () => {});
       key('keydown', 'ArrowUp'); tick(200);
       expect(lastAxes()).toEqual([0, 0, 0]);                // 고치기 전: [1.5, 0, 0]
-      expect(text()).toContain(REAL_WAIT);
+      expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);   // 22:26 부터 위 띠 대신 알약(10 초 넘으면 위 띠)
       key('keyup', 'ArrowUp');
       act(() => root!.unmount()); root = null; box.remove();
     }
@@ -2588,7 +2637,7 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     go({ ...ORG, real_max_vx: '0' });
     key('keydown', 'ArrowUp'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
   });
 
   it('[9] 빠른 조종 금지 확인 뒤 공용 설정이 simTune(null) 로 비면 받음도 풀림 → 0', () => {
@@ -2598,7 +2647,7 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     act(() => simTune(null)); tick(100);
     key('keydown', 'KeyW'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
   });
 });
 
