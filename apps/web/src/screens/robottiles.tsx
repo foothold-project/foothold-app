@@ -1,6 +1,7 @@
 // 로봇 탭 타일 (u5_4 · u12_1). 총괄 로봇 목록 위에 로봇마다 타일 하나.
 // 경고 타일(끊김 · 잠금 · 오류 = 빨강, 배터리 낮음 · 일시정지 · 넘어짐 의심 · 서버 주의 = 주황)이 앞으로 오고 테두리 · 머리 글로 강조한다.
-// 타일을 누르거나 Enter · Space 로 뒤집으면 Go2 정면 상태(자세 그림 · 기울기 · 가장 뜨거운 관절). 보기 전용: 로봇 명령 · STOP 없음.
+// 「정면 상태 보기」 단추(aria-pressed)나 카드 누름으로 뒤집으면 Go2 정면 상태(자세 그림 · 기울기 · 가장 뜨거운 관절). 보기 전용: 로봇 명령 · STOP 없음.
+// 카드는 보통 글 덩어리다: 단추 역할 · 이름을 카드에 주면 앞면 사실이 낭독기에서 가려진다(#590 reviewer). 이름 · 키보드는 단추에만.
 // 값은 목록 요약과 실시간 state 에 있는 것만 쓴다. 없으면 «서버에 값 없음» 이고 짓지 않는다(서 있는 그림 · 영상 자리 포함).
 // 움직임(경고 타일이 앞으로 옮겨 가기 · 뒤집기)은 prefers-reduced-motion 이면 끈다.
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -15,12 +16,12 @@ import './robottiles.css';
 const NONE = '서버에 값 없음';
 type Warn = { level: 'bad' | 'warn'; text: string } | null;
 
-/** 경고 단계와 까닭. 빨강 = robotStatus 빨강, 주황 = robotStatus 주황 · 넘어짐 의심 · 서버 주의 코드 */
+/** 경고 단계와 까닭. 빨강 = robotStatus 빨강, 주황 = robotStatus 주황 · 넘어짐 의심 · 서버 주의 코드.
+ *  상태 경고와 넘어짐 의심이 같이면 둘 다 글로(배터리 낮음 · 넘어짐 의심). 단계는 더 높은 쪽 */
 export function tileWarn(x: Robot): Warn {
-  const s = robotStatus(x);
-  if (s.tone === 'bad') return { level: 'bad', text: s.text };
-  if (s.tone === 'warn') return { level: 'warn', text: s.text };
-  if (pickInfo(x)?.v?.fallen) return { level: 'warn', text: '넘어짐 의심' };
+  const s = robotStatus(x), fell = pickInfo(x)?.v?.fallen ? '넘어짐 의심' : null;
+  const why = [s.tone === 'bad' || s.tone === 'warn' ? s.text : null, fell].filter(Boolean).join(' · ');
+  if (why) return { level: s.tone === 'bad' ? 'bad' : 'warn', text: why };
   const a = attn(x);
   return a ? { level: 'warn', text: a } : null;
 }
@@ -55,8 +56,8 @@ function Tile({ x, flipped, flip, open }: { x: Robot; flipped: boolean; flip: ()
   const tilt = v && (v.roll != null || v.pitch != null) ? `roll ${sdeg(v.roll) ?? '모름'} · pitch ${sdeg(v.pitch) ?? '모름'}` : NONE;
   return <>
     {w && <p className="rt-warn" data-tile-warn>경고 · {w.text}</p>}
-    <div className="rt-card" data-tile-card role="button" tabIndex={0} aria-pressed={flipped} aria-label={`${x.name} ${flipped ? '앞면 보기' : '정면 상태 보기'}`}
-      onClick={flip} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } }}>
+    {/* 카드 누름은 마우스 · 손가락 편의일 뿐, 이름 · 키보드 · 눌림 상태는 아래 「정면 상태 보기」 단추가 맡는다 */}
+    <div className="rt-card" data-tile-card onClick={flip}>
       <div className="rt-face rt-front" data-face="front" {...hide(flipped)}>
         <div className="rt-media" data-tile-media><span className="lbl">뒤 1 m 영상 · {NONE}</span></div>
         <div className="rt-head"><strong className="rt-name">{x.name}</strong><Chip {...s} /></div>
@@ -80,7 +81,9 @@ function Tile({ x, flipped, flip, open }: { x: Robot; flipped: boolean; flip: ()
         </div>
       </div>
     </div>
-    <button type="button" className="btn rt-open" data-tile-open onClick={open}>자세히</button>
+    <div className="rt-acts">
+      <button type="button" className="btn rt-flip" data-tile-flip aria-pressed={flipped} aria-label={`${x.name} 정면 상태 보기`} onClick={flip}>정면 상태 보기</button>
+      <button type="button" className="btn rt-open" data-tile-open onClick={open}>자세히</button></div>
   </>;
 }
 
@@ -119,6 +122,6 @@ export function RobotTiles({ robots, open }: { robots: Robot[]; open: (id: strin
           <Tile x={x} flipped={f} flip={() => setFlip((m) => ({ ...m, [x.id]: !f }))} open={() => open(x.id)} />
         </li>; })}
     </ul>
-    <p className="lv-note">보기 전용입니다. 타일을 누르거나 Enter · Space 로 Go2 정면 상태를 봅니다. 상세는 «자세히».</p>
+    <p className="lv-note">보기 전용입니다. «정면 상태 보기» 나 타일을 누르면 Go2 정면 상태를 봅니다. 상세는 «자세히».</p>
   </section>;
 }

@@ -9,8 +9,7 @@
 .rt-warn{margin:0;align-self:flex-start;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700;color:var(--bad);border:1px solid var(--bad);background:var(--bad-bg)}
 .rt-tile[data-warn="warn"] .rt-warn{color:var(--warn);border-color:var(--warn);background:transparent}
 .rt-count{font-size:12px;font-weight:700;color:var(--bad)}
-.rt-card{display:grid;perspective:900px;border-radius:8px;cursor:pointer;outline:none;padding:4px;margin:-4px}
-.rt-card:focus-visible{box-shadow:0 0 0 2px var(--accent)}
+.rt-card{display:grid;perspective:900px;border-radius:8px;cursor:pointer;padding:4px;margin:-4px}
 .rt-face{grid-area:1/1;display:flex;flex-direction:column;gap:8px;min-width:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;transition:transform .4s ease}
 .rt-back{transform:rotateY(180deg)}
 .rt-tile[data-flipped] .rt-front{transform:rotateY(-180deg)}
@@ -26,6 +25,7 @@
 .rt-facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;font-size:13px}
 .rt-fact{display:contents}
 .rt-fact strong{font-weight:600;min-width:0;overflow-wrap:anywhere}
-.rt-open{align-self:flex-end;height:36px}
+.rt-acts{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.rt-acts .btn{height:36px}
 .rt-tiles[data-motion="reduce"] .rt-face,.rt-tiles[data-motion="reduce"] .rt-tile{transition:none!important}
 @media (prefers-reduced-motion:reduce){.rt-face,.rt-tile{transition:none!important}}

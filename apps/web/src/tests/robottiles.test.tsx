@@ -38,6 +38,9 @@ const card = (id: string) => box.querySelector<HTMLElement>(`[data-robot-tile="$
 const face = (id: string, f: 'front' | 'back') => box.querySelector<HTMLElement>(`[data-robot-tile="${id}"] [data-face="${f}"]`)!;
 const fact = (id: string, k: string) => box.querySelector(`[data-robot-tile="${id}"] [data-face="front"] [data-tile-fact="${k}"]`)?.textContent;
 const key = (el: HTMLElement, k: string) => act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+/** 타일마다 하나뿐인 뒤집기 단추(이름은 여기에만) */
+const flipBtn = (id: string) => box.querySelector<HTMLButtonElement>(`[data-robot-tile="${id}"] [data-tile-flip]`)!;
+const flip = (id: string) => act(() => flipBtn(id).click());
 
 describe('경고 타일 앞으로 · 강조 (u12_1)', () => {
   it('끊김 · 잠금(빨강) → 배터리 낮음 · 넘어짐 의심 · 서버 주의(주황) → 나머지, 같은 단계는 받은 순서 그대로', () => {
@@ -56,25 +59,51 @@ describe('경고 타일 앞으로 · 강조 (u12_1)', () => {
     expect(box.querySelector('[data-robot-tile="r3"] [data-tile-warn]')).toBeNull();
     expect(box.querySelector('[data-tiles-count]')!.textContent).toBe('경고 3');
   });
+
+  it('경고가 둘이면 둘 다 글로: 배터리 낮음 + 넘어짐 의심 (#590 reviewer 낮음)', () => {
+    const BOTH = R({ id: 'r8', name: 'Go2-8', battery: 12, status: 'IDLE', robotInfo: FELL.robotInfo });
+    show([BOTH]);
+    expect(box.querySelector('[data-robot-tile="r8"] [data-tile-warn]')!.textContent).toBe('경고 · 배터리 낮음 · 넘어짐 의심');
+    expect(tiles()[0].dataset.warn).toBe('warn');
+    act(() => root?.unmount()); root = null; box.remove();
+    show([R({ id: 'r6', name: 'Go2-6', status: 'ERROR', robotInfo: FELL.robotInfo })]);
+    expect(box.querySelector('[data-robot-tile="r6"] [data-tile-warn]')!.textContent).toMatch(/^경고 · .+ · 넘어짐 의심$/);
+    expect(tiles()[0].dataset.warn).toBe('bad');   // 빨강이 이김
+  });
 });
 
 describe('뒤집기 → Go2 정면 상태 (u5_4)', () => {
-  it('타일은 키보드로 잡히는 단추: Enter · Space · 누름으로 뒤집고, 뒤집힌 상태를 aria-pressed 로 알림', () => {
+  it('카드는 보통 글 덩어리: 단추 역할 · 이름이 없어 앞면 사실(임무 · 배터리 · 온도 · 연결 · 담당)이 그대로 읽힘 (#590 reviewer)', () => {
     show([OK]);
     const c = card('r3');
-    expect(c.getAttribute('role')).toBe('button');
-    expect(c.tabIndex).toBe(0);
-    expect(c.getAttribute('aria-pressed')).toBe('false');
-    expect(c.getAttribute('aria-label')).toBe('Go2-3 정면 상태 보기');
-    key(c, 'Enter');
-    expect(c.getAttribute('aria-pressed')).toBe('true');
-    expect(c.getAttribute('aria-label')).toBe('Go2-3 앞면 보기');
-    key(c, ' ');
-    expect(c.getAttribute('aria-pressed')).toBe('false');
-    act(() => c.click());
-    expect(c.getAttribute('aria-pressed')).toBe('true');
-    key(c, 'a');
-    expect(c.getAttribute('aria-pressed')).toBe('true');
+    for (const a of ['role', 'tabindex', 'aria-label', 'aria-pressed']) expect(c.hasAttribute(a)).toBe(false);
+    expect(box.querySelector('[data-robot-tile="r3"] [role="button"]')).toBeNull();
+    const front = face('r3', 'front');
+    expect(front.getAttribute('aria-hidden')).toBeNull();
+    for (const k of ['mission', 'battery', 'temp', 'link', 'owner']) expect(c.contains(front.querySelector(`[data-tile-fact="${k}"]`)!.closest('[aria-label],[aria-hidden="true"]'))).toBe(false);   // 카드 안 어느 조상도 이름으로 덮거나 숨기지 않음
+    expect(front.textContent).toContain('임무2층 순찰 3/5');
+    expect(front.textContent).toContain('담당이OO');
+  });
+
+  it('뒤집기는 타일마다 작은 단추 하나 (aria-pressed · 이름은 늘 같음) · 카드 누름도 뒤집음 · 단추 누름은 한 번만', () => {
+    show([OK, LOW]);
+    expect(box.querySelectorAll('[data-robot-tile="r3"] [data-tile-flip]')).toHaveLength(1);
+    const b = flipBtn('r3');
+    expect(b.tagName).toBe('BUTTON');
+    expect(b.type).toBe('button');
+    expect(b.textContent).toBe('정면 상태 보기');
+    expect(b.getAttribute('aria-label')).toBe('Go2-3 정면 상태 보기');
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+    flip('r3');
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    expect(b.getAttribute('aria-label')).toBe('Go2-3 정면 상태 보기');   // 눌림 상태는 aria-pressed 가 알리고 이름은 바꾸지 않음
+    expect(box.querySelector<HTMLElement>('[data-robot-tile="r7"]')!.dataset.flipped).toBeUndefined();   // 다른 타일은 그대로
+    flip('r3');
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+    act(() => card('r3').click());
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    key(card('r3'), 'Enter');   // 카드는 초점을 받지 않으니 키보드는 단추로
+    expect(b.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('안 보이는 면은 읽기 · 초점에서 빠짐 (aria-hidden + inert)', () => {
@@ -82,7 +111,7 @@ describe('뒤집기 → Go2 정면 상태 (u5_4)', () => {
     expect(face('r3', 'back').getAttribute('aria-hidden')).toBe('true');
     expect(face('r3', 'back').hasAttribute('inert')).toBe(true);
     expect(face('r3', 'front').getAttribute('aria-hidden')).toBeNull();
-    key(card('r3'), 'Enter');
+    flip('r3');
     expect(face('r3', 'front').getAttribute('aria-hidden')).toBe('true');
     expect(face('r3', 'front').hasAttribute('inert')).toBe(true);
     expect(face('r3', 'back').getAttribute('aria-hidden')).toBeNull();
@@ -94,15 +123,15 @@ describe('뒤집기 → Go2 정면 상태 (u5_4)', () => {
     expect(all.textContent).toBe('정면 상태로 뒤집기');
     expect(all.getAttribute('aria-pressed')).toBe('false');
     act(() => all.click());
-    expect(tiles().map((t) => t.querySelector('[data-tile-card]')!.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
+    expect(tiles().map((t) => t.querySelector('[data-tile-flip]')!.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
     expect(all.textContent).toBe('앞면으로');
     act(() => all.click());
-    expect(tiles().map((t) => t.querySelector('[data-tile-card]')!.getAttribute('aria-pressed'))).toEqual(['false', 'false']);
+    expect(tiles().map((t) => t.querySelector('[data-tile-flip]')!.getAttribute('aria-pressed'))).toEqual(['false', 'false']);
   });
 
   it('실시간 자세 보고가 없으면 정면 그림 대신 「서버에 값 없음」 (서 있는 그림을 짓지 않음)', () => {
     show([OK]);
-    key(card('r3'), 'Enter');
+    flip('r3');
     expect(box.querySelector('[data-robot-tile="r3"] [data-tile-figure]')).toBeNull();
     expect(box.querySelector('[data-robot-tile="r3"] [data-tile-nopose]')!.textContent).toBe('정면 자세 · 서버에 값 없음');
   });
@@ -117,7 +146,7 @@ describe('뒤집기 → Go2 정면 상태 (u5_4)', () => {
       temperature: { age_s: 0.1, joints, battery: [30, 31, null, null], body: [35, null], imu: 33 } } as unknown as Go2RobotInfo })));
     show([OK]);
     expect(fact('r3', 'temp')).toBe('최고 관절 온도61°C · 앞 왼 종아리');
-    key(card('r3'), 'Enter');
+    flip('r3');
     expect(box.querySelector('[data-robot-tile="r3"] [data-tile-figure]')).not.toBeNull();
     expect(box.querySelector('[data-robot-tile="r3"] [data-tile-nopose]')).toBeNull();
   });
@@ -140,15 +169,15 @@ describe('값 없음은 「서버에 값 없음」 · 보기 전용', () => {
     expect(fact('r7', 'mission')).toBe('임무임무 없음');
   });
 
-  it('타일 단추는 「자세히」 (서랍 열기) 하나뿐이고 뒤집는 판 밖에 둠 (단추 안 단추 없음) · 로봇 명령 · 정지 없음', () => {
+  it('타일 단추는 「정면 상태 보기」 · 「자세히」 (서랍 열기) 둘이고 뒤집는 판 밖에 둠 · 로봇 명령 · 정지 없음', () => {
     const open = show([OK]);
     const btns = [...box.querySelectorAll<HTMLButtonElement>('[data-robot-tile="r3"] button')];
-    expect(btns.map((b) => b.textContent)).toEqual(['자세히']);
+    expect(btns.map((b) => b.textContent)).toEqual(['정면 상태 보기', '자세히']);
     expect(card('r3').querySelector('button, a, input, select')).toBeNull();
     expect(box.textContent).not.toMatch(/정지|STOP|조종 시작/);
-    act(() => btns[0].click());
+    act(() => btns[1].click());
     expect(open).toHaveBeenCalledWith('r3');
-    expect(card('r3').getAttribute('aria-pressed')).toBe('false');
+    expect(flipBtn('r3').getAttribute('aria-pressed')).toBe('false');
   });
 });
 
