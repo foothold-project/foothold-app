@@ -4,7 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { CLAY, DemoSite3D, botsOn, camOf, dress } from '../screens/u7/site3d';
+import { DemoSite3D, botsOn, camOf, markNogo } from '../screens/u7/site3d';
+import { SITE_TOP, TEX_TONE, dressTex, toneSite } from '../proto/site';
 import type { Robot } from '../fake';
 
 const fake = vi.hoisted(() => ({ made: [] as { domElement: HTMLCanvasElement; lost: number; disposed: number }[], scene: null as unknown }));
@@ -45,14 +46,17 @@ describe('데모 현장 3D', () => {
     expect(camOf('iso', 4).fov).toBeLessThan(camOf('iso', 6336 / 2688).fov);
   });
 
-  it('재질 = 시안 흰 점토 색 · 금지 구역은 붉은 바닥 · 기둥', () => {
+  it('재질 = 관제와 같은 공장 질감판(dressTex · 판마다 색 곱 TEX_TONE) · 금지 구역만 「금지 구역」 스위치 대상', () => {
     const g = new THREE.Group();
-    for (const n of ['fk_building', 'nogo_floor', 'pipe']) { const m = new THREE.MeshStandardMaterial(); m.name = n; g.add(new THREE.Mesh(new THREE.BoxGeometry(), m)); }
-    dress(g);
+    for (const n of ['building', 'nogo_floor', 'pipe']) { const m = new THREE.MeshStandardMaterial(); m.name = n; g.add(new THREE.Mesh(new THREE.BoxGeometry(), m)); }
+    markNogo(dressTex(g));
     const [b, f, p] = g.children as THREE.Mesh[];
-    expect((b.material as THREE.MeshStandardMaterial).color.getHexString()).toBe(new THREE.Color(CLAY.building).getHexString());
-    expect((p.material as THREE.MeshStandardMaterial).color.getHexString()).toBe(new THREE.Color(CLAY.pipe).getHexString());
-    expect([f.userData.nogo, (f.material as THREE.MeshBasicMaterial).transparent, b.userData.nogo]).toEqual([true, true, false]);
+    expect([b.userData.nogo, f.userData.nogo, p.userData.nogo]).toEqual([false, true, false]);
+    expect((f.material as THREE.MeshBasicMaterial).transparent).toBe(true);
+    toneSite(g, true);
+    expect((b.material as THREE.MeshStandardMaterial).color.getHex()).toBe(TEX_TONE.light);
+    toneSite(g, false);
+    expect((p.material as THREE.MeshStandardMaterial).color.getHex()).toBe(TEX_TONE.dark);
   });
 
   it('다시 열 때마다 새 렌더러 · 새 캔버스: 닫으면 옛 캔버스는 지워지고 문맥을 놓음, 칸에 캔버스는 늘 하나(같은 캔버스 다시 쓰기 없음)', async () => {
@@ -78,6 +82,7 @@ describe('데모 현장 3D', () => {
     act(() => root!.render(<DemoSite3D />)); await flush();
     expect(box.querySelector('.mp-hint3')!.textContent).toBe('끌어서 회전오른쪽 버튼 끌어 이동휠로 확대로봇 눈높이');
     expect(box.querySelector('.mp-mini3 [data-seen]')).not.toBeNull();
+    expect(box.querySelector('.mp-mini3 img[data-site-top]')!.getAttribute('src')).toBe(SITE_TOP.dark);   // 작은 지도 = 질감판 위에서 본 그림(어둠 판)
     act(() => root!.render(<DemoSite3D key="p" preview />)); await flush();
     expect(box.querySelector('.mp-hint3')).toBeNull(); expect(box.querySelector('.mp-mini3')).toBeNull();
     expect(box.querySelectorAll('canvas').length).toBe(1);
