@@ -1,0 +1,17 @@
+/* 시안 u13_1 · u13_4 화면 <style> (두 장이 같음) 을 .u13 로 감싼 것(기계 생성). 값은 그대로, body 는 .u13 로, 자산 주소만 /proto-assets/ 로. 손으로 고치지 않는다 */
+.u13{background:#e9ecef}
+.u13 .bg{position:absolute;inset:0;background:#d9d3d0 url(/proto-assets/shared/map_large_factory_k01.jpg) 40% 50%/cover}
+.u13 .bg::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(246,247,246,.55),rgba(246,247,246,.1) 60%)}
+.u13 .lab{font-size:11px;font-weight:700;color:#5e6662;margin-bottom:5px}
+.u13 .inp{height:40px;border-radius:11px;background:rgba(255,255,255,.82);border:1px solid rgba(0,0,0,.08);display:flex;align-items:center;padding:0 12px;font-size:13.5px;font-weight:700;color:#1f2421}
+.u13 .inp.foc{border-color:#18a07e;box-shadow:0 0 0 3px rgba(24,160,126,.2)}
+.u13 .inp.bad{border-color:#e04a2f;box-shadow:0 0 0 3px rgba(224,74,47,.14)}
+.u13 .dots{letter-spacing:.16em;font-size:15px}
+.u13 .prim{height:44px;border-radius:13px;background:linear-gradient(180deg,#18a07e,#0e7f63);color:#fff;font-weight:800;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 8px 20px rgba(14,127,99,.35),inset 0 1px 0 rgba(255,255,255,.4)}
+.u13 .sec{height:44px;border-radius:13px;background:rgba(255,255,255,.78);border:1px solid rgba(0,0,0,.08);color:#1f2421;font-weight:800;font-size:14.5px;display:flex;align-items:center;justify-content:center}
+.u13 .link{font-size:12.5px;font-weight:700;color:#0e7f63;display:inline-flex;align-items:center;gap:5px}
+.u13 .msg{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:11px;font-size:12.5px;font-weight:700}
+.u13 .msg.err{background:rgba(224,74,47,.12);border:1px solid rgba(224,74,47,.45);color:#b42326}
+.u13 .msg.ok{background:rgba(24,160,126,.12);border:1px solid rgba(24,160,126,.45);color:#0a7c5c}
+.u13 .veil{position:absolute;inset:0;background:rgba(8,10,14,.45);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:5}
+.u13 [data-go]{cursor:pointer}

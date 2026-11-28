@@ -71,9 +71,9 @@ const setVal = (el: HTMLInputElement, v: string) => act(() => {
 const submit = async (form: Element) => { act(() => { (form as HTMLFormElement).requestSubmit(); }); await flush(); };
 const slamGets = (id: string) => calls.filter((c) => c.method === 'GET' && c.path === `/robots/${id}/slam`);
 const more = () => $('details.fh-more')!, pair = () => $('[aria-label="새 로봇 추가"]')!;
-/** 폰 브라우저: «+ 로봇 연결하기» → 6자리 → 이름 → 등록(confirm 답 = done) */
+/** 폰 브라우저: «로봇 연결»(로봇 0대 = 시안 u13_4) → 6자리 → 이름 → 등록(confirm 답 = done) */
 async function pairTo(done: RobotSummary) {
-  await click(btn('+ 로봇 연결하기'));
+  await click($('[data-robot-connect]'));   // 로봇 0대 폰 = 시안 u13_4 «로봇 연결»
   setVal($<HTMLInputElement>('[data-pair-code]')!, '123456');
   await submit($('[data-pair-code]')!.closest('form')!);
   routes['POST /pairing/p1/confirm'] = { status: 200, body: done };
@@ -101,7 +101,7 @@ describe('붙이기 끝 화면 · 이 현장 지도 스캔하기 (u2_3)', () => 
     expect($('[aria-label="새 로봇 추가"]')).toBeNull();   // 카드 안 카드 없이 스캔 칸으로 바뀜
     await click($('[data-scan-close]'));
     expect($('[data-scan]')).toBeNull();
-    expect($('[aria-label="내 로봇"]')).toBeTruthy();
+    expect($('[data-u13="no-robot"]')).toBeTruthy();   // 로봇 연결 화면으로 돌아옴(이 시험의 서버 목록은 아직 0대라 시안 u13_4)
   });
 
   it('담당이 내가 아니게 돌아오면 단추 대신 까닭 한 줄', async () => {

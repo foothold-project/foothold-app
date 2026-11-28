@@ -49,7 +49,7 @@ const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) =
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 const card = () => $('[aria-label="새 로봇 추가"]')!;
 const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
-const startPair = async () => { await click(btn('+ 로봇 연결하기')); expect(card().dataset.pair).toBe('code'); };
+const startPair = async () => { await click($('[data-robot-connect]')); expect(card().dataset.pair).toBe('code'); };   // 로봇 0대 폰 = 시안 u13_4 «로봇 연결»
 const putCode = async (c = '123456') => {
   const el = $<HTMLInputElement>('[data-pair-code]')!;
   act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, c); el.dispatchEvent(new Event('input', { bubbles: true })); });

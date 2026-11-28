@@ -13,6 +13,7 @@ import { typing, useStopPress } from './App';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import { SimPick } from './simstart';
+import { TakeoverAsk } from './screens/takeover';
 
 /** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, A·← / D·→ 제자리 회전, Q/E 옆걸음, Space 정지(App).
  *  실기 서버 경유(serverdrive.tsx·drive.tsx)와 같다. 옆걸음은 limits 가 vy 를 허락할 때만 나가고(phone.ts velocity), 아니면 0 + blockNote.
@@ -457,9 +458,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
         <HeldRun />
       </div>}
-      {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
-        <b id="sim-ask-t">조종권 요청</b><p>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-        <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
+      {l.ask && mine && <TakeoverAsk id="sim-ask-t" title="다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다" give={() => sim.respond(true)} keep={() => sim.respond(false)} />}
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
         <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick>

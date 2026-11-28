@@ -71,7 +71,8 @@ const unfold = async (label: string) => {
   act(() => { d.open = true; d.dispatchEvent(new Event('toggle')); }); await flush();
 };
 /** 브라우저(앱 밖)는 고를 것이 «새 로봇 추가»뿐이라 «+ 로봇 연결하기» 한 번에 바로 새 로봇 추가 화면(RB-EASY-PAIR) */
-const startPair = async () => { await click(btn('+ 로봇 연결하기')); expect(card('새 로봇 추가').dataset.pair).toBe('code'); };
+// 로봇 0대 폰은 시안 u13_4 화면의 «로봇 연결»(같은 data-robot-connect · 같은 길)
+const startPair = async () => { await click($('[data-robot-connect]')); expect(card('새 로봇 추가').dataset.pair).toBe('code'); };
 
 describe('폰 운영 관리자 — 새 로봇 추가', () => {
   it('6자리 → claim → 바로 이름 단계(기체번호 작게, 확인 단계 없음) → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
@@ -80,7 +81,7 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
       'POST /pairing/p1/confirm': { status: 200, body: RA },
     }));
     await open('#/drive', true);
-    expect(btn('+ 로봇 연결하기')!.className).toBe('btn pri');   // 연결된 실기 0 → 목록 위 큰 단추
+    expect($('[data-u13="no-robot"] [data-robot-connect]')!.className).toBe('prim');   // 로봇 0대 → 시안 u13_4 의 칠한 큰 단추
     await startPair();
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
     expect(btn('QR 스캔')!.className).toBe('btn pri');   // 폰은 한 줄·QR 먼저 그대로(PC 두 칸 아님)

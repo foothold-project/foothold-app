@@ -2,7 +2,7 @@
 // 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=<listScope>(운영 관리자는 내게 배정된 로봇만, 총괄은 전체 — ADR-003 결정 2) → App.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
-import { App } from './App';
+import { App, usePhone } from './App';
 import { BrandLogo } from './BrandLogo';
 import { api, onAuthLost, type ApiFail } from './api';
 import { clearServerData, listScope, setServerData, toRobots, type Robot, type User } from './fake';
@@ -11,6 +11,7 @@ import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
 import { LoginFields, LoginFoot, type LoginBad } from './loginform';
+import { PhoneLogin } from './screens/phonelogin';
 
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
@@ -86,6 +87,7 @@ export function Root() {
 
 function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter: () => Promise<void> }) {
   const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
+  const phone = usePhone();
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
@@ -96,6 +98,8 @@ function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter
     try { await api.login(id, pw); await enter(); }
     catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
+  // 폰 폭(PHONE_Q) = 시안 u13_1 폰 로그인. 제출 · 칸 표시 · 글은 위와 같은 값
+  if (phone) return <PhoneLogin msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} light={fh !== 'fh'} submit={submit} />;
   return <div className={fh}><main className="fh-login" aria-label="로그인">
     <form onSubmit={submit} noValidate>
       <BrandLogo kind="primary" h={40} />
