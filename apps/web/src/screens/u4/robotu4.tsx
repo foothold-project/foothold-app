@@ -485,6 +485,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   // 시안 u4_7: Shift+N 도 칩과 같은 확인 창을 그 모드를 고른 채 연다(창 없이 보내지 않음). 못 여는 때(조종권 없음 · 그 모드를 못 씀)는 원래 길(press)이 까닭을 알림
   if (d.gaitAsk) d.gaitAsk.current = (g) => (mine && !noGait && (!d.gait.avail || d.gait.avail.includes(g)) ? openMode(g) : d.gait.press(g));
   const [arm, setArm] = useState(-Infinity);   // 처음 = 아직 안 누름(0 이면 페이지 연 뒤 3 초 안 첫 누름이 바로 Damp · 폰 drive 와 같게)
+  useEffect(() => { setArm(-Infinity); }, [latched, tab]);   // 단추가 사라지면(정지 풀림 · 다른 칸) 한 번 누른 것도 버림 — 다시 나타난 뒤 첫 누름은 안내만(검토 00:41)
   const damp = () => {
     if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
     setArm(-Infinity); d.zero(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
