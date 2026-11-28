@@ -101,12 +101,14 @@ describe('시안 껍데기 · 폰', () => {
 const lum = (hex: string) => { const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
 const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 describe('시안 껍데기 · 초록 단추 대비', () => {
-  it('어두움: #00c389 위 글자 = 시안 --ink(#1f2421) 4.5:1 이상 · 밝음: brand 위 흰 글자 4.5:1 이상', () => {
+  it('어두움: #00c389 위 글자 = 시안 --ink(#1f2421) 4.5:1 이상 · 밝음(DESIGN.md 밝음 1): #18A07E 위 흑연 글자 4.5:1 이상', () => {
     const on = [...css.matchAll(/--sh-on-pr: (#[0-9a-f]{6})/g)].map((m) => m[1]);
-    expect(on).toEqual(['#1f2421', '#ffffff']);
+    expect(on).toEqual(['#1f2421', '#1f2421']);
     expect(css).toMatch(/\.btn\.pri \{[^}]*color: var\(--sh-on-pr\)/);
     expect(css).toMatch(/--sh-pr3: #00c389;/);
     expect(ratio('#00c389', on[0])).toBeGreaterThanOrEqual(4.5);
-    expect(ratio('#0e7a6e', on[1])).toBeGreaterThanOrEqual(4.5);
+    expect(ratio('#18a07e', on[1])).toBeGreaterThanOrEqual(4.5);
+    expect(css).toMatch(/html \.fh\.light \{[^}]*--sh-bg: #F6F7F6;[^}]*--sh-pr3: #18A07E;/);
+    expect(css).toMatch(/body:has\(\.fh\.light\) \{ background: #F6F7F6; \}/);
   });
 });
