@@ -995,7 +995,7 @@ describe('서버 경유 뎁스', () => {
     expect($('[data-sd-full] [data-feed-held]')!.textContent).toContain('마지막 그림 · 2초 전');
   });
 
-  it('로봇 관측 칸에 «뎁스» 보기 — 조종 없는 로봇 탭도 뎁스 연결을 열고, 그림 전에는 «뎁스 카메라 신호 없음»(결정 13)', () => {
+  it('로봇 관측 칸에 «뎁스» 보기 · 조종 없는 로봇 탭도 뎁스 연결을 열고, 그림 전에는 «뎁스 카메라 신호 없음»(결정 13)', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
     expect(has()).toBe(false);   // 고르기 전에는 열지 않음
     click($('.u4 .views .vsel [data-view="depth"]')!);   // PC 로봇 탭(시안 u4) 보기 고르기
