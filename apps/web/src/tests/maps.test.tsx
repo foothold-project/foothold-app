@@ -7,7 +7,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { pcBoard } from '../pcboard';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { SIM_SAVE, Shapes, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
+import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
 import { FACTORY_PNG, FactoryImage } from '../mapframe';
@@ -2451,9 +2451,13 @@ describe('지도 탭 · 시안 u7', () => {
     expect([tog('2D').textContent, tog('3D').textContent]).toEqual(['2D 보기', '3D 보기']);
     await click(tog('3D'));
     expect($('[data-site3d="view"]')).not.toBeNull(); expect($('[data-map3d]')).toBeNull();
-    expect([...box.querySelectorAll('[data-map-layer]')].map((x) => x.textContent)).toEqual(['금지 구역']);
+    expect([...box.querySelectorAll('[data-map-layer]')].map((x) => x.textContent)).toEqual(['금지 구역', '지나온 경로']);
+    // 지나온 경로: 서버 기록이 없어 꺼 둔 채(누를 수 없음) · 까닭 한 줄 — 2D · 3D 같음
+    expect(box.querySelector<HTMLInputElement>('[data-map-layer="trail"] input')!.disabled).toBe(true);
+    expect(box.querySelector('[data-trail-why]')!.textContent).toBe(TRAIL_WHY);
     await click(tog('2D'));
-    expect($('[data-site3d]')).toBeNull(); expect(card('지도 보기').querySelector('[data-map] [data-factory]')).not.toBeNull();
+    expect($('[data-site3d]')).toBeNull();
+    expect(box.querySelector<HTMLInputElement>('[data-map-layer="trail"] input')!.checked).toBe(false); expect(box.querySelector('[data-trail-why]')).not.toBeNull(); expect(card('지도 보기').querySelector('[data-map] [data-factory]')).not.toBeNull();
     expect($('[aria-label="보기·편집"]')).toBeNull();
     expect($('[data-demo-ro]')!.textContent).toBe(SIM_SAVE);
     expect(box.textContent).not.toContain('«편집»');
@@ -2501,6 +2505,19 @@ describe('지도 탭 · 시안 u7', () => {
     await toPick();
     sites = card('현장');
     expect([sites.querySelector('[data-building="b90"]'), sites.querySelector('[data-building="b91"]')].every(Boolean)).toBe(true);
+  });
+
+  it('시뮬 월드 안 데모 건물만: 현장 칸 · 층 수 · 「지도 N 개」 모두 demo 건물 기준(demo=false 건물의 지도는 세지 않음)', async () => {
+    const t = { items: [{ id: 's9', name: '시뮬 월드', purpose: 'SIM', demo: true, buildings: [
+      { id: 'b9a', site_id: 's9', name: '공장 터', demo: true, floors: [floor('f9a', '마당', 1, 'v2', 'b9a')] },
+      { id: 'b9b', site_id: 's9', name: '큰 공장 · 초안', demo: false, floors: [floor('f9b', '1층', 1, 'v2', 'b9b'), floor('f9c', '2층', 2, 'v2', 'b9b')] }] }], next_cursor: null };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/f9a/map-versions': { status: 200, body: { items: [{ ...V2, floor_id: 'f9a' }], next_cursor: null } } }));
+    await toPick();
+    const sites = card('현장');
+    expect([...sites.querySelectorAll<HTMLElement>('[data-building]')].map((b) => b.dataset.building)).toEqual(['b9a']);
+    expect(sites.querySelector('[data-building="b9a"]')!.textContent).toContain('시뮬 월드 · 1층');
+    expect(sites.querySelector('.lbl')!.textContent).toBe('지도 1 개');
+    expect([...box.querySelectorAll<HTMLElement>('[aria-label="층 목록"] [data-floor-row]')].map((r) => r.dataset.floorRow)).toEqual(['f9a']);
   });
 
   it('u7_1 «버전 기록»: 그 층의 버전 기록 화면(시안 u7_9)으로 연다', async () => {
@@ -2571,7 +2588,8 @@ describe('지도 탭 · 시안 u7', () => {
     expect($$('[data-map] [data-waypoint]')).toHaveLength(1);
     await click(tog('waypoints'));
     expect($$('[data-map] [data-waypoint]')).toHaveLength(0);
-    for (const w of ['충전소', '지나온 경로']) expect(side.textContent, w).not.toContain(w);
+    expect(side.textContent).not.toContain('충전소');   // 지나온 경로는 시안대로 두되 서버 기록이 없어 꺼 둔 채(까닭 한 줄)
+    expect(tog('trail').disabled).toBe(true); expect(side.querySelector('[data-trail-why]')!.textContent).toBe(TRAIL_WHY);
   });
 
   it('u7_3 «이 지도로 모의 실행» = 시안 u6_6 (임무 탭, 그 층)', async () => {

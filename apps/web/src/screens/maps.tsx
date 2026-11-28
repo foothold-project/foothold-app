@@ -211,6 +211,8 @@ const IN_USE: Partial<Record<Kind, string>> = {
 };
 /** 장소 바꾸기 실패 = 무엇이 + 어떻게(U8). 403 은 서버 문구 그대로 */
 /** 데모(SIM) 현장의 지도 · 장소 저장은 서버가 409 SIM_PLACE_BY_TERRAIN 로 막는다 · 날것 대신 이 한 줄 */
+/** 「지나온 경로」 켜기를 막는 까닭(서버가 로봇이 지나온 길 기록을 아직 주지 않음) */
+export const TRAIL_WHY = '지나온 경로는 서버가 아직 기록을 주지 않아 켤 수 없습니다.';
 export const SIM_SAVE = '데모 현장 지도는 보기만 합니다. 지형은 시뮬 탭 «지형 만들기» 에서 바꿉니다.';
 const placeFail = (e: ApiFail, k: Kind) => (e.code === 'SIM_PLACE_BY_TERRAIN' ? SIM_SAVE : e.code === 'RESOURCE_IN_USE' && IN_USE[k] ? IN_USE[k] : e.status === 404 ? `이 ${OBJ[k]} 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.` : trashFail(e));
 
@@ -758,7 +760,11 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
     {side && <div className="mp-fseg">{side}</div>}
     {v && (!show3 || demo3) && !on3d && !cmp && <div role="group" aria-label="보이기" className="mp-lay"><p className="lbl">보이기</p>
       {LAY.filter(([k]) => !show3 || k === 'zones').map(([k, t, c]) => <label key={k} className="mp-tog" data-map-layer={k}><i style={{ background: c }} aria-hidden="true" /><span className="fh-grow">{show3 ? '금지 구역' : t}</span>
-        <input type="checkbox" role="switch" checked={lay[k]} onChange={() => setLay({ ...lay, [k]: !lay[k] })} /></label>)}</div>}
+        <input type="checkbox" role="switch" checked={lay[k]} onChange={() => setLay({ ...lay, [k]: !lay[k] })} /></label>)}
+      {/* 시안 u7_3 · u7_4 「지나온 경로」: 서버에 로봇이 지나온 길 기록(계약 · API)이 아직 없다 → 지어내지 않고 꺼 둔 채 까닭 한 줄 */}
+      <label className="mp-tog" data-map-layer="trail" aria-disabled="true"><i style={{ background: 'var(--accent)' }} aria-hidden="true" /><span className="fh-grow">지나온 경로</span>
+        <input type="checkbox" role="switch" checked={false} disabled aria-describedby="mp-trail-why" /></label>
+      <p className="lv-note" id="mp-trail-why" data-trail-why>{TRAIL_WHY}</p></div>}
     {v && <div aria-label="이 지도" className="mp-kv"><p className="lbl">이 지도</p><dl>
       <dt>저장</dt><dd>{md(v.created_at)} · v{v.number}</dd>
       <dt>만든 방법</dt><dd>{howMade(v)}</dd>
