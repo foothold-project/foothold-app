@@ -37,7 +37,8 @@ export function Detail({ c, r: r0 }: { c: Ctx; r: Robot }) {
   const lock = stopLine(l) ?? (hidden ? { tone: 'off' as const, text: '확인 안 됨' } : s?.latched == null ? { tone: 'off' as const, text: '모름' }
     : s.latched ? { tone: 'bad' as const, text: '잠김' } : { tone: 'ok' as const, text: '풀림' });
   const broken = hidden ? [] : devices.filter((v) => v.state !== 'OK'), note = hidden ? '' : attn(r0, SHOWN);
-  const info = pickInfo(r), v = info?.v ?? null;
+  // 시뮬도 서버가 robot_info(자세 · fallen)를 보내면 그대로 보인다. 넘어짐은 서버 fallen 값만(화면에서 각도로 판단하지 않음)
+  const info = pickInfo(r.sim && r.robotInfo ? { ...r, sim: false } : r), v = info?.v ?? null;
   const pose = !info ? null : !v ? info.why ?? '모름'
     : [`roll ${sdeg(v.roll) ?? '모름'} · pitch ${sdeg(v.pitch) ?? '모름'}`, v.code == null ? '상태 번호 모름' : v.code === 0 ? '상태 번호 0(정상 범위)' : `상태 번호 ${v.code}`, info.via].filter(Boolean).join(' · ');
   const fallen = v?.fallen ? <Chip tone="warn" text="넘어짐 의심" /> : null;
