@@ -113,7 +113,7 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect($('[data-pair-done]')!.textContent).toContain('Go2-A 로봇을 등록했습니다.');
     expect($('[data-pair-done]')!.textContent).toContain('조종권을 잡으세요');
     expect(calls.filter((c) => c.path.startsWith('/robots?')).length).toBe(lists);   // 안내가 보이는 동안은 안 바꿈
-    await click(btn('내 로봇으로'));
+    await click(btn('내 로봇 보기'));   // 폰 끝 화면 = 시안 u2_3 «내 로봇 보기»(옛 «내 로봇으로», 같은 동작)
     expect(calls.filter((c) => c.path.startsWith('/robots?')).length).toBeGreaterThan(lists);
     expect(card('내 로봇').textContent).toContain('Go2-A');
     expect(box.innerHTML).not.toMatch(/agent_token|poll_secret/);
@@ -152,7 +152,8 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     setVal($<HTMLInputElement>('[data-pair-code]')!, '111222');
     await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
     await submit($('[aria-label="새 로봇 추가"] form')!);
-    expect($('[data-pair-done]')!.textContent).toContain('기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기');
+    expect($('[data-pair-done] .h')!.textContent).toContain('기존 로봇에 다시 연결했습니다.');   // 폰 = 시안 u2_3 제목 · 아래 줄
+    expect($('[data-pair-done] .sub')!.textContent).toContain('옛 연결 키는 폐기');
   });
 
   it('QR 스캔: 내장 BarcodeDetector 가 foothold-pair:<6자리> 를 읽으면 그 코드로 claim 하고 카메라를 끈다. 다른 QR 은 무시', async () => {

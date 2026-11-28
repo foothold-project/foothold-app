@@ -1,0 +1,26 @@
+/* 시안 u2_2 · u2_3 을 앱으로 옮기며 더한 것(시안 값 아님) */
+/* 시안 u2 는 공통 ui.css 가 아니라 src/u2/ui.css 를 읽는다. 그 파일이 공통과 다른 값(색 변수)만 이 화면에 */
+.proto.pv.u2{--pr:#12b886;--pr2:#0ca678;--ink:#16191f;--mu:#5d6573;--red:#e5383b}
+/* 앱 껍데기가 읽는 PC 틀(proto/pc.pv.css .proto 1920×1080 · 어둠 바탕 · 흰 글)이 폰 화면에 번지지 않게: 시안 폰 body 값(바탕 없음 · 기본 글색) */
+.proto.pv.u2{background:#fff;color:#000}
+/* 폰 틀 .fh 머리줄 아래 본문을 꽉 채운다(로봇 없음 u134 · 스캔 u142 와 같은 길) */
+.fh:has(.u2){height:100dvh;min-height:0}
+.fh.phone:has(.u2) .fh-main{overflow:hidden;padding:0}
+.proto.pv.u2{flex:1 1 100%;width:100%;height:100%}
+/* 두 칸을 한 form 으로 감싸도 칸 자리는 시안 그대로(form 은 틀을 만들지 않음) */
+.u2 .u2-form{display:contents}
+/* 확인 칸 dl: 줄마다 div(dt · dd)로 묶어도 시안 격자 그대로 */
+.u2 .kv>div{display:contents}
+.u2 .kv dd{overflow-wrap:anywhere}
+/* div · span 단추를 button, div 이름 칸을 input 으로 바꾼 데서 생기는 기본 모양 지우기(값은 시안 칸 그대로) */
+.u2 button{font:inherit;color:inherit;letter-spacing:inherit;border:0;background:none;cursor:pointer}
+.u2 button:disabled{cursor:default;opacity:.6}
+.u2 button:focus-visible,.u2 input:focus-visible{outline:2px solid #18a07e;outline-offset:2px}
+.u2 input.field{width:100%;outline:none;font-family:inherit;letter-spacing:inherit;color:var(--ink)}
+/* 시안 밖(같은 결): 오류 한 줄 · 지도 스캔 권한 없음 까닭 */
+.u2 .u2-msg{margin-top:10px;padding:8px 12px;border-radius:11px;font-size:12px;font-weight:700;line-height:1.4;background:rgba(224,74,47,.12);border:1px solid rgba(224,74,47,.45);color:#b42326}
+.u2 .u2-no{position:absolute;left:22px;right:22px;bottom:84px}
+/* 완료(u2_3): 폰 머리줄 아래 높이(390 - 머리줄)에서는 시안의 위아래 두 단추가 안내 글과 겹친다. 로봇 없음(u134)처럼 한 줄에 나란히(값은 시안 단추 그대로, 자리만) */
+.u23 .scanb{bottom:22px!important;right:calc(50% + 4px)!important;height:52px!important}
+.u23 .prim{left:calc(50% + 4px)!important}
+.u23 .u2-no{bottom:22px;right:calc(50% + 4px)}

@@ -1,13 +1,13 @@
 // 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
 // 영상·지도·시나리오 제어는 자리만(가짜). 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_LATER, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
 import { DriveInputNote } from './driveinput';
-import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
+import { Chip, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
 import { NoRobot } from './screens/norobot';
@@ -17,8 +17,12 @@ import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo } from './serverdrive';
 import { api } from './api';
 import { STALLED, SimLaunch, field } from './simdrive';
-import { GAIT_KEYS, gaitKey, useGait } from './gait';
+import { GAITS, GAIT_KEYS, gaitKey, useGait } from './gait';
 import './drive.css';
+import './proto/ui.pv.css';
+import './proto/light.pv.css';
+import './screens/u1d.css';
+import './screens/u1.app.css';
 import { askShown } from './proto/u11';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
@@ -173,6 +177,7 @@ function Screen(c: Ctx) {
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false), [side, setSide] = useState(false), [combo, setCombo] = useState(false);   // combo = 표에 없는 키 조합을 누르는 중   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
+  const [chip, setChip] = useState(false), light = useTheme()[1];   // chip = 로봇 칩 펼침(시안 u1_10)
   // 입력 세대(rt inputGen): 키(e.code)·스틱 손가락마다 누른 순간의 세대. 잠김·해제·조종권·시트/⋯·blur/숨김·STOP·설정·ready 가 바뀌면 +1.
   // 앞 세대에 누른 키·손가락이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 아직 닿은 손가락 중 가장 앞 세대(없으면 null)
   const [gen] = useState(inputGen);
@@ -270,65 +275,104 @@ function Screen(c: Ctx) {
   // ready 에는 «중립 확인 중»도 넣는다 — 중립은 이번 세대 입력으로 정해지므로 세대 키(sync)에 넣으면 그 입력이 앞 세대가 된다(RV-426 ⑧)
   const lock = lockChip(l, r), ready = mine && (lock.text === '움직일 수 있음' || lock.text === '중립 확인 중'), speed = l.state?.speed, ok = got && isSettings(settings);
   readyRef.current = ready; sync();   // 그릴 때도 세대를 맞춘다(조이스틱 누름이 새 세대를 보게)
-
-  const actions = mine
-    ? <div className="fh-row">{l.state?.latched !== false && <button type="button" className="btn pri" onClick={() => rt.unlock(r.id)}>잠금 해제</button>}
-        <button type="button" className="btn" onClick={() => endDrive(r.id, c.go)}>조종 끝내기</button></div>
-    : <><DriveButton c={c} r={r} label="조종 시작" onClick={() => start()} wait={wait} />
-        {l.outgoing && <button type="button" className="btn" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</>;
-  const line = <div className="fh-row dv-line" aria-label="상태">
-    <h2>{r.name}</h2>
-    {r.sim && <Chip tone="off" text="시뮬" />}
-    <span>{holderText(l, me, r)}</span>
-    {r.online && speed != null && <span className="mono">{speed.toFixed(1)} m/s</span>}
-    {r.online && l.state?.latency_ms != null && <span className="mono">지연 {l.state.latency_ms} ms</span>}
-    <span className="mono">{pct(r.battery)}</span>
-    <Chip {...lock} />
-    <span className="fh-grow" />
-    {actions}
-  </div>;
   // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
   const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
-  const note = <><DriveInputNote devices={rt.now() - l.stateAt < 3000 ? l.state?.devices : null} />{l.notice && <p className="dv-note" role="status">{l.notice}</p>}{stalled && <p className="dv-note" role="status" data-stalled>{STALLED}</p>}
-    {ready && (real && ok ? <p className="dv-note" data-real-stick>{REAL_STICK}</p> : <p className="dv-note" data-real-wait>{REAL_WAIT}</p>)}</>;
-  const views = <div className="dv-views" aria-label="보기">
+
+  // 꼴 = 시안 u1_2(조종 판 안 시안 겹 .proto.pv.u1d · 마크업은 시안 그대로, 단추 div 는 button). 글 · 단추 · 동작 · 표지(data-*)는 옛 상태 판 그대로
+  const why = mine ? null : driveBlock(c.user, r) ?? (wait || null), whyId = `why-${r.id}`;
+  const gaitNow = GAITS.find((x) => x.g === l.state?.gait?.gait)?.name ?? '모름';
+  const views = <div className="g dk row u1-views" role="group" aria-label="보기">
     {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도']] as const).map(([v, t]) =>
-      <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
+      <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
+  </div>;
+  const ban = (cls: string, x: ReactNode, p: Record<string, string | boolean> = {}) => <p className={`ban ${cls}`} role="status" {...p}>{x}</p>;
+  const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d>
+    {!light && <div className="vig" />}
+    <div className="tl">
+      <button type="button" className="g dk row u1-chip" aria-expanded={chip} aria-controls="u1-pane" onClick={() => setChip(!chip)} style={{ left: '12px', top: '12px', height: '44px', padding: '0 12px 0 7px', gap: '9px' }}>
+        <span className="u1-ico"><Ic s={17}><path d="M4 13h11l3-3h2v4l-2 1H5z" /><path d="M6 15l-1 4M10 15v4M14 15v4M17 15l1 4" /></Ic>
+          {mine && <span className="op"><Ic s={10}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></Ic></span>}</span>
+        <span className="chipnum">{r.name}</span>{r.sim && <span className="tag">시뮬</span>}
+        {r.battery != null && <span className="bat" style={{ marginLeft: 0, '--soc': `${Math.max(0, Math.min(100, r.battery))}%` } as CSSProperties}><i />{pct(r.battery)}</span>}
+        <span className={`u1-st ${lock.tone}`}>{lock.text}</span>
+        <Ic s={15}>{chip ? <path d="m6 15 6-6 6 6" /> : <path d="m6 9 6 6 6-6" />}</Ic>
+      </button>
+    </div>
+    {/* 칩 펼침(시안 u1_10 .pane): 조종권자 · 속도 · 지연 · 걷기 모드. 닫혀 있으면 hidden */}
+    <div className="g pane" id="u1-pane" aria-label="로봇 상태" hidden={!chip}>
+      <div className="r"><span className="k">조종</span><span>{holderText(l, me, r)}</span></div>
+      {r.online && speed != null && <div className="r"><span className="k">속도</span><span className="mono">{speed.toFixed(1)} m/s</span></div>}
+      {r.online && l.state?.latency_ms != null && <div className="r"><span className="k">지연</span><span className="mono">{l.state.latency_ms} ms</span></div>}
+      <div className="r"><span className="k">걷기</span><span>{gaitNow}</span></div>
+    </div>
+    {/* 작은 지도(시안 .mm 자리 · 꼴). 누르면 큰 보기를 지도 ↔ 영상으로. 반납 중에는 숨김(보기 단추로 같은 일) */}
+    {!l.releasing && <button type="button" className="g dk mm dv-mini" style={{ left: '12px', top: '64px', width: '140px', height: '96px', borderRadius: '16px', overflow: 'hidden', padding: 0 }}
+      aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
+      {view === 'map' ? <Video small /> : <MapView />}</button>}
+    {/* 오른쪽 줄(시안 .col): 첫 줄(연결 · ⋯)은 머리줄 겹 .u1-top, 아래로 걷기 모드(START 자리) · 보기 · 조종 */}
+    <div className="col u1-col">
+      <button type="button" className="g dk u1-mode" aria-expanded={sheet === 'policy'} onClick={() => pick(sheet === 'policy' ? null : 'policy')}>
+        <b>{gaitNow}</b><span>걷기 모드</span></button>
+      {views}
+      {mine ? <button type="button" className="g dk btn" style={{ height: '44px', borderRadius: '14px' }} disabled={!!l.releasing} onClick={() => endDrive(r.id, c.go)}>
+          <Ic s={18}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></Ic>조종 끝내기</button>
+        : <button type="button" className="g dk btn u1-go" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} aria-describedby={why ? whyId : undefined} onClick={() => start()}>
+          <Ic s={18}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></Ic>조종 시작</button>}
+    </div>
+    {/* 잠금 해제 = 시안 u1_3 「다시 시작」 자리(정지 위 92 × 48) */}
+    {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={() => rt.unlock(r.id)}>
+      <Ic s={18}><path d="M7 11V8a5 5 0 0 1 9.6-2" /><rect x="5" y="11" width="14" height="10" rx="2" /></Ic>잠금 해제</button>}
+    {/* 위 띠 줄(시안 .ban): 작은 지도와 오른쪽 줄 사이. red = 출력 지연, amb = 막은 까닭 · 리모컨 */}
+    <div className="u1-says">
+      {!mine && ban('u1-who', holderText(l, me, r))}
+      {why && <p className={`ban ${driveBlock(c.user, r) ? 'amb' : 'u1-info'}`} role="status"><span id={whyId} className="fh-why" data-why>{why}</span>
+        {l.outgoing && <button type="button" className="banbt" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</p>}
+      {stalled && ban('red', STALLED, { 'data-stalled': true })}
+      <DriveInputNote devices={rt.now() - l.stateAt < 3000 ? l.state?.devices : null} cls="ban amb" />
+      {l.notice && ban('u1-info', l.notice)}
+      {ready && (real && ok ? ban('u1-info', REAL_STICK, { 'data-real-stick': true }) : ban('u1-info', REAL_WAIT, { 'data-real-wait': true }))}
+      {back && mine && ban('amb', '후진은 아직 지원하지 않습니다')}
+      {side && mine && real && ok && !combo && !permitted(TABLE.left, settings) && ban('amb', SIDE_BLOCK, { 'data-side-block': true })}
+      {combo && mine && ban('amb', COMBO_BLOCK, { 'data-combo-block': true })}
+      {/* 일시정지·중단 단추는 아직 없다 — 누를 수 없는 단추 대신 멈추는 길만(critique 11-10) */}
+      {r.mission && <p className="ban u1-info dv-run"><span>시나리오: {r.mission}</span><span data-run-stop>멈추려면 STOP</span></p>}
+    </div>
+    {mine && <><Stick cls="stick" label="전후" vertical on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
+      <Stick cls="stick" label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[1] = v; }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
+    {/* 아래 동작 줄(시안 .act 꼴): 시트 넷 그대로. 시안의 동작 7(앉기 … 인사)은 로봇 명령 길이 정해지기 전이라 그리지 않는다 */}
+    <div className="act dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
+      <button key={x.id} type="button" aria-expanded={sheet === x.id} onClick={() => pick(sheet === x.id ? null : x.id)}><span><Ic s={17}>{SHEET_IC[x.id]}</Ic></span>{x.label}</button>)}</div>
+    {/* 시나리오가 쥔 로봇 «조종 시작» 확인(시안 .scrim + .dlg · 가림막은 손가락을 막지 않음) */}
+    {ask && l.holder?.type === 'RUN' && <><div className="scrim" />
+      <div className="g dlg dv-ask" role="dialog" aria-labelledby="dv-run-t">
+        <div className="h" id="dv-run-t">조종 시작</div>
+        <div className="s">{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</div>
+        <div className="bts"><button type="button" className="dsec" onClick={() => setAsk(false)}>취소</button><button type="button" className="dpri" onClick={() => start(true)}>일시정지하고 조종</button></div>
+      </div></>}
   </div>;
 
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body">
       <div className={`dv-stage ${view}`}>
         {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}
-        {!l.releasing && <button type="button" className="dv-mini" aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
-          {view === 'map' ? <Video small /> : <MapView />}</button>}{/* 반납 중에는 안내가 상태 판을 키워 보기 단추와 겹치므로 숨김(보기 단추로 같은 일) */}
-        {c.scan}{/* 지도 스캔 겹(시안 u14_2): 상태 줄 · 조종권 요청 창보다 아래 */}
-        <div className="dv-hud">{line}{views}{note}</div>
+        {c.scan}{/* 지도 스캔 겹(시안 u14_2): 시안 겹 · 조종권 요청 창보다 아래 */}
+        {u1}
         {q && <TakeoverAsk id="dv-ask-t" title={`${[ROLE_NAME[q.role as Role], q.name].filter(Boolean).join(' ') || '다른 사람'} 님이 ${r.name} 조종권을 요청했습니다`}
           left={secs(q.until, now)} bar={(Math.max(0, q.until - now) / q.ms) * 100}
           give={pointerOnly(() => rt.respond(r.id, true))} keep={pointerOnly(() => rt.respond(r.id, false))} />}
-        {ask && l.holder?.type === 'RUN' && <div className="dv-ask" role="dialog" aria-labelledby="dv-run-t">
-          <b id="dv-run-t">조종 시작</b>
-          <p>{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</p>
-          <div className="fh-row"><button type="button" className="btn pri" onClick={() => start(true)}>일시정지하고 조종</button><button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>
-        </div>}
-        {mine && <><Stick label="전후" vertical on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
-          <Stick label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[1] = v; }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
-        {back && mine && <span className="dv-back" role="status">후진은 아직 지원하지 않습니다</span>}
-        {side && mine && real && ok && !combo && !permitted(TABLE.left, settings) && <span className="dv-back" role="status" data-side-block>{SIDE_BLOCK}</span>}
-        {combo && mine && <span className="dv-back" role="status" data-combo-block>{COMBO_BLOCK}</span>}
-        <div className="dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
-          <button key={x.id} type="button" className="btn" aria-expanded={sheet === x.id} onClick={() => pick(sheet === x.id ? null : x.id)}>{x.label}</button>)}</div>
         {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => pick(null)}>{sheet === 'policy' && gait.row || SHEET[sheet](c)}</Sheet>}
       </div>
     </div>
-    {r.mission && <div className="fh-row dv-run">
-      <span>시나리오: {r.mission}</span>
-      <span className="fh-grow" />
-      <span className="lbl" data-run-stop>멈추려면 STOP</span>
-    </div>}{/* 일시정지·중단 단추는 아직 없다 — 누를 수 없는 단추 대신 멈추는 길만(critique 11-10) */}
   </section>;
 }
+const Ic = ({ s, children }: { s: number; children: ReactNode }) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${s}px`, height: `${s}px` }} aria-hidden="true">{children}</svg>;
+/** 아래 동작 줄 시트 그림(시안 .act 아이콘 결) */
+const SHEET_IC: Record<SheetId, ReactNode> = {
+  pose: <><circle cx="12" cy="4.5" r="2" /><path d="M12 7v7M8 10h8M9 21l3-7 3 7" /></>,
+  scenario: <><path d="M8 6h12M8 12h12M8 18h12" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></>,
+  goal: <><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z" /><circle cx="12" cy="10" r="2" /></>,
+  policy: <><path d="M3 16c3-6 6-6 9-3s6 3 9-3" /><path d="M4 20h4M16 20h4" /></>,
+};
 
 /** 실기 RGB·뎁스·지도: 실기 영상 어댑터·지도·라이다 자료가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0).
  *  예전 지도 칸은 고정 벽·계산한 라이다 점을 그려 실제 센서로 읽힐 수 있었다(critique 11-10) — 받은 값이 없으면 그리지 않는다 */
@@ -347,8 +391,9 @@ function MapView({ big }: { big?: boolean }) {
  *  처음 잡은 손가락(pointerId) 하나만 쓴다 — 그 손가락을 떼기 전까지 다른 손가락은 무시, 떼면 값 0 이고 남은 손가락도 무시(RV-426 ⑩, 실기·시뮬 같게).
  *  잡은 순간의 세대(press(), 없으면 gen)를 적고 지금 세대일 때만 움직인다(on 이 아닐 때 잡으면 앞 세대 -1).
  *  grip = 잡은 손가락의 세대(없으면 null) — 조종 화면은 지금 세대가 아니면 명령 전체를 0 으로. lift = 뗀 뒤(바로 보내기).
+ *  cls = 덧붙일 꼴(폰 실기 조종 화면은 시안 u1 .stick).
  *  epoch 가 바뀌거나 처음 붙거나 사라지면 쥔 포인터를 놓고 값 0(부모 축 값도 — RV-426 ⑤). children = 판 위 그림(화살표) */
-export function Stick({ label, vertical, both, on, epoch, gen, press, set, grip, lift, children }: { label: string; vertical?: boolean; both?: boolean; on: boolean; epoch: number; gen: { current: number }; press?: () => number; set: (v: number, side: number) => void; grip?: (n: number | null) => void; lift?: () => void; children?: ReactNode }) {
+export function Stick({ label, vertical, both, on, epoch, gen, press, set, grip, lift, children, cls }: { cls?: string; label: string; vertical?: boolean; both?: boolean; on: boolean; epoch: number; gen: { current: number }; press?: () => number; set: (v: number, side: number) => void; grip?: (n: number | null) => void; lift?: () => void; children?: ReactNode }) {
   const [k, setK] = useState<[number, number]>([0, 0]);   // [세로, 가로]
   const el = useRef<HTMLDivElement>(null), own = useRef<{ id: number; n: number } | null>(null);   // 잡은 손가락·잡은 세대
   const cb = useRef({ set, grip, lift }); cb.current = { set, grip, lift };
@@ -365,7 +410,7 @@ export function Stick({ label, vertical, both, on, epoch, gen, press, set, grip,
     setK(both ? [y, x] : vertical ? [y, 0] : [0, x]); set(both || vertical ? y : x, both ? x : 0);
   };
   const end = (e: PointerEvent<HTMLDivElement>) => { if (own.current?.id !== e.pointerId) return; own.current = null; setK([0, 0]); set(0, 0); grip?.(null); lift?.(); };
-  return <div ref={el} className={`dv-stick ${vertical || both ? 'v' : 'h'}`} aria-label={`${label} 조이스틱`} aria-disabled={!on}
+  return <div ref={el} className={`dv-stick ${vertical || both ? 'v' : 'h'}${cls ? ` ${cls}` : ''}`} aria-label={`${label} 조이스틱`} aria-disabled={!on}
     onPointerDown={(e) => {
       if (own.current) return;   // 이미 잡은 손가락이 있으면 무시
       own.current = { id: e.pointerId, n: on ? press?.() ?? gen.current : -1 }; grip?.(own.current.n);
