@@ -3,7 +3,7 @@
 // 바닥 점 흐름은 api.drive = {v, turn, side} (로봇에 나간 명령 값). 모형 파일은 저장소 밖 자산 폴더(/proto-assets/, FH_ASSET_DIR)에서 읽는다.
 import * as THREE from 'three';
 import { applyWalk, loadWalk, type Walk } from '../../proto/site';
-import { feetUp } from '../../proto/tileview';
+import { REAR_DIST, feetUp } from '../../proto/tileview';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -30,6 +30,10 @@ export function applyQ(root: THREE.Object3D, joints: Joints, q: number[]) {
 export function walkPose(root: THREE.Object3D, joints: Joints, gait: Walk, t: number) {
   const b = { root, joints, top: 0 }; applyWalk(b, gait, t); root.position.y = feetUp(b); root.updateMatrixWorld(true);
 }
+/** 무대 카메라 · 그림자: 임무 중 현장 꼴 = 로봇 뒤(yaw π) · 관제 타일 「뒤」 와 같은 거리(tileview REAR_DIST) · 그림자 원은 몸 크기(0.22 × 1.0),
+ *  아니면 처음 자리(정면) · 시안 그림자(0.22 × 1.5). 현장 바닥 위 큰 회색 원이 보이던 것(팀장 사진 21:4x) */
+export const stageLook = (world: boolean, front: { yaw: number; dist: number }) =>
+  (world ? { yaw: Math.PI, dist: REAR_DIST, shadow: 1 } : { yaw: front.yaw, dist: front.dist, shadow: 1.5 });
 /** 모형의 가장 낮은 점(꼭짓점 기준)을 y=0 에 */
 export function ground(root: THREE.Object3D) {
   root.position.y = 0; root.updateMatrixWorld(true);
@@ -161,8 +165,8 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     const dt = Math.min(0.05, clock.getDelta()); t += dt;
     const wd = api.world;
     if (!!wd !== inWorld) {   // 임무 중 = 로봇 뒤에서 · 아니면 정면(처음 자리)
-      inWorld = !!wd; const b = inWorld ? Math.PI : yaw;
-      cam.position.set(Math.sin(b) * dist, 0.55, Math.cos(b) * dist); cam.lookAt(0, 0.17, 0); ctl?.update(); lit = null;   // 나오면 판 색(점 바닥 · 빛 웅덩이)을 다시 맞춤
+      inWorld = !!wd; const v = stageLook(inWorld, { yaw, dist });
+      cam.position.set(Math.sin(v.yaw) * v.dist, 0.55, Math.cos(v.yaw) * v.dist); cam.lookAt(0, 0.17, 0); shadow.scale.set(1, v.shadow, 1); ctl?.update(); lit = null;   // 나오면 판 색(점 바닥 · 빛 웅덩이)을 다시 맞춤
     }
     grid.visible = !wd; if (wd) pools.forEach((o) => { o.visible = false; });
     const d = api.drive;
