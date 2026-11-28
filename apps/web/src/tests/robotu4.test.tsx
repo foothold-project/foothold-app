@@ -212,6 +212,7 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
 
   it('5195 사진에서 찾은 두 가지(11/28 20:1x): 밝은 판 보기 고르기 글자(흰 글자라 안 보였음) · 라이다 높이 범례는 정지 단추 뒤가 아니라 왼쪽 위', () => {
     expect(u4css).toContain('.proto.light .u4 .views .vsel span{color:#5E6662}');
+    expect(u4css).toContain('.proto.light .u4 .views .vsel span.on{background:#1F2421;color:#FFFFFF}');   // 고른 칸 = 시안 밝은 판 seg2 고른 칸(light.pv.css)과 같음
     expect(u4css).toContain('.u4 .mapv[data-u4-big="lidar"] [data-height-legend]{right:auto;bottom:auto;left:16px;top:96px}');
   });
 });
@@ -629,6 +630,41 @@ describe('로봇 탭 · 다시 시작 확인 창', () => {
     click($('[data-u4-restart-go]')!);
     expect($('[data-u4-restart-ask]')).toBeNull();
     expect(w.of('unlock').map((m) => m.robot)).toEqual(['r7']);
+  });
+
+  // 검토 H1(11/28 20:25): 연 창은 그때의 STOP(stop_gen) 하나에만. 잠금이 다른 곳에서 풀리거나 세대가 바뀌면 창 자체를 닫는다
+  it('창을 연 뒤 다른 곳에서 풀림 → 새 STOP(stop_gen +1) 이 와도 창이 저절로 다시 뜨지 않고 unlock 0', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    click($('[data-u4-unlock]')!);
+    expect($('[data-u4-restart-ask]')).not.toBeNull();
+    const g = st.r7.stop_gen ?? 0;
+    act(() => push('r7', { latched: false }));   // 다른 화면에서 풀림
+    expect($('[data-u4-restart-ask]')).toBeNull();
+    act(() => push('r7', { latched: true, stop_gen: g + 1 }));   // 누군가의 새 STOP
+    expect($('[data-u4-restart-ask]')).toBeNull();
+    expect($('[data-u4-restart-go]')).toBeNull();
+    expect(w.of('unlock')).toEqual([]);
+  });
+
+  it('창이 열린 채 잠금은 그대로인데 세대만 바뀌면(새 STOP) 창을 닫음 · 다시 열어 누르면 새 세대로 1 회', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    click($('[data-u4-unlock]')!);
+    const g = st.r7.stop_gen ?? 0;
+    act(() => push('r7', { latched: true, stop_gen: g + 1 }));
+    expect($('[data-u4-restart-ask]')).toBeNull(); expect(w.of('unlock')).toEqual([]);
+    click($('[data-u4-unlock]')!); click($('[data-u4-restart-go]')!);
+    expect(w.of('unlock').map((m) => [m.robot, m.stop_gen])).toEqual([['r7', g + 1]]);
+  });
+
+  it('확인 창 단추는 진짜 <button> (키보드 Enter 로 누를 수 있음)', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    click($('[data-u4-unlock]')!);
+    expect($('[data-u4-restart-cancel]')!.tagName).toBe('BUTTON');
+    expect($('[data-u4-restart-go]')!.tagName).toBe('BUTTON');
+    expect($('[data-u4-restart-go]')!.getAttribute('type')).toBe('button');
   });
 });
 

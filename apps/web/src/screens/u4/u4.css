@@ -120,6 +120,7 @@
 /* 밝은 판 무대 · 지도 칸 바탕(팀장 11-28 17:09): 어두운 결 대신 밝음 1 바탕 · 선. 모형 · 바닥 점은 go2view 가 밝은 판 색으로 */
 .proto.light .u4 .stage3d{background:radial-gradient(520px 420px at 50% 42%,#FFFFFF,#F6F7F6 75%);border-color:#DCE0DE;box-shadow:0 1px 2px rgba(31,36,33,.06)}
 .proto.light .u4 .views .vsel span{color:#5E6662}
+.proto.light .u4 .views .vsel span.on{background:#1F2421;color:#FFFFFF}
 /* 라이다 높이 범례(lidar3d qd-legend · 기본 오른쪽 아래)는 이 칸에서 정지 단추 뒤에 가려져 왼쪽 위 지도 이름 아래로 */
 .u4 .mapv[data-u4-big="lidar"] [data-height-legend]{right:auto;bottom:auto;left:16px;top:96px}
 .proto.light .u4 .views{background:#F6F7F6;border-color:#DCE0DE}
