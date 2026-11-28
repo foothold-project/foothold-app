@@ -31,7 +31,13 @@ const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c38
 /** 시뮬(cyber) 로봇 재질. 시뮬 칸도 실기 · 데모와 같은 현장 · 따라가기 카메라(팀장 20:49) · 파란 결은 로봇 · 테두리 · 이름표로만.
  *  밝은 판: 흰 땅 위에서 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
 /** 현장 위 시뮬 로봇: 밝기 = k0 + k1 · 테두리 몫, 진하기 = a0 + a1 · 테두리 몫(보통 섞기). 점 바닥(어두운 바탕)은 로봇 탭과 같은 더하기 값 그대로 */
-export const SITE_SIM = { k: [0.62, 0.9], a: [0.6, 0.4] } as const;
+export const SITE_SIM_BASE = { k: [0.62, 0.9], a: [0.6, 0.4], s: 0.8 };
+/** 값 견주기: 주소 ?siteSim=k0,k1,a0,a1,s (또는 #… ?siteSim=…). 숫자 다섯이 아니면 SITE_SIM_BASE */
+export const siteSimOf = (q: string): typeof SITE_SIM_BASE => {
+  const v = (new URLSearchParams(q).get('siteSim') ?? '').split(',').map(Number);
+  return v.length === 5 && v.every((x) => Number.isFinite(x) && x >= 0 && x <= 3) ? { k: [v[0], v[1]], a: [v[2], v[3]], s: v[4] } : SITE_SIM_BASE;
+};
+export const SITE_SIM = (() => { try { return siteSimOf(location.search || location.hash.split('?')[1] || ''); } catch { return SITE_SIM_BASE; } })();
 export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlending, col: 0x2f6fe0 } : { blend: THREE.AdditiveBlending, col: SIM });
 /** 따라가기 카메라 가림(K-08 이 건물 옆이라 뒤 2.1 m 카메라가 벽 안에 들어감): 로봇 머리 → 카메라로 광선 한 번, 현장 물체에 맞으면
  *  맞은 자리 0.15 m 앞으로 당긴다(머리에서 최소 0.6 m). 투명한 것(금지 구역 빨강)은 막지 않음. 돌려주는 값 = 머리 → 카메라 선 위 비율(1 = 그대로) */
@@ -138,7 +144,7 @@ class Tiles {
       vertexShader: 'varying vec3 n; varying vec3 v; varying float y; void main(){ vec4 w=modelMatrix*vec4(position,1.0); y=w.y; n=normalize(normalMatrix*normal); vec4 mv=viewMatrix*w; v=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }',
       // site = 1(현장 위): 밝은 현장 바닥에 더하기 섞기는 하얗게 묻혀(시뮬 파랑 실측 어둠 바탕 밝기 110 · 차이 7) 보통 섞기 + 진하기 바닥값을 올림. 색은 같은 SIM 토큰
       fragmentShader: `uniform vec3 col; uniform float t; uniform float site; varying vec3 n; varying vec3 v; varying float y; void main(){ float f=pow(1.0-abs(dot(normalize(n),normalize(v))),2.2); float sl=0.5+0.5*step(0.5,fract(y*140.0-t*0.6));
-        gl_FragColor=vec4(col*mix(0.18+1.25*f, ${SITE_SIM.k[0]}+${SITE_SIM.k[1]}*f, site)*mix(sl, 0.8+0.2*sl, site), mix(0.14+0.7*f, ${SITE_SIM.a[0]}+${SITE_SIM.a[1]}*f, site)); }` });
+        gl_FragColor=vec4(col*mix(0.18+1.25*f, ${SITE_SIM.k[0].toFixed(3)}+${SITE_SIM.k[1].toFixed(3)}*f, site)*mix(sl, ${SITE_SIM.s.toFixed(3)}+${(1 - SITE_SIM.s).toFixed(3)}*sl, site), mix(0.14+0.7*f, ${SITE_SIM.a[0].toFixed(3)}+${SITE_SIM.a[1].toFixed(3)}*f, site)); }` });
     loadGo2().then((b) => { if (b) { this.body = b; s.add(b.root); } });
     loadWalk().then((w) => { this.walk = w; });
     loadSite().then((g) => { if (g) { this.site = g; this.world.add(g); } });
