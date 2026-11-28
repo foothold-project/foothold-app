@@ -10,9 +10,16 @@
       "type": "string"
     },
     "lease_id": {
-      "format": "uuid",
-      "title": "Lease Id",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Lease Id"
     },
     "op": {
       "enum": [
@@ -54,7 +61,6 @@
     "id",
     "robot",
     "t",
-    "lease_id",
     "run_id",
     "screen_id",
     "op"

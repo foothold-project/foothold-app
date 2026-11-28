@@ -15,6 +15,19 @@
           ],
           "title": "Assignment Id"
         },
+        "confirmed_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confirmed By"
+        },
         "created_at": {
           "format": "date-time",
           "title": "Created At",
@@ -70,6 +83,52 @@
           "title": "Robot Id",
           "type": "string"
         },
+        "run_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Code"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "run_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "STARTING",
+                "STARTED",
+                "DONE",
+                "FAILED",
+                "SKIPPED",
+                "MISSED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run State"
+        },
         "scenario_id": {
           "anyOf": [
             {
@@ -111,7 +170,11 @@
         "assignment_id",
         "memo",
         "created_by",
-        "created_at"
+        "created_at",
+        "run_state",
+        "run_id",
+        "run_code",
+        "confirmed_by"
       ],
       "title": "ScheduleSlot",
       "type": "object"
