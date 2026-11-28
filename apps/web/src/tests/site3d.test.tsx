@@ -39,7 +39,9 @@ describe('데모 현장 3D', () => {
     expect((Math.asin(y / 330) * 180) / Math.PI).toBeCloseTo(37, 6);
     expect((Math.atan2(x - tx, z - tz) * 180) / Math.PI).toBeCloseTo(-12, 6);
     // 가로 시야 = 2 atan(18 / 50) (36 mm 가로)
-    expect(2 * Math.atan(Math.tan((c.fov * Math.PI) / 360) * (2576 / 1093))).toBeCloseTo(2 * Math.atan(18 / 50), 6);
+    expect(2 * Math.atan(Math.tan((c.fov * Math.PI) / 360) * (2576 / 1093))).toBeCloseTo(2 * Math.atan(18 / 50), 3);   // k01 그림 2576×1093 ≈ iso 비율(소수 넷째 자리 차)    // 칸이 시안 그림보다 좁으면(세로로 긴 미리 보기 칸) 시안 그림을 cover 로 놓은 것처럼 세로 시야가 같다(옆을 자름)
+    expect(camOf('iso', 0.9).fov).toBeCloseTo(camOf('iso', 6336 / 2688).fov, 9);
+    expect(camOf('iso', 4).fov).toBeLessThan(camOf('iso', 6336 / 2688).fov);
   });
 
   it('재질 = 시안 흰 점토 색 · 금지 구역은 붉은 바닥 · 기둥', () => {
