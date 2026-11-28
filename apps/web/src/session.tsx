@@ -11,6 +11,7 @@ import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
 import { LoginFields, LoginFoot, PW_DONE, type LoginBad } from './loginform';
+import { PhoneLogin } from './screens/phonelogin';
 
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
@@ -86,6 +87,7 @@ export function Root() {
 
 function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter: () => Promise<void> }) {
   const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), [changed, setChanged] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
+  const phone = usePhone();
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
@@ -96,6 +98,8 @@ function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter
     try { await api.login(id, pw); await enter(); }
     catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
+  // 폰 폭(PHONE_Q) = 시안 u13_1 폰 로그인. 제출 · 칸 표시 · 글은 아래 PC 카드와 같은 값
+  if (phone) return <PhoneLogin msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} light={fh !== 'fh'} submit={submit} done={() => { setMsg(undefined); setBad(null); }} />;
   // 시안 로그인 카드(u10_1 · u10_3): 유리 카드 · FOOTHOLD 글자 · 제목 · 「총괄 · 운영자 계정으로 로그인합니다」. 칸 · 오류 · 비밀번호 바꾸기 안내는 loginform 그대로
   return <LgStage fh={fh} label="로그인">
     <form className="lg-card" onSubmit={submit} noValidate>

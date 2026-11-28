@@ -329,7 +329,10 @@ describe('조종 화면', () => {
     serve(PARK, 'r7');
     ready();
     recv(ask());
-    expect($('[role="dialog"]').textContent).toContain('총괄 김OO님이 Go2-7 조종권을 요청했습니다. 넘겨주시겠습니까?');
+    // 시안 u13_5 글: 제목 「역할 이름 님이 로봇 조종권을 요청했습니다」 + 「넘겨주시겠습니까? N 초 안에 …」(N = 서버 expires_at 으로 센 남은 초)
+    expect($('#dv-ask-t').textContent).toBe('총괄 김OO 님이 Go2-7 조종권을 요청했습니다');
+    expect($('[role="dialog"]').className).toBe('proto pv u135');   // 시안 u13_5 요청 칸 · 옛 .dv-ask 창 아님
+    expect($('[data-takeover-left]').textContent).toBe(`넘겨주시겠습니까? ${REQUEST_S} 초 안에 답하지 않으면 조종권을 넘기지 않습니다`);
     const give = $('[data-ask="give"]');
     give.focus();
     key('keydown', 'ArrowUp', give); tick(100);

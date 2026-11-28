@@ -33,9 +33,9 @@ export function LoginFoot({ done }: { done?: () => void }) {
 }
 
 type PwBad = 'id' | 'cur' | 'new' | 'again' | 'both' | null;   // both = 서버 401(아이디 · 지금 비밀번호를 가르지 않음)
-/** u10_2 창: 아이디 · 지금 비밀번호 · 새 비밀번호 · 다시. 취소 · X · Esc 로 닫힘(요청 없음) */
-export function PwChange({ close, done }: { close: () => void; done: () => void }) {
-  const [err, setErr] = useState(''), [bad, setBad] = useState<PwBad>(null), [busy, setBusy] = useState(false), title = useId();
+/** 비밀번호 바꾸기 창의 값 확인 · 요청(PC u10_2 PwChange · 폰 u13_2 가 같이 쓴다). 보기는 각 창이 맡는다 */
+export function usePwChange(done: () => void) {
+  const [err, setErr] = useState(''), [bad, setBad] = useState<PwBad>(null), [busy, setBusy] = useState(false);
   const refs = { id: useRef<HTMLInputElement>(null), cur: useRef<HTMLInputElement>(null), new: useRef<HTMLInputElement>(null), again: useRef<HTMLInputElement>(null) };
   useEffect(() => { refs.id.current?.focus(); }, []);
   useEffect(() => { if (bad) refs[bad === 'both' ? 'id' : bad].current?.focus(); }, [bad, err]);
@@ -60,6 +60,12 @@ export function PwChange({ close, done }: { close: () => void; done: () => void 
     setBusy(false);
     if (ok) done();
   };
+  return { err, bad, busy, refs, submit };
+}
+
+/** u10_2 창: 아이디 · 지금 비밀번호 · 새 비밀번호 · 다시. 취소 · X · Esc 로 닫힘(요청 없음) */
+export function PwChange({ close, done }: { close: () => void; done: () => void }) {
+  const { err, bad, busy, refs, submit } = usePwChange(done), title = useId();
   const field = (k: 'id' | 'cur' | 'new' | 'again', label: string, name: string, type: string, auto: string) => <label className="fh-field"><span className="lab">{label}</span>
     <input ref={refs[k]} className="inp" name={name} type={type} autoComplete={auto} aria-invalid={bad === k || (bad === 'both' && (k === 'id' || k === 'cur')) || undefined} /></label>;
   return <>

@@ -1,0 +1,7 @@
+/* 시안 u13_5 요청 칸을 앱 조종 판 위에 겹치며 더한 것(시안 값 아님): 판(.dv-stage) 안을 덮는 겹, 바탕은 비움(시안 body 의 카메라 바탕은 조종 판 그대로),
+   가림막 · 겹은 손가락을 막지 않음(요청 중에도 조종 · STOP 그대로 · 단추만 받음), 좁은 폰에서 칸 폭, div 단추를 button 으로 바꾼 데서 생기는 기본 모양 지우기 */
+.proto.pv.u135{position:absolute;inset:0;width:auto;height:auto;background:transparent;z-index:3;pointer-events:none}
+.u135 .veil{pointer-events:none}
+.u135>.g{pointer-events:auto;max-width:calc(100% - 24px)}
+.u135 button{font:inherit;color:inherit;letter-spacing:inherit;border:0;cursor:pointer}
+.u135 button:focus-visible{outline:2px solid #18a07e;outline-offset:2px}

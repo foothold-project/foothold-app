@@ -51,8 +51,9 @@ describe('시안 로그인 카드 (u10_1)', () => {
     expect([lg.dataset.scale, lg.style.width, lg.style.height]).toEqual(['0.8333', '1920px', '1080px']);
     expect(lg.style.transform).toContain('scale(0.8333');
   });
-  it('폰은 무대 배율 없이 기존 흐름', async () => {
-    const lg = await open(390, 844, true);
-    expect([lg.dataset.scale, lg.closest('[data-fit]')]).toEqual([undefined, null]);
+  it('폰은 무대 배율 없이 시안 u13_1 폰 로그인(PC 카드 · 무대 없음)', async () => {
+    await open(390, 844, true);
+    expect(box.querySelector('main[data-u13="login"]')).not.toBeNull();
+    expect([box.querySelector('.fh.lg'), box.querySelector('[data-fit]'), box.querySelector('form.lg-card')]).toEqual([null, null, null]);
   });
 });
