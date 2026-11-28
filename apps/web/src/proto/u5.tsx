@@ -280,6 +280,28 @@ function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; fro
 
 // ── 오른쪽 칸 ─────────────────────────────────────────────
 /** 데모 현장(/sites 의 demo === true)의 층마다 승인 판 id. 작은 지도(시안 공장 그림)는 이 판의 위치만 그린다 */
+/** 작은 지도 · 현장 그림(factory_kr top · 시안 design.json transform 25 + u·3.5)이 그려진 층 판의 꼴(팀장 00:36: demo 플래그가 아니라 층 대조).
+ *  로봇 위치 판(map_version_id)을 서버에서 받아(GET /map-versions/{id} · 판마다 한 번) 크기 · 해상도 · 원점이 이 꼴과 같으면 그 층으로 본다 */
+export const SITE_BOARD = { width: 1800, height: 1120, resolution: 0.5, origin: [0, -560] } as const;
+export const isSiteBoard = (v: { width: number; height: number; resolution: number; origin: number[] }) =>
+  v.width === SITE_BOARD.width && v.height === SITE_BOARD.height && Math.abs(v.resolution - SITE_BOARD.resolution) < 1e-9
+  && Math.abs((v.origin[0] ?? NaN) - SITE_BOARD.origin[0]) < 1e-6 && Math.abs((v.origin[1] ?? NaN) - SITE_BOARD.origin[1]) < 1e-6;
+const boardSeen = new Map<string, boolean | null>();   // 판 id → 현장 층인가(null = 묻는 중)
+/** 위치 판 가운데 현장 층인 것. 못 받으면(실패) 그 판은 그리지 않고 다음에 다시 묻는다 */
+function useSiteBoards(ids: string[]) {
+  const [, bump] = useState(0), key = [...new Set(ids)].sort().join(',');
+  useEffect(() => {
+    let live = true;
+    for (const id of key ? key.split(',') : []) {
+      if (boardSeen.has(id)) continue;
+      boardSeen.set(id, null);
+      api.version(id).then((v) => { boardSeen.set(id, isSiteBoard(v)); if (live) bump((n) => n + 1); }, () => { boardSeen.delete(id); });
+    }
+    return () => { live = false; };
+  }, [key]);
+  return key.split(',').filter((id) => boardSeen.get(id) === true);
+}
+export const resetSiteBoards = () => boardSeen.clear();
 export const demoBoards = (tree: SiteTree | null | undefined) => new Set((tree?.items ?? []).filter((s) => (s as MapSite & { demo?: boolean }).demo === true)
   .flatMap((s) => s.buildings.flatMap((b) => b.floors.map((f) => f.approved_version_id))).filter((v): v is string => !!v));
 /** 작은 지도 확대(팀장 00:33): 고른 로봇 점이 있으면 그 로봇 쪽으로 MINI_ZOOM 배(로봇이 칸 가운데). 없으면 그림 한 장 전체 */
@@ -382,7 +404,8 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const sel = useControlPick();
   useEffect(() => () => controlPick.set(''), []);
   const t = useTree(c.cancel), av = useAvail(c.cancel);
-  const boards = useMemo(() => demoBoards(t.tree), [t.tree]);
+  const site = useSiteBoards(c.robots.flatMap((x) => { const v = locOf({ x } as TileFacts)?.map_version_id; return v ? [v] : []; }));
+  const boards = useMemo(() => new Set([...demoBoards(t.tree), ...site]), [t.tree, site.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
   const places = useMemo(() => new Map(floorsOf(t.tree).map((p) => [p.floor.id, `${p.building.name} ${floorName(p.floor.name)}`])), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
   const every = order(list.map((x) => facts(x, me, places, av?.get(x.id)))), all = demo ? every : every.filter((f) => !f.demo);   // 데모 표시 끔 = 데모 로봇을 타일 · 지도 · 수에서 뺌

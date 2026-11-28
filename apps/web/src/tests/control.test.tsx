@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, facts, jointsNow, lying, order, tempLevel, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, tempLevel, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -635,6 +635,22 @@ describe('관제 탭', () => {
     expect(tile('k1').querySelector('[data-paused]')).toBeNull();
   });
 
+  it('작은 지도 점(팀장 00:36 · 층 대조): demo 플래그가 없어도 위치 판이 작은 지도 그림의 층 꼴(1800 × 1120 · 0.5 m/px · 원점 (0, -560))이면 시뮬 · 데모 · 실기 모두 점 · 다른 꼴 판 · 판 못 받음은 뺌', async () => {
+    resetSiteBoards();
+    const ver = vi.spyOn(api, 'version').mockImplementation(async (id: string) => {
+      if (id === 'other') return { id, width: 3200, height: 2000, resolution: 0.2857, origin: [-7.1, -565.7, 0] } as never;
+      if (id === 'gone') throw new Error('404');
+      return { id, width: 1800, height: 1120, resolution: 0.5, origin: [0, -560, 0] } as never;
+    });
+    try {
+      const at = (v: string) => ({ location: { floor_id: 'f1', map_version_id: v, x: 100, y: -50, yaw: 0, confidence: 1, updated_at: '' } } as never);
+      const R = EIGHT.map((r, i) => (i === 1 ? { ...r, sim: true } : r));
+      mount('u-kim', R); feed(R, { k1: at('fac'), k2: at('fac'), k3: at('fac'), k4: at('other'), k5: at('gone') });
+      await act(async () => {}); await act(async () => {});
+      expect($$('.u5 .mini .dotm').map((e) => e.dataset.dot).sort()).toEqual(['k1', 'k2', 'k3']);
+      expect(ver.mock.calls.map((c) => c[0]).sort()).toEqual(['fac', 'gone', 'other']);   // 판마다 한 번
+    } finally { ver.mockRestore(); resetSiteBoards(); }
+  });
   it('작은 지도 점: /sites 의 demo 현장 층 승인 판(approved_version_id)과 위치 판 id 가 같을 때만, 서버 m → 시안 그림 px(25 + u·3.5, 20 + v·3.5)', async () => {
     // app-lx 공장 판: 1800 × 1120 · 0.5 m/px · origin (0, -560) — 크기는 보지 않고 판 id 로만 가름
     const floor = (id: string, v: string | null) => ({ id, building_id: 'b', name: '1층', level: 1, approved_version_id: v });
