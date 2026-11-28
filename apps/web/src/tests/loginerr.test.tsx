@@ -113,6 +113,8 @@ describe('로그인 오류 보기 (u10_3)', () => {
     serve({ 'GET /auth/session': { status: 200, body: { client: 'web', csrf_token: 'c' } }, 'GET /me': { status: 200, body: KIM },
       'GET /robots': { status: 200, body: { items: [], next_cursor: null } }, 'GET /org/settings': NO_LOGIN, 'POST /auth/login': err(401, 'AUTH_REQUIRED', BAD) });
     await open('#/settings');
+    act(() => box.querySelector<HTMLElement>('#nav-robot')!.click());   // 조직 기준값을 읽는 설정 «로봇» 묶음(시안 u9)
+    await flush();
     const note = $('[data-login-note]')!;
     expect(note.textContent).toBe('로그인이 끝났습니다. 다시 로그인하세요.');
     expect(band()).toBeNull();
