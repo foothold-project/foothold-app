@@ -549,6 +549,9 @@ describe('실기 직결 「다시 시작」 확인 창', () => {
     expect(drive).toMatch(/\.dv-top\{position:absolute;top:8px;[^}]*min-height:32px/);
     expect(real).toMatch(/\[data-real-drive\] \.dv-ask\{top:46px\}/);
     expect(drive).toMatch(/\[data-sim-drive\] \.dv-ask\{top:48px\}/);
+    // 세로(좁은 폭): STOP(top 8 · 높이 64) 아래끝 + 8 = 80 (가로는 위 46 / 48 그대로)
+    expect(real).toMatch(/@media \(orientation:portrait\)\{\[data-real-drive\] \.dv-ask\{top:80px\}\}/);
+    expect(drive).toMatch(/@media \(orientation:portrait\)\{\[data-sim-drive\] \.dv-ask\{top:80px\}\}/);
     // 카드 z 1 · 창 z 2
     expect(real).toMatch(/\.rd-card\{position:absolute;[^}]*z-index:1;/);
     expect(drive).toMatch(/\.dv-ask\{[^}]*z-index:2;/);
