@@ -206,6 +206,8 @@ const btn = (t: string, from: ParentNode = box) => btns(from).find((b) => b.text
 const aria = (l: string) => $<HTMLButtonElement>(`button[aria-label="${l}"]`) ?? undefined;
 const card = (label: string) => $(`[aria-label="${label}"]`)!;
 const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
+/** 시뮬 탭은 메뉴에서 숨김(U0-01) · 주소로 연다 */
+const toSim = async () => { act(() => { location.hash = '#/sim'; }); await flush(); };
 const setVal = async (el: HTMLInputElement | HTMLSelectElement, v: string) => {
   act(() => { Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!.call(el, v); el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); });
   await flush();
@@ -958,7 +960,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2 · 1층 순찰 · 1층');   // 접혀도 무엇을 보는지 — 이름·층 한 줄(SCENARIO-TAB-PICKER)
     expect(point(0).closest('[hidden]')).toBeTruthy(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);   // 접기 = 숨김(unmount 아님, #235 B2)
-    await click($('nav a[href="#/fleet"]')); await click($('nav a[href="#/sim"]'));   // 다른 탭에 갔다 와도(같은 시나리오가 다시 열림) 접은 그대로
+    await click($('nav a[href="#/fleet"]')); await toSim();   // 다른 탭에 갔다 와도(같은 시나리오가 다시 열림) 접은 그대로
     expect(fold().getAttribute('aria-expanded')).toBe('false');
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('true');
@@ -1045,7 +1047,7 @@ describe('검토 반영(PR #38 B1~B6)', () => {
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions']);
     await click($('nav a[href="#/fleet"]'));
-    await click($('nav a[href="#/sim"]'));
+    await toSim();
     expect(name().value).toBe('느린 새 임무');
     expect(saveBtn().disabled).toBe(true); expect(name().closest('fieldset')!.disabled).toBe(true);
     await click(saveBtn());
@@ -1188,7 +1190,7 @@ describe('저장 안 한 편집', () => {
     await click(row('m1'));
     await setVal(name(), '쓰던 이름');
     await click($('nav a[href="#/fleet"]'));
-    await click($('nav a[href="#/sim"]'));
+    await toSim();
     expect(row('m1').textContent).toContain('저장 안 한 편집');
     expect(name().value).toBe('쓰던 이름');
     expect(text()).toContain('저장하지 않은 편집을 이어서 씁니다.');

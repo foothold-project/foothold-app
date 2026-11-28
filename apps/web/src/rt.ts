@@ -75,6 +75,8 @@ const zero = (a: number[] | null | undefined) => !!a?.length && a.every((v) => v
 let link: Link = { at: 'idle' };
 const live = new Map<string, Live>();
 const last = new Map<string, { status: Status | null; battery: number | null; at: string }>();   // 마지막 ONLINE 상태(끊김 문구용)
+/** 마지막으로 본 stop_gen(끊김 state 는 null 이라 덮지 않음). 끊긴 로봇 STOP 의 g0 = 끊기기 전 세대 (Codex #535 H2 · 조정 11:09) */
+const gens = new Map<string, number>();
 const active = new Set<string>();   // 조종 화면이 열린 로봇 — 그 밖의 로봇에 온 내 lease 는 바로 돌려준다
 const gone = new Set<string>();     // 내가 돌려준 lease — 반납 전에 나간 늦은 알림이 되살리지 않게
 const waiting = new Map<string, (r: ScreenReply) => void>();
@@ -248,6 +250,7 @@ const shown = (s: ScreenState) => {
 function onState(s: ScreenState) {
   const l = get(s.robot);
   if (s.connection === 'ONLINE') last.set(s.robot, { status: s.status, battery: s.battery?.soc ?? null, at: clock() });
+  if (s.stop_gen != null) gens.set(s.robot, s.stop_gen);
   const p = l.state;
   // 화면에 보이는 값이 바뀔 때만 다시 그림(10 Hz 그대로 그리지 않음)
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
@@ -321,7 +324,7 @@ function onRevoked(m: ScreenSubscriptionRevoked) {
   if (typeof m.robot !== 'string') return;
   const l = get(m.robot);
   if (l.lease) gone.add(l.lease);
-  live.set(m.robot, { ...EMPTY, stop: l.stop }); last.delete(m.robot);
+  live.set(m.robot, { ...EMPTY, stop: l.stop }); last.delete(m.robot); gens.delete(m.robot);
   revoked.set(m.robot, now());
   robots = robots.filter((id) => id !== m.robot); held = held.filter((id) => id !== m.robot);
   lastRevoked = { robot: m.robot, reason: m.reason === 'ROBOT_DELETED' ? 'ROBOT_DELETED' : 'ACCESS_REVOKED', n: (lastRevoked?.n ?? 0) + 1 };
@@ -359,7 +362,7 @@ export const rt = {
     want = false; robots = []; held = []; sending = null; missedKey = ''; lastMissed = null; stopBeat(); clearTimeout(retry); clearTimeout(subRetry);
     document.removeEventListener('visibilitychange', onVisible); removeEventListener('pagehide', onPageHide);
     era.abort(); era = new AbortController(); drop(1000);
-    live.clear(); last.clear(); active.clear(); gone.clear(); waiting.clear(); revoked.clear(); lastRevoked = null;
+    live.clear(); last.clear(); gens.clear(); active.clear(); gone.clear(); waiting.clear(); revoked.clear(); lastRevoked = null;
     link = { at: 'idle' }; emit();
   },
   /** 상태를 받을 로봇이 바뀜(목록 갱신으로 담당이 바뀜 등): 빠진 로봇은 조종권을 돌려주고 상태를 지우며, 열려 있으면 sub 를 다시 보낸다.
@@ -368,7 +371,7 @@ export const rt = {
     for (const [id, t] of revoked) if (t < at) revoked.delete(id);
     ids = ids.filter((id) => !revoked.has(id));
     if (ids.join() === robots.join()) return;
-    for (const id of robots) if (!ids.includes(id)) { leave(id); live.delete(id); last.delete(id); }
+    for (const id of robots) if (!ids.includes(id)) { leave(id); live.delete(id); last.delete(id); gens.delete(id); }
     robots = ids;
     subscribe();
     emit();
@@ -465,7 +468,7 @@ export const rt = {
    *  타이머·HTTP 는 이 로그인 세션에 묶여 로그아웃·계정 전환 때 거둔다(다음 사람의 CSRF 로 나가지 않게) */
   stop(id: string) {
     const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'>) => { const t = get(id).stop; if (!s.aborted && t?.n === k) set(id, { stop: { ...t, phase: p.phase, why: p.why, at: now() } }); };
-    set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? -1, conn, rev: get(id).rev } });
+    set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? gens.get(id) ?? -1, conn, rev: get(id).rev } });
     let via: 'ws' | 'http' = 'ws', acked = false, viaWs = false;   // viaWs = WS 로 실제로 보냄(닫혀 있으면 send 가 바로 답을 불러 false)
     const http = () => {
       via = 'http'; clearTimeout(late);
