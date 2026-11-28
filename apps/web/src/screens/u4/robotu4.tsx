@@ -32,7 +32,8 @@ import { mount, type Go2Api } from './go2view';
 import { Detail } from './detail';
 import { DriveLine, useRobotLine } from '../../proto/u11';
 import { stageRect, sx, sy } from '../../stage';
-import { FACTORY_H, FACTORY_LIGHT, FACTORY_PNG, FACTORY_W, attach, factoryFrame, factoryPx, site, siteKey } from './simcam';
+import { SITE_TOP } from '../../proto/site';
+import { FACTORY_H, FACTORY_W, attach, factoryFrame, factoryPx, site, siteKey } from './simcam';
 import { nextIdx, remaining, ro, runOf, useRoute, type Route, type Run } from './route';
 import { STATUS as RUN_STATUS } from '../missionrun';
 import '../../proto/ui.pv.css';
@@ -147,7 +148,7 @@ function MapView({ c, r, b, run, route, onFactory }: { c: Ctx; r: Robot; b: Boar
   const pts = (l: (readonly [number, number])[]) => l.map((p) => `${p[0].toFixed(0)},${p[1].toFixed(0)}`).join(' ');
   const done = nx != null && me ? [...wps.filter(({ i }) => i < nx).map(({ w }) => at(w.x, w.y)), me] : [];
   const left = nx != null && me ? [me, ...wps.filter(({ i }) => i >= nx).map(({ w }) => at(w.x, w.y))] : wps.map(({ w }) => at(w.x, w.y));
-  const fac = light() ? FACTORY_LIGHT : FACTORY_PNG;   // 밝은 판은 흰 점토 결 공장 그림(같은 자리)
+  const fac = SITE_TOP[light() ? 'light' : 'dark'];   // 공장 질감판 위에서 본 그림(관제 작은 지도와 같은 파일 · 같은 자리)
   const src = !v ? null : onFactory ? (miss ? null : fac) : miss === 'server' ? (factoryFrame(v) ? fac : null) : api.imageUrl(v.id);
   return <div className="mapv" ref={view} data-u4-map={v?.id ?? ''}><div className="mapin" style={{ transform: shift }}>
     {src && <img src={src} alt="" style={{ width: `${W}px`, height: `${H}px` }} data-u4-mapimg={onFactory || miss ? 'factory' : 'server'}

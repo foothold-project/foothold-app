@@ -387,7 +387,7 @@ describe('데모 = 실기 꼴 · 서버 값(11-28)', () => {
       await flush(); await flush();
       const im = $('[data-u4-mapimg]')!;
       if (demo) {
-        expect(im.getAttribute('data-u4-mapimg')).toBe('factory'); expect(im.getAttribute('src')).toBe('/proto-assets/shared/map_large_factory.png');
+        expect(im.getAttribute('data-u4-mapimg')).toBe('factory'); expect(im.getAttribute('src')).toBe('/proto-assets/assets/maps_v2/factory_kr/top_dark.png');   // 공장 질감판 위에서 본 그림(어둠 판)
         expect($('#me')!.getAttribute('transform')).toMatch(/^translate\(375\.0,720\.0\)/);
       } else {
         expect(im.getAttribute('data-u4-mapimg')).toBe('server'); expect(im.getAttribute('src')).toBe('/api/v1/map-versions/v1/image');
