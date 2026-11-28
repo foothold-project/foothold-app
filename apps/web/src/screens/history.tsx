@@ -105,11 +105,12 @@ const Tiles = ({ items, who, run }: { items: Ev[]; who: (e: Ev) => string; run: 
       </div>
       <span className="mono hs-tile-time" data-tile-time>{when(stamp(e))}</span>
     </li>; })}</ul>;
-/** 사건의 로봇·사람 이름 · 화면이 아는 것만(로봇 목록·나·담당자). 모르면 빈 글 */
+/** 사건의 로봇·사람 이름 · 화면이 아는 것만(로봇 목록·나·담당자). id 는 있는데 이름을 모르면 «이름 모름», 둘 다 없으면 빈 글 */
+const NAMELESS = '이름 모름';
 const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
-  const r = c.robots.find((x) => x.id === e.robot_id)?.name;
-  const u = !e.user_id ? '' : e.user_id === c.user.id ? c.user.name : c.robots.find((x) => x.owner === e.user_id)?.ownerName;
-  return [r, u].filter(Boolean).join(' · ');
+  const r = !e.robot_id ? '' : c.robots.find((x) => x.id === e.robot_id)?.name || NAMELESS;
+  const u = !e.user_id ? '' : (e.user_id === c.user.id ? c.user.name : c.robots.find((x) => x.owner === e.user_id)?.ownerName) || NAMELESS;
+  return [...new Set([r, u].filter(Boolean))].join(' · ');
 };
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd · 그날 0시부터 끝까지, 브라우저 시간대) */
