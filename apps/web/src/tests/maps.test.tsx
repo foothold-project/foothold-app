@@ -10,7 +10,10 @@ import { Root } from '../session';
 import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
-import { FACTORY_PNG, FactoryImage } from '../mapframe';
+import { FACTORY_LIGHT, FACTORY_PNG, FactoryImage } from '../mapframe';
+import { setThemePref } from '../theme';
+/** 훅을 쓰는 작은 svg 조각을 그려 html 로 (renderToStaticMarkup 은 useSyncExternalStore 서버 값이 없어 못 씀) */
+const svgHtml = (el: React.ReactElement) => { const d = document.createElement('div'), r = createRoot(d); act(() => r.render(el)); const h = d.innerHTML; act(() => r.unmount()); return h; };
 import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
 import { TERRAIN_REASON } from '../simstart';
@@ -2466,9 +2469,22 @@ describe('지도 탭 · 시안 u7', () => {
   });
 
   it('데모 판 공장 그림 자리 = 로봇 탭과 같은 좌표(proto/site.ts): 서버 데모 판(0.5 m/px · 원점 (0,-560)) 위 공장 땅 (25,20)~(3175,1980) px 이 판 끝에서 끝', () => {
-    const html = renderToStaticMarkup(<svg><FactoryImage v={{ origin: [0, -560, 0], resolution: 0.5, height: 1120 }} /></svg>);
+    const html = svgHtml(<svg><FactoryImage v={{ origin: [0, -560, 0], resolution: 0.5, height: 1120 }} /></svg>);
     const [a, b, c, d, e, f] = html.match(/matrix\(([^)]+)\)/)![1].split(' ').map(Number), at = (x: number, y: number) => [a * x + c * y + e, b * x + d * y + f];
     for (const [[x, y], [u, w]] of [[[25, 20], [0, 0]], [[3175, 1980], [1800, 1120]]] as const) { const [px, py] = at(x, y); expect(px).toBeCloseTo(u, 6); expect(py).toBeCloseTo(w, 6); }
+  });
+
+  it('밝은 판 공장 그림 = 시안 흰 점토 결 위 그림(같은 3200×2000 px · 같은 자리), 어두운 판 = 공장 png', () => {
+    const v = { origin: [0, -560, 0] as [number, number, number], resolution: 0.5, height: 1120 };
+    const mx = (h: string) => h.match(/matrix\(([^)]+)\)/)![1];
+    const dark = svgHtml(<svg><FactoryImage v={v} /></svg>);
+    act(() => setThemePref('light'));
+    try {
+      const light = svgHtml(<svg><FactoryImage v={v} /></svg>);
+      expect(light).toContain(`href="${FACTORY_LIGHT}"`); expect(FACTORY_LIGHT).toMatch(/map_large_factory_top\.jpg$/);
+      expect(mx(light)).toBe(mx(dark));
+    } finally { act(() => setThemePref('dark')); }
+    expect(dark).toContain(`href="${FACTORY_PNG}"`);
   });
 
   it('넓이 글 = 시안 u7 꼴(50 만 m² · 4.2 만 m² · 8,400 m²)', () => {

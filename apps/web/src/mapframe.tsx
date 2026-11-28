@@ -8,6 +8,7 @@ import { api } from './api';
 import { terrainTop } from './terraintop';
 import { stageRect } from './stage';
 import { ASSET, K, OX, OY } from './proto/site';
+import { useTheme } from './theme';
 
 export type Box = [number, number, number, number];   // x y 폭 높이(그림 픽셀)
 type P = [number, number];
@@ -38,11 +39,14 @@ export function MapImage({ id, style, tint, ...rest }: { id: string; width: numb
  *  좌표는 로봇 탭 · 관제 작은 지도와 같은 proto/site.ts(K · OX · OY, 지도 원점 = 현장 원점): 공장 px → 현장 m(x 오른쪽 · y 위) → 이 판 그림 px(toPixel 과 같은 식).
  *  그림은 불투명이라 서버 판 그림을 덮는다 — 못 받으면 서버 판이 그대로 보인다. 요소(구역 · 지점)는 그 위에 그린다 */
 export const FACTORY_PNG = `${ASSET}/shared/map_large_factory.png`;
+/** 밝은 판 공장 그림: 시안 build_scene.py 가 같은 3200×2000 px 에 정사영으로 뽑은 흰 점토 결 위 그림(관제 작은 지도와 같은 파일) */
+export const FACTORY_LIGHT = `${ASSET}/shared/map_large_factory_top.jpg`;
 export function FactoryImage({ v }: { v: Pick<MapVersion, 'origin' | 'resolution' | 'height'> }) {
+  const [, light] = useTheme();
   const [ox, oy, yaw] = v.origin, c = Math.cos(yaw), s = Math.sin(yaw);
   const at = (px: number, py: number) => { const dx = (px - OX) / K - ox, dy = (OY - py) / K - oy; return [(c * dx + s * dy) / v.resolution, v.height - (-s * dx + c * dy) / v.resolution]; };
   const [e, f] = at(0, 0), [x1, y1] = at(1, 0), [x2, y2] = at(0, 1);
-  return <image href={FACTORY_PNG} data-factory width={3200} height={2000} preserveAspectRatio="none" transform={`matrix(${[x1 - e, y1 - f, x2 - e, y2 - f, e, f].join(' ')})`} style={{ pointerEvents: 'none' }} />;
+  return <image href={light ? FACTORY_LIGHT : FACTORY_PNG} data-factory width={3200} height={2000} preserveAspectRatio="none" transform={`matrix(${[x1 - e, y1 - f, x2 - e, y2 - f, e, f].join(' ')})`} style={{ pointerEvents: 'none' }} />;
 }
 
 /** 시뮬 월드 «실제 모습»: mobile/scripts/make-top.mjs 가 구운 top.png 와 그 범위 top.json(사진이 덮는 지도 좌표 [x0, y0, x1, y1] m + 그 지도 판).
