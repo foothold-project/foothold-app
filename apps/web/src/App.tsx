@@ -29,6 +29,7 @@ import { Trash } from './screens/trash';
 import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
 import { BellFace, PcBar, STOP_FACE } from './proto/bar';
+import { EmptyRobots } from './proto/u11';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -421,12 +422,15 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
         driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
-      <div className={`fh ap-in old${light ? ' light' : ''}`}>
+      {/* 시안 u11_6: 로봇 0 대 관제 = 시안 빈 화면(.pane.empty). 그 밖은 옛 본문 */}
+      {tab === 'control' && !ctx && !simOpen ? <><EmptyRobots control />
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
+        : <div className={`fh ap-in old${light ? ' light' : ''}`}>
         <h1 className="ap-sr">{title}</h1>
         {pickEl}
         {bandEl}
         <div className="fh-body">{mainEl}</div>
-      </div>
+      </div>}
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
     </div>;
   }
