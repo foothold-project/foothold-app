@@ -12,13 +12,13 @@ export type TileLook = {
   /** 시뮬 영상 칸이 있으면 이것을 먼저 그린다 */ video?: HTMLVideoElement | HTMLCanvasElement | null;
 };
 type Pose = { x: number; z: number; rot: number };
-type Held = Pose & { travel: number };
+export type Held = Pose & { travel: number };
 type View = { c: HTMLCanvasElement; look: () => TileLook; at: Held | null };
-/** 서버 위치 · yaw 를 칸 화면에서 부드럽게 따라감(시간 상수 0.25 s · 방향은 짧은 쪽). 5 m 넘게 뛰면(다시 잡힘) 바로 옮김.
+/** 서버 위치 · yaw 를 부드럽게 따라감(시안 site3d.js 돌기 곡선: 한 프레임에 남은 차 × dt × 6 · 방향은 짧은 쪽). 5 m 넘게 뛰면(다시 잡힘) 바로 옮김.
  *  travel = 실제로 간 거리 누적(바닥 점이 이만큼 흐름 · 서 있으면 멈춤) */
 export function follow(cur: Held | null, to: Pose, dt: number): Held {
   if (!cur || Math.hypot(to.x - cur.x, to.z - cur.z) > 5) return { ...to, travel: cur?.travel ?? 0 };
-  const k = 1 - Math.exp(-dt / 0.25), x = cur.x + (to.x - cur.x) * k, z = cur.z + (to.z - cur.z) * k;
+  const k = Math.min(1, dt * 6), x = cur.x + (to.x - cur.x) * k, z = cur.z + (to.z - cur.z) * k;
   const d = Math.atan2(Math.sin(to.rot - cur.rot), Math.cos(to.rot - cur.rot));
   return { x, z, rot: cur.rot + d * k, travel: cur.travel + Math.hypot(x - cur.x, z - cur.z) };
 }

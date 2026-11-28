@@ -17,6 +17,11 @@ describe('follow', () => {
     expect(c.x).toBeCloseTo(1, 3);
     expect(c.travel).toBeCloseTo(1, 3);   // 바닥 점은 실제로 간 1 m 만큼
   });
+  it('곡선 = 시안 site3d.js 돌기(한 프레임에 남은 차 × min(1, dt × 6))', () => {
+    const c = follow(follow(null, P(0, 0, 0), 0.05), P(1, 0, 1), 0.05);
+    expect(c.x).toBeCloseTo(0.3, 6); expect(c.rot).toBeCloseTo(0.3, 6);
+    expect(follow(follow(null, P(0, 0, 0), 0.05), P(1, 0, 0), 0.5).x).toBe(1);   // 긴 프레임은 한 번에 닿음(넘지 않음)
+  });
   it('방향은 짧은 쪽으로 돈다(3.0 → -3.0 은 π 를 넘어 0.28 rad)', () => {
     let c = follow(null, P(0, 0, 3.0), 0.05);
     c = follow(c, P(0, 0, -3.0), 0.05);

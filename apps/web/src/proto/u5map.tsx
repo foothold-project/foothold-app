@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STATUS_NAME } from '../fake';
 import { rt } from '../rt';
 import { TEX_LOOK, K, OX, OY, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
+import { follow, type Held } from './tileview';
 import { IC, ic, type TileFacts } from './u5';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
@@ -14,7 +15,7 @@ const S = 20, STEM = 16;   // 시안 data-site scale 20
 const tone = (f: TileFacts): keyof typeof ST_COL => (f.sim ? 'rest' : f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.walk ? 'walk' : 'idle');
 const poseOf = (f: TileFacts) => sitePose((f.x.unknown === 'summary' ? null : rt.get(f.x.id).state?.location) ?? (f.x.unknown === 'summary' ? null : f.x.location));
 
-type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number; sim: boolean; top: number; t: number };
+type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number; sim: boolean; top: number; t: number; at?: Held | null };
 
 const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -118,7 +119,7 @@ export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel
         if (R && R.sim !== f.sim) { over.remove(R.g); robots.delete(f.x.id); R = undefined; }
         if (!R) { const m = make(f); if (!m) continue; R = m; robots.set(f.x.id, R); }
         seen.add(f.x.id); R.t += dt;
-        R.g.position.set(p.x, 0, p.z); R.g.rotation.y = p.rot;
+        R.at = follow(R.at ?? null, p, dt); R.g.position.set(R.at.x, 0, R.at.z); R.g.rotation.y = R.at.rot;   // 서버 자리 · 방향을 시안 곡선(dt × 6)으로 따라감
         const c = ST_COL[tone(f)]; if (c !== R.col) { (R.ring.material as THREE.LineBasicMaterial).color.setHex(c); R.col = c; }
         if (f.walk && walk) applyWalk(R.body, walk, R.t); else applyRest(R.body);
         if (!el) continue;
