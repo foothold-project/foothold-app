@@ -2,7 +2,7 @@
 // 조종권·넘김·정지 확인 판정은 서버 중재기가 한다. 여기는 서버가 준 lease·state 를 그대로 들고,
 // 화면 쪽 안전 규칙(넘김 중·잠금 중 0, 새 조종권은 새 중립부터, 숨기거나 떠나면 반납)만 더한다. 시각 판정은 단조 시계.
 import { useSyncExternalStore } from 'react';
-import type { ErrorBody, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenPosture, ScreenAction, ScreenGait, ScreenReply, ScreenState, ScreenSubscriptionRevoked } from '../../contracts/ts';
+import type { ErrorBody, RobotSummary, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenPosture, ScreenAction, ScreenGait, ScreenReply, ScreenState, ScreenSubscriptionRevoked } from '../../contracts/ts';
 import { api, expireAuth, type ApiFail } from './api';
 import type { Holder, Robot, Status } from './fake';
 
@@ -83,6 +83,15 @@ const RESULT_ERR: Record<string, string> = {
 export const now = () => performance.now();
 let screen = '';
 const screenId = () => (screen ||= crypto.randomUUID());   // 이 창의 화면 id(실행 명령 screen_id)
+/** 관문 닫힘 동안 STOP 한 줄(#602 G1). 이때는 «정지 확인»을 쓰지 않는다 */
+export const GATE_STOP_TEXT = '현장 승인이 닫혀 정지가 로봇에 가지 않음 · 리모컨으로 멈추세요';
+/** 이 상태에서 사람 STOP 을 어떻게 읽나(#602): gate = field_gate CLOSED 라 STOP 이 로봇에 가지 않음, other = 잠금이 사람 STOP 이 아닌 다른 까닭(stop_applied false),
+ *  applied = 사람 STOP 을 반영한 잠금으로 읽어도 됨(값이 없는 옛 서버는 기존 판정 그대로). «로봇 정지 확인»은 applied 일 때만 */
+export const stopReach = (s: Pick<ScreenState, 'field_gate' | 'stop_applied'> | null | undefined): 'gate' | 'other' | 'applied' =>
+  s?.field_gate === 'CLOSED' ? 'gate' : s?.stop_applied === false ? 'other' : 'applied';
+/** 조종 준비에 보일 조종 불가 이유: 허용이 아니면 서버 목록 그대로, 허용이어도 FIELD_GATE_CLOSED(앱 STOP 이 로봇에 안 감)만은 보인다. 허용 판단은 바꾸지 않는다 */
+export const shownDriveBlocked = (allowed: boolean | undefined, blocked: RobotSummary['server_drive_blocked'] | undefined): NonNullable<RobotSummary['server_drive_blocked']> | null =>
+  !allowed ? blocked ?? null : blocked?.includes('FIELD_GATE_CLOSED') ? ['FIELD_GATE_CLOSED'] : null;
 const clock = () => new Date().toTimeString().slice(0, 8);   // 13:40:05 — 목록의 seenAt 과 같은 꼴
 /** 출력 0 보고(빈 목록은 보고 없음이라 0 아님 · 정지띠가 [] ↔ [0,0,0] 바뀜을 다시 그리게) */
 const zero = (a: number[] | null | undefined) => !!a?.length && a.every((v) => v === 0);
@@ -269,7 +278,7 @@ function onState(s: ScreenState) {
   const p = l.state;
   // 화면에 보이는 값이 바뀔 때만 다시 그림(10 Hz 그대로 그리지 않음)
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
-    && (p.safety_reason ?? null) === (s.safety_reason ?? null)
+    && (p.safety_reason ?? null) === (s.safety_reason ?? null) && (p.stop_applied ?? null) === (s.stop_applied ?? null) && (p.field_gate ?? null) === (s.field_gate ?? null)
     && (p.control ?? null) === (s.control ?? null)   // 순정 · 저수준 (단추 끄기 · contracts ControlMode)
     && p.latency_ms === s.latency_ms
     && JSON.stringify(p.response_health ?? null) === JSON.stringify(s.response_health ?? null)

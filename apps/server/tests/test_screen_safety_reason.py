@@ -36,7 +36,8 @@ def runtime():
     peers = {key: Peer(None, auth_checked=clock(), simulation=True) for key in (rid, other_rid)}
     arbiter = SimpleNamespace(robot=lambda _: SimpleNamespace(transfer=None), state=lambda *args: [])
     return SimpleNamespace(agents=peers, clock=clock, arbiter=arbiter, owner_uncertain=False,
-        runs={}, last_state_received={}, apply=lambda _: None), rid, other_rid
+        runs={}, last_state_received={}, apply=lambda _: None,
+        note_latch=lambda *_: None), rid, other_rid   # 서버 잠금 해제 기록(#542 note_latch) · 이 시험은 STOP 기록을 보지 않음
 
 
 def test_reason_is_robot_local_and_expires_with_telemetry(runtime):
