@@ -1,0 +1,33 @@
+{
+  "$id": "fh-app/1/JointLogBase",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "wxyz": {
+      "description": "몸통 자세 사원수",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Wxyz",
+      "type": "array"
+    },
+    "xyz": {
+      "description": "몸통 위치 m (기록 좌표)",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Xyz",
+      "type": "array"
+    }
+  },
+  "required": [
+    "xyz",
+    "wxyz"
+  ],
+  "title": "JointLogBase",
+  "type": "object"
+}

@@ -9,6 +9,7 @@ import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
+import { ACCOUNT_ASK, type LoginBad } from './loginform';
 
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
@@ -23,7 +24,8 @@ type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' }), fh = useTheme()[1] ? 'fh light' : 'fh';   // 로그인 전 화면도 고른 테마
   const live = useRef<AbortController | null>(null);   // 지금 로그인 세션의 취소 신호
-  const toLogin = (note?: string) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); };
+  const [failed, setFailed] = useState(false);   // 로그인 화면의 글이 안내(세션 끝남)가 아니라 실패(서버 연결 · 500)인가
+  const toLogin = (note?: string, fail = false) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); setFailed(fail); };
   // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇을 비운다. 실시간 연결·조종권은 App 이 내려가며 돌려주고 닫는다.
   // 조직 기준값은 설정 화면 상태라 App 이 내려가며 같이 사라진다
   useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; clearPlans(); } }, [st.at]);   // 남겨 둔 지도·임무 편집·저장 요청도
@@ -67,13 +69,13 @@ export function Root() {
   }, [session]);
   useEffect(() => {
     onAuthLost((why) => toLogin(why ?? ENDED));
-    api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message));
+    api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message, e.status !== 401));   // 401 밖(연결 실패 · 500)은 오류 띠
   }, []);
   const logout = () => api.logout().then(() => toLogin(),
     (e: ApiFail) => (e.status === 401 ? toLogin() : setSt((s) => (s.at === 'app' ? { ...s, note: `로그아웃하지 못했습니다. ${e.message}` } : s))));
 
   if (st.at === 'wait') return <div className={fh}><p className="lv-note" style={{ padding: 16 }} role="status">불러오는 중…</p></div>;
-  if (st.at === 'login') return <Login note={st.note} enter={enter} />;
+  if (st.at === 'login') return <Login note={st.note} failed={failed} enter={enter} />;
   // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
   // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
@@ -82,17 +84,21 @@ export function Root() {
 }
 
 /** 시안 로그인 (proto u10_1 · u10_3 오류 한 줄 · u10_2 비밀번호 바꾸기 창 · u10_4 바뀜). 로그인 흐름 · 서버 문구는 그대로 */
-function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
-  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), [show, setShow] = useState(false);
-  const [bad, setBad] = useState(false), [pwOpen, setPwOpen] = useState(false), [done, setDone] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh';
+function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter: () => Promise<void> }) {
+  // 시안 칸(u10_1 · u10_3) + dev 오류 보기 동작(loginerr): 빈 칸은 그 칸만 · 서버 401 은 두 칸 모두(계정 · 비밀번호를 가르지 않음) · 제출마다 틀린 칸에 초점 · 제출 전 안내는 중립 줄
+  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), [show, setShow] = useState(false), [tick, setTick] = useState(0);
+  const [bad, setBad] = useState<LoginBad>(null), [pwOpen, setPwOpen] = useState(false), [done, setDone] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh';
+  const userIn = useRef<HTMLInputElement>(null), passIn = useRef<HTMLInputElement>(null), neutral = tick === 0 && !failed;
+  useEffect(() => { (bad === 'username' || bad === 'both' ? userIn : bad === 'password' ? passIn : null)?.current?.focus(); }, [bad, tick]);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
     const f = new FormData(e.currentTarget), id = String(f.get('username')).trim(), pw = String(f.get('password'));
-    if (!id || !pw) { setBad(!pw); return setMsg('아이디와 비밀번호를 입력하세요.'); }
-    setBusy(true); setMsg(undefined); setBad(false); setDone(false);
+    setTick((n) => n + 1);
+    if (!id || !pw) { setBad(!id ? 'username' : 'password'); return setMsg('아이디와 비밀번호를 입력하세요.'); }
+    setBusy(true); setMsg(undefined); setBad(null); setDone(false);
     try { await api.login(id, pw); await enter(); }
-    catch (err) { setMsg((err as ApiFail).message); setBad(true); setBusy(false); }
+    catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }
   };
   return <div className={`${fh} lg`}><div className="lg-bg" aria-hidden="true" /><main className="fh-login" aria-label="로그인">
     <form className="lg-card" onSubmit={submit} noValidate>
@@ -100,25 +106,27 @@ function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
       <h2>로그인</h2>
       <p className="lg-sub">총괄 · 운영자 계정으로 로그인합니다</p>
       <div className="lg-slot">
-        {msg && <p className="lg-line lg-err" role="alert"><Warn />{msg}</p>}
+        {msg && neutral && <p className="lg-line" role="alert" data-login-note>{msg}</p>}
+        {msg && !neutral && <p className="lg-line lg-err" role="alert" data-login-err><Warn />{msg}</p>}
         {!msg && done && <p className="lg-line lg-ok" role="status">비밀번호를 바꿨습니다. 새 비밀번호로 로그인하세요.</p>}
       </div>
       <div className="lg-fields">
-        <label><span className="lg-lab">아이디</span><input className="lg-inp" name="username" autoComplete="username" autoFocus /></label>
-        <label><span className="lg-lab">비밀번호</span><span className={`lg-inp lg-pw${bad ? ' bad' : ''}`}>
-          <input name="password" type={show ? 'text' : 'password'} autoComplete="current-password" aria-invalid={bad || undefined} />
-          <button type="button" className="lg-eye" aria-label={show ? '비밀번호 숨기기' : '비밀번호 보기'} onClick={() => setShow((v) => !v)}><Eye /></button>
+        <label><span className="lg-lab">아이디</span><span className={`lg-inp lg-pw lg-id${bad === 'username' || bad === 'both' ? ' bad' : ''}`}>
+          <input ref={userIn} name="username" autoComplete="username" autoFocus aria-invalid={bad === 'username' || bad === 'both' || undefined} /></span></label>
+        <label><span className="lg-lab">비밀번호</span><span className={`lg-inp lg-pw${bad === 'password' || bad === 'both' ? ' bad' : ''}`}>
+          <input ref={passIn} name="password" type={show ? 'text' : 'password'} autoComplete="current-password" aria-invalid={bad === 'password' || bad === 'both' || undefined} />
+          <button type="button" className="lg-eye" data-pw-eye aria-pressed={show} aria-label={show ? '비밀번호 숨기기' : '비밀번호 보기'} onClick={() => setShow((v) => !v)}><Eye /></button>
         </span></label>
       </div>
       <button type="submit" className="btnp lg-go" disabled={busy}>{busy ? '로그인 중…' : '로그인'}</button>
       <div className="lg-foot">
         <button type="button" className="lg-link" onClick={() => setPwOpen(true)}><Key />비밀번호 바꾸기</button>
-        <span>계정은 총괄에게 요청하세요</span>
+        <span>{ACCOUNT_ASK}</span>
       </div>
       <span className="lg-note">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
     </form>
   </main>
-  {pwOpen && <ChangePw close={() => setPwOpen(false)} changed={() => { setPwOpen(false); setMsg(undefined); setBad(false); setDone(true); }} />}
+  {pwOpen && <ChangePw close={() => setPwOpen(false)} changed={() => { setPwOpen(false); setMsg(undefined); setBad(null); setDone(true); }} />}
   </div>;
 }
 
