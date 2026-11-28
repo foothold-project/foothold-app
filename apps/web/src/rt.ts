@@ -36,6 +36,8 @@ export type Live = {
   cooldown: number;
   notice?: string;
   stop: Stop | null;
+  /** 마지막으로 받은 stop_gen(끊김 보고의 null 은 덮지 않음). 끊긴 채 보낸 STOP 의 g0 = 끊기기 전 세대(#529 H2) */
+  gen?: number;
   /** 반납 확인 기다림(why null) 또는 확인 못함(why). 이 lease 의 반납을 서버가 확인하거나 조종권이 이 lease 가 아니게 됐다는 알림이 올 때만 지운다
    *  — 화면을 옮겨도 남는다. 잠금 보고는 내가 누른 STOP 과 구별할 수 없어 보지 않는다.
    *  lease = 반납하는 내 lease_id(같은 반납의 다시 시도는 같은 값 — 앞 반납의 늦은 답이 새 반납을 지우지 않게), n = 몇 번째 시도(앞 시도의 시간 초과·거절은 버림), me = 반납한 사람 */
@@ -265,7 +267,7 @@ function onState(s: ScreenState) {
   let stop = l.stop;
   if (stop && s.latched === null) stop = { ...stop, latched: undefined };
   else if (stop?.conn === conn && (s.stop_gen ?? -1) > stop.g0) stop = s.latched ? { ...stop, latched: true } : stop.latched ? null : stop;
-  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral && s.stop_gen === p?.stop_gen, stop });   // 잠기면·잠김 보고 없이 세대만 올라도 해제 뒤 새 중립부터
+  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral && s.stop_gen === p?.stop_gen, stop, gen: s.stop_gen ?? l.gen });   // 잠기면·잠김 보고 없이 세대만 올라도 해제 뒤 새 중립부터
 }
 
 function onLease(m: ScreenLeaseUpdate) {
@@ -464,7 +466,7 @@ export const rt = {
    *  타이머·HTTP 는 이 로그인 세션에 묶여 로그아웃·계정 전환 때 거둔다(다음 사람의 CSRF 로 나가지 않게) */
   stop(id: string) {
     const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'>) => { const t = get(id).stop; if (!s.aborted && t?.n === k) set(id, { stop: { ...t, phase: p.phase, why: p.why, at: now() } }); };
-    set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? -1, conn, rev: get(id).rev } });
+    set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? get(id).gen ?? -1, conn, rev: get(id).rev } });
     let via: 'ws' | 'http' = 'ws', acked = false, viaWs = false;   // viaWs = WS 로 실제로 보냄(닫혀 있으면 send 가 바로 답을 불러 false)
     const http = () => {
       via = 'http'; clearTimeout(late);

@@ -37,6 +37,7 @@ const TWENTY: Robot[] = Array.from({ length: 20 }, (_, i) => ({
   id: `g${i}`, name: `K-${String(i + 1).padStart(2, '0')}`, owner: i % 2 ? 'u-park' : 'u-lee', ownerName: i % 2 ? '박OO' : '이OO',
   battery: i === 9 ? 12 : i === 4 ? null : 70, online: i !== 15, seenAt: '14:05:20', status: i === 15 ? 'STOP_LATCHED' : i % 3 ? 'RUNNING' : 'IDLE',
   mission: i % 3 && i !== 15 ? `순찰 ${i % 4}/4` : undefined, sim: i === 2,
+  serverDrive: i !== 2,   // 실기는 서버 경유 정지가 켜진 로봇(H1: 꺼진 실기는 따로 시험)
 }));
 
 describe('관제 탭', () => {
@@ -256,7 +257,7 @@ describe('관제 탭', () => {
     const first = pick.querySelector('select')!.options[0];
     expect(first.textContent).toBe('모두 정지 (10 대 · 끊김 1)');
     expect(first.selected).toBe(true);
-    expect(pick.querySelector('[data-stop-lost="g4"]')!.textContent).toContain('K-05 연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요');
+    expect(pick.querySelector('[data-stop-lost="g4"]')!.textContent).toContain('K-05 연결 끊김 · 정지를 보낼 수 없습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.');
     press(stopBtn());
     const sent = FakeWS.last.of('stop').map((m) => m.robot);
     expect(new Set(sent)).toEqual(new Set(T.filter((r) => r.owner === 'u-lee').map((r) => r.id)));
@@ -265,7 +266,8 @@ describe('관제 탭', () => {
     expect(bands).toHaveLength(10);
     const lostBand = bands.find((b) => b.textContent!.includes('K-05'))!;   // 끊긴 로봇은 붙은 로봇과 같은 성공 표시가 아님
     expect(lostBand.dataset.stopLost).toBe('g4');
-    expect(lostBand.textContent).toContain('K-05 연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요');
+    expect(lostBand.textContent).toContain('K-05 연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.');
+    expect(lostBand.textContent).not.toMatch(/다시 연결되면 멈춤|닿습니다|전달됩니다/);
   });
   it('R3: «모두»에서 남의 로봇을 고른 뒤 «내 로봇»으로 되돌리면 고름이 비고, STOP 한 번은 숨은 로봇이 아니라 고르기', () => {
     mount('u-lee', TWENTY); feed(TWENTY);
@@ -331,7 +333,7 @@ describe('관제 탭', () => {
 
   // Sonnet 검토 fb668832 (05:38): A1 링크 끊김 · 첫 state 전 · A2 한 대 끊김 · A3 시뮬 결과 띠 · A4 초점 · A5 거르기
   const UNSURE = '상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요';
-  const LOST = '연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요';
+  const LOST = '연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
   const SIM = { robot_id: 'sx', generation: 1, owner_id: 'u-lee', world_id: 'w', simulation: true, state: 'RUNNING', agent_address: '' } as never;
   it('A1: 첫 state 전(wait)이어도 정지 가능 로봇은 모두 정지에 들고, 그 줄은 «상태 모름»으로 따로', () => {
     mount('u-lee', TWENTY); act(() => { FakeWS.last.open(); });   // 구독은 됐지만 state 0
@@ -471,15 +473,17 @@ describe('관제 탭', () => {
   });
 
   // t21 (#529 재검 낮음 셋)
-  // N4: t21-1 · R2 는 «다시 붙음 = 정지 확인» 을 전제로 한다. 근거: 다시 붙은 로봇은 잠긴 채 시작하고(SF-02), 서버는 받아 둔 정지를 먼저 보낸다(#536)
+  // N4 → #529 H2(11:09): 다시 붙음만으로는 확인이 아니다. 서버는 끊긴 동안의 STOP 을 받아 두지 않는다. 확인 = 다시 붙은 뒤 latched=true · stop_gen 이 끊기기 전 값보다 오름
+  // (서버가 hello 뒤 revoke(agent_connected) 로 연결 STOP 을 보내 stop_gen 을 올림 · leases.py 134~137, 에이전트도 잠긴 채 시작 · SF-02)
   it('t21-1: 끊긴 채 보낸 정지가 다시 붙어 확인된 뒤 또 끊기면 «아직 닿지 않음» 줄을 다시 띄우지 않는다(다음 STOP 전까지)', () => {
     const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));
     mount('u-lee', T); feed(T);
     act(() => { tile('g4').click(); });
     press(stopBtn());
     expect($('[data-stop-band][data-stop-lost="g4"]')).not.toBeNull();
-    act(() => { FakeWS.last.recv(state('g4', { stop_gen: 2 })); });   // 다시 붙음 · 정지 잠금 보고 = 확인
+    act(() => { FakeWS.last.recv(state('g4', { stop_gen: 2 })); });   // 다시 붙음 · 잠김(latched) + 세대 오름 = 확인
     expect($('[data-stop-band][data-stop-lost="g4"]')).toBeNull();
+    expect($('[data-stop-band][data-stop-relatched="g4"]')!.textContent).toBe('■ K-05 다시 연결 · 잠긴 채 시작');
     act(() => { FakeWS.last.recv(state('g4', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });   // 두 번째 끊김
     expect($('[data-stop-band][data-stop-lost="g4"]')).toBeNull();
     expect($('[data-stop-band][data-stop-unsure="g4"]')).toBeNull();
@@ -501,8 +505,8 @@ describe('관제 탭', () => {
   });
   it('t21-2: 모두 정지 라벨 전체 · 총괄(실기 + 내 시뮬) = «내 시뮬 모두 정지», 일반 = «모두 정지» · 셋째 라벨 «멈출 수 있는 로봇 모두 정지»는 두 계정 어느 쪽에서도 나오지 않음', () => {
     const R: Robot[] = [
-      { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },
-      { id: 'a2', name: 'K-22', owner: 'u-park', ownerName: '박OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },
+      { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', serverDrive: true },
+      { id: 'a2', name: 'K-22', owner: 'u-park', ownerName: '박OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', serverDrive: true },
       { id: 's1', name: 'S-01', owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', sim: true },
       { id: 'a3', name: 'K-23', owner: 'u-park', ownerName: '박OO', battery: null, online: false, seenAt: '', status: null as never },   // 연결 전 실기 = 못 세우는 수에도 안 듦(t21-3 과 같음)
     ];
@@ -546,5 +550,53 @@ describe('관제 탭', () => {
     press(stopBtn());
     expect(FakeWS.last.of('stop').map((m) => m.robot)).not.toContain('g4');
     expect(FakeWS.last.of('stop')).toHaveLength(9);
+  });
+
+  // Codex d9 검토(pr529.md 11:01): H1 · H2 · M3
+  it('H1: 서버 경유 정지가 꺼진 실기는 모두 정지에서 빠지고(보냄 0) 「현장 폰으로 멈추세요」 로 따로 · 그 타일을 골라도 그 로봇으로 보내지 않음', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, serverDrive: false } : r));   // 이OO 실기 K-05 = 폰 직결만(서버는 stop 을 막고 성공으로 답함)
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    expect(pick.querySelector('select')!.options[0].textContent).toBe('모두 정지 (9 대)');
+    expect([...pick.querySelectorAll('option')].map((o) => o.textContent)).not.toContain('K-05');
+    expect(pick.querySelector('[data-stop-noserver]')!.textContent).toBe('실기 K-05 는 서버 경유 정지가 꺼져 있어 이 화면의 정지가 닿지 않습니다 · 현장 폰이나 현장에서 멈추세요');
+    press(stopBtn());
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).not.toContain('g4');
+    expect(FakeWS.last.of('stop')).toHaveLength(9);
+    expect($$('[data-stop-band]').some((b) => b.textContent!.includes('K-05'))).toBe(false);   // 「확인 기다림」 띠 없음
+    act(() => root?.unmount()); root = null;
+    mount('u-lee', T); feed(T);
+    act(() => { tile('g4').click(); });
+    press(stopBtn());
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    expect($('[data-cant-stop]').textContent).toBe('K-05 은 서버 경유 정지가 꺼져 있어 전체 정지를 엽니다');
+  });
+  it('H2: 끊긴 채 보낸 정지는 다시 붙음(ONLINE)만으로 경고를 지우지 않음 · 잠김 + stop_gen 이 끊기기 전 값보다 오른 뒤에만 「다시 연결 · 잠긴 채 시작」', () => {
+    mount('u-lee', TWENTY); feed(TWENTY, { g4: { stop_gen: 5 } });   // 끊기기 전 세대 5
+    act(() => { FakeWS.last.recv(state('g4', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
+    act(() => { tile('g4').click(); });
+    press(stopBtn());
+    expect($('[data-stop-band][data-stop-lost="g4"]')!.textContent).toBe(`▲ K-05 ${LOST}`);
+    act(() => { FakeWS.last.recv(state('g4', { stop_gen: 5 })); });   // 다시 붙음 · 잠김이지만 세대가 그대로
+    expect($('[data-stop-band][data-stop-lost="g4"]')).not.toBeNull();
+    expect($('[data-stop-relatched="g4"]')).toBeNull();
+    act(() => { FakeWS.last.recv(state('g4', { stop_gen: 6, latched: false })); });   // 세대는 올랐지만 잠김 아님
+    expect($('[data-stop-band][data-stop-lost="g4"]')).not.toBeNull();
+    act(() => { FakeWS.last.recv(state('g4', { stop_gen: 7, latched: true })); });   // 잠김 + 세대 오름 = 연결 STOP 확인
+    expect($('[data-stop-band][data-stop-lost="g4"]')).toBeNull();
+    expect($('[data-stop-band][data-stop-relatched="g4"]')!.textContent).toBe('■ K-05 다시 연결 · 잠긴 채 시작');
+    expect(box.textContent).not.toContain('멈춤 출력');
+  });
+  it('M3: Enter 반복 중이어도 Space(전역 정지 · 초점 단추 click)는 버리지 않음', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    press(stopBtn());
+    const go = $('[aria-label="정지할 로봇 고르기"] button.fh-stop');
+    expect(document.activeElement).toBe(go);
+    act(() => { go.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', repeat: true, bubbles: true, cancelable: true })); });
+    act(() => { go.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })); });   // Enter 반복의 click 은 여전히 버림
+    expect(FakeWS.last.of('stop')).toHaveLength(0);
+    act(() => { go.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })); });   // 새 Space 누름
+    expect(FakeWS.last.of('stop')).toHaveLength(10);
   });
 });
