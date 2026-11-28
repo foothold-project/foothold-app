@@ -1,7 +1,7 @@
 // 설정 › 조작의 키보드 · 모바일 (폰 터치) 설명(u9_7 · U9-05). 읽기 전용: 켜고 끄기 · 감도를 저장할 서버 값이 없어 지금 배치만 적는다.
 // 키 표는 시뮬 조종 키(simdrive KEYS)와 Space 정지(App 공통 층)만. 실기 조종 화면 키(serverdrive.tsx · drive.tsx KEY)는 달라서 «다르다» 한 줄만.
 
-/** [보이는 키, 하는 일, 물리 키(e.code)] — controls.test 가 simdrive KEYS 와 맞춘다 */
+/** [보이는 키, 하는 일, 물리 키(e.code)]. controls.test 가 simdrive KEYS 와 맞춘다 */
 export const KEY_GUIDE: [string, string, string[]][] = [
   ['W · S · ↑ · ↓', '앞 · 뒤', ['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown']],
   ['A · D', '돌기', ['KeyA', 'KeyD']],
