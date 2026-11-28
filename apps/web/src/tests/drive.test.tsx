@@ -2240,39 +2240,42 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     key('keyup', 'KeyW'); key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
   });
 
-  it('d5 키: A·← / D·→ = 회전, Q/E = 옆걸음 표 값 ±1(조직 옆 상한이 허락할 때), Q+E·창 밖 = 0, 옆 상한 0 이면 0 + 까닭', () => {
+  it('키(11-28 17:25): A / D = 회전, ← / → = 옆걸음 표 값 ±1(조직 옆 상한이 허락할 때), Q · E 없음, ←+→·창 밖 = 0, 옆 상한 0 이면 0 + 까닭', () => {
     open();
-    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
-    key('keyup', 'ArrowLeft'); key('keydown', 'ArrowRight'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
-    key('keyup', 'ArrowRight'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
-    key('keyup', 'KeyQ'); key('keydown', 'KeyE'); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
-    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 함께 누름 = 0
-    key('keyup', 'KeyQ'); key('keyup', 'KeyE'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    key('keydown', 'KeyA'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    key('keyup', 'KeyA'); key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]); key('keyup', 'KeyQ');   // Q · E 는 뺌
+    key('keydown', 'KeyE'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]); key('keyup', 'KeyE');
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    key('keyup', 'ArrowLeft'); key('keydown', 'ArrowRight'); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 함께 누름 = 0
+    key('keyup', 'ArrowLeft'); key('keyup', 'ArrowRight'); key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
     act(() => { window.dispatchEvent(new Event('blur')); }); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
-    key('keyup', 'KeyQ');
+    key('keyup', 'ArrowLeft');
     act(() => simTune({ ...ORG, real_max_vy: 0 }));
-    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain(SIDE_BLOCK);
-    key('keyup', 'KeyQ'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
+    key('keyup', 'ArrowLeft'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
   });
 
-  it('글 입력칸에 초점이면 조종 키(Q·W)는 명령 0 · 글자는 막지 않음, 입력칸에서 누른 키는 뗄 때까지 0', () => {
+  it('글 입력칸에 초점이면 조종 키(←·W)는 명령 0 · 글자는 막지 않음, 입력칸에서 누른 키는 뗄 때까지 0', () => {
     open();
     const input = document.createElement('input'); input.setAttribute('data-go2-ip', ''); document.body.append(input); input.focus();
-    for (const c of ['KeyQ', 'KeyW']) {
+    for (const c of ['ArrowLeft', 'KeyW']) {
       const e = new KeyboardEvent('keydown', { code: c, bubbles: true, cancelable: true });
       act(() => { input.dispatchEvent(e); }); tick(100);
       expect(e.defaultPrevented).toBe(false);
       expect(lastAxes()).toEqual([0, 0, 0]);
     }
-    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 입력칸에서 누른 Q·W 가 남아 있는 동안 0
-    key('keyup', 'KeyQ', input); key('keyup', 'KeyW', input); key('keyup', 'KeyD'); input.remove();
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 입력칸에서 누른 ←·W 가 남아 있는 동안 0
+    key('keyup', 'ArrowLeft', input); key('keyup', 'KeyW', input); key('keyup', 'KeyD'); input.remove();
     key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
     key('keyup', 'KeyD');
   });
-  it('표에 없는 키 조합(W+Q · A+Q · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
+  it('표에 없는 키 조합(W+← · A+← · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
     open();
-    for (const [a, b] of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyA', 'KeyD']]) {
+    for (const [a, b] of [['KeyW', 'ArrowLeft'], ['KeyA', 'ArrowLeft'], ['KeyA', 'KeyD']]) {
       key('keydown', a); key('keydown', b); tick(100);
       expect(lastAxes()).toEqual([0, 0, 0]);
       expect(text()).toContain(COMBO_BLOCK);

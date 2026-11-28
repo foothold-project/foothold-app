@@ -1,6 +1,6 @@
 // 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
-// 영상·지도·시나리오 제어는 자리만(가짜). 키보드(d5 한 배치): W·↑ 전진, A·← / D·→ 회전, Q / E 옆걸음(조직 옆 상한이 허락할 때), S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
+// 영상·지도·시나리오 제어는 자리만(가짜). 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_LATER, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
@@ -30,7 +30,7 @@ const pct = (b: number | null) => (b == null ? '' : `${b}%`);
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
 /** 실기(서버 경유) 스틱 문턱: 서버는 명령표 값만 받으므로 비례 대신 켜짐/꺼짐(RB-PHONE-REAL-TABLE) */
 const ON_AT = 0.5;
-/** 실기: [전후, 회전] 스틱 + 옆(Q/E 키, + = 왼쪽) → 서버 명령표(serverdrive TABLE) 값 [vx, vy, wz]. 표 밖·조직 상한 밖이면 0 */
+/** 실기: [전후, 회전] 스틱 + 옆(← / → 키, + = 왼쪽) → 서버 명령표(serverdrive TABLE) 값 [vx, vy, wz]. 표 밖·조직 상한 밖이면 0 */
 export function realAxes([f, w]: Axes, o: Parameters<typeof permitted>[1], y = 0) {
   const cmd = command([...(f > ON_AT ? ['up' as const] : []), ...(w > ON_AT ? ['rotl' as const] : w < -ON_AT ? ['rotr' as const] : []),
     ...(y > ON_AT ? ['left' as const] : y < -ON_AT ? ['right' as const] : [])]);
@@ -150,7 +150,7 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 };
 
 /** 물리 키(e.code) → 방향. 누른 키는 e.code 마다 누른 순간의 입력 세대로 적는다(rt inputGen) */
-const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r', KeyQ: 'sl', KeyE: 'sr' };
+export const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', KeyD: 'r', ArrowLeft: 'sl', ArrowRight: 'sr' };
 const held = (keys: Map<string, number>, d: string) => [...keys.keys()].some((c) => KEY[c] === d);
 /** 누른 키(후진 제외, 따로 막음 안내) → 서버 명령표 낱말. 표에 없는 조합이면 0 + COMBO_BLOCK */
 const TOK = { f: 'up', l: 'rotl', r: 'rotr', sl: 'left', sr: 'right' } as const;

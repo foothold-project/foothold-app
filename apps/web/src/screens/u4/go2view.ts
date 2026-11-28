@@ -87,10 +87,12 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
       root.updateMatrixWorld(true); const b2 = new THREE.Box3().setFromObject(root); root.position.y -= b2.min.y; posed = true;
     }
     if (opt.cyber) { const cm = cyberMat(); root.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = cm; }); shadow.visible = false; }
-    else setHot(opt.hot || {});
+    else setHot(hotNow);
   }, undefined, () => {})).catch(() => {});
 
+  let hotNow: Record<string, string> = opt.hot || {};   // 모형을 받기 전에 온 값도 받은 뒤 칠함
   function setHot(map: Record<string, string>) {
+    hotNow = map;
     if (!root || opt.cyber) return;
     root.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; const mt = m.material as THREE.MeshStandardMaterial; mt.color.copy(m.userData.c0); mt.emissive?.setHex(0x000000); });
     for (const [name, lvl] of Object.entries(map)) {
@@ -109,8 +111,18 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     o.update(); ctl = o;
   }).catch(() => {});
 
+  // 밝은 판(.light 틀 안): 바닥 점을 보통 섞기 · 밝음 1 민트로. 판이 바뀌면 다음 그림부터 따라감
+  const dark = { col: gm.uniforms.col.value.clone(), blend: gm.blending }, mint = new THREE.Color(opt.cyber ? SIM : 0x18a07e);
+  let lit: boolean | null = null;
+  const tone = () => {
+    const l = !!canvas.closest('.light'); if (l === lit) return; lit = l;
+    grid.traverse((o) => { const m = (o as THREE.Points).material as THREE.ShaderMaterial | undefined; if (!m?.uniforms?.col) return;
+      m.blending = l ? THREE.NormalBlending : dark.blend; m.uniforms.col.value.copy(l ? mint : dark.col); m.needsUpdate = true; });
+    shadow.material.opacity = l ? 0.18 : 0.35;
+  };
   const clock = new THREE.Clock(); let t = 0.35, off = 0, raf = 0;
   function frame() {
+    tone();
     const dt = Math.min(0.05, clock.getDelta()); t += dt;
     const d = api.drive;
     if (d) { off -= d.v * dt * 0.75; gm.uniforms.off.value = off; grid.rotation.y -= d.turn * dt * 0.9; grid.position.x = ((grid.position.x - (d.side || 0) * dt * 0.75) + 2) % 4 - 2; }

@@ -21,7 +21,7 @@ import { realCaps, simTune, useTuneSettings } from './phone';
 import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
 
-/** 누름 하나: up·down = 전후(W·↑ / S·↓), left·right = 옆걸음(Q / E), rotl·rotr = 제자리 회전(A·← / D·→). 모든 조종 화면 한 배치(d5 · 11-28) */
+/** 누름 하나: up·down = 전후(W·↑ / S·↓), left·right = 옆걸음(← / →), rotl·rotr = 제자리 회전(A / D). 모든 조종 화면 한 배치(팀장 11-28 17:25 · Q · E 없음) */
 export type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
 /** 계약 JSON 스키마 중 OrgSettings 가 쓰는 낱말만(type·required·properties·additionalProperties·anyOf·minimum·maximum). 모르는 type 은 거절 */
 type Schema = { type?: string; required?: string[]; properties?: Record<string, Schema>; additionalProperties?: boolean | Schema; anyOf?: Schema[]; minimum?: number; maximum?: number };
@@ -39,8 +39,8 @@ const fits = (f: Schema, v: unknown): boolean => {
 /** 조직 설정은 계약(OrgSettings 스키마) 전체로 검증된 객체만 «받음» — 본문 없는 200·배열·필수 칸 빠짐·모르는 칸·타입 틀림(real_max_vx: "0")·범위 밖·
  *  model_overrides 안쪽 타입 틀림은 못 받음과 같다(RV-424·425·426 ①). 선택 칸이 빠지면 서버 기본값과 같은 상한으로 본다(realCaps) */
 export const isSettings = (o: unknown): o is OrgSettings => fits(orgSettingsSchema as Schema, o);
-const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'rotl', ArrowLeft: 'rotl', KeyD: 'rotr', ArrowRight: 'rotr', KeyQ: 'left', KeyE: 'right' };
-/** 옆걸음(Q/E)이 조직 속도 설정(옆 상한·빠른 조종 끔)에 막혀 0 을 보낼 때 까닭 한 줄. 폰(drive.tsx)·PC 같은 문구 */
+export const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'rotl', KeyD: 'rotr' };
+/** 옆걸음(← / →)이 조직 속도 설정(옆 상한·빠른 조종 끔)에 막혀 0 을 보낼 때 까닭 한 줄. 폰(drive.tsx)·PC 같은 문구 */
 export const SIDE_BLOCK = '옆걸음은 조직 속도 설정(옆 상한)이 허락하지 않아 입력을 0으로 보냅니다.';
 /** 표에 없는 키 조합(W+Q·A+Q·W+S·Q+E 등)은 0. 말없이 멈추지 않게 까닭 한 줄(폰·PC 같은 문구) */
 export const COMBO_BLOCK = '이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.';
@@ -64,8 +64,8 @@ export const unknownCombo = (held: Iterable<Tok>) => { const k = id(held); retur
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
 const PAD: [Tok[], string, string][] = [
   [['rotl', 'up'], '↑+A', `앞+왼쪽 회전 최대 ${MAX_TURN_RATE} rad/s`], [['up'], 'W·↑', '앞 1.5'], [['rotr', 'up'], '↑+D', `앞+오른쪽 회전 최대 ${MAX_TURN_RATE} rad/s`],
-  [['left'], 'Q', '옆 왼쪽 1'], [['down'], 'S·↓', '뒤 1.5'], [['right'], 'E', '옆 오른쪽 1'],
-  [['rotl'], 'A·←', `제자리 왼쪽 최대 ${MAX_TURN_RATE} rad/s`], [['rotr'], 'D·→', `제자리 오른쪽 최대 ${MAX_TURN_RATE} rad/s`],
+  [['left'], '←', '옆 왼쪽 1'], [['down'], 'S·↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1'],
+  [['rotl'], 'A', `제자리 왼쪽 최대 ${MAX_TURN_RATE} rad/s`], [['rotr'], 'D', `제자리 오른쪽 최대 ${MAX_TURN_RATE} rad/s`],
 ];
 export const TRIAL = '실기 · 서버 경유 시험 · 미검증';
 /** 입력 0 안내 — 화면이 보낸 0 일 뿐 로봇 정지 확인이 아니다(F-COM-01: 확인 없이 «멈췄습니다» 금지). 정지 확인은 stopLine 만 */
@@ -372,7 +372,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     : l.cooldown > rt.now() ? '잠시 뒤 다시 요청할 수 있습니다.'
     : l.holder?.type === 'RUN' ? '시나리오 실행 중에는 이 시험 화면에서 조종을 시작하지 않습니다.' : '';
   // 조종 시작/끝내기 — 조각으로 돌려주고 붙이는 쪽이 배치(같은 단추를 두 번 그리지 않게). 권한·기다릴 이유는 DriveButton 이 글로
-  const hint = <span className="lbl fh-grow">W·↑ / S·↓ 앞뒤 1.5 m/s · A·← / D·→ 제자리 회전 최대 {MAX_TURN_RATE} rad/s · Q/E 옆걸음 1.0 m/s · Space 정지 · {GAIT_KEYS}. 누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다. ↑+A/D로 전진하며 회전합니다. 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
+  const hint = <span className="lbl fh-grow">W·↑ / S·↓ 앞뒤 1.5 m/s · ← / → 옆걸음 1.0 m/s · A / D 제자리 회전 최대 {MAX_TURN_RATE} rad/s · Space 정지 · {GAIT_KEYS}. 누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다. ↑+A/D로 전진하며 회전합니다. 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
   const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
   const take = () => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); };
   const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={take} />;

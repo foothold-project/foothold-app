@@ -22,4 +22,9 @@ describe('로봇 탭 u4 밝은 판 = DESIGN.md 밝음 1', () => {
     expect(at('.proto.light .u4 .stage3d .g.dk')).toMatch(/rgba\(31,36,33,\.62\)/);
     expect(at('.proto.light .u4 .stage3d .g.dk')).toMatch(/color:#FFFFFF/);
   });
+  it('밝은 판 무대 · 지도 칸 바탕 = 밝음 1 (어두운 결 아님)', () => {
+    const at = (sel) => rules.find((m) => m[1].split(',').map((x) => x.trim()).includes(sel))?.[2] ?? '';
+    expect(at('.proto.light .u4 .stage3d')).toMatch(/#FFFFFF,#F6F7F6/);
+    expect(at('.proto.light .u4 .views')).toMatch(/background:#F6F7F6/);
+  });
 });
