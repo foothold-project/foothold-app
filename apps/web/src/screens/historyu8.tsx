@@ -125,6 +125,9 @@ export function HistoryU8(c: HistoryCtx) {
   const ev = useEvents(f, c.cancel, 50);
   const [view, setView] = useState<View>({ at: 'list' }), [modal, setModal] = useState<'' | 'export' | 'mark'>(''), [got, setGot] = useState<Got | null>(null);
   const [toast, setToast] = useState<{ text: string; sub: string } | null>(null), [focusErr, setFocusErr] = useState('');
+  // 1920x1080 스크롤 0: 표는 쪽으로 나눈다(시안 줄 96 px · 한 쪽 PAGE 줄). 마지막 쪽에서 서버에 더 있으면 「더 보기」 가 다음 묶음을 받는다
+  const [pg, setPg] = useState(0), pages = Math.max(1, Math.ceil(ev.items.length / PAGE));
+  useEffect(() => { if (pg >= pages) setPg(pages - 1); }, [pg, pages]);
   const set = (p: Partial<Filter>) => { setF((o) => ({ ...o, ...p })); setGot(null); };
   const period = (i: number) => { if (i === quick || i < 0) { setQuick(-1); set({ from: '', to: '' }); } else { setQuick(i); set({ from: back(QUICK[i][1]), to: back(0) }); } };
   const clear = () => { setQuick(-1); setF(NONE); setGot(null); };
@@ -160,11 +163,15 @@ export function HistoryU8(c: HistoryCtx) {
             <div className="u8-rows" role="region" aria-label="사건" data-rows>
               {focusErr && <div className="u8-msg u8-focus" role="alert" aria-label="알림에서 연 기록" data-focus-err>{focusErr}
                 <button type="button" className="btns" onClick={() => { setFocusErr(''); c.go('history'); }}>닫기</button></div>}
-              <Rows items={ev.items} n={n} open={(e) => setView({ at: 'event', e })} />
+              <Rows items={ev.items.slice(pg * PAGE, pg * PAGE + PAGE)} n={n} open={(e) => setView({ at: 'event', e })} />
               {ev.err && <p className="u8-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
               {ev.busy && <p className="u8-msg mu2" role="status">기록을 불러오는 중…</p>}
               {!ev.busy && !ev.err && !ev.items.length && filtered && <p className="u8-msg mu2">조건에 맞는 기록이 없습니다.</p>}
-              {!ev.busy && (ev.next || (ev.err && ev.err !== BAD_DAY)) && <div className="u8-more"><button type="button" className="btns" onClick={ev.more}>{ev.err ? '다시 시도' : '더 보기'}</button></div>}
+              {/* 시안 밖 · 새로 그림: 쪽 넘김 · 더 보기(시안은 8 줄만) */}
+              {(pages > 1 || (!ev.busy && (ev.next || (ev.err && ev.err !== BAD_DAY)))) && <div className="u8-more" data-pager>
+                {pages > 1 && <span className="row lab num" style={{ gap: '8px' }}><button type="button" className="btns" disabled={pg === 0} aria-label="앞 쪽" onClick={() => setPg(pg - 1)}>‹</button>
+                  <span data-page>{pg + 1} / {pages}</span><button type="button" className="btns" disabled={pg >= pages - 1} aria-label="다음 쪽" onClick={() => setPg(pg + 1)}>›</button></span>}
+                {!ev.busy && pg >= pages - 1 && (ev.next || (ev.err && ev.err !== BAD_DAY)) && <button type="button" className="btns" onClick={ev.more}>{ev.err ? '다시 시도' : '더 보기'}</button>}</div>}
             </div>
           </div>
         </>}
@@ -229,6 +236,7 @@ function Chips({ c, f, quick, set, period, clear, filtered, count, more }: { c: 
 }
 
 /** 표(u8_1): 날짜 머리(.day) + 96 px 줄(.ev). 줄을 누르면 그 사건 자세히(u8_2 · u8_4 · u8_5) */
+const PAGE = 7;
 function Rows({ items, n, open }: { items: Ev[]; n: Names; open: (e: Ev) => void }) {
   const out: ReactNode[] = [];
   let last = '';

@@ -24,7 +24,7 @@ const ITEMS = [
 const HIST = { id: 'run-1', scenario_version_id: 'sv1', floor_id: 'f1', map_version_id: 'm1', scenario_name: '공정 순찰 A', floor_name: '1층', scenario_name_snapshot: null, floor_name_snapshot: null,
   status: 'COMPLETED', started_at: AT, ended_at: AT };
 
-let asked: URLSearchParams[] = [], more = false, ITEMS_OFF = false;
+let asked: URLSearchParams[] = [], more = false, ITEMS_OFF = false, MANY = false;
 function serve(next = false) {
   asked = []; more = next;
   const routes: Record<string, unknown> = {
@@ -34,7 +34,7 @@ function serve(next = false) {
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const [path, qs = ''] = url.replace(/^\/api\/v1/, '').split('?'), key = `${init.method ?? 'GET'} ${path}`;
     if (path === '/events') asked.push(new URLSearchParams(qs));
-    const body = path === '/events' ? { items: new URLSearchParams(qs).get('run_id') || ITEMS_OFF ? [] : ITEMS, next_cursor: more ? 'c2' : null } : routes[key];
+    const body = path === '/events' ? { items: new URLSearchParams(qs).get('run_id') || ITEMS_OFF ? [] : MANY ? [...ITEMS, ...ITEMS.map((x) => ({ ...x, id: `${x.id}b` }))] : ITEMS, next_cursor: more ? 'c2' : null } : routes[key];
     return new Response(JSON.stringify(body ?? { error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: body ? 200 : 404, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -47,7 +47,7 @@ async function open(phone: boolean) {
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); ITEMS_OFF = false; });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); ITEMS_OFF = false; MANY = false; });
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const tiles = () => [...box.querySelectorAll<HTMLElement>('[aria-label="사건"] [data-tile]')];
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -145,5 +145,16 @@ describe('PC 기록 틀 = 왼쪽 거르기 판 + 오른쪽 사건 판 (u8_1)', (
     serve(); await open(true);
     expect($('[data-hs-side]')).toBeNull();
     expect(tiles()).toHaveLength(5);
+  });
+});
+
+describe('표 쪽 넘김(1920x1080 스크롤 0 · 시안 밖 · 새로 그림)', () => {
+  it('한 쪽 7 줄 · ‹ › 로 넘김 · 마지막 쪽에서만 더 보기', async () => {
+    MANY = true; serve(true); await open(false);
+    const rows = () => box.querySelectorAll('[data-rows] .ev').length;
+    expect(rows()).toBe(7); expect($('[data-page]')!.textContent).toBe('1 / 2');
+    expect(btn('더 보기')).toBeUndefined();
+    await act(async () => { ($('[aria-label="다음 쪽"]') as HTMLButtonElement).click(); }); await flush();
+    expect(rows()).toBe(3); expect($('[data-page]')!.textContent).toBe('2 / 2'); expect(btn('더 보기')).toBeTruthy();
   });
 });
