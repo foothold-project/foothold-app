@@ -39,14 +39,16 @@ class Gait:
     def _report(self, request_id, gait, status, code, sdk_code=None):
         self.result = dict(request_id=request_id, gait=gait, status=status, code=code, sdk_code=sdk_code)
 
-    def request(self, request_id, gait, lease, *, moving):
-        """한 요청. 참이면 순정 동작 일감이 잡혔다 (부르는 쪽이 Core 를 정지로 묶는다, 동작 요청과 같음)."""
+    def request(self, request_id, gait, lease, *, moving, latched):
+        """한 요청. 참이면 순정 동작 일감이 잡혔다 (부르는 쪽이 Core 를 정지로 묶는다, 동작 요청과 같음).
+        정지 잠김이면 어느 길이든 아무것도 시작하지 않는다 (SF-02: 넘김 키는 몸을 다시 세운다)."""
         from .sink import start_active
         s = self.sink
         with s._lock:
             if self.pending is not None:
                 self.refresh()
-            code = ('GAIT_NOT_READY' if gait == 'ame2' else
+            code = ('GAIT_LATCHED' if latched or s.latched else
+                    'GAIT_NOT_READY' if gait == 'ame2' else
                     'GAIT_LEASE_LOST' if not s.posture_authorized(lease) else
                     'GAIT_BUSY' if self.pending is not None else
                     'GAIT_MOVING' if moving else None)

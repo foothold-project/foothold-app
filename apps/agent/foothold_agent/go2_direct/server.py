@@ -102,7 +102,8 @@ class DriveSession(Session):
                 if not valid(request_id, gait):
                     return self.tick()
                 moving = self.core.intent != (0., 0., 0.) or self.core.out != (0., 0., 0.)
-                if self.posture_sink.gait.request(request_id, gait, frame.get('lease_id'), moving=moving):
+                if self.posture_sink.gait.request(request_id, gait, frame.get('lease_id'), moving=moving,
+                                                  latched=self.core.latch):
                     self.core.stop('gait requested')
                     self.posture_sink.actions.core_hold(self.core.stop_gen)
                 return self._finish(state=True)

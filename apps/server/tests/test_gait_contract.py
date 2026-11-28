@@ -141,3 +141,26 @@ def test_queued_gait_cannot_survive_stop_or_authority_change(relay, transition):
         assert not any(m.get('t') == 'gait' for m in peer.queue._queue)
     else:
         assert realtime.blocked_agent_control(peer, body)
+
+
+def test_audit_refusal_rejects_and_sends_nothing(relay):
+    # 검수 #550 R2 G5: 기록을 못 남기면 보내지 않는다.
+    realtime, rid, peer, actor, msg = prepare(relay)
+    realtime.queue_audit = lambda effect: False
+    with pytest.raises(LeaseError) as exc:
+        realtime.send_gait(rid, actor, msg)
+    assert exc.value.code == 'SERVER_BUSY'
+    assert peer.queue.empty()
+
+
+def test_authority_lost_during_audit_rejects_and_sends_nothing(relay):
+    # 검수 #550 R2 G10: 기록 용량 변화가 lease 를 거둘 수 있어 넣기 직전에 다시 본다.
+    realtime, rid, peer, actor, msg = prepare(relay)
+    def revoke(effect):
+        realtime.arbiter.robot(rid).holder.lease_id = 'revoked'
+        return True
+    realtime.queue_audit = revoke
+    with pytest.raises(LeaseError) as exc:
+        realtime.send_gait(rid, actor, msg)
+    assert exc.value.code == 'GAIT_NOT_ALLOWED'
+    assert peer.queue.empty()
