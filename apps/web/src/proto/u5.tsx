@@ -149,7 +149,7 @@ export type TileFacts = {
 };
 export function facts(x: Robot, me: string, places: Map<string, string>, av?: Avail): TileFacts {
   // 데모 로봇(가용 demo = true)은 시뮬이어도 실기 타일과 똑같이(1 m 뒤 모형 · 배터리 · 온도 · 연결 · 걸음 · 담당), 차이는 «데모» 칩 하나. 시뮬 꼴은 사용자 시뮬만
-  const s = stateOf(x), h = hotJoint(x), lvTemp = tempLevel(h?.t ?? null), gone = isLost(x), sim = !!x.sim && !av?.demo, st = robotStatus(x);
+  const s = stateOf(x), h = hotJoint(x), lvTemp = tempLevel(h?.t ?? null), gone = isLost(x), demo = !!av?.demo || isFake(x.id), sim = !!x.sim && !demo, st = robotStatus(x);   // 가짜 로봇 = 데모 꼴(조정 03:00)
   // 테두리 · 머리표: 관절 온도 단계, 아니면 연결 중인 로봇의 기존 경고(잠금 · 오류 = 빨강, 배터리 낮음 · 일시정지 · 남은 주의 코드 = 주황). 끊김은 칸 위 «다시 연결 중»(시안 K-07)
   // 팀장 21:26: 정지 잠금이면 머리표 = 잠금(+ 서버가 준 까닭). 관절 온도는 위험(70 °C ~)일 때만 잠금보다 앞서고, 그 아래 온도는 온도 칩에만 단계 색
   const lk: Level = gone || !needs(x) ? null : st.tone === 'bad' ? 'bad' : 'warn', latched = !gone && x.online && x.status === 'STOP_LATCHED';
@@ -179,7 +179,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const bat = x.battery != null ? `${Math.round(x.battery)} %` : null, tv = h ? lastly(x, `${Math.round(h.t)} °C`, x.seenAt) : null;
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
-    x, byTemp, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
+    x, byTemp, demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
     act, walk, onRun, driving, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
     // 시뮬도 서버가 배터리 · 관절 온도를 보낸다(조정 02:30 · K-08): 데모와 같은 칸 규칙, 값이 정말 없을 때만 «없음»
     bat: sim && bat == null ? ['없음', ''] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
@@ -191,7 +191,8 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
 /** 경고 타일 맨 앞(위험 → 경고 → 주의), 그 밖은 받은 순서 그대로(기존 관제 order 와 같음) */
 /** 타일 · 지도 보기 줄 순서 = 공용 규칙(fleetorder): 긴급(시안이 칸을 칠하는 위험 → 경고 → 주의) → 실기 → 데모 → 사용자 시뮬 → 받은 순서.
  *  끊김은 시안 u5_1 K-07 처럼 칸을 칠하지 않고 덮개만이라 긴급으로 올리지 않음 */
-export const order = (l: TileFacts[]) => fleetOrder(l, (f) => f.level, (f) => fleetKind(f.x.sim, f.demo));
+/** 줄 차례: 긴급 → 종류(실기 · 데모 · 시뮬) → 받은 차례. 가짜 로봇(화면 검토용)은 늘 진짜 뒤(조정 03:00) */
+export const order = (l: TileFacts[]) => { const o = fleetOrder(l, (f) => f.level, (f) => fleetKind(f.x.sim, f.demo)); return [...o.filter((f) => !isFake(f.x.id)), ...o.filter((f) => isFake(f.x.id))]; };
 /** 타일 벽에 둘 로봇(팀장 23:53 · 01:08 · 시안 u5_1 처럼 섞어 8 칸, 시안 밖 · 새로 그림 = 고르는 규칙). 차례대로 빈 칸이 있을 때만 넣는다:
  *  사용자 시뮬은 8 칸 안에 하나뿐: 위험 · 경고 시뮬 → 임무 중 시뮬 → 대기 시뮬(시뮬이 그것뿐일 때). 데모는 대기여도 시뮬보다 먼저.
  *  1) 위험 · 경고(칸을 빨갛게 칠하는 crit · bad)  2) 실기(사용자 시뮬도 데모도 아님 · Go2 X) · 섞기 셋 자리는 남기고
@@ -300,6 +301,10 @@ export const urlParam = (k: string): string | null => { try { return new URLSear
 export const preDot = (): 'still' | 'pulse' => { const v = urlParam('preDot'); return v === 'pulse' || v === 'still' ? v : PRE_DOT; };
 /** 타일 아래 네 칸(배터리 · 온도 · 연결 · 담당자)을 빼는 대수 문턱(팀장 02:41): 이보다 많으면 빼고, 고른 로봇 정보 칸에 보인다. ?cells=on|off 로 강제 */
 export const CELLS_MAX = 8;
+/** 타일 안 글의 실제 크기 바닥(조정 03:00): zoom 으로 이보다 작아지면 글을 키우고(CSS --minpx), 덜 중요한 줄부터 뺀다 */
+export const MIN_TEXT_PX = 10;
+/** 뺄 줄 수: 타일의 가장 작은 글(11 px)이 zoom 뒤 바닥의 몇 배인가로. 1 = 둘째 줄 위치, 2 = + 진행 막대 · 할 일 수, 3 = + 임무 줄. 이름 · 배지 · 경고 띠는 늘 남김 */
+export const dropLines = (zoom: number) => { const r = (11 * zoom) / MIN_TEXT_PX; return r >= 1 ? 0 : r >= 0.9 ? 1 : r >= 0.8 ? 2 : 3; };
 export const cellsOn = (n: number) => { const v = urlParam('cells'); return v === 'on' ? true : v === 'off' ? false : n <= CELLS_MAX; };
 /** 화면 검토용 가짜 로봇(팀장 02:41 · ?fake=10|20): 서버 로봇에 더해 그 대수를 채운다. 서버에 띄우지 않고, 쓰기 요청 · 로봇 탭 열기를 막는다 */
 export const FAKE_PREFIX = 'fake-';
@@ -308,7 +313,7 @@ export const fakeCount = (): number => { const n = Number(urlParam('fake')); ret
 export function fakeRobots(n: number, have: Robot[]): Robot[] {
   return Array.from({ length: Math.max(0, n - have.length) }, (_, i) => {
     const k = i + 1, going = k % 3 !== 0;
-    return { id: `${FAKE_PREFIX}${k}`, name: `가짜 ${k}`, owner: '', ownerName: '', battery: 40 + ((k * 7) % 55), online: true, seenAt: '00:00:00', status: going ? 'RUNNING' : 'IDLE',
+    return { id: `${FAKE_PREFIX}${k}`, name: `가짜 ${k}`, owner: '', ownerName: '', battery: 40 + ((k * 7) % 55), online: true, seenAt: '00:00:00', status: going ? 'RUNNING' : 'IDLE', sim: true,   // sim = 모형 · 현장 칸(실기 카메라 칸 없음), facts 가 데모로 봄
       mission: going ? `가짜 순찰 ${k % 6}/6` : undefined, run: going ? { run_id: `${FAKE_PREFIX}run-${k}`, status: 'MOVING', scenario_name: '가짜 순찰', step: 0, wait_reason: null, fail_code: null, progress: { done: k % 6, total: 6 } } : null } as unknown as Robot;
   });
 }
@@ -359,7 +364,7 @@ function BadgeTag({ b }: { b: Badge }) {
 function Sts({ f }: { f: TileFacts }) {
   return <div className="sts"><div className="s" data-fact="battery">{I(16, f.charging ? IC.bolt : IC.bat)}{f.bat[0]}<small>{f.bat[1]}</small></div><div className={`s${f.temp[2]}`} data-fact="temp">{I(16, IC.temp, undefined, !f.temp[0])}{f.temp[0]}<small>{f.temp[1]}</small></div><div className={`s${f.link[2]}`} data-fact="link">{I(16, IC.wifi)}{f.link[0]}<small>{f.link[1]}</small></div><div className="s" data-fact="who">{I(16, IC.user)}{f.who[0]}<small>{f.who[1]}</small></div></div>;
 }
-function Tile({ f, sel, front, open, boards, cells = true }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string>; cells?: boolean }) {
+function Tile({ f, sel, front, open, boards, cells = true, drop = 0 }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string>; cells?: boolean; drop?: number }) {
   const q = f.x.online && !f.x.unknown ? f.x.robotInfo?.temperature?.joints : null, qk = q ? q.join(',') : '';
   const hotMap = useMemo(() => Object.fromEntries((q && q.length === 12 ? q : []).flatMap((c, i) => { const lv = tempLevel(c ?? null); return lv ? [[JOINTS[i].replace(/_joint$/, ''), lv === 'warn' ? 'warn' : 'hot']] : []; })), [qk]);
   const cls = `tile${f.level ? ` lv-${f.level}` : ''}${f.sim ? ' sim' : ''}${sel ? ' sel' : ''}${f.level ? ' warncell' : ''}${f.sim ? ' rehearse' : ''}`;
@@ -369,11 +374,11 @@ function Tile({ f, sel, front, open, boards, cells = true }: { f: TileFacts; sel
     {f.flag && <span className="flag warntag" style={{ background: red ? 'var(--u5-red)' : 'var(--u5-amb)' }} data-warn-flag>{I(13, IC.warn)}{f.flag}</span>}
     <Cv f={f} front={front} hotMap={hotMap} boards={boards} />
     <div className="inf"><div className="nm"><b style={red ? { color: 'var(--u5-red)' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{f.mode && I(15, IC.mode)}{f.mode}</span></div>
-      <div className="ln">{(() => { // 임무 없는 타일도 늘 상태 줄(팀장 01:08 · 시안 K-08): 데모 · 실기 대기 = «임무 전 · 대기», 시뮬 대기 = «임무 전 · 시뮬 등록»
+      {drop < 3 && <div className="ln">{(() => { // 임무 없는 타일도 늘 상태 줄(팀장 01:08 · 시안 K-08): 데모 · 실기 대기 = «임무 전 · 대기», 시뮬 대기 = «임무 전 · 시뮬 등록»
         const txt = f.mission?.name || (f.charging ? '충전 중' : f.job ? f.job.text : f.sim ? '임무 전 · 시뮬 등록' : idleNow(f.x) ? '임무 전 · 대기' : '');
-        return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim || txt ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
-      {f.mission && f.mission.total > 0 && <div className="pg"><i style={{ width: `${Math.round((f.mission.done / f.mission.total) * 100)}%` }}></i></div>}
-      <div className="ln">{I(16, IC.pin)}<span>{f.place}</span></div>
+        return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim || txt ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{drop < 2 && f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>}
+      {drop < 2 && f.mission && f.mission.total > 0 && <div className="pg"><i style={{ width: `${Math.round((f.mission.done / f.mission.total) * 100)}%` }}></i></div>}
+      {drop < 1 && <div className="ln">{I(16, IC.pin)}<span>{f.place}</span></div>}
       {cells && <Sts f={f} />}</div>
   </div>;
 }
@@ -526,7 +531,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const boards = useMemo(() => new Set([...demoBoards(t.tree), ...site]), [t.tree, site.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
   const places = useMemo(() => new Map(floorsOf(t.tree).map((p) => [p.floor.id, `${p.building.name} ${floorName(p.floor.name)}`])), [t.tree]);
   const list = scope === 'mine' ? robots.filter((x) => x.owner === me) : robots;
-  const every = order(list.map((x) => facts(x, me, places, av?.get(x.id)))), all = demo ? every : every.filter((f) => !f.demo);   // 데모 표시 끔 = 데모 로봇을 타일 · 지도 · 수에서 뺌
+  const every = order(list.map((x) => facts(x, me, places, av?.get(x.id)))), all = demo ? every : every.filter((f) => !f.demo || isFake(f.x.id));   // 데모 표시 끔 = 데모 로봇을 타일 · 지도 · 수에서 뺌
   const seen = useRef<Since>(new Map()).current; trackSince(seen, all);
   useEffect(() => { if (sel && !all.some((f) => f.x.id === sel)) controlPick.set(''); });
   const see = (s: 'all' | 'mine') => { if (s !== scope) controlPick.set(''); setScope(s); };
@@ -534,14 +539,14 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const n = (f: (x: TileFacts) => boolean) => all.filter(f).length;
   const shown = all.filter((f) => inGroups(f, pick)), none = pick.length > 0 && !shown.length;   // 필터: 타일 · 작은 지도 · 지도 보기에만(수 · 경고 목록은 전체)
   // 모든 로봇을 한 화면에(팀장 02:41 · 스크롤 0): 대수에 따라 wallGrid 가 열 · 줄을 늘리고 줄임. 문턱을 넘으면 아래 네 칸은 고른 로봇 정보 칸으로
-  const wall = shown, cells = cellsOn(wall.length), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
+  const wall = shown, cells = cellsOn(wall.length), drop = dropLines(wallGrid(wall.length).zoom), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
   const seg = (on: boolean, v: string, icon: ReactNode, go: () => void) => <span className={on ? 'on' : ''} data-v={v} role="button" tabIndex={0} aria-pressed={on} onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}>{I(16, icon)}{v}</span>;
   // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 수를 비우고 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
   const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
   const cnt = (k: Group, icon: ReactNode, v: number | null, col?: string, src?: 'dashboard', none?: string) => { const on = pick.includes(k); return <span className={on ? 'cnt on' : 'cnt'} style={col ? { color: col } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}
     role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, col)}{`${k} `}<b style={col ? { color: col } : undefined}>{v ?? ''}</b></span>; };
-  return <main className="u5" data-view={view} aria-label="관제" data-cells={cells ? 'on' : 'off'}>
+  return <main className="u5" data-view={view} aria-label="관제" data-cells={cells ? 'on' : 'off'} data-drop={drop}>
     {fake > 0 && <div className="fakeband" role="status" data-fake={fake}>화면 검토용 가짜 자료 · 로봇 {fake} 대</div>}
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
       <span className="sep"></span>
@@ -564,7 +569,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
     {none ? <div className="wall mu2" data-filter-empty style={{ placeItems: 'center', fontSize: '14px' }}>고른 상태의 로봇이 없습니다 · 머리 줄 칸을 다시 누르면 풀립니다</div>
       : view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
-      {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} cells={cells} /></ZoomBox>)}</div>
+      {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} cells={cells} drop={drop} /></ZoomBox>)}</div>
       : <SiteView key={home} all={shown} sel={sel} open={open} from={from} focus={focus} home={toHome} />}
     <div className="side">
       {view === 'tiles' ? <>
@@ -577,7 +582,8 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   </main>;
 }
 /** 대수가 많을 때만 타일을 줄인다(8 대 이하는 시안 그대로 zoom 1 · 감싸지 않음) */
-const ZoomBox = ({ zoom, span, children }: { zoom: number; span?: number; children: ReactNode }) => (zoom >= 1 && !span ? children : <div style={{ ...(zoom < 1 ? { zoom } : {}), ...(span ? { gridColumn: `span ${span}` } : {}), display: 'grid', minWidth: 0, minHeight: 0 }}>{children}</div>);
+/** zoom 으로 줄인 칸. --minpx = 글 바닥을 zoom 앞 크기로(실제 MIN_TEXT_PX 아래로 줄지 않게 · u5.css 가 글 칸마다 max 로 씀) */
+const ZoomBox = ({ zoom, span, children }: { zoom: number; span?: number; children: ReactNode }) => (zoom >= 1 && !span ? children : <div data-tz={zoom < 1 ? zoom.toFixed(3) : undefined} style={{ ...(zoom < 1 ? { zoom, ['--minpx' as string]: `${(MIN_TEXT_PX / zoom).toFixed(2)}px` } : {}), ...(span ? { gridColumn: `span ${span}` } : {}), display: 'grid', minWidth: 0, minHeight: 0 }}>{children}</div>);
 
 function MapSide({ all, sel, open }: { all: TileFacts[]; sel: string; open: (id: string) => void }) {
   const moving = all.filter((f) => f.walk).length;

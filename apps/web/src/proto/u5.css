@@ -44,6 +44,17 @@
 .u5 .stb.chk i{animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{50%{opacity:.25}}
 /* 움직임 줄이기 설정: 배터리 채움 · 점검 점 깜빡임을 멈춘 그림으로(시안 값은 위 그대로) */
+/* 글 바닥(조정 03:00): zoom 으로 줄인 칸(ZoomBox --minpx = MIN_TEXT_PX / zoom)에서 글이 실제 10 px 아래로 줄지 않게. 줄이지 않은 칸은 --minpx 가 없어 원래 크기 */
+.u5 .tile .stb,.u5 .tile .flag,.u5 .tile .md,.u5 .tile .ln em{font-size:max(12px,var(--minpx,0px))}
+.u5 .tile .ov,.u5 .tile .lk small{font-size:max(11.5px,var(--minpx,0px))}
+.u5 .tile .chip,.u5 .tile .s small{font-size:max(11px,var(--minpx,0px))}
+.u5 .tile .ln,.u5 .tile .s{font-size:max(13.5px,var(--minpx,0px))}
+.u5 .tile .lk{font-size:max(13px,var(--minpx,0px))}
+.u5 .tile .stb,.u5 .tile .flag,.u5 .tile .ov,.u5 .tile .chip{height:auto;min-height:21px}
+/* 밝은 판 배지(조정 03:00 · 대비 4.5 : 1 이상): 바탕 = surface 흰 칸. 흰 칸 위 대비가 모자라는 글 색만 토큰 안에서 바꿈(주의 노랑 · 회색 → 글자 · 흐린 글자, 테두리 · 점은 원래 색) */
+.proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}
+.proto.light .u5 .stb[data-badge="paused"],.proto.light .u5 .stb[data-badge="lost"],.proto.light .u5 .stb[data-badge="relink"]{color:#1F2421!important;border-color:#D9A21F}
+.proto.light .u5 .stb[data-badge="maint"],.proto.light .u5 .stb[data-badge="idle"],.proto.light .u5 .stb[data-badge="pre"],.proto.light .u5 .stb[data-badge="swap"]{color:#5E6662!important;border-color:#DCE0DE}
 @media (prefers-reduced-motion:reduce){.u5 .bt i{animation:none;width:var(--b0)}.u5 .stb.chk i{animation:none}}
 .u5 .ov{position:absolute;z-index:2;display:flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:8px;font-size:11.5px;font-weight:700}
 .u5 .ov.g{position:absolute}
