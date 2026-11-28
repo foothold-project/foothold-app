@@ -642,6 +642,18 @@ describe('걷기 모드 창(시안 u4_7)', () => {
     expect(w.of('gait')).toEqual([]);
   });
 
+  it('모드 칸 Enter 키: 누름과 같음(조종권 없음 → 까닭 줄 · 창 없음, 조종 중 → 창) · gait 0', () => {
+    const enter = (el: Element) => act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })); });
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
+    enter($('[data-cell="mode"]')!);
+    expect($('[data-u4-mode]')).toBeNull(); expect(text($('[data-u4-why]'))).toBe('조종을 시작해야 걷기 모드를 바꿀 수 있습니다.');
+    drive();
+    enter($('[data-cell="mode"]')!);
+    expect($('[data-u4-mode] .ttl')!.textContent).toBe('걷기 모드를 Classic 로 바꿀까요?');
+    expect(w.of('gait')).toEqual([]);
+  });
+
   it('연 뒤 조종권을 잃으면 창이 닫히고 gait 0 (검토 21:25)', () => {
     mount('u-park'); serve('r7'); drive();
     act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });

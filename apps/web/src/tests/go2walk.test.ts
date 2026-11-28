@@ -2,7 +2,8 @@
 // 로봇 탭 큰 무대 걷기 꼴(검토 L2): 걷기 기록을 놓은 뒤 종아리 가장 낮은 점이 바닥 y=0 (엎드림 높이에서 바뀌어도 발이 묻히거나 뜨지 않음)
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { walkPose } from '../screens/u4/go2view';
+import { stageLook, walkPose } from '../screens/u4/go2view';
+import { REAR_DIST } from '../proto/tileview';
 
 /** 다리 넷(hip → thigh → calf · 종아리 끝 상자)만 있는 작은 모형. 몸 아래 0.3 m 에 발 */
 function body() {
@@ -31,7 +32,16 @@ describe('walkPose', () => {
     root.position.y = -0.2;   // 엎드림 맞춤으로 내려가 있던 몸
     for (const t of [0, 0.05, 0.13, 0.27]) {
       walkPose(root, joints, gait, t);
-      expect(Math.abs(calfLow(root))).toBeLessThan(1e-6);
+      const low = calfLow(root);   // walkPose 를 거친 그 판
+      expect(low).toBeGreaterThanOrEqual(-1e-9); expect(low).toBeLessThan(1e-6);
     }
+  });
+});
+
+describe('stageLook (큰 무대 카메라 · 그림자)', () => {
+  it('현장 꼴 = 로봇 뒤 · 카메라 거리 = 관제 타일 「뒤」 값(REAR_DIST) · 그림자 원 몸 크기(≤ 1.0), 아니면 처음 자리 · 시안 그림자', () => {
+    expect(stageLook(true, { yaw: 0, dist: 1.3 })).toEqual({ yaw: Math.PI, dist: REAR_DIST, shadow: 1 });
+    expect(stageLook(true, { yaw: 0, dist: 1.3 }).shadow).toBeLessThanOrEqual(1);
+    expect(stageLook(false, { yaw: 0, dist: 1.3 })).toEqual({ yaw: 0, dist: 1.3, shadow: 1.5 });
   });
 });
