@@ -58,6 +58,7 @@ services:
     environment:
       FH_API: http://server:8810
       FH_WEB_HOST: 0.0.0.0
+      FH_SIM_ASSETS: /workspace/sim-assets
     ports:
       - '127.0.0.1:${FH_WEB_PORT:-5180}:5180'
     volumes:
@@ -66,6 +67,11 @@ services:
       - ./apps/contracts:/workspace/apps/contracts:ro
       # 현재 웹이 import하는 JS·JSON·정적 지도 자료; 시뮬 프로세스는 실행하지 않는다.
       - ./mobile/sim:/workspace/mobile/sim:ro
+      # 시작 때 한 번 돌리는 시뮬 폴더 준비 스크립트(docker/web-start.sh).
+      - ./deploy/prepare_sim.py:/workspace/deploy/prepare_sim.py:ro
+      # 비공개 시뮬 자산(정책 ONNX · ORT · MuJoCo). 저장소 밖 폴더를 읽기 전용으로만 붙인다.
+      # 비어 있으면 빈 볼륨이 붙고 시뮬만 빠진다(/sim/ 은 안내 화면).
+      - '${FH_SIM_ASSETS:-no_sim_assets}:/workspace/sim-assets:ro'
     depends_on:
       server:
         condition: service_healthy
@@ -74,3 +80,5 @@ volumes:
   database:
   files:
   web_node_modules:
+  # FH_SIM_ASSETS 가 비었을 때 붙는 빈 자리(읽기 전용).
+  no_sim_assets:
