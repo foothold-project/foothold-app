@@ -35,7 +35,7 @@ const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 /** 메뉴에 보이는 탭(결재 탭은 10-27 숨김 — 주소로는 열림) */
 const shown = () => tabsFor(false).filter((t) => !t.hidden);
-const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.childNodes[1].textContent);
+const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.textContent);   // 시안 가로 메뉴는 글자만
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const robotRow = (name: string) => fleetRow(box, name);
 /** 다른 사람으로 로그인한 것처럼 같은 틀을 다시 그림(가짜 역할 전환 고르개는 없앰 — 역할은 서버 /me) */
@@ -326,10 +326,10 @@ describe('R2·R3 보강', () => {
       for (const [o, om] of Object.entries(MARK)) if (o !== id) expect(text, `${id} 에 ${o} 내용`).not.toContain(om);
     }
   });
-  it('화면 밝기(11-02): PC 는 왼쪽 메뉴 «설정» 바로 위 단추(누를 때마다 바뀜·설정 탭엔 없음), 폰은 ⋯ 안 고르는 칸', () => {
+  it('화면 밝기(11-02 → 시안 껍데기 11-28): PC 는 머리줄 «나» 메뉴 안 단추(누를 때마다 바뀜·설정 탭엔 없음), 폰은 ⋯ 안 고르는 칸', () => {
     mount(false, 'u-kim', '#/settings');
-    const b = $('nav[aria-label="주 메뉴"] [data-theme-pick]');
-    expect(b.nextElementSibling!.getAttribute('href')).toBe('#/settings');
+    const b = $('header [data-slot="who"] [data-theme-pick]');
+    expect($('nav[aria-label="주 메뉴"] [data-theme-pick]')).toBeNull();
     expect($('main [data-theme-pick]')).toBeNull();
     const seen = [b.getAttribute('aria-label')];
     for (let i = 0; i < 3; i++) { click(b); seen.push(b.getAttribute('aria-label')); }

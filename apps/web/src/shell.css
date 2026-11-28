@@ -1,0 +1,96 @@
+/* ── 시안 껍데기(11-28) ─────────────────────────────────────
+   값은 시안 proto/shared/pc.css · ui.css 그대로(다시 해석하지 않음). 어두움 = 시안 값, 밝음 = 같은 구조에 공식 토큰만(foothold.tokens.css, 값 수정 없음).
+   - 바탕 · 글꼴 · 머리줄(.bar) · 가로 메뉴(.tabs) · 정지(.allstop) · 나(.who) · 카드(.pane) · 단추(.btnp · .btns).
+   - 글꼴: 시안은 Google Fonts 로 Inter Tight · Noto Sans KR 을 불러온다. 앱은 외부 CDN 을 쓰지 않아 이름만 앞에 두고 없으면 Pretendard(로컬 번들)로 내려간다.
+   - 탭 안 화면 배치는 W2 · W3 몫이라 여기서 다루지 않는다. STOP 크기는 누름 44px(U7)를 지켜 시안 높이 40 대신 44. */
+
+/* 공통 토큰(어두움 = 시안 pc.css :root · body) */
+html .fh {
+  --sh-bg: radial-gradient(1400px 700px at 50% -10%, #111312, #000000 70%);
+  --sh-bar: rgba(12,15,20,.6);
+  --sh-line: rgba(255,255,255,.08);
+  --sh-text: #ffffff;
+  --sh-mu2: #9aa19d;
+  --sh-pr: #18a07e;
+  --sh-pr3: #00c389;
+  --sh-tab-on: rgba(0,195,137,.16);
+  --sh-pane: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  --sh-pane-in: inset 0 1px 0 rgba(255,255,255,.06);
+  --sh-av: #2a3340;
+  --sh-btns: rgba(255,255,255,.07);
+  --sh-btns-line: rgba(255,255,255,.12);
+  --sh-btnp-shadow: 0 10px 24px rgba(0,195,137,.35), inset 0 1px 0 rgba(255,255,255,.4);
+  --line: var(--sh-line); --text: var(--sh-text); --muted: var(--sh-mu2); --accent: var(--sh-pr3);
+}
+/* 밝음: 같은 구조 · 공식 토큰 */
+html .fh.light {
+  --sh-bg: var(--paper);
+  --sh-bar: color-mix(in srgb, var(--card) 72%, transparent);
+  --sh-line: var(--rule);
+  --sh-text: var(--ink);
+  --sh-mu2: var(--ink-2);
+  --sh-pr: var(--brand);
+  --sh-pr3: var(--brand);
+  --sh-tab-on: var(--dim-soft);
+  --sh-pane: var(--card);
+  --sh-pane-in: 0 1px 2px rgba(22,28,38,.06);
+  --sh-av: var(--paper-2);
+  --sh-btns: var(--paper-2);
+  --sh-btns-line: var(--rule);
+  --sh-btnp-shadow: 0 6px 16px rgba(14,122,110,.22);
+}
+
+html body, html .fh, html .fh.light {
+  font-family: "Inter Tight", "Noto Sans KR", "Noto Sans CJK KR", 'Pretendard Variable', Pretendard, sans-serif;
+  -webkit-font-smoothing: antialiased; letter-spacing: -.01em; font-variant-numeric: tabular-nums; word-break: keep-all;
+}
+html .fh { background: var(--sh-bg); color: var(--sh-text); }
+html body:has(.fh) { background: #000000; }
+html body:has(.fh.light) { background: var(--paper); }
+
+/* 머리줄 = 시안 .bar (PC) */
+html .fh[data-layout="pc"] .fh-head { height: 64px; min-height: 64px; gap: 30px; padding: 0 24px; border-bottom: 1px solid var(--sh-line);
+  background: var(--sh-bar); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+html .fh.phone .fh-head { border-bottom: 1px solid var(--sh-line); background: var(--sh-bar); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.fh-logo-t { font-weight: 900; letter-spacing: .08em; font-size: 16px; flex: none; }
+.fh-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; }
+
+/* 가로 메뉴 = 시안 .tabs */
+html .fh .fh-tabs { display: flex; flex-direction: row; gap: 4px; flex: none; padding: 0; border: 0; background: none; overflow: visible; }
+.fh-tabs .tab { position: relative; height: 38px; padding: 0 16px; border-radius: 11px; display: flex; align-items: center; font-size: 15px; font-weight: 700;
+  color: var(--sh-mu2); text-decoration: none; white-space: nowrap; }
+.fh-tabs .tab:hover { color: var(--sh-text); }
+.fh-tabs .tab.cur { background: var(--sh-tab-on); color: var(--sh-pr3); }
+.fh-tabs .tab .fh-badge { top: -4px; right: -4px; }
+
+/* 오른쪽 = 시안 .bar .rt */
+.fh-rt { display: flex; align-items: center; gap: 18px; font-size: 13.5px; font-weight: 600; }
+.fh-live { display: flex; align-items: center; gap: 7px; min-width: 138px; justify-content: flex-end; white-space: nowrap; }
+.fh-livedot { width: 7px; height: 7px; border-radius: 50%; background: var(--sh-pr); box-shadow: 0 0 0 3px rgba(24,160,126,.18); flex: none; }
+.fh-mu2 { color: var(--sh-mu2); white-space: nowrap; }
+.fh-mu2[data-link] { color: var(--bad); }
+.fh-who { position: relative; }
+.fh-who > summary { list-style: none; min-width: 96px; min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; }
+.fh-who > summary::-webkit-details-marker { display: none; }
+.fh-who [data-av] { width: 30px; height: 30px; border-radius: 50%; background: var(--sh-av); display: flex; align-items: center; justify-content: center;
+  font-style: normal; font-size: 12px; font-weight: 800; flex: none; }
+.fh-who > .card { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; padding: 8px; display: flex; flex-direction: column; gap: 6px; white-space: nowrap; }
+.fh-who .nav { width: auto; flex-direction: row; padding: 0 12px; min-height: 44px; }
+
+/* 정지 = 시안 .allstop (PC). 폰 · 시뮬 조종 머리줄의 STOP 은 그대로 */
+html .fh[data-layout="pc"] .fh-head > .fh-stop { min-width: 124px; padding: 0 16px; border-radius: 12px; gap: 7px; font-size: 14px; font-weight: 800; color: #fff;
+  background: linear-gradient(180deg, #ff4d4f, #e04a2f); box-shadow: 0 8px 20px rgba(214,47,51,.35), inset 0 1px 0 rgba(255,255,255,.35); }
+html .fh[data-layout="pc"] .fh-head > .fh-stop svg { width: 16px; height: 16px; }
+html .fh[data-layout="pc"] .fh-head > .fh-stop .fh-stop-t { font-size: 14px; font-weight: 800; letter-spacing: -.01em; white-space: nowrap; }
+
+/* 카드 = 시안 .pane · 단추 = .btns / .btnp */
+html .fh .lv-card { border-radius: 20px; background: var(--sh-pane); border: 1px solid var(--sh-line); box-shadow: var(--sh-pane-in); }
+html .fh .btn { border-radius: 14px; background: var(--sh-btns); border: 1px solid var(--sh-btns-line); color: var(--sh-text); font-weight: 700; }
+html .fh .btn.pri { background: linear-gradient(180deg, var(--sh-pr3), var(--sh-pr3)); border-color: transparent; color: #fff; font-weight: 800; box-shadow: var(--sh-btnp-shadow); }
+html .fh .btn.pri[disabled] { background: var(--sh-btns); border-color: var(--sh-btns-line); color: var(--sh-mu2); box-shadow: none; }
+
+/* 시안에는 왼쪽 세로 메뉴가 없다: 본문이 전체 폭 */
+html .fh[data-layout="pc"] .fh-main { padding: 20px 24px 24px; }
+
+/* 종 = 시안 머리줄 그대로 테두리 없는 아이콘(누름 자리 44 는 유지) */
+[data-slot="bell"] .fh-more > summary { border: 0; background: none; min-width: 44px; }
