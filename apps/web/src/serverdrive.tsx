@@ -10,9 +10,10 @@ import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
 import { HeldTag, LidarMap } from './lidarmap';
 import { REPORT_STALE_MS, go2Pose, type Pose } from './go2model';
+import { DriveInputNote } from './driveinput';
 import type { Look } from './lidar3d';
 import { DEPTH_HINT, driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
-import { adminReal, type Robot, type Tone } from './fake';
+import { type Robot, type Tone } from './fake';
 import { api } from './api';
 import { ActionTrial } from './screens/actiontrial';
 import { realCaps, simTune, useTuneSettings } from './phone';
@@ -166,8 +167,8 @@ export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span aria-hidden="true" style={{ width: 10, height: 10, background: '#000', border: '1px solid #DDE5EC' }} />거리 모름</span>
 </div>;
 
-/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기 */
-export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && !adminReal(c.user, r) && r.owner === c.user.id;
+/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기(총괄은 모든 실기 · 11/28) */
+export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && (r.owner === c.user.id || c.user.role === 'ORG_ADMIN');
 /** 이 로그인 세션(사용자·세션 취소 신호)에서 한 번이라도 canDrive 였던 로봇 id — RB-PC-DRIVE-OFFLINE. 사용자가 바뀌거나 로그아웃(세션 신호 끝남)하면 비운다(RB-PC-DRIVE-OFFLINE-FIX) */
 let drove = { user: '', cancel: undefined as AbortSignal | undefined, ids: new Set<string>() };
 const droveIds = (c: Pick<Ctx, 'user' | 'cancel'>) => {
@@ -338,7 +339,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const connection = rt.link();
   const freshState = rt.now()-l.stateAt < 3000 ? s : null;
   const latency = <ResponseLine state={freshState} screenMs={link === 'open' && connection.latencyAt != null && rt.now()-connection.latencyAt < 3000 ? connection.latencyMs ?? null : null} />;
-  const notes = <><SlowResponse health={freshState?.connection === 'ONLINE' ? freshState.response_health : null} />{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
+  const notes = <><DriveInputNote devices={freshState?.devices} /><SlowResponse health={freshState?.connection === 'ONLINE' ? freshState.response_health : null} />{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
     {posture === 'UNKNOWN' && mine && <p className="dv-note" role="status" data-sd-pose-unknown>로봇 자세를 아직 알 수 없어 이동 단추를 잠갔습니다. 현장에서 로봇을 확인한 뒤 «일어서기»를 누르세요.</p>}
     {ready && !(got && isSettings(settings)) && <p className="dv-note" role="status" data-real-wait>{REAL_WAIT}</p>}
     {why && <p className="dv-note" role="status" data-sd-why>{why}</p>}

@@ -279,23 +279,17 @@ describe('관제 탭', () => {
     expect(FakeWS.last.of('stop')).toHaveLength(0);
     expect($('[aria-label="정지할 로봇 고르기"]')).not.toBeNull();
   });
-  it('R2 · M5: 이 계정이 못 세우는 타일을 고르면 «고른 로봇 없음» 흐름(고르기 · 모두 정지 기본) + 맨 위 한 줄', () => {
+  it('R2 · M5 (11/28 총괄 = 모든 권한 · #547): 총괄이 실기 타일을 고르면 그 실기가 대상 · 한 번 누름으로 보냄, 못 세움 줄 없음', () => {
     const R: Robot[] = [
-      { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },   // 실기 = 총괄은 못 세움
+      { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },   // 남 담당 실기 = 총괄도 세움
       { id: 's1', name: 'S-01', owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', sim: true },
     ];
     mount('u-kim', R); feed(R);
     act(() => { tile('a1').click(); });
     press(stopBtn());
-    expect(FakeWS.last.of('stop')).toHaveLength(0);
-    const pick = $('[aria-label="정지할 로봇 고르기"]');
-    expect(pick.querySelector('[data-cant-stop]')!.textContent).toBe('K-21 은 이 계정으로 정지할 수 없어 내 시뮬 정지를 엽니다');
-    const first = pick.querySelector('select')!.options[0];
-    expect(first.textContent).toBe('내 시뮬 모두 정지 (1 대)');   // 실기 K-21 은 들지 않음(대상대로)
-    expect(pick.querySelector('[data-cant-real]')!.textContent).toBe('실기 로봇 1 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요');
-    expect(first.selected).toBe(true);
-    press(stopBtn());
-    expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['s1']);
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['a1']);
+    expect($('[data-cant-stop]')).toBeNull();
+    expect($('[data-cant-real]')).toBeNull();
   });
   it('관제 · 내 시뮬이 떠 있고 고른 타일 없음: 첫 누름은 sim.stop 이 아니라 고르기 · 모두 정지에 내 시뮬 포함(Sonnet 3)', () => {
     const live = vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 'sx', generation: 1, owner_id: 'u-lee', world_id: 'w', simulation: true, state: 'RUNNING', agent_address: '' } as never);
@@ -396,7 +390,7 @@ describe('관제 탭', () => {
     expect(pick.querySelector('[data-cant-real]')).toBeNull();
     expect(pick.querySelector('select')!.options[0].textContent).toBe('모두 정지 (10 대)');
   });
-  it('후속 1: 총괄 · 실기(붙음 · 끊김) 가 섞이면 라벨 = 내 시뮬 모두 정지, 실기 수 한 줄', () => {
+  it('후속 1 (11/28 총괄 = 모든 권한 · #547): 총괄 · 실기(붙음 · 끊김) 가 섞여도 라벨 = 모두 정지(끊김 수), 못 세움 줄 없음', () => {
     const R: Robot[] = [
       { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING' },
       { id: 'a2', name: 'K-22', owner: 'u-lee', ownerName: '이OO', battery: 70, online: false, seenAt: '14:05:20', status: 'RUNNING' },
@@ -406,10 +400,10 @@ describe('관제 탭', () => {
     mount('u-kim', R); feed(R);
     press(stopBtn());
     const pick = $('[aria-label="정지할 로봇 고르기"]');
-    expect(pick.querySelector('select')!.options[0].textContent).toBe('내 시뮬 모두 정지 (2 대)');
-    expect(pick.querySelector('[data-cant-real]')!.textContent).toBe('실기 로봇 2 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요');
+    expect(pick.querySelector('select')!.options[0].textContent).toBe('모두 정지 (4 대 · 끊김 1)');
+    expect(pick.querySelector('[data-cant-real]')).toBeNull();
     press(stopBtn());
-    expect(FakeWS.last.of('stop').map((m) => m.robot).sort()).toEqual(['s1', 's2']);
+    expect(FakeWS.last.of('stop').map((m) => m.robot).sort()).toEqual(['a1', 'a2', 's1', 's2']);
   });
   it('후속 3: 서버가 받기 전(sending)과 대체 경로(fallback)는 기존 정지 문구 그대로(«상태 모름»으로 덮지 않음)', () => {
     const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));
@@ -506,7 +500,7 @@ describe('관제 탭', () => {
     expect($('[data-stop-band][data-stop-lost="g4"]')).toBeNull();
     expect($('[data-stop-band][data-stop-lost="g6"]')!.textContent).toContain(`K-07 ${LOST}`);
   });
-  it('t21-2: 모두 정지 라벨 전체 · 총괄(실기 + 내 시뮬) = «내 시뮬 모두 정지», 일반 = «모두 정지» · 셋째 라벨 «멈출 수 있는 로봇 모두 정지»는 두 계정 어느 쪽에서도 나오지 않음', () => {
+  it('t21-2: 모두 정지 라벨 전체 · 총괄(실기 + 내 시뮬 · 11/28 모든 권한) = 일반과 같이 «모두 정지» · 셋째 라벨 «멈출 수 있는 로봇 모두 정지»는 두 계정 어느 쪽에서도 나오지 않음', () => {
     const R: Robot[] = [
       { id: 'a1', name: 'K-21', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', serverDrive: true },
       { id: 'a2', name: 'K-22', owner: 'u-park', ownerName: '박OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', serverDrive: true },
@@ -515,8 +509,8 @@ describe('관제 탭', () => {
     ];
     mount('u-kim', R); feed(R);
     press(stopBtn());
-    expect($<HTMLSelectElement>('[aria-label="정지할 로봇 고르기"] select').options[0].textContent).toBe('내 시뮬 모두 정지 (1 대)');
-    expect($('[data-cant-real]').textContent).toBe('실기 로봇 2 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요');
+    expect($<HTMLSelectElement>('[aria-label="정지할 로봇 고르기"] select').options[0].textContent).toBe('모두 정지 (3 대)');
+    expect($('[data-cant-real]')).toBeNull();
     expect($('[data-stop-pre]').textContent).toBe('연결 전 로봇 1 대 · 정지를 보낼 수 없음');   // 총괄도 같은 줄(연결 전 실기 K-23)
     act(() => root?.unmount()); root = null;
     mount('u-lee', R); feed(R);

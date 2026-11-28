@@ -47,7 +47,7 @@ describe('본문·신선도·표시', () => {
   it('주변 찾기 mode: 찾기 시험 = 실제 연결 아님, 상태 전용 안내', () => {
     const s = parse({ seq: '1', scanning: false, items: [{ key: 'a', via: 'mdns', name: 'Go2 EDU (검색 시험)', host: '10.0.0.2', mode: 'discovery-only' }, { key: 'b', via: 'mdns', name: 'g', mode: 'evil' }], problems: ['wifi-no-internet'] }, '1')!;
     expect(s.items.map((i) => i.mode)).toEqual(['discovery-only', undefined]);
-    expect(detail(s.items[0], [])).toContain('찾기 시험 신호 — 실제 연결 아님');
+    expect(detail(s.items[0], [])).toContain('찾기 시험 신호 · 실제 연결 아님');
     expect(detail({ key: 'c', via: 'mdns', name: 'g', host: '10.0.0.3', port: 9610, mode: 'go2-readonly' }, [])).toContain('상태 전용 에이전트');
   });
 });

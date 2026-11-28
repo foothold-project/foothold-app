@@ -111,11 +111,11 @@ export function Go2View({ name, url, close }: { name: string; url: string; close
       if (d.seq !== s) return;
       setHeard(true);
       if (d.status === 200) { const g = body(d.body); if (g) { setLast({ go2: g, at: performance.now() }); setWhy(null); } else setWhy('응답 모양이 상태 전용 계약과 다릅니다.'); }
-      else if (d.status === 401) { setCode(null); setWhy('현장 코드가 틀렸거나 만료됐습니다 — 로봇 쪽 코드를 다시 확인해 넣으세요.'); }
-      else if (d.status === 429) setWhy(`잘못된 코드가 많아 로봇이 잠시 막았습니다 — ${n(d.retry) ?? 60}초 뒤 다시 읽습니다.`);
+      else if (d.status === 401) { setCode(null); setWhy('현장 코드가 틀렸거나 만료됐습니다. 로봇 쪽 코드를 다시 확인해 넣으세요.'); }
+      else if (d.status === 429) setWhy(`잘못된 코드가 많아 로봇이 잠시 막았습니다. ${n(d.retry) ?? 60}초 뒤 다시 읽습니다.`);
       else if (d.status === -2) { setCode(null); setWhy('주소나 코드 모양이 틀렸습니다.'); }
       else if (d.status === -1) setWhy('응답 모양이 상태 전용 계약과 다릅니다.');
-      else setWhy(d.why === 'wifi-off' || d.why === 'other-subnet' ? PROBLEM[d.why] : typeof d.status === 'number' && d.status >= 400 ? `로봇이 오류로 답했습니다(${d.status}).` : '응답 없음(3초) — 같은 Wi-Fi(또는 Go2 핫스팟)인지 확인하세요.');
+      else setWhy(d.why === 'wifi-off' || d.why === 'other-subnet' ? PROBLEM[d.why] : typeof d.status === 'number' && d.status >= 400 ? `로봇이 오류로 답했습니다(${d.status}).` : '응답 없음(3초). 같은 Wi-Fi(또는 Go2 핫스팟)인지 확인하세요.');
     };
     window.addEventListener('fh-go2', on);
     const tick = setInterval(() => setNow(performance.now()), 500), t = setTimeout(() => setOld(true), NO_APP_MS);
@@ -127,7 +127,7 @@ export function Go2View({ name, url, close }: { name: string; url: string; close
     <div className="fh-row"><h2 className="fh-grow">{name}</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
     <p className="lv-note">{url.replace(/^http:\/\//, '').replace(/\/go2\/status$/, '')} · 상태만 읽습니다(조종·등록·STOP 없음).</p>
     {code == null ? <form className="fh-field" onSubmit={(e) => { e.preventDefault(); start(); }}>
-      <label className="fh-field"><span className="lbl">현장 코드 8자리 — 로봇이 맞는지 기체·주소를 확인한 뒤 넣으세요</span>
+      <label className="fh-field"><span className="lbl">현장 코드 8자리. 로봇이 맞는지 기체·주소를 확인한 뒤 넣으세요</span>
         <input className="inp" value={draft} onChange={(e) => setDraft(e.target.value.replace(/\D/g, '').slice(0, 8))} inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={8} data-go2-code /></label>
       <button type="submit" className="btn pri" disabled={!/^\d{8}$/.test(draft)}>상태 보기</button>
     </form> : <>

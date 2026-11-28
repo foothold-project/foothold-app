@@ -1,0 +1,14 @@
+/* 순서 점검(u2_4): 단계마다 기호 + 이름 + 상태 글 + 까닭. 막힘만 색, 첫 막힘 줄은 옅게 물들인다. 색만으로 구분하지 않는다(기호 · 글) */
+.ck-steps{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
+.ck-step{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:2px 10px;align-items:baseline;padding:8px 10px;border-radius:8px}
+.ck-mark{grid-column:1;grid-row:1 / span 2;align-self:start;width:22px;height:22px;border:1px solid var(--line2);border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--muted);background:var(--panel)}
+.ck-step[data-state="ok"] .ck-mark{border-color:transparent;background:var(--acc-bg);color:var(--accent)}
+.ck-step[data-state="blocked"] .ck-mark{border-color:var(--bad);color:var(--bad)}
+.ck-name{grid-column:2;grid-row:1;font-weight:600;min-width:0}
+.ck-state{grid-column:3;grid-row:1;font-size:12px;color:var(--muted);white-space:nowrap}
+.ck-step[data-state="blocked"] .ck-state{color:var(--bad);font-weight:700}
+.ck-why{grid-column:2 / -1;grid-row:2;font-size:12px;overflow-wrap:anywhere}
+.ck-step[data-first]{background:var(--bad-bg)}
+.ck-box{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px}
+.ck-fold>.ck-steps{margin-top:8px}
+.ck-foot{align-items:center;margin-top:6px}

@@ -182,6 +182,7 @@ def test_foreign_and_absent_ids_same_404(maps, seeded):
         ('get', '/floors/{}/map-versions', 'floor', {}),
         ('get', '/map-versions/{}', 'version', {}),
         ('get', '/map-versions/{}/image', 'version', {}),
+        ('get', '/map-versions/{}/model', 'version', {}),
         ('get', '/floor-connectors?building_id={}', 'building', {}),
         ('patch', '/sites/{}', 'site', {'json': {'name': '금지'}}),
         ('delete', '/buildings/{}', 'building', {}),

@@ -1,0 +1,96 @@
+/* 로봇 탭 u4 틀(11/28). 값은 시안 proto/shared/ui.css · pc.css · screens/u4_1_robot.html 그대로(1920 기준 px).
+   시안의 절대 배치(.rail 250 · .hdr · .stage3d 760 · .right)를 격자로 옮겼다. 1920 에서 같은 칸, 좁으면 줄인다. 밝은 판은 같은 칸에 밝은 값만 */
+.u4{--u4-line:rgba(255,255,255,.08);--u4-mu2:#9aa19d;--u4-pr:#18a07e;--u4-pr3:#00c389;--u4-ink:#ffffff;--u4-red:#e04a2f;--u4-warn:#f2b705;
+  --u4-pane:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));--u4-glass:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));
+  --u4-glass-line:rgba(255,255,255,.22);--u4-stage:radial-gradient(520px 420px at 50% 42%,#111312,#000000 75%);--u4-views:#0e1116;
+  --u4-seg-on:#ffffff;--u4-seg-on-ink:#000000;--u4-av:#2a3340;
+  flex:1 1 100%;min-width:0;display:grid;gap:16px 24px;color:var(--u4-ink);font-variant-numeric:tabular-nums;word-break:keep-all;
+  grid-template-columns:250px minmax(0,760fr) minmax(0,818fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"rail hdr hdr" "rail stage right"}
+:root[data-theme="light"] .u4{--u4-line:rgba(18,23,28,.10);--u4-mu2:#5e6662;--u4-ink:#1f2421;--u4-pane:linear-gradient(180deg,rgba(255,255,255,.9),rgba(255,255,255,.7));
+  --u4-glass:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48));--u4-glass-line:rgba(255,255,255,.85);--u4-stage:radial-gradient(520px 420px at 50% 42%,#f4f6f3,#dfe3dd 75%);
+  --u4-views:#e9ece6;--u4-seg-on:#1f2421;--u4-seg-on-ink:#ffffff;--u4-av:#dfe3dd}
+.u4 .u4-pane{border-radius:20px;background:var(--u4-pane);border:1px solid var(--u4-line);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.u4 .u4-g{border-radius:18px;background:var(--u4-glass);border:1px solid var(--u4-glass-line);box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.28);
+  backdrop-filter:blur(22px) saturate(1.8);-webkit-backdrop-filter:blur(22px) saturate(1.8);color:var(--u4-ink)}
+.u4 .ttl{font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0}
+.u4 .mu2{color:var(--u4-mu2)}
+.u4 button{font:inherit;color:inherit;cursor:pointer}
+
+/* 왼쪽 목록 .rail */
+.u4 .rail{grid-area:rail;padding:16px 10px;display:flex;flex-direction:column;gap:10px;min-width:0;align-self:stretch}
+.u4 .rail-top{display:flex;align-items:center;justify-content:space-between;padding:0 6px 2px}
+.u4 .rail-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.u4 .rcard{width:100%;display:flex;align-items:center;gap:12px;min-height:58px;padding:8px 14px;border-radius:14px;font-size:14px;font-weight:700;text-align:left;background:none;border:1px solid transparent}
+.u4 .rcard[aria-pressed="true"]{background:rgba(0,195,137,.10);border-color:rgba(0,195,137,.45)}
+.u4 .rcard .av{width:36px;height:36px;border-radius:11px;background:var(--u4-av);display:flex;align-items:center;justify-content:center;flex:none}
+.u4 .rcard[aria-pressed="true"] .av{background:var(--u4-pr);color:#fff}
+.u4 .rcard .rc-main{flex:1;min-width:0}
+.u4 .rcard small{display:block;font-size:12px;font-weight:600;color:var(--u4-mu2);margin-top:2px}
+.u4 .rcard .rc-bat{font-size:13px;white-space:nowrap;color:var(--u4-mu2)}
+.u4 .rcard[data-tone="bad"] .av{box-shadow:0 0 0 2px var(--u4-red)}.u4 .rcard[data-tone="warn"] .av{box-shadow:0 0 0 2px var(--u4-warn)}
+.u4 .rail-sub{font-size:12px;font-weight:700;color:var(--u4-mu2);padding:8px 6px 2px;margin:0}
+.u4 .rail .fh-kpi{margin:0;padding:8px 6px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px;background:none;border:0;box-shadow:none}.u4 .rail .fh-kpi>div{display:flex;flex-direction:column;font-size:11.5px;color:var(--u4-mu2)}.u4 .rail .fh-kpi>p{grid-column:1/-1}
+.u4 .rail .fh-kpi b{font-size:15px}
+.u4 .rail-filt{display:flex;flex-direction:column;gap:6px;padding:0 6px}
+.u4 .rail-filt label{justify-content:space-between}
+.u4 .rail-alerts{padding:0 6px}.u4 .rail-alerts h3{font-size:12px;margin:4px 0}
+.u4 .rail-alerts ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.u4 .rail-alerts button{width:100%;display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:10px;border:1px solid var(--u4-line);background:none;font-size:12px;text-align:left}
+.u4 .addbtn{height:34px;padding:0 11px;font-size:12.5px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-weight:700}
+:root[data-theme="light"] .u4 .addbtn{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.1)}
+
+/* 머리 .hdr */
+.u4 .hdr{grid-area:hdr;display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.u4 .hdr h2{font-size:26px;margin:0 6px 0 0;min-width:74px}
+.u4 .st{height:42px;padding:0 13px;border-radius:13px;display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700}
+.u4 .st small{font-size:11.5px;font-weight:600;color:var(--u4-mu2);margin-left:auto}
+.u4 .st[data-cell="link"]{min-width:200px}.u4 .st[data-cell="posture"]{min-width:160px}.u4 .st[data-cell="battery"]{min-width:130px}.u4 .st[data-cell="temp"]{min-width:200px}.u4 .st[data-cell="holder"]{min-width:180px}
+.u4 .st.bad{border-color:rgba(255,77,79,.55);color:#ff4d4f}
+.u4 .seg2{margin-left:auto;display:flex;gap:2px;padding:4px;border-radius:13px;background:rgba(255,255,255,.05);border:1px solid var(--u4-line)}
+.u4 .seg2 button{height:36px;padding:0 18px;border-radius:10px;border:0;background:none;font-size:14px;font-weight:700;color:var(--u4-mu2)}
+.u4 .seg2 button[aria-pressed="true"]{background:var(--u4-seg-on);color:var(--u4-seg-on-ink)}
+
+/* 가운데 .stage3d */
+.u4 .stage3d{grid-area:stage;position:relative;min-height:560px;border-radius:24px;overflow:hidden;background:var(--u4-stage);border:1px solid var(--u4-line);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);display:flex;flex-direction:column}
+.u4 .stage3d .s3-fig{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.u4 .stage3d .s3-fig>*{width:100%}
+.u4 .tag{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.u4 .tag::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.u4 .foot{position:absolute;left:20px;right:20px;bottom:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.u4 .foot .mu2{margin-left:auto;font-size:12.5px}
+.u4 .s3-none{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 14px;border-radius:999px;font-size:13px;font-weight:700}
+
+/* 오른쪽 .right */
+.u4 .right{grid-area:right;min-width:0;display:flex;flex-direction:column;gap:14px}
+.u4 .views{position:relative;min-height:420px;flex:1 1 600px;max-height:600px;border-radius:22px;overflow:hidden;background:var(--u4-views);border:1px solid var(--u4-line)}
+.u4 .views .v-body{position:absolute;inset:0;overflow:auto;padding:110px 16px 120px}
+.u4 .views .v-body.full{padding:0}
+.u4 .vsel{position:absolute;left:16px;top:16px;z-index:2;display:flex;gap:2px;padding:3px;border-radius:12px}
+.u4 .vsel button{height:32px;padding:0 12px;border-radius:9px;border:0;background:none;font-size:12.5px;font-weight:700;color:var(--u4-mu2)}
+.u4 .vsel button[aria-pressed="true"]{background:rgba(255,255,255,.9);color:#1f2421}
+.u4 .mapname{position:absolute;left:16px;top:62px;z-index:2;padding:5px 10px;border-radius:9px;font-size:11.5px;font-weight:600;color:var(--u4-mu2)}
+.u4 .small{position:absolute;right:16px;top:16px;width:248px;height:150px;border-radius:14px;overflow:hidden;z-index:2;border:1px solid rgba(255,255,255,.35);box-shadow:0 10px 24px rgba(0,0,0,.45);background:#05080a;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px}
+.u4 .small .cl{position:absolute;left:8px;bottom:7px;font-size:11.5px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.u4 .job{position:absolute;left:16px;bottom:16px;z-index:2;width:330px;max-width:calc(100% - 180px);padding:12px 16px 14px;border-radius:16px;display:flex;flex-direction:column;gap:3px}
+.u4 .job b{font-size:15px}.u4 .job span{font-size:12.5px;font-weight:600;color:var(--u4-mu2)}
+.u4 .vslot{position:absolute;right:16px;bottom:16px;z-index:3;width:132px;display:flex;flex-direction:column;gap:8px}
+.u4 .ctl{display:flex;align-items:center;gap:10px;min-height:54px;flex-wrap:wrap}
+.u4 .ctl .u4-g{min-height:54px;display:flex;align-items:center;gap:8px;padding:0 20px;font-size:14px;font-weight:700;border-radius:16px}
+.u4 .ctl .talk{border-radius:27px}
+.u4 .ctl .keys{flex:1;justify-content:center;gap:18px;font-size:12.5px;font-weight:600;white-space:nowrap;flex-wrap:wrap}
+.u4 kbd{display:inline-flex;min-width:24px;height:24px;padding:0 6px;border-radius:7px;align-items:center;justify-content:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);font:700 11.5px inherit;margin-right:3px}
+:root[data-theme="light"] .u4 kbd{background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.15)}
+.u4 .deck{position:relative;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--u4-line);padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+.u4 .deck.dim .d-ctl{opacity:.35;filter:grayscale(1)}
+.u4 .why{align-self:center;padding:5px 12px;border-radius:999px;background:rgba(242,183,5,.14);color:var(--u4-warn);font-size:12px;font-weight:700;text-align:center}
+:root[data-theme="light"] .u4 .why{color:#8a5a00}
+.u4 .chk{padding:22px;display:flex;flex-direction:column;gap:14px;overflow:auto}
+.u4 .right>.pd{min-width:0}
+
+@media (max-width:1599.98px){.u4{grid-template-columns:220px minmax(0,1fr) minmax(0,1.1fr)}.u4 .stage3d{min-height:460px}
+  .u4 .st{min-width:0!important;flex:1 1 auto;padding:0 10px}.u4 .hdr h2{font-size:22px}.u4 .seg2{margin-left:0}}
+@media (max-width:1199.98px){.u4{grid-template-columns:220px minmax(0,1fr);grid-template-rows:auto;grid-template-areas:"rail hdr" "rail stage" "right right"}}
+@media (max-width:767.98px){.u4{grid-template-columns:minmax(0,1fr);grid-template-areas:"hdr" "stage" "right" "rail"}.u4 .stage3d{min-height:320px}
+  .u4 .st{min-width:0!important;flex:1 1 40%}.u4 .seg2{margin-left:0;width:100%}.u4 .seg2 button{flex:1}.u4 .small{top:62px;width:150px;height:84px}.u4 .views .v-body{padding-top:160px}}
+.u4 .u4-more{padding:10px 16px}.u4 .u4-more-btn{background:none;border:0;padding:0;font-size:13px;font-weight:700;color:var(--u4-mu2)}.u4 .u4-more>div{margin-top:12px}
+.u4 .rc-seen{display:flex;gap:6px;flex-wrap:wrap}

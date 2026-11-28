@@ -29,10 +29,10 @@ describe('parse·merge·detail', () => {
     expect(m.map((i) => i.key)).toEqual(['a', 'c', 'addr:192.168.12.1', 'ble:Go2_1']);
   });
 
-  it('누른 항목 안내: 내 조직 로봇 / 에이전트 발견(등록 준비 중) / Go2 만(설치 필요)', () => {
+  it('누른 항목 안내: 내 조직 로봇 / 에이전트 발견(이 화면에서 연결 못 함) / Go2 만(설치 필요)', () => {
     const robots = [robot('r1', false)];
     expect(detail(agent('a', '10.0.0.2', 'r1'), robots)).toContain('이미 내 조직에 등록된 로봇입니다(로봇-r1)');
-    expect(detail(agent('a', '10.0.0.2'), robots)).toBe('에이전트 발견: go2-a 10.0.0.2:8765 — 연결 등록은 서버 준비 중입니다.');
+    expect(detail(agent('a', '10.0.0.2'), robots)).toBe('에이전트 발견: go2-a 10.0.0.2:8765 · 이 로봇은 폰 연결 정보를 알리지 않아 이 화면에서 연결할 수 없습니다. 관리자에게 로봇 설정 확인을 부탁하세요.');
     expect(detail(ble('Go2_1'), robots)).toContain('FOOTHOLD 에이전트가 아직 없음(설치 필요)');
     expect(detail(addr('192.168.12.1'), robots)).toContain('FOOTHOLD 에이전트가 아직 없음(설치 필요)');
   });
@@ -76,13 +76,10 @@ describe('폰 홈 «내 로봇» 카드', () => {
     expect(btn('+ 로봇 연결하기')?.className).toBe('btn');
   });
 
-  it('앱 밖: 총괄은 단추 0 + 못 하는 이유만, 운영 관리자는 단추 → 고를 것이 하나라 메뉴 없이 바로 새 로봇 추가(RB-EASY-PAIR)', async () => {
-    await render([robot('r1', false)], false, 'ORG_ADMIN');
-    expect(btn('+ 로봇 연결하기')).toBeUndefined();
-    expect($('[data-robot-connect-note]')?.textContent).toContain('Android 앱에서만');
-    expect(box.textContent).toContain('보기만');
-    act(() => root?.unmount()); box.remove();
-    await render([robot('r1', false)], false);
+  // 11/28: 총괄도 로봇을 붙인다(서버 #544) · 앱 밖이면 운영 관리자와 같이 단추 → 고를 것이 하나라 메뉴 없이 바로 새 로봇 추가(RB-EASY-PAIR)
+  for (const role of ['ORG_ADMIN', undefined] as const) it(`앱 밖: ${role ? '총괄' : '운영 관리자'}는 단추 → 고를 것이 하나라 메뉴 없이 바로 새 로봇 추가(RB-EASY-PAIR)`, async () => {
+    await render([robot('r1', false)], false, role);
+    expect($('[data-robot-connect-note]')).toBeNull();
     act(() => btn('+ 로봇 연결하기')!.click());
     expect($('[aria-label="새 로봇 추가"]')).not.toBeNull();
     expect($('[aria-label="로봇 연결하기"]')).toBeNull();

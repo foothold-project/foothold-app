@@ -55,6 +55,8 @@ beforeEach(() => { calls = []; });
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
+/** 설정 «알림» 묶음의 조직 기준값 저장 단추(U9-04 뒤 첫 묶음은 계정이라 «저장» 이 여럿) */
+const orgSave = () => [...document.querySelectorAll('[aria-label="조직 기준값"] button')].find((b) => b.textContent === '저장') as HTMLButtonElement | undefined;
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 const type = (el: HTMLInputElement, v: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v);
@@ -129,7 +131,7 @@ describe('로그인·세션', () => {
     expect($('main[aria-label="로그인"]')).toBeNull();
     expect($('.fh-me')!.textContent).toBe('김총괄 · 총괄');
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '25');
-    act(() => btn('저장')!.click());
+    act(() => orgSave()!.click());
     await flush();
     expect(calls.find((c) => c.method === 'PATCH')!.headers['X-FH-CSRF']).toBe('csrf-1');
   });
@@ -367,9 +369,10 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     serve(signedIn(LEE, []));
     await open();
     expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=mine');
-    expect($('[aria-label="로봇 없음"]')!.textContent).toContain('담당 로봇이 없습니다');   // PC: 연결 코드 등록·총괄에게 담당 요청·시뮬 입구(ROBOT-TAB 11-02)
-    expect($('[aria-label="로봇 없음"]')!.textContent).toContain('총괄에게 담당 지정을 요청');
-    expect($('[aria-label="로봇 없음"] a[href="#/sim"]')).not.toBeNull();
+    expect($('[data-empty="robots"]')!.textContent).toContain('담당 로봇이 없습니다');   // PC: 연결 코드 등록·총괄에게 담당 요청·시뮬 안내(ROBOT-TAB 11-02)
+    expect($('[data-empty="robots"]')!.textContent).toContain('총괄에게 담당 지정을 요청');
+    expect($('[data-empty="robots"]')!.textContent).toContain('«시뮬» 탭');   // 다음 할 일 단추는 하나(U11-04): «+ 새 로봇 추가»
+    expect($('[data-empty="robots"] [data-pair-start]')).not.toBeNull();
     expect($('[data-pair-start]')).not.toBeNull();
     expect($('[data-stop]')).not.toBeNull();
     act(() => { location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -380,7 +383,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
 
 // R2-B1: 조종 화면이 열린 채 세션이 끝나면(로그아웃·401·실시간 4401) 조종권을 돌려주고 로그인 화면으로 — 흰 화면 아님
 describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => {
-  // 실기 조종은 운영 관리자만(10-25 — 총괄은 실기 조종 없음): 자기 로봇을 조종하는 이운영
+  // 자기 로봇을 조종하는 이운영(운영 관리자 · 총괄도 실기 조종은 11/28 부터, 이 시험은 운영 관리자로 본다)
   const live = { ...robot('r-k', 'Go2-K', 'o1', '이운영'), connection: 'ONLINE' as const, status: 'IDLE' as const };
   /** 실시간 연결을 열고 r-k 조종권을 받음 */
   function hold() {
@@ -438,7 +441,7 @@ describe('조직 기준값', () => {
     await open('#/settings');
     expect($<HTMLInputElement>('input[name="battery_low_pct"]')!.value).toBe('20');
     expect($<HTMLInputElement>('input[name="battery_low_pct"]')!.readOnly).toBe(true);
-    const save = btn('저장')!;
+    const save = orgSave()!;
     expect(save.disabled).toBe(true);
     expect(document.getElementById(save.getAttribute('aria-describedby')!)!.textContent).toBe('조직 기준값은 총괄 운영 관리자만 바꿀 수 있습니다.');
     expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
@@ -447,13 +450,13 @@ describe('조직 기준값', () => {
     serve(signedIn(KIM, [], { 'PATCH /org/settings': err(400, 'VALIDATION', '입력 형식을 확인하세요.') }));
     await open('#/settings');
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '70');
-    act(() => btn('저장')!.click());
+    act(() => orgSave()!.click());
     await flush();
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ battery_low_pct: 70 });
     expect($('[aria-label="조직 기준값"] [role="alert"]')!.textContent).toBe('입력 형식을 확인하세요. 허용 범위: 배터리 부족 기준 5~50 %(정수)');
     routes['PATCH /org/settings'] = { status: 200, body: { ...LIMITS, battery_low_pct: 40 } };
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '40');
-    act(() => btn('저장')!.click());
+    act(() => orgSave()!.click());
     await flush();
     expect($('[aria-label="조직 기준값"] [role="status"]')!.textContent).toContain('저장했습니다');
     expect($<HTMLInputElement>('input[name="battery_low_pct"]')!.value).toBe('40');

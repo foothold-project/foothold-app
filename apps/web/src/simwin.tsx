@@ -88,7 +88,7 @@ export function SimWindow() {
   return <aside className="sw" aria-label={small ? '시뮬 작은 창' : '시뮬'} data-sim-win={small ? 'small' : 'full'}
     style={small ? { ...(at && { left: at[0], top: at[1], bottom: 'auto' }), ...(size && { width: size[0], '--sw-k': size[1] }) } as CSSProperties : undefined}>
     {small && <p className="sw-t" role="status" title="끌어서 옮기기" data-sim-win-bar onPointerDown={down} onPointerMove={move} onPointerUp={drop} onPointerCancel={drop}>
-      {w.dead ? '시뮬을 열지 못했습니다 — 닫고 다시 열어 주세요' : '시뮬 · 작은 창에서는 조종하지 않습니다'}</p>}
+      {w.dead ? '시뮬을 열지 못했습니다 · 닫고 다시 열어 주세요' : '시뮬 · 작은 창에서는 조종하지 않습니다'}</p>}
     <div className="sw-v"><iframe ref={frame} src={w.url} title="시뮬" data-sim-win-frame onLoad={loaded} /></div>
     {small && <div className="sw-row">
       <button type="button" className="btn" disabled={w.dead} data-sim-win-big onClick={() => set({ ...w, small: false })}>크게 보기</button>

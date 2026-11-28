@@ -106,7 +106,7 @@ describe('탭 전환', () => {
     mount(false, 'u-kim', '#/fleet'); feed();
     expect($$('[aria-label="로봇 목록"] [data-seen]').map((e) => e.textContent)).toEqual(expect.arrayContaining(['마지막 수신 13:40:05']));
     expect($$('[aria-label="로봇 목록"] [data-seen]')).toHaveLength(3);
-    expect($$('main button').filter((b) => /조종/.test(b.textContent!))).toEqual([]);
+    expect($$('main button:not([data-seg])').filter((b) => /조종/.test(b.textContent!))).toEqual([]);   // «조종 · 점검» 보기 탭(u4)은 명령이 아님
   });
   it('폰 브라우저: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + MuJoCo «시뮬 열기» 만 — 같은 출처 /sim/, from=web)', () => {
     mount(true, 'u-lee');
@@ -148,7 +148,7 @@ describe('탭 전환', () => {
     expect(cards.map((c) => [c.dataset.simCard, c.textContent])).toEqual(SIM_MAPS.map((m) => [m.id, m.name]));
     expect($('[data-sim-card][aria-pressed="true"]').dataset.simCard).toBe('warehouse');
     expect($('[data-sim-top] image').getAttribute('href')).toMatch(/mobile\/sim\/assets\/warehouse\/top\.png/);
-    expect($('[data-sim-top]').getAttribute('aria-label')).toBe('창고 위에서 본 모습 — 눌러 시작 위치 고르기');
+    expect($('[data-sim-top]').getAttribute('aria-label')).toBe('창고 위에서 본 모습 · 눌러 시작 위치 고르기');
     click(cards[0]);
     expect(localStorage.getItem('fh.simMap')).toBe('warehouse');
     expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=warehouse');
@@ -182,11 +182,10 @@ describe('역할 전환', () => {
   });
 });
 
-// 10-25: 총괄은 실기 STOP 이 없다 — 실기만 있는 목록이면 총괄 화면에 STOP 0개(상태 띠는 그대로). 운영 관리자는 그대로 1개
+// 11/28: 총괄도 실기 STOP(서버 #544) · 모든 역할 모든 탭에 STOP 1개 + 상태 띠(예전 «총괄·실기만 0개» 예외 없음)
 describe('STOP 상시 표시', () => {
-  const one = (phone: boolean, where: string, admin = false) => {
+  const one = (phone: boolean, where: string) => {
     const s = $$('[aria-label="비상 정지"]');
-    if (admin) { expect(s, where).toHaveLength(0); expect($('[data-band][role="status"]'), where).not.toBeNull(); return; }
     expect(s, where).toHaveLength(1);
     expect(s[0].closest('header'), where).not.toBeNull();
     expect($('header').lastElementChild, where).toBe(s[0]);
@@ -194,13 +193,13 @@ describe('STOP 상시 표시', () => {
     expect(parseInt(s[0].style.minHeight), where).toBeGreaterThanOrEqual(phone ? 64 : 44);
     expect($('[data-band][role="status"]'), where).not.toBeNull();
   };
-  for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개'} + 상태 띠 자리`, () => {
+  for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP 1개 + 상태 띠 자리`, () => {
     mount(false, u.id);
-    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id, u.role === 'ORG_ADMIN'); }
+    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id); }
   });
-  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개(64px)'} + 상태 띠 자리`, () => {
+  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP 1개(64px) + 상태 띠 자리`, () => {
     mount(true, u.id);
-    eachPhoneScreen(u.id, (where) => one(true, where, u.role === 'ORG_ADMIN'));
+    eachPhoneScreen(u.id, (where) => one(true, where));
   });
   it('STOP 을 누르면 실시간 연결로 보내고, 서버가 받으면 띠에 «정지 요청됨»', () => {
     mount(false, 'u-lee', '#/fleet');   // 로봇 탭 = 고른 로봇이 STOP 대상(관제 탭은 다른 탭처럼 고르기)
@@ -261,11 +260,64 @@ describe('B1 폭 전환', () => {
     expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
     expect($('nav')).toBeNull();
     expect(location.hash).toBe('#/drive');
+    resize(false);   // 폰에 없던 지도 탭은 기억해 뒀다가 PC 로 돌아오면 되돌린다(11-28 조정 결정)
+    expect($('h1').textContent).toBe('지도');
+    expect(location.hash).toBe('#/map');
+    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/map');
+  });
+});
+
+// 창 줄였다 넓히기(태블릿 돌리기 · 창 나누기): 새 배치에 없는 탭은 첫 탭을 보이되 고른 탭을 기억해 돌아온다. 그 사이 직접 고르면 그 고름이 이김
+describe('폭 전환 뒤 고른 탭 기억', () => {
+  it('운영 관리자: 설정 → 폰 폭 → PC 폭이면 설정', () => {
+    mount(false, 'u-lee', '#/settings');
+    resize(true);
+    expect(location.hash).toBe('#/drive');
     resize(false);
-    expect($('h1').textContent).toBe('로봇');
+    expect(location.hash).toBe('#/settings');
+    expect($('main').getAttribute('aria-label')).toBe('설정');
+    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/settings');
+  });
+  it('운영 관리자: 지도 → 폰 폭 → PC 폭이면 지도, 두 번 오가도 그대로', () => {
+    mount(false, 'u-lee', '#/map');
+    resize(true); resize(false);
+    expect(location.hash).toBe('#/map');
+    resize(true); resize(false);
+    expect($('main').getAttribute('aria-label')).toBe('지도');
+  });
+  it('폰 폭에서 조종을 직접 고르면 PC 폭은 기본 탭(설정으로 안 감)', () => {
+    mount(false, 'u-lee', '#/settings');
+    resize(true);
+    click($$('.dv-card button')[0]);
+    expect(location.hash).toBe('#/drive/r3');
+    resize(false);
     expect(location.hash).toBe('#/fleet');
-    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/fleet');
-    expect($('[aria-label="로봇 연결 상태"]')).not.toBeNull();   // 운영 관리자 로봇 탭 = 한 대 집중(상태 한 줄)
+    expect($('main').getAttribute('aria-label')).toBe('로봇');
+  });
+  it('폰 폭에서 주소로 기록을 고르면 PC 폭은 기록(기억한 설정보다 고름이 이김)', () => {
+    mount(false, 'u-lee', '#/settings');
+    resize(true);
+    act(() => { location.hash = '#/history'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    resize(false);
+    expect(location.hash).toBe('#/history');
+    expect($('main').getAttribute('aria-label')).toBe('기록');
+  });
+  it('PC 메뉴로 기록을 고르면 폰 폭은 기록(기억한 폰 조종 주소보다 고름이 이김)', () => {
+    mount(true, 'u-lee', '#/drive/r3');
+    resize(false);
+    expect(location.hash).toBe('#/fleet');
+    click($('nav[aria-label="주 메뉴"] a[href="#/history"]'));
+    resize(true);
+    expect($('main').getAttribute('aria-label')).toBe('기록');   // jsdom 은 a 누름의 주소 이동을 하지 않아 본문으로 본다
+  });
+  it('총괄(터치 아닌 PC)은 좁아져도 PC 배치 그대로 — 설정 유지', () => {
+    mount(false, 'u-kim', '#/settings');
+    const mm = window.matchMedia;   // 폭만 좁아지고 터치는 아님
+    window.matchMedia = ((q: string) => q === '(pointer: coarse)' ? { matches: false, media: q, addEventListener() {}, removeEventListener() {} } : mm(q)) as typeof window.matchMedia;
+    resize(true);
+    expect(location.hash).toBe('#/settings');
+    resize(false);
+    expect(location.hash).toBe('#/settings');
   });
 });
 

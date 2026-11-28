@@ -83,10 +83,11 @@ class Arbiter:
     def effect(self, target, robot, *, cause=None, **body):
         return Effect(target, robot, body, cause)
 
-    def audit(self, robot, op, actor=None, other=None):
+    def audit(self, robot, op, actor=None, other=None, severity=None):
+        extra = {'severity': severity} if severity else {}
         return self.effect('audit', robot, op=op, user_id=actor.user if actor else None,
                            session_id=actor.session if actor else None,
-                           other_user_id=other.user if other else None)
+                           other_user_id=other.user if other else None, **extra)
 
     def owned(self, r, actor, lease_id=None):
         h = r.holder
@@ -267,7 +268,7 @@ class Arbiter:
         for robot, r in self.robots.items():
             if r.transfer and at >= r.transfer.deadline:
                 tr, r.transfer = r.transfer, None
-                effects += [self.announce(robot), self.audit(robot, 'STOP_CONFIRM_FAILED', tr.actor)]
+                effects += [self.announce(robot), self.audit(robot, 'STOP_CONFIRM_FAILED', tr.actor, severity='ERROR')]
                 if tr.request:
                     effects += self.result(robot, tr.request, 'CANCELED', 'STOP_CONFIRM_FAILED')
                 elif tr.actor:

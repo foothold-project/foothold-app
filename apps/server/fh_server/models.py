@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+import re
 from uuid import UUID, uuid4
 
+from sqlalchemy import event as sa_event
 from sqlalchemy import BigInteger, Boolean, Computed, Float, Integer, CheckConstraint, DateTime, ForeignKeyConstraint, Index, LargeBinary, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -157,6 +159,28 @@ class Event(Tenant, Base):
     run_id: Mapped[UUID | None] = mapped_column(PGUUID)
     approval_id: Mapped[UUID | None] = mapped_column(PGUUID)
     data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+
+# #552 records tab: a failure code is never stored below WARN, whoever wrote it.
+# Only raises; an explicit WARN/ERROR stays. Unknown values are left to the CHECK.
+FAILURE_CODE = re.compile(r'_(FAILED|REJECTED|DENIED|TIMEOUT)$')
+SEVERITY_RANK = {'INFO': 0, 'WARN': 1, 'ERROR': 2}
+# A stop that the robot did not confirm leaves motion unproven (02 F-TO-04 step 4).
+# TIMEOUT is the server's lease-request timeout: no underscore, so named here.
+CODE_FLOOR = {'STOP_CONFIRM_FAILED': 'ERROR', 'TIMEOUT': 'WARN'}
+
+
+def severity_floor(code, severity):
+    severity = (severity or 'INFO').upper()
+    floor = CODE_FLOOR.get(code) or ('WARN' if FAILURE_CODE.search(code or '') else 'INFO')
+    if SEVERITY_RANK.get(severity, SEVERITY_RANK['ERROR']) < SEVERITY_RANK[floor]:
+        return floor
+    return severity
+
+
+@sa_event.listens_for(Event, 'before_insert')
+def _event_severity_floor(mapper, connection, row):
+    row.severity = severity_floor(row.code, row.severity)
 
 
 class AuthRateWindow(Tenant, Base):
@@ -334,6 +358,8 @@ class MapVersion(Tenant, Base):
         UniqueConstraint('floor_id', 'number'),
         CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','CANCELED','SUPERSEDED')", name='map_version_status'),
         CheckConstraint("source IN ('SLAM','EDIT','ROLLBACK','IMPORT')", name='map_version_source'),
+        CheckConstraint('(model_path IS NULL) = (model_sha256 IS NULL) AND (model_sha256 IS NULL OR length(model_sha256) = 32)',
+                        name='map_version_model'),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     floor_id: Mapped[UUID] = mapped_column(PGUUID)
@@ -353,6 +379,9 @@ class MapVersion(Tenant, Base):
     features: Mapped[dict] = mapped_column(JSONB)
     reason: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(Text)
+    # Optional indoor 3D model (GLB); display only, attachable after insert.
+    model_path: Mapped[str | None] = mapped_column(Text)
+    model_sha256: Mapped[bytes | None] = mapped_column(LargeBinary)
     created_by: Mapped[UUID] = mapped_column(PGUUID)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
 

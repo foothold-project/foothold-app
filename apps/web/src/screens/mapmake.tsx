@@ -24,13 +24,13 @@ export const STALE_TEXT = '다른 사람이 이 층 지도를 바꿨습니다. �
 const LINK_LOST = '연결이 끊겨 지도 기록은 로봇에서 계속합니다';
 export const MADE = '로봇으로 만든 지도와 시뮬 지형을 만들었습니다.';
 export const SLOW_TEXT = '로봇 프로그램이 새 지도 기능을 아직 지원하지 않을 수 있습니다(로봇 프로그램 업데이트 필요).';
-export const RECEIVED_TEXT = '받은 범위만 보관했습니다 — 저장 확인 안 됨. 시뮬 지형은 만들지 않았고, 이 지도는 승인을 기다립니다.';
+export const RECEIVED_TEXT = '받은 범위만 보관했습니다 · 저장 확인 안 됨. 시뮬 지형은 만들지 않았고, 이 지도는 승인을 기다립니다.';
 
 /** 이 사람이 지도를 만들 수 있는 로봇 = 내가 담당 운영자인 실기 로봇(총괄·남의 로봇은 서버도 403 MAPPING_OWNER_ONLY) */
 export const makers = (u: User, robots: Robot[]) => (u.role === 'OPERATOR' ? robots.filter((r) => r.owner === u.id && !r.sim) : []);
 
-const failText = (p: MappingProgress) => (p.error_code === 'STALE' ? STALE_TEXT : p.error_code === 'LINK_LOST' ? LINK_LOST : p.reason || '지도를 저장하지 못했습니다.');
-const actFail = (e: ApiFail) => (e.code === 'STALE' ? STALE_TEXT : e.code === 'ROBOT_OFFLINE' ? OFF : e.message);
+export const failText = (p: MappingProgress) => (p.error_code === 'STALE' ? STALE_TEXT : p.error_code === 'LINK_LOST' ? LINK_LOST : p.reason || '지도를 저장하지 못했습니다.');
+export const actFail = (e: ApiFail) => (e.code === 'STALE' ? STALE_TEXT : e.code === 'ROBOT_OFFLINE' ? OFF : e.message);
 /** SAVED 알림 글 — 시뮬 지형은 저장 뒤 따로 만든다(terrain_status) */
 const savedText = (p: MappingProgress) => (p.terrain_id || p.terrain_status === 'READY' ? MADE
   : p.terrain_status === 'FAILED' ? '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 만들지 못했습니다.' : '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 이어서 만듭니다.');
@@ -85,6 +85,14 @@ export function Sources({ st, s }: { st: MappingProgress['status'] | null; s?: M
 /** 지도 칸(가로 640:400) — 받은 2D 조각·3D 칸·로봇 위치(screens/slammap.tsx) + GLIM 미리보기(glim_preview, 0.25 m 칸).
  *  지금 그려진 Point-LIO 그림의 세션·판·기준(frame_id)이 미리보기와 같을 때만 겹친다(판이 바뀌는 사이 지난 그림 위에 겹치지 않게 — RV-519).
  *  다르면 겹치지 않고 둘 중 하나만 보기(로봇 화살표도 Point-LIO 기준이라 GLIM 만 볼 땐 뺌). 미리보기가 사라지면 Point-LIO 보기로 돌아감 */
+/** 걸은 시간 · 거리 · 로봇이 모은 점(U7-06): 서버 진행 값 그대로, 없거나 이상한 값(음수 · NaN)은 칸째 뺀다 */
+const ok = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0;
+const two = (n: number) => String(n).padStart(2, '0');
+export const clock = (s: number) => { const t = Math.floor(s), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60; return h ? `${h}:${two(m)}:${two(t % 60)}` : `${two(m)}:${two(t % 60)}`; };
+export const meters = (m: number) => `${m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString('ko-KR')} m`;
+export const points = (n: number) => (n >= 1e8 ? `${(n / 1e8).toFixed(1)} 억` : n >= 1e4 ? `${n < 1e5 ? (n / 1e4).toFixed(1) : Math.round(n / 1e4).toLocaleString('ko-KR')} 만` : Math.round(n).toLocaleString('ko-KR'));
+const WALK: ['elapsed_s' | 'distance_m' | 'point_count', string, (n: number) => string][] = [['elapsed_s', '걸은 시간', clock], ['distance_m', '걸은 거리', meters], ['point_count', '로봇이 모은 점', points]];
+const WALK_KEY = { elapsed_s: 'time', distance_m: 'dist', point_count: 'points' } as const;
 export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; link: number }) {
   const pic = useSlamLive(robot, p, link);
   const [lio, setLio] = useState(true), [gl, setGl] = useState(true);
@@ -94,10 +102,11 @@ export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; 
   const onLio = same ? lio : !only, onGl = same ? gl : only, hide = !onLio;
   const over = useMemo(() => (gp && onGl ? { cells: gp.cells ?? [], res: gp.resolution ?? 0.25 } : null), [gp, onGl]);   // 칸 검사·1024칸 상한은 SlamView(cleanOver)
   const shown = useMemo(() => (only ? { ...pic, pose: null } : pic), [pic, only]);
+  const walk = WALK.flatMap(([k, name, f]) => { const x = p[k]; return ok(x) ? [[k, name, f, x] as const] : []; }), moving = walk.some(([, , , x]) => x > 0);
   const pick = (to: 'lio' | 'gl') => (same ? (to === 'lio' ? setLio((v) => !v) : setGl((v) => !v)) : (setLio(to === 'lio'), setGl(to === 'gl')));
   return <>
     <div style={{ position: 'relative', aspectRatio: '640 / 400', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }} data-make-mapbox>
-      <SlamView pic={shown} over={over} hideBase={hide} empty={hide ? '보이게 고른 지도에 아직 받은 칸이 없습니다.' : '아직 받은 지도가 없습니다.'} /></div>
+      <SlamView pic={shown} over={over} hideBase={hide} empty={hide ? '보이게 고른 지도에 아직 받은 칸이 없습니다.' : moving ? '로봇은 지도를 만드는 중 · 화면에 아직 받은 칸이 없습니다.' : '아직 받은 지도가 없습니다.'} /></div>
     {gp && <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center' }} data-glim-preview={same ? 'over' : 'apart'}>
       <span role="group" aria-label="겹쳐 보기 고르기" className="fh-row">
         <button type="button" className="btn" aria-pressed={onLio} data-layer="point_lio" onClick={() => pick('lio')}>Point-LIO</button>
@@ -105,6 +114,9 @@ export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; 
       <span className="lv-note">GLIM 미리보기, 저장 전{same ? '' : ' · 좌표 맞춤 전이라 겹치지 않고 따로 봅니다'}</span></div>}
     <div className="mx-sum" aria-label="진행" data-progress={p.status}>
       <span><b>{pic.n.toLocaleString('ko-KR')}</b>받은 3D 칸</span><span><b>{pic.patches.length.toLocaleString('ko-KR')}</b>받은 2D 조각</span></div>
+    {/* 로봇이 보낸 진행 값(서버 MappingProgress)은 이 화면이 받은 칸과 출처가 달라 줄을 나눈다 */}
+    {walk.length > 0 && <div className="mx-sum" aria-label="로봇 진행" data-walk-row>
+      {walk.map(([k, name, f, x]) => <span key={k} data-walk={WALK_KEY[k]}><b>{f(x)}</b>{name}</span>)}</div>}
     {pic.gap && <p className="lv-note" data-gap>이 세션의 3D 칸은 서버에서 처음부터 받을 수 없습니다. 저장한 뒤 다시 열면 전부 보입니다.</p>}
   </>;
 }
@@ -201,7 +213,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
       </div>
       {p.status === 'STARTING' && <p className="lv-note" role="status" data-starting>시작하는 중… 로봇이 지도 기능을 켜고 있습니다.</p>}
       {slow && <p className="fh-msg" role="alert" data-slow>{SLOW_TEXT}</p>}
-      {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">만드는 중 — {how} 로봇을 천천히 움직이세요.</p>}
+      {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">만드는 중 · {how} 로봇을 천천히 움직이세요.</p>}
       {(p.status === 'SAVING' || p.status === 'FINALIZING') && <p className="lv-note" role="status" data-saving>지도를 저장하는 중… 마무리까지 시간이 걸릴 수 있습니다.</p>}
       {p.status === 'UNKNOWN' && <p className="fh-msg" role="alert" data-unknown>{p.error_code === 'LINK_LOST' ? LINK_LOST : p.reason || '로봇 상태를 확인하지 못했습니다. 저장하거나 취소하세요.'}</p>}
       {p.status === 'FAILED' && <p className="fh-msg" role="alert" data-failed>{failText(p)}</p>}
@@ -216,6 +228,7 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
     {rej && <p className="lv-note" data-rejected>로봇이 보낸 자료 일부를 서버가 받지 않았습니다: {rej.reason}</p>}
     {isStale && !msg && p?.status !== 'FAILED' && <p className="fh-msg" role="alert">{STALE_TEXT}</p>}
     <Note m={msg} />
+    {busy && <p className="lv-note" role="status" data-make-busy>요청을 보내는 중… 답이 오면 단추가 다시 켜집니다.</p>}
     {poll && <p className="fh-msg" role="alert">{poll}</p>}
   </div>;
 }
