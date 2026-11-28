@@ -102,3 +102,17 @@
 /* 설정 확인 알약(시안 밖 · 새로 그림 · app-lead 11-28 22:26): 동작 줄(.act bottom 18px) 위 가운데 · 손가락을 막지 않음 */
 .u1d .u1-pill{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);margin:0;padding:4px 12px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.3;white-space:nowrap;color:#fff;background:rgba(14,17,22,.72);border:1px solid rgba(255,255,255,.18);z-index:2;pointer-events:none}
 .proto.light.u1d .u1-pill{background:rgba(255,255,255,.86);border-color:rgba(20,30,50,.12);color:#16191f}
+/* 임무 카드(시안 u1_1 · u1_11 왼쪽 아래 값 그대로 · screens/u1mission.tsx). 남은 거리 칸은 서버 값이 없어 없음 */
+.u1d .u1-mission{position:absolute;left:12px;bottom:12px;width:300px;padding:10px 14px 9px;border-radius:18px;color:#fff;z-index:2}
+.u1d .u1-mission .row{display:flex;align-items:center}
+.u1d .u1-mission .mh{justify-content:space-between}.u1d .u1-mission .mh>.row{gap:7px;min-width:0}
+.u1d .u1-mission .mn{font-size:11px;font-weight:700;opacity:.75;white-space:nowrap}
+.u1d .u1-mission b{font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u1d .u1-mission .me{font-size:11px;font-weight:600;opacity:.75;white-space:nowrap}
+.u1d .u1-mission .mb{gap:4px;margin-top:9px}
+.u1d .u1-mission .mb i{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.28)}
+.u1d .u1-mission .mb i.on{background:var(--pr)}
+.u1d .u1-mission .ml{margin-top:7px;font-size:12px;font-weight:700}
+.u1d .u1-mission .ml.pz{color:#d9a21f}
+.proto.light.u1d .u1-mission{color:var(--ink)}.proto.light.u1d .u1-mission .mn,.proto.light.u1d .u1-mission .me{color:var(--mu);opacity:1}
+.proto.light.u1d .u1-mission .mb i{background:#d5dae0}.proto.light.u1d .u1-mission .mb i.on{background:var(--pr)}
