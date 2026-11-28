@@ -414,8 +414,8 @@ export function Thumb({ id, v, demo }: { id?: string | null; v?: MapVersion; dem
     o.observe(ref.current); return () => o.disconnect();
   }, [near]);
   if (id && shot && shot.key === sk) return <span ref={ref} className="mx-thumb" data-thumb={id} data-thumb3d aria-hidden="true"><img src={shot.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></span>;
-  return <span ref={ref} className="mx-thumb" data-thumb={id && !bad ? id : ''} aria-hidden="true">{!id || bad ? <small>지도 없음</small> : v && near && <svg viewBox={fit.join(' ')} preserveAspectRatio="xMidYMid meet">
-    <MapImage id={v.id} width={v.width} height={v.height} onError={() => setBad(true)} />{demo && <FactoryImage v={v} />}</svg>}</span>;
+  return <span ref={ref} className="mx-thumb" data-thumb={id && !bad ? id : ''} aria-hidden="true" data-plan-bg={!light && id && !bad ? '' : undefined}>{!id || bad ? <small>지도 없음</small> : v && near && <svg viewBox={fit.join(' ')} preserveAspectRatio="xMidYMid meet">
+    <MapImage id={v.id} width={v.width} height={v.height} plan={!light} onError={() => setBad(true)} />{demo && <FactoryImage v={v} />}</svg>}</span>;
 }
 /** 카드 그림 층: 1층, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
 export const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);

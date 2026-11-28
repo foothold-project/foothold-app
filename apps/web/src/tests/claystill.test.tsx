@@ -7,6 +7,8 @@ import { api } from '../api';
 import { clayStill, resetStill, stillGl } from '../screens/claystill';
 import { modelBytes, resetModels } from '../screens/map3d';
 import { Thumb } from '../screens/maps';
+import { setThemePref } from '../theme';
+import mapscenCss from '../screens/mapscen.css?raw';
 
 const fake = vi.hoisted(() => ({ on: true, made: 0, renders: 0 }));
 vi.mock('three', async (orig) => {
@@ -70,6 +72,21 @@ describe('층 썸네일(Thumb)', () => {
   it('모형 없음 = 지금 평면도(svg) · 3D 그림 없음', async () => {
     await mount(V('b', null));
     expect(box.querySelector('[data-thumb3d]')).toBeNull(); expect(box.querySelector('[data-thumb="b"] svg')).not.toBeNull();
+  });
+  it('모형 없는 평면도: 어두운 판 = 로봇 탭 지도와 같은 PLAN_DARK(빈 곳 --paper #12161d · 벽 #464e56) · 바깥 여백도 #12161d · 밝은 판은 그대로', async () => {
+    try {
+      setThemePref('dark'); await mount(V('d', null));
+      const img = box.querySelector('[data-thumb="d"] image')!;
+      expect(img.getAttribute('data-plan-tone')).toBe('dark');
+      const f = box.querySelector(img.getAttribute('filter')!.replace(/^url\((.*)\)$/, '$1'))!;
+      expect([...f.querySelectorAll('feFuncR, feFuncG, feFuncB')].map((e) => e.getAttribute('tableValues'))).toEqual(['0.2745 0.0706', '0.3059 0.0863', '0.3373 0.1137']);
+      expect(box.querySelector('[data-thumb="d"]')!.hasAttribute('data-plan-bg')).toBe(true);
+      expect(mapscenCss).toContain('.mx-thumb[data-plan-bg]{background:var(--paper)}');
+      act(() => root.unmount()); box.parentNode?.removeChild(box);
+      setThemePref('light'); await mount(V('e', null));
+      expect(box.querySelector('[data-thumb="e"] image')!.hasAttribute('data-plan-tone')).toBe(false);
+      expect(box.querySelector('[data-thumb="e"]')!.hasAttribute('data-plan-bg')).toBe(false);
+    } finally { setThemePref('dark'); }
   });
   it('3D 를 못 그리면(WebGL 없음) 평면도 그대로', async () => {
     fake.on = false; await mount(V('c', 'cc'));

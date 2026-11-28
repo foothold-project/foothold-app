@@ -2,7 +2,7 @@
 // 타일 자리는 작은 지도와 같은 규칙: 데모 현장 승인 판(map_version_id)의 위치만 현장 3D 에 놓고, 아니면 null(점 바닥 + 까닭)
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { FRONT_DIST, REAR_DIST, follow, layers, simLook } from '../proto/tileview';
+import { BODY_AIM, FRONT_DIST, REAR_DIST, SITE_AIM, aimY, follow, layers, simLook } from '../proto/tileview';
 import { tileBreathe, tilePad, tilePose } from '../proto/u5';
 
 const P = (x: number, z: number, rot: number) => ({ x, z, rot });
@@ -57,7 +57,12 @@ describe('layers', () => {
     expect(layers(true, true)).toEqual({ world: true, dots: false });
     expect(layers(false, true)).toEqual({ world: false, dots: true });
     expect(layers(true, false)).toEqual({ world: false, dots: true });   // glb 를 아직 못 받음
-    expect(layers(true, true, true)).toEqual({ world: false, dots: true });   // 시뮬은 임무 중이어도 시뮬 공간(팀장 00:37)
+    expect(layers(true, true, true)).toEqual({ world: false, dots: true });
+    // 현장 위 뒤 1 m 는 지평선이 들어오게 높이 봄(00:53 흰 판 사진) · 정면 · 점 바닥 · 시뮬은 몸통
+    const P = { x: 1, z: 1, rot: 0 };
+    expect(aimY({ pose: P, front: false, cyber: false })).toBe(SITE_AIM);
+    expect([aimY({ pose: null, front: false, cyber: false }), aimY({ pose: P, front: true, cyber: false }), aimY({ pose: P, front: false, cyber: true })]).toEqual([BODY_AIM, BODY_AIM, BODY_AIM]);
+    expect(Math.atan((0.55 - SITE_AIM) / REAR_DIST) * 180 / Math.PI).toBeLessThan(15);   // 아래로 15° 안 = 시야 30° 위 끝이 지평선 위   // 시뮬은 임무 중이어도 시뮬 공간(팀장 00:37)
     expect(layers(true, true, false)).toEqual({ world: true, dots: false });   // 데모 · 실기 임무 중 = 현장
     expect([REAR_DIST, FRONT_DIST]).toEqual([1.0, 1.25]);   // 임무 중 뒤 1 m(팀장 23:48) · 정면 1.25 m
   });
