@@ -5,7 +5,7 @@
 // 11-20 RB-FEED-HOLD-LAST: 한 번 받은 그림은 잠깐 끊겨도(오래됨·연결 끊김·로봇이 못 보냄·탭 숨김) 남겨 두고 «마지막 그림 · N초 전» 을 띄운다 —
 // 로봇 바뀜·화면 나감·epoch 바뀜·약속 위반(남의 로봇 자료 등)·기체 확인 영구 오류(RV-435 ①)면 버린다. 관측 전용 — 조종·STOP·조종권과 무관. 끊기면 2 s 뒤 다시(화면이 보이고 칸이 떠 있는 동안만)
 import { useEffect, useRef, useState } from 'react';
-import { STALE_MS, pointsBody, pointsEdge, pointsHeader, reasonText, type Feed } from './media';
+import { STALE_MS, pointsBody, pointsEdge, pointsHeader, reasonKo, type Feed } from './media';
 import type { Device, MediaPointCloudHeader } from '../../contracts/ts';
 import { useLive } from './rt';
 import { ROBOTS } from './fake';
@@ -104,7 +104,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
         skip = true; return;
       }
       if (m.epoch !== ep.epoch && !now0) { if (ep.epoch !== null) gone.add(ep.epoch); ep.epoch = m.epoch as number; top = -1; clear('wait', '', true); }   // 로봇 쪽이 새로 시작함 — 지난 그림을 버린다
-      if (m.t === 'media.status') return clear('none', reasonText(String(m.reason ?? '')));
+      if (m.t === 'media.status') return clear('none', reasonKo(String(m.reason ?? '')));
       // 같은 epoch 의 같은 순번 = 이미 본 판: 새 소켓이 붙으면 서버가 1초 안의 마지막 판을 다시 보낸다(server drive_media.py viewer — 짧은 OFFLINE 뒤 등).
       // 모양은 그대로 따지고 그림만 바꾸지 않는다(RV-445 ②). 순번이 되돌아감은 약속 위반 — 서버의 마지막 판은 늘 본 것 중 가장 새것이다
       if (!Number.isInteger(m.seq) || (m.seq as number) < Math.max(top, 0)) return again('bad', '순번이 어긋났습니다');
