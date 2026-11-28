@@ -7,7 +7,8 @@ type Handler = ((e: { code?: number; data?: string }) => void) | null;
 
 export class FakeWS {
   static all: FakeWS[] = [];
-  static get last() { return FakeWS.all[FakeWS.all.length - 1]; }
+  /** 마지막 실시간(상태 · 명령) 소켓. 카메라 · 라이다 받기(drive-media)는 따로 열리므로 빼고 본다(그 소켓은 url 로 찾는다) */
+  static get last() { const rt = FakeWS.all.filter((w) => !w.url.includes('/drive-media/')); return rt[rt.length - 1]; }
   readyState = 0;
   sent: Msg[] = [];
   onopen: Handler = null; onmessage: Handler = null; onclose: Handler = null; onerror: Handler = null;

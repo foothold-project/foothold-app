@@ -77,6 +77,24 @@ describe('폰 로그인 = 시안 u13_1', () => {
     expect(document.activeElement).toBe($('input[name="username"]'));
   });
 
+  it('비밀번호 바꾸기 = 시안 u13_2 창(.veil · 두 줄 두 칸 · 취소 / 바꾸기) → 바꾸면 시안 u13_3 위 알림 .msg.ok', async () => {
+    serve({ ...NO_LOGIN, 'POST /auth/login': { status: 200, body: { client: 'web', csrf_token: 'c' } }, 'POST /me/password': { status: 204 }, 'POST /auth/logout': { status: 204 } });
+    await open(true);
+    act(() => { $<HTMLButtonElement>('[data-pw-link]')!.click(); });
+    const dlg = $('main.u13 form.g[role="dialog"][data-u13="password"]')!;
+    expect(dlg).not.toBeNull();
+    expect($('main.u13 > .veil')).not.toBeNull();
+    expect([...dlg.querySelectorAll('.lab')].map((x) => x.textContent)).toEqual(['아이디', '현재 비밀번호', '새 비밀번호', '새 비밀번호 확인']);
+    expect([...dlg.querySelectorAll('button.sec, button.prim')].map((x) => x.textContent)).toEqual(['취소', '바꾸기']);
+    expect(box.querySelector('.lg-modal')).toBeNull();
+    const set = (n: string, v: string) => type(dlg.querySelector<HTMLInputElement>(`input[name="${n}"]`)!, v);
+    set('pw-id', 'op-a'); set('pw-cur', 'old-pass-1'); set('pw-new', 'new-pass-1'); set('pw-again', 'new-pass-1');
+    act(() => { (dlg as HTMLFormElement).requestSubmit(); }); await flush();
+    expect(calls.find((c) => c.path === '/me/password')!.body).toMatchObject({ current_password: 'old-pass-1', new_password: 'new-pass-1' });
+    expect($('[data-u13="password"]')).toBeNull();
+    expect($('main.u13 > .msg.ok[data-pw-changed]')!.textContent).toBe('바꿨습니다. 새 비밀번호로 로그인하세요');
+  });
+
   it('PC 폭은 시안 u13 이 아님(PC 로그인 카드는 그대로)', async () => {
     serve(NO_LOGIN);
     await open(false);
