@@ -1,4 +1,4 @@
-// 로그인 오류 보기(u10_3 · U11-03): 오류 띠 · 틀린 칸 빨간 테(aria-invalid) · 초점 · 비밀번호 보기 단추 · 「계정은 총괄에게 요청하세요.」 한 줄.
+// 로그인 오류 보기(u10_3 · U11-03): 오류 띠 · 틀린 칸 빨간 테(aria-invalid) · 초점 · 비밀번호 보기 단추 · 「계정은 총괄에게 요청하세요」 한 줄.
 // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login: 없는 계정 · 틀린 비밀번호 · 잠긴 계정 모두 같은 401 · 같은 문구).
 // 그래서 서버 거절은 두 칸 모두 표시 · 초점은 계정 칸(REVIEW-PR580 G1), 글은 서버 말 그대로(계정이 틀렸다고 지어 말하지 않음). 429 · 연결 실패는 칸 표시 없음.
 // 보기만 바꾼다: 로그인 요청 · 세션 처리 줄은 그대로(요청 본문도 그대로인지 본다).
@@ -167,12 +167,14 @@ describe('로그인 오류 보기 (u10_3)', () => {
     expect(calls.some((c) => c.path === '/auth/login')).toBe(false);
   });
 
-  it('「계정은 총괄에게 요청하세요.」 한 줄 · 오류 없을 때 띠 없음', async () => {
+  it('「계정은 총괄에게 요청하세요」 한 줄(시안 u10_1 · 마침표 없음) · 시안에 없는 「5분 안에 5번」 줄 없음 · 오류 없을 때 띠 없음', async () => {
     serve({ 'GET /auth/session': NO_LOGIN });
     await open();
     expect(band()).toBeNull();
-    expect(ACCOUNT_ASK).toBe('계정은 총괄에게 요청하세요.');
+    expect(ACCOUNT_ASK).toBe('계정은 총괄에게 요청하세요');
     expect($('main[aria-label="로그인"]')!.textContent).toContain(ACCOUNT_ASK);
+    expect($('main[aria-label="로그인"]')!.textContent).not.toContain('5번 틀리면');
+    expect($('.lg-note')).toBeNull();
   });
 
   it('성공 로그인은 그대로 들어간다', async () => {

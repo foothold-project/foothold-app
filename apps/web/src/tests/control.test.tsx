@@ -15,6 +15,7 @@ import { rt } from '../rt';
 import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
 import { idleSim, toRobot } from '../fake';
+import u5Css from '../proto/u5.css?raw';
 import { fleetRow } from './fleetRow';
 import { en } from '../lang';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
@@ -234,6 +235,14 @@ describe('관제 탭', () => {
     expect($$('[aria-label="최근 경고"] [data-alert]').some((e) => e.dataset.alert === 'g4')).toBe(false);   // 경보 칸에 나온 로봇은 최근 경고에서 뺌
   });
 
+  it('경고 칸을 골라도 고른 표시가 남음: 경고 테두리 위에 바깥 초록 고리(어둠 · 밝음 · 경고 규칙보다 뒤)', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED' } });
+    act(() => { tile('g3').click(); });
+    expect(tile('g3').className.split(' ')).toEqual(expect.arrayContaining(['sel', 'lv-bad', 'warncell']));
+    const at = (r: string) => u5Css.indexOf(r);
+    expect(at('.u5 .tile.sel.warncell{box-shadow:0 0 0 3px #00c389')).toBeGreaterThan(at('.u5 .tile.lv-crit{box-shadow'));
+    expect(at('.proto.light .u5 .tile.sel.warncell{box-shadow:0 0 0 3px #18A07E')).toBeGreaterThan(at('.proto.light .u5 .tile.lv-bad'));
+  });
   it('한 번 누름 = 고름(선택 칸 · 작은 지도 강조), 한 번 더 = 그 로봇의 로봇 탭', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     act(() => { tile('g7').click(); });
@@ -291,7 +300,7 @@ describe('관제 탭', () => {
     const loc = { floor_id: 'f1', map_version_id: 'v1', x: 1, y: 2, yaw: 0, confidence: 1, updated_at: '' }, boards = new Set(['v1']);
     const on = { ...facts(TWENTY[1], 'u-kim', new Map()), onRun: true }, off = { ...on, onRun: false };
     expect(tileView(on, false, loc, boards)).toEqual({ front: false, pose: { x: 1, z: -2, rot: Math.PI / 2 } });
-    expect(tileView(on, true, loc, boards)).toEqual({ front: true, pose: { x: 1, z: -2, rot: Math.PI / 2 } });   // 뒤집기 = 임무 중 로봇 정면 · 현장 그대로
+    expect(tileView(on, true, loc, boards)).toEqual({ front: true, pose: null });   // 뒤집기 = 임무 중이어도 정면 · 현장 없음(시안 u5_4 · 조정 22:03)
     expect(tileView(off, false, loc, boards)).toEqual({ front: true, pose: null });
     // Go2 X(관절 · 자세를 보내는 실기) 도 임무가 없으면 정면 · 서 있음 / 앉음은 관절 그대로
     expect(facts(TWENTY[3], 'u-kim', new Map()).onRun).toBe(false);
