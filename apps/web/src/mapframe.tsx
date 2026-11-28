@@ -157,11 +157,12 @@ type Props = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'ref'> & {
   edit?: boolean;   // 왼쪽 누름·한 손가락은 부른 쪽(그리기·찍기) — 이동은 가운데 단추·두 손가락
   still?: boolean;   // 확대·이동·단추 없음(작은 지도 단추 안)
   at?: CSSProperties;   // 단추·축척 칸을 지도 위에 띄울 자리(가장 가까운 position 조상 기준, 시뮬 영상 칸). 없으면 지도 아래 줄
+  noScale?: boolean;   // 그림에 축척이 박혀 있으면(시안 공장 그림) 우리 축척 막대는 빼서 하나만(시안 u7_3)
   photo?: Ver | null;   // 이 판이 시뮬 월드 그림이면 «실제 모습» 사진(topOf), 지형 판이면 지형 모양 그림(terrainTop)을 그림 밑에 깔고 보기 단추를 단다
 };
 
 /** 판 그림 틀(svg + 확대 단추·축척). 포인터 처리기는 이동·집기 아닐 때만 넘긴다 */
-export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ full, fit = full, res, edit, still, at, photo, style, children, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, ...rest }, ref) {
+export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ full, fit = full, res, edit, still, at, photo, noScale, style, children, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, ...rest }, ref) {
   const own = useRef<SVGSVGElement | null>(null), home = (): View => ({ cx: fit[0] + fit[2] / 2, cy: fit[1] + fit[3] / 2, z: 1 });
   const [v, setV] = useState(home), [size, setSize] = useState<P>([0, 0]);
   const fk = fit.join(' '), uk = full.join(' '), last = useRef({ fk, uk, moved: false });
@@ -272,7 +273,7 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
     <button type="button" className="btn" aria-label="확대" style={{ padding: '0 12px' }} onClick={() => zoom(1.5)}>+</button>
     <button type="button" className="btn" style={{ padding: '0 12px' }} onClick={() => { setV(home()); last.current.moved = false; }}>맞춤</button>
   </div>;
-  const scale = bar && <div data-scale role="img" aria-label={`축척 ${bar.text}`} style={{ padding: '2px 8px 4px', borderRadius: 6, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--text)', fontSize: 12, lineHeight: 1.3, pointerEvents: 'none' }}>
+  const scale = !noScale && bar && <div data-scale role="img" aria-label={`축척 ${bar.text}`} style={{ padding: '2px 8px 4px', borderRadius: 6, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--text)', fontSize: 12, lineHeight: 1.3, pointerEvents: 'none' }}>
     {bar.text}<span style={{ display: 'block', width: bar.px, height: 5, border: '2px solid var(--text)', borderTop: 'none' }} /></div>;
   // at 이 있으면(시뮬 영상 칸) 단추·축척을 그 자리에 띄우고, 없으면 축척은 지도 왼쪽 아래 모서리·단추는 지도 아래 줄(좁은 화면에서 지도를 가리지 않게)
   return at ? <>{svg}<div data-map-ctl style={{ position: 'absolute', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, pointerEvents: 'none', ...at }}>{btns}{pick}{scale}{miss}</div></>

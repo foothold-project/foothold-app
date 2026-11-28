@@ -153,7 +153,7 @@ export function MapView({ v, fill, terrain, show, demo, children }: { v: MapVers
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
   // fill = 지도·시나리오 틀(.mx-map)을 꽉 채움 — 확대 단추는 지도 오른쪽 아래 겹침, 불러오기·실패 글은 지도 아래쪽 띠
   if (fill) return <>
-    <MapFrame {...framing} photo={demo ? null : v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
+    <MapFrame {...framing} photo={demo ? null : v} noScale={demo} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
       <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />{demo && <FactoryImage v={v} />}
       <Shapes v={v} f={f} />{children}
     </MapFrame>
@@ -163,7 +163,7 @@ export function MapView({ v, fill, terrain, show, demo, children }: { v: MapVers
         <button type="button" className="btn" onClick={() => { setAt('wait'); setN(n + 1); }}>다시 불러오기</button></div>}</div>}
   </>;
   return <div>
-      <MapFrame {...framing} photo={demo ? null : v} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+      <MapFrame {...framing} photo={demo ? null : v} noScale={demo} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
         <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />{demo && <FactoryImage v={v} />}
         <Shapes v={v} f={v.features} />
       </MapFrame>

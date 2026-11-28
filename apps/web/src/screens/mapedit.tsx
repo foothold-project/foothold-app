@@ -415,7 +415,7 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
           <button type="button" className="btn" aria-pressed={tool === t} title={text} disabled={lock} onClick={() => pick(t)}>{ICON[t]}<span className="mx-sr">{text}</span></button></span>)}
       </div>
       <div className="mx-map">
-        <MapFrame ref={svg} {...fit} photo={demoBoard(p.site, p.building) ? null : v} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        <MapFrame ref={svg} {...fit} photo={demoBoard(p.site, p.building) ? null : v} noScale={demoBoard(p.site, p.building)} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
           <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />{demoBoard(p.site, p.building) && <FactoryImage v={v} />}
           <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
