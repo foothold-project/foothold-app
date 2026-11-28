@@ -56,8 +56,12 @@ class SimInputs(Inputs):
 class MujocoNode:
     """Same surface as ros_bridge.node.RosNode: start() -> sink, inputs, wait_failure(), close()."""
 
-    def __init__(self, command, *, env=None, now=time.monotonic, cwd=None, state_log=None):
+    def __init__(self, command, *, env=None, now=time.monotonic, cwd=None, state_log=None, map_binding=None):
         self.command, self.env, self.cwd, self.now = list(command), env, cwd, now
+        # ros_bridge MapBinding of the floor the MuJoCo body walks. The child's body pose is the
+        # simulation ground truth in that map's frame (Gazebo's 'gt_identity'), so it goes through
+        # the same v2_map_status/1 -> Telemetry.location -> AgentState.pose path as Gazebo.
+        self.map_binding = map_binding
         # Optional local measurement tap (JSON lines + host monotonic receipt) for
         # validation tools; never an input to safety decisions.
         self.state_log = open(state_log, 'a', buffering=1) if state_log else None
@@ -119,7 +123,7 @@ class MujocoNode:
             now=self.now, diagnostics=self.diagnostics,
             on_error=lambda exc: self._loop.call_soon_threadsafe(self._set_failed, exc))
         self.inputs = SimInputs(self._loop, self.sink, on_state, now=self.now, on_error=self._notify_failure,
-                                telemetry=SimTelemetry(now=self.now),
+                                telemetry=SimTelemetry(now=self.now, binding=self.map_binding),
                                 on_telemetry=on_telemetry, on_devices=on_devices)
         self._first = threading.Event()
         for target, name in ((self._read, 'mujoco-child-reader'), (self._publish, 'mujoco-child-output')):
@@ -132,6 +136,18 @@ class MujocoNode:
     async def wait_failure(self):
         error = await self._failure
         raise RuntimeError('MuJoCo bridge failed') from error
+
+    def _map_status(self, raw):
+        b = self.map_binding
+        if b is None or not isinstance(raw, dict) or raw.get('episode') != b.episode:
+            return None
+        if not all(finite(raw.get(k)) for k in ('sim_t', 'x', 'y', 'yaw')):
+            return None
+        return {'schema': 'v2_map_status/1', 'map_frame': 'map', 'epoch': raw['episode'], 'sim_t': raw['sim_t'],
+                'world_id': b.world_id, 'floor_id': b.ros_floor_id, 'map_version': b.ros_map_version,
+                'run_id': b.run_id, 'map_accepting': True, 'map_error': None, 'pose_map_null_reason': None,
+                'pose_map': {'source': 'gt_identity', 'x': raw['x'], 'y': raw['y'], 'yaw': raw['yaw'],
+                             'stamp_sim': raw['sim_t']}}
 
     def _read(self):
         try:
@@ -151,6 +167,9 @@ class MujocoNode:
                 if finite(soc) and 0 <= soc <= 100:
                     self.inputs.mailbox.put(battery=(float(soc), received))
                 self.inputs.state(text, received)
+                status = self._map_status(raw)
+                if status is not None:
+                    self.inputs.mailbox.put(map=(status, received))
                 if self.state_log is not None and isinstance(raw, dict):
                     self.state_log.write(json.dumps({'mono': received, 'state': raw}) + '\n')
                 if not self._first.is_set() and self.inputs.last_state is not None:

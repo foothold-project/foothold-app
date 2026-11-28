@@ -103,6 +103,8 @@ class MujocoLauncher:
                         'FH_SIM_MAP_BINDINGS': json.dumps(list(bindings)),
                         'FOOTHOLD_SCENARIO_DATA_ORIGIN': ('https' if url.scheme == 'wss' else 'http') + '://' + url.netloc,
                         'FOOTHOLD_RUN_OUTBOX_PATH': str(folder / 'run-outbox.sqlite')})
+            if credentials.get('spawn_floor_id'):
+                env['FH_SIM_SPAWN_FLOOR'] = credentials['spawn_floor_id']
         with open(folder / 'agent.log', 'ab') as log:
             child = subprocess.Popen(self.command, cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL,
                                      stdout=log, stderr=log, start_new_session=True)

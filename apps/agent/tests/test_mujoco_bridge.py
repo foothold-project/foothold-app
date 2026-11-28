@@ -164,3 +164,62 @@ def test_ready_file_written_with_own_pid_only_on_server_connect(tmp_path):
     assert not ready.exists()
     plain = ReadySession(identity=identity(time.monotonic), ready_file=None)
     plain.connect()  # no file configured: unchanged Session behaviour
+
+
+def test_sim_body_pose_reaches_agent_state_pose_on_the_bound_map_floor(tmp_path):
+    """11/28: MuJoCo body pose (sim ground truth = map frame, as Gazebo gt_identity) fills AgentState.pose."""
+    from uuid import uuid4
+    from foothold_agent.link.telemetry import project
+    from foothold_agent.ros_bridge.telemetry import MapBinding
+    from apps.contracts.models import AgentState
+    floor, version = str(uuid4()), str(uuid4())
+    binding = MapBinding('plant_a', 'l1', 'plant_a-l1', floor, version, 'a' * 64, 0, 'mujoco-local')
+    async def run():
+        log = tmp_path / 'stdin.log'
+        bridge = MujocoNode([sys.executable, '-c', FAKE, 'normal', str(log)], env=dict(os.environ), map_binding=binding)
+        seen = []
+        try:
+            await started(bridge, seen)
+            await asyncio.sleep(.3)
+            snap = bridge.inputs.telemetry.snapshot()
+            pose = project(snap, time.monotonic())['pose']
+            assert (pose['floor_id'], pose['map_version_id'], pose['x'], pose['y'], pose['yaw']) == (floor, version, 1.0, 2.0, 0.0)
+            session = Session(identity=identity(time.monotonic))
+            session.update_telemetry(snap)
+            state = session._state()
+            assert state['pose']['x'] == 1.0 and state['pose']['y'] == 2.0 and state['pose']['floor_id'] == floor
+            AgentState.model_validate({**state, 'stop_ref': 0, 'mode': state.get('mode') or 'IDLE'})
+        finally:
+            bridge.close()
+    asyncio.run(run())
+
+
+def test_no_map_binding_keeps_pose_empty(tmp_path):
+    from foothold_agent.link.telemetry import project
+    async def run():
+        bridge, _ = make(tmp_path, 'normal')
+        try:
+            await started(bridge, [])
+            await asyncio.sleep(.3)
+            pose = project(bridge.inputs.telemetry.snapshot(), time.monotonic())['pose']
+            assert pose['x'] is None and pose['floor_id'] is None
+        finally:
+            bridge.close()
+    asyncio.run(run())
+
+
+def test_run_config_binds_body_pose_to_the_spawn_floor():
+    import json as _json
+    from uuid import uuid4
+    from foothold_agent.mujoco_bridge.__main__ import run_config, body_binding
+    rows = [dict(world_id='plant_a', ros_floor_id=f, ros_map_version='plant_a-' + f, floor_id=str(uuid4()),
+                 map_version_id=str(uuid4()), sha256=c * 64, building_id=str(uuid4()), ros_building_id='plant_a',
+                 source_pgm_sha256='0' * 64) for f, c in (('l1', 'a'), ('l2', 'b'))]
+    env = dict(FH_SIM_ROBOT_ID=str(uuid4()), FH_SIM_ORG_ID=str(uuid4()), FH_SIM_MAP_BINDINGS=_json.dumps(rows),
+               FOOTHOLD_SCENARIO_DATA_ORIGIN='http://127.0.0.1:1', FOOTHOLD_RUN_OUTBOX_PATH='/tmp/x.sqlite')
+    b = body_binding(run_config(env))
+    assert (b.ros_floor_id, b.floor_id, b.map_version_id, b.sha256, b.episode) == ('l1', rows[0]['floor_id'], rows[0]['map_version_id'], 'a' * 64, 0)
+    b = body_binding(run_config({**env, 'FH_SIM_SPAWN_FLOOR': 'l2'}))
+    assert b.ros_floor_id == 'l2' and b.floor_id == rows[1]['floor_id']
+    assert body_binding(run_config({**env, 'FH_SIM_SPAWN_FLOOR': 'l3'})) is None  # no approved map: no pose
+    assert body_binding(None) is None
