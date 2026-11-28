@@ -19,7 +19,7 @@ import { rt, useLive } from '../rt';
 import { toMap } from './mapedit';
 import { floorName, floorsOf, useTree, type Place } from './maps';
 import { FINISH } from './missions';
-import { DAY_FROM, DAY_TO, Guess, KIND, MODES, STATE, hm, hourOf, isoAt, mins, two, useMissionList, usePlan, useRoute, type Plan, type Route } from './missiontab';
+import { DAY_FROM, DAY_TO, Guess, KIND, MODES, STATE, hm, hourOf, isoAt, keptMission, mins, two, useMissionList, usePlan, useRoute, type Plan, type Route } from './missiontab';
 import { MissionPlan } from './missionsu6plan';
 import { Rehearse, Result } from './missionsu6run';
 import { Preflight } from './missionsu6pre';
@@ -36,7 +36,16 @@ export function MissionsU6(c: Pick<Ctx, 'user' | 'robots' | 'cancel'> & { initia
   const main = () => { setView({ at: 'main' }); m.again(); };
   // 고장 재배정(u6_9): «이 배정으로 모의 실행» → u6_6 → u6_7 에서 통과하면 «이 배정으로 일정 바꾸기»(→ u6_8). 화면을 옮겨도 안이 남게 여기서 든다
   const fix = useReassign(c.robots, plan, c.cancel), [fixOff, setFixOff] = useState(false), [pend, setPend] = useState(false);
+  // 지도 탭 「이 지도로 모의 실행」(시안 u7_3 → u6_6): 목록이 오면 그 층의 첫 임무를 골라 바로 모의 실행 칸. 그 층 임무가 없으면 목록 그대로 + 한 줄
+  const [noScen, setNoScen] = useState('');
+  useEffect(() => {
+    const fl = keptMission.rehearse; if (!fl || !m.all) return;
+    keptMission.rehearse = '';
+    const x = m.all.find((y) => y.floor_ids.includes(fl));
+    if (x) { m.setSel(x.id); setView({ at: 'rehearse' }); } else setNoScen(places.find((p) => p.floor.id === fl)?.floor.name ?? '그 층');
+  }, [m.all]);   // eslint-disable-line react-hooks/exhaustive-deps
   return <div className={`proto u6${light ? ' light' : ''}`} data-u6={view.at}>
+    {view.at === 'main' && noScen && <div className="g toast" role="status" data-no-scen onClick={() => setNoScen('')}>{floorName(noScen)} 에는 임무가 없습니다 · 새 임무를 만든 뒤 모의 실행하세요</div>}
     {view.at === 'main' && <Main c={c} m={m} plan={plan} route={route} go={setView} fix={fix} fixOff={fixOff} setFixOff={setFixOff}
       rehearseFix={(sid) => { m.setSel(sid); setPend(true); setView({ at: 'rehearse' }); }} />}
     {view.at === 'setup' && <Setup robots={c.robots} places={places} cancel={c.cancel} p={plan} close={main}

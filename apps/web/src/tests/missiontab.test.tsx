@@ -464,6 +464,18 @@ describe('임무 탭(W2)', () => {
     expect(cardMeta(null)).toBeNull();
   });
 
+  it('시안 u7_3 → u6_6: 지도 탭 「이 지도로 모의 실행」 이 넘긴 층 = 그 층 첫 임무를 골라 바로 모의 실행 칸 · 한 번 쓰고 비움 · 없는 층이면 목록 + 한 줄', async () => {
+    keptMission.rehearse = 'f1';
+    await mount('#/missions'); await flush();
+    expect($('[data-u6]')!.getAttribute('data-u6')).toBe('rehearse');
+    expect(keptMission.rehearse).toBe('');
+    act(() => root?.unmount()); box.remove();
+    keptMission.rehearse = 'f-none';
+    await mount('#/missions'); await flush();
+    expect($('[data-u6]')!.getAttribute('data-u6')).toBe('main');
+    expect($('[data-no-scen]')!.textContent).toContain('에는 임무가 없습니다');
+  });
+
   it('시안 u6_3 편집기: 할 일 순서 줄(이동 · 할 일 · 끝) · 고른 줄 자세히(머무는 시간 · 순서 · 지우기) · 접근 금지 구역을 지나면 저장 막음 · 고친 뒤 PUT 본문', async () => {
     await mount('#/missions');
     await click($('[data-edit-mission]')); await flush();

@@ -2,6 +2,7 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 PENDING 판은 «저장 기록»에 «적용 안 됨»으로 보인다. 화면 글에는 «판»을 쓰지 않는다(11-04 — 저장 시각·만든 사람으로 부름).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
+import { keptMission } from './missiontab';
 import { Map3D, modelOf } from './map3d';
 import { DemoSite3D } from './u7/site3d';
 import { Empty } from '../empty';
@@ -598,7 +599,7 @@ function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, 
       {(vox || sb) && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
       {editing && <span className="mx-tag mx-edit" data-editing>▲ 편집 중</span>}
       <span className="fh-grow" />
-      {left && toScen && !inApp() && <button type="button" className="btn pri" data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
+      {left && toScen && !inApp() && <button type="button" className="btn pri" data-to-sim onClick={() => { keptMission.rehearse = p.floor.id; toScen(''); }}>이 지도로 모의 실행</button>}
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
         {!sim && real && <button type="button" className="btn" onClick={upBtn}>새 지도 올리기…</button>}
         {canMake && <button type="button" className="btn" data-make-open onClick={mkBtn}>지도 만들기</button>}
@@ -705,7 +706,7 @@ function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, 
     {/* 시안 밖 · 새로 그림: 3D 지도 파일 · 로봇 저장 묶음 보기(기능 있음) */}
     {(vox || sb) && <button type="button" className="btns" style={{ height: '46px', padding: '0 18px', fontSize: '14px' }} aria-pressed={on3d} data-voxel-toggle data-off-proto onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{ic(16, CUBE)}{on3d ? '지도 보기' : '3D 로 보기'}</button>}
     {now && real && <div role="group" aria-label="보기·편집" style={{ display: 'contents' }}><button type="button" className="btns" style={{ height: '46px', padding: '0 18px', fontSize: '14px' }} onClick={start}>{ic(16, PEN)}편집</button></div>}
-    {toScen && !inApp() && <button type="button" className="btnp" style={{ height: '46px', padding: '0 20px', fontSize: '14.5px' }} data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
+    {toScen && !inApp() && <button type="button" className="btnp" style={{ height: '46px', padding: '0 20px', fontSize: '14.5px' }} data-to-sim onClick={() => { keptMission.rehearse = p.floor.id; toScen(''); }}>이 지도로 모의 실행</button>}
     {/* 시안 밖 · 새로 그림: 더 보기(새 지도 올리기 · 지도 만들기 · 이름 바꾸기 · 휴지통) */}
     <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more u7-more">
       {real && <button type="button" className="btn" onClick={upBtn}>새 지도 올리기…</button>}

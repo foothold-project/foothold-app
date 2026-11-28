@@ -2608,6 +2608,8 @@ describe('지도 탭 · 시안 u7', () => {
     await click($('[data-to-sim]'));
     expect(location.hash).toBe('#/missions');
     expect(keptPlan.floor).toBe('f1');
+    expect(keptMission.rehearse).toBe('f1');   // 임무 탭이 열리면 그 층 임무로 바로 모의 실행(missiontab 시험)
+    keptMission.rehearse = '';
   });
 });
 
