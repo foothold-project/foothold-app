@@ -8,7 +8,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SIDE_BLOCK, canDrive } from '../serverdrive';
-import { barChipText, checkShort, driveLabel, railOrder } from '../screens/u4/robotu4';
+import { barChipText, checkShort, driveLabel, hotBub, jointTip, railOrder } from '../screens/u4/robotu4';
 import { rt } from '../rt';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
@@ -842,5 +842,18 @@ describe('조종권 단추 · 머리 칩 글 (시안 u11_2 ~ u11_4)', () => {
     expect(u4src).toContain("line?.at === 'remote' && moving && <div className=\"whyb\" style={{ left: '495px', top: '140px' }}");
     expect(u4src).toContain("right: '60px', top: '846px'");
     expect(u4css).toMatch(/\.u4 \.whyb\{position:absolute;z-index:3;height:30px/);
+  });
+});
+
+describe('관절 경고 말풍선 · 마우스 온도 (시안 u4_2 · u4_4)', () => {
+  it('말풍선 첫 줄 조사는 받침대로 · 둘째 줄은 시안 글', () => {
+    expect(hotBub('앞 오른 고관절', 61.6)).toBe('앞 오른 고관절이 온도가 높습니다 · 62 °C');
+    expect(hotBub('앞 왼 종아리', 60)).toBe('앞 왼 종아리가 온도가 높습니다 · 60 °C');
+    expect(u4src).toContain('<small>경고 60 °C 넘음 · 걷기는 계속합니다 · 쉬게 하려면 「앉아」</small>');
+  });
+  it('마우스 꼬리표: 관절 이름 + 온도 · 값 없으면 보고 없음', () => {
+    expect(jointTip('FR_calf', 48.2)).toBe('앞 오른 종아리 48 °C');
+    expect(jointTip('RL_hip', null)).toBe('뒤 왼 고관절 온도 보고 없음');
+    expect(u4src).toContain("temps={tab === 'check' ? temps?.joints ?? null : null}");
   });
 });
