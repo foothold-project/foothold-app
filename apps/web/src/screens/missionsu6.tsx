@@ -461,7 +461,7 @@ function Setup({ robots, places, cancel, p, close, make }: { robots: Robot[]; pl
             style={{ height: 'auto', padding: '22px 20px', alignItems: 'flex-start', ...(on ? { borderColor: 'rgba(0,195,137,.55)', background: 'rgba(0,195,137,.09)' } : {}) }}>
             <span style={{ marginTop: '1px', color: on ? '#00c389' : '#9aa19d' }}><Ic d={IC.mount} s={19} /></span>
             <div style={{ flex: '1', textAlign: 'left' }}><b style={{ fontSize: '15.5px' }}>{MODE[g][0]}</b><div className="lab" style={{ marginTop: '5px', lineHeight: '1.5', fontSize: '13.5px' }}>{MODE[g][1]}</div>
-              <div className="row" style={{ gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}><span className="lab">이 지도에서</span><b className="num" style={{ fontSize: '17px' }}>없음</b><small className="mu2">분</small>
+              <div className="row" style={{ gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}><span className="lab">예상 시간</span><b style={{ fontSize: '15px' }} data-setup-est>미확인</b>
                 <span className="lab" style={{ marginLeft: 'auto' }} data-setup-why>임무를 만든 뒤 예상</span></div></div></button>; })}
       </div>
       <div className="row lab" style={{ position: 'absolute', left: '22px', right: '22px', bottom: '22px', gap: '10px', lineHeight: '1.55', fontSize: '13.5px', padding: '14px 16px', borderRadius: '14px', background: 'rgba(255,255,255,.03)', border: '1px solid var(--line)' }}>

@@ -318,9 +318,24 @@ describe('임무 탭(W2)', () => {
     await setTime('end', '11:00'); await setTime('start', '10:30');
     await click($('[data-rehearse]')); await flush();
     expect($('[data-band]')!.textContent).toContain('모의 실행 · 시뮬 · 1 배');
+    expect($('[data-band] .u6-bandsub')!.style.color).toBe('');   // 덧글 색은 판별 칸에서
     expect($('[data-locked] .on')!.textContent).toBe('1 배');
     expect($$('[data-ticks] span span').map((e) => e.textContent)).toEqual(['10:30', '10:40', '10:50', '11:00']);
     expect(calls.filter((c) => c.method !== 'GET' && !['/scenarios/preview', '/estimates'].includes(c.path))).toEqual([]);   // 화면만 열고 보내지 않음
+  });
+  it('값이 없을 때 「없음 분」 · 「없음 %」 가 나오지 않음: 새 임무 걷기 모드는 「예상 시간 · 미확인」, 편집기 이 임무 칸은 단위를 뺌', async () => {
+    await mount('#/missions');
+    await click($('[data-new-mission]'));
+    const gaits = $$('[data-setup-gait]');
+    expect(gaits.length).toBe(3);
+    for (const g of gaits) { expect(g.querySelector('[data-setup-est]')!.textContent).toBe('미확인'); expect(g.textContent).toContain('예상 시간'); }
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+    await click($('[data-setup-make]')); await flush();
+    expect($('[aria-label="임무 편집"]')).toBeTruthy();
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+    await click($('[data-back-list]'));
+    await click($('[data-edit-mission]')); await flush();
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
   });
   it('모의 실행 시간 눈금: 셋으로 나눈 네 눈금 · 자정 넘김 · 모양이 틀리면 비움', () => {
     expect(ticks('15:00', '15:30')).toEqual(['15:00', '15:10', '15:20', '15:30']);
@@ -511,6 +526,9 @@ describe('임무 탭(W2)', () => {
       expect(color('proto light u6', pend, '.u6-pend')).toBe('rgb(31, 36, 33)');
       expect(color('proto light u6', seg, '.on')).toBe('rgb(31, 36, 33)');
       expect(getComputedStyle(box.querySelector('.mseg')!).opacity).toBe('1');
+      const sub = '<span class="u6-bandsub">실제 로봇은 움직이지 않습니다</span>';   // 모의 실행 위 띠 덧글
+      expect(color('proto u6', sub, '.u6-bandsub')).toBe('rgba(159, 182, 255, 0.75)');
+      expect(color('proto light u6', sub, '.u6-bandsub')).toBe('rgb(94, 102, 98)');
     } finally { st.remove(); box.remove(); }
   });
   it('밝은 판 대비: 배속 고른 칸 · 지도 위 자리 글은 밝은 판에서 어두운 글 (기존 밝은 판 값)', () => {
