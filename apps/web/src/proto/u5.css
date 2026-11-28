@@ -115,3 +115,37 @@
 /* 9 대부터(.wall.many): 칸이 타일보다 크면 카메라 칸이 늘어 빈 가운데가 생기지 않게. 8 대까지는 시안 그대로 */
 .u5 .wall.many .tile .cv{flex:1 0 auto}
 .u5 .wall.many .tile .inf{flex:none}
+
+/* ── 밝은 판(.proto.light) · 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」 ──
+   바탕 #F6F7F6 · 칸 #FFFFFF · 글자 #1F2421 · 흐린 #5E6662 · 선 #DCE0DE · 강조 #18A07E · 강조 글자 #0E7F63 · 경고 #E04A2F · 경고 글자 #B8361F · 예행 #2F6FE0 · 주의(온도 채움) #D9A21F.
+   어두운 판 글자색(흰 78 %)이 밝은 바탕에 남아 안 보이던 칸(수 칸 · 타일 줄 · 칩 · 모드)과 시안 어둠 색(#ff4d4f · #f2b705 · #00c389)을 바꾼다. 글자에는 온도 색을 쓰지 않는다 */
+.u5{--u5-red:#ff4d4f;--u5-amb:#f2b705;--u5-ok:#00c389;--u5-ok-bg:rgba(0,195,137,.16);--u5-ok-line:rgba(0,195,137,.45)}
+.proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
+.proto.light .u5 .cnt,.proto.light .u5 .tgl,.proto.light .u5 .md,.proto.light .u5 .ln{color:#5E6662}
+.proto.light .u5 .cnt b{color:#1F2421}
+.proto.light .u5 .tgl i{background:#DCE0DE}
+.proto.light .u5 .tgl.on i{background:#18A07E}
+.proto.light .u5 .chip{color:#5E6662;background:#F6F7F6;border-color:#DCE0DE}
+.proto.light .u5 .chip.sim{color:#2F6FE0;border-color:#2F6FE0}
+.proto.light .u5 .pinf i{border-color:#18A07E;background:rgba(24,160,126,.18)}
+.proto.light .u5 .pinf i::after{background:#18A07E}
+.proto.light .u5 .pg{background:#DCE0DE}
+.proto.light .u5 .pg i{background:#18A07E}
+.proto.light .u5 .s{background:#F6F7F6;border-color:#DCE0DE}
+.proto.light .u5 .s.w,.proto.light .u5 .s.w .ic{color:#1F2421}
+.proto.light .u5 .s.w{border-color:#D9A21F}
+.proto.light .u5 .s.r,.proto.light .u5 .s.r .ic{color:#B8361F}
+.proto.light .u5 .s.r{border-color:#E04A2F}
+.proto.light .u5 .tile.sim{border-color:#2F6FE0}
+.proto.light .u5 .tile.sel{border-color:#18A07E;box-shadow:0 0 0 4px rgba(24,160,126,.18),0 12px 30px rgba(31,36,33,.12)}
+.proto.light .u5 .tile.lv-warn{border-color:#D9A21F;background:linear-gradient(180deg,rgba(217,162,31,.12),rgba(217,162,31,.04))}
+.proto.light .u5 .tile.lv-bad,.proto.light .u5 .tile.lv-crit{border-color:#E04A2F;background:rgba(224,74,47,.12)}
+.proto.light .u5 .tile[data-tone="warn"] .flag{color:#1F2421}
+.proto.light .u5 .dotm{background:#18A07E;border-color:#FFFFFF;outline:1px solid #1F2421}
+.proto.light .u5 .dotm.r{background:#E04A2F}
+.proto.light .u5 .dotm.o{background:#D9A21F}
+.proto.light .u5 .dotm.sim{background:transparent;border-color:#2F6FE0;outline:0}
+.proto.light .u5 .dotl.sel{background:#18A07E;color:#1F2421}
+.proto.light .u5 .mk .pt{background:#18A07E}
+.proto.light .u5 .mk.r .pt{background:#E04A2F}
+.proto.light .u5 .mk.o .pt{background:#D9A21F}

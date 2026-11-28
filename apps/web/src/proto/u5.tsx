@@ -166,13 +166,13 @@ function Cv({ f, front, hotMap }: { f: TileFacts; front: boolean; hotMap: Record
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>
     {f.sim ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
-      : front ? <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(f.level === 'bad' || f.level === 'crit' ? { color: '#ff4d4f' } : {}) }}>{I(14, IC.temp)}{f.hot ? (f.level === 'bad' || f.level === 'crit' ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>
-      : f.lostNow ? <div className="lk">{I(24, IC.wifi, '#f2b705')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>
+      : front ? <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(f.level === 'bad' || f.level === 'crit' ? { color: 'var(--u5-red)' } : {}) }}>{I(14, IC.temp)}{f.hot ? (f.level === 'bad' || f.level === 'crit' ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>
+      : f.lostNow ? <div className="lk">{I(24, IC.wifi, 'var(--u5-amb)')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>
       : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
       : <RealCam id={f.x.id} />}
-    {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? '#9aa19d' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
-      : !front && f.paused ? <span className="stb chk" style={{ color: '#f2b705' }} data-paused>{I(14, IC.warn)}{f.paused}<i></i></span>
-      : !front && f.charging ? <span className="stb" style={{ color: '#00c389' }} data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>
+    {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? 'var(--mu2)' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
+      : !front && f.paused ? <span className="stb chk" style={{ color: 'var(--u5-amb)' }} data-paused>{I(14, IC.warn)}{f.paused}<i></i></span>
+      : !front && f.charging ? <span className="stb" style={{ color: 'var(--u5-ok)' }} data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>
       : !front && f.job ? (f.job.kind === 'maint' ? <span className="stb chk" style={{ color: '#a9b8c6' }} data-maint>{I(14, IC.wrench)}점검 중<i></i></span>
         : <span className="stb" style={{ color: '#a9b8c6' }} data-swap>{I(14, IC.bat)}배터리 교체</span>) : null}
   </div>;
@@ -195,9 +195,9 @@ function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front
   const red = f.level === 'bad' || f.level === 'crit';
   return <div className={cls} data-t={f.x.name} data-robot={f.x.id} data-tone={f.level ?? undefined} data-act={f.act} data-sel={sel || undefined} data-live={f.walk ? '1' : undefined} role="button" tabIndex={0} aria-pressed={sel} aria-label={`${f.x.name} 타일`}
     onClick={() => (sel ? open() : pick())} onDoubleClick={open} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); open(); } }}>
-    {f.flag && <span className="flag warntag" style={{ background: red ? '#ff4d4f' : '#f2b705' }} data-warn-flag>{I(13, IC.warn)}{f.flag}</span>}
+    {f.flag && <span className="flag warntag" style={{ background: red ? 'var(--u5-red)' : 'var(--u5-amb)' }} data-warn-flag>{I(13, IC.warn)}{f.flag}</span>}
     <Cv f={f} front={front} hotMap={hotMap} />
-    <div className="inf"><div className="nm"><b style={red ? { color: '#ff4d4f' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{f.mode && I(15, IC.mode)}{f.mode}</span></div>
+    <div className="inf"><div className="nm"><b style={red ? { color: 'var(--u5-red)' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{f.mode && I(15, IC.mode)}{f.mode}</span></div>
       <div className="ln">{(() => { const txt = f.mission?.name || (f.charging ? '충전 중' : f.job ? f.job.text : f.sim ? '임무 전 · 시뮬 등록' : '');
         return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
       {f.mission && f.mission.total > 0 && <div className="pg"><i style={{ width: `${Math.round((f.mission.done / f.mission.total) * 100)}%` }}></i></div>}
@@ -225,13 +225,13 @@ function Mini({ all, sel, boards }: { all: TileFacts[]; sel: string; boards: Set
 }
 
 /** 최근 경고 = 주의가 필요한 로봇(기존 관제 needs · 관절 온도 · 끊김)에서 경보 칸에 나온 로봇을 뺀 것. 시각 = 받은 시각(발생 시각 필드 없음) · 모르면 칸을 접음 */
-const TONE_COL: Record<string, string> = { ok: '#00c389', warn: '#f2b705', bad: '#ff4d4f' };
+const TONE_COL: Record<string, string> = { ok: 'var(--u5-ok)', warn: 'var(--u5-amb)', bad: 'var(--u5-red)' };
 function Recent({ list, pick, open }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void }) {
   return <div className="pane" style={{ padding: '16px 18px 6px', flex: '1', overflow: 'hidden' }} aria-label="최근 경고"><div className="row" style={{ justifyContent: 'space-between', marginBottom: '4px' }}><span className="ttl" style={{ fontSize: '17px' }}>최근 경고</span><a href="#/history" style={{ color: 'inherit', textDecoration: 'none' }}><span className="mu2" style={{ fontSize: '12.5px' }}>기록 탭에서 모두 보기</span></a></div>
     {list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', t = hm(f.x.seenAt), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
       const head = joint ? `관절 ${LEVEL_TEXT[f.level!]}` : f.lostNow ? '연결 끊김' : f.why;
       const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
-      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? '#ff4d4f' : '#f2b705' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}
+      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}
   </div>;
 }
 const m1 = (v: number | null) => (v == null ? '' : v.toFixed(1));
@@ -266,7 +266,7 @@ function Picked({ f, open, me, cancel, refresh }: { f: TileFacts; open: () => vo
 }
 function Alarm({ f, stop, open }: { f: TileFacts; stop?: (id: string) => void; open: () => void }) {
   const press = stop ? { 'data-stop-press': '', onPointerDown: (e: { button: number }) => { if (e.button === 0) stop(f.x.id); }, onClick: (e: { detail: number }) => { if (!e.detail) stop(f.x.id); } } : {};
-  return <div className="pane abox" style={{ padding: '18px' }} data-alarm={f.x.id}><div className="row" style={{ gap: '10px', color: '#ff4d4f' }}>{I(22, IC.warn)}<span className="ttl" style={{ fontSize: '18px', color: '#ff4d4f' }}>경보 · {f.x.name} 관절 위험</span></div>
+  return <div className="pane abox" style={{ padding: '18px' }} data-alarm={f.x.id}><div className="row" style={{ gap: '10px', color: 'var(--u5-red)' }}>{I(22, IC.warn)}<span className="ttl" style={{ fontSize: '18px', color: 'var(--u5-red)' }}>경보 · {f.x.name} 관절 위험</span></div>
     <p style={{ fontSize: '14px', lineHeight: '1.55', marginTop: '10px', color: '#ffffff' }}>{f.hot ? `${jointName(f.hot.j)}이 ${Math.round(f.hot.t)} °C 입니다.` : ''} 로봇은 스스로 멈추지 않습니다.</p>
     <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>{stop && <div className="rstop" style={{ flex: '1' }} role="button" tabIndex={0} aria-label={`${f.x.name} 정지`} {...press}>{I(18, IC.stop)}{f.x.name} 정지</div>}<div className="btns k5open" style={{ flex: '1', height: '52px', fontSize: '14px' }} role="button" tabIndex={0} onClick={open}>{I(17, IC.dog)}로봇 탭에서 보기</div></div></div>;
 }
@@ -293,7 +293,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 수를 비우고 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
   const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
-  const cnt = (k: string, icon: ReactNode, v: number | null, red = false, src?: 'dashboard', none?: string) => <span className="cnt" style={red ? { color: '#ff4d4f' } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}>{I(16, icon, red ? '#ff4d4f' : undefined)}{`${k} `}<b style={red ? { color: '#ff4d4f' } : undefined}>{v ?? ''}</b></span>;
+  const cnt = (k: string, icon: ReactNode, v: number | null, red = false, src?: 'dashboard', none?: string) => <span className="cnt" style={red ? { color: 'var(--u5-red)' } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}>{I(16, icon, red ? 'var(--u5-red)' : undefined)}{`${k} `}<b style={red ? { color: 'var(--u5-red)' } : undefined}>{v ?? ''}</b></span>;
   return <main className="u5" data-view={view} aria-label="관제">
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => setView('map'))}</div>
       <span className="pinf"><i></i>첫 화면으로</span><span className="sep"></span>
@@ -308,7 +308,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       {cnt('경고', IC.warn, n((f) => !!f.level), true)}
       {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
-        {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'rgba(0,195,137,.16)', borderColor: 'rgba(0,195,137,.45)', color: '#00c389' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
+        {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'var(--u5-ok-bg)', borderColor: 'var(--u5-ok-line)', color: 'var(--u5-ok)' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? '뒤 1 m 시점으로' : '정면 상태로 뒤집기'}</span>}
         <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} onClick={() => setDemo(!demo)}>데모 표시<i></i></span>
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
@@ -333,8 +333,8 @@ function MapSide({ all, sel, pick, open }: { all: TileFacts[]; sel: string; pick
   return <><div className="pane" style={{ padding: '16px 18px' }}><div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl" style={{ fontSize: '17px' }}>동선 겹쳐 보기</span><span className="tgl on"><i></i></span></div>
     <div className="lg" style={{ marginTop: '6px' }}><svg width="40" height="8"><line x1="2" y1="4" x2="38" y2="4" stroke="#00c389" strokeWidth="2" strokeLinecap="round" /></svg>기존 동선<span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>임무 중 {moving} 대</span></div>
     <div className="lg"><svg width="40" height="8"><line x1="2" y1="4" x2="38" y2="4" stroke="#ffffff" strokeWidth="2" strokeDasharray="6 4" strokeLinecap="round" /></svg>새 동선<span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}></span></div>
-    <div className="lg" style={{ color: '#f2b705' }}><svg width="40" height="18"><circle cx="20" cy="9" r="7" fill="none" stroke="#f2b705" strokeWidth="1.5" /></svg>겹치는 곳<span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}></span></div></div>
+    <div className="lg" style={{ color: 'var(--u5-amb)' }}><svg width="40" height="18"><circle cx="20" cy="9" r="7" fill="none" stroke="#f2b705" strokeWidth="1.5" /></svg>겹치는 곳<span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}></span></div></div>
     <div className="pane" style={{ padding: '8px 14px', flex: '1' }}>{all.map((f) => <div key={f.x.id} className="rrow" data-r={f.x.name} role="button" tabIndex={0} aria-pressed={f.x.id === sel} onClick={() => (f.x.id === sel ? open(f.x.id) : pick(f.x.id))}>
-      <span style={{ color: f.level === 'bad' || f.level === 'crit' ? '#ff4d4f' : '#9aa19d' }}>{I(18, IC.dog)}</span><div style={{ minWidth: '0' }}>{f.x.name}<small style={{ display: 'block', marginTop: '2px' }}>{f.place}</small></div>
+      <span style={{ color: f.level === 'bad' || f.level === 'crit' ? 'var(--u5-red)' : 'var(--mu2)' }}>{I(18, IC.dog)}</span><div style={{ minWidth: '0' }}>{f.x.name}<small style={{ display: 'block', marginTop: '2px' }}>{f.place}</small></div>
       <small style={{ marginLeft: 'auto', width: '92px', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.mission?.name ?? (f.lostNow ? '연결 중' : f.sim ? '시뮬 대기' : stText(f.x))}</small><em>{f.sim ? '없음' : f.x.battery != null ? `${Math.round(f.x.battery)} %` : ''}</em></div>)}</div></>;
 }
