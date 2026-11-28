@@ -113,7 +113,8 @@
     "launcher": {
       "enum": [
         "fake",
-        "native-single"
+        "native-single",
+        "mujoco-local"
       ],
       "title": "Launcher",
       "type": "string"

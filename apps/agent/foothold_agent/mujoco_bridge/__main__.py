@@ -6,6 +6,7 @@ Environment (fail-closed, no defaults for credentials):
   FH_SIM_MAP (collapsed-house-v2), FH_SIM_SEED (0), FH_SIM_NODE (node)
   FH_SIM_BATTERY_START (100), FH_SIM_BATTERY_DRAIN (%/s of sim time, 0.0139)
   FH_SIM_STATE_LOG (optional JSON-lines tap of child states for validation tools)
+  FH_SIM_READY_FILE (optional; simmgr MujocoLauncher) gets this pid once the server WS opened
 """
 
 import asyncio
@@ -43,6 +44,29 @@ def identity(now):
             'execution_capabilities': dict(contract='scenario/2', revision=1, actions=actions)}
 
 
+class ReadySession(Session):
+    """Session that tells a local launcher once the authenticated server WS opened.
+
+    Client calls connect() only inside the websockets connect() context, i.e. after
+    HTTP 101; a rejected token is 401/403 and never gets here. The file holds only
+    this pid (no URL or token) and is replaced atomically.
+    """
+
+    def __init__(self, *args, ready_file=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ready_file = ready_file
+
+    def connect(self):
+        effects = super().connect()
+        if self.ready_file:
+            path, self.ready_file = self.ready_file, None
+            temporary = path + '.tmp'
+            with open(temporary, 'w') as stream:
+                stream.write(str(os.getpid()))
+            os.replace(temporary, path)
+        return effects
+
+
 async def run(settings, command):
     bridge = MujocoNode(command, cwd=str(CHILD.parent), state_log=os.environ.get('FH_SIM_STATE_LOG'))
     client = None
@@ -65,7 +89,8 @@ async def run(settings, command):
                 client.update_devices(devices)
 
         sink = await bridge.start(on_state, on_telemetry=on_telemetry, on_devices=on_devices)
-        session = Session(identity=identity(loop.time))  # always starts latched
+        session = ReadySession(identity=identity(loop.time),  # always starts latched
+                               ready_file=os.environ.get('FH_SIM_READY_FILE'))
         client = Client(session, sink, settings)
         client.update_telemetry(bridge.inputs.telemetry.snapshot())
         client.update_devices(bridge.inputs.device_observations())
