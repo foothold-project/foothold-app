@@ -384,6 +384,11 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(text($('[data-u4-walk]'))).toBe('충전 중 · 엎드림');
     expect([note.getAttribute('data-u4-jointnote'), text(note)]).toEqual(['posture', '관절값이 없어 충전 자세(엎드림)로 그림']);
     expect(u4src).toContain('tileLying({ x: r, act: actOf(r, false), charging: !!av?.charging })');
+    // 관절값이 오면 모형은 그 값대로(선 자세) · 글도 «충전 중 · 서 있음»(엎드림이라 쓰지 않음)
+    const N = ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}_joint`));
+    act(() => { push('r7', { robot_info: { joints: { names: N, positions: N.map(() => 0.5), age_s: 0 } } } as unknown as Partial<ScreenState>); });
+    expect($('.stage3d')!.getAttribute('data-u4-legs')).toBe('q');
+    expect(text($('[data-u4-walk]'))).toBe('충전 중 · 서 있음');
   });
 
   it('같은 이름 배정이 둘이면 경로를 고르지 않는다(지어내지 않음): 지점 0 · 진행과 상태만', async () => {
