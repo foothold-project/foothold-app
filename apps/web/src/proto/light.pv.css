@@ -14,8 +14,9 @@
 .pv.light .rcard.on .av{background:#18A07E;color:#1F2421}
 .pv.light .btnp{background:#18A07E;color:#1F2421;box-shadow:0 6px 16px rgba(24,160,126,.25)}
 .pv.light .btns{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
-.pv.light .allstop{background:#E04A2F;color:#FFFFFF;box-shadow:0 8px 20px rgba(224,74,47,.3)}
-.pv.light .stop{background:#E04A2F;color:#FFFFFF}
+/* 정지 단추: 글자가 14 px 굵게라 큰 글자(18.66 px 굵게) 기준이 아니다. #E04A2F 위 흰 글자 4.05 < 4.5 라 바탕을 경고 글자색 #B8361F 로(5.86) */
+.pv.light .allstop{background:#B8361F;color:#FFFFFF;box-shadow:0 8px 20px rgba(224,74,47,.3)}
+.pv.light .stop{background:#B8361F;color:#FFFFFF}
 .pv.light .dot{background:#18A07E;box-shadow:0 0 0 3px rgba(24,160,126,.18)}
 .pv.light .livechip{color:#0E7F63;background:rgba(24,160,126,.10);border-color:#18A07E}
 .pv.light .livechip i{background:#18A07E}

@@ -28,10 +28,30 @@ describe('시안 밝은 판 light.pv.css', () => {
     expect(decl('.pv.light')).toMatchObject({ background: LIGHT.background, color: LIGHT['on-surface'], '--mu2': LIGHT['on-surface-muted'], '--line': LIGHT.outline, '--pr3': LIGHT['primary-text'], '--pr': LIGHT.primary, '--red': LIGHT.danger });
     expect(decl('.pv.light .pane')).toMatchObject({ background: LIGHT.surface, 'border-color': LIGHT.outline });
     expect(decl('.pv.light .btnp')).toMatchObject({ background: LIGHT.primary, color: LIGHT['on-primary'] });
-    expect(decl('.pv.light .allstop')).toMatchObject({ background: LIGHT.danger, color: LIGHT['on-danger'] });
+    expect(decl('.pv.light .allstop')).toMatchObject({ background: LIGHT['danger-text'], color: LIGHT['on-danger'] });
     expect(decl('.pv.light .warntag')).toMatchObject({ background: LIGHT['danger-text'], color: '#FFFFFF' });
     expect(decl('.pv.light .rehearse').border).toBe(`1px dashed ${LIGHT.sim}`);
     expect(decl('.pv.light .tabs span.on').color).toBe(LIGHT['primary-text']);   // 민트 #18A07E 는 글자에 쓰지 않는다(대비 3.07)
+  });
+  it('정지 단추(.stop · .allstop) 글자 대비: 18.66 px 굵게 이상이면 3.0, 아니면 4.5 이상', () => {
+    const lum = (h) => { const c = hex(h).split(',').map((v) => { const x = +v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    const src = readFileSync(join(__dirname, '..', 'proto', 'ui.css'), 'utf8') + readFileSync(join(__dirname, '..', 'proto', 'pc.css'), 'utf8');
+    for (const cls of ['stop', 'allstop']) {
+      const base = new RegExp(`\\.${cls}\\{([^}]*)\\}`).exec(src)[1];
+      const px = parseFloat(/font-size:([\d.]+)px/.exec(base)[1]), w = +/font-weight:(\d+)/.exec(base)[1];
+      const large = px >= 18.66 && w >= 700, d = decl(`.pv.light .${cls}`);
+      expect(ratio(d.background, d.color), `${cls} ${px}px ${w}`).toBeGreaterThanOrEqual(large ? 3 : 4.5);
+    }
+  });
+  it('어둠 판 상태 표지(dark.pv.css): 경고 칸 #FF4D4F 12 % · 「과열」 #FF4D4F 바탕 검은 글자 · 예행 #4C9BFF 점선', () => {
+    const dk = readFileSync(join(__dirname, '..', 'proto', 'dark.pv.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const r = Object.fromEntries([...dk.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]));
+    expect(Object.keys(r)).toEqual(['.pv .warncell', '.pv .warntag', '.pv .rehearse']);
+    expect(r['.pv .warncell']).toBe('background:rgba(255,77,79,.12);border:1px solid #FF4D4F');
+    expect(r['.pv .warntag']).toBe('background:#FF4D4F;color:#000000');
+    expect(r['.pv .rehearse']).toBe('border:1px dashed #4C9BFF;color:#4C9BFF');
+    if (existsSync(DESIGN)) { const md = readFileSync(DESIGN, 'utf8'); expect(md).toContain('dark-danger: "#FF4D4F"'); expect(md).toContain('dark-sim: "#4C9BFF"'); }
   });
   it('밝은 유리 .g.dk = 시안 ui.css .g 값 그대로', () => {
     const ui = readFileSync(join(__dirname, '..', 'proto', 'ui.css'), 'utf8');
