@@ -214,7 +214,7 @@ def policy_rights(authorize, api_error, user_values, robot_values):
                 authorize(user, permission, robot)
                 allowed.add(permission)
             except api_error as exc:
-                if exc.code in ('ADMIN_NO_REAL_CONTROL', 'PHONE_DIRECT_REQUIRED'):
+                if exc.code == 'PHONE_DIRECT_REQUIRED':
                     allowed.add(exc.code)
         rights[str(robot.id)] = frozenset(allowed)
     return MappingProxyType(rights)
@@ -680,7 +680,7 @@ class Realtime:
                         self.authorize(user, permission, robot)
                         allowed.add(permission)
                     except self.api_error as exc:
-                        if exc.code in ('ADMIN_NO_REAL_CONTROL', 'PHONE_DIRECT_REQUIRED'):
+                        if exc.code == 'PHONE_DIRECT_REQUIRED':
                             allowed.add(exc.code)
                 rights[str(robot.id)] = frozenset(allowed)
             return Policy(rights, C.OrgSettings.from_stored(org.settings), session.expires_at, checked)
@@ -959,10 +959,6 @@ class Realtime:
         policy = peer.policy
         if policy is None or policy.expires_at <= now() or peer.closing:
             raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
-        if permission in ('O_OWN', 'ROBOT_STOP') and any(
-                'ADMIN_NO_REAL_CONTROL' in policy.rights.get(rid, ()) for rid in robots):
-            from .api import ADMIN_NO_REAL_CONTROL
-            raise self.api_error(403, 'ADMIN_NO_REAL_CONTROL', ADMIN_NO_REAL_CONTROL)
         if permission in ('O_OWN', 'ROBOT_STOP') and any(
                 'PHONE_DIRECT_REQUIRED' in policy.rights.get(rid, ()) for rid in robots):
             raise self.api_error(403, 'PHONE_DIRECT_REQUIRED', '실기 조종·STOP은 현장 폰에서 직접 하세요.')

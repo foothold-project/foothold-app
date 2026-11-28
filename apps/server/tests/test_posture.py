@@ -36,13 +36,14 @@ def test_authenticated_owner_posture_relay_and_measured_result(trial, seeded):
 
 
 @pytest.mark.parametrize('username', ['admin', 'two'])
-def test_non_owner_and_admin_cannot_send_posture(trial, seeded, username):
+def test_non_owner_denied_and_admin_passes_owner_gate_for_posture(trial, seeded, username):
+    # 운영 결정 2026-11-28: 총괄은 소유 관문을 지나고 다음 관문(연결 없음)에 걸린다.
     rid = seeded['robots']['mine']
     headers = app_token(trial, username)
     with screen(trial, headers) as ws:
         result = reply(ws, send(ws, 'posture', rid, lease_id=str(uuid4()), action='stand_up'))
         assert result['ok'] is False
-        assert result['error']['code'] in ('ADMIN_NO_REAL_CONTROL', 'NOT_ROBOT_OWNER')
+        assert result['error']['code'] == ('NOT_ROBOT_OWNER' if username == 'two' else 'ROBOT_OFFLINE'), result
 
 
 def prepare(relay):

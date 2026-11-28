@@ -1,6 +1,6 @@
 # Go2 서버 경유 조종 시험 — 기본 꺼짐
 
-ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. 웹 담당 운영자 → 개발 서버의 기존 lease/arbiter → 이 PC가 밖으로 연 `fh-agent/2` WS → Go2Sink(`server`) → SDK/DDS 유선 NIC를 사용한다. 이 모드에는 폰 조종 리스너가 없으며, 총괄(ADMIN)은 실기 조종·STOP을 할 수 없다. 다른 운영자도 같은 조직의 STOP은 가능하다. `RobotSummary.server_drive_allowed`는 경로 표시용 bool이며 조종 권한을 대신하지 않는다.
+ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. 웹 담당 운영자 → 개발 서버의 기존 lease/arbiter → 이 PC가 밖으로 연 `fh-agent/2` WS → Go2Sink(`server`) → SDK/DDS 유선 NIC를 사용한다. 이 모드에는 폰 조종 리스너가 없으며, 총괄(ADMIN)도 같은 경로로 실기 조종·STOP을 한다(운영 결정 2026-11-28). 다른 운영자도 같은 조직의 STOP은 가능하다. `RobotSummary.server_drive_allowed`는 경로 표시용 bool이며 조종 권한을 대신하지 않는다.
 
 서버 조종에서는 `Go2Sink.drain`이 전후·옆·회전 속도를 축별로 조절한다. 정지 상태에서 최대 목표(전후 1.5 m/s, 옆 1.0 m/s, 회전 2.5 rad/s)까지 각 축은 2초 동안 일정하게 가속한다. 조합 키에서도 같은 비율을 적용한다. 키를 떼거나 목표 속력을 낮추면 최대에서 0까지 0.3초가 걸리는 비율로 감속한다. 반대 방향을 누르면 먼저 0까지 감속한 뒤 새 방향으로 가속한다.
 
@@ -419,7 +419,7 @@ StopMove는 펌웨어의 응답 코드도 반환하므로 자세·모드 관련 
 1. 두 모델의 안전 검토·통합 후 현장 담당자가 시험 공간과 비상 정지를 확보한다. USB-랜을 기체 전용으로 연결하고 네트워크 설정 화면에서 NIC와 중복 없는 유선 IPv4를 확인한다. Wi-Fi 인터넷은 유지한다. `ip -br link` / `ip -br -4 addr`는 조회만 한다. 기체 표기와 **실측 LowState DDS serial 두 정수의 `첫째-둘째` 형태**를 현장에서 대조한다. 추측한 serial이나 공유 NIC는 금지다. 다른 실기 조종 프로세스를 함께 켜지 않는다.
 2. 총괄이 기존 `POST /api/v1/robots`로 실기를 등록하고 담당 운영자를 배정한다(기본 simulation=false). 등록 응답의 agent_token 또는 `POST /api/v1/robots/{robot_id}/agent-token` 재발급 토큰을 비공개로 준비한다. 재발급은 이전 토큰을 폐기한다. 주소·토큰·UUID·serial 실값은 저장소/공유 로그에 쓰지 않는다.
 3. 이 PC 소유자의 비공개 파일(절대 경로, 소유자 일치, `chmod 600`, 단일 링크)에 승인 표식을 만든다. JSON 형식은 `{"v":1,"purpose":"go2-field-motion","nic":"<ROBOT_NIC>","robot_serial":"<DDS_SERIAL>","expires_at":<UNIX_SECONDS>}`이며 만료는 현재부터 최대 30분이다. 승인 표식만으로 실기 실행 허가가 생기지는 않는다.
-4. **배포 담당자**가 개발 서버의 `FH_SERVER_DRIVE_ROBOTS`에 이 시험 로봇 UUID만 넣고 기존 배포 절차를 따른다(여러 개면 쉼표 구분, 기본 빈 문자열). wildcard/잘못된 UUID는 허용하지 않는다. 목록 밖 실기는 기존 `PHONE_DIRECT_REQUIRED`, ADMIN은 `ADMIN_NO_REAL_CONTROL`로 거부된다. 작업자는 운영 env 변경·서버 재시작을 하지 않는다.
+4. **배포 담당자**가 개발 서버의 `FH_SERVER_DRIVE_ROBOTS`에 이 시험 로봇 UUID만 넣고 기존 배포 절차를 따른다(여러 개면 쉼표 구분, 기본 빈 문자열). wildcard/잘못된 UUID는 허용하지 않는다. 목록 밖 실기는 운영자 · 총괄 모두 `PHONE_DIRECT_REQUIRED`로 거부된다(운영 결정 2026-11-28로 `ADMIN_NO_REAL_CONTROL` 폐지). 작업자는 운영 env 변경·서버 재시작을 하지 않는다.
 5. 이 PC의 비공개 환경에 아래 이름을 설정한 뒤 에이전트를 시작한다. 값은 현장 담당자가 채우며 shell history·화면 공유에 토큰을 남기지 않는다.
 
    | 환경 이름 | 값/역할 |

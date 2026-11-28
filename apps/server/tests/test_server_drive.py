@@ -73,11 +73,13 @@ def test_trial_relay_lease_cmd_stop_admin_and_two_connections(trial, seeded):
             denied = reply(second, send(second, 'cmd', rid, lease_id=lease, seq=2, axes=[1,0,0]))
             assert denied['error']['code'] == 'LEASE_MISMATCH'
             assert reply(second, send(second, 'lease.take', rid))['error']['code'] == 'LEASE_HELD'
-            for kind, fields in [('lease.take', {}), ('stop', {}),
-                    ('cmd', dict(lease_id=lease, seq=2, axes=[1,0,0])),
+            # 운영 결정 2026-11-28: 총괄도 소유 관문을 지나지만 조종권 단일 보유 관문은 그대로다.
+            assert reply(tower, send(tower, 'lease.take', rid))['error']['code'] == 'LEASE_HELD'
+            for kind, fields in [('cmd', dict(lease_id=lease, seq=2, axes=[1,0,0])),
                     ('unlock', dict(lease_id=lease, stop_gen=3))]:
-                assert reply(tower, send(tower, kind, rid, **fields))['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
-            assert client.post(f'/api/v1/robots/{rid}/stop', headers=admin).json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+                assert reply(tower, send(tower, kind, rid, **fields))['error']['code'] == 'LEASE_MISMATCH'
+            assert client.post(f'/api/v1/robots/{rid}/stop', headers=admin).status_code == 202
+            receive(ag, 'stop')
             # Any operator in this organization retains STOP, including non-owner.
             assert client.post(f'/api/v1/robots/{rid}/stop', headers=other).status_code == 202
             receive(ag, 'stop')
