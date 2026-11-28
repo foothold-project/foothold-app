@@ -229,6 +229,18 @@ describe('관제 탭', () => {
     expect(tiles()).toHaveLength(20);
   });
 
+  it('지도 보기 이름표: 시뮬 로봇은 경고가 있어도 시안 K-08 꼴(파란 점선 · 상자 아이콘)', () => {
+    const R: Robot[] = [
+      { id: 'a1', name: 'K-21', owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'ERROR' },
+      { id: 's1', name: 'S-01', owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'ERROR', sim: true },
+    ];
+    mount('u-kim', R); feed(R);
+    act(() => { seg('보기', 1).click(); });
+    const mk = (id: string) => $(`.u5 .mks .mk3[data-r3="${id}"]`) as HTMLElement;
+    expect(mk('a1').classList.contains('r')).toBe(true);
+    expect(mk('s1').classList.contains('sim')).toBe(true);
+    expect(mk('s1').classList.contains('r')).toBe(false);
+  });
   it('작은 지도를 누르면 지도 보기로(팀장 11-28 · 시안 밖): 작은 지도 자리에서 자라 넘어감 · 위 단추로 가면 자라지 않음', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     const mini = $('.u5 .mini[data-to-map]') as HTMLElement;

@@ -22,7 +22,7 @@ class Tiles {
   scene = new THREE.Scene(); cam = new THREE.PerspectiveCamera(30, 1, 0.05, 1200);
   world = new THREE.Group(); body: Body | null = null; walk: Walk | null = null; cyber: THREE.ShaderMaterial | null = null;
   grid!: THREE.Points; gm!: THREE.ShaderMaterial; shadow!: THREE.Mesh; site: THREE.Group | null = null;
-  t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number][] = [];
+  t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number, number][] = [];
 
   add(c: HTMLCanvasElement, look: () => TileLook) {
     const v = { c, look }; this.views.add(v); this.start();
@@ -44,8 +44,8 @@ class Tiles {
     const s = this.scene;
     this.hemi = new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9); s.add(this.hemi);
     const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, 1.6); s.add(key);
-    const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); s.add(rim); this.rims.push([rim, 1.6]);
-    const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); s.add(rim2); this.rims.push([rim2, 0.8]);
+    const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); s.add(rim); this.rims.push([rim, 1.6, 0x00c389]);
+    const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); s.add(rim2); this.rims.push([rim2, 0.8, 0x4c9bff]);
     // 바닥 점(시안 glow · floor 0.5)
     const N = 44, step = 0.09, pts = new Float32Array(N * N * 3), half = (N * step / 2).toFixed(3), all = (N * step).toFixed(3);
     for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const k = (i * N + j) * 3; pts[k] = (i - N / 2) * step; pts[k + 2] = (j - N / 2) * step; }
@@ -98,7 +98,9 @@ class Tiles {
     if (this.cyber) this.cyber.uniforms.t.value = this.t;
     // 밝은 판: 현장 재질 · 땅 쪽 빛을 밝음 1 흰 점토 결로(타일 바탕은 u5.css .proto.light .cv)
     const light = lightNow(); this.hemi.groundColor.setHex(light ? 0xc8cfcb : 0x0c0f14);
-    for (const [l, k] of this.rims) l.intensity = light ? k * 0.12 : k;   // 민트 · 파랑 테두리 빛이 흰 점토 벽을 물들이지 않게 if (this.site) toneSite(this.site, light);
+    // 밝은 판: 민트 · 파랑 테두리 빛은 흰 빛으로 바꿔(벽이 물들지 않게) 카메라 쪽 면을 밝히고, 하늘 빛을 올려 흰 점토가 검게 죽지 않게
+    this.hemi.intensity = light ? 2.4 : 0.9;
+    for (const [l, k, c] of this.rims) { l.color.setHex(light ? 0xffffff : c); l.intensity = light ? k * 0.7 : k; } if (this.site) toneSite(this.site, light);
     for (const v of this.views) {
       const w = v.c.clientWidth, h = v.c.clientHeight;
       if (!w || !h) continue;
