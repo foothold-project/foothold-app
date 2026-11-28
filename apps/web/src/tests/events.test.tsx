@@ -112,6 +112,10 @@ const stopSends = async () => {
 /** 지금까지 예약된 setTimeout 중 ms 인 것의 콜백(마지막 것) */
 const timerOf = (spy: { mock: { calls: unknown[][] } }, ms: number) => { const c = spy.mock.calls.filter((a) => a[1] === ms); return c.length ? (c[c.length - 1][0] as () => void) : undefined; };
 
+/** 내보내기 창 기본 기간(최근 7 일, 현지) · 날짜 칸 값과 보내는 질의 */
+const WEEK = (() => { const d = new Date(), a = new Date(); a.setDate(d.getDate() - 6); return { from: a.toLocaleDateString('sv'), to: d.toLocaleDateString('sv') }; })();
+const WEEK_Q = () => ({ from: new Date(`${WEEK.from}T00:00:00`).toISOString(), to: new Date(`${WEEK.to}T23:59:59.999`).toISOString() });
+
 describe('기록 탭 — 서버 목록 그대로', () => {
   it('최신순 목록·서버 문장 그대로·분류 이름과 심각도 모양, 처음 요청은 필터 없이 limit=50', async () => {
     serve(signedIn(KIM, { 'GET /events': list([ev('9', { category: 'LINK', severity: 'ERROR', message: 'Go2-A과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.' }),
@@ -227,7 +231,9 @@ describe('기록 탭 · 기간', () => {
     await open('#/history');
     await click($('#n-export'));
     const dlg = card('기록 내보내기'), from = $<HTMLInputElement>('[aria-label="내보낼 기간 시작"]', dlg)!, to = $<HTMLInputElement>('[aria-label="내보낼 기간 끝"]', dlg)!;
-    expect([from.type, to.type]).toEqual(['date', 'date']);
+    // 시안 꼴 YYYY-MM-DD 글 칸(브라우저 언어 날짜 고르개 아님) · 필터에 기간이 없으면 최근 7 일을 채워 둠
+    expect([from.type, to.type, from.placeholder]).toEqual(['text', 'text', 'YYYY-MM-DD']);
+    expect([from.value, to.value]).toEqual([WEEK.from, WEEK.to]); expect(dlg.textContent).toContain('· 7 일');
     await setVal(from, '2026-10-05'); await setVal(to, '2026-10-01');
     expect(btn('내보내기', dlg)!.disabled).toBe(true);
     expect(dlg.querySelector('.inp')!.getAttribute('aria-invalid')).toBe('true');
@@ -440,11 +446,11 @@ describe('CSV 내보내기(u8_6 창 → u8_7 줄)', () => {
     await click(btn('사용자 작업', card('묶음')));
     await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-b');
     await exportNow();
-    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ category: 'ACCOUNT', robot_id: 'r-b' });
-    expect(saved).toEqual([{ href: 'blob:csv', download: expect.stringMatching(/^foothold-기록-\d{4}-\d\d-\d\d\.csv$/) }]);
+    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ category: 'ACCOUNT', robot_id: 'r-b', ...WEEK_Q() });   // 기간을 안 골랐으면 창이 채운 최근 7 일
+    expect(saved).toEqual([{ href: 'blob:csv', download: expect.stringMatching(/^foothold-기록-\d{4}-\d{4}\.csv$/) }]);   // 기간 파일 이름(시작 mmdd-끝 mmdd)
     expect(await ((URL.createObjectURL as ReturnType<typeof vi.fn>).mock.calls[0][0] as Blob).text()).toContain('id,at\n2,x');   // 서버 본문 그대로
     expect($('[role="dialog"]')).toBeNull();
-    expect($('[data-got]')!.textContent).toMatch(/^내려받음 · foothold-기록-\d{4}-\d\d-\d\d\.csv · \d+ B$/);
+    expect($('[data-got]')!.textContent).toMatch(/^내려받음 · foothold-기록-\d{4}-\d{4}\.csv · \d+ B$/);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv');   // 만든 URL 정리(R1)
     await click(btn('닫기', $('[data-hs-main] .tool')!));
     expect($('[data-got]')).toBeNull();

@@ -14,7 +14,7 @@ import { ApiFail, api, records } from '../api';
 import { idleSim, myRobots, robotStatus } from '../fake';
 import { inApp } from '../screens';
 import { useTheme } from '../theme';
-import { RunReport } from './runreport';
+import { RunReportU15 } from './runreport';
 import { fail, reason } from './records';
 import { BAD_DAY, NONE, QUICK, back, full, isEvent, namesOf, params, sentence, sevOf, shape, stamp, told, useEvents, why, type Filter, type HistoryCtx, type Names } from './history';
 
@@ -276,6 +276,14 @@ function EventView({ e, list, n, c, f, quick, back: leave, pick, fromBell }: { e
     setBusy(true); setErr('');
     try { setGot(await download(q, `foothold-기록-사건-${e.id}.csv`, c.cancel)); } catch (x) { if (!(x instanceof ApiFail && x.code === 'CANCELED')) setErr((x as Error).message); } finally { setBusy(false); }
   };
+  // u15_3 「내보내기」: 이 실행의 사건 CSV(GET /events/export.csv?run_id)
+  const [runBusy, setRunBusy] = useState(false), [runNote, setRunNote] = useState('');
+  const runCsv = async () => {
+    if (!e.run_id) return;
+    setRunBusy(true); setRunNote('');
+    try { const g = await download(new URLSearchParams({ run_id: e.run_id }), `foothold-기록-실행-${e.run_id}.csv`, c.cancel); setRunNote(`내려받음 · ${g.name} · ${bytes(g.size)}`); }
+    catch (x) { if (!(x instanceof ApiFail && x.code === 'CANCELED')) setRunNote(`내보내지 못했습니다. ${(x as Error).message}`); } finally { setRunBusy(false); }
+  };
   const d = dayOf(stamp(e)), runBtn = useRef<HTMLButtonElement>(null);
   const shut = () => { setRun(false); runBtn.current?.focus(); };   // 닫으면 초점은 누른 단추로
   return <>
@@ -298,7 +306,7 @@ function EventView({ e, list, n, c, f, quick, back: leave, pick, fromBell }: { e
     {err && <p className="u8-msg u8-ehmsg" role="alert">{err}</p>}
     {e.data?.clip === true ? <ClipView e={e} n={n} c={c} /> : <InfoView e={e} n={n} c={c} pick={pick} />}
     {run && e.run_id && <div className="dim" onClick={shut} />}
-    {run && e.run_id && <div className="g mdl u8-run" role="dialog" aria-label="실행 기록"><RunReport id={e.run_id} cancel={c.cancel} close={shut} /></div>}
+    {run && e.run_id && <RunReportU15 id={e.run_id} cancel={c.cancel} close={shut} robot={n.robot(e) || undefined} exp={{ busy: runBusy, note: runNote, go: runCsv }} />}
   </>;
 }
 /** 왼쪽 사건 줄(u8_2 .sev) */
@@ -339,7 +347,7 @@ function ClipView({ e, n, c }: { e: Ev; n: Names; c: HistoryCtx }) {
     <div className={`vid c${sim ? ' sim' : ''}`} data-clip-pane>
       {ready && <video ref={v} src={ready.url!} playsInline preload="metadata" onTimeUpdate={(x) => setT(S + x.currentTarget.currentTime)} onLoadedMetadata={(x) => setDur(x.currentTarget.duration || null)}
         onPlay={() => setPlay(true)} onPause={() => setPlay(false)} onEnded={() => setPlay(false)} />}
-      {ready && <span className="g dk ov" style={{ left: '18px', top: '18px' }}><Ic d={IC.video} s={16} />앞 카메라<small>서버가 만든 클립 · {(E - S).toFixed(1)} 초</small></span>}
+      {ready && <span className="g dk ov" style={{ left: '18px', top: '18px' }}><Ic d={IC.video} s={16} />{sim ? '시뮬 화면 녹화' : '앞 카메라'}<small>서버가 만든 클립 · {(E - S).toFixed(1)} 초</small></span>}
       {sim && <span className="g dk ov" style={{ right: '18px', top: '18px', borderStyle: 'dashed' }}>모의 실행</span>}
       {why && <p className="u8-vwhy" data-clip-why role="status">{why}{got?.status === 'PENDING' && got.clip_id && <> <button type="button" className="btns" onClick={() => again(got.clip_id!)}>다시 확인</button></>}</p>}
       <div className="tc"><small>{sub}</small>{full(at).slice(11)}.{String(new Date(at).getMilliseconds()).padStart(3, '0').slice(0, 1)}</div>
@@ -437,8 +445,19 @@ function Modal({ name, close, children }: { name: string; close: () => void; chi
 const pickOne = (cur: string, k: string) => (cur === '' ? k : cur === k ? '' : k);
 
 /** 내보내기 창(u8_6): 기간 · 묶음 · 등급 → 서버 CSV(export.csv). 형식 JSON · 클립 묶음은 서버에 없어 잠금 + 까닭. 내려받으면 목록 머리에 u8_7 줄 */
+/** 오늘에서 n 일 뒤(음수 = 앞) 현지 날짜 YYYY-MM-DD */
+const ymd = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv'); };
+/** 날짜 칸: 브라우저 언어 날짜 고르개 대신 시안 꼴 YYYY-MM-DD 글 칸. 다 쓴 값(있는 날짜)이나 빈 값만 넘긴다 */
+function DayBox({ label, value, set }: { label: string; value: string; set: (v: string) => void }) {
+  const [d, setD] = useState(value);
+  useEffect(() => setD(value), [value]);
+  const ok = (v: string) => v === '' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00`).toLocaleDateString('sv') === v);
+  return <input className="num u8-day" type="text" inputMode="numeric" maxLength={10} placeholder="YYYY-MM-DD" aria-label={label} value={d}
+    onChange={(x) => { const v = x.target.value; setD(v); if (ok(v)) set(v); }} onBlur={() => setD(value)} />;
+}
 function ExportModal({ c, f, close, done }: { c: HistoryCtx; f: Filter; close: () => void; done: (g: Got) => void }) {
-  const [from, setFrom] = useState(f.from), [to, setTo] = useState(f.to), [cat, setCat] = useState(f.category), [sev, setSev] = useState(f.severity);
+  // 시안 u8_6: 지금 필터에 기간이 있으면 그 기간, 없으면 최근 7 일(오늘 포함)을 채워 둔다
+  const [from, setFrom] = useState(() => (f.from || f.to ? f.from : ymd(-6))), [to, setTo] = useState(() => (f.from || f.to ? f.to : ymd(0))), [cat, setCat] = useState(f.category), [sev, setSev] = useState(f.severity);
   const [busy, setBusy] = useState(false), [err, setErr] = useState('');
   const late = !!from && !!to && from > to, days = from && to && !late ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : 0;
   const go = async () => {
@@ -453,7 +472,7 @@ function ExportModal({ c, f, close, done }: { c: HistoryCtx; f: Filter; close: (
     <div className="fm">
       <span>기간</span>
       <div className="inp u8-days" style={{ justifyContent: 'space-between' }} aria-invalid={late || undefined}>
-        <span className="row" style={{ gap: '6px' }}><input type="date" aria-label="내보낼 기간 시작" value={from} max={to || undefined} onChange={(x) => setFrom(x.target.value)} />~<input type="date" aria-label="내보낼 기간 끝" value={to} min={from || undefined} onChange={(x) => setTo(x.target.value)} />
+        <span className="row" style={{ gap: '6px' }}><DayBox label="내보낼 기간 시작" value={from} set={setFrom} />~<DayBox label="내보낼 기간 끝" value={to} set={setTo} />
           <span data-span>{days ? `· ${days} 일` : !from && !to ? '· 처음부터 지금까지' : ''}</span></span><Ic d={IC.cal} s={18} /></div>
       <span>묶음</span>
       <div className="ck" role="group" aria-label="내보낼 묶음">{GROUPS.filter((g) => g.k).map((g) => <button key={g.name} type="button" className={!cat || cat === g.k ? 'on' : undefined} aria-pressed={cat === g.k} onClick={() => setCat(pickOne(cat, g.k!))}>

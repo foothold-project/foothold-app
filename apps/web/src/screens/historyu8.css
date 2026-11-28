@@ -131,3 +131,18 @@
 .u8 .toast{position:absolute;left:50%;top:78px;transform:translateX(-50%);z-index:6;height:60px;padding:0 10px 0 20px;border-radius:18px;display:flex;align-items:center;gap:14px;font-size:14.5px;font-weight:700}
 .u8 .toast small{font-size:13px;font-weight:600;color:rgba(255,255,255,.7)}
 .u8 .toast .btns{height:42px;padding:0 14px;font-size:13.5px}
+
+/* 시안 u15_3 임무 보고서(proto/u15/u15_3_report.html <style> 값 그대로 · .u8 한 겹) */
+.u8 .md{position:absolute;z-index:21;border-radius:24px;background:linear-gradient(180deg,#1b2027,#14181e);border:1px solid rgba(255,255,255,.12);box-shadow:0 30px 80px rgba(0,0,0,.55);color:#fff}
+.u8 .md h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0}
+.u8 .md .sb{font-size:14px;font-weight:600;color:var(--mu2);margin-top:6px}
+.u8 .tbl{width:100%;border-collapse:collapse;font-size:14px}
+.u8 .tbl th{font-size:12.5px;font-weight:700;color:var(--mu2);text-align:left;padding:0 10px 10px;border-bottom:1px solid rgba(255,255,255,.1)}
+.u8 .tbl td{padding:12px 10px;border-bottom:1px solid rgba(255,255,255,.06);font-weight:600}
+.u8 .tbl td.n,.u8 .tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+.u8 .up{color:#f2b705}
+.u8 .md .ok{color:#00c389}
+.u8 .kp{flex:1;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);padding:14px 16px}
+.u8 .kp span{display:block;font-size:12.5px;font-weight:700;color:var(--mu2)}
+.u8 .kp b{display:block;font-size:24px;font-weight:800;margin-top:6px;letter-spacing:-.02em}
+.u8 .kp small{font-size:13px;font-weight:600;color:var(--mu2);margin-left:6px}
