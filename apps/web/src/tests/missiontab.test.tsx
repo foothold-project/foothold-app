@@ -119,6 +119,16 @@ describe('임무 탭(W2)', () => {
 
   // 시안 u15_2: 배정 · 실행은 오늘 일정 칸을 눌러 «실제 로봇 시작 전 점검» 창에서. 로봇은 그 칸의 로봇(sl2 = 시뮬 r2 · s2 배정 없음, sl1 = 실기 r1 · s2 ACTIVE)
   const preflight = async (slotId: string) => { await click($(`[data-slot="${slotId}"]`)); await click($('[data-preflight]')); expect($('[data-preflight-box]')).toBeTruthy(); };
+  it('u6_8: 오늘 일정 칸을 누르면 오른쪽에 그 칸의 시각 · 로봇을 읽기로 보이고 「새로 넣기 ›」 로 돌아감', async () => {
+    await mount('#/missions');
+    await click($('[data-slot="sl1"]'));
+    expect($('[data-slot-time="start"]')!.textContent).toBe('09:00'); expect($('[data-slot-time="end"]')!.textContent).toBe('10:00');
+    const r1 = $<HTMLButtonElement>('[data-robot="r1"]');
+    if (r1) { expect(r1.getAttribute('aria-pressed')).toBe('true'); expect(r1.disabled).toBe(true); }
+    expect($('[data-preflight]')).toBeTruthy();
+    await click($('[data-unpick]'));
+    expect($('[data-slot-time="start"]')).toBeNull(); expect($('[data-schedule-add]')).toBeTruthy();
+  });
   it('로봇에 배정(u15_2 점검 창): 이미 배정된 로봇은 배정 단추 없음 · POST /assignments(멱등 key) · 답 전엔 넘어가지 않음 · 답 뒤 다음 관문(조종권 잡기)', async () => {
     let done!: () => void;
     assignReply = (b) => new Promise((ok) => { done = () => ok(new Response(JSON.stringify({ id: 'as9', robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } })); });
