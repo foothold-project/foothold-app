@@ -473,7 +473,7 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
   it('보낼 때 끊겨 있던 로봇 · 접수 전에 «연결 끊김»(lost) 으로 확인된 로봇과 상태를 모르는 로봇은 줄을 따로, 글 전체', async () => {
     const bands = await acceptAfterReconnect([['r1', { connection: 'OFFLINE', status: 'STOP_LATCHED' }]]);   // r3 은 state 없음(wait)
     expect($('[data-stop-group="lost"]')!.getAttribute('data-stop-lost')).toBe('r1');
-    expect($('[data-stop-group="lost"]')!.textContent).toBe('▲ Go2-1 연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요.');
+    expect($('[data-stop-group="lost"]')!.textContent).toBe('▲ Go2-1 연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.');
     expect($('[data-stop-group="unknown"]')!.getAttribute('data-stop-unsure')).toBe('r3');
     expect($('[data-stop-group="unknown"]')!.textContent).toBe('▲ Go2-3 서버 접수 · 로봇 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요.');
     expect(bands).toHaveLength(2);
@@ -541,6 +541,32 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     await wait(50);
     expect(simStop).toHaveBeenCalledTimes(1);
     expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).sort()).toEqual(['POST /robots/r1/stop', 'POST /robots/r3/stop']);
+  });
+
+  it('H1 (Codex #535): 폰 목록에 실기가 한 대뿐이어도(대상 자동) 시뮬 화면 밖 · 서버 끊김 STOP 은 내 시뮬과 그 실기 둘 다', async () => {
+    serve();
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 'sim-x' } as ReturnType<typeof sim.live>);
+    const simStop = vi.spyOn(sim, 'stop').mockImplementation(() => undefined);
+    await home(ROBOTS.filter((r) => r.id === 'r3'), '#/history');
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(simStop).toHaveBeenCalledTimes(1);
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c))).toEqual(['POST /robots/r3/stop']);
+  });
+
+  it('M3 (Codex #535): 실기와 시뮬을 함께 멈추면 시뮬 쪽 결과(정리 확인 못 함)도 띠에 남는다', async () => {
+    serve();
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 'sim-x' } as ReturnType<typeof sim.live>);
+    vi.spyOn(sim, 'stop').mockImplementation(() => undefined);
+    const real = sim.get();
+    vi.spyOn(sim, 'get').mockReturnValue({ ...real, step: 'checking', slotBusy: false, stop: { at: 1, via: 'cleanup' } } as ReturnType<typeof sim.get>);
+    await home();
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).sort()).toEqual(['POST /robots/r1/stop', 'POST /robots/r3/stop']);
+    expect($('[data-sim-stop-band]')?.textContent).toContain('정리를 확인하지 못했습니다');
   });
 
   it('Q1: 시뮬 조종 화면 안(대상 = 시뮬)의 STOP 은 서버가 끊겨도 시뮬만', async () => {

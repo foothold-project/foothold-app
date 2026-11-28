@@ -256,7 +256,7 @@ describe('관제 탭', () => {
     const first = pick.querySelector('select')!.options[0];
     expect(first.textContent).toBe('모두 정지 (10 대 · 끊김 1)');
     expect(first.selected).toBe(true);
-    expect(pick.querySelector('[data-stop-lost="g4"]')!.textContent).toContain('K-05 연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요');
+    expect(pick.querySelector('[data-stop-lost="g4"]')!.textContent).toContain('K-05 연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.');
     press(stopBtn());
     const sent = FakeWS.last.of('stop').map((m) => m.robot);
     expect(new Set(sent)).toEqual(new Set(T.filter((r) => r.owner === 'u-lee').map((r) => r.id)));
@@ -265,7 +265,40 @@ describe('관제 탭', () => {
     expect(bands).toHaveLength(10);
     const lostBand = bands.find((b) => b.textContent!.includes('K-05'))!;   // 끊긴 로봇은 붙은 로봇과 같은 성공 표시가 아님
     expect(lostBand.dataset.stopLost).toBe('g4');
-    expect(lostBand.textContent).toContain('K-05 연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요');
+    expect(lostBand.textContent).toContain('K-05 연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.');
+  });
+  // Codex #535 H2 (11-28): 끊긴 로봇에 «다시 연결되면 멈춤» 을 약속하지 않는다 · 다시 붙어도 잠금(새 세대) 확인 전에는 경고를 지우지 않는다
+  const NOT_SENT = '연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
+  it('H2: 끊긴 로봇 모두 정지 · 약속 없는 문구, 다시 ONLINE 만으로는 경고가 남고, latched + 세대가 오른 뒤에만 지움', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));
+    mount('u-lee', T); feed(TWENTY);   // 끊기기 전: g4 는 세대 1 을 알렸다
+    act(() => { FakeWS.last.recv(state('g4', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
+    root!.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={T} />);
+    press(stopBtn());
+    expect($('[aria-label="정지할 로봇 고르기"] [data-stop-lost="g4"]')!.textContent).toBe(`▲ K-05 ${NOT_SENT}`);
+    press(stopBtn());
+    const band = () => $$('[data-stop-band]').find((b) => b.textContent!.includes('K-05'))!;
+    expect(band().textContent).toBe(`▲ K-05 ${NOT_SENT}`);
+    expect(box.textContent).not.toContain('다시 연결되면 멈춤');
+    act(() => { FakeWS.last.recv(state('g4', { status: 'RUNNING', latched: false, stop_gen: 1 })); });   // 다시 붙음 · 잠금 없음
+    expect(band().textContent).toBe(`▲ K-05 ${NOT_SENT}`);
+    act(() => { FakeWS.last.recv(state('g4', { status: 'STOP_LATCHED', latched: true, stop_gen: 1 })); });   // 잠금이지만 세대 그대로 = 이 STOP 이 아님
+    expect(band().textContent).toBe(`▲ K-05 ${NOT_SENT}`);
+    act(() => { FakeWS.last.recv(state('g4', { status: 'STOP_LATCHED', latched: true, stop_gen: 2, applied: [0, 0, 0] })); });   // 새 세대 잠금
+    expect(band().textContent).not.toContain(NOT_SENT);
+  });
+  // Codex #535 M4: 서버 경유가 꺼진(SWITCH_OFF) 실기는 서버가 STOP 을 PHONE_DIRECT_REQUIRED 로 거절한다 → 모두 정지에 세지 않고 «현장 폰» 한 줄
+  it('M4: 서버 경유 정지가 꺼진 실기는 «모두 정지» 대수 · 보냄에서 빠지고 현장 폰 안내 한 줄', () => {
+    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r));
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    expect(pick.querySelector('select')!.options[0].textContent).toBe('멈출 수 있는 로봇 모두 정지 (9 대)');
+    expect(pick.querySelector('[data-phone-only]')!.textContent).toBe('K-07 은 서버 경유 정지가 꺼져 있어 여기서 멈출 수 없습니다 · 현장 폰에서 멈추세요');
+    press(stopBtn());
+    const sent = FakeWS.last.of('stop').map((m) => m.robot);
+    expect(sent).toHaveLength(9);
+    expect(sent).not.toContain('g6');
   });
   it('R3: «모두»에서 남의 로봇을 고른 뒤 «내 로봇»으로 되돌리면 고름이 비고, STOP 한 번은 숨은 로봇이 아니라 고르기', () => {
     mount('u-lee', TWENTY); feed(TWENTY);
@@ -331,7 +364,7 @@ describe('관제 탭', () => {
 
   // Sonnet 검토 fb668832 (05:38): A1 링크 끊김 · 첫 state 전 · A2 한 대 끊김 · A3 시뮬 결과 띠 · A4 초점 · A5 거르기
   const UNSURE = '상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요';
-  const LOST = '연결 끊김 · 정지가 아직 닿지 않음 · 다시 연결되면 멈춤 · 현장에서 멈추세요';
+  const LOST = '연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
   const SIM = { robot_id: 'sx', generation: 1, owner_id: 'u-lee', world_id: 'w', simulation: true, state: 'RUNNING', agent_address: '' } as never;
   it('A1: 첫 state 전(wait)이어도 정지 가능 로봇은 모두 정지에 들고, 그 줄은 «상태 모름»으로 따로', () => {
     mount('u-lee', TWENTY); act(() => { FakeWS.last.open(); });   // 구독은 됐지만 state 0
