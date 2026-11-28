@@ -4,7 +4,11 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Live } from '../rt';
-import { DriveLine, EmptyLog, EmptyMap, EmptyRobots, TakeoverAsk, driveLine, remoteWhy } from '../proto/u11';
+import { DriveLine, EmptyLog, EmptyMap, EmptyRobots, TakeoverAsk, askShown, driveLine, remoteWhy } from '../proto/u11';
+import { App } from '../App';
+import { rt } from '../rt';
+import { USERS, type Robot } from './fixtures';
+import { FakeWS, lease, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null, box: HTMLDivElement;
@@ -59,3 +63,35 @@ describe('u11 겹 부품', () => {
     expect($('[data-empty="robots"] svg.art').children.length).toBeGreaterThan(0);
   });
 });
+
+describe('u11_1 조종권 요청 창 · PC 시안 틀 어느 탭에서나', () => {
+  const R: Robot[] = [{ id: 'r1', name: 'K-01', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'IDLE', serverDrive: true }];
+  let unwatch: (() => void) | null = null;
+  afterEach(() => { act(() => unwatch?.()); unwatch = null; askShown.clear(); });
+  /** 조종권은 그 로봇을 보는 조종 화면(rt.watch)이 있을 때만 남는다. 시안 u4 로봇 화면이 보는 것처럼 watch 를 건다 */
+  const mount = (hash: string) => {
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    location.hash = hash; box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={R} />); });
+    act(() => { unwatch = rt.watch('r1'); FakeWS.last.open(); FakeWS.last.recv(state('r1')); FakeWS.last.recv(lease('r1', { id: 'u-lee', name: '이OO' }, 'L1')); });
+  };
+  const ask = { t: 'lease.requested', robot: 'r1', request_id: 'q1', requester: { display_name: '운영자 A', role: 'OPERATOR' }, expires_at: new Date(Date.now() + 10_000).toISOString() };
+  it('옛 조종 화면이 없는 탭(시안 u4 로봇 화면 자리)에서 내 로봇에 온 요청 = 시안 창, 넘기기 = lease.respond 수락 · 머리줄 STOP 은 그대로', () => {
+    mount('#/map');
+    expect(rt.get('r1').lease).toBe('L1');
+    expect(box.querySelector('[data-takeover-ask]')).toBeNull();
+    act(() => { FakeWS.last.recv(ask); });
+    const d = box.querySelector<HTMLElement>('[data-takeover-ask]')!;
+    expect(d.textContent).toContain('운영자 A 님이 K-01 조종권을 요청했습니다');
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
+    act(() => { d.querySelector('[data-give]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+    expect(FakeWS.last.sent.filter((m) => m.t === 'lease.respond').map((m) => [m.request_id, m.accept])).toEqual([['q1', true]]);
+  });
+  it('옛 조종 화면(drive.tsx)이 그 로봇을 그리는 동안은 그 화면 창에 맡김(겹치지 않음)', () => {
+    askShown.add('r1');
+    mount('#/map');
+    act(() => { FakeWS.last.recv(ask); });
+    expect(box.querySelector('[data-takeover-ask]')).toBeNull();
+  });
+});
+

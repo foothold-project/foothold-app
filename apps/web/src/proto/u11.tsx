@@ -3,7 +3,7 @@
 // 버튼은 기존 동작만 부른다(rt.respond · rt.cancel). Enter · Space 로는 고르지 않는다(Space = 정지 키, 시안 u11_1 문구).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Device } from '../../../contracts/ts';
-import type { Link, Live } from '../rt';
+import { rt, type Link, type Live } from '../rt';
 import './u11.css';
 
 const I = (w: number, d: ReactNode) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${w}px`, height: `${w}px` }}>{d}</svg>;
@@ -32,6 +32,18 @@ export function TakeoverAsk({ robot, q, now, answer }: { robot: string; q: NonNu
         <button type="button" className="btnp mbtn" style={{ flex: '1 1 0' }} onKeyDown={noKey} onClick={(e) => { if (e.detail) answer(true); }} data-give>{I(18, SWAP)}넘기기</button></div>
       <p style={{ fontSize: '12.5px', color: '#5e6662', fontWeight: 600, marginTop: '14px' }}>넘기면 로봇을 그 자리에 세워 잠근 뒤 조종권이 넘어갑니다.</p>
     </div></>;
+}
+
+/** 옛 조종 화면(drive.tsx Drive)이 지금 그리고 있는 로봇. 그 화면은 자기 요청 창(.dv-ask)을 그리므로 PcAsk 는 비켜 준다 */
+export const askShown = new Set<string>();
+/** PC 시안 틀 어느 탭에서나 u11_1: 내가 조종 중인 로봇에 온 요청(rt.incoming). 답은 rt.respond 만. 남은 시간이 지나면 창을 내림(판정은 서버) */
+export function PcAsk({ robots }: { robots: readonly { id: string; name: string }[] }) {
+  const r = robots.find((x) => { const l = rt.get(x.id); return !!l.lease && !!l.incoming && !askShown.has(x.id); });
+  const q = r ? rt.get(r.id).incoming : null;
+  const [now, setNow] = useState(() => rt.now());
+  useEffect(() => { if (!q) return; setNow(rt.now()); const t = setInterval(() => setNow(rt.now()), 250); return () => clearInterval(t); }, [q?.id]);
+  if (!r || !q || q.until <= now) return null;
+  return <TakeoverAsk robot={r.name} q={q} now={now} answer={(accept) => rt.respond(r.id, accept)} />;
 }
 
 /** 에이전트가 보낸 «화면 조종이 막힌 까닭» 줄(driveinput.tsx 와 같은 key) 중 리모컨 쪽이면 그 글(시안 u11_4). 글은 에이전트 것 그대로 */

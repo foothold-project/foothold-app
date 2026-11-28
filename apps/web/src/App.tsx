@@ -29,7 +29,7 @@ import { Trash } from './screens/trash';
 import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
 import { BellFace, PcBar, STOP_FACE } from './proto/bar';
-import { EmptyRobots } from './proto/u11';
+import { EmptyRobots, PcAsk } from './proto/u11';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -431,6 +431,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         {bandEl}
         <div className="fh-body">{mainEl}</div>
       </div>}
+      {/* 시안 u11_1: 내가 조종 중인 로봇에 조종권 요청이 오면 어느 탭에서나 창(머리줄 STOP 은 창 위에 그대로) */}
+      <Guard quiet><PcAsk robots={pool} /></Guard>
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
     </div>;
   }
