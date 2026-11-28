@@ -2762,6 +2762,9 @@ describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
     expect(zs).toContain(79);
     expect(z).toBeGreaterThan(Math.max(...zs));
     expect(u1AppCss).toMatch(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*position:absolute;inset:0;[^}]*pointer-events:none/);
+    // 화면 전체를 덮는 머리줄이 shell.css 폰 머리줄의 backdrop-filter(blur 20px)를 받으면 조종 판 전체가 흐려진다(미리보기 5195 사진)
+    expect(u1AppCss).toMatch(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*backdrop-filter:none;-webkit-backdrop-filter:none/);
+    expect(u1AppCss).toMatch(/\.u1d \.pane \.u1-sheets\{position:static;transform:none;/);   // 칩 펼침 시트 줄이 drive.css .dv-sheets 절대 위치로 「걷기」 줄을 덮지 않게(사진)
     // 정지 칸: 오른쪽 아래 92 × 68 · 오른쪽 위 줄처럼 safe-area 만큼 안쪽(가로 노치 · 홈 막대)
     expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\{[^}]*pointer-events:auto;[^}]*right:calc\(12px \+ env\(safe-area-inset-right,0px\)\);bottom:calc\(12px \+ env\(safe-area-inset-bottom,0px\)\);width:92px;height:68px/);
     expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.u1-top\{[^}]*right:calc\(12px \+ env\(safe-area-inset-right,0px\)\)/);
