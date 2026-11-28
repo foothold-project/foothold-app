@@ -6,6 +6,7 @@ import type { Session, User } from '../../../contracts/ts';
 import { HAS_ROBOTS, LAST_ADMIN, PW_DONE, SIM_MODELS, TAKEN, tempPassword } from '../screens/settings';
 import { Root } from '../session';
 import { setThemePref } from '../theme';
+import { en } from '../lang';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -337,11 +338,17 @@ describe('설정 묶음(U9-04 시안 배치)', () => {
     expect(await names('controls')).toEqual([]);
     expect(await names('robot')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s', 'battery_low_pct', 'run_min_battery_pct', 'deviation_m',
       'sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
+    expect(legacy().querySelector('input[name="link_loss_wait_s"]')!.closest('label')!.textContent).toContain('임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.');
+    expect(en('실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.')).toBe('Real robot via server: hold forward/back, sideways or turn and it speeds up to top speed over 2 s; release and it stops within 0.3 s.');
+    expect(en('임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.')).toBe('If the server link drops during a mission and this time passes, the robot is stop-latched and the mission stops. Values under 3 s are still judged after 3 s.');
     expect(legacy().querySelector('[aria-label="조직 기준값"]')).not.toBeNull();
     expect(legacy().querySelector('section[aria-label="로봇"]')).not.toBeNull();
     expect(await names('safety')).toEqual(['real_max_vx', 'real_max_vx_back', 'real_max_vy', 'real_max_wz', 'real_no_fast_server_drive']);
     expect(legacy().querySelector('[aria-label="고정 안전값"]')).not.toBeNull();
     expect(legacy().textContent).toContain('켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP');
+    // reviewer 21:29: 2 초 가속은 세 축 모두 · 멈춤 0.3 초(S4), 연결 끊김 대기 = 임무 중 끊김 → 정지 잠금 · 3 초 아래는 3 초(R2)
+    expect(legacy().textContent).toContain('실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.');
+    expect(legacy().textContent).not.toContain('회전 키나 단추를 누르고 있으면');
     await go('account'); expect($('[aria-label="내 계정"]')).not.toBeNull();
     await go('users'); expect($('[aria-label="사용자"]')).not.toBeNull();
     expect($('main [data-bell]')).toBeNull();   // 머리줄 종은 설정 화면 밖
