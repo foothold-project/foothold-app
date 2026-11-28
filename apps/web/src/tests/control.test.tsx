@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, badgeDot, facts, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { WALK_MIN_SPEED, badgeDot, facts, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -16,6 +16,7 @@ import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
 import { eunNeun, idleSim, toRobot } from '../fake';
 import u5Css from '../proto/u5.css?raw';
+import u5Src from '../proto/u5.tsx?raw';
 import { fleetRow } from './fleetRow';
 import { en } from '../lang';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
@@ -491,6 +492,23 @@ describe('관제 탭', () => {
     expect(walking('walk', '일시정지', 0.4)).toBe(false);
     expect(walking('lie', null, 0.4)).toBe(false);
     expect(walking('lost', null, 0.4)).toBe(false);
+  });
+  it('관절 보간: 도착 시각 기준 선형 · 떨림은 간격 평균 · 값이 안 오면 마지막 값에 멈춤 · 없어지면 null', () => {
+    const L0 = jointLerp(), L = (q: number[] | null, t: number) => L0(q, t)!, A = Array(12).fill(0), B = Array(12).fill(1), C = Array(12).fill(2);
+    expect(L(A, 0)).toEqual(A);                     // 첫 값은 그대로
+    expect(L(A, 50)).toEqual(A);                    // 같은 값 = 새 값 아님
+    expect(L(B, 100)[0]).toBeCloseTo(0);            // 새 값 도착 순간은 지금 자세에서 출발
+    expect(L(B, 150)[0]).toBeCloseTo(0.5);          // 간격 100 ms(평균) 의 반
+    expect(L(B, 200)[0]).toBeCloseTo(1);
+    expect(L(B, 900)[0]).toBe(1);                   // 다음 값이 안 오면 마지막 값에 멈춤(넘어가지 않음)
+    const L1 = jointLerp(), L2 = (q: number[] | null, t: number) => L1(q, t)!; L2(A, 0); L2(B, 100); expect(L2(C, 150)[0]).toBeCloseTo(0.5);   // 이르게(50 ms) 온 값: 그리던 자세(0.5)에서 이어감 · 튀지 않음
+    expect(L2(C, 150 + 42.5)[0]).toBeCloseTo(1.25);   // 간격 평균 85 ms(100·0.7 + 50·0.3) 의 반 → 0.5 + 1.5/2
+    expect(L2(C, 150 + 85)[0]).toBeCloseTo(2);
+    expect(L2(null, 300)).toBeNull(); expect(L2(C, 310)).toEqual(C);   // 값이 없어지면 null, 다시 오면 처음부터
+  });
+  it('구독하지 않는 로봇(summary)도 관절값이 오면 관절을 먼저 쓴다(갈래로 막지 않음)', () => {
+    expect(u5Src).not.toMatch(/summary \? null : jointsNow/);
+    expect(u5Src).toMatch(/q: lerp\(jointsNow\(id\), rt\.now\(\)\)/);
   });
   // 팀장 20:55: Go2 X 가 일어섰는데 앉아 있게 그려졌다(잠금 상태 = 엎드림이 관절 · 자세 보고보다 앞섬) → 관절 > 자세 보고 > 상태 > 선 자세
   it('자세 순서: 서버 관절이 오면 관절 · 없으면 자세 보고(STANDING 이면 잠금이어도 서 있음) · 보고도 없을 때만 상태(잠금 = 엎드림)', () => {

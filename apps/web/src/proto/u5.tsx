@@ -106,6 +106,23 @@ export const WALK_MIN_SPEED = 0.05;
 export const walking = (act: string, paused: string | null, speed: number | null | undefined) => (act === 'walk' || act === 'stand') && !paused && typeof speed === 'number' && speed >= WALK_MIN_SPEED;
 /** 서버 관절 12 개(로봇 탭 · 옛 관제 3D 와 같은 go2Pose 판정: ONLINE · 받은 지 1 초 안 · age_s ≤ 1). 없으면 null */
 export const jointsNow = (id: string) => { const l = rt.get(id); return go2Pose(l.state, rt.now() - l.stateAt <= REPORT_STALE_MS)?.q ?? null; };
+/** 관절 보간(서버 최대 10 Hz · 약 0.1 s 떨림): 새 값이 «도착한 화면 시각»을 기준으로 마지막 두 값 사이를 선형으로 잇는다.
+ *  지금 그리는 자세에서 새 값까지를 도착 간격(떨림을 줄이려 지수 평균 · 50~300 ms)에 걸쳐 옮기고, 다음 값이 안 오면 마지막 값에 멈춘다(앞질러 짐작하지 않음).
+ *  값이 없어지면(1 초 넘게 묵음 · 끊김) null = 기존 규칙대로 걷기 기록 */
+export function jointLerp() {
+  let from: number[] | null = null, to: number[] | null = null, at = 0, gap = 100;
+  const blend = (t: number) => { if (!from || !to) return to; const k = Math.min(1, Math.max(0, (t - at) / gap)); return to.map((v, i) => from![i] + (v - from![i]) * k); };
+  return (q: number[] | null, t: number): number[] | null => {
+    if (!q) { from = to = null; return null; }
+    if (!to) { from = to = q; at = t; return q; }
+    if (q !== to && q.some((v, i) => v !== to![i])) {   // 새 값이 왔다(같은 관절값이 다시 온 state 는 새 값이 아님)
+      const was = blend(t)!, d = t - at;
+      if (d > 0) gap = Math.min(300, Math.max(50, gap * 0.7 + d * 0.3));
+      from = was; to = q; at = t;
+    }
+    return blend(t);
+  };
+}
 /** 관절이 없을 때 엎드림으로 그릴지: 자세 보고(posture) 가 먼저 · 보고가 없을 때만 상태(잠금 · 오류) · 충전 중은 엎드림.
  *  순서 = 관절 > 자세 보고 > 상태 > 선 자세(팀장 20:55 «Go2 X 가 일어섰는데 앉아 있게 그려진다») */
 export const lying = (f: Pick<TileFacts, 'x' | 'act' | 'charging'>) => {
@@ -237,9 +254,10 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
   const v = tileView(f, front, locOf(f), boards);
   const down = lying(f), pad = tilePad(f);
   look.current = { pose: v.pose, front: v.front, cyber: f.sim, walk: f.walk, down, hot: hotMap, pad, breathe: tileBreathe(f, down) };
-  const id = f.x.id, summary = f.x.unknown === 'summary';
-  // 서버 관절은 그릴 때마다 새로 읽는다(같은 화면 값이면 다시 그리지 않아도 관절은 바뀜 · 1 초 넘게 묵으면 버림)
-  useEffect(() => (ref.current ? tileGl().add(ref.current, () => ({ ...look.current, q: summary ? null : jointsNow(id) })) : undefined), []);
+  const id = f.x.id;
+  // 서버 관절은 그릴 때마다 새로 읽어 보간한다(같은 화면 값이면 다시 그리지 않아도 관절은 바뀜 · 1 초 넘게 묵으면 버림).
+  // 구독하지 않는 로봇(unknown 'summary')은 state 가 오지 않아 jointsNow 가 null = 걷기 기록. 관절값이 오면 그 갈래와 상관없이 관절이 먼저
+  useEffect(() => { if (!ref.current) return undefined; const lerp = jointLerp(); return tileGl().add(ref.current, () => ({ ...look.current, q: lerp(jointsNow(id), rt.now()) })); }, []);
   const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, scene: v.pose ? 'site' : 'dots', yaw: v.front ? 0 : 'back', dist: v.front ? FRONT_DIST : REAR_DIST, ...(pad && !v.pose ? { pad } : {}), ...(down ? { pose: 'down' } : {}), floor: 0.5 });
   const showFront = v.front;
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
