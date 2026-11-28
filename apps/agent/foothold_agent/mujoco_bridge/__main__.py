@@ -4,7 +4,8 @@ Environment (fail-closed, no defaults for credentials):
   FOOTHOLD_AGENT_WS_URL, FOOTHOLD_AGENT_TOKEN  same as every agent (link.client.Settings)
   FH_SIM_SRC                                   MuJoCo wasm / policy / Go2 assets for the child
   FH_SIM_MAP (collapsed-house-v2), FH_SIM_SEED (0), FH_SIM_NODE (node)
-  FH_SIM_BATTERY_START (100), FH_SIM_BATTERY_DRAIN (%/s of sim time, 0.0139)
+  FH_SIM_BATTERY_START (100, start SoC %), FH_SIM_AMBIENT_C (25, joint motor ambient degC).
+  Battery and joint temperatures are integrated by the child from MuJoCo torques (apps/simagent/vitals.mjs).
   FH_SIM_STATE_LOG (optional JSON-lines tap of child states for validation tools)
   FH_SIM_READY_FILE (optional; simmgr MujocoLauncher) gets this pid once the server WS opened
   Scenario runs (server run.start, 11/28): all of FH_SIM_ROBOT_ID, FH_SIM_ORG_ID, FH_SIM_MAP_BINDINGS
@@ -34,7 +35,7 @@ def child_command(env):
     return [node, str(CHILD), '--map', env.get('FH_SIM_MAP', 'collapsed-house-v2'),
             '--seed', env.get('FH_SIM_SEED', '0'),
             '--battery-start', env.get('FH_SIM_BATTERY_START', '100'),
-            '--battery-drain', env.get('FH_SIM_BATTERY_DRAIN', '0.0139')]
+            '--ambient-c', env.get('FH_SIM_AMBIENT_C', '25')]
 
 
 UNAVAILABLE = 'MuJoCo bridge has no scenario step executor yet'

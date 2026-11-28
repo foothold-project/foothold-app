@@ -3,8 +3,11 @@
 The child speaks one JSON object per line (apps/simagent/README.md). Its state
 lines use the Gazebo `/v2_live/state` schema, so ros_bridge.Inputs, StateGate,
 Telemetry and RosSink are reused unchanged: the safety contract stays in Python.
-Only the transport (pipes instead of DDS topics) and two sim-only measurements
-(battery soc, battery device) are added here.
+Only the transport (pipes instead of DDS topics) and the sim's own measurements are added
+here: battery soc and joint motor temperatures, both integrated by the child from MuJoCo's
+joint torques and velocities (apps/simagent/vitals.mjs), plus their devices. Temperatures
+go out in the same field as the real Go2 (AgentState.robot_info.temperature, int degC,
+SDK motor order).
 """
 
 import asyncio
@@ -21,21 +24,39 @@ from foothold_agent.ros_bridge.sink import RosSink
 from foothold_agent.ros_bridge.telemetry import Telemetry
 
 # key -> (kind, label); same descriptor shape as ros_bridge SENSOR_TOPICS.
-DEVICES = {'sim-battery': ('BATTERY', '시뮬 배터리')}
+DEVICES = {'sim-battery': ('BATTERY', '시뮬 배터리'), 'sim-joint-temp': ('OTHER', '시뮬 관절 온도')}
 FIRST_STATE_TIMEOUT = 30.0  # wasm compile + world load on a cold start
 MAX_LINE = 65536
 
 
+def joint_temperatures(raw):
+    """Child joint_temp_c (12 finite degC, SDK order) -> contract ints, or None."""
+    values = raw.get('joint_temp_c') if isinstance(raw, dict) else None
+    if not isinstance(values, list) or len(values) != 12 or not all(finite(v) for v in values):
+        return None
+    return [round(v) for v in values]
+
+
 class SimTelemetry(Telemetry):
-    """Adds the child's simulated battery; expires with the same STATE_STALE rule."""
+    """Adds the child's simulated battery and joint temperatures; both expire with STATE_STALE."""
 
     battery = None  # (soc, received_monotonic_s)
+    temperature = None  # (12 int degC SDK order, received_monotonic_s)
 
     def snapshot(self):
         snapshot = super().snapshot()
-        if (self.battery is not None and snapshot['observation'] is not None
-                and 0 <= self.now() - self.battery[1] <= STATE_STALE):
+        live = snapshot['observation'] is not None
+        if live and self.battery is not None and 0 <= self.now() - self.battery[1] <= STATE_STALE:
             snapshot['battery'] = {'soc': self.battery[0]}
+        if live and self.temperature is not None and 0 <= (age := self.now() - self.temperature[1]) <= STATE_STALE:
+            # Same Go2RobotInfo/Go2Temperature shape the real agent sends (go2_direct/reporting.py).
+            # The contract's only source value is 'GO2_DDS'; RobotSummary.simulation marks this robot.
+            # Attitude/error/fallen are not modelled here, so they stay unknown (None), never invented.
+            snapshot['robot_info'] = dict(
+                source='GO2_DDS', attitude=dict(roll=None, pitch=None), error_code=None, fallen=None,
+                fallen_source='imu_tilt_estimate',
+                temperature=dict(joints=list(self.temperature[0]), battery=[None] * 4, imu=None,
+                                 body=[None, None], age_s=age))
         return snapshot
 
 
@@ -45,6 +66,10 @@ class SimInputs(Inputs):
         if battery is not None:
             self.telemetry.battery = battery
             self.devices['sim-battery'] = battery[1]
+        temperature = bundle.pop('temperature', None)
+        if temperature is not None:
+            self.telemetry.temperature = temperature
+            self.devices['sim-joint-temp'] = temperature[1]
         super()._consume(bundle)
 
     def device_snapshot(self):
@@ -166,6 +191,9 @@ class MujocoNode:
                 soc = raw.get('battery_soc') if isinstance(raw, dict) else None
                 if finite(soc) and 0 <= soc <= 100:
                     self.inputs.mailbox.put(battery=(float(soc), received))
+                temperature = joint_temperatures(raw)
+                if temperature is not None:
+                    self.inputs.mailbox.put(temperature=(temperature, received))
                 self.inputs.state(text, received)
                 status = self._map_status(raw)
                 if status is not None:

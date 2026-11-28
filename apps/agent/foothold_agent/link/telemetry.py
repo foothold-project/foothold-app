@@ -61,4 +61,9 @@ def project(snapshot, now):
         result["battery"]["soc"] = battery["soc"]
         if number(battery.get("voltage")) and battery["voltage"] >= 0:
             result["battery"]["voltage"] = battery["voltage"]
+    # Display readout (Go2RobotInfo shape) only when the producer put one in the
+    # snapshot, e.g. the MuJoCo bridge's joint temperatures; ros_bridge never does.
+    info = snapshot.get("robot_info")
+    if isinstance(info, dict):
+        result["robot_info"] = info
     return deepcopy(result)

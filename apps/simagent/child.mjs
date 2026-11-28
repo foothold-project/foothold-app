@@ -7,14 +7,16 @@ import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline';
 import { POLICY_DT } from '../../mobile/sim/sim.js';
 import { loadWorld } from './world.mjs';
+import { createVitals } from './vitals.mjs';
 
 const { values: a } = parseArgs({ options: {
   map: { type: 'string', default: 'collapsed-house-v2' }, seed: { type: 'string', default: '0' },
   spawn: { type: 'string' }, // 'x,y,yaw' (월드 m · rad). 없으면 지도 기본 출발 자리
-  'battery-start': { type: 'string', default: '100' }, 'battery-drain': { type: 'string', default: '0.0139' }, // %/s (시뮬 시각) · 기본 = 2 시간에 100 %
+  'battery-start': { type: 'string', default: '100' }, // 시작 SoC % (배터리는 vitals.mjs 가 토크 · 속도로 줄인다)
+  'ambient-c': { type: 'string', default: '25' }, // 관절 모터 주변 온도 °C
 } });
-const seed = Number(a.seed), socStart = Number(a['battery-start']), drain = Number(a['battery-drain']);
-if (!Number.isInteger(seed) || !(socStart >= 0 && socStart <= 100) || !(drain >= 0 && drain <= 100)) throw new Error('--seed 정수 · --battery-start 0~100 · --battery-drain 0~100');
+const seed = Number(a.seed), socStart = Number(a['battery-start']), ambientC = Number(a['ambient-c']);
+if (!Number.isInteger(seed) || !(socStart >= 0 && socStart <= 100) || !(ambientC > -40 && ambientC < 80)) throw new Error('--seed 정수 · --battery-start 0~100 · --ambient-c (-40, 80)');
 
 const SCHEMA = 'v2_live/state/1', STATE_S = 0.05, CMD_TTL_S = 0.5, Z = [0, 0, 0];
 const LIMIT = [1.5, 1.0, 2.0]; // |vx| m/s · |vy| m/s · |wz| rad/s 밖이면 잘못된 줄
@@ -22,6 +24,14 @@ const spawnXyYaw = a.spawn === undefined ? null : a.spawn.split(',').map(Number)
 if (spawnXyYaw && (spawnXyYaw.length !== 3 || !spawnXyYaw.every(Number.isFinite))) throw new Error('--spawn x,y,yaw');
 const world = await loadWorld({ simSrc: process.env.FH_SIM_SRC, mapId: a.map, seed, spawnXyYaw });
 const sim = world.sim;
+// 배터리 · 관절 온도: 물리 한 걸음마다 MuJoCo 가 낸 관절 힘 (qfrc_actuator, 자유관절 6 칸 뒤 12 관절) 과 속도 (qvel) 를 적분.
+// 리셋 (출발 자리로) 해도 배터리 · 온도는 이어진다 (같은 몸).
+const vitals = createVitals({ socStart, ambientC });
+const physStep = sim.physStep, physDt = sim.m.opt.timestep;
+sim.physStep = () => {
+  physStep();
+  vitals.add(Array.from(sim.d.qfrc_actuator.subarray(6, 18)), Array.from(sim.d.qvel.subarray(6, 18)), physDt);
+};
 let resetPending = false, episode = 0, stopRequested = true, resetting = false, cmd = Z, cmdAt = -Infinity, simBase = 0;
 
 const now = () => performance.now() / 1000;
@@ -54,7 +64,7 @@ function emit() {
     upright: up, base_height: world.baseHeight(), fallen: up < 0.5,
     body_still: Math.hypot(sim.linB[0], sim.linB[1]) < 0.05 && Math.abs(sim.angB[2]) < 0.05,
     cmd_applied: applied.slice(), cmd_age_s: Number.isFinite(cmdAt) ? +(now() - cmdAt).toFixed(3) : null, ttl_s: CMD_TTL_S, ttl_expired: ttlExpired,
-    battery_soc: Math.max(0, socStart - drain * t), source: 'mujoco', plugin_mode: 'REALTIME',
+    battery_soc: vitals.soc(), joint_temp_c: vitals.jointTempsC().map((c) => +c.toFixed(2)), source: 'mujoco', plugin_mode: 'REALTIME',
   };
   process.stdout.write(JSON.stringify(s) + '\n');
 }

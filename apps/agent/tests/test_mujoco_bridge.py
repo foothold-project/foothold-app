@@ -41,7 +41,8 @@ while True:
     sim_t += .05
     print(json.dumps({'schema': 'v2_live/state/1', 'episode': 0, 'sim_t': round(sim_t, 3), 'stop_requested': stop,
         'reset_in_progress': False, 'policy_running': True, 'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'vx': 0.3, 'vy': 0.4,
-        'wz': 0.0, 'fallen': False, 'cmd_applied': [0, 0, 0], 'battery_soc': 88.5}), flush=True)
+        'wz': 0.0, 'fallen': False, 'cmd_applied': [0, 0, 0], 'battery_soc': 88.5,
+        'joint_temp_c': [25.4, 31.6, 40.2, 25.0, 30.9, 39.5, 25.1, 33.2, 41.0, 24.6, 32.8, 40.4]}), flush=True)
     time.sleep(.05)
 '''
 
@@ -73,7 +74,8 @@ def test_normal_child_feeds_session_shapes_and_receives_stop_first(tmp_path):
             assert snap['battery'] == {'soc': 88.5}
             assert snap['speed'] == pytest.approx(0.5)
             devices = bridge.inputs.device_snapshot()
-            assert devices == [{'key': 'sim-battery', 'kind': 'BATTERY', 'label': '시뮬 배터리', 'state': 'OK'}]
+            assert devices == [{'key': 'sim-battery', 'kind': 'BATTERY', 'label': '시뮬 배터리', 'state': 'OK'},
+                               {'key': 'sim-joint-temp', 'kind': 'OTHER', 'label': '시뮬 관절 온도', 'state': 'OK'}]
             sink.apply(MotionCommand(velocity=(0.6, 0.0, 0.0)))  # latched sink: still zero
             await asyncio.sleep(.2)
         finally:
@@ -223,3 +225,51 @@ def test_run_config_binds_body_pose_to_the_spawn_floor():
     assert b.ros_floor_id == 'l2' and b.floor_id == rows[1]['floor_id']
     assert body_binding(run_config({**env, 'FH_SIM_SPAWN_FLOOR': 'l3'})) is None  # no approved map: no pose
     assert body_binding(None) is None
+
+
+def test_sim_joint_temperatures_reach_agent_state_robot_info(tmp_path):
+    """11/28 14:02: 시뮬 관절 온도 (MuJoCo 토크로 적분) 가 실기와 같은 칸 robot_info.temperature.joints (정수 °C, SDK 순서)."""
+    from apps.contracts.models import AgentState
+    async def run():
+        bridge, _ = make(tmp_path, 'normal')
+        try:
+            await started(bridge, [])
+            await asyncio.sleep(.3)
+            session = Session(identity=identity(time.monotonic))
+            session.update_telemetry(bridge.inputs.telemetry.snapshot())
+            state = session._state()
+            temp = state['robot_info']['temperature']
+            assert temp['joints'] == [25, 32, 40, 25, 31, 40, 25, 33, 41, 25, 33, 40]
+            assert temp['battery'] == [None] * 4 and temp['imu'] is None and temp['body'] == [None, None]
+            assert 0 <= temp['age_s'] <= 1.0
+            assert state['battery']['soc'] == 88.5
+            parsed = AgentState.model_validate({**state, 'stop_ref': 0, 'mode': state.get('mode') or 'IDLE'})
+            assert parsed.robot_info.temperature.joints == temp['joints']
+            assert bridge.inputs.device_snapshot()[-1] == {'key': 'sim-joint-temp', 'kind': 'OTHER', 'label': '시뮬 관절 온도', 'state': 'OK'}
+        finally:
+            bridge.close()
+    asyncio.run(run())
+
+
+def test_sim_joint_temperatures_expire_with_state(tmp_path):
+    async def run():
+        bridge, _ = make(tmp_path, 'silent')
+        try:
+            await started(bridge, [])
+            await asyncio.sleep(1.8)
+            session = Session(identity=identity(time.monotonic))
+            session.update_telemetry(bridge.inputs.telemetry.snapshot())
+            assert 'robot_info' not in session._state()
+        finally:
+            bridge.close()
+    asyncio.run(run())
+
+
+def test_child_command_has_no_fixed_drain_and_passes_ambient():
+    from foothold_agent.mujoco_bridge.__main__ import child_command
+    env = {'FH_SIM_SRC': '/x', 'FH_SIM_NODE': sys.executable, 'FH_SIM_BATTERY_DRAIN': '5', 'FH_SIM_AMBIENT_C': '18'}
+    cmd = child_command(env)
+    assert '--battery-drain' not in cmd
+    assert cmd[cmd.index('--ambient-c') + 1] == '18'
+    default = child_command({'FH_SIM_SRC': '/x', 'FH_SIM_NODE': sys.executable})
+    assert default[default.index('--ambient-c') + 1] == '25'
