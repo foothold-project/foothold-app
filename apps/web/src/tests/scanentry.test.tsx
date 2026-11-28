@@ -185,7 +185,7 @@ describe('조종 화면 위 지도 스캔 (시안 u14_2)', () => {
     expect(scan.classList.contains('u142-over')).toBe(true);
     expect(slamGets('r-a').length).toBeGreaterThan(0);
     expect(btn('스캔 시작', scan)).toBeTruthy();
-    expect(btn('조종 시작')).toBeTruthy();   // 조종 화면 그대로
+    expect(btn('조종')).toBeTruthy();   // 조종 화면 그대로
     expect($('button[data-stop]')).toBeTruthy();   // 머리줄 STOP 그대로
     expect($('.tl', scan)).toBeNull();   // 로봇 칩은 조종 화면 상태 줄이 맡음(겹치지 않게)
     await click($('[data-scan-close]', scan));
@@ -202,7 +202,7 @@ describe('조종 화면 위 지도 스캔 (시안 u14_2)', () => {
     expect(sp).toBeTruthy();
     expect([...sp.querySelectorAll('[data-walk]')].map((x) => x.getAttribute('data-walk'))).toEqual(['time', 'dist', 'points']);
     expect(btn('스캔 끝내기', sp)).toBeTruthy();
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
     await click($('[data-scan-cancel]', sp));
     await click(btn('취소하기', $('[data-scan-ask]')!));
     expect(calls.filter((c) => c.method === 'POST').map((c) => [c.path, c.body])).toEqual([['/robots/r-a/slam/cancel', { session_id: SID }]]);
