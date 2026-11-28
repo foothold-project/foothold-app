@@ -4,7 +4,7 @@
 // 로봇 상세 서랍에는 작게(STOP·정지 단계·잠금 해제·조종 시작/끝내기), «조종 화면 열기» = 전체화면 모달(카메라·라이다 drivemedia.ts·조작부·상태줄, 다시 누르거나 Esc 로 복귀).
 // 그 안에도 STOP 이 가장 크게. 키 조종은 패널이 열린 동안 그대로
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent as KeyEv, type PointerEvent, type ReactNode } from 'react';
-import { CMD_MS, inputGen, metaCut, rt, useLive, type Live } from './rt';
+import { CMD_MS, inputGen, metaCut, rt, undelivered, useLive, type Live } from './rt';
 import { typing, useStopPress } from './App';
 import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
@@ -75,6 +75,7 @@ export function stopLine({ stop: p, state: s }: Pick<Live, 'stop' | 'state'>): {
   if (p.phase === 'failed') return { tone: 'bad', text: `정지 요청 실패 — 현장 확인${why}` };
   if (p.phase === 'unsure') return { tone: 'bad', text: `정지 접수 확인 못함 — 현장 확인${why}` };
   if (p.phase === 'sending') return { tone: 'warn', text: '입력 0 보냄 · 정지 요청 보내는 중' };
+  const no = undelivered(p, s); if (no) return { tone: 'bad', text: no };
   if (p.latched && s?.connection === 'ONLINE' && s.latched === true && !!s.applied?.length && s.applied.every((v) => v === 0) && s.speed != null && s.speed < 0.05)
     return { tone: 'ok', text: '로봇 정지 확인 — 잠금·출력 0·수평 속도 0' };
   return { tone: 'warn', text: `정지 요청 접수${p.phase === 'fallback' ? '(대체 경로)' : ''} — 로봇 정지 확인 대기` };
