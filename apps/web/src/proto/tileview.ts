@@ -3,7 +3,7 @@
 // 빛 · 바닥 점 · 핀 조명 · 그림자 · 시점 값은 시안 go2view.js 그대로. 걷기는 임무 · 조종 중일 때 시안 걷기 기록(go2_walk.json)을 튼다.
 import * as THREE from 'three';
 import { STAND, ground } from '../screens/u4/go2view';
-import { applyDown, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, toneSite, type Body, type Walk } from './site';
+import { TEX_LOOK, applyDown, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, toneSite, type Body, type Walk } from './site';
 
 export type TileLook = {
   /** 현장 좌표(site.ts sitePose) · 없으면 현장 없이 */ pose: { x: number; z: number; rot: number } | null;
@@ -35,6 +35,10 @@ export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlendin
 const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
 /** 타일 카메라 거리: 임무 중 뒤 따라가기 1 m(팀장 23:48 «로봇 뒤 1 m» · 시안 data-go2 dist 2.1 에서 바꿈) · 정면 1.25 m(시안 go2view). 큰 무대 카메라도 이 값을 씀 */
 export const REAR_DIST = 1.0, FRONT_DIST = 1.25;
+/** 바라보는 높이(m): 점 바닥 · 정면 = 몸통(0.17 · 시안 go2view). 현장 위 뒤 1 m = SITE_AIM(00:53 사진: 0.17 이면 아래로 21° 라 화면이 로봇 앞 5 m 안 바닥만 · 흰 판처럼 보임 →
+ *  지평선이 화면 위쪽에 들어오게 올려 앞쪽 배관 · 건물이 보이게) */
+export const BODY_AIM = 0.17, SITE_AIM = 0.35;
+export const aimY = (l: Pick<TileLook, 'pose' | 'front' | 'cyber'>) => (l.pose && !l.front && !l.cyber ? SITE_AIM : BODY_AIM);
 /** 로봇 발밑 그림자(원 반지름 m · 앞뒤 늘림 · 진하기). 로봇 탭 무대도 같은 값 */
 export const SHADOW = { r: 0.22, sy: 1.5, opacity: 0.35 };
 /** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45).
@@ -186,7 +190,8 @@ class Tiles {
       // 시점: 시안 go2view (뒤 = yaw π · 2.1 m · 높이 0.55, 정면 = yaw 0 · 1.25 m). 현장은 로봇 자리 · 방향의 반대로 옮겨 로봇이 늘 가운데
       const yaw = look.front ? 0 : Math.PI, dist = look.front ? FRONT_DIST : REAR_DIST;
       this.cam.aspect = w / h; this.cam.updateProjectionMatrix();
-      this.cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); this.cam.lookAt(0, 0.17, 0);
+      const ty = aimY(look);
+      this.cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); this.cam.lookAt(0, ty, 0);
       // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
@@ -199,7 +204,7 @@ class Tiles {
         if (this.site && (!q || q.front !== look.front || Math.hypot(p.x - q.x, p.z - q.z) > 0.2 || Math.abs(Math.atan2(Math.sin(p.rot - q.rot), Math.cos(p.rot - q.rot))) > 0.2))
           v.ray = { x: p.x, z: p.z, rot: p.rot, front: look.front, k: camPull(this.world, this.cam.position) };
         const k = v.ray?.k ?? 1;
-        if (k < 1) { this.cam.position.sub(HEAD).multiplyScalar(k).add(HEAD); this.cam.lookAt(0, 0.17, 0); }
+        if (k < 1) { this.cam.position.sub(HEAD).multiplyScalar(k).add(HEAD); this.cam.lookAt(0, ty, 0); }
       } else v.ray = undefined;
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
       this.gm.uniforms.off.value = p ? -p.travel : look.walk ? -this.t * 0.45 : 0;   // 자리가 있으면 실제로 간 거리만큼, 없으면 시안 걷기 흐름
@@ -208,6 +213,7 @@ class Tiles {
         this.paint(b, look);
         poseBody(b, look, this.walk, this.t, this.keep);   // 엎드림은 로봇 탭과 같은 바닥 맞춤(go2view ground · 꼭짓점 기준 최저점 y = 0)
       }
+      r.toneMappingExposure = ly.world ? TEX_LOOK[light ? 'light' : 'dark'].exp + 0.15 : 1.05;   // 현장 위: 지도 보기 질감판 노출(어둠 0.72 · 밝음 0.9)보다 조금 밝게(로봇이 묻히지 않게) · 점 바닥은 그대로
       r.setClearColor(0x000000, 0); r.clear();
       r.render(this.scene, this.cam);
       ctx.clearRect(0, 0, v.c.width, v.c.height); ctx.drawImage(r.domElement, 0, 0, v.c.width, v.c.height);
