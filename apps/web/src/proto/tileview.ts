@@ -30,6 +30,8 @@ export function follow(cur: Held | null, to: Pose, dt: number): Held {
 const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c389 }, SIM = 0x4c9bff;
 /** 시뮬(cyber) 로봇 재질. 시뮬 칸도 실기 · 데모와 같은 현장 · 따라가기 카메라(팀장 20:49) · 파란 결은 로봇 · 테두리 · 이름표로만.
  *  밝은 판: 흰 땅 위에서 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
+/** 현장 위 시뮬 로봇: 밝기 = k0 + k1 · 테두리 몫, 진하기 = a0 + a1 · 테두리 몫(보통 섞기). 점 바닥(어두운 바탕)은 로봇 탭과 같은 더하기 값 그대로 */
+export const SITE_SIM = { k: [0.62, 0.9], a: [0.6, 0.4] } as const;
 export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlending, col: 0x2f6fe0 } : { blend: THREE.AdditiveBlending, col: SIM });
 /** 따라가기 카메라 가림(K-08 이 건물 옆이라 뒤 2.1 m 카메라가 벽 안에 들어감): 로봇 머리 → 카메라로 광선 한 번, 현장 물체에 맞으면
  *  맞은 자리 0.15 m 앞으로 당긴다(머리에서 최소 0.6 m). 투명한 것(금지 구역 빨강)은 막지 않음. 돌려주는 값 = 머리 → 카메라 선 위 비율(1 = 그대로) */
@@ -132,9 +134,11 @@ class Tiles {
     pool.rotation.x = -Math.PI / 2; pool.position.y = 0.0005; pool.renderOrder = -1; s.add(pool);
     s.add(this.world);
     this.cyber = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      uniforms: { col: { value: new THREE.Color(SIM) }, t: { value: 0 } },
+      uniforms: { col: { value: new THREE.Color(SIM) }, t: { value: 0 }, site: { value: 0 } },
       vertexShader: 'varying vec3 n; varying vec3 v; varying float y; void main(){ vec4 w=modelMatrix*vec4(position,1.0); y=w.y; n=normalize(normalMatrix*normal); vec4 mv=viewMatrix*w; v=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }',
-      fragmentShader: 'uniform vec3 col; uniform float t; varying vec3 n; varying vec3 v; varying float y; void main(){ float f=pow(1.0-abs(dot(normalize(n),normalize(v))),2.2); float sl=0.5+0.5*step(0.5,fract(y*140.0-t*0.6)); gl_FragColor=vec4(col*(0.18+1.25*f)*sl, 0.14+0.7*f); }' });
+      // site = 1(현장 위): 밝은 현장 바닥에 더하기 섞기는 하얗게 묻혀(시뮬 파랑 실측 어둠 바탕 밝기 110 · 차이 7) 보통 섞기 + 진하기 바닥값을 올림. 색은 같은 SIM 토큰
+      fragmentShader: `uniform vec3 col; uniform float t; uniform float site; varying vec3 n; varying vec3 v; varying float y; void main(){ float f=pow(1.0-abs(dot(normalize(n),normalize(v))),2.2); float sl=0.5+0.5*step(0.5,fract(y*140.0-t*0.6));
+        gl_FragColor=vec4(col*mix(0.18+1.25*f, ${SITE_SIM.k[0]}+${SITE_SIM.k[1]}*f, site)*mix(sl, 0.8+0.2*sl, site), mix(0.14+0.7*f, ${SITE_SIM.a[0]}+${SITE_SIM.a[1]}*f, site)); }` });
     loadGo2().then((b) => { if (b) { this.body = b; s.add(b.root); } });
     loadWalk().then((w) => { this.walk = w; });
     loadSite().then((g) => { if (g) { this.site = g; this.world.add(g); } });
@@ -202,6 +206,7 @@ class Tiles {
         this.paint(b, look);
         poseBody(b, look, this.walk, this.t, this.keep);   // 엎드림은 로봇 탭과 같은 바닥 맞춤(go2view ground · 꼭짓점 기준 최저점 y = 0)
       }
+      if (this.cyber) { this.cyber.uniforms.site.value = ly.world ? 1 : 0; this.cyber.blending = ly.world ? THREE.NormalBlending : simLook(light).blend; }
       r.toneMappingExposure = ly.world ? TEX_LOOK[light ? 'light' : 'dark'].exp + 0.15 : 1.05;   // 현장 위: 지도 보기 질감판 노출(어둠 0.72 · 밝음 0.9)보다 조금 밝게(로봇이 묻히지 않게) · 점 바닥은 그대로
       r.setClearColor(0x000000, 0); r.clear();
       r.render(this.scene, this.cam);

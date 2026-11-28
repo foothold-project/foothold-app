@@ -75,7 +75,7 @@
 .u5 .side .pane{position:relative}
 .u5 .mini{position:relative;height:250px;border-radius:14px;overflow:hidden;background:#0e1116 url(/proto-assets/assets/maps_v2/factory_kr/top_dark.png) no-repeat;background-size:400px 250px;background-position:center}
 .u5 .dotm{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:#00c389;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-.u5 .dotm.sim{background:transparent;border:2px dashed #5e6662}
+.u5 .dotm.sim{width:14px;height:14px;margin:-7px 0 0 -7px;background:rgba(76,155,255,.35);border:2px dashed #4c9bff;box-shadow:0 0 0 1.5px rgba(0,0,0,.55),0 1px 4px rgba(0,0,0,.4)}
 .u5 .dotm.r{background:#ff4d4f}
 .u5 .dotm.o{background:#f2b705}
 .u5 .dotm.dim{opacity:.35}
@@ -154,7 +154,7 @@
 .proto.light .u5 .dotm{background:#18A07E;border-color:#FFFFFF;outline:1px solid #1F2421}
 .proto.light .u5 .dotm.r{background:#E04A2F}
 .proto.light .u5 .dotm.o{background:#D9A21F}
-.proto.light .u5 .dotm.sim{background:transparent;border-color:#2F6FE0;outline:0}
+.proto.light .u5 .dotm.sim{background:rgba(47,111,224,.28);border-color:#2F6FE0;outline:0;box-shadow:0 0 0 1.5px #FFFFFF,0 1px 4px rgba(31,36,33,.3)}
 .proto.light .u5 .dotl.sel{background:#18A07E;color:#1F2421}
 .proto.light .u5 .mk .pt{background:#18A07E}
 .proto.light .u5 .mk.r .pt{background:#E04A2F}
