@@ -870,7 +870,7 @@ const drag = async (x0: number, y0: number, x1: number, y1: number) => { await p
 /** jsdom 은 주소 바꿈(hashchange)을 몇 틱 뒤에 알린다 */
 const hashed = () => act(() => new Promise((r) => setTimeout(r, 30)));
 const choose = (label: string, from: ParentNode = box) => [...from.querySelectorAll('label')].find((l) => l.textContent!.startsWith(label))!.querySelector('select') as HTMLSelectElement;
-const save = async (reason = '구역 추가') => { await setVal(field('바꾼 이유', card('지도 저장')), reason); await click(btn('저장', card('지도 저장'))); };
+const save = async (reason = '구역 추가') => { await setVal(field('바꾼 이유', card('지도 저장')), reason); await click(btn('새 버전으로 저장', card('지도 저장'))); };
 const body = () => sent('POST', '/floors/f1/map-versions').slice(-1)[0].body as { base_version_id: string; image: string; features: typeof FEAT; reason: string };
 const near = (pts: number[][]) => pts.map((p) => p.map((v) => Math.round(v * 1000) / 1000));
 const saved201 = { 'POST /floors/f1/map-versions': { status: 201, body: ver('v3', 3, { base_version_id: 'v2', source: 'EDIT' as const }) } };
@@ -923,13 +923,27 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
   it('총괄 + 승인 판 = 보기/편집 토글. 편집 중엔 판 고르기·올리기 숨김, 보기로 돌아가면(바꾼 것 없음) 바로', async () => {
     serve(editSrv());
     await startEdit();
-    expect(btn('편집', card('보기·편집'))!.getAttribute('aria-pressed')).toBe('true');
+    expect($('[data-u7="u7_5_edit"]')).toBeTruthy();   // 편집 = 시안 u7_5 화면
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 편집 중');
     expect($('[data-history]')).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeNull();
     expect([...card('편집 도구').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['고르기', '접근 금지', '감속', '연결점', '벽']);   // «지점»·«지우개» 도구 없음(11-04)
     expect(canvas().querySelectorAll('[data-zone], [data-waypoint], [data-connector], [data-edit]')).toHaveLength(4);   // 지금 판 요소 그대로(벽 선 포함)
-    await click(btn('보기', card('보기·편집')));
+    await click($('[data-u7-back]'));
     expect(canvas()).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeTruthy();
+  });
+  it('시안 u7_5: 지형 추가 · 물체 추가 · 점 정리는 꺼 둠(서버 기능 없음, 확인 안 됨) · 금지 구역 = 접근 금지 그리기 · 바꾸면 «편집 중 · 저장 안 됨»', async () => {
+    serve(editSrv());
+    await startEdit();
+    const t = (k: string) => $(`[data-u7-tool="${k}"]`)!;
+    expect(['terrain', 'object', 'points'].map((k) => t(k).getAttribute('aria-disabled'))).toEqual(['true', 'true', 'true']);
+    expect([...box.querySelectorAll('[data-terrain]')].map((x) => x.textContent)).toEqual(['E2 계단확인 안 됨', 'E3 경사확인 안 됨', 'E4 자갈 · 틈확인 안 됨', 'E5 섞임확인 안 됨']);
+    expect($('[data-editing]')!.textContent).toBe('편집 중');
+    await click(t('nogo'));
+    expect(btn('접근 금지', card('편집 도구'))!.getAttribute('aria-pressed')).toBe('true');
+    expect(t('nogo').getAttribute('aria-pressed')).toBe('true');
+    await drag(0, 0, 1, 1);
+    expect($('[data-editing]')!.textContent).toBe('편집 중 · 저장 안 됨');
+    expect(writes()).toEqual([]);
   });
   it('운영 관리자도 «새 판으로 저장»(10-27) — 옛 서버가 201 PENDING 이면 대기로 받았다고 안내(«내 요청 보기» 없음), 승인 판을 그대로 보임·배지 다시 받기 / 총괄도 승인 판 없는 층은 토글 없음', async () => {
     const P3 = ver('v3', 3, { base_version_id: 'v2', source: 'EDIT', status: 'PENDING', created_by: LEE.id });
@@ -941,7 +955,7 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     expect($('[aria-label="새 지도 올리기"]')).toBeNull(); expect(btn('결재 요청')).toBeUndefined();
     await tool('연결점'); await tap(1, 1);
     const dash = sent('GET', '/dashboard').length;
-    await setVal(field('바꾼 이유', card('지도 저장')), '지점 추가'); await click(btn('저장', card('지도 저장')));
+    await setVal(field('바꾼 이유', card('지도 저장')), '지점 추가'); await click(btn('새 버전으로 저장', card('지도 저장')));
     expect(writes()).toEqual(['POST /floors/f1/map-versions']); expect(body().base_version_id).toBe('v2');
     const note = [...box.querySelectorAll('[role="status"]')].find((x) => x.textContent!.includes('서버가 아직 적용하지 않았습니다'))!;
     expect(note.textContent).toContain('저장했지만 서버가 아직 적용하지 않았습니다. 적용되기 전에는 지금 지도를 그대로 씁니다.');
@@ -967,7 +981,7 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     serve(editSrv({}, KIM, { ...V2, upload_id: undefined as unknown as string }));   // 계약상 필수지만 S3b 전 서버·어긋난 응답 대비 막음은 남김
     await startEdit();
     expect(alertText()).toContain('이 지도는 아직 편집 저장을 지원하지 않습니다.');
-    expect(btn('저장')!.disabled).toBe(true);
+    expect(btn('새 버전으로 저장')!.disabled).toBe(true);
     await tool('연결점'); await tap(1, 1);
     act(() => { ($('form[aria-label="지도 저장"]') as HTMLFormElement).requestSubmit(); }); await flush();
     expect(writes()).toEqual([]);
@@ -1167,7 +1181,7 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
     serve(editSrv());
     await startEdit();
     // «모든 지도 보기»는 위 단추 줄 맨 앞, 창 맨 위는 «지도 요소 N» 제목만(RB-MAP-NO-SCEN 11-18 — 지도 탭에 시나리오 탭 없음)
-    expect($('.mx-bar')!.firstElementChild!.textContent).toBe('‹ 모든 지도 보기');
+    expect($('[data-u7-back]')!.getAttribute('aria-label')).toBe('보기로');   // 시안 u7_5 머리줄 ‹
     expect(card('요소 창').querySelector('.mx-pick [data-side="map"]')!.textContent).toBe('지도 요소 4');
     expect(card('요소 창').querySelector('[aria-label="오른쪽 창"], [data-side="scen"]')).toBeNull();
     await click($('button[aria-label="요소 4 창 접기"]')!);
@@ -1217,8 +1231,8 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
       serve(editSrv({}, me));
       await startEdit();
       expect(btns().filter((b) => b.textContent!.includes('결재')).map((b) => b.textContent), me.display_name).toEqual([]);
-      expect(btn('저장')).toBeTruthy();
-      await click(btn('보기', card('보기·편집')));
+      expect(btn('새 버전으로 저장')).toBeTruthy();
+      await click($('[data-u7-back]'));
       expect(btns().filter((b) => b.textContent!.includes('결재') || b.textContent === '내 요청 보기').map((b) => b.textContent), me.display_name).toEqual([]);
       act(() => root?.unmount()); box.remove();
     }
@@ -1371,12 +1385,10 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.');
     await click(btn('계속 편집', card('확인')));
     expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(2);
-    await click(floorBtn('2층'));
-    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    await click($('[data-u7-back]'));
+    expect(card('확인').textContent).toContain('편집한 내용을 버리고 보기로 나갈까요?');
     await click(btn('계속 편집', card('확인')));
-    await click(btn('보기', card('보기·편집')));
-    expect(card('확인')).toBeTruthy();
-    await click(btn('계속 편집', card('확인')));
+    expect($('[data-u7="u7_5_edit"]')).toBeTruthy();
     act(() => { location.hash = '#/history'; }); await hashed();      // 주소 바꿈(뒤로 가기 등)도
     expect(location.hash).toBe('#/map'); expect($('main')!.getAttribute('aria-label')).toBe('지도');
     await click(btn('나가기', card('확인'))); await hashed();
@@ -1393,7 +1405,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     expect(keptPlan.sel).not.toBe('s9'); expect(sent('GET', '/scenarios/s9')).toHaveLength(0);   // 확인 전에는 그 시나리오를 찾지 않음
     await click(btn('계속 편집', card('확인')));
     expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(2);
-    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    expect($('[data-u7="u7_5_edit"]')).toBeTruthy();
     act(() => { location.hash = '#/mission/s9'; }); await hashed();
     await click(btn('나가기', card('확인'))); await hashed();
     expect(canvas()).toBeNull();
@@ -1415,13 +1427,13 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     expect(canvas()).toBeTruthy();
     expect(kept.d).toBeNull();
   });
-  it('그리던 점만 있어도 묻는다, 층 바꾸기 확인에서 나가기 → 그 층으로', async () => {
+  it('그리던 점만 있어도 묻는다, u7_5 ‹ 확인에서 버리고 나가기 → 그 층 보기', async () => {
     serve(editSrv());
     await startEdit();
     await dotTool('접근 금지'); await tap(1, 1);
-    await click(floorBtn('2층'));
-    await click(btn('나가기', card('확인')));
-    expect(floorBtn('2층').getAttribute('aria-pressed')).toBe('true');
+    await click($('[data-u7-back]'));
+    await click(btn('버리고 나가기', card('확인')));
+    expect($('[data-u7="u7_5_edit"]')).toBeNull(); expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
     expect(canvas()).toBeNull();
   });
   it('STOP: 편집 중·확인창이 떠 있을 때 늘 보이고 실제로 정지 요청', async () => {
@@ -1433,7 +1445,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     await click(btn('편집', card('보기·편집')));
     canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect;
     await tool('연결점'); await tap(1, 1);
-    await click(floorBtn('2층'));
+    await click($('[data-u7-back]'));
     expect(card('확인')).toBeTruthy();
     await stopSends();
     expect(canvas()).toBeTruthy();                                     // STOP 이 편집을 건드리지 않음
@@ -1444,7 +1456,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     await tool('연결점'); await tap(1, 1);
     await save();
     expect(box.textContent).toContain('저장하는 중…');
-    expect(btn('저장')!.disabled).toBe(true);
+    expect(btn('새 버전으로 저장')!.disabled).toBe(true);
     await stopSends();
   });
 });
@@ -1472,18 +1484,20 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     expect(body().features.waypoints.map((w) => w.name)).toEqual(['계기판 B']);
     expect(box.textContent).toContain('저장했습니다. 다음 실행부터 이 지도를 씁니다.');
   });
-  it('B2 편집 중 «모든 지도 보기»: 저장 안 한 편집이면 먼저 묻는다 — 계속 편집이면 편집 그대로, 나가기면 첫 화면(«+ 파일 올리기»는 거기서만)', async () => {
+  it('B2 편집 중 ‹(u7_5): 저장 안 한 편집이면 먼저 묻는다 — 계속 편집이면 편집 그대로, 버리고 나가기면 층 보기 · 그 뒤 «모든 지도 보기»로 첫 화면(«+ 파일 올리기»는 거기서만)', async () => {
     serve(editSrv());
     await startEdit();
     await tool('연결점'); await tap(1, 1);
     expect(btn('+ 파일 올리기')).toBeUndefined();
-    await click($('[data-to-chooser]'));
-    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
+    expect($('[data-to-chooser]')).toBeNull();   // 편집 화면엔 «모든 지도 보기» 없음
+    await click($('[data-u7-back]'));
+    expect(card('확인').textContent).toContain('편집한 내용을 버리고 보기로 나갈까요?');
     await click(btn('계속 편집', card('확인')));
-    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    expect($('[data-u7="u7_5_edit"]')).toBeTruthy();
     expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(2);
+    await click($('[data-u7-back]'));
+    await click(btn('버리고 나가기', card('확인')));
     await click($('[data-to-chooser]'));
-    await click(btn('나가기', card('확인')));
     expect($('[aria-label="지도 고르기"]')).toBeTruthy(); expect(btn('+ 파일 올리기')).toBeTruthy();
     expect(unload()).toBe(false);
   });
@@ -1545,7 +1559,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     expect(unload()).toBe(true);
     await frame(false); await hashed();
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 편집 중');
-    expect(btn('저장')!.disabled === true).toBe(true);
+    expect(btn('새 버전으로 저장')!.disabled === true).toBe(true);
     expect(field('바꾼 이유', card('지도 저장')).matches(':disabled')).toBe(true);
     expect(box.textContent).toContain('저장하는 중…');
     act(() => { ($('form[aria-label="지도 저장"]') as HTMLFormElement).requestSubmit(); }); await flush();
@@ -1566,14 +1580,14 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     await frame(false); await hashed();
     expect(alertText()).toContain('다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다.');
     expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(2);
-    expect(btn('저장')!.disabled).toBe(false);
+    expect(btn('새 버전으로 저장')!.disabled).toBe(false);
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
   });
   it.each([['다른 층', 'f2', 'v9'], ['같은 층 다른 기준 판', 'f1', 'v1']])('B5 %s의 옛 저장 요청이 남아 있어도 지금 편집은 저장된다(POST 1번)', async (_, floorId, base) => {
     kept.job = { floor: floorId, base, wait: new Promise<void>(() => {}) };
     serve(editSrv(saved201));
     await startEdit();
-    expect(btn('저장')!.disabled).toBe(false);
+    expect(btn('새 버전으로 저장')!.disabled).toBe(false);
     await tool('연결점'); await tap(1, 1);
     await save('지점 추가');
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
@@ -1989,12 +2003,12 @@ describe('판 비교·되돌리기(W4c)', () => {
     await startEdit();
     await tool('연결점'); await tap(1, 1);
     expect($('[aria-label="저장 기록 관리"]')).toBeNull();
-    await click(btn('보기', card('보기·편집')));
-    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.');
+    await click($('[data-u7-back]'));
+    expect(card('확인').textContent).toContain('편집한 내용을 버리고 보기로 나갈까요?');
     await click(btn('계속 편집', card('확인')));
     expect($('[aria-label="저장 기록 관리"]')).toBeNull(); expect(canvas()).toBeTruthy();
-    await click(btn('보기', card('보기·편집')));
-    await click(btn('나가기', card('확인')));
+    await click($('[data-u7-back]'));
+    await click(btn('버리고 나가기', card('확인')));
     await see('v1');
     const { leaving } = await import('../menu');
     const asked = vi.fn();
@@ -2054,16 +2068,17 @@ describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
     await open('#/map');
     expect($('[data-layers]')).toBeNull();
   });
-  it('저장 안 한 편집 중 «전체» → 기존 확인(계속 편집이면 그 층에 머묾, 나가기면 전체)', async () => {
+  it('저장 안 한 편집 중(u7_5)엔 «전체» 단추 없음 · ‹ 확인(계속 편집이면 그 층에 머묾, 버리고 나가기면 층 보기 → «전체»)', async () => {
     serve(editSrv());   // 본동 = 1층·2층(2층 지도 없음)
     await startEdit();
     await tool('연결점'); await tap(1, 1);
-    await click(btn('전체 층 겹쳐 보기', layers()));
-    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
+    expect($('[data-layers]')).toBeNull();
+    await click($('[data-u7-back]'));
     await click(btn('계속 편집', card('확인')));
     expect($('[data-all-floors]')).toBeNull(); expect(canvas()).toBeTruthy();
+    await click($('[data-u7-back]'));
+    await click(btn('버리고 나가기', card('확인')));
     await click(btn('전체 층 겹쳐 보기', layers()));
-    await click(btn('나가기', card('확인')));
     expect($('[data-all-floors]')).toBeTruthy();
     expect(writes()).toEqual([]);
   });
@@ -2071,22 +2086,16 @@ describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
 
 describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () => {
   const dlg = (name: string) => [...box.querySelectorAll('dialog')].find((d) => d.querySelector('b')?.textContent === name)!;
-  it('단추 줄 «저장» = 바꾼 이유 창을 연다(모달 아님 — STOP 그대로), 검사 실패면 창을 닫고 그 요소를 오른쪽 창에', async () => {
+  it('u7_5 머리줄 = 바꾼 이유 칸 + «새 버전으로 저장»(옛 «지도 저장» 창 없음), 검사 실패면 그 요소를 오른쪽 창에', async () => {
     serve(editSrv());
     await startEdit();
-    const d = dlg('지도 저장');
-    expect(d.hasAttribute('open')).toBe(false);
-    await click(btn('저장', $('.mx-bar')!));
-    expect(d.hasAttribute('open')).toBe(true); expect(d.contains(card('지도 저장'))).toBe(true);
-    expect(document.activeElement).toBe(field('바꾼 이유', d));                         // 열면 이유 칸에
-    await click($('button[aria-label="지도 저장 닫기"]')!);
-    expect(d.hasAttribute('open')).toBe(false);
+    expect(dlg('지도 저장')).toBeUndefined();
+    const head = $('[data-u7="u7_5_edit"] .head')!;
+    expect(head.contains(card('지도 저장'))).toBe(true); expect(head.contains(field('바꾼 이유', card('지도 저장')))).toBe(true);
     await ptr('pointerdown', -0.8, -1.9, canvas().querySelector('[data-zone]')!);
     await setVal(field('이름', card('고른 요소')), '공사\u0007');                         // 보이지 않는 글자 → 화면 검사 실패
     await click($('button[aria-label="요소 목록으로"]')!);
-    await click(btn('저장', $('.mx-bar')!));
     await save('지점 추가');
-    expect(d.hasAttribute('open')).toBe(false);
     expect(card('요소 창').querySelector('[data-bad]')).toBeTruthy(); expect(card('고른 요소')).toBeTruthy();
     expect(writes()).toEqual([]);
   });
@@ -2100,7 +2109,7 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     await click($('button[aria-label="새 지도 올리기 닫기"]')!);
     expect(d.hasAttribute('open')).toBe(false);
     await click(btn('편집', card('보기·편집')));
-    expect($('.mx-menu.more')).toBeNull(); expect($('.mx-bar')!.textContent).toContain('▲ 편집 중');
+    expect($('.mx-menu.more')).toBeNull(); expect($('[data-editing]')!.textContent).toBe('편집 중');
   });
   it('서버 422 INVALID_FEATURES 도 화면 검사 실패처럼 — 저장 창을 닫고 접힌 오른쪽 창을 펼쳐 그 요소·오류, 그 요소 첫 칸으로 포커스(#234 B1)', async () => {
     serve(editSrv({ 'POST /floors/f1/map-versions': { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '다각형 변이 서로 교차합니다.', detail: { element: 'features.zones.0.polygon' } } } } }));
@@ -2108,17 +2117,14 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     await tool('연결점'); await tap(1, 1);
     await click($('.mx-fold')!);
     expect(card('요소 창').hasAttribute('data-fold')).toBe(true);
-    const d = dlg('지도 저장');
-    await click(btn('저장', $('.mx-bar')!));
     await save();
     expect(writes()).toEqual(['POST /floors/f1/map-versions']);                       // API·인자는 그대로(한 번 보냄)
-    expect(d.hasAttribute('open')).toBe(false);
     expect(card('요소 창').hasAttribute('data-fold')).toBe(false);
     expect($('[data-bad]')!.textContent).toBe('접근 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
     expect(document.activeElement).toBe(field('이름', card('고른 요소')));
     expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(2);           // 편집 내용 그대로
   });
-  it('Esc: 메뉴는 닫고 그 메뉴 단추로, 작은 창(Esc·✕)은 닫고 연 단추로 포커스를 돌려준다 — 숨은 칸에 남지 않음(#234 B2)', async () => {
+  it('Esc: 메뉴는 닫고 그 메뉴 단추로 포커스를 돌려준다 — 숨은 칸에 남지 않음(#234 B2) · 편집 저장은 창이 아님', async () => {
     serve(editSrv());
     await open('#/map');
     const m = $('.mx-bar details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button:not(:disabled), .mx-pop a')!;
@@ -2128,16 +2134,7 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     act(() => { item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(m.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(m.querySelector('summary'));
     await click(btn('편집', card('보기·편집')));
-    const d = dlg('지도 저장'), b = btn('저장', $('.mx-bar')!)!;
-    act(() => b.focus()); await click(b);
-    expect(document.activeElement).toBe(field('바꾼 이유', d));
-    act(() => { field('바꾼 이유', d).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await flush();
-    expect(d.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(b);
-    await click(b);
-    expect(document.activeElement).toBe(field('바꾼 이유', d));
-    await click($('button[aria-label="지도 저장 닫기"]')!);
-    expect(d.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(b);
-    expect(d.matches(':modal')).toBe(false);                                           // 비모달(showModal 아님) — 머리줄 STOP 을 막지 않음
+    expect(dlg('지도 저장')).toBeUndefined();   // 저장은 u7_5 머리줄 칸(떠 있는 창 없음)
   });
   it('장소가 많으면(층 5개 넘게) 장소 창 위 거르기 칸 — 이름으로 줄이고, 지우면 다시 모두', async () => {
     const many: SiteTree = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [1, 2, 3, 4, 5, 6].map((n) => floor(`f${n}`, `${n}층`, n, n === 1 ? 'v2' : null)) }] }] };
@@ -2284,7 +2281,7 @@ describe('구역 지키기 — 지도 편집', () => {
     expect(alertText()).toContain('최고 속도는 0.3~1.5 m/s 사이로 입력하세요.');
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0); expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
     await setVal(speed()!, '0.2');
-    await click(btn('저장', $('.mx-bar')!)); await save();
+    await save();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
     await setVal(speed()!, '1.2');
     expect(box.textContent).toContain('· 1.2 m/s');                       // 요소 목록에도 값
@@ -2293,7 +2290,7 @@ describe('구역 지키기 — 지도 편집', () => {
     await setVal(choose('종류', card('고른 요소')), 'SLOW');
     expect(speed()!.value).toBe('0.3');                                   // 다시 감속 = 기본값부터
     await setVal(speed()!, '1.5');
-    await click(btn('저장', $('.mx-bar')!)); await save();
+    await save();
     const z = body().features.zones as (typeof FEAT.zones[number] & { max_speed_mps?: number })[];
     expect(z.map((x) => [x.type, 'max_speed_mps' in x ? x.max_speed_mps : '없음'])).toEqual([['NO_GO', '없음'], ['NO_GO', '없음'], ['SLOW', 1.5]]);
     expect((sent('POST', '/floors/f1/zone-overlaps')[0].body as { features: typeof FEAT }).features.zones).toEqual(z);   // 겹침 검사에도 같은 구역
@@ -2307,14 +2304,14 @@ describe('구역 지키기 — 지도 편집', () => {
     expect(speed()!.value).toBe(''); expect(speed()!.placeholder).toBe('값 없음');
     expect(box.textContent).toContain('속도 값 없음');
     await setVal(field('이름', card('고른 요소')), '옛 감속 2');
-    await click(btn('저장', $('.mx-bar')!)); await save('이름만');
+    await save('이름만');
     expect(body().features.zones.map((x) => Object.keys(x).sort().join())).toEqual(['id,name,polygon,type', 'id,name,polygon,type']);
   });
   it('저장 전 겹침: 창에 시나리오 이름·겹친 꼴, «아니요» = 저장 안 하고 편집 계속, «예» = 저장한 뒤 임무 탭에서 첫 시나리오를 고름(W2)', async () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits() }));
     await startEdit();
     await tool('접근 금지'); await drag(1, 1, 2, 0);
-    await click(btn('저장', $('.mx-bar')!)); await save();
+    await save();
     const ask = () => $('[data-overlap]');
     expect(ask()!.textContent).toContain('시나리오 동선과 겹칩니다. 시나리오를 수정하시겠습니까?');
     expect([...ask()!.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['1층 순찰, 지점이 구역 안 · 길이 구역을 지남', '야간 점검, 길이 구역을 지남']);
@@ -2322,7 +2319,7 @@ describe('구역 지키기 — 지도 편집', () => {
     await click($('[data-overlap-no]'));
     expect(ask()).toBeNull(); expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
     expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(2);     // 편집 그대로
-    await click(btn('저장', $('.mx-bar')!)); await save();
+    await save();
     await click($('[data-overlap-yes]')); await hashed();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
     expect(location.hash).toBe('#/missions'); expect(keptMission.sel).toBe('s9');
@@ -2332,11 +2329,11 @@ describe('구역 지키기 — 지도 편집', () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': err(500, 'INTERNAL', '서버 오류') }));
     await startEdit();
     await tool('접근 금지'); await drag(1, 1, 2, 0);
-    await click(btn('저장', $('.mx-bar')!)); await save();
+    await save();
     expect($('[data-overlap="fail"]')!.textContent).toContain('겹침을 확인하지 못했습니다.');
     await click(btn('계속 편집', $('[data-overlap]')!));
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
-    await click(btn('저장', $('.mx-bar')!)); await save();
+    await save();
     await click(btn('그래도 저장', $('[data-overlap]')!)); await hashed();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
     expect(location.hash).toBe('#/map');                                  // 시나리오로 가지 않음
@@ -2346,7 +2343,7 @@ describe('구역 지키기 — 지도 편집', () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));   // 기존 구역 z1 은 시나리오와 겹쳐 있다
     await startEdit();
     await tool('연결점'); await tap(1, 1);
-    await click(btn('저장', $('.mx-bar')!)); await save('연결점 추가');
+    await save('연결점 추가');
     expect($('[data-overlap]')).toBeNull();
     expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);       // 저장 요청이 나갔다(검토 재현: 0회)
@@ -2355,14 +2352,14 @@ describe('구역 지키기 — 지도 편집', () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
     await startEdit();
     await tool('감속'); await drag(1, 1, 2, 0);
-    await click(btn('저장', $('.mx-bar')!)); await save('감속 추가');
+    await save('감속 추가');
     expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(0);
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
     act(() => root?.unmount()); root = null; kept.d = null; kept.job = null;
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits(true) }));
     await startEdit();
     await tool('접근 금지'); await drag(1, 1, 2, 0);                        // 새 구역은 겹치지 않고, 답에는 옛 구역 z1 겹침만
-    await click(btn('저장', $('.mx-bar')!)); await save('구역 추가');
+    await save('구역 추가');
     expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(1);
     expect($('[data-overlap]')).toBeNull();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
@@ -2373,7 +2370,7 @@ describe('구역 지키기 — 지도 편집', () => {
     await tool('고르기');
     const z = canvas().querySelector('[data-zone]')!;
     await ptr('pointerdown', -0.3, -1.7, z); await ptr('pointermove', 0.7, -1.2); await ptr('pointerup', 0.7, -1.2);
-    await click(btn('저장', $('.mx-bar')!)); await save('구역 옮김');
+    await save('구역 옮김');
     expect(sent('POST', '/floors/f1/zone-overlaps')).toHaveLength(1);
     expect($('[data-overlap]')!.textContent).toContain('시나리오 동선과 겹칩니다.');
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);

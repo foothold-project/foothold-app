@@ -735,6 +735,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       a={{ floor: p.floor.id, approved, list, user, robots, places, cancel, made: (id, text) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text, ok: true }); setN(n + 1); again(); } }} />
       : left && h9 && list && now ? <History p={p} list={list} now={now} names={names} real={real} cancel={cancel} back={() => setH9(false)} gone={reload}
         restore={(x) => { const go = () => { setUndo({ v: x, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }} />
+      : editing ? main   /* 편집 = 시안 u7_5 화면(머리줄 · 저장은 Editor 안) */
       : left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
     {!editing && <Pop open={up} close={() => { if (!vbusy) setUp(false); }} label="새 지도 올리기">{/* 3D 파일 올리는 중엔 닫기·형식 바꾸기 막음(요청은 이어지는데 진행·결과만 사라지지 않게) */}
       {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} disabled={vbusy} onClick={() => setVu(false)}>그림·yaml</button>
