@@ -14,6 +14,7 @@ import { api, type ApiFail } from '../api';
 import { robotStatus, type Robot } from '../fake';
 import type { Ctx } from '../screens';
 import { MapFrame, MapImage, toView } from '../mapframe';
+import { rt, useLive } from '../rt';
 import { toMap } from './mapedit';
 import { floorName, floorsOf, useTree, type Place } from './maps';
 import { FINISH } from './missions';
@@ -40,7 +41,7 @@ export function MissionsU6(c: Pick<Ctx, 'user' | 'robots' | 'cancel'> & { initia
     {view.at === 'setup' && <Setup robots={c.robots} places={places} cancel={c.cancel} p={plan} close={main}
       make={(floor, robot, gait) => setView({ at: 'plan', id: '', floor, robot, gait })} />}
     {view.at === 'plan' && <MissionPlan id={view.id} floor={view.floor} robot={view.robot} gait={view.gait} user={c.user} robots={c.robots} cancel={c.cancel} places={places}
-      p={plan} jobs={m.jobs} close={main} saved={(id) => { m.setSel(id); m.again(); }} rehearse={() => setView({ at: 'rehearse' })} />}
+      p={plan} jobs={m.jobs} names={(id) => (id ? m.list.find((y) => y.id === id)?.name : undefined)} close={main} saved={(id) => { m.setSel(id); m.again(); }} rehearse={() => setView({ at: 'rehearse' })} />}
     {view.at === 'rehearse' && m.cur && <Rehearse x={m.cur} route={route} robots={c.robots} user={c.user} cancel={c.cancel} p={plan} close={main}
       result={(run, robot) => setView({ at: 'result', run, robot })} />}
     {view.at === 'result' && m.cur && <Result x={m.cur} route={route} run={view.run} robot={c.robots.find((r) => r.id === view.robot)} cancel={c.cancel} close={main}
@@ -108,7 +109,7 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: 
   if (!vid) return <Why>{floor ? '이 임무의 층에 승인된 지도가 없습니다.' : '이 임무에는 지점이 없습니다. 만들기에서 지도에 지점을 찍으세요.'}</Why>;
   if (!v) return mapErr ? <p className="lab u6-why" role="alert">지도를 받지 못했습니다. {mapErr} <button type="button" className="btns" onClick={retry}>다시 시도</button></p>
     : <Why>지도를 불러오는 중…</Why>;
-  return <MapFrame ref={svg} {...look} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={`${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className="u6-stage"
+  return <MapFrame ref={svg} {...look} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={`${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className={`u6-stage${rehearse ? ' u6-reh' : ''}`}
     onClick={pick ? (e) => hit(e, false) : undefined} onContextMenu={pick ? (e) => hit(e, true) : undefined}>
     <MapImage id={v.id} width={v.width} height={v.height} tint="#8d9590" />
     {v.features.zones.filter((z) => z.type === 'NO_GO').map((z, i) => <polygon key={i} data-nogo points={z.polygon.map(([a, b]) => px({ x: a, y: b }).join(',')).join(' ')}
@@ -129,14 +130,14 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: 
 function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'>; m: List; plan: Plan; route: Route; go: (v: View) => void;
   fix: Fix; fixOff: boolean; setFixOff: (v: boolean) => void; rehearseFix: (scenario: string) => void }) {
   const x = m.cur, [pick, setPick] = useState<string | null>(null), [pre, setPre] = useState(false);
-  const showFix = !fixOff && fix.items.length > 0;
+  const showFix = !fixOff && fix.items.length > 0, rob = c.robots.find((r) => r.id === p.rid), av = p.avail?.find((a) => a.robot_id === p.rid);
   // u6_8: 방금 넣은 칸, 또는 오늘 일정에서 누른 칸 → «실제 로봇 시작 전 점검»(u15_2)
   const made = pick ?? (p.msg?.ok ? p.made : null), slot = made ? p.slots?.find((y) => y.id === made) : undefined;
   const sx = slot?.scenario_id ? m.all?.find((y) => y.id === slot.scenario_id) : undefined, sr = slot ? c.robots.find((r) => r.id === slot.robot_id) : undefined;
   return <>
     <List x={x} m={m} p={p} edit={(id) => go({ at: 'plan', id, floor: route.floor, robot: p.rid, gait: p.gait })} add={() => go({ at: 'setup' })} />
     <div className="map" style={{ left: '388px', top: '88px', width: '1112px', height: '600px' }} aria-label="임무 지도">
-      <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} /></div>
+      <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route}>{rob && <RobotPill robot={rob} route={route} label={`${rob.name}${av ? ` ${stateText(av, c.robots)}` : ''}`} />}</RouteStage></div>
       <Chips />
       {x && route.v && <div className="u6-tags">
         <span className="g pill" data-floor-tag>{floorName(route.place!.floor.name)}{route.more > 0 ? ` · 다른 층 지점 ${route.more}` : ''}</span>
@@ -267,7 +268,7 @@ function Side({ x, robots, p, slot, rehearse, made, preflight, unpick }: { x?: S
     <div className="u6-whyslot">{why}</div>
     <div className="row" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', gap: '8px' }}>
       {made ? <button type="button" className="btnp preflight" style={{ flex: '1', height: '52px', fontSize: '15.5px' }} data-preflight onClick={preflight}><Ic d={IC.check} s={17} />실제 로봇 시작 전 점검</button> : <>
-        <button type="button" className="btns rehearse" style={{ flex: 'none', width: '118px', height: '52px', fontSize: '14.5px' }} data-rehearse disabled={!x || !sims.length}
+        <button type="button" className="btns" style={{ flex: 'none', width: '118px', height: '52px', fontSize: '14.5px' }} data-rehearse disabled={!x || !sims.length}
           title={!sims.length ? '모의 실행은 시뮬 로봇으로 돌립니다. 이 조직에 시뮬 로봇이 없습니다.' : undefined} onClick={rehearse}><Ic d={IC.play} />모의 실행</button>
         <button type="button" className="btnp put" style={{ flex: '1', height: '52px', fontSize: '15.5px' }} disabled={!can} data-schedule-add onClick={p.add}>{p.busy ? '넣는 중…' : '일정에 추가'}</button></>}
     </div>
@@ -302,9 +303,11 @@ function Day({ robots, p, names, fix, made, pick }: { robots: Robot[]; p: Plan; 
   const rows = all.slice(page * ROWS, page * ROWS + ROWS);
   const bar = (x: ScheduleSlot, top: number) => { const a = f(x.start), b = Math.max(a, f(x.end)), clash = p.clash.includes(x.id) || !!fix?.items.some((i) => i.slot.id === x.id);
     const label = x.kind === 'BATTERY_SWAP' ? KIND.BATTERY_SWAP : (x.scenario_id && names(x.scenario_id)) || '임무';
+    // 시안: 배터리 교체 칸은 빗금만(글 없음). 너무 좁은 칸(약 40px 아래)은 글을 빼고 이름은 title · aria-label 로
+    const text = x.kind === 'BATTERY_SWAP' || (b - a) * 1736 < 40 ? '' : label;
     return <div key={x.id} className={`bk ${clash ? 'kx' : look(x, now.getTime())}${made === x.id ? ' u6-made' : ''}`} data-slot={x.id} data-kind={x.kind} data-conflict={clash || undefined} data-x={a} data-w={b - a}
       style={{ left: X(a), width: W(b - a), top: `${top}px`, ...(x.scenario_id ? { cursor: 'pointer' } : {}) }} title={`${label} · ${hm(x.start)}~${hm(x.end)} · ${KIND[x.kind]}`}
-      {...(x.scenario_id ? { role: 'button', tabIndex: 0, onClick: () => pick(x.id), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(x.id); } } } : {})}>{label}</div>; };
+      {...(x.scenario_id ? { role: 'button', tabIndex: 0, onClick: () => pick(x.id), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(x.id); } } } : {})} aria-label={label}>{text}</div>; };
   const plans = fix?.items.flatMap((i) => (i.to ? [{ ...i.slot, id: `fix-${i.slot.id}`, robot_id: i.to }] : [])) ?? [];
   return <div className="pane tl" aria-label="오늘 일정">
     <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -314,7 +317,7 @@ function Day({ robots, p, names, fix, made, pick }: { robots: Robot[]; p: Plan; 
         {plans.length > 0 && <span className="leg"><i style={{ border: '1.5px dashed #4c9bff' }} />재배정안</span>}</span>
     </div>
     <div className="tlg">
-      {HOURS.map((h, i) => <div key={h} style={{ position: 'absolute', left: X(i / span), top: '0', bottom: '0', borderLeft: '1px solid rgba(255,255,255,.06)', fontSize: '12px', color: '#9aa19d', paddingLeft: '5px' }} className="num u6-hour">{two(h)}</div>)}
+      {HOURS.map((h, i) => <div key={h} style={{ position: 'absolute', left: X(i / span), top: '0', bottom: '0', borderLeft: '1px solid rgba(255,255,255,.06)', fontSize: '12px', color: '#9aa19d', paddingLeft: '5px' }} className="num u6-hour">{Math.abs(i / span - at) * span < 0.45 ? '' : two(h)}</div>)}
       {rows.map((r, k) => <div key={r.id} data-day-robot={r.id} style={{ display: 'contents' }}>
         <div style={{ position: 'absolute', left: '0', top: `${34 + k * 46}px`, fontSize: '14px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px', ...(r.bad ? { color: '#ff4d4f' } : {}) }}>{r.name}{r.bad && <Ic d={IC.warn} s={15} />}</div>
         {slots.filter((x) => x.robot_id === r.id).map((x) => bar(x, 30 + k * 46))}
@@ -418,6 +421,7 @@ function Setup({ robots, places, cancel, p, close, make }: { robots: Robot[]; pl
       {on && <span style={{ position: 'absolute', right: '14px', top: '14px', color: '#00c389', width: '34px', height: '34px', borderRadius: '50%', background: 'rgba(12,15,20,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic d={IC.check} s={22} /></span>}
       <div style={{ padding: '14px 16px', textAlign: 'left' }}><b style={{ fontSize: '16px' }}>{floorName(x.floor.name)}</b><div className="lab" style={{ marginTop: '4px' }}>{x.site.name} · {x.building.name}</div></div></button>; };
   const first = maps.find((x) => x.floor.id === f), rest = maps.filter((x) => x.floor.id !== f).slice(mp * 2, mp * 2 + 2);
+  const t0 = Math.floor(hm2h(p.start)) - 2;   // 시안: 고른 시각 앞뒤 2 시간(150px = 4 시간)
   return <>
     <div className="hdr"><span className="ttl" style={{ fontSize: '26px' }}>새 임무</span><span className="lab" style={{ marginLeft: '8px', fontSize: '14px' }}>지도 · 로봇 · 걷기 모드를 고르면 임무를 만들 수 있습니다</span>
       <span className="g dk chip" style={{ marginLeft: 'auto' }}><Ic d={IC.clock} s={17} />{p.start} ~ {p.end}<small>이 시간에 맞춰 고릅니다</small></span></div>
@@ -432,10 +436,12 @@ function Setup({ robots, places, cancel, p, close, make }: { robots: Robot[]; pl
       <div className="row" style={{ gap: '10px', marginBottom: '6px' }}><span style={{ color: '#00c389' }}><Ic d={IC.robot} s={20} /></span><span className="ttl">로봇</span>
         <span style={{ marginLeft: 'auto' }}><Pager n={avail.length} per={6} at={rp} go={setRp} label="로봇" /></span></div>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: '14px' }}><span className="lab">{p.start} ~ {p.end} 에 비어 있는 로봇만 고를 수 있습니다</span></div>
+      <div className="row lab num" style={{ margin: '-6px 0 6px' }}><span style={{ width: '304px' }} /><span style={{ width: '150px', display: 'flex', justifyContent: 'space-between' }}>{[0, 2, 4].map((k) => <span key={k}>{two((t0 + k + 24) % 24)}</span>)}</span></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {avail.slice(rp * 6, rp * 6 + 6).map((a) => { const free = a.state === 'FREE' || a.state === 'CHARGING', on = robot === a.robot_id;
           return <button key={a.robot_id} type="button" className={`rob ${on ? 'on' : free ? '' : 'off'}`} style={{ height: '76px' }} disabled={!free} aria-pressed={on} data-setup-robot={a.robot_id} onClick={() => setRobot(on ? '' : a.robot_id)}>
             <Ic d={IC.robot} s={20} /><div style={{ width: '250px', textAlign: 'left' }}>{a.robot_name}<small style={{ display: 'block', marginTop: '2px' }}>{a.sim ? '실제 로봇 없이 화면 속에서만' : `${stateText(a, robots)}${a.battery_pct == null ? '' : ` · ${Math.round(a.battery_pct)} %`}`}</small></div>
+            <Mini t0={t0} a={hm2h(p.start)} b={hm2h(p.end)} slots={(p.slots ?? []).filter((x) => x.robot_id === a.robot_id)} />
             <span className="r"><span style={{ height: '24px', padding: '0 9px', borderRadius: '8px', fontSize: '12px', fontWeight: '800', display: 'flex', alignItems: 'center', ...(a.sim ? { border: '1.5px dashed #4c9bff', color: '#4c9bff' } : { border: '1.5px solid #00c389', color: '#00c389' }) }}>{a.sim ? '시뮬' : '실제'}</span></span></button>; })}
         {p.avail && !avail.length && <Why>이 조직에 보이는 로봇이 없습니다.</Why>}
         {!p.avail && <Why>{p.availErr ? `로봇 일정을 받지 못했습니다. ${p.availErr}` : '로봇 일정을 불러오는 중…'}</Why>}
@@ -465,4 +471,27 @@ function Setup({ robots, places, cancel, p, close, make }: { robots: Robot[]; pl
       <button type="button" className="btnp start" style={{ width: '220px', height: '50px', fontSize: '15.5px' }} disabled={!first} data-setup-make onClick={() => make(f, robot, gait)}>임무 만들기<Ic d={IC.arrow} s={17} /></button>
     </div>
   </>;
+}
+
+const hm2h = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
+/** 시안 u6_2 로봇 줄의 작은 시간표: 고른 시간대(초록 테두리)와 그 로봇의 오늘 일정 칸(GET /schedule) · 150px = 4 시간 */
+function Mini({ t0, a, b, slots }: { t0: number; a: number; b: number; slots: ScheduleSlot[] }) {
+  const K = 37.5, x = (h: number) => Math.max(0, Math.min(150, (h - t0) * K));
+  return <span style={{ position: 'relative', width: '150px', height: '20px', borderRadius: '5px', background: 'rgba(255,255,255,.05)', flex: 'none' }} aria-hidden="true" data-mini>
+    <i style={{ position: 'absolute', left: `${x(a)}px`, width: `${Math.max(2, x(b) - x(a))}px`, top: 0, bottom: 0, border: '1.5px solid #00c389', borderRadius: '4px', zIndex: 1 }} />
+    {slots.map((y) => { const l = x(hourOf(y.start)), w = x(hourOf(y.end)) - l; return w > 0 ? <i key={y.id} style={{ position: 'absolute', left: `${l}px`, width: `${w}px`, top: '4px', bottom: '4px', borderRadius: '3px', background: '#5e6662' }} /> : null; })}
+  </span>;
+}
+
+/** 시안 u6_1 지도 위 「● K-01 관제실 대기」: 일정 칸에서 고른 로봇의 지금 자리(실시간 state.location, 그 층일 때만) */
+export function RobotPill({ robot, route, label }: { robot: Robot; route: Route; label: string }) {
+  useEffect(() => rt.watch(robot.id), [robot.id]);
+  const l = useLive(robot.id), at = l.state?.location;
+  if (!route.v || !at || at.x == null || at.y == null || at.floor_id !== route.floor) return null;
+  const [a, b] = route.px({ x: at.x, y: at.y }), r = route.r, fs = r * 1.05, w = label.length * fs * 0.95 + r * 2.6, h = r * 2.2;
+  return <g data-robot-pill={robot.id} style={{ pointerEvents: 'none' }}>
+    <circle cx={a} cy={b} r={r} style={{ fill: '#fff', stroke: '#00c389', strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
+    <rect x={a - w / 2} y={b - r * 4.2} width={w} height={h} rx={h * 0.3} style={{ fill: 'rgba(255,255,255,.85)', stroke: 'rgba(255,255,255,.95)' }} />
+    <circle cx={a - w / 2 + r * 1.1} cy={b - r * 4.2 + h / 2} r={r * 0.32} style={{ fill: '#00c389' }} />
+    <text x={a - w / 2 + r * 1.8} y={b - r * 4.2 + h / 2 + fs * 0.36} fontSize={fs} fontWeight={700} style={{ fill: '#1f2421' }}>{label}</text></g>;
 }

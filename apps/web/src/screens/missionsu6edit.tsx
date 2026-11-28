@@ -4,10 +4,9 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
 import type { Mission, Scenario, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import type { Robot } from '../fake';
-import { useLive } from '../rt';
 import { ACT, FINISH } from './missions';
 import { hm, useRoute, type Plan, type Route } from './missiontab';
-import { IC, Ic, Pager, RouteStage, Why } from './missionsu6';
+import { IC, Ic, Pager, RobotPill, RouteStage, Why } from './missionsu6';
 import type { Place } from './maps';
 
 export type Look = 'list' | 'node' | 'map';
@@ -36,6 +35,16 @@ export function blockOf(body: ScenarioWrite | null, route: Route, checking: bool
 
 const place = (w: ScenarioWaypoint, route: Route) => w.name || (w.waypoint_ref && route.v?.features.waypoints.find((p) => p.id === w.waypoint_ref)?.name) || `(${w.x.toFixed(1)}, ${w.y.toFixed(1)}) m`;
 const jobName = (e: Edit, w: ScenarioWaypoint) => e.jobs[w.mission_id]?.name ?? '할 일';
+/** 할 일 그림(시안 노드 고르기 그림): 임무 첫 단계로 고른다. 단계 없음 = 이동 */
+const JOB_IC = {
+  PHOTO: <><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /><rect x="2" y="6" width="14" height="12" rx="2" /></>,
+  WAIT: <><path d="M5 22h14" /><path d="M5 2h14" /><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" /><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" /></>,
+  SENSOR_LOG: <><path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /></>,
+  OPERATOR_CONFIRM: <><path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></>,
+} as const;
+const jobIc = (m?: Mission) => (m?.steps[0] ? JOB_IC[m.steps[0].action] ?? IC.check : IC.arrow);
+/** 시안 끝 줄 이름: 돌아오기 = 「돌아옴」 */
+const endName = (m?: string | null) => (m === 'RETURN_TO_START' ? '돌아옴' : FINISH[(m ?? 'STAY') as keyof typeof FINISH]);
 const leave = (m?: Mission) => (m ? (m.steps.length ? m.steps.map((s) => ACT[s.action] ?? s.action).join(' · ') : '머무르기만') : '임무 정보를 받지 못함');
 const badge = (n: number, dashed = false) => <b style={{ width: '22px', height: '22px', borderRadius: '50%', ...(dashed ? { border: '2px dashed #00c389', color: '#fff' } : { background: '#00c389', color: '#06231a' }),
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11.5px' }}>{n}</b>;
@@ -52,7 +61,7 @@ export function Radial({ at, jobs, pick, close }: { at: [number, number]; jobs: 
     <div style={{ position: 'absolute', left: '161px', top: '161px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', border: '3px solid #00c389', boxShadow: '0 0 0 6px rgba(0,195,137,.3)' }} />
     {jobs.slice(0, 6).map((m, k) => <button key={m.id} type="button" role="menuitem" className="g" data-radial-job={m.id} onClick={() => pick(m)}
       style={{ left: `${SLOT[k][0]}px`, top: `${SLOT[k][1]}px`, width: '92px', height: '80px', borderRadius: '18px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '5px', fontSize: '12.5px', fontWeight: '800', textAlign: 'center', padding: '0 6px' }}>
-      <Ic d={IC.pin} />{m.name}</button>)}
+      <Ic d={jobIc(m)} />{m.name}</button>)}
     {!jobs.length && <div className="g" style={{ left: '90px', top: '12px', width: '160px', padding: '10px', borderRadius: '14px', fontSize: '12.5px', fontWeight: '700' }}>임무(할 일)가 없습니다. 기록 · 설정의 임무 목록에서 먼저 만드세요.</div>}
   </div>;
 }
@@ -69,18 +78,10 @@ export function EditMap({ e, x, route, sel, setSel, pending, setPending, robot, 
   return <>
     <div className="stage" style={{ inset: 0 }}>
       <RouteStage x={x} route={route} sel={sel} pickAt={(i) => { setSel(i); setMenu(null); }}
-        pick={e.ro ? undefined : (m, at) => { if (pending) add(pending, m); else setMenu({ m, at }); }}>{robot && <RobotDot robot={robot} route={route} />}</RouteStage></div>
+        pick={e.ro ? undefined : (m, at) => { if (pending) add(pending, m); else setMenu({ m, at }); }}>{robot && <RobotPill robot={robot} route={route} label={`${robot.name} ${robot.sim ? '시뮬' : '실제'} · 지금 자리`} />}</RouteStage></div>
     {menu && <Radial at={menu.at} jobs={Object.values(e.jobs).filter((j) => !j.archived_at)} pick={(m) => add(m, menu.m)} close={() => setMenu(null)} />}
     {children}
   </>;
-}
-
-/** 고른 로봇의 지금 자리(그 층일 때만 · 실시간 state.location) */
-function RobotDot({ robot, route }: { robot: Robot; route: Route }) {
-  const l = useLive(robot.id), at = l.state?.location;
-  if (!route.v || !at || at.x == null || at.y == null || at.floor_id !== route.floor) return null;
-  const [a, b] = route.px({ x: at.x, y: at.y });
-  return <g data-robot-dot={robot.id}><circle cx={a} cy={b} r={route.r * 0.9} style={{ fill: '#00c389', stroke: '#fff', strokeWidth: 3 }} vectorEffect="non-scaling-stroke" /></g>;
 }
 
 /** u6_3 왼쪽 «할 일 순서»: 지점마다 이동 · 할 일 두 줄 + 끝 동작 · 끌어서 순서 · 고른 줄 자세히 */
@@ -90,12 +91,12 @@ export function ListPane({ e, route, sel, setSel, adding, setAdding }: { e: Edit
   const fin = e.body.finish ?? { mode: 'STAY' as const, target: null };
   const row = (r: (typeof rows)[number], n: number) => {
     const on = r.k === 'end' ? sel === 'end' : r.k === 'task' && sel === r.i, w = r.k === 'end' ? null : e.body.waypoints[r.i];
-    const ic = r.k === 'move' ? IC.arrow : r.k === 'end' ? IC.flag : IC.check, color = r.k === 'task' ? '#00c389' : '#9aa19d';
+    const ic = r.k === 'move' ? IC.arrow : r.k === 'end' ? IC.flag : jobIc(e.jobs[e.body.waypoints[r.i].mission_id]), color = r.k === 'task' ? '#00c389' : '#9aa19d';
     return <div key={n} role="button" tabIndex={0} className="row" data-row={r.k} data-row-i={r.k === 'end' ? undefined : r.i} aria-pressed={on} {...(r.k === 'task' ? drag(e, r.i) : {})}
       onClick={() => setSel(r.k === 'end' ? 'end' : r.i)} onKeyDown={(ev) => { if (ev.key === 'Enter') setSel(r.k === 'end' ? 'end' : r.i); }}
       style={{ height: '62px', gap: '12px', padding: '0 14px', borderRadius: '14px', cursor: 'pointer', ...(on ? { background: 'rgba(0,195,137,.08)', border: '1px solid rgba(0,195,137,.5)' } : { border: '1px solid var(--line)', background: 'rgba(255,255,255,.03)' }) }}>
       <span className="mu2"><Ic d={IC.grip} /></span><span style={{ color }}><Ic d={ic} /></span>
-      <div style={{ flex: '1', minWidth: 0 }}><div style={{ fontSize: '15px', fontWeight: '700' }} className="row">{r.k === 'move' ? '이동' : r.k === 'end' ? FINISH[fin.mode ?? 'STAY'] : jobName(e, w!)}&nbsp;{r.k === 'task' && badge(r.i + 1)}</div>
+      <div style={{ flex: '1', minWidth: 0 }}><div style={{ fontSize: '15px', fontWeight: '700' }} className="row">{r.k === 'move' ? '이동' : r.k === 'end' ? endName(fin.mode) : jobName(e, w!)}&nbsp;{r.k === 'task' && badge(r.i + 1)}</div>
         <div className="lab" style={{ marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.k === 'end' ? (fin.mode === 'RETURN_TO_START' && e.body.waypoints[0] ? place(e.body.waypoints[0], route) : '') : place(w!, route)}</div></div>
       {/* 단계별 분: 서버 Estimate.legs(요청 중) */}<span className="num" style={{ fontSize: '14px', fontWeight: '700' }} data-leg-min />
     </div>;
@@ -109,7 +110,7 @@ export function ListPane({ e, route, sel, setSel, adding, setAdding }: { e: Edit
     <button type="button" className="btns" style={{ marginTop: '12px', height: '52px', fontSize: '14.5px', borderStyle: 'dashed', width: '100%' }} disabled={e.ro} aria-pressed={adding} onClick={() => setAdding(!adding)} data-add-step>
       <Ic d={IC.plus} />{adding ? '지도에서 자리를 누르세요 · 다시 누르면 그만' : '할 일 추가'}</button>
     {w && <div style={{ marginTop: '22px', padding: '18px', borderRadius: '16px', background: 'rgba(255,255,255,.04)', border: '1px solid var(--line)' }} data-step-detail={sel}>
-      <div className="row" style={{ gap: '10px' }}><span style={{ color: '#00c389' }}><Ic d={IC.check} /></span><b style={{ fontSize: '15.5px' }}>{jobName(e, w)} · {place(w, route)}</b>
+      <div className="row" style={{ gap: '10px' }}><span style={{ color: '#00c389' }}><Ic d={jobIc(job)} /></span><b style={{ fontSize: '15.5px' }}>{jobName(e, w)} · {place(w, route)}</b>
         <span className="row" style={{ marginLeft: 'auto', gap: '6px' }}>
           <button type="button" className="btns" style={{ width: '30px', height: '30px', padding: 0 }} aria-label="앞으로" disabled={e.ro || sel === 0} onClick={() => { move(e, sel as number, (sel as number) - 1); setSel((sel as number) - 1); }}>↑</button>
           <button type="button" className="btns" style={{ width: '30px', height: '30px', padding: 0 }} aria-label="뒤로" disabled={e.ro || sel === e.body.waypoints.length - 1} onClick={() => { move(e, sel as number, (sel as number) + 1); setSel((sel as number) + 1); }}>↓</button>
@@ -139,7 +140,7 @@ export function NodePane({ e, x, route, p, setSel, pickJob, mini }: { e: Edit; x
   const items: { k: 'start' | 'pt' | 'end'; i: number; t: string; s: string }[] = [
     { k: 'start', i: -1, t: '출발', s: `${e.body.waypoints[0] ? place(e.body.waypoints[0], route) : '첫 지점'} · ${p.start}` },
     ...e.body.waypoints.map((w, i) => ({ k: 'pt' as const, i, t: jobName(e, w), s: place(w, route) })),
-    { k: 'end', i: -2, t: FINISH[e.body.finish?.mode ?? 'STAY'], s: p.est ? `예상 ${hm(p.est.eta)}` : '' }];
+    { k: 'end', i: -2, t: endName(e.body.finish?.mode), s: [e.body.finish?.mode === 'RETURN_TO_START' && e.body.waypoints[0] ? place(e.body.waypoints[0], route) : '', p.est ? hm(p.est.eta) : ''].filter(Boolean).join(' · ') }];
   const pages = Math.max(1, Math.ceil(items.length / PER)), at = Math.min(page, pages - 1), shown = items.slice(at * PER, at * PER + PER);
   // 시안 자리: 윗줄 왼→오 셋, 다음 줄 오→왼 셋 … (뱀 모양)
   const pos = (k: number): [number, number] => { const row = Math.floor(k / 3), c = k % 3, col = row % 2 ? 2 - c : c; return [60 + col * 280, 180 + row * 240]; };
@@ -153,7 +154,7 @@ export function NodePane({ e, x, route, p, setSel, pickJob, mini }: { e: Edit; x
         return <div key={`${n.k}${n.i}`} role={n.k === 'pt' ? 'button' : undefined} tabIndex={n.k === 'pt' ? 0 : undefined} className="g dk" data-node={n.k === 'pt' ? n.i + 1 : n.k}
           {...(n.k === 'pt' ? { ...drag(e, n.i), onClick: () => setSel(n.i) } : {})}
           style={{ left: `${l}px`, top: `${t}px`, width: '210px', height: '76px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '12px', borderRadius: '16px', cursor: n.k === 'pt' ? 'grab' : undefined }}>
-          <span style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(0,195,137,.18)', color: '#00c389', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}><Ic d={n.k === 'start' ? IC.play : n.k === 'end' ? IC.flag : IC.check} /></span>
+          <span style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(0,195,137,.18)', color: '#00c389', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}><Ic d={n.k === 'start' ? IC.play : n.k === 'end' ? IC.flag : jobIc(e.jobs[e.body.waypoints[n.i].mission_id])} /></span>
           <div style={{ minWidth: 0 }}><div style={{ fontSize: '15px', fontWeight: '800', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.t}</div>
             <div style={{ fontSize: '12.5px', color: 'rgba(255,255,255,.62)', fontWeight: '600', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.s}</div></div></div>; })}
       {pages > 1 && <div style={{ position: 'absolute', left: '60px', top: '20px' }}><Pager n={items.length} per={PER} at={at} go={setPage} label="노드" /></div>}
@@ -161,7 +162,7 @@ export function NodePane({ e, x, route, p, setSel, pickJob, mini }: { e: Edit; x
     <div style={{ position: 'absolute', left: '22px', top: '22px', width: '230px' }}><div className="ttl" style={{ fontSize: '17px', marginBottom: '12px' }}>노드 고르기</div>
       {jobs.map((j) => <button key={j.id} type="button" className="row" disabled={e.ro} data-node-job={j.id} onClick={() => pickJob(j)}
         style={{ width: '100%', height: '46px', gap: '10px', padding: '0 12px', borderRadius: '12px', marginBottom: '6px', border: '1px solid var(--line)', background: 'rgba(255,255,255,.03)', fontSize: '14px', fontWeight: '700' }}>
-        <span className="mu2"><Ic d={IC.plus} /></span><span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name}</span></button>)}
+        <span className="mu2"><Ic d={jobIc(j)} /></span><span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name}</span></button>)}
       {!jobs.length && <Why>임무(할 일)가 없습니다.</Why>}</div>
     <div className="g dk" style={{ position: 'absolute', left: '300px', bottom: '22px', height: '46px', padding: '0 16px', borderRadius: '13px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', fontWeight: '600', whiteSpace: 'nowrap' }}>
       <Ic d={IC.node} />목록 · 지도와 같은 임무입니다. 노드를 끌어 놓으면 지도 경로도 바뀝니다.</div>
