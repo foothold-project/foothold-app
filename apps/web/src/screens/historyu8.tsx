@@ -185,7 +185,7 @@ export function HistoryU8(c: HistoryCtx) {
 /** 왼쪽 거르기 판(u8_1 .pane.flt): 묶음 · 등급 · 실제/모의 실행 · 로봇 · 클립 있는 것만 · 보관 안내. 서버 거르기가 없는 칸은 잠금 + 까닭 한 줄 */
 function Filters({ c, f, set }: { c: HistoryCtx; f: Filter; set: (p: Partial<Filter>) => void }) {
   // 로봇 거르기: 내 로봇 + 끝낸 시뮬 슬롯(지난 시뮬 기록 · 운영 관리자는 그 슬롯에서 한 내 행동만 서버가 보여 줌)
-  const robots = [...myRobots(c.user, c.robots), ...(c.user.role === 'ORG_ADMIN' ? [] : c.robots.filter(idleSim))];
+  const robots = [...myRobots(c.user, c.robots), ...(c.user.role === 'ORG_ADMIN' ? [] : c.robots.filter((r) => idleSim(r)))];
   return <aside className="pane flt" aria-label="기록 거르기" data-hs-side><div className="ttl" style={{ padding: '0 8px' }}>기록</div>
     <h4>묶음</h4>
     <div role="group" aria-label="묶음">{GROUPS.map((g) => g.k === null

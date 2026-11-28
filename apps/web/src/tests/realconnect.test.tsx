@@ -554,7 +554,7 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
   it('M6: 총괄 폰 · 남의 시뮬이 섞인 목록 → 서버 끊김 STOP 은 정지 가능한(내) 로봇에만', async () => {
     serve();
     const mine = { id: 'sa', name: '시뮬 A', owner: 'u-kim', ownerName: '김OO', battery: null, online: true, seenAt: '', status: 'IDLE', sim: true } as unknown as (typeof ROBOTS)[number];
-    const other = { ...mine, id: 'sb', name: '시뮬 B', owner: 'u-lee', ownerName: '이OO' };
+    const other = { ...mine, id: 'sb', name: '시뮬 B', owner: 'u-lee', ownerName: '이OO', demo: false };   // 사용자 시뮬(데모 아님 · 22:04)
     window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.5-dev');
     location.hash = '#/drive';
