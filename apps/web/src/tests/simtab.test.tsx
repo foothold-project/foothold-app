@@ -272,7 +272,7 @@ describe('PC «시뮬» 탭', () => {
   // 10-25 f894b77 실관측: 시뮬 슬롯은 고정 로봇 행이라 IDLE(서버가 담당을 비움)이어도 /robots 에 남는다 — 총괄 STOP·Space 는 내가 띄운 시뮬만
   for (const [how, owner] of [['IDLE 슬롯(담당 없음)', ''], ['남이 띄운 시뮬', 'u-lee']] as const) it(`총괄 + ${how}만 목록 → 머리줄 STOP·Space 없음`, async () => {
     // 11/28: 실기가 있으면 총괄도 STOP(그 실기) · 시뮬 판정만 보려고 목록에 실기를 두지 않는다
-    serve(); await mount('u-kim', [{ ...ROBOTS[0], id: S2, name: '시뮬-2', owner, sim: true }]);
+    serve(); await mount('u-kim', [{ ...ROBOTS[0], id: S2, name: '시뮬-2', owner, sim: true, demo: false }]);
     expect($('[data-stop]')).toBeNull();
     act(() => { dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); }); await flush();
     expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();

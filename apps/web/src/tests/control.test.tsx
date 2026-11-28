@@ -14,7 +14,8 @@ import { sim } from '../phone';
 import { rt } from '../rt';
 import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
-import { toRobot } from '../fake';
+import { idleSim, toRobot } from '../fake';
+import { fleetRow } from './fleetRow';
 import { en } from '../lang';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
 beforeEach(() => { pcBoard.on = true; });
@@ -192,6 +193,24 @@ describe('관제 탭', () => {
     const S = (o: object) => toRobot({ id: 'x', name: 'X', model: 'Go2', owner: null, connection: 'ONLINE', status: 'STOP_LATCHED', battery: null, location: null, lease: null, current_run: null, devices: [], attention: [], simulation: false, server_drive_allowed: true, ...o } as never);
     expect([S({ latch_reason: 'BOOT' }).latchReason, S({ latch_reason: null }).latchReason, S({}).latchReason]).toEqual(['BOOT', null, null]);
   });
+  // 팀장 21:45: 제목과 덧말이 둘 다 «정지 잠금» 으로 겹치지 않게 · 21:56: 덧말은 비우고 시각은 오른쪽 칸만 · reviewer L1: 잠금(bad) + 온도 주의(warn) = bad
+  it('최근 경고 덧말: 임무 없는 잠금 로봇은 덧말을 비우고 시각은 오른쪽 칸 하나만, 잠금 + 온도 주의 = 테두리 빨강', () => {
+    const R: Robot[] = [
+      { ...TWENTY[3], id: 'a1', name: 'A-1', status: 'STOP_LATCHED', mission: undefined, statusSince: { status: 'STOP_LATCHED', at: '2026-11-28T20:53:54' } },
+      { ...TWENTY[3], id: 'a2', name: 'A-2', status: 'STOP_LATCHED', mission: undefined },
+      { ...TWENTY[3], id: 'a3', name: 'A-3', status: 'STOP_LATCHED', mission: '공정 순찰 A 2/4' },
+    ];
+    mount('u-kim', R); feed(R, { a2: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
+    const sub = (id: string) => $(`[aria-label="최근 경고"] [data-alert="${id}"] small`).textContent;
+    const row = (id: string) => $(`[aria-label="최근 경고"] [data-alert="${id}"]`).textContent!;
+    expect(sub('a1')).toBe(''); expect(sub('a2')).toBe('');
+    expect(row('a1').split('20:53').length - 1).toBe(1);   // 시각은 오른쪽 칸 한 번만
+    expect(row('a2').split('이어진 상태').length - 1).toBe(1);
+    expect(sub('a3')).toBe('공정 순찰 A');   // 임무가 있으면 임무 이름 그대로
+    expect(tile('a2').dataset.tone).toBe('bad');
+    expect(tile('a2').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
+    expect(tile('a2').querySelector('[data-fact="temp"]')!.className).toBe('s w');
+  });
   it('정지 잠금 + 문턱 넘은 온도(61 °C): 머리표는 잠금(위험 70 °C 전까지), 온도 칩만 경고색 · 관절 이름, 잠금 없으면 전처럼 온도가 머리표', () => {
     mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) }, g5: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
     expect(tile('g3').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
@@ -309,6 +328,20 @@ describe('관제 탭', () => {
     expect(tile('s2').dataset.live).toBeUndefined();
     expect(tile('s3').dataset.live).toBeUndefined();   // 임무 없음 = 걷지 않음
     expect(tile('m1').dataset.live).toBeUndefined();   // speed 0 = 서 있음
+  });
+  // reviewer 21:53: 조건 하나씩 — 하나만 빠져도 서기
+  it('speed 칸 없음: 로봇 잠금 + 임무 MOVING → 서기, 로봇 RUNNING + 임무 PAUSED → 서기, 목록에서 끊긴(OFFLINE) 요약 로봇 + 임무 중 → 서기', () => {
+    const run = (status: string) => ({ id: 'r', status, scenario_name: '순찰', progress: { done: 1, total: 4 } }) as never;
+    const R: Robot[] = [
+      { ...TWENTY[1], id: 'c1', name: 'C-1', owner: 'u-park', status: 'STOP_LATCHED', run: run('MOVING'), unknown: 'summary' },
+      { ...TWENTY[1], id: 'c2', name: 'C-2', owner: 'u-park', status: 'RUNNING', run: run('PAUSED'), unknown: 'summary' },
+      { ...TWENTY[1], id: 'c3', name: 'C-3', owner: 'u-park', status: 'RUNNING', run: run('MOVING'), unknown: 'summary', attention: ['OFFLINE'] },
+      { ...TWENTY[1], id: 'c4', name: 'C-4', owner: 'u-park', status: 'RUNNING', run: run('MOVING'), unknown: 'summary', attention: [] },
+      { ...TWENTY[0], id: 'm1', name: 'M-1', owner: 'u-lee' },
+    ];
+    mount('u-lee', R); feed(R.filter((r) => r.owner === 'u-lee'));
+    act(() => { seg('범위', 0).click(); });
+    expect(['c1', 'c2', 'c3', 'c4'].map((id) => tile(id).dataset.live ?? '-')).toEqual(['-', '-', '-', '1']);   // c4 = 세 조건 모두 맞는 대조군
   });
 
   it('걷기 판정 문턱 0.05 m/s(rt 가 속도를 0.1 자리까지만 견주므로 그 반 · 가장 느린 시뮬 이동 0.2 보다 아래 · 로봇 탭 robotu4 «서 있음» 0.05 와 같음)', () => {
@@ -698,7 +731,7 @@ describe('관제 탭', () => {
     expect(band().textContent).not.toContain(NOT_SENT);
   });
   it('이 계정이 못 세우는 타일(총괄이 남의 시뮬)을 고르면 정지 단추 글은 «모두 정지» 그대로(reviewer G1)', () => {
-    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee' } : r));
+    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee', demo: false } : r));   // 사용자 시뮬(데모 아님 · 22:04)
     mount('u-kim', T); feed(T);
     act(() => { tile('g6').click(); });
     expect(stopBtn().textContent).toBe('모두 정지');
@@ -1202,5 +1235,64 @@ describe('관제 탭', () => {
     expect(al).not.toBeNull();
     expect(al.querySelector('div')!.firstChild!.textContent).not.toContain('관절');
     expect(al.textContent).not.toContain('관절');
+  });
+});
+
+// reviewer 22:04 정지 안 (가) · app-lx 22:06 · reviewer 22:06: 데모는 실기처럼 총괄 정지 대상. 빼는 것은 남이 띄운 사용자 시뮬(demo false 로 확실)이고 임무 중이 아닐 때만.
+// demo 모름(undefined) = 정지 쪽. 임무 중 = 관제 걷기(D1)와 같은 판정(state run 이 있으면 그것, 없으면 목록 current_run · PAUSED 도 임무 중).
+// 세 자리(경보 칸 「K-0N 정지」 · 로봇 탭 머리줄 정지 · 관제 고르기)와 모두 정지 수를 같이 본다. 운영자는 그대로
+describe('총괄 정지 대상: 데모 sim · 사용자 sim · demo 모름 · 임무 중', () => {
+  const CR = (status: string) => ({ run_id: 'r1', status, scenario_id: 's', scenario_name: '공정 순찰 A', progress: { done: 2, total: 4 } }) as never;
+  const S = (id: string, name: string, demo: boolean | undefined, owner = 'u-park', run?: string): Robot => ({ id, name, owner, ownerName: owner ? '박OO' : undefined, battery: 70, online: true, seenAt: '14:02:00',
+    status: 'RUNNING', sim: true, serverDrive: true, ...(demo === undefined ? {} : { demo }), ...(run ? { run: CR(run), mission: '공정 순찰 A 2/4' } : {}) });
+  const D = S('d1', 'K-05', true), U = S('u1', 'K-06', false), X = S('x1', 'K-07', undefined);
+  const UR = S('ur', 'K-08', false, 'u-park', 'MOVING'), UP = S('up', 'K-09', false, 'u-park', 'PAUSED'), D0 = S('d0', 'K-10', true, '');
+  const M = S('m1', 'K-11', false, 'u-kim');   // 내가 띄운 사용자 시뮬 = 임무 없어도 정지
+  const LIST = [D, U, X, UR, UP, D0, M];
+  /** state 도 목록과 같은 run(임무 판정은 state run 이 먼저) */
+  const runState = { ur: RUN('MOVING'), up: RUN('PAUSED') };
+  const hot = temp([40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 72]);
+  const space = () => act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); });
+  const opts = () => [...box.querySelectorAll<HTMLOptionElement>('[aria-label="정지할 로봇 고르기"] option')];
+  const allOpt = () => opts().map((o) => o.textContent).find((t) => t!.includes('모두 정지'));
+  const pickIds = () => opts().map((o) => o.value).filter((v) => LIST.some((r) => r.id === v)).sort();
+  const CAN: [Robot, boolean][] = [[D, true], [X, true], [U, false], [UR, true], [UP, true], [D0, true], [M, true]];
+  const close = () => { act(() => root?.unmount()); box.remove(); };
+
+  it('총괄 관제: 데모 · demo 모름 · 임무 중(PAUSED 포함) 사용자 시뮬 · 담당 없는 데모 · 내 사용자 시뮬은 고르기 · 모두 정지 수에, 임무 없는 남의 사용자 시뮬만 빠짐', () => {
+    mount('u-kim', LIST, '#/control'); feed(LIST, runState);
+    space();
+    expect(pickIds()).toEqual(['d0', 'd1', 'm1', 'up', 'ur', 'x1']);
+    expect(allOpt()).toBe('모두 정지 (6 대)');
+    close();
+  });
+  it('총괄 관제: 경보 칸 「정지」 와 고른 타일의 머리줄 이름이 같은 판정', () => {
+    for (const [r, can] of CAN) {
+      mount('u-kim', LIST, '#/control'); feed(LIST, { ...runState, [r.id]: { ...(runState as Record<string, object>)[r.id], ...hot } });
+      expect(!!$(`[data-alarm="${r.id}"]`).querySelector('.rstop'), r.name).toBe(can);
+      act(() => { tile(r.id).click(); });   // 관제 고르기 = 머리줄 단추가 그 로봇 이름(못 세우면 «모두 정지» 그대로)
+      expect($('[data-stop]').textContent!.includes(`${r.name} 정지`), r.name).toBe(can);
+      close();
+    }
+  });
+  it('총괄 로봇 탭: 고른 로봇을 세울 수 있으면 머리줄 정지가 그 로봇으로, 임무 없는 남의 사용자 시뮬은 머리줄 정지 없음', () => {
+    pcBoard.on = false;
+    for (const [r, can] of CAN.filter(([x]) => x.owner)) {   // 담당 없는 시뮬은 로봇 탭 목록(robotu4 · W2)이 따로 빼서 여기서는 보지 않음
+      mount('u-kim', LIST, '#/fleet'); feed(LIST, runState);
+      act(() => { fleetRow(box, r.name).click(); });
+      const b = box.querySelector<HTMLElement>('[data-stop]');
+      expect(!!b, r.name).toBe(can);
+      if (b) { act(() => { b.click(); }); expect(FakeWS.last.of('stop').map((m) => m.robot), r.name).toEqual([r.id]); }
+      close();
+    }
+  });
+  it('운영자는 그대로: 남이 띄운 사용자 시뮬도 정지 고르기에 듦 · 담당 없는 데모 · 임무 중 사용자 시뮬은 끝낸 슬롯(idleSim)이 아님', () => {
+    mount('u-lee', LIST, '#/control'); feed(LIST, runState);
+    space();
+    expect(pickIds()).toEqual(['d0', 'd1', 'm1', 'u1', 'up', 'ur', 'x1']);
+    close();
+    expect([idleSim({ sim: true, owner: '', demo: true }), idleSim({ sim: true, owner: '', demo: false }), idleSim({ sim: true, owner: '' }),
+      idleSim({ sim: true, owner: '', demo: false, run: CR('MOVING') }), idleSim({ sim: true, owner: '', demo: false, run: CR('COMPLETED') }),
+      idleSim({ sim: true, owner: '', demo: false, run: CR('MOVING') }, { run: null })]).toEqual([false, true, true, false, true, true]);
   });
 });

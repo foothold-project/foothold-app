@@ -18,6 +18,8 @@ export type Robot = { id: string; name: string; owner: string; ownerName?: strin
   statusSince?: { status: Status | null; at: string } | null;
   /** 서버 latch_reason(잠금 까닭 코드 · 잠기지 않으면 null). 서버가 안 주면 null */
   latchReason?: string | null;
+  /** 서버 목록의 demo(데모 로봇 = 실기처럼 다룸 · 정지 대상). 서버가 안 주면 undefined = 모름 → 정지 쪽으로 */
+  demo?: boolean;
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[]; sim?: boolean;
   phoneRelay?: PhoneRelayState | null; phoneRelayAt?: number;
   /** 실기 Go2 직접 값(서버 robot_info — 자세·상태 번호·넘어짐 추정, 표시만). 구독 로봇은 실시간 state 가 덮음 */
@@ -63,7 +65,13 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
  *  서버 2 차 전이라 아직 담당 운영 관리자만 · 그 자리에 이 한 줄 */
 export const ADMIN_LATER = '남이 담당하는 실기 로봇의 이름 · 지우기 · 연결 끊기 · 키 재발급 · 담당 바꾸기는 아직 담당 운영 관리자만 합니다 (서버 준비 중).';
 /** 쉬는 시뮬 슬롯: 서버는 끝낸(IDLE) 슬롯을 담당을 비운 채 /robots 에 남긴다(설계). 화면의 로봇(PC·폰 목록, 그래서 STOP 후보도)에서 뺀다. 담당 없는 실기는 그대로(총괄이 봐야 함) */
-export const idleSim = (r: Pick<Robot, 'sim' | 'owner'>) => !!r.sim && !r.owner;
+/** 끝난 run 상태(서버 TERMINAL_RUNS 와 같음 · ABORTED 는 계약 열거 밖이지만 서버가 씀) */
+export const RUN_END = new Set<string>(['COMPLETED', 'FAILED', 'CANCELED', 'ABORTED']);
+/** 임무 중 = 받은 state 가 있으면 그 run, 없으면(요약만 · 첫 state 전) 목록 current_run. 끝난 상태만 임무 없음(PAUSED 는 임무 중).
+ *  관제 걷기(D1) · 정지 대상 · 끝낸 시뮬 슬롯이 같은 판정을 쓴다(서버 스케줄러는 담당 없는 로봇으로도 임무를 돌린다 · app-lx 22:06) */
+export const runOn = (r: Pick<Robot, 'run'>, s?: { run?: { status: string } | null } | null) => { const rs = s ? s.run ?? null : r.run ?? null; return !!rs && !RUN_END.has(rs.status); };
+/** 끝낸 시뮬 슬롯 = 담당 없는 사용자 시뮬 · 데모 아님 · 임무 없음. s = 받은 state(있으면) */
+export const idleSim = (r: Pick<Robot, 'sim' | 'owner' | 'demo' | 'run'>, s?: { run?: { status: string } | null } | null) => !!r.sim && !r.owner && !r.demo && !runOn(r, s);
 
 /** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×, 총괄은 모든 로봇 · 11/28). 할 수 있으면 null. 서버 관문(스위치 · 연결 확인 · 조종권)은 서버가 답한다 */
 export function driveBlock(u: User, r: Robot): string | null {
@@ -101,6 +109,7 @@ export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   serverDriveBlocked: r.server_drive_blocked,
   approvalUntil: r.field_approval_expires_at ?? null, serial: r.robot_serial ?? null, attention: r.attention,
   statusSince: sinceOf(r), latchReason: (r as RobotSummary & { latch_reason?: string | null }).latch_reason ?? null,
+  demo: (r as RobotSummary & { demo?: boolean }).demo,
 });
 // status_since: 서버 RobotSummary 의 선택 칸(계약 생성물에 오기 전이라 여기서 선택 칸으로 읽음)
 const sinceOf = (r: RobotSummary & { status_since?: string | null }) => (typeof r.status_since === 'string' && r.status_since ? { status: r.status, at: r.status_since } : null);
