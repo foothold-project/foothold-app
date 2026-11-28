@@ -3,13 +3,12 @@
 // 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx.
 // 틀(mapscen.tsx): 왼쪽 아이콘 도구줄 | 지도 | 오른쪽 요소 창(목록 ↔ 고른 요소 속성). 저장은 단추 줄 «저장» → 바꾼 이유 창(→ 시나리오 동선과 겹치면 물음, RB-ZONE-WEB 11-12).
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api, type ZoneOverlaps } from '../api';
-import { MapFrame, MapImage, toView } from '../mapframe';
+import { FactoryImage, MapFrame, MapImage, toView } from '../mapframe';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, canon, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
-import { Hint, Pane, Pop } from './mapscen';
+import { EDIT, KIND, Note, Shapes, ZONE, canon, demoBoard, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
+import { Hint, Pane } from './mapscen';
 
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
@@ -125,6 +124,7 @@ export function serverBad(e: ApiFail): Bad {
 /** 저장 실패(422 밖) = 무엇이 + 어떻게. 403 등은 서버 문구 그대로 */
 function saveFail(e: ApiFail) {
   if (e.status === 404) return '이 층이나 지도를 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
+  if (e.code === 'SIM_PLACE_BY_TERRAIN') return '데모 현장 지도는 보기만 합니다. 지형은 시뮬 탭 «지형 만들기» 에서 바꿉니다.';
   if (e.code === 'SERVER_BUSY') return '서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.';
   if (e.code === 'TIMEOUT') return '서버가 제시간에 답하지 않았습니다. 네트워크를 확인한 뒤 다시 저장하세요.';
   return e.message;
@@ -360,12 +360,53 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
   const zx = sg === 'zones' && cur && !lock ? (cur as MapZone).polygon.map(([x, y]) => toPixel(v, x, y)) : null;   // 고른 구역의 X 자리 = 그림 오른쪽 위 모서리
   const note = <Note m={msg} />;
 
-  return <>
-    {/* 주 동작 = 단추 줄 오른쪽 끝(FloorView 가 준 자리) → 바꾼 이유 칸이 있는 작은 창 */}
-    {slot && createPortal(<><span className="mx-tag" data-changed>바뀐 요소 {changed}</span>
-      <button type="button" className="btn" disabled={lock} onClick={out}>버리고 나가기</button>
-      <button type="button" className="btn pri" disabled={lock || !v.upload_id} title={v.upload_id ? undefined : '이 지도는 아직 편집 저장을 지원하지 않습니다'}
-      aria-expanded={saving} onClick={() => setSaving(true)}>저장</button></>, slot)}
+  const terr = [['E2 계단', '<path d="M3 20h4v-4h4v-4h4V8h4V4"/>'], ['E3 경사', '<path d="M3 20 21 6v14z"/>'], ['E4 자갈 · 틈', '<circle cx="7" cy="15" r="2"/><circle cx="14" cy="13" r="2.5"/><circle cx="18" cy="18" r="1.5"/>'], ['E5 섞임', '<path d="M3 20h6l3-6 3 6h6"/>']];
+  const ic = (d: string, w = 17) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${w}px`, height: `${w}px` }} dangerouslySetInnerHTML={{ __html: d }} />;
+  const nNoGo = f.zones.filter((z) => z.type === 'NO_GO').length, nSlow = f.zones.filter((z) => z.type === 'SLOW').length;
+  // 시안 u7_5_edit: 머리줄 = ‹ · 층 이름 · 편집 중 · 2D/3D · 취소 · 바꾼 이유 + 새 버전으로 저장(옛 «지도 저장» 창 없음). 지형 · 물체 · 점 정리 = 서버 기능 없음(확인 안 됨)
+  return <div className={`proto${document.documentElement.dataset.theme === 'light' ? ' light' : ''} u7`} aria-label="지도 편집 화면" data-u7="u7_5_edit">
+    <div className="pane side"><span className="ttl">지형 추가</span>
+      <p className="mu2" style={{ fontSize: '12.5px', margin: '8px 4px 0', lineHeight: '1.5' }}>학습 지형을 지도 위에 놓는 기능은 서버에 아직 없습니다.</p>
+      <div className="h3">학습 지형</div>
+      {terr.map(([name, d]) => <div key={name} className="lay" style={{ opacity: 0.5 }} aria-disabled="true" data-terrain={name}>{ic(d)}{name}<span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>확인 안 됨</span></div>)}
+      <div className="h3" style={{ marginTop: '22px' }}>이번 편집</div>
+      <div className="esum" data-edit-sum>
+        <div className="row" style={{ gap: '8px' }}><i className="sw2 e-new" />바뀐 요소 {changed}</div>
+        <div className="row" style={{ gap: '8px' }}><i className="sw2 e-nogo" />{tool === 'NO_GO' ? '금지 구역 그리는 중' : `금지 구역 ${nNoGo} · 감속 구역 ${nSlow}`}</div>
+        <div className="row" style={{ gap: '8px' }}><i className="sw2 e-line" />벽 · 지우개 선 {f.edits.length}</div></div>
+      <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>저장하면 새 버전이 생깁니다. 임무 탭 모의 실행에서 이 버전을 고르면, 실제 로봇에 보내기 전에 시뮬로 먼저 걸어 봅니다.</div>
+    </div>
+    <div className="head">
+      <span className="g dk" style={{ position: 'relative', width: '44px', height: '44px', borderRadius: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} role="button" tabIndex={0} aria-label="보기로" data-u7-back onClick={() => lock || out()}>{ic('<path d="m15 18-6-6 6-6"/>', 20)}</span>
+      <span className="ttl" style={{ fontSize: '26px' }}>{p.building.name} · {p.floor.name}</span>
+      <span className="tag w" style={{ height: '30px', fontSize: '13px' }} data-editing>{unsaved ? '편집 중 · 저장 안 됨' : '편집 중'}</span>
+      <span className="tag" style={{ height: '30px', fontSize: '13px' }} data-changed>바뀐 요소 {changed}</span>
+      <div className="seg2" style={{ marginLeft: 'auto' }}><span className="on">2D 보기</span><span aria-disabled="true" title="3D 편집은 서버에 아직 없습니다" style={{ opacity: 0.5 }}>3D 보기</span></div>
+      <div className="btns" style={{ height: '46px', width: '110px', fontSize: '14px' }} role="button" tabIndex={0} aria-disabled={lock || undefined} data-edit-cancel onClick={() => lock || out()}>취소</div>
+      <form className="row" style={{ gap: '8px' }} onSubmit={save} noValidate aria-label="지도 저장">
+        <label className="row" style={{ gap: '6px', fontSize: '13px', fontWeight: '600' }}><span className="mu2">바꾼 이유</span>
+          <input className="g dk" style={{ position: 'relative', height: '46px', width: '220px', padding: '0 12px', borderRadius: '12px', color: 'inherit', font: 'inherit' }} maxLength={2000} value={reason} disabled={lock || !!over} onChange={(e) => lock || setReason(e.target.value)} /></label>
+        <button type="submit" className="btnp" style={{ height: '46px', padding: '0 20px', fontSize: '14.5px', border: 0 }} disabled={lock || !v.upload_id} hidden={!!over}
+          title={v.upload_id ? undefined : '이 지도는 아직 편집 저장을 지원하지 않습니다'}>새 버전으로 저장</button>
+      </form>
+    </div>
+    {(over || checking || busy || (saving && msg) || stale) && <div className="pane" style={{ right: '24px', top: '160px', width: '420px', padding: '16px 18px', zIndex: 8, display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }} aria-label="저장 확인" data-save-pane>
+      {over && (over.list ? <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap>
+          <p className="fh-msg" role="alert">시나리오 동선과 겹칩니다. 시나리오를 수정하시겠습니까?</p>
+          <ul className="fh-list" aria-label="겹치는 시나리오">{over.list.map((x) => <li key={x.scenario_id} className="lbl">{overlapText(x)}</li>)}</ul>
+          <p className="lv-note">예 = 지도를 저장하고 «{over.list[0].scenario_name}» 편집으로 갑니다{over.list.length > 1 ? '. 나머지는 시나리오 목록에 «수정 필요»로 보입니다' : ''}. 아니요 = 저장하지 않고 지도 편집을 이어 갑니다.</p>
+          <div className="fh-row"><button type="button" className="btn pri" data-overlap-yes onClick={() => send(over.list![0].scenario_id)}>예</button>
+            <button type="button" className="btn" data-overlap-no onClick={() => { setOver(null); setSaving(false); }}>아니요</button></div></div>
+        : <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap="fail">
+          <p className="fh-msg" role="alert">겹침을 확인하지 못했습니다. 시나리오 동선과 겹치는지 모르는 채로 저장할까요?</p>
+          <div className="fh-row"><button type="button" className="btn pri" data-overlap-yes onClick={() => send()}>그래도 저장</button>
+            <button type="button" className="btn" data-overlap-no onClick={() => { setOver(null); setSaving(false); }}>계속 편집</button></div></div>)}
+      {checking && <p className="lv-note" role="status">시나리오 동선과 겹치는지 확인하는 중…</p>}
+      {stale && !over && <div className="fh-row"><button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button></div>}
+      {busy && <p className="lv-note" role="status">저장하는 중…</p>}
+      {saving && note}
+    </div>}
+    <div className="view" style={{ right: '24px', overflow: 'hidden' }}>
     {/* 저장 중엔 편집 입력을 모두 막는다(요청 뒤 바꾼 것이 201 뒤 사라지지 않게) — STOP 은 App 머리줄이라 그대로 */}
     <fieldset disabled={lock} style={{ display: 'contents' }}>
     <div className="mx-body" aria-label="지도 편집">
@@ -374,9 +415,9 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
           <button type="button" className="btn" aria-pressed={tool === t} title={text} disabled={lock} onClick={() => pick(t)}>{ICON[t]}<span className="mx-sr">{text}</span></button></span>)}
       </div>
       <div className="mx-map">
-        <MapFrame ref={svg} {...fit} photo={v} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        <MapFrame ref={svg} {...fit} photo={demoBoard(p.site, p.building) ? null : v} noScale={demoBoard(p.site, p.building)} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
-          <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
+          <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />{demoBoard(p.site, p.building) && <FactoryImage v={v} />}
           <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
           {pts.length > 0 && <g data-drawing>
             <polyline points={pts.map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: 'none', stroke: color, strokeWidth: 2, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke" />
@@ -460,29 +501,15 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
         {foot && <div className="mx-foot">{foot}</div>}
       </Pane>
     </div>
-    <Pop open={saving} close={() => setSaving(false)} label="지도 저장">
-      <form className="fh-form" onSubmit={save} noValidate aria-label="지도 저장">
-        <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} disabled={!!over} onChange={(e) => lock || setReason(e.target.value)} /></label>
-        {/* 겹침 물음: 예 = 저장하고 첫 시나리오 편집으로(나머지는 목록에 «수정 필요»), 아니요 = 저장하지 않고 편집 계속. 검사 실패 = 알리고 고르게 */}
-        {over && (over.list ? <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap>
-            <p className="fh-msg" role="alert">시나리오 동선과 겹칩니다. 시나리오를 수정하시겠습니까?</p>
-            <ul className="fh-list" aria-label="겹치는 시나리오">{over.list.map((x) => <li key={x.scenario_id} className="lbl">{overlapText(x)}</li>)}</ul>
-            <p className="lv-note">예 = 지도를 저장하고 «{over.list[0].scenario_name}» 편집으로 갑니다{over.list.length > 1 ? '. 나머지는 시나리오 목록에 «수정 필요»로 보입니다' : ''}. 아니요 = 저장하지 않고 지도 편집을 계속합니다.</p>
-            <div className="fh-row"><button type="button" className="btn pri" data-overlap-yes onClick={() => send(over.list![0].scenario_id)}>예</button>
-              <button type="button" className="btn" data-overlap-no onClick={() => { setOver(null); setSaving(false); }}>아니요</button></div></div>
-          : <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap="fail">
-            <p className="fh-msg" role="alert">겹침을 확인하지 못했습니다. 시나리오 동선과 겹치는지 모르는 채로 저장할까요?</p>
-            <div className="fh-row"><button type="button" className="btn pri" data-overlap-yes onClick={() => send()}>그래도 저장</button>
-              <button type="button" className="btn" data-overlap-no onClick={() => { setOver(null); setSaving(false); }}>계속 편집</button></div></div>)}
-        {checking && <p className="lv-note" role="status">시나리오 동선과 겹치는지 확인하는 중…</p>}
-        <div className="fh-row" hidden={!!over}><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>저장</button>
-          {stale && <button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button>}</div>
-        {busy && <p className="lv-note" role="status">저장하는 중…</p>}
-        {saving && note}
-      </form>
-    </Pop>
     </fieldset>
-  </>;
+    {/* 금지 구역 = 지금의 접근 금지 그리기 · 지형 · 물체 · 점 정리 = 서버 기능 없음(꺼 둠) */}
+    <div className="tl" style={{ left: '20px', bottom: '72px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 6 }} data-u7-tools>
+      {([['terrain', '지형 추가', '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>'], ['object', '물체 추가', '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>'], ['points', '점 정리', '<circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/>']] as const).map(([k, name, d]) =>
+        <div key={k} className="g dk tool" role="button" tabIndex={-1} aria-disabled="true" title={`${name} · 서버에 아직 없음`} style={{ opacity: 0.5 }} data-u7-tool={k}>{ic(d, 20)}{name}</div>)}
+      <div className={`g dk tool${tool === 'NO_GO' ? ' on' : ''}`} role="button" tabIndex={0} aria-pressed={tool === 'NO_GO'} data-u7-tool="nogo" onClick={() => pick(tool === 'NO_GO' ? 'pick' : 'NO_GO')}>{ic('<circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>', 20)}금지 구역</div>
+    </div>
+    </div>
+  </div>;
 }
 
 /** 요소 목록 순서(구역·지점·연결점·지우개/벽 선) — 키 «무리.번호» */

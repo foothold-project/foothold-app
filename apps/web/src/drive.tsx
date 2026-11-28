@@ -10,12 +10,16 @@ import { DriveInputNote } from './driveinput';
 import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
+import { NoRobot } from './screens/norobot';
+import { TakeoverAsk } from './screens/takeover';
+import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo } from './serverdrive';
 import { api } from './api';
 import { STALLED, SimLaunch, field } from './simdrive';
 import { GAIT_KEYS, gaitKey, useGait } from './gait';
 import './drive.css';
+import { askShown } from './proto/u11';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
 /** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 단조 시계 */
@@ -83,13 +87,17 @@ export function Drive(c: Ctx) {
  *  «+ 로봇 연결하기»: 연결된 실기가 없으면 목록 위에 크게, 있으면 목록 아래 작게 → 앱 안은 고르기: «새 로봇 추가»(운영 관리자 — pairing.tsx, ROBOT-PAIRING) · «주변 로봇 찾기»(nearby.tsx).
  *  앱 밖은 고를 것이 «새 로봇 추가»뿐(단추도 운영 관리자만)이라 메뉴 없이 바로 새 로봇 추가(RB-EASY-PAIR).
  *  총괄도 로봇을 붙인다(11/28 · 서버 #544). 내가 담당인 실기 카드에는 «관리», 총괄이 보는 남 담당 실기는 2 차 전이라 까닭 한 줄 */
-export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ctx, 'refresh' | 'cancel'>>) {
+export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ctx, 'refresh' | 'cancel' | 'phone'>>) {
   useRt();
-  const s = useSim();
+  const s = useSim(), light = useTheme()[1];
   const [view, setView] = useState<'menu' | 'pair' | 'nearby' | null>(null), app = inApp();   // 운영 관리자 · 총괄 모두 붙임(11/28)
+  const [simWant, setSimWant] = useState(false);   // 로봇 없음 화면(u13_4)의 «시뮬 로봇 띄우기» → 아래 시뮬 띄우기 칸
   const live = c.robots.some((r) => !r.sim && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
   const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setView(app ? 'menu' : 'pair')} data-robot-connect>+ 로봇 연결하기</button>;
   const refresh = c.refresh ?? (() => {});
+  // 폰 · 로봇 0대 · 시뮬도 고르기 단계에 아무것도 없으면 시안 u13_4. 시뮬을 띄우는 중 · 띄운 시뮬 · 정리할 자리가 있으면 그 칸이 보이는 옛 배치
+  const bare = !!c.phone && !c.robots.length && view === null && !simWant && !s.real && s.step === 'pick' && !s.mine.length && !s.cleanup.length;
+  if (bare) return <NoRobot role={c.user.role} light={light} add={() => setView(app ? 'menu' : 'pair')} sim={() => setSimWant(true)} />;
   return <>
     {view === 'nearby' || (s.real && s.step !== 'drive') ? <Nearby robots={c.robots} close={() => setView(null)} />
       : view === 'pair' ? <AddRobot user={c.user} mine={c.robots.map((r) => r.id)} close={() => setView(null)} refresh={refresh} cancel={c.cancel} />
@@ -175,6 +183,7 @@ function Screen(c: Ctx) {
   const neutral = () => { gen.bump(); setBack(false); setSide(false); send(); };
   const pick = (s: SheetId | null) => { neutral(); setSheet(s); };
   const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
+  useEffect(() => { askShown.add(r.id); return () => { askShown.delete(r.id); }; }, [r.id]);   // 이 화면이 요청 창을 그린다(PC 시안 틀의 PcAsk 는 비켜 줌)
   /** 지금 세대 입력만. 앞 세대 입력이 남아 있으면 null(→ 0) */
   const axes = (): Axes | null => {
     const { keys: k, stick, sg } = input.current, n = sync();
@@ -293,17 +302,11 @@ function Screen(c: Ctx) {
         {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}
         {!l.releasing && <button type="button" className="dv-mini" aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
           {view === 'map' ? <Video small /> : <MapView />}</button>}{/* 반납 중에는 안내가 상태 판을 키워 보기 단추와 겹치므로 숨김(보기 단추로 같은 일) */}
+        {c.scan}{/* 지도 스캔 겹(시안 u14_2): 상태 줄 · 조종권 요청 창보다 아래 */}
         <div className="dv-hud">{line}{views}{note}</div>
-        {q && <div className="dv-ask" role="dialog" aria-labelledby="dv-ask-t" aria-live="assertive">
-          <b id="dv-ask-t">조종권 요청</b>
-          <p>{ROLE_NAME[q.role as Role] ?? ''} {q.name}님이 {r.name} 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-          <div className="dv-bar" aria-label={`남은 시간 ${secs(q.until, now)}초`}><i style={{ width: `${(Math.max(0, q.until - now) / q.ms) * 100}%` }} /></div>
-          <div className="fh-row">
-            <button type="button" className="btn" data-ask="give" onClick={pointerOnly(() => rt.respond(r.id, true))}>넘기기</button>
-            <button type="button" className="btn" data-ask="keep" onClick={pointerOnly(() => rt.respond(r.id, false))}>계속 조종</button>
-            <span className="lbl">마우스나 터치로 누르세요</span>
-          </div>
-        </div>}
+        {q && <TakeoverAsk id="dv-ask-t" title={`${[ROLE_NAME[q.role as Role], q.name].filter(Boolean).join(' ') || '다른 사람'} 님이 ${r.name} 조종권을 요청했습니다`}
+          left={secs(q.until, now)} bar={(Math.max(0, q.until - now) / q.ms) * 100}
+          give={pointerOnly(() => rt.respond(r.id, true))} keep={pointerOnly(() => rt.respond(r.id, false))} />}
         {ask && l.holder?.type === 'RUN' && <div className="dv-ask" role="dialog" aria-labelledby="dv-run-t">
           <b id="dv-run-t">조종 시작</b>
           <p>{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</p>

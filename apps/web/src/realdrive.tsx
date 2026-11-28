@@ -14,6 +14,7 @@ import { Lidar3D, type Look } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
 import { REPORT_STALE_MS, go2Pose } from './go2model';
 import type { Tone } from './fake';
+import { TakeoverAsk } from './screens/takeover';
 import './realdrive.css';
 
 const CLIP = '명령 범위 조정 · 로봇이 허용한 명령으로 잘랐습니다.';
@@ -131,9 +132,7 @@ export function RealDrive() {
           </>}
         </div>
         {acts.length > 0 && <div className="rd-band" role="group" aria-label="조종 단추" data-real-band>{acts}</div>}
-        {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="real-ask-t" aria-live="assertive">
-          <b id="real-ask-t">조종권 요청</b><p>다른 사람이 이 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-          <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
+        {l.ask && mine && <TakeoverAsk id="real-ask-t" title="다른 사람이 이 로봇의 조종권을 요청했습니다" give={() => sim.respond(true)} keep={() => sim.respond(false)} />}
         {mine && open && <>
           <Stick label="전후" vertical on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v) => put(0, v)} />
           <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)} />

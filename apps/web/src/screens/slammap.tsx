@@ -201,7 +201,8 @@ export function cleanOver(o?: Over | null): Over | null {
 }
 
 /** 위에서 본 2D: 조각을 제자리에 놓기만(조각마다 칸 그림을 한 번 칠해 두고 늘이기). 받은 조각·겹친 칸·로봇이 다 들어오게 맞춤. hideBase = 조각은 빼고 겹친 칸만 */
-function SlamGrid({ pic, over, hideBase = false }: { pic: SlamPic; over?: Over | null; hideBase?: boolean }) {
+/** legend = 칸 뜻 표(작은 지도 칸에서는 끔 · 폰 스캔 u14_2) */
+export function SlamGrid({ pic, over, hideBase = false, legend = true }: { pic: SlamPic; over?: Over | null; hideBase?: boolean; legend?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null), cache = useRef(new Map<string, { seq: number; img: HTMLCanvasElement }>()), draw = useRef(() => {});
   draw.current = () => {
     const cv = ref.current, g = cv?.getContext?.('2d');
@@ -253,7 +254,7 @@ function SlamGrid({ pic, over, hideBase = false }: { pic: SlamPic; over?: Over |
   return <div style={{ position: 'absolute', inset: 0 }}>
     <canvas ref={ref} width={640} height={400} role="img" aria-label="위에서 본 지도" data-slam-tiles={hideBase ? 0 : pic.patches.length} data-over-cells={over ? over.cells.length : undefined} data-slam-robot={pic.pose ? '' : undefined}
       style={{ display: 'block', width: '100%', height: '100%' }} />
-    <OccLegend />
+    {legend && <OccLegend />}
   </div>;
 }
 

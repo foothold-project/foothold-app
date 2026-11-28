@@ -2,6 +2,7 @@
 // 배치만 — API·권한·저장 규칙은 각 화면(maps·mapedit·missions) 그대로. 폰 틀에는 이 두 탭이 없다(menu.tsx PHONE_TABS).
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react';
 import './mapscen.css';
+import { stageRect, sx, sy, vh } from '../stage';
 
 /** 자물쇠(잠긴 지도) */
 export const Lock = () => <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style={{ flex: 'none', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 }}><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>;
@@ -22,9 +23,9 @@ const fit = (d: Element) => {
   const p = d.querySelector<HTMLElement>(':scope>.mx-pop'), s = d.querySelector('summary');
   if (!d.hasAttribute('open') || !p || !s) return;
   if (s.checkVisibility?.() === false) { d.removeAttribute('open'); return; }   // 접힌 창 안(숨김) — 단추 bottom 0 을 저장하지 않고 닫는다, 펼친 뒤 다시 열면 새로 잼(#252 B2)
-  const b = s.getBoundingClientRect().bottom;
+  const b = stageRect(s).bottom;   // 무대 px(stage.ts): PC 무대 안 fixed 는 무대 기준 · 무대가 없으면 화면 그대로
   if (getComputedStyle(p).position === 'fixed') p.style.top = `${b}px`;
-  p.style.maxHeight = `min(72vh, 600px, ${Math.max(0, innerHeight - b - 14)}px)`;
+  p.style.maxHeight = `min(72vh, 600px, ${Math.max(0, vh() - b - 14)}px)`;
 };
 /** 메뉴를 닫고 포커스가 그 안에 있었으면 열기 단추(summary)로 — 닫힌 메뉴 안에 포커스가 남지 않게 */
 const fold = (d: Element) => { const back = d.contains(document.activeElement); d.removeAttribute('open'); if (back) d.querySelector<HTMLElement>('summary')?.focus(); };
@@ -108,7 +109,7 @@ export function Float({ children, head, foot }: { children: ReactNode; head?: Re
   const grab = useRef<{ how: Grip; px: number; py: number; s0: Win & { x: number; y: number } } | null>(null);
   // top = 본문 안 노드 칸 위 끝(창 머리·단계 줄 아래 — 처음 자리가 그 단추들을 덮지 않게). 그릴 때마다(노드·목록 바꿈 뒤 새 캔버스) + 본문 크기가 바뀔 때 잰다, 같으면 그대로
   const measure = () => { const b = me.current?.closest('.mx-body'); if (!b) return;
-    const r = b.getBoundingClientRect(), t = b.querySelector('.sn-canvas')?.getBoundingClientRect(), n: [number, number, number] = [r.width, r.height, t ? t.top - r.top : 0];
+    const c = b.querySelector('.sn-canvas'), r = stageRect(b), t = c ? stageRect(c) : null, n: [number, number, number] = [r.width, r.height, t ? t.top - r.top : 0];
     setB((o) => (o.every((v, i) => v === n[i]) ? o : n)); };
   useEffect(measure);
   useEffect(() => {
@@ -118,10 +119,10 @@ export function Float({ children, head, foot }: { children: ReactNode; head?: Re
   }, []);
   const f = fitWin(s, bw, bh, top);
   const keep = (n: Win) => { setS(n); try { localStorage.setItem(WKEY, JSON.stringify(n)); } catch { /* 기억 못 해도 지금 창은 바뀜 */ } };
-  const at = (e: PointerEvent<HTMLElement>, g = grab.current!) => dragWin(g.s0, g.how, e.clientX - g.px, e.clientY - g.py, bw, bh);
+  const at = (e: PointerEvent<HTMLElement>, g = grab.current!) => dragWin(g.s0, g.how, sx(e) - g.px, sy(e) - g.py, bw, bh);   // 무대 px(창 자리 · 크기와 같은 단위)
   const on = (how: Grip) => ({
     onPointerDown: (e: PointerEvent<HTMLElement>) => { if (e.button !== 0 || (e.target as Element).closest('button')) return;
-      e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); grab.current = { how, px: e.clientX, py: e.clientY, s0: f }; },
+      e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); grab.current = { how, px: sx(e), py: sy(e), s0: f }; },
     onPointerMove: (e: PointerEvent<HTMLElement>) => { if (grab.current) setS(at(e)); },
     onPointerUp: (e: PointerEvent<HTMLElement>) => { if (grab.current) { keep(at(e)); grab.current = null; } },
     onPointerCancel: () => { if (grab.current) { setS(grab.current.s0); grab.current = null; } },

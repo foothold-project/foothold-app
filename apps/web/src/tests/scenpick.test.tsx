@@ -121,11 +121,11 @@ describe('배정 화면 없음', () => {
     serve();
     await open('#/map');
     expect($('[data-building]')!.textContent).not.toContain('시나리오');
-    await click($('[data-building]'));
+    await click($('[data-building]')); await click($('[data-open-map]'));   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
     expect($('[data-side="map"]')!.textContent).toBe('지도 요소 0');
     expect($('[data-side="scen"]')).toBeNull();
     expect($('[data-plan]')).toBeNull();
-    expect($('[data-to-sim]')).toBeNull();
+    expect($('[data-to-sim]')!.textContent).toBe('이 지도로 모의 실행');   // 11-28 시안 u7_3: 위 줄 «이 지도로 모의 실행» = 시뮬 탭 이 층(시나리오 목록은 여전히 지도 탭에 없음)
     expect($('[data-to-scen]')).toBeNull();
     expect(box.textContent).not.toContain('시나리오 없음');
     expect(calls.filter((c) => c.endsWith('/scenarios'))).toEqual([]);

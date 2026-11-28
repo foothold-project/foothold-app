@@ -373,7 +373,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '어느 지도에서 일할까요?', settings: '조직 기준값' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '로봇이 현장을 걸으며 스캔한 3D 지도입니다', settings: '내 계정' };   // 지도 = 시안 u7_1 · 설정 탭 처음 화면 = 시안 u9 계정(u9_1)
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로

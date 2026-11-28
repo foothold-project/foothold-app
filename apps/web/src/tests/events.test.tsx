@@ -88,7 +88,10 @@ const setVal = async (el: HTMLInputElement | HTMLSelectElement, v: string) => {
 };
 /** 총괄 서랍 열기 — 고른 행을 다시 누름 */
 const drawer = () => click(card('로봇 목록').querySelector('button[aria-pressed="true"]'));
-const rows = () => [...card('사건').querySelectorAll('tbody tr')].map((l) => l.textContent);
+/** 기록 줄(u8_1 .ev) · 그 글 · 줄의 사건 문장(.t2 의 첫 글, 아래 small 빼고) */
+const evs = () => [...card('사건').querySelectorAll<HTMLElement>('.ev')];
+const rows = () => evs().map((l) => l.textContent);
+const said = (r: Element) => r.querySelector('.t2')!.firstChild!.textContent;
 const alertText = () => [...box.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ');
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 */
 const stopOk = () => {
@@ -109,6 +112,10 @@ const stopSends = async () => {
 /** 지금까지 예약된 setTimeout 중 ms 인 것의 콜백(마지막 것) */
 const timerOf = (spy: { mock: { calls: unknown[][] } }, ms: number) => { const c = spy.mock.calls.filter((a) => a[1] === ms); return c.length ? (c[c.length - 1][0] as () => void) : undefined; };
 
+/** 내보내기 창 기본 기간(최근 7 일, 현지) · 날짜 칸 값과 보내는 질의 */
+const WEEK = (() => { const d = new Date(), a = new Date(); a.setDate(d.getDate() - 6); return { from: a.toLocaleDateString('sv'), to: d.toLocaleDateString('sv') }; })();
+const WEEK_Q = () => ({ from: new Date(`${WEEK.from}T00:00:00`).toISOString(), to: new Date(`${WEEK.to}T23:59:59.999`).toISOString() });
+
 describe('기록 탭 — 서버 목록 그대로', () => {
   it('최신순 목록·서버 문장 그대로·분류 이름과 심각도 모양, 처음 요청은 필터 없이 limit=50', async () => {
     serve(signedIn(KIM, { 'GET /events': list([ev('9', { category: 'LINK', severity: 'ERROR', message: 'Go2-A과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.' }),
@@ -117,33 +124,34 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     expect(Object.fromEntries(sent('GET', '/events')[0].q)).toEqual({ limit: '50' });
     expect(rows()).toHaveLength(2);
     expect(rows()[0]).toContain('Go2-A과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.');
-    expect(rows()[0]).toContain('연결');
-    expect(rows()[1]).toContain('계정');
-    expect(card('사건').querySelector('tbody tr [data-tone]')!.getAttribute('data-tone')).toBe('bad');
-    expect(rows()[0]).toMatch(/^\d{1,2}\/\d{1,2} \d\d:\d\d/);   // 현지 날짜·시각
+    expect(rows()[0]).toContain('연결 · 시스템');
+    expect(rows()[1]).toContain('사용자 작업');
+    expect(card('사건').querySelector('.ev [data-lv]')!.getAttribute('data-lv')).toBe('r');
+    // 현지 날짜는 날짜 묶음 머리(.day data-day), 줄에는 시각(u8_1)
+    expect(card('사건').querySelector('.day')!.getAttribute('data-day')).toMatch(/\d{1,2}월 \d{1,2}일$/);
+    expect(card('사건').querySelector('.ev .tm')!.textContent).toMatch(/^\d\d:\d\d:\d\d$/);
     stopOk();
   });
-  it('표: 시각·종류·상태·내용·로봇·사람 열, 분류 배지와 심각도(모양+글)는 따로', async () => {
+  it('표(u8_1): 등급·클립·사건·묶음·로봇·시각·클립 길이 열, 분류 배지와 심각도(모양+글)는 따로', async () => {
     serve(signedIn(KIM, { 'GET /events': list([ev('2', { category: 'SAFETY', severity: 'WARN', user_id: 'a1' }), ev('1', { category: 'ACCOUNT', severity: 'INFO', robot_id: null })]) }));
     await open('#/history');
-    expect([...card('사건').querySelectorAll('th')].map((t) => t.textContent)).toEqual(['시각', '종류', '상태', '내용', '로봇·사람']);
-    const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => [...r.children].map((td) => td.textContent));
-    expect(a.slice(1)).toEqual(['안전', '▲주의', '사건 2 문장', 'Go2-A · 김총괄']);
-    expect(b.slice(1)).toEqual(['계정', 'ⓘ정보', '사건 1 문장', '없음']);   // INFO = 옅은 ⓘ정보 알약(U8-10 시안, 11-28 조정 결정)
-    expect(card('사건').querySelector('[data-kind="SAFETY"]')!.textContent).toBe('안전');
+    expect([...$('[data-hs-main] .thd')!.children].map((t) => t.textContent)).toEqual(['등급', '클립', '사건', '묶음', '로봇', '시각', '클립 길이']);
+    const [a, b] = evs().map((r) => [...r.children].map((td) => td.textContent));
+    expect([a[0], a[2], a[3], a[4]]).toEqual(['주의', '사건 2 문장김총괄', '안전', 'Go2-A실제']);
+    expect([b[0], b[2], b[3], b[4]]).toEqual(['정보', '사건 1 문장', '사용자 작업', '없음']);   // INFO = 옅은 정보 칸(.lv.i)
+    expect(evs().map((r) => r.querySelector('[data-lv]')!.getAttribute('data-lv'))).toEqual(['w', 'i']);
   });
   it('로봇·사람 칸: id 가 있는데 이름을 모르면 「이름 모름」, 둘 다 없으면 「없음」 (t19)', async () => {
     serve(signedIn(KIM, { 'GET /events': list([ev('3', { robot_id: 'r-gone' }), ev('2', { robot_id: null, user_id: 'u-gone' }), ev('1', { robot_id: null, user_id: null })]) }));
     await open('#/history');
-    const who = [...card('사건').querySelectorAll('tbody tr')].map((r) => r.lastElementChild!.textContent);
-    expect(who).toEqual(['이름 모름', '이름 모름', '없음']);
+    expect(evs().map((r) => r.children[4].textContent)).toEqual(['이름 모름', '없음', '없음']);   // 로봇 칸
+    expect(evs().map((r) => r.querySelector('[data-who]')?.textContent ?? null)).toEqual([null, '이름 모름', null]);   // 사람 = 사건 칸 아래 줄
   });
-  it('INFO 는 «정상»이라 단정하지 않음 — 서버가 INFO 로 저장한 실패 코드(정지 확인 실패 등)는 ▲주의', async () => {
+  it('INFO 는 «정상»이라 단정하지 않음 · 서버가 INFO 로 저장한 실패 코드(정지 확인 실패 등)는 주의', async () => {
     serve(signedIn(KIM, { 'GET /events': list([ev('2', { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인에 실패했습니다.' }),
       ev('1', { category: 'RUN', code: 'NAV_GOAL_REJECTED', severity: 'INFO' })]) }));
     await open('#/history');
-    const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => r.children[2].textContent);
-    expect([a, b]).toEqual(['▲주의', '▲주의']);
+    expect(evs().map((r) => r.children[0].textContent)).toEqual(['주의', '주의']);
     expect(card('사건').textContent).not.toContain('정상');
   });
   it('cursor 로 «더 보기» — 다음 쪽을 이어 붙이고 끝이면 단추가 없어짐', async () => {
@@ -155,112 +163,84 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     expect(rows().map((r) => r!.match(/사건 (\d)/)![1])).toEqual(['3', '2', '1']);
     expect(btn('더 보기')).toBeUndefined();
   });
-  it('분류 7종·로봇·기간 → 요청 매개변수(화면이 따로 거르지 않음)', async () => {
+  it('묶음(서버 분류)·로봇·기간 → 요청 매개변수(화면이 따로 거르지 않음)', async () => {
     // 서버가 무엇을 돌려주든 그대로 그린다 — 필터와 다른 분류·로봇의 행도 화면이 지우지 않는다
     serve(signedIn(KIM, { 'GET /events': list([ev('5', { category: 'ACCOUNT', robot_id: 'r-b', message: '서버가 준 행' })]) }));
     await open('#/history');
-    const kinds = [...card('분류').querySelectorAll('button')].map((b) => b.textContent);
-    expect(kinds).toEqual(['전체', '임무', '이탈', '연결', '조종권', '결재', '안전', '계정']);
-    for (const [name, code] of [['임무', 'RUN'], ['이탈', 'ROUTE'], ['연결', 'LINK'], ['조종권', 'LEASE'], ['결재', 'APPROVAL'], ['안전', 'SAFETY'], ['계정', 'ACCOUNT']]) {
-      await click(btn(name));
+    const kinds = [...card('묶음').querySelectorAll('button')].map((b) => b.textContent);
+    expect(kinds).toEqual(['전체', '안전', '임무', '연결 · 시스템', '지도', '사용자 작업', '조종권', '결재']);
+    for (const [name, code] of [['임무', 'RUN'], ['지도', 'ROUTE'], ['연결 · 시스템', 'LINK'], ['조종권', 'LEASE'], ['결재', 'APPROVAL'], ['안전', 'SAFETY'], ['사용자 작업', 'ACCOUNT']]) {
+      await click(btn(name, card('묶음')));
       expect(lastQuery()).toEqual({ category: code });
-      expect(btn(name)!.getAttribute('aria-pressed')).toBe('true');
+      expect(btn(name, card('묶음'))!.getAttribute('aria-pressed')).toBe('true');
       expect(rows()[0]).toContain('서버가 준 행');
     }
-    await click(btn('이탈'));
+    await click(btn('지도', card('묶음')));
     await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-a');
     expect(lastQuery()).toEqual({ category: 'ROUTE', robot_id: 'r-a' });
-    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026/10/01');
-    await setVal($<HTMLInputElement>('[aria-label="기간 끝"]')!, '2026/10/02');
-    expect(lastQuery()).toEqual({ category: 'ROUTE', robot_id: 'r-a', from: new Date('2026-10-01T00:00:00').toISOString(), to: new Date('2026-10-02T23:59:59.999').toISOString() });
+    await click(btn('7 일', card('기간')));
+    const from = new Date(); from.setDate(from.getDate() - 6);
+    expect(lastQuery()).toEqual({ category: 'ROUTE', robot_id: 'r-a', from: new Date(`${from.toLocaleDateString('sv')}T00:00:00`).toISOString(), to: new Date(`${new Date().toLocaleDateString('sv')}T23:59:59.999`).toISOString() });
     expect(rows()).toEqual([expect.stringContaining('서버가 준 행')]);
-    await click(btn('전체'));
-    expect(lastQuery()).toEqual({ robot_id: 'r-a', from: new Date('2026-10-01T00:00:00').toISOString(), to: new Date('2026-10-02T23:59:59.999').toISOString() });
+    await click(btn('전체', card('묶음')));
+    expect(Object.keys(lastQuery())).toEqual(['robot_id', 'from', 'to']);
   });
   it('필터를 바꾸면 앞 요청의 늦은 답은 버린다', async () => {
     const wait: ((r: Reply) => void)[] = [];
     serve(signedIn(KIM, { 'GET /events': (q) => (q.get('category') ? list([ev('2', { message: '새 필터 결과' })]) : new Promise<Reply>((r) => wait.push(r))) }));
     await open('#/history');
-    await click(btn('안전'));
+    await click(btn('안전', card('묶음')));
     expect(rows()).toEqual([expect.stringContaining('새 필터 결과')]);
     wait[0](list([ev('1', { message: '옛 필터 결과' })])); await flush();
     expect(rows()).toEqual([expect.stringContaining('새 필터 결과')]);
   });
-  it('빈 목록 문구: 필터 없음 / 필터 있음', async () => {
+  it('빈 목록 문구: 필터 없이 0 건 = u11_8 빈 기록 / 필터 있음 = 한 줄', async () => {
     serve(signedIn(KIM));
     await open('#/history');
     expect(card('기록').textContent).toContain('아직 기록이 없습니다');
-    await click(btn('결재'));
+    expect($('[data-empty="log"]')).not.toBeNull();
+    act(() => root?.unmount()); root = null; box.remove();
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('category') ? list([]) : list([ev('1')])) }));
+    await open('#/history');
+    await click(btn('결재', card('묶음')));
     expect(card('기록').textContent).toContain('조건에 맞는 기록이 없습니다.');
+    expect($('[data-empty="log"]')).toBeNull();
   });
 });
 
-// 10-20 조정 결정 B: 서버 문장 맨 앞 «HH:MM » 접두만 떼고 at 의 현지 날짜·시각을 따로 보인다. 접두가 없으면 그대로, CSV 는 서버 문장 그대로
-describe('기록 탭 — 기간 yyyy/mm/dd(VQ-M)', () => {
-  const day = (k: '시작' | '끝') => $<HTMLInputElement>(`[aria-label="기간 ${k}"]`)!;
-  const blur = (el: HTMLElement) => act(() => { el.focus(); el.blur(); });
-  it('글자 칸 yyyy/mm/dd — 숫자만 쳐도 / 가 들어가고, 요청은 그대로 그날 0시~끝(현지) ISO', async () => {
-    serve(signedIn(KIM));
+// 기간: 목록은 시안 u8_1 오늘 · 7 일 · 30 일, 직접 고르는 기간은 내보내기 창(u8_6) 기간 칸(날짜 칸 yyyy-mm-dd)
+describe('기록 탭 · 기간', () => {
+  it('오늘 · 7 일 · 30 일 = 오늘 포함 n 일(현지 0 시 ~ 오늘 끝), 다시 누르면 기간 없음', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('1')]) }));
     await open('#/history');
-    expect(day('시작').type).toBe('text');
-    expect(day('시작').placeholder).toBe('yyyy/mm/dd');
-    for (const [typed, shown] of [['2', '2'], ['2026', '2026'], ['20261', '2026/1'], ['2026/10', '2026/10'], ['2026102', '2026/10/2'], ['202610261234', '2026/10/26']]) {
-      await setVal(day('시작'), typed);
-      expect(day('시작').value).toBe(shown);
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return new Date(`${d.toLocaleDateString('sv')}T00:00:00`).toISOString(); };
+    const end = new Date(`${new Date().toLocaleDateString('sv')}T23:59:59.999`).toISOString();
+    for (const [name, n] of [['오늘', 0], ['7 일', 6], ['30 일', 29]] as const) {
+      await click(btn(name, card('기간')));
+      expect(lastQuery()).toEqual({ from: day(n), to: end });
+      expect([...card('기간').querySelectorAll('button')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent)).toEqual([name]);
     }
-    expect(lastQuery()).toEqual({ from: new Date('2026-10-26T00:00:00').toISOString() });
-    await setVal(day('끝'), '2026-10-27');   // 다른 구분자로 붙여 넣어도 같은 모양
-    expect(day('끝').value).toBe('2026/10/27');
-    expect(lastQuery()).toEqual({ from: new Date('2026-10-26T00:00:00').toISOString(), to: new Date('2026-10-27T23:59:59.999').toISOString() });
-    // 달력 단추의 고르기 창(숨은 날짜 칸)으로 고른 날도 같은 글자로 들어간다
-    expect(day('끝').parentElement!.querySelector('button')!.getAttribute('aria-label')).toBe('기간 끝 달력');
-    await setVal(day('끝').parentElement!.querySelector<HTMLInputElement>('input[type="date"]')!, '2026-10-29');
-    expect(day('끝').value).toBe('2026/10/29');
-    expect(lastQuery().to).toBe(new Date('2026-10-29T23:59:59.999').toISOString());
-    await setVal(day('시작'), ''); await setVal(day('끝'), '');   // 비우면 기간 조건 해제
+    await click(btn('30 일', card('기간')));
     expect(lastQuery()).toEqual({});
     await stopSends();
   });
-  it('없는 날짜·덜 친 값은 필터에 넣지 않고 칸에 오류, 내보내기도 막음', async () => {
-    serve(signedIn(KIM));
+  it('내보내기 창 기간 칸: 시작 > 끝이면 오류 · 내보내기 잠김, 고치면 그 기간 그대로 CSV(그날 0 시 ~ 끝, 현지)', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:csv'); URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    serve(signedIn(KIM, { 'GET /events': list([ev('1')]), 'GET /events/export.csv': { status: 200, body: 'id,at\n' } }));
     await open('#/history');
-    await setVal(day('시작'), '2026/10/01');
-    const n = sent('GET', '/events').length, q = lastQuery();
-    await setVal(day('시작'), '2026/02/30');
-    expect(alertText()).toContain('기간 시작: 있는 날짜를 yyyy/mm/dd 로 쓰세요(예: 2026/10/26). 고칠 때까지 기간은 이전 값 그대로입니다.');
-    expect(day('시작').getAttribute('aria-invalid')).toBe('true');
-    expect(day('시작').getAttribute('aria-describedby')).toBe('hs-day-err');
-    await setVal(day('끝'), '2026/1');   // 치는 중에는 오류 없음, 칸을 떠나면 오류
-    expect(alertText()).not.toContain('기간 시작·끝');
-    blur(day('끝')); await flush();
-    expect(alertText()).toContain('기간 시작·끝: 있는 날짜를');
-    for (const bad of ['2026/13/01', '2026/00/10', '2025/02/29']) { await setVal(day('시작'), bad); expect(day('시작').getAttribute('aria-invalid')).toBe('true'); }
-    expect(sent('GET', '/events')).toHaveLength(n);   // 요청 0
-    expect(lastQuery()).toEqual(q);
-    await click(btn('내보내기'));
-    expect(alertText()).toContain('내보내지 못했습니다. 기간 날짜를 먼저 고치세요.');
-    expect(sent('GET', '/events/export.csv')).toEqual([]);
-    await setVal(day('시작'), '2024/02/29'); await setVal(day('끝'), '');   // 고치면 적용
-    expect(alertText()).not.toContain('기간');
-    expect(lastQuery()).toEqual({ from: new Date('2024-02-29T00:00:00').toISOString() });
-    await stopSends();
-  });
-  it('시작 > 끝이면 적용하지 않고 오류, 어느 쪽을 고쳐도 둘 다 적용', async () => {
-    serve(signedIn(KIM));
-    await open('#/history');
-    await setVal(day('시작'), '2026/10/05');
-    await setVal(day('끝'), '2026/10/01');
-    expect(alertText()).toContain('기간 시작이 끝보다 늦습니다. 고칠 때까지 기간은 이전 값 그대로입니다.');
-    expect(day('시작').getAttribute('aria-invalid')).toBe('true');
-    expect(day('끝').getAttribute('aria-invalid')).toBe('true');
-    expect(lastQuery()).toEqual({ from: new Date('2026-10-05T00:00:00').toISOString() });
-    await click(btn('내보내기'));
-    expect(sent('GET', '/events/export.csv')).toEqual([]);
-    await setVal(day('시작'), '2026/09/30');
-    expect(alertText()).not.toContain('늦습니다');
-    expect(lastQuery()).toEqual({ from: new Date('2026-09-30T00:00:00').toISOString(), to: new Date('2026-10-01T23:59:59.999').toISOString() });
-    await setVal(day('끝'), '2026/09/30');   // 같은 날은 됨
-    expect(lastQuery().to).toBe(new Date('2026-09-30T23:59:59.999').toISOString());
+    await click($('#n-export'));
+    const dlg = card('기록 내보내기'), from = $<HTMLInputElement>('[aria-label="내보낼 기간 시작"]', dlg)!, to = $<HTMLInputElement>('[aria-label="내보낼 기간 끝"]', dlg)!;
+    // 시안 꼴 YYYY-MM-DD 글 칸(브라우저 언어 날짜 고르개 아님) · 필터에 기간이 없으면 최근 7 일을 채워 둠
+    expect([from.type, to.type, from.placeholder]).toEqual(['text', 'text', 'YYYY-MM-DD']);
+    expect([from.value, to.value]).toEqual([WEEK.from, WEEK.to]); expect(dlg.textContent).toContain('· 7 일');
+    await setVal(from, '2026-10-05'); await setVal(to, '2026-10-01');
+    expect(btn('내보내기', dlg)!.disabled).toBe(true);
+    expect(dlg.querySelector('.inp')!.getAttribute('aria-invalid')).toBe('true');
+    await setVal(from, '2026-09-30');
+    expect(dlg.textContent).toContain('· 2 일');
+    await click(btn('내보내기', dlg));
+    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ from: new Date('2026-09-30T00:00:00').toISOString(), to: new Date('2026-10-01T23:59:59.999').toISOString() });
     await stopSends();
   });
 });
@@ -271,7 +251,7 @@ describe('기록 탭 — 끝낸 시뮬 슬롯 거르기(#99 R2)', () => {
   const names = () => [...$<HTMLSelectElement>('[aria-label="기록"] select')!.options].map((o) => o.value);
   for (const [me, want] of [[KIM, ['', 'r-a', 'r-b', 'r-s']], [LEE, ['', 'r-a', 'r-s']]] as const) {
     it(`${me.display_name}: 로봇 거르기에 끝낸 시뮬 슬롯 포함 → robot_id 요청`, async () => {
-      serve(signedIn(me, { 'GET /robots': { status: 200, body: { items: [RA, RB, IDLE], next_cursor: null } } }));
+      serve(signedIn(me, { 'GET /robots': { status: 200, body: { items: [RA, RB, IDLE], next_cursor: null } }, 'GET /events': list([ev('1')]) }));
       await open('#/history');
       expect(names()).toEqual(want);
       await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-s');
@@ -281,7 +261,7 @@ describe('기록 탭 — 끝낸 시뮬 슬롯 거르기(#99 R2)', () => {
 });
 
 describe('시각 접두', () => {
-  const AT = '2026-10-19T23:47:00Z', d = new Date(AT), local = `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`;
+  const AT = '2026-10-19T23:47:00Z', d = new Date(AT), local = `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`, clk = d.toTimeString().slice(0, 8), day = `${d.getMonth() + 1}월 ${d.getDate()}일`;
   it('UTC 접두·KST 접두·접두 없음 — 사건 목록', async () => {
     serve(signedIn(KIM, { 'GET /events': list([
       ev('3', { at: AT, message: '23:47 김총괄님이 로그인했습니다.' }),          // 지금 서버(UTC 접두)
@@ -289,9 +269,9 @@ describe('시각 접두', () => {
       ev('1', { at: AT, message: 'Go2-7이 12:30 에 연결되었습니다.' }),          // 접두 없음 — 문장 가운데 시각은 그대로
     ]) }));
     await open('#/history');
-    const sentences = [...card('사건').querySelectorAll('tbody tr')].map((l) => l.querySelector('.fh-wide')!.textContent);
-    expect(sentences).toEqual(['김총괄님이 로그인했습니다.', '박운영님이 로그인했습니다.', 'Go2-7이 12:30 에 연결되었습니다.']);
-    for (const li of card('사건').querySelectorAll('tbody tr')) expect(li.firstElementChild!.textContent).toBe(local);
+    expect(evs().map(said)).toEqual(['김총괄님이 로그인했습니다.', '박운영님이 로그인했습니다.', 'Go2-7이 12:30 에 연결되었습니다.']);
+    for (const li of evs()) expect(li.querySelector('.tm')!.textContent).toBe(clk);
+    expect(card('사건').querySelector('.day')!.getAttribute('data-day')).toContain(day);
   });
   // 10-20 조정 결정 A: 표시 시각은 서버 접두와 같은 규칙(event_messages.py — timedelta(0) <= at - robot_at <= 24h 이면 robot_at, 아니면 at)
   it('표시 시각 규칙 — robot_at 없음·범위 안·미래·24시간 넘음, 경계(같은 시각·정확히 24시간·1µs 넘김)', () => {
@@ -307,14 +287,21 @@ describe('시각 접두', () => {
     expect(stamp({ at: '2026-10-20T09:00:00+09:00', robot_at: '2026-10-19T23:30:00Z' })).toBe('2026-10-19T23:30:00Z');   // 시간대 표기 달라도
   });
   it('목록·알림에서 연 기록의 시각 = 그 규칙(늦게 온 로봇 사건은 로봇 발생 시각)', async () => {
-    const show = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`; };
+    const show = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}월 ${d.getDate()}일 ${d.toTimeString().slice(0, 8)}`; };
+    const dayOfRow = (r: Element) => { let x = r.previousElementSibling; while (x && !x.classList.contains('day')) x = x.previousElementSibling; return x!.getAttribute('data-day')!.replace(/^.* · /, ''); };
+    const at = (r: Element) => `${dayOfRow(r)} ${r.querySelector('.tm')!.textContent}`;
     const late = ev('2', { at: '2026-10-20T05:00:00Z', robot_at: '2026-10-20T01:15:00Z', message: '10:15 Go2-7이 경로를 벗어났습니다.' });
     const skewed = ev('1', { at: '2026-10-20T05:00:00Z', robot_at: '2026-10-21T05:00:00Z', message: '14:00 Go2-7 시계가 앞선 사건' });
     serve(signedIn(KIM, { 'GET /events': list([late, skewed]), 'GET /events/2': { status: 200, body: late } }));
     await open('#/history?event_id=2');
-    const times = [...card('사건').querySelectorAll('tbody tr')].map((l) => l.firstElementChild!.textContent);
-    expect(times).toEqual([show('2026-10-20T01:15:00Z'), show('2026-10-20T05:00:00Z')]);
-    expect(card('알림에서 연 기록').querySelector('tbody tr')!.firstElementChild!.textContent).toBe(show('2026-10-20T01:15:00Z'));
+    // 알림에서 연 기록 = 그 사건 자세히(u8_4): 위 칩의 시각 · 날짜, 왼쪽 목록의 시각도 같은 규칙
+    const chip = [...card('알림에서 연 기록').querySelectorAll('.st')].find((s) => /\d\d:\d\d:\d\d/.test(s.textContent!))!;
+    expect(chip.textContent).toBe(`${new Date('2026-10-20T01:15:00Z').toTimeString().slice(0, 8)}${show('2026-10-20T01:15:00Z').split(' ').slice(0, 2).join(' ')}`);
+    expect([...card('사건 목록').querySelectorAll('.sev small')].map((s) => s.textContent!.split(' · ').pop()))
+      .toEqual([new Date('2026-10-20T01:15:00Z').toTimeString().slice(0, 5), new Date('2026-10-20T05:00:00Z').toTimeString().slice(0, 5)]);
+    await click($('#n-back'));   // 목록으로
+    expect(location.hash).toBe('#/history');
+    expect(evs().map(at)).toEqual([show('2026-10-20T01:15:00Z'), show('2026-10-20T05:00:00Z')]);
   });
   it('알림 본문도 같은 규칙, 서랍 «최근 사건»도', async () => {
     serve(signedIn(KIM, {
@@ -394,25 +381,6 @@ describe('기록 탭 — 오류', () => {
 });
 
 describe('화면 일부가 깨져도 STOP 은 남음(검토 P1)', () => {
-  it('서버가 못 읽는 연도(0000년 → UTC 로 옮기면 음수 연도) → 요청하지 않고 칸 안 안내, STOP 실제로 눌러 정지 요청', async () => {
-    vi.stubEnv('TZ', 'Asia/Seoul');   // 0000/01/01 0시(현지)가 UTC 로 앞 해가 되는 시간대로 고정
-    try {
-      serve(signedIn(KIM));
-      await open('#/history');
-      const before = sent('GET', '/events').length;
-      await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '0000/01/01');
-      expect(alertText()).toContain('기간 날짜를 읽을 수 없습니다. yyyy/mm/dd 날짜(예: 2026/10/20)로 다시 쓰세요.');
-      expect(sent('GET', '/events')).toHaveLength(before);   // 서버가 못 읽는 값은 보내지 않음
-      expect(btn('다시 시도')).toBeUndefined();               // 같은 값으로 다시 시도해도 소용없음
-      await click(btn('내보내기'));
-      expect(alertText()).toContain('내보내지 못했습니다. 기간 날짜를 읽을 수 없습니다');
-      expect(sent('GET', '/events/export.csv')).toEqual([]);
-      await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026/10/01');   // 고치면 다시 받음
-      expect(lastQuery()).toEqual({ from: new Date('2026-10-01T00:00:00').toISOString() });
-      expect(alertText()).not.toContain('기간 날짜');
-      await stopSends();
-    } finally { vi.unstubAllEnvs(); }
-  });
   it('본문 렌더 예외는 본문 칸 안에서 멈춤 — 머리줄·STOP 그대로, 다른 탭으로 가면 다시 그림', async () => {
     serve(signedIn(KIM, { 'GET /events': list([ev('1')]) }));
     await open('#/fleet');
@@ -439,9 +407,10 @@ describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
     }));
     await open('#/history?event_id=1');
     expect(Object.fromEntries(sent('GET', '/events')[0].q)).toEqual({ limit: '50' });
-    expect(rows()).toEqual([expect.stringContaining('김총괄님이 로그인했습니다.')]);
     expect(card('알림에서 연 기록').textContent).toContain('알림이 가리킨 계정 사건');
-    expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['전체']);
+    await click($('#n-back'));
+    expect(rows()).toEqual([expect.stringContaining('김총괄님이 로그인했습니다.')]);
+    expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['모든 로봇']);
     expect($('[aria-label="로봇 없음"]')).toBeNull();
     expect($('[data-stop]')).toBeNull();   // 예외는 정지할 로봇이 없을 때만(로봇 0대). 총괄도 로봇이 있으면 STOP
   });
@@ -459,7 +428,7 @@ describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
   });
 });
 
-describe('CSV 내보내기', () => {
+describe('CSV 내보내기(u8_6 창 → u8_7 줄)', () => {
   let saved: { href: string; download: string }[] = [];
   beforeEach(() => {
     saved = [];
@@ -467,38 +436,46 @@ describe('CSV 내보내기', () => {
     URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { saved.push({ href: this.href, download: this.download }); });
   });
-  it('지금 필터 그대로(cursor·limit 없이) 받아 파일로 저장', async () => {
-    serve(signedIn(KIM, { 'GET /events': list([ev('2')], 'c1'), 'GET /events/export.csv': { status: 200, body: '\ufeffid,at\n2,x\n' } }));
+  const dlg = () => card('기록 내보내기');
+  /** 목록 머리 「내보내기」 → 창 → 창 안 「내보내기」 */
+  const exportNow = async () => { if (!$('[role="dialog"]')) await click($('#n-export')); await click(btn('내보내기', dlg())); };
+  const withRows = (more: Record<string, Route> = {}) => ({ 'GET /events': list([ev('1')]), ...more });
+  it('지금 필터 그대로(cursor·limit 없이) 받아 파일로 저장 · 목록 머리에 내려받은 줄(이름 · 크기)', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('2')], 'c1'), 'GET /events/export.csv': { status: 200, body: '﻿id,at\n2,x\n' } }));
     await open('#/history');
-    await click(btn('계정'));
+    await click(btn('사용자 작업', card('묶음')));
     await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-b');
-    await click(btn('내보내기'));
-    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ category: 'ACCOUNT', robot_id: 'r-b' });
-    expect(saved).toEqual([{ href: 'blob:csv', download: expect.stringMatching(/^기록-\d{4}-\d\d-\d\d\.csv$/) }]);
+    await exportNow();
+    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ category: 'ACCOUNT', robot_id: 'r-b', ...WEEK_Q() });   // 기간을 안 골랐으면 창이 채운 최근 7 일
+    expect(saved).toEqual([{ href: 'blob:csv', download: expect.stringMatching(/^foothold-기록-\d{4}-\d{4}\.csv$/) }]);   // 기간 파일 이름(시작 mmdd-끝 mmdd)
     expect(await ((URL.createObjectURL as ReturnType<typeof vi.fn>).mock.calls[0][0] as Blob).text()).toContain('id,at\n2,x');   // 서버 본문 그대로
-    expect(card('기록').textContent).toContain('CSV 파일로 내려받았습니다');
+    expect($('[role="dialog"]')).toBeNull();
+    expect($('[data-got]')!.textContent).toMatch(/^내려받음 · foothold-기록-\d{4}-\d{4}\.csv · \d+ B$/);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv');   // 만든 URL 정리(R1)
+    await click(btn('닫기', $('[data-hs-main] .tool')!));
+    expect($('[data-got]')).toBeNull();
+    expect($('#n-export')).not.toBeNull();
   });
   it('Android 앱(UA FootholdApp/) → 받지 않고 «앱에선 내려받기 안 됨» 안내, 파일 없음', async () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) Chrome/140 Mobile Safari/537.36 FootholdApp/1.1.0-dev');
-    serve(signedIn(KIM, { 'GET /events/export.csv': { status: 200, body: 'id,at\n' } }));
+    serve(signedIn(KIM, withRows({ 'GET /events/export.csv': { status: 200, body: 'id,at\n' } })));
     await open('#/history');
-    await click(btn('내보내기'));
+    await exportNow();
     expect(alertText()).toContain('앱에서는 파일을 내려받을 수 없습니다');
     expect(sent('GET', '/events/export.csv')).toHaveLength(0);
     expect(saved).toEqual([]);
   });
   it('429 RATE_LIMITED(다른 내보내기 진행 중) → 기다렸다 다시 하라는 안내, 파일 없음, 단추 되살림', async () => {
-    serve(signedIn(KIM, { 'GET /events/export.csv': err(429, 'RATE_LIMITED', '다른 기록을 내보내는 중입니다. 잠시 뒤 다시 시도하세요.') }));
+    serve(signedIn(KIM, withRows({ 'GET /events/export.csv': err(429, 'RATE_LIMITED', '다른 기록을 내보내는 중입니다. 잠시 뒤 다시 시도하세요.') })));
     await open('#/history');
-    await click(btn('내보내기'));
+    await exportNow();
     expect(alertText()).toContain('다른 기록 내보내기가 아직 끝나지 않았습니다. 잠시 뒤 다시 내보내세요.');
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(saved).toEqual([]);
-    expect(btn('내보내기')!.disabled).toBe(false);
+    expect(btn('내보내기', dlg())!.disabled).toBe(false);
   });
   it('본문 받다 끊김(200 뒤 blob 실패) → 실패 안내, 파일 없음, 다시 누를 수 있음(검토 P2)', async () => {
-    serve(signedIn(KIM, { 'GET /events/export.csv': { status: 200, body: 'id,at\n' } }));
+    serve(signedIn(KIM, withRows({ 'GET /events/export.csv': { status: 200, body: 'id,at\n' } })));
     const real = globalThis.fetch;
     vi.stubGlobal('fetch', async (u: string, i?: RequestInit) => {
       const r = await real(u, i);
@@ -506,44 +483,44 @@ describe('CSV 내보내기', () => {
       return r;
     });
     await open('#/history');
-    await click(btn('내보내기'));
+    await exportNow();
     expect(alertText()).toContain('내보내지 못했습니다. 서버에 연결하지 못했습니다');
     expect(URL.createObjectURL).not.toHaveBeenCalled();
-    expect(btn('내보내기')!.disabled).toBe(false);
+    expect(btn('내보내기', dlg())!.disabled).toBe(false);
     stopOk();
   });
   it('파일 만들기 실패(createObjectURL 예외) → 안내 + 단추 되살림, 만든 URL 은 정리', async () => {
-    serve(signedIn(KIM, { 'GET /events/export.csv': { status: 200, body: 'id,at\n' } }));
+    serve(signedIn(KIM, withRows({ 'GET /events/export.csv': { status: 200, body: 'id,at\n' } })));
     await open('#/history');
     URL.createObjectURL = vi.fn(() => { throw new TypeError('no blob'); });
-    await click(btn('내보내기'));
+    await exportNow();
     expect(alertText()).toContain('내보내지 못했습니다. 파일을 만들지 못했습니다. 다시 시도하세요.');
-    expect(btn('내보내기')!.disabled).toBe(false);
+    expect(btn('내보내기', dlg())!.disabled).toBe(false);
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();   // 만든 것이 없으면 정리할 것도 없음
     URL.createObjectURL = vi.fn(() => 'blob:csv2');
     vi.mocked(HTMLAnchorElement.prototype.click).mockImplementationOnce(() => { throw new Error('download blocked'); });
-    await click(btn('내보내기'));
+    await exportNow();
     expect(alertText()).toContain('파일을 만들지 못했습니다');
-    expect(btn('내보내기')!.disabled).toBe(false);
+    expect(btn('내보내기', dlg())!.disabled).toBe(false);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv2');
   });
   it('400 EXPORT_LIMIT → 기간을 줄이라는 쉬운 안내, 파일 없음', async () => {
-    serve(signedIn(KIM, { 'GET /events/export.csv': err(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.') }));
+    serve(signedIn(KIM, withRows({ 'GET /events/export.csv': err(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.') })));
     await open('#/history');
-    await click(btn('내보내기'));
-    expect(alertText()).toContain('기간을 줄이거나 분류·로봇을 골라 다시 내보내세요');
+    await exportNow();
+    expect(alertText()).toContain('기간을 줄이거나 묶음 · 등급을 골라 다시 내보내세요');
     expect(saved).toEqual([]);
-    expect(btn('내보내기')!.disabled).toBe(false);
+    expect(btn('내보내기', dlg())!.disabled).toBe(false);
   });
   it('네트워크 실패·403 → 무엇이 + 서버 문장', async () => {
-    serve(signedIn(KIM, { 'GET /events/export.csv': () => { throw new TypeError('x'); } }));
+    serve(signedIn(KIM, withRows({ 'GET /events/export.csv': () => { throw new TypeError('x'); } })));
     await open('#/history');
-    await click(btn('내보내기'));
+    await exportNow();
     expect(alertText()).toContain('내보내지 못했습니다. 서버에 연결하지 못했습니다');
     act(() => root?.unmount()); root = null; box.remove();
-    serve(signedIn(LEE, { 'GET /events/export.csv': err(403, 'FORBIDDEN', '권한이 없습니다.') }));
+    serve(signedIn(LEE, withRows({ 'GET /events/export.csv': err(403, 'FORBIDDEN', '권한이 없습니다.') })));
     await open('#/history');
-    await click(btn('내보내기'));
+    await exportNow();
     expect(alertText()).toContain('내보내지 못했습니다. 권한이 없습니다.');
     expect(saved).toEqual([]);
   });
@@ -555,7 +532,7 @@ describe('운영 관리자 — 서버가 준 것만', () => {
     await open('#/history');
     expect(rows()).toHaveLength(2);
     expect(rows()[1]).toContain('이운영님이 Go2-B STOP 을 눌렀습니다.');
-    expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['전체', 'Go2-A']);
+    expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['모든 로봇', 'Go2-A']);
   });
 });
 
@@ -565,17 +542,18 @@ describe('사건 문구 다듬기(10-22 QA R3·R4·R9·R10)', () => {
   const S2 = { ...robot('1a2b3c4d-0000-4000-8000-000000000002', '시뮬 1a2b3c4d', LEE), simulation: true };
   const S3 = { ...robot('ffff0000-0000-4000-8000-000000000003', '내 연습 시뮬', LEE), simulation: true };
   const withSims = (more: Record<string, Route> = {}) => signedIn(KIM, { 'GET /robots': { status: 200, body: { items: [RA, S1, S2, S3], next_cursor: null } }, ...more });
-  it('서버가 모르는 로봇 사건 코드 = 한국어 문구(표 밖은 «기타 사건»), 코드 원문은 접힌 상세에만', async () => {
+  it('서버가 모르는 로봇 사건 코드 = 한국어 문구(표 밖은 «기타 사건»), 코드 원문은 사건 자세히에만', async () => {
     serve(withSims({ 'GET /events': list([
       ev('2', { category: 'LINK', code: 'PHONE_LEASE_RELEASED', severity: 'INFO', message: '15:03 Go2-A에서 사건 PHONE_LEASE_RELEASED이(가) 기록되었습니다.' }),
       ev('1', { category: 'LINK', code: 'SOMETHING_NEW', severity: 'INFO', message: 'Go2-A에서 사건 SOMETHING_NEW이(가) 기록되었습니다.' })]) }));
     await open('#/history');
-    const [a, b] = [...card('사건').querySelectorAll('tbody tr')];
-    expect(a.querySelector('.fh-wide')!.textContent).toBe('Go2-A: 폰 조종권을 반납했습니다.');
-    expect(b.querySelector('.fh-wide')!.textContent).toBe('Go2-A: 기타 사건');
-    expect(a.querySelector('details')!.open).toBe(false);
-    expect(a.querySelector('details')!.textContent).toBe('상세PHONE_LEASE_RELEASED');
-    expect(b.querySelector('details')!.textContent).toBe('상세SOMETHING_NEW');
+    const [a, b] = evs();
+    expect(said(a)).toBe('Go2-A: 폰 조종권을 반납했습니다.');
+    expect(said(b)).toBe('Go2-A: 기타 사건');
+    expect(card('사건').textContent).not.toMatch(/PHONE_LEASE_RELEASED|SOMETHING_NEW/);
+    await click(a);
+    expect($('[data-code]')!.textContent).toBe('기록 코드 PHONE_LEASE_RELEASED');
+    expect($('[data-said]')!.textContent).toBe('Go2-A: 폰 조종권을 반납했습니다.');
   });
   it('시뮬 로봇 16진 id 는 «시뮬 로봇 N»(목록·문장 같은 번호), 사람이 붙인 이름은 그대로, 빈 이유는 «이유 없음»', async () => {
     serve(withSims({ 'GET /events': list([
@@ -813,23 +791,23 @@ describe('사진 사건(VQ-F1)', () => {
     data: { photo_id: PID, run_id: 'run-1', waypoint_idx: 0, step_idx: 0, source: 'rgb', url: `/api/v1/photos/${PID}`, thumbnail_url: `/api/v1/photos/${PID}/thumbnail` } });
   const failed = ev('p2', { category: 'RUN', code: 'PHOTO_STORE_FAILED', severity: 'ERROR', message: 'Go2-A 사진 저장에 실패했습니다. 이유: 저장 공간 부족.', run_id: 'run-1',
     data: { run_id: 'run-1', waypoint_idx: 1, step_idx: 0, source: 'rgb', reason: '저장 공간 부족' } });
-  it('PHOTO_STORED = 썸네일(사용자 세션 /photos/{id}/thumbnail), 누르면 원본 · 못 받으면 «사진을 불러오지 못함», PHOTO_STORE_FAILED = 실패(사진 없음)', async () => {
+  it('PHOTO_STORED = 클립 칸에 썸네일(사용자 세션 /photos/{id}/thumbnail), 누르면 자세히에 원본 · 못 받으면 «사진을 불러오지 못함», PHOTO_STORE_FAILED = 실패(사진 없음)', async () => {
     serve(signedIn(KIM, { 'GET /events': list([stored, failed, ev('3')]) }));
     await open('#/history');
-    const [a, b, c] = [...card('사건').querySelectorAll('tbody tr')];
-    const img = a.querySelector<HTMLImageElement>('img')!;
-    expect(img.getAttribute('src')).toBe(`/api/v1/photos/${PID}/thumbnail`);   // 같은 출처 쿠키 — 공개 주소·토큰을 주소에 싣지 않음
-    await click(a.querySelector('button[aria-label="사진 원본 보기"]'));
-    expect(a.querySelector('img')!.getAttribute('src')).toBe(`/api/v1/photos/${PID}`);
-    expect(a.querySelector('[data-photo="big"]')).toBeTruthy();
-    act(() => { a.querySelector('img')!.dispatchEvent(new Event('error')); });
-    expect(a.querySelector('img')).toBeNull();
-    expect(a.textContent).toContain('사진을 불러오지 못함');
-    // 실패 행: 사진 없음 + ●오류(성공처럼 보이지 않음)
-    expect(b.querySelector('img')).toBeNull();
-    expect(b.querySelector('[data-photo="failed"]')!.textContent).toBe('사진 저장 실패 · 사진 없음');
-    expect(b.querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('bad');
-    expect(c.querySelector('[data-photo]')).toBeNull();   // 다른 사건엔 사진 칸 없음
+    const [a, b, c] = evs();
+    expect(a.querySelector<HTMLElement>('[data-clip-cell="photo"]')!.style.backgroundImage).toContain(`/api/v1/photos/${PID}/thumbnail`);   // 같은 출처 쿠키 · 공개 주소·토큰을 주소에 싣지 않음
+    expect(b.querySelector('[data-clip-cell]')!.textContent).toBe('사진 저장 실패');
+    expect(b.querySelector('[data-lv]')!.getAttribute('data-lv')).toBe('r');   // 실패 = 위험(성공처럼 보이지 않음)
+    expect(c.querySelector('[data-clip-cell="photo"]')).toBeNull();   // 다른 사건엔 사진 없음
+    await click(a);
+    const img = $<HTMLImageElement>('[data-info-pane] img')!;
+    expect(img.getAttribute('src')).toBe(`/api/v1/photos/${PID}`);
+    act(() => { img.dispatchEvent(new Event('error')); });
+    expect($('[data-info-pane] img')).toBeNull();
+    expect($('[data-info-pane]')!.textContent).toContain('사진을 불러오지 못함');
+    await click($(`[data-sev="p2"]`));
+    expect($('[data-info-pane] [data-photo="failed"]')!.textContent).toBe('사진 저장 실패 · 사진 없음');
+    expect($('[data-info-pane] img')).toBeNull();
     stopOk();
   });
   it('photo_id 가 없는 PHOTO_STORED 는 그림을 요청하지 않고 «사진을 불러오지 못함», 폰 기록 타일도 같은 썸네일', async () => {
@@ -843,76 +821,74 @@ describe('사진 사건(VQ-F1)', () => {
   });
 });
 
-// u8_4 기록 한 줄 펼침(11-28): 시안의 상세 중 서버 /events 응답에 있는 칸만(시각 둘 · 등급 · 묶음 · 로봇 · 사람 · 코드). 진행 순서 · 어디서 · 걸린 시간은 서버에 값 없음
-describe('기록 한 줄 펼침(u8_4)', () => {
+// u8_4 사건 자세히(기록만 남은 사건): 시안의 칸 중 서버 /events 응답에 있는 것만(시각 둘 · 등급 · 묶음 · 로봇 · 사람 · 코드). 진행 순서 · 당시 모드는 서버에 값 없음
+describe('사건 자세히(u8_4)', () => {
   const AT = '2026-11-26T04:58:12Z', RAT = '2026-11-26T04:58:10Z';
   const two = () => serve(signedIn(KIM, { 'GET /events': list([
     ev('2', { category: 'LEASE', code: 'MODE_CHANGED', severity: 'INFO', at: AT, robot_at: RAT, user_id: 'a1' }),
     ev('1', { category: 'ACCOUNT', code: 'USER_LOGIN', severity: 'INFO', robot_id: null, user_id: 'zz', run_id: 'run-1' })]) }));
-  const toggles = () => [...card('사건').querySelectorAll<HTMLElement>('[data-row-open]')];
-  const detail = () => [...card('사건').querySelectorAll<HTMLElement>('[data-detail]')];
-  const facts = (d: HTMLElement) => Object.fromEntries([...d.querySelectorAll('dt')].map((t) => [t.textContent, t.nextElementSibling!.textContent]));
+  const fact = (k: string) => $(`[data-info-pane] [data-fact="${k}"]`)!.textContent;
+  const full = (iso: string) => { const d = new Date(iso), p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${d.toTimeString().slice(0, 8)}`; };
   /** 키를 보내고 기본 동작(Space 스크롤 · Enter)을 막았는지 확인 */
   const key = async (el: HTMLElement, k: string) => { let went = true; act(() => { went = el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); }); await flush(); expect(went).toBe(false); };
-  it('줄을 누르면 펼침 · 서버 칸만 · 다시 누르면 접힘', async () => {
+  it('줄을 누르면 그 사건 자세히 · 서버 칸만 · 목록으로 돌아옴', async () => {
     two(); await open('#/history');
-    expect(detail()).toHaveLength(0);
-    expect(toggles().map((t) => t.getAttribute('aria-expanded'))).toEqual(['false', 'false']);
-    const row = card('사건').querySelectorAll('tbody tr')[0] as HTMLElement;
-    await click(row.children[3]);   // 내용 칸을 눌러도 펼친다
-    expect(toggles()[0].getAttribute('aria-expanded')).toBe('true');
-    expect(detail()).toHaveLength(1);
-    expect(toggles()[0].getAttribute('aria-controls')).toBe(detail()[0].id);
-    const d = new Date(RAT), p = (n: number) => String(n).padStart(2, '0');
-    expect(facts(detail()[0])).toEqual({
-      '로봇 시각': `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${d.toTimeString().slice(0, 8)}`,
-      '서버가 받은 시각': `${new Date(AT).getFullYear()}/${p(new Date(AT).getMonth() + 1)}/${p(new Date(AT).getDate())} ${new Date(AT).toTimeString().slice(0, 8)}`,
-      '등급': 'ⓘ정보', '묶음': '조종권', '로봇': 'Go2-A · 실기', '사람': '김총괄', '기록 코드': 'MODE_CHANGED',
-    });
-    expect(detail()[0].textContent).toContain('진행 순서 · 어디서 · 걸린 시간은 서버에 값 없음');
-    await click(row.children[3]);
-    expect(detail()).toHaveLength(0);
-    expect(toggles()[0].getAttribute('aria-expanded')).toBe('false');
+    await click(evs()[0].children[3]);   // 줄 어디를 눌러도
+    expect($('[data-u8]')!.getAttribute('data-u8')).toBe('event');
+    expect([fact('who'), fact('robot-at'), fact('at')]).toEqual(['김총괄', full(RAT), full(AT)]);
+    expect([...card('사건').querySelectorAll('.st')].map((s) => s.textContent)).toEqual(['Go2-A실제', `${new Date(RAT).toTimeString().slice(0, 8)}11월 26일`, '모드서버에 값 없음', '조종권묶음']);
+    expect(card('사건').querySelector('.lv')!.textContent).toBe('정보');
+    expect($('[data-missing="steps"]')!.textContent).toContain('진행 순서는 서버에 값 없음');
+    expect($('[data-code]')!.textContent).toBe('기록 코드 MODE_CHANGED');
+    expect($('[data-sev="2"]')!.getAttribute('aria-current')).toBe('true');
+    await click($('#n-back'));
+    expect($('[data-u8]')!.getAttribute('data-u8')).toBe('list');
+    expect(rows()).toHaveLength(2);
   });
-  it('로봇 시각 없음 · 로봇 없음 · 이름 모르는 사람', async () => {
+  it('로봇 시각 없음 · 로봇 없음 · 이름 모르는 사람 · 로봇 보기 없음', async () => {
     two(); await open('#/history');
-    await click(toggles()[1]);
-    const f = facts(detail()[0]);
-    expect([f['로봇 시각'], f['로봇'], f['사람']]).toEqual(['서버에 값 없음', '없음', '이름 모름']);
-    expect(detail()[0].textContent).not.toContain('진행 순서');
+    await click(evs()[1]);
+    expect([fact('robot-at'), fact('who')]).toEqual(['서버에 값 없음', '이름 모름']);
+    expect($('#n-robot')).toBeNull();
+    expect([...card('사건').querySelectorAll('.st')].map((s) => s.textContent)).not.toContain('Go2-A실제');
   });
-  it('사람 id 가 없으면 사람 「없음」 · 손잡이는 role=button · tabIndex 0', async () => {
-    serve(signedIn(KIM, { 'GET /events': list([ev('1', { category: 'RUN', user_id: null })]) }));
+  it('줄은 role=button · tabIndex 0, Enter · Space 로 연다 · 왼쪽 목록에서 다른 사건으로', async () => {
+    two(); await open('#/history');
+    expect([evs()[0].getAttribute('role'), evs()[0].getAttribute('tabindex')]).toEqual(['button', '0']);
+    await key(evs()[1], 'Enter');
+    expect(fact('who')).toBe('이름 모름');
+    await click($('[data-sev="2"]'));
+    expect(fact('who')).toBe('김총괄');
+    await click($('#n-back'));
+    await key(evs()[0], ' ');
+    expect(fact('who')).toBe('김총괄');
+  });
+  it('「로봇 보기」 = 로봇 탭이 그 로봇을 고른 채(U5-07 과 같은 길), 같은 시간대 = 그 로봇의 그날 사건(robot_id · 그날 0 시 ~ 끝)', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('2', { robot_id: 'r-b', at: AT })]) }));
     await open('#/history');
-    expect([toggles()[0].getAttribute('role'), toggles()[0].getAttribute('tabindex')]).toEqual(['button', '0']);
-    await click(toggles()[0]);
-    expect(facts(detail()[0])['사람']).toBe('없음');
-    expect(detail()[0].textContent).toContain('진행 순서 · 어디서 · 걸린 시간은 서버에 값 없음');   // 임무 사건엔 있음
+    await click(evs()[0]);
+    const day = new Date(AT).toLocaleDateString('sv');
+    const q = sent('GET', '/events').map((c) => Object.fromEntries(c.q)).find((x) => x.limit === '20')!;
+    expect(q).toEqual({ robot_id: 'r-b', from: new Date(`${day}T00:00:00`).toISOString(), to: new Date(`${day}T23:59:59.999`).toISOString(), limit: '20' });
+    expect(card('사건').textContent).toContain('Go2-B 로봇 보기');
+    await click($('#n-robot'));
+    expect(location.hash).toBe('#/fleet');
+    expect(card('로봇 목록').querySelector('button[aria-pressed="true"]')!.textContent).toContain('Go2-B');
   });
-  it('줄 안 접힌 「상세」(summary) 를 눌러도 펼치지 않음', async () => {
-    serve(signedIn(KIM, { 'GET /events': list([ev('1', { code: 'FOO_BAR', message: 'Go2-A에서 사건 FOO_BAR이(가) 기록되었습니다.' })]) }));
-    await open('#/history');
-    await click(card('사건').querySelector('tbody summary'));
-    expect(detail()).toHaveLength(0);
-  });
-  it('Enter 로 펼치고 Space 로 접음 · 한 번에 하나', async () => {
-    two(); await open('#/history');
-    await key(toggles()[0], 'Enter');
-    expect(toggles()[0].getAttribute('aria-expanded')).toBe('true');
-    await key(toggles()[1], ' ');
-    expect(toggles().map((t) => t.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
-    expect(detail()).toHaveLength(1);
-    await key(toggles()[1], ' ');
-    expect(detail()).toHaveLength(0);
-  });
-  it('줄 안 단추(실행 기록 보기)는 펼치지 않음', async () => {
+  it('run_id 있는 사건만 「실행 기록 보기」, 누르면 실행 기록 창', async () => {
     two();
     routes['GET /runs/run-1/history'] = { status: 404, body: { error: { code: 'NOT_FOUND', message: '없음', detail: {} } } };
     await open('#/history');
-    await click(btn('실행 기록 보기', card('사건')));
-    expect(detail()).toHaveLength(0);
+    await click(evs()[0]);
+    expect($('[data-run]')).toBeNull();
+    await click($('[data-sev="1"]'));
+    await click($('[data-run]'));
+    expect($('[role="dialog"][aria-label="실행 기록"]')).not.toBeNull();
+    expect(sent('GET', '/runs/run-1/history')).toHaveLength(1);
   });
   it('폰 타일도 누르면 펼침 · 다시 누르면 접힘', async () => {
+    const toggles = () => [...card('사건').querySelectorAll<HTMLElement>('[data-row-open]')];
+    const detail = () => [...card('사건').querySelectorAll<HTMLElement>('[data-detail]')];
     serve(signedIn(LEE, { 'GET /events': list([ev('2', { robot_at: RAT }), ev('1')]) }));
     await open('#/history', true);
     const tile = card('사건').querySelectorAll<HTMLElement>('[data-tile]')[1];

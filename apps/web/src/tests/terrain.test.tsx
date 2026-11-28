@@ -282,6 +282,7 @@ describe('입구', () => {
     expect($('[data-terrain-enter]')).toBeNull();
     act(() => root!.unmount()); box.remove();
     app(true, '#/drive', []);
+    act(() => { $('[data-sim-open]')!.click(); });   // 로봇 0대 폰 = 시안 u13_4 · 시뮬 띄우기 칸은 «시뮬 로봇 띄우기» 뒤
     expect($('[data-sim-app]')).toBeTruthy();
     expect($('[data-terrain-enter]')).toBeNull();
   });
