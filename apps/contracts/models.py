@@ -1632,7 +1632,7 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'field_gate', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'field_gate', 'stop_applied', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
@@ -1653,6 +1653,9 @@ class ScreenState(Contract):
     safety_reason: SafetyReason | None = None
     field_gate: FieldGate | None = Field(default=None, description=(
         'CLOSED면 앱 정지가 로봇에 가지 않는다. latched에 applied 0만으로 정지 출력을 뜻하지 않는다. 옛 에이전트는 null.'))
+    stop_applied: bool | None = Field(default=None, description=(
+        '에이전트가 서버의 마지막 STOP(stop_ref)을 적용했다고 보고하면 true. 관문 닫힘 등 다른 잠금이면 false. '
+        '상태 없음·오래됨·이 로봇에 보낸 STOP 없음은 null. 사람 STOP 확인은 이 값이 true일 때만.'))
     unlock_refused: UnlockRefused | None = None
     stop_gen: Sequence | None
     applied: Vector3 | None

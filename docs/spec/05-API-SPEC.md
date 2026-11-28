@@ -462,7 +462,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 ### 9.3 서버 → 화면
 | t | 본문 | 빈도 |
 |---|---|---|
-| `state` | 로봇 요약 객체(§3)의 바뀐 부분 + `speed`, `latency_ms`(지금 미측정 `null`), `stop_gen`, `latched`, `applied`, `field_gate`(`OPEN`\|`CLOSED`\|`null`, 에이전트 값 그대로. 옛 에이전트·오래된 상태는 `null`) | 구독 로봇마다 10 Hz |
+| `state` | 로봇 요약 객체(§3)의 바뀐 부분 + `speed`, `latency_ms`(지금 미측정 `null`), `stop_gen`, `latched`, `applied`, `field_gate`(`OPEN`\|`CLOSED`\|`null`, 에이전트 값 그대로. 옛 에이전트·오래된 상태는 `null`), `stop_applied`(true\|false\|null, 서버의 마지막 STOP 을 에이전트가 적용했다고 보고했는가. 사람 STOP 확인은 true 일 때만) | 구독 로봇마다 10 Hz |
 | `lease` | `{robot, holder, lease_id(조종권자 연결에만), since}` | 바뀔 때 |
 | `lease.requested` | `{robot, request_id, requester:{display_name, role}, expires_at}` | 조종권자에게 |
 | `lease.result` | `{robot, request_id, result: "ACCEPTED"|"DECLINED"|"TIMEOUT"|"CANCELED", error?}`. 정지 확인 실패([02 F-TO-04](02-FUNCTIONAL-SPEC.md#f-to-04-조종권-요청-sf-05sf-08--확정--제안-보완) 넘김 순서 4)는 `CANCELED` + `error:"STOP_CONFIRM_FAILED"` | 요청자·조종권자에게 |
@@ -559,7 +559,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 5. 서버와 에이전트는 이 계약을 함께 갱신한다. `stop_ref` 를 돌려주지 않는 옛 에이전트는 새 서버에서 정지 확인을 통과하지 못한다.
 - 여기서 확인하는 것은 메시지 사이의 인과(그 STOP 을 적용했다는 보고)다. 몸이 실제로 섰는지(속도 0·정지 거리)는 아니다.
 - `field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다. 관문이 닫힌 에이전트는 STOP 을 받아도 로봇 출력(StopMove 포함)을 내지 않는다. 웹 문구: 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않았습니다. 리모컨으로 멈추세요」
-- 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 다만 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 화면은 재연결 뒤 `latched` 와 `stop_ref` 로 이것을 안다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
+- 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 관문이 열린 채 붙으면 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 관문이 닫힌 채 붙으면 연결 STOP 도 로봇 출력으로 이어지지 않고, 에이전트는 `stop_ref` 0 을 보고한다. 화면 상태에는 `stop_ref` 가 없으므로 화면은 `stop_applied` (서버가 보낸 마지막 `stop_ref` 를 에이전트가 적용했다고 보고하면 true, 관문 닫힘 등 다른 잠금이면 false) 와 `latched` · `field_gate` 로 이것을 안다. 사람 STOP 의 «로봇 정지 확인» 은 `stop_applied=true` 일 때만 보인다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
 
 ---
 

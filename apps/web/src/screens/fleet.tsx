@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dashboard, Location, MapVersion } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
 import { adminReal, lost, ownerName, robotStatus, type Robot, type Tone } from '../fake';
-import { rt, useRt } from '../rt';
+import { rt, shownDriveBlocked, useRt } from '../rt';
 import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
@@ -157,7 +157,7 @@ function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
   const k = kindOf(r), net = rt.link().at === 'open', on = k === 'on', ok = canDrive(c, r);
   const ready = ok && on;   // 서버 허용 값이 남아 있어도 로봇이 끊기면 완료로 보이지 않는다(목록 갱신 전). 패널(STOP 포함)은 ok 면 그대로 둔다
   const pill = k === 'lost' || k === 'server' ? { tone: 'bad' as const, text: '재연결 필요' } : ready ? { tone: 'ok' as const, text: '조종 가능' } : on ? { tone: 'warn' as const, text: '서버 허용 대기' } : { tone: 'off' as const, text: '연결 대기' };
-  const blocked = !r.serverDrive ? r.serverDriveBlocked?.filter((reason) => DRIVE_BLOCKED[reason]) : null;
+  const blocked = shownDriveBlocked(r.serverDrive, r.serverDriveBlocked)?.filter((reason) => DRIVE_BLOCKED[reason]);
   const step = (n: number, done: boolean, cur: boolean, t: string, p: ReactNode, more?: ReactNode, id?: string) => <li className={`fl-step${done ? ' done' : cur ? ' cur' : ''}`} data-step={n}>
     <span className="fl-mark" aria-hidden="true">{done ? '✓' : n}</span><div><h3>{t}</h3><p className="lv-note" id={id}>{p}</p>{more}</div></li>;
   return <section className="lv-card fl-prep" aria-label="조종 준비">

@@ -2377,6 +2377,8 @@ export interface ScreenState {
   safety_reason?: "OUTPUT_STALLED" | null;
   /** CLOSED면 앱 정지가 로봇에 가지 않는다. latched에 applied 0만으로 정지 출력을 뜻하지 않는다. 옛 에이전트는 null. */
   field_gate?: "OPEN" | "CLOSED" | null;
+  /** 에이전트가 서버의 마지막 STOP(stop_ref)을 적용했다고 보고하면 true. 관문 닫힘 등 다른 잠금이면 false. 상태 없음·오래됨·이 로봇에 보낸 STOP 없음은 null. 사람 STOP 확인은 이 값이 true일 때만. */
+  stop_applied?: boolean | null;
   unlock_refused?: UnlockRefused | null;
   stop_gen: number | null;
   applied: number[] | null;

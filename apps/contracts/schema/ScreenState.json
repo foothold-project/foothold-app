@@ -1555,6 +1555,19 @@
       ],
       "title": "Status"
     },
+    "stop_applied": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "에이전트가 서버의 마지막 STOP(stop_ref)을 적용했다고 보고하면 true. 관문 닫힘 등 다른 잠금이면 false. 상태 없음·오래됨·이 로봇에 보낸 STOP 없음은 null. 사람 STOP 확인은 이 값이 true일 때만.",
+      "title": "Stop Applied"
+    },
     "stop_gen": {
       "anyOf": [
         {
