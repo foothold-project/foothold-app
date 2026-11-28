@@ -4,13 +4,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { CLAY, DemoSite3D, camOf, dress } from '../screens/u7/site3d';
+import { CLAY, DemoSite3D, botsOn, camOf, dress } from '../screens/u7/site3d';
+import type { Robot } from '../fake';
 
-const fake = vi.hoisted(() => ({ made: [] as { domElement: HTMLCanvasElement; lost: number; disposed: number }[] }));
+const fake = vi.hoisted(() => ({ made: [] as { domElement: HTMLCanvasElement; lost: number; disposed: number }[], scene: null as unknown }));
 vi.mock('three', async (orig) => {
   const t = await orig<typeof import('three')>();
   class GL { domElement = document.createElement('canvas'); lost = 0; disposed = 0; outputColorSpace = ''; shadowMap = { enabled: false, type: 0 };
-    constructor() { fake.made.push(this); } setPixelRatio() {} setSize() {} render() {} dispose() { this.disposed++; } forceContextLoss() { this.lost++; } }
+    constructor() { fake.made.push(this); } setPixelRatio() {} setSize() {} render(sc: unknown) { fake.scene = sc; } dispose() { this.disposed++; } forceContextLoss() { this.lost++; } }
   return { ...t, WebGLRenderer: GL };
 });
 vi.mock('three/examples/jsm/loaders/GLTFLoader.js', async (orig) => {
@@ -80,5 +81,27 @@ describe('데모 현장 3D', () => {
     act(() => root!.render(<DemoSite3D key="p" preview />)); await flush();
     expect(box.querySelector('.mp-hint3')).toBeNull(); expect(box.querySelector('.mp-mini3')).toBeNull();
     expect(box.querySelectorAll('canvas').length).toBe(1);
+  });
+
+  const bot = (id: string, l: Record<string, unknown> | null) => ({ id, name: id.toUpperCase(), location: l }) as unknown as Robot;
+  it('이 층 로봇만: 층(floor_id) 또는 이 판(map_version_id) 위치 · 좌표 없음 · 다른 층은 빠짐', () => {
+    const rs = [bot('k-01', { floor_id: 'f1', map_version_id: 'old', x: 1, y: 2, yaw: 0.5 }), bot('k-02', { floor_id: null, map_version_id: 'v1', x: 3, y: 4, yaw: null }),
+      bot('k-03', { floor_id: 'f2', map_version_id: 'v2', x: 5, y: 6, yaw: 0 }), bot('k-04', { floor_id: 'f1', map_version_id: 'v1', x: null, y: null, yaw: null }), bot('k-05', null)];
+    expect(botsOn(rs, 'f1', 'v1')).toEqual([{ id: 'k-01', name: 'K-01', x: 1, y: 2, yaw: 0.5 }, { id: 'k-02', name: 'K-02', x: 3, y: 4, yaw: null }]);
+  });
+
+  it('로봇 = 로봇 탭 · 관제와 같은 자리(sitePose: x · -y · yaw+π/2) · Go2 모형 + 바닥 고리 · 이름표, 미리 보기엔 없음', async () => {
+    box = document.createElement('div'); document.body.append(box); root = createRoot(box);
+    const k = bot('k-01', { floor_id: 'f1', map_version_id: 'v1', x: 484.29, y: -273.14, yaw: 0 });
+    act(() => root!.render(<DemoSite3D robots={[k]} floor="f1" vid="v1" />)); await flush();
+    let g: THREE.Object3D | null = null; (fake.scene as THREE.Scene).traverse((o) => { if (o.userData.bot === 'k-01') g = o; });
+    if (!g) throw new Error('로봇 없음');
+    const q = g as THREE.Object3D;
+    expect([q.position.x, q.position.y, q.position.z]).toEqual([484.29, 0, 273.14]);
+    expect(q.rotation.y).toBeCloseTo(Math.PI / 2, 9);
+    expect(q.children.some((c) => (c as THREE.Line).isLine)).toBe(true);
+    expect(box.querySelector('[data-bot3="k-01"]')!.textContent).toBe('K-01');
+    act(() => root!.render(<DemoSite3D key="p" preview robots={[k]} floor="f1" vid="v1" />)); await flush();
+    expect(box.querySelector('[data-bot3]')).toBeNull();
   });
 });

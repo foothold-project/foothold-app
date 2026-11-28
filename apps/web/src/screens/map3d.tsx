@@ -60,7 +60,7 @@ export function onBoard<R>(robots: R[], vid: string, where: (x: R) => Partial<Pi
 
 /** 2D 지도의 로봇 점과 같은 색 규칙(연결 끊김 = 흐림, 그 밖 = 상태 색) */
 const TONE_VAR: Record<Tone, string> = { ok: '--accent', warn: '--warn', bad: '--bad', off: '--muted' };
-const whereOf = (x: Robot) => (x.unknown === 'summary' ? null : rt.get(x.id).state?.location ?? x.location ?? null);
+export const whereOf = (x: Robot) => (x.unknown === 'summary' ? null : rt.get(x.id).state?.location ?? x.location ?? null);
 
 type Rig = { draw: () => void; marks: THREE.Group; z: number; view: (top: boolean) => void; dispose: () => void };
 

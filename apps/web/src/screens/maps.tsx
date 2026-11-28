@@ -695,7 +695,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       <div className="mx-map">
         {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
-          : v && show3 && !on3d && demo3 ? <DemoSite3D key="site3d" nogo={lay.zones} />
+          : v && show3 && !on3d && demo3 ? <DemoSite3D key="site3d" nogo={lay.zones} robots={robots} floor={p.floor.id} vid={v.id} />
           : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={(why) => { setM3(false); setDone({ text: `${why || '이 층은 3D 모형이 없습니다.'} 2D 지도로 봅니다.` }); }} />
           : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
           : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id} show={left ? lay : undefined} demo={!sim && demoBoard(p.site, p.building)}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
