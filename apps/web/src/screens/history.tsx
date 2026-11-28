@@ -99,7 +99,7 @@ const Tiles = ({ items, who, run }: { items: Ev[]; who: (e: Ev) => string; run: 
     return <li key={e.id} className="hs-tile" data-tile data-tone={sevOf(e)[0]}>
       <span className="hs-tile-ic" data-tile-icon={e.category}>{TILE_ICON[e.category] ?? OTHER_ICON}</span>
       <div className="hs-tile-body">
-        <b className="hs-tile-title" data-tile-title><Said e={e} /></b>
+        <div className="hs-tile-title" data-tile-title><Said e={e} /></div>
         <span className="lbl hs-tile-sub" data-tile-sub><Sev e={e} /> · <Kind e={e} />{w && ` · ${w}`}</span>
         <Photo e={e} /><Clip e={e} />{e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}
       </div>

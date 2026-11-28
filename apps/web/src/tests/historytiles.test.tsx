@@ -67,6 +67,7 @@ describe('폰 기록 = 타일', () => {
     expect(tiles().map((t) => t.querySelector('[data-tile-icon]')!.getAttribute('data-tile-icon'))).toEqual(['SAFETY', 'ROUTE', 'LINK', 'RUN']);
     expect(tiles().every((t) => t.querySelector('[data-tile-icon] svg')?.getAttribute('aria-hidden') === 'true')).toBe(true);
     expect(a.querySelector('[data-tile-title]')!.textContent).toBe('사건 1 문장');
+    expect(a.querySelector('[data-tile-title]')!.tagName).toBe('DIV');   // 문장 칸(Said)은 접힌 상세(details · 블록)를 품을 수 있어 b 같은 글자 요소로 감싸지 않음(#575 reviewer)
     expect(b.querySelector('[data-tile-title]')!.textContent).toBe('길을 못 찾았습니다.');
     expect(a.querySelector('[data-tile-sub]')!.textContent).toBe('■위험 · 안전 · Go2-A');
     expect(c.querySelector('[data-tile-sub]')!.textContent).toBe('▲주의 · 연결 · Go2-A · 이운영');
