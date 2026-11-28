@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STATUS_NAME } from '../fake';
 import { rt } from '../rt';
-import { K, OX, OY, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
+import { TEX_LOOK, K, OX, OY, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
 import { IC, ic, type TileFacts } from './u5';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
@@ -44,10 +44,10 @@ export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel
     const aim = (e: number, a: number, dd: number, t: THREE.Vector3) => { cam.position.set(t.x + Math.sin(a) * Math.cos(e) * dd, Math.sin(e) * dd, t.z + Math.cos(a) * Math.cos(e) * dd); cam.lookAt(t); };
     let settle = fromTop.current ? -0.25 : 1;   // -0.25 ~ 0 = 칸이 자라는 동안 위에서 본 틀 유지
     if (settle < 1) aim(elTop, 0, dTop, top); else aim(el, az, d, tgt);
-    const hemis: THREE.HemisphereLight[] = [], rims: THREE.DirectionalLight[] = [];
+    const hemis: THREE.HemisphereLight[] = [], rims: THREE.DirectionalLight[] = [], suns: THREE.DirectionalLight[] = [];
     for (const sc of [scene, over]) {
       const hemi = new THREE.HemisphereLight(0xaab8c8, 0x07090b, 1.1); hemis.push(hemi); sc.add(hemi);
-      const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(-300, 500, 400); sc.add(sun);
+      const sun = new THREE.DirectionalLight(0xffffff, 2.0); suns.push(sun); sun.position.set(-300, 500, 400); sc.add(sun);
       const rim = new THREE.DirectionalLight(0x6fd6b8, 0.35); rims.push(rim); rim.position.set(300, 200, -500); sc.add(rim);
     }
     const W = 3200 / K, H = 2000 / K;
@@ -64,6 +64,15 @@ export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel
     loadSite().then((s) => { if (live && s) { site = s; scene.add(s); light = null; } });
     // 밝은 판: 바탕 · 땅 · 격자 · 빛 · 현장 재질을 밝음 1 흰 점토 결로(시안 shared/map_large_factory_top.jpg). 판이 바뀌면 그때 다시 칠함
     const shade = (l: boolean) => {
+      if (site?.userData.tex) {   // 질감판: 자산 시험 화면(view.html LOOK) 의 바탕 · 하늘 빛 · 해 · 노출. 재질은 색 곱만(toneSite)
+        const k = TEX_LOOK[l ? 'light' : 'dark'];
+        r.setClearColor(k.bg, 1); (scene.fog as THREE.Fog).color.setHex(k.bg); r.toneMappingExposure = k.exp;
+        (ground.material as THREE.MeshStandardMaterial).color.setHex(k.bg); gridM.color.setHex(l ? 0xc3cac5 : 0x2a3440);
+        for (const h of hemis) { h.color.setHex(k.hemi[0]); h.groundColor.setHex(k.hemi[1]); h.intensity = k.hemi[2]; }
+        for (const m of suns) m.intensity = k.sun;
+        for (const m of rims) m.intensity = l ? 0.05 : 0.35;
+        toneSite(site, l); return;
+      }
       const bg = l ? 0xf6f7f6 : BG; r.setClearColor(bg, 1); (scene.fog as THREE.Fog).color.setHex(bg);
       (ground.material as THREE.MeshStandardMaterial).color.setHex(l ? 0xeef0ee : 0x0b0e12); gridM.color.setHex(l ? 0xc3cac5 : 0x2a3440);
       for (const m of rims) m.intensity = l ? 0.05 : 0.35;
