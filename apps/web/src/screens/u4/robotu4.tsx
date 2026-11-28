@@ -70,6 +70,25 @@ export const minutesLeft = (b: unknown) => { const m = (b as { minutes_left?: un
 
 
 /** 목록 한 줄의 작은 글: 실제/데모/시뮬 · 지금 하는 일 · 조종하는 사람 */
+/** 시안 u11_2 ~ u11_4 조종 단추 글: 내 조종권 = 「조종 중」(리모컨 우선이어도 조종권은 내 것) · 내가 보낸 요청을 기다림 = 「요청 보냄」 ·
+ *  다른 사람이 조종권을 가짐(넘겨준 뒤 보기 전용 포함) = 「조종권 요청」 · 그 밖 = 「조종 시작」 */
+export const driveLabel = (o: { mine: boolean; asking: boolean; otherHolds: boolean }) => (o.mine ? '조종 중' : o.asking ? '요청 보냄' : o.otherHolds ? '조종권 요청' : '조종 시작');
+/** 시안 u11_2 ~ u11_4 머리줄 칩: 로봇 탭에서 보는 로봇이 리모컨 우선(내 조종) = 「K-01 리모컨 우선」 · 넘겨준 뒤 = 「K-01 보기 전용」 ·
+ *  내 요청을 기다리는 동안 = 「(지금 조종자) 조종 중」. 그 밖 = 내 조종권 로봇들(「K-01 조종 중」 · 「K-01 외 n 대 조종 중」) · 없으면 칩 없음 */
+export function barChipText(o: { at: 'link' | 'remote' | 'ask' | 'handed' | null; name: string; holder: string | null; driving: string[] }) {
+  if (o.at === 'remote') return `${o.name} 리모컨 우선`;
+  if (o.at === 'handed') return `${o.name} 보기 전용`;
+  if (o.at === 'ask' && o.holder) return `${o.holder} 조종 중`;
+  return !o.driving.length ? null : o.driving.length > 1 ? `${o.driving[0]} 외 ${o.driving.length - 1} 대 조종 중` : `${o.driving[0]} 조종 중`;
+}
+/** 머리줄 칩(App PcBar 자리): 로봇 탭에서 보는 로봇(robot)의 u11 한 줄 상태 + 내 조종권 로봇들 */
+export function BarChip({ robot, me, driving }: { robot: Robot | null; me: string; driving: string[] }) {
+  const f = useRobotLine(robot?.id ?? '', me), l = useLive(robot?.id ?? ''), h = l.holder ?? robot?.holder ?? null;
+  const t = barChipText({ at: robot ? f?.at ?? null : null, name: robot?.name ?? '', holder: h?.type === 'USER' && h.id !== me ? h.name || null : null, driving });
+  return t ? <span className="livechip" role="status" data-driving={driving.join(' ')} data-bar-chip={robot ? f?.at ?? '' : ''}><i></i>{t}</span> : null;
+}
+
+const INFO = <svg className="ic" viewBox="0 0 24 24" style={{ width: '15px', height: '15px' }}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>;
 export function railLine(x: Robot, me: string, demo = false) {
   const live = rt.get(x.id), h = live.holder ?? x.holder ?? null, s = live.state;
   const kind = demo ? '데모' : x.sim ? '시뮬' : '실제';
@@ -488,6 +507,9 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           <span key={k} {...(go ? { 'data-go': go } : {})} className={tab === k ? 'on' : ''} data-seg={t} role="tab" aria-selected={tab === k} tabIndex={0} onClick={() => { setTab(k); setGuide(false); }}>{t}</span>)}
       </div></div>
     {line && <DriveLine f={line} />}{/* 시안 u11_2 ~ u11_5 조종 화면 위 한 줄 */}
+    {/* 시안 u11_4: 리모컨 우선이면 모드 칸 아래 「걷는 중 · 멈춘 뒤 바꾸기」(걷는 동안만) · 조종 단추 위 「리모컨 조종 중」 */}
+    {line?.at === 'remote' && moving && <div className="whyb" style={{ left: '495px', top: '140px' }} data-u4-whyb="mode">{INFO}걷는 중 · 멈춘 뒤 바꾸기</div>}
+    {line?.at === 'remote' && <div className="whyb" style={{ right: '60px', top: '846px' }} data-u4-whyb="drive">{INFO}리모컨 조종 중</div>}
     <div className="stage3d" data-stale={pose ? undefined : ''} data-line={line?.at} data-u4-legs={legMode(pose?.q ?? null, (online && lying) || pad === 'charge', moving)} data-u4-pad={pad ?? ''} data-u4-sim={sim ? '' : undefined}><Stage r={r} q={pose?.q ?? null} down={(online && lying) || pad === 'charge'} walk={moving} pad={pad} drive={drive} hot={hot} />
       <span className="g dk tag hint"><svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" /></svg>끌어서 돌려 보기</span>
       {offTag ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-offline>{offTag}</div>
@@ -520,7 +542,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <div className={`ctl${latched ? ' dim' : ''}`}>
         <div className={`g dk btn${mine ? ' drv' : ''}`} role="button" tabIndex={0} data-u4-drive={mine ? 'mine' : 'take'} aria-disabled={!can || (!mine && (d.off || !!d.takeWhy)) || undefined}
           onClick={() => { if (!can) say(noDrive(c, r)); else if (mine) { d.zero(); rt.release(r.id); } else if (d.off) say('로봇 연결이 끊겼습니다 · 다시 연결되면 누르세요'); else if (d.takeWhy) say(d.takeWhy); else d.take(); }}>
-          <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
+          <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{driveLabel({ mine, asking: !!l.outgoing || line?.at === 'ask', otherHolds: holder?.type === 'USER' && holder.id !== c.user.id })}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
         {/* 한 줄(시안 u4_1)에 맞게 짧은 말 · 긴 뜻은 title. 1920 폭에서 넘침 0 을 잼(조정 11-28 20:07) */}

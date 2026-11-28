@@ -8,7 +8,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SIDE_BLOCK, canDrive } from '../serverdrive';
-import { checkShort, railOrder } from '../screens/u4/robotu4';
+import { barChipText, checkShort, driveLabel, railOrder } from '../screens/u4/robotu4';
 import { rt } from '../rt';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
@@ -821,4 +821,26 @@ describe('로봇 탭 · 다시 시작 확인 창', () => {
 // 3D 칸 말풍선 안 안내(조종권 받음 · 잠금 해제 후 등)는 폰 조종 화면의 어두운 칸(.dv-note) 이 아니라 말풍선 글자 그대로(5195 사진에서 어두운 칸 위 어두운 글자)
 it('로봇 탭 말풍선 안 dv-note 는 바탕 없이 말풍선 글자색', () => {
   expect(u4css).toMatch(/\.u4 \.bub \.dv-note\{[^}]*background:none[^}]*color:inherit/);
+});
+
+describe('조종권 단추 · 머리 칩 글 (시안 u11_2 ~ u11_4)', () => {
+  it('단추: 내 조종 = 조종 중 · 요청 대기 = 요청 보냄 · 남이 가짐 = 조종권 요청 · 그 밖 = 조종 시작', () => {
+    expect(driveLabel({ mine: true, asking: false, otherHolds: false })).toBe('조종 중');
+    expect(driveLabel({ mine: false, asking: true, otherHolds: true })).toBe('요청 보냄');
+    expect(driveLabel({ mine: false, asking: false, otherHolds: true })).toBe('조종권 요청');
+    expect(driveLabel({ mine: false, asking: false, otherHolds: false })).toBe('조종 시작');
+  });
+  it('칩: 리모컨 우선 · 보기 전용 · 요청 중이면 지금 조종자 · 그 밖은 내 조종 로봇', () => {
+    expect(barChipText({ at: 'remote', name: 'K-01', holder: null, driving: ['K-01'] })).toBe('K-01 리모컨 우선');
+    expect(barChipText({ at: 'handed', name: 'K-01', holder: '운영자 A', driving: [] })).toBe('K-01 보기 전용');
+    expect(barChipText({ at: 'ask', name: 'K-01', holder: '운영자 A', driving: [] })).toBe('운영자 A 조종 중');
+    expect(barChipText({ at: 'ask', name: 'K-01', holder: null, driving: [] })).toBeNull();
+    expect(barChipText({ at: null, name: '', holder: null, driving: ['K-01', 'K-03'] })).toBe('K-01 외 1 대 조종 중');
+    expect(barChipText({ at: 'link', name: 'K-01', holder: null, driving: [] })).toBeNull();
+  });
+  it('리모컨 우선 덧말 둘은 시안 자리 · 모드 덧말은 걷는 동안만', () => {
+    expect(u4src).toContain("line?.at === 'remote' && moving && <div className=\"whyb\" style={{ left: '495px', top: '140px' }}");
+    expect(u4src).toContain("right: '60px', top: '846px'");
+    expect(u4css).toMatch(/\.u4 \.whyb\{position:absolute;z-index:3;height:30px/);
+  });
 });
