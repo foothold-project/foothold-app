@@ -2,12 +2,12 @@
 // 고정 글 자리는 서버 나무(장소 · 건물 · 층) · 지도 판 값으로만. 서버에 없는 값(점 개수 · 내려받기)은 칸을 비우거나 그 칸을 뺀다.
 // 「새 지도 만들기」 = 시안 u7_6(로봇으로 그리기). 파일 · 3D 지도 올리기는 관리(u7_2) 「3D 지도 올리기」 칸 → 올리기 화면.
 import { useEffect, useState, type ReactNode } from 'react';
-import type { MapFloor, MapVersion, TrashItem } from '../../../../contracts/ts';
+import type { MapFloor, MapSite, MapVersion, TrashItem } from '../../../../contracts/ts';
 import { ApiFail, api } from '../../api';
 import { inApp } from '../../screens';
 import { Map3D, modelOf } from '../map3d';
-import { DemoSite3D } from './site3d';
-import { MapView, Thumb, byLevel, demoBoard, howMade, md, meters, nogo, picFloor, type Msg, type Place, type useTree } from '../maps';
+import { ClayMap } from './clay';
+import { Thumb, byLevel, demoBoard, purposeOf, howMade, md, meters, nogo, picFloor, type Msg, type Place, type useTree } from '../maps';
 import { voxelOf } from '../voxelmap';
 import { ART, DOG } from '../../proto/u11';
 import '../../proto/ui.pv.css';
@@ -39,18 +39,24 @@ export type Ed = { own: (s: Place['site']) => boolean; busy: boolean; edits: Rea
   del: (kind: 'sites' | 'buildings' | 'floors', x: { id: string; name: string }) => void;
   add: (kind: 'sites' | 'buildings' | 'floors', parent?: { id: string; name: string }) => void };
 
+/** 층 줄 썸네일 선 그림 거름(u7.css): 알파 = 원래 알파 − 밝기, 0.6 넘는 곳(밝기 < 0.4)만 남김 · 색 = 어둠 흰색 / 밝음 글자색 #1F2421 */
+const LINE = (id: string, r: number, g: number, b: number) => `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} -0.299 -0.587 -0.114 1 0"/>`
+  + '<feComponentTransfer><feFuncA type="discrete" tableValues="0 0 0 0 0 0 1 1 1 1"/></feComponentTransfer></filter>';
+export const LINE_DEFS = LINE('u7-line-d', 1, 1, 1) + LINE('u7-line-l', 31 / 255, 36 / 255, 33 / 255);
+const LineDefs = () => <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" data-u7-linedefs dangerouslySetInnerHTML={{ __html: `<defs>${LINE_DEFS}</defs>` }} />;
+
 /** 층 겹친 그림(시안 u7_1 가운데 아래 svg 값 그대로): 위층이 위, 고른 층만 민트. 누르면 그 층 */
 function Stack({ floors, sel, pick }: { floors: MapFloor[]; sel?: string; pick: (id: string) => void }) {
   const l = byLevel(floors), top = 250 - (l.length - 1) * 78;
   return <svg viewBox="0 0 760 330" style={{ position: 'absolute', left: '24px', right: '24px', bottom: '66px', width: 'calc(100% - 48px)', height: '300px' }} role="group" aria-label="층 겹친 그림">
     {l.map((f, i) => { const y = 250 - i * 78, on = f.id === sel, line = on ? '#00c389' : 'rgba(255,255,255,.22)';
       if (y < top) return null;
-      return <g key={f.id} data-stack={f.id} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
-        <polygon points={`60,${y} 300,${y + 60} 300,${y + 72} 60,${y + 12}`} fill="rgba(255,255,255,.05)" stroke={line} strokeWidth="1" />
-        <polygon points={`300,${y + 60} 540,${y} 540,${y + 12} 300,${y + 72}`} fill="rgba(0,0,0,.25)" stroke={line} strokeWidth="1" />
-        <polygon points={`60,${y} 300,${y - 60} 540,${y} 300,${y + 60}`} fill={on ? 'rgba(0,195,137,.28)' : 'rgba(255,255,255,.06)'} stroke={line} strokeWidth={on ? 1.6 : 1} />
-        <path d={`M540 ${y}h30`} stroke={line} strokeWidth="1" />
-        <text x="580" y={y + 7} fontSize="19" fontWeight={on ? 800 : 600} fill={on ? '#00c389' : '#9aa19d'}>{f.name}</text></g>; })}</svg>;
+      return <g key={f.id} data-stack={f.id} className={on ? 'sk on' : 'sk'} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
+        <polygon points={`60,${y} 300,${y + 60} 300,${y + 72} 60,${y + 12}`} fill="rgba(255,255,255,.05)" stroke={line} strokeWidth="1" className="sk-l" />
+        <polygon points={`300,${y + 60} 540,${y} 540,${y + 12} 300,${y + 72}`} fill="rgba(0,0,0,.25)" stroke={line} strokeWidth="1" className="sk-r" />
+        <polygon points={`60,${y} 300,${y - 60} 540,${y} 300,${y + 60}`} fill={on ? 'rgba(0,195,137,.28)' : 'rgba(255,255,255,.06)'} stroke={line} strokeWidth={on ? 1.6 : 1} className="sk-t" />
+        <path d={`M540 ${y}h30`} stroke={line} strokeWidth="1" className="sk-ln" />
+        <text className="sk-tx" x="580" y={y + 7} fontSize="19" fontWeight={on ? 800 : 600} fill={on ? '#00c389' : '#9aa19d'}>{f.name}</text></g>; })}</svg>;
 }
 
 /** 관리 칸 휴지통(시안 u7_2 오른쪽 아래): 서버 휴지통 목록 그대로 · 「복원」 = 서버 복원. 「30 일 뒤 지움」 은 서버 값이 없어 뺌 */
@@ -71,11 +77,21 @@ function TrashPane({ again }: { again: () => void }) {
   </div>;
 }
 
+/** 왼쪽 현장 두 묶음(시안 u7_1): 지도가 있는(또는 시뮬) 건물 = 머리 빈 자리(시안 「국내 · 해외 · 시험」 = 지역 칸, 서버에 아직 없음), 실제 현장(purpose REAL)인데 지도 0 개 = 「실제 현장 · 아직 스캔 전」. 장소 순서 = 서버 목록 */
+export function railGroups(sites: MapSite[], blds: { site: Place['site']; building: Place['building'] }[]) {
+  const rows = sites.flatMap((st) => blds.filter((x) => x.site.id === st.id).map((x) => ({ site: st, building: x.building, n: x.building.floors.filter((f) => f.approved_version_id).length })));
+  const late = rows.filter((r) => !r.n && purposeOf(r.site) === 'REAL'), maps = rows.filter((r) => !late.includes(r));
+  return [...(maps.length ? [{ head: '', rows: maps, late: false }] : []),
+    ...(late.length ? [{ head: '실제 현장 · 아직 스캔 전', rows: late, late: true }] : [])];
+}
+
 export function PickU7({ maker, t, places, vers, choose, make, note, manage, setManage, ed, children }: { maker: boolean; t: ReturnType<typeof useTree>; places: Place[]; vers: Record<string, MapVersion>;
   choose: (id: string, then?: 'history') => void; make: (k: 'robot' | 'file') => void; note: Msg; manage: boolean; setManage: (m: boolean) => void; ed: Ed; children: ReactNode }) {
   const blds = places.reduce<{ site: Place['site']; building: Place['building'] }[]>((a, p) => (a.some((x) => x.building.id === p.building.id) ? a : [...a, { site: p.site, building: p.building }]), []);
-  const [bid, setBid] = useState(() => blds[0]?.building.id ?? '');
-  const cur = blds.find((x) => x.building.id === bid) ?? blds[0];
+  // 처음 고른 건물 = 왼쪽 목록 첫 줄(지도 있는 현장 먼저 · 시안 u7_1 첫 줄 on). 서버 /sites 는 이름순이라 blds[0] 은 스캔 전 현장일 수 있음
+  const rail = railGroups(t.tree?.items ?? [], blds), first = rail[0]?.rows[0]?.building.id;
+  const [bid, setBid] = useState('');
+  const cur = blds.find((x) => x.building.id === bid) ?? blds.find((x) => x.building.id === first) ?? blds[0];
   const [fid, setFid] = useState(''), floors = cur ? byLevel(cur.building.floors) : [];
   const fl = floors.find((f) => f.id === fid) ?? (cur && picFloor(cur.building)) ?? floors[0], v = fl?.approved_version_id ? vers[fl.approved_version_id] : undefined;
   const maps = places.filter((p) => p.floor.approved_version_id).length;
@@ -84,15 +100,18 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
   const newMap = () => { if (maker) make('robot'); else setWhy('지도 만들기는 담당 실기 로봇이 있어야 합니다. 지도 파일은 「관리」 의 「3D 지도 올리기」 로 올립니다.'); };
   const msg = why || note?.text;
   return <div className={`proto${light() ? ' light' : ''} u7`} aria-label="지도 고르기" data-u7={manage ? 'u7_2_manage' : 'u7_1_pick'}>
+    <LineDefs />
     <div className="pane side" aria-label="현장"><div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 4px' }}><span className="ttl">현장</span>{t.tree && <span className="mu2" style={{ fontSize: '12.5px', fontWeight: 600 }} data-map-count>지도 {maps} 개</span>}</div>
-      {t.tree?.items.filter((s) => blds.some((x) => x.site.id === s.id)).map((s) => <div key={s.id} aria-label={`장소 ${s.name}`}><div className="h3">{s.name}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{blds.filter((x) => x.site.id === s.id).map(({ building: b }) => { const n = b.floors.filter((f) => f.approved_version_id).length;
-          return <div key={b.id} className={`site${b.id === cur?.building.id ? ' on' : ''}`} style={n ? undefined : { opacity: 0.72 }} role="button" tabIndex={0} aria-pressed={b.id === cur?.building.id} data-building={b.id}
+      {/* 시안 u7_1 두 묶음: 지도가 있는 건물(머리 = 그 장소 이름들 「국내 · 해외 · 시험」) · 실제 현장인데 지도 0 개(「실제 현장 · 아직 스캔 전」 · 점선 · 층 이름).
+          「스캔 예정 월 · 화」 는 서버 값이 없어 뺌 */}
+      {t.tree && rail.map((g, k) => <div key={g.late ? 'late' : 'maps'} aria-label={g.head || '현장'} data-rail-group={g.late ? 'late' : 'maps'}><div className="h3" style={k ? { marginTop: '14px' } : undefined}>{g.head}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{g.rows.map(({ site: st, building: b, n }) =>
+          <div key={b.id} className={`site${b.id === cur?.building.id ? ' on' : ''}`} style={n ? undefined : { opacity: 0.72 }} role="button" tabIndex={0} aria-pressed={b.id === cur?.building.id} data-building={b.id} data-site={st.name}
             onClick={() => { setBid(b.id); setFid(''); }}><span className="av" style={n ? undefined : { background: 'transparent', border: '1.5px dashed rgba(255,255,255,.28)' }}>{ic(19, PIN)}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>{b.name}<small>{s.name} · {b.floors.length} 층{n ? '' : ' · 지도 없음'}</small></div><span className="mu2" style={{ fontSize: '12.5px' }}>{n}</span></div>; })}</div></div>)}
+            <div style={{ flex: 1, minWidth: 0 }}>{b.name}<small>{g.late ? byLevel(b.floors).map((f) => f.name).join(' · ') : `${st.name === b.name ? '' : `${st.name} · `}${b.floors.length} 층${n ? '' : ' · 지도 없음'}`}</small></div><span className="mu2" style={{ fontSize: '12.5px' }}>{n}</span></div>)}</div></div>)}
       {t.tree && !blds.length && <p className="mu2" style={{ fontSize: '13px', margin: '14px 6px' }}>아직 층이 있는 건물이 없습니다. 「관리」 에서 장소 · 건물 · 층을 만듭니다.</p>}
       <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>로봇이 현장을 걸으며 스캔한 3D 지도입니다. 층마다 따로 만듭니다.</div></div>
-    <div className="head"><span className="ttl" style={{ fontSize: '26px' }}>지도</span>{cur && <span className="mu2" style={{ fontSize: '14px', fontWeight: 600 }}>{cur.building.name} · {cur.site.name}</span>}
+    <div className="head"><span className="ttl" style={{ fontSize: '26px' }}>지도</span>{cur && <span className="mu2" style={{ fontSize: '14px', fontWeight: 600 }} data-u7-sub>{cur.site.name === cur.building.name ? cur.building.name : `${cur.building.name} · ${cur.site.name}`}</span>}
       <div className="seg2" style={{ marginLeft: 'auto' }} role="group" aria-label="고르기 · 관리"><span className={manage ? '' : 'on'} role="button" tabIndex={0} aria-pressed={!manage} data-seg="고르기" onClick={() => setManage(false)}>고르기</span>
         <span className={manage ? 'on' : ''} role="button" tabIndex={0} aria-pressed={manage} data-seg="관리" onClick={() => setManage(true)}>관리</span></div>
       <div className="btnp" role="button" tabIndex={0} style={{ height: '46px', padding: '0 20px', fontSize: '14.5px' }} aria-disabled={!maker || undefined} data-make-robot onClick={newMap}>{ic(17, PLUS)}새 지도 만들기</div></div>
@@ -123,20 +142,23 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
         <div style={{ position: 'absolute', left: '24px', right: '24px', bottom: '22px', display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12.5px', color: 'var(--mu2)', fontWeight: 600 }} data-legend>
           <span className="tag m">실측 지도</span>현장 스캔<span className="tag">가져온 지도</span>외부 3D 파일<span className="tag d">시험 지형</span>직접 만든 지형</div></div>
       {fl && <div className="pane" style={{ left: '992px', top: '160px', right: '24px', bottom: '24px', overflow: 'hidden', padding: 0 }} aria-label="미리 보기">
-        <div style={{ position: 'absolute', inset: 0 }} data-u7-preview>{v && demo ? <DemoSite3D key="site3d" preview />
-          : v && modelOf(v) && no3 !== v.id ? <Map3D key={v.id} v={v} robots={[]} still missing={() => setNo3(v.id)} />
-          : v ? <MapView key={v.id} v={v} fill demo={demo} />
-          : <p className="mu2" style={{ position: 'absolute', left: '28px', top: '90px', right: '28px', fontSize: '14px' }}>{fl.approved_version_id ? '지도를 불러오는 중…' : '이 층에 아직 지도가 없습니다. 지도를 열어 올리거나 로봇으로 그립니다.'}</p>}</div>
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg,rgba(12,15,20,0) 40%,rgba(12,15,20,.6) 68%,rgba(12,15,20,.94))' }} />
+        {/* 시안 u7_1 「3D 보기 · 미리 보기」: 판에 서버 3D 모형이 있으면 그 모형(Map3D still · 점토 결), 없으면 판의 2D 그림을 점토로 세운 비스듬한 위 시점(ClayMap). 시뮬 월드 · 로봇 실시간은 그리지 않음(팀장 22:37).
+            판이 없는 층 = 시안 u11_7 꼴 빈 칸(그림 · 제목 · 글), 숫자 없음 */}
+        <div style={{ position: 'absolute', inset: 0 }} data-u7-preview>{v && modelOf(v) && no3 !== v.id ? <Map3D key={v.id} v={v} robots={[]} still missing={() => setNo3(v.id)} />
+          : v ? <ClayMap key={v.id} v={v} light={light()} />
+          : fl.approved_version_id ? <p className="mu2" role="status" style={{ position: 'absolute', left: '28px', top: '90px', right: '28px', fontSize: '14px' }}>지도를 불러오는 중…</p>
+          : <div className="empty" style={{ top: '60px', bottom: '210px' }} data-empty="floor"><svg className="art" viewBox="0 0 560 340" aria-hidden="true" style={{ width: '100%', maxWidth: '460px', height: 'auto' }} dangerouslySetInnerHTML={{ __html: ART.map }} />
+            <h2>지도 없음</h2><p>이 층은 아직 스캔하지 않았습니다.</p></div>}</div>
+        <div className="pv-fade" data-pv-fade />
         {v && <div className="g dk" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700 }} data-tag3d>
-          {ic(16, CUBE)}{demo || (modelOf(v) && no3 !== v.id) ? '3D 보기 · 미리 보기' : `위에서 본 지도 · ${meters(v).wh}`}</div>}
+          {ic(16, CUBE)}3D 보기 · 미리 보기</div>}
         <div style={{ position: 'absolute', left: '28px', right: '28px', bottom: '26px' }}>
-          <div className="row" style={{ gap: '10px' }}><span style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-.03em', color: '#fff' }} data-prev-title>{cur.building.name} · {fl.name}</span>{v && <span className={tagOf(v)[0]}>{tagOf(v)[1]}</span>}</div>
-          {v && <div className="row" style={{ gap: '22px', marginTop: '12px', fontSize: '13.5px', fontWeight: 600, color: '#c9ced6' }}>
+          <div className="row" style={{ gap: '10px' }}><span className="pv-ttl" style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-.03em' }} data-prev-title>{cur.building.name} · {fl.name}</span>{v && <span className={tagOf(v)[0]}>{tagOf(v)[1]}</span>}</div>
+          {v && <div className="row pv-meta" style={{ gap: '22px', marginTop: '12px', fontSize: '13.5px', fontWeight: 600 }}>
             <span className="row" style={{ gap: '6px' }}>{ic(16, LAYERS)}{meters(v).area}</span><span className="row" style={{ gap: '6px' }}>{ic(16, CLOCK)}{md(v.created_at)} {howMade(v)} · v{v.number}</span>
             <span className="row" style={{ gap: '6px' }}>{ic(16, BAN)}금지 구역 {nogo(v)}</span></div>}
           <div className="row" style={{ gap: '10px', marginTop: '20px' }}><div className="btnp" role="button" tabIndex={0} style={{ height: '52px', flex: 1, fontSize: '15px' }} data-open-map onClick={() => choose(fl.id)}>지도 열기</div>
-            <div className="btns" role="button" tabIndex={0} style={{ height: '52px', width: '170px', fontSize: '14px', background: 'rgba(12,15,20,.5)', color: '#fff' }} aria-disabled={!fl.approved_version_id || undefined}
+            <div className="btns pv-hist" role="button" tabIndex={0} style={{ height: '52px', width: '170px', fontSize: '14px' }} aria-disabled={!fl.approved_version_id || undefined}
               title={fl.approved_version_id ? undefined : '이 층에 저장된 지도가 없습니다.'} data-open-history onClick={() => { if (fl.approved_version_id) choose(fl.id, 'history'); }}>{ic(17, HIST)}버전 기록</div></div></div>
       </div>}</>}
     {children}

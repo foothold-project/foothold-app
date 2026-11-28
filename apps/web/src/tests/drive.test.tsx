@@ -2974,4 +2974,15 @@ describe('폰 실기 조종 동작 일곱 · 다시 시작 (시안 u1 · PC 로�
     click($('[data-restart-ask] button.dpri'));
     expect(w.of('unlock')).toMatchObject([{ robot: 'r7', stop_gen: 5 }]);   // 연 때와 같은 세대일 때만 한 번
   });
+
+  it('[H1 · L1] 같은 계정이 다른 기기에서 조종권을 가져가 lease id 만 바뀜(L→L10, 빈 조종권을 거치지 않음): 창이 닫히고 unlock 0', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(btn('조종'));
+    click(btn('다시 시작'));
+    expect($('.u1d [data-restart-ask]')).not.toBeNull();
+    recv(lease('r7', KIM, 'L10'));
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+  });
 });
