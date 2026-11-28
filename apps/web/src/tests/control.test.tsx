@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -175,6 +175,10 @@ describe('관제 탭', () => {
     expect(all({ status: 'STOP_LATCHED' }, { charging: true })).toEqual(['정지 잠금', '정지 잠금', '정지 잠금']);   // 위에서 먼저 맞는 하나
     expect(all({}, { charging: true, job: { kind: 'swap', text: '배터리 교체' } })).toEqual(['충전 중', '충전 중', '충전 중']);   // 지금 상태가 일정 칸보다 먼저(01:31 K-04)
     expect(all({}, { job: { kind: 'swap', text: '배터리 교체' } })).toEqual(['배터리 교체', '배터리 교체', '배터리 교체']);
+  });
+  it('작은 지도 이름표: 가까운 두 점(r0118 K-02 · K-04)은 아래쪽 점 이름표를 점 아래로 · 먼 점은 둘 다 위', () => {
+    expect([...labelsBelow([{ id: 'k2', x: 100, y: 120, w: 40 }, { id: 'k4', x: 102, y: 108, w: 40 }])]).toEqual(['k2']);   // 위쪽 K-04 는 위 · 아래쪽 K-02 는 아래
+    expect(labelsBelow([{ id: 'a', x: 0, y: 100, w: 40 }, { id: 'b', x: 80, y: 100, w: 40 }]).size).toBe(0);
   });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });

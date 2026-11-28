@@ -339,18 +339,33 @@ export const demoBoards = (tree: SiteTree | null | undefined) => new Set((tree?.
   .flatMap((s) => s.buildings.flatMap((b) => b.floors.map((f) => f.approved_version_id))).filter((v): v is string => !!v));
 /** 작은 지도 확대(팀장 00:33): 고른 로봇 점이 있으면 그 로봇 쪽으로 MINI_ZOOM 배(로봇이 칸 가운데). 없으면 그림 한 장 전체 */
 export const MINI_ZOOM = 2;
+/** 작은 지도 이름표 자리(01:18 r0118: 가까운 K-02 · K-04 이름표가 겹침). 앞에 놓인 이름표와 겹치면 점 아래로 내린다.
+ *  위쪽 점부터 놓는다. x · y = 점 자리 px, w = 이름표 폭 추정(글자 7 px + 여백 12). 높이 19 px · 위 = 점 위 28 px 가운데, 아래 = 점 아래 17 px 가운데. 아래로 내린 id 를 돌려준다 */
+export function labelsBelow(items: { id: string; x: number; y: number; w: number }[]): Set<string> {
+  const H = 19, put: { x: number; y: number; w: number }[] = [], dn = new Set<string>();
+  const hit = (b: { x: number; y: number; w: number }) => put.some((o) => Math.abs(o.x - b.x) < (o.w + b.w) / 2 && Math.abs(o.y - b.y) < H);
+  for (const it of [...items].sort((a, b) => a.y - b.y)) {   // 위쪽 점부터: 겹치면 아래 점의 이름표가 더 아래로(다른 점을 덮지 않게)
+    const up = { x: it.x, y: it.y - 28, w: it.w }, down = { x: it.x, y: it.y + 17, w: it.w };
+    if (hit(up) && !hit(down)) { dn.add(it.id); put.push(down); } else put.push(up);
+  }
+  return dn;
+}
 function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boards: Set<string>; toMap?: (from: DOMRect, focus: string) => void }) {
   const at = (f: TileFacts) => { const p = tilePose(locOf(f), boards); if (!p) return null; const [px, py] = toMapPx(p.x, p.z); return { dx: px * 0.125 - 200, dy: py * 0.125 - 125 }; };   // 칸 가운데 기준 px
   const pf = all.find((f) => f.x.id === sel), c = pf ? at(pf) : null, Z = c ? MINI_ZOOM : 1;
-  const dots = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true })).flatMap((f) => {
+  const pos = (q: { dx: number; dy: number }) => ({ x: Math.round((q.dx - (c?.dx ?? 0)) * Z), y: Math.round(125 + (q.dy - (c?.dy ?? 0)) * Z) });
+  const kindOf = (f: TileFacts) => (f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '');
+  const labeled = (f: TileFacts) => { const k = kindOf(f); return sel ? f.x.id === sel : k === 'r' || (k === 'o' && !f.lostNow); };
+  const sorted = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true }));
+  const below = labelsBelow(sorted.flatMap((f) => { const q = labeled(f) ? at(f) : null; return q ? [{ id: f.x.id, ...pos(q), w: f.x.name.length * 7 + 12 }] : []; }));
+  const dots = sorted.flatMap((f) => {
     // 데모 현장 승인 판의 위치만: 판 id 가 다르거나 없으면 그리지 않음(엉뚱한 자리보다 뺌). 서버 판 m → 시안 그림 px = design.json transform(25 + u·3.5, 20 + v·3.5 · v = -y)
     const q = at(f);
     if (!q) return [];
-    const left = `calc(50% + ${Math.round((q.dx - (c?.dx ?? 0)) * Z)}px)`, top = `${Math.round(125 + (q.dy - (c?.dy ?? 0)) * Z)}px`;
-    const kind = f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '';
-    const me = f.x.id === sel, label = sel ? me : kind === 'r' || (kind === 'o' && !f.lostNow);
+    const p = pos(q), left = `calc(50% + ${p.x}px)`, top = `${p.y}px`;
+    const kind = kindOf(f), me = f.x.id === sel;
     return [<i key={f.x.id} className={`dotm ${kind}${sel ? (me ? ' sel' : ' dim') : ''}`} style={{ left, top }} data-walk={f.walk ? '1' : undefined} data-dot={f.x.id}></i>,
-      label && <span key={`${f.x.id}-l`} className={`dotl${me ? ' sel' : ''}`} style={{ left, top }}>{f.x.name}</span>];
+      labeled(f) && <span key={`${f.x.id}-l`} className={`dotl${me ? ' sel' : ''}${below.has(f.x.id) ? ' dn' : ''}`} style={{ left, top }}>{f.x.name}</span>];
   });
   return <div className="pane" style={{ padding: '10px' }}><div className="row" style={{ justifyContent: 'space-between', padding: '4px 6px 10px' }}><span className="ttl" style={{ fontSize: '17px' }}>작은 지도</span><span className="mu2" style={{ fontSize: '12.5px' }}>{sel ? '선택한 로봇 강조' : '점 = 로봇 · 점선 = 시뮬'}</span></div><div className="mini" data-zoom={c ? Z : undefined} style={c ? { backgroundSize: `${400 * Z}px ${250 * Z}px`, backgroundPosition: `calc(50% + ${Math.round(-c.dx * Z)}px) calc(50% + ${Math.round(-c.dy * Z)}px)` } : undefined} role={toMap ? 'button' : undefined} tabIndex={toMap ? 0 : undefined} aria-label={toMap ? '작은 지도 · 두 번 누르면 지도 보기' : undefined} data-to-map={toMap ? '' : undefined}
     onDoubleClick={toMap && ((e) => toMap(e.currentTarget.getBoundingClientRect(), sel))} onKeyDown={toMap && ((e) => { if (e.key === 'Enter') toMap(e.currentTarget.getBoundingClientRect(), sel); })}>{dots}</div></div>;
