@@ -125,6 +125,7 @@ export function serverBad(e: ApiFail): Bad {
 /** 저장 실패(422 밖) = 무엇이 + 어떻게. 403 등은 서버 문구 그대로 */
 function saveFail(e: ApiFail) {
   if (e.status === 404) return '이 층이나 지도를 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
+  if (e.code === 'SIM_PLACE_BY_TERRAIN') return '데모 현장 지도는 보기만 합니다. 지형은 시뮬 탭 «지형 만들기» 에서 바꿉니다.';
   if (e.code === 'SERVER_BUSY') return '서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.';
   if (e.code === 'TIMEOUT') return '서버가 제시간에 답하지 않았습니다. 네트워크를 확인한 뒤 다시 저장하세요.';
   return e.message;

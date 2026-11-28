@@ -6,7 +6,7 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { floorName, pixelTo, toPixel } from '../screens/maps';
+import { SIM_SAVE, floorName, pixelTo, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
 import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
@@ -2404,6 +2404,27 @@ describe('지도 탭 · 시안 u7', () => {
     expect(card('미리 보기').textContent).toContain('이 층에 아직 지도가 없습니다');
     await click($('[data-open-map]'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층');
+  });
+
+  // 데모 현장(11-28): 지도 탭 = purpose REAL 이거나 서버 sites[].demo === true. 다른 SIM 현장은 시뮬 탭에만. 데모 현장은 보기만(저장 단추 없음 = 409 안 부름)
+  it('지도 탭 현장 = REAL + 데모 SIM(서버 demo 값) · 데모 아닌 SIM 은 없음 · 데모 층은 편집 · 올리기 · 고치기 없이 한 줄', async () => {
+    const t = { items: [...TREE.items,
+      { id: 's9', name: '시안 공장 터', purpose: 'SIM', demo: true, buildings: [{ id: 'b9', site_id: 's9', name: '큰 공장', floors: [floor('f9', '1층', 1, 'v2', 'b9')] }] },
+      { id: 's8', name: '연습장', purpose: 'SIM', buildings: [{ id: 'b8', site_id: 's8', name: '시험동', floors: [floor('f8', '1층', 1, null, 'b8')] }] }], next_cursor: null };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/f9/map-versions': { status: 200, body: { items: [{ ...V2, floor_id: 'f9' }], next_cursor: null } } }));
+    await toPick();
+    const sites = card('현장');
+    expect(sites.querySelector('[data-building="b1"]')).not.toBeNull();
+    expect(sites.querySelector('[data-building="b9"]')).not.toBeNull();
+    expect(sites.querySelector('[data-building="b8"]')).toBeNull();
+    await click(sites.querySelector('[data-building="b9"]'));
+    await click($('[data-open-map]'));
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('시안 공장 터 큰 공장 1층');
+    expect($('[aria-label="보기·편집"]')).toBeNull();
+    expect($('[data-demo-ro]')!.textContent).toBe(SIM_SAVE);
+    expect(box.textContent).not.toContain('«편집»');
+    expect([...box.querySelectorAll('button')].some((b) => b.textContent === '새 지도 올리기…')).toBe(false);
+    expect($('[data-fix-open]')).toBeNull();
   });
 
   it('u7_1 «버전 기록»: 그 층을 저장 기록이 펼쳐진 채로 연다', async () => {
