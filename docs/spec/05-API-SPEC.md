@@ -403,6 +403,13 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   "robot_id": "…"|null, "user_id": "…"|null, "run_id": "…"|null, "data": { "distance_m": 1.8 } }
 ```
 
+**사건 등급 하한** (2026-11-28, #552 기록 탭)
+- 등급은 `INFO` < `WARN` < `ERROR` 셋뿐이다(DB 제약 `event_severity`). 따로 `DANGER`·`CRITICAL` 은 두지 않는다.
+- 코드가 `_(FAILED|REJECTED|DENIED|TIMEOUT)$` 에 맞으면 저장 등급은 최소 `WARN` 이다. 보낸 쪽이 `INFO` 로 보냈거나 등급을 비웠으면 서버가 `WARN` 으로 올린다. 이미 `WARN`·`ERROR` 면 그대로 둔다. 내리는 일은 없다.
+- `STOP_CONFIRM_FAILED` 는 최소 `ERROR` 다. 정지를 요청했는데 2 s 안에 확인이 오지 않아 로봇이 멈췄는지 증명되지 않은 상태이기 때문이다([02 F-TO-04](02-FUNCTIONAL-SPEC.md#f-to-04-조종권-요청-sf-05sf-08--확정--제안-보완) 넘김 순서 4).
+- 서버는 사건 행을 넣는 모든 경로에서 이 하한을 한 곳(`fh_server/models.py` 의 `severity_floor`)으로 건다. 에이전트도 보낼 때 같은 규칙을 쓴다(폰 허브 `PHONE_LEASE_TIMEOUT` 등은 `warn`).
+- 서버 조종권 요청 시간 초과의 코드 `TIMEOUT` 은 밑줄이 없어 위 정규식에 맞지 않지만, 따로 지정해 최소 `WARN` 이다(2026-11-28 결정).
+
 ### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
 
 정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
