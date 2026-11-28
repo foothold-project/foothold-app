@@ -61,8 +61,9 @@ describe('layers', () => {
     const P = { x: 1, z: 1, rot: 0 };
     expect(aimY({ pose: P, front: false })).toBe(SITE_AIM);
     expect([aimY({ pose: null, front: false }), aimY({ pose: P, front: true })]).toEqual([BODY_AIM, BODY_AIM]);
-    expect(Math.atan((0.55 - SITE_AIM) / REAR_DIST) * 180 / Math.PI).toBeLessThan(15);   // 아래로 15° 안 = 시야 30° 위 끝이 지평선 위
-    expect([REAR_DIST, FRONT_DIST]).toEqual([1.0, 1.25]);   // 임무 중 뒤 1 m(팀장 23:48) · 정면 1.25 m
+    expect(Math.atan((0.55 - SITE_AIM) / REAR_DIST) * 180 / Math.PI).toBeLessThan(15);   // 2.0 m 에서 약 5.7°
+    expect(Math.atan((0.55 - SITE_AIM) / REAR_DIST) * 180 / Math.PI).toBeGreaterThan(5);   // 아래로 15° 안 = 시야 30° 위 끝이 지평선 위
+    expect([REAR_DIST, FRONT_DIST]).toEqual([2.0, 1.25]);   // 임무 중 뒤 2.0 m(팀장 01:47) · 정면 1.25 m
   });
 });
 

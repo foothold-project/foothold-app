@@ -17,7 +17,7 @@ import type { Ctx } from '../screens';
 import { actOf, controlPick, pickPress, flagNote, isLost, lastly, needs, useControlPick } from '../screens/control';
 import { floorName, floorsOf, useTree } from '../screens/maps';
 import { sitePose, toMapPx } from './site';
-import { FRONT_DIST, REAR_DIST, tiles as tileGl, type TileLook, type TilePad } from './tileview';
+import { FRONT_DIST, REAR_DIST, REAR_LABEL, tiles as tileGl, type TileLook, type TilePad } from './tileview';
 import { SiteView } from './u5map';
 import './u5.css';
 
@@ -247,7 +247,7 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
     {f.lostNow ? <div className="lk">{I(24, IC.wifi, 'var(--u5-amb)')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>   /* 끊김은 시점과 상관없이 먼저(임무 전 정면이어도) */
       : (f.sim || (idleNow(f.x) && !f.onRun && !f.charging && !f.job && !(f.hot && tempLevel(f.hot.t)))) && showFront ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
       : showFront ? <TempOv f={f} />
-      : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
+      : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}{REAR_LABEL}</span>
       : <RealCam id={f.x.id} />}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? 'var(--mu2)' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
       : (() => { const b = tileBadge(f); return b && <BadgeTag b={b} battery={f.x.battery} />; })()}
@@ -260,7 +260,7 @@ function RealCam({ id }: { id: string }) {
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);   // 2 초 넘게 새 판이 없으면 «신호 없음» 으로 바뀌게
   if (feed.img && !text) return <><img className="cam" src={feed.img} alt={`${id} 카메라`} data-cam="live" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
     <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}카메라</span></>;
-  return <><span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
+  return <><span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}{REAR_LABEL}</span>
     <span className="g dk ov" style={{ left: '8px', top: '40px', maxWidth: 'calc(100% - 16px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} data-cam="none" title={text}>{I(14, IC.cam)}{text || NO_SIGNAL.rgb}</span></>;
 }
 
@@ -486,7 +486,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       {view === 'tiles' && all.length > wall.length && <span className="mu2" style={{ fontSize: '12.5px' }} data-wall-rest={all.length - wall.length}>{`타일 ${wall.length} 대 · 나머지 ${all.length - wall.length} 대는 지도 보기 · 로봇 탭`}</span>}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'var(--u5-ok-bg)', borderColor: 'var(--u5-ok-line)', color: 'var(--u5-ok)' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
-          onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? '뒤 1 m 시점으로' : '정면 상태로 뒤집기'}</span>}
+          onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? `${REAR_LABEL} 시점으로` : '정면 상태로 뒤집기'}</span>}
         <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} data-demo-show onClick={() => setDemo(!demo)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDemo(!demo); } }}>데모 표시<i></i></span>
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
     {view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
