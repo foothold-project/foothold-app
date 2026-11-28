@@ -376,6 +376,13 @@ function Screen(c: Ctx) {
     neutral(); say('서버 접수를 기다리고 있습니다.');
     rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
   };
+  // Damping(시안 u1_3 · PC 로봇 탭 robotu4 damp 와 같은 규칙 · 같은 길): 내 조종 · 정지 잠금 · 서 있을 때. 한 번 = 안내, 3 초 안에 한 번 더 = Damp(확인됨).
+  // 처음 값은 -Infinity: 0 이면 페이지를 연 뒤 3 초 안의 첫 누름이 바로 Damp 가 된다(performance.now 는 페이지 시작부터 셈)
+  const [arm, setArm] = useState(-Infinity), dampOn = mine && online && l.state?.latched === true && l.state?.posture?.state !== 'LYING';
+  const damp = () => {
+    if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
+    setArm(-Infinity); neutral(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
+  };
 
   // 꼴 = 시안 u1_2(조종 판 안 시안 겹 .proto.pv.u1d · 마크업은 시안 그대로, 단추 div 는 button). 글 · 단추 · 동작 · 표지(data-*)는 옛 상태 판 그대로
   const why = mine ? null : driveBlock(c.user, r) ?? (wait || null), whyId = `why-${r.id}`;
@@ -443,6 +450,8 @@ function Screen(c: Ctx) {
     {/* 「다시 시작」(시안 u1_3 자리 · 정지 위 92 × 48) = 잠금 해제. PC 로봇 탭처럼 확인 창(u4_10 글)을 거친다 */}
     {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={restart.open}>
       <Ic s={18}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></Ic>다시 시작</button>}
+    {/* Damping(시안 u1_3 은 정지 자리를 Damping 으로 바꿈). 정지 단추(App 공통 층 · Space)는 늘 그 자리에 두고, Damping 은 「다시 시작」 위 같은 폭 · 시안 밖 자리 */}
+    {dampOn && <button type="button" className="stop u1-damp" style={{ right: '12px', bottom: '144px', width: '92px', height: '56px', zIndex: 5 }} onClick={damp} data-u1-damp data-off-proto="damp-place">Damping<small>힘 빼기</small></button>}
     {/* 위 띠 줄(시안 .ban): 작은 지도와 오른쪽 줄 사이. red = 출력 지연, amb = 막은 까닭 · 리모컨 */}
     <div className="u1-says">{down
       /* 시안 u1_8: 서버가 끊기면 띠 하나. 시안 「점검」 → 「다시 연결」(rt.reconnect): 폰에 망 점검 화면(u2_5 · u9_4)이 없어 시안 밖 · 새로 그림 */
