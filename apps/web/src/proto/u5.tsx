@@ -168,22 +168,26 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
 /** 타일 · 지도 보기 줄 순서 = 공용 규칙(fleetorder): 긴급(시안이 칸을 칠하는 위험 → 경고 → 주의) → 실기 → 데모 → 사용자 시뮬 → 받은 순서.
  *  끊김은 시안 u5_1 K-07 처럼 칸을 칠하지 않고 덮개만이라 긴급으로 올리지 않음 */
 export const order = (l: TileFacts[]) => fleetOrder(l, (f) => f.level, (f) => fleetKind(f.x.sim, f.demo));
-/** 타일 벽에 둘 로봇(팀장 23:53 · 시안 u5_1 처럼 섞어 8 칸, 시안 밖 · 새로 그림 = 고르는 규칙). 차례대로 빈 칸이 있을 때만 넣는다:
- *  1) 위험 · 경고(칸을 빨갛게 칠하는 crit · bad)  2) 실기(사용자 시뮬도 데모도 아님 · Go2 X) · 섞기 넷 자리는 남기고
- *  3) 섞기 한 대씩: 점검 중(가용 MAINTENANCE) → 충전 중(가용 CHARGING) → 사용자 시뮬 → 연결 끊김 또는 주의(warn)
- *  4) 남은 실기  5) 임무 중(state.run)  6) 그 밖은 받은 차례(order).
+/** 타일 벽에 둘 로봇(팀장 23:53 · 01:08 · 시안 u5_1 처럼 섞어 8 칸, 시안 밖 · 새로 그림 = 고르는 규칙). 차례대로 빈 칸이 있을 때만 넣는다:
+ *  사용자 시뮬은 8 칸 안에 하나뿐: 위험 · 경고 시뮬 → 임무 중 시뮬 → 대기 시뮬(시뮬이 그것뿐일 때). 데모는 대기여도 시뮬보다 먼저.
+ *  1) 위험 · 경고(칸을 빨갛게 칠하는 crit · bad)  2) 실기(사용자 시뮬도 데모도 아님 · Go2 X) · 섞기 셋 자리는 남기고
+ *  3) 섞기 한 대씩: 점검 중(가용 MAINTENANCE) → 충전 중(가용 CHARGING) → 연결 끊김 또는 주의(warn)
+ *  4) 남은 실기  5) 데모(임무 중 먼저)  6) 시뮬 하나  7) 그 밖은 받은 차례(order).
  *  고른 로봇은 원래 줄 차례(order)대로 둔다. 남은 로봇은 지도 보기 · 작은 지도 · 최근 경고 · 로봇 탭 목록에 그대로 나온다 */
 export const WALL_MAX = 8;
 export function wallPick(all: TileFacts[], max = WALL_MAX): TileFacts[] {
   if (all.length <= max) return all;
-  const got = new Set<TileFacts>(), add = (f?: TileFacts) => { if (f && got.size < max) got.add(f); };
-  const free = (p: (f: TileFacts) => boolean) => all.find((f) => !got.has(f) && p(f));
-  const real = (f: TileFacts) => !f.sim && !f.demo, MIX = 4;
-  all.filter((f) => f.level === 'crit' || f.level === 'bad').forEach(add);
+  const red = (f: TileFacts) => f.level === 'crit' || f.level === 'bad', sims = all.filter((f) => f.sim);
+  const sim1 = sims.find(red) ?? sims.find((f) => f.onRun) ?? sims[0], ok = (f: TileFacts) => !f.sim || f === sim1;
+  const got = new Set<TileFacts>(), add = (f?: TileFacts) => { if (f && ok(f) && got.size < max) got.add(f); };
+  const free = (p: (f: TileFacts) => boolean) => all.find((f) => !got.has(f) && !f.sim && p(f));
+  const real = (f: TileFacts) => !f.sim && !f.demo, MIX = 3;
+  all.filter(red).forEach(add);
   all.filter(real).forEach((f) => { if (got.size < max - MIX) add(f); });
-  add(free((f) => f.job?.kind === 'maint')); add(free((f) => f.charging)); add(free((f) => f.sim)); add(free((f) => f.lostNow || f.level === 'warn'));
+  add(free((f) => f.job?.kind === 'maint')); add(free((f) => f.charging)); add(free((f) => f.lostNow || f.level === 'warn'));
   all.filter(real).forEach(add);
-  all.filter((f) => f.onRun).forEach(add);
+  all.filter((f) => f.demo && f.onRun).forEach(add); all.filter((f) => f.demo).forEach(add);
+  add(sim1);
   all.forEach(add);
   return all.filter((f) => got.has(f));
 }
