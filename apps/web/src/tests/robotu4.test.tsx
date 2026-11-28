@@ -7,7 +7,7 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { SIDE_BLOCK } from '../serverdrive';
+import { SIDE_BLOCK, canDrive } from '../serverdrive';
 import { railOrder } from '../screens/u4/robotu4';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
@@ -128,7 +128,7 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     key('keydown', 'Space'); key('keyup', 'Space');
     expect(w.of('stop').filter((m) => m.robot === 'r7').length).toBe(2);
     // 다시 시작 = 잠금 해제 요청 → 해제 대기 → 풀리면 정지 칸이 다시
-    click($('[data-u4-unlock]')!);
+    click($('[data-u4-unlock]')!); click($('[data-u4-restart-go]')!);   // 시안 u4_10 확인 창 뒤
     expect(w.of('unlock').map((m) => m.robot)).toEqual(['r7']);
     expect(text($('[data-u4-stopped]'))).toBe('해제 대기 · 로봇이 정지를 확인하면 풀립니다.');
     tick(3000);
@@ -522,5 +522,67 @@ describe('걷기 모드 창(시안 u4_7)', () => {
     const sent = w.of('gait'); expect(sent.length).toBe(n0 + 1); expect(sent[sent.length - 1].gait).toBe('sport');
     act(() => { push('r7', { gait: { gait: 'classic', available: [] } } as Partial<ScreenState>); });
     expect($('[data-gait-none]')).not.toBeNull(); click($('[data-cell="mode"]')!); expect($('[data-u4-mode]')).toBeNull();
+  });
+});
+
+// 시뮬 · 데모 로봇(팀장 11-28 · 서버는 시뮬이면 server_drive_allowed 를 늘 거짓으로 줌): 웹 조종은 「주인 === 나 && 연결됨」 으로 연다. 실기 규칙은 그대로
+describe('로봇 탭 · 시뮬 로봇 조종 열림', () => {
+  const SIM = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, sim: true, serverDrive: false } : r));
+  it('canDrive: 실기는 서버 허용이 있어야만 · 시뮬은 내 것 · 연결됨일 때만 · 총괄도 남의 시뮬은 막힘', () => {
+    const [kim, lee, park] = USERS, r7 = ROBOTS.find((r) => r.id === 'r7')!, sim = { ...r7, sim: true, serverDrive: false };
+    expect(canDrive({ user: park, phone: false }, { ...r7, serverDrive: false })).toBe(false);   // 실기 Go2 X · 서버 허용 없음 = 그대로 막힘
+    expect(canDrive({ user: kim, phone: false }, { ...r7, serverDrive: false })).toBe(false);
+    expect(canDrive({ user: park, phone: false }, { ...r7, serverDrive: true })).toBe(true);
+    expect(canDrive({ user: kim, phone: false }, { ...r7, serverDrive: true })).toBe(true);    // 총괄 · 실기 규칙 그대로
+    expect(canDrive({ user: park, phone: false }, sim)).toBe(true);
+    expect(canDrive({ user: park, phone: false }, { ...sim, online: false })).toBe(false);
+    expect(canDrive({ user: park, phone: true }, sim)).toBe(false);
+    expect(canDrive({ user: lee, phone: false }, sim)).toBe(false);
+    expect(canDrive({ user: kim, phone: false }, sim)).toBe(false);
+    expect(canDrive({ user: park, phone: false }, { ...sim, sim: false })).toBe(false);   // sim 값이 없으면 실기로 본다
+  });
+  it('내 시뮬 로봇: 조종 시작 → 조종권 → 키 · 손잡이 명령 · STOP 이 먼저', () => {
+    mount('u-park', SIM); serve('r7');
+    expect($('[data-u4-drive]')!.getAttribute('aria-disabled')).toBeNull();
+    drive();
+    expect(w.of('lease.take').map((m) => m.robot)).toEqual(['r7']);
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    click($('.views .vstop')!);
+    expect(w.of('stop').filter((m) => m.robot === 'r7').length).toBe(1);
+    tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'ArrowUp');
+  });
+  it('남의 시뮬 로봇: 조종 시작이 꺼지고 까닭 한 줄 · 조종권 요청 없음', () => {
+    mount('u-lee', SIM); serve('r7');
+    click($('[data-robot-row="r7"]')!);
+    expect($('.rail .rcard.on')!.getAttribute('data-robot-row')).toBe('r7');
+    const b = $('[data-u4-drive]')!;
+    expect(b.getAttribute('aria-disabled')).toBe('true'); click(b); expect(text($('[data-u4-why]'))).toBe('내 담당 시뮬 로봇만 조종할 수 있습니다.');
+    expect(w.of('lease.take')).toEqual([]);
+  });
+  it('실기 Go2 X(서버 허용 없음): 내 것이어도 조종 시작이 꺼짐', () => {
+    mount('u-park', ROBOTS); serve('r7');
+    expect($('[data-u4-drive]')!.getAttribute('aria-disabled')).toBe('true');
+    click($('[data-u4-drive]')!);
+    expect(text($('[data-u4-why]'))).toBe('서버가 이 로봇의 웹 조종을 허용하지 않았습니다.');
+    expect(w.of('lease.take')).toEqual([]);
+  });
+});
+
+// 시안 u4_10: 「다시 시작」 은 확인 창 뒤에만 잠금 풀기를 보낸다. 취소 = 아무것도 안 보냄
+describe('로봇 탭 · 다시 시작 확인 창', () => {
+  it('다시 시작 → 「K 을 일으킬까요?」 · 취소는 보내지 않음 · 일어서기만 unlock 1 회', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    click($('[data-u4-unlock]')!);
+    expect(w.of('unlock')).toEqual([]);
+    expect(text($('[data-u4-restart-ask] .ttl'))).toBe('Go2-7 을 일으킬까요?');
+    expect(text($('[data-u4-restart-ask] p'))).toBe('그 자리에서 일어선 뒤 조종과 동작이 다시 켜집니다. 주변에 사람이 없는지 보세요.');
+    click($('[data-u4-restart-cancel]')!);
+    expect($('[data-u4-restart-ask]')).toBeNull(); expect(w.of('unlock')).toEqual([]);
+    click($('[data-u4-unlock]')!);
+    click($('[data-u4-restart-go]')!);
+    expect($('[data-u4-restart-ask]')).toBeNull();
+    expect(w.of('unlock').map((m) => m.robot)).toEqual(['r7']);
   });
 });
