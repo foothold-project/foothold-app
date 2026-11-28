@@ -8,10 +8,9 @@ import { api } from '../../api';
 
 /** 한 변 칸 수 상한(묶음 칸). 802 × 882 px 판이면 3 px 씩 묶어 ~300 칸 */
 export const CELL_MAX = 300;
-/** 점토 벽 높이(m) · 색(밝은 회색 무광) · 바닥 색 */
-export const CLAY = { wall: 1.4, top: 0xdedbd5, floor: 0xcdc9c2, nogo: 0xd23c3c };
-/** 시안 시점(build_scene.py 와 같은 결): 높이각 37° · 방위 -12° · 화각 30° */
-export const CLAY_CAM = { elev: 37, azim: -12, fov: 30 };
+import { CLAY, CLAY_CAM, clayCam, hatch } from '../../clay3d';
+/** 점토 값 · 시안 시점 · 빗금은 공용(clay3d.ts) */
+export { CLAY, CLAY_CAM, clayCam, hatch };
 
 /** 점유 칸 고르기: RGBA 픽셀 → 묶음 칸(k × k px) 중 하나라도 어두우면(밝기 < 100) 막힘. 행 0 = 그림 위(지도 y 큼) */
 export function occGrid(px: Uint8ClampedArray, w: number, h: number, max = CELL_MAX) {
@@ -26,22 +25,6 @@ export function occGrid(px: Uint8ClampedArray, w: number, h: number, max = CELL_
 /** 묶음 칸(열 cx · 행 cy) 가운데의 지도 좌표(m). 그림 행 0 = 위 = 지도 y 가 가장 큼 */
 export const cellAt = (v: Pick<MapVersion, 'origin' | 'resolution' | 'height'>, k: number, cx: number, cy: number) =>
   ({ x: v.origin[0] + (cx + 0.5) * k * v.resolution, y: v.origin[1] + (v.height - (cy + 0.5) * k) * v.resolution });
-
-/** 시안 시점 카메라 자리: 판 가운데를 보고, 판 대각선이 화면에 들어오는 거리 */
-export function clayCam(c: { x: number; y: number }, span: number) {
-  const e = (CLAY_CAM.elev * Math.PI) / 180, a = (CLAY_CAM.azim * Math.PI) / 180, d = (span / 2) / Math.tan(((CLAY_CAM.fov / 2) * Math.PI) / 180) * 1.05;
-  return { x: c.x + Math.sin(a) * Math.cos(e) * d, y: c.y - Math.cos(a) * Math.cos(e) * d, z: Math.sin(e) * d };
-}
-
-/** 금지 구역 빗금 무늬(붉은 사선). 2D 그리기가 없으면(시험 환경) 무늬 없이 옅은 빨강 */
-export function hatch(): THREE.Texture | null {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const g = c.getContext('2d'); if (!g) return null;
-  g.fillStyle = 'rgba(210,60,60,.18)'; g.fillRect(0, 0, 64, 64);
-  g.strokeStyle = 'rgba(210,60,60,.9)'; g.lineWidth = 6;
-  for (let i = -64; i <= 128; i += 22) { g.beginPath(); g.moveTo(i, 64); g.lineTo(i + 64, 0); g.stroke(); }
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t;
-}
 
 const bgOf = (el: HTMLElement) => {
   for (let e: HTMLElement | null = el; e; e = e.parentElement) {
