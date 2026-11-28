@@ -92,7 +92,8 @@ export const Pager = ({ n, per, at, go, label }: { n: number; per: number; at: n
 export const dist = (m: number) => (m >= 1000 ? [(m / 1000).toFixed(2), 'km'] : [String(Math.round(m)), 'm']);
 
 /** 경로 지도(시안 .map 의 .stage 자리): 서버 승인 판 위에 경로 · 지점 번호 · 접근 금지 구역 · 겹침. 사진 그림 자리에 실제 지도를 그린다 */
-export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: { x?: Scenario; route: Route; rehearse?: boolean; children?: ReactNode;
+export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel, still }: { x?: Scenario; route: Route; rehearse?: boolean; children?: ReactNode;
+  /** 작은 지도(u6_4 노드 오른쪽 아래): 시안처럼 그림만 · 확대 · 보기 · 축척 단추 없음 */ still?: boolean;
   /** 지도 누름 → 지도 좌표(m) · 그 자리 화면 좌표(칸 안 px). 편집기(u6_3 · u6_5)만 */ pick?: (m: [number, number], at: [number, number], ctx: boolean) => void;
   /** 지점 누름(번호) */ pickAt?: (i: number) => void; sel?: number | null }) {
   const { v, vid, look, mapErr, retry, on, segs, inNoGo, px, r, place, floor } = route;
@@ -109,7 +110,7 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: 
   if (!vid) return <Why>{floor ? '이 임무의 층에 승인된 지도가 없습니다.' : '이 임무에는 지점이 없습니다. 만들기에서 지도에 지점을 찍으세요.'}</Why>;
   if (!v) return mapErr ? <p className="lab u6-why" role="alert">지도를 받지 못했습니다. {mapErr} <button type="button" className="btns" onClick={retry}>다시 시도</button></p>
     : <Why>지도를 불러오는 중…</Why>;
-  return <MapFrame ref={svg} {...look} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={`${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className={`u6-stage${rehearse ? ' u6-reh' : ''}`}
+  return <MapFrame ref={svg} {...look} still={still} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={`${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className={`u6-stage${rehearse ? ' u6-reh' : ''}`}
     onClick={pick ? (e) => hit(e, false) : undefined} onContextMenu={pick ? (e) => hit(e, true) : undefined}>
     <MapImage id={v.id} width={v.width} height={v.height} tint="#8d9590" />
     {v.features.zones.filter((z) => z.type === 'NO_GO').map((z, i) => <polygon key={i} data-nogo points={z.polygon.map(([a, b]) => px({ x: a, y: b }).join(',')).join(' ')}

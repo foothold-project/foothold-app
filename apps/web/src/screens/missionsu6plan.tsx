@@ -71,7 +71,7 @@ function Body({ id, floor, user, robots, cancel, places, p, jobs, names, close, 
         <div className="map" style={{ left: '548px', top: '156px', width: '976px', height: '900px', maxHeight: 'calc(100% - 180px)' }} aria-label="편집 지도">{map}
           {adding && <div className="g dk pill" style={{ left: '16px', bottom: '16px' }} data-add-hint><Ic d={IC.pin} />지도를 누르면 그 자리에 할 일을 고릅니다</div>}</div></>
       : look === 'node' ? <NodePane e={ed!} x={x} route={route} p={p} setSel={(i) => { setSel(i); setLook('list'); }} pickJob={(m) => { setPending(m); setLook('map'); }}
-        mini={<div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} /></div>} />
+        mini={<div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} still /></div>} />
       : <div className="map" style={{ left: '24px', top: '156px', width: '1500px', bottom: '24px' }} aria-label="편집 지도">{map}
         <MapSteps e={ed!} route={route} pending={pending} />
         <div className="g dk" style={{ position: 'absolute', left: '50%', bottom: '20px', transform: 'translateX(-50%)', zIndex: 3, display: 'flex', gap: '18px', alignItems: 'center', padding: '10px 18px', borderRadius: '14px', fontSize: '13.5px', fontWeight: '600', whiteSpace: 'nowrap' }}>

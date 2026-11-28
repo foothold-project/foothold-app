@@ -156,7 +156,7 @@ export function NodePane({ e, x, route, p, setSel, pickJob, mini }: { e: Edit; x
           style={{ left: `${l}px`, top: `${t}px`, width: '210px', height: '76px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '12px', borderRadius: '16px', cursor: n.k === 'pt' ? 'grab' : undefined }}>
           <span style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(0,195,137,.18)', color: '#00c389', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}><Ic d={n.k === 'start' ? IC.play : n.k === 'end' ? IC.flag : jobIc(e.jobs[e.body.waypoints[n.i].mission_id])} /></span>
           <div style={{ minWidth: 0 }}><div style={{ fontSize: '15px', fontWeight: '800', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.t}</div>
-            <div style={{ fontSize: '12.5px', color: 'rgba(255,255,255,.62)', fontWeight: '600', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.s}</div></div></div>; })}
+            <div className="u6-at" style={{ fontSize: '12.5px', fontWeight: '600', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.s}</div></div></div>; })}
       {pages > 1 && <div style={{ position: 'absolute', left: '60px', top: '20px' }}><Pager n={items.length} per={PER} at={at} go={setPage} label="노드" /></div>}
     </div>
     <div style={{ position: 'absolute', left: '22px', top: '22px', width: '230px' }}><div className="ttl" style={{ fontSize: '17px', marginBottom: '12px' }}>노드 고르기</div>
