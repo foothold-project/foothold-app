@@ -34,7 +34,9 @@ export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string
   /** 기록 탭에서 바로 보일 사건 id(알림 링크 #/history?event_id=…), 결재 탭에서 바로 열 결재 id(#/approvals?approval_id=…) */
   focus?: string;
   /** 관제 요약(App 이 한 곳에서 받음 — 결재 탭 배지도 이 값) */
-  dash: Dash };
+  dash: Dash;
+  /** 폰 조종 화면 영상 칸 위에 얹는 지도 스캔 겹(시안 u14_2 · ⋯ «지도 스캔»). 조종 화면은 이것을 그리기만 한다 */
+  scan?: ReactNode };
 
 const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
 /** 상태 표시 하나: 모양 + 짧은 글(색만으로 구분 0). 원본 ui/src/app/chip.tsx 의 Chip 모양 */

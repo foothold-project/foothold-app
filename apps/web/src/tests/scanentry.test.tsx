@@ -1,5 +1,6 @@
 // 폰 지도 스캔 입구(u2_3 · u14_2): 붙이기 끝 화면 «이 현장 지도 스캔하기», 폰 로봇 연결 화면 ⋯ «지도 스캔». 둘 다 PhoneScan(screens/phonescan.tsx)을 연다.
-// 권한은 PhoneScan 과 같은 makers()(운영자 · 자기 담당 실기). 권한이 없으면 단추 대신 까닭 한 줄. 조종 중(#/drive/<id>) ⋯ 에는 두지 않는다.
+// 권한은 PhoneScan 과 같은 makers()(운영자 · 자기 담당 실기). 권한이 없으면 단추 대신 까닭 한 줄.
+// 조종 중(#/drive/<id>) ⋯ «지도 스캔» = 시안 u14_2 그대로 조종 화면 위에 스캔 겹(조종 화면 · STOP 은 그대로).
 // fetch 는 가짜 서버(/api/v1 만), WebSocket 은 FakeWS · 8810 · 실기 없음.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -159,19 +160,58 @@ describe('폰 로봇 연결 화면 ⋯ · 지도 스캔 (u14_2 입구)', () => {
     }
   });
 
-  it('조종 중(#/drive/<id>) ⋯ 에는 지도 스캔이 없다', async () => {
-    serve(signedIn(LEE, [RA]));
-    await open('#/drive/r-a');
-    expect(more()).toBeTruthy();
-    expect(btn('지도 스캔', more())).toBeUndefined();
-    expect($('[data-scan-no]', more())).toBeNull();
-  });
-
   it('기록으로 가면 스캔 화면은 내려간다', async () => {
     serve(signedIn(LEE, [RA]));
     await open('#/drive');
     await click(btn('지도 스캔', more()));
     await click(btn('기록', more()));
     expect($('[data-scan]')).toBeNull();
+  });
+});
+
+describe('조종 화면 위 지도 스캔 (시안 u14_2)', () => {
+  const ON = robot('r-a', 'Go2-A', LEE, { connection: 'ONLINE', server_drive_allowed: true, status: 'IDLE', battery: { soc: 71, updated_at: inMin(0) } } as Partial<RobotSummary>);
+  const SID = '11111111-1111-4111-8111-111111111111';
+  const run = { 'GET /robots/r-a/slam': { status: 200, body: { session_id: SID, floor_id: 'f1', status: 'RUNNING', revision: 1, update_seq: 1, elapsed_s: 252, distance_m: 86.4, point_count: 12_400_000 } } };
+  const stage = () => $('.dv.ph .dv-stage')!;
+
+  it('⋯ «지도 스캔» → 조종 화면(.dv.ph) 안 영상 칸 위에 스캔 겹, 조종 화면 · 조종 시작 · STOP 그대로 · 닫기로 겹만 내려감', async () => {
+    serve(signedIn(LEE, [ON]));
+    await open('#/drive/r-a');
+    await click(btn('지도 스캔', more()));
+    expect(more().hasAttribute('open')).toBe(false);
+    const scan = $('[data-scan]', stage())!;
+    expect(scan).toBeTruthy();
+    expect(scan.classList.contains('u142-over')).toBe(true);
+    expect(slamGets('r-a').length).toBeGreaterThan(0);
+    expect(btn('스캔 시작', scan)).toBeTruthy();
+    expect(btn('조종 시작')).toBeTruthy();   // 조종 화면 그대로
+    expect($('button[data-stop]')).toBeTruthy();   // 머리줄 STOP 그대로
+    expect($('.tl', scan)).toBeNull();   // 로봇 칩은 조종 화면 상태 줄이 맡음(겹치지 않게)
+    await click($('[data-scan-close]', scan));
+    expect($('[data-scan]')).toBeNull();
+    expect($('.dv.ph')).toBeTruthy();
+  });
+
+  it('스캔 중: 아래 진행 줄(시간 · 거리 · 점) · 「스캔 끝내기」 · 멈춤 자리의 취소 → 확인 → 취소 요청', async () => {
+    serve(signedIn(LEE, [ON], { ...run, 'POST /robots/r-a/slam/cancel': { status: 200, body: { session_id: SID, floor_id: 'f1', status: 'CANCELLED', revision: 1, update_seq: 2 } } }));
+    await open('#/drive/r-a');
+    await click(btn('지도 스캔', more()));
+    await flush();
+    const sp = $('[data-scan] .sp', stage())!;
+    expect(sp).toBeTruthy();
+    expect([...sp.querySelectorAll('[data-walk]')].map((x) => x.getAttribute('data-walk'))).toEqual(['time', 'dist', 'points']);
+    expect(btn('스캔 끝내기', sp)).toBeTruthy();
+    expect(btn('조종 시작')).toBeTruthy();
+    await click($('[data-scan-cancel]', sp));
+    await click(btn('취소하기', $('[data-scan-ask]')!));
+    expect(calls.filter((c) => c.method === 'POST').map((c) => [c.path, c.body])).toEqual([['/robots/r-a/slam/cancel', { session_id: SID }]]);
+  });
+
+  it('남의 로봇을 조종 중이면 ⋯ 에 단추 대신 까닭 한 줄', async () => {
+    serve(signedIn(KIM, [ON]));
+    await open('#/drive/r-a');
+    expect(btn('지도 스캔', more())).toBeUndefined();
+    expect($('[data-scan-no]', more())!.textContent).toBe(SCAN_NO);
   });
 });

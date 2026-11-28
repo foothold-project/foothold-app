@@ -302,6 +302,7 @@ function Screen(c: Ctx) {
         {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}
         {!l.releasing && <button type="button" className="dv-mini" aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
           {view === 'map' ? <Video small /> : <MapView />}</button>}{/* 반납 중에는 안내가 상태 판을 키워 보기 단추와 겹치므로 숨김(보기 단추로 같은 일) */}
+        {c.scan}{/* 지도 스캔 겹(시안 u14_2): 상태 줄 · 조종권 요청 창보다 아래 */}
         <div className="dv-hud">{line}{views}{note}</div>
         {q && <TakeoverAsk id="dv-ask-t" title={`${[ROLE_NAME[q.role as Role], q.name].filter(Boolean).join(' ') || '다른 사람'} 님이 ${r.name} 조종권을 요청했습니다`}
           left={secs(q.until, now)} bar={(Math.max(0, q.until - now) / q.ms) * 100}
