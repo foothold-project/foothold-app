@@ -1,7 +1,7 @@
 /* 시안 u5_1 ~ u5_6 화면 <style> 값 그대로 (여섯 장이 같음). 선택자 앞 .u5 한 겹 · 자산 주소만 /proto-assets/ 로 */
 .u5 .tb{position:absolute;left:24px;right:24px;top:84px;height:56px;display:flex;align-items:center;gap:14px}
-/* 화면 검토용 가짜 자료 띠(팀장 02:41): 머리 줄과 타일 사이 가운데, 늘 보임 */
-.u5 .fakeband{position:absolute;z-index:6;left:50%;top:141px;transform:translateX(-50%);height:16px;padding:0 10px;border-radius:8px;border:1px solid currentColor;color:var(--u5-amb);font-size:11px;font-weight:800;line-height:14px;white-space:nowrap}
+/* 화면 검토용 가짜 자료 띠(팀장 02:41): 위 메뉴 줄과 머리 줄 사이 가운데(타일 경고 띠와 겹치지 않게), 늘 보임 */
+.u5 .fakeband{position:absolute;z-index:6;left:50%;top:66px;transform:translateX(-50%);height:16px;padding:0 10px;border-radius:8px;border:1px solid currentColor;color:var(--u5-amb);font-size:11px;font-weight:800;line-height:14px;white-space:nowrap}
 .u5 .tb .seg2 span{gap:7px;height:34px;padding:0 14px}
 .u5 .cnt{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;color:rgba(232,235,240,.78)}
 /* 수 칸 = 필터(팀장 02:21): 자리는 그대로(투명 테두리 + 음수 여백), 고르면 테두리 */
@@ -50,6 +50,7 @@
 .u5 .tile .chip,.u5 .tile .s small{font-size:max(11px,var(--minpx,0px))}
 .u5 .tile .ln,.u5 .tile .s{font-size:max(13.5px,var(--minpx,0px))}
 .u5 .tile .lk{font-size:max(13px,var(--minpx,0px))}
+.u5 .tile .nm b{font-size:max(18px,var(--minpx,0px))}
 .u5 .tile .stb,.u5 .tile .flag,.u5 .tile .ov,.u5 .tile .chip{height:auto;min-height:21px}
 /* 밝은 판 배지(조정 03:00 · 대비 4.5 : 1 이상): 바탕 = surface 흰 칸. 흰 칸 위 대비가 모자라는 글 색만 토큰 안에서 바꿈(주의 노랑 · 회색 → 글자 · 흐린 글자, 테두리 · 점은 원래 색) */
 .proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}
