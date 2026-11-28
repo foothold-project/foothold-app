@@ -43,6 +43,7 @@ export interface AgentAction {
 export interface AgentBattery {
   soc: number | null;
   voltage?: number | null;
+  minutes_left?: number | null;
 }
 
 export interface AgentCmdAck {
@@ -420,6 +421,7 @@ export interface AssignmentList {
 export interface Battery {
   soc: number;
   updated_at: string;
+  minutes_left?: number | null;
 }
 
 export interface CameraFrame {

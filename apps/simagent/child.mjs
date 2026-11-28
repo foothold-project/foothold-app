@@ -64,7 +64,10 @@ function emit() {
     upright: up, base_height: world.baseHeight(), fallen: up < 0.5,
     body_still: Math.hypot(sim.linB[0], sim.linB[1]) < 0.05 && Math.abs(sim.angB[2]) < 0.05,
     cmd_applied: applied.slice(), cmd_age_s: Number.isFinite(cmdAt) ? +(now() - cmdAt).toFixed(3) : null, ttl_s: CMD_TTL_S, ttl_expired: ttlExpired,
-    battery_soc: vitals.soc(), joint_temp_c: vitals.jointTempsC().map((c) => +c.toFixed(2)), source: 'mujoco', plugin_mode: 'REALTIME',
+    battery_soc: vitals.soc(), battery_minutes_left: vitals.minutesLeft(), joint_temp_c: vitals.jointTempsC().map((c) => +c.toFixed(2)),
+    roll: Math.atan2(2 * (q[3] * q[4] + q[5] * q[6]), 1 - 2 * (q[4] * q[4] + q[5] * q[5])), // 몸 사원수 (w,x,y,z) 의 ZYX roll · pitch (rad), 실기 IMU rpy 와 같은 뜻
+    pitch: Math.asin(Math.max(-1, Math.min(1, 2 * (q[3] * q[5] - q[6] * q[4])))),
+    source: 'mujoco', plugin_mode: 'REALTIME',
   };
   process.stdout.write(JSON.stringify(s) + '\n');
 }

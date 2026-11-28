@@ -12,6 +12,7 @@ SDK motor order).
 
 import asyncio
 import json
+import math
 import os
 import subprocess
 import threading
@@ -37,26 +38,52 @@ def joint_temperatures(raw):
     return [round(v) for v in values]
 
 
-class SimTelemetry(Telemetry):
-    """Adds the child's simulated battery and joint temperatures; both expire with STATE_STALE."""
+def attitude(raw):
+    """Child roll/pitch (rad, body quaternion) and fallen -> ((roll, pitch), fallen) or None."""
+    if not isinstance(raw, dict):
+        return None
+    angles = tuple(raw.get(k) if finite(raw.get(k)) and -math.pi <= raw[k] <= math.pi else None
+                   for k in ('roll', 'pitch'))
+    fallen = raw.get('fallen') if type(raw.get('fallen')) is bool else None
+    if all(v is None for v in angles) and fallen is None:
+        return None
+    return angles, fallen
 
-    battery = None  # (soc, received_monotonic_s)
+
+class SimTelemetry(Telemetry):
+    """Adds the child's own measurements; each expires with STATE_STALE like the state itself."""
+
+    battery = None  # (soc, received_monotonic_s, minutes_left int | None)
     temperature = None  # (12 int degC SDK order, received_monotonic_s)
+    attitude = None  # ((roll, pitch), fallen, received_monotonic_s)
+    policy = None  # (policy_running bool, received_monotonic_s)
+
+    def _fresh(self, sample, at):
+        return sample is not None and 0 <= self.now() - sample[at] <= STATE_STALE
 
     def snapshot(self):
         snapshot = super().snapshot()
-        live = snapshot['observation'] is not None
-        if live and self.battery is not None and 0 <= self.now() - self.battery[1] <= STATE_STALE:
-            snapshot['battery'] = {'soc': self.battery[0]}
-        if live and self.temperature is not None and 0 <= (age := self.now() - self.temperature[1]) <= STATE_STALE:
-            # Same Go2RobotInfo/Go2Temperature shape the real agent sends (go2_direct/reporting.py).
-            # The contract's only source value is 'GO2_DDS'; RobotSummary.simulation marks this robot.
-            # Attitude/error/fallen are not modelled here, so they stay unknown (None), never invented.
-            snapshot['robot_info'] = dict(
-                source='GO2_DDS', attitude=dict(roll=None, pitch=None), error_code=None, fallen=None,
-                fallen_source='imu_tilt_estimate',
-                temperature=dict(joints=list(self.temperature[0]), battery=[None] * 4, imu=None,
-                                 body=[None, None], age_s=age))
+        observation = snapshot['observation']
+        if observation is None:
+            return snapshot
+        if self._fresh(self.battery, 1):
+            snapshot['battery'] = {'soc': self.battery[0], 'minutes_left': self.battery[2]}
+        # The child only ever runs the START m15500 policy (world.mjs checks its sha256) and
+        # Session rejects every gait request (GAIT_UNSUPPORTED): nothing is selectable.
+        if self._fresh(self.policy, 1):
+            snapshot['gait'] = {'gait': 'start' if self.policy[0] else None, 'available': []}
+        temperature, pose = self._fresh(self.temperature, 1), self._fresh(self.attitude, 2)
+        if temperature or pose:
+            # Same Go2RobotInfo shape the real agent sends (go2_direct/reporting.py). The contract's
+            # only source value is 'GO2_DDS'; RobotSummary.simulation marks this robot. error_code is
+            # not modelled here, so it stays unknown (None), never invented.
+            (roll, pitch), fallen = self.attitude[:2] if pose else ((None, None), None)
+            info = dict(source='GO2_DDS', attitude=dict(roll=roll, pitch=pitch), error_code=None,
+                        fallen=fallen, fallen_source='imu_tilt_estimate')
+            if temperature:
+                info['temperature'] = dict(joints=list(self.temperature[0]), battery=[None] * 4, imu=None,
+                                           body=[None, None], age_s=self.now() - self.temperature[1])
+            snapshot['robot_info'] = info
         return snapshot
 
 
@@ -70,6 +97,12 @@ class SimInputs(Inputs):
         if temperature is not None:
             self.telemetry.temperature = temperature
             self.devices['sim-joint-temp'] = temperature[1]
+        pose = bundle.pop('attitude', None)
+        if pose is not None:
+            self.telemetry.attitude = pose
+        policy = bundle.pop('policy', None)
+        if policy is not None:
+            self.telemetry.policy = policy
         super()._consume(bundle)
 
     def device_snapshot(self):
@@ -190,7 +223,14 @@ class MujocoNode:
                     raw = None
                 soc = raw.get('battery_soc') if isinstance(raw, dict) else None
                 if finite(soc) and 0 <= soc <= 100:
-                    self.inputs.mailbox.put(battery=(float(soc), received))
+                    minutes = raw.get('battery_minutes_left')
+                    self.inputs.mailbox.put(battery=(float(soc), received,
+                                                     minutes if type(minutes) is int and minutes >= 0 else None))
+                pose = attitude(raw)
+                if pose is not None:
+                    self.inputs.mailbox.put(attitude=(*pose, received))
+                if isinstance(raw, dict) and type(raw.get('policy_running')) is bool:
+                    self.inputs.mailbox.put(policy=(raw['policy_running'], received))
                 temperature = joint_temperatures(raw)
                 if temperature is not None:
                     self.inputs.mailbox.put(temperature=(temperature, received))

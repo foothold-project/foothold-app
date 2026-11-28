@@ -43,6 +43,8 @@
 | `cmd_applied` | 이번에 물리에 넣은 명령 (STOP · 리셋 · TTL 이면 `[0,0,0]`) |
 | `cmd_age_s` · `ttl_s` · `ttl_expired` | 마지막 cmd 뒤 시간 · 0.5 · 끊김 |
 | `battery_soc` | 시뮬 배터리 % (0~100). 물리 한 걸음마다 `대기 전력 + 1.04 × Σ|관절 토크 × 속도|` 를 적분한 남은 에너지 ÷ 236.8 Wh (`vitals.mjs`, 상수 근거는 그 파일 머리) |
+| `battery_minutes_left` | 남은 분 (정수, 내림) = 남은 에너지 ÷ 최근 평균 전력 (지수 평균 시정수 60 s). 물리 걸음 전에는 `null` |
+| `roll` · `pitch` | 몸 사원수에서 낸 rad (실기 IMU rpy 와 같은 뜻). 에이전트가 `robot_info.attitude` 로 보낸다 |
 | `joint_temp_c` | 관절 모터 온도 °C 12 개, 실기 SDK 순서 (FR · FL · RR · RL × 엉덩이 · 허벅지 · 종아리). MuJoCo 관절 토크로 1 차 열 모형 (`vitals.mjs`) 을 적분 |
 | `source` · `plugin_mode` | `"mujoco"` · `"REALTIME"` |
 

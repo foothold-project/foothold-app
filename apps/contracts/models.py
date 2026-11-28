@@ -168,9 +168,19 @@ class Person(Contract):
     display_name: str
 
 
+# 배터리 남은 분 (11/28): 정수 분, 모르면 null. 표시용이라 틀린 값은 null 로 바꾸고 상태 프레임은 버리지 않는다.
+# 실기는 모형이 없어 null, 시뮬은 남은 에너지 ÷ 최근 평균 전력 (apps/simagent/vitals.mjs).
+MinutesLeft = Annotated[
+    Annotated[int, Field(ge=0, le=1440, strict=True)] | None,
+    BeforeValidator(lambda v: v if type(v) is int and 0 <= v <= 1440 else None),
+]
+
+
 class Battery(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('minutes_left'))
     soc: float = Field(ge=0, le=100)
     updated_at: UTCDateTime
+    minutes_left: MinutesLeft = None
 
 
 # Sim worlds whose observations carry a floor context; the only world-to-floor table.
@@ -1086,6 +1096,7 @@ class AgentPose(AgentInput):
 class AgentBattery(AgentInput):
     soc: Annotated[float, Field(ge=0, le=100)] | None
     voltage: float | None = None
+    minutes_left: MinutesLeft = None
 
 
 class PostureState(Contract):

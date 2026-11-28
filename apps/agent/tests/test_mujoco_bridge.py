@@ -42,7 +42,8 @@ while True:
     print(json.dumps({'schema': 'v2_live/state/1', 'episode': 0, 'sim_t': round(sim_t, 3), 'stop_requested': stop,
         'reset_in_progress': False, 'policy_running': True, 'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'vx': 0.3, 'vy': 0.4,
         'wz': 0.0, 'fallen': False, 'cmd_applied': [0, 0, 0], 'battery_soc': 88.5,
-        'joint_temp_c': [25.4, 31.6, 40.2, 25.0, 30.9, 39.5, 25.1, 33.2, 41.0, 24.6, 32.8, 40.4]}), flush=True)
+        'joint_temp_c': [25.4, 31.6, 40.2, 25.0, 30.9, 39.5, 25.1, 33.2, 41.0, 24.6, 32.8, 40.4],
+        'battery_minutes_left': 287, 'roll': 0.01, 'pitch': -0.02}), flush=True)
     time.sleep(.05)
 '''
 
@@ -71,7 +72,7 @@ def test_normal_child_feeds_session_shapes_and_receives_stop_first(tmp_path):
             raw = [s for s in seen if isinstance(s, dict) and s.get('schema')]
             assert raw and raw[-1]['stop_requested'] is True
             snap = bridge.inputs.telemetry.snapshot()
-            assert snap['battery'] == {'soc': 88.5}
+            assert snap['battery'] == {'soc': 88.5, 'minutes_left': 287}
             assert snap['speed'] == pytest.approx(0.5)
             devices = bridge.inputs.device_snapshot()
             assert devices == [{'key': 'sim-battery', 'kind': 'BATTERY', 'label': '시뮬 배터리', 'state': 'OK'},
@@ -273,3 +274,45 @@ def test_child_command_has_no_fixed_drain_and_passes_ambient():
     assert cmd[cmd.index('--ambient-c') + 1] == '18'
     default = child_command({'FH_SIM_SRC': '/x', 'FH_SIM_NODE': sys.executable})
     assert default[default.index('--ambient-c') + 1] == '25'
+
+
+def test_sim_gait_attitude_fallen_and_minutes_left_reach_agent_state(tmp_path):
+    """11/28 14:45: 걸음 이름 · 자세 · 넘어짐 · 남은 분도 실기와 같은 칸으로."""
+    from apps.contracts.models import AgentState
+    async def run():
+        bridge, _ = make(tmp_path, 'normal')
+        try:
+            await started(bridge, [])
+            await asyncio.sleep(.3)
+            session = Session(identity=identity(time.monotonic))
+            session.update_telemetry(bridge.inputs.telemetry.snapshot())
+            state = session._state()
+            # 자식은 START m15500 정책만 돌리고, 걸음 바꾸기 요청은 모두 GAIT_UNSUPPORTED: 고를 수 있는 것은 없음.
+            assert state['gait'] == {'gait': 'start', 'available': []}
+            info = state['robot_info']
+            assert info['attitude'] == {'roll': 0.01, 'pitch': -0.02} and info['fallen'] is False
+            assert state['battery'] == {'soc': 88.5, 'minutes_left': 287}
+            parsed = AgentState.model_validate({**state, 'stop_ref': 0, 'mode': state.get('mode') or 'IDLE'})
+            assert parsed.gait.gait == 'start' and parsed.battery.minutes_left == 287
+            assert parsed.robot_info.attitude.pitch == -0.02 and parsed.robot_info.fallen is False
+            # 걸음 요청이 거절돼도 지금 걸음은 그대로 보인다.
+            session.gait_result = dict(request_id='g', gait='classic', status='REJECTED', code='GAIT_UNSUPPORTED', sdk_code=None)
+            assert session._state()['gait'] == {'gait': 'start', 'available': []}
+        finally:
+            bridge.close()
+    asyncio.run(run())
+
+
+def test_sim_gait_and_attitude_expire_with_state(tmp_path):
+    async def run():
+        bridge, _ = make(tmp_path, 'silent')
+        try:
+            await started(bridge, [])
+            await asyncio.sleep(1.8)
+            session = Session(identity=identity(time.monotonic))
+            session.update_telemetry(bridge.inputs.telemetry.snapshot())
+            state = session._state()
+            assert 'gait' not in state and 'robot_info' not in state and state['battery'] == {'soc': None}
+        finally:
+            bridge.close()
+    asyncio.run(run())

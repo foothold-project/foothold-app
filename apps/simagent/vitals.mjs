@@ -24,6 +24,11 @@ export const THERMAL = {
 };
 export const AMBIENT_C = 25; // 주변 온도 기본값 (시뮬 시작 설정)
 
+// 남은 분 = 남은 에너지 ÷ 최근 평균 전력. 평균은 지수 평균, 시정수 60 s (시뮬 시각).
+// 근거: 실기 걷기 전력은 걸음마다 크게 흔들린다 ([실측] 걷기 줄 p25~p75 59~160 W, 한 걸음 약 0.5 s).
+// 60 s 면 100 걸음 넘게 고르게 하면서 서기 · 걷기 전환은 1 분 안에 따라간다.
+export const POWER_WINDOW_S = 60;
+
 // MuJoCo 관절 순서 (mobile/sim/sim.js MJ_J: FL · FR · RL · RR × hip · thigh · calf) → 실기 SDK motor_state 순서
 // (FR · FL · RR · RL × hip · thigh · calf, 계약 Go2Temperature.joints 와 웹 go2model JOINTS 순서).
 const MJ_LEGS = ['FL', 'FR', 'RL', 'RR'], SDK_LEGS = ['FR', 'FL', 'RR', 'RL'];
@@ -33,7 +38,7 @@ const KIND = ['hip', 'thigh', 'calf'];
 export function createVitals({ socStart = 100, ambientC = AMBIENT_C } = {}) {
   if (!(Number.isFinite(socStart) && socStart >= 0 && socStart <= 100)) throw new Error('socStart 0~100');
   if (!(Number.isFinite(ambientC) && ambientC > -40 && ambientC < 80)) throw new Error('ambientC (-40, 80)');
-  let energyWh = BATTERY.capacityWh * socStart / 100, powerW = BATTERY.standbyW;
+  let energyWh = BATTERY.capacityWh * socStart / 100, powerW = BATTERY.standbyW, meanW = null;
   const temp = new Array(12).fill(ambientC);
   return {
     /** 물리 한 걸음: tau · omega = MuJoCo 순서 12 관절 (N·m · rad/s), dt = 시뮬 초 */
@@ -48,10 +53,13 @@ export function createVitals({ socStart = 100, ambientC = AMBIENT_C } = {}) {
         temp[i] += (p.heatKps * t * t - (temp[i] - ambientC) / p.tauS) * dt;
       }
       powerW = BATTERY.standbyW + BATTERY.mechToElec * mech;
+      meanW = meanW === null ? powerW : meanW + (powerW - meanW) * (dt / POWER_WINDOW_S);
       energyWh = Math.max(0, energyWh - powerW * dt / 3600);
     },
     /** 남은 충전량 % (0~100) */
     soc() { return 100 * energyWh / BATTERY.capacityWh; },
+    /** 남은 분 (정수, 내림). 물리 걸음 전에는 모름 (null) */
+    minutesLeft() { return meanW === null ? null : Math.floor(energyWh / meanW * 60); },
     /** 마지막 물리 걸음의 배터리 전력 (W) */
     powerW() { return powerW; },
     /** 관절 모터 온도 °C, SDK 순서 12 개 */

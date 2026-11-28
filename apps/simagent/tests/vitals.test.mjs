@@ -1,7 +1,7 @@
 // 시뮬 배터리 · 관절 온도 모형 (vitals.mjs). 물리 없이 토크 · 속도 입력만으로 잰다. FH_SIM_SRC 필요 없음.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BATTERY, THERMAL, SDK_FROM_MJ, createVitals } from '../vitals.mjs';
+import { BATTERY, THERMAL, SDK_FROM_MJ, POWER_WINDOW_S, createVitals } from '../vitals.mjs';
 
 const DT = 0.005; // 시뮬 물리 주기 (start 정책 200 Hz)
 const STAND_TAU = [0.1, 0.8, -4.5, -0.1, 0.8, -4.5, 0.1, 1.0, -4.5, -0.1, 1.0, -4.5]; // 서 있을 때 실기 tau_est 크기 (N·m)
@@ -79,4 +79,33 @@ test('유한하지 않은 토크 · 속도 입력은 거부한다 (값을 지어
   assert.throws(() => v.add(bad, zeros(), DT));
   assert.throws(() => v.add(zeros(), zeros(), 0));
   assert.throws(() => v.add(zeros().slice(1), zeros(), DT));
+});
+
+test('남은 분: 물리 걸음 전에는 모름 (null) · 서 있기만 하면 남은 에너지 ÷ 대기 전력', () => {
+  const v = createVitals({ socStart: 80 });
+  assert.equal(v.minutesLeft(), null);
+  run(v, 600, () => STAND_TAU, zeros);
+  const wh = BATTERY.capacityWh * v.soc() / 100;
+  assert.equal(v.minutesLeft(), Math.floor(wh / BATTERY.standbyW * 60));
+  assert.ok(Number.isInteger(v.minutesLeft()));
+});
+
+test('남은 분: 걷다 서면 최근 평균 전력 창 (지수 평균 시정수) 을 따라 늘어난다', () => {
+  const v = createVitals({ socStart: 100 });
+  const tauW = (k) => STAND_TAU.map((t, i) => t + 6 * Math.sin(2 * Math.PI * 2 * k * DT + i));
+  const dqW = (k) => STAND_TAU.map((_, i) => 3 * Math.cos(2 * Math.PI * 2 * k * DT + i));
+  run(v, 300, tauW, dqW);
+  const walking = v.minutesLeft();
+  run(v, POWER_WINDOW_S, () => STAND_TAU, zeros);
+  const oneWindow = v.minutesLeft();
+  run(v, 6 * POWER_WINDOW_S, () => STAND_TAU, zeros);
+  const settled = v.minutesLeft(), standOnly = Math.floor(BATTERY.capacityWh * v.soc() / 100 / BATTERY.standbyW * 60);
+  assert.ok(walking < oneWindow && oneWindow < settled, `${walking} < ${oneWindow} < ${settled}`);
+  assert.ok(Math.abs(settled - standOnly) <= 1, `${settled} vs ${standOnly}`);
+});
+
+test('남은 분: 다 쓰면 0', () => {
+  const v = createVitals({ socStart: 1 });
+  run(v, 3600, () => STAND_TAU, zeros);
+  assert.equal(v.minutesLeft(), 0);
 });

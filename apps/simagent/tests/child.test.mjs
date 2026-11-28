@@ -133,5 +133,11 @@ test('시뮬 배터리 · 관절 온도는 MuJoCo 토크 · 속도를 적분한 
     assert.ok(rate >= standby * 0.999 && rate < standby * 3, `줄어듦 ${rate} · 대기만 ${standby}`);
     assert.ok(Array.isArray(b.joint_temp_c) && b.joint_temp_c.length === 12);
     for (const t of b.joint_temp_c) assert.ok(Number.isFinite(t) && t >= 30 && t < 31, `관절 온도 ${t}`);
+    // 남은 분: 80 % × 236.8 Wh ÷ (서 있는 전력, 대기 언저리) → 약 290 분
+    const full = Math.floor(0.8 * BATTERY.capacityWh / BATTERY.standbyW * 60);
+    assert.ok(Number.isInteger(b.battery_minutes_left) && b.battery_minutes_left <= full && b.battery_minutes_left > full / 3, `남은 분 ${b.battery_minutes_left}`);
+    // 자세: 몸 사원수에서 낸 roll · pitch (rad). 서 있으니 작고, 넘어짐 아님
+    assert.ok(Math.abs(b.roll) < 0.2 && Math.abs(b.pitch) < 0.2, `roll ${b.roll} pitch ${b.pitch}`);
+    assert.equal(b.fallen, false);
   } finally { c.p.kill(); }
 });
