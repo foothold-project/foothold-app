@@ -1646,6 +1646,7 @@ describe('폰 시뮬 조종 RUN 이 쥐면 (#537 state.holder_type · 08:04)', (
     expect(btn('조종 시작')!.disabled).toBe(true);
     expect($('[data-sim-card] [data-held-run] button')).toBeNull();
     expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
+    await click($<HTMLButtonElement>('[data-notes-more]')!);   // 등급 3 실행 안내는 «+N 더 보기» 뒤(PHONE-CLUTTER #548). 조종 시작이 막힌 까닭(data-held-run)은 접지 않음
     expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
     expect($('[data-sim-card] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
     expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-card] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);

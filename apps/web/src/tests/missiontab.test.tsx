@@ -33,7 +33,7 @@ let assignReply: (b: Record<string, unknown>) => Promise<Response> = async (b) =
 /** 오늘 로컬 h:m 의 ISO */
 const at = (h: number, m = 0) => { const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
 const slot = (id: string, robot_id: string, kind: ScheduleSlot['kind'], h0: number, m0: number, h1: number, m1: number, scenario_id: string | null = 's2'): ScheduleSlot =>
-  ({ id, robot_id, scenario_id, scenario_version: scenario_id ? 1 : null, gait: null, start: at(h0, m0), end: at(h1, m1), kind, assignment_id: null, memo: '', created_by: 'u-kim', created_at: at(0) });
+  ({ id, robot_id, scenario_id, scenario_version: scenario_id ? 1 : null, gait: null, start: at(h0, m0), end: at(h1, m1), kind, assignment_id: null, memo: '', created_by: 'u-kim', created_at: at(0), run_state: null, run_id: null, run_code: null, confirmed_by: null });
 const AV = (robot_id: string, robot_name: string, state: RobotAvailability['state'], battery_pct: number | null, x: Partial<RobotAvailability> = {}): RobotAvailability =>
   ({ robot_id, robot_name, state, busy_until: null, busy_slot_id: null, busy_label: null, battery_pct, demo: false, sim: false, location_label: null, ...x });
 const EST: Estimate = { length_m: 1280, walk_s: 1260, task_s: 360, eta: at(14, 27), margin_s: 180, end_battery_pct: 54.4, estimate_source: 'TABLE_UNMEASURED' };
@@ -54,7 +54,7 @@ function serve() {
     if (method === 'POST' && path === '/estimates') return srv.est ? ok(srv.est) : fail(503, 'UNAVAILABLE');
     if (method === 'POST' && path === '/schedule/slots') {
       if (srv.conflict) return fail(409, 'SCHEDULE_CONFLICT', { slot_ids: srv.conflict });
-      const x = { ...body, id: 'new1', scenario_version: body.scenario_version ?? null, assignment_id: null, memo: '', created_by: 'u-kim', created_at: at(0) } as ScheduleSlot;
+      const x = { ...body, id: 'new1', scenario_version: body.scenario_version ?? null, assignment_id: null, memo: '', created_by: 'u-kim', created_at: at(0), run_state: null, run_id: null, run_code: null, confirmed_by: null } as ScheduleSlot;
       srv.slots = [...srv.slots, x]; return new Response(JSON.stringify(x), { status: 201, headers: { 'Content-Type': 'application/json' } });
     }
     if (path === '/sites') return ok({ items: [{ id: 'st', name: '공장', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 'st', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: 'v1', pending_count: 0 }] }] }], next_cursor: null });
