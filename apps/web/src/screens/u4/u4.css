@@ -102,3 +102,10 @@
 .u4 .chk [data-u4-detail] .dl:not(:first-child){margin-left:10px}
 .u4 .chk [data-u4-detail] .fh-msg{margin:8px 18px}
 .u4 .chk .u4-events{padding:8px 18px;font-size:13px}
+/* 밝은 판(.proto.light) · 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」 표 값만(tests/u4light.test.js).
+   3D 무대 · 지도 그림은 두 판 같은 어두운 그림이라 그 위 유리 띠는 어두운 유리로 둔다(밝은 유리 위 흰 · 민트 글자는 읽히지 않음).
+   아래 판(조이스틱 · 동작 단추)은 흰 칸이라 동작 글자를 글자색으로 */
+.proto.light .u4 .stage3d .g.dk,.proto.light .u4 .foot .g.dk{background:linear-gradient(180deg,rgba(31,36,33,.62),rgba(31,36,33,.46));border:1px solid rgba(255,255,255,.22);box-shadow:0 10px 28px rgba(31,36,33,.28);color:#FFFFFF}
+.proto.light .u4 .act div{color:#1F2421;text-shadow:none}
+.proto.light .u4 .act span{background:#FFFFFF;border:1px solid #DCE0DE;box-shadow:0 1px 2px rgba(31,36,33,.06)}
+.proto.light .u4 .vgo{background:#18A07E;color:#1F2421;box-shadow:0 6px 16px rgba(24,160,126,.25)}
