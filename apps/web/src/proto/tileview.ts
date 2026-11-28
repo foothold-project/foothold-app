@@ -11,7 +11,10 @@ export type TileLook = {
   /** 부위 색(시안 hot: {FL_calf: 'hot'}) */ hot: Record<string, string>;
   /** 서버 관절 12 개(go2model JOINTS 순서 · 새 값일 때만). 있으면 걷기 기록 대신 이것 */ q?: number[] | null;
   /** 시뮬 영상 칸이 있으면 이것을 먼저 그린다 */ video?: HTMLVideoElement | HTMLCanvasElement | null;
+  /** 멈춘 로봇 바닥 표시(시안 u5_1 pad()): 충전 = 초록 고리 두 겹 · 점검 = 회색 네모 두 겹. 점 바닥(임무 밖)일 때만 */ pad?: TilePad;
+  /** 숨 쉬듯 몸통이 아주 작게 오르내림: 임무 전 시뮬 로봇만(실기 · 데모는 실제 자세만) */ breathe?: boolean;
 };
+export type TilePad = 'charge' | 'check' | null;
 type Pose = { x: number; z: number; rot: number };
 export type Held = Pose & { travel: number };
 type View = { c: HTMLCanvasElement; look: () => TileLook; at: Held | null; ray?: { x: number; z: number; rot: number; front: boolean; k: number } };
@@ -30,8 +33,8 @@ export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlendin
 /** 따라가기 카메라 가림(K-08 이 건물 옆이라 뒤 2.1 m 카메라가 벽 안에 들어감): 로봇 머리 → 카메라로 광선 한 번, 현장 물체에 맞으면
  *  맞은 자리 0.15 m 앞으로 당긴다(머리에서 최소 0.6 m). 투명한 것(금지 구역 빨강)은 막지 않음. 돌려주는 값 = 머리 → 카메라 선 위 비율(1 = 그대로) */
 const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
-/** 타일 카메라 거리(시안 go2view): 뒤 따라가기 2.1 m · 정면 1.25 m. 큰 무대 카메라도 이 값을 씀 */
-export const REAR_DIST = 2.1, FRONT_DIST = 1.25;
+/** 타일 카메라 거리: 임무 중 뒤 따라가기 1 m(팀장 23:48 «로봇 뒤 1 m» · 시안 data-go2 dist 2.1 에서 바꿈) · 정면 1.25 m(시안 go2view). 큰 무대 카메라도 이 값을 씀 */
+export const REAR_DIST = 1.0, FRONT_DIST = 1.25;
 /** 로봇 발밑 그림자(원 반지름 m · 앞뒤 늘림 · 진하기). 로봇 탭 무대도 같은 값 */
 export const SHADOW = { r: 0.22, sy: 1.5, opacity: 0.35 };
 /** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 초록 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45) */
@@ -52,7 +55,7 @@ export function feetUp(b: Body) {
 }
 /** 칸 하나의 몸 자세 + 바닥 맞춤(팀장 20:51 «발이 바닥에 묻힌다»: 전에는 높이를 흔들림 값으로 덮어써 모형 높이가 사라졌다).
  *  서버 관절 > 걷기 기록(실제로 움직일 때만) > 엎드림 > 선 자세. 흔들림은 위로만(발이 바닥 아래로 가지 않게) */
-export function poseBody(b: Body, look: Pick<TileLook, 'q' | 'walk' | 'down'>, walk: Walk | null, t: number, keep?: Map<string, number>) {
+export function poseBody(b: Body, look: Pick<TileLook, 'q' | 'walk' | 'down' | 'breathe'>, walk: Walk | null, t: number, keep?: Map<string, number>) {
   const at = (k: string, f: () => number) => { let y = keep?.get(k); if (y === undefined) { y = f(); keep?.set(k, y); } b.root.position.y = y; };
   if (look.q && look.q.length === 12) {
     ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}`)).forEach((n, i) => { const j = b.joints[n]; if (!j) return; j.o.rotation.copy(j.r0); j.o.rotation[n.endsWith('hip') ? 'z' : 'x'] += look.q![i] - STAND[i]; });
@@ -60,8 +63,23 @@ export function poseBody(b: Body, look: Pick<TileLook, 'q' | 'walk' | 'down'>, w
   } else if (look.walk && walk) {
     applyWalk(b, walk, t); b.root.position.y = feetUp(b) + 0.003 * (1 + Math.sin(t * 14));
   } else if (look.down) { applyDown(b); at('down', () => { ground(b.root); return b.root.position.y; }); }
-  else { applyRest(b); at('rest', () => feetUp(b)); b.root.position.y += 0.0015 * (1 + Math.sin(t * 2)); }
+  else { applyRest(b); at('rest', () => feetUp(b)); if (look.breathe) b.root.position.y += BREATH * (1 + Math.sin(t * 2)) / 2; }
   b.root.updateMatrixWorld(true);
+}
+
+/** 숨 높이(m · 위로만): 시안 go2view.js 쉬는 자세 흔들림(0.003 · sin 2t)과 같은 폭. 임무 전 시뮬만(look.breathe) */
+export const BREATH = 0.003;
+/** 시안 u5_1 pad() 그대로: 충전 = #00c389 고리 r 0.34(진하기 0.85) · 0.40(0.3), 앞뒤 1.25 배 · 점검 = #a9b8c6 네모 W 0.38 · D 0.5(0.75), 바깥 +0.06(0.22) */
+export const PAD = { charge: { col: 0x00c389, rings: [[0.34, 0.85], [0.40, 0.3]] as [number, number][], sz: 1.25 }, check: { col: 0xa9b8c6, W: 0.38, D: 0.5, out: 0.06, op: [0.75, 0.22] } };
+export function padGroup(kind: 'charge' | 'check') {
+  const col = kind === 'charge' ? PAD.charge.col : PAD.check.col, g = new THREE.Group(); g.name = `pad-${kind}`;
+  const line = (pts: THREE.Vector3[], op: number) => g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op })));
+  if (kind === 'charge') for (const [r, op] of PAD.charge.rings) line(Array.from({ length: 96 }, (_, i) => new THREE.Vector3(Math.cos((i / 96) * 6.2832) * r, 0.002, Math.sin((i / 96) * 6.2832) * r * PAD.charge.sz)), op);
+  else {
+    const { W, D, out, op } = PAD.check, sq = (w: number, d: number) => [[-w, -d], [w, -d], [w, d], [-w, d]].map(([x, z]) => new THREE.Vector3(x, 0.002, z));
+    line(sq(W, D), op[0]); line(sq(W + out, D + out), op[1]);
+  }
+  return g;
 }
 
 let one: Tiles | null = null;
@@ -72,6 +90,7 @@ class Tiles {
   r: THREE.WebGLRenderer | null = null;
   scene = new THREE.Scene(); cam = new THREE.PerspectiveCamera(30, 1, 0.05, 1200);
   world = new THREE.Group(); body: Body | null = null; walk: Walk | null = null; cyber: THREE.ShaderMaterial | null = null;
+  pads: Record<'charge' | 'check', THREE.Group> | null = null;
   grid!: THREE.Points; gm!: THREE.ShaderMaterial; shadow!: THREE.Mesh; site: THREE.Group | null = null;
   t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number, number][] = [];
 
@@ -105,6 +124,7 @@ class Tiles {
     this.gm = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { off: { value: 0 }, col: { value: new THREE.Color(0x00c389).lerp(new THREE.Color(0xffffff), 0.4) } },
       vertexShader: vs('2.6'), fragmentShader: 'uniform vec3 col; varying float a; void main(){ vec2 c=gl_PointCoord-0.5; if(length(c)>0.5) discard; gl_FragColor=vec4(col,a*1.0*0.50);} ' });
     this.grid = new THREE.Points(gg, this.gm); s.add(this.grid);
+    this.pads = { charge: padGroup('charge'), check: padGroup('check') }; s.add(this.pads.charge, this.pads.check);
     const hm = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { off: this.gm.uniforms.off, col: { value: this.gm.uniforms.col.value.clone() } },
       vertexShader: vs('10.0'), fragmentShader: 'uniform vec3 col; varying float a; void main(){ float d=length(gl_PointCoord-0.5)*2.0; if(d>1.0) discard; gl_FragColor=vec4(col,a*0.5*0.50*(1.0-d)*(1.0-d));} ' });
     this.grid.add(new THREE.Points(gg, hm));
@@ -170,6 +190,7 @@ class Tiles {
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
       const ly = layers(!!p, !!this.site); this.world.visible = ly.world; this.grid.visible = ly.dots;
+      if (this.pads) { this.pads.charge.visible = ly.dots && look.pad === 'charge'; this.pads.check.visible = ly.dots && look.pad === 'check'; }
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off);
         // 가림 광선은 로봇이 0.2 m(또는 0.2 rad) 넘게 움직였거나 시점이 바뀌었을 때만 다시 쏜다(매 판 쏘지 않음)
