@@ -35,4 +35,24 @@ describe('시안 로그인 카드 (u10_1)', () => {
     const order = [card.querySelector('h2')!, fields, card.querySelector('[data-pw-link]')!];
     for (let i = 1; i < order.length; i++) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  const open = async (w: number, h: number, phone: boolean) => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: '로그인이 필요합니다.', detail: {} } }), { status: 401, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('innerWidth', w); vi.stubGlobal('innerHeight', h);
+    window.matchMedia = ((q: string) => ({ matches: phone && q.includes('max-width'), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<Root />); });
+    await flush();
+    return box.querySelector<HTMLElement>('.fh.lg')!;
+  };
+  it('PC = 앱 틀과 같은 무대 배율(1600 × 900 → 0.8333): 1920 × 1080 판을 창에 맞추고 스크롤 없음', async () => {
+    const lg = await open(1600, 900, false);
+    expect(lg.closest('[data-fit]')).not.toBeNull();
+    expect([lg.dataset.scale, lg.style.width, lg.style.height]).toEqual(['0.8333', '1920px', '1080px']);
+    expect(lg.style.transform).toContain('scale(0.8333');
+  });
+  it('폰은 무대 배율 없이 기존 흐름', async () => {
+    const lg = await open(390, 844, true);
+    expect([lg.dataset.scale, lg.closest('[data-fit]')]).toEqual([undefined, null]);
+  });
 });

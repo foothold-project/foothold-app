@@ -2,7 +2,7 @@
 // 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=<listScope>(운영 관리자는 내게 배정된 로봇만, 총괄은 전체 — ADR-003 결정 2) → App.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
-import { App } from './App';
+import { App, STAGE_H, STAGE_W, usePhone, useStage } from './App';
 import './login.css';
 import { api, onAuthLost, type ApiFail } from './api';
 import { clearServerData, listScope, setServerData, toRobots, type Robot, type User } from './fake';
@@ -97,7 +97,11 @@ function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter
     catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
   // 시안 로그인 카드(u10_1 · u10_3): 유리 카드 · FOOTHOLD 글자 · 제목 · 「총괄 · 운영자 계정으로 로그인합니다」. 칸 · 오류 · 비밀번호 바꾸기 안내는 loginform 그대로
-  return <div className={`${fh} lg`}><div className="lg-bg" aria-hidden="true" /><main className="fh-login" aria-label="로그인">
+  // PC = 시안 u10_1 무대(1920 × 1080)를 창에 맞춤(팀장 «어떤 모니터도 fit» · 앱 틀과 같은 useStage). 폰은 기존 흐름 그대로
+  const phone = usePhone(), stage = useStage();
+  const page = <div className={`${fh} lg`} data-scale={phone ? undefined : stage.s.toFixed(4)}
+    style={phone ? undefined : { position: 'absolute', left: 0, top: 0, width: STAGE_W, height: STAGE_H, minHeight: 0, transformOrigin: '0 0', transform: `translate(${stage.x}px,${stage.y}px) scale(${stage.s})` }}>
+    <div className="lg-bg" aria-hidden="true" /><main className="fh-login" aria-label="로그인">
     <form className="lg-card" onSubmit={submit} noValidate>
       <div className="lg-logo">FOOTHOLD</div>
       <h2>로그인</h2>
@@ -108,4 +112,5 @@ function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter
       <span className="lg-note">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
     </form>
   </main></div>;
+  return phone ? page : <div className="fit" data-fit style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: fh.includes('light') ? '#F6F7F6' : '#000000' }}>{page}</div>;
 }

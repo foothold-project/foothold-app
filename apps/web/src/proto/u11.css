@@ -18,3 +18,6 @@
 .proto .empty h2{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:18px}
 .proto .empty p{font-size:15px;font-weight:600;color:var(--mu2);margin-top:10px;line-height:1.6}
 .proto .empty .btnp{height:52px;padding:0 24px;font-size:15px;margin-top:26px;text-decoration:none}
+/* u4 조종 화면에 한 줄이 떠 있으면(data-line) 그 자리의 옛 글을 한 줄로 모음: 끌기 안내는 숨기고, 리모컨 줄과 같은 에이전트 글(data-drive-input)은 한 번만 */
+.proto .stage3d[data-line] .hint{display:none}
+.proto .stage3d[data-line="remote"] [data-drive-input]{display:none}
