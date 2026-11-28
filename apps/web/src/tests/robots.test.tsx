@@ -148,7 +148,7 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(kpi()).toEqual({ 전체: '2', 연결: '1', '임무 중': '0', '주의 필요': '1', '결재 대기': '0' });
     expect(card('요약').querySelector('.bad')!.textContent).toContain('주의 필요');
     expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
-    expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
+    expect($('[data-stop]')).not.toBeNull();   // 총괄도 실기 STOP(11/28 · 서버 #544)
   });
   // TAB-SPLIT(11-10): 로봇 탭은 실기만 — 서버 요약(시뮬까지 셈)에서 받은 목록의 시뮬 몫을 뺀다(결재 대기는 그대로)
   it('총괄: 목록에 시뮬이 있으면 요약·운영 관리자 표에서 그 몫을 빼고, 목록·경보에도 시뮬 없음', async () => {

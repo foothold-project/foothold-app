@@ -14,7 +14,6 @@ import { TERRAIN_REASON } from '../simstart';
 import raw from './mapcases.json?raw';
 import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
-import { adminNoStop } from './adminStop';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -130,7 +129,6 @@ const $$ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) 
 
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 + 실제로 눌러 정지 요청이 실시간 연결로 나간다(대상이 없으면 로봇 고르기에서 골라) */
 const stopSends = async () => {
-  if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
   expect($('header, .bar .rt')!.lastElementChild).toBe(s);
@@ -173,7 +171,7 @@ describe('지도 탭 — 장소 나무', () => {
     expect($$('[data-floor]').map((b) => b.textContent)).toEqual(['1층', '2층']);
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
+    expect($('[data-stop]')).not.toBeNull();   // 총괄도 실기 STOP(11/28 · 서버 #544)
     await click(floorBtn('2층'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층');
     expect(floorBtn('2층').getAttribute('aria-pressed')).toBe('true');

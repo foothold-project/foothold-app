@@ -164,7 +164,9 @@ const ERR: Record<string, string> = {
   MAP_VERSION_MISMATCH: '시나리오의 지도 판이 로봇 지도와 달라 실행하지 않았습니다.', FLOOR_TRANSITION_UNSUPPORTED: '여러 층을 지나는 시나리오는 아직 실행할 수 없습니다.',
   PLAN_UNAVAILABLE: '시나리오 자료를 받지 못해 실행하지 않았습니다.', MAP_PROOF_UNAVAILABLE: '이 지도로는 시나리오를 실행할 수 없습니다 — 지도 원본을 증명할 수 없는 판입니다(사람이 고친 판 등).',
 };
-const RESULT: Record<string, string> = { ACCEPTED: '조종권을 넘겼습니다.', DECLINED: '조종권 요청을 거절했습니다.', TIMEOUT: '조종권 요청이 시간이 지나 거절됐습니다.', CANCELED: '조종권 요청이 취소됐습니다.' };
+/** 조종권 거절 중 안전 글(등급 2 · 결정 1-4): 정지 확인 실패 · 다른 사람 조종 중. 알림 칸에서 접지 않는다(검수 #548 R1) */
+export const SAFE_NOTICE = [ERR.STOP_CONFIRM_FAILED, ERR.LEASE_HELD];
+export const RESULT: Record<string, string> = { ACCEPTED: '조종권을 넘겼습니다.', DECLINED: '조종권 요청을 거절했습니다.', TIMEOUT: '조종권 요청이 시간이 지나 거절됐습니다.', CANCELED: '조종권 요청이 취소됐습니다.' };
 /** 닫기 코드(§13.6) → 문구. 4401·4403 은 새 출입증 전 자동 재연결하지 않는다 */
 export function closeText(code: number) {
   const t = code === 4401 ? '출입증이 만료됐거나 로봇이 연결을 확인하지 못했습니다.'
@@ -173,7 +175,7 @@ export function closeText(code: number) {
     : code === 1013 ? '로봇이 지금 연결을 받을 수 없습니다. 잠시 뒤 다시 연결하세요.'
     : code === 1012 || code === 1007 || code === 1003 || code === 1009 ? '로봇이 잘못된 메시지로 보고 연결을 닫았습니다.'
     : '로봇 연결이 끊겼습니다.';
-  return `${t}(${code}) 로봇은 입력이 끊기면 스스로 멈춥니다.`;
+  return `${t.replace(/\.$/, '')} (${code}). 로봇은 입력이 끊기면 스스로 멈춥니다.`;   // «끊겼습니다 (1006). 로봇은 …»
 }
 
 function send(m: Record<string, unknown>, wait?: (ok: boolean, r?: PhoneReply) => void) {
@@ -529,7 +531,7 @@ export const sim = {
       if (ra > 0) S.retryAt = now() + ra * 1000;
       // 403 WEB_SIM_ONLY = 서버가 이 로봇에 웹 시뮬 출입증을 주지 않음(simulation 꺼짐). 서버 문구 그대로, 화면은 «다시 연결»을 내지 않는다(code 403)
       if (e instanceof ApiFail && e.status === 403 && e.code === 'WEB_SIM_ONLY') return setLink({ at: 'closed', code: 403, why: e.message });
-      const plain = S.real && e instanceof ApiFail ? e.code === 'ADMIN_NO_REAL_CONTROL' ? e.message : ra > 0 ? `요청이 많습니다 — ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
+      const plain = S.real && e instanceof ApiFail ? ra > 0 ? `요청이 많습니다. ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
       setLink({ at: 'closed', why: plain ?? `출입증을 받지 못했습니다. ${message(e)}` });
       return;
     }
