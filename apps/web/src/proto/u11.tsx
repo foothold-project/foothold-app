@@ -73,8 +73,26 @@ export function useHanded(l: Live, me: string) {
   return to;
 }
 const LINE_IC: Record<DriveLineFacts['at'], ReactNode> = { link: WIFI_OFF, remote: WARN, ask: CLOCK, handed: CHECK };
+/** 핫스팟으로 바꾸기 안내(폰 «주변 로봇 찾기» 와 같은 글). 웹은 Wi-Fi 를 바꾸지 못하므로 사람이 할 단계만 */
+export const HOT_TOP = '이 앱은 폰 Wi-Fi 를 바꾸지 못합니다 · 아래 순서대로 폰 설정에서 직접 바꾸세요.';
+export const HOT_STEPS = [
+  '로봇 전원을 켜고 핫스팟이 보일 때까지 기다립니다.',
+  '폰 설정 › Wi-Fi 에서 로봇 핫스팟을 고릅니다. 이름과 비밀번호는 로봇 설명서나 관리자에게 확인하세요. 에이전트를 돌리는 노트북도 같은 핫스팟에 붙여야 합니다.',
+  '핫스팟에는 인터넷이 없을 수 있어 그동안 서버 연결이 끊길 수 있습니다.',
+];
+const HOT = <><path d="M16.247 7.761a6 6 0 0 1 0 8.478" /><path d="M19.075 4.933a10 10 0 0 1 0 14.134" /><path d="M4.925 19.067a10 10 0 0 1 0-14.134" /><path d="M7.753 16.239a6 6 0 0 1 0-8.478" /><circle cx="12" cy="12" r="2" /></>;
+/** 서버 끊김 줄 오른쪽 «핫스팟으로 바꾸기»(시안 u11_5 #go-hot 단추 그대로). 제목은 끊긴 까닭을 지어내지 않고 지금 글 그대로(조정 22:27).
+ *  누르면 펼치는 안내 칸은 시안 밖 · 새로 그림(줄 바로 아래 같은 너비) */
+function HotBtn() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <span className="btns" style={{ marginLeft: 'auto', height: '40px', padding: '0 14px', fontSize: '13.5px' }} role="button" tabIndex={0} aria-expanded={open} aria-controls="line-hotspot" data-hot
+      onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setOpen(!open); } }}>{I(16, HOT)}핫스팟으로 바꾸기</span>
+    {open && <div id="line-hotspot" className="g" data-hotspot-guide style={{ position: 'absolute', left: 0, right: 0, top: '64px', padding: '14px 18px', borderRadius: '16px', fontSize: '13.5px', fontWeight: 600, lineHeight: 1.6 }}>
+      <p>{HOT_TOP}</p><ol style={{ paddingLeft: '18px', marginTop: '6px' }}>{HOT_STEPS.map((t) => <li key={t}>{t}</li>)}<li>서버 연결이 돌아오면 이 줄이 사라집니다.</li></ol></div>}</>;
+}
 export function DriveLine({ f, children }: { f: DriveLineFacts; children?: ReactNode }) {
-  return <div className={`line1 ${f.kind} over`} role="status" data-drive-line={f.at}>{I(19, LINE_IC[f.at])}{f.title}<small>{f.sub}</small>{children}</div>;
+  return <div className={`line1 ${f.kind} over`} role="status" data-drive-line={f.at}>{I(19, LINE_IC[f.at])}{f.title}<small>{f.sub}</small>{f.at === 'link' && <HotBtn />}{children}</div>;
 }
 
 /** 시안 u4 조종 화면 위 한 줄(u11_2 ~ u11_5): 그 로봇의 rt 값만 읽어 driveLine 이 고른 줄 하나, 없으면 아무것도 안 그림.
