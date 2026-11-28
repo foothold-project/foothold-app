@@ -38,6 +38,7 @@ from .notifications import append_for_event
 from .models import Assignment, Event, LeaseLog, Organization, Robot, ScenarioVersion, Session, User, now
 from .floor_maps import approved_bindings, matches_context
 from .security import digest
+from .tunnel import ws_origin_allowed
 from .history import History, HistoryPending
 
 log = logging.getLogger(__name__)
@@ -1492,9 +1493,7 @@ class Realtime:
             if not ws.headers.get('authorization'):
                 # Compare the full configured origin; never trust a forwarded
                 # Origin or allow wildcards. Same-origin is the default.
-                origin = ws.headers.get('origin')
-                expected = self.settings.ws_origin or str(ws.base_url).rstrip('/').replace('wss:', 'https:').replace('ws:', 'http:')
-                if not origin or origin not in (expected, self.settings.tunnel_origin):
+                if not ws_origin_allowed(self.settings, ws):
                     raise self.api_error(403, 'FORBIDDEN', '접속 출처를 확인하세요.')
         except self.api_error as exc:
             await self.reject_upgrade(ws, 4401 if exc.status == 401 else 4403)
