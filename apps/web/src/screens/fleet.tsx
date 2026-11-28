@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dashboard, Location, MapVersion } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
 import { lost, ownerName, robotStatus, type Robot, type Tone } from '../fake';
-import { rt, useRt } from '../rt';
+import { rt, shownDriveBlocked, useRt } from '../rt';
 import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
@@ -160,7 +160,7 @@ export function prepSteps(c: Ctx, r: Robot) {
   const k = kindOf(r), net = rt.link().at === 'open', on = k === 'on', ok = canDrive(c, r);
   const ready = ok && on;   // 서버 허용 값이 남아 있어도 로봇이 끊기면 완료로 보이지 않는다(목록 갱신 전). 패널(STOP 포함)은 ok 면 그대로 둔다
   const pill = k === 'lost' || k === 'server' ? { tone: 'bad' as const, text: '재연결 필요' } : ready ? { tone: 'ok' as const, text: '조종 가능' } : on ? { tone: 'warn' as const, text: '서버 허용 대기' } : { tone: 'off' as const, text: '연결 대기' };
-  const blocked = !r.serverDrive ? r.serverDriveBlocked?.filter((reason) => DRIVE_BLOCKED[reason]) : null;
+  const blocked = shownDriveBlocked(r.serverDrive, r.serverDriveBlocked)?.filter((reason) => DRIVE_BLOCKED[reason]);
   const steps: { n: number; done: boolean; cur: boolean; title: string; text: ReactNode; guide?: boolean; id?: string }[] = [
     { n: 1, done: net, cur: !net, title: '서버 연결', text: net ? '관제 서버와 연결되어 있습니다.' : '서버 연결이 끊겼습니다. 네트워크를 확인하세요.' },
     { n: 2, done: on, cur: net && !on, title: '로봇 연결', guide: !on, text: on ? '로봇 상태를 받고 있습니다.' : k === 'wait' ? '로봇 상태를 확인하는 중입니다.' : k === 'lost' ? '네트워크와 노트북 연결 프로그램을 확인하세요.' : '노트북 연결 프로그램을 확인하세요.' },
