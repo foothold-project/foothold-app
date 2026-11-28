@@ -171,7 +171,11 @@ function Screen(c: Ctx) {
   const [back, setBack] = useState(false), [side, setSide] = useState(false), [combo, setCombo] = useState(false);   // combo = 표에 없는 키 조합을 누르는 중   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
   const [chip, setChip] = useState(false), light = useTheme()[1];   // chip = 로봇 칩 펼침(시안 u1_10)
-  const [restartAsk, setRestartAsk] = useState(false);
+  // 「다시 시작」 확인 창: 연 때의 stop_gen · 조종권(lease)에 묶는다(reviewer H1). 잠금 풀림 · stop_gen 바뀜 · 조종권 바뀜이면 열림 자체를 닫고,
+  // 「일어서기」 는 그때와 지금 stop_gen 이 같을 때만 unlock 을 보낸다 — 다른 곳에서 풀린 뒤 새 STOP 에 창이 저절로 다시 뜨지 않게
+  const [restartAsk, setRestartAsk] = useState<{ gen: number | null | undefined; lease: string | null } | null>(null);
+  const askLive = !!restartAsk && mine && l.state?.latched !== false && l.state?.stop_gen === restartAsk.gen && l.lease === restartAsk.lease;
+  useEffect(() => { if (restartAsk && !askLive) setRestartAsk(null); }, [restartAsk, askLive]);
   const [actMsg, setActMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);   // 동작 까닭 · 결과 한 줄(2.6 초) · 접수된 요청 id
   const say = (m: string) => { setActMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setActMsg(''), 2600); };
   const res = l.state?.action_result;
@@ -338,7 +342,7 @@ function Screen(c: Ctx) {
           <Ic s={18}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></Ic>조종</button>}
     </div>
     {/* 「다시 시작」(시안 u1_3 자리 · 정지 위 92 × 48) = 잠금 해제. PC 로봇 탭처럼 확인 창(u4_10 글)을 거친다 */}
-    {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={() => setRestartAsk(true)}>
+    {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={() => setRestartAsk({ gen: l.state?.stop_gen, lease: l.lease ?? null })}>
       <Ic s={18}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></Ic>다시 시작</button>}
     {/* 위 띠 줄(시안 .ban): 작은 지도와 오른쪽 줄 사이. red = 출력 지연, amb = 막은 까닭 · 리모컨 */}
     <div className="u1-says">
@@ -373,12 +377,12 @@ function Screen(c: Ctx) {
         <div className="s">{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</div>
         <div className="bts"><button type="button" className="dsec" onClick={() => setAsk(false)}>취소</button><button type="button" className="dpri" onClick={() => start(true)}>일시정지하고 조종</button></div>
       </div></>}
-    {restartAsk && mine && l.state?.latched !== false && <><div className="scrim" />
+    {askLive && <><div className="scrim" />
       <div className="g dlg" role="dialog" aria-label="다시 시작 확인" data-restart-ask>
         <div className="h">{RESTART_ASK(r.name)}</div>
         <div className="s">{RESTART_TEXT}</div>
-        <div className="bts"><button type="button" className="dsec" onClick={() => setRestartAsk(false)}>취소</button>
-          <button type="button" className="dpri" onClick={() => { setRestartAsk(false); rt.unlock(r.id); }}>일어서기</button></div>
+        <div className="bts"><button type="button" className="dsec" onClick={() => setRestartAsk(null)}>취소</button>
+          <button type="button" className="dpri" onClick={() => { const a = restartAsk; setRestartAsk(null); const now = rt.get(r.id); if (a && now.state?.latched !== false && now.state?.stop_gen === a.gen && now.lease === a.lease) rt.unlock(r.id); }}>일어서기</button></div>
       </div></>}
   </div>;
 
