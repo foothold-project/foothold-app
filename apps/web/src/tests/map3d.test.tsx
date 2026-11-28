@@ -251,7 +251,7 @@ describe('3D 모형 받기 · 실패 경로', () => {
   it('미리 보기 서버 모형이 404 면 그 판은 2D 그림', async () => {
     serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': err(404, 'MODEL_NOT_FOUND', '모형이 없습니다.') })); await open(false);
     const pv = box.querySelector('[aria-label="미리 보기"]')!;
-    expect(pv.querySelector('[data-map3d]')).toBeNull(); expect(pv.querySelector('[data-map]')).not.toBeNull();
+    expect(pv.querySelector('[data-map3d]')).toBeNull(); expect(pv.querySelector('[data-clay]')).not.toBeNull();   // 모형이 없으면 판 2D 그림을 세운 점토(시안 u7_1 · 팀장 22:37)
   });
   it('3D 칸은 키 안내를 가진 보기(화살표로 옮기기)', async () => {
     serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': { status: 200, body: {} } })); await open();
