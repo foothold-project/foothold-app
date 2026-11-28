@@ -118,7 +118,7 @@ function ready() {
   click(btn('조종'));
   unlock();
   tick(100);
-  expect(text()).toContain('움직일 수 있음');
+  expect(text()).toContain('조종 중');
 }
 
 describe('조종 화면', () => {
@@ -153,7 +153,7 @@ describe('조종 화면', () => {
     unlock();
     expect(w.of('unlock')).toMatchObject([{ robot: 'r7', lease_id: cmds()[0].lease_id, stop_gen: 1 }]);
     tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
     key('keydown', 'KeyW'); key('keydown', 'KeyA');   // 동시 입력 두 곳
     const n = cmds().length;
     tick(1000);
@@ -186,7 +186,7 @@ describe('조종 화면', () => {
     expect(w.of('unlock')).toMatchObject([{ robot: 'r7', stop_gen: 1 }]);
     tick(100);
     expect(text()).not.toContain(STALLED);   // 풀리면 사유가 남아도 안내 0
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
   });
 
   it('폰 #/drive = 로봇 연결: 로봇 카드(상태·배터리·조종권자) → [연결]', () => {
@@ -209,7 +209,7 @@ describe('조종 화면', () => {
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'ArrowUp'); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
     key('keydown', 'ArrowUp'); tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);
     key('keyup', 'ArrowUp'); key('keydown', 'KeyS'); tick(100);
@@ -1016,7 +1016,7 @@ describe('PR #12 검토 1차', () => {
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[{ ...ROBOTS[2], owner: 'u-park' }, ...ROBOTS.slice(0, 2)]} />));
     expect(shown()).toBe('Go2-7');
     expect(w.of('hidden')).toHaveLength(0);
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[{ ...ROBOTS[2], owner: 'u-park' }, ROBOTS[0]]} />));   // r7 이 범위에서 빠지면 조종 화면을 닫고 로봇 연결로
     expect(location.hash).toBe('#/drive');
     expect($('[aria-label="조종"]')).toBeNull();
@@ -1150,7 +1150,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED' });
     expect(box.querySelector('[role="dialog"]')).toBeNull();
     expect(text()).toContain('요청이 취소되었습니다. 계속 조종합니다.');
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
     stopOn();
   });
 
@@ -2349,7 +2349,7 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     key('keydown', 'KeyW'); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
     unlock(); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain('중립 확인 중');
-    key('keyup', 'KeyW'); tick(100); expect(text()).toContain('움직일 수 있음');
+    key('keyup', 'KeyW'); tick(100); expect(text()).toContain('조종 중');
     const { fwd } = sticks();
     fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
     click($('.dv-sheets button')); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
@@ -2428,7 +2428,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'KeyA'); tick(100);
-    expect(text()).toContain('움직일 수 있음');              // 실제로 손을 뗀 뒤에만 새 중립
+    expect(text()).toContain('조종 중');              // 실제로 손을 뗀 뒤에만 새 중립
     key('keydown', 'KeyA'); tick(100);
     expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
   });
@@ -2445,7 +2445,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'KeyA'); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
   });
 
   it('[5] RV-424: W+↑ 를 누른 채 잠금 해제 → ↑ 만 떼도 W 가 남아 새 중립이 아님, A 회전 안 나감', () => {
@@ -2461,7 +2461,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     key('keydown', 'KeyA'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     key('keyup', 'KeyA'); key('keyup', 'KeyW'); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
   });
 
   it('[6] RV-424: 조직 설정이 본문 없는 200·객체 아님이면 받음이 아님 — 0 + 안내', async () => {
@@ -2526,7 +2526,7 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     pe('pointermove', el, 0.9, 2); tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
     pe('pointerup', el, 0.9, 2); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
     pe('pointerdown', el, 0.9, 3); tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);               // 새로 누르면 표 값
   });
@@ -2640,7 +2640,7 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
     recv(lease('r7', null)); tick(100);                    // 조종권 잃음(스틱이 사라짐, 손가락은 그대로)
     click(btn('조종')); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
-    expect(text()).toContain('움직일 수 있음');              // 고치기 전: 중립 확인 중(부모 축 0.9 가 남아 계속 대기)
+    expect(text()).toContain('조종 중');              // 고치기 전: 중립 확인 중(부모 축 0.9 가 남아 계속 대기)
     key('keydown', 'KeyW'); tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);               // 고치기 전: [0, 0, 0]
   });
@@ -2660,7 +2660,7 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
     unlock();                                 // 서버가 바로 latched=false — 틱 전에
     key('keydown', 'KeyW'); tick(200);
     expect(lastAxes()).toEqual([1.5, 0, 0]);               // 고치기 전: [0, 0, 0](중립 확인 중 그대로)
-    expect(text()).toContain('움직일 수 있음');
+    expect(text()).toContain('조종 중');
   });
 
   it('⑨ 키 뗌·스틱 놓음·blur 는 다음 틱이 아니라 그 자리에서 0 을 한 번 보냄', () => {
@@ -3006,5 +3006,39 @@ describe('폰 실기 조종 동작 일곱 · 다시 시작 (시안 u1 · PC 로�
     recv(lease('r7', KIM, 'L10'));
     expect($('.u1d [data-restart-ask]')).toBeNull();
     expect(w.of('unlock')).toHaveLength(0);
+  });
+});
+
+describe('시안 u1_2 조종 중 글 · 꼴 (21:48 결정 2)', () => {
+  it('상태 칩은 「조종 중」, 걷기 칸 둘째 줄은 지금 걷기 모드 설명(START = 험지 기본 · 모르면 「걷기 모드」)', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
+    expect($('.u1-mode')!.textContent).toBe('모름걷기 모드');
+    act(() => push('r7', { gait: { gait: 'start', available: ['classic', 'start'] } }));
+    expect($('.u1-mode')!.textContent).toBe('START험지 기본');
+    act(() => push('r7', { gait: { gait: 'classic', available: ['classic', 'start'] } }));
+    expect($('.u1-mode')!.textContent).toBe('Classic평지 기본');
+  });
+
+  it('지금 하는 동작(로봇 보고 action_result RUNNING)만 초록 테(.run) · 끝나면 지움', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    const run = () => [...box.querySelectorAll('.act button.run')].map((b) => (b as HTMLElement).dataset.act);
+    expect(run()).toEqual([]);
+    const res = (status: 'RUNNING' | 'SUCCEEDED') => ({ action_result: { request_id: 'q1', action: 'Stretch' as const, status, code: 'OK', sdk_code: null, mode: null, enabled: null } });
+    act(() => push('r7', res('RUNNING')));
+    expect(run()).toEqual(['Stretch']);
+    act(() => push('r7', res('SUCCEEDED')));
+    expect(run()).toEqual([]);
+  });
+
+  it('css: 정지 글은 시안 .stop 14px · 작은 글 9.5px, 동작 줄 까닭 글(em)은 줄 높이에 안 들어가게(시안보다 12px 올라가던 것)', () => {
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop-t>span\{font-size:14px;letter-spacing:normal\}/);
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\[data-again\] small\{[^}]*font-size:9\.5px/);
+    expect(u1AppCss).toMatch(/\.u1d \.act button\{[^}]*position:relative/);
+    expect(u1AppCss).toMatch(/\.u1d \.act em\{position:absolute;top:100%/);
   });
 });
