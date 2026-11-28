@@ -32,6 +32,8 @@ export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlendin
 const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
 /** 타일 카메라 거리(시안 go2view): 뒤 따라가기 2.1 m · 정면 1.25 m. 큰 무대 카메라도 이 값을 씀 */
 export const REAR_DIST = 2.1, FRONT_DIST = 1.25;
+/** 로봇 발밑 그림자(원 반지름 m · 앞뒤 늘림 · 진하기). 로봇 탭 무대도 같은 값 */
+export const SHADOW = { r: 0.22, sy: 1.5, opacity: 0.35 };
 /** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 초록 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45) */
 export const layers = (pose: boolean, site: boolean) => ({ world: pose && site, dots: !(pose && site) });
 export function camPull(world: THREE.Object3D, cam: THREE.Vector3) {
@@ -112,8 +114,8 @@ class Tiles {
       vertexShader: 'varying vec2 u; void main(){ u=position.xy/0.6; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} ',
       fragmentShader: 'varying vec2 u; void main(){ float d=clamp(length(u),0.0,1.0); float a=(1.0-d)*(1.0-d); gl_FragColor=vec4(0.85,0.9,1.0,0.13*a);} ' }));
     pool.rotation.x = -Math.PI / 2; pool.position.y = 0.0005; pool.renderOrder = -1; s.add(pool);
-    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.22, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
-    this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.001; this.shadow.scale.set(1, 1.5, 1); s.add(this.shadow);
+    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(SHADOW.r, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: SHADOW.opacity }));
+    this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.001; this.shadow.scale.set(1, SHADOW.sy, 1); s.add(this.shadow);
     s.add(this.world);
     this.cyber = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       uniforms: { col: { value: new THREE.Color(SIM) }, t: { value: 0 } },
