@@ -492,7 +492,7 @@ describe('지도 탭 — 보기', () => {
     expect(view.textContent).not.toMatch(/판 \d/);                                       // 화면 글에 판 번호 없음(11-04)
     expect($('[data-summary]')!.textContent).toContain('1구역1지점1연결점');
     expect(view.textContent).not.toMatch(/[0-9a-f]{7,}/);                                // 해시 등 16진 문자열 0(금지어)
-    const svg = view.querySelector('svg')!;
+    const svg = view.querySelector('svg:not(.ic)')!;   // 시안 u7_3 머리 단추 그림(.ic) 은 빼고 지도 그림
     expect(svg.getAttribute('viewBox')).toBe('0 0 100 80');
     expect(svg.querySelector('[data-zone="NO_GO"]')!.getAttribute('points')).toBe('0,80 20,80 20,60');   // (-1,-2)(0,-2)(0,-1) → y 뒤집힘
     const wp = svg.querySelector('[data-waypoint="계기판 A"] circle')!;
@@ -2154,7 +2154,7 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
   it('Esc: 메뉴는 닫고 그 메뉴 단추로 포커스를 돌려준다 — 숨은 칸에 남지 않음(#234 B2) · 편집 저장은 창이 아님', async () => {
     serve(editSrv());
     await open('#/map');
-    const m = $('.mx-bar details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button:not(:disabled), .mx-pop a')!;
+    const m = $('details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button:not(:disabled), .mx-pop a')!;
     act(() => { m.setAttribute('open', ''); item.focus(); });
     await flush();   // 펼침은 여는 단추 아래 ~ 무대 아래끝 안(#252 B1 — jsdom 은 단추 bottom 0 · PC 무대 px 로 잼, stage.ts)
     const { stageFit } = await import('../App'), f = stageFit(innerWidth, innerHeight);
@@ -2595,8 +2595,24 @@ describe('지도 탭 · 시안 u7', () => {
     await click(btn('취소', card('이 기록으로 되돌리기')));
     expect($('[data-u7-restore]')!.textContent).toBe('v0 로 되돌리기');
     await click($('[data-u7-back]'));
-    expect($('[data-u7]')).toBeNull();
+    expect($('[data-u7="u7_9_history"]')).toBeNull(); expect($('[data-u7="u7_3_open2d"]')).not.toBeNull();
     expect(card('지도 정보')).toBeTruthy();
+  });
+
+  it('u7_3 층 화면 = 시안 DOM: 왼쪽 .pane.side · 머리줄(‹ · 건물 · 층 · 만든 방법 · 판 · 편집 · 모의 실행) · .view 안 지도 · 받지 않은 값은 「확인 안 됨」', async () => {
+    serve(signedIn(KIM));
+    await open('#/map');
+    const u = $('[data-u7="u7_3_open2d"]')!;
+    expect(u.classList.contains('proto')).toBe(true);
+    expect(u.querySelector('.pane.side[aria-label="지도 정보"]')).not.toBeNull();
+    const head = u.querySelector('.head')!;
+    expect(head.querySelector('[data-to-chooser]')!.getAttribute('aria-label')).toBe('모든 지도 보기');
+    expect(head.querySelector('.ttl')!.textContent).toMatch(/ · /);
+    expect(head.querySelector('.tag')!.textContent).toMatch(/ · v\d+$/);
+    expect(u.querySelector('.view [data-map]')).not.toBeNull();
+    expect(u.querySelector('[data-view-label]')!.textContent).toContain('위에서 본 지도');
+    expect(u.querySelector('[aria-label="이 지도"] .kv')!.textContent).toContain('확인 안 됨');
+    expect(u.querySelector('.mx-hint, [data-hint]')).toBeNull();   // 기능 없는 덧칸(보기만 안내) 없음
   });
 
   it('u7_3 층 화면 왼쪽 칸: 이 지도(넓이 · 해상도 · 만든 방법 · 3D 모형) · 보이기(구역 · 지점 · 연결점 · 벽 선) 끄면 지도에서 빠짐', async () => {
