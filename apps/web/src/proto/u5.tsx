@@ -100,7 +100,8 @@ export type TileFacts = {
   bat: [string, string]; temp: [string, string, '' | ' w' | ' r']; link: [string, string, '' | ' w']; who: [string, string]; hot: { t: number; j: string } | null;
 };
 export function facts(x: Robot, me: string, places: Map<string, string>, av?: Avail): TileFacts {
-  const s = stateOf(x), h = hotJoint(x), lvTemp = tempLevel(h?.t ?? null), gone = isLost(x), sim = !!x.sim, st = robotStatus(x);
+  // 데모 로봇(가용 demo = true)은 시뮬이어도 실기 타일과 똑같이(1 m 뒤 모형 · 배터리 · 온도 · 연결 · 걸음 · 담당), 차이는 «데모» 칩 하나. 시뮬 꼴은 사용자 시뮬만
+  const s = stateOf(x), h = hotJoint(x), lvTemp = tempLevel(h?.t ?? null), gone = isLost(x), sim = !!x.sim && !av?.demo, st = robotStatus(x);
   // 테두리 · 머리표: 관절 온도 단계, 아니면 연결 중인 로봇의 기존 경고(잠금 · 오류 = 빨강, 배터리 낮음 · 일시정지 · 남은 주의 코드 = 주황). 끊김은 칸 위 «다시 연결 중»(시안 K-07)
   const level: Level = lvTemp ?? (gone || !needs(x) ? null : st.tone === 'bad' ? 'bad' : 'warn');
   const why = lvTemp && h ? `${jointName(h.j)} ${Math.round(h.t)} °C` : flagNote(x) || st.text;
@@ -127,9 +128,8 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
 const RANK = { crit: 0, bad: 1, warn: 2 } as const;
 /** 경고 타일 맨 앞(위험 → 경고 → 주의), 그 밖은 받은 순서 그대로(기존 관제 order 와 같음) */
 export const order = (l: TileFacts[]) => l.map((f, i) => [f, i] as const).sort((a, b) => (a[0].level ? RANK[a[0].level] : 9) - (b[0].level ? RANK[b[0].level] : 9) || a[1] - b[1]).map(([f]) => f);
-/** 타일 배치: 4 대 이하 2×2(u5_6), 8 대 이하 4×2(u5_1), 그보다 많으면 칸이 가장 크게 남는 열 수 · 타일을 그만큼 줄임(zoom) */
 /** 타일 칸 배치. 8 대까지는 시안 그대로(2×2 · 4×2). 9 대부터는 시안 한 칸(357.5 × 440)을 줄여 가장 크게 들어가는 열 · 줄을 고르고,
- *  남는 칸이 생기면 줄마다 대수를 고르게 나눠(예: 9 대 = 5 + 4) 빈 칸 없이 한 줄을 꽉 채운다(span = 각 타일이 차지하는 칸 수, 열 = cols × (cols - 1)) */
+ *  남는 칸이 생기면 줄마다 대수를 고르게 나눠(예: 9 대 = 5 + 4) 빈 칸 없이 한 줄을 꽉 채운다(span = 각 타일이 차지하는 칸 수, 열 = 줄별 대수의 최소공배수) */
 export function wallGrid(n: number): { cols: number; rows: number; zoom: number; units?: number; span?: number[] } {
   if (n <= 4) return { cols: 2, rows: 2, zoom: 1 };
   if (n <= 8) return { cols: 4, rows: 2, zoom: 1 };
