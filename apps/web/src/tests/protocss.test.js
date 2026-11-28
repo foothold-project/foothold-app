@@ -7,7 +7,9 @@ import { join } from 'node:path';
 const dir = join(__dirname, '..', 'proto');
 const strip = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 const rules = (css) => [...strip(css).matchAll(/(@import[^\n]*;)|([^{}@;]+)\{([^{}]*)\}/g)].map((m) => m[1] ? ['@import', m[1]] : [m[2].trim(), m[3]]);
-const scoped = (sel) => sel.split(',').map((s) => s.trim()).map((s) => (s === 'body' || s === ':root' ? '.proto' : `.proto ${s}`)).join(',');
+// pc.css 의 body(1920 × 1080 · 어둠 바탕) 는 PC 무대와 그 안 화면에만(폰 시안 u13 · u14 로 번지지 않게 · protoscope.test)
+const PC_ROOT = '.proto:where([data-layout=pc]),.proto:where([data-layout=pc] .proto)';
+const scoped = (sel, name, body = '') => sel.split(',').map((s) => s.trim()).map((s) => (s === 'body' && name === 'pc' && body.startsWith('width:1920px') ? PC_ROOT : s === 'body' || s === ':root' ? '.proto' : `.proto ${s}`)).join(',');
 
 describe('시안 공통 css 의 .proto 사본', () => {
   for (const name of ['ui', 'pc']) {
@@ -15,7 +17,7 @@ describe('시안 공통 css 의 .proto 사본', () => {
       const src = rules(readFileSync(join(dir, `${name}.css`), 'utf8'));
       const pv = rules(readFileSync(join(dir, `${name}.pv.css`), 'utf8'));
       expect(src.length).toBeGreaterThan(10);
-      expect(pv.map(([s]) => s)).toEqual(src.map(([s, b]) => (s === '@import' ? s : scoped(s))));
+      expect(pv.map(([s]) => s)).toEqual(src.map(([s, b]) => (s === '@import' ? s : scoped(s, name, b))));
       expect(pv.map(([, b]) => b)).toEqual(src.map(([, b]) => b));
     });
   }

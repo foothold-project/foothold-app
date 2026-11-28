@@ -1,9 +1,7 @@
 /* 시안 u13_1 · u13_4 를 앱으로 옮기며 더한 것(시안 값 아님): div 칸 · 단추를 input · button 으로 바꾼 데서 생기는 브라우저 기본 모양 지우기,
    시안에 없는 안내 한 줄(.msg 결 그대로 · 긴 글은 줄바꿈), 앱 폰 틀(머리줄 아래) 안에 놓이는 로봇 없음 화면의 크기 */
-/* 앱 껍데기가 읽는 PC 틀(proto/pc.pv.css .proto 1920×1080 · 어둠 바탕 · 흰 글)이 폰 화면에 번지지 않게: 시안 폰 body 값(창 크기 · #e9ecef · 기본 글색) */
+/* 시안 폰 body 값(창 크기 · #e9ecef · 기본 글색). PC 틀(pc.pv.css)은 이제 PC 무대 안에만 걸린다 */
 .proto.pv.u13{width:100vw;height:100dvh;background:#e9ecef;color:#000}
-/* 같은 까닭: proto/u11.css 의 .proto .veil(머리줄 64 아래 · 흐림 10) 대신 시안 u13 .veil 값 */
-.proto.u13 .veil{inset:0;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
 .u13 button{font:inherit;color:inherit;letter-spacing:inherit;border:0;cursor:pointer;text-align:center}
 .u13 button.link{background:none;padding:0}
 .u13 button:disabled{cursor:default;opacity:.6}
