@@ -2,7 +2,8 @@
 // 칸 하나 = 그 로봇 한 대: 서버 위치가 있으면 시안 3D 현장을 그 로봇 자리 · 방향에 두고 뒤 1 m(또는 정면) 시점, 없으면 시안 타일 그대로 바닥 점 위의 로봇만.
 // 빛 · 바닥 점 · 핀 조명 · 그림자 · 시점 값은 시안 go2view.js 그대로. 걷기는 임무 · 조종 중일 때 시안 걷기 기록(go2_walk.json)을 튼다.
 import * as THREE from 'three';
-import { applyDown, applyRest, applyWalk, loadGo2, loadSite, loadWalk, type Body, type Walk } from './site';
+import { ground } from '../screens/u4/go2view';
+import { applyDown, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, toneSite, type Body, type Walk } from './site';
 
 export type TileLook = {
   /** 현장 좌표(site.ts sitePose) · 없으면 현장 없이 */ pose: { x: number; z: number; rot: number } | null;
@@ -10,7 +11,17 @@ export type TileLook = {
   /** 부위 색(시안 hot: {FL_calf: 'hot'}) */ hot: Record<string, string>;
   /** 시뮬 영상 칸이 있으면 이것을 먼저 그린다 */ video?: HTMLVideoElement | HTMLCanvasElement | null;
 };
-type View = { c: HTMLCanvasElement; look: () => TileLook };
+type Pose = { x: number; z: number; rot: number };
+type Held = Pose & { travel: number };
+type View = { c: HTMLCanvasElement; look: () => TileLook; at: Held | null };
+/** 서버 위치 · yaw 를 칸 화면에서 부드럽게 따라감(시간 상수 0.25 s · 방향은 짧은 쪽). 5 m 넘게 뛰면(다시 잡힘) 바로 옮김.
+ *  travel = 실제로 간 거리 누적(바닥 점이 이만큼 흐름 · 서 있으면 멈춤) */
+export function follow(cur: Held | null, to: Pose, dt: number): Held {
+  if (!cur || Math.hypot(to.x - cur.x, to.z - cur.z) > 5) return { ...to, travel: cur?.travel ?? 0 };
+  const k = 1 - Math.exp(-dt / 0.25), x = cur.x + (to.x - cur.x) * k, z = cur.z + (to.z - cur.z) * k;
+  const d = Math.atan2(Math.sin(to.rot - cur.rot), Math.cos(to.rot - cur.rot));
+  return { x, z, rot: cur.rot + d * k, travel: cur.travel + Math.hypot(x - cur.x, z - cur.z) };
+}
 const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c389 }, SIM = 0x4c9bff;
 
 let one: Tiles | null = null;
@@ -22,10 +33,10 @@ class Tiles {
   scene = new THREE.Scene(); cam = new THREE.PerspectiveCamera(30, 1, 0.05, 1200);
   world = new THREE.Group(); body: Body | null = null; walk: Walk | null = null; cyber: THREE.ShaderMaterial | null = null;
   grid!: THREE.Points; gm!: THREE.ShaderMaterial; shadow!: THREE.Mesh; site: THREE.Group | null = null;
-  t = 0.35; last = 0; raf = 0; failed = false;
+  t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number, number][] = [];
 
   add(c: HTMLCanvasElement, look: () => TileLook) {
-    const v = { c, look }; this.views.add(v); this.start();
+    const v: View = { c, look, at: null }; this.views.add(v); this.start();
     return () => { this.views.delete(v); if (!this.views.size) { cancelAnimationFrame(this.raf); this.raf = 0; } };
   }
   private start() {
@@ -42,10 +53,10 @@ class Tiles {
   }
   private build() {
     const s = this.scene;
-    s.add(new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9));
+    this.hemi = new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9); s.add(this.hemi);
     const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, 1.6); s.add(key);
-    const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); s.add(rim);
-    const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); s.add(rim2);
+    const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); s.add(rim); this.rims.push([rim, 1.6, 0x00c389]);
+    const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); s.add(rim2); this.rims.push([rim2, 0.8, 0x4c9bff]);
     // 바닥 점(시안 glow · floor 0.5)
     const N = 44, step = 0.09, pts = new Float32Array(N * N * 3), half = (N * step / 2).toFixed(3), all = (N * step).toFixed(3);
     for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const k = (i * N + j) * 3; pts[k] = (i - N / 2) * step; pts[k + 2] = (j - N / 2) * step; }
@@ -96,6 +107,11 @@ class Tiles {
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.t += dt;
     const r = this.r!, b = this.body;
     if (this.cyber) this.cyber.uniforms.t.value = this.t;
+    // 밝은 판: 현장 재질 · 땅 쪽 빛을 밝음 1 흰 점토 결로(타일 바탕은 u5.css .proto.light .cv)
+    const light = lightNow(); this.hemi.groundColor.setHex(light ? 0xc8cfcb : 0x0c0f14);
+    // 밝은 판: 민트 · 파랑 테두리 빛은 흰 빛으로 바꿔(벽이 물들지 않게) 카메라 쪽 면을 밝히고, 하늘 빛을 올려 흰 점토가 검게 죽지 않게
+    this.hemi.intensity = light ? 2.4 : 0.9;
+    for (const [l, k, c] of this.rims) { l.color.setHex(light ? 0xffffff : c); l.intensity = light ? k * 0.7 : k; } if (this.site) toneSite(this.site, light);
     for (const v of this.views) {
       const w = v.c.clientWidth, h = v.c.clientHeight;
       if (!w || !h) continue;
@@ -110,19 +126,20 @@ class Tiles {
       const yaw = look.front ? 0 : Math.PI, dist = look.front ? 1.25 : 2.1;
       this.cam.aspect = w / h; this.cam.updateProjectionMatrix();
       this.cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); this.cam.lookAt(0, 0.17, 0);
-      const p = look.pose;
+      // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
+      v.at = look.pose ? follow(v.at, look.pose, dt) : null;
+      const p = v.at;
       this.world.visible = !!(p && this.site);
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off); }
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
-      this.gm.uniforms.off.value = look.walk ? -this.t * 0.45 : 0;
+      this.gm.uniforms.off.value = p ? -p.travel : look.walk ? -this.t * 0.45 : 0;   // 자리가 있으면 실제로 간 거리만큼, 없으면 시안 걷기 흐름
       this.shadow.visible = !look.cyber;
       if (b) {
         this.paint(b, look);
         if (look.walk && this.walk) { applyWalk(b, this.walk, this.t); b.root.position.y = 0.006 * Math.sin(this.t * 14); }
         else if (look.down) {   // 시안 pose 'down': 접은 뒤 다시 바닥에 붙이고 흔들지 않음
-          applyDown(b); b.root.position.y = 0; b.root.updateMatrixWorld(true);
-          b.root.position.y = -new THREE.Box3().setFromObject(b.root).min.y;
+          applyDown(b); ground(b.root);   // 로봇 탭과 같은 바닥 맞춤(꼭짓점 기준 최저점 y = 0 · 엎드릴 때 뜨지 않게)
         } else { applyRest(b); b.root.position.y = 0.003 * Math.sin(this.t * 2); }
       }
       r.setClearColor(0x000000, 0); r.clear();

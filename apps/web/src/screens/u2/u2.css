@@ -1,0 +1,19 @@
+/* 시안 u2 폰 틀(844 × 390)을 PC 로봇 탭 위에 띄우는 자리만. 시안 값은 proto/u2.pv.css 그대로 */
+.u2-veil{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
+.u2-box{position:relative;border-radius:28px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.u2-veil .u2{position:absolute;left:0;top:0;width:844px;height:390px;transform-origin:0 0;background:#111}
+/* 6 자리 칸: 시안 .digits 를 보이고 실제 입력은 그 위 투명 input */
+.u2 .u2-code{position:absolute;left:0;bottom:0;width:100%;height:38px;opacity:0;border:0;font-size:16px}
+.u2 .digits b.cur{border-color:#5ef0bf;box-shadow:0 0 0 3px rgba(94,240,191,.18)}
+.u2 .u2-msg{margin-top:10px;font-size:11.5px;font-weight:700;color:#ffb4b4;line-height:1.45}
+.u2 .u2-name{outline:none;font-family:inherit;color:var(--ink)}
+.u2 button.prim{border:0;font-family:inherit;cursor:pointer;position:absolute}
+.u2 [role=button]{cursor:pointer}
+.u2 .u2-os{display:flex;align-items:center;gap:8px;height:34px;margin-top:6px;padding:0 10px;border-radius:10px;font-size:12px;font-weight:700;background:rgba(20,30,50,.04)}
+.u2 .u2-os[data-mine]{background:rgba(18,184,134,.10);box-shadow:inset 0 0 0 1px rgba(18,184,134,.45)}
+.u2 .u2-os a{margin-left:auto;color:#0e7f63;font-weight:800;text-decoration:none}
+.u2 .u2-os em{margin-left:auto;font-style:normal;font-size:11px;color:var(--mu)}
+.u2 .u2-why{margin-top:8px;font-size:11.5px;font-weight:600;color:var(--mu)}
+.u2 .u2-os small{display:block;font-size:10px;font-weight:600;color:var(--mu)}
+.u2 ol.u2-why{padding-left:16px}
+.u2 [data-agent-open] a{color:#0e7f63;font-weight:800}

@@ -643,8 +643,8 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     await cut();
     await click($('[data-stop]'));
     expect($('[data-stop-none]')).toBeTruthy();
-    // 같은 화면에서 주변 로봇 직결
-    await click(btn('+ 로봇 연결하기'));
+    // 같은 화면에서 주변 로봇 직결(로봇 0대 폰 = 시안 u13_4 «로봇 연결», 같은 data-robot-connect · 같은 길)
+    await click($('[data-robot-connect]'));
     await click(btn('주변 로봇 찾기'));
     const seq = $('[data-nearby-scan]')!.getAttribute('data-nearby-scan');
     act(() => { window.dispatchEvent(new CustomEvent('fh-nearby', { detail: { seq, scanning: false, items: [found], problems: [] } })); });

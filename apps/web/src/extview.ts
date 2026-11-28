@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { ApiFail, EXT_VIEW_RELAY, api } from './api';
 import { media, type Feed } from './media';
+import { sx, sy } from './stage';
 
 export type View = { yaw: number; pitch: number; radius: number };
 /** simmgr 공유 기본 시점(yaw π, pitch .45, 3 m) · 보내기 간격(MediaLimits.external_view_max_hz 10, 서버 «세 작업 합계 100ms») · 끌기 1 px 당 각도 — 방향·감도는 실제 시뮬 확인 전(EXTERNAL-CAMERA.md «drag direction») */
@@ -99,11 +100,11 @@ export function useOrbit(robot: string, off: boolean) {
       if (pts.current.size >= 2) return;
       try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* 없음 */ }
       if (!pts.current.size) { o.current!.begin(); if (note && !note.stop) setNote(null); }
-      pts.current.set(e.pointerId, [e.clientX, e.clientY]); start();
+      pts.current.set(e.pointerId, [sx(e), sy(e)]); start();   // 무대 px(stage.ts)
     },
     onPointerMove(e: PointerEvent) {
       const b = base.current; if (!b || !pts.current.has(e.pointerId)) return;
-      pts.current.set(e.pointerId, [e.clientX, e.clientY]);
+      pts.current.set(e.pointerId, [sx(e), sy(e)]);
       const p = [...pts.current.values()], x = p.reduce((s, q) => s + q[0], 0) / p.length, y = p.reduce((s, q) => s + q[1], 0) / p.length;
       const d = p.length > 1 ? Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]) : 0;
       o.current!.set({ yaw: b.v.yaw - (x - b.x) * RAD_PER_PX, pitch: b.v.pitch + (y - b.y) * RAD_PER_PX, radius: b.d && d ? b.v.radius * b.d / d : b.v.radius });

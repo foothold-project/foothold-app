@@ -30,7 +30,7 @@ describe('시안 밝은 판 light.pv.css', () => {
     expect(decl('.proto.light .btnp')).toMatchObject({ background: LIGHT.primary, color: LIGHT['on-primary'] });
     expect(decl('.proto.light .allstop')).toMatchObject({ background: LIGHT['danger-text'], color: LIGHT['on-danger'] });
     expect(decl('.proto.light .warntag')).toMatchObject({ background: LIGHT['danger-text'], color: '#FFFFFF' });
-    expect(decl('.proto.light .rehearse').border).toBe(`1px dashed ${LIGHT.sim}`);
+    expect(decl('.proto.light .rehearse:not(.btnp)').border).toBe(`1px dashed ${LIGHT.sim}`);
     expect(decl('.proto.light .tabs span.on').color).toBe(LIGHT['primary-text']);   // 민트 #18A07E 는 글자에 쓰지 않는다(대비 3.07)
   });
   it('정지 단추(.stop · .allstop) 글자 대비: 18.66 px 굵게 이상이면 3.0, 아니면 4.5 이상', () => {
@@ -47,10 +47,10 @@ describe('시안 밝은 판 light.pv.css', () => {
   it('어둠 판 상태 표지(dark.pv.css): 경고 칸 #FF4D4F 12 % · 「과열」 #FF4D4F 바탕 검은 글자 · 예행 #4C9BFF 점선', () => {
     const dk = readFileSync(join(__dirname, '..', 'proto', 'dark.pv.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const r = Object.fromEntries([...dk.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]));
-    expect(Object.keys(r)).toEqual(['.proto .warncell', '.proto .warntag', '.proto .rehearse']);
+    expect(Object.keys(r)).toEqual(['.proto .warncell', '.proto .warntag', '.proto .rehearse:not(.btnp)']);
     expect(r['.proto .warncell']).toBe('background:rgba(255,77,79,.12);border:1px solid #FF4D4F');
     expect(r['.proto .warntag']).toBe('background:#FF4D4F;color:#000000');
-    expect(r['.proto .rehearse']).toBe('border:1px dashed #4C9BFF;color:#4C9BFF');
+    expect(r['.proto .rehearse:not(.btnp)']).toBe('border:1px dashed #4C9BFF;color:#4C9BFF');
     if (existsSync(DESIGN)) { const md = readFileSync(DESIGN, 'utf8'); expect(md).toContain('dark-danger: "#FF4D4F"'); expect(md).toContain('dark-sim: "#4C9BFF"'); }
   });
   it('밝은 유리 .g.dk = 시안 ui.css .g 값 그대로', () => {
@@ -62,5 +62,23 @@ describe('시안 밝은 판 light.pv.css', () => {
   it.skipIf(!existsSync(DESIGN))('옮겨 둔 표 = DESIGN.md 정본 값', () => {
     const md = readFileSync(DESIGN, 'utf8');
     for (const [k, v] of Object.entries(LIGHT)) expect(md, k).toContain(`  ${k}: "${v}"`);
+  });
+});
+
+describe('관제 u5 밝은 판(u5.css 의 .proto.light .u5 규칙)', () => {
+  const u5 = readFileSync(join(__dirname, '..', 'proto', 'u5.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const light = [...u5.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].trim().startsWith('.proto.light'));
+  it('밝은 규칙의 #색은 밝음 1 표 값(온도 주의 채움 #D9A21F 포함), 어둠 색(#ff4d4f · #f2b705 · #00c389 · 흰 78 %)은 없음', () => {
+    expect(light.length).toBeGreaterThan(20);
+    const ok = new Set([...Object.values(LIGHT), '#D9A21F']);
+    for (const m of light) for (const h of m[2].match(/#[0-9A-Fa-f]{6}\b/g) ?? []) expect(ok.has(h.toUpperCase()), `${m[1]} ${h}`).toBe(true);
+    const body = light.map((m) => m[2]).join(';').toLowerCase();
+    for (const dark of ['#ff4d4f', '#f2b705', '#00c389', '232,235,240']) expect(body, dark).not.toContain(dark);
+  });
+  it('글자 칸: 수 칸 · 타일 줄 · 모드 = 흐린 글자, 수 = 글자, 위험 수치 = 경고 글자', () => {
+    const d = (sel) => Object.fromEntries((light.find((m) => m[1].trim() === sel)?.[2] ?? '').split(';').filter((x) => x.includes(':')).map((x) => { const i = x.indexOf(':'); return [x.slice(0, i).trim(), x.slice(i + 1).trim()]; }));
+    expect(d('.proto.light .u5 .cnt,.proto.light .u5 .tgl,.proto.light .u5 .md,.proto.light .u5 .ln').color).toBe(LIGHT['on-surface-muted']);
+    expect(d('.proto.light .u5 .cnt b').color).toBe(LIGHT['on-surface']);
+    expect(d('.proto.light .u5')['--u5-red']).toBe(LIGHT['danger-text']);
   });
 });

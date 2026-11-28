@@ -1,12 +1,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { PC_BOTTOM, PC_TABS, PHONE_SHEETS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 import { FakeWS, state } from './fakeWs';
 import SIM_MAPS from '../../../../mobile/sim/maps.json';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -369,7 +373,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '로봇이 현장을 걸으며 스캔한 3D 지도입니다', settings: '내 계정' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '로봇이 현장을 걸으며 스캔한 3D 지도입니다', settings: '내 계정' };   // 지도 = 시안 u7_1 · 설정 탭 처음 화면 = 시안 u9 계정(u9_1)
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로

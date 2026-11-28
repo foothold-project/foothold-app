@@ -1,0 +1,142 @@
+/* 시안 u4 (로봇 탭) 화면 <style> 값 그대로 · 선택자 앞에 .u4 한 겹 (scripts/proto2jsx.py 로 뽑음) */
+.u4 .go.restart{border-radius:18px;background:linear-gradient(180deg,#00c389,#00c389);color:#fff;font-weight:800;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 10px 24px rgba(0,195,137,.4),inset 0 1px 0 rgba(255,255,255,.35)}
+.u4 .g.btn.restart{color:#00c389}
+.u4 .rail{left:24px;top:88px;width:250px;bottom:24px;padding:16px 10px}
+.u4 .rcard{height:58px}.u4 .rcard small{white-space:nowrap}
+.u4 .hdr .g{position:relative}
+.u4 .hdr{position:absolute;left:298px;right:24px;top:88px;height:52px;display:flex;align-items:center;gap:10px}
+.u4 .st{height:42px;padding:0 13px;border-radius:13px;display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700}
+.u4 .hdr .ttl{display:inline-block;min-width:74px}
+.u4 .hdr .st:nth-of-type(2){min-width:200px}.u4 .hdr .st:nth-of-type(3){min-width:196px}.u4 .hdr .st:nth-of-type(3) small{margin-left:auto}.u4 .hdr .st:nth-of-type(4){min-width:130px}.u4 .hdr .st:nth-of-type(5){min-width:236px}.u4 .hdr .st:nth-of-type(6){min-width:200px}.u4 .hdr .st:nth-of-type(6) small{margin-left:auto}
+.u4 .st small{font-size:11.5px;font-weight:600;color:var(--mu2)}
+.u4 .st.bad{border-color:rgba(255,77,79,.55)!important;color:#ff4d4f}
+.u4 .stage3d{position:absolute;left:298px;top:156px;width:760px;bottom:24px;border-radius:24px;overflow:hidden;
+ background:radial-gradient(520px 420px at 50% 42%,#111312,#000000 75%);border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.u4 .stage3d canvas{position:absolute;inset:0;width:100%;height:100%}
+.u4 .tag{position:absolute;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.u4 .tag::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.u4 .hint{right:24px;top:24px;color:var(--mu2);font-weight:600;pointer-events:none}.u4 .hint::before{display:none}
+.u4 .bub{position:absolute;max-width:300px;padding:12px 16px;border-radius:18px 18px 18px 6px;font-size:14px;font-weight:700;line-height:1.4}
+.u4 .bub small{display:block;font-size:12px;font-weight:600;color:var(--mu);margin-top:3px}
+.u4 .bub .dv-note{margin:0;padding:0;border:0;border-radius:0;background:none;color:inherit;font:inherit}
+.u4 .bub .dv-note+.dv-note{margin-top:6px}
+.u4 .foot{position:absolute;left:20px;right:20px;bottom:18px;display:flex;align-items:center;gap:10px}
+.u4 .right{position:absolute;left:1078px;right:24px;top:156px;bottom:24px}
+.u4 .views{position:absolute;left:0;right:0;top:0;height:600px;border-radius:22px;overflow:hidden;background:#0e1116;border:1px solid var(--line)}
+.u4 .mapv{position:absolute;inset:0;overflow:hidden}.u4 .mapin{position:absolute;left:0;top:0;width:3200px;height:2000px;will-change:transform}
+.u4 .mapin img{position:absolute;left:0;top:0;width:3200px;height:2000px}
+.u4 .views::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 90% at 50% 55%,rgba(0,0,0,0) 55%,rgba(0,0,0,.55))}
+.u4 .views .small{position:absolute;right:16px;top:16px;width:248px;height:150px;border-radius:14px;overflow:hidden;z-index:2;border:1px solid rgba(255,255,255,.35);box-shadow:0 10px 24px rgba(0,0,0,.45)}
+.u4 .views .small img{width:100%;height:100%;object-fit:cover}
+.u4 .views .small .cl{position:absolute;left:8px;bottom:7px;font-size:11.5px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.u4 .views .vsel{position:absolute;left:16px;top:16px;z-index:2;display:flex;gap:2px;padding:3px;border-radius:12px}
+.u4 .views .vsel span{height:32px;padding:0 12px;border-radius:9px;display:flex;align-items:center;font-size:12.5px;font-weight:700;color:rgba(255,255,255,.7)}
+.u4 .views .vsel span.on{background:rgba(255,255,255,.9);color:#1f2421}
+.u4 .views .job{position:absolute;left:16px;bottom:16px;z-index:2;width:330px;padding:12px 16px 14px;border-radius:16px;display:flex;flex-direction:column;gap:3px}
+.u4 .views .job b{font-size:15px}.u4 .views .job span{font-size:12.5px;font-weight:600;color:var(--mu2)}
+.u4 .views .job i{display:block;height:4px;border-radius:2px;background:rgba(255,255,255,.14);margin-top:7px}.u4 .views .job em{display:block;height:100%;border-radius:2px;background:#00c389}
+.u4 .views .mapname{position:absolute;left:16px;top:62px;z-index:2;padding:5px 10px;border-radius:9px;font-size:11.5px;font-weight:600;color:var(--mu2)}
+.u4 .vstop{position:absolute!important;right:16px;bottom:16px;width:132px;height:96px;z-index:3;font-size:17px;border-radius:20px;flex-direction:column;gap:2px}
+.u4 .vstop small{font-size:11px;font-weight:700;opacity:.8}
+.u4 .vslot{position:absolute;right:16px;bottom:16px;z-index:3;display:flex;flex-direction:column;gap:8px;width:132px}
+.u4 .vslot .stop{position:relative;height:96px;border-radius:20px;font-size:16px;flex-direction:column;gap:2px}
+.u4 .vslot .stop small,.u4 .vgo small{font-size:11px;font-weight:600;opacity:.85}
+.u4 .vgo{height:52px;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:800;color:#fff;background:linear-gradient(180deg,#00c389,#00a676);box-shadow:0 10px 24px rgba(0,195,137,.35),inset 0 1px 0 rgba(255,255,255,.35)}
+.u4 .vgo.big{height:96px;flex-direction:column;gap:3px;font-size:16px;border-radius:20px}
+.u4 .ctl{position:absolute;left:0;right:0;top:614px;height:54px;display:flex;align-items:center;gap:10px}
+.u4 .ctl .btn{position:relative;height:54px;flex-direction:row;gap:8px;padding:0 20px;font-size:14px;border-radius:16px}
+.u4 .ctl .drv{background:linear-gradient(180deg,rgba(0,195,137,.55),rgba(0,195,137,.40));border-color:rgba(0,195,137,.5)}
+.u4 .ctl .talk{border-radius:27px}
+.u4 .ctl .keys{position:relative;flex:1;height:54px;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:16px;font-size:12px;font-weight:600;white-space:nowrap}
+.u4 .ctl.dim .btn,.u4 .deck.dim{opacity:.35;pointer-events:none;filter:grayscale(1)}
+.u4 kbd{display:inline-flex;min-width:22px;height:22px;padding:0 5px;border-radius:7px;align-items:center;justify-content:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);font:700 11px Inter Tight,Noto Sans KR,Noto Sans CJK KR;margin-right:2px}
+.proto.light .u4 kbd{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
+.u4 .deck{position:absolute;left:0;right:0;bottom:0;top:682px;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);--js:150px}
+.u4 .deck .stick{bottom:auto;top:50%;margin-top:-75px}
+.u4 .deck .act div.no{opacity:.45}.u4 .deck .act em{font-style:normal;font-size:10px;font-weight:700;opacity:.55;margin-top:-3px}
+.u4 .deck .why{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:5px 12px;border-radius:999px;background:rgba(242,183,5,.14);color:#f2b705;font-size:12px;font-weight:700;white-space:nowrap;opacity:0;transition:opacity .2s}.u4 .deck .why.on{opacity:1}
+.u4 .deck .act{left:204px;right:204px;bottom:auto;top:50%;transform:translateY(-50%)}
+.u4 .pane2{border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.u4 .chk div.r{display:flex;align-items:center;gap:12px;height:54px;padding:0 18px;border-bottom:1px solid var(--line);font-size:15px;font-weight:700}
+.u4 .chk div.r small{margin-left:auto;font-size:13px;font-weight:600;color:var(--mu2)}
+.u4 .veil{position:absolute;inset:64px 0 0 0;background:rgba(8,10,14,.45);backdrop-filter:blur(10px);z-index:5}
+.u4 .modal{left:50%;top:50%;transform:translate(-50%,-50%);width:600px;padding:30px;border-radius:24px;z-index:6}
+.u4 .modal .ttl{color:#1f2421}
+.u4 .mrow{display:grid;grid-template-columns:110px 1fr;row-gap:16px;align-items:center;font-size:15px;margin-top:22px}
+.u4 .fld{height:46px;border-radius:12px;background:rgba(255,255,255,.8);border:1px solid rgba(0,0,0,.08);display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-weight:700}
+.u4 .opt{flex:1;border-radius:18px;padding:20px;background:rgba(255,255,255,.7);border:1.5px solid rgba(0,0,0,.06);color:#1f2421}
+.u4 .opt.on{border-color:var(--pr);box-shadow:0 0 0 4px rgba(0,195,137,.15)}
+.u4 .opt b{display:block;font-size:17px;margin-top:12px}.u4 .opt p{font-size:13px;color:var(--mu);margin-top:5px;line-height:1.5}
+.u4 /* 조이스틱 둘 + 동작 일곱: 폰 조종 화면 (u1/drive_final.html) 의 규칙을 그대로 옮긴 공용 원본. PC 는 .joybig 로 크기만 키운다 */
+.stick{position:absolute;bottom:14px;width:118px;height:118px;border-radius:50%;
+ background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.22),rgba(255,255,255,.06) 70%);
+ border:1px solid rgba(255,255,255,.35);backdrop-filter:blur(16px) saturate(1.6);-webkit-backdrop-filter:blur(16px) saturate(1.6);
+ box-shadow:0 12px 30px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.4)}
+.u4 .stick::before{content:"";position:absolute;inset:14px;border-radius:50%;border:1px solid rgba(255,255,255,.18)}
+.u4 .stick i{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;
+ background:radial-gradient(circle at 40% 32%,#fff,#dfe3e8 60%,#c3c9d1);box-shadow:0 6px 14px rgba(0,0,0,.4),inset 0 -2px 4px rgba(0,0,0,.15)}
+.u4 .act{position:absolute;bottom:18px;left:160px;right:250px;display:flex;justify-content:space-between}
+.u4 .act div{display:flex;flex-direction:column;align-items:center;gap:4px;color:#fff;font-size:9.5px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.u4 .act span{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+ background:linear-gradient(180deg,rgba(255,255,255,.26),rgba(255,255,255,.10));border:1px solid rgba(255,255,255,.4);
+ backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 6px 14px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.45)}
+.u4 .act .ic{width:17px;height:17px}
+.u4 .joybig .stick{width:var(--js,168px);height:var(--js,168px)}
+.u4 .joybig .stick i{width:60px;height:60px;margin:-30px 0 0 -30px;transition:transform .08s linear}
+.u4 .joybig .act div{font-size:12.5px;gap:7px;cursor:pointer}
+.u4 .joybig .act span{width:52px;height:52px}
+.u4 .joybig .act .ic{width:24px;height:24px}
+.u4 .joybig .act div.run span{border-color:#00c389;box-shadow:0 0 0 4px rgba(0,195,137,.32),0 6px 14px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.45)}
+.u4 .joybig .stick.on{border-color:rgba(0,195,137,.7)}
+.u4 [data-go]{cursor:pointer}
+/* 앱에 놓기(시안 body 자리): 화면 왼쪽 위 0,0 에 1920x1080 그대로 · 앱 머리줄(z 10) 아래 */
+.proto.u4{position:fixed;left:0;top:0;z-index:5;clip-path:inset(64px 0 0 0)}   /* 위 64 px 는 앱 머리줄(PcBar · 시안 .bar)이 보이고 눌리게: 이 화면은 그 아래만 칠한다 */
+.u4 .bub:empty{display:none}
+/* 시뮬 시점 표지(시안 rehearse 파란 점선 규칙): 실제 카메라 영상이 아님을 늘 칸 안에 적는다 */
+.u4 .simtag{z-index:1;padding:3px 9px;font-size:11px;pointer-events:none}
+.u4 .views .small .simtag{right:8px;bottom:7px}
+.u4 .mapv[data-u4-big] .simtag{left:50%;bottom:16px;transform:translateX(-50%)}
+/* 점검 창 「순서 점검 · 상세」 고르기 · 상세 줄(옛 관제 상세 서랍 값을 시안 점검 줄 모양으로) */
+.u4 .chksub{margin-left:14px}
+.u4 .chksub span{height:30px;padding:0 12px;font-size:12.5px}
+.u4 .chk [data-u4-detail] div.r{height:44px;font-size:14px}
+.u4 .chk [data-u4-detail] div.r small{display:flex;align-items:center;gap:6px}
+.u4 .chk [data-u4-detail] .dl{font-size:12.5px;font-weight:600;color:var(--mu2)}
+.u4 .chk [data-u4-detail] .dl:not(:first-child){margin-left:10px}
+.u4 .chk [data-u4-detail] .fh-msg{margin:8px 18px}
+.u4 .chk .u4-events{padding:8px 18px;font-size:13px}
+/* 밝은 판(.proto.light) · 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」 표 값만(tests/u4light.test.js).
+   3D 무대 · 지도 그림은 두 판 같은 어두운 그림이라 그 위 유리 띠는 어두운 유리로 둔다(밝은 유리 위 흰 · 민트 글자는 읽히지 않음).
+   아래 판(조이스틱 · 동작 단추)은 흰 칸이라 동작 글자를 글자색으로 */
+/* 밝은 판 무대가 밝은 결이라 그 위 띠는 밝은 유리(light.pv.css 기본) 위 밝음 1 글자색. 시안 인라인 색(어두운 판 민트 · 흰 · 빨강)을 밝음 1 값으로 */
+.proto.light .u4 .stage3d [data-u4-walk],.proto.light .u4 .stage3d [data-u4-legend] .g.dk:first-child{color:#0E7F63!important}
+.proto.light .u4 .stage3d [data-u4-loc]{color:#1F2421!important}
+.proto.light .u4 .stage3d [data-u4-hot],.proto.light .u4 .stage3d [data-u4-legend] .g.dk:last-child{color:#B8361F!important}
+.proto.light .u4 .stage3d [data-u4-legend] .g.dk:nth-child(2){color:#D9A21F!important}
+.proto.light .u4 .stage3d [data-u4-simplace]{color:#2F6FE0!important}
+.proto.light .u4 .act div{color:#1F2421;text-shadow:none}
+.proto.light .u4 .act span{background:#FFFFFF;border:1px solid #DCE0DE;box-shadow:0 1px 2px rgba(31,36,33,.06)}
+.proto.light .u4 .vgo{background:#18A07E;color:#1F2421;box-shadow:0 6px 16px rgba(24,160,126,.25)}
+/* 밝은 판 무대 · 지도 칸 바탕(팀장 11-28 17:09): 어두운 결 대신 밝음 1 바탕 · 선. 모형 · 바닥 점은 go2view 가 밝은 판 색으로 */
+.proto.light .u4 .stage3d{background:radial-gradient(520px 420px at 50% 42%,#FFFFFF,#F6F7F6 75%);border-color:#DCE0DE;box-shadow:0 1px 2px rgba(31,36,33,.06)}
+.proto.light .u4 .views{background:#F6F7F6;border-color:#DCE0DE}
+.proto.light .u4 .views::after{background:none}
+.proto.light .u4 .views .small{border-color:#DCE0DE;box-shadow:0 10px 24px rgba(31,36,33,.18)}
+/* 메인 칸 확대(시안 밖 · 새로 그림 · 같은 탭 시안 결): 무대(1920x1080) 안 fixed = 변환된 무대 틀 기준. 키 줄 · 손잡이 판은 아래에 떠 있고 정지는 그 위 오른쪽 */
+.u4 .right[data-u4-zoom]{z-index:6}
+.u4 .right[data-u4-zoom] .views{position:fixed;left:0;top:64px;width:1920px;height:1016px;border-radius:0;border:0;z-index:6}   /* 머리줄(모두 정지)은 그대로 보이게 그 아래 */
+.u4 .right[data-u4-zoom] .ctl{position:fixed;left:24px;right:24px;top:auto;bottom:256px;z-index:7}
+.u4 .right[data-u4-zoom] .deck{position:fixed;left:24px;right:24px;top:auto;bottom:24px;height:218px;z-index:7;background:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.u4 .right[data-u4-zoom] .vstop,.u4 .right[data-u4-zoom] .vslot{bottom:330px;right:40px}
+.u4 .right[data-u4-zoom] .vsel{left:148px;top:24px}
+.u4 .right[data-u4-zoom] .small{right:40px;top:24px;width:320px;height:194px}
+.u4 .right[data-u4-zoom] .mapname{left:24px;top:76px}
+.u4 .right[data-u4-zoom] .job{left:24px;bottom:330px}
+.u4 .zback{position:absolute;left:24px;top:24px;z-index:3;height:40px;padding:0 14px 0 10px;border-radius:12px;display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;cursor:pointer}
+.u4 .zback small{font-size:11px;font-weight:600;opacity:.6;margin-left:4px}
+.proto.light .u4 .right[data-u4-zoom] .deck{background:rgba(255,255,255,.82);border-color:#DCE0DE}
+/* 밝은 판 지도 칸(흰 점토 결 그림) 위 다른 로봇 표: 밝음 1 글자 · 흰 테 */
+.proto.light .u4 .mapin [data-u4-other] text{fill:#1F2421;stroke:#FFFFFF;stroke-width:4px;paint-order:stroke}
+.proto.light .u4 .mapin [data-u4-other] circle{stroke:#FFFFFF}
+/* 키 줄에 「1~4 화면」 칩이 늘어 한 줄에 들도록: 조종 시작 단추는 줄바꿈 없이 */
+.u4 .ctl .btn{white-space:nowrap;padding:0 14px}

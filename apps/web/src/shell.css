@@ -31,23 +31,23 @@ html .fh {
   --sh-btnp-shadow: 0 10px 24px rgba(0,195,137,.35), inset 0 1px 0 rgba(255,255,255,.4);
   --line: var(--sh-line); --text: var(--sh-text); --muted: var(--sh-mu2); --accent: var(--sh-pr3);
 }
-/* 밝음: 같은 구조 · 공식 토큰 */
+/* 밝음: 같은 구조 · 값은 DESIGN.md 「밝음 1」(11-26 확정) 그대로. 옛 공식 토큰(--paper #f6f5f1 · --brand #0e7a6e)은 밝음 1 과 달라 쓰지 않는다 */
 html .fh.light {
-  --sh-bg: var(--paper);
-  --sh-bar: color-mix(in srgb, var(--card) 72%, transparent);
-  --sh-line: var(--rule);
-  --sh-text: var(--ink);
-  --sh-mu2: var(--ink-2);
-  --sh-pr: var(--brand);
-  --sh-pr3: var(--brand);
-  --sh-tab-on: var(--dim-soft);
-  --sh-pane: var(--card);
-  --sh-pane-in: 0 1px 2px rgba(22,28,38,.06);
-  --sh-av: var(--paper-2);
-  --sh-btns: var(--paper-2);
-  --sh-btns-line: var(--rule);
-  --sh-btnp-shadow: 0 6px 16px rgba(14,122,110,.22);
-  --sh-on-pr: #ffffff;   /* 밝은 판 초록(brand #0e7a6e) 위 흰 글자 5.3:1 */
+  --sh-bg: #F6F7F6;
+  --sh-bar: rgba(255,255,255,.72);
+  --sh-line: #DCE0DE;
+  --sh-text: #1F2421;
+  --sh-mu2: #5E6662;
+  --sh-pr: #18A07E;
+  --sh-pr3: #18A07E;   /* 민트 단추 바탕(글자는 --sh-on-pr) */
+  --sh-tab-on: rgba(24,160,126,.12);
+  --sh-pane: #FFFFFF;
+  --sh-pane-in: 0 1px 2px rgba(31,36,33,.06);
+  --sh-av: #F6F7F6;
+  --sh-btns: #FFFFFF;
+  --sh-btns-line: #DCE0DE;
+  --sh-btnp-shadow: 0 6px 16px rgba(24,160,126,.22);
+  --sh-on-pr: #1f2421;   /* 밝은 판 민트 단추 위 글자는 흑연(밝음 1 규칙) */
 }
 
 html body, html .fh, html .fh.light {
@@ -56,7 +56,7 @@ html body, html .fh, html .fh.light {
 }
 html .fh { background: var(--sh-bg); color: var(--sh-text); }
 html body:has(.fh) { background: #000000; }
-html body:has(.fh.light) { background: var(--paper); }
+html body:has(.fh.light) { background: #F6F7F6; }
 
 /* 머리줄 = 시안 .bar (PC) */
 html .fh[data-layout="pc"] .fh-head { height: 64px; min-height: 64px; gap: 30px; padding: 0 24px; border-bottom: 1px solid var(--sh-line);
@@ -71,6 +71,7 @@ html .fh .fh-tabs { display: flex; flex-direction: row; gap: 4px; flex: none; pa
   color: var(--sh-mu2); text-decoration: none; white-space: nowrap; }
 .fh-tabs .tab:hover { color: var(--sh-text); }
 .fh-tabs .tab.cur { background: var(--sh-tab-on); color: var(--sh-pr3); }
+.fh.light .fh-tabs .tab.cur { color: #0E7F63; }   /* 밝음 1 「주색 글자」: 민트 글자는 흐린 바탕 위 대비 부족 */
 .fh-tabs .tab .fh-badge { top: -4px; right: -4px; }
 
 /* 오른쪽 = 시안 .bar .rt */

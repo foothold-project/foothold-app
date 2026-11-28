@@ -1,4 +1,4 @@
-// 폰 기록 탭 = 사건 타일(U3-04 · u3_3_list): 등급 색으로 옅게 물든 칸 + 1 px 테 · 분류 아이콘 · 문장 · 등급 · 분류 · 로봇 · 오른쪽 시각. PC 는 표 그대로.
+// 폰 기록 탭 = 사건 타일(U3-04 · u3_3_list): 등급 색으로 옅게 물든 칸 + 1 px 테 · 분류 아이콘 · 문장 · 등급 · 분류 · 로봇 · 오른쪽 시각. PC 는 시안 u8_1 줄(historyframe 시험).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -88,10 +88,10 @@ describe('폰 기록 = 타일', () => {
     await flush();
     expect(document.activeElement).toBe(btn('실행 기록 보기', tiles()[3]));
   });
-  it('PC 는 표 그대로(타일 없음)', async () => {
+  it('PC 는 시안 u8_1 줄(타일 없음)', async () => {
     serve();
     await open(false);
     expect(tiles()).toHaveLength(0);
-    expect(box.querySelectorAll('[aria-label="사건"] tbody tr')).toHaveLength(4);
+    expect(box.querySelectorAll('[aria-label="사건"] .ev')).toHaveLength(4);
   });
 });

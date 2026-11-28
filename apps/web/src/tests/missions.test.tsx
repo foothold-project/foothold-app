@@ -1661,7 +1661,7 @@ describe('시뮬 시나리오', () => {
     await open('#/mission/s1'); await settle();
     expect(location.hash).toBe('#/missions');
     await click($('[data-edit-mission]')); await settle();
-    expect(name().value).toBe('1층 순찰');
+    expect($<HTMLInputElement>('[data-plan] [data-name]')!.value).toBe('1층 순찰');   // 시안 u6_3 편집기 머리줄 이름 칸
     act(() => root?.unmount()); root = null; clearPlans();
     seed(); serve(KIM);
     await open('#/mission');

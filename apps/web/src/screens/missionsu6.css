@@ -1,0 +1,78 @@
+/* 시안 u6 화면 <style> (u6_1 ~ u6_9 같음) 을 .u6 로 감싼 것(기계 생성 · scope.py). 값은 그대로. 손으로 고치지 않는다. body · .bar(머리줄) 규칙은 뺐다 */
+.u6 .btnp.newm{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.22);box-shadow:none;color:rgba(255,255,255,.95);font-weight:600}
+.u6 .pane.flat{overflow:hidden}
+.u6 .lab{font-size:12.5px;font-weight:600;color:var(--mu2)}
+.u6 .num{font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.u6 .mcard{padding:16px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.u6 .step{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;height:30px;color:rgba(255,255,255,.88)}
+.u6 .step b{width:22px;height:22px;border-radius:50%;background:#3a4250;display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:800;flex:none}
+.u6 .step b.on{background:#00c389;color:#06231a}
+.u6 .mmeta{font-size:13px;font-weight:500;color:rgba(255,255,255,.6);margin-top:5px}
+.u6 .mok{display:inline-flex;align-items:center;gap:4px;margin-top:8px;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:600;color:#5ef0bf;background:rgba(18,184,134,.14)}
+.u6 .mok .ic{stroke:#5ef0bf}
+.u6 .mrow{display:flex;align-items:flex-start;justify-content:space-between;padding:14px 6px;border-bottom:1px solid var(--line);border-bottom:1px solid var(--line);font-size:15px;font-weight:600;color:rgba(255,255,255,.88)}
+.u6 .map{position:absolute;border-radius:20px;overflow:hidden;border:1px solid var(--line);box-shadow:0 18px 40px rgba(0,0,0,.35)}
+.u6 .stage{position:absolute}
+.u6 .stage>img{position:absolute;inset:0;width:100%;height:100%}
+.u6 .stage>svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.u6 .pill{position:absolute;height:34px;padding:0 12px;border-radius:11px;display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;white-space:nowrap}
+.u6 .lbl{transform:translate(-50%,-100%)}
+.u6 .lbl b{display:inline-flex;width:20px;height:20px;border-radius:50%;align-items:center;justify-content:center;font-size:11px;color:#fff;background:#00c389}
+.u6 .chips{position:absolute;left:16px;top:16px;display:flex;gap:6px;z-index:3}
+.u6 .chips span{height:34px;padding:0 13px;border-radius:11px;display:flex;align-items:center;font-size:13px;font-weight:700;position:relative}
+.u6 .stat{position:absolute;left:16px;bottom:16px;display:flex;gap:28px;padding:12px 20px;border-radius:16px;z-index:3}
+.u6 .stat .lab{color:rgba(255,255,255,.62);font-size:12px}
+.u6 .stat b{font-size:22px}
+.u6 .stat small{font-size:12.5px;color:rgba(255,255,255,.62);font-weight:600}
+.u6 .fld{flex:1;padding:8px 14px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.u6 .fld b{font-size:17px}
+.u6 .rob{display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;border-radius:13px;border:1px solid var(--line);background:rgba(255,255,255,.03);font-size:14px;font-weight:600}
+.u6 .rob.on{border-color:rgba(0,195,137,.55);background:rgba(0,195,137,.09)}
+.u6 .rob.off{opacity:.5}
+.u6 .rob small{font-size:12.5px;font-weight:500;color:var(--mu2)}
+.u6 .rob .r{margin-left:auto}
+.u6 .mseg{display:flex;gap:2px;padding:4px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.u6 .mseg span{flex:1;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:600;color:var(--mu2)}
+.u6 .mseg span.on{background:rgba(255,255,255,.14);color:#fff}
+.u6 .tl{position:absolute;left:24px;right:24px;top:712px;bottom:24px;padding:18px 22px}
+.u6 .tlg{position:absolute;left:22px;right:22px;top:58px;bottom:14px}
+.u6 .bk{position:absolute;height:28px;border-radius:8px;font-size:13px;font-weight:600;display:block;line-height:26px;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.22);color:rgba(255,255,255,.72)}
+.u6 .bk.kd{border-color:rgba(255,255,255,.14);color:rgba(255,255,255,.48)}
+.u6 .bk.kr{background:rgba(18,184,134,.42);border-color:#12b886;color:#fff}
+.u6 .bk.k2{border:1px dashed #12b886;color:#5ef0bf;background:rgba(18,184,134,.06)}
+.u6 .bk.k3{border-color:rgba(255,255,255,.10);color:rgba(255,255,255,.40);background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 6px,transparent 6px 12px)}
+.u6 .bk.k4{border:1px dashed #4c9bff;color:#4c9bff;background:rgba(159,182,255,.08)}
+.u6 .bk.kw{background:rgba(240,160,40,.14);border-color:#f0a028;color:rgba(255,255,255,.95)}
+.u6 .bk.kx{border:1px dashed #e5383b;color:rgba(255,255,255,.95);background:rgba(229,56,59,.14)}
+.u6 .leg{display:flex;align-items:center;gap:6px}
+.u6 .leg i{width:16px;height:8px;border-radius:3px;display:inline-block}
+.u6 .hdr{position:absolute;left:24px;right:24px;top:84px;height:56px;display:flex;align-items:center;gap:10px}
+.u6 .chip{height:42px;padding:0 14px;border-radius:13px;display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;position:relative;white-space:nowrap}
+.u6 .chip small{font-size:12px;font-weight:600;color:var(--mu2)}
+.u6 .wseg span{gap:7px}
+.u6 .band{position:absolute;left:0;right:0;top:64px;height:44px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:14px;font-weight:800;color:#4c9bff; background:linear-gradient(180deg,rgba(159,182,255,.16),rgba(159,182,255,.06));border-bottom:1.5px dashed rgba(159,182,255,.6)}
+.u6 .rrun{position:absolute;z-index:6;top:104px;right:470px;height:38px;padding:0 14px;border-radius:12px;display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;color:#00c389;background:rgba(0,0,0,.78);border:1.5px solid rgba(0,195,137,.6);backdrop-filter:blur(10px)}
+.u6 .chk{display:flex;align-items:center;gap:12px;height:54px;padding:0 4px;border-bottom:1px solid var(--line);font-size:14.5px;font-weight:700}
+.u6 .chk .v{margin-left:auto;font-size:13px;font-weight:700;white-space:nowrap}
+.u6 .ok{color:#00c389}
+.u6 .bad{color:#ff4d4f}
+.u6 .wn{color:#f2b705}
+.u6 .toast{position:absolute;left:50%;top:84px;transform:translateX(-50%);z-index:8;height:52px;padding:0 20px;border-radius:16px;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;white-space:nowrap}
+.u6 .stop{right:24px;bottom:24px;width:120px;height:96px;font-size:16px;z-index:9}
+.u6 [data-go]{cursor:pointer}
+/* 시안 u15_1 · u15_2 화면 안 <style> (창 · 점검 줄 · 노란 알림) 값 그대로 · .u6 한 겹. .kp(u15_3 기록 보고서 칸)는 일정 막대 .bk.kp 와 이름이 겹치고 임무 탭에 쓰지 않아 뺐다 */
+.u6 .dim{position:absolute;inset:64px 0 0 0;background:rgba(6,8,11,.62);z-index:20}
+.u6 .md{position:absolute;z-index:21;border-radius:24px;background:linear-gradient(180deg,#1b2027,#14181e);border:1px solid rgba(255,255,255,.12);box-shadow:0 30px 80px rgba(0,0,0,.55);color:#fff}
+.u6 .md h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0}
+.u6 .md .sb{font-size:14px;font-weight:600;color:var(--mu2);margin-top:6px}
+.u6 .ck{display:flex;align-items:center;gap:14px;height:54px;border-bottom:1px solid rgba(255,255,255,.07);font-size:15px;font-weight:700}
+.u6 .ck .o{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;background:rgba(0,195,137,.16);color:#00c389}
+.u6 .ck .w{background:rgba(242,183,5,.18);color:#f2b705}
+.u6 .ck em{margin-left:auto;font-style:normal;font-size:13.5px;font-weight:600;color:var(--mu2)}
+.u6 .toastw{position:absolute;z-index:21;border-radius:18px;background:linear-gradient(180deg,#2a2412,#211c0f);border:1px solid rgba(242,183,5,.45);box-shadow:0 18px 44px rgba(0,0,0,.45);color:#fff;padding:16px 18px}
+.u6 .chipb{height:40px;padding:0 14px;border-radius:12px;display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14)}
+.u6 .tbl{width:100%;border-collapse:collapse;font-size:14px}
+.u6 .tbl th{font-size:12.5px;font-weight:700;color:var(--mu2);text-align:left;padding:0 10px 10px;border-bottom:1px solid rgba(255,255,255,.1)}
+.u6 .tbl td{padding:12px 10px;border-bottom:1px solid rgba(255,255,255,.06);font-weight:600}
+.u6 .tbl td.n,.u6 .tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+.u6 .up{color:#f2b705}.u6 .ok{color:#00c389}

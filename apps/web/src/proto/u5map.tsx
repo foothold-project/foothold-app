@@ -1,21 +1,33 @@
 // 관제 지도 보기(시안 u5_3): 시안 shared/site3d.js mountSite 를 옮김. 현장 · 빛 · 땅 · 격자 · 카메라 · 표지 배치 값 그대로.
 // 로봇은 서버 위치가 온 것만 그 자리 · 방향에 둔다(시안의 정해 둔 경로 · 겹치는 곳은 서버에 없어 그리지 않음).
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STATUS_NAME } from '../fake';
 import { rt } from '../rt';
-import { K, OX, OY, applyRest, applyWalk, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, type Body, type Walk } from './site';
+import { TEX_LOOK, K, OX, OY, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
 import { IC, ic, type TileFacts } from './u5';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
 const S = 20, STEM = 16;   // 시안 data-site scale 20
-const tone = (f: TileFacts): keyof typeof ST_COL => (f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.sim ? 'rest' : f.walk ? 'walk' : 'idle');
+// 시뮬 로봇은 시안 K-08 처럼 늘 파란 꼴(상자 아이콘 · 점선 이름표 · 파란 고리). 시뮬 경고는 타일 · 오른쪽 줄에 남음
+const tone = (f: TileFacts): keyof typeof ST_COL => (f.sim ? 'rest' : f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.walk ? 'walk' : 'idle');
 const poseOf = (f: TileFacts) => sitePose((f.x.unknown === 'summary' ? null : rt.get(f.x.id).state?.location) ?? (f.x.unknown === 'summary' ? null : f.x.location));
 
 type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number; sim: boolean; top: number; t: number };
 
-export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: string; pick: (id: string) => void; open: (id: string) => void }) {
+const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+/** from = 작은 지도 칸 자리(화면 px). 있으면 그 자리에서 큰 지도 자리로 자라고(320 ms), 3D 첫 시점은 위에서 본 틀(작은 지도와 같은 북쪽 위)에서 시안 시점으로 내려앉음(1.1 s). 움직임 줄이기면 바로 */
+export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel: string; pick: (id: string) => void; open: (id: string) => void; from?: DOMRect | null }) {
+  const box = useRef<HTMLDivElement>(null), fromTop = useRef(!!from && !calm());
+  useLayoutEffect(() => {
+    const el = box.current; if (!el || !from || !fromTop.current || typeof el.animate !== 'function') return;
+    const me = el.getBoundingClientRect(); if (!me.width || !el.offsetWidth) return;
+    const k = me.width / el.offsetWidth;   // 무대 배율(화면 px ÷ 무대 px)
+    el.animate([{ transformOrigin: '0 0', transform: `translate(${(from.left - me.left) / k}px,${(from.top - me.top) / k}px) scale(${from.width / me.width},${from.height / me.height})`, borderRadius: '14px' },
+      { transformOrigin: '0 0', transform: 'none', borderRadius: '22px' }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   const cv = useRef<HTMLCanvasElement>(null), marks = useRef<HTMLDivElement>(null), now = useRef(all);
   now.current = all;
   useEffect(() => {
@@ -27,12 +39,16 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     const BG = 0x07090b; r.setClearColor(BG, 1);
     const scene = new THREE.Scene(), over = new THREE.Scene(); scene.fog = new THREE.Fog(BG, 700, 1700);
     const cam = new THREE.PerspectiveCamera(32, w / h, 5, 5000);
-    const tgt = toWorld(1960, 880), el = (58 * Math.PI) / 180, az = (-6 * Math.PI) / 180, d = 760;
-    cam.position.set(tgt.x + Math.sin(az) * Math.cos(el) * d, Math.sin(el) * d, tgt.z + Math.cos(az) * Math.cos(el) * d); cam.lookAt(tgt);
+    const tgt = toWorld(1960, 880), el = (58 * Math.PI) / 180, az = (-6 * Math.PI) / 180, d = 760;   // 시안 data-site cam 값 그대로
+    const top = toWorld(1600, 1000), elTop = (89.5 * Math.PI) / 180, dTop = 1000, tv = new THREE.Vector3();
+    const aim = (e: number, a: number, dd: number, t: THREE.Vector3) => { cam.position.set(t.x + Math.sin(a) * Math.cos(e) * dd, Math.sin(e) * dd, t.z + Math.cos(a) * Math.cos(e) * dd); cam.lookAt(t); };
+    let settle = fromTop.current ? -0.25 : 1;   // -0.25 ~ 0 = 칸이 자라는 동안 위에서 본 틀 유지
+    if (settle < 1) aim(elTop, 0, dTop, top); else aim(el, az, d, tgt);
+    const hemis: THREE.HemisphereLight[] = [], rims: THREE.DirectionalLight[] = [], suns: THREE.DirectionalLight[] = [];
     for (const sc of [scene, over]) {
-      sc.add(new THREE.HemisphereLight(0xaab8c8, 0x07090b, 1.1));
-      const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(-300, 500, 400); sc.add(sun);
-      const rim = new THREE.DirectionalLight(0x6fd6b8, 0.35); rim.position.set(300, 200, -500); sc.add(rim);
+      const hemi = new THREE.HemisphereLight(0xaab8c8, 0x07090b, 1.1); hemis.push(hemi); sc.add(hemi);
+      const sun = new THREE.DirectionalLight(0xffffff, 2.0); suns.push(sun); sun.position.set(-300, 500, 400); sc.add(sun);
+      const rim = new THREE.DirectionalLight(0x6fd6b8, 0.35); rims.push(rim); rim.position.set(300, 200, -500); sc.add(rim);
     }
     const W = 3200 / K, H = 2000 / K;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ color: 0x0b0e12, roughness: 1 }));
@@ -41,9 +57,28 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     for (let x = 0; x <= 900; x += 50) gl.push(x, 0.02, 0, x, 0.02, 560);
     for (let z = 0; z <= 560; z += 50) gl.push(0, 0.02, z, 900, 0.02, z);
     const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(gl, 3));
-    scene.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x2a3440, transparent: true, opacity: 0.35 })));
+    const gridM = new THREE.LineBasicMaterial({ color: 0x2a3440, transparent: true, opacity: 0.35 });
+    scene.add(new THREE.LineSegments(gg, gridM));
     const robots = new Map<string, R>(); let proto: Body | null = null, walk: Walk | null = null, live = true;
-    loadSite().then((s) => { if (live && s) scene.add(s); });
+    let site: THREE.Group | null = null, light: boolean | null = null;
+    loadSite().then((s) => { if (live && s) { site = s; scene.add(s); light = null; } });
+    // 밝은 판: 바탕 · 땅 · 격자 · 빛 · 현장 재질을 밝음 1 흰 점토 결로(시안 shared/map_large_factory_top.jpg). 판이 바뀌면 그때 다시 칠함
+    const shade = (l: boolean) => {
+      if (site?.userData.tex) {   // 질감판: 자산 시험 화면(view.html LOOK) 의 바탕 · 하늘 빛 · 해 · 노출. 재질은 색 곱만(toneSite)
+        const k = TEX_LOOK[l ? 'light' : 'dark'];
+        r.setClearColor(k.bg, 1); (scene.fog as THREE.Fog).color.setHex(k.bg); r.toneMappingExposure = k.exp;
+        (ground.material as THREE.MeshStandardMaterial).color.setHex(k.bg); gridM.color.setHex(l ? 0xc3cac5 : 0x2a3440);
+        for (const h of hemis) { h.color.setHex(k.hemi[0]); h.groundColor.setHex(k.hemi[1]); h.intensity = k.hemi[2]; }
+        for (const m of suns) m.intensity = k.sun;
+        for (const m of rims) m.intensity = l ? 0.05 : 0.35;
+        toneSite(site, l); return;
+      }
+      const bg = l ? 0xf6f7f6 : BG; r.setClearColor(bg, 1); (scene.fog as THREE.Fog).color.setHex(bg);
+      (ground.material as THREE.MeshStandardMaterial).color.setHex(l ? 0xeef0ee : 0x0b0e12); gridM.color.setHex(l ? 0xc3cac5 : 0x2a3440);
+      for (const m of rims) m.intensity = l ? 0.05 : 0.35;
+      for (const h of hemis) { h.color.setHex(l ? 0xffffff : 0xaab8c8); h.groundColor.setHex(l ? 0xc8cfcb : 0x07090b); }
+      if (site) toneSite(site, l);
+    };
     loadWalk().then((x) => { walk = x; });
     loadGo2(S).then((b) => { proto = b; });
     const make = (f: TileFacts): R | null => {
@@ -67,11 +102,12 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     };
     const ctl = new OrbitControls(cam, canvas);
     ctl.target.copy(tgt); ctl.enableDamping = true; ctl.dampingFactor = 0.08; ctl.screenSpacePanning = false;
-    ctl.minDistance = 60; ctl.maxDistance = 1500; ctl.maxPolarAngle = 1.38; ctl.update();
+    ctl.minDistance = 60; ctl.maxDistance = 1500; ctl.maxPolarAngle = 1.38; ctl.enabled = settle >= 1; if (settle >= 1) ctl.update();
     const v = new THREE.Vector3(), clock = new THREE.Clock(); let raf = 0;
     r.autoClear = false;
     const frame = () => {
       const dt = Math.min(0.05, clock.getDelta());
+      const l = lightNow(); if (l !== light) { light = l; shade(l); }
       const cw = canvas.clientWidth, ch = canvas.clientHeight;
       if (cw && ch && (cw !== w || ch !== h)) { w = cw; h = ch; r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
       const seen = new Set<string>(), vis: { el: HTMLElement; x: number; y: number; hw: number; bh: number }[] = [];
@@ -106,15 +142,20 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
         const st = L.el.querySelector('i'); if (st) (st as HTMLElement).style.height = `${STEM + lift}px`;
         L.el.style.transform = `translate(${L.x.toFixed(1)}px,${L.y.toFixed(1)}px) translate(-50%,-100%)`;
       }
-      ctl.update(); r.clear(); r.render(scene, cam); r.clearDepth(); r.render(over, cam);
+      if (settle < 1) {
+        settle = Math.min(1, settle + dt / 1.1); const e = ease(Math.max(0, settle));
+        tv.lerpVectors(top, tgt, e); aim(elTop + (el - elTop) * e, az * e, dTop + (d - dTop) * e, tv);
+        if (settle >= 1) { ctl.target.copy(tgt); ctl.enabled = true; ctl.update(); }
+      } else ctl.update();
+      r.clear(); r.render(scene, cam); r.clearDepth(); r.render(over, cam);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
     return () => { live = false; cancelAnimationFrame(raf); ctl.dispose(); r.dispose(); };
   }, []);
-  const icon = (f: TileFacts): ReactNode => (f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.sim ? ic(13, IC.box, '#4c9bff') : null);
+  const icon = (f: TileFacts): ReactNode => (f.sim ? ic(13, IC.box, '#4c9bff') : f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.charging ? ic(13, IC.bolt, 'var(--u5-ok)') : null);   // 시안 K-04 충전 = 번개
   const sub = (f: TileFacts) => f.mission?.name ?? (f.lostNow ? '연결 끊김' : f.sim ? '시뮬 대기' : f.x.status ? STATUS_NAME[f.x.status] : '');
-  return <div className="big" style={{ background: '#07090b' }}>
+  return <div className="big st3" ref={box} data-from-mini={from ? '' : undefined}>
     <canvas id="site" ref={cv} aria-label="현장 3D"></canvas>
     <div className="mks" ref={marks}>{all.map((f) => { const k = tone(f); return <div key={f.x.id} className={`mk3 ${k === 'bad' ? 'r' : k === 'link' ? 'o' : k === 'rest' ? 'sim' : ''}${f.x.id === sel ? ' sel' : ''}`} data-n={f.x.name} data-r3={f.x.id} style={{ display: 'none' }}
       onClick={() => (f.x.id === sel ? open(f.x.id) : pick(f.x.id))}><span className="lb">{icon(f)}{f.x.name}<small>{sub(f)}</small></span><i></i></div>; })}</div>

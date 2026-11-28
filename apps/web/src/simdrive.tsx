@@ -14,12 +14,13 @@ import { typing, useStopPress } from './App';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import { SimPick } from './simstart';
+import { TakeoverAsk } from './screens/takeover';
 
-/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, A·← / D·→ 제자리 회전, Q/E 옆걸음, Space 정지(App).
+/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, ← / → 옆걸음, A / D 제자리 회전, Space 정지(App). Q · E 는 없음(11-28 17:25).
  *  실기 서버 경유(serverdrive.tsx·drive.tsx)와 같다. 옆걸음은 limits 가 vy 를 허락할 때만 나가고(phone.ts velocity), 아니면 0 + blockNote.
  *  e.code(자판 자리)라 한글 입력 상태에서도 같다 */
 export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
-  KeyA: [1, 1], ArrowLeft: [1, 1], KeyD: [1, -1], ArrowRight: [1, -1], KeyQ: [2, 1], KeyE: [2, -1] };
+  KeyA: [1, 1], KeyD: [1, -1], ArrowLeft: [2, 1], ArrowRight: [2, -1] };
 /** 옆걸음 키 칩이 막혔을 때 까닭(limits 의 vy 가 0) */
 export const SIDE_OFF = '로봇 한계 옆 0 m/s';
 /** F-TO-05 키보드 전진 기본 0.6 m/s(시뮬은 조직 값 sim_key_vx — phone.ts tuned): 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 키 속도면 끝까지(최종 자르기는 velocity·에이전트) */
@@ -458,14 +459,12 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
         <HeldRun />
       </div>}
-      {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
-        <b id="sim-ask-t">조종권 요청</b><p>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-        <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
+      {l.ask && mine && <TakeoverAsk id="sim-ask-t" title="다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다" give={() => sim.respond(true)} keep={() => sim.respond(false)} />}
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
         <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick>
-        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A·← D·→ 회전 · <span data-key-off={can.left || can.right ? undefined : ''} style={can.left || can.right ? undefined : { opacity: .55 }}
-          title={can.left || can.right ? undefined : SIDE_OFF}>Q/E 옆{can.left || can.right ? '' : '(막힘)'}</span></p></>}
+        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A D 회전 · <span data-key-off={can.left || can.right ? undefined : ''} style={can.left || can.right ? undefined : { opacity: .55 }}
+          title={can.left || can.right ? undefined : SIDE_OFF}>← → 옆{can.left || can.right ? '' : '(막힘)'}</span></p></>}
       </div>
     </div></div>
   </section>;
