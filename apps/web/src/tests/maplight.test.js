@@ -33,11 +33,11 @@ describe('지도 탭 밝은 판 = DESIGN.md 밝음 1', () => {
     expect(at('.proto.light .u7 .sk .sk-tx')).toBe('fill:#5E6662');
     expect(at('.proto.light .u7 .sk.on .sk-t')).toMatch(/fill:#18A07E/); expect(at('.proto.light .u7 .sk.on .sk-tx')).toBe('fill:#0E7F63');
   });
-  it('u7_1 층 줄 썸네일 = 칸 바탕 위 선 그림: 어둠 = 반전 + screen, 밝음 = multiply(판 그림 원본은 그대로) · 틀 = 칸 바탕 하나', () => {
+  it('u7_1 층 줄 썸네일 = 칸 바탕 위 선 그림: 어둠 · 밝음 svg 거름(판 그림 원본은 그대로) · 틀 = 칸 바탕 하나', () => {
     const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const at = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].trim() === sel)?.[2] ?? '';
-    expect(at('.u7 .frow .th .mx-thumb image')).toBe('filter:invert(1);mix-blend-mode:screen');
-    expect(at('.proto.light .u7 .frow .th .mx-thumb image')).toBe('filter:none;mix-blend-mode:multiply');
+    expect(at('.u7 .frow .th .mx-thumb image')).toBe('filter:url(#u7-line-d)');
+    expect(at('.proto.light .u7 .frow .th .mx-thumb image')).toBe('filter:url(#u7-line-l)');
     expect(at('.u7 .frow .th .mx-thumb')).toMatch(/background:transparent/);
   });
   it('u7.css 밝은 판(시안 u7_1 · u7_2 현장 · 층 줄 · 꼬리표)', () => {

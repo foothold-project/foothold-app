@@ -2611,6 +2611,19 @@ describe('지도 탭 · 시안 u7', () => {
   });
 });
 
+// 시안 u7_1: 처음 고른 건물 = 왼쪽 첫 줄(지도 있는 현장) · 썸네일 선 그림 거름(어둠 · 밝음)이 화면에 있음
+describe('지도 탭 고르기 첫 줄 · 썸네일 거름', () => {
+  it('서버 순서 첫 건물이 스캔 전(REAL · 판 0)이어도 처음 고른 건물 = 지도 있는 첫 줄 · 거름 둘이 있음', async () => {
+    const t: SiteTree = { items: [{ ...TREE.items[0], id: 'sa', name: '가 학교', buildings: [{ id: 'ba', site_id: 'sa', name: '가 학교', floors: [floor('fa', '1층', 1, null, 'ba')] }] }, ...TREE.items], next_cursor: null };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/fa/map-versions': { status: 200, body: { items: [], next_cursor: null } } }));
+    location.hash = '#/map'; box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<Root />); }); await flush();
+    expect($('[data-u7="u7_1_pick"] .side .site.on')!.getAttribute('data-building')).not.toBe('ba');
+    expect($('[data-u7="u7_1_pick"] [data-rail-group="late"] [data-building="ba"]')).not.toBeNull();
+    expect([...box.querySelectorAll('[data-u7-linedefs] filter')].map((f) => f.id)).toEqual(['u7-line-d', 'u7-line-l']);
+  });
+});
+
 // 시안 u7_1 왼쪽 두 묶음: 지도가 있는(또는 시뮬) 건물 = 위(머리 = 지역 칸 · 지금 빈 자리), 실제 현장(REAL)인데 지도 0 개 = 「실제 현장 · 아직 스캔 전」
 describe('지도 탭 왼쪽 묶음(railGroups)', () => {
   const fl = (id: string, v: string | null) => ({ id, building_id: 'x', name: id, level: 1, approved_version_id: v }) as never;
