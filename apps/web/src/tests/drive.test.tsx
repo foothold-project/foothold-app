@@ -2420,29 +2420,87 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
     expect(card.textContent).not.toContain('시뮬');
   });
 
-  it('웹 상한(시뮬 값): 앞 1.5 · 돌기 1.2 · 옆 0.5 · 뒤는 0 + 까닭 — 실기 상한(real_*)은 쓰지 않음', () => {
+  // 웹 상한(app-lx 11-28 22:59): 축마다 min(조직 sim_* , 시뮬 에이전트 한계 vx -0.3~1.5 · vy ±0.3 · wz ±0.5). 서버는 시뮬 cmd 상한을 검사하지 않는다
+  const sticks = () => {
+    const fwd = $('[aria-label="이동 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
+    for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return { fwd, turn };
+  };
+  const ptr = (el: Element, type: string, x = 60, y = 60) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+  /** 이동 손잡이: f = 앞 +(위), s = 왼쪽 + · 회전 손잡이: t = 왼쪽 + */
+  const lstick = (el: Element, f: number, s = 0) => { ptr(el, 'pointerdown', 60 - s * 60, 60 - f * 60); tick(200); const a = lastAxes() as number[]; ptr(el, 'pointerup'); tick(100); return a; };
+  const rstick = (el: Element, t: number) => { ptr(el, 'pointerdown', 60 - t * 60, 60); tick(200); const a = lastAxes() as number[]; ptr(el, 'pointerup'); tick(100); return a; };
+
+  it('웹 상한 축마다 min(조직 · 로봇 한계): 키 앞 1.5 · 돌기 0.5 · 옆 0.3 · 뒤 -0.3 — 실기 상한(real_*)은 쓰지 않음', () => {
     open(true, { ...ORG, real_max_vx: 0.5, real_max_wz: 0.3, real_max_vy: 0 });
     ready();
     expect(press('KeyW')).toEqual([1.5, 0, 0]);
-    expect(press('KeyA')).toEqual([0, 0, 1.2]);
-    expect(press('KeyD')).toEqual([0, 0, -1.2]);
-    expect(press('ArrowLeft')).toEqual([0, 0.5, 0]);
-    key('keydown', 'KeyS'); tick(200);
-    expect(lastAxes()).toEqual([0, 0, 0]);
-    expect(text()).toContain(CAP_BLOCK);
-    key('keyup', 'KeyS');
+    expect(press('KeyA')).toEqual([0, 0, 0.5]);
+    expect(press('KeyD')).toEqual([0, 0, -0.5]);
+    expect(press('ArrowLeft')).toEqual([0, 0.3, 0]);
+    expect(press('KeyS')).toEqual([-0.3, 0, 0]);
   });
 
-  it('웹 상한: 조직 sim_key_vx · sim_max_wz · sim_max_vy 를 따름(sim_max_vx 보다 큰 키 속도는 sim_max_vx)', () => {
-    open(true, { ...ORG, sim_max_vx: 1.0, sim_key_vx: 0.8, sim_max_wz: 0.6, sim_max_vy: 0.2 });
+  it('웹 상한: 조직 값이 로봇 한계보다 작으면 조직 값(sim_key_vx · sim_max_wz · sim_max_vy · sim_max_vx)', () => {
+    open(true, { ...ORG, sim_max_vx: 1.0, sim_key_vx: 0.8, sim_max_wz: 0.3, sim_max_vy: 0.2 });
     ready();
     expect(press('KeyW')).toEqual([0.8, 0, 0]);
-    expect(press('KeyA')).toEqual([0, 0, 0.6]);
+    expect(press('KeyA')).toEqual([0, 0, 0.3]);
     expect(press('ArrowRight')).toEqual([0, -0.2, 0]);
     act(() => root!.unmount()); root = null; box.remove();
     open(true, { ...ORG, sim_max_vx: 0.6 });
     ready();
     expect(press('KeyW')).toEqual([0.6, 0, 0]);
+  });
+
+  it('웹 상한 · 손잡이 비례: 앞은 [0.2, 상한] · 0 < vx < 0.2 는 나가지 않음 · 뒤는 [-0.3, -0.2] · 문턱 0.1', () => {
+    open(true);
+    ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 0.05)).toEqual([0, 0, 0]);                      // 문턱 0.1 안
+    const a = lstick(fwd, 0.12)!;
+    expect(a[0]).toBeGreaterThanOrEqual(0.2); expect(a[0]).toBeLessThan(0.3);
+    expect(lstick(fwd, 1)).toEqual([1.5, 0, 0]);
+    const mid = lstick(fwd, 0.55)!;
+    expect(mid[0]).toBeCloseTo(0.2 + (0.45 / 0.9) * 1.3, 5);
+    for (const f of [0.02, 0.05, 0.09, 0.11, 0.2, 0.4, 0.7]) { const v = lstick(fwd, f)![0]; expect(v === 0 || v >= 0.2).toBe(true); }
+    const b = lstick(fwd, -0.12)!;
+    expect(b[0]).toBeLessThanOrEqual(-0.2); expect(b[0]).toBeGreaterThanOrEqual(-0.3);
+    expect(lstick(fwd, -1)).toEqual([-0.3, 0, 0]);
+    expect(cmds().every((m) => (m.axes as number[])[0] >= -0.3)).toBe(true);
+    expect(lstick(fwd, 0, 1)).toEqual([0, 0.3, 0]);
+    expect(rstick(turn, -1)).toEqual([0, 0, -0.5]);
+  });
+
+  it('웹 상한 · 문턱은 조직 stick_deadzone(없으면 0.1)', () => {
+    open(true, { ...ORG, stick_deadzone: 0.2 });
+    ready();
+    const { fwd } = sticks();
+    expect(lstick(fwd, 0.15)).toEqual([0, 0, 0]);
+    expect(lstick(fwd, 0.25)![0]).toBeGreaterThanOrEqual(0.2);
+  });
+
+  it('후진 · 옆걸음은 「시험 기능」 표시', () => {
+    open(true);
+    ready();
+    key('keydown', 'KeyS'); tick(200);
+    expect($('[data-demo-exp]')!.textContent).toContain('시험 기능');
+    key('keyup', 'KeyS'); tick(200);
+    expect($('[data-demo-exp]')).toBeNull();
+    key('keydown', 'ArrowLeft'); tick(200);
+    expect($('[data-demo-exp]')).not.toBeNull();
+    key('keyup', 'ArrowLeft');
+  });
+
+  it('실기 값은 그대로(같은 문턱 · 최소값 함수): 손잡이 0.25 는 0 · 0.35 는 표 1.5 · 키는 표 값', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 0.25)).toEqual([0, 0, 0]);
+    expect(lstick(fwd, 0.35)).toEqual([1.5, 0, 0]);
+    expect(lstick(fwd, 1)).toEqual([1.5, 0, 0]);
+    expect(rstick(turn, 0.5)).toEqual([0, 0, MAX_TURN_RATE]);
+    expect(press('KeyW')).toEqual([1.5, 0, 0]);
   });
 
   it('데모 STOP 은 서버로(noServerStop 은 데모를 서버 정지 대상으로 봄)', () => {
