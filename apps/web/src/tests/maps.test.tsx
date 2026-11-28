@@ -6,8 +6,9 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { SIM_SAVE, floorName, pixelTo, toPixel } from '../screens/maps';
-import { kept } from '../screens/mapedit';
+import { SIM_SAVE, Shapes, floorName, pixelTo, toPixel } from '../screens/maps';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { featSub, kept } from '../screens/mapedit';
 import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
 import { TERRAIN_REASON } from '../simstart';
@@ -2425,6 +2426,30 @@ describe('지도 탭 · 시안 u7', () => {
     expect(box.textContent).not.toContain('«편집»');
     expect([...box.querySelectorAll('button')].some((b) => b.textContent === '새 지도 올리기…')).toBe(false);
     expect($('[data-fix-open]')).toBeNull();
+  });
+
+  it('구역 종류 AREA(서버 시드): 이름만 보이고 접근 금지 · 감속 표시와 선 강조는 없다', () => {
+    const f = { zones: [{ id: 'za', type: 'AREA', name: '조립 라인', polygon: [[0, 0], [2, 0], [2, 2]] }], waypoints: [], connectors: [], edits: [] } as unknown as MapFeatures;
+    const html = renderToStaticMarkup(<svg><Shapes v={{ origin: [0, 0, 0], resolution: 0.5, width: 10, height: 10 }} f={f} /></svg>);
+    expect(html).toContain('조립 라인');
+    expect(html).not.toMatch(/접근 금지|감속/);
+    expect(html).toContain('stroke:var(--accent);stroke-width:1"');
+    expect(featSub(f, 'zones.0')).toBe('');
+  });
+
+  it('시뮬 월드 한 현장 안: 건물 demo 칸이 오면 building.demo === true 인 건물만 · 없으면 현장 기준', async () => {
+    const world = (demo: (boolean | undefined)[]) => ({ items: [...TREE.items,
+      { id: 's9', name: '시뮬 월드', purpose: 'SIM', demo: true, buildings: demo.map((d, i) => ({ id: `b9${i}`, site_id: 's9', name: `세계 ${i}`, ...(d === undefined ? {} : { demo: d }), floors: [floor(`f9${i}`, '1층', 1, null, `b9${i}`)] })) }], next_cursor: null });
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: world([true, false, undefined]) } }));
+    await toPick();
+    let sites = card('현장');
+    expect([sites.querySelector('[data-building="b1"]'), sites.querySelector('[data-building="b90"]')].every(Boolean)).toBe(true);
+    expect([sites.querySelector('[data-building="b91"]'), sites.querySelector('[data-building="b92"]')]).toEqual([null, null]);
+    act(() => root?.unmount()); box.remove();
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: world([undefined, undefined]) } }));
+    await toPick();
+    sites = card('현장');
+    expect([sites.querySelector('[data-building="b90"]'), sites.querySelector('[data-building="b91"]')].every(Boolean)).toBe(true);
   });
 
   it('u7_1 «버전 기록»: 그 층의 버전 기록 화면(시안 u7_9)으로 연다', async () => {

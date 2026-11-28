@@ -6,7 +6,7 @@ import { Map3D, modelOf } from './map3d';
 import { Empty } from '../empty';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, Scenario, SiteTree } from '../../../contracts/ts';
+import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, MapZone, Scenario, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Robot, Tone, User } from '../fake';
 import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
@@ -36,6 +36,16 @@ export const purposeOf = (s: MapSite): Purpose => ((s as { purpose?: string }).p
 export const demoOf = (s: MapSite) => (s as { demo?: boolean }).demo === true;
 /** 지도 탭에 보이는 현장 = purpose REAL 이거나 데모 현장. 다른 SIM 현장은 시뮬 탭에만 */
 export const inMapTab = (s: MapSite) => purposeOf(s) === 'REAL' || demoOf(s);
+/** 지도 탭에 보일 현장: 실기(REAL)는 그대로, 시뮬 현장은 site.demo 일 때만이고 그 안에서도 building.demo === true 인 건물만.
+ *  서버가 건물 칸(demo)을 아직 주지 않으면(그 현장 어느 건물에도 boolean 이 없으면) 현장 기준으로 다 둔다 */
+export const mapTabSite = (s: MapSite): MapSite | null => {
+  if (purposeOf(s) === 'REAL') return s;
+  if (!demoOf(s)) return null;
+  const has = s.buildings.some((b) => typeof (b as { demo?: unknown }).demo === 'boolean');
+  if (!has) return s;
+  const bs = s.buildings.filter((b) => (b as { demo?: boolean }).demo === true);
+  return bs.length ? { ...s, buildings: bs } : null;
+};
 /** 시뮬 탭 «짝 없는 층»(SIM-PAIR 11-09): 지도가 없거나 시뮬 세계·지형과 이어지지 않은 층(simAt 실패). v = 승인 판(못 받았으면 undefined → 모름 = false) */
 const lone = (f: MapFloor, v?: MapVersion) => !f.approved_version_id || (!!v && typeof simAt(f, v) === 'string');
 /** 짝 없는 층 안내 — 시뮬 지도는 지도 탭 «지형 만들기» 저장으로만 만든다(11-19 입구를 지도 탭으로) */
@@ -80,7 +90,10 @@ export function pixelTo(a: Pick<MapVersion, 'origin' | 'resolution' | 'height'>,
 }
 
 /** 구역 종류는 테두리로(접근 금지 = 굵은 실선, 감속 = 둥근 점선)와 이름표로 가른다 — 색에만 기대지 않게 */
-export const ZONE = { NO_GO: { text: '접근 금지', line: { strokeWidth: 3.5 } }, SLOW: { text: '감속', line: { strokeWidth: 2.5, strokeDasharray: '1 5', strokeLinecap: 'round' } } } as const;
+/** 구역 종류 표. AREA = 서버 시드로만 만드는 이름 구역(움직임 표시 · 선 강조 없음, 그리기 도구에 없음). 계약 타입에 AREA 가 들어오기 전에도 받게 넓혀 둔다 */
+type ZoneLine = { strokeWidth: number; strokeDasharray?: string; strokeLinecap?: 'round' };
+export const ZONE: Record<MapZone['type'] | 'AREA', { text: string; line: ZoneLine }> = { NO_GO: { text: '접근 금지', line: { strokeWidth: 3.5 } }, SLOW: { text: '감속', line: { strokeWidth: 2.5, strokeDasharray: '1 5', strokeLinecap: 'round' } },
+  AREA: { text: '', line: { strokeWidth: 1 } } };
 /** 구역 채우기색 — 기존 토큰을 구역 순서대로 돌려 쓰는 화면 표시값(저장 안 함). 지도 그림은 테마 색(mapframe MapImage)이라 두 테마 바탕 모두에서 보이는 토큰만 */
 const FILL = ['var(--accent)', 'var(--warn)', 'var(--bad)', 'var(--ink-3)'];
 export const fillOf = (i: number) => FILL[i % FILL.length];
@@ -106,7 +119,7 @@ export function Shapes({ v, f, sel, bad, red }: { v: Pick<MapVersion, 'origin' |
     {f.edits.map((e, i) => <polyline key={`e${i}`} data-key={`edits.${i}`} data-edit={e.op} points={e.polyline.map(([x, y]) => p(x, y).join(',')).join(' ')}
       style={{ fill: 'none', stroke: EDIT[e.op]?.color, strokeWidth: e.width / v.resolution, strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.85, ...(mark(`edits.${i}`).stroke && { stroke: mark(`edits.${i}`).stroke, strokeDasharray: mark(`edits.${i}`).strokeDasharray }) }}><title>{`${EDIT[e.op]?.text ?? ''} 선`}</title></polyline>)}
     {f.zones.map((z, i) => <polygon key={`z${i}`} data-key={`zones.${i}`} data-zone={z.type} points={z.polygon.map(([x, y]) => p(x, y).join(',')).join(' ')}
-      style={{ fill: red && z.type === 'NO_GO' ? 'var(--bad)' : fillOf(i), fillOpacity: 0.3, stroke: red && z.type === 'NO_GO' ? 'var(--bad)' : fillOf(i), ...ZONE[z.type]?.line, ...mark(`zones.${i}`) }} vectorEffect="non-scaling-stroke"><title>{`${ZONE[z.type]?.text ?? ''} 구역 ${z.name}`}</title></polygon>)}
+      style={{ fill: red && z.type === 'NO_GO' ? 'var(--bad)' : fillOf(i), fillOpacity: 0.3, stroke: red && z.type === 'NO_GO' ? 'var(--bad)' : fillOf(i), ...ZONE[z.type]?.line, ...mark(`zones.${i}`) }} vectorEffect="non-scaling-stroke"><title>{`${ZONE[z.type]?.text ?? ''} 구역 ${z.name}`.trim()}</title></polygon>)}
     {f.zones.map((z, i) => { const q = z.polygon.map(([x, y]) => p(x, y)), cx = q.reduce((a, [x]) => a + x, 0) / q.length, cy = q.reduce((a, [, y]) => a + y, 0) / q.length;   // 이름표는 꼭짓점 평균 자리(누름은 구역이 받음)
       return <text key={`zt${i}`} x={cx} y={cy} fontSize={r * 2.4} textAnchor="middle" dominantBaseline="middle" style={{ fill: 'var(--text)', stroke: 'var(--bg)', strokeWidth: r * 0.6, paintOrder: 'stroke', pointerEvents: 'none' }}>{z.name}</text>; })}
     {f.waypoints.map((w, i) => { const [x, y] = p(w.x, w.y), [hx, hy] = aim(v, w, r);
@@ -215,7 +228,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   // 지도 탭 = 실기 장소만, 시뮬 탭 = 시뮬 + 실기 장소(RB-SCEN-SIMTAB 11-11 — 시나리오는 실기·시뮬 같은 것을 시뮬 탭에서 고친다). 이름으로 거르지 않음 — 서버 purpose.
   // 장소 고치기(이름·삭제·만들기)는 그 탭 쓰임의 장소만(own)
   const own = (s: MapSite) => purposeOf(s) === purpose;
-  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: t0.tree.items.filter((s) => sim || inMapTab(s)) } }), [t0.tree, t0.err]);
+  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: sim ? t0.tree.items : t0.tree.items.flatMap((s) => { const x = mapTabSite(s); return x ? [x] : []; }) } }), [t0.tree, t0.err]);
   const admin = c.user.role === 'ORG_ADMIN', places = useMemo(() => floorsOf(t.tree), [t.tree]), robots = c.robots ?? [];
   const [pick, setPick] = useState(() => kept.d?.floor ?? keptPlan.floor), cur = places.find((p) => p.floor.id === pick);
   const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };
