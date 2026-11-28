@@ -278,28 +278,30 @@ describe('PC «시뮬» 탭', () => {
 
   // PR #99(ADR-003 §7 ③ «끝내기 → 로봇 빠짐»): 끝낸 시뮬 슬롯은 담당을 비운 채 /robots 에 남는다 — 로봇 목록에서 뺀다. 내 시뮬·담당 없는 실기는 그대로
   // TAB-SPLIT(11-10): 로봇 탭 = 실기만 — 내 시뮬도 로봇 탭에는 없고 머리줄 STOP 후보(다른 탭 고르기)에는 그대로
-  it('총괄 로봇 탭: 시뮬(IDLE 슬롯·내 시뮬)은 목록에 없음, 담당 없는 실기는 보임 — 내 시뮬은 STOP 고르기에 그대로', async () => {
+  // 11/28 시안 u4: 로봇 탭 목록에 시뮬 줄도(rehearse 파란 점선) — 끝낸 슬롯(담당 비움)만 뺀다
+  it('총괄 로봇 탭: 끝낸 시뮬 슬롯은 목록에 없음, 내 시뮬은 rehearse 줄, 담당 없는 실기는 보임 — 내 시뮬은 STOP 고르기에 그대로', async () => {
     serve();
     await mount('u-kim', [ROBOTS[1], { ...ROBOTS[1], id: 'r9', name: 'Go2-9', owner: '', ownerName: undefined },
       { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: '', sim: true }, { ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-kim', sim: true }], '#/fleet');
-    expect(fleetNames(box)).toEqual(['Go2-7', 'Go2-9']);   // PC 로봇 탭(시안 u4) 목록 줄
-    expect(box.textContent).not.toContain('시뮬-1');
+    expect(fleetNames(box)).toEqual(['Go2-7', 'Go2-9', '시뮬-1']);   // PC 로봇 탭(시안 u4) 목록 줄
+    expect(box.querySelector('.u4 .rail .rcard[data-r="시뮬-1"]')!.classList.contains('rehearse')).toBe(true);
+    expect(box.querySelector('.u4 .rail .rcard[data-r="Go2-7"]')!.classList.contains('rehearse')).toBe(false);
+    expect(box.textContent).not.toContain('시뮬-2');
     act(() => { location.hash = '#/sim'; }); await flush();
     await click($('[data-stop]'));
     expect([...box.querySelectorAll<HTMLOptionElement>('select[aria-label="정지할 로봇"] option')].map((o) => o.textContent)).toEqual(['로봇 고르기', 'Go2-7', 'Go2-9', '시뮬-1']);   // 11/28: 실기도 후보, IDLE 슬롯(시뮬-2)은 그대로 없음
   });
-  it('운영자 로봇 탭: 시뮬만 담당이면 «실기 로봇이 없습니다» 안내 + 시뮬 탭 길, 시뮬을 골라 둔 채 들어오면 첫 실기로(화면 = STOP 대상)', async () => {
+  it('운영자 로봇 탭: 시뮬만 담당이면 그 시뮬 줄 하나(rehearse), 화면 = 고른 줄(= STOP 대상)', async () => {
     serve();
     await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }], '#/fleet');
-    expect($('[data-no-real]')!.textContent).toContain('실기 로봇이 없습니다');
-    expect($('[data-no-real] a[href="#/sim"]')).toBeTruthy();
+    expect(fleetNames(box)).toEqual(['시뮬-1']);
+    expect($('[data-robot-head] .ttl')!.textContent).toBe('시뮬-1');
     expect($('[aria-label="로봇 연결 상태"]')).toBeNull();
     act(() => root?.unmount()); root = null; box.remove(); sim.clear();
     serve();
     await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }, ...ROBOTS], '#/fleet');
-    expect(fleetNames(box)).not.toContain('시뮬-1');
+    expect(fleetNames(box)).toContain('시뮬-1');
     const shown = $('[data-robot-head] .ttl')!.textContent!;
-    expect(shown).not.toBe('시뮬-1');
     expect($('.u4 .rail .rcard.on')!.getAttribute('data-r')).toBe(shown);
   });
 

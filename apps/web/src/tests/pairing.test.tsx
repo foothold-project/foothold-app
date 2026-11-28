@@ -11,7 +11,7 @@ import { pcBoard } from '../pcboard';
 /** 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비)을 앱 맥락 안에서 직접 그린다 — W1 u5(관제)로 옮겨 갈 부품 */
 const board = () => { beforeEach(() => { pcBoard.on = true; }); afterEach(() => { pcBoard.on = false; }); };
 /** PC 로봇 탭(시안 u4)의 «로봇 설정» · «점검» 창 열기 */
-const seg = async (t: '로봇 설정' | '점검') => { act(() => { box.querySelector<HTMLElement>(`.u4 .seg2 [data-seg="${t}"]`)!.click(); }); await flush(); };
+const seg = async (t: '조종' | '로봇 설정' | '점검') => { act(() => { box.querySelector<HTMLElement>(`.u4 .seg2 [data-seg="${t}"]`)!.click(); }); await flush(); };
 const u4Drive = () => box.querySelector<HTMLElement>('[data-u4-drive]')!;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -322,7 +322,7 @@ describe('PC 웹 운영 관리자', () => {
     expect($('[aria-label="로봇 설정"]')!.textContent).toContain(SERIAL);
     await click($('[data-u4-close]'));
     expect($('[aria-label="로봇 설정"]')).toBeNull();
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
     await click(btn('닫기', card('새 로봇 추가')));
     expect($('[data-u4]')).not.toBeNull();
@@ -340,7 +340,7 @@ describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른�
     const step = card('조종 준비').querySelector('[data-step="3"]')!;
     expect(step.querySelector('[data-drive-block]')!.textContent).toBe(message);
     expect(step.textContent).not.toMatch(/serial|agent|lease|SLAM|SWITCH_OFF|NO_OWNER|NO_SERIAL|AGENT_OFFLINE/);
-    expect(u4Drive().getAttribute('aria-disabled')).toBe('true');
+    await seg('조종'); expect(u4Drive().getAttribute('aria-disabled')).toBe('true');   // 점검 칸은 오른쪽 칸을 바꿔 그림 → 조종으로 돌아와 확인
     expect($('[data-u4-can]')).toBeNull();
   });
   it('연결 전에도 여러 이유를 각각 한 줄로 표시함', async () => {
@@ -355,7 +355,7 @@ describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른�
     await open('#/fleet', false); online(); await seg('점검');
     expect(card('조종 준비').querySelector('[data-step="3"]')!.textContent).toContain('서버가 아직 조종을 허용하지 않았습니다');
     expect($('[data-drive-block]')).toBeNull();
-    expect(u4Drive().getAttribute('aria-disabled')).toBe('true');
+    await seg('조종'); expect(u4Drive().getAttribute('aria-disabled')).toBe('true');   // 점검 칸은 오른쪽 칸을 바꿔 그림 → 조종으로 돌아와 확인
     expect($('[data-u4-can]')).toBeNull();
   });
   it.each<{ blocked: NonNullable<RobotSummary['server_drive_blocked']> }>([{ blocked: [] }, { blocked: ['SWITCH_OFF'] }])('서버 허용이면 이유 $blocked 와 무관하게 기존 패널 표시', async ({ blocked }) => {
@@ -596,7 +596,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     ua(UBUNTU);
     serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(WIN, LINUX) }));
     await open('#/fleet', false);
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     const box2 = $('[data-installer]')!;
     expect(box2.textContent).toContain('노트북에 연결 프로그램이 없나요?');
     expect(rows().map((r) => r.dataset.os)).toEqual(['linux', 'windows']);
@@ -624,7 +624,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     ua(WINDOWS);
     serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(LINUX, { ...LINUX, platform: 'windows', filename: 'foothold-robot-setup.exe' }) }));
     await open('#/fleet', false);
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(rows().map((r) => r.dataset.os)).toEqual(['windows', 'linux']);
     expect(rows()[0].dataset.mine).toBe('true');
     expect(rows()[1].dataset.mine).toBeUndefined();
@@ -637,7 +637,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': () => now }));
     vi.useFakeTimers({ shouldAdvanceTime: true });   // 10초 다시 묻기 타이머가 가짜 시계에 걸리게 — flush 의 0ms 는 실제 시간으로 흐름
     await open('#/fleet', false);
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect($('[data-os="linux"]')!.textContent).toContain('만드는 중… 잠시 뒤 다시');
     expect($('[data-os="windows"]')!.textContent).toContain('이 서버에서는 설치 파일을 만들 수 없습니다');
     expect(sent('GET', '/robot-installer/info')).toHaveLength(1);
@@ -655,7 +655,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     // 다시 만드는 중으로 열었다가 닫으면 멈춤
     now = info({ platform: 'linux', available: false, reason: 'not_built' }, WIN);
     act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
-    act(() => $('[data-u4-add]')!.click()); await wait(0);
+    act(() => $('[data-u4-add]')!.click()); await wait(0); act(() => $('[data-u4-next]')!.click()); await wait(0);
     expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
     act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
     await wait(30_000);
@@ -673,11 +673,11 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     });
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await open('#/fleet', false);
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(sigs).toHaveLength(1);
     await click(btn('닫기', card('새 로봇 추가')));
     expect(sigs[0].aborted).toBe(true);   // 닫으면 끊김
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(sigs).toHaveLength(2);
     expect(sigs[1].aborted).toBe(false);
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); for (let i = 0; i < 10; i++) await Promise.resolve(); });
@@ -693,7 +693,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
       'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } },
     }));
     await open('#/fleet', false);
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect($('[data-installer-fail]')!.textContent).toBe('설치 파일 정보를 받지 못했습니다. 권한이 없습니다.');
     expect(rows()).toHaveLength(0);
     expect($('[aria-label="새 로봇 추가"] [role="alert"]')).toBeNull();
@@ -709,7 +709,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     const real = globalThis.fetch;
     vi.stubGlobal('fetch', (u: string, i?: RequestInit) => (u.includes('robot-installer') ? Promise.reject(new TypeError('x')) : real(u, i)));
     await open('#/fleet', false);
-    await click($('[data-u4-add]'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect($('[data-installer-fail]')!.textContent).toContain('서버에 연결하지 못했습니다');
     expect($<HTMLInputElement>('[data-pair-code]')!.disabled).toBe(false);
   });

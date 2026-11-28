@@ -135,6 +135,8 @@ describe('총괄 = 모든 권한: PC', () => {
   it('«+ 새 로봇 추가» 가 총괄에게도', () => {
     mount(false, KIM, '#/fleet'); serve(KIM, 'r3', 'r7', 'ra');
     click($('[data-u4-add]')!);
+    expect($('[role="dialog"][aria-label="로봇 추가"] [data-u4-kind="real"]')!.getAttribute('aria-checked')).toBe('true');   // 시안 u4_6 실제 · 시뮬 고르기
+    click($('[data-u4-next]')!);
     expect($('[role="dialog"][aria-label="로봇 추가"] [aria-label="새 로봇 추가"]')).not.toBeNull();
   });
 });

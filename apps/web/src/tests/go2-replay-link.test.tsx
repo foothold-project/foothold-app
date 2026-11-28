@@ -47,7 +47,7 @@ describe('실기 보기 열기(로봇 탭 실기 상세)', () => {
     act(() => { fleetRow(box, real.name).click(); }); await flush();
     await check();
     expect(box.querySelector('[aria-label="점검"] [data-go2-open]')!.getAttribute('href')).toBe(href(real.id));
-    act(() => { box.querySelector<HTMLElement>('[data-u4-close]')!.click(); }); await flush();
+    act(() => { box.querySelector<HTMLElement>('.u4 .seg2 [data-seg="조종"]')!.click(); }); await flush();   // 점검 → 조종
     expect(box.querySelector('[data-go2-open]')).toBeNull();
   });
   it('지도 고르기: 로봇이 있는 층이 기본, 3D 지도 판은 그 시뮬 지형으로 열고(누르는 순간 지형 사본), 지형 없는 판은 꺼짐 + 이유, «지도 없이»는 기본 지형', async () => {

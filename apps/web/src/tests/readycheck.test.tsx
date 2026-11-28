@@ -147,7 +147,8 @@ describe('다시 점검', () => {
 });
 
 describe('운영 관리자 로봇 탭 자리', () => {
-  it('내 로봇이면 「조종 준비」 칸 맨 아래에 접힌 「자세히 점검」, 남의 로봇(요약만)은 없음', async () => {
+  // PC 로봇 탭(시안 u4_4): «점검» 을 누르면 오른쪽 칸이 순서 점검 일곱 줄(이 checks 그대로) · 그 아래 조종 준비 세 단계. 남의 로봇(요약만)은 줄 없음
+  it('내 로봇이면 «점검» 칸에 순서 점검 일곱 줄 + 조종 준비, 남의 로봇(요약만)은 없음', async () => {
     const { App } = await import('../App');
     const { ROBOTS, USERS } = await import('./fixtures');
     window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
@@ -155,19 +156,20 @@ describe('운영 관리자 로봇 탭 자리', () => {
     const mine = ROBOTS.filter((x) => x.owner === 'u-park').map((x) => ({ ...x, serverDrive: false }));
     box = document.createElement('div'); document.body.append(box);
     act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[...mine, ...ROBOTS.filter((x) => x.owner !== 'u-park')]} />); });
-    act(() => { box.querySelector<HTMLElement>('.u4 .seg2 [data-seg="점검"]')!.click(); });   // PC 로봇 탭(시안 u4) «점검» 창
-    expect(box.querySelector('[aria-label="조종 준비"]')).not.toBeNull();
-    expect(box.querySelector('[aria-label="순서 점검"]')).toBeNull();   // 따로 칸이 아니라 「조종 준비」 칸 안 맨 아래 접힌 「자세히 점검」(한 사실은 한 곳)
-    const prep = box.querySelector('[aria-label="조종 준비"]')!, d = prep.querySelector('details[data-readycheck]')!;
-    expect(d).not.toBeNull();
-    expect(prep.lastElementChild!.contains(d)).toBe(true);
-    // 서버 단계는 같은 칸 1 단계 「서버 연결」 과 같은 값(이 화면의 실시간 연결). 시험에는 실시간 연결이 없어 둘 다 끊김
+    expect(box.querySelector('[aria-label="점검"]')).toBeNull();
+    act(() => { box.querySelector<HTMLElement>('.u4 .seg2 [data-seg="점검"]')!.click(); });
+    const pane = box.querySelector('[aria-label="점검"]')!;
+    expect(pane.querySelector('.ttl')!.textContent).toBe('순서 점검');
+    expect([...pane.querySelectorAll<HTMLElement>('[data-check]')].map((x) => x.firstChild!.nextSibling!.textContent)).toEqual(['Wi-Fi', '서버', 'foothold-robot', '걷기 정책', '몸통', '센서', '배터리 · 관절']);
+    // 서버 단계는 조종 준비 1 단계 «서버 연결» 과 같은 값(이 화면의 실시간 연결). 시험에는 실시간 연결이 없어 둘 다 끊김
+    expect(pane.querySelector<HTMLElement>('[data-check="server"]')!.dataset.state).toBe('blocked');
+    const prep = pane.querySelector('[aria-label="조종 준비"]')!;
     expect(prep.querySelector('[data-step="1"]')!.classList.contains('done')).toBe(false);
-    expect(d.querySelector<HTMLElement>('[data-check="server"]')!.dataset.state).toBe('blocked');
-    const other = [...box.querySelectorAll<HTMLElement>('.u4 .rail .rcard')].find((x) => ROBOTS.some((r) => r.name === x.dataset.r && r.owner !== 'u-park'))!;
+    expect(pane.querySelector('[data-u4-check-head]')!.textContent).toMatch(/^\d\d:\d\d · \d 곳 막힘$/);
+    const other = [...box.querySelectorAll<HTMLElement>('.u4 .rail .rcard')].find((x) => ROBOTS.some((r) => r.name === x.dataset.r && r.owner !== 'u-park' && !r.sim))!;
     act(() => other.click());
     act(() => { box.querySelector<HTMLElement>('.u4 .seg2 [data-seg="점검"]')!.click(); });
-    expect(box.querySelector('[aria-label="점검"]')).not.toBeNull();
-    expect(box.querySelector('details[data-readycheck]')).toBeNull();
+    expect(box.querySelector('[aria-label="점검"] [data-u4-check-none]')).not.toBeNull();
+    expect(box.querySelector('[data-check]')).toBeNull();
   });
 });
