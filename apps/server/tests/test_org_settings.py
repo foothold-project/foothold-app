@@ -353,3 +353,17 @@ def test_busy_hours_patch_replaces_whole_list(client):
     assert client.patch(P, headers=headers, json={'busy_hours': BUSY[1:]}).json()['busy_hours'] == BUSY[1:]
     assert client.patch(P, headers=headers, json={'busy_hours': []}).json()['busy_hours'] == []
 
+
+def test_seed_script_patches_through_app_login_bearer(client, seeded):
+    from tools import seed_org_settings as seed
+    PASSWORD = 'fake-test-password'
+    def send(method, path, body, token):
+        response = client.request(method, path, json=body,
+                                  headers={'Authorization': 'Bearer ' + token} if token else {})
+        return response.status_code, response.json() if response.content else None
+    payload = {'show_demo_label': False, 'busy_hours': BUSY, 'dup_inspect_min': 240}
+    assert seed.seed(send, 'admin', PASSWORD, payload) == payload
+    csrf(client, 'one')
+    assert {k: client.get(P).json()[k] for k in payload} == payload
+    with pytest.raises(SystemExit):
+        seed.seed(send, 'one', PASSWORD, payload)
