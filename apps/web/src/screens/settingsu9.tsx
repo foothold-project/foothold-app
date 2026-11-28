@@ -399,8 +399,8 @@ function Alerts({ cancel }: { cancel?: AbortSignal }) {
 }
 
 
-/** 영어로 바뀌는 범위(사전 lang.en.ts 1 차). 모든 탭을 덮으면 이 줄을 뺀다 */
-export const LANG_SCOPE = '지금 영어로 바뀌는 곳: 머리줄 · 설정. 다른 탭은 차례로 늘립니다.';
+/** 영어로 바뀌는 범위(사전 lang.en.ts). 서버 글까지 바뀌면(서버 locale) 이 줄을 뺀다 */
+export const LANG_SCOPE = '영어로 바뀌는 곳: 앱 글 전부. 서버가 보낸 글(이름 · 사건 · 알림)은 그대로입니다.';
 /** 표시(u9_6 총괄 · u9_9 운영자). 화면 밝기 = 머리 메뉴 밝기와 같은 값(theme.tsx). 언어 = 이 기기 값(lang.tsx), 데모 표시는 서버 값이 없어 잠금 */
 function Display({ admin }: { admin: boolean }) {
   const [pref] = useTheme();

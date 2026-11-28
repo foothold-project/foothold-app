@@ -1,4 +1,4 @@
-// 영어 화면 글 사전(lang.tsx). 열쇠 = 화면에 그려지는 한국어 글 그대로(앞뒤 빈칸 뺌). 1 차 범위 = 머리줄 · 설정(시안 u9) · 정지 글.
+// 영어 화면 글 사전(lang.tsx). 열쇠 = 화면에 그려지는 한국어 글 그대로(앞뒤 빈칸 뺌). 범위 = 머리줄 · 설정(u9) · 관제(u5) · 로봇(u4) · 지도(u7) · 임무(u6) · 기록(u8) 의 앱 글.
 // 숫자와 단위는 그대로 둔다(시안 u9_6 「숫자와 단위는 그대로입니다」). 사전에 없는 글은 한국어 그대로(서버 값 · 이름).
 export const EN: Record<string, string> = {
   // 머리줄 · 메뉴
@@ -82,10 +82,49 @@ export const EN: Record<string, string> = {
   // 표시(u9_6)
   '화면 밝기 · 언어 · 데모 표시. 여기서만 바꿉니다.': 'Brightness · language · demo label. Changed only here.', '화면 밝기': 'Brightness', '밝게': 'Light', '현장 폰 기본': 'Site phone default',
   '어둡게': 'Dark', '관제 PC 기본': 'Control PC default', '기기 설정 따르기': 'Follow device', '기기 설정대로': 'As the device', '바꾸면 모든 화면에 바로 적용됩니다.': 'Applies to every screen at once.',
-  '언어': 'Language', '지금 영어로 바뀌는 곳: 머리줄 · 설정. 다른 탭은 차례로 늘립니다.': 'In English now: top bar · Settings. Other tabs will follow.', '모든 화면 글이 바뀝니다. 숫자와 단위는 그대로입니다.': 'All screen text changes. Numbers and units stay the same.',
+  '언어': 'Language', '영어로 바뀌는 곳: 앱 글 전부. 서버가 보낸 글(이름 · 사건 · 알림)은 그대로입니다.': 'In English: all app text. Text sent by the server (names · events · alerts) stays as sent.', '모든 화면 글이 바뀝니다. 숫자와 단위는 그대로입니다.': 'All screen text changes. Numbers and units stay the same.',
   '데모 로봇에 「데모」 표시': 'Show “Demo” on demo robots', '발표할 때는 끄세요. 끄면 표시만 사라지고 데모 로봇은 실제 로봇과 같은 모양으로 보입니다.': 'Turn it off for presentations. Only the label goes away; demo robots look like real ones.',
   '켜고 끄는 값을 저장하는 서버 기능이 아직 없습니다.': 'The server cannot store this switch yet.', '총괄만 바꿀 수 있습니다': 'Only admins can change this', '켬': 'On', '끔': 'Off', '데모': 'Demo', '순찰 중': 'Patrolling',
+
+  // 2 차: 관제(u5) · 로봇(u4) · 지도(u7) · 임무(u6) · 기록(u8) 탭의 앱 글(서버가 준 이름 · 사건 글은 그대로)
+  '새 알림': 'New alerts', '연결 끊김': 'Disconnected', '최근': 'Latest', '건만 보입니다 · 기록에서 모두 보기': 'shown · see all in History',
+  '타일 보기': 'Tiles', '지도 보기': 'Map', '첫 화면으로': 'Back to start', '임무 중': 'On mission', '충전': 'Charging', '점검': 'Maintenance', '연결 중': 'Connecting', '시뮬 대기': 'Sim waiting',
+  '정면 상태로 뒤집기': 'Flip to front view', '데모 표시': 'Demo label', '모두': 'All', '내 로봇': 'My robots', '뒤 1 m': '1 m behind', '연결': 'Link', '담당자': 'Owner', '할 일': 'Tasks',
+  '정지 잠금': 'Stop latched', '· 정면 보기': '· front view', '시뮬': 'Sim', '임무 전 · 시뮬 등록': 'Before mission · sim registered', '배터리 해당 없음': 'No battery (sim)', '시뮬 계산': 'Sim calc',
+  '카메라 신호 없음 · 로봇 상태를 확인하는 중입니다': 'No camera signal · checking robot status', '연결 전': 'Not connected', '작은 지도': 'Mini map', '점 = 로봇 · 점선 = 시뮬': 'Dot = robot · dashed = sim',
+  '경보 ·': 'Alarm ·', '관절 위험': 'Joint danger', '로봇은 스스로 멈추지 않습니다.': 'The robot does not stop by itself.', '로봇 탭에서 보기': 'View in Robots', '최근 경고': 'Recent warnings',
+  '기록 탭에서 모두 보기': 'See all in History', '보기': 'View', '범위': 'Scope', '로봇 타일': 'Robot tiles', '작은 지도 · 누르면 지도 보기': 'Mini map · click for map',
+  '실시간 3D · 끌어서 돌리기 · 휠 확대': 'Live 3D · drag to rotate · wheel to zoom', '동선 겹쳐 보기': 'Route overlap', '기존 동선': 'Current routes', '대': 'robots', '새 동선': 'New route', '겹치는 곳': 'Overlaps', '현장 3D': 'Site 3D',
+  '로봇 추가': 'Add robot', '데모 · 정지 잠금': 'Demo · stop latched', '시뮬 · 정지 잠금': 'Sim · stop latched', '실제 · 연결 끊김': 'Real · disconnected', '바꿀 수 있는 모드 없음': 'No modes to switch',
+  '조종자': 'Driver', '조종': 'Drive', '로봇 설정': 'Robot settings', '끌어서 돌려 보기': 'Drag to rotate', '서 있음': 'Standing', '위치 추정 켜짐': 'Localization on',
+  '관절값을 받지 않아 서 있는 모양 그대로': 'No joint values · shown standing', '카메라': 'Camera', '라이다': 'LiDAR', '깊이': 'Depth', '시뮬 시점': 'Sim view', '앞 카메라': 'Front camera', '임무 없음': 'No mission',
+  '조종 시작': 'Start driving', '말하기': 'Talk', '옆걸음': 'Sidestep', '화면': 'Screen', '모드': 'Mode', '앉기': 'Sit', '일어서기': 'Stand up', '엎드리기': 'Lie down', '기지개': 'Stretch', '악수': 'Shake hands', '하트': 'Heart', '인사': 'Hello',
+  '순정 확인 전': 'Stock app not checked', '흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).': 'Dimmed buttons are not ready yet (buttons disabled by permission show the reason next to them).',
+  '나(총괄)': 'Me (Admin)', '이 로봇은 걷기 모드를 바꿀 수 없습니다 (로봇이 보낸 쓸 수 있는 모드 없음).': 'This robot cannot change walking mode (it reported no available modes).', '로봇 보기': 'Robot view',
+  '더블클릭하면 크게 봅니다': 'Double-click to enlarge', '비상 정지 · 이 로봇': 'Emergency stop · this robot', '개': 'items', '층': 'Floor',
+  '로봇이 현장을 걸으며 스캔한 3D 지도입니다. 층마다 따로 만듭니다.': '3D maps scanned by robots walking the site. One per floor.', '고르기': 'Pick', '관리': 'Manage', '새 지도 만들기': 'New map', '· 층': '· floors',
+  '층마다 지도 하나': 'One map per floor', '시험 지형': 'Test terrain', '실측 지도': 'Scanned map', '현장 스캔': 'Site scan', '가져온 지도': 'Imported map', '외부 3D 파일': 'External 3D file', '직접 만든 지형': 'Hand-made terrain',
+  '3D 보기 · 미리 보기': '3D view · preview', '시뮬 지형': 'Sim terrain', '금지 구역': 'No-go zones', '지도 열기': 'Open map', '버전 기록': 'Version history', '장소': 'Places', '지도 고르기': 'Pick map', '고르기 · 관리': 'Pick · manage',
+  '층 목록': 'Floors', '미리 보기': 'Preview', '3D 미리 보기': '3D preview', '장소 닫기': 'Close place',
+  '새 임무': 'New mission', '시작 지점으로 복귀': 'Return to start', '편집': 'Edit', '지점': 'Points', '맞춤': 'Fit', '실제 모습': 'Real view', '장애물 지도': 'Obstacle map', '경로': 'Route', '구역': 'Zones', '길이': 'Length',
+  '걷기 + 할 일': 'Walk + tasks', '미리 확인': 'Check', '모두 갈 수 있음': 'All reachable', '일정에 추가': 'Add to schedule', '시작': 'Start', '마감': 'End', '이 시간에 쓸 수 있는 로봇': 'Robots free at this time', '실제': 'Real',
+  '비어 있음': 'Free', '걷기 모드': 'Walking mode', '준비 중': 'Not ready', '예상 끝': 'Expected end', '여유': 'Slack', '종료 시 배터리': 'Battery at end', '로봇과 걷기 모드를 고르면 예상이 나옵니다.': 'Pick a robot and a walking mode to see the estimate.',
+  '모의 실행': 'Simulate', '오늘 일정': 'Today’s schedule', '대 ·': 'robots ·', '건': 'items', '끝남': 'Done', '진행 중': 'Running', '예정': 'Planned', '작성 중': 'Draft', '배터리 교체': 'Battery swap', '확정': 'Confirmed',
+  '임무 목록': 'Missions', '임무 목록 앞 쪽': 'Missions previous page', '임무 목록 다음 쪽': 'Missions next page', '임무 지도': 'Mission map', '지도 확대': 'Zoom map', '축소': 'Zoom out', '확대': 'Zoom in',
+  '혼잡 시간은 서버에 값이 없습니다': 'Busy hours: no value from server', '경로 요약': 'Route summary', '시작(시:분)': 'Start (h:m)', '마감(시:분)': 'End (h:m)', '로봇 앞 쪽': 'Robots previous page', '로봇 다음 쪽': 'Robots next page',
+  'AME-2 는 아직 일정에 넣을 수 없습니다': 'AME-2 cannot be scheduled yet', '예상': 'Estimate', '다음 일정까지 여유': 'Slack before next slot', '로봇 줄 앞 쪽': 'Robot rows previous', '로봇 줄 다음 쪽': 'Robot rows next',
+  '조종권': 'Control', '묶음별 건수는 서버가 주지 않습니다.': 'The server does not give counts per group.', '등급': 'Level', '정보': 'Info', '실제 · 모의 실행': 'Real · simulated',
+  '서버에 실제 · 모의 실행 거르기가 없어 모두 보입니다.': 'The server has no real/simulated filter, so all are shown.', '모든 로봇': 'All robots', '클립 있는 것만': 'With clips only', '서버에 클립 거르기가 없습니다.': 'The server has no clip filter.',
+  '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
+  '지금 장면 저장': 'Save this moment', '내보내기': 'Export', '필터 없음': 'No filter', '클립': 'Clips', '사건': 'Events', '시각': 'Time', '클립 길이': 'Clip length', '정보 단계': 'Info level', '기록만': 'Record only',
+  '기록 거르기': 'History filters', '묶음': 'Group', '서버에 모드 전환 기록이 없습니다': 'The server has no mode-switch records', '찾기': 'Search', '사건 · 로봇 · 메모 찾기': 'Search events · robots · notes', '기간': 'Period',
 };
+
+const LV: Record<string, string> = { 위험: 'Danger', 경고: 'Warning', 주의: 'Caution' };
+const SIDE: Record<string, string> = { '왼쪽 앞다리': 'Front-left', '오른쪽 앞다리': 'Front-right', '왼쪽 뒷다리': 'Rear-left', '오른쪽 뒷다리': 'Rear-right', '앞 왼': 'Front-left', '앞 오른': 'Front-right', '뒤 왼': 'Rear-left', '뒤 오른': 'Rear-right' };
+const PART: Record<string, string> = { 엉덩이: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
+/** 관절 이름(proto/u5 jointName «오른쪽 앞다리 무릎» · go2model jointName «앞 오른 종아리») → «Front-right knee». 모르면 그대로 */
+const joint = (s: string) => { const g = /^(.+) (\S+)$/.exec(s); return g && SIDE[g[1]] && PART[g[2]] ? `${SIDE[g[1]]} ${PART[g[2]]}` : s; };
 
 /** 값이 섞인 글(숫자 · 이름 · 시각). 위에서부터 처음 맞는 것 하나 */
 export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
@@ -108,5 +147,18 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^화면 밝기 (.+)$/, (m) => `Brightness ${EN[m[1]] ?? m[1]}`],
   [/^화면 밝기: (.+) · 누르면 (.+)$/, (m) => `Brightness: ${EN[m[1]] ?? m[1]} · next ${EN[m[2]] ?? m[2]}`],
   [/^할 일 (\d+) \/ (\d+)$/, (m) => `Tasks ${m[1]} / ${m[2]}`],
+
+  [/^약 (\d+) 분$/, (m) => `about ${m[1]} min`],
+  [/^([^가-힣]+) 타일$/, (m) => `${m[1]} tile`],
+  [/^([^가-힣]+) · 정지 잠금$/, (m) => `${m[1]} · stop latched`],
+  [/^받은 시각 (\d\d:\d\d)$/, (m) => `Received ${m[1]}`],
+  [/^알림 안 읽음 (\d+)건$/, (m) => `${m[1]} unread alerts`],
+  [/^사건 (\d+) 건 이상$/, (m) => `${m[1]}+ events`],
+  [/^오늘 · (\d+)월 (\d+)일$/, (m) => `Today · ${m[1]}/${m[2]}`],
+  [/^(위험|경고|주의) · (.+) (\d+) °C$/, (m) => `${LV[m[1]]} · ${joint(m[2])} ${m[3]} °C`],
+  [/^(.+) (\d+) °C · (위험|경고|주의)$/, (m) => `${joint(m[1])} ${m[2]} °C · ${LV[m[3]]}`],
+  [/^(.+?)이? (\d+) °C 입니다\.$/, (m) => `${joint(m[1])} is ${m[2]} °C.`],
+  [/^((?:왼쪽|오른쪽) (?:앞|뒷)다리 \S+|(?:앞|뒤) (?:오른|왼) \S+) (\d+) °C$/, (m) => `${joint(m[1])} ${m[2]} °C`],
+  [/^((?:왼쪽|오른쪽) (?:앞|뒷)다리 \S+|(?:앞|뒤) (?:오른|왼) \S+)$/, (m) => joint(m[1])],
 ];
 
