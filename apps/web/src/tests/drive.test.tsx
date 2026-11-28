@@ -2426,6 +2426,29 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect(api.schedule).not.toHaveBeenCalled();
   });
 
+  it('왼쪽 보기 고르개(시안 u1_1 로봇 · 평면 · 3D): 로봇 = 로봇 둘레 · 평면 = 판 전체 · 3D 는 꺼 둠(「3D 지도 준비 중」) · 임무 없으면 없음', async () => {
+    await open(RUN);
+    act(() => push('r7', { location: { floor_id: 'f1', map_version_id: 'mv-x', x: 5, y: 5, yaw: 0, confidence: 1, updated_at: new Date().toISOString() } } as never));
+    const col = $('.u1d .u1-vcol')!;
+    expect([...col.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['로봇', '평면', '3D']);
+    expect(btn('로봇').getAttribute('aria-pressed')).toBe('true');
+    expect($('.u1d svg.u1-mmap')!.getAttribute('viewBox')).toBe('0 25 100 50');   // 로봇(50, 50 px) 둘레 판의 반
+    click(btn('평면'));
+    expect(btn('평면').getAttribute('aria-pressed')).toBe('true');
+    expect($('.u1d svg.u1-mmap')!.getAttribute('viewBox')).toBe('0 0 200 100');
+    const d3 = btn('3D');
+    expect(d3.getAttribute('aria-disabled')).toBe('true');
+    click(d3);
+    expect(text()).toContain('3D 지도 준비 중');
+    expect($('.u1d svg.u1-mmap')!.getAttribute('viewBox')).toBe('0 0 200 100');
+    expect(u1AppCss).toMatch(/\.u1d \.u1-vcol\{position:absolute;left:12px;top:118px;width:46px;padding:5px;display:flex;flex-direction:column;gap:4px;border-radius:16px/);
+  });
+
+  it('임무가 없으면 보기 고르개 없음', async () => {
+    await open(null);
+    expect($('.u1d .u1-vcol')).toBeNull();
+  });
+
   it('판을 못 받을 때: 지도 없음 · 카드는 그대로', async () => {
     await open(RUN, null);
     expect($('.u1d svg.u1-mmap')).toBeNull();
