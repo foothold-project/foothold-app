@@ -1,6 +1,7 @@
-// 순서 점검(u2_4 · L66) · 「조종 준비」 칸 안 접힌 「자세히 점검」: Wi-Fi(Jetson) → 서버 → 로봇 프로그램 → 걷기 정책 → 몸통 → 센서 → 배터리 · 관절을 차례로 한 표에.
+// 순서 점검(u2_4 · L66) · 「조종 준비」 칸 안 접힌 「자세히 점검」: 에이전트 Wi-Fi → 서버 → 에이전트 → 걷기 정책 → 몸통 → 센서 → 배터리 · 관절을 차례로 한 표에.
 // 보기 전용이다. 단계마다 «확인됨 · 막힘(까닭) · 서버에 값 없음» 셋 중 하나만 쓰고, 조종을 허락하는 듯한 말은 쓰지 않는다(조종 가부는 조종 화면 판정이 정함).
-// 계약에 없는 값(로봇 쪽 Wi-Fi 이름 · 걷기 정책)은 «서버에 값 없음» 으로 두고 짓지 않는다. 로봇이 끊기면 마지막 값으로 «확인됨» 하지 않는다.
+// 로봇 쪽 컴퓨터 프로그램은 다른 화면(근처 로봇 · 시뮬 · 실행) 처럼 «에이전트» 로 부른다.
+// 계약에 없는 값(에이전트 쪽 Wi-Fi 이름 · 걷기 정책)은 «서버에 값 없음» 으로 두고 짓지 않는다. 로봇이 끊기면 마지막 값으로 «확인됨» 하지 않는다.
 // «다시 점검» 은 받는 값을 다시 받기만 한다(로봇 목록 다시 받기 · 로봇에 명령 없음).
 import { useState } from 'react';
 import type { Robot } from '../fake';
@@ -9,7 +10,7 @@ import './readycheck.css';
 
 type State = 'ok' | 'blocked' | 'none';
 type Step = { key: string; name: string; state: State; why: string };
-const STATE: Record<State, [string, string]> = { ok: ['✓', '확인됨'], blocked: ['!', '막힘'], none: ['–', '서버에 값 없음'] };
+const STATE: Record<State, [string, string]> = { ok: ['✓', '확인됨'], blocked: ['!', '막힘'], none: ['·', '서버에 값 없음'] };
 const SENSORS = new Set(['CAMERA_RGB', 'CAMERA_DEPTH', 'LIDAR']);
 const NOW_NONE = '로봇이 연결되어 있지 않아 지금 값이 없습니다.';
 
@@ -17,7 +18,7 @@ const NOW_NONE = '로봇이 연결되어 있지 않아 지금 값이 없습니�
 export function checks(r: Robot, server: boolean): Step[] {
   const live = r.online && !r.unknown;   // 지금 값인지(끊김 · 요약만 · 대기면 마지막 값을 쓰지 않음)
   const agent: [State, string] = r.unknown ? ['none', r.unknown === 'summary' ? '남의 로봇은 서버가 요약만 보냅니다.' : r.unknown === 'wait' ? '서버에서 이 로봇의 첫 상태를 기다리는 중입니다.' : '서버와 끊겨 로봇 상태를 모릅니다.']
-    : r.online ? ['ok', '로봇 상태를 받고 있습니다.'] : ['blocked', r.status ? '로봇 쪽 노트북 프로그램과 연결이 끊겼습니다.' : '로봇 쪽 노트북 프로그램이 아직 연결된 적이 없습니다.'];
+    : r.online ? ['ok', '로봇 상태를 받고 있습니다.'] : ['blocked', r.status ? '에이전트와 연결이 끊겼습니다.' : '에이전트가 아직 연결된 적이 없습니다.'];
   const v = live ? pickInfo(r)?.v ?? null : null;
   const body: [State, string] = !live ? ['none', NOW_NONE] : v?.fallen ? ['blocked', '넘어짐 의심 (기울기로 추정한 값)'] : v?.fallen === false ? ['ok', '넘어지지 않음 (기울기로 추정한 값)'] : ['none', '자세 값을 받지 못했습니다.'];
   const dev = (r.devices ?? []).filter((d) => SENSORS.has(d.kind)), bad = dev.find((d) => d.state !== 'OK');
@@ -26,9 +27,9 @@ export function checks(r: Robot, server: boolean): Step[] {
   const bat = live && r.battery != null, joints = live && !!r.robotInfo?.joints;
   const power: [State, string] = !live ? ['none', NOW_NONE] : [bat && joints ? 'ok' : 'none', `${bat ? `배터리 ${r.battery} %` : '배터리 값 없음'} · ${joints ? '관절 값 받음' : '관절 값 없음'}`];
   return ([
-    ['wifi', 'Wi-Fi (Jetson)', ['none', '로봇 쪽 Wi-Fi 이름은 서버가 아직 보내지 않습니다.']],
+    ['wifi', '에이전트 Wi-Fi', ['none', '에이전트가 붙은 Wi-Fi 이름은 서버가 아직 보내지 않습니다.']],
     ['server', '서버', server ? ['ok', '이 화면이 관제 서버와 연결되어 있습니다.'] : ['blocked', '이 화면이 관제 서버와 연결되어 있지 않습니다.']],
-    ['agent', '로봇 프로그램', agent],
+    ['agent', '에이전트', agent],
     ['policy', '걷기 정책', ['none', '걷기 정책 상태는 서버가 아직 보내지 않습니다.']],
     ['body', '몸통', body],
     ['sensors', '센서', sensors],
