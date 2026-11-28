@@ -341,7 +341,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
       places={places} sel={sel} setSel={setSel} toAdmin={() => setMadmin(true)} run={(x) => scenRun(x, places, vers)} />
     : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} places={places} open0={intent}
-      fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => toSim(cur.floor.id, id)} />}
+      fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => { location.hash = `#/mission/${encodeURIComponent(id)}`; }} />}   {/* 겹침 «예» = 임무 탭에서 그 임무를 고름(W2) */}
     {pop}</>;
   return <Chooser sim={sim} maker={maker} t={t} places={places} vers={vers} choose={choose} make={(k) => { setForm(null); setAsk(null); setMsg(null); setMake(k); }} note={found} cancel={c.cancel}>
     {pop}
@@ -392,7 +392,7 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
     <div className="mx-scroll"><div className="mx-choose">
       <h2>{sim ? '어느 지도로 시뮬할까요?' : '어느 지도에서 일할까요?'}</h2>
       <p className="lv-note">{sim ? '지도를 고르면 위쪽 «시뮬 열기»로 시뮬을 열고, 그 지도의 시나리오를 만들고 고쳐 «시뮬에서 실행»합니다. 실기 지도의 시나리오도 여기서 고칩니다(실기 로봇은 조종 화면에서 시나리오를 고릅니다).'
-        : '지도를 고르면 그 지도의 구역·벽을 보고 고칩니다. 시나리오는 «시뮬» 탭에서 만들고 고칩니다.'}</p>
+        : <>지도를 고르면 그 지도의 구역·벽을 보고 고칩니다. <a href="#/missions" data-mission-link>임무(경로·할 일)는 «임무» 탭에서 만들고 고칩니다</a></>}</p>
       <Note m={note} />
       <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
         {sim ? <button type="button" className="btn" onClick={() => make('fix')}>장소 고치기</button>

@@ -27,7 +27,7 @@ type AnyWrite = MissionWrite | ScenarioWrite;
 const WHAT: Record<Plan, string> = { missions: '임무', scenarios: '시나리오' };
 const ACT: Record<MissionStep['action'], string> = { PHOTO: '사진 찍기', WAIT: '대기', OPERATOR_CONFIRM: '운영자 확인', SENSOR_LOG: '센서 값 기록' };   // 카탈로그를 못 받았을 때 이름
 const VALUE: Record<string, string> = { rgb: '카메라', depth: '뎁스 카메라', lidar: '라이다', battery: '배터리' };
-const FINISH = { STAY: '마지막 지점에서 대기', RETURN_TO_START: '시작 지점으로 복귀', GO_TO: '지정 지점으로 이동' } as const;
+export const FINISH = { STAY: '마지막 지점에서 대기', RETURN_TO_START: '시작 지점으로 복귀', GO_TO: '지정 지점으로 이동' } as const;
 /** 장치 종류 이름(서버 이유 문구의 CAMERA_RGB 같은 말도 바꿈 — U5) */
 const devName = (k: string) => DEVICE[k as keyof typeof DEVICE] ?? k;
 const plain = (s: string | null) => (s ?? '').replace(/CAMERA_RGB|CAMERA_DEPTH|LIDAR|BATTERY/g, devName);
@@ -35,14 +35,14 @@ const devices = (l: string[]) => (l.length ? l.map(devName).join(', ') : '없음
 
 // 받은 값 모양 검사 — 어긋난 응답은 오류 한 줄로(지도 탭 shape 와 같은 방식)
 const str = (v: unknown) => typeof v === 'string', int = Number.isInteger, arr = Array.isArray;
-const isPlan = (x: AnyPlan) => !!x && str(x.id) && str(x.name) && int(x.version) && int(x.number) && int(x.latest_version) && str(x.created_by)
+export const isPlan = (x: AnyPlan) => !!x && str(x.id) && str(x.name) && int(x.version) && int(x.number) && int(x.latest_version) && str(x.created_by)
   && ('steps' in x ? arr(x.steps) : arr(x.waypoints) && !!x.finish && arr(x.floor_ids) && arr(x.required_devices));
 const isActs = (l: Action[]) => arr(l) && l.every((a) => !!a && str(a.key) && str(a.label) && typeof a.available === 'boolean' && arr(a.options) && !!a.params);
 const isPreview = (r: ScenarioPreview) => !!r && typeof r.reachable === 'boolean' && arr(r.points) && arr(r.segments) && Number.isFinite(r.est_distance_m) && arr(r.required_devices);
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 임무·시나리오 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 
 /** 편집 칸이 다루는 본문(저장 요청 모양) */
-function bodyOf(x: AnyPlan): AnyWrite {
+export function bodyOf(x: AnyPlan): AnyWrite {
   if ('steps' in x) return { name: x.name, steps: x.steps.map((s) => ({ action: s.action, params: { ...s.params } })) };
   return { name: x.name, waypoints: x.waypoints.map((w) => ({ ...w })), finish: { mode: x.finish?.mode ?? 'STAY', target: x.finish?.target ?? null }, notes: x.notes ?? '' };
 }

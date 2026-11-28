@@ -65,13 +65,13 @@ describe('메뉴 정의(한 곳)', () => {
   it('운영자는 결재 탭 이름이 «내 요청»', () => {
     expect(labelOf(PC_TABS.find((t) => t.id === 'approval')!, 'OPERATOR')).toBe('내 요청');
   });
-  it('주소의 탭이 이 틀에 없으면 첫 탭(PC 첫 화면 = 관제, 옛 #/drive → 로봇, 임무 #/missions → 지도 탭 시나리오)', () => {
+  it('주소의 탭이 이 틀에 없으면 첫 탭(PC 첫 화면 = 관제, 옛 #/drive → 로봇, 옛 #/mission → 임무 탭)', () => {
     expect(tabFromHash('#/map', false)).toBe('map');
     expect(tabFromHash('#/map', true)).toBe('drive');
     expect(tabFromHash('', false)).toBe('control');
     expect(tabFromHash('#/nope', false)).toBe('control');
-    expect(tabFromHash('#/missions', false)).toBe('map');   // W-mission 전까지 옛 #/mission 과 같은 길
-    expect(tabFromHash('#/mission', false)).toBe('map');
+    expect(tabFromHash('#/missions', false)).toBe('missions');   // 임무 탭(W2)
+    expect(tabFromHash('#/mission', false)).toBe('missions');   // 옛 시나리오 주소도 임무 탭
     expect(tabFromHash('#/control', true)).toBe('drive');
     expect(tabFromHash('#/drive', false)).toBe('fleet');
     expect(tabFromHash('#/drive/r7', false)).toBe('fleet');
@@ -88,7 +88,7 @@ describe('탭 전환', () => {
     expect($('nav a[href="#/sim"]')).toBeNull();
     for (const t of shown()) {
       click($(`nav a[href="#/${t.id}"]`));
-      const to = t.id === 'missions' ? shown().find((x) => x.id === 'map')! : t;   // 임무 = 지도 탭 시나리오(W-mission 전)
+      const to = t;   // 임무 = 임무 탭(W2)
       const l = labelOf(to, 'ORG_ADMIN');
       expect($('h1').textContent).toBe(l);
       expect($('main').getAttribute('aria-label')).toBe(l);
