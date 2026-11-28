@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { CELLS_MAX, MIN_TEXT_PX, WALK_MIN_SPEED, badgeDot, dropLines, facts, fakeRobots, runDot, wallOrder, wallRank, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { CELLS_MAX, MIN_TEXT_PX, WALK_MIN_SPEED, badgeDot, dropLines, facts, fakeRobots, lightBadge, runDot, wallOrder, wallRank, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -220,8 +220,7 @@ describe('관제 탭', () => {
     expect(fk.some((t) => t.textContent!.includes('신호 없음'))).toBe(false);
   });
   it('밝은 판 배지 대비(조정 03:00): 흰 칸 바탕 · 흰 칸 위 4.5 : 1 모자라는 노랑 · 회색 글은 글자 · 흐린 글자 토큰', () => {
-    expect(u5Css).toContain('.proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}');
-    expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="paused"\][^{]*\{color:#1F2421!important/);
+    expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="paused"\][^{]*\{--acc:#D9A21F;--tx:#1F2421;--tx-a:#1F2421\}/);
     expect(u5Css).toMatch(/\.proto\.light \.u5\{[^}]*--u5-grey:#5E6662;--u5-dot-ok:#18A07E;--u5-dot-run:#0E7F63/);   // 밝은 판 전용 회색 · 점(팀장 03:14)
     const lum = (h: string) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
     const cr = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
@@ -246,6 +245,22 @@ describe('관제 탭', () => {
     ];
     expect(wallOrder(l).map((f) => f.x.id)).toEqual(['demomaint', 'demochg', 'demopre', 'simrun', 'realoff', 'demo', 'simidle', 'fake-1']);
     expect(tileBadge(l[3])!.key).toBe('pre'); expect(wallRank(l[3])).toBe(4);   // 꺼진 실기(연결 전 배지)도 실기 칸
+  });
+  it('밝은 판 배지 후보(팀장 03:31 · ?lightBadge=a|b|c): 글 대비 4.5 이상 · 시뮬 맑은 파랑 · 경고 · 주의 테두리 굵게', async () => {
+    expect(lightBadge()).toBe('a'); url('?lightBadge=c'); expect(lightBadge()).toBe('c');
+    mount('u-kim', EIGHT); feed(EIGHT); await act(async () => {});
+    expect($('main.u5').dataset.lb).toBe('c');
+    const lum = (h: string) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const mix = (h: string, p: number) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(h.slice(i, i + 2), 16) * p + 255 * (1 - p)).toString(16).padStart(2, '0')).join('');
+    const cr = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    // a: 12 % 채움 위 글
+    for (const [acc, tx] of [['#18A07E', '#1F2421'], ['#2F6FE0', '#1F2421'], ['#D9A21F', '#1F2421'], ['#E04A2F', '#B8361F'], ['#5E6662', '#5E6662']]) expect(cr(tx, mix(acc, 0.12)), acc).toBeGreaterThanOrEqual(4.5);
+    expect(cr('#0E7F63', mix('#18A07E', 0.12))).toBeLessThan(4.5);   // 같은 계열 진한 초록 글은 모자라 a 는 글자 색
+    // b · c: 흰 바탕 글, c 채움 위 흰 글
+    for (const tx of ['#0E7F63', '#1F2421', '#2F6FE0', '#B8361F', '#5E6662']) expect(cr(tx, '#FFFFFF'), tx).toBeGreaterThanOrEqual(4.5);
+    for (const f of ['#0E7F63', '#1F2421']) expect(cr('#FFFFFF', f), f).toBeGreaterThanOrEqual(4.5);
+    expect(u5Css).toContain('.proto.light .u5[data-lb="a"] .stb{background:color-mix(in srgb,var(--acc) 12%,#FFFFFF)');
+    expect(u5Css).toContain('.proto.light .u5 .tile.lv-warn{border-width:2.5px}'); expect(u5Css).toContain('.u5 .tile.lv-warn{border:1.5px solid #f2b705');   // 어둠 그대로
   });
   it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {
     const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
@@ -455,7 +470,7 @@ describe('관제 탭', () => {
     expect(tile('g3').className.split(' ')).toEqual(expect.arrayContaining(['sel', 'lv-bad', 'warncell']));
     const at = (r: string) => u5Css.indexOf(r);
     expect(at('.u5 .tile.sel.warncell{box-shadow:0 0 0 3px #00c389')).toBeGreaterThan(at('.u5 .tile.lv-crit{box-shadow'));
-    expect(at('.proto.light .u5 .tile.sel.warncell{box-shadow:0 0 0 3px #18A07E')).toBeGreaterThan(at('.proto.light .u5 .tile.lv-bad'));
+    expect(at('.proto.light .u5 .tile.sel.warncell{box-shadow:0 0 0 2px #FFFFFF,0 0 0 5px #18A07E')).toBeGreaterThan(at('.proto.light .u5 .tile.lv-bad'));
   });
   // 팀장 00:19 누름 규칙: 한 번 = 고름 · 고른 것 다시 한 번 = 풂 · 두 번(더블클릭) = 로봇 탭. 타일 · 지도 보기 3D 표식 · 오른쪽 줄 같음
   const click = (el: Element, detail = 1) => act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail })); });

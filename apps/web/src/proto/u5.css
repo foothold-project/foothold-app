@@ -53,10 +53,21 @@
 .u5 .tile .lk{font-size:max(13px,var(--minpx,0px))}
 .u5 .tile .nm b{font-size:max(18px,var(--minpx,0px))}
 .u5 .tile .stb,.u5 .tile .flag,.u5 .tile .ov,.u5 .tile .chip{height:auto;min-height:21px}
-/* 밝은 판 배지(조정 03:00 · 대비 4.5 : 1 이상): 바탕 = surface 흰 칸. 흰 칸 위 대비가 모자라는 글 색만 토큰 안에서 바꿈(주의 노랑 · 회색 → 글자 · 흐린 글자, 테두리 · 점은 원래 색) */
-.proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}
-.proto.light .u5 .stb[data-badge="paused"],.proto.light .u5 .stb[data-badge="lost"],.proto.light .u5 .stb[data-badge="relink"]{color:#1F2421!important;border-color:#D9A21F}
-.proto.light .u5 .stb[data-badge="maint"],.proto.light .u5 .stb[data-badge="idle"],.proto.light .u5 .stb[data-badge="pre"],.proto.light .u5 .stb[data-badge="swap"]{border-color:#DCE0DE}
+/* 밝은 판 배지(팀장 03:31 · 후보 a · b · c = main[data-lb] · 글 대비 4.5 : 1 이상 · 브랜드 밝은 판 팔레트만).
+   --acc = 상태색(채움 · 테두리), --tx = 글. 같은 계열 진한 글 토큰이 없는 초록 · 파랑은 옅은 채움 위에서 4.5 가 안 나와(4.35 · 4.19) a 에서 글자(#1F2421)로 */
+.proto.light .u5 .stb{backdrop-filter:none;--acc:#5E6662;--tx:#5E6662;--tx-a:#5E6662}
+.proto.light .u5 .stb[data-badge="run"],.proto.light .u5 .stb[data-badge="driving"]{--acc:#18A07E;--tx:#0E7F63;--tx-a:#1F2421;--fill:#0E7F63}
+.proto.light .u5 .stb[data-badge="charging"]{--acc:#18A07E;--tx:#1F2421;--tx-a:#1F2421;--fill:#1F2421}
+.proto.light .u5 .stb[data-badge="simrun"]{--acc:#2F6FE0;--tx:#2F6FE0;--tx-a:#1F2421}
+.proto.light .u5 .stb[data-badge="paused"],.proto.light .u5 .stb[data-badge="lost"],.proto.light .u5 .stb[data-badge="relink"]{--acc:#D9A21F;--tx:#1F2421;--tx-a:#1F2421}
+.proto.light .u5 .stb[data-badge="latched"],.proto.light .u5 .stb[data-badge="fallen"]{--acc:#E04A2F;--tx:#B8361F;--tx-a:#B8361F}
+.proto.light .u5[data-lb="a"] .stb{background:color-mix(in srgb,var(--acc) 12%,#FFFFFF);border-color:color-mix(in srgb,var(--acc) 35%,#FFFFFF);color:var(--tx-a)!important}
+.proto.light .u5[data-lb="b"] .stb,.proto.light .u5[data-lb="c"] .stb{background:#FFFFFF;border-color:var(--acc);color:var(--tx)!important}
+.proto.light .u5[data-lb="c"] .stb[data-badge="run"],.proto.light .u5[data-lb="c"] .stb[data-badge="driving"],.proto.light .u5[data-lb="c"] .stb[data-badge="charging"]{background:var(--fill);border-color:var(--fill);color:#FFFFFF!important}
+.proto.light .u5[data-lb="c"] .stb[data-badge="run"] i,.proto.light .u5[data-lb="c"] .stb[data-badge="driving"] i{background:#FFFFFF!important}
+/* 밝은 판 경고 · 주의 테두리(팀장 03:31): 더 굵고 진하게(어둠 그대로). 고른 경고 칸은 흰 틈 2px 뒤 초록 고리라 두 선이 다 읽힘 */
+.proto.light .u5 .tile.lv-warn{border-width:2.5px}
+.proto.light .u5 .tile.lv-bad,.proto.light .u5 .tile.lv-crit{border-width:2.5px}
 /* 임무 점 안 2(?runDot=2 · 팀장 03:14): 충전과 같은 초록, 테를 두르고 숨쉬듯 커졌다 작아짐(충전 = 깜빡임) */
 .u5[data-rundot="2"] .stb[data-badge="run"] i,.u5[data-rundot="2"] .stb[data-badge="driving"] i{background:var(--u5-dot-ok)!important;outline:1.5px solid var(--u5-dot-ok);outline-offset:2px;animation:breathe 1.6s ease-in-out infinite}
 @keyframes breathe{50%{transform:scale(.6)}}
@@ -164,9 +175,9 @@
 .proto.light .u5 .s.r{border-color:#E04A2F}
 .proto.light .u5 .tile.sim{border-color:#2F6FE0}
 .proto.light .u5 .tile.sel{border-color:#18A07E;box-shadow:0 0 0 4px rgba(24,160,126,.18),0 12px 30px rgba(31,36,33,.12)}
-.proto.light .u5 .tile.lv-warn{border-color:#D9A21F;background:linear-gradient(180deg,rgba(217,162,31,.12),rgba(217,162,31,.04))}
-.proto.light .u5 .tile.lv-bad,.proto.light .u5 .tile.lv-crit{border-color:#E04A2F;background:rgba(224,74,47,.12)}
-.proto.light .u5 .tile.sel.warncell{box-shadow:0 0 0 3px #18A07E,0 0 0 7px rgba(24,160,126,.18),0 12px 30px rgba(31,36,33,.12)}
+.proto.light .u5 .tile.lv-warn{border-color:#D9A21F;background:linear-gradient(180deg,rgba(217,162,31,.18),rgba(217,162,31,.06))}
+.proto.light .u5 .tile.lv-bad,.proto.light .u5 .tile.lv-crit{border-color:#B8361F;background:rgba(224,74,47,.12)}
+.proto.light .u5 .tile.sel.warncell{box-shadow:0 0 0 2px #FFFFFF,0 0 0 5px #18A07E,0 0 0 9px rgba(24,160,126,.18),0 12px 30px rgba(31,36,33,.12)}
 .proto.light .u5 .tile[data-tone="warn"] .flag{color:#1F2421}
 .proto.light .u5 .dotm{background:#18A07E;border-color:#FFFFFF;outline:1px solid #1F2421}
 .proto.light .u5 .dotm.r{background:#E04A2F}

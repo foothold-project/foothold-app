@@ -340,6 +340,8 @@ export function tileBadge(f: TileFacts): Badge | null {
   return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY, pulse: false };
 }
 /** 임무 중 점 두 안(팀장 03:14 · 주소 ?runDot=1|2, 없으면 1): 1 = 다른 초록 톤(--u5-dot-run) · 같은 깜빡임, 2 = 충전과 같은 초록 · 테 두른 점이 숨쉬듯 커졌다 작아짐 */
+/** 밝은 판 배지 후보(팀장 03:31 · 주소 ?lightBadge=a|b|c, 없으면 a): a = 상태색 옅은 채움 + 진한 글, b = 흰 바탕 + 상태색 테두리 + 진한 글, c = b 에 임무 · 충전만 상태색 채움 + 흰 글. 색은 u5.css */
+export const lightBadge = (): 'a' | 'b' | 'c' => { const v = urlParam('lightBadge'); return v === 'b' || v === 'c' ? v : 'a'; };
 export const runDot = (): 1 | 2 => (urlParam('runDot') === '2' ? 2 : 1);
 /** 배지 점 색은 여기 한 곳(팀장 02:14 · 03:14 임무 = 초록): 임무 중 = 빨강(--u5-dot-red) · 충전 = 초록 · 시뮬 = 파랑 · 연결 전 = 하양(--u5-on), 나머지 = 배지 글 색 */
 export const badgeDot = (b: Badge): string =>
@@ -553,7 +555,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
   const cnt = (k: Group, icon: ReactNode, v: number | null, col?: string, src?: 'dashboard', none?: string) => { const on = pick.includes(k); return <span className={on ? 'cnt on' : 'cnt'} style={col ? { color: col } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}
     role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, col)}{`${k} `}<b style={col ? { color: col } : undefined}>{v ?? ''}</b></span>; };
-  return <main className="u5" data-view={view} aria-label="관제" data-cells={cells ? 'on' : 'off'} data-drop={drop} data-rundot={runDot()}>
+  return <main className="u5" data-view={view} aria-label="관제" data-cells={cells ? 'on' : 'off'} data-drop={drop} data-rundot={runDot()} data-lb={lightBadge()}>
     {fake > 0 && <div className="fakeband" role="status" data-fake={fake}>화면 검토용 가짜 자료 · 로봇 {fake} 대</div>}
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
       <span className="sep"></span>
