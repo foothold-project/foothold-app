@@ -22,9 +22,18 @@ export const STANDUP_WHY = 'START 에서는 일어서기를 보낼 수 없습니
 /** 손잡이(팀장 11-28 17:33 · 키보드와 같은 배치): 왼쪽 = 이동(위 앞 · 아래 뒤 · 왼 · 오른 옆걸음), 오른쪽 = 돌기(왼 · 오른).
  *  한 손잡이는 큰 축 하나만 보낸다(대각은 더 크게 민 쪽). 문턱 0.3 아래는 0. 두 손잡이 조합 · 상한은 serverdrive 명령표가 판단 */
 export function stickTok(side: 'L' | 'R', x: number, y: number): Tok[] {
-  if (side === 'R') return x < -0.3 ? ['rotl'] : x > 0.3 ? ['rotr'] : [];
-  if (Math.abs(y) >= Math.abs(x)) return y < -0.3 ? ['up'] : y > 0.3 ? ['down'] : [];
-  return x < -0.3 ? ['left'] : x > 0.3 ? ['right'] : [];
+  const on = (u: number) => shape(u, REAL_DEAD, 1, 1);   // 실기 = 켜짐/꺼짐(표 값) — 같은 문턱 식의 lo = hi = 1
+  if (side === 'R') return on(-x) > 0 ? ['rotl'] : on(-x) < 0 ? ['rotr'] : [];
+  if (Math.abs(y) >= Math.abs(x)) return on(-y) > 0 ? ['up'] : on(-y) < 0 ? ['down'] : [];
+  return on(-x) > 0 ? ['left'] : on(-x) < 0 ? ['right'] : [];
+}
+/** 실기 손잡이 문턱(표 값 켜짐/꺼짐) */
+export const REAL_DEAD = 0.3;
+/** 문턱 · 최소값 대응(데모 · 실기 같은 식 · app-lx 11-28 22:59): |u| ≤ dead 는 0, 넘으면 부호 × [lo, hi] 에 curve(0..1) 대응(기본 직선). 실기 표 값은 lo = hi */
+export function shape(u: number, dead: number, lo: number, hi: number, curve: (a: number) => number = (a) => a) {
+  const a = Math.min(Math.abs(u), 1);
+  if (a <= dead || hi <= 0) return 0;
+  return Math.sign(u) * (lo + curve((a - dead) / (1 - dead)) * (hi - lo));
 }
 
 /** 지금 누를 수 없는 동작(일어서기는 저수준 중만 막힘) */

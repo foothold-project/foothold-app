@@ -16,7 +16,8 @@ import { STALLED } from '../simdrive';
 import { driveBlock } from '../fake';
 import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, stopLine } from '../serverdrive';
 import { simTune } from '../phone';
-import { CAP_BLOCK, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL } from '../drive';
+import { CAP_BLOCK, DEMO_RULE, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL, demoCaps } from '../drive';
+import { shape } from '../robotact';
 import { ACTS, STANDUP_WHY, actWhy } from '../robotact';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
@@ -2381,6 +2382,245 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     fwdAt(fwd, 0.5); turnAt(turn, 1); tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);   // 입력이 0 이 되는 순간만 작은 알약
+  });
+});
+
+// 임무 부품을 u1 조종 화면에(시안 u1_1 · u1_15 자리 · app-lead 11-28 22:58): 보이기만. 임무(state.run · 끝나지 않음)이고 내 조종이 아닐 때 바탕 지도 · 왼쪽 아래 카드 · 칩 글
+describe('폰 u1 임무 화면(보이기만)', () => {
+  const RUN = { run_id: 'run-2', status: 'MOVING' as const, step: 1, progress: { done: 1, total: 4 }, wait_reason: null, fail_code: null };
+  const at = (min: number) => new Date(Date.now() + min * 60000).toISOString();
+  const SLOT = { id: 's2', robot_id: 'r7', scenario_id: 'sc-a', scenario_version: 3, gait: null, start: at(-10), end: at(20), kind: 'CONFIRMED', assignment_id: null, memo: '', created_by: 'u', created_at: at(-60), run_state: 'STARTED', run_id: 'run-2', run_code: null, confirmed_by: null };
+  const wp = (name: string, x: number, y: number) => ({ floor_id: 'f1', map_version_id: 'mv-x', x, y, mission_id: 'm', mission_version: 1, name });
+  const SC = { id: 'sc-a', name: '공정 순찰 A', version: 3, map_version_ids: ['mv-x'], waypoints: [wp('입구', 1, 1), wp('게이지 읽기', 2, 1), wp('밸브', 2, 3), wp('복귀', 1, 3)] };
+  const MV = { id: 'mv-x', width: 200, height: 100, resolution: 0.1, origin: [0, 0, 0] };
+  const apis = (mv: object | null = MV) => {
+    vi.spyOn(api, 'schedule').mockImplementation(() => Promise.resolve({ slots: [SLOT] }) as never);
+    vi.spyOn(api, 'plan').mockImplementation(() => Promise.resolve(SC) as never);
+    vi.spyOn(api, 'version').mockImplementation(() => (mv ? Promise.resolve(mv) : Promise.reject(new Error('x'))) as never);
+  };
+  const open = async (run: object | null, mv: object | null = MV) => {
+    apis(mv);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7');
+    if (run) { recv(lease('r7', { id: null, name: '', type: 'RUN' })); act(() => push('r7', { run } as never)); }
+    await act(async () => {});
+    await act(async () => {});
+  };
+
+  it('임무가 있을 때: 바탕 지도 · 카드 「오늘 1 / 1 공정 순찰 A」 · 칩 「순찰 중」 · 작은 지도 칸 없음', async () => {
+    await open(RUN);
+    expect($('.u1d')!.hasAttribute('data-mission')).toBe(true);
+    expect($('.u1d svg.u1-mmap')).not.toBeNull();
+    expect($('.u1d .u1-mission .mn')!.textContent).toBe('오늘 1 / 1');
+    expect($('.u1d .u1-mission b')!.textContent).toBe('공정 순찰 A');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('순찰 중');
+    expect($('.u1d .dv-mini')).toBeNull();
+    expect(u1AppCss).toMatch(/\.u1d\[data-mission\] \.act\{display:none\}/);   // 시안 u1_1 에는 동작 줄이 없다
+  });
+
+  it('임무가 없을 때: 시안 빈 상태 그대로(지도 · 카드 없음 · 작은 지도 칸 · 일정 받지 않음)', async () => {
+    await open(null);
+    expect($('.u1d')!.hasAttribute('data-mission')).toBe(false);
+    expect($('.u1d svg.u1-mmap')).toBeNull();
+    expect($('.u1d .u1-mission')).toBeNull();
+    expect($('.u1d .dv-mini')).not.toBeNull();
+    expect(api.schedule).not.toHaveBeenCalled();
+  });
+
+  it('판을 못 받을 때: 지도 없음 · 카드는 그대로', async () => {
+    await open(RUN, null);
+    expect($('.u1d svg.u1-mmap')).toBeNull();
+    expect($('.u1d .u1-mission b')!.textContent).toBe('공정 순찰 A');
+  });
+});
+
+// 폰 데모 로봇(목록 sim · demo true · app-lead 11-28 22:40 · reviewer 코드 전 판정 22:47): 데모 = 실기 → 서버 경유 u1 조종 화면.
+// 내 시뮬 슬롯(demo false)과 모름(undefined)은 지금처럼 simdrive 직결 길. 속도는 웹 상한(OrgSettings sim_* · 서버는 시뮬 cmd 상한을 검사하지 않는다)
+describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
+  const R7 = ROBOTS.find((r) => r.id === 'r7')!;
+  const robots = (demo: boolean | undefined) => ROBOTS.map((r) => (r.id === 'r7' ? { ...R7, sim: true, demo, serverDrive: false } : r));
+  const open = (demo: boolean | undefined, org: object = ORG) => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(org); } }) as never);
+    mount(true, 'u-park', '#/drive/r7', robots(demo)); serve(PARK, 'r7');
+  };
+  const press = (code: string) => { key('keydown', code); tick(200); const a = lastAxes(); key('keyup', code); tick(100); return a; };
+
+  it('demo true 면 #/drive/r7 이 u1 조종 화면 · 「시뮬」 꼬리표 없음', () => {
+    open(true);
+    expect($('.u1d')).not.toBeNull();
+    expect(location.hash).toBe('#/drive/r7');
+    expect($('.u1-chip .tag')).toBeNull();
+  });
+
+  it('demo false(내 시뮬) · undefined(모름)는 지금처럼 조종 화면을 열지 않음 · 카드는 직결 안내', () => {
+    for (const d of [false, undefined]) {
+      open(d);
+      expect($('.u1d')).toBeNull();
+      expect($('[data-sim-card]')).not.toBeNull();
+      act(() => root!.unmount()); root = null; box.remove();
+    }
+  });
+
+  it('로봇 연결 카드: 데모는 「연결」 단추 · 「시뮬」 칩 없음', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    mount(true, 'u-park', '#/drive', robots(true)); serve(PARK, 'r7');
+    const card = [...box.querySelectorAll('.dv-card')].find((c) => c.textContent!.includes('Go2-7'))!;
+    expect(card.querySelector('[data-sim-card]')).toBeNull();
+    expect([...card.querySelectorAll('button')].some((b) => b.textContent === '연결')).toBe(true);
+    expect(card.textContent).not.toContain('시뮬');
+  });
+
+  // 웹 상한(app-lx 11-28 22:59): 축마다 min(조직 sim_* , 시뮬 에이전트 한계 vx -0.3~1.5 · vy ±0.3 · wz ±0.5). 서버는 시뮬 cmd 상한을 검사하지 않는다
+  const sticks = () => {
+    const fwd = $('[aria-label="이동 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
+    for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return { fwd, turn };
+  };
+  const ptr = (el: Element, type: string, x = 60, y = 60) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+  /** 이동 손잡이: f = 앞 +(위), s = 왼쪽 + · 회전 손잡이: t = 왼쪽 + */
+  const lstick = (el: Element, f: number, s = 0) => { ptr(el, 'pointerdown', 60 - s * 60, 60 - f * 60); tick(200); const a = lastAxes() as number[]; ptr(el, 'pointerup'); tick(100); return a; };
+  const rstick = (el: Element, t: number) => { ptr(el, 'pointerdown', 60 - t * 60, 60); tick(200); const a = lastAxes() as number[]; ptr(el, 'pointerup'); tick(100); return a; };
+
+  it('웹 상한 축마다 min(조직 · 로봇 한계): 키 앞 1.5 · 돌기 0.5 · 옆 0.3 · 뒤 -0.3 — 실기 상한(real_*)은 쓰지 않음', () => {
+    open(true, { ...ORG, real_max_vx: 0.5, real_max_wz: 0.3, real_max_vy: 0 });
+    ready();
+    expect(press('KeyW')).toEqual([1.5, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0.5]);
+    expect(press('KeyD')).toEqual([0, 0, -0.5]);
+    expect(press('ArrowLeft')).toEqual([0, 0.3, 0]);
+    expect(press('KeyS')).toEqual([-0.3, 0, 0]);
+  });
+
+  it('웹 상한: 조직 값이 로봇 한계보다 작으면 조직 값(sim_max_vx · sim_max_wz · sim_max_vy) · 키는 손잡이 끝까지와 같은 입력(sim_key_vx 안 씀)', () => {
+    open(true, { ...ORG, sim_max_vx: 1.0, sim_key_vx: 0.8, sim_max_wz: 0.3, sim_max_vy: 0.2 });
+    ready();
+    expect(press('KeyW')).toEqual([1.0, 0, 0]);
+    expect(lstick(sticks().fwd, 1)).toEqual([1.0, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0.3]);
+    expect(press('ArrowRight')).toEqual([0, -0.2, 0]);
+    act(() => root!.unmount()); root = null; box.remove();
+    open(true, { ...ORG, sim_max_vx: 0.6 });
+    ready();
+    expect(press('KeyW')).toEqual([0.6, 0, 0]);
+  });
+
+  it('웹 상한 · 손잡이 비례: 앞은 [0.2, 상한] · 0 < vx < 0.2 는 나가지 않음 · 뒤는 [-0.3, -0.2] · 문턱 0.1', () => {
+    open(true);
+    ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 0.05)).toEqual([0, 0, 0]);                      // 문턱 0.1 안
+    const a = lstick(fwd, 0.12)!;
+    expect(a[0]).toBeGreaterThanOrEqual(0.2); expect(a[0]).toBeLessThan(0.3);
+    expect(lstick(fwd, 1)).toEqual([1.5, 0, 0]);
+    const mid = lstick(fwd, 0.55)!;
+    expect(mid[0]).toBeCloseTo(0.2 + (0.45 / 0.9) * 1.3, 5);
+    for (const f of [0.02, 0.05, 0.09, 0.11, 0.2, 0.4, 0.7]) { const v = lstick(fwd, f)![0]; expect(v === 0 || v >= 0.2).toBe(true); }
+    const b = lstick(fwd, -0.12)!;
+    expect(b[0]).toBeLessThanOrEqual(-0.2); expect(b[0]).toBeGreaterThanOrEqual(-0.3);
+    expect(lstick(fwd, -1)).toEqual([-0.3, 0, 0]);
+    expect(cmds().every((m) => (m.axes as number[])[0] >= -0.3)).toBe(true);
+    expect(lstick(fwd, 0, 1)).toEqual([0, 0.3, 0]);
+    expect(rstick(turn, -1)).toEqual([0, 0, -0.5]);
+  });
+
+  it('웹 상한 · 문턱은 조직 stick_deadzone(없으면 0.1)', () => {
+    open(true, { ...ORG, stick_deadzone: 0.2 });
+    ready();
+    const { fwd } = sticks();
+    expect(lstick(fwd, 0.15)).toEqual([0, 0, 0]);
+    expect(lstick(fwd, 0.25)![0]).toBeGreaterThanOrEqual(0.2);
+  });
+
+  it('후진 · 옆걸음은 「시험 기능」 표시', () => {
+    open(true);
+    ready();
+    key('keydown', 'KeyS'); tick(200);
+    expect($('[data-demo-exp]')!.textContent).toContain('시험 기능');
+    key('keyup', 'KeyS'); tick(200);
+    expect($('[data-demo-exp]')).toBeNull();
+    key('keydown', 'ArrowLeft'); tick(200);
+    expect($('[data-demo-exp]')).not.toBeNull();
+    key('keyup', 'ArrowLeft');
+  });
+
+  it('실기 값은 그대로(같은 문턱 · 최소값 함수): 손잡이 0.25 는 0 · 0.35 는 표 1.5 · 키는 표 값', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 0.25)).toEqual([0, 0, 0]);
+    expect(lstick(fwd, 0.35)).toEqual([1.5, 0, 0]);
+    expect(lstick(fwd, 1)).toEqual([1.5, 0, 0]);
+    expect(rstick(turn, 0.5)).toEqual([0, 0, MAX_TURN_RATE]);
+    expect(press('KeyW')).toEqual([1.5, 0, 0]);
+  });
+
+  it('웹 상한 · 0.2 아래 앞 입력은 0: 손잡이 앞은 0 아니면 0.2 이상', () => {
+    open(true);
+    ready();
+    const { fwd } = sticks();
+    for (const f of [0.101, 0.105, 0.11, 0.15]) { const v = lstick(fwd, f)[0]; expect(v === 0 || v >= 0.2).toBe(true); }
+    expect(cmds().every((m) => { const v = (m.axes as number[])[0]; return v <= 0 || v >= 0.2; })).toBe(true);
+  });
+
+  it('웹 상한 · 후진 -0.3 은 로봇 한계로 잘림 — 조직 설정에는 시뮬 뒤 상한 칸이 없고 실기 real_max_vx_back 은 데모에 쓰지 않음', () => {
+    open(true, { ...ORG, real_max_vx_back: 0.1, sim_max_vx: 1.5 });
+    ready();
+    expect(press('KeyS')).toEqual([-0.3, 0, 0]);
+    const { fwd } = sticks();
+    expect(lstick(fwd, -1)).toEqual([-0.3, 0, 0]);
+    expect(cmds().every((m) => (m.axes as number[])[0] >= -0.3)).toBe(true);
+  });
+
+  it('웹 상한 합친 뒤에도 실기는 real_* 로 잡힘: real_max_vx 1 · real_max_wz 1 · real_max_vx_back 0 이면 표 값이 막혀 0', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ ...ORG, real_max_vx: 1, real_max_wz: 1, real_max_vx_back: 0 }); } }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 1)).toEqual([0, 0, 0]);
+    expect(rstick(turn, 1)).toEqual([0, 0, 0]);
+    expect(press('KeyW')).toEqual([0, 0, 0]);
+    expect(press('KeyS')).toEqual([0, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0]);
+  });
+
+  it('데모만 있는 조직: 「연결 없음」 으로 보지 않음(+ 로봇 연결하기 가 목록 아래 · 주 단추 아님)', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    const only = robots(true).filter((r) => r.id === 'r7').map((r) => ({ ...r, online: true }));
+    mount(true, 'u-park', '#/drive', only); serve(PARK, 'r7');
+    const add = $('[data-robot-connect]')!;
+    expect(add.classList.contains('pri')).toBe(false);
+    expect(add.compareDocumentPosition($('.dv-cards')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it('키를 누르면 화면 손잡이도 같은 자리로 움직임(보이기만) · 떼면 가운데', () => {
+    open(true);
+    ready();
+    const knob = (label: string) => ($(`[aria-label="${label} 조이스틱"] i`) as HTMLElement).style.transform;
+    key('keydown', 'KeyW'); tick(100);
+    expect(knob('이동')).toBe('translate(0px, -36px)');
+    key('keydown', 'KeyA'); tick(100);
+    expect(knob('회전')).toBe('translate(-36px, 0px)');
+    key('keyup', 'KeyW'); key('keyup', 'KeyA'); tick(100);
+    expect(knob('이동')).toBe('translate(0px, 0px)');
+    expect(knob('회전')).toBe('translate(0px, 0px)');
+  });
+
+  it('상한 표 출처 · 「시험 기능」 은 상수 한 곳(DEMO_RULE)에서 바뀜: 기본 = min(조직, 로봇 한계) · 후진 -0.3 · 표시 / org = 조직 값만 · 후진도 sim_max_vx', () => {
+    expect(DEMO_RULE).toEqual({ caps: 'min', mark: true });
+    expect(demoCaps(ORG as never)).toMatchObject({ fwd: 1.5, back: 0.3, side: 0.3, turn: 0.5 });
+    expect(demoCaps({ ...ORG, sim_max_vx: 1.2 } as never, { caps: 'org', mark: false })).toMatchObject({ fwd: 1.2, back: 1.2, side: 0.5, turn: 1.2 });
+  });
+
+  it('곡선은 인자: 같은 문턱 · 최소값에 곡선만 바꿔 끼움(기본 직선)', () => {
+    expect(shape(0.55, 0.1, 0.2, 1.5)).toBeCloseTo(0.2 + 0.5 * 1.3, 6);
+    expect(shape(0.55, 0.1, 0.2, 1.5, (a) => a * a)).toBeCloseTo(0.2 + 0.25 * 1.3, 6);
+    expect(shape(0.05, 0.1, 0.2, 1.5, (a) => a * a)).toBe(0);
+  });
+
+  it('데모 STOP 은 서버로(noServerStop 은 데모를 서버 정지 대상으로 봄)', () => {
+    open(true);
+    ready();
+    const n = w.of('stop').length;
+    click($('.fh-head .fh-stop')!);
+    expect(w.of('stop').length).toBe(n + 1);
   });
 });
 

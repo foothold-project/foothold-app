@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Location, MapVersion, RunSnapshot, Scenario, ScheduleDay, ScheduleSlot } from '../../../contracts/ts';
 import { api } from '../api';
-import { MissionCard, MissionMap, NextCard, missionChip, missionOn, useMission } from '../screens/u1mission';
+import { MissionCard, MissionCards, MissionMap, NextCard, missionChip, missionOn, useMission, useNext } from '../screens/u1mission';
 import u1AppCss from '../screens/u1.app.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -154,6 +154,7 @@ describe('바탕 2D 지도 · 경로(시안 u1_1 · 판은 run 의 시나리오�
   });
 });
 
+function Next() { return <NextCard m={useNext('r1')} />; }
 describe('다음 일 카드(시안 u1_15)', () => {
   const later = (min: number) => new Date(Date.now() + min * 60000).toISOString();
   const day = (slots: ScheduleSlot[]) => ({ slots }) as unknown as ScheduleDay;
@@ -161,7 +162,7 @@ describe('다음 일 카드(시안 u1_15)', () => {
   it('지금 뒤 첫 칸: 다음 n / m · 이름 · 시작 · 지점 수 · 약 분 · 빈 막대', async () => {
     const st = later(30), d = new Date(st), hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     apis(day([slot('a', later(-120), later(-90), 'run-1'), slot('b', later(-60), later(-30), 'run-2'), slot('c', st, later(55), null, 'sc-b'), slot('d', later(90), later(120), null, 'sc-b')]));
-    await show(<NextCard robot="r1" />);
+    await show(<Next />);
     expect($('.u1-mission .mn')!.textContent).toBe('다음 3 / 4');
     expect($('.u1-mission b')!.textContent).toBe('밸브 점검 B');
     expect($('.u1-mission .me')!.textContent).toBe(`${hm} 시작`);
@@ -173,7 +174,26 @@ describe('다음 일 카드(시안 u1_15)', () => {
   it('남은 칸이 없으면 카드 없음 · 배터리 교체 칸은 세지 않음', async () => {
     const swap = { ...slot('s', later(10), later(20), null), kind: 'BATTERY_SWAP' as const, scenario_id: null };
     apis(day([slot('a', later(-60), later(-30), 'run-1'), swap]));
-    await show(<NextCard robot="r1" />);
+    await show(<Next />);
     expect($('.u1-mission')).toBeNull();
+  });
+});
+
+describe('카드 넘기기(지금 임무 ↔ 다음 일)', () => {
+  const later = (min: number) => new Date(Date.now() + min * 60000).toISOString();
+  it('다음 칸이 있으면 점 둘 · 누르면 다음 일 카드 · 없으면 점 없음', async () => {
+    apis({ slots: [slot('b', later(-10), later(20), 'run-2'), slot('c', later(30), later(55), null, 'sc-b')] } as unknown as ScheduleDay);
+    function Cards() { const r = run('MOVING'); return <MissionCards robot="r1" m={useMission('r1', r.run_id)} run={r} />; }
+    await show(<Cards />);
+    const dots = box.querySelectorAll('.u1-mission .dots button');
+    expect(dots).toHaveLength(2);
+    expect($('.u1-mission b')!.textContent).toBe('공정 순찰 A');
+    await act(async () => { (dots[1] as HTMLElement).click(); });
+    expect($('.u1-mission .mn')!.textContent).toBe('다음 2 / 2');
+    expect($('.u1-mission b')!.textContent).toBe('밸브 점검 B');
+    act(() => root?.unmount()); root = null; box.remove(); vi.restoreAllMocks();
+    apis({ slots: [slot('b', later(-10), later(20), 'run-2')] } as unknown as ScheduleDay);
+    await show(<Cards />);
+    expect(box.querySelectorAll('.u1-mission .dots button')).toHaveLength(0);
   });
 });
