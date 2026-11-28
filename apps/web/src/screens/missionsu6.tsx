@@ -189,7 +189,7 @@ function List({ x, m, p, edit, add }: { x?: Scenario; m: List; p: Plan; edit: (i
   return <div className="pane" style={{ left: '24px', top: '88px', width: '340px', height: '600px', padding: '20px 18px' }} aria-label="임무 목록">
     <div className="row" style={{ justifyContent: 'space-between', marginBottom: '14px' }}><span className="ttl">임무</span>
       <span className="row" style={{ gap: '8px' }}><Pager n={m.list.length} per={per} at={page} go={setPage} label="임무 목록" />
-        <button type="button" className="btnp newm" style={{ height: '38px', padding: '0 14px', fontSize: '14px' }} data-new-mission onClick={add}><Ic d={IC.plus} />새 임무</button></span></div>
+        {/* 시안 png u6_1: 칠한 단추 (시안 html 의 .newm 은 테두리만이라 빼고 기본 .btnp) */}<button type="button" className="btnp" style={{ height: '38px', padding: '0 14px', fontSize: '14px' }} data-new-mission onClick={add}><Ic d={IC.plus} />새 임무</button></span></div>
     {m.lost && <Why alert data-lost>주소의 임무를 찾을 수 없습니다. 지워졌을 수 있습니다 · 목록에서 고르세요.</Why>}
     {shown.map((y) => { const on = y.id === x?.id, n = today(y.id), [d, u] = dist(y.est_distance_m);
       const dur = <span className="mu2 num" style={{ fontSize: '13px' }} data-dur>{on && p.est ? `${mins(p.est.walk_s + p.est.task_s)} 분` : ''}</span>;

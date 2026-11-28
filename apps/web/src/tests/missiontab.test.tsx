@@ -8,6 +8,8 @@ import { leaving, oldScenario, tabFromHash } from '../menu';
 import { clearPlans } from '../screens/missions';
 import { keptMission } from '../screens/missiontab';
 import u6AppCss from '../screens/missionsu6.app.css?raw';
+import u6Css from '../screens/missionsu6.css?raw';
+import pcPvCss from '../proto/pc.pv.css?raw';
 import { ticks } from '../screens/missionsu6run';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
@@ -453,6 +455,19 @@ describe('임무 탭(W2)', () => {
     expect($('[data-length]')!.textContent).toBe('30 m');
   });
 
+  it('시안 u6_1 «+ 새 임무» 는 칠한 단추 (계산된 바탕 = 초록 · 시안 html 의 테두리 꼴 .newm 아님)', async () => {
+    await mount('#/missions');
+    const cls = $('[data-new-mission]')!.className;
+    expect(cls.split(' ')).not.toContain('newm');
+    const st = document.createElement('style'); st.textContent = pcPvCss + u6Css; document.head.appendChild(st);
+    const box = document.createElement('div'); document.body.appendChild(box);
+    try {
+      box.className = 'proto u6'; box.innerHTML = `<button class="${cls}">새 임무</button>`;
+      const c = getComputedStyle(box.querySelector('button')!);
+      expect(c.backgroundImage || c.background).toContain('#00c389');
+      expect(c.color).toBe('rgb(255, 255, 255)');
+    } finally { st.remove(); box.remove(); }
+  });
   it('짜기: «편집» = 그 임무를 탭 안 편집 칸(이름 · 목록 ↔ 노드)으로, «‹ 임무 목록»으로 돌아옴 · «새 임무» = 빈 편집 칸', async () => {
     await mount('#/missions');
     await click($('[data-edit-mission]'));
