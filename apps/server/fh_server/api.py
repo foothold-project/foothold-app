@@ -42,6 +42,8 @@ class Settings:
     server_drive_robots: frozenset[UUID] = frozenset()
     server_drive_enabled: bool | None = None
     robot_installer_enabled: bool = True
+    # Event clip retention shown on /events; no org setting for it yet (#613).
+    clip_retention_days: int | None = None
 
     def drive_enabled(self, robot_id):
         return (self.server_drive_enabled if self.server_drive_enabled is not None
@@ -59,7 +61,17 @@ class Settings:
                    server_drive_enabled=(os.environ['FH_SERVER_DRIVE_ENABLED'] == '1'
                        if 'FH_SERVER_DRIVE_ENABLED' in os.environ else None),
                    server_drive_robots=frozenset(UUID(value.strip()) for value in
-                       os.environ.get('FH_SERVER_DRIVE_ROBOTS', '').split(',') if value.strip()))
+                       os.environ.get('FH_SERVER_DRIVE_ROBOTS', '').split(',') if value.strip()),
+                   clip_retention_days=retention_days(os.environ.get('FH_CLIP_RETENTION_DAYS')))
+
+
+def retention_days(value):
+    if value is None or not value.strip():
+        return None
+    days = int(value)
+    if days < 1:
+        raise ValueError('FH_CLIP_RETENTION_DAYS must be a positive integer')
+    return days
 
 
 class APIError(Exception):
@@ -894,7 +906,7 @@ def create_app(settings: Settings | None = None):
     missions.install(app, DB, Identity, fail, authorize, event, page)
     assignments.install(app, DB, Identity, fail, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
-    events_api.install(app, DB, Identity, fail)
+    events_api.install(app, DB, Identity, fail, settings.clip_retention_days)
     from . import records
     records.install(app, DB, Identity, fail, authorize)
     notifications.install(app, DB, Identity, fail)

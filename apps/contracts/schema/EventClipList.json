@@ -16,6 +16,20 @@
           "description": "만든 영상 번호. 만들기 전(NOT_BUILT)에는 null",
           "title": "Clip Id"
         },
+        "duration_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "만든 영상의 실제 길이 초. READY 일 때만 값이 올 수 있다",
+          "title": "Duration S"
+        },
         "end_at": {
           "anyOf": [
             {
@@ -66,6 +80,19 @@
           ],
           "title": "Status",
           "type": "string"
+        },
+        "thumbnail_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "READY 일 때만 값이 올 수 있다. 썸네일 만들기 전에는 null",
+          "title": "Thumbnail Url"
         },
         "url": {
           "anyOf": [

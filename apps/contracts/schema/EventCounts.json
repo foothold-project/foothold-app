@@ -1,0 +1,165 @@
+{
+  "$defs": {
+    "EventCategoryCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "ACCOUNT": {
+          "minimum": 0,
+          "title": "Account",
+          "type": "integer"
+        },
+        "APPROVAL": {
+          "minimum": 0,
+          "title": "Approval",
+          "type": "integer"
+        },
+        "LEASE": {
+          "minimum": 0,
+          "title": "Lease",
+          "type": "integer"
+        },
+        "LINK": {
+          "minimum": 0,
+          "title": "Link",
+          "type": "integer"
+        },
+        "ROUTE": {
+          "minimum": 0,
+          "title": "Route",
+          "type": "integer"
+        },
+        "RUN": {
+          "minimum": 0,
+          "title": "Run",
+          "type": "integer"
+        },
+        "SAFETY": {
+          "minimum": 0,
+          "title": "Safety",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "RUN",
+        "ROUTE",
+        "LINK",
+        "LEASE",
+        "APPROVAL",
+        "SAFETY",
+        "ACCOUNT"
+      ],
+      "title": "EventCategoryCounts",
+      "type": "object"
+    },
+    "EventClipCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "with_clip": {
+          "description": "data.clip 이 true 인 사건",
+          "minimum": 0,
+          "title": "With Clip",
+          "type": "integer"
+        },
+        "without_clip": {
+          "minimum": 0,
+          "title": "Without Clip",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "with_clip",
+        "without_clip"
+      ],
+      "title": "EventClipCounts",
+      "type": "object"
+    },
+    "EventSeverityCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "ERROR": {
+          "minimum": 0,
+          "title": "Error",
+          "type": "integer"
+        },
+        "INFO": {
+          "minimum": 0,
+          "title": "Info",
+          "type": "integer"
+        },
+        "WARN": {
+          "minimum": 0,
+          "title": "Warn",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "INFO",
+        "WARN",
+        "ERROR"
+      ],
+      "title": "EventSeverityCounts",
+      "type": "object"
+    },
+    "EventSimulationCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "none": {
+          "description": "로봇 없는 사건 (계정 등). simulation 을 걸면 목록에서 빠진다",
+          "minimum": 0,
+          "title": "None",
+          "type": "integer"
+        },
+        "real": {
+          "minimum": 0,
+          "title": "Real",
+          "type": "integer"
+        },
+        "sim": {
+          "minimum": 0,
+          "title": "Sim",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "real",
+        "sim",
+        "none"
+      ],
+      "title": "EventSimulationCounts",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/EventCounts",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Facet counts for the records filter panel (#613). Each facet applies every\nfilter except its own, so picking one category still shows the others' counts.",
+  "properties": {
+    "category": {
+      "$ref": "#/$defs/EventCategoryCounts"
+    },
+    "clip": {
+      "$ref": "#/$defs/EventClipCounts"
+    },
+    "severity": {
+      "$ref": "#/$defs/EventSeverityCounts"
+    },
+    "simulation": {
+      "$ref": "#/$defs/EventSimulationCounts"
+    },
+    "total": {
+      "description": "모든 거르기를 건 사건 수 (cursor · limit 무시)",
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "total",
+    "category",
+    "severity",
+    "simulation",
+    "clip"
+  ],
+  "title": "EventCounts",
+  "type": "object"
+}

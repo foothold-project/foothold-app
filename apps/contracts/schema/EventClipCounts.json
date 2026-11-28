@@ -1,0 +1,24 @@
+{
+  "$id": "fh-app/1/EventClipCounts",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "with_clip": {
+      "description": "data.clip 이 true 인 사건",
+      "minimum": 0,
+      "title": "With Clip",
+      "type": "integer"
+    },
+    "without_clip": {
+      "minimum": 0,
+      "title": "Without Clip",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "with_clip",
+    "without_clip"
+  ],
+  "title": "EventClipCounts",
+  "type": "object"
+}

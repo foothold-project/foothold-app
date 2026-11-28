@@ -5,7 +5,7 @@ import binascii
 import math
 import struct
 import unicodedata
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 from uuid import UUID
 
 from pydantic import AfterValidator, BeforeValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError, field_validator, model_validator
@@ -28,6 +28,7 @@ SitePurpose = Literal['SIM', 'REAL']
 
 Role = Literal['ORG_ADMIN', 'OPERATOR']
 Category = Literal['RUN', 'ROUTE', 'LINK', 'LEASE', 'APPROVAL', 'SAFETY', 'ACCOUNT']
+CATEGORIES = get_args(Category)
 SafetyReason = Literal['OUTPUT_STALLED']
 RunStatus = Literal['QUEUED', 'PREPARING', 'MOVING', 'AT_WAYPOINT', 'PERFORMING',
                     'WAIT_CONFIRM', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELED']
@@ -473,9 +474,54 @@ class Event(Contract):
     data: dict[str, Any]
 
 
+Count = Annotated[int, Field(ge=0)]
+
+
+class EventCategoryCounts(Contract):
+    RUN: Count
+    ROUTE: Count
+    LINK: Count
+    LEASE: Count
+    APPROVAL: Count
+    SAFETY: Count
+    ACCOUNT: Count
+
+
+class EventSeverityCounts(Contract):
+    INFO: Count
+    WARN: Count
+    ERROR: Count
+
+
+class EventSimulationCounts(Contract):
+    real: Count
+    sim: Count
+    none: Count = Field(description='로봇 없는 사건 (계정 등). simulation 을 걸면 목록에서 빠진다')
+
+
+class EventClipCounts(Contract):
+    with_clip: Count = Field(description='data.clip 이 true 인 사건')
+    without_clip: Count
+
+
+class EventCounts(Contract):
+    """Facet counts for the records filter panel (#613). Each facet applies every
+    filter except its own, so picking one category still shows the others' counts."""
+    total: Count = Field(description='모든 거르기를 건 사건 수 (cursor · limit 무시)')
+    category: EventCategoryCounts
+    severity: EventSeverityCounts
+    simulation: EventSimulationCounts
+    clip: EventClipCounts
+
+
 class EventList(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('counts', 'clip_retention_days'))
+
     items: list[Event]
     next_cursor: str | None
+    counts: EventCounts | None = Field(default=None, description='첫 쪽 (cursor 없음) 에만 값. 다음 쪽은 null')
+    clip_retention_days: Annotated[int, Field(ge=1)] | None = Field(default=None,
+        description='사건 영상 보관 일수. 서버 설정 FH_CLIP_RETENTION_DAYS, 없으면 null')
 
 
 DecimalID = Annotated[str, Field(pattern=r'^[1-9][0-9]{0,18}$')]
@@ -540,6 +586,8 @@ def clip_wanted(severity, chosen):
 
 
 class EventClip(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('thumbnail_url', 'duration_s'))
+
     clip_id: UUID | None = Field(description='만든 영상 번호. 만들기 전(NOT_BUILT)에는 null')
     event_id: DecimalID
     robot_id: UUID
@@ -548,11 +596,16 @@ class EventClip(Contract):
     status: ClipStatus
     url: str | None = Field(description='READY 일 때만 값')
     reason: str | None = Field(description='NOT_BUILT · FAILED 의 까닭 코드 (예: CLIP_PIPELINE_NOT_BUILT)')
+    thumbnail_url: str | None = Field(default=None, description='READY 일 때만 값이 올 수 있다. 썸네일 만들기 전에는 null')
+    duration_s: Annotated[float, Field(ge=0)] | None = Field(default=None,
+        description='만든 영상의 실제 길이 초. READY 일 때만 값이 올 수 있다')
 
     @model_validator(mode='after')
     def consistent(self):
         if (self.status == 'READY') != (self.url is not None):
             raise ValueError('url is present exactly when READY')
+        if self.status != 'READY' and (self.thumbnail_url is not None or self.duration_s is not None):
+            raise ValueError('thumbnail_url and duration_s only when READY')
         if self.status == 'READY' and self.clip_id is None:
             raise ValueError('READY needs clip_id')
         if self.status == 'NOT_BUILT' and self.clip_id is not None:

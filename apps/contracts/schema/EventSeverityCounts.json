@@ -1,0 +1,29 @@
+{
+  "$id": "fh-app/1/EventSeverityCounts",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "ERROR": {
+      "minimum": 0,
+      "title": "Error",
+      "type": "integer"
+    },
+    "INFO": {
+      "minimum": 0,
+      "title": "Info",
+      "type": "integer"
+    },
+    "WARN": {
+      "minimum": 0,
+      "title": "Warn",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "INFO",
+    "WARN",
+    "ERROR"
+  ],
+  "title": "EventSeverityCounts",
+  "type": "object"
+}
