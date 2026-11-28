@@ -280,7 +280,8 @@ describe('지도 탭 — 장소 나무', () => {
     expect(calls.filter((c) => c.method !== 'GET').map((c) => c.body)).toEqual([{ name: '별관', purpose: 'REAL' }, { name: '신동' }, { name: '지하 1층', level: -1 }, { name: '2층 동쪽', level: 2 }]);
     expect(sent('GET', '/sites')).toHaveLength(5);                                     // 바꿀 때마다 나무를 다시 받음
     expect(card('고치기').textContent).toContain('이름을 바꿨습니다.');
-    await click(floorBtn('1층'));                                                     // 다른 층을 고르면 창을 닫고 지난 알림은 지움
+    expect($('dialog[open]')).toBeNull(); expect($('[data-u7="u7_upload"]')!.contains(card('고치기'))).toBe(true);   // 떠 있는 창 없이 층 화면 안 칸
+    await click($('[aria-label="고치기 닫기"]'));                                      // 닫으면 지난 알림은 지움
     expect($('[aria-label="고치기"]')).toBeNull();
     await fixHere();
     expect(card('고치기').textContent).not.toContain('이름을 바꿨습니다.');
@@ -1048,7 +1049,7 @@ describe('지도 편집 — 도구', () => {
     expect(near(b.features.zones[1].polygon)).toEqual([[1, 1], [2, 1], [2, 0]]);
     expect(b.features.waypoints).toEqual(FEAT.waypoints); expect(b.features.connectors).toEqual(FEAT.connectors); expect(b.features.edits).toEqual(FEAT.edits);
     expect(canvas()).toBeNull();                                        // 저장되면 보기로
-    expect(card('지도 보기').textContent).toContain('저장했습니다. 다음 실행부터 이 지도를 씁니다.');
+    expect(card('지도 보기').textContent).toContain('v3 로 저장됨 · 저장했습니다. 다음 실행부터 이 지도를 씁니다.');   // 번호는 서버가 준 판 번호
   });
   it('구역 끌어 그리기(기본): 놓으면 사각형 1개, 도구 그대로 연달아 3개, 작은 끌기·누름·취소 무시, 범위 밖이면 안 만들고 알림', async () => {
     serve(editSrv(saved201));

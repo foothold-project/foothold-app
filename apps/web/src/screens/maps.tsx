@@ -348,6 +348,11 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
       : make && <><p className="lv-note mx-lead">{sim ? '시뮬 장소의 이름을 바꾸거나 지웁니다. 새 시뮬 지도는 지도 탭의 «+ 지형 만들기»로 만듭니다.'
         : `지도 파일을 올릴 층을 고르세요. 없으면 «+ 장소»·«+ 건물»·«+ 층»으로 만듭니다.`}</p>{placeBody}</>}
   </Pop>;
+  // 층 화면 «··· › 이름 바꾸기·삭제…» = 시안 u7 틀 화면 안 칸(옛 창 없음) · 지운 것은 휴지통 · 확인은 같은 칸 안
+  if (!sim && cur && make === 'fix') return <UploadScreen label="고치기" place={cur} back={() => { shut0(); setMsg(null); setIntent(null); }} lock={busy} head={`이름 바꾸기 · 삭제 · ${cur.building.name} ${cur.floor.name}`}
+    side={{ ttl: '이름 바꾸기 · 삭제', text: '이 지도의 장소 · 건물 · 층 이름을 바꾸거나 휴지통으로 옮깁니다.', foot: '지운 장소 · 건물 · 층은 휴지통에서 되돌립니다.' }}>
+    {fixBody}
+  </UploadScreen>;
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
       places={places} sel={sel} setSel={setSel} toAdmin={() => setMadmin(true)} run={(x) => scenRun(x, places, vers)} />
     : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={back} toPick={() => choose('')} side={side} name={label} user={c.user} robots={robots} places={places} open0={intent}
@@ -673,7 +678,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
     </div>;
   const main = editing ? <Editor v={editing} p={p} cancel={cancel} slot={slot} pick={(m) => <SideTitle n={m} />} name={name} toScen={toScen} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
         saved={(x) => { setEditing(null); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
-          else { setSel(x.id); setDone(SAVED); } reload(); }} />
+          else { setSel(x.id); setDone({ ...SAVED, text: `v${x.number} 로 저장됨 · ${SAVED!.text}` }); } reload(); }} />
     : <div className="mx-body">
       <div className="mx-map">
         {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
