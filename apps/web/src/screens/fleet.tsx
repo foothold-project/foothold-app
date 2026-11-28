@@ -149,6 +149,7 @@ const DRIVE_BLOCKED: Record<NonNullable<Robot['serverDriveBlocked']>[number], st
   NO_OWNER: '담당자가 없습니다',
   NO_SERIAL: '로봇 기체번호가 등록되지 않았습니다',
   AGENT_OFFLINE: '로봇 쪽 노트북 프로그램이 연결되지 않았습니다',
+  FIELD_GATE_CLOSED: '현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않습니다. 리모컨으로 멈추세요',
 };
 
 /** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능(허용 판단은 server_drive_allowed 만, 이유 목록은 표시만). 허용되면 조종은 세 칸 조종 화면(«조종 화면 열기»)에서 */
