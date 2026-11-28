@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
+import css from '../shell.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -57,7 +58,7 @@ describe('시안 껍데기 · PC 머리줄', () => {
     expect(order).toEqual(['live', 'server', 'bell', 'who']);
     expect(head().lastElementChild).toBe(stopBtn());   // 정지는 머리줄 맨 끝
     expect(right.querySelector('[data-slot="who"] [data-av]')!.textContent).toBe('나');
-    expect(right.querySelector('.fh-me')!.textContent).toBe('이OO(운영 관리자)');
+    expect(right.querySelector('.fh-me')!.textContent).toBe('이OO · 운영 관리자');
     act(() => { FakeWS.last.recv(state('a2', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
     expect(head().querySelector('[data-live]')!.textContent).toBe('로봇 1 대 연결');
     act(() => { FakeWS.last.drop(4000); });
@@ -93,5 +94,19 @@ describe('시안 껍데기 · 폰', () => {
     mount('u-lee', R, '#/drive', true); feed(R);
     expect($('nav[aria-label="주 메뉴"]')).toBeNull();
     expect(stopBtn()).not.toBeNull();
+  });
+});
+
+// 11-28 결정 4: 초록 단추 글자 대비 4.5 이상(바탕 초록 값은 시안 그대로)
+const lum = (hex: string) => { const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+describe('시안 껍데기 · 초록 단추 대비', () => {
+  it('어두움: #00c389 위 글자 = 시안 --ink(#1f2421) 4.5:1 이상 · 밝음: brand 위 흰 글자 4.5:1 이상', () => {
+    const on = [...css.matchAll(/--sh-on-pr: (#[0-9a-f]{6})/g)].map((m) => m[1]);
+    expect(on).toEqual(['#1f2421', '#ffffff']);
+    expect(css).toMatch(/\.btn\.pri \{[^}]*color: var\(--sh-on-pr\)/);
+    expect(css).toMatch(/--sh-pr3: #00c389;/);
+    expect(ratio('#00c389', on[0])).toBeGreaterThanOrEqual(4.5);
+    expect(ratio('#0e7a6e', on[1])).toBeGreaterThanOrEqual(4.5);
   });
 });

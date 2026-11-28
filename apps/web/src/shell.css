@@ -1,7 +1,15 @@
+/* 글꼴(11-28 결정 1): @fontsource(OFL) 로컬 번들 · 외부 CDN 없음. Inter Tight 라틴 400~800, Noto Sans KR 한글 500 · 700 */
+@import '@fontsource/inter-tight/latin-400.css';
+@import '@fontsource/inter-tight/latin-500.css';
+@import '@fontsource/inter-tight/latin-600.css';
+@import '@fontsource/inter-tight/latin-700.css';
+@import '@fontsource/inter-tight/latin-800.css';
+@import '@fontsource/noto-sans-kr/korean-500.css';
+@import '@fontsource/noto-sans-kr/korean-700.css';
 /* ── 시안 껍데기(11-28) ─────────────────────────────────────
    값은 시안 proto/shared/pc.css · ui.css 그대로(다시 해석하지 않음). 어두움 = 시안 값, 밝음 = 같은 구조에 공식 토큰만(foothold.tokens.css, 값 수정 없음).
    - 바탕 · 글꼴 · 머리줄(.bar) · 가로 메뉴(.tabs) · 정지(.allstop) · 나(.who) · 카드(.pane) · 단추(.btnp · .btns).
-   - 글꼴: 시안은 Google Fonts 로 Inter Tight · Noto Sans KR 을 불러온다. 앱은 외부 CDN 을 쓰지 않아 이름만 앞에 두고 없으면 Pretendard(로컬 번들)로 내려간다.
+   - 글꼴: 시안의 Inter Tight · Noto Sans KR 을 @fontsource 로컬 번들로(위 @import). 한글 400 은 없어 500 으로 그린다.
    - 탭 안 화면 배치는 W2 · W3 몫이라 여기서 다루지 않는다. STOP 크기는 누름 44px(U7)를 지켜 시안 높이 40 대신 44. */
 
 /* 공통 토큰(어두움 = 시안 pc.css :root · body) */
@@ -19,6 +27,7 @@ html .fh {
   --sh-av: #2a3340;
   --sh-btns: rgba(255,255,255,.07);
   --sh-btns-line: rgba(255,255,255,.12);
+  --sh-on-pr: #1f2421;   /* 초록 단추 글자(11-28 결정 4): 시안 흰 글자 2.2:1 → 시안 --ink 로 6.9:1. 바탕 초록 값은 그대로 */
   --sh-btnp-shadow: 0 10px 24px rgba(0,195,137,.35), inset 0 1px 0 rgba(255,255,255,.4);
   --line: var(--sh-line); --text: var(--sh-text); --muted: var(--sh-mu2); --accent: var(--sh-pr3);
 }
@@ -38,6 +47,7 @@ html .fh.light {
   --sh-btns: var(--paper-2);
   --sh-btns-line: var(--rule);
   --sh-btnp-shadow: 0 6px 16px rgba(14,122,110,.22);
+  --sh-on-pr: #ffffff;   /* 밝은 판 초록(brand #0e7a6e) 위 흰 글자 5.3:1 */
 }
 
 html body, html .fh, html .fh.light {
@@ -86,7 +96,7 @@ html .fh[data-layout="pc"] .fh-head > .fh-stop .fh-stop-t { font-size: 14px; fon
 /* 카드 = 시안 .pane · 단추 = .btns / .btnp */
 html .fh .lv-card { border-radius: 20px; background: var(--sh-pane); border: 1px solid var(--sh-line); box-shadow: var(--sh-pane-in); }
 html .fh .btn { border-radius: 14px; background: var(--sh-btns); border: 1px solid var(--sh-btns-line); color: var(--sh-text); font-weight: 700; }
-html .fh .btn.pri { background: linear-gradient(180deg, var(--sh-pr3), var(--sh-pr3)); border-color: transparent; color: #fff; font-weight: 800; box-shadow: var(--sh-btnp-shadow); }
+html .fh .btn.pri { background: linear-gradient(180deg, var(--sh-pr3), var(--sh-pr3)); border-color: transparent; color: var(--sh-on-pr); font-weight: 800; box-shadow: var(--sh-btnp-shadow); }
 html .fh .btn.pri[disabled] { background: var(--sh-btns); border-color: var(--sh-btns-line); color: var(--sh-mu2); box-shadow: none; }
 
 /* 시안에는 왼쪽 세로 메뉴가 없다: 본문이 전체 폭 */

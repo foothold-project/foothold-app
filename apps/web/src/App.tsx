@@ -313,7 +313,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         <span className="fh-live" data-slot="live"><i className="fh-livedot" aria-hidden="true" /><span data-live>로봇 {robots.filter((r) => r.online).length} 대 연결</span></span>
         <span className="fh-mu2" data-slot="server" data-link={net.at === 'lost' || net.at === 'denied' ? net.at : undefined}><span data-server>{SERVER[net.at] ?? '서버 연결 중'}</span></span>
         <span data-slot="bell"><Guard quiet><Bell cancel={cancel} /></Guard></span>
-        <details className="fh-who" data-slot="who"><summary><i data-av aria-hidden="true">나</i><span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span></summary>
+        <details className="fh-who" data-slot="who"><summary><i data-av aria-hidden="true">나</i><span className="fh-me">{user.name} · {ROLE_NAME[user.role]}</span></summary>
           <div className="card"><ThemeNav />{logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>
       </div> : (() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
         const [cls, dot, t] = net.at === 'open' ? ['ok', '●', '연결'] : net.at === 'connecting' || net.at === 'idle' ? ['', '○', '연결 중'] : ['bad', '■', net.at === 'denied' ? '연결 거부' : '연결 끊김'];

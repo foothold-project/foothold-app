@@ -2,7 +2,7 @@
 // STOP 단추가 없는지만 보고 true — 운영 관리자 화면은 false(기존 확인 그대로)
 import { expect } from 'vitest';
 export function adminNoStop(box: ParentNode) {
-  if (!box.querySelector('.fh-me')?.textContent?.endsWith('(총괄)')) return false;
+  if (!box.querySelector('.fh-me')?.textContent?.endsWith(' · 총괄')) return false;
   expect(box.querySelector('[data-stop]')).toBeNull();
   return true;
 }

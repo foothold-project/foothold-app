@@ -212,7 +212,7 @@ describe('총괄 — 계정 관리', () => {
     for (const v of ['김대표', '김총괄']) {
       setVal(name(), v);
       await submit(f);
-      expect([$('.fh-me')!.textContent, $('h2', card('계정 상세'))!.textContent, name().value]).toEqual([`${v}(총괄)`, v, v]);
+      expect([$('.fh-me')!.textContent, $('h2', card('계정 상세'))!.textContent, name().value]).toEqual([`${v} · 총괄`, v, v]);
       expect(card('계정').querySelector('li b')!.textContent).toBe(v);
     }
     await submit(f);   // 그대로면 안 보냄
@@ -600,7 +600,7 @@ describe('내 정보(모두)', () => {
     setVal($('input[name="display_name"]', f)!, ' 이반장 ');
     await submit(f);
     expect(sent('PATCH', '/me').map((c) => c.body)).toEqual([{ display_name: '이반장' }]);
-    expect($('.fh-me')!.textContent).toBe('이반장(운영 관리자)');
+    expect($('.fh-me')!.textContent).toBe('이반장 · 운영 관리자');
     expect(card('내 정보').textContent).toContain('이름을 바꿨습니다.');
   });
 
@@ -675,17 +675,17 @@ describe('B1 앞 세션 요청의 늦은 답 — 로그아웃 → 다른 계정 
     await click(btn('로그아웃'));
     setVal($('input[name="username"]')!, 'lee'); setVal($('input[name="password"]')!, 'pw');
     await submit($('main[aria-label="로그인"] form')!);
-    expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
+    expect($('.fh-me')!.textContent).toBe('이운영 · 운영 관리자');
 
     await act(async () => give(late));
     await flush();
-    expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
+    expect($('.fh-me')!.textContent).toBe('이운영 · 운영 관리자');
     expect(box.textContent).not.toMatch(/로그인이 끝났습니다|비밀번호를 바꿨습니다/);
     const f = $('form', card('내 정보'))!;
     setVal($('input[name="display_name"]', f)!, '이반장');
     await submit(f);
     expect(sent('PATCH', '/me').map((c) => c.headers['X-FH-CSRF'])).toEqual(['csrf-2']);
-    expect($('.fh-me')!.textContent).toBe('이반장(운영 관리자)');
+    expect($('.fh-me')!.textContent).toBe('이반장 · 운영 관리자');
   });
 });
 
