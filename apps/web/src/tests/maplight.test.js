@@ -19,6 +19,13 @@ describe('지도 탭 밝은 판 = DESIGN.md 밝음 1', () => {
     const all = rules.map((m) => m[2]).join(';');
     for (const k of ['--bg', '--panel', '--text', '--muted', '--line', '--accent', '--sh-pr3', '--sh-on-pr', '--paper', '--ink', '--rule']) expect(all, k).toMatch(new RegExp(`${k}:`));
   });
+  it('u7_1 미리 보기 아래 글 받침: 밝은 판 = 흰색으로 옅어짐(어두운 띠 아님) · 제목 · 메타 · 버전 기록 = 밝음 1 글자', () => {
+    const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].trim() === sel)?.[2] ?? '';
+    expect(at('.proto.light .u7 .pv-fade')).toMatch(/rgba\(255,255,255,\.94\)/); expect(at('.proto.light .u7 .pv-fade')).not.toMatch(/12,15,20/);
+    expect(at('.proto.light .u7 .pv-ttl')).toBe('color:#1F2421'); expect(at('.proto.light .u7 .pv-meta')).toBe('color:#5E6662');
+    expect(at('.proto.light .u7 .pv-hist')).toMatch(/color:#1F2421/);
+  });
   it('u7.css 밝은 판(시안 u7_1 · u7_2 현장 · 층 줄 · 꼬리표)', () => {
     const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].includes('.proto.light'));
