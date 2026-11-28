@@ -337,7 +337,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 `run_result` 로 돌아와 화면 상태 `run_result` · `run` 으로 보인다. 필드는 폰 직결 프레임 (§13.10) 과
 같고, 다른 점은 `assignment_id` 필수 · 모든 op 에 `lease_id` · `screen_id` 필수 · `resume_token` 없음 ·
 `return` 없음이다.
-- 서버 관문: 담당 (총괄 실기 조종 금지 그대로) · 조종권 USER lease 일치 · 에이전트 인증 0.5 s 안 · 담당 변경 중
+- 서버 관문: 담당 (총괄은 담당과 같은 관문, 운영 결정 2026-11-28 · #544) · 조종권 USER lease 일치 · 에이전트 인증 0.5 s 안 · 담당 변경 중
   아님, 실기는 현장 승인 · 서버 조종 켬을 더한다. 시작은 ACTIVE 배정 (로봇 · 시나리오 판 · 층 · 지도 판) 이어야
   한다. 시작 · 이어 가기는 멈춰 있을 때만. 정지 · 반납 · 승인 · 조종권이 바뀌면 큐에 남은 `run.*` 는 보내지 않는다.
   거절 코드 `RUN_NOT_ALLOWED` · `RUN_MOVING` · `RUN_ASSIGNMENT_INVALID` · `RUN_STOPPED` (배정 확인 중 STOP, 큐에 넣지 않음) (+ 기존 lease · 권한 코드).
