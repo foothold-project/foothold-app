@@ -4,4 +4,4 @@
 .proto .warncell{background:rgba(255,77,79,.12);border:1px solid #FF4D4F}
 .proto .warntag{background:#FF4D4F;color:#000000}
 /* 예행(시뮬): 파랑 #4C9BFF 점선 */
-.proto .rehearse{border:1px dashed #4C9BFF;color:#4C9BFF}
+.proto .rehearse:not(.btnp){border:1px dashed #4C9BFF;color:#4C9BFF}
