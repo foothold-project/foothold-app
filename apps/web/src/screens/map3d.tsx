@@ -26,15 +26,20 @@ export const worldGroup = () => { const g = new THREE.Group(); g.rotation.x = Ma
 
 /** 받은 모형 바이트: 같은 로그인 세션(authMark) · 판 · sha 마다 한 번, 최근 KEEP 개만. 세션이 바뀌면(로그아웃 · 만료 · 다른 계정) 다 버리고 서버에 다시 묻는다.
  *  받기 성공만 기억한다(실패 · 거둠은 다음에 다시 받음) */
-const KEEP = 3, models = new Map<string, ArrayBuffer>();
-export const resetModels = () => models.clear();
+const KEEP = 3, models = new Map<string, ArrayBuffer>(), going = new Map<string, Promise<ArrayBuffer>>();
+export const resetModels = () => { models.clear(); going.clear(); };
 onAuthEnd(resetModels);
 export async function modelBytes(id: string, sha: string, cancel?: AbortSignal) {
   const mark = authMark() ?? '', k = `${mark}\n${id}\n${sha}`;
   for (const x of [...models.keys()]) if (!x.startsWith(`${mark}\n`)) models.delete(x);
   const hit = models.get(k);
   if (hit) { models.delete(k); models.set(k, hit); return hit; }   // 최근 쓴 것을 뒤로
-  const buf = await api.model(id, cancel);
+  // 받는 중인 같은 모형(미리 보기 · 층 썸네일이 함께 열림)은 한 번만 받는다. 먼저 부른 쪽이 거두면(Abort) 기다리던 쪽이 다시 받음
+  const run = going.get(k);
+  if (run) { try { return await run; } catch (e) { if (cancel?.aborted || (e as Error)?.name !== 'AbortError') throw e; return modelBytes(id, sha, cancel); } }
+  const p = api.model(id, cancel); going.set(k, p);
+  let buf: ArrayBuffer;
+  try { buf = await p; } finally { if (going.get(k) === p) going.delete(k); }
   if ((authMark() ?? '') !== mark) return buf;   // 받는 사이 세션이 바뀜. 기억하지 않음
   models.set(k, buf);
   while (models.size > KEEP) models.delete(models.keys().next().value!);
