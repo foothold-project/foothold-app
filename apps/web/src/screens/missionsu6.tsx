@@ -167,8 +167,8 @@ function Chips() {
 function Stat({ x, route, est }: { x: Scenario; route: Route; est: Estimate | null }) {
   const [n, u] = dist(x.est_distance_m), pr = route.pr;
   return <div className="g dk stat" aria-label="경로 요약">
-    <div><div className="lab">길이</div><span data-length>{x.est_distance_m > 0 ? <><b className="num">{n}</b> <small>{u}</small></> : <b className="num">—</b>}</span></div>
-    <div><div className="lab">걷기 + 할 일</div><span data-walk-task>{est ? <><b className="num">{mins(est.walk_s)} + {mins(est.task_s)}</b> <small>분</small><Guess e={est} /></> : <b className="num">—</b>}</span></div>
+    <div><div className="lab">길이</div><span data-length>{x.est_distance_m > 0 ? <><b className="num">{n}</b> <small>{u}</small></> : <b className="num">없음</b>}</span></div>
+    <div><div className="lab">걷기 + 할 일</div><span data-walk-task>{est ? <><b className="num">{mins(est.walk_s)} + {mins(est.task_s)}</b> <small>분</small><Guess e={est} /></> : <b className="num">없음</b>}</span></div>
     <div><div className="lab">미리 확인</div><b style={{ fontSize: '16px' }} className="row u6-check" data-check>{!x.waypoints.length ? '지점 없음'
       : !pr ? <span role="status">확인하는 중…</span>
       : pr.r ? <><span style={{ color: pr.r.reachable ? '#00c389' : '#ff4d4f', display: 'flex' }}><Ic d={pr.r.reachable ? IC.check : IC.warn} s={17} /></span>{pr.r.reachable ? ' 모두 갈 수 있음' : ' 갈 수 없는 지점이 있음'}</>
@@ -250,7 +250,7 @@ function Side({ x, robots, p, slot, rehearse, made, preflight, unpick }: { x?: S
           onClick={() => p.setRid(on ? '' : a.robot_id)}>
           <i style={{ width: '8px', height: '8px', borderRadius: '50%', background: on ? '#00c389' : '#5e6662' }} />{a.robot_name}
           <small>{a.sim ? '시뮬' : '실제'} · {stateText(a, robots)}</small>
-          {free ? <span className="r num">{a.battery_pct == null ? '—' : `${Math.round(a.battery_pct)} %`}</span>
+          {free ? <span className="r num">{a.battery_pct == null ? '없음' : `${Math.round(a.battery_pct)} %`}</span>
             : <span className="r mu2"><Ic d={IC.clock} /></span>}</button>; })}
       {p.avail && !p.avail.length && <Why>이 조직에 보이는 로봇이 없습니다.</Why>}
       {!p.avail && !p.availErr && p.ok && <Why>로봇 일정을 불러오는 중…</Why>}
@@ -262,10 +262,10 @@ function Side({ x, robots, p, slot, rehearse, made, preflight, unpick }: { x?: S
       ? <button key={g} type="button" disabled data-mode={t} title="AME-2 는 아직 일정에 넣을 수 없습니다">{t}<small className="u6-soon">준비 중</small></button>
       : <button key={g} type="button" className={gait === g ? 'on' : ''} aria-pressed={gait === g} disabled={!!slot} data-mode={t} onClick={() => p.setGait(p.gait === g ? '' : g)}>{t}</button>)}</div>
     <div className={`row u6-est${e ? '' : ' none'}`} style={{ marginTop: '12px', justifyContent: 'space-between' }} aria-label="예상">
-      <div><div className="lab">예상 끝</div><b className="num" style={{ fontSize: '22px' }} data-est="eta">{e ? hm(e.eta) : '—'}</b>{e && <Guess e={e} />}</div>
+      <div><div className="lab">예상 끝</div><b className="num" style={{ fontSize: '22px' }} data-est="eta">{e ? hm(e.eta) : '없음'}</b>{e && <Guess e={e} />}</div>
       <div><div className="lab" title="다음 일정까지 여유">여유</div><b className={`num${e?.margin_s != null && e.margin_s < 0 ? ' bad mt-bad' : ''}`} style={{ fontSize: e && (e.margin_s == null || e.margin_s < 0) ? '15px' : '22px' }} data-est="margin">
-        {!e ? '—' : e.margin_s == null ? '다음 일정 없음' : e.margin_s < 0 ? '겹침' : <>{mins(e.margin_s)}<small className="mu2"> 분</small></>}</b>{e && e.margin_s != null && e.margin_s >= 0 && <Guess e={e} />}</div>
-      <div><div className="lab">종료 시 배터리</div><b className="num" style={{ fontSize: '22px' }} data-est="battery">{e && e.end_battery_pct != null ? <>{Math.round(e.end_battery_pct)}<small className="mu2"> %</small></> : '—'}</b>
+        {!e ? '없음' : e.margin_s == null ? '다음 일정 없음' : e.margin_s < 0 ? '겹침' : <>{mins(e.margin_s)}<small className="mu2"> 분</small></>}</b>{e && e.margin_s != null && e.margin_s >= 0 && <Guess e={e} />}</div>
+      <div><div className="lab">종료 시 배터리</div><b className="num" style={{ fontSize: '22px' }} data-est="battery">{e && e.end_battery_pct != null ? <>{Math.round(e.end_battery_pct)}<small className="mu2"> %</small></> : '없음'}</b>
         {e && e.end_battery_pct != null && <Guess e={e} />}</div>
     </div>
     <div className="u6-whyslot">{why}</div>
@@ -460,7 +460,7 @@ function Setup({ robots, places, cancel, p, close, make }: { robots: Robot[]; pl
             style={{ height: 'auto', padding: '22px 20px', alignItems: 'flex-start', ...(on ? { borderColor: 'rgba(0,195,137,.55)', background: 'rgba(0,195,137,.09)' } : {}) }}>
             <span style={{ marginTop: '1px', color: on ? '#00c389' : '#9aa19d' }}><Ic d={IC.mount} s={19} /></span>
             <div style={{ flex: '1', textAlign: 'left' }}><b style={{ fontSize: '15.5px' }}>{MODE[g][0]}</b><div className="lab" style={{ marginTop: '5px', lineHeight: '1.5', fontSize: '13.5px' }}>{MODE[g][1]}</div>
-              <div className="row" style={{ gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}><span className="lab">이 지도에서</span><b className="num" style={{ fontSize: '17px' }}>—</b><small className="mu2">분</small>
+              <div className="row" style={{ gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}><span className="lab">이 지도에서</span><b className="num" style={{ fontSize: '17px' }}>없음</b><small className="mu2">분</small>
                 <span className="lab" style={{ marginLeft: 'auto' }} data-setup-why>임무를 만든 뒤 예상</span></div></div></button>; })}
       </div>
       <div className="row lab" style={{ position: 'absolute', left: '22px', right: '22px', bottom: '22px', gap: '10px', lineHeight: '1.55', fontSize: '13.5px', padding: '14px 16px', borderRadius: '14px', background: 'rgba(255,255,255,.03)', border: '1px solid var(--line)' }}>

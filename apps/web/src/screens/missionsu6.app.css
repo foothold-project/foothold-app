@@ -83,3 +83,10 @@
 .proto.light .u6 .toastw{background:linear-gradient(180deg,rgba(255,250,235,.96),rgba(255,246,222,.92));border:1px solid rgba(242,183,5,.55);box-shadow:0 18px 44px rgba(20,30,50,.16);color:#1f2421}
 .proto.light .u6 .toastw .u6-sub{color:#5e6662}
 .proto.light .u6 .toastw .chipb{background:rgba(255,255,255,.8);border-color:rgba(31,36,33,.16);color:#1f2421}
+/* 시안 밖 · 새로 그림(밝은 판): u15_2 시작 전 점검 창 · 시안은 어둠 판만 있어 밝음 1 흰 창 결로 */
+.proto.light .u6 .md{background:linear-gradient(180deg,#ffffff,#f6f7f6);border-color:rgba(31,36,33,.12);box-shadow:0 30px 80px rgba(20,30,50,.18);color:#1f2421}
+.proto.light .u6 .md .ck{border-bottom-color:rgba(31,36,33,.08)}
+.proto.light .u6 .md .ck .w{background:rgba(242,183,5,.16);color:#b78900}
+.proto.light .u6 .md .ck em{color:#5e6662}
+.proto.light .u6 .md .ck em.up{color:#a87a00!important}
+.proto.light .u6 .md .btns[style*="242,183,5"]{color:#a87a00!important}
