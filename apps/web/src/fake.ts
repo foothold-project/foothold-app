@@ -65,6 +65,12 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
  *  서버 2 차 전이라 아직 담당 운영 관리자만 · 그 자리에 이 한 줄 */
 export const ADMIN_LATER = '남이 담당하는 실기 로봇의 이름 · 지우기 · 연결 끊기 · 키 재발급 · 담당 바꾸기는 아직 담당 운영 관리자만 합니다 (서버 준비 중).';
 /** 쉬는 시뮬 슬롯: 서버는 끝낸(IDLE) 슬롯을 담당을 비운 채 /robots 에 남긴다(설계). 화면의 로봇(PC·폰 목록, 그래서 STOP 후보도)에서 뺀다. 담당 없는 실기는 그대로(총괄이 봐야 함) */
+/** 이름 뒤 은/는: 끝 글자가 한글이면 받침, 숫자 · 영문이면 읽는 소리의 받침(1 일 · 3 삼 · 6 육 · 7 칠 · 8 팔 · 0 영 · L 엘 · M 엠 · N 엔 · R 알 = 은) */
+export const eunNeun = (name: string) => {
+  const ch = name.trim().slice(-1), c = ch.charCodeAt(0) - 0xac00;
+  if (c >= 0 && c <= 11171) return c % 28 ? '은' : '는';
+  return /[013678lmnr]/i.test(ch) ? '은' : '는';
+};
 /** 끝난 run 상태(서버 TERMINAL_RUNS 와 같음 · ABORTED 는 계약 열거 밖이지만 서버가 씀) */
 export const RUN_END = new Set<string>(['COMPLETED', 'FAILED', 'CANCELED', 'ABORTED']);
 /** 임무 중 = 받은 state 가 있으면 그 run, 없으면(요약만 · 첫 state 전) 목록 current_run. 끝난 상태만 임무 없음(PAUSED 는 임무 중).

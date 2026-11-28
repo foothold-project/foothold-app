@@ -458,7 +458,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 운영 관리자에게도 «지도 만들기»·«파일 올리기»로 만들라는 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect($('[data-empty="map"]')!.textContent).toContain('아직 지도가 없습니다담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.');   // U11-04 빈 화면
+    expect($('[data-empty="map"]')!.textContent).toContain('아직 지도가 없습니다로봇을 조종해 한 바퀴 걸으면 지도가 만들어집니다.');   // 시안 u11_7 빈 화면
     expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('지도 만들기');
     expect(card('지도 고르기').textContent).not.toMatch(/SLAM/);
     await click($('[data-seg="관리"]')); await click($('[data-make-file]'));
@@ -480,7 +480,7 @@ describe('지도 탭 — 장소 나무', () => {
   it('장소가 없으면 안내(총괄은 «+ 파일 올리기»로 만들기)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
-    expect($('[data-empty="map"]')!.textContent).toContain('지도 파일(그림 · yaml)을 올리면 여기에 보입니다.');
+    expect($('[data-empty="map"]')!.textContent).toContain('로봇을 조종해 한 바퀴 걸으면 지도가 만들어집니다.');
     expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('파일 올리기');
   });
 });

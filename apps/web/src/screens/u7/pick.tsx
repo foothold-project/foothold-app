@@ -9,6 +9,7 @@ import { Map3D, modelOf } from '../map3d';
 import { DemoSite3D } from './site3d';
 import { MapView, Thumb, byLevel, demoBoard, howMade, md, meters, nogo, picFloor, type Msg, type Place, type useTree } from '../maps';
 import { voxelOf } from '../voxelmap';
+import { ART, DOG } from '../../proto/u11';
 import '../../proto/ui.pv.css';
 import '../../proto/pc.pv.css';
 import '../../proto/light.pv.css';
@@ -100,10 +101,14 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
     {t.err && <div className="pane" style={{ left: '348px', top: '160px', right: '24px', height: '120px', padding: '22px' }} role="alert"><p className="ttl" style={{ fontSize: '16px', marginRight: '150px', lineHeight: '1.5' }}>장소 목록을 받지 못했습니다. {t.err}</p>
       <div className="btns" role="button" tabIndex={0} style={{ position: 'absolute', right: '22px', top: '30px', height: '44px', width: '120px' }} data-retry onClick={t.again}>다시 시도</div></div>}
     {!t.tree && !t.err && <p className="mu2" role="status" style={{ position: 'absolute', left: '372px', top: '176px', fontSize: '14px' }}>장소 목록을 불러오는 중…</p>}
-    {none && !manage && <div className="pane" style={{ left: '348px', top: '160px', right: '24px', bottom: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', textAlign: 'center' }} aria-label="아직 지도가 없습니다" data-empty="map">
-      <span style={{ color: 'var(--mu2)', display: 'flex' }}><svg className="ic" data-empty-icon viewBox="0 0 24 24" style={{ width: '44px', height: '44px' }}>{LAYERS}</svg></span><h2 className="ttl" style={{ fontSize: '24px' }}>아직 지도가 없습니다</h2>
-      <p className="mu2" style={{ fontSize: '14px' }}>{maker ? '담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.' : '지도 파일(그림 · yaml)을 올리면 여기에 보입니다.'}</p>
-      <div className="btnp" role="button" tabIndex={0} style={{ height: '48px', padding: '0 22px', fontSize: '14.5px', marginTop: '8px' }} data-empty-act onClick={() => make(maker ? 'robot' : 'file')}>{ic(17, PLUS)}{maker ? '지도 만들기' : '파일 올리기'}</div></div>}
+    {/* 지도 0 개 = 시안 u11_7 그림 · 제목 · 글 · 칠한 단추 「로봇 탭으로」 하나(.pane.empty · 자리는 고르기 칸 그대로라 머리줄을 덮지 않음).
+        아래 보조 단추(지도 만들기 · 파일 올리기)는 시안 밖 · 새로 그림: 지도 0 개 조직이 지도를 시작할 길(조정 22:27) */}
+    {none && !manage && <div className="pane empty" style={{ left: '348px', top: '160px', right: '24px', bottom: '24px' }} aria-label="아직 지도가 없습니다" data-empty="map">
+      <svg className="art" data-empty-icon viewBox="0 0 560 340" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ART.map }} />
+      <h2>아직 지도가 없습니다</h2><p>로봇을 조종해 한 바퀴 걸으면 지도가 만들어집니다.</p>
+      <a className="btnp" href="#/fleet" data-empty-go>{ic(18, DOG)}로봇 탭으로</a>
+      <div className="btns" role="button" tabIndex={0} style={{ height: '44px', padding: '0 18px', fontSize: '13.5px', marginTop: '12px' }} data-empty-act data-off-proto
+        onClick={() => make(maker ? 'robot' : 'file')} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); make(maker ? 'robot' : 'file'); } }}>{ic(16, PLUS)}{maker ? '지도 만들기' : '파일 올리기'}</div></div>}
     {manage ? <Manage t={t} vers={vers} ed={ed} make={make} />
       : cur && <><div className="pane" style={{ left: '348px', top: '160px', width: '620px', bottom: '24px', padding: '22px 18px' }} aria-label="층 목록">
         <div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 12px' }}><span className="ttl">{cur.building.name} · 층</span><span className="mu2" style={{ fontSize: '12.5px', fontWeight: 600 }}>층마다 지도 하나</span></div>
