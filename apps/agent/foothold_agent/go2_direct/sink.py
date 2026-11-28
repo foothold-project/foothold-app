@@ -21,6 +21,9 @@ DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 STOP_RETRY_S = .20
 QUIET_STOP_MAX_S = 1.0  # receipt-to-dispatch bound; an already running SDK RPC cannot be cancelled
+RUNNER_RELATCHED = ('START 실행기가 정지 잠금 상태입니다 (연결 프로그램이나 실행기가 다시 켜졌거나 해제가 닿지 않음) · '
+                    '조종권자가 잠금을 풀어야 합니다')
+RUNNER_RELEASE_S = 1.0  # 앱 STOP 해제를 실행기가 stopped=false 로 알려 올 때까지 다시 보내는 상한 (넘으면 다시 잠금)
 SERVER_RAMP_S = 2.0
 SERVER_BRAKE_S = .30
 SERVER_AXIS_MAX = (1.5, 1., MAX_TURN_RATE)
@@ -176,7 +179,15 @@ class Go2Sink:
         from .runner_link import RunnerLink
         # START 실행기 앱 입력 길 (FH_START_MOVE_PORT 없으면 None · APP-MOVES.md)
         self.runner = RunnerLink.configured(now=now)
+        # 앱 STOP 을 실행기에 거는 상태 (APP-MOVES.md). 번호 = 그 STOP 을 처음 낼 때의 monotonic ns
+        # (에이전트가 다시 켜져도 앞 번호보다 크다). 해제는 그 번호로, 실행기 stopped=false 를 볼 때까지.
+        self._runner_stopping = False
+        self._runner_stop_id = 0
+        self._runner_release_until = None
+        self._runner_relatched = False   # 실행기 쪽 잠김을 보고 다시 잠갔다 (화면 사유 · F1 ①)
         self.actions = Actions(self)
+        from .gait import Gait
+        self.gait = Gait(self)   # 걷기 모드 (gait.py) · 결과는 gait_result
 
     def automatic_stop_allowed(self, session):
         """Owning-loop lease observation; workers only read the memory snapshot."""
@@ -188,6 +199,7 @@ class Go2Sink:
             if active != previous:
                 self._release_until = None
                 if not active and previous is True:
+                    self._cancel_runner_gait()
                     self._hold()
                     self._release_until = self.now()+QUIET_STOP_MAX_S
                     self._release_sent.clear()
@@ -214,6 +226,8 @@ class Go2Sink:
     def movement_reason(self, *, neutral=False):
         with self._lock:
             active = self._remote_active()
+            if self._operator_stop and self._runner_relatched:
+                return RUNNER_RELATCHED
             if self._operator_stop:
                 return '비상정지가 걸려 있습니다'
             if start_active():
@@ -266,6 +280,11 @@ class Go2Sink:
         return action == 'stand_down' and cls._standing(sample)
 
     @property
+    def gait_result(self):
+        with self._lock:
+            return self.gait.refresh()
+
+    @property
     def posture_busy(self):
         with self._lock:
             return self._posture is not None or self.actions.busy
@@ -299,8 +318,19 @@ class Go2Sink:
     def cancel_posture(self, reason='STOPPED'):
         with self._lock:
             self.actions.cancel(reason)
+            self._cancel_runner_gait()
             if self._posture is not None:
                 self._posture_finish('FAILED', reason, None)
+
+    def _cancel_runner_gait(self):
+        # 실행기에 넘긴 보행 전환은 STOP · 조종권 회수에 끊는다 (Codex pr550 H1 · 계약 GAIT_CANCELLED):
+        # 앱 STOP 과 같은 정지 묶음이 실행기의 다시 서기 · 걸음 선택을 지운다. 풀기는 조종권자의 잠금 풀기.
+        # Caller owns the memory lock.
+        if self.gait.runner_pending():
+            self._operator_stop = True
+            self._wait_operator_neutral = True
+            self.gait.cancel()
+            self._stop_requested.set()
 
     def _posture_finish(self, status, code, sdk_code):
         job, self._posture = self._posture, None
@@ -517,6 +547,7 @@ class Go2Sink:
                 if (self._confirmed_generation == self.generation and
                         0 <= self.now()-self._feedback_received <= FEEDBACK_MAX_AGE_S):
                     self._operator_stop = False
+                    self._runner_relatched = False
                     self.latched = False
                     self._posture_stop_only = False
                     self._neutral_required = True
@@ -820,12 +851,46 @@ class Go2Sink:
 
     def _runner_output(self, velocity, movement_epoch=None):
         # Move RPC 와 같은 관문: 리모컨 · 잠금 · 새 STOP 세대 · 손 떼기 대기면 0.
-        with self._lock:
-            ok = (velocity != ZERO and not self._remote_active() and not self.latched
-                  and not self._closed.is_set() and not self._wait_operator_neutral
-                  and movement_epoch == (self.generation, self._last_remote_activity))
+        # 앱 STOP 은 리모컨에 양보하지 않는다 (팀장 11/28): 실행기가 막대보다 먼저 받는 정지 묶음.
+        # 풀리는 길은 잠금 풀기 (unlock 이 _operator_stop 을 내림) 하나뿐이다.
+        # 결정과 보냄을 한 잠금 안에서 한다: 비상 작업자의 새 STOP 이 정상 작업자의 옛 해제 결정 뒤에
+        # 끼어들 수 없다 (Codex pr550 H2). 실행기와 RunnerLink 도 옛 번호 해제를 버린다.
         self.runner.poll()
-        self.runner.velocity(velocity if ok else ZERO)
+        relatched = False
+        with self._lock:
+            now = self.now()
+            status = self.runner.status()
+            locked = status is not None and status['stopped']
+            if locked and not self._operator_stop and not self._runner_stopping and (
+                    self._runner_release_until is None or now >= self._runner_release_until):
+                # 실행기는 잠겼는데 이쪽은 풀림: 실행기 재시작 (잠긴 채 시작, H4) 또는 해제가 닿지 않음 (M6).
+                # 화면도 잠금으로 맞추고 조종권자의 명시적 잠금 풀기를 기다린다 (SF-02).
+                relatched = self._runner_relatched = True
+                self._hold(preserve=self.latched)
+                self._operator_stop = True
+                self._wait_operator_neutral = True
+                self._runner_release_until = None
+            if self._operator_stop:
+                if not self._runner_stopping:
+                    self._runner_stopping = True
+                    self._runner_stop_id = max(self._runner_stop_id + 1, time.monotonic_ns())
+                self._runner_release_until = None
+                self.runner.stop(True, self._runner_stop_id)
+            elif self._runner_stopping:   # 잠금 풀기 직후
+                self._runner_stopping = False
+                self._runner_release_until = now + RUNNER_RELEASE_S
+            if not self._operator_stop and self._runner_release_until is not None:
+                if status is not None and not locked:
+                    self._runner_release_until = None   # 실행기가 풀림을 알려 옴
+                else:
+                    self.runner.stop(False, self._runner_stop_id)
+            if not self._operator_stop:
+                ok = (velocity != ZERO and not self._remote_active() and not self.latched
+                      and not self._closed.is_set() and not self._wait_operator_neutral
+                      and movement_epoch == (self.generation, self._last_remote_activity))
+                self.runner.velocity(velocity if ok else ZERO)
+        if relatched:
+            logging.getLogger(__name__).warning('GO2_RUNNER_LOCKED 실행기 정지 잠김 — 잠금 풀기 필요')
 
     def _stop_output(self, client, *, force=False):
         with self._lock:

@@ -781,8 +781,9 @@ class ScreenPosture(ScreenRobot):
 # gait.gait 와 control 이 어긋나면 화면은 control 을 믿고 gait 는 모름으로 그린다 (control 이 실제 출력 주인).
 #
 # 거절이 오는 두 길:
-#   동기 ScreenReply (ok=false, 서버가 막음): LEASE_MISMATCH 등 기존 lease · 권한 코드, GAIT_UNSUPPORTED,
-#     GAIT_LATCHED (정지 잠김), GAIT_MOVING (서버가 아는 속도 명령이 0 이 아님)
+#   동기 ScreenReply (ok=false, 서버가 막음): LEASE_MISMATCH 등 기존 lease 코드, GAIT_NOT_ALLOWED
+#     (실기 승인 · 시험 스위치 · 인증 · 주인 확인 안 됨, 자세의 POSTURE_NOT_ALLOWED 와 같은 관문),
+#     GAIT_LATCHED (정지 잠김), GAIT_MOVING (서버가 아는 속도 명령 · 에이전트 보고 속도가 0 이 아님)
 #   비동기 gait_result (status REJECTED · FAILED, 에이전트가 막음): GAIT_MOVING (실측 속도),
 #     GAIT_NOT_STANDING, GAIT_NOT_READY, GAIT_BUSY (다른 전환 중), GAIT_CANCELLED (STOP · lease 전환으로 취소),
 #     GAIT_LEASE_LOST, GAIT_TIMEOUT, GAIT_SDK_ERROR. 성공은 status SUCCEEDED · code OK.
@@ -791,7 +792,8 @@ class ScreenPosture(ScreenRobot):
 GaitName = Literal['classic', 'sport', 'start', 'ame2']
 GAIT_ORDER = ('classic', 'sport', 'start', 'ame2')
 GaitRejectCode = Literal['GAIT_MOVING', 'GAIT_NOT_STANDING', 'GAIT_NOT_READY', 'GAIT_LATCHED', 'GAIT_BUSY',
-                         'GAIT_UNSUPPORTED', 'GAIT_CANCELLED', 'GAIT_LEASE_LOST', 'GAIT_TIMEOUT', 'GAIT_SDK_ERROR']
+                         'GAIT_UNSUPPORTED', 'GAIT_CANCELLED', 'GAIT_LEASE_LOST', 'GAIT_TIMEOUT', 'GAIT_SDK_ERROR',
+                         'GAIT_NOT_ALLOWED']
 
 
 class ScreenGait(ScreenRobot):

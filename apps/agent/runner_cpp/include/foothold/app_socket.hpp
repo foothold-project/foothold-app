@@ -4,6 +4,10 @@
 
 namespace foothold {
 
+// New random session token (32 hex) written to `path` as a fresh 0600 file owned by this user.
+// Throws when the file cannot be made that way. The value is never logged.
+std::string write_app_token(const char* path);
+
 // 127.0.0.1 UDP socket for app input (--app-port). Nonblocking: one poll per control tick
 // reads every waiting datagram; packets from any other address are dropped.
 class AppSocket {

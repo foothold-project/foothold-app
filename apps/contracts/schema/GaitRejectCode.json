@@ -11,7 +11,8 @@
     "GAIT_CANCELLED",
     "GAIT_LEASE_LOST",
     "GAIT_TIMEOUT",
-    "GAIT_SDK_ERROR"
+    "GAIT_SDK_ERROR",
+    "GAIT_NOT_ALLOWED"
   ],
   "type": "string"
 }

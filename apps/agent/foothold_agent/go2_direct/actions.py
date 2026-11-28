@@ -117,6 +117,8 @@ class Actions:
         if s.runner is None:
             return
         for ack in s.runner.take_acks():
+            with s._lock:
+                s.gait.runner_ack(ack)   # 걷기 모드 넘김 키 (gait.py)
             started = ack['result'] == 'STARTED'
             code = 'RUNNER_STARTED' if started else 'RUNNER_IGNORED_' + (ack['reason'] or 'phase').upper()
             with s._lock:

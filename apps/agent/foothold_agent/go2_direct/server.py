@@ -95,6 +95,18 @@ class DriveSession(Session):
                 elif self.posture_sink.request_posture(request_id, action, frame.get('lease_id')):
                     self.core.stop('posture requested')
                 return self._finish(state=True)
+            if frame.get('t') == 'gait' and self.posture_sink is not None:
+                super().receive({'t': 'ping'})
+                from .gait import valid
+                request_id, gait = frame.get('request_id'), frame.get('gait')
+                if not valid(request_id, gait):
+                    return self.tick()
+                moving = self.core.intent != (0., 0., 0.) or self.core.out != (0., 0., 0.)
+                if self.posture_sink.gait.request(request_id, gait, frame.get('lease_id'), moving=moving,
+                                                  latched=self.core.latch):
+                    self.core.stop('gait requested')
+                    self.posture_sink.actions.core_hold(self.core.stop_gen)
+                return self._finish(state=True)
             if frame.get('t') == 'unlock' and self.posture_sink is not None and self.posture_sink.posture_busy:
                 return self.tick()
             if frame.get('t') == 'unlock' and self.identity_gate is not None:
@@ -138,6 +150,8 @@ class DriveSession(Session):
         if self.posture_sink is not None:
             from .sink import start_active
             result['control'] = 'LOWLEVEL' if start_active() else 'FACTORY'
+            result['gait'] = self.posture_sink.gait.state()
+            result['gait_result'] = self.posture_sink.gait_result
         # A zero request is not a measured stop. Arbiter grants wait for DDS.
         if not (self.core.st and self.core.st.get('stop_requested') is True
                 and self.feedback.sample() is not None):

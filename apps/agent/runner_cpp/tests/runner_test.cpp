@@ -17,6 +17,7 @@ constexpr auto start = (1 << 12) | (1 << 2);
 constexpr auto lie = (1 << 5) | (1 << 8);
 constexpr auto emergency = (1 << 5) | (1 << 9);
 constexpr auto classic = (1 << 13) | (1 << 2);
+const std::string token = "0123456789abcdef0123456789abcdef";
 constexpr auto dog = (1 << 0) | (1 << 9);  // R1+B, as the factory Sit Down
 constexpr auto stretch = (1 << 4) | (1 << 8);  // R2+A
 constexpr auto love = (1 << 4) | (1 << 11);    // R2+Y
@@ -172,11 +173,17 @@ struct Rig {
         return std::chrono::duration_cast<std::chrono::nanoseconds>((time + 5ms - back).time_since_epoch()).count();
     }
     std::string key(const char* name, const char* action, const char* id, std::chrono::nanoseconds back = {}) const {
-        return "{\"seq\":" + std::to_string(seq(back)) + ",\"key\":\"" + name + "\",\"action\":\"" + action +
+        return "{\"seq\":" + std::to_string(seq(back)) + ",\"token\":\"" + token + "\",\"key\":\"" + name + "\",\"action\":\"" + action +
                "\",\"request_id\":\"" + id + "\"}";
     }
+    std::string stop(bool on, std::int64_t id = 1, const std::string& with = token) const {
+        return "{\"seq\":" + std::to_string(seq()) + ",\"token\":\"" + with + "\",\"stop\":" + (on ? "1" : "0") +
+               ",\"id\":" + std::to_string(id) + "}";
+    }
+    // The runner starts with the app STOP held (SF-02): release it the way the connector's unlock does.
+    void open(AppInput& app) { app_tick(app, {stop(false)}); }
     std::string velocity(double vx, double vy = 0, double wz = 0) const {
-        return "{\"seq\":" + std::to_string(seq()) + ",\"vx\":" + std::to_string(vx) + ",\"vy\":" +
+        return "{\"seq\":" + std::to_string(seq()) + ",\"token\":\"" + token + "\",\"vx\":" + std::to_string(vx) + ",\"vy\":" +
                std::to_string(vy) + ",\"wz\":" + std::to_string(wz) + "}";
     }
 };
@@ -654,9 +661,54 @@ int main() {
         require(live.robot.factory, "handover must reach factory mode");
     }
     {
+        // Codex pr550 H1: an app STOP during a START+RIGHT handover cancels the gait. The robot sits and
+        // returns to factory but must not stand up again (no RecoveryStand, no gait select).
+        for (const bool stop : {false, true}) {
+            Rig live(true);
+            live.enter();
+            live.wait(1500ms);
+            live.tick(classic);
+            require(live.runner.phase() == Phase::sitting, "handover must start");
+            live.tick();
+            live.state.app_stop = stop;
+            live.wait(6s);
+            require(live.robot.factory && live.runner.phase() == Phase::high, "handover must reach factory");
+            if (!stop) require(live.robot.recovery == 1 && live.robot.gaits == 1, "handover without stop stands and selects");
+            else require(live.robot.recovery == 0 && live.robot.gaits == 0 &&
+                             live.events.ordered({Event::gait_cancelled}), "app stop during handover must not stand up");
+        }
+        // The STOP arrives while RecoveryStand is already in flight: that call cannot be withdrawn,
+        // but the gait select after it is cancelled.
+        Rig live(true);
+        live.modes.delayed_call = ModeCall::recovery_stand;
+        live.enter();
+        live.wait(1500ms);
+        live.tick(classic);
+        live.tick();
+        live.wait(5s);
+        require(live.runner.phase() == Phase::recovering, "recovery stand held in flight");
+        live.state.app_stop = true;
+        live.tick();
+        live.modes.delayed_call.reset();
+        live.wait(5s);
+        require(live.robot.recovery == 1 && live.robot.gaits == 0 && live.runner.phase() == Phase::high,
+                "app stop during the in-flight recovery stand must cancel the gait select");
+        // The STOP arrives in the 3 s wait between RecoveryStand and the gait select.
+        Rig gap(true);
+        gap.enter();
+        gap.wait(1500ms);
+        gap.tick(classic);
+        for (int i = 0; i < 2000 && gap.robot.recovery == 0; ++i) gap.tick();
+        require(gap.robot.recovery == 1 && gap.robot.gaits == 0 && gap.runner.phase() == Phase::recovering, "in the gap");
+        gap.state.app_stop = true;
+        gap.wait(5s);
+        require(gap.robot.gaits == 0 && gap.runner.phase() == Phase::high, "app stop before the gait select cancels it");
+    }
+    {
         // App START+RIGHT (ClassicWalk): same stillness gate, ack IGNORED not_stopped, then STARTED.
         Rig live(true);
-        AppInput app(live.events);
+        AppInput app(live.events, token);
+        live.open(app);
         live.enter();
         require(acked(live.app_tick(app, {live.key("START+RIGHT", "ClassicWalk", "c1")}), "IGNORED", "not_stopped") &&
                     live.runner.phase() == Phase::policy,
@@ -675,7 +727,8 @@ int main() {
     {
         // App key outside policy is ignored by the runner's own guard; from policy it starts the move.
         Rig live(true);
-        AppInput app(live.events);
+        AppInput app(live.events, token);
+        live.open(app);
         require(acked(live.app_tick(app, {live.key("R1+B", "Sit", "a")}), "IGNORED", "phase") &&
                     live.runner.phase() == Phase::high,
                 "app R1+B in factory must be ignored");
@@ -699,7 +752,8 @@ int main() {
         // App velocity reaches the policy command through the same shaping and slew as the stick,
         // and expires to zero 0.3 s after the last packet.
         Rig live(true);
-        AppInput app(live.events);
+        AppInput app(live.events, token);
+        live.open(app);
         live.enter();
         for (int i = 0; i < 300; ++i) {
             const auto acks = live.app_tick(app, i % 4 == 0 ? std::vector<std::string>{live.velocity(.6)}
@@ -722,7 +776,8 @@ int main() {
     {
         // Physical remote wins: a stick or any key drops app velocity and keys (ack IGNORED remote).
         Rig live(true);
-        AppInput app(live.events);
+        AppInput app(live.events, token);
+        live.open(app);
         live.enter();
         for (int i = 0; i < 20; ++i) live.app_tick(app, {live.velocity(.6)});
         const auto acks = live.app_tick(app, {live.velocity(.6)}, 0, .5f);
@@ -747,14 +802,103 @@ int main() {
                 "app L2+B must damp even under a physical stick");
     }
     {
+        // App STOP beats the physical stick (11/28): want 0 under a deflected stick, the policy keeps
+        // standing (no damping), and it holds until the app release, not until the stick is released.
+        Rig live(true);
+        AppInput app(live.events, token);
+        live.open(app);
+        live.enter();
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == .375, "physical stick must drive before the app stop");
+        const auto acks = live.app_tick(app, {live.stop(true)}, 0, .5f);
+        require(acked(acks, "ACCEPTED") && acks[0].remote, "app stop under a physical stick must be accepted");
+        for (int i = 0; i < 400; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == 0 && live.events.last_command[0] == 0 && live.runner.phase() == Phase::policy,
+                "app stop must hold zero under a deflected stick and keep the policy standing");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, 0);
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == 0, "releasing and moving the stick again must not lift the app stop");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {live.velocity(.6)});
+        require(live.events.last_want[0] == 0, "app velocity must not lift the app stop");
+        require(acked(live.app_tick(app, {live.stop(false)}, 0, .5f), "ACCEPTED"), "app release must be accepted");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == .375, "after the app release the physical stick drives again");
+        // Remote L2+B still damps while the app stop holds.
+        live.app_tick(app, {live.stop(true)});
+        live.app_tick(app, {}, emergency);
+        require(live.runner.phase() == Phase::damping, "physical L2+B must still damp during an app stop");
+    }
+    {
+        // Codex pr550 H4: a (re)started runner holds the app STOP until the connector releases it,
+        // even under a deflected physical stick (SF-02). Velocity is ignored "stopped" and the ack says so.
+        Rig live(true);
+        AppInput app(live.events, token);
+        live.enter();
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == 0, "a fresh runner must start with the app stop held");
+        const auto acks = live.app_tick(app, {live.velocity(.6)});
+        require(acked(acks, "IGNORED", "stopped") && acks[0].stopped, "velocity before the release must be ignored");
+        const auto released = live.app_tick(app, {live.stop(false, 7)}, 0, .5f);
+        require(acked(released, "ACCEPTED") && !released[0].stopped, "the release ack must report unlocked");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == .375, "after the release the stick drives");
+    }
+    {
+        // Review F2 (M4 · M7): app velocity received before a STOP is dropped at the STOP, and a release
+        // right after it (inside the 0.3 s velocity window) does not bring the old velocity back.
+        Rig live(true);
+        AppInput app(live.events, token);
+        live.open(app);
+        live.enter();
+        for (int i = 0; i < 4; ++i) live.app_tick(app, {live.velocity(.6)});
+        require(live.events.last_want[0] > 0, "app velocity drives");
+        live.app_tick(app, {live.stop(true, 3)});
+        require(acked(live.app_tick(app, {live.velocity(.6)}), "IGNORED", "stopped"), "velocity while stopped is ignored");
+        live.app_tick(app, {live.stop(false, 3)});
+        live.app_tick(app);
+        require(live.events.last_want[0] == 0, "a release must not revive velocity received before the stop");
+    }
+    {
+        // Codex pr550 H2: a release decided before a newer STOP (older id, later seq) must not lift it.
+        Rig live(true);
+        AppInput app(live.events, token);
+        live.open(app);
+        live.enter();
+        live.app_tick(app, {live.stop(true, 9)});
+        require(acked(live.app_tick(app, {live.stop(false, 8)}, 0, .5f), "IGNORED", "stale"), "stale release ignored");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == 0, "a stale release must leave the newer stop held");
+        require(acked(live.app_tick(app, {live.stop(false, 9)}, 0, .5f), "ACCEPTED"), "release of the newest stop");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == .375, "the newest stop's release unlocks");
+    }
+    {
+        // Codex pr550 H3: a same-host sender without the session token cannot release the STOP,
+        // and its packets do not consume seq (the connector's next packet still counts).
+        Rig live(true);
+        AppInput app(live.events, token);
+        live.enter();
+        const auto real = live.stop(false);
+        const std::string forged = live.stop(false, 99, "ffffffffffffffffffffffffffffffff");
+        const std::string bare = "{\"seq\":" + std::to_string(live.seq()) + ",\"stop\":0,\"id\":99}";
+        require(live.app_tick(app, {forged, bare}, 0, .5f).empty() && app.dropped() == 2, "untokened packets dropped");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == 0, "a forged release must not unlock");
+        AppInput empty(live.events, "");
+        require(empty.receive(live.time, real, 40000) != nullptr, "a runner without a token accepts nothing");
+        require(acked(live.app_tick(app, {real}, 0, .5f), "ACCEPTED"), "the connector's release still counts");
+    }
+    {
         // Physical L2+B wins over any app key in the same tick; an app damp beats an app move in one batch.
         Rig live(true);
-        AppInput app(live.events);
+        AppInput app(live.events, token);
+        live.open(app);
         live.enter();
         live.app_tick(app, {live.key("R2+A", "Stretch", "s")}, emergency);
         require(live.runner.phase() == Phase::damping, "physical L2+B must damp over an app key");
         Rig other(true);
-        AppInput second(other.events);
+        AppInput second(other.events, token);
+        other.open(second);
         other.enter();
         const auto acks = other.app_tick(second, {other.key("R2+A", "Stretch", "s"), other.key("L2+B", "Damp", "d", -1ns)});
         require(other.runner.phase() == Phase::damping && acks.size() == 2 &&
@@ -764,7 +908,8 @@ int main() {
     {
         // Malformed, stale, replayed and future packets are dropped without an ack and change nothing.
         Rig live(true);
-        AppInput app(live.events);
+        AppInput app(live.events, token);
+        live.open(app);
         live.enter();
         const auto fresh = live.key("R2+A", "Stretch", "x");
         std::vector<std::string> bad{
