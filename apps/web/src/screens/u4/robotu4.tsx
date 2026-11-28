@@ -3,16 +3,20 @@
 // 값: 목록 = 서버 로봇 목록 · 머리 칩 = 실시간 state(연결 왕복 ms · 제어 모드 · 배터리 · 관절 최고 온도 · 조종하는 사람) · 3D = 실제 관절값 ·
 // 보기 = 지도(승인 지도 + 로봇 위치) · 카메라 · 라이다 · 깊이. 값이 없으면 시안 틀은 그대로 두고 그 칸 글을 비우거나 「없음」(시안 u4_8 배터리 칸과 같은 말).
 // 조종 · STOP 은 serverdrive.tsx useServerDrive 하나(이 파일은 자리만): 키는 ↑ 앞으로 · ↓ 뒤로 · ← → 옆걸음 · A D 돌기 · Space 정지(팀장 11-28 17:25 · Q · E 없음).
-import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type PointerEvent as PEv, type ReactNode } from 'react';
-import type { MapVersion, RunSnapshot, ScreenAction } from '../../../../contracts/ts';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as PEv, type ReactNode } from 'react';
+import type { GaitName, MapVersion, RunSnapshot, ScreenAction } from '../../../../contracts/ts';
 import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
-import { ADMIN_LATER, ownerName, type Robot } from '../../fake';
+import { ADMIN_LATER, ownerName, robotStatus, type Robot } from '../../fake';
+import { fleetKind, fleetOrder, type Urgent } from '../../fleetorder';
+import { hotJoint as hotOf, tempLevel } from '../../proto/u5';
+import { isLost, needs } from '../control';
 import type { ApiFail } from '../../api';
 import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
 import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
 import { GAITS, NO_GAIT } from '../../gait';
+import { field } from '../../simdrive';
 import { LidarMap } from '../../lidarmap';
 import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2model';
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
@@ -28,7 +32,7 @@ import { mount, type Go2Api } from './go2view';
 import { Detail } from './detail';
 import { DriveLine, useRobotLine } from '../../proto/u11';
 import { stageRect, sx, sy } from '../../stage';
-import { FACTORY_H, FACTORY_PNG, FACTORY_W, attach, factoryFrame, factoryPx, site, siteKey } from './simcam';
+import { FACTORY_H, FACTORY_LIGHT, FACTORY_PNG, FACTORY_W, attach, factoryFrame, factoryPx, site, siteKey } from './simcam';
 import { nextIdx, remaining, ro, runOf, useRoute, type Route, type Run } from './route';
 import { STATUS as RUN_STATUS } from '../missionrun';
 import '../../proto/ui.pv.css';
@@ -86,6 +90,10 @@ export function railLine(x: Robot, me: string, demo = false) {
 }
 const bat = (x: Robot) => { const v = rt.get(x.id).state?.battery?.soc ?? x.battery; return v == null ? NONE : `${Math.round(v)} %`; };
 
+/** 로봇 목록 줄 순서(팀장 11-28 17:33 · 관제 타일과 같은 공용 fleetOrder): 긴급(관절 온도 단계, 아니면 연결 중 로봇의 경고 · 오류 · 정지 잠금) → 실기 → 데모 → 사용자 시뮬 → 받은 순서.
+ *  긴급 판정은 관제 타일(proto/u5 facts)과 같다. 끊김은 이 목록도 칠하지 않아 올리지 않음 */
+export const railUrgent = (x: Robot): Urgent => tempLevel(hotOf(x)?.t ?? null) ?? (isLost(x) || !needs(x) ? null : robotStatus(x).tone === 'bad' ? 'bad' : 'warn');
+export const railOrder = (l: readonly Robot[], demo: ReadonlySet<string>) => fleetOrder(l, railUrgent, (x) => fleetKind(x.sim, demo.has(x.id)));
 function Rail({ c, sel, add }: { c: Ctx; sel: string; add: () => void }) {
   useRt();
   const look = useSimLook(), demo = useContext(Demo);
@@ -93,7 +101,7 @@ function Rail({ c, sel, add }: { c: Ctx; sel: string; add: () => void }) {
     <span data-go="u4_6_add" className="btns addbtn" style={{ height: '34px', padding: '0 11px', fontSize: '12.5px' }} role="button" tabIndex={0} onClick={add} data-u4-add>
       <svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M5 12h14" /><path d="M12 5v14" /></svg>로봇 추가</span></div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-      {c.robots.map((x) => <div key={x.id} className={`rcard ${x.id === sel ? 'on' : ''}${look(x) ? ' rehearse' : ''}`} data-r={x.name} data-robot-row={x.id} role="button" tabIndex={0}
+      {railOrder(c.robots, demo).map((x) => <div key={x.id} className={`rcard ${x.id === sel ? 'on' : ''}${look(x) ? ' rehearse' : ''}`} data-r={x.name} data-robot-row={x.id} role="button" tabIndex={0}
         aria-current={x.id === sel || undefined} onClick={() => c.pick(x.id)}>
         <span className="av">{look(x) ? CUBE : DOG}</span>
         <div style={{ flex: '1' }}>{x.name}<small>{railLine(x, c.user.id, demo.has(x.id))}</small></div>
@@ -139,7 +147,8 @@ function MapView({ c, r, b, run, route, onFactory }: { c: Ctx; r: Robot; b: Boar
   const pts = (l: (readonly [number, number])[]) => l.map((p) => `${p[0].toFixed(0)},${p[1].toFixed(0)}`).join(' ');
   const done = nx != null && me ? [...wps.filter(({ i }) => i < nx).map(({ w }) => at(w.x, w.y)), me] : [];
   const left = nx != null && me ? [me, ...wps.filter(({ i }) => i >= nx).map(({ w }) => at(w.x, w.y))] : wps.map(({ w }) => at(w.x, w.y));
-  const src = !v ? null : onFactory ? (miss ? null : FACTORY_PNG) : miss === 'server' ? (factoryFrame(v) ? FACTORY_PNG : null) : api.imageUrl(v.id);
+  const fac = light() ? FACTORY_LIGHT : FACTORY_PNG;   // 밝은 판은 흰 점토 결 공장 그림(같은 자리)
+  const src = !v ? null : onFactory ? (miss ? null : fac) : miss === 'server' ? (factoryFrame(v) ? fac : null) : api.imageUrl(v.id);
   return <div className="mapv" ref={view} data-u4-map={v?.id ?? ''}><div className="mapin" style={{ transform: shift }}>
     {src && <img src={src} alt="" style={{ width: `${W}px`, height: `${H}px` }} data-u4-mapimg={onFactory || miss ? 'factory' : 'server'}
       onError={() => setMiss((m) => (m ? 'none' : 'server'))} />}
@@ -223,7 +232,7 @@ function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2A
   const cv = useRef<HTMLCanvasElement>(null), g = useRef<Go2Api | null>(null), sim = useSimLook()(r);
   useEffect(() => {
     if (typeof WebGLRenderingContext === 'undefined' || !cv.current) return;
-    const a = mount(cv.current, { pin: true, orbit: true, glow: true, cyber: sim }); g.current = a;
+    const a = mount(cv.current, { pin: true, orbit: true, glow: true }); g.current = a;   // 시안 u4_8: 시뮬 로봇도 보통 Go2 모형(파란 선 꼴 아님)
     if (a.fallback) cv.current.style.visibility = 'hidden';   // WebGL 을 못 만든 캔버스는 숨겨 시안 어두운 바탕 그대로
     return () => { a.dispose(); g.current = null; };
   }, [r.id, sim]);
@@ -235,14 +244,23 @@ function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2A
 }
 
 /** 손잡이 하나(시안 .stick): 왼쪽 = 앞(세로만 · 뒤로는 막음) · 오른쪽 = 돌기(가로만). 처음 잡은 손가락 하나만 */
-function Stick({ side, put, blocked }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[]) => void; blocked: (m: string) => void }) {
+/** 손잡이(팀장 11-28 17:33 · 키보드와 같은 배치): 왼쪽 = 이동(위 앞 · 아래 뒤 · 왼 · 오른 옆걸음), 오른쪽 = 돌기(왼 · 오른).
+ *  한 손잡이는 큰 축 하나만 보낸다(대각은 더 크게 민 쪽). 문턱 0.3 아래는 0. 두 손잡이 조합 · 상한은 serverdrive 명령표가 판단 */
+export function stickTok(side: 'L' | 'R', x: number, y: number): Tok[] {
+  if (side === 'R') return x < -0.3 ? ['rotl'] : x > 0.3 ? ['rotr'] : [];
+  if (Math.abs(y) >= Math.abs(x)) return y < -0.3 ? ['up'] : y > 0.3 ? ['down'] : [];
+  return x < -0.3 ? ['left'] : x > 0.3 ? ['right'] : [];
+}
+function Stick({ side, put }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[]) => void }) {
   const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]);
   const move = (e: PEv<HTMLDivElement>) => {
     // 화면 맞춤(PC 틀이 1920x1080 무대를 창에 맞춰 scale)에서도 맞게: 포인터 · 판 상자 모두 무대 px(stage.ts) = 손잡이 css px
     const el = e.currentTarget, b = stageRect(el), m = b.width * 0.3 || 1;
     let x = (sx(e) - b.left - b.width / 2) / m, y = (sy(e) - b.top - b.height / 2) / m; const n = Math.hypot(x, y); if (n > 1) { x /= n; y /= n; }
-    if (side === 'L') { if (y > 0.3) blocked('후진은 아직 지원하지 않습니다'); const v = Math.max(0, -y); setXy([0, -v * m]); put(e.pointerId, el, v > 0.3 ? ['up'] : []); }
-    else { setXy([x * m, 0]); put(e.pointerId, el, x < -0.3 ? ['rotl'] : x > 0.3 ? ['rotr'] : []); }
+    // 손잡이 그림도 보내는 축 하나 위에(왼쪽은 큰 축, 오른쪽은 가로)
+    if (side === 'L') { if (Math.abs(y) >= Math.abs(x)) setXy([0, y * m]); else setXy([x * m, 0]); }
+    else setXy([x * m, 0]);
+    put(e.pointerId, el, stickTok(side, x, y));
   };
   const end = (e: PEv<HTMLDivElement>) => { if (e.pointerId !== own.current) return; own.current = null; setXy([0, 0]); put(e.pointerId, e.currentTarget, []); };
   return <div className={`stick${xy[0] || xy[1] ? ' on' : ''}`} style={side === 'L' ? { left: '26px' } : { right: '26px' }} data-u4-stick={side}
@@ -254,6 +272,8 @@ function Stick({ side, put, blocked }: { side: 'L' | 'R'; put: (p: number, el: H
 type Tab = 'drive' | 'check' | 'settings';
 type View = 'map' | 'rgb' | 'lidar' | 'depth';
 const VIEWS: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lidar', '라이다'], ['depth', '깊이']];
+/** 숫자 줄 물리 키(e.code) → 메인 칸 */
+const VIEW_KEY: Record<string, View> = { Digit1: 'map', Digit2: 'rgb', Digit3: 'lidar', Digit4: 'depth' };
 
 /** 이 화면이 쓰는 조종 조각. 조종할 수 있는 로봇(keepDrive = 지금 canDrive 이면 기록도 남김)만 useServerDrive 를 붙인다(키 · 조종권은 한 화면에 하나 · 옛 세 칸 화면과 같은 규칙) */
 type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine' | 'gait' | 'take' | 'takeWhy'>;
@@ -360,7 +380,33 @@ function Check({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
 function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const { l, s, mine } = d;
   const [tab, setTab] = useState<Tab>('drive'), [guide, setGuide] = useState(false), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view, can);
+  // 메인 칸 확대(팀장 11-28 17:33 · 시안 밖 · 새로 그림): 더블클릭 · Esc · 「돌아가기」. 브라우저 전체 화면이 아니라 무대 안에서 제자리 → 무대 전체로(FLIP · transform 만)
+  const [zoom, setZoom] = useState(false), viewsEl = useRef<HTMLDivElement>(null), from = useRef<DOMRect | null>(null);
+  const flip = (on: boolean) => { if (viewsEl.current) from.current = viewsEl.current.getBoundingClientRect(); setZoom(on); };
+  useLayoutEffect(() => {
+    const el = viewsEl.current, a = from.current; from.current = null;
+    if (!el || !a || typeof el.animate !== 'function' || matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return;
+    const b = el.getBoundingClientRect(); if (!b.width || !b.height) return;
+    el.animate([{ transformOrigin: '0 0', transform: `translate(${a.left - b.left}px,${a.top - b.top}px) scale(${a.width / b.width},${a.height / b.height})` }, { transformOrigin: '0 0', transform: 'none' }],
+      { duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }, [zoom]);
+  useEffect(() => { if (tab !== 'drive') setZoom(false); }, [tab]);
+  useEffect(() => {
+    if (!zoom) return;
+    const esc = (e: KeyboardEvent) => { if ((e.key === 'Escape' || e.code === 'Escape') && !field(e.target)) flip(false); };
+    addEventListener('keydown', esc); return () => removeEventListener('keydown', esc);
+  }, [zoom]);
+  const zoomDbl = (e: { target: EventTarget | null }) => { if ((e.target as Element | null)?.closest?.('[role="button"], button, a, input, select')) return; flip(!zoom); };
+  // 1 · 2 · 3 · 4 = 메인 칸 지도 · 카메라 · 라이다 · 깊이(팀장 11-28 17:33). Shift+1~4 는 걷기 모드라 수정 키 없을 때만 · 글 입력칸이면 무시
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.repeat || field(e.target)) return;
+      const v = VIEW_KEY[e.code]; if (v) { e.preventDefault(); setView(v); }
+    };
+    addEventListener('keydown', down); return () => removeEventListener('keydown', down);
+  }, []);
   const [msg, setMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);
+  const [modeAsk, setModeAsk] = useState<GaitName | null>(null);   // 시안 u4_7 「걷기 모드를 X 로 바꿀까요?」 창 · 고른 모드
   const say = (m: string) => { setMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setMsg(''), 2600); };
   useEffect(() => { if (d.why) say(d.why); }, [d.why]);
   useEffect(() => { if (d.gait.msg) say(d.gait.msg); }, [d.gait.msg]);
@@ -416,7 +462,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   return <>
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}{demo && DEMO}</span>
       <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{sim && online ? '서버 계산' : ms}</small></span>
-      <span data-go="u4_7_mode" className="g dk st" data-cell="mode" aria-disabled={noGait || undefined} title={noGait ? NO_GAIT : undefined}><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small {...(noGait ? { 'data-gait-none': '' } : {})}>{noGait ? '바꿀 수 있는 모드 없음' : 'Shift + 1 ~ 4'}</small></span>
+      <span data-go="u4_7_mode" className="g dk st" data-cell="mode" aria-disabled={noGait || undefined} title={noGait ? NO_GAIT : undefined} role="button" tabIndex={0}
+        onClick={() => { if (noGait) say(NO_GAIT); else setModeAsk(d.gait.cur ?? GAITS[0].g); }} onKeyDown={(e) => { if (e.key === 'Enter') { if (noGait) say(NO_GAIT); else setModeAsk(d.gait.cur ?? GAITS[0].g); } }}><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small {...(noGait ? { 'data-gait-none': '' } : {})}>{noGait ? '바꿀 수 있는 모드 없음' : 'Shift + 1 ~ 4'}</small></span>
       <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{r.unknown === 'summary' ? '확인 안 됨' : soc == null ? NONE : `${Math.round(soc)} %`}<small>{sim ? '시뮬' : soc == null ? '배터리' : left != null ? `약 ${left} 분` : ''}</small></span>
       <span className={`g dk st${hotTag ? ' bad warncell' : ''}`} data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NONE : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
       <span className="g dk st" data-cell="holder"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>{who}<small>조종자</small></span>
@@ -439,7 +486,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : '위치 추정 없음'}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div>}</div>
     {tab === 'check' ? <div className="right" data-u4-can={can || undefined}><Check c={c} r={r} guide={() => setGuide(true)} /></div>
-      : <div className="right" data-u4-can={can || undefined}><div className="views" aria-label="로봇 보기">
+      : <div className="right" data-u4-can={can || undefined} {...(zoom ? { 'data-u4-zoom': '' } : {})}><div className="views" ref={viewsEl} aria-label="로봇 보기" onDoubleClick={zoomDbl} title={zoom ? undefined : '더블클릭하면 크게 봅니다'}>
+      {zoom && <div className="g dk zback" role="button" tabIndex={0} data-u4-zback onClick={() => flip(false)} onKeyDown={(e) => { if (e.key === 'Enter') flip(false); }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="m15 18-6-6 6-6" /></svg>돌아가기<small>Esc</small></div>}
       {view === 'map' ? map : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar fs={fs} can={can} /> : view === 'rgb' ? <Cam fs={fs} big can={can} b={b} /> : <Feed fs={fs} ch={view} big can={can} />}</div>}
       <div className="g dk vsel">{VIEWS.map(([k, t]) => <span key={k} className={view === k ? 'on' : undefined} data-view={k} role="button" tabIndex={0} aria-pressed={view === k} onClick={() => setView(k)}>{t}</span>)}</div>
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
@@ -459,10 +507,10 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
-        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>↓</kbd>뒤로</span><span><kbd>←</kbd><kbd>→</kbd>옆걸음</span><span><kbd>A</kbd><kbd>D</kbd>돌기</span><span><kbd>Space</kbd>정지</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
+        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>↓</kbd>뒤로</span><span><kbd>←</kbd><kbd>→</kbd>옆걸음</span><span><kbd>A</kbd><kbd>D</kbd>돌기</span><span><kbd>Space</kbd>정지</span><span><kbd>1</kbd>~<kbd>4</kbd>화면</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
       </div>
       <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
-        <Stick side="L" put={d.stick} blocked={say} /><Stick side="R" put={d.stick} blocked={say} />
+        <Stick side="L" put={d.stick} /><Stick side="R" put={d.stick} />
         <div className="act">{ACTS.map(([name, t, em, ic]) => {
           const off = offAct(name);
           return <div key={name} className={off ? 'no' : undefined} {...(off && name === 'StandUp' ? { 'data-why': STANDUP_WHY } : {})} role="button" tabIndex={0} data-u4-act={name} onClick={() => act(name)}>
@@ -471,6 +519,22 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <div className={`why${msg ? ' on' : ''}`} role="status" data-u4-why>{msg}</div>
       </div>
     </div>}
+    {modeAsk && <><div className="veil" onClick={() => setModeAsk(null)} />
+      <div className="g modal" style={{ width: '560px' }} role="dialog" aria-label="걷기 모드 바꾸기" data-u4-mode>
+        <span className="ttl">걷기 모드를 {GAITS.find((x) => x.g === modeAsk)!.name} 로 바꿀까요?</span>
+        <p className="mu" style={{ fontSize: '14px', marginTop: '10px', lineHeight: '1.55' }}>Shift + 1 ~ 4 로도 바꿉니다. 바꾸는 동안 약 1 초 조종할 수 없습니다. 로봇이 멈춘 상태에서만 바뀝니다.</p>
+        <div style={{ display: 'flex', gap: '8px', marginTop: '18px' }}>{GAITS.map((x) => {
+          const off = !!d.gait.avail && !d.gait.avail.includes(x.g), on = x.g === modeAsk;
+          return <div key={x.g} className="fld" role="button" tabIndex={0} aria-pressed={on} aria-disabled={off || undefined} title={off ? '이 로봇에서 지금 쓸 수 없는 모드입니다.' : undefined} data-u4-gait={x.g}
+            style={{ flex: '1', justifyContent: 'center', ...(on ? { border: '1.5px solid var(--pr)', color: 'var(--pr3)', fontWeight: 800 } : {}), ...(off ? { opacity: 0.45 } : {}) }}
+            onClick={() => { if (!off) setModeAsk(x.g); }}>{x.name}</div>;
+        })}</div>
+        <div style={{ display: 'flex', gap: '10px', marginTop: '22px' }}>
+          <div className="fld xclose" role="button" tabIndex={0} style={{ flex: 'none', width: 'calc(50% - 5px)', boxSizing: 'border-box', justifyContent: 'center', height: '52px' }} data-u4-mode-cancel onClick={() => setModeAsk(null)}>취소</div>
+          <div className="btnp" role="button" tabIndex={0} style={{ flex: 'none', width: 'calc(50% - 5px)', boxSizing: 'border-box', height: '52px', fontSize: '15px' }} data-u4-mode-go
+            onClick={() => { d.gait.press(modeAsk); setModeAsk(null); }}>{GAITS.find((x) => x.g === modeAsk)!.name} 로 바꾸기</div>
+        </div>
+      </div></>}
     {(tab === 'settings' || guide) && <><div className="veil" onClick={() => { setTab(tab === 'settings' ? 'drive' : tab); setGuide(false); }} />
       <div className="g modal" role="dialog" aria-label={guide ? '로봇 연결 방법' : '로봇 설정'} data-u4-tab={guide ? 'guide' : tab}>
         <div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">{r.name} {guide ? '연결 방법' : '로봇 설정'}</span>

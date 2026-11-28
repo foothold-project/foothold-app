@@ -105,7 +105,12 @@
 /* 밝은 판(.proto.light) · 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」 표 값만(tests/u4light.test.js).
    3D 무대 · 지도 그림은 두 판 같은 어두운 그림이라 그 위 유리 띠는 어두운 유리로 둔다(밝은 유리 위 흰 · 민트 글자는 읽히지 않음).
    아래 판(조이스틱 · 동작 단추)은 흰 칸이라 동작 글자를 글자색으로 */
-.proto.light .u4 .stage3d .g.dk,.proto.light .u4 .foot .g.dk{background:linear-gradient(180deg,rgba(31,36,33,.62),rgba(31,36,33,.46));border:1px solid rgba(255,255,255,.22);box-shadow:0 10px 28px rgba(31,36,33,.28);color:#FFFFFF}
+/* 밝은 판 무대가 밝은 결이라 그 위 띠는 밝은 유리(light.pv.css 기본) 위 밝음 1 글자색. 시안 인라인 색(어두운 판 민트 · 흰 · 빨강)을 밝음 1 값으로 */
+.proto.light .u4 .stage3d [data-u4-walk],.proto.light .u4 .stage3d [data-u4-legend] .g.dk:first-child{color:#0E7F63!important}
+.proto.light .u4 .stage3d [data-u4-loc]{color:#1F2421!important}
+.proto.light .u4 .stage3d [data-u4-hot],.proto.light .u4 .stage3d [data-u4-legend] .g.dk:last-child{color:#B8361F!important}
+.proto.light .u4 .stage3d [data-u4-legend] .g.dk:nth-child(2){color:#D9A21F!important}
+.proto.light .u4 .stage3d [data-u4-simplace]{color:#2F6FE0!important}
 .proto.light .u4 .act div{color:#1F2421;text-shadow:none}
 .proto.light .u4 .act span{background:#FFFFFF;border:1px solid #DCE0DE;box-shadow:0 1px 2px rgba(31,36,33,.06)}
 .proto.light .u4 .vgo{background:#18A07E;color:#1F2421;box-shadow:0 6px 16px rgba(24,160,126,.25)}
@@ -114,3 +119,16 @@
 .proto.light .u4 .views{background:#F6F7F6;border-color:#DCE0DE}
 .proto.light .u4 .views::after{background:none}
 .proto.light .u4 .views .small{border-color:#DCE0DE;box-shadow:0 10px 24px rgba(31,36,33,.18)}
+/* 메인 칸 확대(시안 밖 · 새로 그림 · 같은 탭 시안 결): 무대(1920x1080) 안 fixed = 변환된 무대 틀 기준. 키 줄 · 손잡이 판은 아래에 떠 있고 정지는 그 위 오른쪽 */
+.u4 .right[data-u4-zoom]{z-index:6}
+.u4 .right[data-u4-zoom] .views{position:fixed;left:0;top:0;width:1920px;height:1080px;border-radius:0;border:0;z-index:6}
+.u4 .right[data-u4-zoom] .ctl{position:fixed;left:24px;right:24px;top:auto;bottom:256px;z-index:7}
+.u4 .right[data-u4-zoom] .deck{position:fixed;left:24px;right:24px;top:auto;bottom:24px;height:218px;z-index:7;background:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.u4 .right[data-u4-zoom] .vstop,.u4 .right[data-u4-zoom] .vslot{bottom:330px;right:40px}
+.u4 .right[data-u4-zoom] .vsel{left:148px;top:24px}
+.u4 .right[data-u4-zoom] .small{right:40px;top:24px;width:320px;height:194px}
+.u4 .right[data-u4-zoom] .mapname{left:24px;top:76px}
+.u4 .right[data-u4-zoom] .job{left:24px;bottom:330px}
+.u4 .zback{position:absolute;left:24px;top:24px;z-index:3;height:40px;padding:0 14px 0 10px;border-radius:12px;display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;cursor:pointer}
+.u4 .zback small{font-size:11px;font-weight:600;opacity:.6;margin-left:4px}
+.proto.light .u4 .right[data-u4-zoom] .deck{background:rgba(255,255,255,.82);border-color:#DCE0DE}

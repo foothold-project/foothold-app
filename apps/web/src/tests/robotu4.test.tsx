@@ -7,6 +7,8 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
+import { SIDE_BLOCK } from '../serverdrive';
+import { railOrder } from '../screens/u4/robotu4';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
 
@@ -101,8 +103,8 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect($$('.views .vsel span').map(text)).toEqual(['지도', '카메라', '라이다', '깊이']);
     expect(text($('.views .small .cl'))).toBe('앞 카메라');
     expect(text($('.views .vstop'))).toBe('정지Space');
-    expect($('.ctl .keys')!.textContent).toBe('↑앞으로↓뒤로←→옆걸음AD돌기Space정지Shift1~4모드');   // 팀장 11-28 17:25 키 배치(시안 Q E 줄은 바뀜)
-    expect($$('.ctl .keys kbd').map(text)).toEqual(['↑', '↓', '←', '→', 'A', 'D', 'Space', 'Shift', '1', '4']);
+    expect($('.ctl .keys')!.textContent).toBe('↑앞으로↓뒤로←→옆걸음AD돌기Space정지1~4화면Shift1~4모드');   // 팀장 11-28 17:25 키 배치(시안 Q E 줄은 바뀜)
+    expect($$('.ctl .keys kbd').map(text)).toEqual(['↑', '↓', '←', '→', 'A', 'D', 'Space', '1', '4', 'Shift', '1', '4']);
     expect($$('.deck .stick').length).toBe(2);
     expect($$('.deck .act > div').map((d) => d.childNodes[1].textContent)).toEqual(['앉기', '일어서기', '엎드리기', '기지개', '악수', '하트', '인사']);
     expect($$('.deck .act > div em').map(text)).toEqual(['R1+B', 'L2+A', 'L2+A', 'R2+A', 'R2+B', 'R2+Y', '순정 확인 전']);
@@ -413,5 +415,112 @@ describe('화면 맞춤 scale 아래 조이스틱', () => {
     expect((R.querySelector('i') as HTMLElement).style.transform).toBe('translate(20px,0px)');
     tick(60); expect(Number(lastAxes()!.split(',')[2])).toBeLessThan(0);
     ptr(R, 'pointerup', c, c);
+  });
+
+  // 팀장 11-28 17:33: 손잡이도 키보드와 같게. 왼쪽 = 이동(위 · 아래 · 왼 · 오른 · 옆걸음 포함), 오른쪽 = 돌기. 대각은 큰 축 하나만. 후진 막음 글 없음
+  it('왼쪽 손잡이 = 이동 네 방향(대각은 큰 축 하나) · 오른쪽 = 돌기 · 떼기 · 취소 · 창 흐림이면 0 · 후진 막음 글 없음', () => {
+    mount('u-park'); serve('r7'); drive();
+    const L = $('[data-u4-stick="L"]')!; shrink(L, 1); const R = $('[data-u4-stick="R"]')!; shrink(R, 1);
+    const c = 175, at = (el: Element, dx: number, dy: number) => { ptr(el, 'pointerdown', c + dx, c + dy); tick(60); const a = lastAxes()!; ptr(el, 'pointerup', c + dx, c + dy); tick(60); expect(lastAxes()).toBe('0,0,0'); return a; };
+    expect(at(L, 0, -40)).toBe('1.5,0,0');     // 위 = 앞
+    expect(at(L, 0, 40)).toBe('-1.5,0,0');     // 아래 = 뒤
+    expect(at(L, -40, 0)).toBe('0,1,0');       // 왼 = 왼쪽 옆걸음
+    expect(at(L, 40, 0)).toBe('0,-1,0');       // 오른 = 오른쪽 옆걸음
+    expect(at(L, 15, -40)).toBe('1.5,0,0');    // 대각 · 위가 크면 앞만
+    expect(at(L, -40, 15)).toBe('0,1,0');      // 대각 · 왼이 크면 옆만
+    expect(at(L, 5, -5)).toBe('0,0,0');        // 문턱 안
+    expect(text($('[data-u4-why]'))).not.toContain('후진');
+    expect(Number(at(R, -40, 0).split(',')[2])).toBeGreaterThan(0);   // 오른쪽 손잡이 왼 = 왼쪽 돌기
+    expect(Number(at(R, 40, 0).split(',')[2])).toBeLessThan(0);
+    expect(at(R, 0, -40)).toBe('0,0,0');       // 오른쪽 손잡이 위아래는 없음
+    ptr(L, 'pointerdown', c, c + 40); tick(60); expect(lastAxes()).toBe('-1.5,0,0');
+    ptr(L, 'pointercancel', c, c + 40); tick(60); expect(lastAxes()).toBe('0,0,0');   // 취소 = 0
+    ptr(L, 'pointerdown', c - 40, c); tick(60); expect(lastAxes()).toBe('0,1,0');
+    act(() => { window.dispatchEvent(new Event('blur')); }); tick(60); expect(lastAxes()).toBe('0,0,0');   // 창 흐림 = 0
+    ptr(L, 'pointerup', c - 40, c); tick(60);
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));   // 옆 상한 0 이면 옆걸음 0 + 까닭
+    ptr(L, 'pointerdown', c - 40, c); tick(60); expect(lastAxes()).toBe('0,0,0');
+    expect(document.body.textContent).toContain(SIDE_BLOCK);
+    ptr(L, 'pointerup', c - 40, c); tick(60);
+  });
+});
+
+describe('1 · 2 · 3 · 4 키 = 메인 칸 지도 · 카메라 · 라이다 · 깊이', () => {
+  it('수정 키 없을 때만 · Shift+1~4 는 모드 · 입력 칸에서는 무시 · 키 줄에 「1~4 화면」', () => {
+    mount('u-park'); serve('r7');
+    const big = () => $('.vsel [data-view].on')!.getAttribute('data-view');
+    expect(big()).toBe('map');
+    key('keydown', 'Digit2'); key('keyup', 'Digit2'); expect(big()).toBe('rgb');
+    key('keydown', 'Digit3'); key('keyup', 'Digit3'); expect(big()).toBe('lidar');
+    key('keydown', 'Digit4'); key('keyup', 'Digit4'); expect(big()).toBe('depth');
+    key('keydown', 'Digit1'); key('keyup', 'Digit1'); expect(big()).toBe('map');
+    for (const m of ['shiftKey', 'ctrlKey', 'altKey', 'metaKey']) {
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', [m]: true, bubbles: true, cancelable: true })); });
+      expect(big()).toBe('map');
+    }
+    const input = document.createElement('input'); document.body.append(input); input.focus();
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit2', bubbles: true, cancelable: true })); });
+    expect(big()).toBe('map'); input.remove();
+    expect(text($('.ctl .keys'))).toContain('1~4화면');
+  });
+});
+
+describe('메인 칸 더블클릭 = 무대 안 확대(시안 밖 · 새로 그림)', () => {
+  const dbl = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+  it('더블클릭 · Esc · 「돌아가기」 · 다시 더블클릭으로 나감 · 확대 중에도 정지 · 손잡이 · 키 줄 · 1~4 · 조종 그대로', () => {
+    mount('u-park'); serve('r7'); drive();
+    const views = () => $('.right .views')!, on = () => $('.right')!.hasAttribute('data-u4-zoom');
+    expect(on()).toBe(false); expect($('[data-u4-zback]')).toBeNull();
+    dbl(views()); expect(on()).toBe(true);
+    expect($('[data-u4-zback]')!.textContent).toContain('돌아가기');
+    expect($('.right .vstop[data-sd-stop="u4"]')).not.toBeNull();
+    expect($$('.right [data-u4-stick]').length).toBe(2);
+    expect(text($('.right .keys'))).toContain('Space정지');
+    key('keydown', 'Digit2'); key('keyup', 'Digit2'); expect($('.vsel [data-view].on')!.getAttribute('data-view')).toBe('rgb');
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0'); key('keyup', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keydown', 'Escape'); expect(on()).toBe(false);
+    dbl(views()); expect(on()).toBe(true);
+    click($('[data-u4-zback]')!); expect(on()).toBe(false);
+    dbl(views()); dbl(views()); expect(on()).toBe(false);
+    dbl($('.vsel [data-view]')!); expect(on()).toBe(false);   // 단추 위 더블클릭은 확대 아님
+  });
+});
+
+describe('로봇 목록 줄 순서 = 공용 fleetOrder(긴급 → 실기 → 데모 → 사용자 시뮬 → 받은 순서)', () => {
+  it('시뮬 · 실기 섞인 목록: 실기가 위, 시뮬이 아래 · 정지 잠금(경고) 실기는 맨 위', () => {
+    const sim = { ...ON.find((r) => r.id === 'r7')!, id: 's9', name: 'S-9', sim: true };
+    mount('u-park', [sim, ...ON]); serve('r7');
+    const rows = () => $$('.rail [data-robot-row]').map((e) => e.getAttribute('data-robot-row'));
+    const got = rows();
+    expect(got[got.length - 1]).toBe('s9');   // 사용자 시뮬은 맨 아래
+    expect(new Set(got)).toEqual(new Set(['s9', ...ON.map((r) => r.id)]));
+  });
+});
+
+describe('railOrder', () => {
+  it('뜨거운 관절(경고) 시뮬도 맨 위 · 그다음 실기 · 데모 · 사용자 시뮬', () => {
+    const base = ON.find((r) => r.id === 'r7')!, temp = (t: number) => ({ temperature: { joints: Array.from({ length: 12 }, (_, i) => (i === 0 ? t : 30)) } });
+    const real = { ...base, id: 'a', sim: false, online: true, unknown: undefined, robotInfo: { ...base.robotInfo, ...temp(30) } } as Robot;
+    const demo = { ...real, id: 'b', sim: true }, user = { ...real, id: 'c', sim: true }, hot = { ...user, id: 'd', robotInfo: { ...real.robotInfo, ...temp(65) } } as Robot;
+    expect(railOrder([user, demo, hot, real], new Set(['b'])).map((x) => x.id)).toEqual(['d', 'a', 'b', 'c']);
+  });
+});
+
+describe('걷기 모드 창(시안 u4_7)', () => {
+  it('모드 칸을 누르면 창 · 고른 모드로 바꾸기는 서버 gait 하나 · 취소는 아무것도 안 보냄 · 쓸 수 있는 모드가 빈 목록이면 창 대신 까닭', () => {
+    mount('u-park'); serve('r7'); drive();
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport', 'start', 'ame2'] } } as Partial<ScreenState>); });
+    click($('[data-cell="mode"]')!);
+    expect($('[data-u4-mode] .ttl')!.textContent).toBe('걷기 모드를 Classic 로 바꿀까요?');
+    click($('[data-u4-gait="start"]')!);
+    expect($('[data-u4-mode] .ttl')!.textContent).toBe('걷기 모드를 START 로 바꿀까요?');
+    expect($('[data-u4-mode-go]')!.textContent).toBe('START 로 바꾸기');
+    const n0 = w.of('gait').length;
+    click($('[data-u4-mode-cancel]')!); expect($('[data-u4-mode]')).toBeNull(); expect(w.of('gait').length).toBe(n0);
+    click($('[data-cell="mode"]')!); click($('[data-u4-gait="sport"]')!); click($('[data-u4-mode-go]')!);
+    expect($('[data-u4-mode]')).toBeNull();
+    const sent = w.of('gait'); expect(sent.length).toBe(n0 + 1); expect(sent[sent.length - 1].gait).toBe('sport');
+    act(() => { push('r7', { gait: { gait: 'classic', available: [] } } as Partial<ScreenState>); });
+    expect($('[data-gait-none]')).not.toBeNull(); click($('[data-cell="mode"]')!); expect($('[data-u4-mode]')).toBeNull();
   });
 });

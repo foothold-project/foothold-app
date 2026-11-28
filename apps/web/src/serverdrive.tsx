@@ -253,7 +253,12 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     const was = pads.current.get(p);
     if (!t.length) return lift(p);
     if (was && id(was.t) === id(t)) return;
-    pads.current.set(p, { n: was ? was.n : now(), t, el }); changed();
+    pads.current.set(p, { n: was ? was.n : now(), t, el });
+    const q = pressed();   // 키와 같은 까닭 한 줄(손잡이 옆걸음 · 상한 · 표 밖 조합)
+    if (readyRef.current && q && unknownCombo(q)) setWhy(COMBO_BLOCK);
+    else if (readyRef.current && q && !permitted(command(q), settingsRef.current)) setWhy(command(q)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.');
+    else if (readyRef.current) setWhy('');
+    changed();
   };
   /** 누른 단추가 사라짐(작게 보기·전체화면 전환 등 — 놓음을 못 받음): 그 포인터를 지우고 세대 +1(RV-426 ⑥) */
   const gone = (el: HTMLElement) => { let hit = false; for (const [p, x] of pads.current) if (x.el === el) { pads.current.delete(p); hit = true; } if (hit) zero(); };
