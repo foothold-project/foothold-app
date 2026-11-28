@@ -3,6 +3,7 @@ import gc
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import create_engine, text
@@ -14,6 +15,7 @@ from apps.server.fh_server.security import digest, hash_password
 from .postgres import temporary_postgres
 
 CONFIG = Path(__file__).resolve().parents[1] / 'alembic.ini'
+HEAD = ScriptDirectory.from_config(Config(str(CONFIG))).get_current_head()
 
 
 @pytest.fixture(scope='session')
@@ -40,6 +42,11 @@ def migrated(postgres):
 @pytest.fixture
 def seeded(migrated):
     engine = create_engine(migrated['migrate'])
+    # A migration test that stopped on an old revision must not break every later case.
+    with engine.connect() as conn:
+        current = conn.scalar(text('SELECT version_num FROM alembic_version'))
+    if current != HEAD:
+        command.upgrade(Config(str(CONFIG)), 'head')
     with engine.begin() as conn:
         conn.execute(text('TRUNCATE events, sessions, robots, users, organizations RESTART IDENTITY CASCADE'))
     with DBSession(engine) as db:

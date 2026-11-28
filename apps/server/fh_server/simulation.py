@@ -246,6 +246,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 simulation=True, sim_generation=0, agent_token_hash=digest(raw))
             db.add(row)
         row.owner_user_id = user.id
+        row.demo = body.demo
         row.sim_generation += 1
         row.sim_world_id = body.world_id.split('/')[0]
         row.sim_state = 'STARTING'
@@ -255,7 +256,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         authorize(user, 'O_OWN', row)
         db.flush()
         event(db, user.org_id, 'SIM_ROBOT_REQUESTED', user.id, {'robot_id': rid,
-              'world_id': body.world_id, 'generation': generation, 'simulation': True}, category='LINK')
+              'world_id': body.world_id, 'generation': generation, 'simulation': True, 'demo': body.demo}, category='LINK')
         db.commit()
         def start_rejected(error):
             if (error.status, error.code) not in START_REJECTIONS and not start_not_created(error):
@@ -266,6 +267,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 phone_pass.revoke(db, user.org_id, robot_id=row.id, clock=issuer.clock)
                 row.sim_state = 'IDLE'
                 row.owner_user_id = None
+                row.demo = False
                 row.agent_token_hash = digest(token())
                 event(db, user.org_id, 'SIM_ROBOT_START_REJECTED', user.id,
                       {'robot_id': rid, 'generation': generation, 'reason': error.code}, category='LINK')
@@ -380,6 +382,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         phone_pass.revoke(db, org_id, robot_id=robot_id, clock=issuer.clock)
         row.sim_state = 'IDLE'
         row.owner_user_id = None
+        row.demo = False
         row.agent_token_hash = digest(token())
         # Keep identity, provenance and pass/revocation history; no archive/reuse shortcut.
         event(db, org_id, 'SIM_ROBOT_REMOVED', actor_id, {'robot_id': str(robot_id),
@@ -438,6 +441,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 phone_pass.revoke(db, org_id, robot_id=robot_id, clock=issuer.clock)
                 row.sim_state = 'IDLE'
                 row.owner_user_id = None
+                row.demo = False
                 row.agent_token_hash = digest(token())
                 event(db, org_id, 'SIM_ROBOT_REMOVED', owner_id, {'robot_id': str(robot_id),
                       'generation': generation, 'manager_instance_id': str(receipt.manager_instance_id),

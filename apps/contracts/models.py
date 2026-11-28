@@ -23,6 +23,8 @@ def omitted(**constraints):
 SIM_MAP_REQUIRES_SIM_ROBOT = 'SIM_MAP_REQUIRES_SIM_ROBOT'
 SIM_SCENARIO_NO_ASSIGN = 'SIM_SCENARIO_NO_ASSIGN'
 SCENARIO_MIXED_PURPOSE = 'SCENARIO_MIXED_PURPOSE'
+# 409: demo is a simulation robot role; real robots stay demo=false.
+DEMO_REQUIRES_SIMULATION = 'DEMO_REQUIRES_SIMULATION'
 
 SitePurpose = Literal['SIM', 'REAL']
 
@@ -430,7 +432,7 @@ class PhoneRelayState(Contract):
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay',
-        'robot_serial', 'field_approval_expires_at', 'robot_info', 'server_drive_blocked'))
+        'robot_serial', 'field_approval_expires_at', 'robot_info', 'server_drive_blocked', 'demo'))
     robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
@@ -439,6 +441,7 @@ class RobotSummary(Contract):
     controller_device: UUID | None = None
     controller_connected: bool | None = None
     simulation: bool = False
+    demo: bool = Field(default=False, description='하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false.')
     server_drive_allowed: bool = False
     server_drive_blocked: list[Literal['SWITCH_OFF', 'NO_OWNER', 'NO_SERIAL', 'AGENT_OFFLINE']] | None = Field(
         default=None, description='표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다.')
@@ -1670,6 +1673,7 @@ class RobotPatch(Contract):
     owner_user_id: UUID | None = omitted(description=(
         '실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 '
         '같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다.'))
+    demo: bool = omitted(description='시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION.')
 
 
 class RobotCreated(Contract):
@@ -3359,6 +3363,7 @@ class SimWorldStart(Contract):
 
 class SimStartRequest(SimWorldStart):
     robot_id: UUID
+    demo: bool = Field(default=False, description='새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다.')
 
 
 class SimRemove(Contract):
@@ -3575,6 +3580,7 @@ REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartReq
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 
+TOP['RobotDemoErrorCode'] = Literal['DEMO_REQUIRES_SIMULATION']
 TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT', 'SIM_SCENARIO_NO_ASSIGN', 'SCENARIO_MIXED_PURPOSE']
 TOP.update(RunStatus=RunStatus, RunRecordStatus=RunRecordStatus, RunWaitReason=RunWaitReason,
            RunFailCode=RunFailCode, RunRejectCode=RunRejectCode,

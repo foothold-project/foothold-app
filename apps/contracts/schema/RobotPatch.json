@@ -3,6 +3,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "demo": {
+      "description": "시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION.",
+      "title": "Demo",
+      "type": "boolean"
+    },
     "name": {
       "maxLength": 128,
       "minLength": 1,

@@ -130,6 +130,12 @@
       "title": "Agent Token",
       "type": "string"
     },
+    "demo": {
+      "default": false,
+      "description": "새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다.",
+      "title": "Demo",
+      "type": "boolean"
+    },
     "generation": {
       "maximum": 9223372036854775807,
       "minimum": 1,
