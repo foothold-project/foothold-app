@@ -18,6 +18,8 @@
 .u4 .hint{right:24px;top:24px;color:var(--mu2);font-weight:600;pointer-events:none}.u4 .hint::before{display:none}
 .u4 .bub{position:absolute;max-width:300px;padding:12px 16px;border-radius:18px 18px 18px 6px;font-size:14px;font-weight:700;line-height:1.4}
 .u4 .bub small{display:block;font-size:12px;font-weight:600;color:var(--mu);margin-top:3px}
+.u4 .bub .dv-note{margin:0;padding:0;border:0;border-radius:0;background:none;color:inherit;font:inherit}
+.u4 .bub .dv-note+.dv-note{margin-top:6px}
 .u4 .foot{position:absolute;left:20px;right:20px;bottom:18px;display:flex;align-items:center;gap:10px}
 .u4 .right{position:absolute;left:1078px;right:24px;top:156px;bottom:24px}
 .u4 .views{position:absolute;left:0;right:0;top:0;height:600px;border-radius:22px;overflow:hidden;background:#0e1116;border:1px solid var(--line)}
