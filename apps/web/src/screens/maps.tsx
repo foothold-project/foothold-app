@@ -453,8 +453,8 @@ function Route({ v, x, floor }: { v: Pick<MapVersion, 'origin' | 'resolution' | 
   const on = x.waypoints.filter((w) => w.floor_id === floor), rr = Math.max(v.width, v.height) / 60;
   return <g data-route={x.id} style={{ pointerEvents: 'none' }}>
     {on.length > 1 && <polyline points={on.map((w) => toPixel(v, w.x, w.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 3, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
-    {on.map((w, i) => { const [a, b] = toPixel(v, w.x, w.y); return <g key={i}><circle cx={a} cy={b} r={rr} style={{ fill: 'var(--accent)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
-      <text x={a} y={b + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: '#FFFFFF' }}>{i + 1}</text></g>; })}
+    {on.map((w, i) => { const [a, b] = toPixel(v, w.x, w.y); return <g key={i}><circle cx={a} cy={b} r={rr} style={{ fill: 'var(--accent)', stroke: 'var(--on-accent)', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
+      <text x={a} y={b + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: 'var(--on-accent)' }}>{i + 1}</text></g>; })}
   </g>;
 }
 

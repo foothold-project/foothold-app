@@ -4,8 +4,8 @@
 /** [보이는 키, 하는 일, 물리 키(e.code)]. controls.test 가 simdrive KEYS 와 맞춘다 */
 export const KEY_GUIDE: [string, string, string[]][] = [
   ['W · S · ↑ · ↓', '앞 · 뒤', ['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown']],
-  ['A · D', '돌기', ['KeyA', 'KeyD']],
-  ['← · →', '옆걸음', ['ArrowLeft', 'ArrowRight']],
+  ['A · D · ← · →', '돌기', ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight']],
+  ['Q · E', '옆걸음', ['KeyQ', 'KeyE']],
   ['Space', '정지 (모든 화면 · 글 입력 칸에서는 띄어쓰기)', ['Space']],
 ];
 /** 실기 폰 조종(drive.tsx 174)은 전후를 0 아래로 내리지 않고, 뒤로 밀면 «후진은 아직 지원하지 않습니다»(298) 를 보인다 */

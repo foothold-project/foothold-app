@@ -247,7 +247,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     serve(signedIn(LEE, ROBOTS, { 'POST /auth/logout': { status: 204 } }));
     await open('#/fleet', true);
     expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['Go2-A']);
-    expect([...$('header details')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['기록', '로그아웃']);
+    expect([...$('header details')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['지도 스캔', '기록', '로그아웃']);   // 지도 스캔 = 담당 실기 Go2-A(scanentry.test.tsx)
     click(btn('기록')!);
     expect(location.hash).toBe('#/history');
     expect($('header')!.lastElementChild).toBe($('[data-stop]'));   // STOP 은 여전히 맨 오른쪽
@@ -383,7 +383,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
 
 // R2-B1: 조종 화면이 열린 채 세션이 끝나면(로그아웃·401·실시간 4401) 조종권을 돌려주고 로그인 화면으로 — 흰 화면 아님
 describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => {
-  // 실기 조종은 운영 관리자만(10-25 — 총괄은 실기 조종 없음): 자기 로봇을 조종하는 이운영
+  // 자기 로봇을 조종하는 이운영(운영 관리자 · 총괄도 실기 조종은 11/28 부터, 이 시험은 운영 관리자로 본다)
   const live = { ...robot('r-k', 'Go2-K', 'o1', '이운영'), connection: 'ONLINE' as const, status: 'IDLE' as const };
   /** 실시간 연결을 열고 r-k 조종권을 받음 */
   function hold() {
