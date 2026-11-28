@@ -125,6 +125,17 @@ describe('비밀번호 바꾸기 창 (u10_2 · u10_4)', () => {
     expect(d.querySelector('[role="alert"]')!.textContent).toBe('아이디나 비밀번호가 맞지 않습니다');
     expect(calls.some((c) => c.path === '/me/password')).toBe(false);
   });
+  it('로그인은 됐는데 /me/password 가 실패(429)하면 바로 로그아웃해 세션을 남기지 않는다 (함께 쓰는 PC)', async () => {
+    serve({ 'GET /auth/session': NO_LOGIN, 'POST /auth/login': LOGIN_OK, 'POST /me/password': err(429, 'RATE_LIMITED', '잠시 뒤 다시 시도하세요.'), 'POST /auth/logout': { status: 204 } });
+    await open();
+    const d = await openModal();
+    fill(d, 'kim', 'old-pass', 'new-pass-1', 'new-pass-1');
+    act(() => btn('바꾸기')!.click());
+    await flush();
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /auth/session', 'POST /auth/login', 'POST /me/password', 'POST /auth/logout']);
+    expect(d.querySelector('[role="alert"]')!.textContent).toBe('잠시 뒤 다시 시도하세요.');
+    expect($('main[aria-label="로그인"]')).not.toBeNull();
+  });
   it('취소 · 닫기는 아무것도 보내지 않는다', async () => {
     serve({ 'GET /auth/session': NO_LOGIN });
     await open();
