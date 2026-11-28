@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import driveCss from '../drive.css?raw';
 import type { User } from '../fake';
 import { KEYS } from '../simdrive';
-import { KEY_GUIDE, NO_SAVE } from '../screens/controls';
+import { KEY_GUIDE, NO_SAVE, PHONE_BASIS } from '../screens/controls';
+import driveSrc from '../drive.tsx?raw';
 import { Settings } from '../screens/settings';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,9 +16,9 @@ const LEE = { id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERA
 let root: Root | null = null, box: HTMLDivElement | null = null;
 afterEach(() => { act(() => root?.unmount()); box?.remove(); root = null; box = null; vi.unstubAllGlobals(); });
 
-async function open() {
+async function open(more: object = {}) {
   vi.stubGlobal('fetch', async (url: string) => new Response(JSON.stringify(String(url).includes('/org/settings')
-    ? { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30 }
+    ? { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30, ...more }
     : { error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: String(url).includes('/org/settings') ? 200 : 404, headers: { 'Content-Type': 'application/json' } }));
   box = document.createElement('div'); document.body.append(box);
   await act(async () => { root = createRoot(box!); root.render(<Settings user={LEE} setMe={() => {}} refresh={() => {}} />); });
@@ -49,6 +50,26 @@ describe('설정 › 조작 설명 칸 (u9_7)', () => {
     }
     // KEYS 에 있는 키는 하나도 빠지지 않는다
     expect(KEY_GUIDE.flatMap(([, , c]) => c).filter((c) => c !== 'Space').sort()).toEqual(Object.keys(KEYS).sort());
+  });
+
+  it('폰 칸도 기준을 밝힘: 시뮬 기준 · 실기는 뒤로 가지 않음 (REVIEW-PR573 P1)', async () => {
+    const ph = (await open()).querySelector<HTMLElement>('[aria-label="모바일 (폰 터치)"]')!;
+    expect(ph.querySelector('[data-ctl-basis]')!.textContent).toBe(PHONE_BASIS);
+    expect(PHONE_BASIS).toContain('시뮬 조종 기준');
+    expect(PHONE_BASIS).toContain('뒤로 가지 않');
+    expect(PHONE_BASIS).not.toContain('—');
+    // 실기 폰 조종(drive.tsx)이 전후를 0 아래로 내리지 않는 동안만 참
+    expect(driveSrc).toContain("Math.max(0, clamp(+held(k, 'f') + stick[0]))");
+  });
+
+  it('시뮬 속도 값이 비면 0.00 이 아니라 「값을 받지 못했습니다」 (REVIEW-PR573 P2)', async () => {
+    const outs = [...(await open()).querySelectorAll('output')].map((o) => o.textContent);
+    expect(outs.length).toBeGreaterThan(0);
+    expect(outs.every((t) => t === '값을 받지 못했습니다')).toBe(true);
+    act(() => root?.unmount()); box?.remove(); root = null;
+    const p = await open({ sim_max_vx: 0.5 });
+    const vx = p.querySelector<HTMLInputElement>('input[name="sim_max_vx"]')!.closest('label')!.querySelector('output')!;
+    expect(vx.textContent).toBe('0.50 m/s');
   });
 
   it('스틱 자리: 앞뒤 스틱(.dv-stick.v) 은 왼쪽, 돌기 스틱(.dv-stick.h) 은 오른쪽', () => {
