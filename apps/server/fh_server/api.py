@@ -520,11 +520,14 @@ def create_app(settings: Settings | None = None):
         event(db, user.org_id, 'LOGOUT', user.id)
         response.delete_cookie('fh_s', path='/api/v1', httponly=True, secure=True, samesite='strict')
 
-    @app.get(prefix + '/me', response_model=C.User)
-    def me(auth: Identity, db: DB):
-        return user_object(db, auth[0])
+    def me_object(db, user):
+        return C.Me(**user_object(db, user).model_dump(), notify_prefs=user.notify_prefs or {})
 
-    @app.patch(prefix + '/me', response_model=C.User)
+    @app.get(prefix + '/me', response_model=C.Me)
+    def me(auth: Identity, db: DB):
+        return me_object(db, auth[0])
+
+    @app.patch(prefix + '/me', response_model=C.Me)
     def patch_me(body: C.MePatch, auth: Identity, db: DB):
         user = auth[0]
         values = body.model_dump(exclude_unset=True)
@@ -533,7 +536,7 @@ def create_app(settings: Settings | None = None):
         for key, value in values.items():
             setattr(user, key, value)
         event(db, user.org_id, 'USER_UPDATED', user.id, values)
-        return user_object(db, user)
+        return me_object(db, user)
 
     @app.post(prefix + '/me/password', status_code=204)
     def password(body: C.PasswordChange, auth: Identity, db: DB):

@@ -424,6 +424,14 @@ export interface Battery {
   minutes_left?: number | null;
 }
 
+export interface BusyHour {
+  day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+  start: string;
+  /** 같은 날 start 보다 늦은 HH:MM. 자정을 넘는 구간은 두 줄로 나눈다. */
+  end: string;
+  label: string;
+}
+
 export interface CameraFrame {
   t: "camera.frame";
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
@@ -1231,6 +1239,17 @@ export interface MappingVoxels {
   removed?: [number, number, number][];
 }
 
+export interface Me {
+  id: string;
+  username: string;
+  display_name: string;
+  role: "ORG_ADMIN" | "OPERATOR";
+  locked: boolean;
+  robot_ids: string[];
+  created_at: string;
+  notify_prefs: Record<string, boolean>;
+}
+
 export interface MePatch {
   display_name?: string;
   notify_prefs?: Record<string, boolean>;
@@ -1421,6 +1440,12 @@ export interface OrgSettings {
   real_max_wz?: number;
   real_no_fast_server_drive?: boolean;
   model_overrides?: Record<string, Record<string, number | boolean>>;
+  /** 데모 로봇에 「데모」 표시. 끄면 표시만 숨긴다. */
+  show_demo_label?: boolean;
+  /** 현장 혼잡 시간. PATCH 는 목록 전체를 바꾼다. */
+  busy_hours?: BusyHour[];
+  /** 같은 지점을 이 분 안에 다시 점검하면 겹침으로 알린다. */
+  dup_inspect_min?: number;
 }
 
 export interface OrgSettingsPatch {
@@ -1444,6 +1469,9 @@ export interface OrgSettingsPatch {
   real_max_wz?: number;
   real_no_fast_server_drive?: boolean;
   model_overrides?: Record<string, Record<string, number | boolean | null>>;
+  show_demo_label?: boolean;
+  busy_hours?: BusyHour[];
+  dup_inspect_min?: number;
 }
 
 export interface PairingClaim {
