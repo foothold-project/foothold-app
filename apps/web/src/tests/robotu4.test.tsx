@@ -660,6 +660,23 @@ describe('걷기 모드 창(시안 u4_7)', () => {
     expect(w.of('gait')).toEqual([]);
   });
 
+  it('시안 u4_7: Shift+2 는 창 없이 보내지 않고 Sport 를 고른 확인 창 · 바꾸기를 눌러야 gait 하나 · 못 쓰는 모드 · 조종권 없음은 원래 까닭', () => {
+    const key = (code: string) => act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code, shiftKey: true, bubbles: true, cancelable: true })); });
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
+    key('Digit2');
+    expect($('[data-u4-mode]')).toBeNull(); expect(w.of('gait')).toEqual([]);
+    drive();
+    const n0 = w.of('gait').length;
+    key('Digit2');
+    expect($('[data-u4-mode] .ttl')!.textContent).toBe('걷기 모드를 Sport 로 바꿀까요?');
+    expect(w.of('gait').length).toBe(n0);
+    click($('[data-u4-mode-go]')!);
+    expect(w.of('gait').length).toBe(n0 + 1);
+    key('Digit3');
+    expect($('[data-u4-mode]')).toBeNull();
+  });
+
   it('연 뒤 조종권을 잃으면 창이 닫히고 gait 0 (검토 21:25)', () => {
     mount('u-park'); serve('r7'); drive();
     act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });

@@ -294,7 +294,7 @@ const VIEWS: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lida
 const VIEW_KEY: Record<string, View> = { Digit1: 'map', Digit2: 'rgb', Digit3: 'lidar', Digit4: 'depth' };
 
 /** 이 화면이 쓰는 조종 조각. 조종할 수 있는 로봇(keepDrive = 지금 canDrive 이면 기록도 남김)만 useServerDrive 를 붙인다(키 · 조종권은 한 화면에 하나 · 옛 세 칸 화면과 같은 규칙) */
-type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine' | 'gait' | 'take' | 'takeWhy'>;
+type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine' | 'gait' | 'take' | 'takeWhy'> & Partial<Pick<ReturnType<typeof useServerDrive>, 'gaitAsk'>>;
 function Driven({ c, r }: { c: Ctx; r: Robot }) { return <Body c={c} r={r} d={useServerDrive(c, r)} can />; }
 function Viewed({ c, r }: { c: Ctx; r: Robot }) {
   const l = useLive(r.id), stopPress = useStopPress(() => rt.stop(r.id));
@@ -481,7 +481,9 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const restart = useRestartAsk(askOf), modeBind = useRestartAsk(() => ({ ...askOf(), latched: null }));
   const askNow = restart.live && latched, modeNow = !!modeAsk && modeBind.live;
   useEffect(() => { if (modeAsk && !modeBind.live) setModeAsk(null); }, [modeAsk, modeBind.live]);
-  const openMode = () => { setModeAsk(d.gait.cur ?? GAITS[0].g); modeBind.open(); }, closeMode = () => { setModeAsk(null); modeBind.close(); };
+  const openMode = (g?: GaitName) => { setModeAsk(g ?? d.gait.cur ?? GAITS[0].g); modeBind.open(); }, closeMode = () => { setModeAsk(null); modeBind.close(); };
+  // 시안 u4_7: Shift+N 도 칩과 같은 확인 창을 그 모드를 고른 채 연다(창 없이 보내지 않음). 못 여는 때(조종권 없음 · 그 모드를 못 씀)는 원래 길(press)이 까닭을 알림
+  if (d.gaitAsk) d.gaitAsk.current = (g) => (mine && !noGait && (!d.gait.avail || d.gait.avail.includes(g)) ? openMode(g) : d.gait.press(g));
   const [arm, setArm] = useState(0);
   const damp = () => {
     if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
