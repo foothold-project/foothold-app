@@ -111,8 +111,8 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect($$('.views .vsel span').map(text)).toEqual(['지도', '카메라', '라이다', '깊이']);
     expect(text($('.views .small .cl'))).toBe('앞 카메라');
     expect(text($('.views .vstop'))).toBe('정지Space');
-    expect($('.ctl .keys')!.textContent).toBe('↑앞으로↓뒤로←→옆걸음AD돌기Space정지1~4화면Shift1~4모드');   // 팀장 11-28 17:25 키 배치(시안 Q E 줄은 바뀜)
-    expect($$('.ctl .keys kbd').map(text)).toEqual(['↑', '↓', '←', '→', 'A', 'D', 'Space', '1', '4', 'Shift', '1', '4']);
+    expect($('.ctl .keys')!.textContent).toBe('↑앞으로↓뒤로←→옆걸음AD돌기↑+AD가며 돌기Space정지1~4화면Shift1~4모드');   // 팀장 11-28 17:25 키 배치(시안 Q E 줄은 바뀜)
+    expect($$('.ctl .keys kbd').map(text)).toEqual(['↑', '↓', '←', '→', 'A', 'D', '↑', 'A', 'D', 'Space', '1', '4', 'Shift', '1', '4']);
     expect($$('.deck .stick').length).toBe(2);
     expect($$('.deck .act > div').map((d) => d.childNodes[1].textContent)).toEqual(['앉기', '일어서기', '엎드리기', '기지개', '악수', '하트', '인사']);
     expect($$('.deck .act > div em').map(text)).toEqual(['R1+B', 'L2+A', 'L2+A', 'R2+A', 'R2+B', 'R2+Y', '순정 확인 전']);
@@ -168,6 +168,8 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     key('keydown', 'KeyS'); tick(60); expect(lastAxes()).toBe('-1.5,0,0'); key('keyup', 'KeyS'); tick(60);
     key('keydown', 'ArrowLeft'); tick(60); expect(Number(lastAxes()!.split(',')[1])).toBeGreaterThan(0); expect(lastAxes()!.split(',')[2]).toBe('0'); key('keyup', 'ArrowLeft'); tick(60); expect(lastAxes()).toBe('0,0,0');
     key('keydown', 'ArrowRight'); tick(60); expect(Number(lastAxes()!.split(',')[1])).toBeLessThan(0); expect(lastAxes()!.split(',')[2]).toBe('0'); key('keyup', 'ArrowRight'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keydown', 'ArrowUp'); key('keydown', 'KeyA'); tick(60); { const [x, y, z] = lastAxes()!.split(',').map(Number); expect([x, y]).toEqual([1.5, 0]); expect(z).toBeGreaterThan(0); }   // ↑+A = 앞으로 가며 돌기(키 줄 안내와 같음)
+    key('keyup', 'KeyA'); key('keyup', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0,0');
     key('keydown', 'KeyQ'); tick(60); expect(lastAxes()).toBe('0,0,0'); key('keyup', 'KeyQ'); tick(60);   // Q · E 는 뺌
     key('keydown', 'KeyE'); tick(60); expect(lastAxes()).toBe('0,0,0'); key('keyup', 'KeyE'); tick(60);
     key('keydown', 'ArrowRight'); tick(60); expect(Number(lastAxes()!.split(',')[1])).toBeLessThan(0);
