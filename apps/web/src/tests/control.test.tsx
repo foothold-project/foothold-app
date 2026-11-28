@@ -173,6 +173,8 @@ describe('관제 탭', () => {
     expect(all({ status: 'RUNNING', run: RUNX('PAUSED') })).toEqual(['임무 멈춤', '임무 멈춤', '임무 멈춤']);
     expect(all()).toEqual(['대기 · 임무 전', '대기 · 임무 전', '대기 · 임무 전']);
     expect(all({ status: 'STOP_LATCHED' }, { charging: true })).toEqual(['정지 잠금', '정지 잠금', '정지 잠금']);   // 위에서 먼저 맞는 하나
+    expect(all({}, { charging: true, job: { kind: 'swap', text: '배터리 교체' } })).toEqual(['충전 중', '충전 중', '충전 중']);   // 지금 상태가 일정 칸보다 먼저(01:31 K-04)
+    expect(all({}, { job: { kind: 'swap', text: '배터리 교체' } })).toEqual(['배터리 교체', '배터리 교체', '배터리 교체']);
   });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });

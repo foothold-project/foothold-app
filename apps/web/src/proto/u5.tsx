@@ -265,8 +265,8 @@ function RealCam({ id }: { id: string }) {
 }
 
 /** 타일 오른쪽 위 상태 배지(팀장 01:17 · 01:19 · 시안 K-06 «점검 중» 꼴). 시뮬 · 데모 · 실기 · 새 로봇 모두 이 함수 하나, 위에서 먼저 맞는 하나:
- *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE · 배터리 교체)
- *  5 충전(가용 CHARGING) 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
+ *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE)
+ *  5 충전(가용 CHARGING) · 그 둘이 아닐 때 일정 칸 배터리 교체 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
  *  «조종 중»은 서버가 조종권 안에 실제 입력 여부를 줄 때까지 내지 않는다(값 없으면 7). 상태를 아직 모르면(요약 · 받는 중) null */
 export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; blink?: boolean; bat?: boolean; why?: string };
 const GREY = '#a9b8c6';
@@ -279,8 +279,10 @@ export function tileBadge(f: TileFacts): Badge | null {
   if (x.unknown) return null;
   if (x.status === 'STOP_LATCHED') return { key: 'latched', text: '정지 잠금', icon: 'stop', col: 'var(--u5-red)' };
   if (pickInfo(x)?.v?.fallen) return { key: 'fallen', text: '넘어짐', icon: 'warn', col: 'var(--u5-red)' };
-  if (f.job) return f.job.kind === 'maint' ? { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, blink: true } : { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
+  // 지금 상태(가용 MAINTENANCE · CHARGING)가 일정 칸(BATTERY_SWAP)보다 먼저(01:31 K-04: 충전 중인데 «배터리 교체»)
+  if (f.job?.kind === 'maint') return { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, blink: true };
   if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-ok)', bat: true };
+  if (f.job) return { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
   if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', blink: true, why: f.paused }
     : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: GREY } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)' };
   return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY };
