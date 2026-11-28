@@ -10,6 +10,19 @@ const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c38
 const ORDER = ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}`));
 const STAND = ORDER.map((n) => (n.endsWith('hip') ? (n[1] === 'R' ? -0.1 : 0.1) : n.endsWith('thigh') ? (n[0] === 'F' ? 0.8 : 1) : -1.5));
 
+type Joints = Record<string, { o: THREE.Object3D; r0: THREE.Euler }>;
+/** 받은 관절값(12개)으로 다리를 돌린 뒤 몸 · 발 가장 낮은 점을 바닥 y=0 에 붙인다(서기 · 엎드림 · 앉기 · 넘어짐 · 시뮬 · 데모 · 실기 같은 규칙).
+ *  관절만 돌리고 몸 높이를 서 있을 때 그대로 두면 엎드릴 때 공중에 떠 앉는다(팀장 11-28 18:47) */
+export function applyQ(root: THREE.Object3D, joints: Joints, q: number[]) {
+  ORDER.forEach((n, i) => { const j = joints[n]; if (!j) return; j.o.rotation.copy(j.r0); j.o.rotation[n.endsWith('hip') ? 'z' : 'x'] += q[i] - STAND[i]; });
+  ground(root);
+}
+/** 모형의 가장 낮은 점(꼭짓점 기준)을 y=0 에 */
+export function ground(root: THREE.Object3D) {
+  root.position.y = 0; root.updateMatrixWorld(true);
+  root.position.y = -new THREE.Box3().setFromObject(root, true).min.y; root.updateMatrixWorld(true);
+}
+
 function cyberMat() {
   return new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     uniforms: { col: { value: new THREE.Color(SIM) }, t: { value: 0 } },
@@ -69,7 +82,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.22, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.001; shadow.scale.set(1, 1.5, 1); scene.add(shadow);
 
-  const joints: Record<string, { o: THREE.Object3D; r0: THREE.Euler }> = {};
+  const joints: Joints = {};
   let root: THREE.Object3D | null = null, posed = false, live = true;
   import('three/examples/jsm/loaders/GLTFLoader.js').then(({ GLTFLoader }) => new GLTFLoader().load(opt.src || GO2_GLB, (g) => {
     if (!live) return;
@@ -86,7 +99,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     });
     if (opt.pose === 'down') {
       ['FL', 'FR', 'RL', 'RR'].forEach((L) => { const th = joints[`${L}_thigh`], ca = joints[`${L}_calf`]; if (th) th.o.rotation.x += 0.8; if (ca) ca.o.rotation.x += -1.6; });
-      root.updateMatrixWorld(true); const b2 = new THREE.Box3().setFromObject(root); root.position.y -= b2.min.y; posed = true;
+      root.updateMatrixWorld(true); ground(root); posed = true;
     }
     if (opt.cyber) { const cm = cyberMat(); root.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = cm; }); shadow.visible = false; }
     else setHot(hotNow);
@@ -123,17 +136,15 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     shadow.material.opacity = l ? 0.07 : 0.35;   // 흰 바탕에서 0.18 은 큰 회색 원으로 보임
     pools.forEach((o) => { o.visible = !l; });
   };
-  const clock = new THREE.Clock(); let t = 0.35, off = 0, raf = 0;
+  const clock = new THREE.Clock(); let t = 0.35, off = 0, raf = 0, lastQ: number[] | null = null;
   function frame() {
     tone();
     const dt = Math.min(0.05, clock.getDelta()); t += dt;
     const d = api.drive;
     if (d) { off -= d.v * dt * 0.75; gm.uniforms.off.value = off; grid.rotation.y -= d.turn * dt * 0.9; grid.position.x = ((grid.position.x - (d.side || 0) * dt * 0.75) + 2) % 4 - 2; }
     const q = api.q;
-    if (q && q.length === 12 && root && !posed) ORDER.forEach((n, i) => {
-      const j = joints[n]; if (!j) return;
-      j.o.rotation.copy(j.r0); j.o.rotation[n.endsWith('hip') ? 'z' : 'x'] += q[i] - STAND[i];
-    });
+    // 관절값이 바뀐 때만 다시 놓는다(바닥 맞춤은 꼭짓점을 훑으므로 같은 배열이면 건너뜀)
+    if (q && q !== lastQ && q.length === 12 && root && !posed) { applyQ(root, joints, q); lastQ = q; }
     ctl?.update(); r.render(scene, cam); raf = requestAnimationFrame(frame);
   }
   frame();
