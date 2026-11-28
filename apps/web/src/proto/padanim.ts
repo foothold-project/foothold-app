@@ -18,9 +18,13 @@ export function padRise(n: number) {
 /** 안 A = 5 층(층 간격 0.05 m · 98 ~ 90 %) · 안 B = 7 층(같은 꼭대기 · 더 촘촘). 이 한 줄로 고른다 */
 export const PAD_PLANS = { A: 5, B: 7 } as const;
 export const PAD_PLAN: keyof typeof PAD_PLANS = 'A';
+/** 주소 ?pad=B(또는 #… ?pad=B)로 PAD_PLAN 을 덮어씀(두 안 견주기 · W1 ?preDot 과 같은 꼴). 다른 값 · 없음 = PAD_PLAN */
+export const padPlan = (): keyof typeof PAD_PLANS => {
+  try { const v = new URLSearchParams(location.search || location.hash.split('?')[1] || '').get('pad'); return v === 'A' || v === 'B' ? v : PAD_PLAN; } catch { return PAD_PLAN; }
+};
 
 /** 오르는 층 값 한 곳: 크기(바닥 = 1) · 층 간격(m) · 한 박(s) · 층 진하기(바닥 진하기에 곱함) · 채도 낮춤(회색 쪽으로 섞는 몫) */
-export const PAD_RISE = { ...padRise(PAD_PLANS[PAD_PLAN]), beat: 0.42, grey: 0x8d9590, desat: 0.35 } as const;
+export const PAD_RISE = { ...padRise(PAD_PLANS[padPlan()]), beat: 0.42, grey: 0x8d9590, desat: 0.35 } as const;
 /** 한 바퀴 박 수 = 바닥 한 박 + 오르는 층마다 한 박 */
 export const PAD_BEATS = PAD_RISE.scale.length;
 
