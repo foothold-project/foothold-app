@@ -419,7 +419,8 @@ function Once({ label, value, text, close, more }: { label: string; value: strin
   </div>;
 }
 
-function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; put: (u: ApiUser) => void; gone: (text: string) => void } & Cancel) {
+/** 계정 상세(이름 · 역할 · 잠그기 · 지우기 · 기기). 시안 u9 사용자 표에서 줄을 누르면 뜨는 창에도 쓴다(settingsu9.tsx) */
+export function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; put: (u: ApiUser) => void; gone: (text: string) => void } & Cancel) {
   const [name, setName] = useState(u.display_name), [role, setRole] = useState<Role>(u.role);
   const [ask, setAsk] = useState<'lock' | 'delete' | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
   const run = async (f: () => Promise<string>, conflict?: string) => {

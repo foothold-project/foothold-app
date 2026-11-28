@@ -8,9 +8,10 @@ import '../proto/light.pv.css';
 import './settingsu9.css';
 import './settingsu9.app.css';
 import { api, expireAuth, type ApiFail } from '../api';
+import type { User as ApiUser } from '../../../contracts/ts';
 import type { User } from '../fake';
 import type { Ctx } from '../screens';
-import { failText, PW_DONE, Settings, TAKEN, tempPassword } from './settings';
+import { Account as AccountDetail, failText, PW_DONE, Settings, TAKEN, tempPassword } from './settings';
 import { setThemePref, useTheme, type ThemePref } from '../theme';
 
 export type Page = 'account' | 'users' | 'network' | 'crowd' | 'robot' | 'safety' | 'alerts' | 'clip' | 'controls' | 'display' | 'demo' | 'system';
@@ -160,7 +161,7 @@ function Devices({ cancel, pc, phone }: { cancel?: AbortSignal; pc: ReactNode; p
 }
 
 function Users({ me, cancel }: { me: User; cancel?: AbortSignal }) {
-  const [n, setN] = useState(0), [at, setAt] = useState(0), [logAt, setLogAt] = useState(0), [adding, setAdding] = useState(false), [why, setWhy] = useState('');
+  const [n, setN] = useState(0), [at, setAt] = useState(0), [logAt, setLogAt] = useState(0), [adding, setAdding] = useState(false), [why, setWhy] = useState(''), [sel, setSel] = useState('');
   const data = useLoad(async () => {
     const [users, robots] = await Promise.all([api.users(cancel), api.robots('all', cancel)]);
     const seen = await Promise.all(users.map(async (u) => (await api.sessions(u.id, cancel)).reduce((m, x) => (x.last_seen_at > m ? x.last_seen_at : m), '')));
@@ -178,7 +179,7 @@ function Users({ me, cancel }: { me: User; cancel?: AbortSignal }) {
     <table className="tbl"><tbody>
       <tr><th>이름</th><th>역할</th><th>아이디</th><th>담당 로봇</th><th>마지막 접속</th><th /></tr>
       {users.slice(at * 6, at * 6 + 6).map((u) => { const i = users.indexOf(u), last = data.v!.seen[i]; return <tr key={u.id} data-u9-user>
-        <td><span className="row" style={{gap:"12px"}}><span className="av2">{initial(u.display_name)}</span>{u.display_name}</span></td><td><span className={u.role === 'ORG_ADMIN' ? 'rp lead' : 'rp'}>{ROLE[u.role]}</span></td><td className="m">{u.username}</td>
+        <td><button type="button" className="row" style={{gap:"12px"}} aria-label={`${u.display_name} 고치기`} onClick={() => { setSel(u.id); setWhy(''); }}><span className="av2">{initial(u.display_name)}</span>{u.display_name}</button></td><td><span className={u.role === 'ORG_ADMIN' ? 'rp lead' : 'rp'}>{ROLE[u.role]}</span></td><td className="m">{u.username}</td>
         <td className="m">{u.robot_ids.length ? u.robot_ids.map((r) => data.v!.names[r] ?? r).join(' · ') : '없음'}</td><td className="m">{last ? ago(last) : NO}</td>
         <td style={{textAlign:"right"}}>{u.id !== me.id && <button type="button" className="btns sb" style={{display:"inline-flex"}} aria-disabled="true" onClick={() => setWhy(NO_TEMP)}><svg className="ic" viewBox="0 0 24 24" style={{width:"15px",height:"15px"}}><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></svg>임시 비밀번호</button>}</td></tr>; })}</tbody></table>
     {why ? <Why alert>{why}</Why>
@@ -202,6 +203,18 @@ function Users({ me, cancel }: { me: User; cancel?: AbortSignal }) {
     {log.v && !changes.length && <Why>바꾼 기록이 없습니다.</Why>}
     {changes.slice(logAt * 3, logAt * 3 + 3).map((e) => <div key={e.id} className="rw" style={{minHeight:"48px",fontSize:"14px"}} data-u9-change><span className="mu2" style={{width:"130px",fontWeight:600}}>{when(e.at, false, undefined, false)}</span><span style={{width:"60px"}}>{(e.user_id && who[e.user_id]) ?? ''}</span><span style={{fontWeight:600}}>{e.message}</span></div>)}</div>
   {adding && <AddUser cancel={cancel} close={() => setAdding(false)} done={() => setN(n + 1)} />}
+  {sel && users.some((u) => u.id === sel) && <EditUser u={users.find((u) => u.id === sel)!} self={sel === me.id} cancel={cancel} close={() => setSel('')}
+    put={() => setN(n + 1)} gone={(t) => { setSel(''); setWhy(t); setN(n + 1); }} />}
+  </>;
+}
+
+/** 사용자 고치기(시안에 자리가 없어 u9_2 창 꼴): 지금 판 계정 상세(이름 · 역할 · 잠그기 · 지우기 · 기기)를 그대로 넣는다 */
+function EditUser({ u, self, close, put, gone, cancel }: { u: ApiUser; self: boolean; close: () => void; put: () => void; gone: (t: string) => void; cancel?: AbortSignal }) {
+  return <>
+  <div className="scrim" onClick={close} />
+  <div className="g modal u9-edit" style={{width:"640px"}} role="dialog" aria-modal="true" aria-label="사용자 고치기" onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
+    <div className="row" style={{justifyContent:"space-between",marginBottom:"14px"}}><span className="ttl">사용자 고치기</span><button type="button" aria-label="닫기" onClick={close}>닫기</button></div>
+    <AccountDetail key={`${u.id}-${u.locked}`} u={u} self={self} put={put} gone={gone} cancel={cancel} /></div>
   </>;
 }
 
