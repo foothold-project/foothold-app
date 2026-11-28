@@ -15,7 +15,6 @@ import argparse
 import os
 from pathlib import Path
 import re
-import shutil
 import socket
 import sys
 import tempfile
@@ -63,8 +62,11 @@ def port_free(port):
 def prepare(repository, secrets_file, *, docker, check=True, db_running=False):
     env_file = Path(repository) / '.env'
     if not env_file.exists():
-        shutil.copyfile(Path(repository) / '.env.example', env_file)
-        env_file.chmod(0o600)
+        # This script supplies the seed passwords, so its .env turns seeding on.
+        text = (Path(repository) / '.env.example').read_text().replace('\nFH_SEED=0\n', '\nFH_SEED=1\n')
+        fd = os.open(env_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as handle:
+            handle.write(text)
         print(f'.env 를 .env.example 에서 만들었습니다: {env_file}')
     values = read_env(env_file)
     keys = ['FH_WEB_PORT', 'FH_API_PORT'] if docker else ['FH_API_PORT'] + ([] if db_running else ['FH_DB_PORT'])
@@ -75,8 +77,17 @@ def prepare(repository, secrets_file, *, docker, check=True, db_running=False):
     if busy:
         raise SystemExit('이미 쓰는 포트: ' + ', '.join(busy) + ' · .env 에서 빈 포트로 바꾸세요'
                          ' (FH_WEB_PORT 를 바꾸면 FH_WS_ORIGIN 도 같은 포트)')
-    passwords = seed.ensure_secrets(secrets_file, repository)
+    # A password filled in .env wins everywhere; the account file only fills blanks.
+    passwords = seed.ensure_secrets(secrets_file, repository,
+                                    {key: values[key] for key in seed.secret_keys() if values.get(key)})
     return values, passwords
+
+
+def compose(repository, passwords):
+    """Compose reads only .env; resolved passwords travel in the shell environment,
+    which Compose ranks above .env, so blank .env fields are filled and filled ones kept."""
+    command = ['docker', 'compose', '--env-file', str(Path(repository) / '.env'), 'up', '--build']
+    return command, {**os.environ, **passwords}
 
 
 def server_env(values, passwords, data):
@@ -139,8 +150,6 @@ def main():
     values, passwords = prepare(REPOSITORY, secrets_file, docker=not args.no_docker,
                                 db_running=args.no_docker and running(data / 'pg'))
     print(f'계정 파일 (600, 값은 출력하지 않음): {secrets_file}')
-    compose = ['docker', 'compose', '--env-file', str(REPOSITORY / '.env'), '--env-file', str(secrets_file),
-               'up', '--build']
     if args.no_docker:
         database(values, passwords, data)
         print(f"API: http://127.0.0.1:{values['FH_API_PORT']} · 웹은 apps/web 에서 "
@@ -152,8 +161,9 @@ def main():
     if args.docker:
         os.chdir(REPOSITORY)
         sys.stdout.flush()
-        os.execvp('docker', compose)
-    print('다음: ' + ' '.join(compose))
+        command, env = compose(REPOSITORY, passwords)
+        os.execvpe('docker', command, env)
+    print('다음: python3 tools/local_up.py --docker  (또는 --no-docker)')
 
 
 if __name__ == '__main__':

@@ -43,13 +43,19 @@ def read_secrets(path):
     return values
 
 
-def ensure_secrets(path, repository):
-    """Return local passwords; generate missing ones once. Environment wins."""
+def ensure_secrets(path, repository, preset=None):
+    """Return local passwords; generate only keys with no value anywhere.
+
+    Precedence: environment, then ``preset`` (filled .env values), then the file.
+    A key filled in the environment or .env is never generated or stored here.
+    """
     path = Path(path).expanduser().resolve()
     if path.is_relative_to(Path(repository).resolve()):
         raise ValueError('로컬 계정 파일은 저장소 밖에 두세요')
+    given = {key: os.environ.get(key) or (preset or {}).get(key) for key in secret_keys()}
+    given = {key: value for key, value in given.items() if value}
     stored = read_secrets(path) if path.exists() else {}
-    missing = [key for key in secret_keys() if not stored.get(key)]
+    missing = [key for key in secret_keys() if key not in given and not stored.get(key)]
     if missing:
         stored.update({key: secrets.token_urlsafe(24) for key in missing})
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -60,7 +66,7 @@ def ensure_secrets(path, repository):
             handle.write('# foothold 로컬 전용 계정 · 공유 · 커밋 금지\n')
             handle.writelines(f'{key}={stored[key]}\n' for key in sorted(stored))
         os.replace(temporary, path)
-    return {key: os.environ.get(key) or stored[key] for key in secret_keys()}
+    return {key: given.get(key) or stored[key] for key in secret_keys()}
 
 
 def seed(database_url, org_id, files_root, admin_username, passwords, worlds=None):

@@ -36,7 +36,10 @@ def free_port():
 def test_prepare_creates_env_and_private_accounts(checkout, tmp_path, capsys):
     secrets_file = tmp_path / 'private' / 'accounts.env'
     values, passwords = local_up.prepare(checkout, secrets_file, docker=True, check=False)
-    assert (checkout / '.env').read_text() == (checkout / '.env.example').read_text()
+    # The script supplies seed passwords, so its .env turns seeding on; the example keeps it off.
+    assert (checkout / '.env').read_text() == (checkout / '.env.example').read_text().replace(
+        '\nFH_SEED=0\n', '\nFH_SEED=1\n')
+    assert values['FH_SEED'] == '1'
     assert values['FH_WS_ORIGIN'] == 'http://localhost:' + values['FH_WEB_PORT']
     assert stat.S_IMODE(secrets_file.stat().st_mode) == 0o600
     assert set(passwords) == set(seed.secret_keys()) and all(passwords.values())
@@ -89,3 +92,34 @@ def test_no_docker_server_environment_passes_server_guard(checkout, tmp_path, mo
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     server.configuration()
+
+
+def fill_env(checkout, **filled):
+    text = (checkout / '.env.example').read_text()
+    for key, value in filled.items():
+        text = text.replace(f'\n{key}=\n', f'\n{key}={value}\n')
+    (checkout / '.env').write_text(text)
+
+
+def test_env_passwords_win_on_every_path(checkout, tmp_path):
+    filled = {'FH_DB_PASSWORD': 'synthetic-env-db', 'FH_SEED_PASSWORD_LOCAL_OPERATOR': 'synthetic-env-op'}
+    fill_env(checkout, **filled)
+    secrets_file = tmp_path / 'accounts.env'
+    # (1) the account file never shadows a filled .env value
+    values, passwords = local_up.prepare(checkout, secrets_file, docker=True, check=False)
+    assert {key: passwords[key] for key in filled} == filled
+    assert passwords['FH_BOOTSTRAP_PASSWORD'] and passwords['FH_BOOTSTRAP_PASSWORD'] not in filled.values()
+    assert not set(filled) & set(seed.read_secrets(secrets_file))
+    # (2) --docker: Compose reads only .env; the shell environment carries the same resolved values
+    command, env = local_up.compose(checkout, passwords)
+    assert command.count('--env-file') == 1 and str(secrets_file) not in command
+    assert {key: env[key] for key in passwords} == passwords
+    # (3) --no-docker: the server sees the .env values
+    env = local_up.server_env(values, passwords, tmp_path / 'data')
+    assert {key: env[key] for key in filled} == filled
+
+
+def test_generated_value_used_only_for_blank_env_keys(checkout, tmp_path):
+    fill_env(checkout)
+    _, passwords = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+    assert seed.read_secrets(tmp_path / 'accounts.env') == passwords
