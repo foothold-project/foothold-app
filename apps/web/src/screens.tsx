@@ -92,7 +92,7 @@ export function Pair({ user, mine, refresh, cancel, children }: { user: User; mi
   const [on, setOn] = useState(false), fn = typeof children === 'function';
   const add = <button type="button" className={fn ? 'btn pri' : 'btn'} onClick={() => setOn(true)} data-pair-start>+ 새 로봇 추가</button>;
   if (user.role === 'ORG_ADMIN') return <>{fn ? children(null) : children}</>;
-  if (on) return <AddRobot mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />;
+  if (on) return <AddRobot user={user} mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />;
   return fn ? <>{children(add)}</> : <>{children}<div className="fh-row" style={{ flexBasis: '100%' }}>{add}</div></>;
 }
 
