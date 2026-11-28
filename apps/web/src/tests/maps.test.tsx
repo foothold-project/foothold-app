@@ -2493,8 +2493,11 @@ describe('지도 탭 · 시안 u7', () => {
     expect($('[data-u7-pair]')!.textContent).toBe('v0 와 v2 비교');
     expect($('[data-u7-restore]')!.textContent).toBe('v0 로 되돌리기');
     await click($('[data-u7-restore]'));
-    expect(card('이 기록으로 되돌리기')).toBeTruthy();
+    expect($('[data-u7="u7_9_history"] [data-u7-restore-form]')!.contains(card('이 기록으로 되돌리기'))).toBe(true);   // 이유 칸은 u7_9 안(떠 있는 창 없음)
+    expect([...box.querySelectorAll('dialog')].some((d) => d.contains(card('이 기록으로 되돌리기')))).toBe(false);
+    expect($('[data-u7-restore]')).toBeNull();
     await click(btn('취소', card('이 기록으로 되돌리기')));
+    expect($('[data-u7-restore]')!.textContent).toBe('v0 로 되돌리기');
     await click($('[data-u7-back]'));
     expect($('[data-u7]')).toBeNull();
     expect(card('지도 정보')).toBeTruthy();
