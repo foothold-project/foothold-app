@@ -19,8 +19,13 @@ const WALL = 102;   // 255 × 0.4
 
 /** 판 그림(<image>, 쿠키로 따로 받음)을 앱 색으로. 나머지 속성(onLoad·onError·transform·style…)은 <image> 그대로.
  *  tint = 벽만 그 색으로(빈 곳·미확인은 투명) — 층 겹쳐 보기 */
-export function MapImage({ id, style, tint, ...rest }: { id: string; width: number; height: number; tint?: string } & Omit<SVGProps<SVGImageElement>, 'href' | 'filter'>) {
+/** 서버 판 그림 어두운 판 색(로봇 탭 지도 76f6c355 과 같은 규칙): 회색으로 뺀 밝기 0(벽) → #464e56 · 1(빈 곳) → --paper #12161d · 미확인 회색은 그 사이 */
+export const PLAN_DARK = <><feColorMatrix type="saturate" values="0" /><feComponentTransfer><feFuncR type="table" tableValues="0.2745 0.0706" /><feFuncG type="table" tableValues="0.3059 0.0863" /><feFuncB type="table" tableValues="0.3373 0.1137" /></feComponentTransfer></>;
+/** plan = 어두운 판 평면도 색(PLAN_DARK)으로 칠함(썸네일 · 장소 카드) · 그 밖은 앱 토큰 색(TINT) */
+export function MapImage({ id, style, tint, plan, ...rest }: { id: string; width: number; height: number; tint?: string; plan?: boolean } & Omit<SVGProps<SVGImageElement>, 'href' | 'filter'>) {
   const f = `fh-tint${useId().replace(/:/g, '')}`, tones = tint ? [[TINT[0][0], tint]] : TINT;
+  if (plan) return <><filter id={f} x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB">{PLAN_DARK}</filter>
+    <image href={api.imageUrl(id)} filter={`url(#${f})`} data-plan-tone="dark" style={{ imageRendering: 'pixelated', ...style }} {...rest} /></>;
   return <>
     <filter id={f} x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB">
       <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="l" />
