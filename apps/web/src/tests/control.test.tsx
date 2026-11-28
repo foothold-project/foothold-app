@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, tempLevel, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -156,6 +156,23 @@ describe('관제 탭', () => {
     expect(wallPick(order([k01, ...demos.slice(0, 5), go2, k08, k09])).map((f) => f.x.name).filter((n) => ['K-01', 'K-08', 'K-09'].includes(n))).toEqual(['K-08']);
     const k10 = F({ id: 'k10', name: 'K-10', sim: true, status: 'IDLE' }, av(false));
     expect(wallPick(order([k01, ...demos, go2, k10])).map((f) => f.x.name).filter((n) => ['K-01', 'K-10'].includes(n))).toEqual(['K-01']);
+  });
+  it('상태 배지 tileBadge(팀장 01:17 · 01:19): 갈래마다 하나 · 같은 사실이면 실기 · 데모 · 시뮬 종류가 달라도 같은 배지(시뮬 임무만 «시뮬 중»)', () => {
+    const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'IDLE' };
+    const RUNX = (status: string) => ({ id: 'r1', run_id: 'r1', scenario_name: '순찰', status, step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } }) as unknown as Robot['run'];
+    const kinds = { real: { sim: false, demo: false }, demo: { sim: true, demo: true }, sim: { sim: true, demo: false } } as const;
+    const B = (k: keyof typeof kinds, r: Partial<Robot> = {}, a: object = {}) => tileBadge(facts({ id: `b-${k}`, name: 'B', ...base, sim: kinds[k].sim, ...r } as Robot, 'u-kim', new Map(),
+      { demo: kinds[k].demo, label: null, charging: false, job: null, ...a }))?.text;
+    const all = (r: Partial<Robot> = {}, a: object = {}) => (['real', 'demo', 'sim'] as const).map((k) => B(k, r, a));
+    expect(all({ online: false, status: null })).toEqual(['연결 끊김', '연결 끊김', '연결 끊김']);
+    expect(all({ status: 'STOP_LATCHED' })).toEqual(['정지 잠금', '정지 잠금', '정지 잠금']);
+    expect(B('real', { robotInfo: { fallen: true } as Robot['robotInfo'] })).toBe('넘어짐');
+    expect(all({}, { job: { kind: 'maint', text: '정기 점검' } })).toEqual(['점검 중', '점검 중', '점검 중']);
+    expect(all({}, { charging: true })).toEqual(['충전 중', '충전 중', '충전 중']);
+    expect(all({ status: 'RUNNING', run: RUNX('MOVING') })).toEqual(['임무 중', '임무 중', '시뮬 중']);
+    expect(all({ status: 'RUNNING', run: RUNX('PAUSED') })).toEqual(['임무 멈춤', '임무 멈춤', '임무 멈춤']);
+    expect(all()).toEqual(['대기 · 임무 전', '대기 · 임무 전', '대기 · 임무 전']);
+    expect(all({ status: 'STOP_LATCHED' }, { charging: true })).toEqual(['정지 잠금', '정지 잠금', '정지 잠금']);   // 위에서 먼저 맞는 하나
   });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
@@ -652,7 +669,8 @@ describe('관제 탭', () => {
   });
   it('서버가 임무를 PAUSED(LINK_LOST)로 두면 타일 칸에 시안 상태 표지 «일시정지 · 연결 끊김»', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k2: { run: { run_id: 'r1', status: 'PAUSED', wait_reason: 'LINK_LOST', progress: { done: 1, total: 4 } } } });
-    expect(tile('k2').querySelector('.stb[data-paused]')!.textContent).toBe('일시정지 · 연결 끊김');
+    expect(tile('k2').querySelector('.stb[data-paused]')!.textContent).toBe('임무 멈춤');   // 배지 글(팀장 01:17) · 까닭은 title
+    expect(tile('k2').querySelector<HTMLElement>('.stb[data-paused]')!.title).toBe('일시정지 · 연결 끊김');
     expect(tile('k2').dataset.live).toBeUndefined();   // 멈춘 임무는 걷지 않음
     expect(tile('k1').querySelector('[data-paused]')).toBeNull();
   });
@@ -1335,7 +1353,8 @@ describe('관제 탭', () => {
       item('k8', { state: 'MAINTENANCE', busy_label: '정기 점검 · 다리 관절' }),
     ] } as never);
     const sc = vi.spyOn(api, 'schedule').mockResolvedValue({ day: '2026-11-28', tz: 'Asia/Seoul', slots: [{ id: 's-swap', kind: 'BATTERY_SWAP' }, { id: 's-run', kind: 'CONFIRMED' }] } as never);
-    mount('u-kim', EIGHT); feed(EIGHT);
+    const L: Robot[] = EIGHT.map((r) => (r.id === 'k8' ? { ...r, online: true, status: 'IDLE' as const } : r));   // 점검 배지는 연결된 로봇(끊김 배지가 먼저)
+    mount('u-kim', L); feed(L);
     await act(async () => {});
     expect(tile('k1').querySelector('.nm [data-demo]')!.textContent).toBe('데모');
     expect(tile('k2').querySelector('[data-demo]')).toBeNull();
