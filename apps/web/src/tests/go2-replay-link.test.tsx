@@ -22,12 +22,15 @@ async function mount(uid: string, robots = ROBOTS, hash = '#/fleet', fetcher: (u
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); sim.clear(); });
 const href = (id: string) => `/sim/index.html?from=web&policy=go2-demo&robot=${encodeURIComponent(id)}`;
 const SIM = { ...ROBOTS[0], id: 'sim-1', name: '시뮬-1', sim: true };
+/** PC 로봇 탭(시안 u4) «점검» 창 = 조종 준비 · 실기 보기 */
+const check = async () => { act(() => { box.querySelector<HTMLElement>('.u4 .seg2 [data-seg="점검"]')!.click(); }); await flush(); };
 
 describe('실기 보기 열기(로봇 탭 실기 상세)', () => {
   it('운영자 집중 화면: 고른 실기의 실기 보기 단추, 시뮬 탭에는 Go2 실기 보기 없음', async () => {
     await mount('u-lee', [...ROBOTS, { ...SIM, owner: 'u-lee' }]);
     const real = ROBOTS.find((r) => r.owner === 'u-lee' && !r.sim)!;
-    expect(box.querySelector('[aria-label="로봇 연결 상태"] h2')!.textContent).toBe(real.name);
+    expect(box.querySelector('[data-robot-head] .ttl')!.textContent).toBe(real.name);
+    expect(box.querySelector('[data-go2-open]')).toBeNull(); await check();
     expect(box.querySelector('[data-go2-open]')!.getAttribute('href')).toBe(href(real.id));
     expect(box.querySelector('[data-go2-open]')!.textContent).toBe('실기 보기 열기');
     const note = box.querySelector('[data-go2-note]')!.textContent!;   // 운영 화면에 개발자 용어 없음(03-UX-SPEC)
@@ -37,12 +40,15 @@ describe('실기 보기 열기(로봇 탭 실기 상세)', () => {
     expect(box.querySelector('[data-go2-replay], [data-go2-open]')).toBeNull();
     expect(box.textContent).not.toContain('Go2 실기 보기');
   });
-  it('총괄 서랍: 실기 행을 열면 실기 보기 단추(서랍을 닫으면 없음)', async () => {
+  it('총괄: 실기 줄을 고르고 «점검» 창을 열면 실기 보기 단추(창을 닫으면 없음)', async () => {
     await mount('u-kim');
     expect(box.querySelector('[data-go2-open]')).toBeNull();
     const real = ROBOTS.find((r) => !r.sim)!;
     act(() => { fleetRow(box, real.name).click(); }); await flush();
-    expect(box.querySelector('[aria-label="로봇 상세"]')!.closest('.fl-side')!.querySelector('[data-go2-open]')!.getAttribute('href')).toBe(href(real.id));
+    await check();
+    expect(box.querySelector('[aria-label="점검"] [data-go2-open]')!.getAttribute('href')).toBe(href(real.id));
+    act(() => { box.querySelector<HTMLElement>('[data-u4-close]')!.click(); }); await flush();
+    expect(box.querySelector('[data-go2-open]')).toBeNull();
   });
   it('지도 고르기: 로봇이 있는 층이 기본, 3D 지도 판은 그 시뮬 지형으로 열고(누르는 순간 지형 사본), 지형 없는 판은 꺼짐 + 이유, «지도 없이»는 기본 지형', async () => {
     const TREE = { items: [{ id: 's1', name: '본관', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [
@@ -62,7 +68,7 @@ describe('실기 보기 열기(로봇 탭 실기 상세)', () => {
       if (path === '/map-versions/v1/simulation-twin') return ok({ error: { code: 'NOT_FOUND', message: '없음' } }, 404);
       return ok({ items: [], next_cursor: null });
     };
-    await mount('u-lee', ROBOTS.map((r) => (r.id === real.id ? real : r)), '#/fleet', fetcher); await flush();
+    await mount('u-lee', ROBOTS.map((r) => (r.id === real.id ? real : r)), '#/fleet', fetcher); await flush(); await check();
     const pickEl = () => box.querySelector('[data-go2-map]') as HTMLSelectElement, open = () => box.querySelector('[data-go2-open]') as HTMLAnchorElement;
     expect(Array.from(pickEl().options).map((o) => o.textContent)).toEqual(['지도 없이(기본 지형)', '본관 · 본동 1층', '본관 · 본동 2층']);   // 판 없는 3층은 없음
     expect(pickEl().value).toBe('f1');

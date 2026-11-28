@@ -11,7 +11,7 @@ import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromH
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { RobotTab } from './screens/u4/robotu4';
-import { pcBoard } from './screens/fleet';
+import { pcBoard } from './pcboard';
 import { Connect, NO_ROBOT, endDrive } from './drive';
 import { sim, useSim } from './phone';
 import { SimDrive, SimPip, stopText as simStopText, type Cam } from './simdrive';

@@ -18,7 +18,8 @@ import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../action
 import { floorsOf, isVersion, shape, toPixel, useTree } from '../maps';
 import type { Ctx } from '../../screens';
 import { AddRobot, AssignOwner, ManageRobot } from '../../pairing';
-import { Guide, Prepare } from '../fleet';
+import { Guide, NoReal, Prepare, RealView, useReal } from '../fleet';
+import { Empty as EmptyCard } from '../../empty';
 import { mount, type Go2Api } from './go2view';
 import '../../proto/ui.pv.css';
 import '../../proto/pc.pv.css';
@@ -109,8 +110,9 @@ function MapName({ c, r }: { c: Ctx; r: Robot }) {
 }
 
 /** 카메라 · 깊이 · 라이다 받기. 세 채널 다 이 로봇 화면에 붙여 두고 보이는 칸만 켠다(on) — 숨겼다 다시 열어도 epoch 기록이 이어진다(RV-450 ② · RV-452) */
-function useFeeds(id: string, view: string) {
-  return { rgb: useDriveFeed(id, 'rgb', view === 'map' || view === 'rgb'), depth: useDriveFeed(id, 'depth', view === 'depth'), lidar: useDriveFeed(id, 'lidar', view === 'lidar') };
+/** can = 서버가 이 화면의 조종을 허용한 로봇만 받는다(허용 안 된 로봇은 보기만 · 카메라 · 라이다 연결도 없음 — 옛 세 칸 화면과 같음) */
+function useFeeds(id: string, view: string, can: boolean) {
+  return { rgb: useDriveFeed(id, 'rgb', can && (view === 'map' || view === 'rgb')), depth: useDriveFeed(id, 'depth', can && view === 'depth'), lidar: useDriveFeed(id, 'lidar', can && view === 'lidar') };
 }
 type Feeds = ReturnType<typeof useFeeds>;
 const Feed = ({ fs, ch, big }: { fs: Feeds; ch: 'rgb' | 'depth'; big: boolean }) => <DriveView f={fs[ch]} ch={ch} big={big} />;
@@ -177,7 +179,7 @@ function Settings({ c, r }: { c: Ctx; r: Robot }) {
 }
 function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const { l, s, mine } = d;
-  const [tab, setTab] = useState<Tab>('drive'), [guide, setGuide] = useState(false), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view);
+  const [tab, setTab] = useState<Tab>('drive'), [guide, setGuide] = useState(false), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view, can);
   const [msg, setMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);
   const say = (m: string) => { setMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setMsg(''), 2600); };
   useEffect(() => { if (d.why) say(d.why); }, [d.why]);
@@ -281,13 +283,13 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <div className="g modal" role="dialog" aria-label={tab === 'settings' ? '로봇 설정' : '점검'} data-u4-tab={tab} style={tab === 'check' ? { width: '760px', maxHeight: '920px', overflow: 'hidden' } : undefined}>
         <div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">{r.name} {tab === 'settings' ? '로봇 설정' : '점검'}</span>
           <span className="xclose" role="button" tabIndex={0} aria-label="닫기" data-u4-close onClick={() => setTab('drive')}><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg></span></div>
-        {tab === 'settings' ? <Settings c={c} r={r} /> : guide ? <Guide r={r} /> : <Prepare c={c} r={r} guide={() => setGuide(true)} />}
+        {tab === 'settings' ? <Settings c={c} r={r} /> : guide ? <Guide r={r} /> : r.owner === c.user.id || c.user.role === 'ORG_ADMIN' ? <><Prepare c={c} r={r} guide={() => setGuide(true)} /><RealView r={r} /></> : <p className="mu" data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p>}
       </div></>}
   </>;
 }
 
 /** 로봇 0대: 시안 틀(목록 제목 · 추가 단추 · 머리 칩 · 칸)은 그대로, 값만 「—」 */
-function Empty({ add }: { add: () => void }) {
+function Empty({ add, none }: { add: () => void; none?: ReactNode }) {
   return <>
     <div className="pane rail"><div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 12px' }}><span className="ttl">로봇</span>
       <span data-go="u4_6_add" className="btns addbtn" style={{ height: '34px', padding: '0 11px', fontSize: '12.5px' }} role="button" tabIndex={0} onClick={add} data-u4-add>
@@ -295,9 +297,14 @@ function Empty({ add }: { add: () => void }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }} /></div>
     <div className="hdr" data-robot-head=""><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{NA}</span>
       {['연결', '모드', '배터리', '최고 관절 온도', '조종자'].map((k) => <span key={k} className="g dk st">{NA}<small>{k}</small></span>)}</div>
-    <div className="stage3d" />
+    <div className="stage3d">{none}</div>
     <div className="right"><div className="views" aria-label="로봇 보기" /></div>
   </>;
+}
+/** 로봇 탭은 실기만(TAB-SPLIT): 시뮬을 빼고, 고른 로봇이 시뮬이면 첫 실기로(fleet useReal 그대로). 실기가 없으면 시뮬 탭 길 */
+function Real({ c, add }: { c: Ctx; add: () => void }) {
+  const rc = useReal(c);
+  return rc ? <><Rail c={rc} sel={rc.robot.id} add={add} /><Robot1 key={rc.robot.id} c={rc} r={rc.robot} /></> : <Empty add={add} none={<NoReal />} />;
 }
 
 const light = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
@@ -306,7 +313,9 @@ const light = () => typeof document !== 'undefined' && document.documentElement.
 export function RobotTab({ c, user, refresh, cancel }: { c: Ctx | null; user: Ctx['user']; refresh: () => void; cancel?: AbortSignal }) {
   const [adding, setAdding] = useState(false), add = () => setAdding(true);   // 총괄도 붙인다(11/28 · 서버 #544)
   return <div className={`proto${light() ? ' light' : ''} u4`} data-u4 aria-label="로봇">
-    {c ? <><Rail c={c} sel={c.robot.id} add={add} /><Robot1 key={c.robot.id} c={c} r={c.robot} /></> : <Empty add={add} />}
+    {c ? <Real c={c} add={add} /> : <Empty add={add} none={user.role === 'ORG_ADMIN'   // 로봇 0대(U11-04 빈 화면) · 문구는 폰 · 옛 PC 와 같게. 관제 요약 · 운영 관리자 표는 W1 u5
+      ? <EmptyCard kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></EmptyCard>
+      : <EmptyCard kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬 탭 열기»에서 띄웁니다."><button type="button" className="btn pri" onClick={add} data-pair-start>+ 새 로봇 추가</button><a className="btn" href="#/sim">시뮬 탭 열기</a></EmptyCard>} />}
     {adding && <><div className="veil" onClick={() => setAdding(false)} /><div className="g modal" role="dialog" aria-label="로봇 추가">
       <AddRobot user={user} mine={(c?.robots ?? []).filter((x) => x.owner === user.id).map((x) => x.id)} close={() => setAdding(false)} refresh={refresh} cancel={cancel} /></div></>}
   </div>;

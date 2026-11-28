@@ -1,12 +1,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { PC_BOTTOM, PC_TABS, PHONE_SHEETS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 import { FakeWS, state } from './fakeWs';
 import SIM_MAPS from '../../../../mobile/sim/maps.json';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

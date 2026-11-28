@@ -1,7 +1,8 @@
 // 관제 탭(W1 · U5): 타일 20대 · 경고 먼저 · 한 번 = 작은 지도 강조 · 두 번 = 로봇 탭 · 뒤집기 · 시뮬 정면만 · 운영 관리자 거르기 · 지어낸 숫자 0
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
@@ -10,6 +11,9 @@ import { api } from '../api';
 import { sim } from '../phone';
 import { rt } from '../rt';
 import { oldScenario } from '../menu';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

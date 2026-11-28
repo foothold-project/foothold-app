@@ -8,6 +8,7 @@ import { App } from '../App';
 import { sim } from '../phone';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
+import { fleetNames } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -281,7 +282,7 @@ describe('PC «시뮬» 탭', () => {
     serve();
     await mount('u-kim', [ROBOTS[1], { ...ROBOTS[1], id: 'r9', name: 'Go2-9', owner: '', ownerName: undefined },
       { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: '', sim: true }, { ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-kim', sim: true }], '#/fleet');
-    expect([...box.querySelectorAll('.fh-list.robots b')].map((b) => b.textContent)).toEqual(['Go2-7', 'Go2-9']);
+    expect(fleetNames(box)).toEqual(['Go2-7', 'Go2-9']);   // PC 로봇 탭(시안 u4) 목록 줄
     expect(box.textContent).not.toContain('시뮬-1');
     act(() => { location.hash = '#/sim'; }); await flush();
     await click($('[data-stop]'));
@@ -296,11 +297,10 @@ describe('PC «시뮬» 탭', () => {
     act(() => root?.unmount()); root = null; box.remove(); sim.clear();
     serve();
     await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }, ...ROBOTS], '#/fleet');
-    expect([...box.querySelectorAll('[aria-label="내 로봇 고르기"] b')].map((b) => b.textContent)).not.toContain('시뮬-1');
-    expect($('[aria-label="내 로봇 고르기"] [aria-label="시뮬"]')).toBeNull();
-    const shown = $('[aria-label="로봇 연결 상태"] h2')!.textContent!;
+    expect(fleetNames(box)).not.toContain('시뮬-1');
+    const shown = $('[data-robot-head] .ttl')!.textContent!;
     expect(shown).not.toBe('시뮬-1');
-    expect($('[aria-label="내 로봇 고르기"] button[aria-pressed="true"]')!.textContent).toContain(shown);
+    expect($('.u4 .rail .rcard.on')!.getAttribute('data-r')).toBe(shown);
   });
 
   // PR #96 P1: 총괄·시뮬 0대 → 띄우는 중(POST 답 전)에도 그 시뮬이 STOP 대상 — 누름·Space 모두 답이 오면 DELETE 1회, 연결 0

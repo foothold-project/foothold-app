@@ -22,6 +22,7 @@ import { RobotTiles } from './robottiles';
 import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
 import { RobotTab } from './u4/robotu4';
+import { pcBoard } from '../pcboard';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
 
 /** 화면이 아는 위치: 구독 로봇은 실시간 state, 아니면 목록 요약(남의 로봇은 서버가 감춤 — 그리지 않음) */
@@ -263,7 +264,7 @@ function SummaryRow({ c, x }: { c: Ctx; x: Robot }) {
 
 /** 실기 보기(옛 시뮬 탭 «Go2 실기 보기» — 같은 조건: 폰 앱 밖·실기만). 상세 칸 아래.
  *  지도 고르기(RB-REPLAY-LIVE 11-18): 승인 판이 있는 층 → 층 화면 «시뮬 열기»와 같은 규칙(useSimAt)으로 그 지형을 연다(못 열면 꺼짐 + 이유). 기본 = 로봇이 있는 층, 없으면 «지도 없이»(기본 지형) */
-function RealView({ r }: { r: Robot }) {
+export function RealView({ r }: { r: Robot }) {
   if (inApp() || r.sim) return null;   // 로봇 탭은 이미 실기만 — 서버 목록은 simulation 을 늘 보낸다
   return <RealViewPick r={r} />;
 }
@@ -299,20 +300,17 @@ const Side = ({ r, children }: { r: Robot; children: ReactNode }) => <div classN
 
 /** 로봇 탭은 실기만: 목록에서 시뮬(끝낸 슬롯 포함)을 빼고, App 에서 고른 로봇(머리줄 STOP 대상)이 시뮬이면 첫 실기로 바꾼다(운영 관리자 — 화면의 로봇 = STOP 대상). 실기 0대면 null.
  *  총괄이 고른 시뮬은 그대로 둔다: 총괄 머리줄 STOP·Space 는 내 시뮬뿐(실기 STOP 없음 — App)이라 실기로 바꾸면 이 탭에서 멈출 길이 사라진다(REVIEW-315 1). 서랍은 행을 눌러야 열리고 그때 실기를 고른다 */
-function useReal(c: Ctx): Ctx | null {
+export function useReal(c: Ctx): Ctx | null {
   const robots = c.robots.filter((x) => !x.sim), keep = c.user.role === 'ORG_ADMIN' && !!c.robot.sim;
   const robot = keep ? c.robot : robots.find((x) => x.id === c.robot.id) ?? robots[0];
   useEffect(() => { if (robot && robot.id !== c.robot.id) c.pick(robot.id); }, [robot?.id, c.robot.id]);
   return robots.length ? { ...c, robot, robots } : null;
 }
-const NoReal = () => <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="실기 로봇 없음" data-no-real><h2>실기 로봇이 없습니다</h2>
+export const NoReal = () => <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="실기 로봇 없음" data-no-real><h2>실기 로봇이 없습니다</h2>
   <p className="lv-note">로봇 탭에는 실기 로봇만 보입니다. 시뮬 로봇은 «시뮬» 탭에서 보고 조종합니다.</p>
   <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>;
 
-/** 로봇 탭: PC 는 시안 u4 화면(robotu4.tsx · 실기 · 시뮬 함께), 폰은 아래 옛 배치 그대로 */
-/** 옛 PC 관제 부품(관제 요약 KPI · 운영 관리자 표 · 상세 서랍 · 조종 준비 · 다른 로봇). PC 로봇 탭은 시안 u4(RobotTab)이고,
- *  이 부품은 W1 u5(관제)로 옮겨 갈 때까지 그대로 export 해 둔다. on = 앱 맥락 안에서 PC 에도 이 부품을 그린다(부품 시험용) */
-export const pcBoard = { on: false };
+/** 로봇 탭: PC 는 시안 u4 화면(robotu4.tsx · 실기만 — 시뮬은 시뮬 탭), 폰은 아래 옛 배치 그대로 */
 export function OperatorRobot(c0: Ctx) {
   return c0.phone || pcBoard.on ? <OperatorBoard {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
 }

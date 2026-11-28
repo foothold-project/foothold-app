@@ -7,7 +7,7 @@ import type { RobotSummary, User } from '../../../contracts/ts';
 import { LIST_MS, Root } from '../session';
 import { ROBOT_IN_USE } from '../screens/settings';
 import { FakeWS, state } from './fakeWs';
-import { pcBoard } from '../screens/fleet';
+import { pcBoard } from '../pcboard';
 /** 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비)을 앱 맥락 안에서 직접 그린다 — W1 u5(관제)로 옮겨 갈 부품 */
 const board = () => { beforeEach(() => { pcBoard.on = true; }); afterEach(() => { pcBoard.on = false; }); };
 /** PC 로봇 탭(시안 u4)의 «로봇 설정» · «점검» 창 열기 */

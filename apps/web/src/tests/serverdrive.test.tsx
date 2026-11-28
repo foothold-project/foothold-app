@@ -92,17 +92,17 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(toRobot({ id: 'x', simulation: false, server_drive_allowed: true } as never).serverDrive).toBe(true);
     expect(toRobot({ id: 'x', simulation: false, server_drive: true } as never).serverDrive).toBe(false);   // 옛 가정 이름은 아님
     expect(toRobot({ id: 'x', simulation: false } as never).serverDrive).toBe(false);
-    mount('u-park', ON, false); serve('r7'); click(row('Go2-7'));   // 로봇 탭 = 세 칸 조종 화면(pcdrive)
-    expect($('[data-server-drive]')!.textContent).toContain(TRIAL);
+    mount('u-park', ON, false); serve('r7'); click(row('Go2-7'));   // PC 로봇 탭(시안 u4)에 조종이 붙음(옛 세 칸 화면 자리)
+    expect($('[data-u4-can]')).not.toBeNull();
     expect($('[data-sd-stop]')).not.toBeNull();
     unmount();
     const k = FakeWS.all.length;
     mount('u-park', ROBOTS); serve('r7'); click(row('Go2-7'));   // 서버가 켜지 않음 → 보기만(카메라·라이다 연결도 없음)
-    expect($('[data-server-drive]')).toBeNull();
+    expect($('[data-u4-can]')).toBeNull(); expect($('[data-server-drive]')).toBeNull();
     expect(FakeWS.all.slice(k).some((x) => x.url.includes('drive-media'))).toBe(false);
     unmount();
-    mount('u-kim'); serve('r3', 'r7', 'r1'); click(row('Go2-7'));   // 총괄 → 보기만
-    expect($('[data-server-drive]')).toBeNull();
+    mount('u-kim', ON, false); serve('r3', 'r7', 'r1'); click(row('Go2-7'));   // 총괄 = 모든 권한(#547 · 11/28): 서버가 허용한 실기면 로봇 탭에 조종이 붙음
+    expect($('[data-u4-can]')).not.toBeNull();
   });
 
   it('키(d5): W·↑ 전진 · S·↓ 후진 · A·← / D·→ 제자리 회전 · Q/E 옆걸음, ↑+A/D · 표의 SI 값 그대로, 그 밖 조합은 0', () => {
@@ -996,8 +996,8 @@ describe('서버 경유 뎁스', () => {
 
   it('로봇 관측 칸에 «뎁스» 보기 — 받는 연결 없이 «뎁스 카메라 신호 없음»', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
-    click($('[data-view="depth"]')!);
-    expect($('[data-no-signal="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
+    click($('.u4 .views .vsel [data-view="depth"]')!);   // PC 로봇 탭(시안 u4) 보기 고르기
+    expect($('[data-u4-big="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
     expect(has()).toBe(false);
   });
 });

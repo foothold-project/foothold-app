@@ -4,6 +4,7 @@
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import type { Event as Ev, Notification, RobotSummary, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { tabFromHash } from '../menu';
@@ -11,6 +12,9 @@ import { NOTE_MS } from '../api';
 import { BELL_MS, stamp, when } from '../screens/history';
 import { FakeWS } from './fakeWs';
 import { fleetRow } from './fleetRow';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

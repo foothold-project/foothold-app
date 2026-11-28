@@ -155,6 +155,7 @@ describe('운영 관리자 로봇 탭 자리', () => {
     const mine = ROBOTS.filter((x) => x.owner === 'u-park').map((x) => ({ ...x, serverDrive: false }));
     box = document.createElement('div'); document.body.append(box);
     act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[...mine, ...ROBOTS.filter((x) => x.owner !== 'u-park')]} />); });
+    act(() => { box.querySelector<HTMLElement>('.u4 .seg2 [data-seg="점검"]')!.click(); });   // PC 로봇 탭(시안 u4) «점검» 창
     expect(box.querySelector('[aria-label="조종 준비"]')).not.toBeNull();
     expect(box.querySelector('[aria-label="순서 점검"]')).toBeNull();   // 따로 칸이 아니라 「조종 준비」 칸 안 맨 아래 접힌 「자세히 점검」(한 사실은 한 곳)
     const prep = box.querySelector('[aria-label="조종 준비"]')!, d = prep.querySelector('details[data-readycheck]')!;
@@ -163,8 +164,10 @@ describe('운영 관리자 로봇 탭 자리', () => {
     // 서버 단계는 같은 칸 1 단계 「서버 연결」 과 같은 값(이 화면의 실시간 연결). 시험에는 실시간 연결이 없어 둘 다 끊김
     expect(prep.querySelector('[data-step="1"]')!.classList.contains('done')).toBe(false);
     expect(d.querySelector<HTMLElement>('[data-check="server"]')!.dataset.state).toBe('blocked');
-    const other = box.querySelector<HTMLButtonElement>('[aria-label="다른 로봇"] button')!;
+    const other = [...box.querySelectorAll<HTMLElement>('.u4 .rail .rcard')].find((x) => ROBOTS.some((r) => r.name === x.dataset.r && r.owner !== 'u-park'))!;
     act(() => other.click());
+    act(() => { box.querySelector<HTMLElement>('.u4 .seg2 [data-seg="점검"]')!.click(); });
+    expect(box.querySelector('[aria-label="점검"]')).not.toBeNull();
     expect(box.querySelector('details[data-readycheck]')).toBeNull();
   });
 });

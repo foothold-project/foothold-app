@@ -9,7 +9,7 @@ import { Root } from '../session';
 import { ROBOT_BUSY, ROBOT_GONE } from '../screens/settings';
 import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
 import { fleetNames, fleetRow } from './fleetRow';
-import { pcBoard } from '../screens/fleet';
+import { pcBoard } from '../pcboard';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
