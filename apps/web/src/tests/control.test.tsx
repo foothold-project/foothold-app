@@ -479,7 +479,9 @@ describe('관제 탭', () => {
   const press = (b: HTMLElement) => act(() => { b.click(); });
   it('관제 STOP: 타일에서 고른 로봇이 있으면 한 번 누름으로 그 로봇만 정지(로봇 탭의 ctx.robot 이 다른 로봇이어도)', () => {
     mount('u-lee', TWENTY); feed(TWENTY);
+    expect(stopBtn().textContent).toBe('모두 정지');
     act(() => { tile('g6').click(); });   // 관제에서 고름(이OO 로봇) · ctx.robot 은 목록 첫 로봇(g0) 그대로
+    expect(stopBtn().textContent).toBe(`${TWENTY.find((r) => r.id === 'g6')!.name} 정지`);   // 시안 u5_2 «K-01 정지»
     press(stopBtn());
     expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['g6']);
     expect($('[aria-label="정지할 로봇 고르기"]')).toBeNull();
