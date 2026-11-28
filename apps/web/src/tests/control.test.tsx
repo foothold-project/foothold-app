@@ -542,7 +542,6 @@ describe('관제 탭', () => {
     act(() => { FakeWS.last.recv(state('g4', { status: 'STOP_LATCHED', latched: true, stop_gen: 2, applied: [0, 0, 0] })); });   // 새 세대 잠금
     expect(band().textContent).not.toContain(NOT_SENT);
   });
-  // Codex #535 M4: 서버 경유가 꺼진(SWITCH_OFF) 실기는 서버가 STOP 을 PHONE_DIRECT_REQUIRED 로 거절한다 → 모두 정지에 세지 않고 «현장 폰» 한 줄
   it('이 계정이 못 세우는 타일(총괄이 남의 시뮬)을 고르면 정지 단추 글은 «모두 정지» 그대로(reviewer G1)', () => {
     const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee' } : r));
     mount('u-kim', T); feed(T);
@@ -550,6 +549,7 @@ describe('관제 탭', () => {
     expect(stopBtn().textContent).toBe('모두 정지');
     expect(stopBtn().textContent).not.toContain(T.find((r) => r.id === 'g6')!.name);
   });
+  // Codex #535 M4: 서버 경유가 꺼진(SWITCH_OFF) 실기는 서버가 STOP 을 PHONE_DIRECT_REQUIRED 로 거절한다 → 모두 정지에 세지 않고 «현장 폰» 한 줄
   it('M4: 서버 경유 정지가 꺼진 실기는 «모두 정지» 대수 · 보냄에서 빠지고 현장 폰 안내 한 줄', () => {
     const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r));
     mount('u-lee', T); feed(T);
@@ -561,6 +561,29 @@ describe('관제 탭', () => {
     const sent = FakeWS.last.of('stop').map((m) => m.robot);
     expect(sent).toHaveLength(9);
     expect(sent).not.toContain('g6');
+  });
+  // reviewer 20:30 (SWITCH_OFF 한 대 고름): 글은 「K-07 정지」 그대로(누르면 가는 대상이 그 한 대) · 누르기 전에 현장 폰 안내 한 줄 · 거절은 실패 줄
+  const OFF = () => TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDrive: false, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r));
+  it('SWITCH_OFF 실기 한 대를 고르면 단추 글 «K-07 정지» · 현장 폰에서만 멈출 수 있다는 안내 한 줄(누르기 전)', () => {
+    const T = OFF();
+    mount('u-lee', T); feed(T);
+    expect($('[data-phone-only-pick]')).toBeNull();
+    act(() => { tile('g6').click(); });
+    expect(stopBtn().textContent).toBe('K-07 정지');
+    expect($('[data-phone-only-pick]')!.textContent).toBe('K-07 은 현장 폰에서만 멈출 수 있습니다');
+    act(() => { tile('g4').click(); });   // 다른 로봇으로 바꾸면 안내가 사라짐
+    expect($('[data-phone-only-pick]')).toBeNull();
+  });
+  it('SWITCH_OFF 실기 한 대 고름 → 누름 → 서버 PHONE_DIRECT_REQUIRED 거절이면 띠는 실패 줄 · 잠금 · 멈춤 같은 성공 줄 아님', () => {
+    const T = OFF();
+    mount('u-lee', T); feed(T);
+    FakeWS.last.auto = (m) => (m.t === 'stop' ? { ok: false, error: { code: 'PHONE_DIRECT_REQUIRED', message: '실기 조종·STOP은 현장 폰에서 직접 하세요.', detail: {} } } as never : { ok: true });
+    act(() => { tile('g6').click(); });
+    press(stopBtn());
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['g6']);
+    const b = $$('[data-stop-band]').find((x) => x.textContent!.includes('K-07'))!;
+    expect(b.textContent).toMatch(/^▲ K-07 정지 요청을 보내지 못했습니다\. .*현장에서 로봇을 직접 멈추세요\.$/);
+    expect(b.textContent).not.toMatch(/정지 잠금|멈춤 출력|잠김|멈췄습니다/);
   });
   // 조정 12:01 · reviewer: SWITCH_OFF 실기(#535 M4)는 서버 경유 조종도 꺼져 있다(serverDrive false). #529 H1 «보내고 안내» 줄이 같이 뜨면 「보낸다」 와 「못 멈춘다」 가 겹친다
   it('M4 + H1: SWITCH_OFF 실기(serverDrive false)는 현장 폰 줄만 · 다른 serverDrive false 실기는 보내고 안내 줄', () => {
