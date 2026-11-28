@@ -219,12 +219,12 @@ describe('#533 관제 · 머리줄 STOP 대상', () => {
   const stops = () => FakeWS.last.of('stop').map((m) => m.robot);
   const press = () => act(() => { $('header .fh-stop').click(); });
   const space = () => act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true })); });
-  it('H1: 관제에서 시뮬 타일을 두 번 누르면 실기 로봇 탭으로 가지 않음 · 머리줄 STOP · Space 가 실기로 가지 않음', () => {
+  it('H1: 관제에서 시뮬 타일을 두 번 누르면 실기 로봇 탭으로 가지 않음 · 머리줄 STOP 은 그 시뮬 먼저(11-28 고친 결정: 이어서 실기 한 대도)', () => {
     mount('u-park', MIX, '#/control'); feed(MIX);
     act(() => { tile('s-1').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
     expect(location.hash).not.toBe('#/fleet');
     press(); space();
-    expect(stops()).not.toContain('r-a');
+    expect(stops()[0]).toBe('s-1');   // 첫 STOP 은 연 시뮬(실기가 먼저 가지 않음)
   });
   it('H1: 실기 타일은 그대로 로봇 탭 · STOP = 그 실기', () => {
     mount('u-park', MIX, '#/control'); feed(MIX);
@@ -262,16 +262,32 @@ describe('#533 관제 · 머리줄 STOP 대상', () => {
       expect(stops()).not.toContain('r-a');
     });
   }
-  // 11-28 결정 1: 시뮬 탭은 예외. 조종 대상이 그 시뮬이므로 STOP · Space 는 고르기 없이 그 시뮬만 바로(실기가 있어도)
-  for (const rs of [MIX, TWO]) it(`H2 #/sim: 실기 ${rs.length - 1}대가 있어도 시뮬 탭 STOP · Space 는 떠 있는 시뮬만 바로 · 고르기 없음 · 실기 STOP 없음`, () => {
+  // 11-28 고친 결정: 시뮬 탭도 시뮬 정지를 먼저 바로 보내고(고르기를 기다리지 않음), 이어서 실기 한 대면 바로 · 여럿이면 고르기 · 없으면 끝
+  it('H2 #/sim: 실기 1대 → sim.stop 1 + 그 실기 STOP 1 · 고르기 없음 (Space 도)', () => {
     vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 's-1' } as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
-    mount('u-park', rs, '#/sim'); feed(rs);
-    press(); space();
-    expect(halt).toHaveBeenCalledTimes(2);
-    expect(stops()).toEqual([]);
-    expect(pickBox()).toBeNull();
+    mount('u-park', MIX, '#/sim'); feed(MIX);
+    press();
+    expect(halt).toHaveBeenCalledTimes(1); expect(stops()).toEqual(['r-a']); expect(pickBox()).toBeNull();
+    space();
+    expect(halt).toHaveBeenCalledTimes(2); expect(stops()).toEqual(['r-a', 'r-a']);
   });
-  it('r2 1: #/sim/<id> 가 이 창에 직결된 그 시뮬이면 STOP 은 sim.stop() 길(에이전트) · 서버 경유 stop · 고르기 없음', () => {
+  it('H2 #/sim: 실기 2대 → 첫 누름에 sim.stop 1 (고르기를 기다리지 않음) + 실기 고르기 → 고른 실기 STOP', () => {
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 's-1' } as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-park', TWO, '#/sim'); feed(TWO);
+    press();
+    expect(halt).toHaveBeenCalledTimes(1); expect(stops()).toEqual([]);
+    const pick = pickBox()!, sel = pick.querySelector<HTMLSelectElement>('select')!;
+    act(() => { sel.value = 'r-b'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => { pick.querySelector<HTMLElement>('button.fh-stop')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); pick.querySelector<HTMLElement>('button.fh-stop')!.click(); });
+    expect(stops()).toContain('r-b'); expect(stops()).not.toContain('r-a');
+  });
+  it('H2 #/sim: 실기 0대 → sim.stop 만 · 고르기 없음', () => {
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 's-1' } as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-park', [MIX[1]], '#/sim'); feed([MIX[1]]);
+    press(); space();
+    expect(halt).toHaveBeenCalledTimes(2); expect(stops()).toEqual([]); expect(pickBox()).toBeNull();
+  });
+  it('r2 1: #/sim/<id> 가 이 창에 직결된 그 시뮬이면 sim.stop() 길(에이전트) 먼저 · 서버 경유로 그 시뮬 stop 없음 · 실기 2대면 고르기', () => {
     vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 's-1' } as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
     mount('u-park', TWO, '#/control'); feed(TWO);
     act(() => { tile('s-1').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
@@ -279,7 +295,7 @@ describe('#533 관제 · 머리줄 STOP 대상', () => {
     press();
     expect(halt).toHaveBeenCalledTimes(1);
     expect(stops()).toEqual([]);
-    expect(pickBox()).toBeNull();
+    expect(pickBox()).not.toBeNull();
   });
   it('H2: 정지할 실기가 없으면(시뮬뿐) 시뮬 정지만, 고르기 없음 (기존 그대로)', () => {
     vi.spyOn(sim, 'live').mockReturnValue(MIX[1] as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
@@ -297,15 +313,28 @@ describe('#533 r2 (11-28 Codex 재검토)', () => {
     { id: 's-1', name: '시뮬-1', owner: 'u-park', ownerName: '박OO', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true },
   ];
   const stops = () => FakeWS.last.of('stop').map((m) => m.robot);
-  it('1: 다른 창에서 도는 시뮬 타일을 열면(이 창 직결 시뮬 없음) 머리줄 STOP · Space 대상 = 그 시뮬, 고르기 · 실기 없음', () => {
+  it('1: 다른 창에서 도는 시뮬 타일을 열면(이 창 직결 시뮬 없음) 머리줄 STOP · Space = 그 시뮬 먼저 + 실기 한 대 · 고르기 없음', () => {
     mount('u-park', MIX, '#/control'); feed(MIX);
     act(() => { tile('s-1').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
     expect(location.hash).toBe('#/sim/s-1');
     act(() => { $('header .fh-stop').click(); });
-    expect(stops()).toEqual(['s-1']);
+    expect(stops()).toEqual(['s-1', 'r-a']);   // 그 시뮬 먼저, 이어서 실기 한 대(11-28 고친 결정)
     expect(box.querySelector('[role="dialog"][aria-label="정지할 로봇 고르기"]')).toBeNull();
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true })); });
-    expect(stops()).toEqual(['s-1', 's-1']);
+    expect(stops()).toEqual(['s-1', 'r-a', 's-1', 'r-a']);
+  });
+  it('1: 다른 창 시뮬 타일 + 실기 2대 → 그 시뮬 먼저 STOP · 이어서 실기 고르기 창 → 고른 실기', () => {
+    const TWO2: Robot[] = [...MIX, { ...MIX[0], id: 'r-b', name: 'Go2-B', status: 'IDLE', mission: undefined }];
+    mount('u-park', TWO2, '#/control'); feed(TWO2);
+    act(() => { tile('s-1').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    act(() => { $('header .fh-stop').click(); });
+    expect(stops()).toEqual(['s-1']);
+    const pick = box.querySelector<HTMLElement>('[role="dialog"][aria-label="정지할 로봇 고르기"]')!;
+    expect(pick).not.toBeNull();
+    const sel = pick.querySelector<HTMLSelectElement>('select')!;
+    act(() => { sel.value = 'r-b'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => { pick.querySelector<HTMLElement>('button.fh-stop')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); pick.querySelector<HTMLElement>('button.fh-stop')!.click(); });
+    expect(stops()).toContain('r-b'); expect(stops()).not.toContain('r-a');
   });
   it('4: 연결 중 잠금 · 오류 타일은 보고 자세가 없으면 엎드림 그림이 아니라 «자세 모름» 글 + 흐림', () => {
     const R: Robot[] = [{ ...MIX[0], id: 'r-l', status: 'STOP_LATCHED', mission: undefined }, { ...MIX[0], id: 'r-e', status: 'ERROR', mission: undefined }];

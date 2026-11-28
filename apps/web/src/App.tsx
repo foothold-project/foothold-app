@@ -221,12 +221,15 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     seen.current = robot ? [robot.id, done] : null;
   });
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
-  // STOP 은 언제나 먹어야(11-28 결정 · #533 H2): 시뮬이 떠 있으면 어느 탭이든 시뮬 정지는 그대로 보내고, 정지할 실기가 한 대면 그 실기로 바로, 여럿이면 실기 고르기도 연다.
-  // 시뮬 탭은 예외(11-28 결정): 조종 대상이 그 시뮬이므로 고르기 없이 시뮬만 한 번에
-  const reals = tab === 'sim' ? [] : stops.filter((r) => !r.sim);
-  const stop = () => { if (toSim) { sim.stop(); if (!reals.length) return; if (reals.length === 1) return halt(reals[0]); }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
+  // STOP 은 언제나 먹어야(11-28 결정 · #533 H2): 시뮬이 떠 있으면 어느 탭이든 시뮬 정지를 먼저 바로 보내고(고르기를 기다리지 않음),
+  // 이어서 정지할 실기가 한 대면 그 실기로 바로, 여럿이면 실기 고르기, 없으면 끝. 시뮬 탭도 같다(11-28 고친 결정: 시뮬 탭을 보는 동안에도 걷는 실기를 세움).
+  // 시뮬 탭 #/sim/<id>(다른 창에서 도는 그 시뮬, simPick)도 그 시뮬을 먼저 멈춘 뒤 같은 규칙
+  const reals = stops.filter((r) => !r.sim), simFirst = toSim || !!simPick;
+  const stop = () => {
+    if (toSim) sim.stop(); else if (simPick) halt(simPick);   // 시뮬이 고르기 밖이면 그 슬롯(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
+    if (simFirst) { if (!reals.length) return; if (reals.length === 1) return halt(reals[0]); }
     if (!canStop) return;
-    const r = target ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
+    const r = (simFirst ? undefined : target) ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
   // 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
   const stopKey = useRef(stop); stopKey.current = stop;
@@ -285,7 +288,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           <button type="button" className="btn" onClick={() => go('drive')}>연결 화면</button></div>
       : <div className="fh-pick" role="status" data-ending>조종권을 반납하는 중입니다…</div>)}
     {/* 후보 0(운영 관리자 로봇 0대 등 — 모르면 STOP 은 보인다)이면 빈 고르기 대신 이 앱으로 멈출 것이 없다고 바로 알린다 */}
-    {choose != null && !target && canStop && (stops.length ? <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
+    {choose != null && (!target || !!simPick) && canStop && (stops.length ? <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
       <span>어느 로봇을 정지할까요?</span>
       <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
         {!choose && <option value="">로봇 고르기</option>}

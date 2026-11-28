@@ -438,8 +438,9 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
   it('Space 는 PR #94·#96 그대로 STOP — 시뮬 탭이면 이 시뮬 로봇에 직접 stop', async () => {
     const a = await ready();
     await key('keydown', 'Space');
-    expect(a.of('stop')).toHaveLength(1);
-    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    expect(a.of('stop')).toHaveLength(1);   // 시뮬 정지는 고르기를 기다리지 않고 먼저
+    // 11-28 고친 결정: 시뮬 탭에서도 이어서 실기 규칙(정지할 실기가 여럿이면 고르기). 전: 고르기 없음
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).not.toBeNull();
   });
 
   it('에이전트가 simulation 이 아니라고 알리면 키보드 조종·조종 시작 없음', async () => {
