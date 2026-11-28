@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { CELLS_MAX, MIN_TEXT_PX, WALK_MIN_SPEED, badgeDot, dropLines, facts, fakeRobots, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -16,6 +16,7 @@ import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
 import { eunNeun, idleSim, toRobot } from '../fake';
 import u5Css from '../proto/u5.css?raw';
+import u5Src from '../proto/u5.tsx?raw';
 import { fleetRow } from './fleetRow';
 import { en } from '../lang';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
@@ -37,7 +38,9 @@ const feed = (robots: Robot[], extra: Record<string, object> = {}) => act(() => 
   for (const r of robots) FakeWS.last.recv(r.online ? state(r.id, { status: r.status, battery: r.battery == null ? null : { soc: r.battery, updated_at: '' }, ...extra[r.id] })
     : state(r.id, { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null }));
 });
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); localStorage.clear(); url(''); });
+/** 주소 값(?cells · ?fake) 시험용: 해시는 두고 search 만 바꿈 */
+const url = (q: string) => history.replaceState(null, '', `${location.pathname}${q}${location.hash}`);
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s)!;
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const tiles = () => $$('[aria-label="로봇 타일"] .tile');
@@ -70,21 +73,21 @@ const RUN = (status = 'MOVING') => ({ run: { run_id: 'r1', status, step: 0, wait
 const runs = (ids: string[], status = 'MOVING') => Object.fromEntries(ids.map((id) => [id, RUN(status)]));
 
 describe('관제 탭', () => {
-  it('시안 칸 순서: 보기 · 첫 화면으로 · 수 여섯(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 대기 · 경고) · 뒤집기 · 데모 표시 · 범위, 그 아래 타일 벽 · 오른쪽 칸', async () => {
+  it('시안 칸 순서: 보기 · 수 일곱(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 · 경고 · 주의) · 뒤집기 · 데모 표시 · 범위, 그 아래 타일 벽 · 오른쪽 칸', async () => {
     dashOk({ robots_running: 7 });
-    mount('u-kim', EIGHT); feed(EIGHT);
+    mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']));
     await act(async () => {});
     const u5 = $('.proto > main.u5');
     expect([...u5.children].map((e) => e.className)).toEqual(['tb', 'wall', 'side']);
     expect($$('.u5 .tb .seg2 [data-v]').map((e) => e.textContent)).toEqual(['타일 보기', '지도 보기']);
-    expect($('.u5 .tb .pinf').textContent).toBe('첫 화면으로');
-    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);
-    expect($('[data-sum="임무 중"] b').textContent).toBe('6');   // 타일이 «임무 중» 인 로봇 = RUNNING · 끊기지 않음(K-07 끊김 · K-08 시뮬 대기 빼고)
+    expect($('.u5 .tb [data-home]')).toBeNull();   // 「첫 화면으로」 는 머리 줄에서 뺌 · 지도 보기 안 「전체 보기」(팀장 02:21)
+    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의']);
+    expect($('[data-sum="임무 중"] b').textContent).toBe('6');   // 임무 중 배지 = 진행 중인 임무가 있는 실기 · 데모(K-07 끊김 · K-08 시뮬 빼고)
     expect($('[data-sum="충전"] b').textContent).toBe('');   // 가용(GET /robots/availability)을 받지 못함 = 수를 비움(em dash 없음)
     expect($('[data-sum="충전"]').dataset.none).toBe('true');
     expect($('[data-sum="점검"] b').textContent).toBe('');   // 가용을 받지 못함 = 수를 비움
     expect($('[data-sum="점검"]').title).toBe('가용(GET /robots/availability)을 받지 못했습니다');
-    expect($('[data-sum="시뮬 대기"] b').textContent).toBe('1');
+    expect($('[data-sum="시뮬"] b').textContent).toBe('1');
     expect($('.u5 .tb .flipb').textContent).toBe('정면 상태로 뒤집기');
     expect($$('.u5 .tb .flt [data-f]').map((e) => e.textContent)).toEqual(['모두', '내 로봇']);
     expect(tiles().map((t) => t.dataset.t)).toEqual(['K-01', 'K-02', 'K-03', 'K-04', 'K-05', 'K-06', 'K-07', 'K-08']);
@@ -92,6 +95,26 @@ describe('관제 탭', () => {
     expect($$('.u5 .side > .pane').map((e) => e.querySelector('.ttl')!.textContent)).toEqual(['작은 지도', '최근 경고']);
   });
 
+  it('머리 줄 필터(팀장 02:21): 수 칸을 누르면 그 상태만 타일 · 작은 지도에 · 여러 개 = 합 · 다시 누르면 풀림 · 수는 그대로 · 0 대면 빈 한 줄', async () => {
+    mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']));
+    await act(async () => {});
+    const sum = (k: string) => $('[data-sum="' + k + '"]');
+    const press = (k: string) => act(() => { sum(k).click(); });
+    press('임무 중');
+    expect(sum('임무 중').classList.contains('on')).toBe(true); expect(sum('임무 중').getAttribute('aria-pressed')).toBe('true');
+    expect(tiles().length).toBe(6); expect(sum('임무 중').querySelector('b')!.textContent).toBe('6');   // 수는 그대로
+    press('시뮬');
+    expect(tiles().length).toBe(7);   // 여러 개 = 합(임무 중 6 + 시뮬 1)
+    press('임무 중'); press('시뮬');
+    expect(tiles().length).toBe(8); expect(sum('임무 중').classList.contains('on')).toBe(false);
+    press('점검');   // 가용을 받지 못해 점검 0 대
+    expect(tiles().length).toBe(0); expect($('[data-filter-empty]').textContent).toContain('고른 상태의 로봇이 없습니다');
+    press('점검'); expect($('[data-filter-empty]')).toBeNull();
+    expect(u5Css).toContain('.u5 .cnt.on{border-color:currentColor}');
+    // 칸마다 수 = 그 칸으로 걸렀을 때 남는 타일 수(경고 · 주의 = 테두리 축도 같음)
+    for (const k of ['임무 중', '연결 중', '시뮬', '경고', '주의']) { press(k); expect([k, tiles().length]).toEqual([k, Number(sum(k).querySelector('b')!.textContent)]); press(k); }
+    for (const w of ['<Mini all={shown}', '<SiteView key={home} all={shown}', '<MapSide all={shown}']) expect(u5Src).toContain(w);   // 작은 지도 · 지도 보기도 같은 목록
+  });
   it('타일 한 장 = 시안 칸 그대로: 칸(뒤 1 m) · 이름 · 모드 · 임무 + 할 일 · 진행 막대 · 위치 · 배터리 · 온도 · 연결 · 조종', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k1: { latency_ms: 38, gait: { gait: 'start' }, ...RUN() } });
     const t = tile('k1');
@@ -107,23 +130,102 @@ describe('관제 탭', () => {
     expect(tile('k2').querySelector('.nm .md')!.textContent).toBe('');   // 걷기 모드를 받기 전
   });
 
-  it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대: 타일은 8 칸(wallPick · 팀장 23:53) · 나머지 수 한 줄 · 경고 타일이 맨 앞 + 테두리 · 머리표', async () => {
+  it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대: 타일 20 칸 모두(팀장 02:41 · 스크롤 0) · 아래 네 칸 뺌 · 경고 타일이 맨 앞 + 테두리 · 머리표', async () => {
     dashOk({ robots_attention: 1 });
     mount('u-kim', TWENTY); feed(TWENTY);
     await act(async () => {});
     expect($('h1').textContent).toBe('관제');
     expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/control');
-    expect(tiles()).toHaveLength(8);
-    expect($('[aria-label="로봇 타일"]').dataset.count).toBe('8'); expect($('[aria-label="로봇 타일"]').dataset.all).toBe('20');
-    expect($('[data-wall-rest]').textContent).toBe('타일 8 대 · 나머지 12 대는 지도 보기 · 로봇 탭');
+    expect(tiles()).toHaveLength(20);
+    expect($('[aria-label="로봇 타일"]').dataset.count).toBe('20'); expect($('[aria-label="로봇 타일"]').dataset.all).toBe('20');
+    expect($('[data-wall-rest]')).toBeNull();   // 안내문 없음
+    expect($('main.u5').dataset.cells).toBe('off'); expect(tiles().every((t) => !t.querySelector('.sts'))).toBe(true);
     expect(tiles()[0].dataset.robot).toBe('g9');
     expect(tile('g9').dataset.tone).toBe('warn'); expect(tile('g9').classList.contains('lv-warn')).toBe(true); expect(tile('g9').classList.contains('warncell')).toBe(true);
     expect(tile('g9').querySelector('[data-warn-flag]')!.textContent).toBe('주의 · 배터리 낮음');
     expect(tile('g3').dataset.tone).toBeUndefined();
-    expect($('[data-sum="경고"] b').textContent).toBe('1');
+    expect(['경고', '주의'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '1']);   // g9 = 주의(테두리 warn) · 경고 칸과 나눔(조정 02:30)
     expect(wallGrid(8).zoom).toBe(1);   // 8 칸 = 시안 4×2 그대로(줄이지 않음)
   });
 
+  it('대수별 격자(팀장 02:41): 8 대 이하는 시안 그대로 · 10 · 20 대는 열 · 줄이 늘고 모두 보임', () => {
+    expect([4, 8].map((n) => wallGrid(n).cols)).toEqual([2, 4]);
+    const g10 = wallGrid(10), g20 = wallGrid(20);
+    expect(g10.cols).toBeGreaterThan(4); expect(g20.cols).toBeGreaterThanOrEqual(g10.cols);
+    expect(g10.cols * g10.rows).toBeGreaterThanOrEqual(10); expect(g20.cols * g20.rows).toBeGreaterThanOrEqual(20);
+    expect(g20.zoom).toBeLessThan(1);
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect($('[aria-label="로봇 타일"]').style.gridTemplateColumns).toBe(`repeat(${g20.units ?? g20.cols},1fr)`);
+  });
+  it('네 칸 문턱(CELLS_MAX): 문턱 이하 = 타일에 있음 · 넘으면 뺌 · ?cells=on|off 로 두 판', () => {
+    expect(CELLS_MAX).toBe(8);
+    mount('u-kim', EIGHT); feed(EIGHT);
+    expect(tiles().every((t) => t.querySelectorAll('.sts [data-fact]').length === 4)).toBe(true);
+    act(() => root!.unmount()); root = null; box.remove();
+    url('?cells=off'); mount('u-kim', EIGHT); feed(EIGHT);
+    expect(tiles()).toHaveLength(8); expect(tiles().every((t) => !t.querySelector('.sts'))).toBe(true);
+    act(() => root!.unmount()); root = null; box.remove();
+    url('?cells=on'); mount('u-kim', TWENTY); feed(TWENTY);
+    expect(tiles()).toHaveLength(20); expect(tiles().every((t) => t.querySelectorAll('.sts [data-fact]').length === 4)).toBe(true);
+  });
+  it('네 칸이 빠진 판: 로봇을 한 번 누르면 오른쪽 정보 칸에 배터리 · 온도 · 연결 · 담당자 · 고르지 않으면 최근 경고 그대로', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect($('[data-picked]')).toBeNull(); expect($('[aria-label="최근 경고"]')).not.toBeNull();
+    act(() => { tile('g3').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+    const cells = $('[data-picked] [data-picked-cells]');
+    expect([...cells.querySelectorAll<HTMLElement>('[data-fact]')].map((e) => e.dataset.fact)).toEqual(['battery', 'temp', 'link', 'who']);
+    expect($('[aria-label="최근 경고"]')).not.toBeNull();
+  });
+  it('가짜 모드(?fake=10|20): 서버 로봇에 가짜를 더해 그 대수 · 띠가 늘 보임 · 가짜는 서버에 묻지 않고 열기 · 쓰기 막음', async () => {
+    const robot = vi.spyOn(api, 'robot');
+    url('?fake=10'); mount('u-kim', EIGHT); feed(EIGHT);
+    await act(async () => {});
+    expect(tiles()).toHaveLength(10); expect($('[data-fake]').textContent).toBe('화면 검토용 가짜 자료 · 로봇 10 대');
+    const f1 = tiles().find((t) => t.dataset.t === '가짜 1')!;
+    act(() => { f1.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+    expect($('[data-picked] [data-fake-block]').getAttribute('aria-disabled')).toBe('true');
+    const hash = location.hash;
+    act(() => { f1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    expect(location.hash).toBe(hash);   // 로봇 탭(쓰기 단추)으로 가지 않음
+    expect(robot.mock.calls.some(([id]) => String(id).startsWith('fake-'))).toBe(false);   // 상세 GET 도 묻지 않음
+    expect(fakeRobots(20, EIGHT)).toHaveLength(12); expect(fakeRobots(10, TWENTY)).toHaveLength(0);
+    act(() => root!.unmount()); root = null; box.remove();
+    url(''); mount('u-kim', EIGHT); feed(EIGHT);
+    expect($('[data-fake]')).toBeNull(); expect(tiles()).toHaveLength(8);
+  });
+  it('글 바닥(MIN_TEXT_PX · 조정 03:00): zoom 에 따라 줄을 뺌(위치 → 진행 → 임무) · 이름 · 배지 · 경고 띠는 남김 · 글 칸은 --minpx 로 키움', () => {
+    expect(MIN_TEXT_PX).toBe(10);
+    expect([1, 0.95, 0.85, 0.75, 0.555].map((z) => dropLines(z))).toEqual([0, 0, 1, 2, 3]);   // 11 px × zoom 이 바닥의 1 · 0.9 · 0.8 배
+    expect(dropLines(wallGrid(8).zoom)).toBe(0); expect(dropLines(wallGrid(20).zoom)).toBe(3);
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect($('main.u5').dataset.drop).toBe('3');
+    const t = tile('g9');
+    expect(t.querySelectorAll('.inf .ln, .inf .pg')).toHaveLength(0);   // 임무 · 진행 · 위치 줄 모두 뺌
+    expect(t.querySelector('.nm b')!.textContent).toBe(t.dataset.t); expect(t.querySelector('[data-badge], [data-stop-line]')).not.toBeNull(); expect(t.querySelector('[data-warn-flag]')).not.toBeNull();
+    const z = t.closest<HTMLElement>('[data-tz]')!; expect(z.style.getPropertyValue('--minpx')).toBe(`${(10 / wallGrid(20).zoom).toFixed(2)}px`);
+    expect(u5Css).toContain('.u5 .tile .chip,.u5 .tile .s small{font-size:max(11px,var(--minpx,0px))}');
+    act(() => root!.unmount()); root = null; box.remove();
+    url('?minpx=0'); mount('u-kim', TWENTY); feed(TWENTY);   // 바닥 끈 판(빠지기 전): 줄을 빼지 않고 글도 키우지 않음
+    expect($('main.u5').dataset.drop).toBe('0'); expect(tile('g9').querySelectorAll('.inf .ln').length).toBe(2);
+    expect(tile('g9').closest<HTMLElement>('[data-tz]')!.style.getPropertyValue('--minpx')).toBe('');
+  });
+  it('가짜 로봇(조정 03:00): 데모 꼴(카메라 칸 «신호 없음» 없음) · 줄은 진짜 로봇 뒤', async () => {
+    url('?fake=20'); mount('u-kim', EIGHT); feed(EIGHT);
+    await act(async () => {});
+    const ids = tiles().map((t) => t.dataset.robot!), firstFake = ids.findIndex((id) => id.startsWith('fake-'));
+    expect(firstFake).toBe(8); expect(ids.slice(firstFake).every((id) => id.startsWith('fake-'))).toBe(true);
+    const fk = tiles().filter((t) => t.dataset.robot!.startsWith('fake-'));
+    expect(fk.every((t) => t.querySelector('[data-demo]') && !t.querySelector('.chip.sim') && !t.classList.contains('sim'))).toBe(true);
+    expect(fk.some((t) => t.textContent!.includes('신호 없음'))).toBe(false);
+  });
+  it('밝은 판 배지 대비(조정 03:00): 흰 칸 바탕 · 흰 칸 위 4.5 : 1 모자라는 노랑 · 회색 글은 글자 · 흐린 글자 토큰', () => {
+    expect(u5Css).toContain('.proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}');
+    expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="paused"\][^{]*\{color:#1F2421!important/);
+    expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="maint"\][^{]*\{color:#5E6662!important/);
+    const lum = (h: string) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const cr = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    for (const fg of ['#0E7F63', '#2F6FE0', '#B8361F', '#1F2421', '#5E6662']) expect(cr(fg, '#FFFFFF'), fg).toBeGreaterThanOrEqual(4.5);   // 임무 · 시뮬 · 잠금 · 충전/노랑 · 회색
+  });
   it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {
     const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
     const av = (demo: boolean, x: Partial<{ charging: boolean; job: { kind: 'maint' | 'swap'; text: string } }> = {}) => ({ demo, label: null, charging: false, job: null, ...x });
@@ -176,9 +278,40 @@ describe('관제 탭', () => {
     expect(all({}, { charging: true, job: { kind: 'swap', text: '배터리 교체' } })).toEqual(['충전 중', '충전 중', '충전 중']);   // 지금 상태가 일정 칸보다 먼저(01:31 K-04)
     expect(all({}, { job: { kind: 'swap', text: '배터리 교체' } })).toEqual(['배터리 교체', '배터리 교체', '배터리 교체']);
   });
+  it('배지 통일(팀장 02:14): 종류마다 글 색 · 점 색 · 펄스 · 같은 틀(아이콘 · 글 · 점)', () => {
+    const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'IDLE' };
+    const RUNX = (status: string) => ({ id: 'r1', run_id: 'r1', scenario_name: '순찰', status, step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } }) as unknown as Robot['run'];
+    const B = (r: Partial<Robot>, a: object = {}, demo = false) => tileBadge(facts({ id: 'b1', name: 'B', ...base, ...r } as Robot, 'u-kim', new Map(), { demo, label: null, charging: false, job: null, ...a }))!;
+    const look = (b: ReturnType<typeof B>) => [b.key, b.col, badgeDot(b), b.pulse];
+    expect(look(B({ status: 'RUNNING', run: RUNX('MOVING') }))).toEqual(['run', 'var(--u5-ok)', 'var(--u5-dot-red)', true]);   // 임무 중: 글 그대로 · 점 빨강
+    expect(look(B({ status: 'RUNNING', run: RUNX('MOVING') }, {}, true))).toEqual(['run', 'var(--u5-ok)', 'var(--u5-dot-red)', true]);   // 데모도 같음
+    expect(look(B({}, { charging: true }))).toEqual(['charging', 'var(--u5-on)', 'var(--u5-ok)', true]);   // 충전 중: 글 하양 · 점 초록
+    expect(look(B({ sim: true, status: 'RUNNING', run: RUNX('MOVING') }))).toEqual(['simrun', 'var(--u5-sim)', 'var(--u5-sim)', true]);   // 시뮬 중: 파랑 · 파랑
+    expect(look(B({}, { job: { kind: 'maint', text: '점검' } }))).toEqual(['maint', '#a9b8c6', '#a9b8c6', true]);   // 점검 중: 색 그대로
+    expect(look(B({ status: 'RUNNING', run: RUNX('PAUSED') }))).toEqual(['paused', 'var(--u5-amb)', 'var(--u5-amb)', true]);
+    expect(look(B({ online: false, status: null }))).toEqual(['lost', 'var(--u5-amb)', 'var(--u5-amb)', false]);
+    expect(look(B({ status: 'STOP_LATCHED' }))).toEqual(['latched', 'var(--u5-red)', 'var(--u5-red)', false]);
+    expect(look(B({}))).toEqual(['idle', '#a9b8c6', '#a9b8c6', false]);
+    const pre = B({ online: false, seenAt: '', status: null });   // 연결 전: 기본 B 안 = 하얀 점 멈춤 · 흐리게
+    expect([...look(pre), pre.dim]).toEqual(['pre', '#a9b8c6', 'var(--u5-on)', false, true]);
+    // 같은 틀: 모든 배지가 점(i) 하나를 갖고, 펄스는 .chk 로만 · 움직임 줄이기면 멈춤
+    mount('u-kim', EIGHT); feed(EIGHT);
+    for (const t of tiles()) { const b = t.querySelector<HTMLElement>('[data-badge]'); if (!b) continue; expect(b.querySelectorAll(':scope > i').length, b.dataset.badge).toBe(1); expect(b.classList.contains('chk')).toBe(b.dataset.pulse === '1'); }
+    expect(u5Css).toContain('.u5 .stb.chk i{animation:blink'); expect(u5Css).toMatch(/prefers-reduced-motion:reduce\)\{[^\n]*\.u5 \.stb\.chk i\{animation:none\}/);
+    expect(u5Css).toMatch(/\.u5\{[^}]*--u5-on:#FFFFFF;--u5-dot-red:#FF4D4F/); expect(u5Css).toMatch(/\.proto\.light \.u5\{[^}]*--u5-on:#1F2421;--u5-dot-red:#E04A2F/);
+  });
   it('작은 지도 이름표: 가까운 두 점(r0118 K-02 · K-04)은 아래쪽 점 이름표를 점 아래로 · 먼 점은 둘 다 위', () => {
     expect([...labelsBelow([{ id: 'k2', x: 100, y: 120, w: 40 }, { id: 'k4', x: 102, y: 108, w: 40 }])]).toEqual(['k2']);   // 위쪽 K-04 는 위 · 아래쪽 K-02 는 아래
     expect(labelsBelow([{ id: 'a', x: 0, y: 100, w: 40 }, { id: 'b', x: 80, y: 100, w: 40 }]).size).toBe(0);
+  });
+  it('시뮬 파랑(팀장 02:07): 임무 중 시뮬 배지 글 · 점 = --u5-sim, 이름 옆 «시뮬» 태그도 --u5-sim(어둠 #4C9BFF · 밝음 #2F6FE0 = foothold-brand sim 토큰)', () => {
+    const L: Robot[] = EIGHT.map((r) => (r.id === 'k8' ? { ...r, online: true, status: 'RUNNING' as const } : r));   // EIGHT 의 k8 은 꺼진 시뮬 · 붙은 임무 중 시뮬로
+    mount('u-kim', L); feed(L, { k8: RUN() });
+    const b = tile('k8').querySelector<HTMLElement>('[data-badge="simrun"]')!;
+    expect(b.textContent).toBe('시뮬 중'); expect(b.style.color).toBe('var(--u5-sim)');
+    expect(b.querySelector<HTMLElement>(':scope > i')!.style.background).toBe('var(--u5-sim)');
+    expect(u5Css).toContain('.u5 .chip.sim{border-style:dashed;border-color:var(--u5-sim);color:var(--u5-sim)}');
+    expect(u5Css).toMatch(/\.u5\{[^}]*--u5-sim:#4C9BFF/); expect(u5Css).toMatch(/\.proto\.light \.u5\{[^}]*--u5-sim:#2F6FE0/);
   });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
@@ -195,7 +328,8 @@ describe('관제 탭', () => {
   });
 
   it('값이 없는 칸은 시안 칸을 두고 글을 비움(em dash 없음) · 온도 · 배터리 · 위치를 지어내지 않는다 · «미확인» 글자 없음', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
+    const TW = SOME('g3', 'g4', 'g5', 'g15');   // 칸 값 · 줄 시험은 8 대 이하 판(20 대는 네 칸 · 둘째 줄을 뺌)
+    mount('u-kim', TW); feed(TW);
     expect(fact('g3', 'temp')).toBe('');
     expect(small('g3', 'temp')).toBe('');
     expect(fact('g3', 'battery')).toBe('70 %');
@@ -209,8 +343,9 @@ describe('관제 탭', () => {
   });
 
   it('관절 온도는 로봇이 보낸 robot_info.temperature 의 최고값 · 단계(보통 · 주의 · 경고 · 위험), 위치는 state 값', () => {
-    mount('u-kim', TWENTY);
-    feed(TWENTY, { g3: { ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]), location: { floor_id: 'f1', map_version_id: 'v1', x: 1.25, y: 2, yaw: 0, confidence: 1, updated_at: '' } } });
+    const TW = SOME('g3', 'g4', 'g5', 'g15');   // 칸 값 · 줄 시험은 8 대 이하 판(20 대는 네 칸 · 둘째 줄을 뺌)
+    mount('u-kim', TW);
+    feed(TW, { g3: { ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]), location: { floor_id: 'f1', map_version_id: 'v1', x: 1.25, y: 2, yaw: 0, confidence: 1, updated_at: '' } } });
     expect(fact('g3', 'temp')).toBe('61 °C');
     expect(small('g3', 'temp')).toBe('경고');
     expect(tile('g3').querySelector('[data-fact="temp"]')!.className).toBe('s r');
@@ -223,6 +358,7 @@ describe('관제 탭', () => {
 
   // 팀장 21:26: Go2 X 처럼 정지 잠금과 높지 않은 관절 온도(41 °C)가 붙어 온도가 잠금 원인처럼 읽혔다 → 머리표 = 잠금 까닭(서버 값만), 온도 칩은 온도 문턱(tempLevel)을 넘을 때만 경고색
   it('정지 잠금 + 보통 온도: 머리표 «경고 · 정지 잠금 · 까닭»(서버 latch_reason · 없으면 까닭 미상), 정면 온도 칩은 회색 «최고 관절 온도 41 °C», 최근 경고 제목도 잠금', () => {
+    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
     mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]) } });
     const flag = () => tile('g3').querySelector('[data-warn-flag]')!.textContent;
     expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // 칸 없음
@@ -269,6 +405,7 @@ describe('관제 탭', () => {
     expect(tile('a2').querySelector('[data-fact="temp"]')!.className).toBe('s w');
   });
   it('정지 잠금 + 문턱 넘은 온도(61 °C): 머리표는 잠금(위험 70 °C 전까지), 온도 칩만 경고색 · 관절 이름, 잠금 없으면 전처럼 온도가 머리표', () => {
+    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
     mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) }, g5: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
     expect(tile('g3').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
     expect(tile('g3').querySelector('[data-fact="temp"]')!.className).toBe('s r');
@@ -461,6 +598,42 @@ describe('관제 탭', () => {
     expect(walking('lie', null, 0.4)).toBe(false);
     expect(walking('lost', null, 0.4)).toBe(false);
   });
+  it('조종 중: 서버 lease.driving === true 일 때만 · 임무 다음 · 대기 앞 · 임무 중과 같은 틀', () => {
+    const sum = (lease: object | null) => ({ id: 'd1', name: 'D', owner: { id: 'u-kim', display_name: '김OO' }, connection: 'ONLINE', status: 'IDLE', battery: { soc: 70, updated_at: '2026-11-29T00:00:00Z' },
+      location: null, current_run: null, lease, devices: [], simulation: false }) as never;
+    const L = (driving?: boolean) => ({ holder_type: 'USER', user: { id: 'u-kim', display_name: '김OO' }, since: '2026-11-29T00:00:00Z', ...(driving === undefined ? {} : { driving }) });
+    const F = (r: Robot) => facts({ ...r, seenAt: '14:05:20' }, 'u-kim', new Map(), { demo: false, label: null, charging: false, job: null });
+    const on = F(toRobot(sum(L(true))));
+    expect(on.x.holder?.driving).toBe(true); expect(on.driving).toBe(true);
+    const b = tileBadge(on)!; expect([b.key, b.text, b.col, badgeDot(b), b.pulse]).toEqual(['driving', '조종 중', 'var(--u5-ok)', 'var(--u5-dot-red)', true]);
+    for (const off of [F(toRobot(sum(L(false)))), F(toRobot(sum(L()))), F(toRobot(sum(null)))]) {   // false · 칸 없음 · 조종권 없음(lease null)
+      expect(off.driving).toBe(false); expect(tileBadge(off)!.key).toBe('idle');
+    }
+    // 사람 칸(조정 02:38): USER + driving = 조종 · USER 만 = 조종권 · RUN(driving false) = 임무 · lease null = 담당자
+    expect(on.who[1]).toBe('조종'); expect(F(toRobot(sum(L(false)))).who[1]).toBe('조종권'); expect(F(toRobot(sum(L()))).who[1]).toBe('조종권');
+    const byRun = F(toRobot(sum({ holder_type: 'RUN', user: { id: 'u-a', display_name: '운영자 A' }, since: '2026-11-29T00:00:00Z', driving: false })));
+    expect([byRun.who[1], byRun.driving, tileBadge(byRun)!.key]).toEqual(['임무', false, 'idle']);
+    expect(F(toRobot(sum(null))).who[1]).toBe('담당자');
+    const run = F({ ...toRobot(sum(L(true))), status: 'RUNNING', run: { id: 'r1', run_id: 'r1', scenario_name: '순찰', status: 'MOVING', step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } } as never });
+    expect(tileBadge(run)!.key).toBe('run');   // 임무가 먼저
+  });
+  it('관절 보간: 도착 시각 기준 선형 · 떨림은 간격 평균 · 값이 안 오면 마지막 값에 멈춤 · 없어지면 null', () => {
+    const L0 = jointLerp(), L = (q: number[] | null, t: number) => L0(q, t)!, A = Array(12).fill(0), B = Array(12).fill(1), C = Array(12).fill(2);
+    expect(L(A, 0)).toEqual(A);                     // 첫 값은 그대로
+    expect(L(A, 50)).toEqual(A);                    // 같은 값 = 새 값 아님
+    expect(L(B, 100)[0]).toBeCloseTo(0);            // 새 값 도착 순간은 지금 자세에서 출발
+    expect(L(B, 150)[0]).toBeCloseTo(0.5);          // 간격 100 ms(평균) 의 반
+    expect(L(B, 200)[0]).toBeCloseTo(1);
+    expect(L(B, 900)[0]).toBe(1);                   // 다음 값이 안 오면 마지막 값에 멈춤(넘어가지 않음)
+    const L1 = jointLerp(), L2 = (q: number[] | null, t: number) => L1(q, t)!; L2(A, 0); L2(B, 100); expect(L2(C, 150)[0]).toBeCloseTo(0.5);   // 이르게(50 ms) 온 값: 그리던 자세(0.5)에서 이어감 · 튀지 않음
+    expect(L2(C, 150 + 42.5)[0]).toBeCloseTo(1.25);   // 간격 평균 85 ms(100·0.7 + 50·0.3) 의 반 → 0.5 + 1.5/2
+    expect(L2(C, 150 + 85)[0]).toBeCloseTo(2);
+    expect(L2(null, 300)).toBeNull(); expect(L2(C, 310)).toEqual(C);   // 값이 없어지면 null, 다시 오면 처음부터
+  });
+  it('구독하지 않는 로봇(summary)도 관절값이 오면 관절을 먼저 쓴다(갈래로 막지 않음)', () => {
+    expect(u5Src).not.toMatch(/summary \? null : jointsNow/);
+    expect(u5Src).toMatch(/q: lerp\(jointsNow\(id\), rt\.now\(\)\)/);
+  });
   // 팀장 20:55: Go2 X 가 일어섰는데 앉아 있게 그려졌다(잠금 상태 = 엎드림이 관절 · 자세 보고보다 앞섬) → 관절 > 자세 보고 > 상태 > 선 자세
   it('자세 순서: 서버 관절이 오면 관절 · 없으면 자세 보고(STANDING 이면 잠금이어도 서 있음) · 보고도 없을 때만 상태(잠금 = 엎드림)', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
@@ -488,7 +661,7 @@ describe('관제 탭', () => {
     expect($$('.u5 .mks .mk3')).toHaveLength(20);
     expect($$('.u5 .mks .mk3').every((e) => e.style.display === 'none')).toBe(true);   // 위치가 오기 전에는 표지를 그리지 않음
     act(() => { seg('보기', 0).click(); });
-    expect(tiles()).toHaveLength(8);   // 타일은 8 칸, 지도 보기는 20 대 전부
+    expect(tiles()).toHaveLength(20);   // 타일도 지도 보기도 20 대 전부(팀장 02:41)
   });
 
   it('지도 보기 이름표: 시뮬 로봇은 경고가 있어도 시안 K-08 꼴(파란 점선 · 상자 아이콘)', () => {
@@ -530,11 +703,11 @@ describe('관제 탭', () => {
       const dot = (id: string) => $(`.u5 .mini .dotm[data-dot="${id}"]`);
       expect(dot('k3').classList.contains('sel')).toBe(true); expect(dot('k4').classList.contains('dim')).toBe(true);
       expect($('.u5 .mini .dotl.sel')!.textContent).toBe(EIGHT.find((r) => r.id === 'k3')!.name);
-      // 고른 로봇 쪽으로 2 배: k3 가 칸 가운데(가로 50% · 세로 125 px), k4(20 m 동쪽 = 그림 70 px = 작은 지도 8.75 px) 는 2 배 떨어져 17.5 → 18 px
-      expect($('.u5 .mini')!.dataset.zoom).toBe('2');
-      expect([dot('k3').style.left, dot('k3').style.top]).toEqual(['calc(50% + 0px)', '125px']);
-      expect(dot('k4').style.left).toBe('calc(50% + 18px)');
-      expect(($('.u5 .mini') as HTMLElement).style.backgroundSize).toBe('800px 500px');
+      // 고를 때도 확대 · 이동 없음(팀장 02:03): k4(20 m 동쪽 = 그림 70 px = 작은 지도 8.75 px) 는 k3 에서 1 배 그대로 9 px · 바탕 그림 크기 · 자리 그대로
+      expect($('.u5 .mini')!.dataset.zoom).toBeUndefined();
+      const px = (id: string) => { const m = /calc\(50% ([+-]) (-?\d+)px\)/.exec(dot(id).style.left)!; return (m[1] === '-' ? -1 : 1) * Number(m[2]); };
+      expect(Math.abs(px('k4') - px('k3') - 8.75)).toBeLessThanOrEqual(1);
+      expect(($('.u5 .mini') as HTMLElement).style.backgroundSize).toBe('');
       act(() => { $('.u5 .mini[data-to-map]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
       expect($('.u5 .big')!.getAttribute('data-focus')).toBe('k3');
     } finally { sites.mockRestore(); }
@@ -649,8 +822,8 @@ describe('관제 탭', () => {
     expect(tiles()).toHaveLength(2);
     expect(tiles().every((t) => t.dataset.tone === undefined && !t.querySelector('[data-warn-flag]'))).toBe(true);
     expect($('[data-sum="경고"] b').textContent).toBe('0');
-    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);   // 시안 칸 줄 그대로 · 0 이면 0
-    expect(['연결 중', '시뮬 대기'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '0']);
+    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의']);   // 시안 칸 줄 그대로 · 0 이면 0
+    expect(['연결 중', '시뮬'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '0']);
     expect($('[data-alarm]')).toBeNull();
     expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(0);
     expect($('main').textContent).not.toContain('연결 끊김');
@@ -717,13 +890,15 @@ describe('관제 탭', () => {
 
 
 
-  it('총괄 요약 = 수 칸: 임무 중 = 타일 실행 상태로 셈(시뮬 포함 · 서버 요약은 실기만이라 안 씀) · 경고 = 타일 테두리 경고 수(서버 요약은 실기만이라 안 씀), 결재 대기 = 서버 GET /dashboard = 머리줄 메뉴 끝 작은 표', async () => {
+  it('총괄 요약 = 수 칸: 임무 중 = 임무 중 배지 수(시뮬은 시뮬 칸) · 경고 · 주의 = 타일 테두리 수(서버 요약은 실기만이라 안 씀), 결재 대기 = 서버 GET /dashboard = 머리줄 메뉴 끝 작은 표', async () => {
     dashOk({ robots_running: 5, robots_attention: 2, approvals_pending: 4 });
-    mount('u-kim', TWENTY); feed(TWENTY);
+    const going = TWENTY.filter((r) => r.status === 'RUNNING' && r.online && !r.sim).map((r) => r.id);
+    mount('u-kim', TWENTY); feed(TWENTY, runs(going));
     await act(async () => {});
-    expect([$('[data-sum="임무 중"]').dataset.src, $('[data-sum="임무 중"] b').textContent]).toEqual([undefined, String(TWENTY.filter((r) => r.status === 'RUNNING' && r.online).length)]);
+    expect([$('[data-sum="임무 중"]').dataset.src, $('[data-sum="임무 중"] b').textContent]).toEqual([undefined, String(going.length)]);
     expect($('[data-sum="경고"]').dataset.src).toBeUndefined();
-    expect($('[data-sum="경고"] b').textContent).toBe(String(document.querySelectorAll('.u5 .tile[class*="lv-"]').length));
+    expect($('[data-sum="경고"] b').textContent).toBe(String(document.querySelectorAll('.u5 .tile.lv-bad, .u5 .tile.lv-crit').length));
+    expect($('[data-sum="주의"] b').textContent).toBe(String(document.querySelectorAll('.u5 .tile.lv-warn').length));
     const ap = $('.bar .tabs [data-approvals]');
     expect([ap.dataset.approvals, ap.hidden, ap.textContent]).toEqual(['4', false, '결재 4']);
     act(() => { ap.click(); window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -747,9 +922,9 @@ describe('관제 탭', () => {
     for (const [rep, says] of [[{ code: 'FORBIDDEN', status: 403, message: '권한이 없습니다.' }, '권한이 없습니다.'], [{ code: 'INTERNAL', status: 500, message: '서버 오류' }, '서버 오류'], [{}, '요약 형식이 맞지 않습니다']] as const) {
       const d = vi.spyOn(api, 'dashboard');
       if ('code' in rep) d.mockRejectedValue(rep); else d.mockResolvedValue(rep as never);
-      mount('u-kim', EIGHT); feed(EIGHT);
+      mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']));
       await act(async () => {});
-      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['6', String(document.querySelectorAll('.u5 .tile[class*="lv-"]').length)]);   // 수 칸은 타일로 셈 · 요약 실패와 무관
+      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['6', String(document.querySelectorAll('.u5 .tile.lv-bad, .u5 .tile.lv-crit').length)]);   // 수 칸은 타일로 셈 · 요약 실패와 무관
       expect($('[data-dash-err]').textContent).toContain(says);
       expect($('.bar [data-approvals]').dataset.approvals).toBe('');
       expect($('.bar [data-approvals]').hidden).toBe(true);
@@ -1338,15 +1513,32 @@ describe('관제 탭', () => {
       expect(tile('k1')).not.toBeNull(); expect(localStorage.getItem('fh-control-demo')).toBe('1');
     } finally { av.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
   });
-  it('첫 화면으로(대조표 u5_1): 지도 보기 첫 시점으로 새로 엶(다가가기 없음 · 작은 지도에서 자라기 없음)', () => {
+  it('데모 표시 = 조직 설정 show_demo_label(서버 값이 이 브라우저 기억보다 먼저) · 총괄이 바꾸면 PATCH show_demo_label', async () => {
+    const item = (id: string, demo: boolean) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo, sim: false, location_label: null });
+    const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [item('k1', true), item('k3', false)] } as never);
+    const get = vi.spyOn(api, 'settings').mockResolvedValue({ battery_low_pct: 20, show_demo_label: false } as never);
+    const put = vi.spyOn(api, 'saveSettings').mockImplementation((p) => Promise.resolve({ battery_low_pct: 20, ...p }) as never);
+    try {
+      localStorage.setItem('fh-control-demo', '1');
+      mount('u-kim', EIGHT); feed(EIGHT);
+      await act(async () => {}); await act(async () => {});
+      const sw = () => $('[data-demo-show]') as HTMLElement;
+      expect(sw().getAttribute('aria-checked')).toBe('false'); expect(tile('k1')).toBeNull();
+      await act(async () => { sw().click(); });
+      expect(put.mock.calls.map((c) => c[0])).toEqual([{ show_demo_label: true }]);
+      expect(sw().getAttribute('aria-checked')).toBe('true'); expect(tile('k1')).not.toBeNull();
+    } finally { av.mockRestore(); get.mockRestore(); put.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
+  });
+  it('전체 보기(팀장 02:21 · 옛 「첫 화면으로」): 지도 보기 안 단추 · 되돌리기 아이콘 · 누르면 첫 시점으로 새로 엶(다가가기 없음)', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
-    const home = $('[data-home]') as HTMLElement;
-    expect(home.getAttribute('role')).toBe('button');
-    act(() => { home.click(); });
-    const big = () => $('.u5 .big') as HTMLElement;
-    expect(big()).not.toBeNull(); expect(big().hasAttribute('data-focus')).toBe(false); expect(big().hasAttribute('data-from-mini')).toBe(false);
+    expect($('[data-home]')).toBeNull();   // 타일 보기 · 머리 줄에는 없음
+    act(() => { ($('.u5 .tb [data-v="지도 보기"]') as HTMLElement).click(); });
+    const big = () => $('.u5 .big') as HTMLElement, home = () => big().querySelector('[data-home]') as HTMLElement;
+    expect(home().getAttribute('role')).toBe('button'); expect(home().textContent).toBe('전체 보기');
+    expect(home().querySelector('path')!.getAttribute('d')).toBe('M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8');
+    expect(big().hasAttribute('data-focus')).toBe(false); expect(big().hasAttribute('data-from-mini')).toBe(false);
     const cv = big().querySelector('canvas');
-    act(() => { home.click(); });
+    act(() => { home().click(); });
     expect(big().querySelector('canvas')).not.toBe(cv);   // 카메라를 새로(첫 시점) 잡도록 다시 그림
   });
   it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = state CHARGING 만 · 지금 걸친 BATTERY_SWAP 칸 = «배터리 교체» · MAINTENANCE = «점검 중» 칩 + busy_label 줄 · 실패면 수를 비움', async () => {
@@ -1377,7 +1569,7 @@ describe('관제 탭', () => {
     expect(tile('k8').querySelector('.ln span')!.textContent).toBe('정기 점검 · 다리 관절');
     expect($('[data-sum="점검"] b').textContent).toBe('1');
     expect(tile('k3').querySelector('[data-charging]')!.textContent).toBe('충전 중');
-    expect((tile('k3').querySelector('[data-charging]') as HTMLElement).style.color).toBe('var(--u5-ok)');
+    expect((tile('k3').querySelector('[data-charging]') as HTMLElement).style.color).toBe('var(--u5-on)');   // 글 하양(밝은 판 그라파이트) · 점 초록(팀장 02:14)
     // 충전 배지 = 배터리 아이콘 없이 점검 중과 같은 점 펄스(.stb.chk i) · 초록(팀장 01:51)
     const ch = tile('k3').querySelector<HTMLElement>('[data-charging]')!;
     expect(ch.classList.contains('chk')).toBe(true); expect(ch.querySelector('.bt')).toBeNull();
@@ -1385,7 +1577,8 @@ describe('관제 탭', () => {
     av.mockRestore(); sc.mockRestore();
   });
   it('글이 없는 줄 · 칸은 아이콘을 보이지 않게(줄 높이는 지킴) · 걸음 이름이 없으면 아이콘 없음', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
+    const TW = SOME('g3', 'g4', 'g5', 'g15');   // 칸 값 · 줄 시험은 8 대 이하 판(20 대는 네 칸 · 둘째 줄을 뺌)
+    mount('u-kim', TW); feed(TW);
     const ln = tile('g15').querySelector('.ln')!;   // 정지 잠금 · 꺼짐 = 임무 줄 글 없음(머리표가 상태)
     expect(ln.querySelector('span')!.textContent).toBe('');
     expect((ln.querySelector('svg') as SVGElement).style.visibility).toBe('hidden');
@@ -1400,10 +1593,20 @@ describe('관제 탭', () => {
     expect(tile('k4').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');
     expect(tile('k2').querySelector('.ln span')!.textContent).toBe('공정 순찰 A');
   });
-  it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 칸 «시뮬 · 배터리 해당 없음»', () => {
+  it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 · 온도 칸은 데모와 같은 규칙(서버 값 · 정말 없을 때만 «없음»)', () => {
     mount('u-kim', EIGHT); feed(EIGHT);
     expect(tile('k8').querySelector('.ln span')!.textContent).toBe('임무 전 · 시뮬 등록');
-    expect([fact('k8', 'battery'), small('k8', 'battery')]).toEqual(['시뮬', '배터리 해당 없음']);
+    expect(fact('k8', 'battery')).toBe('70 %'); expect(small('k8', 'battery')).not.toContain('해당 없음');   // 서버가 보낸 배터리
+    expect(fact('k8', 'temp')).toBe('없음');   // 관절 온도를 받지 않음
+    act(() => root!.unmount()); root = null; box.remove();
+    const on8 = EIGHT.map((r) => (r.id === 'k8' ? { ...r, online: true } : r));   // 서버에 붙은 시뮬
+    mount('u-kim', on8); feed(on8, { k8: temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) });
+    expect([fact('k8', 'temp'), small('k8', 'temp')]).toEqual(['61 °C', '경고']);   // 머리띠 · 최근 경고의 관절 경고와 같은 값(60 °C 이상 = 경고)
+    expect(tile('k8').querySelector('[data-fact="temp"]')!.className).toBe('s r');
+    const noBat = EIGHT.map((r) => (r.id === 'k8' ? { ...r, battery: null } : r));
+    act(() => root!.unmount()); root = null; box.remove();
+    mount('u-kim', noBat); feed(noBat, { k8: { battery: null } });
+    expect(fact('k8', 'battery')).toBe('없음');
   });
   it('데모 = 실기 꼴: 가용 demo = true 인 시뮬 로봇은 시뮬 점선 · 칩 · «배터리 해당 없음» 없이 실기 타일과 같고 «데모» 칩만 더함', async () => {
     const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 'k8', robot_name: 'K-08', state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: true, sim: true, location_label: null }] } as never);

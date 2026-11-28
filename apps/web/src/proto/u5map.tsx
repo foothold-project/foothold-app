@@ -11,7 +11,9 @@ import { IC, ic, type TileFacts } from './u5';
 import { pickPress } from '../screens/control';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
-const S = 20, STEM = 16;   // 시안 data-site scale 20
+/** 지도 보기 로봇 모형 배율(시안 data-site scale 20 → 12 · 팀장 02:03 «모형이 큼» · 점 · 줄기와 어울리게). 고리 · 빛 웅덩이도 이 배율 */
+export const MAP_GO2_S = 12;
+const S = MAP_GO2_S, STEM = 16;
 // 시뮬 로봇은 시안 K-08 처럼 늘 파란 꼴(상자 아이콘 · 점선 이름표 · 파란 고리). 시뮬 경고는 타일 · 오른쪽 줄에 남음
 const tone = (f: TileFacts): keyof typeof ST_COL => (f.sim ? 'rest' : f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.walk ? 'walk' : 'idle');
 const poseOf = (f: TileFacts) => sitePose((f.x.unknown === 'summary' ? null : rt.get(f.x.id).state?.location) ?? (f.x.unknown === 'summary' ? null : f.x.location));
@@ -21,7 +23,7 @@ type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number
 /** 지도 보기 첫 시점(팀장 00:22 · 시안 밖): 원근 · 정북을 보고(옆 틂 0) · 아래로 SITE_EL. 로봇 무리 둘레 상자 가운데가 화면 가로 가운데 · 세로 SITE_Y,
  *  화면 폭 = 무리 폭 × SITE_SPAN(SITE_MIN_W ~ 현장 폭 × SITE_MAX_K: 무리가 넓게 퍼져도 공장이 화면 가로를 채우고 위 하늘이 좁게). 로봇이 없거나 한 대면 현장 가운데 · 화면 폭 = 현장 폭.
  *  작은 지도 더블클릭 + 고른 로봇 = 첫 시점에서 그 로봇 가운데 가까운 시점(NEAR_D)으로 FLY_S 초 ease-in-out. 움직임 줄이기면 바로 끝 시점 */
-export const SITE_FOV = 32, SITE_EL = 42, SITE_Y = 0.57, SITE_SPAN = 2.5, SITE_MIN_W = 160, SITE_MAX_K = 0.65, NEAR_D = 150, FLY_S = 1.0;
+export const SITE_FOV = 32, SITE_EL = 42, SITE_Y = 0.57, SITE_SPAN = 2.5, SITE_MIN_W = 160, SITE_MAX_K = 0.65, NEAR_D = 210, FLY_S = 1.0;   // NEAR_D 150 → 210(팀장 02:03 «너무 많이 들어감 · 조금만 덜»)
 export type SiteShot = { tgt: THREE.Vector3; el: number; az: number; d: number };
 const SITE_C = () => toWorld(SITE_PX_W / 2, SITE_PX_H / 2), SITE_W = SITE_PX_W / K;
 /** 보이는 가로 폭 viewW 와 화면 세로 자리 SITE_Y 를 맞춘 시점: 바라볼 점(tgt)을 가운데 c 에서 북쪽(-z)으로 옮겨 c 가 SITE_Y 에 오게 */
@@ -46,7 +48,7 @@ export const flyTime = () => (calm() ? 0 : FLY_S);
 const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 /** from = 작은 지도 칸 자리(화면 px). 있으면 그 자리에서 큰 지도 자리로 자람(320 ms). focus = 작은 지도 더블클릭 때 고른 로봇: 첫 시점에서 그 로봇으로 다가감. 움직임 줄이기면 바로 */
-export function SiteView({ all, sel, open, from, focus }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null; focus?: string }) {
+export function SiteView({ all, sel, open, from, focus, home }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null; focus?: string; home?: () => void }) {
   const box = useRef<HTMLDivElement>(null), fromTop = useRef(!!from && !calm());
   useLayoutEffect(() => {
     const el = box.current; if (!el || !from || !fromTop.current || typeof el.animate !== 'function') return;
@@ -199,5 +201,6 @@ export function SiteView({ all, sel, open, from, focus }: { all: TileFacts[]; se
     <div className="mks" ref={marks}>{all.map((f) => { const k = tone(f); return <div key={f.x.id} className={`mk3 ${k === 'bad' ? 'r' : k === 'link' ? 'o' : k === 'rest' ? 'sim' : ''}${f.x.id === sel ? ' sel' : ''}`} data-n={f.x.name} data-r3={f.x.id} style={{ display: 'none' }}
       role="button" tabIndex={0} aria-pressed={f.x.id === sel} {...pickPress(f.x.id, f.x.id === sel, () => open(f.x.id))}><span className="lb">{icon(f)}{f.x.name}<small>{sub(f)}</small></span><i></i></div>; })}</div>
     <span className="g dk ov" style={{ left: '14px', bottom: '14px' }}>{ic(14, IC.box)}실시간 3D · 끌어서 돌리기 · 휠 확대</span>
+    {home && <span className="g dk ov" style={{ right: '14px', top: '14px', cursor: 'pointer' }} role="button" tabIndex={0} data-home onClick={home} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); home(); } }}>{ic(14, IC.undo)}전체 보기</span>}
   </div>;
 }

@@ -9,6 +9,7 @@ import type { Robot } from '../fake';
 import { RUN_FAIL, RUN_STATUS } from '../run';
 import { useLive } from '../rt';
 import type { Ctx } from '../screens';
+import { DAY_KEYS, busyDuring, busyOverlap, busyText, durText, useOrgBusy } from '../orgbusy';
 import { floorName } from './maps';
 import { hm, MODES, type Plan, type Route } from './missiontab';
 import { IC, Ic, Pager, RouteStage, Why, type Fix } from './missionsu6';
@@ -45,6 +46,8 @@ function Dot({ robot, route }: { robot: Robot; route: Route }) {
 /** u6_6 모의 실행 중 */
 export function Rehearse({ x, route, robots, user, cancel, p, close, result: toResult }: { x: Scenario; route: Route; robots: Robot[]; user: Ctx['user']; cancel?: AbortSignal; p: Plan; close: () => void; result: (run: string, robot: string) => void }) {
   const sims = useSimRobot(robots), sim = sims[0], g = useRunGate(sim, x, user, cancel);
+  // 혼잡 = 조직 설정 busy_hours 가운데 오늘 요일 · 이 일정 시간(p.start ~ p.end)과 겹치는 것(웹 계산 · 서버 판정 아님). 중복은 점검 기록 판정이라 서버 몫(아직 없음)
+  const org = useOrgBusy(cancel), todayBusy = org.busy?.filter((b) => b.day === DAY_KEYS[new Date().getDay()]), hits = org.busy && busyOverlap(org.busy, DAY_KEYS[new Date().getDay()], p.start, p.end);
   return <>
     <div className="band" data-band><Ic d={IC.play} />모의 실행 · 시뮬 · {SPEED} 배<span className="u6-bandsub">실제 로봇은 움직이지 않습니다</span></div>
     <div className="map" style={{ left: '24px', top: '128px', width: '1476px', height: '692px', border: '1.5px dashed rgba(159,182,255,.5)' }} aria-label="모의 실행 지도">
@@ -59,15 +62,15 @@ export function Rehearse({ x, route, robots, user, cancel, p, close, result: toR
       <div className="lab" style={{ margin: '18px 0 8px' }}>배속</div>
       <div className="mseg" aria-disabled="true" title="배속은 서버에 값이 없어 바꿀 수 없습니다" data-locked>{SPEEDS.map((k) => <span key={k} className={k === SPEED ? 'on' : undefined}>{k} 배</span>)}</div>
       <div className="row" style={{ justifyContent: 'space-between', margin: '20px 0 6px' }}><span className="lab">지금까지 점검</span><span className="lab">생기면 지도에 표시</span></div>
-      {['겹침', '충돌', '중복', '혼잡'].map((t) => <div key={t} className="chk" data-chk={t}><span className="mu2"><Ic d={IC.clock} /></span><div>{t}</div><span className="v mu2">{NO}</span></div>)}
+      {['겹침', '충돌', '중복', '혼잡'].map((t) => <div key={t} className="chk" data-chk={t}><span className="mu2"><Ic d={IC.clock} /></span><div>{t}</div><span className="v mu2">{t === '혼잡' && hits ? (hits.length ? `겹침 · ${hits.map(busyText).join(' · ')}` : '없음') : NO}</span></div>)}
       {sim && <Battery robot={sim} />}
       <div style={{ marginTop: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(255,255,255,.03)', border: '1px solid var(--line)' }} data-rehearse-basis>
         <div className="lab" style={{ marginBottom: '10px' }}>이 모의 실행의 기준</div>
         <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', rowGap: '10px', fontSize: '13.5px', fontWeight: '600' }}>
           <span className="lab">지도</span><span>{route.place ? `${floorName(route.place.floor.name)}${route.v ? ` · 판 ${route.v.number}` : ''}` : NO}</span>
           <span className="lab">물리</span><span>MuJoCo{p.gait ? ` · ${MODES.find(([, v]) => v === p.gait)?.[0] ?? p.gait} Mode` : ''}</span>
-          <span className="lab">중복</span><span className="mu2">{NO}</span>
-          <span className="lab">혼잡</span><span className="mu2">{NO}</span></div></div>
+          <span className="lab">중복</span><span className="mu2">{org.dup != null ? `같은 곳을 ${durText(org.dup)} 안에 다시 점검하면 겹침` : NO}</span>
+          <span className="lab">혼잡</span><span className="mu2">{todayBusy ? (todayBusy.length ? `오늘 ${todayBusy.length} 번 · ${todayBusy.map(busyText).join(' · ')}` : '오늘 없음') : NO}</span></div></div>
       {!sim && <Why alert>이 조직에 시뮬 로봇이 없어 모의 실행을 돌릴 수 없습니다.</Why>}
       {sim && !g.on && (g.why || g.say) && <div className="u6-whyslot" style={{ bottom: '92px' }}>
         <p className={`lab u6-why${g.say ? ' bad' : ''}`} role={g.say ? 'alert' : 'status'} data-rehearse-gate>{g.say || g.why}</p>
@@ -139,6 +142,7 @@ export function Result({ x, route, run, robot, cancel, close, again, edit, fix, 
   const pass = r?.status === 'COMPLETED', badN = list.filter((s) => s.results?.steps?.some((t) => t.status === 'FAILED')).length;
   const total = x.waypoints.length, arrived = list.filter((s) => s.arrived).length;
   const shown = list.slice(page * 3, page * 3 + 3);
+  const org = useOrgBusy(cancel), busyRun = org.busy && r ? busyDuring(org.busy, r.started_at, r.ended_at) : null;
   return <>
     <div className="band" data-band><Ic d={IC.play} />모의 실행 끝 · 시뮬<span className="u6-bandsub">결과를 보고 다음 단계를 고르세요</span></div>
     <div className="map" style={{ left: '24px', top: '128px', width: '820px', bottom: '24px', border: '1.5px dashed rgba(159,182,255,.5)' }} aria-label="모의 실행 지도">
@@ -161,9 +165,9 @@ export function Result({ x, route, run, robot, cancel, close, again, edit, fix, 
         {!pass && <div className="row" style={{ gap: '14px', padding: '14px 0', borderBottom: '1px solid var(--line)' }} data-fail><span className="bad"><Ic d={IC.warn} /></span>
           <div style={{ flex: '1' }}><div style={{ fontSize: '15px', fontWeight: '800' }}>{RUN_STATUS[r.status] ?? r.status}</div><div className="lab" style={{ marginTop: '3px' }}>{failCode ? RUN_FAIL[failCode] ?? failCode : '까닭 기록 없음'}</div></div>
           <span className="bad" style={{ fontSize: '14px', fontWeight: '800' }}>통과 못 함</span></div>}
-        {/* 시안 u6_7 점검 다섯 줄: 서버에 값이 없어 줄은 두고 값만 비움 */}
+        {/* 시안 u6_7 점검 다섯 줄: 서버 판정이 없어 줄은 두고 값만 비움. 혼잡만 조직 설정 busy_hours 와 실행 시각으로 웹이 계산 */}
         {['겹침', '충돌', '중복', '혼잡', '물리 점검'].map((t) => <div key={t} className="row" style={{ gap: '14px', padding: '12px 0', borderBottom: '1px solid var(--line)' }} data-chk={t}>
-          <span className="mu2"><Ic d={IC.clock} /></span><div style={{ flex: '1', fontSize: '15px', fontWeight: '800' }}>{t}</div><span className="lab" style={{ fontSize: '13px', fontWeight: '700' }}>{NO}</span></div>)}
+          <span className="mu2"><Ic d={IC.clock} /></span><div style={{ flex: '1', fontSize: '15px', fontWeight: '800' }}>{t}</div><span className="lab" style={{ fontSize: '13px', fontWeight: '700' }}>{t === '혼잡' && busyRun ? (busyRun.length ? `겹침 · ${busyRun.map(busyText).join(' · ')}` : '없음') : NO}</span></div>)}
         <div className="lab" style={{ margin: '18px 0 6px' }}>지점</div>
         {shown.map((s) => { const bad = s.results?.steps?.some((t) => t.status === 'FAILED');
           return <div key={s.idx} className="row" style={{ gap: '14px', padding: '14px 0', borderBottom: '1px solid var(--line)' }} data-stop-row={s.idx + 1}>

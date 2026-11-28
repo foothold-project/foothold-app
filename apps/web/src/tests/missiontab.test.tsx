@@ -64,7 +64,7 @@ const slot = (id: string, robot_id: string, kind: ScheduleSlot['kind'], h0: numb
 const AV = (robot_id: string, robot_name: string, state: RobotAvailability['state'], battery_pct: number | null, x: Partial<RobotAvailability> = {}): RobotAvailability =>
   ({ robot_id, robot_name, state, busy_until: null, busy_slot_id: null, busy_label: null, battery_pct, demo: false, sim: false, location_label: null, ...x });
 const EST: Estimate = { length_m: 1280, walk_s: 1260, task_s: 360, eta: at(14, 27), margin_s: 180, end_battery_pct: 54.4, estimate_source: 'TABLE_UNMEASURED' };
-let srv: { slots: ScheduleSlot[]; avail: RobotAvailability[]; est: Estimate | null; conflict: string[] | null };   // est null = 예상 오류(503)
+let srv: { slots: ScheduleSlot[]; avail: RobotAvailability[]; est: Estimate | null; conflict: string[] | null; org?: object };   // org = GET /org/settings(없으면 404 · 옛 서버)   // est null = 예상 오류(503)
 const fresh = () => { srv = { slots: [slot('sl1', 'r1', 'CONFIRMED', 9, 0, 10, 0), slot('sl2', 'r2', 'DRAFT', 13, 0, 13, 30), slot('sl3', 'r1', 'BATTERY_SWAP', 15, 0, 15, 20, null)],
   avail: [AV('r1', 'K-01', 'FREE', 86), AV('r2', '시뮬 Go2', 'FREE', null, { sim: true })], est: EST, conflict: null }; };
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -100,6 +100,7 @@ function serve() {
     if (m) { const x = ALL.find((s) => s.id === m[1]); return x ? ok(x) : new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 }); }
     if (method === 'POST' && path === '/scenarios/preview') return ok({ reachable: true, points: [], segments: [], floor_ids: ['f1'], map_version_ids: ['v1'], required_devices: [], est_distance_m: 3, distance_note: '' });
     if (path === '/actions') return ok([]);
+    if (path === '/org/settings' && srv.org) return ok(srv.org);
     if (path === '/assignments') { const rid = new URLSearchParams(qs).get('robot_id');   // 서버처럼 robot_id 로 거른다
       return ok({ items: [{ id: 'as1', robot_id: 'r2', scenario_id: 's1', scenario_version: 1, status: 'ACTIVE' }, { id: 'as2', robot_id: 'r1', scenario_id: 's1', scenario_version: 1, status: 'REMOVED' },
       { id: 'as3', robot_id: 'r1', scenario_id: 's2', scenario_version: 1, status: 'ACTIVE' }].filter((x) => !rid || x.robot_id === rid), next_cursor: null }); }
@@ -248,6 +249,27 @@ describe('임무 탭(W2)', () => {
     expect($('.chips [data-locked]')!.getAttribute('aria-disabled')).toBe('true');
   });
 
+  it('지도 칩 혼잡 시간 = 조직 설정 busy_hours 의 오늘 요일 것(보이기만 · 잠금 없음) · 이름 · 시각은 title', async () => {
+    const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()], other = today === 'mon' ? 'tue' : 'mon';
+    srv.org = { battery_low_pct: 20, busy_hours: [{ day: today, start: '08:30', end: '09:15', label: '출근' }, { day: today, start: '12:00', end: '13:00', label: '점심' }, { day: other, start: '10:00', end: '11:00', label: '딴 날' }] };
+    await mount('#/missions');
+    const c = $('.chips [data-busy]')!;
+    expect(c.textContent).toBe('혼잡 시간 · 오늘 2 번');
+    expect(c.getAttribute('title')).toBe('출근 08:30~09:15 · 점심 12:00~13:00');
+    expect($('.chips [data-locked]')).toBeNull();
+  });
+  it('모의 실행: 혼잡 줄 = 일정 시간과 오늘 혼잡 시간이 겹치는지 · 기준 칸 중복 = dup_inspect_min · 혼잡 = 오늘 혼잡 시간', async () => {
+    const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
+    srv.org = { battery_low_pct: 20, dup_inspect_min: 240, busy_hours: [{ day: today, start: '10:00', end: '10:45', label: '점심' }] };
+    await mount('#/missions');
+    await setTime('end', '11:00'); await setTime('start', '10:30');
+    await click($('[data-rehearse]')); await flush();
+    expect($('[data-chk="혼잡"] .v')!.textContent).toBe('겹침 · 점심 10:00~10:45');
+    expect($('[data-chk="중복"] .v')!.textContent).toBe('서버에 값 없음');   // 점검 기록 판정은 서버 몫(아직 없음)
+    const basis = $('[data-rehearse-basis]')!.textContent!;
+    expect(basis).toContain('4 시간 안에 다시 점검하면 겹침');
+    expect(basis).toContain('오늘 1 번 · 점심 10:00~10:45');
+  });
   it.each(['#/mission/s2', '#/mission?scenario_id=s2', '#/missions/s2'])('옛 주소 %s → 임무 탭에서 그 임무를 고름', async (h) => {
     await mount(h);
     expect($('h1')!.textContent).toBe('임무');

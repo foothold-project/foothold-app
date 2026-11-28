@@ -52,6 +52,11 @@ export const EN: Record<string, string> = {
 
   // 혼잡 시간(u9_8)
   '사람이 많은 시간입니다. 총괄이 정하며 바꾼 기록이 남습니다.': 'Hours when many people are on site. Set by admins, with a change log.',
+  '이 시간에는 임무를 만들 때 그 구역을 피하도록 알려 줍니다.': 'When you plan a mission in these hours, you are told to avoid the area.',
+  '30 분 ~ 24 시간 · 30 분씩 바꿉니다. 기본 4 시간.': '30 min to 24 h, in 30 min steps. Default 4 h.', '혼잡 시간 추가': 'Add busy hours', '요일': 'Day', '끝': 'End', '넣기': 'Add',
+  '이름(예: 점심)': 'Name (e.g. Lunch)', '끝은 시작보다 늦어야 합니다. 자정을 넘으면 두 줄로 나눠 넣으세요.': 'The end must be later than the start. Split hours past midnight into two rows.',
+  '이름을 넣으세요(예: 출근 · 점심).': 'Enter a name (e.g. Commute, Lunch).', '30 분 줄이기': 'Shorten by 30 min', '30 분 늘리기': 'Lengthen by 30 min',
+  '클립을 서버에 두는 날 수입니다. 지금은 값만 두고 지난 클립을 지우지는 않습니다.': 'Days to keep clips on the server. For now only the value is kept; old clips are not deleted.',
   '혼잡 시간': 'Busy hours', '시간 추가': 'Add hours', '월': 'Mon', '화': 'Tue', '수': 'Wed', '목': 'Thu', '금': 'Fri', '토': 'Sat', '일': 'Sun',
   '혼잡 시간: 서버에 값 없음. 사람이 많은 시간을 저장하는 서버 기능이 아직 없어 막대를 그리지 않습니다.': 'Busy hours: no value from server. The server cannot store busy hours yet, so no bars are drawn.',
   '혼잡 시간을 저장하는 서버 기능이 아직 없어 추가할 수 없습니다.': 'The server cannot store busy hours yet, so none can be added.',
@@ -88,7 +93,7 @@ export const EN: Record<string, string> = {
 
   // 2 차: 관제(u5) · 로봇(u4) · 지도(u7) · 임무(u6) · 기록(u8) 탭의 앱 글(서버가 준 이름 · 사건 글은 그대로)
   '새 알림': 'New alerts', '연결 끊김': 'Disconnected', '최근': 'Latest', '건만 보입니다 · 기록에서 모두 보기': 'shown · see all in History',
-  '타일 보기': 'Tiles', '지도 보기': 'Map', '첫 화면으로': 'Back to start', '임무 중': 'On mission', '충전': 'Charging', '점검': 'Maintenance', '연결 중': 'Connecting', '시뮬 대기': 'Sim waiting',
+  '타일 보기': 'Tiles', '지도 보기': 'Map', '첫 화면으로': 'Back to start', '전체 보기': 'View all', '임무 중': 'On mission', '충전': 'Charging', '점검': 'Maintenance', '연결 중': 'Connecting', '시뮬 대기': 'Sim waiting',
   '정면 상태로 뒤집기': 'Flip to front view', '데모 표시': 'Demo label', '모두': 'All', '내 로봇': 'My robots', '뒤 2 m': '2 m behind', '연결': 'Link', '담당자': 'Owner', '할 일': 'Tasks',
   '정지 잠금': 'Stop latched', '· 정면 보기': '· front view', '시뮬': 'Sim', '임무 전 · 시뮬 등록': 'Before mission · sim registered', '배터리 해당 없음': 'No battery (sim)', '시뮬 계산': 'Sim calc',
   '카메라 신호 없음 · 로봇 상태를 확인하는 중입니다': 'No camera signal · checking robot status', '연결 전': 'Not connected', '작은 지도': 'Mini map', '점 = 로봇 · 점선 = 시뮬': 'Dot = robot · dashed = sim',
@@ -140,6 +145,8 @@ const joint = (s: string) => { const g = /^(.+) (\S+)$/.exec(s); return g && SID
 
 /** 값이 섞인 글(숫자 · 이름 · 시각). 위에서부터 처음 맞는 것 하나 */
 export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
+  [/^(\d+) 시간(?: (\d+) 분)?$/, (m) => `${m[1]} h${m[2] ? ` ${m[2]} min` : ''}`], [/^(\d+) 분$/, (m) => `${m[1]} min`],   // 중복 점검 기준(orgbusy durText)
+  [/^([^·]+) 지우기$/, (m) => `Remove ${m[1]}`],   // 혼잡 막대 지우기 단추
   [/^(.+) 을 일으킬까요\?$/, (m) => `Stand ${m[1]} up?`],   // 다시 시작 확인 창(u4_10 · robotact RESTART_ASK)
   [/^로봇 (\d+) 대 연결$/, (m) => `${m[1]} robots connected`],
   [/^내 로봇 (\d+) 대 연결$/, (m) => `${m[1]} of my robots connected`],

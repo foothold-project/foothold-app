@@ -30,7 +30,7 @@ const R: Robot[] = [
 ];
 
 describe('관제 타일 · 시안 u5_1', () => {
-  it('칸 넷: 배터리 · 연결 ms(받은 latency_ms 그대로) · 조종(조종권자) 또는 담당 · 값 없는 연결 ms 는 비움', () => {
+  it('칸 넷: 배터리 · 연결 ms(받은 latency_ms 그대로) · 조종 · 조종권 또는 담당 · 값 없는 연결 ms 는 비움', () => {
     mount('u-lee', R);
     act(() => {
       FakeWS.last.open();
@@ -42,7 +42,7 @@ describe('관제 타일 · 시안 u5_1', () => {
     expect(fact('a1', 'battery')[0]).toBe('66 %');   // 시안 「66 %」
     expect(fact('a1', 'link')).toEqual(['연결', '40 ms']);
     expect(fact('a2', 'link')).toEqual(['연결', '']);   // 받은 ms 가 없으면 지어내지 않음
-    expect(fact('a1', 'who')).toEqual(['박OO', '조종']);
+    expect(fact('a1', 'who')).toEqual(['박OO', '조종권']);   // WS lease 알림에는 driving 이 없음 = 조종권(조정 02:38 · 「조종」 은 목록 lease.driving 일 때만)
     expect(fact('a2', 'who')).toEqual(['나', '담당자']);   // 보는 사람(이OO)이 담당이면 「나」
     expect(fact('a1', 'temp')[0]).toBe('');   // 관절 온도는 값이 있을 때만
     expect([...tile('a1').querySelectorAll('[data-fact]')].map((e) => (e as HTMLElement).dataset.fact)).toEqual(['battery', 'temp', 'link', 'who']);   // 시안 칸 넷 순서
@@ -60,13 +60,14 @@ describe('관제 타일 · 시안 u5_1', () => {
     expect(k.querySelector('small')!.textContent).toMatch(/^마지막 화면 \d\d:\d\d$/);
   });
 
-  it('위 띠 수: 시안 여섯 칸(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 대기 · 경고), 가용을 못 받은 충전 · 점검은 수를 비움, 모드는 지어내지 않음', () => {
+  it('위 띠 수: 일곱 칸(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 · 경고 · 주의), 가용을 못 받은 충전 · 점검은 수를 비움, 모드는 지어내지 않음', () => {
     mount('u-lee', R);
-    act(() => { FakeWS.last.open(); for (const r of R) FakeWS.last.recv(state(r.id, { status: r.status })); FakeWS.last.recv(state('a3', OFF)); });
+    const RUN = { run: { run_id: 'r1', status: 'MOVING', step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } } };   // 임무 중 배지 = 진행 중인 임무
+    act(() => { FakeWS.last.open(); for (const r of R) FakeWS.last.recv(state(r.id, { status: r.status, ...(r.status === 'RUNNING' ? RUN : {}) } as never)); FakeWS.last.recv(state('a3', OFF)); });
     const sums = [...box.querySelectorAll<HTMLElement>('.u5 .tb [data-sum]')];
-    expect(sums.map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);
+    expect(sums.map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의']);
     const num = (k: string) => sums.find((e) => e.dataset.sum === k)!.querySelector('b')!.textContent;
-    expect([num('임무 중'), num('연결 중'), num('시뮬 대기')]).toEqual(['1', '1', '0']);
+    expect([num('임무 중'), num('연결 중'), num('시뮬')]).toEqual(['1', '1', '0']);
     expect([num('충전'), num('점검')]).toEqual(['', '']);   // 가용 없음 = 비움(0 을 지어내지 않음)
     const text = $('.u5 .wall').textContent!;
     for (const w of ['데모', 'START', 'Classic', 'AME-2', '약 ']) expect(text, w).not.toContain(w);
