@@ -1148,6 +1148,27 @@
       "title": "PostureState",
       "type": "object"
     },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
     "RobotResponseHealth": {
       "additionalProperties": false,
       "description": "Display-only RPC round trips; timeouts are censored at SDK's 100 ms limit.\n\nCounts and samples cover the last 3 seconds, with at most 20 RPC samples.\nNo field is a motion acknowledgement or physical stop evidence.",
@@ -1224,6 +1245,126 @@
         "sample_count"
       ],
       "title": "RobotResponseHealth",
+      "type": "object"
+    },
+    "RunCommandResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "start",
+            "pause",
+            "resume",
+            "abort"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "SUCCEEDED",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "op",
+        "run_id",
+        "status",
+        "code"
+      ],
+      "title": "RunCommandResult",
+      "type": "object"
+    },
+    "RunSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "fail_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fail Code"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "QUEUED",
+            "PREPARING",
+            "MOVING",
+            "AT_WAYPOINT",
+            "PERFORMING",
+            "WAIT_CONFIRM",
+            "PAUSED",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "step": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "wait_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "LINK_LOST",
+                "STOPPED_BY_USER",
+                "RECORDING_UNAVAILABLE"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wait Reason"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "step",
+        "progress",
+        "wait_reason",
+        "fail_code"
+      ],
+      "title": "RunSnapshot",
       "type": "object"
     },
     "SlamPoseFrame": {
@@ -1597,6 +1738,28 @@
       "anyOf": [
         {
           "$ref": "#/$defs/Go2RobotInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunCommandResult"
         },
         {
           "type": "null"

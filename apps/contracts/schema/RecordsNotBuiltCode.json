@@ -1,0 +1,9 @@
+{
+  "$id": "fh-app/1/RecordsNotBuiltCode",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "CLIP_PIPELINE_NOT_BUILT",
+    "JOINT_LOG_NOT_BUILT"
+  ],
+  "type": "string"
+}

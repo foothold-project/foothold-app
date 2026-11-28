@@ -172,7 +172,8 @@
     "surface": {
       "enum": [
         "phone",
-        "pc"
+        "pc",
+        "server"
       ],
       "title": "Surface",
       "type": "string"

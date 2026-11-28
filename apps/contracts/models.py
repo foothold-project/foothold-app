@@ -1,5 +1,5 @@
 """Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 6, 7, 8."""
-from datetime import date, timezone
+from datetime import date, timedelta, timezone
 import base64
 import binascii
 import math
@@ -504,6 +504,117 @@ class NotificationsRead(Contract):
         return self
 
 
+# u07 records (05 §8.1). Clips are cut on the server, same rule for sim and real robot:
+# from CLIP_PRE_S before the event to CLIP_POST_S after it; a fall runs until the robot
+# stands back up (end_at null while open). ERROR always gets a clip, WARN only when
+# chosen, INFO is recorded only. Not built yet: the server answers NOT_BUILT / 501.
+CLIP_PRE_S = 10
+CLIP_POST_S = 5
+ClipStatus = Literal['PENDING', 'READY', 'FAILED', 'NOT_BUILT']
+RecordsNotBuiltCode = Literal['CLIP_PIPELINE_NOT_BUILT', 'JOINT_LOG_NOT_BUILT']
+EventSeverity = Literal['INFO', 'WARN', 'ERROR']
+
+
+def clip_window(at):
+    return at - timedelta(seconds=CLIP_PRE_S), at + timedelta(seconds=CLIP_POST_S)
+
+
+def clip_wanted(severity, chosen):
+    """chosen None = rule default; a choice against the rule is an error, not ignored."""
+    if severity == 'ERROR':
+        if chosen is False:
+            raise ValueError('ERROR events always get a clip')
+        return True
+    if severity == 'INFO':
+        if chosen is True:
+            raise ValueError('INFO events are recorded without a clip')
+        return False
+    return chosen is not False
+
+
+class EventClip(Contract):
+    clip_id: UUID | None = Field(description='만든 영상 번호. 만들기 전(NOT_BUILT)에는 null')
+    event_id: DecimalID
+    robot_id: UUID
+    start_at: UTCDateTime = Field(description='사건 10 초 전')
+    end_at: UTCDateTime | None = Field(description='사건 5 초 뒤. 넘어짐은 다시 설 때까지라 서기 전에는 null')
+    status: ClipStatus
+    url: str | None = Field(description='READY 일 때만 값')
+    reason: str | None = Field(description='NOT_BUILT · FAILED 의 까닭 코드 (예: CLIP_PIPELINE_NOT_BUILT)')
+
+    @model_validator(mode='after')
+    def consistent(self):
+        if (self.status == 'READY') != (self.url is not None):
+            raise ValueError('url is present exactly when READY')
+        if self.status == 'READY' and self.clip_id is None:
+            raise ValueError('READY needs clip_id')
+        if self.status == 'NOT_BUILT' and self.clip_id is not None:
+            raise ValueError('NOT_BUILT has no clip_id')
+        if self.status in ('NOT_BUILT', 'FAILED') and not self.reason:
+            raise ValueError('NOT_BUILT and FAILED need a reason')
+        if self.end_at is not None and self.end_at < self.start_at:
+            raise ValueError('end_at before start_at')
+        return self
+
+
+class EventClipList(Contract):
+    items: list[EventClip]
+    next_cursor: str | None
+
+
+class JointLogBase(Contract):
+    xyz: list[float] = Field(min_length=3, max_length=3, description='몸통 위치 m (기록 좌표)')
+    wxyz: list[float] = Field(min_length=4, max_length=4, description='몸통 자세 사원수')
+
+    @model_validator(mode='after')
+    def unit_quaternion(self):
+        if not .9 <= math.hypot(*self.wxyz) <= 1.1:
+            raise ValueError('invalid quaternion norm')
+        return self
+
+
+class JointLogFrame(Contract):
+    t: float = Field(ge=0, description='JointLogReplay.start_at 부터 초')
+    q: list[float] = Field(min_length=12, max_length=12, description='관절 각 rad, joint_names 순서')
+    base: JointLogBase
+    gait: Annotated[str, Field(min_length=1, max_length=32)] | None = Field(
+        description='걷기 모드 이름 (classic · sport · start · ame2 등, 열린 문자열). 모르면 null')
+
+
+class JointLogReplay(Contract):
+    """3D replay frames. Playback rate (0.25/0.5/1/2) and loop are web-only controls."""
+    event_id: DecimalID
+    robot_id: UUID
+    start_at: UTCDateTime
+    joint_names: list[Go2JointName] = Field(min_length=12, max_length=12)
+    rate_hz: int = Field(ge=1, le=1000)
+    frames: list[JointLogFrame] = Field(max_length=100_000)
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if len(set(self.joint_names)) != 12:
+            raise ValueError('twelve unique joint names required')
+        if any(b.t <= a.t for a, b in zip(self.frames, self.frames[1:])):
+            raise ValueError('frames must be strictly time ordered')
+        return self
+
+
+class RecordMarkRequest(Contract):
+    severity: EventSeverity = 'WARN'
+    note: Annotated[str, Field(max_length=200)] | None = None
+    clip: StrictBool | None = Field(default=None, description='WARN 만 고를 수 있다. null 이면 규칙 기본값')
+
+    @model_validator(mode='after')
+    def policy(self):
+        clip_wanted(self.severity, self.clip)
+        return self
+
+
+class RecordMarkResult(Contract):
+    event: Event
+    clip: EventClip | None = Field(description='영상을 남기지 않는 사건(INFO 등)은 null')
+
+
 # Canonical IDs in mobile/sim/policy-modes.js. go2-demo is display-only;
 # no running real policy is registered, so real policies inherit common values.
 SIM_SETTING_FIELDS = frozenset(('sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz',
@@ -800,7 +911,60 @@ class ScreenGait(ScreenRobot):
     gait: GaitName
 
 
-ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait,
+# 임무 실행 서버 길 (팀장 11/28 05:09 · 05:14). 화면 -> 서버 -> 에이전트 실시간 메시지.
+# 실기와 데모 (시뮬) 로봇이 같은 메시지 · 같은 관문을 탄다. 시뮬이라 다른 것은 지금 있는 안전 차이
+#   (현장 승인 · 서버 조종 켬 · 총괄 실기 금지는 실기에만) 뿐이다.
+# 이름 · 필드는 폰 직결 PhoneRunStart · PhoneRunControl 과 같게 둔다 (웹이 같은 단추로 붙게).
+# 다른 점: assignment_id 필수 (데모도 배정 · 일정 칸에서 시작) · 모든 op 에 lease_id · screen_id 필수 ·
+#   resume_token 없음 (서버 상태는 구독자 모두에게 가므로 비밀을 싣지 않는다. 같은 화면 증명은
+#   서버가 조종권 lease 와 사용자로 한다) · op 'return' 없음.
+# 서버 관문: 담당 · 조종권 lease 일치 (USER) · 인증 0.5 초 안 · 담당 변경 중 아님 · 소유 확실,
+#   실기는 더해 서버 조종 켬 · 현장 승인 · 총괄 (ADMIN) 실기 조종 금지. 정지 · 반납 · 승인 바뀜 ·
+#   조종권 바뀜 뒤 큐에 남은 run.start · run.control 은 보내지 않는다. start · resume 은 멈춰 있을 때만 (RUN_MOVING).
+#
+# 거절이 오는 두 길:
+#   동기 ScreenReply (ok=false, 서버가 막음): 기존 lease · 권한 코드 (LEASE_MISMATCH · ADMIN_NO_REAL_CONTROL ·
+#     NOT_ROBOT_OWNER 등), RUN_NOT_ALLOWED (관문), RUN_MOVING, RUN_ASSIGNMENT_INVALID (배정이 ACTIVE 가 아님 ·
+#     로봇 · 시나리오 판이 다름), RUN_STOPPED (배정 확인 중 STOP 이 와서 큐에 넣지 않음)
+#   비동기 run_result (status REJECTED, 에이전트 실행 기계가 막음): 폰 직결 reply 와 같은 코드
+#     (FORBIDDEN · NOT_CONTROLLER · RUN_ACTIVE · RUN_NOT_FOUND · RUN_OWNER_MISMATCH · RUN_STATE_CONFLICT ·
+#     RESUME_REJECTED · NAV_UNAVAILABLE · PLAN_UNAVAILABLE · RECORDING_UNAVAILABLE · RUN_CONFLICT),
+#     RUN_UNSUPPORTED (실행 기계가 없는 에이전트), VALIDATION (폰 프레임 검사 실패),
+#     LEASE_HELD (폰 직결 조종자가 Hub 를 먼저 잡음), NOT_CONTROLLER (서버의 지금 USER lease 가 아님).
+#   성공은 status SUCCEEDED · code OK.
+# 데모 Hub 는 서버가 준 유효 USER lease (AgentLease · AgentUnlock.user_id) 를 Hub 조종자로 올린다 (11/28 05:09).
+#   먼저 잡은 쪽이 이긴다. 실기 Hub 에는 이 다리를 놓지 않고 실행 기계가 FORBIDDEN 으로 막는다 (팀장 결정 대기).
+# resume 증명: resume_token 대신 서버가 확인한 «그 로봇의 지금 USER lease 주인» (시작한 사용자이거나 lease 를
+#   넘겨받은 사용자). 잠김 (latched) 중이면 에이전트가 RESUME_REJECTED.
+# 폰 직결 run.* 는 그대로 남고, 서버가 죽었을 때 정지 · 끝 길이다.
+# run_result.code 는 열린 문자열. request_id 는 화면이 보낸 ScreenEnvelope.id 를 그대로 쓴다.
+# 실행 진행 (상태 · 지점) 은 ScreenState.run (에이전트 reported_run) 으로 본다.
+RunControlOp = Literal['pause', 'resume', 'abort']
+RunRelayRejectCode = Literal['RUN_NOT_ALLOWED', 'RUN_MOVING', 'RUN_ASSIGNMENT_INVALID', 'RUN_STOPPED', 'RUN_UNSUPPORTED']
+
+
+class ScreenRunStart(ScreenRobot):
+    t: Literal['run.start']
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID
+
+
+class ScreenRunControl(ScreenRobot):
+    t: Literal['run.control']
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    op: RunControlOp
+
+
+ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait
+                          | ScreenRunStart | ScreenRunControl,
                           Field(discriminator='t')]
 
 
@@ -924,6 +1088,15 @@ class GaitResult(Contract):
     sdk_code: StrictInt | None
 
 
+class RunCommandResult(Contract):
+    request_id: str = Field(min_length=1, max_length=128)
+    op: Literal['start', 'pause', 'resume', 'abort']
+    run_id: UUID
+    status: Literal['SUCCEEDED', 'REJECTED']
+    # 'OK' 또는 실행 기계 RunRejectCode · 서버 길 RunRelayRejectCode 거절 코드. 새 코드로 상태 프레임이 버려지지 않게 열어 둔다.
+    code: str = Field(max_length=64)
+
+
 class PostureResult(Contract):
     request_id: str = Field(min_length=1, max_length=128)
     action: Literal['stand_up', 'stand_down']
@@ -965,6 +1138,7 @@ class AgentState(AgentInput):
     posture_result: PostureResult | None = None
     gait: GaitState | None = Field(default=None, exclude_if=lambda value: value is None)
     gait_result: GaitResult | None = Field(default=None, exclude_if=lambda value: value is None)
+    run_result: RunCommandResult | None = Field(default=None, exclude_if=lambda value: value is None)
     action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     control: ControlMode | None = None
@@ -1478,6 +1652,11 @@ class AgentStop(Contract):
 
 
 class AgentUnlock(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields("user_id", "display_name"))
+    # 서버가 확인한 조종권 주인 (11/28). 데모 Hub 가 서버 lease 를 조종자로 올릴 때 이름으로 쓴다.
+    user_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    # 그 사람의 표시 이름 (11/28 웹 시뮬 탭). PhoneState.holder_name 으로 보인다. 모르면 생략.
+    display_name: str | None = Field(default=None, min_length=1, max_length=64, exclude_if=lambda v: v is None)
     t: Literal['unlock'] = 'unlock'
     lease_id: UUID
     stop_gen: Sequence
@@ -1522,9 +1701,35 @@ class AgentGait(Contract):
     gait: GaitName
 
 
+class AgentRunStart(Contract):
+    """ScreenRunStart 를 서버가 확인한 뒤 넘긴 꼴. user_id 는 서버가 인증한 요청자."""
+    t: Literal['run.start'] = 'run.start'
+    request_id: str = Field(min_length=1, max_length=128)
+    user_id: UUID
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID
+
+
+class AgentRunControl(Contract):
+    t: Literal['run.control'] = 'run.control'
+    request_id: str = Field(min_length=1, max_length=128)
+    user_id: UUID
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    op: RunControlOp
+
+
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait
+    | AgentRunStart | AgentRunControl, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1571,11 +1776,13 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control', 'gait', 'gait_result'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control', 'gait', 'gait_result', 'run', 'run_result'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     gait: GaitState | None = None
     gait_result: GaitResult | None = None
+    run: 'RunSnapshot | None' = None
+    run_result: RunCommandResult | None = None
     action_result: ActionResult | None = None
     control: ControlMode | None = None
     robot_info: Go2RobotInfo | None = None
@@ -2350,7 +2557,8 @@ class RunStarted(Contract):
     map_version_id: UUID
     user_id: UUID
     device_id: UUID
-    surface: Literal['phone', 'pc']
+    # 'server' = 화면 -> 서버 -> 에이전트 길 (11/28). device_id 는 로봇마다 정해진 중계 id.
+    surface: Literal['phone', 'pc', 'server']
     screen_id: UUID
     simulation: bool = Field(strict=True)
     map_proof: RunMapProof = omitted()
@@ -2704,6 +2912,8 @@ class PhoneHello(PhoneEnvelope):
     proto: Literal['fh-phone/1']
     ticket: str = Field(min_length=1, max_length=2048)
     device: UUID
+    # 다른 화면에 보일 조종자 이름 (11/28, 선택). 표시용일 뿐 권한 판단에 쓰지 않는다.
+    display_name: str = omitted(min_length=1, max_length=64)
 
 
 class PhoneLease(PhoneEnvelope):
@@ -2899,9 +3109,15 @@ class RunResumeDetail(Contract):
                               description='256 bit 이상 난수. 원래/재바인딩된 실행 연결에만 반환하며 기록·보기 연결에는 금지한다.')
 
 
+PhoneHolderType = Literal['USER', 'RUN']
+
+
 class PhoneReply(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('detail'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('detail', 'holder_type', 'holder_name'))
     detail: RunResumeDetail | None = None
+    # LEASE_HELD 거절에만 (11/28): 누가 쥐었는지. PhoneState 의 같은 두 칸과 같은 뜻.
+    holder_type: PhoneHolderType | None = Field(default=None, exclude_if=lambda v: v is None)
+    holder_name: str | None = Field(default=None, max_length=64, exclude_if=lambda v: v is None)
     t: Literal['reply']
     id: str
     ok: bool
@@ -2996,6 +3212,10 @@ class PhoneState(AgentState):
     sim_time_s: float | None
     sim_wall_delta_s: float | None
     simulation: bool
+    # 누가 Hub 를 쥐었나 (11/28 웹 시뮬 탭). USER: 폰 직결 조종자 또는 서버 중계 뒤의 사람.
+    # RUN: 예약 실행이 쥔 RUN lease (이름 null). null: 아무도 안 쥠. 이름은 폰 hello · 서버 unlock 이 준 것, 모르면 null.
+    holder_type: PhoneHolderType | None
+    holder_name: str | None = Field(max_length=64)
 
 
 class PhoneStateUpload(Contract):
@@ -3644,3 +3864,6 @@ REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, Terr
 REQUEST_MODELS.add(ZoneOverlapRequest)
 
 REQUEST_MODELS.update({MappingStart, MappingAction, AgentMappingUpdate, AgentMappingCommand})
+
+TOP.update(ClipStatus=ClipStatus, RecordsNotBuiltCode=RecordsNotBuiltCode)
+REQUEST_MODELS.add(RecordMarkRequest)

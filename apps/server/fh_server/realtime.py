@@ -35,7 +35,7 @@ from .inventory import InventoryWriter
 from .robots import live_state, phone_relay
 from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
-from .models import Event, LeaseLog, Organization, Robot, Session, User, now
+from .models import Assignment, Event, LeaseLog, Organization, Robot, ScenarioVersion, Session, User, now
 from .floor_maps import approved_bindings, matches_context
 from .security import digest
 from .history import History, HistoryPending
@@ -144,6 +144,19 @@ class ReadAhead:
         await asyncio.gather(self.task, return_exceptions=True)
 
 
+def run_assignment_valid(factory, org_id, rid, msg):
+    """실행 시작은 이 로봇 · 이 시나리오 판 · 이 층 · 지도 판의 ACTIVE 배정만 (실기 · 데모 같음)."""
+    with factory() as db:
+        row = db.scalar(select(Assignment).where(Assignment.org_id == org_id, Assignment.id == msg.assignment_id))
+        if row is None or row.status != 'ACTIVE' or str(row.robot_id) != str(rid) or row.scenario_version_id is None:
+            return False
+        version = db.scalar(select(ScenarioVersion).where(ScenarioVersion.org_id == org_id,
+                                                          ScenarioVersion.id == row.scenario_version_id))
+        return (version is not None and version.scenario_id == msg.scenario_id
+                and version.number == msg.scenario_version
+                and msg.floor_id in version.floor_ids and msg.map_version_id in version.map_version_ids)
+
+
 @dataclass
 class Peer:
     socket: WebSocket
@@ -180,6 +193,8 @@ class Peer:
     delivery_epochs: dict = field(default_factory=dict)
     revoked_robots: set = field(default_factory=set)
     subscription_task: object = None
+    run_tasks: set = field(default_factory=set)
+    run_replies: dict = field(default_factory=dict)  # agent peer: request_id -> screen peer awaiting the reply
     phone_ack_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(128))
     phone_ack_pending: set = field(default_factory=set)
     phone_revoke_retry: int | None = None
@@ -1003,6 +1018,12 @@ class Realtime:
 
     def disconnect_pending(self, actor):
         for rid, r in self.arbiter.robots.items():
+            if (r.holder and r.holder.actor == actor and r.holder.holder_type == 'USER'
+                    and rid in self.agents and self.agents[rid].simulation):
+                # Demo robot: this lease IS the relay's Hub controller, and server pings keep the relay
+                # alive. A gone screen lets go now, as a phone link loss does (Codex M2, 11/28).
+                self.apply(self.arbiter.revoke(rid, actor, cause='screen_disconnected'))
+                continue
             if r.holder and r.holder.actor == actor and rid in self.agents:
                 self.agents[rid].server_drive_axes = (0, 0, 0)
             if r.request and r.request.actor == actor:
@@ -1211,6 +1232,12 @@ class Realtime:
                 if target == 'agent':
                     if effect.cause is not None:
                         body['cause'] = effect.cause
+                    if body['t'] == 'unlock':
+                        record = self.arbiter.robots.get(rid)
+                        if record is not None and record.holder is not None and record.holder.actor is not None:
+                            body['user_id'] = record.holder.actor.user  # names the server-path relay
+                            if record.holder.actor.display_name:
+                                body['display_name'] = record.holder.actor.display_name[:64]  # display only
                     peer = self.agents.get(rid)
                     if peer:
                         # DB provenance plus explicit per-robot manual trial only.
@@ -1233,9 +1260,11 @@ class Realtime:
                             retained = []
                             while not peer.queue.empty():
                                 item = peer.queue.get_nowait()
-                                if item.get('t') not in (('cmd', 'ping', 'streams', 'posture', 'action')
+                                if item.get('t') not in (('cmd', 'ping', 'streams', 'posture', 'action', 'run.start', 'run.control')
                                         if body['t'] in ('stop', 'lease') else ('cmd', 'ping', 'streams')):
                                     retained.append(item)
+                                elif item.get('t') in ('run.start', 'run.control'):
+                                    self.run_delivered(peer, item, False, 'RUN_STOPPED')  # purged: never sent
                             for item in retained:
                                 peer.queue.put_nowait(item)
                         self.put(peer, body)
@@ -1279,6 +1308,15 @@ class Realtime:
         self.apply(safety + records)
 
     def blocked_agent_control(self, peer, body):
+        if body.get('t') in ('run.start', 'run.control'):
+            # 실기 · 데모 같은 관문. 현장 승인 · 서버 조종 켬은 지금처럼 실기에만.
+            rid = next((key for key, value in self.agents.items() if value is peer), None)
+            record = self.arbiter.robots.get(rid)
+            holder = record.holder if record else None
+            return not (peer.actor is None and rid not in self.robot_changes
+                and not self.owner_uncertain and self.clock()-peer.auth_checked <= .5
+                and (peer.simulation or (peer.server_drive and self.field_approved(rid)))
+                and holder and holder.holder_type == 'USER' and holder.lease_id == body.get('lease_id'))
         if body.get('t') in ('posture', 'action'):
             rid = next((key for key, value in self.agents.items() if value is peer), None)
             record = self.arbiter.robots.get(rid)
@@ -1349,7 +1387,14 @@ class Realtime:
                 private = '_delivery' in queued or (screen and 'robot' in body
                     and body.get('t') != 'subscription.revoked' and '_revocation' not in queued)
                 if not private:
-                    await self.send_body(peer, body)
+                    if body.get('t') == 'run.start' and not screen:
+                        # The assignment re-read runs beside the queue: a STOP behind it never waits on the DB.
+                        peer.run_tasks.add(task := asyncio.create_task(self.run_start_send(peer, body)))
+                        task.add_done_callback(peer.run_tasks.discard)
+                        continue
+                    sent = await self.send_body(peer, body)
+                    if body.get('t') in ('run.start', 'run.control'):
+                        self.run_delivered(peer, body, sent)
                     continue
                 rid = str(body['robot'])
                 epoch = queued.get('_epoch', peer.delivery_epochs.get(rid, 0))
@@ -1500,7 +1545,7 @@ class Realtime:
                     settings = self.cached_access(peer, robots, policy, safety=safe)
                     if msg.t in ('lease.take', 'lease.request') and rid in peer.revoked_robots:
                         raise LeaseError('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.')
-                    if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock', 'posture', 'action'):
+                    if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock', 'posture', 'action', 'run.start', 'run.control'):
                         self.policy_controls.add(actor.session)
                     if (rid and msg.t != 'lease.cancel' and isinstance(self.audit, FairAuditQueue)
                             and not self.audit.admission_open(rid)):
@@ -1567,6 +1612,17 @@ class Realtime:
                             self.send_action(rid, actor, msg)
                         elif msg.t == 'posture':
                             self.send_posture(rid, actor, msg)
+                        elif msg.t == 'run.start':
+                            # 배정 확인은 DB 라 따로 돈다. 이 화면의 STOP 처리를 막지 않는다.
+                            self.send_run(rid, actor, msg, enqueue=False)  # fast reject; nothing queued yet
+                            record = self.arbiter.robot(rid)
+                            mark = (record.stop_ref, record.stop_gen)  # a STOP during the DB read changes it
+                            peer.run_tasks.add(task := asyncio.create_task(self.start_run(peer, rid, actor, msg, mark)))
+                            task.add_done_callback(peer.run_tasks.discard)
+                            continue
+                        elif msg.t == 'run.control':
+                            self.send_run(rid, actor, msg, reply_to=peer)  # replies after the final send
+                            continue
                         elif msg.t == 'gait':
                             # 계약만 먼저 (11/28). 에이전트 전달이 붙기 전에는 받은 척하지 않는다.
                             raise LeaseError('GAIT_UNSUPPORTED', '걷기 모드 바꾸기는 아직 준비 중입니다.', 501)
@@ -1612,6 +1668,8 @@ class Realtime:
             watcher.cancel()
             if peer.subscription_task:
                 peer.subscription_task.cancel()
+            for task in list(peer.run_tasks):
+                task.cancel()  # a closed screen cannot start a run after its assignment read
             with suppress(asyncio.CancelledError):
                 await asyncio.gather(sender, urgent_sender, watcher,
                     *([peer.subscription_task] if peer.subscription_task else []), return_exceptions=True)
@@ -1628,6 +1686,7 @@ class Realtime:
             slam_pose=media.slam_pose(rid) if media else None,
             robot_info=state.get('robot_info'),
             posture=state.get('posture'), posture_result=state.get('posture_result'),
+            run=state.get('reported_run'), run_result=state.get('run_result'),
             action_result=state.get('action_result'), control=state.get('control'),
             response_health=state.get('response_health'),
             phone_relay=phone_relay(self, rid),
@@ -1660,6 +1719,96 @@ class Realtime:
         if self.blocked_agent_control(peer, body):
             raise LeaseError('ACTION_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
         self.put(peer, body)
+
+    def send_run(self, rid, actor, msg, *, enqueue=True, reply_to=None):
+        self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
+        peer = self.agents[rid]
+        fields = msg.model_dump(mode='json', exclude={'t', 'id', 'robot', 'proto'})
+        model = C.AgentRunStart if msg.t == 'run.start' else C.AgentRunControl
+        body = model(request_id=msg.id, user_id=actor.user, **fields).model_dump(mode='json')
+        if self.blocked_agent_control(peer, body):
+            raise LeaseError('RUN_NOT_ALLOWED', '조종권 · 현장 승인을 확인하세요.', 403)
+        # Pause/abort move toward safety and are never blocked by motion.
+        if (msg.t == 'run.start' or msg.op == 'resume') and (
+                not 0 <= self.clock()-peer.state_received_at <= .5 or peer.state.get('applied') != [0, 0, 0]
+                or peer.server_drive_axes != (0, 0, 0)):
+            raise LeaseError('RUN_MOVING', '이동 입력을 놓고 완전히 멈춘 뒤 다시 누르세요.')
+        if enqueue:
+            if reply_to is not None:
+                peer.run_replies[body['request_id']] = reply_to
+            self.put(peer, body)
+            if peer.closing and peer.run_replies.get(body['request_id']) is reply_to:
+                self.run_delivered(peer, body, False, 'ROBOT_OFFLINE')  # the queue refused it
+
+    # -- run.* screen reply after the final send (Codex M3, 11/28) --
+    # ok:true only once the agent socket took the frame; a frame the final gate drops, a STOP/lease purge or
+    # an agent loss answers ok:false with a reason. The agent's own run_result follows as before.
+    def run_delivered(self, peer, body, sent, code='RUN_NOT_DELIVERED'):
+        screen = peer.run_replies.pop(body.get('request_id'), None)
+        if screen is None:
+            return
+        if sent:
+            self.put(screen, C.ScreenReply(id=body['request_id'], ok=True).model_dump(mode='json'))
+        else:
+            self.run_not_delivered(screen, body['request_id'], code)
+
+    async def run_start_send(self, peer, body):
+        code = await self.run_start_recheck(peer, body)
+        try:
+            sent = code is None and await self.send_body(peer, body)  # every send gate again, after the read
+        except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+            peer.closing = True
+            with suppress(Exception):
+                await peer.socket.close(code=1013)
+            sent, code = False, 'ROBOT_OFFLINE'
+        self.run_delivered(peer, body, sent, code or 'RUN_NOT_DELIVERED')
+
+    async def run_start_recheck(self, peer, body):
+        """The assignment again right before run.start leaves (Codex M4): removal between the start gate and
+        the send must not start a withdrawn mission. A STOP during this read cancels it (J1 rule)."""
+        rid = next((key for key, value in self.agents.items() if value is peer), None)
+        record = self.arbiter.robots.get(rid)
+        if record is None:
+            return 'ROBOT_OFFLINE'
+        mark = (record.stop_ref, record.stop_gen)
+        try:
+            valid = await self.read(run_assignment_valid, self.factory, self.settings.org_id, rid,
+                                    C.AgentRunStart.model_validate(body))
+        except (TimeoutError, ValidationError, *TRANSIENT_DB):
+            return 'SERVER_BUSY'
+        if (record.stop_ref, record.stop_gen) != mark:
+            return 'RUN_STOPPED'
+        return None if valid else 'RUN_ASSIGNMENT_INVALID'
+
+    def run_not_delivered(self, screen, request_id, code):
+        message = {'RUN_STOPPED': '정지 · 조종권 변경으로 명령을 보내지 않았습니다. 다시 누르세요.',
+                   'RUN_ASSIGNMENT_INVALID': '배정이 바뀌어 임무를 시작하지 않았습니다.',
+                   'SERVER_BUSY': '배정 확인을 다시 시도하세요.',
+                   'ROBOT_OFFLINE': '로봇 연결이 끊겨 명령을 보내지 못했습니다.'}.get(
+                       code, '조종권 · 연결 확인에서 막혀 명령을 보내지 않았습니다. 다시 누르세요.')
+        self.put(screen, {'t': 'reply', 'id': request_id, 'ok': False,
+                          'error': {'code': code, 'message': message, 'detail': {'status': 409}}})
+
+    async def start_run(self, peer, rid, actor, msg, mark):
+        try:
+            valid = await self.read(run_assignment_valid, self.factory, self.settings.org_id, rid, msg)
+            record = self.arbiter.robot(rid)
+            if (record.stop_ref, record.stop_gen) != mark:
+                # STOP keeps holder/lease and applied stays zero, so the gates alone would pass.
+                raise LeaseError('RUN_STOPPED', '정지가 눌려 임무 시작을 취소했습니다. 다시 누르세요.')
+            if not valid:
+                raise LeaseError('RUN_ASSIGNMENT_INVALID', '이 로봇에 승인된 배정 (시나리오 판 · 층 · 지도 판) 이 아닙니다.')
+            # Authority can change during the read: every gate again before enqueue.
+            self.cached_access(peer, [rid], 'O_OWN')
+            if rid not in self.agents or self.agents[rid].closing:
+                raise LeaseError('ROBOT_OFFLINE', '로봇 연결이 끊겼습니다.', 503)
+            self.send_run(rid, actor, msg, reply_to=peer)  # ok:true once it reaches the agent
+        except (self.api_error, LeaseError) as exc:
+            self.put(peer, {'t': 'reply', 'id': msg.id, 'ok': False,
+                'error': {'code': exc.code, 'message': exc.message, 'detail': {'status': exc.status}}})
+        except (TimeoutError, *TRANSIENT_DB):
+            self.put(peer, {'t': 'reply', 'id': msg.id, 'ok': False,
+                'error': {'code': 'SERVER_BUSY', 'message': '배정 확인을 다시 시도하세요.', 'detail': {'status': 503}}})
 
     def send_posture(self, rid, actor, msg):
         self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
@@ -2229,6 +2378,11 @@ class Realtime:
                 self.apply(self.arbiter.revoke(rid, op='EXPIRE', cause='agent_disconnected'))
                 self.apply([Effect('audit', rid, {'op': 'AGENT_DISCONNECTED'})])
             peer.closing = True
+            for task in list(peer.run_tasks):
+                task.cancel()  # a run.start re-reading its assignment never leaves a closed agent link
+            while peer.run_replies:  # queued run.* that never left: answer the screens
+                request_id, screen = peer.run_replies.popitem()
+                self.run_not_delivered(screen, request_id, 'ROBOT_OFFLINE')
             for task in (sender, watcher, revoker, ack_writer, run_writer):
                 if task:
                     task.cancel()
@@ -2259,6 +2413,7 @@ class Realtime:
         peer.state['robot_info'] = data.get('robot_info')
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
+        peer.state['run_result'] = data.get('run_result')
         peer.state['action_result'] = data.get('action_result')
         peer.state['control'] = data.get('control')
         peer.state['response_health'] = data.get('response_health')

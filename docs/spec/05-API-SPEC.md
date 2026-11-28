@@ -330,8 +330,31 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 | DELETE | `/assignments/{id}` | 해제 | A, O(내) |
 
 ### 6.5 실행
-**직결 실행의 정본은 §13.10**이다(ADR-002 §9, ADR-003 §5·§11). 아래 POST 시작·제어는
-옛 서버 중계 설계이며 직결 모드에서 실행 명령 경로로 구현하지 않는다. GET 기록·보고서는
+**실행 명령은 서버 실시간 길이 정본이다 (2026-11-28 팀장 05:09 · 05:14).** 시작 · 일시정지 · 이어 가기 ·
+취소는 폰 · 웹 어느 기기에서든 화면 실시간 메시지 `run.start` · `run.control` (§9, 계약
+`ScreenRunStart` · `ScreenRunControl`) 로 서버에 보내고, 서버가 관문을 확인해 에이전트 메시지
+`run.start` · `run.control` (`AgentRunStart` · `AgentRunControl`) 로 넘긴다. 결과는 에이전트 상태
+`run_result` 로 돌아와 화면 상태 `run_result` · `run` 으로 보인다. 필드는 폰 직결 프레임 (§13.10) 과
+같고, 다른 점은 `assignment_id` 필수 · 모든 op 에 `lease_id` · `screen_id` 필수 · `resume_token` 없음 ·
+`return` 없음이다.
+- 서버 관문: 담당 (총괄은 담당과 같은 관문, 운영 결정 2026-11-28 · #544) · 조종권 USER lease 일치 · 에이전트 인증 0.5 s 안 · 담당 변경 중
+  아님, 실기는 현장 승인 · 서버 조종 켬을 더한다. 시작은 ACTIVE 배정 (로봇 · 시나리오 판 · 층 · 지도 판) 이어야
+  한다. 시작 · 이어 가기는 멈춰 있을 때만. 정지 · 반납 · 승인 · 조종권이 바뀌면 큐에 남은 `run.*` 는 보내지 않는다.
+  거절 코드 `RUN_NOT_ALLOWED` · `RUN_MOVING` · `RUN_ASSIGNMENT_INVALID` · `RUN_STOPPED` (배정 확인 중 STOP, 큐에 넣지 않음) (+ 기존 lease · 권한 코드).
+  `run.*` 의 `reply` 는 서버가 에이전트 소켓에 실제로 보낸 뒤에 `ok:true` 다. 마지막 발신 관문에서 막히면 `RUN_NOT_DELIVERED`,
+  STOP · lease 로 큐에서 지워지면 `RUN_STOPPED`, 에이전트가 끊기면 `ROBOT_OFFLINE`. `run.start` 는 보내기 바로 앞에서 배정을 한 번 더 읽고,
+  그 사이 철회되면 `RUN_ASSIGNMENT_INVALID`, 그 사이 STOP 이면 `RUN_STOPPED` (Codex 검토 M3 · M4, 11/28).
+  데모 로봇에서 조종권을 쥔 화면 소켓이 닫히면 서버는 15 초를 기다리지 않고 바로 조종권을 거둔다 (cause `screen_disconnected`, M2).
+  중계기는 서버 unlock 의 `stop_gen` 이 지금 세대와 같을 때만 푼다. 그 사이 다른 STOP 이 있었으면 버린다 (H1).
+- 데모 (시뮬) 로봇도 같은 메시지 · 같은 관문이다. 다른 것은 지금 있는 안전 차이 (현장 승인 · 서버 조종 켬은 실기만) 뿐.
+- 이어 가기 증명: 서버가 «그 로봇의 지금 USER lease 주인» 을 확인한다 (같은 run 을 시작한 사용자이거나 지금
+  lease 를 넘겨받은 사용자). 비밀값은 서버 상태에 싣지 않는다. 잠김 중이면 거절.
+- 폰 직결 (§13.10) 은 그대로 남는다. 서버가 죽었을 때 정지 · 끝 (STOP · 일시정지 · 취소) 길이다. 에이전트 Hub 는
+  먼저 잡은 조종자 하나만 둔다 (폰이 잡고 있으면 서버 길은 `LEASE_HELD`).
+- 실기: 에이전트 실행 기계가 아직 `FORBIDDEN` 으로 막는다 (실기 Hub 에 Nav2 · 시나리오 자료 · 실행 기록 · SF-12
+  없음, 팀장 결정 대기).
+
+아래 POST 시작·제어는 옛 HTTP 설계이며 구현하지 않는다 (실시간 메시지가 정본). GET 기록·보고서는
 서버 데이터 경로로 유지한다. `POST /runs/precheck`는 실기의 SF-12 데이터 점검 API로
 유지하며 시뮬에서는 호출·선행 조건 모두 생략한다. 시뮬은 배정·결재도 거치지 않고 실기 조건은 유지한다.
 
@@ -402,6 +425,30 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   "message": "14:02 Go2-3이 계획 경로에서 1.8 m 벗어났습니다.",
   "robot_id": "…"|null, "user_id": "…"|null, "run_id": "…"|null, "data": { "distance_m": 1.8 } }
 ```
+
+### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
+
+정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
+
+**영상 규칙**
+- 영상은 서버가 만든다. 시뮬과 실기는 같은 기록 · 알림 · 영상을 남긴다.
+- 길이: 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`). 넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null 이다.
+- 등급: 위험(`ERROR`)은 늘 영상을 남긴다. 주의(`WARN`)는 고른 때만 남긴다. 정보(`INFO`)는 기록만 하고 영상이 없다.
+- 상태 `status`: `PENDING`(만드는 중) · `READY`(`url` 있음) · `FAILED`(`reason` 있음) · `NOT_BUILT`(만드는 장치가 아직 없음, `clip_id` null, `reason` 있음). `url` 은 `READY` 일 때만 값이 있다.
+
+**관절 기록 재생**: `JointLogReplay { event_id, robot_id, start_at, joint_names[12], rate_hz, frames[] }`, 프레임은 `JointLogFrame { t, q[12], base { xyz[3], wxyz[4] }, gait|null }`. `t` 는 `start_at` 부터 초이고 프레임은 시간 순으로 늘어난다. `q` 는 `joint_names` 순서의 rad. 재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹이 프레임을 다시 그려서 한다. 서버는 빠르기를 받지 않는다.
+
+| 메서드 | 경로 | 설명 | 권한 | 지금 |
+|---|---|---|---|---|
+| POST | `/robots/{id}/records/mark-now` | 「지금 남기기」. 본문 `{severity?: INFO\|WARN\|ERROR (기본 WARN), note?: ≤200자, clip?: bool\|null}`. 201 `{event, clip}` | 그 로봇 보기 권한 (`ROBOT_READ`: 담당 운영자 · 총괄) | 사건은 실제로 `events` 에 남는다 (`category RUN`, `code RECORD_MARKED`). 영상은 `NOT_BUILT`, INFO · `clip:false` 면 `clip: null` |
+| GET | `/robots/{id}/records/clips` | 그 로봇의 사건 영상 목록 `EventClipList` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/clips/{clip_id}` | 영상 하나 `EventClip` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/events/{event_id}/joint-log` | 사건 둘레 관절 기록 `JointLogReplay` | 같음 | **501** `JOINT_LOG_NOT_BUILT` |
+
+- 권한 판정을 먼저 한다. 볼 수 없는 로봇은 501 이 아니라 404 다 (있다는 사실도 숨김).
+- 501 본문은 보통 오류 모양 `{error: {code, message, detail: {}}}` 이고 `message` 는 한 줄이다. 웹은 그대로 보여 준다. 까닭 코드 목록은 `RecordsNotBuiltCode`.
+- 규칙에 어긋난 고르기 (`ERROR` + `clip:false`, `INFO` + `clip:true`) 는 조용히 고치지 않고 400 `VALIDATION`.
+- 이번 범위 밖: 실제 영상 만들기 · 관절 기록 저장 (실기 · Jetson 쪽 일 없음), 「지금 남기기」 알림 발송.
 
 ---
 
@@ -554,6 +601,9 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.23 | 2026-11-28 | Codex 검토 (#537): `run.*` reply 는 보낸 뒤 · `RUN_NOT_DELIVERED`, 보내기 앞 배정 재확인, 데모 화면 끊김 즉시 회수, 늦은 unlock 의 `stop_gen` 확인 (§6.5) |
+| 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
+| 0.21 | 2026-11-28 | 팀장 05:09 · 05:14: §6.5 실행 명령을 화면 → 서버 → 에이전트 실시간 길 (`run.start` · `run.control`) 로, 데모도 같은 길, 서버 길 이어 가기 증명, 폰 직결은 서버 장애 때 정지 · 끝 길 |
 | 0.19 | 2026-10-25 | ADR-003 ⑤ 후속 계약(§13.10): 고정 시나리오 자료 참조·직결 run 프레임·단일 층·3초 감시 제안·같은 화면 재개·에이전트 보고/영속 기록·구현 분할. 현재 미구현과 제품 결정을 구분 |
 | 0.1 | 2026-10-19 | 최초 작성 |
 | 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
@@ -809,6 +859,7 @@ state는 §10과 같은 이름·뜻의 `battery:{soc,voltage?}`, `pose:{floor_id
 |---|---|
 | `robot`, `controller`, `controller_device` | 로봇·현재 조종자 사용자·기기 UUID. 예약 중에도 사용자/기기를 보이며 없으면 null |
 | `controller_connected`, `lease_id` | 살아 있는 조종자 연결 여부. lease_id는 그 연결에만 보이고 나머지는 null. 예약은 연결/lease가 아님 |
+| `holder_type`, `holder_name` | 누가 Hub 를 쥐었나 (11/28, 필수 · null 가능). `USER`: 폰 직결 조종자 (이름은 hello 의 선택 `display_name`) 또는 서버 중계 뒤의 사람 (이름은 서버 `unlock.display_name`). `RUN`: 예약 실행의 RUN lease, 이름 null. 아무도 없으면 둘 다 null, 이름을 모르면 null. `LEASE_HELD` 거절 reply 에도 같은 두 칸 |
 | `stop_ref` | **폰 state에 한해** Hub가 생성한 로컬 STOP 확인 카운터다. 폰의 요청 ID나 서버의 ref가 아니다. Observer가 서버에 보내는 §10.5 stop_ref는 서버의 마지막 유효 ref만 돌려주며 없거나 서버가 재접속하면 0이다 |
 | `stop_requested`, `posture:{z,tilt_deg,fallen,body_still}`, `velocity:[vx,vy,wz]` | 신선한 로컬 bridge 피드백. 오래되면 각 값 null |
 | `echo:{id,client_time_ms,agent_time_ms}|null` | 마지막 앱 ping의 ID·폰 시각·에이전트 수신 UTC ms. 폰이 수신 시 RTT를 계산하며 서로 다른 시계의 단방향 지연으로 추정하지 않음 |

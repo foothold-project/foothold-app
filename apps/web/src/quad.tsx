@@ -28,7 +28,7 @@ export function Quad({ tiles, label, fs, top, first, onLeave, onShown }: { tiles
   const goFull = async () => {
     setErr('');
     try { if (!root.current?.requestFullscreen) throw new Error('이 브라우저는 지원 안 함'); await root.current.requestFullscreen(); }
-    catch (e) { setErr(`전체화면 안 됨(${(e as Error).message || e}) — 큰 칸으로 보입니다`); }
+    catch (e) { setErr(`전체화면 안 됨(${(e as Error).message || e}) · 큰 칸으로 보입니다`); }
   };
   const others = f ? tiles.filter((t) => t.id !== f).map((t) => t.id) : [];
   const shown = (f && !pip ? [f] : tiles.map((t) => t.id)).join();
@@ -105,7 +105,7 @@ export function Cloud3D({ small, big, feed: given, empty: none = '' }: { small: 
   }, [small]);
   const label = feed.frame === 'map' ? '지도 기준 누적' : (feed.frame as string) === 'odom' ? '켠 곳 기준 누적' : 'L1 센서 기준 1스캔 · 지도 누적 아님';
   return <div style={{ position: 'absolute', inset: 0 }} data-cloud={feed.n}>
-    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none' }} aria-label={`3D 점군 — ${label}${small ? '' : '(끌어서 돌려 보기)'}`} />
+    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none' }} aria-label={`3D 점군 · ${label}${small ? '' : '(끌어서 돌려 보기)'}`} />
     {empty ? <QEmpty text={empty} /> : big && <div className="qd-legend" aria-label="점 높이 범례">
       <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hue(ZL + t * (ZH - ZL))} 80% 60%)`).join(',')})` }} />
       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${ZL} m`}</span><span>0</span><span>{`+${ZH} m`}</span></div>

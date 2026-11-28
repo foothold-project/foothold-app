@@ -46,7 +46,7 @@ const REASONS: Record<string, string> = {
 };
 export function actionResultText(result: ActionResult) {
   const status = { RUNNING: '대기', SUCCEEDED: '성공', REJECTED: '거부', FAILED: '실패' }[result.status];
-  return `${ACTION_NAMES[result.action]}: ${status} — ${REASONS[result.code] ?? result.code}${result.sdk_code == null ? '' : ` (SDK ${result.sdk_code})`}${result.mode == null ? '' : ` · 현재 모드: ${result.mode}`}${result.enabled == null ? '' : ` · 자동 일어나기: ${result.enabled ? '켜짐' : '꺼짐'}`}`;
+  return `${ACTION_NAMES[result.action]}: ${status} · ${REASONS[result.code] ?? result.code}${result.sdk_code == null ? '' : ` (SDK ${result.sdk_code})`}${result.mode == null ? '' : ` · 현재 모드: ${result.mode}`}${result.enabled == null ? '' : ` · 자동 일어나기: ${result.enabled ? '켜짐' : '꺼짐'}`}`;
 }
 
 /** Plain trial controls inside the existing real-robot drive surface. */
@@ -88,7 +88,7 @@ export function ActionTrial({ robot: r, allowed, beforeSend = () => {} }: { robo
     else if (FLAGS.has(action)) params = { enabled };
     beforeSend(); setConfirm(null); setMessage('서버 접수를 기다리고 있습니다.'); setPending({ at: rt.now() });
     rt.action(r.id, action, params, confirmed, (why, id) => {
-      if (why) { setMessage(`거부 — ${why}`); setPending(null); }
+      if (why) { setMessage(`거부 · ${why}`); setPending(null); }
       else { setMessage('서버 접수 · 로봇의 SDK 결과를 기다리고 있습니다.'); setPending({ id, at: rt.now() }); }
     });
   };
