@@ -143,6 +143,11 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const at = av?.label ?? (loc ? fl ?? (loc.x != null && loc.y != null ? `위치 ${loc.x.toFixed(1)}, ${loc.y.toFixed(1)} m` : null) : null);
   const place = at ? `${at}${gone ? ' (마지막 위치)' : ''}` : '', charging = !!av?.charging;
   const lat = s?.latency_ms, act = actOf(x, false);
+  // 임무 중 = state.run, state 를 받지 않는 로봇(요약만)은 목록 current_run
+  const rs = s ? run : x.run ?? null, onRun = !!rs && !RUN_END.has(rs.status);
+  // 걷기: speed 가 오면 speed(0 = 서 있음). 요약만 받는 로봇은 speed 칸 자체가 없어 임무 중 + RUNNING(일시정지 · 잠금 · 끊김 아님)이면 걷기(D1 · 조정 21:27)
+  const noSpeed = s ? s.speed === undefined : x.unknown === 'summary';   // 첫 state 전(wait)은 모름 = 걷지 않음
+  const walk = noSpeed ? onRun && x.status === 'RUNNING' && rs?.status !== 'PAUSED' && !gone : walking(act, paused, s?.speed);
   const holder = x.holder ?? rt.get(x.id).holder;
   const who: [string, string] = holder ? [holder.id === me ? '나' : holder.name, holder.type === 'RUN' ? '임무' : '조종'] : [x.owner ? (x.owner === me ? '나' : ownerName(x)) : '없음', '담당자'];
   // 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기 모형 없으면 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. null 이면 % 만(지어내지 않음)
@@ -151,7 +156,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
     x, byTemp, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
-    act, walk: walking(act, paused, s?.speed), onRun: !!run && !RUN_END.has(run.status), mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
+    act, walk, onRun, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
     bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
     temp: sim ? ['없음', stText(x), ''] : tv ? [tv, lvTemp ? LEVEL_TEXT[lvTemp] : '보통', lvTemp === 'bad' || lvTemp === 'crit' ? ' r' : lvTemp === 'warn' ? ' w' : ''] : ['', '', ''],
     link: sim ? ['서버', '시뮬 계산', ''] : gone ? ['연결 중', hm(x.seenAt) ? `${hm(x.seenAt)} 끊김` : '', ' w'] : x.online ? ['연결', lat != null ? `${Math.round(lat)} ms` : '', ''] : [st.text, '', ''],

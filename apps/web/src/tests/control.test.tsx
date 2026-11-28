@@ -294,6 +294,23 @@ describe('관제 탭', () => {
     expect(actOf({ ...TWENTY[3], unknown: 'wait' }, false)).toBe('unknown');
   });
 
+  // D1(조정 21:27): 요약만 받는 로봇(state 없음 = speed 칸 자체가 없음, 0 이 아님)은 임무 중 + 움직이는 상태(RUNNING)면 걷기. speed 가 있으면 speed 가 이김(0 = 서 있음)
+  it('speed 칸 없음 + 임무 중 → 걷기, speed 칸 없음 + 일시정지 → 서기, speed 0 + 임무 중 → 서기', () => {
+    const run = (status: string) => ({ run_id: 'r', status, scenario_name: '순찰', progress: { done: 1, total: 4 } }) as never;
+    const R: Robot[] = [
+      { ...TWENTY[1], id: 's1', name: 'S-1', owner: 'u-park', status: 'RUNNING', run: run('MOVING'), unknown: 'summary' },
+      { ...TWENTY[1], id: 's2', name: 'S-2', owner: 'u-park', status: 'PAUSED', run: run('PAUSED'), unknown: 'summary' },
+      { ...TWENTY[1], id: 's3', name: 'S-3', owner: 'u-park', status: 'RUNNING', run: null, unknown: 'summary' },
+      { ...TWENTY[0], id: 'm1', name: 'M-1', owner: 'u-lee', status: 'RUNNING' },
+    ];
+    mount('u-lee', R); feed(R.filter((r) => r.owner === 'u-lee'), { m1: { speed: 0, ...RUN() } });
+    act(() => { seg('범위', 0).click(); });
+    expect(tile('s1').dataset.live).toBe('1');
+    expect(tile('s2').dataset.live).toBeUndefined();
+    expect(tile('s3').dataset.live).toBeUndefined();   // 임무 없음 = 걷지 않음
+    expect(tile('m1').dataset.live).toBeUndefined();   // speed 0 = 서 있음
+  });
+
   it('걷기 판정 문턱 0.05 m/s(rt 가 속도를 0.1 자리까지만 견주므로 그 반 · 가장 느린 시뮬 이동 0.2 보다 아래 · 로봇 탭 robotu4 «서 있음» 0.05 와 같음)', () => {
     expect(WALK_MIN_SPEED).toBe(0.05);
     expect(walking('walk', null, 0)).toBe(false);       // 조종권 쥔 채 0 축(K-04 · 06 · 08)
