@@ -115,7 +115,8 @@ describe('등급 거르기(U8-10 중 지금 자료로 되는 것)', () => {
     await click($('#n-export'));
     expect([...card('내보낼 등급').querySelectorAll('[aria-pressed="true"]')].map((b) => b.textContent)).toEqual(['주의']);
     await click(btn('내보내기', card('기록 내보내기')));
-    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ severity: 'WARN' });
+    const d = new Date(), w = new Date(); w.setDate(d.getDate() - 6);   // 기간을 안 골랐으면 창이 채운 최근 7 일(시안 u8_6)
+    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ severity: 'WARN', from: new Date(`${w.toLocaleDateString('sv')}T00:00:00`).toISOString(), to: new Date(`${d.toLocaleDateString('sv')}T23:59:59.999`).toISOString() });
   });
 });
 
@@ -421,7 +422,7 @@ describe('실행 기록 보기(u15_3 중 실제 값만 · 예상은 서버에 �
     wp('35', 'RUN_WAYPOINT_ARRIVED', 20, { idx: 2, mission_name: '관제실' }),
   ].reverse();   // 서버는 새것부터
   const ROW = wp('39', 'RUN_DONE', 31, {});
-  const report = () => $('[role="region"][aria-label="실행 기록"]');
+  const report = () => $('[role="dialog"][aria-label="실행 기록"]');   // 시안 u15_3 임무 보고서 창(.md)
   const openRun = async (more: Record<string, { status: number; body?: unknown }> = {}) => {
     serve({ 'GET /events': list([ROW, ev('2', { severity: 'INFO', category: 'RUN', code: 'RUN_DONE' })]) });   // 기록 탭 목록은 그대로, 누른 뒤의 답만 바꿈
     await open();
@@ -447,21 +448,23 @@ describe('실행 기록 보기(u15_3 중 실제 값만 · 예상은 서버에 �
     expect(r.textContent).toContain('공정 순찰 A');
     expect(r.textContent).toContain('1층');
     expect($('[data-run-status]', r)!.textContent).toBe('완료');
-    expect($('[data-run-took]', r)!.textContent).toBe('31 분 0 초');
+    expect($('[data-run-took]', r)!.textContent).toBe('31 분예상 서버에 값 없음');   // 실제(예상은 서버 빈칸)
+    expect(r.querySelector('h2')!.textContent).toBe('임무 보고서 · 공정 순찰 A');
   });
-  it('예상 칸은 수 없이 «예상 값은 서버에 아직 없음» 한 줄', async () => {
+  it('예상 칸은 수 없이 비움(「서버에 값 없음」 · 표의 예상 · 차이는 「없음」)', async () => {
     await openRun();
-    expect($('[data-run-expect]', report()!)!.textContent).toBe('예상 값은 서버에 아직 없음');
-    expect(report()!.querySelector('th')?.textContent).not.toContain('예상');
+    expect($('[data-run-took]', report()!)!.textContent).toContain('예상 서버에 값 없음');
+    const trs = [...report()!.querySelectorAll('tbody tr')].map((tr) => [...tr.children].map((td) => td.textContent));
+    expect(trs.every((x) => x[2] === '없음' && x[4] === '없음')).toBe(true);
   });
   it('지점마다 도착 시각 순서 · 구간 걸린 시간(이전 도착 또는 시작부터) · 단계 결과(실패 까닭), 결과 기록이 없으면 그렇게', async () => {
     await openRun();
     const trs = [...report()!.querySelectorAll('tbody tr')].map((tr) => [...tr.children].map((td) => td.textContent));
-    expect(trs.map((x) => x[0])).toEqual(['1 · 펌프실 앞', '2 · 압력 G-14', '3 · 관제실']);
-    expect(trs.map((x) => x[2])).toEqual(['4 분 0 초', '8 분 0 초', '8 분 0 초']);
-    expect(trs[0][3]).toBe('단계 1 개 마침');
-    expect(trs[1][3]).toBe('단계 2 개 중 1 개 실패 · 카메라 새 화면이 없습니다.');
-    expect(trs[2][3]).toBe('결과 기록 없음');
+    expect(trs.map((x) => [x[0], x[1]])).toEqual([['펌프실 앞', '지점 1'], ['압력 G-14', '지점 2'], ['관제실', '지점 3']]);   // 시안 열: 작업 · 장소 · 예상 · 실제 · 차이 · 까닭
+    expect(trs.map((x) => x[3])).toEqual(['4 분 0 초', '8 분 0 초', '8 분 0 초']);
+    expect(trs[0][5]).toBe('단계 1 개 마침');
+    expect(trs[1][5]).toBe('단계 2 개 중 1 개 실패 · 카메라 새 화면이 없습니다.');
+    expect(trs[2][5]).toBe('결과 기록 없음');
   });
   it('걸린 시간 글: 한 시간 아래 «분 초», 넘으면 «시간 분»', () => {
     expect([took(0), took(59_400), took(31 * 60_000), took(3_725_000), took(-5)]).toEqual(['0 분 0 초', '0 분 59 초', '31 분 0 초', '1 시간 2 분', '0 분 0 초']);
@@ -470,17 +473,17 @@ describe('실행 기록 보기(u15_3 중 실제 값만 · 예상은 서버에 �
     const again = wp('36', 'RUN_WAYPOINT_ARRIVED', 6, { idx: 0, mission_name: '펌프실 앞' });
     await openRun({ 'GET /events': list([again, ...RUN_EVENTS]) });
     const first = [...report()!.querySelectorAll('tbody tr')].map((tr) => [...tr.children].map((td) => td.textContent))[0];
-    expect(first[2]).toBe('4 분 0 초');
+    expect(first[3]).toBe('4 분 0 초');
     expect($('[data-run-status]', report()!)!.closest('[hidden]')).toBeNull();
     act(() => root?.unmount()); root = null; box.remove();
     await openRun({ 'GET /events': list([wp('41', 'RUN_WAYPOINT_ARRIVED', 6, { idx: 0, mission_name: '가' }), wp('42', 'RUN_WAYPOINT_ARRIVED', 3, { idx: 1, mission_name: '나' })]) });
-    expect([...report()!.querySelectorAll('tbody tr')].map((tr) => tr.children[0].textContent)).toEqual(['1 · 가', '2 · 나']);
+    expect([...report()!.querySelectorAll('tbody tr')].map((tr) => tr.children[1].textContent)).toEqual(['지점 1', '지점 2']);
   });
   it('끝나지 않은 실행은 «끝나지 않음», 걸린 시간 없음', async () => {
     await openRun({ [`GET /runs/${RUN}/history`]: { status: 200, body: { ...HIST, status: 'PAUSED', ended_at: null } } });
     expect($('[data-run-status]', report()!)!.textContent).toBe('일시정지');
     expect(report()!.textContent).toContain('끝나지 않음');
-    expect($('[data-run-took]', report()!)).toBeNull();
+    expect($('[data-run-took]', report()!)!.textContent).toBe('끝나지 않음예상 서버에 값 없음');   // 걸린 시간 수 없음
   });
   it('실행을 못 받으면 서버 문장, 사건만 못 받으면 머리는 그대로 + 까닭 · 다시 시도', async () => {
     await openRun({ [`GET /runs/${RUN}/history`]: { status: 404, body: { error: { code: 'NOT_FOUND', message: '실행을 찾을 수 없습니다.', detail: {} } } } });
@@ -493,9 +496,17 @@ describe('실행 기록 보기(u15_3 중 실제 값만 · 예상은 서버에 �
     await click(btn('다시 시도', report()!));
     expect(report()!.querySelectorAll('tbody tr')).toHaveLength(3);
   });
+  it('내보내기 = 이 실행의 사건 CSV(run_id) · 결과 줄', async () => {
+    URL.createObjectURL = () => 'blob:x'; URL.revokeObjectURL = () => {};
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    await openRun({ 'GET /events/export.csv': { status: 200, body: 'id\n' } });
+    await click($('[data-run-export]', report()!));
+    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ run_id: RUN });
+    expect($('[data-run-export-note]', report()!)!.textContent).toMatch(/^내려받음 · foothold-기록-실행-/);
+  });
   it('닫기 = 보고서 닫고 초점은 누른 「실행 기록 보기」 단추로', async () => {
     await openRun();
-    await click(btn('닫기', report()!));
+    await click($('#go-x', report()!));
     expect(report()).toBeNull();
     expect(document.activeElement).toBe($('[data-run]'));
   });
