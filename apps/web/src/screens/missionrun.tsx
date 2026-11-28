@@ -6,6 +6,7 @@ import type { Assignment, RunSnapshot, Scenario } from '../../../contracts/ts';
 import { api } from '../api';
 import type { Robot } from '../fake';
 import { rt, runSay, useLive, type RunReq } from '../rt';
+import { RestartAskBox, useRestartAsk } from '../robotact';
 import './missiontab.css';   // .mr 틀(폰 시나리오 시트에서도)
 
 const DONE = ['COMPLETED', 'FAILED', 'CANCELED'];
@@ -51,10 +52,12 @@ export function RunCtl({ robot, scen, assign, watch = false }: { robot: Robot; s
   useEffect(() => (watch ? rt.watch(robot.id) : undefined), [robot.id, watch]);
   const l = useLive(robot.id), r = l.state?.run, on = !!r && !DONE.includes(r.status), q = l.runReq;
   const ref = useRef0(scen, assign), [ask, setAsk] = useState(false);
+  // 「다시 시작」 확인 창(u4_10 · 연 때의 stop_gen · 조종권에 묶음 · 21:08 결정)
+  const restart = useRestartAsk(() => { const x = rt.get(robot.id); return { mine: !!x.lease, latched: x.state?.latched, gen: x.state?.stop_gen, lease: x.lease }; });
   const busy = !!q && (q.phase === 'sending' || q.phase === 'sent' || (q.phase === 'done' && !shows(q, r)));
   const send = (op: RunReq['op']) => { setAsk(false); if (op === 'start') { if (ref) rt.run(robot.id, 'start', { run_id: crypto.randomUUID(), ...ref }); } else if (r) rt.run(robot.id, op, { run_id: r.run_id }); };
 
-  // 앞 단계: 조종권 · 잠금 해제 · 배정. 단추를 회색으로 두지 않고 그다음 할 일로 잇는다
+  // 앞 단계: 조종권 · 다시 시작(잠금 해제) · 배정. 단추를 회색으로 두지 않고 그다음 할 일로 잇는다
   let gate: JSX.Element | null = null;
   // N1 · N5: 실기에는 임무 실행기가 없다. 실기 에이전트(go2_direct/server.py)는 run.start · run.control 을 RUN_UNSUPPORTED 로 거절하므로 조건 없이 단추 대신 까닭 한 줄
   if (!robot.sim) gate = <span>실기는 아직 화면에서 임무를 실행할 수 없습니다 · 실기 실행 기능이 준비되지 않았습니다. 멈추려면 STOP.</span>;
@@ -62,7 +65,7 @@ export function RunCtl({ robot, scen, assign, watch = false }: { robot: Robot; s
     ? <><span>{l.holder.name} 님이 조종 중입니다.</span><button type="button" className="btn" disabled={!!l.outgoing} onClick={() => rt.request(robot.id)}>조종권 요청</button></>
     : l.holder ? <span>다른 실행이 조종권을 쥐고 있습니다. 끝나거나 멈춘 뒤 다시 보세요.</span>
     : <><span>실행 단추는 조종권이 있어야 보냅니다.</span><button type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => rt.take(robot.id)}>조종권 잡기</button></>;
-  else if (l.state?.latched) gate = <><span>로봇이 정지 잠금 상태입니다.</span><button type="button" className="btn pri" onClick={() => rt.unlock(robot.id)}>잠금 해제</button></>;
+  else if (l.state?.latched) gate = <><span>로봇이 정지 잠금 상태입니다.</span><button type="button" className="btn pri" onClick={restart.open}>다시 시작</button></>;
   else if (!on && assign === null) gate = <span>이 로봇에 이 임무의 배정이 없습니다. PC 임무 탭에서 로봇에 배정하세요.</span>;
   else if (!on && !ref) gate = <span role="status">배정 · 지도 판을 확인하는 중…</span>;
 
@@ -70,6 +73,7 @@ export function RunCtl({ robot, scen, assign, watch = false }: { robot: Robot; s
   const main = on ? (r!.status === 'PAUSED' ? ['resume', '이어 가기'] : ['pause', '일시정지']) : ['start', '실행'];
   return <div className="mr" data-run-ctl={robot.id}>
     <div className="mr-head"><b>{robot.name}</b>{r && <span className="lbl" data-run-status>{STATUS[r.status]}{on ? ` · ${r.progress.done}/${r.progress.total}` : ''}</span>}</div>
+    {restart.live && <RestartAskBox name={robot.name} inline cancel={restart.close} go={() => restart.go(() => rt.unlock(robot.id))} />}
     {gate ? <p className="mr-gate" data-run-gate>{gate}</p>
       : <div className="mr-row">
         <button type="button" className="btn pri" data-run-main={main[0]} disabled={busy} onClick={() => send(main[0] as RunReq['op'])}>{main[1]}</button>

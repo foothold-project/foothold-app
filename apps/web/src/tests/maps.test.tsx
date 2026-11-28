@@ -2,14 +2,14 @@
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 나무·권한별 단추, 409/403/404/422/413/네트워크 실패, 좌표 변환·y 뒤집힘,
 // 두 단계 올리기 순서·실패 중단, STALE, 판 전환, 승인 판 없음, 로봇 점 없음, 어떤 실패에도 STOP 이 보이고 실제로 정지 요청이 나가는지 본다.
 import { CLAY_CAM, cellAt, clayCam, occGrid } from '../screens/u7/clay';
-import { railGroups } from '../screens/u7/pick';
+import { areaOf, dateOf, inkOf, planText, pointsText, railGroups, regionOf, siteOrder, tagOf, unitOf } from '../screens/u7/pick';
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { pcBoard } from '../pcboard';
-import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
+import type { MapFeatures, MapSite, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
+import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, meters, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
 import { FactoryImage } from '../mapframe';
@@ -221,9 +221,10 @@ describe('지도 탭 — 장소 나무', () => {
       { id: 'b3', site_id: 's1', name: '작은 동', floors: [floor('f1', '1층', 1, 'v2', 'b3')] }] }], next_cursor: null };
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/f3/map-versions': { status: 200, body: { items: [], next_cursor: null } }, 'GET /floors/f4/map-versions': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');   // 시안 u7_1: 지도가 있는 건물(작은 동)이 위 묶음 · 지도 0 개 실제 현장(본동)은 「아직 스캔 전」 묶음이라 본동을 골라 연다
-    await click($('[data-to-chooser]')); await click($('[data-building="b1"]')); await click($('[data-open-map]'));
-    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 지하');
-    await click($('[data-to-chooser]'));
+    await click($('[data-to-chooser]')); await click($('[data-building="b1"]'));
+    expect(card('미리 보기').querySelector('[data-prev-title]')!.textContent).toBe('본동 · 지하');   // 판 없는 층 = 빈 칸 부품 · 지도 열기 없음
+    expect(card('미리 보기').querySelector('[data-empty="pick-floor"]')).not.toBeNull(); expect($('[data-open-map]')).toBeNull();
+    expect($('[data-floor-row="f4"] [data-th-art] svg.art')).not.toBeNull(); expect($('[data-floor-row="f4"] .mx-thumb')).toBeNull();   // 썸네일 = ART
     expect($('[data-building="b2"]')).toBeNull();                                         // 층 없는 건물은 열 지도가 없어 카드 없음(«장소 고치기»에서 층을 만듦)
     await click($('[data-building="b3"]')); await click($('[data-open-map]'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 작은 동 1층');
@@ -241,8 +242,8 @@ describe('지도 탭 — 장소 나무', () => {
     expect($('[data-last]')).toBeNull();                                                   // 11-11 «마지막에 본 지도» 카드 뺌
     expect(pic('[data-floor-row="f1"]').querySelector('svg')!.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');   // 비율 유지(contain)
     await click($('[data-building="b3"]'));
-    expect(pic('[data-floor-row="f3"]').textContent).toBe('지도 없음');
-    expect(pic('[data-floor-row="f3"]').querySelector('image')).toBeNull();
+    expect($('[data-floor-row="f3"] [data-th-art]')).not.toBeNull();   // 판 없는 층 썸네일 = 빈 칸 그림(ART) 작게
+    expect($('[data-floor-row="f3"] [data-th-art] image')).toBeNull();
     await click($('[data-building="b1"]'));
     act(() => { pic('[data-floor-row="f1"]').querySelector('image')!.dispatchEvent(new Event('error')); });
     await flush();
@@ -2449,10 +2450,9 @@ describe('지도 탭 · 시안 u7', () => {
     for (const w of ['억 점', 'GLIM', '3DGS', '사진']) expect(box.textContent, w).not.toContain(w);
     await click(rows[1]);
     expect(card('미리 보기').querySelector('[data-prev-title]')!.textContent).toBe('본동 · 2층');
-    expect(card('미리 보기').querySelector('[data-empty="floor"] h2')!.textContent).toBe('지도 없음');   // 판 없는 층 = 시안 u11_7 꼴 빈 칸 · 숫자 없음
+    expect(card('미리 보기').querySelector('[data-empty="pick-floor"] h2')!.textContent).toBe('지도 없음');   // 판 없는 층 = 지도 0 개 칸과 같은 부품 · 숫자 없음
     expect(card('미리 보기').querySelector('[data-clay]')).toBeNull();
-    await click($('[data-open-map]'));
-    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층');
+    expect($('[data-open-map]')).toBeNull(); expect($('[data-open-history]')).toBeNull(); expect($('[data-pv-fade]')).toBeNull();   // 지도 없음에서 지도 열기 = 거짓 단추라 없음
   });
 
   // 팀장 11/28 22:37 「시뮬 월드 하지 말고」(조정 23:01): 지도 탭 = purpose REAL 현장만. 서버 demo 칸이 있는 SIM 현장도 지도 탭에는 없음(demo 칸은 다른 화면이 씀) · 머리 수 = REAL 판 수
@@ -2608,6 +2608,8 @@ describe('지도 탭 · 시안 u7', () => {
     await click($('[data-to-sim]'));
     expect(location.hash).toBe('#/missions');
     expect(keptPlan.floor).toBe('f1');
+    expect(keptMission.rehearse).toBe('f1');   // 임무 탭이 열리면 그 층 임무로 바로 모의 실행(missiontab 시험)
+    keptMission.rehearse = '';
   });
 });
 
@@ -2620,7 +2622,36 @@ describe('지도 탭 고르기 첫 줄 · 썸네일 거름', () => {
     act(() => { root = createRoot(box); root.render(<Root />); }); await flush();
     expect($('[data-u7="u7_1_pick"] .side .site.on')!.getAttribute('data-building')).not.toBe('ba');
     expect($('[data-u7="u7_1_pick"] [data-rail-group="late"] [data-building="ba"]')).not.toBeNull();
-    expect([...box.querySelectorAll('[data-u7-linedefs] filter')].map((f) => f.id)).toEqual(['u7-line-d', 'u7-line-l']);
+    expect([...box.querySelectorAll('[data-u7-linedefs] filter')].map((f) => f.id)).toEqual(['u7-line-d', 'u7-line-l', 'u7-line-d-i', 'u7-line-l-i']);
+    const px = (v: number) => new Uint8ClampedArray([v, v, v, 255, v, v, v, 255, 0, 0, 0, 0]);
+    expect([inkOf(px(250)), inkOf(px(30)), inkOf(new Uint8ClampedArray(4))]).toEqual(['light', 'dark', 'light']);   // 흰 빈 곳 판 · 어두운 색 그림 · 투명뿐
+  });
+});
+
+// 조정 00:00: 서버 region 이 없을 때 시안 이름 표 지역(장애물 경기장 = 시험 → 위 묶음) · 스캔 전 묶음 순서 조선대 → 사관학교 · 단위 층 / 구간
+describe('지도 탭 시안 이름 표(지역 · 순서 · 단위)', () => {
+  it('region 칸 없이: 머리 국내 · 해외 · 시험 · 장애물 경기장 위 · 스캔 전 = 조선대 → 사관학교 · 공동구 = 구간', () => {
+    const S = (id: string, name: string) => ({ id, name, purpose: 'REAL', buildings: [] });
+    const fl = (id: string, name: string, v: string | null) => ({ id, building_id: 'x', name, level: 1, approved_version_id: v }) as never;
+    const bd = (id: string, floors: never[]) => ({ id, site_id: 's', name: id, floors }) as never;
+    const sites = [S('a', '인공지능사관학교'), S('b', '장애물 경기장'), S('c', '조선대 IT융합대학'), S('d', '지하 공동구'), S('e', '큰 공장'), S('f', '해외 플랜트')];
+    const blds = [{ site: sites[0], building: bd('사관', [fl('f1', '1층', null)]) }, { site: sites[1], building: bd('경기장', [fl('f2', '경기장 전체', null)]) },
+      { site: sites[2], building: bd('조선대', [fl('f3', '5층', null)]) }, { site: sites[3], building: bd('공동구', [fl('f4', '구간 A', 'v4'), fl('f5', '구간 B', 'v5')]) },
+      { site: sites[4], building: bd('공장', [fl('f6', '1층', 'v6')]) }, { site: sites[5], building: bd('플랜트', [fl('f7', '1층', 'v7')]) }] as never;
+    const g = railGroups(sites as never, blds);
+    expect(g.map((x) => [x.head, x.rows.map((r) => (r.building as { id: string }).id)])).toEqual([['국내 · 해외 · 시험', ['공장', '공동구', '플랜트', '경기장']], ['실제 현장 · 아직 스캔 전', ['조선대', '사관']]]);
+    expect([regionOf(sites[3] as never), regionOf(sites[1] as never), regionOf(sites[0] as never)]).toEqual(['국내', '시험', '']);
+    expect([unitOf([{ name: '구간 A' }, { name: '구간 B' }]), unitOf([{ name: '1층' }]), unitOf([])]).toEqual(['구간', '층', '층']);
+    expect(g.reduce((a, x) => a + x.rows.reduce((b, r) => b + r.n, 0), 0)).toBe(4);   // 머리 「지도 N 개」 = 판 있는 층 수(오른쪽 수의 합)
+  });
+});
+
+// 조정 23:39: 현장 순서 = sort_order 있으면 그것, 없으면 시안 순서 이름 표(큰 공장 · 지하 공동구 · 해외 플랜트 · 장애물 경기장), 표 밖은 서버 순서
+describe('지도 탭 현장 순서', () => {
+  it('sort_order 먼저 · 없으면 시안 이름 표 · 표 밖은 서버 순서 뒤', () => {
+    const s = (name: string, sort_order?: number) => ({ id: name, name, purpose: 'REAL', buildings: [], ...(sort_order === undefined ? {} : { sort_order }) }) as unknown as MapSite;
+    expect(siteOrder([s('지하 공동구'), s('가 학교'), s('해외 플랜트'), s('큰 공장'), s('나 대학')]).map((x) => x.name)).toEqual(['큰 공장', '지하 공동구', '해외 플랜트', '가 학교', '나 대학']);
+    expect(siteOrder([s('큰 공장'), s('해외 플랜트', 2), s('지하 공동구', 1)]).map((x) => x.name)).toEqual(['지하 공동구', '해외 플랜트', '큰 공장']);
   });
 });
 
@@ -2635,6 +2666,27 @@ describe('지도 탭 왼쪽 묶음(railGroups)', () => {
     const g = railGroups([a, b, c] as never, blds);
     expect(g.map((x) => [x.head, x.late, x.rows.map((r) => (r.building as { id: string }).id)])).toEqual([
       ['', false, ['큰 공장', '플랜트', '경기장']], ['실제 현장 · 아직 스캔 전', true, ['조선대']]]);   // 위 묶음 머리 = 지역 칸(서버에 없음) → 빈 자리
+  });
+  it('계약 칸(region)이 오면: 위 묶음 머리 = 국내 · 해외 · 시험, region TEST 는 판 0 이어도 위 묶음', () => {
+    const a = { id: 'a', name: '큰 공장', purpose: 'REAL', region: 'DOMESTIC', buildings: [] }, b = { id: 'b', name: '해외 플랜트', purpose: 'REAL', region: 'OVERSEAS', buildings: [] },
+      c = { id: 'c', name: '장애물 경기장', purpose: 'REAL', region: 'TEST', buildings: [] }, d = { id: 'd', name: '학교', purpose: 'REAL', region: 'DOMESTIC', scan_plan: '월 · 화', buildings: [] };
+    const blds = [{ site: a, building: bd('공장', [fl('f1', 'v1')]) }, { site: b, building: bd('플랜트', [fl('f3', 'v3')]) },
+      { site: c, building: bd('경기장', [fl('f4', null)]) }, { site: d, building: bd('학교', [fl('f5', null)]) }] as never;
+    const g = railGroups([a, b, c, d] as never, blds);
+    expect(g.map((x) => [x.head, x.rows.map((r) => (r.building as { id: string }).id)])).toEqual([['국내 · 해외 · 시험', ['공장', '플랜트', '경기장']], ['실제 현장 · 아직 스캔 전', ['학교']]]);
+    expect([regionOf(a as never), regionOf({ id: 'z', name: 'z', buildings: [] } as never), planText(d as never), planText(a as never)]).toEqual(['국내', '', '스캔 예정 월 · 화', '']);
+  });
+});
+
+// 계약 칸(point_count · area_m2 · origin_kind · captured_on): 있으면 쓰고 없으면 지금처럼(점 수 빈 칸 · 판 크기로 넓이 · 만든 날 · source 로 꼬리표)
+describe('지도 탭 판 계약 칸', () => {
+  it('점 수 · 넓이 · 날짜 · 꼬리표', () => {
+    const v0 = ver('v1', 3), v1 = { ...ver('v2', 3), point_count: 960_000_000, area_m2: 504_000, origin_kind: 'FIELD_SCAN', captured_on: '2026-11-20' } as never as MapVersion;
+    expect(pointsText(v0)).toBe(''); expect(pointsText(v1)).toBe('9.6 억 점'); expect(pointsText({ ...v1, point_count: 34_000_000 } as never)).toBe('3,400 만 점');
+    expect(areaOf(v1)).toBe('50 만 m²'); expect(areaOf(v0)).toBe(meters(v0).area);
+    expect(dateOf(v1)).toBe('11/20');
+    expect(tagOf(v1)).toEqual(['tag m', '실측 지도']); expect(tagOf({ ...v1, origin_kind: 'IMPORTED' } as never)).toEqual(['tag', '가져온 지도']);
+    expect(tagOf({ ...v1, origin_kind: 'TEST_TERRAIN' } as never)).toEqual(['tag d', '시험 지형']);
   });
 });
 

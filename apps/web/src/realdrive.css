@@ -20,6 +20,10 @@
 [data-real-drive] [data-l3-follow]{left:50% !important;top:56px;bottom:auto !important;transform:translateX(-50%);min-height:40px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 /* 위 얇은 줄: «<»(8 + 44) 와 STOP(오른쪽 114 + 8) 사이 가운데 */
 [data-real-drive] .dv-top{left:60px;right:130px;width:fit-content;max-width:calc(100% - 190px);margin-inline:auto;transform:none;min-height:30px;font-size:12px}
+/* 「다시 시작」 창: 상태 알약(정지 잠금 · 미검증)을 가리지 않게 알약 아래끝(8 + 30) + 8 · 안전 카드(z 1)와는 겹쳐도 창(z 2)이 위 */
+[data-real-drive] .dv-ask{top:46px}
+/* 세로(좁은 폭): 창이 STOP(App 머리줄 top 8 + 64) 오른쪽 위와 겹치므로 STOP 아래끝 + 8 */
+@media (orientation:portrait){[data-real-drive] .dv-ask{top:80px}}
 /* 안내 카드: 오른쪽, STOP(64) 아래 ~ 오른쪽 조이스틱 위. 안전 글·미검증은 늘 보임, 실효 상한만 접힘(맨 아래) */
 .rd-card{position:absolute;top:80px;right:8px;z-index:1;box-sizing:border-box;width:min(300px,calc(100% - 16px));max-height:calc(100% - 80px - 148px);overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:2px 4px 4px;border:1px solid rgba(230,235,239,.3);border-radius:12px;background:rgba(8,11,14,.55);color:#E6EBEF}
 .rd-card .dv-note{padding:4px 8px;font-size:12px;line-height:1.4;background:none;color:#E6EBEF;word-break:keep-all}

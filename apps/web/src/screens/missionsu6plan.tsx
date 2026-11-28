@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Estimate, Mission, ScenarioWrite } from '../../../contracts/ts';
 import type { Robot, User } from '../fake';
+import { GAIT_NOTE } from '../gait';
 import { floorName, Note, type Msg, type Place } from './maps';
 import { usePlanEdit } from './missions';
 import { Guess, hm, hourOf, mins, MODES, type Plan } from './missiontab';
@@ -10,7 +11,6 @@ import { IC, Ic, Why, dist } from './missionsu6';
 import { blockOf, EditMap, ListPane, MapSteps, NodePane, useDraftRoute, type Look } from './missionsu6edit';
 import { RouteStage } from './missionsu6';
 
-const GAIT_NOTE: Record<string, string> = { classic: '평지 기본', sport: '빠른 걷기', start: '험지 기본', ame2: '준비 중' };
 
 type Props = { id: string; floor: string; robot: string; gait: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; p: Plan; jobs: Record<string, Mission>;
   /** 일정 칸 임무 이름(시나리오 목록에서 · ScheduleSlot.scenario_name 이 오면 그것) */ names: (id: string | null) => string | undefined;

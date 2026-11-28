@@ -7,6 +7,7 @@ import { allowed, runHolds, runMoving, sim, useSim, velocity, type Sim } from '.
 import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { useStopPress } from '../App';
+import { RestartAskBox, useRestartAsk } from '../robotact';
 import { EXP, HeldRun, KEYS, SIDE_OFF, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
@@ -60,10 +61,11 @@ function SimStop() {
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="6" y="6" width="4" height="4" fill="currentColor" /></svg>시뮬 정지</button>;
 }
 
-/** 띄운 시뮬 보기 + 키보드 조종: 조종 시작(조종권) → 잠금 해제 → 키를 누르는 동안만 움직임. 키 뗌·창 초점 잃음·탭 숨김·연결 끊김·시뮬 정지 = 0(다시 누를 때까지 재개 없음) */
+/** 띄운 시뮬 보기 + 키보드 조종: 조종(조종권) → 다시 시작(잠금 해제) → 키를 누르는 동안만 움직임. 키 뗌·창 초점 잃음·탭 숨김·연결 끊김·시뮬 정지 = 0(다시 누를 때까지 재개 없음) */
 function SimView({ admin }: { admin: boolean }) {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome, open = l.at === 'open', mine = !!l.lease;
   const keys = w?.simulation === true, live = canDrive(), can = allowed(w);
+  const restart = useRestartAsk(() => { const k = sim.get().link; return { mine: k?.at === 'open' && !!k.lease, latched: k?.st?.latched, gen: k?.st?.stop_gen, lease: k?.lease }; });   // 「다시 시작」 확인 창(u4_10 · 폰 직결과 같은 묶음 · 21:08 결정)
   useDeadline(!!r.expires_at);
   useTick(true);
   const [out, setOut] = useState({ vx: 0, note: '' }), [ending, setEnding] = useState(false);   // ending = «시뮬 종료·정리» 화면 안 확인 단계
@@ -130,8 +132,8 @@ function SimView({ admin }: { admin: boolean }) {
         {run.dev}
       </div>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
-        {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종 시작</button>}
-        {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>}
+        {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종</button>}
+        {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={restart.open}>다시 시작</button>}
         {open && mine && <button type="button" className="btn" disabled={l.busy === 'release'} onClick={() => sim.release()}>조종권 반납</button>}
         {l.at === 'closed' && l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}
         <button type="button" className="btn" onClick={close}>보기 닫기</button>
@@ -139,6 +141,7 @@ function SimView({ admin }: { admin: boolean }) {
         <span className="fh-grow" style={{ flex: 1 }} />
         {!ending && <button type="button" className="btn" data-simtab-end onClick={() => setEnding(true)}>시뮬 종료·정리</button>}
       </div>
+      {restart.live && <RestartAskBox name={short(r.robot_id)} inline cancel={restart.close} go={() => restart.go(() => sim.unlock())} />}
       {ending && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} role="group" aria-label="시뮬 종료·정리 확인" data-simtab-end-ask>
         <span className="fh-why">이 시뮬을 끝내고 정리합니다 — 조종권 반납·연결 종료·시뮬 삭제. 다시 쓰려면 새로 띄워야 합니다.</span>
         <button type="button" className="btn" data-simtab-end-cancel onClick={() => setEnding(false)}>취소</button>
@@ -147,7 +150,7 @@ function SimView({ admin }: { admin: boolean }) {
       {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
         <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}
       {keys && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="키보드 조종" data-sim-keys>
-        <span>{running ? '실행 중 · 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
+        <span>{running ? '실행 중 · 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 → 다시 시작 뒤 키보드로 움직입니다'}</span>
         {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('A / D', '제자리 회전', !running)}{key('← / →', '옆걸음', (can.left || can.right) && !running, running || can.left || can.right ? '' : SIDE_OFF)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}

@@ -160,7 +160,7 @@ const ERR: Record<string, string> = {
   RUN_ACTIVE: '시나리오 실행 중에는 수동 조종·새 실행이 막혀 있습니다. 먼저 «일시정지»하세요.', RUN_CONFLICT: '같은 실행 요청이 다른 내용으로 와서 거절됐습니다.',
   RUN_NOT_FOUND: '이 실행을 찾지 못했습니다. 이미 끝났을 수 있습니다.', RUN_STATE_CONFLICT: '지금 실행 상태에서는 할 수 없습니다.',
   RUN_OWNER_MISMATCH: '다른 화면에서 건 실행입니다. 일시정지·이어서·조종 전환은 그 화면에서만 할 수 있습니다.',
-  RESUME_REJECTED: '아직 이어갈 수 없습니다. 로봇의 목표 취소 확인을 기다렸다가 «조종 시작» → «잠금 해제» → 손을 뗀 뒤 다시 누르세요.',
+  RESUME_REJECTED: '아직 이어갈 수 없습니다. 로봇의 목표 취소 확인을 기다렸다가 «조종» → «다시 시작» → 손을 뗀 뒤 다시 누르세요.',
   UNSUPPORTED_OPERATION: '아직 지원하지 않는 동작입니다.', RECORDING_UNAVAILABLE: '실행 기록 장애로 시작·이어서를 막았습니다. 시뮬을 «끝내기» 한 뒤 다시 띄우면(에이전트 재시작) 새로 실행할 수 있습니다.',
   NAV_UNAVAILABLE: '이 로봇에는 자율 이동(내비게이션)이 준비되지 않아 시나리오를 실행할 수 없습니다.',
   MAP_VERSION_MISMATCH: '시나리오의 지도 판이 로봇 지도와 달라 실행하지 않았습니다.', FLOOR_TRANSITION_UNSUPPORTED: '여러 층을 지나는 시나리오는 아직 실행할 수 없습니다.',
@@ -169,7 +169,7 @@ const ERR: Record<string, string> = {
 /** 조종권 거절 중 안전 글(등급 2 · 결정 1-4): 정지 확인 실패 · 다른 사람 조종 중. 알림 칸에서 접지 않는다(검수 #548 R1) */
 export const SAFE_NOTICE = [ERR.STOP_CONFIRM_FAILED, ERR.LEASE_HELD];
 /** 예약 실행(RUN)이 시뮬 Hub 를 쥠(#537 state.holder_type). 이때 lease.take 는 에이전트가 늘 LEASE_HELD 로 거절한다(agent phone/hub.py lease.take · owner 가 다른 peer) */
-/** 예약 실행이 쥐어 «조종 시작» 이 막힌 까닭(LEASE_HELD + RUN 답과 시뮬 탭 · 폰 HeldRun 이 같은 말) */
+/** 예약 실행이 쥐어 «조종» 이 막힌 까닭(LEASE_HELD + RUN 답과 시뮬 탭 · 폰 HeldRun 이 같은 말) */
 export const HELD_RUN = '예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.';
 export const runHolds = (l: Link | null | undefined) => l?.st?.holder_type === 'RUN';
 /** LEASE_HELD 거절의 조종자(#537 holder_type · holder_name, 그 reply 에만 실림). 이름은 표시용 · 모르면 이름 없이 한 줄 */

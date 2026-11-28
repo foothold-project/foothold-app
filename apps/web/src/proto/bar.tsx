@@ -16,11 +16,12 @@ export const linkText = (role: Role, n: number) => (!n ? '연결된 로봇 없�
 /** 시안 나 칸: 총괄 = «나 총괄», 운영자 = 이름 끝 글자 + 이름 («A 운영자 A», u5_6) */
 export const whoFace = (role: Role, name: string): [string, string] => (role === 'ORG_ADMIN' ? ['나', '총괄'] : [name.trim().slice(-1) || '나', name]);
 
-export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net, bell, stop, menu, approvals, driving = [] }: {
+export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net, bell, stop, menu, approvals, driving = [], chip }: {
   light: boolean; tabs: BarTab[]; cur: string; go: (id: string) => void; role: Role; name: string; roleName: string; online: number; net: string;
   /** 알림 종 자리(시안 종 · 빨간 수) */ bell: ReactNode; /** 시안 «모두 정지» 자리 · 없으면 비움 */ stop: ReactNode; /** 나 칸을 누르면 여는 차림(로그아웃 · 화면 밝기) */ menu: ReactNode;
   /** 총괄: 결재 대기 수(GET /dashboard). 시안 머리줄에 자리가 없어 메뉴 끝에 작은 표(0 이면 숨김 · 받지 못하면 값을 비움) */ approvals?: { n: number | null; why?: string };
   /** 내 조종권(서버 lease)이 있는 로봇 이름들 · 시안 «K-01 조종 중» 칩(없으면 칩 없음) */ driving?: string[];
+  /** 칩 자리를 대신 그림(로봇 탭 u11_2 ~ u11_4 「요청 · 보기 전용 · 리모컨 우선」 · screens/u4 BarChip). 주면 driving 칩 대신 */ chip?: ReactNode;
 }) {
   const [i, label] = whoFace(role, name), [open, setOpen] = useState(false), who = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -42,7 +43,7 @@ export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net,
         onClick={() => setOpen((o) => !o)} onKeyDown={key(() => setOpen((o) => !o))}><i>{i}</i>{label}</span>
       {open && <span className={`ap-menu fh${light ? ' light' : ''}`} role="menu" aria-label="내 차림" onClick={(e) => { if ((e.target as HTMLElement).closest('button:not([data-theme-pick])')) setOpen(false); }}>
         <b className="fh-me">{name}({roleName})</b>{menu}</span>}
-    </span>{driving.length > 0 && <span className="livechip" role="status" data-driving={driving.join(' ')}><i></i>{driving.length > 1 ? `${driving[0]} 외 ${driving.length - 1} 대 조종 중` : `${driving[0]} 조종 중`}</span>}
+    </span>{chip !== undefined ? chip : driving.length > 0 && <span className="livechip" role="status" data-driving={driving.join(' ')}><i></i>{driving.length > 1 ? `${driving[0]} 외 ${driving.length - 1} 대 조종 중` : `${driving[0]} 조종 중`}</span>}
     {stop}
   </div></div>;
 }

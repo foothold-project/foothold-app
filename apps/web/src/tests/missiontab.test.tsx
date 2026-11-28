@@ -1,4 +1,5 @@
 // 임무 탭(W2 · U6-01 · U6-03 · U6-05): 탭 열림 · 옛 주소 → 임무 탭에서 그 임무 고름 · 계약 없는 칸은 «준비 중»(숫자 없음) · 금지 구역 겹침 · 미리 확인 · 편집(목록 ↔ 노드) · 편집 중 떠날 때 확인
+import { cardMeta } from '../screens/missionsu6';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -230,6 +231,21 @@ describe('임무 탭(W2)', () => {
     expect(rb[1].textContent).toContain('시뮬');
     await click($('[data-mission="s2"]'));
     expect(picked()).toEqual(['s2']); expect($('[data-side-name]')!.textContent).toBe('가스 점검');
+  });
+
+  it('u6_1 지도 칩: 경로 · 구역을 누르면 켜고 끔(끔 = .g.dk) · 경로를 꺼도 지점 번호는 남음 · 혼잡 시간은 잠김', async () => {
+    await mount('#/missions');
+    const chip = (k: string) => $(`[data-chip="${k}"]`)!;
+    expect(chip('route').className).toBe('g'); expect(chip('route').getAttribute('aria-pressed')).toBe('true');
+    const segs = $$('[data-seg]').length, nogo = $$('[data-nogo]').length, pts = $$('[data-pt]').length;
+    expect(segs).toBeGreaterThan(0); expect(pts).toBeGreaterThan(0);
+    await click(chip('route'));
+    expect(chip('route').className).toBe('g dk'); expect($$('[data-seg]').length).toBe(0); expect($$('[data-pt]').length).toBe(pts);
+    await click(chip('zone'));
+    expect(chip('zone').getAttribute('aria-pressed')).toBe('false'); expect($$('[data-nogo]').length).toBe(0);
+    await click(chip('route')); await click(chip('zone'));
+    expect($$('[data-seg]').length).toBe(segs); expect($$('[data-nogo]').length).toBe(nogo);
+    expect($('.chips [data-locked]')!.getAttribute('aria-disabled')).toBe('true');
   });
 
   it.each(['#/mission/s2', '#/mission?scenario_id=s2', '#/missions/s2'])('옛 주소 %s → 임무 탭에서 그 임무를 고름', async (h) => {
@@ -589,6 +605,29 @@ describe('임무 탭(W2)', () => {
     await click($('[data-setup-make]')); await flush();
     expect($('[aria-label="임무 편집"]')).toBeTruthy();
     expect($<HTMLInputElement>('[data-name]')!.value).toBe('');
+  });
+
+  it('시안 u6_2 지도 카드 작은 글: 「(날짜) 스캔 · 판 n · 출입 금지 n 곳」 (승인 판을 받아서) · 구역 0 이면 그 칸 뺌', async () => {
+    await mount('#/missions');
+    await click($('[data-new-mission]')); await flush();
+    const meta = $('[data-setup-map="f1"] [data-setup-meta]')!.textContent!;
+    const n = V1.features.zones.filter((z) => z.type === 'NO_GO').length;
+    expect(meta).toBe(cardMeta(V1));
+    expect(meta).toMatch(n ? new RegExp(`^\\d{2}/\\d{2} 스캔 · 판 1 · 출입 금지 ${n} 곳$`) : /^\d{2}\/\d{2} 스캔 · 판 1$/);
+    expect(cardMeta({ ...V1, number: 3, features: { ...V1.features, zones: [] } })).toMatch(/^\d{2}\/\d{2} 스캔 · 판 3$/);
+    expect(cardMeta(null)).toBeNull();
+  });
+
+  it('시안 u7_3 → u6_6: 지도 탭 「이 지도로 모의 실행」 이 넘긴 층 = 그 층 첫 임무를 골라 바로 모의 실행 칸 · 한 번 쓰고 비움 · 없는 층이면 목록 + 한 줄', async () => {
+    keptMission.rehearse = 'f1';
+    await mount('#/missions'); await flush();
+    expect($('[data-u6]')!.getAttribute('data-u6')).toBe('rehearse');
+    expect(keptMission.rehearse).toBe('');
+    act(() => root?.unmount()); box.remove();
+    keptMission.rehearse = 'f-none';
+    await mount('#/missions'); await flush();
+    expect($('[data-u6]')!.getAttribute('data-u6')).toBe('main');
+    expect($('[data-no-scen]')!.textContent).toContain('에는 임무가 없습니다');
   });
 
   it('시안 u6_3 편집기: 할 일 순서 줄(이동 · 할 일 · 끝) · 고른 줄 자세히(머무는 시간 · 순서 · 지우기) · 접근 금지 구역을 지나면 저장 막음 · 고친 뒤 PUT 본문', async () => {

@@ -59,12 +59,28 @@ describe('임무 실행 단추', () => {
     expect(w.of('lease.request')).toHaveLength(1);
     expect(runMsgs(w)).toEqual([]);
   });
-  it('조종권은 있는데 잠겨 있으면 «잠금 해제»가 먼저', () => {
+  it('조종권은 있는데 잠겨 있으면 «다시 시작»이 먼저 · 확인 창(u4_10) 「일어서기」 뒤에만 unlock 한 번 · 취소면 0', () => {
     const w = mount({ own: true, latched: true });
     expect(btn('실행')).toBeUndefined();
-    click('잠금 해제');
+    click('다시 시작');
+    expect(w.of('unlock')).toHaveLength(0);
+    expect(box.querySelector('[data-restart-ask]')?.textContent).toContain('K-01 을 일으킬까요?');
+    click('취소');
+    expect(box.querySelector('[data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+    click('다시 시작');
+    act(() => (box.querySelector('[data-restart-go]') as HTMLElement).click());
     expect(w.of('unlock')).toHaveLength(1);
     expect(runMsgs(w)).toEqual([]);
+  });
+  it('[H1] 창을 연 채 다른 곳에서 풀림 → 새 STOP(stop_gen 2): 창이 다시 뜨지 않고 unlock 0', () => {
+    const w = mount({ own: true, latched: true });
+    click('다시 시작');
+    act(() => { w.recv(state('r1', { latched: false })); });
+    expect(box.querySelector('[data-restart-ask]')).toBeNull();
+    act(() => { w.recv(state('r1', { latched: true, stop_gen: 2 })); });
+    expect(box.querySelector('[data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
   });
   it('대기 → «실행»: run.start 본문(배정 · 판 · 층 · 지도 판 · lease · 화면 id) · 결과 전엔 «보내는 중», 성공 문구는 state.run 이 실제로 바뀐 뒤에만', () => {
     const w = mount({ own: true });
