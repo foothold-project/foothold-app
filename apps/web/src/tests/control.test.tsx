@@ -192,8 +192,8 @@ describe('관제 탭', () => {
     const S = (o: object) => toRobot({ id: 'x', name: 'X', model: 'Go2', owner: null, connection: 'ONLINE', status: 'STOP_LATCHED', battery: null, location: null, lease: null, current_run: null, devices: [], attention: [], simulation: false, server_drive_allowed: true, ...o } as never);
     expect([S({ latch_reason: 'BOOT' }).latchReason, S({ latch_reason: null }).latchReason, S({}).latchReason]).toEqual(['BOOT', null, null]);
   });
-  // 팀장 21:45: 제목과 덧말이 둘 다 «정지 잠금» 으로 겹치면 덧말은 잠금 시작 시각 또는 «이어진 상태» 만 · reviewer L1: 잠금(bad) + 온도 주의(warn) = bad
-  it('최근 경고 덧말: 임무 없는 잠금 로봇은 상태 글을 되풀이하지 않고 시각만, 잠금 + 온도 주의 = 테두리 빨강', () => {
+  // 팀장 21:45: 제목과 덧말이 둘 다 «정지 잠금» 으로 겹치지 않게 · 21:56: 덧말은 비우고 시각은 오른쪽 칸만 · reviewer L1: 잠금(bad) + 온도 주의(warn) = bad
+  it('최근 경고 덧말: 임무 없는 잠금 로봇은 덧말을 비우고 시각은 오른쪽 칸 하나만, 잠금 + 온도 주의 = 테두리 빨강', () => {
     const R: Robot[] = [
       { ...TWENTY[3], id: 'a1', name: 'A-1', status: 'STOP_LATCHED', mission: undefined, statusSince: { status: 'STOP_LATCHED', at: '2026-11-28T20:53:54' } },
       { ...TWENTY[3], id: 'a2', name: 'A-2', status: 'STOP_LATCHED', mission: undefined },
@@ -201,8 +201,10 @@ describe('관제 탭', () => {
     ];
     mount('u-kim', R); feed(R, { a2: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
     const sub = (id: string) => $(`[aria-label="최근 경고"] [data-alert="${id}"] small`).textContent;
-    expect(sub('a1')).toBe('잠금 시작 20:53');
-    expect(sub('a2')).toBe('이어진 상태');
+    const row = (id: string) => $(`[aria-label="최근 경고"] [data-alert="${id}"]`).textContent!;
+    expect(sub('a1')).toBe(''); expect(sub('a2')).toBe('');
+    expect(row('a1').split('20:53').length - 1).toBe(1);   // 시각은 오른쪽 칸 한 번만
+    expect(row('a2').split('이어진 상태').length - 1).toBe(1);
     expect(sub('a3')).toBe('공정 순찰 A');   // 임무가 있으면 임무 이름 그대로
     expect(tile('a2').dataset.tone).toBe('bad');
     expect(tile('a2').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
