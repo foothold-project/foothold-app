@@ -195,6 +195,7 @@ def robot_objects(db, robots, user, realtime):
                     else '시나리오 이름 수신 대기', progress=reported_run['progress'])
                 if reported_run['status'] not in TERMINAL_RUNS else None)
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
+            demo=robot.demo,
             server_drive_allowed=server_drive,
             server_drive_blocked=server_drive_blocked,
             robot_serial=robot.serial, field_approval_expires_at=approval,
