@@ -2083,6 +2083,8 @@ export interface RobotPatch {
   name?: string;
   /** 실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다. */
   owner_user_id?: string | null;
+  /** 시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION. */
+  demo?: boolean;
 }
 
 export interface RobotResponseHealth {
@@ -2105,6 +2107,8 @@ export interface RobotSummary {
   controller_device?: string | null;
   controller_connected?: boolean | null;
   simulation: boolean;
+  /** 하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false. */
+  demo?: boolean;
   server_drive_allowed: boolean;
   /** 표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. FIELD_GATE_CLOSED: 서버 쪽 이유가 없는데 에이전트 현장 승인 관문이 닫혀 앱 정지가 로봇에 가지 않는다(허용 값과 함께 올 수 있음). */
   server_drive_blocked?: ("SWITCH_OFF" | "NO_OWNER" | "NO_SERIAL" | "AGENT_OFFLINE" | "FIELD_GATE_CLOSED")[] | null;
@@ -2699,6 +2703,8 @@ export interface SimProvision {
   world_id: string;
   spawn_floor_id?: "l1" | "l2" | "l3" | null;
   robot_id: string;
+  /** 새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다. */
+  demo?: boolean;
   map_bindings?: SimMapBinding[];
   generation: number;
   owner_id: string;
@@ -2749,6 +2755,8 @@ export interface SimStartRequest {
   world_id: string;
   spawn_floor_id?: "l1" | "l2" | "l3" | null;
   robot_id: string;
+  /** 새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다. */
+  demo?: boolean;
 }
 
 export interface SimWorld {
@@ -3064,6 +3072,7 @@ export interface ZoneOverlaps {
   scenarios: ZoneOverlapScenario[];
 }
 
+export type RobotDemoErrorCode = "DEMO_REQUIRES_SIMULATION";
 export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT" | "SIM_SCENARIO_NO_ASSIGN" | "SCENARIO_MIXED_PURPOSE";
 export type RunStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
 export type RunRecordStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "ABORTED";

@@ -1007,6 +1007,12 @@
             }
           ]
         },
+        "demo": {
+          "default": false,
+          "description": "하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false.",
+          "title": "Demo",
+          "type": "boolean"
+        },
         "devices": {
           "items": {
             "$ref": "#/$defs/Device"

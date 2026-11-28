@@ -3,6 +3,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "demo": {
+      "default": false,
+      "description": "새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다.",
+      "title": "Demo",
+      "type": "boolean"
+    },
     "robot_id": {
       "format": "uuid",
       "title": "Robot Id",

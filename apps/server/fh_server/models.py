@@ -73,6 +73,8 @@ class Session(Tenant, Base):
 
 class Robot(Tenant, Base):
     simulation: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    # Demo robots run the day cycle in simulation; real robots stay false (0039).
+    demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     sim_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text('0'))
     sim_state: Mapped[str] = mapped_column(Text, default='IDLE', server_default=text("'IDLE'"))
     # Keep simulation bookkeeping out of existing full Robot reads.
@@ -90,6 +92,7 @@ class Robot(Tenant, Base):
         UniqueConstraint('org_id', 'id'),
         ForeignKeyConstraint(['org_id', 'last_floor_id'], ['floors.org_id', 'floors.id'], name='robots_last_floor_fk'),
         CheckConstraint("last_floor_source IN ('HUMAN','AUTO')", name='floor_source'),
+        CheckConstraint('simulation OR NOT demo', name='robot_demo_simulation'),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(Text)

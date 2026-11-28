@@ -729,6 +729,8 @@ def create_app(settings: Settings | None = None):
         authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
+        if not row.simulation and 'demo' in body.model_fields_set:
+            fail(409, C.DEMO_REQUIRES_SIMULATION, '데모 로봇은 시뮬 로봇만 될 수 있습니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set
                           and body.owner_user_id != row.owner_user_id)
         if changing_owner:
@@ -738,6 +740,8 @@ def create_app(settings: Settings | None = None):
                 values = body.model_dump(exclude_unset=True)
                 if 'name' in values and values['name'] is None:
                     fail(400, 'VALIDATION', '이름을 입력하세요.')
+                if 'demo' in values and values['demo'] is None:
+                    fail(400, 'VALIDATION', '데모 여부를 true 또는 false 로 보내세요.')
                 if 'owner_user_id' in values:
                     if not row.simulation and values['owner_user_id'] is None:
                         fail(400, 'VALIDATION', '담당 운영자를 선택하세요.')
