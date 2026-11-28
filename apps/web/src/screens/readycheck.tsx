@@ -35,7 +35,7 @@ export function checks(r: Robot, server: boolean): Step[] {
   const sensors: [State, string] = !live ? ['none', NOW_NONE] : !dev.length ? ['none', '카메라 · 라이다 목록을 받지 못했습니다.']
     : bad ? ['blocked', `${bad.label} ${bad.state === 'MISSING' ? '없음' : '오류'}`] : ['ok', dev.map((d) => d.label).join(' · ')];
   const bat = live && r.battery != null, joints = live && !!r.robotInfo?.joints;
-  const power: [State, string] = !live ? ['none', NOW_NONE] : [bat && joints ? 'ok' : 'none', `${bat ? `배터리 ${r.battery} %` : '배터리 값 없음'} · ${joints ? '관절 값 받음' : '관절 값 없음'} · ${hotJoint(r)}`];
+  const power: [State, string] = !live ? ['none', NOW_NONE] : [bat && joints ? 'ok' : 'none', `${bat ? `배터리 ${Math.round(r.battery!)} %` : '배터리 값 없음'} · ${joints ? '관절 값 받음' : '관절 값 없음'} · ${hotJoint(r)}`];
   return ([
     ['wifi', '에이전트 Wi-Fi', ['none', '에이전트가 붙은 Wi-Fi 이름은 서버가 아직 보내지 않습니다.']],
     ['server', '서버', server ? ['ok', '이 화면이 관제 서버와 연결되어 있습니다.'] : ['blocked', '이 화면이 관제 서버와 연결되어 있지 않습니다.']],
