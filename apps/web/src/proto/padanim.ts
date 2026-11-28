@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 
 /** 시안 u5_1 pad() 그대로: 충전 = #00c389 고리 r 0.34(진하기 0.85) · 0.40(0.3), 앞뒤 1.25 배 · 점검 = #a9b8c6 네모 W 0.38 · D 0.5(0.75), 바깥 +0.06(0.22) */
+/** 밝은 판 색(밝음 1 · 로봇 탭 padMesh 와 같은 값): 충전 #18A07E · 점검 #5E6662 */
+export const PAD_LIGHT = { charge: 0x18a07e, check: 0x5e6662 } as const;
 export const PAD = { charge: { col: 0x00c389, rings: [[0.34, 0.85], [0.40, 0.3]] as [number, number][], sz: 1.25 }, check: { col: 0xa9b8c6, W: 0.38, D: 0.5, out: 0.06, op: [0.75, 0.22] } };
 
 /** 오르는 층 값 한 곳: 크기(바닥 = 1) · 층 간격(m) · 한 박(s) · 층 진하기(바닥 진하기에 곱함) · 채도 낮춤(회색 쪽으로 섞는 몫) */
@@ -17,8 +19,8 @@ export const padStep = (t: number) => Math.floor(Math.max(0, t) / PAD_RISE.beat)
 export const calmMotion = () => typeof matchMedia === 'function' && !!matchMedia('(prefers-reduced-motion: reduce)')?.matches;
 
 /** 바닥 꼴(LineLoop 둘) + 오르는 층 무리(name 'rise' · 층마다 같은 꼴을 작게 · 낮은 채도) */
-export function padGroup(kind: 'charge' | 'check') {
-  const col = kind === 'charge' ? PAD.charge.col : PAD.check.col, g = new THREE.Group(); g.name = `pad-${kind}`;
+export function padGroup(kind: 'charge' | 'check', light = false) {
+  const col = light ? PAD_LIGHT[kind] : kind === 'charge' ? PAD.charge.col : PAD.check.col, g = new THREE.Group(); g.name = `pad-${kind}`;
   const shapes: [THREE.Vector3[], number][] = [];
   if (kind === 'charge') for (const [r, op] of PAD.charge.rings) shapes.push([Array.from({ length: 96 }, (_, i) => new THREE.Vector3(Math.cos((i / 96) * 6.2832) * r, 0.002, Math.sin((i / 96) * 6.2832) * r * PAD.charge.sz)), op]);
   else {

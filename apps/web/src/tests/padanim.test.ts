@@ -39,6 +39,12 @@ describe('바닥 표시 오르는 층', () => {
     padTick(g, 4.5 * b, false); expect(shown(g)).toBe(0);
   });
 
+  it('밝은 판 색 = 밝음 1 (충전 #18A07E · 점검 #5E6662) · 오른 층도 그 색에서 회색 쪽', () => {
+    const col = (g: THREE.Object3D) => ((g.children[0] as THREE.LineLoop).material as THREE.LineBasicMaterial).color.getHex();
+    expect(col(padGroup('charge', true))).toBe(0x18a07e); expect(col(padGroup('check', true))).toBe(0x5e6662); expect(col(padGroup('check'))).toBe(0xa9b8c6);
+    expect(col(layers(padGroup('check', true))[0])).not.toBe(0x5e6662);
+  });
+
   it('움직임 줄이기면 바닥 꼴만(오른 층 없음 · 바닥 둘은 그대로)', () => {
     const g = padGroup('check');
     padTick(g, 3.5 * PAD_RISE.beat, true);
