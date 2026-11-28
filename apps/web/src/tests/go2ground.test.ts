@@ -2,7 +2,7 @@
 // 팀장 11-28 18:47: 실기 로봇이 엎드리면 공중에 떠서 앉음 → 자세마다 몸 · 발 가장 낮은 점이 바닥 y=0
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { applyQ, ground } from '../screens/u4/go2view';
+import { DOWN, STAND, applyQ, ground, poseQ } from '../screens/u4/go2view';
 
 const LEGS = ['FR', 'FL', 'RR', 'RL'];
 // go2model JOINTS 순서(FR FL RR RL × hip thigh calf)
@@ -35,6 +35,16 @@ describe('Go2 3D · 자세별 바닥 맞춤', () => {
     const { root, joints } = fake();
     applyQ(root, joints, v);
     expect(Math.abs(minY(root))).toBeLessThan(1e-6);
+  });
+
+  it('관절값 없음 + posture LYING → 시안 엎드림 자세 · 바닥 y=0 · 관절값이 오면 관절값이 이김 · posture 없으면 서기', () => {
+    expect(poseQ(null, true)).toBe(DOWN);
+    expect(poseQ(null, false)).toBe(STAND);
+    const got = POSES['앉기']; expect(poseQ(got, true)).toBe(got);
+    const a = fake(); applyQ(a.root, a.joints, poseQ(null, false)); const stand = a.root.position.y;
+    const b = fake(); applyQ(b.root, b.joints, poseQ(null, true));
+    expect(Math.abs(minY(b.root))).toBeLessThan(1e-6);
+    expect(b.root.position.y).toBeLessThan(stand - 0.05);
   });
 
   it('엎드리면 몸이 서 있을 때보다 내려온다(관절만 접고 높이를 그대로 두면 뜬다)', () => {
