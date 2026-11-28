@@ -1,5 +1,5 @@
 """Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 6, 7, 8."""
-from datetime import timedelta, timezone
+from datetime import date, timedelta, timezone
 import base64
 import binascii
 import math
@@ -886,7 +886,85 @@ class ScreenPosture(ScreenRobot):
     action: Literal['stand_up', 'stand_down']
 
 
-ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction,
+# 걷기 모드 (팀장 11/28 04:02 · app-design-lx 04:04 합의). 멈춰 있을 때만 받는다.
+# classic: 순정 Classic 걷기, sport: 순정 기본 걷기 (Sport, free_walk 와 다름) -> control FACTORY
+# start: 우리 START 정책, ame2: student 정책 (ONNX 받기 전까지 GAIT_NOT_READY) -> control LOWLEVEL
+# gait.gait 와 control 이 어긋나면 화면은 control 을 믿고 gait 는 모름으로 그린다 (control 이 실제 출력 주인).
+#
+# 거절이 오는 두 길:
+#   동기 ScreenReply (ok=false, 서버가 막음): LEASE_MISMATCH 등 기존 lease · 권한 코드, GAIT_UNSUPPORTED,
+#     GAIT_LATCHED (정지 잠김), GAIT_MOVING (서버가 아는 속도 명령이 0 이 아님)
+#   비동기 gait_result (status REJECTED · FAILED, 에이전트가 막음): GAIT_MOVING (실측 속도),
+#     GAIT_NOT_STANDING, GAIT_NOT_READY, GAIT_BUSY (다른 전환 중), GAIT_CANCELLED (STOP · lease 전환으로 취소),
+#     GAIT_LEASE_LOST, GAIT_TIMEOUT, GAIT_SDK_ERROR. 성공은 status SUCCEEDED · code OK.
+# gait_result.code 는 열린 문자열이다: 모르는 code 가 와도 상태 프레임 전체를 버리지 않는다.
+# request_id 는 화면이 보낸 ScreenGait.id (ScreenEnvelope.id) 를 그대로 쓴다.
+GaitName = Literal['classic', 'sport', 'start', 'ame2']
+GAIT_ORDER = ('classic', 'sport', 'start', 'ame2')
+GaitRejectCode = Literal['GAIT_MOVING', 'GAIT_NOT_STANDING', 'GAIT_NOT_READY', 'GAIT_LATCHED', 'GAIT_BUSY',
+                         'GAIT_UNSUPPORTED', 'GAIT_CANCELLED', 'GAIT_LEASE_LOST', 'GAIT_TIMEOUT', 'GAIT_SDK_ERROR']
+
+
+class ScreenGait(ScreenRobot):
+    t: Literal['gait']
+    lease_id: UUID
+    gait: GaitName
+
+
+# 임무 실행 서버 길 (팀장 11/28 05:09 · 05:14). 화면 -> 서버 -> 에이전트 실시간 메시지.
+# 실기와 데모 (시뮬) 로봇이 같은 메시지 · 같은 관문을 탄다. 시뮬이라 다른 것은 지금 있는 안전 차이
+#   (현장 승인 · 서버 조종 켬 · 총괄 실기 금지는 실기에만) 뿐이다.
+# 이름 · 필드는 폰 직결 PhoneRunStart · PhoneRunControl 과 같게 둔다 (웹이 같은 단추로 붙게).
+# 다른 점: assignment_id 필수 (데모도 배정 · 일정 칸에서 시작) · 모든 op 에 lease_id · screen_id 필수 ·
+#   resume_token 없음 (서버 상태는 구독자 모두에게 가므로 비밀을 싣지 않는다. 같은 화면 증명은
+#   서버가 조종권 lease 와 사용자로 한다) · op 'return' 없음.
+# 서버 관문: 담당 · 조종권 lease 일치 (USER) · 인증 0.5 초 안 · 담당 변경 중 아님 · 소유 확실,
+#   실기는 더해 서버 조종 켬 · 현장 승인 · 총괄 (ADMIN) 실기 조종 금지. 정지 · 반납 · 승인 바뀜 ·
+#   조종권 바뀜 뒤 큐에 남은 run.start · run.control 은 보내지 않는다. start · resume 은 멈춰 있을 때만 (RUN_MOVING).
+#
+# 거절이 오는 두 길:
+#   동기 ScreenReply (ok=false, 서버가 막음): 기존 lease · 권한 코드 (LEASE_MISMATCH · ADMIN_NO_REAL_CONTROL ·
+#     NOT_ROBOT_OWNER 등), RUN_NOT_ALLOWED (관문), RUN_MOVING, RUN_ASSIGNMENT_INVALID (배정이 ACTIVE 가 아님 ·
+#     로봇 · 시나리오 판이 다름), RUN_STOPPED (배정 확인 중 STOP 이 와서 큐에 넣지 않음)
+#   비동기 run_result (status REJECTED, 에이전트 실행 기계가 막음): 폰 직결 reply 와 같은 코드
+#     (FORBIDDEN · NOT_CONTROLLER · RUN_ACTIVE · RUN_NOT_FOUND · RUN_OWNER_MISMATCH · RUN_STATE_CONFLICT ·
+#     RESUME_REJECTED · NAV_UNAVAILABLE · PLAN_UNAVAILABLE · RECORDING_UNAVAILABLE · RUN_CONFLICT),
+#     RUN_UNSUPPORTED (실행 기계가 없는 에이전트), VALIDATION (폰 프레임 검사 실패),
+#     LEASE_HELD (폰 직결 조종자가 Hub 를 먼저 잡음), NOT_CONTROLLER (서버의 지금 USER lease 가 아님).
+#   성공은 status SUCCEEDED · code OK.
+# 데모 Hub 는 서버가 준 유효 USER lease (AgentLease · AgentUnlock.user_id) 를 Hub 조종자로 올린다 (11/28 05:09).
+#   먼저 잡은 쪽이 이긴다. 실기 Hub 에는 이 다리를 놓지 않고 실행 기계가 FORBIDDEN 으로 막는다 (팀장 결정 대기).
+# resume 증명: resume_token 대신 서버가 확인한 «그 로봇의 지금 USER lease 주인» (시작한 사용자이거나 lease 를
+#   넘겨받은 사용자). 잠김 (latched) 중이면 에이전트가 RESUME_REJECTED.
+# 폰 직결 run.* 는 그대로 남고, 서버가 죽었을 때 정지 · 끝 길이다.
+# run_result.code 는 열린 문자열. request_id 는 화면이 보낸 ScreenEnvelope.id 를 그대로 쓴다.
+# 실행 진행 (상태 · 지점) 은 ScreenState.run (에이전트 reported_run) 으로 본다.
+RunControlOp = Literal['pause', 'resume', 'abort']
+RunRelayRejectCode = Literal['RUN_NOT_ALLOWED', 'RUN_MOVING', 'RUN_ASSIGNMENT_INVALID', 'RUN_STOPPED', 'RUN_UNSUPPORTED']
+
+
+class ScreenRunStart(ScreenRobot):
+    t: Literal['run.start']
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID
+
+
+class ScreenRunControl(ScreenRobot):
+    t: Literal['run.control']
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    op: RunControlOp
+
+
+ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait
+                          | ScreenRunStart | ScreenRunControl,
                           Field(discriminator='t')]
 
 
@@ -989,6 +1067,36 @@ class PostureState(Contract):
     mode: Annotated[int, Field(ge=0, le=255, strict=True)] | None
 
 
+class GaitState(Contract):
+    gait: GaitName | None
+    # 지금 고를 수 있는 모드. 겹치지 않고 GAIT_ORDER 순서.
+    available: list[GaitName] = Field(max_length=4)
+
+    @model_validator(mode='after')
+    def ordered_unique(self):
+        if list(self.available) != [g for g in GAIT_ORDER if g in self.available]:
+            raise ValueError('available must be unique and in GAIT_ORDER')
+        return self
+
+
+class GaitResult(Contract):
+    request_id: str = Field(min_length=1, max_length=128)
+    gait: GaitName
+    status: Literal['RUNNING', 'SUCCEEDED', 'REJECTED', 'FAILED']
+    # GaitRejectCode · 'OK' 가 정해진 값이지만, 새 코드 하나로 상태 프레임이 버려지지 않게 열어 둔다.
+    code: str = Field(max_length=64)
+    sdk_code: StrictInt | None
+
+
+class RunCommandResult(Contract):
+    request_id: str = Field(min_length=1, max_length=128)
+    op: Literal['start', 'pause', 'resume', 'abort']
+    run_id: UUID
+    status: Literal['SUCCEEDED', 'REJECTED']
+    # 'OK' 또는 실행 기계 RunRejectCode · 서버 길 RunRelayRejectCode 거절 코드. 새 코드로 상태 프레임이 버려지지 않게 열어 둔다.
+    code: str = Field(max_length=64)
+
+
 class PostureResult(Contract):
     request_id: str = Field(min_length=1, max_length=128)
     action: Literal['stand_up', 'stand_down']
@@ -1028,6 +1136,9 @@ class AgentState(AgentInput):
     response_health: RobotResponseHealth | None = None
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
+    gait: GaitState | None = Field(default=None, exclude_if=lambda value: value is None)
+    gait_result: GaitResult | None = Field(default=None, exclude_if=lambda value: value is None)
+    run_result: RunCommandResult | None = Field(default=None, exclude_if=lambda value: value is None)
     action_result: ActionResult | None = None
     robot_info: Go2RobotInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     control: ControlMode | None = None
@@ -1541,6 +1652,11 @@ class AgentStop(Contract):
 
 
 class AgentUnlock(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields("user_id", "display_name"))
+    # 서버가 확인한 조종권 주인 (11/28). 데모 Hub 가 서버 lease 를 조종자로 올릴 때 이름으로 쓴다.
+    user_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    # 그 사람의 표시 이름 (11/28 웹 시뮬 탭). PhoneState.holder_name 으로 보인다. 모르면 생략.
+    display_name: str | None = Field(default=None, min_length=1, max_length=64, exclude_if=lambda v: v is None)
     t: Literal['unlock'] = 'unlock'
     lease_id: UUID
     stop_gen: Sequence
@@ -1578,9 +1694,42 @@ class AgentPosture(Contract):
     action: Literal['stand_up', 'stand_down']
 
 
+class AgentGait(Contract):
+    t: Literal['gait'] = 'gait'
+    request_id: str = Field(min_length=1, max_length=128)
+    lease_id: UUID
+    gait: GaitName
+
+
+class AgentRunStart(Contract):
+    """ScreenRunStart 를 서버가 확인한 뒤 넘긴 꼴. user_id 는 서버가 인증한 요청자."""
+    t: Literal['run.start'] = 'run.start'
+    request_id: str = Field(min_length=1, max_length=128)
+    user_id: UUID
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID
+
+
+class AgentRunControl(Contract):
+    t: Literal['run.control'] = 'run.control'
+    request_id: str = Field(min_length=1, max_length=128)
+    user_id: UUID
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    op: RunControlOp
+
+
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait
+    | AgentRunStart | AgentRunControl, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1627,9 +1776,13 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control', 'gait', 'gait_result', 'run', 'run_result'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
+    gait: GaitState | None = None
+    gait_result: GaitResult | None = None
+    run: 'RunSnapshot | None' = None
+    run_result: RunCommandResult | None = None
     action_result: ActionResult | None = None
     control: ControlMode | None = None
     robot_info: Go2RobotInfo | None = None
@@ -2404,7 +2557,8 @@ class RunStarted(Contract):
     map_version_id: UUID
     user_id: UUID
     device_id: UUID
-    surface: Literal['phone', 'pc']
+    # 'server' = 화면 -> 서버 -> 에이전트 길 (11/28). device_id 는 로봇마다 정해진 중계 id.
+    surface: Literal['phone', 'pc', 'server']
     screen_id: UUID
     simulation: bool = Field(strict=True)
     map_proof: RunMapProof = omitted()
@@ -2646,6 +2800,101 @@ class AssignmentList(Contract):
     next_cursor: str | None
 
 
+# 일정 · 가용 · 예상 (app-design-lx 11/28 합의). 구간은 [start, end) 반열린 구간이다.
+ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
+AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE']
+EstimateSource = Literal['MEASURED', 'TABLE_UNMEASURED']
+
+
+class ScheduleSlotCreate(Contract):
+    robot_id: UUID
+    scenario_id: UUID | None = None
+    scenario_version: int | None = Field(default=None, ge=1, le=2147483647)
+    gait: GaitName | None = None
+    start: UTCDateTime
+    end: UTCDateTime
+    kind: ScheduleKind
+    assignment_id: UUID | None = None
+    memo: ApprovalText = Field(default='', max_length=2000)
+
+    @model_validator(mode='after')
+    def slot_shape(self):
+        if self.end <= self.start:
+            raise ValueError('end must be after start')
+        if (self.scenario_id is None) != (self.scenario_version is None):
+            raise ValueError('scenario_id and scenario_version go together')
+        if self.scenario_id is None and self.kind != 'BATTERY_SWAP':
+            raise ValueError('only BATTERY_SWAP may omit scenario')
+        return self
+
+
+class ScheduleSlot(Contract):
+    id: UUID
+    robot_id: UUID
+    scenario_id: UUID | None
+    scenario_version: int | None
+    gait: GaitName | None
+    start: UTCDateTime
+    end: UTCDateTime
+    kind: ScheduleKind
+    assignment_id: UUID | None
+    memo: str
+    created_by: UUID
+    created_at: UTCDateTime
+
+
+class ScheduleSlotPatch(Contract):
+    # 생략은 그대로 두고 null 은 거부한다. 시작 · 끝 순서와 시나리오 유무는 합친 값으로 서버가 다시 검사한다.
+    robot_id: UUID = omitted()
+    start: UTCDateTime = omitted()
+    end: UTCDateTime = omitted()
+    kind: ScheduleKind = omitted()
+    gait: GaitName = omitted()
+
+
+class ScheduleDay(Contract):
+    day: date
+    tz: str
+    slots: list[ScheduleSlot]
+
+
+class RobotAvailability(Contract):
+    robot_id: UUID
+    robot_name: str
+    state: AvailabilityState
+    busy_until: UTCDateTime | None
+    busy_slot_id: UUID | None
+    busy_label: str | None
+    battery_pct: float | None = Field(ge=0, le=100)
+    demo: bool
+    sim: bool
+    location_label: str | None
+
+
+class RobotAvailabilityList(Contract):
+    items: list[RobotAvailability]
+
+
+class EstimateRequest(Contract):
+    scenario_id: UUID
+    scenario_version: int | None = Field(default=None, ge=1, le=2147483647)
+    robot_id: UUID
+    gait: GaitName
+    start: UTCDateTime | None = None
+    # 이미 넣은 칸을 다시 예상할 때 그 칸 자신은 「다음 칸」 에서 뺀다.
+    exclude_slot_id: UUID | None = None
+
+
+class Estimate(Contract):
+    length_m: float = Field(ge=0)
+    walk_s: float = Field(ge=0)
+    task_s: float = Field(ge=0)
+    eta: UTCDateTime
+    margin_s: float | None
+    end_battery_pct: float | None
+    estimate_source: EstimateSource
+
+
 # FH-SPEC-05 §13: phone -> robot, never routed through the control server.
 PhoneRobotID = Annotated[str, Field(pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                                     description='소문자 하이픈 UUID 표준형만 허용한다.',
@@ -2663,6 +2912,8 @@ class PhoneHello(PhoneEnvelope):
     proto: Literal['fh-phone/1']
     ticket: str = Field(min_length=1, max_length=2048)
     device: UUID
+    # 다른 화면에 보일 조종자 이름 (11/28, 선택). 표시용일 뿐 권한 판단에 쓰지 않는다.
+    display_name: str = omitted(min_length=1, max_length=64)
 
 
 class PhoneLease(PhoneEnvelope):
@@ -2858,9 +3109,15 @@ class RunResumeDetail(Contract):
                               description='256 bit 이상 난수. 원래/재바인딩된 실행 연결에만 반환하며 기록·보기 연결에는 금지한다.')
 
 
+PhoneHolderType = Literal['USER', 'RUN']
+
+
 class PhoneReply(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('detail'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('detail', 'holder_type', 'holder_name'))
     detail: RunResumeDetail | None = None
+    # LEASE_HELD 거절에만 (11/28): 누가 쥐었는지. PhoneState 의 같은 두 칸과 같은 뜻.
+    holder_type: PhoneHolderType | None = Field(default=None, exclude_if=lambda v: v is None)
+    holder_name: str | None = Field(default=None, max_length=64, exclude_if=lambda v: v is None)
     t: Literal['reply']
     id: str
     ok: bool
@@ -2955,6 +3212,10 @@ class PhoneState(AgentState):
     sim_time_s: float | None
     sim_wall_delta_s: float | None
     simulation: bool
+    # 누가 Hub 를 쥐었나 (11/28 웹 시뮬 탭). USER: 폰 직결 조종자 또는 서버 중계 뒤의 사람.
+    # RUN: 예약 실행이 쥔 RUN lease (이름 null). null: 아무도 안 쥠. 이름은 폰 hello · 서버 unlock 이 준 것, 모르면 null.
+    holder_type: PhoneHolderType | None
+    holder_name: str | None = Field(max_length=64)
 
 
 class PhoneStateUpload(Contract):
@@ -3586,6 +3847,9 @@ TOP.update(SlamMessage=SlamMessage, MediaMessage=MediaMessage, MediaChannel=Medi
 REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})
 
 TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
+TOP.update(GaitName=GaitName, GaitRejectCode=GaitRejectCode)
+TOP.update(ScheduleKind=ScheduleKind, AvailabilityState=AvailabilityState, EstimateSource=EstimateSource)
+REQUEST_MODELS.update({ScheduleSlotCreate, ScheduleSlotPatch, EstimateRequest})
 TOP.update(LowlevelAction=LowlevelAction, ControlMode=ControlMode, FactoryUnsupportedAction=FactoryUnsupportedAction, LowlevelQuery=LowlevelQuery)
 
 REQUEST_MODELS.update({StopRequest, PhoneStop})

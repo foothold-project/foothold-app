@@ -26,6 +26,8 @@ class Peer:
     device: str | None = None
     purpose: str | None = None
     surface: str = 'phone'
+    name: str | None = None  # display only: phone hello display_name / server unlock display_name
+    run_holder: bool = False  # the server relay holding a schedule run's RUN lease
     run_cancel: bool = False
     run_start_reply: dict | None = field(default=None, repr=False)
     jti: str | None = None
@@ -350,6 +352,7 @@ class Hub:
             p.jti, p.issued = ticket['jti'], ticket['issued']
             p.surface = ticket['surface']
             p.run_cancel = ticket.get('run_cancel', False)
+            p.name = f.get('display_name')
             return {'t': 'hello', 'id': f['id'], 'robot': self.robot, 'proto': PROTO,
                     'limits': deepcopy(SIMULATION_LIMITS if self.simulation is True else LIMITS),
                     'policy': dict(self.policy), 'simulation': self.simulation,
@@ -425,13 +428,13 @@ class Hub:
                 reply['lease_id'] = self.session.lease_id
             elif self.owner is None:
                 if self.reservation is not None and self.now() < self.reservation['until'] and self.reservation['identity'] != identity:
-                    reply.update(ok=False, error=self.error('LEASE_HELD'))
+                    reply.update(ok=False, error=self.error('LEASE_HELD'), **self.holder())
                 elif self._grant(peer):
                     reply['lease_id'] = self.session.lease_id
                 else:
                     reply.update(ok=False, error=self.error('STOP_CONFIRM_FAILED'))
             elif kind == 'lease.take':
-                reply.update(ok=False, error=self.error('LEASE_HELD'))
+                reply.update(ok=False, error=self.error('LEASE_HELD'), **self.holder())
             elif identity in self.cooldowns and self.now() < self.cooldowns[identity]:
                 reply.update(ok=False, error=self.error('LEASE_REQUEST_COOLDOWN'))
             elif self.pending is not None:
@@ -517,6 +520,16 @@ class Hub:
             if self.clock_origin is None or self.clock_origin[0] != st['episode']:
                 self.clock_origin = (st['episode'], st['sim_t'], self.now())
 
+    def holder(self):
+        """Who holds the Hub, for display (11/28): USER with a name if known, RUN for a schedule run."""
+        if self.owner is not None:
+            p = self.peers[self.owner]
+            return ({'holder_type': 'RUN', 'holder_name': None} if p.run_holder
+                    else {'holder_type': 'USER', 'holder_name': p.name})
+        if self.reservation is not None:
+            return {'holder_type': 'USER', 'holder_name': None}  # reserved identity, name not kept
+        return {'holder_type': None, 'holder_name': None}
+
     def state(self, peer):
         s = self.session._state()
         st = self.session.core.st
@@ -536,7 +549,7 @@ class Hub:
                 'posture': {k: st.get(k) for k in ('z', 'tilt_deg', 'fallen', 'body_still')},
                 'velocity': [st.get(k) for k in ('vx', 'vy', 'wz')], 'echo': deepcopy(p.echo),
                 'wall_time_ms': int(self.wall()*1000), 'sim_time_s': sim_t if self.simulation else None,
-                'sim_wall_delta_s': delta, 'simulation': self.simulation}
+                'sim_wall_delta_s': delta, 'simulation': self.simulation, **self.holder()}
 
     def revoke(self, frame):
         self._expire()  # open authority follows its fixed monotonic deadline

@@ -519,6 +519,35 @@ class Assignment(Tenant, Base):
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ScheduleSlot(Tenant, Base):
+    # 시나리오는 판 번호로만 적는다 (외래 키 없음): 휴지통 영구 삭제를 막지 않기 위해서다.
+    __tablename__ = 'schedule_slots'
+    __table_args__ = (
+        UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'assignment_id'], ['assignments.org_id', 'assignments.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        CheckConstraint('end_at > start_at', name='schedule_slot_order'),
+        CheckConstraint("kind IN ('CONFIRMED','DRAFT','BATTERY_SWAP')", name='schedule_slot_kind'),
+        CheckConstraint("gait IS NULL OR gait IN ('classic','sport','start','ame2')", name='schedule_slot_gait'),
+        CheckConstraint('(scenario_id IS NULL) = (scenario_version IS NULL)', name='schedule_slot_scenario_pair'),
+        CheckConstraint("scenario_id IS NOT NULL OR kind = 'BATTERY_SWAP'", name='schedule_slot_scenario_required'),
+        Index('schedule_slots_robot_time', 'org_id', 'robot_id', 'start_at'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    scenario_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    scenario_version: Mapped[int | None] = mapped_column(Integer)
+    gait: Mapped[str | None] = mapped_column(Text)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    kind: Mapped[str] = mapped_column(Text)
+    assignment_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    memo: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
 class IdempotencyReceipt(Tenant, Base):
     __tablename__ = 'idempotency_receipts'
     __table_args__ = (

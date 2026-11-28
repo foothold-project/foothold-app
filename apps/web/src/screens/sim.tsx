@@ -3,11 +3,11 @@
 // 키보드는 이 화면(시뮬 로봇 직결)에만 붙는다 — 실기 로봇 화면에는 없다(ADR-003 §4.2). «시뮬 정지»는 sim.stop()(폰 직결 STOP 과 같은 경로).
 // 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
 import { useEffect, useRef, useState } from 'react';
-import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
+import { allowed, runHolds, runMoving, sim, useSim, velocity, type Sim } from '../phone';
 import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { useStopPress } from '../App';
-import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
+import { EXP, HeldRun, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
@@ -117,6 +117,7 @@ function SimView({ admin }: { admin: boolean }) {
         <SimStop />
       </div>
       {notes.map((t) => <p key={t} className="fh-why" role="status">{t}</p>)}
+      <HeldRun />
       {/* 실행 칸(03 §5.2): 상태·지점 n/m·진행 막대·[일시정지][취소] 한 줄 → 실행 안내 → 시나리오 고르기·실행 → 개발자 정보. 조종권 단추는 그 아래 */}
       <div style={{ border: '1px solid var(--line2)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="시나리오" data-run-box>
         {run.notes.length > 0 && <div className="fh-row" style={{ flexWrap: 'wrap' }}>
@@ -128,7 +129,7 @@ function SimView({ admin }: { admin: boolean }) {
         {run.dev}
       </div>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
-        {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>}
+        {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종 시작</button>}
         {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>}
         {open && mine && <button type="button" className="btn" disabled={l.busy === 'release'} onClick={() => sim.release()}>조종권 반납</button>}
         {l.at === 'closed' && l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}
@@ -145,11 +146,11 @@ function SimView({ admin }: { admin: boolean }) {
       {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
         <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}
       {keys && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="키보드 조종" data-sim-keys>
-        <span>{running ? '실행 중 — 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
+        <span>{running ? '실행 중 · 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
         {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('←/→', '옆걸음', (can.left || can.right) && !running)}{key('A/D', '제자리 회전', !running)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
-        <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만 — 이 시뮬은 키·시나리오로</span>
+        <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기»)만 · 이 시뮬은 키 · 시나리오로</span>
       </div>}
     </section>
     <SimQuad fm={fm} hasMap={hasMap} mine={mine} />

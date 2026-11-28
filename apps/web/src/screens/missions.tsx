@@ -7,7 +7,8 @@ import { createPortal } from 'react-dom';
 import type { Action, MapFloor, MapVersion, Terrain, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type MapUpdate, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
-import { KIND as DEVICE, soon, type Ctx } from '../screens';
+import { KIND as DEVICE, type Ctx } from '../screens';
+import { RunCtl, useAssign } from './missionrun';
 import { rt, useRt } from '../rt';
 import { MapFrame, MapImage } from '../mapframe';
 import { Note, RUN, Shapes, canon, floorsOf, isVersion, purposeOf, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place, type Run } from './maps';
@@ -27,7 +28,7 @@ type AnyWrite = MissionWrite | ScenarioWrite;
 const WHAT: Record<Plan, string> = { missions: '임무', scenarios: '시나리오' };
 const ACT: Record<MissionStep['action'], string> = { PHOTO: '사진 찍기', WAIT: '대기', OPERATOR_CONFIRM: '운영자 확인', SENSOR_LOG: '센서 값 기록' };   // 카탈로그를 못 받았을 때 이름
 const VALUE: Record<string, string> = { rgb: '카메라', depth: '뎁스 카메라', lidar: '라이다', battery: '배터리' };
-const FINISH = { STAY: '마지막 지점에서 대기', RETURN_TO_START: '시작 지점으로 복귀', GO_TO: '지정 지점으로 이동' } as const;
+export const FINISH = { STAY: '마지막 지점에서 대기', RETURN_TO_START: '시작 지점으로 복귀', GO_TO: '지정 지점으로 이동' } as const;
 /** 장치 종류 이름(서버 이유 문구의 CAMERA_RGB 같은 말도 바꿈 — U5) */
 const devName = (k: string) => DEVICE[k as keyof typeof DEVICE] ?? k;
 const plain = (s: string | null) => (s ?? '').replace(/CAMERA_RGB|CAMERA_DEPTH|LIDAR|BATTERY/g, devName);
@@ -35,14 +36,14 @@ const devices = (l: string[]) => (l.length ? l.map(devName).join(', ') : '없음
 
 // 받은 값 모양 검사 — 어긋난 응답은 오류 한 줄로(지도 탭 shape 와 같은 방식)
 const str = (v: unknown) => typeof v === 'string', int = Number.isInteger, arr = Array.isArray;
-const isPlan = (x: AnyPlan) => !!x && str(x.id) && str(x.name) && int(x.version) && int(x.number) && int(x.latest_version) && str(x.created_by)
+export const isPlan = (x: AnyPlan) => !!x && str(x.id) && str(x.name) && int(x.version) && int(x.number) && int(x.latest_version) && str(x.created_by)
   && ('steps' in x ? arr(x.steps) : arr(x.waypoints) && !!x.finish && arr(x.floor_ids) && arr(x.required_devices));
 const isActs = (l: Action[]) => arr(l) && l.every((a) => !!a && str(a.key) && str(a.label) && typeof a.available === 'boolean' && arr(a.options) && !!a.params);
 const isPreview = (r: ScenarioPreview) => !!r && typeof r.reachable === 'boolean' && arr(r.points) && arr(r.segments) && Number.isFinite(r.est_distance_m) && arr(r.required_devices);
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 임무·시나리오 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 
 /** 편집 칸이 다루는 본문(저장 요청 모양) */
-function bodyOf(x: AnyPlan): AnyWrite {
+export function bodyOf(x: AnyPlan): AnyWrite {
   if ('steps' in x) return { name: x.name, steps: x.steps.map((s) => ({ action: s.action, params: { ...s.params } })) };
   return { name: x.name, waypoints: x.waypoints.map((w) => ({ ...w })), finish: { mode: x.finish?.mode ?? 'STAY', target: x.finish?.target ?? null }, notes: x.notes ?? '' };
 }
@@ -107,6 +108,7 @@ export function ScenarioPick({ robot, cancel }: Pick<Ctx, 'robot' | 'cancel'>) {
   }, [n]);
   const where = (x: Scenario) => real.find((p) => x.floor_ids.includes(p.floor.id));
   const list = t.tree && all ? all.filter((x) => (here ? x.floor_ids.includes(here.floor.id) : !!where(x))) : null, chosen = list?.find((x) => x.id === pick);
+  const assign = useAssign(robot.id, chosen?.id, cancel);
   return <>
     <h2>시나리오 고르기</h2>
     {t.tree && <p className="lv-note" data-scen-where>{here ? `${here.site.name} › ${here.building.name} › ${here.floor.name}의 시나리오입니다.` : '로봇이 있는 층을 아직 모릅니다 — 실기 장소의 시나리오를 모두 보여 줍니다. 로봇이 있는 층의 시나리오를 고르세요.'}</p>}
@@ -114,8 +116,8 @@ export function ScenarioPick({ robot, cancel }: Pick<Ctx, 'robot' | 'cancel'>) {
       return <li key={x.id}><button type="button" aria-pressed={pick === x.id} data-scen-pick={x.id} onClick={() => setPick(x.id)}>
         <b>{x.name}</b><span className="fh-grow" /><span className="lbl">{w ? `${w.building.name} ${w.floor.name} · ` : ''}지점 {x.waypoints.length}</span></button></li>; })}</ul>}
     {list && !list.length && <p className="lv-note">{here ? '이 층에는 시나리오가 없습니다.' : '실기 장소에 시나리오가 없습니다.'} 시나리오는 PC «시뮬» 탭에서 만듭니다.</p>}
-    <div className="fh-row"><button type="button" className="btn pri" aria-label={`${chosen ? chosen.name : '고른 시나리오'} 실행(준비 중)`} {...soon}>▶ 실행(준비 중)</button></div>
-    <p className="lv-note">실기 시나리오 실행은 준비 중입니다. 지금은 고르기만 됩니다.</p>
+    {/* 실행 · 일시정지 · 이어 가기 · 취소(05 §6.5 서버 길). 이 시트는 조종 화면 안이라 조종권은 조종 화면 것을 그대로 쓴다(watch 안 함) */}
+    {chosen ? <RunCtl robot={robot} scen={chosen} assign={assign} /> : list && !!list.length && <p className="lv-note" data-run-pick>시나리오를 고르면 실행할 수 있습니다.</p>}
     {!list && !err && !t.err && <p className="lv-note" role="status">시나리오를 불러오는 중…</p>}
     {(err || t.err) && <div className="fh-row"><p className="fh-msg" role="alert">시나리오를 받지 못했습니다. {err || t.err}</p>
       <button type="button" className="btn" onClick={() => { if (err) setN((x) => x + 1); if (t.err) t.again(); }}>다시 시도</button></div>}

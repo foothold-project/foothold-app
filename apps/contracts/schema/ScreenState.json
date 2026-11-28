@@ -407,6 +407,104 @@
       "title": "FloorContext",
       "type": "object"
     },
+    "GaitResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "gait": {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "title": "Gait",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "sdk_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sdk Code"
+        },
+        "status": {
+          "enum": [
+            "RUNNING",
+            "SUCCEEDED",
+            "REJECTED",
+            "FAILED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "gait",
+        "status",
+        "code",
+        "sdk_code"
+      ],
+      "title": "GaitResult",
+      "type": "object"
+    },
+    "GaitState": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "items": {
+            "enum": [
+              "classic",
+              "sport",
+              "start",
+              "ame2"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Available",
+          "type": "array"
+        },
+        "gait": {
+          "anyOf": [
+            {
+              "enum": [
+                "classic",
+                "sport",
+                "start",
+                "ame2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gait"
+        }
+      },
+      "required": [
+        "gait",
+        "available"
+      ],
+      "title": "GaitState",
+      "type": "object"
+    },
     "Go2Attitude": {
       "additionalProperties": false,
       "description": "Display-only LowState IMU rpy, radians; invalid axes become unknown.",
@@ -1050,6 +1148,27 @@
       "title": "PostureState",
       "type": "object"
     },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
     "RobotResponseHealth": {
       "additionalProperties": false,
       "description": "Display-only RPC round trips; timeouts are censored at SDK's 100 ms limit.\n\nCounts and samples cover the last 3 seconds, with at most 20 RPC samples.\nNo field is a motion acknowledgement or physical stop evidence.",
@@ -1126,6 +1245,126 @@
         "sample_count"
       ],
       "title": "RobotResponseHealth",
+      "type": "object"
+    },
+    "RunCommandResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "start",
+            "pause",
+            "resume",
+            "abort"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "SUCCEEDED",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "op",
+        "run_id",
+        "status",
+        "code"
+      ],
+      "title": "RunCommandResult",
+      "type": "object"
+    },
+    "RunSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "fail_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fail Code"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "QUEUED",
+            "PREPARING",
+            "MOVING",
+            "AT_WAYPOINT",
+            "PERFORMING",
+            "WAIT_CONFIRM",
+            "PAUSED",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "step": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "wait_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "LINK_LOST",
+                "STOPPED_BY_USER",
+                "RECORDING_UNAVAILABLE"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wait Reason"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "step",
+        "progress",
+        "wait_reason",
+        "fail_code"
+      ],
+      "title": "RunSnapshot",
       "type": "object"
     },
     "SlamPoseFrame": {
@@ -1392,6 +1631,28 @@
       "title": "Devices",
       "type": "array"
     },
+    "gait": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GaitState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "gait_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GaitResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "latched": {
       "anyOf": [
         {
@@ -1477,6 +1738,28 @@
       "anyOf": [
         {
           "$ref": "#/$defs/Go2RobotInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunCommandResult"
         },
         {
           "type": "null"

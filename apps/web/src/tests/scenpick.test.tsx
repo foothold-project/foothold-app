@@ -1,5 +1,5 @@
 // RB-MAP-NO-SCEN 11-18: 배정 화면을 없애고 «실기 조종할 때 시나리오를 고른다». 폰 조종 화면 시나리오 시트 = 이 로봇이 있는 층의 실기 시나리오(층 모르면 실기 장소 전체 + 안내),
-// 실행은 실기 실행기 전이라 «준비 중» 비활성. 로봇 상세 «배정» 단추·지도 탭 시나리오 창은 없고, 어디서도 /assignments 를 부르지 않는다. STOP 은 그대로.
+// 실행은 05 §6.5 서버 길(run.start · W1 runctl): 고르면 실행 칸(조종권 · 배정 확인으로 이음, 배정은 GET 으로 찾기만). 로봇 상세 «배정» 단추·지도 탭 시나리오 창은 없다. STOP 은 그대로.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -60,23 +60,23 @@ const sheet = async () => {
   return $('[data-sheet]')!;
 };
 const names = (s: Element) => [...s.querySelectorAll('[data-scen-pick] b')].map((b) => b.textContent);
-const runBtn = (s: Element) => [...s.querySelectorAll('button')].find((b) => b.textContent === '▶ 실행(준비 중)')!;
 
 describe('폰 조종 시나리오 시트 — 조종할 때 고르기', () => {
-  it('로봇이 있는 층(1층)의 실기 시나리오만(다른 층·시뮬 장소·휴지통 제외), 고르면 눌림 표시, 실행은 «준비 중» 비활성, STOP 그대로', async () => {
+  it('로봇이 있는 층(1층)의 실기 시나리오만(다른 층·시뮬 장소·휴지통 제외), 고르면 눌림 표시 · 실행 칸(이 로봇의 배정만 GET), STOP 그대로', async () => {
     RA = robotA(at('f1'));
     serve();
     await open('#/drive/r-a', true);
     const s = await sheet();
     expect(s.textContent).toContain('본관 › 본동 › 1층의 시나리오입니다.');
     expect(names(s)).toEqual(['1층 순찰']);
-    expect(runBtn(s).disabled).toBe(true);
+    expect($('[data-run-ctl]', s)).toBeNull();
+    expect(s.textContent).toContain('시나리오를 고르면 실행할 수 있습니다');
+    expect(calls.some((c) => c.includes('/assignments'))).toBe(false);
     await click($('[data-scen-pick="s1"]', s));
     expect($('[data-scen-pick="s1"]', s)!.getAttribute('aria-pressed')).toBe('true');
-    expect(runBtn(s).disabled).toBe(true);
-    expect(runBtn(s).getAttribute('aria-label')).toBe('1층 순찰 실행(준비 중)');
-    expect(s.textContent).toContain('실기 시나리오 실행은 준비 중입니다');
-    expect(calls.some((c) => c.includes('/assignments'))).toBe(false);
+    expect($('[data-run-ctl="r-a"]', s)).not.toBeNull();
+    expect(s.textContent).not.toContain('준비 중');
+    expect(calls.filter((c) => c.includes('/assignments'))).toEqual(['GET /assignments']);   // 찾기만(robot_id 쿼리) · 만들지 않음
     act(() => FakeWS.last.open());
     await click($('[data-stop]'));
     expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['r-a']);

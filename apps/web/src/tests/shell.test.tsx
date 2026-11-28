@@ -55,19 +55,24 @@ function eachPhoneScreen(user: string, f: (where: string) => void) {
 const cardNames = () => $$('.dv-card b').map((b) => b.textContent);
 
 describe('메뉴 정의(한 곳)', () => {
-  it('PC 메뉴 5개(시나리오는 지도 탭 안)(실기 조종 탭 없음, 시뮬 탭, 결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
-    expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '지도', '시뮬', '기록', '설정']);
+  it('PC 메뉴 6개 관제·로봇·지도·임무·기록·설정(U0-01: 실기 조종 탭 없음, 시뮬·결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
+    expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['관제', '로봇', '지도', '임무', '기록', '설정']);
+    expect(tabFromHash('#/sim', false)).toBe('sim');   // 시뮬 탭은 메뉴에서만 숨김, 주소로는 그대로
     expect(tabFromHash('#/approval', false)).toBe('approval');   // 옛 결재·알림 링크는 주소로 그대로
     expect(PHONE_TABS.map((t) => labelOf(t, 'OPERATOR'))).toEqual(['조종', '기록']);
     expect(PHONE_SHEETS.map((t) => t.label)).toEqual(['자세', '시나리오', '지도·목표', '정책']);
   });
   it('운영자는 결재 탭 이름이 «내 요청»', () => {
-    expect(labelOf(PC_TABS[1], 'OPERATOR')).toBe('내 요청');
+    expect(labelOf(PC_TABS.find((t) => t.id === 'approval')!, 'OPERATOR')).toBe('내 요청');
   });
-  it('주소의 탭이 이 틀에 없으면 첫 탭(PC 옛 #/drive → 로봇)', () => {
+  it('주소의 탭이 이 틀에 없으면 첫 탭(PC 첫 화면 = 관제, 옛 #/drive → 로봇, 옛 #/mission → 임무 탭)', () => {
     expect(tabFromHash('#/map', false)).toBe('map');
     expect(tabFromHash('#/map', true)).toBe('drive');
-    expect(tabFromHash('', false)).toBe('fleet');
+    expect(tabFromHash('', false)).toBe('control');
+    expect(tabFromHash('#/nope', false)).toBe('control');
+    expect(tabFromHash('#/missions', false)).toBe('missions');   // 임무 탭(W2)
+    expect(tabFromHash('#/mission', false)).toBe('missions');   // 옛 시나리오 주소도 임무 탭
+    expect(tabFromHash('#/control', true)).toBe('drive');
     expect(tabFromHash('#/drive', false)).toBe('fleet');
     expect(tabFromHash('#/drive/r7', false)).toBe('fleet');
   });
@@ -76,15 +81,18 @@ describe('메뉴 정의(한 곳)', () => {
 describe('탭 전환', () => {
   it('PC: 메뉴를 누르면 제목·본문·현재 표시가 그 탭으로', () => {
     mount(false);
-    expect(navLabels()).toEqual(['로봇', '지도', '시뮬', '기록', '설정']);
+    expect(navLabels()).toEqual(['관제', '로봇', '지도', '임무', '기록', '설정']);
+    expect($('h1').textContent).toBe('관제');   // PC 첫 화면(U5-02)
     expect($('nav a[href="#/drive"]')).toBeNull();
     expect($('nav a[href="#/approval"]')).toBeNull();
+    expect($('nav a[href="#/sim"]')).toBeNull();
     for (const t of shown()) {
       click($(`nav a[href="#/${t.id}"]`));
-      const l = labelOf(t, 'ORG_ADMIN');
+      const to = t;   // 임무 = 임무 탭(W2)
+      const l = labelOf(to, 'ORG_ADMIN');
       expect($('h1').textContent).toBe(l);
       expect($('main').getAttribute('aria-label')).toBe(l);
-      expect($$('nav a[aria-current="page"]').map((a) => a.getAttribute('href'))).toEqual([`#/${t.id}`]);
+      expect($$('nav a[aria-current="page"]').map((a) => a.getAttribute('href'))).toEqual([`#/${to.id}`]);
     }
   });
   for (const h of ['#/drive', '#/drive/r7']) it(`PC 옛 주소 ${h} → 로봇 탭(조종 화면 없음)`, () => {
@@ -95,7 +103,7 @@ describe('탭 전환', () => {
     expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/fleet');
   });
   it('PC 로봇 목록: 행마다 «마지막 수신» 시각, 상세에 조종 단추 없음', () => {
-    mount(false); feed();
+    mount(false, 'u-kim', '#/fleet'); feed();
     expect($$('[aria-label="로봇 목록"] [data-seen]').map((e) => e.textContent)).toEqual(expect.arrayContaining(['마지막 수신 13:40:05']));
     expect($$('[aria-label="로봇 목록"] [data-seen]')).toHaveLength(3);
     expect($$('main button').filter((b) => /조종/.test(b.textContent!))).toEqual([]);
@@ -157,7 +165,7 @@ describe('탭 전환', () => {
 
 describe('역할 전환', () => {
   it('운영자로 바꿔도 결재·«내 요청» 탭은 메뉴에 없고 남의 로봇은 보는 중, 폰에는 내 로봇만', () => {
-    mount(false); feed();
+    mount(false, 'u-kim', '#/fleet'); feed();
     pickUser('u-lee');
     expect(navLabels()).not.toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
@@ -195,7 +203,7 @@ describe('STOP 상시 표시', () => {
     eachPhoneScreen(u.id, (where) => one(true, where, u.role === 'ORG_ADMIN'));
   });
   it('STOP 을 누르면 실시간 연결로 보내고, 서버가 받으면 띠에 «정지 요청됨»', () => {
-    mount(false, 'u-lee');
+    mount(false, 'u-lee', '#/fleet');   // 로봇 탭 = 고른 로봇이 STOP 대상(관제 탭은 다른 탭처럼 고르기)
     act(() => FakeWS.last.open());
     click($('[aria-label="비상 정지"]'));
     expect(FakeWS.last.of('stop')).toMatchObject([{ robot: 'r3' }]);

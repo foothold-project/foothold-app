@@ -111,10 +111,10 @@ describe('PC «시뮬» 탭 첫 화면', () => {
 });
 
 describe('PC «시뮬» 탭', () => {
-  it('두 역할 모두 왼쪽 메뉴에 «시뮬» 탭, 폰 틀에는 없음(#/sim → 조종)', async () => {
+  it('두 역할 모두 왼쪽 메뉴에 «시뮬» 없음(U0-01) · #/sim 주소로는 열림, 폰 틀에는 없음(#/sim → 조종)', async () => {
     for (const uid of ['u-lee', 'u-kim']) {
       serve(); await mount(uid);
-      expect([...box.querySelectorAll('.fh-nav a')].map((a) => a.textContent)).toContain('시뮬');
+      expect([...box.querySelectorAll('.fh-nav a')].map((a) => a.textContent)).not.toContain('시뮬');
       expect($('h1')!.textContent).toBe('시뮬');
       act(() => root?.unmount()); root = null; box.remove(); sim.clear();
     }
@@ -357,3 +357,35 @@ describe('PC «시뮬» 탭', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
 });
+
+describe('시뮬 탭 hello 의 내 이름 (#537 a8cac9f2 PhoneHello.display_name)', () => {
+  it('로그인한 사용자 이름을 hello.display_name 으로 보낸다(LEASE_HELD 를 받는 쪽이 «OO 님» 을 쓰게)', async () => {
+    serve(); await mount();
+    await launch();
+    const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
+    act(() => a.open()); await flush();
+    expect(a.sent.find((m) => m.t === 'hello')).toMatchObject({ t: 'hello', robot: S1, display_name: '이OO' });
+  });
+});
+
+describe('시뮬 탭 RUN 이 쥐면 (#537 state.holder_type · 08:04)', () => {
+  it('«조종 시작» 회색 + 까닭 한 줄 · 일시정지 못 함은 실행 칸 한 곳 · 칠한 단추 없음 · RUN 이 놓으면 «조종 시작» 다시 켜짐', async () => {
+    serve(); await mount();
+    await launch();
+    const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
+    act(() => a.open()); await flush();
+    await recv(a, welcome); await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
+    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect($('[data-sim-view] [data-held-run] button')).toBeNull();
+    expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
+    expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
+    expect($('[data-sim-view] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
+    expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-view] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
+    await click(btn('조종 시작'));
+    expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);   // 정해진 거절(LEASE_HELD)을 보내지 않음
+    await recv(a, phoneState({ holder_type: null, holder_name: null }));
+    expect(btn('조종 시작')!.disabled).toBe(false);
+    expect($('[data-held-run]')).toBeNull();
+  });
+});
+
