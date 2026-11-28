@@ -3,6 +3,9 @@
 .u4 .g.btn.restart{color:#00c389}
 .u4 .rail{left:24px;top:88px;width:250px;bottom:24px;padding:16px 10px}
 .u4 .rcard{height:58px}.u4 .rcard small{white-space:nowrap}
+/* 고른 시뮬 카드: 고른 칸 초록(.rcard.on)이 시뮬 파란 점선(.rehearse)을 덮지 않게, 시뮬 파랑(dark.pv · light.pv 의 .rehearse 색)으로 고른 꼴 */
+.proto .u4 .rcard.on.rehearse{background:rgba(76,155,255,.10);border:1px dashed #4C9BFF}.proto .u4 .rcard.on.rehearse .av{background:#4C9BFF;color:#fff}
+.proto.light .u4 .rcard.on.rehearse{background:rgba(47,111,224,.08);border-color:#2F6FE0}.proto.light .u4 .rcard.on.rehearse .av{background:#2F6FE0;color:#fff}
 .u4 .hdr .g{position:relative}
 .u4 .hdr{position:absolute;left:298px;right:24px;top:88px;height:52px;display:flex;align-items:center;gap:10px}
 .u4 .st{height:42px;padding:0 13px;border-radius:13px;display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700}
