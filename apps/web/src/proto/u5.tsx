@@ -16,7 +16,7 @@ import type { Ctx } from '../screens';
 import { actOf, controlPick, flagNote, isLost, lastly, needs, useControlPick } from '../screens/control';
 import { floorName, floorsOf, useTree } from '../screens/maps';
 import { sitePose, toMapPx } from './site';
-import { tiles as tileGl, type TileLook } from './tileview';
+import { FRONT_DIST, REAR_DIST, tiles as tileGl, type TileLook } from './tileview';
 import { SiteView } from './u5map';
 import './u5.css';
 
@@ -208,7 +208,7 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
   const id = f.x.id, summary = f.x.unknown === 'summary';
   // 서버 관절은 그릴 때마다 새로 읽는다(같은 화면 값이면 다시 그리지 않아도 관절은 바뀜 · 1 초 넘게 묵으면 버림)
   useEffect(() => (ref.current ? tileGl().add(ref.current, () => ({ ...look.current, q: summary ? null : jointsNow(id) })) : undefined), []);
-  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: v.front ? 0 : 'back', dist: v.front ? 1.25 : 2.1, floor: 0.5 });
+  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: v.front ? 0 : 'back', dist: v.front ? FRONT_DIST : REAR_DIST, floor: 0.5 });
   const showFront = v.front;
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>
