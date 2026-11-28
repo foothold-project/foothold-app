@@ -339,6 +339,13 @@ describe('재현 재생기(U8-08 · U8-09: READY 클립)', () => {
     await click($('[data-clip]', rows()[0]));
     return $<HTMLVideoElement>('video')!;
   };
+  it('영상 · 재생기 안을 눌러도 기록 줄은 펼치지 않음(u8_4 거름)', async () => {
+    const v = await openClip();
+    await click(v);
+    expect($('[data-detail]')).toBeNull();
+    await click($('.rc-player [data-tick]'));
+    expect($('[data-detail]')).toBeNull();
+  });
   it('영상 = 이 사건(event_id) 클립의 url + 배속 0.25 · 0.5 · 1 · 2(기본 1) + 반복', async () => {
     const v = await openClip();
     expect(v.getAttribute('src')).toBe('/media/c1.mp4');

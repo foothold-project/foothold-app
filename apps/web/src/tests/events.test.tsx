@@ -850,7 +850,8 @@ describe('기록 한 줄 펼침(u8_4)', () => {
   const toggles = () => [...card('사건').querySelectorAll<HTMLElement>('[data-row-open]')];
   const detail = () => [...card('사건').querySelectorAll<HTMLElement>('[data-detail]')];
   const facts = (d: HTMLElement) => Object.fromEntries([...d.querySelectorAll('dt')].map((t) => [t.textContent, t.nextElementSibling!.textContent]));
-  const key = async (el: HTMLElement, k: string) => { act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); }); await flush(); };
+  /** 키를 보내고 기본 동작(Space 스크롤 · Enter)을 막았는지 확인 */
+  const key = async (el: HTMLElement, k: string) => { let went = true; act(() => { went = el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); }); await flush(); expect(went).toBe(false); };
   it('줄을 누르면 펼침 · 서버 칸만 · 다시 누르면 접힘', async () => {
     two(); await open('#/history');
     expect(detail()).toHaveLength(0);
@@ -876,6 +877,21 @@ describe('기록 한 줄 펼침(u8_4)', () => {
     await click(toggles()[1]);
     const f = facts(detail()[0]);
     expect([f['로봇 시각'], f['로봇'], f['사람']]).toEqual(['서버에 값 없음', '없음', '이름 모름']);
+    expect(detail()[0].textContent).not.toContain('진행 순서');
+  });
+  it('사람 id 가 없으면 사람 「없음」 · 손잡이는 role=button · tabIndex 0', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('1', { category: 'RUN', user_id: null })]) }));
+    await open('#/history');
+    expect([toggles()[0].getAttribute('role'), toggles()[0].getAttribute('tabindex')]).toEqual(['button', '0']);
+    await click(toggles()[0]);
+    expect(facts(detail()[0])['사람']).toBe('없음');
+    expect(detail()[0].textContent).toContain('진행 순서 · 어디서 · 걸린 시간은 서버에 값 없음');   // 임무 사건엔 있음
+  });
+  it('줄 안 접힌 「상세」(summary) 를 눌러도 펼치지 않음', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('1', { code: 'FOO_BAR', message: 'Go2-A에서 사건 FOO_BAR이(가) 기록되었습니다.' })]) }));
+    await open('#/history');
+    await click(card('사건').querySelector('tbody summary'));
+    expect(detail()).toHaveLength(0);
   });
   it('Enter 로 펼치고 Space 로 접음 · 한 번에 하나', async () => {
     two(); await open('#/history');
@@ -902,6 +918,8 @@ describe('기록 한 줄 펼침(u8_4)', () => {
     expect(toggles()[1].getAttribute('aria-expanded')).toBe('true');
     expect(detail()).toHaveLength(1);
     expect(tile.contains(detail()[0])).toBe(true);
+    await click(detail()[0].querySelector('dd'));   // 펼친 칸 안을 눌러도 접히지 않음
+    expect(detail()).toHaveLength(1);
     await key(toggles()[1], 'Enter');
     expect(detail()).toHaveLength(0);
   });

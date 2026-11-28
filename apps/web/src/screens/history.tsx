@@ -117,12 +117,12 @@ const namesOf = (c: Pick<Ctx, 'user' | 'robots'>): Names => {
   const user = (e: Ev) => (!e.user_id ? '' : (e.user_id === c.user.id ? c.user.name : c.robots.find((x) => x.owner === e.user_id)?.ownerName) || NAMELESS);
   return { robot, user, sim: (e) => find(e)?.sim, who: (e) => [...new Set([robot(e), user(e)].filter(Boolean))].join(' · ') };
 };
-/** 한 번에 한 줄만 펼침(u8_4). 줄 어디를 눌러도 펼치고 접되, 줄 안 단추 · 링크 · 접힌 상세 · 사진 · 펼친 칸 안을 누른 것은 그 자리 일 */
+/** 한 번에 한 줄만 펼침(u8_4). 줄 어디를 눌러도 펼치고 접되, 줄 안 단추 · 링크 · 접힌 상세 · 사진 · 클립 영상 · 재생기 · 펼친 칸 안을 누른 것은 그 자리 일 */
 function useOpen() {
   const [open, setOpen] = useState<string | null>(null), base = useId();
   const flip = (id: string) => setOpen((o) => (o === id ? null : id));
   return { open, id: (e: string) => `${base}-${e}`,
-    row: (id: string) => (x: MouseEvent) => { if (!(x.target as Element).closest('a,button,summary,details,input,select,label,[data-detail]')) flip(id); },
+    row: (id: string) => (x: MouseEvent) => { if (!(x.target as Element).closest('a,button,summary,details,input,select,label,video,.rc-player,[data-detail]')) flip(id); },
     key: (id: string) => (x: KeyboardEvent) => { if (x.key === 'Enter' || x.key === ' ') { x.preventDefault(); flip(id); } } };
 }
 /** 줄의 시각 = 펼침 손잡이(키보드 초점 · aria-expanded, 화살 모양은 history.css). 누름은 줄로 올라가 줄이 펼친다 */
@@ -132,6 +132,8 @@ const Opener = ({ e, on, o }: { e: Ev; on: boolean; o: ReturnType<typeof useOpen
 /** 현지 yyyy/mm/dd HH:MM:SS */
 const full = (at: string) => { const d = new Date(at), p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${d.toTimeString().slice(0, 8)}`; };
 const NO_VALUE = '서버에 값 없음';
+/** 시안의 진행 순서 · 어디서 · 걸린 시간이 뜻 있는 사건(임무 · 조종권). 계정 · 연결 사건엔 그 줄을 쓰지 않는다 */
+const STEPS = new Set<Ev['category']>(['RUN', 'LEASE']);
 /** 펼친 한 줄(u8_4 시안 상세 중 서버 /events 응답에 있는 칸만). 시안의 진행 순서 · 어디서 · 걸린 시간은 서버가 주지 않아 짓지 않는다 */
 const Detail = ({ e, n, id }: { e: Ev; n: Names; id: string }) => { const r = n.robot(e), sim = n.sim(e);
   return <div className="hs-detail" id={id} data-detail>
@@ -144,7 +146,7 @@ const Detail = ({ e, n, id }: { e: Ev; n: Names; id: string }) => { const r = n.
       <div><dt>사람</dt><dd>{n.user(e) || '없음'}</dd></div>
       <div><dt>기록 코드</dt><dd className="mono">{e.code || NO_VALUE}</dd></div>
     </dl>
-    <p className="lv-note">진행 순서 · 어디서 · 걸린 시간은 서버에 값 없음</p>
+    {STEPS.has(e.category) && <p className="lv-note">진행 순서 · 어디서 · 걸린 시간은 서버에 값 없음</p>}
   </div>; };
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd · 그날 0시부터 끝까지, 브라우저 시간대) */
