@@ -2,8 +2,10 @@
 // 로봇 탭 큰 무대 걷기 꼴(검토 L2): 걷기 기록을 놓은 뒤 종아리 가장 낮은 점이 바닥 y=0 (엎드림 높이에서 바뀌어도 발이 묻히거나 뜨지 않음)
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { mapShadow, stageLook, walkPose } from '../screens/u4/go2view';
-import { REAR_DIST, SHADOW } from '../proto/tileview';
+import tileviewSrc from '../proto/tileview.ts?raw';
+import go2viewSrc from '../screens/u4/go2view.ts?raw';
+import { stageLook, walkPose } from '../screens/u4/go2view';
+import { REAR_DIST } from '../proto/tileview';
 
 /** 다리 넷(hip → thigh → calf · 종아리 끝 상자)만 있는 작은 모형. 몸 아래 0.3 m 에 발 */
 function body() {
@@ -38,13 +40,15 @@ describe('walkPose', () => {
   });
 });
 
-describe('stageLook (큰 무대 카메라 · 그림자)', () => {
-  it('현장 꼴 = 로봇 뒤 · 카메라 거리 = 관제 타일 「뒤」 값(REAR_DIST) · 무대 그림자 끔, 아니면 처음 자리 · 무대 그림자', () => {
-    expect(stageLook(true, { yaw: 0, dist: 1.3 })).toEqual({ yaw: Math.PI, dist: REAR_DIST, stageShadow: false });
-    expect(stageLook(false, { yaw: 0, dist: 1.3 })).toEqual({ yaw: 0, dist: 1.3, stageShadow: true });
+describe('stageLook (큰 무대 카메라) · 둥근 그림자 없음', () => {
+  it('현장 꼴 = 로봇 뒤 · 카메라 거리 = 관제 타일 「뒤」 값(REAR_DIST), 아니면 처음 자리', () => {
+    expect(stageLook(true, { yaw: 0, dist: 1.3 })).toEqual({ yaw: Math.PI, dist: REAR_DIST });
+    expect(stageLook(false, { yaw: 0, dist: 1.3 })).toEqual({ yaw: 0, dist: 1.3 });
   });
-  it('현장 꼴 그림자 = 관제 타일 SHADOW(반지름 · 길이 배 · 진하기) · 로봇 자리 바닥 · 긴 쪽 = 로봇 앞', () => {
-    const ms = mapShadow({ x: 3, y: -2, yaw: 0.7 }, 0.4);
-    expect({ ...ms, z: 0 }).toEqual({ r: SHADOW.r, x: 3, y: -2, z: 0, rotZ: 0.7, sx: SHADOW.sy, sy: 1, opacity: SHADOW.opacity }); expect(ms.z).toBeCloseTo(0.42, 9);
+  it('로봇 아래 둥근 그림자 원(진짜 그림자 아님)을 관제 타일 · 로봇 탭 큰 무대 어디에도 그리지 않는다(팀장 01:37)', () => {
+    for (const [f, src] of [['tileview', tileviewSrc], ['go2view', go2viewSrc]]) {
+      expect(src.length, f).toBeGreaterThan(1000);
+      expect(src, f).not.toMatch(/\bm?shadow\b|SHADOW|mapShadow/);
+    }
   });
 });
