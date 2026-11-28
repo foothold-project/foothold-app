@@ -960,6 +960,11 @@ describe('관제 탭', () => {
     expect(tile('k1').querySelector<HTMLImageElement>('img[data-cam="live"]')!.getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
     expect(tile('k1').querySelector('[data-cam="none"]')).toBeNull();
   });
+  it('배터리 칸 남은 시간: battery.minutes_left 가 있으면 «약 N 분», null · 없음이면 % 만(지어내지 않음)', () => {
+    mount('u-kim', EIGHT); feed(EIGHT, { k1: { battery: { soc: 66, updated_at: '', minutes_left: 47 } } as never, k2: { battery: { soc: 64, updated_at: '', minutes_left: null } } as never });
+    expect([fact('k1', 'battery'), small('k1', 'battery')]).toEqual(['66 %', '약 47 분']);
+    expect([fact('k2', 'battery'), small('k2', 'battery')]).toEqual(['64 %', '']);
+  });
   it('최근 경고 제목은 경고 종류대로: 정지 잠금(관절 온도는 보통)이면 «정지 잠금», 관절 이름 · 온도 아이콘을 붙이지 않음', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k2: { ...temp([30, 31, 32, 30, 31, 32, 30, 31, 32, 30, 31, 32]), latched: true, status: 'STOP_LATCHED' } as never });
     const al = $('[data-alert="k2"]');
