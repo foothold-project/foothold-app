@@ -133,8 +133,27 @@ export const EN: Record<string, string> = {
   '실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.': 'Real robot via server: hold forward/back, sideways or turn and it speeds up to top speed over 2 s; release and it stops within 0.3 s.',
   '임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.': 'If the server link drops during a mission and this time passes, the robot is stop-latched and the mission stops. Values under 3 s are still judged after 3 s.', '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
   '기록 거르기': 'History filters', '묶음': 'Group', '서버에 모드 전환 기록이 없습니다': 'The server has no mode-switch records', '찾기': 'Search', '사건 · 로봇 · 메모 찾기': 'Search events · robots · notes', '기간': 'Period',
+
+  // 3 차(11/29): 관제(u5) 화면에서 영어로 안 바뀌던 글 · 타일 배지(tileBadge) · 타일 덮개 · 작은 지도 · 오른쪽 칸 · 가짜 자료 띠 · 알림 카드 · 정지 고르기 창
+  '대기 · 임무 전': 'Idle · no mission', '다시 연결 중': 'Reconnecting', '점검 중': 'Inspecting', '충전 중': 'Charging', '넘어짐': 'Fallen', '임무 멈춤': 'Mission paused',
+  '시뮬 중': 'Sim', '조종 중': 'Driving', '임무 전 · 대기': 'No mission · idle', '대기 중': 'Idle', '대기': 'Idle', '일시정지': 'Paused', '일시정지 · 연결 끊김': 'Paused · disconnected',
+  '오류': 'Error', '사람 조종': 'Manual', '확인 안 됨': 'Unconfirmed', '상태 확인 중': 'Checking status', '상태 모름': 'Status unknown', '끊김': 'Lost', '배터리 낮음': 'Low battery',
+  '담당 없음': 'No owner', '알 수 없음': 'Unknown', '운영 관리자': 'Operator', '최고 관절 온도': 'Hottest joint', '마지막 화면': 'Last frame',
+  '카메라 신호 없음': 'No camera signal', '라이다 신호 없음': 'No LiDAR signal', '뎁스 카메라 신호 없음': 'No depth signal', '로봇 상태를 확인하는 중입니다': 'Checking robot status',
+  '기동 잠금': 'Boot latch', '사람 정지': 'Stopped by a person', '장치 고장': 'Device fault', '권한 확인 늦음': 'Permission check late', '조종권 끝남': 'Control ended', '기타': 'Other', '까닭 미상': 'Reason unknown',
+  '선택한 로봇 강조': 'Selected robot highlighted', '작은 지도 · 두 번 누르면 지도 보기': 'Mini map · double-click for map',
+  '진행 중인 임무가 없습니다': 'No mission running', '위치': 'Location', '위치 없음': 'No location', '로봇 탭에서 열기': 'Open in Robots', '가짜 로봇은 열 수 없습니다': 'Test robots cannot be opened',
+  '두 번 누르면 로봇 탭에서 열립니다. 한 번 더 누르면 고르기를 풉니다.': 'Double-click to open in Robots. Click again to deselect.',
+  '이 로봇을 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.': 'This robot was not found. It may have been removed, so the list is reloaded.',
+  '고른 상태의 로봇이 없습니다 · 머리 줄 칸을 다시 누르면 풀립니다': 'No robots in the picked states · click the chip again to clear',
+  '가용(GET /robots/availability)을 받지 못했습니다': 'Could not load availability (GET /robots/availability)', '가짜 순찰': 'Test patrol',
+  '알림 닫기': 'Dismiss alert', '접기': 'Collapse', '현장에서 로봇 전원과 통신을 확인하세요.': 'Check the robot’s power and network on site.',
+  '조종권 요청': 'Control request', '넘겨주시겠습니까?': 'Hand over control?', '계속 조종': 'Keep driving', '넘기기': 'Hand over', '넘기면 로봇을 그 자리에 세워 잠근 뒤 조종권이 넘어갑니다.': 'Handing over stops and latches the robot where it is, then passes control.',
+  '서버와 연결이 끊겼습니다': 'Lost connection to the server', '서버가 연결을 받지 않습니다': 'The server refused the connection', '다시 연결하는 중입니다': 'Reconnecting', '리모컨이 우선입니다': 'The remote has priority',
 };
 
+/** 규칙 안에서 나머지 글을 사전으로(없으면 그대로) */
+const en0 = (t: string) => EN[t.trim()] ?? t;
 const LV: Record<string, string> = { 위험: 'Danger', 경고: 'Warning', 주의: 'Caution' };
 const SIDE: Record<string, string> = { '왼쪽 앞다리': 'Front-left', '오른쪽 앞다리': 'Front-right', '왼쪽 뒷다리': 'Rear-left', '오른쪽 뒷다리': 'Rear-right', '앞 왼': 'Front-left', '앞 오른': 'Front-right', '뒤 왼': 'Rear-left', '뒤 오른': 'Rear-right' };
 /** 정지 잠금 까닭(서버 latch_reason 화면 글 · proto/u5 LATCH_WHY) */
@@ -183,5 +202,18 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^(.+?)이? (\d+) °C 입니다\.$/, (m) => `${joint(m[1])} is ${m[2]} °C.`],
   [/^((?:왼쪽|오른쪽) (?:앞|뒷)다리 \S+|(?:앞|뒤) (?:오른|왼) \S+) (\d+) °C$/, (m) => `${joint(m[1])} ${m[2]} °C`],
   [/^((?:왼쪽|오른쪽) (?:앞|뒷)다리 \S+|(?:앞|뒤) (?:오른|왼) \S+)$/, (m) => joint(m[1])],
+  // 3 차(11/29) 관제 값 글
+  [/^(\d\d:\d\d) 끊김$/, (m) => `Lost ${m[1]}`],
+  [/^마지막 화면 (\d\d:\d\d)$/, (m) => `Last frame ${m[1]}`],
+  [/^최고 관절 온도 (\d+) °C$/, (m) => `Hottest joint ${m[1]} °C`],
+  [/^(.+) 시점으로$/, (m) => `${EN[m[1]] ?? m[1]} view`],
+  [/^위치 (-?[\d.]+), (-?[\d.]+) m( \(마지막 위치\))?$/, (m) => `Location ${m[1]}, ${m[2]} m${m[3] ? ' (last known)' : ''}`],
+  [/^마지막 (.+) · (\d\d:\d\d)$/, (m) => `Last ${EN[m[1]] ?? m[1]} · ${m[2]}`],
+  [/^상세를 받지 못했습니다\. ([\s\S]+)$/, (m) => `Could not load details. ${en0(m[1])}`],
+  [/^화면 검토용 가짜 자료 · 로봇 (\d+) 대$/, (m) => `Review-only test data · ${m[1]} robots`],
+  [/^가짜 (\d+)$/, (m) => `Test ${m[1]}`], [/^가짜 순찰 (\d+\/\d+)$/, (m) => `Test patrol ${m[1]}`],
+  [/^(\d+) 건 모두 보기$/, (m) => `Show all ${m[1]}`],
+  [/^(.+) 연결이 끊겼습니다\. 마지막 확인: (.+)\((.*)\)\. 지금 상태는 알 수 없습니다\.$/, (m) => `${m[1]} disconnected. Last seen: ${EN[m[2]] ?? m[2]} (${m[3]}). Current status unknown.`],
+  [/^(위험|경고|주의) · (.+)$/, (m) => (EN[m[2]] ? `${LV[m[1]]} · ${EN[m[2]]}` : `${LV[m[1]]} · ${m[2]}`)],
 ];
 
