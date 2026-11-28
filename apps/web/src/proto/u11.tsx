@@ -24,7 +24,7 @@ export function TakeoverAsk({ robot, q, now, answer }: { robot: string; q: NonNu
   return <>
     <div className="veil" />
     <div className="g modal" style={{ width: '600px', zIndex: 6 }} role="dialog" aria-modal="true" aria-label="조종권 요청" data-takeover-ask>
-      <div className="row" style={{ gap: '14px' }}><span style={{ width: '48px', height: '48px', borderRadius: '15px', background: 'rgba(0,195,137,.14)', color: '#00c389', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{I(24, HAND)}</span>
+      <div className="row" style={{ gap: '14px' }}><span style={{ width: '48px', height: '48px', borderRadius: '15px', background: 'var(--u11-ok-bg)', color: 'var(--u11-ok)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{I(24, HAND)}</span>
         <div><div style={{ fontSize: '20px', fontWeight: 800, color: '#1f2421' }}>{q.name} 님이 {robot} 조종권을 요청했습니다</div><div style={{ fontSize: '14.5px', fontWeight: 600, color: '#5e6662', marginTop: '4px' }}>넘겨주시겠습니까?</div></div></div>
       <div className="tbar"><i style={{ width: `${Math.round((left / q.ms) * 100)}%` }}></i></div>
       <div className="row" style={{ justifyContent: 'space-between', marginTop: '8px', fontSize: '12.5px', fontWeight: 600, color: '#5e6662' }}><span>{s} 초 안에 답하지 않으면 조종권을 넘기지 않습니다</span><span>Enter · Space 키로는 선택되지 않습니다</span></div>
