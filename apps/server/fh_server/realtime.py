@@ -1172,6 +1172,8 @@ class Realtime:
         except asyncio.QueueFull:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
+            return
+        return True
 
     def stop_fast_server_drives(self, org_id, actor, *, settings=None):
         # Agent admission is organization-scoped. Run only on the owning loop,
@@ -1202,7 +1204,9 @@ class Realtime:
             self.apply(effects)
 
     def apply(self, effects):
-        """Synchronous effect enqueue. First two revoke effects cannot interleave."""
+        """Synchronous effect enqueue. First two revoke effects cannot interleave.
+        Returns True when a stop entered a connected agent queue (report only)."""
+        stop_queued = False
         self.effect_depth += 1
         try:
             for effect in effects:
@@ -1238,7 +1242,8 @@ class Realtime:
                                     retained.append(item)
                             for item in retained:
                                 peer.queue.put_nowait(item)
-                        self.put(peer, body)
+                        if self.put(peer, body) and body['t'] == 'stop':
+                            stop_queued = True
                 elif target == 'audit':
                     self.note_audit(rid, body)
                 else:
@@ -1268,6 +1273,7 @@ class Realtime:
         finally:
             self.effect_depth -= 1
             self.finish_effects()
+        return stop_queued
 
     def emergency_free(self):
         # Dispatch every safe output before recording. Overflow no longer
@@ -1516,7 +1522,7 @@ class Realtime:
                     if (self.failed or self.audit_overloaded or self.owner_uncertain) and not safe and msg.t not in ('ping', 'sub'):
                         raise LeaseError('SERVER_BUSY', '서버 기록을 확인하고 있습니다.', 503)
                     if msg.t == 'stop':
-                        self.apply(self.arbiter.stop(rid, actor))
+                        stop_delivered = self.apply(self.arbiter.stop(rid, actor)) is True
                     if msg.t == 'sub':
                         self.subscribe(peer, msg)
                     elif msg.t == 'ping':
@@ -1569,7 +1575,8 @@ class Realtime:
                             self.send_posture(rid, actor, msg)
                         elif msg.t == 'unlock':
                             self.apply(self.arbiter.unlock(rid, actor, str(msg.lease_id), msg.stop_gen))
-                    self.put(peer, C.ScreenReply(id=msg.id, ok=True).model_dump(mode='json'))
+                    self.put(peer, C.ScreenReply(id=msg.id, ok=True, delivered=(
+                        stop_delivered if msg.t == 'stop' else None)).model_dump(mode='json'))
                 except ValidationError:
                     if raw.get('t') == 'cmd':
                         # Malformed axes also stop an authenticated trial holder;
@@ -1760,7 +1767,7 @@ class Realtime:
             # authority. Do not delay its one-query auth snapshot with map I/O.
             if any(r.simulation and r.sim_generation > 0 for r in robots.values()):
                 bindings = []
-                for world in ('v5_building', 'warehouse'):
+                for world in ('v5_building', 'plant_a', 'warehouse'):
                     try:
                         bindings.extend(approved_bindings(db, self.settings.org_id, world))
                     except (ValueError, KeyError, TypeError):
@@ -2479,8 +2486,9 @@ def install(app, settings, factory, authorize, api_error):
     install_drive_media(app, realtime)
 
     class StopResponse(JSONResponse):
-        def __init__(self, records, reservations):
-            super().__init__({'requested': True}, status_code=202)
+        def __init__(self, records, reservations, delivered):
+            super().__init__(C.StopAccepted(requested=True, delivered=delivered).model_dump(mode='json'),
+                             status_code=202)
             self.records, self.reservations = records, reservations
         async def __call__(self, scope, receive, send):
             try:
@@ -2512,5 +2520,5 @@ def install(app, settings, factory, authorize, api_error):
                 realtime.apply(safety)
                 realtime.block_archive_source(str(robot_id), 'CAPACITY')
                 raise api_error(503, 'SERVER_BUSY', '로봇 정지 접수 기록을 확인하지 못했습니다.')
-            realtime.apply(safety)
-        return StopResponse(records, reservations)
+            delivered = realtime.apply(safety) is True
+        return StopResponse(records, reservations, delivered)

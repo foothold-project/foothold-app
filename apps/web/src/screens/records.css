@@ -1,0 +1,24 @@
+/* 기록 탭 「지금 남기기」 · 클립 칸 · 재생기(records.tsx). 색 · 선은 기존 토큰만 */
+.rc-anchor{position:relative;display:inline-flex}
+.rc-mark{position:absolute;top:calc(100% + 6px);right:0;z-index:30;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;width:min(440px,calc(100vw - 32px));border-color:var(--line2);background:var(--panel);box-shadow:var(--shadow)}
+.rc-mark>b{font-size:15px;font-weight:600}
+.rc-note{width:100%;box-sizing:border-box;resize:vertical;min-height:56px;font:inherit}
+.rc-clip{display:flex;align-items:center;gap:8px;font-size:14px}
+.rc-clip input{width:18px;height:18px;margin:0}
+.rc-clip input:disabled+span{color:var(--muted)}
+.rc-out{margin:0;font-size:14px;line-height:1.5}
+.rc-none{display:block;margin-top:4px}
+.rc-clipbox{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:6px;max-width:100%}
+.rc-player{display:flex;flex-direction:column;gap:6px;width:min(480px,100%)}
+.rc-player video{display:block;width:100%;border:1px solid var(--line2);border-radius:8px;background:#000}
+.rc-bar{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid var(--line);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.rc-bar .rc-zero{color:var(--text);font-weight:600}
+.rc-clipbox>p{margin:0;font-size:13px;line-height:1.5}
+/* 실행 기록 보기(runreport.tsx) */
+.rr-card{display:flex;flex-direction:column;gap:10px;border-color:var(--line2)}
+.rr-title{font-size:15px;font-weight:600}
+.rr-sum{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}
+.rr-sum>div{display:flex;flex-direction:column;gap:2px}
+.rr-sum dt{font-size:12px;color:var(--muted)}
+.rr-sum dd{margin:0;font-size:14px}
+.rr-open{display:block;margin-top:6px}

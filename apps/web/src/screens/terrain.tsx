@@ -79,9 +79,9 @@ const blank = (): Spec => ({ schema: 'fh_custom_terrain/1', id: newId(), name: '
 const KIND: Record<Kind, { name: string; make: () => Item; icon: ReactNode; hint: string }> = {
   box: { name: '상자', make: () => ({ kind: 'box', x: 0, y: 0, yaw: 0, sx: 1, sy: 1, h: 0.2 }), hint: '판을 눌러 상자를 놓습니다',
     icon: <rect x="5" y="5" width="14" height="14" rx="1" /> },
-  stairs: { name: '계단', make: () => ({ kind: 'stairs', x: 0, y: 0, yaw: 0, width: 1.2, steps: 5, rise: 0.12, run: 0.3 }), hint: '판을 눌러 계단을 놓습니다 — 화살표 쪽으로 올라갑니다',
+  stairs: { name: '계단', make: () => ({ kind: 'stairs', x: 0, y: 0, yaw: 0, width: 1.2, steps: 5, rise: 0.12, run: 0.3 }), hint: '판을 눌러 계단을 놓습니다 · 화살표 쪽으로 올라갑니다',
     icon: <path d="M3 20v-4h5v-4h5V8h5V4h3" /> },
-  ramp: { name: '경사', make: () => ({ kind: 'ramp', x: 0, y: 0, yaw: 0, length: 2, width: 1.2, h: 0.3 }), hint: '판을 눌러 경사를 놓습니다 — 화살표 쪽이 높습니다',
+  ramp: { name: '경사', make: () => ({ kind: 'ramp', x: 0, y: 0, yaw: 0, length: 2, width: 1.2, h: 0.3 }), hint: '판을 눌러 경사를 놓습니다 · 화살표 쪽이 높습니다',
     icon: <path d="M3 19L21 6v13z" /> },
   gap: { name: '틈', make: () => ({ kind: 'gap', x: 0, y: 0, yaw: 0, length: 0.4, width: 1.5 }), hint: '판을 눌러 바닥이 빠진 틈을 놓습니다',
     icon: <path d="M3 8h6v8H3M21 8h-6v8h6M11 4v2M11 10v2M11 16v2M13 4v2M13 10v2M13 16v2" /> },
@@ -261,6 +261,11 @@ export function Terrain() {
   const server = remote.find((t) => t.spec.id === spec.id);
   const conflict = conflicted === spec.id || (!!server && bases.current[spec.id] !== undefined && server.version > bases.current[spec.id]);
   const synced = !!server && !server.archived_at && !conflict && fingerprint(server.spec) === fingerprint(spec);
+  // 저장이 회색인 까닭 한 줄 (폰에는 마우스 올림이 없다). 처리 중은 단추 글자 «저장 중…» 이 알린다
+  // 총괄만이 까닭이면 아래 «총괄 계정만» 안내 줄이 이미 있으므로 단추 옆에는 쓰지 않고 그 줄을 가리킨다
+  const saveWhy = !ready ? '서버 목록을 받는 중입니다' : !admin ? '총괄 계정만 서버에 저장할 수 있습니다'
+    : errors.length ? '오류를 고친 뒤 저장할 수 있습니다' : server?.archived_at ? '휴지통에서 되돌린 뒤 저장할 수 있습니다' : '';
+  const onlyAdmin = ready && !admin;
   const fontPx = 13 * px, hPos = (it: At, r: number) => ({ cx: it.x + r * Math.cos(it.yaw), cy: -(it.y + r * Math.sin(it.yaw)) });
   /** 고른 것의 돌림 손잡이 */
   const handle = (what: number | 'spawn', r: number) => { const o = poseOf(what), c = hPos(o, r); return <g data-terrain-turn>
@@ -274,7 +279,8 @@ export function Terrain() {
       <Menu label="내 지형" title="조직의 서버 지형과 이 브라우저의 임시본">
         <button type="button" className="btn" data-terrain-new onClick={(e) => { open(blank()); shut(e); }}>+ 새 지형</button>
         <p className="lv-note">서버 지형 · 저장할 때마다 위에서 본 지도도 만듭니다.</p>
-        <button type="button" className="btn" disabled={busy} onClick={() => serverTask(async () => {
+        {busy && <p className="lv-note" role="status" id="tr-busy" data-terrain-busy>서버와 주고받는 중… 끝나면 단추가 다시 켜집니다.</p>}
+        <button type="button" className="btn" disabled={busy} aria-describedby={busy ? 'tr-busy' : undefined} onClick={() => serverTask(async () => {
           const [rows, me] = await Promise.all([api.terrains(cancel.current?.signal), api.me(cancel.current?.signal)]);
           if (cancel.current?.signal.aborted) return;
           acceptRows(rows); setAdmin(me.role === 'ORG_ADMIN');
@@ -316,9 +322,10 @@ export function Terrain() {
         <button key={v} type="button" className="btn" aria-pressed={view === v} data-terrain-view={v} onClick={() => setView(v)}>{t}</button>)}</span>
       <span className="fh-grow" />
       <span className="mx-tag" data-terrain-status>{synced ? '서버 저장됨' : '서버 저장 안 됨'}</span>
-      <button type="button" className="btn" data-terrain-save disabled={!admin || !ready || busy || !!errors.length || !!server?.archived_at} title={admin ? '지형과 위에서 본 지도를 서버에 저장합니다' : '총괄 계정만 서버에 저장할 수 있습니다'} onClick={() => storeServer(spec)}>{busy ? '저장 중…' : '저장'}</button>
+      <button type="button" className="btn" data-terrain-save disabled={!admin || !ready || busy || !!errors.length || !!server?.archived_at} title={admin ? '지형과 위에서 본 지도를 서버에 저장합니다' : '총괄 계정만 서버에 저장할 수 있습니다'} aria-describedby={onlyAdmin ? 'tr-admin-note' : saveWhy ? 'tr-save-why' : undefined} onClick={() => storeServer(spec)}>{busy ? '저장 중…' : '저장'}</button>
+      {saveWhy && !onlyAdmin && <span className="lbl" id="tr-save-why" data-terrain-save-why>{saveWhy}</span>}
       {!synced && (conflict || (!!server && !bases.current[spec.id])) && <button type="button" className="btn" disabled={!admin || busy || !!errors.length} onClick={() => { const copy = { ...spec, id: newId() }; open(copy); save(copy); void storeServer(copy); }}>새 지형으로 저장</button>}
-      <span className="mx-tag" data-terrain-count>{errors.length ? `오류 ${errors.length}` : '오류 없음'}{warnings.length ? ` · 경고 ${warnings.length}` : ''}</span>
+      {(errors.length > 0 || warnings.length > 0) && <span className="mx-tag" data-terrain-count>{[errors.length && `오류 ${errors.length}`, warnings.length && `경고 ${warnings.length}`].filter(Boolean).join(' · ')}</span>}
       {errors.length
         ? <button type="button" className="btn pri" disabled title="오류를 고쳐야 열 수 있습니다" data-terrain-open>시뮬로 열기</button>
         : <a className="btn pri" href={terrainUrl(spec.id)} data-terrain-open onClick={(e) => { if (!save(spec, bases.current[spec.id])) { e.preventDefault(); setFailed(true); }
@@ -332,7 +339,7 @@ export function Terrain() {
     </div>}
     {conflict && <p className="lv-note tr-server-note" role="alert" data-terrain-conflict>서버 지형이 바뀌었습니다. 내 수정은 이 브라우저에 남아 있습니다. 새 지형으로 저장하거나 내 지형에서 서버 사본을 확인하세요.</p>}
     {notice && <p className="lv-note tr-server-note" role="status" data-terrain-server-notice>{notice}</p>}
-    {!admin && <p className="lv-note tr-server-note">서버 지형은 볼 수 있습니다. 서버 저장과 휴지통은 총괄 계정만 사용할 수 있습니다.</p>}
+    {!admin && <p className="lv-note tr-server-note" id="tr-admin-note">서버 지형은 볼 수 있습니다. 서버 저장과 휴지통은 총괄 계정만 사용할 수 있습니다.</p>}
     <div className="mx-body">
       <div className="mx-tools tr-tools" role="toolbar" aria-label="지형 도구" aria-orientation="vertical">
         <button type="button" className="btn" aria-pressed={tool === 'select'} data-terrain-tool="select" onClick={() => setTool('select')}>
@@ -350,7 +357,7 @@ export function Terrain() {
             onPose={(w, p) => (w === 'spawn' ? setPose(w, p) : setItem(w, p))} state={spec.items.map((_, i) => { const iss = issuesOf(i); return iss.some((x) => x.bad) ? 'bad' : iss.length ? 'warn' : undefined; })} />
         </Suspense>}
         {view === 'top' && <svg ref={svg} className="tr-board" data-tool={tool} viewBox={`${bounds[0]} ${-bounds[3]} ${bounds[2] - bounds[0]} ${bounds[3] - bounds[1]}`} tabIndex={0} role="application"
-          aria-label={`${spec.name} 위에서 본 판 — ${W}×${H} m`} data-terrain-board onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}>
+          aria-label={`${spec.name} 위에서 본 판 · ${W}×${H} m`} data-terrain-board onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}>
           <defs>
             <linearGradient id="tr-ramp"><stop offset="0" stopColor="var(--panel2)" /><stop offset="1" stopColor="color-mix(in srgb, var(--accent) 80%, var(--panel2))" /></linearGradient>
             <pattern id="tr-hatch" width={12 * px} height={12 * px} patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2={12 * px} stroke="var(--warn)" strokeWidth={3 * px} /></pattern>
@@ -386,7 +393,7 @@ export function Terrain() {
         <p className="mx-hint tr-hint" data-terrain-hint>{tool === 'select' || tool === 'spawn' ? (view === '3d' && tool === 'select' ? HINT3 : HINT[tool]) : KIND[tool].hint}</p>
       </div>
       <aside className="mx-pane tr-pane" aria-label="지형 내용">
-        {failed && <p className="fh-msg tr-pad" role="alert" data-terrain-failed>이 브라우저에 저장하지 못했습니다 — 저장 공간을 확인해 주세요. 저장되기 전에는 시뮬로 열 수 없습니다.</p>}
+        {failed && <p className="fh-msg tr-pad" role="alert" data-terrain-failed>이 브라우저에 저장하지 못했습니다 · 저장 공간을 확인해 주세요. 저장되기 전에는 시뮬로 열 수 없습니다.</p>}
         {general.length > 0 && <ul className="tr-general" aria-label="지형 전체 오류·경고">{general.map((g) => <li key={g.msg} className="fh-msg">✕ {g.msg}</li>)}</ul>}
         <div className="mx-head"><b className="fh-grow">{chosen ? `${(sel as number) + 1} · ${KIND[chosen.kind].name}` : sel === 'spawn' ? '시작 위치' : '고른 것 없음'}</b>
           {chosen && <button type="button" className="btn" data-terrain-del onClick={() => remove(sel as number)}>지우기</button>}</div>

@@ -22,9 +22,9 @@ export function viewFail(e: unknown): [string, boolean] | null {
   if (st === 403) return ['이 로봇의 시점을 옮길 권한이 없어 멈췄습니다', true];
   if (st === 404) return ['이 로봇을 더 볼 수 없어(담당 해제·보관 등) 시점 이동을 멈췄습니다', true];
   if (code === 'UNAVAILABLE') return ['실기에는 외부 카메라 시점 이동이 없습니다', true];
-  if (code === 'SIM_OBSERVER_BINDING') return ['담당자·회차가 바뀌어 시점 이동을 멈췄습니다 — 다시 연결하세요', true];
+  if (code === 'SIM_OBSERVER_BINDING') return ['담당자·회차가 바뀌어 시점 이동을 멈췄습니다 · 다시 연결하세요', true];
   if (st === 400 || st === 413) return ['시점 요청 형식이 약속과 달라 시점 이동을 멈췄습니다', true];
-  return ['시뮬 외부 카메라가 지금 시점 요청을 받지 못합니다 — 다시 끌면 다시 보냅니다', false];
+  return ['시뮬 외부 카메라가 지금 시점 요청을 받지 못합니다 · 다시 끌면 다시 보냅니다', false];
 }
 
 type Op = 'view' | 'cancel';
@@ -62,7 +62,7 @@ export function orbit(send: Send, fail: (why: string, stop: boolean) => void, cl
 
 /** 시점을 못 옮기는 이유('' = 옮길 수 있음) */
 export function viewBlock(ext: Feed, relay = EXT_VIEW_RELAY) {
-  if (!relay) return '시점 이동 준비 중 — 서버 시점 중계가 아직 없습니다';
+  if (!relay) return '시점 이동 준비 중 · 서버 시점 중계가 아직 없습니다';
   if (ext.state !== 'live') return '외부 카메라를 받는 중일 때만 시점을 옮길 수 있습니다';
   if (!media.binding()?.episode_id) return '시뮬 회차 정보가 없어 시점을 옮길 수 없습니다';
   return '';

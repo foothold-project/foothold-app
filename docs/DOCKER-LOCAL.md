@@ -34,6 +34,56 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 시뮬 프로세스를 실행하지 않아도 필요하다. `worlds.json`이 참조하는 YAML·PNG·메타데이터·시나리오를
 빠뜨리지 않도록 `worlds` 디렉터리를 복사하고 `.dockerignore`에서도 허용한다.
 
+## 다른 PC 에서 처음 띄우기 (Docker)
+
+자산은 필수가 아니다(운영 결정 2026-11-28). **자산이 없으면 시뮬만 빠진다**: db · server · web 은 그대로 뜨고
+`/sim/` 은 안내 화면이다. 넣으려면 아래 2 · 3 단계를 하고 `python3 tools/local_up.py --docker` 를 다시 한다.
+
+1. 저장소를 clone 하고 루트로 간다.
+2. 시뮬 자산 묶음 `foothold-sim-assets`(정책 ONNX · ORT · MuJoCo · `README.md` · `SHA256SUMS`)를 팀에서 받아
+   저장소 **밖** 폴더에 둔다. 공개 저장소에는 없다. `sha256sum -c SHA256SUMS` 로 확인할 수 있다.
+   컨테이너의 `node` 사용자(uid 1000)가 읽으므로 파일은 644 · 폴더는 755 로 두거나 uid 1000 소유로 둔다.
+   못 읽는 파일이 있으면 `/sim/` 안내 화면과 web 로그에 그렇게 적힌다.
+3. `.env` 또는 셸에 `FH_SIM_ASSETS=<그 폴더>` 를 적는다(셸 값이 이긴다).
+4. `python3 tools/local_up.py --docker`. `FH_SIM_ASSETS` 가 비면 알리고 시뮬 없이 띄운다.
+   적은 폴더가 없거나, `SHA256SUMS` 가 비었거나, 한 파일이라도 다르거나, 링크 또는 목록에 없는 파일
+   (`README.md` · `SHA256SUMS` 만 예외)이 있으면 받는 법을 알리고 멈춘다(폴더 전체가 컨테이너에 붙기 때문).
+   맞으면 `.env` · 계정 파일을 만들고 `docker compose up --build` 를 한다.
+
+자산 폴더는 웹 컨테이너의 `/workspace/sim-assets` 에 **읽기 전용**으로 붙는다(`FH_SIM_ASSETS` 가 비면 빈 볼륨 `no_sim_assets` 가 읽기 전용으로 붙는다).
+운영 서버는 지금처럼 `/var/lib/foothold/sim-policy` 를 쓰며 이 구성과 무관하다.
+웹 컨테이너는 시작할 때(`docker/web-start.sh`) `npm ci` 뒤 `deploy/prepare_sim.py mobile/sim /workspace/sim-assets /tmp/fh-sim`
+을 `node` 사용자로 한 번 돌리고(root 로 돌리면 사용자 소유 자산을 거절한다), `FH_SIM_DIR=/tmp/fh-sim/sim` 으로 Vite 를 띄운다.
+Vite 의 `localSim` 이 그 폴더를 `/sim/` 으로 내준다. 자산 자리가 비었으면 준비를 건너뛴다. `node` 가 못 읽는 자산이 있거나
+준비가 실패하면(rc 0 아님) 반쯤 만든 폴더를 지우고 까닭을 적은 안내 화면을 `/sim/` 에 두며, 웹은 그대로 뜬다.
+
+## 입구 스크립트와 Docker 없이 띄우기
+
+`python3 tools/local_up.py` 는 `.env` 가 없으면 `.env.example` 로 만들고, 쓰는 포트가 비었는지 보고,
+비밀번호(DB · 최초 총괄 · 시험 운영 계정 둘)를 저장소 밖 계정 파일
+(`FH_LOCAL_SECRETS`, 기본 `~/.config/foothold-local/accounts.env`, 권한 600)에 한 번 만든다.
+값은 화면에 쓰지 않는다. 셸 환경이나 `.env` 에 채운 비밀번호가 있으면 어디서든 그 값을 쓰고,
+계정 파일에는 빈 칸의 값만 만든다. 스크립트가 만드는 `.env` 는 `FH_SEED=1` 이다.
+
+- `python3 tools/local_up.py --docker`: 위 준비 뒤 `docker compose --env-file .env up --build`.
+  비밀번호는 셸 환경으로 넘긴다(Compose 는 셸 환경을 `.env` 보다 먼저 본다)
+- `<서버 venv>/bin/python tools/local_up.py --no-docker`: Docker 없이 pgserver 의 PostgreSQL 을
+  `127.0.0.1:FH_DB_PORT` 에 띄우고(자료는 `FH_LOCAL_DATA`, 기본 `~/.local/share/foothold-local`)
+  `docker/server.py` 로 초기화한 뒤 API 를 `127.0.0.1:FH_API_PORT` 에 띄운다. venv 에
+  `apps/server/requirements-test.txt` 가 있어야 한다. DB 는 `--stop` 으로 멈춘다.
+- `--no-docker --sim mujoco`: simmgr 를 로컬 MuJoCo 백엔드(#594)로 함께 띄운다(기본은 끔).
+  슬롯은 seed 의 시뮬 로봇 하나, 월드는 `collapsed-house-v2`. 서비스 키 · 출입증 키 · 카탈로그는
+  `FH_LOCAL_DATA/sim` 에 600 으로 한 번 만들고, MuJoCo 자산은 `FH_SIM_SRC` 또는 확인한 `FH_SIM_ASSETS`.
+  simmgr 는 `FH_SIM_PORT`(기본 9440) 에서 돌고 `--stop` 이 기록한 pid 로만 끈다.
+  #594 가 없는 저장소에서는 시작 전에 멈춘다. **#594 가 dev 에 들어간 뒤 실측 예정(아직 미실측).**
+
+`.env.example` 의 기본은 `FH_SEED=0` 이다. 스크립트 없이 `docker compose up` 만 쓰면서 `FH_SEED=1` 로 바꾸면
+`FH_SEED_PASSWORD_LOCAL_OPERATOR` · `FH_SEED_PASSWORD_LOCAL_OPERATOR_2` 를 채워야 서버가 시작한다(비면 시작 거절).
+`FH_SEED=1` 이면 서버가 시작할 때 `docker/seed.py` 가 시험 자료를 넣는다: 운영 계정
+`local-operator` · `local-operator-2`, 시뮬 로봇 칸 하나(시뮬 관리자 없이 대기 상태),
+저장소 `apps/simmgr/worlds` 의 월드 지도 · 임무 · 시나리오(서버의 `sim_maps.sync_worlds`).
+두 번 돌려도 늘지 않고 비밀번호를 바꾸지 않는다. 실행 기록 · 넘어짐 사건은 로봇이 보내야 생기므로 넣지 않는다.
+
 ## 환경 변수와 포트
 
 `.env`는 Git에서 제외된다. 실제 계정·비밀번호·서버 주소를 예제에 옮기지 않는다.
@@ -42,9 +92,12 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 | 항목 | 로컬에서 하는 일 |
 |---|---|
 | `FH_WEB_PORT`, `FH_API_PORT` | 호스트 포트(기본 5180, 8810); 컨테이너 포트는 5180, 8810으로 고정 |
+| `FH_DB_PORT` | `--no-docker` 의 PostgreSQL 포트(기본 55480). Compose 는 DB 포트를 공개하지 않음 |
+| `FH_SEED`, `FH_SEED_PASSWORD_*` | 시험 자료 넣기(1)와 시험 운영 계정 비밀번호; 비밀번호는 계정 파일에 둠 |
+| `FH_PORT` | `docker/server.py` 의 API 포트(없으면 8810). Compose 에서는 쓰지 않음 |
 | `FH_DB_USER`, `FH_DB_NAME` | 전용 DB 초기 관리자·DB 이름; 관리자 이름으로 `fh_app`·`fh_migrate`·`fh_readonly`는 사용 불가 |
 | `FH_DB_PASSWORD` | 로컬 DB 관리자와 전용 역할의 비밀번호; 빈 값은 시작 거절 |
-| `FH_DATABASE_URL` | `db:5432`의 `fh_app` SQLAlchemy 주소; 비밀번호는 `FH_DB_PASSWORD`에서 URL 인코딩해 주입 |
+| `FH_DATABASE_URL` | `db:5432`의 `fh_app` SQLAlchemy 주소; 비밀번호는 `FH_DB_PASSWORD`에서 URL 인코딩해 주입. `docker/server.py` 는 이 PC(127.0.0.1 · localhost · ::1)의 5432 아닌 포트도 받는다(`--no-docker`). 원격 · 127.0.0.1:5432 는 거절 |
 | `FH_ORG_ID`, `FH_ORG_NAME` | 최초 로컬 조직 UUID·이름 |
 | `FH_WS_ORIGIN` | 브라우저의 정확한 `http://localhost:<웹 포트>` 출처 |
 | `FH_FILES_ROOT` | 컨테이너 안 파일 volume 연결 위치(기본 `/var/lib/foothold/files`) |

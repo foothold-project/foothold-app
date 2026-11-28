@@ -270,6 +270,53 @@ describe('관제 탭', () => {
     expect(lostBand.textContent).toContain('K-05 연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.');
     expect(lostBand.textContent).not.toMatch(/다시 연결되면 멈춤|닿습니다|전달됩니다/);
   });
+  // Codex #535 H2 (11-28): 끊긴 로봇에 «다시 연결되면 멈춤» 을 약속하지 않는다 · 다시 붙어도 잠금(새 세대) 확인 전에는 경고를 지우지 않는다
+  const NOT_SENT = '연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
+  it('H2: 끊긴 로봇 모두 정지 · 약속 없는 문구, 다시 ONLINE 만으로는 경고가 남고, latched + 세대가 오른 뒤에만 지움', () => {
+    const T = TWENTY.map((r) => (r.id === 'g4' ? { ...r, online: false } : r));
+    mount('u-lee', T); feed(TWENTY);   // 끊기기 전: g4 는 세대 1 을 알렸다
+    act(() => { FakeWS.last.recv(state('g4', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
+    root!.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={T} />);
+    press(stopBtn());
+    expect($('[aria-label="정지할 로봇 고르기"] [data-stop-lost="g4"]')!.textContent).toBe('▲ K-05 연결 끊김 · 정지를 보낼 수 없습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.');   // 보내기 전 줄(#529 H2 글)
+    press(stopBtn());
+    const band = () => $$('[data-stop-band]').find((b) => b.textContent!.includes('K-05'))!;
+    expect(band().textContent).toBe(`▲ K-05 ${NOT_SENT}`);
+    expect(box.textContent).not.toContain('다시 연결되면 멈춤');
+    act(() => { FakeWS.last.recv(state('g4', { status: 'RUNNING', latched: false, stop_gen: 1 })); });   // 다시 붙음 · 잠금 없음
+    expect(band().textContent).toBe(`▲ K-05 ${NOT_SENT}`);
+    act(() => { FakeWS.last.recv(state('g4', { status: 'STOP_LATCHED', latched: true, stop_gen: 1 })); });   // 잠금이지만 세대 그대로 = 이 STOP 이 아님
+    expect(band().textContent).toBe(`▲ K-05 ${NOT_SENT}`);
+    act(() => { FakeWS.last.recv(state('g4', { status: 'STOP_LATCHED', latched: true, stop_gen: 2, applied: [0, 0, 0] })); });   // 새 세대 잠금
+    expect(band().textContent).not.toContain(NOT_SENT);
+  });
+  // Codex #535 M4: 서버 경유가 꺼진(SWITCH_OFF) 실기는 서버가 STOP 을 PHONE_DIRECT_REQUIRED 로 거절한다 → 모두 정지에 세지 않고 «현장 폰» 한 줄
+  it('M4: 서버 경유 정지가 꺼진 실기는 «모두 정지» 대수 · 보냄에서 빠지고 현장 폰 안내 한 줄', () => {
+    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r));
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    expect(pick.querySelector('select')!.options[0].textContent).toBe('멈출 수 있는 로봇 모두 정지 (9 대)');
+    expect(pick.querySelector('[data-phone-only]')!.textContent).toBe('K-07 은 서버 경유 정지가 꺼져 있어 여기서 멈출 수 없습니다 · 현장 폰에서 멈추세요');
+    press(stopBtn());
+    const sent = FakeWS.last.of('stop').map((m) => m.robot);
+    expect(sent).toHaveLength(9);
+    expect(sent).not.toContain('g6');
+  });
+  // 조정 12:01 · reviewer: SWITCH_OFF 실기(#535 M4)는 서버 경유 조종도 꺼져 있다(serverDrive false). #529 H1 «보내고 안내» 줄이 같이 뜨면 「보낸다」 와 「못 멈춘다」 가 겹친다
+  it('M4 + H1: SWITCH_OFF 실기(serverDrive false)는 현장 폰 줄만 · 다른 serverDrive false 실기는 보내고 안내 줄', () => {
+    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDrive: false, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r.id === 'g8' ? { ...r, serverDrive: false } : r));
+    mount('u-lee', T); feed(T);
+    press(stopBtn());
+    const pick = $('[aria-label="정지할 로봇 고르기"]');
+    expect(pick.querySelector('[data-phone-only]')!.textContent).toContain('K-07');
+    expect(pick.querySelector('[data-stop-noserver="g6"]')).toBeNull();
+    expect(pick.querySelector('[data-stop-noserver="g8"]')).not.toBeNull();
+    press(stopBtn());
+    const sent = FakeWS.last.of('stop').map((m) => m.robot);
+    expect(sent).not.toContain('g6');
+    expect(sent).toContain('g8');
+  });
   it('R3: «모두»에서 남의 로봇을 고른 뒤 «내 로봇»으로 되돌리면 고름이 비고, STOP 한 번은 숨은 로봇이 아니라 고르기', () => {
     mount('u-lee', TWENTY); feed(TWENTY);
     act(() => { $$('[aria-label="범위"] button')[0].click(); });   // 모두
