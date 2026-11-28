@@ -76,6 +76,7 @@ async function open(pick = true) {
   await flush();
   const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
   if (pick && b) { act(() => b.click()); await flush(); }
+  if (pick) { const o = box.querySelector<HTMLButtonElement>('[data-open-map]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
 }
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; kept.job = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); last = null; terrainAsk.id = ''; });
 
@@ -273,7 +274,7 @@ describe('3D 표시·지형 수정하기 길', () => {
   it('지도 고르기 카드에 «3D», 저장 기록 줄에도', async () => {
     serve(signedIn(KIM, 'v2'));
     await open(false);
-    expect($('[data-building="b1"] [data-voxel-chip]')!.textContent).toBe('3D');
+    expect($('[data-floor-row="f1"] [data-voxel-chip]')!.textContent).toBe('3D');
     act(() => root?.unmount()); box.remove();
     serve(signedIn(KIM, 'v1'));
     await open(false);

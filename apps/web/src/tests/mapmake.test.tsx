@@ -92,6 +92,7 @@ async function open() {
   await flush();
   const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
   if (b) { act(() => b.click()); await flush(); }
+  { const o = box.querySelector<HTMLButtonElement>('[data-open-map]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
 }
 /** 실시간 연결로 로봇 상태(연결됨/끊김)를 받는다 — 화면의 «연결됨»은 실시간 state 만 믿는다 */
 const live = async (online: boolean) => { act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: online ? 'ONLINE' : 'OFFLINE' })); }); await flush(); };

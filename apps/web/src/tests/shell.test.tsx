@@ -370,7 +370,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '어느 지도에서 일할까요?', settings: '조직 기준값' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '층마다 지도 하나입니다', settings: '조직 기준값' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로

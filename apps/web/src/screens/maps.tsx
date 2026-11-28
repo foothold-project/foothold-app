@@ -123,8 +123,9 @@ export function useFit(v?: MapVersion) {
 }
 
 /** 판 그림 + 저장된 요소(구역·지점·연결점·지우개·벽 선). 그림을 못 받으면 칸 안 글 + 다시 불러오기 */
-export function MapView({ v, fill, terrain, children }: { v: MapVersion; fill?: boolean; terrain?: boolean; children?: ReactNode }) {
-  const framing = useFit(v);
+export type Layers = Record<'zones' | 'waypoints' | 'connectors' | 'edits', boolean>;
+export function MapView({ v, fill, terrain, show, children }: { v: MapVersion; fill?: boolean; terrain?: boolean; show?: Layers; children?: ReactNode }) {
+  const framing = useFit(v), f = show ? { zones: show.zones ? v.features.zones : [], waypoints: show.waypoints ? v.features.waypoints : [], connectors: show.connectors ? v.features.connectors : [], edits: show.edits ? v.features.edits : [] } : v.features;
   // 지형은 바닥 전체가 작업 공간이다. 물체 하나의 벽 범위로 잘라 시작하지 않는다.
   if (terrain) framing.fit = framing.full;
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
@@ -132,7 +133,7 @@ export function MapView({ v, fill, terrain, children }: { v: MapVersion; fill?: 
   if (fill) return <>
     <MapFrame {...framing} photo={v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
       <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
-      <Shapes v={v} f={v.features} />{children}
+      <Shapes v={v} f={f} />{children}
     </MapFrame>
     {at !== 'ok' && <div className="mx-over" style={{ top: 'auto', bottom: 48 }}>
       {at === 'wait' && <p className="lv-note" role="status">지도 그림을 불러오는 중…</p>}
@@ -175,7 +176,7 @@ const firstFloor = (b: MapBuilding) => b.floors.find((f) => f.level === 1) ?? by
 
 type Kind = 'sites' | 'buildings' | 'floors';
 /** 층을 열 때 바로 띄울 창: robot = 로봇으로 지도 만들기, file = 새 지도 올리기 */
-export type Intent = 'robot' | 'file' | null;
+export type Intent = 'robot' | 'file' | 'history' | null;
 type Make = '' | 'robot' | 'file' | 'fix';
 const WHAT: Record<Kind, string> = { sites: '장소', buildings: '건물', floors: '층' };
 const OBJ: Record<Kind, string> = { sites: '장소를', buildings: '건물을', floors: '층을' };
@@ -213,6 +214,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const [pick, setPick] = useState(() => kept.d?.floor ?? (finding ? '' : keptPlan.floor)), cur = places.find((p) => p.floor.id === pick);
   const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };
   const [madmin, setMadmin] = useState(() => keptPlan.kind === 'missions');
+  const [manage, setManage] = useState(false);   // 지도 탭 첫 화면 «고르기 · 관리»(시안 u7_1 · u7_2)
   const [all, setAll] = useState(false), multi = !!cur && cur.building.floors.length >= 2, whole = all && multi;   // 전체 = 건물 층 겹쳐 보기(보기만)
   const [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
   // make = 열린 장소 창('' = 닫힘): robot·file = «어느 층에?»(지도 만들기·파일 올리기 — 층을 고르거나 새로 만들면 그 층에서 그 창을 연다), fix = 고치기(지도 탭은 고른 층의 장소·건물·층, 시뮬 탭은 옛 «장소 고치기»)
@@ -321,12 +323,11 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
     {edits}
   </div>;
   // 왼쪽 위 = «‹ 모든 지도 보기» + 2층 이상 건물은 층 단추·«전체 층 겹쳐 보기»(보기만, 층 레이어 10-30)
-  const top = cur && <>
-    <button type="button" className="btn" data-to-chooser onClick={() => choose('')}>‹ 모든 지도 보기</button>
-    {multi && <><span className="mx-seg" role="group" aria-label="층" data-floors>{byLevel(cur.building.floors).map((f) =>
+  const back = cur && <button type="button" className="btn" data-to-chooser onClick={() => choose('')}>‹ 모든 지도 보기</button>;
+  const side = cur && multi && <><span className="mx-seg" role="group" aria-label="층" data-floors>{byLevel(cur.building.floors).map((f) =>
       <button key={f.id} type="button" className="btn" aria-pressed={!whole && f.id === cur.floor.id} data-floor={f.id} onClick={() => choose(f.id)}>{f.name}</button>)}</span>
-      <button type="button" className="btn" aria-pressed={whole} data-layers onClick={() => choose(null)}>전체 층 겹쳐 보기</button></>}
-  </>;
+      <button type="button" className="btn" aria-pressed={whole} data-layers onClick={() => choose(null)}>전체 층 겹쳐 보기</button></>;
+  const top = cur && <>{back}{side}</>;
 
   if (madmin && sim) return <MissionAdmin user={c.user} robots={robots} cancel={c.cancel} back={() => setMadmin(false)} />;
   if (finding) return <section className="mx" aria-label="지도 보기"><div className="mx-center"><p className="lv-note" role="status">주소의 시나리오를 찾는 중…</p></div></section>;
@@ -340,10 +341,14 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   </Pop>;
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
       places={places} sel={sel} setSel={setSel} toAdmin={() => setMadmin(true)} run={(x) => scenRun(x, places, vers)} />
-    : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} places={places} open0={intent}
+    : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={back} side={side} name={label} user={c.user} robots={robots} places={places} open0={intent}
       fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => toSim(cur.floor.id, id)} />}
     {pop}</>;
-  return <Chooser sim={sim} maker={maker} t={t} places={places} vers={vers} choose={choose} make={(k) => { setForm(null); setAsk(null); setMsg(null); setMake(k); }} note={found} cancel={c.cancel}>
+  const mk = (k: Make) => { setForm(null); setAsk(null); setMsg(null); setMake(k); };
+  if (!sim) return <Pick maker={maker} t={t} places={places} vers={vers} choose={choose} make={mk} note={found} manage={manage} setManage={setManage} edit={!make && placeBody}>
+    {pop}
+  </Pick>;
+  return <Chooser sim={sim} maker={maker} t={t} places={places} vers={vers} choose={choose} make={mk} note={found} cancel={c.cancel}>
     {pop}
   </Chooser>;
 }
@@ -369,6 +374,98 @@ function Thumb({ id, v }: { id?: string | null; v?: MapVersion }) {
 }
 /** 카드 그림 층: 1층, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
 const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
+
+/** 판 크기(m) · 넓이(m²) · 날짜 · 판 번호 — 시안 u7 의 「50 만 m² (900 × 560 m) · 11/20 · v3」 를 받은 값으로만 */
+const meters = (v: MapVersion) => { const w = v.width * v.resolution, h = v.height * v.resolution, r = (x: number) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10);
+  return { wh: `${r(w)} × ${r(h)} m`, area: `${r(w * h).toLocaleString('ko-KR')} m²` }; };
+const md = (at: string) => { const d = new Date(at); return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()}`; };
+/** 만든 방법(판 source · 3D 파일 · 시뮬 지형) */
+const howMade = (v: MapVersion) => (v.provenance === 'SIMULATION' ? '시뮬 지형' : voxelOf(v) ? '3D 지도 파일' : v.source === 'SLAM' ? '로봇으로 그림' : v.source === 'EDIT' ? '지도 고침' : v.source === 'ROLLBACK' ? '되돌림' : '파일 올림');
+const NOGO = (v: MapVersion) => v.features.zones.filter((z) => z.type === 'NO_GO').length;
+
+/** 층 겹친 그림(시안 u7_1 가운데 아래): 받은 층 순서 그대로, 고른 층만 칠함. 장식이 아니라 층 고르기(누르면 그 층) */
+function Stack({ floors, sel, pick }: { floors: MapFloor[]; sel?: string; pick: (id: string) => void }) {
+  const l = [...floors].reverse(), H = 40 + l.length * 56;
+  return <svg className="mp-stack" viewBox={`0 0 520 ${H}`} role="group" aria-label="층 겹친 그림">{l.map((f, i) => { const y = 30 + i * 56, on = f.id === sel;
+    return <g key={f.id} data-stack={f.id} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
+      <path d={`M40 ${y + 28} L220 ${y} L400 ${y + 28} L220 ${y + 56} Z`} className={on ? 'on' : ''} />
+      <text x={420} y={y + 33} className={on ? 'on' : ''}>{f.name}</text></g>; })}</svg>;
+}
+
+/** ① 지도 고르기 · 관리(지도 탭 · 시안 u7_1 · u7_2). 왼쪽 = 장소별 건물, 가운데 = 고른 건물의 층(고르기) 또는 장소 편집(관리), 오른쪽 = 미리 보기(고르기) 또는 지형 · 올리기 · 휴지통(관리) */
+function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, edit, children }: { maker: boolean; t: ReturnType<typeof useTree>; places: Place[]; vers: Record<string, MapVersion>;
+  choose: (id: string, then?: Intent) => void; make: (k: Make) => void; note: Msg; manage: boolean; setManage: (m: boolean) => void; edit: ReactNode; children: ReactNode }) {
+  const blds = places.reduce<{ site: MapSite; building: MapBuilding }[]>((a, p) => (a.some((x) => x.building.id === p.building.id) ? a : [...a, { site: p.site, building: p.building }]), []);
+  const [bid, setBid] = useState(() => places.find((p) => p.floor.id === keptPlan.floor)?.building.id ?? blds[0]?.building.id ?? '');
+  const cur = blds.find((x) => x.building.id === bid) ?? blds[0];
+  const [fid, setFid] = useState(''), floors = cur ? byLevel(cur.building.floors) : [];
+  const fl = floors.find((f) => f.id === fid) ?? (cur && (picFloor(cur.building) ?? firstFloor(cur.building))), v = fl?.approved_version_id ? vers[fl.approved_version_id] : undefined;
+  const maps = places.filter((p) => p.floor.approved_version_id).length;
+  const none = !!t.tree && !places.length;
+  const newMap = <Menu label={<>＋ 새 지도 만들기</>} title="새 지도 만들기" end className="mp-new">
+    {/* 지도 0 개면 빈 칸(아래)의 단추와 같은 것은 숨긴다(U11-04 검수 · 칠한 단추 하나) */}
+    {maker && !none && <button type="button" className="btn" data-make-robot onClick={(e) => { shut(e); make('robot'); }}>+ 지도 만들기</button>}
+    {(maker || !none) && <button type="button" className="btn" data-make-file onClick={(e) => { shut(e); make('file'); }}>+ 파일 올리기</button>}
+    {!inApp() && <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>}
+  </Menu>;
+  return <section className="mx mp" aria-label="지도 고르기">
+    <aside className="lv-card mp-sites" aria-label="현장">
+      <div className="fh-row"><h2 className="fh-grow">현장</h2>{t.tree && <span className="lbl">지도 {maps} 개</span>}</div>
+      {t.tree?.items.filter((s) => blds.some((x) => x.site.id === s.id)).map((s) => <div key={s.id} className="mp-group mx-site" aria-label={`장소 ${s.name}`}><p className="lbl">{s.name}</p>
+        {blds.filter((x) => x.site.id === s.id).map(({ building: b }) => { const n = b.floors.filter((f) => f.approved_version_id).length;
+          return <button key={b.id} type="button" className="mp-site" data-building={b.id} aria-pressed={b.id === cur?.building.id} onClick={() => { setBid(b.id); setFid(''); }}>
+            <span className="mp-pin" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg></span>
+            <span className="mp-sn"><b>{b.name}</b><small>{s.name} · {b.floors.length}층{n ? '' : ' · 지도 없음'}</small></span><span className="mp-cnt">{n}</span></button>; })}</div>)}
+      {t.tree && !blds.length && <p className="lv-note">아직 층이 있는 건물이 없습니다. «관리»에서 장소 · 건물 · 층을 만듭니다.</p>}
+      <p className="lv-note mp-foot">층마다 지도 하나입니다. 로봇으로 그리거나 지도 파일을 올려 만듭니다.</p>
+    </aside>
+    <div className="mp-main">
+      <div className="mp-head"><h2>지도 {cur && <small>{cur.building.name} · {cur.site.name}</small>}</h2><span className="fh-grow" />
+        <span className="mx-seg mp-seg" role="group" aria-label="고르기 · 관리"><button type="button" className="btn" aria-pressed={!manage} onClick={() => setManage(false)}>고르기</button>
+          <button type="button" className="btn" aria-pressed={manage} onClick={() => setManage(true)}>관리</button></span>
+        {newMap}</div>
+      <Note m={note} />
+      {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
+      {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
+      {none && !manage && <Empty kind="map" title="아직 지도가 없습니다" card={false}
+        why={maker ? '담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.' : '지도 파일(그림 · yaml)을 올리면 여기에 보입니다.'}>
+        {maker ? <button type="button" className="btn pri" onClick={() => make('robot')}>+ 지도 만들기</button>
+          : <button type="button" className="btn pri" onClick={() => make('file')}>+ 파일 올리기</button>}</Empty>}
+      {manage ? <div className="mp-cols mp-manage">
+        <section className="lv-card mp-edit" aria-label="장소 · 건물 · 층 편집"><div className="fh-row"><h2 className="fh-grow">장소 · 건물 · 층 편집</h2></div>
+          <p className="lv-note">이름 바꾸기 · 삭제는 바로 서버에 저장됩니다. 지운 것은 휴지통에서 되돌립니다.</p>{edit}</section>
+        <div className="mp-right">
+          <section className="lv-card" data-manage-terrain><h2>시뮬 지형 만들기</h2><p className="lv-note">실측 지도 없이 시험할 지형을 시뮬 지도로 만듭니다.</p>
+            {!inApp() && <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 새 시뮬 지형</a>}</section>
+          <section className="lv-card" data-manage-up><h2>지도 올리기</h2><p className="lv-note">지도 그림 · yaml 또는 3D 지도 파일(.pcd · .ply, 총괄)을 층에 올립니다. 층을 고르는 창이 열립니다.</p>
+            <div className="fh-row"><button type="button" className="btn" data-make-file onClick={() => make('file')}>지도 파일 올리기</button>
+              {maker && <button type="button" className="btn" data-make-robot onClick={() => make('robot')}>로봇으로 그리기</button>}</div></section>
+          <section className="lv-card" data-manage-trash><h2>휴지통</h2><p className="lv-note">지운 장소 · 건물 · 층 · 지도는 휴지통에서 되돌립니다.</p><TrashLink /></section>
+        </div></div>
+      : cur && <div className="mp-cols">
+        <section className="lv-card mp-floors" aria-label="층 목록"><div className="fh-row"><h2 className="fh-grow">{cur.building.name} · 층</h2><span className="lbl">층마다 지도 하나</span></div>
+          <div className="mp-rows">{floors.map((f) => { const x = f.approved_version_id ? vers[f.approved_version_id] : undefined;
+            return <button key={f.id} type="button" className="mp-row" data-floor-row={f.id} aria-pressed={f.id === fl?.id} onClick={() => setFid(f.id)}>
+              <Thumb id={f.approved_version_id} v={x} />
+              <span className="mp-rt"><span className="fh-row"><b>{f.name}</b>{x ? <span className="lv-chip ok">{howMade(x)}</span> : f.approved_version_id ? null : <span className="lv-chip off">지도 없음</span>}
+                {x && voxelOf(x) && <span className="lv-chip" data-voxel-chip title="3D 지도 파일에서 만든 지도 · 시뮬 지형 연결됨">3D</span>}</span>
+                {x && <small>{meters(x).wh} · {md(x.created_at)} · v{x.number}</small>}</span><span className="mp-chev" aria-hidden="true">›</span></button>; })}</div>
+          {floors.length >= 2 && <Stack floors={floors} sel={fl?.id} pick={setFid} />}
+        </section>
+        {fl && <section className="lv-card mp-prev" aria-label="미리 보기">
+          <div className="mp-pv">{v ? <MapView key={v.id} v={v} fill />
+            : <div className="mx-center"><p className="lv-note">{fl.approved_version_id ? '지도를 불러오는 중…' : '이 층에 아직 지도가 없습니다. 지도를 열어 올리거나 로봇으로 그립니다.'}</p></div>}
+            {v && <span className="mp-tag">위에서 본 지도 · {meters(v).wh}{modelOf(v) ? ' · 3D 모형 있음' : ''}</span>}</div>
+          <div className="mp-pf"><div className="fh-row"><b className="mp-pt" data-prev-title>{cur.building.name} · {fl.name}</b>{v && <span className="lv-chip ok">{howMade(v)}</span>}</div>
+            {v && <p className="mp-facts"><span>{meters(v).area}</span><span>{meters(v).wh}</span><span>{md(v.created_at)} · v{v.number}</span><span>접근 금지 {NOGO(v)}</span></p>}
+            <div className="fh-row"><button type="button" className="btn pri fh-grow" data-open-map onClick={() => choose(fl.id)}>지도 열기</button>
+              {fl.approved_version_id && <button type="button" className="btn" data-open-history onClick={() => choose(fl.id, 'history')}>버전 기록</button>}</div></div>
+        </section>}
+      </div>}
+    </div>
+    {children}
+  </section>;
+}
 
 /** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 장소별 건물 카드(11-11 «마지막에 본 지도» 카드 뺌·그림 크게)(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·휴지통.
  *  지도 탭 = «+ 지도 만들기»(로봇, 담당 운영자만)·«+ 파일 올리기» — 둘 다 «어느 층에?»(11-12 현민님), 장소 고치기는 층 화면 + «+ 지형 만들기»(11-19 시뮬 탭에서 옮김). 시뮬 탭 = «장소 고치기» */
@@ -476,7 +573,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림, 보기/편집 토글(승인 판이 있을 때), 아래 접힌 «저장 기록»(옛 판 보기·비교·한때 승인된 판 되돌리기), 새 지도 올리기.
  *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. told = 그때 배지 다시 받기 */
-function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN, head, hov, scenList, toScen, user, robots, places, open0, fix }: { p: Place; sim?: boolean; user: User; robots: Robot[]; places: Place[]; open0: Intent; fix?: () => void; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
+function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name, scenN, head, hov, scenList, toScen, user, robots, places, open0, fix }: { p: Place; sim?: boolean; side?: ReactNode; user: User; robots: Robot[]; places: Place[]; open0: Intent; fix?: () => void; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
   /** 시뮬 탭만 — 오른쪽 창 = 시나리오(지도 탭은 지도 요소만) */ scenN?: string; head?: ReactNode; hov?: Scenario | null; scenList?: ReactNode }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
@@ -523,10 +620,11 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
   // 로봇으로 지도 만들기(RB-SLAM-WEB): 실기 장소·사람 층, 내가 담당 운영자인 실기 로봇이 있을 때만(지도 탭만 — 시뮬 탭에 넣지 않음)
   const [mk, setMk] = useState(open0 === 'robot'), canMake = !sim && real && p.floor.provenance !== 'SIMULATION' && makers(user, robots).length > 0;
   const mkBtn = (e?: { currentTarget: Element }) => { if (e) shut(e as never); setMk(true); };
-  return <section className="mx" aria-label="지도 보기">
-    <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
-    <div className="mx-bar">
-      {top}{/* 편집 중 층 바꾸기·나가기는 기존 «저장 안 한 편집» 확인으로(잠그지 않음) */}
+  // 지도 탭 층 화면 왼쪽 칸(시안 u7_3 · u7_4): 층 단추 · 보이기 · 이 지도 · 저장 기록. 받은 값만(점 수 · 보정 · 실사 표면 · 카메라 · 충전소 · 지나온 경로는 값 없음)
+  const [lay, setLay] = useState<Layers>({ zones: true, waypoints: true, connectors: true, edits: true }), left = !sim && !editing;
+  const bar = <div className="mx-bar">
+      {top}{editing && side}
+      {left && <b className="mp-ftitle">{p.building.name} · {p.floor.name}{now && <span className="lv-chip ok">{howMade(now)} · v{now.number}</span>}</b>}{/* 편집 중 층 바꾸기·나가기는 기존 «저장 안 한 편집» 확인으로(잠그지 않음) */}
       {sim && !editing && <SimOpen key={p.floor.id} f={p.floor} v={now} wait={!list && !err} real={real} cancel={cancel} />}
       {now && !sim && <span className="mx-seg" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
@@ -540,6 +638,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
       {(vox || sb) && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
       {editing && <span className="mx-tag mx-edit" data-editing>▲ 편집 중</span>}
       <span className="fh-grow" />
+      {left && toScen && !inApp() && <button type="button" className="btn pri" data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
         {!sim && <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>}
         {canMake && <button type="button" className="btn" data-make-open onClick={mkBtn}>지도 만들기</button>}
@@ -547,8 +646,8 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
         <TrashLink />
       </Menu>}
       <span ref={setSlot} style={{ display: 'contents' }} />
-    </div>
-    {editing ? <Editor v={editing} p={p} cancel={cancel} slot={slot} pick={(m) => <SideTitle n={m} />} name={name} toScen={toScen} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
+    </div>;
+  const main = editing ? <Editor v={editing} p={p} cancel={cancel} slot={slot} pick={(m) => <SideTitle n={m} />} name={name} toScen={toScen} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
         saved={(x) => { setEditing(null); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
           else { setSel(x.id); setDone(SAVED); } reload(); }} />
     : <div className="mx-body">
@@ -557,7 +656,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
           : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={(why) => { setM3(false); setDone({ text: `${why || '이 층은 3D 모형이 없습니다.'} 2D 지도로 봅니다.` }); }} />
           : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
-          : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
+          : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id} show={left ? lay : undefined}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
           : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center">
             {/* 층에 지도 0 개(U11-04 빈 화면): 다음 할 일 하나 = 올리기. «지도 만들기»는 ··· 메뉴에 그대로 */}
             <Empty kind="floor" title="이 층에 아직 지도가 없습니다" why="지도 파일(그림 · yaml)을 올리면 이 층 지도가 됩니다." card={false}>
@@ -586,9 +685,9 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
               <div className="fh-row">{!editing && <button type="button" className="btn" onClick={() => { setD3(!on3d); setCmp(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}<TerrainLink id={vox.terrain_id} /></div></div>}</>}
         </>}
       </Pane>}
-    </div>}
-    {/* 저장 기록(11-04, 기본 닫힘): 줄을 누르면 그 기록을 지도에 — 판 번호 대신 저장 시각·만든 사람 */}
-    {!editing && !!list?.length && <details className="fh-fold mx-hist" data-history><summary>저장 기록 {list.length}</summary>
+    </div>;
+  // 저장 기록(11-04, 기본 닫힘 · 고르기 화면 «버전 기록»으로 열면 펼침): 줄을 누르면 그 기록을 지도에 — 판 번호 대신 저장 시각·만든 사람
+  const hist = !editing && !!list?.length && <details className="fh-fold mx-hist" data-history open={open0 === 'history' || undefined}><summary>저장 기록 {list.length}</summary>
       <ul className="mx-list" aria-label="저장 기록 목록">{list.map((x) => <li key={x.id} className="mx-row" data-save={x.id}>
         <button type="button" className="mx-name" aria-pressed={x.id === v?.id} onClick={() => { setSel(x.id); setUndo(null); }}><b>{savedAs(x)}</b><small>{x.reason}</small>{voxelOf(x) && <span className="lv-chip">3D</span>}{x.source === 'SLAM' && <span className="lv-chip" data-slam-chip>로봇으로 만든 지도</span>}<Chip {...stateOf(x, approved)} /></button></li>)}</ul>
       {v && <div className="fh-row" role="group" aria-label="저장 기록 관리">
@@ -596,7 +695,27 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
         {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
         {now && !sim && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 기록으로 되돌리기</button>}
       </div>}
-    </details>}
+    </details>;
+  const LAY: [keyof Layers, string, string][] = [['zones', '구역 (접근 금지 · 감속)', 'var(--bad)'], ['waypoints', '지점', 'var(--accent)'], ['connectors', '연결점 (계단 · 엘리베이터)', 'var(--warn)'], ['edits', '벽 · 지운 선', 'var(--muted)']];
+  const who = now && names(now.created_by);
+  const panel = left && <aside className="lv-card mp-fside" aria-label="지도 정보" data-map-side>
+    {side && <div className="mp-fseg">{side}</div>}
+    {v && !show3 && !on3d && !cmp && <div role="group" aria-label="보이기" className="mp-lay"><p className="lbl">보이기</p>
+      {LAY.map(([k, t, c]) => <label key={k} className="mp-tog" data-map-layer={k}><i style={{ background: c }} aria-hidden="true" /><span className="fh-grow">{t}</span>
+        <input type="checkbox" role="switch" checked={lay[k]} onChange={() => setLay({ ...lay, [k]: !lay[k] })} /></label>)}</div>}
+    {v && <div aria-label="이 지도" className="mp-kv"><p className="lbl">이 지도</p><dl>
+      <dt>저장</dt><dd>{md(v.created_at)} · v{v.number}</dd>
+      <dt>만든 방법</dt><dd>{howMade(v)}</dd>
+      <dt>넓이</dt><dd>{meters(v).area} · {meters(v).wh}</dd>
+      <dt>해상도</dt><dd>{v.resolution} m / 칸</dd>
+      <dt>3D 모형</dt><dd>{model ? '있음' : '없음'}</dd>
+      {who && <><dt>만든 사람</dt><dd>{who}</dd></>}</dl></div>}
+    <span className="fh-grow" />
+    {hist}
+  </aside>;
+  return <section className="mx" aria-label="지도 보기">
+    <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
+    {left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
     {!editing && <Pop open={up} close={() => { if (!vbusy) setUp(false); }} label="새 지도 올리기">{/* 3D 파일 올리는 중엔 닫기·형식 바꾸기 막음(요청은 이어지는데 진행·결과만 사라지지 않게) */}
       {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} disabled={vbusy} onClick={() => setVu(false)}>그림·yaml</button>
         <button type="button" className="btn" aria-pressed={vu} disabled={vbusy} onClick={() => setVu(true)}>3D 지도 파일(.pcd·.ply)</button></span>}
