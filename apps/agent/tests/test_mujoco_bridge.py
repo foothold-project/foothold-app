@@ -316,3 +316,15 @@ def test_sim_gait_and_attitude_expire_with_state(tmp_path):
         finally:
             bridge.close()
     asyncio.run(run())
+
+
+def test_child_command_passes_slot_spawn_only_when_set():
+    """app-lx 11/28 15:11: simmgr slot spawn_xyyaw -> FH_SIM_SPAWN -> child --spawn. 없으면 옛 인자 그대로."""
+    from foothold_agent.mujoco_bridge.__main__ import child_command
+    base = {'FH_SIM_SRC': '/x', 'FH_SIM_NODE': sys.executable}
+    assert '--spawn' not in child_command(base)
+    cmd = child_command({**base, 'FH_SIM_SPAWN': '438.5714,-253.4286,0.0'})
+    assert cmd[cmd.index('--spawn') + 1] == '438.5714,-253.4286,0.0'
+    for bad in ('1,2', '1,2,nan', 'a,b,c', '1,2,3,4'):
+        with pytest.raises(ValueError):
+            child_command({**base, 'FH_SIM_SPAWN': bad})

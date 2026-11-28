@@ -38,6 +38,9 @@ class Slot:
     key_path: str = field(repr=False)
     replay_path: str = field(repr=False)
     port: int
+    # Optional [x, y, yaw] (world m, rad) for the local MuJoCo child; None keeps the world's spawn.
+    # Checked against the world map (inside, free cell) when the robot is added (mujoco_launcher.spawn_arg).
+    spawn_xyyaw: tuple | None = None
 
     @property
     def namespace(self):

@@ -17,6 +17,7 @@ Environment (fail-closed, no defaults for credentials):
 import asyncio
 import os
 from pathlib import Path
+import math
 import shutil
 import signal
 
@@ -32,10 +33,20 @@ def child_command(env):
     node = shutil.which(env.get('FH_SIM_NODE', 'node'))
     if node is None or not env.get('FH_SIM_SRC'):
         raise ValueError('set FH_SIM_SRC and a Node 22+ executable (FH_SIM_NODE)')
+    spawn = []
+    if env.get('FH_SIM_SPAWN'):  # 'x,y,yaw' from the simmgr slot (map-checked there); absent = map default spawn
+        parts = env['FH_SIM_SPAWN'].split(',')
+        try:
+            values = [float(v) for v in parts]
+        except ValueError:
+            raise ValueError('FH_SIM_SPAWN must be x,y,yaw') from None
+        if len(values) != 3 or not all(math.isfinite(v) for v in values):
+            raise ValueError('FH_SIM_SPAWN must be x,y,yaw')
+        spawn = ['--spawn', env['FH_SIM_SPAWN']]
     return [node, str(CHILD), '--map', env.get('FH_SIM_MAP', 'collapsed-house-v2'),
             '--seed', env.get('FH_SIM_SEED', '0'),
             '--battery-start', env.get('FH_SIM_BATTERY_START', '100'),
-            '--ambient-c', env.get('FH_SIM_AMBIENT_C', '25')]
+            '--ambient-c', env.get('FH_SIM_AMBIENT_C', '25'), *spawn]
 
 
 UNAVAILABLE = 'MuJoCo bridge has no scenario step executor yet'

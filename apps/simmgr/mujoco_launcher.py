@@ -44,6 +44,30 @@ def mujoco_map(world_id):
     return world_id.partition('/')[0].replace('_', '-')
 
 
+def spawn_arg(world, xyyaw):
+    """Slot spawn [x, y, yaw] -> 'x,y,yaw' for FH_SIM_SPAWN, refused (never moved) unless finite, inside the
+    world map and on a free cell of its occupancy image."""
+    import math
+    from apps.server.fh_server.map_files import gray_pixels, map_yaml
+    try:
+        x, y, yaw = (float(v) for v in xyyaw)
+    except (TypeError, ValueError):
+        raise WorldValidationError('시작 자리 (spawn_xyyaw) 는 [x, y, yaw] 숫자 3 개', 'SIM_SPAWN_INVALID') from None
+    if not all(math.isfinite(v) for v in (x, y, yaw)):
+        raise WorldValidationError('시작 자리 (spawn_xyyaw) 는 유한한 숫자', 'SIM_SPAWN_INVALID')
+    meta = map_yaml(Path(world.map_file).read_bytes())
+    width, height, pixels = gray_pixels((Path(world.map_file).parent / meta['image']).read_bytes())
+    ox, oy, _ = meta['origin']
+    col, row = math.floor((x - ox) / meta['resolution']), math.floor((y - oy) / meta['resolution'])
+    if not (0 <= col < width and 0 <= row < height):
+        raise WorldValidationError(f'시작 자리 ({x}, {y}) 가 지도 밖', 'SIM_SPAWN_INVALID')
+    value = pixels[(height - 1 - row) * width + col]
+    occupancy = (value if meta['negate'] else 255 - value) / 255
+    if occupancy > meta['free_thresh']:
+        raise WorldValidationError(f'시작 자리 ({x}, {y}) 가 빈 칸이 아님', 'SIM_SPAWN_INVALID')
+    return f'{x:g},{y:g},{yaw:g}'
+
+
 class MujocoLauncher:
     real = False   # not the native Gazebo episode; Manager keeps its non-native rules
     live = True    # but rows are live processes, so RUNNING/ERROR instead of PREPARED
@@ -85,6 +109,7 @@ class MujocoLauncher:
     async def add(self, slot, credentials):
         if slot.robot_id in self.children or self.world is None:
             raise RuntimeError('MuJoCo slot busy or no world')
+        spawn = None if slot.spawn_xyyaw is None else spawn_arg(self.world, slot.spawn_xyyaw)
         folder = self._folder(slot)
         ready = folder / 'ready'
         ready.unlink(missing_ok=True)
@@ -94,6 +119,8 @@ class MujocoLauncher:
                'FOOTHOLD_AGENT_WS_URL': self.settings.agent_ws_url,
                'FOOTHOLD_AGENT_TOKEN': credentials['agent_token'],
                'FH_SIM_MAP': mujoco_map(self.world.id), 'FH_SIM_READY_FILE': str(ready)}
+        if spawn is not None:
+            env['FH_SIM_SPAWN'] = spawn
         if env.get('FH_SIM_STEP_STATS') == '1':
             env['FH_SIM_STEP_STATS'] = str(folder / 'step-stats.jsonl')  # measurement tap, slot folder only
         else:

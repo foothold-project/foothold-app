@@ -351,3 +351,51 @@ def test_factory_site_map_name_is_listed_and_neighbours_are_refused(tmp_path):
                 await manager.add(key, slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
             assert error.value.code == 'SIM_WORLD_INVALID' and launch.children == {}
     asyncio.run(run())
+
+
+def spawn_world(tmp_path):
+    """3 x 2 칸 0.5 m 지도: 가운데 윗줄 한 칸만 막힘 (원점 (0, 0), 위가 0 행)."""
+    from apps.server.fh_server.map_files import gray_png
+    (tmp_path / 'm.png').write_bytes(gray_png(3, 2, bytes([254, 0, 254, 254, 254, 254])))
+    (tmp_path / 'm.yaml').write_text('image: m.png\nresolution: 0.5\norigin: [0.0, 0.0, 0.0]\nnegate: 0\n'
+                                     'occupied_thresh: 0.65\nfree_thresh: 0.196\nmode: trinary\n')
+    return World('collapsed-house-v2', tmp_path / 'w.sdf', tmp_path / 'm.yaml')
+
+
+def spawn_env(tmp_path, monkeypatch, spawn):
+    async def run():
+        cfg, launch = launcher(tmp_path, 'ready')
+        slot = next(iter(cfg.slots.values()))
+        cfg = replace(cfg, worlds={'collapsed-house-v2': spawn_world(tmp_path)},
+                      slots={**cfg.slots, slot.robot_id: replace(slot, spawn_xyyaw=spawn)})
+        launch.settings = cfg
+        seen = {}
+        original = subprocess.Popen
+        def spy(cmd, **kw):
+            seen.update(kw['env'])
+            return original(cmd, **kw)
+        monkeypatch.setattr('apps.simmgr.mujoco_launcher.subprocess.Popen', spy)
+        manager = Manager(cfg, launch)
+        try:
+            await manager.add('collapsed-house-v2', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
+        finally:
+            await manager.close()
+        return seen
+    return asyncio.run(run())
+
+
+def test_slot_without_spawn_keeps_the_world_spawn(tmp_path, monkeypatch):
+    assert 'FH_SIM_SPAWN' not in spawn_env(tmp_path, monkeypatch, None)
+
+
+def test_slot_spawn_reaches_the_child_environment(tmp_path, monkeypatch):
+    assert spawn_env(tmp_path, monkeypatch, (0.25, 0.25, 1.5))['FH_SIM_SPAWN'] == '0.25,0.25,1.5'
+
+
+@pytest.mark.parametrize('spawn', [(0.75, 0.75, 0.0),            # 막힌 칸 (가운데 윗줄)
+                                   (1.6, 0.25, 0.0), (0.25, -0.1, 0.0),   # 지도 밖
+                                   (float('nan'), 0.25, 0.0), (0.25, 0.25)])
+def test_blocked_outside_or_malformed_spawn_is_refused_before_any_process(tmp_path, monkeypatch, spawn):
+    with pytest.raises(Exception) as caught:
+        spawn_env(tmp_path, monkeypatch, spawn)
+    assert '시작 자리' in str(caught.value)
