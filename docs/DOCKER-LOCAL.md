@@ -45,7 +45,9 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 
 자산 폴더는 웹 컨테이너의 `/workspace/sim-assets` 에 **읽기 전용**으로 붙는다(`FH_SIM_ASSETS` 가 비면 Compose 가 시작을 거절).
 운영 서버는 지금처럼 `/var/lib/foothold/sim-policy` 를 쓰며 이 구성과 무관하다.
-웹 개발 서버가 `/sim/` 에서 이 자산을 내주는 연결은 웹 쪽 작업이라 아직 없다.
+웹 컨테이너는 시작할 때(`docker/web-start.sh`) `npm ci` 뒤 `deploy/prepare_sim.py mobile/sim /workspace/sim-assets /tmp/fh-sim`
+을 `node` 사용자로 한 번 돌리고(root 로 돌리면 사용자 소유 자산을 거절한다), `FH_SIM_DIR=/tmp/fh-sim/sim` 으로 Vite 를 띄운다.
+Vite 의 `localSim` 이 그 폴더를 `/sim/` 으로 내준다. 준비가 실패해도(rc 0 아님) 웹은 뜨고 `/sim/` 은 만드는 법 안내 화면이다.
 
 ## 입구 스크립트와 Docker 없이 띄우기
 

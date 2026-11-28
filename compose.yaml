@@ -68,6 +68,8 @@ services:
       # 현재 웹이 import하는 JS·JSON·정적 지도 자료; 시뮬 프로세스는 실행하지 않는다.
       - ./mobile/sim:/workspace/mobile/sim:ro
       # 비공개 시뮬 자산(정책 ONNX · ORT · MuJoCo). 저장소 밖 폴더를 읽기 전용으로만 붙인다.
+      # 시작 때 한 번 돌리는 시뮬 폴더 준비 스크립트(docker/web-start.sh).
+      - ./deploy/prepare_sim.py:/workspace/deploy/prepare_sim.py:ro
       - '${FH_SIM_ASSETS:?로컬 .env 또는 셸의 FH_SIM_ASSETS 에 시뮬 자산 폴더를 적으세요}:/workspace/sim-assets:ro'
     depends_on:
       server:
