@@ -101,7 +101,7 @@ def demo(client, seeded):
     clock = [T0]
     app = client.app
     sched = S.Scheduler(app.state.realtime, sessionmaker(app.state.engine, expire_on_commit=False),
-                        seeded['org'], clock=lambda: clock[0])
+                        seeded['org'], clock=lambda: clock[0], pre_unlock=True)
     return client, sched, clock
 
 
@@ -705,6 +705,38 @@ def test_confirmed_slot_pre_unlocks_a_release_latch_on_the_demo_robot(demo, seed
         assert start['user_id'] == str(seeded['users']['one'])  # the confirmer
     rows = events(seeded, 'SCHEDULE_PRE_UNLOCK')
     assert [(str(u), d['slot_id']) for u, d in rows] == [(str(seeded['users']['one']), str(slot_id))]
+
+
+def test_pre_unlock_switch_off_by_default_skips_and_sends_no_unlock(demo, seeded):
+    """Local integration 11/28 (Codex #633 review): schedule pre-unlock is off unless FH_SCHEDULE_PRE_UNLOCK=1.
+    The same release latch that the switched-on scheduler pre-unlocks is SKIPPED STOP_LATCHED, the server
+    sends no unlock and no run.start, and no SCHEDULE_PRE_UNLOCK event is written."""
+    client, _, clock = demo
+    assert S.Scheduler.__init__.__kwdefaults__['pre_unlock'] is False
+    off = S.Scheduler(client.app.state.realtime, sessionmaker(client.app.state.engine, expire_on_commit=False),
+                      seeded['org'], clock=lambda: clock[0])
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)
+        agent.pump()
+        person_unlocks_then_releases(client, seeded, agent)
+        before = len(sent(agent, 'unlock', 'run.start'))
+        clock[0] = T0 + timedelta(minutes=3)
+        run_ticks(client, off, agent, 6)
+        assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('SKIPPED', 'STOP_LATCHED')
+        assert len(sent(agent, 'unlock', 'run.start')) == before and agent.latched
+    assert events(seeded, 'SCHEDULE_PRE_UNLOCK') == []
+
+
+def test_settings_pre_unlock_switch_reads_env(monkeypatch):
+    from apps.server.fh_server import api
+    monkeypatch.setenv('FH_DATABASE_URL', 'postgresql+psycopg://u@127.0.0.1/x')
+    monkeypatch.setenv('FH_ORG_ID', '00000000-0000-0000-0000-000000000001')
+    monkeypatch.delenv('FH_SCHEDULE_PRE_UNLOCK', raising=False)
+    assert api.Settings.from_env().schedule_pre_unlock is False
+    monkeypatch.setenv('FH_SCHEDULE_PRE_UNLOCK', '1')
+    assert api.Settings.from_env().schedule_pre_unlock is True
 
 
 @pytest.mark.parametrize('case', ['connect_only', 'person_stop', 'agent_stop', 'safety'])
