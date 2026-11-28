@@ -2329,6 +2329,7 @@ export interface ScreenReply {
   id: string;
   ok: boolean;
   error?: ErrorBody | null;
+  delivered?: boolean | null;
 }
 
 export interface ScreenRespond {
@@ -2619,6 +2620,11 @@ export interface SlamStatus {
   channel: "slam" | "slam_pose";
   state: "NO_SLAM";
   reason: string;
+}
+
+export interface StopAccepted {
+  requested: true;
+  delivered: boolean;
 }
 
 export interface StopRequest {
