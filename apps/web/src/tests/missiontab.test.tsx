@@ -232,6 +232,21 @@ describe('임무 탭(W2)', () => {
     expect(picked()).toEqual(['s2']); expect($('[data-side-name]')!.textContent).toBe('가스 점검');
   });
 
+  it('u6_1 지도 칩: 경로 · 구역을 누르면 켜고 끔(끔 = .g.dk) · 경로를 꺼도 지점 번호는 남음 · 혼잡 시간은 잠김', async () => {
+    await mount('#/missions');
+    const chip = (k: string) => $(`[data-chip="${k}"]`)!;
+    expect(chip('route').className).toBe('g'); expect(chip('route').getAttribute('aria-pressed')).toBe('true');
+    const segs = $$('[data-seg]').length, nogo = $$('[data-nogo]').length, pts = $$('[data-pt]').length;
+    expect(segs).toBeGreaterThan(0); expect(pts).toBeGreaterThan(0);
+    await click(chip('route'));
+    expect(chip('route').className).toBe('g dk'); expect($$('[data-seg]').length).toBe(0); expect($$('[data-pt]').length).toBe(pts);
+    await click(chip('zone'));
+    expect(chip('zone').getAttribute('aria-pressed')).toBe('false'); expect($$('[data-nogo]').length).toBe(0);
+    await click(chip('route')); await click(chip('zone'));
+    expect($$('[data-seg]').length).toBe(segs); expect($$('[data-nogo]').length).toBe(nogo);
+    expect($('.chips [data-locked]')!.getAttribute('aria-disabled')).toBe('true');
+  });
+
   it.each(['#/mission/s2', '#/mission?scenario_id=s2', '#/missions/s2'])('옛 주소 %s → 임무 탭에서 그 임무를 고름', async (h) => {
     await mount(h);
     expect($('h1')!.textContent).toBe('임무');
