@@ -21,7 +21,7 @@ type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number
 /** 지도 보기 첫 시점(팀장 00:22 · 시안 밖): 원근 · 정북을 보고(옆 틂 0) · 아래로 SITE_EL. 로봇 무리 둘레 상자 가운데가 화면 가로 가운데 · 세로 SITE_Y,
  *  화면 폭 = 무리 폭 × SITE_SPAN(SITE_MIN_W ~ 현장 폭 × SITE_MAX_K: 무리가 넓게 퍼져도 공장이 화면 가로를 채우고 위 하늘이 좁게). 로봇이 없거나 한 대면 현장 가운데 · 화면 폭 = 현장 폭.
  *  작은 지도 더블클릭 + 고른 로봇 = 첫 시점에서 그 로봇 가운데 가까운 시점(NEAR_D)으로 FLY_S 초 ease-in-out. 움직임 줄이기면 바로 끝 시점 */
-export const SITE_FOV = 32, SITE_EL = 42, SITE_Y = 0.57, SITE_SPAN = 2.5, SITE_MIN_W = 160, SITE_MAX_K = 0.65, NEAR_D = 150, FLY_S = 1.0;
+export const SITE_FOV = 32, SITE_EL = 42, SITE_Y = 0.57, SITE_SPAN = 2.5, SITE_MIN_W = 160, SITE_MAX_K = 0.65, NEAR_D = 210, FLY_S = 1.0;   // NEAR_D 150 → 210(팀장 02:03 «너무 많이 들어감 · 조금만 덜»)
 export type SiteShot = { tgt: THREE.Vector3; el: number; az: number; d: number };
 const SITE_C = () => toWorld(SITE_PX_W / 2, SITE_PX_H / 2), SITE_W = SITE_PX_W / K;
 /** 보이는 가로 폭 viewW 와 화면 세로 자리 SITE_Y 를 맞춘 시점: 바라볼 점(tgt)을 가운데 c 에서 북쪽(-z)으로 옮겨 c 가 SITE_Y 에 오게 */
