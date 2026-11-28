@@ -436,6 +436,17 @@
           ],
           "default": null
         },
+        "run_end_latch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunEndLatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "run_result": {
           "anyOf": [
             {
@@ -1456,6 +1467,29 @@
         "code"
       ],
       "title": "RunCommandResult",
+      "type": "object"
+    },
+    "RunEndLatch": {
+      "additionalProperties": false,
+      "description": "#630: the Hub latch this run's own COMPLETED end made (the agent was unlatched just before).\nstop_gen is the generation right after that end; any later lock moves stop_gen past it.",
+      "properties": {
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "stop_gen": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "stop_gen"
+      ],
+      "title": "RunEndLatch",
       "type": "object"
     },
     "RunSnapshot": {

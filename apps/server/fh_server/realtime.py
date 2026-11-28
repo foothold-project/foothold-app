@@ -1763,22 +1763,64 @@ class Realtime:
     # itself (phone · sim stop: stop_gen moves without a server STOP) or a safety latch.
     RELEASE_CAUSES = frozenset({'lease_release', 'lease_expired', 'run_finished'})
 
+    # Server STOPs that hand control to someone (lease_take · transfer · a schedule slot's start): the agent's own
+    # drop lock right after one of them is not a person's STOP (#630 K-03). Anything else (a person's STOP,
+    # screen · phone · safety causes) is never skipped.
+    GRANT_CAUSES = frozenset({'lease_take', 'lease_transfer', 'scheduled_run'})
+
     def note_release_stop(self, rid, body, cause):
         peer = self.agents.get(rid)
+        last = self.__dict__.setdefault('last_server_stop', {})
+        prev = last.get(rid)
+        last[rid] = (body.get('stop_ref'), cause)
+        gen = peer.state.get('stop_gen') if peer is not None else None
+        unlatched = peer is not None and peer.state.get('latched') is False
         self.__dict__.setdefault('release_latch', {})[rid] = {
             'ref': body.get('stop_ref'), 'gen': None, 'cause': cause,
-            'ok': peer is not None and peer.state.get('latched') is False}  # was unlocked just before
+            'ok': unlatched,  # was unlocked just before
+            # An older-ref latched frame may be skipped only if it is the agent's one drop lock (stop_gen +1 at most)
+            # after the previous server STOP, and that STOP handed control (not a person's STOP).
+            'skip': (prev[0], gen + 1) if (unlatched and prev is not None and prev[1] in self.GRANT_CAUSES
+                                           and type(gen) is int) else None}
+
+    def note_run_end_latch(self, rid, run_id, start_ref):
+        """#630: the agent latched itself first when run `run_id` COMPLETED, then the server's run_finished STOP
+        came. That latch is the documented «run end» one only if
+        - by the server's own STOP record, run_finished is the only server STOP since this run's start STOP
+          (start_ref): a person's or a screen's STOP in between, reported by the agent or not, disqualifies it;
+        - the agent names it as this run's COMPLETED end (run_end_latch), nothing latched it again since (same
+          stop_gen) and there is no safety latch.
+        A person's STOP, a fall, a fault, a lost link or a FAILED run never gets run_end_latch. When unsure: no."""
+        peer, record = self.agents.get(rid), self.__dict__.get('release_latch', {}).get(rid)
+        if (peer is None or record is None or record['gen'] is not None or record['cause'] != 'run_finished'
+                or type(start_ref) is not int or record['ref'] != start_ref + 1
+                or record['ref'] != self.arbiter.robot(rid).stop_ref):
+            return
+        latch, run = peer.state.get('run_end_latch') or {}, peer.state.get('reported_run') or {}
+        gen = peer.state.get('stop_gen')
+        if (str(latch.get('run_id')) == str(run_id) == str(run.get('run_id')) and run.get('status') == 'COMPLETED'
+                and peer.state.get('latched') is True and type(gen) is int and latch.get('stop_gen') == gen
+                and peer.state.get('safety_reason') is None):
+            # An older-ref frame may only repeat this very latch (start_ref, the same stop_gen), and the agent's
+            # first report of run_finished must be exactly one lock later: a phone STOP it has not reported yet
+            # (stop_gen +1 more) makes it no run-end latch.
+            record.update(ok=True, skip=(start_ref, gen), expect_gen=gen + 1)
 
     def note_latch(self, rid, msg):
         record = self.__dict__.get('release_latch', {}).get(rid)
         if record is None:
             return
+        skip = record.get('skip')
+        if msg.latched and skip is not None and msg.stop_ref == skip[0] and msg.stop_gen <= skip[1]:
+            return  # sent before the agent read this server STOP, showing only the latch already allowed for (K-03)
         if not msg.latched:
             self.release_latch.pop(rid, None)  # the latch is gone (a person unlocked)
         elif msg.stop_ref != record['ref']:
             record['ok'] = False
         elif record['gen'] is None:
             record['gen'] = msg.stop_gen  # the agent confirmed this server STOP
+            if record.get('expect_gen') is not None and msg.stop_gen != record['expect_gen']:
+                record['ok'] = False  # another lock came with it (#630)
         elif msg.stop_gen != record['gen']:
             record['ok'] = False  # the agent latched again by itself
 
@@ -2489,6 +2531,7 @@ class Realtime:
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
         peer.state['run_result'] = data.get('run_result')
+        peer.state['run_end_latch'] = data.get('run_end_latch')
         peer.state['action_result'] = data.get('action_result')
         peer.state['control'] = data.get('control')
         peer.state['response_health'] = data.get('response_health')
