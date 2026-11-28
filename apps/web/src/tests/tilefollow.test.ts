@@ -57,6 +57,8 @@ describe('layers', () => {
     expect(layers(true, true)).toEqual({ world: true, dots: false });
     expect(layers(false, true)).toEqual({ world: false, dots: true });
     expect(layers(true, false)).toEqual({ world: false, dots: true });   // glb 를 아직 못 받음
+    expect(layers(true, true, true)).toEqual({ world: false, dots: true });   // 시뮬은 임무 중이어도 시뮬 공간(팀장 00:37)
+    expect(layers(true, true, false)).toEqual({ world: true, dots: false });   // 데모 · 실기 임무 중 = 현장
     expect([REAR_DIST, FRONT_DIST]).toEqual([1.0, 1.25]);   // 임무 중 뒤 1 m(팀장 23:48) · 정면 1.25 m
   });
 });

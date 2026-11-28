@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, facts, jointsNow, lying, order, tempLevel, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, tempLevel, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -141,6 +141,21 @@ describe('관제 탭', () => {
     expect(got).not.toContain('s2');   // 시뮬은 한 대
     expect(got).toEqual(list.map((f) => f.x.id).filter((id) => got.includes(id)));   // 줄 차례 그대로
     expect(wallPick(list.slice(0, 5)).map((f) => f.x.id)).toEqual(list.slice(0, 5).map((f) => f.x.id));   // 8 대 이하면 전부
+  });
+  it('서버 구성(팀장 00:37 · K-01 시뮬 · K-02~07 데모 · Go2 X 실기 · K-08 은 8 칸 밖) = 시안 u5_1 과 같은 8 칸 · 같은 차례(위험 → 실기 → 데모 → 시뮬)', () => {
+    const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
+    const av = (demo: boolean, x: object = {}) => ({ demo, label: null, charging: false, job: null, ...x });
+    const F = (r: Partial<Robot>, a: ReturnType<typeof av>) => facts({ ...base, ...r } as Robot, 'u-kim', new Map(), a);
+    const go2 = F({ id: 'go2', name: 'Go2 X', status: 'IDLE' }, av(false));
+    const k01 = F({ id: 'k01', name: 'K-01', sim: true, status: 'RUNNING' }, av(false));   // 사용자 시뮬
+    const D = (n: number, x: Partial<Robot> = {}, a: object = {}) => F({ id: `k0${n}`, name: `K-0${n}`, sim: true, status: 'RUNNING', ...x }, av(true, a));
+    // 시안 u5_1: K-05 경고(빨간 칸) · K-04 충전 · K-06 점검 · 나머지 데모 임무 중, 시뮬 K-08 자리 = 서버 K-01
+    const demos = (k08: Partial<Robot>, k08demo: boolean) => [D(2), D(3), D(4, { status: 'IDLE' }, { charging: true }), D(5, { status: 'ERROR' }), D(6, { status: 'IDLE' }, { job: { kind: 'maint', text: '점검 중' } }), D(7),
+      F({ id: 'k08', name: 'K-08', sim: true, ...k08 }, av(k08demo))];
+    for (const [k08, dm] of [[{ status: 'IDLE' }, true], [{ status: 'RUNNING' }, true], [{ status: 'IDLE' }, false]] as [Partial<Robot>, boolean][]) {
+      const got = wallPick(order([k01, ...demos(k08, dm), go2])).map((f) => f.x.name);
+      expect(got, JSON.stringify([k08, dm])).toEqual(['K-05', 'Go2 X', 'K-02', 'K-03', 'K-04', 'K-06', 'K-07', 'K-01']);
+    }
   });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
@@ -635,6 +650,22 @@ describe('관제 탭', () => {
     expect(tile('k1').querySelector('[data-paused]')).toBeNull();
   });
 
+  it('작은 지도 점(팀장 00:36 · 층 대조): demo 플래그가 없어도 위치 판이 작은 지도 그림의 층 꼴(1800 × 1120 · 0.5 m/px · 원점 (0, -560))이면 시뮬 · 데모 · 실기 모두 점 · 다른 꼴 판 · 판 못 받음은 뺌', async () => {
+    resetSiteBoards();
+    const ver = vi.spyOn(api, 'version').mockImplementation(async (id: string) => {
+      if (id === 'other') return { id, width: 3200, height: 2000, resolution: 0.2857, origin: [-7.1, -565.7, 0] } as never;
+      if (id === 'gone') throw new Error('404');
+      return { id, width: 1800, height: 1120, resolution: 0.5, origin: [0, -560, 0] } as never;
+    });
+    try {
+      const at = (v: string) => ({ location: { floor_id: 'f1', map_version_id: v, x: 100, y: -50, yaw: 0, confidence: 1, updated_at: '' } } as never);
+      const R = EIGHT.map((r, i) => (i === 1 ? { ...r, sim: true } : r));
+      mount('u-kim', R); feed(R, { k1: at('fac'), k2: at('fac'), k3: at('fac'), k4: at('other'), k5: at('gone') });
+      await act(async () => {}); await act(async () => {});
+      expect($$('.u5 .mini .dotm').map((e) => e.dataset.dot).sort()).toEqual(['k1', 'k2', 'k3']);
+      expect(ver.mock.calls.map((c) => c[0]).sort()).toEqual(['fac', 'gone', 'other']);   // 판마다 한 번
+    } finally { ver.mockRestore(); resetSiteBoards(); }
+  });
   it('작은 지도 점: /sites 의 demo 현장 층 승인 판(approved_version_id)과 위치 판 id 가 같을 때만, 서버 m → 시안 그림 px(25 + u·3.5, 20 + v·3.5)', async () => {
     // app-lx 공장 판: 1800 × 1120 · 0.5 m/px · origin (0, -560) — 크기는 보지 않고 판 id 로만 가름
     const floor = (id: string, v: string | null) => ({ id, building_id: 'b', name: '1층', level: 1, approved_version_id: v });
