@@ -516,7 +516,7 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     for (const [id] of SIM_MODELS) expect(src).toContain(`id: '${id}'`);
     expect(SIM_MODELS.map(([id]) => id)).not.toContain('go2-demo');
   });
-  it('조작 묶음: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 안전 묶음: «공통»만 + «모델별 값 없음»', async () => {
+  it('조작 묶음: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 안전 묶음: 실기 모델 고르기 없음(시안 · 서버 둘 다 없음, 표 S1)', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
     await go('robot');
@@ -524,8 +524,9 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     expect($('[data-model]')).toBeNull();
     expect(legacy().textContent).not.toContain('공통 값 사용');
     await go('safety');
-    expect(legacy().textContent).toContain('실기에서 도는 모델이 하나뿐이라 모델별 값 없음');
-    expect([...legacy().querySelectorAll('[aria-label="실기 값을 고칠 모델"] button')].map((b) => b.textContent)).toEqual(['공통']);
+    expect(legacy().textContent).not.toContain('모델별 값 없음');
+    expect(legacy().querySelector('[aria-label="실기 값을 고칠 모델"]')).toBeNull();
+    expect(legacy().querySelector('[aria-label="속도 제한"]')).not.toBeNull();   // 안전 칸은 그대로(reviewer 몫)
   });
   it('모델 고르기: 같은 9칸, 안 바꾼 칸은 «공통 값 사용(값)», 덮어쓴 칸은 그 모델 값 + 되돌리기, 모델 선택과 무관한 공통 값은 숨김', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: withAme } }));
@@ -879,6 +880,11 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
       }
       expect(legacy().querySelectorAll('input, button, select'), name(id)).toHaveLength(0);
     }
+    // 기록과 클립(표 C1): 시안 기록 탭이 «보관 기간은 설정 · 기록과 클립에서» 라고 하는데 서버 값이 없다 → 「서버에 값 없음」 · 지어낸 일수 없음
+    await go('clip');
+    const clip = legacy().querySelector('[data-later] [data-why]')!.textContent!;
+    expect(clip).toContain('서버에 값 없음');
+    expect(clip).not.toMatch(/\d+ ?일|클립 기능이 생긴 뒤/);
     await go('demo');
     expect($('[aria-label="데모 로봇 표시"]')!.textContent).toContain('총괄만');
   });
