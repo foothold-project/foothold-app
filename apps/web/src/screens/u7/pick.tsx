@@ -7,7 +7,7 @@ import { ApiFail, api } from '../../api';
 import { inApp } from '../../screens';
 import { Map3D, modelOf } from '../map3d';
 import { ClayMap } from './clay';
-import { Thumb, byLevel, demoBoard, purposeOf, howMade, md, meters, nogo, picFloor, type Msg, type Place, type useTree } from '../maps';
+import { Thumb, areaText, byLevel, demoBoard, purposeOf, howMade, md, meters, nogo, picFloor, type Msg, type Place, type useTree } from '../maps';
 import { voxelOf } from '../voxelmap';
 import { ART, DOG } from '../../proto/u11';
 import '../../proto/ui.pv.css';
@@ -23,6 +23,7 @@ const CHEV = <path d="m6 9 6 6 6-6" />;
 export const CUBE = <><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></>;
 export const LAYERS = <><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></>;
 const CLOCK = <><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></>;
+const DOTS = <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>;
 const BAN = <><circle cx="12" cy="12" r="10" /><path d="M4.929 4.929 19.07 19.071" /></>;
 export const HIST = <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></>;
 export const EDIT = <><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" /></>;
@@ -31,7 +32,27 @@ const MOUNT = <path d="m8 3 4 8 5-5 5 15H2L8 3z" />;
 const UP = <><path d="M12 13v8" /><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" /><path d="m8 17 4-4 4 4" /></>;
 
 /** 시안 꼬리표: 실측 지도(현장 스캔 · 초록) · 가져온 지도(파일) · 시험 지형(점선 · 직접 만든 지형) — 서버 판 출처로 */
-export const tagOf = (v: MapVersion): [string, string] => v.provenance === 'SIMULATION' ? ['tag d', '시험 지형'] : v.source === 'SLAM' ? ['tag m', '실측 지도'] : ['tag', '가져온 지도'];
+export const tagOf = (v: MapVersion): [string, string] => { const o = opt(v).origin_kind;
+  if (o === 'FIELD_SCAN') return ['tag m', '실측 지도']; if (o === 'IMPORTED') return ['tag', '가져온 지도']; if (o === 'TEST_TERRAIN') return ['tag d', '시험 지형'];
+  return v.provenance === 'SIMULATION' ? ['tag d', '시험 지형'] : v.source === 'SLAM' ? ['tag m', '실측 지도'] : ['tag', '가져온 지도']; };
+
+/** 계약 검토 중인 칸(app-lx 23:27 · 서버에 아직 없음): 있으면 쓰고 없으면 지금처럼 비움. 계약 ts 에 들어오면 이 읽기 틀은 지움 */
+type SiteOpt = { region?: 'DOMESTIC' | 'OVERSEAS' | 'TEST' | null; scan_plan?: string | null; sort_order?: number | null };
+type VerOpt = { point_count?: number | null; area_m2?: number | null; origin_kind?: 'FIELD_SCAN' | 'IMPORTED' | 'TEST_TERRAIN' | null; captured_on?: string | null };
+const sopt = (s: MapSite) => s as MapSite & SiteOpt;
+const opt = (v: MapVersion) => v as MapVersion & VerOpt;
+const REGION: Record<string, string> = { DOMESTIC: '국내', OVERSEAS: '해외', TEST: '시험' };
+export const regionOf = (s: MapSite) => REGION[sopt(s).region ?? ''] ?? '';
+/** 점 수 글(시안 u7 꼴 「9.6 억 점」 · 「1.1 억 점」 · 「3,400 만 점」 · 「8,200 점」) · 칸 없으면 '' */
+export const pointsText = (v: MapVersion) => { const n = opt(v).point_count; if (typeof n !== 'number' || n <= 0) return '';
+  if (n >= 1e8) return `${Math.round(n / 1e7) / 10} 억 점`; if (n >= 1e4) return `${Math.round(n / 1e4).toLocaleString('ko-KR')} 만 점`; return `${n.toLocaleString('ko-KR')} 점`; };
+/** 넓이: 서버 area_m2 가 있으면 그것, 없으면 판 크기로 셈 · 날짜: captured_on 이 있으면 그것, 없으면 판 만든 날 */
+export const areaOf = (v: MapVersion) => { const a = opt(v).area_m2; return typeof a === 'number' && a > 0 ? areaText(a) : meters(v).area; };
+export const dateOf = (v: MapVersion) => md(opt(v).captured_on || v.created_at);
+const ORIGIN_HOW: Record<string, string> = { FIELD_SCAN: '현장 스캔', IMPORTED: '파일 올림', TEST_TERRAIN: '시험 지형' };
+const howOf = (v: MapVersion) => ORIGIN_HOW[opt(v).origin_kind ?? ''] ?? howMade(v);
+/** 스캔 예정 글(장소 scan_plan) · 없으면 '' */
+export const planText = (s: MapSite) => { const p = sopt(s).scan_plan?.trim(); return p ? (p.includes('예정') ? p : `스캔 예정 ${p}`) : ''; };
 
 /** 관리 칸 손: 이름 바꾸기 · 휴지통 · 만들기 (Maps 의 같은 함수 — 서버 저장 · 안내 · 확인 칸은 edits) */
 export type Ed = { own: (s: Place['site']) => boolean; busy: boolean; edits: ReactNode;
@@ -118,8 +139,10 @@ export const siteOrder = (sites: MapSite[]) => {
 };
 export function railGroups(sites: MapSite[], blds: { site: Place['site']; building: Place['building'] }[]) {
   const rows = siteOrder(sites).flatMap((st) => blds.filter((x) => x.site.id === st.id).map((x) => ({ site: st, building: x.building, n: x.building.floors.filter((f) => f.approved_version_id).length })));
-  const late = rows.filter((r) => !r.n && purposeOf(r.site) === 'REAL'), maps = rows.filter((r) => !late.includes(r));
-  return [...(maps.length ? [{ head: '', rows: maps, late: false }] : []),
+  // region TEST(시험 · 장애물 경기장 등)는 판이 없어도 위 묶음 · 위 묶음 머리 = 있는 지역 글(국내 · 해외 · 시험 순), 지역 칸이 없으면 빈 머리
+  const late = rows.filter((r) => !r.n && purposeOf(r.site) === 'REAL' && sopt(r.site).region !== 'TEST'), maps = rows.filter((r) => !late.includes(r));
+  const head = ['DOMESTIC', 'OVERSEAS', 'TEST'].filter((k) => maps.some((r) => sopt(r.site).region === k)).map((k) => REGION[k]).join(' · ');
+  return [...(maps.length ? [{ head, rows: maps, late: false }] : []),
     ...(late.length ? [{ head: '실제 현장 · 아직 스캔 전', rows: late, late: true }] : [])];
 }
 
@@ -146,7 +169,7 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{g.rows.map(({ site: st, building: b, n }) =>
           <div key={b.id} className={`site${b.id === cur?.building.id ? ' on' : ''}`} style={n ? undefined : { opacity: 0.72 }} role="button" tabIndex={0} aria-pressed={b.id === cur?.building.id} data-building={b.id} data-site={st.name}
             onClick={() => { setBid(b.id); setFid(''); }}><span className="av" style={n || b.id === cur?.building.id ? undefined : { background: 'transparent', border: '1.5px dashed rgba(255,255,255,.28)' }}>{ic(19, PIN)}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>{b.name}<small>{g.late ? byLevel(b.floors).map((f) => f.name).join(' · ') : `${st.name === b.name ? '' : `${st.name} · `}${b.floors.length} 층${n ? '' : ' · 지도 없음'}`}</small></div><span className="mu2" style={{ fontSize: '12.5px' }}>{n}</span></div>)}</div></div>)}
+            <div style={{ flex: 1, minWidth: 0 }}>{b.name}<small>{g.late ? [...byLevel(b.floors).map((f) => f.name), planText(st)].filter(Boolean).join(' · ') : `${regionOf(st) ? `${regionOf(st)} · ` : ''}${st.name === b.name ? '' : `${st.name} · `}${b.floors.length} 층${n ? '' : ' · 지도 없음'}`}</small></div><span className="mu2" style={{ fontSize: '12.5px' }}>{n}</span></div>)}</div></div>)}
       {t.tree && !blds.length && <p className="mu2" style={{ fontSize: '13px', margin: '14px 6px' }}>아직 층이 있는 건물이 없습니다. 「관리」 에서 장소 · 건물 · 층을 만듭니다.</p>}
       <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>로봇이 현장을 걸으며 스캔한 3D 지도입니다. 층마다 따로 만듭니다.</div></div>
     <div className="head"><span className="ttl" style={{ fontSize: '26px' }}>지도</span>{cur && <span className="mu2" style={{ fontSize: '14px', fontWeight: 600 }} data-u7-sub>{cur.site.name === cur.building.name ? cur.building.name : `${cur.building.name} · ${cur.site.name}`}</span>}
@@ -170,7 +193,7 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
             {f.approved_version_id ? <Th id={f.approved_version_id}><Thumb id={f.approved_version_id} v={x} demo={demo} /></Th> : <ThArt />}
             <div style={{ flex: 1, minWidth: 0 }}><div className="row" style={{ gap: '10px' }}><b>{f.name}</b>{x ? <span className={tc}>{tt}</span> : !f.approved_version_id && <span className="tag">지도 없음</span>}
               {x && voxelOf(x) && <span className="tag m" style={{ marginLeft: '8px' }} data-voxel-chip>3D</span>}</div>
-              {x && <div className="meta"><span>{meters(x).area} ({meters(x).wh})</span><span>{md(x.created_at)} · v{x.number}</span></div>}</div>
+              {x && <div className="meta"><span>{pointsText(x) && `${pointsText(x)} · `}{areaOf(x)} ({meters(x).wh})</span><span>{dateOf(x)} · v{x.number}</span></div>}</div>
             {ic(18, CHEV, { transform: 'rotate(-90deg)', color: '#9aa19d' })}</div>; })}</div>
         {floors.length >= 2 && <Stack floors={floors} sel={fl?.id} pick={setFid} />}
         <div style={{ position: 'absolute', left: '24px', right: '24px', bottom: '22px', display: 'flex', gap: '10px', alignItems: 'center', fontSize: '12.5px', color: 'var(--mu2)', fontWeight: 600 }} data-legend>
@@ -189,7 +212,7 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
         <div style={{ position: 'absolute', left: '28px', right: '28px', bottom: '26px' }}>
           <div className="row" style={{ gap: '10px' }}><span className="pv-ttl" style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-.03em' }} data-prev-title>{cur.building.name} · {fl.name}</span>{v && <span className={tagOf(v)[0]}>{tagOf(v)[1]}</span>}</div>
           {v && <div className="row pv-meta" style={{ gap: '22px', marginTop: '12px', fontSize: '13.5px', fontWeight: 600 }}>
-            <span className="row" style={{ gap: '6px' }}>{ic(16, LAYERS)}{meters(v).area}</span><span className="row" style={{ gap: '6px' }}>{ic(16, CLOCK)}{md(v.created_at)} {howMade(v)} · v{v.number}</span>
+            {pointsText(v) && <span className="row" style={{ gap: '6px' }} data-pv-points>{ic(16, DOTS)}{pointsText(v)}</span>}<span className="row" style={{ gap: '6px' }}>{ic(16, LAYERS)}{areaOf(v)}</span><span className="row" style={{ gap: '6px' }}>{ic(16, CLOCK)}{dateOf(v)} {howOf(v)} · v{v.number}</span>
             <span className="row" style={{ gap: '6px' }}>{ic(16, BAN)}금지 구역 {nogo(v)}</span></div>}
           {fl.approved_version_id && <div className="row" style={{ gap: '10px', marginTop: '20px' }}><div className="btnp" role="button" tabIndex={0} style={{ height: '52px', flex: 1, fontSize: '15px' }} data-open-map onClick={() => choose(fl.id)}>지도 열기</div>
             <div className="btns pv-hist" role="button" tabIndex={0} style={{ height: '52px', width: '170px', fontSize: '14px' }} data-open-history onClick={() => choose(fl.id, 'history')}>{ic(17, HIST)}버전 기록</div></div>}</div>

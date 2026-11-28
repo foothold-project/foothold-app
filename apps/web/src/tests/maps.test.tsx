@@ -2,14 +2,14 @@
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 나무·권한별 단추, 409/403/404/422/413/네트워크 실패, 좌표 변환·y 뒤집힘,
 // 두 단계 올리기 순서·실패 중단, STALE, 판 전환, 승인 판 없음, 로봇 점 없음, 어떤 실패에도 STOP 이 보이고 실제로 정지 요청이 나가는지 본다.
 import { CLAY_CAM, cellAt, clayCam, occGrid } from '../screens/u7/clay';
-import { inkOf, railGroups, siteOrder } from '../screens/u7/pick';
+import { areaOf, dateOf, inkOf, planText, pointsText, railGroups, regionOf, siteOrder, tagOf } from '../screens/u7/pick';
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { pcBoard } from '../pcboard';
 import type { MapFeatures, MapSite, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
+import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, meters, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
 import { FactoryImage } from '../mapframe';
@@ -2646,6 +2646,27 @@ describe('지도 탭 왼쪽 묶음(railGroups)', () => {
     const g = railGroups([a, b, c] as never, blds);
     expect(g.map((x) => [x.head, x.late, x.rows.map((r) => (r.building as { id: string }).id)])).toEqual([
       ['', false, ['큰 공장', '플랜트', '경기장']], ['실제 현장 · 아직 스캔 전', true, ['조선대']]]);   // 위 묶음 머리 = 지역 칸(서버에 없음) → 빈 자리
+  });
+  it('계약 칸(region)이 오면: 위 묶음 머리 = 국내 · 해외 · 시험, region TEST 는 판 0 이어도 위 묶음', () => {
+    const a = { id: 'a', name: '큰 공장', purpose: 'REAL', region: 'DOMESTIC', buildings: [] }, b = { id: 'b', name: '해외 플랜트', purpose: 'REAL', region: 'OVERSEAS', buildings: [] },
+      c = { id: 'c', name: '장애물 경기장', purpose: 'REAL', region: 'TEST', buildings: [] }, d = { id: 'd', name: '학교', purpose: 'REAL', region: 'DOMESTIC', scan_plan: '월 · 화', buildings: [] };
+    const blds = [{ site: a, building: bd('공장', [fl('f1', 'v1')]) }, { site: b, building: bd('플랜트', [fl('f3', 'v3')]) },
+      { site: c, building: bd('경기장', [fl('f4', null)]) }, { site: d, building: bd('학교', [fl('f5', null)]) }] as never;
+    const g = railGroups([a, b, c, d] as never, blds);
+    expect(g.map((x) => [x.head, x.rows.map((r) => (r.building as { id: string }).id)])).toEqual([['국내 · 해외 · 시험', ['공장', '플랜트', '경기장']], ['실제 현장 · 아직 스캔 전', ['학교']]]);
+    expect([regionOf(a as never), regionOf({ id: 'z', name: 'z', buildings: [] } as never), planText(d as never), planText(a as never)]).toEqual(['국내', '', '스캔 예정 월 · 화', '']);
+  });
+});
+
+// 계약 칸(point_count · area_m2 · origin_kind · captured_on): 있으면 쓰고 없으면 지금처럼(점 수 빈 칸 · 판 크기로 넓이 · 만든 날 · source 로 꼬리표)
+describe('지도 탭 판 계약 칸', () => {
+  it('점 수 · 넓이 · 날짜 · 꼬리표', () => {
+    const v0 = ver('v1', 3), v1 = { ...ver('v2', 3), point_count: 960_000_000, area_m2: 504_000, origin_kind: 'FIELD_SCAN', captured_on: '2026-11-20' } as never as MapVersion;
+    expect(pointsText(v0)).toBe(''); expect(pointsText(v1)).toBe('9.6 억 점'); expect(pointsText({ ...v1, point_count: 34_000_000 } as never)).toBe('3,400 만 점');
+    expect(areaOf(v1)).toBe('50 만 m²'); expect(areaOf(v0)).toBe(meters(v0).area);
+    expect(dateOf(v1)).toBe('11/20');
+    expect(tagOf(v1)).toEqual(['tag m', '실측 지도']); expect(tagOf({ ...v1, origin_kind: 'IMPORTED' } as never)).toEqual(['tag', '가져온 지도']);
+    expect(tagOf({ ...v1, origin_kind: 'TEST_TERRAIN' } as never)).toEqual(['tag d', '시험 지형']);
   });
 });
 
