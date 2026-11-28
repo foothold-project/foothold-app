@@ -6,6 +6,7 @@ import { forwardRef, useEffect, useId, useMemo, useRef, useState, useSyncExterna
 import type { MapVersion } from '../../contracts/ts';
 import { api } from './api';
 import { terrainTop } from './terraintop';
+import { stageRect } from './stage';
 
 export type Box = [number, number, number, number];   // x y 폭 높이(그림 픽셀)
 type P = [number, number];
@@ -175,7 +176,7 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
   useEffect(() => {
     const el = own.current;
     if (!el) return;
-    const m = () => { const b = el.getBoundingClientRect(); setSize([b.width, b.height]); };
+    const m = () => { const b = stageRect(el); setSize([b.width, b.height]); };   // 축척 막대 길이는 css px 라 무대 px 로 잰다(stage.ts)
     m();
     if (typeof ResizeObserver === 'undefined') return;
     const o = new ResizeObserver(m);

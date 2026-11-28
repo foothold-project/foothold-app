@@ -2142,8 +2142,9 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     await open('#/map');
     const m = $('.mx-bar details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button:not(:disabled), .mx-pop a')!;
     act(() => { m.setAttribute('open', ''); item.focus(); });
-    await flush();   // 펼침은 여는 단추 아래 ~ 화면 아래끝 안(#252 B1 — jsdom 은 단추 bottom 0)
-    expect(m.querySelector<HTMLElement>('.mx-pop')!.style.maxHeight).toBe(`min(72vh, 600px, ${innerHeight - 14}px)`);
+    await flush();   // 펼침은 여는 단추 아래 ~ 무대 아래끝 안(#252 B1 — jsdom 은 단추 bottom 0 · PC 무대 px 로 잼, stage.ts)
+    const { stageFit } = await import('../App'), f = stageFit(innerWidth, innerHeight);
+    expect(m.querySelector<HTMLElement>('.mx-pop')!.style.maxHeight).toBe(`min(72vh, 600px, ${Math.max(0, 1080 - (0 - f.y) / f.s - 14)}px)`);
     act(() => { item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(m.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(m.querySelector('summary'));
     await click(btn('편집', card('보기·편집')));

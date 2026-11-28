@@ -77,6 +77,21 @@ describe('지도 창(Float)', () => {
     act(() => win().querySelector<HTMLButtonElement>('[aria-label="지도 창 펼치기"]')!.click());
     expect(win().hasAttribute('data-fold')).toBe(false);
   });
+  it('무대 배율 0.5(PC 화면 맞춤): 본문 · 노드 칸은 무대 px 로 재고, 화면 100 px 끌기 = 창 200 px (stage.ts)', async () => {
+    const { setStage } = await import('../stage');
+    setStage({ s: 0.5, x: 0, y: 0 });
+    try {
+      body = document.createElement('div'); body.className = 'mx-body'; document.body.append(body);
+      body.getBoundingClientRect = () => ({ left: 0, top: 0, width: BW / 2, height: BH / 2, right: BW / 2, bottom: BH / 2, x: 0, y: 0, toJSON() {} }) as DOMRect;   // 화면에는 반 크기로 보임
+      const c = document.createElement('div'); c.className = 'sn-canvas'; body.append(c);
+      c.getBoundingClientRect = () => ({ left: 4, top: 75, width: BW / 2 - 8, height: BH / 2 - 79, right: BW / 2 - 4, bottom: BH / 2 - 4, x: 4, y: 75, toJSON() {} }) as DOMRect;
+      const b = document.createElement('div'); body.append(b);
+      act(() => { root = createRoot(b); root.render(<Float><svg data-scenario-map /></Float>); });
+      expect(box()).toEqual(['12px', '162px', '480px', '726px']);   // 배율 1 과 같은 자리 · 크기(무대 px)
+      drag(win().querySelector('.mx-win-head')!, 50, 0);
+      expect(box()[0]).toBe('112px');
+    } finally { setStage(null); }
+  });
   it('망가진 기억값이면 기본 자리·크기로 뜬다', () => {
     localStorage.setItem(KEY, '{"x":"왼쪽","w":-1}');
     show();
