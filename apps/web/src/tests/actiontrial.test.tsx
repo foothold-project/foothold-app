@@ -61,6 +61,21 @@ it('all dangerous buttons require standing and stationary evidence', () => {
   for (const name of DANGEROUS) expect(button(name).disabled).toBe(true);
 });
 
+it('empty or missing applied is not zero output evidence: dangerous buttons and the inline confirm stay closed', () => {
+  const stand = (applied: number[] | null) => state('r7', { posture: { state: 'STANDING', mode: 1 }, applied });
+  mock.live.state = stand([0, 0, 0]); render();
+  for (const name of DANGEROUS) expect(button(name).disabled).toBe(false);   // 비지 않은 0 = 열림
+  click(button('FrontFlip'));
+  const confirm = () => [...box.querySelectorAll('button')].find((b) => b.textContent === '위험을 확인했고 실행')!;
+  expect(confirm().disabled).toBe(false);
+  for (const applied of [[], null, [0, .3, 0]]) {   // 현장 승인이 닫힌 에이전트는 applied [] (출력 없음) · 출력이 남은 경우도 닫힘
+    mock.live.state = stand(applied); render();
+    for (const name of DANGEROUS) expect(button(name).disabled).toBe(true);
+    expect(confirm().disabled).toBe(true);
+    click(confirm()); expect(mock.action).not.toHaveBeenCalled();
+  }
+});
+
 it('cancels inline confirmation across a STOP generation or lease change', () => {
   render(); click(button('Damp'));
   expect(box.querySelector('[aria-label="위험 동작 확인"]')).not.toBeNull();

@@ -6,6 +6,8 @@
 import { useState } from 'react';
 import type { Robot } from '../fake';
 import { pickInfo } from '../go2status';
+import { JOINTS, jointName } from '../go2model';
+import { TEMP_STALE_S } from '../pcdrive';
 import './readycheck.css';
 
 type State = 'ok' | 'blocked' | 'none';
@@ -13,6 +15,14 @@ type Step = { key: string; name: string; state: State; why: string };
 const STATE: Record<State, [string, string]> = { ok: ['✓', '확인됨'], blocked: ['!', '막힘'], none: ['·', '서버에 값 없음'] };
 const SENSORS = new Set(['CAMERA_RGB', 'CAMERA_DEPTH', 'LIDAR']);
 const NOW_NONE = '로봇이 연결되어 있지 않아 지금 값이 없습니다.';
+
+/** 최고 관절 온도 한 마디(u4_4 가): 값 · 어느 관절만. 문턱이 정해지지 않아(#389 잠정) 단계 상태 · 색은 바꾸지 않는다.
+ *  12 개가 아니거나 · 값이 없거나 · 3 초 넘게 오래된 값(pcdrive TEMP_STALE_S)은 지금 값이 아니라 «서버에 값 없음» */
+export function hotJoint(r: Robot): string {
+  const t = r.robotInfo?.temperature, j = Array.isArray(t?.joints) && t.joints.length === 12 && t.age_s <= TEMP_STALE_S ? t.joints : [];
+  const hi = j.reduce<number>((b, v, i) => (typeof v === 'number' && Number.isFinite(v) && (b < 0 || v > (j[b] as number)) ? i : b), -1);
+  return `최고 관절 온도 ${hi < 0 ? STATE.none[1] : `${Math.round(j[hi] as number)} °C (${jointName(JOINTS[hi])})`}`;
+}
 
 /** 단계 판정. server = 이 화면과 관제 서버 연결 */
 export function checks(r: Robot, server: boolean): Step[] {
@@ -25,7 +35,7 @@ export function checks(r: Robot, server: boolean): Step[] {
   const sensors: [State, string] = !live ? ['none', NOW_NONE] : !dev.length ? ['none', '카메라 · 라이다 목록을 받지 못했습니다.']
     : bad ? ['blocked', `${bad.label} ${bad.state === 'MISSING' ? '없음' : '오류'}`] : ['ok', dev.map((d) => d.label).join(' · ')];
   const bat = live && r.battery != null, joints = live && !!r.robotInfo?.joints;
-  const power: [State, string] = !live ? ['none', NOW_NONE] : [bat && joints ? 'ok' : 'none', `${bat ? `배터리 ${r.battery} %` : '배터리 값 없음'} · ${joints ? '관절 값 받음' : '관절 값 없음'}`];
+  const power: [State, string] = !live ? ['none', NOW_NONE] : [bat && joints ? 'ok' : 'none', `${bat ? `배터리 ${r.battery} %` : '배터리 값 없음'} · ${joints ? '관절 값 받음' : '관절 값 없음'} · ${hotJoint(r)}`];
   return ([
     ['wifi', '에이전트 Wi-Fi', ['none', '에이전트가 붙은 Wi-Fi 이름은 서버가 아직 보내지 않습니다.']],
     ['server', '서버', server ? ['ok', '이 화면이 관제 서버와 연결되어 있습니다.'] : ['blocked', '이 화면이 관제 서버와 연결되어 있지 않습니다.']],
