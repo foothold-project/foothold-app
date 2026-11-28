@@ -7,13 +7,13 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { MapVersion } from '../../../../contracts/ts';
 import { floorZ, modelBytes, modelOf, worldGroup } from '../map3d';
-import { loadSite, toneSite } from '../../proto/site';
+import { K, OX, OY, SITE_PX_H, SITE_PX_W, loadSite, toneSite } from '../../proto/site';
 
 /** Go2 앞 카메라 높이(m, 바닥 위). 제조사 제원 서 있는 몸 크기 70 × 31 × 40 cm(높이 0.40 m), 앞 카메라는 머리 앞면 위쪽이라 몸 위끝보다 조금 아래 */
 export const CAM_H = 0.36;
 /** 세로 화각(도) · 아래로 숙임(라디안). 앞 카메라 실제 값을 받는 계약이 없어 보기용으로 정한 값(넓은 앞 카메라 느낌) */
 export const CAM_FOV = 62, CAM_PITCH = 0.08;
-const K = 3.5, OX = 25, OY = 20, FW = 3200, FH = 2000;
+const FW = SITE_PX_W, FH = SITE_PX_H;   // 부지 상수는 proto/site.ts 한 곳
 /** 서버 판 m(x 동 · y 북) → 시안 공장 그림 px. 시안 design 변환 그대로(px = 25 + 3.5 x, py = 20 − 3.5 y) · 데모 현장 판에만 쓴다 */
 export const factoryPx = (x: number, y: number) => [OX + K * x, OY - K * y] as const;
 export const FACTORY_W = FW, FACTORY_H = FH;

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STATUS_NAME } from '../fake';
 import { rt } from '../rt';
-import { TEX_LOOK, K, OX, OY, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
+import { TEX_LOOK, K, OX, OY, SITE_PX_H, SITE_PX_W, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
 import { IC, ic, type TileFacts } from './u5';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
@@ -50,7 +50,7 @@ export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel
       const sun = new THREE.DirectionalLight(0xffffff, 2.0); suns.push(sun); sun.position.set(-300, 500, 400); sc.add(sun);
       const rim = new THREE.DirectionalLight(0x6fd6b8, 0.35); rims.push(rim); rim.position.set(300, 200, -500); sc.add(rim);
     }
-    const W = 3200 / K, H = 2000 / K;
+    const W = SITE_PX_W / K, H = SITE_PX_H / K;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ color: 0x0b0e12, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2; ground.position.set(W / 2 - OX / K, -0.05, H / 2 - OY / K); scene.add(ground);
     const gl: number[] = [];

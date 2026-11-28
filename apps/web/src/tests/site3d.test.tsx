@@ -110,3 +110,17 @@ describe('데모 현장 3D', () => {
     expect(box.querySelector('[data-bot3]')).toBeNull();
   });
 });
+
+// 공장 부지 그림 폭 · 높이 · 배율 · 원점은 proto/site.ts 한 곳(rev 2 3500 px 로 한 줄에 갈아 끼우게 · 조정 11-28 20:12)
+describe('공장 부지 상수 한 곳', () => {
+  it('SITE_PX_W · SITE_PX_H · K · OX · OY 는 site.ts 에만, 쓰는 파일에 3200 · 2000 · 3.5 숫자 없음', async () => {
+    const s = await import('../proto/site');
+    expect([s.SITE_PX_W, s.SITE_PX_H, s.K, s.OX, s.OY]).toEqual([3200, 2000, 3.5, 25, 20]);
+    const src = import.meta.glob(['../screens/u4/simcam.ts', '../mapframe.tsx', '../screens/u7/site3d.tsx', '../proto/u5map.tsx'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+    expect(Object.keys(src).length).toBe(4);
+    for (const [f, t] of Object.entries(src)) {
+      const code = t.split('\n').filter((l) => !/^\s*(\/\/|\/\*\*|\*)/.test(l)).map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+      expect([f, /\b(3200|2000)\b|\b3\.5\b/.test(code)]).toEqual([f, false]);
+    }
+  });
+});
