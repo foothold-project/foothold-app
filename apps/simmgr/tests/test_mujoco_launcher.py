@@ -8,6 +8,7 @@ import asyncio
 from dataclasses import replace
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 from uuid import uuid4
@@ -307,3 +308,25 @@ def test_owner_limit_above_one_only_for_mujoco_local(tmp_path, per_owner, backen
     else:
         with pytest.raises(ValueError):
             make()
+
+
+def test_step_stats_file_only_when_asked(tmp_path, monkeypatch):
+    """Measurement tap (policy step wall time) goes to the slot folder only with FH_SIM_STEP_STATS=1."""
+    async def run(flag):
+        (tmp_path / flag).mkdir()
+        cfg, launch = launcher(tmp_path / flag, 'ready')
+        launch.base_env = {**launch.base_env, **({'FH_SIM_STEP_STATS': '1'} if flag == 'on' else {})}
+        seen = {}
+        original = subprocess.Popen
+        def spy(cmd, **kw):
+            seen.update(kw['env'])
+            return original(cmd, **kw)
+        monkeypatch.setattr('apps.simmgr.mujoco_launcher.subprocess.Popen', spy)
+        manager = Manager(cfg, launch)
+        slot, pending = add(manager, cfg)
+        await pending
+        await manager.close()
+        return seen.get('FH_SIM_STEP_STATS'), slot
+    path, slot = asyncio.run(run('on'))
+    assert path is not None and path.endswith(slot.robot_id + '/step-stats.jsonl')
+    assert asyncio.run(run('off'))[0] is None

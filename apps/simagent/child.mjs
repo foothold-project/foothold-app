@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs';
 // MuJoCo 물리 자식: 파이썬 에이전트 (foothold_agent.mujoco_bridge) 가 띄우고 stdin/stdout 한 줄 JSON 으로만 말한다.
 // 계약은 README.md. 안전 판단 (조종권 · 잠금 · 재개 허가) 은 파이썬 쪽 정본 (link/session.py · safety/core.py) 이 하고,
 // 여기서는 Gazebo /v2_live/{cmd_vel,stop,resume,state} 와 같은 뜻만 지킨다:
@@ -63,6 +64,19 @@ process.stdout.on('error', () => { stop(); process.exit(0); }); // 부모 쪽 �
 
 // 벽시계를 따라 정책 주기 (50 Hz) 로 진행, 상태는 20 Hz. 밀리면 최대 0.2 s 만 따라잡는다.
 // ONNX 정책 step 은 비동기라 한 번에 하나만 돈다 (busy). 명령은 매 step 직전에 다시 읽는다.
+// 재기 전용 (FH_SIM_STEP_STATS 가 있을 때만): 정책 한 걸음 벽시계 시간, 1 s 마다 한 줄. 판단에는 쓰지 않는다.
+const stats = process.env.FH_SIM_STEP_STATS ? (() => {
+  let n = 0, over = 0, max = 0, sum = 0, at = now();
+  return {
+    add(ms) { n++; sum += ms; if (ms > 20) over++; if (ms > max) max = ms; },
+    flush() {
+      if (now() - at < 1 || !n) return;
+      appendFileSync(process.env.FH_SIM_STEP_STATS, JSON.stringify({ wall_s: +now().toFixed(3), sim_t: +(simBase + sim.t).toFixed(3),
+        steps: n, over_20ms: over, max_ms: +max.toFixed(2), mean_ms: +(sum / n).toFixed(2) }) + '\n');
+      n = over = max = sum = 0; at = now();
+    },
+  };
+})() : null;
 const start = now(); let steps = 0, nextState = 0, busy = false;
 emit();
 const loop = setInterval(async () => {
@@ -74,8 +88,11 @@ const loop = setInterval(async () => {
     for (; steps < due; steps++) {
       const applied = stopRequested || resetting || now() - cmdAt > CMD_TTL_S ? Z : cmd;
       sim.cmd = applied.slice();
+      const t0 = performance.now();
       await sim.step();
+      if (stats) stats.add(performance.now() - t0);
     }
+    if (stats) stats.flush();
     if (now() - start >= nextState) { nextState += STATE_S; emit(); }
   } catch (error) { warn('policy_failed', String(error).slice(0, 120)); process.exit(1); }
   finally { busy = false; }
