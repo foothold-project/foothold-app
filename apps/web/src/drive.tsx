@@ -17,7 +17,7 @@ import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, DriveView, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
 import { driveFeedText, useDriveFeed, type DriveFeed } from './drivemedia';
 import { LidarMap } from './lidarmap';
-import type { OrgSettings } from '../../contracts/ts';
+import type { GaitName, OrgSettings } from '../../contracts/ts';
 import { MissionCards, MissionMap, missionChip, missionOn, useMission, type MapSight } from './screens/u1mission';
 import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, shape, stickTok, useRestartAsk } from './robotact';
 import { actionResultText } from './screens/actiontrial';
@@ -300,7 +300,12 @@ function Screen(c: Ctx) {
   const now0 = () => { gen.tick(r.id); return sync(); };
   const nowRef = useRef(now0); nowRef.current = now0;
   // 걷기 모드(u03): 누른 키 · 스틱 손가락이 있거나 로봇이 0 아닌 명령을 적용 중이면 «움직이는 중» · 보내지 않고 까닭
-  const gait = useGait(r.id, () => input.current.keys.size > 0 || input.current.sg.some((x) => x != null) || !!rt.get(r.id).state?.applied?.some((v) => v !== 0));
+  // 걷기 모드 확인 창(시안 u1_14 · PC 로봇 탭 u4_7 modeBind 와 같은 규칙): 연 때의 stop_gen · 조종권에 묶음 — 바뀌면 닫고, 바꾸기는 그때 다시 보고 같을 때만 press
+  const [modeAsk, setModeAsk] = useState<GaitName | null>(null);
+  const modeBind = useRestartAsk(() => { const x = rt.get(r.id); return { mine: !!x.lease, latched: null, gen: x.state?.stop_gen, lease: x.lease }; });
+  useEffect(() => { if (modeAsk && !modeBind.live) setModeAsk(null); }, [modeAsk, modeBind.live]);
+  const gait = useGait(r.id, () => input.current.keys.size > 0 || input.current.sg.some((x) => x != null) || !!rt.get(r.id).state?.applied?.some((v) => v !== 0),
+    (g) => { pick(null); setModeAsk(g); modeBind.open(); });   // 시트 단추 = 확인 창. Shift+1~4 는 PC 처럼 바로
   const gaitRef = useRef(gait.press); gaitRef.current = gait.press;
 
   // 키보드(F-TO-05). 요청 창이 떠 있어도 방향키는 조종
@@ -495,6 +500,13 @@ function Screen(c: Ctx) {
         <div className="h" id="dv-run-t">조종 시작</div>
         <div className="s">{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</div>
         <div className="bts"><button type="button" className="dsec" onClick={() => setAsk(false)}>취소</button><button type="button" className="dpri" onClick={() => start(true)}>일시정지하고 조종</button></div>
+      </div></>}
+    {modeAsk && modeBind.live && <><div className="scrim" />
+      <div className="g dlg" role="dialog" aria-label="걷기 모드 바꾸기" data-u1-mode-ask>
+        <div className="h">{GAITS.find((x) => x.g === modeAsk)!.name} Mode 로 바꿀까요?</div>
+        <div className="s">{l.state?.gait?.gait ? `지금 ${gaitNow} Mode · ${GAIT_NOTE[l.state.gait.gait] ?? ''}.` : '지금 모드는 모릅니다.'} 바꾸는 동안 약 1 초 조종할 수 없습니다. 로봇이 멈춘 상태에서만 바뀝니다.</div>
+        <div className="bts"><button type="button" className="dsec" onClick={() => { setModeAsk(null); modeBind.close(); }}>취소</button>
+          <button type="button" className="dpri" onClick={() => { const g = modeAsk; setModeAsk(null); modeBind.go(() => gait.press(g)); }}>바꾸기</button></div>
       </div></>}
     {restart.live && <><div className="scrim" />
       <div className="g dlg" role="dialog" aria-label="다시 시작 확인" data-restart-ask>

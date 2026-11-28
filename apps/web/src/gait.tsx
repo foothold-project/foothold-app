@@ -36,8 +36,9 @@ const WHY: Record<string, string> = {
 export const gaitWhy = (code?: string | null) => WHY[code ?? ''] ?? `로봇이 모드를 바꾸지 못했습니다 (${code || '까닭 모름'}). 현장에서 로봇을 확인하세요.`;
 const LOST = '로봇에서 결과를 받지 못했습니다. 모드가 바뀌었는지 현장에서 확인하세요.';
 
-/** moving = 지금 입력이 0 이 아님(누른 키 · 단추 · 스틱, 로봇이 적용 중인 명령). 돌려주는 press 는 단추 · 단축키가 같이 쓴다 */
-export function useGait(id: string, moving: () => boolean) {
+/** moving = 지금 입력이 0 이 아님(누른 키 · 단추 · 스틱, 로봇이 적용 중인 명령). 돌려주는 press 는 단추 · 단축키가 같이 쓴다.
+ *  confirm = 칸 단추를 누르면 바로 보내지 않고 부르는 쪽 확인 창을 연다(폰 조종 시안 u1_14 · 확인 뒤 press). 없으면 바로 press(PC) */
+export function useGait(id: string, moving: () => boolean, confirm?: (g: GaitName) => void) {
   const l = useLive(id), s = l.state, link = rt.link().at, mine = !!l.lease;
   const cur = s?.gait?.gait ?? null, avail = s?.gait?.available ?? null, res = s?.gait_result ?? null;
   // ask = 내가 보낸 바꾸기(결과까지), rid = 보낸 메시지 id(결과 gait_result.request_id 와 짝)
@@ -76,7 +77,7 @@ export function useGait(id: string, moving: () => boolean) {
   const row = mine && <div className="fh-row gait-row" role="group" aria-label="걷기 모드" data-gait-row>
     <span className="lbl">걷기 모드 · 지금 {cur ? NAME[cur] : '모름'}</span>
     {GAITS.map((x) => <button key={x.g} type="button" className="btn" data-gait={x.g} aria-pressed={cur === x.g} aria-disabled={off(x.g) || !!ask}
-      onClick={() => press(x.g)}>{x.name}<small className="mono">Shift+{x.n}</small></button>)}
+      onClick={() => (confirm ? confirm(x.g) : press(x.g))}>{x.name}<small className="mono">Shift+{x.n}</small></button>)}
     {offs.length > 0 && <span className="lbl" data-gait-off style={{ flexBasis: '100%' }}>{offs.join(' · ')}: 이 로봇에서 지금 쓸 수 없음</span>}
     {(ask || msg) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-gait-msg>{ask ? `${NAME[ask.g]} 모드로 바꾸는 중…` : msg}</span>}
   </div>;

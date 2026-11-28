@@ -249,6 +249,33 @@ describe('걷기 모드 칸 (폰 조종)', () => {
     expect(sent().map((m) => m.gait)).toEqual(['start']);
     expect(msg()).toContain('바꾸는 중');
   });
+  it('시안 u1_14: 시트에서 모드를 누르면 확인 창 「START Mode 로 바꿀까요?」 · 취소 = 보냄 0 · 바꾸기 = 한 번 (PC 로봇 탭 u4_7 과 같은 길)', () => {
+    gaitMode = 'ok'; mountPhone(); serve(FakeWS.last);
+    click(btn('조종')); click(btn('다시 시작')); click(document.querySelector('[data-restart-ask] button.dpri')!); tick(100);
+    push('r7', { gait: AVAIL });
+    click(btn('정책'));
+    click(gb('start'));
+    const ask = () => $('[data-u1-mode-ask]');
+    expect(ask()!.querySelector('.h')!.textContent).toBe('START Mode 로 바꿀까요?');
+    expect(ask()!.querySelector('.s')!.textContent).toBe('지금 Classic Mode · 평지 기본. 바꾸는 동안 약 1 초 조종할 수 없습니다. 로봇이 멈춘 상태에서만 바뀝니다.');
+    expect(sent()).toHaveLength(0);
+    click(ask()!.querySelector('button.dsec')!);
+    expect(ask()).toBeNull(); expect(sent()).toHaveLength(0);
+    click(btn('정책')); click(gb('start'));
+    click(ask()!.querySelector('button.dpri')!);
+    expect(ask()).toBeNull();
+    expect(sent().map((m) => m.gait)).toEqual(['start']);
+  });
+  it('시안 u1_14: 확인 창이 떠 있는 동안 정지(stop_gen 바뀜)되면 창을 닫고 보내지 않음', () => {
+    gaitMode = 'ok'; mountPhone(); serve(FakeWS.last);
+    click(btn('조종')); click(btn('다시 시작')); click(document.querySelector('[data-restart-ask] button.dpri')!); tick(100);
+    push('r7', { gait: AVAIL });
+    click(btn('정책')); click(gb('start'));
+    expect($('[data-u1-mode-ask]')).not.toBeNull();
+    push('r7', { latched: true, stop_gen: (st.r7.stop_gen ?? 0) + 1 });
+    expect($('[data-u1-mode-ask]')).toBeNull();
+    expect(sent()).toHaveLength(0);
+  });
   it('키 반복(e.repeat) Shift+3 은 보내지 않음 · 새로 누르면 보냄 (reviewer G2)', () => {
     gaitMode = 'ok'; mountPhone(); serve(FakeWS.last);
     click(btn('조종')); click(btn('다시 시작')); click(document.querySelector('[data-restart-ask] button.dpri')!); tick(100);
