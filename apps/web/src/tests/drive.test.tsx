@@ -16,7 +16,8 @@ import { STALLED } from '../simdrive';
 import { driveBlock } from '../fake';
 import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, stopLine } from '../serverdrive';
 import { simTune } from '../phone';
-import { CAP_BLOCK, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL } from '../drive';
+import { CAP_BLOCK, DEMO_RULE, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL, demoCaps } from '../drive';
+import { shape } from '../robotact';
 import { ACTS, STANDUP_WHY, actWhy } from '../robotact';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
@@ -2441,10 +2442,11 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
     expect(press('KeyS')).toEqual([-0.3, 0, 0]);
   });
 
-  it('웹 상한: 조직 값이 로봇 한계보다 작으면 조직 값(sim_key_vx · sim_max_wz · sim_max_vy · sim_max_vx)', () => {
+  it('웹 상한: 조직 값이 로봇 한계보다 작으면 조직 값(sim_max_vx · sim_max_wz · sim_max_vy) · 키는 손잡이 끝까지와 같은 입력(sim_key_vx 안 씀)', () => {
     open(true, { ...ORG, sim_max_vx: 1.0, sim_key_vx: 0.8, sim_max_wz: 0.3, sim_max_vy: 0.2 });
     ready();
-    expect(press('KeyW')).toEqual([0.8, 0, 0]);
+    expect(press('KeyW')).toEqual([1.0, 0, 0]);
+    expect(lstick(sticks().fwd, 1)).toEqual([1.0, 0, 0]);
     expect(press('KeyA')).toEqual([0, 0, 0.3]);
     expect(press('ArrowRight')).toEqual([0, -0.2, 0]);
     act(() => root!.unmount()); root = null; box.remove();
@@ -2503,10 +2505,9 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
     expect(press('KeyW')).toEqual([1.5, 0, 0]);
   });
 
-  it('웹 상한 · 0.2 아래 앞 입력은 0: 조직 sim_key_vx 0.1 이면 키 앞은 0(0.1 도 0.2 로 올림도 아님) · 손잡이 앞은 0 아니면 0.2 이상', () => {
-    open(true, { ...ORG, sim_key_vx: 0.1 });
+  it('웹 상한 · 0.2 아래 앞 입력은 0: 손잡이 앞은 0 아니면 0.2 이상', () => {
+    open(true);
     ready();
-    expect(press('KeyW')).toEqual([0, 0, 0]);
     const { fwd } = sticks();
     for (const f of [0.101, 0.105, 0.11, 0.15]) { const v = lstick(fwd, f)[0]; expect(v === 0 || v >= 0.2).toBe(true); }
     expect(cmds().every((m) => { const v = (m.axes as number[])[0]; return v <= 0 || v >= 0.2; })).toBe(true);
@@ -2539,6 +2540,31 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
     const add = $('[data-robot-connect]')!;
     expect(add.classList.contains('pri')).toBe(false);
     expect(add.compareDocumentPosition($('.dv-cards')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it('키를 누르면 화면 손잡이도 같은 자리로 움직임(보이기만) · 떼면 가운데', () => {
+    open(true);
+    ready();
+    const knob = (label: string) => ($(`[aria-label="${label} 조이스틱"] i`) as HTMLElement).style.transform;
+    key('keydown', 'KeyW'); tick(100);
+    expect(knob('이동')).toBe('translate(0px, -36px)');
+    key('keydown', 'KeyA'); tick(100);
+    expect(knob('회전')).toBe('translate(-36px, 0px)');
+    key('keyup', 'KeyW'); key('keyup', 'KeyA'); tick(100);
+    expect(knob('이동')).toBe('translate(0px, 0px)');
+    expect(knob('회전')).toBe('translate(0px, 0px)');
+  });
+
+  it('상한 표 출처 · 「시험 기능」 은 상수 한 곳(DEMO_RULE)에서 바뀜: 기본 = min(조직, 로봇 한계) · 후진 -0.3 · 표시 / org = 조직 값만 · 후진도 sim_max_vx', () => {
+    expect(DEMO_RULE).toEqual({ caps: 'min', mark: true });
+    expect(demoCaps(ORG as never)).toMatchObject({ fwd: 1.5, back: 0.3, side: 0.3, turn: 0.5 });
+    expect(demoCaps({ ...ORG, sim_max_vx: 1.2 } as never, { caps: 'org', mark: false })).toMatchObject({ fwd: 1.2, back: 1.2, side: 0.5, turn: 1.2 });
+  });
+
+  it('곡선은 인자: 같은 문턱 · 최소값에 곡선만 바꿔 끼움(기본 직선)', () => {
+    expect(shape(0.55, 0.1, 0.2, 1.5)).toBeCloseTo(0.2 + 0.5 * 1.3, 6);
+    expect(shape(0.55, 0.1, 0.2, 1.5, (a) => a * a)).toBeCloseTo(0.2 + 0.25 * 1.3, 6);
+    expect(shape(0.05, 0.1, 0.2, 1.5, (a) => a * a)).toBe(0);
   });
 
   it('데모 STOP 은 서버로(noServerStop 은 데모를 서버 정지 대상으로 봄)', () => {

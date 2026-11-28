@@ -77,41 +77,47 @@ export function endDrive(id: string, go: Ctx['go']) {
   if (l.lease) rt.release(id); else go('drive');
 }
 /** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
-/** 데모(목록 sim · demo true)의 웹 상한(app-lx 11-28 22:59 · 서버는 시뮬 cmd 상한을 검사하지 않는다 · 실기 real_* 는 쓰지 않음).
- *  축마다 min(조직 OrgSettings sim_* , 로봇 한계). 서버 경유 화면에는 로봇 한계를 받는 칸이 없어 시뮬 에이전트 한계
- *  (apps/agent/foothold_agent/phone/protocol.py SIMULATION_LIMITS: vx -0.3~1.5 · vy ±0.3 · wz ±0.5 · 움직이는 앞 최소 0.2)를 상수로 둔다 */
+/** 데모(목록 sim · demo true)의 웹 상한(서버는 시뮬 cmd 상한을 검사하지 않는다 · 실기 real_* 는 쓰지 않음).
+ *  시뮬 에이전트 한계(apps/agent/foothold_agent/phone/protocol.py SIMULATION_LIMITS: vx -0.3~1.5 · vy ±0.3 · wz ±0.5 · 움직이는 앞 최소 0.2) —
+ *  서버 경유 화면에는 로봇 한계를 받는 칸이 없어 상수로 둔다 */
 export const SIM_LIMITS = { vx_max: 1.5, vx_min: -0.3, vy_max: 0.3, wz_max: 0.5, vx_min_moving: 0.2 } as const;
-/** 뒤 최소 -0.2 는 app-lx 제안 값 · 시뮬에서 실제로 걷는지는 미확인 */
-const BACK_MIN = 0.2;
+/** 상한 표 출처 · 「시험 기능」 표시 — 팀장 확인 대기(app-lead 11-28 23:12). 이 한 줄만 바꾼다.
+ *  min = 축마다 min(조직 sim_*, 로봇 한계) · 후진 -0.3 (app-lx 22:59) / org = 조직 값 하나 · 후진도 sim_max_vx (app-lx 23:09 전한 말, 미확정) */
+export const DEMO_RULE: { caps: 'min' | 'org'; mark: boolean } = { caps: 'min', mark: true };
+/** 움직이는 최소: 앞 0.2(에이전트 vx_min_moving) · 뒤 -0.2 는 app-lx 제안 값이고 시뮬에서 실제로 걷는지는 미확인 */
+const MOVE_MIN = SIM_LIMITS.vx_min_moving, BACK_MIN = 0.2;
 const DEMO_DEAD = 0.1;   // 조직 stick_deadzone 이 없을 때(8830 에 아직 칸 없음)
-const org = (o: Partial<OrgSettings> | null, k: 'sim_max_vx' | 'sim_max_vy' | 'sim_max_wz' | 'sim_key_vx' | 'stick_deadzone', d: number, hi: number) => {
+const org = (o: Partial<OrgSettings> | null, k: 'sim_max_vx' | 'sim_max_vy' | 'sim_max_wz' | 'stick_deadzone', d: number, hi: number) => {
   const v = o?.[k]; return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= hi ? v : d;
 };
-/** 앞 0 < vx < 0.2 는 내보내지 않는다(조직 키 속도가 더 작으면 올리지 않고 0) */
-const zeroBelowMin = (v: number) => (v >= SIM_LIMITS.vx_min_moving ? v : 0);
-export function demoCaps(o: Partial<OrgSettings> | null) {
-  const vx = Math.min(org(o, 'sim_max_vx', 1.5, 1.5), SIM_LIMITS.vx_max);
-  return { vx, back: -SIM_LIMITS.vx_min, vy: Math.min(org(o, 'sim_max_vy', 0.5, 0.5), SIM_LIMITS.vy_max), wz: Math.min(org(o, 'sim_max_wz', 1.2, 1.2), SIM_LIMITS.wz_max),
-    key: zeroBelowMin(Math.min(org(o, 'sim_key_vx', 1.5, 1.5), vx)), dead: org(o, 'stick_deadzone', DEMO_DEAD, 0.5) };
+/** 축 상한 표 · 문턱 */
+export function demoCaps(o: Partial<OrgSettings> | null, rule = DEMO_RULE) {
+  const vx = org(o, 'sim_max_vx', 1.5, 1.5), vy = org(o, 'sim_max_vy', 0.5, 0.5), wz = org(o, 'sim_max_wz', 1.2, 1.2), dead = org(o, 'stick_deadzone', DEMO_DEAD, 0.5);
+  return rule.caps === 'org' ? { fwd: vx, back: vx, side: vy, turn: wz, dead }
+    : { fwd: Math.min(vx, SIM_LIMITS.vx_max), back: Math.min(vx, -SIM_LIMITS.vx_min), side: Math.min(vy, SIM_LIMITS.vy_max), turn: Math.min(wz, SIM_LIMITS.wz_max), dead };
 }
-/** 데모 명령: 손잡이 = 비례(문턱 · 최소값 식 shape — 실기와 같은 함수), 키 = 상한 값. 앞 [0.2, 상한] · 뒤 [-0.3, -0.2] · 옆 · 돌기 [0, 상한].
- *  이동 손잡이는 큰 축 하나. 손잡이가 0 인 축만 키 값. 표에 없는 키 조합이면 null(→ 0 + 까닭) */
+/** 키 → 손잡이와 같은 입력(끝까지 민 것과 같음): 앞 +1 · 뒤 -1 · 왼 옆 +1 · 오른 옆 -1 · 왼 돌기 +1 */
+export const keyInput = (keys: Tok[]) => { const [vx, vy, wz] = command(keys); return { f: Math.sign(vx), s: Math.sign(vy), t: Math.sign(wz) }; };
+/** 한 입력(손잡이 · 키 · 실제 조이스틱 같은 값) → 명령. 축 · 상한 표 · 곡선을 인자로(robotact shape — 실기 stickTok 과 같은 문턱 · 최소값 식).
+ *  앞 [0.2, 상한] · 뒤 [-상한, -0.2] · 옆 · 돌기 [0, 상한]. 이동 손잡이는 큰 축 하나 */
+export function driveAxes(an: { f: number; s: number; t: number }, c: ReturnType<typeof demoCaps>, curve: (a: number) => number = (a) => a): [number, number, number] {
+  let vx = 0, vy = 0;
+  const wz = shape(an.t, c.dead, 0, c.turn, curve);
+  if (Math.abs(an.f) >= Math.abs(an.s)) vx = an.f >= 0 ? shape(an.f, c.dead, MOVE_MIN, c.fwd, curve) : shape(an.f, c.dead, Math.min(BACK_MIN, c.back), c.back, curve);
+  else vy = shape(an.s, c.dead, 0, c.side, curve);
+  return [vx, vy, wz].map((v) => Math.round(v * 1e6) / 1e6 || 0) as [number, number, number];
+}
+/** 데모 명령: 손잡이가 0 인 축은 키 입력. 표에 없는 키 조합이면 null(→ 0 + 까닭) */
 export function demoAxes(keys: Tok[], an: { f: number; s: number; t: number }, o: Partial<OrgSettings> | null): [number, number, number] | null {
   if (unknownCombo(keys)) return null;
-  const c = demoCaps(o), k = command(keys);
-  let vx = 0, vy = 0, wz = shape(an.t, c.dead, 0, c.wz);
-  if (Math.abs(an.f) >= Math.abs(an.s)) vx = an.f >= 0 ? shape(an.f, c.dead, SIM_LIMITS.vx_min_moving, c.vx) : shape(an.f, c.dead, BACK_MIN, c.back);
-  else vy = shape(an.s, c.dead, 0, c.vy);
-  if (!vx && k[0]) vx = k[0] > 0 ? c.key : -c.back;
-  if (!vy && k[1]) vy = Math.sign(k[1]) * c.vy;
-  if (!wz && k[2]) wz = Math.sign(k[2]) * c.wz;
-  return [vx, vy, wz].map((v) => Math.round(v * 1e6) / 1e6 || 0) as [number, number, number];
+  const k = keyInput(keys);
+  return driveAxes({ f: an.f || k.f, s: an.s || k.s, t: an.t || k.t }, demoCaps(o));
 }
 const demoPermitted = ([vx, vy, wz]: [number, number, number], o: Partial<OrgSettings> | null) => {
   const c = demoCaps(o);
-  return vx <= c.vx && vx >= -c.back && !(vx > 0 && vx < SIM_LIMITS.vx_min_moving) && Math.abs(vy) <= c.vy && Math.abs(wz) <= c.wz;
+  return vx <= c.fwd && vx >= -c.back && !(vx > 0 && vx < MOVE_MIN) && Math.abs(vy) <= c.side && Math.abs(wz) <= c.turn;
 };
-/** 데모 후진 · 옆걸음 표시(app-lx 11-28 22:59) */
+/** 데모 후진 · 옆걸음 표시(app-lx 11-28 22:59 · DEMO_RULE.mark) */
 export const DEMO_EXP = '시험 기능 · 후진과 옆걸음은 시뮬에서 시험 중입니다.';
 export const REAL_STICK = '실기는 손잡이를 30 % 넘게 밀면 정해진 속도로 움직입니다. 한 손잡이는 큰 쪽 한 방향만 보냅니다.';
 export { REAL_WAIT };
@@ -238,7 +244,7 @@ function Screen(c: Ctx) {
   };
   /** 손잡이 까닭 한 줄(PC 로봇 탭 useServerDrive stick 과 같은 순서): 표 밖 조합 · 옆 상한 · 그 밖 상한 */
   const [padWhy, setPadWhy] = useState('');
-  const [exp, setExp] = useState(false);   // 데모 후진 · 옆걸음을 보내는 중(시험 기능 표시)
+  const [exp, setExp] = useState(false), [kin, setKin] = useState({ f: 0, s: 0, t: 0 });   // kin = 누른 키의 손잡이 입력(화면 손잡이에 보이기만)   // 데모 후진 · 옆걸음을 보내는 중(시험 기능 표시)
   const cmdOf = (t: Tok[]) => (demo ? demoAxes(t, { f: 0, s: 0, t: 0 }, settingsRef.current) ?? TABLE[''] : command(t)), allow = (a: [number, number, number]) => (demo ? demoPermitted : permitted)(a, settingsRef.current);
   const [zero, setZero] = useState(false), [long, setLong] = useState(false);   // zero = 누르는데 설정을 몰라 0 을 보냄 · long = 10 초 넘게 모름
   const stickSay = () => {
@@ -255,7 +261,7 @@ function Screen(c: Ctx) {
     const t = toks(), known = real && gotRef.current && isSettings(settingsRef.current), cmd = t && known ? (demo ? demoAxes(keyToks(input.current.keys), input.current.an, settingsRef.current) ?? TABLE[''] : command(t)) : TABLE[''];
     setZero(!known && !!t && t.length > 0);
     const [vx, vy, wz] = allow(cmd) ? cmd : TABLE[''];   // 표 밖 · 조직 상한 밖이면 0
-    setExp(demo && (vx < 0 || vy !== 0));
+    setExp(demo && DEMO_RULE.mark && (vx < 0 || vy !== 0));
     rt.cmd(r.id, [vx, wz], vy, !t);
   };
   const sendRef = useRef(send); sendRef.current = send;
@@ -279,14 +285,14 @@ function Screen(c: Ctx) {
       else if (!keys.has(e.code)) keys.set(e.code, -1);   // 반복은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (k === 'b') setBack(true);
       if (k === 'sl' || k === 'sr') setSide(true);
-      setCombo(unknownCombo(keyToks(keys)));
+      setCombo(unknownCombo(keyToks(keys))); setKin(keyInput(keyToks(keys)));
     };
     const up = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }
-      const k = KEY[keyCode(e.code)]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); setCombo(unknownCombo(keyToks(keys))); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
+      const k = KEY[keyCode(e.code)]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); setCombo(unknownCombo(keyToks(keys))); setKin(keyInput(keyToks(keys))); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
     };
     // 창 밖에서 뗀 키는 keyup 이 안 온다 — 적은 키를 모두 지우고 세대 +1, 바로 0(앞 세대는 이미 무시되므로 지워도 안전, RV-426 ⑦⑨)
-    const blur = () => { keys.clear(); setBack(false); setSide(false); setCombo(false); gen.bump(); sendRef.current(); };
+    const blur = () => { keys.clear(); setBack(false); setSide(false); setCombo(false); setKin({ f: 0, s: 0, t: 0 }); gen.bump(); sendRef.current(); };
     const hide = () => { if (document.visibilityState === 'hidden') blur(); };
     addEventListener('keydown', down, true); addEventListener('keyup', up, true); addEventListener('blur', blur); document.addEventListener('visibilitychange', hide);
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); removeEventListener('blur', blur); document.removeEventListener('visibilitychange', hide); };
@@ -413,8 +419,8 @@ function Screen(c: Ctx) {
     </>}
     </div>
     {/* 손잡이(팀장 11-28 17:33 · PC 로봇 탭과 같은 robotact stickTok): 왼쪽 = 이동(앞 · 뒤 · 옆 · 큰 축 하나), 오른쪽 = 돌기. 문턱 0.3 */}
-    {mine && <><Stick cls="stick" label="이동" both on={ready} epoch={0} gen={gen} press={nowRef.current} set={(y, x) => { input.current.st[0] = stickTok('L', -x, -y); input.current.an.f = y; input.current.an.s = x; stickSay(); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
-      <Stick cls="stick" label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(x) => { input.current.st[1] = stickTok('R', -x, 0); input.current.an.t = x; stickSay(); }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
+    {mine && <><Stick cls="stick" label="이동" both shown={[kin.f, kin.s]} on={ready} epoch={0} gen={gen} press={nowRef.current} set={(y, x) => { input.current.st[0] = stickTok('L', -x, -y); input.current.an.f = y; input.current.an.s = x; stickSay(); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
+      <Stick cls="stick" label="회전" shown={[0, kin.t]} on={ready} epoch={0} gen={gen} press={nowRef.current} set={(x) => { input.current.st[1] = stickTok('R', -x, 0); input.current.an.t = x; stickSay(); }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
     {/* 설정 확인 알약: 시안 밖 · 새로 그림. 설정을 몰라 입력이 0 이 되는 순간만 동작 줄 위 가운데(10 초 넘으면 위 띠로) */}
     {unknown && zero && !long && <p className="u1-pill" role="status" data-real-wait-pill data-off-proto="settings-pill">{REAL_WAIT_PILL}</p>}
     {/* 아래 동작 줄(시안 u1_2 .act 일곱): 지금 못 누르는 것(순정 확인 전 · 저수준 중 · START 중 일어서기)은 흐리게(.na), 눌러도 보내지 않고 까닭 */}
@@ -474,7 +480,7 @@ function MapView({ big }: { big?: boolean }) {
  *  grip = 잡은 손가락의 세대(없으면 null) — 조종 화면은 지금 세대가 아니면 명령 전체를 0 으로. lift = 뗀 뒤(바로 보내기).
  *  cls = 덧붙일 꼴(폰 실기 조종 화면은 시안 u1 .stick).
  *  epoch 가 바뀌거나 처음 붙거나 사라지면 쥔 포인터를 놓고 값 0(부모 축 값도 — RV-426 ⑤). children = 판 위 그림(화살표) */
-export function Stick({ label, vertical, both, on, epoch, gen, press, set, grip, lift, children, cls }: { cls?: string; label: string; vertical?: boolean; both?: boolean; on: boolean; epoch: number; gen: { current: number }; press?: () => number; set: (v: number, side: number) => void; grip?: (n: number | null) => void; lift?: () => void; children?: ReactNode }) {
+export function Stick({ label, vertical, both, on, epoch, gen, press, set, grip, lift, children, cls, shown }: { shown?: [number, number]; cls?: string; label: string; vertical?: boolean; both?: boolean; on: boolean; epoch: number; gen: { current: number }; press?: () => number; set: (v: number, side: number) => void; grip?: (n: number | null) => void; lift?: () => void; children?: ReactNode }) {
   const [k, setK] = useState<[number, number]>([0, 0]);   // [세로, 가로]
   const el = useRef<HTMLDivElement>(null), own = useRef<{ id: number; n: number } | null>(null);   // 잡은 손가락·잡은 세대
   const cb = useRef({ set, grip, lift }); cb.current = { set, grip, lift };
@@ -500,7 +506,8 @@ export function Stick({ label, vertical, both, on, epoch, gen, press, set, grip,
     onPointerMove={(e) => { const o = own.current; if (o?.id === e.pointerId && o.n === gen.current) move(e); }}
     onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}>
     {children}
-    <i style={{ transform: `translate(${-k[1] * 36}px, ${-k[0] * 36}px)` }} />
+    {/* shown = 키 입력을 같은 손잡이 자리에 보이기만(app-lead 11-28 23:12). 손가락으로 잡은 동안은 손가락 자리 */}
+    {(() => { const p = !own.current && shown && (shown[0] || shown[1]) ? shown : k; return <i style={{ transform: `translate(${-p[1] * 36 || 0}px, ${-p[0] * 36 || 0}px)` }} />; })()}
     <span>{label}</span>
   </div>;
 }
