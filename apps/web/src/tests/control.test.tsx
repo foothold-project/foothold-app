@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { CELLS_MAX, MIN_TEXT_PX, WALK_MIN_SPEED, badgeDot, dropLines, facts, fakeRobots, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { CELLS_MAX, MIN_TEXT_PX, WALK_MIN_SPEED, badgeDot, dropLines, facts, fakeRobots, runDot, wallOrder, wallRank, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -221,10 +221,30 @@ describe('관제 탭', () => {
   it('밝은 판 배지 대비(조정 03:00): 흰 칸 바탕 · 흰 칸 위 4.5 : 1 모자라는 노랑 · 회색 글은 글자 · 흐린 글자 토큰', () => {
     expect(u5Css).toContain('.proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}');
     expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="paused"\][^{]*\{color:#1F2421!important/);
-    expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="maint"\][^{]*\{color:#5E6662!important/);
+    expect(u5Css).toMatch(/\.proto\.light \.u5\{[^}]*--u5-grey:#5E6662;--u5-dot-ok:#18A07E;--u5-dot-run:#0E7F63/);   // 밝은 판 전용 회색 · 점(팀장 03:14)
     const lum = (h: string) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
     const cr = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
     for (const fg of ['#0E7F63', '#2F6FE0', '#B8361F', '#1F2421', '#5E6662']) expect(cr(fg, '#FFFFFF'), fg).toBeGreaterThanOrEqual(4.5);   // 임무 · 시뮬 · 잠금 · 충전/노랑 · 회색
+  });
+  it('임무 점 두 안(팀장 03:14 · ?runDot=1|2): 1 = 다른 초록 톤 · 2 = 충전과 같은 초록 · 테 두른 점 숨쉬기 · 어둠 · 밝음 토큰', async () => {
+    expect(runDot()).toBe(1); url('?runDot=2'); expect(runDot()).toBe(2);
+    mount('u-kim', EIGHT); feed(EIGHT); await act(async () => {});
+    expect($('main.u5').dataset.rundot).toBe('2');
+    expect(u5Css).toMatch(/\.u5\{[^}]*--u5-dot-ok:#00C389;--u5-dot-run:#18A07E/);
+    expect(u5Css).toContain('.u5[data-rundot="2"] .stb[data-badge="run"] i,.u5[data-rundot="2"] .stb[data-badge="driving"] i{background:var(--u5-dot-ok)!important;outline:1.5px solid var(--u5-dot-ok)');
+    expect(u5Css).toContain('@keyframes breathe');
+  });
+  it('타일 벽 차례 wallOrder(팀장 03:14 · 조정 03:21): 점검 · 충전 · 연결 전 · 시뮬 중 · 실기 · 데모 · 그 밖 · 가짜 · 꺼진 실기 = 실기 칸', () => {
+    const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20', status: 'IDLE' };
+    const RUN = { id: 'r1', run_id: 'r1', scenario_name: '순찰', status: 'MOVING', step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } } as unknown as Robot['run'];
+    const F = (id: string, r: Partial<Robot>, a: object = {}, demo = false) => facts({ id, name: id, ...base, ...r } as Robot, 'u-kim', new Map(), { demo, label: null, charging: false, job: null, ...a });
+    const l = [
+      F('fake-1', {}), F('simidle', { sim: true }), F('demo', {}, {}, true), F('realoff', { online: false, seenAt: '', status: null }),
+      F('simrun', { sim: true, status: 'RUNNING', run: RUN }), F('demopre', { online: false, seenAt: '', status: null }, {}, true),
+      F('demochg', {}, { charging: true }, true), F('demomaint', {}, { job: { kind: 'maint', text: '점검' } }, true),
+    ];
+    expect(wallOrder(l).map((f) => f.x.id)).toEqual(['demomaint', 'demochg', 'demopre', 'simrun', 'realoff', 'demo', 'simidle', 'fake-1']);
+    expect(tileBadge(l[3])!.key).toBe('pre'); expect(wallRank(l[3])).toBe(4);   // 꺼진 실기(연결 전 배지)도 실기 칸
   });
   it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {
     const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
@@ -283,17 +303,17 @@ describe('관제 탭', () => {
     const RUNX = (status: string) => ({ id: 'r1', run_id: 'r1', scenario_name: '순찰', status, step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } }) as unknown as Robot['run'];
     const B = (r: Partial<Robot>, a: object = {}, demo = false) => tileBadge(facts({ id: 'b1', name: 'B', ...base, ...r } as Robot, 'u-kim', new Map(), { demo, label: null, charging: false, job: null, ...a }))!;
     const look = (b: ReturnType<typeof B>) => [b.key, b.col, badgeDot(b), b.pulse];
-    expect(look(B({ status: 'RUNNING', run: RUNX('MOVING') }))).toEqual(['run', 'var(--u5-ok)', 'var(--u5-dot-red)', true]);   // 임무 중: 글 그대로 · 점 빨강
-    expect(look(B({ status: 'RUNNING', run: RUNX('MOVING') }, {}, true))).toEqual(['run', 'var(--u5-ok)', 'var(--u5-dot-red)', true]);   // 데모도 같음
-    expect(look(B({}, { charging: true }))).toEqual(['charging', 'var(--u5-on)', 'var(--u5-ok)', true]);   // 충전 중: 글 하양 · 점 초록
+    expect(look(B({ status: 'RUNNING', run: RUNX('MOVING') }))).toEqual(['run', 'var(--u5-ok)', 'var(--u5-dot-run)', true]);   // 임무 중: 글 그대로 · 점 초록(팀장 03:14 · 안 1 다른 톤 / 안 2 같은 초록 테 두름)
+    expect(look(B({ status: 'RUNNING', run: RUNX('MOVING') }, {}, true))).toEqual(['run', 'var(--u5-ok)', 'var(--u5-dot-run)', true]);   // 데모도 같음
+    expect(look(B({}, { charging: true }))).toEqual(['charging', 'var(--u5-on)', 'var(--u5-dot-ok)', true]);   // 충전 중: 글 하양 · 점 초록
     expect(look(B({ sim: true, status: 'RUNNING', run: RUNX('MOVING') }))).toEqual(['simrun', 'var(--u5-sim)', 'var(--u5-sim)', true]);   // 시뮬 중: 파랑 · 파랑
-    expect(look(B({}, { job: { kind: 'maint', text: '점검' } }))).toEqual(['maint', '#a9b8c6', '#a9b8c6', true]);   // 점검 중: 색 그대로
+    expect(look(B({}, { job: { kind: 'maint', text: '점검' } }))).toEqual(['maint', 'var(--u5-grey)', 'var(--u5-grey)', true]);   // 점검 중: 색 그대로
     expect(look(B({ status: 'RUNNING', run: RUNX('PAUSED') }))).toEqual(['paused', 'var(--u5-amb)', 'var(--u5-amb)', true]);
     expect(look(B({ online: false, status: null }))).toEqual(['lost', 'var(--u5-amb)', 'var(--u5-amb)', false]);
     expect(look(B({ status: 'STOP_LATCHED' }))).toEqual(['latched', 'var(--u5-red)', 'var(--u5-red)', false]);
-    expect(look(B({}))).toEqual(['idle', '#a9b8c6', '#a9b8c6', false]);
+    expect(look(B({}))).toEqual(['idle', 'var(--u5-grey)', 'var(--u5-grey)', false]);
     const pre = B({ online: false, seenAt: '', status: null });   // 연결 전: 기본 B 안 = 하얀 점 멈춤 · 흐리게
-    expect([...look(pre), pre.dim]).toEqual(['pre', '#a9b8c6', 'var(--u5-on)', false, true]);
+    expect([...look(pre), pre.dim]).toEqual(['pre', 'var(--u5-grey)', 'var(--u5-on)', false, true]);
     // 같은 틀: 모든 배지가 점(i) 하나를 갖고, 펄스는 .chk 로만 · 움직임 줄이기면 멈춤
     mount('u-kim', EIGHT); feed(EIGHT);
     for (const t of tiles()) { const b = t.querySelector<HTMLElement>('[data-badge]'); if (!b) continue; expect(b.querySelectorAll(':scope > i').length, b.dataset.badge).toBe(1); expect(b.classList.contains('chk')).toBe(b.dataset.pulse === '1'); }
@@ -605,7 +625,7 @@ describe('관제 탭', () => {
     const F = (r: Robot) => facts({ ...r, seenAt: '14:05:20' }, 'u-kim', new Map(), { demo: false, label: null, charging: false, job: null });
     const on = F(toRobot(sum(L(true))));
     expect(on.x.holder?.driving).toBe(true); expect(on.driving).toBe(true);
-    const b = tileBadge(on)!; expect([b.key, b.text, b.col, badgeDot(b), b.pulse]).toEqual(['driving', '조종 중', 'var(--u5-ok)', 'var(--u5-dot-red)', true]);
+    const b = tileBadge(on)!; expect([b.key, b.text, b.col, badgeDot(b), b.pulse]).toEqual(['driving', '조종 중', 'var(--u5-ok)', 'var(--u5-dot-run)', true]);
     for (const off of [F(toRobot(sum(L(false)))), F(toRobot(sum(L()))), F(toRobot(sum(null)))]) {   // false · 칸 없음 · 조종권 없음(lease null)
       expect(off.driving).toBe(false); expect(tileBadge(off)!.key).toBe('idle');
     }
@@ -1557,7 +1577,7 @@ describe('관제 탭', () => {
     // 충전 배지 = 배터리 아이콘 없이 점검 중과 같은 점 펄스(.stb.chk i) · 초록(팀장 01:51)
     const ch = tile('k3').querySelector<HTMLElement>('[data-charging]')!;
     expect(ch.classList.contains('chk')).toBe(true); expect(ch.querySelector('.bt')).toBeNull();
-    expect(ch.querySelector<HTMLElement>(':scope > i')!.style.background).toBe('var(--u5-ok)');   // 시안 민트(어둠 #00c389 · 밝음 #0E7F63, u5.css)
+    expect(ch.querySelector<HTMLElement>(':scope > i')!.style.background).toBe('var(--u5-dot-ok)');   // 시안 민트(어둠 #00c389 · 밝음 #0E7F63, u5.css)
     av.mockRestore(); sc.mockRestore();
   });
   it('글이 없는 줄 · 칸은 아이콘을 보이지 않게(줄 높이는 지킴) · 걸음 이름이 없으면 아이콘 없음', () => {

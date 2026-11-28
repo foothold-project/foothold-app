@@ -293,7 +293,7 @@ function RealCam({ id }: { id: string }) {
  *  5 충전(가용 CHARGING) · 그 둘이 아닐 때 일정 칸 배터리 교체 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
  *  «조종 중»은 서버가 조종권 안에 실제 입력 여부를 줄 때까지 내지 않는다(값 없으면 7). 상태를 아직 모르면(요약 · 받는 중) null */
 export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'driving' | 'idle'; text: string; icon: keyof typeof IC; col: string; pulse: boolean; dim?: boolean; why?: string };
-const GREY = '#a9b8c6';
+const GREY = 'var(--u5-grey)';   // 어둠 #a9b8c6 · 밝음 on-surface-muted #5E6662(u5.css · 팀장 03:14 밝은 판 전용)
 /** «연결 전» 점(팀장 02:14 두 안): 'still' = B 하얀 점 멈춤 · 흐리게(기본), 'pulse' = A 하얀 점 펄스. 주소 ?preDot=pulse(또는 #… ?preDot=pulse)로 A 를 볼 수 있음 */
 export const PRE_DOT: 'still' | 'pulse' = 'still';
 /** 주소 값 하나(?k=v 또는 해시 주소 #…?k=v). 못 읽으면 null */
@@ -339,12 +339,17 @@ export function tileBadge(f: TileFacts): Badge | null {
   if (f.driving) return { key: 'driving', text: '조종 중', icon: 'mode', col: 'var(--u5-ok)', pulse: true };
   return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY, pulse: false };
 }
-/** 배지 점 색은 여기 한 곳(팀장 02:14): 임무 중 = 빨강(--u5-dot-red) · 충전 = 초록 · 시뮬 = 파랑 · 연결 전 = 하양(--u5-on), 나머지 = 배지 글 색 */
+/** 임무 중 점 두 안(팀장 03:14 · 주소 ?runDot=1|2, 없으면 1): 1 = 다른 초록 톤(--u5-dot-run) · 같은 깜빡임, 2 = 충전과 같은 초록 · 테 두른 점이 숨쉬듯 커졌다 작아짐 */
+export const runDot = (): 1 | 2 => (urlParam('runDot') === '2' ? 2 : 1);
+/** 배지 점 색은 여기 한 곳(팀장 02:14 · 03:14 임무 = 초록): 임무 중 = 빨강(--u5-dot-red) · 충전 = 초록 · 시뮬 = 파랑 · 연결 전 = 하양(--u5-on), 나머지 = 배지 글 색 */
 export const badgeDot = (b: Badge): string =>
-  b.key === 'run' || b.key === 'driving' ? 'var(--u5-dot-red)' : b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.key === 'pre' ? 'var(--u5-on)' : b.col;
+  b.key === 'run' || b.key === 'driving' ? 'var(--u5-dot-run)' : b.key === 'charging' ? 'var(--u5-dot-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.key === 'pre' ? 'var(--u5-on)' : b.col;
 /** 머리 줄 수 칸 = 필터 갈래(팀장 02:21 · 조정 02:29). 수와 필터 모두 tileBadge 의 key 에서 센다(배지와 어긋나지 않음).
  *  임무 중 = 임무 중 · 임무 멈춤 배지(실기 · 데모), 시뮬 = 시뮬 로봇 전체(시뮬 중 + 대기), 경고만 배지가 아닌 경고 테두리 축(겹쳐 셈) */
 export type Group = '임무 중' | '충전' | '점검' | '연결 중' | '시뮬' | '경고' | '주의';
+/** 타일 벽 차례(팀장 03:14): 점검 중 · 충전 중 · 연결 전 · 시뮬 중 · 실기 · 데모 · 그 밖(대기 시뮬 등) · 가짜. 실기(시뮬 · 데모 · 가짜 아님)는 배지가 무엇이든 실기 칸(조정 03:21 · 연결 전 칸은 데모 · 시뮬 중 pre). 그 밖은 두 칸에 맞으면 앞 칸. 같은 칸 안은 order 차례. 경고 · 주의는 차례를 바꾸지 않고 테두리 · 띠로만 */
+export const wallRank = (f: TileFacts) => { const k = tileBadge(f)?.key; return isFake(f.x.id) ? 7 : !f.sim && !f.demo ? 4 : k === 'maint' ? 0 : k === 'charging' ? 1 : k === 'pre' ? 2 : k === 'simrun' ? 3 : f.demo ? 5 : 6; };
+export const wallOrder = (l: TileFacts[]) => l.map((f, i) => [wallRank(f), i, f] as const).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((e) => e[2]);
 const keyIn = (f: TileFacts, ...k: Badge['key'][]) => { const b = tileBadge(f); return !!b && k.includes(b.key); };
 export const GROUP: Record<Group, (f: TileFacts) => boolean> = {
   '임무 중': (f) => !f.sim && keyIn(f, 'run', 'paused'),
@@ -541,14 +546,14 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const n = (f: (x: TileFacts) => boolean) => all.filter(f).length;
   const shown = all.filter((f) => inGroups(f, pick)), none = pick.length > 0 && !shown.length;   // 필터: 타일 · 작은 지도 · 지도 보기에만(수 · 경고 목록은 전체)
   // 모든 로봇을 한 화면에(팀장 02:41 · 스크롤 0): 대수에 따라 wallGrid 가 열 · 줄을 늘리고 줄임. 문턱을 넘으면 아래 네 칸은 고른 로봇 정보 칸으로
-  const wall = shown, cells = cellsOn(wall.length), drop = dropLines(wallGrid(wall.length).zoom), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
+  const wall = wallOrder(shown), cells = cellsOn(wall.length), drop = dropLines(wallGrid(wall.length).zoom), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
   const seg = (on: boolean, v: string, icon: ReactNode, go: () => void) => <span className={on ? 'on' : ''} data-v={v} role="button" tabIndex={0} aria-pressed={on} onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}>{I(16, icon)}{v}</span>;
   // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 수를 비우고 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
   const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
   const cnt = (k: Group, icon: ReactNode, v: number | null, col?: string, src?: 'dashboard', none?: string) => { const on = pick.includes(k); return <span className={on ? 'cnt on' : 'cnt'} style={col ? { color: col } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}
     role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, col)}{`${k} `}<b style={col ? { color: col } : undefined}>{v ?? ''}</b></span>; };
-  return <main className="u5" data-view={view} aria-label="관제" data-cells={cells ? 'on' : 'off'} data-drop={drop}>
+  return <main className="u5" data-view={view} aria-label="관제" data-cells={cells ? 'on' : 'off'} data-drop={drop} data-rundot={runDot()}>
     {fake > 0 && <div className="fakeband" role="status" data-fake={fake}>화면 검토용 가짜 자료 · 로봇 {fake} 대</div>}
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
       <span className="sep"></span>

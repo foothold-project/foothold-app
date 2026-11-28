@@ -55,7 +55,11 @@
 /* 밝은 판 배지(조정 03:00 · 대비 4.5 : 1 이상): 바탕 = surface 흰 칸. 흰 칸 위 대비가 모자라는 글 색만 토큰 안에서 바꿈(주의 노랑 · 회색 → 글자 · 흐린 글자, 테두리 · 점은 원래 색) */
 .proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}
 .proto.light .u5 .stb[data-badge="paused"],.proto.light .u5 .stb[data-badge="lost"],.proto.light .u5 .stb[data-badge="relink"]{color:#1F2421!important;border-color:#D9A21F}
-.proto.light .u5 .stb[data-badge="maint"],.proto.light .u5 .stb[data-badge="idle"],.proto.light .u5 .stb[data-badge="pre"],.proto.light .u5 .stb[data-badge="swap"]{color:#5E6662!important;border-color:#DCE0DE}
+.proto.light .u5 .stb[data-badge="maint"],.proto.light .u5 .stb[data-badge="idle"],.proto.light .u5 .stb[data-badge="pre"],.proto.light .u5 .stb[data-badge="swap"]{border-color:#DCE0DE}
+/* 임무 점 안 2(?runDot=2 · 팀장 03:14): 충전과 같은 초록, 테를 두르고 숨쉬듯 커졌다 작아짐(충전 = 깜빡임) */
+.u5[data-rundot="2"] .stb[data-badge="run"] i,.u5[data-rundot="2"] .stb[data-badge="driving"] i{background:var(--u5-dot-ok)!important;outline:1.5px solid var(--u5-dot-ok);outline-offset:2px;animation:breathe 1.6s ease-in-out infinite}
+@keyframes breathe{50%{transform:scale(.6)}}
+@media (prefers-reduced-motion:reduce){.u5[data-rundot="2"] .stb i{animation:none!important}}
 @media (prefers-reduced-motion:reduce){.u5 .bt i{animation:none;width:var(--b0)}.u5 .stb.chk i{animation:none}}
 .u5 .ov{position:absolute;z-index:2;display:flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:8px;font-size:11.5px;font-weight:700}
 .u5 .ov.g{position:absolute}
@@ -142,8 +146,8 @@
 /* ── 밝은 판(.proto.light) · 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」 ──
    바탕 #F6F7F6 · 칸 #FFFFFF · 글자 #1F2421 · 흐린 #5E6662 · 선 #DCE0DE · 강조 #18A07E · 강조 글자 #0E7F63 · 경고 #E04A2F · 경고 글자 #B8361F · 예행 #2F6FE0 · 주의(온도 채움) #D9A21F.
    어두운 판 글자색(흰 78 %)이 밝은 바탕에 남아 안 보이던 칸(수 칸 · 타일 줄 · 칩 · 모드)과 시안 어둠 색(#ff4d4f · #f2b705 · #00c389)을 바꾼다. 글자에는 온도 색을 쓰지 않는다 */
-.u5{--u5-red:#ff4d4f;--u5-amb:#f2b705;--u5-ok:#00c389;--u5-sim:#4C9BFF;--u5-on:#FFFFFF;--u5-dot-red:#FF4D4F;--u5-ok-bg:rgba(0,195,137,.16);--u5-ok-line:rgba(0,195,137,.45)}
-.proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-sim:#2F6FE0;--u5-on:#1F2421;--u5-dot-red:#E04A2F;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
+.u5{--u5-red:#ff4d4f;--u5-amb:#f2b705;--u5-ok:#00c389;--u5-sim:#4C9BFF;--u5-on:#FFFFFF;--u5-dot-red:#FF4D4F;--u5-grey:#a9b8c6;--u5-dot-ok:#00C389;--u5-dot-run:#18A07E;--u5-ok-bg:rgba(0,195,137,.16);--u5-ok-line:rgba(0,195,137,.45)}
+.proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-sim:#2F6FE0;--u5-on:#1F2421;--u5-dot-red:#E04A2F;--u5-grey:#5E6662;--u5-dot-ok:#18A07E;--u5-dot-run:#0E7F63;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
 .proto.light .u5 .cnt,.proto.light .u5 .tgl,.proto.light .u5 .md,.proto.light .u5 .ln{color:#5E6662}
 .proto.light .u5 .cnt b{color:#1F2421}
 .proto.light .u5 .tgl i{background:#DCE0DE}
