@@ -28,3 +28,21 @@ def test_reason_contract_is_optional_nullable_and_restricted():
         assert C.RobotSummary(**payload).model_dump(mode='json')['server_drive_blocked'] == value
     with pytest.raises(ValidationError):
         C.RobotSummary(**legacy, server_drive_blocked=['UNKNOWN'])
+
+
+def test_stop_relay_contract_is_optional_nullable_and_restricted():
+    files = generate.build()
+    for name in ('RobotSummary', 'RobotList', 'RobotCreated'):
+        schema = json.loads(files[f'schema/{name}.json'])
+        summary = schema if name == 'RobotSummary' else schema['$defs']['RobotSummary']
+        assert 'stop_relay' not in summary['required']
+    legacy = dict(id=str(uuid4()), name='fake', model='unitree_go2', simulation=False,
+        server_drive_allowed=False, owner=None, connection='OFFLINE', status=None,
+        battery=None, location=None, lease=None, current_run=None, devices=[], attention=[])
+    validator = Draft202012Validator(json.loads(files['schema/RobotSummary.json']))
+    assert C.RobotSummary(**legacy).stop_relay is None
+    for value in (None, 'DELIVERS', 'BLOCKED_SWITCH_OFF', 'NO_AGENT'):
+        validator.validate(dict(legacy, stop_relay=value))
+        assert C.RobotSummary(**legacy, stop_relay=value).stop_relay == value
+    with pytest.raises(ValidationError):
+        C.RobotSummary(**legacy, stop_relay='UNKNOWN')

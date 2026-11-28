@@ -1180,6 +1180,24 @@
             }
           ],
           "title": "Status"
+        },
+        "stop_relay": {
+          "anyOf": [
+            {
+              "enum": [
+                "DELIVERS",
+                "BLOCKED_SWITCH_OFF",
+                "NO_AGENT"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "표시용. 서버가 지금 이 로봇의 연결된 에이전트로 STOP 을 넘기는지. 판단은 에이전트 접속 때 잡은 서버 스위치 값으로 하며 현장 승인·담당·기체번호와 무관하다. 전체 보기 가능한 사람에게만 값(시뮬 포함), 그 외 null.",
+          "title": "Stop Relay"
         }
       },
       "required": [

@@ -161,6 +161,7 @@
 - 현장 안전 확인 없음 — 담당·연결·전체 스위치로 관문. 사람의 세 항목 체크와 승인·해제는 사용하지 않는다. 이전 POST/DELETE는 담당 권한 확인 뒤410이며 상태를 바꾸지 않는다.
 - `RobotSummary.robot_serial`은 총괄도 읽는다. 호환 필드 `field_approval_expires_at`은 항상 null이며 DB의 옛 값은 권한으로 쓰지 않는다. DB 열을 지우거나 이관하지 않는다.
 - 서버 경유 실기 수동 조종은 전체 스위치 AND 담당 있음 AND 페어링 기체번호 있음 AND 인증된 실기 agent 연결이 모두 필요하다. `FH_SERVER_DRIVE_ENABLED=1`은 전체 스위치이며, env가 없을 때만 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 거부한다. 목록의 `server_drive_allowed`도 이 조건으로 정한다.
+- `RobotSummary.stop_relay`(선택·nullable, 표시용)는 서버가 지금 이 로봇의 연결된 agent로 STOP을 넘기는지다. `DELIVERS`·`BLOCKED_SWITCH_OFF`(agent 접속 때 잡은 전체 스위치가 꺼져 있었음)·`NO_AGENT`(연결 없음 또는 닫는 중). 현장 승인·담당·기체번호와 무관하고, 접속 뒤 스위치를 바꾸면 `server_drive_blocked`와 다를 수 있다. 담당자·총괄에게만 값이며 시뮬도 같은 관문으로 값을 준다(운영 결정 2026-11-28).
 - 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
 - 연결 중 서버는 `{t:"field_approval",expires_at:UTC|null}` 표식을 자동 발급하고60초마다 갱신한다. 한 표식은30분 이하이며, 연결이 살아 있는 동안 자동 관문에 총 시간 제한은 없다. 최종 발신 때 현재 peer·담당·전체 스위치·500ms 이내 인증 확인·연결 생존을 다시 검사한다. 연결이 끊기거나 확인이 오래되면 갱신하지 않는다. `FIELD_APPROVAL_EXPIRED` 사건은 더 만들지 않으며 옛 기록은 읽을 수 있다.
 - 노트북은 기존 nic·serial·최대1800초·벽시계/단조시계 만료 검사를 유지한다. 같은 유효 연결의 정상 표식 갱신은 조종권·잠금 상태를 유지하며, 끊김·만료·검사 실패는 STOP·잠금·조종권 회수다. 연결 끊기·담당 변경·재연결도 진행 중 조종을 끝내며, 재연결 뒤 자동 표식을 받아도 조종권·잠금 해제는 복원하지 않는다. 다시 취득·STOP 확인·명시 잠금 해제가 필요하다. 안전 STOP·lease-null 경로는 그대로다.

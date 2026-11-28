@@ -1305,6 +1305,13 @@ class Realtime:
                 body.get('t') not in ('lease', 'cmd', 'unlock', 'stop') or
                 (body.get('t') == 'lease' and body.get('holder_type') not in (None, 'USER'))))
 
+    def stop_relay(self, rid):
+        """Display only: whether an agent STOP for rid passes the same final gate now."""
+        peer = self.agents.get(rid)
+        if peer is None or peer.closing:
+            return 'NO_AGENT'
+        return 'BLOCKED_SWITCH_OFF' if self.blocked_agent_control(peer, {'t': 'stop'}) else 'DELIVERS'
+
     async def send_body(self, peer, body, delivery=None):
         async with peer.send_lock:
             if body.get('t') == 'slam':
