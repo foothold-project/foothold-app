@@ -35,3 +35,7 @@ export function actWhy(name: ScreenAction['action'], lowlevel: boolean) {
   if (lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name)) return `${ACTION_NAMES[name]}: ${lowlevel ? '저수준 제어 중에는 쓸 수 없음' : '순정 번호 확인 전'}`;
   return '';
 }
+
+/** 「다시 시작」 확인 창 글(시안 u4_10 · 폰 실기 조종 u1 도 같은 글). 일어서기 = 잠금 해제(rt.unlock) 한 번 */
+export const RESTART_ASK = (name: string) => `${name} 을 일으킬까요?`;
+export const RESTART_TEXT = '그 자리에서 일어선 뒤 조종과 동작이 다시 켜집니다. 주변에 사람이 없는지 보세요.';

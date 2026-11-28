@@ -353,7 +353,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       act(() => w.recv(state('r-c')));
       act(() => btn('연결')!.click());
       expect(location.hash).toBe('#/drive/r-c');
-      expect(btn('조종 시작')!.disabled).toBe(false);
+      expect(btn('조종')!.disabled).toBe(false);
     } finally { vi.useRealTimers(); }
   });
   it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시 없음', async () => {
@@ -404,7 +404,7 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
       if (m.t === 'lease.take') w.recv(lease('r-k', { id: 'o1', name: '이운영' }, 'L1'));
     };
     act(() => { w.open(); w.recv(state('r-k')); });
-    act(() => btn('조종 시작')!.click());
+    act(() => btn('조종')!.click());
     expect(box.textContent).toContain('조종 중(나)');
     return w;
   }

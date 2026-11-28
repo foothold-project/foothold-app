@@ -238,7 +238,7 @@ describe('걷기 모드 칸 (PC 서버 경유 조종)', () => {
 describe('걷기 모드 칸 (폰 조종)', () => {
   it('«정책» 시트에 넷 · Shift+1~4 로 보냄 · 입력칸 초점이면 무시', () => {
     gaitMode = 'ok'; mountPhone(); serve(FakeWS.last);
-    click(btn('조종 시작')); click(btn('잠금 해제')); tick(100);
+    click(btn('조종')); click(btn('다시 시작')); click(document.querySelector('[data-restart-ask] button.dpri')!); tick(100);
     push('r7', { gait: AVAIL });
     click(btn('정책'));
     expect(GAITS.map((x) => !!gb(x.g))).toEqual([true, true, true, true]);
@@ -251,7 +251,7 @@ describe('걷기 모드 칸 (폰 조종)', () => {
   });
   it('키 반복(e.repeat) Shift+3 은 보내지 않음 · 새로 누르면 보냄 (reviewer G2)', () => {
     gaitMode = 'ok'; mountPhone(); serve(FakeWS.last);
-    click(btn('조종 시작')); click(btn('잠금 해제')); tick(100);
+    click(btn('조종')); click(btn('다시 시작')); click(document.querySelector('[data-restart-ask] button.dpri')!); tick(100);
     push('r7', { gait: AVAIL });
     click(btn('정책'));
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', shiftKey: true, repeat: true, bubbles: true, cancelable: true })); });

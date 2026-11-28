@@ -1,20 +1,22 @@
 // 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
-// 영상·지도·시나리오 제어는 자리만(가짜). 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
+// 영상·지도·시나리오 제어는 자리만(가짜). 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진(조직 뒤 상한이 허락할 때 · 손잡이와 같은 규칙). Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_LATER, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
 import { DriveInputNote } from './driveinput';
-import { Chip, Scenario, inApp, soon, type Ctx } from './screens';
+import { Chip, Scenario, inApp, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
 import { NoRobot } from './screens/norobot';
 import { TakeoverAsk } from './screens/takeover';
 import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo } from './serverdrive';
+import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
+import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, stickTok } from './robotact';
+import { actionResultText } from './screens/actiontrial';
 import { api } from './api';
 import { STALLED, SimLaunch, field } from './simdrive';
 import { GAITS, GAIT_KEYS, gaitKey, useGait } from './gait';
@@ -25,7 +27,6 @@ import './screens/u1d.css';
 import './screens/u1.app.css';
 import { askShown } from './proto/u11';
 
-type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
 /** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 단조 시계 */
 function useNow(on: boolean) {
   const [, tick] = useState(0);
@@ -35,14 +36,8 @@ function useNow(on: boolean) {
 const secs = (until: number, now: number) => Math.max(0, Math.ceil((until - now) / 1000));
 const pct = (b: number | null) => (b == null ? '' : `${b}%`);
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
-/** 실기(서버 경유) 스틱 문턱: 서버는 명령표 값만 받으므로 비례 대신 켜짐/꺼짐(RB-PHONE-REAL-TABLE) */
-const ON_AT = 0.5;
-/** 실기: [전후, 회전] 스틱 + 옆(← / → 키, + = 왼쪽) → 서버 명령표(serverdrive TABLE) 값 [vx, vy, wz]. 표 밖·조직 상한 밖이면 0 */
-export function realAxes([f, w]: Axes, o: Parameters<typeof permitted>[1], y = 0) {
-  const cmd = command([...(f > ON_AT ? ['up' as const] : []), ...(w > ON_AT ? ['rotl' as const] : w < -ON_AT ? ['rotr' as const] : []),
-    ...(y > ON_AT ? ['left' as const] : y < -ON_AT ? ['right' as const] : [])]);
-  return permitted(cmd, o) ? cmd : TABLE[''];
-}
+/** 조직 속도 상한 밖 명령(손잡이 · 키) 까닭 한 줄 · PC 서버 경유 조종(serverdrive)과 같은 글 */
+export const CAP_BLOCK = '조직 속도 상한을 넘는 명령입니다.';
 /** 조종권 요청 창 단추는 마우스·터치로만(F-TO-04 규칙 4): 키보드로 생긴 click 은 detail 0 */
 const pointerOnly = (f: () => void) => (e: MouseEvent) => { if (e.detail > 0) f(); };
 
@@ -79,7 +74,7 @@ export function endDrive(id: string, go: Ctx['go']) {
   if (l.lease) rt.release(id); else go('drive');
 }
 /** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
-export const REAL_STICK = '실기는 스틱을 반 넘게 밀면 정해진 속도로 움직입니다.';
+export const REAL_STICK = '실기는 손잡이를 30 % 넘게 밀면 정해진 속도로 움직입니다. 한 손잡이는 큰 쪽 한 방향만 보냅니다.';
 export { REAL_WAIT };
 const RELEASING = '조종권 반납을 확인하는 중입니다. 확인되면 다시 누르세요.';
 
@@ -150,11 +145,8 @@ export function Sheet({ title, close, children }: { title: string; close: () => 
     {children}
   </section>;
 }
-const Later = ({ text, buttons = [] }: { text: string; buttons?: string[] }) => <>
-  {!!buttons.length && <div className="fh-row">{buttons.map((b) => <button key={b} type="button" className="btn" {...soon}>{b}</button>)}</div>}
-  <p className="lv-note">준비 중입니다. {text}</p></>;
+const Later = ({ text }: { text: string }) => <p className="lv-note">준비 중입니다. {text}</p>;
 const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
-  pose: () => <Later text="서기·앉기·넘어진 뒤 일으키기는 다음 단계에서 열립니다." buttons={['서기', '앉기', '일으키기']} />,
   scenario: (c) => <Scenario {...c} />,
   goal: () => <Later text="지도 위에 목표를 찍어 보내는 기능은 다음 단계에서 열립니다." />,
   policy: () => <p className="dv-note" data-gait-wait>조종 시작 뒤 걷기 모드를 바꿀 수 있습니다. {GAIT_KEYS}</p>,   // 조종 중이면 Screen 이 걷기 모드 칸을 그린다(u03)
@@ -163,8 +155,8 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 /** 물리 키(e.code) → 방향. 누른 키는 e.code 마다 누른 순간의 입력 세대로 적는다(rt inputGen) */
 export const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', KeyD: 'r', ArrowLeft: 'sl', ArrowRight: 'sr' };
 const held = (keys: Map<string, number>, d: string) => [...keys.keys()].some((c) => KEY[c] === d);
-/** 누른 키(후진 제외, 따로 막음 안내) → 서버 명령표 낱말. 표에 없는 조합이면 0 + COMBO_BLOCK */
-const TOK = { f: 'up', l: 'rotl', r: 'rotr', sl: 'left', sr: 'right' } as const;
+/** 누른 키 → 서버 명령표 낱말. 표에 없는 조합이면 0 + COMBO_BLOCK · 상한 밖이면 0 + 까닭(손잡이와 같은 규칙) */
+const TOK = { f: 'up', b: 'down', l: 'rotl', r: 'rotr', sl: 'left', sr: 'right' } as const;
 const keyToks = (keys: Map<string, number>) => [...new Set([...keys.keys()].map((c) => TOK[KEY[c] as keyof typeof TOK]).filter(Boolean))];
 
 /** F-TO-02~05: 조종 화면 */
@@ -178,10 +170,16 @@ function Screen(c: Ctx) {
   const [back, setBack] = useState(false), [side, setSide] = useState(false), [combo, setCombo] = useState(false);   // combo = 표에 없는 키 조합을 누르는 중   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
   const [chip, setChip] = useState(false), light = useTheme()[1];   // chip = 로봇 칩 펼침(시안 u1_10)
+  const [restartAsk, setRestartAsk] = useState(false);
+  const [actMsg, setActMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);   // 동작 까닭 · 결과 한 줄(2.6 초) · 접수된 요청 id
+  const say = (m: string) => { setActMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setActMsg(''), 2600); };
+  const res = l.state?.action_result;
+  useEffect(() => { if (pending && res?.request_id === pending && res.status !== 'RUNNING') { say(actionResultText(res)); setPending(null); } }, [res?.request_id, res?.status]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => clearTimeout(tm.current), []);   // 「다시 시작」 확인 창(시안 u4_10 과 같은 글) · 일어서기만 잠금 해제를 보낸다
   // 입력 세대(rt inputGen): 키(e.code)·스틱 손가락마다 누른 순간의 세대. 잠김·해제·조종권·시트/⋯·blur/숨김·STOP·설정·ready 가 바뀌면 +1.
   // 앞 세대에 누른 키·손가락이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 아직 닿은 손가락 중 가장 앞 세대(없으면 null)
   const [gen] = useState(inputGen);
-  const input = useRef({ keys: new Map<string, number>(), stick: [0, 0] as Axes, sg: [null, null] as (number | null)[] });
+  const input = useRef({ keys: new Map<string, number>(), st: [[], []] as Tok[][], sg: [null, null] as (number | null)[] });   // st = 손잡이마다 보내는 낱말(robotact stickTok)
   const readyRef = useRef(false);
   const sync = () => gen.sync(r.id, [settingsRef.current, readyRef.current]);
   /** 시트·⋯ 가 조이스틱을 가리면 입력을 0으로: 세대를 올려 바로 0을 보낸다 — 누르던 포인터·키는 떼고 새로 눌러야 쓴다 */
@@ -189,11 +187,18 @@ function Screen(c: Ctx) {
   const pick = (s: SheetId | null) => { neutral(); setSheet(s); };
   const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
   useEffect(() => { askShown.add(r.id); return () => { askShown.delete(r.id); }; }, [r.id]);   // 이 화면이 요청 창을 그린다(PC 시안 틀의 PcAsk 는 비켜 줌)
-  /** 지금 세대 입력만. 앞 세대 입력이 남아 있으면 null(→ 0) */
-  const axes = (): Axes | null => {
-    const { keys: k, stick, sg } = input.current, n = sync();
+  /** 지금 세대 입력만 → 명령표 낱말(키 + 두 손잡이). 앞 세대 입력이 남아 있으면 null(→ 0). 키 S · ↓ 는 down(뒤 상한 밖이면 0 + 까닭) */
+  const toks = (): Tok[] | null => {
+    const { keys: k, st, sg } = input.current, n = sync();
     if ([...k.values(), ...sg].some((x) => x != null && x !== n)) return null;
-    return [Math.max(0, clamp(+held(k, 'f') + stick[0])), clamp(+held(k, 'l') - +held(k, 'r') + stick[1])];   // 후진은 막음(PRD Q1)
+    return [...new Set<Tok>([...keyToks(k), ...st[0], ...st[1]])];
+  };
+  /** 손잡이 까닭 한 줄(PC 로봇 탭 useServerDrive stick 과 같은 순서): 표 밖 조합 · 옆 상한 · 그 밖 상한 */
+  const [padWhy, setPadWhy] = useState('');
+  const stickSay = () => {
+    const t = toks();
+    setPadWhy(!readyRef.current || !t || !(input.current.st[0].length || input.current.st[1].length) ? ''
+      : unknownCombo(t) ? COMBO_BLOCK : !permitted(command(t), settingsRef.current) ? (command(t)[1] ? SIDE_BLOCK : CAP_BLOCK) : '');
   };
 
   /** 틱과 즉시 전송(놓음·blur·시트)이 같이 쓰는 한 길: 명령 공백(GAP_MS) 검사로 세대를 맞춘 뒤 보낸다(RV-426 ③⑨).
@@ -201,9 +206,9 @@ function Screen(c: Ctx) {
   const send = () => {
     if (!rt.get(r.id).lease) return;
     gen.tick(r.id);
-    const a = axes(), y = +held(input.current.keys, 'sl') - +held(input.current.keys, 'sr');
-    const [vx, vy, wz] = a && real && gotRef.current && isSettings(settingsRef.current) ? realAxes(a, settingsRef.current, y) : TABLE[''];
-    rt.cmd(r.id, [vx, wz], vy, !a);
+    const t = toks(), cmd = t && real && gotRef.current && isSettings(settingsRef.current) ? command(t) : TABLE[''];
+    const [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE[''];   // 표 밖 · 조직 상한 밖이면 0
+    rt.cmd(r.id, [vx, wz], vy, !t);
   };
   const sendRef = useRef(send); sendRef.current = send;
   /** 누른 순간의 세대 — 공백 검사를 먼저(공백 뒤 새 누름은 새 세대) */
@@ -277,6 +282,15 @@ function Screen(c: Ctx) {
   readyRef.current = ready; sync();   // 그릴 때도 세대를 맞춘다(조이스틱 누름이 새 세대를 보게)
   // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
   const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
+  // 동작 일곱(시안 u1 .act): PC 로봇 탭(robotu4 act)과 같은 규칙 · 같은 길(robotact 막음 → rt.action). 결과는 로봇 보고(state.action_result)
+  const lowlevel = l.state?.control === 'LOWLEVEL', online = l.state?.connection === 'ONLINE';
+  const doAct = (name: (typeof ACTS)[number][0]) => {
+    if (!mine) return say('조종 시작 후 사용할 수 있습니다.');
+    const no = actWhy(name, lowlevel); if (no) return say(no);
+    if (!online) return say('로봇과 서버 연결을 확인하세요.');
+    neutral(); say('서버 접수를 기다리고 있습니다.');
+    rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
+  };
 
   // 꼴 = 시안 u1_2(조종 판 안 시안 겹 .proto.pv.u1d · 마크업은 시안 그대로, 단추 div 는 button). 글 · 단추 · 동작 · 표지(data-*)는 옛 상태 판 그대로
   const why = mine ? null : driveBlock(c.user, r) ?? (wait || null), whyId = `why-${r.id}`;
@@ -304,6 +318,9 @@ function Screen(c: Ctx) {
       {r.online && speed != null && <div className="r"><span className="k">속도</span><span className="mono">{speed.toFixed(1)} m/s</span></div>}
       {r.online && l.state?.latency_ms != null && <div className="r"><span className="k">지연</span><span className="mono">{l.state.latency_ms} ms</span></div>}
       <div className="r"><span className="k">걷기</span><span>{gaitNow}</span></div>
+      {/* 시트(시나리오 · 지도·목표 · 정책). 「자세」 는 아래 동작 일곱이 대신한다 */}
+      <div className="r u1-sheets dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
+        <button key={x.id} type="button" aria-expanded={sheet === x.id} onClick={() => { setChip(false); pick(sheet === x.id ? null : x.id); }}>{x.label}</button>)}</div>
     </div>
     {/* 작은 지도(시안 .mm 자리 · 꼴). 누르면 큰 보기를 지도 ↔ 영상으로. 반납 중에는 숨김(보기 단추로 같은 일) */}
     {!l.releasing && <button type="button" className="g dk mm dv-mini" style={{ left: '12px', top: '64px', width: '140px', height: '96px', borderRadius: '16px', overflow: 'hidden', padding: 0 }}
@@ -317,11 +334,11 @@ function Screen(c: Ctx) {
       {mine ? <button type="button" className="g dk btn" style={{ height: '44px', borderRadius: '14px' }} disabled={!!l.releasing} onClick={() => endDrive(r.id, c.go)}>
           <Ic s={18}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></Ic>조종 끝내기</button>
         : <button type="button" className="g dk btn u1-go" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} aria-describedby={why ? whyId : undefined} onClick={() => start()}>
-          <Ic s={18}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></Ic>조종 시작</button>}
+          <Ic s={18}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></Ic>조종</button>}
     </div>
-    {/* 잠금 해제 = 시안 u1_3 「다시 시작」 자리(정지 위 92 × 48) */}
-    {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={() => rt.unlock(r.id)}>
-      <Ic s={18}><path d="M7 11V8a5 5 0 0 1 9.6-2" /><rect x="5" y="11" width="14" height="10" rx="2" /></Ic>잠금 해제</button>}
+    {/* 「다시 시작」(시안 u1_3 자리 · 정지 위 92 × 48) = 잠금 해제. PC 로봇 탭처럼 확인 창(u4_10 글)을 거친다 */}
+    {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={() => setRestartAsk(true)}>
+      <Ic s={18}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></Ic>다시 시작</button>}
     {/* 위 띠 줄(시안 .ban): 작은 지도와 오른쪽 줄 사이. red = 출력 지연, amb = 막은 까닭 · 리모컨 */}
     <div className="u1-says">
       {!mine && ban('u1-who', holderText(l, me, r))}
@@ -331,23 +348,36 @@ function Screen(c: Ctx) {
       <DriveInputNote devices={rt.now() - l.stateAt < 3000 ? l.state?.devices : null} cls="ban amb" />
       {l.notice && ban('u1-info', l.notice)}
       {ready && (real && ok ? ban('u1-info', REAL_STICK, { 'data-real-stick': true }) : ban('u1-info', REAL_WAIT, { 'data-real-wait': true }))}
-      {back && mine && ban('amb', '후진은 아직 지원하지 않습니다')}
+      {actMsg && ban('u1-info', actMsg, { 'data-act-msg': true })}
+      {padWhy && mine && ban('amb', padWhy, { 'data-stick-why': true })}
+      {back && mine && real && ok && !combo && !padWhy && !permitted(TABLE.down, settings) && ban('amb', CAP_BLOCK, { 'data-back-block': true })}
       {side && mine && real && ok && !combo && !permitted(TABLE.left, settings) && ban('amb', SIDE_BLOCK, { 'data-side-block': true })}
       {combo && mine && ban('amb', COMBO_BLOCK, { 'data-combo-block': true })}
       {/* 일시정지·중단 단추는 아직 없다 — 누를 수 없는 단추 대신 멈추는 길만(critique 11-10) */}
       {r.mission && <p className="ban u1-info dv-run"><span>시나리오: {r.mission}</span><span data-run-stop>멈추려면 STOP</span></p>}
     </div>
-    {mine && <><Stick cls="stick" label="전후" vertical on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
-      <Stick cls="stick" label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(v) => { input.current.stick[1] = v; }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
-    {/* 아래 동작 줄(시안 .act 꼴): 시트 넷 그대로. 시안의 동작 7(앉기 … 인사)은 로봇 명령 길이 정해지기 전이라 그리지 않는다 */}
-    <div className="act dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
-      <button key={x.id} type="button" aria-expanded={sheet === x.id} onClick={() => pick(sheet === x.id ? null : x.id)}><span><Ic s={17}>{SHEET_IC[x.id]}</Ic></span>{x.label}</button>)}</div>
+    {/* 손잡이(팀장 11-28 17:33 · PC 로봇 탭과 같은 robotact stickTok): 왼쪽 = 이동(앞 · 뒤 · 옆 · 큰 축 하나), 오른쪽 = 돌기. 문턱 0.3 */}
+    {mine && <><Stick cls="stick" label="이동" both on={ready} epoch={0} gen={gen} press={nowRef.current} set={(y, x) => { input.current.st[0] = stickTok('L', -x, -y); stickSay(); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
+      <Stick cls="stick" label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(x) => { input.current.st[1] = stickTok('R', -x, 0); stickSay(); }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
+    {/* 아래 동작 줄(시안 u1_2 .act 일곱): 지금 못 누르는 것(순정 확인 전 · 저수준 중 · START 중 일어서기)은 흐리게(.na), 눌러도 보내지 않고 까닭 */}
+    <div className="act" aria-label="동작">{ACTS.map(([name, t, em, ic]) => {
+      const off = actOff(name, lowlevel);
+      return <button key={name} type="button" className={off ? 'na' : undefined} data-act={name} onClick={() => doAct(name)}>
+        <span><Ic s={17}>{ic}</Ic></span>{t}{off && <em>{name === 'StandUp' ? em : lowlevel ? '저수준 중 안 됨' : '순정 확인 전'}</em>}</button>;
+    })}</div>
     {/* 시나리오가 쥔 로봇 «조종 시작» 확인(시안 .scrim + .dlg · 가림막은 손가락을 막지 않음) */}
     {ask && l.holder?.type === 'RUN' && <><div className="scrim" />
       <div className="g dlg dv-ask" role="dialog" aria-labelledby="dv-run-t">
         <div className="h" id="dv-run-t">조종 시작</div>
         <div className="s">{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</div>
         <div className="bts"><button type="button" className="dsec" onClick={() => setAsk(false)}>취소</button><button type="button" className="dpri" onClick={() => start(true)}>일시정지하고 조종</button></div>
+      </div></>}
+    {restartAsk && mine && l.state?.latched !== false && <><div className="scrim" />
+      <div className="g dlg" role="dialog" aria-label="다시 시작 확인" data-restart-ask>
+        <div className="h">{RESTART_ASK(r.name)}</div>
+        <div className="s">{RESTART_TEXT}</div>
+        <div className="bts"><button type="button" className="dsec" onClick={() => setRestartAsk(false)}>취소</button>
+          <button type="button" className="dpri" onClick={() => { setRestartAsk(false); rt.unlock(r.id); }}>일어서기</button></div>
       </div></>}
   </div>;
 
@@ -366,13 +396,6 @@ function Screen(c: Ctx) {
   </section>;
 }
 const Ic = ({ s, children }: { s: number; children: ReactNode }) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${s}px`, height: `${s}px` }} aria-hidden="true">{children}</svg>;
-/** 아래 동작 줄 시트 그림(시안 .act 아이콘 결) */
-const SHEET_IC: Record<SheetId, ReactNode> = {
-  pose: <><circle cx="12" cy="4.5" r="2" /><path d="M12 7v7M8 10h8M9 21l3-7 3 7" /></>,
-  scenario: <><path d="M8 6h12M8 12h12M8 18h12" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></>,
-  goal: <><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z" /><circle cx="12" cy="10" r="2" /></>,
-  policy: <><path d="M3 16c3-6 6-6 9-3s6 3 9-3" /><path d="M4 20h4M16 20h4" /></>,
-};
 
 /** 실기 RGB·뎁스·지도: 실기 영상 어댑터·지도·라이다 자료가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0).
  *  예전 지도 칸은 고정 벽·계산한 라이다 점을 그려 실제 센서로 읽힐 수 있었다(critique 11-10) — 받은 값이 없으면 그리지 않는다 */
