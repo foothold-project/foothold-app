@@ -136,22 +136,13 @@ describe('관제 탭', () => {
     expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/control');
     expect(tiles()).toHaveLength(8);
     expect($('[aria-label="로봇 타일"]').dataset.count).toBe('8'); expect($('[aria-label="로봇 타일"]').dataset.all).toBe('20');
+    expect($('[data-wall-rest]').textContent).toBe('타일 8 대 · 나머지 12 대는 지도 보기 · 로봇 탭');
     expect(tiles()[0].dataset.robot).toBe('g9');
     expect(tile('g9').dataset.tone).toBe('warn'); expect(tile('g9').classList.contains('lv-warn')).toBe(true); expect(tile('g9').classList.contains('warncell')).toBe(true);
     expect(tile('g9').querySelector('[data-warn-flag]')!.textContent).toBe('주의 · 배터리 낮음');
     expect(tile('g3').dataset.tone).toBeUndefined();
     expect(['경고', '주의'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '1']);   // g9 = 주의(테두리 warn) · 경고 칸과 나눔(조정 02:30)
     expect(wallGrid(8).zoom).toBe(1);   // 8 칸 = 시안 4×2 그대로(줄이지 않음)
-    // 칸 밖 로봇(팀장 02:21): 안내문 대신 «+12 대» 단추 → 이름 · 배지 목록 · 한 번 = 고르기 · 두 번 = 로봇 탭
-    const rest = $('[data-wall-rest]'), more = rest.querySelector('[role="button"]') as HTMLElement;
-    expect([rest.dataset.wallRest, more.textContent, more.getAttribute('aria-expanded')]).toEqual(['12', '+12 대', 'false']);
-    act(() => { more.click(); });
-    const rows = [...rest.querySelectorAll<HTMLElement>('[aria-label="칸 밖 로봇"] .rrow')], onWall = new Set(tiles().map((t) => t.dataset.robot));
-    expect(rows).toHaveLength(12); expect(rows.every((r) => !onWall.has(TWENTY.find((x) => x.name === r.dataset.r)!.id))).toBe(true);
-    const r0 = rows[0], id0 = TWENTY.find((x) => x.name === r0.dataset.r)!.id;
-    expect(r0.querySelector('[data-badge]')?.getAttribute('data-badge') ?? null).toBe(tileBadge(facts(TWENTY.find((x) => x.id === id0)!, 'u-kim', new Map()))?.key ?? null);
-    act(() => { r0.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); r0.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 })); r0.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
-    expect(location.hash).toBe('#/fleet');
   });
 
   it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {

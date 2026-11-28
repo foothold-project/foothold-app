@@ -111,13 +111,6 @@
 .u5 .mk3.sim .lb{border-style:dashed;border-color:rgba(76,155,255,.6)}
 .u5 .rrow{display:flex;align-items:center;gap:10px;height:60px;padding:0 6px;border-bottom:1px solid var(--line);font-size:13.5px;font-weight:700}
 .u5 .rrow:last-child{border-bottom:0}
-/* 칸 밖 로봇 «+N 대»(팀장 02:21): 작은 단추 + 아래로 여는 목록. 배지는 타일 것을 그대로(자리만 줄 안) */
-.u5 .rest{position:relative}
-.u5 .rest .btns{height:32px;padding:0 12px;font-size:12.5px;cursor:pointer}
-.u5 .rest .pane{position:absolute;z-index:5;left:0;top:40px;width:300px;max-height:420px;overflow:auto;padding:4px 12px;background:#111312}
-.u5 .rest .rrow{justify-content:space-between;height:48px;cursor:pointer}
-.u5 .rest .rrow[aria-pressed="true"]{color:var(--u5-ok)}
-.u5 .rest .stb{position:static}
 .u5 .rrow small{font-size:12px;color:var(--mu2);font-weight:600}
 .u5 .rrow em{width:44px;text-align:right;font-style:normal;font-size:12.5px;color:rgba(232,235,240,.78);font-variant-numeric:tabular-nums}
 .u5 .alarm{position:absolute;inset:64px 0 0 0;pointer-events:none;box-shadow:inset 0 0 0 3px rgba(255,77,79,.65),inset 0 0 80px rgba(255,77,79,.18);z-index:4}
@@ -139,7 +132,6 @@
 .proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-sim:#2F6FE0;--u5-on:#1F2421;--u5-dot-red:#E04A2F;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
 .proto.light .u5 .cnt,.proto.light .u5 .tgl,.proto.light .u5 .md,.proto.light .u5 .ln{color:#5E6662}
 .proto.light .u5 .cnt b{color:#1F2421}
-.proto.light .u5 .rest .pane{background:#FFFFFF}
 .proto.light .u5 .tgl i{background:#DCE0DE}
 .proto.light .u5 .tgl.on i{background:#18A07E}
 .proto.light .u5 .chip{color:#5E6662;background:#F6F7F6;border-color:#DCE0DE}
