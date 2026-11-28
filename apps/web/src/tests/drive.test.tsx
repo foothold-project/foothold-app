@@ -2491,6 +2491,16 @@ describe('총괄 강제 가져오기', () => {
     key('keyup', 'KeyW');
   });
 
+  it('남의 넘김이 진행 중(남이 쥐었다가 holder 없음)일 때도 총괄은 같은 확인 창 · 쥔 사람을 본 적 없는 빈 로봇은 지금처럼 바로 take', () => {
+    mount(true, ADMIN, '#/drive/r7'); serve(KIM, 'r7'); held();
+    recv(lease('r7', null));                                   // 남의 넘김: 앞사람 lease null(STOP · 확인 대기)
+    click(btn('조종'));
+    expect(grab()!.textContent).toContain('가져오면 로봇이 그 자리에 멈춥니다');
+    expect(w.of('lease.take')).toHaveLength(0);
+    click(btn('가져오기'));
+    expect(w.of('lease.take')).toHaveLength(1);
+  });
+
   it('운영자 · 남이 쥔 로봇: 지금처럼 요청만(확인 창 · take 없음)', () => {
     mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); recv(lease('r7', LEE));
     click(btn('조종'));
