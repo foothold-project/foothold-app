@@ -384,7 +384,7 @@ describe('시나리오 실행 — PC 총괄 시뮬', () => {
     expect(runBox.querySelector('[data-sim-scn]')).toBeTruthy();
     expect([...runBox.querySelectorAll('button')].map((b) => b.textContent)).not.toContain('조종권 반납');
     // 실행 중 키 안내(QA R4): 막힘 + 움직이는 키 4개 줄긋기, Space(STOP)는 그대로
-    expect($('[data-sim-keys]')!.textContent).toContain('실행 중 — 키 조종 막힘');
+    expect($('[data-sim-keys]')!.textContent).toContain('실행 중 · 키 조종 막힘');
     expect(box.querySelectorAll('[data-sim-keys] [data-key-off]')).toHaveLength(4);
     expect($('[data-sim-keys]')!.textContent).toContain('Space 정지');
     expect($('[data-sim-stop-same]')!.textContent).toBe('머리줄 STOP 도 이 시뮬을 멈춥니다');   // 총괄(QA R5)
