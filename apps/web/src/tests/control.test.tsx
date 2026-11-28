@@ -145,6 +145,7 @@ describe('관제 탭', () => {
     expect(tile('g3').dataset.tone).toBe('bad');
     expect(tile('g3').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 왼쪽 앞다리 허벅지 61 °C');   // JOINTS 순서 FR · FL · RR · RL × hip · thigh · calf → 5 번째 = FL_thigh
     expect(tile('g3').querySelectorAll('.ln')[1].textContent).toBe('위치 1.3, 2.0 m');
+    expect(JSON.parse(tile('g3').querySelector('canvas')!.dataset.go2!).hot).toEqual({ FL_thigh: 'hot' });   // 타일 카메라: 그 관절만 칠함(관절마다 자기 단계)
     expect([tempLevel(48), tempLevel(51), tempLevel(61), tempLevel(72), tempLevel(null)]).toEqual([null, 'warn', 'bad', 'crit', null]);
   });
 
@@ -238,10 +239,10 @@ describe('관제 탭', () => {
     expect(order([a, d, c, e].map(F)).map((f) => f.x.id)).toEqual(['g7', 'g9', 'g3', 'g5']);
   });
 
-  it('끊긴 로봇(u5_1 K-07): 칸 위 «다시 연결 중 · 마지막 화면 HH:MM» · 값은 «마지막 값 · HH:MM» · 연결 칸 «연결 중 HH:MM 끊김»', () => {
+  it('끊긴 로봇(u5_1 K-07): 칸 위 «다시 연결 중 · 마지막 화면 HH:MM» · 배터리는 값만(시안 «49 %») · 끊긴 시각은 연결 칸 «연결 중 HH:MM 끊김»', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect(tile('g15').querySelector('.lk')!.textContent).toBe('다시 연결 중마지막 화면 14:05');
-    expect(fact('g15', 'battery')).toBe('마지막 70 % · 14:05');
+    expect(fact('g15', 'battery')).toBe('70 %');
     expect([fact('g15', 'link'), small('g15', 'link')]).toEqual(['연결 중', '14:05 끊김']);
     expect(tile('g15').querySelector('[data-fact="link"]')!.className).toBe('s w');
     expect(tile('g15').dataset.tone).toBeUndefined();   // 시안: 끊김은 테두리 없이 칸 위 덮개
@@ -894,6 +895,21 @@ describe('관제 탭', () => {
     expect(small('k2', 'battery')).toBe('충전 중');
     expect(small('k4', 'battery')).toBe('');
     expect(tile('k3').querySelector('[data-charging]')!.textContent).toBe('충전 중');
+    expect((tile('k3').querySelector('[data-charging]') as HTMLElement).style.color).toBe('rgb(0, 195, 137)');   // 시안 민트
     av.mockRestore(); sc.mockRestore();
+  });
+  it('글이 없는 줄 · 칸은 아이콘을 보이지 않게(줄 높이는 지킴) · 걸음 이름이 없으면 아이콘 없음', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    const ln = tile('g3').querySelector('.ln')!;
+    expect(ln.querySelector('span')!.textContent).toBe('');
+    expect((ln.querySelector('svg') as SVGElement).style.visibility).toBe('hidden');
+    expect((tile('g3').querySelector('[data-fact="temp"] svg') as SVGElement).style.visibility).toBe('hidden');
+    expect((tile('g5').querySelector('.ln svg') as SVGElement).style.visibility).toBe('');
+    expect(tile('g3').querySelector('.nm .md svg')).toBeNull();
+  });
+  it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 칸 «시뮬 · 배터리 해당 없음»', () => {
+    mount('u-kim', EIGHT); feed(EIGHT);
+    expect(tile('k8').querySelector('.ln span')!.textContent).toBe('임무 전 · 시뮬 등록');
+    expect([fact('k8', 'battery'), small('k8', 'battery')]).toEqual(['시뮬', '배터리 해당 없음']);
   });
 });

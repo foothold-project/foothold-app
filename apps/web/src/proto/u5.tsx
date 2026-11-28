@@ -19,7 +19,8 @@ import { SiteView } from './u5map';
 import './u5.css';
 
 // 시안 아이콘(lucide 선) 그대로
-const I = (w: number, d: ReactNode, color?: string) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${w}px`, height: `${w}px`, ...(color ? { color } : {}) }}>{d}</svg>;
+/** hide = 자리만 두고 보이지 않음(글이 없는 줄 · 칸의 높이를 지킴) */
+const I = (w: number, d: ReactNode, color?: string, hide = false) => <svg className="ic" viewBox="0 0 24 24" aria-hidden={hide || undefined} style={{ width: `${w}px`, height: `${w}px`, ...(color ? { color } : {}), ...(hide ? { visibility: 'hidden' as const } : {}) }}>{d}</svg>;
 export const IC = {
   tiles: <><rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" /><rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" /></>,
   map: <><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z" /><path d="M15 5.764v15" /><path d="M9 3.236v15" /></>,
@@ -112,7 +113,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const lat = s?.latency_ms, act = actOf(x, false);
   const holder = x.holder ?? rt.get(x.id).holder;
   const who: [string, string] = holder ? [holder.id === me ? '나' : holder.name, holder.type === 'RUN' ? '임무' : '조종'] : [x.owner ? (x.owner === me ? '나' : ownerName(x)) : '없음', '담당자'];
-  const bat = x.battery != null ? lastly(x, `${Math.round(x.battery)} %`, x.seenAt) : null, tv = h ? lastly(x, `${Math.round(h.t)} °C`, x.seenAt) : null;
+  const bat = x.battery != null ? `${Math.round(x.battery)} %` : null, tv = h ? lastly(x, `${Math.round(h.t)} °C`, x.seenAt) : null;
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
     x, demo: !!av?.demo, charging, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
@@ -142,7 +143,7 @@ export function wallGrid(n: number): { cols: number; rows: number; zoom: number 
 // ── 타일 ──────────────────────────────────────────────────
 function Cv({ f, front, hotMap }: { f: TileFacts; front: boolean; hotMap: Record<string, string> }) {
   const ref = useRef<HTMLCanvasElement>(null), look = useRef<TileLook>({ pose: null, front, cyber: f.sim, walk: false, down: false, hot: {} });
-  look.current = { pose: sitePose(stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location)), front: front || f.sim, cyber: f.sim, walk: f.walk, down: f.act === 'lie', hot: hotMap };
+  look.current = { pose: sitePose(stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location)), front: front || f.sim, cyber: f.sim, walk: f.walk, down: f.act === 'lie' || f.charging, hot: hotMap };
   useEffect(() => (ref.current ? tileGl().add(ref.current, () => look.current) : undefined), []);
   const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: front || f.sim ? 0 : 'back', dist: front || f.sim ? 1.25 : 2.1, floor: 0.5 });
   const showFront = front || f.sim;
@@ -154,23 +155,25 @@ function Cv({ f, front, hotMap }: { f: TileFacts; front: boolean; hotMap: Record
       : <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? '#9aa19d' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
       : !front && f.paused ? <span className="stb chk" style={{ color: '#f2b705' }} data-paused>{I(14, IC.warn)}{f.paused}<i></i></span>
-      : !front && f.charging && <span className="stb" data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>}
+      : !front && f.charging && <span className="stb" style={{ color: '#00c389' }} data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>}
   </div>;
 }
 
 function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front: boolean; pick: () => void; open: () => void }) {
-  const hotMap = useMemo(() => (f.hot && f.level ? { [f.hot.j.replace(/_joint$/, '')]: f.level === 'warn' ? 'warn' : 'hot' } : {}), [f.hot?.j, f.level]);
+  const q = f.x.online && !f.x.unknown ? f.x.robotInfo?.temperature?.joints : null, qk = q ? q.join(',') : '';
+  const hotMap = useMemo(() => Object.fromEntries((q && q.length === 12 ? q : []).flatMap((c, i) => { const lv = tempLevel(c ?? null); return lv ? [[JOINTS[i].replace(/_joint$/, ''), lv === 'warn' ? 'warn' : 'hot']] : []; })), [qk]);
   const cls = `tile${f.level ? ` lv-${f.level}` : ''}${f.sim ? ' sim' : ''}${sel ? ' sel' : ''}${f.level ? ' warncell' : ''}${f.sim ? ' rehearse' : ''}`;
   const red = f.level === 'bad' || f.level === 'crit';
   return <div className={cls} data-t={f.x.name} data-robot={f.x.id} data-tone={f.level ?? undefined} data-act={f.act} data-sel={sel || undefined} data-live={f.walk ? '1' : undefined} role="button" tabIndex={0} aria-pressed={sel} aria-label={`${f.x.name} 타일`}
     onClick={() => (sel ? open() : pick())} onDoubleClick={open} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); open(); } }}>
     {f.flag && <span className="flag warntag" style={{ background: red ? '#ff4d4f' : '#f2b705' }} data-warn-flag>{I(13, IC.warn)}{f.flag}</span>}
     <Cv f={f} front={front} hotMap={hotMap} />
-    <div className="inf"><div className="nm"><b style={red ? { color: '#ff4d4f' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{I(15, IC.mode)}{f.mode}</span></div>
-      <div className="ln">{I(16, f.sim && !f.mission ? IC.home : IC.flag)}<span>{f.mission ? f.mission.name : f.charging ? '충전 중' : f.sim ? `임무 전 · ${stText(f.x)}` : ''}</span>{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
+    <div className="inf"><div className="nm"><b style={red ? { color: '#ff4d4f' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{f.mode && I(15, IC.mode)}{f.mode}</span></div>
+      <div className="ln">{(() => { const txt = f.mission?.name || (f.charging ? '충전 중' : f.sim ? '임무 전 · 시뮬 등록' : '');
+        return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.sim ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
       {f.mission && f.mission.total > 0 && <div className="pg"><i style={{ width: `${Math.round((f.mission.done / f.mission.total) * 100)}%` }}></i></div>}
       <div className="ln">{I(16, IC.pin)}<span>{f.place}</span></div>
-      <div className="sts"><div className="s" data-fact="battery">{I(16, IC.bat)}{f.bat[0]}<small>{f.bat[1]}</small></div><div className={`s${f.temp[2]}`} data-fact="temp">{I(16, IC.temp)}{f.temp[0]}<small>{f.temp[1]}</small></div><div className={`s${f.link[2]}`} data-fact="link">{I(16, IC.wifi)}{f.link[0]}<small>{f.link[1]}</small></div><div className="s" data-fact="who">{I(16, IC.user)}{f.who[0]}<small>{f.who[1]}</small></div></div></div>
+      <div className="sts"><div className="s" data-fact="battery">{I(16, f.sim ? IC.box : f.charging ? IC.bolt : IC.bat)}{f.bat[0]}<small>{f.bat[1]}</small></div><div className={`s${f.temp[2]}`} data-fact="temp">{I(16, IC.temp, undefined, !f.temp[0])}{f.temp[0]}<small>{f.temp[1]}</small></div><div className={`s${f.link[2]}`} data-fact="link">{I(16, IC.wifi)}{f.link[0]}<small>{f.link[1]}</small></div><div className="s" data-fact="who">{I(16, IC.user)}{f.who[0]}<small>{f.who[1]}</small></div></div></div>
   </div>;
 }
 
