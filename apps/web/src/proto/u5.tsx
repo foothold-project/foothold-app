@@ -1,5 +1,6 @@
 // 관제 탭 = 시안 u5_1 타일 · u5_2 고름 · u5_3 지도 보기 · u5_4 뒤집기 · u5_5 경보 · u5_6 운영자. 여섯 장의 body 를 JSX 로 옮기고(태그 · 클래스 · 순서 · 글 그대로)
 // 고정 글 자리만 서버 값으로 바꿨다. 서버에 없는 값은 칸을 두고 그 글만 비운다. 명령은 기존 모듈(STOP = App 의 정지 처리, 고름 = controlPick)만 부른다.
+import { NO_SIGNAL, driveFeedText, useDriveFeed } from '../drivemedia';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { RobotAvailability, RobotSummary, ScreenState } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
@@ -161,11 +162,22 @@ function Cv({ f, front, hotMap }: { f: TileFacts; front: boolean; hotMap: Record
     {f.sim ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
       : front ? <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(f.level === 'bad' || f.level === 'crit' ? { color: '#ff4d4f' } : {}) }}>{I(14, IC.temp)}{f.hot ? (f.level === 'bad' || f.level === 'crit' ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>
       : f.lostNow ? <div className="lk">{I(24, IC.wifi, '#f2b705')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>
-      : <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>}
+      : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
+      : <RealCam id={f.x.id} />}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? '#9aa19d' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
       : !front && f.paused ? <span className="stb chk" style={{ color: '#f2b705' }} data-paused>{I(14, IC.warn)}{f.paused}<i></i></span>
       : !front && f.charging && <span className="stb" style={{ color: '#00c389' }} data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>}
   </div>;
+}
+
+/** 실기 카메라: 받은 영상(drive-media rgb)이 있으면 칸을 덮어 보여 주고, 없으면 1 m 뒤 모형 위에 «카메라 신호 없음 · 까닭» */
+function RealCam({ id }: { id: string }) {
+  const feed = useDriveFeed(id, 'rgb'), [, tick] = useState(0), text = driveFeedText(feed, 'rgb');
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);   // 2 초 넘게 새 판이 없으면 «신호 없음» 으로 바뀌게
+  if (feed.img && !text) return <><img className="cam" src={feed.img} alt={`${id} 카메라`} data-cam="live" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+    <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}카메라</span></>;
+  return <><span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
+    <span className="g dk ov" style={{ left: '8px', top: '40px', maxWidth: 'calc(100% - 16px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} data-cam="none" title={text}>{I(14, IC.cam)}{text || NO_SIGNAL.rgb}</span></>;
 }
 
 function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front: boolean; pick: () => void; open: () => void }) {
