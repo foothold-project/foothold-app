@@ -370,10 +370,20 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const dotEl = (() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
         const [cls, dot, t] = net.at === 'open' ? ['ok', '●', '연결'] : net.at === 'connecting' || net.at === 'idle' ? ['', '○', '연결 중'] : ['bad', '■', net.at === 'denied' ? '연결 거부' : '연결 끊김'];
         // 폰 실기 조종(u1)에서 끊기면 점 대신 빗금 그은 구름(시안 u1_8 · 빨강)
-        const mark = u1 && cls === 'bad' ? <svg data-cloud-off width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e5484d" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.2 9.1 4.5 4.5 0 0 0 7 18z" /><path d="M3 3l18 18" /></svg> : <i aria-hidden="true">{dot}</i>;
+        // 폰 실기 조종(u1)은 시안 u1_2 의 구름 칸 = 서버 연결(PC 머리줄 서버 글과 같은 출처 net)
+        const mark = u1 && cls !== 'bad' ? <svg data-u1-cloud width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={cls ? undefined : { opacity: .5 }}><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9a4.5 4.5 0 0 0 1 9z" /></svg>
+          : u1 && cls === 'bad' ? <svg data-cloud-off width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e5484d" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.2 9.1 4.5 4.5 0 0 0 7 18z" /><path d="M3 3l18 18" /></svg> : <i aria-hidden="true">{dot}</i>;
         return <span className={`fh-dot${cls ? ` ${cls}` : ''}`} data-link={cls === 'bad' ? net.at : undefined} title={t}>{mark}<span className="fh-dot-t">{t}</span></span>;
       })();
-  const moreEl = <details className="fh-more" ref={more}><summary aria-label="더 보기">⋯</summary>
+  // 폰 u1 상태 줄 Wi-Fi 칸 = 로봇 연결(robot.online · 서버가 끊겨 모르면 흐리게). 글은 화면 읽기용
+  const robotLinkEl = (() => {
+    const [cls, t] = !robot || robot.unknown ? ['', '로봇 연결 모름'] : robot.online ? ['ok', '로봇 연결'] : ['bad', '로봇 연결 끊김'];
+    return <span className={`u1-link${cls ? ` ${cls}` : ''}`} data-u1-robot-link title={t}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19.5" r="1" />{cls === 'bad' && <path d="M3 3l18 18" />}</svg><span className="fh-dot-t">{t}</span></span>;
+  })();
+  const moreEl = <details className="fh-more" ref={more}>{u1   // 시안 u1_2 셋째 칸(설정) = 이 ⋯ 메뉴
+        ? <summary aria-label="설정 · 더 보기"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" /></svg></summary>
+        : <summary aria-label="더 보기">⋯</summary>}
         <div className="card">{u1 && <button type="button" className="btn" disabled={!!rel} onClick={(e) => shut(e, () => robot && endDrive(robot.id, go))}>끝내기</button>}{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
           : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
           {tab === 'drive' && !simOpen && <ScanStart user={user} robots={open && robot ? [robot] : pool} label={PHONE_SCAN} start={() => { more.current?.removeAttribute('open'); setScan(true); }} />}
@@ -489,7 +499,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     {/* 시뮬 조종 화면(10-26): 머리줄은 STOP 만 — 영상 위 오른쪽 위에 뜬다(drive.css .fh-head[data-bare]). 시뮬 끝내기·연결 표시는 조종 화면 메뉴·알약으로 */}
     <header className="fh-head" data-bare={simOpen || undefined} data-u1={u1 || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} />
       : u1 ? <>{/* 시안 u1: 머리줄 없이 오른쪽 위 상태 줄(연결 · ⋯) · 오른쪽 아래 정지. 끝내기는 ⋯ 맨 위 */}
-        <div className="u1-top">{dotEl}{moreEl}</div>
+        {/* 시안 u1_2: 알림 종(PC 머리줄과 같은 Bell · 안 읽은 수) · 상태 줄 Wi-Fi(로봇 연결) · 구름(서버 연결) · 설정(⋯ 메뉴) */}
+        <div className="u1-bell"><Guard quiet><Bell cancel={cancel} face={(n) => <BellFace unread={n} />} pop={`fh${light ? ' light' : ''}`} /></Guard></div>
+        <div className="u1-top">{robotLinkEl}{dotEl}{moreEl}</div>
         {(canStop || toSim) && <Stop phone place="screen" onStop={stop} again={!!robot && stopWaiting(robot, rt.get(robot.id))} />}</> : <>
       {phone
         ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button>

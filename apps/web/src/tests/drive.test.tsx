@@ -1627,7 +1627,7 @@ describe('폰 조종 앱 틀', () => {
     ['시트 열기', () => {}, () => click(btn('지도·목표'))],
     ['시트 전환', () => click(btn('지도·목표')), () => click(btn('시나리오'))],
     ['시트 닫기', () => click(btn('지도·목표')), () => click(btn('닫기'))],
-    ['⋯ 열기', () => {}, () => { click($('summary[aria-label="더 보기"]')); tick(0); }],
+    ['⋯ 열기', () => {}, () => { click($('details.fh-more summary')); tick(0); }],
   ] as const) it(`조이스틱·키를 누른 채 ${name} → 바로 입력 0, 옛 포인터·키를 모두 떼고 새로 누르기 전까지 0(RB-DRIVE-FRESH-PRESS)`, () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r7');
@@ -1698,7 +1698,7 @@ describe('폰 조종 앱 틀', () => {
     };
     return { answer: () => act(() => { for (const id of pending.splice(0)) { w.recv({ t: 'reply', id, ok: true }); w.recv(lease('r7', null)); } }) };
   }
-  const endBtn = () => $<HTMLButtonElement>('header .btn');
+  const endBtn = () => $<HTMLButtonElement>('header .fh-more .btn');
   function holding() {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r7');
@@ -3602,6 +3602,31 @@ describe('시안 u1_3 정지됨 (21:48 결정 3 · Damping 은 따로)', () => {
     ready();
     act(() => push('r7', { latched: null }));
     expect($('.u1-chip .u1-st')!.textContent).toBe('정지 잠금');
+  });
+});
+
+describe('시안 u1_2 오른쪽 위: 알림 종 · Wi-Fi · 구름 · 설정 줄 (PC 머리줄과 같은 출처)', () => {
+  it('종은 PC 와 같은 알림 부품(안 읽은 수 · GET /notifications) · 시안 자리 오른쪽 118 · 줄은 로봇 연결 · 서버 연결 · 설정(⋯ 메뉴)', async () => {
+    vi.spyOn(api, 'notifications').mockImplementation(() => Promise.resolve({ items: [], unread_count: 2, next_cursor: null }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    await act(async () => {});
+    const bell = $('.fh-head[data-u1] .u1-bell');
+    expect(bell.querySelector('[data-bell] summary')!.getAttribute('aria-label')).toBe('알림 안 읽음 2건');
+    expect(bell.querySelector('.badge')!.textContent).toBe('2');
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.u1-bell\{[^}]*right:calc\(118px \+ env\(safe-area-inset-right,0px\)\)/);
+    const top = $('.u1-top');
+    expect(top.querySelector('[data-u1-robot-link]')!.getAttribute('title')).toBe('로봇 연결');
+    expect(top.querySelector('[data-u1-cloud]')).not.toBeNull();
+    expect(top.querySelector('.fh-dot .fh-dot-t')!.textContent).toBe('연결');
+    const more = top.querySelector('.fh-more summary')!;
+    expect(more.getAttribute('aria-label')).toBe('설정 · 더 보기');
+    expect(more.textContent).not.toContain('⋯');
+  });
+  it('로봇이 끊기면 Wi-Fi 칸이 빗금 · 글 「로봇 연결 끊김」', async () => {
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    act(() => push('r7', { connection: 'OFFLINE' }));
+    expect($('.u1-top [data-u1-robot-link]')!.getAttribute('title')).toBe('로봇 연결 끊김');
+    expect($('.u1-top [data-u1-robot-link]')!.className).toContain('bad');
   });
 });
 

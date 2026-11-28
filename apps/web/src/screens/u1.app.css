@@ -145,3 +145,16 @@
 .u1d .u1-says .al p{font-size:10.5px;font-weight:600;color:var(--mu);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .u1d .u1-says .al .bt{height:30px;padding:0 10px;border-radius:10px;display:flex;align-items:center;font-size:11.5px;font-weight:800;white-space:nowrap;flex:none}
 .u1d .u1-says .al .sbtn{background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.06);color:var(--ink)}
+/* 일시정지된 임무 「이어 가기」(시안 u1_11 · 초록 단추) */
+.u1d .u1-col .btn.u1-resume{background:linear-gradient(180deg,#18a07e,#0e7f63);color:#fff;border-color:rgba(255,255,255,.5)}
+/* 시안 u1_2 알림 종(오른쪽 118 · 위 12 · 44 × 36) · 상태 줄 Wi-Fi(로봇 연결) 칸 */
+.fh-head[data-u1] .u1-bell{pointer-events:auto;position:absolute;right:calc(118px + env(safe-area-inset-right,0px));top:calc(12px + env(safe-area-inset-top,0px));box-sizing:border-box;width:44px;height:36px;border-radius:14px;display:flex;align-items:center;justify-content:center;color:#fff;
+ background:linear-gradient(180deg,rgba(30,36,44,.62),rgba(20,24,30,.50));border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);box-shadow:0 8px 22px rgba(0,0,0,.25)}
+.fh-head[data-u1] .u1-bell summary{list-style:none;border:0;background:none;color:inherit;min-width:40px;min-height:32px;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.fh-head[data-u1] .u1-bell summary::-webkit-details-marker{display:none}
+.fh-head[data-u1] .u1-bell .card{position:absolute;right:0;top:44px}
+.fh-head[data-u1] .u1-top .u1-link{display:flex;color:inherit}
+.fh-head[data-u1] .u1-top .u1-link:not(.ok):not(.bad){opacity:.5}
+.fh-head[data-u1] .u1-top .u1-link.bad{color:#e5484d}
+.fh-head[data-u1] .u1-top .u1-link .fh-dot-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.fh.phone.light .fh-head[data-u1] .u1-bell{color:#16191f;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48));border-color:rgba(255,255,255,.85);box-shadow:0 8px 24px rgba(20,30,50,.14),inset 0 1px 0 rgba(255,255,255,.95)}
