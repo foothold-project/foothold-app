@@ -79,10 +79,15 @@ export function DriveLine({ f, children }: { f: DriveLineFacts; children?: React
 
 /** 시안 u4 조종 화면 위 한 줄(u11_2 ~ u11_5): 그 로봇의 rt 값만 읽어 driveLine 이 고른 줄 하나, 없으면 아무것도 안 그림.
  *  리모컨 줄은 에이전트 장치 줄 글 그대로이고, 1 초 넘게 지난 상태의 글은 쓰지 않는다(REPORT_STALE_MS). 요청 기다림 줄의 남은 초는 250 ms 마다 다시 셈 */
-export function RobotLine({ id, me }: { id: string; me: string }) {
+export function useRobotLine(id: string, me: string): DriveLineFacts | null {
   const l = useLive(id), handedTo = useHanded(l, me), [, tick] = useState(0), waiting = !!l.outgoing;
   useEffect(() => { if (!waiting) return; const t = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(t); }, [waiting]);
-  const now = rt.now(), f = driveLine({ link: rt.link(), l, me, now, handedTo, fresh: !!l.state && now - l.stateAt < REPORT_STALE_MS });
+  const now = rt.now();
+  return driveLine({ link: rt.link(), l, me, now, handedTo, fresh: !!l.state && now - l.stateAt < REPORT_STALE_MS });
+}
+/** 줄 하나만 그리는 짧은 꼴. 자리의 다른 글을 비켜야 하는 화면은 useRobotLine 값으로 DriveLine 을 직접 그린다 */
+export function RobotLine({ id, me }: { id: string; me: string }) {
+  const f = useRobotLine(id, me);
   return f ? <DriveLine f={f} /> : null;
 }
 

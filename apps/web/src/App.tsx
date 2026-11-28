@@ -176,7 +176,8 @@ export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, {
 /** PC 무대 = 시안 1920 × 1080. 창 크기에 맞춰 비율 그대로 줄이거나 늘리고(transform scale) 남는 쪽은 바탕색. 어떤 창에서도 스크롤 바 없음 */
 export const STAGE_W = 1920, STAGE_H = 1080;
 export function stageFit(w: number, h: number) { const s = Math.min(w / STAGE_W, h / STAGE_H); return { s, x: (w - STAGE_W * s) / 2, y: (h - STAGE_H * s) / 2 }; }
-function useStage() {
+/** PC 무대(1920 × 1080)를 창에 맞추는 배율 · 자리. 앱 틀과 로그인 화면이 같이 쓴다 */
+export function useStage() {
   const [v, setV] = useState(() => stageFit(innerWidth, innerHeight));
   useEffect(() => { const on = () => setV(stageFit(innerWidth, innerHeight)); addEventListener('resize', on); return () => removeEventListener('resize', on); }, []);
   return v;

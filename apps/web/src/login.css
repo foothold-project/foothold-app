@@ -74,3 +74,7 @@
 .fh.lg .lg-ok { margin: 0; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 18px; border-radius: 16px; font-size: 14px; font-weight: 700; box-sizing: border-box; color: #fff;
   background: linear-gradient(180deg, rgba(0,195,137,.22), rgba(0,195,137,.12)); border: 1px solid rgba(0,195,137,.5); box-shadow: 0 10px 26px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.12); }
 .fh.lg.light .lg-ok { color: var(--ink); box-shadow: none; }
+
+/* PC 무대(1920 × 1080 · data-scale): 시안 u10_1 .card 자리 · 크기 그대로(left 180 · top 252 · 폭 480) */
+.fh.lg[data-scale] .fh-login { position: absolute; inset: 0; display: block; padding: 252px 0 0 180px; }
+.fh.lg[data-scale] .lg-card { width: 480px; }
